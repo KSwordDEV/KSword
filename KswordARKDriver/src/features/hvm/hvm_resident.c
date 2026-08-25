@@ -33,10 +33,38 @@ Environment:
 #define KSW_VMCS_GUEST_RIP 0x681EUL
 /* Name the VMCS guest RFLAGS field. */
 #define KSW_VMCS_GUEST_RFLAGS 0x6820UL
+/* Name the VMCS primary VM-exit controls field. */
+#define KSW_VMCS_EXIT_CONTROLS 0x400CUL
+/* Name the VMCS guest IA32_DEBUGCTL field. */
+#define KSW_VMCS_GUEST_DEBUGCTL 0x2802UL
+/* Name the VMCS guest PKRS field. */
+#define KSW_VMCS_GUEST_PKRS 0x2818UL
+/* Name the VMCS guest DR7 field. */
+#define KSW_VMCS_GUEST_DR7 0x681AUL
+/* Name the VMCS guest supervisor CET field. */
+#define KSW_VMCS_GUEST_S_CET 0x6828UL
+/* Name the VMCS guest shadow-stack pointer field. */
+#define KSW_VMCS_GUEST_SSP 0x682AUL
+/* Name the VMCS guest interrupt shadow-stack table field. */
+#define KSW_VMCS_GUEST_INTERRUPT_SSP_TABLE 0x682CUL
+/* Name the VMCS guest user-interrupt notification vector field. */
+#define KSW_VMCS_GUEST_UINV 0x0814UL
 /* Name the VMCS VM-instruction error field. */
 #define KSW_VMCS_INSTRUCTION_ERROR 0x4400UL
 /* FXSAVE64 in the VM-exit entry requires host CR0.TS to remain clear. */
 #define KSW_HVM_CR0_TASK_SWITCHED (1ULL << 3)
+/* Request VM-exit guest debug-state saving. */
+#define KSW_HVM_EXIT_SAVE_DEBUG_CONTROLS (1UL << 2)
+/* Request VM-exit UINV clearing. */
+#define KSW_HVM_EXIT_CLEAR_UINV (1UL << 27)
+/* Request VM-exit host CET-state loading. */
+#define KSW_HVM_EXIT_LOAD_CET (1UL << 28)
+/* Request VM-exit host PKRS loading. */
+#define KSW_HVM_EXIT_LOAD_PKRS (1UL << 29)
+/* Name the protection-key rights model-specific register. */
+#define KSW_HVM_IA32_PKRS 0x6E1UL
+/* Name the user-interrupt miscellaneous model-specific register. */
+#define KSW_HVM_IA32_UINTR_MISC 0x988UL
 
 /* Identify one all-processor resident start rendezvous. */
 #define KSW_HVM_RENDEZVOUS_START 1UL
@@ -100,10 +128,28 @@ C_ASSERT(FIELD_OFFSET(
 C_ASSERT(FIELD_OFFSET(
     KSW_HVM_RESIDENT_VCPU,
     DevirtualizeRflags) == 72);
+/* Keep every assembly-restored extended-state offset synchronized. */
+C_ASSERT(FIELD_OFFSET(KSW_HVM_RESIDENT_VCPU, GuestSCet) == 80);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_RESIDENT_VCPU, GuestSsp) == 88);
+C_ASSERT(FIELD_OFFSET(
+    KSW_HVM_RESIDENT_VCPU,
+    GuestInterruptSspTable) == 96);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_RESIDENT_VCPU, GuestPkrs) == 104);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_RESIDENT_VCPU, GuestUinv) == 112);
+C_ASSERT(FIELD_OFFSET(
+    KSW_HVM_RESIDENT_VCPU,
+    GuestDebugControl) == 120);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_RESIDENT_VCPU, GuestDr7) == 128);
+C_ASSERT(FIELD_OFFSET(
+    KSW_HVM_RESIDENT_VCPU,
+    CetStateManaged) == 136);
+C_ASSERT(FIELD_OFFSET(
+    KSW_HVM_RESIDENT_VCPU,
+    DebugStateManaged) == 139);
 /* Keep the FXSAVE64 assembly offset and alignment synchronized. */
 C_ASSERT(FIELD_OFFSET(
     KSW_HVM_RESIDENT_VCPU,
-    FxState) == 80);
+    FxState) == 144);
 C_ASSERT((FIELD_OFFSET(
     KSW_HVM_RESIDENT_VCPU,
     FxState) & 0xFUL) == 0);
@@ -115,7 +161,7 @@ C_ASSERT(__alignof(KSW_HVM_RESIDENT_STATE) >= 16);
 /* Keep the post-stack-switch active commit offset synchronized. */
 C_ASSERT(FIELD_OFFSET(
     KSW_HVM_RESIDENT_VCPU,
-    Active) == 592);
+    Active) == 656);
 /* Keep assembly-owned context pointers synchronized. */
 C_ASSERT(FIELD_OFFSET(
     KSW_HVM_RESIDENT_VCPU,
@@ -329,6 +375,8 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     )
 {
     KSW_HVM_VMCS_INPUT input = { 0 };
+    SIZE_T exitControls = 0U;
+    SIZE_T value = 0U;
     NTSTATUS status = STATUS_SUCCESS;
 
     /* Reject an incomplete processor context in VMX root. */
@@ -373,14 +421,129 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     /* Select nested instruction exposure only when explicitly requested. */
     input.EnableNestedVmx =
         Context->Nested.Enabled ? 1U : 0U;
+    /* Discard every prior launch's optional-state ownership evidence. */
+    Context->GuestSCet = 0ULL;
+    Context->GuestSsp = 0ULL;
+    Context->GuestInterruptSspTable = 0ULL;
+    Context->GuestPkrs = 0ULL;
+    Context->GuestUinv = 0ULL;
+    Context->GuestDebugControl = 0ULL;
+    Context->GuestDr7 = 0ULL;
+    Context->CetStateManaged = 0U;
+    Context->PkrsStateManaged = 0U;
+    Context->UinvStateManaged = 0U;
+    Context->DebugStateManaged = 0U;
     /* Program the complete current VMCS. */
     status = KswordARKHvmConfigureVmcs(
         &input,
         &Context->LastVmInstructionError);
+    if (!NT_SUCCESS(status)) {
+        Context->LastStatus = status;
+        return status;
+    }
+    /* Recover the exact optional-state controls selected by the builder. */
+    if (__vmx_vmread(KSW_VMCS_EXIT_CONTROLS, &exitControls) != 0U) {
+        status = STATUS_HV_OPERATION_FAILED;
+    } else {
+        Context->CetStateManaged =
+            (exitControls & KSW_HVM_EXIT_LOAD_CET) != 0U ? 1U : 0U;
+        Context->PkrsStateManaged =
+            (exitControls & KSW_HVM_EXIT_LOAD_PKRS) != 0U ? 1U : 0U;
+        Context->UinvStateManaged =
+            (exitControls & KSW_HVM_EXIT_CLEAR_UINV) != 0U ? 1U : 0U;
+        Context->DebugStateManaged =
+            (exitControls & KSW_HVM_EXIT_SAVE_DEBUG_CONTROLS) != 0U
+                ? 1U
+                : 0U;
+        /* Assembly needs the CET enable bit before the final resident entry. */
+        if (Context->CetStateManaged != 0U) {
+            if (__vmx_vmread(KSW_VMCS_GUEST_S_CET, &value) != 0U) {
+                status = STATUS_HV_OPERATION_FAILED;
+            } else {
+                Context->GuestSCet = (ULONGLONG)value;
+            }
+        }
+    }
     /* Preserve the authoritative per-processor VMCS status. */
     Context->LastStatus = status;
     /* Return the complete VMCS programming result to assembly. */
     return status;
+}
+
+NTSTATUS
+KswordARKHvmWriteResidentGuestSspFromAsm(
+    _Inout_ KSW_HVM_RESIDENT_VCPU* Context
+    )
+{
+    /* Reject a missing context before touching the current VMCS. */
+    if (Context == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    /* No SSP transfer is required when supervisor shadow stacks are inactive. */
+    if (Context->CetStateManaged == 0U ||
+        (Context->GuestSCet & 1ULL) == 0ULL) {
+        return STATUS_SUCCESS;
+    }
+    /* A zero shadow-stack continuation can never back the resident RET. */
+    if (Context->GuestSsp == 0ULL) {
+        return STATUS_INVALID_ADDRESS;
+    }
+    /* Commit the SSP captured after every nested configuration call returned. */
+    if (__vmx_vmwrite(
+            KSW_VMCS_GUEST_SSP,
+            (SIZE_T)Context->GuestSsp) != 0U) {
+        return STATUS_HV_OPERATION_FAILED;
+    }
+    return STATUS_SUCCESS;
+}
+
+static BOOLEAN
+KswordARKHvmCaptureResidentExtendedState(
+    _Inout_ KSW_HVM_RESIDENT_VCPU* Context
+    )
+{
+    SIZE_T value = 0U;
+
+    /* Capture every component before VMCLEAR destroys the VMCS image. */
+    if (Context->CetStateManaged != 0U) {
+        if (__vmx_vmread(KSW_VMCS_GUEST_S_CET, &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestSCet = (ULONGLONG)value;
+        if (__vmx_vmread(KSW_VMCS_GUEST_SSP, &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestSsp = (ULONGLONG)value;
+        if (__vmx_vmread(
+                KSW_VMCS_GUEST_INTERRUPT_SSP_TABLE,
+                &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestInterruptSspTable = (ULONGLONG)value;
+    }
+    if (Context->PkrsStateManaged != 0U) {
+        if (__vmx_vmread(KSW_VMCS_GUEST_PKRS, &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestPkrs = (ULONGLONG)value;
+    }
+    if (Context->UinvStateManaged != 0U) {
+        if (__vmx_vmread(KSW_VMCS_GUEST_UINV, &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestUinv = (ULONGLONG)value & 0xFFULL;
+    }
+    if (Context->DebugStateManaged != 0U) {
+        if (__vmx_vmread(KSW_VMCS_GUEST_DEBUGCTL, &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestDebugControl = (ULONGLONG)value;
+        if (__vmx_vmread(KSW_VMCS_GUEST_DR7, &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestDr7 = (ULONGLONG)value;
+    }
+    return TRUE;
 }
 
 /* Enter resident VMX non-root operation on the current IPI target. */
@@ -653,6 +816,11 @@ KswordARKHvmResidentDeactivateCurrent(
         /* Report that no safe devirtualization occurred. */
         return FALSE;
     }
+    /* Preserve every optional guest component before VMCLEAR. */
+    if (!KswordARKHvmCaptureResidentExtendedState(Context)) {
+        Context->LastStatus = STATUS_HV_OPERATION_FAILED;
+        return FALSE;
+    }
     /* Advance only a fully decoded stop or private hypercall. */
     if (InstructionLength != 0UL) {
         /* Reject an architecturally invalid instruction length. */
@@ -693,8 +861,20 @@ KswordARKHvmResidentDeactivateCurrent(
     __vmx_off();
     /* Publish completed VMX root cleanup. */
     InterlockedExchange(&Context->VmxRoot, 0L);
-    /* Restore the exact pre-VMX CR4 value. */
+    /* Restore non-CET state before entering the final assembly continuation. */
     __try {
+        if (Context->PkrsStateManaged != 0U) {
+            __writemsr(KSW_HVM_IA32_PKRS, Context->GuestPkrs);
+        }
+        if (Context->UinvStateManaged != 0U) {
+            ULONGLONG uintrMisc =
+                __readmsr(KSW_HVM_IA32_UINTR_MISC);
+
+            uintrMisc &= ~(0xFFULL << 32);
+            uintrMisc |=
+                (Context->GuestUinv & 0xFFULL) << 32;
+            __writemsr(KSW_HVM_IA32_UINTR_MISC, uintrMisc);
+        }
         /* Restore CR4 after VMXOFF and before returning to guest state. */
         __writecr4(Context->OriginalCr4);
     }
@@ -1390,6 +1570,17 @@ KswordARKHvmResidentInvalidateEpt(
 
 NTSTATUS
 KswordARKHvmConfigureResidentVmcsFromAsm(
+    _Inout_ KSW_HVM_RESIDENT_VCPU* Context
+    )
+{
+    /* Keep non-x64 builds explicit and warning-free. */
+    UNREFERENCED_PARAMETER(Context);
+    /* Return the explicit architecture boundary. */
+    return STATUS_NOT_SUPPORTED;
+}
+
+NTSTATUS
+KswordARKHvmWriteResidentGuestSspFromAsm(
     _Inout_ KSW_HVM_RESIDENT_VCPU* Context
     )
 {

@@ -22,8 +22,19 @@ KSW_ACTIVE_GUEST_CET_MANAGED EQU 98h
 KSW_ACTIVE_GUEST_DEBUG_MANAGED EQU 9Bh
 KSW_ACTIVE_GUEST_RFLAGS EQU 0A0h
 
+KSW_RESIDENT_GUEST_S_CET EQU 50h
+KSW_RESIDENT_GUEST_SSP EQU 58h
+KSW_RESIDENT_GUEST_INTERRUPT_SSP_TABLE EQU 60h
+KSW_RESIDENT_GUEST_DEBUGCTL EQU 78h
+KSW_RESIDENT_GUEST_DR7 EQU 80h
+KSW_RESIDENT_CET_MANAGED EQU 88h
+KSW_RESIDENT_DEBUG_MANAGED EQU 8Bh
+KSW_RESIDENT_FX_STATE EQU 90h
+KSW_RESIDENT_ACTIVE EQU 290h
+
 EXTERN KswordARKHvmVmExitDispatch:PROC
 EXTERN KswordARKHvmConfigureResidentVmcsFromAsm:PROC
+EXTERN KswordARKHvmWriteResidentGuestSspFromAsm:PROC
 EXTERN KswordARKHvmResidentVmExitDispatch:PROC
 EXTERN KswordARKHvmResidentVmResumeFailure:PROC
 
@@ -237,6 +248,25 @@ KswordARKHvmAsmLaunchResident PROC FRAME
     test eax, eax
     ; Skip VM entry when VMCS programming failed.
     jnz KswordARKHvmAsmLaunchResidentConfigFailed
+    ; Skip SSP capture when VM-exit does not manage CET state.
+    cmp BYTE PTR [rbx + KSW_RESIDENT_CET_MANAGED], 0
+    je KswordARKHvmAsmLaunchResidentStateReady
+    ; Skip SSP capture when supervisor shadow stacks are disabled.
+    test QWORD PTR [rbx + KSW_RESIDENT_GUEST_S_CET], 1
+    jz KswordARKHvmAsmLaunchResidentStateReady
+    ; Capture the exact SSP after every nested configuration call returned.
+    db 0F3h, 048h, 00Fh, 01Eh, 0C8h
+    ; Publish the exact shadow-stack continuation for VM-entry and VMXOFF.
+    mov QWORD PTR [rbx + KSW_RESIDENT_GUEST_SSP], rax
+    ; Pass the resident context to the bounded VMCS SSP writer.
+    mov rcx, rbx
+    ; Replace the builder placeholder with the exact assembly-captured SSP.
+    call KswordARKHvmWriteResidentGuestSspFromAsm
+    ; Preserve the SSP writer status for validation.
+    test eax, eax
+    ; Skip VM entry when the exact SSP could not be committed.
+    jnz KswordARKHvmAsmLaunchResidentConfigFailed
+KswordARKHvmAsmLaunchResidentStateReady:
     ; Release the C caller home area before guest entry.
     add rsp, 20h
     ; Restore the caller's nonvolatile RBX before guest state is captured.
@@ -317,7 +347,7 @@ KswordARKHvmResidentVmExitEntry PROC
     ; Load the anchored resident context above the 120-byte register frame.
     mov rdx, QWORD PTR [rsp + 78h]
     ; Save x87, MMX, MXCSR, and XMM state before any C code can alter it.
-    fxsave64 [rdx + 50h]
+    fxsave64 [rdx + KSW_RESIDENT_FX_STATE]
     ; Pass the fixed register-frame base as the first C argument.
     mov rcx, rsp
     ; Reserve the Windows x64 caller home area.
@@ -341,7 +371,7 @@ KswordARKHvmResidentResume:
     ; Reload the anchored context without consuming the saved guest RAX.
     mov rax, QWORD PTR [rsp + 78h]
     ; Restore x87, MMX, MXCSR, and XMM state before returning to the guest.
-    fxrstor64 [rax + 50h]
+    fxrstor64 [rax + KSW_RESIDENT_FX_STATE]
     ; Restore guest RAX.
     pop rax
     ; Restore guest RCX.
@@ -434,7 +464,64 @@ KswordARKHvmResidentDevirtualize:
     ; Load the anchored context while the host register frame remains intact.
     mov rdx, QWORD PTR [rsp + 78h]
     ; Restore the original extended state after the final VM-exit C call.
-    fxrstor64 [rdx + 50h]
+    fxrstor64 [rdx + KSW_RESIDENT_FX_STATE]
+    ; Cache guest debug state before the final context release.
+    movzx ebp, BYTE PTR [rdx + KSW_RESIDENT_DEBUG_MANAGED]
+    mov r12, QWORD PTR [rdx + KSW_RESIDENT_GUEST_DEBUGCTL]
+    mov r13, QWORD PTR [rdx + KSW_RESIDENT_GUEST_DR7]
+    ; Skip CET restoration when VM-exit did not load host CET state.
+    cmp BYTE PTR [rdx + KSW_RESIDENT_CET_MANAGED], 0
+    je KswordARKHvmResidentCetRestored
+    ; Restore the interrupt shadow-stack table before enabling CET.
+    mov ecx, 06A8h
+    mov rax, QWORD PTR [rdx + KSW_RESIDENT_GUEST_INTERRUPT_SSP_TABLE]
+    mov r14, rdx
+    mov rdx, rax
+    shr rdx, 32
+    wrmsr
+    mov rdx, r14
+    ; Preserve the exact guest supervisor CET control value.
+    mov r10, QWORD PTR [rdx + KSW_RESIDENT_GUEST_S_CET]
+    ; Skip SSP token reconstruction when shadow stacks were disabled.
+    test r10, 1
+    jz KswordARKHvmResidentRestoreExactCet
+    ; Temporarily allow WRSS while rebuilding the SSP restore token.
+    mov ecx, 06A2h
+    mov rax, r10
+    or rax, 2
+    mov r14, rdx
+    mov rdx, rax
+    shr rdx, 32
+    wrmsr
+    mov rdx, r14
+    ; Reserve two shadow slots below the guest SSP for a synthetic continuation.
+    mov rax, QWORD PTR [rdx + KSW_RESIDENT_GUEST_SSP]
+    sub rax, 10h
+    ; Build a busy restore token targeting the synthetic shadow return slot.
+    mov r14, QWORD PTR [rdx + KSW_RESIDENT_GUEST_SSP]
+    sub r14, 8
+    or r14, 1
+    ; WRSSQ [RAX], R14 writes the 64-bit SSP restore token.
+    db 04Ch, 00Fh, 038h, 0F6h, 030h
+    ; Write the native continuation into the matching synthetic shadow slot.
+    add rax, 8
+    mov r14, QWORD PTR [rdx + 40h]
+    ; WRSSQ [RAX], R14 writes the synthetic shadow return address.
+    db 04Ch, 00Fh, 038h, 0F6h, 030h
+    ; Select the token again after publishing the synthetic return address.
+    sub rax, 8
+    ; RSTORSSP [RAX] selects GuestSsp-8 for the final native RET.
+    db 0F3h, 00Fh, 001h, 028h
+KswordARKHvmResidentRestoreExactCet:
+    ; Restore the exact guest IA32_S_CET value.
+    mov ecx, 06A2h
+    mov rax, r10
+    mov r14, rdx
+    mov rdx, rax
+    shr rdx, 32
+    wrmsr
+    mov rdx, r14
+KswordARKHvmResidentCetRestored:
     ; Preserve the host register-frame base only until it is copied.
     mov rsi, rsp
     ; Load the verified exact guest stack continuation.
@@ -488,13 +575,23 @@ KswordARKHvmResidentDevirtualize:
     lock or DWORD PTR [r9 + 4], 00000400h
     ; Clear Active exactly once after no host-stack access remains.
     xor eax, eax
-    xchg DWORD PTR [rdx + 250h], eax
+    xchg DWORD PTR [rdx + KSW_RESIDENT_ACTIVE], eax
     ; Skip the count update if another verified path already committed it.
     test eax, eax
     jz KswordARKHvmResidentCommitComplete
     ; Make the final resident-count decrement the last context-related access.
     lock dec DWORD PTR [r8 + 28h]
 KswordARKHvmResidentCommitComplete:
+    ; Restore debug state only after the final resident-context access.
+    test ebp, ebp
+    jz KswordARKHvmResidentDebugRestored
+    mov ecx, 01D9h
+    mov rax, r12
+    mov rdx, rax
+    shr rdx, 32
+    wrmsr
+    mov dr7, r13
+KswordARKHvmResidentDebugRestored:
     ; Restore guest RAX from the guest-stack continuation frame.
     pop rax
     ; Restore guest RCX.

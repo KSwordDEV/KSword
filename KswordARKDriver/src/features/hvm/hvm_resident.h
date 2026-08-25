@@ -53,6 +53,30 @@ typedef struct _KSW_HVM_RESIDENT_VCPU
     ULONGLONG DevirtualizeRip;
     /* Preserve guest RFLAGS used by devirtualization. */
     ULONGLONG DevirtualizeRflags;
+    /* Preserve the guest supervisor CET control state across VMXOFF. */
+    ULONGLONG GuestSCet;
+    /* Preserve the exact guest shadow-stack continuation. */
+    ULONGLONG GuestSsp;
+    /* Preserve the guest interrupt shadow-stack table address. */
+    ULONGLONG GuestInterruptSspTable;
+    /* Preserve the guest protection-key rights state. */
+    ULONGLONG GuestPkrs;
+    /* Preserve the guest user-interrupt notification vector. */
+    ULONGLONG GuestUinv;
+    /* Preserve the guest architectural debug-control state. */
+    ULONGLONG GuestDebugControl;
+    /* Preserve the guest hardware-breakpoint enable state. */
+    ULONGLONG GuestDr7;
+    /* Record whether VM-exit loads host CET state. */
+    UCHAR CetStateManaged;
+    /* Record whether VM-exit loads host PKRS state. */
+    UCHAR PkrsStateManaged;
+    /* Record whether VM-exit clears UINV state. */
+    UCHAR UinvStateManaged;
+    /* Record whether VM-exit saves guest debug state. */
+    UCHAR DebugStateManaged;
+    /* Keep the following FXSAVE64 area explicitly aligned. */
+    ULONG ExtendedStateReserved;
     /*
      * Keep the architectural FXSAVE64 area 16-byte aligned.  HVM C sources
      * are compiled without AVX code generation, so legacy SSE instructions
@@ -101,6 +125,12 @@ KswordARKHvmResidentInvalidateEpt(
 /* Configure the resident VMCS after assembly captures exact guest RSP/RFLAGS. */
 NTSTATUS
 KswordARKHvmConfigureResidentVmcsFromAsm(
+    _Inout_ KSW_HVM_RESIDENT_VCPU* Context
+    );
+
+/* Commit the exact assembly-captured resident SSP to the current VMCS. */
+NTSTATUS
+KswordARKHvmWriteResidentGuestSspFromAsm(
     _Inout_ KSW_HVM_RESIDENT_VCPU* Context
     );
 

@@ -693,7 +693,8 @@ KswordARKHvmConfigureVmcs(
             nativeSCet = __readmsr(KSW_IA32_S_CET);
             nativeInterruptSspTable =
                 __readmsr(KSW_IA32_INTERRUPT_SSP_TABLE);
-            if ((hardwareCr4 & KSW_CR4_CET) != 0ULL &&
+            if (Input->ResidentMode == 0U &&
+                (hardwareCr4 & KSW_CR4_CET) != 0ULL &&
                 (nativeSCet & KSW_CET_SHADOW_STACK_ENABLED) != 0ULL) {
                 nativeSsp = KswordARKHvmAsmReadSsp();
                 if (nativeSsp == 0ULL) {

@@ -620,9 +620,28 @@
   <ItemGroup>
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
-  <!-- 编译只生成未签名驱动，CSignTool 只能通过独立手工流程运行。 -->
+  <Target Name="KswordArkCopyCleanDriverBeforeVariantSign" BeforeTargets="KswordArkAutoVariantSignAfterBuild" Condition="'$(ConfigurationType)'=='Driver' and Exists('$(TargetPath)') and '$(KswordArkSkipAutoVariantSign)'!='true' and '$(KswordArkSkipAutoTestSign)'!='true'">
+    <PropertyGroup>
+      <KswordArkCleanDriverPath>$(TargetDir)KswordARK_Clean$(TargetExt)</KswordArkCleanDriverPath>
+    </PropertyGroup>
+    <Message Importance="High" Text="KswordARK: copying unsigned clean driver before post-build variant signing: $(TargetPath) -> $(KswordArkCleanDriverPath)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(KswordArkCleanDriverPath)" SkipUnchangedFiles="false" />
+  </Target>
+  <Target Name="KswordArkAutoVariantSignAfterBuild" AfterTargets="Build" Condition="'$(ConfigurationType)'=='Driver' and Exists('$(TargetPath)') and '$(KswordArkSkipAutoVariantSign)'!='true' and '$(KswordArkSkipAutoTestSign)'!='true'">
+    <PropertyGroup>
+      <KswordArkSignScript>$(MSBuildThisFileDirectory)..\scripts\Sign-KswordArkDriverVariant.ps1</KswordArkSignScript>
+      <KswordArkPowerShellExe Condition="'$(KswordArkPowerShellExe)'==''">powershell</KswordArkPowerShellExe>
+      <!-- 发行构建加 /p:KswordArkRequireKernelSignature=true，让最终 .sys 未通过
+           signtool verify /kp 时直接失败，而不是把一个只有部分机器加载不了的
+           驱动打进发行包。 -->
+      <KswordArkSignStrictArg Condition="'$(KswordArkRequireKernelSignature)'=='true'"> -RequireKernelSignature</KswordArkSignStrictArg>
+    </PropertyGroup>
+    <Message Importance="High" Text="KswordARK: applying post-build driver variant signing for $(TargetPath). Set /p:KswordArkSkipAutoVariantSign=true to skip." />
+    <Exec Command="&quot;$(KswordArkPowerShellExe)&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;$(KswordArkSignScript)&quot; -DriverPath &quot;$(TargetPath)&quot;$(KswordArkSignStrictArg)" IgnoreStandardErrorWarningFormat="true" Condition="Exists('$(KswordArkSignScript)')" />
+    <Error Condition="!Exists('$(KswordArkSignScript)')" Text="KswordARK driver variant signing script was not found: $(KswordArkSignScript)" />
+  </Target>
   <!-- 保持可直接复制的统一 Release 目录自洽；主程序加载根 sys，INF/打包路径使用子目录副本。 -->
-  <Target Name="KswordArkMirrorUnifiedReleaseArtifacts" AfterTargets="Build" Condition="'$(Configuration)|$(Platform)'=='Release|x64' and Exists('$(TargetPath)')">
+  <Target Name="KswordArkMirrorUnifiedReleaseArtifacts" AfterTargets="Build" DependsOnTargets="KswordArkAutoVariantSignAfterBuild" Condition="'$(Configuration)|$(Platform)'=='Release|x64' and Exists('$(TargetPath)')">
     <PropertyGroup>
       <KswordArkMirrorDir>$(TargetDir)KswordARKDriver\</KswordArkMirrorDir>
       <KswordArkPdbPath>$(TargetDir)KswordARK.pdb</KswordArkPdbPath>

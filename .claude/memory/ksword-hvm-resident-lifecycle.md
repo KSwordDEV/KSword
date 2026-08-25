@@ -36,6 +36,12 @@ Nested VMX/eVMCS 的 partial 状态不是隐藏锁。未实现完整 vmcs02、L2
 - 电源转换导致的停止会把 unload guard 保持到重新进入 S0，避免回调仍在执行时并发卸载。停止不完整必须保留 host stack、卸载锁和 `ROLLBACK_REQUIRED`。
 - 电源回调或异常卸载完成同步 Stop 后若 resident count 仍非零，不能返回到睡眠/映像卸载路径；使用既有 HVM `0x20001` bugcheck fail closed，并把 power/unload 签名、resident count、NTSTATUS 与 state flags 写入参数。
 
+## VMCS 扩展状态与 CET 返回链
+
+- 共享 VMCS builder 同时服务 one-shot 与 resident；任何新增的 VM-entry/VM-exit 状态切换都必须在两条 VMXOFF 路径成对恢复。resident 必须在 `VMCLEAR` 前保存 guest CET/SSP、PKRS、UINV、DEBUGCTL/DR7 等由 VM-exit 加载或清除的状态，非 CET MSR 在 VMXOFF 后恢复，CET/SSP 与调试状态留到最终汇编 continuation 恢复。
+- resident 的初始 SSP 只能在所有 VMCS 配置调用都返回、紧邻最终 `VMLAUNCH` 时由汇编捕获，再回写 guest-SSP VMCS 字段；不能在嵌套 C builder 中按固定 CALL 深度推导。
+- CET shadow stack 开启时，反虚拟化汇编使用普通栈上的 synthetic `RET` 跳到 guest RIP，就必须在 `GuestSsp-8` 写入同一 synthetic shadow return，并通过 `GuestSsp-16` 的 restore token 让该 RET 只消费临时槽位；完成后 SSP 回到原始 `GuestSsp`，不得丢掉 guest 原有调用链顶层返回地址。
+
 ## 验证边界
 
 macOS 上的 JSON、i18n、IOCTL registry、位值唯一性和源码静态检查不证明 WDK/MSVC 编译或真实 Intel 多核 VMX、电源转换、Processor Group、Hyper-V/VBS 冲突和 SCM unload 行为。最终验收必须在 Windows Intel 机器上完成驱动构建、加载、prepare/self-test/start/stop、睡眠/Modern Standby（设备支持时）、CPU 拓扑策略和卸载恢复测试。
