@@ -316,10 +316,27 @@ typedef struct _KSW_HVM_RUNTIME
     KSW_HVM_EPT_RULE_SLOT EptRules[KSWORD_ARK_HVM_MAX_EPT_RULES];
     /* Retain every split two-MiB EPT leaf. */
     KSW_HVM_EPT_SPLIT EptSplits[KSW_HVM_MAX_EPT_SPLITS];
-    /*
-     * Fail-closed resident lifecycle gate.  Initialization leaves this false
-     * until a future unload and S3/S4/modern-standby owner is implemented.
-     */
+    /* Serialize resident VMX transition commits against power notification. */
+    KSPIN_LOCK ResidentTransitionLock;
+    /* Reference this image's driver object for the unload interlock. */
+    PDRIVER_OBJECT DriverObject;
+    /* Preserve the exact KMDF-installed unload entry while residency is active. */
+    PDRIVER_UNLOAD OriginalDriverUnload;
+    /* Reference the system-defined power-state callback object. */
+    PCALLBACK_OBJECT PowerStateCallbackObject;
+    /* Own the power-state callback registration. */
+    PVOID PowerStateCallbackRegistration;
+    /* Own the processor-add veto callback registration. */
+    PVOID ProcessorChangeRegistration;
+    /* Publish host-stack construction so a power callback never frees it. */
+    volatile LONG ResidentContextPreparing;
+    /* Publish 0=idle, 1=leaving S0, 2=resumed while context prep drains. */
+    volatile LONG PowerTransitionPending;
+    /* Increment once whenever the power manager begins leaving S0. */
+    volatile LONG PowerTransitionGeneration;
+    /* Publish whether DriverUnload is currently removed from DriverObject. */
+    volatile LONG UnloadGuardArmed;
+    /* Fail-closed resident lifecycle gate, enabled only after all guards bind. */
     BOOLEAN ResidentStartAllowed;
     /* Keep the tail deterministic for crash-dump inspection. */
     UCHAR Reserved2[7];
@@ -338,6 +355,24 @@ KswordARKHvmAllocateEptPageLocked(
 KSW_HVM_RUNTIME*
 KswordARKHvmGetRuntime(
     VOID
+    );
+
+/* Remove the exact captured KMDF unload entry before resident VMX entry. */
+NTSTATUS
+KswordARKHvmArmUnloadGuard(
+    _Inout_ KSW_HVM_RUNTIME* Runtime
+    );
+
+/* Restore the captured unload entry after every resident CPU completed VMXOFF. */
+NTSTATUS
+KswordARKHvmDisarmUnloadGuard(
+    _Inout_ KSW_HVM_RUNTIME* Runtime
+    );
+
+/* Invalidate pre-sleep VMX evidence before reopening resident start. */
+VOID
+KswordARKHvmInvalidatePowerResumeEvidence(
+    _Inout_ KSW_HVM_RUNTIME* Runtime
     );
 
 EXTERN_C_END

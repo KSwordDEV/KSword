@@ -13,8 +13,6 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "APIMonitor_x64", "..\APIMon
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KswordARKDriver", "..\KswordARKDriver\KswordARKDriver.vcxproj", "{E4B6A5CC-D9ED-FCA2-46D5-5035E8728524}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KswordARKControllerDriver", "..\KswordARKControllerDriver\KswordARKControllerDriver.vcxproj", "{D3F2A538-3B56-41AB-A14F-2A13F6BAE0D8}"
-EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KswordCLI", "..\KswordCLI\KswordCLI.vcxproj", "{BDE77103-B963-40A8-A28E-0B9C26A5C5DD}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Launcher", "..\Launcher\Launcher.vcxproj", "{A0A55C8F-5A6B-4E16-9F51-02CB2D2EBB57}"
@@ -66,10 +64,6 @@ Global
 		{E4B6A5CC-D9ED-FCA2-46D5-5035E8728524}.Debug|x64.Build.0 = Debug|x64
 		{E4B6A5CC-D9ED-FCA2-46D5-5035E8728524}.Release|x64.ActiveCfg = Release|x64
 		{E4B6A5CC-D9ED-FCA2-46D5-5035E8728524}.Release|x64.Build.0 = Release|x64
-		{D3F2A538-3B56-41AB-A14F-2A13F6BAE0D8}.Debug|x64.ActiveCfg = Debug|x64
-		{D3F2A538-3B56-41AB-A14F-2A13F6BAE0D8}.Debug|x64.Build.0 = Debug|x64
-		{D3F2A538-3B56-41AB-A14F-2A13F6BAE0D8}.Release|x64.ActiveCfg = Release|x64
-		{D3F2A538-3B56-41AB-A14F-2A13F6BAE0D8}.Release|x64.Build.0 = Release|x64
 		{BDE77103-B963-40A8-A28E-0B9C26A5C5DD}.Debug|x64.ActiveCfg = Debug|x64
 		{BDE77103-B963-40A8-A28E-0B9C26A5C5DD}.Debug|x64.Build.0 = Debug|x64
 		{BDE77103-B963-40A8-A28E-0B9C26A5C5DD}.Release|x64.ActiveCfg = Release|x64

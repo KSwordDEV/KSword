@@ -272,11 +272,15 @@ KswordARKHvmLaunchControlledGuest(
     UCHAR vmxResult = 0xFFU;
     NTSTATUS status = STATUS_UNSUCCESSFUL;
     BOOLEAN affinitySet = FALSE;
-    BOOLEAN irqlRaised = FALSE;
+    BOOLEAN transitionLockHeld = FALSE;
     BOOLEAN cr4Changed = FALSE;
 
     /* Validate the fixed launch contract before allocating nonpaged stacks. */
-    if (Input == NULL || Result == NULL) {
+    if (Input == NULL ||
+        Result == NULL ||
+        Input->TransitionLock == NULL ||
+        Input->PowerTransitionPending == NULL ||
+        Input->PowerTransitionGeneration == NULL) {
         return STATUS_INVALID_PARAMETER;
     }
     /* Start with deterministic diagnostics even when allocation fails. */
@@ -312,13 +316,24 @@ KswordARKHvmLaunchControlledGuest(
         &oldAffinity);
     /* Record the affinity transition for symmetric cleanup. */
     affinitySet = TRUE;
-    /* Raise to DPC level so the thread cannot migrate during VMX operation. */
-    oldIrql = KeRaiseIrqlToDpcLevel();
-    /* Record the IRQL transition for symmetric cleanup. */
-    irqlRaised = TRUE;
+    /* Serialize the nonallocating VMX window against system power transition. */
+    KeAcquireSpinLock(Input->TransitionLock, &oldIrql);
+    transitionLockHeld = TRUE;
 
     /* Protect privileged state transitions from virtual-CPU exceptions. */
     __try {
+        /* A leaving-S0 callback always wins before any new VMXON. */
+        if (InterlockedCompareExchange(
+                Input->PowerTransitionPending,
+                0L,
+                0L) != 0L ||
+            InterlockedCompareExchange(
+                Input->PowerTransitionGeneration,
+                0L,
+                0L) != Input->ExpectedPowerTransitionGeneration) {
+            status = STATUS_POWER_STATE_INVALID;
+            __leave;
+        }
         /* Capture CR0 before checking fixed-bit compatibility. */
         originalCr0 = __readcr0();
         /* Capture CR4 for both conflict detection and exact restoration. */
@@ -491,9 +506,9 @@ KswordARKHvmLaunchControlledGuest(
     }
 
 Complete:
-    /* Lower IRQL only after privileged per-CPU cleanup is complete. */
-    if (irqlRaised) {
-        KeLowerIrql(oldIrql);
+    /* Reopen the power callback only after privileged cleanup is complete. */
+    if (transitionLockHeld) {
+        KeReleaseSpinLock(Input->TransitionLock, oldIrql);
     }
     /* Restore the caller's group affinity after returning to passive migration. */
     if (affinitySet) {

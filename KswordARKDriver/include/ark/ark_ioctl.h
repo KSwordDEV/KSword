@@ -29,7 +29,6 @@
 #include "driver/KswordArkWin32kIoctl.h"
 #include "driver/KswordArkStorageIoctl.h"
 #include "driver/KswordArkStorageForensicsIoctl.h"
-#include "driver/KswordArkStorageControllerIoctl.h"
 #include "driver/KswordArkKernelBaselineIoctl.h"
 #include "driver/KswordArkPiDdbIoctl.h"
 #include "driver/KswordArkHvmIoctl.h"

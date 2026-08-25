@@ -16,6 +16,10 @@ typedef struct _KSW_HVM_GUEST_LAUNCH_INPUT
     ULONGLONG Cr4Fixed0;
     ULONGLONG Cr4Fixed1;
     ULONGLONG EptPointer;
+    PKSPIN_LOCK TransitionLock;
+    volatile LONG* PowerTransitionPending;
+    volatile LONG* PowerTransitionGeneration;
+    LONG ExpectedPowerTransitionGeneration;
 } KSW_HVM_GUEST_LAUNCH_INPUT;
 
 typedef struct _KSW_HVM_GUEST_LAUNCH_RESULT

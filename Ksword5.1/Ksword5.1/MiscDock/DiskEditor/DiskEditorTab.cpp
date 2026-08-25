@@ -17,7 +17,6 @@
 #include "DiskRangeTools.h"
 #include "DiskMapWidget.h"
 #include "DiskStructureParser.h"
-#include "StorageControllerResearchDialog.h"
 
 #include "../../theme.h"
 #include "../../UI/HexEditorWidget.h"
@@ -712,21 +711,6 @@ namespace ks::misc
         toolLayout->addWidget(m_searchResultTable, 1);
         m_advancedTabs->addTab(toolPage, QIcon(QStringLiteral(":/Icon/disk_tools.svg")), QStringLiteral("搜索/镜像/扫描"));
 
-        // 控制器研究只出现在现有工具页的多级右键菜单中，不占据顶层页签或主工具栏。
-        toolPage->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(toolPage, &QWidget::customContextMenuRequested, this, [this, toolPage](const QPoint& point)
-        {
-            QMenu menu(toolPage);
-            menu.setStyleSheet(KswordTheme::ContextMenuStyle());
-            QMenu* moreMenu = menu.addMenu(QStringLiteral("更多操作"));
-            QMenu* rawAccessMenu = moreMenu->addMenu(QStringLiteral("原始访问"));
-            QAction* controllerAction = rawAccessMenu->addAction(QStringLiteral("控制器研究"));
-            if (menu.exec(toolPage->mapToGlobal(point)) == controllerAction)
-            {
-                StorageControllerResearchDialog dialog(this);
-                dialog.exec();
-            }
-        });
     }
 
     void DiskEditorTab::initializeConnections()

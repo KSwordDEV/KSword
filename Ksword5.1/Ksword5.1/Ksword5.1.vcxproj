@@ -280,7 +280,6 @@
     <ClCompile Include="MiscDock\DiskEditor\DiskStructureParser.cpp" />
     <ClCompile Include="MiscDock\DiskEditor\DiskEditorTab.cpp" />
     <ClCompile Include="MiscDock\DiskEditor\DiskMapWidget.cpp" />
-    <ClCompile Include="MiscDock\DiskEditor\StorageControllerResearchDialog.cpp" />
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.cpp" />
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.Associations.cpp" />
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.Backup.cpp" />
@@ -521,7 +520,6 @@
     <ClCompile Include="ArkDriverClient\ArkDriverBugcheck.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverSystemTime.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverResearch.cpp" />
-    <ClCompile Include="ArkDriverClient\ArkStorageControllerClient.cpp" />
     <ClCompile Include="..\..\third_party\zstd\zstd.c">
       <CompileAs>CompileAsC</CompileAs>
       <WarningLevel>TurnOffAllWarnings</WarningLevel>
@@ -667,7 +665,6 @@
     <ClInclude Include="MiscDock\DiskEditor\DiskRangeTools.h" />
     <ClInclude Include="MiscDock\DiskEditor\DiskStructureParser.h" />
     <ClInclude Include="MiscDock\DiskEditor\DiskEditorTab.h" />
-    <ClInclude Include="MiscDock\DiskEditor\StorageControllerResearchDialog.h" />
     <QtMoc Include="MiscDock\DiskEditor\DiskMapWidget.h" />
     <QtMoc Include="MiscDock\MiscDock.h" />
     <ClInclude Include="MinidumpDock\DumpAnalyzer.h" />
@@ -767,7 +764,6 @@
     <ClInclude Include="ArkDriverClient\ArkDriverError.h" />
     <ClInclude Include="..\..\shared\crash\WinCrashHandler.h" />
     <ClInclude Include="ArkDriverClient\ArkDriverCapabilities.h" />
-    <ClInclude Include="ArkDriverClient\ArkStorageControllerClient.h" />
     <ClInclude Include="..\..\third_party\zydis\Zydis.h" />
     <ClInclude Include="..\..\third_party\zstd\zstd.h" />
     <ClInclude Include="..\..\third_party\zstd\zstd_errors.h" />

@@ -10,3 +10,4 @@
 - [Win32k 消息 Hook 筛选](ksword-message-hook-filtering.md) — 同侧原子筛选、目标/所有者 UI 范围、异步旧结果抑制、Hook 独立预算与诊断
 - [R0-only 进程身份校验](ksword-process-r0-identity.md) — 内核枚举创建时间、驱动对象校验、普通进程与仅 R0 可见进程的动作分流
 - [KernelDock 内核知识中心](ksword-kernel-knowledge.md) — 71 专题双语目录、R3/R0 现场证据协议、业务 IOCTL 映射、只读站内路由与验证器约束
+- [HVM 常驻生命周期保护](ksword-hvm-resident-lifecycle.md) — Intel-only 能力门、S0 电源回调、处理器拓扑冻结、DriverUnload 互锁与全核 VMXOFF 发布边界

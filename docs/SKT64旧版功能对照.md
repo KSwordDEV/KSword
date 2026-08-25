@@ -14,7 +14,7 @@ KSword 现有代码已覆盖公开 SKT64 旧版的大多数常规系统诊断、
 4. 任意 `DriverObject.DriverStart/DriverSize/DriverSection` 与对应 `KLDR_DATA_TABLE_ENTRY.DllBase/SizeOfImage` 的查询、事务修改和恢复，以及加载器链摘除、重新插入或放弃恢复；保留对象身份、事务代次、期望当前值、链邻居和真实加载器资源同步。
 5. Intel EPT / AMD NPT 来宾可见交叉视图与 IOMMU 取证：CPUID/MSR、物理别名哈希、ACPI DMAR/IVRS、公开 IOMMU 接口及可选只读 MMIO。
 
-仍不得写成“全部完成”的关键缺口包括：常驻 HVM 与任意目标执行、PatchGuard/DSE 控制、驱动加载/卸载拦截、引导扇区保护、固件刷写/锁定，以及产品特定的安全软件禁用工作流。
+仍不得写成“全部完成”的关键缺口包括：HVM 任意目标执行、完整 Nested VMX/eVMCS、PatchGuard/DSE 控制、驱动加载/卸载拦截、引导扇区保护、固件刷写/锁定，以及产品特定的安全软件禁用工作流。常驻 HVM 已提供 Intel-only 生命周期保护实现，但仍属于高风险实验能力。
 
 ## 功能面对照
 
@@ -29,7 +29,7 @@ KSword 现有代码已覆盖公开 SKT64 旧版的大多数常规系统诊断、
 | SSDT / Shadow SSDT / Inline / IAT / EAT | `KernelDock/`、kernel hook/SSDT features | 已覆盖并扩展 |
 | Timer/DPC、IDT/GDT、MSR/HAL/CPU 完整性 | `KernelTimerDpcTab`、`KernelDescriptorTableTab`、CPU/platform audit | 已覆盖并扩展 |
 | EPT/NPT Hook 与 IOMMU 隐藏取证 | `KernelSlatIommuAuditTab`、`slat_iommu_audit.c` | 本轮补齐来宾可见只读取证；外层 SLAT 仍不可证明 |
-| VT-x/EPT HVM 沙箱与目标执行 | `KernelHvmTab`、`features/hvm/` | 已有真实一次性 VMLAUNCH/VMCALL 自检；常驻 VMM 与任意目标执行未完成 |
+| VT-x/EPT HVM 沙箱与目标执行 | `KernelHvmTab`、`features/hvm/` | 已有真实一次性 VMLAUNCH/VMCALL 自检与 Intel-only 受保护常驻 VMM；任意目标执行及完整 Nested VMX/eVMCS 未完成 |
 | 驱动映像基址/大小修改与加载器链隐藏 | `KernelDriverImageEditorDialog`、`ArkDriverImage.cpp`、`driver_image_editor*.c`、共享协议 | 本轮补齐并超越；五字段事务、链摘除/恢复/放弃恢复 |
 | 驱动加载/卸载拦截、引导扇区保护 | 现有卸载、storage forensics 仅覆盖相邻能力 | 未完成 |
 | PatchGuard/DSE、固件刷写/锁定、产品特定禁用 | 现有平台/安全审计仅覆盖只读取证 | 未完成 |

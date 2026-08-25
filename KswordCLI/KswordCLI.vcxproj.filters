@@ -43,7 +43,6 @@
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverSystemTime.cpp"><Filter>源文件\ArkDriverClient</Filter></ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverVirtualization.cpp"><Filter>源文件\ArkDriverClient</Filter></ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverWorkQueue.cpp"><Filter>源文件\ArkDriverClient</Filter></ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkStorageControllerClient.cpp"><Filter>源文件\ArkDriverClient</Filter></ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\string\string.cpp"><Filter>源文件\ArkDriverClient</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>

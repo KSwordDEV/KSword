@@ -31,7 +31,6 @@
 #include "../../../shared/driver/KswordArkNetworkIoctl.h"
 #include "../../../shared/driver/KswordArkStorageIoctl.h"
 #include "../../../shared/driver/KswordArkStorageForensicsIoctl.h"
-#include "../../../shared/driver/KswordArkStorageControllerIoctl.h"
 #include "../../../shared/driver/KswordArkKernelBaselineIoctl.h"
 #include "../../../shared/driver/KswordArkPiDdbIoctl.h"
 #include "../../../shared/driver/KswordArkHvmIoctl.h"

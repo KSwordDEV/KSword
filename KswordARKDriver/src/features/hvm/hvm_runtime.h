@@ -10,6 +10,11 @@ KswordARKHvmInitialize(
     VOID
     );
 
+NTSTATUS
+KswordARKHvmEnableResidentLifecycle(
+    _In_ PDRIVER_OBJECT DriverObject
+    );
+
 VOID
 KswordARKHvmUninitialize(
     VOID

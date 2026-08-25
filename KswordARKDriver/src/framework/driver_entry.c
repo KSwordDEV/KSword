@@ -164,6 +164,20 @@ Return Value:
         return KswordArkStartupFailure(KswordArkStartStageWdfDriverCreate, status);
     }
 
+    /*
+     * Bind resident-HVM lifecycle guards only after KMDF installs the final
+     * DriverUnload entry.  Failure keeps resident VMX disabled without taking
+     * down the rest of the driver.
+     */
+    status = KswordARKHvmEnableResidentLifecycle(DriverObject);
+    if (!NT_SUCCESS(status)) {
+        TraceEvents(
+            TRACE_LEVEL_WARNING,
+            TRACE_DRIVER,
+            "Resident HVM lifecycle unavailable %!STATUS!",
+            status);
+    }
+
     // 控制设备的内部阶段由 KswordARKDriverCreateControlDevice 自己登记，
     // 失败时它已经写好 breadcrumb，这里只做资源回滚。
     status = KswordARKDriverCreateControlDevice(driverHandle, &controlDevice);

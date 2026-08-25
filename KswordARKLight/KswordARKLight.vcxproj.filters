@@ -612,9 +612,6 @@
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverWorkQueue.cpp">
       <Filter>ArkDriverClient</Filter>
     </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkStorageControllerClient.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCallback.cpp">
       <Filter>ArkDriverClient</Filter>
     </ClCompile>

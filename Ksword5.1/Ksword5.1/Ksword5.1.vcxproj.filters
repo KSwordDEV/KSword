@@ -143,9 +143,6 @@
     <ClCompile Include="MiscDock\DiskEditor\DiskMapWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="MiscDock\DiskEditor\StorageControllerResearchDialog.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1111,9 +1108,7 @@
     <ClCompile Include="ArkDriverClient\ArkDriverResearch.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>
-    <ClCompile Include="ArkDriverClient\ArkStorageControllerClient.cpp">
-      <Filter>Source Files\ArkDriverClient</Filter>
-    </ClCompile>    <ClCompile Include="HardwareDock\MemoryCompositionHistoryWidget.cpp">
+    <ClCompile Include="HardwareDock\MemoryCompositionHistoryWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="HardwareDock\DiskMonitorPage.cpp">
@@ -1239,9 +1234,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MiscDock\DiskEditor\DiskEditorTab.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="MiscDock\DiskEditor\StorageControllerResearchDialog.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <QtMoc Include="MiscDock\DiskEditor\DiskMapWidget.h">
@@ -1485,9 +1477,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ArkDriverClient\ArkDriverCapabilities.h">
-      <Filter>Header Files\ArkDriverClient</Filter>
-    </ClInclude>
-    <ClInclude Include="ArkDriverClient\ArkStorageControllerClient.h">
       <Filter>Header Files\ArkDriverClient</Filter>
     </ClInclude>
   </ItemGroup>

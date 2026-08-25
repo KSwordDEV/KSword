@@ -37,9 +37,7 @@ QString KernelHvmTab::buildDetail(
             "VM-instruction error：%26\n"
             "最近启动 CPU：%27\n"
             "最近启动使用嵌套 VMX：%28\n\n"
-            "边界：一次性来宾仍会在 VMCALL 后 VMCLEAR/VMXOFF。"
-            "当前可卸载驱动没有 S3/S4/Modern Standby 生命周期所有权，"
-            "因此驻留 START 在任何资源分配或 VMX 改变前硬拒绝；"
+            "边界：一次性来宾仍会在 VMCALL 后 VMCLEAR/VMXOFF。驻留 VMM 仅在 GenuineIntel、完整 VT-x/EPT/INVEPT、无现有 Hypervisor、全 CPU 自检以及电源/处理器拓扑/驱动卸载保护全部通过后开放；离开 S0 前会同步全核 VMXOFF，驻留期间 DriverUnload 被临时移除。AMD 与其它非 Intel CPU 会在驱动端拒绝；"
             "未知退出、EPT misconfiguration 和未实现强制退出会 fail-closed 去虚拟化。"
             "EPT 恒等映射覆盖 [0, min(CPUID MAXPHYADDR, 8 TiB))，"
             "RAM 叶按 MTRR 定型，固件、PCI/ReBAR 与其它物理空洞保守使用 UC；"
@@ -101,9 +99,7 @@ QString KernelHvmTab::buildDetail(
             "\n\n实验边界：Nested 的 VMXON/VMCS 操作数解码、完整 vmcs02、"
             "L2 exit reflection 与 shadow EPT 尚未完成；当前仅提供失败语义的"
             " partial 指令分派。eVMCS 仅按 TLFS 探测来宾分区能力与所有权，"
-            "未接管 VP-assist 页面或 clean fields，因此二者均不得解释为 active。"
-            "Resident 因缺少可证明安全的电源转换与卸载所有权而报告 unsupported；"
-            "关闭 UI 危险确认不会解除驱动硬门控。"))
+            "未接管 VP-assist 页面或 clean fields，因此二者均不得解释为 active。Resident 的 capability-only 表示生命周期保护已就绪；只有全 CPU rendezvous 成功后才报告 active。"))
         .arg(implementationText(
             response.residentImplementation))
         .arg(response.residentProcessorCount)
@@ -133,7 +129,7 @@ QString KernelHvmTab::featureText(const std::uint64_t flags)
         std::uint64_t flag;
         const char* name;
     };
-    static constexpr std::array<FeatureName, 29> names{{
+    static constexpr std::array<FeatureName, 33> names{{
         { KSWORD_ARK_HVM_FEATURE_INTEL, "Intel" },
         { KSWORD_ARK_HVM_FEATURE_VMX, "VMX" },
         { KSWORD_ARK_HVM_FEATURE_FEATURE_CONTROL_LOCKED, "FeatureControlLocked" },
@@ -162,7 +158,11 @@ QString KernelHvmTab::featureText(const std::uint64_t flags)
         { KSWORD_ARK_HVM_FEATURE_NESTED_VMX_DISPATCH, "NestedVmxPartialDispatch" },
         { KSWORD_ARK_HVM_FEATURE_HYPERV_EVMCS_CAPABLE, "HyperVEvmcsCapable" },
         { KSWORD_ARK_HVM_FEATURE_HYPERV_EVMCS_V1, "HyperVEvmcsV1" },
-        { KSWORD_ARK_HVM_FEATURE_VMX_INSTRUCTION_EMULATION, "VmxFailureSemantics" }
+        { KSWORD_ARK_HVM_FEATURE_VMX_INSTRUCTION_EMULATION, "VmxFailureSemantics" },
+        { KSWORD_ARK_HVM_FEATURE_POWER_STATE_GUARD, "PowerStateGuard" },
+        { KSWORD_ARK_HVM_FEATURE_PROCESSOR_TOPOLOGY_GUARD, "ProcessorTopologyGuard" },
+        { KSWORD_ARK_HVM_FEATURE_DRIVER_UNLOAD_GUARD, "DriverUnloadGuard" },
+        { KSWORD_ARK_HVM_FEATURE_RESIDENT_LIFECYCLE_GUARDED, "ResidentLifecycleGuarded" }
     }};
     QStringList values;
     for (const auto& value : names)
@@ -220,6 +220,10 @@ QString KernelHvmTab::stateText(const std::uint32_t flags)
         values.push_back(kernelText("kernel.hvm.state.evmcs_partial", QStringLiteral("eVMCS partial")));
     if ((flags & KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED) != 0U)
         values.push_back(kernelText("kernel.hvm.state.rollback", QStringLiteral("需要回滚")));
+    if ((flags & KSWORD_ARK_HVM_STATE_POWER_TRANSITION_PENDING) != 0U)
+        values.push_back(kernelText("kernel.hvm.state.power_transition", QStringLiteral("电源转换中")));
+    if ((flags & KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED) != 0U)
+        values.push_back(kernelText("kernel.hvm.state.unload_guard", QStringLiteral("驱动卸载已锁定")));
     return values.isEmpty() ? QStringLiteral("-") : values.join(QStringLiteral(" / "));
 }
 
