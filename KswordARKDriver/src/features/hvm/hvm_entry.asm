@@ -13,12 +13,22 @@
 
 OPTION CASEMAP:NONE
 
+KSW_ACTIVE_GUEST_S_CET EQU 60h
+KSW_ACTIVE_GUEST_SSP EQU 68h
+KSW_ACTIVE_GUEST_INTERRUPT_SSP_TABLE EQU 70h
+KSW_ACTIVE_GUEST_DEBUGCTL EQU 88h
+KSW_ACTIVE_GUEST_DR7 EQU 90h
+KSW_ACTIVE_GUEST_CET_MANAGED EQU 98h
+KSW_ACTIVE_GUEST_DEBUG_MANAGED EQU 9Bh
+KSW_ACTIVE_GUEST_RFLAGS EQU 0A0h
+
 EXTERN KswordARKHvmVmExitDispatch:PROC
 EXTERN KswordARKHvmConfigureResidentVmcsFromAsm:PROC
 EXTERN KswordARKHvmResidentVmExitDispatch:PROC
 EXTERN KswordARKHvmResidentVmResumeFailure:PROC
 
 PUBLIC KswordARKHvmCaptureSegments
+PUBLIC KswordARKHvmAsmReadSsp
 PUBLIC KswordARKHvmControlledGuestEntry
 PUBLIC KswordARKHvmAsmLaunch
 PUBLIC KswordARKHvmVmExitEntry
@@ -71,6 +81,16 @@ KswordARKHvmCaptureSegments PROC
     ret
 KswordARKHvmCaptureSegments ENDP
 
+; 读取调用者进入本函数前的 CET 影子栈指针。
+KswordARKHvmAsmReadSsp PROC
+    ; 使用字节编码兼容尚未识别 RDSSPQ 助记符的 MASM 版本。
+    db 0F3h, 048h, 00Fh, 01Eh, 0C8h
+    ; CALL 已压入一个影子返回地址，补偿该八字节槽位。
+    add rax, 8
+    ; 返回调用者进入本函数前的 SSP。
+    ret
+KswordARKHvmAsmReadSsp ENDP
+
 KswordARKHvmControlledGuestEntry PROC
     ; Produce the single expected, deterministic VM-exit reason.
     vmcall
@@ -81,6 +101,9 @@ KswordARKHvmControlledGuestEntry PROC
 KswordARKHvmControlledGuestEntry ENDP
 
 KswordARKHvmAsmLaunch PROC
+    ; 保存 VMX 转换前的完整 RFLAGS，尤其是 IF 与 AC。
+    pushfq
+    pop QWORD PTR [rcx + KSW_ACTIVE_GUEST_RFLAGS]
     ; Save the original wrapper stack pointer in context field zero.
     mov QWORD PTR [rcx], rsp
     ; Attempt the first VM entry for the current clear-state VMCS.
@@ -96,6 +119,9 @@ KswordARKHvmAsmLaunch PROC
     ; Retain a defensive zero for an architecturally unreachable flag state.
     xor eax, eax
 KswordARKHvmAsmLaunchComplete:
+    ; VM-entry 失败返回时同样恢复调用点的完整 RFLAGS。
+    push QWORD PTR [rcx + KSW_ACTIVE_GUEST_RFLAGS]
+    popfq
     ; Return the VM-entry failure code to the C launch lifecycle.
     ret
 KswordARKHvmAsmLaunch ENDP
@@ -113,10 +139,64 @@ KswordARKHvmVmExitEntry PROC FRAME
     test rax, rax
     ; Trap if the dispatcher could not recover a launch continuation.
     jz KswordARKHvmVmExitFatal
+    ; 保留上下文指针，切回 wrapper stack 后不再依赖 host stack。
+    mov r11, rax
     ; Restore the wrapper stack that contains the original C return address.
-    mov rsp, QWORD PTR [rax]
+    mov rsp, QWORD PTR [r11]
+    ; 预先读取调试状态，避免恢复断点后继续访问上下文。
+    mov r8, QWORD PTR [r11 + KSW_ACTIVE_GUEST_DEBUGCTL]
+    mov r9, QWORD PTR [r11 + KSW_ACTIVE_GUEST_DR7]
+    ; 在重新启用 CET 前恢复中断影子栈表地址。
+    cmp BYTE PTR [r11 + KSW_ACTIVE_GUEST_CET_MANAGED], 0
+    je KswordARKHvmVmExitRestoreDebug
+    mov ecx, 06A8h
+    mov rax, QWORD PTR [r11 + KSW_ACTIVE_GUEST_INTERRUPT_SSP_TABLE]
+    mov rdx, rax
+    shr rdx, 32
+    wrmsr
+    ; 仅在原始状态启用影子栈时重建 SSP 恢复令牌。
+    mov r10, QWORD PTR [r11 + KSW_ACTIVE_GUEST_S_CET]
+    test r10, 1
+    jz KswordARKHvmVmExitRestoreExactCet
+    mov ecx, 06A2h
+    mov rax, r10
+    or rax, 2
+    mov rdx, rax
+    shr rdx, 32
+    wrmsr
+    mov rax, QWORD PTR [r11 + KSW_ACTIVE_GUEST_SSP]
+    sub rax, 8
+    mov rdx, QWORD PTR [r11 + KSW_ACTIVE_GUEST_SSP]
+    or rdx, 1
+    ; WRSSQ [RAX], RDX 写入一个 64 位 SSP 恢复令牌。
+    db 048h, 00Fh, 038h, 0F6h, 010h
+    ; RSTORSSP [RAX] 选择客户机在 VM-exit 时保存的 SSP。
+    db 0F3h, 00Fh, 001h, 028h
+KswordARKHvmVmExitRestoreExactCet:
+    ; 恢复客户机原始 IA32_S_CET。
+    mov ecx, 06A2h
+    mov rax, r10
+    mov rdx, rax
+    shr rdx, 32
+    wrmsr
+KswordARKHvmVmExitRestoreDebug:
+    ; 在恢复调试状态前预取 RFLAGS，之后不再读取上下文。
+    mov r10, QWORD PTR [r11 + KSW_ACTIVE_GUEST_RFLAGS]
+    cmp BYTE PTR [r11 + KSW_ACTIVE_GUEST_DEBUG_MANAGED], 0
+    je KswordARKHvmVmExitStateRestored
+    ; 最后恢复调试 MSR 和 DR7，避免断点命中恢复过程本身。
+    mov ecx, 01D9h
+    mov rax, r8
+    mov rdx, rax
+    shr rdx, 32
+    wrmsr
+    mov dr7, r9
+KswordARKHvmVmExitStateRestored:
     ; Report successful VM entry and handled VM exit to the C lifecycle.
     xor eax, eax
+    ; VM-exit 会重置宿主标志，返回前恢复调用点的完整 RFLAGS。
+    push r10
+    popfq
     ; Return through the original KswordARKHvmAsmLaunch caller frame.
     ret
 KswordARKHvmVmExitFatal:

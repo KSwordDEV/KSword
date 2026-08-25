@@ -28,6 +28,81 @@ Environment:
 
 #if defined(_M_AMD64)
 #include <intrin.h>
+
+NTKERNELAPI VOID
+KeGenericCallDpc(
+    _In_ PKDEFERRED_ROUTINE Routine,
+    _In_opt_ PVOID Context
+    );
+
+NTKERNELAPI LOGICAL
+KeSignalCallDpcSynchronize(
+    _Inout_ PVOID SystemArgument2
+    );
+
+NTKERNELAPI VOID
+KeSignalCallDpcDone(
+    _In_ PVOID SystemArgument1
+    );
+
+#define KSW_HVM_IA32_VMX_PINBASED_CTLS 0x481UL
+#define KSW_HVM_IA32_VMX_EXIT_CTLS 0x483UL
+#define KSW_HVM_IA32_VMX_ENTRY_CTLS 0x484UL
+#define KSW_HVM_IA32_VMX_MISC 0x485UL
+#define KSW_HVM_IA32_VMX_TRUE_PINBASED_CTLS 0x48DUL
+#define KSW_HVM_IA32_VMX_TRUE_EXIT_CTLS 0x48FUL
+#define KSW_HVM_IA32_VMX_TRUE_ENTRY_CTLS 0x490UL
+#define KSW_HVM_IA32_VMX_PROCBASED_CTLS3 0x492UL
+#define KSW_HVM_IA32_VMX_EXIT_CTLS2 0x493UL
+#define KSW_HVM_VMX_ACTIVATE_TERTIARY (1ULL << 17)
+#define KSW_HVM_VMX_ACTIVATE_SECONDARY (1ULL << 31)
+#define KSW_HVM_VMX_EXIT_ACTIVATE_SECONDARY (1ULL << 31)
+#define KSW_HVM_VMX_ENABLE_EPT (1ULL << 1)
+#define KSW_HVM_VMX_ENABLE_VPID (1ULL << 5)
+
+/* 这些槽位只保存架构上应当跨逻辑处理器一致的原始能力事实。 */
+typedef enum _KSW_HVM_CAPABILITY_SLOT
+{
+    KswordHvmCapFeatureControl = 0,
+    KswordHvmCapVmxBasic,
+    KswordHvmCapCr0Fixed0,
+    KswordHvmCapCr0Fixed1,
+    KswordHvmCapCr4Fixed0,
+    KswordHvmCapCr4Fixed1,
+    KswordHvmCapPrimaryControls,
+    KswordHvmCapTruePrimaryControls,
+    KswordHvmCapSecondaryControls,
+    KswordHvmCapTertiaryControls,
+    KswordHvmCapExitControls,
+    KswordHvmCapTrueExitControls,
+    KswordHvmCapSecondaryExitControls,
+    KswordHvmCapEntryControls,
+    KswordHvmCapTrueEntryControls,
+    KswordHvmCapPinControls,
+    KswordHvmCapTruePinControls,
+    KswordHvmCapVmxMisc,
+    KswordHvmCapEptVpid,
+    KswordHvmCapCpuidMaxBasic,
+    KswordHvmCapCpuid7Subleaf0Ebx,
+    KswordHvmCapCpuid7Subleaf0EcxEdx,
+    KswordHvmCapCpuid7Subleaf1EaxEdx,
+    KswordHvmCapCpuidDSubleaf1EaxEcx,
+    KswordHvmCapCpuidMaxExtended,
+    KswordHvmCapCpuidExtended1Edx,
+    KswordHvmCapCpuidExtended8Eax,
+    KswordHvmCapCpuid7MaxSubleaf,
+    KswordHvmCapCount
+} KSW_HVM_CAPABILITY_SLOT;
+
+typedef struct _KSW_HVM_CAPABILITY_VERIFY_CONTEXT
+{
+    ULONGLONG Reference[KswordHvmCapCount];
+    volatile LONG SampleCount;
+    volatile LONG FailureCount;
+    volatile LONG MismatchCount;
+    volatile LONG FirstMismatchProcessor;
+    volatile LONG FirstMismatchSlot;
+} KSW_HVM_CAPABILITY_VERIFY_CONTEXT;
 #endif
 
 static KSW_HVM_RUNTIME g_KswordHvm;
@@ -66,6 +141,207 @@ KswordARKHvmCopyAscii(
 }
 
 #if defined(_M_AMD64)
+static NTSTATUS
+KswordARKHvmSampleCapabilityFacts(
+    _Out_writes_(KswordHvmCapCount) ULONGLONG* Sample
+    )
+{
+    int registers[4] = { 0 };
+    ULONGLONG vmxBasic = 0ULL;
+    ULONGLONG primaryControls = 0ULL;
+    ULONGLONG secondaryControls = 0ULL;
+    ULONGLONG exitControls = 0ULL;
+    ULONG maxBasicLeaf = 0UL;
+    ULONG maxStructuredSubleaf = 0UL;
+    ULONG maxExtendedLeaf = 0UL;
+
+    if (Sample == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    RtlZeroMemory(
+        Sample,
+        sizeof(ULONGLONG) * KswordHvmCapCount);
+
+    /* 每个受门控的 MSR 都使用同一颗逻辑处理器上的门控位判断。 */
+    __try {
+        Sample[KswordHvmCapFeatureControl] =
+            __readmsr(KSW_IA32_FEATURE_CONTROL);
+        vmxBasic = __readmsr(KSW_IA32_VMX_BASIC);
+        Sample[KswordHvmCapVmxBasic] = vmxBasic;
+        Sample[KswordHvmCapCr0Fixed0] =
+            __readmsr(KSW_IA32_VMX_CR0_FIXED0);
+        Sample[KswordHvmCapCr0Fixed1] =
+            __readmsr(KSW_IA32_VMX_CR0_FIXED1);
+        Sample[KswordHvmCapCr4Fixed0] =
+            __readmsr(KSW_IA32_VMX_CR4_FIXED0);
+        Sample[KswordHvmCapCr4Fixed1] =
+            __readmsr(KSW_IA32_VMX_CR4_FIXED1);
+
+        primaryControls = __readmsr(KSW_IA32_VMX_PROCBASED_CTLS);
+        exitControls = __readmsr(KSW_HVM_IA32_VMX_EXIT_CTLS);
+        Sample[KswordHvmCapPrimaryControls] = primaryControls;
+        Sample[KswordHvmCapExitControls] = exitControls;
+        Sample[KswordHvmCapEntryControls] =
+            __readmsr(KSW_HVM_IA32_VMX_ENTRY_CTLS);
+        Sample[KswordHvmCapPinControls] =
+            __readmsr(KSW_HVM_IA32_VMX_PINBASED_CTLS);
+        Sample[KswordHvmCapVmxMisc] =
+            __readmsr(KSW_HVM_IA32_VMX_MISC);
+
+        if ((vmxBasic & (1ULL << 55)) != 0ULL) {
+            Sample[KswordHvmCapTruePrimaryControls] =
+                __readmsr(KSW_IA32_VMX_TRUE_PROCBASED_CTLS);
+            Sample[KswordHvmCapTrueExitControls] =
+                __readmsr(KSW_HVM_IA32_VMX_TRUE_EXIT_CTLS);
+            Sample[KswordHvmCapTrueEntryControls] =
+                __readmsr(KSW_HVM_IA32_VMX_TRUE_ENTRY_CTLS);
+            Sample[KswordHvmCapTruePinControls] =
+                __readmsr(KSW_HVM_IA32_VMX_TRUE_PINBASED_CTLS);
+        }
+
+        if (((primaryControls >> 32) &
+                KSW_HVM_VMX_ACTIVATE_SECONDARY) != 0ULL) {
+            secondaryControls =
+                __readmsr(KSW_IA32_VMX_PROCBASED_CTLS2);
+            Sample[KswordHvmCapSecondaryControls] =
+                secondaryControls;
+            if (((secondaryControls >> 32) &
+                    (KSW_HVM_VMX_ENABLE_EPT |
+                     KSW_HVM_VMX_ENABLE_VPID)) != 0ULL) {
+                Sample[KswordHvmCapEptVpid] =
+                    __readmsr(KSW_IA32_VMX_EPT_VPID_CAP);
+            }
+        }
+        if (((primaryControls >> 32) &
+                KSW_HVM_VMX_ACTIVATE_TERTIARY) != 0ULL) {
+            Sample[KswordHvmCapTertiaryControls] =
+                __readmsr(KSW_HVM_IA32_VMX_PROCBASED_CTLS3);
+        }
+        if (((exitControls >> 32) &
+                KSW_HVM_VMX_EXIT_ACTIVATE_SECONDARY) != 0ULL) {
+            Sample[KswordHvmCapSecondaryExitControls] =
+                __readmsr(KSW_HVM_IA32_VMX_EXIT_CTLS2);
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return GetExceptionCode();
+    }
+
+    /* CPUID 只采样能力叶，排除缓存、核心类型等按处理器变化的叶。 */
+    __cpuid(registers, 0);
+    maxBasicLeaf = (ULONG)registers[0];
+    Sample[KswordHvmCapCpuidMaxBasic] = maxBasicLeaf;
+    if (maxBasicLeaf >= 7UL) {
+        __cpuidex(registers, 7, 0);
+        maxStructuredSubleaf = (ULONG)registers[0];
+        Sample[KswordHvmCapCpuid7MaxSubleaf] =
+            maxStructuredSubleaf;
+        Sample[KswordHvmCapCpuid7Subleaf0Ebx] =
+            (ULONG)registers[1];
+        Sample[KswordHvmCapCpuid7Subleaf0EcxEdx] =
+            ((ULONGLONG)(ULONG)registers[2] << 32) |
+            (ULONG)registers[3];
+        if (maxStructuredSubleaf >= 1UL) {
+            __cpuidex(registers, 7, 1);
+            Sample[KswordHvmCapCpuid7Subleaf1EaxEdx] =
+                ((ULONGLONG)(ULONG)registers[0] << 32) |
+                (ULONG)registers[3];
+        }
+    }
+    if (maxBasicLeaf >= 0xDUL) {
+        __cpuidex(registers, 0xD, 1);
+        Sample[KswordHvmCapCpuidDSubleaf1EaxEcx] =
+            ((ULONGLONG)(ULONG)registers[0] << 32) |
+            (ULONG)registers[2];
+    }
+
+    __cpuid(registers, (int)0x80000000UL);
+    maxExtendedLeaf = (ULONG)registers[0];
+    Sample[KswordHvmCapCpuidMaxExtended] = maxExtendedLeaf;
+    if (maxExtendedLeaf >= 0x80000001UL) {
+        __cpuid(registers, (int)0x80000001UL);
+        Sample[KswordHvmCapCpuidExtended1Edx] =
+            (ULONG)registers[3];
+    }
+    if (maxExtendedLeaf >= 0x80000008UL) {
+        __cpuid(registers, (int)0x80000008UL);
+        Sample[KswordHvmCapCpuidExtended8Eax] =
+            (ULONG)registers[0];
+    }
+    return STATUS_SUCCESS;
+}
+
+static VOID
+KswordARKHvmVerifyCapabilitiesDpc(
+    _In_ struct _KDPC* Dpc,
+    _In_opt_ PVOID DeferredContext,
+    _In_opt_ PVOID SystemArgument1,
+    _In_opt_ PVOID SystemArgument2
+    )
+{
+    KSW_HVM_CAPABILITY_VERIFY_CONTEXT* context =
+        (KSW_HVM_CAPABILITY_VERIFY_CONTEXT*)DeferredContext;
+    ULONGLONG sample[KswordHvmCapCount] = { 0 };
+    NTSTATUS status = STATUS_UNSUCCESSFUL;
+    ULONG slot = 0UL;
+    ULONG processor = KeGetCurrentProcessorNumberEx(NULL);
+
+    UNREFERENCED_PARAMETER(Dpc);
+    status = KswordARKHvmSampleCapabilityFacts(sample);
+    if (!NT_SUCCESS(status)) {
+        InterlockedIncrement(&context->FailureCount);
+    } else {
+        for (slot = 0UL; slot < KswordHvmCapCount; ++slot) {
+            if (sample[slot] == context->Reference[slot]) {
+                continue;
+            }
+            if (InterlockedIncrement(&context->MismatchCount) == 1L) {
+                context->FirstMismatchProcessor = (LONG)processor;
+                context->FirstMismatchSlot = (LONG)slot;
+            }
+            break;
+        }
+    }
+    InterlockedIncrement(&context->SampleCount);
+    KeSignalCallDpcSynchronize(SystemArgument2);
+    KeSignalCallDpcDone(SystemArgument1);
+}
+
+static NTSTATUS
+KswordARKHvmVerifyUniformCapabilities(
+    VOID
+    )
+{
+    KSW_HVM_CAPABILITY_VERIFY_CONTEXT context = { 0 };
+    ULONG processorCountBefore = 0UL;
+    ULONG processorCountAfter = 0UL;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    status = KswordARKHvmSampleCapabilityFacts(context.Reference);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+    context.FirstMismatchProcessor = -1L;
+    context.FirstMismatchSlot = -1L;
+    processorCountBefore =
+        KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);
+    if (processorCountBefore == 0UL ||
+        processorCountBefore > KSWORD_ARK_HVM_MAX_PROCESSORS) {
+        return STATUS_NOT_SUPPORTED;
+    }
+
+    KeGenericCallDpc(KswordARKHvmVerifyCapabilitiesDpc, &context);
+    processorCountAfter =
+        KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);
+    if (processorCountAfter != processorCountBefore ||
+        context.SampleCount != (LONG)processorCountBefore ||
+        context.FailureCount != 0L ||
+        context.MismatchCount != 0L) {
+        return STATUS_NOT_SUPPORTED;
+    }
+    return STATUS_SUCCESS;
+}
+
 static BOOLEAN
 KswordARKHvmReadCapabilities(
     _Inout_ KSW_HVM_RUNTIME* Runtime
@@ -523,6 +799,16 @@ KswordARKHvmPrepareLocked(
               KSWORD_ARK_HVM_FEATURE_NESTED_VMX_EXPOSED) == 0ULL))) {
         return STATUS_HV_FEATURE_UNAVAILABLE;
     }
+
+#if defined(_M_AMD64)
+    /* 在任何资源分配或 VMXON 之前验证全部逻辑处理器能力一致。 */
+    status = KswordARKHvmVerifyUniformCapabilities();
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+#else
+    return STATUS_NOT_SUPPORTED;
+#endif
 
     /* Capture MTRR state before choosing EPT leaf memory types. */
     status = KswordARKHvmMtrrCapture(&Runtime->Mtrr);

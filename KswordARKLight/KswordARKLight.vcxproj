@@ -488,68 +488,23 @@
     <Image Include="..\Ksword5.1\Ksword5.1\Resource\Logo\Mainlogo.png" />
   </ItemGroup>
   <Target Name="BuildKswordArkDriverBeforeLightEmbed" BeforeTargets="PrepareKswordArkLightEmbeddedDriver" Condition="'$(KswordArkLightEnsureDriverBuilt)'!='false' and ('$(SolutionPath)'=='' or '$(SolutionPath)'=='*Undefined*')">
-    <!--
-      Inputs:
-        - A standalone KswordARKLight project build where MSBuild did not get a
-          real SolutionDir from Ksword5.1.sln.
-      Processing:
-        - Build KswordARKDriver explicitly before the Light resource compile,
-          passing the repository solution directory that makes the driver project
-          emit KswordARK.sys to the same $(TargetDir) that Light will embed from.
-        - The driver project's KswordArkAutoVariantSignAfterBuild target is wired
-          to AfterTargets=Build, so this nested build returns only after the
-          two-pass CSignTool + AuthenticodeVariant signing chain has completed.
-      Return behavior:
-        - No value is returned. A driver build failure fails the Light build
-          before any stale KswordARK.sys can be embedded.
-    -->
+    <!-- 独立构建 Light 时先生成未签名驱动，构建链禁止调用 CSignTool。 -->
     <PropertyGroup>
       <KswordArkLightDriverProject>$(MSBuildProjectDirectory)\..\KswordARKDriver\KswordARKDriver.vcxproj</KswordArkLightDriverProject>
       <KswordArkLightStandaloneSolutionDir>$(MSBuildProjectDirectory)\..\Ksword5.1\</KswordArkLightStandaloneSolutionDir>
     </PropertyGroup>
-    <Message Importance="High" Text="KswordARKLight: standalone build detected; building/signing KswordARKDriver before embedding. Set /p:KswordArkLightEnsureDriverBuilt=false only if a fresh signed KswordARK.sys is already present." />
+    <Message Importance="High" Text="KswordARKLight：检测到独立构建，正在生成用于嵌入的未签名 KswordARK.sys。" />
     <MSBuild Projects="$(KswordArkLightDriverProject)" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform);SolutionDir=$(KswordArkLightStandaloneSolutionDir)" />
   </Target>
   <Target Name="PrepareKswordArkLightEmbeddedDriver" BeforeTargets="ResourceCompile">
-    <!--
-      Inputs:
-        - $(TargetDir)KswordARK.sys, which is the generated driver location used
-          by standalone KswordARKLight builds.
-        - During solution builds, Ksword5.1.sln orders KswordARKDriver before
-          KswordARKLight. During standalone project builds, the
-          BuildKswordArkDriverBeforeLightEmbed target above provides the same
-          ordering and passes a SolutionDir that makes the signed driver land in
-          this same generated directory before this target copies it.
-      Processing:
-        - When the unsigned companion output KswordARK_Clean.sys exists, restore it
-          to $(TargetDir)KswordARK.sys only when KswordArkLightReuseSignedDriver
-          is explicitly set to false.  Solution builds already run the driver
-          project's post-build variant signing target first, so the default path
-          reuses that signed driver and avoids a second two-pass CSignTool run.
-        - Optionally sign $(TargetDir)KswordARK.sys before copying it into the
-          project-local generated path referenced by KswordARKLight.rc, because
-          .rc files cannot expand MSBuild properties inside RCDATA filenames.
-      Return behavior:
-        - There is no return value; the target fails early with an actionable
-          error if the driver binary is missing.
-    -->
+    <!-- 资源编译只复制当前未签名驱动，不执行任何签名工具。 -->
     <PropertyGroup>
       <KswordArkLightDriverOutputPath>$(TargetDir)KswordARK.sys</KswordArkLightDriverOutputPath>
-      <KswordArkLightCleanDriverPath>$(TargetDir)KswordARK_Clean.sys</KswordArkLightCleanDriverPath>
       <KswordArkLightEmbeddedDriverDir>$(MSBuildProjectDirectory)\generated\</KswordArkLightEmbeddedDriverDir>
       <KswordArkLightEmbeddedDriverPath>$(KswordArkLightEmbeddedDriverDir)KswordARK.sys</KswordArkLightEmbeddedDriverPath>
-      <KswordArkLightSignScript>$(MSBuildProjectDirectory)\..\scripts\Sign-KswordArkDriverVariant.ps1</KswordArkLightSignScript>
-      <KswordArkLightPowerShellExe Condition="'$(KswordArkLightPowerShellExe)'==''">powershell</KswordArkLightPowerShellExe>
-      <KswordArkLightReuseSignedDriver Condition="'$(KswordArkLightReuseSignedDriver)'==''">true</KswordArkLightReuseSignedDriver>
-      <KswordArkLightShouldSignDriver Condition="'$(KswordArkLightReuseSignedDriver)'!='true' and '$(KswordArkLightSkipDriverSign)'!='true'">true</KswordArkLightShouldSignDriver>
     </PropertyGroup>
-    <Error Condition="!Exists('$(KswordArkLightDriverOutputPath)')" Text="KswordARKLight cannot embed KswordARK.sys because it was not found at $(KswordArkLightDriverOutputPath). Build KswordARKDriver first when building the solution, or place KswordARK.sys in the KswordARKLight generated output directory for a standalone project build." />
-    <Error Condition="'$(KswordArkLightShouldSignDriver)'=='true' and !Exists('$(KswordArkLightSignScript)')" Text="KswordARKLight cannot sign the embedded driver because the signing script was not found: $(KswordArkLightSignScript)" />
-    <Message Importance="High" Condition="'$(KswordArkLightShouldSignDriver)'!='true'" Text="KswordARKLight: reusing existing signed driver for RCDATA embedding: $(KswordArkLightDriverOutputPath). Set /p:KswordArkLightReuseSignedDriver=false to force a clean restore and re-sign." />
-    <Message Importance="High" Condition="'$(KswordArkLightShouldSignDriver)'=='true' and Exists('$(KswordArkLightCleanDriverPath)') and '$(KswordArkLightSkipRestoreCleanDriver)'!='true'" Text="KswordARKLight: restoring unsigned driver before embedding sign: $(KswordArkLightCleanDriverPath) -> $(KswordArkLightDriverOutputPath)" />
-    <Copy Condition="'$(KswordArkLightShouldSignDriver)'=='true' and Exists('$(KswordArkLightCleanDriverPath)') and '$(KswordArkLightSkipRestoreCleanDriver)'!='true'" SourceFiles="$(KswordArkLightCleanDriverPath)" DestinationFiles="$(KswordArkLightDriverOutputPath)" SkipUnchangedFiles="false" />
-    <Message Importance="High" Condition="'$(KswordArkLightShouldSignDriver)'=='true'" Text="KswordARKLight: signing $(KswordArkLightDriverOutputPath) before embedding it as RCDATA. Set /p:KswordArkLightReuseSignedDriver=true or /p:KswordArkLightSkipDriverSign=true to skip." />
-    <Exec Condition="'$(KswordArkLightShouldSignDriver)'=='true'" Command="&quot;$(KswordArkLightPowerShellExe)&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;$(KswordArkLightSignScript)&quot; -DriverPath &quot;$(KswordArkLightDriverOutputPath)&quot;" IgnoreStandardErrorWarningFormat="true" />
+    <Error Condition="!Exists('$(KswordArkLightDriverOutputPath)')" Text="未找到用于嵌入的 KswordARK.sys：$(KswordArkLightDriverOutputPath)。请先生成驱动。" />
+    <Message Importance="High" Text="KswordARKLight：正在嵌入未签名驱动 $(KswordArkLightDriverOutputPath)。" />
     <MakeDir Directories="$(KswordArkLightEmbeddedDriverDir)" />
     <Copy SourceFiles="$(KswordArkLightDriverOutputPath)" DestinationFiles="$(KswordArkLightEmbeddedDriverPath)" SkipUnchangedFiles="false" />
   </Target>

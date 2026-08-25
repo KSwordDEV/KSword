@@ -28,6 +28,20 @@ Environment:
 #define KSW_HVM_CR4_VMXE          (1ULL << 13)
 #define KSW_HVM_VMCS_INSTRUCTION_ERROR 0x4400U
 #define KSW_HVM_BUGCHECK_CODE     0x00020001UL
+#define KSW_HVM_VMCS_EXIT_CONTROLS 0x400CUL
+#define KSW_HVM_VMCS_GUEST_DEBUGCTL 0x2802UL
+#define KSW_HVM_VMCS_GUEST_PKRS 0x2818UL
+#define KSW_HVM_VMCS_GUEST_DR7 0x681AUL
+#define KSW_HVM_VMCS_GUEST_S_CET 0x6828UL
+#define KSW_HVM_VMCS_GUEST_SSP 0x682AUL
+#define KSW_HVM_VMCS_GUEST_INTERRUPT_SSP_TABLE 0x682CUL
+#define KSW_HVM_VMCS_GUEST_UINV 0x0814UL
+#define KSW_HVM_EXIT_SAVE_DEBUG_CONTROLS (1UL << 2)
+#define KSW_HVM_EXIT_CLEAR_UINV (1UL << 27)
+#define KSW_HVM_EXIT_LOAD_CET (1UL << 28)
+#define KSW_HVM_EXIT_LOAD_PKRS (1UL << 29)
+#define KSW_HVM_IA32_PKRS 0x6E1UL
+#define KSW_HVM_IA32_UINTR_MISC 0x988UL
 
 typedef struct _KSW_HVM_ACTIVE_GUEST
 {
@@ -38,10 +52,37 @@ typedef struct _KSW_HVM_ACTIVE_GUEST
     ULONGLONG OriginalCr4;
     unsigned __int64 VmcsPhysical;
     KSW_HVM_GUEST_LAUNCH_RESULT Result;
+    ULONGLONG GuestSCet;
+    ULONGLONG GuestSsp;
+    ULONGLONG GuestInterruptSspTable;
+    ULONGLONG GuestPkrs;
+    ULONGLONG GuestUinv;
+    ULONGLONG GuestDebugControl;
+    ULONGLONG GuestDr7;
+    UCHAR CetStateManaged;
+    UCHAR PkrsStateManaged;
+    UCHAR UinvStateManaged;
+    UCHAR DebugStateManaged;
+    ULONG Reserved;
+    ULONGLONG OriginalRflags;
 } KSW_HVM_ACTIVE_GUEST;
 
 /* Keep the assembly continuation pointer at the documented field-zero offset. */
 C_ASSERT(FIELD_OFFSET(KSW_HVM_ACTIVE_GUEST, LaunchStackPointer) == 0);
+/* 保持一次性退出汇编使用的扩展状态偏移稳定。 */
+C_ASSERT(FIELD_OFFSET(KSW_HVM_ACTIVE_GUEST, GuestSCet) == 96);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_ACTIVE_GUEST, GuestSsp) == 104);
+C_ASSERT(FIELD_OFFSET(
+    KSW_HVM_ACTIVE_GUEST,
+    GuestInterruptSspTable) == 112);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_ACTIVE_GUEST, GuestPkrs) == 120);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_ACTIVE_GUEST, GuestDebugControl) == 136);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_ACTIVE_GUEST, GuestDr7) == 144);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_ACTIVE_GUEST, CetStateManaged) == 152);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_ACTIVE_GUEST, PkrsStateManaged) == 153);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_ACTIVE_GUEST, UinvStateManaged) == 154);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_ACTIVE_GUEST, DebugStateManaged) == 155);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_ACTIVE_GUEST, OriginalRflags) == 160);
 
 static KSW_HVM_ACTIVE_GUEST* volatile g_KswordHvmActiveGuest = NULL;
 
@@ -78,6 +119,8 @@ KswordARKHvmVmExitDispatch(
     NTSTATUS telemetryStatus = STATUS_UNSUCCESSFUL;
     ULONG basicReason = KSW_HVM_VMEXIT_REASON_BASIC_MASK;
     UCHAR vmclearResult = 0xFFU;
+    SIZE_T exitControls = 0U;
+    SIZE_T value = 0U;
 
     /* Resolve the launch context before reading the current VMCS. */
     context = KswordARKHvmReadActiveGuest();
@@ -114,6 +157,68 @@ KswordARKHvmVmExitDispatch(
         context->ExitStatus = STATUS_UNEXPECTED_IO_ERROR;
     }
 
+    /* 在 VMCLEAR 前保存硬件已写回 VMCS 的可选客户机状态。 */
+    if (__vmx_vmread(
+            KSW_HVM_VMCS_EXIT_CONTROLS,
+            &exitControls) != 0U) {
+        context->ExitStatus = STATUS_HV_OPERATION_FAILED;
+    } else {
+        if ((exitControls & KSW_HVM_EXIT_LOAD_CET) != 0U) {
+            if (__vmx_vmread(
+                    KSW_HVM_VMCS_GUEST_S_CET,
+                    &value) == 0U) {
+                context->GuestSCet = (ULONGLONG)value;
+                if (__vmx_vmread(
+                        KSW_HVM_VMCS_GUEST_SSP,
+                        &value) == 0U) {
+                    context->GuestSsp = (ULONGLONG)value;
+                    if (__vmx_vmread(
+                            KSW_HVM_VMCS_GUEST_INTERRUPT_SSP_TABLE,
+                            &value) == 0U) {
+                        context->GuestInterruptSspTable =
+                            (ULONGLONG)value;
+                        context->CetStateManaged = 1U;
+                    }
+                }
+            }
+            if (context->CetStateManaged == 0U) {
+                context->ExitStatus = STATUS_HV_OPERATION_FAILED;
+            }
+        }
+        if ((exitControls & KSW_HVM_EXIT_LOAD_PKRS) != 0U) {
+            if (__vmx_vmread(KSW_HVM_VMCS_GUEST_PKRS, &value) == 0U) {
+                context->GuestPkrs = (ULONGLONG)value;
+                context->PkrsStateManaged = 1U;
+            } else {
+                context->ExitStatus = STATUS_HV_OPERATION_FAILED;
+            }
+        }
+        if ((exitControls & KSW_HVM_EXIT_CLEAR_UINV) != 0U) {
+            if (__vmx_vmread(KSW_HVM_VMCS_GUEST_UINV, &value) == 0U) {
+                context->GuestUinv = (ULONGLONG)value & 0xFFULL;
+                context->UinvStateManaged = 1U;
+            } else {
+                context->ExitStatus = STATUS_HV_OPERATION_FAILED;
+            }
+        }
+        if ((exitControls & KSW_HVM_EXIT_SAVE_DEBUG_CONTROLS) != 0U) {
+            if (__vmx_vmread(
+                    KSW_HVM_VMCS_GUEST_DEBUGCTL,
+                    &value) == 0U) {
+                context->GuestDebugControl = (ULONGLONG)value;
+                if (__vmx_vmread(
+                        KSW_HVM_VMCS_GUEST_DR7,
+                        &value) == 0U) {
+                    context->GuestDr7 = (ULONGLONG)value;
+                    context->DebugStateManaged = 1U;
+                }
+            }
+            if (context->DebugStateManaged == 0U) {
+                context->ExitStatus = STATUS_HV_OPERATION_FAILED;
+            }
+        }
+    }
+
     /* Return the current VMCS to clear state before leaving VMX operation. */
     vmclearResult = __vmx_vmclear(&context->VmcsPhysical);
     /* Preserve VMCLEAR failure as a launch failure without hiding exit evidence. */
@@ -124,6 +229,17 @@ KswordARKHvmVmExitDispatch(
     }
     /* Leave VMX operation before restoring the original CR4 value. */
     __vmx_off();
+    /* 恢复 VM-exit 为根模式加载或清除的非 CET 状态。 */
+    if (context->PkrsStateManaged != 0U) {
+        __writemsr(KSW_HVM_IA32_PKRS, context->GuestPkrs);
+    }
+    if (context->UinvStateManaged != 0U) {
+        ULONGLONG uintrMisc = __readmsr(KSW_HVM_IA32_UINTR_MISC);
+
+        uintrMisc &= ~(0xFFULL << 32);
+        uintrMisc |= (context->GuestUinv & 0xFFULL) << 32;
+        __writemsr(KSW_HVM_IA32_UINTR_MISC, uintrMisc);
+    }
     /* Publish that cleanup no longer owns an active VMX root. */
     InterlockedExchange(&context->VmxActive, 0L);
     /* Restore the launcher's exact pre-VMX control-register state. */
