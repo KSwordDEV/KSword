@@ -115,5 +115,57 @@ KswordARKBugcheckGuardIoctlConfigure(
     _In_ size_t OutputBufferLength,
     _Out_ size_t* BytesReturned
     );
+
+// Bugcheck Shield is a PatchGuard-safe buffer backend. Unlike the guard, it
+// never patches KeBugCheckEx and never writes any private ntoskrnl state; it
+// only registers up to four documented BugCheck reason callbacks and stalls
+// each callback for a configurable, bounded window. Enabling and disabling
+// stay fully R3-controlled, and DriverEntry only prepares the synchronization
+// primitives — nothing observable happens until an IOCTL explicitly enables it.
+VOID
+KswordARKBugcheckShieldInitialize(
+    VOID
+    );
+
+VOID
+KswordARKBugcheckShieldUninitialize(
+    VOID
+    );
+
+NTSTATUS
+KswordARKBugcheckShieldIoctlConfigure(
+    _In_ WDFDEVICE Device,
+    _In_ WDFREQUEST Request,
+    _In_ size_t InputBufferLength,
+    _In_ size_t OutputBufferLength,
+    _Out_ size_t* BytesReturned
+    );
+
+// Anti-BSOD reference implementation. Behaviorally reproduces the algorithm
+// documented in the Disable-PatchGuard-BSOD.sys IDA analysis. The compile
+// flag KSWORD_ARK_ANTIBSOD_REFERENCE_ENABLED gates the entire module and
+// is OFF by default; when off, every entry point below is a no-op that
+// returns STATUS_NOT_SUPPORTED. When on, the module still ships with an
+// empty signature table so Install fails closed unless the operator adds
+// build-specific ntoskrnl patterns manually. This is deliberate: publishing
+// runnable private-slot signatures is outside the KSword scope.
+VOID
+KswordARKAntiBsodInitialize(
+    VOID
+    );
+
+VOID
+KswordARKAntiBsodUninitialize(
+    VOID
+    );
+
+NTSTATUS
+KswordARKAntiBsodIoctlConfigure(
+    _In_ WDFDEVICE Device,
+    _In_ WDFREQUEST Request,
+    _In_ size_t InputBufferLength,
+    _In_ size_t OutputBufferLength,
+    _Out_ size_t* BytesReturned
+    );
 EXTERN_C_END
 

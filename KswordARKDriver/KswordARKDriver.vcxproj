@@ -152,6 +152,8 @@
     <ClCompile Include="src\features\bugcheck\bugcheck_svga.c" />
     <ClCompile Include="src\features\bugcheck\bugcheck_ioctl.c" />
     <ClCompile Include="src\features\bugcheck\bugcheck_guard.c" />
+    <ClCompile Include="src\features\bugcheck\bugcheck_shield.c" />
+    <ClCompile Include="src\features\bugcheck\bugcheck_antibsod.c" />
     <ClCompile Include="src\features\process\process_actions.c" />
     <ClCompile Include="src\features\process\process_crossview.c" />
     <ClCompile Include="src\features\process\process_detail.c" />

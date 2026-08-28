@@ -788,6 +788,12 @@
     <ClCompile Include="src\features\bugcheck\bugcheck_guard.c">
       <Filter>Source Files\Features\Bugcheck</Filter>
     </ClCompile>
+    <ClCompile Include="src\features\bugcheck\bugcheck_shield.c">
+      <Filter>Source Files\Features\Bugcheck</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\bugcheck\bugcheck_antibsod.c">
+      <Filter>Source Files\Features\Bugcheck</Filter>
+    </ClCompile>
     <ClCompile Include="src\features\process\process_actions.c">
       <Filter>Source Files\Features</Filter>
     </ClCompile>
