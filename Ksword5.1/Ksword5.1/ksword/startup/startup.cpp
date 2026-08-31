@@ -6986,20 +6986,51 @@ namespace ks::startup
 
     std::vector<StartupEntry> EnumerateAllStartupEntries()
     {
+        return EnumerateAllStartupEntries(
+            StartupEnumerationProgressCallback{},
+            StartupEnumerationStageResultCallback{});
+    }
+
+    std::vector<StartupEntry> EnumerateAllStartupEntries(
+        const StartupEnumerationProgressCallback& progressCallback)
+    {
+        return EnumerateAllStartupEntries(
+            progressCallback,
+            StartupEnumerationStageResultCallback{});
+    }
+
+    std::vector<StartupEntry> EnumerateAllStartupEntries(
+        const StartupEnumerationProgressCallback& progressCallback,
+        const StartupEnumerationStageResultCallback& stageResultCallback)
+    {
         std::vector<StartupEntry> entries;
-        auto append = [&entries](std::vector<StartupEntry> part) {
+        constexpr std::size_t stageCount = 9U;
+        auto append = [&entries, &progressCallback, &stageResultCallback, stageCount](
+            const StartupEnumerationStage stage,
+            const std::size_t stageIndex,
+            auto&& enumerateStage)
+        {
+            if (progressCallback)
+            {
+                progressCallback(stage, stageIndex, stageCount);
+            }
+            std::vector<StartupEntry> part = enumerateStage();
+            if (stageResultCallback)
+            {
+                stageResultCallback(stage, stageIndex, stageCount, part);
+            }
             entries.insert(entries.end(), std::make_move_iterator(part.begin()), std::make_move_iterator(part.end()));
         };
-        append(EnumerateLogonEntries());
-        append(EnumerateServiceEntries());
-        append(EnumerateDriverEntries());
-        append(EnumerateTaskEntries());
-        append(EnumerateImageHijackEntries());
-        append(EnumerateAdvancedRegistryEntries());
-        append(EnumerateWinsockEntries());
-        append(EnumerateWmiEntries());
+        append(StartupEnumerationStage::Logon, 0U, []() { return EnumerateLogonEntries(); });
+        append(StartupEnumerationStage::Services, 1U, []() { return EnumerateServiceEntries(); });
+        append(StartupEnumerationStage::Drivers, 2U, []() { return EnumerateDriverEntries(); });
+        append(StartupEnumerationStage::Tasks, 3U, []() { return EnumerateTaskEntries(); });
+        append(StartupEnumerationStage::ImageHijack, 4U, []() { return EnumerateImageHijackEntries(); });
+        append(StartupEnumerationStage::AdvancedRegistry, 5U, []() { return EnumerateAdvancedRegistryEntries(); });
+        append(StartupEnumerationStage::Winsock, 6U, []() { return EnumerateWinsockEntries(); });
+        append(StartupEnumerationStage::Wmi, 7U, []() { return EnumerateWmiEntries(); });
         // Hidden findings run last: they cross-check the same objects the enumerators above walked.
-        append(EnumerateHiddenEntries());
+        append(StartupEnumerationStage::Hidden, 8U, []() { return EnumerateHiddenEntries(); });
         return entries;
     }
 

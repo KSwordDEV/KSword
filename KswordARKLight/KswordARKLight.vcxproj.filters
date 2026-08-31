@@ -94,6 +94,9 @@
     <Filter Include="ksword">
       <UniqueIdentifier>{2970CB71-A7F5-55F3-930D-EDC176831B4F}</UniqueIdentifier>
     </Filter>
+    <Filter Include="ksword\file">
+      <UniqueIdentifier>{37D614DE-9801-5D38-AE41-78C337A5B6F3}</UniqueIdentifier>
+    </Filter>
     <Filter Include="ksword\string">
       <UniqueIdentifier>{11B7D9D1-747D-5D13-A410-986B80A3FFA3}</UniqueIdentifier>
     </Filter>
@@ -116,7 +119,13 @@
     <ClCompile Include="Core\Common.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="Core\DriverLease.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
     <ClCompile Include="Core\DriverService.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Core\EntityRef.cpp">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="Core\NtApi.cpp">
@@ -126,6 +135,9 @@
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="Core\Privilege.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Core\WorkspaceConfig.cpp">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="Docking\DockManager.cpp">
@@ -302,6 +314,15 @@
     <ClCompile Include="Features\Memory\MemoryFeature.cpp">
       <Filter>Features\Memory</Filter>
     </ClCompile>
+    <ClCompile Include="Features\Memory\MemorySnapshot.cpp">
+      <Filter>Features\Memory</Filter>
+    </ClCompile>
+    <ClCompile Include="Features\Memory\MemoryInspection.cpp">
+      <Filter>Features\Memory</Filter>
+    </ClCompile>
+    <ClCompile Include="Features\Memory\MemoryWritePlan.cpp">
+      <Filter>Features\Memory</Filter>
+    </ClCompile>
     <ClCompile Include="Features\Misc\MiscFeature.cpp">
       <Filter>Features\Misc</Filter>
     </ClCompile>
@@ -335,6 +356,9 @@
     <ClCompile Include="Features\Process\ProcessActions.cpp">
       <Filter>Features\Process</Filter>
     </ClCompile>
+    <ClCompile Include="Features\Process\ProcessColumns.cpp">
+      <Filter>Features\Process</Filter>
+    </ClCompile>
     <ClCompile Include="Features\Process\ProcessEnumerator.cpp">
       <Filter>Features\Process</Filter>
     </ClCompile>
@@ -354,6 +378,12 @@
       <Filter>Features\Registry</Filter>
     </ClCompile>
     <ClCompile Include="Features\Registry\RegistryModel.cpp">
+      <Filter>Features\Registry</Filter>
+    </ClCompile>
+    <ClCompile Include="Features\Registry\RegistrySearchModel.cpp">
+      <Filter>Features\Registry</Filter>
+    </ClCompile>
+    <ClCompile Include="Features\Registry\RegistrySearchView.cpp">
       <Filter>Features\Registry</Filter>
     </ClCompile>
     <ClCompile Include="Features\Registry\RegistryView.cpp">
@@ -387,9 +417,6 @@
     <ClCompile Include="Features\HardwareStats\DiskActivityView.cpp">
       <Filter>Features\HardwareStats</Filter>
     </ClCompile>
-    <ClCompile Include="Features\HardwareStats\HardwareStatsFeature.cpp">
-      <Filter>Features\HardwareStats</Filter>
-    </ClCompile>
     <ClCompile Include="Features\HardwareStats\HardwareStatsModel.cpp">
       <Filter>Features\HardwareStats</Filter>
     </ClCompile>
@@ -420,6 +447,12 @@
     <ClCompile Include="Features\SysTools\FileHolderView.cpp">
       <Filter>Features\SysTools</Filter>
     </ClCompile>
+    <ClCompile Include="Features\SysTools\IoctlDecoder.cpp">
+      <Filter>Features\SysTools</Filter>
+    </ClCompile>
+    <ClCompile Include="Features\SysTools\IoctlDecoderView.cpp">
+      <Filter>Features\SysTools</Filter>
+    </ClCompile>
     <ClCompile Include="Features\SysTools\SysToolsFeature.cpp">
       <Filter>Features\SysTools</Filter>
     </ClCompile>
@@ -436,9 +469,6 @@
       <Filter>Features\WindowTools</Filter>
     </ClCompile>
     <ClCompile Include="Features\WindowTools\WindowToolsCommon.cpp">
-      <Filter>Features\WindowTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\WindowTools\WindowToolsFeature.cpp">
       <Filter>Features\WindowTools</Filter>
     </ClCompile>
     <ClCompile Include="Features\WindowTools\WindowToolsHierarchyView.cpp">
@@ -460,9 +490,6 @@
       <Filter>Features\NetTools</Filter>
     </ClCompile>
     <ClCompile Include="Features\NetTools\NetToolsEnumerator.cpp">
-      <Filter>Features\NetTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\NetTools\NetToolsFeature.cpp">
       <Filter>Features\NetTools</Filter>
     </ClCompile>
     <ClCompile Include="Features\NetTools\NetToolsFirewallView.cpp">
@@ -528,10 +555,25 @@
     <ClCompile Include="Features\Window\WindowModel.cpp">
       <Filter>Features\Window</Filter>
     </ClCompile>
+    <ClCompile Include="Features\Window\Win32kTimerEvidenceModel.cpp">
+      <Filter>Features\Window</Filter>
+    </ClCompile>
     <ClCompile Include="Features\Window\WindowView.cpp">
       <Filter>Features\Window</Filter>
     </ClCompile>
     <ClCompile Include="Ui\Controls.cpp">
+      <Filter>Ui</Filter>
+    </ClCompile>
+    <ClCompile Include="Ui\EntityNavigation.cpp">
+      <Filter>Ui</Filter>
+    </ClCompile>
+    <ClCompile Include="Ui\EvidenceSession.cpp">
+      <Filter>Ui</Filter>
+    </ClCompile>
+    <ClCompile Include="Ui\EvidenceSessionView.cpp">
+      <Filter>Ui</Filter>
+    </ClCompile>
+    <ClCompile Include="Ui\ExportUtil.cpp">
       <Filter>Ui</Filter>
     </ClCompile>
     <ClCompile Include="Ui\FilterBar.cpp">
@@ -573,6 +615,9 @@
     <ClCompile Include="Ui\VirtualListView.cpp">
       <Filter>Ui</Filter>
     </ClCompile>
+    <ClCompile Include="Ui\WorkspaceHost.cpp">
+      <Filter>Ui</Filter>
+    </ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverAlpc.cpp">
       <Filter>ArkDriverClient</Filter>
     </ClCompile>
@@ -610,9 +655,6 @@
       <Filter>ArkDriverClient</Filter>
     </ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverWorkQueue.cpp">
-      <Filter>ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkStorageControllerClient.cpp">
       <Filter>ArkDriverClient</Filter>
     </ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCallback.cpp">
@@ -678,6 +720,9 @@
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverSection.cpp">
       <Filter>ArkDriverClient</Filter>
     </ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.cpp">
+      <Filter>ksword\file</Filter>
+    </ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\process\process.cpp">
       <Filter>ksword\process</Filter>
     </ClCompile>
@@ -692,7 +737,16 @@
     <ClInclude Include="Core\Common.h">
       <Filter>Core</Filter>
     </ClInclude>
+    <ClInclude Include="Core\DriverLease.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Core\DriverLeasePolicy.h">
+      <Filter>Core</Filter>
+    </ClInclude>
     <ClInclude Include="Core\DriverService.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Core\EntityRef.h">
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="Core\NtApi.h">
@@ -705,6 +759,9 @@
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="Core\Win32Lean.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Core\WorkspaceConfig.h">
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="Docking\DockManager.h">
@@ -884,6 +941,15 @@
     <ClInclude Include="Features\Memory\MemoryFeature.h">
       <Filter>Features\Memory</Filter>
     </ClInclude>
+    <ClInclude Include="Features\Memory\MemorySnapshot.h">
+      <Filter>Features\Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="Features\Memory\MemoryInspection.h">
+      <Filter>Features\Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="Features\Memory\MemoryWritePlan.h">
+      <Filter>Features\Memory</Filter>
+    </ClInclude>
     <ClInclude Include="Features\Misc\MiscFeature.h">
       <Filter>Features\Misc</Filter>
     </ClInclude>
@@ -929,6 +995,9 @@
     <ClInclude Include="Features\Process\ProcessView.h">
       <Filter>Features\Process</Filter>
     </ClInclude>
+    <ClInclude Include="Features\Process\ProcessColumns.h">
+      <Filter>Features\Process</Filter>
+    </ClInclude>
     <ClInclude Include="Features\Registry\RegistryActions.h">
       <Filter>Features\Registry</Filter>
     </ClInclude>
@@ -936,6 +1005,12 @@
       <Filter>Features\Registry</Filter>
     </ClInclude>
     <ClInclude Include="Features\Registry\RegistryModel.h">
+      <Filter>Features\Registry</Filter>
+    </ClInclude>
+    <ClInclude Include="Features\Registry\RegistrySearchModel.h">
+      <Filter>Features\Registry</Filter>
+    </ClInclude>
+    <ClInclude Include="Features\Registry\RegistrySearchView.h">
       <Filter>Features\Registry</Filter>
     </ClInclude>
     <ClInclude Include="Features\Registry\RegistryView.h">
@@ -963,9 +1038,6 @@
       <Filter>Features\HardwareStats</Filter>
     </ClInclude>
     <ClInclude Include="Features\HardwareStats\DiskActivityView.h">
-      <Filter>Features\HardwareStats</Filter>
-    </ClInclude>
-    <ClInclude Include="Features\HardwareStats\HardwareStatsFeature.h">
       <Filter>Features\HardwareStats</Filter>
     </ClInclude>
     <ClInclude Include="Features\HardwareStats\HardwareStatsModel.h">
@@ -998,6 +1070,12 @@
     <ClInclude Include="Features\SysTools\FileHolderView.h">
       <Filter>Features\SysTools</Filter>
     </ClInclude>
+    <ClInclude Include="Features\SysTools\IoctlDecoder.h">
+      <Filter>Features\SysTools</Filter>
+    </ClInclude>
+    <ClInclude Include="Features\SysTools\IoctlDecoderView.h">
+      <Filter>Features\SysTools</Filter>
+    </ClInclude>
     <ClInclude Include="Features\SysTools\SysToolsFeature.h">
       <Filter>Features\SysTools</Filter>
     </ClInclude>
@@ -1014,9 +1092,6 @@
       <Filter>Features\WindowTools</Filter>
     </ClInclude>
     <ClInclude Include="Features\WindowTools\WindowToolsCommon.h">
-      <Filter>Features\WindowTools</Filter>
-    </ClInclude>
-    <ClInclude Include="Features\WindowTools\WindowToolsFeature.h">
       <Filter>Features\WindowTools</Filter>
     </ClInclude>
     <ClInclude Include="Features\WindowTools\WindowToolsHierarchyView.h">
@@ -1038,9 +1113,6 @@
       <Filter>Features\NetTools</Filter>
     </ClInclude>
     <ClInclude Include="Features\NetTools\NetToolsEnumerator.h">
-      <Filter>Features\NetTools</Filter>
-    </ClInclude>
-    <ClInclude Include="Features\NetTools\NetToolsFeature.h">
       <Filter>Features\NetTools</Filter>
     </ClInclude>
     <ClInclude Include="Features\NetTools\NetToolsFirewallView.h">
@@ -1106,6 +1178,9 @@
     <ClInclude Include="Features\Window\WindowModel.h">
       <Filter>Features\Window</Filter>
     </ClInclude>
+    <ClInclude Include="Features\Window\Win32kTimerEvidenceModel.h">
+      <Filter>Features\Window</Filter>
+    </ClInclude>
     <ClInclude Include="Features\Window\WindowView.h">
       <Filter>Features\Window</Filter>
     </ClInclude>
@@ -1113,6 +1188,18 @@
       <Filter>Resources</Filter>
     </ClInclude>
     <ClInclude Include="Ui\Controls.h">
+      <Filter>Ui</Filter>
+    </ClInclude>
+    <ClInclude Include="Ui\EntityNavigation.h">
+      <Filter>Ui</Filter>
+    </ClInclude>
+    <ClInclude Include="Ui\EvidenceSession.h">
+      <Filter>Ui</Filter>
+    </ClInclude>
+    <ClInclude Include="Ui\EvidenceSessionView.h">
+      <Filter>Ui</Filter>
+    </ClInclude>
+    <ClInclude Include="Ui\ExportUtil.h">
       <Filter>Ui</Filter>
     </ClInclude>
     <ClInclude Include="Ui\AsyncTask.h">
@@ -1160,6 +1247,9 @@
     <ClInclude Include="Ui\VirtualListView.h">
       <Filter>Ui</Filter>
     </ClInclude>
+    <ClInclude Include="Ui\WorkspaceHost.h">
+      <Filter>Ui</Filter>
+    </ClInclude>
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCapabilities.h">
       <Filter>ArkDriverClient</Filter>
     </ClInclude>
@@ -1178,6 +1268,9 @@
     <None Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkRuntimeDynDataCatalog.inc">
       <Filter>ArkDriverClient</Filter>
     </None>
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.h">
+      <Filter>ksword\file</Filter>
+    </ClInclude>
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\process\process.h">
       <Filter>ksword\process</Filter>
     </ClInclude>

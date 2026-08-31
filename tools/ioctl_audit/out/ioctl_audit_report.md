@@ -272,16 +272,13 @@
     "TRANSLATE",
     "STATUS"
   ],
-  "ignoredHeaders": [
-    "KswordArkStorageControllerIoctl.h",
-    "shared/driver/KswordArkStorageControllerIoctl.h"
-  ],
+  "ignoredHeaders": [],
   "notes": {
     "purpose": "Policy file for the KswordARKDriver IOCTL static auditor.",
     "allowedAnyAccess": "Add a full IOCTL_KSWORD_ARK_* name here only when FILE_ANY_ACCESS is intentional and documented.",
     "mutatingKeywords": "Tokens that usually indicate state-changing or destructive operations and should not stay FILE_ANY_ACCESS by default.",
     "queryKeywords": "Tokens that usually indicate read-only/query operations and should not require FILE_WRITE_ACCESS unless there is a documented reason.",
-    "ignoredHeaders": "Use repository-relative paths or basenames for protocols owned by a different driver project; the storage-controller protocol is dispatched by KswordARKControllerDriver."
+    "ignoredHeaders": "Use repository-relative paths or basenames for protocols owned by a different driver project."
   }
 }
 ```

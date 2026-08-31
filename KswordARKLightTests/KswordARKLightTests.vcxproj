@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{60B23DC2-13B0-45E2-8C2B-35E9F76F6470}</ProjectGuid>
+    <RootNamespace>KswordARKLightTests</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Platform)'=='x64'">
+    <OutDir>$(MSBuildProjectDirectory)\x64\$(Configuration)\</OutDir>
+    <IntDir>$(MSBuildProjectDirectory)\x64\$(Configuration)\obj\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;NOMINMAX;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link><SubSystem>Console</SubSystem></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="KswordARKLightTests.cpp" />
+    <ClCompile Include="..\KswordARKLight\Core\EntityRef.cpp" />
+    <ClCompile Include="..\KswordARKLight\Core\WorkspaceConfig.cpp" />
+    <ClCompile Include="..\KswordARKLight\Features\File\PathNavigator.cpp" />
+    <ClCompile Include="..\KswordARKLight\Features\Monitor\EtwEventModel.cpp" />
+    <ClCompile Include="..\KswordARKLight\Features\Registry\RegistrySearchModel.cpp" />
+    <ClCompile Include="..\KswordARKLight\Features\SysTools\IoctlDecoder.cpp" />
+    <ClCompile Include="..\KswordARKLight\Features\Window\Win32kTimerEvidenceModel.cpp" />
+    <ClCompile Include="..\KswordARKLight\Features\Memory\MemorySnapshot.cpp" />
+    <ClCompile Include="..\KswordARKLight\Features\Memory\MemoryInspection.cpp" />
+    <ClCompile Include="..\KswordARKLight\Features\Memory\MemoryWritePlan.cpp" />
+    <ClCompile Include="..\KswordARKLight\Ui\EvidenceSession.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\KswordARKLight\Core\DriverLeasePolicy.h" />
+    <ClInclude Include="..\KswordARKLight\Core\EntityRef.h" />
+    <ClInclude Include="..\KswordARKLight\Core\WorkspaceConfig.h" />
+    <ClInclude Include="..\KswordARKLight\Features\File\PathNavigator.h" />
+    <ClInclude Include="..\KswordARKLight\Features\Monitor\EtwEventModel.h" />
+    <ClInclude Include="..\KswordARKLight\Features\Registry\RegistrySearchModel.h" />
+    <ClInclude Include="..\KswordARKLight\Features\SysTools\IoctlDecoder.h" />
+    <ClInclude Include="..\KswordARKLight\Features\Window\Win32kTimerEvidenceModel.h" />
+    <ClInclude Include="..\KswordARKLight\Features\Memory\MemorySnapshot.h" />
+    <ClInclude Include="..\KswordARKLight\Features\Memory\MemoryInspection.h" />
+    <ClInclude Include="..\KswordARKLight\Features\Memory\MemoryWritePlan.h" />
+    <ClInclude Include="..\KswordARKLight\Ui\EvidenceSession.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

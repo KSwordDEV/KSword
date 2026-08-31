@@ -10,4 +10,10 @@ namespace Ksword::Features::Memory {
 // failure.
 HWND CreateDriverMemoryView(HWND parent, const RECT& bounds);
 
+// RequestDriverMemoryViewProcess selects a process as the next read/write
+// target without issuing any driver request. It clears the stale editable
+// buffer, restores neutral address/length inputs and focuses the address field
+// so the user must explicitly choose the range and start a read.
+bool RequestDriverMemoryViewProcess(HWND page, DWORD processId);
+
 } // namespace Ksword::Features::Memory

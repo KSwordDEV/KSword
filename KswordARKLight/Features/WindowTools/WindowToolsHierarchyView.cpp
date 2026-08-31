@@ -1,8 +1,11 @@
 #include "WindowToolsHierarchyView.h"
 
 #include "WindowToolsCommon.h"
+#include "../../Core/EntityRef.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/EntityNavigation.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
@@ -23,17 +26,20 @@ namespace Ksword::Features::WindowTools {
 namespace {
 
 constexpr wchar_t kHierarchyViewClass[] = L"KswordARKLight.WindowTools.HierarchyView";
+constexpr wchar_t kHierarchyReportViewClass[] = L"KswordARKLight.WindowTools.HierarchyReportView";
 
 constexpr int kRefreshButtonId = 67201;
 constexpr int kFilterBarId = 67202;
 constexpr int kWindowListId = 67203;
 constexpr int kReportEditId = 67204;
 constexpr int kLoadingOverlayId = 67205;
+constexpr int kExportButtonId = 67206;
 
 constexpr UINT kMenuCopyReport = 67641;
 constexpr UINT kMenuCopyRow = 67642;
 constexpr UINT kMenuCopyVisible = 67643;
 constexpr UINT kMenuRefresh = 67644;
+constexpr UINT kMenuOpenProcess = 67645;
 
 constexpr UINT kMsgRefreshCompleted = WM_APP + 675;
 constexpr UINT kMsgFilterCompleted = WM_APP + 676;
@@ -49,6 +55,11 @@ constexpr int kColumnCount = 5;
 // a new parent means the tree changed under the walk, and a bound is the only
 // way to leave that loop.
 constexpr int kAncestorChainLimit = 32;
+constexpr DWORD kDwmwaExtendedFrameBounds = 9;
+constexpr DWORD kDwmwaCloaked = 14;
+constexpr DWORD kDwmCloakedApp = 0x00000001;
+constexpr DWORD kDwmCloakedShell = 0x00000002;
+constexpr DWORD kDwmCloakedInherited = 0x00000004;
 
 int Width(const RECT& rc) {
     return rc.right > rc.left ? static_cast<int>(rc.right - rc.left) : 0;
@@ -69,6 +80,7 @@ struct HierarchyFilterResult final {
 struct HierarchyViewState final {
     HWND hwnd = nullptr;
     HWND refreshButton = nullptr;
+    HWND exportButton = nullptr;
     HWND filterBar = nullptr;
     HWND reportEdit = nullptr;
     HWND loadingOverlay = nullptr;
@@ -103,6 +115,15 @@ struct DpiApi final {
     AreDpiAwarenessContextsEqualFn contextsEqual = nullptr;
 };
 
+// DwmApi is deliberately resolved at runtime. DwmGetWindowAttribute is useful
+// evidence when it exists, but this diagnostic field must not add a load-time
+// dwmapi dependency or narrow the systems on which Lite starts.
+struct DwmApi final {
+    using GetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, PVOID, DWORD);
+
+    GetWindowAttributeFn getWindowAttribute = nullptr;
+};
+
 const DpiApi& LoadDpiApi() {
     static const DpiApi api = [] {
         DpiApi loaded{};
@@ -120,6 +141,22 @@ const DpiApi& LoadDpiApi() {
             reinterpret_cast<DpiApi::GetDpiFromDpiAwarenessContextFn>(::GetProcAddress(user32, "GetDpiFromDpiAwarenessContext"));
         loaded.contextsEqual =
             reinterpret_cast<DpiApi::AreDpiAwarenessContextsEqualFn>(::GetProcAddress(user32, "AreDpiAwarenessContextsEqual"));
+        return loaded;
+    }();
+    return api;
+}
+
+const DwmApi& LoadDwmApi() {
+    static const DwmApi api = [] {
+        DwmApi loaded{};
+        HMODULE module = ::GetModuleHandleW(L"dwmapi.dll");
+        if (!module) {
+            module = ::LoadLibraryW(L"dwmapi.dll");
+        }
+        if (module) {
+            loaded.getWindowAttribute = reinterpret_cast<DwmApi::GetWindowAttributeFn>(
+                ::GetProcAddress(module, "DwmGetWindowAttribute"));
+        }
         return loaded;
     }();
     return api;
@@ -380,6 +417,113 @@ void AppendDpi(std::wstring& text, HWND hwnd) {
     }
 }
 
+std::wstring CloakStateText(const DWORD flags) {
+    if (flags == 0) {
+        return L"未 Cloak";
+    }
+    std::vector<std::wstring> sources;
+    if ((flags & kDwmCloakedApp) != 0) {
+        sources.push_back(L"应用");
+    }
+    if ((flags & kDwmCloakedShell) != 0) {
+        sources.push_back(L"Shell");
+    }
+    if ((flags & kDwmCloakedInherited) != 0) {
+        sources.push_back(L"继承");
+    }
+    std::wstring text = L"已 Cloak " + HexText(flags, 8);
+    if (!sources.empty()) {
+        text += L"（";
+        for (std::size_t index = 0; index < sources.size(); ++index) {
+            if (index != 0) {
+                text += L" / ";
+            }
+            text += sources[index];
+        }
+        text += L"）";
+    }
+    return text;
+}
+
+std::wstring HresultText(const HRESULT status) {
+    return HexText(static_cast<std::uint32_t>(status), 8);
+}
+
+std::wstring LayeredFlagsText(const DWORD flags) {
+    std::wstring text = HexText(flags, 8);
+    std::vector<std::wstring> names;
+    if ((flags & LWA_ALPHA) != 0) {
+        names.push_back(L"LWA_ALPHA");
+    }
+    if ((flags & LWA_COLORKEY) != 0) {
+        names.push_back(L"LWA_COLORKEY");
+    }
+    if (!names.empty()) {
+        text += L"（";
+        for (std::size_t index = 0; index < names.size(); ++index) {
+            if (index != 0) {
+                text += L" / ";
+            }
+            text += names[index];
+        }
+        text += L"）";
+    }
+    return text;
+}
+
+// AppendCompositionState adds a small, explicit read-only composition block to
+// the per-window report. Each query is independent so an unsupported DWM field
+// never hides the documented User32 evidence or turns into a page-level error.
+void AppendCompositionState(std::wstring& text, HWND hwnd) {
+    AppendSection(text, L"合成与分层状态（只读）");
+
+    const DwmApi& dwm = LoadDwmApi();
+    if (!dwm.getWindowAttribute) {
+        AppendField(text, L"DwmGetWindowAttribute", L"Unsupported（dwmapi.dll 或入口不可用）");
+    } else {
+        DWORD cloaked = 0;
+        const HRESULT cloakStatus = dwm.getWindowAttribute(hwnd, kDwmwaCloaked, &cloaked, sizeof(cloaked));
+        AppendField(text, L"DWMWA_CLOAKED", SUCCEEDED(cloakStatus)
+            ? CloakStateText(cloaked)
+            : L"Partial（HRESULT " + HresultText(cloakStatus) + L"）");
+
+        RECT extendedFrame{};
+        const HRESULT frameStatus = dwm.getWindowAttribute(
+            hwnd, kDwmwaExtendedFrameBounds, &extendedFrame, sizeof(extendedFrame));
+        AppendField(text, L"DWMWA_EXTENDED_FRAME_BOUNDS", SUCCEEDED(frameStatus)
+            ? RectText(extendedFrame)
+            : L"Partial（HRESULT " + HresultText(frameStatus) + L"）");
+    }
+
+    DWORD affinity = WDA_NONE;
+    ::SetLastError(ERROR_SUCCESS);
+    if (::GetWindowDisplayAffinity(hwnd, &affinity)) {
+        AppendField(text, L"GetWindowDisplayAffinity", DisplayAffinityText(affinity, true));
+    } else {
+        AppendField(text, L"GetWindowDisplayAffinity",
+            L"Partial（Win32=" + std::to_wstring(::GetLastError()) + L"）");
+    }
+
+    const DWORD exStyle = static_cast<DWORD>(::GetWindowLongPtrW(hwnd, GWL_EXSTYLE));
+    if ((exStyle & WS_EX_LAYERED) == 0) {
+        AppendField(text, L"GetLayeredWindowAttributes", L"不适用（未设置 WS_EX_LAYERED）");
+    } else {
+        COLORREF colorKey = 0;
+        BYTE alpha = 0;
+        DWORD flags = 0;
+        ::SetLastError(ERROR_SUCCESS);
+        if (::GetLayeredWindowAttributes(hwnd, &colorKey, &alpha, &flags)) {
+            AppendField(text, L"GetLayeredWindowAttributes",
+                L"Alpha=" + std::to_wstring(alpha) +
+                L"  ColorKey=" + HexText(colorKey, 8) +
+                L"  Flags=" + LayeredFlagsText(flags));
+        } else {
+            AppendField(text, L"GetLayeredWindowAttributes",
+                L"Partial（Win32=" + std::to_wstring(::GetLastError()) + L"）");
+        }
+    }
+}
+
 std::wstring BuildHierarchyReport(HWND hwnd) {
     if (!hwnd) {
         return L"在左侧选择一个窗口，这里会显示它的祖先链、Z 序、样式位、类信息、几何与 DPI 感知上下文。";
@@ -396,6 +540,7 @@ std::wstring BuildHierarchyReport(HWND hwnd) {
     AppendClassInfo(text, hwnd);
     AppendGeometry(text, hwnd);
     AppendDpi(text, hwnd);
+    AppendCompositionState(text, hwnd);
     return text;
 }
 
@@ -421,6 +566,36 @@ void ShowReportForSelection(HierarchyViewState& state) {
     }
     const std::wstring report = BuildHierarchyReport(SelectedWindowHandle(state));
     ::SetWindowTextW(state.reportEdit, report.c_str());
+}
+
+// SelectRowAtPoint makes row commands act on the window under the pointer,
+// instead of retaining a selection that belongs to a different HWND.
+void SelectRowAtPoint(HierarchyViewState& state, const POINT screenPoint) {
+    const HWND list = state.windowList.hwnd();
+    if (!list) {
+        return;
+    }
+    POINT clientPoint = screenPoint;
+    ::ScreenToClient(list, &clientPoint);
+    LVHITTESTINFO hit{};
+    hit.pt = clientPoint;
+    const int clickedItem = ListView_SubItemHitTest(list, &hit);
+    ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    if (clickedItem >= 0 && static_cast<std::size_t>(clickedItem) < state.windowList.visibleIndexes().size()) {
+        ListView_SetItemState(list, clickedItem, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    }
+    ShowReportForSelection(state);
+}
+
+// CurrentProcessIdForWindow re-reads the owner from the live HWND. A snapshot
+// PID is deliberately not used because a window can close or be recycled while
+// the diagnostics page is open.
+DWORD CurrentProcessIdForWindow(const HWND hwnd) {
+    if (!hwnd || !::IsWindow(hwnd)) {
+        return 0;
+    }
+    DWORD processId = 0;
+    return ::GetWindowThreadProcessId(hwnd, &processId) != 0U ? processId : 0U;
 }
 
 std::wstring StableKeyFromListItem(const HierarchyViewState& state, const int item) {
@@ -562,20 +737,67 @@ std::wstring ReportText(const HierarchyViewState& state) {
     if (length <= 0) {
         return {};
     }
-    std::wstring text(static_cast<std::size_t>(length), L'\0');
-    ::GetWindowTextW(state.reportEdit, text.data(), length + 1);
+    std::wstring text(static_cast<std::size_t>(length) + 1U, L'\0');
+    const int copied = ::GetWindowTextW(state.reportEdit, text.data(), length + 1);
+    text.resize(copied > 0 ? static_cast<std::size_t>(copied) : 0U);
     return text;
 }
 
+void ExportVisibleRows(HierarchyViewState& state) {
+    const std::wstring text = Ksword::Ui::BuildVisibleVirtualListTsv(
+        { L"窗口句柄", L"标题", L"类名", L"PID", L"进程" }, state.windowList);
+    if (text.empty()) {
+        state.statusText = L"没有可导出的可见结果。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+    std::wstring error;
+    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(state.hwnd, L"window_hierarchy.tsv", L"导出窗口层级诊断",
+        L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0", L"tsv", text, &error)) {
+    case Ksword::Ui::SaveTextFileResult::Saved: state.statusText = L"窗口层级可见结果已导出。"; break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled: state.statusText = L"已取消导出窗口层级结果。"; break;
+    case Ksword::Ui::SaveTextFileResult::Failed: state.statusText = L"导出窗口层级结果失败：" + error; break;
+    }
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
+// OpenSelectedWindowProcess routes only the current owner PID observed from a
+// live HWND. The process page resolves that PID again before it opens details.
+void OpenSelectedWindowProcess(HierarchyViewState& state) {
+    const HWND hwnd = SelectedWindowHandle(state);
+    const DWORD processId = CurrentProcessIdForWindow(hwnd);
+    if (processId == 0U) {
+        state.statusText = L"所选窗口已关闭或无法读取当前所属 PID。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::ProcessDetails;
+    request.entity.kind = Ksword::Core::EntityKind::Process;
+    request.entity.id = processId;
+    state.statusText = Ksword::Ui::RequestEntityNavigation(state.hwnd, request)
+        ? L"已请求打开当前窗口所属 PID " + std::to_wstring(processId) +
+            L" 的进程详细信息；目标页会重新确认当前进程实例。"
+        : L"无法导航到当前窗口所属的进程实例。";
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
 void ShowContextMenu(HierarchyViewState& state, const POINT screenPoint) {
+    SelectRowAtPoint(state, screenPoint);
     HMENU menu = ::CreatePopupMenu();
     if (!menu) {
         return;
     }
-    const bool hasSelection = SelectedWindowHandle(state) != nullptr;
+    const HWND selectedWindow = SelectedWindowHandle(state);
+    const bool hasSelection = selectedWindow != nullptr;
+    const bool hasCurrentProcess = CurrentProcessIdForWindow(selectedWindow) != 0U;
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? MF_ENABLED : MF_GRAYED), kMenuCopyReport, L"复制诊断报告");
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? MF_ENABLED : MF_GRAYED), kMenuCopyRow, L"复制选中行");
     ::AppendMenuW(menu, MF_STRING, kMenuCopyVisible, L"复制可见行");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, MF_STRING | (hasCurrentProcess ? MF_ENABLED : MF_GRAYED),
+        kMenuOpenProcess, L"查看当前窗口所属进程的详细信息");
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(menu, MF_STRING, kMenuRefresh, L"刷新");
 
@@ -595,6 +817,9 @@ void ShowContextMenu(HierarchyViewState& state, const POINT screenPoint) {
         state.statusText = CopyTextToClipboard(state.hwnd, RowsAsTsv(state.windowList, true, kColumnCount))
             ? L"已复制可见行。" : L"复制失败。";
         break;
+    case kMenuOpenProcess:
+        OpenSelectedWindowProcess(state);
+        return;
     case kMenuRefresh:
         BeginRefresh(state);
         return;
@@ -610,8 +835,13 @@ void LayoutView(HierarchyViewState& state) {
     const int width = Width(client);
     const int height = Height(client);
 
+    int cursorX = kGap;
     if (state.refreshButton) {
-        ::MoveWindow(state.refreshButton, kGap, kGap, 64, kRowHeight, TRUE);
+        ::MoveWindow(state.refreshButton, cursorX, kGap, 64, kRowHeight, TRUE);
+    }
+    cursorX += 64 + kGap;
+    if (state.exportButton) {
+        ::MoveWindow(state.exportButton, cursorX, kGap, 78, kRowHeight, TRUE);
     }
     const int secondRowY = kGap * 2 + kRowHeight;
     if (state.filterBar) {
@@ -637,8 +867,9 @@ void LayoutView(HierarchyViewState& state) {
 bool CreateChildControls(HierarchyViewState& state) {
     HWND hwnd = state.hwnd;
     state.refreshButton = Ksword::Ui::CreateButton(hwnd, kRefreshButtonId, L"刷新", 0, 0, 0, 0);
+    state.exportButton = Ksword::Ui::CreateButton(hwnd, kExportButtonId, L"导出 TSV", 0, 0, 0, 0);
     state.filterBar = Ksword::Ui::CreateFilterBar(hwnd, kFilterBarId, L"筛选句柄、标题、类名与进程", 0, 0, 0, 0);
-    if (!state.refreshButton || !state.filterBar) {
+    if (!state.refreshButton || !state.exportButton || !state.filterBar) {
         return false;
     }
 
@@ -715,6 +946,10 @@ LRESULT CALLBACK HierarchyViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             }
             if (notification == BN_CLICKED && id == kRefreshButtonId) {
                 BeginRefresh(*state);
+                return 0;
+            }
+            if (notification == BN_CLICKED && id == kExportButtonId) {
+                ExportVisibleRows(*state);
                 return 0;
             }
         }
@@ -812,6 +1047,110 @@ bool EnsureHierarchyViewClass() {
     return registered;
 }
 
+struct HierarchyReportViewState final {
+    HWND hwnd = nullptr;
+    HWND reportEdit = nullptr;
+};
+
+HierarchyReportViewState* ReportStateFromWindow(HWND hwnd) {
+    return reinterpret_cast<HierarchyReportViewState*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+}
+
+void LayoutHierarchyReportView(HierarchyReportViewState& state) {
+    RECT client{};
+    ::GetClientRect(state.hwnd, &client);
+    const int width = Width(client);
+    const int height = Height(client);
+    if (state.reportEdit) {
+        ::MoveWindow(state.reportEdit, kGap, 30, (std::max)(1, width - kGap * 2),
+            (std::max)(1, height - 30 - kGap), TRUE);
+    }
+}
+
+LRESULT CALLBACK HierarchyReportViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    HierarchyReportViewState* state = ReportStateFromWindow(hwnd);
+    if (msg == WM_NCCREATE) {
+        auto owned = std::make_unique<HierarchyReportViewState>();
+        owned->hwnd = hwnd;
+        state = owned.get();
+        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(owned.release()));
+    }
+    switch (msg) {
+    case WM_NCCREATE:
+        return TRUE;
+    case WM_CREATE:
+        if (!state) {
+            return -1;
+        }
+        state->reportEdit = ::CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WS_HSCROLL |
+                ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_READONLY,
+            0, 0, 1, 1, hwnd, nullptr, ::GetModuleHandleW(nullptr), nullptr);
+        if (!state->reportEdit) {
+            return -1;
+        }
+        Ksword::Ui::AttachTextFindSupport(state->reportEdit);
+        Ksword::Ui::SetWindowFontRecursive(hwnd);
+        ::SetWindowTextW(state->reportEdit, BuildHierarchyReport(nullptr).c_str());
+        LayoutHierarchyReportView(*state);
+        return 0;
+    case WM_SIZE:
+        if (state) {
+            LayoutHierarchyReportView(*state);
+        }
+        return 0;
+    case WM_CTLCOLORSTATIC: {
+        HDC dc = reinterpret_cast<HDC>(wParam);
+        ::SetTextColor(dc, Ksword::Ui::AppTheme().textColor);
+        if (state && reinterpret_cast<HWND>(lParam) == state->reportEdit) {
+            ::SetBkColor(dc, Ksword::Ui::AppTheme().panelColor);
+            return reinterpret_cast<LRESULT>(Ksword::Ui::AppTheme().panelBrush());
+        }
+        ::SetBkMode(dc, TRANSPARENT);
+        return reinterpret_cast<LRESULT>(Ksword::Ui::AppTheme().windowBrush());
+    }
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT:
+        if (state) {
+            PAINTSTRUCT paint{};
+            HDC dc = ::BeginPaint(hwnd, &paint);
+            RECT client{};
+            ::GetClientRect(hwnd, &client);
+            ::FillRect(dc, &client, Ksword::Ui::AppTheme().windowBrush());
+            RECT titleRect{ kGap, 0, client.right - kGap, 30 };
+            Ksword::Ui::DrawTextLine(dc, L"窗口层级诊断（跟随左侧窗口选择）", titleRect,
+                Ksword::Ui::AppTheme().textColor, Ksword::Ui::SystemUIFont(),
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            ::EndPaint(hwnd, &paint);
+            return 0;
+        }
+        break;
+    case WM_NCDESTROY:
+        delete state;
+        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        return 0;
+    default:
+        break;
+    }
+    return ::DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+bool EnsureHierarchyReportViewClass() {
+    static bool registered = false;
+    if (registered) {
+        return true;
+    }
+    WNDCLASSW windowClass{};
+    windowClass.lpfnWndProc = HierarchyReportViewProc;
+    windowClass.hInstance = ::GetModuleHandleW(nullptr);
+    windowClass.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
+    windowClass.hbrBackground = Ksword::Ui::AppTheme().windowBrush();
+    windowClass.lpszClassName = kHierarchyReportViewClass;
+    registered = ::RegisterClassW(&windowClass) != 0 || ::GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+    return registered;
+}
+
 } // namespace
 
 HWND CreateWindowHierarchyView(HWND parent, const RECT& bounds) {
@@ -822,6 +1161,25 @@ HWND CreateWindowHierarchyView(HWND parent, const RECT& bounds) {
         0, kHierarchyViewClass, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
         bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
         parent, nullptr, ::GetModuleHandleW(nullptr), nullptr);
+}
+
+HWND CreateWindowHierarchyReportView(HWND parent, const RECT& bounds) {
+    if (!parent || !EnsureHierarchyReportViewClass()) {
+        return nullptr;
+    }
+    return ::CreateWindowExW(
+        0, kHierarchyReportViewClass, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+        bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
+        parent, nullptr, ::GetModuleHandleW(nullptr), nullptr);
+}
+
+void UpdateWindowHierarchyReportView(HWND reportView, HWND selectedWindow) {
+    HierarchyReportViewState* state = ReportStateFromWindow(reportView);
+    if (!state || !state->reportEdit) {
+        return;
+    }
+    const std::wstring report = BuildHierarchyReport(selectedWindow);
+    ::SetWindowTextW(state->reportEdit, report.c_str());
 }
 
 } // namespace Ksword::Features::WindowTools

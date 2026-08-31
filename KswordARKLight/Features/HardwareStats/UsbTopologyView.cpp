@@ -3,6 +3,7 @@
 #include "DeviceTopologyEnumerator.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
@@ -30,6 +31,7 @@ constexpr int kFilterBarId = 66302;
 constexpr int kNodeListId = 66303;
 constexpr int kDetailListId = 66304;
 constexpr int kLoadingOverlayId = 66305;
+constexpr int kExportButtonId = 66306;
 
 constexpr UINT kMenuCopyRow = 66351;
 constexpr UINT kMenuCopyVisible = 66352;
@@ -66,6 +68,7 @@ struct UsbFilterResult final {
 struct UsbTopologyViewState final {
     HWND hwnd = nullptr;
     HWND refreshButton = nullptr;
+    HWND exportButton = nullptr;
     HWND filterBar = nullptr;
     HWND detailList = nullptr;
     HWND loadingOverlay = nullptr;
@@ -468,6 +471,9 @@ void LayoutView(UsbTopologyViewState& state) {
     if (state.refreshButton) {
         ::MoveWindow(state.refreshButton, kGap, kGap, 80, kRowHeight, TRUE);
     }
+    if (state.exportButton) {
+        ::MoveWindow(state.exportButton, kGap + 80 + kGap, kGap, 78, kRowHeight, TRUE);
+    }
     const int secondRowY = kGap + kRowHeight + kGap;
     if (state.filterBar) {
         ::MoveWindow(state.filterBar, kGap, secondRowY, (std::max)(120, width - kGap * 2), kRowHeight, TRUE);
@@ -491,9 +497,10 @@ void LayoutView(UsbTopologyViewState& state) {
 bool CreateChildControls(UsbTopologyViewState& state) {
     HWND hwnd = state.hwnd;
     state.refreshButton = Ksword::Ui::CreateButton(hwnd, kRefreshButtonId, L"刷新", 0, 0, 0, 0);
+    state.exportButton = Ksword::Ui::CreateButton(hwnd, kExportButtonId, L"导出 TSV", 0, 0, 0, 0);
     state.filterBar = Ksword::Ui::CreateFilterBar(
         hwnd, kFilterBarId, L"筛选设备描述、VID/PID、序列号、驱动与实例 ID", 0, 0, 0, 0);
-    if (!state.refreshButton || !state.filterBar) {
+    if (!state.refreshButton || !state.exportButton || !state.filterBar) {
         return false;
     }
 
@@ -577,6 +584,21 @@ LRESULT CALLBACK UsbTopologyViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
             if (id == kRefreshButtonId && notification == BN_CLICKED) {
                 BeginUsbRefresh(*state);
+                return 0;
+            }
+            if (id == kExportButtonId && notification == BN_CLICKED) {
+                if (state->nodeList.visibleIndexes().empty()) {
+                    state->statusText = L"没有可导出的可见结果。";
+                } else {
+                    std::wstring error;
+                    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(hwnd, L"usb_topology.tsv", L"导出 USB 拓扑",
+                        L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0", L"tsv", ExportUsbTopologyViewTsv(hwnd), &error)) {
+                    case Ksword::Ui::SaveTextFileResult::Saved: state->statusText = L"USB 拓扑可见结果已导出。"; break;
+                    case Ksword::Ui::SaveTextFileResult::Cancelled: state->statusText = L"已取消导出 USB 拓扑结果。"; break;
+                    case Ksword::Ui::SaveTextFileResult::Failed: state->statusText = L"导出 USB 拓扑结果失败：" + error; break;
+                    }
+                }
+                ::InvalidateRect(hwnd, nullptr, TRUE);
                 return 0;
             }
         }

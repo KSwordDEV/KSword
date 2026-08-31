@@ -20,7 +20,7 @@
   （collectSearchableDockWidgets：18 主 Dock + 日志/监视/任务辅助 Dock）与激活回调
   （activateDockForSearchNavigation：isClosed 先 toggleView(true) 再 raise）。
 
-通用表格搜索入口只保留搜索框和空间不足时的搜索按钮。输入内容会同步到标题栏并切换到“当前表格”范围，
+通用表格搜索入口只保留图标按钮；空间足够时显示，点击后切换到“当前表格”范围并激活标题栏搜索框。
 命中仍展示在搜索结果弹层中；搜索过程不修改表格原有行可见状态。
 
 可揭示性判定：向上遍历到 CDockWidget，途中显式隐藏且父不是 QStackedWidget 的控件视为不可揭示（不收录）。

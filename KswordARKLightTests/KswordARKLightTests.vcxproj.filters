@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Tests"><UniqueIdentifier>{AE827AFD-B600-41EA-BDB5-B26A04D21A5B}</UniqueIdentifier></Filter>
+    <Filter Include="Production"><UniqueIdentifier>{FE172DD6-662B-42E1-850A-29BF75EBA5C2}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="KswordARKLightTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="..\KswordARKLight\Core\EntityRef.cpp"><Filter>Production</Filter></ClCompile>
+    <ClCompile Include="..\KswordARKLight\Core\WorkspaceConfig.cpp"><Filter>Production</Filter></ClCompile>
+    <ClCompile Include="..\KswordARKLight\Features\File\PathNavigator.cpp"><Filter>Production</Filter></ClCompile>
+    <ClCompile Include="..\KswordARKLight\Features\Monitor\EtwEventModel.cpp"><Filter>Production</Filter></ClCompile>
+    <ClCompile Include="..\KswordARKLight\Features\Registry\RegistrySearchModel.cpp"><Filter>Production</Filter></ClCompile>
+    <ClCompile Include="..\KswordARKLight\Features\SysTools\IoctlDecoder.cpp"><Filter>Production</Filter></ClCompile>
+    <ClCompile Include="..\KswordARKLight\Features\Window\Win32kTimerEvidenceModel.cpp"><Filter>Production</Filter></ClCompile>
+    <ClCompile Include="..\KswordARKLight\Features\Memory\MemorySnapshot.cpp"><Filter>Production</Filter></ClCompile>
+    <ClCompile Include="..\KswordARKLight\Features\Memory\MemoryInspection.cpp"><Filter>Production</Filter></ClCompile>
+    <ClCompile Include="..\KswordARKLight\Features\Memory\MemoryWritePlan.cpp"><Filter>Production</Filter></ClCompile>
+    <ClCompile Include="..\KswordARKLight\Ui\EvidenceSession.cpp"><Filter>Production</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\KswordARKLight\Core\DriverLeasePolicy.h"><Filter>Production</Filter></ClInclude>
+    <ClInclude Include="..\KswordARKLight\Core\EntityRef.h"><Filter>Production</Filter></ClInclude>
+    <ClInclude Include="..\KswordARKLight\Core\WorkspaceConfig.h"><Filter>Production</Filter></ClInclude>
+    <ClInclude Include="..\KswordARKLight\Features\File\PathNavigator.h"><Filter>Production</Filter></ClInclude>
+    <ClInclude Include="..\KswordARKLight\Features\Monitor\EtwEventModel.h"><Filter>Production</Filter></ClInclude>
+    <ClInclude Include="..\KswordARKLight\Features\Registry\RegistrySearchModel.h"><Filter>Production</Filter></ClInclude>
+    <ClInclude Include="..\KswordARKLight\Features\SysTools\IoctlDecoder.h"><Filter>Production</Filter></ClInclude>
+    <ClInclude Include="..\KswordARKLight\Features\Window\Win32kTimerEvidenceModel.h"><Filter>Production</Filter></ClInclude>
+    <ClInclude Include="..\KswordARKLight\Features\Memory\MemorySnapshot.h"><Filter>Production</Filter></ClInclude>
+    <ClInclude Include="..\KswordARKLight\Features\Memory\MemoryInspection.h"><Filter>Production</Filter></ClInclude>
+    <ClInclude Include="..\KswordARKLight\Features\Memory\MemoryWritePlan.h"><Filter>Production</Filter></ClInclude>
+    <ClInclude Include="..\KswordARKLight\Ui\EvidenceSession.h"><Filter>Production</Filter></ClInclude>
+  </ItemGroup>
+</Project>

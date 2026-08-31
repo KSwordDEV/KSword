@@ -49,6 +49,11 @@ public:
     // 唯一调用方是 MainWindow 的“发现新转储后自动解析”链路。
     MinidumpDock* activateMinidumpTab();
 
+    // setBugcheckDiagnosticsVisible 作用：按配置或本次安装会话状态显示/隐藏蓝屏诊断入口。
+    // 调用方式：MainWindow 在加载配置、修改自动安装选项或手动安装完成后调用。
+    // 入参 visible：true=显示并允许懒加载页面；false=隐藏且不执行页面初始化；返回：无。
+    void setBugcheckDiagnosticsVisible(bool visible);
+
 private:
     // initializeUi：
     // - 作用：初始化“杂项”页的控件树，只把页签占位控件建出来；
@@ -130,6 +135,7 @@ private:
     ks::misc::SystemTimePage* m_systemTimePage = nullptr; // m_systemTimePage：系统全局变速控制页。
     ks::misc::VirtualLocationPage* m_virtualLocationPage = nullptr; // m_virtualLocationPage：系统默认位置伪装页。
     ks::misc::BugcheckGuardPage* m_bugcheckGuardPage = nullptr; // m_bugcheckGuardPage：实验性一次性蓝屏缓冲控制页。
+    bool m_bugcheckDiagnosticsVisible = false; // m_bugcheckDiagnosticsVisible：蓝屏诊断入口是否由配置或本次安装授权显示。
     ks::misc::DisableDsePage* m_disableDsePage = nullptr; // m_disableDsePage：驱动签名强制（DSE）开关页。
     ks::misc::RenderBenchmarkPage* m_renderBenchmarkPage = nullptr; // m_renderBenchmarkPage：窗口渲染与 DWM 合成基准页。
     ScannerDock* m_scannerPage = nullptr;   // m_scannerPage：PE/ELF/Mach-O 扫描与安全编辑页。

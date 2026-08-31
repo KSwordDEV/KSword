@@ -9,4 +9,6 @@ namespace Ksword::Features::Monitor {
 // HWND or nullptr. Integration session should wire this facade into docks.
 HWND CreateMonitorFeaturePage(HWND parent, const RECT& bounds);
 
+bool RequestMonitorFeatureProcess(HWND page, DWORD processId);
+
 } // namespace Ksword::Features::Monitor

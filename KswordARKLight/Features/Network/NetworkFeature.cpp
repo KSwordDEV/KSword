@@ -27,4 +27,8 @@ void ResizeNetworkFeaturePage(HWND page, const RECT& bounds) {
     }
 }
 
+bool RequestNetworkFeatureProcess(HWND page, const DWORD processId) {
+    return RequestNetworkFeatureViewProcess(page, processId);
+}
+
 } // namespace Ksword::Features::Network

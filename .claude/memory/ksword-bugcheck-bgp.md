@@ -2,18 +2,8 @@
 
 ## 已确认行为
 
-- WDK 10.0.26100 默认通过 `WindowsDriver.Shared.Props` 为内核驱动启用
-  `/guard:cf`。私有 `nt!Bgp*` 地址在正常系统中常常不属于 `ntoskrnl` 的
-  Guard CF 函数表，普通函数指针调用会触发 `KERNEL_SECURITY_CHECK_FAILURE
-  (0x139)`、参数 1 为 `0xA`。不能把 GFIDS 成员资格作为 BGP 启用硬条件，
-  否则所有正常机器都会进入 query-only 而不显示诊断页面。当前实现保持
-  驱动整体 CFG，仅在 `DECLSPEC_GUARDNOCF + DECLSPEC_NOINLINE` 的集中适配器
-  内调用已经通过内核映像范围、可执行/非分页节、签名族、语义关系和唯一性
-  验证的私有入口；适配器的最终反汇编不得出现 `__guard_dispatch_icall_fptr`。
 - Windows 10 19042 的 BGP 私有 `GetBpp` 在驱动加载期尚未调用 `InbvAcquireDisplayOwnership` 时可能返回 `1`，同时分辨率返回 `0×0`。这是未取得显示所有权的延迟探测状态，不能直接判定为不支持。
 - 加载期仍需在 `PASSIVE_LEVEL` 完成全部资源准备。当前实现同时生成并解析 24 BPP、32 BPP 的 Logo 与黑色/蓝色 ASCII 字形矩形。
-- BGP 私有函数解析必须先用故障封装读取器校验 DOS/NT/节表，再分块复制候选节后扫描；所有 `IMAGE_SCN_MEM_DISCARDABLE` 节（即使同时带 `IMAGE_SCN_MEM_EXECUTE`）都必须在读取前排除。节 RVA、签名范围、入口回退和 `rel32` 目标均使用减法式边界与显式溢出检查；任一窗口无法完整读取就 fail-closed。
-- 解析结果只有在全部私有入口、唯一性、Clear/Draw→BPP 语义关系和崩溃期常驻属性同时通过后，才能一次性发布到非分页全局快照。BugCheck 回调只消费该快照和预生成矩形，不得重新扫描 `ntoskrnl` 或现场解析指令。驱动侧蓝屏诊断保持编译期显式 opt-in、默认关闭，Windows 原生蓝屏与转储不受影响。
 - 崩溃回调中的顺序保持为 `InbvAcquireDisplayOwnership → BgpFwAcquireLock → 重新读取分辨率/BPP → BgpClearScreen → BgpGxDrawRectangle → BgpFwReleaseLock`。
 - 取得显示所有权后只接受实际 BPP 为 24 或 32。分辨率、BPP、私有特征或节属性不满足时，在清屏前释放锁并退出，保留 Windows 原蓝屏。
 - VMware 的 Windows 10 19042 蓝屏显示模式可能固定回落到 `640×480×32`，即使桌面分辨率更高。面板必须保留 `640×480` 紧凑布局；`1024×768` 只能作为完整布局阈值，不能作为 BGP 可用性的最低门槛。
@@ -38,14 +28,14 @@
 
 ## 截图基线布局与解析器
 
-- 当前视觉基线是提交 `b9f3058e` 的四区截图版：深海军蓝底、蓝色强调、浅色正文、弱化标签和一像素边框；页眉保留 Logo、`KSWORD ARK CRASH DIAGNOSTICS` 与右上角白色幽默判词。完整页固定为 `1024x768` 画布，在 `1280x768` 等更宽模式中水平居中；小于该阈值时走 `640x480` 双栏紧凑版，`1280x720` 详细版不再被选择。
-- 完整页只保留四个框：`WHAT HAPPENED`、`LIKELY CAUSE`、`RAW CRASH PARAMETERS`、`WHAT TO DO NEXT`。不要重新引入 `DUMP INFO/STATUS`、渲染器自检、空栈/反汇编/Blackbox/事件面板，也不要为填满空间显示无助于定位的内部状态。
+- 当前视觉基线沿用提交 `b9f3058e` 的四区几何：深海军蓝底、浅色正文、弱化标签和一像素边框；完整页固定为 `1024x768` 画布，在 `1280x768` 等更宽模式中水平居中；小于该阈值时走 `640x480` 双栏紧凑版，`1280x720` 详细版不再被选择。页眉只建立三层信息：弱化产品名、蓝色 Stop Code 名称、唯一红色信号的数值错误码；右上角保留白色 Windows UI 字体幽默判词。
+- 完整页只保留四个框：`CRASH SUMMARY`、`PRIMARY EVIDENCE`、`TECHNICAL EVIDENCE`、`NEXT ACTION`。不要重新引入 `DUMP INFO/STATUS`、渲染器自检、空栈/反汇编/Blackbox/事件面板，也不要为填满空间显示无助于定位的内部状态。解析失败只用 `NO SAFE LIVE ATTRIBUTION` 加转储分析提示占两行，不重复显示 `NOT IDENTIFIED`、`NOT AVAILABLE`、`DUMP REQUIRED` 等失败占位符。
 - BGP 的字形、Logo、判词位图与每种固定尺寸的边框矩形都在 `PASSIVE_LEVEL` 解析并保留 backing buffer；崩溃回调只读取固定非分页快照、清屏、绘制预生成矩形并格式化到栈上固定缓冲，不分配内存。
 - 驱动在正常运行期通过已有进程创建/退出和系统镜像加载回调维护固定大小的进程、模块缓存；初始化时再用 `PsGetNextProcess` 与 `AuxKlibQueryModuleInformation` 建立基线。写入端使用自旋锁，条目使用奇偶序列号发布；蓝屏路径只做有界无锁快照，不解引用 BugCheck 参数中的任意对象。
 - `0xEF CRITICAL_PROCESS_DIED` 的参数 1 是进程对象，参数 2 只区分进程/线程，参数 3/4 保留。若参数 1 命中崩溃前缓存，页面显示关键进程短名、PID、对象与类型；这只标识终止的关键进程，不声称已经找到终止它的代码，最终根因仍需转储。
 - 对其他 Stop Code，可显示缓存到的当前崩溃上下文进程，但必须明确标成 `CRASH CONTEXT`，不能把它当成问题进程或模块。候选驱动只允许由微软文档明确指定的代码/例程地址命中模块缓存。
 - `bugcheck_decode.c` 负责两类纯解析：为四个原始参数提供 Stop Code/子类型相关语义；对白名单中的直接代码地址给出参数号和置信度。基础白名单包括 `0x0A/0xD1` 参数 4、`0x1E/0x3B/0x7E` 参数 2、`0x50` 参数 3、`0xC5` 参数 4、`0xD5` 参数 3、`0x116/0x117` 参数 2，以及 C4/C9 中文档明确标为驱动代码、回调、ISR、完成或分发例程的子类型。对象指针、IRP、设备对象、保留字段与 C4/C9 未识别子类型绝不参与模块归因。
 - `0x9F` 必须按参数 1 的子类型分别标注设备对象、PDO、triage、阻塞 IRP、PnP 锁线程等含义；`0xEA` 标注卡住线程、watchdog、驱动名指针和命中次数。仅标注语义不代表可以在崩溃回调中安全解引用这些值。
-- 原始参数行必须显示上述语义，同时保证固定宽度内完整显示；动态文字不得因塞入重复模块名或长内部说明而出现省略号。纯解码和三种画布边界由 `tools/bugcheck_layout_replay/run.ps1` 回放验证。
+- 技术参数只显示有文档语义或值非零的字段：保留字段始终隐藏，未知通用参数为零时隐藏，`PROCESS`、`READ`、`IRQL 0` 等有含义的零值仍需显示。动态文字必须在固定宽度内完整显示，不得因重复模块名或长内部说明出现省略号。完整页和紧凑页都优先显示已解析模块；`0xEF` 次优先显示关键进程；无归因时只补一个最有价值的参数。纯解码和画布边界由 `tools/bugcheck_layout_replay/run.ps1` 回放验证。
 - Release x64 驱动链接后，工程必须把最新 `KswordARK.sys/.pdb/.inf` 同步到 `Ksword5.1/x64/Release/KswordARKDriver/`；变体签名完成后再同步最终 `.sys`，避免测试包继续携带旧驱动。
 - 替换磁盘上的 `.sys` 不会更新已经加载的内核映像。实体机或虚拟机复测蓝屏重绘前，必须停止/卸载旧服务并重新加载驱动；无法安全卸载时重启系统，再核对目标 `.sys` 的哈希或加载日志。

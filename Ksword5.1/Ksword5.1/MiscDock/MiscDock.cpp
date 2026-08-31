@@ -18,6 +18,7 @@
 
 #include "../Internationalization/LanguageManager.h"
 #include <QIcon>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -114,19 +115,19 @@ void MiscDock::initializeUi()
         QStringLiteral("misc.virtual_location.tab"),
         QStringLiteral("虚拟定位"));
 
-    // 蓝屏缓冲页严格归入“实验性”：它只提供一次性 KeBugCheckEx 延迟，
-    // 不承诺恢复系统，也不默认跳过最终 BugCheck。
+    // 蓝屏诊断入口默认隐藏。R3 配置自动安装或本次成功安装后，MainWindow 才会显式显示它。
     m_bugcheckGuardTabIndex = m_mainTabWidget->addTab(
         m_bugcheckGuardHostWidget,
         QIcon(QStringLiteral(":/Icon/codeeditor_replace.svg")),
-        QStringLiteral("实验性"));
+        QStringLiteral("蓝屏诊断"));
     // i18n 绑定挂在占位控件上：LanguageManager 按 QTabWidget::widget(index) 回读属性，
     // 占位控件才是常驻页签页，真实子页只是它的孩子。
     ks::i18n::LanguageManager::instance().bindTab(
         m_mainTabWidget,
         m_bugcheckGuardHostWidget,
-        QStringLiteral("misc.experimental.tab"),
-        QStringLiteral("实验性"));
+        QStringLiteral("misc.bugcheck_diagnostics.tab"),
+        QStringLiteral("蓝屏诊断"));
+    setBugcheckDiagnosticsVisible(false);
 
     // 驱动签名强制页：
     // - 运行时反汇编定位 CI.dll!g_CiOptions，用 R0 事务化内核写临时关闭 DSE；
@@ -135,12 +136,12 @@ void MiscDock::initializeUi()
     m_disableDseTabIndex = m_mainTabWidget->addTab(
         m_disableDseHostWidget,
         QIcon(QStringLiteral(":/Icon/codeeditor_replace.svg")),
-        QStringLiteral("驱动签名"));
+        QStringLiteral("disable dse"));
     ks::i18n::LanguageManager::instance().bindTab(
         m_mainTabWidget,
         m_disableDseHostWidget,
         QStringLiteral("misc.disable_dse.tab"),
-        QStringLiteral("驱动签名"));
+        QStringLiteral("disable dse"));
 
     // Shell 关联管理页：
     // - 覆盖右键菜单、URL 绑定、打开方式和 Explorer 第三方主页项；
@@ -263,7 +264,10 @@ void MiscDock::ensureTabInitialized(const int tabIndex)
     }
     if (tabIndex == m_bugcheckGuardTabIndex)
     {
-        initializeBugcheckGuardPage();
+        if (m_bugcheckDiagnosticsVisible)
+        {
+            initializeBugcheckGuardPage();
+        }
         return;
     }
     if (tabIndex == m_disableDseTabIndex)
@@ -325,6 +329,30 @@ MinidumpDock* MiscDock::activateMinidumpTab()
 {
     activateTabByIndex(m_minidumpTabIndex);
     return m_minidumpPage;
+}
+
+void MiscDock::setBugcheckDiagnosticsVisible(const bool visible)
+{
+    m_bugcheckDiagnosticsVisible = visible;
+    if (m_mainTabWidget == nullptr || m_bugcheckGuardTabIndex < 0)
+    {
+        return;
+    }
+
+    // 隐藏页签不移除占位控件，索引保持稳定，重新显示后仍可复用已构造的页面状态。
+    QTabBar* const tabBar = m_mainTabWidget->tabBar();
+    if (tabBar != nullptr)
+    {
+        tabBar->setTabVisible(m_bugcheckGuardTabIndex, visible);
+    }
+    if (!visible && m_mainTabWidget->currentIndex() == m_bugcheckGuardTabIndex)
+    {
+        m_mainTabWidget->setCurrentIndex(m_bootEditorTabIndex);
+    }
+    if (visible && m_mainTabWidget->currentIndex() == m_bugcheckGuardTabIndex)
+    {
+        ensureTabInitialized(m_bugcheckGuardTabIndex);
+    }
 }
 
 void MiscDock::initializeBootEditorTab()

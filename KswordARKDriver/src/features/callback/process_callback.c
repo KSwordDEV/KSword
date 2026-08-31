@@ -18,6 +18,13 @@ Environment:
 #include "ark/ark_bugcheck.h"
 #include "ark/ark_process_protect.h"
 
+NTSYSAPI
+PCHAR
+NTAPI
+PsGetProcessImageFileName(
+    _In_ PEPROCESS Process
+    );
+
 VOID
 KswordArkProcessCreateNotifyEx(
     _Inout_ PEPROCESS Process,
@@ -37,6 +44,31 @@ KswordArkProcessCreateNotifyEx(
     KswordARKBugcheckTrackProcess(Process, ProcessId, CreateInfo);
 
     if (CreateInfo == NULL) {
+        KSWORD_ARK_CALLBACK_MONITOR_EVENT_INPUT monitorInput;
+        PCHAR shortImageName = NULL;
+
+        // 退出通知只读取 EPROCESS 内的固定短名称，避免为遥测新增池分配。
+        if (KswordArkCallbackMonitorIsEnabled(KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_PROCESS)) {
+            shortImageName = PsGetProcessImageFileName(Process);
+            if (shortImageName != NULL && shortImageName[0] != '\0') {
+                (VOID)RtlStringCbPrintfW(
+                    targetPathBuffer,
+                    sizeof(targetPathBuffer),
+                    L"%S",
+                    shortImageName);
+            }
+            RtlInitUnicodeString(&targetPath, targetPathBuffer);
+            RtlZeroMemory(&monitorInput, sizeof(monitorInput));
+            monitorInput.Category = KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_PROCESS;
+            monitorInput.Operation = KSWORD_ARK_CALLBACK_MONITOR_PROCESS_OP_EXIT;
+            monitorInput.OriginatingProcessId = HandleToULong(PsGetCurrentProcessId());
+            monitorInput.OriginatingThreadId = HandleToULong(PsGetCurrentThreadId());
+            monitorInput.TargetProcessId = HandleToULong(ProcessId);
+            monitorInput.SessionId = KswordArkGetProcessSessionIdSafe(Process);
+            monitorInput.ProcessName = &targetPath;
+            monitorInput.Path = &targetPath;
+            KswordArkCallbackMonitorPublish(&monitorInput);
+        }
         // 退出通知：把进程移出 PP 自愈台账，避免死 PID 占位。
         KswordArkProcessProtectNotifyProcessExit(HandleToULong(ProcessId));
         return;
@@ -63,6 +95,22 @@ KswordArkProcessCreateNotifyEx(
     }
     else {
         RtlInitUnicodeString(&targetPath, targetPathBuffer);
+    }
+
+    // 遥测与规则判定相互独立；没有规则时仍应发布进程创建事件。
+    if (KswordArkCallbackMonitorIsEnabled(KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_PROCESS)) {
+        KSWORD_ARK_CALLBACK_MONITOR_EVENT_INPUT monitorInput;
+        RtlZeroMemory(&monitorInput, sizeof(monitorInput));
+        monitorInput.Category = KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_PROCESS;
+        monitorInput.Operation = operationType;
+        monitorInput.OriginatingProcessId = HandleToULong(CreateInfo->CreatingThreadId.UniqueProcess);
+        monitorInput.OriginatingThreadId = HandleToULong(CreateInfo->CreatingThreadId.UniqueThread);
+        monitorInput.TargetProcessId = HandleToULong(ProcessId);
+        monitorInput.ParentProcessId = HandleToULong(CreateInfo->ParentProcessId);
+        monitorInput.SessionId = KswordArkGetProcessSessionIdSafe(Process);
+        monitorInput.ProcessName = &initiatorPath;
+        monitorInput.Path = &targetPath;
+        KswordArkCallbackMonitorPublish(&monitorInput);
     }
 
     matchStatus = KswordArkCallbackMatchRule(

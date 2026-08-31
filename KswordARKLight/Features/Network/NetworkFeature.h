@@ -15,4 +15,6 @@ HWND CreateNetworkFeaturePage(HWND parent, const RECT& bounds);
 // only; there is no return value.
 void ResizeNetworkFeaturePage(HWND page, const RECT& bounds);
 
+bool RequestNetworkFeatureProcess(HWND page, DWORD processId);
+
 } // namespace Ksword::Features::Network

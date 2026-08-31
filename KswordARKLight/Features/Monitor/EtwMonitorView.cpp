@@ -1,7 +1,9 @@
 #include "EtwMonitorView.h"
 
 #include "../../Ui/Controls.h"
+#include "../../Ui/EntityNavigation.h"
 #include "../../Ui/FilterBar.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/TextFindSupport.h"
 #include "../../Ui/Theme.h"
 #include "EtwFilterDialog.h"
@@ -16,6 +18,7 @@
 #include <iterator>
 #include <regex>
 #include <sstream>
+#include <string_view>
 #include <vector>
 
 namespace Ksword::Features::Monitor {
@@ -26,10 +29,12 @@ constexpr int kStartButtonId = 52001;
 constexpr int kStopButtonId = 52002;
 constexpr int kFilterButtonId = 52003;
 constexpr int kClearButtonId = 52004;
+constexpr int kExportButtonId = 52007;
 constexpr int kListId = 52005;
 constexpr int kLocalFilterBarId = 52006;
 constexpr UINT kStatusMessage = WM_APP + 62;
 constexpr UINT kLocalFilterMessage = WM_APP + 63;
+constexpr UINT kExternalProcessFilterMessage = WM_APP + 64;
 constexpr UINT_PTR kEventFlushTimerId = 52061;
 constexpr UINT kEventFlushIntervalMs = 150;
 constexpr std::size_t kMaxEventRows = 5000;
@@ -44,6 +49,8 @@ constexpr UINT kEtwMenuStop = 52606;
 constexpr UINT kEtwMenuFilter = 52607;
 constexpr UINT kEtwMenuCopyCell = 52608;
 constexpr UINT kEtwMenuCopyVisible = 52609;
+constexpr UINT kEtwMenuOpenProcess = 52610;
+constexpr UINT kEtwMenuExportVisible = 52611;
 
 void EnsureViewClass() {
     static bool registered = false;
@@ -157,6 +164,10 @@ bool ContainsCaseInsensitive(const std::wstring& value, const std::wstring& quer
 // materialized VirtualListRow snapshot. A non-null pattern means the ".*" toggle
 // is on and the expression compiled.
 bool MatchesEvent(const EtwEvent& eventRow, const std::wstring& query, const std::wregex* pattern) {
+    constexpr std::wstring_view pidPrefix = L"pid:";
+    if (query.size() > pidPrefix.size() && query.compare(0, pidPrefix.size(), pidPrefix) == 0) {
+        return query.substr(pidPrefix.size()) == NumberText(eventRow.processId);
+    }
     const auto matches = [&query, pattern](const std::wstring& text) {
         return pattern != nullptr ? std::regex_search(text, *pattern) : ContainsCaseInsensitive(text, query);
     };
@@ -173,31 +184,7 @@ bool MatchesEvent(const EtwEvent& eventRow, const std::wstring& query, const std
 // HWND and text; processing transfers CF_UNICODETEXT to the system clipboard;
 // output reports success.
 bool CopyTextToClipboard(HWND owner, const std::wstring& text) {
-    if (!::OpenClipboard(owner)) {
-        return false;
-    }
-    ::EmptyClipboard();
-    const SIZE_T bytes = (text.size() + 1) * sizeof(wchar_t);
-    HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (!memory) {
-        ::CloseClipboard();
-        return false;
-    }
-    void* target = ::GlobalLock(memory);
-    if (!target) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    std::memcpy(target, text.c_str(), bytes);
-    ::GlobalUnlock(memory);
-    if (!::SetClipboardData(CF_UNICODETEXT, memory)) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    ::CloseClipboard();
-    return true;
+    return Ksword::Ui::CopyTextToClipboard(owner, text, L"ETW 监控");
 }
 
 } // namespace
@@ -285,6 +272,10 @@ LRESULT EtwMonitorView::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             clearEventList();
             return 0;
         }
+        if (LOWORD(wParam) == kExportButtonId) {
+            exportVisibleEventRows();
+            return 0;
+        }
         break;
     case WM_NOTIFY:
         if (const auto* header = reinterpret_cast<const NMHDR*>(lParam);
@@ -337,6 +328,15 @@ LRESULT EtwMonitorView::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             return 0;
         }
         break;
+    case kExternalProcessFilterMessage:
+        if (wParam != 0 && localFilterBar_) {
+            const std::wstring query = L"pid:" + std::to_wstring(static_cast<DWORD>(wParam));
+            Ksword::Ui::SetFilterBarText(localFilterBar_, query, false);
+            requestLocalFilter(query);
+            Ksword::Ui::FocusFilterBar(localFilterBar_);
+            return 1;
+        }
+        return 0;
     case WM_CTLCOLORSTATIC: {
         HDC dc = reinterpret_cast<HDC>(wParam);
         ::SetBkMode(dc, TRANSPARENT);
@@ -368,7 +368,8 @@ void EtwMonitorView::createControls() {
     stopButton_ = Ksword::Ui::CreateButton(hwnd_, kStopButtonId, L"停止", 96, 12, 78, 28);
     filterButton_ = Ksword::Ui::CreateButton(hwnd_, kFilterButtonId, L"筛选器...", 180, 12, 96, 28);
     clearButton_ = Ksword::Ui::CreateButton(hwnd_, kClearButtonId, L"清空", 282, 12, 78, 28);
-    statusText_ = Ksword::Ui::CreateText(hwnd_, 0, L"ETW 已停止。筛选器在弹窗中配置。", 376, 18, 520, 22);
+    exportButton_ = Ksword::Ui::CreateButton(hwnd_, kExportButtonId, L"导出...", 366, 12, 88, 28);
+    statusText_ = Ksword::Ui::CreateText(hwnd_, 0, L"ETW 已停止。筛选器在弹窗中配置。", 470, 18, 520, 22);
     localFilterBar_ = Ksword::Ui::CreateFilterBar(hwnd_, kLocalFilterBarId, L"本地筛选所有事件字段和摘要", 12, 46, 320, 24);
 
     eventList_ = ::CreateWindowExW(
@@ -418,7 +419,7 @@ void EtwMonitorView::layout() {
     ::GetClientRect(hwnd_, &rc);
     const int width = rc.right - rc.left;
     const int height = rc.bottom - rc.top;
-    ::MoveWindow(statusText_, 376, 17, width - 388, 24, TRUE);
+    ::MoveWindow(statusText_, 470, 17, width - 482, 24, TRUE);
     ::MoveWindow(localFilterBar_, 12, 46, width - 24, 24, TRUE);
     ::MoveWindow(eventList_, 12, 76, width - 24, height - 88, TRUE);
 }
@@ -706,6 +707,30 @@ void EtwMonitorView::openSelectedEventDetail() {
     showEventDetail(eventRow);
 }
 
+// openSelectedEventProcess routes only the numeric PID captured by ETW. ETW
+// rows do not carry a stable process creation-time identity, so the receiving
+// process page deliberately resolves the PID again and may reject an exited or
+// recycled instance rather than claiming it is the historical event owner.
+void EtwMonitorView::openSelectedEventProcess() {
+    EtwEvent eventRow;
+    if (!selectedEvent(&eventRow)) {
+        return;
+    }
+    if (eventRow.processId == 0U) {
+        updateStatusText(L"该 ETW 事件没有可导航的进程 PID。");
+        return;
+    }
+
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::ProcessDetails;
+    request.entity.kind = Ksword::Core::EntityKind::Process;
+    request.entity.id = eventRow.processId;
+    const bool routed = Ksword::Ui::RequestEntityNavigation(hwnd_, request);
+    updateStatusText(routed
+        ? L"已请求打开当前 PID " + std::to_wstring(eventRow.processId) + L" 的进程详细信息；历史 ETW 归属会重新校验。"
+        : L"无法导航到该 ETW 事件的当前进程实例。");
+}
+
 void EtwMonitorView::showEventDetail(const EtwEvent& eventRow) {
     EnsureDetailWindowClass();
 
@@ -830,6 +855,37 @@ void EtwMonitorView::copyVisibleEventRows() {
     updateStatusText(CopyTextToClipboard(hwnd_, output.str()) ? L"已复制 ETW 可见结果。" : L"复制 ETW 可见结果失败。");
 }
 
+void EtwMonitorView::exportVisibleEventRows() {
+    const std::wstring text = BuildVisibleEtwEventsTsv(eventRows_, visibleEventIndexes_);
+    if (text.empty()) {
+        updateStatusText(L"没有可导出的 ETW 可见结果。");
+        return;
+    }
+
+    std::wstring error;
+    const Ksword::Ui::SaveTextFileResult result = Ksword::Ui::SaveUtf8TextFileWithDialog(
+        hwnd_,
+        L"ksword-arklight-etw.tsv",
+        L"导出 ETW 可见结果",
+        L"TSV 文件 (*.tsv)\0*.tsv\0所有文件 (*.*)\0*.*\0",
+        L"tsv",
+        text,
+        &error);
+    switch (result) {
+    case Ksword::Ui::SaveTextFileResult::Saved:
+        updateStatusText(L"ETW 可见结果已导出，并已记录到证据会话。");
+        break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled:
+        updateStatusText(L"已取消导出 ETW 可见结果。");
+        break;
+    case Ksword::Ui::SaveTextFileResult::Failed:
+        updateStatusText(error.empty() ? L"导出 ETW 可见结果失败。" : error);
+        break;
+    default:
+        break;
+    }
+}
+
 void EtwMonitorView::copySelectedEventDetail() {
     EtwEvent eventRow;
     if (!selectedEvent(&eventRow)) {
@@ -859,6 +915,8 @@ void EtwMonitorView::showEventContextMenu(POINT screenPoint) {
     }
 
     const bool hasSelection = selectedEventIndex() >= 0;
+    EtwEvent selectedRow{};
+    const bool canOpenProcess = hasSelection && selectedEvent(&selectedRow) && selectedRow.processId != 0U;
     HMENU menu = ::CreatePopupMenu();
     if (!menu) {
         return;
@@ -868,6 +926,12 @@ void EtwMonitorView::showEventContextMenu(POINT screenPoint) {
         ::AppendMenuW(eventMenu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kEtwMenuDetail, L"详细信息");
         ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(eventMenu), L"事件");
     }
+    HMENU investigationMenu = ::CreatePopupMenu();
+    if (investigationMenu) {
+        ::AppendMenuW(investigationMenu, MF_STRING | (canOpenProcess ? 0U : MF_GRAYED),
+            kEtwMenuOpenProcess, L"打开所属进程详细信息");
+        ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(investigationMenu), L"关联调查");
+    }
     HMENU copyMenu = ::CreatePopupMenu();
     if (copyMenu) {
         ::AppendMenuW(copyMenu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kEtwMenuCopyCell, L"复制单元格");
@@ -875,6 +939,12 @@ void EtwMonitorView::showEventContextMenu(POINT screenPoint) {
         ::AppendMenuW(copyMenu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kEtwMenuCopyDetail, L"复制详情");
         ::AppendMenuW(copyMenu, MF_STRING | (!visibleEventIndexes_.empty() ? 0U : MF_GRAYED), kEtwMenuCopyVisible, L"复制可见结果");
         ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(copyMenu), L"复制");
+    }
+    HMENU exportMenu = ::CreatePopupMenu();
+    if (exportMenu) {
+        ::AppendMenuW(exportMenu, MF_STRING | (!visibleEventIndexes_.empty() ? 0U : MF_GRAYED),
+            kEtwMenuExportVisible, L"导出可见结果...");
+        ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(exportMenu), L"导出");
     }
     HMENU sessionMenu = ::CreatePopupMenu();
     if (sessionMenu) {
@@ -899,6 +969,9 @@ void EtwMonitorView::showEventContextMenu(POINT screenPoint) {
     case kEtwMenuDetail:
         openSelectedEventDetail();
         break;
+    case kEtwMenuOpenProcess:
+        openSelectedEventProcess();
+        break;
     case kEtwMenuCopyRow:
         copySelectedEventRow();
         break;
@@ -910,6 +983,9 @@ void EtwMonitorView::showEventContextMenu(POINT screenPoint) {
         break;
     case kEtwMenuCopyVisible:
         copyVisibleEventRows();
+        break;
+    case kEtwMenuExportVisible:
+        exportVisibleEventRows();
         break;
     case kEtwMenuClear:
         clearPendingEvents();
@@ -939,6 +1015,11 @@ HWND CreateEtwMonitorPage(HWND parent, const RECT& bounds) {
     }
     view->setDeleteOnDestroy(true);
     return view->hwnd();
+}
+
+bool RequestEtwMonitorProcessFilter(HWND page, const DWORD processId) {
+    return page && processId != 0 &&
+        ::SendMessageW(page, kExternalProcessFilterMessage, static_cast<WPARAM>(processId), 0) != 0;
 }
 
 } // namespace Ksword::Features::Monitor

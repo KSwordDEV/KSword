@@ -101,4 +101,13 @@ HWND CreateMemoryFeaturePage(HWND parent, const RECT& bounds) {
     return hwnd;
 }
 
+bool RequestMemoryFeatureProcess(HWND page, const DWORD processId) {
+    if (!page || processId == 0U) {
+        return false;
+    }
+    MemoryFeaturePageState* state = StateFromWindow(page);
+    return state != nullptr && state->driverMemoryView != nullptr &&
+        RequestDriverMemoryViewProcess(state->driverMemoryView, processId);
+}
+
 } // namespace Ksword::Features::Memory

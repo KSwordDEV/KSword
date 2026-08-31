@@ -244,7 +244,7 @@ namespace startup_dock_detail
 
     void appendBackendStartupEntries(
         std::vector<StartupDock::StartupEntry>* entryListOut,
-        std::vector<ks::startup::StartupEntry> backendEntryList)
+        const std::vector<ks::startup::StartupEntry>& backendEntryList)
     {
         if (entryListOut == nullptr)
         {

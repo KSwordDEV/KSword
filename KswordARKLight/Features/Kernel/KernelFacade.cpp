@@ -6352,6 +6352,13 @@ KernelOperationResult ExecuteFileMonitorControl(const KernelActionRequest& reque
         }, Utf8ToWide(drain.io.message)));
         for (const ksword::ark::FileMonitorEventRow& event : drain.events) {
             const bool fsctlEvent = (event.operationType & KSWORD_ARK_FILE_MONITOR_OPERATION_FSCTL) != 0U;
+            const bool pathPresent = (event.fieldFlags & KSWORD_ARK_FILE_MONITOR_FIELD_PATH_PRESENT) != 0U;
+            const bool pathTruncated = (event.fieldFlags & KSWORD_ARK_FILE_MONITOR_FIELD_PATH_TRUNCATED) != 0U;
+            const std::wstring pathState = pathTruncated
+                ? L"截断"
+                : pathPresent
+                    ? L"完整"
+                    : L"未确认";
             PushFilteredRow(result, Row({
                 { L"Section", L"FileEvent" },
                 { L"Time", Utc100nsToLocalText(static_cast<std::uint64_t>(event.timeUtc100ns)) },
@@ -6359,6 +6366,9 @@ KernelOperationResult ExecuteFileMonitorControl(const KernelActionRequest& reque
                 { L"PID", std::to_wstring(event.processId) },
                 { L"Process", ProcessDisplayName(event.processId) },
                 { L"Path", event.path },
+                { L"PathState", pathState },
+                { L"PathLength", std::to_wstring(event.pathLengthChars) },
+                { L"FieldFlags", HexText(event.fieldFlags) },
                 { L"FsctlName", fsctlEvent ? std::wstring(KswordARKFileMonitorFsctlCodeToText(event.fsControlCode)) : L"-" },
                 { L"ControlCode", fsctlEvent ? HexText(event.fsControlCode) : L"-" },
                 { L"Status", fsctlEvent ? HexText(static_cast<std::uint32_t>(event.resultStatus)) : L"-" },

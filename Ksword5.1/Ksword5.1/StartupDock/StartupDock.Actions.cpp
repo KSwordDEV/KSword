@@ -330,7 +330,18 @@ void StartupDock::showEntryContextMenu(
     {
         return;
     }
-    tableWidget->setCurrentItem(clickedItem);
+    QItemSelectionModel* const selectionModel = tableWidget->selectionModel();
+    const QModelIndex clickedIndex = tableWidget->indexFromItem(clickedItem);
+    if (selectionModel != nullptr && clickedIndex.isValid())
+    {
+        if (!selectionModel->isRowSelected(clickedIndex.row(), QModelIndex()))
+        {
+            selectionModel->select(
+                clickedIndex,
+                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        }
+        selectionModel->setCurrentIndex(clickedIndex, QItemSelectionModel::NoUpdate);
+    }
 
     const int entryIndex = findEntryIndexByTableRow(category, clickedItem->row());
     if (entryIndex < 0 || entryIndex >= static_cast<int>(m_entryList.size()))
@@ -339,6 +350,29 @@ void StartupDock::showEntryContextMenu(
     }
 
     const StartupEntry entry = m_entryList[static_cast<std::size_t>(entryIndex)];
+    std::vector<StartupEntry> selectedEntryList;
+    if (selectionModel != nullptr)
+    {
+        const QModelIndexList selectedRowIndexList = selectionModel->selectedRows();
+        selectedEntryList.reserve(static_cast<std::size_t>(selectedRowIndexList.size()));
+        for (const QModelIndex& selectedRowIndex : selectedRowIndexList)
+        {
+            const int selectedEntryIndex = findEntryIndexByTableRow(
+                category,
+                selectedRowIndex.row());
+            if (selectedEntryIndex >= 0
+                && selectedEntryIndex < static_cast<int>(m_entryList.size()))
+            {
+                selectedEntryList.push_back(
+                    m_entryList[static_cast<std::size_t>(selectedEntryIndex)]);
+            }
+        }
+    }
+    if (selectedEntryList.empty())
+    {
+        selectedEntryList.push_back(entry);
+    }
+
     QMenu contextMenu(this);
     // 显式填充菜单背景，避免浅色模式下继承透明样式出现黑底。
     contextMenu.setStyleSheet(KswordTheme::ContextMenuStyle());
@@ -378,20 +412,26 @@ void StartupDock::showEntryContextMenu(
         });
     contextMenu.addSeparator();
     const bool targetEnabled = !entry.enabled;
+    const bool canApplyTargetStateToSelection = std::all_of(
+        selectedEntryList.cbegin(),
+        selectedEntryList.cend(),
+        [targetEnabled](const StartupEntry& selectedEntry)
+        {
+            return selectedEntry.enabled == targetEnabled
+                || (targetEnabled
+                    ? selectedEntry.backendEntry.canEnable
+                    : selectedEntry.backendEntry.canDisable);
+        });
+    const bool canDeleteSelection = std::all_of(
+        selectedEntryList.cbegin(),
+        selectedEntryList.cend(),
+        [](const StartupEntry& selectedEntry)
+        {
+            return selectedEntry.canDelete && selectedEntry.backendEntry.canDelete;
+        });
     QAction* toggleAction = contextMenu.addAction(
         createBlueIcon(targetEnabled ? ":/Icon/process_start.svg" : ":/Icon/process_pause.svg"),
         startupToggleActionText(targetEnabled));
-    QAction* riskReasonAction = nullptr;
-    if (!startupRiskReasonText(entry.backendEntry).trimmed().isEmpty())
-    {
-        riskReasonAction = contextMenu.addAction(
-            createBlueIcon(":/Icon/process_details.svg"),
-            startupText(
-                "startup.menu.risk_warning",
-                QStringLiteral("风险提示：%1"))
-                .arg(startupRiskReasonText(entry.backendEntry)));
-        riskReasonAction->setEnabled(false);
-    }
     QAction* deleteAction = contextMenu.addAction(
         createBlueIcon(":/Icon/log_clear.svg"),
         startupText("startup.menu.delete", QStringLiteral("删除项")));
@@ -404,14 +444,11 @@ void StartupDock::showEntryContextMenu(
     openRegistryAction->setEnabled(entry.canOpenRegistryLocation);
     gotoServiceAction->setEnabled(
         entry.category == StartupCategory::Services);
-    const bool toggleSupported = targetEnabled
-        ? entry.backendEntry.canEnable
-        : entry.backendEntry.canDisable;
     toggleAction->setEnabled(
-        toggleSupported
+        canApplyTargetStateToSelection
         && !m_startupActionInProgress.load());
     deleteAction->setEnabled(
-        entry.canDelete
+        canDeleteSelection
         && !m_startupActionInProgress.load());
 
     QAction* selectedAction = contextMenu.exec(tableWidget->viewport()->mapToGlobal(localPos));
@@ -466,11 +503,11 @@ void StartupDock::showEntryContextMenu(
     }
     else if (selectedAction == toggleAction)
     {
-        setStartupEntryEnabled(entry, targetEnabled);
+        setStartupEntriesEnabled(std::move(selectedEntryList), targetEnabled);
     }
     else if (selectedAction == deleteAction)
     {
-        deleteStartupEntry(entry);
+        deleteStartupEntries(std::move(selectedEntryList));
     }
 }
 
@@ -545,18 +582,6 @@ void StartupDock::showRegistryContextMenu(const QPoint& localPos)
     QAction* toggleAction = contextMenu.addAction(
         createBlueIcon(targetEnabled ? ":/Icon/process_start.svg" : ":/Icon/process_pause.svg"),
         startupToggleActionText(targetEnabled));
-    QAction* riskReasonAction = nullptr;
-    if (hasRegistryEntry
-        && !startupRiskReasonText(registryEntry.backendEntry).trimmed().isEmpty())
-    {
-        riskReasonAction = contextMenu.addAction(
-            createBlueIcon(":/Icon/process_details.svg"),
-            startupText(
-                "startup.menu.risk_warning",
-                QStringLiteral("风险提示：%1"))
-                .arg(startupRiskReasonText(registryEntry.backendEntry)));
-        riskReasonAction->setEnabled(false);
-    }
     QAction* deleteAction = contextMenu.addAction(
         createBlueIcon(":/Icon/log_clear.svg"),
         startupText("startup.menu.delete", QStringLiteral("删除项")));
@@ -855,13 +880,6 @@ void StartupDock::exportCurrentView()
 void StartupDock::applyFilterAndRefresh()
 {
     rebuildAllTables();
-    if (m_statusLabel != nullptr)
-    {
-        m_statusLabel->setText(
-            startupText("startup.status.summary", QStringLiteral("状态：共 %1 条，当前分类 %2"))
-                .arg(m_entryList.size())
-                .arg(categoryToText(currentCategory())));
-    }
 }
 
 void StartupDock::setStartupEntryEnabled(StartupEntry entry, const bool enabled)
@@ -887,30 +905,33 @@ void StartupDock::setStartupEntryEnabled(StartupEntry entry, const bool enabled)
         return;
     }
 
-    const QString locationText = entry.locationText.trimmed().isEmpty()
-        ? startupText("startup.value.empty", QStringLiteral("<空>"))
-        : entry.locationText;
-    const QMessageBox::StandardButton confirmButton = QMessageBox::warning(
-        this,
-        startupText(
-            "startup.dialog.toggle.confirm.title",
-            QStringLiteral("确认%1"))
-            .arg(operationTitle),
-        startupText(
-            "startup.dialog.toggle.confirm.message",
-            QStringLiteral("%1\n\n条目：%2\n来源：%3\n目标状态：%4\n风险等级：%5\n风险提示：%6\n\n%7\n是否继续？"))
-            .arg(startupToggleImpactText(entry.backendEntry.actionKind, enabled))
-            .arg(entry.itemNameText)
-            .arg(locationText)
-            .arg(buildStatusText(enabled))
-            .arg(startupRiskLevelText(entry.backendEntry.riskLevel))
-            .arg(startupRiskReasonText(entry.backendEntry))
-            .arg(startupToggleRecoveryText(entry.backendEntry.actionKind)),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirmButton != QMessageBox::Yes)
+    if (enabled)
     {
-        return;
+        const QString locationText = entry.locationText.trimmed().isEmpty()
+            ? startupText("startup.value.empty", QStringLiteral("<空>"))
+            : entry.locationText;
+        const QMessageBox::StandardButton confirmButton = QMessageBox::warning(
+            this,
+            startupText(
+                "startup.dialog.toggle.confirm.title",
+                QStringLiteral("确认%1"))
+                .arg(operationTitle),
+            startupText(
+                "startup.dialog.toggle.confirm.message",
+                QStringLiteral("%1\n\n条目：%2\n来源：%3\n目标状态：%4\n风险等级：%5\n风险提示：%6\n\n%7\n是否继续？"))
+                .arg(startupToggleImpactText(entry.backendEntry.actionKind, enabled))
+                .arg(entry.itemNameText)
+                .arg(locationText)
+                .arg(buildStatusText(enabled))
+                .arg(startupRiskLevelText(entry.backendEntry.riskLevel))
+                .arg(startupRiskReasonText(entry.backendEntry))
+                .arg(startupToggleRecoveryText(entry.backendEntry.actionKind)),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (confirmButton != QMessageBox::Yes)
+        {
+            return;
+        }
     }
 
     bool expectedIdle = false;
@@ -1156,6 +1177,331 @@ void StartupDock::deleteStartupEntry(StartupEntry entry)
                     << ", changed="
                     << (actionResult.changed ? "true" : "false")
                     << eol;
+            },
+            Qt::QueuedConnection);
+        if (!callbackQueued)
+        {
+            m_startupActionInProgress.store(false);
+        }
+    });
+}
+
+void StartupDock::setStartupEntriesEnabled(
+    std::vector<StartupEntry> entryList,
+    const bool enabled)
+{
+    if (entryList.size() <= 1)
+    {
+        if (!entryList.empty())
+        {
+            setStartupEntryEnabled(std::move(entryList.front()), enabled);
+        }
+        return;
+    }
+
+    const QString actionText = startupToggleActionText(enabled);
+    const QString operationTitle = startupText(
+        "startup.dialog.toggle.operation.title",
+        QStringLiteral("%1启动项"))
+        .arg(actionText);
+    std::vector<StartupEntry> actionableEntryList;
+    actionableEntryList.reserve(entryList.size());
+    for (const StartupEntry& entry : entryList)
+    {
+        if (entry.enabled == enabled)
+        {
+            continue;
+        }
+
+        const bool actionSupported = enabled
+            ? entry.backendEntry.canEnable
+            : entry.backendEntry.canDisable;
+        if (!actionSupported)
+        {
+            QMessageBox::information(
+                this,
+                operationTitle,
+                startupText(
+                    "startup.dialog.toggle.unsupported",
+                    QStringLiteral("后端未允许对该条目执行“%1”。请刷新后查看最新状态。"))
+                    .arg(actionText));
+            return;
+        }
+        actionableEntryList.push_back(entry);
+    }
+    if (actionableEntryList.empty())
+    {
+        return;
+    }
+
+    if (enabled)
+    {
+        const QMessageBox::StandardButton confirmButton = QMessageBox::warning(
+            this,
+            startupText(
+                "startup.dialog.toggle.confirm.title",
+                QStringLiteral("确认%1"))
+                .arg(operationTitle),
+            startupText(
+                "startup.dialog.toggle.confirm.batch.message",
+                QStringLiteral("即将%1 %2 个启动项。操作会逐项执行；失败项不会中断其余项目。\n\n是否继续？"))
+                .arg(actionText)
+                .arg(actionableEntryList.size()),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (confirmButton != QMessageBox::Yes)
+        {
+            return;
+        }
+    }
+
+    bool expectedIdle = false;
+    if (!m_startupActionInProgress.compare_exchange_strong(expectedIdle, true))
+    {
+        QMessageBox::information(
+            this,
+            operationTitle,
+            startupText(
+                "startup.dialog.toggle.busy",
+                QStringLiteral("已有一个启动项启停操作正在执行，请等待其完成后重试。")));
+        return;
+    }
+
+    if (m_actionThread != nullptr && m_actionThread->joinable())
+    {
+        m_actionThread->join();
+    }
+    m_actionThread = std::make_unique<std::thread>(
+        [this, actionableEntryList, enabled, actionText, operationTitle]()
+    {
+        std::vector<std::pair<StartupEntry, ks::startup::ActionResult>> actionResultList;
+        actionResultList.reserve(actionableEntryList.size());
+        for (const StartupEntry& entry : actionableEntryList)
+        {
+            actionResultList.emplace_back(
+                entry,
+                ks::startup::SetStartupEntryEnabled(entry.backendEntry, enabled));
+        }
+        if (m_destroying.load())
+        {
+            return;
+        }
+
+        const bool callbackQueued = QMetaObject::invokeMethod(
+            this,
+            [this, actionResultList, enabled, actionText, operationTitle]()
+            {
+                if (m_destroying.load())
+                {
+                    return;
+                }
+
+                m_startupActionInProgress.store(false);
+                refreshAllStartupEntries();
+                QStringList failureTextList;
+                bool privilegePromptHandled = false;
+                for (const auto& actionResultEntry : actionResultList)
+                {
+                    const StartupEntry& entry = actionResultEntry.first;
+                    const ks::startup::ActionResult& actionResult = actionResultEntry.second;
+                    if (!actionResult.success)
+                    {
+                        const QString failureText = startupActionFailureText(actionResult);
+                        if (!privilegePromptHandled && isStartupPrivilegeFailure(actionResult))
+                        {
+                            privilegePromptHandled = actionResult.errorCode != ERROR_SUCCESS
+                                ? ks::ui::promptForPrivilegeFailure(
+                                    this,
+                                    operationTitle,
+                                    static_cast<unsigned long>(actionResult.errorCode))
+                                : ks::ui::promptForPrivilegeFailure(
+                                    this,
+                                    operationTitle,
+                                    failureText);
+                        }
+                        failureTextList.push_back(
+                            QStringLiteral("%1：%2").arg(entry.itemNameText, failureText));
+                        continue;
+                    }
+
+                    kLogEvent actionEvent;
+                    info << actionEvent
+                        << startupText(
+                            "startup.log.toggle.succeeded",
+                            QStringLiteral("[StartupDock] 启动项修改成功, action=%1, changed=%2, targetEnabled=%3, type=%4, name=%5, location=%6"))
+                               .arg(actionText)
+                               .arg(actionResult.changed ? QStringLiteral("true") : QStringLiteral("false"))
+                               .arg(enabled ? QStringLiteral("true") : QStringLiteral("false"))
+                               .arg(entry.sourceTypeText)
+                               .arg(entry.itemNameText)
+                               .arg(entry.locationText)
+                               .toStdString()
+                        << eol;
+                }
+
+                if (!failureTextList.isEmpty() && !privilegePromptHandled)
+                {
+                    QMessageBox::warning(
+                        this,
+                        startupText(
+                            "startup.dialog.toggle.failed.title",
+                            QStringLiteral("%1失败"))
+                            .arg(operationTitle),
+                        startupText(
+                            "startup.dialog.batch.failed",
+                            QStringLiteral("%1 个条目未能执行%2：\n\n%3"))
+                            .arg(failureTextList.size())
+                            .arg(actionText)
+                            .arg(failureTextList.join(QStringLiteral("\n\n"))));
+                }
+            },
+            Qt::QueuedConnection);
+        if (!callbackQueued)
+        {
+            m_startupActionInProgress.store(false);
+        }
+    });
+}
+
+void StartupDock::deleteStartupEntries(std::vector<StartupEntry> entryList)
+{
+    if (entryList.size() <= 1)
+    {
+        if (!entryList.empty())
+        {
+            deleteStartupEntry(std::move(entryList.front()));
+        }
+        return;
+    }
+
+    const QString operationTitle = startupText(
+        "startup.dialog.delete.operation.title",
+        QStringLiteral("删除启动项"));
+    for (const StartupEntry& entry : entryList)
+    {
+        if (!entry.canDelete || !entry.backendEntry.canDelete)
+        {
+            QMessageBox::information(
+                this,
+                operationTitle,
+                startupText("startup.dialog.delete.unsupported", QStringLiteral("该条目当前不支持删除。")));
+            return;
+        }
+    }
+
+    const QMessageBox::StandardButton confirmButton = QMessageBox::warning(
+        this,
+        startupText(
+            "startup.dialog.delete.confirm.irreversible.title",
+            QStringLiteral("永久删除启动项")),
+        startupText(
+            "startup.dialog.delete.confirm.batch.message",
+            QStringLiteral("即将永久删除 %1 个启动项及其来源记录。此操作不可通过 KSword 恢复。\n\n确定仍要永久删除吗？"))
+            .arg(entryList.size()),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirmButton != QMessageBox::Yes)
+    {
+        return;
+    }
+
+    bool expectedIdle = false;
+    if (!m_startupActionInProgress.compare_exchange_strong(expectedIdle, true))
+    {
+        QMessageBox::information(
+            this,
+            operationTitle,
+            startupText(
+                "startup.dialog.operation.busy",
+                QStringLiteral("已有一个启动项修改操作正在执行，请等待其完成后重试。")));
+        return;
+    }
+
+    if (m_actionThread != nullptr && m_actionThread->joinable())
+    {
+        m_actionThread->join();
+    }
+    m_actionThread = std::make_unique<std::thread>(
+        [this, entryList, operationTitle]()
+    {
+        std::vector<std::pair<StartupEntry, ks::startup::ActionResult>> actionResultList;
+        actionResultList.reserve(entryList.size());
+        for (const StartupEntry& entry : entryList)
+        {
+            actionResultList.emplace_back(
+                entry,
+                ks::startup::DeleteStartupEntry(entry.backendEntry));
+        }
+        if (m_destroying.load())
+        {
+            return;
+        }
+
+        const bool callbackQueued = QMetaObject::invokeMethod(
+            this,
+            [this, actionResultList, operationTitle]()
+            {
+                if (m_destroying.load())
+                {
+                    return;
+                }
+
+                m_startupActionInProgress.store(false);
+                refreshAllStartupEntries();
+                QStringList failureTextList;
+                bool privilegePromptHandled = false;
+                for (const auto& actionResultEntry : actionResultList)
+                {
+                    const StartupEntry& entry = actionResultEntry.first;
+                    const ks::startup::ActionResult& actionResult = actionResultEntry.second;
+                    if (!actionResult.success)
+                    {
+                        const QString failureText = startupActionFailureText(actionResult);
+                        if (!privilegePromptHandled && isStartupPrivilegeFailure(actionResult))
+                        {
+                            privilegePromptHandled = actionResult.errorCode != ERROR_SUCCESS
+                                ? ks::ui::promptForPrivilegeFailure(
+                                    this,
+                                    operationTitle,
+                                    static_cast<unsigned long>(actionResult.errorCode))
+                                : ks::ui::promptForPrivilegeFailure(
+                                    this,
+                                    operationTitle,
+                                    failureText);
+                        }
+                        failureTextList.push_back(
+                            QStringLiteral("%1：%2").arg(entry.itemNameText, failureText));
+                        continue;
+                    }
+
+                    kLogEvent deleteEvent;
+                    info << deleteEvent
+                        << startupText(
+                            "startup.log.delete.succeeded",
+                            QStringLiteral("[StartupDock] 删除启动项成功, type="))
+                               .toStdString()
+                        << entry.sourceTypeText.toStdString()
+                        << ", name="
+                        << entry.itemNameText.toStdString()
+                        << ", location="
+                        << entry.locationText.toStdString()
+                        << ", changed="
+                        << (actionResult.changed ? "true" : "false")
+                        << eol;
+                }
+
+                if (!failureTextList.isEmpty() && !privilegePromptHandled)
+                {
+                    QMessageBox::warning(
+                        this,
+                        operationTitle,
+                        startupText(
+                            "startup.dialog.batch.failed",
+                            QStringLiteral("%1 个条目未能执行%2：\n\n%3"))
+                            .arg(failureTextList.size())
+                            .arg(operationTitle)
+                            .arg(failureTextList.join(QStringLiteral("\n\n"))));
+                }
             },
             Qt::QueuedConnection);
         if (!callbackQueued)

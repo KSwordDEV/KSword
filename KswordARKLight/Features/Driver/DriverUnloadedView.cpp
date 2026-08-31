@@ -2,6 +2,7 @@
 
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
@@ -297,6 +298,13 @@ std::wstring RowsAsText(const UnloadedViewState& state, bool visibleRows) {
         text += L"\r\n";
     }
     return text;
+}
+
+const std::vector<std::wstring>& UnloadedColumnTitles() {
+    static const std::vector<std::wstring> titles{
+        L"来源", L"驱动名", L"基址", L"映像大小", L"卸载时间", L"编译时间戳", L"加载状态", L"条目地址"
+    };
+    return titles;
 }
 
 void ApplyUnloadedFilter(UnloadedViewState& state, UnloadedFilterResult result) {
@@ -700,7 +708,7 @@ std::wstring ExportDriverUnloadedViewTsv(HWND page) {
     if (!state) {
         return {};
     }
-    return RowsAsText(*state, true);
+    return Ksword::Ui::BuildVisibleVirtualListTsv(UnloadedColumnTitles(), state->list);
 }
 
 } // namespace Ksword::Features::Driver

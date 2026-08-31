@@ -27,4 +27,8 @@ void ResizeHandleFeaturePage(HWND page, const RECT& bounds) {
     }
 }
 
+bool RequestHandleFeatureProcess(HWND page, DWORD processId) {
+    return HandlePage::SetProcessId(page, processId);
+}
+
 } // namespace Ksword::Features::Handle

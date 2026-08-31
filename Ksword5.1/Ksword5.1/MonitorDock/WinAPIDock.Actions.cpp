@@ -34,6 +34,7 @@
 #include <QMessageBox>
 #include <QModelIndex>
 #include <QPointer>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSaveFile>
 #include <QSet>
@@ -56,6 +57,18 @@
 
 namespace
 {
+    // normalizeRawListForSessionConfig：
+    // - 输入：Raw 配置的多行编辑文本；
+    // - 处理：把换行替换为分号，保持会话 INI 每项只有一行，同时保留 Agent 支持的列表分隔语义；
+    // - 返回：可安全写入 raw_modules 或 raw_denylist 的规范化文本。
+    QString normalizeRawListForSessionConfig(QString textValue)
+    {
+        textValue.replace(QStringLiteral("\r\n"), QStringLiteral(";"));
+        textValue.replace(u'\r', u';');
+        textValue.replace(u'\n', u';');
+        return textValue.trimmed();
+    }
+
     // toUtf8StdString：
     // - 作用：把 Qt 宽字符文本转成 UTF-8 std::string；
     // - 调用：Toolhelp 返回的进程名需要桥接到 ks::process::ProcessRecord。
@@ -1092,8 +1105,10 @@ bool WinAPIDock::writeSessionConfigFile(QString* errorTextOut) const
     outputStream << "auto_inject_child=" << ((m_autoInjectChildCheck != nullptr && m_autoInjectChildCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "enable_raw_fallback=" << ((m_rawFallbackCheck != nullptr && m_rawFallbackCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "raw_use_default_denylist=" << ((m_rawDefaultDenyListCheck != nullptr && m_rawDefaultDenyListCheck->isChecked()) ? 1 : 0) << '\n';
-    outputStream << "raw_modules=" << (m_rawModuleListEdit != nullptr ? m_rawModuleListEdit->text().trimmed() : defaultRawHookModulesText()) << '\n';
-    outputStream << "raw_denylist=" << (m_rawDenyListEdit != nullptr ? m_rawDenyListEdit->text().trimmed() : QString()) << '\n';
+    outputStream << "raw_modules=" << normalizeRawListForSessionConfig(
+        m_rawModuleListEdit != nullptr ? m_rawModuleListEdit->toPlainText() : defaultRawHookModulesText()) << '\n';
+    outputStream << "raw_denylist=" << normalizeRawListForSessionConfig(
+        m_rawDenyListEdit != nullptr ? m_rawDenyListEdit->toPlainText() : QString()) << '\n';
     outputStream << "fake_success_enabled=" << ((m_fakeRuleTable != nullptr && m_fakeRuleTable->rowCount() > 0) ? 1 : 0) << '\n';
     outputStream << "fake_success_raw_fallback=" << ((m_fakeRawFallbackCheck != nullptr && m_fakeRawFallbackCheck->isChecked()) ? 1 : 0) << '\n';
     outputStream << "fake_success_rules=" << fakeSuccessRulesIniText() << '\n';

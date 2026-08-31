@@ -1,6 +1,8 @@
 #pragma once
 
+#include "../Core/DriverLease.h"
 #include "../Core/DriverService.h"
+#include "../Core/EntityRef.h"
 #include "../Core/Privilege.h"
 #include "../Docking/DockManager.h"
 #include "../Ui/PlaceholderPage.h"
@@ -8,6 +10,8 @@
 #include "../Core/Win32Lean.h"
 
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace Ksword::App {
@@ -38,19 +42,47 @@ private:
         bool materializing = false;
     };
 
+    enum class NavigationPaletteAction {
+        Module,
+        Template
+    };
+
+    struct NavigationPaletteEntry {
+        NavigationPaletteAction action = NavigationPaletteAction::Module;
+        int moduleIndex = -1;
+        std::wstring displayText;
+        std::wstring commandTemplate;
+    };
+
     LRESULT handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     // CommandEditProc subclasses the compact command input. Inputs are normal
     // edit-control window-procedure values; processing intercepts Enter and
     // forwards to executeCommandInput; output is a Win32 LRESULT.
     static LRESULT CALLBACK CommandEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    // NavigationPaletteProc subclasses the native list-box popup. Inputs are
+    // list-box messages; processing accepts Enter/Escape and activation without
+    // materializing or probing any feature module.
+    static LRESULT CALLBACK NavigationPaletteProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     void createMenuBar();
     void createChildControls();
-    // createCommandInput creates the compact owned edit window used for command
-    // launching. There is no input; processing subclasses the edit and positions
-    // it beside the topmost menu item; no value is returned.
+    // createCommandInput creates the compact owned edit window used for typed
+    // navigation and explicit ! shell commands.
     void createCommandInput();
+    void showNavigationPalette();
+    void hideNavigationPalette(bool focusCommandInput);
+    void rebuildNavigationPalette();
+    void activateNavigationPaletteSelection();
     void createModuleDocks();
+    // captureNormalWindowRect records the top-level outer rectangle only while
+    // the shell is neither minimized nor maximized, so workspace persistence
+    // never treats an iconified/maximized rectangle as normal placement.
+    void captureNormalWindowRect();
+    // persistWorkspaceState saves only the validated normal outer rectangle,
+    // maximized state, and stable active module command id. Dock visibility and
+    // layout remain intentionally transient.
+    void persistWorkspaceState();
+    int activeModuleCommandId() const;
     // createModulePlaceholderPage creates a lightweight tab body used during
     // startup. Inputs are a module descriptor and initial bounds; processing
     // avoids touching feature code/enumerators; output is a child HWND.
@@ -91,10 +123,15 @@ private:
     // is no input; processing stores per-privilege results and updates status
     // text/tooltips without modal dialogs; no value is returned.
     void enableStartupPrivileges();
-    // executeCommandInput starts cmd.exe /k with the current edit text. There is
-    // no input; processing ignores blank input, creates a new console, clears
-    // the edit, and never waits for the child process; no value is returned.
+    // executeCommandInput parses navigation by default. Only a leading ! starts
+    // cmd.exe /k in a new console; the shell never executes ordinary search text.
     void executeCommandInput();
+    bool routeNavigation(const Ksword::Core::NavigationRequest& request);
+    bool applyNavigationToModule(int moduleIndex, const Ksword::Core::NavigationRequest& request);
+    int moduleIndexForCommandId(int commandId) const;
+    int moduleIndexForTitle(const std::wstring& query) const;
+    bool activateModule(int moduleIndex);
+    void exportEvidence(int commandId);
     void layout();
     void refreshPrivilegeText();
     void refreshDriverText(const Ksword::Core::DriverRuntimeStatus& status);
@@ -105,6 +142,9 @@ private:
     void queryDriverStatusDeferred();
     void handleUiAccessButtonClicked();
     void installDriverFromButton();
+    // stopDriverOnExit unloads only a driver started by Light and only after the
+    // last live Light lease is released. Pre-existing drivers remain running.
+    void stopDriverOnExit();
     // requestProcessDockRefreshIfLoaded 用途：R0 驱动可用后通知已物化进程页重新枚举。
     // 处理过程：只投递刷新消息，不直接访问进程页内部控件或 R0 IOCTL。
     void requestProcessDockRefreshIfLoaded();
@@ -114,16 +154,27 @@ private:
     HINSTANCE instance_;
     HWND hwnd_;
     HWND commandEdit_;
+    HWND navigationPalette_;
     HWND statusText_;
     HMENU mainMenu_;
     HMENU windowMenu_;
+    HMENU evidenceMenu_;
     WNDPROC commandEditProc_;
+    WNDPROC navigationPaletteProc_;
     std::unique_ptr<Ksword::Docking::DockManager> dockManager_;
     std::vector<Ksword::Ui::ModuleDescriptor> modules_;
     std::vector<DockSlot> dockSlots_;
+    std::vector<std::optional<Ksword::Core::NavigationRequest>> pendingNavigation_;
+    std::vector<NavigationPaletteEntry> navigationPaletteEntries_;
     std::vector<Ksword::Core::PrivilegeEnableResult> startupPrivilegeResults_;
     std::wstring startupPrivilegeSummary_;
+    Ksword::Core::DriverLease driverLease_;
     Ksword::Core::DriverRuntimeStatus driverStatus_;
+    RECT lastNormalScreenRect_{};
+    int restoredModuleCommandId_ = 0;
+    bool hasLastNormalScreenRect_ = false;
+    bool wasMaximized_ = false;
+    bool restoreMaximized_ = false;
     bool driverStatusKnown_ = false;
 };
 

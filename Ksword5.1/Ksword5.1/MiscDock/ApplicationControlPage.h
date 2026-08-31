@@ -97,32 +97,32 @@ namespace ks::misc
 
         // buildAppLockerPage：
         // - 构建 AppLocker 查看页；
-        // - 无输入参数，无返回值。
+        // - 返回以本页面为父对象的新建子页控件，由调用方加入 m_tabWidget。
         QWidget* buildAppLockerPage();
 
         // buildWdacPage：
         // - 构建 WDAC / Code Integrity 查看页；
-        // - 无输入参数，无返回值。
+        // - 返回以本页面为父对象的新建子页控件，由调用方加入 m_tabWidget。
         QWidget* buildWdacPage();
 
         // buildDefenderPage：
         // - 构建 Defender / ASR 查看页；
-        // - 无输入参数，无返回值。
+        // - 返回以本页面为父对象的新建子页控件，由调用方加入 m_tabWidget。
         QWidget* buildDefenderPage();
 
         // buildPlatformPage：
         // - 构建 CI / VBS / Hyper-V / Driver Trust / BAM 只读诊断页；
-        // - 无输入参数，无返回值。
+        // - 返回以本页面为父对象的新建子页控件，由调用方加入 m_tabWidget。
         QWidget* buildPlatformPage();
 
         // buildEventLogPage：
         // - 构建事件日志页；
-        // - 无输入参数，无返回值。
+        // - 返回以本页面为父对象的新建子页控件，由调用方加入 m_tabWidget。
         QWidget* buildEventLogPage();
 
         // buildFileDiagnosisPage：
         // - 构建文件诊断页；
-        // - 无输入参数，无返回值。
+        // - 返回以本页面为父对象的新建子页控件，由调用方加入 m_tabWidget。
         QWidget* buildFileDiagnosisPage();
 
         // editAppLockerPolicy：
@@ -132,7 +132,8 @@ namespace ks::misc
 
         // editWdacPolicy：
         // - 编辑用户选择的 WDAC 源 XML；可选编译并通过 CiTool 部署；
-        // - 无输入参数，无返回值。
+        // - sourcePath 为空时弹出文件选择对话框，非空时直接编辑该路径；
+        // - 无返回值；已有配置写入在途时直接返回，不重入。
         void editWdacPolicy(const QString& sourcePath = QString());
 
         // editDefenderSetting：
@@ -162,7 +163,8 @@ namespace ks::misc
 
         // initializeTable：
         // - 为表格设置统一的只读、行选择和右键菜单行为；
-        // - table 为目标表格；columnResizeModeLast 为最后一列的拉伸方式；
+        // - table 为目标表格，传 nullptr 时直接返回；
+        // - stretchLastColumn 决定最后一列是否吸收剩余宽度；
         // - 无返回值。
         void initializeTable(QTableWidget* table, bool stretchLastColumn = true);
 
@@ -238,7 +240,7 @@ namespace ks::misc
             const QString& conditionTypeText,
             const QString& conditionText);
 
-        // parseJsonObjectArrayToEvents：
+        // parseEventsJson：
         // - 将 PowerShell JSON 输出转换为事件表行；
         // - jsonText 为原始 JSON；
         // - 返回事件行和摘要文本。

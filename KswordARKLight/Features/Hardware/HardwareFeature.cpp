@@ -2,264 +2,72 @@
 
 #include "HardwareHwidDispatchView.h"
 #include "HardwareView.h"
+#include "../HardwareStats/BusDeviceView.h"
+#include "../HardwareStats/DiskActivityView.h"
+#include "../HardwareStats/PerformanceView.h"
+#include "../HardwareStats/UsbTopologyView.h"
 #include "../Kernel/KernelFeature.h"
-#include "../../Ui/Controls.h"
-#include "../../Ui/TabUtil.h"
-#include "../../Ui/Theme.h"
+#include "../../Ui/WorkspaceHost.h"
 
-#include <algorithm>
-#include <commctrl.h>
+#include <utility>
+#include <vector>
 
 namespace Ksword::Features::Hardware {
 namespace {
-constexpr wchar_t kHardwareHostClass[] = L"KswordARKLight.HardwareFeaturePage";
-constexpr int kTabId = 61101;
-constexpr int kDeviceManagerTabIndex = 0;
-constexpr int kCpuIntegrityTabIndex = 1;
-constexpr int kCpuSnapshotTabIndex = 2;
-constexpr int kHwidDispatchTabIndex = 3;
+
+constexpr int kDeviceManagerTab = 61100;
+constexpr int kCpuIntegrityTab = 61101;
+constexpr int kCpuSnapshotTab = 61102;
+constexpr int kHwidDispatchTab = 61103;
+constexpr int kPerformanceTab = 61104;
+constexpr int kDiskActivityTab = 61105;
+constexpr int kUsbTopologyTab = 61106;
+constexpr int kBusDeviceTab = 61107;
 constexpr int kEmbeddedKernelPrimaryTabId = 51001;
 constexpr int kEmbeddedKernelSecondaryTabId = 51002;
 
-// HardwareFeaturePageState owns the hardware audit page plus both CPU-related
-// KernelPage embeds. Inputs arrive through Win32 messages; processing preserves
-// child HWND state across tab switches by hiding instead of destroying pages.
-struct HardwareFeaturePageState {
-    HWND hwnd = nullptr;
-    HWND tab = nullptr;
-    HWND deviceManagerView = nullptr;
-    HWND cpuIntegrityView = nullptr;
-    HWND cpuSnapshotView = nullptr;
-    HWND hwidDispatchView = nullptr;
-    int currentTab = kDeviceManagerTabIndex;
-};
-
-// StateFromWindow retrieves the state pointer from a host HWND. Input is the
-// host HWND; output is null before WM_NCCREATE or after WM_NCDESTROY.
-HardwareFeaturePageState* StateFromWindow(HWND hwnd) {
-    return reinterpret_cast<HardwareFeaturePageState*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-}
-
-// Width returns a non-negative rectangle width. Input is a RECT; output is used
-// by child layout.
-int Width(const RECT& rc) {
-    return rc.right > rc.left ? rc.right - rc.left : 0;
-}
-
-// Height returns a non-negative rectangle height. Input is a RECT; output is
-// used by child layout.
-int Height(const RECT& rc) {
-    return rc.bottom > rc.top ? rc.bottom - rc.top : 0;
-}
-
-// ShowPages toggles only visibility, preserving each page's internal controls.
-// Input is page state; no return value is produced.
-void ShowPages(HardwareFeaturePageState& state) {
-    const bool deviceVisible = state.currentTab == kDeviceManagerTabIndex;
-    const bool cpuIntegrityVisible = state.currentTab == kCpuIntegrityTabIndex;
-    const bool cpuVisible = state.currentTab == kCpuSnapshotTabIndex;
-    const bool hwidVisible = state.currentTab == kHwidDispatchTabIndex;
-    if (state.deviceManagerView) {
-        ::ShowWindow(state.deviceManagerView, deviceVisible ? SW_SHOW : SW_HIDE);
-    }
-    if (state.cpuIntegrityView) {
-        ::ShowWindow(state.cpuIntegrityView, cpuIntegrityVisible ? SW_SHOW : SW_HIDE);
-    }
-    if (state.cpuSnapshotView) {
-        ::ShowWindow(state.cpuSnapshotView, cpuVisible ? SW_SHOW : SW_HIDE);
-    }
-    if (state.hwidDispatchView) {
-        ::ShowWindow(state.hwidDispatchView, hwidVisible ? SW_SHOW : SW_HIDE);
-    }
-}
-
-// HideEmbeddedKernelNavigationTabs removes only the Kernel page navigation tabs
-// from a Hardware-owned KernelPage embed. Input is the embedded Kernel HWND; the
-// processing hides the primary/secondary Kernel tab controls whose stable child
-// ids are defined by the referenced Kernel page implementation. It intentionally
-// leaves the selected feature content and all collection logic alive, and it
-// returns no value because missing child tabs are non-fatal.
-void HideEmbeddedKernelNavigationTabs(HWND embeddedKernelPage) {
-    if (!embeddedKernelPage) {
-        return;
-    }
-
-    HWND primaryTab = ::GetDlgItem(embeddedKernelPage, kEmbeddedKernelPrimaryTabId);
-    if (primaryTab) {
-        ::ShowWindow(primaryTab, SW_HIDE);
-    }
-
-    HWND secondaryTab = ::GetDlgItem(embeddedKernelPage, kEmbeddedKernelSecondaryTabId);
-    if (secondaryTab) {
-        ::ShowWindow(secondaryTab, SW_HIDE);
-    }
-}
-
-// LayoutChildren sizes the tab control and retained child pages. Input is
-// state; processing uses TabCtrl_AdjustRect through the UI helper; no value is
-// returned.
-void LayoutChildren(HardwareFeaturePageState& state) {
-    if (!state.hwnd) {
-        return;
-    }
-    RECT rc{};
-    ::GetClientRect(state.hwnd, &rc);
-    ::MoveWindow(state.tab, 0, 0, Width(rc), Height(rc), TRUE);
-    RECT display = Ksword::Ui::GetTabDisplayRect(state.tab);
-    const int pageWidth = Width(display);
-    const int pageHeight = Height(display);
-    if (state.deviceManagerView) {
-        ::MoveWindow(state.deviceManagerView, display.left, display.top, pageWidth, pageHeight, TRUE);
-    }
-    if (state.cpuIntegrityView) {
-        ::MoveWindow(state.cpuIntegrityView, display.left, display.top, pageWidth, pageHeight, TRUE);
-        HideEmbeddedKernelNavigationTabs(state.cpuIntegrityView);
-    }
-    if (state.cpuSnapshotView) {
-        ::MoveWindow(state.cpuSnapshotView, display.left, display.top, pageWidth, pageHeight, TRUE);
-        HideEmbeddedKernelNavigationTabs(state.cpuSnapshotView);
-    }
-    if (state.hwidDispatchView) {
-        ::MoveWindow(state.hwidDispatchView, display.left, display.top, pageWidth, pageHeight, TRUE);
-    }
-    ShowPages(state);
-}
-
-// CreateChildControls creates the tab host plus retained hardware audit and CPU pages.
-// Input is state with hwnd set; processing embeds existing KernelPage features
-// for CPU/IDT integrity and CPU hardware snapshot; output is true when all
-// required HWNDs exist.
-bool CreateChildControls(HardwareFeaturePageState& state) {
-    state.tab = Ksword::Ui::CreateTabControl(state.hwnd, kTabId, 0, 0, 0, 0);
-    if (!state.tab) {
-        return false;
-    }
-    Ksword::Ui::AddTabPage(state.tab, kDeviceManagerTabIndex, { L"设备/输入链审计" });
-    Ksword::Ui::AddTabPage(state.tab, kCpuIntegrityTabIndex, { L"CPU/IDT 完整性" });
-    Ksword::Ui::AddTabPage(state.tab, kCpuSnapshotTabIndex, { L"CPU 硬件快照" });
-    Ksword::Ui::AddTabPage(state.tab, kHwidDispatchTabIndex, { L"HWID Dispatch" });
-    ::SendMessageW(state.tab, TCM_SETCURSEL, static_cast<WPARAM>(kDeviceManagerTabIndex), 0);
-
-    RECT display = Ksword::Ui::GetTabDisplayRect(state.tab);
-    const RECT childBounds{ 0, 0, std::max(1, Width(display)), std::max(1, Height(display)) };
-    state.deviceManagerView = CreateHardwareDeviceManagerView(state.tab, childBounds);
-    state.cpuIntegrityView = Ksword::Features::Kernel::CreateKernelSingleFeaturePage(
-        state.tab,
-        61102,
-        childBounds,
-        Ksword::Features::Kernel::KernelFeatureId::KernelCpuIntegrity);
-    state.cpuSnapshotView = Ksword::Features::Kernel::CreateKernelSingleFeaturePage(
-        state.tab,
-        61103,
-        childBounds,
-        Ksword::Features::Kernel::KernelFeatureId::CpuHardwareSnapshot);
-    state.hwidDispatchView = CreateHardwareHwidDispatchView(state.tab, childBounds);
-    HideEmbeddedKernelNavigationTabs(state.cpuIntegrityView);
-    HideEmbeddedKernelNavigationTabs(state.cpuSnapshotView);
-    return state.deviceManagerView != nullptr &&
-        state.cpuIntegrityView != nullptr &&
-        state.cpuSnapshotView != nullptr &&
-        state.hwidDispatchView != nullptr;
-}
-
-// RegisterHardwareFeatureClass registers the host window class once. There is
-// no input; output is true when CreateWindowExW can use the class.
-bool RegisterHardwareFeatureClass() {
-    static bool registered = false;
-    if (registered) {
-        return true;
-    }
-
-    WNDCLASSW wc{};
-    wc.lpfnWndProc = [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) -> LRESULT {
-        HardwareFeaturePageState* state = StateFromWindow(hwnd);
-        if (msg == WM_NCCREATE) {
-            auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
-            state = create ? static_cast<HardwareFeaturePageState*>(create->lpCreateParams) : nullptr;
-            if (state) {
-                state->hwnd = hwnd;
-                ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
-            }
+HWND CreateEmbeddedKernelPage(HWND host, const RECT& bounds, const int controlId, const Kernel::KernelFeatureId featureId) {
+    HWND page = Kernel::CreateKernelSingleFeaturePage(host, controlId, bounds, featureId);
+    if (page) {
+        if (HWND primary = ::GetDlgItem(page, kEmbeddedKernelPrimaryTabId)) {
+            ::ShowWindow(primary, SW_HIDE);
         }
-
-        switch (msg) {
-        case WM_CREATE:
-            if (state) {
-                if (!CreateChildControls(*state)) {
-                    delete state;
-                    ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-                    return -1;
-                }
-                LayoutChildren(*state);
-            }
-            return 0;
-        case WM_SIZE:
-            if (state) {
-                LayoutChildren(*state);
-            }
-            return 0;
-        case WM_NOTIFY:
-            if (state) {
-                const auto* header = reinterpret_cast<const NMHDR*>(lParam);
-                if (header && header->hwndFrom == state->tab && header->code == TCN_SELCHANGE) {
-                    const LRESULT selected = ::SendMessageW(state->tab, TCM_GETCURSEL, 0, 0);
-                    if (selected >= 0) {
-                        state->currentTab = static_cast<int>(selected);
-                    }
-                    ShowPages(*state);
-                    return 0;
-                }
-            }
-            break;
-        case WM_CTLCOLORSTATIC: {
-            HDC dc = reinterpret_cast<HDC>(wParam);
-            ::SetBkMode(dc, TRANSPARENT);
-            ::SetTextColor(dc, Ksword::Ui::AppTheme().textColor);
-            return reinterpret_cast<LRESULT>(Ksword::Ui::AppTheme().windowBrush());
+        if (HWND secondary = ::GetDlgItem(page, kEmbeddedKernelSecondaryTabId)) {
+            ::ShowWindow(secondary, SW_HIDE);
         }
-        case WM_NCDESTROY:
-            delete state;
-            ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-            return 0;
-        default:
-            break;
-        }
-        return ::DefWindowProcW(hwnd, msg, wParam, lParam);
-    };
-    wc.hInstance = ::GetModuleHandleW(nullptr);
-    wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = Ksword::Ui::AppTheme().windowBrush();
-    wc.lpszClassName = kHardwareHostClass;
-    if (::RegisterClassW(&wc) || ::GetLastError() == ERROR_CLASS_ALREADY_EXISTS) {
-        registered = true;
     }
-    return registered;
+    return page;
 }
 
 } // namespace
 
 HWND CreateHardwareFeaturePage(HWND parent, const RECT& bounds) {
-    if (!parent || !RegisterHardwareFeatureClass()) {
-        return nullptr;
-    }
-    auto* state = new HardwareFeaturePageState();
-    HWND hwnd = ::CreateWindowExW(
-        0,
-        kHardwareHostClass,
-        L"Hardware",
-        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-        bounds.left,
-        bounds.top,
-        bounds.right - bounds.left,
-        bounds.bottom - bounds.top,
-        parent,
-        nullptr,
-        ::GetModuleHandleW(nullptr),
-        state);
-    if (!hwnd) {
-        delete state;
-    }
-    return hwnd;
+    std::vector<Ksword::Ui::WorkspaceTabDescriptor> tabs;
+    tabs.push_back({ kDeviceManagerTab, L"设备/输入链审计", L"设备页首次打开时枚举当前设备树。",
+        [](HWND host, const RECT& pageBounds) { return CreateHardwareDeviceManagerView(host, pageBounds); } });
+    tabs.push_back({ kCpuIntegrityTab, L"CPU/IDT 完整性", L"按需加载 Kernel CPU/IDT 完整性页。",
+        [](HWND host, const RECT& pageBounds) {
+            return CreateEmbeddedKernelPage(host, pageBounds, 61112, Kernel::KernelFeatureId::KernelCpuIntegrity);
+        } });
+    tabs.push_back({ kCpuSnapshotTab, L"CPU 硬件快照", L"按需加载 CPU 硬件快照。",
+        [](HWND host, const RECT& pageBounds) {
+            return CreateEmbeddedKernelPage(host, pageBounds, 61113, Kernel::KernelFeatureId::CpuHardwareSnapshot);
+        } });
+    tabs.push_back({ kHwidDispatchTab, L"HWID Dispatch", L"按需加载 HWID Dispatch 审计与控制页。",
+        [](HWND host, const RECT& pageBounds) { return CreateHardwareHwidDispatchView(host, pageBounds); } });
+    tabs.push_back({ kPerformanceTab, L"性能监控", L"按需启动性能采样。",
+        [](HWND host, const RECT& pageBounds) { return HardwareStats::CreatePerformanceView(host, pageBounds); } });
+    tabs.push_back({ kDiskActivityTab, L"磁盘活动", L"按需启动磁盘活动采样。",
+        [](HWND host, const RECT& pageBounds) { return HardwareStats::CreateDiskActivityView(host, pageBounds); } });
+    tabs.push_back({ kUsbTopologyTab, L"USB 拓扑", L"按需枚举 USB 拓扑。",
+        [](HWND host, const RECT& pageBounds) { return HardwareStats::CreateUsbTopologyView(host, pageBounds); } });
+    tabs.push_back({ kBusDeviceTab, L"系统总线", L"按需枚举系统总线设备。",
+        [](HWND host, const RECT& pageBounds) { return HardwareStats::CreateBusDeviceView(host, pageBounds); } });
+
+    Ksword::Ui::WorkspaceOptions options{};
+    options.tabControlId = 61110;
+    options.initialTabId = kDeviceManagerTab;
+    return Ksword::Ui::CreateWorkspaceHost(parent, bounds, std::move(tabs), std::move(options));
 }
 
 } // namespace Ksword::Features::Hardware

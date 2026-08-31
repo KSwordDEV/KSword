@@ -30,6 +30,7 @@ typedef struct _KSWORD_ARK_FILE_MONITOR_RUNTIME
 {
     PFLT_FILTER Filter;
     WDFDEVICE Device;
+    EX_PUSH_LOCK ControlLock;
     KSPIN_LOCK RingLock;
     ULONG HeadIndex;
     ULONG TailIndex;
@@ -475,7 +476,8 @@ KswordARKFileMonitorFillCommonEvent(
     _In_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ ULONG OperationType,
-    _In_ BOOLEAN IsPostOperation
+    _In_ BOOLEAN IsPostOperation,
+    _In_ BOOLEAN IncludeLegacySequence
     )
 /*++
 
@@ -509,7 +511,9 @@ Return Value:
     Event->minorFunction = Data->Iopb->MinorFunction;
     Event->processId = (ULONG)(ULONG_PTR)FltGetRequestorProcessId(Data);
     Event->threadId = HandleToULong(PsGetCurrentThreadId());
-    Event->sequence = (ULONG64)InterlockedIncrement64(&g_KswordArkFileMonitorRuntime.Sequence);
+    if (IncludeLegacySequence) {
+        Event->sequence = (ULONG64)InterlockedIncrement64(&g_KswordArkFileMonitorRuntime.Sequence);
+    }
     KeQuerySystemTimePrecise((PLARGE_INTEGER)&Event->timeUtc100ns);
 
     if (FltObjects != NULL && FltObjects->FileObject != NULL) {
@@ -550,6 +554,16 @@ Return Value:
         return;
     }
 
+    // 新回调监控单独采集时只复制现成 FileObject 名称，不触发名称查询分配。
+    if (!IncludeLegacySequence) {
+        if (FltObjects != NULL &&
+            FltObjects->FileObject != NULL &&
+            FltObjects->FileObject->FileName.Buffer != NULL) {
+            KswordARKFileMonitorCopyNameToEvent(Event, &FltObjects->FileObject->FileName);
+        }
+        return;
+    }
+
     nameStatus = FltGetFileNameInformation(
         Data,
         FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT,
@@ -567,6 +581,47 @@ Return Value:
     if (nameInformation != NULL) {
         FltReleaseFileNameInformation(nameInformation);
     }
+}
+
+static VOID
+KswordARKFileMonitorPublishCallbackEvent(
+    _In_ const KSWORD_ARK_FILE_MONITOR_EVENT* Event
+    )
+{
+    KSWORD_ARK_CALLBACK_MONITOR_EVENT_INPUT monitorInput;
+    UNICODE_STRING pathText;
+
+    // 旧文件事件已经完成路径解析，直接映射到统一回调遥测结构，避免重复查询名称。
+    if (Event == NULL ||
+        !KswordArkCallbackMonitorIsEnabled(KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_MINIFILTER)) {
+        return;
+    }
+    RtlZeroMemory(&monitorInput, sizeof(monitorInput));
+    RtlZeroMemory(&pathText, sizeof(pathText));
+    if ((Event->fieldFlags & KSWORD_ARK_FILE_MONITOR_FIELD_PATH_PRESENT) != 0UL) {
+        RtlInitUnicodeString(&pathText, Event->path);
+        monitorInput.Path = &pathText;
+    }
+    monitorInput.Category = KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_MINIFILTER;
+    monitorInput.Operation = Event->operationType;
+    monitorInput.OriginatingProcessId = Event->processId;
+    monitorInput.OriginatingThreadId = Event->threadId;
+    monitorInput.DetailCode = ((Event->majorFunction & 0xFFUL) << 8) |
+        (Event->minorFunction & 0xFFUL);
+    monitorInput.OriginalAccess = Event->desiredAccess;
+    monitorInput.DesiredAccess = Event->desiredAccess;
+    monitorInput.Address = Event->fileObjectAddress;
+    if ((Event->fieldFlags & KSWORD_ARK_FILE_MONITOR_FIELD_ACCESS_PRESENT) != 0UL) {
+        monitorInput.Flags |= KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_ACCESS_PRESENT;
+    }
+    if ((Event->fieldFlags & KSWORD_ARK_FILE_MONITOR_FIELD_RESULT_PRESENT) != 0UL) {
+        monitorInput.Flags |= KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_STATUS_PRESENT;
+        monitorInput.ResultStatus = Event->resultStatus;
+    }
+    if ((Event->fieldFlags & KSWORD_ARK_FILE_MONITOR_FIELD_POST_OPERATION) != 0UL) {
+        monitorInput.Flags |= KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_POST_OPERATION;
+    }
+    KswordArkCallbackMonitorPublish(&monitorInput);
 }
 
 static VOID
@@ -692,6 +747,8 @@ Return Value:
     FLT_PREOP_CALLBACK_STATUS callbackStatus = FLT_PREOP_SUCCESS_NO_CALLBACK;
     KSWORD_ARK_FILE_MONITOR_EVENT event;
     BOOLEAN redirected = FALSE;
+    BOOLEAN legacyCapture = FALSE;
+    BOOLEAN callbackCapture = FALSE;
 
     if (CompletionContext != NULL) {
         *CompletionContext = NULL;
@@ -712,6 +769,23 @@ Return Value:
         FltObjects,
         operationType);
     if (callbackStatus == FLT_PREOP_COMPLETE) {
+        // 被规则拒绝的操作没有 post 回调，仍向独立遥测通道报告最终状态。
+        if (KswordArkCallbackMonitorIsEnabled(KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_MINIFILTER)) {
+            operationType = KswordARKFileMonitorMapMajorToOperation(
+                Data->Iopb->MajorFunction,
+                Data->Iopb->MinorFunction,
+                &Data->Iopb->Parameters);
+            if (operationType != 0UL) {
+                KswordARKFileMonitorFillCommonEvent(
+                    &event,
+                    Data,
+                    FltObjects,
+                    operationType,
+                    TRUE,
+                    FALSE);
+                KswordARKFileMonitorPublishCallbackEvent(&event);
+            }
+        }
         return FLT_PREOP_COMPLETE;
     }
 
@@ -727,7 +801,10 @@ Return Value:
         Data->Iopb->MajorFunction,
         Data->Iopb->MinorFunction,
         &Data->Iopb->Parameters);
-    if (!KswordARKFileMonitorShouldCapture(Data, operationType)) {
+    legacyCapture = KswordARKFileMonitorShouldCapture(Data, operationType);
+    callbackCapture = operationType != 0UL &&
+        KswordArkCallbackMonitorIsEnabled(KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_MINIFILTER);
+    if (!legacyCapture && !callbackCapture) {
         return FLT_PREOP_SUCCESS_NO_CALLBACK;
     }
 
@@ -742,8 +819,14 @@ Return Value:
         Data,
         FltObjects,
         operationType,
-        FALSE);
-    KswordARKFileMonitorPushEvent(&event);
+        FALSE,
+        legacyCapture);
+    if (legacyCapture) {
+        KswordARKFileMonitorPushEvent(&event);
+    }
+    if (callbackCapture) {
+        KswordARKFileMonitorPublishCallbackEvent(&event);
+    }
     return FLT_PREOP_SUCCESS_NO_CALLBACK;
 }
 
@@ -777,6 +860,8 @@ Return Value:
 {
     ULONG operationType = 0UL;
     KSWORD_ARK_FILE_MONITOR_EVENT event;
+    BOOLEAN legacyCapture = FALSE;
+    BOOLEAN callbackCapture = FALSE;
 
     UNREFERENCED_PARAMETER(CompletionContext);
 
@@ -788,7 +873,10 @@ Return Value:
         Data->Iopb->MajorFunction,
         Data->Iopb->MinorFunction,
         &Data->Iopb->Parameters);
-    if (!KswordARKFileMonitorShouldCapture(Data, operationType)) {
+    legacyCapture = KswordARKFileMonitorShouldCapture(Data, operationType);
+    callbackCapture = operationType != 0UL &&
+        KswordArkCallbackMonitorIsEnabled(KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_MINIFILTER);
+    if (!legacyCapture && !callbackCapture) {
         return FLT_POSTOP_FINISHED_PROCESSING;
     }
 
@@ -797,8 +885,14 @@ Return Value:
         Data,
         FltObjects,
         operationType,
-        TRUE);
-    KswordARKFileMonitorPushEvent(&event);
+        TRUE,
+        legacyCapture);
+    if (legacyCapture) {
+        KswordARKFileMonitorPushEvent(&event);
+    }
+    if (callbackCapture) {
+        KswordARKFileMonitorPublishCallbackEvent(&event);
+    }
     return FLT_POSTOP_FINISHED_PROCESSING;
 }
 
@@ -860,6 +954,7 @@ Return Value:
     g_KswordArkFileMonitorRuntime.OperationMask = KSWORD_ARK_FILE_MONITOR_OPERATION_ALL;
     g_KswordArkFileMonitorRuntime.RegisterStatus = STATUS_NOT_SUPPORTED;
     g_KswordArkFileMonitorRuntime.StartStatus = STATUS_NOT_SUPPORTED;
+    ExInitializePushLock(&g_KswordArkFileMonitorRuntime.ControlLock);
     KeInitializeSpinLock(&g_KswordArkFileMonitorRuntime.RingLock);
 
     registryStatus = KswordARKFileMonitorEnsureRegistryInstances(RegistryPath);
@@ -896,6 +991,37 @@ Return Value:
     g_KswordArkFileMonitorRuntime.LastErrorStatus = STATUS_SUCCESS;
     KswordARKFileMonitorLog("Info", "KswordARK file monitor minifilter registered.");
     return STATUS_SUCCESS;
+}
+
+NTSTATUS
+KswordARKFileMonitorEnsureFilteringStarted(
+    VOID
+    )
+{
+    NTSTATUS status = STATUS_SUCCESS;
+
+    // 两个监控入口共用一次性 FltStartFiltering，控制锁消除并发启动竞态。
+    KswordARKAcquirePushLockExclusive(&g_KswordArkFileMonitorRuntime.ControlLock);
+    if (g_KswordArkFileMonitorRuntime.Filter == NULL) {
+        status = STATUS_INVALID_DEVICE_STATE;
+    }
+    else if (g_KswordArkFileMonitorRuntime.StartStatus == STATUS_NOT_SUPPORTED) {
+        status = FltStartFiltering(g_KswordArkFileMonitorRuntime.Filter);
+        g_KswordArkFileMonitorRuntime.StartStatus = status;
+    }
+    else {
+        status = g_KswordArkFileMonitorRuntime.StartStatus;
+    }
+
+    // Started 表示 FltMgr 引擎已启动，不再等同于旧文件监控页面是否采集。
+    g_KswordArkFileMonitorRuntime.LastErrorStatus = status;
+    KswordArkMinifilterCallbackUpdateState(
+        g_KswordArkFileMonitorRuntime.Filter,
+        g_KswordArkFileMonitorRuntime.RegisterStatus,
+        g_KswordArkFileMonitorRuntime.StartStatus,
+        NT_SUCCESS(status) ? TRUE : FALSE);
+    KswordARKReleasePushLockExclusive(&g_KswordArkFileMonitorRuntime.ControlLock);
+    return status;
 }
 
 VOID
@@ -979,18 +1105,9 @@ Return Value:
         }
         g_KswordArkFileMonitorRuntime.ProcessIdFilter = Request->processId;
 
-        if (g_KswordArkFileMonitorRuntime.StartStatus == STATUS_NOT_SUPPORTED) {
-            status = FltStartFiltering(g_KswordArkFileMonitorRuntime.Filter);
-            g_KswordArkFileMonitorRuntime.StartStatus = status;
-            if (!NT_SUCCESS(status)) {
-                g_KswordArkFileMonitorRuntime.LastErrorStatus = status;
-                KswordArkMinifilterCallbackUpdateState(
-                    g_KswordArkFileMonitorRuntime.Filter,
-                    g_KswordArkFileMonitorRuntime.RegisterStatus,
-                    status,
-                    FALSE);
-                return status;
-            }
+        status = KswordARKFileMonitorEnsureFilteringStarted();
+        if (!NT_SUCCESS(status)) {
+            return status;
         }
 
         g_KswordArkFileMonitorRuntime.RuntimeFlags |= KSWORD_ARK_FILE_MONITOR_RUNTIME_STARTED;
@@ -1009,7 +1126,7 @@ Return Value:
             g_KswordArkFileMonitorRuntime.Filter,
             g_KswordArkFileMonitorRuntime.RegisterStatus,
             g_KswordArkFileMonitorRuntime.StartStatus,
-            FALSE);
+            NT_SUCCESS(g_KswordArkFileMonitorRuntime.StartStatus) ? TRUE : FALSE);
         KswordARKFileMonitorLog("Info", "KswordARK file monitor stopped.");
         return STATUS_SUCCESS;
 

@@ -54,6 +54,96 @@ bool EndsWithSeparator(const std::wstring& path) {
     return !path.empty() && (path.back() == L'\\' || path.back() == L'/');
 }
 
+// IsAsciiDriveLetter reports whether ch can introduce a DOS drive root. Input
+// is one character; output is true only for ASCII A-Z or a-z.
+bool IsAsciiDriveLetter(const wchar_t ch) {
+    return (ch >= L'A' && ch <= L'Z') || (ch >= L'a' && ch <= L'z');
+}
+
+// IsValidKnownPathComponent accepts one literal component from a cached
+// absolute path. It deliberately rejects wildcard, device and traversal syntax
+// instead of attempting expansion or filesystem-based canonicalization.
+bool IsValidKnownPathComponent(const std::wstring& component) {
+    if (component.empty() || component == L"." || component == L"..") {
+        return false;
+    }
+    for (const wchar_t ch : component) {
+        if (ch < L' ' || ch == L'"' || ch == L'*' || ch == L'?' || ch == L'<' ||
+            ch == L'>' || ch == L'|' || ch == L':') {
+            return false;
+        }
+    }
+    return true;
+}
+
+// ValidateKnownPathComponents checks every component after a root. Inputs are a
+// normalized path and the root length; output is false for empty, duplicate or
+// traversal components. No filesystem access occurs.
+bool ValidateKnownPathComponents(const std::wstring& path, std::size_t rootLength) {
+    if (rootLength > path.size()) {
+        return false;
+    }
+    if (rootLength < path.size() && path[rootLength] == L'\\') {
+        ++rootLength;
+    }
+    while (rootLength < path.size()) {
+        const std::size_t separator = path.find(L'\\', rootLength);
+        const std::size_t end = separator == std::wstring::npos ? path.size() : separator;
+        if (!IsValidKnownPathComponent(path.substr(rootLength, end - rootLength))) {
+            return false;
+        }
+        if (separator == std::wstring::npos) {
+            break;
+        }
+        rootLength = separator + 1U;
+    }
+    return true;
+}
+
+// NormalizeKnownAbsolutePath only accepts literal DOS and UNC names that came
+// from an existing snapshot. It neither expands variables nor asks Windows to
+// resolve a path, preserving the provenance boundary for cross-page routes.
+std::wstring NormalizeKnownAbsolutePath(const std::wstring& value, std::size_t& rootLength) {
+    std::wstring path = TrimWrappingQuotes(TrimWhitespace(value));
+    std::replace(path.begin(), path.end(), L'/', L'\\');
+    rootLength = 0;
+    if (path.empty()) {
+        return {};
+    }
+
+    if (path.rfind(L"\\\\?\\", 0) == 0 || path.rfind(L"\\\\.\\", 0) == 0 ||
+        path.rfind(L"\\??\\", 0) == 0 || path.rfind(L"\\Device\\", 0) == 0) {
+        return {};
+    }
+
+    if (path.size() >= 3U && IsAsciiDriveLetter(path[0]) && path[1] == L':' && path[2] == L'\\') {
+        rootLength = 3U;
+        while (path.size() > rootLength && path.back() == L'\\') {
+            path.pop_back();
+        }
+        return ValidateKnownPathComponents(path, rootLength) ? path : std::wstring{};
+    }
+
+    if (path.rfind(L"\\\\", 0) != 0) {
+        return {};
+    }
+    const std::size_t serverEnd = path.find(L'\\', 2U);
+    if (serverEnd == std::wstring::npos || !IsValidKnownPathComponent(path.substr(2U, serverEnd - 2U))) {
+        return {};
+    }
+    const std::size_t shareStart = serverEnd + 1U;
+    const std::size_t shareEnd = path.find(L'\\', shareStart);
+    const std::size_t shareLength = (shareEnd == std::wstring::npos ? path.size() : shareEnd) - shareStart;
+    if (!IsValidKnownPathComponent(path.substr(shareStart, shareLength))) {
+        return {};
+    }
+    rootLength = shareEnd == std::wstring::npos ? path.size() : shareEnd;
+    while (path.size() > rootLength && path.back() == L'\\') {
+        path.pop_back();
+    }
+    return ValidateKnownPathComponents(path, rootLength) ? path : std::wstring{};
+}
+
 } // namespace
 
 PathNavigator::PathNavigator() = default;
@@ -124,6 +214,30 @@ std::wstring PathNavigator::normalizeDirectoryPath(const std::wstring& path) {
         normalized.push_back(L'\\');
     }
     return normalized;
+}
+
+std::wstring PathNavigator::normalizeKnownDirectoryPath(const std::wstring& path) {
+    std::size_t rootLength = 0;
+    return NormalizeKnownAbsolutePath(path, rootLength);
+}
+
+std::wstring PathNavigator::parentDirectoryForKnownFilePath(const std::wstring& path) {
+    std::size_t rootLength = 0;
+    const std::wstring normalized = NormalizeKnownAbsolutePath(path, rootLength);
+    if (normalized.empty() || normalized.size() <= rootLength) {
+        return {};
+    }
+    const std::size_t separator = normalized.find_last_of(L'\\');
+    if (separator == std::wstring::npos) {
+        return {};
+    }
+    if (rootLength == 3U && separator == rootLength - 1U) {
+        return normalized.substr(0, rootLength);
+    }
+    if (separator <= rootLength) {
+        return normalized.substr(0, rootLength);
+    }
+    return normalized.substr(0, separator);
 }
 
 std::wstring PathNavigator::parentPath(const std::wstring& path) {

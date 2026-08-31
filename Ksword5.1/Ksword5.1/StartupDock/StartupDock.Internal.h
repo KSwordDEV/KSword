@@ -27,6 +27,7 @@
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -55,6 +56,7 @@
 #include <memory>     // std::unique_ptr：局部对象托管。
 #include <optional>   // std::optional：可选字段判断。
 #include <string>     // std::string：Win32/Qt 文本桥接。
+#include <utility>    // std::pair/std::move：分批落表目标与缓存转移。
 #include <vector>     // std::vector：启动项缓存。
 
 namespace startup_dock_detail
@@ -126,9 +128,9 @@ namespace startup_dock_detail
     // appendBackendStartupEntries 作用：
     // - 把 ks::startup 后端的 UTF-8 记录转换为 StartupDock 的 Qt UI 记录；
     // - 传入 entryListOut：追加目标，允许为空指针并直接返回；
-    // - 传入 backendEntryList：后端枚举结果，按移动语义消费；
+    // - 传入 backendEntryList：后端枚举结果，只读转换且不复制整批容器；
     // - 返回值：无，直接向 entryListOut 追加转换后的记录。
     void appendBackendStartupEntries(
         std::vector<StartupDock::StartupEntry>* entryListOut,
-        std::vector<ks::startup::StartupEntry> backendEntryList);
+        const std::vector<ks::startup::StartupEntry>& backendEntryList);
 }

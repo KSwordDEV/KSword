@@ -49,6 +49,12 @@ struct KSYSTEM_PROCESS_INFORMATION {
     SIZE_T PagefileUsage;
     SIZE_T PeakPagefileUsage;
     SIZE_T PrivatePageCount;
+    LARGE_INTEGER ReadOperationCount;
+    LARGE_INTEGER WriteOperationCount;
+    LARGE_INTEGER OtherOperationCount;
+    LARGE_INTEGER ReadTransferCount;
+    LARGE_INTEGER WriteTransferCount;
+    LARGE_INTEGER OtherTransferCount;
 };
 
 std::wstring UnicodeStringToWString(const UNICODE_STRING& value) {
@@ -157,9 +163,19 @@ ProcessEnumerationResult EnumerateProcessesByNtQuerySystemInformation() {
             ? static_cast<ULONGLONG>(info->CreateTime.QuadPart)
             : 0U;
         row.workingSetBytes = info->WorkingSetSize;
+        row.peakWorkingSetBytes = info->PeakWorkingSetSize;
         row.privatePageBytes = info->PrivatePageCount;
         row.virtualSizeBytes = info->VirtualSize;
+        row.commitBytes = info->PagefileUsage;
+        row.pagedPoolBytes = info->QuotaPagedPoolUsage;
+        row.nonPagedPoolBytes = info->QuotaNonPagedPoolUsage;
         row.pageFaultCount = info->PageFaultCount;
+        row.ioReadOperations = static_cast<ULONGLONG>(info->ReadOperationCount.QuadPart);
+        row.ioWriteOperations = static_cast<ULONGLONG>(info->WriteOperationCount.QuadPart);
+        row.ioOtherOperations = static_cast<ULONGLONG>(info->OtherOperationCount.QuadPart);
+        row.ioReadBytes = static_cast<ULONGLONG>(info->ReadTransferCount.QuadPart);
+        row.ioWriteBytes = static_cast<ULONGLONG>(info->WriteTransferCount.QuadPart);
+        row.ioOtherBytes = static_cast<ULONGLONG>(info->OtherTransferCount.QuadPart);
         row.imageName = UnicodeStringToWString(info->ImageName);
         if (row.imageName.empty()) {
             row.imageName = row.processId == 0 ? L"System Idle Process" : L"System";

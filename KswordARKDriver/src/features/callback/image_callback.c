@@ -52,6 +52,24 @@ KswordArkLoadImageNotify(
         RtlInitUnicodeString(&targetPath, targetPathBuffer);
     }
 
+    // 映像遥测携带装载地址和大小，不等待或查询额外用户态信息。
+    if (KswordArkCallbackMonitorIsEnabled(KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_IMAGE)) {
+        KSWORD_ARK_CALLBACK_MONITOR_EVENT_INPUT monitorInput;
+        RtlZeroMemory(&monitorInput, sizeof(monitorInput));
+        monitorInput.Category = KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_IMAGE;
+        monitorInput.Operation = KSWORD_ARK_IMAGE_OP_LOAD;
+        monitorInput.OriginatingProcessId = HandleToULong(PsGetCurrentProcessId());
+        monitorInput.OriginatingThreadId = HandleToULong(PsGetCurrentThreadId());
+        monitorInput.TargetProcessId = HandleToULong(ProcessId);
+        monitorInput.SessionId = KswordArkGetProcessSessionIdSafe(PsGetCurrentProcess());
+        monitorInput.DetailCode = ImageInfo->SystemModeImage != 0U ? 1UL : 0UL;
+        monitorInput.Address = (ULONG64)(ULONG_PTR)ImageInfo->ImageBase;
+        monitorInput.RegionSize = (ULONG64)ImageInfo->ImageSize;
+        monitorInput.ProcessName = &initiatorPath;
+        monitorInput.Path = &targetPath;
+        KswordArkCallbackMonitorPublish(&monitorInput);
+    }
+
     matchStatus = KswordArkCallbackMatchRule(
         KSWORD_ARK_CALLBACK_TYPE_IMAGE_LOAD,
         KSWORD_ARK_IMAGE_OP_LOAD,

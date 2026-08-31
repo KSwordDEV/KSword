@@ -20,6 +20,7 @@
 
 class CodeEditorWidget;
 class QAbstractItemView;
+class QAbstractItemDelegate;
 class QDialog;
 class QEvent;
 class QPlainTextEdit;
@@ -30,6 +31,8 @@ class QWidget;
 
 namespace ks::ui
 {
+    class EmbeddedRowDelegate;
+
     // DetailLayoutHost：单个页面的详情布局控制器。
     // 调用方式：页面完成表格和 CodeEditorWidget 创建后交给 DetailLayoutRegistry 注册。
     class DetailLayoutHost final : public QObject
@@ -103,6 +106,14 @@ namespace ks::ui
         void insertTableEmbeddedDetail(const QPersistentModelIndex& sourceIndex, const QString& detailText);
         void insertTreeEmbeddedDetail(const QPersistentModelIndex& sourceIndex, const QString& detailText);
 
+        // installEmbeddedRowDelegate / restoreEmbeddedRowDelegate：
+        // 仅在存在展开行时安装绘制包装器，并在最后一行收起时恢复页面原 delegate。
+        void installEmbeddedRowDelegate();
+        void restoreEmbeddedRowDelegate();
+
+        // embeddedOriginalRowHeight：按当前绘制索引返回展开前行高，非展开行返回 -1。
+        int embeddedOriginalRowHeight(const QModelIndex& modelIndex) const;
+
         // removeEmbeddedEntry：移除指定源行的行内详情；返回 true 表示已找到并移除。
         bool removeEmbeddedEntry(const QPersistentModelIndex& sourceIndex);
 
@@ -131,6 +142,8 @@ namespace ks::ui
         QPointer<QToolButton> m_toggleButton;           // m_toggleButton：下方折叠方案的箭头按钮。
         QPointer<QDialog> m_floatingWindow;             // m_floatingWindow：当前页面唯一详情窗口。
         QPointer<CodeEditorWidget> m_floatingEditor;    // m_floatingEditor：独立窗口中的只读镜像编辑器。
+        QPointer<QAbstractItemDelegate> m_embeddedSourceDelegate; // m_embeddedSourceDelegate：行内展开前页面正在使用的 delegate。
+        QPointer<EmbeddedRowDelegate> m_embeddedRowDelegate; // m_embeddedRowDelegate：限制展开行源单元格绘制区域的包装 delegate。
         QList<EmbeddedEntry> m_embeddedEntries;         // m_embeddedEntries：当前已展开的多行详情。
         ks::settings::DetailDisplayScheme m_scheme =
             ks::settings::DetailDisplayScheme::BottomCollapsed;

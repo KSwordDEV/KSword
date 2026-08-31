@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace Ksword::Features::Process {
@@ -25,9 +26,25 @@ struct ProcessSnapshotRow {
     // creationTime100ns distinguishes a recycled PID from the snapshot process instance.
     ULONGLONG creationTime100ns = 0;
     SIZE_T workingSetBytes = 0;
+    // peakWorkingSetBytes 用途：NtQuery 快照中的峰值工作集，供“内存”列显示。
+    SIZE_T peakWorkingSetBytes = 0;
     SIZE_T privatePageBytes = 0;
     SIZE_T virtualSizeBytes = 0;
+    // commitBytes/pagedPoolBytes/nonPagedPoolBytes 用途：SystemProcessInformation 原始内存统计。
+    SIZE_T commitBytes = 0;
+    SIZE_T pagedPoolBytes = 0;
+    SIZE_T nonPagedPoolBytes = 0;
     ULONG pageFaultCount = 0;
+    // workingSetDeltaBytes/pageFaultDelta 用途：由相邻快照计算的动态内存增量。
+    LONGLONG workingSetDeltaBytes = 0;
+    LONGLONG pageFaultDelta = 0;
+    // I/O 计数与传输量来自 SystemProcessInformation，避免逐进程句柄查询。
+    ULONGLONG ioReadOperations = 0;
+    ULONGLONG ioWriteOperations = 0;
+    ULONGLONG ioOtherOperations = 0;
+    ULONGLONG ioReadBytes = 0;
+    ULONGLONG ioWriteBytes = 0;
+    ULONGLONG ioOtherBytes = 0;
     double cpuUsagePercent = 0.0;
     std::wstring imageName;
     std::wstring imagePath;
@@ -44,6 +61,8 @@ struct ProcessSnapshotRow {
     std::wstring r0EnumImagePath;
     std::wstring r0AuditSummary;
     std::wstring r0AuditDetail;
+    // detailTexts 用途：保存主程序进程库按需采集到的扩展列文本，键为 ProcessColumnId 的整数值。
+    std::unordered_map<std::uint8_t, std::wstring> detailTexts;
 };
 
 // ProcessEnumerationResult groups all rows from one enumeration pass. success is

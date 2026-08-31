@@ -23,6 +23,11 @@ namespace Ksword::Ui {
 // hunt for the switch that would enable it.
 void AttachTextFindSupport(HWND multilineEdit);
 
+// OpenTextFindSupport exposes the attached find bar to page-local controls.
+// If needed it attaches the support first, then opens the read-only or editable
+// find UI exactly as Ctrl+F would.
+void OpenTextFindSupport(HWND multilineEdit);
+
 // AttachTextFindSupportRecursive attaches every multi-line EDIT under one root.
 // Input is a page or dialog HWND; processing walks the child tree once and
 // attaches each control whose style carries ES_MULTILINE; no value is returned.

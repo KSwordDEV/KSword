@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build" ToolsVersion="17.0">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -205,6 +205,8 @@
     <ClCompile Include="ksword\scanner\macho_scanner.cpp" />
     <ClCompile Include="ksword\profile\ProfileJsonLoader.cpp" />
     <ClCompile Include="KernelDock\KernelDock.cpp" />
+    <ClCompile Include="KernelDock\KernelKnowledgeCatalog.cpp" />
+    <ClCompile Include="KernelDock\KernelKnowledgeTab.cpp" />
     <ClCompile Include="KernelDock\KernelDock.CallbackIntercept.cpp" />
     <ClCompile Include="KernelDock\KernelDock.CallbackPromptManager.cpp" />
     <ClCompile Include="KernelDock\KernelDock.CallbackRuleSerializer.cpp" />
@@ -278,7 +280,6 @@
     <ClCompile Include="MiscDock\DiskEditor\DiskStructureParser.cpp" />
     <ClCompile Include="MiscDock\DiskEditor\DiskEditorTab.cpp" />
     <ClCompile Include="MiscDock\DiskEditor\DiskMapWidget.cpp" />
-    <ClCompile Include="MiscDock\DiskEditor\StorageControllerResearchDialog.cpp" />
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.cpp" />
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.Associations.cpp" />
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.Backup.cpp" />
@@ -328,6 +329,7 @@
     <ClCompile Include="MonitorDock\MonitorPanelWidget.cpp" />
     <ClCompile Include="MonitorDock\MonitorTextViewer.cpp" />
     <ClCompile Include="MonitorDock\DirectKernelCallMonitorWidget.cpp" />
+    <ClCompile Include="MonitorDock\KernelCallbackMonitorWidget.cpp" />
     <ClCompile Include="MonitorDock\ProcessTraceMonitorWidget.cpp" />
     <ClCompile Include="MonitorDock\ProcessTraceMonitorWidget.Ui.cpp" />
     <ClCompile Include="MonitorDock\ProcessTraceMonitorWidget.Actions.cpp" />
@@ -380,17 +382,20 @@
     <ClCompile Include="ProcessDock\ProcessDetailWindow.ExtendedActions.cpp" />
     <ClCompile Include="ProcessDock\ProcessDetailWindow.AdvancedInfo.cpp" />
     <ClCompile Include="PluginHost.cpp" />
+    <ClCompile Include="ProcessDock\ProcessCpuCapacityCell.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.Icon.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.ColumnChooser.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.CrossView.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.ThreadTab.cpp" />
+    <ClCompile Include="ProcessDock\ThreadAffinityMenu.cpp" />
     <ClCompile Include="ProcessDock\ProcessMessageHookWindow.cpp" />
     <ClCompile Include="ProcessDock\ThreadStackWindow.cpp" />
     <ClCompile Include="ProcessDock\Process_Tool.cpp" />
     <ClCompile Include="Internationalization\LanguageManager.cpp" />
     <ClCompile Include="SettingsDock\AppearanceSettings.cpp" />
     <ClCompile Include="SettingsDock\SettingsDock.OnlineScan.cpp" />
+    <ClCompile Include="SettingsDock\SettingsDock.Bugcheck.cpp" />
     <ClCompile Include="SettingsDock\SettingsDock.cpp" />
     <ClCompile Include="ServerDock\ServiceDock.cpp" />
     <ClCompile Include="ServerDock\ServiceDock.Actions.cpp" />
@@ -415,8 +420,10 @@
     <ClCompile Include="StartupDock\StartupDock.Services.cpp" />
     <ClCompile Include="StartupDock\StartupDock.Tasks.cpp" />
     <ClCompile Include="UI\CodeEditorWidget.cpp" />
+    <ClCompile Include="UI\EmbeddedRowDelegate.cpp" />
     <ClCompile Include="UI\DetailLayoutHost.cpp" />
     <ClCompile Include="UI\DetailLayoutRegistry.cpp" />
+    <ClCompile Include="UI\ReportStructuredView.cpp" />
     <ClCompile Include="UI\KernelDisassemblyDialog.cpp" />
     <ClCompile Include="..\..\third_party\zydis\Zydis.c">
       <CompileAs>CompileAsC</CompileAs>
@@ -462,6 +469,7 @@
     <ClCompile Include="ksword\network\network_nids.cpp" />
     <ClCompile Include="ksword\network\network_process_etw_monitor.cpp" />
     <ClCompile Include="ksword\process\dll_hijack_detector.cpp" />
+    <ClCompile Include="ksword\process\process_cpu_core_etw_monitor.cpp" />
     <ClCompile Include="ksword\process\process.cpp" />
     <ClCompile Include="ksword\process\ProcessImageDeleteGuard.cpp" />
     <ClCompile Include="ksword\service\service.cpp" />
@@ -510,13 +518,14 @@
     <ClCompile Include="ArkDriverClient\ArkDriverIoctlRegistry.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverKeyboard.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverCallback.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkDriverCallbackMonitor.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverMutation.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverHwid.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverPower.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverDebugOutput.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverBugcheck.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverSystemTime.cpp" />
-    <ClCompile Include="ArkDriverClient\ArkStorageControllerClient.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkDriverResearch.cpp" />
     <ClCompile Include="..\..\third_party\zstd\zstd.c">
       <CompileAs>CompileAsC</CompileAs>
       <WarningLevel>TurnOffAllWarnings</WarningLevel>
@@ -546,6 +555,8 @@
     <ClInclude Include="Framework\ProgressDockWidget.h" />
     <ClInclude Include="Framework\StartupSplash.h" />
     <ClInclude Include="KernelDock\KernelDockAtomWorker.h" />
+    <ClInclude Include="KernelDock\KernelKnowledgeCatalog.h" />
+    <ClInclude Include="KernelDock\KernelKnowledgeTab.h" />
     <ClInclude Include="KernelDock\KernelDock.CallbackIntercept.h" />
     <ClInclude Include="KernelDock\KernelBaseNamedObjectsTab.h" />
     <ClInclude Include="KernelDock\KernelBaseNamedObjectsWorker.h" />
@@ -595,6 +606,8 @@
     <ClInclude Include="ksword\network\network_process_etw_monitor.h" />
     <ClInclude Include="ksword\network\network_request_tools.h" />
     <ClInclude Include="ksword\process\dll_hijack_detector.h" />
+    <ClInclude Include="ksword\process\ProcessCpuUsageModel.h" />
+    <ClInclude Include="ksword\process\process_cpu_core_etw_monitor.h" />
     <ClInclude Include="ksword\process\process.h" />
     <ClInclude Include="ksword\process\ProcessImageDeleteGuard.h" />
     <ClInclude Include="ksword\profile\ProfileJsonLoader.h" />
@@ -604,8 +617,10 @@
     <ClInclude Include="ksword\string\string.h" />
     <ClInclude Include="theme.h" />
     <ClInclude Include="UI\FlatTableModel.h" />
+    <ClInclude Include="UI\EmbeddedRowDelegate.h" />
     <ClInclude Include="UI\DetailLayoutHost.h" />
     <ClInclude Include="UI\DetailLayoutRegistry.h" />
+    <ClInclude Include="UI\ReportStructuredView.h" />
     <ClInclude Include="UI\SmoothScrollSupport.h" />
     <ClInclude Include="UI\TableColumnAutoFit.h" />
     <ClInclude Include="UI\TableFreezeSupport.h" />
@@ -659,7 +674,6 @@
     <ClInclude Include="MiscDock\DiskEditor\DiskRangeTools.h" />
     <ClInclude Include="MiscDock\DiskEditor\DiskStructureParser.h" />
     <ClInclude Include="MiscDock\DiskEditor\DiskEditorTab.h" />
-    <ClInclude Include="MiscDock\DiskEditor\StorageControllerResearchDialog.h" />
     <QtMoc Include="MiscDock\DiskEditor\DiskMapWidget.h" />
     <QtMoc Include="MiscDock\MiscDock.h" />
     <ClInclude Include="MinidumpDock\DumpAnalyzer.h" />
@@ -686,6 +700,7 @@
     <ClInclude Include="MonitorDock\EtwArchiveCompression.h" />
     <QtMoc Include="MonitorDock\MonitorDock.h" />
     <ClInclude Include="MonitorDock\DirectKernelCallMonitorWidget.h" />
+    <ClInclude Include="MonitorDock\KernelCallbackMonitorWidget.h" />
     <ClInclude Include="..\..\shared\ui\KsPainterChart.h" />
     <ClInclude Include="MonitorDock\MonitorPanelWidget.h" />
     <ClInclude Include="MonitorDock\MonitorTextViewer.h" />
@@ -720,6 +735,8 @@
     <ClInclude Include="ProcessDock\ProcessAffinityUtils.h" />
     <ClInclude Include="ProcessDock\ProcessAffinityPersistence.h" />
     <ClInclude Include="ProcessDock\ProcessAffinityModel.h" />
+    <ClInclude Include="ProcessDock\ThreadAffinityMenu.h" />
+    <ClInclude Include="ProcessDock\ProcessCpuCapacityCell.h" />
     <ClInclude Include="ProcessDock\ProcessMessageHookWindow.h" />
     <ClInclude Include="ProcessDock\ThreadStackWindow.h" />
     <QtMoc Include="ProcessDock\ProcessDock.h" />
@@ -759,7 +776,6 @@
     <ClInclude Include="ArkDriverClient\ArkDriverError.h" />
     <ClInclude Include="..\..\shared\crash\WinCrashHandler.h" />
     <ClInclude Include="ArkDriverClient\ArkDriverCapabilities.h" />
-    <ClInclude Include="ArkDriverClient\ArkStorageControllerClient.h" />
     <ClInclude Include="..\..\third_party\zydis\Zydis.h" />
     <ClInclude Include="..\..\third_party\zstd\zstd.h" />
     <ClInclude Include="..\..\third_party\zstd\zstd_errors.h" />

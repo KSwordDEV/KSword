@@ -3,6 +3,7 @@
 #include "NetToolsDiagnostics.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/LoadingOverlay.h"
 #include "../../Ui/TextFindSupport.h"
 #include "../../Ui/Theme.h"
@@ -15,6 +16,7 @@
 #include <cstring>
 #include <cwctype>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -34,12 +36,15 @@ constexpr int kCopyButtonId = 66207;
 constexpr int kClearButtonId = 66208;
 constexpr int kOutputEditId = 66209;
 constexpr int kLoadingOverlayId = 66210;
+constexpr int kRefreshButtonId = 66211;
+constexpr int kExportButtonId = 66212;
+constexpr int kFindButtonId = 66213;
 
 constexpr UINT kMsgDiagnosticCompleted = WM_APP + 675;
 
 constexpr int kGap = 6;
 constexpr int kRowHeight = 24;
-constexpr int kHeaderHeight = kGap * 2 + kRowHeight;
+constexpr int kHeaderHeight = kGap * 3 + kRowHeight * 2;
 constexpr int kStatusHeight = 22;
 
 // kPingTimeoutMs and kTraceTimeoutMs bound the worst case a user can wait. The
@@ -67,12 +72,16 @@ struct DiagnosticViewState final {
     HWND traceButton = nullptr;
     HWND dnsButton = nullptr;
     HWND dnsTypeCombo = nullptr;
+    HWND refreshButton = nullptr;
+    HWND exportButton = nullptr;
+    HWND findButton = nullptr;
     HWND copyButton = nullptr;
     HWND clearButton = nullptr;
     HWND outputEdit = nullptr;
     HWND loadingOverlay = nullptr;
     std::wstring statusText = L"填写目标主机名或 IP 地址后选择一种探测方式。";
     bool probeInProgress = false;
+    std::optional<DiagnosticRequest> lastRequest;
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<DiagnosticResult>> probeTask;
 };
 
@@ -131,6 +140,15 @@ void UpdateActionButtons(DiagnosticViewState& state) {
             ::EnableWindow(control, enabled);
         }
     }
+    if (state.refreshButton) {
+        ::EnableWindow(state.refreshButton, enabled && state.lastRequest.has_value() ? TRUE : FALSE);
+    }
+    if (state.exportButton) {
+        ::EnableWindow(state.exportButton, enabled);
+    }
+    if (state.findButton) {
+        ::EnableWindow(state.findButton, enabled);
+    }
 }
 
 void SetOutputText(DiagnosticViewState& state, const std::wstring& text) {
@@ -144,16 +162,38 @@ void SetOutputText(DiagnosticViewState& state, const std::wstring& text) {
     ::SendMessageW(state.outputEdit, EM_SCROLLCARET, 0, 0);
 }
 
-void BeginProbe(DiagnosticViewState& state, const DiagnosticKind kind) {
-    if (!state.probeTask) {
-        return;
-    }
+void SubmitProbe(DiagnosticViewState& state, const DiagnosticRequest& request) {
     if (state.probeInProgress) {
         state.statusText = L"已有网络诊断正在执行，请等待其完成。";
         ::InvalidateRect(state.hwnd, nullptr, TRUE);
         return;
     }
 
+    state.probeInProgress = true;
+    UpdateActionButtons(state);
+    Ksword::Ui::SetLoadingOverlay(state.loadingOverlay, true, L"正在执行网络诊断…");
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+    state.probeTask->request(
+        [request] { return RunDiagnostic(request); },
+        [&state](std::uint64_t, std::optional<DiagnosticResult>&& result, std::exception_ptr error) {
+            state.probeInProgress = false;
+            Ksword::Ui::SetLoadingOverlay(state.loadingOverlay, false);
+            UpdateActionButtons(state);
+            if (error || !result.has_value()) {
+                state.statusText = L"网络诊断异常结束。";
+                ::InvalidateRect(state.hwnd, nullptr, TRUE);
+                return;
+            }
+            SetOutputText(state, result->text);
+            state.statusText = result->summary;
+            ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        });
+}
+
+void BeginProbe(DiagnosticViewState& state, const DiagnosticKind kind) {
+    if (!state.probeTask) {
+        return;
+    }
     const std::wstring target = TrimText(WindowText(state.targetEdit));
     if (target.empty()) {
         state.statusText = L"请先填写目标主机名或 IP 地址。";
@@ -186,25 +226,42 @@ void BeginProbe(DiagnosticViewState& state, const DiagnosticKind kind) {
     }
     }
 
-    state.probeInProgress = true;
-    UpdateActionButtons(state);
-    Ksword::Ui::SetLoadingOverlay(state.loadingOverlay, true, L"正在执行网络诊断…");
+    state.lastRequest = request;
+    SubmitProbe(state, request);
+}
+
+void RefreshLastProbe(DiagnosticViewState& state) {
+    if (!state.lastRequest.has_value()) {
+        state.statusText = L"请先执行一次网络诊断。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+    state.statusText = L"正在重新执行上次网络诊断…";
+    SubmitProbe(state, *state.lastRequest);
+}
+
+void ExportDiagnosticOutput(DiagnosticViewState& state) {
+    const std::wstring text = WindowText(state.outputEdit);
+    if (text.empty()) {
+        state.statusText = L"没有可导出的诊断输出。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+    std::wstring error;
+    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(
+        state.hwnd, L"network_diagnostic.txt", L"导出网络诊断",
+        L"Text (*.txt)\0*.txt\0All Files (*.*)\0*.*\0", L"txt", text, &error)) {
+    case Ksword::Ui::SaveTextFileResult::Saved:
+        state.statusText = L"已导出网络诊断输出。";
+        break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled:
+        state.statusText = L"已取消导出网络诊断。";
+        break;
+    case Ksword::Ui::SaveTextFileResult::Failed:
+        state.statusText = L"导出网络诊断失败：" + error;
+        break;
+    }
     ::InvalidateRect(state.hwnd, nullptr, TRUE);
-    state.probeTask->request(
-        [request] { return RunDiagnostic(request); },
-        [&state](std::uint64_t, std::optional<DiagnosticResult>&& result, std::exception_ptr error) {
-            state.probeInProgress = false;
-            Ksword::Ui::SetLoadingOverlay(state.loadingOverlay, false);
-            UpdateActionButtons(state);
-            if (error || !result.has_value()) {
-                state.statusText = L"网络诊断异常结束。";
-                ::InvalidateRect(state.hwnd, nullptr, TRUE);
-                return;
-            }
-            SetOutputText(state, result->text);
-            state.statusText = result->summary;
-            ::InvalidateRect(state.hwnd, nullptr, TRUE);
-        });
 }
 
 void LayoutView(DiagnosticViewState& state) {
@@ -223,9 +280,9 @@ void LayoutView(DiagnosticViewState& state) {
     };
 
     place(state.targetLabel, 40, kRowHeight);
-    // The target box takes whatever is left after the fixed-width controls so a
-    // long URL or an IPv6 literal stays readable on a narrow dock.
-    const int fixedWidth = 40 + 72 + 88 + 88 + 92 + 64 + 64 + kGap * 8;
+    // The target box takes whatever is left after the fixed-width probe controls
+    // so a long URL or an IPv6 literal stays readable on a narrow dock.
+    const int fixedWidth = 40 + 72 + 88 + 88 + 92 + kGap * 6;
     place(state.targetEdit, (std::max)(120, width - fixedWidth), kRowHeight);
     place(state.pingButton, 72, kRowHeight);
     place(state.traceButton, 88, kRowHeight);
@@ -235,9 +292,20 @@ void LayoutView(DiagnosticViewState& state) {
     if (state.dnsTypeCombo) {
         ::MoveWindow(state.dnsTypeCombo, cursorX, rowY, 92, kRowHeight * 10, TRUE);
     }
-    cursorX += 92 + kGap;
-    place(state.copyButton, 64, kRowHeight);
-    place(state.clearButton, 64, kRowHeight);
+
+    const int toolsY = rowY + kRowHeight + kGap;
+    cursorX = kGap;
+    const auto placeTool = [&cursorX, toolsY](HWND control, int controlWidth) {
+        if (control) {
+            ::MoveWindow(control, cursorX, toolsY, controlWidth, kRowHeight, TRUE);
+        }
+        cursorX += controlWidth + kGap;
+    };
+    placeTool(state.refreshButton, 64);
+    placeTool(state.exportButton, 82);
+    placeTool(state.findButton, 64);
+    placeTool(state.copyButton, 64);
+    placeTool(state.clearButton, 64);
 
     const int outputTop = kHeaderHeight;
     const int outputHeight = (std::max)(0, height - outputTop - kStatusHeight - kGap);
@@ -259,6 +327,9 @@ bool CreateChildControls(DiagnosticViewState& state) {
     state.pingButton = Ksword::Ui::CreateButton(hwnd, kPingButtonId, L"Ping", 0, 0, 0, 0);
     state.traceButton = Ksword::Ui::CreateButton(hwnd, kTraceButtonId, L"路由跟踪", 0, 0, 0, 0);
     state.dnsButton = Ksword::Ui::CreateButton(hwnd, kDnsButtonId, L"DNS 查询", 0, 0, 0, 0);
+    state.refreshButton = Ksword::Ui::CreateButton(hwnd, kRefreshButtonId, L"刷新", 0, 0, 0, 0);
+    state.exportButton = Ksword::Ui::CreateButton(hwnd, kExportButtonId, L"导出", 0, 0, 0, 0);
+    state.findButton = Ksword::Ui::CreateButton(hwnd, kFindButtonId, L"查找", 0, 0, 0, 0);
     state.copyButton = Ksword::Ui::CreateButton(hwnd, kCopyButtonId, L"复制", 0, 0, 0, 0);
     state.clearButton = Ksword::Ui::CreateButton(hwnd, kClearButtonId, L"清空", 0, 0, 0, 0);
 
@@ -288,6 +359,7 @@ bool CreateChildControls(DiagnosticViewState& state) {
 
     state.loadingOverlay = Ksword::Ui::CreateLoadingOverlay(hwnd, kLoadingOverlayId, { 0, 0, 1, 1 });
     if (!state.targetLabel || !state.targetEdit || !state.pingButton || !state.traceButton || !state.dnsButton ||
+        !state.refreshButton || !state.exportButton || !state.findButton ||
         !state.copyButton || !state.clearButton || !state.outputEdit || !state.loadingOverlay) {
         return false;
     }
@@ -335,6 +407,15 @@ LRESULT CALLBACK DiagnosticViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 return 0;
             case kDnsButtonId:
                 BeginProbe(*state, DiagnosticKind::DnsLookup);
+                return 0;
+            case kRefreshButtonId:
+                RefreshLastProbe(*state);
+                return 0;
+            case kExportButtonId:
+                ExportDiagnosticOutput(*state);
+                return 0;
+            case kFindButtonId:
+                Ksword::Ui::OpenTextFindSupport(state->outputEdit);
                 return 0;
             case kCopyButtonId:
                 state->statusText = CopyText(hwnd, WindowText(state->outputEdit)) ? L"已复制诊断结果。" : L"复制失败。";

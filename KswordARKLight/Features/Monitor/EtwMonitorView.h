@@ -81,6 +81,7 @@ private:
     int iconIndexForProcessId(std::uint32_t processId);
     std::wstring processImagePath(std::uint32_t processId) const;
     void openSelectedEventDetail();
+    void openSelectedEventProcess();
     void showEventDetail(const EtwEvent& eventRow);
     int selectedEventIndex() const;
     bool selectedEvent(EtwEvent* eventRow) const;
@@ -88,6 +89,7 @@ private:
     void copySelectedEventRow();
     void copySelectedEventCell();
     void copyVisibleEventRows();
+    void exportVisibleEventRows();
     void copySelectedEventDetail();
     void showEventContextMenu(POINT screenPoint);
     bool handleVirtualEventDisplayInfo(NMLVDISPINFOW* displayInfo);
@@ -97,6 +99,7 @@ private:
     HWND stopButton_ = nullptr;
     HWND filterButton_ = nullptr;
     HWND clearButton_ = nullptr;
+    HWND exportButton_ = nullptr;
     HWND statusText_ = nullptr;
     HWND localFilterBar_ = nullptr;
     HWND eventList_ = nullptr;
@@ -120,5 +123,9 @@ private:
 // CreateEtwMonitorPage is the module-level facade used by the app integration
 // session. Inputs are parent and bounds; output is the page HWND or null.
 HWND CreateEtwMonitorPage(HWND parent, const RECT& bounds);
+
+// RequestEtwMonitorProcessFilter focuses the local ETW event view on one PID.
+// The page may be running or stopped; the filter is retained for later events.
+bool RequestEtwMonitorProcessFilter(HWND page, DWORD processId);
 
 } // namespace Ksword::Features::Monitor

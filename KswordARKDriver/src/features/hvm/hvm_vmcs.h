@@ -64,6 +64,11 @@ KswordARKHvmCaptureSegments(
     _Out_ KSW_HVM_SEGMENT_SNAPSHOT* Snapshot
     );
 
+ULONGLONG
+KswordARKHvmAsmReadSsp(
+    VOID
+    );
+
 VOID
 KswordARKHvmControlledGuestEntry(
     VOID

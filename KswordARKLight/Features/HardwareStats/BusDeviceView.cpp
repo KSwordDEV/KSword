@@ -3,6 +3,7 @@
 #include "DeviceTopologyEnumerator.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
@@ -31,6 +32,7 @@ constexpr int kFilterBarId = 66403;
 constexpr int kBusListId = 66404;
 constexpr int kDetailListId = 66405;
 constexpr int kLoadingOverlayId = 66406;
+constexpr int kExportButtonId = 66407;
 
 constexpr UINT kMenuCopyRow = 66451;
 constexpr UINT kMenuCopyVisible = 66452;
@@ -67,6 +69,7 @@ struct BusFilterResult final {
 struct BusDeviceViewState final {
     HWND hwnd = nullptr;
     HWND refreshButton = nullptr;
+    HWND exportButton = nullptr;
     HWND allBusesCheck = nullptr;
     HWND filterBar = nullptr;
     HWND detailList = nullptr;
@@ -461,8 +464,11 @@ void LayoutView(BusDeviceViewState& state) {
     if (state.refreshButton) {
         ::MoveWindow(state.refreshButton, kGap, kGap, 80, kRowHeight, TRUE);
     }
+    if (state.exportButton) {
+        ::MoveWindow(state.exportButton, kGap + 80 + kGap, kGap, 78, kRowHeight, TRUE);
+    }
     if (state.allBusesCheck) {
-        ::MoveWindow(state.allBusesCheck, kGap + 80 + kGap, kGap, 200, kRowHeight, TRUE);
+        ::MoveWindow(state.allBusesCheck, kGap + 80 + kGap + 78 + kGap, kGap, 200, kRowHeight, TRUE);
     }
     const int secondRowY = kGap + kRowHeight + kGap;
     if (state.filterBar) {
@@ -487,13 +493,14 @@ void LayoutView(BusDeviceViewState& state) {
 bool CreateChildControls(BusDeviceViewState& state) {
     HWND hwnd = state.hwnd;
     state.refreshButton = Ksword::Ui::CreateButton(hwnd, kRefreshButtonId, L"刷新", 0, 0, 0, 0);
+    state.exportButton = Ksword::Ui::CreateButton(hwnd, kExportButtonId, L"导出 TSV", 0, 0, 0, 0);
     state.allBusesCheck = ::CreateWindowExW(0, WC_BUTTONW, L"包含全部枚举器（较慢）",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAllBusesCheckId)),
         ::GetModuleHandleW(nullptr), nullptr);
     state.filterBar = Ksword::Ui::CreateFilterBar(
         hwnd, kFilterBarId, L"筛选设备、总线类型、位置、资源与实例 ID", 0, 0, 0, 0);
-    if (!state.refreshButton || !state.allBusesCheck || !state.filterBar) {
+    if (!state.refreshButton || !state.exportButton || !state.allBusesCheck || !state.filterBar) {
         return false;
     }
 
@@ -580,6 +587,20 @@ LRESULT CALLBACK BusDeviceViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                 switch (id) {
                 case kRefreshButtonId:
                     BeginBusRefresh(*state);
+                    return 0;
+                case kExportButtonId:
+                    if (state->busList.visibleIndexes().empty()) {
+                        state->statusText = L"没有可导出的可见结果。";
+                    } else {
+                        std::wstring error;
+                        switch (Ksword::Ui::SaveUtf8TextFileWithDialog(hwnd, L"system_bus.tsv", L"导出系统总线",
+                            L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0", L"tsv", ExportBusDeviceViewTsv(hwnd), &error)) {
+                        case Ksword::Ui::SaveTextFileResult::Saved: state->statusText = L"系统总线可见结果已导出。"; break;
+                        case Ksword::Ui::SaveTextFileResult::Cancelled: state->statusText = L"已取消导出系统总线结果。"; break;
+                        case Ksword::Ui::SaveTextFileResult::Failed: state->statusText = L"导出系统总线结果失败：" + error; break;
+                        }
+                    }
+                    ::InvalidateRect(hwnd, nullptr, TRUE);
                     return 0;
                 case kAllBusesCheckId:
                     state->includeAllEnumerators =

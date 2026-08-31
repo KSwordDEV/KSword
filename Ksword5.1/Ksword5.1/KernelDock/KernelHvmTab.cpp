@@ -146,7 +146,7 @@ void KernelHvmTab::initializeUi()
         + QLatin1Char('\n')
         + kernelText(
             "kernel.hvm.resident.start.gate_tooltip",
-            QStringLiteral("当前可卸载驱动缺少完整电源转换与卸载所有权，驻留启动被硬禁用，关闭危险确认也无法绕过。")));
+            QStringLiteral("仅支持 Intel VT-x/EPT；AMD、现有 Hypervisor、未通过全 CPU 自检或生命周期保护不完整时，驱动会拒绝启动。")));
     m_stopResidentButton->setToolTip(
         kernelText(
             "kernel.hvm.resident.stop.tooltip",
@@ -825,11 +825,18 @@ void KernelHvmTab::updateButtons()
             KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED) != 0U;
     const bool residentAvailable =
         (m_snapshot.featureFlags &
-            KSWORD_ARK_HVM_FEATURE_RESIDENT_VMM) != 0ULL &&
+            (KSWORD_ARK_HVM_FEATURE_RESIDENT_VMM |
+             KSWORD_ARK_HVM_FEATURE_RESIDENT_LIFECYCLE_GUARDED)) ==
+            (KSWORD_ARK_HVM_FEATURE_RESIDENT_VMM |
+             KSWORD_ARK_HVM_FEATURE_RESIDENT_LIFECYCLE_GUARDED) &&
         m_snapshot.residentImplementation !=
             KSWORD_ARK_HVM_IMPLEMENTATION_UNSUPPORTED &&
         (m_snapshot.stateFlags &
-            KSWORD_ARK_HVM_STATE_EPT_TRUNCATED) == 0U;
+            (KSWORD_ARK_HVM_STATE_EPT_TRUNCATED |
+             KSWORD_ARK_HVM_STATE_POWER_TRANSITION_PENDING |
+             KSWORD_ARK_HVM_STATE_FAULTED |
+             KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED |
+             KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED)) == 0U;
     m_refreshButton->setEnabled(!m_operationRunning);
     m_prepareButton->setEnabled(
         !m_operationRunning && m_supported && !resourcesReady);

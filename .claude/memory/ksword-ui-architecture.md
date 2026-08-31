@@ -13,6 +13,7 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 - 纯图标按钮的几何同样由 `theme.h` 收口：紧凑工具栏使用 `ApplyCompactIconButtonMetrics`（28px 按钮 / 16px 图标），独立或强调动作使用 `ApplyStandardIconButtonMetrics`（32px / 18px）；页面不得继续新增 30/34/36px 的临时组合。
 - `MainWindow::applyAppearanceSettings`：主题应用唯一入口，设置 QApplication palette + 调用 `applyGlobalApplicationStyleBlocks`（带 marker 的 QSS 块替换机制，marker 常量在 MainWindow.cpp 顶部匿名命名空间）。
 - 全局 QSS 块顺序：BaseControl（`UI/GlobalUiBaseStyle.cpp`）→ Tooltip → ContextMenu → ControlContrast → ComboBox，依次追加到 app stylesheet，基线块在最前，局部样式可覆盖。
+- `QComboBox` 弹出列表是独立 `Qt::Popup` 顶层窗口。禁止在 Popup 的 `Show`/`Resize` 事件内同步调用 `setMask`、`setStyleSheet` 或其它可能 repolish 子树的操作：Qt 此时可能仍在 `QWidgetPrivate::showChildren` 中遍历内部子对象，重入修改会留下悬空 child。Popup palette/QSS 必须用零延时 queued 更新并做幂等去重；圆角只保留 QSS 绘制，不再修改原生窗口 mask。
 - `UI/GlobalDialogTheme.cpp`：QApplication 事件过滤器给所有 QDialog 补主题（palette + 追加 QSS）；QMessageBox 由 `UI/ThemedMessageBox` 专管。
 - `UI/WindowChrome.cpp`：事件过滤器对所有原生标题栏顶层窗口用 DwmSetWindowAttribute 染色（IMMERSIVE_DARK_MODE=20、BORDER=34、CAPTION=35、TEXT=36），主题切换时 `RefreshAllWindowChrome()`。
 - 大型独立窗口的初始尺寸和最低尺寸统一调用 `ks::ui::applyResponsiveWindowGeometry`，以父窗口所在屏幕的 `availableGeometry` 为边界；不要再直接写 1000px 以上的硬 `setMinimumSize`，否则高 DPI、小屏或远程桌面会把窗口撑出工作区。
@@ -48,10 +49,12 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 ## 通用表格交互
 
 - 周期性后台刷新（例如进程监视采样）不得注册为全局 `kPro` 任务；否则每轮采样都会进入“当前任务”和顶部进度通知。`kPro` 只用于有明确开始/结束、需要用户感知的有限操作，常驻监视状态应留在页面状态标签与诊断日志中。
+- 把系统枚举放进工作线程仍不足以保证主界面流畅：结果回到 UI 线程后，`QTableWidgetItem`、`QTreeWidgetItem` 与文件图标解析也可能形成长时间事件循环占用。启动项页把单阶段排序留在工作线程，每个枚举器完成后按固定顺序发布独立结果批次；UI 必须等上一批用零间隔单次 `QTimer`（目标 7ms、最多 24 单元）分时落表完成后再累计下一批，先填当前分类，未完成视图保持禁用，且只有“后端全部结束 + 阶段队列清空”才能结束同一刷新任务。后台枚举进度通过 UI 无关的稳定阶段枚举回调上报，翻译文案必须先在 UI 线程取得，不能从工作线程并发读取 `LanguageManager`。
 - 周期采集的缺失证据或查询失败若使用 `Warn`，必须按规范化错误集合做状态变化去重：首次出现或错误集合改变时记录一次，连续相同采样只更新页面状态；错误清除后再复发才允许重新通知。否则默认 Warn 通知阈值会把固定失败放大成通知卡和日志风暴。
 - `UI/TableInteractionSupport.cpp` 通过应用级事件过滤器统一接入 `QTableView/QTableWidget`；表头点击排序由 `UI/TableHeaderSortingSupport.*` 负责。
-- `VisibleTableWidget` 与 `TableActionTableView` 共用嵌入式 `TableActionBar`，但能力按表格用途分级：普通 `VisibleTableWidget` 默认只显示复制/导出的紧凑条，模型型 `TableActionTableView` 默认提供冻结、暂停和快照的完整条；窄小或纯展示表格用 `SetTableActionBarMode(..., None)` 禁用。操作条会同时出现在 Dock 和普通 `QDialog` 中，因此按钮、快照滚动区等几何/字体样式必须由操作条自身用 palette 角色封装；不能继承宿主弹窗的 `ThemedButtonStyle`，否则弹窗中的 padding/粗体会把同一套按钮放大并挤压固定高度操作条。
+- `VisibleTableWidget` 与 `TableActionTableView` 共用嵌入式 `TableActionBar`，两者默认都提供冻结、暂停、快照和差异比对的完整条；窄小或纯展示表格可用 `SetTableActionBarMode(..., Compact/None)` 降级或禁用。通用表格搜索入口只显示图标按钮，点击后把范围切到当前表格并激活标题栏搜索框，不在表格操作条内重复放置输入框。操作条会同时出现在 Dock 和普通 `QDialog` 中，因此按钮、快照滚动区等几何/字体样式必须由操作条自身用 palette 角色封装；不能继承宿主弹窗的 `ThemedButtonStyle`，否则弹窗中的 padding/粗体会把同一套按钮放大并挤压固定高度操作条。
 - 普通 `QTableView/QTableWidget` 的横纵表头由 `TableInteractionSupport` 强制应用同一套 palette 基线，页面不要再用蓝色粗体等局部表头 QSS 制造层级差异；十六进制编辑器等确实需要专业表头语义的控件须在设置局部样式前调用 `SetPreserveCustomTableHeaderStyle(table, true)` 显式声明例外。
+- 线程表的“线程亲和性”右键入口（全局枚举、Ksword5.1 进程详情、KswordARKLight 进程详情）统一以 `shared/ThreadAffinityR3.h` 的 CPU Set/Group R3 API 实现。Ksword5.1 使用与进程 CPU 亲和性相同的 `QWidgetAction` 处理器矩阵；Light 保留原生子菜单。操作前必须核验 TID、所属 PID 和线程创建时间，R0-only/hidden 行不可走 R3 入口。
 - 未显式开启 Qt 持续排序的 `QTableWidget` 使用“一次点击、一次排序”，不改变 `sortingEnabled`。这样后续 `setRowCount/setItem` 批量或分批填充不会因实时搬行而写错列组。
 - 手动排序后遇到增删行、模型重置或单元格更新会撤销排序箭头，不自动重排半成品数据。具有帧序、加载序、采集序等固定行序语义的表格调用 `SetTableHeaderClickSortingEnabled(table, false)`。
 - 进程表使用 `QSortFilterProxyModel` 与友好分组专用排序；点击表头时首次为升序、同列再次为降序。父子树状视图点表头后保持“进程友好视图”未勾选，只把内部投影切成没有父子关系的普通扁平枚举并交给代理排序；用户再次切换友好视图复选框时退出该临时扁平模式。搜索结果与历史快照同样走代理原生排序。

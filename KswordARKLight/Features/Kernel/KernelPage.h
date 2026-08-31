@@ -177,6 +177,8 @@ private:
     void OnCallbackImportConfig();
     void OnCallbackExportConfig();
     void OnCallbackExportFileMonitor();
+    void OpenCallbackFileMonitorProcess();
+    void OpenCallbackFileMonitorPath();
     void StartCallbackFileIo(CallbackFileIoOperation operation, std::wstring path, std::wstring text = {});
     void ApplyCallbackFileIoResult(CallbackFileIoResult result);
     void SetCallbackFileIoControlsEnabled(bool enabled);

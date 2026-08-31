@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalCommon.h"
+#include "NetworkFirewallPage.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -161,6 +162,47 @@ namespace
         sequenceIdOut = static_cast<std::uint64_t>(sequenceVariant.toULongLong());
         return sequenceIdOut != 0;
     }
+
+    // captureNidsProcessIdentity：
+    // - 作用：在 NIDS 告警生成的同一时段冻结应用级处置所需的进程身份；
+    // - 处理：创建时间前后各读取一次，只有两次一致且镜像路径可得才接受快照；
+    // - 返回：失败时保持字段为空，后续只能生成端点级阻断规则。
+    void captureNidsProcessIdentity(ks::network::NidsAlert& alertRecord)
+    {
+        if (alertRecord.processId == 0U)
+        {
+            return;
+        }
+
+        std::uint64_t creationTimeBefore = 0U;
+        if (!ks::process::QueryProcessCreationTimeByPid(
+                alertRecord.processId,
+                &creationTimeBefore,
+                nullptr) ||
+            creationTimeBefore == 0U)
+        {
+            return;
+        }
+
+        const std::string imagePath = ks::process::QueryProcessPathByPid(alertRecord.processId);
+        if (imagePath.empty())
+        {
+            return;
+        }
+
+        std::uint64_t creationTimeAfter = 0U;
+        if (!ks::process::QueryProcessCreationTimeByPid(
+                alertRecord.processId,
+                &creationTimeAfter,
+                nullptr) ||
+            creationTimeAfter != creationTimeBefore)
+        {
+            return;
+        }
+
+        alertRecord.processCreationTime100ns = creationTimeAfter;
+        alertRecord.processImagePath = imagePath;
+    }
 }
 
 void NetworkDock::initializeNidsTab()
@@ -273,6 +315,10 @@ void NetworkDock::initializeNidsTab()
             QIcon(QStringLiteral(":/Icon/process_details.svg")),
             QStringLiteral("转到进程详细信息"));
         openProcessDetailAction->setEnabled(hasProcessId);
+        QAction* addBlockRuleAction = menu.addAction(
+            QIcon(QStringLiteral(":/Icon/process_terminate.svg")),
+            QStringLiteral("预填阻断规则"));
+        addBlockRuleAction->setEnabled(hasRelatedPacket && m_firewallPage != nullptr);
         menu.addSeparator();
         QAction* uploadVirusTotalAction = ks::online_scan::addVirusTotalSandboxMenu(
             &menu,
@@ -313,6 +359,29 @@ void NetworkDock::initializeNidsTab()
         if (selectedAction == viewPacketDetailAction)
         {
             openPacketDetailWindowBySequenceId(relatedPacketSequenceId);
+        }
+        else if (selectedAction == addBlockRuleAction)
+        {
+            const auto alertIt = std::find_if(
+                m_nidsAlertList.cbegin(),
+                m_nidsAlertList.cend(),
+                [relatedPacketSequenceId](const ks::network::NidsAlert& alertRecord)
+                {
+                    return alertRecord.sequenceId == relatedPacketSequenceId;
+                });
+            if (alertIt != m_nidsAlertList.cend() && m_firewallPage != nullptr)
+            {
+                m_firewallPage->addBlockRuleFromEvidence(
+                    QString::fromUtf8(alertIt->remoteAddress.c_str()),
+                    QString::number(alertIt->remotePort),
+                    toQString(ks::network::PacketProtocolToString(alertIt->protocol)),
+                    alertIt->direction == ks::network::PacketDirection::Inbound
+                        ? QStringLiteral("Inbound") : QStringLiteral("Outbound"),
+                    QStringLiteral("NIDS"),
+                    alertIt->processId,
+                    alertIt->processCreationTime100ns,
+                    QString::fromUtf8(alertIt->processImagePath.c_str()));
+            }
         }
         else if (selectedAction == copyCellAction)
         {
@@ -369,8 +438,9 @@ void NetworkDock::processNidsPacket(const ks::network::PacketRecord& packetRecor
     }
 
     bool trimmed = false;
-    for (const ks::network::NidsAlert& alertRecord : alertList)
+    for (ks::network::NidsAlert& alertRecord : alertList)
     {
+        captureNidsProcessIdentity(alertRecord);
         m_nidsAlertList.push_back(alertRecord);
         ++m_nidsTotalAlertCount;
         while (m_nidsAlertList.size() > kMaxNidsAlertCount)

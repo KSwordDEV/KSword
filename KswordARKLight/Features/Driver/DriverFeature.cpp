@@ -10,14 +10,17 @@
 #include "../Kernel/KernelFeature.h"
 #include "../../Ui/Controls.h"
 #include "../../Ui/AsyncTask.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/LoadingOverlay.h"
 #include "../../Ui/TabUtil.h"
 #include "../../Ui/Theme.h"
+#include "../../Ui/WorkspaceHost.h"
 
 #include <commctrl.h>
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace Ksword::Features::Driver {
@@ -51,7 +54,7 @@ struct DriverFeaturePageState {
     HWND refreshButton = nullptr;
     HWND exportButton = nullptr;
     HWND statusText = nullptr;
-    HWND tab = nullptr;
+    HWND workspace = nullptr;
     HWND overviewView = nullptr;
     HWND objectView = nullptr;
     HWND integrityView = nullptr;
@@ -62,7 +65,6 @@ struct DriverFeaturePageState {
     HWND debugOutputView = nullptr;
     HWND loadingOverlay = nullptr;
     DriverModel model;
-    int currentTab = kOverviewTabIndex;
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<DriverEnumerationResult>> refreshTask;
 };
 
@@ -83,45 +85,6 @@ int Width(const RECT& rc) {
 // the usable client height in pixels.
 int Height(const RECT& rc) {
     return rc.bottom > rc.top ? rc.bottom - rc.top : 0;
-}
-
-// ShowChildPages toggles the currently selected subview while retaining every
-// child HWND. Input is page state; processing compares the selected tab index
-// against each cached page and only changes visibility; no child page is
-// destroyed or recreated, and no value is returned.
-void ShowChildPages(DriverFeaturePageState& state) {
-    const bool overviewVisible = state.currentTab == kOverviewTabIndex;
-    const bool objectVisible = state.currentTab == kObjectTabIndex;
-    const bool integrityVisible = state.currentTab == kIntegrityTabIndex;
-    const bool unloadedVisible = state.currentTab == kUnloadedTabIndex;
-    const bool dynDataCapabilitiesVisible = state.currentTab == kDynDataCapabilitiesTabIndex;
-    const bool driverStatusVisible = state.currentTab == kDriverStatusTabIndex;
-    const bool dynDataVisible = state.currentTab == kDynDataTabIndex;
-    const bool debugOutputVisible = state.currentTab == kDebugOutputTabIndex;
-    if (state.overviewView) {
-        ::ShowWindow(state.overviewView, overviewVisible ? SW_SHOW : SW_HIDE);
-    }
-    if (state.objectView) {
-        ::ShowWindow(state.objectView, objectVisible ? SW_SHOW : SW_HIDE);
-    }
-    if (state.integrityView) {
-        ::ShowWindow(state.integrityView, integrityVisible ? SW_SHOW : SW_HIDE);
-    }
-    if (state.unloadedView) {
-        ::ShowWindow(state.unloadedView, unloadedVisible ? SW_SHOW : SW_HIDE);
-    }
-    if (state.dynDataCapabilitiesView) {
-        ::ShowWindow(state.dynDataCapabilitiesView, dynDataCapabilitiesVisible ? SW_SHOW : SW_HIDE);
-    }
-    if (state.driverStatusView) {
-        ::ShowWindow(state.driverStatusView, driverStatusVisible ? SW_SHOW : SW_HIDE);
-    }
-    if (state.dynDataView) {
-        ::ShowWindow(state.dynDataView, dynDataVisible ? SW_SHOW : SW_HIDE);
-    }
-    if (state.debugOutputView) {
-        ::ShowWindow(state.debugOutputView, debugOutputVisible ? SW_SHOW : SW_HIDE);
-    }
 }
 
 // LayoutChildren positions the toolbar, tab control, and active subview.
@@ -146,39 +109,18 @@ void LayoutChildren(DriverFeaturePageState& state) {
     ::MoveWindow(state.statusText, margin + (buttonWidth + buttonGap) * 2 + 16, margin + 2, std::max(80, width - 240), 20, TRUE);
 
     const int tabTop = margin + toolbarHeight;
-    ::MoveWindow(state.tab, margin, tabTop, std::max(100, width - margin * 2), std::max(100, height - tabTop - margin), TRUE);
+    ::MoveWindow(state.workspace, margin, tabTop, std::max(100, width - margin * 2), std::max(100, height - tabTop - margin), TRUE);
     if (state.loadingOverlay) {
-        RECT tabBounds{};
-        ::GetWindowRect(state.tab, &tabBounds);
-        ::MapWindowPoints(nullptr, state.hwnd, reinterpret_cast<POINT*>(&tabBounds), 2);
+        RECT workspaceBounds{};
+        ::GetWindowRect(state.workspace, &workspaceBounds);
+        ::MapWindowPoints(nullptr, state.hwnd, reinterpret_cast<POINT*>(&workspaceBounds), 2);
         ::MoveWindow(state.loadingOverlay,
-            tabBounds.left,
-            tabBounds.top,
-            std::max(1, Width(tabBounds)),
-            std::max(1, Height(tabBounds)),
+            workspaceBounds.left,
+            workspaceBounds.top,
+            std::max(1, Width(workspaceBounds)),
+            std::max(1, Height(workspaceBounds)),
             TRUE);
     }
-
-    RECT tabRc{};
-    ::GetClientRect(state.tab, &tabRc);
-    TabCtrl_AdjustRect(state.tab, FALSE, &tabRc);
-
-    const HWND childViews[] = {
-        state.overviewView,
-        state.objectView,
-        state.integrityView,
-        state.unloadedView,
-        state.dynDataCapabilitiesView,
-        state.driverStatusView,
-        state.dynDataView,
-        state.debugOutputView
-    };
-    for (HWND child : childViews) {
-        if (child) {
-            ::MoveWindow(child, tabRc.left, tabRc.top, Width(tabRc), Height(tabRc), TRUE);
-        }
-    }
-    ShowChildPages(state);
 }
 
 // SetStatus writes a short footer message. Inputs are page state and text;
@@ -217,29 +159,71 @@ void RefreshFeatureModel(DriverFeaturePageState& state) {
         });
 }
 
-// CopyCurrentTabTsv exports the active table to the clipboard. Input is page
-// state; processing renders the current visible tab into TSV and copies it to
-// the clipboard; no value is returned.
-void CopyCurrentTabTsv(DriverFeaturePageState& state) {
-    std::wstring tsv;
-    if (state.currentTab == kObjectTabIndex) {
-        tsv = ExportDriverObjectViewTsv(state.objectView);
-    } else if (state.currentTab == kUnloadedTabIndex) {
-        tsv = ExportDriverUnloadedViewTsv(state.unloadedView);
-    } else if (state.currentTab == kIntegrityTabIndex ||
-        state.currentTab == kDynDataCapabilitiesTabIndex ||
-        state.currentTab == kDriverStatusTabIndex ||
-        state.currentTab == kDynDataTabIndex ||
-        state.currentTab == kDebugOutputTabIndex) {
-        SetStatus(state, L"当前页由内核模块渲染，请在该页内使用其右键菜单复制/导出。");
+// ExportCurrentTabTsv saves the active local table as UTF-8 TSV. It only uses
+// the pre-filtered visible-row export helpers and leaves Kernel-rendered tabs
+// with their own page-local export commands.
+void ExportCurrentTabTsv(DriverFeaturePageState& state) {
+    const int currentTab = Ksword::Ui::WorkspaceHostActiveTabId(state.workspace);
+    if (currentTab == kIntegrityTabIndex ||
+        currentTab == kDynDataCapabilitiesTabIndex ||
+        currentTab == kDriverStatusTabIndex ||
+        currentTab == kDynDataTabIndex ||
+        currentTab == kDebugOutputTabIndex) {
+        SetStatus(state, L"当前页使用自身的复制或导出命令。");
         return;
-    } else {
-        tsv = ExportDriverOverviewViewTsv(state.overviewView);
     }
-    if (DriverActions::CopyTextToClipboard(state.hwnd, tsv)) {
-        SetStatus(state, L"已将当前表格导出为 TSV 并复制到剪贴板。");
+
+    // WorkspaceHost defers page creation after a tab switch. A toolbar command
+    // is synchronous, so materialize only the local exportable page before
+    // reading its visible virtual-list rows.
+    const HWND activePage = Ksword::Ui::WorkspaceHostPage(state.workspace, currentTab, true);
+    if (!activePage) {
+        SetStatus(state, L"当前页尚未就绪，无法导出 TSV。");
+        return;
+    }
+
+    std::wstring tsv;
+    const wchar_t* suggestedFileName = L"ksword-arklight-driver-overview.tsv";
+    const wchar_t* dialogTitle = L"导出驱动概览 TSV";
+    if (currentTab == kObjectTabIndex) {
+        tsv = ExportDriverObjectViewTsv(activePage);
+        suggestedFileName = L"ksword-arklight-driver-objects.tsv";
+        dialogTitle = L"导出驱动对象 TSV";
+    } else if (currentTab == kUnloadedTabIndex) {
+        tsv = ExportDriverUnloadedViewTsv(activePage);
+        suggestedFileName = L"ksword-arklight-unloaded-drivers.tsv";
+        dialogTitle = L"导出已卸载驱动 TSV";
+    } else if (currentTab == kOverviewTabIndex) {
+        tsv = ExportDriverOverviewViewTsv(activePage);
     } else {
-        SetStatus(state, L"TSV 导出失败：剪贴板不可用或当前没有可导出的内容。");
+        SetStatus(state, L"当前页不支持顶栏 TSV 导出。");
+        return;
+    }
+
+    if (tsv.empty()) {
+        SetStatus(state, L"当前没有可导出的可见 TSV 内容。");
+        return;
+    }
+
+    std::wstring error;
+    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(
+        state.hwnd,
+        suggestedFileName,
+        dialogTitle,
+        L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0",
+        L"tsv",
+        tsv,
+        &error)) {
+    case Ksword::Ui::SaveTextFileResult::Saved:
+        SetStatus(state, L"当前可见 TSV 已导出并记录到证据会话。");
+        break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled:
+        SetStatus(state, L"已取消 TSV 导出。");
+        break;
+    case Ksword::Ui::SaveTextFileResult::Failed:
+    default:
+        SetStatus(state, L"TSV 导出失败：" + error);
+        break;
     }
 }
 
@@ -251,61 +235,65 @@ bool CreateChildControls(DriverFeaturePageState& state) {
     state.refreshButton = Ksword::Ui::CreateButton(state.hwnd, kRefreshButtonId, L"刷新", 0, 0, 0, 0);
     state.exportButton = Ksword::Ui::CreateButton(state.hwnd, kExportButtonId, L"导出 TSV", 0, 0, 0, 0);
     state.statusText = Ksword::Ui::CreateText(state.hwnd, kStatusTextId, L"准备刷新驱动数据。", 0, 0, 0, 0);
-    state.tab = Ksword::Ui::CreateTabControl(state.hwnd, kTabControlId, 0, 0, 0, 0);
-    if (!state.refreshButton || !state.exportButton || !state.statusText || !state.tab) {
+    if (!state.refreshButton || !state.exportButton || !state.statusText) {
         return false;
     }
 
-    Ksword::Ui::AddTabPage(state.tab, kOverviewTabIndex, { L"驱动概览" });
-    Ksword::Ui::AddTabPage(state.tab, kObjectTabIndex, { L"对象信息" });
-    Ksword::Ui::AddTabPage(state.tab, kIntegrityTabIndex, { L"驱动完整性" });
-    Ksword::Ui::AddTabPage(state.tab, kUnloadedTabIndex, { L"已卸载驱动" });
-    Ksword::Ui::AddTabPage(state.tab, kDynDataCapabilitiesTabIndex, { L"DynData能力" });
-    Ksword::Ui::AddTabPage(state.tab, kDriverStatusTabIndex, { L"驱动状态" });
-    Ksword::Ui::AddTabPage(state.tab, kDynDataTabIndex, { L"动态偏移 / DynData" });
-    Ksword::Ui::AddTabPage(state.tab, kDebugOutputTabIndex, { L"调试输出" });
-    ::SendMessageW(state.tab, TCM_SETCURSEL, static_cast<WPARAM>(kOverviewTabIndex), 0);
-    state.currentTab = kOverviewTabIndex;
+    std::vector<Ksword::Ui::WorkspaceTabDescriptor> tabs;
+    tabs.push_back({ kOverviewTabIndex, L"驱动概览", L"按需创建驱动概览视图。",
+        [&state](HWND host, const RECT& bounds) {
+            state.overviewView = CreateDriverOverviewView(host, bounds, &state.model);
+            return state.overviewView;
+        } });
+    tabs.push_back({ kObjectTabIndex, L"对象信息", L"按需创建驱动对象视图。",
+        [&state](HWND host, const RECT& bounds) {
+            state.objectView = CreateDriverObjectView(host, bounds, &state.model);
+            return state.objectView;
+        } });
+    tabs.push_back({ kIntegrityTabIndex, L"驱动完整性", L"按需加载驱动完整性审计。",
+        [&state](HWND host, const RECT& bounds) {
+            state.integrityView = Kernel::CreateKernelSingleFeaturePage(host, 65005, bounds, Kernel::KernelFeatureId::DriverIntegrity);
+            return state.integrityView;
+        } });
+    tabs.push_back({ kUnloadedTabIndex, L"已卸载驱动", L"按需查询已卸载驱动证据。",
+        [&state](HWND host, const RECT& bounds) {
+            state.unloadedView = CreateDriverUnloadedView(host, bounds);
+            return state.unloadedView;
+        } });
+    tabs.push_back({ kDynDataCapabilitiesTabIndex, L"DynData能力", L"按需加载 DynData 能力矩阵。",
+        [&state](HWND host, const RECT& bounds) {
+            state.dynDataCapabilitiesView = Kernel::CreateKernelSingleFeaturePage(host, 65006, bounds, Kernel::KernelFeatureId::DynDataCapabilities);
+            return state.dynDataCapabilitiesView;
+        } });
+    tabs.push_back({ kDriverStatusTabIndex, L"驱动状态", L"按需加载驱动状态页。",
+        [&state](HWND host, const RECT& bounds) {
+            state.driverStatusView = Kernel::CreateKernelSingleFeaturePage(host, 65007, bounds, Kernel::KernelFeatureId::DriverStatus);
+            return state.driverStatusView;
+        } });
+    tabs.push_back({ kDynDataTabIndex, L"动态偏移 / DynData", L"按需加载动态偏移页。",
+        [&state](HWND host, const RECT& bounds) {
+            state.dynDataView = Kernel::CreateKernelSingleFeaturePage(host, 65008, bounds, Kernel::KernelFeatureId::DynData);
+            return state.dynDataView;
+        } });
+    tabs.push_back({ kDebugOutputTabIndex, L"调试输出", L"按需启动驱动调试输出接收。",
+        [&state](HWND host, const RECT& bounds) {
+            state.debugOutputView = CreateDriverDebugOutputView(host, bounds);
+            return state.debugOutputView;
+        } });
 
-    RECT pageRect{ 0, 0, 100, 100 };
-    ::GetClientRect(state.tab, &pageRect);
-    TabCtrl_AdjustRect(state.tab, FALSE, &pageRect);
-    const int pageWidth = std::max(1, static_cast<int>(pageRect.right - pageRect.left));
-    const int pageHeight = std::max(1, static_cast<int>(pageRect.bottom - pageRect.top));
-    RECT childBounds{ 0, 0, pageWidth, pageHeight };
-
-    state.overviewView = CreateDriverOverviewView(state.tab, childBounds, &state.model);
-    state.objectView = CreateDriverObjectView(state.tab, childBounds, &state.model);
-    state.integrityView = Ksword::Features::Kernel::CreateKernelSingleFeaturePage(
-        state.tab,
-        65005,
-        childBounds,
-        Ksword::Features::Kernel::KernelFeatureId::DriverIntegrity);
-    state.unloadedView = CreateDriverUnloadedView(state.tab, childBounds);
-    state.dynDataCapabilitiesView = Ksword::Features::Kernel::CreateKernelSingleFeaturePage(
-        state.tab,
-        65006,
-        childBounds,
-        Ksword::Features::Kernel::KernelFeatureId::DynDataCapabilities);
-    state.driverStatusView = Ksword::Features::Kernel::CreateKernelSingleFeaturePage(
-        state.tab,
-        65007,
-        childBounds,
-        Ksword::Features::Kernel::KernelFeatureId::DriverStatus);
-    state.dynDataView = Ksword::Features::Kernel::CreateKernelSingleFeaturePage(
-        state.tab,
-        65008,
-        childBounds,
-        Ksword::Features::Kernel::KernelFeatureId::DynData);
-    state.debugOutputView = CreateDriverDebugOutputView(state.tab, childBounds);
-    if (!state.overviewView ||
-        !state.objectView ||
-        !state.integrityView ||
-        !state.unloadedView ||
-        !state.dynDataCapabilitiesView ||
-        !state.driverStatusView ||
-        !state.dynDataView ||
-        !state.debugOutputView) {
+    Ksword::Ui::WorkspaceOptions options{};
+    options.tabControlId = kTabControlId;
+    options.initialTabId = kOverviewTabIndex;
+    options.pageActivated = [&state](const int tabId, HWND) {
+        if (tabId == kOverviewTabIndex && state.overviewView) {
+            RefreshDriverOverviewView(state.overviewView);
+        } else if (tabId == kObjectTabIndex && state.objectView) {
+            RefreshDriverObjectView(state.objectView);
+        }
+    };
+    state.workspace = Ksword::Ui::CreateWorkspaceHost(
+        state.hwnd, { 0, 0, 1, 1 }, std::move(tabs), std::move(options));
+    if (!state.workspace) {
         return false;
     }
     state.loadingOverlay = Ksword::Ui::CreateLoadingOverlay(state.hwnd, kLoadingOverlayId, { 0, 0, 1, 1 });
@@ -341,7 +329,10 @@ bool RegisterDriverFeatureClass() {
         case WM_CREATE:
             if (state) {
                 if (!CreateChildControls(*state)) {
-                    delete state;
+                    // CreateWindowExW returns nullptr after WM_CREATE fails;
+                    // ownership then stays with CreateDriverFeaturePage. Clear
+                    // the HWND association so the ensuing WM_NCDESTROY cannot
+                    // free the state before that caller releases it.
                     ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
                     return -1;
                 }
@@ -360,19 +351,6 @@ bool RegisterDriverFeatureClass() {
                 return 0;
             }
             break;
-        case WM_NOTIFY:
-            if (state) {
-                const auto* header = reinterpret_cast<const NMHDR*>(lParam);
-                if (header && header->idFrom == kTabControlId && header->code == TCN_SELCHANGE) {
-                    const LRESULT selected = ::SendMessageW(state->tab, TCM_GETCURSEL, 0, 0);
-                    if (selected >= 0) {
-                        state->currentTab = static_cast<int>(selected);
-                    }
-                    ShowChildPages(*state);
-                    return 0;
-                }
-            }
-            break;
         case WM_COMMAND:
             if (state && HIWORD(wParam) == BN_CLICKED) {
                 switch (LOWORD(wParam)) {
@@ -380,7 +358,7 @@ bool RegisterDriverFeatureClass() {
                     RefreshFeatureModel(*state);
                     return 0;
                 case kExportButtonId:
-                    CopyCurrentTabTsv(*state);
+                    ExportCurrentTabTsv(*state);
                     return 0;
                 default:
                     break;

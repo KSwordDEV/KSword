@@ -3,6 +3,7 @@
 #include "../../Ui/FilterBar.h"
 
 #include "../../Ui/Controls.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/NumericSortKey.h"
 #include "../../Ui/TextFindSupport.h"
 #include "../../Ui/Theme.h"
@@ -173,31 +174,7 @@ std::wstring LastErrorText(const wchar_t* operation, DWORD error) {
 }
 
 bool WriteClipboardText(HWND owner, const std::wstring& text) {
-    if (text.empty() || !::OpenClipboard(owner)) {
-        return false;
-    }
-    const SIZE_T bytes = (text.size() + 1U) * sizeof(wchar_t);
-    HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (!memory) {
-        ::CloseClipboard();
-        return false;
-    }
-    void* destination = ::GlobalLock(memory);
-    if (!destination) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    std::memcpy(destination, text.c_str(), bytes);
-    ::GlobalUnlock(memory);
-    ::EmptyClipboard();
-    if (!::SetClipboardData(CF_UNICODETEXT, memory)) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    ::CloseClipboard();
-    return true;
+    return Ksword::Ui::CopyTextToClipboard(owner, text, L"进程模块详情");
 }
 
 bool OpenFolderAndSelectPath(HWND owner, const std::wstring& path) {

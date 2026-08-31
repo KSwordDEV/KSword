@@ -653,11 +653,19 @@ KswordARKBugcheckBgpScanSignatures(
         scanStart = 0UL;
         while (scanStart < scanLimit) {
             PUCHAR sourceAddress;
+            NTSTATUS abortStatus;
             ULONG scanEnd;
             ULONG readStart;
             ULONG readEnd;
             ULONG readBytes;
             ULONG anchorPosition;
+
+            // 每个 64 KiB 快照块都是可取消边界，卸载不再等待完整内核映像扫描结束。
+            abortStatus = KswordARKBugcheckControlCheckAbort();
+            if (!NT_SUCCESS(abortStatus)) {
+                status = abortStatus;
+                goto Exit;
+            }
 
             scanEnd = scanStart + min(
                 KSWORD_ARK_BGP_SCAN_ANCHOR_STRIDE,

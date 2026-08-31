@@ -21,6 +21,24 @@ namespace {
 constexpr wchar_t kServiceDisabledStore[] = L"Software\\KswordARKLight\\DisabledStartup\\Services";
 constexpr wchar_t kDisabledStartupFolderBase[] = L"KswordARKLight\\DisabledStartup\\StartupFolder";
 
+// IsReadOnlyServiceObservation identifies service records that Startup may show
+// for investigation but must never mutate or open through a management surface.
+// Input is a startup kind; output is true only for the two read-only sources.
+bool IsReadOnlyServiceObservation(StartupEntryKind kind) {
+    return kind == StartupEntryKind::DriverService || kind == StartupEntryKind::RegistryOnlyService;
+}
+
+// RejectReadOnlyServiceAction preserves the read-only boundary for SCM driver
+// observations and registry/SCM source mismatches. Input is the selected entry;
+// output never opens SCM with write access or launches an external management
+// surface.
+StartupActionResult RejectReadOnlyServiceAction(const StartupEntry& entry) {
+    if (entry.kind == StartupEntryKind::RegistryOnlyService) {
+        return { false, L"Registry-observed service entries are read-only in Lite; enable, disable, delete, and open are unavailable." };
+    }
+    return { false, L"Driver startup entries are read-only in Lite; enable, disable, delete, and open are unavailable." };
+}
+
 // RegKey owns an HKEY for StartupActions mutations. Inputs are handles returned
 // by registry APIs; processing closes the key at scope exit; get returns the raw
 // handle without transferring ownership.
@@ -637,6 +655,9 @@ StartupActionResult ShellOpen(const std::wstring& target, const std::wstring& pa
 } // namespace
 
 StartupActionResult EnableStartupEntry(const StartupEntry& entry) {
+    if (IsReadOnlyServiceObservation(entry.kind)) {
+        return RejectReadOnlyServiceAction(entry);
+    }
     if (entry.kind == StartupEntryKind::ScheduledTaskFacade) {
         return SetScheduledTaskEnabled(entry, true);
     }
@@ -658,6 +679,9 @@ StartupActionResult EnableStartupEntry(const StartupEntry& entry) {
 }
 
 StartupActionResult DisableStartupEntry(const StartupEntry& entry) {
+    if (IsReadOnlyServiceObservation(entry.kind)) {
+        return RejectReadOnlyServiceAction(entry);
+    }
     if (entry.state == StartupEntryState::Disabled) {
         return { false, L"Entry is already disabled." };
     }
@@ -683,6 +707,9 @@ StartupActionResult DisableStartupEntry(const StartupEntry& entry) {
 }
 
 StartupActionResult DeleteStartupEntry(const StartupEntry& entry) {
+    if (IsReadOnlyServiceObservation(entry.kind)) {
+        return RejectReadOnlyServiceAction(entry);
+    }
     if (entry.kind == StartupEntryKind::RegistryRun || entry.kind == StartupEntryKind::RegistryRunOnce) {
         const bool disabled = entry.state == StartupEntryState::Disabled;
         RegKey key = OpenRegistryKey(disabled ? HKEY_CURRENT_USER : entry.registryRoot,
@@ -724,6 +751,9 @@ StartupActionResult DeleteStartupEntry(const StartupEntry& entry) {
 }
 
 StartupActionResult OpenStartupEntryLocation(const StartupEntry& entry) {
+    if (IsReadOnlyServiceObservation(entry.kind)) {
+        return RejectReadOnlyServiceAction(entry);
+    }
     if (entry.kind == StartupEntryKind::RegistryRun || entry.kind == StartupEntryKind::RegistryRunOnce) {
         const std::wstring location = RegistryLocationForRegedit(entry);
         if (location.empty()) {

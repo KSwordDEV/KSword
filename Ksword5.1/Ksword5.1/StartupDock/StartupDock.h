@@ -16,7 +16,9 @@
 #include <QWidget>
 
 #include <atomic>   // std::atomic_bool：后台刷新运行状态。
+#include <cstddef>  // std::size_t：分批落表进度坐标。
 #include <cstdint>  // std::uint32_t：PID、状态值与标识字段。
+#include <deque>    // std::deque：按枚举完成顺序缓存阶段结果。
 #include <memory>   // std::unique_ptr：后台线程对象托管。
 #include <thread>   // std::thread：后台枚举线程。
 #include <vector>   // std::vector：启动项缓存与分页表格重建。
@@ -122,6 +124,31 @@ public:
     static int toStartupColumn(StartupColumn column);
 
 private:
+    struct TableRebuildTarget
+    {
+        StartupCategory category = StartupCategory::All;
+        QTableWidget* tableWidget = nullptr;
+        std::vector<int> visibleEntryIndexList;
+        std::size_t nextRowIndex = 0;
+    };
+
+    struct RegistryGroupRebuildTarget
+    {
+        QString locationText;
+        std::vector<int> totalEntryIndexList;
+        std::vector<int> visibleEntryIndexList;
+        QTreeWidgetItem* groupItem = nullptr;
+        std::size_t nextEntryIndex = 0;
+        bool initialized = false;
+    };
+
+    struct RefreshStageResult
+    {
+        std::size_t stageIndex = 0;
+        std::size_t stageCount = 0;
+        std::vector<StartupEntry> entryList;
+    };
+
     // ===================== 初始化 =====================
     void initializeUi();
     void initializeToolbar();
@@ -132,10 +159,17 @@ private:
     // ===================== 枚举与刷新 =====================
     void refreshAllStartupEntries();
     void requestAsyncRefresh(bool forceRefresh);
-    void applyRefreshResult(std::vector<StartupEntry> entryList);
-    void rebuildAllTables();
-    void rebuildTableForCategory(StartupCategory category, QTableWidget* tableWidget);
-    void rebuildRegistryTree();
+    void enqueueRefreshStageResult(
+        std::size_t stageIndex,
+        std::size_t stageCount,
+        std::vector<StartupEntry> entryList);
+    void processNextRefreshStageResult();
+    void markBackendEnumerationCompleted();
+    void completeRefreshAfterUiCommit();
+    void rebuildAllTables(bool processesRefreshStage = false);
+    void continueIncrementalTableRebuild();
+    void finishIncrementalTableRebuild();
+    void initializeRegistryTreeGroup(RegistryGroupRebuildTarget* target);
 
     // ===================== 枚举器 =====================
     void appendLogonEntries(std::vector<StartupEntry>* entryListOut);
@@ -156,7 +190,9 @@ private:
     void openSelectedRegistryLocation(StartupCategory category, QTableWidget* tableWidget);
     void copySelectedRow(StartupCategory category, QTableWidget* tableWidget);
     void setStartupEntryEnabled(StartupEntry entry, bool enabled);
+    void setStartupEntriesEnabled(std::vector<StartupEntry> entryList, bool enabled);
     void deleteStartupEntry(StartupEntry entry);
+    void deleteStartupEntries(std::vector<StartupEntry> entryList);
     void exportCurrentView();
     void applyFilterAndRefresh();
 
@@ -213,6 +249,24 @@ private:
     std::vector<StartupEntry> m_entryList;    // m_entryList：全部启动项缓存。
     QHash<QString, QIcon> m_iconCache;        // m_iconCache：路径到图标缓存。
     QTimer* m_refreshTimer = nullptr;         // m_refreshTimer：自动刷新定时器。
+    QTimer* m_tableRebuildTimer = nullptr;    // m_tableRebuildTimer：分时落表调度器。
+    std::vector<TableRebuildTarget> m_tableRebuildTargets; // m_tableRebuildTargets：待分批填充的表格。
+    std::vector<RegistryGroupRebuildTarget> m_registryRebuildTargets; // m_registryRebuildTargets：待分批填充的注册表分组。
+    std::size_t m_tableRebuildTargetIndex = 0; // m_tableRebuildTargetIndex：当前表格任务索引。
+    std::size_t m_registryRebuildTargetIndex = 0; // m_registryRebuildTargetIndex：当前注册表分组索引。
+    std::size_t m_tableRebuildCompletedUnits = 0; // m_tableRebuildCompletedUnits：已完成落表工作量。
+    std::size_t m_tableRebuildTotalUnits = 0; // m_tableRebuildTotalUnits：本轮总落表工作量。
+    int m_lastTableRebuildProgressPercent = -1; // m_lastTableRebuildProgressPercent：避免重复上报同一百分比。
+    bool m_tableRebuildInProgress = false; // m_tableRebuildInProgress：当前是否正按时间片填充视图。
+    bool m_tableRebuildProcessesRefreshStage = false; // m_tableRebuildProcessesRefreshStage：当前是否在应用一批枚举结果。
+    bool m_rebuildRegistryFirst = false; // m_rebuildRegistryFirst：当前可见页是注册表时优先填充树。
+    std::deque<RefreshStageResult> m_pendingRefreshStageResults; // m_pendingRefreshStageResults：等待逐次添加的阶段结果。
+    std::size_t m_activeRefreshStageIndex = 0; // m_activeRefreshStageIndex：当前正在落表的零基阶段索引。
+    std::size_t m_activeRefreshStageCount = 0; // m_activeRefreshStageCount：本轮枚举阶段总数。
+    std::size_t m_activeRefreshStageEntryCount = 0; // m_activeRefreshStageEntryCount：当前阶段新增条目数。
+    std::size_t m_appliedRefreshStageCount = 0; // m_appliedRefreshStageCount：已完整落表的阶段数。
+    bool m_backendEnumerationCompleted = false; // m_backendEnumerationCompleted：九个后端阶段是否全部结束。
+    bool m_refreshSnapshotStarted = false; // m_refreshSnapshotStarted：首批到达后是否已切换离开旧快照。
     bool m_initialRefreshDone = false;        // m_initialRefreshDone：是否已完成首次懒加载。
     std::atomic_bool m_refreshInProgress{ false }; // m_refreshInProgress：后台刷新是否进行中。
     std::atomic_bool m_refreshQueued{ false };     // m_refreshQueued：刷新过程中是否又收到新请求。

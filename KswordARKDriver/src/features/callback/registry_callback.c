@@ -221,6 +221,20 @@ KswordArkRegistryCallback(
         RTL_NUMBER_OF(targetPathBuffer));
     RtlInitUnicodeString(&targetPath, targetPathBuffer);
 
+    // 注册表遥测只记录 pre-operation 上下文，规则结果仍由既有链路处理。
+    if (KswordArkCallbackMonitorIsEnabled(KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_REGISTRY)) {
+        KSWORD_ARK_CALLBACK_MONITOR_EVENT_INPUT monitorInput;
+        RtlZeroMemory(&monitorInput, sizeof(monitorInput));
+        monitorInput.Category = KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_REGISTRY;
+        monitorInput.Operation = operationType;
+        monitorInput.OriginatingProcessId = HandleToULong(PsGetCurrentProcessId());
+        monitorInput.OriginatingThreadId = HandleToULong(PsGetCurrentThreadId());
+        monitorInput.SessionId = KswordArkGetProcessSessionIdSafe(PsGetCurrentProcess());
+        monitorInput.ProcessName = &initiatorPath;
+        monitorInput.Path = &targetPath;
+        KswordArkCallbackMonitorPublish(&monitorInput);
+    }
+
     matchStatus = KswordArkCallbackMatchRule(
         KSWORD_ARK_CALLBACK_TYPE_REGISTRY,
         operationType,

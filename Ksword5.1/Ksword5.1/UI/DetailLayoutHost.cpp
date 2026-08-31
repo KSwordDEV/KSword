@@ -1,6 +1,7 @@
 #include "DetailLayoutHost.h"
 
 #include "CodeEditorWidget.h"
+#include "EmbeddedRowDelegate.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../theme.h"
 
@@ -127,6 +128,8 @@ ks::ui::DetailLayoutHost::DetailLayoutHost(
 
 ks::ui::DetailLayoutHost::~DetailLayoutHost()
 {
+    // 宿主销毁前恢复行高和页面原 delegate，避免共享视图留下临时包装器。
+    clearEmbeddedDetails();
     destroyFloatingWindow();
 }
 
@@ -586,8 +589,9 @@ void ks::ui::DetailLayoutHost::insertTableEmbeddedDetail(
     // 会让详情编辑器下移一整行并留下空白。
     const int originalHeight = std::max(1, tableWidget->visualRect(sourceIndex).height());
     constexpr int inlineDetailHeight = 128;
-    tableWidget->setRowHeight(sourceRow, originalHeight + inlineDetailHeight);
 
+    // 先安装包装 delegate 并登记原始高度，再增大行高，避免一次重绘中把源文本画入详情区。
+    installEmbeddedRowDelegate();
     QPlainTextEdit* textEditor = createReadOnlyInlineEditor(tableWidget->viewport(), detailText);
     EmbeddedEntry entry;
     entry.sourceIndex = sourceIndex;
@@ -595,6 +599,7 @@ void ks::ui::DetailLayoutHost::insertTableEmbeddedDetail(
     entry.originalRowHeight = originalHeight;
     entry.detailHeight = inlineDetailHeight;
     m_embeddedEntries.append(entry);
+    tableWidget->setRowHeight(sourceRow, originalHeight + inlineDetailHeight);
     textEditor->show();
     updateEmbeddedEditorGeometries();
     QTimer::singleShot(0, this, [this]() { updateEmbeddedEditorGeometries(); });
@@ -617,7 +622,9 @@ void ks::ui::DetailLayoutHost::insertTreeEmbeddedDetail(
     const QSize originalSizeHint = sourceItem->sizeHint(0);
     const int originalHeight = std::max(1, treeWidget->visualRect(sourceIndex).height());
     constexpr int inlineDetailHeight = 128;
-    sourceItem->setSizeHint(0, QSize(-1, originalHeight + inlineDetailHeight));
+
+    // 树节点同样先登记裁剪高度，再改变 size hint，保证首次重绘也使用原始行高。
+    installEmbeddedRowDelegate();
     QPlainTextEdit* textEditor = createReadOnlyInlineEditor(treeWidget->viewport(), detailText);
     EmbeddedEntry entry;
     entry.sourceIndex = sourceIndex;
@@ -627,6 +634,7 @@ void ks::ui::DetailLayoutHost::insertTreeEmbeddedDetail(
     entry.detailHeight = inlineDetailHeight;
     entry.originalSizeHint = originalSizeHint;
     m_embeddedEntries.append(entry);
+    sourceItem->setSizeHint(0, QSize(-1, originalHeight + inlineDetailHeight));
     textEditor->show();
     updateEmbeddedEditorGeometries();
     QTimer::singleShot(0, this, [this]() { updateEmbeddedEditorGeometries(); });
@@ -650,6 +658,10 @@ bool ks::ui::DetailLayoutHost::removeEmbeddedEntry(
             delete entry.textEditor.data();
         }
         m_embeddedEntries.removeAt(entryIndex);
+        if (m_embeddedEntries.isEmpty())
+        {
+            restoreEmbeddedRowDelegate();
+        }
         updateEmbeddedEditorGeometries();
         return true;
     }
@@ -661,6 +673,7 @@ void ks::ui::DetailLayoutHost::clearEmbeddedDetails()
     if (m_tableView.isNull())
     {
         m_embeddedEntries.clear();
+        restoreEmbeddedRowDelegate();
         return;
     }
 
@@ -674,6 +687,7 @@ void ks::ui::DetailLayoutHost::clearEmbeddedDetails()
         }
     }
     m_embeddedEntries.clear();
+    restoreEmbeddedRowDelegate();
     m_pendingIndicatorIndexes.clear();
     ++m_indicatorGeneration;
     restoreEmbeddedIndicators();
@@ -683,6 +697,80 @@ void ks::ui::DetailLayoutHost::clearEmbeddedDetails()
 void ks::ui::DetailLayoutHost::prepareDataRebuild()
 {
     clearEmbeddedDetails();
+}
+
+void ks::ui::DetailLayoutHost::installEmbeddedRowDelegate()
+{
+    if (m_tableView.isNull() ||
+        (!m_embeddedRowDelegate.isNull() &&
+         m_tableView->itemDelegate() == m_embeddedRowDelegate.data()))
+    {
+        return;
+    }
+
+    // 当前视图未设置 delegate 时由 Qt 保证回退默认绘制；无需安装无源包装器。
+    QAbstractItemDelegate* sourceDelegate = m_tableView->itemDelegate();
+    if (sourceDelegate == nullptr)
+    {
+        return;
+    }
+
+    // 源 delegate 仅借用，所有权仍由页面视图保持；包装器随详情宿主销毁。
+    m_embeddedSourceDelegate = sourceDelegate;
+    m_embeddedRowDelegate = new EmbeddedRowDelegate(
+        sourceDelegate,
+        [this](const QModelIndex& modelIndex)
+        {
+            return embeddedOriginalRowHeight(modelIndex);
+        },
+        this);
+    m_tableView->setItemDelegate(m_embeddedRowDelegate.data());
+    if (m_tableView->viewport() != nullptr)
+    {
+        m_tableView->viewport()->update();
+    }
+}
+
+void ks::ui::DetailLayoutHost::restoreEmbeddedRowDelegate()
+{
+    if (!m_tableView.isNull() && !m_embeddedRowDelegate.isNull() &&
+        m_tableView->itemDelegate() == m_embeddedRowDelegate.data() &&
+        !m_embeddedSourceDelegate.isNull())
+    {
+        // 只在当前 delegate 仍是本包装器时恢复，避免覆盖页面运行期替换的 delegate。
+        m_tableView->setItemDelegate(m_embeddedSourceDelegate.data());
+        if (m_tableView->viewport() != nullptr)
+        {
+            m_tableView->viewport()->update();
+        }
+    }
+
+    // deleteLater 保证 Qt 不会在当前绘制调用栈内销毁仍可能被访问的 delegate。
+    if (!m_embeddedRowDelegate.isNull())
+    {
+        m_embeddedRowDelegate->deleteLater();
+    }
+    m_embeddedRowDelegate.clear();
+    m_embeddedSourceDelegate.clear();
+}
+
+int ks::ui::DetailLayoutHost::embeddedOriginalRowHeight(const QModelIndex& modelIndex) const
+{
+    if (!modelIndex.isValid())
+    {
+        return -1;
+    }
+
+    // 每列都会分别调用 delegate；统一比较第 0 列的稳定源索引以匹配同一逻辑行。
+    const QModelIndex sourceIndex = modelIndex.sibling(modelIndex.row(), 0);
+    for (const EmbeddedEntry& entry : m_embeddedEntries)
+    {
+        if (entry.sourceIndex.isValid() && entry.sourceIndex == sourceIndex)
+        {
+            return entry.originalRowHeight;
+        }
+    }
+    return -1;
 }
 
 void ks::ui::DetailLayoutHost::restoreEmbeddedEntryLayout(const EmbeddedEntry& entry)

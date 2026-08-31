@@ -11,6 +11,7 @@ metadata:
 - Actions 的同分支并发取消只适合 PR 更新；`main` push 必须排队完成。否则后续仅改 `.gitignore` 等不命中项目的提交会取消前一条正在构建的有效代码提交，自己又把全部构建标为 skipped，导致最新 `main` 虽显示 workflow success 却没有任何完整 Release 证明。
 - 变更范围检测只能在同工作流、同分支的上一条运行明确为 `completed/success` 时启用；上一条失败、取消、超时、仍未完成、查不到或 Actions API 查询失败时都要 fail-safe 为全量测试，避免把上一提交未取得的验证错误地交给路径过滤跳过。
 - 自动 CI 预发行版只在 `main` push 的用户态 CI 与同 SHA Driver CI 都成功后创建。发布资产同时提供：一个与手工版一致、顶层为 `Release/` 的聚合 7z，以及主程序、Setup、ARKLight、CE x64/Win32、CE Launcher、Driver 各模块的原始 artifact ZIP。聚合 7z 以最新非自动手工 7z 提供 Qt、有效 v4 profiles 与静态资源，再覆盖当前/祖先提交的 CI 二进制并内置来源清单。自动版同时使用 `[CI Build] ` 标题和 `ci-build-` tag 双标记，清理时只匹配两者并保留最新 3 个，不能触碰手工预发行版与正式版。发行说明的风险提示使用 `[!CAUTION]`，聚合 7z 与 Setup ZIP 提供可点击下载按钮，其余说明按用途使用 `[!TIP]`、`[!NOTE]` 和 `[!IMPORTANT]`。
+- `actions/upload-artifact` 会按上传文件的共同父目录确定 ZIP 根；当同一 artifact 删除其它目录下的产物后，原本保留的仓库相对路径可能变成扁平文件名。消费端不要硬编码 artifact 内的仓库路径，应验证目标文件组合在同一目录且候选唯一，同时兼容旧的分层布局与新的扁平布局。
 - `shared/driver/` 中的 R0/R3 IOCTL function ID 必须全局唯一。新增统一协议时不能复用仍需兼容的旧 IOCTL 编号；中央注册表也只能登记一次，否则线性查找会让后续 handler 永远不可达。
 - 驱动源文件使用 `TOKEN_PRIVILEGES`、`ZwOpenProcessTokenEx`、`ZwQueryInformationToken` 等 NTIFS 声明时，需要显式包含 `<ntifs.h>`；仅包含项目的 `ark_driver.h`（其基础是 `<ntddk.h>`）不够。
 - 即使显式包含 `<ntifs.h>`，当前 GitHub Actions WDK 也可能不导出 `PROCESS_QUERY_INFORMATION`；需要该访问掩码的驱动源文件应与相邻实现一致，用 `#ifndef PROCESS_QUERY_INFORMATION` 定义 `0x0400`，否则 Windows runner 会报 `C2065`。

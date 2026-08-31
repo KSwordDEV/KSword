@@ -20,4 +20,6 @@ void ResizeProcessFeaturePage(HWND page, const RECT& bounds);
 // 调用场景：R0 驱动变为可用后，让查隐藏进程逻辑立刻跑一次。
 void RequestProcessFeatureRefresh(HWND page);
 
+bool RequestProcessFeatureOpenDetails(HWND page, DWORD processId, ULONGLONG expectedCreationTime100ns = 0);
+
 } // namespace Ksword::Features::Process

@@ -1,8 +1,10 @@
 #include "FileHolderView.h"
 
 #include "FileHolderScanner.h"
+#include "../../Core/EntityRef.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/EntityNavigation.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
@@ -44,6 +46,7 @@ constexpr UINT kMenuCopyRow = 67601;
 constexpr UINT kMenuCopyVisible = 67602;
 constexpr UINT kMenuOpenLocation = 67603;
 constexpr UINT kMenuRescan = 67604;
+constexpr UINT kMenuOpenProcessDetails = 67605;
 
 constexpr UINT kMsgScanCompleted = WM_APP + 700;
 constexpr UINT kMsgFilterCompleted = WM_APP + 701;
@@ -355,15 +358,59 @@ void OpenHoldingProcessLocation(FileHolderViewState& state) {
     ::ShellExecuteW(state.hwnd, L"open", L"explorer.exe", parameters.c_str(), nullptr, SW_SHOWNORMAL);
 }
 
+// OpenHoldingProcessDetails routes the selected holder PID to the current
+// Process Details view. The holder scan has no creation time, so the target
+// view resolves the current process instance for that PID before opening it.
+void OpenHoldingProcessDetails(FileHolderViewState& state) {
+    const int index = SelectedModelIndex(state);
+    if (index < 0) {
+        return;
+    }
+    const FileHolderEntry& entry = state.entries[static_cast<std::size_t>(index)];
+    if (entry.processId == 0) {
+        state.statusText = L"该占用记录没有有效的进程标识。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::ProcessDetails;
+    request.entity.kind = Ksword::Core::EntityKind::Process;
+    request.entity.id = entry.processId;
+    const bool routed = Ksword::Ui::RequestEntityNavigation(state.hwnd, request);
+    state.statusText = routed
+        ? L"已请求打开当前 PID " + std::to_wstring(entry.processId) + L" 的进程详细信息；目标页会重新解析该 PID 的进程实例。"
+        : L"无法导航到当前 PID 对应的进程实例。";
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
 void ShowContextMenu(FileHolderViewState& state, POINT screenPoint) {
+    const HWND list = state.list.hwnd();
+    int clickedItem = -1;
+    if (list) {
+        POINT clientPoint = screenPoint;
+        ::ScreenToClient(list, &clientPoint);
+        LVHITTESTINFO hit{};
+        hit.pt = clientPoint;
+        clickedItem = ListView_HitTest(list, &hit);
+    }
+    if (clickedItem >= 0 && static_cast<std::size_t>(clickedItem) < state.list.visibleIndexes().size()) {
+        ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+        ListView_SetItemState(list, clickedItem, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    }
+
     HMENU menu = ::CreatePopupMenu();
     if (!menu) {
         return;
     }
-    const bool hasSelection = SelectedModelIndex(state) >= 0;
+    const int selectedIndex = SelectedModelIndex(state);
+    const bool hasSelection = selectedIndex >= 0;
+    const bool hasProcess = hasSelection &&
+        state.entries[static_cast<std::size_t>(selectedIndex)].processId != 0;
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? MF_ENABLED : MF_GRAYED), kMenuCopyRow, L"复制选中行");
     ::AppendMenuW(menu, MF_STRING, kMenuCopyVisible, L"复制可见行");
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? MF_ENABLED : MF_GRAYED), kMenuOpenLocation, L"定位进程文件");
+    ::AppendMenuW(menu, MF_STRING | (hasProcess ? MF_ENABLED : MF_GRAYED), kMenuOpenProcessDetails, L"查看进程详细信息");
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(menu, MF_STRING, kMenuRescan, L"重新扫描");
 
@@ -382,6 +429,9 @@ void ShowContextMenu(FileHolderViewState& state, POINT screenPoint) {
         break;
     case kMenuOpenLocation:
         OpenHoldingProcessLocation(state);
+        break;
+    case kMenuOpenProcessDetails:
+        OpenHoldingProcessDetails(state);
         break;
     case kMenuRescan:
         BeginScan(state);

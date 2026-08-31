@@ -17,6 +17,7 @@
 #include "DriverDock.h"
 #include "../theme.h"
 #include "../UI/CodeEditorWidget.h"
+#include "../UI/DetailLayoutRegistry.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QAbstractItemView>

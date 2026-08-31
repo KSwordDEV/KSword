@@ -5,6 +5,36 @@
 #include <iterator>
 
 namespace Ksword::Features::Monitor {
+namespace {
+
+std::wstring SanitizeTsvCell(std::wstring value) {
+    for (wchar_t& character : value) {
+        if (character == L'\t' || character == L'\r' || character == L'\n') {
+            character = L' ';
+        }
+    }
+    return value;
+}
+
+void AppendTsvCell(std::wstring& output, const std::wstring& value, const bool firstCell) {
+    if (!firstCell) {
+        output.push_back(L'\t');
+    }
+    output += SanitizeTsvCell(value);
+}
+
+void AppendTsvEventRow(std::wstring& output, const EtwEvent& eventRow) {
+    AppendTsvCell(output, std::to_wstring(eventRow.processId), true);
+    AppendTsvCell(output, eventRow.timeText, false);
+    AppendTsvCell(output, eventRow.providerText, false);
+    AppendTsvCell(output, std::to_wstring(eventRow.threadId), false);
+    AppendTsvCell(output, std::to_wstring(eventRow.eventId), false);
+    AppendTsvCell(output, std::to_wstring(static_cast<unsigned int>(eventRow.level)), false);
+    AppendTsvCell(output, eventRow.summary, false);
+    output += L"\r\n";
+}
+
+} // namespace
 
 EtwEventModel::EtwEventModel(const std::size_t maxRows)
     : maxRows_(maxRows == 0 ? 1 : maxRows) {}
@@ -78,6 +108,24 @@ std::wstring FileTimeToLocalText(const LARGE_INTEGER& timestamp) {
         systemTime.wSecond,
         systemTime.wMilliseconds);
     return written > 0 ? std::wstring(buffer, static_cast<std::size_t>(written)) : L"-";
+}
+
+std::wstring BuildVisibleEtwEventsTsv(
+    const std::vector<EtwEvent>& rows,
+    const std::vector<std::size_t>& visibleIndexes) {
+    std::wstring output;
+    bool wroteRow = false;
+    for (const std::size_t sourceIndex : visibleIndexes) {
+        if (sourceIndex >= rows.size()) {
+            continue;
+        }
+        if (!wroteRow) {
+            output = L"PID\t时间\tProvider\tTID\tEventId\tLevel\t摘要\r\n";
+            wroteRow = true;
+        }
+        AppendTsvEventRow(output, rows[sourceIndex]);
+    }
+    return output;
 }
 
 } // namespace Ksword::Features::Monitor

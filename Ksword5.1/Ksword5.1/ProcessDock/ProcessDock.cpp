@@ -1,6 +1,7 @@
 #include "ProcessDock.h"
 #include "ProcessAffinityUtils.h"
 #include "ProcessAffinityPersistence.h"
+#include "ProcessCpuCapacityCell.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
 
@@ -223,7 +224,8 @@ namespace
         "GPU 引擎",
         "专用 GPU 内存",
         "共享 GPU 内存",
-        "类型"
+        "类型",
+        "CPU核心"
     };
 
     const char* const ProcessTableHeaderKeys[] = {
@@ -289,7 +291,8 @@ namespace
         "process.table.header.gpu_engine",
         "process.table.header.gpu_dedicated_memory",
         "process.table.header.gpu_shared_memory",
-        "process.table.header.process_type"
+        "process.table.header.process_type",
+        "process.table.header.cpu_core"
     };
 
     // ProcessTableHeaderKeyCount：
@@ -493,10 +496,10 @@ namespace
     constexpr int ProcessRowKindRole = Qt::UserRole + 204;
     constexpr int ProcessExpandableRole = Qt::UserRole + 205;
     constexpr int ProcessExpandedRole = Qt::UserRole + 206;
-    constexpr int ActivityMinimumIntervalMilliseconds = 50;
+    constexpr int ActivityMinimumIntervalMilliseconds = 500;
     constexpr int ActivityMaximumIntervalMilliseconds = 60000;
-    constexpr int ProcessTableMinimumIntervalMilliseconds = 500;
-    constexpr int ProcessTableMaximumIntervalMilliseconds = 60000;
+    // CSwitch 会话可以常驻，但 PID/TID×核心矩阵最多每秒结算一次，抑制高频刷新下的后台分配。
+    constexpr int CpuCoreSnapshotMinimumIntervalMilliseconds = 1000;
     constexpr std::size_t ActivityMaximumSampleCount = 1800;
     constexpr qsizetype ActivityIconCacheMaximumCount = 8192;
 
@@ -1524,7 +1527,7 @@ private:
                 value += processPoint.cpuPercent;
                 break;
             case ProcessDock::ProcessActivityMetric::Memory:
-                value += processPoint.memoryMB;
+                value += processPoint.workingSetMB;
                 break;
             case ProcessDock::ProcessActivityMetric::Disk:
                 value += processPoint.diskMBps;
@@ -1971,9 +1974,12 @@ namespace
         // - tableView：被代理绘制的进程表视图；
         // - 处理：启用 viewport 鼠标追踪，记录当前悬停行；
         // - 返回：无返回值。
-        explicit ProcessRowHighlightDelegate(QTableView* tableView)
+        explicit ProcessRowHighlightDelegate(
+            QTableView* tableView,
+            const int cpuCoreColumn)
             : QStyledItemDelegate(tableView)
             , m_tableView(tableView)
+            , m_cpuCoreColumn(cpuCoreColumn)
         {
             if (m_tableView != nullptr && m_tableView->viewport() != nullptr)
             {
@@ -2030,9 +2036,24 @@ namespace
             const bool drawEfficiencyLeaf =
                 index.column() == 0 &&
                 index.data(ProcessEfficiencyModeRole).toBool();
+            const bool customCpuCapacityCell =
+                painter != nullptr &&
+                index.column() == m_cpuCoreColumn &&
+                ks::ui::HasProcessCpuCapacityCellData(index);
             if (customNameColumn)
             {
                 drawProcessNameCell(painter, itemOption, index, drawEfficiencyLeaf);
+            }
+            else if (customCpuCapacityCell)
+            {
+                // CPU 容量槽需要模型背景、前景色和字体；先初始化样式选项，再交给专用绘制器。
+                QStyleOptionViewItem cpuCellOption(itemOption);
+                initStyleOption(&cpuCellOption, index);
+                cpuCellOption.state = itemOption.state;
+                ks::ui::PaintProcessCpuCapacityCell(
+                    painter,
+                    cpuCellOption,
+                    index);
             }
             else
             {
@@ -2087,6 +2108,38 @@ namespace
             {
                 drawRowInteractionBorder(painter, option, index, rowSelected);
             }
+        }
+
+        // helpEvent：
+        // - 输入：Qt tooltip 事件、表格视图、当前单元格几何和模型索引；
+        // - 处理：鼠标命中逐核心小方框时显示该真实逻辑 CPU 的组号、编号和区间占用；
+        // - 返回：true 表示已显示精确核心提示，否则交回默认 ToolTipRole 路径。
+        bool helpEvent(
+            QHelpEvent* const event,
+            QAbstractItemView* const view,
+            const QStyleOptionViewItem& option,
+            const QModelIndex& index) override
+        {
+            if (event != nullptr &&
+                view != nullptr &&
+                index.column() == m_cpuCoreColumn)
+            {
+                QStyleOptionViewItem cpuCellOption(option);
+                initStyleOption(&cpuCellOption, index);
+                const QString coreToolTip = ks::ui::ProcessCpuCapacityToolTipText(
+                    cpuCellOption,
+                    index,
+                    event->pos());
+                if (!coreToolTip.isEmpty())
+                {
+                    QToolTip::showText(
+                        event->globalPos(),
+                        coreToolTip,
+                        view->viewport());
+                    return true;
+                }
+            }
+            return QStyledItemDelegate::helpEvent(event, view, option, index);
         }
 
     private:
@@ -2361,6 +2414,7 @@ namespace
         }
 
         QPointer<QTableView> m_tableView;         // m_tableView：被代理的进程表，不拥有。
+        int m_cpuCoreColumn = -1;                 // m_cpuCoreColumn：唯一允许解析逐核心共享快照的逻辑列。
         QPersistentModelIndex m_hoveredRowIndex; // m_hoveredRowIndex：当前鼠标悬停行的第 0 列索引。
     };
 
@@ -3105,7 +3159,8 @@ namespace
     }
 
     // enumerateProcessesByR0Driver 作用：
-    // - 通过 ArkDriverClient 获取内核侧进程列表；
+    // - 仅在 KswordARK 控制设备已就绪时，通过 ArkDriverClient 获取内核侧进程列表；
+    // - 驱动未加载的 R3 刷新不发送枚举 IOCTL，也不触发 R0 权限提示。
     // - 输出可用于“R3 列表 vs R0 列表”差异比对的数据。
     bool enumerateProcessesByR0Driver(
         std::vector<KernelProcessSnapshotEntry>* const processListOut,
@@ -3122,8 +3177,19 @@ namespace
         }
 
         const ksword::ark::DriverClient driverClient;
+        ksword::ark::DriverHandle driverHandle = driverClient.openSilently();
+        if (!driverHandle.isValid())
+        {
+            if (detailTextOut != nullptr)
+            {
+                *detailTextOut = "R0 driver device is not ready; kernel process comparison skipped";
+            }
+            return false;
+        }
+
         const ksword::ark::ProcessEnumResult enumResult = driverClient.enumerateProcesses(
-            KSWORD_ARK_ENUM_PROCESS_FLAG_SCAN_CID_TABLE);
+            KSWORD_ARK_ENUM_PROCESS_FLAG_SCAN_CID_TABLE,
+            &driverHandle);
         if (!enumResult.io.ok)
         {
             if (detailTextOut != nullptr)
@@ -3648,8 +3714,11 @@ ProcessDock::ProcessDock(QWidget* parent)
 {
     m_mainWindowActionReceiver = parent;
 
-    // 初始化硬件并发参数：至少按 1 核处理，避免除零。
-    m_logicalCpuCount = std::max<std::uint32_t>(1, std::thread::hardware_concurrency());
+    // Processor Group 感知：ALL_PROCESSOR_GROUPS 覆盖超过 64 个逻辑处理器的系统。
+    const DWORD activeProcessorCount = ::GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    m_logicalCpuCount = activeProcessorCount != 0
+        ? static_cast<std::uint32_t>(activeProcessorCount)
+        : std::max<std::uint32_t>(1, std::thread::hardware_concurrency());
 
     // Shell 图标解析可能阻塞磁盘或图标处理程序，使用独立线程池并限制并发数。
     // 至少保留两个工作线程以并行处理应用图标，上限八个避免短时间创建过多 Shell 查询。
@@ -3682,6 +3751,7 @@ ProcessDock::~ProcessDock()
     // - 处理：请求 ProcessNetworkEtwMonitor 退出并等待线程 join；
     // - 返回：无，防止对象销毁后 ETW 回调继续访问成员。
     stopProcessNetworkTrafficCapture();
+    stopCpuCoreUsageCapture();
 
     // 析构阶段主动解除全局事件过滤器，避免 QApplication 后续点击事件访问已销毁 Dock。
     if (QApplication::instance() != nullptr)
@@ -3752,6 +3822,229 @@ void ProcessDock::stopProcessNetworkTrafficCapture()
         m_processNetworkTrafficService->Stop();
     }
     m_processNetworkTrafficCaptureStarted = false;
+}
+
+void ProcessDock::ensureCpuCoreUsageCaptureStarted()
+{
+    // 先记录期望状态：Stop 尚未完成时虽不能立刻启动，完成回调仍能据此恢复同一实例。
+    m_cpuCoreUsageCaptureDesired->store(true, std::memory_order_release);
+    // 同一个旧会话仍在异步 Stop/join 时禁止创建新实例，确保进程页始终最多一个 CSwitch 会话。
+    if (m_cpuCoreUsageCaptureStarted || m_cpuCoreUsageStopInProgress)
+    {
+        return;
+    }
+    m_cpuCoreUsageCaptureStarted = true;
+    if (m_cpuCoreUsageService == nullptr)
+    {
+        m_cpuCoreUsageService =
+            std::make_shared<ks::process::ProcessCpuCoreEtwMonitor>();
+    }
+
+    // StartTrace/OpenTrace 只执行一次，但仍移到全局工作线程，避免 ETW 服务响应慢时阻塞 GUI。
+    const std::shared_ptr<ks::process::ProcessCpuCoreEtwMonitor> cpuCoreService =
+        m_cpuCoreUsageService;
+    const std::shared_ptr<std::atomic_bool> captureDesired =
+        m_cpuCoreUsageCaptureDesired;
+    QRunnable* startTask = QRunnable::create([cpuCoreService, captureDesired]()
+    {
+        const bool started = cpuCoreService->Start();
+        if (started && !captureDesired->load(std::memory_order_acquire))
+        {
+            // 用户在启动完成前已暂停时立即后台回收，避免短暂遗留无人消费的高频会话。
+            cpuCoreService->Stop();
+        }
+        kLogEvent logEvent;
+        (started ? info : warn) << logEvent
+            << "[ProcessDock] 单系统会话 CSwitch 逐核心 CPU 采集器"
+            << (started ? "启动成功" : "启动失败")
+            << (started
+                ? std::string()
+                : (", detail=" + cpuCoreService->LastErrorText()))
+            << eol;
+    });
+    startTask->setAutoDelete(true);
+    QThreadPool::globalInstance()->start(startTask);
+}
+
+void ProcessDock::stopCpuCoreUsageCapture()
+{
+    // UI 立即释放最新矩阵；StopTrace + consumer join 交给后台执行，暂停按钮不会卡住界面。
+    m_latestCpuCoreUsageSnapshot.reset();
+    m_lastCpuCoreUsageSnapshotTime = {};
+    m_cpuCoreUsageCaptureDesired->store(false, std::memory_order_release);
+    if (m_processTable != nullptr && m_processTable->viewport() != nullptr)
+    {
+        // 暂停后立即清掉 CPU 列上一帧扇形，不等待滚动、曝光或下一次整表刷新。
+        const int cpuColumn = toColumnIndex(TableColumn::CpuCore);
+        const QRect cpuViewportRect(
+            m_processTable->columnViewportPosition(cpuColumn),
+            0,
+            m_processTable->columnWidth(cpuColumn),
+            m_processTable->viewport()->height());
+        m_processTable->viewport()->update(
+            cpuViewportRect.intersected(m_processTable->viewport()->rect()));
+    }
+    m_cpuCoreUsageCaptureStarted = false;
+    if (m_cpuCoreUsageService == nullptr || m_cpuCoreUsageStopInProgress)
+    {
+        return;
+    }
+
+    m_cpuCoreUsageStopInProgress = true;
+    // 始终保留并复用同一个 service 对象；Stop 完成后的恢复仍调用同一实例，绝不创建第二个会话。
+    const std::shared_ptr<ks::process::ProcessCpuCoreEtwMonitor> cpuCoreService =
+        m_cpuCoreUsageService;
+    const QPointer<ProcessDock> safeThis(this);
+    QRunnable* stopTask = QRunnable::create([safeThis, cpuCoreService]()
+    {
+        cpuCoreService->Stop();
+        if (safeThis.isNull())
+        {
+            return;
+        }
+
+        QMetaObject::invokeMethod(
+            safeThis,
+            [safeThis]()
+            {
+                if (safeThis.isNull())
+                {
+                    return;
+                }
+                safeThis->m_cpuCoreUsageStopInProgress = false;
+                if (safeThis->m_cpuCoreUsageCaptureDesired->load(std::memory_order_acquire))
+                {
+                    // 用户在 Stop 完成前已重新进入允许刷新状态时，此处恢复唯一系统级会话。
+                    safeThis->ensureCpuCoreUsageCaptureStarted();
+                }
+            },
+            Qt::QueuedConnection);
+    });
+    stopTask->setAutoDelete(true);
+    QThreadPool::globalInstance()->start(stopTask);
+}
+
+void ProcessDock::syncCpuCoreUsageToDetailWindow(
+    ProcessDetailWindow* const detailWindow,
+    const ks::process::ProcessRecord& processRecord) const
+{
+    if (detailWindow == nullptr)
+    {
+        return;
+    }
+
+    ProcessDetailWindow::CpuCoreViewSample viewSample;
+    viewSample.processSystemPercent = processRecord.cpuPercent;
+    viewSample.processCoreEquivalentPercent = processRecord.cpuCorePercent;
+    const std::shared_ptr<const ks::process::CpuCoreUsageSnapshot> cpuCoreSnapshot =
+        m_latestCpuCoreUsageSnapshot;
+    if (cpuCoreSnapshot == nullptr)
+    {
+        viewSample.diagnosticText = ks::i18n::sourceText(
+            QStringLiteral("CSwitch monitor has not started"));
+        detailWindow->setCpuCoreViewSample(std::move(viewSample));
+        return;
+    }
+
+    viewSample.monitorRunning = cpuCoreSnapshot->monitorRunning;
+    viewSample.sampleReady = cpuCoreSnapshot->sampleReady;
+    viewSample.dataLossDetected = cpuCoreSnapshot->dataLossDetected;
+    viewSample.eventsLost = cpuCoreSnapshot->eventsLost;
+    viewSample.contextSwitchEvents = cpuCoreSnapshot->contextSwitchEvents;
+    viewSample.diagnosticText = ks::i18n::sourceText(
+        QString::fromStdString(cpuCoreSnapshot->diagnosticText));
+
+    const auto processUsageIt =
+        cpuCoreSnapshot->processUsageByPid.find(processRecord.pid);
+    const ks::process::CpuCoreUsageSeries* const processUsage =
+        processUsageIt != cpuCoreSnapshot->processUsageByPid.end()
+        ? &processUsageIt->second
+        : nullptr;
+    viewSample.processCores.reserve(cpuCoreSnapshot->processors.size());
+    for (std::size_t processorIndex = 0;
+         processorIndex < cpuCoreSnapshot->processors.size();
+         ++processorIndex)
+    {
+        const ks::process::EtwLogicalProcessorCoordinate& coordinate =
+            cpuCoreSnapshot->processors[processorIndex];
+        ProcessDetailWindow::CpuCoreValue coreValue;
+        coreValue.processorIndex = coordinate.processorIndex;
+        coreValue.group = coordinate.group;
+        coreValue.number = coordinate.number;
+        coreValue.sampleReady =
+            processorIndex < cpuCoreSnapshot->sampleReadyByProcessor.size() &&
+            cpuCoreSnapshot->sampleReadyByProcessor[processorIndex];
+        if (processUsage != nullptr &&
+            processorIndex < processUsage->percentByProcessor.size())
+        {
+            coreValue.percent = processUsage->percentByProcessor[processorIndex];
+        }
+        viewSample.processCores.push_back(coreValue);
+    }
+
+    std::unordered_set<std::uint32_t> populatedThreadIds;
+    populatedThreadIds.reserve(cpuCoreSnapshot->threadUsageByIdentity.size());
+    for (const auto& threadUsagePair : cpuCoreSnapshot->threadUsageByIdentity)
+    {
+        const ks::process::CpuCoreUsageSeries& threadUsage = threadUsagePair.second;
+        if (threadUsage.processId != processRecord.pid || threadUsage.threadId == 0)
+        {
+            continue;
+        }
+
+        ProcessDetailWindow::ThreadCpuCoreValue threadValue;
+        threadValue.threadId = threadUsage.threadId;
+        threadValue.cpuPercent = threadUsage.coreEquivalentPercent;
+        threadValue.cores.reserve(viewSample.processCores.size());
+        for (std::size_t processorIndex = 0;
+             processorIndex < viewSample.processCores.size();
+             ++processorIndex)
+        {
+            ProcessDetailWindow::CpuCoreValue coreValue = viewSample.processCores[processorIndex];
+            coreValue.percent = processorIndex < threadUsage.percentByProcessor.size()
+                ? threadUsage.percentByProcessor[processorIndex]
+                : 0.0;
+            threadValue.cores.push_back(coreValue);
+        }
+        viewSample.threads.push_back(std::move(threadValue));
+        populatedThreadIds.insert(threadUsage.threadId);
+    }
+
+    // 生命周期 rundown 中已知但本区间未获调度的存活线程也保留为 0%，
+    // 避免线程矩阵只列出“刚好运行过”的线程而让用户误以为线程已退出。
+    for (const std::uint64_t identity : cpuCoreSnapshot->liveThreadIdentities)
+    {
+        const std::uint32_t processId = static_cast<std::uint32_t>(identity >> 32U);
+        const std::uint32_t threadId = static_cast<std::uint32_t>(identity & 0xffffffffULL);
+        if (processId != processRecord.pid ||
+            threadId == 0 ||
+            populatedThreadIds.find(threadId) != populatedThreadIds.end())
+        {
+            continue;
+        }
+
+        ProcessDetailWindow::ThreadCpuCoreValue threadValue;
+        threadValue.threadId = threadId;
+        threadValue.cores = viewSample.processCores;
+        for (ProcessDetailWindow::CpuCoreValue& coreValue : threadValue.cores)
+        {
+            coreValue.percent = 0.0;
+        }
+        viewSample.threads.push_back(std::move(threadValue));
+    }
+    std::sort(
+        viewSample.threads.begin(),
+        viewSample.threads.end(),
+        [](const ProcessDetailWindow::ThreadCpuCoreValue& left,
+           const ProcessDetailWindow::ThreadCpuCoreValue& right)
+        {
+            if (left.cpuPercent != right.cpuPercent)
+            {
+                return left.cpuPercent > right.cpuPercent;
+            }
+            return left.threadId < right.threadId;
+        });
+    detailWindow->setCpuCoreViewSample(std::move(viewSample));
 }
 
 void ProcessDock::pruneProcessNetworkTrafficCounters()
@@ -3926,7 +4219,23 @@ void ProcessDock::connectDetailWindowNavigation(ProcessDetailWindow* detailWindo
     {
         return;
     }
+    if (m_monitoringEnabled)
+    {
+        // 详情窗口出现即开始首个采样区间，避免用户进入 CPU 核心页后再多等一轮。
+        ensureCpuCoreUsageCaptureStarted();
+    }
     synchronizeDetailWindowPerformanceHistory(detailWindow, detailWindow->identityKey());
+    const auto coreRecordIt = m_cacheByIdentity.find(detailWindow->identityKey());
+    if (coreRecordIt != m_cacheByIdentity.end())
+    {
+        syncCpuCoreUsageToDetailWindow(detailWindow, coreRecordIt->second.record);
+    }
+    else
+    {
+        ks::process::ProcessRecord fallbackRecord{};
+        fallbackRecord.pid = detailWindow->pid();
+        syncCpuCoreUsageToDetailWindow(detailWindow, fallbackRecord);
+    }
     connect(detailWindow, &ProcessDetailWindow::requestOpenMemoryDockByPid, this,
         [this](const std::uint32_t targetPid) {
             (void)invokeMainWindowPidSlot("focusMemoryDockByPid", targetPid);
@@ -3963,7 +4272,6 @@ void ProcessDock::refreshThemeVisuals()
 {
     // 仅重建当前表格可视层，不触发新的后台枚举任务。
     // 用途：深浅色切换后，立即刷新“新增/退出”行的主题高亮色。
-    applyBlueComboBoxRuntimeStyle(m_strategyCombo);
     applyBlueComboBoxRuntimeStyle(m_viewModeCombo);
     updateThreadColumnPresetButtons();
     rebuildTable();
@@ -4031,49 +4339,18 @@ void ProcessDock::initializeTopControls()
     m_controlLayout->setSpacing(8);
     ks::i18n::LanguageManager& languageManager = ks::i18n::LanguageManager::instance();
 
-    // 遍历策略下拉框：
-    // 1) Toolhelp（CreateToolhelp32Snapshot + Process32First/Next）
-    // 2) NtQuerySystemInformation
-    // 说明：不再默认 Auto，直接明确展示当前使用的方法。
-    m_strategyCombo = new QComboBox(this);
-    m_strategyCombo->setObjectName(QStringLiteral("ProcessDockStrategyCombo"));
-    m_strategyCombo->addItem(QIcon(IconRefresh), "Toolhelp Snapshot / Process32First / Process32Next");
-    m_strategyCombo->addItem(QIcon(IconRefresh), "NtQuerySystemInformation");
-    languageManager.bindComboBoxItem(
-        m_strategyCombo,
-        0,
-        QStringLiteral("process.strategy.toolhelp"),
-        QStringLiteral("Toolhelp Snapshot / Process32First / Process32Next"));
-    languageManager.bindComboBoxItem(
-        m_strategyCombo,
-        1,
-        QStringLiteral("process.strategy.ntquery"),
-        QStringLiteral("NtQuerySystemInformation"));
-    m_strategyCombo->setCurrentIndex(1);
-    m_strategyCombo->setToolTip("指定进程遍历方案");
-    languageManager.bindToolTip(
-        m_strategyCombo,
-        QStringLiteral("process.tooltip.strategy"),
-        QStringLiteral("指定进程遍历方案"));
-    // 自适应宽度策略：避免长文本把 Dock 顶出横向滚动条。
-    m_strategyCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    m_strategyCombo->setMinimumContentsLength(18);
-    m_strategyCombo->setMaximumWidth(260);
-
-    // 进程友好视图：
-    // - 唯一复选框同时承担两种互斥视图的切换；
-    // - 勾选为友好视图，取消勾选为参照 KswordARKLight 父子关系构建的树状视图。
-    m_friendlyViewCheck = new QCheckBox(QStringLiteral("进程友好视图"), this);
-    m_friendlyViewCheck->setChecked(true);
-    m_friendlyViewCheck->setToolTip(QStringLiteral("勾选：友好视图（默认）；取消勾选：树状视图。搜索或查看历史活动快照时自动使用扁平结果。"));
+    // 树状视图：勾选时按父子关系构建树；默认关闭以展示应用/后台/系统分类。
+    m_treeViewCheck = new QCheckBox(QStringLiteral("树状视图"), this);
+    m_treeViewCheck->setChecked(false);
+    m_treeViewCheck->setToolTip(QStringLiteral("勾选后按父子关系显示进程。未勾选时按应用、后台进程和 Windows 进程分类；搜索或查看历史活动快照时自动使用扁平结果。"));
     languageManager.bindText(
-        m_friendlyViewCheck,
+        m_treeViewCheck,
         QStringLiteral("process.toolbar.friendly"),
-        QStringLiteral("进程友好视图"));
+        QStringLiteral("树状视图"));
     languageManager.bindToolTip(
-        m_friendlyViewCheck,
+        m_treeViewCheck,
         QStringLiteral("process.tooltip.friendly"),
-        QStringLiteral("勾选：友好视图（默认）；取消勾选：树状视图。搜索或查看历史活动快照时自动使用扁平结果。"));
+        QStringLiteral("勾选后按父子关系显示进程。未勾选时按应用、后台进程和 Windows 进程分类；搜索或查看历史活动快照时自动使用扁平结果。"));
 
     // 视图模式下拉框：默认监视视图。
     // 项由 rebuildViewModeComboItems 统一生成：内置预设在前，用户自定义视图追加在后。
@@ -4090,7 +4367,6 @@ void ProcessDock::initializeTopControls()
     m_viewModeCombo->setMinimumContentsLength(8);
     m_viewModeCombo->setMaximumWidth(180);
 
-    applyBlueComboBoxRuntimeStyle(m_strategyCombo);
     applyBlueComboBoxRuntimeStyle(m_viewModeCombo);
 
     // 开始/暂停按钮：按需求仅显示图标。
@@ -4109,54 +4385,24 @@ void ProcessDock::initializeTopControls()
         QStringLiteral("process.tooltip.pause"),
         QStringLiteral("暂停周期性刷新进程列表，并同步停止记录"));
 
-    // 进程表刷新间隔：
-    // - 该间隔只控制下方进程表格重绘频率，默认 2 秒；
-    // - 后台监视和活动采样默认走 1 秒，避免表格渲染成本影响记录精度。
-    //
-    // 两个间隔都是带上下限的连续数值，因此用 QDoubleSpinBox 而不是
-    // QLineEdit + QDoubleValidator：校验器只会静默吞掉不合法的按键，
-    // 用户既看不到可用范围，也不知道自己为什么打不出想要的数；
-    // 步进控件把范围、步长和单位一次性摆在界面上，还能用箭头/滚轮调。
-    m_refreshLabel = new QLabel("列表刷新:", this);
-    languageManager.bindText(m_refreshLabel, QStringLiteral("process.label.refresh_interval"), QStringLiteral("列表刷新:"));
-    m_tableRefreshIntervalSpin = new QDoubleSpinBox(this);
-    m_tableRefreshIntervalSpin->setDecimals(1);
-    // 范围直接取自定时器实际使用的上下限常量，避免控件和 clamp 逻辑各说一套。
-    m_tableRefreshIntervalSpin->setRange(
-        static_cast<double>(ProcessTableMinimumIntervalMilliseconds) / 1000.0,
-        static_cast<double>(ProcessTableMaximumIntervalMilliseconds) / 1000.0);
-    m_tableRefreshIntervalSpin->setSingleStep(0.5);
-    m_tableRefreshIntervalSpin->setSuffix(QStringLiteral(" s"));
-    m_tableRefreshIntervalSpin->setValue(2.0);
-    m_tableRefreshIntervalSpin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    // 关闭键盘跟踪：打字途中的半截数值不触发定时器重启，回车/失焦/步进才生效。
-    m_tableRefreshIntervalSpin->setKeyboardTracking(false);
-    m_tableRefreshIntervalSpin->setToolTip("只控制下方进程表格的刷新频率，可调 0.5~60 秒，默认 2 秒。");
-    languageManager.bindToolTip(
-        m_tableRefreshIntervalSpin,
-        QStringLiteral("process.tooltip.table_interval"),
-        QStringLiteral("只控制下方进程表格的刷新频率，可调 0.5~60 秒，默认 2 秒。"));
-
-    // 活动采样间隔：
-    // - 允许小数秒，默认 1s；
-    // - 该间隔驱动后台监视刷新和活动记录采样。
-    m_sampleIntervalLabel = new QLabel("采样间隔:", this);
-    languageManager.bindText(m_sampleIntervalLabel, QStringLiteral("process.label.sample_interval"), QStringLiteral("采样间隔:"));
+    // 统一刷新间隔同时驱动后台枚举、活动采样和表格重绘。
+    m_refreshLabel = new QLabel("刷新间隔:", this);
+    languageManager.bindText(m_refreshLabel, QStringLiteral("process.label.refresh_interval"), QStringLiteral("刷新间隔:"));
     m_refreshIntervalSpin = new QDoubleSpinBox(this);
-    m_refreshIntervalSpin->setDecimals(2);
+    m_refreshIntervalSpin->setDecimals(1);
     m_refreshIntervalSpin->setRange(
         static_cast<double>(ActivityMinimumIntervalMilliseconds) / 1000.0,
         static_cast<double>(ActivityMaximumIntervalMilliseconds) / 1000.0);
-    m_refreshIntervalSpin->setSingleStep(0.05);
+    m_refreshIntervalSpin->setSingleStep(0.5);
     m_refreshIntervalSpin->setSuffix(QStringLiteral(" s"));
     m_refreshIntervalSpin->setValue(1.0);
     m_refreshIntervalSpin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_refreshIntervalSpin->setKeyboardTracking(false);
-    m_refreshIntervalSpin->setToolTip("进程活动记录的采样间隔，可调 0.05~60 秒，默认 1 秒；间隔越小系统枚举开销越大。");
+    m_refreshIntervalSpin->setToolTip("同时控制进程刷新、活动采样和列表更新，可调 0.5~60 秒，默认 1 秒；间隔越小系统枚举开销越大。");
     languageManager.bindToolTip(
         m_refreshIntervalSpin,
         QStringLiteral("process.tooltip.sample_interval"),
-        QStringLiteral("进程活动记录的采样间隔，可调 0.05~60 秒，默认 1 秒；间隔越小系统枚举开销越大。"));
+        QStringLiteral("同时控制进程刷新、活动采样和列表更新，可调 0.5~60 秒，默认 1 秒；间隔越小系统枚举开销越大。"));
 
     // 进程搜索框：
     // - 直接基于当前缓存做本地过滤，不额外触发系统查询；
@@ -4176,36 +4422,6 @@ void ProcessDock::initializeTopControls()
     m_processSearchLineEdit->setStyleSheet(buildBlueLineEditStyle());
     m_processSearchLineEdit->setMaximumWidth(320);
 
-    // 内核对比开关：
-    // - 勾选后每轮刷新额外请求 R0 进程列表；
-    // - UI 会把“R0 有、R3 无”的进程按红色高亮显示。
-    m_kernelCompareCheck = new QCheckBox("刷新时对比内核进程（查隐藏）", this);
-    m_kernelCompareCheck->setChecked(false);
-    m_kernelCompareCheck->setToolTip("勾选后刷新会额外请求驱动进程列表，并显示仅内核可见的进程。");
-    languageManager.bindText(
-        m_kernelCompareCheck,
-        QStringLiteral("process.toolbar.kernel_compare"),
-        QStringLiteral("刷新时对比内核进程（查隐藏）"));
-    languageManager.bindToolTip(
-        m_kernelCompareCheck,
-        QStringLiteral("process.tooltip.kernel_compare"),
-        QStringLiteral("勾选后刷新会额外请求驱动进程列表，并显示仅内核可见的进程。"));
-
-    // Ksword 可恢复隐藏显示开关：
-    // - 默认不显示 R0 标记隐藏的进程；
-    // - 勾选后仍展示这些行，便于右键“取消隐藏”。
-    m_showKswordHiddenProcessCheck = new QCheckBox(QStringLiteral("显示Ksword隐藏项"), this);
-    m_showKswordHiddenProcessCheck->setChecked(false);
-    m_showKswordHiddenProcessCheck->setToolTip(QStringLiteral("显示由 R0 摘链后仍可通过内核扫描读取的 Ksword 隐藏项。"));
-    languageManager.bindText(
-        m_showKswordHiddenProcessCheck,
-        QStringLiteral("process.toolbar.hidden"),
-        QStringLiteral("显示Ksword隐藏项"));
-    languageManager.bindToolTip(
-        m_showKswordHiddenProcessCheck,
-        QStringLiteral("process.tooltip.hidden"),
-        QStringLiteral("显示由 R0 摘链后仍可通过内核扫描读取的 Ksword 隐藏项。"));
-
     // “选择列”入口：
     // - 列集合已经对齐任务管理器“详细信息”页，仅靠表头右键逐列勾选不便于批量增减；
     // - 这里提供与任务管理器一致的显式入口，表头右键菜单里也保留同名项。
@@ -4221,42 +4437,20 @@ void ProcessDock::initializeTopControls()
         QStringLiteral("添加或移除进程列表中显示的列。"));
     m_columnChooserButton->setStyleSheet(buildBlueButtonStyle(false));
 
-    // 句柄回调进程保护入口：
-    // - 仅负责跳转到 KernelDock 的统一规则页；
-    // - 具体规则编辑、驱动应用和状态刷新仍由回调保护页面管理。
-    m_processProtectCallbackButton = new QPushButton(QStringLiteral("句柄回调保护"), this);
-    m_processProtectCallbackButton->setToolTip(
-        QStringLiteral("打开内核句柄回调的进程保护规则页。"));
-    languageManager.bindText(
-        m_processProtectCallbackButton,
-        QStringLiteral("process.toolbar.callback_process_protect"),
-        QStringLiteral("句柄回调保护"));
-    languageManager.bindToolTip(
-        m_processProtectCallbackButton,
-        QStringLiteral("process.tooltip.callback_process_protect"),
-        QStringLiteral("打开内核句柄回调的进程保护规则页。"));
-    m_processProtectCallbackButton->setStyleSheet(buildBlueButtonStyle(false));
-
     // 按钮统一蓝色风格（图标按钮版本）。
     const QString buttonStyle = buildBlueButtonStyle(true);
     m_startButton->setStyleSheet(buttonStyle);
     m_pauseButton->setStyleSheet(buttonStyle);
 
     // 第一行放“操作按钮 + 刷新间隔”。
-    m_controlLayout->addWidget(m_strategyCombo);
-    m_controlLayout->addWidget(m_friendlyViewCheck);
+    m_controlLayout->addWidget(m_treeViewCheck);
     m_controlLayout->addWidget(m_viewModeCombo);
     m_controlLayout->addWidget(m_startButton);
     m_controlLayout->addWidget(m_pauseButton);
     m_controlLayout->addWidget(m_columnChooserButton);
-    m_controlLayout->addWidget(m_processProtectCallbackButton);
     m_controlLayout->addWidget(m_processSearchLineEdit);
-    m_controlLayout->addWidget(m_kernelCompareCheck);
-    m_controlLayout->addWidget(m_showKswordHiddenProcessCheck);
     m_controlLayout->addStretch(1);
     m_controlLayout->addWidget(m_refreshLabel);
-    m_controlLayout->addWidget(m_tableRefreshIntervalSpin);
-    m_controlLayout->addWidget(m_sampleIntervalLabel);
     m_controlLayout->addWidget(m_refreshIntervalSpin);
     controlContainerLayout->addLayout(m_controlLayout);
     m_processPageLayout->addLayout(controlContainerLayout);
@@ -4285,10 +4479,6 @@ void ProcessDock::initializeProcessActivityPanel()
     panelLayout->setContentsMargins(6, 6, 6, 6);
     panelLayout->setSpacing(5);
 
-    QHBoxLayout* toolbarLayout = new QHBoxLayout();
-    toolbarLayout->setContentsMargins(0, 0, 0, 0);
-    toolbarLayout->setSpacing(6);
-
     m_activityClearButton = new QPushButton(QStringLiteral("清空"), m_activityPanelWidget);
     m_activityClearButton->setToolTip(QStringLiteral("清空当前刷新同步记录的进程活动样本。"));
     languageManager.bindText(m_activityClearButton, QStringLiteral("process.activity.clear"), QStringLiteral("清空"));
@@ -4298,23 +4488,12 @@ void ProcessDock::initializeProcessActivityPanel()
         QStringLiteral("清空当前刷新同步记录的进程活动样本。"));
     m_activityClearButton->setStyleSheet(buildBlueButtonStyle(false));
 
-    m_activityBackgroundRecordCheck = new QCheckBox(QStringLiteral("后台保持刷新/记录"), m_activityPanelWidget);
-    m_activityBackgroundRecordCheck->setToolTip(QStringLiteral("默认仅进程列表 Tab 显示时刷新和记录；勾选后切到其它 Tab 仍继续刷新并记录。"));
-    languageManager.bindText(
-        m_activityBackgroundRecordCheck,
-        QStringLiteral("process.activity.background"),
-        QStringLiteral("后台保持刷新/记录"));
-    languageManager.bindToolTip(
-        m_activityBackgroundRecordCheck,
-        QStringLiteral("process.activity.tooltip.background"),
-        QStringLiteral("默认仅进程列表 Tab 显示时刷新和记录；勾选后切到其它 Tab 仍继续刷新并记录。"));
-
-    m_activityListOnlyRefreshCheck = new QCheckBox(QStringLiteral("只刷新列表"), m_activityPanelWidget);
+    m_activityListOnlyRefreshCheck = new QCheckBox(QStringLiteral("不记录历史"), m_activityPanelWidget);
     m_activityListOnlyRefreshCheck->setToolTip(QStringLiteral("勾选后周期刷新仍会更新进程列表，但不会向上方时间轴写入新的活动记录。"));
     languageManager.bindText(
         m_activityListOnlyRefreshCheck,
         QStringLiteral("process.activity.list_only"),
-        QStringLiteral("只刷新列表"));
+        QStringLiteral("不记录历史"));
     languageManager.bindToolTip(
         m_activityListOnlyRefreshCheck,
         QStringLiteral("process.activity.tooltip.list_only"),
@@ -4395,23 +4574,26 @@ void ProcessDock::initializeProcessActivityPanel()
     });
     m_activityProcessPickerButton = processPickerButton;
 
-    toolbarLayout->addWidget(m_activityClearButton);
-    toolbarLayout->addWidget(m_activityBackgroundRecordCheck);
-    toolbarLayout->addWidget(m_activityListOnlyRefreshCheck);
-    toolbarLayout->addSpacing(8);
     QLabel* activityDisplayLabel = new QLabel(QStringLiteral("显示:"), m_activityPanelWidget);
     languageManager.bindText(
         activityDisplayLabel,
         QStringLiteral("process.activity.display"),
         QStringLiteral("显示:"));
-    toolbarLayout->addWidget(activityDisplayLabel);
-    toolbarLayout->addWidget(m_activityCpuButton);
-    toolbarLayout->addWidget(m_activityMemoryButton);
-    toolbarLayout->addWidget(m_activityDiskButton);
-    toolbarLayout->addWidget(m_activityNetworkButton);
-    toolbarLayout->addWidget(m_activityGpuButton);
-    toolbarLayout->addWidget(m_activityProcessPickerButton);
-    toolbarLayout->addStretch(1);
+    // 将活动控制项放到顶部搜索框之后，图表面板只保留图表本身。
+    int topControlInsertIndex = m_controlLayout->indexOf(m_processSearchLineEdit) + 1;
+    for (QWidget* const controlWidget : {
+             static_cast<QWidget*>(m_activityClearButton),
+             static_cast<QWidget*>(m_activityListOnlyRefreshCheck),
+             static_cast<QWidget*>(activityDisplayLabel),
+             static_cast<QWidget*>(m_activityCpuButton),
+             static_cast<QWidget*>(m_activityMemoryButton),
+             static_cast<QWidget*>(m_activityDiskButton),
+             static_cast<QWidget*>(m_activityNetworkButton),
+             static_cast<QWidget*>(m_activityGpuButton),
+             static_cast<QWidget*>(m_activityProcessPickerButton) })
+    {
+        m_controlLayout->insertWidget(topControlInsertIndex++, controlWidget);
+    }
 
     m_activityChartWidget = new ProcessActivityChartWidget(this, m_activityPanelWidget);
     m_activityChartWidget->setToolTip(QString());
@@ -4441,7 +4623,6 @@ void ProcessDock::initializeProcessActivityPanel()
         .arg(KswordTheme::TextSecondaryHex())
         .arg(KswordTheme::BorderHex()));
 
-    panelLayout->addLayout(toolbarLayout);
     panelLayout->addWidget(m_activityChartWidget);
     m_processPageLayout->addWidget(m_activityPanelWidget, 0);
 }
@@ -4634,20 +4815,28 @@ void ProcessDock::initializeProcessTable()
     // - 右键菜单会读取所有已选行并批量执行动作。
     m_processTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_processTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    // “CPU 核心”列会按真实逻辑处理器数量保留完整内容宽度：
+    // - 表格水平方向忽略内容 sizeHint，避免列宽经页面布局反向撑大 ProcessDock；
+    // - 超出 viewport 的列统一交给表格底部横向滚动条，不压缩逐核心扇形。
+    m_processTable->setSizeAdjustPolicy(QAbstractScrollArea::AdjustIgnored);
+    m_processTable->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
+    m_processTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_processTable->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
     // 按像素滚动可让滚轮和触控板事件在到达时立刻推进 viewport，
     // 避免固定行高表格把输入聚合为较大的逐项跳动。
     m_processTable->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_processTable->setSortingEnabled(true);
     m_processTable->setContextMenuPolicy(Qt::CustomContextMenu);
     m_processTable->setAlternatingRowColors(true);
-    m_processTable->setItemDelegate(new ProcessRowHighlightDelegate(m_processTable));
+    m_processTable->setItemDelegate(new ProcessRowHighlightDelegate(
+        m_processTable,
+        toColumnIndex(TableColumn::CpuCore)));
     m_processTable->setProperty("ksword_preserve_custom_table_delegate", true);
     m_processTable->setShowGrid(false);
     m_processTable->setWordWrap(false);
     m_processTable->setCornerButtonEnabled(false);
-    // 横向滚动条策略保持 Qt 默认值：
-    // - 全局 TableColumnAutoFit 会在首次显示/尺寸变化时把列宽压入 viewport；
-    // - 不强制隐藏横向滚动条，用户手动拖宽列后允许滚动条自然出现。
+    // 全局 TableColumnAutoFit 会在首次显示/尺寸变化时尽量把普通列压入 viewport；
+    // 逐核心列或用户手动拖宽后的溢出宽度由上面的按需横向滚动承接。
     if (QScrollBar* verticalScrollBar = m_processTable->verticalScrollBar())
     {
         verticalScrollBar->setProperty("ksword_disable_smooth_scroll", true);
@@ -5175,42 +5364,8 @@ void ProcessDock::initializeCreateProcessPage()
 
 void ProcessDock::initializeConnections()
 {
-    // 策略切换后立即强制刷新。
-    connect(m_strategyCombo, &QComboBox::currentIndexChanged, this, [this]() {
-        kLogEvent logEvent;
-        info << logEvent
-            << "[ProcessDock] 进程枚举策略切换为: "
-            << strategyToText(toStrategy(m_strategyCombo->currentIndex()))
-            << eol;
-        requestAsyncRefresh(true);
-    });
-
-    // 内核对比勾选变更后立即刷新，确保列表高亮状态与开关一致。
-    connect(m_kernelCompareCheck, &QCheckBox::toggled, this, [this](const bool checked) {
-        m_activityTableSnapshotIndex = -1;
-        m_activityTableSnapshotRecords.clear();
-        kLogEvent logEvent;
-        info << logEvent
-            << "[ProcessDock] 内核进程对比开关变更, enabled="
-            << (checked ? "true" : "false")
-            << eol;
-        requestAsyncRefresh(true);
-    });
-
-    // 显示隐藏项开关只影响本地过滤；若需要重新拉 R0 标记，用户可手动刷新。
-    connect(m_showKswordHiddenProcessCheck, &QCheckBox::toggled, this, [this](const bool checked) {
-        kLogEvent logEvent;
-        info << logEvent
-            << "[ProcessDock] Ksword隐藏项显示开关变更, visible="
-            << (checked ? "true" : "false")
-            << eol;
-        rebuildTable();
-    });
-
-    // 进程友好视图：
-    // - 勾选时 buildDisplayOrder 使用应用/后台/系统分类；
-    // - 取消勾选时直接切换为树状视图，两种状态互斥且无需第二个按钮。
-    connect(m_friendlyViewCheck, &QCheckBox::toggled, this, [this](const bool checked) {
+    // 树状视图：勾选时按父子关系显示；取消勾选时按应用/后台/系统分类。
+    connect(m_treeViewCheck, &QCheckBox::toggled, this, [this](const bool checked) {
         m_activityTableSnapshotIndex = -1;
         m_activityTableSnapshotRecords.clear();
         // 用户手动切换复选框后退出表头触发的普通扁平模式，并重置友好视图排序会话。
@@ -5218,7 +5373,7 @@ void ProcessDock::initializeConnections()
         m_friendlySortActive = false;
         kLogEvent logEvent;
         info << logEvent
-            << "[ProcessDock] 进程友好视图开关变更, friendlyView="
+            << "[ProcessDock] 树状视图开关变更, treeView="
             << (checked ? "true" : "false")
             << eol;
         rebuildTable();
@@ -5300,6 +5455,8 @@ void ProcessDock::initializeConnections()
         m_processIconExtractionPool.clear();
         m_processIconPathsInFlight.clear();
         stopProcessNetworkTrafficCapture();
+        stopCpuCoreUsageCapture();
+        m_threadCounterSampleByIdentity.clear();
         updateProcessActivityStatusLabel();
     });
 
@@ -5311,21 +5468,9 @@ void ProcessDock::initializeConnections()
         });
     }
 
-    if (m_processProtectCallbackButton != nullptr)
-    {
-        connect(m_processProtectCallbackButton, &QPushButton::clicked, this, [this]() {
-            emit requestFocusProcessProtectByCallback();
-        });
-    }
-
-    // 两个间隔步进控件：
-    // - 已关闭键盘跟踪，valueChanged 只在回车/失焦/点箭头/滚轮时发出一次；
-    // - 用 valueChanged 而不是 editingFinished，否则点上下箭头调整后不会立即生效。
+    // 统一间隔步进控件：已关闭键盘跟踪，值变更后同时更新枚举和表格节流。
     connect(m_refreshIntervalSpin, &QDoubleSpinBox::valueChanged, this, [this](double) {
         applyRefreshIntervalInput();
-    });
-    connect(m_tableRefreshIntervalSpin, &QDoubleSpinBox::valueChanged, this, [this](double) {
-        applyTableRefreshIntervalInput();
     });
 
     // 清空记录缓存：重置序号、时间轴和吸附状态。
@@ -5385,35 +5530,13 @@ void ProcessDock::initializeConnections()
         previewProcessActivitySnapshotForIndex(sampleIndex);
     });
 
-    // 后台保持刷新/记录：
-    // - 未勾选时，进程页隐藏后周期刷新和记录都会自动暂停；
-    // - 勾选后允许后台继续刷新，除非“只刷新列表”主动禁止写记录。
-    connect(m_activityBackgroundRecordCheck, &QCheckBox::toggled, this, [this]() {
-        updateProcessActivityStatusLabel();
-        if (m_refreshTimer != nullptr && m_monitoringEnabled)
-        {
-            if (isProcessActivityRefreshAllowedNow())
-            {
-                m_refreshTimer->start(refreshIntervalMillisecondsFromInput());
-            }
-            else
-            {
-                m_refreshTimer->stop();
-            }
-        }
-        if (m_monitoringEnabled && isProcessActivityRefreshAllowedNow())
-        {
-            requestAsyncRefresh(true);
-        }
-    });
-
-    // 只刷新列表：
+    // 不记录历史：
     // - 勾选时不清空历史样本，只暂停后续 append；
     // - 取消后继续沿用同一条记录时间轴，方便对比前后变化。
     connect(m_activityListOnlyRefreshCheck, &QCheckBox::toggled, this, [this](const bool checked) {
         kLogEvent logEvent;
         info << logEvent
-            << "[ProcessDock] 只刷新列表开关变更, listOnly="
+            << "[ProcessDock] 不记录历史开关变更, listOnly="
             << (checked ? "true" : "false")
             << eol;
         updateProcessActivityStatusLabel();
@@ -5521,13 +5644,6 @@ void ProcessDock::initializeConnections()
                 requestAsyncRefresh(true);
             }
             return;
-        }
-        if (m_monitoringEnabled &&
-            m_activityBackgroundRecordCheck != nullptr &&
-            !m_activityBackgroundRecordCheck->isChecked() &&
-            m_refreshTimer != nullptr)
-        {
-            m_refreshTimer->stop();
         }
         if (currentPage == m_threadPage)
         {
@@ -5763,9 +5879,7 @@ void ProcessDock::initializeCreateProcessConnections()
 
 void ProcessDock::initializeTimer()
 {
-    // 周期监视定时器：
-    // - 默认 1 秒执行后台进程刷新和活动打点；
-    // - 下方进程表格是否重绘由独立“列表刷新(s)”输入框节流。
+    // 周期监视定时器：默认每秒执行后台刷新、活动采样和表格重绘。
     m_refreshTimer = new QTimer(this);
     m_refreshTimer->setInterval(refreshIntervalMillisecondsFromInput());
     connect(m_refreshTimer, &QTimer::timeout, this, [this]() {
@@ -5776,7 +5890,7 @@ void ProcessDock::initializeTimer()
 
 int ProcessDock::refreshIntervalMillisecondsFromInput() const
 {
-    // 步进控件自身已把取值限制在合法范围内，控件缺失时回退默认 1s；
+    // 步进控件自身已把取值限制在 0.5~60 秒，控件缺失时回退默认 1 秒；
     // clamp 保留为兜底，确保控件范围与定时器上下限常量始终一致。
     const double safeSeconds = (m_refreshIntervalSpin != nullptr)
         ? m_refreshIntervalSpin->value()
@@ -5818,45 +5932,6 @@ void ProcessDock::applyRefreshIntervalInput()
     kLogEvent logEvent;
     info << logEvent
         << "[ProcessDock] 活动采样/后台监视间隔变更为 "
-        << intervalMs
-        << " ms。"
-        << eol;
-}
-
-int ProcessDock::tableRefreshIntervalMillisecondsFromInput() const
-{
-    // 表格刷新默认 2 秒；该值只影响 UI 重绘，不影响后台采样。
-    const double safeSeconds = (m_tableRefreshIntervalSpin != nullptr)
-        ? m_tableRefreshIntervalSpin->value()
-        : 2.0;
-    const double clampedSeconds = std::clamp(
-        safeSeconds,
-        static_cast<double>(ProcessTableMinimumIntervalMilliseconds) / 1000.0,
-        static_cast<double>(ProcessTableMaximumIntervalMilliseconds) / 1000.0);
-    const int milliseconds = static_cast<int>(std::llround(clampedSeconds * 1000.0));
-    return std::clamp(
-        milliseconds,
-        ProcessTableMinimumIntervalMilliseconds,
-        ProcessTableMaximumIntervalMilliseconds);
-}
-
-void ProcessDock::applyTableRefreshIntervalInput()
-{
-    const int intervalMs = tableRefreshIntervalMillisecondsFromInput();
-    const double normalizedSeconds = static_cast<double>(intervalMs) / 1000.0;
-
-    // 回写规范化后的值，保证界面显示的就是定时器真正采用的间隔。
-    if (m_tableRefreshIntervalSpin != nullptr)
-    {
-        QSignalBlocker blocker(m_tableRefreshIntervalSpin);
-        m_tableRefreshIntervalSpin->setValue(normalizedSeconds);
-    }
-
-    updateProcessActivityStatusLabel();
-
-    kLogEvent logEvent;
-    info << logEvent
-        << "[ProcessDock] 进程表格刷新间隔变更为 "
         << intervalMs
         << " ms。"
         << eol;
@@ -5952,6 +6027,11 @@ void ProcessDock::applyDefaultColumnWidths()
     m_processTable->setColumnWidth(toColumnIndex(TableColumn::Name), 280);
     m_processTable->setColumnWidth(toColumnIndex(TableColumn::Pid), 80);
     m_processTable->setColumnWidth(toColumnIndex(TableColumn::Cpu), 80);
+    m_processTable->setColumnWidth(
+        toColumnIndex(TableColumn::CpuCore),
+        ks::ui::ProcessCpuCapacityCellSizeHint(
+            m_processTable->fontMetrics(),
+            m_logicalCpuCount).width());
     m_processTable->setColumnWidth(toColumnIndex(TableColumn::Ram), 90);
     m_processTable->setColumnWidth(toColumnIndex(TableColumn::Disk), 95);
     m_processTable->setColumnWidth(toColumnIndex(TableColumn::Gpu), 80);
@@ -6134,7 +6214,8 @@ std::vector<int> ProcessDock::defaultVisibleColumnsForViewMode(const ViewMode vi
             TableColumn::Ppl,
             TableColumn::HandleTable,
             TableColumn::SectionObject,
-            TableColumn::R0Status });
+            TableColumn::R0Status,
+            TableColumn::CpuCore });
         break;
     }
 
@@ -6310,14 +6391,11 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
             return;
         }
 
-        // 后台保持刷新/记录约束“是否继续刷新”：
-        // - 默认离开进程列表页就不再继续刷新；
-        // - 勾选后允许后台继续枚举；
-        // - “只刷新列表”只影响是否写记录，不应阻断列表刷新。
+        // “不记录历史”只影响是否写入活动样本，不应阻断后台列表刷新。
         if (!isProcessActivityRefreshAllowedNow())
         {
             kLogEvent logEvent;
-            dbg << logEvent << "[ProcessDock] 跳过非强制刷新：进程页不可见且未启用后台保持刷新/记录。" << eol;
+            dbg << logEvent << "[ProcessDock] 跳过非强制刷新：监视未启用。" << eol;
             updateProcessActivityStatusLabel();
             return;
         }
@@ -6332,15 +6410,13 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
     }
     m_refreshInProgress = true;
 
-    // 复制当前缓存快照给后台线程，避免跨线程读写冲突。
-    const int strategyIndex = m_strategyCombo->currentIndex();
+    // 进程页不再暴露策略选择，但继续固定使用现有 NtQuery 枚举实现。
+    constexpr int strategyIndex = static_cast<int>(ks::process::ProcessEnumStrategy::NtQuerySystemInfo);
     // 静态详情预算按“当前是否真的显示了需要打开进程才能补齐的列”判定，
     // 而不是绑定在某个具体视图上：用户在任意视图手动加上命令行/描述列时同样需要补齐。
     const bool detailModeEnabled = isStaticDetailIntensiveViewActive();
-    const bool queryKernelProcessList =
-        (m_kernelCompareCheck != nullptr && m_kernelCompareCheck->isChecked()) ||
-        (m_showKswordHiddenProcessCheck != nullptr && m_showKswordHiddenProcessCheck->isChecked()) ||
-        !m_hiddenProcessPidSet.empty();
+    // 每轮在驱动控制设备就绪时进行 R0/R3 对比；R3 状态仅保留用户态列表并静默跳过。
+    constexpr bool queryKernelProcessList = true;
     const bool isFirstRefresh = m_cacheByIdentity.empty();
     const int staticDetailFillBudget =
         detailModeEnabled
@@ -6355,6 +6431,44 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
     auto previousCounters = m_counterSampleByIdentity;
     ensureProcessNetworkTrafficCaptureStarted();
     auto networkTrafficSnapshot = snapshotProcessNetworkTrafficCounters();
+    // CPU核心列可见或详情窗口需要数据时，才常驻同一个系统级 CSwitch 会话。
+    // 强制刷新若来自隐藏页面或不需要逐核心数据，也不能偷偷保留高频会话。
+    const bool cpuCoreUsageDemanded =
+        isProcessColumnVisible(TableColumn::CpuCore) ||
+        std::any_of(
+            m_detailWindowByIdentity.cbegin(),
+            m_detailWindowByIdentity.cend(),
+            [](const auto& detailWindowPair)
+            {
+                return detailWindowPair.second != nullptr;
+            });
+    const bool cpuCoreCaptureAllowed =
+        isProcessActivityRefreshAllowedNow() && cpuCoreUsageDemanded;
+    if (cpuCoreCaptureAllowed)
+    {
+        ensureCpuCoreUsageCaptureStarted();
+    }
+    else if (m_cpuCoreUsageCaptureStarted)
+    {
+        stopCpuCoreUsageCapture();
+    }
+    const std::shared_ptr<ks::process::ProcessCpuCoreEtwMonitor> cpuCoreUsageService =
+        cpuCoreCaptureAllowed ? m_cpuCoreUsageService : nullptr;
+    const std::chrono::steady_clock::time_point cpuCoreSnapshotNow =
+        std::chrono::steady_clock::now();
+    const bool cpuCoreSnapshotDue =
+        cpuCoreUsageService != nullptr &&
+        (m_lastCpuCoreUsageSnapshotTime.time_since_epoch().count() == 0 ||
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                cpuCoreSnapshotNow - m_lastCpuCoreUsageSnapshotTime).count() >=
+                CpuCoreSnapshotMinimumIntervalMilliseconds);
+    if (cpuCoreSnapshotDue)
+    {
+        // 投递时就更新时间，刷新任务本身互斥，因此不会并发生成两份逐核心矩阵。
+        m_lastCpuCoreUsageSnapshotTime = cpuCoreSnapshotNow;
+    }
+    const std::shared_ptr<const ks::process::CpuCoreUsageSnapshot> previousCpuCoreUsageSnapshot =
+        m_latestCpuCoreUsageSnapshot;
 
     // ticket 用于丢弃过期结果（防止乱序覆盖）。
     const std::uint64_t localTicket = ++m_refreshTicket;
@@ -6371,8 +6485,7 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
             << ", kernelCompare=" << (queryKernelProcessList ? "true" : "false")
             << ", staticBudget=" << staticDetailFillBudget
             << ", cacheSize=" << previousCache.size()
-            << ", uiTableIntervalMs=" << tableRefreshIntervalMillisecondsFromInput()
-            << ", sampleIntervalMs=" << refreshIntervalMillisecondsFromInput()
+            << ", refreshIntervalMs=" << refreshIntervalMillisecondsFromInput()
             << eol;
     }
 
@@ -6392,7 +6505,20 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
         forceUiRefresh,
         previousCache = std::move(previousCache),
         previousCounters = std::move(previousCounters),
-        networkTrafficSnapshot = std::move(networkTrafficSnapshot)]() mutable {
+        networkTrafficSnapshot = std::move(networkTrafficSnapshot),
+        cpuCoreUsageService,
+        cpuCoreSnapshotDue,
+        previousCpuCoreUsageSnapshot]() mutable {
+        // 先在工作线程构造完整 PID/TID×核心快照，ETW 回调锁竞争不会占用 GUI 事件循环。
+        std::shared_ptr<const ks::process::CpuCoreUsageSnapshot> cpuCoreUsageSnapshot =
+            previousCpuCoreUsageSnapshot;
+        if (cpuCoreUsageService != nullptr && cpuCoreSnapshotDue)
+        {
+            // 即使异步 Start 尚未完成也取得带处理器拓扑的失效态快照，让 UI 画灰槽而非假 0%。
+            cpuCoreUsageSnapshot = std::make_shared<ks::process::CpuCoreUsageSnapshot>(
+                cpuCoreUsageService->SnapshotAndReset());
+        }
+
         ProcessDock::RefreshResult refreshResult = ProcessDock::buildRefreshResult(
             strategyIndex,
             detailModeEnabled,
@@ -6404,6 +6530,7 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
             previousCounters,
             networkTrafficSnapshot,
             cpuCount);
+        refreshResult.cpuCoreUsageSnapshot = std::move(cpuCoreUsageSnapshot);
 
         if (guard == nullptr)
         {
@@ -6469,6 +6596,21 @@ void ProcessDock::applyRefreshResult(RefreshResult refreshResult, const bool for
 
     restorePersistedAffinityForNewProcesses(refreshResult);
 
+    // 逐核心快照与本轮进程缓存来自同一次 ticket；暂停后到达的旧结果不得复活最后一帧。
+    const std::shared_ptr<const ks::process::CpuCoreUsageSnapshot> previousCpuCoreSnapshot =
+        m_latestCpuCoreUsageSnapshot;
+    if (m_monitoringEnabled &&
+        m_cpuCoreUsageCaptureDesired->load(std::memory_order_acquire))
+    {
+        m_latestCpuCoreUsageSnapshot = std::move(refreshResult.cpuCoreUsageSnapshot);
+    }
+    else
+    {
+        m_latestCpuCoreUsageSnapshot.reset();
+    }
+    const bool cpuCoreSnapshotChanged =
+        previousCpuCoreSnapshot != m_latestCpuCoreUsageSnapshot;
+
     // 把最新进程数据同步到已打开的详情窗口（若对应进程仍存在）。
     // 性能策略：
     // 1) 仅同步“可见且未最小化”的详情窗口；
@@ -6510,6 +6652,7 @@ void ProcessDock::applyRefreshResult(RefreshResult refreshResult, const bool for
         if (hasSignificantChange || reachPeriodicSyncTime)
         {
             detailWindow->updateBaseRecord(nextCacheIt->second.record);
+            syncCpuCoreUsageToDetailWindow(detailWindow, nextCacheIt->second.record);
             m_detailWindowLastSyncTimeByIdentity[windowIt->first] = nowTime;
         }
         ++windowIt;
@@ -6528,10 +6671,27 @@ void ProcessDock::applyRefreshResult(RefreshResult refreshResult, const bool for
     {
         rebuildProcessActivityTableSnapshotRecords();
     }
-    if (shouldRebuildProcessTableForRefresh(forceUiRefresh))
+    const bool processTableRebuilt = shouldRebuildProcessTableForRefresh(forceUiRefresh);
+    if (processTableRebuilt)
     {
         rebuildTable();
         m_lastProcessTableRebuildTime = nowTime;
+    }
+    else if (cpuCoreSnapshotChanged &&
+        m_processTable != nullptr &&
+        m_processTable->viewport() != nullptr)
+    {
+        // 逐核心快照独立于整表 2 秒节流：只重绘 CPU 列可见矩形，不触碰其它列或模型行。
+        const int cpuColumn = toColumnIndex(TableColumn::CpuCore);
+        const int cpuColumnLeft = m_processTable->columnViewportPosition(cpuColumn);
+        const int cpuColumnWidth = m_processTable->columnWidth(cpuColumn);
+        const QRect cpuViewportRect(
+            cpuColumnLeft,
+            0,
+            cpuColumnWidth,
+            m_processTable->viewport()->height());
+        m_processTable->viewport()->update(
+            cpuViewportRect.intersected(m_processTable->viewport()->rect()));
     }
     if (m_sideTabWidget != nullptr && m_sideTabWidget->currentWidget() == m_threadPage)
     {
@@ -6709,8 +6869,8 @@ bool ProcessDock::shouldRebuildProcessTableForRefresh(const bool forceUiRefresh)
         return true;
     }
 
-    // 非强制后台监视按独立 UI 间隔节流，避免高频采样时重建整张进程表。
-    const int intervalMs = tableRefreshIntervalMillisecondsFromInput();
+    // 后台监视按统一刷新间隔节流表格重绘。
+    const int intervalMs = refreshIntervalMillisecondsFromInput();
     const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - m_lastProcessTableRebuildTime).count();
     return elapsedMs >= intervalMs;
@@ -7539,12 +7699,33 @@ void ProcessDock::rebuildTable()
         tableRow.identityKey = displayRow.rowKind == ProcessTableRowKind::Process
             ? ks::process::BuildProcessIdentityKey(processRecord.pid, processRecord.creationTime100ns)
             : std::string();
+        if (displayRow.rowKind == ProcessTableRowKind::Process && !displayRow.isExited)
+        {
+            tableRow.cpuCoreProcessIds.push_back(processRecord.pid);
+        }
+        else if (displayRow.rowKind == ProcessTableRowKind::ApplicationAggregate)
+        {
+            // 应用父行复用现有成员 identity 列表，解析为本轮真实 PID 后交给逐核心绘制器求和。
+            tableRow.cpuCoreProcessIds.reserve(
+                static_cast<qsizetype>(displayRow.actionIdentityKeys.size()));
+            for (const std::string& memberIdentityKey : displayRow.actionIdentityKeys)
+            {
+                const auto memberIt = m_cacheByIdentity.find(memberIdentityKey);
+                if (memberIt == m_cacheByIdentity.end() ||
+                    memberIt->second.isExitedInLatestRound)
+                {
+                    continue;
+                }
+                tableRow.cpuCoreProcessIds.push_back(memberIt->second.record.pid);
+            }
+        }
         tableRow.depth = displayRow.depth;
         tableRow.hasChildren = displayRow.hasChildren;
         tableRow.isNew = displayRow.isNew;
         tableRow.isExited = displayRow.isExited;
         tableRow.isKernelOnly = displayRow.isKernelOnly;
         tableRow.activitySnapshotActive = activitySnapshotActive;
+        // 逐核心 ETW 快照由 ProcessDock 全部实时行共享，不进入每行对象，避免行数级 shared_ptr 增减。
         tableRow.cpuUsageRatio = std::clamp(processRecord.cpuPercent / 100.0, 0.0, 1.0);
         tableRow.ramUsageRatio = (maxRamMB > 0.0)
             ? std::clamp(processRecord.workingSetMB / maxRamMB, 0.0, 1.0)
@@ -8005,7 +8186,7 @@ namespace
                 value += processPoint.cpuPercent;
                 break;
             case ProcessDock::ProcessActivityMetric::Memory:
-                value += processPoint.memoryMB;
+                value += processPoint.workingSetMB;
                 break;
             case ProcessDock::ProcessActivityMetric::Disk:
                 value += processPoint.diskMBps;
@@ -8024,38 +8205,20 @@ namespace
     }
 }
 
-bool ProcessDock::isProcessListPageVisibleForRecording() const
-{
-    // 默认只有进程列表页处于当前页时才刷新/记录；
-    // 用户勾选“后台保持刷新/记录”后才允许切到其它子页继续刷新/记录。
-    return m_sideTabWidget != nullptr &&
-        m_processListPage != nullptr &&
-        m_sideTabWidget->currentWidget() == m_processListPage &&
-        m_processListPage->isVisible();
-}
-
 bool ProcessDock::isProcessActivityRefreshAllowedNow() const
 {
-    // 刷新允许逻辑只关心“是否应该继续枚举列表”：
-    // - 暂停按钮关闭后不再刷新；
-    // - 当前在进程列表页时允许刷新；
-    // - 后台保持开关允许离开进程列表页后继续刷新。
+    // 监视启动后，无论当前进程子页为何都保持刷新和记录。
     if (!m_monitoringEnabled)
     {
         return false;
     }
 
-    if (m_activityBackgroundRecordCheck != nullptr && m_activityBackgroundRecordCheck->isChecked())
-    {
-        return true;
-    }
-
-    return isProcessListPageVisibleForRecording();
+    return true;
 }
 
 bool ProcessDock::isProcessActivityRecordingAllowedNow() const
 {
-    // 记录允许逻辑在刷新允许之上额外叠加“只刷新列表”：
+    // 记录允许逻辑在刷新允许之上额外叠加“不记录历史”：
     // - 这样可以继续更新下方列表；
     // - 同时不污染上方时间轴样本。
     if (!isProcessActivityRefreshAllowedNow())
@@ -8069,6 +8232,58 @@ bool ProcessDock::isProcessActivityRecordingAllowedNow() const
     }
 
     return true;
+}
+
+template <typename Destination, typename Source>
+void ProcessDock::copyProcessActivityDynamicFields(Destination& destination, const Source& source)
+{
+    // 两种快照类型共享同名动态字段；集中在一处复制可避免采样与回放字段列表漂移。
+    destination.cpuPercent = source.cpuPercent;
+    destination.cpuCorePercent = source.cpuCorePercent;
+    destination.ramMB = source.ramMB;
+    destination.workingSetMB = source.workingSetMB;
+    destination.diskMBps = source.diskMBps;
+    destination.netKBps = source.netKBps;
+    destination.netRxKBps = source.netRxKBps;
+    destination.netTxKBps = source.netTxKBps;
+    destination.gpuPercent = source.gpuPercent;
+    destination.threadCount = source.threadCount;
+    destination.handleCount = source.handleCount;
+    destination.suspendedThreadCount = source.suspendedThreadCount;
+    destination.basePriority = source.basePriority;
+    destination.processStateKnown = source.processStateKnown;
+    destination.processSuspended = source.processSuspended;
+    destination.efficiencyModeSupported = source.efficiencyModeSupported;
+    destination.efficiencyModeEnabled = source.efficiencyModeEnabled;
+    destination.rawCpuTime100ns = source.rawCpuTime100ns;
+    destination.cycleTime = source.cycleTime;
+    destination.rawWorkingSetBytes = source.rawWorkingSetBytes;
+    destination.peakWorkingSetBytes = source.peakWorkingSetBytes;
+    destination.privateWorkingSetBytes = source.privateWorkingSetBytes;
+    destination.sharedWorkingSetBytes = source.sharedWorkingSetBytes;
+    destination.commitSizeBytes = source.commitSizeBytes;
+    destination.pagedPoolBytes = source.pagedPoolBytes;
+    destination.nonPagedPoolBytes = source.nonPagedPoolBytes;
+    destination.pageFaultCount = source.pageFaultCount;
+    destination.workingSetDeltaBytes = source.workingSetDeltaBytes;
+    destination.pageFaultDeltaCount = source.pageFaultDeltaCount;
+    destination.cycleTimeKnown = source.cycleTimeKnown;
+    destination.memoryDetailKnown = source.memoryDetailKnown;
+    destination.privateWorkingSetKnown = source.privateWorkingSetKnown;
+    destination.ioReadOperationCount = source.ioReadOperationCount;
+    destination.ioWriteOperationCount = source.ioWriteOperationCount;
+    destination.ioOtherOperationCount = source.ioOtherOperationCount;
+    destination.ioReadTransferBytes = source.ioReadTransferBytes;
+    destination.ioWriteTransferBytes = source.ioWriteTransferBytes;
+    destination.ioOtherTransferBytes = source.ioOtherTransferBytes;
+    destination.gdiObjectCount = source.gdiObjectCount;
+    destination.userObjectCount = source.userObjectCount;
+    destination.ioDetailKnown = source.ioDetailKnown;
+    destination.guiResourceKnown = source.guiResourceKnown;
+    destination.gpuDedicatedMemoryBytes = source.gpuDedicatedMemoryBytes;
+    destination.gpuSharedMemoryBytes = source.gpuSharedMemoryBytes;
+    destination.gpuEngineText = source.gpuEngineText;
+    destination.gpuMemoryKnown = source.gpuMemoryKnown;
 }
 
 void ProcessDock::appendProcessActivitySample()
@@ -8110,13 +8325,7 @@ void ProcessDock::appendProcessActivitySample()
         processPoint.iconCacheKey = processRecord.processName + "|" + processRecord.imagePath;
         processPoint.creationTime100ns = processRecord.creationTime100ns;
         processPoint.pid = processRecord.pid;
-        processPoint.cpuPercent = processRecord.cpuPercent;
-        processPoint.memoryMB = processRecord.workingSetMB;
-        processPoint.diskMBps = processRecord.diskMBps;
-        processPoint.netKBps = processRecord.netKBps;
-        processPoint.netRxKBps = processRecord.netRxKBps;
-        processPoint.netTxKBps = processRecord.netTxKBps;
-        processPoint.gpuPercent = processRecord.gpuPercent;
+        copyProcessActivityDynamicFields(processPoint, processRecord);
 
         const bool isSystemIdleProcess =
             (processRecord.pid == 0) ||
@@ -8199,7 +8408,8 @@ void ProcessDock::synchronizeDetailWindowPerformanceHistory(
         ProcessDetailWindow::PerformanceHistorySample detailSample;
         detailSample.unixMilliseconds = activitySample.unixMilliseconds;
         detailSample.cpuPercent = processPointIt->cpuPercent;
-        detailSample.memoryMB = processPointIt->memoryMB;
+        detailSample.cpuCorePercent = processPointIt->cpuCorePercent;
+        detailSample.memoryMB = processPointIt->workingSetMB;
         detailSample.diskMBps = processPointIt->diskMBps;
         detailSample.networkRxKBps = processPointIt->netRxKBps;
         detailSample.networkTxKBps = processPointIt->netTxKBps;
@@ -8233,7 +8443,8 @@ void ProcessDock::appendProcessActivitySampleToDetailWindows(const ProcessActivi
         ProcessDetailWindow::PerformanceHistorySample detailSample;
         detailSample.unixMilliseconds = sample.unixMilliseconds;
         detailSample.cpuPercent = processPointIt->cpuPercent;
-        detailSample.memoryMB = processPointIt->memoryMB;
+        detailSample.cpuCorePercent = processPointIt->cpuCorePercent;
+        detailSample.memoryMB = processPointIt->workingSetMB;
         detailSample.diskMBps = processPointIt->diskMBps;
         detailSample.networkRxKBps = processPointIt->netRxKBps;
         detailSample.networkTxKBps = processPointIt->netTxKBps;
@@ -8426,8 +8637,6 @@ void ProcessDock::rebuildProcessActivityTableSnapshotRecords()
         ks::process::ProcessRecord record{};
         record.pid = processPoint.pid;
         record.parentPid = 0;
-        record.threadCount = 0;
-        record.handleCount = 0;
         record.creationTime100ns = processPoint.creationTime100ns;
         if (record.creationTime100ns == 0)
         {
@@ -8441,14 +8650,10 @@ void ProcessDock::rebuildProcessActivityTableSnapshotRecords()
         record.startTimeText = QDateTime::fromMSecsSinceEpoch(sample.unixMilliseconds)
             .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
             .toStdString();
-        record.cpuPercent = processPoint.cpuPercent;
-        record.ramMB = processPoint.memoryMB;
-        record.workingSetMB = processPoint.memoryMB;
-        record.diskMBps = processPoint.diskMBps;
-        record.netKBps = processPoint.netKBps;
-        record.netRxKBps = processPoint.netRxKBps;
-        record.netTxKBps = processPoint.netTxKBps;
-        record.gpuPercent = processPoint.gpuPercent;
+        copyProcessActivityDynamicFields(record, processPoint);
+        record.activePrivateWorkingSetBytes = processPoint.processSuspended
+            ? 0U
+            : processPoint.privateWorkingSetBytes;
         record.staticDetailsReady = true;
         record.dynamicCountersReady = true;
         m_activityTableSnapshotRecords.push_back(std::move(record));
@@ -8680,6 +8885,45 @@ QVariant ProcessDock::processTableData(const ProcessTableRow& tableRow, const in
             return tableRow.hasChildren;
         }
     }
+    if (tableColumn == TableColumn::CpuCore && role == Qt::SizeHintRole)
+    {
+        // CPU 列的首选宽度同时容纳现有百分比和全部逻辑处理器容量槽。
+        // 返回 SizeHintRole 后，全局列宽自适应器不会把方框压成不可辨认的一排省略号。
+        const QFontMetrics tableFontMetrics = m_processTable != nullptr
+            ? m_processTable->fontMetrics()
+            : QFontMetrics(QApplication::font());
+        return ks::ui::ProcessCpuCapacityCellSizeHint(
+            tableFontMetrics,
+            m_logicalCpuCount);
+    }
+    if (tableColumn == TableColumn::CpuCore &&
+        (tableRow.rowKind == ProcessTableRowKind::Process ||
+            tableRow.rowKind == ProcessTableRowKind::ApplicationAggregate) &&
+        !tableRow.activitySnapshotActive)
+    {
+        if (role == ks::ui::ProcessCpuUsageSnapshotRole &&
+            m_latestCpuCoreUsageSnapshot != nullptr &&
+            !tableRow.isExited &&
+            !tableRow.cpuCoreProcessIds.isEmpty())
+        {
+            // QVariant 只复制 shared_ptr 控制块；应用父行和真实进程行共享同一轮 ETW 快照。
+            return QVariant::fromValue(m_latestCpuCoreUsageSnapshot);
+        }
+        if (role == ks::ui::ProcessCpuProcessIdsRole)
+        {
+            return QVariant::fromValue(tableRow.cpuCoreProcessIds);
+        }
+        if (role == Qt::ToolTipRole)
+        {
+            return processContextText(
+                "process.table.cell.cpu_core_summary_tooltip",
+                QStringLiteral(
+                    "CPU：%1%\n单核等效：%2%\n"
+                    "每个扇形对应一个真实逻辑 CPU；悬停扇形查看处理器组、编号和本轮占用。"))
+                .arg(processRecord.cpuPercent, 0, 'f', 2)
+                .arg(processRecord.cpuCorePercent, 0, 'f', 2);
+        }
+    }
     if (tableRow.rowKind == ProcessTableRowKind::GroupHeader)
     {
         // GroupHeader is a synthetic non-process row:
@@ -8808,6 +9052,8 @@ QVariant ProcessDock::processTableData(const ProcessTableRow& tableRow, const in
             return static_cast<double>(processRecord.pid);
         case TableColumn::Cpu:
             return processRecord.cpuPercent;
+        case TableColumn::CpuCore:
+            return processRecord.cpuCorePercent;
         case TableColumn::Ram:
             return processRecord.workingSetMB;
         case TableColumn::Disk:
@@ -9241,15 +9487,6 @@ std::vector<ProcessDock::DisplayRow> ProcessDock::buildListDisplayOrder() const
 
     for (const auto& cachePair : m_cacheByIdentity)
     {
-        const bool isKswordHidden =
-            ((cachePair.second.record.r0Flags & KSWORD_ARK_PROCESS_FLAG_HIDDEN_BY_KSWORD_UI) != 0U) ||
-            (m_hiddenProcessPidSet.find(cachePair.second.record.pid) != m_hiddenProcessPidSet.end());
-        const bool showKswordHidden =
-            (m_showKswordHiddenProcessCheck != nullptr && m_showKswordHiddenProcessCheck->isChecked());
-        if (isKswordHidden && !showKswordHidden)
-        {
-            continue;
-        }
         if (!processRecordMatchesSearch(cachePair.second.record))
         {
             continue;
@@ -9286,15 +9523,6 @@ std::vector<ProcessDock::DisplayRow> ProcessDock::buildTreeDisplayOrder() const
     nodes.reserve(m_cacheByIdentity.size());
     for (const auto& cachePair : m_cacheByIdentity)
     {
-        const bool isKswordHidden =
-            ((cachePair.second.record.r0Flags & KSWORD_ARK_PROCESS_FLAG_HIDDEN_BY_KSWORD_UI) != 0U) ||
-            (m_hiddenProcessPidSet.find(cachePair.second.record.pid) != m_hiddenProcessPidSet.end());
-        const bool showKswordHidden =
-            (m_showKswordHiddenProcessCheck != nullptr && m_showKswordHiddenProcessCheck->isChecked());
-        if (isKswordHidden && !showKswordHidden)
-        {
-            continue;
-        }
         nodes.push_back(Node{ &cachePair.first, &cachePair.second });
     }
 
@@ -9507,16 +9735,6 @@ std::vector<ProcessDock::DisplayRow> ProcessDock::buildFriendlyDisplayOrder() co
     for (const auto& cachePair : m_cacheByIdentity)
     {
         const ks::process::ProcessRecord& processRecord = cachePair.second.record;
-        const bool isKswordHidden =
-            ((processRecord.r0Flags & KSWORD_ARK_PROCESS_FLAG_HIDDEN_BY_KSWORD_UI) != 0U) ||
-            (m_hiddenProcessPidSet.find(processRecord.pid) != m_hiddenProcessPidSet.end());
-        const bool showKswordHidden =
-            (m_showKswordHiddenProcessCheck != nullptr && m_showKswordHiddenProcessCheck->isChecked());
-        if (isKswordHidden && !showKswordHidden)
-        {
-            continue;
-        }
-
         parentPidByPid[processRecord.pid] = processRecord.parentPid;
         nodes.push_back(FriendlyNode{ &cachePair.first, &cachePair.second, 0U });
     }
@@ -9618,6 +9836,11 @@ std::vector<ProcessDock::DisplayRow> ProcessDock::buildFriendlyDisplayOrder() co
                 break;
             case TableColumn::Cpu:
                 primaryResult = compareDouble(leftRecord.cpuPercent, rightRecord.cpuPercent);
+                break;
+            case TableColumn::CpuCore:
+                primaryResult = compareDouble(
+                    leftRecord.cpuCorePercent,
+                    rightRecord.cpuCorePercent);
                 break;
             case TableColumn::Ram:
                 primaryResult = compareDouble(leftRecord.workingSetMB, rightRecord.workingSetMB);
@@ -12314,6 +12537,9 @@ QString ProcessDock::formatColumnText(const ks::process::ProcessRecord& processR
         // 类型依赖“应用 / 后台进程 / Windows 进程”的行分组结果，
         // 该信息保存在 ProcessTableRow 而不是 ProcessRecord，由 processTableData 直接产出。
         return QString();
+    case TableColumn::CpuCore:
+        // CPU核心列只由 delegate 自绘真实逐核心扇形，不额外显示文本。
+        return QString();
     default:
         return QString();
     }
@@ -12872,6 +13098,7 @@ ks::process::ProcessRecord ProcessDock::aggregateFriendlyApplicationRecord(
     aggregateRecord.threadCount = 0U;
     aggregateRecord.handleCount = 0U;
     aggregateRecord.cpuPercent = 0.0;
+    aggregateRecord.cpuCorePercent = 0.0;
     aggregateRecord.ramMB = 0.0;
     aggregateRecord.workingSetMB = 0.0;
     aggregateRecord.diskMBps = 0.0;
@@ -12933,6 +13160,7 @@ ks::process::ProcessRecord ProcessDock::aggregateFriendlyApplicationRecord(
         aggregateRecord.threadCount += memberRecord.threadCount;
         aggregateRecord.handleCount += memberRecord.handleCount;
         aggregateRecord.cpuPercent += memberRecord.cpuPercent;
+        aggregateRecord.cpuCorePercent += memberRecord.cpuCorePercent;
         aggregateRecord.ramMB += memberRecord.ramMB;
         aggregateRecord.workingSetMB += memberRecord.workingSetMB;
         aggregateRecord.diskMBps += memberRecord.diskMBps;
@@ -13533,18 +13761,16 @@ void ProcessDock::executeCreateProcessRequest()
 
 bool ProcessDock::isTreeModeEnabled() const
 {
-    // 未勾选友好视图通常表示树状视图；点表头后内部可临时切为普通扁平枚举。
-    return m_friendlyViewCheck != nullptr &&
-        !m_friendlyViewCheck->isChecked() &&
+    // 勾选树状视图时按父子关系显示；点表头后内部可临时切为普通扁平枚举。
+    return m_treeViewCheck != nullptr &&
+        m_treeViewCheck->isChecked() &&
         !m_flatListForcedByHeaderSort;
 }
 
 bool ProcessDock::isFriendlyViewEnabled() const
 {
-    // Inputs: current checkbox pointer/state.
-    // Processing: guard nullptr during construction and return the user-facing switch state.
-    // Return: true when friendly grouping should override the legacy tree/list order.
-    return m_friendlyViewCheck != nullptr && m_friendlyViewCheck->isChecked();
+    // 树状视图未勾选时，按应用/后台/系统分类显示。
+    return m_treeViewCheck != nullptr && !m_treeViewCheck->isChecked();
 }
 
 ProcessDock::ViewMode ProcessDock::currentViewMode() const
@@ -13809,16 +14035,6 @@ void ProcessDock::executeR0SetProcessHiddenAction(
         << ", failure=" << failureCount
         << eol;
     showActionResultMessage(titleText, failureCount == 0U, summaryText.toStdString(), logEvent);
-    if (hidden && successCount > 0U && m_kernelCompareCheck != nullptr && !m_kernelCompareCheck->isChecked())
-    {
-        m_kernelCompareCheck->setChecked(true);
-    }
-    if (hidden && successCount > 0U &&
-        m_showKswordHiddenProcessCheck != nullptr &&
-        !m_showKswordHiddenProcessCheck->isChecked())
-    {
-        m_showKswordHiddenProcessCheck->setChecked(true);
-    }
     requestAsyncRefresh(true);
 }
 

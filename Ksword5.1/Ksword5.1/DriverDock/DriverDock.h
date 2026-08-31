@@ -187,9 +187,13 @@ private:
     // - 作用：构建驱动页顶层布局与三个子页签。
     void initializeUi();
 
-    // initializeOverviewTab：
-    // - 作用：构建“驱动概览”页（服务列表 + 已加载模块）。
-    void initializeOverviewTab();
+    // initializeServiceTab：
+    // - 作用：构建“驱动服务”页（SCM 服务列表与服务筛选）。
+    void initializeServiceTab();
+
+    // initializeKernelModuleTab：
+    // - 作用：构建“内核模块”页（已加载模块与统一详情编辑器）。
+    void initializeKernelModuleTab();
 
     // initializeOperateTab：
     // - 作用：构建“驱动操作”页（注册/挂载/卸载/删除）。
@@ -594,24 +598,31 @@ private:
     QPointer<QWidget> m_kswordSelfDriverFallbackOwner; // 析构时接回自身驱动容器的所有者。
     int m_kswordSelfDriverTabIndex = -1; // 自身驱动页在 DriverDock 中的索引。
 
-    // ========================= 页签1：驱动概览 =========================
-    QWidget* m_overviewPage = nullptr;            // 概览页容器。
-    QVBoxLayout* m_overviewLayout = nullptr;      // 概览页主布局。
-    QHBoxLayout* m_overviewToolLayout = nullptr;  // 概览页工具栏布局。
-    QLineEdit* m_serviceFilterEdit = nullptr;     // 服务列表过滤输入框。
-    QPushButton* m_refreshServiceButton = nullptr;// 刷新服务按钮。
-    QPushButton* m_refreshModuleButton = nullptr; // 刷新模块按钮。
+    // ========================= 页签1：驱动服务 =========================
+    QWidget* m_servicePage = nullptr;                // 驱动服务页容器。
+    QVBoxLayout* m_serviceLayout = nullptr;          // 驱动服务页主布局。
+    QWidget* m_overviewPage = nullptr;               // 兼容旧布局状态的服务页别名容器。
+    QVBoxLayout* m_overviewLayout = nullptr;         // 服务页主布局兼容指针。
+    QHBoxLayout* m_overviewToolLayout = nullptr;     // 服务页工具栏布局。
+    QLineEdit* m_serviceFilterEdit = nullptr;        // 服务列表过滤输入框。
+    QPushButton* m_refreshServiceButton = nullptr;   // 刷新服务按钮。
+    QLabel* m_overviewStatusLabel = nullptr;         // 服务页状态标签。
+    QTableWidget* m_serviceTable = nullptr;          // 驱动服务表格。
+
+    // ========================= 页签2：内核模块 =========================
+    QWidget* m_kernelModulePage = nullptr;           // 内核模块页容器。
+    QVBoxLayout* m_kernelModuleLayout = nullptr;     // 内核模块页主布局。
+    QHBoxLayout* m_kernelModuleToolLayout = nullptr; // 内核模块工具栏布局。
+    QPushButton* m_refreshModuleButton = nullptr;    // 刷新模块按钮。
     QPushButton* m_refreshModuleEvidenceButton = nullptr; // 刷新模块证据按钮。
-    QLabel* m_overviewStatusLabel = nullptr;      // 概览页状态标签。
-    QSplitter* m_overviewSplitter = nullptr;      // 服务/模块分割器。
-    QTableWidget* m_serviceTable = nullptr;       // 驱动服务表格。
-    QTableWidget* m_moduleTable = nullptr;        // 已加载模块表格。
+    QLineEdit* m_moduleFilterEdit = nullptr;         // 内核模块列表过滤输入框。
+    QTableWidget* m_moduleTable = nullptr;            // 已加载模块表格。
     CodeEditorWidget* m_moduleEvidenceDetailEditor = nullptr; // 模块证据详情编辑器。
-    QLabel* m_moduleEvidenceStatusLabel = nullptr; // 模块证据聚合状态标签。
-    bool m_moduleEvidenceQuerying = false;         // 模块证据后台查询中标记。
-    std::uint64_t m_moduleEvidenceQueryTicket = 0; // 模块证据查询序号。
-    bool m_moduleDumpRunning = false;              // 模块 R0 Dump 后台任务运行标记。
-    bool m_scCleanupRunning = false;                // SCM 卸载并清理文件/服务注册后台任务标记。
+    QLabel* m_moduleEvidenceStatusLabel = nullptr;   // 模块证据聚合状态标签。
+    bool m_moduleEvidenceQuerying = false;           // 模块证据后台查询中标记。
+    std::uint64_t m_moduleEvidenceQueryTicket = 0;   // 模块证据查询序号。
+    bool m_moduleDumpRunning = false;                // 模块 R0 Dump 后台任务运行标记。
+    bool m_scCleanupRunning = false;                 // SCM 卸载并清理文件/服务注册后台任务标记。
 
     // ========================= 页签2：驱动操作 =========================
     QWidget* m_operatePage = nullptr;                 // 操作页容器。

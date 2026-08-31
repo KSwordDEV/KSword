@@ -7,18 +7,30 @@
 
 EXTERN_C_START
 
-// Fail-closed opt-in build gate for the complete driver-side blue screen
-// diagnostic path. Release builds leave it disabled unless an explicit build
-// definition enables a controlled test image. This does not affect the rest of
-// the driver, Windows' native blue screen, dump creation, or user-mode dump UI.
+// Build gate for the complete driver-side blue screen diagnostic path. The
+// default development image enables it; this does not affect the rest of the
+// driver, Windows' native blue screen, dump creation, or user-mode dump UI.
 #ifndef KSWORD_ARK_BUGCHECK_DIAGNOSTICS_ENABLED
-#define KSWORD_ARK_BUGCHECK_DIAGNOSTICS_ENABLED 0
+#define KSWORD_ARK_BUGCHECK_DIAGNOSTICS_ENABLED 1
 #endif
 
 #if KSWORD_ARK_BUGCHECK_DIAGNOSTICS_ENABLED != 0 && \
     KSWORD_ARK_BUGCHECK_DIAGNOSTICS_ENABLED != 1
 #error KSWORD_ARK_BUGCHECK_DIAGNOSTICS_ENABLED must be 0 or 1
 #endif
+
+// 轻量控制器只保存驱动对象并初始化同步原语，不解析 ntoskrnl 或注册蓝屏回调。
+// DriverEntry 调用 Initialize，驱动卸载前调用 Uninitialize；实际诊断由配置 IOCTL 按需安装。
+NTSTATUS
+KswordARKBugcheckControlInitialize(
+    _In_ PDRIVER_OBJECT DriverObject,
+    _In_ WDFDEVICE ControlDevice
+    );
+
+VOID
+KswordARKBugcheckControlUninitialize(
+    VOID
+    );
 
 // Resolve the physical-machine BGP backend, prepare every crash-time rectangle
 // at PASSIVE_LEVEL, and register dump-preserving bugcheck callbacks. Missing
@@ -50,6 +62,15 @@ KswordARKBugcheckTrackLoadedImage(
     _In_opt_ PUNICODE_STRING FullImageName,
     _In_ HANDLE ProcessId,
     _In_ PIMAGE_INFO ImageInfo
+    );
+
+NTSTATUS
+KswordARKBugcheckIoctlConfigureDiagnostics(
+    _In_ WDFDEVICE Device,
+    _In_ WDFREQUEST Request,
+    _In_ size_t InputBufferLength,
+    _In_ size_t OutputBufferLength,
+    _Out_ size_t* BytesReturned
     );
 
 // Optional bitmap upload adapter registered through ioctl_registry.c.
@@ -94,5 +115,31 @@ KswordARKBugcheckGuardIoctlConfigure(
     _In_ size_t OutputBufferLength,
     _Out_ size_t* BytesReturned
     );
+
+// Bugcheck Shield is a PatchGuard-safe buffer backend. Unlike the guard, it
+// never patches KeBugCheckEx and never writes any private ntoskrnl state; it
+// only registers up to four documented BugCheck reason callbacks and stalls
+// each callback for a configurable, bounded window. Enabling and disabling
+// stay fully R3-controlled, and DriverEntry only prepares the synchronization
+// primitives — nothing observable happens until an IOCTL explicitly enables it.
+VOID
+KswordARKBugcheckShieldInitialize(
+    VOID
+    );
+
+VOID
+KswordARKBugcheckShieldUninitialize(
+    VOID
+    );
+
+NTSTATUS
+KswordARKBugcheckShieldIoctlConfigure(
+    _In_ WDFDEVICE Device,
+    _In_ WDFREQUEST Request,
+    _In_ size_t InputBufferLength,
+    _In_ size_t OutputBufferLength,
+    _Out_ size_t* BytesReturned
+    );
+
 EXTERN_C_END
 

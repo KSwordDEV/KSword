@@ -79,6 +79,7 @@ public:
     {
         std::int64_t unixMilliseconds = 0; // 采样时刻，供横轴格式化。
         double cpuPercent = 0.0;           // CPU 占用百分比。
+        double cpuCorePercent = 0.0;       // CPU 单核等效百分比，可超过 100%。
         double memoryMB = 0.0;             // 工作集内存 MB。
         double diskMBps = 0.0;             // 磁盘吞吐 MB/s。
         double networkRxKBps = 0.0;        // 网络下行 KB/s。
@@ -91,6 +92,42 @@ public:
 
     // appendPerformanceHistorySample：追加进程列表刚生成的一条活动快照，避免每轮刷新重建整个历史序列。
     void appendPerformanceHistorySample(const PerformanceHistorySample& sample);
+
+    // CpuCoreValue：一个逻辑处理器在本采样区间内的占用。
+    struct CpuCoreValue
+    {
+        std::uint32_t processorIndex = 0;
+        std::uint16_t group = 0;
+        std::uint16_t number = 0;
+        double percent = 0.0;
+        bool sampleReady = false;
+    };
+
+    // ThreadCpuCoreValue：单线程汇总占用与逐逻辑处理器占用。
+    struct ThreadCpuCoreValue
+    {
+        std::uint32_t threadId = 0;
+        double cpuPercent = 0.0;
+        std::vector<CpuCoreValue> cores;
+    };
+
+    // CpuCoreViewSample：ProcessDock 从 CSwitch ETW 区间快照筛出的当前进程数据。
+    struct CpuCoreViewSample
+    {
+        bool monitorRunning = false;
+        bool sampleReady = false;
+        bool dataLossDetected = false;
+        std::uint64_t eventsLost = 0;
+        std::uint64_t contextSwitchEvents = 0;
+        QString diagnosticText;
+        double processSystemPercent = 0.0;
+        double processCoreEquivalentPercent = 0.0;
+        std::vector<CpuCoreValue> processCores;
+        std::vector<ThreadCpuCoreValue> threads;
+    };
+
+    // setCpuCoreViewSample：更新“CPU 核心”页；页面尚未懒加载时只缓存数据。
+    void setCpuCoreViewSample(CpuCoreViewSample sample);
 
     // showHotkeyTabAndRefresh 作用：
     // - 将详情窗口切换到“进程热键”页；
@@ -319,6 +356,7 @@ private:
     void initializeDetailTab();
     // initializePerformanceTab 作用：创建性能历史页，图表横向绘制并在滚动内容区纵向排列。
     void initializePerformanceTab();
+    void initializeCpuCoreTab();
     void initializeThreadTab();
     void initializeActionTab();
     void initializeModuleTab();
@@ -386,6 +424,7 @@ private:
     // ======== 详情页刷新 ========
     void refreshDetailTabTexts();
     void refreshPerformanceHistoryCharts();
+    void refreshCpuCoreView();
     // requestAsyncStaticDetailRefresh 作用：
     // - 在后台补齐路径、命令行、用户、签名等慢字段；
     // - 避免在窗口构造或周期同步时阻塞 UI 线程。
@@ -677,6 +716,7 @@ private:
     QSet<QObject*> m_connectedSignalSources;    // 已连接的 sender，支持页面按需构造后补接信号。
     QWidget* m_detailTab = nullptr;            // “详细信息”页。
     QWidget* m_performanceTab = nullptr;       // “性能”页。
+    QWidget* m_cpuCoreTab = nullptr;           // “CPU 核心”页。
     QWidget* m_threadTab = nullptr;            // “线程”页。
     QWidget* m_actionTab = nullptr;            // “操作”页。
     QWidget* m_moduleTab = nullptr;            // “模块”页。
@@ -728,6 +768,7 @@ private:
     QLabel* m_detailThreadCountValue = nullptr; // 线程数值。
     QLabel* m_detailHandleCountValue = nullptr; // 句柄数值。
     QLabel* m_detailCpuValue = nullptr;        // CPU 当前占用值。
+    QLabel* m_detailCpuCoreValue = nullptr;    // CPU 单核等效占用值。
     QLabel* m_detailRamValue = nullptr;        // RAM 当前占用值。
     QLabel* m_detailDiskValue = nullptr;       // DISK 当前占用值。
     QLabel* m_detailSignatureValue = nullptr;  // 数字签名状态值。
@@ -739,11 +780,22 @@ private:
     // ======== 性能页控件与历史 ========
     QLabel* m_performanceHistoryStatusLabel = nullptr; // 性能页历史范围与样本数状态。
     QWidget* m_performanceCpuChart = nullptr;          // CPU 图表。
+    QWidget* m_performanceCpuCoreChart = nullptr;      // CPU 单核等效图表。
     QWidget* m_performanceMemoryChart = nullptr;       // 内存图表。
     QWidget* m_performanceDiskChart = nullptr;         // 磁盘图表。
     QWidget* m_performanceNetworkChart = nullptr;      // 网络收发图表。
     QWidget* m_performanceGpuChart = nullptr;          // GPU 图表。
     std::deque<PerformanceHistorySample> m_performanceHistory; // 当前详情窗口的定长历史序列。
+
+    // ======== CPU 核心页控件与区间快照 ========
+    QLabel* m_cpuCoreTitleLabel = nullptr;             // 页面标题，主题切换时刷新前景色。
+    QLabel* m_cpuCoreDescriptionLabel = nullptr;       // 页面说明，主题切换时刷新次级文本色。
+    QLabel* m_cpuCoreStatusLabel = nullptr;            // ETW 运行/采样/丢事件状态。
+    QLabel* m_cpuCoreSystemValueLabel = nullptr;       // 进程全系统归一化占用汇总。
+    QLabel* m_cpuCoreEquivalentValueLabel = nullptr;   // 进程单核等效占用汇总。
+    QWidget* m_processCpuCoreGrid = nullptr;            // 当前进程逐逻辑处理器折线矩阵。
+    QWidget* m_threadCpuCoreGrid = nullptr;             // 按总占用排序、可点击展开的线程折线矩阵。
+    CpuCoreViewSample m_cpuCoreViewSample;              // 页面未构造时也保留最新快照。
 
     // ======== 线程页控件 ========
     QVBoxLayout* m_threadLayout = nullptr;     // 线程页总布局。

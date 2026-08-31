@@ -317,7 +317,8 @@ namespace ks::process
         std::uint64_t rawIoBytes = 0;           // Read/Write/Other 传输累计字节。
 
         // ======== UI 直接显示的衍生性能数据 ========
-        double cpuPercent = 0.0;           // CPU 百分比（0~100 * 逻辑核折算）。
+        double cpuPercent = 0.0;           // CPU 百分比（相对全部逻辑处理器归一化，0~100）。
+        double cpuCorePercent = 0.0;       // CPU 单核等效百分比（100%=一个逻辑处理器，可超过 100）。
         double ramMB = 0.0;                // RAM 申请内存（MB，优先 PrivateUsage）。
         double workingSetMB = 0.0;         // RAM 实际使用工作集（MB）。
         double diskMBps = 0.0;             // 磁盘吞吐（MB/s）。
@@ -510,6 +511,8 @@ namespace ks::process
         std::uint32_t r0KtWriteTransferCountOffset = KSWORD_ARK_PROCESS_OFFSET_UNAVAILABLE;  // DynData KtWriteTransferCount 偏移。
         std::uint32_t r0KtOtherTransferCountOffset = KSWORD_ARK_PROCESS_OFFSET_UNAVAILABLE;  // DynData KtOtherTransferCount 偏移。
         std::uint64_t r0ThreadDynDataCapabilityMask = 0; // 驱动 DynData capability 位图快照。
+        double cpuPercent = 0.0;            // 相邻快照线程 CPU 单核占用（0~100）。
+        bool cpuUsageReady = false;         // false 表示尚无同一线程实例的上一轮基准。
     };
 
     // ProcessModuleSnapshot：模块页签所需快照数据（模块 + 线程）。
@@ -533,10 +536,31 @@ namespace ks::process
         bool hasMemoryBaseline = false;    // true 表示上面两个基准值有效（首轮采样时为 false）。
     };
 
+    // ThreadCounterSample：按 PID/TID/创建时间保存线程 CPU 差分基准。
+    struct ThreadCounterSample
+    {
+        std::uint64_t cpuTime100ns = 0;    // 上一轮 Kernel + User 累计时间。
+        std::uint64_t sampleTick100ns = 0; // 上一轮单调时钟采样点。
+    };
+
     // BuildProcessIdentityKey 作用：
     // - 使用 “PID + 创建时间” 生成稳定 identity 字符串；
     // - 用于判断“是否同一个进程实例”。
     std::string BuildProcessIdentityKey(std::uint32_t pid, std::uint64_t creationTime100ns);
+
+    // BuildThreadIdentityKey：使用 PID + TID + 创建时间生成线程实例稳定标识。
+    std::string BuildThreadIdentityKey(
+        std::uint32_t pid,
+        std::uint32_t threadId,
+        std::uint64_t creationTime100ns);
+
+    // UpdateThreadCpuUsage：按相邻累计 Kernel/User 时间计算线程单核占用。
+    void UpdateThreadCpuUsage(
+        SystemThreadRecord& threadRecord,
+        const ThreadCounterSample* previousSample,
+        ThreadCounterSample& nextSampleOut,
+        std::uint32_t logicalCpuCount,
+        std::uint64_t currentTick100ns);
 
     // EnumerateProcesses 作用：
     // - 按策略返回当前系统进程列表（含基础性能计数器）；

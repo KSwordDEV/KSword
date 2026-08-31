@@ -13,6 +13,12 @@
 #define KSWORD_ARK_CALLBACK_TAG_PENDING 'pCbK'
 #define KSWORD_ARK_CALLBACK_TAG_EXTERNAL 'xCbK'
 
+typedef struct _KSWORD_ARK_CALLBACK_MONITOR_SLOT
+{
+    volatile LONG64 CommitSequence;
+    KSWORD_ARK_CALLBACK_MONITOR_EVENT Event;
+} KSWORD_ARK_CALLBACK_MONITOR_SLOT;
+
 #define KSWORD_ARK_CALLBACK_REGISTERED_REGISTRY 0x00000001UL
 #define KSWORD_ARK_CALLBACK_REGISTERED_PROCESS 0x00000002UL
 #define KSWORD_ARK_CALLBACK_REGISTERED_THREAD 0x00000004UL
@@ -113,6 +119,13 @@ typedef struct _KSWORD_ARK_CALLBACK_RUNTIME
     ULONG MiniFilterBypassPidCount;
     ULONG MiniFilterBypassPids[KSWORD_ARK_MINIFILTER_BYPASS_PID_MAX_COUNT];
     ULONG RegisteredCallbacksMask;
+    // 遥测 ring 使用 try-lock 串行发布；争用宁可计数丢弃也不阻塞内核回调。
+    volatile LONG MonitorWriterLock;
+    volatile LONG MonitorCategoryMask;
+    volatile LONG64 MonitorLatestSequence;
+    volatile LONG64 MonitorDroppedCount;
+    NTSTATUS MonitorLastStatus;
+    KSWORD_ARK_CALLBACK_MONITOR_SLOT MonitorSlots[KSWORD_ARK_CALLBACK_MONITOR_RING_CAPACITY];
     // 每一类回调的原始注册状态。降级启动后 R3 靠它解释某项能力为何缺失，
     // 而不是只看到一个"驱动在线但功能不全"的模糊结论。
     NTSTATUS WaitQueueStatus;

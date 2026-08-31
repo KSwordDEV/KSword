@@ -33,10 +33,38 @@ Environment:
 #define KSW_VMCS_GUEST_RIP 0x681EUL
 /* Name the VMCS guest RFLAGS field. */
 #define KSW_VMCS_GUEST_RFLAGS 0x6820UL
+/* Name the VMCS primary VM-exit controls field. */
+#define KSW_VMCS_EXIT_CONTROLS 0x400CUL
+/* Name the VMCS guest IA32_DEBUGCTL field. */
+#define KSW_VMCS_GUEST_DEBUGCTL 0x2802UL
+/* Name the VMCS guest PKRS field. */
+#define KSW_VMCS_GUEST_PKRS 0x2818UL
+/* Name the VMCS guest DR7 field. */
+#define KSW_VMCS_GUEST_DR7 0x681AUL
+/* Name the VMCS guest supervisor CET field. */
+#define KSW_VMCS_GUEST_S_CET 0x6828UL
+/* Name the VMCS guest shadow-stack pointer field. */
+#define KSW_VMCS_GUEST_SSP 0x682AUL
+/* Name the VMCS guest interrupt shadow-stack table field. */
+#define KSW_VMCS_GUEST_INTERRUPT_SSP_TABLE 0x682CUL
+/* Name the VMCS guest user-interrupt notification vector field. */
+#define KSW_VMCS_GUEST_UINV 0x0814UL
 /* Name the VMCS VM-instruction error field. */
 #define KSW_VMCS_INSTRUCTION_ERROR 0x4400UL
 /* FXSAVE64 in the VM-exit entry requires host CR0.TS to remain clear. */
 #define KSW_HVM_CR0_TASK_SWITCHED (1ULL << 3)
+/* Request VM-exit guest debug-state saving. */
+#define KSW_HVM_EXIT_SAVE_DEBUG_CONTROLS (1UL << 2)
+/* Request VM-exit UINV clearing. */
+#define KSW_HVM_EXIT_CLEAR_UINV (1UL << 27)
+/* Request VM-exit host CET-state loading. */
+#define KSW_HVM_EXIT_LOAD_CET (1UL << 28)
+/* Request VM-exit host PKRS loading. */
+#define KSW_HVM_EXIT_LOAD_PKRS (1UL << 29)
+/* Name the protection-key rights model-specific register. */
+#define KSW_HVM_IA32_PKRS 0x6E1UL
+/* Name the user-interrupt miscellaneous model-specific register. */
+#define KSW_HVM_IA32_UINTR_MISC 0x988UL
 
 /* Identify one all-processor resident start rendezvous. */
 #define KSW_HVM_RENDEZVOUS_START 1UL
@@ -100,10 +128,28 @@ C_ASSERT(FIELD_OFFSET(
 C_ASSERT(FIELD_OFFSET(
     KSW_HVM_RESIDENT_VCPU,
     DevirtualizeRflags) == 72);
+/* Keep every assembly-restored extended-state offset synchronized. */
+C_ASSERT(FIELD_OFFSET(KSW_HVM_RESIDENT_VCPU, GuestSCet) == 80);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_RESIDENT_VCPU, GuestSsp) == 88);
+C_ASSERT(FIELD_OFFSET(
+    KSW_HVM_RESIDENT_VCPU,
+    GuestInterruptSspTable) == 96);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_RESIDENT_VCPU, GuestPkrs) == 104);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_RESIDENT_VCPU, GuestUinv) == 112);
+C_ASSERT(FIELD_OFFSET(
+    KSW_HVM_RESIDENT_VCPU,
+    GuestDebugControl) == 120);
+C_ASSERT(FIELD_OFFSET(KSW_HVM_RESIDENT_VCPU, GuestDr7) == 128);
+C_ASSERT(FIELD_OFFSET(
+    KSW_HVM_RESIDENT_VCPU,
+    CetStateManaged) == 136);
+C_ASSERT(FIELD_OFFSET(
+    KSW_HVM_RESIDENT_VCPU,
+    DebugStateManaged) == 139);
 /* Keep the FXSAVE64 assembly offset and alignment synchronized. */
 C_ASSERT(FIELD_OFFSET(
     KSW_HVM_RESIDENT_VCPU,
-    FxState) == 80);
+    FxState) == 144);
 C_ASSERT((FIELD_OFFSET(
     KSW_HVM_RESIDENT_VCPU,
     FxState) & 0xFUL) == 0);
@@ -115,7 +161,7 @@ C_ASSERT(__alignof(KSW_HVM_RESIDENT_STATE) >= 16);
 /* Keep the post-stack-switch active commit offset synchronized. */
 C_ASSERT(FIELD_OFFSET(
     KSW_HVM_RESIDENT_VCPU,
-    Active) == 592);
+    Active) == 656);
 /* Keep assembly-owned context pointers synchronized. */
 C_ASSERT(FIELD_OFFSET(
     KSW_HVM_RESIDENT_VCPU,
@@ -329,6 +375,8 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     )
 {
     KSW_HVM_VMCS_INPUT input = { 0 };
+    SIZE_T exitControls = 0U;
+    SIZE_T value = 0U;
     NTSTATUS status = STATUS_SUCCESS;
 
     /* Reject an incomplete processor context in VMX root. */
@@ -373,14 +421,129 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     /* Select nested instruction exposure only when explicitly requested. */
     input.EnableNestedVmx =
         Context->Nested.Enabled ? 1U : 0U;
+    /* Discard every prior launch's optional-state ownership evidence. */
+    Context->GuestSCet = 0ULL;
+    Context->GuestSsp = 0ULL;
+    Context->GuestInterruptSspTable = 0ULL;
+    Context->GuestPkrs = 0ULL;
+    Context->GuestUinv = 0ULL;
+    Context->GuestDebugControl = 0ULL;
+    Context->GuestDr7 = 0ULL;
+    Context->CetStateManaged = 0U;
+    Context->PkrsStateManaged = 0U;
+    Context->UinvStateManaged = 0U;
+    Context->DebugStateManaged = 0U;
     /* Program the complete current VMCS. */
     status = KswordARKHvmConfigureVmcs(
         &input,
         &Context->LastVmInstructionError);
+    if (!NT_SUCCESS(status)) {
+        Context->LastStatus = status;
+        return status;
+    }
+    /* Recover the exact optional-state controls selected by the builder. */
+    if (__vmx_vmread(KSW_VMCS_EXIT_CONTROLS, &exitControls) != 0U) {
+        status = STATUS_HV_OPERATION_FAILED;
+    } else {
+        Context->CetStateManaged =
+            (exitControls & KSW_HVM_EXIT_LOAD_CET) != 0U ? 1U : 0U;
+        Context->PkrsStateManaged =
+            (exitControls & KSW_HVM_EXIT_LOAD_PKRS) != 0U ? 1U : 0U;
+        Context->UinvStateManaged =
+            (exitControls & KSW_HVM_EXIT_CLEAR_UINV) != 0U ? 1U : 0U;
+        Context->DebugStateManaged =
+            (exitControls & KSW_HVM_EXIT_SAVE_DEBUG_CONTROLS) != 0U
+                ? 1U
+                : 0U;
+        /* Assembly needs the CET enable bit before the final resident entry. */
+        if (Context->CetStateManaged != 0U) {
+            if (__vmx_vmread(KSW_VMCS_GUEST_S_CET, &value) != 0U) {
+                status = STATUS_HV_OPERATION_FAILED;
+            } else {
+                Context->GuestSCet = (ULONGLONG)value;
+            }
+        }
+    }
     /* Preserve the authoritative per-processor VMCS status. */
     Context->LastStatus = status;
     /* Return the complete VMCS programming result to assembly. */
     return status;
+}
+
+NTSTATUS
+KswordARKHvmWriteResidentGuestSspFromAsm(
+    _Inout_ KSW_HVM_RESIDENT_VCPU* Context
+    )
+{
+    /* Reject a missing context before touching the current VMCS. */
+    if (Context == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    /* No SSP transfer is required when supervisor shadow stacks are inactive. */
+    if (Context->CetStateManaged == 0U ||
+        (Context->GuestSCet & 1ULL) == 0ULL) {
+        return STATUS_SUCCESS;
+    }
+    /* A zero shadow-stack continuation can never back the resident RET. */
+    if (Context->GuestSsp == 0ULL) {
+        return STATUS_INVALID_ADDRESS;
+    }
+    /* Commit the SSP captured after every nested configuration call returned. */
+    if (__vmx_vmwrite(
+            KSW_VMCS_GUEST_SSP,
+            (SIZE_T)Context->GuestSsp) != 0U) {
+        return STATUS_HV_OPERATION_FAILED;
+    }
+    return STATUS_SUCCESS;
+}
+
+static BOOLEAN
+KswordARKHvmCaptureResidentExtendedState(
+    _Inout_ KSW_HVM_RESIDENT_VCPU* Context
+    )
+{
+    SIZE_T value = 0U;
+
+    /* Capture every component before VMCLEAR destroys the VMCS image. */
+    if (Context->CetStateManaged != 0U) {
+        if (__vmx_vmread(KSW_VMCS_GUEST_S_CET, &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestSCet = (ULONGLONG)value;
+        if (__vmx_vmread(KSW_VMCS_GUEST_SSP, &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestSsp = (ULONGLONG)value;
+        if (__vmx_vmread(
+                KSW_VMCS_GUEST_INTERRUPT_SSP_TABLE,
+                &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestInterruptSspTable = (ULONGLONG)value;
+    }
+    if (Context->PkrsStateManaged != 0U) {
+        if (__vmx_vmread(KSW_VMCS_GUEST_PKRS, &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestPkrs = (ULONGLONG)value;
+    }
+    if (Context->UinvStateManaged != 0U) {
+        if (__vmx_vmread(KSW_VMCS_GUEST_UINV, &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestUinv = (ULONGLONG)value & 0xFFULL;
+    }
+    if (Context->DebugStateManaged != 0U) {
+        if (__vmx_vmread(KSW_VMCS_GUEST_DEBUGCTL, &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestDebugControl = (ULONGLONG)value;
+        if (__vmx_vmread(KSW_VMCS_GUEST_DR7, &value) != 0U) {
+            return FALSE;
+        }
+        Context->GuestDr7 = (ULONGLONG)value;
+    }
+    return TRUE;
 }
 
 /* Enter resident VMX non-root operation on the current IPI target. */
@@ -653,6 +816,11 @@ KswordARKHvmResidentDeactivateCurrent(
         /* Report that no safe devirtualization occurred. */
         return FALSE;
     }
+    /* Preserve every optional guest component before VMCLEAR. */
+    if (!KswordARKHvmCaptureResidentExtendedState(Context)) {
+        Context->LastStatus = STATUS_HV_OPERATION_FAILED;
+        return FALSE;
+    }
     /* Advance only a fully decoded stop or private hypercall. */
     if (InstructionLength != 0UL) {
         /* Reject an architecturally invalid instruction length. */
@@ -693,8 +861,20 @@ KswordARKHvmResidentDeactivateCurrent(
     __vmx_off();
     /* Publish completed VMX root cleanup. */
     InterlockedExchange(&Context->VmxRoot, 0L);
-    /* Restore the exact pre-VMX CR4 value. */
+    /* Restore non-CET state before entering the final assembly continuation. */
     __try {
+        if (Context->PkrsStateManaged != 0U) {
+            __writemsr(KSW_HVM_IA32_PKRS, Context->GuestPkrs);
+        }
+        if (Context->UinvStateManaged != 0U) {
+            ULONGLONG uintrMisc =
+                __readmsr(KSW_HVM_IA32_UINTR_MISC);
+
+            uintrMisc &= ~(0xFFULL << 32);
+            uintrMisc |=
+                (Context->GuestUinv & 0xFFULL) << 32;
+            __writemsr(KSW_HVM_IA32_UINTR_MISC, uintrMisc);
+        }
         /* Restore CR4 after VMXOFF and before returning to guest state. */
         __writecr4(Context->OriginalCr4);
     }
@@ -865,8 +1045,13 @@ KswordARKHvmResidentStart(
     )
 {
     NTSTATUS status = STATUS_SUCCESS;
+    NTSTATUS rollbackStatus = STATUS_SUCCESS;
+    NTSTATUS guardStatus = STATUS_SUCCESS;
     LONG successCount = 0L;
+    ULONG activeProcessorCount = 0UL;
+    ULONG processorIndex = 0UL;
     ULONG ruleIndex = 0UL;
+    LONG powerGeneration = 0L;
     KSWORD_ARK_HVM_EVENT_ROW eventRow = { 0 };
 
     /* Reject a missing runtime before evaluating lifecycle policy. */
@@ -874,22 +1059,41 @@ KswordARKHvmResidentStart(
         /* Return the exact caller-contract failure. */
         return STATUS_INVALID_PARAMETER;
     }
-    /*
-     * This non-PnP image is unloadable and has no power-transition callback
-     * capable of stopping every VCPU before S3/S4/modern standby.  Until that
-     * ownership exists, fail closed before allocation or any VMX transition.
-     */
-    if (!Runtime->ResidentStartAllowed) {
+    /* Resident entry requires the complete driver-side lifecycle guard set. */
+    if (!Runtime->ResidentStartAllowed ||
+        (Runtime->FeatureFlags &
+            (KSWORD_ARK_HVM_FEATURE_INTEL |
+             KSWORD_ARK_HVM_FEATURE_RESIDENT_LIFECYCLE_GUARDED)) !=
+            (KSWORD_ARK_HVM_FEATURE_INTEL |
+             KSWORD_ARK_HVM_FEATURE_RESIDENT_LIFECYCLE_GUARDED)) {
         /* Preserve every nonresident HVM capability while refusing residency. */
         Runtime->ResidentImplementation =
             KSWORD_ARK_HVM_IMPLEMENTATION_UNSUPPORTED;
         return STATUS_NOT_SUPPORTED;
     }
+    /* Refuse VMX entry while the power manager is leaving the S0 working state. */
+    if (InterlockedCompareExchange(
+            &Runtime->PowerTransitionPending,
+            0L,
+            0L) != 0L) {
+        return STATUS_POWER_STATE_INVALID;
+    }
+    powerGeneration = InterlockedCompareExchange(
+        &Runtime->PowerTransitionGeneration,
+        0L,
+        0L);
     /* Refuse a resident mapping whose architectural address space was clipped. */
     if ((Runtime->StateFlags &
             KSWORD_ARK_HVM_STATE_EPT_TRUNCATED) != 0UL) {
         /* Do not enter VMX with an incomplete architectural identity map. */
         return STATUS_NOT_SUPPORTED;
+    }
+    /* Never reuse a lifecycle whose prior devirtualization is uncertain. */
+    if ((Runtime->StateFlags &
+            (KSWORD_ARK_HVM_STATE_FAULTED |
+             KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED |
+             KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED)) != 0UL) {
+        return STATUS_INVALID_DEVICE_STATE;
     }
     /* Validate prepared, tested, and EPT-ready state before allocation. */
     if (
@@ -902,6 +1106,32 @@ KswordARKHvmResidentStart(
              KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED)) {
         /* Return the exact lifecycle prerequisite failure. */
         return STATUS_DEVICE_NOT_READY;
+    }
+    /* Revalidate the complete topology immediately before host allocation. */
+    activeProcessorCount =
+        KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);
+    if (activeProcessorCount == 0UL ||
+        activeProcessorCount != Runtime->ProcessorCount ||
+        Runtime->PreparedProcessorCount != Runtime->ProcessorCount ||
+        Runtime->SelfTestPassedProcessorCount != Runtime->ProcessorCount) {
+        return STATUS_REVISION_MISMATCH;
+    }
+    /* Require affirmative per-CPU VMXON/VMXOFF evidence for every target. */
+    for (processorIndex = 0UL;
+         processorIndex < Runtime->ProcessorCount;
+         ++processorIndex) {
+        const ULONG cpuState =
+            Runtime->Processors[processorIndex].Row.stateFlags;
+
+        if ((cpuState &
+                (KSWORD_ARK_HVM_CPU_STATE_RESOURCE_READY |
+                 KSWORD_ARK_HVM_CPU_STATE_SELF_TESTED |
+                 KSWORD_ARK_HVM_CPU_STATE_VMXON_SUCCEEDED)) !=
+            (KSWORD_ARK_HVM_CPU_STATE_RESOURCE_READY |
+             KSWORD_ARK_HVM_CPU_STATE_SELF_TESTED |
+             KSWORD_ARK_HVM_CPU_STATE_VMXON_SUCCEEDED)) {
+            return STATUS_REVISION_MISMATCH;
+        }
     }
     /* Refuse duplicate resident start while any processor remains active. */
     if (InterlockedCompareExchange(
@@ -949,14 +1179,61 @@ KswordARKHvmResidentStart(
             return STATUS_NOT_SUPPORTED;
         }
     }
-    /* Allocate every nonpaged host-stack context before the IPI rendezvous. */
+    /* Serialize passive-level context construction against power teardown. */
+    if (InterlockedCompareExchange(
+            &Runtime->ResidentContextPreparing,
+            1L,
+            0L) != 0L) {
+        return STATUS_DEVICE_BUSY;
+    }
+    /* Allocate every nonpaged host-stack context before raising IRQL. */
     status = KswordARKHvmResidentPrepareContexts(
         Runtime,
         Flags);
     /* Stop before VMX entry when context preparation fails. */
     if (!NT_SUCCESS(status)) {
+        InterlockedExchange(
+            &Runtime->ResidentContextPreparing,
+            0L);
         /* Return the exact context preparation failure. */
         return status;
+    }
+    /* Own the transition phase without holding its state lock over the IPI. */
+    status = KswordARKHvmAcquireResidentTransition(Runtime);
+    if (!NT_SUCCESS(status)) {
+        KswordARKHvmResidentReleaseContexts();
+        InterlockedExchange(
+            &Runtime->ResidentContextPreparing,
+            0L);
+        return status;
+    }
+    /* A power callback may have arrived while host stacks were allocated. */
+    if (InterlockedCompareExchange(
+            &Runtime->PowerTransitionPending,
+            0L,
+            0L) != 0L ||
+        InterlockedCompareExchange(
+            &Runtime->PowerTransitionGeneration,
+            0L,
+            0L) != powerGeneration) {
+        /* Release the fully stopped contexts without attempting VMX entry. */
+        KswordARKHvmResidentReleaseContexts();
+        InterlockedExchange(
+            &Runtime->ResidentContextPreparing,
+            0L);
+        KswordARKHvmReleaseResidentTransition(Runtime);
+        return STATUS_POWER_STATE_INVALID;
+    }
+    /* Prevent image unload before the first processor can enter VMX. */
+    guardStatus = KswordARKHvmArmUnloadGuard(Runtime);
+    if (!NT_SUCCESS(guardStatus)) {
+        /* No processor entered VMX, so every prepared host stack is releasable. */
+        KswordARKHvmResidentReleaseContexts();
+        InterlockedExchange(
+            &Runtime->ResidentContextPreparing,
+            0L);
+        KswordARKHvmReleaseResidentTransition(Runtime);
+        return guardStatus;
     }
     /* Publish starting state before any processor enters VMX non-root. */
     Runtime->StateFlags |=
@@ -972,8 +1249,20 @@ KswordARKHvmResidentStart(
         InterlockedCompareExchange(
             &Runtime->ResidentProcessorCount,
             0L,
-            0L) != (LONG)Runtime->ProcessorCount) {
-        NTSTATUS rollbackStatus = STATUS_SUCCESS;
+            0L) != (LONG)Runtime->ProcessorCount ||
+        InterlockedCompareExchange(
+            &Runtime->PowerTransitionPending,
+            0L,
+            0L) != 0L) {
+        /* Convert a count mismatch or a concurrent power event to a failure. */
+        if (NT_SUCCESS(status)) {
+            status = InterlockedCompareExchange(
+                    &Runtime->PowerTransitionPending,
+                    0L,
+                    0L) != 0L
+                ? STATUS_POWER_STATE_INVALID
+                : STATUS_HV_OPERATION_FAILED;
+        }
 
         /* Publish rollback-required state before stopping partial residency. */
         Runtime->StateFlags |=
@@ -983,23 +1272,64 @@ KswordARKHvmResidentStart(
             KSW_HVM_RENDEZVOUS_STOP,
             Runtime->EptPointer,
             NULL);
-        /* Preserve rollback failure over the initial start failure. */
-        if (!NT_SUCCESS(rollbackStatus)) {
+        /* Preserve every live or uncertain resident context after rollback. */
+        if (!NT_SUCCESS(rollbackStatus) ||
+            InterlockedCompareExchange(
+                &Runtime->ResidentProcessorCount,
+                0L,
+                0L) != 0L) {
             /* Publish explicit partial implementation after failed rollback. */
             Runtime->ResidentImplementation =
                 KSWORD_ARK_HVM_IMPLEMENTATION_PARTIAL;
             /* Preserve the authoritative rollback failure. */
-            status = rollbackStatus;
+            if (NT_SUCCESS(rollbackStatus)) {
+                status = STATUS_HV_OPERATION_FAILED;
+            } else {
+                status = rollbackStatus;
+            }
+            /* Keep the unload guard and host stacks while safety is uncertain. */
+            Runtime->StateFlags &=
+                ~KSWORD_ARK_HVM_STATE_RESIDENT_STARTING;
+            InterlockedExchange(
+                &Runtime->ResidentContextPreparing,
+                0L);
+            KswordARKHvmReleaseResidentTransition(Runtime);
+            return status;
         }
-        /* Release host stacks only when rollback reached zero active CPUs. */
+        /* Release host stacks only after rollback reached zero active CPUs. */
         KswordARKHvmResidentReleaseContexts();
-        /* Clear transient starting state after rollback completes or fails. */
+        /* Restore unload only outside a power transition. */
+        if (InterlockedCompareExchange(
+                &Runtime->PowerTransitionPending,
+                0L,
+                0L) == 0L) {
+            guardStatus = KswordARKHvmDisarmUnloadGuard(Runtime);
+        }
+        /* Clear transient state after a complete, verified rollback. */
         Runtime->StateFlags &=
-            ~KSWORD_ARK_HVM_STATE_RESIDENT_STARTING;
+            ~(KSWORD_ARK_HVM_STATE_RESIDENT_STARTING |
+              KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
+              KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
+              KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
+        Runtime->ResidentImplementation =
+            Runtime->ResidentStartAllowed
+                ? KSWORD_ARK_HVM_IMPLEMENTATION_CAPABILITY_ONLY
+                : KSWORD_ARK_HVM_IMPLEMENTATION_UNSUPPORTED;
+        if (!NT_SUCCESS(guardStatus)) {
+            /* A stuck unload slot is fail-closed and requires intervention. */
+            Runtime->StateFlags |=
+                KSWORD_ARK_HVM_STATE_FAULTED |
+                KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+            Runtime->ResidentImplementation =
+                KSWORD_ARK_HVM_IMPLEMENTATION_PARTIAL;
+            status = guardStatus;
+        }
+        InterlockedExchange(
+            &Runtime->ResidentContextPreparing,
+            0L);
+        KswordARKHvmReleaseResidentTransition(Runtime);
         /* Return the authoritative all-processor start failure. */
-        return NT_SUCCESS(status)
-            ? STATUS_HV_OPERATION_FAILED
-            : status;
+        return status;
     }
     /* Clear transient starting state after full all-processor success. */
     Runtime->StateFlags &=
@@ -1017,6 +1347,11 @@ KswordARKHvmResidentStart(
     Runtime->FeatureFlags |=
         KSWORD_ARK_HVM_FEATURE_RESIDENT_VMM |
         KSWORD_ARK_HVM_FEATURE_MULTICORE_RENDEZVOUS;
+    /* Context construction is complete before exposing active residency. */
+    InterlockedExchange(
+        &Runtime->ResidentContextPreparing,
+        0L);
+    KswordARKHvmReleaseResidentTransition(Runtime);
     /* Describe one lifecycle event after full residency succeeds. */
     eventRow.type = KSWORD_ARK_HVM_EVENT_TYPE_LIFECYCLE;
     /* Publish successful resident start status. */
@@ -1033,6 +1368,7 @@ KswordARKHvmResidentStop(
     )
 {
     NTSTATUS status = STATUS_SUCCESS;
+    NTSTATUS guardStatus = STATUS_SUCCESS;
     KSWORD_ARK_HVM_EVENT_ROW eventRow = { 0 };
 
     /* Reject a missing runtime before lifecycle mutation. */
@@ -1040,13 +1376,24 @@ KswordARKHvmResidentStop(
         /* Return the exact caller-contract failure. */
         return STATUS_INVALID_PARAMETER;
     }
+    /* Serialize devirtualization through the wait-aware transition phase. */
+    status = KswordARKHvmAcquireResidentTransition(Runtime);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
     /* Treat a fully stopped lifecycle as idempotent success. */
     if (InterlockedCompareExchange(
             &Runtime->ResidentProcessorCount,
             0L,
             0L) == 0L) {
-        /* Release any stopped host-stack contexts retained after a prior fault. */
-        KswordARKHvmResidentReleaseContexts();
+        /* A power callback must not free contexts still being constructed. */
+        if (InterlockedCompareExchange(
+                &Runtime->ResidentContextPreparing,
+                0L,
+                0L) == 0L) {
+            /* Release stopped contexts retained after a prior fault. */
+            KswordARKHvmResidentReleaseContexts();
+        }
         /* Clear protocol-visible resident active state. */
         Runtime->StateFlags &=
             ~(KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
@@ -1057,6 +1404,23 @@ KswordARKHvmResidentStop(
             Runtime->ResidentStartAllowed
                 ? KSWORD_ARK_HVM_IMPLEMENTATION_CAPABILITY_ONLY
                 : KSWORD_ARK_HVM_IMPLEMENTATION_UNSUPPORTED;
+        /* Keep unload disabled throughout an active non-S0 transition. */
+        if (InterlockedCompareExchange(
+                &Runtime->PowerTransitionPending,
+                0L,
+                0L) == 0L) {
+            guardStatus = KswordARKHvmDisarmUnloadGuard(Runtime);
+        }
+        if (!NT_SUCCESS(guardStatus)) {
+            Runtime->StateFlags |=
+                KSWORD_ARK_HVM_STATE_FAULTED |
+                KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+            Runtime->ResidentImplementation =
+                KSWORD_ARK_HVM_IMPLEMENTATION_PARTIAL;
+            KswordARKHvmReleaseResidentTransition(Runtime);
+            return guardStatus;
+        }
+        KswordARKHvmReleaseResidentTransition(Runtime);
         /* Complete the idempotent stop successfully. */
         return STATUS_SUCCESS;
     }
@@ -1083,6 +1447,7 @@ KswordARKHvmResidentStop(
         /* Clear transient stopping state after the failed rendezvous. */
         Runtime->StateFlags &=
             ~KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING;
+        KswordARKHvmReleaseResidentTransition(Runtime);
         /* Return the authoritative stop or incomplete rollback failure. */
         return NT_SUCCESS(status)
             ? STATUS_HV_OPERATION_FAILED
@@ -1100,6 +1465,23 @@ KswordARKHvmResidentStop(
         Runtime->ResidentStartAllowed
             ? KSWORD_ARK_HVM_IMPLEMENTATION_CAPABILITY_ONLY
             : KSWORD_ARK_HVM_IMPLEMENTATION_UNSUPPORTED;
+    /* Keep unload disabled until S0 resume clears the transition gate. */
+    if (InterlockedCompareExchange(
+            &Runtime->PowerTransitionPending,
+            0L,
+            0L) == 0L) {
+        guardStatus = KswordARKHvmDisarmUnloadGuard(Runtime);
+    }
+    if (!NT_SUCCESS(guardStatus)) {
+        Runtime->StateFlags |=
+            KSWORD_ARK_HVM_STATE_FAULTED |
+            KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+        Runtime->ResidentImplementation =
+            KSWORD_ARK_HVM_IMPLEMENTATION_PARTIAL;
+        KswordARKHvmReleaseResidentTransition(Runtime);
+        return guardStatus;
+    }
+    KswordARKHvmReleaseResidentTransition(Runtime);
     /* Describe one successful resident stop lifecycle event. */
     eventRow.type = KSWORD_ARK_HVM_EVENT_TYPE_LIFECYCLE;
     /* Publish successful resident stop status. */
@@ -1180,6 +1562,17 @@ KswordARKHvmResidentInvalidateEpt(
 
 NTSTATUS
 KswordARKHvmConfigureResidentVmcsFromAsm(
+    _Inout_ KSW_HVM_RESIDENT_VCPU* Context
+    )
+{
+    /* Keep non-x64 builds explicit and warning-free. */
+    UNREFERENCED_PARAMETER(Context);
+    /* Return the explicit architecture boundary. */
+    return STATUS_NOT_SUPPORTED;
+}
+
+NTSTATUS
+KswordARKHvmWriteResidentGuestSspFromAsm(
     _Inout_ KSW_HVM_RESIDENT_VCPU* Context
     )
 {

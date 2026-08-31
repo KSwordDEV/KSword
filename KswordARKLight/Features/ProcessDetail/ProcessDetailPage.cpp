@@ -3,6 +3,7 @@
 #include "ProcessDetailCollector.h"
 
 #include "../../Ui/Controls.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/LoadingOverlay.h"
 #include "../../Ui/TextFindSupport.h"
 #include "../../Ui/Theme.h"
@@ -33,9 +34,11 @@ constexpr UINT kMsgTokenReportCompleted = WM_APP + 614;
 constexpr UINT kMsgTokenSwitchCompleted = WM_APP + 615;
 constexpr UINT kMsgEvidenceCompleted = WM_APP + 616;
 constexpr UINT kMsgPebCompleted = WM_APP + 617;
+constexpr UINT kMsgHotkeyCompleted = WM_APP + 618;
+constexpr UINT kMsgKeyboardCompleted = WM_APP + 619;
 constexpr int kSnapshotLoadingOverlayId = 1110;
 
-constexpr std::array<const wchar_t*, 8> kTabTitles{
+constexpr std::array<const wchar_t*, 10> kTabTitles{
     L"详细信息",
     L"线程",
     L"操作",
@@ -43,6 +46,8 @@ constexpr std::array<const wchar_t*, 8> kTabTitles{
     L"令牌",
     L"令牌开关",
     L"Process Detail Evidence",
+    L"进程热键",
+    L"键盘",
     L"PEB"
 };
 
@@ -116,6 +121,12 @@ ProcessDetailPage::~ProcessDetailPage() {
     }
     if (pebTask_) {
         pebTask_->cancel();
+    }
+    if (hotkeyTask_) {
+        hotkeyTask_->cancel();
+    }
+    if (keyboardTask_) {
+        keyboardTask_->cancel();
     }
     if (threadFilterTask_) {
         threadFilterTask_->cancel();
@@ -208,6 +219,16 @@ LRESULT ProcessDetailPage::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
             return 0;
         }
         break;
+    case kMsgHotkeyCompleted:
+        if (hotkeyTask_ && hotkeyTask_->consume(hwnd, wParam, lParam)) {
+            return 0;
+        }
+        break;
+    case kMsgKeyboardCompleted:
+        if (keyboardTask_ && keyboardTask_->consume(hwnd, wParam, lParam)) {
+            return 0;
+        }
+        break;
     case kMsgThreadFilterCompleted:
         if (threadFilterTask_ && threadFilterTask_->consume(hwnd, wParam, lParam)) {
             return 0;
@@ -248,6 +269,12 @@ LRESULT ProcessDetailPage::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
         }
         if (pebTask_) {
             pebTask_->cancel();
+        }
+        if (hotkeyTask_) {
+            hotkeyTask_->cancel();
+        }
+        if (keyboardTask_) {
+            keyboardTask_->cancel();
         }
         if (threadFilterTask_) {
             threadFilterTask_->cancel();
@@ -298,9 +325,11 @@ bool ProcessDetailPage::Initialize(HWND hwnd) {
     tokenSwitchTask_ = std::make_unique<Ksword::Ui::AsyncSnapshotTask<ProcessTokenSwitchSnapshot>>(hwnd_, kMsgTokenSwitchCompleted);
     evidenceTask_ = std::make_unique<Ksword::Ui::AsyncSnapshotTask<ProcessDetailSnapshot>>(hwnd_, kMsgEvidenceCompleted);
     pebTask_ = std::make_unique<Ksword::Ui::AsyncSnapshotTask<ProcessPebSnapshot>>(hwnd_, kMsgPebCompleted);
+    hotkeyTask_ = std::make_unique<Ksword::Ui::AsyncSnapshotTask<ProcessHotkeySnapshot>>(hwnd_, kMsgHotkeyCompleted);
+    keyboardTask_ = std::make_unique<Ksword::Ui::AsyncSnapshotTask<KeyboardSnapshot>>(hwnd_, kMsgKeyboardCompleted);
     threadFilterTask_ = std::make_unique<Ksword::Ui::AsyncSnapshotTask<DetailTableFilterResult>>(hwnd_, kMsgThreadFilterCompleted);
     moduleFilterTask_ = std::make_unique<Ksword::Ui::AsyncSnapshotTask<DetailTableFilterResult>>(hwnd_, kMsgModuleFilterCompleted);
-    if (!loadingOverlay_ || !snapshotTask_ || !actionTask_ || !tokenReportTask_ || !tokenSwitchTask_ || !evidenceTask_ || !pebTask_ || !threadFilterTask_ || !moduleFilterTask_) {
+    if (!loadingOverlay_ || !snapshotTask_ || !actionTask_ || !tokenReportTask_ || !tokenSwitchTask_ || !evidenceTask_ || !pebTask_ || !hotkeyTask_ || !keyboardTask_ || !threadFilterTask_ || !moduleFilterTask_) {
         return false;
     }
     ::SendMessageW(tab_, TCM_SETCURSEL, 0, 0);
@@ -348,6 +377,8 @@ LRESULT ProcessDetailPage::HandlePageMessage(
         case TabIndex::Token: handled = HandleTokenCommand(id); break;
         case TabIndex::TokenSwitch: handled = HandleTokenSwitchCommand(id); break;
         case TabIndex::Evidence: handled = HandleEvidenceCommand(id); break;
+        case TabIndex::Hotkey: handled = HandleHotkeyCommand(id); break;
+        case TabIndex::Keyboard: handled = HandleKeyboardCommand(id); break;
         case TabIndex::Peb: handled = HandlePebCommand(id); break;
         default: break;
         }
@@ -562,6 +593,8 @@ bool ProcessDetailPage::CreateTabControls(TabIndex tab) {
     case TabIndex::Token: return CreateTokenTab();
     case TabIndex::TokenSwitch: return CreateTokenSwitchTab();
     case TabIndex::Evidence: return CreateEvidenceTab();
+    case TabIndex::Hotkey: return CreateHotkeyTab();
+    case TabIndex::Keyboard: return CreateKeyboardTab();
     case TabIndex::Peb: return CreatePebTab();
     default: return false;
     }
@@ -575,6 +608,8 @@ void ProcessDetailPage::PopulateTab(TabIndex tab) {
     case TabIndex::Token: PopulateTokenTab(); break;
     case TabIndex::TokenSwitch: PopulateTokenSwitchTab(); break;
     case TabIndex::Evidence: PopulateEvidenceTab(); break;
+    case TabIndex::Hotkey: PopulateHotkeyTab(); break;
+    case TabIndex::Keyboard: PopulateKeyboardTab(); break;
     case TabIndex::Peb: PopulatePebTab(); break;
     case TabIndex::Actions:
     default:
@@ -592,6 +627,12 @@ void ProcessDetailPage::ResetTabRuntimeState(TabIndex tab) {
         break;
     case TabIndex::Evidence:
         sectionLoaded_ = false;
+        break;
+    case TabIndex::Hotkey:
+        hotkeyLoaded_ = false;
+        break;
+    case TabIndex::Keyboard:
+        keyboardLoaded_ = false;
         break;
     case TabIndex::Peb:
         pebLoaded_ = false;
@@ -622,6 +663,12 @@ void ProcessDetailPage::OnTabActivated(TabIndex tab) {
         break;
     case TabIndex::Evidence:
         if (!sectionLoaded_) { RefreshSectionReport(); }
+        break;
+    case TabIndex::Hotkey:
+        if (!hotkeyLoaded_) { RefreshHotkeys(); }
+        break;
+    case TabIndex::Keyboard:
+        if (!keyboardLoaded_) { RefreshKeyboard(); }
         break;
     case TabIndex::Peb:
         if (!pebLoaded_) { RefreshPebReport(); }
@@ -1010,31 +1057,9 @@ std::wstring ProcessDetailPage::ListCell(HWND list, int row, int column) {
 }
 
 bool ProcessDetailPage::CopyText(HWND owner, const std::wstring& text) {
-    if (text.empty() || !::OpenClipboard(owner)) {
-        return false;
-    }
-    const SIZE_T bytes = (text.size() + 1) * sizeof(wchar_t);
-    HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (!memory) {
-        ::CloseClipboard();
-        return false;
-    }
-    void* destination = ::GlobalLock(memory);
-    if (!destination) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    std::memcpy(destination, text.c_str(), bytes);
-    ::GlobalUnlock(memory);
-    ::EmptyClipboard();
-    if (!::SetClipboardData(CF_UNICODETEXT, memory)) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    ::CloseClipboard();
-    return true;
+    // Keep all explicit detail-table copies in the common evidence path while
+    // preserving the existing Unicode clipboard representation.
+    return Ksword::Ui::CopyTextToClipboard(owner, text, L"进程详细信息");
 }
 
 std::wstring ProcessDetailPage::ReadWindowText(HWND hwnd) {
@@ -1152,6 +1177,13 @@ bool ProcessDetailPage::HandleGenericContextMenu(HWND source, POINT screenPoint)
 bool ProcessDetailPage::HandlePageNotify(TabIndex tab, NMHDR* header, LRESULT& result) {
     if (!header) {
         return false;
+    }
+    if (tab == TabIndex::Keyboard &&
+        header->hwndFrom == Control(TabIndex::Keyboard, KeyboardInnerTab) &&
+        header->code == TCN_SELCHANGE) {
+        RebuildKeyboardList();
+        result = 0;
+        return true;
     }
     if (threadVirtualList_.handleNotify(*header, result) || moduleVirtualList_.handleNotify(*header, result)) {
         return true;

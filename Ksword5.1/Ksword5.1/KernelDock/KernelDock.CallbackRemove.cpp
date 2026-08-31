@@ -1,7 +1,6 @@
 #include "KernelDock.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
-#include "../UI/CodeEditorWidget.h"
 #include "../theme.h"
 
 #include <QComboBox>
@@ -280,14 +279,6 @@ void KernelDock::initializeCallbackRemovePanel()
     m_callbackRemoveLayout->addLayout(m_callbackRemoveToolLayout);
     m_callbackRemoveLayout->addWidget(m_callbackRemoveStatusLabel, 0);
 
-    m_callbackRemoveDetailEditor = new CodeEditorWidget(m_callbackRemoveContentWidget);
-    m_callbackRemoveDetailEditor->setReadOnly(true);
-    m_callbackRemoveDetailEditor->setMinimumHeight(72);
-    m_callbackRemoveDetailEditor->setMaximumHeight(120);
-    m_callbackRemoveDetailEditor->setText(kernelText("kernel.callback.remove.detail.initial", QStringLiteral(
-        "输入回调类型与地址后执行移除。此操作可能影响系统稳定性，请仅对确认异常的回调使用。")));
-    m_callbackRemoveLayout->addWidget(m_callbackRemoveDetailEditor, 0);
-
     m_callbackEnumLayout->addWidget(m_callbackRemoveContentWidget, 0);
 
     connect(m_callbackRemoveButton, &QPushButton::clicked, this, [this]() {
@@ -338,11 +329,11 @@ void KernelDock::initializeCallbackRemovePanel()
         {
             m_callbackRemoveStatusLabel->setText(kernelText("kernel.callback.remove.status.io_failed", QStringLiteral("状态：移除失败，error=%1"))
                 .arg(removeResult.io.win32Error));
-            m_callbackRemoveDetailEditor->setText(kernelText("kernel.callback.remove.detail.io_failed", QStringLiteral("回调移除失败，Win32 错误码=%1。\n地址=0x%2\n详情=%3"))
+            const QString errorDetailText = kernelText("kernel.callback.remove.detail.io_failed", QStringLiteral("回调移除失败，Win32 错误码=%1。\n地址=0x%2\n详情=%3"))
                 .arg(removeResult.io.win32Error)
                 .arg(QString::number(callbackAddress, 16).toUpper())
-                .arg(callbackRemoveIoMessageText(QString::fromStdString(removeResult.io.message))));
-            QMessageBox::warning(this, kernelText("kernel.callback.remove.title.short", QStringLiteral("回调移除")), m_callbackRemoveStatusLabel->text());
+                .arg(callbackRemoveIoMessageText(QString::fromStdString(removeResult.io.message)));
+            QMessageBox::warning(this, kernelText("kernel.callback.remove.title.short", QStringLiteral("回调移除")), errorDetailText);
             return;
         }
 
@@ -352,7 +343,7 @@ void KernelDock::initializeCallbackRemovePanel()
         // composeCallbackRemoveDetailText：
         // - 入参 localServiceNameText：本地 SCM 服务映射结果，未完成时用“未解析”占位；
         // - 处理：把本轮移除响应的全部字段拼成详情文本，供同步渲染与异步补齐复用；
-        // - 返回：详情框展示文本。
+        // - 返回：用于结果弹窗的详情文本。
         const auto composeCallbackRemoveDetailText =
             [typeText = m_callbackRemoveTypeCombo->currentText(),
              callbackAddress,
@@ -393,17 +384,16 @@ void KernelDock::initializeCallbackRemovePanel()
                     : kernelText("kernel.callback.remove.unlink.protocol_disabled", QStringLiteral("当前 shared 协议未启用 REMOVE_EXTERNAL_CALLBACK_EX")));
         };
 
-        // 本地服务名反查要枚举全量 SCM 驱动服务并逐条 QueryServiceConfigW，最坏在秒级；
-        // 内核回调此刻已经被改，界面必须先把结果显示出来，映射列先占位“未解析”，
-        // 反查放进线程池，完成后按 generation 校验再替换详情文本。
+        // 本地服务名反查要枚举全量 SCM 驱动服务并逐条 QueryServiceConfigW，最坏在秒级。
+        // 内核回调此刻已经被改，结果弹窗在反查完成后再展示，避免弹出缺少本地服务
+        // 映射的半成品详情。
         const QString unmatchedServiceText = kernelText("kernel.callback.remove.placeholder.unmatched", QStringLiteral("未匹配"));
-        const QString unresolvedServiceText = kernelText("kernel.callback.remove.placeholder.unresolved", QStringLiteral("未解析"));
-        m_callbackRemoveDetailEditor->setText(composeCallbackRemoveDetailText(unresolvedServiceText));
 
         const QPointer<KernelDock> guardedSelf(this);
         const quint64 requestGeneration = g_callbackRemoveResolveGeneration.fetch_add(1ULL) + 1ULL;
+        const bool removalSucceeded = responsePacket.ntstatus >= 0;
         QThreadPool::globalInstance()->start(
-            [guardedSelf, requestGeneration, modulePath, unmatchedServiceText, composeCallbackRemoveDetailText]()
+            [guardedSelf, requestGeneration, modulePath, unmatchedServiceText, removalSucceeded, composeCallbackRemoveDetailText]()
             {
                 const QString resolvedServiceName = callbackRemoveResolveServiceByModule(modulePath);
                 const QString localServiceNameText = resolvedServiceName.isEmpty()
@@ -416,7 +406,7 @@ void KernelDock::initializeCallbackRemovePanel()
                     return;
                 }
                 QMetaObject::invokeMethod(appInstance,
-                    [guardedSelf, requestGeneration, localServiceNameText, composeCallbackRemoveDetailText]()
+                    [guardedSelf, requestGeneration, localServiceNameText, removalSucceeded, composeCallbackRemoveDetailText]()
                     {
                         if (guardedSelf == nullptr)
                         {
@@ -426,12 +416,21 @@ void KernelDock::initializeCallbackRemovePanel()
                         {
                             return;
                         }
-                        if (guardedSelf->m_callbackRemoveDetailEditor == nullptr)
+                        const QString detailText = composeCallbackRemoveDetailText(localServiceNameText);
+                        if (removalSucceeded)
                         {
-                            return;
+                            QMessageBox::information(
+                                guardedSelf,
+                                kernelText("kernel.callback.remove.title.short", QStringLiteral("回调移除")),
+                                detailText);
                         }
-                        guardedSelf->m_callbackRemoveDetailEditor->setText(
-                            composeCallbackRemoveDetailText(localServiceNameText));
+                        else
+                        {
+                            QMessageBox::warning(
+                                guardedSelf,
+                                kernelText("kernel.callback.remove.title.short", QStringLiteral("回调移除")),
+                                detailText);
+                        }
                     });
             });
 

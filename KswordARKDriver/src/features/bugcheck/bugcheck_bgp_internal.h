@@ -118,6 +118,12 @@ typedef struct _KSWORD_ARK_BGP_CONTEXT
 
 extern KSWORD_ARK_BGP_CONTEXT g_KswordArkBgp;
 
+// Resolver and rectangle preparation use the controller-owned deadline and unload cancellation.
+NTSTATUS
+KswordARKBugcheckControlCheckAbort(
+    VOID
+    );
+
 VOID
 KswordARKBugcheckBgpRecordStage(
     _In_ LONG Stage,

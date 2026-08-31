@@ -61,7 +61,9 @@ namespace ksword::ark
         // Install the complete bilingual BGP verdict-card resource set.
         IoResult setBugcheckVerdictResources(
             const std::vector<BugcheckVerdictBitmap>& resources) const;
-
+        // 根据设置文件或用户本次明确操作，按需安装并查询 BGP 蓝屏诊断回调。
+        BugcheckDiagnosticsResult configureBugcheckDiagnostics(
+            unsigned long action) const;
 
         // Confirmation-gated control/status path for the one-shot KeBugCheckEx delay guard.
         BugcheckGuardResult configureBugcheckGuard(
@@ -72,6 +74,11 @@ namespace ksword::ark
             DriverHandle* existingHandle = nullptr) const;
         // Open one synchronous control handle. The returned handle owns CloseHandle.
         DriverHandle open(unsigned long desiredAccess = GENERIC_READ | GENERIC_WRITE) const;
+
+        // Open a synchronous control handle without invoking the global R0 UI
+        // notification handlers.  Passive polling paths use this to determine
+        // whether the driver is ready before issuing an optional IOCTL.
+        DriverHandle openSilently(unsigned long desiredAccess = GENERIC_READ | GENERIC_WRITE) const;
 
         // Open one overlapped control handle for wait-style callback receivers.
         DriverHandle openOverlapped(unsigned long desiredAccess = GENERIC_READ | GENERIC_WRITE) const;
@@ -157,6 +164,7 @@ namespace ksword::ark
             unsigned long flags = KSWORD_ARK_PROCESS_INJECT_FLAG_UI_CONFIRMED) const;
 
         ProcessEnumResult enumerateProcesses(unsigned long flags) const;
+        ProcessEnumResult enumerateProcesses(unsigned long flags, DriverHandle* existingHandle) const;
         ThreadEnumResult enumerateThreads(unsigned long flags, std::uint32_t processId = 0) const;
         WorkQueueEnumResult enumerateWorkQueues(
             unsigned long flags = KSWORD_ARK_WORK_QUEUE_FLAG_INCLUDE_ALL,
@@ -271,6 +279,13 @@ namespace ksword::ark
         // drainDebugOutput：使用单调游标增量读取 R0 固定环形缓冲区。
         DebugOutputDrainResult drainDebugOutput(std::uint64_t afterSequence, unsigned long maxRecords = KSWORD_ARK_DEBUG_OUTPUT_DEFAULT_DRAIN_RECORDS) const;
         DebugOutputDrainResult drainDebugOutput(DriverHandle& handle, std::uint64_t afterSequence, unsigned long maxRecords = KSWORD_ARK_DEBUG_OUTPUT_DEFAULT_DRAIN_RECORDS) const;
+        // callback monitor：全局控制状态，读取端使用各自 afterSequence 游标。
+        CallbackMonitorStatusResult controlCallbackMonitor(unsigned long action, unsigned long categoryMask) const;
+        CallbackMonitorStatusResult controlCallbackMonitor(DriverHandle& handle, unsigned long action, unsigned long categoryMask) const;
+        CallbackMonitorStatusResult queryCallbackMonitorStatus() const;
+        CallbackMonitorStatusResult queryCallbackMonitorStatus(DriverHandle& handle) const;
+        CallbackMonitorReadResult readCallbackMonitor(std::uint64_t afterSequence, unsigned long maxRecords = KSWORD_ARK_CALLBACK_MONITOR_DEFAULT_READ_RECORDS) const;
+        CallbackMonitorReadResult readCallbackMonitor(DriverHandle& handle, std::uint64_t afterSequence, unsigned long maxRecords = KSWORD_ARK_CALLBACK_MONITOR_DEFAULT_READ_RECORDS) const;
         RegistryReadResult readRegistryValue(const std::wstring& kernelKeyPath, const std::wstring& valueName, unsigned long maxDataBytes = KSWORD_ARK_REGISTRY_DATA_MAX_BYTES) const;
         RegistryEnumResult enumerateRegistryKey(const std::wstring& kernelKeyPath, unsigned long flags = KSWORD_ARK_REGISTRY_ENUM_FLAG_INCLUDE_SUBKEYS | KSWORD_ARK_REGISTRY_ENUM_FLAG_INCLUDE_VALUES) const;
         RegistryOperationResult setRegistryValue(const std::wstring& kernelKeyPath, const std::wstring& valueName, std::uint32_t valueType, const std::vector<std::uint8_t>& data) const;
@@ -366,6 +381,11 @@ namespace ksword::ark
             bool uiConfirmed) const;
         // queryIoctlRegistry：查询 KswordARK 统一 dispatch 注册表，只读返回元数据。
         IoctlRegistryQueryResult queryIoctlRegistry(unsigned long flags = KSWORD_ARK_IOCTL_REGISTRY_FLAG_INCLUDE_HANDLER, unsigned long maxEntries = KSWORD_ARK_IOCTL_REGISTRY_MAX_ENTRIES) const;
+
+        // queryResearchTopic：查询一个内核知识专题的版本化 R0 现场证据与来源映射。
+        ResearchTopicQueryResult queryResearchTopic(
+            unsigned long topicId,
+            unsigned long maxEntries = KSWORD_ARK_RESEARCH_DEFAULT_MAX_ENTRIES) const;
         // queryDriverIntegrity：
         // - 输入：可选 DriverObject 名称、模块基址和采集预算。
         // - 处理：调用统一驱动完整性 IOCTL，聚合 DriverObject/LDR/FastIo/CPU/IDT 证据。

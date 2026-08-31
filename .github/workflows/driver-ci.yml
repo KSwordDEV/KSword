@@ -81,7 +81,7 @@ jobs:
             changed="$(git diff --name-only HEAD~1 HEAD)"
           fi
 
-          driver_re='^(KswordARKDriver/|KswordARKControllerDriver/|shared/driver/|third_party/systeminformer_dyn/|\.github/workflows/driver-ci\.yml$)'
+          driver_re='^(KswordARKDriver/|shared/driver/|third_party/systeminformer_dyn/|\.github/workflows/driver-ci\.yml$)'
 
           # 回归保护：项目直接编译/包含的 System Informer 动态配置输入必须触发驱动构建。
           for driver_input in \
@@ -143,50 +143,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Driver MSBuild failed with exit code $LASTEXITCODE."
           }
-          & $msbuild 'KswordARKControllerDriver/KswordARKControllerDriver.vcxproj' `
-            /t:Build `
-            /p:Configuration=Release `
-            /p:Platform=x64 `
-            /p:SignMode=Off `
-            /p:SkipPackageVerification=true `
-            /m:1 `
-            /v:minimal
-          if ($LASTEXITCODE -ne 0) {
-            throw "Controller driver MSBuild failed with exit code $LASTEXITCODE."
-          }
-
-      - name: Generate unsigned controller catalog
-        shell: pwsh
-        run: |
-          $inf2Cat = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' `
-            -Filter Inf2Cat.exe -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match '\\x86\\Inf2Cat\.exe$' } |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1
-          if ($null -eq $inf2Cat) {
-            throw 'Could not locate Inf2Cat.exe in the installed WDK.'
-          }
-          $controllerPackage = (Resolve-Path 'KswordARKControllerDriver/x64/Release/KswordARKControllerDriver').Path
-          & $inf2Cat.FullName "/driver:$controllerPackage" '/os:10_X64'
-          if ($LASTEXITCODE -ne 0) {
-            throw "Inf2Cat failed with exit code $LASTEXITCODE."
-          }
-          Copy-Item `
-            (Join-Path $controllerPackage 'KswordARKController.cat') `
-            'KswordARKControllerDriver/x64/Release/KswordARKController.cat' `
-            -Force
-
       - name: Verify driver artifacts
         shell: pwsh
         run: |
           $artifacts = @(
             'Ksword5.1/x64/Release/KswordARK.sys',
             'Ksword5.1/x64/Release/KswordARK.pdb',
-            'Ksword5.1/x64/Release/KswordARKDriver.inf',
-            'KswordARKControllerDriver/x64/Release/KswordARKController.sys',
-            'KswordARKControllerDriver/x64/Release/KswordARKController.pdb',
-            'KswordARKControllerDriver/x64/Release/KswordARKControllerDriver.inf',
-            'KswordARKControllerDriver/x64/Release/KswordARKController.cat'
+            'Ksword5.1/x64/Release/KswordARKDriver.inf'
           )
           $missing = $artifacts | Where-Object { -not (Test-Path $_) }
           if ($missing) {
@@ -201,8 +164,4 @@ jobs:
             Ksword5.1/x64/Release/KswordARK.sys
             Ksword5.1/x64/Release/KswordARK.pdb
             Ksword5.1/x64/Release/KswordARKDriver.inf
-            KswordARKControllerDriver/x64/Release/KswordARKController.sys
-            KswordARKControllerDriver/x64/Release/KswordARKController.pdb
-            KswordARKControllerDriver/x64/Release/KswordARKControllerDriver.inf
-            KswordARKControllerDriver/x64/Release/KswordARKController.cat
           if-no-files-found: error

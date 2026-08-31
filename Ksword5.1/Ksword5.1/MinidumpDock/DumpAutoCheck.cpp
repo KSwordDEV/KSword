@@ -25,7 +25,7 @@ namespace ks::minidump
     namespace
     {
         // kKswordModulePrefix：KSword 自有模块的统一前缀。
-        // 驱动产物为 KswordARK.sys / KswordARKController.sys，用户态为
+        // 驱动产物为 KswordARK.sys，用户态为
         // Ksword5.1.exe / KswordARKLight.exe / KswordHUD.exe 等，
         // 前缀匹配比逐个枚举更耐改名。
         const QString kKswordModulePrefix = QStringLiteral("ksword");

@@ -15,6 +15,7 @@ class QSlider;
 class QSpinBox;
 class QTabWidget;
 class QToolButton;
+class QVBoxLayout;
 
 class SettingsDock : public QWidget
 {
@@ -55,6 +56,15 @@ signals:
     // pendingChangesChanged 作用：同步对话框固定“应用”按钮的可用状态。
     void pendingChangesChanged(bool hasPendingChanges);
 
+    // bugcheckDiagnosticsAutoInstallChanged 作用：通知主窗口更新本次已加载配置与页面入口显示状态。
+    void bugcheckDiagnosticsAutoInstallChanged(bool enabled);
+
+    // bugcheckDiagnosticsInstalledForSession 作用：本次安装完成后显示蓝屏诊断入口并上传运行期资源。
+    void bugcheckDiagnosticsInstalledForSession();
+
+    // bugcheckDiagnosticsInstallationStarted 作用：用户明确请求本次安装后立即显示入口，便于查看状态和失败原因。
+    void bugcheckDiagnosticsInstallationStarted();
+
 private:
     // initializeUi 作用：
     // - 构建 SettingsDock 的根布局与 Tab 容器。
@@ -77,6 +87,28 @@ private:
     // 调用方式：initializeUi 后、读取配置前调用。
     // 返回：无。
     void initializeOnlineScanTab();
+
+    // initializeBugcheckDiagnosticsControls 作用：在“功能”标签追加配置化蓝屏诊断的三种操作。
+    // 调用方式：initializeFeaturesTab 创建完已有分组后调用。
+    // 入参 featuresRootLayout：功能页根布局，必须非空；返回：无。
+    void initializeBugcheckDiagnosticsControls(QVBoxLayout* featuresRootLayout);
+
+    // refreshBugcheckDiagnosticsStatusText 作用：根据持久化配置和当前异步操作状态刷新说明文本。
+    // 调用方式：初始化、配置保存、安装完成及语言切换后调用；传入传出：无。
+    void refreshBugcheckDiagnosticsStatusText();
+
+    // setBugcheckDiagnosticsAutoInstall 作用：只写入自动安装开关，不提交同页其它待应用设置。
+    // 调用方式：点击自动安装或取消自动安装按钮时调用。
+    // 入参 enabled：true=后续驱动成功启动后安装；false=后续驱动不安装；返回：无。
+    void setBugcheckDiagnosticsAutoInstall(bool enabled);
+
+    // installBugcheckDiagnosticsForCurrentSession 作用：后台发送 R0 安装 IOCTL，仅影响当前驱动生命周期。
+    // 调用方式：点击“本次安装”按钮时调用；返回：无，结果通过状态文本和信号反馈。
+    void installBugcheckDiagnosticsForCurrentSession();
+
+    // setBugcheckDiagnosticsControlsBusy 作用：安装期间禁用三个操作，防止并发 BGP 扫描与回调注册。
+    // 调用方式：后台任务发出前和回投完成后调用；入参 busy：是否正在安装；返回：无。
+    void setBugcheckDiagnosticsControlsBusy(bool busy);
 
     // bindAppearanceSignals 作用：
     // - 绑定外观页所有控件事件到“待应用”流程；
@@ -321,6 +353,21 @@ private:
 
     // m_dumpAutoCheckCheckBox 作用：设置启动后是否检查系统近期的新崩溃转储。
     QCheckBox* m_dumpAutoCheckCheckBox = nullptr;
+
+    // m_bugcheckDiagnosticsStatusLabel 作用：展示自动安装配置和当前会话安装结果。
+    QLabel* m_bugcheckDiagnosticsStatusLabel = nullptr;
+
+    // m_enableBugcheckDiagnosticsAutoInstallButton 作用：写入后续驱动启动时自动安装的配置项。
+    QPushButton* m_enableBugcheckDiagnosticsAutoInstallButton = nullptr;
+
+    // m_disableBugcheckDiagnosticsAutoInstallButton 作用：移除后续驱动启动时自动安装的配置项。
+    QPushButton* m_disableBugcheckDiagnosticsAutoInstallButton = nullptr;
+
+    // m_installBugcheckDiagnosticsForSessionButton 作用：向当前已经加载的驱动发送一次安装 IOCTL。
+    QPushButton* m_installBugcheckDiagnosticsForSessionButton = nullptr;
+
+    // m_bugcheckDiagnosticsInstallBusy 作用：记录异步安装 IOCTL 是否仍在执行。
+    bool m_bugcheckDiagnosticsInstallBusy = false;
 
     // m_installTaskmgrHijackButton 作用：调用当前目录 TaskmgrHijack.ps1 安装 taskmgr.exe IFEO 映像劫持。
     QPushButton* m_installTaskmgrHijackButton = nullptr;

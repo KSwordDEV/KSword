@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cwctype>
 #include <string>
+#include <utility>
 
 namespace Ksword::Features::Service {
 namespace {
@@ -54,6 +55,50 @@ std::wstring ExpandDependencyList(const std::wstring& multiSz) {
             break;
         }
         cursor = end + 1;
+    }
+    return text;
+}
+
+// SplitDependencyList preserves the SCM distinction between a service short
+// name and a +load-order-group entry. The formatted dependency string remains
+// useful for the existing list view, while these vectors let detail consumers
+// export or render the two meanings without parsing presentation text.
+void SplitDependencyList(const std::wstring& multiSz,
+    std::vector<std::wstring>* serviceNames,
+    std::vector<std::wstring>* loadOrderGroups) {
+    if (!serviceNames || !loadOrderGroups) {
+        return;
+    }
+    serviceNames->clear();
+    loadOrderGroups->clear();
+    std::size_t cursor = 0;
+    while (cursor < multiSz.size()) {
+        const std::size_t end = multiSz.find(L'\0', cursor);
+        const std::wstring item = multiSz.substr(cursor, end == std::wstring::npos ? std::wstring::npos : end - cursor);
+        if (!item.empty()) {
+            if (item.front() == L'+' && item.size() > 1) {
+                loadOrderGroups->push_back(item.substr(1));
+            } else {
+                serviceNames->push_back(item);
+            }
+        }
+        if (end == std::wstring::npos) {
+            break;
+        }
+        cursor = end + 1;
+    }
+}
+
+std::wstring JoinNames(const std::vector<std::wstring>& names) {
+    std::wstring text;
+    for (const std::wstring& name : names) {
+        if (name.empty()) {
+            continue;
+        }
+        if (!text.empty()) {
+            text += L", ";
+        }
+        text += name;
     }
     return text;
 }
@@ -185,6 +230,116 @@ std::wstring BuildRiskText(const ServiceEntry& entry) {
     return text;
 }
 
+bool IsExplicitlyUnsupportedOptionalQueryError(const std::uint32_t win32Error) {
+    switch (win32Error) {
+    case ERROR_CALL_NOT_IMPLEMENTED:
+    case ERROR_NOT_SUPPORTED:
+    case ERROR_OLD_WIN_VERSION:
+        return true;
+    default:
+        return false;
+    }
+}
+
+ServiceDetailSection OptionalQueryFailure(const std::string& errorText, const std::uint32_t win32Error) {
+    ServiceDetailSection section{};
+    section.availability = IsExplicitlyUnsupportedOptionalQueryError(win32Error)
+        ? ServiceDetailAvailability::Unsupported
+        : ServiceDetailAvailability::Partial;
+    const std::wstring detail = WidenUtf8(errorText);
+    section.diagnosticText = ServiceDetailAvailabilityText(section.availability) + L"：";
+    if (!detail.empty()) {
+        section.diagnosticText += detail;
+    } else if (win32Error != ERROR_SUCCESS) {
+        section.diagnosticText += L"Win32 错误 " + std::to_wstring(win32Error);
+    } else {
+        section.diagnosticText += L"服务控制管理器未返回诊断。";
+    }
+    return section;
+}
+
+ServiceDetailSection OptionalQueryInvalidInput(const wchar_t* detail) {
+    ServiceDetailSection section{};
+    section.availability = ServiceDetailAvailability::Partial;
+    section.diagnosticText = L"Partial：";
+    section.diagnosticText += detail ? detail : L"查询输入无效。";
+    return section;
+}
+
+std::wstring FailureActionText(const std::uint32_t actionType, const std::uint32_t delayMs) {
+    std::wstring action;
+    switch (actionType) {
+    case SC_ACTION_NONE:
+        action = L"不执行操作";
+        break;
+    case SC_ACTION_RESTART:
+        action = L"重启服务";
+        break;
+    case SC_ACTION_REBOOT:
+        action = L"重启计算机";
+        break;
+    case SC_ACTION_RUN_COMMAND:
+        action = L"运行恢复命令";
+        break;
+    default:
+        action = L"未知操作(" + std::to_wstring(actionType) + L")";
+        break;
+    }
+    return action + L"（延迟 " + std::to_wstring(delayMs) + L" 毫秒）";
+}
+
+std::wstring SectionStatusValue(const ServiceDetailSection& section) {
+    return section.diagnosticText.empty()
+        ? ServiceDetailAvailabilityText(section.availability)
+        : section.diagnosticText;
+}
+
+void AppendFailureSettingsProperties(std::vector<ServiceProperty>* properties,
+    const ServiceFailureSettingsSnapshot& settings,
+    const ServiceDetailSection& status) {
+    if (!properties) {
+        return;
+    }
+    properties->push_back({ L"恢复策略查询", SectionStatusValue(status) });
+    if (status.availability != ServiceDetailAvailability::Available) {
+        return;
+    }
+
+    properties->push_back({ L"故障恢复配置", settings.hasFailureActions ? L"已配置" : L"未配置" });
+    properties->push_back({ L"恢复计数重置周期", settings.hasFailureActions
+        ? std::to_wstring(settings.resetPeriodSeconds) + L" 秒"
+        : L"-" });
+    properties->push_back({ L"恢复重启消息", settings.hasFailureActions
+        ? (settings.rebootMessage.empty() ? L"-" : settings.rebootMessage)
+        : L"-" });
+    properties->push_back({ L"恢复命令", settings.hasFailureActions
+        ? (settings.command.empty() ? L"-" : settings.command)
+        : L"-" });
+    properties->push_back({ L"非崩溃失败也触发恢复", settings.hasFailureActionsFlag
+        ? (settings.failureActionsOnNonCrash ? L"是" : L"否")
+        : L"未报告" });
+    for (std::size_t index = 0; index < settings.actions.size(); ++index) {
+        const ServiceFailureActionSnapshot& action = settings.actions[index];
+        properties->push_back({
+            L"第 " + std::to_wstring(index + 1) + L" 次失败后的操作",
+            action.actionText,
+        });
+    }
+}
+
+void AppendReverseDependencyProperties(std::vector<ServiceProperty>* properties,
+    const ServiceDependencySnapshot& dependencies,
+    const ServiceDetailSection& status) {
+    if (!properties) {
+        return;
+    }
+    properties->push_back({ L"反向依赖查询", SectionStatusValue(status) });
+    if (status.availability == ServiceDetailAvailability::Available) {
+        const std::wstring names = JoinNames(dependencies.directDependentServiceNames);
+        properties->push_back({ L"直接反向依赖服务", names.empty() ? L"无" : names });
+    }
+}
+
 ServiceEntry BuildEntry(const ks::service::ServiceRecord& record) {
     ServiceEntry entry{};
     entry.serviceName = record.serviceName;
@@ -192,12 +347,17 @@ ServiceEntry BuildEntry(const ks::service::ServiceRecord& record) {
     entry.description = record.description;
     entry.hasStatus = record.hasStatus;
     entry.hasConfig = record.hasConfig;
+    entry.hasDescription = record.hasDescription;
 
     if (record.hasStatus) {
         entry.serviceType = record.status.serviceType;
         entry.currentState = record.status.currentState;
         entry.controlsAccepted = record.status.controlsAccepted;
         entry.win32ExitCode = record.status.win32ExitCode;
+        entry.serviceSpecificExitCode = record.status.serviceSpecificExitCode;
+        entry.checkPoint = record.status.checkPoint;
+        entry.waitHint = record.status.waitHint;
+        entry.serviceFlags = record.status.serviceFlags;
         entry.processId = record.status.processId;
     }
     if (record.hasConfig) {
@@ -207,9 +367,13 @@ ServiceEntry BuildEntry(const ks::service::ServiceRecord& record) {
         entry.serviceType = record.config.serviceType != 0 ? record.config.serviceType : entry.serviceType;
         entry.startType = record.config.startType;
         entry.errorControl = record.config.errorControl;
+        entry.tagId = record.config.tagId;
         entry.binaryPath = record.config.binaryPath;
         entry.loadOrderGroup = record.config.loadOrderGroup;
         entry.dependencies = ExpandDependencyList(record.config.dependenciesMultiSz);
+        SplitDependencyList(record.config.dependenciesMultiSz,
+            &entry.dependencyServiceNames,
+            &entry.dependencyLoadOrderGroups);
         entry.accountName = record.config.accountName;
         entry.delayedAutoStart = record.config.delayedAutoStart;
         if (entry.displayName.empty()) {
@@ -231,6 +395,12 @@ ServiceEntry BuildEntry(const ks::service::ServiceRecord& record) {
         }
         diagnostic += L"配置读取失败：" + WidenUtf8(record.configErrorText);
     }
+    if (!record.hasDescription && !record.descriptionErrorText.empty()) {
+        if (!diagnostic.empty()) {
+            diagnostic += L"；";
+        }
+        diagnostic += L"描述读取失败：" + WidenUtf8(record.descriptionErrorText);
+    }
     entry.diagnosticText = std::move(diagnostic);
 
     if (entry.accountName.empty()) {
@@ -241,6 +411,75 @@ ServiceEntry BuildEntry(const ks::service::ServiceRecord& record) {
 }
 
 } // namespace
+
+std::wstring ServiceDetailAvailabilityText(const ServiceDetailAvailability availability) {
+    switch (availability) {
+    case ServiceDetailAvailability::Available:
+        return L"Available";
+    case ServiceDetailAvailability::Unsupported:
+        return L"Unsupported";
+    case ServiceDetailAvailability::Partial:
+    default:
+        return L"Partial";
+    }
+}
+
+std::wstring ResolveServiceImagePathForBrowser(const std::wstring& binaryPath) {
+    return ResolveImagePath(ExecutablePathFromCommandLine(binaryPath));
+}
+
+ServiceDetailSnapshot QueryServiceReadOnlyDetails(const ServiceEntry& entry) {
+    ServiceDetailSnapshot snapshot{};
+    snapshot.entry = entry;
+    snapshot.properties = ServicePropertiesForEntry(entry);
+    snapshot.dependencies.directServiceNames = entry.dependencyServiceNames;
+    snapshot.dependencies.loadOrderGroups = entry.dependencyLoadOrderGroups;
+
+    if (entry.serviceName.empty()) {
+        snapshot.failureSettingsStatus = OptionalQueryInvalidInput(L"服务名为空，无法查询恢复策略。");
+        snapshot.reverseDependenciesStatus = OptionalQueryInvalidInput(L"服务名为空，无法查询反向依赖。");
+        AppendFailureSettingsProperties(&snapshot.properties, snapshot.failureSettings, snapshot.failureSettingsStatus);
+        AppendReverseDependencyProperties(&snapshot.properties, snapshot.dependencies, snapshot.reverseDependenciesStatus);
+        return snapshot;
+    }
+
+    ks::service::FailureSettings failureSettings;
+    std::string failureErrorText;
+    std::uint32_t failureWin32Error = ERROR_SUCCESS;
+    if (ks::service::QueryServiceFailureSettings(
+            entry.serviceName, &failureSettings, &failureErrorText, &failureWin32Error)) {
+        snapshot.failureSettings.resetPeriodSeconds = failureSettings.resetPeriodSeconds;
+        snapshot.failureSettings.rebootMessage = failureSettings.rebootMessage;
+        snapshot.failureSettings.command = failureSettings.command;
+        snapshot.failureSettings.failureActionsOnNonCrash = failureSettings.failureActionsOnNonCrash;
+        snapshot.failureSettings.hasFailureActions = failureSettings.hasFailureActions;
+        snapshot.failureSettings.hasFailureActionsFlag = failureSettings.hasFailureActionsFlag;
+        snapshot.failureSettings.actions.reserve(failureSettings.actions.size());
+        for (const ks::service::FailureAction& action : failureSettings.actions) {
+            ServiceFailureActionSnapshot row{};
+            row.actionType = action.type;
+            row.delayMs = action.delayMs;
+            row.actionText = FailureActionText(row.actionType, row.delayMs);
+            snapshot.failureSettings.actions.push_back(std::move(row));
+        }
+    } else {
+        snapshot.failureSettingsStatus = OptionalQueryFailure(failureErrorText, failureWin32Error);
+    }
+
+    std::vector<std::wstring> reverseDependencies;
+    std::string reverseErrorText;
+    std::uint32_t reverseWin32Error = ERROR_SUCCESS;
+    if (ks::service::QueryDependentServiceNames(
+            entry.serviceName, SERVICE_STATE_ALL, &reverseDependencies, &reverseErrorText, &reverseWin32Error)) {
+        snapshot.dependencies.directDependentServiceNames = std::move(reverseDependencies);
+    } else {
+        snapshot.reverseDependenciesStatus = OptionalQueryFailure(reverseErrorText, reverseWin32Error);
+    }
+
+    AppendFailureSettingsProperties(&snapshot.properties, snapshot.failureSettings, snapshot.failureSettingsStatus);
+    AppendReverseDependencyProperties(&snapshot.properties, snapshot.dependencies, snapshot.reverseDependenciesStatus);
+    return snapshot;
+}
 
 ServiceEnumerationResult EnumerateServices() {
     ServiceEnumerationResult result{};

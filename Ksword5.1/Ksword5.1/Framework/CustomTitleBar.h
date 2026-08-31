@@ -3,11 +3,11 @@
 // ============================================================
 // CustomTitleBar.h
 // 作用说明：
-// 1) 提供主窗口自绘标题栏（左信息、中“搜索/CMD”双模式输入、右控制按钮）；
+// 1) 提供主窗口自绘标题栏（左侧应用标识/功能入口、中“搜索/CMD”双模式输入、右控制按钮）；
 // 2) 提供置顶/最小化/最大化/关闭等交互信号；
 // 3) 中间输入框默认为“搜索”模式（全局页面文本搜索），
 //    点击左侧模式按钮可切换为 CMD 模式（cmd /K 新控制台执行）；
-// 4) 支持深浅色主题切换和“33251 -> WangWei_CM”用户名特判展示。
+// 4) 支持深浅色主题切换。
 // ============================================================
 
 #include "../Framework.h"
@@ -25,7 +25,6 @@ class QGridLayout;
 class QHBoxLayout;
 class QMouseEvent;
 class QResizeEvent;
-class QTimer;
 
 namespace ks::ui
 {
@@ -78,6 +77,9 @@ namespace ks::ui
         // - 传入 darkModeEnabled：true=深色；
         // - 传出：无。
         void setDarkModeEnabled(bool darkModeEnabled);
+
+        // setCustomLeftWidget：在应用图标和标题文本后挂载自定义功能控件。
+        void setCustomLeftWidget(QWidget* customLeftWidget);
 
         // isPointInDraggableRegion：
         // - 作用：判断标题栏某点是否属于“可拖动区域”；
@@ -219,23 +221,6 @@ namespace ks::ui
         // - 调用：初始化、模式切换与主题刷新时调用。
         void updateTitleInputModeVisuals();
 
-        // updateUserBadgeWidth：
-        // - 作用：根据当前展示用户名重新计算用户名徽标宽度；
-        // - 调用：用户名文本或主题字体刷新后调用；
-        // - 传入 displayUserNameText：按钮实际显示的用户名文本；
-        // - 传出：无。
-        void updateUserBadgeWidth(const QString& displayUserNameText);
-
-        // updateTimeStatusText：
-        // - 作用：刷新当前系统时间和不受 QPC 变速影响的软件运行时长；
-        // - 调用：初始化后立即调用，并由 1 秒定时器持续刷新。
-        void updateTimeStatusText();
-
-        // resolveProcessStartTickMilliseconds：
-        // - 作用：把进程创建时间换算为 GetTickCount64 时间轴上的启动点；
-        // - 返回：不受性能计数器变速影响的启动毫秒刻度。
-        unsigned long long resolveProcessStartTickMilliseconds() const;
-
         // tryStartWindowSystemMove：
         // - 作用：向宿主窗口发起一次系统级拖动；
         // - 调用：mouseMoveEvent 在达到拖动阈值后调用；
@@ -251,20 +236,6 @@ namespace ks::ui
         // - 传出：无。
         void restoreWindowFromMaximizedForDrag(QWidget* hostWindowWidget, const QPoint& globalPoint);
 
-        // resolveCompileDateText：
-        // - 作用：把编译日期格式化为 yyyy-MM-dd；
-        // - 调用：初始化左侧标题文本时调用；
-        // - 传入：无；
-        // - 传出：格式化日期字符串。
-        QString resolveCompileDateText() const;
-
-        // resolveCurrentUserNameText：
-        // - 作用：读取当前用户名（环境变量 + WinAPI 回退）；
-        // - 调用：初始化用户按钮时调用；
-        // - 传入：无；
-        // - 传出：用户名文本。
-        QString resolveCurrentUserNameText() const;
-
         // resolveWindowsVersionText：
         // - 作用：读取当前 Windows 发布版本和完整内核版本号；
         // - 调用：初始化右侧系统版本标签时调用；
@@ -273,11 +244,11 @@ namespace ks::ui
         QString resolveWindowsVersionText() const;
 
     private:
-        QWidget* m_leftWidget = nullptr;          // m_leftWidget：左侧信息区容器（图标+标题+用户名）。
+        QWidget* m_leftWidget = nullptr;          // m_leftWidget：左侧信息区容器（图标、标题和功能入口）。
         QHBoxLayout* m_leftLayout = nullptr;      // m_leftLayout：左侧信息区布局。
         QLabel* m_appIconLabel = nullptr;         // m_appIconLabel：程序图标标签。
-        QLabel* m_titleTextLabel = nullptr;       // m_titleTextLabel：标题文本（含编译日期）。
-        QPushButton* m_userBadgeButton = nullptr; // m_userBadgeButton：用户名展示按钮（禁用态仅展示）。
+        QLabel* m_titleTextLabel = nullptr;       // m_titleTextLabel：标题文本。
+        QWidget* m_customLeftWidget = nullptr;    // m_customLeftWidget：标题文本后的自定义功能控件。
 
         QWidget* m_centerInputGroup = nullptr;    // m_centerInputGroup：中间输入组容器（模式按钮+输入框）。
         QHBoxLayout* m_centerInputLayout = nullptr; // m_centerInputLayout：中间输入组水平布局。
@@ -291,8 +262,6 @@ namespace ks::ui
         QHBoxLayout* m_rightLayout = nullptr;     // m_rightLayout：右侧按钮区布局。
         QWidget* m_customRightWidget = nullptr;   // m_customRightWidget：右侧控制按钮前的自定义扩展控件。
         QLabel* m_systemVersionLabel = nullptr;   // m_systemVersionLabel：眼睛与图钉按钮左侧的系统版本文本。
-        QLabel* m_timeStatusLabel = nullptr;      // m_timeStatusLabel：当前系统时间与“已调试”运行时长。
-        QTimer* m_timeStatusTimer = nullptr;      // m_timeStatusTimer：每秒刷新标题栏时间文本。
         QPushButton* m_captureProtectionButton = nullptr; // m_captureProtectionButton：截屏屏蔽切换按钮。
         QPushButton* m_pinButton = nullptr;       // m_pinButton：置顶切换图钉按钮。
         QPushButton* m_minButton = nullptr;       // m_minButton：最小化按钮。
@@ -301,9 +270,7 @@ namespace ks::ui
 
         QGridLayout* m_rootLayout = nullptr;      // m_rootLayout：标题栏主布局（左/中/右三段）。
 
-        QString m_rawUserNameText;                // m_rawUserNameText：读取到的原始用户名。
         QString m_searchScopeDisplayText = QStringLiteral("全局"); // m_searchScopeDisplayText：顶部搜索当前范围标签。
-        bool m_isSpecialUser = false;             // m_isSpecialUser：是否命中“33251”特判。
         bool m_captureProtectionEnabled = false;  // m_captureProtectionEnabled：当前是否启用截屏屏蔽。
         bool m_isPinned = false;                  // m_isPinned：当前置顶状态。
         bool m_isMaximized = false;               // m_isMaximized：当前窗口是否最大化。
@@ -311,7 +278,6 @@ namespace ks::ui
         bool m_searchInputModeActive = true;      // m_searchInputModeActive：中间输入框是否处于搜索模式（默认搜索）。
         bool m_dragCandidateActive = false;       // m_dragCandidateActive：当前是否处于标题栏拖动候选状态。
         bool m_dragInProgress = false;            // m_dragInProgress：当前是否已把拖动交给系统处理。
-        unsigned long long m_processStartTickMilliseconds = 0ULL; // m_processStartTickMilliseconds：GetTickCount64 时间轴上的进程启动点。
         QPoint m_dragPressLocalPos;               // m_dragPressLocalPos：本次按下时相对标题栏左上角的坐标。
         QPoint m_dragPressGlobalPos;              // m_dragPressGlobalPos：本次按下时的全局屏幕坐标。
     };

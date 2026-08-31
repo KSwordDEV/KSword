@@ -1,4 +1,5 @@
 #include "process.h"
+#include "ProcessCpuUsageModel.h"
 
 #include "../string/string.h"
 
@@ -3459,6 +3460,16 @@ namespace ks::process
         return std::to_string(pid) + "#" + std::to_string(creationTime100ns);
     }
 
+    std::string BuildThreadIdentityKey(
+        const std::uint32_t pid,
+        const std::uint32_t threadId,
+        const std::uint64_t creationTime100ns)
+    {
+        // 创建时间不可得时仍保留 PID/TID；若发生复用，累计计数器回退会使该轮重新建立基准。
+        return std::to_string(pid) + "#" + std::to_string(threadId) + "#" +
+            std::to_string(creationTime100ns);
+    }
+
     bool QueryProcessCreationTimeByPid(
         const std::uint32_t pid,
         std::uint64_t* const creationTime100nsOut,
@@ -4127,6 +4138,7 @@ namespace ks::process
         if (previousSample == nullptr)
         {
             processRecord.cpuPercent = 0.0;
+            processRecord.cpuCorePercent = 0.0;
             processRecord.diskMBps = 0.0;
             processRecord.netKBps = 0.0;
             processRecord.netRxKBps = 0.0;
@@ -4138,6 +4150,7 @@ namespace ks::process
         if (currentTick100ns <= previousSample->sampleTick100ns)
         {
             processRecord.cpuPercent = 0.0;
+            processRecord.cpuCorePercent = 0.0;
             processRecord.diskMBps = 0.0;
             processRecord.netKBps = 0.0;
             processRecord.netRxKBps = 0.0;
@@ -4155,17 +4168,28 @@ namespace ks::process
             ? (processRecord.rawIoBytes - previousSample->ioBytes)
             : 0;
 
-        // CPU 百分比换算：
-        // deltaCpu / deltaWall / logicalCpuCount * 100。
-        const double cpuCountSafe = std::max(1u, logicalCpuCount);
-        const double cpuPercent = (static_cast<double>(deltaCpu100ns) / static_cast<double>(deltaTick100ns)) * (100.0 / cpuCountSafe);
-        processRecord.cpuPercent = std::clamp(cpuPercent, 0.0, 100.0);
+        // CPU 百分比同时保留两种语义：
+        // - cpuPercent：相对全部逻辑处理器归一化，范围 0~100；
+        // - cpuCorePercent：单核等效，100%=占满一个逻辑处理器，多线程进程可超过 100。
+        const CpuUsageWindowResult cpuUsage = CalculateCpuUsageWindow(
+            processRecord.rawCpuTime100ns,
+            previousSample->cpuTime100ns,
+            currentTick100ns,
+            previousSample->sampleTick100ns,
+            logicalCpuCount,
+            logicalCpuCount);
+        processRecord.cpuPercent = cpuUsage.systemPercent;
+        processRecord.cpuCorePercent = cpuUsage.coreEquivalentPercent;
 
         // 为避免“小于显示精度但非零”的进程看起来恒为 0，
         // 只要 CPU 增量确实大于 0，就给一个最小可见值 0.01%。
         if (deltaCpu100ns > 0 && processRecord.cpuPercent < 0.01)
         {
             processRecord.cpuPercent = 0.01;
+        }
+        if (deltaCpu100ns > 0 && processRecord.cpuCorePercent < 0.01)
+        {
+            processRecord.cpuCorePercent = 0.01;
         }
 
         // Disk 吞吐换算：deltaIoBytes / deltaSeconds -> MB/s。
@@ -4183,6 +4207,45 @@ namespace ks::process
         processRecord.netKBps = 0.0;
         processRecord.netRxKBps = 0.0;
         processRecord.netTxKBps = 0.0;
+    }
+
+    void UpdateThreadCpuUsage(
+        SystemThreadRecord& threadRecord,
+        const ThreadCounterSample* const previousSample,
+        ThreadCounterSample& nextSampleOut,
+        const std::uint32_t logicalCpuCount,
+        const std::uint64_t currentTick100ns)
+    {
+        const std::uint64_t currentCpuTime100ns =
+            threadRecord.kernelTime100ns + threadRecord.userTime100ns;
+        nextSampleOut.cpuTime100ns = currentCpuTime100ns;
+        nextSampleOut.sampleTick100ns = currentTick100ns;
+        threadRecord.cpuPercent = 0.0;
+        threadRecord.cpuUsageReady = false;
+
+        if (previousSample == nullptr)
+        {
+            return;
+        }
+
+        const CpuUsageWindowResult cpuUsage = CalculateCpuUsageWindow(
+            currentCpuTime100ns,
+            previousSample->cpuTime100ns,
+            currentTick100ns,
+            previousSample->sampleTick100ns,
+            logicalCpuCount,
+            1U);
+        if (!cpuUsage.valid)
+        {
+            return;
+        }
+
+        threadRecord.cpuPercent = cpuUsage.coreEquivalentPercent;
+        if (currentCpuTime100ns > previousSample->cpuTime100ns && threadRecord.cpuPercent < 0.01)
+        {
+            threadRecord.cpuPercent = 0.01;
+        }
+        threadRecord.cpuUsageReady = true;
     }
 
     std::vector<ProcessRecord> EnumerateProcesses(
@@ -4687,6 +4750,38 @@ namespace ks::process
             threadRecord.basePriority = static_cast<int>(threadEntry.tpBasePri);
             threadRecord.threadState = std::numeric_limits<std::uint32_t>::max();
             threadRecord.waitReason = std::numeric_limits<std::uint32_t>::max();
+
+            // Toolhelp 本身不返回线程累计时间；尽量用 GetThreadTimes 补齐，
+            // 使 NtQuerySystemInformation 不可用时线程 CPU 列仍能在下一轮显示。
+            HANDLE threadHandle = ::OpenThread(
+                THREAD_QUERY_LIMITED_INFORMATION,
+                FALSE,
+                threadRecord.threadId);
+            if (threadHandle != nullptr)
+            {
+                FILETIME createTime{};
+                FILETIME exitTime{};
+                FILETIME kernelTime{};
+                FILETIME userTime{};
+                if (::GetThreadTimes(
+                    threadHandle,
+                    &createTime,
+                    &exitTime,
+                    &kernelTime,
+                    &userTime) != FALSE)
+                {
+                    threadRecord.createTime100ns = ks::str::FileTimeToUint64(
+                        createTime.dwHighDateTime,
+                        createTime.dwLowDateTime);
+                    threadRecord.kernelTime100ns = ks::str::FileTimeToUint64(
+                        kernelTime.dwHighDateTime,
+                        kernelTime.dwLowDateTime);
+                    threadRecord.userTime100ns = ks::str::FileTimeToUint64(
+                        userTime.dwHighDateTime,
+                        userTime.dwLowDateTime);
+                }
+                ::CloseHandle(threadHandle);
+            }
 
             auto processNameIt = processNameCacheByPid.find(threadRecord.ownerPid);
             if (processNameIt == processNameCacheByPid.end())

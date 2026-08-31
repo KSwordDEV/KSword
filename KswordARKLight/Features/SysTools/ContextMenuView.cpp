@@ -1,8 +1,11 @@
 #include "ContextMenuView.h"
 
 #include "ContextMenuScanner.h"
+#include "../../Core/EntityRef.h"
+#include "../File/PathNavigator.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/EntityNavigation.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
@@ -41,6 +44,8 @@ constexpr UINT kMenuEnable = 67622;
 constexpr UINT kMenuCopyRow = 67623;
 constexpr UINT kMenuCopyVisible = 67624;
 constexpr UINT kMenuRefresh = 67625;
+constexpr UINT kMenuOpenRegistry = 67626;
+constexpr UINT kMenuOpenModuleDirectory = 67627;
 
 constexpr UINT kMsgScanCompleted = WM_APP + 710;
 constexpr UINT kMsgFilterCompleted = WM_APP + 711;
@@ -426,8 +431,80 @@ std::wstring RowsAsText(const ContextMenuViewState& state, const bool allVisible
     return text;
 }
 
-void ShowContextMenu(ContextMenuViewState& state, POINT screenPoint) {
+// SelectRowAtPoint makes a right-click command apply to the row under the
+// pointer rather than a stale selection left by an earlier operation.
+void SelectRowAtPoint(ContextMenuViewState& state, const POINT screenPoint) {
+    const HWND list = state.list.hwnd();
+    if (!list) {
+        return;
+    }
+    POINT clientPoint = screenPoint;
+    ::ScreenToClient(list, &clientPoint);
+    LVHITTESTINFO hit{};
+    hit.pt = clientPoint;
+    const int clickedItem = ListView_HitTest(list, &hit);
+    ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    if (clickedItem < 0 || static_cast<std::size_t>(clickedItem) >= state.list.visibleIndexes().size()) {
+        RefreshSelectionDependentUi(state);
+        return;
+    }
+    ListView_SetItemState(list, clickedItem, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    RefreshSelectionDependentUi(state);
+}
+
+// OpenSelectedRegistryKey routes a live HKCR-relative registration to the
+// registry browser. The destination reopens the key, so this snapshot never
+// grants access to a deleted or changed registration.
+void OpenSelectedRegistryKey(ContextMenuViewState& state) {
     const ContextMenuEntry* entry = SelectedEntry(state);
+    if (!entry || !entry->enabled || entry->registrationPath.empty()) {
+        state.statusText = L"当前选择没有可打开的活动注册项。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::RegistryBrowser;
+    request.entity.kind = Ksword::Core::EntityKind::RegistryKey;
+    request.entity.text = L"HKCR\\" + entry->registrationPath;
+    state.statusText = Ksword::Ui::RequestEntityNavigation(state.hwnd, request)
+        ? L"已转到注册表浏览器；目标路径会重新读取。"
+        : L"无法导航到该活动注册表项。";
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
+std::wstring ModuleDirectoryForEntry(const ContextMenuEntry& entry) {
+    if (!entry.moduleExists) {
+        return {};
+    }
+    return Ksword::Features::File::PathNavigator::parentDirectoryForKnownFilePath(entry.moduleFile);
+}
+
+// OpenSelectedModuleDirectory accepts only a file the scanner explicitly
+// checked, then applies the strict known DOS/UNC path gate before routing.
+void OpenSelectedModuleDirectory(ContextMenuViewState& state) {
+    const ContextMenuEntry* entry = SelectedEntry(state);
+    const std::wstring directory = entry ? ModuleDirectoryForEntry(*entry) : std::wstring{};
+    if (directory.empty()) {
+        state.statusText = L"当前项没有已验证的可导航模块文件路径。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::FileBrowser;
+    request.entity.kind = Ksword::Core::EntityKind::File;
+    request.entity.text = directory;
+    state.statusText = Ksword::Ui::RequestEntityNavigation(state.hwnd, request)
+        ? L"已在文件模块打开模块所在目录。"
+        : L"文件模块当前无法接收模块所在目录。";
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
+void ShowContextMenu(ContextMenuViewState& state, POINT screenPoint) {
+    SelectRowAtPoint(state, screenPoint);
+    const ContextMenuEntry* entry = SelectedEntry(state);
+    const std::wstring moduleDirectory = entry ? ModuleDirectoryForEntry(*entry) : std::wstring{};
     HMENU menu = ::CreatePopupMenu();
     if (!menu) {
         return;
@@ -437,6 +514,11 @@ void ShowContextMenu(ContextMenuViewState& state, POINT screenPoint) {
         kMenuDisable, L"禁用（备份后删除）");
     ::AppendMenuW(menu, MF_STRING | ((entry && !entry->enabled && !busy) ? MF_ENABLED : MF_GRAYED),
         kMenuEnable, L"启用（从备份还原）");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, MF_STRING | ((entry && entry->enabled && !entry->registrationPath.empty() && !busy) ? MF_ENABLED : MF_GRAYED),
+        kMenuOpenRegistry, L"在注册表中打开");
+    ::AppendMenuW(menu, MF_STRING | ((!moduleDirectory.empty() && !busy) ? MF_ENABLED : MF_GRAYED),
+        kMenuOpenModuleDirectory, L"打开模块所在目录");
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(menu, MF_STRING | (entry ? MF_ENABLED : MF_GRAYED), kMenuCopyRow, L"复制选中行");
     ::AppendMenuW(menu, MF_STRING, kMenuCopyVisible, L"复制可见行");
@@ -453,6 +535,12 @@ void ShowContextMenu(ContextMenuViewState& state, POINT screenPoint) {
         break;
     case kMenuEnable:
         RunAction(state, false);
+        break;
+    case kMenuOpenRegistry:
+        OpenSelectedRegistryKey(state);
+        break;
+    case kMenuOpenModuleDirectory:
+        OpenSelectedModuleDirectory(state);
         break;
     case kMenuCopyRow:
         state.statusText = CopyText(state.hwnd, RowsAsText(state, false)) ? L"已复制选中行。" : L"复制失败。";

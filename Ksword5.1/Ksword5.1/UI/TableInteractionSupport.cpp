@@ -2432,7 +2432,7 @@ namespace
         bool m_snapshotCaptureInProgress = false;
         bool m_comparisonInProgress = false;
         bool m_pauseCaptureInProgress = false;
-        TableActionBarMode m_mode = TableActionBarMode::Compact;
+        TableActionBarMode m_mode = TableActionBarMode::Full;
         QToolButton* m_copyAllButton = nullptr;
         QToolButton* m_exportButton = nullptr;
         QToolButton* m_freezePaneButton = nullptr;

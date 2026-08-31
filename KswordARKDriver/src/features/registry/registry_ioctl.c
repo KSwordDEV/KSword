@@ -157,7 +157,8 @@ Return Value:
             (KSWORD_ARK_READ_REGISTRY_VALUE_RESPONSE*)outputBuffer;
         KswordARKRegistryIoctlLog(
             Device,
-            response->status == KSWORD_ARK_REGISTRY_READ_STATUS_SUCCESS ? "Info" : "Warn",
+            (response->status == KSWORD_ARK_REGISTRY_READ_STATUS_SUCCESS ||
+             response->status == KSWORD_ARK_REGISTRY_READ_STATUS_NOT_FOUND) ? "Info" : "Warn",
             "R0 registry read response: status=%lu, type=%lu, data=%lu/%lu, last=0x%08X.",
             (unsigned long)response->status,
             (unsigned long)response->valueType,

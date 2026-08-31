@@ -505,9 +505,8 @@ namespace ks::ui
         }
     };
 
-    // QTableWidget pages default to the compact copy/export strip. Model-driven
-    // TableActionTableView pages opt into the complete snapshot/freeze workflow.
-    // Tiny or purely presentational tables can explicitly disable the strip.
+    // All table chrome hosts default to the complete snapshot/freeze workflow.
+    // Tiny or purely presentational tables can explicitly select Compact or None.
     inline TableActionBarMode EffectiveTableActionBarMode(const QTableView* tableView)
     {
         if (tableView == nullptr)
@@ -529,9 +528,7 @@ namespace ks::ui
             }
         }
 
-        return dynamic_cast<const TableActionTableView*>(tableView) != nullptr
-            ? TableActionBarMode::Full
-            : TableActionBarMode::Compact;
+        return TableActionBarMode::Full;
     }
 
     inline void SetTableActionBarMode(QTableView* tableView, const TableActionBarMode mode)

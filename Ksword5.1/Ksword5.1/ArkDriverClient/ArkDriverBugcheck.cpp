@@ -1,7 +1,9 @@
 #include "ArkDriverClient.h"
 
+#include <chrono>
 #include <cstring>
 #include <limits>
+#include <thread>
 
 namespace ksword::ark
 {
@@ -159,6 +161,67 @@ namespace ksword::ark
             static_cast<unsigned long>(packet.size()),
             nullptr,
             0);
+    }
+
+    BugcheckDiagnosticsResult DriverClient::configureBugcheckDiagnostics(
+        const unsigned long action) const
+    {
+        const auto sendRequest = [this](const unsigned long requestAction)
+        {
+            BugcheckDiagnosticsResult current{};
+            KSWORD_ARK_BUGCHECK_DIAGNOSTICS_REQUEST request{};
+
+            // 保留字段保持零以匹配 R0 严格校验；INSTALL 只排队，QUERY 读取终态和阶段。
+            request.size = sizeof(request);
+            request.version = KSWORD_ARK_BUGCHECK_DIAGNOSTICS_PROTOCOL_VERSION;
+            request.action = requestAction;
+            current.io = deviceIoControl(
+                IOCTL_KSWORD_ARK_CONFIGURE_BUGCHECK_DIAGNOSTICS,
+                &request,
+                static_cast<unsigned long>(sizeof(request)),
+                &current.response,
+                static_cast<unsigned long>(sizeof(current.response)));
+            current.unsupported = !current.io.ok &&
+                (current.io.win32Error == ERROR_INVALID_FUNCTION ||
+                 current.io.win32Error == ERROR_NOT_SUPPORTED);
+            if (current.io.ok &&
+                (current.io.bytesReturned < sizeof(current.response) ||
+                 current.response.version !=
+                     KSWORD_ARK_BUGCHECK_DIAGNOSTICS_PROTOCOL_VERSION ||
+                 current.response.size != sizeof(current.response)))
+            {
+                current.io.ok = false;
+                current.io.win32Error = ERROR_INVALID_DATA;
+            }
+            current.io.ntStatus = current.response.lastStatus;
+            return current;
+        };
+
+        BugcheckDiagnosticsResult result = sendRequest(action);
+        if (action != KSWORD_ARK_BUGCHECK_DIAGNOSTICS_ACTION_INSTALL ||
+            !result.io.ok ||
+            result.response.status != KSWORD_ARK_BUGCHECK_DIAGNOSTICS_STATUS_BUSY)
+        {
+            return result;
+        }
+
+        // 新协议的安装 IOCTL 不再占用一个设备句柄等待 R0。后台调用只用短 QUERY
+        // 轮询终态；驱动卸载时下一次查询会快速失败，线程不会阻止 SCM 停止服务。
+        const auto pollDeadline = std::chrono::steady_clock::now() +
+            std::chrono::seconds(35);
+        do
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            result = sendRequest(KSWORD_ARK_BUGCHECK_DIAGNOSTICS_ACTION_QUERY);
+            if (!result.io.ok ||
+                result.response.status != KSWORD_ARK_BUGCHECK_DIAGNOSTICS_STATUS_BUSY)
+            {
+                return result;
+            }
+        } while (std::chrono::steady_clock::now() < pollDeadline);
+
+        // 仅限制 R3 轮询线程；实际 R0 工作项拥有自己的 30 秒预算和卸载取消协议。
+        return result;
     }
 
     BugcheckGuardResult DriverClient::configureBugcheckGuard(

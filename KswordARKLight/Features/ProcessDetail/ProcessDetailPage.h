@@ -9,6 +9,8 @@
 
 #include <commctrl.h>
 
+#include "../../../shared/driver/KswordArkKeyboardIoctl.h"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -41,6 +43,8 @@ private:
         Token,
         TokenSwitch,
         Evidence,
+        Hotkey,
+        Keyboard,
         Peb,
         Count
     };
@@ -165,6 +169,17 @@ private:
         EvidenceSectionStatus,
         EvidenceSectionOutput,
 
+        // 进程热键页控件：统一展示 R3 窗口/菜单/资源/快捷方式与 R0 热键证据。
+        HotkeyRefresh = 1800,
+        HotkeyStatus,
+        HotkeyList,
+
+        // 键盘页控件：通过内部分栏在热键表和 WH_KEYBOARD 钩子链之间切换。
+        KeyboardRefresh = 1900,
+        KeyboardStatus,
+        KeyboardInnerTab,
+        KeyboardList,
+
         PebRefresh = 2100,
         PebApply,
         PebStatus,
@@ -214,6 +229,54 @@ private:
         std::wstring dialogTitle;
         std::wstring dialogText;
         UINT dialogIcon = 0;
+    };
+
+    // ProcessHotkeyEntry 保存一行进程热键审计结果。r0Snapshot 仅用于保留
+    // R0 枚举证据，页面不会把内核地址作为未经确认的写入句柄使用。
+    struct ProcessHotkeyEntry {
+        std::wstring objectText;
+        std::wstring hotkeyText;
+        std::wstring processName;
+        std::wstring sourceText;
+        std::wstring detailText;
+        DWORD processId = 0;
+        DWORD threadId = 0;
+        std::uint32_t hotkeyId = 0;
+        std::uint32_t modifiers = 0;
+        std::uint32_t virtualKey = 0;
+        bool hasR0Snapshot = false;
+        KSWORD_ARK_KEYBOARD_HOTKEY_ENTRY r0Snapshot{};
+    };
+
+    // ProcessHotkeySnapshot 是后台热键采集的不可变结果；UI 线程只渲染其中
+    // 的字符串和值，避免后台任务持有窗口、菜单或 COM 对象。
+    struct ProcessHotkeySnapshot {
+        std::vector<ProcessHotkeyEntry> entries;
+        std::wstring statusText;
+        bool completed = false;
+    };
+
+    // KeyboardHookEntry 保存键盘钩子链的一行 R0 审计数据，不提供修改入口。
+    struct KeyboardHookEntry {
+        std::wstring objectText;
+        std::wstring typeText;
+        std::wstring scopeText;
+        std::wstring procedureText;
+        std::wstring moduleText;
+        std::wstring sourceText;
+        std::wstring flagsText;
+        std::wstring detailText;
+        DWORD processId = 0;
+        DWORD threadId = 0;
+    };
+
+    // KeyboardSnapshot 将热键表和键盘钩子链一次性提交给键盘页，防止两个
+    // 相关证据表在不同刷新代次之间混用。
+    struct KeyboardSnapshot {
+        std::vector<ProcessHotkeyEntry> hotkeys;
+        std::vector<KeyboardHookEntry> hooks;
+        std::wstring statusText;
+        bool completed = false;
     };
 
     ProcessDetailPage(DWORD processId, ULONGLONG expectedCreationTime100ns);
@@ -275,6 +338,8 @@ private:
     bool CreateTokenTab();
     bool CreateTokenSwitchTab();
     bool CreateEvidenceTab();
+    bool CreateHotkeyTab();
+    bool CreateKeyboardTab();
     bool CreatePebTab();
 
     HWND AddControl(
@@ -331,6 +396,8 @@ private:
     void PopulateTokenTab();
     void PopulateTokenSwitchTab();
     void PopulateEvidenceTab();
+    void PopulateHotkeyTab();
+    void PopulateKeyboardTab();
     void PopulatePebTab();
     void RequestThreadFilter(bool rebuildRows);
     void RequestModuleFilter(bool rebuildRows);
@@ -360,6 +427,8 @@ private:
     bool HandleTokenCommand(int controlId);
     bool HandleTokenSwitchCommand(int controlId);
     bool HandleEvidenceCommand(int controlId);
+    bool HandleHotkeyCommand(int controlId);
+    bool HandleKeyboardCommand(int controlId);
     bool HandlePebCommand(int controlId);
     bool HandlePageNotify(TabIndex tab, NMHDR* header, LRESULT& result);
 
@@ -383,6 +452,10 @@ private:
     void RenderSectionReport();
     void RefreshPebReport();
     void ApplyPebEdits();
+    void RefreshHotkeys();
+    void RefreshKeyboard();
+    void RebuildHotkeyList();
+    void RebuildKeyboardList();
 
 private:
     DWORD processId_ = 0;
@@ -402,6 +475,8 @@ private:
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<ProcessTokenSwitchSnapshot>> tokenSwitchTask_;
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<ProcessDetailSnapshot>> evidenceTask_;
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<ProcessPebSnapshot>> pebTask_;
+    std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<ProcessHotkeySnapshot>> hotkeyTask_;
+    std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<KeyboardSnapshot>> keyboardTask_;
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<DetailTableFilterResult>> threadFilterTask_;
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<DetailTableFilterResult>> moduleFilterTask_;
     Ksword::Ui::VirtualListView threadVirtualList_;
@@ -426,7 +501,12 @@ private:
     bool tokenLoaded_ = false;
     bool tokenSwitchLoaded_ = false;
     bool sectionLoaded_ = false;
+    bool hotkeyLoaded_ = false;
+    bool keyboardLoaded_ = false;
     bool pebLoaded_ = false;
+    std::vector<ProcessHotkeyEntry> hotkeyEntries_;
+    std::vector<ProcessHotkeyEntry> keyboardHotkeyEntries_;
+    std::vector<KeyboardHookEntry> keyboardHookEntries_;
 };
 
 } // namespace Ksword::Features::ProcessDetail

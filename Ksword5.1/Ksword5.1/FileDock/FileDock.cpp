@@ -20,6 +20,7 @@
 #include "../theme.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../UI/HexEditorWidget.h"
+#include "../UI/ReportStructuredView.h"
 #include "../UI/TableColumnAutoFit.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -4061,6 +4062,11 @@ namespace
         }
 
         treeWidget->setColumnCount(2);
+        // 字号与统一报告控件里的结构视图同一档：同一个窗口里两种结构化视图不能有两种字号。
+        // 同时标记字体自管：MainWindow 在外观设置变更后会把所有 item view 刷成应用字体，
+        // 不打这个标记的话，用户一改字体设置这里就被刷回默认档。
+        treeWidget->setProperty("ksword_preserve_custom_font", true);
+        treeWidget->setFont(ks::ui::ScaledReportFont(treeWidget->font()));
         treeWidget->setRootIsDecorated(true);
         treeWidget->setAlternatingRowColors(true);
         treeWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -4073,82 +4079,6 @@ namespace
             treeWidget->header()->setStretchLastSection(true);
         }
         installPropertyTreeCopyMenu(treeWidget);
-    }
-
-    // buildReportPropertyTree 作用：
-    // - 输入 parent：父控件；reportText：本项目审计页统一生成的报告原文，
-    //   形如 “[分组]\n名称: 值\n”，分组之间以空行分隔；
-    // - 处理：先用 CodeEditorWidget 同一套逐行规则翻译，再按行解析成属性树：
-    //     · “[xxx]” 行成为分组；
-    //     · “名称: 值” 成为属性行；
-    //     · 说明性整句和续行跨两列整行显示，内容不丢也不会被硬塞进名称列；
-    // - 取舍说明：这里解析的是本程序自己拼出来的文本，格式由上游代码保证，不是外部输入。
-    //   更彻底的做法是让上游直接产出结构化数据，但那要改动十几处取证采集逻辑；
-    //   在展示层解析可以让这些页立刻摆脱纯文本框，且不冒改坏取证结果的风险。
-    // - 返回：已填好内容的属性树，调用方负责放进布局。
-    QTreeWidget* buildReportPropertyTree(QWidget* parent, const QString& reportText)
-    {
-        QTreeWidget* treeWidget = new QTreeWidget(parent);
-        configurePropertyTree(treeWidget);
-        treeWidget->setHeaderLabels(QStringList{
-            ks::i18n::displayText(QStringLiteral("属性")),
-            ks::i18n::displayText(QStringLiteral("值"))
-            });
-
-        QTreeWidgetItem* currentGroup = nullptr;
-        const QStringList reportLines =
-            ks::ui::LocalizeGeneratedReport(reportText).split(QLatin1Char('\n'));
-        for (const QString& reportLine : reportLines)
-        {
-            const QString trimmedLine = reportLine.trimmed();
-            if (trimmedLine.isEmpty())
-            {
-                continue;
-            }
-
-            if (trimmedLine.startsWith(QLatin1Char('[')) && trimmedLine.endsWith(QLatin1Char(']')))
-            {
-                currentGroup = appendPropertyGroup(
-                    treeWidget, trimmedLine.mid(1, trimmedLine.size() - 2));
-                continue;
-            }
-
-            if (currentGroup == nullptr)
-            {
-                // 报告开头常有几行不属于任何分组的字段，给它们一个默认分组承载。
-                currentGroup = appendPropertyGroup(
-                    treeWidget, ks::i18n::displayText(QStringLiteral("概要")));
-            }
-
-            // 只认第一个分隔符：时间戳、盘符、NT 路径里的冒号不会被误当成名值分界。
-            const qsizetype halfWidthIndex = trimmedLine.indexOf(QStringLiteral(": "));
-            const qsizetype fullWidthIndex = trimmedLine.indexOf(QChar(0xFF1A));
-            qsizetype separatorIndex = -1;
-            qsizetype separatorLength = 0;
-            if (halfWidthIndex >= 0 && (fullWidthIndex < 0 || halfWidthIndex < fullWidthIndex))
-            {
-                separatorIndex = halfWidthIndex;
-                separatorLength = 2;
-            }
-            else if (fullWidthIndex >= 0)
-            {
-                separatorIndex = fullWidthIndex;
-                separatorLength = 1;
-            }
-
-            if (separatorIndex <= 0)
-            {
-                QTreeWidgetItem* noteItem = appendPropertyRow(currentGroup, trimmedLine, QString());
-                noteItem->setFirstColumnSpanned(true);
-                continue;
-            }
-
-            appendPropertyRow(
-                currentGroup,
-                trimmedLine.left(separatorIndex),
-                trimmedLine.mid(separatorIndex + separatorLength).trimmed());
-        }
-        return treeWidget;
     }
 
     // g_preferPlainTextReportView 作用：
@@ -4214,17 +4144,20 @@ namespace
         return container;
     }
 
-    // buildSwitchableReportView 作用：
+    // buildReportView 作用：
     // - 输入 parent 和审计页生成的报告原文；
-    // - 处理：同一份报告同时准备属性树和只读文本两种视图，并套上切换框；
-    //   文本视图走 setLocalizedText，与改版前的呈现完全一致，不丢任何既有能力；
-    // - 返回：可直接放进页面布局的容器控件。
-    QWidget* buildSwitchableReportView(QWidget* parent, const QString& reportText)
+    // - 处理：交给统一的只读报告控件，由它按内容形态自行决定结构化呈现，
+    //   并在工具栏给出“结构视图 / 原始文本”切换按钮；
+    // - 取舍说明：本文件原先自带一套“只认 [分组] 的属性树 + 下拉切换框”的解析实现。
+    //   全局报告控件上线后两套并存会让同一页出现两个入口、两种解析口径，
+    //   而且本地那套只解析得出属性树，解析不出对齐表格和机器码块，因此整体换成统一控件；
+    // - 返回：可直接放进页面布局的控件。
+    QWidget* buildReportView(QWidget* parent, const QString& reportText)
     {
         CodeEditorWidget* textEditor = new CodeEditorWidget(parent);
         textEditor->setReadOnly(true);
         textEditor->setLocalizedText(reportText);
-        return buildSwitchableView(parent, buildReportPropertyTree(parent, reportText), textEditor);
+        return textEditor;
     }
 
     // buildOpaqueStandaloneDialogStyle 作用：
@@ -9314,6 +9247,10 @@ namespace
             configurePropertyTree(m_generalPropertyTree);
             m_generalTextEditor = new CodeEditorWidget(page);
             m_generalTextEditor->setReadOnly(true);
+            // 常规页的属性树是从 R0 返回的结构体逐字段搭出来的：带分组、十六进制格式化和
+            // 属性位展开，比解析纯文本得到的结果更准。所以这页保留自己的切换框，
+            // 关掉文本控件内置的那套结构视图，避免同一页出现两个入口、两种解析口径。
+            m_generalTextEditor->setStructuredReportViewEnabled(false);
 
             const QFileInfo info(m_filePath);
             m_generalNtPathText = buildDriverNtPath(info.absoluteFilePath());
@@ -10434,7 +10371,7 @@ namespace
                 content += formatReparsePointText(m_filePath);
             }
 
-            layout->addWidget(buildSwitchableReportView(page, content), 1);
+            layout->addWidget(buildReportView(page, content), 1);
             return page;
         }
 
@@ -11069,7 +11006,7 @@ namespace
             if (fileHandle == INVALID_HANDLE_VALUE)
             {
                 content += QStringLiteral("打开失败: %1\n").arg(::GetLastError());
-                layout->addWidget(buildSwitchableReportView(page, content), 1);
+                layout->addWidget(buildReportView(page, content), 1);
                 return page;
             }
 
@@ -11114,7 +11051,7 @@ namespace
             content += QStringLiteral("R3 DeletePending/Share: 通过 FileStandardInfo 和共享只读打开侧写。\n");
             content += QStringLiteral("R3 Shared flags: 采集句柄使用 READ|WRITE|DELETE 共享，仅用于只读探测。\n");
             ::CloseHandle(fileHandle);
-            layout->addWidget(buildSwitchableReportView(page, content), 1);
+            layout->addWidget(buildReportView(page, content), 1);
             return page;
         }
 
@@ -11130,7 +11067,7 @@ namespace
             QString placeholderText;
             placeholderText += QStringLiteral("目标路径: %1\n").arg(QDir::toNativeSeparators(m_filePath));
             placeholderText += QStringLiteral("正在加载...\n");
-            QWidget* placeholderReportView = buildSwitchableReportView(page, placeholderText);
+            QWidget* placeholderReportView = buildReportView(page, placeholderText);
             layout->addWidget(placeholderReportView, 1);
             startStorageAuditLoad(page, placeholderReportView);
             return page;
@@ -11187,7 +11124,7 @@ namespace
                                 placeholderGuard->hide();
                                 placeholderGuard->deleteLater();
                             }
-                            pageLayout->addWidget(buildSwitchableReportView(page, reportText), 1);
+                            pageLayout->addWidget(buildReportView(page, reportText), 1);
                             // 采集回来后才建的视图同样要拿到 Surface 调色板，不能回退到系统 Base。
                             guardThis->applyThemeStyle();
                         },
@@ -11201,7 +11138,7 @@ namespace
         {
             // 用途：生成 Storage / MountMgr / FVE 页的完整只读报告文本。
             // 输入：filePathText 为目标文件路径。
-            // 返回：可直接交给 buildSwitchableReportView 的报告原文。
+            // 返回：可直接交给 buildReportView 的报告原文。
             // 约束：本函数只做数据采集与字符串拼接，必须在后台线程调用。
             const FileVolumeAuditSnapshot snapshot = queryFileVolumeAuditSnapshot(filePathText);
             QString content;
@@ -11299,7 +11236,7 @@ namespace
                 minifilterAudit.responseFlags,
                 (minifilterAudit.responseFlags & KSWORD_ARK_MINIFILTER_INVENTORY_RESPONSE_FLAG_TRUNCATED) != 0U);
             content += formatMinifilterInventoryRows(minifilterAudit);
-            layout->addWidget(buildSwitchableReportView(page, content), 1);
+            layout->addWidget(buildReportView(page, content), 1);
             return page;
         }
 

@@ -4,10 +4,9 @@
 
 namespace Ksword::Features::Hardware {
 
-// CreateHardwareFeaturePage is the module facade for read-only hardware audit.
-// Inputs are the dock parent HWND and parent-relative bounds; processing delegates
-// to HardwareView and performs SetupAPI/Configuration Manager enumeration inside
-// this module; output is the created child HWND or nullptr on failure.
+// CreateHardwareFeaturePage creates the unified Hardware workspace. It owns
+// device/CPU/HWID audit pages plus performance monitoring, disk activity, USB
+// topology and system-bus pages; every tab retains its own controls and state.
 HWND CreateHardwareFeaturePage(HWND parent, const RECT& bounds);
 
 } // namespace Ksword::Features::Hardware

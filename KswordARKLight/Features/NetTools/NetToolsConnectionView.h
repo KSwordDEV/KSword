@@ -10,4 +10,6 @@ namespace Ksword::Features::NetTools {
 // nullptr on failure.
 HWND CreateNetToolsConnectionView(HWND parent, const RECT& bounds);
 
+bool RequestNetToolsConnectionProcessFilter(HWND page, DWORD processId);
+
 } // namespace Ksword::Features::NetTools

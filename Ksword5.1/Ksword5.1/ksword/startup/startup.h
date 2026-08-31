@@ -9,9 +9,11 @@
 // - Avoid UI framework dependencies in this layer.
 // ============================================================
 
-#include <cstdint> // std::uint32_t: Win32 result and status placeholders.
-#include <string>  // std::string: UTF-8 text fields exposed across layers.
-#include <vector>  // std::vector: startup record and catalog containers.
+#include <cstddef>    // std::size_t: enumeration stage coordinates.
+#include <cstdint>    // std::uint32_t: Win32 result and status placeholders.
+#include <functional> // std::function: optional enumeration progress callback.
+#include <string>     // std::string: UTF-8 text fields exposed across layers.
+#include <vector>     // std::vector: startup record and catalog containers.
 
 namespace ks::startup
 {
@@ -28,6 +30,28 @@ namespace ks::startup
         Wmi,
         Hidden // Cross-view findings: objects one Windows view exposes and another one hides.
     };
+
+    // StartupEnumerationStage identifies the active source family during a full enumeration pass.
+    // It is intentionally UI-neutral; callers map the stable stage to their own localized text.
+    enum class StartupEnumerationStage : int
+    {
+        Logon = 0,
+        Services,
+        Drivers,
+        Tasks,
+        ImageHijack,
+        AdvancedRegistry,
+        Winsock,
+        Wmi,
+        Hidden
+    };
+
+    // StartupEnumerationProgressCallback runs immediately before each source family is enumerated.
+    // stageIndex is zero-based and stageCount is the total number of source families in the pass.
+    using StartupEnumerationProgressCallback = std::function<void(
+        StartupEnumerationStage stage,
+        std::size_t stageIndex,
+        std::size_t stageCount)>;
 
     // StartupActionKind identifies a backend operation without parsing display text.
     enum class StartupActionKind : int
@@ -142,6 +166,15 @@ namespace ks::startup
         std::uint32_t lastErrorCode = 0;   // Optional Win32 error for synthetic/error records.
     };
 
+    // StartupEnumerationStageResultCallback runs after one source family completes and before its
+    // records are moved into the aggregate result. The referenced batch is valid only for the
+    // duration of the callback; callers that dispatch asynchronously must copy or convert it.
+    using StartupEnumerationStageResultCallback = std::function<void(
+        StartupEnumerationStage stage,
+        std::size_t stageIndex,
+        std::size_t stageCount,
+        const std::vector<StartupEntry>& stageEntries)>;
+
     // StartupActionStatus is a caller-facing classification for startup actions.
     enum class StartupActionStatus : int
     {
@@ -221,6 +254,16 @@ namespace ks::startup
 
     // EnumerateAllStartupEntries runs every backend enumerator in the standard StartupDock order.
     std::vector<StartupEntry> EnumerateAllStartupEntries();
+
+    // Callback overload keeps the backend UI-neutral while allowing a caller to expose each source
+    // family as a distinct progress step. The no-argument overload preserves existing callers.
+    std::vector<StartupEntry> EnumerateAllStartupEntries(
+        const StartupEnumerationProgressCallback& progressCallback);
+
+    // Two-callback overload additionally publishes each completed source family as an ordered batch.
+    std::vector<StartupEntry> EnumerateAllStartupEntries(
+        const StartupEnumerationProgressCallback& progressCallback,
+        const StartupEnumerationStageResultCallback& stageResultCallback);
 
     // SetStartupEntryEnabled performs a warning-gated operation using actionKind/actionLocator only.
     ActionResult SetStartupEntryEnabled(const StartupEntry& entry, bool enabled);

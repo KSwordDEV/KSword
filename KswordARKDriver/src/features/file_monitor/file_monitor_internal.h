@@ -43,4 +43,10 @@ KswordARKRedirectTryRewriteFileCreate(
     _Out_ BOOLEAN* RedirectedOut
     );
 
+// 确保共享 Minifilter 已执行一次 FltStartFiltering，不改变旧文件监控采集位。
+NTSTATUS
+KswordARKFileMonitorEnsureFilteringStarted(
+    VOID
+    );
+
 EXTERN_C_END

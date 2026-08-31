@@ -116,10 +116,13 @@ KswordArkObjectPreOperation(
     WCHAR targetPathBuffer[KSWORD_ARK_CALLBACK_EVENT_MAX_TARGET_CHARS] = { 0 };
     ACCESS_MASK* desiredAccessPointer = NULL;
     ACCESS_MASK originalDesiredAccess = 0U;
+    ACCESS_MASK accessBeforeRuleStrip = 0U;
     ACCESS_MASK stripMask = 0U;
     ACCESS_MASK strippedAccess = 0U;
     PEPROCESS targetProcess = NULL;
     BOOLEAN targetIsThreadObject = FALSE;
+    ULONG targetProcessId = 0UL;
+    ULONG targetThreadId = 0UL;
     NTSTATUS matchStatus = STATUS_SUCCESS;
 
     UNREFERENCED_PARAMETER(runtime);
@@ -155,6 +158,16 @@ KswordArkObjectPreOperation(
         callbackOperationMask = operationType | KSWORD_ARK_OBJECT_OP_TYPE_THREAD;
         targetIsThreadObject = TRUE;
         targetProcess = PsGetThreadProcess((PETHREAD)OperationInformation->Object);
+        targetThreadId = HandleToULong(PsGetThreadId((PETHREAD)OperationInformation->Object));
+    }
+
+    if (targetProcess != NULL) {
+        targetProcessId = HandleToULong(PsGetProcessId(targetProcess));
+    }
+
+    // 保存系统最初请求的权限，后续同时展示进程保护层处理后的权限。
+    if (desiredAccessPointer != NULL) {
+        originalDesiredAccess = *desiredAccessPointer;
     }
 
     if (targetProcess != NULL) {
@@ -199,40 +212,57 @@ KswordArkObjectPreOperation(
         &initiatorPath,
         &targetPath,
         &matchResult);
-    if (!NT_SUCCESS(matchStatus) || !matchResult.Matched) {
-        return OB_PREOP_SUCCESS;
+    if (NT_SUCCESS(matchStatus) && matchResult.Matched) {
+        if (matchResult.Action == KSWORD_ARK_RULE_ACTION_LOG_ONLY) {
+            KswordArkCallbackLogFormat(
+                "Info",
+                "Object callback log rule hit, objectType=%lu, operation=0x%08lX, groupId=%lu, ruleId=%lu.",
+                (unsigned long)((OperationInformation->ObjectType == *PsProcessType) ? 1UL : 2UL),
+                (unsigned long)callbackOperationMask,
+                (unsigned long)matchResult.GroupId,
+                (unsigned long)matchResult.RuleId);
+        }
+        else if (matchResult.Action == KSWORD_ARK_RULE_ACTION_STRIP_ACCESS &&
+                 desiredAccessPointer != NULL) {
+            stripMask = KswordArkObjectBuildStripMask(OperationInformation->ObjectType);
+            accessBeforeRuleStrip = *desiredAccessPointer;
+            strippedAccess = accessBeforeRuleStrip & (~stripMask);
+            *desiredAccessPointer = strippedAccess;
+
+            KswordArkCallbackLogFormat(
+                "Warn",
+                "Object access stripped, objectType=%lu, op=0x%08lX, desired=0x%08lX->0x%08lX, groupId=%lu, ruleId=%lu.",
+                (unsigned long)((OperationInformation->ObjectType == *PsProcessType) ? 1UL : 2UL),
+                (unsigned long)callbackOperationMask,
+                (unsigned long)accessBeforeRuleStrip,
+                (unsigned long)strippedAccess,
+                (unsigned long)matchResult.GroupId,
+                (unsigned long)matchResult.RuleId);
+        }
     }
 
-    if (matchResult.Action == KSWORD_ARK_RULE_ACTION_LOG_ONLY) {
-        KswordArkCallbackLogFormat(
-            "Info",
-            "Object callback log rule hit, objectType=%lu, operation=0x%08lX, groupId=%lu, ruleId=%lu.",
-            (unsigned long)((OperationInformation->ObjectType == *PsProcessType) ? 1UL : 2UL),
-            (unsigned long)callbackOperationMask,
-            (unsigned long)matchResult.GroupId,
-            (unsigned long)matchResult.RuleId);
-        return OB_PREOP_SUCCESS;
+    // 所有保护层和通用规则处理完成后再发布，DesiredAccess 才是对象管理器实际采用的最终权限。
+    if (KswordArkCallbackMonitorIsEnabled(KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_OBJECT)) {
+        KSWORD_ARK_CALLBACK_MONITOR_EVENT_INPUT monitorInput;
+        RtlZeroMemory(&monitorInput, sizeof(monitorInput));
+        monitorInput.Category = KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_OBJECT;
+        monitorInput.Operation = callbackOperationMask;
+        monitorInput.Flags = KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_ACCESS_PRESENT;
+        if (targetIsThreadObject) {
+            monitorInput.Flags |= KSWORD_ARK_CALLBACK_MONITOR_EVENT_FLAG_OBJECT_THREAD;
+        }
+        monitorInput.OriginatingProcessId = HandleToULong(PsGetCurrentProcessId());
+        monitorInput.OriginatingThreadId = HandleToULong(PsGetCurrentThreadId());
+        monitorInput.TargetProcessId = targetProcessId;
+        monitorInput.TargetThreadId = targetThreadId;
+        monitorInput.SessionId = KswordArkGetProcessSessionIdSafe(PsGetCurrentProcess());
+        monitorInput.OriginalAccess = (ULONG)originalDesiredAccess;
+        monitorInput.DesiredAccess = desiredAccessPointer != NULL ? (ULONG)(*desiredAccessPointer) : 0UL;
+        monitorInput.ObjectType = targetIsThreadObject ? 2UL : 1UL;
+        monitorInput.ProcessName = &initiatorPath;
+        monitorInput.Path = &targetPath;
+        KswordArkCallbackMonitorPublish(&monitorInput);
     }
-
-    if (matchResult.Action != KSWORD_ARK_RULE_ACTION_STRIP_ACCESS ||
-        desiredAccessPointer == NULL) {
-        return OB_PREOP_SUCCESS;
-    }
-
-    stripMask = KswordArkObjectBuildStripMask(OperationInformation->ObjectType);
-    originalDesiredAccess = *desiredAccessPointer;
-    strippedAccess = originalDesiredAccess & (~stripMask);
-    *desiredAccessPointer = strippedAccess;
-
-    KswordArkCallbackLogFormat(
-        "Warn",
-        "Object access stripped, objectType=%lu, op=0x%08lX, desired=0x%08lX->0x%08lX, groupId=%lu, ruleId=%lu.",
-        (unsigned long)((OperationInformation->ObjectType == *PsProcessType) ? 1UL : 2UL),
-        (unsigned long)callbackOperationMask,
-        (unsigned long)originalDesiredAccess,
-        (unsigned long)strippedAccess,
-        (unsigned long)matchResult.GroupId,
-        (unsigned long)matchResult.RuleId);
     return OB_PREOP_SUCCESS;
 }
 

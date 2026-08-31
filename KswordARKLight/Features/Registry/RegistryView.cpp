@@ -4,6 +4,7 @@
 #include "RegistryModel.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
@@ -56,15 +57,18 @@ constexpr UINT kMenuRename = 68108;
 constexpr UINT kMenuCopyRow = 68110;
 constexpr UINT kMenuCopyVisible = 68111;
 constexpr UINT kMenuCopyCell = 68112;
+constexpr UINT kMenuExportVisible = 68113;
 constexpr UINT kMsgSnapshotCompleted = WM_APP + 560;
 constexpr UINT kMsgTreeChildrenCompleted = WM_APP + 561;
 constexpr UINT kMsgFilterCompleted = WM_APP + 562;
 constexpr UINT kMsgOperationCompleted = WM_APP + 563;
+constexpr UINT kMsgExternalNavigate = WM_APP + 564;
 constexpr int kLoadingOverlayId = 68109;
 
 struct RegistryRefreshSnapshot {
     std::wstring path;
     RegistryViewMode mode = RegistryViewMode::WinApi;
+    std::uint64_t navigationGeneration = 0;
     RegistrySnapshot snapshot;
 };
 
@@ -141,6 +145,8 @@ struct RegistryViewState {
     bool treeFilterUseRegex = false;
     std::wstring treeLoadingPath;
     std::uint64_t displayGeneration = 0;
+    std::uint64_t navigationGeneration = 0;
+    bool currentSnapshotReady = false;
     bool operationInProgress = false;
     int contextColumn = 0;
     bool syncingTreeSelection = false;
@@ -204,6 +210,8 @@ void SyncEditorFromSelection(RegistryViewState& state);
 void LayoutChildren(RegistryViewState& state);
 void SelectPathInTree(RegistryViewState& state, const std::wstring& path);
 void NavigateTo(RegistryViewState& state, const std::wstring& path);
+void InvalidateCurrentSnapshot(RegistryViewState& state);
+void SetOperationControlsEnabled(RegistryViewState& state, bool enabled);
 void RequestValueFilter(RegistryViewState& state, std::wstring query, std::wstring selectedStableKey, std::wstring topStableKey);
 
 RegistryViewState* StateFromWindow(HWND hwnd) {
@@ -748,6 +756,7 @@ void RefreshSnapshot(RegistryViewState& state) {
     }
     const std::wstring current = CurrentPath(state);
     const RegistryViewMode mode = state.mode;
+    const std::uint64_t navigationGeneration = state.navigationGeneration;
     const bool firstLoad = state.list.rows().empty();
     SetStatus(state, state.refreshTask->running()
         ? L"注册表刷新已排队，等待当前快照完成…"
@@ -759,14 +768,18 @@ void RefreshSnapshot(RegistryViewState& state) {
         Ksword::Ui::SetLoadingOverlay(state.loadingOverlay, true, L"正在后台加载注册表键和值…");
     }
     state.refreshTask->request(
-        [current, mode]() {
+        [current, mode, navigationGeneration]() {
             RegistryRefreshSnapshot snapshot{};
             snapshot.path = current;
             snapshot.mode = mode;
+            snapshot.navigationGeneration = navigationGeneration;
             snapshot.snapshot = EnumerateRegistryKey(current, mode);
             return snapshot;
         },
-        [&state](std::uint64_t, std::optional<RegistryRefreshSnapshot>&& snapshot, std::exception_ptr error) {
+        [&state, navigationGeneration](std::uint64_t, std::optional<RegistryRefreshSnapshot>&& snapshot, std::exception_ptr error) {
+            if (navigationGeneration != state.navigationGeneration) {
+                return;
+            }
             if (state.refreshButton) {
                 ::EnableWindow(state.refreshButton, TRUE);
             }
@@ -775,11 +788,14 @@ void RefreshSnapshot(RegistryViewState& state) {
                 SetStatus(state, L"注册表后台枚举异常结束。请检查权限、路径和驱动状态。");
                 return;
             }
-            if (snapshot->path != CurrentPath(state) || snapshot->mode != state.mode) {
+            if (snapshot->navigationGeneration != state.navigationGeneration ||
+                snapshot->path != CurrentPath(state) || snapshot->mode != state.mode) {
                 return;
             }
             state.snapshot = std::move(snapshot->snapshot);
+            state.currentSnapshotReady = state.snapshot.success;
             PopulateList(state);
+            SetOperationControlsEnabled(state, state.currentSnapshotReady && !state.operationInProgress);
             SetStatus(state, state.snapshot.statusText);
         });
 }
@@ -798,7 +814,26 @@ void RebuildRegistryTree(RegistryViewState& state) {
     SelectPathInTree(state, CurrentPath(state));
 }
 
+// PrepareModeForExternalNavigation preserves the selected R0 view when it can
+// address the requested key, but moves roots such as HKCR/HKCU/HKCC to the
+// already-supported WinAPI view before the external route reports success.
+void PrepareModeForExternalNavigation(RegistryViewState& state, const std::wstring& path) {
+    if (state.mode != RegistryViewMode::R0) {
+        return;
+    }
+    const RegistryPathInfo parsed = ParseRegistryPath(path);
+    if (!parsed.valid || !parsed.kernelPath.empty()) {
+        return;
+    }
+    state.mode = RegistryViewMode::WinApi;
+    if (state.modeCombo) {
+        ::SendMessageW(state.modeCombo, CB_SETCURSEL, 0, 0);
+    }
+    RebuildRegistryTree(state);
+}
+
 void NavigateTo(RegistryViewState& state, const std::wstring& path) {
+    InvalidateCurrentSnapshot(state);
     ::SetWindowTextW(state.pathEdit, path.c_str());
     SelectPathInTree(state, path);
     RefreshSnapshot(state);
@@ -919,20 +954,48 @@ void SetOperationControlsEnabled(RegistryViewState& state, bool enabled) {
     }
 }
 
+// InvalidateCurrentSnapshot prevents a row captured for one registry key or
+// transport mode from being used after navigation begins. The next matching
+// background snapshot is the only point that re-enables registry operations.
+void InvalidateCurrentSnapshot(RegistryViewState& state) {
+    ++state.navigationGeneration;
+    state.currentSnapshotReady = false;
+    state.snapshot = {};
+    state.filterRows.reset();
+    state.list.setRows({});
+    ++state.displayGeneration;
+    if (state.nameEdit) {
+        ::SetWindowTextW(state.nameEdit, L"");
+    }
+    if (state.dataEdit) {
+        ::SetWindowTextW(state.dataEdit, L"");
+    }
+    SetOperationControlsEnabled(state, false);
+}
+
 void BeginRegistryOperation(RegistryViewState& state, RegistryOperationRequest request) {
+    if (!state.currentSnapshotReady) {
+        SetStatus(state, L"当前注册表快照尚未就绪，不能执行读写操作。");
+        return;
+    }
     if (!state.operationTask || state.operationInProgress) {
         SetStatus(state, L"注册表操作正在执行。");
         return;
     }
+    const std::uint64_t operationGeneration = state.navigationGeneration;
     state.operationInProgress = true;
     SetOperationControlsEnabled(state, false);
     SetStatus(state, L"正在后台执行注册表操作…");
     state.operationTask->request(
         [request = std::move(request)] { return ExecuteRegistryOperation(request); },
-        [&state](std::uint64_t, std::optional<RegistryOperationSnapshot>&& snapshot, std::exception_ptr error) {
+        [&state, operationGeneration](std::uint64_t, std::optional<RegistryOperationSnapshot>&& snapshot, std::exception_ptr error) {
             state.operationInProgress = false;
-            SetOperationControlsEnabled(state, true);
+            if (operationGeneration != state.navigationGeneration) {
+                SetOperationControlsEnabled(state, state.currentSnapshotReady);
+                return;
+            }
             if (error || !snapshot.has_value()) {
+                SetOperationControlsEnabled(state, state.currentSnapshotReady);
                 SetStatus(state, L"注册表操作异常结束。请检查权限、路径和驱动状态。");
                 return;
             }
@@ -945,13 +1008,17 @@ void BeginRegistryOperation(RegistryViewState& state, RegistryOperationRequest r
                 ::SetWindowTextW(state.dataEdit, FormatDataForEditor(entry).c_str());
             }
             if (snapshot->refreshRequired) {
+                InvalidateCurrentSnapshot(state);
                 RefreshSnapshot(state);
+                return;
             }
+            SetOperationControlsEnabled(state, state.currentSnapshotReady);
         });
 }
 
-bool ConfirmMutation(HWND owner, const wchar_t* action) {
-    const std::wstring prompt = std::wstring(L"该操作将修改注册表：") + action + L"。是否继续？";
+bool ConfirmMutation(HWND owner, const wchar_t* action, const std::wstring& targetPath) {
+    const std::wstring prompt = std::wstring(L"该操作将修改注册表：") + action +
+        L"。\n\n目标键：" + targetPath + L"\n是否继续？";
     return ::MessageBoxW(owner, prompt.c_str(), L"确认注册表操作", MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON2) == IDYES;
 }
 
@@ -961,13 +1028,13 @@ void CreateSubKeyFromEditor(RegistryViewState& state) {
         SetStatus(state, L"Create key needs a key name in the name edit.");
         return;
     }
-    if (!ConfirmMutation(state.hwnd, L"创建子键")) {
-        return;
-    }
     RegistryOperationRequest request{};
     request.kind = RegistryOperationKind::CreateKey;
     request.path = ChildPath(CurrentPath(state), childName);
     request.mode = state.mode;
+    if (!ConfirmMutation(state.hwnd, L"创建子键", request.path)) {
+        return;
+    }
     BeginRegistryOperation(state, std::move(request));
 }
 
@@ -975,9 +1042,6 @@ void DeleteSelection(RegistryViewState& state) {
     RegistryEntry* entry = nullptr;
     if (!SelectedEntry(state, nullptr, &entry) || entry == nullptr) {
         SetStatus(state, L"No registry row is selected.");
-        return;
-    }
-    if (!ConfirmMutation(state.hwnd, L"删除选中项")) {
         return;
     }
     RegistryOperationRequest request{};
@@ -989,6 +1053,9 @@ void DeleteSelection(RegistryViewState& state) {
     } else {
         request.kind = RegistryOperationKind::DeleteValue;
         request.name = entry->name;
+    }
+    if (!ConfirmMutation(state.hwnd, L"删除选中项", request.path)) {
+        return;
     }
     BeginRegistryOperation(state, std::move(request));
 }
@@ -1004,9 +1071,6 @@ void RenameSelection(RegistryViewState& state) {
         SetStatus(state, L"Rename needs a non-empty name.");
         return;
     }
-    if (!ConfirmMutation(state.hwnd, L"重命名选中项")) {
-        return;
-    }
     RegistryOperationRequest request{};
     request.path = CurrentPath(state);
     request.mode = state.mode;
@@ -1017,6 +1081,9 @@ void RenameSelection(RegistryViewState& state) {
     } else {
         request.kind = RegistryOperationKind::RenameValue;
         request.name = entry->name;
+    }
+    if (!ConfirmMutation(state.hwnd, L"重命名选中项", request.path)) {
+        return;
     }
     BeginRegistryOperation(state, std::move(request));
 }
@@ -1039,9 +1106,6 @@ void WriteCurrentValue(RegistryViewState& state) {
         SetStatus(state, errorText);
         return;
     }
-    if (!ConfirmMutation(state.hwnd, L"写入值")) {
-        return;
-    }
     RegistryOperationRequest request{};
     request.kind = RegistryOperationKind::Write;
     request.path = CurrentPath(state);
@@ -1049,6 +1113,9 @@ void WriteCurrentValue(RegistryViewState& state) {
     request.mode = state.mode;
     request.valueType = type;
     request.data = std::move(bytes);
+    if (!ConfirmMutation(state.hwnd, L"写入值", request.path)) {
+        return;
+    }
     BeginRegistryOperation(state, std::move(request));
 }
 
@@ -1092,6 +1159,44 @@ std::wstring RegistrySelectedCellText(const RegistryViewState& state) {
     return rows[source].cells[static_cast<std::size_t>(state.contextColumn)];
 }
 
+// ExportVisibleRegistrySnapshot writes only the values already materialized in
+// the current ListView. It never re-reads the registry, recursively exports a
+// key, or turns a partial R0 snapshot into a claimed .reg backup.
+void ExportVisibleRegistrySnapshot(RegistryViewState& state) {
+    if (!state.currentSnapshotReady) {
+        SetStatus(state, L"当前注册表快照尚未就绪，无法导出。");
+        return;
+    }
+
+    const std::wstring text = Ksword::Ui::BuildVisibleVirtualListTsv(
+        { L"名称", L"类型", L"数据", L"详情" }, state.list);
+    if (text.empty()) {
+        SetStatus(state, L"当前没有可导出的注册表可见值。");
+        return;
+    }
+
+    std::wstring error;
+    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(
+        state.hwnd,
+        L"ksword-arklight-registry-visible.tsv",
+        L"导出当前可见注册表快照",
+        L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0",
+        L"tsv",
+        text,
+        &error)) {
+    case Ksword::Ui::SaveTextFileResult::Saved:
+        SetStatus(state, L"已导出当前可见注册表快照 TSV。");
+        break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled:
+        SetStatus(state, L"已取消导出当前可见注册表快照。");
+        break;
+    case Ksword::Ui::SaveTextFileResult::Failed:
+    default:
+        SetStatus(state, L"导出当前可见注册表快照失败：" + error);
+        break;
+    }
+}
+
 void ShowContextMenu(RegistryViewState& state, POINT screenPoint) {
     HMENU menu = ::CreatePopupMenu();
     if (!menu) {
@@ -1101,21 +1206,28 @@ void ShowContextMenu(RegistryViewState& state, POINT screenPoint) {
     ::ScreenToClient(state.list.hwnd(), &client);
     LVHITTESTINFO hit{};
     hit.pt = client;
-    if (ListView_SubItemHitTest(state.list.hwnd(), &hit) >= 0) {
+    const int clickedItem = ListView_SubItemHitTest(state.list.hwnd(), &hit);
+    ListView_SetItemState(state.list.hwnd(), -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    if (clickedItem >= 0 && static_cast<std::size_t>(clickedItem) < state.list.visibleIndexes().size()) {
+        ListView_SetItemState(state.list.hwnd(), clickedItem, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         state.contextColumn = hit.iSubItem;
+        SyncEditorFromSelection(state);
     }
     const bool hasSelection = SelectedEntry(state, nullptr, nullptr);
+    const bool canOperate = state.currentSnapshotReady && !state.operationInProgress;
+    const bool canExportVisible = state.currentSnapshotReady && !state.list.visibleIndexes().empty();
     ::AppendMenuW(menu, MF_STRING, kMenuRefresh, L"刷新");
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kMenuCopyName, L"复制名称");
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kMenuCopyData, L"复制数据");
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kMenuCopyCell, L"复制单元格");
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kMenuCopyRow, L"复制行");
     ::AppendMenuW(menu, MF_STRING | (!state.list.visibleIndexes().empty() ? 0U : MF_GRAYED), kMenuCopyVisible, L"复制可见结果");
-    ::AppendMenuW(menu, MF_STRING, kMenuRead, L"读取值");
-    ::AppendMenuW(menu, MF_STRING, kMenuWrite, L"写入值");
-    ::AppendMenuW(menu, MF_STRING, kMenuCreateSubKey, L"创建子键");
-    ::AppendMenuW(menu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kMenuDelete, L"删除");
-    ::AppendMenuW(menu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kMenuRename, L"重命名");
+    ::AppendMenuW(menu, MF_STRING | (canExportVisible ? 0U : MF_GRAYED), kMenuExportVisible, L"导出当前可见值 TSV");
+    ::AppendMenuW(menu, MF_STRING | (canOperate ? 0U : MF_GRAYED), kMenuRead, L"读取值");
+    ::AppendMenuW(menu, MF_STRING | (canOperate ? 0U : MF_GRAYED), kMenuWrite, L"写入值");
+    ::AppendMenuW(menu, MF_STRING | (canOperate ? 0U : MF_GRAYED), kMenuCreateSubKey, L"创建子键");
+    ::AppendMenuW(menu, MF_STRING | (canOperate && hasSelection ? 0U : MF_GRAYED), kMenuDelete, L"删除");
+    ::AppendMenuW(menu, MF_STRING | (canOperate && hasSelection ? 0U : MF_GRAYED), kMenuRename, L"重命名");
 
     const UINT command = ::TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenPoint.x, screenPoint.y, 0, state.hwnd, nullptr);
     ::DestroyMenu(menu);
@@ -1146,6 +1258,9 @@ void ShowContextMenu(RegistryViewState& state, POINT screenPoint) {
         break;
     case kMenuCopyVisible:
         SetStatus(state, CopyRegistryTextToClipboard(state.hwnd, RegistryRowsAsText(state, true)) ? L"已复制可见注册表结果。" : L"复制可见注册表结果失败。");
+        break;
+    case kMenuExportVisible:
+        ExportVisibleRegistrySnapshot(state);
         break;
     case kMenuRead:
         ReadCurrentValue(state);
@@ -1206,6 +1321,7 @@ bool CreateChildControls(RegistryViewState& state) {
     Ksword::Ui::AddListViewColumns(state.list.hwnd(), RegistryColumns());
     ListView_SetExtendedListViewStyle(state.list.hwnd(), LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_GRIDLINES | LVS_EX_LABELTIP);
     ::SetWindowTextW(state.pathEdit, L"HKLM\\SOFTWARE");
+    SetOperationControlsEnabled(state, false);
     SetStatus(state, L"Registry dock ready.");
     return true;
 }
@@ -1263,6 +1379,16 @@ LRESULT CALLBACK RegistryViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             return 0;
         }
         break;
+    case kMsgExternalNavigate:
+        if (state && lParam != 0) {
+            const auto* path = reinterpret_cast<const std::wstring*>(lParam);
+            if (!path->empty()) {
+                PrepareModeForExternalNavigation(*state, *path);
+                NavigateTo(*state, *path);
+                return TRUE;
+            }
+        }
+        return FALSE;
     case WM_NOTIFY:
         if (state) {
             const auto* header = reinterpret_cast<const NMHDR*>(lParam);
@@ -1297,8 +1423,7 @@ LRESULT CALLBACK RegistryViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 if (changed && !state->syncingTreeSelection) {
                     const RegistryTreeNodeData* nodeData = reinterpret_cast<const RegistryTreeNodeData*>(changed->itemNew.lParam);
                     if (nodeData && !nodeData->placeholder) {
-                        ::SetWindowTextW(state->pathEdit, nodeData->path.c_str());
-                        RefreshSnapshot(*state);
+                        NavigateTo(*state, nodeData->path);
                     }
                 }
                 return 0;
@@ -1314,6 +1439,13 @@ LRESULT CALLBACK RegistryViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         break;
     case WM_COMMAND:
         if (state) {
+            if (LOWORD(wParam) == kPathEditId && HIWORD(wParam) == EN_CHANGE) {
+                if (state->currentSnapshotReady) {
+                    InvalidateCurrentSnapshot(*state);
+                    SetStatus(*state, L"路径已更改；请先转到新路径并等待快照加载完成。");
+                }
+                return 0;
+            }
             if (LOWORD(wParam) == kValueFilterBarId && HIWORD(wParam) == EN_CHANGE) {
                 RequestValueFilter(*state,
                     Ksword::Ui::GetFilterBarText(state->valueFilterBar),
@@ -1356,6 +1488,7 @@ LRESULT CALLBACK RegistryViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                     state->mode = (::SendMessageW(state->modeCombo, CB_GETCURSEL, 0, 0) == 1)
                         ? RegistryViewMode::R0
                         : RegistryViewMode::WinApi;
+                    InvalidateCurrentSnapshot(*state);
                     RebuildRegistryTree(*state);
                     RefreshSnapshot(*state);
                     return 0;
@@ -1453,6 +1586,11 @@ HWND CreateRegistryView(HWND parent, const RECT& bounds) {
         delete state;
     }
     return hwnd;
+}
+
+bool RequestRegistryViewNavigate(HWND page, const std::wstring& path) {
+    return page && !path.empty() &&
+        ::SendMessageW(page, kMsgExternalNavigate, 0, reinterpret_cast<LPARAM>(&path)) != 0;
 }
 
 } // namespace Ksword::Features::Registry

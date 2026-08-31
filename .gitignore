@@ -53,3 +53,6 @@ __pycache__/
 # 插件载荷（模型、解释器依赖和第三方代码）独立发布到 KSwordDEV/Plugins，
 # 不随 Ksword 源码仓库或发行包交付；运行时由插件商城按需安装。
 /plugin/
+
+# Local-only VoIP debugging utility; never publish its source or build output.
+/tools/voip_status_debugger/

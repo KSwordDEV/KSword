@@ -1,4 +1,5 @@
 #include "ProcessModel.h"
+#include "ProcessColumns.h"
 
 #include <algorithm>
 #include <cwchar>
@@ -106,6 +107,14 @@ std::wstring ProcessModel::textForColumn(const ProcessDisplayRow& displayRow, in
     case 8: return NumberText(row->pageFaultCount);
     default: return {};
     }
+}
+
+std::wstring ProcessModel::textForColumn(const ProcessDisplayRow& displayRow, ProcessColumnId column) const {
+    if (displayRow.groupHeader) {
+        return column == ProcessColumnId::Name ? displayRow.title : std::wstring();
+    }
+    const ProcessSnapshotRow* row = rowForDisplayRow(displayRow);
+    return row ? ProcessColumnText(*row, column) : std::wstring();
 }
 
 std::wstring ProcessModel::iconPathForRow(const ProcessDisplayRow& displayRow) const {

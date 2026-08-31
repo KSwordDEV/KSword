@@ -882,6 +882,23 @@ void AttachTextFindSupport(HWND multilineEdit) {
     }
 }
 
+void OpenTextFindSupport(HWND multilineEdit) {
+    if (!multilineEdit || !::IsWindow(multilineEdit)) {
+        return;
+    }
+    DWORD_PTR reference = 0;
+    if (!::GetWindowSubclass(multilineEdit, TextEditSubclassProc, kEditSubclassId, &reference)) {
+        AttachTextFindSupport(multilineEdit);
+        reference = 0;
+        if (!::GetWindowSubclass(multilineEdit, TextEditSubclassProc, kEditSubclassId, &reference)) {
+            return;
+        }
+    }
+    if (auto* state = reinterpret_cast<FindSupportState*>(reference)) {
+        OpenFindBar(*state, false);
+    }
+}
+
 void AttachTextFindSupportRecursive(HWND root) {
     if (!root || !::IsWindow(root)) {
         return;

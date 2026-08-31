@@ -373,6 +373,7 @@ void DockManager::closeDock(int index) {
     if (index < 0 || index >= static_cast<int>(docks_.size())) {
         return;
     }
+    const bool closedWasActive = activeIndex_ == index;
     if (docks_[index]->floating()) {
         destroyFloatingHost(index, true);
     }
@@ -382,11 +383,15 @@ void DockManager::closeDock(int index) {
     if (HWND child = docks_[index]->content()) {
         ::ShowWindow(child, SW_HIDE);
     }
-    activeIndex_ = -1;
-    for (int i = 0; i < static_cast<int>(docks_.size()); ++i) {
-        if (docks_[i]->visible()) {
-            activeIndex_ = i;
-            break;
+    const bool activeStillVisible = activeIndex_ >= 0 && activeIndex_ < static_cast<int>(docks_.size()) &&
+        docks_[activeIndex_] && docks_[activeIndex_]->visible();
+    if (closedWasActive || !activeStillVisible) {
+        activeIndex_ = -1;
+        for (int i = 0; i < static_cast<int>(docks_.size()); ++i) {
+            if (docks_[i]->visible()) {
+                activeIndex_ = i;
+                break;
+            }
         }
     }
     layoutChildren();
@@ -395,6 +400,10 @@ void DockManager::closeDock(int index) {
 
 bool DockManager::dockVisible(int index) const {
     return index >= 0 && index < static_cast<int>(docks_.size()) && docks_[index] && docks_[index]->visible();
+}
+
+int DockManager::activeDockIndex() const noexcept {
+    return activeIndex_;
 }
 
 void DockManager::layout(const RECT& bounds) {

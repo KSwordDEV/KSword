@@ -49,6 +49,27 @@ int StartTypePriority(const std::uint32_t startType) {
     }
 }
 
+std::wstring JoinText(const std::vector<std::wstring>& values) {
+    std::wstring text;
+    for (const std::wstring& value : values) {
+        if (value.empty()) {
+            continue;
+        }
+        if (!text.empty()) {
+            text += L", ";
+        }
+        text += value;
+    }
+    return text;
+}
+
+std::wstring KnownOrUnknown(const bool known, const std::wstring& value) {
+    if (!known) {
+        return L"未知";
+    }
+    return value.empty() ? L"-" : value;
+}
+
 } // namespace
 
 void ServiceModel::setEntries(std::vector<ServiceEntry> entries) {
@@ -129,20 +150,32 @@ std::wstring ServiceModel::textForColumn(const ServiceEntry& entry, const int co
 }
 
 std::vector<ServiceProperty> ServiceModel::propertiesForEntry(const ServiceEntry& entry) const {
+    return ServicePropertiesForEntry(entry);
+}
+
+std::vector<ServiceProperty> ServicePropertiesForEntry(const ServiceEntry& entry) {
     std::vector<ServiceProperty> properties;
     properties.push_back({ L"服务名", entry.serviceName });
     properties.push_back({ L"显示名", entry.displayName });
     properties.push_back({ L"状态", entry.hasStatus ? ServiceStateText(entry.currentState) : L"未知" });
     properties.push_back({ L"启动类型", entry.hasConfig ? ServiceStartTypeText(entry.startType, entry.delayedAutoStart) : L"未知" });
-    properties.push_back({ L"服务类型", ServiceTypeText(entry.serviceType) });
-    properties.push_back({ L"进程 ID", entry.processId != 0 ? std::to_wstring(entry.processId) : L"-" });
-    properties.push_back({ L"登录账户", entry.accountName });
-    properties.push_back({ L"可执行路径", entry.binaryPath });
-    properties.push_back({ L"加载顺序组", entry.loadOrderGroup.empty() ? L"-" : entry.loadOrderGroup });
-    properties.push_back({ L"依赖项", entry.dependencies.empty() ? L"-" : entry.dependencies });
-    properties.push_back({ L"错误控制", std::to_wstring(entry.errorControl) });
-    if (entry.win32ExitCode != 0) {
-        properties.push_back({ L"上次退出码", std::to_wstring(entry.win32ExitCode) });
+    properties.push_back({ L"服务类型", entry.hasStatus || entry.hasConfig ? ServiceTypeText(entry.serviceType) : L"未知" });
+    properties.push_back({ L"进程 ID", entry.hasStatus && entry.processId != 0 ? std::to_wstring(entry.processId) : entry.hasStatus ? L"-" : L"未知" });
+    properties.push_back({ L"登录账户", KnownOrUnknown(entry.hasConfig, entry.accountName) });
+    properties.push_back({ L"可执行路径", KnownOrUnknown(entry.hasConfig, entry.binaryPath) });
+    properties.push_back({ L"加载顺序组", KnownOrUnknown(entry.hasConfig, entry.loadOrderGroup) });
+    properties.push_back({ L"加载顺序标记", entry.hasConfig ? std::to_wstring(entry.tagId) : L"未知" });
+    properties.push_back({ L"依赖项", KnownOrUnknown(entry.hasConfig, entry.dependencies) });
+    properties.push_back({ L"直接依赖服务", KnownOrUnknown(entry.hasConfig, JoinText(entry.dependencyServiceNames)) });
+    properties.push_back({ L"依赖加载顺序组", KnownOrUnknown(entry.hasConfig, JoinText(entry.dependencyLoadOrderGroups)) });
+    properties.push_back({ L"错误控制", entry.hasConfig ? std::to_wstring(entry.errorControl) : L"未知" });
+    if (entry.hasStatus) {
+        properties.push_back({ L"Win32 退出码", std::to_wstring(entry.win32ExitCode) });
+        properties.push_back({ L"服务特定退出码", std::to_wstring(entry.serviceSpecificExitCode) });
+        properties.push_back({ L"状态检查点", std::to_wstring(entry.checkPoint) });
+        properties.push_back({ L"等待提示(毫秒)", std::to_wstring(entry.waitHint) });
+        properties.push_back({ L"服务标志", std::to_wstring(entry.serviceFlags) });
+        properties.push_back({ L"接受的控制", std::to_wstring(entry.controlsAccepted) });
     }
     if (!entry.riskText.empty()) {
         properties.push_back({ L"风险", entry.riskText });
@@ -150,7 +183,7 @@ std::vector<ServiceProperty> ServiceModel::propertiesForEntry(const ServiceEntry
     if (!entry.diagnosticText.empty()) {
         properties.push_back({ L"采集说明", entry.diagnosticText });
     }
-    properties.push_back({ L"描述", entry.description.empty() ? L"-" : entry.description });
+    properties.push_back({ L"描述", KnownOrUnknown(entry.hasDescription, entry.description) });
     return properties;
 }
 

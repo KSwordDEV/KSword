@@ -230,6 +230,7 @@ void SettingsDock::changeEvent(QEvent* event)
     if (event->type() == QEvent::LanguageChange)
     {
         updateSystemDefaultFontItemText();
+        refreshBugcheckDiagnosticsStatusText();
         updateApplyButtonState();
     }
     // 跟随系统模式下深浅色由系统翻转，不经过“应用”按钮，
@@ -1108,6 +1109,7 @@ void SettingsDock::initializeFeaturesTab()
     dumpCheckLayout->addWidget(m_dumpAutoCheckCheckBox);
 
     featuresRootLayout->addWidget(dumpCheckGroupBox);
+    initializeBugcheckDiagnosticsControls(featuresRootLayout);
     featuresRootLayout->addStretch();
     m_tabWidget->addTab(m_featuresTab, QStringLiteral("功能"));
     languageManager.bindTab(

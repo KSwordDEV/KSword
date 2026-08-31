@@ -28,7 +28,86 @@ Environment:
 
 #if defined(_M_AMD64)
 #include <intrin.h>
+
+NTKERNELAPI VOID
+KeGenericCallDpc(
+    _In_ PKDEFERRED_ROUTINE Routine,
+    _In_opt_ PVOID Context
+    );
+
+NTKERNELAPI LOGICAL
+KeSignalCallDpcSynchronize(
+    _Inout_ PVOID SystemArgument2
+    );
+
+NTKERNELAPI VOID
+KeSignalCallDpcDone(
+    _In_ PVOID SystemArgument1
+    );
+
+#define KSW_HVM_IA32_VMX_PINBASED_CTLS 0x481UL
+#define KSW_HVM_IA32_VMX_EXIT_CTLS 0x483UL
+#define KSW_HVM_IA32_VMX_ENTRY_CTLS 0x484UL
+#define KSW_HVM_IA32_VMX_MISC 0x485UL
+#define KSW_HVM_IA32_VMX_TRUE_PINBASED_CTLS 0x48DUL
+#define KSW_HVM_IA32_VMX_TRUE_EXIT_CTLS 0x48FUL
+#define KSW_HVM_IA32_VMX_TRUE_ENTRY_CTLS 0x490UL
+#define KSW_HVM_IA32_VMX_PROCBASED_CTLS3 0x492UL
+#define KSW_HVM_IA32_VMX_EXIT_CTLS2 0x493UL
+#define KSW_HVM_VMX_ACTIVATE_TERTIARY (1ULL << 17)
+#define KSW_HVM_VMX_ACTIVATE_SECONDARY (1ULL << 31)
+#define KSW_HVM_VMX_EXIT_ACTIVATE_SECONDARY (1ULL << 31)
+#define KSW_HVM_VMX_ENABLE_EPT (1ULL << 1)
+#define KSW_HVM_VMX_ENABLE_VPID (1ULL << 5)
+
+/* 这些槽位只保存架构上应当跨逻辑处理器一致的原始能力事实。 */
+typedef enum _KSW_HVM_CAPABILITY_SLOT
+{
+    KswordHvmCapFeatureControl = 0,
+    KswordHvmCapVmxBasic,
+    KswordHvmCapCr0Fixed0,
+    KswordHvmCapCr0Fixed1,
+    KswordHvmCapCr4Fixed0,
+    KswordHvmCapCr4Fixed1,
+    KswordHvmCapPrimaryControls,
+    KswordHvmCapTruePrimaryControls,
+    KswordHvmCapSecondaryControls,
+    KswordHvmCapTertiaryControls,
+    KswordHvmCapExitControls,
+    KswordHvmCapTrueExitControls,
+    KswordHvmCapSecondaryExitControls,
+    KswordHvmCapEntryControls,
+    KswordHvmCapTrueEntryControls,
+    KswordHvmCapPinControls,
+    KswordHvmCapTruePinControls,
+    KswordHvmCapVmxMisc,
+    KswordHvmCapEptVpid,
+    KswordHvmCapCpuidMaxBasic,
+    KswordHvmCapCpuid7Subleaf0Ebx,
+    KswordHvmCapCpuid7Subleaf0EcxEdx,
+    KswordHvmCapCpuid7Subleaf1EaxEdx,
+    KswordHvmCapCpuidDSubleaf1EaxEcx,
+    KswordHvmCapCpuidMaxExtended,
+    KswordHvmCapCpuidExtended1Edx,
+    KswordHvmCapCpuidExtended8Eax,
+    KswordHvmCapCpuid7MaxSubleaf,
+    KswordHvmCapCount
+} KSW_HVM_CAPABILITY_SLOT;
+
+typedef struct _KSW_HVM_CAPABILITY_VERIFY_CONTEXT
+{
+    ULONGLONG Reference[KswordHvmCapCount];
+    volatile LONG SampleCount;
+    volatile LONG FailureCount;
+    volatile LONG MismatchCount;
+    volatile LONG FirstMismatchProcessor;
+    volatile LONG FirstMismatchSlot;
+} KSW_HVM_CAPABILITY_VERIFY_CONTEXT;
 #endif
+
+#define KSW_HVM_LIFECYCLE_BUGCHECK_CODE 0x00020001UL
+#define KSW_HVM_POWER_FAILURE_SIGNATURE 0x48564D50UL
+#define KSW_HVM_UNLOAD_FAILURE_SIGNATURE 0x48564D55UL
 
 static KSW_HVM_RUNTIME g_KswordHvm;
 
@@ -66,6 +145,207 @@ KswordARKHvmCopyAscii(
 }
 
 #if defined(_M_AMD64)
+static NTSTATUS
+KswordARKHvmSampleCapabilityFacts(
+    _Out_writes_(KswordHvmCapCount) ULONGLONG* Sample
+    )
+{
+    int registers[4] = { 0 };
+    ULONGLONG vmxBasic = 0ULL;
+    ULONGLONG primaryControls = 0ULL;
+    ULONGLONG secondaryControls = 0ULL;
+    ULONGLONG exitControls = 0ULL;
+    ULONG maxBasicLeaf = 0UL;
+    ULONG maxStructuredSubleaf = 0UL;
+    ULONG maxExtendedLeaf = 0UL;
+
+    if (Sample == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    RtlZeroMemory(
+        Sample,
+        sizeof(ULONGLONG) * KswordHvmCapCount);
+
+    /* 每个受门控的 MSR 都使用同一颗逻辑处理器上的门控位判断。 */
+    __try {
+        Sample[KswordHvmCapFeatureControl] =
+            __readmsr(KSW_IA32_FEATURE_CONTROL);
+        vmxBasic = __readmsr(KSW_IA32_VMX_BASIC);
+        Sample[KswordHvmCapVmxBasic] = vmxBasic;
+        Sample[KswordHvmCapCr0Fixed0] =
+            __readmsr(KSW_IA32_VMX_CR0_FIXED0);
+        Sample[KswordHvmCapCr0Fixed1] =
+            __readmsr(KSW_IA32_VMX_CR0_FIXED1);
+        Sample[KswordHvmCapCr4Fixed0] =
+            __readmsr(KSW_IA32_VMX_CR4_FIXED0);
+        Sample[KswordHvmCapCr4Fixed1] =
+            __readmsr(KSW_IA32_VMX_CR4_FIXED1);
+
+        primaryControls = __readmsr(KSW_IA32_VMX_PROCBASED_CTLS);
+        exitControls = __readmsr(KSW_HVM_IA32_VMX_EXIT_CTLS);
+        Sample[KswordHvmCapPrimaryControls] = primaryControls;
+        Sample[KswordHvmCapExitControls] = exitControls;
+        Sample[KswordHvmCapEntryControls] =
+            __readmsr(KSW_HVM_IA32_VMX_ENTRY_CTLS);
+        Sample[KswordHvmCapPinControls] =
+            __readmsr(KSW_HVM_IA32_VMX_PINBASED_CTLS);
+        Sample[KswordHvmCapVmxMisc] =
+            __readmsr(KSW_HVM_IA32_VMX_MISC);
+
+        if ((vmxBasic & (1ULL << 55)) != 0ULL) {
+            Sample[KswordHvmCapTruePrimaryControls] =
+                __readmsr(KSW_IA32_VMX_TRUE_PROCBASED_CTLS);
+            Sample[KswordHvmCapTrueExitControls] =
+                __readmsr(KSW_HVM_IA32_VMX_TRUE_EXIT_CTLS);
+            Sample[KswordHvmCapTrueEntryControls] =
+                __readmsr(KSW_HVM_IA32_VMX_TRUE_ENTRY_CTLS);
+            Sample[KswordHvmCapTruePinControls] =
+                __readmsr(KSW_HVM_IA32_VMX_TRUE_PINBASED_CTLS);
+        }
+
+        if (((primaryControls >> 32) &
+                KSW_HVM_VMX_ACTIVATE_SECONDARY) != 0ULL) {
+            secondaryControls =
+                __readmsr(KSW_IA32_VMX_PROCBASED_CTLS2);
+            Sample[KswordHvmCapSecondaryControls] =
+                secondaryControls;
+            if (((secondaryControls >> 32) &
+                    (KSW_HVM_VMX_ENABLE_EPT |
+                     KSW_HVM_VMX_ENABLE_VPID)) != 0ULL) {
+                Sample[KswordHvmCapEptVpid] =
+                    __readmsr(KSW_IA32_VMX_EPT_VPID_CAP);
+            }
+        }
+        if (((primaryControls >> 32) &
+                KSW_HVM_VMX_ACTIVATE_TERTIARY) != 0ULL) {
+            Sample[KswordHvmCapTertiaryControls] =
+                __readmsr(KSW_HVM_IA32_VMX_PROCBASED_CTLS3);
+        }
+        if (((exitControls >> 32) &
+                KSW_HVM_VMX_EXIT_ACTIVATE_SECONDARY) != 0ULL) {
+            Sample[KswordHvmCapSecondaryExitControls] =
+                __readmsr(KSW_HVM_IA32_VMX_EXIT_CTLS2);
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return GetExceptionCode();
+    }
+
+    /* CPUID 只采样能力叶，排除缓存、核心类型等按处理器变化的叶。 */
+    __cpuid(registers, 0);
+    maxBasicLeaf = (ULONG)registers[0];
+    Sample[KswordHvmCapCpuidMaxBasic] = maxBasicLeaf;
+    if (maxBasicLeaf >= 7UL) {
+        __cpuidex(registers, 7, 0);
+        maxStructuredSubleaf = (ULONG)registers[0];
+        Sample[KswordHvmCapCpuid7MaxSubleaf] =
+            maxStructuredSubleaf;
+        Sample[KswordHvmCapCpuid7Subleaf0Ebx] =
+            (ULONG)registers[1];
+        Sample[KswordHvmCapCpuid7Subleaf0EcxEdx] =
+            ((ULONGLONG)(ULONG)registers[2] << 32) |
+            (ULONG)registers[3];
+        if (maxStructuredSubleaf >= 1UL) {
+            __cpuidex(registers, 7, 1);
+            Sample[KswordHvmCapCpuid7Subleaf1EaxEdx] =
+                ((ULONGLONG)(ULONG)registers[0] << 32) |
+                (ULONG)registers[3];
+        }
+    }
+    if (maxBasicLeaf >= 0xDUL) {
+        __cpuidex(registers, 0xD, 1);
+        Sample[KswordHvmCapCpuidDSubleaf1EaxEcx] =
+            ((ULONGLONG)(ULONG)registers[0] << 32) |
+            (ULONG)registers[2];
+    }
+
+    __cpuid(registers, (int)0x80000000UL);
+    maxExtendedLeaf = (ULONG)registers[0];
+    Sample[KswordHvmCapCpuidMaxExtended] = maxExtendedLeaf;
+    if (maxExtendedLeaf >= 0x80000001UL) {
+        __cpuid(registers, (int)0x80000001UL);
+        Sample[KswordHvmCapCpuidExtended1Edx] =
+            (ULONG)registers[3];
+    }
+    if (maxExtendedLeaf >= 0x80000008UL) {
+        __cpuid(registers, (int)0x80000008UL);
+        Sample[KswordHvmCapCpuidExtended8Eax] =
+            (ULONG)registers[0];
+    }
+    return STATUS_SUCCESS;
+}
+
+static VOID
+KswordARKHvmVerifyCapabilitiesDpc(
+    _In_ struct _KDPC* Dpc,
+    _In_opt_ PVOID DeferredContext,
+    _In_opt_ PVOID SystemArgument1,
+    _In_opt_ PVOID SystemArgument2
+    )
+{
+    KSW_HVM_CAPABILITY_VERIFY_CONTEXT* context =
+        (KSW_HVM_CAPABILITY_VERIFY_CONTEXT*)DeferredContext;
+    ULONGLONG sample[KswordHvmCapCount] = { 0 };
+    NTSTATUS status = STATUS_UNSUCCESSFUL;
+    ULONG slot = 0UL;
+    ULONG processor = KeGetCurrentProcessorNumberEx(NULL);
+
+    UNREFERENCED_PARAMETER(Dpc);
+    status = KswordARKHvmSampleCapabilityFacts(sample);
+    if (!NT_SUCCESS(status)) {
+        InterlockedIncrement(&context->FailureCount);
+    } else {
+        for (slot = 0UL; slot < KswordHvmCapCount; ++slot) {
+            if (sample[slot] == context->Reference[slot]) {
+                continue;
+            }
+            if (InterlockedIncrement(&context->MismatchCount) == 1L) {
+                context->FirstMismatchProcessor = (LONG)processor;
+                context->FirstMismatchSlot = (LONG)slot;
+            }
+            break;
+        }
+    }
+    InterlockedIncrement(&context->SampleCount);
+    KeSignalCallDpcSynchronize(SystemArgument2);
+    KeSignalCallDpcDone(SystemArgument1);
+}
+
+static NTSTATUS
+KswordARKHvmVerifyUniformCapabilities(
+    VOID
+    )
+{
+    KSW_HVM_CAPABILITY_VERIFY_CONTEXT context = { 0 };
+    ULONG processorCountBefore = 0UL;
+    ULONG processorCountAfter = 0UL;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    status = KswordARKHvmSampleCapabilityFacts(context.Reference);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+    context.FirstMismatchProcessor = -1L;
+    context.FirstMismatchSlot = -1L;
+    processorCountBefore =
+        KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);
+    if (processorCountBefore == 0UL ||
+        processorCountBefore > KSWORD_ARK_HVM_MAX_PROCESSORS) {
+        return STATUS_NOT_SUPPORTED;
+    }
+
+    KeGenericCallDpc(KswordARKHvmVerifyCapabilitiesDpc, &context);
+    processorCountAfter =
+        KeQueryActiveProcessorCountEx(ALL_PROCESSOR_GROUPS);
+    if (processorCountAfter != processorCountBefore ||
+        context.SampleCount != (LONG)processorCountBefore ||
+        context.FailureCount != 0L ||
+        context.MismatchCount != 0L) {
+        return STATUS_NOT_SUPPORTED;
+    }
+    return STATUS_SUCCESS;
+}
+
 static BOOLEAN
 KswordARKHvmReadCapabilities(
     _Inout_ KSW_HVM_RUNTIME* Runtime
@@ -251,6 +531,330 @@ KswordARKHvmReadCapabilities(
 }
 #endif
 
+NTSTATUS
+KswordARKHvmArmUnloadGuard(
+    _Inout_ KSW_HVM_RUNTIME* Runtime
+    )
+{
+    PVOID previous = NULL;
+
+    /* Refuse residency unless KMDF installed an unload entry we can preserve. */
+    if (Runtime == NULL ||
+        Runtime->DriverObject == NULL ||
+        Runtime->OriginalDriverUnload == NULL) {
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    /* Treat the exact already-armed state as idempotent success. */
+    if (InterlockedCompareExchange(
+            &Runtime->UnloadGuardArmed,
+            1L,
+            1L) != 0L) {
+        return Runtime->DriverObject->DriverUnload == NULL
+            ? STATUS_SUCCESS
+            : STATUS_INVALID_DEVICE_STATE;
+    }
+    /* Remove only the exact unload entry captured after WdfDriverCreate. */
+    previous = InterlockedCompareExchangePointer(
+        (PVOID volatile*)&Runtime->DriverObject->DriverUnload,
+        NULL,
+        (PVOID)Runtime->OriginalDriverUnload);
+    if (previous != (PVOID)Runtime->OriginalDriverUnload) {
+        /* Never overwrite a third-party or otherwise unexpected entry. */
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    InterlockedExchange(&Runtime->UnloadGuardArmed, 1L);
+    Runtime->StateFlags |= KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED;
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+KswordARKHvmDisarmUnloadGuard(
+    _Inout_ KSW_HVM_RUNTIME* Runtime
+    )
+{
+    PVOID previous = NULL;
+
+    /* Nothing was removed when the guard is already idle. */
+    if (Runtime == NULL ||
+        InterlockedCompareExchange(
+            &Runtime->UnloadGuardArmed,
+            0L,
+            0L) == 0L) {
+        return STATUS_SUCCESS;
+    }
+    if (Runtime->DriverObject == NULL ||
+        Runtime->OriginalDriverUnload == NULL) {
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    /* Restore the original entry only when the guarded slot is still NULL. */
+    previous = InterlockedCompareExchangePointer(
+        (PVOID volatile*)&Runtime->DriverObject->DriverUnload,
+        (PVOID)Runtime->OriginalDriverUnload,
+        NULL);
+    if (previous != NULL &&
+        previous != (PVOID)Runtime->OriginalDriverUnload) {
+        /* Preserve the guard state instead of clobbering an unexpected owner. */
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    InterlockedExchange(&Runtime->UnloadGuardArmed, 0L);
+    Runtime->StateFlags &= ~KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED;
+    return STATUS_SUCCESS;
+}
+
+VOID
+KswordARKHvmInvalidatePowerResumeEvidence(
+    _Inout_ KSW_HVM_RUNTIME* Runtime
+    )
+{
+    ULONG index = 0UL;
+
+    if (Runtime == NULL) {
+        return;
+    }
+    /* Require a fresh per-CPU VMXON/VMXOFF proof after every S0 transition. */
+    Runtime->SelfTestPassedProcessorCount = 0UL;
+    Runtime->StateFlags &=
+        ~(KSWORD_ARK_HVM_STATE_SELF_TESTED |
+          KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED |
+          KSWORD_ARK_HVM_STATE_GUEST_READY |
+          KSWORD_ARK_HVM_STATE_GUEST_RUNNING |
+          KSWORD_ARK_HVM_STATE_GUEST_EXITED |
+          KSWORD_ARK_HVM_STATE_RESIDENT_STARTING |
+          KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
+          KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING);
+    Runtime->ResidentImplementation =
+        Runtime->ResidentStartAllowed
+            ? KSWORD_ARK_HVM_IMPLEMENTATION_CAPABILITY_ONLY
+            : KSWORD_ARK_HVM_IMPLEMENTATION_UNSUPPORTED;
+    for (index = 0UL; index < Runtime->ProcessorCount; ++index) {
+        Runtime->Processors[index].Row.stateFlags &=
+            ~(KSWORD_ARK_HVM_CPU_STATE_SELF_TESTED |
+              KSWORD_ARK_HVM_CPU_STATE_VMXON_SUCCEEDED |
+              KSWORD_ARK_HVM_CPU_STATE_EXCEPTION |
+              KSWORD_ARK_HVM_CPU_STATE_CONFLICT |
+              KSWORD_ARK_HVM_CPU_STATE_VMCS_LOADED |
+              KSWORD_ARK_HVM_CPU_STATE_GUEST_LAUNCHED |
+              KSWORD_ARK_HVM_CPU_STATE_VMEXIT_HANDLED |
+              KSWORD_ARK_HVM_CPU_STATE_RESIDENT_ACTIVE |
+              KSWORD_ARK_HVM_CPU_STATE_STOP_REQUESTED |
+              KSWORD_ARK_HVM_CPU_STATE_DEVIRTUALIZED);
+        Runtime->Processors[index].Row.vmxInstructionResult = 0UL;
+        Runtime->Processors[index].Row.lastStatus =
+            STATUS_DEVICE_NOT_READY;
+    }
+}
+
+NTSTATUS
+KswordARKHvmAcquireResidentTransition(
+    _Inout_ KSW_HVM_RUNTIME* Runtime
+    )
+{
+    KIRQL oldIrql = PASSIVE_LEVEL;
+
+    if (Runtime == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    for (;;) {
+        /* Claim only the phase bit while the ordinary spin lock is held. */
+        KeAcquireSpinLock(
+            &Runtime->ResidentTransitionStateLock,
+            &oldIrql);
+        if (InterlockedCompareExchange(
+                &Runtime->ResidentTransitionActive,
+                1L,
+                0L) == 0L) {
+            /* Reset the reusable notification event for this exact owner. */
+            KeClearEvent(&Runtime->ResidentTransitionIdleEvent);
+            KeReleaseSpinLock(
+                &Runtime->ResidentTransitionStateLock,
+                oldIrql);
+            return STATUS_SUCCESS;
+        }
+        KeReleaseSpinLock(
+            &Runtime->ResidentTransitionStateLock,
+            oldIrql);
+
+        if (KeGetCurrentIrql() > APC_LEVEL) {
+            /* Never spin at DISPATCH_LEVEL behind a preempted phase owner. */
+            return STATUS_DEVICE_BUSY;
+        }
+        /* Suspend a control thread instead of spinning behind an IPI. */
+        (void)KeWaitForSingleObject(
+            &Runtime->ResidentTransitionIdleEvent,
+            Executive,
+            KernelMode,
+            FALSE,
+            NULL);
+    }
+}
+
+VOID
+KswordARKHvmReleaseResidentTransition(
+    _Inout_ KSW_HVM_RUNTIME* Runtime
+    )
+{
+    KIRQL oldIrql = PASSIVE_LEVEL;
+
+    NT_ASSERT(Runtime != NULL);
+    /* Publish idle and signal its event as one short state-locked commit. */
+    KeAcquireSpinLock(
+        &Runtime->ResidentTransitionStateLock,
+        &oldIrql);
+    NT_ASSERT(InterlockedCompareExchange(
+        &Runtime->ResidentTransitionActive,
+        0L,
+        0L) != 0L);
+    InterlockedExchange(
+        &Runtime->ResidentTransitionActive,
+        0L);
+    KeSetEvent(
+        &Runtime->ResidentTransitionIdleEvent,
+        IO_NO_INCREMENT,
+        FALSE);
+    KeReleaseSpinLock(
+        &Runtime->ResidentTransitionStateLock,
+        oldIrql);
+}
+
+static NTSTATUS
+KswordARKHvmCompleteDeferredPowerResumeLocked(
+    _Inout_ KSW_HVM_RUNTIME* Runtime
+    )
+{
+    NTSTATUS status = STATUS_SUCCESS;
+
+    /* State two means S0 resumed while an HVM operation was still draining. */
+    if (InterlockedCompareExchange(
+            &Runtime->PowerTransitionPending,
+            0L,
+            0L) != 2L) {
+        return STATUS_SUCCESS;
+    }
+    /* Never reopen entry while an operation, context, or rollback is live. */
+    if (Runtime->Busy ||
+        InterlockedCompareExchange(
+            &Runtime->ResidentContextPreparing,
+            0L,
+            0L) != 0L ||
+        InterlockedCompareExchange(
+            &Runtime->ResidentProcessorCount,
+            0L,
+            0L) != 0L ||
+        (Runtime->StateFlags &
+            KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED) != 0UL) {
+        return STATUS_DEVICE_BUSY;
+    }
+    /* Restore unload ownership before publishing the reopened lifecycle. */
+    status = KswordARKHvmDisarmUnloadGuard(Runtime);
+    if (NT_SUCCESS(status)) {
+        KswordARKHvmInvalidatePowerResumeEvidence(Runtime);
+        InterlockedExchange(&Runtime->PowerTransitionPending, 0L);
+        Runtime->StateFlags &=
+            ~KSWORD_ARK_HVM_STATE_POWER_TRANSITION_PENDING;
+    }
+    return status;
+}
+
+static VOID NTAPI
+KswordARKHvmPowerStateCallback(
+    _In_opt_ PVOID CallbackContext,
+    _In_opt_ PVOID Argument1,
+    _In_opt_ PVOID Argument2
+    )
+{
+    KSW_HVM_RUNTIME* runtime =
+        (KSW_HVM_RUNTIME*)CallbackContext;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    /* Process only the system working-state lock notification. */
+    if (runtime == NULL ||
+        Argument1 != (PVOID)(ULONG_PTR)PO_CB_SYSTEM_STATE_LOCK) {
+        return;
+    }
+    if ((ULONG_PTR)Argument2 == FALSE) {
+        /* Block every new resident transition before taking its phase gate. */
+        InterlockedExchange(&runtime->PowerTransitionPending, 1L);
+        InterlockedIncrement(&runtime->PowerTransitionGeneration);
+        InterlockedOr(
+            (volatile LONG*)&runtime->StateFlags,
+            (LONG)KSWORD_ARK_HVM_STATE_POWER_TRANSITION_PENDING);
+        /* Synchronously complete all-CPU VMXOFF before leaving S0. */
+        status = KswordARKHvmResidentStop(runtime);
+        runtime->LastStatus = status;
+        InterlockedIncrement((volatile LONG*)&runtime->Generation);
+        if (!NT_SUCCESS(status)) {
+            InterlockedOr(
+                (volatile LONG*)&runtime->StateFlags,
+                (LONG)(KSWORD_ARK_HVM_STATE_FAULTED |
+                    KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED));
+            /*
+             * A DISPATCH_LEVEL phase collision cannot wait safely.  Fail
+             * closed even before resident count is published so an in-flight
+             * transient VMX window cannot cross the S0 boundary.
+             */
+            if (status == STATUS_DEVICE_BUSY ||
+                InterlockedCompareExchange(
+                    &runtime->ResidentProcessorCount,
+                    0L,
+                    0L) != 0L) {
+                KeBugCheckEx(
+                    KSW_HVM_LIFECYCLE_BUGCHECK_CODE,
+                    (ULONG_PTR)KSW_HVM_POWER_FAILURE_SIGNATURE,
+                    (ULONG_PTR)runtime->ResidentProcessorCount,
+                    (ULONG_PTR)status,
+                    (ULONG_PTR)runtime->StateFlags);
+            }
+        }
+        return;
+    }
+
+    /* Mark S0 resumed, then reopen only after every HVM operation drains. */
+    InterlockedExchange(&runtime->PowerTransitionPending, 2L);
+    status = KswordARKHvmAcquireResidentTransition(runtime);
+    if (NT_SUCCESS(status)) {
+        if (runtime->Busy ||
+            InterlockedCompareExchange(
+                &runtime->ResidentContextPreparing,
+                0L,
+                0L) != 0L) {
+            /* Keep the gate closed until the active control path drains. */
+            status = STATUS_DEVICE_BUSY;
+        } else {
+            status =
+                KswordARKHvmCompleteDeferredPowerResumeLocked(runtime);
+        }
+        KswordARKHvmReleaseResidentTransition(runtime);
+    }
+    runtime->LastStatus = status;
+    InterlockedIncrement((volatile LONG*)&runtime->Generation);
+}
+
+static VOID
+KswordARKHvmProcessorChangeCallback(
+    _In_opt_ PVOID CallbackContext,
+    _In_ PKE_PROCESSOR_CHANGE_NOTIFY_CONTEXT ChangeContext,
+    _Inout_ PNTSTATUS OperationStatus
+    )
+{
+    KSW_HVM_RUNTIME* runtime =
+        (KSW_HVM_RUNTIME*)CallbackContext;
+
+    /* Preserve the exact prepared/self-tested CPU set until full teardown. */
+    if (runtime != NULL &&
+        ChangeContext != NULL &&
+        OperationStatus != NULL &&
+        ChangeContext->State == KeProcessorAddStartNotify &&
+        NT_SUCCESS(*OperationStatus) &&
+        ((runtime->StateFlags &
+             (KSWORD_ARK_HVM_STATE_BUSY |
+              KSWORD_ARK_HVM_STATE_RESOURCES_READY |
+              KSWORD_ARK_HVM_STATE_RESIDENT_STARTING |
+              KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
+              KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING)) != 0UL)) {
+        *OperationStatus = STATUS_DEVICE_BUSY;
+    }
+}
+
 static VOID
 KswordARKHvmFreeResourcesLocked(
     _Inout_ KSW_HVM_RUNTIME* Runtime
@@ -259,27 +863,21 @@ KswordARKHvmFreeResourcesLocked(
     ULONG index = 0UL;
     NTSTATUS residentStatus = STATUS_SUCCESS;
 
-    /* Stop every resident processor before releasing VMCS or host pages. */
-    if (InterlockedCompareExchange(
+    /* Drain active or retained resident contexts before releasing VMX pages. */
+    residentStatus = KswordARKHvmResidentStop(Runtime);
+    /* Preserve resources while any processor or unload guard remains unsafe. */
+    if (!NT_SUCCESS(residentStatus) ||
+        InterlockedCompareExchange(
             &Runtime->ResidentProcessorCount,
             0L,
             0L) != 0L) {
-        /* Execute the complete all-processor VMXOFF rendezvous. */
-        residentStatus = KswordARKHvmResidentStop(Runtime);
-        /* Preserve resources while any processor still references them. */
-        if (!NT_SUCCESS(residentStatus) ||
-            InterlockedCompareExchange(
-                &Runtime->ResidentProcessorCount,
-                0L,
-                0L) != 0L) {
-            /* Publish explicit rollback-required evidence. */
-            Runtime->StateFlags |=
-                KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
-            /* Preserve the authoritative stop failure. */
-            Runtime->LastStatus = residentStatus;
-            /* Return without releasing live VMX resources. */
-            return;
-        }
+        /* Publish explicit rollback-required evidence. */
+        Runtime->StateFlags |=
+            KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+        /* Preserve the authoritative stop failure. */
+        Runtime->LastStatus = residentStatus;
+        /* Return without releasing live VMX resources. */
+        return;
     }
     /* Restore baseline EPT leaves before releasing split table pages. */
     KswordARKHvmEptResetLocked(Runtime);
@@ -524,6 +1122,16 @@ KswordARKHvmPrepareLocked(
         return STATUS_HV_FEATURE_UNAVAILABLE;
     }
 
+#if defined(_M_AMD64)
+    /* 在任何资源分配或 VMXON 之前验证全部逻辑处理器能力一致。 */
+    status = KswordARKHvmVerifyUniformCapabilities();
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+#else
+    return STATUS_NOT_SUPPORTED;
+#endif
+
     /* Capture MTRR state before choosing EPT leaf memory types. */
     status = KswordARKHvmMtrrCapture(&Runtime->Mtrr);
     /* Stop when memory typing cannot be established safely. */
@@ -573,6 +1181,7 @@ KswordARKHvmSelfTestProcessor(
     UCHAR vmxResult = 0xFFU;
     NTSTATUS status = STATUS_UNSUCCESSFUL;
     BOOLEAN affinitySet = FALSE;
+    BOOLEAN transitionOwned = FALSE;
     BOOLEAN irqlRaised = FALSE;
     BOOLEAN cr4Changed = FALSE;
 
@@ -585,10 +1194,24 @@ KswordARKHvmSelfTestProcessor(
         &oldAffinity);
     affinitySet = TRUE;
 
-    /* DPC level prevents migration during the local VMX transition. */
-    oldIrql = KeRaiseIrqlToDpcLevel();
+    /* Own the transition phase without holding its state spin lock over VMX. */
+    status = KswordARKHvmAcquireResidentTransition(Runtime);
+    if (!NT_SUCCESS(status)) {
+        goto Complete;
+    }
+    transitionOwned = TRUE;
+    /* Prevent thread migration while this CPU temporarily owns VMX root. */
+    KeRaiseIrql(DISPATCH_LEVEL, &oldIrql);
     irqlRaised = TRUE;
     __try {
+        /* A leaving-S0 callback always wins before any new VMXON. */
+        if (InterlockedCompareExchange(
+                &Runtime->PowerTransitionPending,
+                0L,
+                0L) != 0L) {
+            status = STATUS_POWER_STATE_INVALID;
+            __leave;
+        }
         originalCr0 = __readcr0();
         originalCr4 = __readcr4();
         requiredCr0 =
@@ -650,6 +1273,10 @@ KswordARKHvmSelfTestProcessor(
                 KSWORD_ARK_HVM_CPU_STATE_EXCEPTION;
         }
     }
+Complete:
+    if (transitionOwned) {
+        KswordARKHvmReleaseResidentTransition(Runtime);
+    }
     if (irqlRaised) {
         KeLowerIrql(oldIrql);
     }
@@ -671,12 +1298,18 @@ KswordARKHvmSelfTestLocked(
     ULONG index = 0UL;
     ULONG passed = 0UL;
     NTSTATUS firstFailure = STATUS_SUCCESS;
+    NTSTATUS transitionStatus = STATUS_SUCCESS;
+    LONG powerGeneration = 0L;
 
     /* The test operates only on a complete prepared resource set. */
     if ((Runtime->StateFlags &
             KSWORD_ARK_HVM_STATE_RESOURCES_READY) == 0UL) {
         return STATUS_DEVICE_NOT_READY;
     }
+    powerGeneration = InterlockedCompareExchange(
+        &Runtime->PowerTransitionGeneration,
+        0L,
+        0L);
 
     /* Nested execution requires a second explicit opt-in at self-test time. */
     if ((Runtime->FeatureFlags &
@@ -698,6 +1331,23 @@ KswordARKHvmSelfTestLocked(
             firstFailure = status;
         }
     }
+    /* Publish one coherent test epoch, never a pre/post-sleep mixture. */
+    transitionStatus = KswordARKHvmAcquireResidentTransition(Runtime);
+    if (!NT_SUCCESS(transitionStatus)) {
+        return transitionStatus;
+    }
+    if (InterlockedCompareExchange(
+            &Runtime->PowerTransitionPending,
+            0L,
+            0L) != 0L ||
+        InterlockedCompareExchange(
+            &Runtime->PowerTransitionGeneration,
+            0L,
+            0L) != powerGeneration) {
+        KswordARKHvmInvalidatePowerResumeEvidence(Runtime);
+        KswordARKHvmReleaseResidentTransition(Runtime);
+        return STATUS_POWER_STATE_INVALID;
+    }
     Runtime->SelfTestPassedProcessorCount = passed;
     Runtime->StateFlags |= KSWORD_ARK_HVM_STATE_SELF_TESTED;
     if (passed == Runtime->ProcessorCount &&
@@ -705,11 +1355,13 @@ KswordARKHvmSelfTestLocked(
         Runtime->StateFlags |=
             KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED |
             KSWORD_ARK_HVM_STATE_GUEST_READY;
+        KswordARKHvmReleaseResidentTransition(Runtime);
         return STATUS_SUCCESS;
     }
     Runtime->StateFlags &=
         ~(KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED |
           KSWORD_ARK_HVM_STATE_GUEST_READY);
+    KswordARKHvmReleaseResidentTransition(Runtime);
     return NT_SUCCESS(firstFailure)
         ? STATUS_UNSUCCESSFUL
         : firstFailure;
@@ -733,7 +1385,19 @@ KswordARKHvmLaunchGuestLocked(
     ULONG index = 0UL;
     NTSTATUS status = STATUS_UNSUCCESSFUL;
     BOOLEAN nestedLaunch = FALSE;
+    LONG powerGeneration = 0L;
 
+    /* Bind every prerequisite and VMX transition to one power epoch. */
+    powerGeneration = InterlockedCompareExchange(
+        &Runtime->PowerTransitionGeneration,
+        0L,
+        0L);
+    if (InterlockedCompareExchange(
+            &Runtime->PowerTransitionPending,
+            0L,
+            0L) != 0L) {
+        return STATUS_POWER_STATE_INVALID;
+    }
     /* Require a complete prepared and self-tested backend before VM entry. */
     if ((Runtime->StateFlags &
             (KSWORD_ARK_HVM_STATE_RESOURCES_READY |
@@ -808,6 +1472,9 @@ KswordARKHvmLaunchGuestLocked(
     launchInput.Cr4Fixed1 = Runtime->Cr4Fixed1;
     /* Reference the prepared RAM identity-map EPT pointer. */
     launchInput.EptPointer = Runtime->EptPointer;
+    /* Share the runtime-owned transition phase and power epoch. */
+    launchInput.Runtime = Runtime;
+    launchInput.ExpectedPowerTransitionGeneration = powerGeneration;
 
     /* Replace the previous one-shot state with an observable running state. */
     Runtime->StateFlags &=
@@ -926,6 +1593,14 @@ KswordARKHvmControlStatusFromNtStatus(
     if (Status == STATUS_REVISION_MISMATCH) {
         return KSWORD_ARK_HVM_CONTROL_STATUS_VERIFY_FAILED;
     }
+    if (Status == STATUS_POWER_STATE_INVALID) {
+        return
+            KSWORD_ARK_HVM_CONTROL_STATUS_POWER_TRANSITION_BLOCKED;
+    }
+    if (Status == STATUS_INVALID_DEVICE_STATE) {
+        return
+            KSWORD_ARK_HVM_CONTROL_STATUS_LIFECYCLE_GUARD_FAILED;
+    }
     if (Command == KSWORD_ARK_HVM_CONTROL_START_RESIDENT ||
         Command == KSWORD_ARK_HVM_CONTROL_STOP_RESIDENT) {
         return KSWORD_ARK_HVM_CONTROL_STATUS_RENDEZVOUS_FAILED;
@@ -951,6 +1626,12 @@ KswordARKHvmInitialize(
     /* Initialize the lock before publishing any observable runtime state. */
     RtlZeroMemory(&g_KswordHvm, sizeof(g_KswordHvm));
     ExInitializePushLock(&g_KswordHvm.Lock);
+    KeInitializeSpinLock(
+        &g_KswordHvm.ResidentTransitionStateLock);
+    KeInitializeEvent(
+        &g_KswordHvm.ResidentTransitionIdleEvent,
+        NotificationEvent,
+        TRUE);
     g_KswordHvm.Initialized = TRUE;
     g_KswordHvm.StateFlags = KSWORD_ARK_HVM_STATE_INITIALIZED;
     g_KswordHvm.Generation = 1UL;
@@ -977,10 +1658,9 @@ KswordARKHvmInitialize(
     /* Capability failure disables HVM only; it does not fail driver startup. */
     if (KswordARKHvmReadCapabilities(&g_KswordHvm)) {
         /*
-         * Keep resident mode unavailable: this unloadable driver has no
-         * power-transition callback that can prove all CPUs devirtualized
-         * before S3/S4/modern-standby or image removal.  Nonresident VMX and
-         * EPT research capabilities remain available.
+         * Keep resident mode unavailable until WdfDriverCreate installs the
+         * final unload entry and every lifecycle callback binds successfully.
+         * Nonresident VMX and EPT research capabilities remain available.
          */
         g_KswordHvm.ResidentImplementation =
             KSWORD_ARK_HVM_IMPLEMENTATION_UNSUPPORTED;
@@ -1004,14 +1684,165 @@ KswordARKHvmInitialize(
     return STATUS_SUCCESS;
 }
 
+NTSTATUS
+KswordARKHvmEnableResidentLifecycle(
+    _In_ PDRIVER_OBJECT DriverObject
+    )
+{
+#if defined(_M_AMD64)
+    static const ULONGLONG requiredFeatures =
+        KSWORD_ARK_HVM_FEATURE_INTEL |
+        KSWORD_ARK_HVM_FEATURE_VMX |
+        KSWORD_ARK_HVM_FEATURE_FEATURE_CONTROL_LOCKED |
+        KSWORD_ARK_HVM_FEATURE_VMX_OUTSIDE_SMX |
+        KSWORD_ARK_HVM_FEATURE_EPT |
+        KSWORD_ARK_HVM_FEATURE_EPT_WB |
+        KSWORD_ARK_HVM_FEATURE_EPT_4_LEVEL |
+        KSWORD_ARK_HVM_FEATURE_EPT_2MB |
+        KSWORD_ARK_HVM_FEATURE_INVEPT |
+        KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE;
+    UNICODE_STRING callbackName =
+        RTL_CONSTANT_STRING(L"\\Callback\\PowerState");
+    OBJECT_ATTRIBUTES objectAttributes;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    /* AMD and every other non-Intel vendor remain a hard driver-side denial. */
+    if (DriverObject == NULL || !g_KswordHvm.Initialized) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    if (g_KswordHvm.QueryStatus != KSWORD_ARK_HVM_QUERY_STATUS_OK) {
+        return g_KswordHvm.LastStatus;
+    }
+    if ((g_KswordHvm.FeatureFlags & requiredFeatures) !=
+        requiredFeatures) {
+        g_KswordHvm.LastStatus = STATUS_NOT_SUPPORTED;
+        return STATUS_NOT_SUPPORTED;
+    }
+    /* Resident mode never co-owns VT-x with Hyper-V or another hypervisor. */
+    if ((g_KswordHvm.FeatureFlags &
+            KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL) {
+        g_KswordHvm.LastStatus = STATUS_HV_FEATURE_UNAVAILABLE;
+        return STATUS_HV_FEATURE_UNAVAILABLE;
+    }
+    if (DriverObject->DriverUnload == NULL) {
+        g_KswordHvm.LastStatus = STATUS_INVALID_DEVICE_STATE;
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+
+    /* Capture the final KMDF unload entry before publishing resident support. */
+    g_KswordHvm.DriverObject = DriverObject;
+    g_KswordHvm.OriginalDriverUnload = DriverObject->DriverUnload;
+    g_KswordHvm.ProcessorChangeRegistration =
+        KeRegisterProcessorChangeCallback(
+            KswordARKHvmProcessorChangeCallback,
+            &g_KswordHvm,
+            0UL);
+    if (g_KswordHvm.ProcessorChangeRegistration == NULL) {
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto Failure;
+    }
+
+    InitializeObjectAttributes(
+        &objectAttributes,
+        &callbackName,
+        OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+        NULL,
+        NULL);
+    status = ExCreateCallback(
+        &g_KswordHvm.PowerStateCallbackObject,
+        &objectAttributes,
+        FALSE,
+        TRUE);
+    if (!NT_SUCCESS(status)) {
+        goto Failure;
+    }
+    g_KswordHvm.PowerStateCallbackRegistration =
+        ExRegisterCallback(
+            g_KswordHvm.PowerStateCallbackObject,
+            KswordARKHvmPowerStateCallback,
+            &g_KswordHvm);
+    if (g_KswordHvm.PowerStateCallbackRegistration == NULL) {
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto Failure;
+    }
+
+    /* Publish resident/EPT controls only after every fail-closed guard exists. */
+    g_KswordHvm.FeatureFlags |=
+        KSWORD_ARK_HVM_FEATURE_RESIDENT_VMM |
+        KSWORD_ARK_HVM_FEATURE_MULTICORE_RENDEZVOUS |
+        KSWORD_ARK_HVM_FEATURE_EPT_RULES |
+        KSWORD_ARK_HVM_FEATURE_POWER_STATE_GUARD |
+        KSWORD_ARK_HVM_FEATURE_PROCESSOR_TOPOLOGY_GUARD |
+        KSWORD_ARK_HVM_FEATURE_DRIVER_UNLOAD_GUARD |
+        KSWORD_ARK_HVM_FEATURE_RESIDENT_LIFECYCLE_GUARDED;
+    g_KswordHvm.ResidentStartAllowed = TRUE;
+    g_KswordHvm.ResidentImplementation =
+        KSWORD_ARK_HVM_IMPLEMENTATION_CAPABILITY_ONLY;
+    g_KswordHvm.LastStatus = STATUS_SUCCESS;
+    return STATUS_SUCCESS;
+
+Failure:
+    /* Roll back partial callback ownership before leaving resident disabled. */
+    if (g_KswordHvm.PowerStateCallbackRegistration != NULL) {
+        ExUnregisterCallback(
+            g_KswordHvm.PowerStateCallbackRegistration);
+        g_KswordHvm.PowerStateCallbackRegistration = NULL;
+    }
+    if (g_KswordHvm.PowerStateCallbackObject != NULL) {
+        ObDereferenceObject(g_KswordHvm.PowerStateCallbackObject);
+        g_KswordHvm.PowerStateCallbackObject = NULL;
+    }
+    if (g_KswordHvm.ProcessorChangeRegistration != NULL) {
+        KeDeregisterProcessorChangeCallback(
+            g_KswordHvm.ProcessorChangeRegistration);
+        g_KswordHvm.ProcessorChangeRegistration = NULL;
+    }
+    g_KswordHvm.DriverObject = NULL;
+    g_KswordHvm.OriginalDriverUnload = NULL;
+    g_KswordHvm.ResidentStartAllowed = FALSE;
+    g_KswordHvm.ResidentImplementation =
+        KSWORD_ARK_HVM_IMPLEMENTATION_UNSUPPORTED;
+    g_KswordHvm.LastStatus = status;
+    return status;
+#else
+    UNREFERENCED_PARAMETER(DriverObject);
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
 VOID
 KswordARKHvmUninitialize(
     VOID
     )
 {
+    PCALLBACK_OBJECT powerCallbackObject = NULL;
+    PVOID powerCallbackRegistration = NULL;
+    PVOID processorChangeRegistration = NULL;
+
     /* Unload is serialized against query/control before releasing pages. */
     if (!g_KswordHvm.Initialized) {
         return;
+    }
+    /* Block new residency before draining either lifecycle callback. */
+    g_KswordHvm.ResidentStartAllowed = FALSE;
+    InterlockedExchange(
+        &g_KswordHvm.PowerTransitionPending,
+        1L);
+    powerCallbackRegistration =
+        g_KswordHvm.PowerStateCallbackRegistration;
+    powerCallbackObject =
+        g_KswordHvm.PowerStateCallbackObject;
+    processorChangeRegistration =
+        g_KswordHvm.ProcessorChangeRegistration;
+    g_KswordHvm.PowerStateCallbackRegistration = NULL;
+    g_KswordHvm.PowerStateCallbackObject = NULL;
+    g_KswordHvm.ProcessorChangeRegistration = NULL;
+    if (powerCallbackRegistration != NULL) {
+        ExUnregisterCallback(powerCallbackRegistration);
+    }
+    if (processorChangeRegistration != NULL) {
+        KeDeregisterProcessorChangeCallback(
+            processorChangeRegistration);
     }
     KeEnterCriticalRegion();
     KswordARKAcquirePushLockExclusive(&g_KswordHvm.Lock);
@@ -1021,14 +1852,41 @@ KswordARKHvmUninitialize(
             &g_KswordHvm.ResidentProcessorCount,
             0L,
             0L) == 0L) {
+        NTSTATUS transitionStatus = STATUS_SUCCESS;
+
+        /* Restore the captured KMDF unload entry after complete VMXOFF. */
+        transitionStatus =
+            KswordARKHvmAcquireResidentTransition(&g_KswordHvm);
+        if (NT_SUCCESS(transitionStatus)) {
+            transitionStatus =
+                KswordARKHvmDisarmUnloadGuard(&g_KswordHvm);
+            KswordARKHvmReleaseResidentTransition(&g_KswordHvm);
+        }
+        if (!NT_SUCCESS(transitionStatus)) {
+            g_KswordHvm.StateFlags |=
+                KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+        }
         /* Publish completed HVM teardown. */
         g_KswordHvm.Initialized = FALSE;
     } else {
         /* Preserve explicit rollback-required evidence on unsafe unload. */
         g_KswordHvm.StateFlags |=
             KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+        /* Returning would unmap code still executing from resident host state. */
+        KeBugCheckEx(
+            KSW_HVM_LIFECYCLE_BUGCHECK_CODE,
+            (ULONG_PTR)KSW_HVM_UNLOAD_FAILURE_SIGNATURE,
+            (ULONG_PTR)g_KswordHvm.ResidentProcessorCount,
+            (ULONG_PTR)g_KswordHvm.LastStatus,
+            (ULONG_PTR)g_KswordHvm.StateFlags);
     }
-    KswordARKReleasePushLockExclusive(&g_KswordHvm.Lock);    KeLeaveCriticalRegion();
+    KswordARKReleasePushLockExclusive(&g_KswordHvm.Lock);
+    KeLeaveCriticalRegion();
+    if (powerCallbackObject != NULL) {
+        ObDereferenceObject(powerCallbackObject);
+    }
+    g_KswordHvm.DriverObject = NULL;
+    g_KswordHvm.OriginalDriverUnload = NULL;
 }
 
 NTSTATUS
@@ -1160,6 +2018,7 @@ KswordARKHvmControl(
     )
 {
     NTSTATUS status = STATUS_SUCCESS;
+    NTSTATUS deferredResumeStatus = STATUS_SUCCESS;
     ULONG oldStateFlags = 0UL;
     ULONG oldGeneration = 0UL;
     ULONG eventCount = 0UL;
@@ -1337,9 +2196,21 @@ KswordARKHvmControl(
             : KSWORD_ARK_HVM_CONTROL_STATUS_UNSUPPORTED_CPU;
         goto Complete;
     }
+    /* Keep all new HVM work closed until the S0 transition fully drains. */
+    if (InterlockedCompareExchange(
+            &g_KswordHvm.PowerTransitionPending,
+            0L,
+            0L) != 0L &&
+        Request->command != KSWORD_ARK_HVM_CONTROL_STOP_RESIDENT) {
+        status = STATUS_POWER_STATE_INVALID;
+        Response->status =
+            KSWORD_ARK_HVM_CONTROL_STATUS_POWER_TRANSITION_BLOCKED;
+        goto Complete;
+    }
 
     /* Publish busy state while the selected lifecycle command executes. */
     g_KswordHvm.Busy = TRUE;
+    g_KswordHvm.StateFlags |= KSWORD_ARK_HVM_STATE_BUSY;
     if (Request->command == KSWORD_ARK_HVM_CONTROL_PREPARE) {
         status = KswordARKHvmPrepareLocked(
             &g_KswordHvm,
@@ -1428,9 +2299,25 @@ KswordARKHvmControl(
             : STATUS_HV_OPERATION_FAILED;
     }
     g_KswordHvm.Busy = FALSE;
+    g_KswordHvm.StateFlags &= ~KSWORD_ARK_HVM_STATE_BUSY;
+    /* Finish a resume that waited for this exact control operation to drain. */
+    deferredResumeStatus =
+        KswordARKHvmAcquireResidentTransition(&g_KswordHvm);
+    if (NT_SUCCESS(deferredResumeStatus)) {
+        deferredResumeStatus =
+            KswordARKHvmCompleteDeferredPowerResumeLocked(&g_KswordHvm);
+        KswordARKHvmReleaseResidentTransition(&g_KswordHvm);
+    }
+    if (!NT_SUCCESS(deferredResumeStatus) &&
+        deferredResumeStatus != STATUS_DEVICE_BUSY &&
+        NT_SUCCESS(status)) {
+        status = deferredResumeStatus;
+    }
     g_KswordHvm.LastStatus = status;
     if (!NT_SUCCESS(status) &&
-        status != STATUS_NOT_IMPLEMENTED) {
+        status != STATUS_NOT_IMPLEMENTED &&
+        status != STATUS_POWER_STATE_INVALID &&
+        status != STATUS_DEVICE_BUSY) {
         g_KswordHvm.StateFlags |= KSWORD_ARK_HVM_STATE_FAULTED;
     } else if (NT_SUCCESS(status)) {
         g_KswordHvm.StateFlags &= ~KSWORD_ARK_HVM_STATE_FAULTED;

@@ -4,7 +4,6 @@
 #include <QMainWindow>
 #include <QTabWidget>
 #include <QDockWidget>
-#include <QMenuBar>
 #include <QMenu>
 #include <QAction>
 #include <QApplication>
@@ -205,6 +204,10 @@ private:
     // - 菜单复选状态由 CDockWidget::toggleViewAction 自动与 Dock 开关同步。
     void initializeWindowDockMenuActions();
     void initPrivilegeStatusButtons();
+    // attachPrivilegeStatusButtonsToPrimaryDockTabBar：
+    // - 将全局权限状态按钮组挂到欢迎页所属主功能 Dock 的 Tab 栏右侧；
+    // - 布局恢复后调用，欢迎页随用户布局移动/浮动时按钮组随该 Dock Area 移动。
+    void attachPrivilegeStatusButtonsToPrimaryDockTabBar();
     void refreshPrivilegeStatusButtons();
     void applyPrivilegeButtonStyle(QPushButton* button, bool activeState);
     void handleR0DriverUnavailable(unsigned long win32Error);
@@ -341,23 +344,19 @@ private:
     void toggleLogOutputWindow();
     void persistLogOutputWindowGeometry();
     void restoreLogOutputWindowGeometry();
-    // openReleasePageFromMenu 作用：从顶部菜单打开 GitHub Releases 页面检查更新。
-    void openReleasePageFromMenu();
-    // openGitHubRepositoryFromMenu 作用：从顶部菜单打开项目 GitHub 仓库主页。
-    void openGitHubRepositoryFromMenu();
     // showLicenseFromMenu 作用：读取程序同目录 LICENSE 文件并展示许可证内容。
     void showLicenseFromMenu();
 
-    // buildTopActionButtonStyle 作用：
-    // - 统一生成标题栏下方功能按钮样式；
-    // - 在深浅主题切换后可重复应用，避免顶部菜单文字颜色漂移。
+    // buildTitleActionButtonStyle 作用：
+    // - 统一生成标题栏左侧功能按钮样式；
+    // - 在深浅主题切换后可重复应用，避免标题栏菜单文字颜色漂移。
     // 返回：可直接设置到 QToolButton 的样式文本。
-    QString buildTopActionButtonStyle() const;
+    QString buildTitleActionButtonStyle() const;
 
-    // refreshTopActionButtonStyles 作用：
-    // - 根据当前主题刷新“检查更新/GitHub/许可证/退出/插件/设置”顶部功能按钮；
+    // refreshTitleActionButtonStyles 作用：
+    // - 根据当前主题刷新“许可证/插件/窗口/日志/设置”标题栏功能按钮；
     // - 解决深色模式切换后旧浅色样式残留的问题。
-    void refreshTopActionButtonStyles();
+    void refreshTitleActionButtonStyles();
 
     void initializeNextDeferredDock();
 
@@ -390,6 +389,15 @@ private:
     // - 启动时立即应用一次外观。
     // 调用方式：MainWindow 构造末尾调用。
     void initAppearanceSettings();
+
+    // updateBugcheckDiagnosticsEntryVisibility 作用：把持久化配置与本次安装状态同步到杂项页入口。
+    // 调用方式：杂项页构造后、设置页修改自动安装选项或安装 IOCTL 成功后调用。
+    // 返回：无。
+    void updateBugcheckDiagnosticsEntryVisibility();
+
+    // installBugcheckDiagnosticsAfterServiceStart 作用：自动安装已启用时，在 R0 服务运行后后台发送安装 IOCTL。
+    // 调用方式：startR0RuntimeConsumersAfterServiceStart 内部调用；返回：无，失败只记录日志。
+    void installBugcheckDiagnosticsAfterServiceStart();
 
     // reattachDetachedFeatureDocks 作用：
     // - 把布局恢复后仍游离在浮动容器里的主功能 Dock 收回主 Dock 区；
@@ -673,24 +681,19 @@ private:
     bool m_windowPinned = false;                        // m_windowPinned：主窗口当前是否置顶。
     bool m_captureProtectionEnabled = false;            // m_captureProtectionEnabled：主窗口当前是否启用截屏屏蔽。
 
-    // 顶部菜单栏右侧权限按钮（纯文字）：
+    // 主功能 Dock Tab 栏右侧权限按钮（纯文字）：
     // - UIAccess：SYSTEM TokenUIAccess fallback 与普通用户实例回退；
     // - Admin：管理员权限状态与提权入口；
     // - Debug：SeDebugPrivilege 状态与申请入口；
     // - System：是否 LocalSystem 身份；
     // - R0：驱动服务快捷开关。
     QWidget* m_privilegeButtonContainer = nullptr;
-    QWidget* m_topActionRowWidget = nullptr;     // m_topActionRowWidget：标题栏下方的功能条容器（常用动作 + 权限按钮）。
-    QHBoxLayout* m_topActionRowLayout = nullptr; // m_topActionRowLayout：功能条水平布局。
-    QToolButton* m_updateMenuButton = nullptr;   // m_updateMenuButton：功能条左侧“检查更新”按钮。
-    QToolButton* m_githubMenuButton = nullptr;   // m_githubMenuButton：功能条左侧“GitHub”仓库按钮。
-    QToolButton* m_licenseMenuButton = nullptr;  // m_licenseMenuButton：功能条左侧“许可证”按钮。
-    QToolButton* m_exitMenuButton = nullptr;     // m_exitMenuButton：功能条左侧“退出”按钮。
-    QToolButton* m_pluginMenuButton = nullptr;   // m_pluginMenuButton：功能条左侧“插件管理”入口按钮。
-    QToolButton* m_windowMenuButton = nullptr;   // m_windowMenuButton：功能条“窗口”下拉菜单入口。
+    QToolButton* m_licenseMenuButton = nullptr;  // m_licenseMenuButton：标题栏左侧“许可证”按钮。
+    QToolButton* m_pluginMenuButton = nullptr;   // m_pluginMenuButton：标题栏左侧“插件”入口按钮。
+    QToolButton* m_windowMenuButton = nullptr;   // m_windowMenuButton：标题栏“窗口”下拉菜单入口。
     QMenu* m_windowMenu = nullptr;               // m_windowMenu：辅助 Dock 显示/隐藏复选菜单。
-    QToolButton* m_logMenuButton = nullptr;      // m_logMenuButton：功能条“日志输出”窗口切换入口。
-    QToolButton* m_settingsMenuButton = nullptr; // m_settingsMenuButton：功能条左侧“设置”入口按钮。
+    QToolButton* m_logMenuButton = nullptr;      // m_logMenuButton：标题栏“日志”窗口切换入口。
+    QToolButton* m_settingsMenuButton = nullptr; // m_settingsMenuButton：标题栏左侧“设置”入口按钮。
     QPushButton* m_uiAccessStatusButton = nullptr; // m_uiAccessStatusButton：触发 UIAccess fallback 或降级回普通实例的入口。
     QPushButton* m_adminStatusButton = nullptr;
     QPushButton* m_debugStatusButton = nullptr;
@@ -730,6 +733,8 @@ private:
     bool m_deferredDockInitializationStarted = false; // m_deferredDockInitializationStarted：是否已启动显示后补载流程。
     bool m_dockLayoutRestoredFromConfig = false;     // m_dockLayoutRestoredFromConfig：启动时是否已从配置恢复 ADS 布局。
     bool m_pendingR0DynDataRefresh = false;          // m_pendingR0DynDataRefresh：KernelDock 惰性创建后是否需要补跑 DynData 刷新。
+    bool m_bugcheckDiagnosticsInstalledForSession = false; // m_bugcheckDiagnosticsInstalledForSession：当前驱动生命周期内是否已成功安装蓝屏诊断。
+    bool m_bugcheckDiagnosticsEntryRequestedForSession = false; // m_bugcheckDiagnosticsEntryRequestedForSession：用户本次操作是否已请求显示诊断入口。
     std::size_t m_nextDeferredDockIndex = 0;          // m_nextDeferredDockIndex：下一个待补载 Dock 队列索引。
     std::vector<ads::CDockWidget*> m_deferredDockLoadQueue; // m_deferredDockLoadQueue：显示后依次补载的 Dock 队列。
 };

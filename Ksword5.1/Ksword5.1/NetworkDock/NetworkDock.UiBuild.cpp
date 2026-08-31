@@ -470,6 +470,14 @@ void NetworkDock::initializeNetworkAuditTab()
             << "[NetworkDock] 打开进程详情窗口, pid=" << processId
             << eol;
     });
+    m_networkAuditPage->setUdpEndpointBlockRuleHandler(
+        [this](const std::uint32_t processId, const QString& localEndpointText)
+    {
+        if (m_firewallPage != nullptr)
+        {
+            m_firewallPage->addUdpEndpointBlockRuleFromEvidence(localEndpointText, processId);
+        }
+    });
     m_sideTabWidget->addTab(
         m_networkAuditPage,
         QIcon(QStringLiteral(":/Icon/process_details.svg")),

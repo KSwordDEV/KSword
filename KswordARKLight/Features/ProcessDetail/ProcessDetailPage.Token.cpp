@@ -402,7 +402,13 @@ bool ProcessDetailPage::HandleTokenCommand(int controlId) {
     case TokenCopy: {
         HWND output = Control(TabIndex::Token, TokenOutput);
         ::SendMessageW(output, EM_SETSEL, 0, -1);
-        ::SendMessageW(output, WM_COPY, 0, 0);
+        const std::wstring text = ReadWindowText(output);
+        if (!text.empty()) {
+            CopyText(hwnd_, text);
+        } else {
+            // Preserve the native edit-control behavior for an empty report.
+            ::SendMessageW(output, WM_COPY, 0, 0);
+        }
         return true;
     }
     case TokenFind:

@@ -3,13 +3,18 @@
 #include "WindowActions.h"
 #include "WindowEnumerator.h"
 #include "WindowModel.h"
+#include "Win32kTimerEvidenceModel.h"
+#include "../File/PathNavigator.h"
+#include "../WindowTools/WindowToolsHierarchyView.h"
 #include "../../../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
 #include "../../Ui/Theme.h"
+#include "../../Ui/EntityNavigation.h"
 #include "../../Ui/VirtualListView.h"
 
 #include <commctrl.h>
@@ -19,6 +24,7 @@
 #include <memory>
 #include <string>
 #include <cstring>
+#include <climits>
 #include <cstdint>
 #include <sstream>
 #include <unordered_map>
@@ -40,7 +46,8 @@ constexpr int kSortComboId = 62009;
 constexpr int kAuditModeComboId = 62010;
 constexpr int kFilterBarId = 62011;
 constexpr int kLoadingOverlayId = 62012;
-constexpr int kHeaderHeight = 62;
+constexpr int kExportButtonId = 62013;
+constexpr int kHeaderHeight = 96;
 constexpr int kGap = 6;
 constexpr int kDetailHeight = 210;
 constexpr UINT kWindowMenuRefreshDetail = 62601;
@@ -56,9 +63,20 @@ constexpr UINT kWindowMenuCopyVisible = 62610;
 constexpr UINT kWindowMenuCopyDetailCell = 62611;
 constexpr UINT kWindowMenuCopyDetailRow = 62612;
 constexpr UINT kWindowMenuCopyDetailVisible = 62613;
+constexpr UINT kWindowMenuAllowCapture = 62614;
+constexpr UINT kWindowMenuBlockCapture = 62615;
+constexpr UINT kWindowMenuExcludeFromCapture = 62616;
+constexpr UINT kWindowMenuOpenProcess = 62617;
+constexpr UINT kWindowMenuOpenImageDirectory = 62618;
+constexpr UINT kWindowMenuExportDetail = 62619;
 constexpr UINT kMsgWindowRefreshCompleted = WM_APP + 610;
 constexpr UINT kMsgWindowFilterCompleted = WM_APP + 611;
 constexpr UINT kMsgWindowDetailCompleted = WM_APP + 612;
+constexpr UINT kMsgExternalQuery = WM_APP + 613;
+
+#ifndef WDA_EXCLUDEFROMCAPTURE
+#define WDA_EXCLUDEFROMCAPTURE 0x00000011
+#endif
 
 // WindowViewMode controls whether this retained page shows the existing R3
 // window list or a read-only audit entry matrix. Inputs come from the toolbar
@@ -67,6 +85,7 @@ enum class WindowViewMode {
     WindowList,
     Win32kGuiAudit,
     Win32kMessageHookAudit,
+    Win32kTimerAudit,
     GpuDisplayAudit
 };
 
@@ -79,6 +98,7 @@ struct AuditEntry {
     std::wstring item;
     std::wstring status;
     std::wstring detail;
+    DWORD relatedProcessId = 0;
 };
 
 struct WindowFilterResult {
@@ -199,6 +219,7 @@ int Height(const RECT& rc) {
 struct WindowViewState {
     HWND hwnd = nullptr;
     HWND refreshButton = nullptr;
+    HWND exportButton = nullptr;
     HWND frontButton = nullptr;
     HWND restoreButton = nullptr;
     HWND minimizeButton = nullptr;
@@ -210,6 +231,7 @@ struct WindowViewState {
     HWND loadingOverlay = nullptr;
     HWND windowList = nullptr;
     HWND detailList = nullptr;
+    HWND hierarchyReportView = nullptr;
     HIMAGELIST processImageList = nullptr;
     WindowModel model;
     std::vector<AuditEntry> auditRows;
@@ -226,6 +248,90 @@ struct WindowViewState {
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<WindowDetailSnapshot>> detailTask;
     std::unordered_map<std::wstring, int> processIconCache;
 };
+
+std::vector<std::wstring> WindowColumnTitles(const WindowViewState& state) {
+    if (state.viewMode == WindowViewMode::WindowList) {
+        return { L"进程 / PID", L"HWND", L"Title", L"Class", L"State" };
+    }
+    return { L"类别", L"数据源", L"入口 / 对象", L"状态", L"说明" };
+}
+
+// AppendTsvCell appends one strictly single-line TSV cell. Inputs are the
+// current rendered string and an output buffer; tabs/newlines are flattened so
+// a copied window title or driver diagnostic cannot add columns or rows.
+void AppendTsvCell(std::wstring& output, const std::wstring& cell) {
+    for (const wchar_t character : cell) {
+        output.push_back(character == L'\t' || character == L'\r' || character == L'\n' ? L' ' : character);
+    }
+}
+
+// AppendTsvRow writes exactly columnCount cells from one retained display row.
+// The Window list keeps additional cells for filtering, but export intentionally
+// stops at the currently visible column count so headers and data remain aligned.
+void AppendTsvRow(std::wstring& output, const std::vector<std::wstring>& cells, const std::size_t columnCount) {
+    for (std::size_t column = 0U; column < columnCount; ++column) {
+        if (column != 0U) {
+            output.push_back(L'\t');
+        }
+        if (column < cells.size()) {
+            AppendTsvCell(output, cells[column]);
+        }
+    }
+    output += L"\r\n";
+}
+
+// BuildVisibleRowsTsv serializes the already-filtered display snapshot. It
+// never enumerates HWNDs or queries ArkDriverClient; normal window rows retain
+// extra supporting cells for in-page workflows, which are deliberately excluded
+// from this five-column visible export.
+std::wstring BuildVisibleRowsTsv(const WindowViewState& state) {
+    const std::vector<std::wstring> columns = WindowColumnTitles(state);
+    const auto& rows = state.virtualList.rows();
+    const auto& visibleIndexes = state.virtualList.visibleIndexes();
+    if (columns.empty() || visibleIndexes.empty()) {
+        return {};
+    }
+
+    std::wstring text;
+    bool wroteHeader = false;
+    for (const std::size_t index : visibleIndexes) {
+        if (index >= rows.size()) {
+            continue;
+        }
+        if (!wroteHeader) {
+            AppendTsvRow(text, columns, columns.size());
+            wroteHeader = true;
+        }
+        AppendTsvRow(text, rows[index].cells, columns.size());
+    }
+    return text;
+}
+
+void ExportVisibleRows(WindowViewState* state) {
+    if (!state) {
+        return;
+    }
+    const std::wstring text = BuildVisibleRowsTsv(*state);
+    if (text.empty()) {
+        state->statusText = L"没有可导出的可见结果。";
+        ::InvalidateRect(state->hwnd, nullptr, TRUE);
+        return;
+    }
+    std::wstring error;
+    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(state->hwnd, L"window.tsv", L"导出窗口结果",
+        L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0", L"tsv", text, &error)) {
+    case Ksword::Ui::SaveTextFileResult::Saved:
+        state->statusText = L"窗口可见结果已导出。";
+        break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled:
+        state->statusText = L"已取消导出窗口结果。";
+        break;
+    case Ksword::Ui::SaveTextFileResult::Failed:
+        state->statusText = L"导出窗口结果失败：" + error;
+        break;
+    }
+    ::InvalidateRect(state->hwnd, nullptr, TRUE);
+}
 
 // AddColumn inserts one report-view column. Inputs are list HWND, column index,
 // title and width; processing sends LVM_INSERTCOLUMNW; no value is returned.
@@ -276,50 +382,103 @@ void AddDetailRow(HWND list, int row, const std::wstring& name, const std::wstri
 }
 
 // ListText returns one ListView cell as UTF-16 text. Inputs are control, row and
-// column indexes; processing uses a bounded local buffer; output is empty on
-// invalid input or blank cells.
+// column indexes; processing grows its buffer until the common control reports
+// a complete value, so detail exports do not silently truncate long diagnostics
+// or titles; output is empty on invalid input or a blank cell.
 std::wstring ListText(HWND list, int row, int column) {
     if (!list || row < 0 || column < 0) {
         return {};
     }
-    std::vector<wchar_t> buffer(4096, L'\0');
-    LVITEMW item{};
-    item.iSubItem = column;
-    item.cchTextMax = static_cast<int>(buffer.size());
-    item.pszText = buffer.data();
-    ListView_GetItemText(list, row, column, buffer.data(), static_cast<int>(buffer.size()));
-    return std::wstring(buffer.data());
+    std::vector<wchar_t> buffer(256, L'\0');
+    for (;;) {
+        LVITEMW item{};
+        item.iSubItem = column;
+        item.pszText = buffer.data();
+        item.cchTextMax = static_cast<int>(buffer.size());
+        const LRESULT copiedResult = ::SendMessageW(
+            list, LVM_GETITEMTEXTW, static_cast<WPARAM>(row), reinterpret_cast<LPARAM>(&item));
+        if (copiedResult < 0 || copiedResult > INT_MAX) {
+            return {};
+        }
+        const int copied = static_cast<int>(copiedResult);
+        if (copied < static_cast<int>(buffer.size()) - 1) {
+            return std::wstring(buffer.data(), static_cast<std::size_t>(copied));
+        }
+
+        // ListView_GetItemText returns cchTextMax - 1 when a buffer might have
+        // been filled. Grow and retry even when the cell happened to be exactly
+        // that long; only the larger read can prove the value was complete.
+        const std::size_t current = buffer.size();
+        if (current >= static_cast<std::size_t>(INT_MAX / 2)) {
+            // A common-control string cannot be read into a larger cchTextMax
+            // value. Returning empty is safer than exporting a partial value.
+            return {};
+        }
+        buffer.assign(current * 2U, L'\0');
+    }
+}
+
+// BuildRenderedDetailTsv serializes only the property/value strings presently
+// shown in the detail ListView. It neither revalidates the HWND nor calls the
+// driver, so an export remains evidence for the exact R3/R0 snapshot the user
+// can see, including an Unsupported or Partial result.
+std::wstring BuildRenderedDetailTsv(HWND detailList) {
+    const int rows = detailList ? ListView_GetItemCount(detailList) : 0;
+    if (rows <= 0) {
+        return {};
+    }
+
+    std::wstring text;
+    AppendTsvCell(text, L"Property");
+    text.push_back(L'\t');
+    AppendTsvCell(text, L"Value");
+    text += L"\r\n";
+    for (int row = 0; row < rows; ++row) {
+        AppendTsvCell(text, ListText(detailList, row, 0));
+        text.push_back(L'\t');
+        AppendTsvCell(text, ListText(detailList, row, 1));
+        text += L"\r\n";
+    }
+    return text;
+}
+
+// ExportCurrentDetail persists the already-rendered window/Win32k detail as
+// UTF-8 TSV. Inputs are page state and user-selected output path; it performs
+// no new R3 inspection, ArkDriverClient request, privilege change, or path
+// navigation. SaveUtf8TextFileWithDialog also records the exact text in the
+// existing evidence session after a successful write.
+void ExportCurrentDetail(WindowViewState* state) {
+    if (!state) {
+        return;
+    }
+    const std::wstring text = BuildRenderedDetailTsv(state->detailList);
+    if (text.empty()) {
+        state->statusText = L"没有可导出的当前窗口/Win32k 详情。";
+        ::InvalidateRect(state->hwnd, nullptr, TRUE);
+        return;
+    }
+
+    std::wstring error;
+    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(state->hwnd, L"window_detail.tsv", L"导出窗口/Win32k 详情",
+        L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0", L"tsv", text, &error)) {
+    case Ksword::Ui::SaveTextFileResult::Saved:
+        state->statusText = L"当前窗口/Win32k 详情已导出，并已记录到证据会话。";
+        break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled:
+        state->statusText = L"已取消导出当前窗口/Win32k 详情。";
+        break;
+    case Ksword::Ui::SaveTextFileResult::Failed:
+        state->statusText = L"导出当前窗口/Win32k 详情失败：" + error;
+        break;
+    }
+    ::InvalidateRect(state->hwnd, nullptr, TRUE);
 }
 
 // CopyText writes Unicode text to the clipboard. Inputs are owner HWND and text;
 // processing transfers CF_UNICODETEXT; output reports success to callers that
 // update the status line.
 bool CopyText(HWND owner, const std::wstring& text) {
-    if (text.empty() || !::OpenClipboard(owner)) {
-        return false;
-    }
-    ::EmptyClipboard();
-    const SIZE_T bytes = (text.size() + 1) * sizeof(wchar_t);
-    HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (!memory) {
-        ::CloseClipboard();
-        return false;
-    }
-    void* target = ::GlobalLock(memory);
-    if (!target) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    std::memcpy(target, text.c_str(), bytes);
-    ::GlobalUnlock(memory);
-    if (!::SetClipboardData(CF_UNICODETEXT, memory)) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    ::CloseClipboard();
-    return true;
+    return Ksword::Ui::CopyTextToClipboard(owner, text, L"窗口模块");
 }
 
 // AddIconFromShell extracts one small executable icon. Inputs are an image list
@@ -460,6 +619,75 @@ HWND SelectedWindow(WindowViewState* state) {
     return row ? row->hwnd : nullptr;
 }
 
+void ShowDetail(WindowViewState* state, int modelIndex);
+
+std::wstring CaptureAffinityText(const DWORD affinity) {
+    switch (affinity) {
+    case WDA_NONE:
+        return L"允许窗口被捕获（WDA_NONE）";
+    case WDA_MONITOR:
+        return L"阻止屏幕捕获（WDA_MONITOR）";
+    case WDA_EXCLUDEFROMCAPTURE:
+        return L"从捕获中排除（WDA_EXCLUDEFROMCAPTURE）";
+    default:
+        return L"未知捕获保护值";
+    }
+}
+
+bool ConfirmCaptureProtection(HWND owner, const WindowSnapshotRow& row, const DWORD affinity) {
+    const std::wstring title = row.title.empty() ? L"(无标题)" : row.title;
+    const std::wstring process = row.processName.empty() ? L"(未知进程)" : row.processName;
+    const std::wstring text =
+        L"将修改其他窗口的捕获保护属性：\n\n"
+        L"窗口：" + title + L"\n"
+        L"句柄：" + HwndToText(row.hwnd) + L"    类名：" + row.className + L"\n"
+        L"进程：" + process + L"（PID " + std::to_wstring(row.processId) + L"）\n\n"
+        L"新的属性：" + CaptureAffinityText(affinity) + L"\n\n"
+        L"设置为非 WDA_NONE 后，该窗口在屏幕共享、录屏和远程会话中会变成黑块或直接消失，"
+        L"而本机屏幕上看不出任何变化。\n\n是否继续？";
+    return ::MessageBoxW(owner, text.c_str(), L"设置窗口捕获保护",
+        MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES;
+}
+
+void SetCaptureProtection(WindowViewState* state, const DWORD affinity) {
+    if (!state || state->viewMode != WindowViewMode::WindowList) {
+        return;
+    }
+    const WindowSnapshotRow* selected = state->model.rowAt(SelectedModelIndex(state));
+    if (!selected) {
+        state->statusText = L"未选择窗口。";
+        ::InvalidateRect(state->hwnd, nullptr, TRUE);
+        return;
+    }
+    const WindowSnapshotRow row = *selected;
+    if (!::IsWindow(row.hwnd)) {
+        state->statusText = L"目标窗口已关闭，请刷新后重试。";
+        ::InvalidateRect(state->hwnd, nullptr, TRUE);
+        return;
+    }
+    if (!ConfirmCaptureProtection(state->hwnd, row, affinity)) {
+        state->statusText = L"已取消设置窗口捕获保护。";
+        ::InvalidateRect(state->hwnd, nullptr, TRUE);
+        return;
+    }
+
+    const bool applied = ::SetWindowDisplayAffinity(row.hwnd, affinity) != FALSE;
+    const DWORD error = applied ? ERROR_SUCCESS : ::GetLastError();
+    if (applied) {
+        DWORD current = WDA_NONE;
+        state->statusText = ::GetWindowDisplayAffinity(row.hwnd, &current)
+            ? L"已设置为 " + CaptureAffinityText(current) + L"。"
+            : L"设置调用成功，但回读属性失败。";
+    } else {
+        state->statusText = L"设置窗口捕获保护失败（错误码 " + std::to_wstring(error) + L"）。";
+        if (error == ERROR_ACCESS_DENIED) {
+            state->statusText += L" 该 API 主要用于进程保护自身窗口，跨进程设置通常被拒绝。";
+        }
+    }
+    ShowDetail(state, SelectedModelIndex(state));
+    ::InvalidateRect(state->hwnd, nullptr, TRUE);
+}
+
 // BuildWin32kGuiAuditRows creates the GUI audit entry matrix. Inputs are the
 // current R3 window count; processing calls available ArkDriverClient win32k
 // wrappers and keeps the R3 window count as cross-view context; output is a
@@ -564,6 +792,27 @@ std::vector<AuditEntry> BuildWin32kMessageHookAuditRows() {
             item,
             Win32kRuntimeStatusText(entry.status),
             detail.str()
+        });
+    }
+    return rows;
+}
+
+// BuildWin32kTimerAuditRows exposes the existing typed tagTIMER snapshot as
+// immutable display rows. The DriverClient wrapper owns all protocol handling;
+// this page only projects the returned snapshot and never alters a timer.
+std::vector<AuditEntry> BuildWin32kTimerAuditRows() {
+    const ksword::ark::Win32kTimersResult result = ksword::ark::DriverClient().queryWin32kTimers();
+    const std::vector<Win32kTimerEvidenceRow> evidenceRows = BuildWin32kTimerEvidenceRows(result);
+    std::vector<AuditEntry> rows;
+    rows.reserve(evidenceRows.size());
+    for (const Win32kTimerEvidenceRow& evidence : evidenceRows) {
+        rows.push_back({
+            evidence.category,
+            evidence.source,
+            evidence.item,
+            evidence.status,
+            evidence.detail,
+            static_cast<DWORD>(evidence.relatedProcessId)
         });
     }
     return rows;
@@ -690,16 +939,19 @@ void ShowDetail(WindowViewState* state, int modelIndex) {
         return;
     }
     if (state->viewMode != WindowViewMode::WindowList) {
+        WindowTools::UpdateWindowHierarchyReportView(state->hierarchyReportView, nullptr);
         ShowAuditDetail(state, modelIndex);
         return;
     }
     const WindowSnapshotRow* row = state->model.rowAt(modelIndex);
     if (!row || !state->detailTask) {
+        WindowTools::UpdateWindowHierarchyReportView(state->hierarchyReportView, nullptr);
         ListView_DeleteAllItems(state->detailList);
         AddDetailRow(state->detailList, 0, L"Selection", L"No window selected");
         return;
     }
     const WindowSnapshotRow input = *row;
+    WindowTools::UpdateWindowHierarchyReportView(state->hierarchyReportView, input.hwnd);
     const std::uint64_t generation = state->snapshotGeneration;
     ListView_DeleteAllItems(state->detailList);
     AddDetailRow(state->detailList, 0, L"状态", L"正在后台查询窗口与 Win32k 详情…");
@@ -889,6 +1141,9 @@ void RefreshWindows(WindowViewState* state) {
             } else if (mode == WindowViewMode::Win32kMessageHookAudit) {
                 snapshot.auditRows = BuildWin32kMessageHookAuditRows();
                 snapshot.displayRows = BuildAuditDisplayRows(snapshot.auditRows);
+            } else if (mode == WindowViewMode::Win32kTimerAudit) {
+                snapshot.auditRows = BuildWin32kTimerAuditRows();
+                snapshot.displayRows = BuildAuditDisplayRows(snapshot.auditRows);
             } else if (mode == WindowViewMode::GpuDisplayAudit) {
                 snapshot.auditRows = BuildGpuDisplayAuditRows();
                 snapshot.displayRows = BuildAuditDisplayRows(snapshot.auditRows);
@@ -920,10 +1175,15 @@ void RefreshWindows(WindowViewState* state) {
                 state->statusText = L"Win32K GUI 审计快照已刷新。";
             } else if (snapshot->mode == WindowViewMode::Win32kMessageHookAudit) {
                 state->statusText = L"Win32K 消息 Hook 审计快照已刷新：" + std::to_wstring(state->auditRows.size()) + L" 行。";
+            } else if (snapshot->mode == WindowViewMode::Win32kTimerAudit) {
+                state->statusText = L"Win32K 定时器只读证据快照已刷新：" + std::to_wstring(state->auditRows.size()) +
+                    L" 行；首行保留返回计数、完整性和布局来源。";
             } else {
                 state->statusText = L"GPU / Display / Watchdog 审计快照已刷新。";
             }
             PopulateList(state);
+            WindowTools::UpdateWindowHierarchyReportView(state->hierarchyReportView,
+                snapshot->mode == WindowViewMode::WindowList ? SelectedWindow(state) : nullptr);
             ::InvalidateRect(state->hwnd, nullptr, TRUE);
         });
 }
@@ -954,6 +1214,14 @@ void UpdateViewModeFromCombo(WindowViewState* state) {
         ::EnableWindow(state->maximizeButton, FALSE);
         ::EnableWindow(state->closeButton, FALSE);
     } else if (selected == 3) {
+        state->viewMode = WindowViewMode::Win32kTimerAudit;
+        ::EnableWindow(state->sortCombo, FALSE);
+        ::EnableWindow(state->frontButton, FALSE);
+        ::EnableWindow(state->restoreButton, FALSE);
+        ::EnableWindow(state->minimizeButton, FALSE);
+        ::EnableWindow(state->maximizeButton, FALSE);
+        ::EnableWindow(state->closeButton, FALSE);
+    } else if (selected == 4) {
         state->viewMode = WindowViewMode::GpuDisplayAudit;
         ::EnableWindow(state->sortCombo, FALSE);
         ::EnableWindow(state->frontButton, FALSE);
@@ -969,6 +1237,9 @@ void UpdateViewModeFromCombo(WindowViewState* state) {
         ::EnableWindow(state->minimizeButton, TRUE);
         ::EnableWindow(state->maximizeButton, TRUE);
         ::EnableWindow(state->closeButton, TRUE);
+    }
+    if (state->viewMode != WindowViewMode::WindowList) {
+        WindowTools::UpdateWindowHierarchyReportView(state->hierarchyReportView, nullptr);
     }
     RefreshWindows(state);
 }
@@ -1070,8 +1341,15 @@ void ShowDetailContextMenu(WindowViewState* state, POINT screenPoint) {
     ::AppendMenuW(menu, MF_STRING | (selected >= 0 ? 0U : MF_GRAYED), kWindowMenuCopyDetailCell, L"复制单元格");
     ::AppendMenuW(menu, MF_STRING | (selected >= 0 ? 0U : MF_GRAYED), kWindowMenuCopyDetailRow, L"复制行");
     ::AppendMenuW(menu, MF_STRING | (ListView_GetItemCount(state->detailList) > 0 ? 0U : MF_GRAYED), kWindowMenuCopyDetailVisible, L"复制可见结果");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, MF_STRING | (ListView_GetItemCount(state->detailList) > 0 ? 0U : MF_GRAYED),
+        kWindowMenuExportDetail, L"导出当前详情为 TSV");
     const UINT command = ::TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenPoint.x, screenPoint.y, 0, state->hwnd, nullptr);
     ::DestroyMenu(menu);
+    if (command == kWindowMenuExportDetail) {
+        ExportCurrentDetail(state);
+        return;
+    }
     std::wstring text;
     if (command == kWindowMenuCopyDetailCell && selected >= 0) {
         text = ListText(state->detailList, selected, std::max(0, hit.iSubItem));
@@ -1134,6 +1412,97 @@ std::wstring CopyVirtualCell(const WindowViewState* state) {
     return rows[source].cells[static_cast<std::size_t>(state->contextColumn)];
 }
 
+// SelectedWindowSnapshot returns the currently selected retained window row
+// only in the normal window-list mode. Audit rows never pretend to carry the
+// same process-image provenance as an EnumWindows snapshot.
+const WindowSnapshotRow* SelectedWindowSnapshot(WindowViewState* state) {
+    if (!state || state->viewMode != WindowViewMode::WindowList) {
+        return nullptr;
+    }
+    return state->model.rowAt(SelectedModelIndex(state));
+}
+
+// SelectedAuditEntry returns the immutable selected audit snapshot. It never
+// treats a kernel object pointer as a live HWND or process handle.
+const AuditEntry* SelectedAuditEntry(WindowViewState* state) {
+    if (!state || state->viewMode == WindowViewMode::WindowList) {
+        return nullptr;
+    }
+    const int rowIndex = SelectedModelIndex(state);
+    if (rowIndex < 0 || rowIndex >= static_cast<int>(state->auditRows.size())) {
+        return nullptr;
+    }
+    return &state->auditRows[static_cast<std::size_t>(rowIndex)];
+}
+
+void OpenSelectedWindowProcess(WindowViewState* state) {
+    const WindowSnapshotRow* row = SelectedWindowSnapshot(state);
+    if (!state || !row || row->processId == 0U) {
+        if (state) {
+            state->statusText = L"窗口快照没有可导航的 PID。";
+            ::InvalidateRect(state->hwnd, nullptr, TRUE);
+        }
+        return;
+    }
+    const DWORD processId = row->processId;
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::ProcessDetails;
+    request.entity.kind = Ksword::Core::EntityKind::Process;
+    request.entity.id = processId;
+    const bool routed = Ksword::Ui::RequestEntityNavigation(state->hwnd, request);
+    state->statusText = routed
+        ? L"已请求打开当前 PID " + std::to_wstring(processId) + L" 的进程详细信息；窗口快照归属会重新校验。"
+        : L"无法导航到该窗口快照的当前进程实例。";
+    ::InvalidateRect(state->hwnd, nullptr, TRUE);
+}
+
+// OpenSelectedAuditProcess routes only the captured numeric PID from a
+// read-only audit record. The destination revalidates the current process, so
+// a historical tagTIMER owner is never assumed to still be the same instance.
+void OpenSelectedAuditProcess(WindowViewState* state) {
+    const AuditEntry* entry = SelectedAuditEntry(state);
+    if (!state || !entry || entry->relatedProcessId == 0U) {
+        if (state) {
+            state->statusText = L"审计快照没有可导航的 PID。";
+            ::InvalidateRect(state->hwnd, nullptr, TRUE);
+        }
+        return;
+    }
+    const DWORD processId = entry->relatedProcessId;
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::ProcessDetails;
+    request.entity.kind = Ksword::Core::EntityKind::Process;
+    request.entity.id = processId;
+    const bool routed = Ksword::Ui::RequestEntityNavigation(state->hwnd, request);
+    state->statusText = routed
+        ? L"已请求打开快照 PID " + std::to_wstring(processId) + L" 的进程详情；历史定时器归属会重新校验。"
+        : L"无法导航到该审计快照的当前进程实例。";
+    ::InvalidateRect(state->hwnd, nullptr, TRUE);
+}
+
+void OpenSelectedWindowImageDirectory(WindowViewState* state) {
+    const WindowSnapshotRow* row = SelectedWindowSnapshot(state);
+    if (!state || !row) {
+        return;
+    }
+    const std::wstring directory =
+        Ksword::Features::File::PathNavigator::parentDirectoryForKnownFilePath(row->processImagePath);
+    if (directory.empty()) {
+        state->statusText = L"窗口快照中的映像路径不是可精确导航的 DOS/UNC 文件路径。";
+        ::InvalidateRect(state->hwnd, nullptr, TRUE);
+        return;
+    }
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::FileBrowser;
+    request.entity.kind = Ksword::Core::EntityKind::File;
+    request.entity.text = directory;
+    const bool routed = Ksword::Ui::RequestEntityNavigation(state->hwnd, request);
+    state->statusText = routed
+        ? L"已在文件模块打开窗口映像所在目录。"
+        : L"文件模块当前无法接收窗口映像所在目录。";
+    ::InvalidateRect(state->hwnd, nullptr, TRUE);
+}
+
 // ShowWindowContextMenu exposes the retained Window page actions from the row
 // itself. Inputs are page state and screen coordinates; processing selects the
 // hit row when needed, groups detail/window actions into submenus, then
@@ -1159,6 +1528,13 @@ void ShowWindowContextMenu(WindowViewState* state, POINT screenPoint) {
 
     const bool hasWindow = state->viewMode == WindowViewMode::WindowList && SelectedWindow(state) != nullptr;
     const bool hasRow = ListView_GetNextItem(state->windowList, -1, LVNI_SELECTED) >= 0;
+    const bool hasDetailRows = state->detailList && ListView_GetItemCount(state->detailList) > 0;
+    const WindowSnapshotRow* investigationRow = SelectedWindowSnapshot(state);
+    const AuditEntry* auditInvestigationRow = SelectedAuditEntry(state);
+    const bool canOpenProcess = (investigationRow != nullptr && investigationRow->processId != 0U) ||
+        (auditInvestigationRow != nullptr && auditInvestigationRow->relatedProcessId != 0U);
+    const bool canOpenImageDirectory = investigationRow != nullptr &&
+        !Ksword::Features::File::PathNavigator::parentDirectoryForKnownFilePath(investigationRow->processImagePath).empty();
     HMENU menu = ::CreatePopupMenu();
     if (!menu) {
         return;
@@ -1167,6 +1543,7 @@ void ShowWindowContextMenu(WindowViewState* state, POINT screenPoint) {
     if (detailMenu) {
         ::AppendMenuW(detailMenu, MF_STRING | (hasWindow ? 0U : MF_GRAYED), kWindowMenuRefreshDetail, L"刷新详细信息");
         ::AppendMenuW(detailMenu, MF_STRING | (hasRow ? 0U : MF_GRAYED), kWindowMenuCopyDetail, L"复制详细信息");
+        ::AppendMenuW(detailMenu, MF_STRING | (hasDetailRows ? 0U : MF_GRAYED), kWindowMenuExportDetail, L"导出当前详情为 TSV");
         ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(detailMenu), L"详细信息");
     }
     HMENU operationMenu = ::CreatePopupMenu();
@@ -1177,6 +1554,22 @@ void ShowWindowContextMenu(WindowViewState* state, POINT screenPoint) {
         ::AppendMenuW(operationMenu, MF_STRING | (hasWindow ? 0U : MF_GRAYED), kWindowMenuMaximize, L"最大化");
         ::AppendMenuW(operationMenu, MF_STRING | (hasWindow ? 0U : MF_GRAYED), kWindowMenuClose, L"关闭窗口");
         ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(operationMenu), L"窗口操作");
+    }
+    HMENU captureMenu = ::CreatePopupMenu();
+    if (captureMenu) {
+        const UINT enabled = hasWindow ? MF_ENABLED : MF_GRAYED;
+        ::AppendMenuW(captureMenu, MF_STRING | enabled, kWindowMenuAllowCapture, L"允许窗口捕获");
+        ::AppendMenuW(captureMenu, MF_STRING | enabled, kWindowMenuBlockCapture, L"阻止屏幕捕获");
+        ::AppendMenuW(captureMenu, MF_STRING | enabled, kWindowMenuExcludeFromCapture, L"从捕获中排除");
+        ::AppendMenuW(menu, MF_POPUP | enabled, reinterpret_cast<UINT_PTR>(captureMenu), L"窗口捕获保护");
+    }
+    HMENU investigationMenu = ::CreatePopupMenu();
+    if (investigationMenu) {
+        ::AppendMenuW(investigationMenu, MF_STRING | (canOpenProcess ? 0U : MF_GRAYED),
+            kWindowMenuOpenProcess, L"打开当前 PID 的进程详情");
+        ::AppendMenuW(investigationMenu, MF_STRING | (canOpenImageDirectory ? 0U : MF_GRAYED),
+            kWindowMenuOpenImageDirectory, L"打开映像所在目录");
+        ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(investigationMenu), L"关联调查");
     }
     HMENU copyMenu = ::CreatePopupMenu();
     if (copyMenu) {
@@ -1203,6 +1596,9 @@ void ShowWindowContextMenu(WindowViewState* state, POINT screenPoint) {
         break;
     case kWindowMenuCopyDetail:
         CopyCurrentDetail(state);
+        break;
+    case kWindowMenuExportDetail:
+        ExportCurrentDetail(state);
         break;
     case kWindowMenuCopyCell:
         state->statusText = CopyText(state->hwnd, CopyVirtualCell(state)) ? L"已复制单元格。" : L"复制单元格失败。";
@@ -1231,6 +1627,25 @@ void ShowWindowContextMenu(WindowViewState* state, POINT screenPoint) {
     case kWindowMenuClose:
         RunAction(state, kCloseButtonId);
         break;
+    case kWindowMenuAllowCapture:
+        SetCaptureProtection(state, WDA_NONE);
+        break;
+    case kWindowMenuBlockCapture:
+        SetCaptureProtection(state, WDA_MONITOR);
+        break;
+    case kWindowMenuExcludeFromCapture:
+        SetCaptureProtection(state, WDA_EXCLUDEFROMCAPTURE);
+        break;
+    case kWindowMenuOpenProcess:
+        if (state && state->viewMode == WindowViewMode::WindowList) {
+            OpenSelectedWindowProcess(state);
+        } else {
+            OpenSelectedAuditProcess(state);
+        }
+        break;
+    case kWindowMenuOpenImageDirectory:
+        OpenSelectedWindowImageDirectory(state);
+        break;
     default:
         break;
     }
@@ -1246,23 +1661,34 @@ void LayoutView(WindowViewState* state) {
     ::GetClientRect(state->hwnd, &rc);
     const int width = Width(rc);
     const int height = Height(rc);
+    const int leftWidth = (std::max)(1, (width - kGap * 3) * 2 / 3);
+    const int hierarchyLeft = kGap * 2 + leftWidth;
+    const int hierarchyWidth = (std::max)(1, width - hierarchyLeft - kGap);
     int x = kGap;
     ::MoveWindow(state->auditModeCombo, x, kGap, 180, 160, TRUE); x += 186;
     ::MoveWindow(state->sortCombo, x, kGap, 150, 160, TRUE); x += 156;
     ::MoveWindow(state->refreshButton, x, kGap, 78, 24, TRUE); x += 84;
-    ::MoveWindow(state->frontButton, x, kGap, 78, 24, TRUE); x += 84;
-    ::MoveWindow(state->restoreButton, x, kGap, 78, 24, TRUE); x += 84;
-    ::MoveWindow(state->minimizeButton, x, kGap, 78, 24, TRUE); x += 84;
-    ::MoveWindow(state->maximizeButton, x, kGap, 78, 24, TRUE); x += 84;
-    ::MoveWindow(state->closeButton, x, kGap, 78, 24, TRUE);
-    ::MoveWindow(state->filterBar, kGap, kGap + 28, std::max(100, width - (kGap * 2)), 24, TRUE);
+    ::MoveWindow(state->exportButton, x, kGap, 78, 24, TRUE);
+
+    x = kGap;
+    const int actionY = kGap + 28;
+    ::MoveWindow(state->frontButton, x, actionY, 78, 24, TRUE); x += 84;
+    ::MoveWindow(state->restoreButton, x, actionY, 78, 24, TRUE); x += 84;
+    ::MoveWindow(state->minimizeButton, x, actionY, 78, 24, TRUE); x += 84;
+    ::MoveWindow(state->maximizeButton, x, actionY, 78, 24, TRUE); x += 84;
+    ::MoveWindow(state->closeButton, x, actionY, 78, 24, TRUE); x += 84;
+    ::MoveWindow(state->filterBar, kGap, kGap * 3 + 48, leftWidth, 24, TRUE);
 
     const int detailHeight = height > 480 ? kDetailHeight : height / 3;
     const int listTop = kHeaderHeight + kGap;
-    const int listHeight = height - listTop - detailHeight - (kGap * 2);
-    ::MoveWindow(state->windowList, kGap, listTop, width - (kGap * 2), listHeight, TRUE);
-    ::MoveWindow(state->detailList, kGap, listTop + listHeight + kGap, width - (kGap * 2), detailHeight, TRUE);
-    ::MoveWindow(state->loadingOverlay, kGap, listTop, width - (kGap * 2), listHeight, TRUE);
+    const int listHeight = (std::max)(0, height - listTop - detailHeight - (kGap * 2));
+    ::MoveWindow(state->windowList, kGap, listTop, leftWidth, listHeight, TRUE);
+    ::MoveWindow(state->detailList, kGap, listTop + listHeight + kGap, leftWidth, detailHeight, TRUE);
+    ::MoveWindow(state->loadingOverlay, kGap, listTop, leftWidth, listHeight, TRUE);
+    if (state->hierarchyReportView) {
+        ::MoveWindow(state->hierarchyReportView, hierarchyLeft, kGap, hierarchyWidth,
+            (std::max)(1, height - kGap * 2), TRUE);
+    }
 }
 
 // CreateChildControls creates all native controls for the Window page. Inputs are
@@ -1293,6 +1719,7 @@ bool CreateChildControls(WindowViewState* state, HWND hwnd) {
         ::GetModuleHandleW(nullptr),
         nullptr);
     state->refreshButton = Ksword::Ui::CreateButton(hwnd, kRefreshButtonId, L"Refresh", 0, 0, 78, 24);
+    state->exportButton = Ksword::Ui::CreateButton(hwnd, kExportButtonId, L"导出 TSV", 0, 0, 78, 24);
     state->frontButton = Ksword::Ui::CreateButton(hwnd, kFrontButtonId, L"Front", 0, 0, 78, 24);
     state->restoreButton = Ksword::Ui::CreateButton(hwnd, kRestoreButtonId, L"Restore", 0, 0, 78, 24);
     state->minimizeButton = Ksword::Ui::CreateButton(hwnd, kMinimizeButtonId, L"Minimize", 0, 0, 78, 24);
@@ -1306,8 +1733,9 @@ bool CreateChildControls(WindowViewState* state, HWND hwnd) {
     state->detailList = ::CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SINGLESEL,
         0, 0, 100, 100, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDetailListId)), ::GetModuleHandleW(nullptr), nullptr);
-    if (!state->auditModeCombo || !state->sortCombo || !state->refreshButton || !state->frontButton || !state->restoreButton || !state->minimizeButton || !state->filterBar ||
-        !state->maximizeButton || !state->closeButton || !state->windowList || !state->detailList) {
+    state->hierarchyReportView = WindowTools::CreateWindowHierarchyReportView(hwnd, { 0, 0, 1, 1 });
+    if (!state->auditModeCombo || !state->sortCombo || !state->refreshButton || !state->exportButton || !state->frontButton || !state->restoreButton || !state->minimizeButton || !state->filterBar ||
+        !state->maximizeButton || !state->closeButton || !state->windowList || !state->detailList || !state->hierarchyReportView) {
         return false;
     }
 
@@ -1315,6 +1743,7 @@ bool CreateChildControls(WindowViewState* state, HWND hwnd) {
     ::SendMessageW(state->auditModeCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"窗口列表"));
     ::SendMessageW(state->auditModeCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Win32K GUI 审计"));
     ::SendMessageW(state->auditModeCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Win32K 消息 Hook 审计"));
+    ::SendMessageW(state->auditModeCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Win32K 定时器审计"));
     ::SendMessageW(state->auditModeCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"GPU/Display 审计"));
     ::SendMessageW(state->auditModeCombo, CB_SETCURSEL, 0, 0);
     ::SendMessageW(state->sortCombo, WM_SETFONT, reinterpret_cast<WPARAM>(Ksword::Ui::SystemUIFont()), TRUE);
@@ -1381,6 +1810,10 @@ bool RegisterWindowViewClass() {
                 RefreshWindows(state);
                 return 0;
             }
+            if (id == kExportButtonId) {
+                ExportVisibleRows(state);
+                return 0;
+            }
             if (id == kAuditModeComboId && HIWORD(wParam) == CBN_SELCHANGE) {
                 UpdateViewModeFromCombo(state);
                 return 0;
@@ -1415,6 +1848,15 @@ bool RegisterWindowViewClass() {
                 return 0;
             }
             break;
+        case kMsgExternalQuery:
+            if (state && state->filterBar && lParam != 0) {
+                const auto* query = reinterpret_cast<const std::wstring*>(lParam);
+                Ksword::Ui::SetFilterBarText(state->filterBar, *query, false);
+                RequestWindowFilter(state, *query);
+                Ksword::Ui::FocusFilterBar(state->filterBar);
+                return 1;
+            }
+            return 0;
         case WM_NOTIFY: {
             auto* notify = reinterpret_cast<NMHDR*>(lParam);
             if (state && notify && notify->idFrom == kWindowListId) {
@@ -1470,7 +1912,8 @@ bool RegisterWindowViewClass() {
             RECT rc{};
             ::GetClientRect(hwnd, &rc);
             ::FillRect(dc, &rc, Ksword::Ui::AppTheme().panelBrush());
-            RECT textRc{ 854, 7, rc.right - kGap, kHeaderHeight };
+            const int leftWidth = (std::max)(1, (Width(rc) - kGap * 3) * 2 / 3);
+            RECT textRc{ 510, 7, kGap + leftWidth, kHeaderHeight };
             const std::wstring title = state ? state->statusText : L"Windows";
             Ksword::Ui::DrawTextLine(dc, title, textRc, Ksword::Ui::AppTheme().mutedTextColor,
                 Ksword::Ui::SystemUIFont(), DT_SINGLELINE | DT_LEFT | DT_VCENTER);
@@ -1525,6 +1968,11 @@ HWND CreateWindowFeatureView(HWND parent, const RECT& bounds) {
         delete state;
     }
     return hwnd;
+}
+
+bool RequestWindowFeatureViewQuery(HWND page, const std::wstring& query) {
+    return page && !query.empty() &&
+        ::SendMessageW(page, kMsgExternalQuery, 0, reinterpret_cast<LPARAM>(&query)) != 0;
 }
 
 } // namespace Ksword::Features::Window

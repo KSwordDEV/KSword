@@ -3,6 +3,8 @@
 #include "ark/ark_driver.h"
 #include "hvm_vmcs.h"
 
+struct _KSW_HVM_RUNTIME;
+
 typedef struct _KSW_HVM_GUEST_LAUNCH_INPUT
 {
     USHORT ProcessorGroup;
@@ -16,6 +18,8 @@ typedef struct _KSW_HVM_GUEST_LAUNCH_INPUT
     ULONGLONG Cr4Fixed0;
     ULONGLONG Cr4Fixed1;
     ULONGLONG EptPointer;
+    struct _KSW_HVM_RUNTIME* Runtime;
+    LONG ExpectedPowerTransitionGeneration;
 } KSW_HVM_GUEST_LAUNCH_INPUT;
 
 typedef struct _KSW_HVM_GUEST_LAUNCH_RESULT

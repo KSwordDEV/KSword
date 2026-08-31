@@ -5,7 +5,7 @@
 // 作用：
 // 1) 为所有 QTableView/QTableWidget 自动安装表格搜索入口；
 // 2) 只在内容超过一屏且页面没有专属搜索框时显示；
-// 3) 根据可用空间在“搜索框 -> 搜索按钮 -> 隐藏”之间降级；
+// 3) 仅显示搜索按钮，点击后激活标题栏搜索框；空间不足时隐藏；
 // 4) 支持“仅显示搜索结果”，并精确恢复启用前的行隐藏状态；
 // 5) 提供表格名称解析、模型匹配与结果定位，供顶部搜索复用。
 // ============================================================
@@ -29,7 +29,7 @@ namespace ks::ui
         int matchRank = 2;                    // matchRank：0=完全匹配，1=前缀，2=包含。
     };
 
-    // InstallTableSearchSupport：给表格安装一次自适应搜索入口，重复调用安全。
+    // InstallTableSearchSupport：给表格安装一次搜索按钮入口，重复调用安全。
     void InstallTableSearchSupport(QTableView* tableView);
 
     // RefreshTableSearchSupport：重新判断滚动状态、专属搜索框和可用空间。

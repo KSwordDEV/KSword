@@ -1,6 +1,10 @@
 #pragma once
 
 #include "RegistryModel.h"
+#include "RegistrySearchModel.h"
+
+#include <atomic>
+#include <memory>
 
 namespace Ksword::Features::Registry {
 
@@ -14,6 +18,14 @@ RegistrySnapshot EnumerateRegistryKey(const std::wstring& path, RegistryViewMode
 // does not enumerate values and never recurses; output is used by the lazy
 // TreeView expansion logic.
 std::vector<std::wstring> EnumerateRegistrySubKeyNames(const std::wstring& path, RegistryViewMode mode, std::wstring* statusTextOut = nullptr);
+
+// SearchRegistryWinApi walks one WinAPI registry subtree with fixed work,
+// result, depth and preview bounds.  Inputs are a search request and an
+// optional shared cancellation token; processing never uses the driver or the
+// R0 browser mode; output is one immutable partial-or-complete snapshot.
+RegistrySearchSnapshot SearchRegistryWinApi(
+    const RegistrySearchRequest& request,
+    const std::shared_ptr<std::atomic_bool>& cancelToken);
 
 // ReadRegistryValue reads a single value. Inputs are key path, value name, and
 // transport mode; output contains raw bytes and status text.

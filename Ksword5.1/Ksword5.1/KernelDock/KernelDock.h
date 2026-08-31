@@ -50,6 +50,7 @@ class CodeEditorWidget;
 class CallbackInterceptController;
 class KernelDockCidTab;
 class KernelDockIpcTab;
+class KernelKnowledgeTab;
 
 // ============================================================
 // KernelObjectTypeEntry
@@ -641,6 +642,12 @@ private:
     // - 作用：创建只读 IPC / NamedPipe / ALPC 聚合页。
     void initializeIpcTab();
 
+    // openKnowledgeRoute：
+    // - 输入 routeId：知识文章声明的稳定站内观察路由；
+    // - 处理：只切换到当前 KernelDock 已有的只读页面，不启动写操作；
+    // - 返回：无，未知路由静默保持知识页。
+    void openKnowledgeRoute(const QString& routeId);
+
     // initializeConnections：
     // - 作用：绑定按钮、筛选框、表格联动与右键菜单。
     void initializeConnections();
@@ -1009,10 +1016,15 @@ private:
     int m_inlineHookTabIndex = -1;       // m_inlineHookTabIndex：审计内部 Inline Hook 页索引。
     int m_iatEatHookTabIndex = -1;       // m_iatEatHookTabIndex：审计内部 IAT/EAT 页索引。
     int m_hvmTabIndex = -1;              // m_hvmTabIndex：VT-x/EPT 生命周期与证据页签索引。
+    int m_slatIommuTabIndex = -1;        // m_slatIommuTabIndex：SLAT/IOMMU 只读取证页签索引。
+    int m_textIntegrityTabIndex = -1;    // m_textIntegrityTabIndex：代码完整性只读扫描页签索引。
+    int m_vbsPostureTabIndex = -1;       // m_vbsPostureTabIndex：VBS/HVCI 姿态页签索引。
     int m_timerDpcTabIndex = -1;          // m_timerDpcTabIndex：KTIMER/DPC 页签索引。
     int m_crossViewTabIndex = -1;        // m_crossViewTabIndex：CID/交叉视图页签索引。
     int m_ipcTabIndex = -1;              // m_ipcTabIndex：IPC/NamedPipe/ALPC 页签索引。
     int m_workQueueThreadTabIndex = -1;   // m_workQueueThreadTabIndex：工作队列线程审计页索引。
+    int m_knowledgeTabIndex = -1;         // m_knowledgeTabIndex：71 专题内核知识中心页签索引。
+    KernelKnowledgeTab* m_knowledgeTab = nullptr; // m_knowledgeTab：可检索知识中心实例。
     bool m_objectNamespaceTabInitialized = false; // m_objectNamespaceTabInitialized：对象命名空间页是否已初始化。
     bool m_atomTabInitialized = false;            // m_atomTabInitialized：原子表页是否已初始化。
     bool m_ssdtTabInitialized = false;            // m_ssdtTabInitialized：SSDT 页是否已初始化。
@@ -1186,7 +1198,6 @@ private:
     QLineEdit* m_callbackRemoveAddressEdit = nullptr;               // m_callbackRemoveAddressEdit：回调地址输入框。
     QPushButton* m_callbackRemoveButton = nullptr;                  // m_callbackRemoveButton：执行移除按钮。
     QLabel* m_callbackRemoveStatusLabel = nullptr;                  // m_callbackRemoveStatusLabel：状态文本。
-    CodeEditorWidget* m_callbackRemoveDetailEditor = nullptr;       // m_callbackRemoveDetailEditor：结果详情文本框。
 
     // ==================== 数据缓存 ====================
     std::vector<KernelObjectNamespaceEntry> m_objectNamespaceRows; // m_objectNamespaceRows：对象命名空间快照行。

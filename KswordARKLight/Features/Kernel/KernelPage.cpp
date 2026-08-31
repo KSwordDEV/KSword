@@ -3,6 +3,7 @@
 #include "KernelCatalog.h"
 #include "KernelPageLayout.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/EntityNavigation.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/NumericSortKey.h"
 #include "../../Ui/TextFindSupport.h"
@@ -176,6 +177,8 @@ constexpr UINT_PTR kMenuCallbackApplyLocalRules = 51171;
 constexpr UINT_PTR kMenuCallbackReloadRuntime = 51172;
 constexpr UINT_PTR kMenuCallbackRuleCopyText = 51176;
 constexpr UINT_PTR kMenuCallbackRulePasteNew = 51177;
+constexpr UINT_PTR kMenuCallbackFileMonitorOpenProcess = 51178;
+constexpr UINT_PTR kMenuCallbackFileMonitorOpenPath = 51179;
 constexpr UINT_PTR kMenuObjectFilterByRoot = 51173;
 constexpr UINT_PTR kMenuObjectFilterByDirectory = 51174;
 constexpr UINT_PTR kMenuCopyDosCandidate = 51175;
@@ -188,6 +191,9 @@ constexpr UINT_PTR kMenuFilterByCapability = 51192;
 constexpr UINT_PTR kMenuRefreshSelectedDetail = 51193;
 constexpr UINT_PTR kMenuCopyColumnBase = 51200;
 constexpr UINT_PTR kMenuCopyColumnMax = 51299;
+constexpr int kCallbackFileMonitorPidColumn = 1;
+constexpr int kCallbackFileMonitorPathColumn = 3;
+constexpr int kCallbackFileMonitorPathStateColumn = 10;
 constexpr wchar_t kInlineHookForceRequiredStatusText[] = L"6";
 constexpr int kKernelSplitterThickness = 5;
 constexpr const wchar_t* kDeviceDriverFixedDirectories[] = {
@@ -1258,6 +1264,63 @@ bool ParseUnsigned64Value(const std::wstring& text, std::uint64_t& valueOut) {
     }
     valueOut = static_cast<std::uint64_t>(value);
     return true;
+}
+
+// IsNavigableWin32OrUncPath accepts only unambiguous drive-rooted or UNC paths
+// from callback file-monitor rows. Kernel device paths and extended/device
+// namespaces deliberately stay display-only because this R3 browser must not
+// guess a user-mode path for them.
+bool IsNavigableWin32OrUncPath(const std::wstring& path) {
+    const bool hasAsciiDriveLetter = path.size() >= 1U &&
+        ((path[0] >= L'A' && path[0] <= L'Z') || (path[0] >= L'a' && path[0] <= L'z'));
+    if (path.size() >= 3U && hasAsciiDriveLetter && path[1] == L':' &&
+        (path[2] == L'\\' || path[2] == L'/')) {
+        return true;
+    }
+    if (path.size() < 5U || path[0] != L'\\' || path[1] != L'\\' ||
+        path[2] == L'?' || path[2] == L'.') {
+        return false;
+    }
+    const std::size_t serverEnd = path.find(L'\\', 2U);
+    if (serverEnd == std::wstring::npos || serverEnd == 2U || serverEnd + 1U >= path.size()) {
+        return false;
+    }
+    const std::size_t shareEnd = path.find(L'\\', serverEnd + 1U);
+    return shareEnd != serverEnd + 1U;
+}
+
+// FileMonitorContainingDirectory derives the safe directory context of a
+// complete event path without touching the filesystem. FileView enumerates
+// directories, not individual files, so forwarding an observed file pathname
+// itself would always produce an invalid "file\\*" search pattern.
+std::wstring FileMonitorContainingDirectory(const std::wstring& path) {
+    if (!IsNavigableWin32OrUncPath(path)) {
+        return {};
+    }
+    std::wstring normalized = path;
+    std::replace(normalized.begin(), normalized.end(), L'/', L'\\');
+    if (normalized.back() == L'\\') {
+        return normalized;
+    }
+
+    const std::size_t lastSeparator = normalized.find_last_of(L'\\');
+    if (lastSeparator == std::wstring::npos) {
+        return {};
+    }
+    const bool drivePath = normalized.size() >= 3U && normalized[1] == L':';
+    if (drivePath && lastSeparator == 2U) {
+        return normalized.substr(0U, 3U);
+    }
+    if (!drivePath) {
+        const std::size_t serverSeparator = normalized.find(L'\\', 2U);
+        if (serverSeparator == std::wstring::npos) {
+            return {};
+        }
+        if (lastSeparator == serverSeparator) {
+            return normalized;
+        }
+    }
+    return lastSeparator > 0U ? normalized.substr(0U, lastSeparator) : std::wstring{};
 }
 
 // IsKernelMemoryHiddenColumn preserves R0/action fields while hiding them from
@@ -2370,6 +2433,14 @@ LRESULT KernelPage::HandleMessage(HWND hwnd, const UINT msg, const WPARAM wParam
             OnCallbackExportFileMonitor();
             return 0;
         }
+        if (LOWORD(wParam) == kMenuCallbackFileMonitorOpenProcess) {
+            OpenCallbackFileMonitorProcess();
+            return 0;
+        }
+        if (LOWORD(wParam) == kMenuCallbackFileMonitorOpenPath) {
+            OpenCallbackFileMonitorPath();
+            return 0;
+        }
         if (LOWORD(wParam) == kMenuCallbackCopyPanelSelection) {
             const HWND focus = ::GetFocus();
             CopyCallbackPanelSelection(focus);
@@ -3044,6 +3115,7 @@ void KernelPage::CreateChildControls() {
     AddListColumn(callbackFileMonitorList_, 7, L"FileObject", 150);
     AddListColumn(callbackFileMonitorList_, 8, L"In", 90);
     AddListColumn(callbackFileMonitorList_, 9, L"Out", 95);
+    AddListColumn(callbackFileMonitorList_, kCallbackFileMonitorPathStateColumn, L"路径状态", 90);
     Ksword::Ui::SetWindowFontRecursive(hwnd_);
 }
 
@@ -3055,6 +3127,7 @@ void KernelPage::Layout() {
     const RECT oldSplitterRect = verticalSplitterRect_;
     verticalSplitterRect_ = {};
     const int tabHeight = 28;
+    const bool showPrimary = !hasDirectFeatureId_;
     const bool showSecondary = CurrentPrimaryUsesSecondaryTabs();
     const KernelFeatureDescriptor* descriptor = CurrentDescriptor();
     const bool showPropertyTable = descriptor != nullptr &&
@@ -3114,10 +3187,11 @@ void KernelPage::Layout() {
     const int includeWidth = showIncludeCombo ? 150 : 0;
     const int filterEditWidth = std::max(120, (width - buttonWidth - locateWidth - copyWidth - includeWidth - filterLabelWidth * 2) / 2);
 
+    ::ShowWindow(primaryTab_, showPrimary ? SW_SHOW : SW_HIDE);
     ::MoveWindow(primaryTab_, 0, 0, width, tabHeight, TRUE);
     ::ShowWindow(secondaryTab_, showSecondary ? SW_SHOW : SW_HIDE);
     ::MoveWindow(secondaryTab_, 0, tabHeight, width, secondaryHeight, TRUE);
-    const int contentTop = tabHeight + secondaryHeight;
+    const int contentTop = (showPrimary ? tabHeight : 0) + secondaryHeight;
     const int actionRight = width;
     const int refreshLeft = std::max(0, actionRight - buttonWidth);
     const int copyLeft = std::max(0, refreshLeft - copyWidth);
@@ -4210,8 +4284,20 @@ void KernelPage::PopulateTabs() {
     if (!primaryTabs_.empty()) {
         ::SendMessageW(primaryTab_, TCM_SETCURSEL, 0, 0);
         RebuildSecondLevelTabs();
-        if (hasInitialFeatureId_ && SelectFeatureById(initialFeatureId_)) {
+        if (hasInitialFeatureId_) {
+            // Embedded callers use CreateKernelSingleFeaturePage. Keep that
+            // contract even when the requested feature also belongs to the
+            // full Kernel dock's primary/secondary navigation tree; otherwise
+            // the host dock ends up rendering a duplicate tab strip.
             hasInitialFeatureId_ = false;
+            if (FeatureById(initialFeatureId_) != nullptr) {
+                hasDirectFeatureId_ = true;
+                directFeatureId_ = initialFeatureId_;
+                SelectCurrentFeature();
+                Layout();
+            } else {
+                SelectCurrentFeature();
+            }
         } else {
             SelectCurrentFeature();
         }
@@ -9832,6 +9918,7 @@ void KernelPage::PopulateCallbackInterceptPanel() {
                 rowValue(row, currentColumns_, { L"FileObject" }),
                 rowValue(row, currentColumns_, { L"InputLength" }),
                 rowValue(row, currentColumns_, { L"OutputLength" }),
+                rowValue(row, currentColumns_, { L"PathState" }),
             });
         }
     }
@@ -9848,7 +9935,7 @@ void KernelPage::PopulateCallbackInterceptPanel() {
         AddListRow(callbackBypassList_, { L"", L"尚未从驱动刷新；编辑后点击“应用到驱动”生效。" });
     }
     if (callbackFileMonitorList_ && ListView_GetItemCount(callbackFileMonitorList_) == 0) {
-        AddListRow(callbackFileMonitorList_, { L"", L"", L"", L"尚无文件系统事件；点击“启动 FSCTL 监控/拉取事件”后显示。", L"", L"", L"", L"", L"", L"" });
+        AddListRow(callbackFileMonitorList_, { L"", L"", L"", L"尚无文件系统事件；点击“启动 FSCTL 监控/拉取事件”后显示。", L"", L"", L"", L"", L"", L"", L"" });
     }
 
     runtimeStatus += L" | 规则版本=" + (ruleVersion.empty() ? L"<未知>" : ruleVersion);
@@ -10939,6 +11026,59 @@ void KernelPage::OnCallbackExportFileMonitor() {
     StartCallbackFileIo(CallbackFileIoOperation::ExportFileMonitor, path, std::move(text));
 }
 
+void KernelPage::OpenCallbackFileMonitorProcess() {
+    // File-monitor rows carry an observed PID but not a creation-time identity.
+    // Route it as the current PID so a terminated/reused process is never
+    // presented as a guaranteed historical event owner.
+    const int row = callbackFileMonitorList_
+        ? ListView_GetNextItem(callbackFileMonitorList_, -1, LVNI_SELECTED)
+        : -1;
+    std::uint64_t processId = 0;
+    if (row < 0 || !ParseUnsigned64Value(ListViewText(callbackFileMonitorList_, row, kCallbackFileMonitorPidColumn), processId) ||
+        processId == 0U || processId > static_cast<std::uint64_t>((std::numeric_limits<DWORD>::max)())) {
+        AppendCallbackAppLog(L"所选文件监控行没有可导航的当前 PID。");
+        return;
+    }
+
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::ProcessDetails;
+    request.entity.kind = Ksword::Core::EntityKind::Process;
+    request.entity.id = processId;
+    const bool routed = Ksword::Ui::RequestEntityNavigation(hwnd_, request);
+    AppendCallbackAppLog(routed
+        ? L"已请求打开文件监控事件的当前 PID " + std::to_wstring(processId) + L"；历史归属会重新校验。"
+        : L"无法导航到文件监控事件的当前进程实例。");
+}
+
+void KernelPage::OpenCallbackFileMonitorPath() {
+    // Only hand the File browser the containing directory of an event path it
+    // can interpret without a lossy kernel-to-DOS conversion. The event stays
+    // display-only when the driver did not confirm that the path is complete.
+    const int row = callbackFileMonitorList_
+        ? ListView_GetNextItem(callbackFileMonitorList_, -1, LVNI_SELECTED)
+        : -1;
+    const std::wstring path = row >= 0
+        ? ListViewText(callbackFileMonitorList_, row, kCallbackFileMonitorPathColumn)
+        : std::wstring{};
+    const std::wstring directory = row >= 0 &&
+        ListViewText(callbackFileMonitorList_, row, kCallbackFileMonitorPathStateColumn) == L"完整"
+        ? FileMonitorContainingDirectory(path)
+        : std::wstring{};
+    if (directory.empty()) {
+        AppendCallbackAppLog(L"所选文件监控路径未确认完整或不是可打开的 DOS/UNC 路径；已保留原始事件文本。");
+        return;
+    }
+
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::FileBrowser;
+    request.entity.kind = Ksword::Core::EntityKind::File;
+    request.entity.text = directory;
+    const bool routed = Ksword::Ui::RequestEntityNavigation(hwnd_, request);
+    AppendCallbackAppLog(routed
+        ? L"已在文件模块打开文件监控路径所在目录。"
+        : L"文件模块当前无法接收该文件监控路径所在目录。");
+}
+
 void KernelPage::CopyCallbackPanelSelection(HWND source) {
     // CopyCallbackPanelSelection copies rows from the active CallbackIntercept
     // sub-table. Input is the focused/context ListView; processing falls back to
@@ -11043,10 +11183,26 @@ void KernelPage::ShowCallbackInterceptContextMenu(HWND source, POINT screenPoint
         ::AppendMenuW(menu, MF_STRING, kMenuCallbackBypassRefresh, L"从驱动刷新 PID 放行");
         appendCopySelection = true;
     } else if (source == callbackFileMonitorList_) {
+        const int selected = hasSelection ? ListView_GetNextItem(source, -1, LVNI_SELECTED) : -1;
+        std::uint64_t processId = 0;
+        const bool canOpenProcess = selected >= 0 &&
+            ParseUnsigned64Value(ListViewText(source, selected, kCallbackFileMonitorPidColumn), processId) &&
+            processId != 0U && processId <= static_cast<std::uint64_t>((std::numeric_limits<DWORD>::max)());
+        const bool canOpenPath = selected >= 0 &&
+            ListViewText(source, selected, kCallbackFileMonitorPathStateColumn) == L"完整" &&
+            !FileMonitorContainingDirectory(ListViewText(source, selected, kCallbackFileMonitorPathColumn)).empty();
         ::AppendMenuW(menu, MF_STRING, kMenuCallbackFileMonitorStart, L"启动/补充 FSCTL 文件监控");
         ::AppendMenuW(menu, MF_STRING, kMenuCallbackFileMonitorDrain, L"拉取文件监控事件");
         ::AppendMenuW(menu, MF_STRING, kMenuCallbackFileMonitorClear, L"清空当前文件事件");
         ::AppendMenuW(menu, MF_STRING, kMenuCallbackFileMonitorExport, L"导出当前文件事件");
+        HMENU investigationMenu = ::CreatePopupMenu();
+        if (investigationMenu) {
+            ::AppendMenuW(investigationMenu, MF_STRING | (canOpenProcess ? MF_ENABLED : MF_GRAYED),
+                kMenuCallbackFileMonitorOpenProcess, L"打开所属进程详细信息");
+            ::AppendMenuW(investigationMenu, MF_STRING | (canOpenPath ? MF_ENABLED : MF_GRAYED),
+                kMenuCallbackFileMonitorOpenPath, L"在文件模块查看所在目录");
+            ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(investigationMenu), L"关联调查");
+        }
         appendCopySelection = true;
     } else {
         ::DestroyMenu(menu);
@@ -13823,6 +13979,11 @@ const KernelFeatureDescriptor* KernelPage::FeatureById(const KernelFeatureId fea
 }
 
 bool KernelPage::CurrentPrimaryUsesSecondaryTabs() const {
+    // A page embedded as a single feature is already hosted by an outer dock;
+    // exposing this page's own group tabs would duplicate that navigation.
+    if (hasDirectFeatureId_) {
+        return false;
+    }
     const int primary = CurrentPrimaryIndex();
     return primary >= 0 &&
         primary < static_cast<int>(primaryFeatureIds_.size()) &&

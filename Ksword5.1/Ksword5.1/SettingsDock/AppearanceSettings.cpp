@@ -742,6 +742,10 @@ ks::settings::AppearanceSettings ks::settings::loadAppearanceSettings()
     loadedSettings.suppressDangerousActionConfirmations = rootObject
         .value(QStringLiteral("suppress_dangerous_action_confirmations"))
         .toBool(loadedSettings.suppressDangerousActionConfirmations);
+    // 未配置时维持关闭，确保旧版配置升级后也不会在普通驱动加载时扫描 BGP 私有字段。
+    loadedSettings.bugcheckDiagnosticsAutoInstallEnabled = rootObject
+        .value(QStringLiteral("bugcheck_diagnostics_auto_install_enabled"))
+        .toBool(loadedSettings.bugcheckDiagnosticsAutoInstallEnabled);
     loadedSettings.logWindowGeometryBase64 = rootObject
         .value(QStringLiteral("log_window_geometry_base64"))
         .toString();
@@ -888,6 +892,9 @@ bool ks::settings::saveAppearanceSettings(const AppearanceSettings& settings, QS
     rootObject.insert(
         QStringLiteral("suppress_dangerous_action_confirmations"),
         settings.suppressDangerousActionConfirmations);
+    rootObject.insert(
+        QStringLiteral("bugcheck_diagnostics_auto_install_enabled"),
+        settings.bugcheckDiagnosticsAutoInstallEnabled);
     rootObject.insert(
         QStringLiteral("log_window_geometry_base64"),
         settings.logWindowGeometryBase64.trimmed());

@@ -36,6 +36,9 @@ struct DriverMemoryWriteRequest {
 struct DriverMemoryReadResult {
     bool success = false;
     DWORD win32Error = ERROR_SUCCESS;
+    std::uint32_t protocolStatus = 0;
+    std::uint32_t copyStatus = 0;
+    std::uint32_t fieldFlags = 0;
     std::wstring statusText;
     std::vector<std::uint8_t> bytes;
 };
@@ -46,6 +49,9 @@ struct DriverMemoryReadResult {
 struct DriverMemoryWriteResult {
     bool success = false;
     DWORD win32Error = ERROR_SUCCESS;
+    std::uint32_t protocolStatus = 0;
+    std::uint32_t copyStatus = 0;
+    std::uint32_t fieldFlags = 0;
     std::wstring statusText;
     std::size_t bytesWritten = 0;
 };

@@ -10,10 +10,12 @@
 
 #include "../Framework.h"
 #include "../ArkDriverClient/ArkDriverTypes.h"
+#include "../ksword/process/process_cpu_core_etw_monitor.h"
 
 #include <QColor>
 #include <QHash>
 #include <QIcon>
+#include <QList>
 #include <QModelIndex>
 #include <QPointer>
 #include <QSet>
@@ -22,6 +24,7 @@
 #include <QVariant>
 #include <QWidget>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -68,6 +71,7 @@ class ProcessActivityTimelineSlider;
 namespace ks::process
 {
     struct CounterSample;
+    struct ThreadCounterSample;
     struct ProcessRecord;
     struct SystemThreadRecord;
 }
@@ -224,6 +228,7 @@ private:
         GpuDedicatedMemory,      // 专用 GPU 内存。
         GpuSharedMemory,         // 共享 GPU 内存。
         ProcessType,             // 类型：应用 / 后台进程 / Windows 进程。
+        CpuCore,                 // CPU核心：真实逻辑处理器逐核心占用扇形图。
         Count                    // 列总数。
     };
 
@@ -275,6 +280,7 @@ private:
         ContextSwitches,   // 上下文切换次数。
         CreateTime,        // 创建时间。
         ProcessPath,       // 所属进程路径（可为空）。
+        CpuPercent,        // 相邻快照线程 CPU 单核占用（0~100）。
         Count              // 列总数。
     };
 
@@ -369,6 +375,7 @@ private:
         QString syntheticTitle;                       // syntheticTitle：分类/聚合行的展示标题。
         QString expansionKey;                         // expansionKey：分类/聚合行展开状态键。
         std::vector<std::string> actionIdentityKeys;   // actionIdentityKeys：应用聚合行批量动作的成员标识。
+        QList<std::uint32_t> cpuCoreProcessIds;         // cpuCoreProcessIds：逐核心绘制参与汇总的真实 PID 集合。
         int depth = 0;                                // depth：树状显示时的缩进层级。
         bool hasChildren = false;                     // hasChildren：供表示层绘制树状展开提示。
         bool isNew = false;                           // isNew：新增行高亮标记。
@@ -437,6 +444,7 @@ private:
     {
         std::unordered_map<std::string, CacheEntry> nextCache;                    // 下一轮缓存。
         std::unordered_map<std::string, ks::process::CounterSample> nextCounters; // 下一轮计数器样本。
+        std::shared_ptr<const ks::process::CpuCoreUsageSnapshot> cpuCoreUsageSnapshot; // 后台构造的共享逐核心快照，UI 只移动指针。
 
         // ======== 统计字段（用于 UI 状态提示 + 详细日志） ========
         std::size_t enumeratedCount = 0;        // 本轮枚举到的“当前存活”进程数。
@@ -469,7 +477,11 @@ public:
         Gpu          // GPU 百分比。
     };
 
-    // ProcessActivityProcessPoint：单个采样点中的单进程轻量快照。
+    // ProcessActivityProcessPoint：单个采样点中的单进程历史快照。
+    //
+    // 只保留会随采样变化、且在回看资源占用时有诊断价值的字段；路径、签名、
+    // 缓解策略等静态详情仍不重复写入每一个采样点。所有按需字段同时保存其
+    // known 标记，防止历史表格把当时未采集到的值误显示为 0。
     struct ProcessActivityProcessPoint
     {
         std::string identityKey;       // identityKey：PID + 创建时间，和表格选择保持一致。
@@ -479,12 +491,59 @@ public:
         std::uint64_t creationTime100ns = 0; // creationTime100ns：原始进程创建时间，用于历史表格保持 identity。
         std::uint32_t pid = 0;         // pid：快照悬停展示和排查用。
         double cpuPercent = 0.0;       // cpuPercent：该进程采样时 CPU。
-        double memoryMB = 0.0;         // memoryMB：该进程采样时工作集。
+        double cpuCorePercent = 0.0;   // cpuCorePercent：该进程单核等效 CPU，可超过 100%。
+        double ramMB = 0.0;            // ramMB：该进程采样时申请/提交内存。
+        double workingSetMB = 0.0;     // workingSetMB：该进程采样时实际工作集。
         double diskMBps = 0.0;         // diskMBps：该进程采样时磁盘吞吐。
         double netKBps = 0.0;          // netKBps：该进程采样时网络吞吐。
         double netRxKBps = 0.0;        // netRxKBps：该进程采样时网络下行吞吐。
         double netTxKBps = 0.0;        // netTxKBps：该进程采样时网络上行吞吐。
         double gpuPercent = 0.0;       // gpuPercent：该进程采样时 GPU 百分比。
+
+        // 调度、运行状态与对象占用。
+        std::uint32_t threadCount = 0;          // threadCount：采样时线程数量。
+        std::uint32_t handleCount = 0;          // handleCount：采样时句柄数量。
+        std::uint32_t suspendedThreadCount = 0; // suspendedThreadCount：采样时已挂起线程数。
+        std::int32_t basePriority = 0;          // basePriority：采样时基础优先级。
+        bool processStateKnown = false;         // processStateKnown：运行/挂起状态是否成功判定。
+        bool processSuspended = false;          // processSuspended：采样时是否全部挂起。
+        bool efficiencyModeSupported = false;   // efficiencyModeSupported：效率模式状态是否可用。
+        bool efficiencyModeEnabled = false;     // efficiencyModeEnabled：采样时是否启用效率模式。
+
+        // CPU 与内存占用细项。
+        std::uint64_t rawCpuTime100ns = 0;               // rawCpuTime100ns：累计 CPU 时间。
+        std::uint64_t cycleTime = 0;                     // cycleTime：累计 CPU 周期数。
+        std::uint64_t rawWorkingSetBytes = 0;            // rawWorkingSetBytes：精确工作集字节数。
+        std::uint64_t peakWorkingSetBytes = 0;           // peakWorkingSetBytes：峰值工作集。
+        std::uint64_t privateWorkingSetBytes = 0;        // privateWorkingSetBytes：专用工作集。
+        std::uint64_t sharedWorkingSetBytes = 0;         // sharedWorkingSetBytes：共享工作集。
+        std::uint64_t commitSizeBytes = 0;               // commitSizeBytes：提交大小。
+        std::uint64_t pagedPoolBytes = 0;                // pagedPoolBytes：分页池用量。
+        std::uint64_t nonPagedPoolBytes = 0;             // nonPagedPoolBytes：非分页池用量。
+        std::uint64_t pageFaultCount = 0;                // pageFaultCount：累计页面错误。
+        std::int64_t workingSetDeltaBytes = 0;           // workingSetDeltaBytes：相邻轮次工作集变化。
+        std::int64_t pageFaultDeltaCount = 0;            // pageFaultDeltaCount：相邻轮次页面错误变化。
+        bool cycleTimeKnown = false;                     // cycleTimeKnown：CPU 周期数是否可用。
+        bool memoryDetailKnown = false;                  // memoryDetailKnown：内存细项是否可用。
+        bool privateWorkingSetKnown = false;             // privateWorkingSetKnown：专用/共享工作集是否可用。
+
+        // I/O 与 GUI 资源计数。
+        std::uint64_t ioReadOperationCount = 0;          // ioReadOperationCount：累计 I/O 读取次数。
+        std::uint64_t ioWriteOperationCount = 0;         // ioWriteOperationCount：累计 I/O 写入次数。
+        std::uint64_t ioOtherOperationCount = 0;         // ioOtherOperationCount：累计其他 I/O 次数。
+        std::uint64_t ioReadTransferBytes = 0;           // ioReadTransferBytes：累计读取字节数。
+        std::uint64_t ioWriteTransferBytes = 0;          // ioWriteTransferBytes：累计写入字节数。
+        std::uint64_t ioOtherTransferBytes = 0;          // ioOtherTransferBytes：累计其他 I/O 字节数。
+        std::uint32_t gdiObjectCount = 0;                // gdiObjectCount：采样时 GDI 对象数。
+        std::uint32_t userObjectCount = 0;               // userObjectCount：采样时 USER 对象数。
+        bool ioDetailKnown = false;                      // ioDetailKnown：I/O 细项是否可用。
+        bool guiResourceKnown = false;                   // guiResourceKnown：GUI 资源是否已采集。
+
+        // GPU 显存与当前占用引擎。
+        std::uint64_t gpuDedicatedMemoryBytes = 0;       // gpuDedicatedMemoryBytes：专用显存占用。
+        std::uint64_t gpuSharedMemoryBytes = 0;          // gpuSharedMemoryBytes：共享显存占用。
+        std::string gpuEngineText;                       // gpuEngineText：采样时占用最高的 GPU 引擎。
+        bool gpuMemoryKnown = false;                     // gpuMemoryKnown：GPU 显存计数是否可用。
     };
 
     // ProcessActivitySample：一次进程列表活动采样。
@@ -529,8 +588,6 @@ private:
     void applyAdaptiveColumnWidths();
     int refreshIntervalMillisecondsFromInput() const;
     void applyRefreshIntervalInput();
-    int tableRefreshIntervalMillisecondsFromInput() const;
-    void applyTableRefreshIntervalInput();
     void initializeCreateProcessConnections();
     void focusProcessSearchBox(bool selectAllText);
     QString currentProcessSearchText() const;
@@ -742,7 +799,8 @@ private:
     bool isProcessActivityMetricEnabled(ProcessActivityMetric metric) const;
     bool isProcessActivityRefreshAllowedNow() const;
     bool isProcessActivityRecordingAllowedNow() const;
-    bool isProcessListPageVisibleForRecording() const;
+    template <typename Destination, typename Source>
+    static void copyProcessActivityDynamicFields(Destination& destination, const Source& source);
     void appendProcessActivitySample();
     void synchronizeDetailWindowPerformanceHistory(
         ProcessDetailWindow* detailWindow,
@@ -971,6 +1029,13 @@ private:
     void pruneProcessNetworkTrafficCounters();
     std::unordered_map<std::uint32_t, NetworkTrafficCounters> snapshotProcessNetworkTrafficCounters() const;
 
+    // ======== 进程/线程逐核心 CPU 采样 ========
+    void ensureCpuCoreUsageCaptureStarted();
+    void stopCpuCoreUsageCapture();
+    void syncCpuCoreUsageToDetailWindow(
+        ProcessDetailWindow* detailWindow,
+        const ks::process::ProcessRecord& processRecord) const;
+
 private:
     QPointer<QObject> m_mainWindowActionReceiver; // 构造时的 MainWindow 接收者，避免 ADS 重挂载后 parent() 变成 Dock 容器。
 
@@ -988,28 +1053,21 @@ private:
 
     // ======== 控制栏 ========
     QHBoxLayout* m_controlLayout = nullptr;   // 上方“操作按钮”行布局。
-    QComboBox* m_strategyCombo = nullptr;     // 进程遍历方案下拉框。
     QComboBox* m_viewModeCombo = nullptr;     // 监视视图/详细视图下拉框。
     QPushButton* m_startButton = nullptr;     // 开始监视按钮。
     QPushButton* m_pauseButton = nullptr;     // 暂停监视按钮。
-    QCheckBox* m_friendlyViewCheck = nullptr; // 进程友好视图：应用/后台进程/系统分类，默认开启。
-    QCheckBox* m_kernelCompareCheck = nullptr;// 刷新时是否额外请求内核进程列表并做差异对比。
-    QCheckBox* m_showKswordHiddenProcessCheck = nullptr; // 是否显示被 Ksword R0 摘链隐藏的进程。
+    QCheckBox* m_treeViewCheck = nullptr;     // 树状视图：默认关闭，关闭时展示应用/后台进程/系统分类。
     QLineEdit* m_processSearchLineEdit = nullptr; // 进程搜索框；用于按名称/PID/路径等关键词过滤当前列表。
-    QLabel* m_refreshLabel = nullptr;         // 列表刷新间隔标签。
-    QDoubleSpinBox* m_tableRefreshIntervalSpin = nullptr; // 进程表格重绘间隔步进框，0.5~60 秒，默认 2 秒。
-    QLabel* m_sampleIntervalLabel = nullptr;  // 活动采样间隔标签。
-    QDoubleSpinBox* m_refreshIntervalSpin = nullptr; // 活动采样/后台监视间隔步进框，0.05~60 秒，默认 1 秒。
+    QLabel* m_refreshLabel = nullptr;         // 刷新间隔标签。
+    QDoubleSpinBox* m_refreshIntervalSpin = nullptr; // 刷新、采样和表格重绘的统一间隔，0.5~60 秒，默认 1 秒。
     QPushButton* m_columnChooserButton = nullptr; // “选择列”按钮：打开添加/减少列对话框。
-    QPushButton* m_processProtectCallbackButton = nullptr; // “句柄回调保护”快捷入口。
 
     // ======== 进程活动记录面板 ========
     QWidget* m_activityPanelWidget = nullptr;       // m_activityPanelWidget：进程活动图表面板。
     ProcessActivityChartWidget* m_activityChartWidget = nullptr; // m_activityChartWidget：时间轴百分比折线图。
     ProcessActivityTimelineSlider* m_activityTimelineSlider = nullptr; // m_activityTimelineSlider：隐藏内部时间轴，公开交互由折线图点击完成。
     QPushButton* m_activityClearButton = nullptr;   // m_activityClearButton：清空当前刷新记录缓存。
-    QCheckBox* m_activityBackgroundRecordCheck = nullptr; // 后台保持刷新/记录开关。
-    QCheckBox* m_activityListOnlyRefreshCheck = nullptr; // 只刷新进程列表、不写入活动记录的开关。
+    QCheckBox* m_activityListOnlyRefreshCheck = nullptr; // 不记录历史开关：刷新列表但不写入活动记录。
     QPushButton* m_activityCpuButton = nullptr;     // CPU 指标显示按钮。
     QPushButton* m_activityMemoryButton = nullptr;  // 内存指标显示按钮。
     QPushButton* m_activityDiskButton = nullptr;    // 磁盘指标显示按钮。
@@ -1144,6 +1202,7 @@ private:
     std::uint64_t m_refreshTicket = 0;        // 刷新请求序号（防乱序）。
     std::uint32_t m_logicalCpuCount = 1;      // CPU 核心数（CPU 百分比换算）。
     std::chrono::steady_clock::time_point m_lastRefreshStartTime{}; // 主线程记录的刷新开始时刻。
+    std::chrono::steady_clock::time_point m_lastCpuCoreUsageSnapshotTime{}; // 最近一次逐核心矩阵结算投递时刻，独立限制为至少 1 秒。
     std::chrono::steady_clock::time_point m_lastProcessTableRebuildTime{}; // 最近一次进程表重绘时间。
 
     // ======== 数据缓存 ========
@@ -1153,6 +1212,12 @@ private:
     std::unordered_map<std::string, ks::process::CounterSample> m_counterSampleByIdentity; // 差值样本。
     std::unique_ptr<ks::network::ProcessNetworkEtwMonitor> m_processNetworkTrafficService; // 进程页内部 ETW 网络累计器。
     bool m_processNetworkTrafficCaptureStarted = false; // ETW 采集器是否已经尝试启动。
+    std::shared_ptr<ks::process::ProcessCpuCoreEtwMonitor> m_cpuCoreUsageService; // 单个系统级 CSwitch 会话；后台快照任务共享生命周期。
+    bool m_cpuCoreUsageCaptureStarted = false; // UI 线程状态：本轮监视周期内是否已经投递启动。
+    bool m_cpuCoreUsageStopInProgress = false; // UI 线程状态：异步 Stop/join 完成前禁止第二个会话。
+    std::shared_ptr<std::atomic_bool> m_cpuCoreUsageCaptureDesired =
+        std::make_shared<std::atomic_bool>(false); // 后台 Start 返回后读取的期望状态，解决快速开始/暂停竞态。
+    std::shared_ptr<const ks::process::CpuCoreUsageSnapshot> m_latestCpuCoreUsageSnapshot; // 最近区间快照；UI 只交换共享指针，避免复制全量矩阵。
     QHash<QString, QIcon> m_iconCacheByPath;  // 进程图标缓存，避免重复提取。
     QHash<QString, QIcon> m_activityIconCacheByProcessKey; // 历史活动图标缓存：进程名+路径 -> 图标。
     QSet<QString> m_processIconPathsInFlight; // 已投递后台线程池、尚未回传结果的 EXE 路径集合。
@@ -1164,6 +1229,7 @@ private:
     std::vector<std::string> m_trackedSelectedIdentityKeys; // 多选进程 identityKey 集合；Ctrl 复选后用于刷新恢复。
     int m_trackedSelectedColumn = 0;          // 当前选中列索引；恢复 currentItem 时尽量保持用户焦点列。
     std::vector<ks::process::SystemThreadRecord> m_threadRecordList; // 线程页最近一次刷新结果缓存。
+    std::unordered_map<std::string, ks::process::ThreadCounterSample> m_threadCounterSampleByIdentity; // 线程 CPU 差分基准。
     std::string m_threadDiagnosticText;       // 线程页最近一次刷新诊断文本。
     std::unordered_set<std::uint32_t> m_hiddenProcessPidSet; // 本会话已通过 R0 标记隐藏的 PID 集合。
     std::vector<ksword::ark::ProcessCrossViewEntry> m_processCrossViewCache; // R0 进程 cross-view 缓存。

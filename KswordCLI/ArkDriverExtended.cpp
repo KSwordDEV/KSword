@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdint>
+#include <cwctype>
 #include <cwchar>
 #include <iomanip>
 #include <iostream>
@@ -225,6 +226,139 @@ namespace
         throw std::runtime_error("invalid --source, expected mm, piddb, or hash");
     }
 
+    // trimWhitespace removes category-list separators' surrounding whitespace
+    // without changing the category token itself.
+    std::wstring trimWhitespace(std::wstring value)
+    {
+        std::size_t first = 0U;
+        while (first < value.size() && std::iswspace(value[first]) != 0)
+        {
+            ++first;
+        }
+        std::size_t last = value.size();
+        while (last > first && std::iswspace(value[last - 1U]) != 0)
+        {
+            --last;
+        }
+        return value.substr(first, last - first);
+    }
+
+    // parseCallbackMonitorCategories maps a readable comma-separated category
+    // list to the shared protocol mask and rejects ambiguous empty entries.
+    std::uint32_t parseCallbackMonitorCategories(const ExtendedArgs& args)
+    {
+        if (!hasOption(args, L"--categories"))
+        {
+            return KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_CORE;
+        }
+
+        const std::wstring categoryList = optionValue(args, L"--categories");
+        if (categoryList.empty())
+        {
+            throw std::runtime_error("--categories requires a comma-separated category list");
+        }
+
+        std::uint32_t categoryMask = 0U;
+        std::size_t tokenStart = 0U;
+        while (tokenStart <= categoryList.size())
+        {
+            const std::size_t delimiter = categoryList.find(L',', tokenStart);
+            const std::size_t tokenLength = delimiter == std::wstring::npos
+                ? categoryList.size() - tokenStart
+                : delimiter - tokenStart;
+            const std::wstring token = trimWhitespace(categoryList.substr(tokenStart, tokenLength));
+            if (token.empty())
+            {
+                throw std::runtime_error("--categories contains an empty category name");
+            }
+            if (token == L"process") categoryMask |= KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_PROCESS;
+            else if (token == L"thread") categoryMask |= KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_THREAD;
+            else if (token == L"image") categoryMask |= KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_IMAGE;
+            else if (token == L"registry") categoryMask |= KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_REGISTRY;
+            else if (token == L"object") categoryMask |= KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_OBJECT;
+            else if (token == L"minifilter") categoryMask |= KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_MINIFILTER;
+            else if (token == L"core") categoryMask |= KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_CORE;
+            else if (token == L"all") categoryMask |= KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_ALL;
+            else throw std::runtime_error("--categories contains an unknown category name");
+
+            if (delimiter == std::wstring::npos)
+            {
+                break;
+            }
+            tokenStart = delimiter + 1U;
+        }
+        if (categoryMask == 0U)
+        {
+            throw std::runtime_error("--categories resolved to an empty category mask");
+        }
+        return categoryMask;
+    }
+
+    // printCallbackMonitorStatus emits the fixed monitor state response in the
+    // same key=value shape used by the other ArkDriverClient-backed commands.
+    void printCallbackMonitorStatus(const ksword::ark::CallbackMonitorStatusResult& result)
+    {
+        std::wcout << L"version=" << result.version
+                   << L" runtime_flags=0x" << std::hex << result.runtimeFlags
+                   << L" category_mask=0x" << result.categoryMask
+                   << L" registered_category_mask=0x" << result.registeredCategoryMask
+                   << std::dec << L" ring_capacity=" << result.ringCapacity
+                   << L" queued_count=" << result.queuedCount
+                   << L" latest_sequence=" << result.latestSequence
+                   << L" dropped_count=" << result.droppedCount
+                   << L" last_status=0x" << std::hex << static_cast<std::uint32_t>(result.lastStatus)
+                   << L" minifilter_start_status=0x" << static_cast<std::uint32_t>(result.minifilterStartStatus)
+                   << std::dec << L"\n";
+    }
+
+    // printCallbackMonitorRead emits cursor metadata and a bounded list of
+    // validated callback monitor records; the caller can continue at next_sequence.
+    void printCallbackMonitorRead(
+        const ksword::ark::CallbackMonitorReadResult& result,
+        const std::uint32_t limit)
+    {
+        std::wcout << L"runtime_flags=0x" << std::hex << result.runtimeFlags
+                   << L" category_mask=0x" << result.categoryMask
+                   << L" response_flags=0x" << result.responseFlags
+                   << std::dec << L" ring_capacity=" << result.ringCapacity
+                   << L" first_available_sequence=" << result.firstAvailableSequence
+                   << L" latest_sequence=" << result.latestSequence
+                   << L" next_sequence=" << result.nextSequence
+                   << L" dropped_count=" << result.droppedCount
+                   << L" lost_before_first=" << result.lostBeforeFirst
+                   << L" returned_records=" << result.records.size() << L"\n";
+
+        const std::size_t shown = (std::min)(result.records.size(), static_cast<std::size_t>(limit));
+        for (std::size_t index = 0U; index < shown; ++index)
+        {
+            const auto& record = result.records[index];
+            std::wcout << L"  [" << index << L"] sequence=" << record.sequence
+                       << L" time_utc_100ns=" << record.timeUtc100ns
+                       << L" category=0x" << std::hex << record.category
+                       << L" operation=0x" << record.operation
+                       << L" flags=0x" << record.flags
+                       << L" result_status=0x" << static_cast<std::uint32_t>(record.resultStatus)
+                       << std::dec << L" originating_pid=" << record.originatingProcessId
+                       << L" originating_tid=" << record.originatingThreadId
+                       << L" target_pid=" << record.targetProcessId
+                       << L" target_tid=" << record.targetThreadId
+                       << L" parent_pid=" << record.parentProcessId
+                       << L" session_id=" << record.sessionId
+                       << L" original_access=0x" << std::hex << record.originalAccess
+                       << L" desired_access=0x" << record.desiredAccess
+                       << L" object_type=0x" << record.objectType
+                       << L" detail_code=0x" << record.detailCode
+                       << L" address=0x" << record.address
+                       << L" region_size=0x" << record.regionSize
+                       << std::dec << L" process_name=" << record.processName
+                       << L" path=" << record.path << L"\n";
+        }
+        if (shown < result.records.size())
+        {
+            std::wcout << L"records_truncated=true total_records=" << result.records.size() << L"\n";
+        }
+    }
+
     template <typename Result>
     int finishResult(const wchar_t* label, const Result& result)
     {
@@ -353,5 +487,57 @@ int commandArkDriverExtended(const int argc, wchar_t* argv[])
     if (subcommand == L"win32k-events") return finishResult(L"win32k-events", client.queryWin32kEventHooks(optionU32(args, L"--flags", KSWORD_ARK_WIN32K_QUERY_FLAG_INCLUDE_ALL), optionU32(args, L"--session-id", 0U), optionU32(args, L"--pid", 0U), optionU32(args, L"--tid", 0U), optionU32(args, L"--max-entries", KSWORD_ARK_WIN32K_DEFAULT_MAX_ENTRIES)));
 
     std::wcerr << L"error: unknown r0 subcommand '" << subcommand << L"'\n";
+    return 1;
+}
+
+// commandArkDriverCallbackMonitor implements the read-only callback monitor
+// status and cursor-read operations using the shared R3 client wrapper.
+int commandArkDriverCallbackMonitor(const int argc, wchar_t* argv[])
+{
+    if (argc < 3 || argv[2] == nullptr)
+    {
+        std::wcerr << L"error: callback monitor requires a subcommand\n";
+        return 1;
+    }
+
+    const std::wstring subcommand = argv[2];
+    const ExtendedArgs args = parseExtendedArgs(argc, argv, 3);
+    const ksword::ark::DriverClient client{};
+    if (subcommand == L"monitor-start")
+    {
+        const auto result = client.controlCallbackMonitor(
+            KSWORD_ARK_CALLBACK_MONITOR_ACTION_START,
+            parseCallbackMonitorCategories(args));
+        const int rc = finishResult(L"monitor-start", result);
+        if (rc == 0) printCallbackMonitorStatus(result);
+        return rc;
+    }
+    if (subcommand == L"monitor-stop")
+    {
+        const auto result = client.controlCallbackMonitor(
+            KSWORD_ARK_CALLBACK_MONITOR_ACTION_STOP,
+            0UL);
+        const int rc = finishResult(L"monitor-stop", result);
+        if (rc == 0) printCallbackMonitorStatus(result);
+        return rc;
+    }
+    if (subcommand == L"monitor-status")
+    {
+        const auto result = client.queryCallbackMonitorStatus();
+        const int rc = finishResult(L"monitor-status", result);
+        if (rc == 0) printCallbackMonitorStatus(result);
+        return rc;
+    }
+    if (subcommand == L"monitor-read")
+    {
+        const auto result = client.readCallbackMonitor(
+            optionU64(args, L"--after-sequence", 0ULL),
+            optionU32(args, L"--max-records", KSWORD_ARK_CALLBACK_MONITOR_DEFAULT_READ_RECORDS));
+        const int rc = finishResult(L"monitor-read", result);
+        if (rc == 0) printCallbackMonitorRead(result, optionU32(args, L"--limit", 64U));
+        return rc;
+    }
+
+    std::wcerr << L"error: unknown callback monitor subcommand '" << subcommand << L"'\n";
     return 1;
 }

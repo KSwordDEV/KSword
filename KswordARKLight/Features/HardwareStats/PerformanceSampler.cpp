@@ -432,6 +432,7 @@ struct PerformanceSampler::Impl {
     std::size_t missingCount = 0;
     std::vector<Counter> scalars;
     Counter cpuPerCore;
+    Counter gpuEngine;
     Counter networkReceived;
     Counter networkSent;
     std::vector<Counter> diskCounters;
@@ -513,6 +514,7 @@ void PerformanceSampler::closeQuery() {
         impl_->scalars.clear();
         impl_->diskCounters.clear();
         impl_->cpuPerCore = Counter{};
+        impl_->gpuEngine = Counter{};
         impl_->networkReceived = Counter{};
         impl_->networkSent = Counter{};
     }
@@ -595,6 +597,9 @@ bool PerformanceSampler::ensureOpen(std::wstring& diagnostic) {
         if (!addCounter(L"\\Processor Information(*)\\% Processor Time", impl_->cpuPerCore)) {
             addCounter(L"\\Processor(*)\\% Processor Time", impl_->cpuPerCore);
         }
+        if (!addCounter(L"\\GPU Engine(*)\\Utilization Percentage", impl_->gpuEngine)) {
+            ++impl_->missingCount;
+        }
         addCounter(L"\\Network Interface(*)\\Bytes Received/sec", impl_->networkReceived);
         addCounter(L"\\Network Interface(*)\\Bytes Sent/sec", impl_->networkSent);
     } else {
@@ -613,7 +618,7 @@ bool PerformanceSampler::ensureOpen(std::wstring& diagnostic) {
                                [](const Counter& counter) { return counter.available; }) ||
         std::any_of(impl_->diskCounters.begin(), impl_->diskCounters.end(),
             [](const Counter& counter) { return counter.available; }) ||
-        impl_->cpuPerCore.available || impl_->networkReceived.available;
+        impl_->cpuPerCore.available || impl_->gpuEngine.available || impl_->networkReceived.available;
     if (!anyCounter) {
         closeQuery();
         diagnostic = L"没有任何性能计数器可用，系统的 Perflib 计数器表可能已损坏（可用管理员权限运行 lodctr /R 重建）。";
@@ -672,6 +677,36 @@ void PerformanceSampler::collectSystemMetrics(PerformanceSnapshot& snapshot) {
             row.valid = true;
             snapshot.metrics.push_back(std::move(row));
         }
+    }
+
+    // GPU Engine publishes one counter instance per active engine. These values
+    // are concurrent, so summing them would invent a "total GPU" percentage.
+    // Lite reports the maximum sampled engine instead and preserves both the
+    // counter-unavailable and no-instance states as explicit non-values.
+    {
+        PerformanceMetricRow row{};
+        row.group = L"GPU";
+        row.name = L"最大引擎利用率（非总和）";
+        row.source = impl_->gpuEngine.available
+            ? impl_->gpuEngine.resolvedPath
+            : L"\\GPU Engine(*)\\Utilization Percentage";
+        if (!impl_->gpuEngine.available) {
+            row.value = L"未提供（GPU Engine 性能计数器不可用）";
+        } else {
+            const auto engines = ReadArray(impl_->gpuEngine.handle, false);
+            if (engines.empty()) {
+                row.value = L"未枚举到 GPU 引擎实例";
+            } else {
+                const auto peak = std::max_element(engines.begin(), engines.end(),
+                    [](const std::pair<std::wstring, double>& left, const std::pair<std::wstring, double>& right) {
+                        return left.second < right.second;
+                    });
+                row.numericValue = std::clamp(peak->second, 0.0, 100.0);
+                row.value = FormatPercent(row.numericValue) + L"（" + peak->first + L"）";
+                row.valid = true;
+            }
+        }
+        snapshot.metrics.push_back(std::move(row));
     }
 
     if (impl_->networkReceived.available || impl_->networkSent.available) {

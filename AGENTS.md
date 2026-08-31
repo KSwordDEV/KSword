@@ -3,6 +3,13 @@
 ## 共享记忆
 
 跨 agent / 开发者共享的项目知识放在 `.claude/memory/`，索引见 `.claude/memory/MEMORY.md`。
+任何 Codex、Claude 或其他 agent 开始处理本仓库任务前，必须同时读取两类记忆：
+
+1. 该 agent 在当前平台可用的自身记忆、用户记忆或历史摘要（如果有）；
+2. 仓库共享记忆索引 `.claude/memory/MEMORY.md`，并按任务关键词继续读取其中链接的相关主题文件。
+
+`.claude/memory/` 是跨 agent 共享的项目记忆，不是 Claude 专用目录；即使 agent 不是 Claude，也不得因目录名而跳过。某一类自身记忆不可用时，应继续读取另一类可用记忆，不得将“没有自身记忆”作为跳过仓库共享记忆的理由。
+
 改动主程序 UI、主题或窗口背景前，先读 `.claude/memory/ksword-ui-architecture.md`：其中记录了主题 token 体系、
 全局样式块链路、透明背景与毛玻璃的平台约束，以及已经踩过的坑。新增可复用经验时请一并更新该目录。
 

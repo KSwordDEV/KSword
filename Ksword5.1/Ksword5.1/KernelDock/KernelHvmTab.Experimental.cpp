@@ -68,11 +68,7 @@ void KernelHvmTab::startResident()
     QString warning = kernelText(
         "kernel.hvm.resident.start.warning",
         QStringLiteral(
-            "当前版本明确拒绝驻留启动：可卸载驱动尚未接管 S3/S4、Modern "
-            "Standby 与卸载前的全 CPU 去虚拟化生命周期，因此会在分配宿主栈或"
-            "改变 VMX 状态前返回 unsupported。协议入口仅为兼容性保留，不能"
-            "通过关闭危险确认绕过。未来若完成生命周期所有权，驻留启动仍可能"
-            "因 VMX/EPT 或回滚异常导致蓝屏或必须重启。"));
+            "常驻 VMM 会让所有已准备 CPU 进入 VMX non-root，并持续拦截受支持的退出。驱动仅在 GenuineIntel、VT-x/EPT/INVEPT 完整、无现有 Hypervisor、全 CPU 自检通过且电源/处理器拓扑/驱动卸载保护均已就绪时允许启动；AMD 及其它非 Intel 设备会被驱动端拒绝。驻留期间驱动不可卸载；S3/S4/Modern Standby 等离开 S0 的转换会先同步停止所有 VCPU。VMX/EPT 或回滚异常仍可能导致蓝屏或必须重启。"));
     if (nestedPartial)
     {
         warning += kernelText(
@@ -296,8 +292,7 @@ void KernelHvmTab::addEptRule()
             "去虚拟化，不注入异常；CPU 会从同一 RIP 返回原生执行，因此原访问"
             "仍可能重试并成功。读权限不能单独移除而保留写；不支持 execute-only "
             "EPT 时还会同时移除执行。重叠范围中任一严格规则都会覆盖临时放行。"
-            "临时放行只允许单 VCPU，并依赖 MTF 与 single-context INVEPT；"
-            "当前版本因电源/卸载生命周期未闭环而硬禁用驻留启动。"));
+            "临时放行只允许单 VCPU，并依赖 MTF 与 single-context INVEPT；多 CPU 驻留只能使用严格 tripwire 规则。"));
     if (confirmTyped(warning, kernelText("kernel.hvm.ept.add", QStringLiteral("添加物理页规则..."))))
     {
         runEptRuleAsync(

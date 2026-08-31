@@ -23,6 +23,10 @@ StartupDock::StartupDock(QWidget* parent)
 StartupDock::~StartupDock()
 {
     m_destroying.store(true);
+    if (m_tableRebuildTimer != nullptr)
+    {
+        m_tableRebuildTimer->stop();
+    }
     if (m_actionThread != nullptr && m_actionThread->joinable())
     {
         m_actionThread->join();
@@ -53,6 +57,10 @@ void StartupDock::changeEvent(QEvent* event)
 
     applyTranslatedHeaders();
     rebuildAllTables();
+    if (m_tableRebuildInProgress)
+    {
+        return;
+    }
     if (m_statusLabel == nullptr)
     {
         return;
@@ -290,6 +298,13 @@ void StartupDock::requestAsyncRefresh(const bool forceRefresh)
 
     m_refreshInProgress = true;
     m_refreshQueued = false;
+    m_pendingRefreshStageResults.clear();
+    m_backendEnumerationCompleted = false;
+    m_refreshSnapshotStarted = false;
+    m_activeRefreshStageIndex = 0;
+    m_activeRefreshStageCount = 0;
+    m_activeRefreshStageEntryCount = 0;
+    m_appliedRefreshStageCount = 0;
     m_progressPid = kPro.add(
         this,
         startupText("startup.progress.title", QStringLiteral("启动项")).toStdString(),
@@ -298,7 +313,7 @@ void StartupDock::requestAsyncRefresh(const bool forceRefresh)
         m_progressPid,
         startupText("startup.progress.prepare_logon", QStringLiteral("准备枚举登录项")).toStdString(),
         0,
-        5.0f);
+        3.0f);
     if (m_statusLabel != nullptr)
     {
         m_statusLabel->setText(
@@ -308,16 +323,24 @@ void StartupDock::requestAsyncRefresh(const bool forceRefresh)
     const int progressPid = m_progressPid;
     // LanguageManager 的当前语言由 UI 线程切换。先在此处取得进度文案，
     // 避免后台枚举线程与语言切换并发访问翻译状态。
-    const std::string enumerateBackendProgressText = startupText(
-        "startup.progress.enumerate_backend",
-        QStringLiteral("调用 ks::startup 后端枚举启动项")).toStdString();
+    const std::array<std::string, 9> enumerationProgressTexts{
+        startupText("startup.progress.enumerate_logon", QStringLiteral("正在枚举登录项")).toStdString(),
+        startupText("startup.progress.enumerate_services", QStringLiteral("正在枚举服务启动项")).toStdString(),
+        startupText("startup.progress.enumerate_drivers", QStringLiteral("正在枚举驱动启动项")).toStdString(),
+        startupText("startup.progress.enumerate_tasks", QStringLiteral("正在枚举计划任务")).toStdString(),
+        startupText("startup.progress.enumerate_image_hijacks", QStringLiteral("正在检查映像劫持项")).toStdString(),
+        startupText("startup.progress.enumerate_registry", QStringLiteral("正在枚举高级注册表启动项")).toStdString(),
+        startupText("startup.progress.enumerate_winsock", QStringLiteral("正在枚举 Winsock 启动项")).toStdString(),
+        startupText("startup.progress.enumerate_wmi", QStringLiteral("正在枚举 WMI 持久化项")).toStdString(),
+        startupText("startup.progress.enumerate_hidden", QStringLiteral("正在交叉检查隐藏启动项")).toStdString()
+    };
     const std::string backendCompletedProgressText = startupText(
         "startup.progress.backend_completed",
         QStringLiteral("ks::startup 后端枚举完成")).toStdString();
     m_refreshThread = std::make_unique<std::thread>(
         [this,
          progressPid,
-         enumerateBackendProgressText,
+         enumerationProgressTexts,
          backendCompletedProgressText]()
         {
             if (m_destroying.load())
@@ -325,22 +348,87 @@ void StartupDock::requestAsyncRefresh(const bool forceRefresh)
                 return;
             }
 
-            std::vector<StartupEntry> entryList;
-            entryList.reserve(256);
+            (void)ks::startup::EnumerateAllStartupEntries(
+                [progressPid, &enumerationProgressTexts](
+                    const ks::startup::StartupEnumerationStage,
+                    const std::size_t stageIndex,
+                    const std::size_t stageCount)
+                {
+                    constexpr std::array<float, 9> progressValues{
+                        5.0f,
+                        13.0f,
+                        21.0f,
+                        29.0f,
+                        44.0f,
+                        52.0f,
+                        63.0f,
+                        70.0f,
+                        80.0f
+                    };
+                    if (stageIndex >= stageCount
+                        || stageIndex >= enumerationProgressTexts.size()
+                        || stageIndex >= progressValues.size())
+                    {
+                        return;
+                    }
+                    kPro.set(
+                        progressPid,
+                        enumerationProgressTexts[stageIndex],
+                        0,
+                        progressValues[stageIndex]);
+                },
+                [this](
+                    const ks::startup::StartupEnumerationStage,
+                    const std::size_t stageIndex,
+                    const std::size_t stageCount,
+                    const std::vector<ks::startup::StartupEntry>& backendStageEntries)
+                {
+                    if (m_destroying.load())
+                    {
+                        return;
+                    }
 
-            kPro.set(
-                progressPid,
-                enumerateBackendProgressText,
-                0,
-                15.0f);
-            appendBackendStartupEntries(
-                &entryList,
-                ks::startup::EnumerateAllStartupEntries());
+                    std::vector<StartupEntry> stageEntryList;
+                    stageEntryList.reserve(backendStageEntries.size());
+                    appendBackendStartupEntries(&stageEntryList, backendStageEntries);
+                    std::sort(
+                        stageEntryList.begin(),
+                        stageEntryList.end(),
+                        [](const StartupEntry& left, const StartupEntry& right)
+                        {
+                            if (left.category != right.category)
+                            {
+                                return static_cast<int>(left.category) < static_cast<int>(right.category);
+                            }
+                            if (left.itemNameText.compare(right.itemNameText, Qt::CaseInsensitive) != 0)
+                            {
+                                return left.itemNameText.compare(right.itemNameText, Qt::CaseInsensitive) < 0;
+                            }
+                            return left.locationText.compare(right.locationText, Qt::CaseInsensitive) < 0;
+                        });
+
+                    QMetaObject::invokeMethod(
+                        this,
+                        [this,
+                         stageIndex,
+                         stageCount,
+                         stageEntryList = std::move(stageEntryList)]() mutable
+                        {
+                            if (!m_destroying.load())
+                            {
+                                enqueueRefreshStageResult(
+                                    stageIndex,
+                                    stageCount,
+                                    std::move(stageEntryList));
+                            }
+                        },
+                        Qt::QueuedConnection);
+                });
             kPro.set(
                 progressPid,
                 backendCompletedProgressText,
                 0,
-                96.0f);
+                93.0f);
 
             if (m_destroying.load())
             {
@@ -349,21 +437,57 @@ void StartupDock::requestAsyncRefresh(const bool forceRefresh)
 
             QMetaObject::invokeMethod(
                 this,
-                [this, entryList = std::move(entryList)]() mutable
+                [this]()
                 {
-                    if (m_destroying.load())
+                    if (!m_destroying.load())
                     {
-                        return;
+                        markBackendEnumerationCompleted();
                     }
-                    applyRefreshResult(std::move(entryList));
                 },
                 Qt::QueuedConnection);
         });
 }
 
-void StartupDock::applyRefreshResult(std::vector<StartupEntry> entryList)
+void StartupDock::enqueueRefreshStageResult(
+    const std::size_t stageIndex,
+    const std::size_t stageCount,
+    std::vector<StartupEntry> entryList)
 {
-    const QList<QTableView*> startupTables = {
+    if (m_destroying.load()
+        || !m_refreshInProgress.load()
+        || stageCount == 0U
+        || stageIndex >= stageCount)
+    {
+        return;
+    }
+
+    RefreshStageResult stageResult;
+    stageResult.stageIndex = stageIndex;
+    stageResult.stageCount = stageCount;
+    stageResult.entryList = std::move(entryList);
+    m_pendingRefreshStageResults.push_back(std::move(stageResult));
+    processNextRefreshStageResult();
+}
+
+void StartupDock::processNextRefreshStageResult()
+{
+    if (m_destroying.load()
+        || !m_refreshInProgress.load()
+        || m_tableRebuildInProgress)
+    {
+        return;
+    }
+
+    if (m_pendingRefreshStageResults.empty())
+    {
+        if (m_backendEnumerationCompleted)
+        {
+            completeRefreshAfterUiCommit();
+        }
+        return;
+    }
+
+    const QList<QAbstractItemView*> startupViews = {
         m_allTable,
         m_logonTable,
         m_servicesTable,
@@ -371,45 +495,82 @@ void StartupDock::applyRefreshResult(std::vector<StartupEntry> entryList)
         m_tasksTable,
         m_imageHijackTable,
         m_wmiTable,
-        m_hiddenTable
+        m_hiddenTable,
+        m_registryTree
     };
-    if (ks::ui::IsTableUiCommitBlockedByContextMenu(startupTables))
+    if (ks::ui::IsItemViewUiCommitBlockedByContextMenu(startupViews))
     {
-        // 八张分类表来自同一快照，菜单关闭后必须原子替换，
-        // 避免各标签页缓存与可见行处于不同代次。
+        // 八张分类表和注册表树共享同一 m_entryList 索引。菜单关闭后才能追加下一批，
+        // 避免当前菜单持有的行索引在共享缓存切换时失效。
         const QPointer<StartupDock> safeThis(this);
-        ks::ui::DeferTableUiCommitIfContextMenuOpen(
+        ks::ui::DeferItemViewUiCommitIfContextMenuOpen(
             this,
-            QStringLiteral("startup-tables-refresh-apply"),
-            startupTables,
-            [safeThis, entryList = std::move(entryList)]() mutable
+            QStringLiteral("startup-tables-stage-result-apply"),
+            startupViews,
+            [safeThis]()
             {
                 if (!safeThis.isNull())
                 {
-                    safeThis->applyRefreshResult(std::move(entryList));
+                    safeThis->processNextRefreshStageResult();
                 }
             });
         return;
     }
 
-    std::sort(
-        entryList.begin(),
-        entryList.end(),
-        [](const StartupEntry& left, const StartupEntry& right)
-        {
-            if (left.category != right.category)
-            {
-                return static_cast<int>(left.category) < static_cast<int>(right.category);
-            }
-            if (left.itemNameText.compare(right.itemNameText, Qt::CaseInsensitive) != 0)
-            {
-                return left.itemNameText.compare(right.itemNameText, Qt::CaseInsensitive) < 0;
-            }
-            return left.locationText.compare(right.locationText, Qt::CaseInsensitive) < 0;
-        });
+    RefreshStageResult stageResult = std::move(m_pendingRefreshStageResults.front());
+    m_pendingRefreshStageResults.pop_front();
 
-    m_entryList = std::move(entryList);
-    rebuildAllTables();
+    // 首批结果到达时才切换离开旧快照；之后每个后端阶段都只向累计结果追加。
+    // 每批落表完成前不处理下一批，保证用户看到的顺序与后端枚举顺序一致。
+    if (!m_refreshSnapshotStarted)
+    {
+        m_entryList.clear();
+        m_refreshSnapshotStarted = true;
+    }
+    const std::size_t stageEntryCount = stageResult.entryList.size();
+    m_entryList.reserve(m_entryList.size() + stageEntryCount);
+    for (StartupEntry& entry : stageResult.entryList)
+    {
+        m_entryList.push_back(std::move(entry));
+    }
+
+    m_activeRefreshStageIndex = stageResult.stageIndex;
+    m_activeRefreshStageCount = stageResult.stageCount;
+    m_activeRefreshStageEntryCount = stageEntryCount;
+    if (m_statusLabel != nullptr)
+    {
+        m_statusLabel->setText(
+            startupText(
+                "startup.status.applying_stage_results",
+                QStringLiteral("状态：正在添加第 %1/%2 阶段结果，本阶段 %3 条..."))
+                .arg(m_activeRefreshStageIndex + 1U)
+                .arg(m_activeRefreshStageCount)
+                .arg(stageEntryCount));
+    }
+    rebuildAllTables(true);
+}
+
+void StartupDock::markBackendEnumerationCompleted()
+{
+    if (m_destroying.load() || !m_refreshInProgress.load())
+    {
+        return;
+    }
+
+    m_backendEnumerationCompleted = true;
+    processNextRefreshStageResult();
+}
+
+void StartupDock::completeRefreshAfterUiCommit()
+{
+    if (m_destroying.load()
+        || !m_refreshInProgress.load()
+        || !m_backendEnumerationCompleted
+        || !m_pendingRefreshStageResults.empty()
+        || m_tableRebuildInProgress)
+    {
+        return;
+    }
 
     if (m_statusLabel != nullptr)
     {
@@ -419,10 +580,12 @@ void StartupDock::applyRefreshResult(std::vector<StartupEntry> entryList)
             .arg(categoryToText(currentCategory())));
     }
 
-    if (m_progressPid != 0)
+    const int completedProgressPid = m_progressPid;
+    m_progressPid = 0;
+    if (completedProgressPid != 0)
     {
         kPro.set(
-            m_progressPid,
+            completedProgressPid,
             startupText("startup.progress.completed", QStringLiteral("启动项刷新完成")).toStdString(),
             0,
             100.0f);

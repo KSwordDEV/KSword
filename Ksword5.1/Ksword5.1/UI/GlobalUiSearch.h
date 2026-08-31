@@ -277,6 +277,7 @@ namespace ks::ui
         quint64 m_searchGeneration = 0;           // m_searchGeneration：搜索代数；新搜索/取消时自增使在途分片作废。
         bool m_searchInProgress = false;          // m_searchInProgress：当前是否有异步扫描在进行。
         bool m_searchModeActive = true;           // m_searchModeActive：标题栏是否处于搜索输入模式。
+        bool m_showPopupOnNextSearchInputFocus = false; // m_showPopupOnNextSearchInputFocus：仅表格搜索入口允许下一次顶部输入框获焦时展开弹层。
         bool m_searchResultsOnly = false;         // m_searchResultsOnly：是否隐藏通用表格中的非命中行。
         UiSearchScope m_searchScope = UiSearchScope::Global; // m_searchScope：用户当前选择的搜索范围。
         UiSearchScope m_activeSearchScope = UiSearchScope::Global; // m_activeSearchScope：在途搜索采用的范围快照。

@@ -2,9 +2,12 @@
 
 #include "FileView.h"
 
+#include "../AuditCommon/AuditFormatting.h"
 #include "../AuditCommon/AuditTable.h"
+#include "../../Core/EntityRef.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/EntityNavigation.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
 #include "../../Ui/TabUtil.h"
@@ -61,6 +64,10 @@ constexpr UINT kIntegrityMenuMedium = 52703;
 constexpr UINT kIntegrityMenuMediumPlus = 52704;
 constexpr UINT kIntegrityMenuHigh = 52705;
 constexpr UINT kIntegrityMenuSystem = 52706;
+constexpr UINT kAuditMenuCopyCell = 52721;
+constexpr UINT kAuditMenuCopyRow = 52722;
+constexpr UINT kAuditMenuCopyAll = 52723;
+constexpr UINT kAuditMenuOpenMappedProcess = 52724;
 constexpr UINT kMsgAuditRefreshCompleted = WM_APP + 550;
 constexpr UINT kMsgFileIntegrityCompleted = WM_APP + 551;
 
@@ -77,6 +84,9 @@ struct AuditRow {
     std::wstring status;
     std::wstring value;
     std::wstring detail;
+    // Only a process mapping row may populate this non-display metadata. It
+    // is never reconstructed from the diagnostic text or a kernel address.
+    std::uint32_t relatedProcessId = 0;
 };
 
 struct AuditRefreshSnapshot {
@@ -462,8 +472,16 @@ std::wstring FltFilesystemText(const FLT_FILESYSTEM_TYPE type) {
 
 // AddRow appends one evidence row. Inputs are the row fields; processing only
 // stores display text in the vector; no value is returned.
-void AddRow(std::vector<AuditRow>& rows, std::wstring item, std::wstring source, std::wstring status, std::wstring value, std::wstring detail) {
-    rows.push_back({ std::move(item), std::move(source), std::move(status), std::move(value), std::move(detail) });
+void AddRow(std::vector<AuditRow>& rows,
+    std::wstring item,
+    std::wstring source,
+    std::wstring status,
+    std::wstring value,
+    std::wstring detail,
+    const std::uint32_t relatedProcessId = 0) {
+    rows.push_back({
+        std::move(item), std::move(source), std::move(status), std::move(value), std::move(detail), relatedProcessId
+    });
 }
 
 // AppendMinifilterRecord parses one FilterFind* aggregate record. Inputs are the
@@ -774,7 +792,9 @@ std::vector<AuditRow> QuerySectionRows(const std::wstring& targetPath) {
         std::wostringstream detail;
         detail << L"VA=" << HexText(row.startVa) << L"-" << HexText(row.endVa)
                << L", ControlArea=" << HexText(row.controlAreaAddress);
-        AddRow(rows, item.str(), L"R0 VAD/ControlArea", L"OK", value.str(), detail.str());
+        const std::uint32_t mappedProcessId =
+            row.viewMapType == KSWORD_ARK_SECTION_MAP_TYPE_PROCESS ? row.processId : 0U;
+        AddRow(rows, item.str(), L"R0 VAD/ControlArea", L"OK", value.str(), detail.str(), mappedProcessId);
     }
     if (query.mappings.size() > limit) {
         AddRow(rows, L"Mapping display cap", L"UI", L"部分数据", std::to_wstring(limit) + L"/" + std::to_wstring(query.mappings.size()), L"UI 限制展示 96 行，避免轻量页卡顿；R0 returnedCount 保留真实数量。");
@@ -1197,6 +1217,117 @@ void PopulateAuditList(FileAuditPageState& state) {
     }
 }
 
+// SelectAuditListRowAtPoint keeps the typed row model and the native ListView
+// selection aligned before a context action is evaluated. It returns the
+// selected display column for copy-cell semantics.
+int SelectAuditListRowAtPoint(FileAuditPageState& state, POINT screenPoint, int* columnOut) {
+    if (columnOut) {
+        *columnOut = 0;
+    }
+    if (!state.list) {
+        return -1;
+    }
+
+    POINT clientPoint = screenPoint;
+    ::ScreenToClient(state.list, &clientPoint);
+    LVHITTESTINFO hit{};
+    hit.pt = clientPoint;
+    const int hitRow = ListView_SubItemHitTest(state.list, &hit);
+    if (hitRow >= 0) {
+        if ((ListView_GetItemState(state.list, hitRow, LVIS_SELECTED) & LVIS_SELECTED) == 0) {
+            ListView_SetItemState(state.list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+            ListView_SetItemState(state.list, hitRow, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        }
+        if (columnOut && hit.iSubItem >= 0) {
+            *columnOut = hit.iSubItem;
+        }
+        return hitRow;
+    }
+
+    return ListView_GetNextItem(state.list, -1, LVNI_SELECTED);
+}
+
+// MappedProcessIdAtAuditRow reads only the typed metadata produced from the
+// existing R0 mapping response. Session/SystemCache rows and arbitrary display
+// strings never become navigation inputs.
+std::uint32_t MappedProcessIdAtAuditRow(const FileAuditPageState& state, const int rowIndex) {
+    if (state.currentTab != kAuditSectionTabIndex || rowIndex < 0 ||
+        static_cast<std::size_t>(rowIndex) >= state.rows.size()) {
+        return 0U;
+    }
+    return state.rows[static_cast<std::size_t>(rowIndex)].relatedProcessId;
+}
+
+void OpenMappedProcessDetails(FileAuditPageState& state, const std::uint32_t processId) {
+    if (processId == 0U) {
+        SetAuditStatus(state, L"状态：当前行不是可导航的进程映射。");
+        return;
+    }
+
+    // The driver mapping protocol intentionally carries PID but no creation
+    // time. Do not open a source-side process handle here; ProcessDetails
+    // resolves the current process instance before showing its snapshot.
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::ProcessDetails;
+    request.entity.kind = Ksword::Core::EntityKind::Process;
+    request.entity.id = processId;
+    const bool routed = Ksword::Ui::RequestEntityNavigation(state.hwnd, request);
+    SetAuditStatus(state, routed
+        ? L"状态：已请求打开映射 PID " + std::to_wstring(processId) + L" 的进程详细信息；目标页会重新确认当前实例。"
+        : L"状态：无法导航到该映射 PID 的当前进程实例。");
+}
+
+// ShowFileAuditContextMenu retains the shared read-only copy behavior and adds
+// one typed, non-mutating cross-view action for process-backed Section rows.
+void ShowFileAuditContextMenu(FileAuditPageState& state, POINT screenPoint) {
+    int column = 0;
+    const int selectedRow = SelectAuditListRowAtPoint(state, screenPoint, &column);
+    const bool hasSelection = selectedRow >= 0;
+    // Capture the typed PID before TrackPopupMenu enters its nested message
+    // loop. A completed refresh cannot then substitute a same-index row.
+    const std::uint32_t mappedProcessId = MappedProcessIdAtAuditRow(state, selectedRow);
+    const bool canOpenMappedProcess = mappedProcessId != 0U;
+
+    HMENU menu = ::CreatePopupMenu();
+    if (!menu) {
+        return;
+    }
+    ::AppendMenuW(menu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kAuditMenuCopyCell, L"复制单元格");
+    ::AppendMenuW(menu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kAuditMenuCopyRow, L"复制整行");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, MF_STRING, kAuditMenuCopyAll, L"复制全部 TSV");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, MF_STRING | (canOpenMappedProcess ? 0U : MF_GRAYED),
+        kAuditMenuOpenMappedProcess, L"查看当前 PID 的进程详细信息");
+
+    const UINT command = ::TrackPopupMenu(
+        menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenPoint.x, screenPoint.y, 0, state.hwnd, nullptr);
+    ::DestroyMenu(menu);
+
+    switch (command) {
+    case kAuditMenuCopyCell:
+        Ksword::Features::AuditCommon::CopyTextToClipboard(
+            state.hwnd,
+            Ksword::Features::AuditCommon::GetAuditTableCellText(state.list, selectedRow, column));
+        break;
+    case kAuditMenuCopyRow:
+        Ksword::Features::AuditCommon::CopyTextToClipboard(
+            state.hwnd,
+            Ksword::Features::AuditCommon::GetSelectedAuditTableRowText(state.list));
+        break;
+    case kAuditMenuCopyAll:
+        Ksword::Features::AuditCommon::CopyTextToClipboard(
+            state.hwnd,
+            Ksword::Features::AuditCommon::BuildAuditTableTsv(state.list));
+        break;
+    case kAuditMenuOpenMappedProcess:
+        OpenMappedProcessDetails(state, mappedProcessId);
+        break;
+    default:
+        break;
+    }
+}
+
 std::wstring AuditTabName(const int tab) {
     switch (tab) {
     case kAuditMinifilterTabIndex: return L"Minifilter";
@@ -1508,7 +1639,7 @@ bool RegisterAuditClass() {
                 if (header && header->hwndFrom == state->list && header->code == NM_RCLICK) {
                     POINT pt{};
                     ::GetCursorPos(&pt);
-                    Ksword::Features::AuditCommon::ShowAuditTableContextMenu(state->hwnd, state->list, pt);
+                    ShowFileAuditContextMenu(*state, pt);
                     return 0;
                 }
             }
@@ -1522,7 +1653,7 @@ bool RegisterAuditClass() {
                     pt.x = rc.left + 24;
                     pt.y = rc.top + 24;
                 }
-                Ksword::Features::AuditCommon::ShowAuditTableContextMenu(state->hwnd, state->list, pt);
+                ShowFileAuditContextMenu(*state, pt);
                 return 0;
             }
             break;
@@ -1717,6 +1848,17 @@ HWND CreateFileFeaturePage(HWND parent, const RECT& bounds) {
         delete state;
     }
     return hwnd;
+}
+
+bool RequestFileFeatureNavigate(HWND page, const std::wstring& path) {
+    FileFeatureHostState* state = StateFromHostWindow(page);
+    if (!state || !state->browserPage || path.empty()) {
+        return false;
+    }
+    state->currentTab = kBrowserTabIndex;
+    ::SendMessageW(state->tab, TCM_SETCURSEL, static_cast<WPARAM>(kBrowserTabIndex), 0);
+    ShowHostPages(*state);
+    return RequestFileViewNavigate(state->browserPage, path);
 }
 
 } // namespace Ksword::Features::File

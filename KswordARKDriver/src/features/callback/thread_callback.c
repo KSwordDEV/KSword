@@ -29,6 +29,7 @@ KswordArkThreadCreateNotify(
     WCHAR initiatorPathBuffer[KSWORD_ARK_CALLBACK_EVENT_MAX_INITIATOR_CHARS] = { 0 };
     WCHAR targetPathBuffer[KSWORD_ARK_CALLBACK_EVENT_MAX_TARGET_CHARS] = { 0 };
     PEPROCESS targetProcess = NULL;
+    ULONG targetSessionId = 0UL;
     ULONG operationType = Create ? KSWORD_ARK_THREAD_OP_CREATE : KSWORD_ARK_THREAD_OP_EXIT;
     NTSTATUS matchStatus = STATUS_SUCCESS;
 
@@ -45,6 +46,7 @@ KswordArkThreadCreateNotify(
             targetPathBuffer,
             RTL_NUMBER_OF(targetPathBuffer),
             NULL);
+        targetSessionId = KswordArkGetProcessSessionIdSafe(targetProcess);
         ObDereferenceObject(targetProcess);
     }
 
@@ -57,6 +59,22 @@ KswordArkThreadCreateNotify(
             (unsigned long)HandleToULong(ThreadId));
     }
     RtlInitUnicodeString(&targetPath, targetPathBuffer);
+
+    // 线程遥测在规则匹配前发布，保证无规则配置时仍能完整监控。
+    if (KswordArkCallbackMonitorIsEnabled(KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_THREAD)) {
+        KSWORD_ARK_CALLBACK_MONITOR_EVENT_INPUT monitorInput;
+        RtlZeroMemory(&monitorInput, sizeof(monitorInput));
+        monitorInput.Category = KSWORD_ARK_CALLBACK_MONITOR_CATEGORY_THREAD;
+        monitorInput.Operation = operationType;
+        monitorInput.OriginatingProcessId = HandleToULong(PsGetCurrentProcessId());
+        monitorInput.OriginatingThreadId = HandleToULong(PsGetCurrentThreadId());
+        monitorInput.TargetProcessId = HandleToULong(ProcessId);
+        monitorInput.TargetThreadId = HandleToULong(ThreadId);
+        monitorInput.SessionId = targetSessionId;
+        monitorInput.ProcessName = &initiatorPath;
+        monitorInput.Path = &targetPath;
+        KswordArkCallbackMonitorPublish(&monitorInput);
+    }
 
     matchStatus = KswordArkCallbackMatchRule(
         KSWORD_ARK_CALLBACK_TYPE_THREAD_CREATE,

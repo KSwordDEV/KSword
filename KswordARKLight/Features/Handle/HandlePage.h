@@ -17,6 +17,10 @@ public:
     // parent HWND and initial bounds; output is the root child HWND or nullptr.
     static HWND Create(HWND parent, const RECT& bounds);
 
+    // SetProcessId selects a verified process identity supplied by the shell,
+    // updates the PID field and starts the normal read-only handle refresh.
+    static bool SetProcessId(HWND page, DWORD processId);
+
     // WindowProc routes Win32 messages to the instance stored on GWLP_USERDATA.
     // Inputs are standard Win32 procedure values; output is the message result.
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);

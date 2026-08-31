@@ -1,8 +1,10 @@
 #include "EventLogView.h"
 
 #include "EventLogReader.h"
+#include "../../Core/EntityRef.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/EntityNavigation.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
@@ -41,6 +43,7 @@ constexpr UINT kMenuCopyRow = 67611;
 constexpr UINT kMenuCopyVisible = 67612;
 constexpr UINT kMenuCopyMessage = 67613;
 constexpr UINT kMenuRefresh = 67614;
+constexpr UINT kMenuOpenProcess = 67615;
 
 constexpr UINT kMsgQueryCompleted = WM_APP + 705;
 constexpr UINT kMsgFilterCompleted = WM_APP + 706;
@@ -159,6 +162,11 @@ int SelectedModelIndex(const EventLogViewState& state) {
     return modelIndex < state.entries.size() ? static_cast<int>(modelIndex) : -1;
 }
 
+const EventLogEntry* SelectedEntry(const EventLogViewState& state) {
+    const int index = SelectedModelIndex(state);
+    return index >= 0 ? &state.entries[static_cast<std::size_t>(index)] : nullptr;
+}
+
 std::wstring DetailTextForEntry(const EventLogEntry& entry) {
     std::wostringstream stream;
     stream << L"时间：" << entry.timeText << L"\r\n"
@@ -183,6 +191,25 @@ void ShowDetail(EventLogViewState& state) {
     }
     const std::wstring text = DetailTextForEntry(state.entries[static_cast<std::size_t>(index)]);
     ::SetWindowTextW(state.detailEdit, text.c_str());
+}
+
+// SelectRowAtPoint makes a right-click command apply to the event under the
+// pointer, never to a selection that was left by a prior record.
+void SelectRowAtPoint(EventLogViewState& state, const POINT screenPoint) {
+    const HWND list = state.list.hwnd();
+    if (!list) {
+        return;
+    }
+    POINT clientPoint = screenPoint;
+    ::ScreenToClient(list, &clientPoint);
+    LVHITTESTINFO hit{};
+    hit.pt = clientPoint;
+    const int clickedItem = ListView_SubItemHitTest(list, &hit);
+    ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    if (clickedItem >= 0 && static_cast<std::size_t>(clickedItem) < state.list.visibleIndexes().size()) {
+        ListView_SetItemState(list, clickedItem, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    }
+    ShowDetail(state);
 }
 
 void ApplyFilterResult(EventLogViewState& state, EventLogFilterResult result) {
@@ -348,15 +375,43 @@ std::wstring RowsAsText(const EventLogViewState& state, const bool allVisible) {
     return text;
 }
 
+// OpenSelectedEventProcess intentionally routes only the current numeric PID.
+// An event records its provider PID, not a stable process identity, so the
+// process page must resolve the current instance before opening details.
+void OpenSelectedEventProcess(EventLogViewState& state) {
+    const EventLogEntry* entry = SelectedEntry(state);
+    if (!entry || entry->processId == 0U) {
+        state.statusText = L"当前事件记录没有可导航的 PID。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::ProcessDetails;
+    request.entity.kind = Ksword::Core::EntityKind::Process;
+    request.entity.id = entry->processId;
+    state.statusText = Ksword::Ui::RequestEntityNavigation(state.hwnd, request)
+        ? L"已请求打开当前 PID " + std::to_wstring(entry->processId) +
+            L" 的进程详细信息；该 PID 来自事件提供程序，目标页会重新解析当前进程实例。"
+        : L"无法导航到该事件记录的当前 PID。";
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
 void ShowContextMenu(EventLogViewState& state, POINT screenPoint) {
+    SelectRowAtPoint(state, screenPoint);
     HMENU menu = ::CreatePopupMenu();
     if (!menu) {
         return;
     }
-    const bool hasSelection = SelectedModelIndex(state) >= 0;
+    const EventLogEntry* entry = SelectedEntry(state);
+    const bool hasSelection = entry != nullptr;
+    const bool hasCurrentProcess = entry && entry->processId != 0U;
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? MF_ENABLED : MF_GRAYED), kMenuCopyRow, L"复制选中行");
     ::AppendMenuW(menu, MF_STRING, kMenuCopyVisible, L"复制可见行");
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? MF_ENABLED : MF_GRAYED), kMenuCopyMessage, L"复制完整描述");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, MF_STRING | (hasCurrentProcess ? MF_ENABLED : MF_GRAYED),
+        kMenuOpenProcess, L"查看当前 PID 的进程详细信息");
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(menu, MF_STRING, kMenuRefresh, L"刷新");
 
@@ -382,6 +437,9 @@ void ShowContextMenu(EventLogViewState& state, POINT screenPoint) {
         ::InvalidateRect(state.hwnd, nullptr, TRUE);
         break;
     }
+    case kMenuOpenProcess:
+        OpenSelectedEventProcess(state);
+        break;
     case kMenuRefresh:
         BeginQuery(state);
         break;

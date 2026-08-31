@@ -2,8 +2,12 @@
 
 #include "NetToolsEnumerator.h"
 #include "NetToolsModel.h"
+#include "../File/PathNavigator.h"
+#include "../../Core/EntityRef.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/EntityNavigation.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
@@ -33,11 +37,13 @@ constexpr int kFilterBarId = 66303;
 constexpr int kRuleListId = 66304;
 constexpr int kDetailListId = 66305;
 constexpr int kLoadingOverlayId = 66306;
+constexpr int kExportButtonId = 66307;
 
 constexpr UINT kMenuCopyRow = 66351;
 constexpr UINT kMenuCopyVisible = 66352;
 constexpr UINT kMenuCopyDetail = 66353;
 constexpr UINT kMenuRefresh = 66354;
+constexpr UINT kMenuOpenApplicationDirectory = 66355;
 
 constexpr UINT kMsgRefreshCompleted = WM_APP + 678;
 constexpr UINT kMsgFilterCompleted = WM_APP + 679;
@@ -69,6 +75,7 @@ struct FirewallFilterResult final {
 struct FirewallViewState final {
     HWND hwnd = nullptr;
     HWND refreshButton = nullptr;
+    HWND exportButton = nullptr;
     HWND directionCombo = nullptr;
     HWND filterBar = nullptr;
     HWND detailList = nullptr;
@@ -365,6 +372,33 @@ void BeginFirewallRefresh(FirewallViewState& state) {
         });
 }
 
+void ExportVisibleFirewallRules(FirewallViewState& state) {
+    static const std::vector<std::wstring> kColumnTitles = {
+        L"规则名称", L"方向", L"动作", L"启用", L"协议", L"本地端口", L"远端端口", L"配置文件", L"程序"
+    };
+    const std::wstring text = Ksword::Ui::BuildVisibleVirtualListTsv(kColumnTitles, state.ruleList);
+    if (text.empty()) {
+        state.statusText = L"没有可导出的当前可见防火墙规则。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+    std::wstring error;
+    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(
+        state.hwnd, L"network_firewall_rules.tsv", L"导出防火墙规则",
+        L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0", L"tsv", text, &error)) {
+    case Ksword::Ui::SaveTextFileResult::Saved:
+        state.statusText = L"已导出当前可见防火墙规则。";
+        break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled:
+        state.statusText = L"已取消导出防火墙规则。";
+        break;
+    case Ksword::Ui::SaveTextFileResult::Failed:
+        state.statusText = L"导出防火墙规则失败：" + error;
+        break;
+    }
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
 std::wstring RowsAsText(const FirewallViewState& state, bool visibleRows) {
     const auto& rows = state.ruleList.rows();
     const auto& visible = state.ruleList.visibleIndexes();
@@ -403,8 +437,67 @@ std::wstring DetailAsText(const FirewallViewState& state) {
     return text;
 }
 
-void ShowFirewallContextMenu(FirewallViewState& state, POINT screenPoint) {
+// SelectRowAtPoint keeps row-scoped context commands tied to the rule the user
+// right-clicked. Empty-space clicks clear a prior selection, so no operation
+// silently acts on an unrelated firewall rule.
+void SelectRowAtPoint(FirewallViewState& state, const POINT screenPoint) {
+    const HWND list = state.ruleList.hwnd();
+    if (!list) {
+        return;
+    }
+    POINT clientPoint = screenPoint;
+    ::ScreenToClient(list, &clientPoint);
+    LVHITTESTINFO hit{};
+    hit.pt = clientPoint;
+    const int clickedItem = ListView_SubItemHitTest(list, &hit);
+    ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    const auto& visible = state.ruleList.visibleIndexes();
+    if (clickedItem >= 0 && static_cast<std::size_t>(clickedItem) < visible.size()) {
+        ListView_SetItemState(list, clickedItem, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    }
+    ShowDetail(state, SelectedModelIndex(state));
+}
+
+// ApplicationDirectoryForEntry keeps the strict source-path contract intact
+// across the FileBrowser boundary. FileBrowser accepts user-entered paths and
+// expands environment tokens, so a firewall rule directory containing '%' must
+// stay unavailable instead of being turned into a different target later.
+std::wstring ApplicationDirectoryForEntry(const FirewallRuleEntry* entry) {
+    if (!entry) {
+        return {};
+    }
+    const std::wstring directory =
+        Ksword::Features::File::PathNavigator::parentDirectoryForKnownFilePath(entry->applicationName);
+    return directory.find(L'%') == std::wstring::npos ? directory : std::wstring{};
+}
+
+// OpenSelectedApplicationDirectory accepts only an already explicit DOS or UNC
+// application file path from the current firewall rule. It does not expand
+// variables, split command lines, or translate device paths into a guessed file
+// system target.
+void OpenSelectedApplicationDirectory(FirewallViewState& state) {
     const FirewallRuleEntry* entry = SelectedEntry(state);
+    const std::wstring directory = ApplicationDirectoryForEntry(entry);
+    if (directory.empty()) {
+        state.statusText = L"所选规则未提供可安全定位的程序文件路径。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::FileBrowser;
+    request.entity.kind = Ksword::Core::EntityKind::File;
+    request.entity.text = directory;
+    state.statusText = Ksword::Ui::RequestEntityNavigation(state.hwnd, request)
+        ? L"已在文件模块打开防火墙规则程序所在目录。"
+        : L"文件模块当前无法接收防火墙规则程序所在目录。";
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
+void ShowFirewallContextMenu(FirewallViewState& state, POINT screenPoint) {
+    SelectRowAtPoint(state, screenPoint);
+    const FirewallRuleEntry* entry = SelectedEntry(state);
+    const bool hasApplicationDirectory = !ApplicationDirectoryForEntry(entry).empty();
     HMENU menu = ::CreatePopupMenu();
     if (!menu) {
         return;
@@ -414,6 +507,9 @@ void ShowFirewallContextMenu(FirewallViewState& state, POINT screenPoint) {
     ::AppendMenuW(menu, MF_STRING | (entry ? MF_ENABLED : MF_GRAYED), kMenuCopyRow, L"复制选中行");
     ::AppendMenuW(menu, MF_STRING, kMenuCopyVisible, L"复制可见行");
     ::AppendMenuW(menu, MF_STRING | (entry ? MF_ENABLED : MF_GRAYED), kMenuCopyDetail, L"复制详情");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, MF_STRING | (hasApplicationDirectory ? MF_ENABLED : MF_GRAYED),
+        kMenuOpenApplicationDirectory, L"打开规则程序所在目录");
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(menu, MF_STRING, kMenuRefresh, L"刷新");
 
@@ -434,6 +530,9 @@ void ShowFirewallContextMenu(FirewallViewState& state, POINT screenPoint) {
         state.statusText = CopyText(state.hwnd, DetailAsText(state)) ? L"已复制详情。" : L"复制失败。";
         ::InvalidateRect(state.hwnd, nullptr, TRUE);
         break;
+    case kMenuOpenApplicationDirectory:
+        OpenSelectedApplicationDirectory(state);
+        break;
     case kMenuRefresh:
         BeginFirewallRefresh(state);
         break;
@@ -452,10 +551,13 @@ void LayoutView(FirewallViewState& state) {
     if (state.refreshButton) {
         ::MoveWindow(state.refreshButton, kGap, firstRowY, 64, kRowHeight, TRUE);
     }
+    if (state.exportButton) {
+        ::MoveWindow(state.exportButton, kGap + 64 + kGap, firstRowY, 82, kRowHeight, TRUE);
+    }
     // The combo needs room for its drop-down list, which Win32 sizes from the
     // control height rather than from the item count.
     if (state.directionCombo) {
-        ::MoveWindow(state.directionCombo, kGap + 64 + kGap, firstRowY, 120, kRowHeight * 6, TRUE);
+        ::MoveWindow(state.directionCombo, kGap + 64 + kGap + 82 + kGap, firstRowY, 120, kRowHeight * 6, TRUE);
     }
 
     const int secondRowY = firstRowY + kRowHeight + kGap;
@@ -481,6 +583,7 @@ void LayoutView(FirewallViewState& state) {
 bool CreateChildControls(FirewallViewState& state) {
     HWND hwnd = state.hwnd;
     state.refreshButton = Ksword::Ui::CreateButton(hwnd, kRefreshButtonId, L"刷新", 0, 0, 0, 0);
+    state.exportButton = Ksword::Ui::CreateButton(hwnd, kExportButtonId, L"导出 TSV", 0, 0, 0, 0);
 
     state.directionCombo = ::CreateWindowExW(0, WC_COMBOBOXW, L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST | CBS_HASSTRINGS,
@@ -526,7 +629,7 @@ bool CreateChildControls(FirewallViewState& state) {
     }
 
     state.loadingOverlay = Ksword::Ui::CreateLoadingOverlay(hwnd, kLoadingOverlayId, { 0, 0, 1, 1 });
-    if (!state.refreshButton || !state.filterBar || !state.detailList || !state.loadingOverlay) {
+    if (!state.refreshButton || !state.exportButton || !state.filterBar || !state.detailList || !state.loadingOverlay) {
         return false;
     }
 
@@ -592,9 +695,15 @@ LRESULT CALLBACK FirewallViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                     Ksword::Ui::GetFilterBarText(state->filterBar), selectedStableKey, {});
                 return 0;
             }
-            if (notification == BN_CLICKED && id == kRefreshButtonId) {
-                BeginFirewallRefresh(*state);
-                return 0;
+            if (notification == BN_CLICKED) {
+                if (id == kRefreshButtonId) {
+                    BeginFirewallRefresh(*state);
+                    return 0;
+                }
+                if (id == kExportButtonId) {
+                    ExportVisibleFirewallRules(*state);
+                    return 0;
+                }
             }
         }
         break;

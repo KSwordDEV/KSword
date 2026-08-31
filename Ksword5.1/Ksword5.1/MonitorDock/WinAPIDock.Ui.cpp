@@ -21,6 +21,7 @@
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSize>
 #include <QSplitter>
@@ -178,12 +179,21 @@ void WinAPIDock::initializeUi()
             buildStatusStyle(KswordTheme::PrimaryBlueHex)),
         0);
 
+    QHBoxLayout* const sessionConfigurationColumnsLayout = new QHBoxLayout();
+    sessionConfigurationColumnsLayout->setContentsMargins(0, 0, 0, 0);
+    sessionConfigurationColumnsLayout->setSpacing(8);
+
+    QWidget* const sessionConfigurationLeftColumn = new QWidget(m_sessionPanel);
+    QVBoxLayout* const sessionConfigurationLeftLayout = new QVBoxLayout(sessionConfigurationLeftColumn);
+    sessionConfigurationLeftLayout->setContentsMargins(0, 0, 0, 0);
+    sessionConfigurationLeftLayout->setSpacing(8);
+
     QFormLayout* const sessionFormLayout = new QFormLayout();
     sessionFormLayout->setContentsMargins(0, 0, 0, 0);
     sessionFormLayout->setHorizontalSpacing(8);
     sessionFormLayout->setVerticalSpacing(8);
 
-    QWidget* const dllPathRowWidget = new QWidget(m_sessionPanel);
+    QWidget* const dllPathRowWidget = new QWidget(sessionConfigurationLeftColumn);
     QHBoxLayout* const dllPathLayout = new QHBoxLayout(dllPathRowWidget);
     dllPathLayout->setContentsMargins(0, 0, 0, 0);
     dllPathLayout->setSpacing(6);
@@ -203,14 +213,14 @@ void WinAPIDock::initializeUi()
     dllPathLayout->addWidget(m_browseAgentDllButton, 0);
     sessionFormLayout->addRow(QStringLiteral("Agent DLL"), dllPathRowWidget);
 
-    m_manualPidEdit = new QLineEdit(m_sessionPanel);
+    m_manualPidEdit = new QLineEdit(sessionConfigurationLeftColumn);
     m_manualPidEdit->setPlaceholderText(QStringLiteral("可留空；填写后覆盖顶部进程选择"));
     m_manualPidEdit->setToolTip(QStringLiteral("高级兜底：当下拉候选没有目标时，可直接输入 PID。填写后优先使用这里的 PID。"));
     m_manualPidEdit->setStyleSheet(blueInputStyle());
     sessionFormLayout->addRow(QStringLiteral("目标 PID（高级）"), m_manualPidEdit);
-    sessionPanelLayout->addLayout(sessionFormLayout);
+    sessionConfigurationLeftLayout->addLayout(sessionFormLayout);
 
-    QFrame* const categoryFrame = createPanelFrame(m_sessionPanel);
+    QFrame* const categoryFrame = createPanelFrame(sessionConfigurationLeftColumn);
     QVBoxLayout* const categoryLayout = new QVBoxLayout(categoryFrame);
     categoryLayout->setContentsMargins(8, 8, 8, 8);
     categoryLayout->setSpacing(6);
@@ -226,8 +236,16 @@ void WinAPIDock::initializeUi()
     m_autoInjectChildCheck = new QCheckBox(QStringLiteral("自动注入子进程"), categoryFrame);
     m_rawFallbackCheck = new QCheckBox(QStringLiteral("Raw 兜底 Hook（强类型优先）"), categoryFrame);
     m_rawDefaultDenyListCheck = new QCheckBox(QStringLiteral("启用默认高频/高风险黑名单"), categoryFrame);
-    m_rawModuleListEdit = new QLineEdit(categoryFrame);
-    m_rawDenyListEdit = new QLineEdit(categoryFrame);
+    QFrame* const rawConfigurationFrame = createPanelFrame(m_sessionPanel);
+    QVBoxLayout* const rawConfigurationLayout = new QVBoxLayout(rawConfigurationFrame);
+    rawConfigurationLayout->setContentsMargins(8, 8, 8, 8);
+    rawConfigurationLayout->setSpacing(6);
+
+    QLabel* const rawConfigurationTitleLabel = new QLabel(QStringLiteral("Raw 兜底配置"), rawConfigurationFrame);
+    rawConfigurationLayout->addWidget(rawConfigurationTitleLabel, 0);
+
+    m_rawModuleListEdit = new QPlainTextEdit(rawConfigurationFrame);
+    m_rawDenyListEdit = new QPlainTextEdit(rawConfigurationFrame);
 
     m_hookFileCheck->setChecked(true);
     m_hookRegistryCheck->setChecked(true);
@@ -237,10 +255,12 @@ void WinAPIDock::initializeUi()
     m_autoInjectChildCheck->setChecked(false);
     m_rawFallbackCheck->setChecked(true);
     m_rawDefaultDenyListCheck->setChecked(true);
-    m_rawModuleListEdit->setText(defaultRawHookModulesText());
+    m_rawModuleListEdit->setPlainText(defaultRawHookModulesText());
     m_rawDenyListEdit->clear();
     m_rawModuleListEdit->setStyleSheet(blueInputStyle());
     m_rawDenyListEdit->setStyleSheet(blueInputStyle());
+    m_rawModuleListEdit->setFixedHeight(76);
+    m_rawDenyListEdit->setFixedHeight(76);
     m_rawModuleListEdit->setPlaceholderText(QStringLiteral("ntdll.dll;KernelBase.dll;ws2_32.dll;wininet.dll;..."));
     m_rawDenyListEdit->setPlaceholderText(QStringLiteral("额外规则，例如 MyHotApi;SomePrefix*；默认黑名单由上方复选框控制"));
 
@@ -263,11 +283,17 @@ void WinAPIDock::initializeUi()
     categoryLayout->addWidget(m_autoInjectChildCheck, 0);
     categoryLayout->addWidget(m_rawFallbackCheck, 0);
     categoryLayout->addWidget(m_rawDefaultDenyListCheck, 0);
-    categoryLayout->addWidget(new QLabel(QStringLiteral("Raw 模块目录（; 分隔）"), categoryFrame), 0);
-    categoryLayout->addWidget(m_rawModuleListEdit, 0);
-    categoryLayout->addWidget(new QLabel(QStringLiteral("Raw 额外黑名单（exact / prefix*）"), categoryFrame), 0);
-    categoryLayout->addWidget(m_rawDenyListEdit, 0);
-    sessionPanelLayout->addWidget(categoryFrame, 0);
+    sessionConfigurationLeftLayout->addWidget(categoryFrame, 0);
+
+    rawConfigurationLayout->addWidget(new QLabel(QStringLiteral("Raw 模块目录（; 分隔）"), rawConfigurationFrame), 0);
+    rawConfigurationLayout->addWidget(m_rawModuleListEdit, 0);
+    rawConfigurationLayout->addWidget(new QLabel(QStringLiteral("Raw 额外黑名单（exact / prefix*）"), rawConfigurationFrame), 0);
+    rawConfigurationLayout->addWidget(m_rawDenyListEdit, 0);
+    rawConfigurationLayout->addStretch(1);
+
+    sessionConfigurationColumnsLayout->addWidget(sessionConfigurationLeftColumn, 1);
+    sessionConfigurationColumnsLayout->addWidget(rawConfigurationFrame, 1);
+    sessionPanelLayout->addLayout(sessionConfigurationColumnsLayout);
 
     QHBoxLayout* const sessionButtonLayout = new QHBoxLayout();
     sessionButtonLayout->setSpacing(6);

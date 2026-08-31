@@ -46,7 +46,9 @@ KswordARKBugcheckName(
 {
     switch (BugCheckCode) {
     case 0x000000D1: return "DRIVER_IRQL_NOT_LESS_OR_EQUAL";
+    case 0x000000D5: return "DRIVER_PAGE_FAULT_IN_FREED_SPECIAL_POOL";
     case 0x000000EF: return "CRITICAL_PROCESS_DIED";
+    case 0x00000124: return "WHEA_UNCORRECTABLE_ERROR";
     default: return "UNKNOWN_BUGCHECK_CODE";
     }
 }
@@ -205,6 +207,45 @@ ReplayRejectLine(
 {
     if (ReplayFindLine(Replay, Fragment) != NULL) {
         printf("FAIL unexpected line: %s\n", Fragment);
+        return 1;
+    }
+    return 0;
+}
+
+static int
+ReplayRequireLineColor(
+    _In_ const REPLAY_CONTEXT* Replay,
+    _In_z_ PCSTR Fragment,
+    _In_ ULONG ExpectedColor
+    )
+{
+    const REPLAY_LINE* line;
+
+    line = ReplayFindLine(Replay, Fragment);
+    if (line == NULL || line->Color != ExpectedColor) {
+        printf(
+            "FAIL line color: fragment=%s actual=%lu expected=%lu\n",
+            Fragment,
+            line == NULL ? MAXULONG : line->Color,
+            ExpectedColor);
+        return 1;
+    }
+    return 0;
+}
+
+static int
+ReplayRequireLineCount(
+    _In_ const REPLAY_CONTEXT* Replay,
+    _In_ ULONG ExpectedCount,
+    _In_z_ PCSTR Name
+    )
+{
+    if (Replay->LineCount != ExpectedCount) {
+        printf(
+            "FAIL %s line count: actual=%lu expected=%lu\n",
+            Name,
+            Replay->LineCount,
+            ExpectedCount);
         return 1;
     }
     return 0;
@@ -400,6 +441,47 @@ ReplayInitializeDriverFault(
         _TRUNCATE);
 }
 
+static VOID
+ReplayUseLongDriverName(
+    _Inout_ KSWORD_ARK_BUGCHECK_DIAGNOSTICS* Diagnostics
+    )
+{
+    (void)strncpy_s(
+        Diagnostics->CandidateModule,
+        sizeof(Diagnostics->CandidateModule),
+        "very_long_security_monitoring_filter_component_x64_release.sys",
+        _TRUNCATE);
+}
+
+static VOID
+ReplayInitializeUnattributedHardwareFault(
+    _Out_ KSWORD_ARK_BUGCHECK_DIAGNOSTICS* Diagnostics
+    )
+{
+    RtlZeroMemory(Diagnostics, sizeof(*Diagnostics));
+    Diagnostics->Captured = 1;
+    Diagnostics->BugCheckCode = 0x00000124;
+    Diagnostics->Irql = 15;
+    Diagnostics->Cpu = 2;
+    Diagnostics->CandidateClass = KSWORD_ARK_BUGCHECK_MODULE_UNKNOWN;
+    Diagnostics->CandidateConfidence = KSWORD_ARK_BUGCHECK_CONFIDENCE_NONE;
+}
+
+static VOID
+ReplayAddCrashContext(
+    _Inout_ KSWORD_ARK_BUGCHECK_DIAGNOSTICS* Diagnostics
+    )
+{
+    Diagnostics->ProcessObject = 0xFFFFFA5887F26000ULL;
+    Diagnostics->ProcessId = 812;
+    Diagnostics->ProcessSource = KSWORD_ARK_BUGCHECK_PROCESS_SOURCE_CONTEXT;
+    (void)strncpy_s(
+        Diagnostics->ProcessName,
+        sizeof(Diagnostics->ProcessName),
+        "worker.exe",
+        _TRUNCATE);
+}
+
 static int
 ReplayDrawScenario(
     _In_z_ PCSTR Name,
@@ -515,19 +597,38 @@ main(void)
         768,
         &diagnostics,
         &replay);
-    failures += ReplayRequireLine(&replay, "WHAT HAPPENED");
-    failures += ReplayRequireLine(&replay, "LIKELY CAUSE");
-    failures += ReplayRequireLine(&replay, "RAW CRASH PARAMETERS");
-    failures += ReplayRequireLine(&replay, "WHAT TO DO NEXT");
-    failures += ReplayRequireLine(&replay, "CRITICAL PROCESS  csrss.exe / PID 644");
-    failures += ReplayRequireLine(&replay, "CRITICAL PROCESS / PRE-CRASH CACHE");
-    failures += ReplayRequireLine(&replay, "PROCESS ID  644");
-    failures += ReplayRequireLine(&replay, "PARAM1 PROCESS OBJECT");
-    failures += ReplayRequireLine(&replay, "PARAM2 OBJECT TYPE");
+    failures += ReplayRequireLine(&replay, "CRASH SUMMARY");
+    failures += ReplayRequireLine(&replay, "PRIMARY EVIDENCE");
+    failures += ReplayRequireLine(&replay, "TECHNICAL EVIDENCE");
+    failures += ReplayRequireLine(&replay, "NEXT ACTION");
+    failures += ReplayRequireLine(&replay, "CRITICAL_PROCESS_DIED");
+    failures += ReplayRequireLine(&replay, "0x000000EF");
+    failures += ReplayRequireLineColor(
+        &replay,
+        "CRITICAL_PROCESS_DIED",
+        KswordArkBugcheckLayoutColorAccent);
+    failures += ReplayRequireLineColor(
+        &replay,
+        "0x000000EF",
+        KswordArkBugcheckLayoutColorWarning);
+    failures += ReplayRequireLine(&replay, "csrss.exe");
+    failures += ReplayRequireLine(&replay, "CRITICAL PROCESS / PID 644");
+    failures += ReplayRequireLine(&replay, "OBJECT TYPE  PROCESS");
+    failures += ReplayRequireLine(&replay, "P1 PROCESS OBJECT");
+    failures += ReplayRequireLine(&replay, "P2 OBJECT TYPE");
+    failures += ReplayRejectLine(&replay, "P3 RESERVED");
+    failures += ReplayRejectLine(&replay, "P4 RESERVED");
     failures += ReplayRejectLine(&replay, "NOT IDENTIFIED");
+    failures += ReplayRejectLine(&replay, "NOT AVAILABLE");
+    failures += ReplayRejectLine(&replay, "DIRECT CODE ADDRESS");
+    failures += ReplayRejectLine(&replay, "DUMP REQUIRED");
+    failures += ReplayRequireLineCount(
+        &replay,
+        20UL,
+        "critical-1024x768");
     if (replay.FrameCount != 4UL || replay.VerdictX != 688L ||
         replay.VerdictY != 12L) {
-        printf("FAIL critical-1024x768 old-layout geometry\n");
+        printf("FAIL critical-1024x768 evidence-layout geometry\n");
         ++failures;
     }
 
@@ -538,35 +639,165 @@ main(void)
         768,
         &diagnostics,
         &replay);
+    failures += ReplayRequireLine(&replay, "DRIVER_IRQL_NOT_LESS_OR_EQUAL");
+    failures += ReplayRequireLine(&replay, "0x000000D1");
+    failures += ReplayRequireLineColor(
+        &replay,
+        "0x000000D1",
+        KswordArkBugcheckLayoutColorWarning);
     failures += ReplayRequireLine(&replay, "badfilter.sys");
-    failures += ReplayRequireLine(&replay, "THIRD-PARTY / HIGH");
-    failures += ReplayRequireLine(&replay, "PARAM4 INSTRUCTION");
-    failures += ReplayRequireLine(&replay, "DOCUMENTED PARAM4 CODE ADDRESS");
+    failures += ReplayRequireLineColor(
+        &replay,
+        "badfilter.sys",
+        KswordArkBugcheckLayoutColorAccent);
+    failures += ReplayRequireLine(
+        &replay,
+        "THIRD-PARTY CODE / CONFIDENCE HIGH");
+    failures += ReplayRequireLine(&replay, "MODULE OFFSET");
+    failures += ReplayRequireLine(&replay, "DOCUMENTED CODE ADDRESS IN P4");
+    failures += ReplayRequireLine(&replay, "P1 MEMORY");
+    failures += ReplayRequireLine(&replay, "P2 IRQL");
+    failures += ReplayRequireLine(&replay, "P3 ACCESS TYPE");
+    failures += ReplayRequireLine(&replay, "P4 INSTRUCTION");
+    failures += ReplayRequireLineCount(
+        &replay,
+        21UL,
+        "driver-1280x768");
     if (replay.FrameCount != 4UL || replay.VerdictX != 816L ||
         replay.VerdictY != 12L) {
-        printf("FAIL driver-1280x768 centered old-layout geometry\n");
+        printf("FAIL driver-1280x768 centered evidence-layout geometry\n");
         ++failures;
     }
 
+    ReplayInitializeUnattributedHardwareFault(&diagnostics);
+    failures += ReplayDrawScenario(
+        "unattributed-1024x768",
+        1024,
+        768,
+        &diagnostics,
+        &replay);
+    failures += ReplayRequireLine(&replay, "WHEA_UNCORRECTABLE_ERROR");
+    failures += ReplayRequireLine(&replay, "NO SAFE LIVE ATTRIBUTION");
+    failures += ReplayRequireLine(&replay, "ANALYZE THE SAVED DUMP STACK");
+    failures += ReplayRejectLine(&replay, "NOT IDENTIFIED");
+    failures += ReplayRejectLine(&replay, "NOT AVAILABLE");
+    failures += ReplayRejectLine(&replay, "P1 PARAMETER");
+    failures += ReplayRejectLine(&replay, "P2 PARAMETER");
+    failures += ReplayRejectLine(&replay, "P3 PARAMETER");
+    failures += ReplayRejectLine(&replay, "P4 PARAMETER");
+    failures += ReplayRequireLineCount(
+        &replay,
+        16UL,
+        "unattributed-1024x768");
+
+    ReplayAddCrashContext(&diagnostics);
+    failures += ReplayDrawScenario(
+        "context-640x480",
+        640,
+        480,
+        &diagnostics,
+        &replay);
+    failures += ReplayRequireLine(&replay, "worker.exe / PID 812");
+    failures += ReplayRequireLine(&replay, "CRASH CONTEXT");
+    failures += ReplayRequireLine(&replay, "CONTEXT ONLY; NOT THE CULPRIT");
+    failures += ReplayRequireLine(&replay, "ROOT CAUSE NEEDS DUMP STACK");
+    failures += ReplayRequireLineCount(
+        &replay,
+        13UL,
+        "context-640x480");
+
+    ReplayInitializeDriverFault(&diagnostics);
     failures += ReplayDrawScenario(
         "driver-640x480",
         640,
         480,
         &diagnostics,
         &replay);
+    failures += ReplayRequireLine(&replay, "0x000000D1");
+    failures += ReplayRequireLine(&replay, "PRIMARY EVIDENCE");
     failures += ReplayRequireLine(&replay, "badfilter.sys");
-    failures += ReplayRequireLine(&replay, "KEEP THE NEWEST MINIDUMP");
+    failures += ReplayRequireLine(&replay, "CODE IP");
+    failures += ReplayRequireLine(&replay, "1  KEEP THE CRASH DUMP");
+    failures += ReplayRequireLine(&replay, "2  ANALYZE IN KSWORDARK");
+    failures += ReplayRequireLineCount(
+        &replay,
+        13UL,
+        "driver-640x480");
     if (replay.FrameCount != 2UL || replay.VerdictX != 304L ||
         replay.VerdictY != 94L) {
         printf("FAIL driver-640x480 compact geometry\n");
         ++failures;
     }
 
+    ReplayUseLongDriverName(&diagnostics);
+    failures += ReplayDrawScenario(
+        "long-driver-640x480",
+        640,
+        480,
+        &diagnostics,
+        &replay);
+    failures += ReplayRequireLine(
+        &replay,
+        "very_long_security_monitoring_fi");
+    failures += ReplayRequireLine(
+        &replay,
+        "lter_component_x64_release.sys");
+    failures += ReplayRequireLine(&replay, "P4 IP");
+    failures += ReplayRequireLineCount(
+        &replay,
+        13UL,
+        "long-driver-640x480");
+
+    failures += ReplayDrawScenario(
+        "long-driver-1024x768",
+        1024,
+        768,
+        &diagnostics,
+        &replay);
+    failures += ReplayRequireLine(
+        &replay,
+        "very_long_security_monitoring_filter_component_x64_rel");
+    failures += ReplayRequireLine(&replay, "ease.sys");
+    failures += ReplayRequireLine(&replay, "P4 CODE IP");
+    failures += ReplayRequireLineCount(
+        &replay,
+        21UL,
+        "long-driver-1024x768");
+
+    ReplayInitializeUnattributedHardwareFault(&diagnostics);
+    diagnostics.BugCheckCode = 0x000000D5;
+    failures += ReplayDrawScenario(
+        "long-stop-name-640x480",
+        640,
+        480,
+        &diagnostics,
+        &replay);
+    failures += ReplayRequireLine(
+        &replay,
+        "DRIVER_PAGE_FAULT_IN_FREED_SPECIAL_POOL");
+
+    ReplayInitializeCriticalProcess(&diagnostics);
+    failures += ReplayDrawScenario(
+        "critical-640x480",
+        640,
+        480,
+        &diagnostics,
+        &replay);
+    failures += ReplayRequireLine(&replay, "0x000000EF");
+    failures += ReplayRequireLine(&replay, "csrss.exe / PID 644");
+    failures += ReplayRequireLine(&replay, "CRITICAL PROCESS");
+    failures += ReplayRequireLine(&replay, "ROOT CAUSE NEEDS DUMP STACK");
+    failures += ReplayRejectLine(&replay, "NOT IDENTIFIED");
+    failures += ReplayRequireLineCount(
+        &replay,
+        13UL,
+        "critical-640x480");
+
     if (failures != 0) {
         printf("RESULT FAIL (%d contract violations)\n", failures);
         return 1;
     }
-    printf("RESULT PASS (old layout plus documented parsers)\n");
+    printf("RESULT PASS (evidence-first layout plus documented parsers)\n");
     return 0;
 }
 

@@ -1,17 +1,21 @@
 #include "ProcessView.h"
 
 #include "ProcessActions.h"
+#include "ProcessColumns.h"
 #include "ProcessEnumerator.h"
 #include "ProcessModel.h"
+#include "../AuditCommon/AuditFormatting.h"
 #include "../ProcessDetail/ProcessDetailFeature.h"
 #include "../../Ui/Controls.h"
 #include "../../Ui/AsyncTask.h"
+#include "../../Ui/EntityNavigation.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
-#include "../../Ui/LoadingOverlay.h"
 #include "../../Ui/Theme.h"
 #include "../../Ui/VirtualListView.h"
 #include "../../../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.h"
+#include "../../../Ksword5.1/Ksword5.1/ksword/process/process.h"
 
 #include <commctrl.h>
 #include <commdlg.h>
@@ -19,6 +23,7 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <memory>
 #include <sstream>
@@ -33,7 +38,9 @@ namespace {
 
 constexpr wchar_t kProcessViewClass[] = L"KswordARKLight.ProcessView";
 constexpr int kRefreshButtonId = 52001;
-constexpr int kModeButtonId = 52002;
+constexpr int kPresetComboId = 52002;
+constexpr int kColumnsButtonId = 52011;
+constexpr int kPresetButtonId = 52012;
 constexpr int kPauseButtonId = 52003;
 constexpr int kPickerButtonId = 52004;
 constexpr int kStatusTextId = 52005;
@@ -41,12 +48,17 @@ constexpr int kProcessListId = 52006;
 constexpr int kRefreshSliderId = 52007;
 constexpr int kFilterBarId = 52010;
 constexpr UINT kContextMenuBaseId = 53000;
+constexpr UINT kColumnMenuBaseId = 54000;
+constexpr int kColumnChooserApplyId = 54080;
+constexpr int kColumnChooserCancelId = 54081;
+constexpr wchar_t kColumnChooserClass[] = L"KswordARKLight.ProcessColumnChooser";
 constexpr UINT_PTR kRefreshTimerId = 52008;
 constexpr UINT kMsgInitialRefresh = WM_APP + 520;
 constexpr UINT kMsgRequestRefresh = WM_APP + 521;
 constexpr UINT kMsgRefreshCompleted = WM_APP + 522;
 constexpr UINT kMsgFilterCompleted = WM_APP + 523;
 constexpr UINT kMsgActionCompleted = WM_APP + 524;
+constexpr UINT kMsgOpenDetails = WM_APP + 525;
 constexpr int kTreeIndentPixels = 18;
 constexpr int kTreeIconGap = 4;
 constexpr int kTreeTextGap = 4;
@@ -91,6 +103,11 @@ struct ProcessFilterResult {
 struct ProcessViewActionResult {
     ProcessActionResult result;
     bool refreshRequired = false;
+};
+
+struct ExternalDetailRequest final {
+    DWORD processId = 0;
+    ULONGLONG expectedCreationTime100ns = 0;
 };
 
 enum class ProcessRowVisualState {
@@ -272,17 +289,20 @@ bool OpenProcessDetailWindow(HWND owner, DWORD processId, ULONGLONG expectedCrea
 struct ProcessViewState {
     HWND hwnd = nullptr;
     HWND refreshButton = nullptr;
-    HWND modeButton = nullptr;
+    HWND presetCombo = nullptr;
+    HWND columnsButton = nullptr;
+    HWND presetButton = nullptr;
     HWND pauseButton = nullptr;
     HWND pickerButton = nullptr;
     HWND refreshSlider = nullptr;
     HWND statusText = nullptr;
     HWND filterBar = nullptr;
     HWND listView = nullptr;
-    HWND loadingOverlay = nullptr;
     HIMAGELIST imageList = nullptr;
     ProcessModel model;
-    ProcessViewMode mode = ProcessViewMode::UtilizationFriendly;
+    // activeColumns 用途：当前运行期实际展示的逻辑列；关闭页面后不持久化。
+    std::vector<ProcessColumnId> activeColumns = DefaultProcessColumns(ProcessViewPreset::Monitor);
+    ProcessViewPreset preset = ProcessViewPreset::Monitor;
     bool pickingWindow = false;
     bool refreshPaused = false;
     UINT refreshIntervalSeconds = 2;
@@ -305,6 +325,42 @@ struct ProcessViewState {
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<ProcessViewActionResult>> actionTask;
 };
 
+ULONGLONG ResolveCurrentProcessCreationTime(
+    const ProcessViewState& state,
+    const DWORD processId,
+    const ULONGLONG expectedCreationTime100ns) {
+    for (const ProcessSnapshotRow& row : state.model.rows()) {
+        if (row.processId != processId) {
+            continue;
+        }
+        if (expectedCreationTime100ns != 0U && row.creationTime100ns != expectedCreationTime100ns) {
+            return 0U;
+        }
+        if (row.creationTime100ns != 0U) {
+            return row.creationTime100ns;
+        }
+    }
+
+    HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+    if (!process) {
+        return 0U;
+    }
+    FILETIME creation{};
+    FILETIME exit{};
+    FILETIME kernel{};
+    FILETIME user{};
+    ULARGE_INTEGER value{};
+    if (::GetProcessTimes(process, &creation, &exit, &kernel, &user)) {
+        value.LowPart = creation.dwLowDateTime;
+        value.HighPart = creation.dwHighDateTime;
+    }
+    ::CloseHandle(process);
+    if (expectedCreationTime100ns != 0U && value.QuadPart != expectedCreationTime100ns) {
+        return 0U;
+    }
+    return value.QuadPart;
+}
+
 // KernelProcessSnapshotEntry 用途：保存 ArkDriverClient R0 枚举返回的一行进程证据。
 // 调用方式：EnumerateProcessesByR0Driver 填充，ApplyDefaultHiddenProcessAudit 合并到 R3 行。
 struct KernelProcessSnapshotEntry {
@@ -314,6 +370,10 @@ struct KernelProcessSnapshotEntry {
     std::uint32_t sessionId = 0;
     std::uint32_t fieldFlags = 0;
     std::uint32_t r0Status = KSWORD_ARK_PROCESS_R0_STATUS_UNAVAILABLE;
+    std::uint8_t protection = 0;
+    std::uint32_t protectionSource = KSWORD_ARK_PROCESS_FIELD_SOURCE_UNAVAILABLE;
+    std::uint64_t objectTableAddress = 0;
+    std::uint64_t sectionObjectAddress = 0;
     std::string imageName;
     std::string imagePath;
 };
@@ -335,39 +395,15 @@ struct ProcessRefreshSnapshot {
     std::wstring crossViewStatusSuffix;
 };
 
-// ColumnSet returns the report columns for a process view mode. Input is the
-// selected view mode; processing emits static descriptors; output is consumed by
-// the ListView header rebuild path.
-std::vector<Ksword::Ui::ListViewColumn> ColumnSet(ProcessViewMode mode) {
-    if (mode == ProcessViewMode::Detail) {
-        return {
-            { 0, 240, LVCFMT_LEFT, L"名称" },
-            { 1, 78, LVCFMT_RIGHT, L"PID" },
-            { 2, 78, LVCFMT_RIGHT, L"父 PID" },
-            { 3, 78, LVCFMT_RIGHT, L"线程" },
-            { 4, 110, LVCFMT_RIGHT, L"工作集" },
-            { 5, 118, LVCFMT_RIGHT, L"私有字节" },
-            { 6, 118, LVCFMT_RIGHT, L"虚拟内存" },
-            { 7, 86, LVCFMT_RIGHT, L"基础优先级" },
-            { 8, 70, LVCFMT_RIGHT, L"会话" },
-            { 9, 150, LVCFMT_RIGHT, L"EPROCESS" },
-            { 10, 150, LVCFMT_LEFT, L"R0来源" },
-            { 11, 180, LVCFMT_LEFT, L"R0异常" },
-            { 12, 420, LVCFMT_LEFT, L"映像路径" },
-        };
+// ActiveColumnSet 用途：将逻辑列集合转换为当前 ListView 的物理列描述。
+std::vector<Ksword::Ui::ListViewColumn> ActiveColumnSet(const ProcessViewState& state) {
+    std::vector<Ksword::Ui::ListViewColumn> columns;
+    columns.reserve(state.activeColumns.size());
+    for (std::size_t index = 0; index < state.activeColumns.size(); ++index) {
+        const ProcessColumnDescriptor* descriptor = FindProcessColumn(state.activeColumns[index]);
+        if (descriptor) columns.push_back({ static_cast<int>(index), descriptor->width, descriptor->format, descriptor->title });
     }
-
-    return {
-        { 0, 250, LVCFMT_LEFT, L"进程" },
-        { 1, 78, LVCFMT_RIGHT, L"PID" },
-        { 2, 74, LVCFMT_RIGHT, L"CPU" },
-        { 3, 110, LVCFMT_RIGHT, L"工作集" },
-        { 4, 110, LVCFMT_RIGHT, L"私有" },
-        { 5, 110, LVCFMT_RIGHT, L"虚拟" },
-        { 6, 70, LVCFMT_RIGHT, L"线程" },
-        { 7, 70, LVCFMT_RIGHT, L"会话" },
-        { 8, 90, LVCFMT_RIGHT, L"页错误" },
-    };
+    return columns;
 }
 
 // StateFromWindow returns the state pointer stored on the page HWND. Input is a
@@ -408,9 +444,14 @@ void RestartRefreshTimer(ProcessViewState& state) {
 // Input is the page state; processing updates only existing HWNDs; no value is
 // returned because controls may be absent during partial creation.
 void UpdateToolbarTexts(ProcessViewState& state) {
-    if (state.modeButton) {
-        ::SetWindowTextW(state.modeButton,
-            state.mode == ProcessViewMode::Detail ? L"详细" : L"利用率");
+    if (state.presetCombo) {
+        const LRESULT count = ::SendMessageW(state.presetCombo, CB_GETCOUNT, 0, 0);
+        for (LRESULT index = 0; index < count; ++index) {
+            if (static_cast<ProcessViewPreset>(::SendMessageW(state.presetCombo, CB_GETITEMDATA, index, 0)) == state.preset) {
+                ::SendMessageW(state.presetCombo, CB_SETCURSEL, index, 0);
+                break;
+            }
+        }
     }
     if (state.pauseButton) {
         ::SetWindowTextW(state.pauseButton, state.refreshPaused ? L"恢复" : L"暂停");
@@ -516,8 +557,10 @@ void LayoutChildren(ProcessViewState& state, const RECT& rc) {
     x += 56;
     ::MoveWindow(state.pauseButton, x, buttonTop, 56, buttonHeight, TRUE);
     x += 56;
-    ::MoveWindow(state.modeButton, x, buttonTop, 62, buttonHeight, TRUE);
-    x += 62;
+    ::MoveWindow(state.presetCombo, x, buttonTop, 92, buttonHeight + 180, TRUE);
+    x += 92;
+    ::MoveWindow(state.columnsButton, x, buttonTop, 54, buttonHeight, TRUE);
+    x += 54;
     ::MoveWindow(state.pickerButton, x, buttonTop, 104, buttonHeight, TRUE);
     x += 104;
     ::MoveWindow(state.refreshSlider, x, buttonTop + 2, 110, buttonHeight - 4, TRUE);
@@ -543,14 +586,6 @@ void LayoutChildren(ProcessViewState& state, const RECT& rc) {
         std::max(80, width),
         std::max(80, height - listTop),
         TRUE);
-    if (state.loadingOverlay) {
-        ::MoveWindow(state.loadingOverlay,
-            0,
-            listTop,
-            std::max(80, width),
-            std::max(80, height - listTop),
-            TRUE);
-    }
 }
 
 // PaintBackground clears the page background only. Inputs are HWND and paint DC;
@@ -576,7 +611,7 @@ void RebuildColumns(ProcessViewState& state) {
         ListView_DeleteColumn(state.listView, index);
     }
 
-    for (const auto& column : ColumnSet(state.mode)) {
+    for (const auto& column : ActiveColumnSet(state)) {
         LVCOLUMNW nativeColumn{};
         nativeColumn.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_FMT;
         nativeColumn.fmt = column.format;
@@ -592,6 +627,11 @@ void RebuildColumns(ProcessViewState& state) {
 std::vector<DWORD> SelectedPids(ProcessViewState& state);
 std::vector<std::wstring> SelectedStableKeys(ProcessViewState& state);
 std::wstring StableKeyFromListItem(const ProcessViewState& state, int item);
+void ApplyProcessFilter(ProcessViewState& state,
+    ProcessFilterResult result,
+    const std::vector<ProcessPresentationRow>* previousPresentationRows = nullptr,
+    const std::vector<std::size_t>* previousVisibleRowIndexes = nullptr,
+    const std::unordered_map<std::wstring, ProcessRowVisualState>* previousVisualStates = nullptr);
 void RequestProcessFilter(ProcessViewState& state,
     const std::wstring& query,
     std::vector<std::wstring> selectedStableKeys,
@@ -603,9 +643,7 @@ void RequestProcessFilter(ProcessViewState& state,
 void BuildPresentationRows(ProcessViewState& state,
     std::vector<ProcessPresentationRow>& presentationRows,
     std::vector<Ksword::Ui::VirtualListRow>& filterRows) {
-    const auto& sourceRows = state.model.displayRows(state.mode);
-    const auto activeColumns = ColumnSet(state.mode);
-    const auto detailColumns = ColumnSet(ProcessViewMode::Detail);
+    const auto& sourceRows = state.model.displayRows(ProcessViewMode::UtilizationFriendly);
     presentationRows.clear();
     filterRows.clear();
     presentationRows.reserve(sourceRows.size());
@@ -614,9 +652,12 @@ void BuildPresentationRows(ProcessViewState& state,
     for (const ProcessDisplayRow& sourceRow : sourceRows) {
         ProcessPresentationRow row{};
         row.display = sourceRow;
-        row.cells.reserve(activeColumns.size());
-        for (const auto& column : activeColumns) {
-            row.cells.push_back(state.model.textForColumn(sourceRow, column.index, state.mode));
+        row.cells.reserve(state.activeColumns.size());
+        for (const ProcessColumnId column : state.activeColumns) {
+            const ProcessSnapshotRow* process = state.model.rowForDisplayRow(sourceRow);
+            row.cells.push_back(sourceRow.groupHeader
+                ? (column == ProcessColumnId::Name ? sourceRow.title : L"")
+                : (process ? ProcessColumnText(*process, column) : L""));
         }
 
         if (const ProcessSnapshotRow* process = state.model.rowForDisplayRow(sourceRow)) {
@@ -632,10 +673,11 @@ void BuildPresentationRows(ProcessViewState& state,
         Ksword::Ui::VirtualListRow filterRow{};
         filterRow.stableKey = row.stableKey;
         filterRow.cells = row.cells;
-        // Always include detail-view text, even when the compact utilization
-        // layout is active, so filtering covers hidden details and R0 evidence.
-        for (const auto& column : detailColumns) {
-            filterRow.cells.push_back(state.model.textForColumn(sourceRow, column.index, ProcessViewMode::Detail));
+        // 全量列文本仅用于筛选，不会改变当前 ListView 的可见列布局。
+        if (const ProcessSnapshotRow* process = state.model.rowForDisplayRow(sourceRow)) {
+            for (const ProcessColumnDescriptor& column : ProcessColumnDescriptors()) {
+                filterRow.cells.push_back(ProcessColumnText(*process, column.id));
+            }
         }
         if (!row.iconPath.empty()) {
             filterRow.cells.push_back(row.iconPath);
@@ -646,33 +688,47 @@ void BuildPresentationRows(ProcessViewState& state,
     }
 }
 
-// RebuildRows replaces the backing presentation snapshot, then schedules a
-// background match against it. LVS_OWNERDATA receives only an item count here;
-// no per-row ListView_InsertItem or ListView_SetItemText messages are sent.
-void RebuildRows(ProcessViewState& state) {
+// RebuildRows creates and installs a complete owner-data snapshot in one UI
+// transaction. The previous rows stay mapped until the new filter indexes are
+// ready, so periodic refreshes never briefly clear the process list.
+void RebuildRows(ProcessViewState& state,
+    const std::unordered_map<std::wstring, ProcessRowVisualState>* previousVisualStates = nullptr) {
     if (!state.listView) {
         return;
     }
 
     const std::vector<std::wstring> selectedStableKeys = SelectedStableKeys(state);
     const std::wstring topStableKey = StableKeyFromListItem(state, ListView_GetTopIndex(state.listView));
+    std::vector<ProcessPresentationRow> previousPresentationRows = std::move(state.presentationRows);
+    const std::vector<std::size_t> previousVisibleRowIndexes = state.visibleRowIndexes;
     auto filterRows = std::make_shared<std::vector<Ksword::Ui::VirtualListRow>>();
     BuildPresentationRows(state, state.presentationRows, *filterRows);
     state.filterRows = std::move(filterRows);
     ++state.displayGeneration;
 
-    // The old row mapping belongs to the previous immutable snapshot. Clear it
-    // until the matching result arrives rather than letting stale indexes point
-    // at newly enumerated process data.
-    state.visibleRowIndexes.clear();
-    {
-        Ksword::Ui::ScopedListViewRedrawLock redrawLock(state.listView);
-        ListView_SetItemCountEx(state.listView, 0, LVSICF_NOINVALIDATEALL | LVSICF_NOSCROLL);
-    }
-    ::InvalidateRect(state.listView, nullptr, FALSE);
-
     const std::wstring query = state.filterBar ? Ksword::Ui::GetFilterBarText(state.filterBar) : state.filterQuery;
-    RequestProcessFilter(state, query, selectedStableKeys, topStableKey);
+    state.filterQuery = query;
+    state.filterUseRegex = Ksword::Ui::GetFilterBarRegexEnabled(state.filterBar);
+
+    // Process snapshots are intentionally kept compact, so matching this
+    // immutable text view on the UI thread is cheap. More importantly, it lets
+    // the list swap from one valid mapping directly to the next instead of
+    // exposing an empty owner-data table while a worker filters the new rows.
+    ProcessFilterResult result{};
+    result.displayGeneration = state.displayGeneration;
+    result.query = query;
+    result.useRegex = state.filterUseRegex;
+    result.selectedStableKeys = selectedStableKeys;
+    result.topStableKey = topStableKey;
+    result.visibleIndexes = Ksword::Ui::VirtualListView::FilterRowIndexes(
+        *state.filterRows,
+        result.query,
+        result.useRegex);
+    ApplyProcessFilter(state,
+        std::move(result),
+        &previousPresentationRows,
+        &previousVisibleRowIndexes,
+        previousVisualStates);
 }
 
 // DisplayIndexFromListItem maps a visible owner-data row to its immutable
@@ -838,9 +894,9 @@ bool SubItemBounds(HWND listView, int item, int subItem, RECT& bounds) {
 // TextFormatForColumn maps ListView column alignment into DrawText flags.
 // Inputs are the active mode and subitem index; output uses vertical centering,
 // ellipsis and the column's left/right alignment.
-UINT TextFormatForColumn(ProcessViewMode mode, int subItem) {
+UINT TextFormatForColumn(const ProcessViewState& state, int subItem) {
     UINT format = DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS;
-    const auto columns = ColumnSet(mode);
+    const auto columns = ActiveColumnSet(state);
     for (const auto& column : columns) {
         if (column.index == subItem && column.format == LVCFMT_RIGHT) {
             return format | DT_RIGHT;
@@ -939,7 +995,7 @@ LRESULT DrawProcessSubItem(ProcessViewState& state, NMLVCUSTOMDRAW* draw) {
         const std::wstring& text = subItem >= 0 && static_cast<std::size_t>(subItem) < displayRow->cells.size()
             ? displayRow->cells[static_cast<std::size_t>(subItem)]
             : empty;
-        ::DrawTextW(dc, text.c_str(), static_cast<int>(text.size()), &textRect, TextFormatForColumn(state.mode, subItem));
+        ::DrawTextW(dc, text.c_str(), static_cast<int>(text.size()), &textRect, TextFormatForColumn(state, subItem));
     }
 
     if (focused && subItem == 0) {
@@ -1004,28 +1060,137 @@ LRESULT HandleVirtualListDisplayInfo(ProcessViewState& state, NMLVDISPINFOW* dis
     return 0;
 }
 
-// ApplyProcessFilter installs a background-filtered index map while preserving
-// selection and the top visible logical row whenever they remain present.
-void ApplyProcessFilter(ProcessViewState& state, ProcessFilterResult result) {
+// PresentationRowsEqual reports whether two owner-data rows can retain the same
+// painted ListView item. Tree layout attributes participate because custom draw
+// uses them even when the column text happens to be unchanged.
+bool PresentationRowsEqual(const ProcessPresentationRow& left, const ProcessPresentationRow& right) {
+    return left.stableKey == right.stableKey &&
+        left.iconPath == right.iconPath &&
+        left.cells == right.cells &&
+        left.processId == right.processId &&
+        left.creationTime100ns == right.creationTime100ns &&
+        left.kernelOnly == right.kernelOnly &&
+        left.display.groupHeader == right.display.groupHeader &&
+        left.display.group == right.display.group &&
+        left.display.depth == right.display.depth;
+}
+
+// PresentationRowAtVisibleItem maps an owner-data item position through a
+// supplied snapshot. It is intentionally independent of ProcessViewState so a
+// refresh can compare the old and new snapshots before changing ListView state.
+const ProcessPresentationRow* PresentationRowAtVisibleItem(
+    const std::vector<ProcessPresentationRow>& presentationRows,
+    const std::vector<std::size_t>& visibleRowIndexes,
+    std::size_t item) {
+    if (item >= visibleRowIndexes.size()) {
+        return nullptr;
+    }
+    const std::size_t displayIndex = visibleRowIndexes[item];
+    return displayIndex < presentationRows.size() ? &presentationRows[displayIndex] : nullptr;
+}
+
+// AppendRedrawItem accumulates adjacent list positions into the smallest set of
+// ListView_RedrawItems calls. Inputs are an item position and mutable ranges;
+// processing appends or extends the tail range; no value is returned.
+void AppendRedrawItem(std::vector<std::pair<int, int>>& ranges, int item) {
+    if (item < 0) {
+        return;
+    }
+    if (!ranges.empty() && item <= ranges.back().second + 1) {
+        ranges.back().second = std::max(ranges.back().second, item);
+        return;
+    }
+    ranges.emplace_back(item, item);
+}
+
+// ApplyProcessFilter installs a filtered index map while preserving selection
+// and the top visible logical row. Refresh callers pass the outgoing snapshot,
+// allowing the virtual ListView to repaint only positions whose presentation
+// actually changed instead of blanking and invalidating the full table.
+void ApplyProcessFilter(ProcessViewState& state,
+    ProcessFilterResult result,
+    const std::vector<ProcessPresentationRow>* previousPresentationRows,
+    const std::vector<std::size_t>* previousVisibleRowIndexes,
+    const std::unordered_map<std::wstring, ProcessRowVisualState>* previousVisualStates) {
     if (!state.listView || result.displayGeneration != state.displayGeneration || result.query != state.filterQuery ||
         result.useRegex != state.filterUseRegex) {
         return;
+    }
+
+    const std::vector<ProcessPresentationRow>& oldPresentationRows = previousPresentationRows
+        ? *previousPresentationRows
+        : state.presentationRows;
+    const std::vector<std::size_t>& oldVisibleRowIndexes = previousVisibleRowIndexes
+        ? *previousVisibleRowIndexes
+        : state.visibleRowIndexes;
+    const std::unordered_map<std::wstring, ProcessRowVisualState>* oldVisualStates = previousVisualStates
+        ? previousVisualStates
+        : &state.visualStateByIdentity;
+    const std::size_t newItemCount = std::min<std::size_t>(
+        result.visibleIndexes.size(),
+        static_cast<std::size_t>(INT_MAX));
+    const std::size_t oldItemCount = std::min<std::size_t>(
+        oldVisibleRowIndexes.size(),
+        static_cast<std::size_t>(INT_MAX));
+    const std::size_t comparableItemCount = std::min(oldItemCount, newItemCount);
+    std::vector<std::pair<int, int>> redrawRanges;
+    redrawRanges.reserve(8);
+
+    auto visualStateFor = [](const ProcessPresentationRow* row,
+                              const std::unordered_map<std::wstring, ProcessRowVisualState>* visualStates) {
+        if (!row || row->display.groupHeader || row->processId == 0) {
+            return ProcessRowVisualState::Normal;
+        }
+        if (row->kernelOnly) {
+            return ProcessRowVisualState::KernelOnly;
+        }
+        if (!visualStates) {
+            return ProcessRowVisualState::Normal;
+        }
+        const auto found = visualStates->find(row->stableKey);
+        return found == visualStates->end() ? ProcessRowVisualState::Normal : found->second;
+    };
+
+    for (std::size_t item = 0; item < comparableItemCount; ++item) {
+        const ProcessPresentationRow* oldRow = PresentationRowAtVisibleItem(
+            oldPresentationRows, oldVisibleRowIndexes, item);
+        const ProcessPresentationRow* newRow = PresentationRowAtVisibleItem(
+            state.presentationRows, result.visibleIndexes, item);
+        if (!oldRow || !newRow || !PresentationRowsEqual(*oldRow, *newRow) ||
+            visualStateFor(oldRow, oldVisualStates) != visualStateFor(newRow, &state.visualStateByIdentity)) {
+            AppendRedrawItem(redrawRanges, static_cast<int>(item));
+        }
+    }
+    for (std::size_t item = comparableItemCount; item < newItemCount; ++item) {
+        AppendRedrawItem(redrawRanges, static_cast<int>(item));
+    }
+
+    std::vector<int> selectedItemsBefore;
+    for (int item = -1;
+         (item = ListView_GetNextItem(state.listView, item, LVNI_SELECTED)) != -1;) {
+        selectedItemsBefore.push_back(item);
     }
 
     state.visibleRowIndexes = std::move(result.visibleIndexes);
     int topItem = -1;
     int firstSelectedItem = -1;
     {
-        Ksword::Ui::ScopedListViewRedrawLock redrawLock(state.listView);
-        ListView_SetItemCountEx(state.listView,
-            static_cast<int>(std::min<std::size_t>(state.visibleRowIndexes.size(), static_cast<std::size_t>(INT_MAX))),
-            LVSICF_NOINVALIDATEALL | LVSICF_NOSCROLL);
+        // Do not use ScopedListViewRedrawLock here: its balanced full
+        // invalidation would undo the delta calculation above. The header is
+        // unchanged, so only freeze the body while its mapping and selection
+        // are switched together.
+        Ksword::Ui::ScopedWindowRedrawLock redrawLock(state.listView, false);
+        if (oldItemCount != newItemCount) {
+            ListView_SetItemCountEx(state.listView,
+                static_cast<int>(newItemCount),
+                LVSICF_NOINVALIDATEALL | LVSICF_NOSCROLL);
+        }
         ListView_SetItemState(state.listView, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
 
         std::unordered_set<std::wstring> selectedSet(
             result.selectedStableKeys.begin(),
             result.selectedStableKeys.end());
-        for (std::size_t item = 0; item < state.visibleRowIndexes.size(); ++item) {
+        for (std::size_t item = 0; item < newItemCount; ++item) {
             const std::size_t displayIndex = state.visibleRowIndexes[item];
             if (displayIndex >= state.presentationRows.size()) {
                 continue;
@@ -1051,7 +1216,23 @@ void ApplyProcessFilter(ProcessViewState& state, ProcessFilterResult result) {
             ListView_EnsureVisible(state.listView, firstSelectedItem, FALSE);
         }
     }
-    ::InvalidateRect(state.listView, nullptr, FALSE);
+
+    // Selection styling can change independently from row text. Repaint the
+    // previous and restored selection positions in addition to data deltas.
+    for (const auto& range : redrawRanges) {
+        ListView_RedrawItems(state.listView, range.first, range.second);
+    }
+    for (const int item : selectedItemsBefore) {
+        if (item >= 0 && static_cast<std::size_t>(item) < newItemCount) {
+            ListView_RedrawItems(state.listView, item, item);
+        }
+    }
+    if (firstSelectedItem >= 0) {
+        ListView_RedrawItems(state.listView, firstSelectedItem, firstSelectedItem);
+    }
+    if (newItemCount == 0 && oldItemCount != 0) {
+        ::InvalidateRect(state.listView, nullptr, FALSE);
+    }
     if (!result.query.empty()) {
         SetStatus(state,
             L"筛选结果 " + std::to_wstring(state.visibleRowIndexes.size()) +
@@ -1150,6 +1331,63 @@ std::wstring VisibleRowsAsText(const ProcessViewState& state) {
     return text;
 }
 
+// VisibleRowsAsTsv exports the current filtered owner-data mapping together
+// with precisely the columns that are currently visible. It intentionally
+// reuses the immutable presentation snapshot, so saving evidence neither
+// re-enumerates target processes nor requires any additional access rights.
+std::wstring VisibleRowsAsTsv(const ProcessViewState& state) {
+    if (state.visibleRowIndexes.empty()) {
+        return {};
+    }
+
+    std::vector<std::wstring> headers;
+    headers.reserve(state.activeColumns.size());
+    for (const ProcessColumnId column : state.activeColumns) {
+        const ProcessColumnDescriptor* descriptor = FindProcessColumn(column);
+        headers.push_back(descriptor ? descriptor->title : L"");
+    }
+
+    std::vector<std::vector<std::wstring>> rows;
+    rows.reserve(state.visibleRowIndexes.size());
+    for (const std::size_t displayIndex : state.visibleRowIndexes) {
+        if (displayIndex < state.presentationRows.size()) {
+            rows.push_back(state.presentationRows[displayIndex].cells);
+        }
+    }
+    return Ksword::Features::AuditCommon::BuildTsv(headers, rows);
+}
+
+// ExportVisibleResults lets an analyst preserve the exact columns and filtered
+// rows currently shown in the process list. SaveUtf8TextFileWithDialog records
+// the completed user-selected export in the evidence session.
+void ExportVisibleResults(ProcessViewState& state) {
+    const std::wstring text = VisibleRowsAsTsv(state);
+    if (text.empty()) {
+        SetStatus(state, L"没有可导出的可见进程结果。");
+        return;
+    }
+
+    std::wstring error;
+    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(
+        state.hwnd,
+        L"processes.tsv",
+        L"导出可见进程结果",
+        L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0",
+        L"tsv",
+        text,
+        &error)) {
+    case Ksword::Ui::SaveTextFileResult::Saved:
+        SetStatus(state, L"可见进程结果已导出为 TSV，并已记录到证据会话。");
+        break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled:
+        SetStatus(state, L"已取消导出可见进程结果。");
+        break;
+    case Ksword::Ui::SaveTextFileResult::Failed:
+        SetStatus(state, L"导出可见进程结果失败：" + error);
+        break;
+    }
+}
+
 // NarrowToWide converts ArkDriverClient diagnostic strings to the native UI
 // encoding. Input is UTF-8/ASCII text from the shared wrapper; output is a
 // best-effort wide string suitable for status bars and R0 evidence cells.
@@ -1230,6 +1468,10 @@ bool EnumerateProcessesByR0Driver(
         processEntry.sessionId = entry.sessionId;
         processEntry.fieldFlags = entry.fieldFlags;
         processEntry.r0Status = entry.r0Status;
+        processEntry.protection = entry.protection;
+        processEntry.protectionSource = entry.protectionSource;
+        processEntry.objectTableAddress = entry.objectTableAddress;
+        processEntry.sectionObjectAddress = entry.sectionObjectAddress;
         processEntry.imageName = entry.imageName;
         processEntry.imagePath = entry.imagePath;
         processListOut->push_back(std::move(processEntry));
@@ -1282,6 +1524,27 @@ void MergeKernelProcessExtension(
     }
     if (!row.r0EnumImagePath.empty() && row.imagePath.empty()) {
         row.imagePath = row.r0EnumImagePath;
+    }
+    // 保护字节由同一 R0 枚举响应提供；字段存在时 0 代表“无保护”，不是读取失败。
+    if ((kernelProcess.fieldFlags & KSWORD_ARK_PROCESS_FIELD_PROTECTION_PRESENT) != 0U) {
+        wchar_t protectionText[32]{};
+        ::swprintf_s(protectionText, L"0x%02X", static_cast<unsigned int>(kernelProcess.protection));
+        row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::Protection)] = protectionText;
+        row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::Ppl)] =
+            kernelProcess.protection == 0 ? L"无" : std::wstring(L"PPL ") + protectionText;
+    } else {
+        row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::Protection)] = L"无（驱动未返回字段）";
+        row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::Ppl)] = L"无（驱动未返回字段）";
+    }
+    if (kernelProcess.objectTableAddress != 0) {
+        wchar_t objectTableText[32]{};
+        ::swprintf_s(objectTableText, L"0x%016llX", static_cast<unsigned long long>(kernelProcess.objectTableAddress));
+        row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::HandleTable)] = objectTableText;
+    }
+    if (kernelProcess.sectionObjectAddress != 0) {
+        wchar_t sectionObjectText[32]{};
+        ::swprintf_s(sectionObjectText, L"0x%016llX", static_cast<unsigned long long>(kernelProcess.sectionObjectAddress));
+        row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::SectionObject)] = sectionObjectText;
     }
 }
 
@@ -1507,53 +1770,130 @@ void ApplyR0ProcessAuditRows(std::vector<ProcessSnapshotRow>& rows, std::wstring
 // the owner HWND and text. Processing allocates CF_UNICODETEXT global memory and
 // transfers ownership to the clipboard. Return value reports success.
 bool WriteClipboardText(HWND owner, const std::wstring& text) {
-    if (text.empty() || !::OpenClipboard(owner)) {
-        return false;
-    }
+    return Ksword::Ui::CopyTextToClipboard(owner, text, L"进程模块");
+}
 
-    const SIZE_T bytes = (text.size() + 1) * sizeof(wchar_t);
-    HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (!memory) {
-        ::CloseClipboard();
-        return false;
-    }
+// DetailDemandForColumns 用途：仅为当前可见深度列请求主程序进程库的额外采集。
+std::uint32_t DetailDemandForColumns(const std::vector<ProcessColumnId>& columns) {
+    std::uint32_t demand = ks::process::ProcessDetailDemand::None;
+    const auto has = [&columns](ProcessColumnId id) { return std::find(columns.begin(), columns.end(), id) != columns.end(); };
+    if (has(ProcessColumnId::GpuEngine)) demand |= ks::process::ProcessDetailDemand::GpuEngine;
+    if (has(ProcessColumnId::GpuDedicatedMemory) || has(ProcessColumnId::GpuSharedMemory)) demand |= ks::process::ProcessDetailDemand::GpuMemory;
+    if (has(ProcessColumnId::PackageName)) demand |= ks::process::ProcessDetailDemand::PackageName;
+    if (has(ProcessColumnId::Description)) demand |= ks::process::ProcessDetailDemand::FileDescription;
+    if (has(ProcessColumnId::DpiAwareness)) demand |= ks::process::ProcessDetailDemand::DpiAwareness;
+    if (has(ProcessColumnId::UacVirtualization)) demand |= ks::process::ProcessDetailDemand::UacVirtualization;
+    if (has(ProcessColumnId::DataExecutionPrevention) || has(ProcessColumnId::ControlFlowGuard) || has(ProcessColumnId::HardwareStackProtection)) demand |= ks::process::ProcessDetailDemand::MitigationPolicy;
+    if (has(ProcessColumnId::JobObject)) demand |= ks::process::ProcessDetailDemand::JobObject;
+    return demand;
+}
 
-    void* target = ::GlobalLock(memory);
-    if (!target) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    std::memcpy(target, text.c_str(), bytes);
-    ::GlobalUnlock(memory);
+// ApplyR0KernelColumnDetails 用途：仅在内核列可见时调用 R0 HandleTable 与 SectionObject 查询并回填列表。
+void ApplyR0KernelColumnDetails(std::vector<ProcessSnapshotRow>& rows, const std::vector<ProcessColumnId>& columns) {
+    const bool needHandleTable = std::find(columns.begin(), columns.end(), ProcessColumnId::HandleTable) != columns.end();
+    const bool needSectionObject = std::find(columns.begin(), columns.end(), ProcessColumnId::SectionObject) != columns.end();
+    if (!needHandleTable && !needSectionObject) return;
 
-    ::EmptyClipboard();
-    if (!::SetClipboardData(CF_UNICODETEXT, memory)) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
+    const ksword::ark::DriverClient driverClient;
+    for (ProcessSnapshotRow& row : rows) {
+        if (row.processId == 0 || row.r0KernelOnly) continue;
+        if (needHandleTable) {
+            const ksword::ark::HandleEnumResult handles = driverClient.enumerateProcessHandles(row.processId);
+            if (handles.io.ok) {
+                row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::HandleTable)] =
+                    L"可用：" + std::to_wstring(handles.returnedCount) + L"/" + std::to_wstring(handles.totalCount) + L" 个句柄";
+            } else {
+                row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::HandleTable)] = L"R0 查询失败";
+            }
+        }
+        if (needSectionObject) {
+            const ksword::ark::ProcessSectionQueryResult section = driverClient.queryProcessSection(row.processId);
+            if (section.io.ok) {
+                wchar_t addressText[32]{};
+                ::swprintf_s(addressText, L"0x%016llX", static_cast<unsigned long long>(section.sectionObjectAddress));
+                row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::SectionObject)] =
+                    section.sectionObjectAddress != 0 ? addressText : L"无 SectionObject";
+            } else {
+                row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::SectionObject)] = L"R0 查询失败";
+            }
+        }
     }
-    ::CloseClipboard();
-    return true;
+}
+
+// ApplyMainProcessDetails 用途：复用 Ksword5.1 已链接的进程库，把真实 R3 深度字段写入 Light 行。
+void ApplyMainProcessDetails(std::vector<ProcessSnapshotRow>& rows, const std::vector<ProcessColumnId>& columns) {
+    const std::uint32_t demand = DetailDemandForColumns(columns);
+    const std::vector<ks::process::ProcessRecord> records = ks::process::EnumerateProcesses(ks::process::ProcessEnumStrategy::Auto, nullptr, demand);
+    std::unordered_map<std::uint32_t, const ks::process::ProcessRecord*> byPid;
+    for (const ks::process::ProcessRecord& record : records) byPid[record.pid] = &record;
+    const auto put = [](ProcessSnapshotRow& row, ProcessColumnId id, const std::wstring& text) { if (!text.empty()) row.detailTexts[static_cast<std::uint8_t>(id)] = text; };
+    const bool wantsSignature = std::find(columns.begin(), columns.end(), ProcessColumnId::Signature) != columns.end();
+    static std::atomic_size_t signatureCursor{ 0 };
+    const std::size_t signatureStart = rows.empty() ? 0 : signatureCursor.fetch_add(24U) % rows.size();
+    std::size_t signatureOrdinal = 0;
+    for (ProcessSnapshotRow& row : rows) {
+        const auto found = byPid.find(row.processId);
+        if (found == byPid.end()) continue;
+        const ks::process::ProcessRecord& record = *found->second;
+        bool verifySignature = false;
+        // 静态详情只为需要静态字段的视图采集；签名校验同样在后台完成。
+        ks::process::ProcessRecord details{};
+        const bool staticNeeded = std::any_of(columns.begin(), columns.end(), [](ProcessColumnId id) {
+            return id == ProcessColumnId::Path || id == ProcessColumnId::CommandLine || id == ProcessColumnId::User || id == ProcessColumnId::Signature || id == ProcessColumnId::IsAdmin || id == ProcessColumnId::PplLevel || id == ProcessColumnId::PowerThrottling || id == ProcessColumnId::PackageName || id == ProcessColumnId::Description || id == ProcessColumnId::JobObject || id == ProcessColumnId::UacVirtualization || id == ProcessColumnId::DataExecutionPrevention || id == ProcessColumnId::ControlFlowGuard || id == ProcessColumnId::HardwareStackProtection || id == ProcessColumnId::DpiAwareness;
+        });
+        if (staticNeeded) {
+            // WinVerifyTrust 对受保护或网络路径映像可能长时间阻塞；每轮只验证有限数量，其他行明确标记待验证。
+            const std::size_t signatureOffset = rows.empty() ? 0 : (signatureOrdinal++ + rows.size() - signatureStart) % rows.size();
+            verifySignature = wantsSignature && signatureOffset < 24U;
+            ks::process::QueryProcessStaticDetailByPid(record.pid, details, verifySignature);
+            // 这一步实际执行缓解策略、UAC、作业、包名和 DPI 的按需读取，不能只传 demand 给枚举器。
+            ks::process::FillProcessOnDemandDetails(details, demand, nullptr);
+        }
+        const ks::process::ProcessRecord& source = details.staticDetailsReady ? details : record;
+        put(row, ProcessColumnId::Path, NarrowToWide(source.imagePath));
+        put(row, ProcessColumnId::CommandLine, NarrowToWide(source.commandLine));
+        put(row, ProcessColumnId::User, NarrowToWide(source.userName));
+        put(row, ProcessColumnId::StartTime, NarrowToWide(record.startTimeText));
+        put(row, ProcessColumnId::Signature, wantsSignature && !verifySignature ? L"待验证" : NarrowToWide(source.signatureState));
+        put(row, ProcessColumnId::Description, NarrowToWide(source.fileDescription));
+        put(row, ProcessColumnId::PackageName, NarrowToWide(source.packageFullName));
+        put(row, ProcessColumnId::IsAdmin, source.isAdmin ? L"是" : L"否");
+        put(row, ProcessColumnId::PowerThrottling, source.efficiencyModeSupported ? (source.efficiencyModeEnabled ? L"已启用" : L"已禁用") : L"不支持");
+        put(row, ProcessColumnId::Status, record.processStateKnown ? (record.processSuspended ? L"已挂起" : L"运行中") : L"未知");
+        put(row, ProcessColumnId::GpuEngine, NarrowToWide(record.gpuEngineText));
+        put(row, ProcessColumnId::JobObject, source.jobObjectKnown ? (source.inJobObject ? L"是" : L"否") : L"访问受限");
+        put(row, ProcessColumnId::UacVirtualization, std::to_wstring(static_cast<unsigned int>(source.uacVirtualizationState)));
+        put(row, ProcessColumnId::DataExecutionPrevention, std::to_wstring(static_cast<unsigned int>(source.dataExecutionPreventionState)));
+        put(row, ProcessColumnId::ControlFlowGuard, std::to_wstring(static_cast<unsigned int>(source.controlFlowGuardState)));
+        put(row, ProcessColumnId::HardwareStackProtection, std::to_wstring(static_cast<unsigned int>(source.hardwareStackProtectionState)));
+        put(row, ProcessColumnId::DpiAwareness, std::to_wstring(static_cast<unsigned int>(source.dpiAwarenessLevel)));
+        std::uint32_t protectionLevel = 0;
+        std::string protectionText;
+        if (ks::process::QueryProcessProtectionLevelByPid(record.pid, &protectionLevel, &protectionText, nullptr)) put(row, ProcessColumnId::PplLevel, NarrowToWide(protectionText));
+        else put(row, ProcessColumnId::PplLevel, L"访问受限");
+        if (record.gpuMemoryKnown) { put(row, ProcessColumnId::GpuDedicatedMemory, FormatByteSize(record.gpuDedicatedMemoryBytes)); put(row, ProcessColumnId::GpuSharedMemory, FormatByteSize(record.gpuSharedMemoryBytes)); }
+    }
 }
 
 // CollectProcessRefreshSnapshot performs every potentially blocking query for a
 // process refresh. It never accesses HWNDs or ProcessViewState and is safe for
 // AsyncSnapshotTask's worker thread.
-ProcessRefreshSnapshot CollectProcessRefreshSnapshot() {
+ProcessRefreshSnapshot CollectProcessRefreshSnapshot(const std::vector<ProcessColumnId>& columns) {
     ProcessRefreshSnapshot snapshot{};
     snapshot.enumeration = EnumerateProcessesByNtQuerySystemInformation();
     if (!snapshot.enumeration.success) {
         return snapshot;
     }
+    ApplyMainProcessDetails(snapshot.enumeration.rows, columns);
     snapshot.hiddenAudit = ApplyDefaultHiddenProcessAudit(snapshot.enumeration.rows);
     ApplyR0ProcessAuditRows(snapshot.enumeration.rows, snapshot.crossViewStatusSuffix);
+    ApplyR0KernelColumnDetails(snapshot.enumeration.rows, columns);
     return snapshot;
 }
 
 // ApplyProcessRefresh installs a completed immutable snapshot on the UI thread.
-// It performs lightweight diff bookkeeping and preserves the existing
-// incremental ListView update path until the virtual-list migration lands.
+// It records lifecycle differences and commits the owner-data presentation with
+// selective ListView invalidation, preserving a stable process-list surface.
 void ApplyProcessRefresh(ProcessViewState& state, ProcessRefreshSnapshot snapshot) {
     if (!snapshot.enumeration.success) {
         state.model.setRows({});
@@ -1571,10 +1911,18 @@ void ApplyProcessRefresh(ProcessViewState& state, ProcessRefreshSnapshot snapsho
     std::unordered_map<std::wstring, ProcessSnapshotRow> activeRowsByIdentity;
     newCpuTimes.reserve(rows.size());
     activeRowsByIdentity.reserve(rows.size());
+    const std::unordered_map<std::wstring, ProcessRowVisualState> previousVisualStates =
+        std::move(state.visualStateByIdentity);
     state.visualStateByIdentity.clear();
     for (ProcessSnapshotRow& row : rows) {
         const std::wstring identityKey = ProcessStableKey(row.processId, row.creationTime100ns);
         const ULONGLONG total100ns = row.kernelTime100ns + row.userTime100ns;
+        // 相邻快照差值只在同一 PID+创建时间实例间计算，避免 PID 回收造成错误增量。
+        const auto previousRow = state.lastActiveRowsByIdentity.find(identityKey);
+        if (previousRow != state.lastActiveRowsByIdentity.end()) {
+            row.workingSetDeltaBytes = static_cast<LONGLONG>(row.workingSetBytes) - static_cast<LONGLONG>(previousRow->second.workingSetBytes);
+            row.pageFaultDelta = static_cast<LONGLONG>(row.pageFaultCount) - static_cast<LONGLONG>(previousRow->second.pageFaultCount);
+        }
         newCpuTimes[identityKey] = total100ns;
         activeRowsByIdentity[identityKey] = row;
         if (state.hasLastActiveSnapshot &&
@@ -1618,7 +1966,7 @@ void ApplyProcessRefresh(ProcessViewState& state, ProcessRefreshSnapshot snapsho
     state.hasLastActiveSnapshot = true;
 
     state.model.setRows(std::move(rows));
-    RebuildRows(state);
+    RebuildRows(state, &previousVisualStates);
     SetStatus(state,
         L"已同步 " + std::to_wstring(activeCount) +
         L" 个进程；新增 " + std::to_wstring(addedCount) +
@@ -1639,14 +1987,13 @@ void BeginProcessRefresh(ProcessViewState& state) {
     if (state.refreshButton) {
         ::EnableWindow(state.refreshButton, FALSE);
     }
-    Ksword::Ui::SetLoadingOverlay(state.loadingOverlay, true, L"正在刷新进程列表…");
+    const std::vector<ProcessColumnId> requestedColumns = state.activeColumns;
     state.refreshTask->request(
-        []() { return CollectProcessRefreshSnapshot(); },
+        [requestedColumns]() { return CollectProcessRefreshSnapshot(requestedColumns); },
         [&state](std::uint64_t, std::optional<ProcessRefreshSnapshot>&& snapshot, std::exception_ptr error) {
             if (state.refreshButton) {
                 ::EnableWindow(state.refreshButton, TRUE);
             }
-            Ksword::Ui::SetLoadingOverlay(state.loadingOverlay, false);
             if (error || !snapshot.has_value()) {
                 SetStatus(state, L"进程刷新任务异常结束。请检查驱动状态和访问权限。");
                 return;
@@ -1655,24 +2002,143 @@ void BeginProcessRefresh(ProcessViewState& state) {
         });
 }
 
-// SwitchMode changes the visible process layout. Inputs are page state and new
-// mode. Processing rebuilds columns and rows; no value is returned.
-void SwitchMode(ProcessViewState& state, ProcessViewMode mode) {
-    if (state.mode == mode) {
-        return;
-    }
-    state.mode = mode;
+// ApplyPreset 用途：应用内置精简列组；调用后立即重建表头和不可变展示快照。
+void ApplyPreset(ProcessViewState& state, ProcessViewPreset preset) {
+    state.preset = preset;
+    state.activeColumns = DefaultProcessColumns(preset);
     RebuildColumns(state);
     RebuildRows(state);
     UpdateToolbarTexts(state);
-    SetStatus(state, mode == ProcessViewMode::Detail ? L"已切换到详细信息视图。" : L"已切换到利用率展示视图（无折线图）。");
+    ::PostMessageW(state.hwnd, kMsgRequestRefresh, 0, 0);
+    SetStatus(state, std::wstring(L"已切换到") + ProcessViewPresetTitle(preset) + L"列组。");
 }
 
-// ToggleMode switches the single mode button between utilization and detail.
-// Input is the page state; processing calls SwitchMode; no value is returned.
-void ToggleMode(ProcessViewState& state) {
-    SwitchMode(state,
-        state.mode == ProcessViewMode::Detail ? ProcessViewMode::UtilizationFriendly : ProcessViewMode::Detail);
+// ToggleColumn 用途：按用户菜单选择显示或隐藏一个逻辑列；名称和 PID 永远保留。
+void ToggleColumn(ProcessViewState& state, ProcessColumnId column) {
+    const ProcessColumnDescriptor* descriptor = FindProcessColumn(column);
+    if (!descriptor || descriptor->locked) return;
+    const auto found = std::find(state.activeColumns.begin(), state.activeColumns.end(), column);
+    if (found == state.activeColumns.end()) state.activeColumns.push_back(column);
+    else state.activeColumns.erase(found);
+    state.preset = ProcessViewPreset::Custom;
+    RebuildColumns(state);
+    RebuildRows(state);
+    UpdateToolbarTexts(state);
+    ::PostMessageW(state.hwnd, kMsgRequestRefresh, 0, 0);
+}
+
+// ColumnChooserState 用途：保存一个临时模态选择列窗口的控件与所属进程页。
+struct ColumnChooserState {
+    ProcessViewState* owner = nullptr;
+    std::vector<HWND> checkBoxes;
+};
+
+// ColumnChooserProc 用途：处理选择列模态窗口中的确认、取消和销毁消息。
+LRESULT CALLBACK ColumnChooserProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    auto* chooser = reinterpret_cast<ColumnChooserState*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
+        chooser = create ? static_cast<ColumnChooserState*>(create->lpCreateParams) : nullptr;
+        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(chooser));
+    }
+    if (!chooser) return ::DefWindowProcW(hwnd, message, wParam, lParam);
+
+    if (message == WM_CREATE) {
+        const int columnWidth = 180;
+        const int rowHeight = 25;
+        for (std::size_t index = 0; index < ProcessColumnDescriptors().size(); ++index) {
+            const ProcessColumnDescriptor& descriptor = ProcessColumnDescriptors()[index];
+            const int visualColumn = static_cast<int>(index / 20U);
+            const int visualRow = static_cast<int>(index % 20U);
+            HWND check = ::CreateWindowExW(0, WC_BUTTONW, descriptor.title,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                14 + visualColumn * columnWidth, 42 + visualRow * rowHeight,
+                columnWidth - 8, rowHeight, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(100 + index)),
+                ::GetModuleHandleW(nullptr), nullptr);
+            if (check) {
+                const bool visible = std::find(chooser->owner->activeColumns.begin(), chooser->owner->activeColumns.end(), descriptor.id) != chooser->owner->activeColumns.end();
+                ::SendMessageW(check, BM_SETCHECK, visible ? BST_CHECKED : BST_UNCHECKED, 0);
+                ::EnableWindow(check, !descriptor.locked);
+                chooser->checkBoxes.push_back(check);
+            }
+        }
+        Ksword::Ui::CreateButton(hwnd, kColumnChooserApplyId, L"应用", 380, 555, 86, 28);
+        Ksword::Ui::CreateButton(hwnd, kColumnChooserCancelId, L"取消", 474, 555, 86, 28);
+        Ksword::Ui::CreateText(hwnd, 0, L"选择需要显示的列；名称与 PID 是固定标识列。", 14, 12, 540, 22);
+        return 0;
+    }
+    if (message == WM_COMMAND) {
+        const int id = LOWORD(wParam);
+        if (id == kColumnChooserApplyId) {
+            std::vector<ProcessColumnId> selected;
+            for (std::size_t index = 0; index < chooser->checkBoxes.size() && index < ProcessColumnDescriptors().size(); ++index) {
+                if (::SendMessageW(chooser->checkBoxes[index], BM_GETCHECK, 0, 0) == BST_CHECKED) selected.push_back(ProcessColumnDescriptors()[index].id);
+            }
+            chooser->owner->activeColumns = std::move(selected);
+            chooser->owner->preset = ProcessViewPreset::Custom;
+            RebuildColumns(*chooser->owner);
+            RebuildRows(*chooser->owner);
+            UpdateToolbarTexts(*chooser->owner);
+            ::PostMessageW(chooser->owner->hwnd, kMsgRequestRefresh, 0, 0);
+            ::DestroyWindow(hwnd);
+            return 0;
+        }
+        if (id == kColumnChooserCancelId) { ::DestroyWindow(hwnd); return 0; }
+    }
+    if (message == WM_CLOSE) { ::DestroyWindow(hwnd); return 0; }
+    if (message == WM_NCDESTROY) { ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); return 0; }
+    return ::DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
+// ShowColumnChooser 用途：创建应用模态复选框窗口；列布局只写回当前 ProcessViewState。
+void ShowColumnChooser(ProcessViewState& state) {
+    static bool registered = false;
+    if (!registered) {
+        WNDCLASSW windowClass{};
+        windowClass.lpfnWndProc = ColumnChooserProc;
+        windowClass.hInstance = ::GetModuleHandleW(nullptr);
+        windowClass.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
+        windowClass.hbrBackground = Ksword::Ui::AppTheme().windowBrush();
+        windowClass.lpszClassName = kColumnChooserClass;
+        registered = ::RegisterClassW(&windowClass) != FALSE || ::GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+    }
+    if (!registered) return;
+    ColumnChooserState chooser{ &state, {} };
+    HWND dialog = ::CreateWindowExW(WS_EX_DLGMODALFRAME, kColumnChooserClass, L"选择列",
+        WS_CAPTION | WS_SYSMENU | WS_POPUP | WS_VISIBLE,
+        CW_USEDEFAULT, CW_USEDEFAULT, 575, 625, state.hwnd, nullptr, ::GetModuleHandleW(nullptr), &chooser);
+    if (!dialog) return;
+    ::EnableWindow(state.hwnd, FALSE);
+    MSG message{};
+    while (::IsWindow(dialog) && ::GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if (!::IsDialogMessageW(dialog, &message)) { ::TranslateMessage(&message); ::DispatchMessageW(&message); }
+    }
+    ::EnableWindow(state.hwnd, TRUE);
+    ::SetForegroundWindow(state.hwnd);
+}
+
+// ShowColumnMenu 用途：显示按分组组织的运行期列选择菜单；同一入口供工具栏和表头右键复用。
+void ShowColumnMenu(ProcessViewState& state, POINT screenPoint) {
+    HMENU menu = ::CreatePopupMenu();
+    if (!menu) return;
+    std::size_t menuIndex = 0;
+    for (ProcessColumnGroup group : { ProcessColumnGroup::General, ProcessColumnGroup::Performance, ProcessColumnGroup::Memory, ProcessColumnGroup::Io, ProcessColumnGroup::Security, ProcessColumnGroup::Kernel }) {
+        HMENU groupMenu = ::CreatePopupMenu();
+        for (const ProcessColumnDescriptor& descriptor : ProcessColumnDescriptors()) {
+            if (descriptor.group != group) continue;
+            const bool visible = std::find(state.activeColumns.begin(), state.activeColumns.end(), descriptor.id) != state.activeColumns.end();
+            const UINT flags = MF_STRING | (visible ? MF_CHECKED : MF_UNCHECKED) | (descriptor.locked ? MF_GRAYED : 0U);
+            ::AppendMenuW(groupMenu, flags, kColumnMenuBaseId + static_cast<UINT>(menuIndex), descriptor.title);
+            ++menuIndex;
+        }
+        ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(groupMenu), ProcessColumnGroupTitle(group));
+    }
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, MF_STRING, kColumnMenuBaseId + 1000, L"恢复当前预设默认列");
+    const UINT command = ::TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenPoint.x, screenPoint.y, 0, state.hwnd, nullptr);
+    ::DestroyMenu(menu);
+    if (command == kColumnMenuBaseId + 1000) { ApplyPreset(state, state.preset == ProcessViewPreset::Custom ? ProcessViewPreset::Monitor : state.preset); return; }
+    if (command >= kColumnMenuBaseId && command < kColumnMenuBaseId + ProcessColumnDescriptors().size()) ToggleColumn(state, ProcessColumnDescriptors()[command - kColumnMenuBaseId].id);
 }
 
 // ToggleRefreshPaused flips automatic refresh. Input is the page state;
@@ -1854,7 +2320,12 @@ void BeginR0Injection(
 // action id. UI-local copy and page creation remain immediate; blocking Win32,
 // R0 and file operations are queued through BeginProcessAction.
 void ExecuteMenuItem(ProcessViewState& state, ProcessActionId actionId) {
-    if (actionId == ProcessActionId::CopyCell || actionId == ProcessActionId::CopyRow || actionId == ProcessActionId::CopyVisibleResults) {
+    if (actionId == ProcessActionId::CopyCell || actionId == ProcessActionId::CopyRow ||
+        actionId == ProcessActionId::CopyVisibleResults || actionId == ProcessActionId::ExportVisibleResults) {
+        if (actionId == ProcessActionId::ExportVisibleResults) {
+            ExportVisibleResults(state);
+            return;
+        }
         if (actionId == ProcessActionId::CopyVisibleResults) {
             const bool copied = WriteClipboardText(state.hwnd, VisibleRowsAsText(state));
             SetStatus(state, copied ? L"已复制全部可见进程结果。" : L"复制失败：当前没有可见结果或剪贴板不可用。");
@@ -1882,6 +2353,57 @@ void ExecuteMenuItem(ProcessViewState& state, ProcessActionId actionId) {
             selectedRow.processId,
             selectedRow.creationTime100ns);
         SetStatus(state, opened ? L"已打开进程详细信息窗口。" : L"进程详细信息窗口创建失败。");
+        return;
+    }
+
+    if (actionId == ProcessActionId::OpenMemoryOperation ||
+        actionId == ProcessActionId::OpenImageInFileModule ||
+        actionId == ProcessActionId::OpenNetworkForProcess ||
+        actionId == ProcessActionId::OpenHandlesForProcess ||
+        actionId == ProcessActionId::OpenEtwForProcess ||
+        actionId == ProcessActionId::OpenWindowsForProcess) {
+        const std::vector<int> selectedIndexes = SelectedDisplayIndexes(state);
+        if (selectedIndexes.size() != 1U || selectedIndexes.front() < 0 ||
+            static_cast<std::size_t>(selectedIndexes.front()) >= state.presentationRows.size()) {
+            SetStatus(state, L"关联调查需要单选一个进程。");
+            return;
+        }
+        const ProcessPresentationRow& selectedRow =
+            state.presentationRows[static_cast<std::size_t>(selectedIndexes.front())];
+        Ksword::Core::NavigationRequest request{};
+        request.entity.kind = Ksword::Core::EntityKind::Process;
+        request.entity.id = selectedRow.processId;
+        request.entity.creationTime100ns = selectedRow.creationTime100ns;
+        switch (actionId) {
+        case ProcessActionId::OpenMemoryOperation:
+            request.target = Ksword::Core::NavigationTarget::MemoryOperations;
+            break;
+        case ProcessActionId::OpenImageInFileModule:
+            if (selectedRow.iconPath.empty()) {
+                SetStatus(state, L"该进程没有可用的映像路径。");
+                return;
+            }
+            request.target = Ksword::Core::NavigationTarget::FileBrowser;
+            request.entity.kind = Ksword::Core::EntityKind::File;
+            request.entity.text = selectedRow.iconPath;
+            break;
+        case ProcessActionId::OpenNetworkForProcess:
+            request.target = Ksword::Core::NavigationTarget::NetworkConnections;
+            break;
+        case ProcessActionId::OpenHandlesForProcess:
+            request.target = Ksword::Core::NavigationTarget::HandleTable;
+            break;
+        case ProcessActionId::OpenEtwForProcess:
+            request.target = Ksword::Core::NavigationTarget::EtwMonitor;
+            break;
+        case ProcessActionId::OpenWindowsForProcess:
+            request.target = Ksword::Core::NavigationTarget::WindowManager;
+            break;
+        default:
+            return;
+        }
+        const bool routed = Ksword::Ui::RequestEntityNavigation(state.hwnd, request);
+        SetStatus(state, routed ? L"已跳转到关联调查模块。" : L"关联调查模块当前无法接收该实体。");
         return;
     }
 
@@ -1941,7 +2463,14 @@ void ShowContextMenu(ProcessViewState& state, POINT screenPoint) {
         const bool immediateAction = id == ProcessActionId::CopyCell ||
             id == ProcessActionId::CopyRow ||
             id == ProcessActionId::CopyVisibleResults ||
-            id == ProcessActionId::OpenDetails;
+            id == ProcessActionId::ExportVisibleResults ||
+            id == ProcessActionId::OpenDetails ||
+            id == ProcessActionId::OpenMemoryOperation ||
+            id == ProcessActionId::OpenImageInFileModule ||
+            id == ProcessActionId::OpenNetworkForProcess ||
+            id == ProcessActionId::OpenHandlesForProcess ||
+            id == ProcessActionId::OpenEtwForProcess ||
+            id == ProcessActionId::OpenWindowsForProcess;
         ::AppendMenuW(parent, MF_STRING | (enabled && (!actionRunning || immediateAction) ? 0U : MF_GRAYED), command, text);
     };
     auto appendPopup = [](HMENU parent, HMENU child, const wchar_t* text) {
@@ -1954,6 +2483,10 @@ void ShowContextMenu(ProcessViewState& state, POINT screenPoint) {
     appendAction(copyMenu, ProcessActionId::CopyVisibleResults, L"复制可见结果", !state.visibleRowIndexes.empty());
     appendPopup(menu, copyMenu, L"复制");
 
+    HMENU exportMenu = ::CreatePopupMenu();
+    appendAction(exportMenu, ProcessActionId::ExportVisibleResults, L"导出可见结果为 TSV...", !state.visibleRowIndexes.empty());
+    appendPopup(menu, exportMenu, L"导出");
+
     HMENU processMenu = ::CreatePopupMenu();
     appendAction(processMenu, ProcessActionId::OpenDetails, L"进程详细信息", singleProcess);
     appendAction(processMenu, ProcessActionId::TerminateProcessMultiMethod, L"结束进程(组合方法链)", hasProcessSelection);
@@ -1961,7 +2494,7 @@ void ShowContextMenu(ProcessViewState& state, POINT screenPoint) {
     appendAction(processMenu, ProcessActionId::SuspendProcess, L"挂起进程", hasProcessSelection);
     appendAction(processMenu, ProcessActionId::ResumeProcess, L"恢复进程", hasProcessSelection);
     appendAction(processMenu, ProcessActionId::OpenFolder, L"打开所在目录", singleProcess);
-    appendAction(processMenu, ProcessActionId::OpenMemoryOperation, L"跳转到内存操作", hasProcessSelection);
+    appendAction(processMenu, ProcessActionId::OpenMemoryOperation, L"跳转到内存操作", singleProcess);
     appendAction(processMenu, ProcessActionId::ScanHotkeys, L"扫描进程热键", singleProcess);
 
     HMENU efficiencyMenu = ::CreatePopupMenu();
@@ -1983,6 +2516,14 @@ void ShowContextMenu(ProcessViewState& state, POINT screenPoint) {
     appendAction(priorityMenu, ProcessActionId::SetPriorityRealtime, L"Realtime", hasProcessSelection);
     appendPopup(processMenu, priorityMenu, L"优先级");
     appendPopup(menu, processMenu, L"进程");
+
+    HMENU investigationMenu = ::CreatePopupMenu();
+    appendAction(investigationMenu, ProcessActionId::OpenImageInFileModule, L"在文件模块定位映像", singleProcess);
+    appendAction(investigationMenu, ProcessActionId::OpenNetworkForProcess, L"查看关联网络连接", singleProcess);
+    appendAction(investigationMenu, ProcessActionId::OpenHandlesForProcess, L"查看进程句柄", singleProcess);
+    appendAction(investigationMenu, ProcessActionId::OpenEtwForProcess, L"筛选 ETW 事件", singleProcess);
+    appendAction(investigationMenu, ProcessActionId::OpenWindowsForProcess, L"查看进程窗口", singleProcess);
+    appendPopup(menu, investigationMenu, L"关联调查");
 
     HMENU r0Menu = ::CreatePopupMenu();
     appendAction(r0Menu, ProcessActionId::R0TerminateProcess, L"R0结束进程", hasProcessSelection);
@@ -2069,7 +2610,19 @@ void ShowContextMenu(ProcessViewState& state, POINT screenPoint) {
 void CreateChildControls(ProcessViewState& state) {
     state.refreshButton = Ksword::Ui::CreateButton(state.hwnd, kRefreshButtonId, L"刷新", 0, 0, 0, 0);
     state.pauseButton = Ksword::Ui::CreateButton(state.hwnd, kPauseButtonId, L"暂停", 0, 0, 0, 0);
-    state.modeButton = Ksword::Ui::CreateButton(state.hwnd, kModeButtonId, L"利用率", 0, 0, 0, 0);
+    state.presetCombo = ::CreateWindowExW(0, WC_COMBOBOXW, L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL,
+        0, 0, 0, 0, state.hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPresetComboId)),
+        ::GetModuleHandleW(nullptr), nullptr);
+    if (state.presetCombo) {
+        ::SendMessageW(state.presetCombo, WM_SETFONT, reinterpret_cast<WPARAM>(Ksword::Ui::SystemUIFont()), TRUE);
+        for (ProcessViewPreset preset : { ProcessViewPreset::Monitor, ProcessViewPreset::Detail, ProcessViewPreset::Memory, ProcessViewPreset::DiskIo, ProcessViewPreset::Gpu, ProcessViewPreset::Security, ProcessViewPreset::Kernel }) {
+            const LRESULT item = ::SendMessageW(state.presetCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(ProcessViewPresetTitle(preset)));
+            ::SendMessageW(state.presetCombo, CB_SETITEMDATA, item, static_cast<LPARAM>(preset));
+        }
+        ::SendMessageW(state.presetCombo, CB_SETCURSEL, 0, 0);
+    }
+    state.columnsButton = Ksword::Ui::CreateButton(state.hwnd, kColumnsButtonId, L"列", 0, 0, 0, 0);
     state.pickerButton = Ksword::Ui::CreateButton(state.hwnd, kPickerButtonId, L"拖动选中进程", 0, 0, 0, 0);
     state.refreshSlider = ::CreateWindowExW(0,
         TRACKBAR_CLASSW,
@@ -2095,7 +2648,6 @@ void CreateChildControls(ProcessViewState& state) {
     if (state.listView && state.imageList) {
         ListView_SetImageList(state.listView, state.imageList, LVSIL_SMALL);
     }
-    state.loadingOverlay = Ksword::Ui::CreateLoadingOverlay(state.hwnd, 52009, { 0, 0, 1, 1 });
     UpdateToolbarTexts(state);
     RebuildColumns(state);
 }
@@ -2104,9 +2656,19 @@ void CreateChildControls(ProcessViewState& state) {
 // NMHDR. Processing supports custom first-column drawing, right-click selection
 // correction and context menus; output carries both handled state and LRESULT.
 NotifyResult HandleListNotify(ProcessViewState& state, NMHDR* header) {
-    if (!header || header->hwndFrom != state.listView) {
+    if (!header) {
         return {};
     }
+
+    // 表头右键与工具栏“列”按钮共享同一分组列菜单，避免两套显隐状态分叉。
+    if (header->hwndFrom == ListView_GetHeader(state.listView)) {
+        if (header->code == NM_RCLICK) {
+            ShowColumnChooser(state);
+            return { true, 0 };
+        }
+        return {};
+    }
+    if (header->hwndFrom != state.listView) return {};
 
     if (header->code == LVN_GETDISPINFOW) {
         return { true, HandleVirtualListDisplayInfo(state, reinterpret_cast<NMLVDISPINFOW*>(header)) };
@@ -2184,6 +2746,18 @@ LRESULT CALLBACK ProcessViewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             RestartRefreshTimer(*state);
         }
         return 0;
+    case kMsgOpenDetails:
+        if (state && lParam != 0) {
+            const auto* request = reinterpret_cast<const ExternalDetailRequest*>(lParam);
+            const ULONGLONG creationTime = ResolveCurrentProcessCreationTime(
+                *state, request->processId, request->expectedCreationTime100ns);
+            if (creationTime != 0U && OpenProcessDetailWindow(hwnd, request->processId, creationTime)) {
+                SetStatus(*state, L"已按稳定进程身份打开详细信息窗口。");
+                return TRUE;
+            }
+            SetStatus(*state, L"无法确认当前 PID 对应的进程实例，已拒绝跨页打开。");
+        }
+        return FALSE;
     case kMsgRefreshCompleted:
         if (state && state->refreshTask && state->refreshTask->consume(hwnd, wParam, lParam)) {
             return 0;
@@ -2219,9 +2793,10 @@ LRESULT CALLBACK ProcessViewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             case kRefreshButtonId:
                 BeginProcessRefresh(*state);
                 return 0;
-            case kModeButtonId:
-                ToggleMode(*state);
+            case kColumnsButtonId: {
+                ShowColumnChooser(*state);
                 return 0;
+            }
             case kPauseButtonId:
                 ToggleRefreshPaused(*state);
                 return 0;
@@ -2231,6 +2806,12 @@ LRESULT CALLBACK ProcessViewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             default:
                 break;
             }
+        }
+        if (state && LOWORD(wParam) == kPresetComboId && HIWORD(wParam) == CBN_SELCHANGE) {
+            const LRESULT selected = ::SendMessageW(state->presetCombo, CB_GETCURSEL, 0, 0);
+            const LRESULT value = selected >= 0 ? ::SendMessageW(state->presetCombo, CB_GETITEMDATA, selected, 0) : -1;
+            if (value >= 0) ApplyPreset(*state, static_cast<ProcessViewPreset>(value));
+            return 0;
         }
         break;
     case WM_TIMER:
@@ -2405,6 +2986,14 @@ void RequestProcessViewRefresh(HWND view) {
         // view 用途：已创建的进程页窗口；PostMessage 避免驱动状态回调同步阻塞主窗口。
         ::PostMessageW(view, kMsgRequestRefresh, 0, 0);
     }
+}
+
+bool RequestProcessViewOpenDetails(HWND view, DWORD processId, ULONGLONG expectedCreationTime100ns) {
+    if (!view || processId == 0) {
+        return false;
+    }
+    const ExternalDetailRequest request{ processId, expectedCreationTime100ns };
+    return ::SendMessageW(view, kMsgOpenDetails, 0, reinterpret_cast<LPARAM>(&request)) != 0;
 }
 
 } // namespace Ksword::Features::Process

@@ -88,6 +88,10 @@ std::wstring StartupKindText(StartupEntryKind kind) {
         return L"Startup Folder";
     case StartupEntryKind::Service:
         return L"Service";
+    case StartupEntryKind::DriverService:
+        return L"Driver Service (read-only)";
+    case StartupEntryKind::RegistryOnlyService:
+        return L"Registry-observed Service (read-only)";
     case StartupEntryKind::ScheduledTaskFacade:
         return L"Scheduled Task";
     default:

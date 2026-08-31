@@ -24,6 +24,7 @@
 #include "KernelIoTimerTab.h"
 #include "KernelIoctlAuditTab.h"
 #include "KernelIoctlDecoderTab.h"
+#include "KernelKnowledgeTab.h"
 #include "KernelObjectDirectoryDeepTab.h"
 #include "KernelObjectTypeMatrixTab.h"
 #include "KernelPlatformAuditTab.h"
@@ -553,38 +554,38 @@ void KernelDock::initializeUi()
             "kernel.main.tab.hvm.tooltip",
             QStringLiteral("VT-x/嵌套能力、每 CPU VMX 区域、EPT RAM 映射与受控 VMXON/VMXOFF 自检")));
 
-    const int slatIommuTabIndex = m_tabWidget->addTab(
+    m_slatIommuTabIndex = m_tabWidget->addTab(
         new KernelSlatIommuAuditTab(m_tabWidget),
         tabIcon(QStringLiteral(":/Icon/process_priority.svg")),
         kernelText(
             "kernel.main.tab.slat_iommu.title",
             QStringLiteral("SLAT/IOMMU")));
     m_tabWidget->setTabToolTip(
-        slatIommuTabIndex,
+        m_slatIommuTabIndex,
         kernelText(
             "kernel.main.tab.slat_iommu.tooltip",
             QStringLiteral("只读 EPT/NPT 虚拟-物理交叉视图、Hypervisor CPUID 与 DMAR/IVRS/IOMMU 运行时取证")));
 
-    const int textIntegrityTabIndex = m_tabWidget->addTab(
+    m_textIntegrityTabIndex = m_tabWidget->addTab(
         new KernelTextIntegrityTab(m_tabWidget),
         tabIcon(QStringLiteral(":/Icon/process_details.svg")),
         kernelText(
             "kernel.main.tab.text_integrity.title",
             QStringLiteral("代码完整性")));
     m_tabWidget->setTabToolTip(
-        textIntegrityTabIndex,
+        m_textIntegrityTabIndex,
         kernelText(
             "kernel.main.tab.text_integrity.tooltip",
             QStringLiteral("把每个已加载模块的可执行节与重定位后的磁盘净映像全量逐字节比对，区分动态重定位位点与无法解释的代码改写")));
 
-    const int vbsPostureTabIndex = m_tabWidget->addTab(
+    m_vbsPostureTabIndex = m_tabWidget->addTab(
         new KernelVbsPostureTab(m_tabWidget),
         tabIcon(QStringLiteral(":/Icon/process_priority.svg")),
         kernelText(
             "kernel.main.tab.vbs_posture.title",
             QStringLiteral("VBS/HVCI")));
     m_tabWidget->setTabToolTip(
-        vbsPostureTabIndex,
+        m_vbsPostureTabIndex,
         kernelText(
             "kernel.main.tab.vbs_posture.tooltip",
             QStringLiteral("区分 HVCI 策略位与运行时证据，识别「策略说开着但实际没跑」，并列出审计模式/测试签名/CI 调试等降级项")));
@@ -618,6 +619,29 @@ void KernelDock::initializeUi()
         tabIcon(QStringLiteral(":/Icon/process_details.svg")),
         QStringLiteral("IPC"));
     m_tabWidget->setTabToolTip(m_ipcTabIndex, kernelText("kernel.main.tab.ipc.tooltip", QStringLiteral("只读 NamedPipe / ALPC / 通信对象")));
+
+    // 知识中心是纯只读页：目录和正文均由语言包驱动，站内按钮只切换到既有观察页面。
+    m_knowledgeTab = new KernelKnowledgeTab(m_tabWidget);
+    m_knowledgeTab->setRouteHandler([this](const QString& routeId) {
+        openKnowledgeRoute(routeId);
+    });
+    m_knowledgeTabIndex = m_tabWidget->addTab(
+        m_knowledgeTab,
+        tabIcon(QStringLiteral(":/Icon/knowledge_book.svg")),
+        ks::i18n::text(QStringLiteral("kernel.knowledge.tab.title")));
+    m_tabWidget->setTabToolTip(
+        m_knowledgeTabIndex,
+        ks::i18n::text(QStringLiteral("kernel.knowledge.tab.tooltip")));
+    ks::i18n::LanguageManager::instance().bindTab(
+        m_tabWidget,
+        m_knowledgeTab,
+        QStringLiteral("kernel.knowledge.tab.title"),
+        QString());
+    ks::i18n::LanguageManager::instance().bindTabToolTip(
+        m_tabWidget,
+        m_knowledgeTab,
+        QStringLiteral("kernel.knowledge.tab.tooltip"),
+        QString());
 
     // DynData 的总览与 PDB Profile 直接成为“Ksword自身驱动”的二级页，
     // 不再保留只承载第三层页签的空“动态偏移”容器。
@@ -689,10 +713,14 @@ void KernelDock::updateTabIconContrast()
     m_tabWidget->setTabIcon(m_ioManagementTabIndex, tabIcon(QStringLiteral(":/Icon/process_details.svg")));
     m_tabWidget->setTabIcon(m_kernelAuditTabIndex, tabIcon(QStringLiteral(":/Icon/process_critical.svg")));
     m_tabWidget->setTabIcon(m_hvmTabIndex, tabIcon(QStringLiteral(":/Icon/process_priority.svg")));
+    m_tabWidget->setTabIcon(m_slatIommuTabIndex, tabIcon(QStringLiteral(":/Icon/process_priority.svg")));
+    m_tabWidget->setTabIcon(m_textIntegrityTabIndex, tabIcon(QStringLiteral(":/Icon/process_details.svg")));
+    m_tabWidget->setTabIcon(m_vbsPostureTabIndex, tabIcon(QStringLiteral(":/Icon/process_priority.svg")));
     m_tabWidget->setTabIcon(m_timerDpcTabIndex, tabIcon(QStringLiteral(":/Icon/process_threads.svg")));
     m_tabWidget->setTabIcon(m_workQueueThreadTabIndex, tabIcon(QStringLiteral(":/Icon/process_threads.svg")));
     m_tabWidget->setTabIcon(m_crossViewTabIndex, tabIcon(QStringLiteral(":/Icon/process_list.svg")));
     m_tabWidget->setTabIcon(m_ipcTabIndex, tabIcon(QStringLiteral(":/Icon/process_details.svg")));
+    m_tabWidget->setTabIcon(m_knowledgeTabIndex, tabIcon(QStringLiteral(":/Icon/knowledge_book.svg")));
 
     if (currentIndex == m_objectNamespaceTabIndex)
     {
@@ -718,6 +746,18 @@ void KernelDock::updateTabIconContrast()
     {
         m_tabWidget->setTabIcon(currentIndex, selectedTabIcon(QStringLiteral(":/Icon/process_priority.svg")));
     }
+    else if (currentIndex == m_slatIommuTabIndex)
+    {
+        m_tabWidget->setTabIcon(currentIndex, selectedTabIcon(QStringLiteral(":/Icon/process_priority.svg")));
+    }
+    else if (currentIndex == m_textIntegrityTabIndex)
+    {
+        m_tabWidget->setTabIcon(currentIndex, selectedTabIcon(QStringLiteral(":/Icon/process_details.svg")));
+    }
+    else if (currentIndex == m_vbsPostureTabIndex)
+    {
+        m_tabWidget->setTabIcon(currentIndex, selectedTabIcon(QStringLiteral(":/Icon/process_priority.svg")));
+    }
     else if (currentIndex == m_timerDpcTabIndex)
     {
         m_tabWidget->setTabIcon(currentIndex, selectedTabIcon(QStringLiteral(":/Icon/process_threads.svg")));
@@ -733,6 +773,10 @@ void KernelDock::updateTabIconContrast()
     else if (currentIndex == m_ipcTabIndex)
     {
         m_tabWidget->setTabIcon(currentIndex, selectedTabIcon(QStringLiteral(":/Icon/process_details.svg")));
+    }
+    else if (currentIndex == m_knowledgeTabIndex)
+    {
+        m_tabWidget->setTabIcon(currentIndex, selectedTabIcon(QStringLiteral(":/Icon/knowledge_book.svg")));
     }
 }
 
@@ -937,16 +981,15 @@ void KernelDock::initializeObjectNamespaceTab()
     m_objectNamespacePropertyTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_objectNamespacePropertyTable->setAlternatingRowColors(true);
     m_objectNamespacePropertyTable->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_objectNamespacePropertyTable->setStyleSheet(itemSelectionStyle());
     m_objectNamespacePropertyTable->setCornerButtonEnabled(false);
     m_objectNamespacePropertyTable->verticalHeader()->setVisible(false);
-    m_objectNamespacePropertyTable->horizontalHeader()->setStyleSheet(headerStyle());
     m_objectNamespacePropertyTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_objectNamespacePropertyTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_objectNamespacePropertyTable->setColumnWidth(0, 220);
     m_objectNamespacePropertyTable->setToolTip(kernelText("kernel.main.object_namespace.property.tooltip", QStringLiteral("当前选中节点的字段详情（字段名 + 字段值）")));
 
     m_objectNamespaceDetailEditor = new CodeEditorWidget(verticalSplitter);
+    m_objectNamespaceDetailEditor->setObjectName(QStringLiteral("ks_object_namespace_detail_editor"));
     m_objectNamespaceDetailEditor->setReadOnly(true);
     m_objectNamespaceDetailEditor->setText(kernelText("kernel.main.object_namespace.detail.initial", QStringLiteral("请选择对象命名空间节点查看详情。")));
 
@@ -1256,6 +1299,68 @@ void KernelDock::initializeIpcTab()
 
     auto* tab = new KernelDockIpcTab(m_ipcPage);
     layout->addWidget(tab, 1);
+}
+
+void KernelDock::openKnowledgeRoute(const QString& routeId)
+{
+    if (m_tabWidget == nullptr)
+    {
+        return;
+    }
+
+    // 路由表只列出知识中心所在 KernelDock 内已经存在的页面；
+    // 切页不会自动点击刷新、修复、摘除或其它可能改变系统状态的按钮。
+    int targetTabIndex = -1;
+    if (routeId == QStringLiteral("object_namespace"))
+    {
+        targetTabIndex = m_objectNamespaceTabIndex;
+    }
+    else if (routeId == QStringLiteral("io_management"))
+    {
+        targetTabIndex = m_ioManagementTabIndex;
+    }
+    else if (routeId == QStringLiteral("kernel_audit"))
+    {
+        targetTabIndex = m_kernelAuditTabIndex;
+    }
+    else if (routeId == QStringLiteral("hvm"))
+    {
+        targetTabIndex = m_hvmTabIndex;
+    }
+    else if (routeId == QStringLiteral("slat_iommu"))
+    {
+        targetTabIndex = m_slatIommuTabIndex;
+    }
+    else if (routeId == QStringLiteral("text_integrity"))
+    {
+        targetTabIndex = m_textIntegrityTabIndex;
+    }
+    else if (routeId == QStringLiteral("vbs"))
+    {
+        targetTabIndex = m_vbsPostureTabIndex;
+    }
+    else if (routeId == QStringLiteral("timer_dpc"))
+    {
+        targetTabIndex = m_timerDpcTabIndex;
+    }
+    else if (routeId == QStringLiteral("work_queue_threads"))
+    {
+        targetTabIndex = m_workQueueThreadTabIndex;
+    }
+    else if (routeId == QStringLiteral("cid"))
+    {
+        targetTabIndex = m_crossViewTabIndex;
+    }
+    else if (routeId == QStringLiteral("ipc"))
+    {
+        targetTabIndex = m_ipcTabIndex;
+    }
+
+    if (targetTabIndex >= 0)
+    {
+        m_tabWidget->setCurrentIndex(targetTabIndex);
+        ensureTabInitialized(targetTabIndex);
+    }
 }
 
 void KernelDock::ensureTabInitialized(const int tabIndex)

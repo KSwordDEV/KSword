@@ -154,6 +154,20 @@ typedef struct _KSWORD_ARK_BUGCHECK_STATE
 extern KSWORD_ARK_BUGCHECK_STATE g_KswordArkBugcheckState;
 extern UCHAR g_KswordArkBugcheckBitmapPixels[KSWORD_ARK_BUGCHECK_BITMAP_MAX_BYTES];
 
+// 控制器在 DriverEntry 只建立同步状态；配置 IOCTL 明确请求后才启动完整 BGP 诊断。
+NTSTATUS
+KswordARKBugcheckControlConfigure(
+    _In_ const KSWORD_ARK_BUGCHECK_DIAGNOSTICS_REQUEST* Request,
+    _Out_ KSWORD_ARK_BUGCHECK_DIAGNOSTICS_RESPONSE* Response
+    );
+
+// 耗时准备阶段在安全边界调用此函数；返回 STATUS_CANCELLED 表示驱动正在卸载，
+// STATUS_IO_TIMEOUT 表示本次安装已超过 R0 的 30 秒预算。
+NTSTATUS
+KswordARKBugcheckControlCheckAbort(
+    VOID
+    );
+
 NTSTATUS
 KswordARKBugcheckSvgaInitialize(
     _Inout_ PKSWORD_ARK_SVGA_CONTEXT Context

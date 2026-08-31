@@ -34,9 +34,20 @@ struct ServiceEntry {
     std::uint32_t processId = 0;
     std::uint32_t controlsAccepted = 0;
     std::uint32_t win32ExitCode = 0;
+    std::uint32_t serviceSpecificExitCode = 0;
+    std::uint32_t checkPoint = 0;
+    std::uint32_t waitHint = 0;
+    std::uint32_t serviceFlags = 0;
+    std::uint32_t tagId = 0;
     bool delayedAutoStart = false;
     bool hasConfig = false;
     bool hasStatus = false;
+    bool hasDescription = false;
+    // Direct dependency names and +load-order-group entries stay separate so
+    // a detail snapshot can expose the SCM's two dependency forms without
+    // asking a view to reverse-parse display text.
+    std::vector<std::wstring> dependencyServiceNames;
+    std::vector<std::wstring> dependencyLoadOrderGroups;
     std::wstring riskText;          // Empty when nothing stood out.
     std::wstring diagnosticText;    // Why status or config could not be read.
 };
@@ -105,6 +116,11 @@ std::wstring ServiceStartTypeText(std::uint32_t startType, bool delayedAutoStart
 // ServiceTypeText formats the service type bitmask (own/shared process, kernel
 // driver, file system driver, interactive).
 std::wstring ServiceTypeText(std::uint32_t serviceType);
+
+// ServicePropertiesForEntry expands a service's base SCM snapshot into stable
+// name/value rows. The rows are suitable for a native detail list and TSV
+// export; callers never need to parse their display values back into fields.
+std::vector<ServiceProperty> ServicePropertiesForEntry(const ServiceEntry& entry);
 
 // ServiceCanStart / ServiceCanStop / ServiceCanPause / ServiceCanContinue report
 // whether a transition is legal right now. They read the accepted-controls mask

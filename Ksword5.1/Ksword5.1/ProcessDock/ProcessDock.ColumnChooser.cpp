@@ -67,6 +67,7 @@ ProcessDock::ProcessColumnGroup ProcessDock::processColumnGroupOf(const TableCol
     switch (column)
     {
     case TableColumn::Cpu:
+    case TableColumn::CpuCore:
     case TableColumn::Disk:
     case TableColumn::Gpu:
     case TableColumn::Net:
@@ -235,9 +236,15 @@ void ProcessDock::setProcessColumnVisible(
         // 新显示的列可能需要额外采集（GDI 对象、作业、缓解策略、显存等）：
         // 立刻强制刷新一轮，用户不必等到下一个周期才看到真实数据。
         const std::uint32_t nextDemandFlags = currentProcessDetailDemandFlags();
-        if (nextDemandFlags != m_lastProcessDetailDemandFlags)
+        const bool detailDemandChanged =
+            nextDemandFlags != m_lastProcessDetailDemandFlags;
+        if (detailDemandChanged)
         {
             m_lastProcessDetailDemandFlags = nextDemandFlags;
+        }
+        if (detailDemandChanged || column == TableColumn::CpuCore)
+        {
+            // CPU核心列显隐决定单系统 ETW 会话生命周期，需要立即刷新而不是等待周期定时器。
             requestAsyncRefresh(true);
         }
     }
@@ -261,6 +268,8 @@ void ProcessDock::resetProcessColumnsToViewDefault()
     }
 
     m_lastProcessDetailDemandFlags = currentProcessDetailDemandFlags();
+    // 恢复内置预设可能显示/隐藏 CPU核心列，立即同步唯一 ETW 会话生命周期。
+    requestAsyncRefresh(true);
 
     kLogEvent logEvent;
     info << logEvent << "[ProcessDock] 进程表列布局已恢复为当前视图默认值。" << eol;
@@ -812,9 +821,10 @@ void ProcessDock::showColumnChooserDialog()
             if (nextDemandFlags != m_lastProcessDetailDemandFlags)
             {
                 m_lastProcessDetailDemandFlags = nextDemandFlags;
-                // 新增的列可能依赖额外采集，立即刷新避免整列显示占位符。
-                requestAsyncRefresh(true);
             }
+            // 批量列变更也可能包含 CPU核心，其 ETW 生命周期不属于 ProcessDetailDemand 位图。
+            // 对话框只在实际列变化后调用本提交函数，因此统一强制刷新一次不会形成周期额外负担。
+            requestAsyncRefresh(true);
         };
 
     // 保存为视图：先把当前勾选落到表格，再以该组合创建/覆盖同名自定义视图。

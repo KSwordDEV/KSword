@@ -22,6 +22,7 @@ Environment:
 #include "driver/KswordArkI8042AuditIoctl.h"
 #include "driver/KswordArkHwidIoctl.h"
 #include "driver/KswordArkProcessProtectIoctl.h"
+#include "driver/KswordArkCallbackMonitorIoctl.h"
 
 // Feature handler declarations live here instead of in the central dispatch file.
 NTSTATUS KswordARKKernelIoctlControlDriverDispatch(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
@@ -91,10 +92,14 @@ NTSTATUS KswordARKCallbackIoctlWaitEventHandler(_In_ WDFDEVICE Device, _In_ WDFR
 NTSTATUS KswordARKCallbackIoctlAnswerEventHandler(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKCallbackIoctlCancelAllPendingHandler(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKCallbackIoctlRemoveExternalCallbackHandler(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
+NTSTATUS KswordARKBugcheckIoctlConfigureDiagnostics(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKCallbackIoctlRemoveExternalCallbackExHandler(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKCallbackIoctlEnumCallbacksHandler(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKCallbackIoctlSetMinifilterBypassPidsHandler(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKCallbackIoctlQueryMinifilterBypassPidsHandler(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
+NTSTATUS KswordARKCallbackMonitorIoctlControl(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
+NTSTATUS KswordARKCallbackMonitorIoctlQuery(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
+NTSTATUS KswordARKCallbackMonitorIoctlRead(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKProcessProtectIoctlSetConfigHandler(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKProcessProtectIoctlQueryStateHandler(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKDynDataIoctlQueryStatus(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
@@ -188,11 +193,13 @@ NTSTATUS KswordARKHwidIoctlQueryDispatch(_In_ WDFDEVICE Device, _In_ WDFREQUEST 
 NTSTATUS KswordARKHwidIoctlControlDispatch(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKCpuPowerIoctlQuery(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKCpuPowerIoctlControl(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
+NTSTATUS KswordARKResearchIoctlQueryTopic(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKDebugOutputIoctlControl(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKDebugOutputIoctlDrain(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKBugcheckIoctlSetBitmap(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKBugcheckIoctlSetVerdictResources(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKBugcheckGuardIoctlConfigure(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
+NTSTATUS KswordARKBugcheckShieldIoctlConfigure(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKRxpfIoctlQuerySupport(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKRxpfIoctlRegisterPage(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKRxpfIoctlChangePage(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
@@ -274,9 +281,14 @@ static const KSWORD_ARK_IOCTL_ENTRY g_KswordArkIoctlTable[] = {
     { IOCTL_KSWORD_ARK_ENUM_CALLBACKS, KswordARKCallbackIoctlEnumCallbacksHandler, "IOCTL_KSWORD_ARK_ENUM_CALLBACKS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_SET_MINIFILTER_BYPASS_PIDS, KswordARKCallbackIoctlSetMinifilterBypassPidsHandler, "IOCTL_KSWORD_ARK_SET_MINIFILTER_BYPASS_PIDS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_QUERY_MINIFILTER_BYPASS_PIDS, KswordARKCallbackIoctlQueryMinifilterBypassPidsHandler, "IOCTL_KSWORD_ARK_QUERY_MINIFILTER_BYPASS_PIDS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
+    { IOCTL_KSWORD_ARK_CALLBACK_MONITOR_CONTROL, KswordARKCallbackMonitorIoctlControl, "IOCTL_KSWORD_ARK_CALLBACK_MONITOR_CONTROL", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
+    { IOCTL_KSWORD_ARK_CALLBACK_MONITOR_QUERY, KswordARKCallbackMonitorIoctlQuery, "IOCTL_KSWORD_ARK_CALLBACK_MONITOR_QUERY", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_QUIET_SUCCESS },
+    { IOCTL_KSWORD_ARK_CALLBACK_MONITOR_READ, KswordARKCallbackMonitorIoctlRead, "IOCTL_KSWORD_ARK_CALLBACK_MONITOR_READ", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_QUIET_SUCCESS },
     // 进程保护复用同一个对象回调，配置下发按"改变回调行为"处理，查询为只读。
     { IOCTL_KSWORD_ARK_SET_PROCESS_PROTECT_CONFIG, KswordARKProcessProtectIoctlSetConfigHandler, "IOCTL_KSWORD_ARK_SET_PROCESS_PROTECT_CONFIG", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_QUERY_PROCESS_PROTECT_STATE, KswordARKProcessProtectIoctlQueryStateHandler, "IOCTL_KSWORD_ARK_QUERY_PROCESS_PROTECT_STATE", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_QUIET_SUCCESS },
+    // 知识中心只读证据编排：只查中央注册表并采集当前 WDF/WDM 上下文。
+    { IOCTL_KSWORD_ARK_QUERY_RESEARCH_TOPIC, KswordARKResearchIoctlQueryTopic, "IOCTL_KSWORD_ARK_QUERY_RESEARCH_TOPIC", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_QUIET_SUCCESS },
     { IOCTL_KSWORD_ARK_QUERY_DYN_STATUS, KswordARKDynDataIoctlQueryStatus, "IOCTL_KSWORD_ARK_QUERY_DYN_STATUS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_QUERY_DYN_FIELDS, KswordARKDynDataIoctlQueryFields, "IOCTL_KSWORD_ARK_QUERY_DYN_FIELDS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_QUERY_CAPABILITIES, KswordARKDynDataIoctlQueryCapabilities, "IOCTL_KSWORD_ARK_QUERY_CAPABILITIES", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
@@ -389,9 +401,13 @@ static const KSWORD_ARK_IOCTL_ENTRY g_KswordArkIoctlTable[] = {
     { IOCTL_KSWORD_ARK_HWID_DISPATCH_CONTROL, KswordARKHwidIoctlControlDispatch, "IOCTL_KSWORD_ARK_HWID_DISPATCH_CONTROL", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_QUERY_CPU_POWER, KswordARKCpuPowerIoctlQuery, "IOCTL_KSWORD_ARK_QUERY_CPU_POWER", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_QUIET_SUCCESS },
     { IOCTL_KSWORD_ARK_CONTROL_CPU_POWER, KswordARKCpuPowerIoctlControl, "IOCTL_KSWORD_ARK_CONTROL_CPU_POWER", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
+    // BGP 扫描和 BugCheck 回调只有 R3 明确请求后才安装，避免普通驱动启动触发私有字段探测。
+    { IOCTL_KSWORD_ARK_CONFIGURE_BUGCHECK_DIAGNOSTICS, KswordARKBugcheckIoctlConfigureDiagnostics, "IOCTL_KSWORD_ARK_CONFIGURE_BUGCHECK_DIAGNOSTICS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_SET_BUGCHECK_BITMAP, KswordARKBugcheckIoctlSetBitmap, "IOCTL_KSWORD_ARK_SET_BUGCHECK_BITMAP", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_QUIET_COMPLETION },
     { IOCTL_KSWORD_ARK_SET_BUGCHECK_VERDICT_RESOURCES, KswordARKBugcheckIoctlSetVerdictResources, "IOCTL_KSWORD_ARK_SET_BUGCHECK_VERDICT_RESOURCES", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_QUIET_COMPLETION },
     { IOCTL_KSWORD_ARK_CONFIGURE_BUGCHECK_GUARD, KswordARKBugcheckGuardIoctlConfigure, "IOCTL_KSWORD_ARK_CONFIGURE_BUGCHECK_GUARD", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
+    // Shield 只走公共 BugCheck 回调，绝不修改私有内核状态；enable 需要 UI 明确确认。
+    { IOCTL_KSWORD_ARK_CONFIGURE_BUGCHECK_SHIELD, KswordARKBugcheckShieldIoctlConfigure, "IOCTL_KSWORD_ARK_CONFIGURE_BUGCHECK_SHIELD", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     // RXPF owns its exact-build, write-access, confirmation-token and safety-policy gates.
     { IOCTL_KSWORD_ARK_RXPF_QUERY_SUPPORT, KswordARKRxpfIoctlQuerySupport, "IOCTL_KSWORD_ARK_RXPF_QUERY_SUPPORT", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_RXPF_REGISTER_PAGE, KswordARKRxpfIoctlRegisterPage, "IOCTL_KSWORD_ARK_RXPF_REGISTER_PAGE", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },

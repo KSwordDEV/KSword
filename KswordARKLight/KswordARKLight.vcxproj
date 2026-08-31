@@ -50,7 +50,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>Level4</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;NOMINMAX;UNICODE;_UNICODE;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
@@ -67,7 +67,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>Level4</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
@@ -93,10 +93,13 @@
     <ClCompile Include="App\Main.cpp" />
     <ClCompile Include="App\MainWindow.cpp" />
     <ClCompile Include="Core\Common.cpp" />
+    <ClCompile Include="Core\DriverLease.cpp" />
     <ClCompile Include="Core\DriverService.cpp" />
+    <ClCompile Include="Core\EntityRef.cpp" />
     <ClCompile Include="Core\NtApi.cpp" />
     <ClCompile Include="Core\PathUtils.cpp" />
     <ClCompile Include="Core\Privilege.cpp" />
+    <ClCompile Include="Core\WorkspaceConfig.cpp" />
     <ClCompile Include="Docking\DockManager.cpp" />
     <ClCompile Include="Features\AuditCommon\AuditFormatting.cpp" />
     <ClCompile Include="Features\AuditCommon\AuditStatus.cpp" />
@@ -155,6 +158,9 @@
     <ClCompile Include="Features\Memory\DriverMemoryModel.cpp" />
     <ClCompile Include="Features\Memory\DriverMemoryView.cpp" />
     <ClCompile Include="Features\Memory\MemoryFeature.cpp" />
+    <ClCompile Include="Features\Memory\MemoryInspection.cpp" />
+    <ClCompile Include="Features\Memory\MemorySnapshot.cpp" />
+    <ClCompile Include="Features\Memory\MemoryWritePlan.cpp" />
     <ClCompile Include="Features\Misc\MiscFeature.cpp" />
     <ClCompile Include="Features\Monitor\EtwEventModel.cpp" />
     <ClCompile Include="Features\Monitor\EtwFilterDialog.cpp" />
@@ -166,6 +172,7 @@
     <ClCompile Include="Features\Network\NetworkModel.cpp" />
     <ClCompile Include="Features\Network\NetworkView.cpp" />
     <ClCompile Include="Features\Process\ProcessActions.cpp" />
+    <ClCompile Include="Features\Process\ProcessColumns.cpp" />
     <ClCompile Include="Features\Process\ProcessEnumerator.cpp" />
     <ClCompile Include="Features\Process\ProcessFeature.cpp" />
     <ClCompile Include="Features\Process\ProcessModel.cpp" />
@@ -173,6 +180,8 @@
     <ClCompile Include="Features\Registry\RegistryActions.cpp" />
     <ClCompile Include="Features\Registry\RegistryFeature.cpp" />
     <ClCompile Include="Features\Registry\RegistryModel.cpp" />
+    <ClCompile Include="Features\Registry\RegistrySearchModel.cpp" />
+    <ClCompile Include="Features\Registry\RegistrySearchView.cpp" />
     <ClCompile Include="Features\Registry\RegistryView.cpp" />
     <ClCompile Include="Features\ProcessDetail\ProcessDetailCollector.cpp" />
     <ClCompile Include="Features\ProcessDetail\ProcessDetailFeature.cpp" />
@@ -190,13 +199,11 @@
     <ClCompile Include="Features\NetTools\NetToolsDiagnostics.cpp" />
     <ClCompile Include="Features\NetTools\NetToolsDiagnosticView.cpp" />
     <ClCompile Include="Features\NetTools\NetToolsEnumerator.cpp" />
-    <ClCompile Include="Features\NetTools\NetToolsFeature.cpp" />
     <ClCompile Include="Features\NetTools\NetToolsFirewallView.cpp" />
     <ClCompile Include="Features\NetTools\NetToolsModel.cpp" />
     <ClCompile Include="Features\HardwareStats\BusDeviceView.cpp" />
     <ClCompile Include="Features\HardwareStats\DeviceTopologyEnumerator.cpp" />
     <ClCompile Include="Features\HardwareStats\DiskActivityView.cpp" />
-    <ClCompile Include="Features\HardwareStats\HardwareStatsFeature.cpp" />
     <ClCompile Include="Features\HardwareStats\HardwareStatsModel.cpp" />
     <ClCompile Include="Features\HardwareStats\PerformanceSampler.cpp" />
     <ClCompile Include="Features\HardwareStats\PerformanceView.cpp" />
@@ -207,13 +214,14 @@
     <ClCompile Include="Features\SysTools\EventLogView.cpp" />
     <ClCompile Include="Features\SysTools\FileHolderScanner.cpp" />
     <ClCompile Include="Features\SysTools\FileHolderView.cpp" />
+    <ClCompile Include="Features\SysTools\IoctlDecoder.cpp" />
+    <ClCompile Include="Features\SysTools\IoctlDecoderView.cpp" />
     <ClCompile Include="Features\SysTools\SysToolsFeature.cpp" />
     <ClCompile Include="Features\SysTools\SystemTimeInfo.cpp" />
     <ClCompile Include="Features\SysTools\SystemTimeView.cpp" />
     <ClCompile Include="Features\WindowTools\WindowToolsCaptureView.cpp" />
     <ClCompile Include="Features\WindowTools\WindowToolsClipboardView.cpp" />
     <ClCompile Include="Features\WindowTools\WindowToolsCommon.cpp" />
-    <ClCompile Include="Features\WindowTools\WindowToolsFeature.cpp" />
     <ClCompile Include="Features\WindowTools\WindowToolsHierarchyView.cpp" />
     <ClCompile Include="Features\WindowTools\WindowToolsHotkeyView.cpp" />
     <ClCompile Include="Features\Privilege\PrivilegeActions.cpp" />
@@ -235,8 +243,13 @@
     <ClCompile Include="Features\Window\WindowEnumerator.cpp" />
     <ClCompile Include="Features\Window\WindowFeature.cpp" />
     <ClCompile Include="Features\Window\WindowModel.cpp" />
+    <ClCompile Include="Features\Window\Win32kTimerEvidenceModel.cpp" />
     <ClCompile Include="Features\Window\WindowView.cpp" />
     <ClCompile Include="Ui\Controls.cpp" />
+    <ClCompile Include="Ui\EntityNavigation.cpp" />
+    <ClCompile Include="Ui\EvidenceSession.cpp" />
+    <ClCompile Include="Ui\EvidenceSessionView.cpp" />
+    <ClCompile Include="Ui\ExportUtil.cpp" />
     <ClCompile Include="Ui\FilterBar.cpp" />
     <ClCompile Include="Ui\IconUtil.cpp" />
     <ClCompile Include="Ui\ListViewUtil.cpp" />
@@ -250,6 +263,7 @@
     <ClCompile Include="Ui\Theme.cpp" />
     <ClCompile Include="Ui\TreeViewUtil.cpp" />
     <ClCompile Include="Ui\VirtualListView.cpp" />
+    <ClCompile Include="Ui\WorkspaceHost.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverAlpc.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverBlind.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverDispatch.cpp" />
@@ -263,7 +277,6 @@
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverSystemTime.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverVirtualization.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverWorkQueue.cpp" />
-    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkStorageControllerClient.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCallback.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverBugcheck.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCapabilities.cpp" />
@@ -285,6 +298,7 @@
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverProcess.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverRegistry.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverSection.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\process\process.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\service\service.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\string\string.cpp" />
@@ -292,11 +306,15 @@
   <ItemGroup>
     <ClInclude Include="App\MainWindow.h" />
     <ClInclude Include="Core\Common.h" />
+    <ClInclude Include="Core\DriverLease.h" />
+    <ClInclude Include="Core\DriverLeasePolicy.h" />
     <ClInclude Include="Core\DriverService.h" />
+    <ClInclude Include="Core\EntityRef.h" />
     <ClInclude Include="Core\NtApi.h" />
     <ClInclude Include="Core\PathUtils.h" />
     <ClInclude Include="Core\Privilege.h" />
     <ClInclude Include="Core\Win32Lean.h" />
+    <ClInclude Include="Core\WorkspaceConfig.h" />
     <ClInclude Include="Docking\DockManager.h" />
     <ClInclude Include="Features\AuditCommon\AuditCommon.h" />
     <ClInclude Include="Features\AuditCommon\AuditFormatting.h" />
@@ -356,6 +374,9 @@
     <ClInclude Include="Features\Memory\DriverMemoryModel.h" />
     <ClInclude Include="Features\Memory\DriverMemoryView.h" />
     <ClInclude Include="Features\Memory\MemoryFeature.h" />
+    <ClInclude Include="Features\Memory\MemoryInspection.h" />
+    <ClInclude Include="Features\Memory\MemorySnapshot.h" />
+    <ClInclude Include="Features\Memory\MemoryWritePlan.h" />
     <ClInclude Include="Features\Misc\MiscFeature.h" />
     <ClInclude Include="Features\Monitor\EtwEventModel.h" />
     <ClInclude Include="Features\Monitor\EtwFilterDialog.h" />
@@ -371,9 +392,12 @@
     <ClInclude Include="Features\Process\ProcessFeature.h" />
     <ClInclude Include="Features\Process\ProcessModel.h" />
     <ClInclude Include="Features\Process\ProcessView.h" />
+    <ClInclude Include="Features\Process\ProcessColumns.h" />
     <ClInclude Include="Features\Registry\RegistryActions.h" />
     <ClInclude Include="Features\Registry\RegistryFeature.h" />
     <ClInclude Include="Features\Registry\RegistryModel.h" />
+    <ClInclude Include="Features\Registry\RegistrySearchModel.h" />
+    <ClInclude Include="Features\Registry\RegistrySearchView.h" />
     <ClInclude Include="Features\Registry\RegistryView.h" />
     <ClInclude Include="Features\ProcessDetail\ProcessDetailCollector.h" />
     <ClInclude Include="Features\ProcessDetail\ProcessDetailFeature.h" />
@@ -385,13 +409,11 @@
     <ClInclude Include="Features\NetTools\NetToolsDiagnostics.h" />
     <ClInclude Include="Features\NetTools\NetToolsDiagnosticView.h" />
     <ClInclude Include="Features\NetTools\NetToolsEnumerator.h" />
-    <ClInclude Include="Features\NetTools\NetToolsFeature.h" />
     <ClInclude Include="Features\NetTools\NetToolsFirewallView.h" />
     <ClInclude Include="Features\NetTools\NetToolsModel.h" />
     <ClInclude Include="Features\HardwareStats\BusDeviceView.h" />
     <ClInclude Include="Features\HardwareStats\DeviceTopologyEnumerator.h" />
     <ClInclude Include="Features\HardwareStats\DiskActivityView.h" />
-    <ClInclude Include="Features\HardwareStats\HardwareStatsFeature.h" />
     <ClInclude Include="Features\HardwareStats\HardwareStatsModel.h" />
     <ClInclude Include="Features\HardwareStats\PerformanceSampler.h" />
     <ClInclude Include="Features\HardwareStats\PerformanceView.h" />
@@ -402,13 +424,14 @@
     <ClInclude Include="Features\SysTools\EventLogView.h" />
     <ClInclude Include="Features\SysTools\FileHolderScanner.h" />
     <ClInclude Include="Features\SysTools\FileHolderView.h" />
+    <ClInclude Include="Features\SysTools\IoctlDecoder.h" />
+    <ClInclude Include="Features\SysTools\IoctlDecoderView.h" />
     <ClInclude Include="Features\SysTools\SysToolsFeature.h" />
     <ClInclude Include="Features\SysTools\SystemTimeInfo.h" />
     <ClInclude Include="Features\SysTools\SystemTimeView.h" />
     <ClInclude Include="Features\WindowTools\WindowToolsCaptureView.h" />
     <ClInclude Include="Features\WindowTools\WindowToolsClipboardView.h" />
     <ClInclude Include="Features\WindowTools\WindowToolsCommon.h" />
-    <ClInclude Include="Features\WindowTools\WindowToolsFeature.h" />
     <ClInclude Include="Features\WindowTools\WindowToolsHierarchyView.h" />
     <ClInclude Include="Features\WindowTools\WindowToolsHotkeyView.h" />
     <ClInclude Include="Features\Privilege\PrivilegeActions.h" />
@@ -430,9 +453,14 @@
     <ClInclude Include="Features\Window\WindowEnumerator.h" />
     <ClInclude Include="Features\Window\WindowFeature.h" />
     <ClInclude Include="Features\Window\WindowModel.h" />
+    <ClInclude Include="Features\Window\Win32kTimerEvidenceModel.h" />
     <ClInclude Include="Features\Window\WindowView.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="Ui\Controls.h" />
+    <ClInclude Include="Ui\EntityNavigation.h" />
+    <ClInclude Include="Ui\EvidenceSession.h" />
+    <ClInclude Include="Ui\EvidenceSessionView.h" />
+    <ClInclude Include="Ui\ExportUtil.h" />
     <ClInclude Include="Ui\AsyncTask.h" />
     <ClInclude Include="Ui\FilterBar.h" />
     <ClInclude Include="Ui\IconUtil.h" />
@@ -448,12 +476,14 @@
     <ClInclude Include="Ui\Theme.h" />
     <ClInclude Include="Ui\TreeViewUtil.h" />
     <ClInclude Include="Ui\VirtualListView.h" />
+    <ClInclude Include="Ui\WorkspaceHost.h" />
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCapabilities.h" />
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverClient.h" />
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverError.h" />
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverTypes.h" />
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkRuntimeDynData.h" />
     <None Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkRuntimeDynDataCatalog.inc" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.h" />
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\process\process.h" />
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\string\string.h" />
     <ClInclude Include="..\shared\KswordArkLogProtocol.h" />

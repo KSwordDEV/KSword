@@ -3,6 +3,7 @@
 #include "../../Ui/FilterBar.h"
 
 #include "../../../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.h"
+#include "../../../shared/ThreadAffinityR3.h"
 
 #include <commctrl.h>
 
@@ -27,6 +28,9 @@ constexpr UINT kThreadSuspendCommand = 64105;
 constexpr UINT kThreadResumeCommand = 64106;
 constexpr UINT kThreadTerminateCommand = 64107;
 constexpr UINT kThreadR0TerminateCommand = 64108;
+constexpr UINT kThreadAffinityFollowProcessCommand = 50000;
+constexpr UINT kThreadAffinityProcessorBaseCommand = 50001;
+constexpr std::size_t kThreadAffinityMaxProcessorCommands = 15000U;
 
 constexpr UINT_PTR kThreadLayoutSubclassId = 0x54485244U; // "THRD"
 constexpr UINT_PTR kThreadLayoutTimerId = 0x54485245U;
@@ -41,6 +45,122 @@ struct ThreadLayoutState {
     HWND list = nullptr;
     HWND output = nullptr;
 };
+
+struct ThreadAffinityMenuState {
+    ksword::thread_affinity_r3::Snapshot snapshot;
+    bool readable = false;
+};
+
+std::wstring Utf8ToWide(const std::string& text);
+
+std::wstring ThreadAffinityProcessorText(
+    const ksword::thread_affinity_r3::LogicalProcessorState& processor) {
+    std::wstring text = L"G" + std::to_wstring(processor.coordinate.group) +
+        L":L" + std::to_wstring(processor.coordinate.logicalIndex);
+    if (!processor.topologyLabel.empty()) {
+        text += L" (" + Utf8ToWide(processor.topologyLabel) + L")";
+    }
+    return text;
+}
+
+void AppendThreadAffinitySubMenu(
+    HMENU parentMenu,
+    DWORD processId,
+    DWORD threadId,
+    ULONGLONG threadCreationTime100ns,
+    ThreadAffinityMenuState& state) {
+    HMENU affinityMenu = ::CreatePopupMenu();
+    if (!affinityMenu) {
+        return;
+    }
+
+    std::string detailText;
+    state.readable = ksword::thread_affinity_r3::QueryThreadAffinityState(
+        threadId,
+        processId,
+        threadCreationTime100ns,
+        &state.snapshot,
+        &detailText);
+    if (!state.readable) {
+        ::AppendMenuW(
+            affinityMenu,
+            MF_STRING | MF_GRAYED,
+            0,
+            L"当前线程亲和性不可用");
+    } else {
+        ::AppendMenuW(
+            affinityMenu,
+            MF_STRING | (state.snapshot.followsProcessCpuSets ? MF_CHECKED : MF_UNCHECKED),
+            kThreadAffinityFollowProcessCommand,
+            L"跟随进程 CPU Set");
+        ::AppendMenuW(affinityMenu, MF_SEPARATOR, 0, nullptr);
+
+        const std::size_t processorCount = std::min(
+            state.snapshot.processors.size(),
+            kThreadAffinityMaxProcessorCommands);
+        for (std::size_t index = 0; index < processorCount; ++index) {
+            const auto& processor = state.snapshot.processors[index];
+            UINT flags = MF_STRING | (processor.selected ? MF_CHECKED : MF_UNCHECKED);
+            if (!processor.available) {
+                flags |= MF_GRAYED;
+            }
+            const std::wstring text = ThreadAffinityProcessorText(processor);
+            ::AppendMenuW(
+                affinityMenu,
+                flags,
+                kThreadAffinityProcessorBaseCommand + static_cast<UINT>(index),
+                text.c_str());
+        }
+    }
+
+    ::AppendMenuW(
+        parentMenu,
+        MF_POPUP,
+        reinterpret_cast<UINT_PTR>(affinityMenu),
+        L"线程亲和性");
+}
+
+bool BuildThreadAffinityRule(
+    const ThreadAffinityMenuState& state,
+    UINT command,
+    ksword::thread_affinity_r3::Rule& rule) {
+    rule = {};
+    if (!state.readable) {
+        return false;
+    }
+    if (command == kThreadAffinityFollowProcessCommand) {
+        rule.followProcessCpuSets = true;
+        return true;
+    }
+    if (command < kThreadAffinityProcessorBaseCommand) {
+        return false;
+    }
+    const std::size_t processorIndex =
+        static_cast<std::size_t>(command - kThreadAffinityProcessorBaseCommand);
+    if (processorIndex >= state.snapshot.processors.size() ||
+        !state.snapshot.processors[processorIndex].available) {
+        return false;
+    }
+
+    for (const auto& processor : state.snapshot.processors) {
+        if (processor.available &&
+            (state.snapshot.followsProcessCpuSets || processor.selected)) {
+            rule.processors.push_back(processor.coordinate);
+        }
+    }
+    const auto clickedCoordinate = state.snapshot.processors[processorIndex].coordinate;
+    const auto existing = std::find(
+        rule.processors.begin(),
+        rule.processors.end(),
+        clickedCoordinate);
+    if (existing == rule.processors.end()) {
+        rule.processors.push_back(clickedCoordinate);
+    } else {
+        rule.processors.erase(existing);
+    }
+    ksword::thread_affinity_r3::normalizeCoordinates(&rule.processors);
+    return !rule.processors.empty();
+}
 
 int ClientWidth(HWND hwnd) {
     RECT client{};
@@ -610,6 +730,14 @@ bool ProcessDetailPage::HandleThreadContextMenu(POINT screenPoint) {
         return true;
     }
 
+    std::size_t selectedIndex = 0;
+    const auto& threads = ThreadEntries();
+    if (!SelectedItemData(list, selectedIndex) || selectedIndex >= threads.size()) {
+        return true;
+    }
+    const ProcessThreadInfo selectedThread = threads[selectedIndex];
+    ThreadAffinityMenuState affinityMenuState{};
+
     HMENU menu = ::CreatePopupMenu();
     if (!menu) {
         return true;
@@ -619,6 +747,13 @@ bool ProcessDetailPage::HandleThreadContextMenu(POINT screenPoint) {
     ::AppendMenuW(menu, MF_STRING, kThreadCopyAllCommand, L"复制全部");
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(menu, MF_STRING, kThreadShowDetailCommand, L"线程详细信息");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendThreadAffinitySubMenu(
+        menu,
+        selectedThread.ownerProcessId,
+        selectedThread.threadId,
+        selectedThread.creationTime100ns,
+        affinityMenuState);
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(menu, MF_STRING, kThreadSuspendCommand, L"挂起线程");
     ::AppendMenuW(menu, MF_STRING, kThreadResumeCommand, L"恢复线程");
@@ -634,6 +769,76 @@ bool ProcessDetailPage::HandleThreadContextMenu(POINT screenPoint) {
         hwnd_,
         nullptr);
     ::DestroyMenu(menu);
+
+    const bool affinityCommand =
+        command == kThreadAffinityFollowProcessCommand ||
+        (command >= kThreadAffinityProcessorBaseCommand &&
+            command < kThreadAffinityProcessorBaseCommand +
+                static_cast<UINT>(std::min(
+                    affinityMenuState.snapshot.processors.size(),
+                    kThreadAffinityMaxProcessorCommands)));
+    if (affinityCommand) {
+        ksword::thread_affinity_r3::Rule rule;
+        if (!BuildThreadAffinityRule(affinityMenuState, command, rule)) {
+            SetPageStatus(
+                TabIndex::Threads,
+                ThreadStatus,
+                L"● 至少保留一个可用逻辑处理器。" );
+            return true;
+        }
+        const DWORD threadId = selectedThread.threadId;
+        const ULONGLONG expectedThreadCreationTime100ns = selectedThread.creationTime100ns;
+        const DWORD targetProcessId = processId_;
+        const ULONGLONG expectedProcessCreationTime100ns = expectedCreationTime100ns_;
+        if (threadId == 0U || expectedThreadCreationTime100ns == 0U ||
+            selectedThread.ownerProcessId != targetProcessId ||
+            expectedProcessCreationTime100ns == 0U) {
+            SetPageStatus(TabIndex::Threads, ThreadStatus, L"● 线程身份不可用，无法安全设置亲和性。" );
+            return true;
+        }
+        ExecuteBackgroundAction(
+            TabIndex::Threads,
+            ThreadStatus,
+            L"● 正在通过 R3 设置线程亲和性 " + DecimalText(threadId) + L"…",
+            [threadId,
+                expectedThreadCreationTime100ns,
+                targetProcessId,
+                expectedProcessCreationTime100ns,
+                rule] {
+                ProcessDetailActionResult result{};
+                Ksword::Core::UniqueHandle verifiedProcess;
+                Ksword::Core::UniqueHandle verifiedThread;
+                std::wstring identityError;
+                if (!ProcessDetailPage::OpenVerifiedThreadActionTarget(
+                        targetProcessId,
+                        expectedProcessCreationTime100ns,
+                        threadId,
+                        expectedThreadCreationTime100ns,
+                        THREAD_SET_LIMITED_INFORMATION,
+                        verifiedProcess,
+                        verifiedThread,
+                        identityError)) {
+                    result.statusText = L"● 设置线程亲和性失败 | " + identityError;
+                    return result;
+                }
+                std::string detailText;
+                if (!ksword::thread_affinity_r3::SetThreadAffinityRule(
+                        threadId,
+                        targetProcessId,
+                        expectedThreadCreationTime100ns,
+                        rule,
+                        &detailText)) {
+                    result.statusText = L"● 设置线程亲和性失败 | " +
+                        (detailText.empty() ? L"R3 API 调用失败。" : Utf8ToWide(detailText));
+                    return result;
+                }
+                result.refreshRequired = true;
+                result.statusText = L"● 已通过 R3 更新线程 " + DecimalText(threadId) +
+                    L" 的 CPU Set 亲和性。";
+                return result;
+            });
+        return true;
+    }
 
     switch (command) {
     case kThreadCopyCellCommand: CopyListCell(list); break;

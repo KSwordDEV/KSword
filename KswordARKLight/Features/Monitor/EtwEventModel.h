@@ -61,4 +61,12 @@ std::wstring GuidToString(const GUID& value);
 // is a FILETIME-compatible value; output is a short local timestamp string.
 std::wstring FileTimeToLocalText(const LARGE_INTEGER& timestamp);
 
+// BuildVisibleEtwEventsTsv serializes a stable ETW view snapshot in its
+// displayed order. Inputs are the immutable UI-owned event rows and filtered
+// source indexes; output is an empty string when no valid visible row exists.
+// The helper never touches a live ETW session or any UI handle.
+std::wstring BuildVisibleEtwEventsTsv(
+    const std::vector<EtwEvent>& rows,
+    const std::vector<std::size_t>& visibleIndexes);
+
 } // namespace Ksword::Features::Monitor

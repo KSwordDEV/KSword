@@ -101,6 +101,11 @@ public:
     // for visible dock widgets.
     bool dockVisible(int index) const;
 
+    // activeDockIndex returns the active dock identity after all tab, close, and
+    // floating-window transitions. It is read-only and returns -1 when no dock
+    // is currently active.
+    int activeDockIndex() const noexcept;
+
     // layout resizes the host and all docked children. Input is parent-relative
     // bounds; processing recomputes split/leaf rectangles; no return.
     void layout(const RECT& bounds);

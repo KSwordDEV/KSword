@@ -4,6 +4,7 @@
 #include <MonitorDock/EtwArchiveCompression.h>
 #include "../UI/VisibleTableWidget.h"
 #include "DirectKernelCallMonitorWidget.h"
+#include "KernelCallbackMonitorWidget.h"
 #include "MonitorTextViewer.h"
 #include "ProcessTraceMonitorWidget.h"
 #include "WinAPIDock.h"
@@ -4871,6 +4872,33 @@ void MonitorDock::ensureDirectKernelCallTabInitialized()
     hostLayout->addWidget(m_directKernelCallWidget, 1);
 }
 
+void MonitorDock::ensureKernelCallbackTabInitialized()
+{
+    if (m_kernelCallbackWidget != nullptr || m_kernelCallbackHostPage == nullptr)
+    {
+        return;
+    }
+
+    QVBoxLayout* hostLayout = qobject_cast<QVBoxLayout*>(m_kernelCallbackHostPage->layout());
+    if (hostLayout == nullptr)
+    {
+        hostLayout = new QVBoxLayout(m_kernelCallbackHostPage);
+        hostLayout->setContentsMargins(0, 0, 0, 0);
+        hostLayout->setSpacing(0);
+    }
+    while (QLayoutItem* itemPointer = hostLayout->takeAt(0))
+    {
+        if (QWidget* itemWidget = itemPointer->widget(); itemWidget != nullptr)
+        {
+            itemWidget->deleteLater();
+        }
+        delete itemPointer;
+    }
+
+    m_kernelCallbackWidget = new KernelCallbackMonitorWidget(m_kernelCallbackHostPage);
+    hostLayout->addWidget(m_kernelCallbackWidget, 1);
+}
+
 void MonitorDock::ensureWinApiTabInitialized()
 {
     if (m_winApiPage == nullptr)
@@ -4934,6 +4962,20 @@ void MonitorDock::activateMonitorTab(const QString& tabKey)
     }
 
     const QString normalizedKey = tabKey.trimmed().toLower();
+    if (normalizedKey == QStringLiteral("kernel-callback")
+        || normalizedKey == QStringLiteral("kernelcallback")
+        || normalizedKey == QStringLiteral("callback"))
+    {
+        if (m_kernelCallbackHostPage != nullptr)
+        {
+            m_sideTabWidget->setCurrentWidget(m_kernelCallbackHostPage);
+            QTimer::singleShot(0, this, [this]()
+            {
+                ensureKernelCallbackTabInitialized();
+            });
+        }
+        return;
+    }
     if (normalizedKey == QStringLiteral("direct-kernel-call")
         || normalizedKey == QStringLiteral("directkernelcall")
         || normalizedKey == QStringLiteral("syscall"))
@@ -5042,6 +5084,26 @@ void MonitorDock::initializeUi()
         QStringLiteral("进程定向"));
     ks::i18n::LanguageManager::instance().bindTab(
         m_sideTabWidget, m_processTraceWidget, QStringLiteral("monitor.tab.process_trace"), QStringLiteral("进程定向"));
+
+    m_kernelCallbackHostPage = new QWidget(m_sideTabWidget);
+    QVBoxLayout* kernelCallbackHostLayout = new QVBoxLayout(m_kernelCallbackHostPage);
+    kernelCallbackHostLayout->setContentsMargins(0, 0, 0, 0);
+    kernelCallbackHostLayout->setSpacing(0);
+    kernelCallbackHostLayout->addWidget(
+        createMonitorDeferredPlaceholder(
+            m_kernelCallbackHostPage,
+            QStringLiteral("内核回调监控待加载"),
+            QStringLiteral("切换到本页后再连接驱动并创建回调事件界面。")),
+        1);
+    m_sideTabWidget->addTab(
+        m_kernelCallbackHostPage,
+        QIcon(QStringLiteral(":/Icon/process_threads.svg")),
+        QStringLiteral("内核回调"));
+    ks::i18n::LanguageManager::instance().bindTab(
+        m_sideTabWidget,
+        m_kernelCallbackHostPage,
+        QStringLiteral("monitor.tab.kernel_callback"),
+        QStringLiteral("内核回调"));
 
     m_directKernelCallHostPage = new QWidget(m_sideTabWidget);
     QVBoxLayout* directKernelCallHostLayout = new QVBoxLayout(m_directKernelCallHostPage);
@@ -6767,6 +6829,13 @@ void MonitorDock::initializeConnections()
         }
 
         QWidget* currentPage = m_sideTabWidget->widget(index);
+        if (currentPage == m_kernelCallbackHostPage)
+        {
+            QTimer::singleShot(0, this, [this]()
+            {
+                ensureKernelCallbackTabInitialized();
+            });
+        }
         if (currentPage == m_directKernelCallHostPage)
         {
             // 直接内核调用页按需创建，避免 syscall 映射解析拖慢 MonitorDock 首次打开。

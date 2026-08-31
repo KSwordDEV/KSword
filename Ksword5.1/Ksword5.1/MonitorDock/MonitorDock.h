@@ -63,6 +63,7 @@ class CodeEditorWidget;
 class WinAPIDock;
 class ProcessTraceMonitorWidget;
 class DirectKernelCallMonitorWidget;
+class KernelCallbackMonitorWidget;
 
 // COM 前置声明：避免在头文件引入大量 WMI 头。
 struct IWbemClassObject;
@@ -582,6 +583,7 @@ private:
     // - 处理：首次进入“直接内核调用”页时再创建真实控件和 syscall 映射；
     // - 返回：无返回值，控件挂入宿主布局后由 Qt 父子树释放。
     void ensureDirectKernelCallTabInitialized();
+    void ensureKernelCallbackTabInitialized();
     void ensureWinApiTabInitialized();
 
     // triggerDeferredDiscoveryForCurrentTab 作用：
@@ -820,6 +822,8 @@ private:
     QTimer* m_perfUpdateTimer = nullptr;    // 性能图刷新定时器（默认1秒）。
     QTabWidget* m_sideTabWidget = nullptr;  // 侧边栏 Tab 容器。
     ProcessTraceMonitorWidget* m_processTraceWidget = nullptr; // m_processTraceWidget：进程定向监控子页。
+    QWidget* m_kernelCallbackHostPage = nullptr; // 内核回调监控延迟加载宿主页。
+    KernelCallbackMonitorWidget* m_kernelCallbackWidget = nullptr; // 真正的内核回调监控控件。
     QWidget* m_directKernelCallHostPage = nullptr; // m_directKernelCallHostPage：直接内核调用延迟加载宿主页。
     DirectKernelCallMonitorWidget* m_directKernelCallWidget = nullptr; // m_directKernelCallWidget：直接内核调用监控子页。
     QWidget* m_winApiPage = nullptr;        // m_winApiPage：WinAPI 子页宿主容器。

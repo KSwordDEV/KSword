@@ -12,9 +12,11 @@
 #include <QStringConverter>
 #include <QWidget>
 
+class QComboBox;
 class QLabel;
 class QLineEdit;
 class QEvent;
+class QStackedWidget;
 class QToolButton;
 class QVBoxLayout;
 class QHBoxLayout;
@@ -24,6 +26,8 @@ class CodeTextEdit;
 
 namespace ks::ui
 {
+    class ReportStructuredView;
+
     // LocalizeGeneratedReport 作用：
     // - 按行翻译“本程序自己生成的审计报告文本”，规则与 CodeEditorWidget 只读页完全一致：
     //   整行命中语言包时直接替换，未命中时再尝试翻译“标签: 值”里冒号后的状态值；
@@ -98,6 +102,13 @@ public:
     // - 返回当前是否只读。
     bool isReadOnly() const;
 
+    // setStructuredReportViewEnabled：
+    // - 关闭内置的“结构视图 / 原始文本”切换入口；
+    // - 只用于页面已经自备结构化视图的场合（例如从 R0 结构体逐字段搭出来的属性树），
+    //   否则同一页会出现两套结构视图，用户还得分辨哪套更准；
+    // - 默认开启，普通只读报告框不需要调用。
+    void setStructuredReportViewEnabled(bool enabled);
+
     // currentEncodingDisplayText：
     // - 返回当前文件编码展示文本（如 "UTF-8 BOM"）；
     // - 若当前内容不是来自文件加载，则返回 "未知"。
@@ -130,6 +141,9 @@ signals:
 protected:
     // changeEvent：语言切换时重新渲染 setLocalizedText 保存的生成报告。
     void changeEvent(QEvent* event) override;
+
+    // eventFilter：内容区换页或改尺寸时，把右上角悬浮切换按钮重新贴到角上。
+    bool eventFilter(QObject* watchedObject, QEvent* eventObject) override;
 
 private:
     // initializeUi：
@@ -205,6 +219,17 @@ private:
     // - 若文本识别为 JSON/XML，则自动格式化；
     // - 返回格式化后的文本，无法识别或解析失败时原样返回。
     QString applyStructuredAutoFormatIfNeeded(const QString& inputText, QString* detectedKindOut = nullptr) const;
+
+    // positionStructuredSwitch：
+    // - 把悬浮切换下拉框贴到内容区右上角；
+    // - 控件不进任何布局，尺寸取自身 sizeHint，右边距额外避开当前页可见的垂直滚动条。
+    void positionStructuredSwitch();
+
+    // updateStructuredReportView：
+    // - 当前内容为只读报告且能解析出结构时，显示结构视图切换按钮并按用户上次选择切页；
+    // - 内容没有结构（日志、原始数据、用户文件）时隐藏入口并强制回到纯文本；
+    // - 由文本变化统一驱动，覆盖 setText / setRawText / setLocalizedText 与语言切换重绘。
+    void updateStructuredReportView();
 
 private:
     // m_rootLayout：根布局。
@@ -297,6 +322,15 @@ private:
     // m_gotoCloseButton：关闭跳转面板按钮。
     QToolButton* m_gotoCloseButton = nullptr;
 
+    // m_structuredCombo：结构视图 / 原始文本切换下拉框（仅只读报告可解析时可见）。
+    QComboBox* m_structuredCombo = nullptr;
+
+    // m_viewStack：纯文本编辑器与结构视图的切换容器。
+    QStackedWidget* m_viewStack = nullptr;
+
+    // m_structuredView：当前内容的结构化呈现。
+    ks::ui::ReportStructuredView* m_structuredView = nullptr;
+
     // m_editor：核心代码编辑器（行号 + 括号高亮）。
     CodeTextEdit* m_editor = nullptr;
 
@@ -332,6 +366,9 @@ private:
 
     // m_readOnlyMode：标记当前是否只读模式。
     bool m_readOnlyMode = false;
+
+    // m_structuredViewEnabled：是否允许出现内置结构视图切换入口。
+    bool m_structuredViewEnabled = true;
 
     // m_destroying：标记组件正在析构。
     // - 输入/处理：析构函数置 true，所有延迟信号回调在刷新 UI 前检查；

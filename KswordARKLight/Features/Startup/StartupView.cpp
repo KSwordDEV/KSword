@@ -3,8 +3,10 @@
 #include "StartupActions.h"
 #include "StartupEnumerator.h"
 #include "StartupModel.h"
+#include "../File/PathNavigator.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/EntityNavigation.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/LoadingOverlay.h"
 #include "../../Ui/Theme.h"
@@ -43,6 +45,7 @@ constexpr UINT kStartupMenuCopyRow = 63606;
 constexpr UINT kStartupMenuCopyVisible = 63607;
 constexpr UINT kStartupMenuCopyDetail = 63608;
 constexpr UINT kStartupMenuRefresh = 63609;
+constexpr UINT kStartupMenuOpenProvenance = 63610;
 constexpr UINT kMsgRefreshCompleted = WM_APP + 575;
 constexpr UINT kMsgFilterCompleted = WM_APP + 576;
 constexpr UINT kMsgActionCompleted = WM_APP + 577;
@@ -190,12 +193,15 @@ std::wstring StableKeyFromListItem(const StartupViewState& state, int item) {
     return sourceIndex < rows.size() ? rows[sourceIndex].stableKey : std::wstring{};
 }
 
+void SetActionControlsEnabled(StartupViewState& state, bool enabled);
+
 void ShowDetail(StartupViewState& state, int modelIndex) {
+    const StartupEntry* entry = state.model.entryAt(modelIndex);
+    SetActionControlsEnabled(state, !state.actionInProgress);
     if (!state.detailList) {
         return;
     }
     ListView_DeleteAllItems(state.detailList);
-    const StartupEntry* entry = state.model.entryAt(modelIndex);
     if (!entry) {
         SetListText(state.detailList, 0, 0, L"选择");
         SetListText(state.detailList, 0, 1, L"未选择启动项");
@@ -208,10 +214,19 @@ void ShowDetail(StartupViewState& state, int modelIndex) {
     }
 }
 
+// EntryAllowsStartupActions separates mutable startup rows from read-only service
+// observations. It is used by both toolbar and context-menu state; StartupActions
+// independently enforces the same boundary for posted commands.
+bool EntryAllowsStartupActions(const StartupEntry* entry) {
+    return entry != nullptr && entry->kind != StartupEntryKind::DriverService &&
+        entry->kind != StartupEntryKind::RegistryOnlyService;
+}
+
 void SetActionControlsEnabled(StartupViewState& state, bool enabled) {
+    const bool allowActions = enabled && EntryAllowsStartupActions(SelectedEntry(state));
     for (HWND control : { state.enableButton, state.disableButton, state.deleteButton, state.openButton }) {
         if (control) {
-            ::EnableWindow(control, enabled);
+            ::EnableWindow(control, allowActions);
         }
     }
 }
@@ -359,6 +374,9 @@ void BeginStartupRefresh(StartupViewState& state) {
             state.model.setEntries(std::move(snapshot->entries));
             BuildRows(state);
             state.statusText = L"已加载 " + std::to_wstring(entryCount) + L" 个启动项。";
+            if (!snapshot->diagnosticText.empty() && snapshot->diagnosticText != L"OK") {
+                state.statusText += L" " + snapshot->diagnosticText;
+            }
             RequestStartupFilter(state,
                 state.filterBar ? Ksword::Ui::GetFilterBarText(state.filterBar) : state.filterQuery,
                 selectedStableKey,
@@ -394,6 +412,14 @@ void RunAction(StartupViewState& state, int commandId) {
     const StartupEntry* selected = SelectedEntry(state);
     if (!selected) {
         state.statusText = L"未选择启动项。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+    if (!EntryAllowsStartupActions(selected)) {
+        state.statusText = selected->kind == StartupEntryKind::RegistryOnlyService
+            ? L"该服务本次未由 SCM 返回（可能受访问过滤），仅供只读调查，不能启用、禁用、删除或打开位置。"
+            : L"驱动启动项仅供 SCM 只读调查，不能启用、禁用、删除或打开位置。";
+        SetActionControlsEnabled(state, false);
         ::InvalidateRect(state.hwnd, nullptr, TRUE);
         return;
     }
@@ -479,6 +505,122 @@ void CopyCell(StartupViewState& state) {
     ::InvalidateRect(state.hwnd, nullptr, TRUE);
 }
 
+// StartupProvenanceRoute carries one exact, cached source route. It deliberately
+// contains no command-line parsing, no filesystem probe and no registry-view
+// emulation: unavailable means Lite cannot name a precise target.
+struct StartupProvenanceRoute final {
+    bool available = false;
+    Ksword::Core::NavigationRequest request;
+    std::wstring menuText = L"打开来源";
+    std::wstring unavailableText = L"当前启动项没有可精确导航的来源。";
+    std::wstring successText;
+    std::wstring failureText = L"关联模块当前无法接收该启动项来源。";
+};
+
+std::wstring RegistryRootText(const HKEY root) {
+    if (root == HKEY_CURRENT_USER) {
+        return L"HKCU";
+    }
+    if (root == HKEY_LOCAL_MACHINE) {
+        return L"HKLM";
+    }
+    return {};
+}
+
+StartupProvenanceRoute BuildStartupProvenanceRoute(const StartupEntry& entry) {
+    StartupProvenanceRoute route;
+    switch (entry.kind) {
+    case StartupEntryKind::RegistryRun:
+    case StartupEntryKind::RegistryRunOnce: {
+        route.menuText = L"打开来源注册表键";
+        route.failureText = L"注册表模块当前无法接收该启动项来源键。";
+        route.successText = L"已打开启动项来源注册表键；Lite 不会伪称已选中具体值。";
+        std::wstring subKey;
+        std::wstring rootText;
+        if (entry.state == StartupEntryState::Disabled) {
+            rootText = L"HKCU";
+            subKey = entry.disabledRegistrySubKey;
+        } else {
+            if (entry.registryRoot == HKEY_LOCAL_MACHINE && (entry.registryView & KEY_WOW64_32KEY) != 0U) {
+                route.unavailableText = L"该启动项位于 HKLM 32 位注册表视图；Lite 注册表浏览器不能精确定位，已不跳转。";
+                return route;
+            }
+            rootText = RegistryRootText(entry.registryRoot);
+            subKey = entry.registrySubKey;
+        }
+        if (rootText.empty() || subKey.empty()) {
+            route.unavailableText = L"启动项注册表来源不完整，无法精确定位。";
+            return route;
+        }
+        route.request.target = Ksword::Core::NavigationTarget::RegistryBrowser;
+        route.request.entity.kind = Ksword::Core::EntityKind::RegistryKey;
+        route.request.entity.text = rootText + L"\\" + subKey;
+        route.available = true;
+        return route;
+    }
+    case StartupEntryKind::StartupFolder: {
+        route.menuText = L"打开当前启动目录";
+        route.failureText = L"文件模块当前无法接收启动项存储目录。";
+        route.successText = L"已打开启动项当前存储目录。";
+        const std::wstring directory =
+            Ksword::Features::File::PathNavigator::normalizeKnownDirectoryPath(entry.location);
+        if (directory.empty()) {
+            route.unavailableText = L"启动项存储目录不是可精确导航的 DOS/UNC 路径。";
+            return route;
+        }
+        route.request.target = Ksword::Core::NavigationTarget::FileBrowser;
+        route.request.entity.kind = Ksword::Core::EntityKind::File;
+        route.request.entity.text = directory;
+        route.available = true;
+        return route;
+    }
+    case StartupEntryKind::ScheduledTaskFacade: {
+        route.menuText = L"打开任务存储目录";
+        route.failureText = L"文件模块当前无法接收计划任务存储目录。";
+        route.successText = L"已打开计划任务存储文件所在目录。";
+        const std::wstring directory =
+            Ksword::Features::File::PathNavigator::parentDirectoryForKnownFilePath(entry.location);
+        if (directory.empty()) {
+            route.unavailableText = L"计划任务存储文件不是可精确导航的 DOS/UNC 路径。";
+            return route;
+        }
+        route.request.target = Ksword::Core::NavigationTarget::FileBrowser;
+        route.request.entity.kind = Ksword::Core::EntityKind::File;
+        route.request.entity.text = directory;
+        route.available = true;
+        return route;
+    }
+    case StartupEntryKind::Service:
+        route.unavailableText = L"服务启动项没有可精确导航的注册表或文件存储来源。";
+        return route;
+    case StartupEntryKind::DriverService:
+        route.unavailableText = L"驱动启动项只显示 SCM 快照；Lite 不会打开或管理驱动位置。";
+        return route;
+    case StartupEntryKind::RegistryOnlyService:
+        route.unavailableText = L"该服务本次未由 SCM 返回（可能受访问过滤）；Lite 不会打开或管理该位置。";
+        return route;
+    }
+    return route;
+}
+
+void OpenSelectedStartupProvenance(StartupViewState& state) {
+    const StartupEntry* entry = SelectedEntry(state);
+    if (!entry) {
+        state.statusText = L"未选择启动项。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+    const StartupProvenanceRoute route = BuildStartupProvenanceRoute(*entry);
+    if (!route.available) {
+        state.statusText = route.unavailableText;
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+    const bool routed = Ksword::Ui::RequestEntityNavigation(state.hwnd, route.request);
+    state.statusText = routed ? route.successText : route.failureText;
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
 void ShowStartupContextMenu(StartupViewState& state, POINT screenPoint) {
     HWND list = state.entryList.hwnd();
     if (!list) {
@@ -495,7 +637,12 @@ void ShowStartupContextMenu(StartupViewState& state, POINT screenPoint) {
         ShowDetail(state, SelectedModelIndex(state));
     }
 
-    const bool hasEntry = SelectedEntry(state) != nullptr && !state.actionInProgress;
+    const StartupEntry* selectedEntry = SelectedEntry(state);
+    const bool hasEntry = selectedEntry != nullptr && !state.actionInProgress;
+    const bool canRunActions = hasEntry && EntryAllowsStartupActions(selectedEntry);
+    const StartupProvenanceRoute provenance = selectedEntry
+        ? BuildStartupProvenanceRoute(*selectedEntry)
+        : StartupProvenanceRoute{};
     HMENU menu = ::CreatePopupMenu();
     if (!menu) {
         return;
@@ -503,11 +650,17 @@ void ShowStartupContextMenu(StartupViewState& state, POINT screenPoint) {
     ::AppendMenuW(menu, MF_STRING, kStartupMenuRefresh, L"刷新");
     HMENU actionMenu = ::CreatePopupMenu();
     if (actionMenu) {
-        ::AppendMenuW(actionMenu, MF_STRING | (hasEntry ? 0U : MF_GRAYED), kStartupMenuEnable, L"启用");
-        ::AppendMenuW(actionMenu, MF_STRING | (hasEntry ? 0U : MF_GRAYED), kStartupMenuDisable, L"禁用");
-        ::AppendMenuW(actionMenu, MF_STRING | (hasEntry ? 0U : MF_GRAYED), kStartupMenuDelete, L"删除");
-        ::AppendMenuW(actionMenu, MF_STRING | (hasEntry ? 0U : MF_GRAYED), kStartupMenuOpen, L"打开位置");
+        ::AppendMenuW(actionMenu, MF_STRING | (canRunActions ? 0U : MF_GRAYED), kStartupMenuEnable, L"启用");
+        ::AppendMenuW(actionMenu, MF_STRING | (canRunActions ? 0U : MF_GRAYED), kStartupMenuDisable, L"禁用");
+        ::AppendMenuW(actionMenu, MF_STRING | (canRunActions ? 0U : MF_GRAYED), kStartupMenuDelete, L"删除");
+        ::AppendMenuW(actionMenu, MF_STRING | (canRunActions ? 0U : MF_GRAYED), kStartupMenuOpen, L"打开位置");
         ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(actionMenu), L"启动项操作");
+    }
+    HMENU investigationMenu = ::CreatePopupMenu();
+    if (investigationMenu) {
+        ::AppendMenuW(investigationMenu, MF_STRING | (provenance.available ? 0U : MF_GRAYED),
+            kStartupMenuOpenProvenance, provenance.menuText.c_str());
+        ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(investigationMenu), L"关联调查");
     }
     HMENU copyMenu = ::CreatePopupMenu();
     if (copyMenu) {
@@ -525,6 +678,7 @@ void ShowStartupContextMenu(StartupViewState& state, POINT screenPoint) {
     case kStartupMenuDisable: RunAction(state, kDisableButtonId); break;
     case kStartupMenuDelete: RunAction(state, kDeleteButtonId); break;
     case kStartupMenuOpen: RunAction(state, kOpenButtonId); break;
+    case kStartupMenuOpenProvenance: OpenSelectedStartupProvenance(state); break;
     case kStartupMenuCopyCell: CopyCell(state); break;
     case kStartupMenuCopyRow:
         state.statusText = CopyText(state.hwnd, SelectedRowsAsText(state, false)) ? L"已复制行。" : L"复制行失败。";
@@ -585,6 +739,7 @@ bool CreateChildControls(StartupViewState& state) {
     AddColumn(state.detailList, 0, L"属性", 170);
     AddColumn(state.detailList, 1, L"值", 760);
     state.loadingOverlay = Ksword::Ui::CreateLoadingOverlay(state.hwnd, kLoadingOverlayId, { 0, 0, 1, 1 });
+    SetActionControlsEnabled(state, false);
     return true;
 }
 

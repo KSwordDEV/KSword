@@ -25,4 +25,8 @@ void RequestProcessFeatureRefresh(HWND page) {
     RequestProcessViewRefresh(page);
 }
 
+bool RequestProcessFeatureOpenDetails(HWND page, DWORD processId, ULONGLONG expectedCreationTime100ns) {
+    return RequestProcessViewOpenDetails(page, processId, expectedCreationTime100ns);
+}
+
 } // namespace Ksword::Features::Process

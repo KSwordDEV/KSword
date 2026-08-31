@@ -2,6 +2,8 @@
 
 #include "ProcessDetailCollector.h"
 
+#include "../../Ui/ExportUtil.h"
+
 #include <commctrl.h>
 #include <psapi.h>
 #include <windowsx.h>
@@ -188,33 +190,13 @@ bool CopyWindowTextToClipboard(HWND window) {
         return false;
     }
     const int length = ::GetWindowTextLengthW(window);
-    if (length <= 0 || !::OpenClipboard(window)) {
+    if (length <= 0) {
         return false;
     }
     std::wstring text(static_cast<std::size_t>(length) + 1U, L'\0');
     ::GetWindowTextW(window, text.data(), static_cast<int>(text.size()));
-    const SIZE_T byteCount = (static_cast<SIZE_T>(length) + 1U) * sizeof(wchar_t);
-    HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, byteCount);
-    if (!memory) {
-        ::CloseClipboard();
-        return false;
-    }
-    void* destination = ::GlobalLock(memory);
-    if (!destination) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    std::memcpy(destination, text.c_str(), byteCount);
-    ::GlobalUnlock(memory);
-    ::EmptyClipboard();
-    if (!::SetClipboardData(CF_UNICODETEXT, memory)) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    ::CloseClipboard();
-    return true;
+    text.resize(std::wcslen(text.c_str()));
+    return Ksword::Ui::CopyTextToClipboard(window, text, L"进程 PEB 证据");
 }
 
 LRESULT CALLBACK CopyableTextSubclassProc(

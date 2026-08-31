@@ -250,12 +250,18 @@ if [[ -z "$arklight_exe" ]]; then
 fi
 cp -f "$arklight_exe" "$release_root/KswordARKLight.exe"
 
-driver_root_sys="$(find "${artifact_directories[KswordARKDriver-unsigned-Release]}" -type f -path '*/Ksword5.1/x64/Release/KswordARK.sys' -print -quit)"
-if [[ -z "$driver_root_sys" ]]; then
-  echo 'Driver artifact does not contain the main KswordARK.sys.' >&2
+declare -a driver_release_roots=()
+while IFS= read -r -d '' driver_root_sys; do
+  driver_release_root="$(dirname "$driver_root_sys")"
+  if [[ -f "$driver_release_root/KswordARKDriver.inf" ]]; then
+    driver_release_roots+=("$driver_release_root")
+  fi
+done < <(find "${artifact_directories[KswordARKDriver-unsigned-Release]}" -type f -name 'KswordARK.sys' -print0)
+if (( ${#driver_release_roots[@]} != 1 )); then
+  echo "Driver artifact must contain exactly one KswordARK.sys/KswordARKDriver.inf pair; found ${#driver_release_roots[@]}." >&2
   exit 1
 fi
-driver_release_root="$(dirname "$driver_root_sys")"
+driver_release_root="${driver_release_roots[0]}"
 for driver_file in KswordARK.sys KswordARKDriver.inf; do
   if [[ ! -f "$driver_release_root/$driver_file" ]]; then
     echo "Driver artifact is missing $driver_file." >&2

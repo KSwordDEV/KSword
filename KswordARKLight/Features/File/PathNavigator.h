@@ -44,6 +44,18 @@ public:
     // slashes, and preserves drive roots such as C:\.
     static std::wstring normalizeDirectoryPath(const std::wstring& path);
 
+    // normalizeKnownDirectoryPath accepts a directory identity already supplied
+    // by a Lite snapshot. It performs no filesystem I/O and accepts only an
+    // explicit DOS or UNC path; device, extended, relative and command-line
+    // text return empty so callers cannot claim a precise file-browser route.
+    static std::wstring normalizeKnownDirectoryPath(const std::wstring& path);
+
+    // parentDirectoryForKnownFilePath takes an already-known absolute DOS or
+    // UNC file path and returns its syntactic parent directory without probing
+    // the filesystem. It rejects the same ambiguous forms as
+    // normalizeKnownDirectoryPath and returns empty when no file parent exists.
+    static std::wstring parentDirectoryForKnownFilePath(const std::wstring& path);
+
     // parentPath returns the parent directory for a normalized path. Input is a
     // path string; processing handles drive roots and UNC roots; output is empty
     // when the virtual drive list should be displayed.

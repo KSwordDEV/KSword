@@ -107,6 +107,9 @@
     <Filter Include="Source Files\Features\SystemTime">
       <UniqueIdentifier>{4C2A51A7-1DA0-4CF6-85E5-71DA5734FD42}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Features\Research">
+      <UniqueIdentifier>{09EF9E2D-5447-46DE-8205-0E5FE338B0AC}</UniqueIdentifier>
+    </Filter>
   <Filter Include="Source Files\Features\DeviceAudit"><UniqueIdentifier>{2C93F5C2-8C79-4F47-8E21-9B1A7F6C3A11}</UniqueIdentifier></Filter>
   <Filter Include="Source Files\Features\Memory"><UniqueIdentifier>{8F66C0B8-48D7-45BE-8D5E-6626DD52CFC4}</UniqueIdentifier></Filter>
   <Filter Include="Source Files\Features\Mutation"><UniqueIdentifier>{4A154CC7-EEB6-4B74-BA9D-3EB757F43024}</UniqueIdentifier></Filter>
@@ -464,6 +467,12 @@
     <ClCompile Include="src\features\callback\callback_runtime.c">
       <Filter>Source Files\Features\Callback</Filter>
     </ClCompile>
+    <ClCompile Include="src\features\callback\callback_monitor.c">
+      <Filter>Source Files\Features\Callback</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\callback\callback_monitor_ioctl.c">
+      <Filter>Source Files\Features\Callback</Filter>
+    </ClCompile>
     <ClCompile Include="src\features\callback\callback_rules.c">
       <Filter>Source Files\Features\Callback</Filter>
     </ClCompile>
@@ -749,6 +758,9 @@
     <ClCompile Include="src\features\bugcheck\bugcheck_runtime.c">
       <Filter>Source Files\Features\Bugcheck</Filter>
     </ClCompile>
+    <ClCompile Include="src\features\bugcheck\bugcheck_control.c">
+      <Filter>Source Files\Features\Bugcheck</Filter>
+    </ClCompile>
     <ClCompile Include="src\features\bugcheck\bugcheck_bgp.c">
       <Filter>Source Files\Features\Bugcheck</Filter>
     </ClCompile>
@@ -774,6 +786,9 @@
       <Filter>Source Files\Features\Bugcheck</Filter>
     </ClCompile>
     <ClCompile Include="src\features\bugcheck\bugcheck_guard.c">
+      <Filter>Source Files\Features\Bugcheck</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\bugcheck\bugcheck_shield.c">
       <Filter>Source Files\Features\Bugcheck</Filter>
     </ClCompile>
     <ClCompile Include="src\features\process\process_actions.c">
@@ -1056,9 +1071,11 @@
     <ClCompile Include="src\features\hwid\hwid_dispatch_ioctl.c"><Filter>Source Files\Features\Hwid</Filter></ClCompile>
     <ClCompile Include="src\features\cpu_power\cpu_power_runtime.c"><Filter>Source Files\Features\Kernel</Filter></ClCompile>
     <ClCompile Include="src\features\cpu_power\cpu_power_ioctl.c"><Filter>Source Files\Features\Kernel</Filter></ClCompile>
+    <ClCompile Include="src\features\research\research_topic_ioctl.c"><Filter>Source Files\Features\Research</Filter></ClCompile>
     <ClCompile Include="src\features\storage\storage_forensics.c"><Filter>Source Files\Features\Storage</Filter></ClCompile>
     <ClCompile Include="src\features\storage\storage_forensics_ioctl.c"><Filter>Source Files\Features\Storage</Filter></ClCompile>
-    <ClInclude Include="src\features\device_audit\device_audit_internal.h"><Filter>Header Files</Filter></ClInclude></ItemGroup>
+    <ClInclude Include="src\features\device_audit\device_audit_internal.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\shared\driver\KswordArkResearchIoctl.h"><Filter>Header Files</Filter></ClInclude></ItemGroup>
   <ItemGroup>
     <Filter Include="Source Files\Features\RXPF">
       <UniqueIdentifier>{E14C59F2-04C2-49F2-BA23-6C6BC58E1B70}</UniqueIdentifier>

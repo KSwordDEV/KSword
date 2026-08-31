@@ -658,6 +658,7 @@ namespace ks::misc::disable_dse
         location.traceLines.append(
             QStringLiteral("CiInitialize RVA = 0x%1")
                 .arg(ciInitializeRva, 0, 16));
+        location.ciInitializeRva = ciInitializeRva;
 
         // 第三步：CiInitialize 里找到进入 CipInitialize 的那条分支。
         // build 16299 起是 call，且前面还有若干 INIT 节里的初始化调用要跳过，
@@ -761,10 +762,13 @@ namespace ks::misc::disable_dse
                         &target);
                     optionsRva = static_cast<std::uint64_t>(
                         reinterpret_cast<const unsigned char*>(target) - base);
-                    location.traceLines.append(
-                        QStringLiteral("命中指令：CipInitialize+0x%1  %2")
+                    location.matchedInstruction =
+                        QStringLiteral("CipInitialize+0x%1  %2")
                             .arg(offset, 0, 16)
-                            .arg(QString::fromLatin1(instruction.text)));
+                            .arg(QString::fromLatin1(instruction.text));
+                    location.traceLines.append(
+                        QStringLiteral("命中指令：%1")
+                            .arg(location.matchedInstruction));
                     break;
                 }
                 offset += instruction.info.length;

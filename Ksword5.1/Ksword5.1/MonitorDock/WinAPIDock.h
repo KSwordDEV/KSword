@@ -27,6 +27,7 @@ class QCheckBox;
 class QComboBox;
 class QLineEdit;
 class QLabel;
+class QPlainTextEdit;
 class QPushButton;
 class QSplitter;
 class QTableWidget;
@@ -188,8 +189,8 @@ private:
     QCheckBox* m_autoInjectChildCheck = nullptr;       // m_autoInjectChildCheck：是否在 CreateProcessW 成功后自动注入子进程。
     QCheckBox* m_rawFallbackCheck = nullptr;           // m_rawFallbackCheck：是否启用未强类型覆盖导出的 Raw ABI 兜底 Hook。
     QCheckBox* m_rawDefaultDenyListCheck = nullptr;    // m_rawDefaultDenyListCheck：是否启用默认高频/高风险 Raw 黑名单。
-    QLineEdit* m_rawModuleListEdit = nullptr;          // m_rawModuleListEdit：Raw 兜底扫描模块列表。
-    QLineEdit* m_rawDenyListEdit = nullptr;            // m_rawDenyListEdit：用户额外 Raw 黑名单，独立于内置默认黑名单。
+    QPlainTextEdit* m_rawModuleListEdit = nullptr;     // m_rawModuleListEdit：Raw 兜底扫描模块列表，多行编辑。
+    QPlainTextEdit* m_rawDenyListEdit = nullptr;       // m_rawDenyListEdit：用户额外 Raw 黑名单，多行编辑，独立于内置默认黑名单。
     QLineEdit* m_fakeModuleEdit = nullptr;             // m_fakeModuleEdit：Fake Success 精确匹配模块名。
     QLineEdit* m_fakeApiEdit = nullptr;                // m_fakeApiEdit：Fake Success 精确匹配导出 API 名。
     QComboBox* m_fakeReturnTypeCombo = nullptr;        // m_fakeReturnTypeCombo：Fake Success 返回值模板。

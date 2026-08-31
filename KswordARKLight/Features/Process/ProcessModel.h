@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ProcessEnumerator.h"
+#include "ProcessColumns.h"
 
 #include <array>
 #include <string>
@@ -56,6 +57,10 @@ public:
     // textForColumn returns the visible column text. Inputs are display row,
     // column index and view mode; output is an empty string for invalid columns.
     std::wstring textForColumn(const ProcessDisplayRow& displayRow, int column, ProcessViewMode mode) const;
+
+    // textForColumn 用途：按稳定逻辑列 ID 返回文本，供列选择后的 ListView 渲染使用。
+    // 输入 displayRow 与 column；输出为空表示无有效进程行，缺失采集字段由列格式化器标记不可用。
+    std::wstring textForColumn(const ProcessDisplayRow& displayRow, ProcessColumnId column) const;
 
     // iconPathForRow returns the best executable path for Shell icon extraction.
     // Input is a display row; output is empty for group headers or inaccessible

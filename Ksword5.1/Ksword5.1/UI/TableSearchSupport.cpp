@@ -39,7 +39,6 @@ namespace
     constexpr char kGenericSearchControlPropertyName[] = "ksword_generic_table_search_control";
     constexpr char kGlobalSearchInputPropertyName[] = "ksword_global_ui_search_input";
     constexpr char kExplicitTableNamePropertyName[] = "ksword_table_search_name";
-    constexpr int kFullSearchWidth = 220;
     constexpr int kCollapsedSearchWidth = 28;
     constexpr int kSearchControlHeight = 24;
     constexpr int kSearchOuterMargin = 4;
@@ -173,7 +172,7 @@ namespace
         return std::max(0, headerView->width() - occupiedRight);
     }
 
-    // TableSearchAccessWidget：管理单个表格的自适应搜索框/按钮与宿主空间预留。
+    // TableSearchAccessWidget：管理单个表格的搜索按钮与宿主空间预留。
     class TableSearchAccessWidget final : public QFrame
     {
     public:
@@ -188,14 +187,7 @@ namespace
 
             auto* rootLayout = new QHBoxLayout(this);
             rootLayout->setContentsMargins(0, 0, 0, 0);
-            rootLayout->setSpacing(5);
-
-            m_searchEdit = new QLineEdit(this);
-            m_searchEdit->setProperty(kGenericSearchControlPropertyName, true);
-            m_searchEdit->setClearButtonEnabled(true);
-            m_searchEdit->setFixedHeight(kSearchControlHeight);
-            rootLayout->addWidget(m_searchEdit, 1);
-
+            rootLayout->setSpacing(0);
 
             m_searchButton = new QToolButton(this);
             m_searchButton->setProperty(kGenericSearchControlPropertyName, true);
@@ -214,16 +206,6 @@ namespace
                         true);
                 }
             });
-            connect(m_searchEdit, &QLineEdit::textEdited, this, [this](const QString& queryText) {
-                if (!m_tableView.isNull())
-                {
-                    ks::ui::ActivateGlobalUiSearchForTable(
-                        m_tableView.data(),
-                        queryText,
-                        false);
-                }
-            });
-
             if (m_hostWidget != nullptr && m_hostWidget->layout() != nullptr)
             {
                 m_originalHostMargins = m_hostWidget->layout()->contentsMargins();
@@ -305,8 +287,6 @@ namespace
 
             QTableView* tableView = m_tableView.data();
             const QString tableName = ks::ui::ResolveTableSearchDisplayName(tableView);
-            m_searchEdit->setPlaceholderText(
-                ks::i18n::sourceText(QStringLiteral("搜索%1")).arg(tableName));
             m_searchButton->setToolTip(
                 ks::i18n::sourceText(QStringLiteral("搜索当前表格：%1")).arg(tableName));
 
@@ -338,11 +318,7 @@ namespace
                     hostWidget->width() - minimumContentWidth + m_reservedHostWidth);
             }
 
-            if (availableWidth >= kFullSearchWidth + kSearchOuterMargin)
-            {
-                applyPresentation(kFullSearchWidth);
-            }
-            else if (availableWidth >= kCollapsedSearchWidth + kSearchOuterMargin)
+            if (availableWidth >= kCollapsedSearchWidth + kSearchOuterMargin)
             {
                 applyPresentation(kCollapsedSearchWidth);
             }
@@ -611,10 +587,7 @@ namespace
             }
 
             QWidget* hostWidget = m_hostWidget.data();
-            const bool fullSearchVisible = requestedWidth == kFullSearchWidth;
-            m_searchEdit->setVisible(fullSearchVisible);
-
-            m_searchButton->setVisible(!fullSearchVisible);
+            m_searchButton->setVisible(true);
 
             if (hostWidget->layout() != nullptr
                 && hostWidget != m_tableView->horizontalHeader())
@@ -658,9 +631,7 @@ namespace
 
         QPointer<QTableView> m_tableView;    // m_tableView：搜索入口对应的原始表格。
         QPointer<QWidget> m_hostWidget;      // m_hostWidget：操作条或水平表头宿主。
-        QLineEdit* m_searchEdit = nullptr;   // m_searchEdit：空间充足时显示的输入框。
-
-        QToolButton* m_searchButton = nullptr; // m_searchButton：空间不足时显示的图标按钮。
+        QToolButton* m_searchButton = nullptr; // m_searchButton：激活标题栏表格搜索的图标按钮。
         QMargins m_originalHostMargins;      // m_originalHostMargins：操作条原始布局边距。
         QPointer<QAbstractItemModel> m_filterModel; // m_filterModel：过滤启用时观察的当前模型。
         QVector<bool> m_baselineHiddenRowList; // m_baselineHiddenRowList：启用过滤前逐行隐藏快照。

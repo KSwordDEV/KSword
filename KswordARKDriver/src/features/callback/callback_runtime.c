@@ -340,6 +340,8 @@ KswordArkCallbackDestroyRuntime(
 
     // 先封闭新的 AskUser 等待项，再唤醒已有等待者，防止注销回调时等待线程阻塞卸载。
     (VOID)InterlockedExchange(&runtime->Stopping, 1L);
+    // 同步关闭只读遥测，后续回调即使仍在注销窗口内执行也不会再写 ring。
+    (VOID)InterlockedExchange(&runtime->MonitorCategoryMask, 0L);
     (VOID)KswordArkCallbackCancelAllPendingForRuntime(runtime);
     KswordArkMinifilterCallbackUnregister(runtime);
     // 只反注册真正注册成功的回调；降级启动时未注册的项必须原样跳过，
@@ -504,6 +506,11 @@ Return Value:
     runtime->MiniFilterBypassPidCount = 0U;
     RtlZeroMemory(runtime->MiniFilterBypassPids, sizeof(runtime->MiniFilterBypassPids));
     runtime->RegisteredCallbacksMask = 0U;
+    runtime->MonitorWriterLock = 0L;
+    runtime->MonitorCategoryMask = 0L;
+    runtime->MonitorLatestSequence = 0LL;
+    runtime->MonitorDroppedCount = 0LL;
+    runtime->MonitorLastStatus = STATUS_SUCCESS;
     runtime->Initialized = FALSE;
     // 发布前显式声明运行时可接收等待项；销毁路径会以原子方式切换到停止状态。
     runtime->Stopping = 0L;

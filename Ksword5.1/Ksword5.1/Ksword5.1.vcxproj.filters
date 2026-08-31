@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
   <ItemGroup>
     <Filter Include="Source Files">
@@ -143,9 +143,6 @@
     <ClCompile Include="MiscDock\DiskEditor\DiskMapWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="MiscDock\DiskEditor\StorageControllerResearchDialog.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -243,6 +240,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="KernelDock\KernelDock.CallbackRuleValidator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="KernelDock\KernelKnowledgeCatalog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="KernelDock\KernelKnowledgeTab.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="KernelDock\KernelDock.CallbackEnum.cpp">
@@ -422,6 +425,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MonitorDock\DirectKernelCallMonitorWidget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MonitorDock\KernelCallbackMonitorWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\shared\ui\KsPainterChart.cpp">
@@ -658,6 +664,9 @@
     <ClCompile Include="PluginHost.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ProcessDock\ProcessCpuCapacityCell.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="ProcessDock\ProcessDock.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -673,6 +682,9 @@
     <ClCompile Include="ProcessDock\ProcessDock.ThreadTab.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ProcessDock\ThreadAffinityMenu.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="ProcessDock\ProcessMessageHookWindow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -683,6 +695,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="SettingsDock\SettingsDock.OnlineScan.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SettingsDock\SettingsDock.Bugcheck.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="WelcomeDock\WelcomeDock.cpp">
@@ -781,10 +796,16 @@
     <ClCompile Include="UI\CodeEditorWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UI\EmbeddedRowDelegate.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="UI\DetailLayoutHost.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\DetailLayoutRegistry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\ReportStructuredView.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\KernelDisassemblyDialog.cpp">
@@ -914,6 +935,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ksword\process\dll_hijack_detector.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ksword\process\process_cpu_core_etw_monitor.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ksword\process\process.cpp">
@@ -1078,6 +1102,9 @@
     <ClCompile Include="ArkDriverClient\ArkDriverCallback.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkDriverCallbackMonitor.cpp">
+      <Filter>Source Files\ArkDriverClient</Filter>
+    </ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverMutation.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>
@@ -1096,9 +1123,10 @@
     <ClCompile Include="ArkDriverClient\ArkDriverSystemTime.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>
-    <ClCompile Include="ArkDriverClient\ArkStorageControllerClient.cpp">
+    <ClCompile Include="ArkDriverClient\ArkDriverResearch.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
-    </ClCompile>    <ClCompile Include="HardwareDock\MemoryCompositionHistoryWidget.cpp">
+    </ClCompile>
+    <ClCompile Include="HardwareDock\MemoryCompositionHistoryWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="HardwareDock\DiskMonitorPage.cpp">
@@ -1224,9 +1252,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MiscDock\DiskEditor\DiskEditorTab.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="MiscDock\DiskEditor\StorageControllerResearchDialog.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <QtMoc Include="MiscDock\DiskEditor\DiskMapWidget.h">
@@ -1373,6 +1398,12 @@
     <ClInclude Include="ProcessDock\ProcessAffinityModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ProcessDock\ThreadAffinityMenu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\ProcessCpuCapacityCell.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="ProcessDock\ProcessMessageHookWindow.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1472,9 +1503,6 @@
     <ClInclude Include="ArkDriverClient\ArkDriverCapabilities.h">
       <Filter>Header Files\ArkDriverClient</Filter>
     </ClInclude>
-    <ClInclude Include="ArkDriverClient\ArkStorageControllerClient.h">
-      <Filter>Header Files\ArkDriverClient</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="UI\UI.css\UI_css.h">
@@ -1489,7 +1517,13 @@
     <ClInclude Include="UI\DetailLayoutHost.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="UI\EmbeddedRowDelegate.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="UI\DetailLayoutRegistry.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\ReportStructuredView.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="UI\SmoothScrollSupport.h">
@@ -1541,6 +1575,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="KernelDock\KernelDockQueryWorker.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="KernelDock\KernelKnowledgeCatalog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="KernelDock\KernelKnowledgeTab.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="KernelDock\KernelDock.CallbackIntercept.h">
@@ -1672,6 +1712,12 @@
     <ClInclude Include="ksword\process\dll_hijack_detector.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ksword\process\ProcessCpuUsageModel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ksword\process\process_cpu_core_etw_monitor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="ksword\process\process.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1766,6 +1812,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MonitorDock\DirectKernelCallMonitorWidget.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MonitorDock\KernelCallbackMonitorWidget.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\shared\ui\KsPainterChart.h">

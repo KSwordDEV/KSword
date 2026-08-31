@@ -15,4 +15,14 @@ namespace Ksword::Features::WindowTools {
 // it -- ancestry, Z order and style bits all change while the user is looking.
 HWND CreateWindowHierarchyView(HWND parent, const RECT& bounds);
 
+// CreateWindowHierarchyReportView creates the report-only diagnostics pane used
+// beside the retained window manager. The caller owns window selection and must
+// pass the selected HWND to UpdateWindowHierarchyReportView.
+HWND CreateWindowHierarchyReportView(HWND parent, const RECT& bounds);
+
+// UpdateWindowHierarchyReportView rebuilds the report for one live window.
+// nullptr clears the report to its selection prompt; a closing window is
+// reported as stale instead of being queried further.
+void UpdateWindowHierarchyReportView(HWND reportView, HWND selectedWindow);
+
 } // namespace Ksword::Features::WindowTools

@@ -40,6 +40,7 @@ constexpr UINT kColumnMenuBaseId = 52500;
 constexpr UINT kMsgDirectoryRefreshCompleted = WM_APP + 540;
 constexpr UINT kMsgFilterCompleted = WM_APP + 541;
 constexpr UINT kMsgFileActionCompleted = WM_APP + 542;
+constexpr UINT kMsgExternalNavigate = WM_APP + 543;
 
 // FileColumnSpec describes one report column. Inputs are static id/title/width
 // values; processing uses the same table for initial creation and user column
@@ -880,6 +881,15 @@ LRESULT CALLBACK FileViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
         break;
+    case kMsgExternalNavigate:
+        if (state && lParam != 0) {
+            const auto* path = reinterpret_cast<const std::wstring*>(lParam);
+            if (!path->empty()) {
+                NavigateTo(*state, *path);
+                return TRUE;
+            }
+        }
+        return FALSE;
     case WM_NOTIFY:
         if (state && HandleNotify(*state, reinterpret_cast<NMHDR*>(lParam))) {
             return 0;
@@ -953,6 +963,11 @@ HWND CreateFileViewPage(HWND parent, const RECT& bounds) {
         nullptr,
         instance,
         nullptr);
+}
+
+bool RequestFileViewNavigate(HWND page, const std::wstring& path) {
+    return page && !path.empty() &&
+        ::SendMessageW(page, kMsgExternalNavigate, 0, reinterpret_cast<LPARAM>(&path)) != 0;
 }
 
 } // namespace Ksword::Features::File

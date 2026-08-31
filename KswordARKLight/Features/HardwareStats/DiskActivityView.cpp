@@ -3,6 +3,7 @@
 #include "PerformanceSampler.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
@@ -31,6 +32,7 @@ constexpr int kIntervalComboId = 66203;
 constexpr int kFilterBarId = 66204;
 constexpr int kDiskListId = 66205;
 constexpr int kLoadingOverlayId = 66206;
+constexpr int kExportButtonId = 66207;
 
 constexpr UINT kMenuCopyRow = 66251;
 constexpr UINT kMenuCopyVisible = 66252;
@@ -56,6 +58,7 @@ int Height(const RECT& rc) {
 struct DiskActivityViewState final {
     HWND hwnd = nullptr;
     HWND refreshButton = nullptr;
+    HWND exportButton = nullptr;
     HWND pauseButton = nullptr;
     HWND intervalCombo = nullptr;
     HWND filterBar = nullptr;
@@ -305,6 +308,7 @@ void LayoutView(DiskActivityViewState& state) {
         cursorX += controlWidth + kGap;
     };
     place(state.refreshButton, 80);
+    place(state.exportButton, 78);
     place(state.pauseButton, 64);
     if (state.intervalCombo) {
         ::MoveWindow(state.intervalCombo, cursorX, firstRowY, 120, kRowHeight * 6, TRUE);
@@ -328,12 +332,13 @@ void LayoutView(DiskActivityViewState& state) {
 bool CreateChildControls(DiskActivityViewState& state) {
     HWND hwnd = state.hwnd;
     state.refreshButton = Ksword::Ui::CreateButton(hwnd, kRefreshButtonId, L"立即刷新", 0, 0, 0, 0);
+    state.exportButton = Ksword::Ui::CreateButton(hwnd, kExportButtonId, L"导出 TSV", 0, 0, 0, 0);
     state.pauseButton = Ksword::Ui::CreateButton(hwnd, kPauseButtonId, L"暂停", 0, 0, 0, 0);
     state.intervalCombo = ::CreateWindowExW(0, WC_COMBOBOXW, L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST | CBS_HASSTRINGS,
         0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIntervalComboId)),
         ::GetModuleHandleW(nullptr), nullptr);
-    if (!state.refreshButton || !state.pauseButton || !state.intervalCombo) {
+    if (!state.refreshButton || !state.exportButton || !state.pauseButton || !state.intervalCombo) {
         return false;
     }
     for (const wchar_t* label : { L"每 1 秒", L"每 2 秒", L"每 5 秒" }) {
@@ -447,6 +452,21 @@ LRESULT CALLBACK DiskActivityViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 case kRefreshButtonId:
                     BeginSample(*state);
                     return 0;
+                case kExportButtonId: {
+                    if (state->diskList.visibleIndexes().empty()) {
+                        state->statusText = L"没有可导出的可见结果。";
+                    } else {
+                        std::wstring error;
+                        switch (Ksword::Ui::SaveUtf8TextFileWithDialog(hwnd, L"disk_activity.tsv", L"导出磁盘活动",
+                            L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0", L"tsv", ExportDiskActivityViewTsv(hwnd), &error)) {
+                        case Ksword::Ui::SaveTextFileResult::Saved: state->statusText = L"磁盘活动可见结果已导出。"; break;
+                        case Ksword::Ui::SaveTextFileResult::Cancelled: state->statusText = L"已取消导出磁盘活动结果。"; break;
+                        case Ksword::Ui::SaveTextFileResult::Failed: state->statusText = L"导出磁盘活动结果失败：" + error; break;
+                        }
+                    }
+                    ::InvalidateRect(hwnd, nullptr, TRUE);
+                    return 0;
+                }
                 case kPauseButtonId:
                     state->paused = !state->paused;
                     UpdatePauseButton(*state);

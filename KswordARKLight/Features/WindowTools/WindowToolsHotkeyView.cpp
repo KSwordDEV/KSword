@@ -4,6 +4,7 @@
 #include "../../Core/Common.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
@@ -30,6 +31,8 @@ constexpr int kWarningTextId = 67303;
 constexpr int kFilterBarId = 67304;
 constexpr int kHotkeyListId = 67305;
 constexpr int kLoadingOverlayId = 67306;
+constexpr int kRefreshButtonId = 67307;
+constexpr int kExportButtonId = 67308;
 
 constexpr UINT kMenuCopyRow = 67661;
 constexpr UINT kMenuCopyVisible = 67662;
@@ -131,6 +134,8 @@ struct HotkeyFilterResult final {
 struct HotkeyViewState final {
     HWND hwnd = nullptr;
     HWND probeButton = nullptr;
+    HWND refreshButton = nullptr;
+    HWND exportButton = nullptr;
     HWND rangeCombo = nullptr;
     HWND warningText = nullptr;
     HWND filterBar = nullptr;
@@ -142,6 +147,7 @@ struct HotkeyViewState final {
     std::wstring filterQuery;
     bool filterUseRegex = false;
     std::uint64_t displayGeneration = 0;
+    bool hasProbeResult = false;
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<HotkeyProbeResult>> probeTask;
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<HotkeyFilterResult>> filterTask;
 };
@@ -344,6 +350,9 @@ void BeginProbe(HotkeyViewState& state) {
     if (state.probeButton) {
         ::EnableWindow(state.probeButton, FALSE);
     }
+    if (state.refreshButton) {
+        ::EnableWindow(state.refreshButton, FALSE);
+    }
     state.statusText = L"正在后台探测热键占用情况…";
     Ksword::Ui::SetLoadingOverlay(state.loadingOverlay, true, L"正在逐个尝试注册热键组合…");
     ::InvalidateRect(state.hwnd, nullptr, TRUE);
@@ -352,6 +361,9 @@ void BeginProbe(HotkeyViewState& state) {
         [&state](std::uint64_t, std::optional<HotkeyProbeResult>&& result, std::exception_ptr error) {
             if (state.probeButton) {
                 ::EnableWindow(state.probeButton, TRUE);
+            }
+            if (state.refreshButton) {
+                ::EnableWindow(state.refreshButton, state.hasProbeResult ? TRUE : FALSE);
             }
             Ksword::Ui::SetLoadingOverlay(state.loadingOverlay, false);
             if (error || !result.has_value()) {
@@ -363,6 +375,10 @@ void BeginProbe(HotkeyViewState& state) {
             const std::size_t occupied = result->occupied;
             const std::size_t available = result->available;
             state.probe = std::move(*result);
+            state.hasProbeResult = true;
+            if (state.refreshButton) {
+                ::EnableWindow(state.refreshButton, TRUE);
+            }
             BuildRows(state);
             state.statusText = L"共探测 " + std::to_wstring(total) + L" 个组合：可用 " +
                 std::to_wstring(available) + L" 个，无法注册 " + std::to_wstring(occupied) +
@@ -371,6 +387,24 @@ void BeginProbe(HotkeyViewState& state) {
                 state.filterBar ? Ksword::Ui::GetFilterBarText(state.filterBar) : state.filterQuery);
             ::InvalidateRect(state.hwnd, nullptr, TRUE);
         });
+}
+
+void ExportVisibleRows(HotkeyViewState& state) {
+    const std::wstring text = Ksword::Ui::BuildVisibleVirtualListTsv(
+        { L"组合", L"修饰键", L"主键", L"状态", L"错误码" }, state.hotkeyList);
+    if (text.empty()) {
+        state.statusText = L"没有可导出的可见结果。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+    std::wstring error;
+    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(state.hwnd, L"hotkey_probe.tsv", L"导出热键占用探测",
+        L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0", L"tsv", text, &error)) {
+    case Ksword::Ui::SaveTextFileResult::Saved: state.statusText = L"热键可见结果已导出。"; break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled: state.statusText = L"已取消导出热键结果。"; break;
+    case Ksword::Ui::SaveTextFileResult::Failed: state.statusText = L"导出热键结果失败：" + error; break;
+    }
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
 }
 
 void ShowContextMenu(HotkeyViewState& state, const POINT screenPoint) {
@@ -417,6 +451,14 @@ void LayoutView(HotkeyViewState& state) {
         ::MoveWindow(state.probeButton, cursorX, kGap, 96, kRowHeight, TRUE);
     }
     cursorX += 96 + kGap;
+    if (state.refreshButton) {
+        ::MoveWindow(state.refreshButton, cursorX, kGap, 64, kRowHeight, TRUE);
+    }
+    cursorX += 64 + kGap;
+    if (state.exportButton) {
+        ::MoveWindow(state.exportButton, cursorX, kGap, 78, kRowHeight, TRUE);
+    }
+    cursorX += 78 + kGap;
     if (state.rangeCombo) {
         ::MoveWindow(state.rangeCombo, cursorX, kGap, 150, kRowHeight * 6, TRUE);
     }
@@ -444,6 +486,8 @@ void LayoutView(HotkeyViewState& state) {
 bool CreateChildControls(HotkeyViewState& state) {
     HWND hwnd = state.hwnd;
     state.probeButton = Ksword::Ui::CreateButton(hwnd, kProbeButtonId, L"开始探测", 0, 0, 0, 0);
+    state.refreshButton = Ksword::Ui::CreateButton(hwnd, kRefreshButtonId, L"刷新", 0, 0, 0, 0);
+    state.exportButton = Ksword::Ui::CreateButton(hwnd, kExportButtonId, L"导出 TSV", 0, 0, 0, 0);
     state.warningText = Ksword::Ui::CreateText(hwnd, kWarningTextId,
         L"探测方式：逐个尝试 RegisterHotKey，成功即说明该组合未被占用，随后立即注销。"
         L"探测过程中本程序会极短暂地持有这些组合，此刻按下的对应快捷键可能不会到达它原本的程序。",
@@ -453,9 +497,10 @@ bool CreateChildControls(HotkeyViewState& state) {
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST | CBS_HASSTRINGS,
         0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kRangeComboId)),
         ::GetModuleHandleW(nullptr), nullptr);
-    if (!state.probeButton || !state.warningText || !state.filterBar || !state.rangeCombo) {
+    if (!state.probeButton || !state.refreshButton || !state.exportButton || !state.warningText || !state.filterBar || !state.rangeCombo) {
         return false;
     }
+    ::EnableWindow(state.refreshButton, FALSE);
     for (const wchar_t* label : { L"全部组合", L"仅已占用", L"仅可用" }) {
         ::SendMessageW(state.rangeCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     }
@@ -528,6 +573,16 @@ LRESULT CALLBACK HotkeyViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
             if (notification == BN_CLICKED && id == kProbeButtonId) {
                 BeginProbe(*state);
+                return 0;
+            }
+            if (notification == BN_CLICKED && id == kRefreshButtonId) {
+                if (state->hasProbeResult) {
+                    BeginProbe(*state);
+                }
+                return 0;
+            }
+            if (notification == BN_CLICKED && id == kExportButtonId) {
+                ExportVisibleRows(*state);
                 return 0;
             }
         }

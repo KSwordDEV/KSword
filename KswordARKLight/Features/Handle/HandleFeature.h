@@ -15,4 +15,6 @@ HWND CreateHandleFeaturePage(HWND parent, const RECT& bounds);
 // returns no value; invalid HWND values are ignored by Win32.
 void ResizeHandleFeaturePage(HWND page, const RECT& bounds);
 
+bool RequestHandleFeatureProcess(HWND page, DWORD processId);
+
 } // namespace Ksword::Features::Handle

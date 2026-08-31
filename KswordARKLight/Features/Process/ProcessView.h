@@ -20,4 +20,9 @@ void ResizeProcessView(HWND view, const RECT& bounds);
 // 参数 view 是进程页 HWND；处理会复用普通刷新路径，并默认执行 R0 查隐藏。
 void RequestProcessViewRefresh(HWND view);
 
+// RequestProcessViewOpenDetails resolves the current process instance before
+// opening details. A zero creation time is replaced from the latest snapshot or
+// a verified Win32 process handle; a mismatched nonzero identity is rejected.
+bool RequestProcessViewOpenDetails(HWND view, DWORD processId, ULONGLONG expectedCreationTime100ns = 0);
+
 } // namespace Ksword::Features::Process

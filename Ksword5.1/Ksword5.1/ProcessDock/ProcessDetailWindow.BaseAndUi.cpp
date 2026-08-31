@@ -1,18 +1,22 @@
 #include "ProcessDetailWindow.InternalCommon.h"
 #include "ProcessAffinityUtils.h"
 #include "ProcessAffinityPersistence.h"
+#include "ThreadAffinityMenu.h"
 #include "../句柄/HandleDock.h"
 #include "../MemoryDock/MemoryDock.h"
 #include "../NetworkDock/NetworkDock.h"
 #include "../OtherDock/OtherDock.h"
 #include "../MiscDock/SoundSource/SoundSourcePage.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/TableInteractionSupport.h"
 #include "../UI/DetailLayoutRegistry.h"
 #include "../PluginHost.h"
 
 #include <QTimer>
 #include <QEasingCurve>
 #include <QHash>
+#include <QMouseEvent>
+#include <QResizeEvent>
 #include <QVariantAnimation>
 
 using namespace process_detail_window_internal;
@@ -887,6 +891,690 @@ namespace
         QVariantAnimation* m_seriesAnimation = nullptr;
         double m_animationProgress = 1.0;
     };
+
+    // CpuCoreUsageGridWidget：
+    // - 复用 HardwareDock 的“近方形小折线矩阵”视觉结构展示逐逻辑处理器占用；
+    // - 单个自绘控件代替表格和大量 QLabel，核心数较多时仍保持轻量；
+    // - 高度随宽度和核心数量自动收敛，页面只产生纵向滚动，不再出现超宽核心表。
+    class CpuCoreUsageGridWidget final : public QWidget
+    {
+    public:
+        explicit CpuCoreUsageGridWidget(QWidget* parent = nullptr)
+            : QWidget(parent)
+        {
+            setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            setMinimumSize(0, kCellHeight);
+        }
+
+        void setCoreValues(
+            std::vector<ProcessDetailWindow::CpuCoreValue> coreValues,
+            const bool multipleProcessorGroups)
+        {
+            m_coreValues = std::move(coreValues);
+            m_multipleProcessorGroups = multipleProcessorGroups;
+            QSet<std::uint32_t> liveProcessorIndexes;
+            for (const ProcessDetailWindow::CpuCoreValue& core : m_coreValues)
+            {
+                liveProcessorIndexes.insert(core.processorIndex);
+                std::deque<double>& history = m_historyByProcessorIndex[core.processorIndex];
+                history.push_back(core.sampleReady ? std::clamp(core.percent, 0.0, 100.0) : 0.0);
+                while (history.size() > kHistoryLength)
+                {
+                    history.pop_front();
+                }
+            }
+            for (auto historyIt = m_historyByProcessorIndex.begin();
+                 historyIt != m_historyByProcessorIndex.end();)
+            {
+                if (!liveProcessorIndexes.contains(historyIt->first))
+                {
+                    historyIt = m_historyByProcessorIndex.erase(historyIt);
+                }
+                else
+                {
+                    ++historyIt;
+                }
+            }
+            synchronizeHeight();
+            updateGeometry();
+            update();
+        }
+
+        QSize sizeHint() const override
+        {
+            constexpr int kReferenceWidth = 820;
+            return QSize(kReferenceWidth, contentHeightForWidth(kReferenceWidth));
+        }
+
+        bool hasHeightForWidth() const override
+        {
+            return true;
+        }
+
+        int heightForWidth(const int availableWidth) const override
+        {
+            return contentHeightForWidth(availableWidth);
+        }
+
+    protected:
+        bool event(QEvent* eventPointer) override
+        {
+            const bool handled = QWidget::event(eventPointer);
+            if (eventPointer != nullptr && eventPointer->type() == QEvent::Resize)
+            {
+                synchronizeHeight();
+            }
+            return handled;
+        }
+
+        void paintEvent(QPaintEvent* eventPointer) override
+        {
+            (void)eventPointer;
+            QPainter painter(this);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+
+            const int columnCount = gridColumnCount(width());
+            const qreal cellWidth = std::max<qreal>(
+                1.0,
+                (static_cast<qreal>(width()) - kGridSpacing * (columnCount - 1))
+                    / static_cast<qreal>(columnCount));
+            const QColor cpuColor = KswordTheme::PerformanceColor(KswordTheme::PerformanceRole::Cpu);
+            const QColor cardColor = KswordTheme::SurfaceAltColor();
+            const QColor borderColor = KswordTheme::BorderColor();
+            const QColor primaryTextColor = KswordTheme::TextPrimaryColor();
+            const QColor secondaryTextColor = KswordTheme::TextSecondaryColor();
+
+            for (int index = 0; index < static_cast<int>(m_coreValues.size()); ++index)
+            {
+                const int row = index / columnCount;
+                const int column = index % columnCount;
+                const QRectF cellRect(
+                    column * (cellWidth + kGridSpacing),
+                    row * (kCellHeight + kGridSpacing),
+                    cellWidth,
+                    kCellHeight);
+                const ProcessDetailWindow::CpuCoreValue& core =
+                    m_coreValues[static_cast<std::size_t>(index)];
+
+                painter.setPen(QPen(borderColor, 1.0));
+                painter.setBrush(cardColor);
+                painter.drawRoundedRect(cellRect.adjusted(0.5, 0.5, -0.5, -0.5), 4.0, 4.0);
+
+                const QRectF contentRect = cellRect.adjusted(8.0, 5.0, -8.0, -8.0);
+                QFont labelFont = painter.font();
+                labelFont.setWeight(QFont::DemiBold);
+                painter.setFont(labelFont);
+                painter.setPen(secondaryTextColor);
+                painter.drawText(contentRect, Qt::AlignLeft | Qt::AlignTop, coordinateText(core));
+
+                QFont valueFont = painter.font();
+                valueFont.setWeight(QFont::Bold);
+                painter.setFont(valueFont);
+                painter.setPen(core.sampleReady ? primaryTextColor : secondaryTextColor);
+                painter.drawText(
+                    contentRect,
+                    Qt::AlignRight | Qt::AlignTop,
+                    core.sampleReady
+                        ? QString::number(core.percent, 'f', core.percent >= 10.0 ? 1 : 2)
+                            + QStringLiteral("%")
+                        : QStringLiteral("—"));
+
+                const QRectF plotRect = cellRect.adjusted(7.0, 27.0, -7.0, -7.0);
+                drawHistoryLine(
+                    painter,
+                    plotRect,
+                    m_historyByProcessorIndex[core.processorIndex],
+                    cpuColor,
+                    borderColor);
+            }
+
+            if (m_coreValues.empty())
+            {
+                painter.setPen(secondaryTextColor);
+                painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("—"));
+            }
+        }
+
+    private:
+        static constexpr int kCellHeight = 82;
+        static constexpr int kGridSpacing = 6;
+        static constexpr std::size_t kHistoryLength = 30U;
+
+        static void drawHistoryLine(
+            QPainter& painter,
+            const QRectF& plotRect,
+            const std::deque<double>& history,
+            const QColor& lineColor,
+            const QColor& borderColor)
+        {
+            painter.save();
+            painter.setClipRect(plotRect.adjusted(-1.0, -1.0, 1.0, 1.0));
+            painter.setPen(QPen(KswordTheme::WithAlpha(borderColor, 90), 1.0, Qt::DotLine));
+            painter.drawLine(
+                QPointF(plotRect.left(), plotRect.center().y()),
+                QPointF(plotRect.right(), plotRect.center().y()));
+            painter.drawRect(plotRect);
+            if (history.empty())
+            {
+                painter.restore();
+                return;
+            }
+
+            QPainterPath linePath;
+            const std::size_t leadingEmptySamples = kHistoryLength > history.size()
+                ? kHistoryLength - history.size()
+                : 0U;
+            for (std::size_t index = 0; index < history.size(); ++index)
+            {
+                const double xRatio = kHistoryLength <= 1U
+                    ? 0.0
+                    : static_cast<double>(leadingEmptySamples + index)
+                        / static_cast<double>(kHistoryLength - 1U);
+                const double yRatio = std::clamp(history[index] / 100.0, 0.0, 1.0);
+                const QPointF point(
+                    plotRect.left() + plotRect.width() * xRatio,
+                    plotRect.bottom() - plotRect.height() * yRatio);
+                if (index == 0U)
+                {
+                    linePath.moveTo(point);
+                }
+                else
+                {
+                    linePath.lineTo(point);
+                }
+            }
+            painter.setPen(QPen(lineColor, 1.6));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawPath(linePath);
+            painter.restore();
+        }
+
+        int gridColumnCount(const int availableWidth) const
+        {
+            const int coreCount = std::max(1, static_cast<int>(m_coreValues.size()));
+            const int idealColumns = std::max(
+                1,
+                static_cast<int>(std::ceil(std::sqrt(static_cast<double>(coreCount)))));
+            const int widthLimitedColumns = std::max(1, (std::max(1, availableWidth) + kGridSpacing) / 86);
+            return std::clamp(std::min(idealColumns, widthLimitedColumns), 1, coreCount);
+        }
+
+        int contentHeightForWidth(const int availableWidth) const
+        {
+            const int columnCount = gridColumnCount(availableWidth);
+            const int itemCount = std::max(1, static_cast<int>(m_coreValues.size()));
+            const int rowCount = std::max(1, (itemCount + columnCount - 1) / columnCount);
+            return rowCount * kCellHeight + (rowCount - 1) * kGridSpacing;
+        }
+
+        QString coordinateText(const ProcessDetailWindow::CpuCoreValue& core) const
+        {
+            return m_multipleProcessorGroups
+                ? QStringLiteral("G%1:L%2").arg(core.group).arg(core.number)
+                : QStringLiteral("L%1").arg(core.number);
+        }
+
+        void synchronizeHeight()
+        {
+            const int targetHeight = contentHeightForWidth(std::max(1, width()));
+            if (minimumHeight() != targetHeight || maximumHeight() != targetHeight)
+            {
+                setFixedHeight(targetHeight);
+            }
+        }
+
+        std::vector<ProcessDetailWindow::CpuCoreValue> m_coreValues;
+        std::unordered_map<std::uint32_t, std::deque<double>> m_historyByProcessorIndex;
+        bool m_multipleProcessorGroups = false;
+    };
+
+    // CpuThreadUsageCardGridWidget：线程默认折叠，点击后展开逐核心历史折线矩阵。
+    class CpuThreadUsageCardGridWidget final : public QWidget
+    {
+    public:
+        explicit CpuThreadUsageCardGridWidget(QWidget* parent = nullptr)
+            : QWidget(parent)
+        {
+            setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            setMinimumSize(0, kCollapsedCardHeight);
+            setCursor(Qt::PointingHandCursor);
+        }
+
+        void setThreadValues(
+            std::vector<ProcessDetailWindow::ThreadCpuCoreValue> threadValues,
+            const bool multipleProcessorGroups)
+        {
+            m_threadValues = std::move(threadValues);
+            QSet<std::uint32_t> liveThreadIds;
+            for (const ProcessDetailWindow::ThreadCpuCoreValue& thread : m_threadValues)
+            {
+                liveThreadIds.insert(thread.threadId);
+                CoreHistoryMap& coreHistory = m_historyByThreadId[thread.threadId];
+                QSet<std::uint32_t> liveProcessorIndexes;
+                for (const ProcessDetailWindow::CpuCoreValue& core : thread.cores)
+                {
+                    liveProcessorIndexes.insert(core.processorIndex);
+                    auto historyIt = coreHistory.find(core.processorIndex);
+                    if (historyIt == coreHistory.end()
+                        && (!core.sampleReady || core.percent <= 0.005))
+                    {
+                        continue;
+                    }
+                    if (historyIt == coreHistory.end())
+                    {
+                        historyIt = coreHistory.emplace(
+                            core.processorIndex,
+                            std::deque<double>{}).first;
+                    }
+                    std::deque<double>& history = historyIt->second;
+                    history.push_back(
+                        core.sampleReady ? std::clamp(core.percent, 0.0, 100.0) : 0.0);
+                    while (history.size() > kHistoryLength)
+                    {
+                        history.pop_front();
+                    }
+                }
+                for (auto coreIt = coreHistory.begin(); coreIt != coreHistory.end();)
+                {
+                    if (!liveProcessorIndexes.contains(coreIt->first))
+                    {
+                        coreIt = coreHistory.erase(coreIt);
+                    }
+                    else
+                    {
+                        ++coreIt;
+                    }
+                }
+            }
+            for (auto threadIt = m_historyByThreadId.begin(); threadIt != m_historyByThreadId.end();)
+            {
+                if (!liveThreadIds.contains(threadIt->first))
+                {
+                    m_expandedThreadIds.remove(threadIt->first);
+                    threadIt = m_historyByThreadId.erase(threadIt);
+                }
+                else
+                {
+                    ++threadIt;
+                }
+            }
+            std::stable_sort(
+                m_threadValues.begin(),
+                m_threadValues.end(),
+                [](const ProcessDetailWindow::ThreadCpuCoreValue& left,
+                   const ProcessDetailWindow::ThreadCpuCoreValue& right) {
+                    if (left.cpuPercent != right.cpuPercent)
+                    {
+                        return left.cpuPercent > right.cpuPercent;
+                    }
+                    return left.threadId < right.threadId;
+                });
+            m_multipleProcessorGroups = multipleProcessorGroups;
+            synchronizeHeight();
+            updateGeometry();
+            update();
+        }
+
+        QSize sizeHint() const override
+        {
+            constexpr int kReferenceWidth = 820;
+            return QSize(kReferenceWidth, contentHeightForWidth(kReferenceWidth));
+        }
+
+        bool hasHeightForWidth() const override
+        {
+            return true;
+        }
+
+        int heightForWidth(const int availableWidth) const override
+        {
+            return contentHeightForWidth(availableWidth);
+        }
+
+    protected:
+        bool event(QEvent* eventPointer) override
+        {
+            const bool handled = QWidget::event(eventPointer);
+            if (eventPointer != nullptr && eventPointer->type() == QEvent::Resize)
+            {
+                synchronizeHeight();
+            }
+            return handled;
+        }
+
+        void paintEvent(QPaintEvent* eventPointer) override
+        {
+            (void)eventPointer;
+            QPainter painter(this);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+
+            const QColor cpuColor = KswordTheme::PerformanceColor(KswordTheme::PerformanceRole::Cpu);
+            const QColor cardColor = KswordTheme::SurfaceAltColor();
+            const QColor borderColor = KswordTheme::BorderColor();
+            const QColor primaryTextColor = KswordTheme::TextPrimaryColor();
+            const QColor secondaryTextColor = KswordTheme::TextSecondaryColor();
+            qreal cardTop = 0.0;
+
+            for (int index = 0; index < static_cast<int>(m_threadValues.size()); ++index)
+            {
+                const ProcessDetailWindow::ThreadCpuCoreValue& thread =
+                    m_threadValues[static_cast<std::size_t>(index)];
+                const bool expanded = m_expandedThreadIds.contains(thread.threadId);
+                const qreal currentCardHeight = cardHeight(thread, width());
+                const QRectF cardRect(
+                    0.0,
+                    cardTop,
+                    static_cast<qreal>(width()),
+                    currentCardHeight);
+                cardTop += currentCardHeight + kGridSpacing;
+
+                painter.setPen(QPen(borderColor, 1.0));
+                painter.setBrush(cardColor);
+                painter.drawRoundedRect(cardRect.adjusted(0.5, 0.5, -0.5, -0.5), 5.0, 5.0);
+
+                const QRectF arrowRect(cardRect.left() + 10.0, cardRect.top() + 14.0, 13.0, 13.0);
+                QPainterPath arrowPath;
+                if (expanded)
+                {
+                    arrowPath.moveTo(arrowRect.left(), arrowRect.top() + 3.0);
+                    arrowPath.lineTo(arrowRect.right(), arrowRect.top() + 3.0);
+                    arrowPath.lineTo(arrowRect.center().x(), arrowRect.bottom());
+                }
+                else
+                {
+                    arrowPath.moveTo(arrowRect.left() + 3.0, arrowRect.top());
+                    arrowPath.lineTo(arrowRect.right(), arrowRect.center().y());
+                    arrowPath.lineTo(arrowRect.left() + 3.0, arrowRect.bottom());
+                }
+                arrowPath.closeSubpath();
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(secondaryTextColor);
+                painter.drawPath(arrowPath);
+
+                const QRectF headerRect(
+                    cardRect.left() + 31.0,
+                    cardRect.top() + 6.0,
+                    cardRect.width() - 43.0,
+                    kCollapsedCardHeight - 12.0);
+                QFont titleFont = painter.font();
+                titleFont.setWeight(QFont::DemiBold);
+                painter.setFont(titleFont);
+                painter.setPen(primaryTextColor);
+                painter.drawText(
+                    headerRect,
+                    Qt::AlignLeft | Qt::AlignVCenter,
+                    QStringLiteral("TID %1").arg(thread.threadId));
+                painter.setPen(cpuColor);
+                painter.drawText(
+                    headerRect,
+                    Qt::AlignRight | Qt::AlignVCenter,
+                    QString::number(thread.cpuPercent, 'f', thread.cpuPercent >= 10.0 ? 1 : 2)
+                        + QStringLiteral("%"));
+
+                if (!expanded)
+                {
+                    continue;
+                }
+
+                painter.setPen(QPen(borderColor, 1.0));
+                painter.drawLine(
+                    QPointF(cardRect.left() + 10.0, cardRect.top() + kCollapsedCardHeight),
+                    QPointF(cardRect.right() - 10.0, cardRect.top() + kCollapsedCardHeight));
+
+                const int columnCount = expandedCoreColumnCount(
+                    static_cast<int>(thread.cores.size()),
+                    width());
+                const qreal bodyLeft = cardRect.left() + kExpandedBodyPadding;
+                const qreal bodyTop = cardRect.top() + kCollapsedCardHeight + kExpandedBodyPadding;
+                const qreal bodyWidth = std::max<qreal>(
+                    1.0,
+                    cardRect.width() - 2.0 * kExpandedBodyPadding);
+                const qreal coreCardWidth = std::max<qreal>(
+                    1.0,
+                    (bodyWidth - kCoreGridSpacing * (columnCount - 1))
+                        / static_cast<qreal>(columnCount));
+                const auto threadHistoryIt = m_historyByThreadId.find(thread.threadId);
+                for (int coreIndex = 0; coreIndex < static_cast<int>(thread.cores.size()); ++coreIndex)
+                {
+                    const ProcessDetailWindow::CpuCoreValue& core =
+                        thread.cores[static_cast<std::size_t>(coreIndex)];
+                    const int row = coreIndex / columnCount;
+                    const int column = coreIndex % columnCount;
+                    const QRectF coreCardRect(
+                        bodyLeft + column * (coreCardWidth + kCoreGridSpacing),
+                        bodyTop + row * (kCoreChartHeight + kCoreGridSpacing),
+                        coreCardWidth,
+                        kCoreChartHeight);
+                    const std::deque<double>* history = nullptr;
+                    if (threadHistoryIt != m_historyByThreadId.end())
+                    {
+                        const auto coreHistoryIt = threadHistoryIt->second.find(core.processorIndex);
+                        if (coreHistoryIt != threadHistoryIt->second.end())
+                        {
+                            history = &coreHistoryIt->second;
+                        }
+                    }
+                    drawCoreChart(
+                        painter,
+                        coreCardRect,
+                        core,
+                        history,
+                        cpuColor,
+                        borderColor,
+                        primaryTextColor,
+                        secondaryTextColor);
+                }
+            }
+
+            if (m_threadValues.empty())
+            {
+                painter.setPen(secondaryTextColor);
+                painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("—"));
+            }
+        }
+
+        void mousePressEvent(QMouseEvent* eventPointer) override
+        {
+            if (eventPointer == nullptr || eventPointer->button() != Qt::LeftButton)
+            {
+                QWidget::mousePressEvent(eventPointer);
+                return;
+            }
+
+            qreal top = 0.0;
+            for (const ProcessDetailWindow::ThreadCpuCoreValue& thread : m_threadValues)
+            {
+                const qreal height = cardHeight(thread, width());
+                const QRectF cardRect(0.0, top, static_cast<qreal>(width()), height);
+                if (cardRect.contains(eventPointer->position()))
+                {
+                    if (m_expandedThreadIds.contains(thread.threadId))
+                    {
+                        m_expandedThreadIds.remove(thread.threadId);
+                    }
+                    else
+                    {
+                        m_expandedThreadIds.insert(thread.threadId);
+                    }
+                    synchronizeHeight();
+                    updateGeometry();
+                    update();
+                    eventPointer->accept();
+                    return;
+                }
+                top += height + kGridSpacing;
+            }
+            QWidget::mousePressEvent(eventPointer);
+        }
+
+    private:
+        using CoreHistoryMap = std::unordered_map<std::uint32_t, std::deque<double>>;
+
+        static constexpr int kCollapsedCardHeight = 44;
+        static constexpr int kGridSpacing = 8;
+        static constexpr int kCoreGridSpacing = 6;
+        static constexpr int kCoreChartHeight = 72;
+        static constexpr int kExpandedBodyPadding = 8;
+        static constexpr std::size_t kHistoryLength = 30U;
+
+        int expandedCoreColumnCount(const int coreCountValue, const int availableWidth) const
+        {
+            const int coreCount = std::max(1, coreCountValue);
+            const int idealColumns = std::max(
+                1,
+                static_cast<int>(std::ceil(std::sqrt(static_cast<double>(coreCount)))));
+            const int innerWidth = std::max(1, availableWidth - 2 * kExpandedBodyPadding);
+            const int widthLimitedColumns = std::max(
+                1,
+                (innerWidth + kCoreGridSpacing) / 105);
+            return std::clamp(std::min(idealColumns, widthLimitedColumns), 1, coreCount);
+        }
+
+        int expandedBodyHeight(
+            const ProcessDetailWindow::ThreadCpuCoreValue& thread,
+            const int availableWidth) const
+        {
+            const int coreCount = std::max(1, static_cast<int>(thread.cores.size()));
+            const int columnCount = expandedCoreColumnCount(coreCount, availableWidth);
+            const int rowCount = std::max(1, (coreCount + columnCount - 1) / columnCount);
+            return 2 * kExpandedBodyPadding
+                + rowCount * kCoreChartHeight
+                + (rowCount - 1) * kCoreGridSpacing;
+        }
+
+        int cardHeight(
+            const ProcessDetailWindow::ThreadCpuCoreValue& thread,
+            const int availableWidth) const
+        {
+            return kCollapsedCardHeight
+                + (m_expandedThreadIds.contains(thread.threadId)
+                    ? expandedBodyHeight(thread, availableWidth)
+                    : 0);
+        }
+
+        int contentHeightForWidth(const int availableWidth) const
+        {
+            if (m_threadValues.empty())
+            {
+                return kCollapsedCardHeight;
+            }
+            int height = 0;
+            for (const ProcessDetailWindow::ThreadCpuCoreValue& thread : m_threadValues)
+            {
+                height += cardHeight(thread, availableWidth);
+            }
+            height += (static_cast<int>(m_threadValues.size()) - 1) * kGridSpacing;
+            return height;
+        }
+
+        QString coordinateText(const ProcessDetailWindow::CpuCoreValue& core) const
+        {
+            return m_multipleProcessorGroups
+                ? QStringLiteral("G%1:L%2").arg(core.group).arg(core.number)
+                : QStringLiteral("L%1").arg(core.number);
+        }
+
+        static void drawHistoryLine(
+            QPainter& painter,
+            const QRectF& plotRect,
+            const std::deque<double>* history,
+            const QColor& lineColor,
+            const QColor& borderColor)
+        {
+            painter.save();
+            painter.setClipRect(plotRect.adjusted(-1.0, -1.0, 1.0, 1.0));
+            painter.setPen(QPen(KswordTheme::WithAlpha(borderColor, 90), 1.0, Qt::DotLine));
+            painter.drawLine(
+                QPointF(plotRect.left(), plotRect.center().y()),
+                QPointF(plotRect.right(), plotRect.center().y()));
+            painter.drawRect(plotRect);
+            if (history == nullptr || history->empty())
+            {
+                painter.restore();
+                return;
+            }
+
+            QPainterPath linePath;
+            const std::size_t leadingEmptySamples = kHistoryLength > history->size()
+                ? kHistoryLength - history->size()
+                : 0U;
+            for (std::size_t index = 0; index < history->size(); ++index)
+            {
+                const double xRatio = kHistoryLength <= 1U
+                    ? 0.0
+                    : static_cast<double>(leadingEmptySamples + index)
+                        / static_cast<double>(kHistoryLength - 1U);
+                const double yRatio = std::clamp((*history)[index] / 100.0, 0.0, 1.0);
+                const QPointF point(
+                    plotRect.left() + plotRect.width() * xRatio,
+                    plotRect.bottom() - plotRect.height() * yRatio);
+                if (index == 0U)
+                {
+                    linePath.moveTo(point);
+                }
+                else
+                {
+                    linePath.lineTo(point);
+                }
+            }
+            painter.setPen(QPen(lineColor, 1.4));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawPath(linePath);
+            painter.restore();
+        }
+
+        void drawCoreChart(
+            QPainter& painter,
+            const QRectF& cardRect,
+            const ProcessDetailWindow::CpuCoreValue& core,
+            const std::deque<double>* history,
+            const QColor& lineColor,
+            const QColor& borderColor,
+            const QColor& primaryTextColor,
+            const QColor& secondaryTextColor) const
+        {
+            painter.setPen(QPen(borderColor, 1.0));
+            painter.setBrush(KswordTheme::SurfaceColor());
+            painter.drawRoundedRect(cardRect.adjusted(0.5, 0.5, -0.5, -0.5), 4.0, 4.0);
+
+            QFont coreFont = painter.font();
+            coreFont.setWeight(QFont::DemiBold);
+            painter.setFont(coreFont);
+            painter.setPen(secondaryTextColor);
+            painter.drawText(
+                cardRect.adjusted(6.0, 3.0, -6.0, -cardRect.height() + 22.0),
+                Qt::AlignLeft | Qt::AlignVCenter,
+                coordinateText(core));
+            painter.setPen(core.sampleReady ? primaryTextColor : secondaryTextColor);
+            painter.drawText(
+                cardRect.adjusted(6.0, 3.0, -6.0, -cardRect.height() + 22.0),
+                Qt::AlignRight | Qt::AlignVCenter,
+                core.sampleReady
+                    ? QString::number(core.percent, 'f', core.percent >= 10.0 ? 1 : 2)
+                        + QStringLiteral("%")
+                    : QStringLiteral("—"));
+            drawHistoryLine(
+                painter,
+                cardRect.adjusted(6.0, 24.0, -6.0, -6.0),
+                history,
+                lineColor,
+                borderColor);
+        }
+
+        void synchronizeHeight()
+        {
+            const int targetHeight = contentHeightForWidth(std::max(1, width()));
+            if (minimumHeight() != targetHeight || maximumHeight() != targetHeight)
+            {
+                setFixedHeight(targetHeight);
+            }
+        }
+
+        std::vector<ProcessDetailWindow::ThreadCpuCoreValue> m_threadValues;
+        std::unordered_map<std::uint32_t, CoreHistoryMap> m_historyByThreadId;
+        QSet<std::uint32_t> m_expandedThreadIds;
+        bool m_multipleProcessorGroups = false;
+    };
 }
 
 void ProcessDetailWindow::rebuildActionAffinityCoreButtons()
@@ -1202,6 +1890,7 @@ void ProcessDetailWindow::updateBaseRecord(const ks::process::ProcessRecord& bas
         ++m_hotkeyRefreshTicket;
         ++m_keyboardRefreshTicket;
         m_performanceHistory.clear();
+        m_cpuCoreViewSample = CpuCoreViewSample{};
     }
     refreshDetailTabTexts();
     if (shouldTryStaticBackgroundRefresh || identityChanged)
@@ -1269,6 +1958,13 @@ void ProcessDetailWindow::appendPerformanceHistorySample(const PerformanceHistor
         m_performanceHistory.pop_front();
     }
     refreshPerformanceHistoryCharts();
+}
+
+void ProcessDetailWindow::setCpuCoreViewSample(CpuCoreViewSample sample)
+{
+    // 页面采用懒加载；尚未构造控件时只保存最新区间，首次进入即可直接展示。
+    m_cpuCoreViewSample = std::move(sample);
+    refreshCpuCoreView();
 }
 
 void ProcessDetailWindow::changeEvent(QEvent* event)
@@ -1416,6 +2112,7 @@ void ProcessDetailWindow::applyThemeStyle()
     const std::vector<QWidget*> tabPageList{
         m_detailTab,
         m_performanceTab,
+        m_cpuCoreTab,
         m_threadTab,
         m_actionTab,
         m_moduleTab,
@@ -1471,6 +2168,36 @@ void ProcessDetailWindow::applyThemeStyle()
     {
         m_keyboardHookTable->horizontalHeader()->setStyleSheet(headerStyle);
     }
+    if (m_processCpuCoreGrid != nullptr)
+    {
+        m_processCpuCoreGrid->update();
+    }
+    if (m_threadCpuCoreGrid != nullptr)
+    {
+        m_threadCpuCoreGrid->update();
+    }
+
+    if (m_cpuCoreTitleLabel != nullptr)
+    {
+        m_cpuCoreTitleLabel->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;color:%1;")
+            .arg(KswordTheme::TextPrimaryHex()));
+    }
+    if (m_cpuCoreDescriptionLabel != nullptr)
+    {
+        m_cpuCoreDescriptionLabel->setStyleSheet(QStringLiteral("color:%1;")
+            .arg(KswordTheme::TextSecondaryHex()));
+    }
+    const QString cpuCoreSummaryStyle = QStringLiteral("font-size:20px;font-weight:700;color:%1;")
+        .arg(KswordTheme::AccentColor(KswordTheme::AccentRole::Blue).name());
+    if (m_cpuCoreSystemValueLabel != nullptr)
+    {
+        m_cpuCoreSystemValueLabel->setStyleSheet(cpuCoreSummaryStyle);
+    }
+    if (m_cpuCoreEquivalentValueLabel != nullptr)
+    {
+        m_cpuCoreEquivalentValueLabel->setStyleSheet(cpuCoreSummaryStyle);
+    }
+    refreshCpuCoreView();
 
     if (m_signatureCheckBox != nullptr)
     {
@@ -1534,6 +2261,7 @@ void ProcessDetailWindow::initializeUi()
     // 先创建轻量页面容器，实际控件树在用户首次进入时构造。
     m_detailTab = new QWidget(m_tabWidget);
     m_performanceTab = new QWidget(m_tabWidget);
+    m_cpuCoreTab = new QWidget(m_tabWidget);
     m_threadTab = new QWidget(m_tabWidget);
     m_actionTab = new QWidget(m_tabWidget);
     m_moduleTab = new QWidget(m_tabWidget);
@@ -1553,6 +2281,7 @@ void ProcessDetailWindow::initializeUi()
 
     m_detailTab->setObjectName(QStringLiteral("ProcessDetailTab_Detail"));
     m_performanceTab->setObjectName(QStringLiteral("ProcessDetailTab_Performance"));
+    m_cpuCoreTab->setObjectName(QStringLiteral("ProcessDetailTab_CpuCore"));
     m_threadTab->setObjectName(QStringLiteral("ProcessDetailTab_Thread"));
     m_actionTab->setObjectName(QStringLiteral("ProcessDetailTab_Action"));
     m_moduleTab->setObjectName(QStringLiteral("ProcessDetailTab_Module"));
@@ -1580,6 +2309,10 @@ void ProcessDetailWindow::initializeUi()
         m_performanceTab,
         QIcon(":/Icon/process_performance.svg"),
         ks::i18n::text(QStringLiteral("process.detail.tab.performance"), QString()));
+    m_tabWidget->addTab(
+        m_cpuCoreTab,
+        QIcon(":/Icon/process_performance.svg"),
+        ks::i18n::text(QStringLiteral("process.detail.tab.cpu_core"), QString()));
     m_tabWidget->addTab(m_threadTab, QIcon(":/Icon/process_tree.svg"), "线程");
     m_tabWidget->addTab(m_actionTab, QIcon(":/Icon/process_priority.svg"), "操作");
     m_tabWidget->addTab(m_moduleTab, QIcon(":/Icon/process_list.svg"), "模块");
@@ -1644,6 +2377,10 @@ void ProcessDetailWindow::ensureTabContentInitialized(QWidget* const tab)
     else if (tab == m_performanceTab)
     {
         initializePerformanceTab();
+    }
+    else if (tab == m_cpuCoreTab)
+    {
+        initializeCpuCoreTab();
     }
     else if (tab == m_actionTab)
     {
@@ -2875,6 +3612,7 @@ void ProcessDetailWindow::initializeDetailTab()
     m_detailThreadCountValue = createValueLabel(overviewGroup);
     m_detailHandleCountValue = createValueLabel(overviewGroup);
     m_detailCpuValue = createValueLabel(overviewGroup);
+    m_detailCpuCoreValue = createValueLabel(overviewGroup);
     m_detailRamValue = createValueLabel(overviewGroup);
     m_detailDiskValue = createValueLabel(overviewGroup);
     m_detailSignatureValue = createValueLabel(overviewGroup);
@@ -2892,6 +3630,7 @@ void ProcessDetailWindow::initializeDetailTab()
 
     addFixedRow(overviewRightForm, overviewGroup, QStringLiteral("process.detail.field.priority"), QStringLiteral("优先级"), m_detailPriorityValue);
     addFixedRow(overviewRightForm, overviewGroup, QStringLiteral("process.detail.field.cpu"), QStringLiteral("CPU 占用"), m_detailCpuValue);
+    addFixedRow(overviewRightForm, overviewGroup, QStringLiteral("process.detail.field.cpu_core"), QStringLiteral("CPU 单核等效"), m_detailCpuCoreValue);
     addExtraRow(overviewRightForm, overviewGroup, QStringLiteral("gpu"), QStringLiteral("process.detail.field.gpu"), QStringLiteral("GPU 占用"));
     addFixedRow(overviewRightForm, overviewGroup, QStringLiteral("process.detail.field.disk"), QStringLiteral("DISK 吞吐"), m_detailDiskValue);
     addExtraRow(overviewRightForm, overviewGroup, QStringLiteral("network_rx"), QStringLiteral("process.detail.field.network_rx"), QStringLiteral("网络下行"));
@@ -3069,6 +3808,7 @@ void ProcessDetailWindow::initializePerformanceTab()
     };
 
     addChart(m_performanceCpuChart, QStringLiteral("process.detail.performance.chart.cpu"));
+    addChart(m_performanceCpuCoreChart, QStringLiteral("process.detail.performance.chart.cpu_core"));
     addChart(m_performanceMemoryChart, QStringLiteral("process.detail.performance.chart.memory"));
     addChart(m_performanceDiskChart, QStringLiteral("process.detail.performance.chart.disk"));
     addChart(m_performanceNetworkChart, QStringLiteral("process.detail.performance.chart.network"));
@@ -3099,6 +3839,7 @@ void ProcessDetailWindow::refreshPerformanceHistoryCharts()
 
     std::vector<qint64> timestamps;
     std::vector<double> cpuValues;
+    std::vector<double> cpuCoreValues;
     std::vector<double> memoryValues;
     std::vector<double> diskValues;
     std::vector<double> networkRxValues;
@@ -3106,6 +3847,7 @@ void ProcessDetailWindow::refreshPerformanceHistoryCharts()
     std::vector<double> gpuValues;
     timestamps.reserve(m_performanceHistory.size());
     cpuValues.reserve(m_performanceHistory.size());
+    cpuCoreValues.reserve(m_performanceHistory.size());
     memoryValues.reserve(m_performanceHistory.size());
     diskValues.reserve(m_performanceHistory.size());
     networkRxValues.reserve(m_performanceHistory.size());
@@ -3115,6 +3857,7 @@ void ProcessDetailWindow::refreshPerformanceHistoryCharts()
     {
         timestamps.push_back(sample.unixMilliseconds);
         cpuValues.push_back(sample.cpuPercent);
+        cpuCoreValues.push_back(sample.cpuCorePercent);
         memoryValues.push_back(sample.memoryMB);
         diskValues.push_back(sample.diskMBps);
         networkRxValues.push_back(sample.networkRxKBps);
@@ -3155,6 +3898,19 @@ void ProcessDetailWindow::refreshPerformanceHistoryCharts()
             std::move(cpuValues) } },
         QStringLiteral("%"),
         100.0);
+    const double cpuCoreMaximum = cpuCoreValues.empty()
+        ? 100.0
+        : std::max(
+            100.0,
+            std::ceil(*std::max_element(cpuCoreValues.cbegin(), cpuCoreValues.cend()) / 100.0) * 100.0);
+    setChartData(
+        m_performanceCpuCoreChart,
+        { ProcessPerformanceHistoryChartWidget::Series{
+            text(QStringLiteral("process.detail.performance.series.cpu_core")),
+            KswordTheme::PerformanceColor(KswordTheme::PerformanceRole::Cpu),
+            std::move(cpuCoreValues) } },
+        QStringLiteral("%"),
+        cpuCoreMaximum);
     setChartData(
         m_performanceMemoryChart,
         { ProcessPerformanceHistoryChartWidget::Series{
@@ -3201,6 +3957,171 @@ void ProcessDetailWindow::refreshPerformanceHistoryCharts()
             .arg(static_cast<qulonglong>(m_performanceHistory.size()))
             .arg(beginTime)
             .arg(endTime));
+}
+
+void ProcessDetailWindow::initializeCpuCoreTab()
+{
+    auto& languageManager = ks::i18n::LanguageManager::instance();
+    QVBoxLayout* layout = nullptr;
+    QWidget* const contentWidget = createScrollableTabContent(m_cpuCoreTab, layout, 12, 10);
+    if (contentWidget == nullptr || layout == nullptr)
+    {
+        return;
+    }
+
+    m_cpuCoreTitleLabel = new QLabel(contentWidget);
+    m_cpuCoreTitleLabel->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;color:%1;")
+        .arg(KswordTheme::TextPrimaryHex()));
+    languageManager.bindText(
+        m_cpuCoreTitleLabel,
+        QStringLiteral("process.detail.cpu_core.title"),
+        QStringLiteral("进程与线程 CPU 核心视图"));
+    layout->addWidget(m_cpuCoreTitleLabel);
+
+    m_cpuCoreDescriptionLabel = new QLabel(contentWidget);
+    m_cpuCoreDescriptionLabel->setWordWrap(true);
+    m_cpuCoreDescriptionLabel->setStyleSheet(QStringLiteral("color:%1;")
+        .arg(KswordTheme::TextSecondaryHex()));
+    languageManager.bindText(
+        m_cpuCoreDescriptionLabel,
+        QStringLiteral("process.detail.cpu_core.description"),
+        QStringLiteral("基于线程上下文切换区间统计真实运行核心；单组使用 Lx，多组使用 Gx:Ly。"));
+    layout->addWidget(m_cpuCoreDescriptionLabel);
+
+    m_cpuCoreStatusLabel = new QLabel(contentWidget);
+    m_cpuCoreStatusLabel->setWordWrap(true);
+    layout->addWidget(m_cpuCoreStatusLabel);
+
+    auto* equivalentGroup = new QGroupBox(contentWidget);
+    languageManager.bindText(
+        equivalentGroup,
+        QStringLiteral("process.detail.cpu_core.group.summary"),
+        QStringLiteral("进程汇总"));
+    auto* equivalentLayout = new QHBoxLayout(equivalentGroup);
+    auto* systemTitleLabel = new QLabel(equivalentGroup);
+    languageManager.bindText(
+        systemTitleLabel,
+        QStringLiteral("process.detail.cpu_core.summary.system"),
+        QStringLiteral("CPU 占用"));
+    m_cpuCoreSystemValueLabel = new QLabel(QStringLiteral("0.00%"), equivalentGroup);
+    m_cpuCoreSystemValueLabel->setStyleSheet(QStringLiteral("font-size:20px;font-weight:700;color:%1;")
+        .arg(KswordTheme::AccentColor(KswordTheme::AccentRole::Blue).name()));
+    auto* equivalentTitleLabel = new QLabel(equivalentGroup);
+    languageManager.bindText(
+        equivalentTitleLabel,
+        QStringLiteral("process.detail.field.cpu_core"),
+        QStringLiteral("CPU 单核等效"));
+    m_cpuCoreEquivalentValueLabel = new QLabel(QStringLiteral("0.00%"), equivalentGroup);
+    m_cpuCoreEquivalentValueLabel->setStyleSheet(QStringLiteral("font-size:20px;font-weight:700;color:%1;")
+        .arg(KswordTheme::AccentColor(KswordTheme::AccentRole::Blue).name()));
+    equivalentLayout->addWidget(systemTitleLabel);
+    equivalentLayout->addWidget(m_cpuCoreSystemValueLabel);
+    equivalentLayout->addSpacing(24);
+    equivalentLayout->addWidget(equivalentTitleLabel);
+    equivalentLayout->addWidget(m_cpuCoreEquivalentValueLabel);
+    equivalentLayout->addStretch(1);
+    layout->addWidget(equivalentGroup);
+
+    auto* processGroup = new QGroupBox(contentWidget);
+    languageManager.bindText(
+        processGroup,
+        QStringLiteral("process.detail.cpu_core.group.process"),
+        QStringLiteral("进程逐核心占用"));
+    auto* processLayout = new QVBoxLayout(processGroup);
+    processLayout->setContentsMargins(8, 10, 8, 8);
+    processLayout->setSpacing(0);
+    m_processCpuCoreGrid = new CpuCoreUsageGridWidget(processGroup);
+    processLayout->addWidget(m_processCpuCoreGrid);
+    layout->addWidget(processGroup);
+
+    auto* threadGroup = new QGroupBox(contentWidget);
+    languageManager.bindText(
+        threadGroup,
+        QStringLiteral("process.detail.cpu_core.group.thread"),
+        QStringLiteral("线程逐核心占用"));
+    auto* threadLayout = new QVBoxLayout(threadGroup);
+    threadLayout->setContentsMargins(8, 10, 8, 8);
+    threadLayout->setSpacing(6);
+    auto* threadUsageHintLabel = new QLabel(threadGroup);
+    threadUsageHintLabel->setWordWrap(true);
+    threadUsageHintLabel->setStyleSheet(QStringLiteral("color:%1;")
+        .arg(KswordTheme::TextSecondaryHex()));
+    languageManager.bindText(
+        threadUsageHintLabel,
+        QStringLiteral("process.detail.cpu_core.thread_hint"),
+        QStringLiteral("此百分比统计了线程在每个核心的占用时间（线程所在的核心可能发生跳变）（单个线程不可能同时使用多个核心）"));
+    threadLayout->addWidget(threadUsageHintLabel);
+    m_threadCpuCoreGrid = new CpuThreadUsageCardGridWidget(threadGroup);
+    threadLayout->addWidget(m_threadCpuCoreGrid);
+    layout->addWidget(threadGroup);
+    layout->addStretch(1);
+
+    refreshCpuCoreView();
+}
+
+void ProcessDetailWindow::refreshCpuCoreView()
+{
+    if (m_cpuCoreStatusLabel == nullptr ||
+        m_processCpuCoreGrid == nullptr ||
+        m_threadCpuCoreGrid == nullptr)
+    {
+        return;
+    }
+
+    const CpuCoreViewSample& sample = m_cpuCoreViewSample;
+    if (m_cpuCoreSystemValueLabel != nullptr)
+    {
+        m_cpuCoreSystemValueLabel->setText(
+            QString::number(sample.processSystemPercent, 'f', 2) + QStringLiteral("%"));
+    }
+    if (m_cpuCoreEquivalentValueLabel != nullptr)
+    {
+        m_cpuCoreEquivalentValueLabel->setText(
+            QString::number(sample.processCoreEquivalentPercent, 'f', 2) + QStringLiteral("%"));
+    }
+
+    QString statusText;
+    QColor statusColor = statusSecondaryColor();
+    if (!sample.monitorRunning)
+    {
+        statusText = sample.diagnosticText.trimmed().isEmpty()
+            ? ks::i18n::text(QStringLiteral("process.detail.cpu_core.status.unavailable"), QString())
+            : ks::i18n::text(QStringLiteral("process.detail.cpu_core.status.failed"), QString())
+                .arg(sample.diagnosticText);
+        statusColor = KswordTheme::ErrorColor();
+    }
+    else if (!sample.sampleReady)
+    {
+        statusText = ks::i18n::text(QStringLiteral("process.detail.cpu_core.status.sampling"), QString());
+        statusColor = KswordTheme::PrimaryBlueColor;
+    }
+    else if (sample.dataLossDetected)
+    {
+        statusText = ks::i18n::text(QStringLiteral("process.detail.cpu_core.status.loss"), QString())
+            .arg(static_cast<qulonglong>(sample.eventsLost));
+        statusColor = statusWarningColor();
+    }
+    else
+    {
+        statusText = ks::i18n::text(QStringLiteral("process.detail.cpu_core.status.ready"), QString())
+            .arg(static_cast<qulonglong>(sample.contextSwitchEvents));
+        statusColor = signatureTrustedColor();
+    }
+    m_cpuCoreStatusLabel->setText(statusText);
+    m_cpuCoreStatusLabel->setStyleSheet(buildStateLabelStyle(statusColor, 600));
+
+    const bool multipleProcessorGroups = !sample.processCores.empty() && std::any_of(
+        sample.processCores.cbegin(),
+        sample.processCores.cend(),
+        [&sample](const CpuCoreValue& core) {
+            return core.group != sample.processCores.front().group;
+        });
+    static_cast<CpuCoreUsageGridWidget*>(m_processCpuCoreGrid)->setCoreValues(
+        sample.processCores,
+        multipleProcessorGroups);
+    static_cast<CpuThreadUsageCardGridWidget*>(m_threadCpuCoreGrid)->setThreadValues(
+        sample.threads,
+        multipleProcessorGroups);
 }
 
 void ProcessDetailWindow::initializeThreadTab()
@@ -3399,6 +4320,53 @@ void ProcessDetailWindow::initializeThreadTab()
             QIcon(QStringLiteral(":/Icon/process_copy_row.svg")),
             QStringLiteral("复制当前行"));
         copyRowAction->setEnabled(m_threadInspectTable->currentRow() >= 0);
+        const int selectedThreadRow = m_threadInspectTable->currentRow();
+        const QTableWidgetItem* const selectedThreadIdItem =
+            selectedThreadRow >= 0
+                ? m_threadInspectTable->item(
+                    selectedThreadRow,
+                    toThreadColumnIndex(ThreadRowColumn::ThreadId))
+                : nullptr;
+        const std::size_t selectedThreadCacheIndex = selectedThreadIdItem != nullptr
+            ? static_cast<std::size_t>(selectedThreadIdItem->data(Qt::UserRole).toULongLong())
+            : static_cast<std::size_t>(m_threadInspectRows.size());
+        const ThreadInspectItem* const selectedThreadAffinityTarget =
+            selectedThreadCacheIndex < m_threadInspectRows.size()
+                ? &m_threadInspectRows[selectedThreadCacheIndex]
+                : nullptr;
+        QMenu* const affinityMenu = ks::process::addThreadAffinitySubMenu(
+            &menu,
+            QIcon(QStringLiteral(":/Icon/process_priority.svg")),
+            selectedThreadAffinityTarget != nullptr
+                ? selectedThreadAffinityTarget->processId
+                : 0U,
+            selectedThreadAffinityTarget != nullptr
+                ? selectedThreadAffinityTarget->threadId
+                : 0U,
+            selectedThreadAffinityTarget != nullptr
+                ? selectedThreadAffinityTarget->createTime100ns
+                : 0U,
+            buildProcessDetailMenuStyle(),
+            [this](const bool actionOk, const QString& resultText)
+            {
+                if (m_threadInspectStatusLabel != nullptr)
+                {
+                    m_threadInspectStatusLabel->setText(resultText);
+                    m_threadInspectStatusLabel->setStyleSheet(buildStateLabelStyle(
+                        actionOk ? statusIdleColor() : statusWarningColor(),
+                        actionOk ? 600 : 700));
+                }
+                kLogEvent actionEvent;
+                (actionOk ? info : err) << actionEvent
+                    << "[ProcessDetailWindow] thread affinity update: pid="
+                    << m_baseRecord.pid
+                    << ", actionOk="
+                    << (actionOk ? "true" : "false")
+                    << ", detail="
+                    << resultText.toStdString()
+                    << eol;
+                requestAsyncThreadInspectRefresh();
+            });
         QAction* r0SuspendThreadAction = menu.addAction(
             QIcon(QStringLiteral(":/Icon/process_suspend.svg")),
             ks::i18n::contextText(
@@ -3452,6 +4420,17 @@ void ProcessDetailWindow::initializeThreadTab()
                 QStringLiteral("R0结束线程")));
         const bool hasR0ThreadControlTarget =
             m_threadInspectTable->currentRow() >= 0 && m_baseRecord.pid > 4U;
+        if (affinityMenu != nullptr &&
+            (selectedThreadAffinityTarget == nullptr ||
+                selectedThreadAffinityTarget->processId != m_baseRecord.pid ||
+                selectedThreadAffinityTarget->threadId == 0U ||
+                selectedThreadAffinityTarget->createTime100ns == 0U))
+        {
+            affinityMenu->setEnabled(false);
+            affinityMenu->setToolTip(ks::i18n::contextText(
+                QStringLiteral("process.thread.menu.affinity.unavailable"),
+                QStringLiteral("无法读取此线程的 CPU Set 亲和性。")));
+        }
         r0SuspendThreadAction->setEnabled(hasR0ThreadControlTarget);
         r0ResumeThreadAction->setEnabled(hasR0ThreadControlTarget);
         r0TerminateThreadAction->setEnabled(hasR0ThreadControlTarget);
@@ -5355,6 +6334,7 @@ void ProcessDetailWindow::refreshDetailTabTexts()
     m_detailThreadCountValue->setText(QString::number(m_baseRecord.threadCount));
     m_detailHandleCountValue->setText(QString::number(m_baseRecord.handleCount));
     m_detailCpuValue->setText(formatDoubleText(m_baseRecord.cpuPercent, 2) + "%");
+    m_detailCpuCoreValue->setText(formatDoubleText(m_baseRecord.cpuCorePercent, 2) + "%");
     m_detailRamValue->setText(formatDoubleText(m_baseRecord.ramMB, 1) + " MB");
     m_detailDiskValue->setText(formatDoubleText(m_baseRecord.diskMBps, 2) + " MB/s");
     m_detailSignatureValue->setText(QString::fromStdString(m_baseRecord.signatureState.empty() ? "Unknown" : m_baseRecord.signatureState));

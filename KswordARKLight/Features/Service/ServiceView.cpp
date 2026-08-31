@@ -3,8 +3,12 @@
 #include "ServiceActions.h"
 #include "ServiceEnumerator.h"
 #include "ServiceModel.h"
+#include "../AuditCommon/AuditFormatting.h"
+#include "../File/PathNavigator.h"
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/EntityNavigation.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
@@ -16,8 +20,8 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstring>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -48,10 +52,15 @@ constexpr UINT kMenuCopyRow = 64605;
 constexpr UINT kMenuCopyVisible = 64606;
 constexpr UINT kMenuCopyDetail = 64607;
 constexpr UINT kMenuRefresh = 64608;
+constexpr UINT kMenuOpenProcess = 64609;
+constexpr UINT kMenuOpenConfiguredImageDirectory = 64610;
+constexpr UINT kMenuExportVisible = 64611;
+constexpr UINT kMenuExportDetail = 64612;
 
 constexpr UINT kMsgRefreshCompleted = WM_APP + 640;
 constexpr UINT kMsgFilterCompleted = WM_APP + 641;
 constexpr UINT kMsgActionCompleted = WM_APP + 642;
+constexpr UINT kMsgDetailCompleted = WM_APP + 643;
 
 constexpr int kGap = 6;
 constexpr int kRowHeight = 24;
@@ -102,10 +111,15 @@ struct ServiceViewState final {
     std::wstring filterQuery;
     bool filterUseRegex = false;
     std::uint64_t displayGeneration = 0;
+    std::optional<ServiceDetailSnapshot> detailSnapshot;
+    std::wstring detailRequestServiceName;
+    std::uint64_t detailRequestDisplayGeneration = 0;
+    std::uint64_t detailSnapshotDisplayGeneration = 0;
     bool actionInProgress = false;
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<ServiceEnumerationResult>> refreshTask;
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<ServiceFilterResult>> filterTask;
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<ServiceActionTaskResult>> actionTask;
+    std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<ServiceDetailSnapshot>> detailTask;
 };
 
 void AddColumn(HWND list, int index, const wchar_t* title, int width) {
@@ -131,31 +145,7 @@ void SetDetailText(HWND list, int row, int column, const std::wstring& text) {
 }
 
 bool CopyText(HWND owner, const std::wstring& text) {
-    if (text.empty() || !::OpenClipboard(owner)) {
-        return false;
-    }
-    ::EmptyClipboard();
-    const SIZE_T bytes = (text.size() + 1) * sizeof(wchar_t);
-    HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (!memory) {
-        ::CloseClipboard();
-        return false;
-    }
-    void* target = ::GlobalLock(memory);
-    if (!target) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    std::memcpy(target, text.c_str(), bytes);
-    ::GlobalUnlock(memory);
-    if (!::SetClipboardData(CF_UNICODETEXT, memory)) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    ::CloseClipboard();
-    return true;
+    return !text.empty() && Ksword::Ui::CopyTextToClipboard(owner, text, L"服务模块");
 }
 
 int SelectedModelIndex(const ServiceViewState& state) {
@@ -171,6 +161,19 @@ int SelectedModelIndex(const ServiceViewState& state) {
 
 const ServiceEntry* SelectedEntry(const ServiceViewState& state) {
     return state.model.entryAt(SelectedModelIndex(state));
+}
+
+bool HasCurrentDetailSnapshot(const ServiceViewState& state, const ServiceEntry& entry) {
+    return state.detailSnapshot.has_value() &&
+        state.detailSnapshotDisplayGeneration == state.displayGeneration &&
+        state.detailSnapshot->entry.serviceName == entry.serviceName;
+}
+
+std::vector<ServiceProperty> DetailPropertiesForEntry(const ServiceViewState& state, const ServiceEntry& entry) {
+    if (HasCurrentDetailSnapshot(state, entry)) {
+        return state.detailSnapshot->properties;
+    }
+    return state.model.propertiesForEntry(entry);
 }
 
 std::wstring StableKeyFromListItem(const ServiceViewState& state, int item) {
@@ -194,11 +197,66 @@ void ShowDetail(ServiceViewState& state, int modelIndex) {
         SetDetailText(state.detailList, 0, 1, L"未选择服务");
         return;
     }
-    const std::vector<ServiceProperty> properties = state.model.propertiesForEntry(*entry);
+    const std::vector<ServiceProperty> properties = DetailPropertiesForEntry(state, *entry);
     for (int row = 0; row < static_cast<int>(properties.size()); ++row) {
         SetDetailText(state.detailList, row, 0, properties[static_cast<std::size_t>(row)].name);
         SetDetailText(state.detailList, row, 1, properties[static_cast<std::size_t>(row)].value);
     }
+}
+
+// RequestServiceReadOnlyDetails deliberately uses the selected list snapshot as
+// its only input. The worker never mutates a service, re-enumerates the list or
+// opens a driver device; it merely asks the SCM for two optional read-only
+// sections. The display-generation and service-name checks prevent a result
+// from one selection or refresh from being painted onto another row.
+void RequestServiceReadOnlyDetails(ServiceViewState& state, const int modelIndex) {
+    const ServiceEntry* entry = state.model.entryAt(modelIndex);
+    if (!entry || !state.detailTask || entry->serviceName.empty()) {
+        return;
+    }
+    if (HasCurrentDetailSnapshot(state, *entry)) {
+        return;
+    }
+
+    const std::wstring serviceName = entry->serviceName;
+    const std::uint64_t displayGeneration = state.displayGeneration;
+    if (state.detailTask->running() &&
+        state.detailRequestServiceName == serviceName &&
+        state.detailRequestDisplayGeneration == displayGeneration) {
+        return;
+    }
+
+    const ServiceEntry entrySnapshot = *entry;
+    state.detailRequestServiceName = serviceName;
+    state.detailRequestDisplayGeneration = displayGeneration;
+    state.statusText = L"正在补充所选服务的只读恢复策略和直接反向依赖…";
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+    state.detailTask->request(
+        [entrySnapshot] { return QueryServiceReadOnlyDetails(entrySnapshot); },
+        [&state, serviceName, displayGeneration](std::uint64_t,
+            std::optional<ServiceDetailSnapshot>&& snapshot,
+            std::exception_ptr error) {
+            const ServiceEntry* selected = SelectedEntry(state);
+            const bool stillSelected = selected != nullptr && selected->serviceName == serviceName;
+            const bool stillCurrent = state.displayGeneration == displayGeneration &&
+                state.detailRequestServiceName == serviceName &&
+                state.detailRequestDisplayGeneration == displayGeneration;
+            if (!stillSelected || !stillCurrent) {
+                return;
+            }
+            if (error || !snapshot.has_value()) {
+                state.statusText = L"所选服务的可选只读详情查询异常结束；基础快照仍可用。";
+                ShowDetail(state, SelectedModelIndex(state));
+                ::InvalidateRect(state.hwnd, nullptr, TRUE);
+                return;
+            }
+
+            state.detailSnapshot = std::move(*snapshot);
+            state.detailSnapshotDisplayGeneration = displayGeneration;
+            state.statusText = L"已补充所选服务的只读恢复策略和直接反向依赖。";
+            ShowDetail(state, SelectedModelIndex(state));
+            ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        });
 }
 
 // UpdateActionButtons keeps each button's enabled state tied to what the SCM
@@ -262,7 +320,9 @@ void SyncStartTypeCombo(ServiceViewState& state) {
 }
 
 void RefreshSelectionDependentUi(ServiceViewState& state) {
-    ShowDetail(state, SelectedModelIndex(state));
+    const int selectedModelIndex = SelectedModelIndex(state);
+    ShowDetail(state, selectedModelIndex);
+    RequestServiceReadOnlyDetails(state, selectedModelIndex);
     SyncStartTypeCombo(state);
     UpdateActionButtons(state);
 }
@@ -370,6 +430,13 @@ void BuildRows(ServiceViewState& state) {
     state.serviceList.setRows(*filterRows);
     state.filterRows = std::move(filterRows);
     ++state.displayGeneration;
+    // A fresh enumeration or re-sort changes the row snapshot. Any optional
+    // detail captured for the old order/data must not be displayed until the
+    // newly selected row has completed its own read-only enrichment.
+    state.detailSnapshot.reset();
+    state.detailRequestServiceName.clear();
+    state.detailRequestDisplayGeneration = 0;
+    state.detailSnapshotDisplayGeneration = 0;
 }
 
 void BeginServiceRefresh(ServiceViewState& state) {
@@ -570,7 +637,7 @@ std::wstring RowsAsText(const ServiceViewState& state, bool visibleRows) {
     const auto& rows = state.serviceList.rows();
     const auto& visible = state.serviceList.visibleIndexes();
     const HWND list = state.serviceList.hwnd();
-    std::wstring text;
+    std::vector<std::vector<std::wstring>> tsvRows;
     for (std::size_t item = 0; item < visible.size(); ++item) {
         if (!visibleRows &&
             (!list || (ListView_GetItemState(list, static_cast<int>(item), LVIS_SELECTED) & LVIS_SELECTED) == 0)) {
@@ -581,15 +648,24 @@ std::wstring RowsAsText(const ServiceViewState& state, bool visibleRows) {
             continue;
         }
         const auto& cells = rows[rowIndex].cells;
+        std::vector<std::wstring> tsvRow;
+        tsvRow.reserve(kColumnCount);
         for (std::size_t column = 0; column < (std::min)(static_cast<std::size_t>(kColumnCount), cells.size()); ++column) {
-            if (column != 0) {
-                text += L'\t';
-            }
-            text += cells[column];
+            tsvRow.push_back(cells[column]);
         }
-        text += L"\r\n";
+        tsvRows.push_back(std::move(tsvRow));
     }
-    return text;
+    return Ksword::Features::AuditCommon::BuildTsv({}, tsvRows);
+}
+
+std::wstring VisibleRowsAsTsv(const ServiceViewState& state) {
+    const std::wstring rows = RowsAsText(state, true);
+    if (rows.empty()) {
+        return {};
+    }
+    return Ksword::Features::AuditCommon::BuildTsv({
+        L"服务名", L"显示名", L"状态", L"启动类型", L"PID", L"账户", L"风险",
+    }, {}) + rows;
 }
 
 std::wstring DetailAsText(const ServiceViewState& state) {
@@ -597,14 +673,144 @@ std::wstring DetailAsText(const ServiceViewState& state) {
     if (!entry) {
         return {};
     }
-    std::wstring text;
-    for (const ServiceProperty& property : state.model.propertiesForEntry(*entry)) {
-        text += property.name + L"\t" + property.value + L"\r\n";
+    const std::vector<ServiceProperty> properties = DetailPropertiesForEntry(state, *entry);
+    std::vector<std::vector<std::wstring>> rows;
+    rows.reserve(properties.size());
+    for (const ServiceProperty& property : properties) {
+        rows.push_back({ property.name, property.value });
     }
-    return text;
+    return Ksword::Features::AuditCommon::BuildTsv({}, rows);
+}
+
+std::wstring DetailAsTsv(const ServiceViewState& state) {
+    const std::wstring rows = DetailAsText(state);
+    if (rows.empty()) {
+        return {};
+    }
+    return Ksword::Features::AuditCommon::BuildTsv({ L"属性", L"值" }, {}) + rows;
+}
+
+void ExportVisibleServices(ServiceViewState& state) {
+    const std::wstring text = VisibleRowsAsTsv(state);
+    if (text.empty()) {
+        state.statusText = L"没有可导出的服务行。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+
+    std::wstring error;
+    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(
+        state.hwnd,
+        L"services.tsv",
+        L"导出可见服务结果",
+        L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0",
+        L"tsv",
+        text,
+        &error)) {
+    case Ksword::Ui::SaveTextFileResult::Saved:
+        state.statusText = L"已导出当前可见服务结果。";
+        break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled:
+        state.statusText = L"已取消导出服务结果。";
+        break;
+    case Ksword::Ui::SaveTextFileResult::Failed:
+        state.statusText = L"导出服务结果失败：" + error;
+        break;
+    }
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
+void ExportSelectedServiceDetail(ServiceViewState& state) {
+    const std::wstring text = DetailAsTsv(state);
+    if (text.empty()) {
+        state.statusText = L"未选择可导出的服务详情。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+
+    std::wstring error;
+    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(
+        state.hwnd,
+        L"service_detail.tsv",
+        L"导出所选服务详情",
+        L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0",
+        L"tsv",
+        text,
+        &error)) {
+    case Ksword::Ui::SaveTextFileResult::Saved:
+        state.statusText = L"已导出所选服务的当前详情。";
+        break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled:
+        state.statusText = L"已取消导出服务详情。";
+        break;
+    case Ksword::Ui::SaveTextFileResult::Failed:
+        state.statusText = L"导出服务详情失败：" + error;
+        break;
+    }
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
+void OpenSelectedServiceProcess(ServiceViewState& state) {
+    const ServiceEntry* entry = SelectedEntry(state);
+    if (!entry || !entry->hasStatus || entry->processId == 0U) {
+        state.statusText = L"服务快照没有可导航的运行 PID。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+    const DWORD processId = entry->processId;
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::ProcessDetails;
+    request.entity.kind = Ksword::Core::EntityKind::Process;
+    request.entity.id = processId;
+    const bool routed = Ksword::Ui::RequestEntityNavigation(state.hwnd, request);
+    state.statusText = routed
+        ? L"已请求打开当前 PID " + std::to_wstring(processId) + L" 的进程详细信息；服务快照归属会重新校验。"
+        : L"无法导航到该服务快照的当前进程实例。";
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
+void OpenSelectedServiceImageDirectory(ServiceViewState& state) {
+    const ServiceEntry* entry = SelectedEntry(state);
+    if (!entry || !entry->hasConfig) {
+        state.statusText = L"服务配置不可用，无法定位配置映像。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+    const std::wstring imagePath = ResolveServiceImagePathForBrowser(entry->binaryPath);
+    const std::wstring directory =
+        Ksword::Features::File::PathNavigator::parentDirectoryForKnownFilePath(imagePath);
+    if (directory.empty()) {
+        state.statusText = L"服务配置映像不是可精确导航的 DOS/UNC 文件路径。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::FileBrowser;
+    request.entity.kind = Ksword::Core::EntityKind::File;
+    request.entity.text = directory;
+    const bool routed = Ksword::Ui::RequestEntityNavigation(state.hwnd, request);
+    state.statusText = routed
+        ? L"已在文件模块打开服务配置映像所在目录。"
+        : L"文件模块当前无法接收服务配置映像所在目录。";
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
 }
 
 void ShowServiceContextMenu(ServiceViewState& state, POINT screenPoint) {
+    const HWND list = state.serviceList.hwnd();
+    if (!list) {
+        return;
+    }
+    POINT clientPoint = screenPoint;
+    ::ScreenToClient(list, &clientPoint);
+    LVHITTESTINFO hit{};
+    hit.pt = clientPoint;
+    const int hitRow = ListView_SubItemHitTest(list, &hit);
+    if (hitRow >= 0 && (ListView_GetItemState(list, hitRow, LVIS_SELECTED) & LVIS_SELECTED) == 0) {
+        ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+        ListView_SetItemState(list, hitRow, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        RefreshSelectionDependentUi(state);
+    }
+
     const ServiceEntry* entry = SelectedEntry(state);
     HMENU menu = ::CreatePopupMenu();
     if (!menu) {
@@ -615,6 +821,12 @@ void ShowServiceContextMenu(ServiceViewState& state, POINT screenPoint) {
     const UINT stopFlags = MF_STRING | ((entry && ServiceCanStop(*entry) && !busy) ? MF_ENABLED : MF_GRAYED);
     const UINT pauseFlags = MF_STRING | ((entry && ServiceCanPause(*entry) && !busy) ? MF_ENABLED : MF_GRAYED);
     const UINT continueFlags = MF_STRING | ((entry && ServiceCanContinue(*entry) && !busy) ? MF_ENABLED : MF_GRAYED);
+    const bool canOpenProcess = entry != nullptr && entry->hasStatus && entry->processId != 0U;
+    const std::wstring imagePath = entry && entry->hasConfig
+        ? ResolveServiceImagePathForBrowser(entry->binaryPath)
+        : std::wstring{};
+    const bool canOpenConfiguredImageDirectory =
+        !Ksword::Features::File::PathNavigator::parentDirectoryForKnownFilePath(imagePath).empty();
     ::AppendMenuW(menu, startFlags, kMenuStart, L"启动");
     ::AppendMenuW(menu, stopFlags, kMenuStop, L"停止");
     ::AppendMenuW(menu, pauseFlags, kMenuPause, L"暂停");
@@ -623,7 +835,17 @@ void ShowServiceContextMenu(ServiceViewState& state, POINT screenPoint) {
     ::AppendMenuW(menu, MF_STRING | (entry ? MF_ENABLED : MF_GRAYED), kMenuCopyRow, L"复制选中行");
     ::AppendMenuW(menu, MF_STRING, kMenuCopyVisible, L"复制可见行");
     ::AppendMenuW(menu, MF_STRING | (entry ? MF_ENABLED : MF_GRAYED), kMenuCopyDetail, L"复制详情");
+    ::AppendMenuW(menu, MF_STRING, kMenuExportVisible, L"导出可见服务 TSV…");
+    ::AppendMenuW(menu, MF_STRING | (entry ? MF_ENABLED : MF_GRAYED), kMenuExportDetail, L"导出所选服务详情 TSV…");
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    HMENU investigationMenu = ::CreatePopupMenu();
+    if (investigationMenu) {
+        ::AppendMenuW(investigationMenu, MF_STRING | (canOpenProcess ? 0U : MF_GRAYED),
+            kMenuOpenProcess, L"打开当前 PID 的进程详情");
+        ::AppendMenuW(investigationMenu, MF_STRING | (canOpenConfiguredImageDirectory ? 0U : MF_GRAYED),
+            kMenuOpenConfiguredImageDirectory, L"打开配置映像所在目录");
+        ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(investigationMenu), L"关联调查");
+    }
     ::AppendMenuW(menu, MF_STRING, kMenuRefresh, L"刷新");
 
     const int command = ::TrackPopupMenu(
@@ -654,6 +876,18 @@ void ShowServiceContextMenu(ServiceViewState& state, POINT screenPoint) {
     case kMenuCopyDetail:
         state.statusText = CopyText(state.hwnd, DetailAsText(state)) ? L"已复制详情。" : L"复制失败。";
         ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        break;
+    case kMenuExportVisible:
+        ExportVisibleServices(state);
+        break;
+    case kMenuExportDetail:
+        ExportSelectedServiceDetail(state);
+        break;
+    case kMenuOpenProcess:
+        OpenSelectedServiceProcess(state);
+        break;
+    case kMenuOpenConfiguredImageDirectory:
+        OpenSelectedServiceImageDirectory(state);
         break;
     case kMenuRefresh:
         BeginServiceRefresh(state);
@@ -801,6 +1035,7 @@ LRESULT CALLBACK ServiceViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             state->refreshTask = std::make_unique<Ksword::Ui::AsyncSnapshotTask<ServiceEnumerationResult>>(hwnd, kMsgRefreshCompleted);
             state->filterTask = std::make_unique<Ksword::Ui::AsyncSnapshotTask<ServiceFilterResult>>(hwnd, kMsgFilterCompleted);
             state->actionTask = std::make_unique<Ksword::Ui::AsyncSnapshotTask<ServiceActionTaskResult>>(hwnd, kMsgActionCompleted);
+            state->detailTask = std::make_unique<Ksword::Ui::AsyncSnapshotTask<ServiceDetailSnapshot>>(hwnd, kMsgDetailCompleted);
             LayoutView(*state);
             ShowDetail(*state, -1);
             UpdateActionButtons(*state);
@@ -916,6 +1151,10 @@ LRESULT CALLBACK ServiceViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                 state->actionTask->consume(hwnd, wParam, lParam);
                 return 0;
             }
+            if (msg == kMsgDetailCompleted && state->detailTask) {
+                state->detailTask->consume(hwnd, wParam, lParam);
+                return 0;
+            }
         }
         if (msg == WM_NCDESTROY && state) {
             // Cancel before destruction so a completion callback cannot run
@@ -928,6 +1167,9 @@ LRESULT CALLBACK ServiceViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             }
             if (state->actionTask) {
                 state->actionTask->cancel();
+            }
+            if (state->detailTask) {
+                state->detailTask->cancel();
             }
             state->serviceList.detach();
             delete state;

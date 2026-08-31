@@ -137,6 +137,7 @@ KswordARKBugcheckBgpParseBitmap(
 {
     PVOID parsedRectangle;
     LONG state;
+    NTSTATUS abortStatus;
     NTSTATUS status;
 
     if (Rectangle == NULL) {
@@ -145,6 +146,10 @@ KswordARKBugcheckBgpParseBitmap(
     *Rectangle = NULL;
     if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
         return STATUS_INVALID_DEVICE_STATE;
+    }
+    abortStatus = KswordARKBugcheckControlCheckAbort();
+    if (!NT_SUCCESS(abortStatus)) {
+        return abortStatus;
     }
     state = InterlockedCompareExchange(&g_KswordArkBgp.State, 0, 0);
     if ((state != KswordArkBgpStateReady &&
@@ -173,6 +178,13 @@ KswordARKBugcheckBgpParseBitmap(
         &parsedRectangle);
     if (!NT_SUCCESS(status) || parsedRectangle == NULL) {
         return NT_SUCCESS(status) ? STATUS_UNSUCCESSFUL : status;
+    }
+
+    // 私有解析器返回后再检查一次预算；已创建的矩形必须在传播取消前立即销毁。
+    abortStatus = KswordARKBugcheckControlCheckAbort();
+    if (!NT_SUCCESS(abortStatus)) {
+        (VOID)KswordARKBugcheckBgpInvokeDestroyRectangle(parsedRectangle);
+        return abortStatus;
     }
 
     *Rectangle = parsedRectangle;

@@ -99,7 +99,7 @@ jobs:
           common='(^tools/|^scripts/|^shared/|^third_party/|^\.deps/|^\.github/workflows/|^.*\.sln$|(^|/)(Directory\.Build\..*|.*\.props|.*\.targets)$)'
           usermode_re="^(TaskmgrHijack\.ps1$|Ksword5\.1/|Launcher/|Taskbar/|KswordHUD/|APIMonitor_x64/|KswordCLI/)|$common"
           setup_re="^(TaskmgrHijack\.ps1$|KswordSetup/|Ksword5\.1/|Launcher/|Taskbar/|KswordHUD/|APIMonitor_x64/|KswordCLI/|KswordARKDriver/|KswordARKLight/)|$common"
-          arklight_re="^(KswordARKLight/|KswordARKDriver/|Ksword5\.1/Ksword5\.1/(ArkDriverClient/|Resource/)|shared/driver/|scripts/Sign-KswordArkDriverVariant\.ps1)|$common"
+          arklight_re="^(KswordARKLight/|KswordARKLightTests/|KswordARKDriver/|Ksword5\.1/Ksword5\.1/(ArkDriverClient/|Resource/)|shared/driver/|scripts/Sign-KswordArkDriverVariant\.ps1)|$common"
           ce_plugin_re="^(CheatEnginePlugin/|Ksword5\.1/Ksword5\.1/(ArkDriverClient/|ksword/string/)|shared/driver/)|$common"
           ce_launcher_re="^(CheatEngineExecutablePlugin/|Ksword5\.1/Ksword5\.1/(ArkDriverClient/|ksword/string/))|$common"
 
@@ -237,6 +237,9 @@ jobs:
           --source-root Ksword5.1/Ksword5.1
           --zh-pack Ksword5.1/Ksword5.1/languages/zh-CN.json
           --en-pack Ksword5.1/Ksword5.1/languages/en-US.json
+
+      - name: Validate kernel knowledge research chain
+        run: python tools/validate_kernel_knowledge.py
 
       - name: Audit IOCTL registry and access policy
         run: >-
@@ -540,6 +543,21 @@ jobs:
             /v:minimal
           if ($LASTEXITCODE -ne 0) {
             throw "MSBuild failed for KswordARKLight with exit code $LASTEXITCODE."
+          }
+
+          & $msbuild 'KswordARKLightTests/KswordARKLightTests.vcxproj' `
+            /t:Build `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /m:1 `
+            /v:minimal
+          if ($LASTEXITCODE -ne 0) {
+            throw "MSBuild failed for KswordARKLightTests with exit code $LASTEXITCODE."
+          }
+
+          & 'KswordARKLightTests/x64/Release/KswordARKLightTests.exe'
+          if ($LASTEXITCODE -ne 0) {
+            throw "KswordARKLightTests failed with exit code $LASTEXITCODE."
           }
 
       - name: Verify KswordARKLight artifacts

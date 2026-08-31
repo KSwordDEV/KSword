@@ -13,10 +13,11 @@
       --page-border: #15233a;
       --screen-bg: #050f21;
       --screen-text: #e2e8f4;
-      --screen-accent: #447eff;
+      --screen-accent: #5c92dc;
       --screen-muted: #94a3be;
-      --screen-border: #182d4b;
-      --screen-glow: rgba(68, 126, 255, 0.14);
+      --screen-critical: #ff5e6c;
+      --screen-border: #101e32;
+      --screen-glow: rgba(92, 146, 220, 0.10);
       --scale: 1;
       --screen-width: 1280px;
       --screen-height: 720px;
@@ -180,7 +181,7 @@
     }
 
     .capture-legend__dump {
-      color: #d5a75b;
+      color: var(--screen-muted);
     }
 
     .capture-legend__planned {
@@ -299,36 +300,68 @@
     .crash-header {
       position: absolute;
       left: 280px;
-      top: 16px;
-      width: 590px;
+      top: 14px;
+      width: 310px;
     }
 
     .crash-header__title {
-      margin: 0 0 7px;
+      margin: 0 0 6px;
       color: var(--screen-accent);
-      font-size: 13px;
+      font-size: 11px;
       font-weight: 650;
       letter-spacing: 0.07em;
     }
 
-    .crash-header__line {
-      margin: 0;
-      color: var(--screen-text);
-      font-size: 11px;
-      line-height: 1.48;
-      letter-spacing: 0.025em;
+    .crash-header__name {
+      margin: 0 0 4px;
+      color: var(--screen-critical);
+      font-size: 10px;
+      line-height: 1.2;
+      letter-spacing: 0.07em;
     }
 
-    .crash-header__line--muted {
+    .crash-header__hero-row {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .crash-header__code {
+      color: var(--screen-critical);
+      font-size: 24px;
+      line-height: 1;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+    }
+
+    .crash-header__context {
       color: var(--screen-muted);
+      font-size: 8px;
+      line-height: 1.7;
+      letter-spacing: 0.10em;
+    }
+
+    .crash-quip {
+      position: absolute;
+      left: 616px;
+      top: 16px;
+      width: 270px;
+      color: var(--screen-text);
+      font-size: 9px;
+      line-height: 1.95;
+      letter-spacing: 0.04em;
+    }
+
+    .crash-quip p {
+      margin: 0;
     }
 
     .crash-meta {
       position: absolute;
-      top: 17px;
-      right: 18px;
+      top: 16px;
+      right: 16px;
       width: 128px;
-      color: var(--screen-muted);
+      color: var(--screen-text);
       font-size: 11px;
       line-height: 1.9;
       text-align: right;
@@ -339,6 +372,24 @@
       color: var(--screen-text);
       font-size: 15px;
       font-weight: 600;
+    }
+
+    .compact-header-meta {
+      position: absolute;
+      top: 18px;
+      right: 9px;
+      display: grid;
+      gap: 5px;
+      width: 72px;
+      color: var(--screen-text);
+      font-size: 8px;
+      line-height: 1;
+      text-align: left;
+      letter-spacing: 0.02em;
+    }
+
+    .compact-header-meta span:last-child {
+      color: var(--screen-muted);
     }
 
     .panel {
@@ -394,8 +445,8 @@
     }
 
     .source-chip--dump {
-      color: #d5a75b;
-      background: rgba(213, 167, 91, 0.07);
+      color: var(--screen-muted);
+      background: rgba(148, 163, 190, 0.07);
     }
 
     .source-chip--planned {
@@ -405,7 +456,7 @@
 
     .panel__hero {
       margin: -1px 0 8px;
-      color: var(--screen-accent);
+      color: var(--screen-text);
       font-size: 16px;
       line-height: 1.2;
       font-weight: 650;
@@ -420,7 +471,7 @@
 
     .panel__summary {
       margin: 1px 0 8px;
-      color: var(--screen-accent);
+      color: var(--screen-muted);
       font-size: 12px;
       font-weight: 600;
       letter-spacing: 0.03em;
@@ -570,7 +621,7 @@
     }
 
     .crash-screen[data-mode="detailed"] .crash-header {
-      width: 665px;
+      width: 310px;
       top: 14px;
     }
 
@@ -579,9 +630,13 @@
       font-size: 11px;
     }
 
-    .crash-screen[data-mode="detailed"] .crash-header__line {
-      font-size: 9px;
-      line-height: 1.45;
+    .crash-screen[data-mode="detailed"] .crash-quip {
+      left: 800px;
+      width: 330px;
+    }
+
+    .crash-screen[data-mode="detailed"] .crash-meta {
+      display: block;
     }
 
     .detailed-meta {
@@ -766,7 +821,7 @@
     }
 
     .data-unavailable {
-      color: #d5a75b;
+      color: var(--screen-muted);
     }
 
     .data-planned {
@@ -903,7 +958,8 @@
     }
 
     .crash-screen[data-mode="compact"] .crash-header {
-      width: 350px;
+      top: 8px;
+      width: 275px;
     }
 
     .crash-screen[data-mode="compact"] .crash-header__title {
@@ -912,9 +968,29 @@
       letter-spacing: 0.035em;
     }
 
-    .crash-screen[data-mode="compact"] .crash-header__line {
+    .crash-screen[data-mode="compact"] .crash-header__name {
       font-size: 9px;
-      line-height: 1.65;
+    }
+
+    .crash-screen[data-mode="compact"] .crash-header__code {
+      font-size: 20px;
+    }
+
+    .crash-screen[data-mode="compact"] .crash-header__hero-row {
+      gap: 10px;
+    }
+
+    .crash-screen[data-mode="compact"] .crash-quip {
+      left: 272px;
+      top: 84px;
+      width: 260px;
+      font-size: 8px;
+      line-height: 1.4;
+    }
+
+    .crash-screen[data-mode="compact"] .crash-quip p:not(:first-child),
+    .crash-screen[data-mode="compact"] .crash-meta {
+      display: none;
     }
 
     .crash-screen[data-mode="compact"] .panel__inner {
@@ -956,7 +1032,7 @@
       left: 16px;
       top: 292px;
       width: 608px;
-      height: 126px;
+      height: 138px;
     }
 
     .compact-wide .panel__inner {
@@ -982,6 +1058,7 @@
       height: 57px;
       border-top: 1px dashed rgba(148, 163, 190, 0.07);
       border-bottom: 1px dashed rgba(148, 163, 190, 0.07);
+      opacity: 0;
     }
 
     .compact-progress-band span {
@@ -994,7 +1071,7 @@
     }
 
     .crash-screen[data-mode="compact"] .footer-status {
-      bottom: 25px;
+      bottom: 16px;
       font-size: 8px;
     }
 
@@ -1020,7 +1097,7 @@
       <span class="preview-heading__mark" aria-hidden="true"></span>
       <div>
         <h1>#174 蓝屏诊断页 HTML 预览</h1>
-        <p>当前驱动布局 · 深色诊断面板 · 示例数据</p>
+        <p>与 bugcheck_layout.c 同步 · 示例诊断结构体数据</p>
       </div>
       <span class="preview-badge">KSWORDDEV</span>
     </div>
@@ -1036,7 +1113,7 @@
       <span class="capture-legend">
         <span class="capture-legend__live"><i></i>崩溃回调已捕获</span>
         <span class="capture-legend__dump"><i></i>需解析转储</span>
-        <span class="capture-legend__planned"><i></i>需新增采集</span>
+        <span class="capture-legend__planned"><i></i>重启后从转储解析</span>
       </span>
     </div>
   </header>
@@ -1051,33 +1128,30 @@
 
         <div class="crash-header">
           <p class="crash-header__title">KSWORD ARK CRASH DIAGNOSTICS</p>
-          <div class="full-only">
-            <p class="crash-header__line">A FATAL KERNEL ERROR HAS OCCURRED.</p>
-            <p class="crash-header__line crash-header__line--muted">THE SYSTEM HAS STOPPED TO PROTECT DATA.</p>
-            <p class="crash-header__line crash-header__line--muted">THIS SCREEN PRESERVES THE CRASH CONTEXT.</p>
-          </div>
-          <div class="compact-only">
-            <p class="crash-header__line">A FATAL KERNEL ERROR OCCURRED.</p>
-            <p class="crash-header__line crash-header__line--muted">CRASH CONTEXT CAPTURED.</p>
-            <p class="crash-header__line crash-header__line--muted">PRESERVE THE NEWEST DUMP.</p>
-          </div>
-          <div class="detailed-only">
-            <p class="crash-header__line">A FATAL KERNEL ERROR HAS OCCURRED.</p>
-            <p class="crash-header__line crash-header__line--muted">THE SYSTEM HAS STOPPED TO PROTECT DATA AND PRESERVE THE CRASH CONTEXT.</p>
-            <p class="crash-header__line crash-header__line--muted">LIVE VALUES ARE CAPTURED NOW; AMBER SECTIONS REQUIRE DUMP ANALYSIS.</p>
+          <p class="crash-header__name">CRITICAL_PROCESS_DIED</p>
+          <div class="crash-header__hero-row">
+            <strong class="crash-header__code">0x000000EF</strong>
+            <span class="crash-header__context">STOP CODE<br>DUMP CAPTURE</span>
           </div>
         </div>
 
-        <div class="crash-meta full-only">
-          CRASH CPU&nbsp; <b>12</b><br>
-          IRQL&nbsp; <b>2</b>
+        <div class="crash-quip" aria-label="KSword crash quip">
+          <p>THIS IS NOBODY'S FAULT.</p>
+          <p>YOUR COMPUTER JUST EXPLODED.</p>
+          <p>RESTART IT, REINSTALL IT,</p>
+          <p>OR BUY A NEW ONE.</p>
         </div>
 
-        <div class="detailed-only detailed-meta">
-          <span>CRASH CPU</span><b>12</b>
-          <span>IRQL</span><b>2</b>
-          <span>CALLBACKS</span><b>0x0F</b>
-          <span>UPTIME</span><b class="data-unavailable">DUMP ONLY</b>
+        <div class="crash-meta">
+          CRASH CPU&nbsp; <b>00</b><br>
+          IRQL&nbsp; <b>15</b>
+        </div>
+
+        <div class="compact-only compact-header-meta" aria-label="崩溃时已捕获状态">
+          <span>CPU 00</span>
+          <span>IRQL 15</span>
+          <span>CB 0x0F</span>
+          <span>MOD 186</span>
         </div>
 
         <article class="panel detailed-only detailed-top-left">
@@ -1086,17 +1160,17 @@
               <h2 class="panel__title">BUGCHECK</h2>
               <span class="source-chip source-chip--live">CAPTURED</span>
             </div>
-            <p class="panel__hero">IRQL_NOT_LESS_OR_EQUAL</p>
-            <p class="panel__summary">0x0000000A</p>
+            <p class="panel__hero">CRITICAL_PROCESS_DIED</p>
+            <p class="panel__summary">0x000000EF</p>
             <dl class="kv">
-              <dt>ARG1</dt><dd>FFFFF800`00000048 — MEMORY REFERENCED</dd>
-              <dt>ARG2</dt><dd>00000000`00000002 — DISPATCH_LEVEL</dd>
-              <dt>ARG3</dt><dd>00000000`00000001 — WRITE</dd>
-              <dt>ARG4</dt><dd>FFFFF806`A12C7E91 — INSTRUCTION ADDRESS</dd>
-              <dt>FAULT VALUE</dt><dd>ARG1 / FFFFF800`00000048</dd>
-              <dt>FAULT IP</dt><dd>ARG4 / FFFFF806`A12C7E91</dd>
-              <dt>VERDICT</dt><dd class="accent">THIRD-PARTY MODULE CANDIDATE</dd>
-              <dt>CONFIDENCE</dt><dd>HIGH</dd>
+              <dt>ARG1</dt><dd>FFFFFAE0`F93142140</dd>
+              <dt>ARG2</dt><dd>00000000`00000000</dd>
+              <dt>ARG3</dt><dd>FFFFFAE0`F955970C0</dd>
+              <dt>ARG4</dt><dd>00000000`00000000</dd>
+              <dt>OBJECT TYPE</dt><dd>PROCESS</dd>
+              <dt>FAULT IP</dt><dd class="data-unavailable">NOT ENCODED</dd>
+              <dt>VERDICT</dt><dd>DUMP ANALYSIS REQUIRED</dd>
+              <dt>CONFIDENCE</dt><dd>NONE</dd>
             </dl>
           </div>
         </article>
@@ -1105,20 +1179,20 @@
           <div class="panel__inner">
             <div class="panel__title-row">
               <h2 class="panel__title">FAULT CONTEXT</h2>
-              <span class="source-chip source-chip--live">MIXED</span>
+              <span class="source-chip source-chip--live">CAPTURED</span>
             </div>
             <dl class="kv">
-              <dt>RIP</dt><dd class="accent">FFFFF806`A12C7E91</dd>
-              <dt>CPU</dt><dd>12 / GROUP 0</dd>
-              <dt>IRQL</dt><dd>2 / DISPATCH_LEVEL</dd>
-              <dt>SOURCE</dt><dd>BUGCHECK ARG4</dd>
-              <dt>MODULE</dt><dd>NVLDDMKM.SYS + 0x12C7E91</dd>
-              <dt>CLASS</dt><dd>THIRD PARTY</dd>
-              <dt>CONFIDENCE</dt><dd>HIGH</dd>
+              <dt>OBJECT</dt><dd class="accent">FFFFFAE0`F93142140</dd>
+              <dt>OBJECT TYPE</dt><dd>PROCESS</dd>
+              <dt>CPU</dt><dd>0</dd>
+              <dt>IRQL</dt><dd>15</dd>
+              <dt>SOURCE</dt><dd>BUGCHECK ARG1</dd>
+              <dt>MODULE</dt><dd class="data-unavailable">DUMP ANALYSIS REQUIRED</dd>
+              <dt>CLASS</dt><dd>UNKNOWN</dd>
+              <dt>CONF</dt><dd>NONE</dd>
               <dt>RSP</dt><dd class="data-unavailable">DUMP ONLY</dd>
               <dt>RFLAGS</dt><dd class="data-unavailable">DUMP ONLY</dd>
               <dt>CR2</dt><dd class="data-unavailable">DUMP ONLY</dd>
-              <dt>MODE</dt><dd class="data-planned">NOT CAPTURED IN CALLBACK</dd>
             </dl>
           </div>
         </article>
@@ -1129,18 +1203,15 @@
               <h2 class="panel__title">FAULTING INSTRUCTION</h2>
               <span class="source-chip source-chip--dump">DUMP ONLY</span>
             </div>
-            <div class="instruction-list">
-              <div class="instruction-line"><span></span><span>FFFFF806`A12C7E85</span><span>MOV RAX,QWORD PTR [RBX+18H]</span></div>
-              <div class="instruction-line"><span></span><span>FFFFF806`A12C7E89</span><span>TEST RAX,RAX</span></div>
-              <div class="instruction-line instruction-line--focus"><span></span><span>FFFFF806`A12C7E91</span><span>MOV QWORD PTR [RAX+48H],RDX</span></div>
-              <div class="instruction-line"><span></span><span>FFFFF806`A12C7E95</span><span>JNE FFFFF806`A12C7EB0</span></div>
-            </div>
-            <dl class="kv" style="margin-top: 12px">
-              <dt>ADDRESS</dt><dd>FFFFF800`00000048</dd>
-              <dt>ACCESS</dt><dd>WRITE / 8 BYTES</dd>
-              <dt>SYMBOL</dt><dd>NVLDDMKM!UNKNOWN+0x12C7E91</dd>
-              <dt>BYTES</dt><dd class="data-unavailable">REQUIRES DUMP MEMORY</dd>
-              <dt>NOTE</dt><dd class="data-unavailable">PREVIEW SAMPLE, NOT LIVE DATA</dd>
+            <dl class="kv" style="margin-top: 8px">
+              <dt>PREVIOUS</dt><dd class="data-unavailable">REQUIRES MEMORY.DMP</dd>
+              <dt>CURRENT</dt><dd class="data-unavailable">NO DIRECT FAULT IP</dd>
+              <dt>NEXT</dt><dd class="data-unavailable">REQUIRES MEMORY.DMP</dd>
+              <dt>ADDRESS</dt><dd class="data-unavailable">NOT ENCODED</dd>
+              <dt>ACCESS</dt><dd class="data-unavailable">NOT ENCODED</dd>
+              <dt>BYTES</dt><dd class="data-unavailable">NOT READ AT BUGCHECK IRQL</dd>
+              <dt>SYMBOL</dt><dd class="data-unavailable">RESOLVE AFTER RESTART</dd>
+              <dt>WINDBG</dt><dd>.TRAP / .CXR / UB / U</dd>
             </dl>
           </div>
         </article>
@@ -1152,13 +1223,13 @@
               <span class="source-chip source-chip--dump">DUMP ONLY</span>
             </div>
             <dl class="kv">
-              <dt>THREAD</dt><dd>FFFFCB02`4A132080</dd>
-              <dt>PROCESS</dt><dd>SYSTEM / PID 4</dd>
-              <dt>START</dt><dd>NT!PSPSYSTEMTHREADSTARTUP</dd>
-              <dt>STATE</dt><dd>RUNNING</dd>
-              <dt>PRIORITY</dt><dd>13</dd>
-              <dt>PREVIOUS MODE</dt><dd>KERNELMODE</dd>
-              <dt>LIVE STATUS</dt><dd class="data-planned">NOT CAPTURED</dd>
+              <dt>THREAD</dt><dd class="data-unavailable">NOT CAPTURED</dd>
+              <dt>PROCESS</dt><dd class="data-unavailable">NOT CAPTURED</dd>
+              <dt>START</dt><dd class="data-unavailable">DUMP ONLY</dd>
+              <dt>STATE</dt><dd class="data-unavailable">DUMP ONLY</dd>
+              <dt>CPU</dt><dd>0</dd>
+              <dt>IRQL</dt><dd>15</dd>
+              <dt>WINDBG</dt><dd>!THREAD / !PROCESS</dd>
             </dl>
           </div>
         </article>
@@ -1170,13 +1241,13 @@
               <span class="source-chip source-chip--dump">DUMP ONLY</span>
             </div>
             <div class="stack-list">
-              <div class="stack-line"><span>#00</span><span>NT!KEBUGCHECKEX</span></div>
-              <div class="stack-line"><span>#01</span><span>NT!KIBUGCHECKDISPATCH</span></div>
-              <div class="stack-line"><span>#02</span><span>NT!KIPAGEFAULT</span></div>
-              <div class="stack-line"><span>#03</span><span class="data-unavailable">NVLDDMKM!UNKNOWN+0x12C7E91</span></div>
-              <div class="stack-line"><span>#04</span><span>NT!PSPCALLPROCESSNOTIFYROUTINES</span></div>
-              <div class="stack-line"><span>#05</span><span>NT!NTCREATEFILE</span></div>
-              <div class="stack-line"><span>STATUS</span><span class="data-unavailable">REQUIRES UNWIND + SYMBOLS</span></div>
+              <div class="stack-line"><span>#00</span><span class="data-unavailable">REQUIRES MEMORY.DMP</span></div>
+              <div class="stack-line"><span>#01</span><span class="data-unavailable">REQUIRES UNWIND METADATA</span></div>
+              <div class="stack-line"><span>#02</span><span class="data-unavailable">REQUIRES REGISTER CONTEXT</span></div>
+              <div class="stack-line"><span>#03</span><span class="data-unavailable">RESOLVE WITH SYMBOLS</span></div>
+              <div class="stack-line"><span>COMMAND</span><span>!ANALYZE -V</span></div>
+              <div class="stack-line"><span>COMMAND</span><span>KV / .TRAP / .CXR</span></div>
+              <div class="stack-line"><span>STATUS</span><span>NO UNSAFE LIVE STACK WALK</span></div>
             </div>
           </div>
         </article>
@@ -1185,18 +1256,16 @@
           <div class="panel__inner">
             <div class="panel__title-row">
               <h2 class="panel__title">FAULTING MODULE</h2>
-              <span class="source-chip source-chip--live">CAPTURED</span>
+              <span class="source-chip source-chip--dump">DUMP ONLY</span>
             </div>
-            <p class="panel__hero panel__hero--small">NVLDDMKM.SYS</p>
+            <p class="panel__hero panel__hero--small">DUMP ANALYSIS REQUIRED</p>
             <dl class="kv">
-              <dt>BASE</dt><dd>FFFFF806`A0000000</dd>
-              <dt>SIZE</dt><dd>0x0213A000</dd>
-              <dt>OFFSET</dt><dd>0x012C7E91</dd>
-              <dt>ADDRESS</dt><dd>FFFFF806`A12C7E91</dd>
-              <dt>CLASS</dt><dd>THIRD PARTY</dd>
-              <dt>SOURCE</dt><dd>MODULE CACHE</dd>
-              <dt>VERSION</dt><dd class="data-unavailable">DUMP ONLY</dd>
-              <dt>PDB</dt><dd class="data-unavailable">DUMP ONLY</dd>
+              <dt>BASE</dt><dd class="data-unavailable">NOT AVAILABLE</dd>
+              <dt>SIZE</dt><dd class="data-unavailable">NOT AVAILABLE</dd>
+              <dt>OFFSET</dt><dd class="data-unavailable">NOT AVAILABLE</dd>
+              <dt>CLASS</dt><dd>UNKNOWN</dd>
+              <dt>SOURCE</dt><dd>NONE</dd>
+              <dt>VERSION / PDB</dt><dd class="data-unavailable">DUMP ONLY</dd>
             </dl>
           </div>
         </article>
@@ -1208,13 +1277,13 @@
               <span class="source-chip source-chip--dump">DUMP ONLY</span>
             </div>
             <div class="blackbox-list">
-              <div class="blackbox-line"><span>BSD</span><span>PRESENT</span></div>
-              <div class="blackbox-line"><span>NTFS</span><span>PRESENT</span></div>
-              <div class="blackbox-line"><span>PNP</span><span>PRESENT</span></div>
-              <div class="blackbox-line"><span>WINLOGON</span><span>PRESENT</span></div>
-              <div class="blackbox-line"><span>LAST DRIVER</span><span>NVLDDMKM.SYS</span></div>
-              <div class="blackbox-line"><span>LAST PROCESS</span><span>SYSTEM / PID 4</span></div>
-              <div class="blackbox-line"><span>LIVE STATUS</span><span class="data-planned">NOT CAPTURED</span></div>
+              <div class="blackbox-line"><span>BSD</span><span class="data-unavailable">QUERY AFTER RESTART</span></div>
+              <div class="blackbox-line"><span>NTFS</span><span class="data-unavailable">QUERY AFTER RESTART</span></div>
+              <div class="blackbox-line"><span>PNP</span><span class="data-unavailable">QUERY AFTER RESTART</span></div>
+              <div class="blackbox-line"><span>WINLOGON</span><span class="data-unavailable">QUERY AFTER RESTART</span></div>
+              <div class="blackbox-line"><span>LAST DRIVER</span><span class="data-unavailable">NOT CAPTURED</span></div>
+              <div class="blackbox-line"><span>LAST PROCESS</span><span class="data-unavailable">NOT CAPTURED</span></div>
+              <div class="blackbox-line"><span>WINDBG</span><span>!BLACKBOXBSD / NTFS / PNP</span></div>
             </div>
           </div>
         </article>
@@ -1227,14 +1296,12 @@
             </div>
             <div class="cpu-list">
               <div class="cpu-line cpu-line--header"><span>CPU</span><span>ID</span><span>STATE</span><span>IRQL</span><span>CURRENT FUNCTION</span></div>
-              <div class="cpu-line"><span>00</span><span>0</span><span>IDLE</span><span>0</span><span>NT!KIIDLELOOP</span></div>
-              <div class="cpu-line"><span>01</span><span>1</span><span>THREAD</span><span>0</span><span>SYSTEM</span></div>
-              <div class="cpu-line"><span>02</span><span>2</span><span>DPC</span><span>2</span><span>STORPORT!RAIDUNITREMOVE</span></div>
-              <div class="cpu-line"><span>03</span><span>3</span><span>IDLE</span><span>0</span><span>NT!KIIDLELOOP</span></div>
-              <div class="cpu-line"><span>04</span><span>4</span><span>THREAD</span><span>0</span><span>CSRSS.EXE</span></div>
-              <div class="cpu-line"><span>05</span><span>5</span><span>DPC</span><span>2</span><span>NT!KIRETIREDPCLIST</span></div>
-              <div class="cpu-line"><span>…</span><span>…</span><span>…</span><span>…</span><span>OTHER PROCESSORS REQUIRE DUMP</span></div>
-              <div class="cpu-line cpu-line--active"><span>12</span><span>12</span><span>BUGCHECK</span><span>2</span><span>NVLDDMKM+0x12C7E91</span></div>
+              <div class="cpu-line cpu-line--active"><span>0</span><span>0</span><span>BUGCHECK</span><span>15</span><span>CRASH CALLBACK</span></div>
+              <div class="cpu-line"><span>…</span><span>…</span><span class="data-unavailable">OTHER CPU STATES REQUIRE MEMORY.DMP</span></div>
+              <div class="cpu-line"><span>…</span><span>…</span><span class="data-unavailable">ACTIVE CPU COUNT NOT CAPTURED</span></div>
+              <div class="cpu-line"><span>WINDBG</span><span></span><span>!PRCB / !RUNAWAY / ~* KV</span></div>
+              <div class="cpu-line"><span>GROUP</span><span></span><span class="data-unavailable">PER-CPU THREADS DUMP ONLY</span></div>
+              <div class="cpu-line"><span>CAPTURED</span><span></span><span>CPU / IRQL 0 / 15</span></div>
             </div>
           </div>
         </article>
@@ -1248,18 +1315,15 @@
             <dl class="kv">
               <dt>TYPE</dt><dd>KBCALLBACKDUMP_IO</dd>
               <dt>STAGE</dt><dd class="accent">WRITE COMPLETE</dd>
-              <dt>OFFSET</dt><dd>00000000`5E400000</dd>
+              <dt>OFFSET</dt><dd>SEQUENTIAL</dd>
               <dt>CHUNK</dt><dd>0x00010000</dd>
               <dt>CALLBACK MASK</dt><dd>0x0F</dd>
-              <dt>CACHED MODULES</dt><dd>284</dd>
+              <dt>CACHED MODULES</dt><dd>186</dd>
               <dt>DRIVER OBJ</dt><dd>FFFFAB01`19CC7000</dd>
               <dt>DEVICE OBJ</dt><dd>FFFFAB01`19D0B060</dd>
-              <dt>PERCENTAGE</dt><dd class="data-unavailable">CONTROLLED BY WINDOWS</dd>
+              <dt>PERCENT</dt><dd class="data-unavailable">CONTROLLED BY WINDOWS</dd>
+              <dt>POWER</dt><dd>DO NOT POWER OFF DURING DUMP WRITING</dd>
             </dl>
-            <div class="dump-progress">
-              <div class="dump-progress__labels"><span>WINDOWS DUMP PIPELINE</span><span>PERCENT NOT EXPOSED</span></div>
-              <div class="dump-progress__track" aria-hidden="true"></div>
-            </div>
           </div>
         </article>
 
@@ -1271,8 +1335,9 @@
             </div>
             <dl class="kv">
               <dt>PERF COUNTER</dt><dd>0x000001D4`2AE71C40</dd>
-              <dt>EVENT ID / TIME</dt><dd class="data-planned">NOT AVAILABLE AT BUGCHECK</dd>
-              <dt>REPORT ID</dt><dd class="data-planned">GENERATE AFTER RESTART</dd>
+              <dt>BUGCHECK</dt><dd>0x000000EF</dd>
+              <dt>EVENT TIME / REPORT ID</dt><dd class="data-unavailable">ASSIGNED AFTER RESTART</dd>
+              <dt>DUMP TARGET</dt><dd>MEMORY.DMP</dd>
             </dl>
           </div>
         </article>
@@ -1284,27 +1349,28 @@
               <span class="source-chip source-chip--live">STATIC GUIDANCE</span>
             </div>
             <div class="help-lines" style="gap: 3px; font-size: 8px">
-              <p>PRESERVE THE NEWEST CRASH DUMP; DO NOT POWER OFF.</p>
-              <p>AFTER RESTART, ATTACH THIS SCREEN AND MEMORY.DMP.</p>
-              <p>USE WINDBG OR KSWORDARK TO RESOLVE DUMP-ONLY FIELDS.</p>
+              <p>PRESERVE THE NEWEST CRASH DUMP.</p>
+              <p>AFTER RESTART ATTACH THIS SCREEN AND MEMORY.DMP.</p>
+              <p>RESOLVE MUTED FIELDS WITH WINDBG OR KSWORDARK.</p>
+              <p class="data-unavailable">DO NOT POWER OFF WHILE WINDOWS WRITES THE DUMP.</p>
             </div>
           </div>
         </article>
 
         <div class="detailed-only detailed-footer">
-          <span>LIVE SCREEN: CAPTURED VALUES + SOURCE AVAILABILITY</span>
-          <span>WAITING FOR WINDOWS TO COMPLETE THE CRASH DUMP <span class="footer-status__cursor" aria-hidden="true"></span></span>
+          <span>BLUE=DECODED&nbsp;&nbsp; GRAY=DUMP ONLY</span>
+          <span>WAITING FOR WINDOWS DUMP COMPLETION <span class="footer-status__cursor" aria-hidden="true"></span></span>
         </div>
 
         <article class="panel full-only full-top-left">
           <div class="panel__inner">
             <h2 class="panel__title">BUGCHECK</h2>
-            <p class="panel__hero">IRQL_NOT_LESS_OR_EQUAL</p>
-            <p class="panel__summary">0x0000000A</p>
+            <p class="panel__hero">CRITICAL_PROCESS_DIED</p>
+            <p class="panel__summary">0x000000EF</p>
             <dl class="kv">
               <dt>STATUS</dt><dd>SYSTEM STOPPED SAFELY</dd>
-              <dt>SUMMARY</dt><dd>THIRD-PARTY CODE CANDIDATE</dd>
-              <dt>CONFIDENCE</dt><dd>HIGH</dd>
+              <dt>SUMMARY</dt><dd>DUMP ATTRIBUTION REQUIRED</dd>
+              <dt>CONFIDENCE</dt><dd>NONE</dd>
               <dt>CAPTURE</dt><dd>COMPLETE</dd>
             </dl>
           </div>
@@ -1314,13 +1380,13 @@
           <div class="panel__inner">
             <h2 class="panel__title">FAULT CONTEXT</h2>
             <dl class="kv">
-              <dt>IP</dt><dd class="accent">FFFFF806`A12C7E91</dd>
-              <dt>PARAM</dt><dd>1</dd>
-              <dt>MEANING</dt><dd>WRITE</dd>
-              <dt>CPU</dt><dd>12</dd>
-              <dt>IRQL</dt><dd>2</dd>
-              <dt>SOURCE</dt><dd>BUGCHECK ARG4</dd>
-              <dt>ADDRESS</dt><dd>FFFFF806`A12C7E91</dd>
+              <dt>OBJECT</dt><dd class="accent">FFFFFAE0`F93142140</dd>
+              <dt>OBJECT TYPE</dt><dd>PROCESS</dd>
+              <dt>FAULT IP</dt><dd class="data-unavailable">NOT ENCODED</dd>
+              <dt>CPU</dt><dd>0</dd>
+              <dt>IRQL</dt><dd>15</dd>
+              <dt>SOURCE</dt><dd>BUGCHECK ARG1</dd>
+              <dt>ATTRIBUTION</dt><dd>DUMP REQUIRED</dd>
             </dl>
           </div>
         </article>
@@ -1331,7 +1397,7 @@
             <dl class="kv">
               <dt>STAGE</dt><dd class="accent">DUMP I/O</dd>
               <dt>REASON</dt><dd>WRITE COMPLETE</dd>
-              <dt>OFFSET</dt><dd>00000000`5E400000</dd>
+              <dt>OFFSET</dt><dd>SEQUENTIAL</dd>
               <dt>CHUNK</dt><dd>0x00010000</dd>
               <dt>CALLBACKS</dt><dd>0x0F</dd>
               <dt>CAPTURE</dt><dd>COMPLETE</dd>
@@ -1344,11 +1410,11 @@
           <div class="panel__inner">
             <h2 class="panel__title">CRASH PARAMETERS</h2>
             <dl class="kv">
-              <dt>ARG1</dt><dd>FFFFF800`00000048</dd>
-              <dt>ARG2</dt><dd>00000000`00000002</dd>
-              <dt>ARG3</dt><dd>00000000`00000001</dd>
-              <dt>ARG4</dt><dd>FFFFF806`A12C7E91</dd>
-              <dt>FAULT VALUE</dt><dd>COMES FROM ARG4</dd>
+              <dt>ARG1</dt><dd>FFFFFAE0`F93142140</dd>
+              <dt>ARG2</dt><dd>00000000`00000000</dd>
+              <dt>ARG3</dt><dd>FFFFFAE0`F955970C0</dd>
+              <dt>ARG4</dt><dd>00000000`00000000</dd>
+              <dt>ARG1 MEANING</dt><dd>PROCESS OBJECT</dd>
             </dl>
           </div>
         </article>
@@ -1356,13 +1422,13 @@
         <article class="panel full-only full-middle-middle">
           <div class="panel__inner">
             <h2 class="panel__title">FAULTING MODULE</h2>
-            <p class="panel__hero panel__hero--small">NVLDDMKM.SYS</p>
+            <p class="panel__hero panel__hero--small">DUMP ANALYSIS REQUIRED</p>
             <dl class="kv">
-              <dt>BASE</dt><dd>FFFFF806`A0000000</dd>
-              <dt>SIZE</dt><dd>0x0213A000</dd>
-              <dt>OFFSET</dt><dd>00000000`012C7E91</dd>
-              <dt>CLASS</dt><dd>THIRD PARTY</dd>
-              <dt>CONF</dt><dd>HIGH</dd>
+              <dt>BASE</dt><dd class="data-unavailable">NOT AVAILABLE</dd>
+              <dt>SIZE</dt><dd class="data-unavailable">NOT AVAILABLE</dd>
+              <dt>OFFSET</dt><dd class="data-unavailable">NOT AVAILABLE</dd>
+              <dt>CLASS</dt><dd>UNKNOWN</dd>
+              <dt>CONF</dt><dd>NONE</dd>
             </dl>
           </div>
         </article>
@@ -1371,8 +1437,8 @@
           <div class="panel__inner">
             <h2 class="panel__title">SYSTEM SNAPSHOT</h2>
             <dl class="kv">
-              <dt>CPU / IRQL</dt><dd>12 / 2</dd>
-              <dt>CACHED MODULES</dt><dd>284</dd>
+              <dt>CPU / IRQL</dt><dd>0 / 15</dd>
+              <dt>CACHED MODULES</dt><dd>186</dd>
               <dt>DRIVER OBJ</dt><dd>FFFFAB01`19CC7000</dd>
               <dt>DEVICE OBJ</dt><dd>FFFFAB01`19D0B060</dd>
               <dt>CLASSIC / TRIAGE</dt><dd>1 / 1</dd>
@@ -1384,10 +1450,10 @@
         <article class="panel full-only full-bottom-left">
           <div class="panel__inner">
             <h2 class="panel__title">DIAGNOSTIC SUMMARY</h2>
-            <p class="panel__summary">PARAMETERS POINT TO THIRD-PARTY CODE.</p>
+            <p class="panel__summary">A CRITICAL PROCESS OR THREAD TERMINATED.</p>
             <dl class="kv">
-              <dt>CANDIDATE</dt><dd>NVLDDMKM.SYS</dd>
-              <dt>CONFIDENCE</dt><dd>HIGH</dd>
+              <dt>CANDIDATE</dt><dd>DUMP ANALYSIS REQUIRED</dd>
+              <dt>CONFIDENCE</dt><dd>NONE</dd>
               <dt>ACTION</dt><dd>PRESERVE AND ANALYZE NEWEST DUMP</dd>
               <dt>REPORT</dt><dd>ATTACH SCREEN AND CRASH DUMP</dd>
             </dl>
@@ -1410,13 +1476,13 @@
         <article class="panel compact-only compact-column-left">
           <div class="panel__inner">
             <h2 class="panel__title">BUGCHECK</h2>
-            <p class="panel__hero">IRQL_NOT_LESS_OR_EQUAL</p>
+            <p class="panel__hero">CRITICAL_PROCESS_DIED</p>
             <dl class="kv">
-              <dt>CODE</dt><dd>0x0000000A</dd>
-              <dt>ARG1</dt><dd>FFFFF800`00000048</dd>
-              <dt>ARG2</dt><dd>00000000`00000002</dd>
-              <dt>ARG3</dt><dd>00000000`00000001</dd>
-              <dt>ARG4</dt><dd>FFFFF806`A12C7E91</dd>
+              <dt>CODE</dt><dd>0x000000EF</dd>
+              <dt>ARG1</dt><dd>FFFFFAE0`F93142140</dd>
+              <dt>ARG2</dt><dd>00000000`00000000</dd>
+              <dt>ARG3</dt><dd>FFFFFAE0`F955970C0</dd>
+              <dt>ARG4</dt><dd>00000000`00000000</dd>
             </dl>
           </div>
         </article>
@@ -1425,12 +1491,12 @@
           <div class="panel__inner">
             <h2 class="panel__title">FAULT CONTEXT</h2>
             <dl class="kv">
-              <dt>IP</dt><dd class="accent">FFFFF806`A12C7E91</dd>
-              <dt>PARAM</dt><dd>1 / WRITE</dd>
-              <dt>CPU / IRQL</dt><dd>12 / 2</dd>
-              <dt>MODULE</dt><dd>NVLDDMKM.SYS</dd>
-              <dt>CLASS</dt><dd>THIRD PARTY</dd>
-              <dt>CONF</dt><dd>HIGH</dd>
+              <dt>OBJECT</dt><dd class="accent">FFFFFAE0`F93142140</dd>
+              <dt>TYPE</dt><dd>PROCESS</dd>
+              <dt>CPU / IRQL</dt><dd>0 / 15</dd>
+              <dt>MODULE</dt><dd>DUMP REQUIRED</dd>
+              <dt>CLASS</dt><dd>UNKNOWN</dd>
+              <dt>CONF</dt><dd>NONE</dd>
             </dl>
           </div>
         </article>
@@ -1443,18 +1509,22 @@
           <div class="panel__inner">
             <h2 class="panel__title">FAULTING MODULE / DUMP STATUS</h2>
             <dl class="kv">
-              <dt>MODULE</dt><dd class="accent">NVLDDMKM.SYS</dd>
-              <dt>BASE</dt><dd>FFFFF806`A0000000</dd>
-              <dt>SIZE</dt><dd>0x0213A000</dd>
-              <dt>OFFSET</dt><dd>00000000`012C7E91</dd>
-              <dt>ADDRESS</dt><dd>FFFFF806`A12C7E91</dd>
+              <dt>MODULE</dt><dd>DUMP ANALYSIS REQUIRED</dd>
+              <dt>BASE</dt><dd>NOT AVAILABLE</dd>
+              <dt>SIZE</dt><dd>NOT AVAILABLE</dd>
+              <dt>OFF</dt><dd>NOT AVAILABLE</dd>
+              <dt>ADDR</dt><dd>NO DIRECT FAULT IP</dd>
+              <dt>SOURCE</dt><dd>NONE</dd>
+              <dt>CLASS</dt><dd>UNKNOWN</dd>
             </dl>
             <dl class="kv">
               <dt>STAGE</dt><dd class="accent">DUMP I/O</dd>
               <dt>REASON</dt><dd>WRITE COMPLETE</dd>
               <dt>CALLBACKS</dt><dd>0x0F</dd>
-              <dt>MODULES</dt><dd>284</dd>
+              <dt>MODULES</dt><dd>186</dd>
               <dt>ACTION</dt><dd>PRESERVE NEWEST DUMP</dd>
+              <dt>PROGRESS</dt><dd>WINDOWS MANAGED</dd>
+              <dt>RESTART</dt><dd>WINDOWS CONTROLLED</dd>
             </dl>
           </div>
         </article>

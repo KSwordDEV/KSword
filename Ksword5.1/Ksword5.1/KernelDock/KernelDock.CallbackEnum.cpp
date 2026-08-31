@@ -8,6 +8,8 @@
 #include "../FileDock/FilePropertyPeAnalyzer.h"
 #include "../OnlineScan/SandboxUploadActions.h"
 #include "../UI/CodeEditorWidget.h"
+#include "../UI/DetailLayoutHost.h"
+#include "../UI/DetailLayoutRegistry.h"
 #include "../theme.h"
 
 #include <QAbstractItemView>
@@ -44,7 +46,6 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
-#include <QVector>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -1698,90 +1699,6 @@ namespace
         }
     }
 
-    bool callbackEnumContainsColumn(
-        const QVector<int>& columnGroup,
-        const int columnIndex)
-    {
-        // 作用：判断列号是否属于一个 A/B/C 逻辑列组。
-        // 返回：属于列组返回 true。
-        return std::find(
-            columnGroup.cbegin(),
-            columnGroup.cend(),
-            columnIndex) != columnGroup.cend();
-    }
-
-    QString callbackEnumPresetButtonStyle(const bool selected)
-    {
-        // 作用：生成 A/B/C 列预设按钮的选中和普通样式。
-        // 返回：显式主题化 QPushButton 样式。
-        const QString backgroundText = selected
-            ? KswordTheme::PrimaryBlueHex
-            : QStringLiteral("transparent");
-        const QString borderText = selected
-            ? KswordTheme::PrimaryBlueHex
-            : KswordTheme::BorderHex();
-        const QString textColor = selected
-            ? KswordTheme::OnAccentHex()
-            : KswordTheme::TextPrimaryHex();
-        return QStringLiteral(
-            "QPushButton{min-width:24px;max-width:24px;padding:3px 0;border:1px solid %1;"
-            "border-radius:0;color:%2;background:%3;font-weight:700;}"
-            "QPushButton:hover{border-color:%4;}"
-            "QPushButton:pressed{background:%4;color:%5;}")
-            .arg(borderText)
-            .arg(textColor)
-            .arg(backgroundText)
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::OnAccentHex());
-    }
-
-    void callbackEnumUpdatePresetButtons(
-        QTableWidget* table,
-        QPushButton* buttonA,
-        QPushButton* buttonB,
-        QPushButton* buttonC)
-    {
-        // 作用：根据表格属性刷新 A/B/C 高亮；Custom 会清除全部高亮。
-        // 返回：无，空指针安全忽略。
-        if (table == nullptr ||
-            buttonA == nullptr ||
-            buttonB == nullptr ||
-            buttonC == nullptr)
-        {
-            return;
-        }
-
-        const QString presetText = table->property("kswordColumnPreset").toString();
-        buttonA->setStyleSheet(callbackEnumPresetButtonStyle(presetText == QStringLiteral("A")));
-        buttonB->setStyleSheet(callbackEnumPresetButtonStyle(presetText == QStringLiteral("B")));
-        buttonC->setStyleSheet(callbackEnumPresetButtonStyle(presetText == QStringLiteral("C")));
-    }
-
-    void callbackEnumApplyColumnPreset(
-        QTableWidget* table,
-        const QVector<int>& columnGroup,
-        const QString& presetText,
-        QPushButton* buttonA,
-        QPushButton* buttonB,
-        QPushButton* buttonC)
-    {
-        // 作用：只显示指定列组，并同步按钮高亮。
-        // 返回：无。
-        if (table == nullptr)
-        {
-            return;
-        }
-
-        for (int columnIndex = 0; columnIndex < table->columnCount(); ++columnIndex)
-        {
-            table->setColumnHidden(
-                columnIndex,
-                !callbackEnumContainsColumn(columnGroup, columnIndex));
-        }
-        table->setProperty("kswordColumnPreset", presetText);
-        callbackEnumUpdatePresetButtons(table, buttonA, buttonB, buttonC);
-    }
-
     int callbackEnumVisibleColumnCount(QTableWidget* table)
     {
         // 作用：统计可见列，防止表头菜单隐藏最后一列。
@@ -1802,27 +1719,9 @@ namespace
         return visibleCount;
     }
 
-    QPushButton* callbackEnumCreatePresetButton(
-        QWidget* parentWidget,
-        const QString& text,
-        const QString& tooltipText)
+    void callbackEnumInstallHeaderColumnMenu(QTableWidget* table)
     {
-        // 作用：创建紧邻的单字母列预设按钮。
-        // 返回：由 Qt 父对象释放的 QPushButton。
-        QPushButton* button = new QPushButton(text, parentWidget);
-        button->setToolTip(tooltipText);
-        button->setStyleSheet(callbackEnumPresetButtonStyle(false));
-        button->setCursor(Qt::PointingHandCursor);
-        return button;
-    }
-
-    void callbackEnumInstallHeaderColumnMenu(
-        QTableWidget* table,
-        QPushButton* buttonA,
-        QPushButton* buttonB,
-        QPushButton* buttonC)
-    {
-        // 作用：安装表头右键列显隐菜单；手动调整后进入 Custom 状态。
+        // 作用：安装表头右键列显隐菜单；默认显示全部列，用户可按需隐藏。
         // 返回：无。
         if (table == nullptr || table->horizontalHeader() == nullptr)
         {
@@ -1835,7 +1734,7 @@ namespace
             headerView,
             &QHeaderView::customContextMenuRequested,
             table,
-            [table, headerView, buttonA, buttonB, buttonC](const QPoint& localPosition)
+            [table, headerView](const QPoint& localPosition)
             {
                 QMenu menu(table);
                 menu.setStyleSheet(KswordTheme::ContextMenuStyle());
@@ -1868,69 +1767,7 @@ namespace
                 }
 
                 table->setColumnHidden(columnIndex, !shouldShow);
-                table->setProperty("kswordColumnPreset", QStringLiteral("Custom"));
-                callbackEnumUpdatePresetButtons(table, buttonA, buttonB, buttonC);
             });
-    }
-
-    void callbackEnumInstallPresetControls(
-        QTableWidget* table,
-        QPushButton* buttonA,
-        QPushButton* buttonB,
-        QPushButton* buttonC,
-        const QVector<int>& groupA,
-        const QVector<int>& groupB,
-        const QVector<int>& groupC)
-    {
-        // 作用：连接 A/B/C 列组，安装表头菜单，并默认应用 A 组。
-        // 返回：无。
-        if (table == nullptr ||
-            buttonA == nullptr ||
-            buttonB == nullptr ||
-            buttonC == nullptr)
-        {
-            return;
-        }
-
-        QObject::connect(buttonA, &QPushButton::clicked, table, [=]()
-        {
-            callbackEnumApplyColumnPreset(
-                table,
-                groupA,
-                QStringLiteral("A"),
-                buttonA,
-                buttonB,
-                buttonC);
-        });
-        QObject::connect(buttonB, &QPushButton::clicked, table, [=]()
-        {
-            callbackEnumApplyColumnPreset(
-                table,
-                groupB,
-                QStringLiteral("B"),
-                buttonA,
-                buttonB,
-                buttonC);
-        });
-        QObject::connect(buttonC, &QPushButton::clicked, table, [=]()
-        {
-            callbackEnumApplyColumnPreset(
-                table,
-                groupC,
-                QStringLiteral("C"),
-                buttonA,
-                buttonB,
-                buttonC);
-        });
-
-        callbackEnumInstallHeaderColumnMenu(table, buttonA, buttonB, buttonC);
-        callbackEnumApplyColumnPreset(
-            table,
-            groupA,
-            QStringLiteral("A"),
-            buttonA,
-            buttonB,
-            buttonC);
     }
 
     QString callbackEnumEntryColumnText(
@@ -2101,31 +1938,6 @@ void KernelDock::initializeCallbackEnumTab()
     m_refreshCallbackEnumButton->setStyleSheet(callbackEnumButtonStyle());
     KswordTheme::ApplyCompactIconButtonMetrics(m_refreshCallbackEnumButton);
 
-    QHBoxLayout* callbackPresetLayout = new QHBoxLayout();
-    callbackPresetLayout->setContentsMargins(0, 0, 0, 0);
-    callbackPresetLayout->setSpacing(0);
-    QPushButton* callbackPresetAButton = callbackEnumCreatePresetButton(
-        m_callbackEnumPage,
-        QStringLiteral("A"),
-        kernelText(
-            "kernel.callback.enum.preset.a.tooltip",
-            QStringLiteral("A 组：总览，显示类别、注册类型、状态、名称和模块。")));
-    QPushButton* callbackPresetBButton = callbackEnumCreatePresetButton(
-        m_callbackEnumPage,
-        QStringLiteral("B"),
-        kernelText(
-            "kernel.callback.enum.preset.b.tooltip",
-            QStringLiteral("B 组：链路，显示来源、可信状态、地址和 Altitude。")));
-    QPushButton* callbackPresetCButton = callbackEnumCreatePresetButton(
-        m_callbackEnumPage,
-        QStringLiteral("C"),
-        kernelText(
-            "kernel.callback.enum.preset.c.tooltip",
-            QStringLiteral("C 组：文件来源，显示公司、版本、描述和移除策略。")));
-    callbackPresetLayout->addWidget(callbackPresetAButton, 0);
-    callbackPresetLayout->addWidget(callbackPresetBButton, 0);
-    callbackPresetLayout->addWidget(callbackPresetCButton, 0);
-
     m_callbackEnumFilterEdit = new QLineEdit(m_callbackEnumPage);
     m_callbackEnumFilterEdit->setPlaceholderText(kernelText("kernel.callback.enum.toolbar.filter.placeholder", QStringLiteral("按类别/注册类型/来源/名称/地址/模块/公司/版本/描述筛选")));
     m_callbackEnumFilterEdit->setToolTip(kernelText("kernel.callback.enum.toolbar.filter.tooltip", QStringLiteral("输入关键字后实时过滤回调遍历结果")));
@@ -2136,7 +1948,6 @@ void KernelDock::initializeCallbackEnumTab()
     m_callbackEnumStatusLabel->setStyleSheet(callbackEnumStatusLabelStyle(KswordTheme::TextSecondaryHex()));
 
     m_callbackEnumToolLayout->addWidget(m_refreshCallbackEnumButton, 0);
-    m_callbackEnumToolLayout->addLayout(callbackPresetLayout, 0);
     m_callbackEnumToolLayout->addWidget(m_callbackEnumFilterEdit, 1);
     m_callbackEnumToolLayout->addWidget(m_callbackEnumStatusLabel, 0);
     m_callbackEnumLayout->addLayout(m_callbackEnumToolLayout);
@@ -2178,37 +1989,7 @@ void KernelDock::initializeCallbackEnumTab()
     m_callbackEnumTable->setColumnWidth(static_cast<int>(CallbackEnumColumn::CallbackAddress), 180);
     m_callbackEnumTable->setColumnWidth(static_cast<int>(CallbackEnumColumn::Module), 220);
     m_callbackEnumTable->setColumnWidth(static_cast<int>(CallbackEnumColumn::FileDescription), 220);
-    callbackEnumInstallPresetControls(
-        m_callbackEnumTable,
-        callbackPresetAButton,
-        callbackPresetBButton,
-        callbackPresetCButton,
-        QVector<int>{
-            static_cast<int>(CallbackEnumColumn::Class),
-            static_cast<int>(CallbackEnumColumn::RegistrationType),
-            static_cast<int>(CallbackEnumColumn::Status),
-            static_cast<int>(CallbackEnumColumn::Name),
-            static_cast<int>(CallbackEnumColumn::Module)
-        },
-        QVector<int>{
-            static_cast<int>(CallbackEnumColumn::Class),
-            static_cast<int>(CallbackEnumColumn::RegistrationType),
-            static_cast<int>(CallbackEnumColumn::Source),
-            static_cast<int>(CallbackEnumColumn::Trust),
-            static_cast<int>(CallbackEnumColumn::Name),
-            static_cast<int>(CallbackEnumColumn::CallbackAddress),
-            static_cast<int>(CallbackEnumColumn::Altitude)
-        },
-        QVector<int>{
-            static_cast<int>(CallbackEnumColumn::Class),
-            static_cast<int>(CallbackEnumColumn::RegistrationType),
-            static_cast<int>(CallbackEnumColumn::Name),
-            static_cast<int>(CallbackEnumColumn::Module),
-            static_cast<int>(CallbackEnumColumn::Company),
-            static_cast<int>(CallbackEnumColumn::FileVersion),
-            static_cast<int>(CallbackEnumColumn::FileDescription),
-            static_cast<int>(CallbackEnumColumn::RemovePolicy)
-        });
+    callbackEnumInstallHeaderColumnMenu(m_callbackEnumTable);
     callbackViewTabs->addTab(
         m_callbackEnumTable,
         kernelText("kernel.callback.enum.view.list", QStringLiteral("回调列表")));
@@ -2251,6 +2032,14 @@ void KernelDock::initializeCallbackEnumTab()
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
 
+    // 回调遍历与 CID 表一样受全局四类详情布局控制。QTabWidget 是 splitter 的直接
+    // 子面板，注册后由统一宿主在下方折叠、右侧、行内与独立窗口之间重排。
+    ks::ui::DetailLayoutHost* const callbackDetailLayoutHost =
+        ks::ui::DetailLayoutRegistry::registerHost(
+            m_callbackEnumTable,
+            m_callbackEnumDetailEditor,
+            m_callbackEnumPage);
+
     initializeCallbackRemovePanel();
 
     connect(m_refreshCallbackEnumButton, &QPushButton::clicked, this, [this]() {
@@ -2259,6 +2048,18 @@ void KernelDock::initializeCallbackEnumTab()
     connect(m_callbackEnumFilterEdit, &QLineEdit::textChanged, this, [this](const QString& filterText) {
         rebuildCallbackEnumTable(filterText.trimmed());
     });
+    connect(callbackViewTabs, &QTabWidget::currentChanged, this,
+        [this, callbackViewTabs, callbackDetailLayoutHost](const int tabIndex) {
+            if (callbackDetailLayoutHost == nullptr)
+            {
+                return;
+            }
+            callbackDetailLayoutHost->clearEmbeddedDetails();
+            callbackDetailLayoutHost->setTableView(
+                tabIndex == callbackViewTabs->indexOf(m_minifilterCallbackTree)
+                    ? static_cast<QAbstractItemView*>(m_minifilterCallbackTree)
+                    : static_cast<QAbstractItemView*>(m_callbackEnumTable));
+        });
     connect(m_callbackEnumTable, &QTableWidget::currentCellChanged, this, [this](int, int, int, int) {
         showCallbackEnumDetailByCurrentRow();
     });

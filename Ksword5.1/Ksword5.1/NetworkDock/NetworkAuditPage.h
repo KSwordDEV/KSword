@@ -44,6 +44,7 @@ public:
     // - 处理：由 NetworkDock 注入“跟踪进程/打开进程详情”的既有实现；
     // - 返回：无。
     using ProcessActionHandler = std::function<void(std::uint32_t)>;
+    using UdpEndpointBlockRuleHandler = std::function<void(std::uint32_t, const QString&)>;
 
     // 构造函数：
     // - 输入 parent：Qt 父控件，可为空；
@@ -85,6 +86,11 @@ public:
     // - handler 为空时右键菜单会禁用该动作；
     // - 返回：无。
     void setOpenProcessDetailHandler(ProcessActionHandler handler);
+
+    // setUdpEndpointBlockRuleHandler：
+    // - 作用：由 NetworkDock 注入“NSI UDP endpoint -> 防火墙阻断规则”的预填动作；
+    // - handler 为空时 UDP 菜单不显示该写操作。
+    void setUdpEndpointBlockRuleHandler(UdpEndpointBlockRuleHandler handler);
 
 private:
     // CrossViewRow：TCP/UDP 交叉视图的一行聚合结果。
@@ -467,6 +473,7 @@ private:
     QSet<quint32> m_processIconPendingPidSet; // 正在后台解析图标的 PID，避免重复投递。
     ProcessActionHandler m_trackProcessHandler; // 原连接页“跟踪此进程”实现。
     ProcessActionHandler m_openProcessDetailHandler; // 原连接页“转到进程详细信息”实现。
+    UdpEndpointBlockRuleHandler m_udpEndpointBlockRuleHandler; // NSI UDP endpoint 的未来流量阻断预填。
     std::shared_ptr<NetworkAuditAsyncState> m_asyncState; // 跨线程回投共享状态；析构先清空 owner。
     std::atomic_bool m_refreshInProgress{ false };
     std::atomic_bool m_initialRefreshRequested{ false };

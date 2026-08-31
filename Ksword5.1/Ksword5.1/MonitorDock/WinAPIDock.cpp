@@ -18,6 +18,7 @@
 #include <QFileInfo>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -77,9 +78,10 @@ QString WinAPIDock::blueInputStyle()
 {
     return QStringLiteral(
         "QLineEdit{border:1px solid %2;border-radius:3px;background:transparent;/* %3 */color:%4;padding:2px 6px;}"
+        "QPlainTextEdit{border:1px solid %2;border-radius:3px;background:transparent;/* %3 */color:%4;padding:4px 6px;}"
         "QTableWidget{border:1px solid %2;border-radius:3px;background:transparent;background-color:transparent;color:%4;padding:2px 6px;gridline-color:%2;alternate-background-color:transparent;}"
         "QTableWidget::viewport{background:transparent;background-color:transparent;}"
-        "QLineEdit:focus{border:1px solid %1;}")
+        "QLineEdit:focus,QPlainTextEdit:focus{border:1px solid %1;}")
         .arg(KswordTheme::PrimaryBlueHex)
         .arg(KswordTheme::BorderHex())
         .arg(KswordTheme::SurfaceHex())

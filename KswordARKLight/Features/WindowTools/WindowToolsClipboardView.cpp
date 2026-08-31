@@ -1,7 +1,10 @@
 #include "WindowToolsClipboardView.h"
 
 #include "WindowToolsCommon.h"
+#include "../../Core/EntityRef.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/EntityNavigation.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/FilterBar.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/TextFindSupport.h"
@@ -28,11 +31,14 @@ constexpr int kFilterBarId = 67003;
 constexpr int kFormatListId = 67004;
 constexpr int kDetailListId = 67005;
 constexpr int kPreviewEditId = 67006;
+constexpr int kExportButtonId = 67007;
 
 constexpr UINT kMenuCopyRow = 67601;
 constexpr UINT kMenuCopyVisible = 67602;
 constexpr UINT kMenuCopyPreview = 67603;
 constexpr UINT kMenuRefresh = 67604;
+constexpr UINT kMenuOpenOwnerProcess = 67605;
+constexpr UINT kMenuOpenClipboardProcess = 67606;
 
 constexpr int kGap = 6;
 constexpr int kRowHeight = 24;
@@ -115,6 +121,7 @@ struct ClipboardSnapshot final {
 struct ClipboardViewState final {
     HWND hwnd = nullptr;
     HWND refreshButton = nullptr;
+    HWND exportButton = nullptr;
     HWND emptyButton = nullptr;
     HWND filterBar = nullptr;
     HWND detailList = nullptr;
@@ -356,6 +363,36 @@ ClipboardSnapshot CaptureClipboardSnapshot(HWND owner) {
     return snapshot;
 }
 
+// CurrentClipboardOwnerProcessId intentionally reads the owner HWND again at
+// click time. The snapshot is useful evidence, but its HWND and PID can both be
+// stale by the time the user opens process details.
+DWORD CurrentClipboardOwnerProcessId() {
+    const HWND owner = ::GetClipboardOwner();
+    if (!owner || !::IsWindow(owner)) {
+        return 0;
+    }
+    DWORD processId = 0;
+    if (::GetWindowThreadProcessId(owner, &processId) == 0U || processId == 0U) {
+        return 0;
+    }
+    return ::GetClipboardOwner() == owner ? processId : 0U;
+}
+
+// CurrentClipboardOpenProcessId follows the same live-read rule for the window
+// currently holding OpenClipboard. That window is often the direct explanation
+// for an unavailable snapshot, so it must not be confused with the data owner.
+DWORD CurrentClipboardOpenProcessId() {
+    const HWND opener = ::GetOpenClipboardWindow();
+    if (!opener || !::IsWindow(opener)) {
+        return 0;
+    }
+    DWORD processId = 0;
+    if (::GetWindowThreadProcessId(opener, &processId) == 0U || processId == 0U) {
+        return 0;
+    }
+    return ::GetOpenClipboardWindow() == opener ? processId : 0U;
+}
+
 void SetDetailText(HWND list, const int row, const int column, const std::wstring& text) {
     if (column == 0) {
         LVITEMW item{};
@@ -431,6 +468,28 @@ void ShowPreviewForSelection(ClipboardViewState& state) {
     ::SetWindowTextW(state.previewEdit, text.c_str());
 }
 
+// SelectRowAtPoint makes row-scoped context commands operate on the row the
+// user actually right-clicked, never on a stale selection left by filtering or
+// keyboard navigation. A click on empty space deliberately leaves no row
+// selected while keeping page-scoped actions available.
+void SelectRowAtPoint(ClipboardViewState& state, const POINT screenPoint) {
+    const HWND list = state.formatList.hwnd();
+    if (!list) {
+        return;
+    }
+    POINT clientPoint = screenPoint;
+    ::ScreenToClient(list, &clientPoint);
+    LVHITTESTINFO hit{};
+    hit.pt = clientPoint;
+    const int clickedItem = ListView_SubItemHitTest(list, &hit);
+    ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    const auto& visible = state.formatList.visibleIndexes();
+    if (clickedItem >= 0 && static_cast<std::size_t>(clickedItem) < visible.size()) {
+        ListView_SetItemState(list, clickedItem, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    }
+    ShowPreviewForSelection(state);
+}
+
 // ApplyFilter runs on the UI thread on purpose. The row count here is the number
 // of formats on the clipboard -- a few dozen at the very most -- so posting the
 // work to a background task would cost more than the scan it replaces.
@@ -487,6 +546,67 @@ void RefreshClipboard(ClipboardViewState& state) {
     ::InvalidateRect(state.hwnd, nullptr, TRUE);
 }
 
+void ExportVisibleRows(ClipboardViewState& state) {
+    const std::wstring text = Ksword::Ui::BuildVisibleVirtualListTsv(
+        { L"格式 ID", L"名称", L"类别", L"数据大小", L"说明" }, state.formatList);
+    if (text.empty()) {
+        state.statusText = L"没有可导出的可见结果。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+    std::wstring error;
+    switch (Ksword::Ui::SaveUtf8TextFileWithDialog(state.hwnd, L"clipboard_formats.tsv", L"导出剪贴板格式",
+        L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0", L"tsv", text, &error)) {
+    case Ksword::Ui::SaveTextFileResult::Saved: state.statusText = L"剪贴板可见结果已导出。"; break;
+    case Ksword::Ui::SaveTextFileResult::Cancelled: state.statusText = L"已取消导出剪贴板结果。"; break;
+    case Ksword::Ui::SaveTextFileResult::Failed: state.statusText = L"导出剪贴板结果失败：" + error; break;
+    }
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
+// OpenCurrentClipboardOwnerProcess routes only the live owner PID. The process
+// page resolves that PID again, preserving the page's current-instance contract
+// without requiring an additional source-side process handle or privilege.
+void OpenCurrentClipboardOwnerProcess(ClipboardViewState& state) {
+    const DWORD processId = CurrentClipboardOwnerProcessId();
+    if (processId == 0U) {
+        state.statusText = L"当前剪贴板没有可读取的占有者进程。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::ProcessDetails;
+    request.entity.kind = Ksword::Core::EntityKind::Process;
+    request.entity.id = processId;
+    state.statusText = Ksword::Ui::RequestEntityNavigation(state.hwnd, request)
+        ? L"已请求打开刚读取到的剪贴板占有者 PID " + std::to_wstring(processId) +
+            L" 的进程详细信息；目标页会重新确认当前进程实例。"
+        : L"无法导航到当前剪贴板占有者的进程实例。";
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
+// OpenCurrentClipboardProcess identifies only the window that has the clipboard
+// open right now. It does not infer ownership from the last captured snapshot.
+void OpenCurrentClipboardProcess(ClipboardViewState& state) {
+    const DWORD processId = CurrentClipboardOpenProcessId();
+    if (processId == 0U) {
+        state.statusText = L"当前没有可读取的剪贴板打开者进程。";
+        ::InvalidateRect(state.hwnd, nullptr, TRUE);
+        return;
+    }
+
+    Ksword::Core::NavigationRequest request{};
+    request.target = Ksword::Core::NavigationTarget::ProcessDetails;
+    request.entity.kind = Ksword::Core::EntityKind::Process;
+    request.entity.id = processId;
+    state.statusText = Ksword::Ui::RequestEntityNavigation(state.hwnd, request)
+        ? L"已请求打开刚读取到的剪贴板打开者 PID " + std::to_wstring(processId) +
+            L" 的进程详细信息；目标页会重新确认当前进程实例。"
+        : L"无法导航到当前剪贴板打开者的进程实例。";
+    ::InvalidateRect(state.hwnd, nullptr, TRUE);
+}
+
 // EmptyClipboardWithConfirm is the only destructive action on this page. The
 // default button is 否 so a stray Enter cannot wipe the clipboard, and the
 // prompt names the two consequences that are not obvious: the data cannot be
@@ -533,14 +653,22 @@ std::wstring PreviewText(const ClipboardViewState& state) {
 }
 
 void ShowContextMenu(ClipboardViewState& state, const POINT screenPoint) {
+    SelectRowAtPoint(state, screenPoint);
     HMENU menu = ::CreatePopupMenu();
     if (!menu) {
         return;
     }
     const bool hasSelection = SelectedModelIndex(state) >= 0;
+    const bool hasCurrentOwnerProcess = CurrentClipboardOwnerProcessId() != 0U;
+    const bool hasCurrentClipboardProcess = CurrentClipboardOpenProcessId() != 0U;
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? MF_ENABLED : MF_GRAYED), kMenuCopyRow, L"复制选中行");
     ::AppendMenuW(menu, MF_STRING, kMenuCopyVisible, L"复制可见行");
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? MF_ENABLED : MF_GRAYED), kMenuCopyPreview, L"复制预览内容");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, MF_STRING | (hasCurrentOwnerProcess ? MF_ENABLED : MF_GRAYED),
+        kMenuOpenOwnerProcess, L"查看当前剪贴板占有者进程的详细信息");
+    ::AppendMenuW(menu, MF_STRING | (hasCurrentClipboardProcess ? MF_ENABLED : MF_GRAYED),
+        kMenuOpenClipboardProcess, L"查看当前打开剪贴板的进程详细信息");
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(menu, MF_STRING, kMenuRefresh, L"刷新");
 
@@ -562,6 +690,12 @@ void ShowContextMenu(ClipboardViewState& state, const POINT screenPoint) {
         message = CopyTextToClipboard(state.hwnd, PreviewText(state))
             ? L"已复制预览内容。" : L"复制失败。";
         break;
+    case kMenuOpenOwnerProcess:
+        OpenCurrentClipboardOwnerProcess(state);
+        return;
+    case kMenuOpenClipboardProcess:
+        OpenCurrentClipboardProcess(state);
+        return;
     case kMenuRefresh:
         RefreshClipboard(state);
         return;
@@ -592,6 +726,7 @@ void LayoutView(ClipboardViewState& state) {
         cursorX += controlWidth + kGap;
     };
     place(state.refreshButton, 64);
+    place(state.exportButton, 78);
     place(state.emptyButton, 110);
 
     const int secondRowY = kGap * 2 + kRowHeight;
@@ -621,9 +756,10 @@ void LayoutView(ClipboardViewState& state) {
 bool CreateChildControls(ClipboardViewState& state) {
     HWND hwnd = state.hwnd;
     state.refreshButton = Ksword::Ui::CreateButton(hwnd, kRefreshButtonId, L"刷新", 0, 0, 0, 0);
+    state.exportButton = Ksword::Ui::CreateButton(hwnd, kExportButtonId, L"导出 TSV", 0, 0, 0, 0);
     state.emptyButton = Ksword::Ui::CreateButton(hwnd, kEmptyButtonId, L"清空剪贴板", 0, 0, 0, 0);
     state.filterBar = Ksword::Ui::CreateFilterBar(hwnd, kFilterBarId, L"筛选格式 ID、名称、类别与说明", 0, 0, 0, 0);
-    if (!state.refreshButton || !state.emptyButton || !state.filterBar) {
+    if (!state.refreshButton || !state.exportButton || !state.emptyButton || !state.filterBar) {
         return false;
     }
 
@@ -701,6 +837,10 @@ LRESULT CALLBACK ClipboardViewProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             if (notification == BN_CLICKED) {
                 if (id == kRefreshButtonId) {
                     RefreshClipboard(*state);
+                    return 0;
+                }
+                if (id == kExportButtonId) {
+                    ExportVisibleRows(*state);
                     return 0;
                 }
                 if (id == kEmptyButtonId) {

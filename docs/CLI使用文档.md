@@ -150,6 +150,10 @@ Manage callback rules, pending decisions, callback inventory, and bypass PIDs.
 | --- | --- | --- | --- | --- |
 | `callback set-rules` | `KswordCLI.exe callback set-rules --blob PATH` | Load callback rule bytes. | Required: --blob. |  |
 | `callback runtime-state` | `KswordCLI.exe callback runtime-state` | Query callback runtime state. | No options. |  |
+| `callback monitor-start` | `KswordCLI.exe callback monitor-start [--categories LIST]` | 按具名类别启动 Callback Monitor 采集。 | 可选：--categories，逗号分隔 `process,thread,image,registry,object,minifilter,core,all`，默认 `core`。 | `IOCTL_KSWORD_ARK_CALLBACK_MONITOR_CONTROL`；`core` 是前五类，`minifilter` 高频且须显式启用。 |
+| `callback monitor-stop` | `KswordCLI.exe callback monitor-stop` | 停止 Callback Monitor 采集，不改变既有回调规则。 | 无。 | `IOCTL_KSWORD_ARK_CALLBACK_MONITOR_CONTROL`。 |
+| `callback monitor-status` | `KswordCLI.exe callback monitor-status` | 查询 Callback Monitor 采集状态和环形缓冲区计数器。 | 无。 | `IOCTL_KSWORD_ARK_CALLBACK_MONITOR_QUERY`；旧驱动会显示 unsupported。 |
+| `callback monitor-read` | `KswordCLI.exe callback monitor-read [--after-sequence N] [--max-records N] [--limit N]` | 使用独立游标读取 Callback Monitor 事件。 | 可选：--after-sequence、--max-records、--limit。 | `IOCTL_KSWORD_ARK_CALLBACK_MONITOR_READ`；使用输出的 `next_sequence` 发起增量读取。 |
 | `callback wait-event` | `KswordCLI.exe callback wait-event [--waiter-tag N]` | Wait for one callback event packet. | Optional: --waiter-tag. |  |
 | `callback answer-event` | `KswordCLI.exe callback answer-event --event-guid GUID --decision N --source-session-id N [--answered-at UTC100NS]` | Answer one pending callback event. | Required: --event-guid, --decision, --source-session-id. Optional: --answered-at. |  |
 | `callback cancel-pending` | `KswordCLI.exe callback cancel-pending` | Cancel all pending callback decisions. | No options. |  |

@@ -3,10 +3,13 @@
 #include "HandleClient.h"
 
 #include "../../Core/Common.h"
+#include "../../Core/EntityRef.h"
 
 #include "../../Ui/AsyncTask.h"
 #include "../../Ui/Controls.h"
+#include "../../Ui/EntityNavigation.h"
 #include "../../Ui/FilterBar.h"
+#include "../../Ui/ExportUtil.h"
 #include "../../Ui/ListViewUtil.h"
 #include "../../Ui/LoadingOverlay.h"
 #include "../../Ui/TabUtil.h"
@@ -45,9 +48,12 @@ constexpr int kDetailTabIndex = 1;
 constexpr UINT kHandleMenuCopyCell = 57101;
 constexpr UINT kHandleMenuCopyRow = 57102;
 constexpr UINT kHandleMenuCopyVisible = 57103;
+constexpr UINT kHandleMenuOpenProcessDetails = 57104;
+constexpr UINT kHandleMenuExportVisible = 57105;
 constexpr UINT kMsgHandleRefreshCompleted = WM_APP + 574;
 constexpr UINT kMsgHandleFilterCompleted = WM_APP + 575;
 constexpr UINT kMsgHandleDetailCompleted = WM_APP + 576;
+constexpr UINT kMsgExternalProcess = WM_APP + 577;
 
 struct HandleFilterResult {
     std::uint64_t snapshotGeneration = 0;
@@ -336,31 +342,7 @@ void InsertDetailColumns(HWND list) {
 }
 
 bool CopyTextToClipboard(HWND owner, const std::wstring& text) {
-    if (text.empty() || !::OpenClipboard(owner)) {
-        return false;
-    }
-    ::EmptyClipboard();
-    const SIZE_T bytes = (text.size() + 1U) * sizeof(wchar_t);
-    HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (!memory) {
-        ::CloseClipboard();
-        return false;
-    }
-    void* target = ::GlobalLock(memory);
-    if (!target) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    std::memcpy(target, text.c_str(), bytes);
-    ::GlobalUnlock(memory);
-    if (!::SetClipboardData(CF_UNICODETEXT, memory)) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    ::CloseClipboard();
-    return true;
+    return Ksword::Ui::CopyTextToClipboard(owner, text, L"句柄审计");
 }
 
 void AppendTsvRow(std::wstring& output, const std::vector<std::wstring>& cells) {
@@ -388,6 +370,37 @@ std::wstring RowsAsTsv(const HandlePageState& state, const bool allVisible) {
         if (source < rows.size()) {
             AppendTsvRow(output, rows[source].cells);
         }
+    }
+    return output;
+}
+
+// VisibleHandleRowsAsTsv serializes exactly the twelve columns shown in the
+// current filtered handle table. Input is the immutable rendered snapshot;
+// processing never refreshes, resolves objects, or reads hidden diagnostics.
+std::wstring VisibleHandleRowsAsTsv(const HandlePageState& state) {
+    static const std::vector<std::wstring> kColumnTitles = {
+        L"PID", L"Handle", L"Object", L"ObjectHeader", L"ObjectType", L"TypeIdx",
+        L"GrantedAccess", L"Attributes", L"PtrCount", L"HandleCount", L"Decode", L"异常句柄标记"
+    };
+    const auto& visible = state.handleList.visibleIndexes();
+    const auto& rows = state.handleList.rows();
+    if (visible.empty()) {
+        return {};
+    }
+
+    std::wstring output;
+    AppendTsvRow(output, kColumnTitles);
+    for (const std::size_t source : visible) {
+        if (source >= rows.size()) {
+            return {};
+        }
+        std::vector<std::wstring> cells(kColumnTitles.size());
+        const std::vector<std::wstring>& rowCells = rows[source].cells;
+        const std::size_t count = (std::min)(cells.size(), rowCells.size());
+        for (std::size_t column = 0; column < count; ++column) {
+            cells[column] = rowCells[column];
+        }
+        AppendTsvRow(output, cells);
     }
     return output;
 }
@@ -420,6 +433,14 @@ int SelectedSnapshotIndex(const HandlePageState& state) {
         return -1;
     }
     return static_cast<int>(rows[source].itemData);
+}
+
+// HasAuditedProcessIdentity accepts only the PID/creation-time pair retained
+// from the successful HandleTable snapshot preflight. A PID alone is not
+// sufficient because it could have been recycled after enumeration.
+bool HasAuditedProcessIdentity(const HandlePageState& state) {
+    return state.snapshotProcessId != 0U &&
+        state.snapshotProcessCreationTime100ns != 0U;
 }
 
 std::wstring StableKeyAtVisibleIndex(const HandlePageState& state, const int visibleIndex) {
@@ -460,6 +481,11 @@ HWND HandlePage::Create(HWND parent, const RECT& bounds) {
         delete page;
     }
     return hwnd;
+}
+
+bool HandlePage::SetProcessId(HWND page, const DWORD processId) {
+    return page && processId != 0 &&
+        ::SendMessageW(page, kMsgExternalProcess, static_cast<WPARAM>(processId), 0) != 0;
 }
 
 LRESULT CALLBACK HandlePage::WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -738,6 +764,14 @@ void HandlePage::ShowHandleContextMenu(POINT screenPoint) {
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kHandleMenuCopyCell, L"复制单元格");
     ::AppendMenuW(menu, MF_STRING | (hasSelection ? 0U : MF_GRAYED), kHandleMenuCopyRow, L"复制行");
     ::AppendMenuW(menu, MF_STRING | (!state_->handleList.visibleIndexes().empty() ? 0U : MF_GRAYED), kHandleMenuCopyVisible, L"复制可见结果");
+    ::AppendMenuW(menu, MF_STRING | (!state_->handleList.visibleIndexes().empty() ? 0U : MF_GRAYED), kHandleMenuExportVisible, L"导出当前可见句柄 TSV");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    const bool hasAuditedProcessIdentity = HasAuditedProcessIdentity(*state_);
+    ::AppendMenuW(
+        menu,
+        MF_STRING | (hasAuditedProcessIdentity ? 0U : MF_GRAYED),
+        kHandleMenuOpenProcessDetails,
+        L"查看已审计进程详细信息");
     const UINT command = ::TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenPoint.x, screenPoint.y, 0, hwnd_, nullptr);
     ::DestroyMenu(menu);
     if (command == kHandleMenuCopyCell) {
@@ -746,6 +780,42 @@ void HandlePage::ShowHandleContextMenu(POINT screenPoint) {
         SetStatus(CopyTextToClipboard(hwnd_, RowsAsTsv(*state_, false)) ? L"已复制行。" : L"复制行失败。");
     } else if (command == kHandleMenuCopyVisible) {
         SetStatus(CopyTextToClipboard(hwnd_, RowsAsTsv(*state_, true)) ? L"已复制可见结果。" : L"复制可见结果失败。");
+    } else if (command == kHandleMenuExportVisible) {
+        const std::wstring text = VisibleHandleRowsAsTsv(*state_);
+        if (text.empty()) {
+            SetStatus(L"没有可导出的当前可见句柄快照。");
+            return;
+        }
+        std::wstring error;
+        switch (Ksword::Ui::SaveUtf8TextFileWithDialog(
+            hwnd_, L"handle_visible_snapshot.tsv", L"导出当前可见句柄快照",
+            L"TSV (*.tsv)\0*.tsv\0All Files (*.*)\0*.*\0", L"tsv", text, &error)) {
+        case Ksword::Ui::SaveTextFileResult::Saved:
+            SetStatus(L"当前可见句柄快照已导出为 TSV，并已记录到证据会话。");
+            break;
+        case Ksword::Ui::SaveTextFileResult::Cancelled:
+            SetStatus(L"已取消导出当前可见句柄快照。");
+            break;
+        case Ksword::Ui::SaveTextFileResult::Failed:
+            SetStatus(L"导出当前可见句柄快照失败：" + error);
+            break;
+        }
+    } else if (command == kHandleMenuOpenProcessDetails) {
+        // Revalidate after the popup closes so an intervening refresh cannot
+        // turn an older PID into a navigation target.
+        if (!HasAuditedProcessIdentity(*state_)) {
+            SetStatus(L"没有可验证的进程身份，无法安全打开进程详细信息。");
+            return;
+        }
+        Ksword::Core::NavigationRequest request{};
+        request.target = Ksword::Core::NavigationTarget::ProcessDetails;
+        request.entity.kind = Ksword::Core::EntityKind::Process;
+        request.entity.id = state_->snapshotProcessId;
+        request.entity.creationTime100ns = state_->snapshotProcessCreationTime100ns;
+        const bool routed = Ksword::Ui::RequestEntityNavigation(hwnd_, request);
+        SetStatus(routed
+            ? L"已请求打开已审计 PID " + std::to_wstring(state_->snapshotProcessId) + L" 的进程详细信息。"
+            : L"进程详细信息页未能接收该已审计进程身份。");
     }
 }
 
@@ -933,6 +1003,14 @@ void HandlePage::SetStatus(const std::wstring& text) {
 
 LRESULT HandlePage::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+    case kMsgExternalProcess:
+        if (pidEdit_ && wParam != 0) {
+            const std::wstring text = std::to_wstring(static_cast<DWORD>(wParam));
+            ::SetWindowTextW(pidEdit_, text.c_str());
+            Refresh();
+            return TRUE;
+        }
+        return FALSE;
     case WM_CREATE:
         if (!Initialize(hwnd)) {
             return -1;

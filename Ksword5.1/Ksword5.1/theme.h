@@ -928,12 +928,15 @@ namespace KswordTheme
     // 区别是这个版本跟着主题切换走，适合写进构造期就一次性下发、之后不再重建的 QSS。
     inline QString OnAccentDynamicHex() { return QStringLiteral("palette(highlighted-text)"); }
 
+    // ControlCornerRadius 作用：统一按钮、组合框本体及组合框 Popup 的外轮廓圆角。
+    inline constexpr int ControlCornerRadius = 3;
+
     inline QString ThemedButtonStyle()
     {
         return QStringLiteral(
             "QPushButton,QToolButton{"
             "background-color:%1 !important;color:%2 !important;border:1px solid %3 !important;"
-            "border-radius:3px;padding:4px 10px;font-weight:600;}"
+            "border-radius:%8px;padding:4px 10px;font-weight:600;}"
             "QPushButton:hover,QToolButton:hover{background-color:%4 !important;color:%5 !important;border-color:%4 !important;}"
             "QPushButton:pressed,QToolButton:pressed{background-color:%6 !important;color:%5 !important;border-color:%6 !important;}"
             "QPushButton:disabled,QToolButton:disabled{background-color:%1 !important;color:%7 !important;border-color:%3 !important;}")
@@ -943,7 +946,8 @@ namespace KswordTheme
             .arg(PrimaryBlueSolidHoverHex())
             .arg(OnAccentHex())
             .arg(PrimaryBluePressedHex)
-            .arg(TextSecondaryHex());
+            .arg(TextSecondaryHex())
+            .arg(ControlCornerRadius);
     }
 
     // ThemedComboBoxPopupViewStyle / ThemedComboBoxStyle 作用：
@@ -967,6 +971,7 @@ namespace KswordTheme
             "  alternate-background-color:%1 !important;"
             "  color:%2 !important;"
             "  border:1px solid %3 !important;"
+            "  border-radius:%7px;"
             "  selection-background-color:%5 !important;"
             "  selection-color:%6 !important;"
             "  outline:0;"
@@ -997,7 +1002,8 @@ namespace KswordTheme
             .arg(outlineColor)
             .arg(hoverColor)
             .arg(accentColorText)
-            .arg(accentTextColor);
+            .arg(accentTextColor)
+            .arg(ControlCornerRadius);
     }
 
     inline QString ThemedComboBoxStyle()
@@ -1028,7 +1034,7 @@ namespace KswordTheme
             "  background-color:%1 !important;"
             "  color:%4 !important;"
             "  border:1px solid %6 !important;"
-            "  border-radius:3px;"
+            "  border-radius:%14px;"
             "  padding:2px 24px 2px 6px;"
             "  min-height:22px;"
             "  selection-background-color:%7 !important;"
@@ -1079,6 +1085,7 @@ namespace KswordTheme
             "  alternate-background-color:%1 !important;"
             "  color:%4 !important;"
             "  border:1px solid %6 !important;"
+            "  border-radius:%14px;"
             "  selection-background-color:%7 !important;"
             "  selection-color:%11 !important;"
             "  outline:0;"
@@ -1116,7 +1123,8 @@ namespace KswordTheme
             .arg(disabledOutlineColor)
             .arg(accentTextColor)
             .arg(arrowPath)
-            .arg(disabledArrowPath);
+            .arg(disabledArrowPath)
+            .arg(ControlCornerRadius);
     }
 
     inline QString ContextMenuStyle()

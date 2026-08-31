@@ -50,6 +50,16 @@ namespace
     constexpr ULONG_PTR kUnlockerCopyDataMessageId = 0x4B535755; // "KSWU"：Ksword shell unlocker IPC。
     constexpr DWORD kRestartPredecessorWaitTimeoutMs = 35000;
 
+    // disableQtPopupScrollEffects 作用：
+    // - 禁用 Qt 内建菜单/组合框滚动动画，阻止创建 QRollEffect 临时窗口；
+    // - 该路径的定时器曾在 QWidgetPrivate::showChildren 中解引用损坏的子对象指针并崩溃；
+    // - 保留淡入淡出和应用自身动画，不扩大视觉行为变更范围。
+    void disableQtPopupScrollEffects()
+    {
+        QApplication::setEffectEnabled(Qt::UI_AnimateMenu, false);
+        QApplication::setEffectEnabled(Qt::UI_AnimateCombo, false);
+    }
+
     // localizedStartupText 作用：
     // - 让原生首启对话框、启动画面和 Qt 启动期弹窗共用 LanguageManager；
     // - 在 QApplication 创建前也可使用已经发现的语言包。
@@ -1493,6 +1503,7 @@ int main(int argc, char* argv[])
     startupTraceRaw("before QApplication construction");
     QApplication app(argc, argv);
     startupTraceRaw("QApplication constructed");
+    disableQtPopupScrollEffects();
 
     // 组织名/应用名必须在任何 QSettings 之前设置：默认构造的 QSettings 会取这两个值定位
     // HKCU\Software\<组织>\<应用>。组织名为空时 Qt 的 Windows 注册表后端直接置 AccessError，

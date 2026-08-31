@@ -7,10 +7,15 @@
 // - 提供行号、括号高亮、查找替换、跳转行、文本文件读写。
 // ============================================================
 
+#include "ReportStructuredView.h"
+
 #include "../theme.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QBuffer>
+#include <QComboBox>
+#include <QSignalBlocker>
+#include <QStackedWidget>
 #include <QEvent>
 #include <QFile>
 #include <QFileDialog>
@@ -44,6 +49,12 @@
 
 namespace
 {
+    // g_preferStructuredReportView 作用：
+    // - 记住用户最近一次在“结构视图 / 原始文本”之间的选择，之后新出现的报告沿用同一选择；
+    // - 只在进程内有效、不落盘：这是“这次排查我想怎么看”，不是需要长期保存的偏好；
+    // - 默认结构视图：详情报告本来就是字段清单，逐条看比读整段文本快。
+    bool g_preferStructuredReportView = true;
+
     // localizeReportValueCore：翻译报告字段值；复合权限/标志按竖线逐项翻译。
     QString localizeReportValueCore(const QString& valueCore)
     {
@@ -179,6 +190,38 @@ namespace
             .arg(KswordTheme::TextPrimaryHex())
             .arg(KswordTheme::PrimaryBlueHex)
             .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue, -14, -40))
+            .arg(KswordTheme::OnAccentDynamicHex());
+    }
+
+    // buildFloatingSwitchStyle：
+    // - 内容区右上角悬浮切换下拉框的样式；
+    // - 它压在正文之上，必须自带不透明底色和边框，否则叠在属性表行或报告文字上会看不清；
+    // - 下拉列表同样要显式给底色：弹出面板是独立窗口，不会继承这里的背景；
+    // - 颜色全部走 palette(...) 形式的 token，主题切换时跟着变，不做快照。
+    QString buildFloatingSwitchStyle()
+    {
+        return QStringLiteral(
+            "QComboBox{"
+            "  border:1px solid %1;"
+            "  border-radius:6px;"
+            "  padding:4px 8px;"
+            "  background:%2;"
+            "  color:%3;"
+            "}"
+            "QComboBox:hover{"
+            "  border:1px solid %4;"
+            "}"
+            "QComboBox QAbstractItemView{"
+            "  border:1px solid %1;"
+            "  background:%2;"
+            "  color:%3;"
+            "  selection-background-color:%4;"
+            "  selection-color:%5;"
+            "}")
+            .arg(KswordTheme::BorderHex())
+            .arg(KswordTheme::SurfaceHex())
+            .arg(KswordTheme::TextPrimaryHex())
+            .arg(KswordTheme::PrimaryBlueHex)
             .arg(KswordTheme::OnAccentDynamicHex());
     }
 
@@ -1084,6 +1127,17 @@ bool CodeEditorWidget::isReadOnly() const
     return m_readOnlyMode;
 }
 
+void CodeEditorWidget::setStructuredReportViewEnabled(const bool enabled)
+{
+    if (m_structuredViewEnabled == enabled)
+    {
+        return;
+    }
+
+    m_structuredViewEnabled = enabled;
+    updateStructuredReportView();
+}
+
 QString CodeEditorWidget::currentEncodingDisplayText() const
 {
     return m_fileSessionAvailable
@@ -1228,7 +1282,31 @@ void CodeEditorWidget::initializeUi()
 
     m_editor = new CodeTextEdit(this);
     m_editor->setPlaceholderText(QStringLiteral("即时窗口：支持行号、括号匹配、查找替换、跳转行。"));
-    m_rootLayout->addWidget(m_editor, 1);
+
+    // 纯文本与结构视图叠在同一位置：切换只换页，不改变外层布局和分隔器比例。
+    m_viewStack = new QStackedWidget(this);
+    m_structuredView = new ks::ui::ReportStructuredView(m_viewStack);
+    m_viewStack->addWidget(m_editor);
+    m_viewStack->addWidget(m_structuredView);
+    m_viewStack->setCurrentWidget(m_editor);
+    m_rootLayout->addWidget(m_viewStack, 1);
+
+    // 切换控件浮在内容区右上角，而不是混在顶部那排编辑动作里：
+    // 它切的是“这块内容怎么看”，和新建/保存/剪贴板不是一类操作，放在内容自己的角上更好找。
+    // 用下拉框而不是按钮：两个选项都摆在明面上，当前在哪一边、还能切到哪一边一眼看全，
+    // 也和文件常规页那套切换框保持同一种形态。控件不进布局，由 positionStructuredSwitch 贴角。
+    m_structuredCombo = new QComboBox(m_viewStack);
+    m_structuredCombo->addItem(QStringLiteral("结构视图"));
+    m_structuredCombo->addItem(QStringLiteral("原始文本"));
+    m_structuredCombo->setCursor(Qt::PointingHandCursor);
+    m_structuredCombo->setToolTip(
+        QStringLiteral("在结构视图与原始文本之间切换：结构视图按字段和表格解析当前报告，原始文本保留完整报告便于全文检索和整段复制"));
+    // 悬浮控件压在正文之上，必须自带不透明底色和边框，否则叠在属性表行上会看不清。
+    m_structuredCombo->setStyleSheet(buildFloatingSwitchStyle());
+    // 入口默认隐藏：只有内容确实是可解析的只读报告时才由 updateStructuredReportView 放出来。
+    m_structuredCombo->setVisible(false);
+    // m_viewStack 换页或改尺寸时都要重新贴角，事件过滤器比逐页 connect 省事也更不易漏。
+    m_viewStack->installEventFilter(this);
 
     m_statusLabel = new QLabel(QStringLiteral("就绪。"), this);
     m_rootLayout->addWidget(m_statusLabel);
@@ -1344,7 +1422,26 @@ void CodeEditorWidget::initializeConnections()
     connect(m_editor, &QPlainTextEdit::textChanged, this, [this]()
         {
             updateStatusText();
+            updateStructuredReportView();
             emit contentChanged(text());
+        });
+
+    connect(m_structuredCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](const int selectedIndex)
+        {
+            if (m_destroying || m_viewStack == nullptr || m_structuredView == nullptr)
+            {
+                return;
+            }
+            // 索引与文件常规页那套切换框保持一致：0 = 结构视图，1 = 原始文本。
+            const bool structuredSelected = selectedIndex == 0;
+            // 选择记在进程内：这是“这次排查我想怎么看”，不是需要长期保存的偏好。
+            g_preferStructuredReportView = structuredSelected;
+            m_viewStack->setCurrentWidget(structuredSelected
+                ? static_cast<QWidget*>(m_structuredView)
+                : static_cast<QWidget*>(m_editor));
+            // 换页后滚动条可能出现或消失，右边距要重算。
+            positionStructuredSwitch();
         });
 
     new QShortcut(QKeySequence::Find, this, [this]()
@@ -1406,6 +1503,12 @@ void CodeEditorWidget::applyThemeStyle()
         }
     }
 
+    // 悬浮切换框不在上面那批里：它压在正文之上，用的是自带底色和边框的另一套样式。
+    if (m_structuredCombo != nullptr)
+    {
+        m_structuredCombo->setStyleSheet(buildFloatingSwitchStyle());
+    }
+
     m_findEdit->setStyleSheet(inputStyle);
     m_replaceEdit->setStyleSheet(inputStyle);
     m_gotoLineEdit->setStyleSheet(inputStyle);
@@ -1438,6 +1541,84 @@ void CodeEditorWidget::refreshReadOnlyUiState()
         m_replaceOneButton->setVisible(false);
         m_replaceAllButton->setVisible(false);
     }
+
+    // 页面常在写完文本之后才置只读，这里补一次判定，避免结构视图入口被漏掉。
+    updateStructuredReportView();
+}
+
+bool CodeEditorWidget::eventFilter(QObject* watchedObject, QEvent* eventObject)
+{
+    if (!m_destroying &&
+        watchedObject == m_viewStack &&
+        eventObject != nullptr &&
+        (eventObject->type() == QEvent::Resize || eventObject->type() == QEvent::Show))
+    {
+        positionStructuredSwitch();
+    }
+    return QWidget::eventFilter(watchedObject, eventObject);
+}
+
+void CodeEditorWidget::positionStructuredSwitch()
+{
+    if (m_destroying || m_structuredCombo == nullptr || m_viewStack == nullptr)
+    {
+        return;
+    }
+
+    // 右边距要避开当前页可见的垂直滚动条：压在滚动条上会让拖动条变成误点区。
+    int rightMargin = 12;
+    const QWidget* currentPage = m_viewStack->currentWidget();
+    if (currentPage == m_editor && m_editor != nullptr &&
+        m_editor->verticalScrollBar() != nullptr &&
+        m_editor->verticalScrollBar()->isVisible())
+    {
+        rightMargin += m_editor->verticalScrollBar()->width();
+    }
+    else if (currentPage == m_structuredView && m_structuredView != nullptr)
+    {
+        rightMargin += m_structuredView->verticalScrollBarWidth();
+    }
+
+    const QSize switchSize = m_structuredCombo->sizeHint();
+    m_structuredCombo->setGeometry(
+        m_viewStack->width() - switchSize.width() - rightMargin,
+        10,
+        switchSize.width(),
+        switchSize.height());
+    m_structuredCombo->raise();
+}
+
+void CodeEditorWidget::updateStructuredReportView()
+{
+    if (m_destroying ||
+        m_editor == nullptr ||
+        m_viewStack == nullptr ||
+        m_structuredView == nullptr ||
+        m_structuredCombo == nullptr)
+    {
+        return;
+    }
+
+    // 只有只读报告才解析：用户正在编辑的文件、原始日志和字节视图一律保持纯文本。
+    const QString currentText = m_editor->toPlainText();
+    const bool eligible =
+        m_structuredViewEnabled && m_readOnlyMode && !currentText.trimmed().isEmpty();
+    const bool structured = eligible && m_structuredView->setReportText(currentText);
+
+    m_structuredCombo->setVisible(structured);
+    if (!structured)
+    {
+        m_viewStack->setCurrentWidget(m_editor);
+        return;
+    }
+
+    // 这里是程序按记忆恢复视图，不是用户选择；阻断信号避免把状态又写回全局偏好。
+    const QSignalBlocker switchSignalBlocker(m_structuredCombo);
+    m_structuredCombo->setCurrentIndex(g_preferStructuredReportView ? 0 : 1);
+    m_viewStack->setCurrentWidget(g_preferStructuredReportView
+        ? static_cast<QWidget*>(m_structuredView)
+        : static_cast<QWidget*>(m_editor));
+    positionStructuredSwitch();
 }
 
 void CodeEditorWidget::openFindReplacePanel(const bool replaceEnabled)

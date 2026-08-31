@@ -2,6 +2,8 @@
 
 #include "../../Core/Win32Lean.h"
 
+#include <string>
+
 namespace Ksword::Features::Window {
 
 // CreateWindowFeatureView creates the retained non-desktop window-management
@@ -9,5 +11,7 @@ namespace Ksword::Features::Window {
 // a Win32 page class, creates list/detail controls, and performs an initial
 // EnumWindows snapshot; output is the child page HWND or nullptr on failure.
 HWND CreateWindowFeatureView(HWND parent, const RECT& bounds);
+
+bool RequestWindowFeatureViewQuery(HWND page, const std::wstring& query);
 
 } // namespace Ksword::Features::Window
