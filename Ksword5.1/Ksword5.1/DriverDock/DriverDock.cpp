@@ -438,7 +438,7 @@ void DriverDock::showEvent(QShowEvent* event)
         m_overviewStatusLabel->setText(
             driverText(
                 "driver.status.first_open",
-                QStringLiteral("状态：首次打开，正在加载驱动服务与模块...")));
+                QStringLiteral("状态：首次打开，正在加载驱动服务与内核模块...")));
     }
 
     QTimer::singleShot(0, this, [this]()

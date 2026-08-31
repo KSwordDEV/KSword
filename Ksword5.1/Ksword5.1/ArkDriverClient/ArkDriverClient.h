@@ -75,6 +75,11 @@ namespace ksword::ark
         // Open one synchronous control handle. The returned handle owns CloseHandle.
         DriverHandle open(unsigned long desiredAccess = GENERIC_READ | GENERIC_WRITE) const;
 
+        // Open a synchronous control handle without invoking the global R0 UI
+        // notification handlers.  Passive polling paths use this to determine
+        // whether the driver is ready before issuing an optional IOCTL.
+        DriverHandle openSilently(unsigned long desiredAccess = GENERIC_READ | GENERIC_WRITE) const;
+
         // Open one overlapped control handle for wait-style callback receivers.
         DriverHandle openOverlapped(unsigned long desiredAccess = GENERIC_READ | GENERIC_WRITE) const;
 
@@ -159,6 +164,7 @@ namespace ksword::ark
             unsigned long flags = KSWORD_ARK_PROCESS_INJECT_FLAG_UI_CONFIRMED) const;
 
         ProcessEnumResult enumerateProcesses(unsigned long flags) const;
+        ProcessEnumResult enumerateProcesses(unsigned long flags, DriverHandle* existingHandle) const;
         ThreadEnumResult enumerateThreads(unsigned long flags, std::uint32_t processId = 0) const;
         WorkQueueEnumResult enumerateWorkQueues(
             unsigned long flags = KSWORD_ARK_WORK_QUEUE_FLAG_INCLUDE_ALL,

@@ -13,6 +13,7 @@
 #include <QWidget>
 
 #include <atomic> // std::atomic_bool：防止历史刷新并发。
+#include <cstdint> // std::uint32_t/std::uint64_t：审计进程身份字段。
 #include <deque>  // std::deque：实时事件队列按固定上限 O(1) 淘汰最旧项。
 #include <mutex>  // std::mutex：实时回调队列保护。
 #include <thread> // std::thread：可等待的历史/规则刷新线程。
@@ -56,6 +57,26 @@ public:
     // - 无返回值。
     void requestInitialRefresh();
 
+    // addBlockRuleFromEvidence：
+    // - 作用：以审计证据预填一条阻断规则，仍由用户在编辑器中确认后写入系统。
+    void addBlockRuleFromEvidence(
+        const QString& remoteAddress,
+        const QString& remotePort,
+        const QString& protocolText,
+        const QString& directionText,
+        const QString& sourceText,
+        std::uint32_t observedProcessId = 0,
+        std::uint64_t expectedProcessCreationTime100ns = 0,
+        const QString& expectedProcessImagePath = QString(),
+        const QString& applicationPathHint = QString());
+
+    // addUdpEndpointBlockRuleFromEvidence：
+    // - 作用：把 NSI UDP 本地端点预填为阻断未来流量的规则；
+    // - 注意：UDP 端点本身不携带出入站语义，默认 Outbound，必须由用户在编辑器确认或改写。
+    void addUdpEndpointBlockRuleFromEvidence(
+        const QString& localEndpointText,
+        std::uint32_t observedProcessId = 0);
+
     // FirewallEventEntry：
     // - 作用：保存一次 WFP net event 的展示字段；
     // - 处理逻辑：WFP 线程填充，UI 线程插入表格；
@@ -63,6 +84,7 @@ public:
     struct FirewallEventEntry
     {
         QString nameText;          // nameText：进程/应用名或事件名。
+        QString applicationPathText;// applicationPathText：WFP appId 的原始应用路径，仅用于处置预填。
         QString actionText;        // actionText：DROP/Allowed 等动作。
         QString directionText;     // directionText：In/Out/FWD/BI。
         QString ruleText;          // ruleText：过滤器/规则名。

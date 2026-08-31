@@ -17,9 +17,7 @@
 #include <QTimer>
 #include <QApplication>
 #include <QCoreApplication>
-#include <QDateTime>
 #include <QCheckBox>
-#include <QDesktopServices>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -37,6 +35,7 @@
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QList>
+#include <QMargins>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPalette>
@@ -69,7 +68,6 @@
 #include <QStyleOptionViewItem>
 #include <QProxyStyle>
 #include <QTableView>
-#include <QUrl>
 #include <QEvent>
 #include <QEventLoop>
 #include <QVariant>
@@ -83,6 +81,7 @@
 #include "Framework/CustomTitleBar.h"
 #include "include/ads/AutoHideTab.h"
 #include "include/ads/DockComponentsFactory.h"
+#include "include/ads/DockAreaTitleBar.h"
 #include "include/ads/DockAreaWidget.h"
 #include "include/ads/DockWidgetTab.h"
 #include "include/ads/FloatingDockContainer.h"
@@ -5173,25 +5172,25 @@ MainWindow::MainWindow(
     resize(1024, 768);
     configureSingleInstanceMessageReception(reinterpret_cast<HWND>(winId()));
 
-    // 初始化菜单
-    reportStartupProgress(
-        38,
-        QStringLiteral("main.startup.progress.menu"),
-        QStringLiteral("正在准备主界面..."));
-    initMenus();
-
     // 初始化自绘标题栏：
     // - 替代系统标题栏；
     // - 承载置顶按钮、命令输入框和窗口控制按钮。
     reportStartupProgress(
-        44,
+        38,
         QStringLiteral("main.startup.progress.custom_title_bar"),
         QStringLiteral("正在准备主界面..."));
     initCustomTitleBar();
 
+    // 初始化标题栏功能入口。
+    reportStartupProgress(
+        44,
+        QStringLiteral("main.startup.progress.menu"),
+        QStringLiteral("正在准备主界面..."));
+    initMenus();
+
     // 初始化权限状态按钮：
     // - UIAccess / Admin / Debug / System / R0；
-    // - 挂载到自绘标题栏右侧，不再依赖原生菜单栏。
+    // - 在 Dock 布局恢复后挂载到主功能 Tab 栏右侧。
     reportStartupProgress(
         46,
         QStringLiteral("main.startup.progress.privilege_status"),
@@ -5415,6 +5414,51 @@ void MainWindow::updateResizeBorderOverlays()
         {
             return;
         }
+    }
+
+    // 最大化布局补偿：
+    // - Windows 为带 WS_THICKFRAME 的最大化窗口把不可见 resize frame 扩到工作区外；
+    // - HWND 与 Qt backing store 保持系统原样，只把标题栏和 Dock 内容向内收口；
+    // - 边距使用 Qt 逻辑像素，避免高 DPI 下把原生物理像素重复放大。
+    QMargins maximizedLayoutMargins;
+#ifdef Q_OS_WIN
+    if (m_mainRootLayout != nullptr
+        && isWindowActuallyMaximized()
+        && testAttribute(Qt::WA_WState_Created))
+    {
+        const HWND mainWindowHandle = reinterpret_cast<HWND>(winId());
+        if (mainWindowHandle != nullptr && ::IsWindow(mainWindowHandle) != FALSE)
+        {
+            UINT windowDpi = ::GetDpiForWindow(mainWindowHandle);
+            if (windowDpi == 0)
+            {
+                windowDpi = USER_DEFAULT_SCREEN_DPI;
+            }
+            const int nativePaddedBorder =
+                ::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, windowDpi);
+            const int nativeFrameX =
+                ::GetSystemMetricsForDpi(SM_CXSIZEFRAME, windowDpi) + nativePaddedBorder;
+            const int nativeFrameY =
+                ::GetSystemMetricsForDpi(SM_CYSIZEFRAME, windowDpi) + nativePaddedBorder;
+            const qreal deviceScale = std::max<qreal>(1.0, devicePixelRatioF());
+            const int layoutInsetX = std::max(
+                0,
+                static_cast<int>(std::lround(static_cast<qreal>(nativeFrameX) / deviceScale)));
+            const int layoutInsetY = std::max(
+                0,
+                static_cast<int>(std::lround(static_cast<qreal>(nativeFrameY) / deviceScale)));
+            maximizedLayoutMargins = QMargins(
+                layoutInsetX,
+                layoutInsetY,
+                layoutInsetX,
+                layoutInsetY);
+        }
+    }
+#endif
+    if (m_mainRootLayout != nullptr
+        && m_mainRootLayout->contentsMargins() != maximizedLayoutMargins)
+    {
+        m_mainRootLayout->setContentsMargins(maximizedLayoutMargins);
     }
 
     const bool shouldShowBorders =
@@ -6527,13 +6571,6 @@ void MainWindow::initCustomTitleBar()
     m_customTitleBar->setCaptureProtectionState(m_captureProtectionEnabled);
     syncCustomTitleBarMaximizedState();
     m_customTitleBar->setDarkModeEnabled(KswordTheme::IsDarkModeEnabled());
-    if (menuBar() != nullptr)
-    {
-        // menuBarVisibleState 用途：隐藏原生菜单栏，避免出现在自绘标题栏上方。
-        const bool menuBarVisibleState = false;
-        menuBar()->setNativeMenuBar(false);
-        menuBar()->setVisible(menuBarVisibleState);
-    }
     if (m_mainRootLayout != nullptr && m_mainRootContainer != nullptr)
     {
         m_customTitleBar->setParent(m_mainRootContainer);
@@ -7155,96 +7192,47 @@ void MainWindow::executeCommandWithOptions(
 
 void MainWindow::initMenus()
 {
-    if (menuBar() != nullptr)
-    {
-        // 隐藏 QMainWindow 原生菜单栏，避免出现在自绘标题栏上方。
-        menuBar()->setNativeMenuBar(false);
-        menuBar()->setVisible(false);
-    }
-
-    if (m_topActionRowWidget != nullptr)
+    if (m_licenseMenuButton != nullptr || m_customTitleBar == nullptr)
     {
         return;
     }
 
-    // 功能条：位于自绘标题栏下方，左侧常用动作，右侧权限按钮。
-    m_topActionRowWidget = new QWidget(m_mainRootContainer);
-    m_topActionRowWidget->setObjectName(QStringLiteral("ksTopActionRow"));
-    m_topActionRowWidget->setFixedHeight(28);
-    m_topActionRowLayout = new QHBoxLayout(m_topActionRowWidget);
-    m_topActionRowLayout->setContentsMargins(8, 1, 8, 1);
-    m_topActionRowLayout->setSpacing(8);
+    // 标题栏左侧功能入口：只保留常用的五项操作，不再额外占用一行菜单栏。
+    auto* titleActionContainer = new QWidget(m_customTitleBar);
+    titleActionContainer->setFixedHeight(22);
+    auto* titleActionLayout = new QHBoxLayout(titleActionContainer);
+    titleActionLayout->setContentsMargins(2, 0, 0, 0);
+    titleActionLayout->setSpacing(2);
 
-    m_updateMenuButton = new QToolButton(m_topActionRowWidget);
-    m_updateMenuButton->setObjectName(QStringLiteral("ksUpdateMenuButton"));
-    m_updateMenuButton->setText(QStringLiteral("检查更新"));
-    m_updateMenuButton->setToolTip(QStringLiteral("打开 GitHub Releases 页面"));
-    ks::i18n::LanguageManager::instance().bindText(m_updateMenuButton, QStringLiteral("menu.update"), QStringLiteral("检查更新"));
-    ks::i18n::LanguageManager::instance().bindToolTip(m_updateMenuButton, QStringLiteral("menu.update.tooltip"), QStringLiteral("打开 GitHub Releases 页面"));
-    m_updateMenuButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_updateMenuButton->setAutoRaise(true);
-    m_updateMenuButton->setFixedHeight(22);
-    connect(m_updateMenuButton, &QToolButton::clicked, this, &MainWindow::openReleasePageFromMenu);
+    const auto configureTitleActionButton = [](QToolButton* button)
+    {
+        button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        button->setAutoRaise(true);
+        button->setFixedHeight(22);
+        button->setFocusPolicy(Qt::NoFocus);
+    };
 
-    m_githubMenuButton = new QToolButton(m_topActionRowWidget);
-    m_githubMenuButton->setObjectName(QStringLiteral("ksGitHubMenuButton"));
-    m_githubMenuButton->setText(QStringLiteral("GitHub"));
-    m_githubMenuButton->setToolTip(QStringLiteral("打开项目 GitHub 仓库主页"));
-    ks::i18n::LanguageManager::instance().bindText(m_githubMenuButton, QStringLiteral("menu.github"), QStringLiteral("GitHub"));
-    ks::i18n::LanguageManager::instance().bindToolTip(m_githubMenuButton, QStringLiteral("menu.github.tooltip"), QStringLiteral("打开项目 GitHub 仓库主页"));
-    m_githubMenuButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_githubMenuButton->setAutoRaise(true);
-    m_githubMenuButton->setFixedHeight(22);
-    connect(m_githubMenuButton, &QToolButton::clicked, this, &MainWindow::openGitHubRepositoryFromMenu);
-
-    m_licenseMenuButton = new QToolButton(m_topActionRowWidget);
+    m_licenseMenuButton = new QToolButton(titleActionContainer);
     m_licenseMenuButton->setObjectName(QStringLiteral("ksLicenseMenuButton"));
     m_licenseMenuButton->setText(QStringLiteral("许可证"));
     m_licenseMenuButton->setToolTip(QStringLiteral("查看软件许可证"));
     ks::i18n::LanguageManager::instance().bindText(m_licenseMenuButton, QStringLiteral("menu.license"), QStringLiteral("许可证"));
     ks::i18n::LanguageManager::instance().bindToolTip(m_licenseMenuButton, QStringLiteral("menu.license.tooltip"), QStringLiteral("查看软件许可证"));
-    m_licenseMenuButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_licenseMenuButton->setAutoRaise(true);
-    m_licenseMenuButton->setFixedHeight(22);
+    configureTitleActionButton(m_licenseMenuButton);
     connect(m_licenseMenuButton, &QToolButton::clicked, this, &MainWindow::showLicenseFromMenu);
 
-    m_exitMenuButton = new QToolButton(m_topActionRowWidget);
-    m_exitMenuButton->setObjectName(QStringLiteral("ksExitMenuButton"));
-    m_exitMenuButton->setText(QStringLiteral("退出"));
-    m_exitMenuButton->setToolTip(QStringLiteral("退出程序 (Ctrl+Q)"));
-    ks::i18n::LanguageManager::instance().bindText(m_exitMenuButton, QStringLiteral("menu.exit"), QStringLiteral("退出"));
-    ks::i18n::LanguageManager::instance().bindToolTip(m_exitMenuButton, QStringLiteral("menu.exit.tooltip"), QStringLiteral("退出程序 (Ctrl+Q)"));
-    m_exitMenuButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_exitMenuButton->setAutoRaise(true);
-    m_exitMenuButton->setFixedHeight(22);
-    m_exitMenuButton->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q")));
-    connect(m_exitMenuButton, &QToolButton::clicked, this, &MainWindow::close);
-
-    m_pluginMenuButton = new QToolButton(m_topActionRowWidget);
+    m_pluginMenuButton = new QToolButton(titleActionContainer);
     m_pluginMenuButton->setObjectName(QStringLiteral("ksPluginMenuButton"));
-    m_pluginMenuButton->setText(QStringLiteral("插件管理"));
+    m_pluginMenuButton->setText(QStringLiteral("插件"));
     m_pluginMenuButton->setToolTip(QStringLiteral("浏览、安装和管理插件"));
-    ks::i18n::LanguageManager::instance().bindText(m_pluginMenuButton, QStringLiteral("menu.plugins"), QStringLiteral("插件管理"));
+    ks::i18n::LanguageManager::instance().bindText(m_pluginMenuButton, QStringLiteral("menu.plugins"), QStringLiteral("插件"));
     ks::i18n::LanguageManager::instance().bindToolTip(m_pluginMenuButton, QStringLiteral("menu.plugins.tooltip"), QStringLiteral("浏览、安装和管理插件"));
-    m_pluginMenuButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_pluginMenuButton->setAutoRaise(true);
-    m_pluginMenuButton->setFixedHeight(22);
+    configureTitleActionButton(m_pluginMenuButton);
     connect(m_pluginMenuButton, &QToolButton::clicked, this, [this]() {
         ks::plugin_host::showPluginManager(this);
     });
 
-    m_logMenuButton = new QToolButton(m_topActionRowWidget);
-    m_logMenuButton->setObjectName(QStringLiteral("ksLogMenuButton"));
-    m_logMenuButton->setText(QStringLiteral("日志输出"));
-    m_logMenuButton->setToolTip(QStringLiteral("显示或隐藏非模态日志输出窗口"));
-    ks::i18n::LanguageManager::instance().bindText(m_logMenuButton, QStringLiteral("menu.log"), QStringLiteral("日志输出"));
-    ks::i18n::LanguageManager::instance().bindToolTip(m_logMenuButton, QStringLiteral("menu.log.tooltip"), QStringLiteral("显示或隐藏非模态日志输出窗口"));
-    m_logMenuButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_logMenuButton->setAutoRaise(true);
-    m_logMenuButton->setFixedHeight(22);
-    connect(m_logMenuButton, &QToolButton::clicked, this, &MainWindow::toggleLogOutputWindow);
-
-    m_windowMenuButton = new QToolButton(m_topActionRowWidget);
+    m_windowMenuButton = new QToolButton(titleActionContainer);
     m_windowMenuButton->setObjectName(QStringLiteral("ksWindowMenuButton"));
     m_windowMenuButton->setText(QStringLiteral("窗口"));
     m_windowMenuButton->setToolTip(QStringLiteral("显示或隐藏 Dock 窗口"));
@@ -7256,44 +7244,39 @@ void MainWindow::initMenus()
         m_windowMenuButton,
         QStringLiteral("menu.window.tooltip"),
         QStringLiteral("显示或隐藏 Dock 窗口"));
-    m_windowMenuButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_windowMenuButton->setAutoRaise(true);
-    m_windowMenuButton->setFixedHeight(22);
+    configureTitleActionButton(m_windowMenuButton);
     m_windowMenuButton->setPopupMode(QToolButton::InstantPopup);
     m_windowMenu = new QMenu(m_windowMenuButton);
     m_windowMenu->setObjectName(QStringLiteral("ksWindowMenu"));
     m_windowMenuButton->setMenu(m_windowMenu);
 
-    m_settingsMenuButton = new QToolButton(m_topActionRowWidget);
+    m_logMenuButton = new QToolButton(titleActionContainer);
+    m_logMenuButton->setObjectName(QStringLiteral("ksLogMenuButton"));
+    m_logMenuButton->setText(QStringLiteral("日志输出"));
+    m_logMenuButton->setToolTip(QStringLiteral("显示或隐藏非模态日志输出窗口"));
+    ks::i18n::LanguageManager::instance().bindText(m_logMenuButton, QStringLiteral("menu.log"), QStringLiteral("日志输出"));
+    ks::i18n::LanguageManager::instance().bindToolTip(m_logMenuButton, QStringLiteral("menu.log.tooltip"), QStringLiteral("显示或隐藏非模态日志输出窗口"));
+    configureTitleActionButton(m_logMenuButton);
+    connect(m_logMenuButton, &QToolButton::clicked, this, &MainWindow::toggleLogOutputWindow);
+
+    m_settingsMenuButton = new QToolButton(titleActionContainer);
     m_settingsMenuButton->setObjectName(QStringLiteral("ksSettingsMenuButton"));
     m_settingsMenuButton->setText(QStringLiteral("设置"));
     m_settingsMenuButton->setToolTip(QStringLiteral("打开界面与启动设置"));
     ks::i18n::LanguageManager::instance().bindText(m_settingsMenuButton, QStringLiteral("menu.settings"), QStringLiteral("设置"));
     ks::i18n::LanguageManager::instance().bindToolTip(m_settingsMenuButton, QStringLiteral("menu.settings.tooltip"), QStringLiteral("打开界面、语言与启动设置"));
-    m_settingsMenuButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_settingsMenuButton->setAutoRaise(true);
-    m_settingsMenuButton->setFixedHeight(22);
+    configureTitleActionButton(m_settingsMenuButton);
     connect(m_settingsMenuButton, &QToolButton::clicked, this, [this]() {
         showSettingsPanelFromMenu();
     });
 
-    refreshTopActionButtonStyles();
-
-    m_topActionRowLayout->addWidget(m_updateMenuButton, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    m_topActionRowLayout->addWidget(m_githubMenuButton, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    m_topActionRowLayout->addWidget(m_licenseMenuButton, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    m_topActionRowLayout->addWidget(m_exitMenuButton, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    m_topActionRowLayout->addWidget(m_pluginMenuButton, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    m_topActionRowLayout->addWidget(m_windowMenuButton, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    m_topActionRowLayout->addWidget(m_logMenuButton, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    m_topActionRowLayout->addWidget(m_settingsMenuButton, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    m_topActionRowLayout->addStretch(1);
-
-    if (m_mainRootLayout != nullptr)
-    {
-        // 插入到根布局顶部；后续 initCustomTitleBar 会插到 index=0，因此标题栏仍在最上方。
-        m_mainRootLayout->insertWidget(0, m_topActionRowWidget, 0);
-    }
+    titleActionLayout->addWidget(m_licenseMenuButton);
+    titleActionLayout->addWidget(m_pluginMenuButton);
+    titleActionLayout->addWidget(m_windowMenuButton);
+    titleActionLayout->addWidget(m_logMenuButton);
+    titleActionLayout->addWidget(m_settingsMenuButton);
+    m_customTitleBar->setCustomLeftWidget(titleActionContainer);
+    refreshTitleActionButtonStyles();
 }
 
 void MainWindow::initializeWindowDockMenuActions()
@@ -7330,9 +7313,9 @@ void MainWindow::initializeWindowDockMenuActions()
     m_windowMenu->addAction(currentTasksAction);
 }
 
-QString MainWindow::buildTopActionButtonStyle() const
+QString MainWindow::buildTitleActionButtonStyle() const
 {
-    // 顶部功能按钮样式按当前主题实时生成，避免主题切换后保留旧颜色。
+    // 标题栏功能按钮样式按当前主题实时生成，避免主题切换后保留旧颜色。
     const bool darkModeEnabled = KswordTheme::IsDarkModeEnabled();
     const QString hoverColor = KswordTheme::RgbaColorName(
         KswordTheme::PrimaryBlueColor,
@@ -7352,7 +7335,7 @@ QString MainWindow::buildTopActionButtonStyle() const
         "  border:1px solid transparent !important;"
         "  border-radius:4px;"
         "  margin:0;"
-        "  padding:2px 8px 2px 6px;"
+        "  padding:1px 5px;"
         "  font-weight:600;"
         "  text-align:left;"
         "}"
@@ -7377,15 +7360,12 @@ QString MainWindow::buildTopActionButtonStyle() const
         .arg(borderColor);
 }
 
-void MainWindow::refreshTopActionButtonStyles()
+void MainWindow::refreshTitleActionButtonStyles()
 {
-    // 顶部功能按钮刷新：主题切换后所有按钮都重新套用同一份 QSS。
-    const QString topActionButtonStyle = buildTopActionButtonStyle();
+    // 标题栏功能按钮刷新：主题切换后所有按钮都重新套用同一份 QSS。
+    const QString titleActionButtonStyle = buildTitleActionButtonStyle();
     const QList<QToolButton*> topActionButtonList{
-        m_updateMenuButton,
-        m_githubMenuButton,
         m_licenseMenuButton,
-        m_exitMenuButton,
         m_pluginMenuButton,
         m_windowMenuButton,
         m_logMenuButton,
@@ -7395,32 +7375,8 @@ void MainWindow::refreshTopActionButtonStyles()
     {
         if (button != nullptr)
         {
-            button->setStyleSheet(topActionButtonStyle);
+            button->setStyleSheet(titleActionButtonStyle);
         }
-    }
-}
-
-void MainWindow::openReleasePageFromMenu()
-{
-    const QUrl releaseUrl(QStringLiteral("https://github.com/KSwordDEV/KSword/releases"));
-    if (!QDesktopServices::openUrl(releaseUrl))
-    {
-        QMessageBox::warning(
-            this,
-            QStringLiteral("检查更新"),
-            QStringLiteral("无法打开更新页面：%1").arg(releaseUrl.toString()));
-    }
-}
-
-void MainWindow::openGitHubRepositoryFromMenu()
-{
-    const QUrl repositoryUrl(QStringLiteral("https://github.com/KSwordDEV/KSword"));
-    if (!QDesktopServices::openUrl(repositoryUrl))
-    {
-        QMessageBox::warning(
-            this,
-            QStringLiteral("GitHub"),
-            QStringLiteral("无法打开 GitHub 仓库：%1").arg(repositoryUrl.toString()));
     }
 }
 
@@ -7700,11 +7656,8 @@ void MainWindow::initPrivilegeStatusButtons()
         return;
     }
 
-    // 在功能条右侧放置一个水平容器，承载权限状态按钮。
-    QWidget* privilegeButtonParent = m_topActionRowWidget != nullptr
-        ? m_topActionRowWidget
-        : this;
-    m_privilegeButtonContainer = new QWidget(privilegeButtonParent);
+    // 权限状态组在 Dock 布局恢复后挂到主功能 Tab 栏；初始化期先由主窗口托管。
+    m_privilegeButtonContainer = new QWidget(this);
     QHBoxLayout* buttonLayout = new QHBoxLayout(m_privilegeButtonContainer);
     buttonLayout->setContentsMargins(0, 0, 4, 0);
     buttonLayout->setSpacing(6);
@@ -7745,12 +7698,6 @@ void MainWindow::initPrivilegeStatusButtons()
     m_debugStatusButton->setToolTip(QStringLiteral("Debug：调试特权（SeDebugPrivilege）状态，用于访问受保护进程。点击申请该特权（需要管理员）。"));
     m_systemStatusButton->setToolTip(QStringLiteral("System：当前是否以 LocalSystem 系统账户运行。点击查看当前身份说明。"));
     m_r0StatusButton->setToolTip(QStringLiteral("R0：KswordARK 内核驱动服务状态。点击启动或停止驱动（内核功能都依赖它）。"));
-
-    // 把容器挂到功能条右侧。
-    if (m_topActionRowLayout != nullptr)
-    {
-        m_topActionRowLayout->addWidget(m_privilegeButtonContainer, 0, Qt::AlignRight | Qt::AlignVCenter);
-    }
 
     // UIAccess 按钮：
     // - 当前实例已带 UIAccess 时降级回普通用户实例；
@@ -8021,6 +7968,31 @@ void MainWindow::initPrivilegeStatusButtons()
     // 启动时执行一次 R0 服务状态查询，作为按钮初始态来源。
     queryR0DriverServiceRunning(m_r0DriverServiceRunning, true);
     refreshPrivilegeStatusButtons();
+}
+
+void MainWindow::attachPrivilegeStatusButtonsToPrimaryDockTabBar()
+{
+    if (m_privilegeButtonContainer == nullptr || m_dockWelcome == nullptr)
+    {
+        return;
+    }
+
+    ads::CDockAreaWidget* const mainDockArea = m_dockWelcome->dockAreaWidget();
+    if (mainDockArea == nullptr || mainDockArea->titleBar() == nullptr)
+    {
+        return;
+    }
+
+    ads::CDockAreaTitleBar* const titleBar = mainDockArea->titleBar();
+    if (m_privilegeButtonContainer->parentWidget() == titleBar
+        && titleBar->indexOf(m_privilegeButtonContainer) >= 0)
+    {
+        return;
+    }
+
+    // 追加到 ADS 标题栏布局末尾：TabBar 自行占据中间可伸缩空间，权限按钮组固定贴右。
+    titleBar->insertWidget(-1, m_privilegeButtonContainer);
+    m_privilegeButtonContainer->show();
 }
 
 void MainWindow::handleR0DriverUnavailable(const unsigned long win32Error)
@@ -10769,6 +10741,7 @@ void MainWindow::setupDockLayout()
     restoreDockLayoutFromConfig();
     // 旧布局配置里没有后来新增的 Dock，ADS 不会安置它们，必须在这里收回主标签区。
     reattachDetachedFeatureDocks();
+    attachPrivilegeStatusButtonsToPrimaryDockTabBar();
     reportStartupProgress(
         82,
         QStringLiteral("main.startup.progress.refresh_dock_tabs"),
@@ -11722,17 +11695,6 @@ void MainWindow::applyAppearanceSettings(
         // 已打开的原生标题栏子窗口同步染色，保持标题栏与主题背景一体。
         ks::ui::RefreshAllWindowChrome();
 
-        if (menuBar() != nullptr)
-        {
-            QPalette menuPalette = menuBar()->palette();
-            menuPalette.setColor(QPalette::Window, windowBackgroundColor);
-            menuPalette.setColor(QPalette::WindowText, windowTextColor);
-            menuPalette.setColor(QPalette::Text, windowTextColor);
-            menuBar()->setPalette(menuPalette);
-            // 透明背景模式下菜单栏同样交给底层材质，避免出现唯一的不透明色块。
-            menuBar()->setAutoFillBackground(!testAttribute(Qt::WA_TranslucentBackground));
-        }
-
         if (m_pDockManager != nullptr)
         {
             QPalette dockPalette = m_pDockManager->palette();
@@ -12002,10 +11964,10 @@ void MainWindow::refreshThemeDependentVisuals(const bool darkModeEnabled)
         syncCustomTitleBarMaximizedState();
     }
 
-    // 原生框架、权限按钮和顶部动作按钮均读取当前主题模块状态。
+    // 原生框架、权限按钮和标题栏动作按钮均读取当前主题模块状态。
     applyNativeWindowFrameVisualStyle();
     refreshPrivilegeStatusButtons();
-    refreshTopActionButtonStyles();
+    refreshTitleActionButtonStyles();
 
     if (m_progressWidget != nullptr)
     {
@@ -12885,7 +12847,27 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
             .arg(primaryTextColor)
             .arg(borderColorText);
 
-    const QString kernelDockStyle = kernelDockContainerStyle + kernelDockContentStyle;
+    // 对象命名空间总览底部的结构视图是详情文本的派生呈现，不应被 KernelDock
+    // 的通用表格实底规则覆盖；保持透明，让它继承详情区域的底色。
+    const QString objectNamespaceStructuredViewStyle = QStringLiteral(
+        "ads--CDockWidget#ksDock_kernel QWidget#KernelDockRoot "
+        "#ks_object_namespace_detail_editor QScrollArea,"
+        "ads--CDockWidget#ksDock_kernel QWidget#KernelDockRoot "
+        "#ks_object_namespace_detail_editor QScrollArea::viewport,"
+        "ads--CDockWidget#ksDock_kernel QWidget#KernelDockRoot "
+        "#ks_object_namespace_detail_editor QScrollArea QWidget,"
+        "ads--CDockWidget#ksDock_kernel QWidget#KernelDockRoot "
+        "#ks_object_namespace_detail_editor QTreeWidget,"
+        "ads--CDockWidget#ksDock_kernel QWidget#KernelDockRoot "
+        "#ks_object_namespace_detail_editor QTreeWidget::viewport{"
+        "  background:transparent !important;"
+        "  background-color:transparent !important;"
+        "  alternate-background-color:transparent !important;"
+        "}");
+
+    const QString kernelDockStyle = kernelDockContainerStyle
+        + kernelDockContentStyle
+        + objectNamespaceStructuredViewStyle;
 
     // tabPluginOpaqueStyle 作用：
     // - 让「插件」页始终保持主题实底，不参与 Dock 内容透明。

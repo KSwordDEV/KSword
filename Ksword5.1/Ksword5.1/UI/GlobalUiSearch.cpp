@@ -858,6 +858,12 @@ namespace ks::ui
         m_recentPageDockWidget = dockWidgetForWidget(tableView);
         setSearchScope(UiSearchScope::CurrentTable);
 
+        // 页面切换或 Dock 恢复也可能让标题栏输入框重新获焦，不能把这些焦点变化
+        // 当作用户请求并自动展开结果弹层。只有表格搜索入口明确请求焦点、且输入框
+        // 当前尚未获焦时，才允许下一次 FocusIn 展开弹层。
+        m_showPopupOnNextSearchInputFocus = focusTopInput
+            && m_searchInputEdit != nullptr
+            && !m_searchInputEdit->hasFocus();
         emit requestSearchInputActivation(focusTopInput);
 
         if (m_searchInputEdit != nullptr && !queryText.isNull())
@@ -1043,9 +1049,19 @@ namespace ks::ui
                     break;
                 }
             }
-            else if ((eventType == QEvent::FocusIn || eventType == QEvent::MouseButtonPress)
-                && m_searchModeActive)
+            else if (m_searchModeActive)
             {
+                const bool openedByMouse = eventType == QEvent::MouseButtonPress;
+                const bool openedByExplicitTableSearch = eventType == QEvent::FocusIn
+                    && m_showPopupOnNextSearchInputFocus;
+                if (eventType == QEvent::FocusIn)
+                {
+                    m_showPopupOnNextSearchInputFocus = false;
+                }
+                if (!openedByMouse && !openedByExplicitTableSearch)
+                {
+                    return false;
+                }
                 if (isCurrentQueryLongEnough(m_pendingQueryText.trimmed()))
                 {
                     m_searchDebounceTimer->start();

@@ -48,22 +48,11 @@ namespace
     QString inputStyle()
     {
         return QStringLiteral(
-            "QLineEdit{border:1px solid %1;border-radius:3px;background:transparent;/* %2 */color:%3;padding:3px 6px;}"
-            "QLineEdit:focus{border:1px solid %4;}"
-            "QTableWidget{border:1px solid %1;border-radius:3px;background:%2;color:%3;gridline-color:%1;}")
+            "QLineEdit{border:1px solid %1;border-radius:3px;background:transparent;color:%2;padding:3px 6px;}"
+            "QLineEdit:focus{border:1px solid %3;}")
             .arg(KswordTheme::BorderHex())
-            .arg(KswordTheme::SurfaceHex())
             .arg(KswordTheme::TextPrimaryHex())
             .arg(KswordTheme::PrimaryBlueHex);
-    }
-
-    QString headerStyle()
-    {
-        return QStringLiteral(
-            "QHeaderView::section{color:%1;background:transparent;/* %2 */border:1px solid %3;padding:4px;font-weight:600;}")
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::SurfaceHex())
-            .arg(KswordTheme::BorderHex());
     }
 }
 
@@ -130,14 +119,12 @@ void KernelSymbolicLinkTab::initializeUi()
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setAlternatingRowColors(true);
     m_table->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_table->horizontalHeader()->setStyleSheet(headerStyle());
     m_table->horizontalHeader()->setSectionResizeMode(static_cast<int>(Column::SourceDirectory), QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setSectionResizeMode(static_cast<int>(Column::LinkName), QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setSectionResizeMode(static_cast<int>(Column::FullPath), QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(static_cast<int>(Column::TargetPath), QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(static_cast<int>(Column::DosCandidate), QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(static_cast<int>(Column::StatusText), QHeaderView::ResizeToContents);
-    m_table->setStyleSheet(inputStyle());
     rootLayout->addWidget(m_table, 1);
 }
 

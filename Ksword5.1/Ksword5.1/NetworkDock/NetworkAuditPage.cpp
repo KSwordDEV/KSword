@@ -843,6 +843,11 @@ void NetworkAuditPage::setOpenProcessDetailHandler(ProcessActionHandler handler)
     m_openProcessDetailHandler = std::move(handler);
 }
 
+void NetworkAuditPage::setUdpEndpointBlockRuleHandler(UdpEndpointBlockRuleHandler handler)
+{
+    m_udpEndpointBlockRuleHandler = std::move(handler);
+}
+
 void NetworkAuditPage::initializeUi()
 {
     m_rootLayout = new QVBoxLayout(this);
@@ -2498,6 +2503,19 @@ void NetworkAuditPage::showCrossViewContextMenu(
         QStringLiteral("转到进程详细信息"));
     openProcessDetailAction->setEnabled(
         hasProcess && static_cast<bool>(m_openProcessDetailHandler));
+    const QTableWidgetItem* localEndpointItem = selectedRow >= 0
+        ? tableWidget->item(selectedRow, 2)
+        : nullptr;
+    const bool canPrefillUdpBlockRule =
+        tableWidget == m_udpTable &&
+        localEndpointItem != nullptr &&
+        !localEndpointItem->text().trimmed().isEmpty() &&
+        static_cast<bool>(m_udpEndpointBlockRuleHandler);
+    QAction* addUdpBlockRuleAction = menu.addAction(
+        QIcon(QStringLiteral(":/Icon/process_terminate.svg")),
+        QStringLiteral("预填 UDP 阻断规则"));
+    addUdpBlockRuleAction->setVisible(tableWidget == m_udpTable);
+    addUdpBlockRuleAction->setEnabled(canPrefillUdpBlockRule);
     const bool isTcpTable = tableWidget == m_tcpTable;
     QAction* uploadVirusTotalAction = ks::online_scan::addVirusTotalSandboxMenu(
         &menu,
@@ -2548,6 +2566,10 @@ void NetworkAuditPage::showCrossViewContextMenu(
     else if (selectedAction == openProcessDetailAction)
     {
         m_openProcessDetailHandler(selectedProcessId);
+    }
+    else if (selectedAction == addUdpBlockRuleAction && canPrefillUdpBlockRule)
+    {
+        m_udpEndpointBlockRuleHandler(selectedProcessId, localEndpointItem->text());
     }
     else if (selectedAction == uploadVirusTotalAction)
     {

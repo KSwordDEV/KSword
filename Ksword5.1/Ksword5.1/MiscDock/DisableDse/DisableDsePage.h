@@ -22,7 +22,6 @@
 
 #include <cstdint>
 
-class QLabel;
 class QPushButton;
 class QShowEvent;
 class CodeEditorWidget;
@@ -44,15 +43,9 @@ namespace ks::misc
     protected:
         // 页面第一次真正可见时才读一次系统姿态。
         void showEvent(QShowEvent* event) override;
-        // 语义色（Error/Warning 及其背景）在 theme.h 里没有 palette 等价物，
-        // 写进 QSS 就被定死在下发那一刻的主题上，主题切换时必须重下发。
-        void changeEvent(QEvent* event) override;
-
     private:
-        // initializeUi：建出风险横幅、姿态区、定位区与操作区。
+        // initializeUi：建出状态编辑器和操作按钮。
         void initializeUi();
-        // applyBannerStyle：下发风险横幅样式，构造期与主题切换共用。
-        void applyBannerStyle();
         // initializeConnections：把四个按钮接到各自的处理函数。
         void initializeConnections();
 
@@ -78,27 +71,17 @@ namespace ks::misc
         // applyApplyOutcome：在 UI 线程收拢写入结果。
         void applyApplyOutcome(const disable_dse::ApplyResult& result, bool isRestore);
 
-        // appendTrace：把一行诊断信息追加到轨迹框。
-        void appendTrace(const QString& line);
-        // setResultText：把一次操作的结论写到底部，isError 决定配色。
-        void setResultText(const QString& text, bool isError);
+        // setStatusText：记录最近一次操作结论并刷新状态编辑器。
+        void setStatusText(const QString& text);
         // setBusy：一次操作没结束时禁用按钮，防止重复点击。
         void setBusy(bool busy);
         // updateButtons：按忙碌状态、姿态与定位结果刷新按钮可用性。
         void updateButtons();
-        // updateStateDisplay：刷新姿态摘要、阻断原因与当前值显示。
+        // updateStateDisplay：刷新状态编辑器的固定字段。
         void updateStateDisplay();
 
     private:
-        QLabel* m_warningLabel = nullptr;       // m_warningLabel：PatchGuard 风险横幅。
-        QLabel* m_postureLabel = nullptr;       // m_postureLabel：CI / HVCI / 安全启动摘要。
-        QLabel* m_optionsLabel = nullptr;       // m_optionsLabel：CodeIntegrityOptions 位分解。
-        QLabel* m_blockLabel = nullptr;         // m_blockLabel：当前为什么不允许操作。
-        QLabel* m_locationLabel = nullptr;      // m_locationLabel：g_CiOptions 定位结果摘要。
-        QLabel* m_pendingLabel = nullptr;       // m_pendingLabel：尚未恢复时的醒目提示。
-        QLabel* m_resultLabel = nullptr;        // m_resultLabel：最近一次操作结论。
-        CodeEditorWidget* m_traceEdit = nullptr; // m_traceEdit：定位轨迹与事务日志。
-        QStringList m_traceLines;               // m_traceLines：保留中文规范源文本，供运行时切换语言后重绘。
+        CodeEditorWidget* m_statusEdit = nullptr; // m_statusEdit：全部状态与定位信息。
         QPushButton* m_refreshButton = nullptr; // m_refreshButton：重新查询系统姿态。
         QPushButton* m_locateButton = nullptr;  // m_locateButton：定位 g_CiOptions 并读回校验。
         QPushButton* m_disableButton = nullptr; // m_disableButton：关闭驱动签名强制。
@@ -113,6 +96,7 @@ namespace ks::misc
         bool m_hasSavedOriginal = false;       // m_hasSavedOriginal：是否记录了待恢复的原值。
         bool m_valueMatched = false;           // m_valueMatched：读回值是否与系统自报值一致，false 时禁止写入。
         bool m_busy = false;                   // m_busy：后台操作进行中。
+        QString m_statusText;                  // m_statusText：最近一次操作或校验状态。
 
         // m_blockReason：
         // - 最近一次算出的准入判定，updateStateDisplay 里刷新、updateButtons 里消费；

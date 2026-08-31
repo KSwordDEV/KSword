@@ -68,20 +68,6 @@ namespace
             + KswordTheme::ThemedComboBoxStyle();
     }
 
-    // tableStyle 作用：
-    // - 输入：无；
-    // - 处理：只用 palette 角色，样式在构造期下发一次也能跟着主题走；
-    //   换成 *ColorHex() 会把当时的主题色定死，深色模式下表格会停在白底。
-    // - 返回：可直接传给 QTableWidget::setStyleSheet 的样式文本。
-    QString tableStyle()
-    {
-        return QStringLiteral("QTableWidget{background:%1;color:%2;alternate-background-color:%3;gridline-color:%4;}")
-            .arg(KswordTheme::SurfaceHex())
-            .arg(KswordTheme::TextPrimaryHex())
-            .arg(KswordTheme::SurfaceAltHex())
-            .arg(KswordTheme::BorderHex());
-    }
-
     QTableWidgetItem* readOnlyItem(const QString& textValue)
     {
         auto* item = new QTableWidgetItem(textValue);
@@ -246,7 +232,6 @@ void KernelBaseNamedObjectsTab::initializeUi()
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setAlternatingRowColors(true);
     m_table->setWordWrap(false);
-    m_table->setStyleSheet(tableStyle());
     m_table->verticalHeader()->setVisible(false);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setSectionResizeMode(static_cast<int>(BaseNamedObjectsColumn::FullPath), QHeaderView::Stretch);

@@ -1,6 +1,7 @@
 #include "DriverDock.Internal.h"
 #include "../KernelDock/KernelThreadAuditTab.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/DetailLayoutRegistry.h"
 
 // 说明：由原聚合式实现迁移为独立 .cpp，成员函数实现保持原样。
 using namespace ksword::driver_dock_internal;
@@ -238,6 +239,40 @@ void DriverDock::changeEvent(QEvent* event)
 
 void DriverDock::applyTranslatedHeaders()
 {
+    if (m_servicePage != nullptr && m_tabWidget != nullptr)
+    {
+        const int serviceTabIndex = m_tabWidget->indexOf(m_servicePage);
+        if (serviceTabIndex >= 0)
+        {
+            m_tabWidget->setTabText(
+                serviceTabIndex,
+                driverText("driver.tab.services", QStringLiteral("驱动服务")));
+        }
+    }
+    if (m_kernelModulePage != nullptr && m_tabWidget != nullptr)
+    {
+        const int kernelModuleTabIndex = m_tabWidget->indexOf(m_kernelModulePage);
+        if (kernelModuleTabIndex >= 0)
+        {
+            m_tabWidget->setTabText(
+                kernelModuleTabIndex,
+                driverText("driver.tab.kernel_modules", QStringLiteral("内核模块")));
+        }
+    }
+    if (m_serviceFilterEdit != nullptr)
+    {
+        m_serviceFilterEdit->setPlaceholderText(driverText(
+            "driver.service.filter.placeholder", QStringLiteral("搜索驱动服务")));
+        m_serviceFilterEdit->setToolTip(driverText(
+            "driver.service.filter.tooltip", QStringLiteral("按服务名、显示名、描述和映像路径过滤")));
+    }
+    if (m_moduleFilterEdit != nullptr)
+    {
+        m_moduleFilterEdit->setPlaceholderText(driverText(
+            "driver.kernel_module.filter.placeholder", QStringLiteral("搜索内核模块")));
+        m_moduleFilterEdit->setToolTip(driverText(
+            "driver.kernel_module.filter.tooltip", QStringLiteral("按模块名、签名状态和映像路径过滤")));
+    }
     if (m_serviceTable != nullptr)
     {
         m_serviceTable->setHorizontalHeaderLabels(driverServiceTableHeaders());
@@ -245,17 +280,6 @@ void DriverDock::applyTranslatedHeaders()
     if (m_moduleTable != nullptr)
     {
         m_moduleTable->setHorizontalHeaderLabels(driverModuleTableHeaders());
-    }
-    if (m_serviceFilterEdit != nullptr)
-    {
-        m_serviceFilterEdit->setPlaceholderText(
-            driverText(
-                "driver.overview.filter.placeholder",
-                QStringLiteral("搜索驱动服务或已加载模块")));
-        m_serviceFilterEdit->setToolTip(
-            driverText(
-                "driver.overview.filter.tooltip",
-                QStringLiteral("同时按服务名、显示名、描述、模块名、签名状态和映像路径模糊过滤")));
     }
     if (m_driverObjectEvidenceTable != nullptr)
     {
@@ -333,7 +357,8 @@ void DriverDock::initializeUi()
     m_tabWidget = new QTabWidget(this);
     m_rootLayout->addWidget(m_tabWidget, 1);
 
-    initializeOverviewTab();
+    initializeServiceTab();
+    initializeKernelModuleTab();
     initializeOperateTab();
     initializeDebugOutputTab();
     initializeObjectInfoTab();
@@ -365,69 +390,41 @@ void DriverDock::initializeSystemThreadTab()
             QStringLiteral("枚举 System(PID 4) 线程并提供受保护的第三方驱动线程管理")));
 }
 
-void DriverDock::initializeOverviewTab()
+void DriverDock::initializeServiceTab()
 {
-    m_overviewPage = new QWidget(m_tabWidget);
-    m_overviewLayout = new QVBoxLayout(m_overviewPage);
-    m_overviewLayout->setContentsMargins(4, 4, 4, 4);
-    m_overviewLayout->setSpacing(6);
+    // 输入：无；处理：建立独立的驱动服务页；返回：无。
+    m_servicePage = new QWidget(m_tabWidget);
+    m_overviewPage = m_servicePage;
+    m_serviceLayout = new QVBoxLayout(m_servicePage);
+    m_overviewLayout = m_serviceLayout;
+    m_serviceLayout->setContentsMargins(4, 4, 4, 4);
+    m_serviceLayout->setSpacing(6);
 
     m_overviewToolLayout = new QHBoxLayout();
     m_overviewToolLayout->setContentsMargins(0, 0, 0, 0);
     m_overviewToolLayout->setSpacing(6);
 
-    m_refreshServiceButton = new QPushButton(m_overviewPage);
+    m_refreshServiceButton = new QPushButton(m_servicePage);
     m_refreshServiceButton->setIcon(QIcon(":/Icon/process_refresh.svg"));
-    m_refreshServiceButton->setToolTip(
-        driverText("driver.toolbar.refresh_services.tooltip", QStringLiteral("刷新驱动服务列表")));
+    m_refreshServiceButton->setToolTip(driverText(
+        "driver.toolbar.refresh_services.tooltip", QStringLiteral("刷新驱动服务列表")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_refreshServiceButton);
 
-    m_refreshModuleButton = new QPushButton(m_overviewPage);
-    m_refreshModuleButton->setIcon(QIcon(":/Icon/process_refresh.svg"));
-    m_refreshModuleButton->setToolTip(
-        driverText("driver.toolbar.refresh_modules.tooltip", QStringLiteral("刷新已加载内核模块")));
-    KswordTheme::ApplyCompactIconButtonMetrics(m_refreshModuleButton);
+    m_serviceFilterEdit = new QLineEdit(m_servicePage);
+    m_serviceFilterEdit->setPlaceholderText(driverText(
+        "driver.service.filter.placeholder", QStringLiteral("搜索驱动服务")));
+    m_serviceFilterEdit->setToolTip(driverText(
+        "driver.service.filter.tooltip", QStringLiteral("按服务名、显示名、描述和映像路径过滤")));
 
-    m_refreshModuleEvidenceButton = new QPushButton(m_overviewPage);
-    m_refreshModuleEvidenceButton->setIcon(QIcon(":/Icon/process_refresh.svg"));
-    m_refreshModuleEvidenceButton->setToolTip(
-        driverText(
-            "driver.toolbar.refresh_module_evidence.tooltip",
-            QStringLiteral("刷新内核模块证据")));
-    KswordTheme::ApplyCompactIconButtonMetrics(m_refreshModuleEvidenceButton);
-
-    m_serviceFilterEdit = new QLineEdit(m_overviewPage);
-    m_serviceFilterEdit->setPlaceholderText(
-        driverText("driver.overview.filter.placeholder", QStringLiteral("搜索驱动服务或已加载模块")));
-    m_serviceFilterEdit->setToolTip(
-        driverText(
-            "driver.overview.filter.tooltip",
-            QStringLiteral("同时按服务名、显示名、描述、模块名、签名状态和映像路径模糊过滤")));
-
-    m_overviewStatusLabel = new QLabel(
-        driverText("driver.status.waiting_refresh", QStringLiteral("状态：等待刷新")),
-        m_overviewPage);
+    m_overviewStatusLabel = new QLabel(driverText(
+        "driver.status.waiting_refresh", QStringLiteral("状态：等待刷新")), m_servicePage);
     m_overviewStatusLabel->setWordWrap(true);
-
     m_overviewToolLayout->addWidget(m_refreshServiceButton);
-    m_overviewToolLayout->addWidget(m_refreshModuleButton);
-    m_overviewToolLayout->addWidget(m_refreshModuleEvidenceButton);
     m_overviewToolLayout->addWidget(m_serviceFilterEdit, 1);
-    m_overviewToolLayout->addWidget(m_overviewStatusLabel, 0);
-    m_overviewLayout->addLayout(m_overviewToolLayout);
+    m_overviewToolLayout->addWidget(m_overviewStatusLabel);
+    m_serviceLayout->addLayout(m_overviewToolLayout);
 
-    m_overviewSplitter = new QSplitter(Qt::Vertical, m_overviewPage);
-    m_overviewLayout->addWidget(m_overviewSplitter, 1);
-
-    QWidget* serviceContainer = new QWidget(m_overviewSplitter);
-    QVBoxLayout* serviceLayout = new QVBoxLayout(serviceContainer);
-    serviceLayout->setContentsMargins(0, 0, 0, 0);
-    serviceLayout->setSpacing(4);
-    serviceLayout->addWidget(new QLabel(
-        driverText("driver.section.services", QStringLiteral("驱动服务（SCM）")),
-        serviceContainer));
-
-    m_serviceTable = new ks::ui::VisibleTableWidget(serviceContainer);
+    m_serviceTable = new ks::ui::VisibleTableWidget(m_servicePage);
     m_serviceTable->setColumnCount(7);
     m_serviceTable->setHorizontalHeaderLabels(driverServiceTableHeaders());
     m_serviceTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -435,25 +432,52 @@ void DriverDock::initializeOverviewTab()
     m_serviceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_serviceTable->setContextMenuPolicy(Qt::CustomContextMenu);
     m_serviceTable->setAlternatingRowColors(true);
-    // 缩小驱动服务表的显式最低高度，使垂直分割器可以把上表压得更低。
-    m_serviceTable->setMinimumHeight(72);
     m_serviceTable->verticalHeader()->setVisible(false);
     m_serviceTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_serviceTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Stretch);
     m_serviceTable->horizontalHeader()->setSectionResizeMode(6, QHeaderView::Stretch);
-    serviceLayout->addWidget(m_serviceTable, 1);
+    m_serviceLayout->addWidget(m_serviceTable, 1);
 
-    QWidget* moduleContainer = new QWidget(m_overviewSplitter);
-    QVBoxLayout* moduleLayout = new QVBoxLayout(moduleContainer);
-    moduleLayout->setContentsMargins(0, 0, 0, 0);
-    moduleLayout->setSpacing(4);
-    moduleLayout->addWidget(new QLabel(
-        driverText(
-            "driver.section.loaded_modules",
-            QStringLiteral("已加载内核模块")),
-        moduleContainer));
+    m_tabWidget->addTab(m_servicePage, QIcon(":/Icon/process_list.svg"), driverText(
+        "driver.tab.services", QStringLiteral("驱动服务")));
+}
 
-    m_moduleTable = new ks::ui::VisibleTableWidget(moduleContainer);
+void DriverDock::initializeKernelModuleTab()
+{
+    // 输入：无；处理：建立模块列表和统一详情编辑器；返回：无。
+    m_kernelModulePage = new QWidget(m_tabWidget);
+    m_kernelModuleLayout = new QVBoxLayout(m_kernelModulePage);
+    m_kernelModuleLayout->setContentsMargins(4, 4, 4, 4);
+    m_kernelModuleLayout->setSpacing(6);
+    m_kernelModuleToolLayout = new QHBoxLayout();
+    m_kernelModuleToolLayout->setContentsMargins(0, 0, 0, 0);
+    m_kernelModuleToolLayout->setSpacing(6);
+
+    m_refreshModuleButton = new QPushButton(m_kernelModulePage);
+    m_refreshModuleButton->setIcon(QIcon(":/Icon/process_refresh.svg"));
+    m_refreshModuleButton->setToolTip(driverText(
+        "driver.toolbar.refresh_modules.tooltip", QStringLiteral("刷新已加载内核模块")));
+    KswordTheme::ApplyCompactIconButtonMetrics(m_refreshModuleButton);
+    m_refreshModuleEvidenceButton = new QPushButton(m_kernelModulePage);
+    m_refreshModuleEvidenceButton->setIcon(QIcon(":/Icon/process_refresh.svg"));
+    m_refreshModuleEvidenceButton->setToolTip(driverText(
+        "driver.toolbar.refresh_module_evidence.tooltip", QStringLiteral("刷新内核模块证据")));
+    KswordTheme::ApplyCompactIconButtonMetrics(m_refreshModuleEvidenceButton);
+    m_moduleEvidenceStatusLabel = new QLabel(driverText(
+        "driver.overview.evidence.status.waiting", QStringLiteral("证据：等待刷新")), m_kernelModulePage);
+    m_moduleEvidenceStatusLabel->setWordWrap(true);
+    m_moduleFilterEdit = new QLineEdit(m_kernelModulePage);
+    m_moduleFilterEdit->setPlaceholderText(driverText(
+        "driver.kernel_module.filter.placeholder", QStringLiteral("搜索内核模块")));
+    m_moduleFilterEdit->setToolTip(driverText(
+        "driver.kernel_module.filter.tooltip", QStringLiteral("按模块名、签名状态和映像路径过滤")));
+    m_kernelModuleToolLayout->addWidget(m_refreshModuleButton);
+    m_kernelModuleToolLayout->addWidget(m_refreshModuleEvidenceButton);
+    m_kernelModuleToolLayout->addWidget(m_moduleFilterEdit, 1);
+    m_kernelModuleToolLayout->addWidget(m_moduleEvidenceStatusLabel);
+    m_kernelModuleLayout->addLayout(m_kernelModuleToolLayout);
+
+    m_moduleTable = new ks::ui::VisibleTableWidget(m_kernelModulePage);
     m_moduleTable->setColumnCount(ModuleTableColumnCount);
     m_moduleTable->setHorizontalHeaderLabels(driverModuleTableHeaders());
     m_moduleTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -464,31 +488,17 @@ void DriverDock::initializeOverviewTab()
     m_moduleTable->verticalHeader()->setVisible(false);
     m_moduleTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_moduleTable->horizontalHeader()->setSectionResizeMode(ModuleImagePathColumn, QHeaderView::Stretch);
-    moduleLayout->addWidget(m_moduleTable, 3);
+    m_kernelModuleLayout->addWidget(m_moduleTable, 3);
 
-    m_moduleEvidenceStatusLabel = new QLabel(
-        driverText("driver.overview.evidence.status.waiting", QStringLiteral("证据：等待刷新")),
-        moduleContainer);
-    m_moduleEvidenceStatusLabel->setWordWrap(true);
-    moduleLayout->addWidget(m_moduleEvidenceStatusLabel);
-
-    m_moduleEvidenceDetailEditor = new CodeEditorWidget(moduleContainer);
+    m_moduleEvidenceDetailEditor = new CodeEditorWidget(m_kernelModulePage);
     m_moduleEvidenceDetailEditor->setReadOnly(true);
-    m_moduleEvidenceDetailEditor->setText(
-        driverText(
-            "driver.overview.evidence.detail.initial",
-            QStringLiteral("请选择一条已加载模块，或点击证据刷新按钮。")));
-    moduleLayout->addWidget(m_moduleEvidenceDetailEditor, 2);
-
-    m_overviewSplitter->addWidget(serviceContainer);
-    m_overviewSplitter->addWidget(moduleContainer);
-    m_overviewSplitter->setStretchFactor(0, 3);
-    m_overviewSplitter->setStretchFactor(1, 2);
-
-    m_tabWidget->addTab(
-        m_overviewPage,
-        QIcon(":/Icon/process_list.svg"),
-        driverText("driver.tab.overview", QStringLiteral("驱动概览")));
+    m_moduleEvidenceDetailEditor->setText(driverText(
+        "driver.overview.evidence.detail.initial", QStringLiteral("请选择一条已加载模块，或点击证据刷新按钮。")));
+    m_kernelModuleLayout->addWidget(m_moduleEvidenceDetailEditor, 2);
+    ks::ui::DetailLayoutRegistry::registerHost(
+        m_moduleTable, m_moduleEvidenceDetailEditor, m_kernelModulePage);
+    m_tabWidget->addTab(m_kernelModulePage, QIcon(":/Icon/process_list.svg"), driverText(
+        "driver.tab.kernel_modules", QStringLiteral("内核模块")));
 }
 
 void DriverDock::initializeOperateTab()
@@ -971,10 +981,13 @@ void DriverDock::initializeConnections()
     connect(m_serviceFilterEdit, &QLineEdit::textChanged, this, [this](const QString&)
         {
             rebuildDriverServiceTableByFilter();
+        });
+    connect(m_moduleFilterEdit, &QLineEdit::textChanged, this, [this](const QString&)
+        {
             rebuildLoadedModuleTable();
         });
 
-    // 服务列表：选择变更后回填操作页。
+    // 内核模块页：刷新、过滤和统一详情布局连接。
     connect(m_serviceTable, &QTableWidget::itemSelectionChanged, this, [this]()
         {
             syncOperateFormBySelectedService();

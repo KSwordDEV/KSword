@@ -245,6 +245,8 @@ namespace ks::log
     void LogEntry::add(Event eventItem)
     {
         std::lock_guard<std::mutex> lockGuard(m_mutex);
+        // recordSequence 在锁内分配，保证多线程写日志时每个归档记录都有稳定且唯一的 UI 键。
+        eventItem.recordSequence = m_nextRecordSequence++;
         m_events.emplace_back(std::move(eventItem));
         ++m_revision;
     }

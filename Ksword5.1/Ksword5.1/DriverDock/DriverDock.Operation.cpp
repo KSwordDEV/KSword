@@ -3848,9 +3848,9 @@ void DriverDock::rebuildDriverServiceTableByFilter()
         return;
     }
 
-    const QString filterText = (m_serviceFilterEdit == nullptr)
-        ? QString()
-        : m_serviceFilterEdit->text().trimmed();
+    const QString filterText = m_serviceFilterEdit != nullptr
+        ? m_serviceFilterEdit->text().trimmed()
+        : QString();
 
     m_serviceTable->setRowCount(0);
     int visibleCount = 0;
@@ -3902,18 +3902,12 @@ void DriverDock::rebuildDriverServiceTableByFilter()
 
     if (m_overviewStatusLabel != nullptr)
     {
-        // visibleModuleCount 用途：同一搜索框对下方模块表的当前筛选数量。
-        const int visibleModuleCount = m_moduleTable != nullptr
-            ? m_moduleTable->rowCount()
-            : 0;
         m_overviewStatusLabel->setText(
             driverText(
-                "driver.overview.count.filtered",
-                QStringLiteral("状态：驱动服务 %1 条（显示 %2 条），模块 %3 条（显示 %4 条）"))
+                "driver.service.count.filtered",
+                QStringLiteral("状态：驱动服务 %1 条（显示 %2 条）"))
             .arg(m_driverServiceCache.size())
-            .arg(visibleCount)
-            .arg(m_loadedModuleCache.size())
-            .arg(visibleModuleCount));
+            .arg(visibleCount));
     }
 }
 
@@ -3924,10 +3918,11 @@ void DriverDock::rebuildLoadedModuleTable()
         return;
     }
 
-    // filterText 用途：与服务表共享概览搜索框，同时匹配模块名、路径和签名结论。
-    const QString filterText = m_serviceFilterEdit != nullptr
-        ? m_serviceFilterEdit->text().trimmed()
+    // filterText 用途：仅筛选内核模块页，不再与驱动服务页共用搜索条件。
+    const QString filterText = m_moduleFilterEdit != nullptr
+        ? m_moduleFilterEdit->text().trimmed()
         : QString();
+    ks::ui::DetailLayoutRegistry::prepareDataRebuild(m_moduleEvidenceDetailEditor);
     m_moduleTable->setRowCount(0);
     for (std::size_t sourceIndex = 0U; sourceIndex < m_loadedModuleCache.size(); ++sourceIndex)
     {

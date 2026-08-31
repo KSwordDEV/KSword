@@ -75,8 +75,10 @@ namespace ks::misc::disable_dse
         std::uint64_t moduleBase = 0;     // moduleBase：内核中 CI 模块的加载基址。
         std::uint32_t moduleSize = 0;     // moduleSize：内核中 CI 模块的映像大小。
         std::uint32_t rva = 0;            // rva：g_CiOptions 相对模块基址的偏移。
+        std::uint32_t ciInitializeRva = 0;// ciInitializeRva：磁盘 CI.dll 导出 CiInitialize 的 RVA。
         QString moduleName;               // moduleName：内核模块表里的模块名。
         QString sectionName;              // sectionName：g_CiOptions 落在哪个节，正常是 CiPolicy 或 .data。
+        QString matchedInstruction;       // matchedInstruction：定位到 g_CiOptions 的写入指令。
         QStringList traceLines;           // traceLines：定位每一步的取值，供用户核对。
         QString failureText;              // failureText：ok 为 false 时的失败原因。
     };

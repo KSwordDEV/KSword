@@ -67,6 +67,8 @@ namespace ks::log
     // Return behavior: passive value type, copied by Snapshot/Track.
     struct Event
     {
+        // recordSequence：日志管理器归档时分配的单调唯一序号；仅用于 UI 增量更新，不对用户显示。
+        std::uint64_t recordSequence = 0;
         GUID guid{};
         Level level{};
         std::string content;
@@ -133,6 +135,7 @@ namespace ks::log
         mutable std::mutex m_mutex;   // Protects m_events and m_revision.
         std::vector<Event> m_events;  // Complete archived log stream.
         std::size_t m_revision = 0;   // Incremented after add/clear.
+        std::uint64_t m_nextRecordSequence = 1; // 下一条归档日志的唯一序号；clear 后不复位，避免 UI 键重复。
     };
 
     // EndToken carries source-location metadata collected by the eol macro.

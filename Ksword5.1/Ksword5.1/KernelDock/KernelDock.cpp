@@ -981,16 +981,15 @@ void KernelDock::initializeObjectNamespaceTab()
     m_objectNamespacePropertyTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_objectNamespacePropertyTable->setAlternatingRowColors(true);
     m_objectNamespacePropertyTable->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_objectNamespacePropertyTable->setStyleSheet(itemSelectionStyle());
     m_objectNamespacePropertyTable->setCornerButtonEnabled(false);
     m_objectNamespacePropertyTable->verticalHeader()->setVisible(false);
-    m_objectNamespacePropertyTable->horizontalHeader()->setStyleSheet(headerStyle());
     m_objectNamespacePropertyTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_objectNamespacePropertyTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_objectNamespacePropertyTable->setColumnWidth(0, 220);
     m_objectNamespacePropertyTable->setToolTip(kernelText("kernel.main.object_namespace.property.tooltip", QStringLiteral("当前选中节点的字段详情（字段名 + 字段值）")));
 
     m_objectNamespaceDetailEditor = new CodeEditorWidget(verticalSplitter);
+    m_objectNamespaceDetailEditor->setObjectName(QStringLiteral("ks_object_namespace_detail_editor"));
     m_objectNamespaceDetailEditor->setReadOnly(true);
     m_objectNamespaceDetailEditor->setText(kernelText("kernel.main.object_namespace.detail.initial", QStringLiteral("请选择对象命名空间节点查看详情。")));
 

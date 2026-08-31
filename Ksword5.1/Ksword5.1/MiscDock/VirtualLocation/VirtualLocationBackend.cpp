@@ -832,10 +832,16 @@ namespace ks::misc::virtual_location
                 if (firstWin32Error == ERROR_SUCCESS) {
                     firstWin32Error = lastError;
                 }
-                value = readValueViaDriver(kDefaultLocationKernelPath, spec.name);
-                fromDriver = value.found;
-                if (value.found) {
-                    anyDriverSuccess = true;
+                // “尚未设置默认位置”时整个键会不存在。这是页面的正常初始状态，
+                // 不应为五个候选值逐个请求 R0，更不能把 NOT_FOUND 放大成日志告警。
+                // 只有 R3 确实无法访问已有键（例如 lfsvc ACL 拒绝）时才回退驱动。
+                if (lastError != ERROR_FILE_NOT_FOUND &&
+                    lastError != ERROR_PATH_NOT_FOUND) {
+                    value = readValueViaDriver(kDefaultLocationKernelPath, spec.name);
+                    fromDriver = value.found;
+                    if (value.found) {
+                        anyDriverSuccess = true;
+                    }
                 }
             }
             if (!value.found) {

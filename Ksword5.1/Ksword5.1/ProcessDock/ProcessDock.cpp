@@ -496,12 +496,10 @@ namespace
     constexpr int ProcessRowKindRole = Qt::UserRole + 204;
     constexpr int ProcessExpandableRole = Qt::UserRole + 205;
     constexpr int ProcessExpandedRole = Qt::UserRole + 206;
-    constexpr int ActivityMinimumIntervalMilliseconds = 50;
+    constexpr int ActivityMinimumIntervalMilliseconds = 500;
     constexpr int ActivityMaximumIntervalMilliseconds = 60000;
     // CSwitch 会话可以常驻，但 PID/TID×核心矩阵最多每秒结算一次，抑制高频刷新下的后台分配。
     constexpr int CpuCoreSnapshotMinimumIntervalMilliseconds = 1000;
-    constexpr int ProcessTableMinimumIntervalMilliseconds = 500;
-    constexpr int ProcessTableMaximumIntervalMilliseconds = 60000;
     constexpr std::size_t ActivityMaximumSampleCount = 1800;
     constexpr qsizetype ActivityIconCacheMaximumCount = 8192;
 
@@ -3161,7 +3159,8 @@ namespace
     }
 
     // enumerateProcessesByR0Driver 作用：
-    // - 通过 ArkDriverClient 获取内核侧进程列表；
+    // - 仅在 KswordARK 控制设备已就绪时，通过 ArkDriverClient 获取内核侧进程列表；
+    // - 驱动未加载的 R3 刷新不发送枚举 IOCTL，也不触发 R0 权限提示。
     // - 输出可用于“R3 列表 vs R0 列表”差异比对的数据。
     bool enumerateProcessesByR0Driver(
         std::vector<KernelProcessSnapshotEntry>* const processListOut,
@@ -3178,8 +3177,19 @@ namespace
         }
 
         const ksword::ark::DriverClient driverClient;
+        ksword::ark::DriverHandle driverHandle = driverClient.openSilently();
+        if (!driverHandle.isValid())
+        {
+            if (detailTextOut != nullptr)
+            {
+                *detailTextOut = "R0 driver device is not ready; kernel process comparison skipped";
+            }
+            return false;
+        }
+
         const ksword::ark::ProcessEnumResult enumResult = driverClient.enumerateProcesses(
-            KSWORD_ARK_ENUM_PROCESS_FLAG_SCAN_CID_TABLE);
+            KSWORD_ARK_ENUM_PROCESS_FLAG_SCAN_CID_TABLE,
+            &driverHandle);
         if (!enumResult.io.ok)
         {
             if (detailTextOut != nullptr)
@@ -4262,7 +4272,6 @@ void ProcessDock::refreshThemeVisuals()
 {
     // 仅重建当前表格可视层，不触发新的后台枚举任务。
     // 用途：深浅色切换后，立即刷新“新增/退出”行的主题高亮色。
-    applyBlueComboBoxRuntimeStyle(m_strategyCombo);
     applyBlueComboBoxRuntimeStyle(m_viewModeCombo);
     updateThreadColumnPresetButtons();
     rebuildTable();
@@ -4330,49 +4339,18 @@ void ProcessDock::initializeTopControls()
     m_controlLayout->setSpacing(8);
     ks::i18n::LanguageManager& languageManager = ks::i18n::LanguageManager::instance();
 
-    // 遍历策略下拉框：
-    // 1) Toolhelp（CreateToolhelp32Snapshot + Process32First/Next）
-    // 2) NtQuerySystemInformation
-    // 说明：不再默认 Auto，直接明确展示当前使用的方法。
-    m_strategyCombo = new QComboBox(this);
-    m_strategyCombo->setObjectName(QStringLiteral("ProcessDockStrategyCombo"));
-    m_strategyCombo->addItem(QIcon(IconRefresh), "Toolhelp Snapshot / Process32First / Process32Next");
-    m_strategyCombo->addItem(QIcon(IconRefresh), "NtQuerySystemInformation");
-    languageManager.bindComboBoxItem(
-        m_strategyCombo,
-        0,
-        QStringLiteral("process.strategy.toolhelp"),
-        QStringLiteral("Toolhelp Snapshot / Process32First / Process32Next"));
-    languageManager.bindComboBoxItem(
-        m_strategyCombo,
-        1,
-        QStringLiteral("process.strategy.ntquery"),
-        QStringLiteral("NtQuerySystemInformation"));
-    m_strategyCombo->setCurrentIndex(1);
-    m_strategyCombo->setToolTip("指定进程遍历方案");
-    languageManager.bindToolTip(
-        m_strategyCombo,
-        QStringLiteral("process.tooltip.strategy"),
-        QStringLiteral("指定进程遍历方案"));
-    // 自适应宽度策略：避免长文本把 Dock 顶出横向滚动条。
-    m_strategyCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    m_strategyCombo->setMinimumContentsLength(18);
-    m_strategyCombo->setMaximumWidth(260);
-
-    // 进程友好视图：
-    // - 唯一复选框同时承担两种互斥视图的切换；
-    // - 勾选为友好视图，取消勾选为参照 KswordARKLight 父子关系构建的树状视图。
-    m_friendlyViewCheck = new QCheckBox(QStringLiteral("进程友好视图"), this);
-    m_friendlyViewCheck->setChecked(true);
-    m_friendlyViewCheck->setToolTip(QStringLiteral("勾选：友好视图（默认）；取消勾选：树状视图。搜索或查看历史活动快照时自动使用扁平结果。"));
+    // 树状视图：勾选时按父子关系构建树；默认关闭以展示应用/后台/系统分类。
+    m_treeViewCheck = new QCheckBox(QStringLiteral("树状视图"), this);
+    m_treeViewCheck->setChecked(false);
+    m_treeViewCheck->setToolTip(QStringLiteral("勾选后按父子关系显示进程。未勾选时按应用、后台进程和 Windows 进程分类；搜索或查看历史活动快照时自动使用扁平结果。"));
     languageManager.bindText(
-        m_friendlyViewCheck,
+        m_treeViewCheck,
         QStringLiteral("process.toolbar.friendly"),
-        QStringLiteral("进程友好视图"));
+        QStringLiteral("树状视图"));
     languageManager.bindToolTip(
-        m_friendlyViewCheck,
+        m_treeViewCheck,
         QStringLiteral("process.tooltip.friendly"),
-        QStringLiteral("勾选：友好视图（默认）；取消勾选：树状视图。搜索或查看历史活动快照时自动使用扁平结果。"));
+        QStringLiteral("勾选后按父子关系显示进程。未勾选时按应用、后台进程和 Windows 进程分类；搜索或查看历史活动快照时自动使用扁平结果。"));
 
     // 视图模式下拉框：默认监视视图。
     // 项由 rebuildViewModeComboItems 统一生成：内置预设在前，用户自定义视图追加在后。
@@ -4389,7 +4367,6 @@ void ProcessDock::initializeTopControls()
     m_viewModeCombo->setMinimumContentsLength(8);
     m_viewModeCombo->setMaximumWidth(180);
 
-    applyBlueComboBoxRuntimeStyle(m_strategyCombo);
     applyBlueComboBoxRuntimeStyle(m_viewModeCombo);
 
     // 开始/暂停按钮：按需求仅显示图标。
@@ -4408,54 +4385,24 @@ void ProcessDock::initializeTopControls()
         QStringLiteral("process.tooltip.pause"),
         QStringLiteral("暂停周期性刷新进程列表，并同步停止记录"));
 
-    // 进程表刷新间隔：
-    // - 该间隔只控制下方进程表格重绘频率，默认 2 秒；
-    // - 后台监视和活动采样默认走 1 秒，避免表格渲染成本影响记录精度。
-    //
-    // 两个间隔都是带上下限的连续数值，因此用 QDoubleSpinBox 而不是
-    // QLineEdit + QDoubleValidator：校验器只会静默吞掉不合法的按键，
-    // 用户既看不到可用范围，也不知道自己为什么打不出想要的数；
-    // 步进控件把范围、步长和单位一次性摆在界面上，还能用箭头/滚轮调。
-    m_refreshLabel = new QLabel("列表刷新:", this);
-    languageManager.bindText(m_refreshLabel, QStringLiteral("process.label.refresh_interval"), QStringLiteral("列表刷新:"));
-    m_tableRefreshIntervalSpin = new QDoubleSpinBox(this);
-    m_tableRefreshIntervalSpin->setDecimals(1);
-    // 范围直接取自定时器实际使用的上下限常量，避免控件和 clamp 逻辑各说一套。
-    m_tableRefreshIntervalSpin->setRange(
-        static_cast<double>(ProcessTableMinimumIntervalMilliseconds) / 1000.0,
-        static_cast<double>(ProcessTableMaximumIntervalMilliseconds) / 1000.0);
-    m_tableRefreshIntervalSpin->setSingleStep(0.5);
-    m_tableRefreshIntervalSpin->setSuffix(QStringLiteral(" s"));
-    m_tableRefreshIntervalSpin->setValue(2.0);
-    m_tableRefreshIntervalSpin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    // 关闭键盘跟踪：打字途中的半截数值不触发定时器重启，回车/失焦/步进才生效。
-    m_tableRefreshIntervalSpin->setKeyboardTracking(false);
-    m_tableRefreshIntervalSpin->setToolTip("只控制下方进程表格的刷新频率，可调 0.5~60 秒，默认 2 秒。");
-    languageManager.bindToolTip(
-        m_tableRefreshIntervalSpin,
-        QStringLiteral("process.tooltip.table_interval"),
-        QStringLiteral("只控制下方进程表格的刷新频率，可调 0.5~60 秒，默认 2 秒。"));
-
-    // 活动采样间隔：
-    // - 允许小数秒，默认 1s；
-    // - 该间隔驱动后台监视刷新和活动记录采样。
-    m_sampleIntervalLabel = new QLabel("采样间隔:", this);
-    languageManager.bindText(m_sampleIntervalLabel, QStringLiteral("process.label.sample_interval"), QStringLiteral("采样间隔:"));
+    // 统一刷新间隔同时驱动后台枚举、活动采样和表格重绘。
+    m_refreshLabel = new QLabel("刷新间隔:", this);
+    languageManager.bindText(m_refreshLabel, QStringLiteral("process.label.refresh_interval"), QStringLiteral("刷新间隔:"));
     m_refreshIntervalSpin = new QDoubleSpinBox(this);
-    m_refreshIntervalSpin->setDecimals(2);
+    m_refreshIntervalSpin->setDecimals(1);
     m_refreshIntervalSpin->setRange(
         static_cast<double>(ActivityMinimumIntervalMilliseconds) / 1000.0,
         static_cast<double>(ActivityMaximumIntervalMilliseconds) / 1000.0);
-    m_refreshIntervalSpin->setSingleStep(0.05);
+    m_refreshIntervalSpin->setSingleStep(0.5);
     m_refreshIntervalSpin->setSuffix(QStringLiteral(" s"));
     m_refreshIntervalSpin->setValue(1.0);
     m_refreshIntervalSpin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_refreshIntervalSpin->setKeyboardTracking(false);
-    m_refreshIntervalSpin->setToolTip("进程活动记录的采样间隔，可调 0.05~60 秒，默认 1 秒；间隔越小系统枚举开销越大。");
+    m_refreshIntervalSpin->setToolTip("同时控制进程刷新、活动采样和列表更新，可调 0.5~60 秒，默认 1 秒；间隔越小系统枚举开销越大。");
     languageManager.bindToolTip(
         m_refreshIntervalSpin,
         QStringLiteral("process.tooltip.sample_interval"),
-        QStringLiteral("进程活动记录的采样间隔，可调 0.05~60 秒，默认 1 秒；间隔越小系统枚举开销越大。"));
+        QStringLiteral("同时控制进程刷新、活动采样和列表更新，可调 0.5~60 秒，默认 1 秒；间隔越小系统枚举开销越大。"));
 
     // 进程搜索框：
     // - 直接基于当前缓存做本地过滤，不额外触发系统查询；
@@ -4475,36 +4422,6 @@ void ProcessDock::initializeTopControls()
     m_processSearchLineEdit->setStyleSheet(buildBlueLineEditStyle());
     m_processSearchLineEdit->setMaximumWidth(320);
 
-    // 内核对比开关：
-    // - 勾选后每轮刷新额外请求 R0 进程列表；
-    // - UI 会把“R0 有、R3 无”的进程按红色高亮显示。
-    m_kernelCompareCheck = new QCheckBox("刷新时对比内核进程（查隐藏）", this);
-    m_kernelCompareCheck->setChecked(false);
-    m_kernelCompareCheck->setToolTip("勾选后刷新会额外请求驱动进程列表，并显示仅内核可见的进程。");
-    languageManager.bindText(
-        m_kernelCompareCheck,
-        QStringLiteral("process.toolbar.kernel_compare"),
-        QStringLiteral("刷新时对比内核进程（查隐藏）"));
-    languageManager.bindToolTip(
-        m_kernelCompareCheck,
-        QStringLiteral("process.tooltip.kernel_compare"),
-        QStringLiteral("勾选后刷新会额外请求驱动进程列表，并显示仅内核可见的进程。"));
-
-    // Ksword 可恢复隐藏显示开关：
-    // - 默认不显示 R0 标记隐藏的进程；
-    // - 勾选后仍展示这些行，便于右键“取消隐藏”。
-    m_showKswordHiddenProcessCheck = new QCheckBox(QStringLiteral("显示Ksword隐藏项"), this);
-    m_showKswordHiddenProcessCheck->setChecked(false);
-    m_showKswordHiddenProcessCheck->setToolTip(QStringLiteral("显示由 R0 摘链后仍可通过内核扫描读取的 Ksword 隐藏项。"));
-    languageManager.bindText(
-        m_showKswordHiddenProcessCheck,
-        QStringLiteral("process.toolbar.hidden"),
-        QStringLiteral("显示Ksword隐藏项"));
-    languageManager.bindToolTip(
-        m_showKswordHiddenProcessCheck,
-        QStringLiteral("process.tooltip.hidden"),
-        QStringLiteral("显示由 R0 摘链后仍可通过内核扫描读取的 Ksword 隐藏项。"));
-
     // “选择列”入口：
     // - 列集合已经对齐任务管理器“详细信息”页，仅靠表头右键逐列勾选不便于批量增减；
     // - 这里提供与任务管理器一致的显式入口，表头右键菜单里也保留同名项。
@@ -4520,42 +4437,20 @@ void ProcessDock::initializeTopControls()
         QStringLiteral("添加或移除进程列表中显示的列。"));
     m_columnChooserButton->setStyleSheet(buildBlueButtonStyle(false));
 
-    // 句柄回调进程保护入口：
-    // - 仅负责跳转到 KernelDock 的统一规则页；
-    // - 具体规则编辑、驱动应用和状态刷新仍由回调保护页面管理。
-    m_processProtectCallbackButton = new QPushButton(QStringLiteral("句柄回调保护"), this);
-    m_processProtectCallbackButton->setToolTip(
-        QStringLiteral("打开内核句柄回调的进程保护规则页。"));
-    languageManager.bindText(
-        m_processProtectCallbackButton,
-        QStringLiteral("process.toolbar.callback_process_protect"),
-        QStringLiteral("句柄回调保护"));
-    languageManager.bindToolTip(
-        m_processProtectCallbackButton,
-        QStringLiteral("process.tooltip.callback_process_protect"),
-        QStringLiteral("打开内核句柄回调的进程保护规则页。"));
-    m_processProtectCallbackButton->setStyleSheet(buildBlueButtonStyle(false));
-
     // 按钮统一蓝色风格（图标按钮版本）。
     const QString buttonStyle = buildBlueButtonStyle(true);
     m_startButton->setStyleSheet(buttonStyle);
     m_pauseButton->setStyleSheet(buttonStyle);
 
     // 第一行放“操作按钮 + 刷新间隔”。
-    m_controlLayout->addWidget(m_strategyCombo);
-    m_controlLayout->addWidget(m_friendlyViewCheck);
+    m_controlLayout->addWidget(m_treeViewCheck);
     m_controlLayout->addWidget(m_viewModeCombo);
     m_controlLayout->addWidget(m_startButton);
     m_controlLayout->addWidget(m_pauseButton);
     m_controlLayout->addWidget(m_columnChooserButton);
-    m_controlLayout->addWidget(m_processProtectCallbackButton);
     m_controlLayout->addWidget(m_processSearchLineEdit);
-    m_controlLayout->addWidget(m_kernelCompareCheck);
-    m_controlLayout->addWidget(m_showKswordHiddenProcessCheck);
     m_controlLayout->addStretch(1);
     m_controlLayout->addWidget(m_refreshLabel);
-    m_controlLayout->addWidget(m_tableRefreshIntervalSpin);
-    m_controlLayout->addWidget(m_sampleIntervalLabel);
     m_controlLayout->addWidget(m_refreshIntervalSpin);
     controlContainerLayout->addLayout(m_controlLayout);
     m_processPageLayout->addLayout(controlContainerLayout);
@@ -4584,10 +4479,6 @@ void ProcessDock::initializeProcessActivityPanel()
     panelLayout->setContentsMargins(6, 6, 6, 6);
     panelLayout->setSpacing(5);
 
-    QHBoxLayout* toolbarLayout = new QHBoxLayout();
-    toolbarLayout->setContentsMargins(0, 0, 0, 0);
-    toolbarLayout->setSpacing(6);
-
     m_activityClearButton = new QPushButton(QStringLiteral("清空"), m_activityPanelWidget);
     m_activityClearButton->setToolTip(QStringLiteral("清空当前刷新同步记录的进程活动样本。"));
     languageManager.bindText(m_activityClearButton, QStringLiteral("process.activity.clear"), QStringLiteral("清空"));
@@ -4597,23 +4488,12 @@ void ProcessDock::initializeProcessActivityPanel()
         QStringLiteral("清空当前刷新同步记录的进程活动样本。"));
     m_activityClearButton->setStyleSheet(buildBlueButtonStyle(false));
 
-    m_activityBackgroundRecordCheck = new QCheckBox(QStringLiteral("后台保持刷新/记录"), m_activityPanelWidget);
-    m_activityBackgroundRecordCheck->setToolTip(QStringLiteral("默认仅进程列表 Tab 显示时刷新和记录；勾选后切到其它 Tab 仍继续刷新并记录。"));
-    languageManager.bindText(
-        m_activityBackgroundRecordCheck,
-        QStringLiteral("process.activity.background"),
-        QStringLiteral("后台保持刷新/记录"));
-    languageManager.bindToolTip(
-        m_activityBackgroundRecordCheck,
-        QStringLiteral("process.activity.tooltip.background"),
-        QStringLiteral("默认仅进程列表 Tab 显示时刷新和记录；勾选后切到其它 Tab 仍继续刷新并记录。"));
-
-    m_activityListOnlyRefreshCheck = new QCheckBox(QStringLiteral("只刷新列表"), m_activityPanelWidget);
+    m_activityListOnlyRefreshCheck = new QCheckBox(QStringLiteral("不记录历史"), m_activityPanelWidget);
     m_activityListOnlyRefreshCheck->setToolTip(QStringLiteral("勾选后周期刷新仍会更新进程列表，但不会向上方时间轴写入新的活动记录。"));
     languageManager.bindText(
         m_activityListOnlyRefreshCheck,
         QStringLiteral("process.activity.list_only"),
-        QStringLiteral("只刷新列表"));
+        QStringLiteral("不记录历史"));
     languageManager.bindToolTip(
         m_activityListOnlyRefreshCheck,
         QStringLiteral("process.activity.tooltip.list_only"),
@@ -4694,23 +4574,26 @@ void ProcessDock::initializeProcessActivityPanel()
     });
     m_activityProcessPickerButton = processPickerButton;
 
-    toolbarLayout->addWidget(m_activityClearButton);
-    toolbarLayout->addWidget(m_activityBackgroundRecordCheck);
-    toolbarLayout->addWidget(m_activityListOnlyRefreshCheck);
-    toolbarLayout->addSpacing(8);
     QLabel* activityDisplayLabel = new QLabel(QStringLiteral("显示:"), m_activityPanelWidget);
     languageManager.bindText(
         activityDisplayLabel,
         QStringLiteral("process.activity.display"),
         QStringLiteral("显示:"));
-    toolbarLayout->addWidget(activityDisplayLabel);
-    toolbarLayout->addWidget(m_activityCpuButton);
-    toolbarLayout->addWidget(m_activityMemoryButton);
-    toolbarLayout->addWidget(m_activityDiskButton);
-    toolbarLayout->addWidget(m_activityNetworkButton);
-    toolbarLayout->addWidget(m_activityGpuButton);
-    toolbarLayout->addWidget(m_activityProcessPickerButton);
-    toolbarLayout->addStretch(1);
+    // 将活动控制项放到顶部搜索框之后，图表面板只保留图表本身。
+    int topControlInsertIndex = m_controlLayout->indexOf(m_processSearchLineEdit) + 1;
+    for (QWidget* const controlWidget : {
+             static_cast<QWidget*>(m_activityClearButton),
+             static_cast<QWidget*>(m_activityListOnlyRefreshCheck),
+             static_cast<QWidget*>(activityDisplayLabel),
+             static_cast<QWidget*>(m_activityCpuButton),
+             static_cast<QWidget*>(m_activityMemoryButton),
+             static_cast<QWidget*>(m_activityDiskButton),
+             static_cast<QWidget*>(m_activityNetworkButton),
+             static_cast<QWidget*>(m_activityGpuButton),
+             static_cast<QWidget*>(m_activityProcessPickerButton) })
+    {
+        m_controlLayout->insertWidget(topControlInsertIndex++, controlWidget);
+    }
 
     m_activityChartWidget = new ProcessActivityChartWidget(this, m_activityPanelWidget);
     m_activityChartWidget->setToolTip(QString());
@@ -4740,7 +4623,6 @@ void ProcessDock::initializeProcessActivityPanel()
         .arg(KswordTheme::TextSecondaryHex())
         .arg(KswordTheme::BorderHex()));
 
-    panelLayout->addLayout(toolbarLayout);
     panelLayout->addWidget(m_activityChartWidget);
     m_processPageLayout->addWidget(m_activityPanelWidget, 0);
 }
@@ -5482,42 +5364,8 @@ void ProcessDock::initializeCreateProcessPage()
 
 void ProcessDock::initializeConnections()
 {
-    // 策略切换后立即强制刷新。
-    connect(m_strategyCombo, &QComboBox::currentIndexChanged, this, [this]() {
-        kLogEvent logEvent;
-        info << logEvent
-            << "[ProcessDock] 进程枚举策略切换为: "
-            << strategyToText(toStrategy(m_strategyCombo->currentIndex()))
-            << eol;
-        requestAsyncRefresh(true);
-    });
-
-    // 内核对比勾选变更后立即刷新，确保列表高亮状态与开关一致。
-    connect(m_kernelCompareCheck, &QCheckBox::toggled, this, [this](const bool checked) {
-        m_activityTableSnapshotIndex = -1;
-        m_activityTableSnapshotRecords.clear();
-        kLogEvent logEvent;
-        info << logEvent
-            << "[ProcessDock] 内核进程对比开关变更, enabled="
-            << (checked ? "true" : "false")
-            << eol;
-        requestAsyncRefresh(true);
-    });
-
-    // 显示隐藏项开关只影响本地过滤；若需要重新拉 R0 标记，用户可手动刷新。
-    connect(m_showKswordHiddenProcessCheck, &QCheckBox::toggled, this, [this](const bool checked) {
-        kLogEvent logEvent;
-        info << logEvent
-            << "[ProcessDock] Ksword隐藏项显示开关变更, visible="
-            << (checked ? "true" : "false")
-            << eol;
-        rebuildTable();
-    });
-
-    // 进程友好视图：
-    // - 勾选时 buildDisplayOrder 使用应用/后台/系统分类；
-    // - 取消勾选时直接切换为树状视图，两种状态互斥且无需第二个按钮。
-    connect(m_friendlyViewCheck, &QCheckBox::toggled, this, [this](const bool checked) {
+    // 树状视图：勾选时按父子关系显示；取消勾选时按应用/后台/系统分类。
+    connect(m_treeViewCheck, &QCheckBox::toggled, this, [this](const bool checked) {
         m_activityTableSnapshotIndex = -1;
         m_activityTableSnapshotRecords.clear();
         // 用户手动切换复选框后退出表头触发的普通扁平模式，并重置友好视图排序会话。
@@ -5525,7 +5373,7 @@ void ProcessDock::initializeConnections()
         m_friendlySortActive = false;
         kLogEvent logEvent;
         info << logEvent
-            << "[ProcessDock] 进程友好视图开关变更, friendlyView="
+            << "[ProcessDock] 树状视图开关变更, treeView="
             << (checked ? "true" : "false")
             << eol;
         rebuildTable();
@@ -5620,21 +5468,9 @@ void ProcessDock::initializeConnections()
         });
     }
 
-    if (m_processProtectCallbackButton != nullptr)
-    {
-        connect(m_processProtectCallbackButton, &QPushButton::clicked, this, [this]() {
-            emit requestFocusProcessProtectByCallback();
-        });
-    }
-
-    // 两个间隔步进控件：
-    // - 已关闭键盘跟踪，valueChanged 只在回车/失焦/点箭头/滚轮时发出一次；
-    // - 用 valueChanged 而不是 editingFinished，否则点上下箭头调整后不会立即生效。
+    // 统一间隔步进控件：已关闭键盘跟踪，值变更后同时更新枚举和表格节流。
     connect(m_refreshIntervalSpin, &QDoubleSpinBox::valueChanged, this, [this](double) {
         applyRefreshIntervalInput();
-    });
-    connect(m_tableRefreshIntervalSpin, &QDoubleSpinBox::valueChanged, this, [this](double) {
-        applyTableRefreshIntervalInput();
     });
 
     // 清空记录缓存：重置序号、时间轴和吸附状态。
@@ -5694,36 +5530,13 @@ void ProcessDock::initializeConnections()
         previewProcessActivitySnapshotForIndex(sampleIndex);
     });
 
-    // 后台保持刷新/记录：
-    // - 未勾选时，进程页隐藏后周期刷新和记录都会自动暂停；
-    // - 勾选后允许后台继续刷新，除非“只刷新列表”主动禁止写记录。
-    connect(m_activityBackgroundRecordCheck, &QCheckBox::toggled, this, [this]() {
-        updateProcessActivityStatusLabel();
-        if (m_refreshTimer != nullptr && m_monitoringEnabled)
-        {
-            if (isProcessActivityRefreshAllowedNow())
-            {
-                m_refreshTimer->start(refreshIntervalMillisecondsFromInput());
-            }
-            else
-            {
-                m_refreshTimer->stop();
-                stopCpuCoreUsageCapture();
-            }
-        }
-        if (m_monitoringEnabled && isProcessActivityRefreshAllowedNow())
-        {
-            requestAsyncRefresh(true);
-        }
-    });
-
-    // 只刷新列表：
+    // 不记录历史：
     // - 勾选时不清空历史样本，只暂停后续 append；
     // - 取消后继续沿用同一条记录时间轴，方便对比前后变化。
     connect(m_activityListOnlyRefreshCheck, &QCheckBox::toggled, this, [this](const bool checked) {
         kLogEvent logEvent;
         info << logEvent
-            << "[ProcessDock] 只刷新列表开关变更, listOnly="
+            << "[ProcessDock] 不记录历史开关变更, listOnly="
             << (checked ? "true" : "false")
             << eol;
         updateProcessActivityStatusLabel();
@@ -5831,17 +5644,6 @@ void ProcessDock::initializeConnections()
                 requestAsyncRefresh(true);
             }
             return;
-        }
-        if (m_monitoringEnabled &&
-            m_activityBackgroundRecordCheck != nullptr &&
-            !m_activityBackgroundRecordCheck->isChecked())
-        {
-            if (m_refreshTimer != nullptr)
-            {
-                m_refreshTimer->stop();
-            }
-            // 页面自动暂停刷新时同步后台停止唯一 CSwitch 会话，避免无人消费仍常驻高频事件。
-            stopCpuCoreUsageCapture();
         }
         if (currentPage == m_threadPage)
         {
@@ -6077,9 +5879,7 @@ void ProcessDock::initializeCreateProcessConnections()
 
 void ProcessDock::initializeTimer()
 {
-    // 周期监视定时器：
-    // - 默认 1 秒执行后台进程刷新和活动打点；
-    // - 下方进程表格是否重绘由独立“列表刷新(s)”输入框节流。
+    // 周期监视定时器：默认每秒执行后台刷新、活动采样和表格重绘。
     m_refreshTimer = new QTimer(this);
     m_refreshTimer->setInterval(refreshIntervalMillisecondsFromInput());
     connect(m_refreshTimer, &QTimer::timeout, this, [this]() {
@@ -6090,7 +5890,7 @@ void ProcessDock::initializeTimer()
 
 int ProcessDock::refreshIntervalMillisecondsFromInput() const
 {
-    // 步进控件自身已把取值限制在合法范围内，控件缺失时回退默认 1s；
+    // 步进控件自身已把取值限制在 0.5~60 秒，控件缺失时回退默认 1 秒；
     // clamp 保留为兜底，确保控件范围与定时器上下限常量始终一致。
     const double safeSeconds = (m_refreshIntervalSpin != nullptr)
         ? m_refreshIntervalSpin->value()
@@ -6132,45 +5932,6 @@ void ProcessDock::applyRefreshIntervalInput()
     kLogEvent logEvent;
     info << logEvent
         << "[ProcessDock] 活动采样/后台监视间隔变更为 "
-        << intervalMs
-        << " ms。"
-        << eol;
-}
-
-int ProcessDock::tableRefreshIntervalMillisecondsFromInput() const
-{
-    // 表格刷新默认 2 秒；该值只影响 UI 重绘，不影响后台采样。
-    const double safeSeconds = (m_tableRefreshIntervalSpin != nullptr)
-        ? m_tableRefreshIntervalSpin->value()
-        : 2.0;
-    const double clampedSeconds = std::clamp(
-        safeSeconds,
-        static_cast<double>(ProcessTableMinimumIntervalMilliseconds) / 1000.0,
-        static_cast<double>(ProcessTableMaximumIntervalMilliseconds) / 1000.0);
-    const int milliseconds = static_cast<int>(std::llround(clampedSeconds * 1000.0));
-    return std::clamp(
-        milliseconds,
-        ProcessTableMinimumIntervalMilliseconds,
-        ProcessTableMaximumIntervalMilliseconds);
-}
-
-void ProcessDock::applyTableRefreshIntervalInput()
-{
-    const int intervalMs = tableRefreshIntervalMillisecondsFromInput();
-    const double normalizedSeconds = static_cast<double>(intervalMs) / 1000.0;
-
-    // 回写规范化后的值，保证界面显示的就是定时器真正采用的间隔。
-    if (m_tableRefreshIntervalSpin != nullptr)
-    {
-        QSignalBlocker blocker(m_tableRefreshIntervalSpin);
-        m_tableRefreshIntervalSpin->setValue(normalizedSeconds);
-    }
-
-    updateProcessActivityStatusLabel();
-
-    kLogEvent logEvent;
-    info << logEvent
-        << "[ProcessDock] 进程表格刷新间隔变更为 "
         << intervalMs
         << " ms。"
         << eol;
@@ -6630,14 +6391,11 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
             return;
         }
 
-        // 后台保持刷新/记录约束“是否继续刷新”：
-        // - 默认离开进程列表页就不再继续刷新；
-        // - 勾选后允许后台继续枚举；
-        // - “只刷新列表”只影响是否写记录，不应阻断列表刷新。
+        // “不记录历史”只影响是否写入活动样本，不应阻断后台列表刷新。
         if (!isProcessActivityRefreshAllowedNow())
         {
             kLogEvent logEvent;
-            dbg << logEvent << "[ProcessDock] 跳过非强制刷新：进程页不可见且未启用后台保持刷新/记录。" << eol;
+            dbg << logEvent << "[ProcessDock] 跳过非强制刷新：监视未启用。" << eol;
             updateProcessActivityStatusLabel();
             return;
         }
@@ -6652,15 +6410,13 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
     }
     m_refreshInProgress = true;
 
-    // 复制当前缓存快照给后台线程，避免跨线程读写冲突。
-    const int strategyIndex = m_strategyCombo->currentIndex();
+    // 进程页不再暴露策略选择，但继续固定使用现有 NtQuery 枚举实现。
+    constexpr int strategyIndex = static_cast<int>(ks::process::ProcessEnumStrategy::NtQuerySystemInfo);
     // 静态详情预算按“当前是否真的显示了需要打开进程才能补齐的列”判定，
     // 而不是绑定在某个具体视图上：用户在任意视图手动加上命令行/描述列时同样需要补齐。
     const bool detailModeEnabled = isStaticDetailIntensiveViewActive();
-    const bool queryKernelProcessList =
-        (m_kernelCompareCheck != nullptr && m_kernelCompareCheck->isChecked()) ||
-        (m_showKswordHiddenProcessCheck != nullptr && m_showKswordHiddenProcessCheck->isChecked()) ||
-        !m_hiddenProcessPidSet.empty();
+    // 每轮在驱动控制设备就绪时进行 R0/R3 对比；R3 状态仅保留用户态列表并静默跳过。
+    constexpr bool queryKernelProcessList = true;
     const bool isFirstRefresh = m_cacheByIdentity.empty();
     const int staticDetailFillBudget =
         detailModeEnabled
@@ -6729,8 +6485,7 @@ void ProcessDock::requestAsyncRefresh(const bool forceRefresh)
             << ", kernelCompare=" << (queryKernelProcessList ? "true" : "false")
             << ", staticBudget=" << staticDetailFillBudget
             << ", cacheSize=" << previousCache.size()
-            << ", uiTableIntervalMs=" << tableRefreshIntervalMillisecondsFromInput()
-            << ", sampleIntervalMs=" << refreshIntervalMillisecondsFromInput()
+            << ", refreshIntervalMs=" << refreshIntervalMillisecondsFromInput()
             << eol;
     }
 
@@ -7114,8 +6869,8 @@ bool ProcessDock::shouldRebuildProcessTableForRefresh(const bool forceUiRefresh)
         return true;
     }
 
-    // 非强制后台监视按独立 UI 间隔节流，避免高频采样时重建整张进程表。
-    const int intervalMs = tableRefreshIntervalMillisecondsFromInput();
+    // 后台监视按统一刷新间隔节流表格重绘。
+    const int intervalMs = refreshIntervalMillisecondsFromInput();
     const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - m_lastProcessTableRebuildTime).count();
     return elapsedMs >= intervalMs;
@@ -8450,38 +8205,20 @@ namespace
     }
 }
 
-bool ProcessDock::isProcessListPageVisibleForRecording() const
-{
-    // 默认只有进程列表页处于当前页时才刷新/记录；
-    // 用户勾选“后台保持刷新/记录”后才允许切到其它子页继续刷新/记录。
-    return m_sideTabWidget != nullptr &&
-        m_processListPage != nullptr &&
-        m_sideTabWidget->currentWidget() == m_processListPage &&
-        m_processListPage->isVisible();
-}
-
 bool ProcessDock::isProcessActivityRefreshAllowedNow() const
 {
-    // 刷新允许逻辑只关心“是否应该继续枚举列表”：
-    // - 暂停按钮关闭后不再刷新；
-    // - 当前在进程列表页时允许刷新；
-    // - 后台保持开关允许离开进程列表页后继续刷新。
+    // 监视启动后，无论当前进程子页为何都保持刷新和记录。
     if (!m_monitoringEnabled)
     {
         return false;
     }
 
-    if (m_activityBackgroundRecordCheck != nullptr && m_activityBackgroundRecordCheck->isChecked())
-    {
-        return true;
-    }
-
-    return isProcessListPageVisibleForRecording();
+    return true;
 }
 
 bool ProcessDock::isProcessActivityRecordingAllowedNow() const
 {
-    // 记录允许逻辑在刷新允许之上额外叠加“只刷新列表”：
+    // 记录允许逻辑在刷新允许之上额外叠加“不记录历史”：
     // - 这样可以继续更新下方列表；
     // - 同时不污染上方时间轴样本。
     if (!isProcessActivityRefreshAllowedNow())
@@ -9750,15 +9487,6 @@ std::vector<ProcessDock::DisplayRow> ProcessDock::buildListDisplayOrder() const
 
     for (const auto& cachePair : m_cacheByIdentity)
     {
-        const bool isKswordHidden =
-            ((cachePair.second.record.r0Flags & KSWORD_ARK_PROCESS_FLAG_HIDDEN_BY_KSWORD_UI) != 0U) ||
-            (m_hiddenProcessPidSet.find(cachePair.second.record.pid) != m_hiddenProcessPidSet.end());
-        const bool showKswordHidden =
-            (m_showKswordHiddenProcessCheck != nullptr && m_showKswordHiddenProcessCheck->isChecked());
-        if (isKswordHidden && !showKswordHidden)
-        {
-            continue;
-        }
         if (!processRecordMatchesSearch(cachePair.second.record))
         {
             continue;
@@ -9795,15 +9523,6 @@ std::vector<ProcessDock::DisplayRow> ProcessDock::buildTreeDisplayOrder() const
     nodes.reserve(m_cacheByIdentity.size());
     for (const auto& cachePair : m_cacheByIdentity)
     {
-        const bool isKswordHidden =
-            ((cachePair.second.record.r0Flags & KSWORD_ARK_PROCESS_FLAG_HIDDEN_BY_KSWORD_UI) != 0U) ||
-            (m_hiddenProcessPidSet.find(cachePair.second.record.pid) != m_hiddenProcessPidSet.end());
-        const bool showKswordHidden =
-            (m_showKswordHiddenProcessCheck != nullptr && m_showKswordHiddenProcessCheck->isChecked());
-        if (isKswordHidden && !showKswordHidden)
-        {
-            continue;
-        }
         nodes.push_back(Node{ &cachePair.first, &cachePair.second });
     }
 
@@ -10016,16 +9735,6 @@ std::vector<ProcessDock::DisplayRow> ProcessDock::buildFriendlyDisplayOrder() co
     for (const auto& cachePair : m_cacheByIdentity)
     {
         const ks::process::ProcessRecord& processRecord = cachePair.second.record;
-        const bool isKswordHidden =
-            ((processRecord.r0Flags & KSWORD_ARK_PROCESS_FLAG_HIDDEN_BY_KSWORD_UI) != 0U) ||
-            (m_hiddenProcessPidSet.find(processRecord.pid) != m_hiddenProcessPidSet.end());
-        const bool showKswordHidden =
-            (m_showKswordHiddenProcessCheck != nullptr && m_showKswordHiddenProcessCheck->isChecked());
-        if (isKswordHidden && !showKswordHidden)
-        {
-            continue;
-        }
-
         parentPidByPid[processRecord.pid] = processRecord.parentPid;
         nodes.push_back(FriendlyNode{ &cachePair.first, &cachePair.second, 0U });
     }
@@ -14052,18 +13761,16 @@ void ProcessDock::executeCreateProcessRequest()
 
 bool ProcessDock::isTreeModeEnabled() const
 {
-    // 未勾选友好视图通常表示树状视图；点表头后内部可临时切为普通扁平枚举。
-    return m_friendlyViewCheck != nullptr &&
-        !m_friendlyViewCheck->isChecked() &&
+    // 勾选树状视图时按父子关系显示；点表头后内部可临时切为普通扁平枚举。
+    return m_treeViewCheck != nullptr &&
+        m_treeViewCheck->isChecked() &&
         !m_flatListForcedByHeaderSort;
 }
 
 bool ProcessDock::isFriendlyViewEnabled() const
 {
-    // Inputs: current checkbox pointer/state.
-    // Processing: guard nullptr during construction and return the user-facing switch state.
-    // Return: true when friendly grouping should override the legacy tree/list order.
-    return m_friendlyViewCheck != nullptr && m_friendlyViewCheck->isChecked();
+    // 树状视图未勾选时，按应用/后台/系统分类显示。
+    return m_treeViewCheck != nullptr && !m_treeViewCheck->isChecked();
 }
 
 ProcessDock::ViewMode ProcessDock::currentViewMode() const
@@ -14328,16 +14035,6 @@ void ProcessDock::executeR0SetProcessHiddenAction(
         << ", failure=" << failureCount
         << eol;
     showActionResultMessage(titleText, failureCount == 0U, summaryText.toStdString(), logEvent);
-    if (hidden && successCount > 0U && m_kernelCompareCheck != nullptr && !m_kernelCompareCheck->isChecked())
-    {
-        m_kernelCompareCheck->setChecked(true);
-    }
-    if (hidden && successCount > 0U &&
-        m_showKswordHiddenProcessCheck != nullptr &&
-        !m_showKswordHiddenProcessCheck->isChecked())
-    {
-        m_showKswordHiddenProcessCheck->setChecked(true);
-    }
     requestAsyncRefresh(true);
 }
 

@@ -202,6 +202,16 @@ namespace
     constexpr int MinVisibleLogLimit = 1;        // 最小允许显示 1 条，避免“条数”控件出现不直观的隐藏下限。
     constexpr int MaxVisibleLogLimit = 10000;    // 最大值保留诊断弹性，同时限制极端行数拖垮表格绘制。
 
+    // logRowKey 作用：
+    // - 把日志管理器分配的单调序号转换为 FlatTableModel 所需的稳定行键；
+    // - 让新增日志走 insert/remove/layout 变更，而不是 beginResetModel/endResetModel。
+    // 参数 logItem：已归档并带唯一 recordSequence 的日志记录。
+    // 返回值：该日志记录的全局唯一字符串键。
+    std::string logRowKey(const kEvent& logItem)
+    {
+        return std::to_string(logItem.recordSequence);
+    }
+
     // createBlueThemedIcon 作用：
     // - 把 qrc 中的单色 SVG 图标重新着色为主题蓝色；
     // - 避免修改原始 SVG 文件，实现运行时统一换色。
@@ -481,7 +491,9 @@ void LogDockWidget::initializeUi()
         [this](const kEvent& logItem, const int column, const int role) {
             return resolveLogTableData(logItem, column, role);
         },
-        this);
+        this,
+        LogTableModel::FlagsResolver(),
+        logRowKey);
 
     m_logTable = new ks::ui::TableActionTableView(this);
     m_logTable->setModel(m_logModel);
@@ -650,8 +662,8 @@ void LogDockWidget::rebuildTable(std::vector<kEvent> filteredEvents)
     // 若未开启自动滚动，先记住滚动条位置，刷新后恢复。
     const int previousScrollValue = m_logTable->verticalScrollBar()->value();
 
-    // setRows 内部使用 beginResetModel/endResetModel。
-    // 对日志这种周期性整体刷新场景，模型 reset 比逐单元格 item 更新更稳定且更少堆分配。
+    // 每条归档日志都有唯一序号，因此 setRows 会按键发布增量插入/删除及布局调整。
+    // Qt 会随模型信号保留仍然可见行的选择、当前索引和持久索引，无需手动按内容反查。
     m_logModel->setRows(std::move(filteredEvents));
     ks::ui::RefreshVisibleRowHeights(m_logTable);
 

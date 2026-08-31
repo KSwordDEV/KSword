@@ -827,7 +827,7 @@ void NetworkDock::initializeConnections()
             openPacketDetailWindowFromTableRow(m_packetTable, row);
         });
 
-    // 右键菜单：查看详情 / 复制行 / 批量复制ASCII/HEX / 重放到请求构造 / 跟踪此进程 / 转到进程详细信息。
+    // 右键菜单：查看详情 / 预填阻断规则 / 复制行 / 批量复制ASCII/HEX / 重放到请求构造 / 跟踪此进程 / 转到进程详细信息。
     connect(m_packetTable, &QWidget::customContextMenuRequested, this,
         [this](const QPoint& position)
         {
@@ -914,6 +914,10 @@ void NetworkDock::initializeConnections()
             QMenu contextMenu(this);
             contextMenu.setStyleSheet(KswordTheme::ContextMenuStyle());
             QAction* detailAction = contextMenu.addAction(QIcon(":/Icon/process_details.svg"), QStringLiteral("查看报文详情"));
+            QAction* addBlockRuleAction = contextMenu.addAction(
+                QIcon(QStringLiteral(":/Icon/process_terminate.svg")),
+                QStringLiteral("预填阻断规则"));
+            addBlockRuleAction->setEnabled(m_firewallPage != nullptr);
             QAction* copyRowAction = contextMenu.addAction(QIcon(":/Icon/process_copy_row.svg"), QStringLiteral("复制行"));
             QAction* copyAsciiAction = contextMenu.addAction(QIcon(":/Icon/process_copy_row.svg"), QStringLiteral("复制选中报文ASCII"));
             // 仅正文复制动作：不拼接报文头部元信息，只输出 payload 的 ASCII 文本。
@@ -986,6 +990,29 @@ void NetworkDock::initializeConnections()
                 {
                     openPacketDetailWindowFromTableRow(m_packetTable, anchorRow);
                 }
+            }
+            else if (selectedAction == addBlockRuleAction)
+            {
+                const std::vector<std::uint64_t> sequenceList = collectSequenceListByRows(
+                    anchorRow >= 0 ? std::vector<int>{ anchorRow } : std::vector<int>{});
+                if (sequenceList.empty() || m_firewallPage == nullptr)
+                {
+                    return;
+                }
+
+                const auto packetIt = m_packetBySequence.find(sequenceList.front());
+                if (packetIt == m_packetBySequence.end())
+                {
+                    return;
+                }
+
+                const ks::network::PacketRecord& packetRecord = packetIt->second;
+                m_firewallPage->addBlockRuleFromEvidence(
+                    QString::fromUtf8(packetRecord.remoteAddress.c_str()),
+                    QString::number(packetRecord.remotePort),
+                    toQString(ks::network::PacketProtocolToString(packetRecord.protocol)),
+                    toQString(ks::network::PacketDirectionToString(packetRecord.direction)),
+                    QStringLiteral("流量报文"));
             }
             else if (selectedAction == copyRowAction)
             {

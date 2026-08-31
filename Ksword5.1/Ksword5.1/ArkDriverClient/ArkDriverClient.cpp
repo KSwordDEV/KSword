@@ -358,6 +358,18 @@ namespace ksword::ark
         return handle;
     }
 
+    DriverHandle DriverClient::openSilently(const unsigned long desiredAccess) const
+    {
+        return DriverHandle(::CreateFileW(
+            KSWORD_ARK_LOG_WIN32_PATH,
+            desiredAccess,
+            kDefaultShareMode,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr));
+    }
+
     DriverHandle DriverClient::openOverlapped(const unsigned long desiredAccess) const
     {
         DriverHandle handle(::CreateFileW(
@@ -1245,6 +1257,13 @@ namespace ksword::ark
 
     ProcessEnumResult DriverClient::enumerateProcesses(const unsigned long flags) const
     {
+        return enumerateProcesses(flags, nullptr);
+    }
+
+    ProcessEnumResult DriverClient::enumerateProcesses(
+        const unsigned long flags,
+        DriverHandle* const existingHandle) const
+    {
         ProcessEnumResult enumResult{};
         KSWORD_ARK_ENUM_PROCESS_REQUEST request{};
         request.flags = flags;
@@ -1255,7 +1274,8 @@ namespace ksword::ark
             &request,
             static_cast<unsigned long>(sizeof(request)),
             responseBuffer.data(),
-            static_cast<unsigned long>(responseBuffer.size()));
+            static_cast<unsigned long>(responseBuffer.size()),
+            existingHandle);
         if (!enumResult.io.ok)
         {
             enumResult.io.message = "DeviceIoControl(IOCTL_KSWORD_ARK_ENUM_PROCESS) failed, error=" + std::to_string(enumResult.io.win32Error);

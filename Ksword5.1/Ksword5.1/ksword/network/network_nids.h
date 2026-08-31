@@ -42,6 +42,10 @@ namespace ks::network
         std::string detail;                     // 详细说明。
         std::uint32_t processId = 0;            // 关联 PID。
         std::string processName;                // 关联进程名。
+        // 仅用于把审计证据安全地预填为应用级处置规则。创建时间和镜像路径均在
+        // 告警产生时采集；后续处置前必须再次核验，不能把可复用的裸 PID 当身份。
+        std::uint64_t processCreationTime100ns = 0;
+        std::string processImagePath;
         PacketTransportProtocol protocol = PacketTransportProtocol::Tcp; // 协议。
         PacketDirection direction = PacketDirection::Unknown;             // 方向。
         std::string localAddress;               // 本地地址。

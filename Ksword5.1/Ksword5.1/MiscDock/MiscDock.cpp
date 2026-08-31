@@ -136,12 +136,12 @@ void MiscDock::initializeUi()
     m_disableDseTabIndex = m_mainTabWidget->addTab(
         m_disableDseHostWidget,
         QIcon(QStringLiteral(":/Icon/codeeditor_replace.svg")),
-        QStringLiteral("驱动签名"));
+        QStringLiteral("disable dse"));
     ks::i18n::LanguageManager::instance().bindTab(
         m_mainTabWidget,
         m_disableDseHostWidget,
         QStringLiteral("misc.disable_dse.tab"),
-        QStringLiteral("驱动签名"));
+        QStringLiteral("disable dse"));
 
     // Shell 关联管理页：
     // - 覆盖右键菜单、URL 绑定、打开方式和 Explorer 第三方主页项；

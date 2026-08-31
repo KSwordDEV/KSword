@@ -588,8 +588,6 @@ private:
     void applyAdaptiveColumnWidths();
     int refreshIntervalMillisecondsFromInput() const;
     void applyRefreshIntervalInput();
-    int tableRefreshIntervalMillisecondsFromInput() const;
-    void applyTableRefreshIntervalInput();
     void initializeCreateProcessConnections();
     void focusProcessSearchBox(bool selectAllText);
     QString currentProcessSearchText() const;
@@ -801,7 +799,6 @@ private:
     bool isProcessActivityMetricEnabled(ProcessActivityMetric metric) const;
     bool isProcessActivityRefreshAllowedNow() const;
     bool isProcessActivityRecordingAllowedNow() const;
-    bool isProcessListPageVisibleForRecording() const;
     template <typename Destination, typename Source>
     static void copyProcessActivityDynamicFields(Destination& destination, const Source& source);
     void appendProcessActivitySample();
@@ -1056,28 +1053,21 @@ private:
 
     // ======== 控制栏 ========
     QHBoxLayout* m_controlLayout = nullptr;   // 上方“操作按钮”行布局。
-    QComboBox* m_strategyCombo = nullptr;     // 进程遍历方案下拉框。
     QComboBox* m_viewModeCombo = nullptr;     // 监视视图/详细视图下拉框。
     QPushButton* m_startButton = nullptr;     // 开始监视按钮。
     QPushButton* m_pauseButton = nullptr;     // 暂停监视按钮。
-    QCheckBox* m_friendlyViewCheck = nullptr; // 进程友好视图：应用/后台进程/系统分类，默认开启。
-    QCheckBox* m_kernelCompareCheck = nullptr;// 刷新时是否额外请求内核进程列表并做差异对比。
-    QCheckBox* m_showKswordHiddenProcessCheck = nullptr; // 是否显示被 Ksword R0 摘链隐藏的进程。
+    QCheckBox* m_treeViewCheck = nullptr;     // 树状视图：默认关闭，关闭时展示应用/后台进程/系统分类。
     QLineEdit* m_processSearchLineEdit = nullptr; // 进程搜索框；用于按名称/PID/路径等关键词过滤当前列表。
-    QLabel* m_refreshLabel = nullptr;         // 列表刷新间隔标签。
-    QDoubleSpinBox* m_tableRefreshIntervalSpin = nullptr; // 进程表格重绘间隔步进框，0.5~60 秒，默认 2 秒。
-    QLabel* m_sampleIntervalLabel = nullptr;  // 活动采样间隔标签。
-    QDoubleSpinBox* m_refreshIntervalSpin = nullptr; // 活动采样/后台监视间隔步进框，0.05~60 秒，默认 1 秒。
+    QLabel* m_refreshLabel = nullptr;         // 刷新间隔标签。
+    QDoubleSpinBox* m_refreshIntervalSpin = nullptr; // 刷新、采样和表格重绘的统一间隔，0.5~60 秒，默认 1 秒。
     QPushButton* m_columnChooserButton = nullptr; // “选择列”按钮：打开添加/减少列对话框。
-    QPushButton* m_processProtectCallbackButton = nullptr; // “句柄回调保护”快捷入口。
 
     // ======== 进程活动记录面板 ========
     QWidget* m_activityPanelWidget = nullptr;       // m_activityPanelWidget：进程活动图表面板。
     ProcessActivityChartWidget* m_activityChartWidget = nullptr; // m_activityChartWidget：时间轴百分比折线图。
     ProcessActivityTimelineSlider* m_activityTimelineSlider = nullptr; // m_activityTimelineSlider：隐藏内部时间轴，公开交互由折线图点击完成。
     QPushButton* m_activityClearButton = nullptr;   // m_activityClearButton：清空当前刷新记录缓存。
-    QCheckBox* m_activityBackgroundRecordCheck = nullptr; // 后台保持刷新/记录开关。
-    QCheckBox* m_activityListOnlyRefreshCheck = nullptr; // 只刷新进程列表、不写入活动记录的开关。
+    QCheckBox* m_activityListOnlyRefreshCheck = nullptr; // 不记录历史开关：刷新列表但不写入活动记录。
     QPushButton* m_activityCpuButton = nullptr;     // CPU 指标显示按钮。
     QPushButton* m_activityMemoryButton = nullptr;  // 内存指标显示按钮。
     QPushButton* m_activityDiskButton = nullptr;    // 磁盘指标显示按钮。
