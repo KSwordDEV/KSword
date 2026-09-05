@@ -33,6 +33,13 @@ typedef struct _KSW_HVM_EPT_TRANSIENT
     ULONGLONG RestrictedValue;
 } KSW_HVM_EPT_TRANSIENT;
 
+/* The violation is unruled or unsafe to continue; leave EPT enforcement. */
+#define KSW_HVM_EPT_DISPOSITION_DEVIRTUALIZE 0UL
+/* One permission was granted for a single instruction; monitor-trap follows. */
+#define KSW_HVM_EPT_DISPOSITION_ALLOW_ONCE 1UL
+/* The access is denied durably; the dispatcher injects #PF and resumes. */
+#define KSW_HVM_EPT_DISPOSITION_INJECT_FAULT 2UL
+
 EXTERN_C_START
 
 /* Build a continuous RAM-plus-MMIO identity window under the runtime lock. */
@@ -55,14 +62,20 @@ KswordARKHvmEptRuleControlLocked(
     _Out_ KSWORD_ARK_HVM_EPT_RULE_RESPONSE* Response
     );
 
-/* Handle one EPT violation without allocating or waiting in VMX root. */
+/*
+ * Handle one EPT violation without allocating or waiting in VMX root.
+ * GuestLinearAddressValid tells the aggregation whether a durable denial can
+ * be expressed as an injected fault, since that requires a CR2 value.
+ */
 BOOLEAN
 KswordARKHvmEptHandleViolation(
     _Inout_ KSW_HVM_RUNTIME* Runtime,
     _In_ ULONGLONG GuestPhysicalAddress,
     _In_ ULONG Access,
+    _In_ BOOLEAN GuestLinearAddressValid,
     _Out_ KSW_HVM_EPT_TRANSIENT* Transient,
-    _Out_ ULONG* RuleId
+    _Out_ ULONG* RuleId,
+    _Out_ ULONG* Disposition
     );
 
 /* Restore and invalidate one armed allow-once permission set. */

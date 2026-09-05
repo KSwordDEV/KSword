@@ -41,6 +41,8 @@ Environment:
     (KSW_HVM_ONE_512_GIB * KSW_HVM_MAX_PML4_ENTRIES)
 /* Bound one per-processor resident VM-exit stack. */
 #define KSW_HVM_RESIDENT_HOST_STACK_BYTES 0x8000UL
+/* Sample soak residency often enough to catch a short-lived collapse. */
+#define KSW_HVM_SOAK_SLICE_MILLISECONDS 50UL
 
 /* Name the VMX feature-control model-specific register. */
 #define KSW_IA32_FEATURE_CONTROL 0x3AUL
@@ -304,6 +306,10 @@ typedef struct _KSW_HVM_RUNTIME
     KSW_HVM_CPU_RESOURCE Processors[KSWORD_ARK_HVM_MAX_PROCESSORS];
     /* Track every EPT allocation exactly once. */
     KSW_HVM_EPT_PAGE EptPages[KSW_HVM_MAX_EPT_PAGES];
+    /* Own the shared MSR-bitmap page that keeps resident MSR access native. */
+    PVOID MsrBitmapVirtual;
+    /* Retain the MSR-bitmap physical address written into every VMCS. */
+    PHYSICAL_ADDRESS MsrBitmapPhysical;
     /* Retain the EPT PML4 virtual address. */
     PVOID EptPml4;
     /* Retain each sparse EPT PDPT virtual address. */

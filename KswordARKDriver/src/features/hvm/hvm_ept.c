@@ -704,7 +704,18 @@ KswordARKHvmEptRuleControlLocked(
         /* Preserve only defined behavior flags. */
         slot->Flags = Request->flags &
             (KSWORD_ARK_HVM_EPT_RULE_FLAG_LOG |
-             KSWORD_ARK_HVM_EPT_RULE_FLAG_ALLOW_ONCE);
+             KSWORD_ARK_HVM_EPT_RULE_FLAG_ALLOW_ONCE |
+             KSWORD_ARK_HVM_EPT_RULE_FLAG_ENFORCE);
+        /*
+         * Durable denial and a one-instruction grant are opposite outcomes for
+         * the same access.  Let denial win rather than storing a rule whose
+         * behavior would depend on aggregation order.
+         */
+        if ((slot->Flags &
+                KSWORD_ARK_HVM_EPT_RULE_FLAG_ENFORCE) != 0UL) {
+            /* Drop the contradictory temporary grant. */
+            slot->Flags &= ~KSWORD_ARK_HVM_EPT_RULE_FLAG_ALLOW_ONCE;
+        }
         /* Publish the first page-aligned physical address. */
         slot->PhysicalAddress = Request->physicalAddress;
         /* Publish the complete validated page count. */
@@ -810,8 +821,10 @@ KswordARKHvmEptHandleViolation(
     _Inout_ KSW_HVM_RUNTIME* Runtime,
     _In_ ULONGLONG GuestPhysicalAddress,
     _In_ ULONG Access,
+    _In_ BOOLEAN GuestLinearAddressValid,
     _Out_ KSW_HVM_EPT_TRANSIENT* Transient,
-    _Out_ ULONG* RuleId
+    _Out_ ULONG* RuleId,
+    _Out_ ULONG* Disposition
     )
 {
     ULONGLONG physicalPage =
@@ -821,16 +834,20 @@ KswordARKHvmEptHandleViolation(
     ULONG selectedRuleId = 0UL;
     BOOLEAN matched = FALSE;
     BOOLEAN allAllowOnce = TRUE;
+    BOOLEAN enforceMatched = FALSE;
     volatile ULONGLONG* entry = NULL;
     ULONGLONG grantedValue = 0ULL;
 
     /* Reject invalid fixed pointers in the nonblocking exit path. */
     if (Runtime == NULL ||
         Transient == NULL ||
-        RuleId == NULL) {
+        RuleId == NULL ||
+        Disposition == NULL) {
         /* Report an unhandled fatal EPT violation. */
         return FALSE;
     }
+    /* Publish the fail-closed disposition before any rule is examined. */
+    *Disposition = KSW_HVM_EPT_DISPOSITION_DEVIRTUALIZE;
     /* Publish no new rule match before the bounded rule scan. */
     *RuleId = 0UL;
     /*
@@ -890,6 +907,23 @@ KswordARKHvmEptHandleViolation(
         }
         /* Publish that at least one rule covers this exact attempted access. */
         matched = TRUE;
+        /*
+         * A durable denial neither grants a temporary permission nor tears
+         * down residency, so it is tracked separately from the tripwire and
+         * allow-once dispositions and resolved after the whole scan.
+         */
+        if ((rule->Flags &
+                KSWORD_ARK_HVM_EPT_RULE_FLAG_ENFORCE) != 0UL) {
+            /* Preserve the first denying rule as authoritative evidence. */
+            if (!enforceMatched) {
+                /* Select the rule that will produce the injected fault. */
+                selectedRuleId = rule->RuleId;
+            }
+            /* Publish that at least one rule denies this access durably. */
+            enforceMatched = TRUE;
+            /* Continue to the next bounded rule record. */
+            continue;
+        }
         /* Any strict tripwire dominates every overlapping allow-once rule. */
         if ((rule->Flags &
                 KSWORD_ARK_HVM_EPT_RULE_FLAG_ALLOW_ONCE) == 0UL) {
@@ -901,6 +935,30 @@ KswordARKHvmEptHandleViolation(
             /* Prevent any temporary grant for the aggregate rule set. */
             allAllowOnce = FALSE;
         }
+    }
+    /*
+     * A durable denial outranks an overlapping allow-once grant: permitting
+     * the access even once would defeat the rule that exists to refuse it.
+     * A strict tripwire still dominates, because tearing down residency is
+     * the most conservative outcome available.
+     */
+    if (enforceMatched && allAllowOnce) {
+        /* Publish the aggregate rule identity before the disposition. */
+        *RuleId = selectedRuleId;
+        /*
+         * Denial is expressed as a page fault, and a page fault without a
+         * meaningful CR2 would send the guest handler to an arbitrary
+         * address.  Without a reported guest-linear address, fall back to the
+         * tripwire behavior rather than inventing one.
+         */
+        if (!GuestLinearAddressValid) {
+            /* Report that the dispatcher must leave EPT enforcement. */
+            return FALSE;
+        }
+        /* Request the injected fault that expresses durable denial. */
+        *Disposition = KSW_HVM_EPT_DISPOSITION_INJECT_FAULT;
+        /* Report a completely resolved violation. */
+        return TRUE;
     }
     /* Publish the aggregate rule identity before choosing a disposition. */
     *RuleId = selectedRuleId;
@@ -980,6 +1038,8 @@ KswordARKHvmEptHandleViolation(
         /* Require immediate fail-closed devirtualization. */
         return FALSE;
     }
+    /* Request the monitor-trap step that restores the temporary grant. */
+    *Disposition = KSW_HVM_EPT_DISPOSITION_ALLOW_ONCE;
     /* Report a handled, single-VCPU allow-once EPT violation. */
     return TRUE;
 }

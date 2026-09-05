@@ -255,6 +255,7 @@
     <ClCompile Include="KernelDock\KernelThreadAuditTab.cpp" />
     <ClCompile Include="KernelDock\KernelThreadAuditTab.Snapshot.cpp" />
     <ClCompile Include="MainWindow.cpp" />
+    <ClCompile Include="MainWindow.Kvm.cpp" />
     <ClCompile Include="MiscDock\BootEditor\BootEditorTab.Actions.cpp" />
     <ClCompile Include="MiscDock\ApplicationControlPage.cpp" />
     <ClCompile Include="MiscDock\SoundSource\SoundSourceDetector.cpp" />
@@ -433,6 +434,8 @@
     <ClCompile Include="UI\GlobalUiBaseStyle.cpp" />
     <ClCompile Include="UI\GlobalRefreshShortcut.cpp" />
     <ClCompile Include="UI\GlobalUiSearch.cpp" />
+    <ClCompile Include="UI\KvmControl.cpp" />
+    <ClCompile Include="UI\KvmMemoryDialog.cpp" />
     <ClCompile Include="UI\CommandExecutionPopup.cpp" />
     <ClCompile Include="UI\WindowChrome.cpp" />
     <ClCompile Include="UI\HexEditorWidget.cpp" />
@@ -621,6 +624,7 @@
     <ClInclude Include="ksword\string\string.h" />
     <ClInclude Include="theme.h" />
     <ClInclude Include="UI\FlatTableModel.h" />
+    <ClInclude Include="UI\KvmControl.h" />
     <ClInclude Include="UI\EmbeddedRowDelegate.h" />
     <ClInclude Include="UI\DetailLayoutHost.h" />
     <ClInclude Include="UI\DetailLayoutRegistry.h" />
@@ -751,6 +755,7 @@
     <ClInclude Include="UI\GlobalUiBaseStyle.h" />
     <ClInclude Include="UI\GlobalRefreshShortcut.h" />
     <QtMoc Include="UI\GlobalUiSearch.h" />
+    <QtMoc Include="UI\KvmMemoryDialog.h" />
     <QtMoc Include="UI\CommandExecutionPopup.h" />
     <ClInclude Include="UI\WindowChrome.h" />
     <QtMoc Include="UI\HexEditorWidget.h" />

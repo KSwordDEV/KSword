@@ -41,6 +41,7 @@ typedef struct _KSW_HVM_VMCS_INPUT
     ULONGLONG GuestInstructionPointer;
     ULONGLONG HostInstructionPointer;
     ULONGLONG GuestRflags;
+    ULONGLONG MsrBitmapPhysical;
     UCHAR ResidentMode;
     UCHAR EnableNestedVmx;
     USHORT Reserved;

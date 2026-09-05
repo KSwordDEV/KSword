@@ -16,6 +16,7 @@ Environment:
 --*/
 
 #include "hvm_exit.h"
+#include "hvm_exit_emulate.h"
 #include "hvm_resident.h"
 #include "hvm_ept.h"
 #include "hvm_event.h"
@@ -47,6 +48,14 @@ Environment:
 #define KSW_VMX_EXIT_HLT 12UL
 /* Name the VMCALL VM-exit reason. */
 #define KSW_VMX_EXIT_VMCALL 18UL
+/* Name the INVD VM-exit reason, which no execution control can suppress. */
+#define KSW_VMX_EXIT_INVD 13UL
+/* Name the RDMSR VM-exit reason. */
+#define KSW_VMX_EXIT_RDMSR 31UL
+/* Name the WRMSR VM-exit reason. */
+#define KSW_VMX_EXIT_WRMSR 32UL
+/* Name the XSETBV VM-exit reason, which no execution control can suppress. */
+#define KSW_VMX_EXIT_XSETBV 55UL
 /* Name the monitor-trap VM-exit reason. */
 #define KSW_VMX_EXIT_MONITOR_TRAP 37UL
 /* Name the EPT-violation VM-exit reason. */
@@ -362,7 +371,10 @@ KswordARKHvmResidentVmExitDispatch(
     ULONG access = 0UL;
     ULONG ruleId = 0UL;
     NTSTATUS status = STATUS_SUCCESS;
+    ULONG eptDisposition = KSW_HVM_EPT_DISPOSITION_DEVIRTUALIZE;
     BOOLEAN handled = FALSE;
+    BOOLEAN injectFault = FALSE;
+    BOOLEAN guestLinearValid = FALSE;
 
     /* Reject a VM exit without an exact active processor context. */
     if (Frame == NULL ||
@@ -407,6 +419,13 @@ KswordARKHvmResidentVmExitDispatch(
             (telemetry.Qualification & (1ULL << 7)) == 0ULL) {
             /* Clear architecturally unavailable guest-linear evidence. */
             guestLinearAddress = 0ULL;
+        } else {
+            /*
+             * Record validity separately: a reported guest-linear address of
+             * zero is legitimate, so the value alone cannot stand in for the
+             * qualification bit that says the CPU supplied one.
+             */
+            guestLinearValid = TRUE;
         }
     }
     /* Emulate ordinary CPUID and continue the resident guest. */
@@ -471,8 +490,65 @@ KswordARKHvmResidentVmExitDispatch(
             handled = KswordARKHvmExitAdvanceRip(
                 telemetry.InstructionLength);
         } else {
-            /* Reject unknown KSword-private hypercall commands. */
-            handled = FALSE;
+            /*
+             * Report an unknown private command through the return register
+             * instead of tearing down residency, so a future protocol version
+             * can probe this dispatcher without disabling the hypervisor.
+             */
+            Frame->Rax = MAXULONGLONG;
+            /* Advance past the fully decoded private VMCALL. */
+            handled = KswordARKHvmExitAdvanceRip(
+                telemetry.InstructionLength);
+        }
+    /* Refuse every VMCALL that does not carry the private signature. */
+    } else if (basicReason == KSW_VMX_EXIT_VMCALL) {
+        /*
+         * Without a hypervisor VMCALL raises #UD, so unrelated software that
+         * probes for one must see the same result.  Devirtualizing here would
+         * let any user-mode instruction dismantle the resident hypervisor.
+         */
+        handled = KswordARKHvmExitInjectUndefinedOpcode();
+    /* Complete the unconditional INVD exit without dropping modified lines. */
+    } else if (basicReason == KSW_VMX_EXIT_INVD) {
+        /* Write back and invalidate instead of discarding host cache lines. */
+        handled = KswordARKHvmExitEmulateInvd();
+        /* Advance only after the substituted instruction fully completed. */
+        if (handled) {
+            /* Continue at the instruction following INVD. */
+            handled = KswordARKHvmExitAdvanceRip(
+                telemetry.InstructionLength);
+        }
+    /* Apply one validated XSETBV or deliver its architectural fault. */
+    } else if (basicReason == KSW_VMX_EXIT_XSETBV) {
+        /* Validate every operand before touching XCR0 in VMX root. */
+        handled = KswordARKHvmExitEmulateXsetbv(
+            Frame,
+            &injectFault);
+        /* Advance only after the extended-state mask was actually applied. */
+        if (handled) {
+            /* Continue at the instruction following XSETBV. */
+            handled = KswordARKHvmExitAdvanceRip(
+                telemetry.InstructionLength);
+        } else if (injectFault) {
+            /* Restart the instruction after the guest takes #GP. */
+            handled = KswordARKHvmExitInjectGeneralProtection();
+        }
+    /* Resolve MSR access that fell outside the pass-through bitmap. */
+    } else if (basicReason == KSW_VMX_EXIT_RDMSR ||
+               basicReason == KSW_VMX_EXIT_WRMSR) {
+        /* Classify the index against the architectural bitmap coverage. */
+        handled = KswordARKHvmExitEmulateMsr(
+            Frame,
+            (BOOLEAN)(basicReason == KSW_VMX_EXIT_WRMSR),
+            &injectFault);
+        /* Advance only after a complete emulation wrote every result. */
+        if (handled) {
+            /* Continue at the instruction following the MSR access. */
+            handled = KswordARKHvmExitAdvanceRip(
+                telemetry.InstructionLength);
+        } else if (injectFault) {
+            /* Restart the instruction after the guest takes #GP. */
+            handled = KswordARKHvmExitInjectGeneralProtection();
         }
     /* Restore allow-once EPT permissions after one guest instruction. */
     } else if (basicReason ==
@@ -493,18 +569,32 @@ KswordARKHvmResidentVmExitDispatch(
         /* Decode attempted read, write, and execute access. */
         access = KswordARKHvmExitDecodeEptAccess(
             telemetry.Qualification);
-        /* Temporarily grant one ruled access when allow-once is selected. */
+        /* Resolve the violation against every rule covering this page. */
         handled = KswordARKHvmEptHandleViolation(
             Context->Runtime,
             guestPhysicalAddress,
             access,
+            guestLinearValid,
             &Context->EptTransient,
-            &ruleId);
-        /* Enable monitor-trap only after a temporary grant succeeds. */
+            &ruleId,
+            &eptDisposition);
+        /* Complete the disposition the rule aggregation selected. */
         if (handled) {
-            /* Arm one-instruction permission restoration. */
-            handled = KswordARKHvmExitSetMonitorTrap(
-                TRUE);
+            if (eptDisposition ==
+                KSW_HVM_EPT_DISPOSITION_INJECT_FAULT) {
+                /*
+                 * Durable denial: the guest takes a page fault at the address
+                 * it touched and residency continues.  Nothing was granted,
+                 * so no monitor-trap step is needed.
+                 */
+                handled = KswordARKHvmExitInjectPageFault(
+                    guestLinearAddress,
+                    access);
+            } else {
+                /* Arm one-instruction permission restoration. */
+                handled = KswordARKHvmExitSetMonitorTrap(
+                    TRUE);
+            }
         }
     /* Dispatch bounded VMX instruction semantics without claiming L2 active. */
     } else if (KswordARKHvmExitIsNestedInstruction(

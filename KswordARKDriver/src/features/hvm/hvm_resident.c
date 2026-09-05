@@ -400,6 +400,9 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     input.Cr4Fixed1 = Context->Runtime->Cr4Fixed1;
     /* Reference the prepared MTRR-aware identity EPT. */
     input.EptPointer = Context->Runtime->EptPointer;
+    /* Keep resident guest MSR access native through the shared bitmap. */
+    input.MsrBitmapPhysical =
+        (ULONGLONG)Context->Runtime->MsrBitmapPhysical.QuadPart;
     /* Resume on the exact assembly wrapper stack. */
     input.GuestStackPointer =
         Context->LaunchStackPointer;
@@ -1059,12 +1062,20 @@ KswordARKHvmResidentStart(
         /* Return the exact caller-contract failure. */
         return STATUS_INVALID_PARAMETER;
     }
-    /* Resident entry requires the complete driver-side lifecycle guard set. */
+    /*
+     * Resident entry requires the complete driver-side lifecycle guard set,
+     * plus the MSR bitmap.  Without the bitmap every RDMSR and WRMSR exits
+     * unconditionally, so residency would collapse on the first MSR access
+     * the running system performs.
+     */
     if (!Runtime->ResidentStartAllowed ||
+        Runtime->MsrBitmapPhysical.QuadPart == 0LL ||
         (Runtime->FeatureFlags &
             (KSWORD_ARK_HVM_FEATURE_INTEL |
+             KSWORD_ARK_HVM_FEATURE_MSR_BITMAP |
              KSWORD_ARK_HVM_FEATURE_RESIDENT_LIFECYCLE_GUARDED)) !=
             (KSWORD_ARK_HVM_FEATURE_INTEL |
+             KSWORD_ARK_HVM_FEATURE_MSR_BITMAP |
              KSWORD_ARK_HVM_FEATURE_RESIDENT_LIFECYCLE_GUARDED)) {
         /* Preserve every nonresident HVM capability while refusing residency. */
         Runtime->ResidentImplementation =

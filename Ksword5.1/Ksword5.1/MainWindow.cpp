@@ -7726,14 +7726,17 @@ void MainWindow::initPrivilegeStatusButtons()
     m_debugStatusButton = new QPushButton("Debug", m_privilegeButtonContainer);
     m_systemStatusButton = new QPushButton("System", m_privilegeButtonContainer);
     m_r0StatusButton = new QPushButton("R0", m_privilegeButtonContainer);
+    // KVM 排在 R0 右侧：它比 R0 更低一层（hypervisor / R-1），且以 R0 为前提。
+    m_kvmStatusButton = new QPushButton("KVM", m_privilegeButtonContainer);
 
     // 统一按钮尺寸，保证右上角布局整齐。
-    const std::array<QPushButton*, 5> statusButtons{
+    const std::array<QPushButton*, 6> statusButtons{
         m_uiAccessStatusButton,
         m_adminStatusButton,
         m_debugStatusButton,
         m_systemStatusButton,
-        m_r0StatusButton
+        m_r0StatusButton,
+        m_kvmStatusButton
     };
     for (QPushButton* statusButton : statusButtons)
     {
@@ -7756,6 +7759,19 @@ void MainWindow::initPrivilegeStatusButtons()
     m_debugStatusButton->setToolTip(QStringLiteral("Debug：调试特权（SeDebugPrivilege）状态，用于访问受保护进程。点击申请该特权（需要管理员）。"));
     m_systemStatusButton->setToolTip(QStringLiteral("System：当前是否以 LocalSystem 系统账户运行。点击查看当前身份说明。"));
     m_r0StatusButton->setToolTip(QStringLiteral("R0：KswordARK 内核驱动服务状态。点击启动或停止驱动（内核功能都依赖它）。"));
+    m_kvmStatusButton->setToolTip(QStringLiteral("KVM：KSwordVM 硬件虚拟化（R-1）常驻状态。左键启动或停止常驻，右键打开 R-1 能力菜单。"));
+    // 右键菜单承载写权限开关与保持自检等不适合放进单击的能力。
+    m_kvmStatusButton->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_kvmStatusButton, &QPushButton::customContextMenuRequested,
+        this, [this](const QPoint& position) {
+            if (m_kvmStatusButton != nullptr)
+            {
+                showKvmMenu(m_kvmStatusButton->mapToGlobal(position));
+            }
+        });
+    connect(m_kvmStatusButton, &QPushButton::clicked, this, [this]() {
+        handleKvmStatusButtonClicked();
+    });
 
     // UIAccess 按钮：
     // - 当前实例已带 UIAccess 时降级回普通用户实例；
@@ -8186,6 +8202,23 @@ void MainWindow::refreshPrivilegeStatusButtons()
     if (m_r0StatusButton != nullptr)
     {
         m_r0StatusButton->setStyleSheet(buildR0ButtonStyle(r0Enabled));
+    }
+    // KVM 只用缓存值刷新外观：状态查询是阻塞 IOCTL，必须走后台。
+    applyKvmButtonState();
+    // 驱动没运行时不查询，避免每个刷新周期都撞一次不存在的设备。
+    if (r0Enabled)
+    {
+        refreshKvmStatusAsync();
+    }
+    else if (m_kvmAvailable || m_kvmResidentActive)
+    {
+        // 驱动刚被停掉时立刻把 KVM 打回不可用，不保留上一轮的乐观状态。
+        m_kvmAvailable = false;
+        m_kvmResidentActive = false;
+        m_kvmFaulted = false;
+        m_kvmGeneration = 0;
+        m_kvmTooltip.clear();
+        applyKvmButtonState();
     }
 
     if (m_uiAccessStatusButton != nullptr)

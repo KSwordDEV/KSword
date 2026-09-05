@@ -617,6 +617,12 @@
     <ClCompile Include="src\features\hvm\hvm_exit.c">
       <Filter>Source Files\Features\HVM</Filter>
     </ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_exit_emulate.c">
+      <Filter>Source Files\Features\HVM</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_memory.c">
+      <Filter>Source Files\Features\HVM</Filter>
+    </ClCompile>
     <ClCompile Include="src\features\hvm\hvm_resident.c">
       <Filter>Source Files\Features\HVM</Filter>
     </ClCompile>

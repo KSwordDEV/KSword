@@ -1,6 +1,7 @@
 #include "ArkDriverClient.h"
 
 #include <algorithm>
+#include <cstring>
 #include <sstream>
 
 namespace ksword::ark
@@ -56,7 +57,8 @@ namespace ksword::ark
         const bool uiConfirmed,
         const bool enableEptEvents,
         const bool enableNestedVmx,
-        const bool enableEvmcs) const
+        const bool enableEvmcs,
+        const unsigned long soakMilliseconds) const
     {
         HvmControlResult result{};
         KSWORD_ARK_CONTROL_HVM_REQUEST request{};
@@ -91,6 +93,11 @@ namespace ksword::ark
         {
             request.flags |= KSWORD_ARK_HVM_CONTROL_FLAG_ONE_SHOT_GUEST;
         }
+        // 驱动只允许 SOAK 携带非零时长，其它命令必须保持该字段为零。
+        if (command == KSWORD_ARK_HVM_CONTROL_SOAK)
+        {
+            request.soakMilliseconds = soakMilliseconds;
+        }
         request.confirmationToken =
             KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
         request.expectedGeneration = expectedGeneration;
@@ -118,6 +125,14 @@ namespace ksword::ark
             << result.response.selfTestPassedProcessorCount
             << ", vmExits=" << result.response.vmExitCount
             << ", lastExitReason=" << result.response.lastExitReason;
+        // 常驻保持自检的结论只有两项：实际保持时长与掉出 non-root 的处理器数。
+        if (command == KSWORD_ARK_HVM_CONTROL_SOAK)
+        {
+            stream << ", soakMs="
+                << result.response.soakElapsedMilliseconds
+                << ", soakLost="
+                << result.response.soakUnexpectedDevirtualizations;
+        }
         if (result.unsupported)
         {
             stream << ", unsupported=true";
@@ -135,7 +150,8 @@ namespace ksword::ark
         const std::uint64_t pageCount,
         const bool log,
         const bool allowOnce,
-        const bool uiConfirmed) const
+        const bool uiConfirmed,
+        const bool enforce) const
     {
         HvmEptRuleResult result{};
         KSWORD_ARK_HVM_EPT_RULE_REQUEST request{};
@@ -154,6 +170,10 @@ namespace ksword::ark
         if (allowOnce)
         {
             request.flags |= KSWORD_ARK_HVM_EPT_RULE_FLAG_ALLOW_ONCE;
+        }
+        if (enforce)
+        {
+            request.flags |= KSWORD_ARK_HVM_EPT_RULE_FLAG_ENFORCE;
         }
         if (uiConfirmed)
         {
@@ -220,6 +240,74 @@ namespace ksword::ark
             << ", available=" << result.response.availableRows
             << ", dropped=" << result.response.droppedRows
             << ", newest=" << result.response.newestSequence;
+        if (result.unsupported)
+        {
+            stream << ", unsupported=true";
+        }
+        result.io.message = stream.str();
+        return result;
+    }
+
+    HvmMemoryResult DriverClient::hvmMemory(
+        const unsigned long operation,
+        const std::uint64_t address,
+        const std::uint64_t directoryBase,
+        const unsigned long length,
+        const unsigned char* const payload,
+        const bool requireWindow,
+        const bool uiConfirmed) const
+    {
+        HvmMemoryResult result{};
+        KSWORD_ARK_HVM_MEMORY_REQUEST request{};
+        request.version = KSWORD_ARK_HVM_MEMORY_PROTOCOL_VERSION;
+        request.size = sizeof(request);
+        request.operation = operation;
+        request.address = address;
+        request.directoryBase = directoryBase;
+        // 驱动会拒绝超长请求，这里先夹住，避免把越界长度写进 payload 拷贝。
+        request.length = length > KSWORD_ARK_HVM_MEMORY_MAX_BYTES
+            ? KSWORD_ARK_HVM_MEMORY_MAX_BYTES
+            : length;
+        if (uiConfirmed)
+        {
+            request.flags |= KSWORD_ARK_HVM_MEMORY_FLAG_UI_CONFIRMED;
+        }
+        if (requireWindow)
+        {
+            request.flags |= KSWORD_ARK_HVM_MEMORY_FLAG_REQUIRE_WINDOW;
+        }
+        request.confirmationToken =
+            KSWORD_ARK_HVM_MEMORY_CONFIRMATION_TOKEN;
+        // 只有写操作携带负载；读操作把请求数据区保持为零。
+        if (payload != nullptr &&
+            request.length > 0 &&
+            (operation == KSWORD_ARK_HVM_MEMORY_OP_WRITE_PHYSICAL ||
+             operation == KSWORD_ARK_HVM_MEMORY_OP_WRITE_VIRTUAL))
+        {
+            std::memcpy(request.data, payload, request.length);
+        }
+
+        result.io = deviceIoControl(
+            IOCTL_KSWORD_ARK_HVM_MEMORY,
+            &request,
+            sizeof(request),
+            &result.response,
+            sizeof(result.response));
+        result.unsupported = !result.io.ok &&
+            isUnsupportedHvmError(result.io.win32Error);
+        result.io.ntStatus = result.response.ntStatus;
+
+        std::ostringstream stream;
+        stream << "HVM memory op=" << operation
+            << ", status=" << result.response.status
+            << ", address=0x" << std::hex << address
+            << ", physical=0x" << result.response.physicalAddress
+            << std::dec
+            << ", length=" << request.length
+            << ", transferred=" << result.response.bytesTransferred
+            << ", window=" << static_cast<unsigned>(result.response.windowReady)
+            << ", direct="
+            << static_cast<unsigned>(result.response.usedDirectWindow);
         if (result.unsupported)
         {
             stream << ", unsupported=true";

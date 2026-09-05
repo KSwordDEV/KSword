@@ -19,6 +19,7 @@ Environment:
 
 #include "hvm_internal.h"
 #include "hvm_guest.h"
+#include "hvm_memory.h"
 #include "hvm_ept.h"
 #include "hvm_event.h"
 #include "hvm_evmcs.h"
@@ -442,6 +443,18 @@ KswordARKHvmReadCapabilities(
         Runtime->FeatureFlags |=
             KSWORD_ARK_HVM_FEATURE_TRUE_CONTROLS;
     }
+    /*
+     * Publish the MSR bitmap as a discovered capability rather than assuming
+     * it.  Without this control every RDMSR and WRMSR exits unconditionally,
+     * and no resident guest survives the resulting exit storm.
+     */
+    if (((primaryControls >> 32) & (1ULL << 28)) != 0ULL) {
+        Runtime->FeatureFlags |=
+            KSWORD_ARK_HVM_FEATURE_MSR_BITMAP;
+    }
+    /* This build completes every unconditional exit inside the dispatcher. */
+    Runtime->FeatureFlags |=
+        KSWORD_ARK_HVM_FEATURE_EXIT_EMULATION;
 
     /* The high dword of each control MSR is its allowed-one mask. */
     if ((((secondaryControls >> 32) & (1ULL << 1)) != 0ULL) &&
@@ -905,6 +918,13 @@ KswordARKHvmFreeResourcesLocked(
         }
     }
 
+    /* Release the shared MSR bitmap only after every VMCS reference is gone. */
+    if (Runtime->MsrBitmapVirtual != NULL) {
+        MmFreeContiguousMemory(Runtime->MsrBitmapVirtual);
+        Runtime->MsrBitmapVirtual = NULL;
+        Runtime->MsrBitmapPhysical.QuadPart = 0LL;
+    }
+
     /* Clear all resource-derived state while preserving capability evidence. */
     RtlZeroMemory(Runtime->Processors, sizeof(Runtime->Processors));
     RtlZeroMemory(Runtime->EptPages, sizeof(Runtime->EptPages));
@@ -1014,6 +1034,28 @@ KswordARKHvmAllocateProcessorResourcesLocked(
 
     /* Enumerate every active group without exceeding the stable protocol cap. */
     highest.QuadPart = MAXLONGLONG;
+    /*
+     * Every processor shares one MSR bitmap because the policy is global.
+     * A zeroed bitmap keeps guest MSR access native; without the bitmap the
+     * CPU exits on every RDMSR and WRMSR and no resident guest survives.
+     */
+    if (Runtime->MsrBitmapVirtual == NULL) {
+        Runtime->MsrBitmapVirtual =
+            MmAllocateContiguousMemorySpecifyCache(
+                (SIZE_T)KSW_HVM_PAGE_BYTES,
+                lowest,
+                highest,
+                boundary,
+                MmCached);
+        if (Runtime->MsrBitmapVirtual == NULL) {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+        RtlZeroMemory(
+            Runtime->MsrBitmapVirtual,
+            (SIZE_T)KSW_HVM_PAGE_BYTES);
+        Runtime->MsrBitmapPhysical =
+            MmGetPhysicalAddress(Runtime->MsrBitmapVirtual);
+    }
     groupCount = KeQueryActiveGroupCount();
     for (group = 0U;
          group < groupCount &&
@@ -1632,6 +1674,12 @@ KswordARKHvmInitialize(
         &g_KswordHvm.ResidentTransitionIdleEvent,
         NotificationEvent,
         TRUE);
+    /*
+     * Reserve the ring -1 memory window here rather than at first use: the
+     * self-map discovery it depends on is cheap once and pointless to retry,
+     * and a failed reservation only downgrades the feature to its fallback.
+     */
+    KswordARKHvmMemoryInitialize();
     g_KswordHvm.Initialized = TRUE;
     g_KswordHvm.StateFlags = KSWORD_ARK_HVM_STATE_INITIALIZED;
     g_KswordHvm.Generation = 1UL;
@@ -1823,6 +1871,8 @@ KswordARKHvmUninitialize(
     if (!g_KswordHvm.Initialized) {
         return;
     }
+    /* Close the ring -1 window before any other teardown can use it. */
+    KswordARKHvmMemoryShutdown();
     /* Block new residency before draining either lifecycle callback. */
     g_KswordHvm.ResidentStartAllowed = FALSE;
     InterlockedExchange(
@@ -2011,6 +2061,94 @@ KswordARKHvmQuery(
     return STATUS_SUCCESS;
 }
 
+/*
+ * Hold residency for a bounded window and report whether it survived.  Entering
+ * and leaving VMX non-root once only proves the transition works; a soak is the
+ * evidence that the dispatcher completes the exits ordinary system activity
+ * generates instead of failing closed into devirtualization.
+ */
+static NTSTATUS
+KswordARKHvmSoakLocked(
+    _Inout_ KSW_HVM_RUNTIME* Runtime,
+    _In_ const KSWORD_ARK_CONTROL_HVM_REQUEST* Request,
+    _Inout_ KSWORD_ARK_CONTROL_HVM_RESPONSE* Response
+    )
+{
+    LARGE_INTEGER interval = { 0 };
+    ULONG requested = Request->soakMilliseconds;
+    ULONG elapsed = 0UL;
+    LONG expectedResident = 0L;
+    LONG observedResident = 0L;
+    LONG lowestResident = 0L;
+    NTSTATUS status = STATUS_SUCCESS;
+    NTSTATUS stopStatus = STATUS_SUCCESS;
+
+    /* Clamp the window so a malformed request cannot hold VMX indefinitely. */
+    if (requested < KSWORD_ARK_HVM_SOAK_MIN_MILLISECONDS) {
+        requested = KSWORD_ARK_HVM_SOAK_MIN_MILLISECONDS;
+    }
+    if (requested > KSWORD_ARK_HVM_SOAK_MAX_MILLISECONDS) {
+        requested = KSWORD_ARK_HVM_SOAK_MAX_MILLISECONDS;
+    }
+    /* Enter resident VMX through the same all-processor rendezvous as START. */
+    status = KswordARKHvmResidentStart(
+        Runtime,
+        Request->flags);
+    /* Leave every soak counter at zero when residency never started. */
+    if (!NT_SUCCESS(status)) {
+        /* Return the exact rendezvous failure without publishing evidence. */
+        return status;
+    }
+    /* Every prepared processor must stay resident for the whole window. */
+    expectedResident = (LONG)Runtime->ProcessorCount;
+    /* Track the worst residency observed rather than only the final value. */
+    lowestResident = expectedResident;
+    /* Sample on a fixed slice instead of one uninterruptible long wait. */
+    interval.QuadPart =
+        -((LONGLONG)KSW_HVM_SOAK_SLICE_MILLISECONDS * 10000LL);
+    while (elapsed < requested) {
+        /* Wait exactly one slice without allowing an alert to shorten it. */
+        KeDelayExecutionThread(
+            KernelMode,
+            FALSE,
+            &interval);
+        /* Account the slice that just completed. */
+        elapsed += KSW_HVM_SOAK_SLICE_MILLISECONDS;
+        /* Read how many processors still run in VMX non-root. */
+        observedResident = InterlockedCompareExchange(
+            &Runtime->ResidentProcessorCount,
+            0L,
+            0L);
+        /* Preserve the lowest residency seen anywhere in the window. */
+        if (observedResident < lowestResident) {
+            lowestResident = observedResident;
+        }
+        /* Stop early once residency collapsed on every processor. */
+        if (observedResident == 0L) {
+            break;
+        }
+    }
+    /* Leave resident VMX through the all-processor rollback path. */
+    stopStatus = KswordARKHvmResidentStop(Runtime);
+    /* Publish the window that actually elapsed. */
+    Response->soakElapsedMilliseconds = elapsed;
+    /* Publish how many processors left VMX non-root without being asked. */
+    Response->soakUnexpectedDevirtualizations =
+        (ULONG)(expectedResident - lowestResident);
+    /* A soak that lost any processor did not prove sustained residency. */
+    if (Response->soakUnexpectedDevirtualizations != 0UL) {
+        /* Preserve a stop failure, otherwise report the residency failure. */
+        return NT_SUCCESS(stopStatus)
+            ? STATUS_HV_OPERATION_FAILED
+            : stopStatus;
+    }
+    /* Publish sustained residency only after one complete clean window. */
+    Runtime->FeatureFlags |=
+        KSWORD_ARK_HVM_FEATURE_RESIDENT_SUSTAINED;
+    /* Return the authoritative stop status for a clean soak. */
+    return stopStatus;
+}
+
 NTSTATUS
 KswordARKHvmControl(
     _In_ const KSWORD_ARK_CONTROL_HVM_REQUEST* Request,
@@ -2074,6 +2212,15 @@ KswordARKHvmControl(
             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX;
         /* Stop after selecting the resident-start flag set. */
         break;
+    case KSWORD_ARK_HVM_CONTROL_SOAK:
+        /* A soak is a bounded resident start, so it accepts the same flags. */
+        allowedFlags =
+            KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED |
+            KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
+            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPT_EVENTS |
+            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX;
+        /* Stop after selecting the soak flag set. */
+        break;
     case KSWORD_ARK_HVM_CONTROL_VALIDATE_NESTED:
         /* Validation accepts only explicit nested/eVMCS discovery selectors. */
         allowedFlags =
@@ -2099,8 +2246,9 @@ KswordARKHvmControl(
     }
     if (Request->version != KSWORD_ARK_HVM_PROTOCOL_VERSION ||
         Request->size != sizeof(*Request) ||
-        Request->reserved[0] != 0UL ||
-        Request->reserved[1] != 0UL ||
+        Request->reserved != 0UL ||
+        (Request->command != KSWORD_ARK_HVM_CONTROL_SOAK &&
+            Request->soakMilliseconds != 0UL) ||
         (Request->flags & ~allowedFlags) != 0UL ||
         Request->confirmationToken !=
             KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN ||
@@ -2117,6 +2265,8 @@ KswordARKHvmControl(
             KSWORD_ARK_HVM_CONTROL_STOP_RESIDENT &&
          Request->command !=
             KSWORD_ARK_HVM_CONTROL_VALIDATE_NESTED &&
+         Request->command !=
+            KSWORD_ARK_HVM_CONTROL_SOAK &&
          Request->command !=
             KSWORD_ARK_HVM_CONTROL_RESET_FAULT)) {
         Response->status =
@@ -2145,6 +2295,8 @@ KswordARKHvmControl(
             KSWORD_ARK_HVM_CONTROL_START_RESIDENT ||
          Request->command ==
             KSWORD_ARK_HVM_CONTROL_VALIDATE_NESTED ||
+         Request->command ==
+            KSWORD_ARK_HVM_CONTROL_SOAK ||
          Request->command ==
             KSWORD_ARK_HVM_CONTROL_RESET_FAULT) &&
         (Request->flags & KSWORD_ARK_HVM_CONTROL_FLAG_FORCE) == 0UL) {
@@ -2236,6 +2388,13 @@ KswordARKHvmControl(
         /* Leave resident VMX through the all-processor rollback path. */
         status = KswordARKHvmResidentStop(
             &g_KswordHvm);
+    } else if (Request->command ==
+        KSWORD_ARK_HVM_CONTROL_SOAK) {
+        /* Hold residency for a bounded window and report whether it held. */
+        status = KswordARKHvmSoakLocked(
+            &g_KswordHvm,
+            Request,
+            Response);
     } else if (Request->command ==
         KSWORD_ARK_HVM_CONTROL_VALIDATE_NESTED) {
         NTSTATUS nestedStatus = STATUS_SUCCESS;

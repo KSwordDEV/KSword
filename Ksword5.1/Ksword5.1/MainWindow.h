@@ -222,6 +222,20 @@ private:
     void handleUiAccessButtonClicked();
     void handleR0StatusButtonClicked();
 
+    // KVM（KSwordVM，R-1 层）按钮：
+    // - handleKvmStatusButtonClicked：左键切换常驻；未准备时自动准备并自检；
+    // - showKvmMenu：右键/长按弹出 R-1 能力菜单（写权限开关、保持自检、故障重置）；
+    // - refreshKvmStatusAsync：后台线程读取 HVM 状态快照，回到 UI 线程刷新按钮。
+    //   状态查询是阻塞 IOCTL，绝不能在权限按钮的同步刷新路径里直接调用。
+    void handleKvmStatusButtonClicked();
+    void showKvmMenu(const QPoint& globalPosition);
+    void refreshKvmStatusAsync();
+    void applyKvmButtonState();
+    // runKvmSoak：启动常驻、保持指定毫秒数、再停止，用于证明常驻能长期存活。
+    void runKvmSoak(unsigned long milliseconds);
+    // runKvmFaultReset：清除可恢复的故障与回滚标记；常驻中会被驱动拒绝。
+    void runKvmFaultReset();
+
     // hasUiAccessPrivilege 作用：
     // - 查询当前进程令牌 TokenUIAccess 状态；
     // - 返回 true 表示当前实例已经带 UIAccess 位。
@@ -702,6 +716,14 @@ private:
     QPushButton* m_debugStatusButton = nullptr;
     QPushButton* m_systemStatusButton = nullptr;
     QPushButton* m_r0StatusButton = nullptr;
+    QPushButton* m_kvmStatusButton = nullptr;   // m_kvmStatusButton：KSwordVM（R-1 层）常驻开关与能力入口。
+    bool m_kvmResidentActive = false;           // m_kvmResidentActive：最近一次快照中是否有处理器处于 VMX non-root。
+    bool m_kvmAvailable = false;                // m_kvmAvailable：硬件与驱动是否满足常驻硬件门。
+    bool m_kvmFaulted = false;                  // m_kvmFaulted：存在故障或待回滚，点击前必须先重置。
+    bool m_kvmQueryInFlight = false;            // m_kvmQueryInFlight：合并并发的后台状态查询，避免请求堆积。
+    bool m_kvmOperationRunning = false;         // m_kvmOperationRunning：常驻切换或保持自检期间禁用按钮。
+    unsigned long m_kvmGeneration = 0;          // m_kvmGeneration：用于 compare-before 控制请求的状态代次。
+    QString m_kvmTooltip;                       // m_kvmTooltip：最近一次快照生成的多行状态说明。
     bool m_r0DriverServiceRunning = false;      // m_r0DriverServiceRunning：KswordARK 驱动服务当前是否运行。
     bool m_r0UnavailablePromptArmed = false;   // 主窗口显示后才允许 R0 缺失提示，避免启动后台探测造成无意义弹窗。
     bool m_r0UnavailablePromptShowing = false; // 合并同一时间到达的多个 Dock/后台 R0 请求。

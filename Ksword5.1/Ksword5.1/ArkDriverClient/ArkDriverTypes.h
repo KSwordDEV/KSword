@@ -1492,6 +1492,16 @@ namespace ksword::ark
         KSWORD_ARK_CONTROL_HVM_RESPONSE response{};
     };
 
+    // HvmMemoryResult carries one ring -1 memory access. usedDirectWindow
+    // distinguishes the hook-free private-window path from the documented
+    // MmCopyMemory fallback, so a caller can tell which one actually ran.
+    struct HvmMemoryResult
+    {
+        IoResult io;
+        bool unsupported = false;
+        KSWORD_ARK_HVM_MEMORY_RESPONSE response{};
+    };
+
     // Read-only EPT/NPT cross-view and IOMMU firmware/runtime evidence.
     // A clean guest-visible result cannot prove an opaque outer SLAT is clean.
     struct SlatIommuAuditResult

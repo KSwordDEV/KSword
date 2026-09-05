@@ -48,6 +48,9 @@
     <QtMoc Include="Ksword5.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+    <QtMoc Include="UI\KvmMemoryDialog.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -57,6 +60,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MainWindow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MainWindow.Kvm.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MiscDock\BootEditor\BootEditorTab.Actions.cpp">
@@ -829,6 +835,12 @@
     <ClCompile Include="UI\GlobalUiSearch.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UI\KvmControl.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\KvmMemoryDialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="UI\CommandExecutionPopup.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1444,6 +1456,9 @@
       <Filter>Header Files</Filter>
     </QtMoc>
     <ClInclude Include="UI\HexEditorWidget.Internal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\KvmControl.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <QtMoc Include="UI\CodeEditorWidget.h">

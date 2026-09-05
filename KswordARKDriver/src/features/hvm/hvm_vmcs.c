@@ -54,6 +54,7 @@ Environment:
 
 #define KSW_VMX_BASIC_TRUE_CONTROLS (1ULL << 55)
 #define KSW_VMX_PRIMARY_HLT_EXITING (1UL << 7)
+#define KSW_VMX_PRIMARY_USE_MSR_BITMAPS (1UL << 28)
 #define KSW_VMX_PRIMARY_SECONDARY_CONTROLS (1UL << 31)
 #define KSW_VMX_SECONDARY_EPT (1UL << 1)
 #define KSW_VMX_SECONDARY_RDTSCP (1UL << 3)
@@ -105,6 +106,7 @@ Environment:
 #define KSW_VMCS_HOST_TR_SELECTOR 0x0C0CUL
 #define KSW_VMCS_GUEST_UINV 0x0814UL
 
+#define KSW_VMCS_MSR_BITMAP 0x2004UL
 #define KSW_VMCS_XSS_EXITING_BITMAP 0x202CUL
 #define KSW_VMCS_PCONFIG_EXITING_BITMAP 0x203EUL
 #define KSW_VMCS_SECONDARY_EXIT_CONTROLS 0x2044UL
@@ -749,6 +751,14 @@ KswordARKHvmConfigureVmcs(
         (Input->ResidentMode == 0U
             ? KSW_VMX_PRIMARY_HLT_EXITING
             : 0UL) |
+            /*
+             * Without this control every RDMSR and WRMSR exits unconditionally,
+             * which no resident guest can survive.  Request it exactly when the
+             * caller owns a bitmap page to point the VMCS field at.
+             */
+            (Input->MsrBitmapPhysical != 0ULL
+                ? KSW_VMX_PRIMARY_USE_MSR_BITMAPS
+                : 0UL) |
             KSW_VMX_PRIMARY_SECONDARY_CONTROLS,
         primaryCapability);
     /* 同时启用 EPT 与 Windows 已经通过 CPUID 观察到的指令执行门控。 */
@@ -803,6 +813,15 @@ KswordARKHvmConfigureVmcs(
             secondaryExitCapability);
     }
 
+    /*
+     * A caller that owns a bitmap page requires the control to actually engage.
+     * Silently continuing would leave every MSR access exiting into a
+     * dispatcher path that cannot sustain a resident guest.
+     */
+    if (Input->MsrBitmapPhysical != 0ULL &&
+        (primaryControls & KSW_VMX_PRIMARY_USE_MSR_BITMAPS) == 0UL) {
+        return STATUS_NOT_SUPPORTED;
+    }
     /* Reject hardware that cannot activate the required secondary controls. */
     if ((primaryControls & KSW_VMX_PRIMARY_SECONDARY_CONTROLS) == 0UL ||
         (secondaryControls & KSW_VMX_SECONDARY_EPT) == 0UL ||
@@ -857,6 +876,7 @@ KswordARKHvmConfigureVmcs(
             { KSW_VMCS_ENTRY_EXCEPTION_ERROR, 0U },
             { KSW_VMCS_ENTRY_INSTRUCTION_LENGTH, 0U },
             { KSW_VMCS_TPR_THRESHOLD, 0U },
+            { KSW_VMCS_MSR_BITMAP, (SIZE_T)Input->MsrBitmapPhysical },
             { KSW_VMCS_EPT_POINTER, (SIZE_T)Input->EptPointer },
             { KSW_VMCS_GUEST_LINK_POINTER, (SIZE_T)MAXULONGLONG },
             { KSW_VMCS_GUEST_DEBUGCTL, (SIZE_T)debugControl },

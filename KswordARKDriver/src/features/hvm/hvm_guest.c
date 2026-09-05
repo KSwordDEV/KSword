@@ -418,6 +418,9 @@ KswordARKHvmLaunchControlledGuest(
         vmcsInput.Cr4Fixed1 = Input->Cr4Fixed1;
         /* Reference the prebuilt identity-mapped EPT hierarchy. */
         vmcsInput.EptPointer = Input->EptPointer;
+        /* Share the same MSR bitmap so one-shot and resident behave alike. */
+        vmcsInput.MsrBitmapPhysical =
+            (ULONGLONG)Input->Runtime->MsrBitmapPhysical.QuadPart;
         /* Align the guest stack top to the x64 ABI boundary. */
         vmcsInput.GuestStackPointer =
             ((ULONGLONG)(ULONG_PTR)guestStack +

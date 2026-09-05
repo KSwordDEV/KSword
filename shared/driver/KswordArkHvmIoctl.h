@@ -8,13 +8,14 @@
  * hypervisor.  ACTIVE is published only after every selected processor has
  * entered VMX non-root operation and the rollback rendezvous is available.
  */
-#define KSWORD_ARK_HVM_PROTOCOL_VERSION 3UL
+#define KSWORD_ARK_HVM_PROTOCOL_VERSION 4UL
 
 #define KSWORD_ARK_IOCTL_FUNCTION_QUERY_HVM   0x8CAUL
 #define KSWORD_ARK_IOCTL_FUNCTION_CONTROL_HVM 0x8CBUL
 // 0x8CC-0x8CD are occupied by driver-dispatch and SLAT/IOMMU on main.
 #define KSWORD_ARK_IOCTL_FUNCTION_HVM_EPT_RULE 0x8B8UL
 #define KSWORD_ARK_IOCTL_FUNCTION_HVM_EVENTS   0x8B9UL
+#define KSWORD_ARK_IOCTL_FUNCTION_HVM_MEMORY   0x8BAUL
 
 #define IOCTL_KSWORD_ARK_QUERY_HVM \
     CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_QUERY_HVM, METHOD_BUFFERED, FILE_ANY_ACCESS)
@@ -24,6 +25,14 @@
     CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_HVM_EPT_RULE, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 #define IOCTL_KSWORD_ARK_HVM_EVENTS \
     CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_HVM_EVENTS, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+/*
+ * Ring -1 memory access.  Reads are as privileged as writes here because the
+ * access path deliberately avoids the documented memory-manager entry points,
+ * so the whole interface requires write access rather than only the mutating
+ * half of it.
+ */
+#define IOCTL_KSWORD_ARK_HVM_MEMORY \
+    CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_HVM_MEMORY, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 
 #define KSWORD_ARK_HVM_VENDOR_CHARS 16U
 #define KSWORD_ARK_HVM_HYPERVISOR_VENDOR_CHARS 16U
@@ -67,6 +76,15 @@
 #define KSWORD_ARK_HVM_FEATURE_PROCESSOR_TOPOLOGY_GUARD  0x0000000200000000ULL
 #define KSWORD_ARK_HVM_FEATURE_DRIVER_UNLOAD_GUARD       0x0000000400000000ULL
 #define KSWORD_ARK_HVM_FEATURE_RESIDENT_LIFECYCLE_GUARDED 0x0000000800000000ULL
+/*
+ * The MSR bitmap is what makes residency survivable: without it every RDMSR
+ * and WRMSR exits unconditionally into a dispatcher that cannot complete them.
+ */
+#define KSWORD_ARK_HVM_FEATURE_MSR_BITMAP                 0x0000001000000000ULL
+/* The dispatcher completes every unconditional exit instead of devirtualizing. */
+#define KSWORD_ARK_HVM_FEATURE_EXIT_EMULATION             0x0000002000000000ULL
+/* A timed soak proved residency survives ordinary system activity. */
+#define KSWORD_ARK_HVM_FEATURE_RESIDENT_SUSTAINED         0x0000004000000000ULL
 
 #define KSWORD_ARK_HVM_STATE_INITIALIZED      0x00000001UL
 #define KSWORD_ARK_HVM_STATE_RESOURCES_READY  0x00000002UL
@@ -134,6 +152,17 @@
 #define KSWORD_ARK_HVM_CONTROL_STOP_RESIDENT  6UL
 #define KSWORD_ARK_HVM_CONTROL_VALIDATE_NESTED 7UL
 #define KSWORD_ARK_HVM_CONTROL_RESET_FAULT     8UL
+/*
+ * SOAK starts residency, holds it for the requested bounded window, and stops
+ * it again.  It is the only control that proves residency survives ordinary
+ * system activity rather than merely entering and leaving VMX non-root once.
+ */
+#define KSWORD_ARK_HVM_CONTROL_SOAK            9UL
+
+/* Bound one soak window so a stuck request can never hold VMX indefinitely. */
+#define KSWORD_ARK_HVM_SOAK_MAX_MILLISECONDS 30000UL
+/* Keep a soak long enough for scheduler, timer and MSR activity to occur. */
+#define KSWORD_ARK_HVM_SOAK_MIN_MILLISECONDS 100UL
 
 #define KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED 0x00000001UL
 #define KSWORD_ARK_HVM_CONTROL_FLAG_FORCE        0x00000002UL
@@ -187,6 +216,23 @@
 #define KSWORD_ARK_HVM_EPT_RULE_FLAG_LOG          0x00000001UL
 #define KSWORD_ARK_HVM_EPT_RULE_FLAG_ALLOW_ONCE   0x00000002UL
 #define KSWORD_ARK_HVM_EPT_RULE_FLAG_UI_CONFIRMED 0x00000004UL
+/*
+ * ENFORCE turns a rule from a tripwire into durable denial: the access is
+ * refused with an injected #PF and residency continues, instead of recording
+ * the hit and devirtualizing.  Unlike ALLOW_ONCE it never edits the shared EPT
+ * leaf, so it is safe on any processor count.
+ *
+ * The guest sees a page fault at an address its own page tables map, which is
+ * exactly what denial means here.  Kernel-mode targets can therefore bugcheck
+ * the moment a driver touches the protected page - that is the intended
+ * behavior of a deny rule, not a defect, and it is why the flag requires
+ * explicit confirmation.
+ *
+ * A rule can only deny an access whose guest-linear address the CPU reported,
+ * because CR2 has to be set for the injected fault to mean anything.  When it
+ * is unavailable the rule falls back to tripwire behavior.
+ */
+#define KSWORD_ARK_HVM_EPT_RULE_FLAG_ENFORCE      0x00000008UL
 
 #define KSWORD_ARK_HVM_EPT_RULE_STATUS_OK                    0UL
 #define KSWORD_ARK_HVM_EPT_RULE_STATUS_INVALID_REQUEST       1UL
@@ -311,7 +357,9 @@ typedef struct _KSWORD_ARK_CONTROL_HVM_REQUEST
     unsigned long flags;
     unsigned long confirmationToken;
     unsigned long expectedGeneration;
-    unsigned long reserved[2];
+    /* Requested soak window in milliseconds; only SOAK reads this field. */
+    unsigned long soakMilliseconds;
+    unsigned long reserved;
 } KSWORD_ARK_CONTROL_HVM_REQUEST;
 
 typedef struct _KSWORD_ARK_CONTROL_HVM_RESPONSE
@@ -348,6 +396,14 @@ typedef struct _KSWORD_ARK_CONTROL_HVM_RESPONSE
     unsigned char launchWasNested;
     long lastStatus;
     unsigned long reserved2;
+    /* Milliseconds residency actually held during the last soak. */
+    unsigned long soakElapsedMilliseconds;
+    /*
+     * Processors that left VMX non-root on their own during the soak.  Any
+     * nonzero value means an exit reason reached the fail-closed path, so the
+     * soak did not prove sustained residency.
+     */
+    unsigned long soakUnexpectedDevirtualizations;
 } KSWORD_ARK_CONTROL_HVM_RESPONSE;
 
 typedef struct _KSWORD_ARK_HVM_EPT_RULE_REQUEST
@@ -432,3 +488,80 @@ typedef struct _KSWORD_ARK_HVM_EVENT_QUERY_RESPONSE
     unsigned long long newestSequence;
     KSWORD_ARK_HVM_EVENT_ROW rows[KSWORD_ARK_HVM_MAX_EVENT_ROWS];
 } KSWORD_ARK_HVM_EVENT_QUERY_RESPONSE;
+
+/*
+ * Ring -1 memory access.
+ *
+ * The point of this interface is not that it can read memory - the kernel can
+ * already do that - but that it reaches memory without calling the documented
+ * memory-manager routines an attacker or a competing product may have hooked.
+ * It rewrites a private page-table entry and reads through its own window.
+ *
+ * When the self-map discovery that window depends on fails, the driver falls
+ * back to MmCopyMemory and says so in usedDirectWindow, so a caller can always
+ * tell whether the hook-free path was actually taken.
+ */
+#define KSWORD_ARK_HVM_MEMORY_PROTOCOL_VERSION 1UL
+
+/* Bound one transfer so METHOD_BUFFERED request snapshots stay small. */
+#define KSWORD_ARK_HVM_MEMORY_MAX_BYTES 1024UL
+
+#define KSWORD_ARK_HVM_MEMORY_OP_READ_PHYSICAL  1UL
+#define KSWORD_ARK_HVM_MEMORY_OP_WRITE_PHYSICAL 2UL
+#define KSWORD_ARK_HVM_MEMORY_OP_READ_VIRTUAL   3UL
+#define KSWORD_ARK_HVM_MEMORY_OP_WRITE_VIRTUAL  4UL
+#define KSWORD_ARK_HVM_MEMORY_OP_TRANSLATE      5UL
+/* Report whether the private window is available without touching memory. */
+#define KSWORD_ARK_HVM_MEMORY_OP_QUERY_WINDOW   6UL
+
+#define KSWORD_ARK_HVM_MEMORY_FLAG_UI_CONFIRMED 0x00000001UL
+/* Refuse the request outright when the private window is unavailable. */
+#define KSWORD_ARK_HVM_MEMORY_FLAG_REQUIRE_WINDOW 0x00000002UL
+
+/* Reuse the HVM control token so one confirmation vocabulary covers the area. */
+#define KSWORD_ARK_HVM_MEMORY_CONFIRMATION_TOKEN 0x48564D43UL
+
+#define KSWORD_ARK_HVM_MEMORY_STATUS_OK                    0UL
+#define KSWORD_ARK_HVM_MEMORY_STATUS_INVALID_REQUEST       1UL
+#define KSWORD_ARK_HVM_MEMORY_STATUS_CONFIRMATION_REQUIRED 2UL
+#define KSWORD_ARK_HVM_MEMORY_STATUS_WINDOW_UNAVAILABLE    3UL
+#define KSWORD_ARK_HVM_MEMORY_STATUS_ADDRESS_INVALID       4UL
+#define KSWORD_ARK_HVM_MEMORY_STATUS_TRANSLATION_FAILED    5UL
+#define KSWORD_ARK_HVM_MEMORY_STATUS_ACCESS_FAILED         6UL
+#define KSWORD_ARK_HVM_MEMORY_STATUS_PARTIAL               7UL
+#define KSWORD_ARK_HVM_MEMORY_STATUS_BUSY                  8UL
+
+typedef struct _KSWORD_ARK_HVM_MEMORY_REQUEST
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long operation;
+    unsigned long flags;
+    unsigned long confirmationToken;
+    unsigned long length;
+    /* Physical address for physical operations, virtual for the rest. */
+    unsigned long long address;
+    /*
+     * Target page-directory base for virtual operations.  Zero means the
+     * address is resolved through the page tables of the current process.
+     */
+    unsigned long long directoryBase;
+    unsigned char data[KSWORD_ARK_HVM_MEMORY_MAX_BYTES];
+} KSWORD_ARK_HVM_MEMORY_REQUEST;
+
+typedef struct _KSWORD_ARK_HVM_MEMORY_RESPONSE
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long status;
+    unsigned long bytesTransferred;
+    /* Physical address the access actually resolved to. */
+    unsigned long long physicalAddress;
+    /* Nonzero when the private page-table window carried the access. */
+    unsigned char usedDirectWindow;
+    /* Nonzero when the private window exists at all on this system. */
+    unsigned char windowReady;
+    unsigned short reserved0;
+    long ntStatus;
+    unsigned char data[KSWORD_ARK_HVM_MEMORY_MAX_BYTES];
+} KSWORD_ARK_HVM_MEMORY_RESPONSE;

@@ -438,7 +438,10 @@ namespace ksword::ark
             bool uiConfirmed,
             bool enableEptEvents = false,
             bool enableNestedVmx = false,
-            bool enableEvmcs = false) const;
+            bool enableEvmcs = false,
+            // soakMilliseconds：仅 KSWORD_ARK_HVM_CONTROL_SOAK 读取，
+            // 表示常驻保持时长；驱动侧会把它夹到协议规定的上下界之间。
+            unsigned long soakMilliseconds = 0) const;
         HvmEptRuleResult controlHvmEptRule(
             unsigned long operation,
             unsigned long expectedGeneration,
@@ -448,6 +451,21 @@ namespace ksword::ark
             std::uint64_t pageCount,
             bool log,
             bool allowOnce,
+            bool uiConfirmed,
+            // enforce：持久拒绝（命中注入 #PF 并继续常驻），与 allowOnce 互斥；
+            // 驱动侧在存储规则时会丢弃同时给出的 allowOnce。
+            bool enforce = false) const;
+        // hvmMemory：执行一次 R-1 内存操作（物理/虚拟读写、翻译、窗口查询）。
+        // - payload 只在写操作时使用，长度必须与 length 一致；
+        // - directoryBase 为 0 时虚拟地址按当前进程页表解析；
+        // - requireWindow 为 true 时拒绝回退到 MmCopyMemory 路径。
+        HvmMemoryResult hvmMemory(
+            unsigned long operation,
+            std::uint64_t address,
+            std::uint64_t directoryBase,
+            unsigned long length,
+            const unsigned char* payload,
+            bool requireWindow,
             bool uiConfirmed) const;
         // querySlatIommuAudit：只读采集 EPT/NPT 交叉视图、DMAR/IVRS
         // 与公开 IOMMU 接口证据；includeMmio 仅增加只读寄存器采样。
