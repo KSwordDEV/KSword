@@ -42,6 +42,13 @@ typedef struct _KSW_HVM_VMCS_INPUT
     ULONGLONG HostInstructionPointer;
     ULONGLONG GuestRflags;
     ULONGLONG MsrBitmapPhysical;
+    /* CR0/CR4 bits owned by the hypervisor; the guest reads them from shadow. */
+    ULONGLONG Cr0PinnedMask;
+    ULONGLONG Cr4PinnedMask;
+    /* Nonzero makes every address-space switch exit. Expensive by design. */
+    UCHAR TrackCr3;
+    /* Nonzero makes guest debug-register access exit. */
+    UCHAR InterceptDr;
     UCHAR ResidentMode;
     UCHAR EnableNestedVmx;
     USHORT Reserved;

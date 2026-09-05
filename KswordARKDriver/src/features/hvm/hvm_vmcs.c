@@ -54,6 +54,8 @@ Environment:
 
 #define KSW_VMX_BASIC_TRUE_CONTROLS (1ULL << 55)
 #define KSW_VMX_PRIMARY_HLT_EXITING (1UL << 7)
+#define KSW_VMX_PRIMARY_CR3_LOAD_EXITING (1UL << 15)
+#define KSW_VMX_PRIMARY_MOV_DR_EXITING (1UL << 23)
 #define KSW_VMX_PRIMARY_USE_MSR_BITMAPS (1UL << 28)
 #define KSW_VMX_PRIMARY_SECONDARY_CONTROLS (1UL << 31)
 #define KSW_VMX_SECONDARY_EPT (1UL << 1)
@@ -759,6 +761,17 @@ KswordARKHvmConfigureVmcs(
             (Input->MsrBitmapPhysical != 0ULL
                 ? KSW_VMX_PRIMARY_USE_MSR_BITMAPS
                 : 0UL) |
+            /*
+             * CR3-load exiting turns every address-space switch into a VM
+             * exit.  It is requested only when a policy explicitly asks for
+             * it, because Windows switches CR3 thousands of times a second.
+             */
+            (Input->TrackCr3 != 0U
+                ? KSW_VMX_PRIMARY_CR3_LOAD_EXITING
+                : 0UL) |
+            (Input->InterceptDr != 0U
+                ? KSW_VMX_PRIMARY_MOV_DR_EXITING
+                : 0UL) |
             KSW_VMX_PRIMARY_SECONDARY_CONTROLS,
         primaryCapability);
     /* 同时启用 EPT 与 Windows 已经通过 CPUID 观察到的指令执行门控。 */
@@ -822,6 +835,17 @@ KswordARKHvmConfigureVmcs(
         (primaryControls & KSW_VMX_PRIMARY_USE_MSR_BITMAPS) == 0UL) {
         return STATUS_NOT_SUPPORTED;
     }
+    /*
+     * A policy that asked for these controls must actually get them; silently
+     * running without the interception it configured would be worse than
+     * refusing to launch.
+     */
+    if ((Input->TrackCr3 != 0U &&
+            (primaryControls & KSW_VMX_PRIMARY_CR3_LOAD_EXITING) == 0UL) ||
+        (Input->InterceptDr != 0U &&
+            (primaryControls & KSW_VMX_PRIMARY_MOV_DR_EXITING) == 0UL)) {
+        return STATUS_NOT_SUPPORTED;
+    }
     /* Reject hardware that cannot activate the required secondary controls. */
     if ((primaryControls & KSW_VMX_PRIMARY_SECONDARY_CONTROLS) == 0UL ||
         (secondaryControls & KSW_VMX_SECONDARY_EPT) == 0UL ||
@@ -880,8 +904,8 @@ KswordARKHvmConfigureVmcs(
             { KSW_VMCS_EPT_POINTER, (SIZE_T)Input->EptPointer },
             { KSW_VMCS_GUEST_LINK_POINTER, (SIZE_T)MAXULONGLONG },
             { KSW_VMCS_GUEST_DEBUGCTL, (SIZE_T)debugControl },
-            { KSW_VMCS_CR0_MASK, 0U },
-            { KSW_VMCS_CR4_MASK, 0U },
+            { KSW_VMCS_CR0_MASK, (SIZE_T)Input->Cr0PinnedMask },
+            { KSW_VMCS_CR4_MASK, (SIZE_T)Input->Cr4PinnedMask },
             { KSW_VMCS_CR0_SHADOW, (SIZE_T)guestCr0 },
             { KSW_VMCS_CR4_SHADOW, (SIZE_T)guestCr4 },
             { KSW_VMCS_GUEST_ES_SELECTOR, es.Selector },

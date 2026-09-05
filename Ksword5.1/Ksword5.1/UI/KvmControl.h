@@ -213,4 +213,73 @@ namespace ksword::kvm
     // removeMsrPolicy/clearMsrPolicies：移除一条或全部策略。受写权限门约束。
     KvmMsrPolicyResult removeMsrPolicy(unsigned long policyId);
     KvmMsrPolicyResult clearMsrPolicies();
+
+    // KvmEventEntry：一条 HVM 事件。sequence 单调递增，用作消费游标。
+    struct KvmEventEntry
+    {
+        unsigned long long sequence = 0;
+        unsigned long long timestamp = 0;
+        unsigned long long guestPhysicalAddress = 0;
+        unsigned long long guestLinearAddress = 0;
+        unsigned long long guestRip = 0;
+        unsigned long long qualification = 0;
+        unsigned short processorGroup = 0;
+        unsigned char processorNumber = 0;
+        unsigned long type = 0;
+        unsigned long exitReason = 0;
+        unsigned long access = 0;
+        // ruleId 对 EPT 视图翻转承载的是 viewId：两者共用这一列。
+        unsigned long ruleId = 0;
+        long status = 0;
+    };
+
+    // KvmEventResult：一次事件读取的结果。
+    struct KvmEventResult
+    {
+        bool ok = false;
+        // droppedRows：本次快照中被覆盖或不可用的行数，非零说明消费跟不上。
+        unsigned long droppedRows = 0;
+        unsigned long availableRows = 0;
+        unsigned long long newestSequence = 0;
+        QVector<KvmEventEntry> events;
+        QString message;
+    };
+
+    // readEvents：读取 afterSequence 之后的事件。只读，不需要写权限。
+    // clear 为 true 时同时清空环，用于开始一次干净的观察。
+    KvmEventResult readEvents(
+        unsigned long long afterSequence,
+        bool clear);
+
+    // KvmCrPolicyResult：控制寄存器策略的当前配置与计数。
+    struct KvmCrPolicyResult
+    {
+        bool ok = false;
+        unsigned long long cr0PinnedMask = 0;
+        unsigned long long cr4PinnedMask = 0;
+        unsigned long long cr0PinnedValue = 0;
+        unsigned long long cr4PinnedValue = 0;
+        unsigned long long refusedWriteCount = 0;
+        unsigned long long cr3SwitchCount = 0;
+        unsigned long long debugAccessCount = 0;
+        bool trackCr3 = false;
+        bool interceptDr = false;
+        bool log = false;
+        QString message;
+    };
+
+    // readCrPolicy：读取当前配置与计数。只读。
+    KvmCrPolicyResult readCrPolicy();
+
+    // applyCrPolicy：设置钉住掩码与拦截开关。受写权限门约束。
+    // 掩码与开关在建 VMCS 时消费，常驻期间驱动会拒绝改动。
+    KvmCrPolicyResult applyCrPolicy(
+        unsigned long long cr0PinnedMask,
+        unsigned long long cr4PinnedMask,
+        bool trackCr3,
+        bool interceptDr,
+        bool log);
+
+    // clearCrPolicy：清除全部配置与计数。受写权限门约束。
+    KvmCrPolicyResult clearCrPolicy();
 }

@@ -443,4 +443,66 @@ namespace ksword::ark
         result.io.message = stream.str();
         return result;
     }
+
+    HvmCrPolicyResult DriverClient::controlHvmCrPolicy(
+        const unsigned long operation,
+        const std::uint64_t cr0PinnedMask,
+        const std::uint64_t cr4PinnedMask,
+        const bool trackCr3,
+        const bool interceptDr,
+        const bool log,
+        const bool uiConfirmed) const
+    {
+        HvmCrPolicyResult result{};
+        KSWORD_ARK_HVM_CR_POLICY_REQUEST request{};
+        request.version = KSWORD_ARK_HVM_CR_POLICY_PROTOCOL_VERSION;
+        request.size = sizeof(request);
+        request.operation = operation;
+        request.cr0PinnedMask = cr0PinnedMask;
+        request.cr4PinnedMask = cr4PinnedMask;
+        if (uiConfirmed)
+        {
+            request.flags |= KSWORD_ARK_HVM_CR_POLICY_FLAG_UI_CONFIRMED;
+            request.confirmationToken =
+                KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+        }
+        if (trackCr3)
+        {
+            request.flags |= KSWORD_ARK_HVM_CR_POLICY_FLAG_TRACK_CR3;
+        }
+        if (interceptDr)
+        {
+            request.flags |= KSWORD_ARK_HVM_CR_POLICY_FLAG_INTERCEPT_DR;
+        }
+        if (log)
+        {
+            request.flags |= KSWORD_ARK_HVM_CR_POLICY_FLAG_LOG;
+        }
+
+        result.io = deviceIoControl(
+            IOCTL_KSWORD_ARK_HVM_CR_POLICY,
+            &request,
+            sizeof(request),
+            &result.response,
+            sizeof(result.response));
+        result.unsupported = !result.io.ok &&
+            isUnsupportedHvmError(result.io.win32Error);
+        result.io.ntStatus = result.response.lastStatus;
+
+        std::ostringstream stream;
+        stream << "HVM CR policy operation=" << operation
+            << ", status=" << result.response.status
+            << ", flags=0x" << std::hex << result.response.flags
+            << ", cr0Mask=0x" << result.response.cr0PinnedMask
+            << ", cr4Mask=0x" << result.response.cr4PinnedMask
+            << std::dec
+            << ", refused=" << result.response.refusedWriteCount
+            << ", cr3Switches=" << result.response.cr3SwitchCount;
+        if (result.unsupported)
+        {
+            stream << ", unsupported=true";
+        }
+        result.io.message = stream.str();
+        return result;
+    }
 }

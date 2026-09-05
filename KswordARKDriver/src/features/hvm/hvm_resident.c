@@ -403,6 +403,20 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     /* Keep resident guest MSR access native through the shared bitmap. */
     input.MsrBitmapPhysical =
         (ULONGLONG)Context->Runtime->MsrBitmapPhysical.QuadPart;
+    /*
+     * Control-register policy is consumed here rather than applied later: the
+     * guest/host masks and the CR3/DR exiting controls are VMCS fields, so a
+     * policy installed after launch would not take effect until the next one.
+     */
+    input.Cr0PinnedMask = Context->Runtime->CrPolicyCr0PinnedMask;
+    /* Pin the same way for CR4. */
+    input.Cr4PinnedMask = Context->Runtime->CrPolicyCr4PinnedMask;
+    /* Request address-space switch observation only when asked. */
+    input.TrackCr3 = (Context->Runtime->CrPolicyFlags &
+        KSWORD_ARK_HVM_CR_POLICY_FLAG_TRACK_CR3) != 0UL ? 1U : 0U;
+    /* Request debug-register interception only when asked. */
+    input.InterceptDr = (Context->Runtime->CrPolicyFlags &
+        KSWORD_ARK_HVM_CR_POLICY_FLAG_INTERCEPT_DR) != 0UL ? 1U : 0U;
     /* Resume on the exact assembly wrapper stack. */
     input.GuestStackPointer =
         Context->LaunchStackPointer;

@@ -979,4 +979,179 @@ namespace ksword::kvm
             0, 0, 0, 0, 0, true);
         return toMsrPolicyResult(result, actionName);
     }
+
+    KvmEventResult readEvents(
+        const unsigned long long afterSequence,
+        const bool clear)
+    {
+        KvmEventResult events;
+        ksword::ark::DriverClient client;
+        const auto result = client.queryHvmEvents(
+            afterSequence,
+            KSWORD_ARK_HVM_MAX_EVENT_ROWS,
+            clear);
+        events.ok = result.io.ok;
+        if (!events.ok)
+        {
+            events.message = result.unsupported
+                ? ks::i18n::sourceText(
+                    QStringLiteral("读取 HVM 事件失败：当前驱动不提供该能力。"))
+                : ks::i18n::sourceText(
+                    QStringLiteral("读取 HVM 事件失败。"));
+            return events;
+        }
+        events.droppedRows = result.response.droppedRows;
+        events.availableRows = result.response.availableRows;
+        events.newestSequence = result.response.newestSequence;
+        const unsigned long rows =
+            result.response.returnedRows <= KSWORD_ARK_HVM_MAX_EVENT_ROWS
+                ? result.response.returnedRows
+                : KSWORD_ARK_HVM_MAX_EVENT_ROWS;
+        for (unsigned long index = 0; index < rows; ++index)
+        {
+            const auto& row = result.response.rows[index];
+            KvmEventEntry entry;
+            entry.sequence = row.sequence;
+            entry.timestamp = row.timestamp;
+            entry.guestPhysicalAddress = row.guestPhysicalAddress;
+            entry.guestLinearAddress = row.guestLinearAddress;
+            entry.guestRip = row.guestRip;
+            entry.qualification = row.qualification;
+            entry.processorGroup = row.processorGroup;
+            entry.processorNumber = row.processorNumber;
+            entry.type = row.type;
+            entry.exitReason = row.exitReason;
+            entry.access = row.access;
+            entry.ruleId = row.ruleId;
+            entry.status = row.status;
+            events.events.append(entry);
+        }
+        return events;
+    }
+
+    namespace
+    {
+        // toCrPolicyResult：把驱动响应翻译成 UI 可直接展示的结论。
+        KvmCrPolicyResult toCrPolicyResult(
+            const ksword::ark::HvmCrPolicyResult& result,
+            const QString& actionName)
+        {
+            KvmCrPolicyResult policy;
+            policy.cr0PinnedMask = result.response.cr0PinnedMask;
+            policy.cr4PinnedMask = result.response.cr4PinnedMask;
+            policy.cr0PinnedValue = result.response.cr0PinnedValue;
+            policy.cr4PinnedValue = result.response.cr4PinnedValue;
+            policy.refusedWriteCount = result.response.refusedWriteCount;
+            policy.cr3SwitchCount = result.response.cr3SwitchCount;
+            policy.debugAccessCount = result.response.debugAccessCount;
+            policy.trackCr3 = (result.response.flags &
+                KSWORD_ARK_HVM_CR_POLICY_FLAG_TRACK_CR3) != 0;
+            policy.interceptDr = (result.response.flags &
+                KSWORD_ARK_HVM_CR_POLICY_FLAG_INTERCEPT_DR) != 0;
+            policy.log = (result.response.flags &
+                KSWORD_ARK_HVM_CR_POLICY_FLAG_LOG) != 0;
+            policy.ok = result.io.ok &&
+                result.response.status ==
+                    KSWORD_ARK_HVM_CR_POLICY_STATUS_OK;
+            if (policy.ok)
+            {
+                policy.message = ks::i18n::sourceText(
+                    QStringLiteral("%1 成功。")).arg(actionName);
+                return policy;
+            }
+            if (!result.io.ok && result.unsupported)
+            {
+                policy.message = ks::i18n::sourceText(
+                    QStringLiteral("%1 失败：当前驱动不提供该能力。"))
+                    .arg(actionName);
+                return policy;
+            }
+            QString reason;
+            switch (result.response.status)
+            {
+            case KSWORD_ARK_HVM_CR_POLICY_STATUS_CONFIRMATION_REQUIRED:
+                reason = ks::i18n::sourceText(QStringLiteral("需要显式确认"));
+                break;
+            case KSWORD_ARK_HVM_CR_POLICY_STATUS_NOT_PREPARED:
+                reason = ks::i18n::sourceText(QStringLiteral("资源尚未准备"));
+                break;
+            case KSWORD_ARK_HVM_CR_POLICY_STATUS_RESIDENT_BUSY:
+                reason = ks::i18n::sourceText(QStringLiteral(
+                    "掩码在建 VMCS 时消费，常驻期间改动不会生效，已拒绝"));
+                break;
+            case KSWORD_ARK_HVM_CR_POLICY_STATUS_BIT_NOT_PINNABLE:
+                reason = ks::i18n::sourceText(QStringLiteral(
+                    "该位被固定位 MSR 强制，钉住它会让每次 VM entry 失败"));
+                break;
+            default:
+                reason = ks::i18n::sourceText(QStringLiteral("协议状态 %1"))
+                    .arg(result.response.status);
+                break;
+            }
+            policy.message = ks::i18n::sourceText(
+                QStringLiteral("%1 失败：%2。"))
+                .arg(actionName)
+                .arg(reason);
+            return policy;
+        }
+    }
+
+    KvmCrPolicyResult readCrPolicy()
+    {
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmCrPolicy(
+            KSWORD_ARK_HVM_CR_POLICY_OP_QUERY,
+            0, 0, false, false, false, false);
+        return toCrPolicyResult(
+            result,
+            ks::i18n::sourceText(QStringLiteral("读取控制寄存器策略")));
+    }
+
+    KvmCrPolicyResult applyCrPolicy(
+        const unsigned long long cr0PinnedMask,
+        const unsigned long long cr4PinnedMask,
+        const bool trackCr3,
+        const bool interceptDr,
+        const bool log)
+    {
+        const QString actionName =
+            ks::i18n::sourceText(QStringLiteral("配置控制寄存器策略"));
+        if (!isWriteAccessEnabled())
+        {
+            KvmCrPolicyResult policy;
+            policy.message = ks::i18n::sourceText(
+                QStringLiteral("%1 失败：R-1 写权限未开启。"))
+                .arg(actionName);
+            return policy;
+        }
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmCrPolicy(
+            KSWORD_ARK_HVM_CR_POLICY_OP_SET,
+            cr0PinnedMask,
+            cr4PinnedMask,
+            trackCr3,
+            interceptDr,
+            log,
+            true);
+        return toCrPolicyResult(result, actionName);
+    }
+
+    KvmCrPolicyResult clearCrPolicy()
+    {
+        const QString actionName =
+            ks::i18n::sourceText(QStringLiteral("清除控制寄存器策略"));
+        if (!isWriteAccessEnabled())
+        {
+            KvmCrPolicyResult policy;
+            policy.message = ks::i18n::sourceText(
+                QStringLiteral("%1 失败：R-1 写权限未开启。"))
+                .arg(actionName);
+            return policy;
+        }
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmCrPolicy(
+            KSWORD_ARK_HVM_CR_POLICY_OP_CLEAR,
+            0, 0, false, false, false, true);
+        return toCrPolicyResult(result, actionName);
+    }
 }

@@ -2806,6 +2806,11 @@
       "detail": "强制卸载在用驱动，崩溃由被卸载驱动的残留引用决定。"
     },
     {
+      "ioctl": "HVM_CR_POLICY",
+      "reason": "virtualization-lifecycle",
+      "detail": "钉住 CR0/CR4 位并可开启 CR3-load exiting。CI 机器通常已在 Hyper-V/VBS 之下装不上；真装上了 CR3 拦截会让 runner 的每次进程切换都产生 VM-exit。"
+    },
+    {
       "ioctl": "HVM_EPT_RULE",
       "reason": "virtualization-lifecycle",
       "detail": "VMXON/EPT 规则安装。CI 机器通常已在 Hyper-V/VBS 之下，嵌套虚拟化切换的崩溃不可归因。"

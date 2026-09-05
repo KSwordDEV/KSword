@@ -16,6 +16,8 @@
 #include "Framework/DestructiveActionConfirmation.h"
 #include "Internationalization/LanguageManager.h"
 #include "UI/KvmControl.h"
+#include "UI/KvmCrPolicyDialog.h"
+#include "UI/KvmEventDialog.h"
 #include "UI/KvmMemoryDialog.h"
 #include "UI/KvmMsrPolicyDialog.h"
 #include "UI/KvmViewDialog.h"
@@ -406,6 +408,26 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
     msrAction->setEnabled(m_r0DriverServiceRunning);
     connect(msrAction, &QAction::triggered, this, [this]() {
         KvmMsrPolicyDialog* const dialog = new KvmMsrPolicyDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    });
+
+    // 控制寄存器策略同样在建 VMCS 时消费，必须在常驻启动前配置。
+    QAction* const crAction = menu.addAction(
+        ks::i18n::sourceText(QStringLiteral("控制寄存器策略...")));
+    crAction->setEnabled(m_r0DriverServiceRunning);
+    connect(crAction, &QAction::triggered, this, [this]() {
+        KvmCrPolicyDialog* const dialog = new KvmCrPolicyDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    });
+
+    // 事件流是只读的，任何时候都能看——它是上面几项能力唯一的实时证据。
+    QAction* const eventAction = menu.addAction(
+        ks::i18n::sourceText(QStringLiteral("事件流...")));
+    eventAction->setEnabled(m_r0DriverServiceRunning);
+    connect(eventAction, &QAction::triggered, this, [this]() {
+        KvmEventDialog* const dialog = new KvmEventDialog(this);
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->show();
     });

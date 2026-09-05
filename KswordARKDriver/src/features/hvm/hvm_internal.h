@@ -393,6 +393,22 @@ typedef struct _KSW_HVM_RUNTIME
     ULONG MsrPolicyCount;
     /* Preserve the next policy identifier handed out by the MSR backend. */
     ULONG MsrPolicyNextId;
+    /* Publish the control-register policy flags currently configured. */
+    ULONG CrPolicyFlags;
+    /* Retain the CR0 bits the guest must not change. */
+    ULONGLONG CrPolicyCr0PinnedMask;
+    /* Retain the CR4 bits the guest must not change. */
+    ULONGLONG CrPolicyCr4PinnedMask;
+    /* Preserve the CR0 value captured when the policy was installed. */
+    ULONGLONG CrPolicyCr0PinnedValue;
+    /* Preserve the CR4 value captured when the policy was installed. */
+    ULONGLONG CrPolicyCr4PinnedValue;
+    /* Count refused guest writes to pinned control-register bits. */
+    volatile LONG64 CrPolicyRefusedWriteCount;
+    /* Count observed address-space switches. */
+    volatile LONG64 CrPolicyCr3SwitchCount;
+    /* Count intercepted debug-register accesses. */
+    volatile LONG64 CrPolicyDebugAccessCount;
     /* Protect only the resident-transition phase and idle-event state. */
     KSPIN_LOCK ResidentTransitionStateLock;
     /* Wake wait-capable transition contenders after the current owner exits. */

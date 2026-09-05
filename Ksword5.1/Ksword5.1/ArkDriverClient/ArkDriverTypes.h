@@ -1510,6 +1510,14 @@ namespace ksword::ark
         KSWORD_ARK_HVM_MSR_POLICY_RESPONSE response{};
     };
 
+    // HvmCrPolicyResult carries one control-register policy operation.
+    struct HvmCrPolicyResult
+    {
+        IoResult io;
+        bool unsupported = false;
+        KSWORD_ARK_HVM_CR_POLICY_RESPONSE response{};
+    };
+
     // HvmMemoryResult carries one ring -1 memory access. usedDirectWindow
     // distinguishes the hook-free private-window path from the documented
     // MmCopyMemory fallback, so a caller can tell which one actually ran.

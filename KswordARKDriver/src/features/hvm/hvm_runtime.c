@@ -18,6 +18,7 @@ Environment:
 --*/
 
 #include "hvm_internal.h"
+#include "hvm_cr_policy.h"
 #include "hvm_ept_view.h"
 #include "hvm_guest.h"
 #include "hvm_memory.h"
@@ -894,6 +895,8 @@ KswordARKHvmFreeResourcesLocked(
         /* Return without releasing live VMX resources. */
         return;
     }
+    /* Drop the control-register policy along with the VMCS it fed. */
+    KswordARKHvmCrPolicyResetLocked(Runtime);
     /* Close every MSR bitmap hole before the bitmap page is released. */
     KswordARKHvmMsrPolicyResetLocked(Runtime);
     /* Restore view leaves and free shadows before rules touch the same pages. */

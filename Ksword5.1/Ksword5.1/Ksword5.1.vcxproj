@@ -438,6 +438,8 @@
     <ClCompile Include="UI\KvmMemoryDialog.cpp" />
     <ClCompile Include="UI\KvmViewDialog.cpp" />
     <ClCompile Include="UI\KvmMsrPolicyDialog.cpp" />
+    <ClCompile Include="UI\KvmEventDialog.cpp" />
+    <ClCompile Include="UI\KvmCrPolicyDialog.cpp" />
     <ClCompile Include="UI\CommandExecutionPopup.cpp" />
     <ClCompile Include="UI\WindowChrome.cpp" />
     <ClCompile Include="UI\HexEditorWidget.cpp" />
@@ -760,6 +762,8 @@
     <QtMoc Include="UI\KvmMemoryDialog.h" />
     <QtMoc Include="UI\KvmViewDialog.h" />
     <QtMoc Include="UI\KvmMsrPolicyDialog.h" />
+    <QtMoc Include="UI\KvmEventDialog.h" />
+    <QtMoc Include="UI\KvmCrPolicyDialog.h" />
     <QtMoc Include="UI\CommandExecutionPopup.h" />
     <ClInclude Include="UI\WindowChrome.h" />
     <QtMoc Include="UI\HexEditorWidget.h" />

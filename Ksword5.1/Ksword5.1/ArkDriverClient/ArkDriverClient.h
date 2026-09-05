@@ -455,6 +455,16 @@ namespace ksword::ark
             // enforce：持久拒绝（命中注入 #PF 并继续常驻），与 allowOnce 互斥；
             // 驱动侧在存储规则时会丢弃同时给出的 allowOnce。
             bool enforce = false) const;
+        // controlHvmCrPolicy：配置、清除或查询控制寄存器策略。
+        // 掩码与 CR3/DR 拦截开关都在建 VMCS 时消费，所以必须在常驻启动前设置。
+        HvmCrPolicyResult controlHvmCrPolicy(
+            unsigned long operation,
+            std::uint64_t cr0PinnedMask,
+            std::uint64_t cr4PinnedMask,
+            bool trackCr3,
+            bool interceptDr,
+            bool log,
+            bool uiConfirmed) const;
         // controlHvmMsrPolicy：安装、移除或查询 MSR 策略。
         // - action 为 LOG 时不能带写方向，驱动会拒绝（root 里重放 WRMSR 无退路）；
         // - 只有 bitmap 覆盖的两段索引可以设策略。

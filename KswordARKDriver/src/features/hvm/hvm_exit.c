@@ -17,6 +17,7 @@ Environment:
 
 #include "hvm_exit.h"
 #include "hvm_exit_emulate.h"
+#include "hvm_cr_policy.h"
 #include "hvm_ept_view.h"
 #include "hvm_msr_policy.h"
 #include "hvm_resident.h"
@@ -58,6 +59,10 @@ Environment:
 #define KSW_VMX_EXIT_WRMSR 32UL
 /* Name the XSETBV VM-exit reason, which no execution control can suppress. */
 #define KSW_VMX_EXIT_XSETBV 55UL
+/* Name the MOV-CR VM-exit reason, reached only for masked bits. */
+#define KSW_VMX_EXIT_MOV_CR 28UL
+/* Name the MOV-DR VM-exit reason, reached only when interception is on. */
+#define KSW_VMX_EXIT_MOV_DR 29UL
 /* Name the monitor-trap VM-exit reason. */
 #define KSW_VMX_EXIT_MONITOR_TRAP 37UL
 /* Name the EPT-violation VM-exit reason. */
@@ -573,6 +578,32 @@ KswordARKHvmResidentVmExitDispatch(
                 /* Restart the instruction after the guest takes #GP. */
                 handled = KswordARKHvmExitInjectGeneralProtection();
             }
+        }
+    /* Apply control-register policy to a masked bit or a tracked CR3 load. */
+    } else if (basicReason == KSW_VMX_EXIT_MOV_CR) {
+        /* Merge the write against the pinned bits, or replay a CR3 access. */
+        handled = KswordARKHvmCrPolicyHandleControlRegister(
+            Context->Runtime,
+            Frame,
+            telemetry.Qualification);
+        /* Advance only after the register state was completely written. */
+        if (handled) {
+            /* Continue at the instruction following the MOV. */
+            handled = KswordARKHvmExitAdvanceRip(
+                telemetry.InstructionLength);
+        }
+    /* Record and replay one intercepted debug-register access. */
+    } else if (basicReason == KSW_VMX_EXIT_MOV_DR) {
+        /* Observation only: the access is replayed unchanged. */
+        handled = KswordARKHvmCrPolicyHandleDebugRegister(
+            Context->Runtime,
+            Frame,
+            telemetry.Qualification);
+        /* Advance only after the register state was completely written. */
+        if (handled) {
+            /* Continue at the instruction following the MOV. */
+            handled = KswordARKHvmExitAdvanceRip(
+                telemetry.InstructionLength);
         }
     /* Restore allow-once EPT permissions after one guest instruction. */
     } else if (basicReason ==

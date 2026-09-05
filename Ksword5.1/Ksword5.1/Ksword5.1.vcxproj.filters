@@ -57,6 +57,12 @@
     <QtMoc Include="UI\KvmMsrPolicyDialog.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+    <QtMoc Include="UI\KvmEventDialog.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="UI\KvmCrPolicyDialog.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -851,6 +857,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\KvmMsrPolicyDialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\KvmEventDialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\KvmCrPolicyDialog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\CommandExecutionPopup.cpp">

@@ -768,3 +768,85 @@ typedef struct _KSWORD_ARK_HVM_MSR_POLICY_RESPONSE
     unsigned long reserved2;
     KSWORD_ARK_HVM_MSR_POLICY_ROW rows[KSWORD_ARK_HVM_MAX_MSR_POLICIES];
 } KSWORD_ARK_HVM_MSR_POLICY_RESPONSE;
+
+/*
+ * Control- and debug-register policy.
+ *
+ * CR0 and CR4 protection works through the VMCS guest/host masks: a masked bit
+ * is owned by the hypervisor, the guest reads it from a shadow, and any attempt
+ * to change it exits.  That is how CR0.WP or CR4.SMEP can be pinned against a
+ * rootkit that would otherwise just clear them.
+ *
+ * CR3-load exiting is the only way to observe every address-space switch, and
+ * it is also the most expensive control in this protocol: Windows switches CR3
+ * thousands of times per second, and each switch becomes a VM exit.  It is off
+ * by default and the UI says what it costs.
+ *
+ * Like MSR policy and EPT views, this configuration is consumed when the VMCS
+ * is built, so it must be set before residency starts.
+ */
+#define KSWORD_ARK_HVM_CR_POLICY_PROTOCOL_VERSION 1UL
+
+#define KSWORD_ARK_IOCTL_FUNCTION_HVM_CR_POLICY 0x8BDUL
+#define IOCTL_KSWORD_ARK_HVM_CR_POLICY \
+    CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_HVM_CR_POLICY, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+
+#define KSWORD_ARK_HVM_CR_POLICY_OP_SET   1UL
+#define KSWORD_ARK_HVM_CR_POLICY_OP_CLEAR 2UL
+#define KSWORD_ARK_HVM_CR_POLICY_OP_QUERY 3UL
+
+#define KSWORD_ARK_HVM_CR_POLICY_FLAG_UI_CONFIRMED 0x00000001UL
+/*
+ * Observe every address-space switch.  Expensive: each CR3 load becomes a VM
+ * exit, and Windows performs thousands per second.
+ */
+#define KSWORD_ARK_HVM_CR_POLICY_FLAG_TRACK_CR3 0x00000002UL
+/* Intercept guest access to the debug registers. */
+#define KSWORD_ARK_HVM_CR_POLICY_FLAG_INTERCEPT_DR 0x00000004UL
+/* Record every intercepted control-register access in the event ring. */
+#define KSWORD_ARK_HVM_CR_POLICY_FLAG_LOG 0x00000008UL
+
+#define KSWORD_ARK_HVM_CR_POLICY_STATUS_OK                    0UL
+#define KSWORD_ARK_HVM_CR_POLICY_STATUS_INVALID_REQUEST       1UL
+#define KSWORD_ARK_HVM_CR_POLICY_STATUS_CONFIRMATION_REQUIRED 2UL
+#define KSWORD_ARK_HVM_CR_POLICY_STATUS_NOT_PREPARED          3UL
+/* The masks are consumed when the VMCS is built, so residency blocks changes. */
+#define KSWORD_ARK_HVM_CR_POLICY_STATUS_RESIDENT_BUSY         4UL
+/* A pinned bit must be one the fixed-bit MSRs allow the guest to hold. */
+#define KSWORD_ARK_HVM_CR_POLICY_STATUS_BIT_NOT_PINNABLE      5UL
+
+typedef struct _KSWORD_ARK_HVM_CR_POLICY_REQUEST
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long operation;
+    unsigned long flags;
+    unsigned long confirmationToken;
+    unsigned long expectedGeneration;
+    /* Bits the guest must not change; it reads them from the shadow. */
+    unsigned long long cr0PinnedMask;
+    unsigned long long cr4PinnedMask;
+} KSWORD_ARK_HVM_CR_POLICY_REQUEST;
+
+typedef struct _KSWORD_ARK_HVM_CR_POLICY_RESPONSE
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long status;
+    unsigned long flags;
+    unsigned long generation;
+    unsigned long reserved;
+    unsigned long long cr0PinnedMask;
+    unsigned long long cr4PinnedMask;
+    /* Value each pinned register held when the policy was installed. */
+    unsigned long long cr0PinnedValue;
+    unsigned long long cr4PinnedValue;
+    /* Times a guest write to a pinned bit was refused. */
+    unsigned long long refusedWriteCount;
+    /* Times an address-space switch was observed. */
+    unsigned long long cr3SwitchCount;
+    /* Times debug-register access was intercepted. */
+    unsigned long long debugAccessCount;
+    long lastStatus;
+    unsigned long reserved2;
+} KSWORD_ARK_HVM_CR_POLICY_RESPONSE;
