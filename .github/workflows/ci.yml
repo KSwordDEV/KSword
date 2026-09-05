@@ -241,6 +241,25 @@ jobs:
       - name: Validate kernel knowledge research chain
         run: python tools/validate_kernel_knowledge.py
 
+      # 这批算术在驱动里只有加载后才执行，出错的表现是蓝屏或者更糟——静默改掉
+      # 一块无关内存的 EPT 权限。抽进共享头之后正确性可以在编译机上直接证明，
+      # 所以它没有理由只靠人手动跑。
+      - name: Run HVM control-arithmetic unit tests
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath |
+            Select-Object -First 1
+          if (-not $vsPath) {
+            throw 'Could not locate the MSVC toolset through vswhere.'
+          }
+          $vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          cmd /c "`"$vcvars`" >nul && cl /nologo /O2 /MT /W4 /WX tools\hvm_unit_tests\hvm_unit_tests.c /Fe:artifacts\hvm_unit_tests.exe /Fo:artifacts\ && artifacts\hvm_unit_tests.exe"
+          if ($LASTEXITCODE -ne 0) {
+            throw 'HVM control-arithmetic unit tests failed.'
+          }
+
       - name: Audit IOCTL registry and access policy
         run: >-
           python tools/ioctl_audit/ksword_ioctl_audit.py

@@ -59,6 +59,7 @@ namespace ksword::ark
         const bool enableNestedVmx,
         const bool enableEvmcs,
         const bool enableVe,
+        const bool enableVmFunc,
         const unsigned long soakMilliseconds) const
     {
         HvmControlResult result{};
@@ -93,6 +94,10 @@ namespace ksword::ark
         if (enableVe)
         {
             request.flags |= KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VE;
+        }
+        if (enableVmFunc)
+        {
+            request.flags |= KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC;
         }
         if (command == KSWORD_ARK_HVM_CONTROL_LAUNCH_TEST_GUEST)
         {

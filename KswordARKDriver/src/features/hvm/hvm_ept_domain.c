@@ -18,6 +18,7 @@ Environment:
 
 #include "hvm_ept_domain.h"
 #include "hvm_ept.h"
+#include "driver/KswordArkHvmControls.h"
 
 /* Mark a private-table record as being the PDPT rather than a page directory. */
 #define KSW_HVM_DOMAIN_PDPT_MARKER MAXULONG
@@ -378,16 +379,18 @@ KswordARKHvmEptDomainRestrictRangeLocked(
         return STATUS_NOT_SUPPORTED;
     }
     domain = &Runtime->EptDomains[DomainIndex];
-    /* Walk whole two-MiB leaves so no partial leaf is ever left edited. */
-    cursor = PhysicalAddress & ~(KSW_HVM_LARGE_PAGE_BYTES - 1ULL);
+    /*
+     * Walk whole two-MiB leaves so no partial leaf is ever left edited.  The
+     * index arithmetic lives in KswordArkHvmControls.h so the host unit tests
+     * exercise the same code the driver runs: getting it wrong does not fault,
+     * it silently narrows an unrelated region.
+     */
+    cursor = KswordArkHvmEptLeafBase(PhysicalAddress);
     end = PhysicalAddress + ByteCount;
     while (cursor < end) {
-        const ULONG pml4Index =
-            (ULONG)(cursor / KSW_HVM_ONE_512_GIB);
-        const ULONG pdptIndex =
-            (ULONG)((cursor % KSW_HVM_ONE_512_GIB) / KSW_HVM_ONE_GIB);
-        const ULONG pdIndex =
-            (ULONG)((cursor % KSW_HVM_ONE_GIB) / KSW_HVM_LARGE_PAGE_BYTES);
+        const ULONG pml4Index = KswordArkHvmEptPml4Index(cursor);
+        const ULONG pdptIndex = KswordArkHvmEptPdptIndex(cursor);
+        const ULONG pdIndex = KswordArkHvmEptPdIndex(cursor);
         ULONGLONG* pdEntries = NULL;
 
         /* Fork whatever this position still shares with the default view. */
@@ -401,8 +404,13 @@ KswordARKHvmEptDomainRestrictRangeLocked(
             /* Return with earlier leaves narrowed; the caller resets. */
             return status;
         }
-        /* Remove permissions only; this is what keeps a domain a subset. */
-        pdEntries[pdIndex] &= ~removedBits;
+        /*
+         * Remove permissions only; this is what keeps a domain a subset.  The
+         * helper cannot express "grant", so it cannot be called wrongly.
+         */
+        pdEntries[pdIndex] = KswordArkHvmEptApplyRestriction(
+            pdEntries[pdIndex],
+            removedBits);
         /* Advance to the next whole two-MiB leaf. */
         cursor += KSW_HVM_LARGE_PAGE_BYTES;
     }

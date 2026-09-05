@@ -444,6 +444,11 @@ namespace ksword::ark
             // 驱动侧有两道保险（所有叶项 suppress-#VE、信息区出厂即 busy），
             // 硬件不支持时驱动直接拒绝启动而不是静默降级。
             bool enableVe = false,
+            // enableVmFunc：武装 VMFUNC 与 EPTP 切换。默认关闭。
+            // VMFUNC 不做 CPL 检查，所以武装它等于把 EPTP list 里的每个域都
+            // 发布给任意 ring 3 代码。域只能被减权限，因此这不是提权路径，
+            // 但确实是一个 guest 可见、驱动无法观测的切换接口。
+            bool enableVmFunc = false,
             // soakMilliseconds：仅 KSWORD_ARK_HVM_CONTROL_SOAK 读取，
             // 表示常驻保持时长；驱动侧会把它夹到协议规定的上下界之间。
             unsigned long soakMilliseconds = 0) const;

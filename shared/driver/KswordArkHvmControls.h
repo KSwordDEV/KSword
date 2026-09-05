@@ -254,3 +254,71 @@ KswordArkHvmEptpIsValid(
     }
     return 1;
 }
+
+/*
+ * EPT hierarchy index decomposition.
+ *
+ * Shared with the domain backend so the walk it performs can be checked on the
+ * host.  A wrong index here does not fault - it silently edits the permissions
+ * of an unrelated two-MiB region, which is exactly the class of bug that is
+ * invisible until something far away misbehaves.
+ */
+/* EPT leaf permission bits, mirrored from the driver-private header. */
+#define KSWORD_ARK_HVM_EPT_READ 0x1ULL
+#define KSWORD_ARK_HVM_EPT_WRITE 0x2ULL
+#define KSWORD_ARK_HVM_EPT_EXECUTE 0x4ULL
+
+#define KSWORD_ARK_HVM_ONE_GIB 0x40000000ULL
+#define KSWORD_ARK_HVM_ONE_512_GIB 0x8000000000ULL
+#define KSWORD_ARK_HVM_LARGE_PAGE_BYTES 0x200000ULL
+
+/* Select the PML4 slot covering one guest-physical address. */
+static __inline unsigned long
+KswordArkHvmEptPml4Index(
+    unsigned long long PhysicalAddress)
+{
+    return (unsigned long)(PhysicalAddress / KSWORD_ARK_HVM_ONE_512_GIB);
+}
+
+/* Select the PDPT slot, that is the one-GiB window inside the PML4 slot. */
+static __inline unsigned long
+KswordArkHvmEptPdptIndex(
+    unsigned long long PhysicalAddress)
+{
+    return (unsigned long)(
+        (PhysicalAddress % KSWORD_ARK_HVM_ONE_512_GIB) /
+        KSWORD_ARK_HVM_ONE_GIB);
+}
+
+/* Select the page-directory slot, that is the two-MiB leaf. */
+static __inline unsigned long
+KswordArkHvmEptPdIndex(
+    unsigned long long PhysicalAddress)
+{
+    return (unsigned long)(
+        (PhysicalAddress % KSWORD_ARK_HVM_ONE_GIB) /
+        KSWORD_ARK_HVM_LARGE_PAGE_BYTES);
+}
+
+/* Round one address down to the two-MiB leaf that contains it. */
+static __inline unsigned long long
+KswordArkHvmEptLeafBase(
+    unsigned long long PhysicalAddress)
+{
+    return PhysicalAddress & ~(KSWORD_ARK_HVM_LARGE_PAGE_BYTES - 1ULL);
+}
+
+/*
+ * Apply one domain restriction to one leaf.
+ *
+ * Domains may only lose permissions, and this is where that rule lives.  It is
+ * expressed as a mask-and rather than as a validated assignment on purpose: a
+ * function that cannot express "grant" cannot be called wrongly to grant.
+ */
+static __inline unsigned long long
+KswordArkHvmEptApplyRestriction(
+    unsigned long long LeafEntry,
+    unsigned long long RemovedBits)
+{
+    return LeafEntry & ~RemovedBits;
+}

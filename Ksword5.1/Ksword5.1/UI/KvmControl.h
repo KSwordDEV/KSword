@@ -114,6 +114,16 @@ namespace ksword::kvm
     bool isVeEnabled();
     void setVeEnabled(bool enabled);
 
+    // VMFUNC 开关：
+    // - 武装后 guest 用一条 VMFUNC 就能在 EPTP list 的域之间切换，不产生
+    //   VM exit，驱动也收不到通知。VMFUNC 不做 CPL 检查，所以「guest」在这里
+    //   包括任意进程的任意 ring 3 线程；
+    // - 这不是提权路径：域只能被拿掉权限，切进去最坏是自己吃 EPT violation。
+    //   但它确实是一个驱动观测不到的状态切换，值得单独一道门；
+    // - 与 #VE 一样【不持久化】，重启客户端即回到关闭。
+    bool isVmFuncEnabled();
+    void setVmFuncEnabled(bool enabled);
+
     // 写权限门：
     // - 默认关闭。关闭时 KVM 只做观测，任何会改变系统状态的 R-1 操作都被拒绝；
     // - 由标题栏 KVM 菜单显式切换，并持久化到 QSettings；
@@ -210,6 +220,45 @@ namespace ksword::kvm
     // removeView/clearViews：移除一条或全部视图。受写权限门约束。
     KvmViewResult removeView(unsigned long viewId);
     KvmViewResult clearViews();
+
+    // KvmDomainEntry：EPTP list 里的一个槽位。
+    struct KvmDomainEntry
+    {
+        unsigned long domainIndex = 0;
+        bool active = false;
+        // 该域从共享层次里分叉出去的页表数：0 表示与默认视图完全一致。
+        unsigned long privateTableCount = 0;
+        unsigned long long eptPointer = 0;
+    };
+
+    // KvmDomainResult：一次执行域操作的结果。
+    struct KvmDomainResult
+    {
+        bool ok = false;
+        unsigned long domainIndex = 0;
+        unsigned long domainCount = 0;
+        QVector<KvmDomainEntry> domains;
+        QString message;
+    };
+
+    // 执行域（EPT execution domain）：
+    // - 域发布在 EPTP list 里，guest 用一条 VMFUNC 就能切过去，而 VMFUNC 不做
+    //   CPL 检查——任何 ring 3 线程都能切，不产生 VM exit，驱动也不会被通知；
+    // - 所以接口只有「减权限」一个方向：域出生时与默认视图完全一致，之后只能
+    //   被拿掉权限。切进域的线程结构性地拿不到它原本没有的访问权；
+    // - 建好域本身不改变任何行为。要让 VMFUNC 真的可用，还得用带 ENABLE_VMFUNC
+    //   的常驻启动，而那是另一个独立的开关。
+    KvmDomainResult listDomains();
+    KvmDomainResult createDomain();
+    // restrictDomain：从一个域里拿掉某段物理范围的权限。
+    // deniedAccess 用 KSWORD_ARK_HVM_EPT_ACCESS_* 位。拿掉读权限需要处理器
+    // 支持 execute-only 翻译，否则驱动拒绝（那样的叶项会让 VM entry 失败）。
+    KvmDomainResult restrictDomain(
+        unsigned long domainIndex,
+        unsigned long long physicalAddress,
+        unsigned long long byteCount,
+        unsigned long deniedAccess);
+    KvmDomainResult resetDomains();
 
     // KvmMsrPolicyEntry：一条已安装的 MSR 策略。
     struct KvmMsrPolicyEntry

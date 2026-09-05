@@ -353,6 +353,152 @@ TestEptpValidation(void)
 
 /* ------------------------------------------------------------------ */
 
+/*
+ * EPT 层次索引分解。
+ *
+ * 这段算术在驱动里决定「收紧哪一个 2MiB 叶项」。算错不会 fault，只会安静地
+ * 改掉另一块无关内存的权限——症状出现在离现场很远的地方。所以这里既验手算
+ * 点，也验不变量：同一叶项内任意地址索引相同、跨叶项恰好进位一格。
+ */
+static void
+TestEptIndices(void)
+{
+    unsigned long long address = 0ULL;
+    unsigned long index = 0UL;
+
+    Group("EPT 层次索引分解");
+
+    /* 零地址落在每一级的 0 号槽。 */
+    Check(KswordArkHvmEptPml4Index(0ULL) == 0UL &&
+          KswordArkHvmEptPdptIndex(0ULL) == 0UL &&
+          KswordArkHvmEptPdIndex(0ULL) == 0UL,
+          "物理地址 0 落在三级 0 号槽");
+
+    /* 第二个 2MiB 叶项只推进 PD 索引。 */
+    address = KSWORD_ARK_HVM_LARGE_PAGE_BYTES;
+    Check(KswordArkHvmEptPml4Index(address) == 0UL &&
+          KswordArkHvmEptPdptIndex(address) == 0UL &&
+          KswordArkHvmEptPdIndex(address) == 1UL,
+          "跨一个 2MiB 只推进 PD 索引");
+
+    /* 一 GiB 边界推进 PDPT 并把 PD 归零。 */
+    address = KSWORD_ARK_HVM_ONE_GIB;
+    Check(KswordArkHvmEptPml4Index(address) == 0UL &&
+          KswordArkHvmEptPdptIndex(address) == 1UL &&
+          KswordArkHvmEptPdIndex(address) == 0UL,
+          "1 GiB 边界推进 PDPT 且 PD 归零");
+
+    /* 512 GiB 边界推进 PML4 并把下两级归零。 */
+    address = KSWORD_ARK_HVM_ONE_512_GIB;
+    Check(KswordArkHvmEptPml4Index(address) == 1UL &&
+          KswordArkHvmEptPdptIndex(address) == 0UL &&
+          KswordArkHvmEptPdIndex(address) == 0UL,
+          "512 GiB 边界推进 PML4 且下两级归零");
+
+    /* 每一级的最后一个槽都恰好是 511，不是 512。 */
+    address = KSWORD_ARK_HVM_ONE_512_GIB - 1ULL;
+    Check(KswordArkHvmEptPdptIndex(address) == 511UL &&
+          KswordArkHvmEptPdIndex(address) == 511UL,
+          "512 GiB 前最后一字节落在 511/511 槽");
+
+    /*
+     * 不变量：一个 2MiB 叶项内部的任意偏移，三级索引必须完全相同。
+     * 这一条覆盖的是取模写错成取整（或反过来）的情形。
+     */
+    for (index = 0UL; index < 64UL; ++index) {
+        const unsigned long long base = 0x1C0000000ULL;
+        const unsigned long long probe =
+            base + (index * (KSWORD_ARK_HVM_LARGE_PAGE_BYTES / 64ULL));
+
+        if (KswordArkHvmEptPml4Index(probe) !=
+                KswordArkHvmEptPml4Index(base) ||
+            KswordArkHvmEptPdptIndex(probe) !=
+                KswordArkHvmEptPdptIndex(base) ||
+            KswordArkHvmEptPdIndex(probe) !=
+                KswordArkHvmEptPdIndex(base)) {
+            break;
+        }
+    }
+    Check(index == 64UL, "同一 2MiB 叶项内所有偏移索引相同");
+
+    /* 不变量：向下取整到叶项基址后，索引不变且基址已对齐。 */
+    address = 0x1C012345ULL;
+    Check(KswordArkHvmEptLeafBase(address) ==
+              (address & ~(KSWORD_ARK_HVM_LARGE_PAGE_BYTES - 1ULL)) &&
+          (KswordArkHvmEptLeafBase(address) %
+              KSWORD_ARK_HVM_LARGE_PAGE_BYTES) == 0ULL &&
+          KswordArkHvmEptPdIndex(KswordArkHvmEptLeafBase(address)) ==
+              KswordArkHvmEptPdIndex(address),
+          "取整到叶项基址后对齐且索引不变");
+
+    /* 已对齐的地址取整后不动。 */
+    Check(KswordArkHvmEptLeafBase(KSWORD_ARK_HVM_ONE_GIB) ==
+              KSWORD_ARK_HVM_ONE_GIB,
+          "已对齐地址取整后不变");
+}
+
+/*
+ * 域限制只能减权限。
+ *
+ * 这是 VMFUNC 安全性的全部依据：VMFUNC 不做 CPL 检查，任何 ring 3 线程都能切
+ * 进域。只要域永远不可能比默认视图更宽松，切过去就拿不到新的访问权。
+ */
+static void
+TestDomainRestriction(void)
+{
+    const unsigned long long rwx =
+        KSWORD_ARK_HVM_EPT_READ |
+        KSWORD_ARK_HVM_EPT_WRITE |
+        KSWORD_ARK_HVM_EPT_EXECUTE;
+    unsigned long long leaf = 0ULL;
+    unsigned long long once = 0ULL;
+    unsigned long long twice = 0ULL;
+    unsigned long bits = 0UL;
+
+    Group("域限制只减不增");
+
+    /* 拿掉写权限后只剩读与执行。 */
+    leaf = KswordArkHvmEptApplyRestriction(
+        rwx, KSWORD_ARK_HVM_EPT_WRITE);
+    CheckEqU64(leaf,
+               KSWORD_ARK_HVM_EPT_READ | KSWORD_ARK_HVM_EPT_EXECUTE,
+               "拿掉写权限后剩读与执行");
+
+    /* 幂等：同一限制施加两次与一次结果相同。 */
+    once = KswordArkHvmEptApplyRestriction(
+        rwx, KSWORD_ARK_HVM_EPT_EXECUTE);
+    twice = KswordArkHvmEptApplyRestriction(
+        once, KSWORD_ARK_HVM_EPT_EXECUTE);
+    CheckEqU64(twice, once, "同一限制重复施加是幂等的");
+
+    /* 保留位不被限制影响：suppress-#VE 与内存类型必须活下来。 */
+    leaf = KswordArkHvmEptApplyRestriction(
+        rwx | (1ULL << 63) | (6ULL << 3),
+        KSWORD_ARK_HVM_EPT_WRITE);
+    Check((leaf & (1ULL << 63)) != 0ULL &&
+          ((leaf >> 3) & 7ULL) == 6ULL,
+          "限制不影响 suppress-#VE 与内存类型");
+
+    /*
+     * 核心不变量：穷举全部 8 种权限组合与 8 种移除集合，结果的权限位永远是
+     * 原权限位的子集。这一条直接对应「域不可能比默认视图更宽松」。
+     */
+    for (bits = 0UL; bits < 64UL; ++bits) {
+        const unsigned long long original = (unsigned long long)(bits & 7UL);
+        const unsigned long long removed =
+            (unsigned long long)((bits >> 3) & 7UL);
+        const unsigned long long result =
+            KswordArkHvmEptApplyRestriction(original, removed);
+
+        if ((result & ~original) != 0ULL) {
+            break;
+        }
+    }
+    Check(bits == 64UL, "任意组合下结果权限都是原权限的子集");
+}
+
+/* ------------------------------------------------------------------ */
+
 int
 main(void)
 {
@@ -363,6 +509,8 @@ main(void)
     TestMsrBitmap();
     TestSelfMap();
     TestEptpValidation();
+    TestEptIndices();
+    TestDomainRestriction();
 
     printf("\n================================================\n");
     printf("%d 项检查，%d 项失败\n", g_checks, g_failures);

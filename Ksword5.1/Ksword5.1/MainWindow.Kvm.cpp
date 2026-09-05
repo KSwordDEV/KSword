@@ -20,6 +20,7 @@
 #include "UI/KvmEventDialog.h"
 #include "UI/KvmMemoryDialog.h"
 #include "UI/KvmMsrPolicyDialog.h"
+#include "UI/KvmDomainDialog.h"
 #include "UI/KvmViewDialog.h"
 #include "theme.h"
 
@@ -458,6 +459,42 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
         refreshKvmStatusAsync();
     });
 
+    // VMFUNC：不会蓝屏，但会把 EPTP list 里的每个域发布给任意 ring 3 线程。
+    QAction* const vmFuncAction = menu.addAction(
+        ks::i18n::sourceText(QStringLiteral("武装 VMFUNC 视图切换")));
+    vmFuncAction->setCheckable(true);
+    vmFuncAction->setChecked(ksword::kvm::isVmFuncEnabled());
+    vmFuncAction->setToolTip(ks::i18n::sourceText(QStringLiteral("武装后 guest 用一条 VMFUNC 就能在 EPTP list 的域之间切换，不产生 VM exit，驱动也收不到通知。VMFUNC 不做 CPL 检查，所以任意进程的任意 ring 3 线程都能切。这不是提权路径（域只能被拿掉权限），但确实是驱动观测不到的状态切换。本开关不持久化。")));
+    connect(vmFuncAction, &QAction::triggered, this, [this, vmFuncAction](const bool checked) {
+        if (!checked)
+        {
+            ksword::kvm::setVmFuncEnabled(false);
+            applyKvmButtonState();
+            refreshKvmStatusAsync();
+            return;
+        }
+        // 写权限前置：武装一个 guest 可见的切换接口属于改变系统行为。
+        if (!ksword::kvm::isWriteAccessEnabled())
+        {
+            vmFuncAction->setChecked(false);
+            QMessageBox::warning(
+                this,
+                ks::i18n::sourceText(QStringLiteral("VMFUNC 需要先开启写权限")),
+                ks::i18n::sourceText(QStringLiteral("武装 VMFUNC 会让 guest 获得一个驱动观测不到的视图切换能力，属于写权限门管辖的范围。请先打开「允许 R-1 写操作」。")));
+            return;
+        }
+        const bool confirmed = ks::ui::confirmDestructiveAction(
+            this,
+            QStringLiteral("KvmEnableVmFunc"),
+            ks::i18n::sourceText(QStringLiteral("武装 VMFUNC 视图切换")),
+            ks::i18n::sourceText(QStringLiteral("EPTP list 中的全部执行域")),
+            ks::i18n::sourceText(QStringLiteral("VMFUNC 不做 CPL 检查：武装之后，任意进程里的任意用户态线程都能用一条指令切换当前使用的 EPT 视图，不产生 VM exit，驱动也不会被通知。域只能被拿掉权限，所以切过去拿不到新的访问权，但这仍然是一个你观测不到的状态变化。")));
+        vmFuncAction->setChecked(confirmed);
+        ksword::kvm::setVmFuncEnabled(confirmed);
+        applyKvmButtonState();
+        refreshKvmStatusAsync();
+    });
+
     menu.addSeparator();
 
     // R-1 内存面板不要求常驻：私有页表窗口在驱动加载时就已建立。
@@ -477,6 +514,16 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
     viewAction->setEnabled(m_r0DriverServiceRunning);
     connect(viewAction, &QAction::triggered, this, [this]() {
         KvmViewDialog* const dialog = new KvmViewDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    });
+
+    // 执行域面板：域是默认视图的分叉，只能被拿掉权限，不能被加权限。
+    QAction* const domainAction = menu.addAction(
+        ks::i18n::sourceText(QStringLiteral("EPT 执行域（VMFUNC 可切换）...")));
+    domainAction->setEnabled(m_r0DriverServiceRunning);
+    connect(domainAction, &QAction::triggered, this, [this]() {
+        KvmDomainDialog* const dialog = new KvmDomainDialog(this);
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->show();
     });

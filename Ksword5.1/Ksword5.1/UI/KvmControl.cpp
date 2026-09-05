@@ -20,6 +20,8 @@ namespace ksword::kvm
             QStringLiteral("Safety/Kvm/NestedAllowed");
         // #VE 只活在本进程里，没有对应的设置键，这样它无法跨会话残留。
         std::atomic<bool> g_veEnabled{ false };
+        // VMFUNC 同样不落设置键：武装一个 guest 可见的接口不该跨会话残留。
+        std::atomic<bool> g_vmFuncEnabled{ false };
 
         // 进程内缓存：按钮刷新是高频路径，不能每次都读注册表。
         // -1 表示尚未从 QSettings 读入。
@@ -373,7 +375,8 @@ namespace ksword::kvm
             true,
             false,
             false,
-            isVeEnabled());
+            isVeEnabled(),
+            isVmFuncEnabled());
         return toCommandResult(
             started,
             ks::i18n::sourceText(QStringLiteral("启动 KVM 常驻")));
@@ -417,6 +420,8 @@ namespace ksword::kvm
             false,
             false,
             // enableVe：保持自检从不打开 #VE，它要证明的是常驻能活下来。
+            false,
+            // enableVmFunc：同理，保持自检不武装任何 guest 可见的切换接口。
             false,
             milliseconds);
         auto result = toCommandResult(
@@ -483,6 +488,17 @@ namespace ksword::kvm
     void setVeEnabled(const bool enabled)
     {
         g_veEnabled.store(enabled, std::memory_order_relaxed);
+    }
+
+    bool isVmFuncEnabled()
+    {
+        // 与 #VE 一样只活在本进程里：重启客户端即回到关闭。
+        return g_vmFuncEnabled.load(std::memory_order_relaxed);
+    }
+
+    void setVmFuncEnabled(const bool enabled)
+    {
+        g_vmFuncEnabled.store(enabled, std::memory_order_relaxed);
     }
 
     bool isWriteAccessEnabled()
@@ -805,6 +821,97 @@ namespace ksword::kvm
                 .arg(actionName);
             return view;
         }
+
+        // toDomainResult：把驱动执行域响应翻译成 UI 可直接展示的结论。
+        KvmDomainResult toDomainResult(
+            const ksword::ark::HvmDomainResult& result,
+            const QString& actionName)
+        {
+            KvmDomainResult domain;
+            domain.domainIndex = result.response.domainIndex;
+            domain.domainCount = result.response.domainCount;
+            domain.ok = result.io.ok &&
+                result.response.status == KSWORD_ARK_HVM_DOMAIN_STATUS_OK;
+            if (domain.ok)
+            {
+                const unsigned long rows =
+                    result.response.returnedRows <=
+                        KSWORD_ARK_HVM_MAX_DOMAIN_ROWS
+                        ? result.response.returnedRows
+                        : KSWORD_ARK_HVM_MAX_DOMAIN_ROWS;
+                for (unsigned long index = 0; index < rows; ++index)
+                {
+                    const auto& row = result.response.rows[index];
+                    KvmDomainEntry entry;
+                    entry.domainIndex = row.domainIndex;
+                    entry.active = row.active != 0;
+                    entry.privateTableCount = row.privateTableCount;
+                    entry.eptPointer = row.eptPointer;
+                    domain.domains.append(entry);
+                }
+                domain.message = ks::i18n::sourceText(
+                    QStringLiteral("%1 成功。")).arg(actionName);
+                return domain;
+            }
+            if (!result.io.ok && result.unsupported)
+            {
+                domain.message = ks::i18n::sourceText(
+                    QStringLiteral("%1 失败：当前驱动不提供该能力。"))
+                    .arg(actionName);
+                return domain;
+            }
+            QString reason;
+            switch (result.response.status)
+            {
+            case KSWORD_ARK_HVM_DOMAIN_STATUS_CONFIRMATION_REQUIRED:
+                reason = ks::i18n::sourceText(QStringLiteral("需要显式确认"));
+                break;
+            case KSWORD_ARK_HVM_DOMAIN_STATUS_NOT_PREPARED:
+                reason = ks::i18n::sourceText(QStringLiteral("资源尚未准备"));
+                break;
+            case KSWORD_ARK_HVM_DOMAIN_STATUS_NOT_FOUND:
+                reason = ks::i18n::sourceText(
+                    QStringLiteral("没有这个域，或者范围不在恒等映射窗口里"));
+                break;
+            case KSWORD_ARK_HVM_DOMAIN_STATUS_TABLE_FULL:
+                reason = ks::i18n::sourceText(
+                    QStringLiteral("域已用尽，或该域分叉的页表已达上限"));
+                break;
+            case KSWORD_ARK_HVM_DOMAIN_STATUS_EXECUTE_ONLY_UNSUPPORTED:
+                reason = ks::i18n::sourceText(
+                    QStringLiteral("处理器不支持仅执行的 EPT 叶项，拿不掉读权限"));
+                break;
+            case KSWORD_ARK_HVM_DOMAIN_STATUS_UNSUPPORTED:
+                reason = ks::i18n::sourceText(
+                    QStringLiteral("处理器不提供 EPTP 切换，域建了也切不过去"));
+                break;
+            case KSWORD_ARK_HVM_DOMAIN_STATUS_RESIDENT_ACTIVE:
+                reason = ks::i18n::sourceText(
+                    QStringLiteral("常驻期间不能改域：可能有 VCPU 正在这些表里执行"));
+                break;
+            case KSWORD_ARK_HVM_DOMAIN_STATUS_RESOURCE_FAILED:
+                reason = ks::i18n::sourceText(QStringLiteral("页表分叉失败"));
+                break;
+            default:
+                reason = ks::i18n::sourceText(QStringLiteral("协议状态 %1"))
+                    .arg(result.response.status);
+                break;
+            }
+            domain.message = ks::i18n::sourceText(QStringLiteral("%1 失败：%2。"))
+                .arg(actionName)
+                .arg(reason);
+            return domain;
+        }
+
+        // denyDomainWithoutWriteAccess：写权限关闭时统一拒绝，不发起 IOCTL。
+        KvmDomainResult denyDomainWithoutWriteAccess(const QString& actionName)
+        {
+            KvmDomainResult domain;
+            domain.message = ks::i18n::sourceText(
+                QStringLiteral("%1 失败：R-1 写权限未开启。"))
+                .arg(actionName);
+            return domain;
+        }
     }
 
     KvmViewResult listViews()
@@ -890,6 +997,81 @@ namespace ksword::kvm
             KSWORD_ARK_HVM_VIEW_OP_CLEAR,
             0, 0, 0, 0, nullptr, false, false, false, true);
         return toViewResult(result, actionName);
+    }
+
+    KvmDomainResult listDomains()
+    {
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmDomain(
+            KSWORD_ARK_HVM_DOMAIN_OP_QUERY,
+            0, 0, 0, 0, 0, false);
+        return toDomainResult(
+            result,
+            ks::i18n::sourceText(QStringLiteral("读取 EPT 执行域")));
+    }
+
+    KvmDomainResult createDomain()
+    {
+        const QString actionName =
+            ks::i18n::sourceText(QStringLiteral("创建 EPT 执行域"));
+        if (!isWriteAccessEnabled())
+        {
+            return denyDomainWithoutWriteAccess(actionName);
+        }
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmDomain(
+            KSWORD_ARK_HVM_DOMAIN_OP_CREATE,
+            0, 0, 0, 0, 0, true);
+        return toDomainResult(result, actionName);
+    }
+
+    KvmDomainResult restrictDomain(
+        const unsigned long domainIndex,
+        const unsigned long long physicalAddress,
+        const unsigned long long byteCount,
+        const unsigned long deniedAccess)
+    {
+        const QString actionName =
+            ks::i18n::sourceText(QStringLiteral("收紧 EPT 执行域权限"));
+        if (!isWriteAccessEnabled())
+        {
+            return denyDomainWithoutWriteAccess(actionName);
+        }
+        // 域 0 是默认视图，收紧它等于收紧所有域，驱动会拒绝。这里先挡一次，
+        // 免得用户以为自己在改一个副本。
+        if (domainIndex == 0)
+        {
+            KvmDomainResult domain;
+            domain.message = ks::i18n::sourceText(
+                QStringLiteral("%1 失败：0 号是默认视图，收紧它会影响所有域。"))
+                .arg(actionName);
+            return domain;
+        }
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmDomain(
+            KSWORD_ARK_HVM_DOMAIN_OP_RESTRICT,
+            domainIndex,
+            0,
+            physicalAddress,
+            byteCount,
+            deniedAccess,
+            true);
+        return toDomainResult(result, actionName);
+    }
+
+    KvmDomainResult resetDomains()
+    {
+        const QString actionName =
+            ks::i18n::sourceText(QStringLiteral("清空 EPT 执行域"));
+        if (!isWriteAccessEnabled())
+        {
+            return denyDomainWithoutWriteAccess(actionName);
+        }
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmDomain(
+            KSWORD_ARK_HVM_DOMAIN_OP_RESET,
+            0, 0, 0, 0, 0, true);
+        return toDomainResult(result, actionName);
     }
 
     namespace

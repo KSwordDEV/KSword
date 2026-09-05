@@ -437,6 +437,7 @@
     <ClCompile Include="UI\KvmControl.cpp" />
     <ClCompile Include="UI\KvmMemoryDialog.cpp" />
     <ClCompile Include="UI\KvmViewDialog.cpp" />
+    <ClCompile Include="UI\KvmDomainDialog.cpp" />
     <ClCompile Include="UI\KvmMsrPolicyDialog.cpp" />
     <ClCompile Include="UI\KvmEventDialog.cpp" />
     <ClCompile Include="UI\KvmCrPolicyDialog.cpp" />
@@ -761,6 +762,7 @@
     <QtMoc Include="UI\GlobalUiSearch.h" />
     <QtMoc Include="UI\KvmMemoryDialog.h" />
     <QtMoc Include="UI\KvmViewDialog.h" />
+    <QtMoc Include="UI\KvmDomainDialog.h" />
     <QtMoc Include="UI\KvmMsrPolicyDialog.h" />
     <QtMoc Include="UI\KvmEventDialog.h" />
     <QtMoc Include="UI\KvmCrPolicyDialog.h" />
