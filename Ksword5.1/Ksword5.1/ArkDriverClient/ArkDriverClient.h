@@ -449,6 +449,11 @@ namespace ksword::ark
             // 发布给任意 ring 3 代码。域只能被减权限，因此这不是提权路径，
             // 但确实是一个 guest 可见、驱动无法观测的切换接口。
             bool enableVmFunc = false,
+            // enableLocalEpt：给每个处理器一份私有 EPT 层次。
+            // 它不放开任何新能力，而是让已有的 EPT 视图与 allow-once 授权在
+            // 多核上也安全——翻转只落在取到 exit 的那个处理器上。代价是每核
+            // 若干页，以及与 VMFUNC、嵌套 VMX 互斥。
+            bool enableLocalEpt = false,
             // soakMilliseconds：仅 KSWORD_ARK_HVM_CONTROL_SOAK 读取，
             // 表示常驻保持时长；驱动侧会把它夹到协议规定的上下界之间。
             unsigned long soakMilliseconds = 0) const;

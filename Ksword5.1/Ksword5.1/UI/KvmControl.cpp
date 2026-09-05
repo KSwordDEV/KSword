@@ -18,6 +18,11 @@ namespace ksword::kvm
         // 嵌套模式开关的持久化键。
         const QString kNestedAllowedSettingKey =
             QStringLiteral("Safety/Kvm/NestedAllowed");
+        // 私有 EPT 与 #VE / VMFUNC 不同：它不放开能力，只是让已有能力在多核
+        // 上安全。所以它持久化，和嵌套模式一样。
+        const QString kLocalEptSettingKey =
+            QStringLiteral("Safety/Kvm/LocalEptEnabled");
+        std::atomic<int> g_localEptCache{ -1 };
         // #VE 只活在本进程里，没有对应的设置键，这样它无法跨会话残留。
         std::atomic<bool> g_veEnabled{ false };
         // VMFUNC 同样不落设置键：武装一个 guest 可见的接口不该跨会话残留。
@@ -394,7 +399,8 @@ namespace ksword::kvm
             false,
             false,
             isVeEnabled(),
-            isVmFuncEnabled());
+            isVmFuncEnabled(),
+            isLocalEptEnabled());
         return toCommandResult(
             started,
             ks::i18n::sourceText(QStringLiteral("启动 KVM 常驻")));
@@ -440,6 +446,9 @@ namespace ksword::kvm
             // enableVe：保持自检从不打开 #VE，它要证明的是常驻能活下来。
             false,
             // enableVmFunc：同理，保持自检不武装任何 guest 可见的切换接口。
+            false,
+            // enableLocalEpt：保持自检要证明的是常驻能活下来，不是私有层次
+            // 能建起来，多建一套只会把失败原因混在一起。
             false,
             milliseconds);
         auto result = toCommandResult(
@@ -506,6 +515,27 @@ namespace ksword::kvm
     void setVeEnabled(const bool enabled)
     {
         g_veEnabled.store(enabled, std::memory_order_relaxed);
+    }
+
+    bool isLocalEptEnabled()
+    {
+        const int cached = g_localEptCache.load(std::memory_order_relaxed);
+        if (cached >= 0)
+        {
+            return cached != 0;
+        }
+        QSettings settings;
+        const bool enabled =
+            settings.value(kLocalEptSettingKey, false).toBool();
+        g_localEptCache.store(enabled ? 1 : 0, std::memory_order_relaxed);
+        return enabled;
+    }
+
+    void setLocalEptEnabled(const bool enabled)
+    {
+        QSettings settings;
+        settings.setValue(kLocalEptSettingKey, enabled);
+        g_localEptCache.store(enabled ? 1 : 0, std::memory_order_relaxed);
     }
 
     bool isVmFuncEnabled()

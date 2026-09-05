@@ -372,6 +372,19 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
 
     menu.addSeparator();
 
+    // 私有 EPT：不放开能力，只是让已有的视图/授权在多核上安全，所以不走
+    // 高风险确认——真正危险的是视图本身，那由写权限门管。
+    QAction* const localEptAction = menu.addAction(
+        ks::i18n::sourceText(QStringLiteral("每处理器私有 EPT（多核可用视图）")));
+    localEptAction->setCheckable(true);
+    localEptAction->setChecked(ksword::kvm::isLocalEptEnabled());
+    localEptAction->setToolTip(ks::i18n::sourceText(QStringLiteral("给每个处理器一份私有 EPT 层次，翻转只落在取到 exit 的那个处理器上。打开后才能在多核机器上安装 EPT 视图；关着时视图仍然只能在单核拓扑安装。与 VMFUNC、嵌套 VMX 互斥，且每核要多花若干页。")));
+    connect(localEptAction, &QAction::triggered, this, [this](const bool checked) {
+        ksword::kvm::setLocalEptEnabled(checked);
+        applyKvmButtonState();
+        refreshKvmStatusAsync();
+    });
+
     // 写权限门：关闭时 KVM 只做观测，所有 R-1 改写能力都不可用。
     QAction* const writeAction = menu.addAction(
         ks::i18n::sourceText(QStringLiteral("允许 R-1 写操作")));

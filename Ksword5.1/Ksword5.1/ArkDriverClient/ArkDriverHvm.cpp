@@ -60,6 +60,7 @@ namespace ksword::ark
         const bool enableEvmcs,
         const bool enableVe,
         const bool enableVmFunc,
+        const bool enableLocalEpt,
         const unsigned long soakMilliseconds) const
     {
         HvmControlResult result{};
@@ -98,6 +99,10 @@ namespace ksword::ark
         if (enableVmFunc)
         {
             request.flags |= KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC;
+        }
+        if (enableLocalEpt)
+        {
+            request.flags |= KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT;
         }
         if (command == KSWORD_ARK_HVM_CONTROL_LAUNCH_TEST_GUEST)
         {

@@ -135,6 +135,18 @@ namespace ksword::kvm
     bool isVmFuncEnabled();
     void setVmFuncEnabled(bool enabled);
 
+    // 私有 EPT 开关（每处理器一份 EPT 层次）：
+    // - 与 #VE / VMFUNC 相反，这个开关不放开任何新能力，它让【已有】的 EPT
+    //   视图与 allow-once 授权在多核上也安全：翻转只落在取到 exit 的那个
+    //   处理器上，其余处理器看不到那个窗口；
+    // - 打开后才能在多核机器上安装 EPT 视图。关着时视图仍然只能在单核拓扑
+    //   安装，那是这个开关出现之前的行为；
+    // - 与 VMFUNC、嵌套 VMX 互斥：前者要求所有处理器共享一份 EPTP list，
+    //   后者要复合出一个与处理器无关的 EPT 指针；
+    // - 【持久化】：它不是危险开关，是更安全的那个方向。
+    bool isLocalEptEnabled();
+    void setLocalEptEnabled(bool enabled);
+
     // 写权限门：
     // - 默认关闭。关闭时 KVM 只做观测，任何会改变系统状态的 R-1 操作都被拒绝；
     // - 由标题栏 KVM 菜单显式切换，并持久化到 QSettings；

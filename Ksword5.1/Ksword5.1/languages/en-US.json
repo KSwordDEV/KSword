@@ -31517,6 +31517,8 @@
     "KvmSoak": "KvmSoak",
     "KvmStartResident": "KvmStartResident",
     "KvmWriteAccess": "KvmWriteAccess",
+    "每处理器私有 EPT（多核可用视图）": "Per-processor private EPT (views on multicore)",
+    "给每个处理器一份私有 EPT 层次，翻转只落在取到 exit 的那个处理器上。打开后才能在多核机器上安装 EPT 视图；关着时视图仍然只能在单核拓扑安装。与 VMFUNC、嵌套 VMX 互斥，且每核要多花若干页。": "Give each processor its own EPT hierarchy, so a flip lands only on the processor that took the exit. Turning this on is what allows EPT views to be installed on a multicore machine; with it off, views still require a single-processor topology. Mutually exclusive with VMFUNC and nested VMX, and it costs a few pages per processor.",
     "#VE：控制位已武装。仍有两道保险挡着实际投递（全叶项 suppress-#VE、信息区锁 busy）": "#VE: control armed. Two safeties still block actual delivery - suppress-#VE on every leaf, and the information area latched busy.",
     "VMFUNC：已武装。guest 中任意 ring 3 线程都能切换 EPT 视图，且不产生 VM-exit": "VMFUNC: armed. Any ring-3 thread in the guest can switch the EPT view, producing no VM exit.",
     ", denied=": ", denied=",
