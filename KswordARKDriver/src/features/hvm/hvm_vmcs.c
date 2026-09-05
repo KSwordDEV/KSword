@@ -17,6 +17,8 @@ Environment:
 
 #include "hvm_vmcs.h"
 
+#include "driver/KswordArkHvmControls.h"
+
 #if defined(_M_AMD64)
 #include <intrin.h>
 
@@ -271,15 +273,14 @@ KswordARKHvmAdjustControls(
     _In_ ULONGLONG Capability
     )
 {
-    ULONG mustBeOne = 0UL;
-    ULONG mayBeOne = 0UL;
-
-    /* Decode the low required-one mask from the control capability MSR. */
-    mustBeOne = (ULONG)(Capability & 0xFFFFFFFFULL);
-    /* Decode the high allowed-one mask from the same capability MSR. */
-    mayBeOne = (ULONG)(Capability >> 32);
-    /* Preserve required bits and clear every unsupported requested bit. */
-    return (Desired | mustBeOne) & mayBeOne;
+    /*
+     * The arithmetic lives in KswordArkHvmControls.h so the host unit tests
+     * exercise the same code the driver runs, rather than a copy that can
+     * drift.  Getting this wrong is invisible until VM entry fails with only
+     * an error number to go on, which is exactly what happens under a nested
+     * hypervisor that exposes a narrower control surface.
+     */
+    return KswordArkHvmAdjustControls(Desired, Capability);
 }
 
 static NTSTATUS

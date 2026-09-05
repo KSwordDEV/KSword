@@ -21,6 +21,8 @@ Environment:
 
 #include "hvm_exit_emulate.h"
 
+#include "driver/KswordArkHvmControls.h"
+
 #if defined(_M_AMD64)
 #include <intrin.h>
 
@@ -297,9 +299,7 @@ KswordARKHvmExitEmulateMsr(
      * them in VMX root would fault on the host IDT with no continuation.
      * Deliver the same #GP the guest would have taken on bare metal.
      */
-    if (index <= KSW_HVM_MSR_LOW_LIMIT ||
-        (index >= KSW_HVM_MSR_HIGH_BASE &&
-         index <= KSW_HVM_MSR_HIGH_LIMIT)) {
+    if (KswordArkHvmMsrIndexIsCovered(index)) {
         /*
          * An in-range index can still arrive once a policy opens a bitmap
          * hole.  Until the policy engine owns those holes, treat the exit as

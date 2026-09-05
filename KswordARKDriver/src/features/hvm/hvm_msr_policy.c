@@ -27,27 +27,20 @@ Environment:
 
 #include "hvm_msr_policy.h"
 
+#include "driver/KswordArkHvmControls.h"
+
 #include "hvm_exit_emulate.h"
 
 #if defined(_M_AMD64)
 #include <intrin.h>
 #endif
 
-/* Name the last index covered by the low half of the architectural bitmap. */
-#define KSW_HVM_MSR_LOW_LIMIT 0x00001FFFUL
-/* Name the first index covered by the high half of the bitmap. */
-#define KSW_HVM_MSR_HIGH_BASE 0xC0000000UL
-/* Name the last index covered by the high half of the bitmap. */
-#define KSW_HVM_MSR_HIGH_LIMIT 0xC0001FFFUL
-
-/* Byte offset of the low-range read bitmap inside the page. */
-#define KSW_HVM_MSR_READ_LOW_OFFSET 0x000U
-/* Byte offset of the high-range read bitmap inside the page. */
-#define KSW_HVM_MSR_READ_HIGH_OFFSET 0x400U
-/* Byte offset of the low-range write bitmap inside the page. */
-#define KSW_HVM_MSR_WRITE_LOW_OFFSET 0x800U
-/* Byte offset of the high-range write bitmap inside the page. */
-#define KSW_HVM_MSR_WRITE_HIGH_OFFSET 0xC00U
+/*
+ * The index ranges and the byte/bit arithmetic live in KswordArkHvmControls.h
+ * so the host unit tests cover the same code this file executes.  A mistake
+ * here is silent: the policy simply lands on a different MSR, which also
+ * exists and also accepts the write.
+ */
 
 /* Return whether the architectural bitmap covers one MSR index. */
 static BOOLEAN
@@ -55,14 +48,8 @@ KswordARKHvmMsrPolicyIsCovered(
     _In_ ULONG MsrIndex
     )
 {
-    /* Accept the low range the bitmap describes. */
-    if (MsrIndex <= KSW_HVM_MSR_LOW_LIMIT) {
-        /* Report a covered index. */
-        return TRUE;
-    }
-    /* Accept the high range the bitmap describes. */
-    return MsrIndex >= KSW_HVM_MSR_HIGH_BASE &&
-        MsrIndex <= KSW_HVM_MSR_HIGH_LIMIT;
+    /* Defer to the shared, unit-tested range check. */
+    return KswordArkHvmMsrIndexIsCovered(MsrIndex) != 0 ? TRUE : FALSE;
 }
 
 /*
@@ -78,8 +65,6 @@ KswordARKHvmMsrPolicySetBit(
     )
 {
     UCHAR* bitmap = (UCHAR*)Runtime->MsrBitmapVirtual;
-    ULONG base = 0UL;
-    ULONG relative = 0UL;
     ULONG byteOffset = 0UL;
     UCHAR mask = 0U;
 
@@ -88,25 +73,15 @@ KswordARKHvmMsrPolicySetBit(
         /* Return without touching an absent bitmap. */
         return;
     }
-    /* Select the half of the bitmap that describes this index. */
-    if (MsrIndex <= KSW_HVM_MSR_LOW_LIMIT) {
-        /* Low indices start at the beginning of each half. */
-        base = IsWrite
-            ? KSW_HVM_MSR_WRITE_LOW_OFFSET
-            : KSW_HVM_MSR_READ_LOW_OFFSET;
-        /* The low range is indexed directly. */
-        relative = MsrIndex;
-    } else {
-        /* High indices are offset from the start of the high range. */
-        base = IsWrite
-            ? KSW_HVM_MSR_WRITE_HIGH_OFFSET
-            : KSW_HVM_MSR_READ_HIGH_OFFSET;
-        /* Rebase the index onto the high half. */
-        relative = MsrIndex - KSW_HVM_MSR_HIGH_BASE;
+    /* Resolve the byte and bit through the shared, unit-tested mapping. */
+    if (!KswordArkHvmMsrBitmapLocate(
+            MsrIndex,
+            IsWrite ? 1 : 0,
+            &byteOffset,
+            &mask)) {
+        /* An uncovered index has no bit to change. */
+        return;
     }
-    /* Resolve the byte and bit describing this index. */
-    byteOffset = base + (relative >> 3);
-    mask = (UCHAR)(1U << (relative & 7U));
     /* Publish the requested interception state. */
     if (Intercept) {
         /* Make the access exit. */

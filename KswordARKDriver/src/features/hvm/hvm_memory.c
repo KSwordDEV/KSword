@@ -30,6 +30,8 @@ Environment:
 
 #include "hvm_memory.h"
 
+#include "driver/KswordArkHvmControls.h"
+
 #include <intrin.h>
 
 /* Name the architectural page size used by the window and its entries. */
@@ -86,15 +88,15 @@ KswordARKHvmMemoryEntryAddress(
     )
 {
     /*
-     * The self-map turns the leaf entry for an address into an ordinary
-     * virtual address.  Only the canonical low 48 bits index the hierarchy;
-     * including the sign extension would walk past the self-map region.
+     * The arithmetic lives in KswordArkHvmControls.h so the host unit tests
+     * cover the same code this file executes.  The step that matters is
+     * masking off the sign extension before shifting: without it a kernel
+     * address lands outside the self-map region, on an address that is often
+     * still readable - so the mistake shows up as "the page table edit had no
+     * effect" rather than as a fault.
      */
-    const ULONGLONG offset =
-        ((VirtualAddress & KSW_HVM_MEMORY_VA_INDEX_MASK) >> 12) << 3;
-
-    /* Return the writable leaf entry inside the self-mapped region. */
-    return (volatile ULONGLONG*)(ULONG_PTR)(SelfMapBase + offset);
+    return (volatile ULONGLONG*)(ULONG_PTR)
+        KswordArkHvmSelfMapEntryAddress(SelfMapBase, VirtualAddress);
 }
 
 /*
@@ -116,7 +118,7 @@ KswordARKHvmMemoryDiscoverSelfMap(
     for (index = 0UL; index < 512UL; ++index) {
         /* Build the self-map base implied by this candidate slot. */
         const ULONGLONG candidateBase =
-            0xFFFF000000000000ULL | ((ULONGLONG)index << 39);
+            KswordArkHvmSelfMapBaseFromIndex(index);
         volatile ULONGLONG* entry = KswordARKHvmMemoryEntryAddress(
             candidateBase,
             (ULONGLONG)(ULONG_PTR)Probe);
