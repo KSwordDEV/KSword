@@ -708,6 +708,20 @@ KswordARKHvmResidentVmExitDispatch(
         /* Publish the latest nested state to the processor row. */
         Context->Resource->Row.nestedState =
             Context->Nested.State;
+        /*
+         * A refused VMX instruction must not cost us the hypervisor.  Falling
+         * through to the fail-closed path would mean any guest that sets
+         * CR4.VMXE and issues one VMX instruction tears the VMM down - and a
+         * guest running WSL2 or a virtual machine does exactly that.
+         *
+         * #UD is also what the guest should architecturally receive: outside
+         * nested dispatch its CPUID reports no VMX and its CR4.VMXE is clear,
+         * so a VMX instruction is undefined by definition.
+         */
+        if (!handled) {
+            /* Refuse the instruction without leaving VMX operation. */
+            handled = KswordARKHvmExitInjectUndefinedOpcode();
+        }
     /* HLT should not exit in resident mode unless hardware forced the control. */
     } else if (basicReason == KSW_VMX_EXIT_HLT ||
                basicReason ==

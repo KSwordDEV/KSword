@@ -405,6 +405,14 @@ KswordARKHvmIoctlEvents(
     size_t actualInputLength = 0U;
     size_t actualOutputLength = 0U;
     NTSTATUS status = STATUS_SUCCESS;
+    /*
+     * METHOD_BUFFERED shares one SystemBuffer between input and output, and
+     * KswordARKHvmEventControl zeroes the response before it reads maxRows and
+     * afterSequence.  Without this snapshot the cursor is always read back as
+     * zero, so every query restarts from the oldest retained event and the
+     * consumer sees the same rows forever.
+     */
+    KSWORD_ARK_HVM_EVENT_QUERY_REQUEST requestSnapshot = { 0 };
     const KSWORD_ARK_HVM_EVENT_QUERY_REQUEST* eventRequest = NULL;
 
     /* Event queries do not use the device object directly. */
@@ -434,8 +442,12 @@ KswordARKHvmIoctlEvents(
             : status;
     }
     /* Bind the fixed protocol request after length validation. */
-    eventRequest =
-        (const KSWORD_ARK_HVM_EVENT_QUERY_REQUEST*)inputBuffer;
+    /* Preserve the request before the shared buffer is used as a response. */
+    RtlCopyMemory(
+        &requestSnapshot,
+        inputBuffer,
+        sizeof(requestSnapshot));
+    eventRequest = &requestSnapshot;
     /* Require write authorization before clearing retained events. */
     if (eventRequest->operation ==
         KSWORD_ARK_HVM_EVENT_QUERY_CLEAR) {
