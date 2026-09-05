@@ -540,8 +540,14 @@ typedef struct _KSW_HVM_RUNTIME
     volatile LONG UnloadGuardArmed;
     /* Fail-closed resident lifecycle gate, enabled only after all guards bind. */
     BOOLEAN ResidentStartAllowed;
+    /*
+     * Record whether this runtime may hand out per-processor EPT hierarchies.
+     * Capability-derived, so it is evidence and must be destroyed alongside
+     * the other pre-suspend evidence on an S0 transition.
+     */
+    BOOLEAN LocalEptArmed;
     /* Keep the tail deterministic for crash-dump inspection. */
-    UCHAR Reserved2[7];
+    UCHAR Reserved2[6];
 } KSW_HVM_RUNTIME;
 
 EXTERN_C_START

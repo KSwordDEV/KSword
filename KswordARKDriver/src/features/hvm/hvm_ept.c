@@ -673,6 +673,27 @@ KswordARKHvmEptRuleControlLocked(
             /* Return a protocol-level result successfully. */
             return STATUS_SUCCESS;
         }
+        /*
+         * An allow-once rule the private hierarchies could not mirror must be
+         * refused here rather than at start.  Rules that only deny access
+         * never flip a leaf, so they are exempt and this check skips them.
+         */
+        if ((Request->flags &
+                KSWORD_ARK_HVM_EPT_RULE_FLAG_ALLOW_ONCE) != 0UL) {
+            status = KswordARKHvmEptLocalCheckAdmission(
+                Runtime,
+                Request->physicalAddress,
+                (ULONGLONG)Request->pageCount * KSW_HVM_PAGE_BYTES);
+            if (!NT_SUCCESS(status)) {
+                /* Publish the stable table-full protocol status. */
+                Response->status =
+                    KSWORD_ARK_HVM_EPT_RULE_STATUS_TABLE_FULL;
+                /* Publish the authoritative admission failure. */
+                Response->lastStatus = status;
+                /* Return a protocol-level result successfully. */
+                return STATUS_SUCCESS;
+            }
+        }
         /* Pre-split every covered two-MiB leaf before publishing the rule. */
         for (pageIndex = 0ULL;
              pageIndex < Request->pageCount;
@@ -806,9 +827,15 @@ KswordARKHvmEptRestoreTransient(
     *Transient->Entry = Transient->RestrictedValue;
     /* Order the restoration before invalidating the current EPT context. */
     KeMemoryBarrier();
-    /* Require current-context invalidation before forgetting the recovery. */
+    /*
+     * Invalidate the hierarchy the grant was actually made in.  Single-context
+     * INVEPT is scoped by the pointer it names, so naming the shared one here
+     * would leave a private processor holding the widened translation.
+     */
     if (KswordARKHvmAsmInveptSingle(
-            Runtime->EptPointer) != 0U) {
+            Transient->EptPointer != 0ULL
+                ? Transient->EptPointer
+                : Runtime->EptPointer) != 0U) {
         /* Keep Armed and every recovery field for VMXOFF fail-closed cleanup. */
         return FALSE;
     }
@@ -820,6 +847,7 @@ KswordARKHvmEptRestoreTransient(
     Transient->RuleId = 0UL;
     Transient->Entry = NULL;
     Transient->RestrictedValue = 0ULL;
+    Transient->EptPointer = 0ULL;
     /* Report a fully restored and invalidated EPT context. */
     return TRUE;
 }
@@ -830,6 +858,7 @@ KswordARKHvmEptHandleViolation(
     _In_ ULONGLONG GuestPhysicalAddress,
     _In_ ULONG Access,
     _In_ BOOLEAN GuestLinearAddressValid,
+    _In_opt_ const KSW_HVM_EPT_LOCAL* Local,
     _Out_ KSW_HVM_EPT_TRANSIENT* Transient,
     _Out_ ULONG* RuleId,
     _Out_ ULONG* Disposition
@@ -879,6 +908,7 @@ KswordARKHvmEptHandleViolation(
     Transient->RuleId = 0UL;
     Transient->Entry = NULL;
     Transient->RestrictedValue = 0ULL;
+    Transient->EptPointer = 0ULL;
     /* Aggregate every active rule that covers this page and access type. */
     for (index = 0UL;
          index < KSWORD_ARK_HVM_MAX_EPT_RULES;
@@ -977,14 +1007,18 @@ KswordARKHvmEptHandleViolation(
         return FALSE;
     }
     /*
-     * ALLOW_ONCE edits a shared EPT leaf.  It is safe only when exactly one
-     * resident VCPU exists and the CPU supports both MTF and single INVEPT.
+     * ALLOW_ONCE edits an EPT leaf.  On a SHARED hierarchy that is safe only
+     * with exactly one resident VCPU, because every other one would see the
+     * widened permission for the whole window.  With a private hierarchy the
+     * leaf is this processor's alone, so the topology requirement drops out -
+     * but the capability requirement below never does.
      */
-    if (Runtime->ProcessorCount != 1UL ||
-        InterlockedCompareExchange(
-            &Runtime->ResidentProcessorCount,
-            0L,
-            0L) != 1L ||
+    if ((Local == NULL &&
+            (Runtime->ProcessorCount != 1UL ||
+             InterlockedCompareExchange(
+                 &Runtime->ResidentProcessorCount,
+                 0L,
+                 0L) != 1L)) ||
         (Runtime->FeatureFlags &
             (KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE |
              KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG)) !=
@@ -1002,10 +1036,25 @@ KswordARKHvmEptHandleViolation(
         /* Report that the resident dispatcher must devirtualize. */
         return FALSE;
     }
-    /* Preserve every recovery field before changing the shared leaf. */
+    /*
+     * Redirect the write to this processor's own copy of the leaf.  A leaf
+     * that is flippable but has no mirror is a build error, and writing the
+     * shared table instead would silently reintroduce exactly the hazard the
+     * private hierarchy exists to remove - so it fails closed.
+     */
+    if (Local != NULL) {
+        entry = KswordARKHvmEptLocalTranslate(Local, entry);
+        if (entry == NULL) {
+            /* Report that the resident dispatcher must devirtualize. */
+            return FALSE;
+        }
+    }
+    /* Preserve every recovery field before changing the leaf. */
     Transient->RestrictedValue = *entry;
     Transient->Entry = entry;
     Transient->RuleId = selectedRuleId;
+    /* Record which hierarchy must be invalidated when this grant ends. */
+    Transient->EptPointer = Local != NULL ? Local->EptPointer : 0ULL;
     /* Publish the armed recovery record before granting any permission. */
     KeMemoryBarrier();
     Transient->Armed = TRUE;
@@ -1036,9 +1085,11 @@ KswordARKHvmEptHandleViolation(
     *entry = grantedValue;
     /* Order the permission grant before current-context invalidation. */
     KeMemoryBarrier();
-    /* Invalidate the current EPT context before VMRESUME. */
+    /* Invalidate the hierarchy the grant was made in, before VMRESUME. */
     if (KswordARKHvmAsmInveptSingle(
-            Runtime->EptPointer) != 0U) {
+            Transient->EptPointer != 0ULL
+                ? Transient->EptPointer
+                : Runtime->EptPointer) != 0U) {
         /* Restore and invalidate; retain Armed if the restoration also fails. */
         (void)KswordARKHvmEptRestoreTransient(
             Runtime,

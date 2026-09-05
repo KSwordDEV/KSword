@@ -95,6 +95,14 @@ typedef struct _KSW_HVM_RESIDENT_VCPU
     NTSTATUS LastStatus;
     /* Preserve the last VM-instruction error. */
     ULONG LastVmInstructionError;
+    /*
+     * Reference this processor's private EPT hierarchy, or NULL when the
+     * feature is off.  Placed here rather than appended at the end so it
+     * shares the cache line already carrying Active and the transient: the
+     * exit path reads it on every EPT violation, and the whole cost of the
+     * feature being off is that this load returns NULL.
+     */
+    KSW_HVM_EPT_LOCAL* EptLocal;
     /* Preserve one allow-once EPT restoration. */
     KSW_HVM_EPT_TRANSIENT EptTransient;
     /* Preserve one bounded L1 nested-VMX state machine. */

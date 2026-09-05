@@ -241,6 +241,12 @@ jobs:
       - name: Validate kernel knowledge research chain
         run: python tools/validate_kernel_knowledge.py
 
+      # 这两条不变量少一个字就会静默退化成共享层次：翻转路径的 INVEPT 操作数，
+      # 以及两个 arm 站点的 Local 参数。改动落在 VM-exit 路径上，没有运行期
+      # 验证手段，所以只能在编译机上钉死。门禁本身用两次变异注入验证过能抓到回归。
+      - name: Gate per-processor EPT invariants
+        run: python tools/hvm_local_ept_gate.py
+
       # 这批算术在驱动里只有加载后才执行，出错的表现是蓝屏或者更糟——静默改掉
       # 一块无关内存的 EPT 权限。抽进共享头之后正确性可以在编译机上直接证明，
       # 所以它没有理由只靠人手动跑。

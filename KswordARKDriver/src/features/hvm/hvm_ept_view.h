@@ -56,6 +56,7 @@ KswordARKHvmEptViewHandleViolation(
     _Inout_ KSW_HVM_RUNTIME* Runtime,
     _In_ ULONGLONG GuestPhysicalAddress,
     _In_ ULONG Access,
+    _In_opt_ const KSW_HVM_EPT_LOCAL* Local,
     _Out_ KSW_HVM_EPT_TRANSIENT* Transient,
     _Out_ ULONG* ViewId
     );

@@ -16,6 +16,9 @@ Environment:
 --*/
 
 #include "hvm_resident.h"
+
+/* Tag the per-processor private-hierarchy descriptor array. */
+#define KSW_HVM_EPT_LOCAL_ARRAY_POOL_TAG 'AvHK'
 #include "hvm_exit.h"
 #include "hvm_event.h"
 #include "hvm_vmcs.h"
@@ -88,6 +91,16 @@ typedef struct _KSW_HVM_RESIDENT_STATE
     KSW_HVM_RUNTIME* Runtime;
     /* Own every bounded per-processor resident context. */
     KSW_HVM_RESIDENT_VCPU Processors[KSWORD_ARK_HVM_MAX_PROCESSORS];
+    /*
+     * Own every private EPT hierarchy, appended after Processors so no
+     * existing offset moves.  NULL whenever the feature was not armed for
+     * this residency.
+     */
+    KSW_HVM_EPT_LOCAL* EptLocalArray;
+    /* Retain how many hierarchies the array holds, for the release path. */
+    ULONG EptLocalCount;
+    /* Keep the tail deterministic for crash-dump inspection. */
+    ULONG Reserved1;
 } KSW_HVM_RESIDENT_STATE;
 
 /* Share one fixed operation across an IPI rendezvous. */
@@ -276,6 +289,29 @@ KswordARKHvmResidentReleaseContexts(
                     HostStack);
         }
     }
+    /*
+     * Release every private EPT hierarchy alongside the host stacks.  Their
+     * lifetimes coincide exactly: the private root is live in VMCS
+     * EPT_POINTER for precisely as long as the host stack is live in
+     * HOST_RSP, and the early return above guards both.
+     *
+     * ExFreePool rather than MmFreeContiguousMemory: this runs on a teardown
+     * path a power callback can reach, where PASSIVE_LEVEL is not guaranteed.
+     * That constraint is why the module allocates one nonpaged block per
+     * processor instead of one contiguous page per table.
+     */
+    if (g_KswordHvmResident.EptLocalArray != NULL) {
+        for (index = 0UL;
+             index < g_KswordHvmResident.EptLocalCount;
+             ++index) {
+            /* Idempotent on a record whose build never completed. */
+            KswordARKHvmEptLocalRelease(
+                &g_KswordHvmResident.EptLocalArray[index]);
+        }
+        ExFreePool(g_KswordHvmResident.EptLocalArray);
+        g_KswordHvmResident.EptLocalArray = NULL;
+        g_KswordHvmResident.EptLocalCount = 0UL;
+    }
     /* Clear every stale pointer after all host stacks are released. */
     RtlZeroMemory(
         &g_KswordHvmResident,
@@ -399,7 +435,14 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     /* Copy the CR4 allowed-one mask. */
     input.Cr4Fixed1 = Context->Runtime->Cr4Fixed1;
     /* Reference the prepared MTRR-aware identity EPT. */
-    input.EptPointer = Context->Runtime->EptPointer;
+    /*
+     * The one and only place a per-processor EPT pointer is selected.  When
+     * the feature is off EptLocal is NULL and this is the assignment it has
+     * always been.
+     */
+    input.EptPointer = Context->EptLocal != NULL
+        ? Context->EptLocal->EptPointer
+        : Context->Runtime->EptPointer;
     /* Keep resident guest MSR access native through the shared bitmap. */
     input.MsrBitmapPhysical =
         (ULONGLONG)Context->Runtime->MsrBitmapPhysical.QuadPart;
@@ -500,6 +543,29 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
             } else {
                 Context->GuestSCet = (ULONGLONG)value;
             }
+        }
+    }
+    /*
+     * Flush any translations cached under this EPT root before the first
+     * entry uses it.
+     *
+     * A private hierarchy is built out of recycled nonpaged memory, so its
+     * root address may have tagged cached guest-physical translations from an
+     * earlier residency - the architecture does not require VMXON to discard
+     * them.  Entering with a stale tag would let the processor use mappings
+     * that describe pages this hierarchy never mapped.
+     *
+     * Only for private roots: the shared hierarchy is invalidated on every
+     * path that changes it, and adding an invalidation here would change what
+     * the feature-off run does.
+     */
+    if (NT_SUCCESS(status) &&
+        Context->EptLocal != NULL &&
+        Context->EptLocal->EptPointer != 0ULL) {
+        if (KswordARKHvmAsmInveptSingle(
+                Context->EptLocal->EptPointer) != 0U) {
+            /* Refuse the entry rather than launch on an unproven context. */
+            status = STATUS_HV_OPERATION_FAILED;
         }
     }
     /* Preserve the authoritative per-processor VMCS status. */
@@ -1090,6 +1156,13 @@ KswordARKHvmResidentStart(
     ULONG processorIndex = 0UL;
     ULONG ruleIndex = 0UL;
     LONG powerGeneration = 0L;
+    /*
+     * Whether this residency actually gets per-processor hierarchies.  Both
+     * halves matter: the caller has to ask, and the runtime has to have armed
+     * the capability at prepare time.  Everything downstream keys off this
+     * single value so the two conditions cannot drift apart.
+     */
+    BOOLEAN localEptRequested = FALSE;
     KSWORD_ARK_HVM_EVENT_ROW eventRow = { 0 };
 
     /* Reject a missing runtime before evaluating lifecycle policy. */
@@ -1097,6 +1170,12 @@ KswordARKHvmResidentStart(
         /* Return the exact caller-contract failure. */
         return STATUS_INVALID_PARAMETER;
     }
+    /* Resolve the per-processor EPT decision once, before any gate reads it. */
+    localEptRequested =
+        ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT) != 0UL &&
+         Runtime->LocalEptArmed)
+        ? TRUE
+        : FALSE;
     /*
      * Resident entry requires the complete driver-side lifecycle guard set,
      * plus the MSR bitmap.  Without the bitmap every RDMSR and WRMSR exits
@@ -1240,6 +1319,39 @@ KswordARKHvmResidentStart(
         return STATUS_NOT_SUPPORTED;
     }
     /*
+     * Per-processor EPT is refused rather than downgraded, for the same
+     * reason as #VE and VMFUNC: a caller that asked for per-processor
+     * isolation and silently got a shared hierarchy would install views on a
+     * multicore box believing each flip is local, which is exactly the
+     * corruption the flag exists to prevent.
+     */
+    if ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT) != 0UL &&
+        !Runtime->LocalEptArmed) {
+        /* Return the exact unsupported-control failure. */
+        return STATUS_NOT_SUPPORTED;
+    }
+    /*
+     * VMFUNC publishes ONE EPTP list that every processor shares, and the
+     * guest selects entries from it by index.  Per-processor hierarchies mean
+     * the same index would name a different hierarchy on each processor, so
+     * the two mechanisms cannot describe the same machine.
+     */
+    if ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT) != 0UL &&
+        (Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC) != 0UL) {
+        /* Return the exact conflicting-request failure. */
+        return STATUS_INVALID_PARAMETER;
+    }
+    /*
+     * Nested VMX composes its own EPT pointer from the guest hypervisor's
+     * hierarchy and ours.  Handing it a per-processor root would make that
+     * composition processor-dependent, which nothing downstream expects.
+     */
+    if ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT) != 0UL &&
+        (Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX) != 0UL) {
+        /* Return the exact conflicting-request failure. */
+        return STATUS_INVALID_PARAMETER;
+    }
+    /*
      * ALLOW_ONCE temporarily edits the shared EPT leaf.  Refuse start unless
      * the complete target topology is one VCPU and both restoration controls
      * are available.  Ordinary tripwire rules remain valid on any topology.
@@ -1257,8 +1369,14 @@ KswordARKHvmResidentStart(
             /* Continue to the next immutable pre-start rule. */
             continue;
         }
-        /* Reject every shared-leaf temporary grant on a multicore target. */
-        if (Runtime->ProcessorCount != 1UL ||
+        /*
+         * Reject every SHARED-leaf temporary grant on a multicore target.
+         * With per-processor hierarchies the leaf is no longer shared, so the
+         * topology clause - and only that clause - stops applying.  The
+         * capability clause is unchanged: single-context INVEPT and the
+         * Monitor Trap Flag are required either way.
+         */
+        if ((Runtime->ProcessorCount != 1UL && !localEptRequested) ||
             (Runtime->FeatureFlags &
                 (KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE |
                  KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG)) !=
@@ -1267,6 +1385,21 @@ KswordARKHvmResidentStart(
             /* Return before host-stack allocation or any VMX transition. */
             return STATUS_NOT_SUPPORTED;
         }
+    }
+    /*
+     * Views installed on a multicore box are only safe while this residency
+     * actually gives each processor its own hierarchy.  The predicate is
+     * deliberately a property of installed state alone - it does not consult
+     * the arm latch, because a start that simply omits the flag must still be
+     * refused.  Making the latch part of the condition would turn the single
+     * thing standing between an installed view and a shared-leaf flip into
+     * something a caller can switch off.
+     */
+    if (Runtime->EptViewCount != 0UL &&
+        Runtime->ProcessorCount != 1UL &&
+        !localEptRequested) {
+        /* Return before host-stack allocation or any VMX transition. */
+        return STATUS_NOT_SUPPORTED;
     }
     /* Serialize passive-level context construction against power teardown. */
     if (InterlockedCompareExchange(
@@ -1286,6 +1419,111 @@ KswordARKHvmResidentStart(
             0L);
         /* Return the exact context preparation failure. */
         return status;
+    }
+    /*
+     * Build the private hierarchies here: after the contexts exist, before
+     * any processor can enter VMX.  All-or-nothing on purpose - a processor
+     * bound to a half-built hierarchy would walk into whatever the unfinished
+     * tables happened to contain.
+     *
+     * The caller holds the runtime push lock exclusive across this whole
+     * routine, so nothing here may acquire it.
+     */
+    if (localEptRequested) {
+        ULONGLONG leafBases[KSW_HVM_MAX_LOCAL_LEAVES] = { 0 };
+        ULONG leafCount = 0UL;
+
+        status = KswordARKHvmEptLocalCollectLeaves(
+            Runtime,
+            leafBases,
+            KSW_HVM_MAX_LOCAL_LEAVES,
+            &leafCount);
+        if (!NT_SUCCESS(status)) {
+            KswordARKHvmResidentReleaseContexts();
+            InterlockedExchange(
+                &Runtime->ResidentContextPreparing,
+                0L);
+            /* Return the exact leaf-collection failure. */
+            return status;
+        }
+        /*
+         * No flippable leaf means nothing would ever be written privately,
+         * so building hierarchies would cost pages and change no behavior.
+         * Every Context->EptLocal stays NULL and the run is byte-for-byte
+         * the shared-hierarchy run.
+         */
+        if (leafCount != 0UL) {
+            KSW_HVM_EPT_LOCAL* localArray = NULL;
+            ULONG built = 0UL;
+            ULONG index = 0UL;
+
+            localArray = (KSW_HVM_EPT_LOCAL*)
+                KswordARKAllocateNonPagedPool(
+                    (SIZE_T)g_KswordHvmResident.ProcessorCount *
+                        sizeof(KSW_HVM_EPT_LOCAL),
+                    KSW_HVM_EPT_LOCAL_ARRAY_POOL_TAG);
+            if (localArray == NULL) {
+                KswordARKHvmResidentReleaseContexts();
+                InterlockedExchange(
+                    &Runtime->ResidentContextPreparing,
+                    0L);
+                /* Return the exact nonpaged-resource failure. */
+                return STATUS_INSUFFICIENT_RESOURCES;
+            }
+            RtlZeroMemory(
+                localArray,
+                (SIZE_T)g_KswordHvmResident.ProcessorCount *
+                    sizeof(KSW_HVM_EPT_LOCAL));
+            for (index = 0UL;
+                 index < g_KswordHvmResident.ProcessorCount;
+                 ++index) {
+                status = KswordARKHvmEptLocalBuild(
+                    Runtime,
+                    leafBases,
+                    leafCount,
+                    &localArray[index]);
+                if (!NT_SUCCESS(status)) {
+                    /* Stop at the first failure; the tail stays zeroed. */
+                    break;
+                }
+                built += 1UL;
+            }
+            /*
+             * Prove the result independently of how it was built.  A mistake
+             * shared between the build and a replay of the build would
+             * survive both, so this walks each private root from the top.
+             */
+            if (NT_SUCCESS(status)) {
+                status = KswordARKHvmEptLocalVerify(
+                    Runtime,
+                    localArray,
+                    g_KswordHvmResident.ProcessorCount,
+                    leafBases,
+                    leafCount);
+            }
+            if (!NT_SUCCESS(status)) {
+                for (index = 0UL; index < built; ++index) {
+                    KswordARKHvmEptLocalRelease(&localArray[index]);
+                }
+                ExFreePool(localArray);
+                KswordARKHvmResidentReleaseContexts();
+                InterlockedExchange(
+                    &Runtime->ResidentContextPreparing,
+                    0L);
+                /* Return the exact build or verification failure. */
+                return status;
+            }
+            /* Publish only after every hierarchy is built AND verified. */
+            for (index = 0UL;
+                 index < g_KswordHvmResident.ProcessorCount;
+                 ++index) {
+                g_KswordHvmResident.Processors[index].EptLocal =
+                    &localArray[index];
+            }
+            g_KswordHvmResident.EptLocalArray = localArray;
+            g_KswordHvmResident.EptLocalCount =
+                g_KswordHvmResident.ProcessorCount;
+        }
     }
     /* Own the transition phase without holding its state lock over the IPI. */
     status = KswordARKHvmAcquireResidentTransition(Runtime);

@@ -754,6 +754,15 @@ KswordARKHvmInvalidatePowerResumeEvidence(
     }
     /* Require a fresh per-CPU VMXON/VMXOFF proof after every S0 transition. */
     Runtime->SelfTestPassedProcessorCount = 0UL;
+    /*
+     * The per-processor EPT latch is capability-derived evidence like the
+     * self-test count, and a resume can land on a machine whose firmware or
+     * outer hypervisor changed what it exposes.  Destroy it here or a stale
+     * TRUE would let a post-resume start build hierarchies on capabilities
+     * nobody re-proved.
+     */
+    Runtime->LocalEptArmed = FALSE;
+    Runtime->FeatureFlags &= ~KSWORD_ARK_HVM_FEATURE_LOCAL_EPT_ARMED;
     Runtime->StateFlags &=
         ~(KSWORD_ARK_HVM_STATE_SELF_TESTED |
           KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED |
@@ -1086,6 +1095,9 @@ KswordARKHvmFreeResourcesLocked(
     Runtime->EptPdptEntries = 0UL;
     Runtime->EptLargePageEntries = 0UL;
     Runtime->EptPointer = 0ULL;
+    /* The arm latch is resource-derived and must not outlive the resources. */
+    Runtime->LocalEptArmed = FALSE;
+    Runtime->FeatureFlags &= ~KSWORD_ARK_HVM_FEATURE_LOCAL_EPT_ARMED;
     Runtime->MappedRamBytes = 0ULL;
     Runtime->HighestMappedPhysicalAddress = 0ULL;
     Runtime->VmExitCount = 0ULL;
@@ -1392,6 +1404,34 @@ KswordARKHvmPrepareLocked(
         return status;
     }
 
+    /*
+     * Arm per-processor EPT only when it was asked for AND both controls it
+     * depends on exist.  Single-context INVEPT is what makes one processor's
+     * flip invalidate only its own translations; the Monitor Trap Flag is
+     * what bounds the window to one instruction.  Without either, private
+     * hierarchies would cost pages and buy nothing.
+     *
+     * Assigned in both directions rather than conditionally set: this routine
+     * refuses to run while RESOURCES_READY is set, so it never sees a zeroed
+     * runtime and a stale TRUE would survive.
+     */
+    Runtime->LocalEptArmed =
+        ((Request->flags &
+             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT) != 0UL &&
+         (Runtime->FeatureFlags &
+             (KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE |
+              KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG)) ==
+             (KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE |
+              KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG))
+        ? TRUE
+        : FALSE;
+    if (Runtime->LocalEptArmed) {
+        Runtime->FeatureFlags |=
+            KSWORD_ARK_HVM_FEATURE_LOCAL_EPT_ARMED;
+    } else {
+        Runtime->FeatureFlags &=
+            ~KSWORD_ARK_HVM_FEATURE_LOCAL_EPT_ARMED;
+    }
     /* Resource readiness is published only after both allocation phases pass. */
     Runtime->StateFlags |=
         KSWORD_ARK_HVM_STATE_RESOURCES_READY;

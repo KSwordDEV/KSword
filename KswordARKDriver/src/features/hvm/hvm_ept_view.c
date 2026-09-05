@@ -22,11 +22,15 @@ Abstract:
     an allow-once grant whose restored value happens to point at a different
     frame.
 
-    The consequence is inherited too: the leaf belongs to the shared EPT
-    hierarchy, so a second resident processor could execute through the
-    secondary value during the one-instruction window.  Views are therefore
-    refused unless exactly one VCPU is resident.  Lifting that needs
-    per-processor hierarchies, which this version does not build.
+    The consequence used to be inherited too: with one shared EPT hierarchy a
+    second resident processor could execute through the secondary value during
+    the one-instruction window, so views were refused unless exactly one VCPU
+    was resident.
+
+    hvm_ept_local.c removes that restriction where it is armed.  Each
+    processor walks its own copy of the tables leading to a flippable leaf, so
+    a flip reaches only the processor that took the exit.  The single-VCPU
+    refusal therefore applies only when no private hierarchy was built.
 
 Environment:
 
@@ -266,6 +270,22 @@ KswordARKHvmEptViewAddLocked(
         Response->status = KSWORD_ARK_HVM_VIEW_STATUS_INVALID_REQUEST;
         /* Return the exact parameter failure. */
         return STATUS_INVALID_PARAMETER;
+    }
+    /*
+     * A view the private hierarchies could not mirror must be refused here,
+     * not at start.  Refusing at start would mean the caller learns a view
+     * set is inadmissible only after every add already succeeded.
+     */
+    status = KswordARKHvmEptLocalCheckAdmission(
+        Runtime,
+        physicalPage,
+        KSW_HVM_PAGE_BYTES);
+    if (!NT_SUCCESS(status)) {
+        /* Publish the stable table-full protocol status. */
+        Response->status = KSWORD_ARK_HVM_VIEW_STATUS_TABLE_FULL;
+        Response->lastStatus = status;
+        /* Return the complete protocol-level rejection. */
+        return STATUS_SUCCESS;
     }
     /* Refuse to share one leaf between a view and a rule or another view. */
     if (KswordARKHvmEptViewFind(Runtime, physicalPage) != NULL ||
@@ -579,12 +599,20 @@ KswordARKHvmEptViewControlLocked(
         return STATUS_SUCCESS;
     }
     /*
-     * A flip edits the shared EPT leaf for one instruction.  On a second
-     * processor that window is executable by someone else, so a view is only
+     * A flip edits an EPT leaf for one instruction.  On a SHARED hierarchy
+     * that window is visible to every other processor, so a view is only
      * safe on a single-processor topology - the same limit allow-once rules
-     * already carry.  Lifting it needs per-processor EPT hierarchies.
+     * already carry.
+     *
+     * hvm_ept_local.c lifts it by giving each processor its own copy of the
+     * tables on the path to a flippable leaf, so the flip reaches only the
+     * processor that took the exit.  The latch below is set at PREPARE time
+     * from the capabilities that mechanism needs; residency additionally has
+     * to be started with ENABLE_LOCAL_EPT, and a start that omits it is
+     * refused while any view is installed on a multicore box.
      */
-    if (Runtime->ProcessorCount != 1UL) {
+    if (Runtime->ProcessorCount != 1UL &&
+        !Runtime->LocalEptArmed) {
         /* Publish the stable multiprocessor-unsafe protocol status. */
         Response->status =
             KSWORD_ARK_HVM_VIEW_STATUS_MULTIPROCESSOR_UNSAFE;
@@ -647,6 +675,7 @@ KswordARKHvmEptViewHandleViolation(
     _Inout_ KSW_HVM_RUNTIME* Runtime,
     _In_ ULONGLONG GuestPhysicalAddress,
     _In_ ULONG Access,
+    _In_opt_ const KSW_HVM_EPT_LOCAL* Local,
     _Out_ KSW_HVM_EPT_TRANSIENT* Transient,
     _Out_ ULONG* ViewId
     )
@@ -654,6 +683,12 @@ KswordARKHvmEptViewHandleViolation(
     const ULONGLONG physicalPage =
         GuestPhysicalAddress & ~(KSW_HVM_PAGE_BYTES - 1ULL);
     KSW_HVM_EPT_VIEW_SLOT* view = NULL;
+    /*
+     * Declared here but assigned only after the view is known to exist.
+     * Initializing it from view->Entry at the block top would dereference
+     * NULL on every violation that no view covers, which is most of them.
+     */
+    volatile ULONGLONG* entry = NULL;
 
     /* Reject invalid fixed pointers in the nonblocking exit path. */
     if (Runtime == NULL ||
@@ -710,19 +745,38 @@ KswordARKHvmEptViewHandleViolation(
     Transient->Reserved0[2] = 0U;
     /* Preserve the view identity for restoration telemetry. */
     Transient->RuleId = view->ViewId;
+    /*
+     * Redirect the flip to this processor's own copy of the leaf.  A view
+     * whose leaf has no mirror is a build error, and flipping the shared
+     * table instead would make the flip visible to every other processor -
+     * the exact hazard the private hierarchy removes.
+     */
+    entry = view->Entry;
+    if (Local != NULL) {
+        entry = KswordARKHvmEptLocalTranslate(Local, entry);
+        if (entry == NULL) {
+            /* Require immediate fail-closed devirtualization. */
+            return FALSE;
+        }
+    }
     /* Preserve the writable leaf. */
-    Transient->Entry = view->Entry;
+    Transient->Entry = entry;
     /* Restore to the steady-state value, not to the pre-install one. */
     Transient->RestrictedValue = view->PrimaryEntry;
+    /* Record which hierarchy must be invalidated when this flip ends. */
+    Transient->EptPointer = Local != NULL ? Local->EptPointer : 0ULL;
     /* Publish the armed recovery record before the leaf changes. */
     KeMemoryBarrier();
     Transient->Armed = TRUE;
     /* Redirect the access to the shadow for exactly one instruction. */
-    *view->Entry = view->SecondaryEntry;
+    *entry = view->SecondaryEntry;
     /* Order the flip before the context is invalidated. */
     KeMemoryBarrier();
     /* Drop cached translations built from the primary value. */
-    if (KswordARKHvmAsmInveptSingle(Runtime->EptPointer) != 0U) {
+    if (KswordARKHvmAsmInveptSingle(
+            Transient->EptPointer != 0ULL
+                ? Transient->EptPointer
+                : Runtime->EptPointer) != 0U) {
         /* Restore and invalidate; retain Armed if restoration also fails. */
         (void)KswordARKHvmEptRestoreTransient(Runtime, Transient);
         /* Require immediate fail-closed devirtualization. */

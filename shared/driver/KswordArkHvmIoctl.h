@@ -141,6 +141,21 @@
 /* The EPTP list page is allocated and every unused slot reads as invalid. */
 #define KSWORD_ARK_HVM_FEATURE_EPTP_LIST_READY            0x0008000000000000ULL
 
+/*
+ * Per-processor private EPT hierarchies.
+ *
+ * Both flip mechanisms in this driver - the allow-once transient grant and
+ * the CLOAK/HOOK split view - work by writing one EPT leaf and letting the
+ * guest retire a single instruction.  With one shared hierarchy that write is
+ * visible to every other processor for the whole window, which is why both
+ * features refuse to run unless the topology is exactly one processor.
+ *
+ * Armed, each processor walks its own copy of the few tables on the path to a
+ * flippable leaf, and everything else stays shared.  A flip then reaches only
+ * the processor that took the exit, and the refusal can be lifted.
+ */
+#define KSWORD_ARK_HVM_FEATURE_LOCAL_EPT_ARMED            0x0010000000000000ULL
+
 #define KSWORD_ARK_HVM_STATE_INITIALIZED      0x00000001UL
 #define KSWORD_ARK_HVM_STATE_RESOURCES_READY  0x00000002UL
 #define KSWORD_ARK_HVM_STATE_EPT_READY        0x00000004UL
@@ -262,6 +277,15 @@
  * every listed domain has been checked to grant no more than the default view.
  */
 #define KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC   0x00000100UL
+/*
+ * Give every processor its own EPT hierarchy for this residency.
+ *
+ * OFF BY DEFAULT, and refused rather than silently downgraded: a caller that
+ * asked for per-processor isolation and got a shared hierarchy would install
+ * views on a multicore box believing each flip is local, which is precisely
+ * the corruption the flag exists to prevent.
+ */
+#define KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT 0x00000200UL
 
 #define KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN 0x48564D43UL
 
@@ -286,6 +310,20 @@
 #define KSWORD_ARK_HVM_CONTROL_STATUS_EVMCS_UNSUPPORTED      18UL
 #define KSWORD_ARK_HVM_CONTROL_STATUS_POWER_TRANSITION_BLOCKED 19UL
 #define KSWORD_ARK_HVM_CONTROL_STATUS_LIFECYCLE_GUARD_FAILED   20UL
+/* Per-processor EPT was requested but the runtime never armed the capability. */
+#define KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_NOT_ARMED      21UL
+/* More flippable leaves than one private hierarchy is allowed to mirror. */
+#define KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_LEAF_SET_TOO_LARGE 22UL
+/* The private hierarchies would not fit the reserved page budget. */
+#define KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_PAGE_BUDGET_EXHAUSTED 23UL
+/* A flippable leaf had no live split to mirror; the caller must add it first. */
+#define KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_SPLIT_MISSING  24UL
+/* The independent post-build walk disagreed with what the build published. */
+#define KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_VERIFY_FAILED  25UL
+/* VMFUNC publishes one EPTP list to every processor; the two cannot coexist. */
+#define KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_CONFLICTS_WITH_VMFUNC 26UL
+/* Nested VMX composes its own EPT pointer and cannot share this mechanism. */
+#define KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_CONFLICTS_WITH_NESTED 27UL
 
 #define KSWORD_ARK_HVM_EXIT_REASON_NONE   0xFFFFFFFFUL
 #define KSWORD_ARK_HVM_EXIT_REASON_VMCALL 18UL

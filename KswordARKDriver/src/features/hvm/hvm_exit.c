@@ -648,6 +648,7 @@ KswordARKHvmResidentVmExitDispatch(
             Context->Runtime,
             guestPhysicalAddress,
             access,
+            Context->EptLocal,
             &Context->EptTransient,
             &ruleId);
         if (handled) {
@@ -688,6 +689,7 @@ KswordARKHvmResidentVmExitDispatch(
                 guestPhysicalAddress,
                 access,
                 guestLinearValid,
+                Context->EptLocal,
                 &Context->EptTransient,
                 &ruleId,
                 &eptDisposition);

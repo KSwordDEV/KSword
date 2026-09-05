@@ -17,6 +17,7 @@ Environment:
 #pragma once
 
 #include "hvm_internal.h"
+#include "hvm_ept_local.h"
 
 /* Preserve one temporary EPT permission grant until monitor-trap exit. */
 typedef struct _KSW_HVM_EPT_TRANSIENT
@@ -31,6 +32,16 @@ typedef struct _KSW_HVM_EPT_TRANSIENT
     volatile ULONGLONG* Entry;
     /* Preserve the restricted value restored on monitor-trap exit. */
     ULONGLONG RestrictedValue;
+    /*
+     * Preserve the EPT pointer whose translations this grant invalidated.
+     *
+     * Zero means the grant was made in the shared hierarchy, which is the
+     * feature-off case and the historical behavior.  Carrying it inside the
+     * record rather than passing it down keeps every restore caller - the
+     * monitor-trap exit, the overlapping-violation path and the VMXOFF
+     * cleanup - unchanged.
+     */
+    ULONGLONG EptPointer;
 } KSW_HVM_EPT_TRANSIENT;
 
 /* The violation is unruled or unsafe to continue; leave EPT enforcement. */
@@ -92,6 +103,7 @@ KswordARKHvmEptHandleViolation(
     _In_ ULONGLONG GuestPhysicalAddress,
     _In_ ULONG Access,
     _In_ BOOLEAN GuestLinearAddressValid,
+    _In_opt_ const KSW_HVM_EPT_LOCAL* Local,
     _Out_ KSW_HVM_EPT_TRANSIENT* Transient,
     _Out_ ULONG* RuleId,
     _Out_ ULONG* Disposition
