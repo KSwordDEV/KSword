@@ -398,6 +398,59 @@ namespace ksword::ark
         return result;
     }
 
+    HvmDomainResult DriverClient::controlHvmDomain(
+        const unsigned long operation,
+        const unsigned long domainIndex,
+        const unsigned long expectedGeneration,
+        const std::uint64_t physicalAddress,
+        const std::uint64_t byteCount,
+        const unsigned long deniedAccess,
+        const bool uiConfirmed) const
+    {
+        HvmDomainResult result{};
+        KSWORD_ARK_HVM_DOMAIN_REQUEST request{};
+        request.version = KSWORD_ARK_HVM_DOMAIN_PROTOCOL_VERSION;
+        request.size = sizeof(request);
+        request.operation = operation;
+        request.domainIndex = domainIndex;
+        request.expectedGeneration = expectedGeneration;
+        request.physicalAddress = physicalAddress;
+        request.byteCount = byteCount;
+        request.deniedAccess = deniedAccess;
+        if (uiConfirmed)
+        {
+            request.flags |= KSWORD_ARK_HVM_DOMAIN_FLAG_UI_CONFIRMED;
+            request.confirmationToken =
+                KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+        }
+
+        result.io = deviceIoControl(
+            IOCTL_KSWORD_ARK_HVM_DOMAIN,
+            &request,
+            sizeof(request),
+            &result.response,
+            sizeof(result.response));
+        result.unsupported = !result.io.ok &&
+            isUnsupportedHvmError(result.io.win32Error);
+        result.io.ntStatus = result.response.lastStatus;
+
+        std::ostringstream stream;
+        stream << "HVM domain operation=" << operation
+            << ", status=" << result.response.status
+            << ", domainIndex=" << result.response.domainIndex
+            << ", domainCount=" << result.response.domainCount
+            << ", rows=" << result.response.returnedRows
+            << ", address=0x" << std::hex << physicalAddress << std::dec
+            << ", bytes=" << byteCount
+            << ", denied=" << deniedAccess;
+        if (result.unsupported)
+        {
+            stream << ", unsupported=true";
+        }
+        result.io.message = stream.str();
+        return result;
+    }
+
     HvmMsrPolicyResult DriverClient::controlHvmMsrPolicy(
         const unsigned long operation,
         const unsigned long policyId,

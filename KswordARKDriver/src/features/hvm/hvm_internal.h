@@ -31,11 +31,26 @@ Environment:
 #define KSW_HVM_MAX_PML4_ENTRIES 16UL
 /* Bound the number of simultaneously split two-MiB EPT leaves. */
 #define KSW_HVM_MAX_EPT_SPLITS 256UL
+
+/*
+ * Bound the EPT execution domains reachable through the EPTP list.
+ *
+ * The architectural list holds 512 entries, but every entry is an interface
+ * published to unprivileged guest code - VMFUNC performs no CPL check - so
+ * the useful bound is "as few as the feature needs", not "as many as fit".
+ */
+#define KSW_HVM_MAX_EPT_DOMAINS 8UL
+/* Bound the private paging structures one domain may fork copy-on-write. */
+#define KSW_HVM_MAX_DOMAIN_PRIVATE_TABLES 16UL
+/* Reserve ledger space for every domain root plus its private tables. */
+#define KSW_HVM_MAX_DOMAIN_PAGES \
+    (KSW_HVM_MAX_EPT_DOMAINS * (1UL + KSW_HVM_MAX_DOMAIN_PRIVATE_TABLES))
 /* Reserve enough allocation-ledger entries for sparse tables and splits. */
 #define KSW_HVM_MAX_EPT_PAGES \
     (1UL + KSW_HVM_MAX_PML4_ENTRIES + \
         (KSW_HVM_MAX_PML4_ENTRIES * 512UL) + \
-        KSW_HVM_MAX_EPT_SPLITS)
+        KSW_HVM_MAX_EPT_SPLITS + \
+        KSW_HVM_MAX_DOMAIN_PAGES)
 /* Bound every physical address accepted by the EPT backend. */
 #define KSW_HVM_MAX_MAPPED_PHYSICAL \
     (KSW_HVM_ONE_512_GIB * KSW_HVM_MAX_PML4_ENTRIES)
@@ -64,6 +79,8 @@ Environment:
 #define KSW_IA32_VMX_TRUE_PROCBASED_CTLS 0x48EUL
 /* Name the EPT and VPID capability model-specific register. */
 #define KSW_IA32_VMX_EPT_VPID_CAP 0x48CUL
+/* Name the VM-function capability model-specific register. */
+#define KSW_IA32_VMX_VMFUNC 0x491UL
 /* Name the Hyper-V VP-assist-page model-specific register. */
 #define KSW_HV_X64_MSR_VP_ASSIST_PAGE 0x40000073UL
 
@@ -201,6 +218,45 @@ typedef struct _KSW_HVM_MTRR_STATE
     /* Retain the decoded variable MTRR records. */
     KSW_HVM_MTRR_RANGE Variable[KSW_HVM_MAX_VARIABLE_MTRRS];
 } KSW_HVM_MTRR_STATE;
+
+/*
+ * Track one paging structure a domain forked from the shared hierarchy.
+ *
+ * Domains share the default view's tables until they need to differ, so the
+ * common case costs one page: the domain's own PML4.  A restriction touching
+ * one two-MiB leaf costs two more, the PDPT and PD on the path to it.
+ */
+typedef struct _KSW_HVM_DOMAIN_PRIVATE_TABLE
+{
+    /* Retain the PML4 slot this table sits under. */
+    ULONG Pml4Index;
+    /* Retain the PDPT slot, or MAXULONG when this table IS the PDPT. */
+    ULONG PdptIndex;
+    /* Retain the writable mapping used to edit and free the table. */
+    PVOID Virtual;
+    /* Retain the physical address published into the parent entry. */
+    PHYSICAL_ADDRESS Physical;
+} KSW_HVM_DOMAIN_PRIVATE_TABLE;
+
+/* Describe one EPT execution domain reachable through the EPTP list. */
+typedef struct _KSW_HVM_EPT_DOMAIN
+{
+    /* Record whether the slot holds a live domain. */
+    BOOLEAN Active;
+    /* Keep the structure explicitly initialized across architectures. */
+    UCHAR Reserved0[3];
+    /* Retain the number of forked private tables. */
+    ULONG PrivateTableCount;
+    /* Retain this domain's own root table. */
+    PVOID Pml4Virtual;
+    /* Retain the root physical address encoded into the EPT pointer. */
+    PHYSICAL_ADDRESS Pml4Physical;
+    /* Retain the EPT pointer published into the EPTP list. */
+    ULONGLONG EptPointer;
+    /* Own every copy-on-write paging structure this domain forked. */
+    KSW_HVM_DOMAIN_PRIVATE_TABLE
+        PrivateTables[KSW_HVM_MAX_DOMAIN_PRIVATE_TABLES];
+} KSW_HVM_EPT_DOMAIN;
 
 /* Describe one active protocol-visible EPT rule. */
 typedef struct _KSW_HVM_EPT_RULE_SLOT
@@ -362,6 +418,14 @@ typedef struct _KSW_HVM_RUNTIME
     ULONGLONG VmxBasic;
     /* Preserve IA32_VMX_EPT_VPID_CAP evidence. */
     ULONGLONG VmxEptVpidCapabilities;
+    /* Preserve IA32_VMX_VMFUNC evidence; bit 0 is EPTP switching. */
+    ULONGLONG VmFunctionCapabilities;
+    /* Retain the 512-entry EPTP list published to VMFUNC. */
+    PVOID EptpListVirtual;
+    /* Retain the EPTP list physical address written into the VMCS. */
+    PHYSICAL_ADDRESS EptpListPhysical;
+    /* Own every EPT execution domain; slot zero is the default view. */
+    KSW_HVM_EPT_DOMAIN EptDomains[KSW_HVM_MAX_EPT_DOMAINS];
     /* Preserve IA32_FEATURE_CONTROL evidence. */
     ULONGLONG FeatureControl;
     /* Preserve IA32_VMX_CR0_FIXED0 evidence. */

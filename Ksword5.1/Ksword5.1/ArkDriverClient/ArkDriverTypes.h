@@ -1501,6 +1501,16 @@ namespace ksword::ark
         KSWORD_ARK_HVM_VIEW_RESPONSE response{};
     };
 
+    // HvmDomainResult carries one EPT execution-domain operation. rows are
+    // filled on every operation, because a caller that just created or
+    // restricted a domain needs to see the resulting shape immediately.
+    struct HvmDomainResult
+    {
+        IoResult io;
+        bool unsupported = false;
+        KSWORD_ARK_HVM_DOMAIN_RESPONSE response{};
+    };
+
     // HvmMsrPolicyResult carries one MSR policy operation. rows is only
     // filled by QUERY; every other operation leaves it empty.
     struct HvmMsrPolicyResult

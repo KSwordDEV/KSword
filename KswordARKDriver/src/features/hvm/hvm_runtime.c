@@ -20,6 +20,7 @@ Environment:
 #include "hvm_internal.h"
 #include "hvm_cr_policy.h"
 #include "hvm_ept_view.h"
+#include "hvm_ept_domain.h"
 #include "hvm_guest.h"
 #include "hvm_memory.h"
 #include "hvm_msr_policy.h"
@@ -567,6 +568,22 @@ KswordARKHvmReadCapabilities(
     Runtime->FeatureFlags |=
         KSWORD_ARK_HVM_FEATURE_VE_SUPPRESSED_BY_DEFAULT;
 
+    /*
+     * VM functions.  Discovery is two-level: the secondary control has to be
+     * allowed, and then IA32_VMX_VMFUNC says which functions exist.  Only
+     * function 0 (EPTP switching) is of interest here.
+     */
+    if (((secondaryControls >> 32) & (1ULL << 13)) != 0ULL) {
+        Runtime->FeatureFlags |=
+            KSWORD_ARK_HVM_FEATURE_VM_FUNCTIONS;
+        Runtime->VmFunctionCapabilities =
+            __readmsr(KSW_IA32_VMX_VMFUNC);
+        if ((Runtime->VmFunctionCapabilities & 0x1ULL) != 0ULL) {
+            Runtime->FeatureFlags |=
+                KSWORD_ARK_HVM_FEATURE_EPTP_SWITCHING;
+        }
+    }
+
     /* The high dword of each control MSR is its allowed-one mask. */
     if ((((secondaryControls >> 32) & (1ULL << 1)) != 0ULL) &&
         ((Runtime->VmxEptVpidCapabilities &
@@ -1007,6 +1024,12 @@ KswordARKHvmFreeResourcesLocked(
     KswordARKHvmCrPolicyResetLocked(Runtime);
     /* Close every MSR bitmap hole before the bitmap page is released. */
     KswordARKHvmMsrPolicyResetLocked(Runtime);
+    /*
+     * Unpublish every EPTP list slot first.  While a slot still names a
+     * domain, one guest VMFUNC can switch onto tables this teardown is about
+     * to dismantle.
+     */
+    KswordARKHvmEptDomainResetLocked(Runtime);
     /* Restore view leaves and free shadows before rules touch the same pages. */
     KswordARKHvmEptViewResetLocked(Runtime);
     /* Restore baseline EPT leaves before releasing split table pages. */

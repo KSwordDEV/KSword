@@ -16,6 +16,7 @@ Environment:
 
 #include "hvm_runtime.h"
 #include "hvm_cr_policy.h"
+#include "hvm_ept_domain.h"
 #include "hvm_ept_view.h"
 #include "hvm_memory.h"
 #include "hvm_msr_policy.h"
@@ -1064,5 +1065,135 @@ KswordARKHvmIoctlCrPolicy(
     /* Publish the fixed completion size on protocol-level results. */
     *BytesReturned = sizeof(*policyResponse);
     /* Return the complete control-register policy operation result. */
+    return status;
+}
+
+NTSTATUS
+KswordARKHvmIoctlDomain(
+    _In_ WDFDEVICE Device,
+    _In_ WDFREQUEST Request,
+    _In_ size_t InputBufferLength,
+    _In_ size_t OutputBufferLength,
+    _Out_ size_t* BytesReturned
+    )
+{
+    PVOID inputBuffer = NULL;
+    PVOID outputBuffer = NULL;
+    size_t actualInputLength = 0U;
+    size_t actualOutputLength = 0U;
+    NTSTATUS status = STATUS_SUCCESS;
+    /* The request is small enough to snapshot on the stack. */
+    KSWORD_ARK_HVM_DOMAIN_REQUEST requestSnapshot = { 0 };
+    KSWORD_ARK_HVM_DOMAIN_RESPONSE* domainResponse = NULL;
+
+    /* Reject an invalid completion contract before touching request buffers. */
+    if (BytesReturned == NULL) {
+        /* Return the exact dispatcher-contract failure. */
+        return STATUS_INVALID_PARAMETER;
+    }
+    /* Initialize the completion size on every path. */
+    *BytesReturned = 0U;
+    /* Publishing a switchable view to guest code needs write authorization. */
+    status = KswordARKValidateDeviceIoControlWriteAccess(Request);
+    /* Stop before buffer access when handle authorization fails. */
+    if (!NT_SUCCESS(status)) {
+        /* Return the exact authorization failure. */
+        return status;
+    }
+    /* Retrieve the complete fixed domain request. */
+    status = WdfRequestRetrieveInputBuffer(
+        Request,
+        sizeof(KSWORD_ARK_HVM_DOMAIN_REQUEST),
+        &inputBuffer,
+        &actualInputLength);
+    /* Reject truncated or unavailable input buffers. */
+    if (!NT_SUCCESS(status) ||
+        InputBufferLength < sizeof(KSWORD_ARK_HVM_DOMAIN_REQUEST) ||
+        actualInputLength < sizeof(KSWORD_ARK_HVM_DOMAIN_REQUEST)) {
+        /* Return the exact WDF or fixed-size failure. */
+        return NT_SUCCESS(status)
+            ? STATUS_INFO_LENGTH_MISMATCH
+            : status;
+    }
+    /*
+     * METHOD_BUFFERED shares one SystemBuffer between input and output, and
+     * the domain backend zeroes the response before reading the operation,
+     * target index and range.  Snapshot the request before that happens.
+     */
+    RtlCopyMemory(
+        &requestSnapshot,
+        inputBuffer,
+        sizeof(requestSnapshot));
+    /* Retrieve the complete fixed domain response. */
+    status = WdfRequestRetrieveOutputBuffer(
+        Request,
+        sizeof(KSWORD_ARK_HVM_DOMAIN_RESPONSE),
+        &outputBuffer,
+        &actualOutputLength);
+    /* Reject truncated or unavailable output buffers. */
+    if (!NT_SUCCESS(status) ||
+        OutputBufferLength < sizeof(KSWORD_ARK_HVM_DOMAIN_RESPONSE) ||
+        actualOutputLength < sizeof(KSWORD_ARK_HVM_DOMAIN_RESPONSE)) {
+        /* Return the exact WDF or fixed-size failure. */
+        return NT_SUCCESS(status)
+            ? STATUS_BUFFER_TOO_SMALL
+            : status;
+    }
+    /* Bind the fixed protocol output view. */
+    domainResponse = (KSWORD_ARK_HVM_DOMAIN_RESPONSE*)outputBuffer;
+    /* Apply central high-risk policy to every mutating operation. */
+    if (requestSnapshot.operation != KSWORD_ARK_HVM_DOMAIN_OP_QUERY) {
+        KSWORD_ARK_SAFETY_CONTEXT safetyContext = { 0 };
+
+        /* Bind policy auditing to the kernel-patch operation class. */
+        safetyContext.Operation =
+            KSWORD_ARK_SAFETY_OPERATION_KERNEL_PATCH;
+        /* Preserve explicit UI confirmation in central policy evidence. */
+        safetyContext.ContextFlags =
+            (requestSnapshot.flags &
+                KSWORD_ARK_HVM_DOMAIN_FLAG_UI_CONFIRMED) != 0UL
+            ? KSWORD_ARK_SAFETY_CONTEXT_FLAG_UI_CONFIRMED
+            : 0UL;
+        /* Describe what makes this class of change consequential. */
+        safetyContext.TargetText =
+            L"EPT domain published to unprivileged guest code through VMFUNC";
+        /* Publish the exact bounded target text length. */
+        safetyContext.TargetTextChars =
+            (USHORT)(RTL_NUMBER_OF(
+                L"EPT domain published to unprivileged guest code through VMFUNC") -
+                1U);
+        /* Evaluate central policy without weakening protocol confirmation. */
+        status = KswordARKSafetyEvaluate(
+            Device,
+            &safetyContext);
+        /* Return a complete confirmation-required response on denial. */
+        if (!NT_SUCCESS(status)) {
+            /* Initialize the complete fixed response. */
+            RtlZeroMemory(
+                domainResponse,
+                sizeof(*domainResponse));
+            /* Publish the response protocol identity. */
+            domainResponse->version =
+                KSWORD_ARK_HVM_DOMAIN_PROTOCOL_VERSION;
+            /* Publish the complete response size. */
+            domainResponse->size = sizeof(*domainResponse);
+            /* Publish stable confirmation-required status. */
+            domainResponse->status =
+                KSWORD_ARK_HVM_DOMAIN_STATUS_CONFIRMATION_REQUIRED;
+            /* Publish the authoritative policy failure. */
+            domainResponse->lastStatus = status;
+            /* Publish the fixed completion size. */
+            *BytesReturned = sizeof(*domainResponse);
+            /* Return the authoritative policy failure. */
+            return status;
+        }
+    }
+    /* Execute the versioned EPT domain operation. */
+    status = KswordARKHvmEptDomainControl(
+        &requestSnapshot,
+        domainResponse);
+    /* Publish the fixed completion size on protocol-level results. */
+    *BytesReturned = sizeof(*domainResponse);
+    /* Return the complete EPT domain operation result. */
     return status;
 }

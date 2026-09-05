@@ -47,6 +47,11 @@ typedef struct _KSW_HVM_VMCS_INPUT
      * which case the EPT-violation #VE control is never requested.
      */
     ULONGLONG VeInfoPhysical;
+    /*
+     * EPTP list published to VMFUNC.  Zero means the caller has none, in which
+     * case VM functions are never requested.
+     */
+    ULONGLONG EptpListPhysical;
     /* CR0/CR4 bits owned by the hypervisor; the guest reads them from shadow. */
     ULONGLONG Cr0PinnedMask;
     ULONGLONG Cr4PinnedMask;
@@ -64,7 +69,14 @@ typedef struct _KSW_HVM_VMCS_INPUT
      * a single #VE can reach the guest.
      */
     UCHAR EnableVe;
-    UCHAR Reserved;
+    /*
+     * Nonzero arms VM functions and EPTP switching.  VMFUNC performs no CPL
+     * check, so arming this publishes every list entry to unprivileged guest
+     * code.  Domains are forkable only in the narrowing direction, which is
+     * what keeps that from being an escalation path.
+     */
+    UCHAR EnableVmFunctions;
+    USHORT Reserved;
 } KSW_HVM_VMCS_INPUT;
 
 typedef struct _KSW_HVM_VMEXIT_TELEMETRY

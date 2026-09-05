@@ -18,6 +18,7 @@ Environment:
 --*/
 
 #include "hvm_ept.h"
+#include "hvm_ept_domain.h"
 #include "hvm_mtrr.h"
 
 #if defined(_M_AMD64)
@@ -417,6 +418,12 @@ KswordARKHvmBuildEptLocked(
     }
     /* Publish EPT readiness only after the complete hierarchy exists. */
     Runtime->StateFlags |= KSWORD_ARK_HVM_STATE_EPT_READY;
+    /*
+     * Build the EPTP list now that a default view exists to occupy slot zero.
+     * Failure here is not fatal to the identity map: without a list, VMFUNC is
+     * simply never armed, and every other capability still works.
+     */
+    (VOID)KswordARKHvmEptDomainPrepareLocked(Runtime);
     /* Complete the identity-map build successfully. */
     return STATUS_SUCCESS;
 }

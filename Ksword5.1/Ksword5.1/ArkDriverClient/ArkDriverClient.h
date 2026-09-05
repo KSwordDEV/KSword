@@ -481,6 +481,21 @@ namespace ksword::ark
             unsigned long action,
             std::uint64_t fakeValue,
             bool uiConfirmed) const;
+        // controlHvmDomain：创建、限制、重置或查询 EPT 执行域。
+        // - 域发布在 EPTP list 里，guest 用一条 VMFUNC 即可切过去，而 VMFUNC
+        //   不做 CPL 检查——任何 ring 3 线程都能切。所以这个接口只提供「减权限」
+        //   一个方向：域出生时与默认视图完全一致，之后只能被拿掉权限；
+        // - RESTRICT 的 deniedAccess 用 EPT_ACCESS 位；拿掉读权限需要处理器支持
+        //   execute-only 翻译，否则驱动拒绝；
+        // - 常驻期间不能改域：正在跑的 VCPU 可能就在这些表里。
+        HvmDomainResult controlHvmDomain(
+            unsigned long operation,
+            unsigned long domainIndex,
+            unsigned long expectedGeneration,
+            std::uint64_t physicalAddress,
+            std::uint64_t byteCount,
+            unsigned long deniedAccess,
+            bool uiConfirmed) const;
         // controlHvmView：安装、移除或查询 EPT 分离视图。
         // - shadow 只在 ADD 且未指定 seed 标志时使用，必须是整页；
         // - 视图与 EPT 规则不能覆盖同一页，驱动会拒绝冲突安装。

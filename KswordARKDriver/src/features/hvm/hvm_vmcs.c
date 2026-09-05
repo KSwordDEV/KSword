@@ -61,6 +61,10 @@ Environment:
 #define KSW_VMX_PRIMARY_USE_MSR_BITMAPS (1UL << 28)
 /* Identify the secondary control converting EPT violations into guest #VE. */
 #define KSW_VMX_SECONDARY_EPT_VIOLATION_VE (1UL << 18)
+/* Identify the secondary control enabling the VMFUNC instruction. */
+#define KSW_VMX_SECONDARY_ENABLE_VM_FUNCTIONS (1UL << 13)
+/* Identify VM function 0, EPTP switching, inside the function controls. */
+#define KSW_VMX_VM_FUNCTION_EPTP_SWITCHING (1ULL << 0)
 #define KSW_VMX_PRIMARY_SECONDARY_CONTROLS (1UL << 31)
 #define KSW_VMX_SECONDARY_EPT (1UL << 1)
 #define KSW_VMX_SECONDARY_RDTSCP (1UL << 3)
@@ -115,6 +119,10 @@ Environment:
 #define KSW_VMCS_MSR_BITMAP 0x2004UL
 /* Name the 64-bit control field holding the #VE information-area address. */
 #define KSW_VMCS_VE_INFO_ADDRESS 0x202AUL
+/* Name the 64-bit control field selecting which VM functions are enabled. */
+#define KSW_VMCS_VM_FUNCTION_CONTROLS 0x2018UL
+/* Name the 64-bit control field holding the EPTP list address. */
+#define KSW_VMCS_EPTP_LIST_ADDRESS 0x2024UL
 #define KSW_VMCS_XSS_EXITING_BITMAP 0x202CUL
 #define KSW_VMCS_PCONFIG_EXITING_BITMAP 0x203EUL
 #define KSW_VMCS_SECONDARY_EXIT_CONTROLS 0x2044UL
@@ -791,6 +799,15 @@ KswordARKHvmConfigureVmcs(
             ((Input->EnableVe != 0U && Input->VeInfoPhysical != 0ULL)
                 ? KSW_VMX_SECONDARY_EPT_VIOLATION_VE
                 : 0UL) |
+            /*
+             * VM functions only when asked and only with a list to switch
+             * within.  Arming this without a list would let guest code run
+             * VMFUNC against uninitialized entries.
+             */
+            ((Input->EnableVmFunctions != 0U &&
+                Input->EptpListPhysical != 0ULL)
+                ? KSW_VMX_SECONDARY_ENABLE_VM_FUNCTIONS
+                : 0UL) |
             requiredInstructionControls,
         secondaryCapability);
     /* 成对保存调试、PAT、EFER 与受支持的扩展处理器状态。 */
@@ -1019,6 +1036,30 @@ KswordARKHvmConfigureVmcs(
     if ((secondaryControls & KSW_VMX_SECONDARY_EPT_VIOLATION_VE) != 0UL) {
         const KSW_HVM_VMCS_WRITE writes[] = {
             { KSW_VMCS_VE_INFO_ADDRESS, (SIZE_T)Input->VeInfoPhysical }
+        };
+
+        status = KswordARKHvmWriteVmcs(
+            writes,
+            (ULONG)RTL_NUMBER_OF(writes),
+            VmInstructionError);
+        if (!NT_SUCCESS(status)) {
+            return status;
+        }
+    }
+
+    /*
+     * Publish the EPTP list and the function-enable mask together.  Both
+     * fields exist only when the secondary control survived clamping, and the
+     * function controls must name EPTP switching explicitly - enabling VM
+     * functions without selecting a function makes every VMFUNC fail.
+     */
+    if ((secondaryControls &
+            KSW_VMX_SECONDARY_ENABLE_VM_FUNCTIONS) != 0UL) {
+        const KSW_HVM_VMCS_WRITE writes[] = {
+            { KSW_VMCS_EPTP_LIST_ADDRESS,
+                (SIZE_T)Input->EptpListPhysical },
+            { KSW_VMCS_VM_FUNCTION_CONTROLS,
+                (SIZE_T)KSW_VMX_VM_FUNCTION_EPTP_SWITCHING }
         };
 
         status = KswordARKHvmWriteVmcs(

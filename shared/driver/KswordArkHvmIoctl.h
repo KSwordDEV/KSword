@@ -120,6 +120,27 @@
 /* Every EPT leaf this build installs carries suppress-#VE. */
 #define KSWORD_ARK_HVM_FEATURE_VE_SUPPRESSED_BY_DEFAULT   0x0001000000000000ULL
 
+/*
+ * VM functions (VMFUNC) and EPTP switching.
+ *
+ * The single most important property of VMFUNC is that it performs NO CPL
+ * check.  Any ring-3 code in the guest can execute it and switch the active
+ * EPTP to any entry in the list, without a VM exit and without the driver
+ * being told.  An EPTP list is therefore not a private hypervisor mechanism -
+ * it is an interface published to every thread in the system.
+ *
+ * The consequence for design: a domain reachable through the list must never
+ * grant a permission the default view does not already grant.  Otherwise the
+ * list becomes a privilege-escalation primitive that costs an attacker one
+ * instruction.  The driver enforces that as an install-time check, and the
+ * whole mechanism stays off unless a caller opts in per start.
+ */
+#define KSWORD_ARK_HVM_FEATURE_VM_FUNCTIONS               0x0002000000000000ULL
+/* EPTP switching (VM function 0) is available on this processor. */
+#define KSWORD_ARK_HVM_FEATURE_EPTP_SWITCHING             0x0004000000000000ULL
+/* The EPTP list page is allocated and every unused slot reads as invalid. */
+#define KSWORD_ARK_HVM_FEATURE_EPTP_LIST_READY            0x0008000000000000ULL
+
 #define KSWORD_ARK_HVM_STATE_INITIALIZED      0x00000001UL
 #define KSWORD_ARK_HVM_STATE_RESOURCES_READY  0x00000002UL
 #define KSWORD_ARK_HVM_STATE_EPT_READY        0x00000004UL
@@ -153,6 +174,8 @@
 #define KSWORD_ARK_HVM_STATE_RESIDENT_NESTED         0x00800000UL
 /* EPT-violation-to-#VE conversion is armed on every resident processor. */
 #define KSWORD_ARK_HVM_STATE_VE_ACTIVE              0x01000000UL
+/* EPTP switching is armed: guest code can switch views with one VMFUNC. */
+#define KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE          0x02000000UL
 
 #define KSWORD_ARK_HVM_CPU_STATE_RESOURCE_READY  0x00000001UL
 #define KSWORD_ARK_HVM_CPU_STATE_SELF_TESTED     0x00000002UL
@@ -231,6 +254,14 @@
  * something inside the guest is known to handle vector 20.
  */
 #define KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VE         0x00000080UL
+/*
+ * Turn on VM functions and EPTP switching for this residency.
+ *
+ * OFF BY DEFAULT.  VMFUNC has no CPL check, so arming this publishes every
+ * domain in the EPTP list to unprivileged guest code.  Only meaningful when
+ * every listed domain has been checked to grant no more than the default view.
+ */
+#define KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC   0x00000100UL
 
 #define KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN 0x48564D43UL
 
@@ -910,3 +941,99 @@ typedef struct _KSWORD_ARK_HVM_CR_POLICY_RESPONSE
     long lastStatus;
     unsigned long reserved2;
 } KSWORD_ARK_HVM_CR_POLICY_RESPONSE;
+
+/*
+ * EPT execution domains.
+ *
+ * A domain is a fork of the default identity view, published in the EPTP list
+ * so guest code can switch onto it with one VMFUNC.  That last part is the
+ * whole design constraint: VMFUNC performs no CPL check, so every domain in
+ * the list is reachable by unprivileged code in any process, without a VM exit
+ * and without the driver being notified.
+ *
+ * The interface therefore offers exactly one editing direction.  A domain is
+ * born byte-for-byte identical to the default view and can only have
+ * permissions REMOVED.  There is no operation that grants anything, so a
+ * thread that switches into a domain can never end up with access it did not
+ * already have - the worst it can do to itself is take an EPT violation.
+ *
+ * Domains are also inert until residency is started with ENABLE_VMFUNC.
+ * Building the list costs a page and changes nothing on its own.
+ */
+#define KSWORD_ARK_HVM_DOMAIN_PROTOCOL_VERSION 1UL
+
+/* Bound the domains a caller may enumerate in one response. */
+#define KSWORD_ARK_HVM_MAX_DOMAIN_ROWS 8UL
+
+#define KSWORD_ARK_IOCTL_FUNCTION_HVM_DOMAIN 0x8BEUL
+#define IOCTL_KSWORD_ARK_HVM_DOMAIN \
+    CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_HVM_DOMAIN, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+
+/* Fork one domain from the default view. */
+#define KSWORD_ARK_HVM_DOMAIN_OP_CREATE   1UL
+/* Remove permissions from one physical range inside one domain. */
+#define KSWORD_ARK_HVM_DOMAIN_OP_RESTRICT 2UL
+/* Release every domain and unpublish the whole list. */
+#define KSWORD_ARK_HVM_DOMAIN_OP_RESET    3UL
+/* Report the current domains without changing anything. */
+#define KSWORD_ARK_HVM_DOMAIN_OP_QUERY    4UL
+
+#define KSWORD_ARK_HVM_DOMAIN_FLAG_UI_CONFIRMED 0x00000001UL
+
+#define KSWORD_ARK_HVM_DOMAIN_STATUS_OK                    0UL
+#define KSWORD_ARK_HVM_DOMAIN_STATUS_INVALID_REQUEST       1UL
+#define KSWORD_ARK_HVM_DOMAIN_STATUS_CONFIRMATION_REQUIRED 2UL
+#define KSWORD_ARK_HVM_DOMAIN_STATUS_NOT_PREPARED          3UL
+#define KSWORD_ARK_HVM_DOMAIN_STATUS_NOT_FOUND             4UL
+#define KSWORD_ARK_HVM_DOMAIN_STATUS_TABLE_FULL            5UL
+/* Denying read requires execute-only translation the processor lacks. */
+#define KSWORD_ARK_HVM_DOMAIN_STATUS_EXECUTE_ONLY_UNSUPPORTED 6UL
+#define KSWORD_ARK_HVM_DOMAIN_STATUS_RESOURCE_FAILED       7UL
+/* The processor does not offer EPTP switching, so a list would be inert. */
+#define KSWORD_ARK_HVM_DOMAIN_STATUS_UNSUPPORTED           8UL
+/* Domains cannot be edited while residency holds the tables live. */
+#define KSWORD_ARK_HVM_DOMAIN_STATUS_RESIDENT_ACTIVE       9UL
+
+typedef struct _KSWORD_ARK_HVM_DOMAIN_ROW
+{
+    unsigned long domainIndex;
+    /* Nonzero when the slot holds a live domain. */
+    unsigned long active;
+    /* Paging structures this domain forked away from the shared hierarchy. */
+    unsigned long privateTableCount;
+    unsigned long reserved;
+    /* EPT pointer published in the list slot; zero when the slot is unused. */
+    unsigned long long eptPointer;
+} KSWORD_ARK_HVM_DOMAIN_ROW;
+
+typedef struct _KSWORD_ARK_HVM_DOMAIN_REQUEST
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long operation;
+    unsigned long flags;
+    unsigned long confirmationToken;
+    unsigned long expectedGeneration;
+    unsigned long domainIndex;
+    /* Permissions to remove, using the EPT_ACCESS bits. */
+    unsigned long deniedAccess;
+    unsigned long long physicalAddress;
+    unsigned long long byteCount;
+} KSWORD_ARK_HVM_DOMAIN_REQUEST;
+
+typedef struct _KSWORD_ARK_HVM_DOMAIN_RESPONSE
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long status;
+    unsigned long domainIndex;
+    unsigned long domainCount;
+    unsigned long generation;
+    unsigned long returnedRows;
+    unsigned long reserved;
+    long lastStatus;
+    unsigned long reserved2;
+    unsigned long long featureFlags;
+    unsigned long long stateFlags;
+    KSWORD_ARK_HVM_DOMAIN_ROW rows[KSWORD_ARK_HVM_MAX_DOMAIN_ROWS];
+} KSWORD_ARK_HVM_DOMAIN_RESPONSE;

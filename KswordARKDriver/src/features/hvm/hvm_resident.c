@@ -448,6 +448,17 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     /* Point at this processor's area so a conversion has somewhere to land. */
     input.VeInfoPhysical =
         (ULONGLONG)Context->Resource->VeInfoPhysical.QuadPart;
+    /*
+     * VM functions are opt-in per start, like #VE.  Unlike #VE they have no
+     * second safety net: once armed, any ring-3 instruction can switch views.
+     * The protection is structural instead - a domain can only ever hold
+     * fewer permissions than the default view.
+     */
+    input.EnableVmFunctions = ((g_KswordHvmResident.Flags &
+        KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC) != 0UL) ? 1U : 0U;
+    /* Share the one list; domains are global, not per-processor. */
+    input.EptpListPhysical =
+        (ULONGLONG)Context->Runtime->EptpListPhysical.QuadPart;
     /* Discard every prior launch's optional-state ownership evidence. */
     Context->GuestSCet = 0ULL;
     Context->GuestSsp = 0ULL;
@@ -1215,6 +1226,20 @@ KswordARKHvmResidentStart(
         return STATUS_NOT_SUPPORTED;
     }
     /*
+     * VM functions are refused the same way, and additionally require the
+     * list to exist.  Arming the control without a list would leave guest
+     * VMFUNC reading entries the driver never wrote.
+     */
+    if ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC) != 0UL &&
+        (Runtime->FeatureFlags &
+            (KSWORD_ARK_HVM_FEATURE_EPTP_SWITCHING |
+             KSWORD_ARK_HVM_FEATURE_EPTP_LIST_READY)) !=
+            (KSWORD_ARK_HVM_FEATURE_EPTP_SWITCHING |
+             KSWORD_ARK_HVM_FEATURE_EPTP_LIST_READY)) {
+        /* Return the exact unsupported-control failure. */
+        return STATUS_NOT_SUPPORTED;
+    }
+    /*
      * ALLOW_ONCE temporarily edits the shared EPT leaf.  Refuse start unless
      * the complete target topology is one VCPU and both restoration controls
      * are available.  Ordinary tripwire rules remain valid on any topology.
@@ -1410,6 +1435,10 @@ KswordARKHvmResidentStart(
     if ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VE) != 0UL) {
         Runtime->StateFlags |= KSWORD_ARK_HVM_STATE_VE_ACTIVE;
     }
+    /* Publish whether guest code can switch views with a single VMFUNC. */
+    if ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC) != 0UL) {
+        Runtime->StateFlags |= KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE;
+    }
     /*
      * Record whether this residency is nested.  Callers must be able to tell
      * the two apart: under an outer hypervisor every VMX operation is emulated,
@@ -1489,6 +1518,8 @@ KswordARKHvmResidentStop(
             ~(KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
               KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
               KSWORD_ARK_HVM_STATE_VE_ACTIVE |
+              KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE |
+          KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE |
               KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
         /* Preserve the fail-closed public maturity after an idempotent stop. */
         Runtime->ResidentImplementation =
@@ -1551,6 +1582,7 @@ KswordARKHvmResidentStop(
         ~(KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
           KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
           KSWORD_ARK_HVM_STATE_VE_ACTIVE |
+          KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE |
           KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
     /* Preserve the configured lifecycle maturity without claiming active. */
     Runtime->ResidentImplementation =

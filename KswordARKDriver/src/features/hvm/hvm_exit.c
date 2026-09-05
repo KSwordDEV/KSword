@@ -51,6 +51,8 @@ Environment:
 #define KSW_VMX_EXIT_HLT 12UL
 /* Name the VMCALL VM-exit reason. */
 #define KSW_VMX_EXIT_VMCALL 18UL
+/* Name the VMFUNC VM-exit reason, taken only when the function fails. */
+#define KSW_VMX_EXIT_VMFUNC 59UL
 /* Name the INVD VM-exit reason, which no execution control can suppress. */
 #define KSW_VMX_EXIT_INVD 13UL
 /* Name the RDMSR VM-exit reason. */
@@ -514,6 +516,18 @@ KswordARKHvmResidentVmExitDispatch(
          * probes for one must see the same result.  Devirtualizing here would
          * let any user-mode instruction dismantle the resident hypervisor.
          */
+        handled = KswordARKHvmExitInjectUndefinedOpcode();
+    /*
+     * A VMFUNC exit means the function failed - a successful EPTP switch does
+     * not exit at all.  Guest code reached here by naming an entry outside the
+     * list or one holding an invalid pointer, so the architectural answer is
+     * the same one it would get on a processor without VM functions.
+     *
+     * Not advancing RIP is deliberate: #UD is a fault, and a fault restarts
+     * the instruction it reports rather than skipping it.
+     */
+    } else if (basicReason == KSW_VMX_EXIT_VMFUNC) {
+        /* Deliver the architectural undefined-opcode fault to the guest. */
         handled = KswordARKHvmExitInjectUndefinedOpcode();
     /* Complete the unconditional INVD exit without dropping modified lines. */
     } else if (basicReason == KSW_VMX_EXIT_INVD) {

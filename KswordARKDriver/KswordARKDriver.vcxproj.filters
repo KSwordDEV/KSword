@@ -441,6 +441,7 @@
     <ClInclude Include="src\features\hvm\hvm_exit_emulate.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\features\hvm\hvm_memory.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\features\hvm\hvm_ept_view.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\features\hvm\hvm_ept_domain.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\features\hvm\hvm_msr_policy.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\features\hvm\hvm_cr_policy.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\features\hvm\hvm_resident.h"><Filter>Header Files</Filter></ClInclude>
@@ -629,6 +630,9 @@
       <Filter>Source Files\Features\HVM</Filter>
     </ClCompile>
     <ClCompile Include="src\features\hvm\hvm_ept_view.c">
+      <Filter>Source Files\Features\HVM</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_ept_domain.c">
       <Filter>Source Files\Features\HVM</Filter>
     </ClCompile>
     <ClCompile Include="src\features\hvm\hvm_msr_policy.c">
