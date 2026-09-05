@@ -626,6 +626,9 @@
     <ClCompile Include="src\features\hvm\hvm_ept_view.c">
       <Filter>Source Files\Features\HVM</Filter>
     </ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_msr_policy.c">
+      <Filter>Source Files\Features\HVM</Filter>
+    </ClCompile>
     <ClCompile Include="src\features\hvm\hvm_resident.c">
       <Filter>Source Files\Features\HVM</Filter>
     </ClCompile>

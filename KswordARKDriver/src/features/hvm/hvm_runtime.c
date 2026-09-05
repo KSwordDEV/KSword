@@ -21,6 +21,7 @@ Environment:
 #include "hvm_ept_view.h"
 #include "hvm_guest.h"
 #include "hvm_memory.h"
+#include "hvm_msr_policy.h"
 #include "hvm_ept.h"
 #include "hvm_event.h"
 #include "hvm_evmcs.h"
@@ -893,6 +894,8 @@ KswordARKHvmFreeResourcesLocked(
         /* Return without releasing live VMX resources. */
         return;
     }
+    /* Close every MSR bitmap hole before the bitmap page is released. */
+    KswordARKHvmMsrPolicyResetLocked(Runtime);
     /* Restore view leaves and free shadows before rules touch the same pages. */
     KswordARKHvmEptViewResetLocked(Runtime);
     /* Restore baseline EPT leaves before releasing split table pages. */

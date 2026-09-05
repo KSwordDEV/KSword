@@ -816,4 +816,167 @@ namespace ksword::kvm
             0, 0, 0, 0, nullptr, false, false, false, true);
         return toViewResult(result, actionName);
     }
+
+    namespace
+    {
+        // toMsrPolicyResult：把驱动策略响应翻译成 UI 可直接展示的结论。
+        KvmMsrPolicyResult toMsrPolicyResult(
+            const ksword::ark::HvmMsrPolicyResult& result,
+            const QString& actionName)
+        {
+            KvmMsrPolicyResult policy;
+            policy.policyId = result.response.policyId;
+            policy.policyCount = result.response.policyCount;
+            policy.ok = result.io.ok &&
+                result.response.status ==
+                    KSWORD_ARK_HVM_MSR_POLICY_STATUS_OK;
+            if (policy.ok)
+            {
+                const unsigned long rows =
+                    result.response.returnedRows <=
+                        KSWORD_ARK_HVM_MAX_MSR_POLICIES
+                        ? result.response.returnedRows
+                        : KSWORD_ARK_HVM_MAX_MSR_POLICIES;
+                for (unsigned long index = 0; index < rows; ++index)
+                {
+                    const auto& row = result.response.rows[index];
+                    KvmMsrPolicyEntry entry;
+                    entry.policyId = row.policyId;
+                    entry.msrIndex = row.msrIndex;
+                    entry.access = row.access;
+                    entry.action = row.action;
+                    entry.fakeValue = row.fakeValue;
+                    entry.hitCount = row.hitCount;
+                    policy.policies.append(entry);
+                }
+                policy.message = ks::i18n::sourceText(
+                    QStringLiteral("%1 成功。")).arg(actionName);
+                return policy;
+            }
+            if (!result.io.ok && result.unsupported)
+            {
+                policy.message = ks::i18n::sourceText(
+                    QStringLiteral("%1 失败：当前驱动不提供该能力。"))
+                    .arg(actionName);
+                return policy;
+            }
+            QString reason;
+            switch (result.response.status)
+            {
+            case KSWORD_ARK_HVM_MSR_POLICY_STATUS_CONFIRMATION_REQUIRED:
+                reason = ks::i18n::sourceText(QStringLiteral("需要显式确认"));
+                break;
+            case KSWORD_ARK_HVM_MSR_POLICY_STATUS_NOT_PREPARED:
+                reason = ks::i18n::sourceText(QStringLiteral("资源尚未准备"));
+                break;
+            case KSWORD_ARK_HVM_MSR_POLICY_STATUS_NOT_FOUND:
+                reason = ks::i18n::sourceText(QStringLiteral("没有这条策略"));
+                break;
+            case KSWORD_ARK_HVM_MSR_POLICY_STATUS_TABLE_FULL:
+                reason = ks::i18n::sourceText(QStringLiteral("策略表已满"));
+                break;
+            case KSWORD_ARK_HVM_MSR_POLICY_STATUS_INDEX_UNCOVERED:
+                reason = ks::i18n::sourceText(QStringLiteral(
+                    "该 MSR 索引不在位图覆盖的两段范围内"));
+                break;
+            case KSWORD_ARK_HVM_MSR_POLICY_STATUS_WRITE_LOG_UNSAFE:
+                reason = ks::i18n::sourceText(QStringLiteral(
+                    "写方向不支持“记录后放行”：在 VMX root 里重放 WRMSR 没有退路"));
+                break;
+            case KSWORD_ARK_HVM_MSR_POLICY_STATUS_RESIDENT_BUSY:
+                reason = ks::i18n::sourceText(QStringLiteral(
+                    "常驻期间不能改动策略，请先停止常驻"));
+                break;
+            case KSWORD_ARK_HVM_MSR_POLICY_STATUS_DUPLICATE:
+                reason = ks::i18n::sourceText(QStringLiteral(
+                    "该索引与方向上已有一条策略"));
+                break;
+            default:
+                reason = ks::i18n::sourceText(QStringLiteral("协议状态 %1"))
+                    .arg(result.response.status);
+                break;
+            }
+            policy.message = ks::i18n::sourceText(
+                QStringLiteral("%1 失败：%2。"))
+                .arg(actionName)
+                .arg(reason);
+            return policy;
+        }
+
+        // denyMsrPolicyWithoutWriteAccess：写权限关闭时统一拒绝，不发 IOCTL。
+        KvmMsrPolicyResult denyMsrPolicyWithoutWriteAccess(
+            const QString& actionName)
+        {
+            KvmMsrPolicyResult policy;
+            policy.message = ks::i18n::sourceText(
+                QStringLiteral("%1 失败：R-1 写权限未开启。"))
+                .arg(actionName);
+            return policy;
+        }
+    }
+
+    KvmMsrPolicyResult listMsrPolicies()
+    {
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmMsrPolicy(
+            KSWORD_ARK_HVM_MSR_POLICY_OP_QUERY,
+            0, 0, 0, 0, 0, false);
+        return toMsrPolicyResult(
+            result,
+            ks::i18n::sourceText(QStringLiteral("读取 MSR 策略")));
+    }
+
+    KvmMsrPolicyResult addMsrPolicy(
+        const unsigned long msrIndex,
+        const unsigned long access,
+        const unsigned long action,
+        const unsigned long long fakeValue)
+    {
+        const QString actionName =
+            ks::i18n::sourceText(QStringLiteral("安装 MSR 策略"));
+        if (!isWriteAccessEnabled())
+        {
+            return denyMsrPolicyWithoutWriteAccess(actionName);
+        }
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmMsrPolicy(
+            KSWORD_ARK_HVM_MSR_POLICY_OP_ADD,
+            0,
+            msrIndex,
+            access,
+            action,
+            fakeValue,
+            true);
+        return toMsrPolicyResult(result, actionName);
+    }
+
+    KvmMsrPolicyResult removeMsrPolicy(const unsigned long policyId)
+    {
+        const QString actionName =
+            ks::i18n::sourceText(QStringLiteral("移除 MSR 策略"));
+        if (!isWriteAccessEnabled())
+        {
+            return denyMsrPolicyWithoutWriteAccess(actionName);
+        }
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmMsrPolicy(
+            KSWORD_ARK_HVM_MSR_POLICY_OP_REMOVE,
+            policyId, 0, 0, 0, 0, true);
+        return toMsrPolicyResult(result, actionName);
+    }
+
+    KvmMsrPolicyResult clearMsrPolicies()
+    {
+        const QString actionName =
+            ks::i18n::sourceText(QStringLiteral("清空 MSR 策略"));
+        if (!isWriteAccessEnabled())
+        {
+            return denyMsrPolicyWithoutWriteAccess(actionName);
+        }
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmMsrPolicy(
+            KSWORD_ARK_HVM_MSR_POLICY_OP_CLEAR,
+            0, 0, 0, 0, 0, true);
+        return toMsrPolicyResult(result, actionName);
+    }
 }

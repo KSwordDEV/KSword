@@ -18,6 +18,7 @@ Environment:
 #include "hvm_exit.h"
 #include "hvm_exit_emulate.h"
 #include "hvm_ept_view.h"
+#include "hvm_msr_policy.h"
 #include "hvm_resident.h"
 #include "hvm_ept.h"
 #include "hvm_event.h"
@@ -534,22 +535,44 @@ KswordARKHvmResidentVmExitDispatch(
             /* Restart the instruction after the guest takes #GP. */
             handled = KswordARKHvmExitInjectGeneralProtection();
         }
-    /* Resolve MSR access that fell outside the pass-through bitmap. */
+    /* Resolve MSR access the bitmap deliberately let exit. */
     } else if (basicReason == KSW_VMX_EXIT_RDMSR ||
                basicReason == KSW_VMX_EXIT_WRMSR) {
-        /* Classify the index against the architectural bitmap coverage. */
-        handled = KswordARKHvmExitEmulateMsr(
+        const BOOLEAN isWrite =
+            (BOOLEAN)(basicReason == KSW_VMX_EXIT_WRMSR);
+        /*
+         * An index inside the bitmap only exits because a policy opened a hole
+         * for it, so the policy engine gets first refusal.  Anything it does
+         * not claim fell outside the bitmap entirely.
+         */
+        const ULONG policyResult = KswordARKHvmMsrPolicyApply(
+            Context->Runtime,
             Frame,
-            (BOOLEAN)(basicReason == KSW_VMX_EXIT_WRMSR),
-            &injectFault);
-        /* Advance only after a complete emulation wrote every result. */
-        if (handled) {
+            isWrite);
+
+        if (policyResult == KSW_HVM_MSR_POLICY_RESULT_HANDLED) {
             /* Continue at the instruction following the MSR access. */
             handled = KswordARKHvmExitAdvanceRip(
                 telemetry.InstructionLength);
-        } else if (injectFault) {
+        } else if (policyResult ==
+            KSW_HVM_MSR_POLICY_RESULT_INJECT_FAULT) {
             /* Restart the instruction after the guest takes #GP. */
             handled = KswordARKHvmExitInjectGeneralProtection();
+        } else {
+            /* Classify the index against the architectural bitmap coverage. */
+            handled = KswordARKHvmExitEmulateMsr(
+                Frame,
+                isWrite,
+                &injectFault);
+            /* Advance only after a complete emulation wrote every result. */
+            if (handled) {
+                /* Continue at the instruction following the MSR access. */
+                handled = KswordARKHvmExitAdvanceRip(
+                    telemetry.InstructionLength);
+            } else if (injectFault) {
+                /* Restart the instruction after the guest takes #GP. */
+                handled = KswordARKHvmExitInjectGeneralProtection();
+            }
         }
     /* Restore allow-once EPT permissions after one guest instruction. */
     } else if (basicReason ==

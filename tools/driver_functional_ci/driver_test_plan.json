@@ -2816,6 +2816,11 @@
       "detail": "私有页表窗口直接改写 PTE 并读写任意物理内存。写路径无法在 CI 上构造无害目标，读路径同样绕开内存管理器，任何越界都会以不可归因的方式破坏 runner。"
     },
     {
+      "ioctl": "HVM_MSR_POLICY",
+      "reason": "virtualization-lifecycle",
+      "detail": "在 MSR bitmap 上开洞并改变 guest 看到的 MSR 值。CI 机器通常已在 Hyper-V/VBS 之下，装不上策略；真装上了拦错 MSR 会以不可归因的方式破坏 runner。"
+    },
+    {
       "ioctl": "HVM_VIEW",
       "reason": "virtualization-lifecycle",
       "detail": "安装 EPT 分离视图会把执行或读取重定向到影子页，并要求单处理器拓扑。CI 机器通常已在 Hyper-V/VBS 之下且是多核，装不上也测不了。"

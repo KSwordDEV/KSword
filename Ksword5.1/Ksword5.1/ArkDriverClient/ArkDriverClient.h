@@ -455,6 +455,17 @@ namespace ksword::ark
             // enforce：持久拒绝（命中注入 #PF 并继续常驻），与 allowOnce 互斥；
             // 驱动侧在存储规则时会丢弃同时给出的 allowOnce。
             bool enforce = false) const;
+        // controlHvmMsrPolicy：安装、移除或查询 MSR 策略。
+        // - action 为 LOG 时不能带写方向，驱动会拒绝（root 里重放 WRMSR 无退路）；
+        // - 只有 bitmap 覆盖的两段索引可以设策略。
+        HvmMsrPolicyResult controlHvmMsrPolicy(
+            unsigned long operation,
+            unsigned long policyId,
+            unsigned long msrIndex,
+            unsigned long access,
+            unsigned long action,
+            std::uint64_t fakeValue,
+            bool uiConfirmed) const;
         // controlHvmView：安装、移除或查询 EPT 分离视图。
         // - shadow 只在 ADD 且未指定 seed 标志时使用，必须是整页；
         // - 视图与 EPT 规则不能覆盖同一页，驱动会拒绝冲突安装。

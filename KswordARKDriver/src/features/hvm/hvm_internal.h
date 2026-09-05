@@ -235,6 +235,29 @@ typedef struct _KSW_HVM_EPT_VIEW_SLOT
     volatile LONG64 FlipCount;
 } KSW_HVM_EPT_VIEW_SLOT;
 
+/* Describe one installed MSR policy and the bitmap hole it owns. */
+typedef struct _KSW_HVM_MSR_POLICY_SLOT
+{
+    /* Record whether the slot holds an installed policy. */
+    BOOLEAN Active;
+    /* Keep the structure explicitly initialized across architectures. */
+    UCHAR Reserved0[3];
+    /* Retain the stable protocol-visible policy identifier. */
+    ULONG PolicyId;
+    /* Retain the intercepted architectural MSR index. */
+    ULONG MsrIndex;
+    /* Retain which of read and write this policy intercepts. */
+    ULONG Access;
+    /* Retain the action applied to an intercepted access. */
+    ULONG Action;
+    /* Keep the following value naturally aligned. */
+    ULONG Reserved1;
+    /* Retain the value returned by a faked read. */
+    ULONGLONG FakeValue;
+    /* Count how often the dispatcher applied this policy. */
+    volatile LONG64 HitCount;
+} KSW_HVM_MSR_POLICY_SLOT;
+
 /* Own the serialized HVM capability, lifecycle, EPT, and telemetry state. */
 typedef struct _KSW_HVM_RUNTIME
 {
@@ -364,6 +387,12 @@ typedef struct _KSW_HVM_RUNTIME
     ULONG EptViewCount;
     /* Preserve the next view identifier handed out by the view backend. */
     ULONG EptViewNextId;
+    /* Retain every installed MSR policy. */
+    KSW_HVM_MSR_POLICY_SLOT MsrPolicies[KSWORD_ARK_HVM_MAX_MSR_POLICIES];
+    /* Preserve the number of installed MSR policies. */
+    ULONG MsrPolicyCount;
+    /* Preserve the next policy identifier handed out by the MSR backend. */
+    ULONG MsrPolicyNextId;
     /* Protect only the resident-transition phase and idle-event state. */
     KSPIN_LOCK ResidentTransitionStateLock;
     /* Wake wait-capable transition contenders after the current owner exits. */

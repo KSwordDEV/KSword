@@ -392,4 +392,55 @@ namespace ksword::ark
         result.io.message = stream.str();
         return result;
     }
+
+    HvmMsrPolicyResult DriverClient::controlHvmMsrPolicy(
+        const unsigned long operation,
+        const unsigned long policyId,
+        const unsigned long msrIndex,
+        const unsigned long access,
+        const unsigned long action,
+        const std::uint64_t fakeValue,
+        const bool uiConfirmed) const
+    {
+        HvmMsrPolicyResult result{};
+        KSWORD_ARK_HVM_MSR_POLICY_REQUEST request{};
+        request.version = KSWORD_ARK_HVM_MSR_POLICY_PROTOCOL_VERSION;
+        request.size = sizeof(request);
+        request.operation = operation;
+        request.policyId = policyId;
+        request.msrIndex = msrIndex;
+        request.access = access;
+        request.action = action;
+        request.fakeValue = fakeValue;
+        if (uiConfirmed)
+        {
+            request.flags |= KSWORD_ARK_HVM_MSR_POLICY_FLAG_UI_CONFIRMED;
+            request.confirmationToken =
+                KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+        }
+
+        result.io = deviceIoControl(
+            IOCTL_KSWORD_ARK_HVM_MSR_POLICY,
+            &request,
+            sizeof(request),
+            &result.response,
+            sizeof(result.response));
+        result.unsupported = !result.io.ok &&
+            isUnsupportedHvmError(result.io.win32Error);
+        result.io.ntStatus = result.response.lastStatus;
+
+        std::ostringstream stream;
+        stream << "HVM MSR policy operation=" << operation
+            << ", status=" << result.response.status
+            << ", policyId=" << result.response.policyId
+            << ", policyCount=" << result.response.policyCount
+            << ", rows=" << result.response.returnedRows
+            << ", msr=0x" << std::hex << msrIndex << std::dec;
+        if (result.unsupported)
+        {
+            stream << ", unsupported=true";
+        }
+        result.io.message = stream.str();
+        return result;
+    }
 }

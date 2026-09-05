@@ -667,3 +667,104 @@ typedef struct _KSWORD_ARK_HVM_VIEW_RESPONSE
     unsigned long reserved2;
     KSWORD_ARK_HVM_VIEW_ROW rows[KSWORD_ARK_HVM_MAX_VIEWS];
 } KSWORD_ARK_HVM_VIEW_RESPONSE;
+
+/*
+ * MSR policy.
+ *
+ * The MSR bitmap installed by P0 passes every MSR through natively, which is
+ * what makes residency survivable.  A policy punches a hole in it: the named
+ * MSR starts exiting again, and the dispatcher applies the configured action
+ * instead of the native access.
+ *
+ * Writes are deliberately more restricted than reads.  Replaying an arbitrary
+ * WRMSR in VMX root would fault on the host IDT with no continuation if the
+ * value were illegal, so a write policy can only deny the access or swallow
+ * it - never "log it and let it through".  Reads are replayed under structured
+ * exception handling and fall back to an injected #GP.
+ *
+ * Only indices the bitmap actually covers can carry a policy: 0x00000000-
+ * 0x00001FFF and 0xC0000000-0xC0001FFF.  Anything outside those ranges exits
+ * unconditionally and is handled as an undefined MSR.
+ */
+#define KSWORD_ARK_HVM_MSR_POLICY_PROTOCOL_VERSION 1UL
+
+/* Bound the number of simultaneously installed MSR policies. */
+#define KSWORD_ARK_HVM_MAX_MSR_POLICIES 64UL
+
+#define KSWORD_ARK_IOCTL_FUNCTION_HVM_MSR_POLICY 0x8BCUL
+#define IOCTL_KSWORD_ARK_HVM_MSR_POLICY \
+    CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_HVM_MSR_POLICY, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+
+#define KSWORD_ARK_HVM_MSR_POLICY_OP_ADD    1UL
+#define KSWORD_ARK_HVM_MSR_POLICY_OP_REMOVE 2UL
+#define KSWORD_ARK_HVM_MSR_POLICY_OP_CLEAR  3UL
+#define KSWORD_ARK_HVM_MSR_POLICY_OP_QUERY  4UL
+
+/* Intercept guest reads of the MSR. */
+#define KSWORD_ARK_HVM_MSR_ACCESS_READ  0x00000001UL
+/* Intercept guest writes of the MSR. */
+#define KSWORD_ARK_HVM_MSR_ACCESS_WRITE 0x00000002UL
+
+/* Record the access and then perform it natively. Reads only. */
+#define KSWORD_ARK_HVM_MSR_ACTION_LOG    1UL
+/* Refuse the access by injecting #GP, exactly as an undefined index would. */
+#define KSWORD_ARK_HVM_MSR_ACTION_DENY   2UL
+/* Return the configured value for reads; discard the value for writes. */
+#define KSWORD_ARK_HVM_MSR_ACTION_FAKE   3UL
+
+#define KSWORD_ARK_HVM_MSR_POLICY_FLAG_UI_CONFIRMED 0x00000001UL
+
+#define KSWORD_ARK_HVM_MSR_POLICY_STATUS_OK                    0UL
+#define KSWORD_ARK_HVM_MSR_POLICY_STATUS_INVALID_REQUEST       1UL
+#define KSWORD_ARK_HVM_MSR_POLICY_STATUS_CONFIRMATION_REQUIRED 2UL
+#define KSWORD_ARK_HVM_MSR_POLICY_STATUS_NOT_PREPARED          3UL
+#define KSWORD_ARK_HVM_MSR_POLICY_STATUS_NOT_FOUND             4UL
+#define KSWORD_ARK_HVM_MSR_POLICY_STATUS_TABLE_FULL            5UL
+/* The index falls outside the two ranges the architectural bitmap covers. */
+#define KSWORD_ARK_HVM_MSR_POLICY_STATUS_INDEX_UNCOVERED       6UL
+/* A write policy cannot replay the access, so LOG is refused for writes. */
+#define KSWORD_ARK_HVM_MSR_POLICY_STATUS_WRITE_LOG_UNSAFE      7UL
+/* Policies edit the shared bitmap, so they are refused while resident. */
+#define KSWORD_ARK_HVM_MSR_POLICY_STATUS_RESIDENT_BUSY         8UL
+#define KSWORD_ARK_HVM_MSR_POLICY_STATUS_DUPLICATE             9UL
+
+typedef struct _KSWORD_ARK_HVM_MSR_POLICY_ROW
+{
+    unsigned long policyId;
+    unsigned long msrIndex;
+    unsigned long access;
+    unsigned long action;
+    unsigned long long fakeValue;
+    /* Times the dispatcher applied this policy since installation. */
+    unsigned long long hitCount;
+} KSWORD_ARK_HVM_MSR_POLICY_ROW;
+
+typedef struct _KSWORD_ARK_HVM_MSR_POLICY_REQUEST
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long operation;
+    unsigned long flags;
+    unsigned long confirmationToken;
+    unsigned long policyId;
+    unsigned long msrIndex;
+    unsigned long access;
+    unsigned long action;
+    unsigned long expectedGeneration;
+    unsigned long long fakeValue;
+} KSWORD_ARK_HVM_MSR_POLICY_REQUEST;
+
+typedef struct _KSWORD_ARK_HVM_MSR_POLICY_RESPONSE
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long status;
+    unsigned long policyId;
+    unsigned long policyCount;
+    unsigned long returnedRows;
+    unsigned long generation;
+    unsigned long reserved;
+    long lastStatus;
+    unsigned long reserved2;
+    KSWORD_ARK_HVM_MSR_POLICY_ROW rows[KSWORD_ARK_HVM_MAX_MSR_POLICIES];
+} KSWORD_ARK_HVM_MSR_POLICY_RESPONSE;

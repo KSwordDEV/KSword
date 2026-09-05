@@ -177,4 +177,40 @@ namespace ksword::kvm
     // removeView/clearViews：移除一条或全部视图。受写权限门约束。
     KvmViewResult removeView(unsigned long viewId);
     KvmViewResult clearViews();
+
+    // KvmMsrPolicyEntry：一条已安装的 MSR 策略。
+    struct KvmMsrPolicyEntry
+    {
+        unsigned long policyId = 0;
+        unsigned long msrIndex = 0;
+        unsigned long access = 0;
+        unsigned long action = 0;
+        unsigned long long fakeValue = 0;
+        unsigned long long hitCount = 0;
+    };
+
+    // KvmMsrPolicyResult：一次 MSR 策略操作的结果。
+    struct KvmMsrPolicyResult
+    {
+        bool ok = false;
+        unsigned long policyId = 0;
+        unsigned long policyCount = 0;
+        QVector<KvmMsrPolicyEntry> policies;
+        QString message;
+    };
+
+    // listMsrPolicies：读取已安装策略，不需要写权限。
+    KvmMsrPolicyResult listMsrPolicies();
+
+    // addMsrPolicy：安装一条策略。受写权限门约束。
+    // action 为 LOG 时不能带写方向：在 VMX root 里重放 WRMSR 没有安全退路。
+    KvmMsrPolicyResult addMsrPolicy(
+        unsigned long msrIndex,
+        unsigned long access,
+        unsigned long action,
+        unsigned long long fakeValue);
+
+    // removeMsrPolicy/clearMsrPolicies：移除一条或全部策略。受写权限门约束。
+    KvmMsrPolicyResult removeMsrPolicy(unsigned long policyId);
+    KvmMsrPolicyResult clearMsrPolicies();
 }

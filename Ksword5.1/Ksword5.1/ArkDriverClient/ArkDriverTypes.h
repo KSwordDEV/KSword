@@ -1501,6 +1501,15 @@ namespace ksword::ark
         KSWORD_ARK_HVM_VIEW_RESPONSE response{};
     };
 
+    // HvmMsrPolicyResult carries one MSR policy operation. rows is only
+    // filled by QUERY; every other operation leaves it empty.
+    struct HvmMsrPolicyResult
+    {
+        IoResult io;
+        bool unsupported = false;
+        KSWORD_ARK_HVM_MSR_POLICY_RESPONSE response{};
+    };
+
     // HvmMemoryResult carries one ring -1 memory access. usedDirectWindow
     // distinguishes the hook-free private-window path from the documented
     // MmCopyMemory fallback, so a caller can tell which one actually ran.

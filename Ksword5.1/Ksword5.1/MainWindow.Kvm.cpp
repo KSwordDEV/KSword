@@ -17,6 +17,7 @@
 #include "Internationalization/LanguageManager.h"
 #include "UI/KvmControl.h"
 #include "UI/KvmMemoryDialog.h"
+#include "UI/KvmMsrPolicyDialog.h"
 #include "UI/KvmViewDialog.h"
 #include "theme.h"
 
@@ -395,6 +396,16 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
     viewAction->setEnabled(m_r0DriverServiceRunning);
     connect(viewAction, &QAction::triggered, this, [this]() {
         KvmViewDialog* const dialog = new KvmViewDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    });
+
+    // MSR 策略同样在未常驻时配置：位图是活的硬件状态，常驻期间不能改。
+    QAction* const msrAction = menu.addAction(
+        ks::i18n::sourceText(QStringLiteral("MSR 策略...")));
+    msrAction->setEnabled(m_r0DriverServiceRunning);
+    connect(msrAction, &QAction::triggered, this, [this]() {
+        KvmMsrPolicyDialog* const dialog = new KvmMsrPolicyDialog(this);
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->show();
     });
