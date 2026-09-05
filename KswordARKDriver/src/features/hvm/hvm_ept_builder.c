@@ -387,7 +387,9 @@ KswordARKHvmBuildEptLocked(
             KSW_EPT_EXECUTE |
             ((ULONGLONG)memoryType <<
                 KSW_EPT_MEMORY_TYPE_SHIFT) |
-            KSW_EPT_LARGE_PAGE;
+            KSW_EPT_LARGE_PAGE |
+            /* Never leave a leaf convertible; see the macro's comment. */
+            KSW_EPT_SUPPRESS_VE;
         /* Count the complete large-leaf identity window. */
         Runtime->EptLargePageEntries += 1UL;
         /* Advance to the next two-MiB physical range. */

@@ -59,6 +59,8 @@ Environment:
 #define KSW_VMX_PRIMARY_CR3_LOAD_EXITING (1UL << 15)
 #define KSW_VMX_PRIMARY_MOV_DR_EXITING (1UL << 23)
 #define KSW_VMX_PRIMARY_USE_MSR_BITMAPS (1UL << 28)
+/* Identify the secondary control converting EPT violations into guest #VE. */
+#define KSW_VMX_SECONDARY_EPT_VIOLATION_VE (1UL << 18)
 #define KSW_VMX_PRIMARY_SECONDARY_CONTROLS (1UL << 31)
 #define KSW_VMX_SECONDARY_EPT (1UL << 1)
 #define KSW_VMX_SECONDARY_RDTSCP (1UL << 3)
@@ -111,6 +113,8 @@ Environment:
 #define KSW_VMCS_GUEST_UINV 0x0814UL
 
 #define KSW_VMCS_MSR_BITMAP 0x2004UL
+/* Name the 64-bit control field holding the #VE information-area address. */
+#define KSW_VMCS_VE_INFO_ADDRESS 0x202AUL
 #define KSW_VMCS_XSS_EXITING_BITMAP 0x202CUL
 #define KSW_VMCS_PCONFIG_EXITING_BITMAP 0x203EUL
 #define KSW_VMCS_SECONDARY_EXIT_CONTROLS 0x2044UL
@@ -778,6 +782,15 @@ KswordARKHvmConfigureVmcs(
     /* 同时启用 EPT 与 Windows 已经通过 CPUID 观察到的指令执行门控。 */
     secondaryControls = KswordARKHvmAdjustControls(
         KSW_VMX_SECONDARY_EPT |
+            /*
+             * Request EPT-violation #VE only when the caller asked for it and
+             * owns an information area.  AdjustControls clamps against the
+             * capability MSR, so a request the processor cannot honor becomes
+             * "off" here rather than a VM-entry failure later.
+             */
+            ((Input->EnableVe != 0U && Input->VeInfoPhysical != 0ULL)
+                ? KSW_VMX_SECONDARY_EPT_VIOLATION_VE
+                : 0UL) |
             requiredInstructionControls,
         secondaryCapability);
     /* 成对保存调试、PAT、EFER 与受支持的扩展处理器状态。 */
@@ -989,6 +1002,25 @@ KswordARKHvmConfigureVmcs(
         };
 
         /* 先写入所有处理器都实现的基础字段。 */
+        status = KswordARKHvmWriteVmcs(
+            writes,
+            (ULONG)RTL_NUMBER_OF(writes),
+            VmInstructionError);
+        if (!NT_SUCCESS(status)) {
+            return status;
+        }
+    }
+
+    /*
+     * Publish the information area only once the control has survived
+     * clamping.  The field does not exist on a processor without the control,
+     * and writing an absent field fails VMWRITE.
+     */
+    if ((secondaryControls & KSW_VMX_SECONDARY_EPT_VIOLATION_VE) != 0UL) {
+        const KSW_HVM_VMCS_WRITE writes[] = {
+            { KSW_VMCS_VE_INFO_ADDRESS, (SIZE_T)Input->VeInfoPhysical }
+        };
+
         status = KswordARKHvmWriteVmcs(
             writes,
             (ULONG)RTL_NUMBER_OF(writes),

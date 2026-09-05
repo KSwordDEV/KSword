@@ -439,6 +439,11 @@ namespace ksword::ark
             bool enableEptEvents = false,
             bool enableNestedVmx = false,
             bool enableEvmcs = false,
+            // enableVe：把 EPT violation 反射成 guest 的 #VE(向量 20)。
+            // 危险且默认关闭：guest 就是正在跑的 Windows，它没有 #VE 处理程序。
+            // 驱动侧有两道保险（所有叶项 suppress-#VE、信息区出厂即 busy），
+            // 硬件不支持时驱动直接拒绝启动而不是静默降级。
+            bool enableVe = false,
             // soakMilliseconds：仅 KSWORD_ARK_HVM_CONTROL_SOAK 读取，
             // 表示常驻保持时长；驱动侧会把它夹到协议规定的上下界之间。
             unsigned long soakMilliseconds = 0) const;

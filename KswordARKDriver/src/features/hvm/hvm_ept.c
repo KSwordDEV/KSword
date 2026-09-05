@@ -156,12 +156,20 @@ KswordARKHvmEptEnsureSplitLocked(
     }
     /* Preserve the original parent identity leaf before replacement. */
     originalEntry = *parentEntry;
-    /* Preserve permissions and memory type while dropping the large marker. */
+    /*
+     * Preserve permissions and memory type while dropping the large marker.
+     * Suppress-#VE has to be carried across explicitly: this mask is what the
+     * split leaves inherit, and a leaf that loses the bit silently becomes
+     * convertible the moment #VE is ever enabled.
+     */
     leafFlags = originalEntry &
         (KSW_EPT_READ |
          KSW_EPT_WRITE |
          KSW_EPT_EXECUTE |
+         KSW_EPT_SUPPRESS_VE |
          (7ULL << KSW_EPT_MEMORY_TYPE_SHIFT));
+    /* Guarantee the bit even if the parent leaf somehow lacked it. */
+    leafFlags |= KSW_EPT_SUPPRESS_VE;
     /* Allocate one zeroed page table through the shared cleanup ledger. */
     split->PageTable = KswordARKHvmAllocateEptPageLocked(
         Runtime,

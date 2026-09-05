@@ -42,6 +42,11 @@ typedef struct _KSW_HVM_VMCS_INPUT
     ULONGLONG HostInstructionPointer;
     ULONGLONG GuestRflags;
     ULONGLONG MsrBitmapPhysical;
+    /*
+     * Per-processor #VE information area.  Zero means the caller has none, in
+     * which case the EPT-violation #VE control is never requested.
+     */
+    ULONGLONG VeInfoPhysical;
     /* CR0/CR4 bits owned by the hypervisor; the guest reads them from shadow. */
     ULONGLONG Cr0PinnedMask;
     ULONGLONG Cr4PinnedMask;
@@ -51,7 +56,15 @@ typedef struct _KSW_HVM_VMCS_INPUT
     UCHAR InterceptDr;
     UCHAR ResidentMode;
     UCHAR EnableNestedVmx;
-    USHORT Reserved;
+    /*
+     * Nonzero requests EPT-violation #VE.  This alone delivers nothing: a
+     * violation still converts only on a leaf whose suppress-#VE bit is clear
+     * (this driver sets it everywhere) and only when the information area is
+     * not busy (allocation latches it busy).  Both must also be undone before
+     * a single #VE can reach the guest.
+     */
+    UCHAR EnableVe;
+    UCHAR Reserved;
 } KSW_HVM_VMCS_INPUT;
 
 typedef struct _KSW_HVM_VMEXIT_TELEMETRY

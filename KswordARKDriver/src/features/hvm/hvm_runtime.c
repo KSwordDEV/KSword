@@ -547,6 +547,26 @@ KswordARKHvmReadCapabilities(
     Runtime->FeatureFlags |=
         KSWORD_ARK_HVM_FEATURE_EXIT_EMULATION;
 
+    /*
+     * Report EPT-violation #VE as a discovered capability.  Discovery says
+     * only that the processor can reflect EPT violations into the guest; it
+     * says nothing about whether doing so is safe here, and the control stays
+     * off unless a caller sets CONTROL_FLAG_ENABLE_VE.
+     */
+    if (((secondaryControls >> 32) & (1ULL << 18)) != 0ULL) {
+        Runtime->FeatureFlags |=
+            KSWORD_ARK_HVM_FEATURE_EPT_VIOLATION_VE;
+    }
+    /*
+     * Every EPT leaf and every unused slot this build installs carries
+     * suppress-#VE, so enabling the control above cannot reflect a violation
+     * the driver did not deliberately opt a page into.  Callers use this bit
+     * to tell a safe-by-construction EPT from one where enabling #VE would
+     * hand the guest a fault it has no handler for.
+     */
+    Runtime->FeatureFlags |=
+        KSWORD_ARK_HVM_FEATURE_VE_SUPPRESSED_BY_DEFAULT;
+
     /* The high dword of each control MSR is its allowed-one mask. */
     if ((((secondaryControls >> 32) & (1ULL << 1)) != 0ULL) &&
         ((Runtime->VmxEptVpidCapabilities &
@@ -1002,6 +1022,10 @@ KswordARKHvmFreeResourcesLocked(
             MmFreeContiguousMemory(
                 Runtime->Processors[index].VmcsVirtual);
         }
+        if (Runtime->Processors[index].VeInfoVirtual != NULL) {
+            MmFreeContiguousMemory(
+                Runtime->Processors[index].VeInfoVirtual);
+        }
         RtlZeroMemory(
             &Runtime->Processors[index],
             sizeof(Runtime->Processors[index]));
@@ -1085,6 +1109,8 @@ KswordARKHvmAllocateEptPageLocked(
     PHYSICAL_ADDRESS highest = { 0 };
     PHYSICAL_ADDRESS boundary = { 0 };
     PVOID page = NULL;
+    ULONGLONG* entries = NULL;
+    SIZE_T index = 0;
 
     /* Enforce a bounded allocation ledger before allocating nonpaged memory. */
     if (PhysicalAddress == NULL) {
@@ -1105,8 +1131,22 @@ KswordARKHvmAllocateEptPageLocked(
         return NULL;
     }
 
-    /* Zero table pages before exposing their physical address to EPT. */
-    RtlZeroMemory(page, (SIZE_T)KSW_HVM_PAGE_BYTES);
+    /*
+     * Prime table pages so every unused slot is not-present AND
+     * non-convertible.  A zeroed slot leaves suppress-#VE clear, which makes
+     * it convertible: with "EPT-violation #VE" enabled, every access to an
+     * unmapped GPA would reflect a #VE into a guest that has no handler for
+     * it.  Setting only bit 63 leaves the slot not-present - no read, write,
+     * or execute permission - so nothing about translation changes; only
+     * convertibility does.  Slots that later become real entries are
+     * overwritten whole, so they carry whatever their writer chose.
+     */
+    entries = (ULONGLONG*)page;
+    for (index = 0;
+         index < (SIZE_T)(KSW_HVM_PAGE_BYTES / sizeof(ULONGLONG));
+         index += 1) {
+        entries[index] = KSW_EPT_SUPPRESS_VE;
+    }
     *PhysicalAddress = MmGetPhysicalAddress(page);
     Runtime->EptPages[Runtime->EptPageCount].VirtualAddress = page;
     Runtime->EptPages[Runtime->EptPageCount].PhysicalAddress =
@@ -1201,10 +1241,37 @@ KswordARKHvmAllocateProcessorResourcesLocked(
                     highest,
                     boundary,
                     MmCached);
+            /*
+             * The #VE information area is per-processor by architecture: two
+             * processors sharing one page would race on the busy handshake.
+             */
+            cpu->VeInfoVirtual =
+                MmAllocateContiguousMemorySpecifyCache(
+                    (SIZE_T)KSW_HVM_PAGE_BYTES,
+                    lowest,
+                    highest,
+                    boundary,
+                    MmCached);
             if (cpu->VmxonVirtual == NULL ||
-                cpu->VmcsVirtual == NULL) {
+                cpu->VmcsVirtual == NULL ||
+                cpu->VeInfoVirtual == NULL) {
                 return STATUS_INSUFFICIENT_RESOURCES;
             }
+
+            /*
+             * Latch the area busy before it can ever be reachable from a
+             * VMCS.  Nothing in this driver clears it, so the processor keeps
+             * choosing the EPT-violation exit over a #VE delivery even if the
+             * control is enabled and a leaf is convertible.  See the busy
+             * field's comment in hvm_internal.h.
+             */
+            RtlZeroMemory(
+                cpu->VeInfoVirtual,
+                (SIZE_T)KSW_HVM_PAGE_BYTES);
+            *(volatile ULONG*)((PUCHAR)cpu->VeInfoVirtual +
+                KSW_VE_INFO_OFFSET_BUSY) = KSW_VE_INFO_BUSY;
+            cpu->VeInfoPhysical =
+                MmGetPhysicalAddress(cpu->VeInfoVirtual);
 
             /* Both regions start with the CPU-advertised VMCS revision ID. */
             RtlZeroMemory(
@@ -1227,6 +1294,15 @@ KswordARKHvmAllocateProcessorResourcesLocked(
         }
     }
     Runtime->ProcessorCount = processorIndex;
+    /*
+     * Every prepared processor now owns an information area, latched busy.
+     * Callers read this together with VE_SUPPRESSED_BY_DEFAULT to tell which
+     * of the two safeties are actually in place on this runtime.
+     */
+    if (processorIndex > 0UL) {
+        Runtime->FeatureFlags |=
+            KSWORD_ARK_HVM_FEATURE_VE_INFO_READY;
+    }
     if (Runtime->ProcessorCount == 0UL) {
         return STATUS_NOT_FOUND;
     }

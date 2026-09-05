@@ -438,6 +438,16 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     /* Select nested instruction exposure only when explicitly requested. */
     input.EnableNestedVmx =
         Context->Nested.Enabled ? 1U : 0U;
+    /*
+     * #VE is opt-in per start and stays inert on its own.  The information
+     * area is this processor's alone; it was latched busy at allocation, so
+     * the processor keeps choosing the ordinary EPT-violation exit.
+     */
+    input.EnableVe = ((g_KswordHvmResident.Flags &
+        KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VE) != 0UL) ? 1U : 0U;
+    /* Point at this processor's area so a conversion has somewhere to land. */
+    input.VeInfoPhysical =
+        (ULONGLONG)Context->Resource->VeInfoPhysical.QuadPart;
     /* Discard every prior launch's optional-state ownership evidence. */
     Context->GuestSCet = 0ULL;
     Context->GuestSsp = 0ULL;
@@ -1193,6 +1203,18 @@ KswordARKHvmResidentStart(
         return STATUS_HV_FEATURE_UNAVAILABLE;
     }
     /*
+     * #VE is refused rather than silently downgraded.  A caller that asked
+     * for it and got a run without it would draw exactly the wrong conclusion
+     * about what the guest is exposed to, and this is not a feature to be
+     * wrong about in that direction.
+     */
+    if ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VE) != 0UL &&
+        (Runtime->FeatureFlags &
+            KSWORD_ARK_HVM_FEATURE_EPT_VIOLATION_VE) == 0ULL) {
+        /* Return the exact unsupported-control failure. */
+        return STATUS_NOT_SUPPORTED;
+    }
+    /*
      * ALLOW_ONCE temporarily edits the shared EPT leaf.  Refuse start unless
      * the complete target topology is one VCPU and both restoration controls
      * are available.  Ordinary tripwire rules remain valid on any topology.
@@ -1380,6 +1402,15 @@ KswordARKHvmResidentStart(
     Runtime->StateFlags |=
         KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE;
     /*
+     * Publish whether the #VE control is armed on this residency.  It says
+     * the control is on, not that any #VE can be delivered: suppress-#VE on
+     * every leaf and the latched-busy information area both still stand
+     * between the control and an actual guest exception.
+     */
+    if ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VE) != 0UL) {
+        Runtime->StateFlags |= KSWORD_ARK_HVM_STATE_VE_ACTIVE;
+    }
+    /*
      * Record whether this residency is nested.  Callers must be able to tell
      * the two apart: under an outer hypervisor every VMX operation is emulated,
      * so timings, available capabilities and failure modes all differ from
@@ -1457,6 +1488,7 @@ KswordARKHvmResidentStop(
         Runtime->StateFlags &=
             ~(KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
               KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
+              KSWORD_ARK_HVM_STATE_VE_ACTIVE |
               KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
         /* Preserve the fail-closed public maturity after an idempotent stop. */
         Runtime->ResidentImplementation =
@@ -1518,6 +1550,7 @@ KswordARKHvmResidentStop(
     Runtime->StateFlags &=
         ~(KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
           KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
+          KSWORD_ARK_HVM_STATE_VE_ACTIVE |
           KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
     /* Preserve the configured lifecycle maturity without claiming active. */
     Runtime->ResidentImplementation =

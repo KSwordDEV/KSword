@@ -100,6 +100,25 @@
 #define KSWORD_ARK_HVM_FEATURE_SVM_FLUSH_BY_ASID          0x0000100000000000ULL
 /* The firmware disabled SVM through VM_CR.SVMDIS. */
 #define KSWORD_ARK_HVM_FEATURE_SVM_FIRMWARE_DISABLED      0x0000200000000000ULL
+/*
+ * Virtualization exception (#VE) support.
+ *
+ * Reported because the hardware has it, NOT because it is safe to turn on
+ * here.  In this product the guest being virtualized is the running Windows
+ * itself, and its IDT[20] is KiVirtualizationException - it does not expect a
+ * #VE we manufacture.  Worse, the architectural default is inverted: an EPT
+ * leaf with bit 63 clear is *convertible*, so enabling the control without
+ * first setting suppress-#VE on every leaf reflects ordinary EPT violations
+ * into a guest that cannot handle them, which is #GP -> #DF -> triple fault.
+ *
+ * The driver therefore always sets suppress-#VE on every leaf it builds, and
+ * the conversion control itself stays off unless the caller opts in per start.
+ */
+#define KSWORD_ARK_HVM_FEATURE_EPT_VIOLATION_VE           0x0000400000000000ULL
+/* Per-processor virtualization-exception information areas are allocated. */
+#define KSWORD_ARK_HVM_FEATURE_VE_INFO_READY              0x0000800000000000ULL
+/* Every EPT leaf this build installs carries suppress-#VE. */
+#define KSWORD_ARK_HVM_FEATURE_VE_SUPPRESSED_BY_DEFAULT   0x0001000000000000ULL
 
 #define KSWORD_ARK_HVM_STATE_INITIALIZED      0x00000001UL
 #define KSWORD_ARK_HVM_STATE_RESOURCES_READY  0x00000002UL
@@ -132,6 +151,8 @@
  * presents nested residency as equivalent to bare-metal residency.
  */
 #define KSWORD_ARK_HVM_STATE_RESIDENT_NESTED         0x00800000UL
+/* EPT-violation-to-#VE conversion is armed on every resident processor. */
+#define KSWORD_ARK_HVM_STATE_VE_ACTIVE              0x01000000UL
 
 #define KSWORD_ARK_HVM_CPU_STATE_RESOURCE_READY  0x00000001UL
 #define KSWORD_ARK_HVM_CPU_STATE_SELF_TESTED     0x00000002UL
@@ -200,6 +221,16 @@
 #define KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPT_EVENTS 0x00000010UL
 #define KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX 0x00000020UL
 #define KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EVMCS      0x00000040UL
+/*
+ * Turn on EPT-violation-to-#VE conversion for this residency.
+ *
+ * DANGEROUS AND OFF BY DEFAULT.  The guest here is the running Windows, whose
+ * IDT[20] handler is not prepared for a #VE the hypervisor invented.  Even with
+ * suppress-#VE set on every leaf, any page whose bit 63 is later cleared will
+ * deliver a real #VE into that handler.  Enabling this is only meaningful when
+ * something inside the guest is known to handle vector 20.
+ */
+#define KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VE         0x00000080UL
 
 #define KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN 0x48564D43UL
 

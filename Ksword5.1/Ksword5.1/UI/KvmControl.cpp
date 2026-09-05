@@ -18,6 +18,8 @@ namespace ksword::kvm
         // 嵌套模式开关的持久化键。
         const QString kNestedAllowedSettingKey =
             QStringLiteral("Safety/Kvm/NestedAllowed");
+        // #VE 只活在本进程里，没有对应的设置键，这样它无法跨会话残留。
+        std::atomic<bool> g_veEnabled{ false };
 
         // 进程内缓存：按钮刷新是高频路径，不能每次都读注册表。
         // -1 表示尚未从 QSettings 读入。
@@ -368,7 +370,10 @@ namespace ksword::kvm
             true,
             isNestedAllowed(),
             true,
-            true);
+            true,
+            false,
+            false,
+            isVeEnabled());
         return toCommandResult(
             started,
             ks::i18n::sourceText(QStringLiteral("启动 KVM 常驻")));
@@ -410,6 +415,8 @@ namespace ksword::kvm
             true,
             true,
             false,
+            false,
+            // enableVe：保持自检从不打开 #VE，它要证明的是常驻能活下来。
             false,
             milliseconds);
         auto result = toCommandResult(
@@ -465,6 +472,17 @@ namespace ksword::kvm
         QSettings settings;
         settings.setValue(kNestedAllowedSettingKey, allowed);
         g_nestedAllowedCache.store(allowed ? 1 : 0, std::memory_order_relaxed);
+    }
+
+    bool isVeEnabled()
+    {
+        // 进程内状态，刻意不落 QSettings：重启客户端即回到关闭。
+        return g_veEnabled.load(std::memory_order_relaxed);
+    }
+
+    void setVeEnabled(const bool enabled)
+    {
+        g_veEnabled.store(enabled, std::memory_order_relaxed);
     }
 
     bool isWriteAccessEnabled()

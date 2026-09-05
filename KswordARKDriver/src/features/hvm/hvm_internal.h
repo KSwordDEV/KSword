@@ -80,8 +80,45 @@ Environment:
 #define KSW_EPT_MEMORY_TYPE_SHIFT 3UL
 /* Define the EPT large-page marker. */
 #define KSW_EPT_LARGE_PAGE (1ULL << 7)
+
+/*
+ * Suppress-#VE.  The architectural default is inverted: a leaf with this bit
+ * CLEAR is convertible, so once "EPT-violation #VE" is enabled every such page
+ * reflects its EPT violations into the guest.  The guest here is the running
+ * Windows, whose IDT[20] is not prepared for a #VE we invented, and the result
+ * is #GP -> #DF -> triple fault.
+ *
+ * Every leaf this driver installs therefore carries the bit, whether or not
+ * #VE is enabled - when the control is off the processor ignores it, so the
+ * safe default costs nothing.  Only intermediate entries omit it, because the
+ * architecture ignores bit 63 on entries that point at another EPT structure.
+ */
+#define KSW_EPT_SUPPRESS_VE (1ULL << 63)
 /* Define the physical-address portion of an EPT entry. */
 #define KSW_EPT_PHYSICAL_MASK 0x000FFFFFFFFFF000ULL
+
+/*
+ * Virtualization-exception information area.  When the processor converts an
+ * EPT violation into a #VE it writes this structure, and it reads the busy
+ * field FIRST to decide whether to convert at all: a non-zero busy field means
+ * the guest has not consumed the previous exception, so the processor delivers
+ * an ordinary EPT-violation VM exit instead of a second #VE.
+ *
+ * That is the second safety layer here.  The first is suppress-#VE on every
+ * leaf; this one latches busy at allocation and never clears it, so even a
+ * page that somehow became convertible degrades to the exit path this driver
+ * already handles rather than to a fault Windows has no IDT[20] for.  A guest
+ * that genuinely wants #VE has to clear busy itself, from inside its own
+ * handler - which is exactly the handshake the architecture intends.
+ */
+#define KSW_VE_INFO_OFFSET_REASON 0UL
+#define KSW_VE_INFO_OFFSET_BUSY 4UL
+#define KSW_VE_INFO_OFFSET_QUALIFICATION 8UL
+#define KSW_VE_INFO_OFFSET_GUEST_LINEAR 16UL
+#define KSW_VE_INFO_OFFSET_GUEST_PHYSICAL 24UL
+#define KSW_VE_INFO_OFFSET_EPTP_INDEX 32UL
+/* Define the architectural "not consumed yet" value for the busy field. */
+#define KSW_VE_INFO_BUSY 0xFFFFFFFFUL
 
 /* Identify four-level EPT page-walk capability. */
 #define KSW_EPT_CAP_PAGE_WALK_4 (1ULL << 6)
@@ -118,6 +155,10 @@ typedef struct _KSW_HVM_CPU_RESOURCE
     PVOID VmcsVirtual;
     /* Retain the processor-owned VMCS physical address. */
     PHYSICAL_ADDRESS VmcsPhysical;
+    /* Retain the processor-owned #VE information-area virtual address. */
+    PVOID VeInfoVirtual;
+    /* Retain the processor-owned #VE information-area physical address. */
+    PHYSICAL_ADDRESS VeInfoPhysical;
 } KSW_HVM_CPU_RESOURCE;
 
 /* Track one contiguous page allocated for an EPT hierarchy. */

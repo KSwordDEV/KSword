@@ -396,6 +396,70 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
         refreshKvmStatusAsync();
     });
 
+    // #VE 反射：本模块唯一一个「配错就是当场蓝屏」的开关，门禁因此比写权限更多。
+    // guest 就是正在跑的这台 Windows，它的 IDT[20] 没有 #VE 处理程序。
+    QAction* const veAction = menu.addAction(
+        ks::i18n::sourceText(QStringLiteral("武装 #VE 反射（危险）")));
+    veAction->setCheckable(true);
+    veAction->setChecked(ksword::kvm::isVeEnabled());
+    veAction->setToolTip(ks::i18n::sourceText(QStringLiteral("把 EPT violation 反射成 guest 的 #VE（向量 20）。驱动侧有两道独立保险：所有 EPT 叶项都带 suppress-#VE，每 CPU 的信息区分配时即锁 busy。两道都在时，控制位开着也投递不出 #VE。本开关不持久化，重启客户端即回到关闭。")));
+    connect(veAction, &QAction::triggered, this, [this, veAction](const bool checked) {
+        if (!checked)
+        {
+            ksword::kvm::setVeEnabled(false);
+            applyKvmButtonState();
+            refreshKvmStatusAsync();
+            return;
+        }
+        // 门禁一：裸机宿主机上不给开。#VE 配错的代价是整台机器立刻重启，
+        // 唯一可以承受这个代价的地方是虚拟机里。
+        if (!ksword::kvm::isNestedAllowed())
+        {
+            veAction->setChecked(false);
+            QMessageBox::warning(
+                this,
+                ks::i18n::sourceText(QStringLiteral("#VE 需要先进入嵌套模式")),
+                ks::i18n::sourceText(QStringLiteral("#VE 只能在嵌套模式下武装，也就是只能在虚拟机里。配错的代价是整台机器立刻 triple fault 重启，这个代价只有虚拟机承受得起。请先打开「允许嵌套运行（作为 L1）」。")));
+            return;
+        }
+        // 门禁二：写权限是前置，#VE 属于会改变 guest 可见行为的一类能力。
+        if (!ksword::kvm::isWriteAccessEnabled())
+        {
+            veAction->setChecked(false);
+            QMessageBox::warning(
+                this,
+                ks::i18n::sourceText(QStringLiteral("#VE 需要先开启写权限")),
+                ks::i18n::sourceText(QStringLiteral("武装 #VE 会改变 guest 可见的异常行为，属于写权限门管辖的范围。请先打开「允许 R-1 写操作」。")));
+            return;
+        }
+        // 门禁三：标准高风险确认。
+        const bool confirmed = ks::ui::confirmDestructiveAction(
+            this,
+            QStringLiteral("KvmEnableVe"),
+            ks::i18n::sourceText(QStringLiteral("武装 #VE 反射")),
+            ks::i18n::sourceText(QStringLiteral("当前虚拟机的运行中内核")),
+            ks::i18n::sourceText(QStringLiteral("#VE 把 EPT violation 变成 guest 内部的 20 号异常。这里的 guest 就是正在跑的这个 Windows，它没有 #VE 处理程序，真投递一次就是 #GP 转 #DF 转 triple fault，虚拟机当场重启且不会留下崩溃转储。")));
+        if (!confirmed)
+        {
+            veAction->setChecked(false);
+            return;
+        }
+        // 门禁四：最后一次，默认落在取消上。
+        const auto answer = QMessageBox::warning(
+            this,
+            ks::i18n::sourceText(QStringLiteral("确认武装 #VE")),
+            ks::i18n::sourceText(QStringLiteral("武装后驱动仍有两道保险挡着实际投递：所有 EPT 叶项都带 suppress-#VE，每 CPU 的信息区出厂即锁 busy。因此这一步得到的是「控制位已武装」，不是「#VE 已生效」。要真的收到 #VE，还需要在 guest 里装好处理程序、清掉 busy、再把目标页显式设为可转换——那三步本客户端不提供。确定要武装吗？")),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        const bool armed = answer == QMessageBox::Yes;
+        veAction->setChecked(armed);
+        ksword::kvm::setVeEnabled(armed);
+        applyKvmButtonState();
+        refreshKvmStatusAsync();
+    });
+
+    menu.addSeparator();
+
     // R-1 内存面板不要求常驻：私有页表窗口在驱动加载时就已建立。
     QAction* const memoryAction = menu.addAction(
         ks::i18n::sourceText(QStringLiteral("R-1 内存操作...")));

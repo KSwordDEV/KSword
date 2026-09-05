@@ -100,6 +100,20 @@ namespace ksword::kvm
     bool isNestedAllowed();
     void setNestedAllowed(bool allowed);
 
+    // #VE 开关（把 EPT violation 反射成 guest 的 #VE，向量 20）：
+    // - 这里的 guest 就是正在跑的这台 Windows。它的 IDT[20] 没有 #VE 处理程序，
+    //   真投递一次就是 #GP -> #DF -> triple fault，机器当场断电式重启；
+    // - 驱动侧有两道与本开关无关的保险：每一个 EPT 叶项（含未映射区域的空槽）
+    //   都带 suppress-#VE，每 CPU 的信息区在分配时就把 busy 锁死。两道都在时，
+    //   哪怕控制位开着也投递不出 #VE，EPT violation 会退回成常规 VM-exit；
+    // - 所以打开它得到的是「控制位已武装」，不是「#VE 已生效」。要真的收到
+    //   #VE，还得先在 guest 里装好处理程序、清 busy、再把目标页显式设为可转换；
+    // - 硬件不支持时驱动直接拒绝启动常驻，而不是静默降级——否则调用方会以为
+    //   自己在测 #VE，其实测的是别的东西；
+    // - 【不持久化】：每次启动客户端都必须重新打开。这是刻意的。
+    bool isVeEnabled();
+    void setVeEnabled(bool enabled);
+
     // 写权限门：
     // - 默认关闭。关闭时 KVM 只做观测，任何会改变系统状态的 R-1 操作都被拒绝；
     // - 由标题栏 KVM 菜单显式切换，并持久化到 QSettings；
