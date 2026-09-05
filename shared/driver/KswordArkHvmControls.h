@@ -271,6 +271,7 @@ KswordArkHvmEptpIsValid(
 #define KSWORD_ARK_HVM_ONE_GIB 0x40000000ULL
 #define KSWORD_ARK_HVM_ONE_512_GIB 0x8000000000ULL
 #define KSWORD_ARK_HVM_LARGE_PAGE_BYTES 0x200000ULL
+#define KSWORD_ARK_HVM_PAGE_BYTES 0x1000ULL
 
 /* Select the PML4 slot covering one guest-physical address. */
 static __inline unsigned long
@@ -321,4 +322,116 @@ KswordArkHvmEptApplyRestriction(
     unsigned long long RemovedBits)
 {
     return LeafEntry & ~RemovedBits;
+}
+
+/*
+ * Per-processor private EPT hierarchies (P4.1).
+ *
+ * A private hierarchy is the shared one with a handful of tables replaced by
+ * private copies, so that flipping a leaf touches only the processor walking
+ * it.  Every table on a private path is byte-for-byte its shared counterpart
+ * except for the addresses that had to point somewhere else.  The arithmetic
+ * that does the replacing lives here so the host tests can prove it, because
+ * a wrong address in a paging structure does not fault - it silently walks to
+ * the wrong page.
+ */
+
+/* Mask the physical-address field of an EPT entry or pointer. */
+#define KSWORD_ARK_HVM_EPT_PHYSICAL_MASK 0x000FFFFFFFFFF000ULL
+/* Mask the byte offset within one paging structure. */
+#define KSWORD_ARK_HVM_EPT_ENTRY_OFFSET_MASK 0xFFFULL
+
+/* Select the page-table slot, that is the four-KiB leaf inside a split. */
+static __inline unsigned long
+KswordArkHvmEptPtIndex(
+    unsigned long long PhysicalAddress)
+{
+    return (unsigned long)(
+        (PhysicalAddress % KSWORD_ARK_HVM_LARGE_PAGE_BYTES) /
+        KSWORD_ARK_HVM_PAGE_BYTES);
+}
+
+/*
+ * Encode one non-leaf entry pointing at a paging structure.
+ *
+ * Non-leaf entries carry no memory type, no large-page bit and no
+ * suppress-#VE: those are leaf-only fields, and the permissions are the
+ * permissive union so the leaves below decide the effective access.
+ */
+static __inline unsigned long long
+KswordArkHvmEptTablePointer(
+    unsigned long long TablePhysical)
+{
+    return (TablePhysical & KSWORD_ARK_HVM_EPT_PHYSICAL_MASK) |
+        KSWORD_ARK_HVM_EPT_READ |
+        KSWORD_ARK_HVM_EPT_WRITE |
+        KSWORD_ARK_HVM_EPT_EXECUTE;
+}
+
+/*
+ * Replace the address in an entry or pointer, keeping every other bit.
+ *
+ * This is the only operation that builds a private path, and it is used for
+ * the EPT pointer itself as well as for table entries.  Composing a private
+ * EPT pointer from constants instead would be a second source of truth for
+ * the memory type, the walk length and the accessed/dirty bit: a private
+ * pointer built this way is accepted by VM entry exactly when the shared one
+ * is, and INVEPT sees the same descriptor the VMCS carries.
+ */
+static __inline unsigned long long
+KswordArkHvmEptRebaseEntry(
+    unsigned long long SharedEntry,
+    unsigned long long PrivatePhysical)
+{
+    return (PrivatePhysical & KSWORD_ARK_HVM_EPT_PHYSICAL_MASK) |
+        (SharedEntry & ~KSWORD_ARK_HVM_EPT_PHYSICAL_MASK);
+}
+
+/* Recover the paging structure that contains one entry address. */
+static __inline unsigned long long
+KswordArkHvmEptEntryTableBase(
+    unsigned long long EntryAddress)
+{
+    return EntryAddress & ~KSWORD_ARK_HVM_EPT_ENTRY_OFFSET_MASK;
+}
+
+/* Recover the byte offset of one entry inside its paging structure. */
+static __inline unsigned long long
+KswordArkHvmEptEntryByteOffset(
+    unsigned long long EntryAddress)
+{
+    return EntryAddress & KSWORD_ARK_HVM_EPT_ENTRY_OFFSET_MASK;
+}
+
+/*
+ * Count the pages one private hierarchy set costs.
+ *
+ * Per processor: one private root, one private PDPT for each distinct PML4
+ * slot the flippable leaves fall under, one private page directory for each
+ * distinct one-GiB window, and one private page table per flippable leaf.
+ * Everything else stays shared, which is what keeps this affordable.
+ */
+static __inline unsigned long long
+KswordArkHvmEptLocalPageCost(
+    unsigned long ProcessorCount,
+    unsigned long DistinctPml4Slots,
+    unsigned long DistinctGibWindows,
+    unsigned long LeafCount)
+{
+    const unsigned long long perProcessor =
+        1ULL +
+        (unsigned long long)DistinctPml4Slots +
+        (unsigned long long)DistinctGibWindows +
+        (unsigned long long)LeafCount;
+
+    return (unsigned long long)ProcessorCount * perProcessor;
+}
+
+/* Report whether a computed page cost fits the ledger reserved for it. */
+static __inline int
+KswordArkHvmEptLocalFitsBudget(
+    unsigned long long PageCost,
+    unsigned long long Cap)
+{
+    return PageCost != 0ULL && PageCost <= Cap ? 1 : 0;
 }

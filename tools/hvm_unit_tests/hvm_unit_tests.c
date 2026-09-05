@@ -499,6 +499,111 @@ TestDomainRestriction(void)
 
 /* ------------------------------------------------------------------ */
 
+/*
+ * 私有 EPT 层次的构造算术（P4.1）。
+ *
+ * 私有层次就是把共享层次上少数几张表换成私有副本。换错地址不会 fault，
+ * 只会安静地走到另一个页——所以这里逐条验"除地址外每一位都活下来"。
+ */
+static void
+TestLocalEptArithmetic(void)
+{
+    const unsigned long long sharedLeaf =
+        0x0000000123456000ULL |
+        KSWORD_ARK_HVM_EPT_READ |
+        KSWORD_ARK_HVM_EPT_EXECUTE |
+        (6ULL << 3) |
+        (1ULL << 63);
+    unsigned long long rebased = 0ULL;
+    unsigned long long pointer = 0ULL;
+    unsigned long index = 0UL;
+
+    Group("私有 EPT 构造算术");
+
+    /* 非叶项不带内存类型、不带大页位、不带 suppress-#VE，权限取并集。 */
+    pointer = KswordArkHvmEptTablePointer(0x00000000ABCDE123ULL);
+    Check((pointer & KSWORD_ARK_HVM_EPT_PHYSICAL_MASK) == 0x00000000ABCDE000ULL,
+          "非叶项保留页对齐后的物理地址");
+    Check((pointer & (KSWORD_ARK_HVM_EPT_READ |
+                      KSWORD_ARK_HVM_EPT_WRITE |
+                      KSWORD_ARK_HVM_EPT_EXECUTE)) ==
+              (KSWORD_ARK_HVM_EPT_READ |
+               KSWORD_ARK_HVM_EPT_WRITE |
+               KSWORD_ARK_HVM_EPT_EXECUTE),
+          "非叶项三种权限齐备");
+    Check((pointer & (1ULL << 7)) == 0ULL &&
+          ((pointer >> 3) & 7ULL) == 0ULL &&
+          (pointer & (1ULL << 63)) == 0ULL,
+          "非叶项不携带大页位、内存类型与 suppress-#VE");
+
+    /*
+     * rebase 是构造私有路径的唯一操作。核心不变量：物理地址被换掉，
+     * 其余每一位逐位存活——包括 suppress-#VE 与内存类型。
+     */
+    rebased = KswordArkHvmEptRebaseEntry(sharedLeaf, 0x00000007FEDCB000ULL);
+    CheckEqU64(rebased & KSWORD_ARK_HVM_EPT_PHYSICAL_MASK,
+               0x00000007FEDCB000ULL,
+               "rebase 换掉了物理地址");
+    CheckEqU64(rebased & ~KSWORD_ARK_HVM_EPT_PHYSICAL_MASK,
+               sharedLeaf & ~KSWORD_ARK_HVM_EPT_PHYSICAL_MASK,
+               "rebase 之外的每一位都逐位存活");
+    Check((rebased & (1ULL << 63)) != 0ULL &&
+          ((rebased >> 3) & 7ULL) == 6ULL,
+          "rebase 保住了 suppress-#VE 与内存类型");
+
+    /* 用同一个 rebase 规则造私有 EPTP：新地址进去，控制位原样留下。 */
+    {
+        const unsigned long long sharedEptp =
+            0x0000000200000000ULL | 6ULL | (3ULL << 3) | (1ULL << 6);
+        const unsigned long long privateEptp =
+            KswordArkHvmEptRebaseEntry(sharedEptp, 0x0000000300000000ULL);
+
+        CheckEqU64(privateEptp & ~KSWORD_ARK_HVM_EPT_PHYSICAL_MASK,
+                   sharedEptp & ~KSWORD_ARK_HVM_EPT_PHYSICAL_MASK,
+                   "私有 EPTP 的内存类型/walk 长度/AD 位与共享的完全一致");
+        Check((privateEptp & KSWORD_ARK_HVM_EPT_PHYSICAL_MASK) !=
+                  (sharedEptp & KSWORD_ARK_HVM_EPT_PHYSICAL_MASK),
+              "私有 EPTP 的 EPTRTA 与共享的不同");
+    }
+
+    /* 入口地址拆成"表基址 + 槽内偏移"，512 个槽全数往返。 */
+    for (index = 0UL; index < 512UL; ++index) {
+        const unsigned long long base = 0xFFFFF68000000000ULL;
+        const unsigned long long entry = base + (index * 8ULL);
+
+        if (KswordArkHvmEptEntryTableBase(entry) != base ||
+            KswordArkHvmEptEntryByteOffset(entry) != (index * 8ULL)) {
+            break;
+        }
+    }
+    Check(index == 512UL, "表内 512 个槽的基址/偏移拆分全部往返一致");
+
+    /* 四KiB 槽索引：叶内推进一页进一格，跨 2MiB 归零。 */
+    Check(KswordArkHvmEptPtIndex(0ULL) == 0UL &&
+          KswordArkHvmEptPtIndex(KSWORD_ARK_HVM_PAGE_BYTES) == 1UL &&
+          KswordArkHvmEptPtIndex(KSWORD_ARK_HVM_LARGE_PAGE_BYTES - 1ULL) == 511UL &&
+          KswordArkHvmEptPtIndex(KSWORD_ARK_HVM_LARGE_PAGE_BYTES) == 0UL,
+          "四KiB 槽索引在叶内推进、跨叶归零");
+
+    /* 页预算：每 CPU = 1 根 + PDPT 数 + PD 数 + 叶数。 */
+    CheckEqU64(KswordArkHvmEptLocalPageCost(1UL, 1UL, 1UL, 1UL),
+               4ULL,
+               "单核单叶最小情形是 4 页");
+    CheckEqU64(KswordArkHvmEptLocalPageCost(128UL, 1UL, 1UL, 8UL),
+               128ULL * 11ULL,
+               "128 核 8 叶共 1408 页");
+
+    /* 上限判据在边界上必须是"恰好放得下"而不是"差一个"。 */
+    Check(KswordArkHvmEptLocalFitsBudget(2048ULL, 2048ULL) == 1,
+          "恰好等于上限时接受");
+    Check(KswordArkHvmEptLocalFitsBudget(2049ULL, 2048ULL) == 0,
+          "超出上限一页即拒绝");
+    Check(KswordArkHvmEptLocalFitsBudget(0ULL, 2048ULL) == 0,
+          "零页成本被拒绝：那说明叶集合是空的");
+}
+
+/* ------------------------------------------------------------------ */
+
 int
 main(void)
 {
@@ -511,6 +616,7 @@ main(void)
     TestEptpValidation();
     TestEptIndices();
     TestDomainRestriction();
+    TestLocalEptArithmetic();
 
     printf("\n================================================\n");
     printf("%d 项检查，%d 项失败\n", g_checks, g_failures);
