@@ -265,7 +265,9 @@ namespace ksword::ark
         const unsigned long length,
         const unsigned char* const payload,
         const bool requireWindow,
-        const bool uiConfirmed) const
+        const bool uiConfirmed,
+        const unsigned long processId,
+        DriverHandle* const existingHandle) const
     {
         HvmMemoryResult result{};
         KSWORD_ARK_HVM_MEMORY_REQUEST request{};
@@ -274,6 +276,7 @@ namespace ksword::ark
         request.operation = operation;
         request.address = address;
         request.directoryBase = directoryBase;
+        request.processId = processId;
         // 驱动会拒绝超长请求，这里先夹住，避免把越界长度写进 payload 拷贝。
         request.length = length > KSWORD_ARK_HVM_MEMORY_MAX_BYTES
             ? KSWORD_ARK_HVM_MEMORY_MAX_BYTES
@@ -302,7 +305,10 @@ namespace ksword::ark
             &request,
             sizeof(request),
             &result.response,
-            sizeof(result.response));
+            sizeof(result.response),
+            // 复用调用方已有的句柄：CE 插件在自己的 hook 里高频调用，
+            // 每次重开设备既慢又会让句柄数抖动。
+            existingHandle);
         result.unsupported = !result.io.ok &&
             isUnsupportedHvmError(result.io.win32Error);
         result.io.ntStatus = result.response.ntStatus;

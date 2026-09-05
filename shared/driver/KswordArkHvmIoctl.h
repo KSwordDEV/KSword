@@ -592,7 +592,13 @@ typedef struct _KSWORD_ARK_HVM_EVENT_QUERY_RESPONSE
  * back to MmCopyMemory and says so in usedDirectWindow, so a caller can always
  * tell whether the hook-free path was actually taken.
  */
-#define KSWORD_ARK_HVM_MEMORY_PROTOCOL_VERSION 1UL
+/*
+ * Version 2 adds processId.  The layout changed, so the version had to move
+ * with it: a v1 caller and a v2 driver would disagree about where address
+ * begins, and a silent disagreement about a memory-write target is the worst
+ * kind there is.
+ */
+#define KSWORD_ARK_HVM_MEMORY_PROTOCOL_VERSION 2UL
 
 /* Bound one transfer so METHOD_BUFFERED request snapshots stay small. */
 #define KSWORD_ARK_HVM_MEMORY_MAX_BYTES 1024UL
@@ -621,6 +627,8 @@ typedef struct _KSWORD_ARK_HVM_EVENT_QUERY_RESPONSE
 #define KSWORD_ARK_HVM_MEMORY_STATUS_ACCESS_FAILED         6UL
 #define KSWORD_ARK_HVM_MEMORY_STATUS_PARTIAL               7UL
 #define KSWORD_ARK_HVM_MEMORY_STATUS_BUSY                  8UL
+/* The requested process could not be looked up or has already exited. */
+#define KSWORD_ARK_HVM_MEMORY_STATUS_PROCESS_LOOKUP_FAILED 9UL
 
 typedef struct _KSWORD_ARK_HVM_MEMORY_REQUEST
 {
@@ -630,11 +638,25 @@ typedef struct _KSWORD_ARK_HVM_MEMORY_REQUEST
     unsigned long flags;
     unsigned long confirmationToken;
     unsigned long length;
+    /*
+     * Target process for virtual operations.  Zero keeps the historical
+     * behavior: resolve through directoryBase, or through the calling thread
+     * when that is zero too.
+     *
+     * The driver resolves the process to a page-directory base internally and
+     * never reports it back.  Handing a caller another process CR3 would be
+     * handing it a ready-made argument for a page-table walk from user mode,
+     * which is a capability this interface has no reason to grant.
+     */
+    unsigned long processId;
+    /* Keep the 64-bit fields naturally aligned without undefined padding. */
+    unsigned long reserved0;
     /* Physical address for physical operations, virtual for the rest. */
     unsigned long long address;
     /*
-     * Target page-directory base for virtual operations.  Zero means the
-     * address is resolved through the page tables of the current process.
+     * Target page-directory base for virtual operations.  Ignored when
+     * processId is nonzero.  Zero means the address is resolved through the
+     * page tables of the current process.
      */
     unsigned long long directoryBase;
     unsigned char data[KSWORD_ARK_HVM_MEMORY_MAX_BYTES];

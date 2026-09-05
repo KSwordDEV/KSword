@@ -517,8 +517,13 @@ namespace ksword::ark
             bool uiConfirmed) const;
         // hvmMemory：执行一次 R-1 内存操作（物理/虚拟读写、翻译、窗口查询）。
         // - payload 只在写操作时使用，长度必须与 length 一致；
-        // - directoryBase 为 0 时虚拟地址按当前进程页表解析；
-        // - requireWindow 为 true 时拒绝回退到 MmCopyMemory 路径。
+        // - processId 非零时按该进程的页表解析，directoryBase 被忽略。驱动内部
+        //   attach 进程读 CR3，从不把 CR3 回传——那等于直接把页表遍历的能力交给
+        //   用户态；
+        // - processId 为 0 且 directoryBase 为 0 时按当前进程页表解析；
+        // - requireWindow 为 true 时拒绝回退到 MmCopyMemory 路径；
+        // - processId 与 existingHandle 都加在参数表末尾并带默认值：中间插参数
+        //   会让既有调用点静默错位（unsigned long 能隐式转成 bool）。
         HvmMemoryResult hvmMemory(
             unsigned long operation,
             std::uint64_t address,
@@ -526,7 +531,9 @@ namespace ksword::ark
             unsigned long length,
             const unsigned char* payload,
             bool requireWindow,
-            bool uiConfirmed) const;
+            bool uiConfirmed,
+            unsigned long processId = 0UL,
+            DriverHandle* existingHandle = nullptr) const;
         // querySlatIommuAudit：只读采集 EPT/NPT 交叉视图、DMAR/IVRS
         // 与公开 IOMMU 接口证据；includeMmio 仅增加只读寄存器采样。
         SlatIommuAuditResult querySlatIommuAudit(bool includeMmio) const;

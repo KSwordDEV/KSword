@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <atomic>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
@@ -30,10 +31,106 @@ namespace ksword::ce
             ksword::ark::DriverHandle driverHandle;
             std::unordered_map<HANDLE, DWORD> proxyProcessIds;
             bool initialized = false;
+            // r1WindowState 用途：R-1 私有页表窗口是否可用。
+            // -1 未探测，0 不可用，1 可用。探测一次就缓存：窗口在驱动加载时
+            // 建立，之后不会凭空出现或消失，而 CE 的读是高频调用，每次都先
+            // 失败一次再回退等于把每次读变成两次 IOCTL。
+            std::atomic<int> r1WindowState{ -1 };
         };
 
         BridgeState g_bridgeState; // g_bridgeState：插件进程内唯一桥接状态。
+
         const ksword::ark::DriverClient g_driverClient; // g_driverClient：统一 KSword R3 驱动入口。
+
+        // r1WindowUsable：
+        // - 输入：无（读缓存，必要时发起一次探测）。
+        // - 处理：查询 R-1 私有页表窗口是否就绪，并把结论缓存下来。
+        // - 返回：可用时 true。
+        bool r1WindowUsable()
+        {
+            const int cached =
+                g_bridgeState.r1WindowState.load(std::memory_order_relaxed);
+            if (cached >= 0)
+            {
+                return cached != 0;
+            }
+            ksword::ark::HvmMemoryResult probe{};
+            {
+                std::lock_guard<std::mutex> driverLock(
+                    g_bridgeState.driverIoMutex);
+                if (!g_bridgeState.driverHandle.isValid())
+                {
+                    // 句柄还没建立时不缓存结论：这只说明现在不能问，
+                    // 不说明窗口不存在。
+                    return false;
+                }
+                probe = g_driverClient.hvmMemory(
+                    KSWORD_ARK_HVM_MEMORY_OP_QUERY_WINDOW,
+                    0ULL,
+                    0ULL,
+                    0UL,
+                    nullptr,
+                    false,
+                    false,
+                    0UL,
+                    &g_bridgeState.driverHandle);
+            }
+            const bool ready = probe.io.ok &&
+                probe.response.status == KSWORD_ARK_HVM_MEMORY_STATUS_OK &&
+                probe.response.windowReady != 0;
+            g_bridgeState.r1WindowState.store(
+                ready ? 1 : 0,
+                std::memory_order_relaxed);
+            return ready;
+        }
+
+        // readThroughR1：
+        // - 输入：目标 PID、虚拟地址、缓冲与长度。
+        // - 处理：走 R-1 私有页表窗口读取；要求真正走窗口，不接受回退。
+        // - 返回：完整读到 length 字节时 true。
+        //
+        // requireWindow 为 true 是有意的：如果 R-1 会退化成 MmCopyMemory，
+        // 它相对现有 R0 路径就没有任何优势，反而多一层。那种情况下直接让
+        // 调用方回退到成熟的 R0 路径。
+        //
+        // uiConfirmed 为 true 的依据：R-1 内存通道要求显式确认，而这个插件
+        // 是用户自己安装并在 CE 里启用的，启用动作本身就是那次确认；插件也
+        // 只在 CE 已经要求读某个地址时才发起请求，不会自作主张读别处。
+        bool readThroughR1(
+            const DWORD processId,
+            const std::uint64_t address,
+            void* const buffer,
+            const std::uint32_t length)
+        {
+            ksword::ark::HvmMemoryResult result{};
+            {
+                std::lock_guard<std::mutex> driverLock(
+                    g_bridgeState.driverIoMutex);
+                if (!g_bridgeState.driverHandle.isValid())
+                {
+                    return false;
+                }
+                result = g_driverClient.hvmMemory(
+                    KSWORD_ARK_HVM_MEMORY_OP_READ_VIRTUAL,
+                    address,
+                    0ULL,
+                    length,
+                    nullptr,
+                    true,
+                    true,
+                    static_cast<unsigned long>(processId),
+                    &g_bridgeState.driverHandle);
+            }
+            if (!result.io.ok ||
+                result.response.status != KSWORD_ARK_HVM_MEMORY_STATUS_OK ||
+                result.response.usedDirectWindow == 0 ||
+                result.response.bytesTransferred != length)
+            {
+                return false;
+            }
+            std::memcpy(buffer, result.response.data, length);
+            return true;
+        }
 
         // resolveProcessId：
         // - 输入：CE 传入的真实进程句柄或代理事件句柄。
@@ -148,6 +245,15 @@ namespace ksword::ce
             // processId/totalBytesRead 用途：标识 R0 目标并累计跨分片结果。
             const DWORD processId = resolveProcessId(processHandle);
             SIZE_T totalBytesRead = 0U;
+            // R-1 通道单次只有 1 KiB，比 R0 的 1 MiB 小三个数量级。所以策略
+            // 不是"尽量用 R-1"，而是按读的性质分流：
+            //   - 小读（指针追踪、读一个结构体）正是需要隐蔽的场景，1 KiB 够用；
+            //   - 大读（全内存扫描）本来就藏不住，用 1 KiB 分片会慢三个数量级，
+            //     CE 的扫描会直接不可用。
+            // 判据取整次请求长度而不是当前分片：一次 4 KiB 的读不该因为某个分片
+            // 恰好不超过 1 KiB 就走 R-1，那会把它切成四次 IOCTL。
+            const bool preferR1 = bytesToRead <=
+                static_cast<SIZE_T>(KSWORD_ARK_HVM_MEMORY_MAX_BYTES);
             if (processId == 0U)
             {
                 ::SetLastError(ERROR_INVALID_HANDLE);
@@ -163,6 +269,21 @@ namespace ksword::ce
                 const auto currentAddress =
                     reinterpret_cast<std::uintptr_t>(baseAddress) +
                     totalBytesRead;
+                // 私有页表窗口绕开内核层 hook，读到的是页表真正指向的内容。
+                // 窗口不可用或本次读失败时静默回退 R0，不把一个可选的加强
+                // 路径变成失败原因。
+                if (preferR1 &&
+                    r1WindowUsable() &&
+                    readThroughR1(
+                        processId,
+                        static_cast<std::uint64_t>(currentAddress),
+                        static_cast<std::uint8_t*>(buffer) + totalBytesRead,
+                        static_cast<std::uint32_t>(chunkSize)))
+                {
+                    totalBytesRead += chunkSize;
+                    continue;
+                }
+
                 ksword::ark::VirtualMemoryReadResult readResult{};
                 {
                     // CE 会并发查询/读取；同一同步设备句柄必须串行使用。

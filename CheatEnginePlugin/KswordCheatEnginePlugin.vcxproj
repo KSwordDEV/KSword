@@ -121,6 +121,9 @@
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverMemory.cpp">
       <Link>ArkDriverClient\ArkDriverMemory.cpp</Link>
     </ClCompile>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverHvm.cpp">
+      <Link>ArkDriverClient\ArkDriverHvm.cpp</Link>
+    </ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\string\string.cpp">
       <Link>ksword\string\string.cpp</Link>
     </ClCompile>

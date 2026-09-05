@@ -34,6 +34,34 @@ Environment:
 
 #include <intrin.h>
 
+/*
+ * Declared here rather than pulled in through ntifs.h, matching what
+ * memory_pagetable.c already does in this driver: ntifs.h and ntddk.h do not
+ * compose cleanly in a KMDF translation unit, and these three are the only
+ * routines this file needs from it.  ApcState stays PVOID for the same reason
+ * the existing declarations do - PRKAPC_STATE is not visible here.
+ */
+NTSYSAPI
+NTSTATUS
+NTAPI
+PsLookupProcessByProcessId(
+    _In_ HANDLE ProcessId,
+    _Outptr_ PEPROCESS* Process
+    );
+
+NTKERNELAPI
+VOID
+KeStackAttachProcess(
+    _Inout_ PVOID Process,
+    _Out_ PVOID ApcState
+    );
+
+NTKERNELAPI
+VOID
+KeUnstackDetachProcess(
+    _In_ PVOID ApcState
+    );
+
 /* Name the architectural page size used by the window and its entries. */
 #define KSW_HVM_MEMORY_PAGE_BYTES 0x1000ULL
 /* Mask the canonical low 48 bits used to index the paging hierarchy. */
@@ -577,6 +605,74 @@ KswordARKHvmMemoryShutdown(
     window->WindowEntry = NULL;
 }
 
+/*
+ * Resolve one process to the page-directory base its threads run on.
+ *
+ * Windows does not publish a stable EPROCESS DirectoryTableBase offset, and
+ * hardcoding one is how a driver ends up reading the wrong field after a
+ * Windows update - silently, because a wrong CR3 still walks and still
+ * produces a physical address.  So this attaches to the process and reads the
+ * register the hardware is actually using, exactly as the R0 page-table walker
+ * already does.
+ *
+ * The base is used after detaching, which is sound: the walk that follows
+ * reads physical memory through the private window, not virtual memory in the
+ * target address space.
+ */
+static NTSTATUS
+KswordARKHvmMemoryResolveProcessDirectoryBase(
+    _In_ ULONG ProcessId,
+    _Out_ ULONGLONG* DirectoryBase
+    )
+{
+#if defined(_M_AMD64)
+    DECLSPEC_ALIGN(16) UCHAR attachState[128];
+    PEPROCESS process = NULL;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    /* Reject an incomplete caller contract before any lookup. */
+    if (DirectoryBase == NULL) {
+        /* Return the exact caller-contract failure. */
+        return STATUS_INVALID_PARAMETER;
+    }
+    *DirectoryBase = 0ULL;
+    /* Refuse the idle process, whose identifier is never a valid target. */
+    if (ProcessId == 0UL) {
+        /* Return the exact target-selection failure. */
+        return STATUS_INVALID_PARAMETER;
+    }
+    /* Take a reference so the process cannot exit mid-attach. */
+    status = PsLookupProcessByProcessId(
+        (HANDLE)(ULONG_PTR)ProcessId,
+        &process);
+    /* Stop when the process has already gone. */
+    if (!NT_SUCCESS(status)) {
+        /* Return the exact lookup failure. */
+        return status;
+    }
+    RtlZeroMemory(attachState, sizeof(attachState));
+    /* Attach only long enough to read the register. */
+    KeStackAttachProcess((PVOID)process, (PVOID)attachState);
+    *DirectoryBase = (ULONGLONG)__readcr3();
+    KeUnstackDetachProcess((PVOID)attachState);
+    ObDereferenceObject(process);
+    /* Refuse a base the walker could not use anyway. */
+    if (*DirectoryBase == 0ULL) {
+        /* Return the exact unusable-state failure. */
+        return STATUS_UNSUCCESSFUL;
+    }
+    /* Complete the resolution successfully. */
+    return STATUS_SUCCESS;
+#else
+    UNREFERENCED_PARAMETER(ProcessId);
+    /* Report that no other architecture has this register. */
+    if (DirectoryBase != NULL) {
+        *DirectoryBase = 0ULL;
+    }
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
 NTSTATUS
 KswordARKHvmMemoryExecute(
     _In_ const KSWORD_ARK_HVM_MEMORY_REQUEST* Request,
@@ -604,6 +700,7 @@ KswordARKHvmMemoryExecute(
     /* Validate the complete versioned request. */
     if (Request->version != KSWORD_ARK_HVM_MEMORY_PROTOCOL_VERSION ||
         Request->size != sizeof(*Request) ||
+        Request->reserved0 != 0UL ||
         Request->length > KSWORD_ARK_HVM_MEMORY_MAX_BYTES) {
         /* Publish the stable invalid-request protocol status. */
         Response->status = KSWORD_ARK_HVM_MEMORY_STATUS_INVALID_REQUEST;
@@ -673,13 +770,37 @@ KswordARKHvmMemoryExecute(
         return STATUS_SUCCESS;
     }
     if (isVirtual) {
-        /*
-         * A zero directory base means the caller wants the address resolved in
-         * the page tables the current thread is already running on.
-         */
-        const ULONGLONG directoryBase = Request->directoryBase != 0ULL
-            ? Request->directoryBase
-            : (ULONGLONG)__readcr3();
+        ULONGLONG directoryBase = 0ULL;
+
+        if (Request->processId != 0UL) {
+            /*
+             * A named process wins over an explicit base.  Callers that know a
+             * PID should not also have to know a CR3, and the driver never
+             * hands one out, so this is the only way for them to reach another
+             * address space.
+             */
+            status = KswordARKHvmMemoryResolveProcessDirectoryBase(
+                Request->processId,
+                &directoryBase);
+            /* Stop before any walk when the process cannot be resolved. */
+            if (!NT_SUCCESS(status)) {
+                /* Publish the stable process-lookup protocol status. */
+                Response->status =
+                    KSWORD_ARK_HVM_MEMORY_STATUS_PROCESS_LOOKUP_FAILED;
+                Response->ntStatus = status;
+                /* Return the complete lookup failure. */
+                return STATUS_SUCCESS;
+            }
+        } else if (Request->directoryBase != 0ULL) {
+            /* Honor an explicitly supplied hierarchy. */
+            directoryBase = Request->directoryBase;
+        } else {
+            /*
+             * A zero directory base means the caller wants the address
+             * resolved in the page tables the current thread already runs on.
+             */
+            directoryBase = (ULONGLONG)__readcr3();
+        }
 
         /* Resolve the virtual address through an independent page walk. */
         status = KswordARKHvmMemoryTranslate(
