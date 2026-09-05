@@ -2806,6 +2806,11 @@
       "detail": "强制卸载在用驱动，崩溃由被卸载驱动的残留引用决定。"
     },
     {
+      "ioctl": "HVM_DOMAIN",
+      "reason": "virtualization-lifecycle",
+      "detail": "分叉 EPT 层次并把域发布进 EPTP list。CI 机器通常已在 Hyper-V/VBS 之下装不上；真装上了，域一旦被武装的 VMFUNC 引用，runner 上任意 ring 3 代码都能切换当前 EPT 视图，之后的崩溃不可归因。"
+    },
+    {
       "ioctl": "HVM_CR_POLICY",
       "reason": "virtualization-lifecycle",
       "detail": "钉住 CR0/CR4 位并可开启 CR3-load exiting。CI 机器通常已在 Hyper-V/VBS 之下装不上；真装上了 CR3 拦截会让 runner 的每次进程切换都产生 VM-exit。"
