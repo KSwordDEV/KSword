@@ -50,6 +50,17 @@ namespace ksword::kvm
         bool hypervisorPresent = false;
         // nestedResident：当前常驻是作为 L1 跑在别人之下，属于降级模式。
         bool nestedResident = false;
+        // veArmed：本次常驻武装了 EPT-violation #VE 控制位。
+        // 注意语义：这只说明控制位是开的，不说明 #VE 能被投递——驱动侧
+        // 的两道保险（全叶项 suppress-#VE、信息区锁 busy）与本位无关。
+        bool veArmed = false;
+        // veSuppressedByDefault：驱动确认它装的每个 EPT 叶项都带 suppress-#VE。
+        // 这一位为假时不该武装 #VE，那意味着地基没铺好。
+        bool veSuppressedByDefault = false;
+        // vmFuncArmed：本次常驻武装了 VMFUNC，guest 可以自行切换 EPT 视图。
+        bool vmFuncArmed = false;
+        // eptpSwitchingAvailable：处理器提供 VM function 0，域才有意义。
+        bool eptpSwitchingAvailable = false;
         unsigned long generation = 0;  // 用于 compare-before 控制请求。
         unsigned long processorCount = 0;
         unsigned long residentProcessorCount = 0;

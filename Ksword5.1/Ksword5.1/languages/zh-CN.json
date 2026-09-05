@@ -31517,6 +31517,8 @@
     "KvmSoak": "KvmSoak",
     "KvmStartResident": "KvmStartResident",
     "KvmWriteAccess": "KvmWriteAccess",
+    "#VE：控制位已武装。仍有两道保险挡着实际投递（全叶项 suppress-#VE、信息区锁 busy）": "#VE：控制位已武装。仍有两道保险挡着实际投递（全叶项 suppress-#VE、信息区锁 busy）",
+    "VMFUNC：已武装。guest 中任意 ring 3 线程都能切换 EPT 视图，且不产生 VM-exit": "VMFUNC：已武装。guest 中任意 ring 3 线程都能切换 EPT 视图，且不产生 VM-exit",
     ", denied=": ", denied=",
     "HVM domain operation=": "HVM domain operation=",
     ", domainIndex=": ", domainIndex=",

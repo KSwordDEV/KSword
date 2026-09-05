@@ -66,6 +66,16 @@ namespace ksword::kvm
                 lines << ks::i18n::sourceText(QStringLiteral("EPT 规则：%1 条"))
                     .arg(state.eptRuleCount);
             }
+            // 两个危险开关必须在状态里可见，而不是只在菜单勾选框里。
+            // 武装了却看不见，等于没有武装的自觉。
+            if (state.veArmed)
+            {
+                lines << ks::i18n::sourceText(QStringLiteral("#VE：控制位已武装。仍有两道保险挡着实际投递（全叶项 suppress-#VE、信息区锁 busy）"));
+            }
+            if (state.vmFuncArmed)
+            {
+                lines << ks::i18n::sourceText(QStringLiteral("VMFUNC：已武装。guest 中任意 ring 3 线程都能切换 EPT 视图，且不产生 VM-exit"));
+            }
             if (state.nestedResident)
             {
                 lines << ks::i18n::sourceText(
@@ -284,6 +294,14 @@ namespace ksword::kvm
             KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL;
         state.nestedResident = (response.stateFlags &
             KSWORD_ARK_HVM_STATE_RESIDENT_NESTED) != 0UL;
+        state.veArmed = (response.stateFlags &
+            KSWORD_ARK_HVM_STATE_VE_ACTIVE) != 0UL;
+        state.veSuppressedByDefault = (response.featureFlags &
+            KSWORD_ARK_HVM_FEATURE_VE_SUPPRESSED_BY_DEFAULT) != 0ULL;
+        state.vmFuncArmed = (response.stateFlags &
+            KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE) != 0UL;
+        state.eptpSwitchingAvailable = (response.featureFlags &
+            KSWORD_ARK_HVM_FEATURE_EPTP_SWITCHING) != 0ULL;
 
         if (state.residentActive)
         {
