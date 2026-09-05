@@ -15,9 +15,14 @@ namespace ksword::kvm
         const QString kWriteAccessSettingKey =
             QStringLiteral("Safety/Kvm/WriteAccessEnabled");
 
+        // 嵌套模式开关的持久化键。
+        const QString kNestedAllowedSettingKey =
+            QStringLiteral("Safety/Kvm/NestedAllowed");
+
         // 进程内缓存：按钮刷新是高频路径，不能每次都读注册表。
         // -1 表示尚未从 QSettings 读入。
         std::atomic_int g_writeAccessCache{ -1 };
+        std::atomic_int g_nestedAllowedCache{ -1 };
 
         // buildDetail：把一次快照压成 tooltip 用的多行说明。
         QString buildDetail(const KvmState& state)
@@ -57,6 +62,17 @@ namespace ksword::kvm
                 lines << ks::i18n::sourceText(QStringLiteral("EPT 规则：%1 条"))
                     .arg(state.eptRuleCount);
             }
+            if (state.nestedResident)
+            {
+                lines << ks::i18n::sourceText(
+                    QStringLiteral("嵌套运行：作为 L1 跑在外层 hypervisor 之下，性能与可用能力均降级"));
+            }
+            else if (state.hypervisorPresent)
+            {
+                lines << (isNestedAllowed()
+                    ? ks::i18n::sourceText(QStringLiteral("嵌套模式：已开启"))
+                    : ks::i18n::sourceText(QStringLiteral("嵌套模式：已关闭（外层有 hypervisor，常驻会被拒绝）")));
+            }
             lines << (isWriteAccessEnabled()
                 ? ks::i18n::sourceText(QStringLiteral("写权限：已开启（允许 R-1 改写）"))
                 : ks::i18n::sourceText(QStringLiteral("写权限：已关闭（只读观测）")));
@@ -94,6 +110,14 @@ namespace ksword::kvm
                      KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED)) != 0UL)
             {
                 return KvmAvailability::Faulted;
+            }
+            // 外层有 hypervisor 而嵌套模式没开：驱动会拒绝常驻，但这是用户
+            // 一个开关就能解决的，报成"不支持"会让人以为得换机器。
+            if ((result.response.featureFlags &
+                    KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL &&
+                !isNestedAllowed())
+            {
+                return KvmAvailability::NestedNotAllowed;
             }
             // 没有 MSR bitmap 就没有可存活的常驻，按不支持处理而不是"可用"。
             const unsigned long long requiredFeatures =
@@ -210,6 +234,9 @@ namespace ksword::kvm
         case KvmAvailability::BackendNotImplemented:
             return ks::i18n::sourceText(
                 QStringLiteral("处理器支持 AMD SVM，但本版本尚未实现 SVM 后端"));
+        case KvmAvailability::NestedNotAllowed:
+            return ks::i18n::sourceText(
+                QStringLiteral("检测到外层 hypervisor（虚拟机或 VBS/HVCI）。在右键菜单中开启嵌套模式后可以作为 L1 运行"));
         }
         return QString();
     }
@@ -249,6 +276,10 @@ namespace ksword::kvm
             KSWORD_ARK_HVM_FEATURE_RESIDENT_SUSTAINED) != 0ULL;
         state.eptRulesReady = (response.featureFlags &
             KSWORD_ARK_HVM_FEATURE_EPT_RULES) != 0ULL;
+        state.hypervisorPresent = (response.featureFlags &
+            KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL;
+        state.nestedResident = (response.stateFlags &
+            KSWORD_ARK_HVM_STATE_RESIDENT_NESTED) != 0UL;
 
         if (state.residentActive)
         {
@@ -285,7 +316,7 @@ namespace ksword::kvm
                 KSWORD_ARK_HVM_CONTROL_PREPARE,
                 generation,
                 false,
-                false,
+                isNestedAllowed(),
                 true);
             auto result = toCommandResult(
                 prepared,
@@ -304,7 +335,7 @@ namespace ksword::kvm
                 KSWORD_ARK_HVM_CONTROL_SELF_TEST,
                 generation,
                 true,
-                false,
+                isNestedAllowed(),
                 true);
             return toCommandResult(
                 tested,
@@ -335,7 +366,7 @@ namespace ksword::kvm
             KSWORD_ARK_HVM_CONTROL_START_RESIDENT,
             generation,
             true,
-            false,
+            isNestedAllowed(),
             true,
             true);
         return toCommandResult(
@@ -375,7 +406,7 @@ namespace ksword::kvm
             KSWORD_ARK_HVM_CONTROL_SOAK,
             generation,
             true,
-            false,
+            isNestedAllowed(),
             true,
             true,
             false,
@@ -413,6 +444,27 @@ namespace ksword::kvm
         return toCommandResult(
             reset,
             ks::i18n::sourceText(QStringLiteral("重置 KVM 故障状态")));
+    }
+
+    bool isNestedAllowed()
+    {
+        const int cached = g_nestedAllowedCache.load(std::memory_order_relaxed);
+        if (cached >= 0)
+        {
+            return cached != 0;
+        }
+        QSettings settings;
+        const bool allowed =
+            settings.value(kNestedAllowedSettingKey, false).toBool();
+        g_nestedAllowedCache.store(allowed ? 1 : 0, std::memory_order_relaxed);
+        return allowed;
+    }
+
+    void setNestedAllowed(const bool allowed)
+    {
+        QSettings settings;
+        settings.setValue(kNestedAllowedSettingKey, allowed);
+        g_nestedAllowedCache.store(allowed ? 1 : 0, std::memory_order_relaxed);
     }
 
     bool isWriteAccessEnabled()

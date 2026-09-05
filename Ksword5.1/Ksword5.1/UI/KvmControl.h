@@ -29,7 +29,10 @@ namespace ksword::kvm
         Faulted,            // 存在故障或需要回滚，必须先重置。
         // 硬件支持虚拟化，但本版本没有对应后端（当前即 AMD SVM）。
         // 与 UnsupportedCpu 分开：前者要换机器，后者要等软件。
-        BackendNotImplemented
+        BackendNotImplemented,
+        // 外层已有 hypervisor（虚拟机内，或裸机开着 VBS/HVCI），但嵌套模式没开。
+        // 这一态是可以由用户自己解决的，所以必须与"不支持"分开报。
+        NestedNotAllowed
     };
 
     // KvmState：一次状态快照。UI 只读这个结构，不直接解析 featureFlags。
@@ -43,6 +46,10 @@ namespace ksword::kvm
         bool exitEmulationReady = false; // 分发器能完成全部无条件 exit。
         bool eptRulesReady = false;    // EPT 规则后端可用。
         bool faulted = false;          // FAULTED 或 ROLLBACK_REQUIRED。
+        // hypervisorPresent：外层已有 hypervisor（虚拟机内，或裸机开着 VBS/HVCI）。
+        bool hypervisorPresent = false;
+        // nestedResident：当前常驻是作为 L1 跑在别人之下，属于降级模式。
+        bool nestedResident = false;
         unsigned long generation = 0;  // 用于 compare-before 控制请求。
         unsigned long processorCount = 0;
         unsigned long residentProcessorCount = 0;
@@ -83,6 +90,15 @@ namespace ksword::kvm
 
     // resetFault：清除可恢复的故障与回滚标记。常驻中会被拒绝。
     KvmCommandResult resetFault(unsigned long expectedGeneration);
+
+    // 嵌套模式开关：
+    // - 默认关闭，裸机独占 VT-x 仍是预期的运行方式；
+    // - 打开后 PREPARE/SELF_TEST/常驻 都会带上 ALLOW_NESTED，从而可以在虚拟机里
+    //   或在开着 VBS 的机器上运行。代价是每条 VMX 操作都由外层 hypervisor 模拟，
+    //   性能显著下降，可用能力也只剩外层愿意暴露的那部分；
+    // - 这不是危险开关（不改写任何系统状态），所以与写权限门分开。
+    bool isNestedAllowed();
+    void setNestedAllowed(bool allowed);
 
     // 写权限门：
     // - 默认关闭。关闭时 KVM 只做观测，任何会改变系统状态的 R-1 操作都被拒绝；

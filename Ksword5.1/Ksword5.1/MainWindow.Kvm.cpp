@@ -356,6 +356,21 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
 
     menu.addSeparator();
 
+    // 嵌套模式：外层有 hypervisor 时（虚拟机内、或裸机开着 VBS/HVCI）唯一能跑起来的
+    // 方式。不改写任何系统状态，所以不走高风险确认，但要说清代价。
+    QAction* const nestedAction = menu.addAction(
+        ks::i18n::sourceText(QStringLiteral("允许嵌套运行（作为 L1）")));
+    nestedAction->setCheckable(true);
+    nestedAction->setChecked(ksword::kvm::isNestedAllowed());
+    nestedAction->setToolTip(ks::i18n::sourceText(QStringLiteral("在虚拟机内或开着 VBS/HVCI 的机器上，KSwordVM 只能作为 L1 运行：每条 VMX 操作都由外层 hypervisor 模拟，性能明显下降，可用能力也只剩外层愿意暴露的那部分。")));
+    connect(nestedAction, &QAction::triggered, this, [this](const bool checked) {
+        ksword::kvm::setNestedAllowed(checked);
+        applyKvmButtonState();
+        refreshKvmStatusAsync();
+    });
+
+    menu.addSeparator();
+
     // 写权限门：关闭时 KVM 只做观测，所有 R-1 改写能力都不可用。
     QAction* const writeAction = menu.addAction(
         ks::i18n::sourceText(QStringLiteral("允许 R-1 写操作")));

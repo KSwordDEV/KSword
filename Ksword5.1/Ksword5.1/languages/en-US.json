@@ -2812,6 +2812,11 @@
     "driver.io.device_control_failed": "The driver call failed or the current driver version is incompatible",
     "driver.io.unsupported": "The current driver does not support this read-only query",
     "driver.io.capability_missing": "Required dynamic-offset capabilities are unavailable; check the kernel DynData/Capability status",
+    "driver.collect.success": "Collection succeeded",
+    "driver.collect.partial": "Collection incomplete: the result was truncated or did not cover the requested range",
+    "driver.collect.not_collected": "Not collected",
+    "driver.collect.access_denied": "Access denied: insufficient privileges",
+    "driver.collect.timeout": "The driver call timed out",
     "driver.error.unknown": "Unknown error",
     "driver.error.code": "%1: %2",
     "driver.load_advice.signature_error": "Load failed: Windows refused to load the driver (%1).\nService: %2\nDriver path: %3\nUse a trusted, signed KswordARK.sys. In development or test environments, you can use a test-signed driver with Windows Test Mode, then restart the system.",
@@ -5659,6 +5664,11 @@
     "settings.background.translucency_material.acrylic": "Frosted glass"
   },
   "source_translations": {
+    "采集成功": "Collection succeeded",
+    "采集不完整：结果被截断或未覆盖请求范围": "Collection incomplete: the result was truncated or did not cover the requested range",
+    "未采集": "Not collected",
+    "权限不足，访问被拒绝": "Access denied: insufficient privileges",
+    "驱动调用超时": "The driver call timed out",
     "%1\n可能为误报：CID Table 槽位解出进程对象，但 R0 取引用失败，无法确认该 PID 对应存活进程。": "%1\nPossible false positive: the CID Table slot decodes to a process object, but R0 failed to take a reference, so this PID cannot be confirmed as a live process.",
     "%1\n可能为误报：该 EPROCESS 已退出（ExitStatus 非 STATUS_PENDING），被摘出活动链表后仍留在 PspCidTable 中，多为短命进程残骸。": "%1\nPossible false positive: this EPROCESS has exited (ExitStatus is not STATUS_PENDING) and stayed in PspCidTable after being unlinked from the active list; usually a short-lived process remnant.",
     ", rewrittenPalettes=": ", rewrittenPalettes=",
@@ -31744,6 +31754,12 @@
     "SvmDecodeAssists": "SvmDecodeAssists",
     "SvmFirmwareDisabled": "SvmFirmwareDisabled",
     "SvmFlushByAsid": "SvmFlushByAsid",
-    "SvmNextRip": "SvmNextRip"
+    "SvmNextRip": "SvmNextRip",
+    "允许嵌套运行（作为 L1）": "Allow nested execution (as L1)",
+    "在虚拟机内或开着 VBS/HVCI 的机器上，KSwordVM 只能作为 L1 运行：每条 VMX 操作都由外层 hypervisor 模拟，性能明显下降，可用能力也只剩外层愿意暴露的那部分。": "Inside a virtual machine, or on a machine running VBS/HVCI, KSwordVM can only run as L1: every VMX operation is emulated by the outer hypervisor, so performance drops noticeably and the available capabilities are only those the outer hypervisor chose to expose.",
+    "嵌套模式：已关闭（外层有 hypervisor，常驻会被拒绝）": "Nested mode: off (an outer hypervisor is present, so residency is refused)",
+    "嵌套模式：已开启": "Nested mode: on",
+    "嵌套运行：作为 L1 跑在外层 hypervisor 之下，性能与可用能力均降级": "Nested: running as L1 under an outer hypervisor; both performance and available capabilities are degraded",
+    "检测到外层 hypervisor（虚拟机或 VBS/HVCI）。在右键菜单中开启嵌套模式后可以作为 L1 运行": "An outer hypervisor was detected (a virtual machine, or VBS/HVCI). Enable nested mode from the context menu to run as L1"
   }
 }

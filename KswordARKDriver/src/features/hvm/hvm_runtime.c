@@ -1863,12 +1863,18 @@ KswordARKHvmEnableResidentLifecycle(
         g_KswordHvm.LastStatus = STATUS_NOT_SUPPORTED;
         return STATUS_NOT_SUPPORTED;
     }
-    /* Resident mode never co-owns VT-x with Hyper-V or another hypervisor. */
-    if ((g_KswordHvm.FeatureFlags &
-            KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL) {
-        g_KswordHvm.LastStatus = STATUS_HV_FEATURE_UNAVAILABLE;
-        return STATUS_HV_FEATURE_UNAVAILABLE;
-    }
+    /*
+     * An outer hypervisor is deliberately NOT checked here.  The guards this
+     * routine installs - power transitions, processor topology changes and the
+     * DriverUnload interlock - protect our own resident state, which needs the
+     * same protection whether we run on bare metal or as someone else's guest.
+     * Refusing to register them merely made resident mode permanently
+     * unavailable inside every virtual machine, which is also every
+     * environment where this code can be developed safely.
+     *
+     * Whether residency may actually start under an outer hypervisor is decided
+     * by KswordARKHvmResidentStart, which requires explicit opt-in.
+     */
     if (DriverObject->DriverUnload == NULL) {
         g_KswordHvm.LastStatus = STATUS_INVALID_DEVICE_STATE;
         return STATUS_INVALID_DEVICE_STATE;
@@ -2301,10 +2307,15 @@ KswordARKHvmControl(
         /* Stop after selecting the one-shot flag set. */
         break;
     case KSWORD_ARK_HVM_CONTROL_START_RESIDENT:
-        /* Resident start accepts event and partial nested-dispatch selection. */
+        /*
+         * Resident start accepts event and partial nested-dispatch selection,
+         * plus ALLOW_NESTED, which is the explicit opt-in for running as L1
+         * underneath another hypervisor.
+         */
         allowedFlags =
             KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED |
             KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
+            KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED |
             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPT_EVENTS |
             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX;
         /* Stop after selecting the resident-start flag set. */
@@ -2314,6 +2325,7 @@ KswordARKHvmControl(
         allowedFlags =
             KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED |
             KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
+            KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED |
             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPT_EVENTS |
             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX;
         /* Stop after selecting the soak flag set. */

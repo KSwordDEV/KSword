@@ -124,6 +124,14 @@
 #define KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED 0x00100000UL
 #define KSWORD_ARK_HVM_STATE_POWER_TRANSITION_PENDING 0x00200000UL
 #define KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED       0x00400000UL
+/*
+ * Residency is running underneath another hypervisor - we are L1, not L0.
+ * This is a degraded mode, not a failure: every VMX operation is emulated
+ * by the outer hypervisor, so exits cost far more and the capability set is
+ * whatever the outer one chose to expose.  It is published so the UI never
+ * presents nested residency as equivalent to bare-metal residency.
+ */
+#define KSWORD_ARK_HVM_STATE_RESIDENT_NESTED         0x00800000UL
 
 #define KSWORD_ARK_HVM_CPU_STATE_RESOURCE_READY  0x00000001UL
 #define KSWORD_ARK_HVM_CPU_STATE_SELF_TESTED     0x00000002UL

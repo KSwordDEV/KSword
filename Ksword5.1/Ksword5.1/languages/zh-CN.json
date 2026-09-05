@@ -2812,6 +2812,11 @@
     "driver.io.device_control_failed": "驱动接口调用失败或当前驱动版本不匹配",
     "driver.io.unsupported": "当前驱动不支持该只读查询入口",
     "driver.io.capability_missing": "动态偏移能力未满足，请查看内核 DynData/Capability 状态",
+    "driver.collect.success": "采集成功",
+    "driver.collect.partial": "采集不完整：结果被截断或未覆盖请求范围",
+    "driver.collect.not_collected": "未采集",
+    "driver.collect.access_denied": "权限不足，访问被拒绝",
+    "driver.collect.timeout": "驱动调用超时",
     "driver.error.unknown": "未知错误",
     "driver.error.code": "%1：%2",
     "driver.load_advice.signature_error": "挂载失败：Windows 拒绝加载驱动（%1）。\n服务：%2\n驱动路径：%3\n请使用可信签名的 KswordARK.sys；开发或测试环境可使用测试签名并启用测试模式，随后重启系统。",
@@ -5659,6 +5664,11 @@
     "settings.background.translucency_material.acrylic": "磨砂玻璃"
   },
   "source_translations": {
+    "采集成功": "采集成功",
+    "采集不完整：结果被截断或未覆盖请求范围": "采集不完整：结果被截断或未覆盖请求范围",
+    "未采集": "未采集",
+    "权限不足，访问被拒绝": "权限不足，访问被拒绝",
+    "驱动调用超时": "驱动调用超时",
     ", ambiguousColors=": ", ambiguousColors=",
     ", inspectedWidgets=": ", inspectedWidgets=",
     ", mappedColors=": ", mappedColors=",
@@ -31744,6 +31754,12 @@
     "SvmDecodeAssists": "SvmDecodeAssists",
     "SvmFirmwareDisabled": "SvmFirmwareDisabled",
     "SvmFlushByAsid": "SvmFlushByAsid",
-    "SvmNextRip": "SvmNextRip"
+    "SvmNextRip": "SvmNextRip",
+    "允许嵌套运行（作为 L1）": "允许嵌套运行（作为 L1）",
+    "在虚拟机内或开着 VBS/HVCI 的机器上，KSwordVM 只能作为 L1 运行：每条 VMX 操作都由外层 hypervisor 模拟，性能明显下降，可用能力也只剩外层愿意暴露的那部分。": "在虚拟机内或开着 VBS/HVCI 的机器上，KSwordVM 只能作为 L1 运行：每条 VMX 操作都由外层 hypervisor 模拟，性能明显下降，可用能力也只剩外层愿意暴露的那部分。",
+    "嵌套模式：已关闭（外层有 hypervisor，常驻会被拒绝）": "嵌套模式：已关闭（外层有 hypervisor，常驻会被拒绝）",
+    "嵌套模式：已开启": "嵌套模式：已开启",
+    "嵌套运行：作为 L1 跑在外层 hypervisor 之下，性能与可用能力均降级": "嵌套运行：作为 L1 跑在外层 hypervisor 之下，性能与可用能力均降级",
+    "检测到外层 hypervisor（虚拟机或 VBS/HVCI）。在右键菜单中开启嵌套模式后可以作为 L1 运行": "检测到外层 hypervisor（虚拟机或 VBS/HVCI）。在右键菜单中开启嵌套模式后可以作为 L1 运行"
   }
 }

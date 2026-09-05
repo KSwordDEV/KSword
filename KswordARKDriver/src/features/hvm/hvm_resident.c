@@ -1167,11 +1167,28 @@ KswordARKHvmResidentStart(
         return STATUS_ALREADY_REGISTERED;
     }
     /*
-     * An existing hypervisor requires complete outer-hypercall forwarding and
-     * active eVMCS ownership.  Capability-only eVMCS must never be launched.
+     * Running underneath another hypervisor means we become L1: every VMX
+     * operation is emulated by the outer hypervisor rather than executed
+     * directly.  That is slower and the capability set is whatever the outer
+     * one chose to expose, but it is not incorrect - and it is the only
+     * environment where this code can be exercised without risking the
+     * development machine on every mistake.
+     *
+     * The previous unconditional refusal cited "complete outer-hypercall
+     * forwarding and active eVMCS ownership" as prerequisites.  That over-
+     * states the requirement: plain VMREAD/VMWRITE work under nested VMX
+     * because the outer hypervisor emulates them; enlightened VMCS is a
+     * performance optimization, not a correctness one.
+     *
+     * So the gate becomes an explicit opt-in plus evidence that the outer
+     * hypervisor actually exposes nested VMX.  Without the opt-in the refusal
+     * stands, because bare-metal residency remains the intended mode.
      */
     if ((Runtime->FeatureFlags &
-            KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL) {
+            KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL &&
+        ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED) == 0UL ||
+         (Runtime->FeatureFlags &
+             KSWORD_ARK_HVM_FEATURE_NESTED_VMX_EXPOSED) == 0ULL)) {
         /* Return the explicit hypervisor ownership conflict. */
         return STATUS_HV_FEATURE_UNAVAILABLE;
     }
@@ -1362,6 +1379,23 @@ KswordARKHvmResidentStart(
     /* Publish resident active only after every target processor succeeds. */
     Runtime->StateFlags |=
         KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE;
+    /*
+     * Record whether this residency is nested.  Callers must be able to tell
+     * the two apart: under an outer hypervisor every VMX operation is emulated,
+     * so timings, available capabilities and failure modes all differ from
+     * bare metal.  Presenting them as the same result would make any
+     * measurement taken here misleading.
+     */
+    if ((Runtime->FeatureFlags &
+            KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL) {
+        /* Publish the degraded nested-residency marker. */
+        Runtime->StateFlags |=
+            KSWORD_ARK_HVM_STATE_RESIDENT_NESTED;
+    } else {
+        /* Clear any marker left by an earlier nested run. */
+        Runtime->StateFlags &=
+            ~KSWORD_ARK_HVM_STATE_RESIDENT_NESTED;
+    }
     /* Clear stale rollback evidence after complete startup. */
     Runtime->StateFlags &=
         ~KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
