@@ -15,12 +15,15 @@ Environment:
 --*/
 
 #include "hvm_runtime.h"
+#include "hvm_ept_view.h"
 #include "hvm_memory.h"
 #include "../../dispatch/ioctl_validation.h"
 #include "../../platform/pool_compat.h"
 
 /* Tag the bounded request snapshot the shared SystemBuffer forces us to keep. */
 #define KSWORD_ARK_HVM_MEMORY_IOCTL_POOL_TAG 'IvHK'
+/* Tag the view request snapshot, which carries a full shadow page. */
+#define KSWORD_ARK_HVM_VIEW_IOCTL_POOL_TAG 'VvHK'
 
 NTSTATUS
 KswordARKHvmIoctlQuery(
@@ -626,5 +629,154 @@ KswordARKHvmIoctlMemory(
     /* Publish the fixed completion size on protocol-level results. */
     *BytesReturned = sizeof(*memoryResponse);
     /* Return the complete ring -1 memory operation result. */
+    return status;
+}
+
+NTSTATUS
+KswordARKHvmIoctlView(
+    _In_ WDFDEVICE Device,
+    _In_ WDFREQUEST Request,
+    _In_ size_t InputBufferLength,
+    _In_ size_t OutputBufferLength,
+    _Out_ size_t* BytesReturned
+    )
+{
+    PVOID inputBuffer = NULL;
+    PVOID outputBuffer = NULL;
+    size_t actualInputLength = 0U;
+    size_t actualOutputLength = 0U;
+    NTSTATUS status = STATUS_SUCCESS;
+    /* The request carries a full shadow page, too large for the kernel stack. */
+    KSWORD_ARK_HVM_VIEW_REQUEST* requestSnapshot = NULL;
+    KSWORD_ARK_HVM_VIEW_RESPONSE* viewResponse = NULL;
+
+    /* Reject an invalid completion contract before touching request buffers. */
+    if (BytesReturned == NULL) {
+        /* Return the exact dispatcher-contract failure. */
+        return STATUS_INVALID_PARAMETER;
+    }
+    /* Initialize the completion size on every path. */
+    *BytesReturned = 0U;
+    /* Redirecting real memory accesses requires a write-authorized handle. */
+    status = KswordARKValidateDeviceIoControlWriteAccess(Request);
+    /* Stop before buffer access when handle authorization fails. */
+    if (!NT_SUCCESS(status)) {
+        /* Return the exact authorization failure. */
+        return status;
+    }
+    /* Retrieve the complete fixed view request. */
+    status = WdfRequestRetrieveInputBuffer(
+        Request,
+        sizeof(KSWORD_ARK_HVM_VIEW_REQUEST),
+        &inputBuffer,
+        &actualInputLength);
+    /* Reject truncated or unavailable input buffers. */
+    if (!NT_SUCCESS(status) ||
+        InputBufferLength < sizeof(KSWORD_ARK_HVM_VIEW_REQUEST) ||
+        actualInputLength < sizeof(KSWORD_ARK_HVM_VIEW_REQUEST)) {
+        /* Return the exact WDF or fixed-size failure. */
+        return NT_SUCCESS(status)
+            ? STATUS_INFO_LENGTH_MISMATCH
+            : status;
+    }
+    /* Retrieve the complete fixed view response. */
+    status = WdfRequestRetrieveOutputBuffer(
+        Request,
+        sizeof(KSWORD_ARK_HVM_VIEW_RESPONSE),
+        &outputBuffer,
+        &actualOutputLength);
+    /* Reject truncated or unavailable output buffers. */
+    if (!NT_SUCCESS(status) ||
+        OutputBufferLength < sizeof(KSWORD_ARK_HVM_VIEW_RESPONSE) ||
+        actualOutputLength < sizeof(KSWORD_ARK_HVM_VIEW_RESPONSE)) {
+        /* Return the exact WDF or fixed-size failure. */
+        return NT_SUCCESS(status)
+            ? STATUS_BUFFER_TOO_SMALL
+            : status;
+    }
+    /* Reserve the snapshot before the shared buffer is written. */
+    requestSnapshot = (KSWORD_ARK_HVM_VIEW_REQUEST*)
+        KswordARKAllocateNonPagedPool(
+            sizeof(KSWORD_ARK_HVM_VIEW_REQUEST),
+            KSWORD_ARK_HVM_VIEW_IOCTL_POOL_TAG);
+    /* Fail before any buffer mutation when the snapshot cannot be reserved. */
+    if (requestSnapshot == NULL) {
+        /* Return the exact allocation failure. */
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    /*
+     * METHOD_BUFFERED shares one SystemBuffer between input and output, and the
+     * view backend zeroes the response before reading the operation, kind,
+     * target page and shadow payload.  Without this snapshot it would install a
+     * view described by response header bytes.
+     */
+    RtlCopyMemory(
+        requestSnapshot,
+        inputBuffer,
+        sizeof(*requestSnapshot));
+    /* Bind the fixed protocol output view. */
+    viewResponse = (KSWORD_ARK_HVM_VIEW_RESPONSE*)outputBuffer;
+    /* Apply central high-risk policy to every operation that installs a view. */
+    if (requestSnapshot->operation != KSWORD_ARK_HVM_VIEW_OP_QUERY) {
+        KSWORD_ARK_SAFETY_CONTEXT safetyContext = { 0 };
+
+        /* Bind policy auditing to the kernel-patch operation class. */
+        safetyContext.Operation =
+            KSWORD_ARK_SAFETY_OPERATION_KERNEL_PATCH;
+        /* Preserve explicit UI confirmation in central policy evidence. */
+        safetyContext.ContextFlags =
+            (requestSnapshot->flags &
+                KSWORD_ARK_HVM_VIEW_FLAG_UI_CONFIRMED) != 0UL
+            ? KSWORD_ARK_SAFETY_CONTEXT_FLAG_UI_CONFIRMED
+            : 0UL;
+        /* Describe the exact memory redirection class. */
+        safetyContext.TargetText =
+            L"EPT split view redirecting execution or reads to a shadow page";
+        /* Publish the exact bounded target text length. */
+        safetyContext.TargetTextChars =
+            (USHORT)(RTL_NUMBER_OF(
+                L"EPT split view redirecting execution or reads to a shadow page") -
+                1U);
+        /* Evaluate central policy without weakening protocol confirmation. */
+        status = KswordARKSafetyEvaluate(
+            Device,
+            &safetyContext);
+        /* Return a complete confirmation-required response on denial. */
+        if (!NT_SUCCESS(status)) {
+            /* Initialize the complete fixed response. */
+            RtlZeroMemory(
+                viewResponse,
+                sizeof(*viewResponse));
+            /* Publish the response protocol identity. */
+            viewResponse->version =
+                KSWORD_ARK_HVM_VIEW_PROTOCOL_VERSION;
+            /* Publish the complete response size. */
+            viewResponse->size = sizeof(*viewResponse);
+            /* Publish stable confirmation-required status. */
+            viewResponse->status =
+                KSWORD_ARK_HVM_VIEW_STATUS_CONFIRMATION_REQUIRED;
+            /* Publish the authoritative policy failure. */
+            viewResponse->lastStatus = status;
+            /* Publish the fixed completion size. */
+            *BytesReturned = sizeof(*viewResponse);
+            /* Release the snapshot before returning the policy failure. */
+            ExFreePoolWithTag(
+                requestSnapshot,
+                KSWORD_ARK_HVM_VIEW_IOCTL_POOL_TAG);
+            /* Return the authoritative policy failure. */
+            return status;
+        }
+    }
+    /* Execute the versioned EPT view operation. */
+    status = KswordARKHvmEptViewControl(
+        requestSnapshot,
+        viewResponse);
+    /* Release the snapshot as soon as the operation no longer needs it. */
+    ExFreePoolWithTag(
+        requestSnapshot,
+        KSWORD_ARK_HVM_VIEW_IOCTL_POOL_TAG);
+    /* Publish the fixed completion size on protocol-level results. */
+    *BytesReturned = sizeof(*viewResponse);
+    /* Return the complete EPT view operation result. */
     return status;
 }

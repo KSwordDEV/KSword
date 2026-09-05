@@ -104,7 +104,7 @@ KswordARKHvmEptFindParentEntry(
 }
 
 /* Split one two-MiB EPT identity leaf into 512 four-KiB entries. */
-static NTSTATUS
+NTSTATUS
 KswordARKHvmEptEnsureSplitLocked(
     _Inout_ KSW_HVM_RUNTIME* Runtime,
     _In_ ULONGLONG PhysicalAddress,
@@ -207,7 +207,7 @@ KswordARKHvmEptEnsureSplitLocked(
 }
 
 /* Return the writable four-KiB EPT entry for one split physical page. */
-static volatile ULONGLONG*
+volatile ULONGLONG*
 KswordARKHvmEptFindLeafEntry(
     _Inout_ KSW_HVM_RUNTIME* Runtime,
     _In_ ULONGLONG PhysicalAddress

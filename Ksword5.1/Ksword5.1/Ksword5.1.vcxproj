@@ -436,6 +436,7 @@
     <ClCompile Include="UI\GlobalUiSearch.cpp" />
     <ClCompile Include="UI\KvmControl.cpp" />
     <ClCompile Include="UI\KvmMemoryDialog.cpp" />
+    <ClCompile Include="UI\KvmViewDialog.cpp" />
     <ClCompile Include="UI\CommandExecutionPopup.cpp" />
     <ClCompile Include="UI\WindowChrome.cpp" />
     <ClCompile Include="UI\HexEditorWidget.cpp" />
@@ -756,6 +757,7 @@
     <ClInclude Include="UI\GlobalRefreshShortcut.h" />
     <QtMoc Include="UI\GlobalUiSearch.h" />
     <QtMoc Include="UI\KvmMemoryDialog.h" />
+    <QtMoc Include="UI\KvmViewDialog.h" />
     <QtMoc Include="UI\CommandExecutionPopup.h" />
     <ClInclude Include="UI\WindowChrome.h" />
     <QtMoc Include="UI\HexEditorWidget.h" />

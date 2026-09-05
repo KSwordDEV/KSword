@@ -18,6 +18,7 @@ Environment:
 --*/
 
 #include "hvm_internal.h"
+#include "hvm_ept_view.h"
 #include "hvm_guest.h"
 #include "hvm_memory.h"
 #include "hvm_ept.h"
@@ -892,6 +893,8 @@ KswordARKHvmFreeResourcesLocked(
         /* Return without releasing live VMX resources. */
         return;
     }
+    /* Restore view leaves and free shadows before rules touch the same pages. */
+    KswordARKHvmEptViewResetLocked(Runtime);
     /* Restore baseline EPT leaves before releasing split table pages. */
     KswordARKHvmEptResetLocked(Runtime);
 
@@ -2565,7 +2568,8 @@ KswordARKHvmEptRuleControl(
         (Request->flags &
             ~(KSWORD_ARK_HVM_EPT_RULE_FLAG_LOG |
               KSWORD_ARK_HVM_EPT_RULE_FLAG_ALLOW_ONCE |
-              KSWORD_ARK_HVM_EPT_RULE_FLAG_UI_CONFIRMED)) != 0UL ||
+              KSWORD_ARK_HVM_EPT_RULE_FLAG_UI_CONFIRMED |
+              KSWORD_ARK_HVM_EPT_RULE_FLAG_ENFORCE)) != 0UL ||
         (Request->operation !=
             KSWORD_ARK_HVM_EPT_RULE_ADD &&
          Request->operation !=

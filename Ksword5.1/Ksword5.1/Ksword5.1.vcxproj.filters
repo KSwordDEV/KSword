@@ -51,6 +51,9 @@
     <QtMoc Include="UI\KvmMemoryDialog.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+    <QtMoc Include="UI\KvmViewDialog.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -839,6 +842,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\KvmMemoryDialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\KvmViewDialog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\CommandExecutionPopup.cpp">

@@ -17,6 +17,7 @@ Environment:
 
 #include "hvm_exit.h"
 #include "hvm_exit_emulate.h"
+#include "hvm_ept_view.h"
 #include "hvm_resident.h"
 #include "hvm_ept.h"
 #include "hvm_event.h"
@@ -569,15 +570,59 @@ KswordARKHvmResidentVmExitDispatch(
         /* Decode attempted read, write, and execute access. */
         access = KswordARKHvmExitDecodeEptAccess(
             telemetry.Qualification);
-        /* Resolve the violation against every rule covering this page. */
-        handled = KswordARKHvmEptHandleViolation(
+        /*
+         * Views own their leaf exclusively, so a page covered by one never
+         * reaches the rule backend.  A view match that could not be completed
+         * returns its identity with a false result, which must fail closed
+         * rather than fall through to a rule scan of the same page.
+         */
+        handled = KswordARKHvmEptViewHandleViolation(
             Context->Runtime,
             guestPhysicalAddress,
             access,
-            guestLinearValid,
             &Context->EptTransient,
-            &ruleId,
-            &eptDisposition);
+            &ruleId);
+        if (handled) {
+            /* Restore the primary view value after one instruction. */
+            handled = KswordARKHvmExitSetMonitorTrap(TRUE);
+            /* Publish the complete exit evidence before resuming. */
+            KswordARKHvmExitPublishTelemetry(
+                Context,
+                &telemetry,
+                guestPhysicalAddress,
+                guestLinearAddress,
+                KSWORD_ARK_HVM_EVENT_TYPE_EPT_VIOLATION,
+                access,
+                ruleId,
+                handled
+                    ? STATUS_SUCCESS
+                    : STATUS_NOT_SUPPORTED);
+            /* Resume only after the restoration step is actually armed. */
+            if (handled) {
+                /* Request VMRESUME with the flipped leaf in place. */
+                return KSW_HVM_EXIT_ACTION_RESUME;
+            }
+            /* Fall through to the shared fail-closed rollback below. */
+            handled = KswordARKHvmResidentDeactivateCurrent(
+                Context,
+                0UL,
+                TRUE);
+            /* Return only a verified guest continuation. */
+            return handled
+                ? KSW_HVM_EXIT_ACTION_DEVIRTUALIZE
+                : KSW_HVM_EXIT_ACTION_FATAL;
+        }
+        /* Resolve the violation against every rule covering this page. */
+        handled = ruleId != 0UL
+            ? FALSE
+            : KswordARKHvmEptHandleViolation(
+                Context->Runtime,
+                guestPhysicalAddress,
+                access,
+                guestLinearValid,
+                &Context->EptTransient,
+                &ruleId,
+                &eptDisposition);
         /* Complete the disposition the rule aggregation selected. */
         if (handled) {
             if (eptDisposition ==

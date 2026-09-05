@@ -634,4 +634,186 @@ namespace ksword::kvm
             ks::i18n::sourceText(QStringLiteral("R-1 地址翻译")),
             false);
     }
+
+    namespace
+    {
+        // toViewResult：把驱动视图响应翻译成 UI 可直接展示的结论。
+        KvmViewResult toViewResult(
+            const ksword::ark::HvmViewResult& result,
+            const QString& actionName)
+        {
+            KvmViewResult view;
+            view.viewId = result.response.viewId;
+            view.viewCount = result.response.viewCount;
+            view.ok = result.io.ok &&
+                result.response.status == KSWORD_ARK_HVM_VIEW_STATUS_OK;
+            if (view.ok)
+            {
+                const unsigned long rows =
+                    result.response.returnedRows <= KSWORD_ARK_HVM_MAX_VIEWS
+                        ? result.response.returnedRows
+                        : KSWORD_ARK_HVM_MAX_VIEWS;
+                for (unsigned long index = 0; index < rows; ++index)
+                {
+                    const auto& row = result.response.rows[index];
+                    KvmViewEntry entry;
+                    entry.viewId = row.viewId;
+                    entry.kind = row.kind;
+                    entry.flags = row.flags;
+                    entry.physicalAddress = row.physicalAddress;
+                    entry.shadowPhysicalAddress = row.shadowPhysicalAddress;
+                    entry.flipCount = row.flipCount;
+                    view.views.append(entry);
+                }
+                view.message = ks::i18n::sourceText(
+                    QStringLiteral("%1 成功。")).arg(actionName);
+                return view;
+            }
+            if (!result.io.ok && result.unsupported)
+            {
+                view.message = ks::i18n::sourceText(
+                    QStringLiteral("%1 失败：当前驱动不提供该能力。"))
+                    .arg(actionName);
+                return view;
+            }
+            QString reason;
+            switch (result.response.status)
+            {
+            case KSWORD_ARK_HVM_VIEW_STATUS_CONFIRMATION_REQUIRED:
+                reason = ks::i18n::sourceText(QStringLiteral("需要显式确认"));
+                break;
+            case KSWORD_ARK_HVM_VIEW_STATUS_NOT_PREPARED:
+                reason = ks::i18n::sourceText(QStringLiteral("资源尚未准备"));
+                break;
+            case KSWORD_ARK_HVM_VIEW_STATUS_NOT_FOUND:
+                reason = ks::i18n::sourceText(QStringLiteral("没有这条视图"));
+                break;
+            case KSWORD_ARK_HVM_VIEW_STATUS_TABLE_FULL:
+                reason = ks::i18n::sourceText(QStringLiteral("视图表已满"));
+                break;
+            case KSWORD_ARK_HVM_VIEW_STATUS_SPLIT_FAILED:
+                reason = ks::i18n::sourceText(
+                    QStringLiteral("无法把该页拆成四 KiB 粒度"));
+                break;
+            case KSWORD_ARK_HVM_VIEW_STATUS_LEAF_CONFLICT:
+                reason = ks::i18n::sourceText(
+                    QStringLiteral("该页已被另一条视图或 EPT 规则占用"));
+                break;
+            case KSWORD_ARK_HVM_VIEW_STATUS_EXECUTE_ONLY_UNSUPPORTED:
+                reason = ks::i18n::sourceText(
+                    QStringLiteral("处理器不支持仅执行的 EPT 叶项，无法隐藏"));
+                break;
+            case KSWORD_ARK_HVM_VIEW_STATUS_MULTIPROCESSOR_UNSAFE:
+                reason = ks::i18n::sourceText(
+                    QStringLiteral("视图翻转共享叶项，只能在单处理器且未常驻时安装"));
+                break;
+            case KSWORD_ARK_HVM_VIEW_STATUS_RESOURCE_FAILED:
+                reason = ks::i18n::sourceText(QStringLiteral("影子页分配或捕获失败"));
+                break;
+            default:
+                reason = ks::i18n::sourceText(QStringLiteral("协议状态 %1"))
+                    .arg(result.response.status);
+                break;
+            }
+            view.message = ks::i18n::sourceText(QStringLiteral("%1 失败：%2。"))
+                .arg(actionName)
+                .arg(reason);
+            return view;
+        }
+
+        // denyViewWithoutWriteAccess：写权限关闭时统一拒绝，不发起 IOCTL。
+        KvmViewResult denyViewWithoutWriteAccess(const QString& actionName)
+        {
+            KvmViewResult view;
+            view.message = ks::i18n::sourceText(
+                QStringLiteral("%1 失败：R-1 写权限未开启。"))
+                .arg(actionName);
+            return view;
+        }
+    }
+
+    KvmViewResult listViews()
+    {
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmView(
+            KSWORD_ARK_HVM_VIEW_OP_QUERY,
+            0, 0, 0, 0, nullptr, false, false, false, false);
+        return toViewResult(
+            result,
+            ks::i18n::sourceText(QStringLiteral("读取 EPT 视图")));
+    }
+
+    KvmViewResult addView(
+        const unsigned long kind,
+        const unsigned long long physicalAddress,
+        const KvmViewShadowSeed seed,
+        const QByteArray& shadow)
+    {
+        const QString actionName =
+            ks::i18n::sourceText(QStringLiteral("安装 EPT 视图"));
+        if (!isWriteAccessEnabled())
+        {
+            return denyViewWithoutWriteAccess(actionName);
+        }
+        // 显式影子内容必须恰好一页：驱动按整页拷贝，短了会读到未初始化数据。
+        QByteArray page;
+        if (seed == KvmViewShadowSeed::Explicit)
+        {
+            if (shadow.size() != static_cast<int>(KSWORD_ARK_HVM_VIEW_PAGE_BYTES))
+            {
+                KvmViewResult view;
+                view.message = ks::i18n::sourceText(
+                    QStringLiteral("%1 失败：影子内容必须正好是 %2 字节。"))
+                    .arg(actionName)
+                    .arg(static_cast<int>(KSWORD_ARK_HVM_VIEW_PAGE_BYTES));
+                return view;
+            }
+            page = shadow;
+        }
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmView(
+            KSWORD_ARK_HVM_VIEW_OP_ADD,
+            kind,
+            0,
+            0,
+            physicalAddress,
+            page.isEmpty()
+                ? nullptr
+                : reinterpret_cast<const unsigned char*>(page.constData()),
+            seed == KvmViewShadowSeed::FromTarget,
+            seed == KvmViewShadowSeed::Zero,
+            true,
+            true);
+        return toViewResult(result, actionName);
+    }
+
+    KvmViewResult removeView(const unsigned long viewId)
+    {
+        const QString actionName =
+            ks::i18n::sourceText(QStringLiteral("移除 EPT 视图"));
+        if (!isWriteAccessEnabled())
+        {
+            return denyViewWithoutWriteAccess(actionName);
+        }
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmView(
+            KSWORD_ARK_HVM_VIEW_OP_REMOVE,
+            0, viewId, 0, 0, nullptr, false, false, false, true);
+        return toViewResult(result, actionName);
+    }
+
+    KvmViewResult clearViews()
+    {
+        const QString actionName =
+            ks::i18n::sourceText(QStringLiteral("清空 EPT 视图"));
+        if (!isWriteAccessEnabled())
+        {
+            return denyViewWithoutWriteAccess(actionName);
+        }
+        ksword::ark::DriverClient client;
+        const auto result = client.controlHvmView(
+            KSWORD_ARK_HVM_VIEW_OP_CLEAR,
+            0, 0, 0, 0, nullptr, false, false, false, true);
+        return toViewResult(result, actionName);
+    }
 }

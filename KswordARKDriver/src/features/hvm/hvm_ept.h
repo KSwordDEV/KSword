@@ -42,6 +42,25 @@ typedef struct _KSW_HVM_EPT_TRANSIENT
 
 EXTERN_C_START
 
+/*
+ * Split one two-MiB identity leaf into 512 four-KiB entries, or return the
+ * existing split.  Shared with the EPT view backend, which needs four-KiB
+ * granularity for the same reason rules do.
+ */
+NTSTATUS
+KswordARKHvmEptEnsureSplitLocked(
+    _Inout_ KSW_HVM_RUNTIME* Runtime,
+    _In_ ULONGLONG PhysicalAddress,
+    _Outptr_ KSW_HVM_EPT_SPLIT** Split
+    );
+
+/* Return the writable four-KiB EPT entry for one already split page. */
+volatile ULONGLONG*
+KswordARKHvmEptFindLeafEntry(
+    _Inout_ KSW_HVM_RUNTIME* Runtime,
+    _In_ ULONGLONG PhysicalAddress
+    );
+
 /* Build a continuous RAM-plus-MMIO identity window under the runtime lock. */
 NTSTATUS
 KswordARKHvmBuildEptLocked(

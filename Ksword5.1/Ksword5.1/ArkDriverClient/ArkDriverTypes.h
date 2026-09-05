@@ -1492,6 +1492,15 @@ namespace ksword::ark
         KSWORD_ARK_CONTROL_HVM_RESPONSE response{};
     };
 
+    // HvmViewResult carries one EPT split-view operation. rows is only filled
+    // by QUERY; every other operation leaves it empty.
+    struct HvmViewResult
+    {
+        IoResult io;
+        bool unsupported = false;
+        KSWORD_ARK_HVM_VIEW_RESPONSE response{};
+    };
+
     // HvmMemoryResult carries one ring -1 memory access. usedDirectWindow
     // distinguishes the hook-free private-window path from the documented
     // MmCopyMemory fallback, so a caller can tell which one actually ran.

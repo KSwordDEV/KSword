@@ -11,6 +11,7 @@
 
 #include <QByteArray>
 #include <QString>
+#include <QVector>
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 
@@ -132,4 +133,48 @@ namespace ksword::kvm
     KvmMemoryResult translate(
         unsigned long long directoryBase,
         unsigned long long virtualAddress);
+
+    // KvmViewEntry：一条已安装的 EPT 分离视图。
+    struct KvmViewEntry
+    {
+        unsigned long viewId = 0;
+        unsigned long kind = 0;
+        unsigned long flags = 0;
+        unsigned long long physicalAddress = 0;
+        unsigned long long shadowPhysicalAddress = 0;
+        unsigned long long flipCount = 0;
+    };
+
+    // KvmViewShadowSeed：影子页初始内容的来源。
+    enum class KvmViewShadowSeed
+    {
+        Zero,       // 全零：读取者看到一片空白。
+        FromTarget, // 冻结目标页当前内容：读取者看到安装那一刻的样子。
+        Explicit    // 使用调用方提供的整页内容。
+    };
+
+    // KvmViewResult：一次视图操作的结果。
+    struct KvmViewResult
+    {
+        bool ok = false;
+        unsigned long viewId = 0;
+        unsigned long viewCount = 0;
+        QVector<KvmViewEntry> views;
+        QString message;
+    };
+
+    // listViews：读取已安装视图，不需要写权限。
+    KvmViewResult listViews();
+
+    // addView：安装一条视图。受写权限门约束。
+    // shadow 只在 seed 为 Explicit 时使用，必须恰好是一页（4096 字节）。
+    KvmViewResult addView(
+        unsigned long kind,
+        unsigned long long physicalAddress,
+        KvmViewShadowSeed seed,
+        const QByteArray& shadow);
+
+    // removeView/clearViews：移除一条或全部视图。受写权限门约束。
+    KvmViewResult removeView(unsigned long viewId);
+    KvmViewResult clearViews();
 }

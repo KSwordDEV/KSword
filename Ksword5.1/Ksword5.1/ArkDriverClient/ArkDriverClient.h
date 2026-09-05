@@ -455,6 +455,20 @@ namespace ksword::ark
             // enforce：持久拒绝（命中注入 #PF 并继续常驻），与 allowOnce 互斥；
             // 驱动侧在存储规则时会丢弃同时给出的 allowOnce。
             bool enforce = false) const;
+        // controlHvmView：安装、移除或查询 EPT 分离视图。
+        // - shadow 只在 ADD 且未指定 seed 标志时使用，必须是整页；
+        // - 视图与 EPT 规则不能覆盖同一页，驱动会拒绝冲突安装。
+        HvmViewResult controlHvmView(
+            unsigned long operation,
+            unsigned long kind,
+            unsigned long viewId,
+            unsigned long expectedGeneration,
+            std::uint64_t physicalAddress,
+            const unsigned char* shadow,
+            bool seedFromTarget,
+            bool seedZero,
+            bool log,
+            bool uiConfirmed) const;
         // hvmMemory：执行一次 R-1 内存操作（物理/虚拟读写、翻译、窗口查询）。
         // - payload 只在写操作时使用，长度必须与 length 一致；
         // - directoryBase 为 0 时虚拟地址按当前进程页表解析；

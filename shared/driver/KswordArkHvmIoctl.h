@@ -565,3 +565,105 @@ typedef struct _KSWORD_ARK_HVM_MEMORY_RESPONSE
     long ntStatus;
     unsigned char data[KSWORD_ARK_HVM_MEMORY_MAX_BYTES];
 } KSWORD_ARK_HVM_MEMORY_RESPONSE;
+
+/*
+ * EPT split views: one guest-physical page backed by two different frames
+ * depending on how it is accessed.
+ *
+ * CLOAK backs execution with the real page and every read or write with a
+ * shadow, so code keeps running while memory scanners see whatever the shadow
+ * holds.  HOOK is the mirror image: reads and writes see the real page while
+ * execution is redirected into a shadow that carries the patched instructions,
+ * which is a breakpoint no byte comparison can find.
+ *
+ * Both are implemented by flipping the shared EPT leaf on violation and
+ * restoring it on the following monitor-trap exit, exactly like an allow-once
+ * rule.  That makes them subject to the same constraint: the leaf is shared by
+ * every processor, so a view is only safe while exactly one VCPU is resident.
+ * Multi-processor views need per-processor EPT hierarchies, which this
+ * protocol version does not provide.
+ */
+#define KSWORD_ARK_HVM_VIEW_PROTOCOL_VERSION 1UL
+
+/* Bound the number of simultaneously installed views. */
+#define KSWORD_ARK_HVM_MAX_VIEWS 32UL
+/* One view covers exactly one four-KiB page, which is the shadow's size. */
+#define KSWORD_ARK_HVM_VIEW_PAGE_BYTES 4096UL
+
+#define KSWORD_ARK_IOCTL_FUNCTION_HVM_VIEW 0x8BBUL
+#define IOCTL_KSWORD_ARK_HVM_VIEW \
+    CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_HVM_VIEW, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+
+#define KSWORD_ARK_HVM_VIEW_OP_ADD    1UL
+#define KSWORD_ARK_HVM_VIEW_OP_REMOVE 2UL
+#define KSWORD_ARK_HVM_VIEW_OP_CLEAR  3UL
+#define KSWORD_ARK_HVM_VIEW_OP_QUERY  4UL
+
+/* Execution sees the real page; reads and writes see the shadow. */
+#define KSWORD_ARK_HVM_VIEW_KIND_CLOAK 1UL
+/* Reads and writes see the real page; execution runs from the shadow. */
+#define KSWORD_ARK_HVM_VIEW_KIND_HOOK  2UL
+
+#define KSWORD_ARK_HVM_VIEW_FLAG_UI_CONFIRMED 0x00000001UL
+/* Seed the shadow from the target page instead of the supplied bytes. */
+#define KSWORD_ARK_HVM_VIEW_FLAG_SEED_FROM_TARGET 0x00000002UL
+/* Seed the shadow with zeroes instead of the supplied bytes. */
+#define KSWORD_ARK_HVM_VIEW_FLAG_SEED_ZERO 0x00000004UL
+/* Record every view flip in the HVM event ring. */
+#define KSWORD_ARK_HVM_VIEW_FLAG_LOG 0x00000008UL
+
+#define KSWORD_ARK_HVM_VIEW_STATUS_OK                    0UL
+#define KSWORD_ARK_HVM_VIEW_STATUS_INVALID_REQUEST       1UL
+#define KSWORD_ARK_HVM_VIEW_STATUS_CONFIRMATION_REQUIRED 2UL
+#define KSWORD_ARK_HVM_VIEW_STATUS_NOT_PREPARED          3UL
+#define KSWORD_ARK_HVM_VIEW_STATUS_NOT_FOUND             4UL
+#define KSWORD_ARK_HVM_VIEW_STATUS_TABLE_FULL            5UL
+#define KSWORD_ARK_HVM_VIEW_STATUS_SPLIT_FAILED          6UL
+/* The page already carries a view or an EPT rule; they cannot share a leaf. */
+#define KSWORD_ARK_HVM_VIEW_STATUS_LEAF_CONFLICT         7UL
+/* CLOAK needs execute-only EPT leaves, which this processor cannot encode. */
+#define KSWORD_ARK_HVM_VIEW_STATUS_EXECUTE_ONLY_UNSUPPORTED 8UL
+/* Views flip the shared leaf, so more than one resident VCPU is refused. */
+#define KSWORD_ARK_HVM_VIEW_STATUS_MULTIPROCESSOR_UNSAFE 9UL
+#define KSWORD_ARK_HVM_VIEW_STATUS_RESOURCE_FAILED       10UL
+
+typedef struct _KSWORD_ARK_HVM_VIEW_ROW
+{
+    unsigned long viewId;
+    unsigned long kind;
+    unsigned long flags;
+    unsigned long reserved;
+    unsigned long long physicalAddress;
+    unsigned long long shadowPhysicalAddress;
+    /* Times the leaf flipped to the secondary view since installation. */
+    unsigned long long flipCount;
+} KSWORD_ARK_HVM_VIEW_ROW;
+
+typedef struct _KSWORD_ARK_HVM_VIEW_REQUEST
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long operation;
+    unsigned long kind;
+    unsigned long flags;
+    unsigned long confirmationToken;
+    unsigned long viewId;
+    unsigned long expectedGeneration;
+    unsigned long long physicalAddress;
+    unsigned char shadow[KSWORD_ARK_HVM_VIEW_PAGE_BYTES];
+} KSWORD_ARK_HVM_VIEW_REQUEST;
+
+typedef struct _KSWORD_ARK_HVM_VIEW_RESPONSE
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long status;
+    unsigned long viewId;
+    unsigned long viewCount;
+    unsigned long generation;
+    unsigned long returnedRows;
+    unsigned long reserved;
+    long lastStatus;
+    unsigned long reserved2;
+    KSWORD_ARK_HVM_VIEW_ROW rows[KSWORD_ARK_HVM_MAX_VIEWS];
+} KSWORD_ARK_HVM_VIEW_RESPONSE;

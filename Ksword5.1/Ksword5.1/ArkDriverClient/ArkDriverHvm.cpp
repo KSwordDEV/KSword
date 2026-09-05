@@ -315,4 +315,81 @@ namespace ksword::ark
         result.io.message = stream.str();
         return result;
     }
+
+    HvmViewResult DriverClient::controlHvmView(
+        const unsigned long operation,
+        const unsigned long kind,
+        const unsigned long viewId,
+        const unsigned long expectedGeneration,
+        const std::uint64_t physicalAddress,
+        const unsigned char* const shadow,
+        const bool seedFromTarget,
+        const bool seedZero,
+        const bool log,
+        const bool uiConfirmed) const
+    {
+        HvmViewResult result{};
+        KSWORD_ARK_HVM_VIEW_REQUEST request{};
+        request.version = KSWORD_ARK_HVM_VIEW_PROTOCOL_VERSION;
+        request.size = sizeof(request);
+        request.operation = operation;
+        request.kind = kind;
+        request.viewId = viewId;
+        request.expectedGeneration = expectedGeneration;
+        request.physicalAddress = physicalAddress;
+        if (uiConfirmed)
+        {
+            request.flags |= KSWORD_ARK_HVM_VIEW_FLAG_UI_CONFIRMED;
+            request.confirmationToken =
+                KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+        }
+        if (seedFromTarget)
+        {
+            request.flags |= KSWORD_ARK_HVM_VIEW_FLAG_SEED_FROM_TARGET;
+        }
+        if (seedZero)
+        {
+            request.flags |= KSWORD_ARK_HVM_VIEW_FLAG_SEED_ZERO;
+        }
+        if (log)
+        {
+            request.flags |= KSWORD_ARK_HVM_VIEW_FLAG_LOG;
+        }
+        // 只有 ADD 且未指定 seed 标志时才使用调用方提供的整页影子内容。
+        if (shadow != nullptr &&
+            !seedFromTarget &&
+            !seedZero &&
+            operation == KSWORD_ARK_HVM_VIEW_OP_ADD)
+        {
+            std::memcpy(
+                request.shadow,
+                shadow,
+                KSWORD_ARK_HVM_VIEW_PAGE_BYTES);
+        }
+
+        result.io = deviceIoControl(
+            IOCTL_KSWORD_ARK_HVM_VIEW,
+            &request,
+            sizeof(request),
+            &result.response,
+            sizeof(result.response));
+        result.unsupported = !result.io.ok &&
+            isUnsupportedHvmError(result.io.win32Error);
+        result.io.ntStatus = result.response.lastStatus;
+
+        std::ostringstream stream;
+        stream << "HVM view operation=" << operation
+            << ", kind=" << kind
+            << ", status=" << result.response.status
+            << ", viewId=" << result.response.viewId
+            << ", viewCount=" << result.response.viewCount
+            << ", rows=" << result.response.returnedRows
+            << ", address=0x" << std::hex << physicalAddress << std::dec;
+        if (result.unsupported)
+        {
+            stream << ", unsupported=true";
+        }
+        result.io.message = stream.str();
+        return result;
+    }
 }

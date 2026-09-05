@@ -2816,6 +2816,11 @@
       "detail": "私有页表窗口直接改写 PTE 并读写任意物理内存。写路径无法在 CI 上构造无害目标，读路径同样绕开内存管理器，任何越界都会以不可归因的方式破坏 runner。"
     },
     {
+      "ioctl": "HVM_VIEW",
+      "reason": "virtualization-lifecycle",
+      "detail": "安装 EPT 分离视图会把执行或读取重定向到影子页，并要求单处理器拓扑。CI 机器通常已在 Hyper-V/VBS 之下且是多核，装不上也测不了。"
+    },
+    {
       "ioctl": "HWID_DISPATCH_CONTROL",
       "reason": "alters-host-identity",
       "detail": "改写磁盘/网卡/GPU 标识，会污染 CI 机器并影响后续运行。"

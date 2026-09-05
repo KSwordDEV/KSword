@@ -199,6 +199,42 @@ typedef struct _KSW_HVM_EPT_SPLIT
     ULONGLONG OriginalEntry;
 } KSW_HVM_EPT_SPLIT;
 
+/*
+ * Describe one installed EPT split view.  The leaf alternates between two
+ * values: the primary one the view keeps installed, and the secondary one that
+ * services the access the primary deliberately forbids.  Restoration reuses the
+ * allow-once transient machinery, so a view flip is a monitor-trap step.
+ */
+typedef struct _KSW_HVM_EPT_VIEW_SLOT
+{
+    /* Record whether the slot holds an installed view. */
+    BOOLEAN Active;
+    /* Keep the structure explicitly initialized across architectures. */
+    UCHAR Reserved0[3];
+    /* Retain the stable protocol-visible view identifier. */
+    ULONG ViewId;
+    /* Retain the kind that decides which access is served by the shadow. */
+    ULONG Kind;
+    /* Retain the view behavior flags. */
+    ULONG Flags;
+    /* Retain the page-aligned guest physical address the view covers. */
+    ULONGLONG PhysicalAddress;
+    /* Own the shadow page that backs the redirected access. */
+    PVOID ShadowVirtual;
+    /* Retain the shadow physical address encoded into the secondary value. */
+    PHYSICAL_ADDRESS ShadowPhysical;
+    /* Reference the writable four-KiB leaf entry this view flips. */
+    volatile ULONGLONG* Entry;
+    /* Preserve the leaf value that existed before installation. */
+    ULONGLONG OriginalEntry;
+    /* Preserve the steady-state value the view keeps installed. */
+    ULONGLONG PrimaryEntry;
+    /* Preserve the value used while the redirected access is serviced. */
+    ULONGLONG SecondaryEntry;
+    /* Count how often the leaf flipped to the secondary value. */
+    volatile LONG64 FlipCount;
+} KSW_HVM_EPT_VIEW_SLOT;
+
 /* Own the serialized HVM capability, lifecycle, EPT, and telemetry state. */
 typedef struct _KSW_HVM_RUNTIME
 {
@@ -322,6 +358,12 @@ typedef struct _KSW_HVM_RUNTIME
     KSW_HVM_EPT_RULE_SLOT EptRules[KSWORD_ARK_HVM_MAX_EPT_RULES];
     /* Retain every split two-MiB EPT leaf. */
     KSW_HVM_EPT_SPLIT EptSplits[KSW_HVM_MAX_EPT_SPLITS];
+    /* Retain every installed EPT split view. */
+    KSW_HVM_EPT_VIEW_SLOT EptViews[KSWORD_ARK_HVM_MAX_VIEWS];
+    /* Preserve the number of installed EPT split views. */
+    ULONG EptViewCount;
+    /* Preserve the next view identifier handed out by the view backend. */
+    ULONG EptViewNextId;
     /* Protect only the resident-transition phase and idle-event state. */
     KSPIN_LOCK ResidentTransitionStateLock;
     /* Wake wait-capable transition contenders after the current owner exits. */

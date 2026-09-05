@@ -17,6 +17,7 @@
 #include "Internationalization/LanguageManager.h"
 #include "UI/KvmControl.h"
 #include "UI/KvmMemoryDialog.h"
+#include "UI/KvmViewDialog.h"
 #include "theme.h"
 
 #include <QAction>
@@ -384,6 +385,16 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
     connect(memoryAction, &QAction::triggered, this, [this]() {
         // 无父窗口模态：内存面板要能和主界面并排使用。
         KvmMemoryDialog* const dialog = new KvmMemoryDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    });
+
+    // EPT 视图同样不要求常驻：它是安装在 EPT 上的，常驻期间反而不能改。
+    QAction* const viewAction = menu.addAction(
+        ks::i18n::sourceText(QStringLiteral("EPT 分离视图（隐蔽 Hook / 内存隐藏）...")));
+    viewAction->setEnabled(m_r0DriverServiceRunning);
+    connect(viewAction, &QAction::triggered, this, [this]() {
+        KvmViewDialog* const dialog = new KvmViewDialog(this);
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->show();
     });
