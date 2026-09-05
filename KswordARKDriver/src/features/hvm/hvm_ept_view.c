@@ -36,9 +36,6 @@ Environment:
 
 #include "hvm_ept_view.h"
 
-/* Tag the shadow page allocations for pool tracking. */
-#define KSW_HVM_VIEW_POOL_TAG 'WvHK'
-
 /* Return the active view that owns one page-aligned physical address. */
 static KSW_HVM_EPT_VIEW_SLOT*
 KswordARKHvmEptViewFind(

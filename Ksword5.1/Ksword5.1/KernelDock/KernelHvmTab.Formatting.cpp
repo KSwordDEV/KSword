@@ -129,7 +129,7 @@ QString KernelHvmTab::featureText(const std::uint64_t flags)
         std::uint64_t flag;
         const char* name;
     };
-    static constexpr std::array<FeatureName, 33> names{{
+    static constexpr std::array<FeatureName, 43> names{{
         { KSWORD_ARK_HVM_FEATURE_INTEL, "Intel" },
         { KSWORD_ARK_HVM_FEATURE_VMX, "VMX" },
         { KSWORD_ARK_HVM_FEATURE_FEATURE_CONTROL_LOCKED, "FeatureControlLocked" },
@@ -162,7 +162,17 @@ QString KernelHvmTab::featureText(const std::uint64_t flags)
         { KSWORD_ARK_HVM_FEATURE_POWER_STATE_GUARD, "PowerStateGuard" },
         { KSWORD_ARK_HVM_FEATURE_PROCESSOR_TOPOLOGY_GUARD, "ProcessorTopologyGuard" },
         { KSWORD_ARK_HVM_FEATURE_DRIVER_UNLOAD_GUARD, "DriverUnloadGuard" },
-        { KSWORD_ARK_HVM_FEATURE_RESIDENT_LIFECYCLE_GUARDED, "ResidentLifecycleGuarded" }
+        { KSWORD_ARK_HVM_FEATURE_RESIDENT_LIFECYCLE_GUARDED, "ResidentLifecycleGuarded" },
+        { KSWORD_ARK_HVM_FEATURE_MSR_BITMAP, "MsrBitmap" },
+        { KSWORD_ARK_HVM_FEATURE_EXIT_EMULATION, "ExitEmulation" },
+        { KSWORD_ARK_HVM_FEATURE_RESIDENT_SUSTAINED, "ResidentSustained" },
+        { KSWORD_ARK_HVM_FEATURE_AMD, "AMD" },
+        { KSWORD_ARK_HVM_FEATURE_SVM, "SVM" },
+        { KSWORD_ARK_HVM_FEATURE_NPT, "NPT" },
+        { KSWORD_ARK_HVM_FEATURE_SVM_NRIP, "SvmNextRip" },
+        { KSWORD_ARK_HVM_FEATURE_SVM_DECODE_ASSISTS, "SvmDecodeAssists" },
+        { KSWORD_ARK_HVM_FEATURE_SVM_FLUSH_BY_ASID, "SvmFlushByAsid" },
+        { KSWORD_ARK_HVM_FEATURE_SVM_FIRMWARE_DISABLED, "SvmFirmwareDisabled" }
     }};
     QStringList values;
     for (const auto& value : names)

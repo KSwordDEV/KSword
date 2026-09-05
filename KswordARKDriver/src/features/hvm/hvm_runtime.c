@@ -350,6 +350,82 @@ KswordARKHvmVerifyUniformCapabilities(
     return STATUS_SUCCESS;
 }
 
+/* Name the AMD VM_CR register that carries the firmware SVM lock. */
+#define KSW_MSR_AMD_VM_CR 0xC0010114UL
+/* Identify the VM_CR bit that disables SVM until the next reset. */
+#define KSW_AMD_VM_CR_SVMDIS (1ULL << 4)
+
+/*
+ * Read AMD SVM capability evidence.  Nothing here enables anything: the SVM
+ * backend does not exist in this build, so the result is published purely so
+ * the UI can tell the user their hardware is capable and the software is not.
+ */
+static VOID
+KswordARKHvmReadAmdCapabilities(
+    _Inout_ KSW_HVM_RUNTIME* Runtime
+    )
+{
+    int registers[4] = { 0 };
+    ULONGLONG vmCr = 0ULL;
+    ULONG svmFeatures = 0UL;
+
+    /* Publish the vendor identity before any capability decoding. */
+    Runtime->FeatureFlags |= KSWORD_ARK_HVM_FEATURE_AMD;
+    /* Extended leaf one reports whether SVM exists at all. */
+    __cpuid(registers, (int)0x80000001UL);
+    if (((ULONG)registers[2] & (1UL << 2)) != 0UL) {
+        /* Publish the architectural SVM capability. */
+        Runtime->FeatureFlags |= KSWORD_ARK_HVM_FEATURE_SVM;
+    }
+    /* Leaf 0x8000000A enumerates the SVM feature set. */
+    __cpuid(registers, (int)0x8000000AUL);
+    svmFeatures = (ULONG)registers[3];
+    if ((svmFeatures & (1UL << 0)) != 0UL) {
+        /* Publish nested paging, the AMD equivalent of EPT. */
+        Runtime->FeatureFlags |= KSWORD_ARK_HVM_FEATURE_NPT;
+    }
+    if ((svmFeatures & (1UL << 3)) != 0UL) {
+        /* Publish next-RIP save, which removes most instruction decoding. */
+        Runtime->FeatureFlags |= KSWORD_ARK_HVM_FEATURE_SVM_NRIP;
+    }
+    if ((svmFeatures & (1UL << 6)) != 0UL) {
+        /* Publish flush-by-ASID, needed for cheap TLB maintenance. */
+        Runtime->FeatureFlags |=
+            KSWORD_ARK_HVM_FEATURE_SVM_FLUSH_BY_ASID;
+    }
+    if ((svmFeatures & (1UL << 7)) != 0UL) {
+        /* Publish decode assists, which simplify intercept handling. */
+        Runtime->FeatureFlags |=
+            KSWORD_ARK_HVM_FEATURE_SVM_DECODE_ASSISTS;
+    }
+    /* Read the firmware lock without changing it. */
+    __try {
+        /* VM_CR carries the firmware SVM disable bit. */
+        vmCr = __readmsr(KSW_MSR_AMD_VM_CR);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        /* Leave the lock evidence absent when the register is unreadable. */
+        vmCr = 0ULL;
+    }
+    if ((vmCr & KSW_AMD_VM_CR_SVMDIS) != 0ULL) {
+        /* Publish the firmware lock so the UI can say what to change. */
+        Runtime->FeatureFlags |=
+            KSWORD_ARK_HVM_FEATURE_SVM_FIRMWARE_DISABLED;
+    }
+    /*
+     * Distinguish the two reasons an AMD machine cannot run: firmware turned
+     * SVM off, or the software has no backend.  They need different fixes.
+     */
+    Runtime->QueryStatus =
+        (Runtime->FeatureFlags & KSWORD_ARK_HVM_FEATURE_SVM) == 0ULL ||
+        (Runtime->FeatureFlags &
+            KSWORD_ARK_HVM_FEATURE_SVM_FIRMWARE_DISABLED) != 0ULL
+            ? KSWORD_ARK_HVM_QUERY_STATUS_FIRMWARE_DISABLED
+            : KSWORD_ARK_HVM_QUERY_STATUS_BACKEND_NOT_IMPLEMENTED;
+    /* Preserve the authoritative unavailability status. */
+    Runtime->LastStatus = STATUS_NOT_IMPLEMENTED;
+}
+
 static BOOLEAN
 KswordARKHvmReadCapabilities(
     _Inout_ KSW_HVM_RUNTIME* Runtime
@@ -372,6 +448,18 @@ KswordARKHvmReadCapabilities(
         RTL_NUMBER_OF(Runtime->CpuVendor),
         vendor,
         12UL);
+    /*
+     * An AMD part supports hardware virtualization perfectly well; what is
+     * missing is a backend in this build.  Reporting it as an unsupported CPU
+     * would be a lie, so the capability is read out honestly and the status
+     * says the software is what is absent.
+     */
+    if (RtlCompareMemory(vendor, "AuthenticAMD", 12UL) == 12UL) {
+        /* Publish the AMD capability evidence without claiming readiness. */
+        KswordARKHvmReadAmdCapabilities(Runtime);
+        /* Report that no backend can drive this processor yet. */
+        return FALSE;
+    }
     if (RtlCompareMemory(vendor, "GenuineIntel", 12UL) != 12UL) {
         Runtime->QueryStatus =
             KSWORD_ARK_HVM_QUERY_STATUS_UNSUPPORTED_CPU;

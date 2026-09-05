@@ -84,6 +84,8 @@ namespace ksword::kvm
                 return KvmAvailability::HypervisorConflict;
             case KSWORD_ARK_HVM_QUERY_STATUS_UNSUPPORTED_CPU:
                 return KvmAvailability::UnsupportedCpu;
+            case KSWORD_ARK_HVM_QUERY_STATUS_BACKEND_NOT_IMPLEMENTED:
+                return KvmAvailability::BackendNotImplemented;
             default:
                 break;
             }
@@ -205,6 +207,9 @@ namespace ksword::kvm
             return ks::i18n::sourceText(QStringLiteral("尚未准备资源，点击后自动准备"));
         case KvmAvailability::Faulted:
             return ks::i18n::sourceText(QStringLiteral("存在故障或待回滚，需要先重置"));
+        case KvmAvailability::BackendNotImplemented:
+            return ks::i18n::sourceText(
+                QStringLiteral("处理器支持 AMD SVM，但本版本尚未实现 SVM 后端"));
         }
         return QString();
     }

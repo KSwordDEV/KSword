@@ -26,7 +26,10 @@ namespace ksword::kvm
         FirmwareDisabled,   // 固件里关闭了虚拟化。
         HypervisorConflict, // Hyper-V/VBS 已占用 VMX root。
         NotPrepared,        // 资源尚未准备（PREPARE 未执行或已 TEARDOWN）。
-        Faulted             // 存在故障或需要回滚，必须先重置。
+        Faulted,            // 存在故障或需要回滚，必须先重置。
+        // 硬件支持虚拟化，但本版本没有对应后端（当前即 AMD SVM）。
+        // 与 UnsupportedCpu 分开：前者要换机器，后者要等软件。
+        BackendNotImplemented
     };
 
     // KvmState：一次状态快照。UI 只读这个结构，不直接解析 featureFlags。

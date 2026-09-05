@@ -85,6 +85,21 @@
 #define KSWORD_ARK_HVM_FEATURE_EXIT_EMULATION             0x0000002000000000ULL
 /* A timed soak proved residency survives ordinary system activity. */
 #define KSWORD_ARK_HVM_FEATURE_RESIDENT_SUSTAINED         0x0000004000000000ULL
+/*
+ * AMD capability evidence.  These bits report what the processor can do, not
+ * what this build can drive: the SVM backend is not implemented, so an AMD
+ * machine reports BACKEND_NOT_IMPLEMENTED rather than pretending to be ready.
+ * Reporting the hardware honestly is the point - "unsupported CPU" would be a
+ * lie on a part that supports SVM perfectly well.
+ */
+#define KSWORD_ARK_HVM_FEATURE_AMD                        0x0000008000000000ULL
+#define KSWORD_ARK_HVM_FEATURE_SVM                        0x0000010000000000ULL
+#define KSWORD_ARK_HVM_FEATURE_NPT                        0x0000020000000000ULL
+#define KSWORD_ARK_HVM_FEATURE_SVM_NRIP                   0x0000040000000000ULL
+#define KSWORD_ARK_HVM_FEATURE_SVM_DECODE_ASSISTS         0x0000080000000000ULL
+#define KSWORD_ARK_HVM_FEATURE_SVM_FLUSH_BY_ASID          0x0000100000000000ULL
+/* The firmware disabled SVM through VM_CR.SVMDIS. */
+#define KSWORD_ARK_HVM_FEATURE_SVM_FIRMWARE_DISABLED      0x0000200000000000ULL
 
 #define KSWORD_ARK_HVM_STATE_INITIALIZED      0x00000001UL
 #define KSWORD_ARK_HVM_STATE_RESOURCES_READY  0x00000002UL
@@ -131,6 +146,12 @@
 #define KSWORD_ARK_HVM_QUERY_STATUS_RESOURCES_UNAVAILABLE 4UL
 #define KSWORD_ARK_HVM_QUERY_STATUS_SELF_TEST_FAILED      5UL
 #define KSWORD_ARK_HVM_QUERY_STATUS_BUSY                  6UL
+/*
+ * The processor supports hardware virtualization, but this build has no
+ * backend for it.  Distinct from UNSUPPORTED_CPU on purpose: the user should
+ * know the machine is capable and the software is what is missing.
+ */
+#define KSWORD_ARK_HVM_QUERY_STATUS_BACKEND_NOT_IMPLEMENTED 7UL
 #define KSWORD_ARK_HVM_QUERY_STATUS_PARTIAL               7UL
 #define KSWORD_ARK_HVM_QUERY_STATUS_ROLLBACK_REQUIRED     8UL
 

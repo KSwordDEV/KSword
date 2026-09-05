@@ -51,6 +51,20 @@ Environment:
 #define KSW_HVM_CR_ACCESS_TO_CR 0UL
 /* Identify a guest read from a control register. */
 #define KSW_HVM_CR_ACCESS_FROM_CR 1UL
+/* Identify CLTS, which clears CR0.TS and nothing else. */
+#define KSW_HVM_CR_ACCESS_CLTS 2UL
+/* Identify LMSW, which writes only the low four bits of CR0. */
+#define KSW_HVM_CR_ACCESS_LMSW 3UL
+
+/* Decode the 16-bit source operand LMSW carries in the qualification. */
+#define KSW_HVM_CR_QUAL_LMSW_SOURCE(q) ((ULONGLONG)(((q) >> 16) & 0xFFFFULL))
+
+/* Identify CR0.PE, which LMSW may set but never clear. */
+#define KSW_HVM_CR0_PE (1ULL << 0)
+/* Identify CR0.TS, the only bit CLTS touches. */
+#define KSW_HVM_CR0_TS (1ULL << 3)
+/* Group the four bits LMSW is allowed to write. */
+#define KSW_HVM_CR0_LMSW_MASK 0xFULL
 
 /* Decode the debug register a MOV-DR exit touched. */
 #define KSW_HVM_DR_QUAL_NUMBER(q) ((ULONG)((q) & 0x7ULL))
@@ -206,6 +220,63 @@ KswordARKHvmCrPolicyHandleControlRegister(
          * one means the VMCS does not match the configuration.  Fail closed.
          */
         return FALSE;
+    }
+    /*
+     * CLTS and LMSW write CR0 without a source register, so they need their
+     * own decoding.  They only reach here when a low CR0 bit is pinned, which
+     * is unusual - but failing closed on them would tear down residency for an
+     * instruction the guest is entitled to execute.
+     */
+    if (number == 0UL &&
+        (access == KSW_HVM_CR_ACCESS_CLTS ||
+         access == KSW_HVM_CR_ACCESS_LMSW)) {
+        SIZE_T guestCr0 = 0U;
+        ULONGLONG startingValue = 0ULL;
+
+        /* Read the value the instruction is about to modify. */
+        if (__vmx_vmread(
+                KSW_VMCS_GUEST_CR0,
+                &guestCr0) != 0U) {
+            /* Report an unhandled exit. */
+            return FALSE;
+        }
+        /* Preserve the exact architectural starting value. */
+        startingValue = (ULONGLONG)guestCr0;
+        if (access == KSW_HVM_CR_ACCESS_CLTS) {
+            /* CLTS clears exactly one bit. */
+            requested = startingValue & ~KSW_HVM_CR0_TS;
+        } else {
+            /*
+             * LMSW writes the low four bits from its immediate source, and
+             * architecturally cannot clear PE - once in protected mode the
+             * guest stays there.
+             */
+            const ULONGLONG source =
+                KSW_HVM_CR_QUAL_LMSW_SOURCE(Qualification);
+
+            requested =
+                (startingValue & ~KSW_HVM_CR0_LMSW_MASK) |
+                (source & KSW_HVM_CR0_LMSW_MASK) |
+                (startingValue & KSW_HVM_CR0_PE);
+        }
+        /* Apply the pinning exactly as an ordinary write would. */
+        merged = (requested & ~pinnedMask) | (pinnedValue & pinnedMask);
+        /* Account a refusal only when a pinned bit was actually targeted. */
+        if ((requested & pinnedMask) != (pinnedValue & pinnedMask)) {
+            /* Record the refused write for the protocol counters. */
+            InterlockedIncrement64(&Runtime->CrPolicyRefusedWriteCount);
+        }
+        /* Install the merged value in the architectural register. */
+        if (__vmx_vmwrite(
+                guestField,
+                (SIZE_T)merged) != 0U) {
+            /* Report an unhandled exit. */
+            return FALSE;
+        }
+        /* Let the guest read back what it asked for. */
+        return __vmx_vmwrite(
+            shadowField,
+            (SIZE_T)requested) == 0U;
     }
     /* Only writes reach here: masked reads are served from the shadow. */
     if (access != KSW_HVM_CR_ACCESS_TO_CR) {

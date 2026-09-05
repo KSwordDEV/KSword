@@ -434,6 +434,11 @@
     <ClInclude Include="src\features\hvm\hvm_nested_ept.h" />
     <ClInclude Include="src\features\hvm\hvm_nested.h" />
     <ClInclude Include="src\features\hvm\hvm_exit.h" />
+    <ClInclude Include="src\features\hvm\hvm_exit_emulate.h" />
+    <ClInclude Include="src\features\hvm\hvm_memory.h" />
+    <ClInclude Include="src\features\hvm\hvm_ept_view.h" />
+    <ClInclude Include="src\features\hvm\hvm_msr_policy.h" />
+    <ClInclude Include="src\features\hvm\hvm_cr_policy.h" />
     <ClInclude Include="src\features\hvm\hvm_resident.h" />
     <ClInclude Include="src\features\hvm\hvm_vmcs.h" />
     <ClInclude Include="src\features\hvm\hvm_guest.h" />

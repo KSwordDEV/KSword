@@ -31736,6 +31736,14 @@
     "钉住 CR4.SMEP": "钉住 CR4.SMEP",
     "钉住 CR4.UMIP": "钉住 CR4.UMIP",
     "额外的 CR0 掩码位，十六进制": "额外的 CR0 掩码位，十六进制",
-    "额外的 CR4 掩码位，十六进制": "额外的 CR4 掩码位，十六进制"
+    "额外的 CR4 掩码位，十六进制": "额外的 CR4 掩码位，十六进制",
+    "处理器支持 AMD SVM，但本版本尚未实现 SVM 后端": "处理器支持 AMD SVM，但本版本尚未实现 SVM 后端",
+    "ExitEmulation": "ExitEmulation",
+    "MsrBitmap": "MsrBitmap",
+    "ResidentSustained": "ResidentSustained",
+    "SvmDecodeAssists": "SvmDecodeAssists",
+    "SvmFirmwareDisabled": "SvmFirmwareDisabled",
+    "SvmFlushByAsid": "SvmFlushByAsid",
+    "SvmNextRip": "SvmNextRip"
   }
 }
