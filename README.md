@@ -239,3 +239,8 @@ The [Community Covenant](COMMUNITY_COVENANT.md) is about attribution and respons
 If this project helps you, consider supporting its development.
 
 <img width="300" alt="1788661997687_d" src="https://github.com/user-attachments/assets/659eff17-5fd7-46e6-a66b-77ff0099875b" />
+
+## Next
+
+Hvm & Nested VM
+Anti BSOD
