@@ -233,3 +233,9 @@ The [Community Covenant](COMMUNITY_COVENANT.md) is about attribution and respons
    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=KSwordDEV/KSword&type=timeline&legend=top-left&sealed_token=hbas9yW4Wjk96TQwUcVo8iWbLMLjxz1Ageym2BTfRw2bV9g97jc35XTCzmb2yHYYxsOm4xNQrBp8kpr-mfkhnFg0-fSBW5otNIhxK0DEocUY0dBWKTMJ0vG7LsEBA0oNQIkZW2pCO44UEI3kps_J3yhO0jN_uvS1AArEXxLA4uGMoiFmiVzWuBuo6KlU" />
  </picture>
 </a>
+
+## ❤️ Sponsor
+
+If this project helps you, consider supporting its development.
+
+<img width="300" alt="1788661997687_d" src="https://github.com/user-attachments/assets/659eff17-5fd7-46e6-a66b-77ff0099875b" />
