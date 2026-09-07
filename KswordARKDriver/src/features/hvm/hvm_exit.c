@@ -76,6 +76,14 @@ Environment:
 
 /* Identify the monitor-trap flag execution control. */
 #define KSW_VMX_PRIMARY_MONITOR_TRAP_FLAG (1UL << 27)
+/*
+ * NMI-window exiting: exit as soon as the guest can accept an NMI again.
+ *
+ * Requested only while an NMI is being held for the guest, and cleared the
+ * moment it is delivered.  Left on it would exit continuously, because the
+ * condition it names is the guest's ordinary state.
+ */
+#define KSW_VMX_PRIMARY_NMI_WINDOW_EXITING (1UL << 22)
 
 /* VM-exit interruption information; describes what caused an exception/NMI exit. */
 #define KSW_VMCS_EXIT_INTERRUPTION_INFO 0x4404UL
@@ -89,6 +97,14 @@ Environment:
 #define KSW_VMX_INTERRUPTION_TYPE_NMI 2ULL
 /* Valid | type NMI | vector 2: the exact descriptor that redelivers an NMI. */
 #define KSW_VMX_ENTRY_INTERRUPTION_NMI 0x80000202ULL
+/*
+ * Guest interruptibility state bit 3: the guest is currently blocking NMIs,
+ * which in practice means it is inside its own NMI handler and has not yet
+ * executed the IRET that would end that.
+ */
+#define KSW_VMX_INTERRUPTIBILITY_BLOCKING_BY_NMI (1ULL << 3)
+/* VM exit taken when the guest becomes able to accept an NMI again. */
+#define KSW_VMX_EXIT_NMI_WINDOW 8UL
 
 /*
  * TLFS call codes that ask the hypervisor to invalidate translations on
@@ -214,6 +230,77 @@ KswordARKHvmExitSetMonitorTrap(
     return __vmx_vmwrite(
         KSW_VMCS_PRIMARY_CONTROLS,
         controls) == 0U;
+}
+
+/* Request or clear NMI-window exiting on the current VMCS. */
+static BOOLEAN
+KswordARKHvmExitSetNmiWindow(
+    _In_ BOOLEAN Enabled
+    )
+{
+    SIZE_T controls = 0U;
+
+    /* Read the current primary processor-based controls. */
+    if (__vmx_vmread(
+            KSW_VMCS_PRIMARY_CONTROLS,
+            &controls) != 0U) {
+        /* Report VMREAD failure to the dispatcher. */
+        return FALSE;
+    }
+    if (Enabled) {
+        /* Ask to be told the moment the guest can take an NMI. */
+        controls |=
+            (SIZE_T)KSW_VMX_PRIMARY_NMI_WINDOW_EXITING;
+    } else {
+        /* Stop asking once the held NMI has been delivered. */
+        controls &=
+            ~(SIZE_T)KSW_VMX_PRIMARY_NMI_WINDOW_EXITING;
+    }
+    /* Write the complete updated primary controls. */
+    return __vmx_vmwrite(
+        KSW_VMCS_PRIMARY_CONTROLS,
+        controls) == 0U;
+}
+
+/*
+ * Give the guest one NMI, now if it can take one and later if it cannot.
+ *
+ * Injection through the VM-entry interruption field is **unconditional**: the
+ * processor delivers the event on entry no matter what the guest's
+ * interruptibility state says.  So handing an NMI back while the guest is
+ * inside its own NMI handler would nest one NMI inside another, which is
+ * exactly the architectural situation IRET exists to end and which Windows
+ * does not expect to see.  Checking blocking-by-NMI first, and holding the NMI
+ * until an NMI window opens, is what makes redelivery faithful rather than
+ * merely prompt.
+ *
+ * A held NMI is not lost and not queued deeper than one: the architecture
+ * collapses multiple pending NMIs into one anyway, so a second arrival while
+ * one is already held needs no additional storage.
+ */
+static BOOLEAN
+KswordARKHvmExitDeliverGuestNmi(
+    _Inout_ struct _KSW_HVM_RESIDENT_VCPU* Context
+    )
+{
+    SIZE_T interruptibility = 0U;
+
+    /* Without the guest's interruptibility state, hold rather than guess. */
+    if (__vmx_vmread(
+            KSW_VMCS_GUEST_INTERRUPTIBILITY,
+            &interruptibility) != 0U) {
+        return FALSE;
+    }
+    if (((ULONGLONG)interruptibility &
+            KSW_VMX_INTERRUPTIBILITY_BLOCKING_BY_NMI) != 0ULL) {
+        /* Hold it and ask to be woken when the guest's handler returns. */
+        InterlockedExchange(&Context->PendingGuestNmi, 1L);
+        return KswordARKHvmExitSetNmiWindow(TRUE);
+    }
+    /* Deliver the guest's own NMI on the next VM entry. */
+    return __vmx_vmwrite(
+        KSW_VMCS_ENTRY_INTERRUPTION_INFO,
+        KSW_VMX_ENTRY_INTERRUPTION_NMI) == 0U;
 }
 
 /* Convert EPT qualification bits to the public access mask. */
@@ -1337,10 +1424,8 @@ KswordARKHvmResidentVmExitDispatch(
                 /* Ours.  The re-entry below is the flush. */
                 handled = TRUE;
             } else {
-                /* Deliver the guest's own NMI on the next VM entry. */
-                handled = __vmx_vmwrite(
-                    KSW_VMCS_ENTRY_INTERRUPTION_INFO,
-                    KSW_VMX_ENTRY_INTERRUPTION_NMI) == 0U;
+                /* The guest's own; deliver it when it can actually take one. */
+                handled = KswordARKHvmExitDeliverGuestNmi(Context);
             }
         } else {
             /*
@@ -1351,6 +1436,31 @@ KswordARKHvmResidentVmExitDispatch(
              */
             handled = FALSE;
         }
+    /*
+     * The guest can take an NMI again, so hand over the one being held.
+     *
+     * This exit exists only because a held NMI asked for it, and the request
+     * is cleared here unconditionally - including on the paths where there is
+     * nothing to deliver.  Leaving the control set would exit continuously:
+     * "the guest can accept an NMI" is its ordinary state, not an event.
+     */
+    } else if (basicReason == KSW_VMX_EXIT_NMI_WINDOW) {
+        if (InterlockedExchange(
+                &Context->PendingGuestNmi,
+                0L) != 0L) {
+            /* Deliver the NMI that was held while the guest blocked them. */
+            handled = __vmx_vmwrite(
+                KSW_VMCS_ENTRY_INTERRUPTION_INFO,
+                KSW_VMX_ENTRY_INTERRUPTION_NMI) == 0U;
+        } else {
+            /* Nothing held; the window was already stale when it opened. */
+            handled = TRUE;
+        }
+        /* Stop asking, whether or not anything was delivered. */
+        if (!KswordARKHvmExitSetNmiWindow(FALSE)) {
+            handled = FALSE;
+        }
+        /* RIP is deliberately not advanced: no instruction caused this exit. */
     /* Fail closed for the mandatory exits that have no implementation yet. */
     } else if (basicReason ==
                     KSW_VMX_EXIT_EXTERNAL_INTERRUPT ||

@@ -175,6 +175,22 @@ typedef struct _KSW_HVM_RESIDENT_VCPU
      * assembly entry addresses this structure by literal offsets.
      */
     ULONG ApicId;
+    /*
+     * Set while an NMI belonging to the guest is being held because the guest
+     * was blocking NMIs when it arrived.
+     *
+     * Injection through the VM-entry interruption field ignores the guest's
+     * interruptibility state, so handing an NMI back during the guest's own
+     * NMI handler would nest one inside another.  This flag, plus NMI-window
+     * exiting, turns "deliver now" into "deliver as soon as it is legal".
+     *
+     * One bit is enough: the architecture already collapses multiple pending
+     * NMIs into a single one, so a second arrival while one is held needs no
+     * additional storage.
+     *
+     * Appended at the end for the same reason as the fields above it.
+     */
+    volatile LONG PendingGuestNmi;
 } KSW_HVM_RESIDENT_VCPU;
 
 EXTERN_C_START

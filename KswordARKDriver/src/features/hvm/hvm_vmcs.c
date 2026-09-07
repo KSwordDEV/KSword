@@ -83,6 +83,24 @@ Environment:
  * the ones that do arrive, which the dispatcher now does by reinjecting.
  */
 #define KSW_VMX_PIN_NMI_EXITING (1UL << 3)
+/*
+ * Pin-based control bit 5: virtual NMIs.
+ *
+ * Requested together with NMI exiting, and meaningless without it.  It changes
+ * what blocking-by-NMI in the guest interruptibility state means: with it, the
+ * processor tracks *virtual* NMI blocking on the guest's behalf, set when an
+ * NMI is injected and cleared by the guest's IRET, rather than the physical
+ * blocking that a host-owned NMI would otherwise impose.
+ *
+ * That is the state the redelivery path reads before handing an NMI back.  The
+ * read is correct either way - blocking-by-NMI is a defined guest field with or
+ * without this control - so this is requested for accuracy rather than as a
+ * dependency, and losing it to the capability MSR costs correctness in only one
+ * narrow case: a host-swallowed NMI would leave physical blocking visible as
+ * guest blocking, and the guest's NMI would be held slightly longer than
+ * necessary.  Held, not lost.
+ */
+#define KSW_VMX_PIN_VIRTUAL_NMIS (1UL << 5)
 
 #define KSW_VMX_PRIMARY_HLT_EXITING (1UL << 7)
 #define KSW_VMX_PRIMARY_CR3_LOAD_EXITING (1UL << 15)
@@ -868,9 +886,18 @@ KswordARKHvmConfigureVmcs(
      */
     pinControls = KswordARKHvmAdjustControls(
         (Input->ResidentMode != 0U
-            ? KSW_VMX_PIN_NMI_EXITING
+            ? (KSW_VMX_PIN_NMI_EXITING | KSW_VMX_PIN_VIRTUAL_NMIS)
             : 0UL),
         pinCapability);
+    /*
+     * Virtual NMIs without NMI exiting is an illegal combination that fails VM
+     * entry.  The adjust above can produce exactly that if the capability MSR
+     * happens to allow one and require the other, so drop the dependent bit
+     * rather than let a control pair we did not verify reach VMLAUNCH.
+     */
+    if ((pinControls & KSW_VMX_PIN_NMI_EXITING) == 0UL) {
+        pinControls &= ~(ULONG)KSW_VMX_PIN_VIRTUAL_NMIS;
+    }
     /* Activate secondary controls and reserve HLT exits for one-shot guests. */
     primaryControls = KswordARKHvmAdjustControls(
         (Input->ResidentMode == 0U
