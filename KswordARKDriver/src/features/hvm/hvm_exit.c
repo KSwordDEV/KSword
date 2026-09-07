@@ -561,6 +561,50 @@ KswordARKHvmResidentVmExitDispatch(
         /* Request a bounded fatal trap with no unsafe continuation. */
         return KSW_HVM_EXIT_ACTION_FATAL;
     }
+    /*
+     * Another processor failed closed and asked everyone out.  Leave before
+     * servicing anything.
+     *
+     * Devirtualization only ever covers the current processor, and the IPI
+     * rendezvous is unusable from a VM-exit handler, so this check is the only
+     * way the request reaches the remaining processors.  Without it a
+     * fail-closed exit left the box half devirtualized - measured 2026-09-07 on
+     * 2 vCPU, where residentProcessorCount went 2 -> 1 and stayed.
+     *
+     * InstructionLength is 0 on purpose: this exit was never serviced, so the
+     * intercepted instruction has to re-execute natively after VMXOFF.  That is
+     * the same fail-open continuation every other fail-closed path uses.
+     *
+     * Faulted is FALSE on purpose: this processor is not the origin.  The
+     * processor that failed already published FAULTED and ROLLBACK_REQUIRED,
+     * and re-publishing here would make every follower look like a separate
+     * fault in the telemetry.
+     *
+     * Read it, never consume it.  Every remaining processor has to see the same
+     * request, and there is no way to know how many are still resident from
+     * here.  An exchange would hand the request to whichever processor exited
+     * first and hide it from the rest - correct by accident on two processors,
+     * silently leaving two of four behind on a bigger box.  The flag stays up
+     * until residency starts again, which is the one moment nobody is resident.
+     *
+     * No loop risk: a processor that takes this path leaves VMX and never
+     * re-enters the dispatcher, and a failed devirtualization returns FATAL
+     * rather than falling through.
+     */
+    if (InterlockedCompareExchange(
+            &Context->Runtime->ResidentFaultStopRequested,
+            0L,
+            0L) != 0L) {
+        /* Leave VMX without advancing an unserviced instruction. */
+        handled = KswordARKHvmResidentDeactivateCurrent(
+            Context,
+            0UL,
+            FALSE);
+        /* Return only a verified guest continuation. */
+        return handled
+            ? KSW_HVM_EXIT_ACTION_DEVIRTUALIZE
+            : KSW_HVM_EXIT_ACTION_FATAL;
+    }
     /* Capture protocol-visible VMCS exit telemetry. */
     status = KswordARKHvmReadVmExitTelemetry(
         &telemetry);

@@ -1,0 +1,88 @@
+$$ KSword fatal-path capture script.
+$$
+$$ ASCII only, on purpose. kd reads a script file as ANSI; a UTF-8 file with
+$$ non-ASCII comments renders as mojibake and buries the output that matters.
+$$ Never write the script-include token inside a comment -- kd parses it anyway.
+$$ Start-KswordVmDebugger.ps1 runs this file LINE BY LINE, not joined by
+$$ semicolons: .sympath+ takes a semicolon-separated list and would swallow
+$$ every command that follows.
+$$
+$$ GOAL: catch KswordARKHvmResidentFatal.
+$$
+$$ hvm_entry.asm:630-636
+$$     KswordARKHvmResidentFatal:
+$$         int 3
+$$         pause
+$$         jmp KswordARKHvmResidentFatal
+$$
+$$ Two ways in:
+$$   hvm_entry.asm:368  dispatcher returned an action that is neither
+$$                      RESUME(0) nor DEVIRTUALIZE(1), i.e. FATAL
+$$   hvm_entry.asm:461  VMRESUME failed with no verified continuation
+$$
+$$ WE DO NOT NEED A BREAKPOINT ON THE LABEL. It is a local label inside
+$$ KswordARKHvmResidentVmExitEntry PROC and has no symbol of its own -- but the
+$$ int 3 breaks into the debugger by itself, before the spin. That is the whole
+$$ reason kd works for THIS hang while it failed for the earlier one: there we
+$$ had to interrupt a wedge from outside (NMI and Ctrl+C both failed); here the
+$$ code stops itself.
+$$
+$$ Measured signature we are explaining (2 vCPU, soak stage):
+$$   both VPs 98% guest run time, intercepts/sec steady ~1300 (NOT a storm),
+$$   messages/sec 0, heartbeat lost. A pause/jmp loop in VMX root with IF=0
+$$   produces exactly that.
+
+.echo === symbol path: LOCAL ONLY, never reach the network from inside kd ===
+$$ Do NOT use .symfix / .symfix+ here. It points the symbol path at the Microsoft
+$$ symbol server, and a reload from inside kd over a named pipe has frozen the
+$$ HOST twice on this machine (2026-09-06 and again 2026-09-07 -- the second time
+$$ with the host already down to 1.3 GB free RAM).
+$$
+$$ The split that works: download symbols in a SEPARATE process with symchk, then
+$$ let kd see a purely local store. The store form needs the trailing star and no
+$$ upstream URL: srv*C:\symbols*  -- a bare directory path is treated as a flat
+$$ folder and will NOT find a symbol-store layout.
+$$
+$$ Start-KswordVmDebugger.ps1 / the launch command also pass -y with the same
+$$ local-only value; this line only appends the driver's own PDB directory.
+.sympath+ C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKDriver
+
+.echo === break once when the driver loads, so symbols can be verified ===
+sxe ld:KswordARK.sys
+
+.echo === VMRESUME failure has its own symbol; arm it (stop, do not continue) ===
+$$ bu, not bp: the service is start= demand, so the module is NOT loaded when the
+$$ debugger attaches. bp fails to resolve and silently arms nothing.
+bu KswordARK!KswordARKHvmResidentVmResumeFailure
+
+.echo === auto-capture on the int 3 ===
+$$ The fatal label executes int 3, which surfaces here as a breakpoint exception.
+$$ kd runs detached with no stdin in this setup, so the capture commands have to
+$$ be attached to the event in advance -- there is nobody to type them afterwards.
+$$ Cheap reads first; anything that touches the other processor can itself wedge
+$$ the link, so those go last.
+sxe -c "r;.echo ---K---;k;.echo ---U---;u rip-30 rip+10;.echo ---PROC---;~;.echo ---RUNNING---;!running -it;.echo === FATAL CAPTURED ===" bpe
+
+.echo === breakpoint list ("u" here only means not yet resolved) ===
+bl
+
+.echo
+.echo Armed. Now, in another window:
+.echo   1) .\scripts\Deploy-KswordDriverToVm.ps1
+.echo      kd breaks on module load. Then type:
+.echo          .reload /f KswordARK.sys
+.echo          bl
+.echo          g
+.echo   2) reproduce on 2 vCPU:
+.echo          .\scripts\Invoke-KswordUnattendedSuite.ps1
+.echo
+.echo When the int 3 fires, capture IN THIS ORDER (cheap first, and note that
+.echo anything touching the other core may itself hang the link):
+.echo    r                 rax holds the action code the dispatcher returned
+.echo    k                 host-stack backtrace
+.echo    u rip-30 rip+10   which of the two jmp sites brought us here
+.echo    ~                 which processor broke in
+.echo    !running -it      what the other processor is doing
+.echo
+.echo DO NOT SINGLE-STEP. p/t remove every software breakpoint first; use g.
+g

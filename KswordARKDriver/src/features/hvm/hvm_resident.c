@@ -934,6 +934,27 @@ KswordARKHvmResidentDeactivateCurrent(
         return FALSE;
     }
     /*
+     * A fail-closed exit is a whole-machine event, so publish it before this
+     * processor does anything else.
+     *
+     * This call only devirtualizes the current processor, and the IPI
+     * rendezvous that could reach the others is unusable from here (VMX root,
+     * indeterminate IRQL).  The remaining processors therefore have to notice
+     * on their own, and the earliest they can is their next VM exit - so the
+     * request has to be visible before this one leaves VMX rather than after.
+     *
+     * Only on Faulted.  The planned per-processor stop also lands here with
+     * Faulted == FALSE (hvm_exit.c:641-652) and must not drag the other
+     * processors out with it; the rendezvous is already stopping them one by
+     * one, in order, with the correct instruction length.
+     */
+    if (Faulted) {
+        /* Publish the whole-machine stop request before leaving VMX. */
+        InterlockedExchange(
+            &Context->Runtime->ResidentFaultStopRequested,
+            1L);
+    }
+    /*
      * Restore any outstanding allow-once permission before reading the guest
      * continuation.  An INVEPT failure is resolved by the VMXOFF below, but it
      * remains fault evidence and must never be silently discarded.
@@ -1672,6 +1693,18 @@ KswordARKHvmResidentStart(
     }
     /* Publish starting state before any processor enters VMX non-root. */
     KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_RESIDENT_STARTING);
+    /*
+     * Clear any stop request left over from a previous fail-closed exit.
+     *
+     * It is per-runtime and set from a VM-exit handler, so nothing else can
+     * clear it: the processor that set it is on its way out, and the ones that
+     * consume it are leaving too.  Clearing here - after the starting state is
+     * published and before the first processor enters VMX non-root - is the one
+     * point where no processor is resident and no exit can be in flight.
+     * Miss it and the next START devirtualizes every processor on its first
+     * exit, which would look exactly like "residency refuses to hold".
+     */
+    InterlockedExchange(&Runtime->ResidentFaultStopRequested, 0L);
     /* Enter VMX non-root on every active processor. */
     status = KswordARKHvmResidentRendezvous(
         KSW_HVM_RENDEZVOUS_START,

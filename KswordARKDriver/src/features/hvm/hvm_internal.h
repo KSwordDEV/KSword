@@ -694,6 +694,35 @@ typedef struct _KSW_HVM_RUNTIME
     volatile LONG PowerTransitionGeneration;
     /* Publish whether DriverUnload is currently removed from DriverObject. */
     volatile LONG UnloadGuardArmed;
+    /*
+     * Ask every still-resident processor to leave VMX after one of them failed
+     * closed.
+     *
+     * KswordARKHvmResidentDeactivateCurrent devirtualizes **one current**
+     * processor, and the IPI rendezvous that could reach the others cannot be
+     * issued from a VM-exit handler: that code runs in VMX root at an
+     * indeterminate IRQL.  So a fail-closed exit used to leave the box half
+     * devirtualized - one processor back on bare metal while the others kept
+     * running in VMX non-root on a hierarchy whose leaves the fault had just
+     * been about.  On one processor "devirtualize the current one" and "stop
+     * everything" are indistinguishable, which is why this survived until the
+     * target was given a second virtual processor.
+     *
+     * Measured 2026-09-07 (2 vCPU, probe-xonly): one strict EPT rule hit,
+     * residentProcessorCount went 2 -> 1 and stayed there.
+     *
+     * Deliberately NOT the per-VCPU StopRequested flag.  That one is consumed
+     * by the private stop hypercall (hvm_exit.c:641-652) and its exit advances
+     * RIP past the VMCALL; honouring it at the top of the dispatcher would make
+     * that same VMCALL re-execute natively and #UD.  The two mechanisms need
+     * different instruction-length semantics, so they get different flags.
+     *
+     * Set by the failing processor before it leaves VMX, consumed by every
+     * other processor at the top of its next VM exit, cleared when residency
+     * starts.  Exits are frequent enough that convergence is immediate in
+     * practice (a short resident window measured 91082 of them).
+     */
+    volatile LONG ResidentFaultStopRequested;
     /* Fail-closed resident lifecycle gate, enabled only after all guards bind. */
     BOOLEAN ResidentStartAllowed;
     /*
