@@ -104,6 +104,9 @@
     <ClCompile Include="src\features\hvm\hvm_ept_local.c">
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_ept_switch.c">
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+    </ClCompile>
     <ClCompile Include="src\features\hvm\hvm_msr_policy.c">
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
@@ -445,6 +448,7 @@
     <ClInclude Include="src\features\hvm\hvm_ept_view.h" />
     <ClInclude Include="src\features\hvm\hvm_ept_domain.h" />
     <ClInclude Include="src\features\hvm\hvm_ept_local.h" />
+    <ClInclude Include="src\features\hvm\hvm_ept_switch.h" />
     <ClInclude Include="src\features\hvm\hvm_msr_policy.h" />
     <ClInclude Include="src\features\hvm\hvm_cr_policy.h" />
     <ClInclude Include="src\features\hvm\hvm_resident.h" />

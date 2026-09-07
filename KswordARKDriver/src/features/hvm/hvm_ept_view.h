@@ -47,9 +47,38 @@ KswordARKHvmEptViewResetLocked(
     );
 
 /*
- * Flip one view's leaf to its secondary value for a single instruction.  The
- * caller arms monitor-trap so the primary value is restored afterwards, which
- * is the same mechanism allow-once rules use.
+ * 视图命中时选了哪条服务方式。
+ *
+ * 存在的理由是两个后端在退出路径上**必须走不同的收尾**：写叶那套要武装
+ * monitor-trap 才回得来，切 EPTP 那套一旦武装了就死在下一次 VM entry
+ * （在没有 MTF 的机器上 VMWRITE 会成功、VM entry 才失败）。用一个返回值
+ * 兼表两种结局，就是把这个区别交给调用方去记得 —— 而忘记的代价是静默
+ * 掉出 VMX。
+ */
+typedef struct _KSW_HVM_EPT_VIEW_SWITCH
+{
+    /* TRUE 表示由 EPTP 切换服务：调用方**不要**武装 monitor-trap。 */
+    BOOLEAN Requested;
+    /* 保持后面的 32 位成员自然对齐。 */
+    UCHAR Reserved0[3];
+    /* 违规叶在视图表里的槽号（0 基），即层次索引减一。 */
+    ULONG LeafSlot;
+    /* 这张视图的种类，切换规划器据此取主/次权限。 */
+    ULONG Kind;
+    /* 保持结构在两种架构下都显式初始化。 */
+    ULONG Reserved1;
+} KSW_HVM_EPT_VIEW_SWITCH;
+
+/*
+ * Service one view violation.
+ *
+ * With the default backend this flips the view's leaf to its secondary value
+ * for a single instruction and the caller arms monitor-trap to restore it,
+ * which is the same mechanism allow-once rules use.
+ *
+ * With the EPTP-switching backend **no leaf is written**: the secondary value
+ * already lives in that leaf's own hierarchy, so the function only reports
+ * which leaf and which kind, and the caller switches the pointer instead.
  */
 BOOLEAN
 KswordARKHvmEptViewHandleViolation(
@@ -58,7 +87,8 @@ KswordARKHvmEptViewHandleViolation(
     _In_ ULONG Access,
     _In_opt_ const KSW_HVM_EPT_LOCAL* Local,
     _Out_ KSW_HVM_EPT_TRANSIENT* Transient,
-    _Out_ ULONG* ViewId
+    _Out_ ULONG* ViewId,
+    _Out_ KSW_HVM_EPT_VIEW_SWITCH* Switch
     );
 
 EXTERN_C_END

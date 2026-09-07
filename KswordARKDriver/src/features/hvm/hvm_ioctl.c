@@ -29,6 +29,84 @@ Environment:
 #define KSWORD_ARK_HVM_VIEW_IOCTL_POOL_TAG 'VvHK'
 
 NTSTATUS
+KswordARKHvmIoctlPlatform(
+    _In_ WDFDEVICE Device,
+    _In_ WDFREQUEST Request,
+    _In_ size_t InputBufferLength,
+    _In_ size_t OutputBufferLength,
+    _Out_ size_t* BytesReturned
+    )
+{
+    PVOID inputBuffer = NULL;
+    PVOID outputBuffer = NULL;
+    size_t actualInputLength = 0U;
+    size_t actualOutputLength = 0U;
+    NTSTATUS status = STATUS_SUCCESS;
+    const KSWORD_ARK_HVM_PLATFORM_REQUEST* probeRequest = NULL;
+
+    /* The dispatcher requires an explicit completion size on every path. */
+    UNREFERENCED_PARAMETER(Device);
+    if (BytesReturned == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    *BytesReturned = 0U;
+
+    /* Retrieve and validate the versioned fixed probe request. */
+    status = WdfRequestRetrieveInputBuffer(
+        Request,
+        sizeof(KSWORD_ARK_HVM_PLATFORM_REQUEST),
+        &inputBuffer,
+        &actualInputLength);
+    if (!NT_SUCCESS(status) ||
+        InputBufferLength < sizeof(KSWORD_ARK_HVM_PLATFORM_REQUEST) ||
+        actualInputLength < sizeof(KSWORD_ARK_HVM_PLATFORM_REQUEST)) {
+        return NT_SUCCESS(status)
+            ? STATUS_INFO_LENGTH_MISMATCH
+            : status;
+    }
+    probeRequest =
+        (const KSWORD_ARK_HVM_PLATFORM_REQUEST*)inputBuffer;
+    if (probeRequest->version !=
+            KSWORD_ARK_HVM_PLATFORM_PROTOCOL_VERSION ||
+        probeRequest->size != sizeof(*probeRequest)) {
+        return STATUS_REVISION_MISMATCH;
+    }
+    /* Reject unknown flags and reserved fields in this protocol version. */
+    if (probeRequest->flags != 0UL ||
+        probeRequest->reserved != 0UL) {
+        /* Return the exact fixed-field contract failure. */
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    /* Retrieve the complete fixed probe response. */
+    status = WdfRequestRetrieveOutputBuffer(
+        Request,
+        sizeof(KSWORD_ARK_HVM_PLATFORM_RESPONSE),
+        &outputBuffer,
+        &actualOutputLength);
+    if (!NT_SUCCESS(status) ||
+        OutputBufferLength < sizeof(KSWORD_ARK_HVM_PLATFORM_RESPONSE) ||
+        actualOutputLength < sizeof(KSWORD_ARK_HVM_PLATFORM_RESPONSE)) {
+        return NT_SUCCESS(status)
+            ? STATUS_BUFFER_TOO_SMALL
+            : status;
+    }
+
+    /*
+     * METHOD_BUFFERED shares one SystemBuffer between input and output, and
+     * the probe zeroes the response before reading anything - but every field
+     * it needs was already validated out of the request above, so there is
+     * nothing left to snapshot.
+     */
+    status = KswordARKHvmPlatformProbe(
+        (KSWORD_ARK_HVM_PLATFORM_RESPONSE*)outputBuffer);
+    if (NT_SUCCESS(status)) {
+        *BytesReturned = sizeof(KSWORD_ARK_HVM_PLATFORM_RESPONSE);
+    }
+    return status;
+}
+
+NTSTATUS
 KswordARKHvmIoctlQuery(
     _In_ WDFDEVICE Device,
     _In_ WDFREQUEST Request,

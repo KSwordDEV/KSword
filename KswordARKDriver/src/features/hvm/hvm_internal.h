@@ -330,7 +330,110 @@ typedef struct _KSW_HVM_EPT_VIEW_SLOT
     ULONGLONG SecondaryEntry;
     /* Count how often the leaf flipped to the secondary value. */
     volatile LONG64 FlipCount;
+    /*
+     * Which secondary EPT hierarchy backs this view, or 0 when none does.
+     *
+     * Zero is the base index, which is exactly the right encoding for "this
+     * view is served by the write-leaf + monitor-trap backend": that backend
+     * never leaves the base hierarchy, so "no hierarchy of its own" and "runs
+     * on the base" are the same statement rather than two that could disagree.
+     */
+    ULONG EptSwitchIndex;
+    /* Keep the structure's tail explicitly initialized. */
+    ULONG Reserved1;
 } KSW_HVM_EPT_VIEW_SLOT;
+
+/*
+ * Root-to-leaf pages one secondary EPT hierarchy copies.
+ *
+ * Written as a literal here rather than pulled from the shared arithmetic
+ * header, which is nearly two thousand lines of static __inline helpers that
+ * every translation unit including this file would then carry.  The literal
+ * is not a second source of truth: hvm_ept_switch.c asserts at compile time
+ * that it equals KSWORD_ARK_HVM_EPTSW_PATH_PAGES, so a change on either side
+ * breaks the build instead of silently disagreeing.
+ */
+#define KSW_HVM_EPTSW_PATH_PAGES 4UL
+
+/* Own one secondary EPT hierarchy: the copied path plus its bookkeeping. */
+typedef struct _KSW_HVM_EPTSW_HIERARCHY
+{
+    /* Record whether this record describes a built hierarchy. */
+    BOOLEAN Active;
+    /* Keep the 64-bit members naturally aligned. */
+    UCHAR Reserved0[7];
+    /*
+     * Retain the EPT pointer this hierarchy is loaded with.  Derived from the
+     * base pointer by replacing only the root address, never composed from
+     * constants: composing would give the memory type, the walk length and
+     * the accessed/dirty bit a second source of truth, and a derived pointer
+     * is accepted by VM entry exactly when the base one is.
+     */
+    ULONGLONG EptPointer;
+    /* Retain the guest-physical page this hierarchy relaxes. */
+    ULONGLONG LeafPhysical;
+    /* Retain the value that leaf carries inside this hierarchy. */
+    ULONGLONG SecondaryEntry;
+    /* Retain the base value, so a return to base can be verified. */
+    ULONGLONG PrimaryEntry;
+    /* Retain the copied pages, indexed by level (0 = PML4 ... 3 = PT). */
+    PVOID Level[KSW_HVM_EPTSW_PATH_PAGES];
+} KSW_HVM_EPTSW_HIERARCHY;
+
+/*
+ * Own every secondary hierarchy this runtime may switch to.
+ *
+ * Index 0 is the base - every leaf at its primary value, byte for byte the
+ * steady state that exists today - and index k means leaf k-1, and only leaf
+ * k-1, is relaxed.  "Is any leaf relaxed" is therefore exactly "is the index
+ * non-zero", with deliberately no second boolean to keep in step.
+ */
+typedef struct _KSW_HVM_EPTSW
+{
+    /* Record whether the page pool exists and the ledger is consistent. */
+    BOOLEAN Active;
+    /* Keep the 32-bit members naturally aligned. */
+    UCHAR Reserved0[3];
+    /* Ledger length: the base plus one per leaf, i.e. LeafCapacity + 1. */
+    ULONG HierarchyCount;
+    /* Bound the flippable leaves this runtime admits. */
+    ULONG LeafCapacity;
+    /* Count the hierarchies actually built, never above LeafCapacity. */
+    ULONG BuiltCount;
+    /*
+     * Record i owns pool pages [i*PATH_PAGES, (i+1)*PATH_PAGES) - a fixed
+     * slice, not a bump allocation.  A cursor would make releasing one
+     * hierarchy either leak its pages or fragment the pool, and a view can be
+     * removed and re-added in any order.  Fixed slices make release exact and
+     * reuse free, at the cost of reserving the whole pool up front - which is
+     * 512 KiB total and independent of the processor count.
+     */
+    ULONG Reserved2;
+    /*
+     * One allocation backs every hierarchy.  A per-table allocator would make
+     * a fragmented machine fail a start half-way through, and would put a
+     * PASSIVE_LEVEL-only free on a teardown path a power callback can reach.
+     */
+    PUCHAR PageBlock;
+    /* Count the pages in the pool: LeafCapacity * KSW_HVM_EPTSW_PATH_PAGES. */
+    ULONG PageCount;
+    /* Keep the trailing pointer array naturally aligned. */
+    ULONG Reserved1;
+    /* One record per leaf; array index k-1 is hierarchy index k. */
+    KSW_HVM_EPTSW_HIERARCHY Hierarchies[KSWORD_ARK_HVM_MAX_VIEWS];
+    /*
+     * Flat pointer ledger indexed by hierarchy index: slot 0 is the base and
+     * slot k is leaf k-1's hierarchy, zero while unbuilt.
+     *
+     * Kept alongside the records rather than derived from them on each exit
+     * because the switch planner takes a contiguous table and its own length,
+     * and refuses a length that is not exactly "base plus one per leaf".  A
+     * short table would be indexed past its end and would read whatever sits
+     * after it - quite possibly a stale pointer that still looks valid, which
+     * the processor would then be loaded with.
+     */
+    ULONGLONG Eptp[KSWORD_ARK_HVM_MAX_VIEWS + 1UL];
+} KSW_HVM_EPTSW;
 
 /* Describe one installed MSR policy and the bitmap hole it owns. */
 typedef struct _KSW_HVM_MSR_POLICY_SLOT
@@ -366,8 +469,20 @@ typedef struct _KSW_HVM_RUNTIME
     BOOLEAN Busy;
     /* Keep explicit padding initialized for stable crash-dump inspection. */
     USHORT Reserved0;
-    /* Publish protocol-visible lifecycle flags. */
-    ULONG StateFlags;
+    /*
+     * Publish protocol-visible lifecycle flags.
+     *
+     * Mutate this ONLY through KswordARKHvmStateSet / KswordARKHvmStateClear
+     * below.  Two writers reach it and they cannot share a lock: every
+     * lifecycle path holds the runtime push lock, while the power callback
+     * deliberately does not take it - blocking there would let a VMX window
+     * cross the S0 boundary, which is the one thing that callback exists to
+     * prevent, and it bugchecks rather than wait (see its DEVICE_BUSY branch).
+     * So the synchronization has to live in the word itself.  A single plain
+     * read-modify-write anywhere can drop the FAULTED and ROLLBACK_REQUIRED
+     * the callback just set, and those are fail-closed markers.
+     */
+    volatile LONG StateFlags;
     /* Publish the generation used for compare-before control requests. */
     ULONG Generation;
     /* Publish the stable query status. */
@@ -392,6 +507,13 @@ typedef struct _KSW_HVM_RUNTIME
     ULONG EvmcsImplementation;
     /* Publish the current nested-VMX state. */
     ULONG NestedState;
+    /*
+     * Count refused L2 launches.  NestedState alone cannot carry this: it is
+     * reset to DISPATCH_READY on the next VMXOFF, so the evidence that another
+     * hypervisor tried to start a VM under us disappears before any poll can
+     * see it.  Monotonic, never reset while the driver is loaded.
+     */
+    volatile LONG NestedL2LaunchRefusedCount;
     /* Publish the current eVMCS state. */
     ULONG EvmcsState;
     /* Publish the TLFS eVMCS version discovered from CPUID. */
@@ -416,6 +538,33 @@ typedef struct _KSW_HVM_RUNTIME
     ULONGLONG FeatureFlags;
     /* Preserve IA32_VMX_BASIC evidence. */
     ULONGLONG VmxBasic;
+    /*
+     * IA32_VMX_MISC.  Cached because the HLT exit path needs bit 6 - whether
+     * the halt activity state is supported - and reading the MSR there would
+     * mean an MSR access per idle tick, which the hypervisor beneath us is
+     * free to intercept.
+     */
+    ULONGLONG VmxMisc;
+    /*
+     * Page-directory base the VM-exit handler runs on, captured from the
+     * System process.
+     *
+     * HOST_CR3 cannot be the CR3 that happens to be live while the VMCS is
+     * configured: residency is armed through KeIpiGenericCall from the thread
+     * that issued the IOCTL, so that CR3 belongs to the requesting user-mode
+     * process.  Once residency outlives that process - which it now does, since
+     * HLT no longer devirtualizes - its top-level page table is freed and
+     * zeroed, and the next VM exit loads a CR3 that cannot translate HOST_RIP.
+     * The resulting #PF cannot read the IDT either, so it escalates to #DF and
+     * then to a triple fault: the virtual machine simply resets, with no
+     * bugcheck and no dump.  That fingerprint is indistinguishable from the
+     * silent hang this whole investigation started from.
+     *
+     * The System process never exits while the driver is loaded, so its
+     * top-level page table is the only base that stays valid for the entire
+     * life of residency.
+     */
+    ULONGLONG HostCr3;
     /* Preserve IA32_VMX_EPT_VPID_CAP evidence. */
     ULONGLONG VmxEptVpidCapabilities;
     /* Preserve IA32_VMX_VMFUNC evidence; bit 0 is EPTP switching. */
@@ -488,6 +637,13 @@ typedef struct _KSW_HVM_RUNTIME
     KSW_HVM_EPT_SPLIT EptSplits[KSW_HVM_MAX_EPT_SPLITS];
     /* Retain every installed EPT split view. */
     KSW_HVM_EPT_VIEW_SLOT EptViews[KSWORD_ARK_HVM_MAX_VIEWS];
+    /*
+     * Secondary EPT hierarchies for the EPTP-switching split-view backend.
+     *
+     * Reserved at prepare only when EptpSwitchArmed is TRUE, and zeroed
+     * otherwise, so an unarmed runtime carries the storage but never a page.
+     */
+    KSW_HVM_EPTSW EptSwitch;
     /* Preserve the number of installed EPT split views. */
     ULONG EptViewCount;
     /* Preserve the next view identifier handed out by the view backend. */
@@ -546,9 +702,59 @@ typedef struct _KSW_HVM_RUNTIME
      * the other pre-suspend evidence on an S0 transition.
      */
     BOOLEAN LocalEptArmed;
+    /*
+     * Record whether this runtime uses the EPTP-switching split-view backend
+     * instead of the write-leaf + monitor-trap one.  Capability-derived like
+     * LocalEptArmed, so it is evidence and must be destroyed alongside the
+     * other pre-suspend evidence on an S0 transition.
+     *
+     * FALSE is the existing behaviour in full: every run-time path keeps
+     * asking the MTF backend, and the only cost of the feature being off is
+     * this one BOOLEAN load.
+     */
+    BOOLEAN EptpSwitchArmed;
+    /*
+     * Record whether the hypervisor underneath us identifies itself with the
+     * TLFS Hv#1 interface signature (CPUID 0x40000001 EAX == 'Hv#1').
+     *
+     * HYPERVISOR_PRESENT alone is the generic CPUID.1:ECX[31] bit and says
+     * nothing about whose ABI is in force, but the hypercall forwarding stub
+     * hard-codes the Hv#1 register contract - it passes RCX/RDX/R8/XMM0-5 and
+     * destroys RAX with its unserviced sentinel.  Under an outer hypervisor
+     * with a different contract RAX is a live input, so forwarding there would
+     * corrupt the call rather than relay it.  Gating on this keeps that from
+     * happening, and it cannot cost a legitimate call: Windows only builds a
+     * hypercall page after it sees this same signature, so a guest that does
+     * not present Hv#1 never issues the hypercalls this gate refuses.
+     */
+    BOOLEAN HypervisorInterfaceIsHv1;
     /* Keep the tail deterministic for crash-dump inspection. */
-    UCHAR Reserved2[6];
+    UCHAR Reserved2[5];
 } KSW_HVM_RUNTIME;
+
+/*
+ * The only two ways StateFlags may be mutated.  See the field's own comment for
+ * why a plain read-modify-write is not safe anywhere, including under the lock.
+ */
+static __forceinline VOID
+KswordARKHvmStateSet(
+    _Inout_ KSW_HVM_RUNTIME* Runtime,
+    _In_ ULONG Bits
+    )
+{
+    /* Publish the requested lifecycle bits without losing a concurrent set. */
+    (VOID)InterlockedOr(&Runtime->StateFlags, (LONG)Bits);
+}
+
+static __forceinline VOID
+KswordARKHvmStateClear(
+    _Inout_ KSW_HVM_RUNTIME* Runtime,
+    _In_ ULONG Bits
+    )
+{
+    /* Retire the requested lifecycle bits without losing a concurrent set. */
+    (VOID)InterlockedAnd(&Runtime->StateFlags, (LONG)~Bits);
+}
 
 EXTERN_C_START
 

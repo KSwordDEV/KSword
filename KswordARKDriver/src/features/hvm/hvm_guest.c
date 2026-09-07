@@ -431,6 +431,24 @@ KswordARKHvmLaunchControlledGuest(
             ((ULONGLONG)(ULONG_PTR)hostStack +
                 KSW_HVM_HOST_STACK_BYTES) &
             ~0xFULL;
+        /*
+         * The one-shot guest keeps the caller's own address space, and that is
+         * not an inconsistency with the resident path - the two have opposite
+         * requirements.
+         *
+         * Residency outlives the process that started it, so HOST_CR3 must name
+         * an address space that survives that process; it therefore uses the
+         * System one and restores the guest CR3 by hand after VMXOFF.  This
+         * guest runs to completion inside one IOCTL on the caller's own thread,
+         * and this file never touches CR3 at all - so whatever HOST_CR3 holds
+         * is still loaded when VMXOFF returns and the thread walks back out to
+         * user mode.  Pointing it at the System space leaves the caller running
+         * on an address space whose user half belongs to somebody else: the
+         * kernel half matches, so nothing faults until the return to ring 3,
+         * and then the process dies with an access violation that looks
+         * nothing like a hypervisor bug.  Measured exactly that.
+         */
+        vmcsInput.HostCr3 = (ULONGLONG)__readcr3();
         /* Enter the fixed assembly stub that immediately executes VMCALL. */
         vmcsInput.GuestInstructionPointer =
             (ULONGLONG)(ULONG_PTR)KswordARKHvmControlledGuestEntry;

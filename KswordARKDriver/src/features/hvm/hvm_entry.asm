@@ -664,4 +664,132 @@ KswordARKHvmAsmInveptSingleComplete:
     ret
 KswordARKHvmAsmInveptSingle ENDP
 
+; ULONG KswordARKHvmAsmForwardHypercall(KSW_HVM_GPR_FRAME* Frame, PVOID FxState)
+;
+; Re-issue the guest's VMCALL from VMX root so the hypervisor above us answers
+; it.  The guest here IS the Windows that was running before residency began,
+; so its hypercall page, its SynIC and its synthetic MSRs are all owned by that
+; outer hypervisor; refusing the call with #UD bugchecks the machine the moment
+; storvsc sends its first VMBus packet (observed: 0x1E / c000001d with
+; winhv!WinHvpFastHypercall on the stack).
+;
+; Under nested virtualization the processor is physically in the outer
+; hypervisor's non-root operation even while we believe we are in root, so
+; VMCALL exits to it exactly as it would from the guest.
+;
+; Returns 0 when the call was answered and 1 when nothing serviced it.  The
+; check is a sentinel in RAX rather than the carry and zero flags: VMCALL never
+; writes RAX on any outcome - neither a VM exit nor a VMfail does - while the
+; Hyper-V x64 ABI leaves the input value of RAX undefined and returns the status
+; there, so overwriting it costs nothing and an unchanged sentinel is
+; unambiguous.  The flags cannot serve the same purpose because nothing
+; promises a hypercall preserves guest RFLAGS.  Without this the caller cannot
+; distinguish "answered" from "silently ignored", and CPUID reporting a
+; hypervisor is not proof that one answers VMCALL - the guest would then be
+; handed back its own pre-call RAX as a hypercall status and advanced past the
+; instruction, on the storvsc and VMBus paths.  That is worse than a bugcheck.
+;
+; Hyper-V x64 hypercall ABI: RCX carries the control word, RDX and R8 carry the
+; input and output (a GPA for slow calls, the operands themselves for fast
+; ones), the result comes back in RAX, and extended fast calls pass further
+; operands in XMM0-XMM5.  Only those six are moved, and with MOVAPS rather than
+; FXRSTOR64: XMM6-XMM15 are non-volatile in the Windows x64 calling convention,
+; so restoring the whole area would clobber registers the C dispatcher is
+; entitled to find intact, and it would also load the guest's MXCSR underneath
+; every subsequent instruction executed in root operation.  Legacy SSE stores
+; leave the upper YMM and ZMM halves alone, which matches what the surrounding
+; FXSAVE64 design already assumes.
+;
+; Six XMM registers is the whole of it, not a truncation.  TLFS states that the
+; XMM fast hypercall interface uses six XMM registers to pass an input parameter
+; block of up to 112 bytes, and both the input-only and the input-and-output
+; register maps list exactly RCX, RDX, R8 and XMM0 through XMM5.  The arithmetic
+; closes: XMM0-5 is 96 bytes plus RDX and R8 is 112.  A third-party
+; implementation documents that it cannot forward extended fast hypercalls
+; because its exit stub snapshots XMM0-5 and only restores them before resuming
+; the guest, leaving the wrong values in the registers at the moment of
+; forwarding.  Loading them from the saved area first, as below, is what closes
+; that gap - keep it.
+;
+; One known and deliberate omission: TLFS says a rep hypercall also modifies RCX
+; with the new rep start index, and the frame's RCX is not written back below.
+; It is narrower than it sounds, because a continuation returns without advancing
+; the instruction pointer past the invoking instruction - here that instruction
+; is this stub's own VMCALL, so the continuation is absorbed by re-execution
+; inside the stub with the updated value already in the register, never passing
+; through the frame.  The reps-completed field returned in RAX is an absolute
+; count rather than one relative to the start index, so a guest loop terminating
+; on it converges regardless.  Changing this is a separate commit with its own
+; soak, and the real hazard on this path is a different one: that absorption
+; loop spins in VMX root with interrupts disabled.
+
+KswordARKHvmAsmForwardHypercall PROC FRAME
+    ; Keep both pointers on the stack rather than in registers - the outer
+    ; hypervisor owns every volatile register across the call.
+    sub rsp, 20h
+    ; Describe the allocation so an exception here unwinds to a true stack.
+    .ALLOCSTACK 20h
+    .ENDPROLOG
+    ; Preserve the register-frame pointer.
+    mov QWORD PTR [rsp + 00h], rcx
+    ; Preserve the extended-state pointer.
+    mov QWORD PTR [rsp + 08h], rdx
+    ; Reload only the six volatile registers the extended fast ABI reads.
+    movaps xmm0, XMMWORD PTR [rdx + 0A0h]
+    movaps xmm1, XMMWORD PTR [rdx + 0B0h]
+    movaps xmm2, XMMWORD PTR [rdx + 0C0h]
+    movaps xmm3, XMMWORD PTR [rdx + 0D0h]
+    movaps xmm4, XMMWORD PTR [rdx + 0E0h]
+    movaps xmm5, XMMWORD PTR [rdx + 0F0h]
+    ; Load the guest control word.
+    mov r10, rcx
+    ; Publish the guest input operand.
+    mov rdx, QWORD PTR [r10 + 10h]
+    ; Publish the guest output operand.
+    mov r8, QWORD PTR [r10 + 38h]
+    ; Publish the sentinel that proves whether anything answered the call.
+    mov rax, 0FFFFFFFFFFFFFFFFh
+    ; Publish the guest control word last so RCX survives the loads above.
+    mov rcx, QWORD PTR [r10 + 08h]
+    ; Hand the call to the hypervisor above us.
+    vmcall
+    ; Recover the register-frame pointer the outer hypervisor could not touch.
+    mov r10, QWORD PTR [rsp + 00h]
+    ; Detect the sentinel surviving, which means nothing wrote a status.
+    mov r11, 0FFFFFFFFFFFFFFFFh
+    ; Compare the returned status against the untouched sentinel.
+    cmp rax, r11
+    ; Leave guest state untouched when no hypervisor answered.
+    je KswordARKHvmAsmForwardHypercallUnserviced
+    ; Return the hypercall result in guest RAX.
+    mov QWORD PTR [r10 + 00h], rax
+    ; Return the fast-call output operands the guest expects.
+    mov QWORD PTR [r10 + 10h], rdx
+    ; Return the second fast-call output operand.
+    mov QWORD PTR [r10 + 38h], r8
+    ; Recover the extended-state pointer.
+    mov r10, QWORD PTR [rsp + 08h]
+    ; Capture the six XMM results so the guest resume path restores them.
+    movaps XMMWORD PTR [r10 + 0A0h], xmm0
+    movaps XMMWORD PTR [r10 + 0B0h], xmm1
+    movaps XMMWORD PTR [r10 + 0C0h], xmm2
+    movaps XMMWORD PTR [r10 + 0D0h], xmm3
+    movaps XMMWORD PTR [r10 + 0E0h], xmm4
+    movaps XMMWORD PTR [r10 + 0F0h], xmm5
+    ; Report that the call was answered.
+    xor eax, eax
+    ; Release the local pointer slots.
+    add rsp, 20h
+    ; Return to the C dispatcher.
+    ret
+
+KswordARKHvmAsmForwardHypercallUnserviced:
+    ; Report that nothing serviced the call, leaving the frame unmodified.
+    mov eax, 1
+    ; Release the local pointer slots.
+    add rsp, 20h
+    ; Return to the C dispatcher.
+    ret
+KswordARKHvmAsmForwardHypercall ENDP
+
 END

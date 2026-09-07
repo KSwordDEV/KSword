@@ -46,6 +46,8 @@ Environment:
 #define KSW_VMCS_GUEST_DR7 0x681AUL
 /* Name the VMCS guest supervisor CET field. */
 #define KSW_VMCS_GUEST_S_CET 0x6828UL
+/* Guest page-directory base, reloaded by hand after VMXOFF. */
+#define KSW_VMCS_GUEST_CR3 0x6802UL
 /* Name the VMCS guest shadow-stack pointer field. */
 #define KSW_VMCS_GUEST_SSP 0x682AUL
 /* Name the VMCS guest interrupt shadow-stack table field. */
@@ -443,6 +445,21 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     input.EptPointer = Context->EptLocal != NULL
         ? Context->EptLocal->EptPointer
         : Context->Runtime->EptPointer;
+    /*
+     * Whatever pointer was just selected is the base for this processor, so
+     * its hierarchy state starts at "on the base, never switched".
+     *
+     * Reset here rather than once at start because this is where the field is
+     * (re)written - a power transition or any other reconfiguration puts the
+     * processor back on the base pointer, and a ledger that still claimed a
+     * secondary index would make every later decision from a premise the VMCS
+     * no longer supports.  The forward-progress record has to go with it: a
+     * stale (RIP, page, target) from before the reconfiguration would make the
+     * first legitimate switch afterwards look like a cycle, and the machine
+     * would fail closed immediately after installing a view.
+     */
+    Context->ActiveEptpIndex = KSWORD_ARK_HVM_EPTSW_INDEX_BASE;
+    KswordArkHvmEptSwProgressReset(&Context->EptpSwitchProgress);
     /* Keep resident guest MSR access native through the shared bitmap. */
     input.MsrBitmapPhysical =
         (ULONGLONG)Context->Runtime->MsrBitmapPhysical.QuadPart;
@@ -466,6 +483,12 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     /* Receive VM exits on the processor-owned anchored host stack. */
     input.HostStackPointer =
         Context->HostStackPointer;
+    /*
+     * Run the exit handler on the System address space, captured at prepare
+     * time.  Residency outlives the process that requested it, so anything
+     * derived from the current CR3 here would be freed underneath a live VMCS.
+     */
+    input.HostCr3 = Context->Runtime->HostCr3;
     /* Resume as the guest at the assembly wrapper continuation. */
     input.GuestInstructionPointer =
         (ULONGLONG)(ULONG_PTR)
@@ -555,15 +578,33 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
      * them.  Entering with a stale tag would let the processor use mappings
      * that describe pages this hierarchy never mapped.
      *
-     * Only for private roots: the shared hierarchy is invalidated on every
-     * path that changes it, and adding an invalidation here would change what
-     * the feature-off run does.
+     * This used to run only for private roots, on the stated assumption that
+     * "the shared hierarchy is invalidated on every path that changes it".
+     * **That assumption is false, and it was measured false.**
+     *
+     * The paths that change the shared hierarchy - installing an EPT rule or
+     * a split view - do call KswordARKHvmResidentInvalidateEpt, but that
+     * wrapper is a no-op while no processor is resident.  And a rule or a view
+     * can *only* be installed while residency is stopped, because the exit
+     * path reads those tables without taking the lock.  So the entire sequence
+     * is: change the shared leaf, invalidate nothing, start residency, enter
+     * without invalidating - and the processor keeps using translations it
+     * cached under this same root during an earlier residency.
+     *
+     * The symptom is the worst kind this project has: a restriction that is
+     * correctly written into the leaf and simply never takes effect.  Measured
+     * on 2026-09-06 - the base leaf read back as execute-only
+     * (0x8000000175692034, R=0 W=0 X=1) while a kernel read of that very page
+     * completed and returned the real contents, with no EPT violation and no
+     * exit.  It reproduced for both EPT rules and split views, and it passed
+     * on an earlier run only because that run's freshly allocated page
+     * happened to carry no stale tag.
+     *
+     * Invalidate whichever root this entry will actually load.  The cost is
+     * one INVEPT per entry on a path that already does far more than that.
      */
-    if (NT_SUCCESS(status) &&
-        Context->EptLocal != NULL &&
-        Context->EptLocal->EptPointer != 0ULL) {
-        if (KswordARKHvmAsmInveptSingle(
-                Context->EptLocal->EptPointer) != 0U) {
+    if (NT_SUCCESS(status) && input.EptPointer != 0ULL) {
+        if (KswordARKHvmAsmInveptSingle(input.EptPointer) != 0U) {
             /* Refuse the entry rather than launch on an unproven context. */
             status = STATUS_HV_OPERATION_FAILED;
         }
@@ -945,6 +986,26 @@ KswordARKHvmResidentDeactivateCurrent(
     /* Publish the exact guest RFLAGS continuation. */
     Context->DevirtualizeRflags =
         (ULONGLONG)guestRflags;
+    /*
+     * Capture the guest address space while the VMCS is still current.  VMXOFF
+     * leaves HOST_CR3 loaded, and HOST_CR3 is the System address space, so
+     * without this the guest would resume on somebody else's page tables.
+     */
+    {
+        SIZE_T guestCr3 = 0;
+
+        /* Read the exact space the guest was executing on. */
+        if (__vmx_vmread(KSW_VMCS_GUEST_CR3, &guestCr3) == 0U &&
+            guestCr3 != 0) {
+            /* Publish it for the post-VMXOFF restoration below. */
+            Context->GuestCr3 = (ULONGLONG)guestCr3;
+        } else {
+            /* Refuse to resume the guest on an unverified address space. */
+            Context->LastStatus = STATUS_HV_OPERATION_FAILED;
+            /* Report that no safe devirtualization occurred. */
+            return FALSE;
+        }
+    }
     /* Copy the processor-owned VMCS physical address. */
     vmcsPhysical =
         (unsigned __int64)
@@ -963,6 +1024,14 @@ KswordARKHvmResidentDeactivateCurrent(
     }
     /* Leave VMX operation on the current logical processor. */
     __vmx_off();
+    /*
+     * Return to the guest's own address space immediately.  VMXOFF leaves
+     * HOST_CR3 loaded, and that is the System space, not the space this thread
+     * belongs to.  Everything below runs on kernel addresses, which both spaces
+     * map identically, so the only visible symptom of getting this wrong is the
+     * requesting process quietly losing its user half after it resumes.
+     */
+    __writecr3((ULONG_PTR)Context->GuestCr3);
     /* Publish completed VMX root cleanup. */
     InterlockedExchange(&Context->VmxRoot, 0L);
     /* Restore non-CET state before entering the final assembly continuation. */
@@ -1305,6 +1374,33 @@ KswordARKHvmResidentStart(
         return STATUS_NOT_SUPPORTED;
     }
     /*
+     * The EPTP-switching backend is incompatible with per-processor
+     * hierarchies and with VM functions, and this is the **only** place that
+     * check can actually fire.
+     *
+     * The protocol layer already refuses a single request carrying
+     * ENABLE_EPTP_SWITCH together with either of them - but the three flags
+     * never ride the same request: the first is read by PREPARE, the other two
+     * by START_RESIDENT.  So that refusal has nothing to refuse, and without
+     * this one a runtime prepared with the switching backend could then be
+     * started with VMFUNC or per-processor EPT armed.
+     *
+     * Why the composite has no meaning: per-processor hierarchies exist to
+     * bound a leaf *write* to one processor, and this backend never writes a
+     * leaf at run time; VM functions publish one shared EPTP list that guest
+     * code selects from by index, while this backend's indices are private to
+     * each processor and mean different things on each.  Guessing a behaviour
+     * for either combination would produce a machine that hangs with no
+     * bugcheck rather than an error.
+     */
+    if (Runtime->EptpSwitchArmed &&
+        (Flags &
+            (KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT |
+             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC)) != 0UL) {
+        /* Return the exact unsupported-control failure. */
+        return STATUS_NOT_SUPPORTED;
+    }
+    /*
      * VM functions are refused the same way, and additionally require the
      * list to exist.  Arming the control without a list would leave guest
      * VMFUNC reading entries the driver never wrote.
@@ -1401,6 +1497,18 @@ KswordARKHvmResidentStart(
         /* Return before host-stack allocation or any VMX transition. */
         return STATUS_NOT_SUPPORTED;
     }
+    /*
+     * A view backed by the EPTP-switching hierarchy needs no extra refusal
+     * here: the exit path services it by writing this processor's own
+     * EPT_POINTER, and every case that cannot be served that way - an access
+     * no single hierarchy can represent, or a switch that would not advance
+     * RIP - is refused by the planner and fails closed exactly like a failed
+     * leaf flip.
+     *
+     * The temporary refusal that used to sit here was removed together with
+     * that wiring; it existed only while the hierarchies were built but never
+     * loaded.
+     */
     /* Serialize passive-level context construction against power teardown. */
     if (InterlockedCompareExchange(
             &Runtime->ResidentContextPreparing,
@@ -1563,8 +1671,7 @@ KswordARKHvmResidentStart(
         return guardStatus;
     }
     /* Publish starting state before any processor enters VMX non-root. */
-    Runtime->StateFlags |=
-        KSWORD_ARK_HVM_STATE_RESIDENT_STARTING;
+    KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_RESIDENT_STARTING);
     /* Enter VMX non-root on every active processor. */
     status = KswordARKHvmResidentRendezvous(
         KSW_HVM_RENDEZVOUS_START,
@@ -1592,8 +1699,7 @@ KswordARKHvmResidentStart(
         }
 
         /* Publish rollback-required state before stopping partial residency. */
-        Runtime->StateFlags |=
-            KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+        KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
         /* Stop every processor that entered VMX non-root successfully. */
         rollbackStatus = KswordARKHvmResidentRendezvous(
             KSW_HVM_RENDEZVOUS_STOP,
@@ -1615,8 +1721,9 @@ KswordARKHvmResidentStart(
                 status = rollbackStatus;
             }
             /* Keep the unload guard and host stacks while safety is uncertain. */
-            Runtime->StateFlags &=
-                ~KSWORD_ARK_HVM_STATE_RESIDENT_STARTING;
+            KswordARKHvmStateClear(
+                Runtime,
+                KSWORD_ARK_HVM_STATE_RESIDENT_STARTING);
             InterlockedExchange(
                 &Runtime->ResidentContextPreparing,
                 0L);
@@ -1633,20 +1740,22 @@ KswordARKHvmResidentStart(
             guardStatus = KswordARKHvmDisarmUnloadGuard(Runtime);
         }
         /* Clear transient state after a complete, verified rollback. */
-        Runtime->StateFlags &=
-            ~(KSWORD_ARK_HVM_STATE_RESIDENT_STARTING |
-              KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
-              KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
-              KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
+        KswordARKHvmStateClear(
+            Runtime,
+            KSWORD_ARK_HVM_STATE_RESIDENT_STARTING |
+                KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
+                KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
+                KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
         Runtime->ResidentImplementation =
             Runtime->ResidentStartAllowed
                 ? KSWORD_ARK_HVM_IMPLEMENTATION_CAPABILITY_ONLY
                 : KSWORD_ARK_HVM_IMPLEMENTATION_UNSUPPORTED;
         if (!NT_SUCCESS(guardStatus)) {
             /* A stuck unload slot is fail-closed and requires intervention. */
-            Runtime->StateFlags |=
+            KswordARKHvmStateSet(
+                Runtime,
                 KSWORD_ARK_HVM_STATE_FAULTED |
-                KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+                    KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
             Runtime->ResidentImplementation =
                 KSWORD_ARK_HVM_IMPLEMENTATION_PARTIAL;
             status = guardStatus;
@@ -1659,11 +1768,9 @@ KswordARKHvmResidentStart(
         return status;
     }
     /* Clear transient starting state after full all-processor success. */
-    Runtime->StateFlags &=
-        ~KSWORD_ARK_HVM_STATE_RESIDENT_STARTING;
+    KswordARKHvmStateClear(Runtime, KSWORD_ARK_HVM_STATE_RESIDENT_STARTING);
     /* Publish resident active only after every target processor succeeds. */
-    Runtime->StateFlags |=
-        KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE;
+    KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE);
     /*
      * Publish whether the #VE control is armed on this residency.  It says
      * the control is on, not that any #VE can be delivered: suppress-#VE on
@@ -1671,11 +1778,11 @@ KswordARKHvmResidentStart(
      * between the control and an actual guest exception.
      */
     if ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VE) != 0UL) {
-        Runtime->StateFlags |= KSWORD_ARK_HVM_STATE_VE_ACTIVE;
+        KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_VE_ACTIVE);
     }
     /* Publish whether guest code can switch views with a single VMFUNC. */
     if ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC) != 0UL) {
-        Runtime->StateFlags |= KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE;
+        KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE);
     }
     /*
      * Record whether this residency is nested.  Callers must be able to tell
@@ -1687,16 +1794,13 @@ KswordARKHvmResidentStart(
     if ((Runtime->FeatureFlags &
             KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL) {
         /* Publish the degraded nested-residency marker. */
-        Runtime->StateFlags |=
-            KSWORD_ARK_HVM_STATE_RESIDENT_NESTED;
+        KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_RESIDENT_NESTED);
     } else {
         /* Clear any marker left by an earlier nested run. */
-        Runtime->StateFlags &=
-            ~KSWORD_ARK_HVM_STATE_RESIDENT_NESTED;
+        KswordARKHvmStateClear(Runtime, KSWORD_ARK_HVM_STATE_RESIDENT_NESTED);
     }
     /* Clear stale rollback evidence after complete startup. */
-    Runtime->StateFlags &=
-        ~KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+    KswordARKHvmStateClear(Runtime, KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
     /* Publish active resident implementation maturity. */
     Runtime->ResidentImplementation =
         KSWORD_ARK_HVM_IMPLEMENTATION_ACTIVE;
@@ -1752,13 +1856,14 @@ KswordARKHvmResidentStop(
             KswordARKHvmResidentReleaseContexts();
         }
         /* Clear protocol-visible resident active state. */
-        Runtime->StateFlags &=
-            ~(KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
-              KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
-              KSWORD_ARK_HVM_STATE_VE_ACTIVE |
-              KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE |
-          KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE |
-              KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
+        KswordARKHvmStateClear(
+            Runtime,
+            KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
+                KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
+                KSWORD_ARK_HVM_STATE_VE_ACTIVE |
+                KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE |
+                KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE |
+                KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
         /* Preserve the fail-closed public maturity after an idempotent stop. */
         Runtime->ResidentImplementation =
             Runtime->ResidentStartAllowed
@@ -1772,9 +1877,10 @@ KswordARKHvmResidentStop(
             guardStatus = KswordARKHvmDisarmUnloadGuard(Runtime);
         }
         if (!NT_SUCCESS(guardStatus)) {
-            Runtime->StateFlags |=
+            KswordARKHvmStateSet(
+                Runtime,
                 KSWORD_ARK_HVM_STATE_FAULTED |
-                KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+                    KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
             Runtime->ResidentImplementation =
                 KSWORD_ARK_HVM_IMPLEMENTATION_PARTIAL;
             KswordARKHvmReleaseResidentTransition(Runtime);
@@ -1785,8 +1891,7 @@ KswordARKHvmResidentStop(
         return STATUS_SUCCESS;
     }
     /* Publish stopping state before issuing private stop VMCALLs. */
-    Runtime->StateFlags |=
-        KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING;
+    KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING);
     /* Request devirtualization on every active processor. */
     status = KswordARKHvmResidentRendezvous(
         KSW_HVM_RENDEZVOUS_STOP,
@@ -1799,14 +1904,12 @@ KswordARKHvmResidentStop(
             0L,
             0L) != 0L) {
         /* Publish explicit rollback-required state. */
-        Runtime->StateFlags |=
-            KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+        KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
         /* Publish explicit partial maturity rather than active success. */
         Runtime->ResidentImplementation =
             KSWORD_ARK_HVM_IMPLEMENTATION_PARTIAL;
         /* Clear transient stopping state after the failed rendezvous. */
-        Runtime->StateFlags &=
-            ~KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING;
+        KswordARKHvmStateClear(Runtime, KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING);
         KswordARKHvmReleaseResidentTransition(Runtime);
         /* Return the authoritative stop or incomplete rollback failure. */
         return NT_SUCCESS(status)
@@ -1816,12 +1919,13 @@ KswordARKHvmResidentStop(
     /* Release host stacks after every CPU completes VMXOFF. */
     KswordARKHvmResidentReleaseContexts();
     /* Clear all resident lifecycle state after complete rollback. */
-    Runtime->StateFlags &=
-        ~(KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
-          KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
-          KSWORD_ARK_HVM_STATE_VE_ACTIVE |
-          KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE |
-          KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
+    KswordARKHvmStateClear(
+        Runtime,
+        KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
+            KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
+            KSWORD_ARK_HVM_STATE_VE_ACTIVE |
+            KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE |
+            KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
     /* Preserve the configured lifecycle maturity without claiming active. */
     Runtime->ResidentImplementation =
         Runtime->ResidentStartAllowed
@@ -1835,9 +1939,10 @@ KswordARKHvmResidentStop(
         guardStatus = KswordARKHvmDisarmUnloadGuard(Runtime);
     }
     if (!NT_SUCCESS(guardStatus)) {
-        Runtime->StateFlags |=
+        KswordARKHvmStateSet(
+            Runtime,
             KSWORD_ARK_HVM_STATE_FAULTED |
-            KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+                KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
         Runtime->ResidentImplementation =
             KSWORD_ARK_HVM_IMPLEMENTATION_PARTIAL;
         KswordARKHvmReleaseResidentTransition(Runtime);

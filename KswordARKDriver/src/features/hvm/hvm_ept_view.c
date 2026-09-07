@@ -39,6 +39,15 @@ Environment:
 --*/
 
 #include "hvm_ept_view.h"
+#include "hvm_ept_switch.h"
+/*
+ * For KswordARKHvmResidentInvalidateEpt.  The view path must not issue INVEPT
+ * itself: the instruction is #UD outside VMX operation, and both of the places
+ * below run from the IOCTL path, where no processor need be in VMX operation at
+ * all.  It is also per-logical-processor, so even when residency is up, issuing
+ * it here would leave every other processor holding stale translations.
+ */
+#include "hvm_resident.h"
 
 /* Return the active view that owns one page-aligned physical address. */
 static KSW_HVM_EPT_VIEW_SLOT*
@@ -200,9 +209,21 @@ KswordARKHvmEptViewReleaseLocked(
         *View->Entry = View->OriginalEntry;
         /* Order the restoration before the context is invalidated. */
         KeMemoryBarrier();
-        /* Drop cached translations that still point at the shadow. */
-        (void)KswordARKHvmAsmInveptSingle(Runtime->EptPointer);
+        /*
+         * Drop cached translations that still point at the shadow, on every
+         * processor and only while some processor is actually in VMX
+         * operation.  A bare INVEPT here would be #UD on exactly the path this
+         * runs on most - releasing a view after residency has stopped.
+         */
+        (void)KswordARKHvmResidentInvalidateEpt(Runtime->EptPointer);
     }
+    /*
+     * Release this view's hierarchy before the record is cleared, while the
+     * index is still readable.  Harmless when the view was served by the
+     * default backend: the index is then 0, which names the base, and
+     * releasing the base is defined as doing nothing.
+     */
+    KswordARKHvmEptSwitchReleaseLeaf(Runtime, View->EptSwitchIndex);
     /* Release the shadow page after no leaf can reach it. */
     if (View->ShadowVirtual != NULL) {
         /* Free the shadow allocation. */
@@ -261,6 +282,7 @@ KswordARKHvmEptViewAddLocked(
     ULONGLONG primaryEntry = 0ULL;
     ULONGLONG secondaryEntry = 0ULL;
     ULONG index = 0UL;
+    ULONG switchIndex = 0UL;
     NTSTATUS status = STATUS_SUCCESS;
 
     /* Reject an unaligned or out-of-window target before allocating. */
@@ -415,8 +437,53 @@ KswordARKHvmEptViewAddLocked(
         /* Return the exact encoding failure. */
         return status;
     }
+    /*
+     * Build this view's own hierarchy before anything is published.
+     *
+     * Done here rather than at start for the same reason the private-EPT
+     * admission check is: refusing at start would mean the caller learns a
+     * view set is inadmissible only after every add already reported success.
+     *
+     * Verified immediately, and the verification walks the built tables the
+     * way the processor would rather than re-reading what was just written.
+     * Every error this can catch - an index off by one level, a parent
+     * repointed to the wrong page - produces a hierarchy that is still
+     * structurally valid, so there is no later symptom to catch it by.
+     */
+    if (Runtime->EptpSwitchArmed) {
+        status = KswordARKHvmEptSwitchBuildLeaf(
+            Runtime,
+            physicalPage,
+            primaryEntry,
+            secondaryEntry,
+            (const volatile ULONGLONG*)split->PageTable,
+            &switchIndex);
+        if (NT_SUCCESS(status)) {
+            status = KswordARKHvmEptSwitchVerifyLeaf(
+                Runtime,
+                switchIndex);
+            /* A hierarchy that does not verify must not stay in the ledger. */
+            if (!NT_SUCCESS(status)) {
+                KswordARKHvmEptSwitchReleaseLeaf(Runtime, switchIndex);
+                switchIndex = 0UL;
+            }
+        }
+        if (!NT_SUCCESS(status)) {
+            /* Release the shadow that will never be installed. */
+            MmFreeContiguousMemory(view->ShadowVirtual);
+            /* Clear the reusable record. */
+            RtlZeroMemory(view, sizeof(*view));
+            /* Publish the stable resource-failure protocol status. */
+            Response->status = KSWORD_ARK_HVM_VIEW_STATUS_RESOURCE_FAILED;
+            Response->lastStatus = status;
+            /* Return the exact hierarchy failure. */
+            return status;
+        }
+    }
     /* Preserve every recovery field before the leaf changes. */
     view->PhysicalAddress = physicalPage;
+    /* Preserve which hierarchy serves this view; 0 means the base. */
+    view->EptSwitchIndex = switchIndex;
     /* Preserve the kind that selects the redirected access. */
     view->Kind = Request->kind;
     /* Preserve only defined behavior flags. */
@@ -446,8 +513,14 @@ KswordARKHvmEptViewAddLocked(
     *entry = primaryEntry;
     /* Order the leaf change before the context is invalidated. */
     KeMemoryBarrier();
-    /* Drop cached translations built from the previous leaf value. */
-    (void)KswordARKHvmAsmInveptSingle(Runtime->EptPointer);
+    /*
+     * Same reasoning as the release path, with a sharper edge: this runs after
+     * Active, EptViewCount and the leaf value are already committed, so a #UD
+     * here is not "installation failed" - it is "installation succeeded, then
+     * the machine bugchecked".  That is why this call has to be the guarded,
+     * all-processor one even though the leaf write above is local.
+     */
+    (void)KswordARKHvmResidentInvalidateEpt(Runtime->EptPointer);
     /* Publish the assigned identifier to the caller. */
     Response->viewId = view->ViewId;
     /* Publish the successful installation. */
@@ -620,12 +693,30 @@ KswordARKHvmEptViewControlLocked(
         /* Return the complete protocol-level rejection. */
         return STATUS_SUCCESS;
     }
-    /* Restoration after a flip depends on both of these controls. */
+    /*
+     * Capability gate, one branch per backend.  The two do not need the same
+     * controls, and conflating them is what made this look like "views need
+     * the Monitor Trap Flag" - a statement that is only true of the default
+     * backend.
+     *
+     *   write leaf + monitor-trap : INVEPT_SINGLE and MONITOR_TRAP_FLAG.
+     *       The flip is bounded to one instruction by single-stepping, so the
+     *       trap flag is not an optimisation - without it the leaf stays
+     *       flipped forever and the shadow becomes permanent.
+     *
+     *   switch EPTP               : INVEPT_SINGLE only, plus the arm latch,
+     *       which already proved execute-only leaves are encodable.  This
+     *       backend never single-steps: it leaves the guest on a second
+     *       hierarchy until an access of the opposite kind faults it back.
+     *
+     * INVEPT_SINGLE is common to both because either way the translations
+     * built from the value being left have to be dropped.
+     */
     if ((Runtime->FeatureFlags &
-            (KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE |
-             KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG)) !=
-            (KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE |
-             KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG)) {
+            KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE) == 0ULL ||
+        (!Runtime->EptpSwitchArmed &&
+         (Runtime->FeatureFlags &
+             KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG) == 0ULL)) {
         /* Publish the stable multiprocessor-unsafe protocol status. */
         Response->status =
             KSWORD_ARK_HVM_VIEW_STATUS_MULTIPROCESSOR_UNSAFE;
@@ -677,7 +768,8 @@ KswordARKHvmEptViewHandleViolation(
     _In_ ULONG Access,
     _In_opt_ const KSW_HVM_EPT_LOCAL* Local,
     _Out_ KSW_HVM_EPT_TRANSIENT* Transient,
-    _Out_ ULONG* ViewId
+    _Out_ ULONG* ViewId,
+    _Out_ KSW_HVM_EPT_VIEW_SWITCH* Switch
     )
 {
     const ULONGLONG physicalPage =
@@ -693,12 +785,14 @@ KswordARKHvmEptViewHandleViolation(
     /* Reject invalid fixed pointers in the nonblocking exit path. */
     if (Runtime == NULL ||
         Transient == NULL ||
-        ViewId == NULL) {
+        ViewId == NULL ||
+        Switch == NULL) {
         /* Report an unhandled violation. */
         return FALSE;
     }
     /* Publish no view match before the bounded table scan. */
     *ViewId = 0UL;
+    RtlZeroMemory(Switch, sizeof(*Switch));
     /* Locate the view that owns the faulting page. */
     view = KswordARKHvmEptViewFind(Runtime, physicalPage);
     /* Report that no view covers the page. */
@@ -708,6 +802,29 @@ KswordARKHvmEptViewHandleViolation(
     }
     /* Publish the matched view identity. */
     *ViewId = view->ViewId;
+    /*
+     * Served by its own hierarchy: report and return without touching a leaf.
+     *
+     * Everything below this point - the armed-transient check, the access
+     * direction check, the flip and its invalidation - exists to bound a leaf
+     * write to one instruction.  This backend performs no leaf write at run
+     * time, so none of it applies; the secondary value is already sitting in
+     * that leaf's hierarchy and the caller only has to point the processor at
+     * it.  Falling through would flip the shared leaf as well, which is both
+     * unnecessary and visible to every other processor.
+     *
+     * The access direction is deliberately **not** checked here.  The switch
+     * planner decides it from the permissions of both values, and it is the
+     * one place that knows which hierarchy is currently loaded - a fact this
+     * function cannot see.
+     */
+    if (view->EptSwitchIndex != 0UL) {
+        Switch->Requested = TRUE;
+        Switch->LeafSlot = view->EptSwitchIndex - 1UL;
+        Switch->Kind = view->Kind;
+        /* Report a handled violation with no transient armed. */
+        return TRUE;
+    }
     /*
      * An armed transient means a previous flip has not been restored yet.
      * Restoring and failing closed is the only safe outcome; overwriting the

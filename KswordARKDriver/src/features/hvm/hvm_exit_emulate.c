@@ -273,14 +273,26 @@ KswordARKHvmExitEmulateXsetbv(
     return TRUE;
 }
 
+/*
+ * Lowest index of the range architecturally reserved for hypervisor use.  The
+ * whole 0x40000000-0x4FFFFFFF window belongs to whatever hypervisor is running
+ * underneath - no physical MSR may live there - so an access that reaches this
+ * routine with such an index was aimed at that hypervisor, not at us.
+ */
+#define KSW_HVM_HYPERVISOR_MSR_BASE  0x40000000UL
+/* Highest index of that same reserved range. */
+#define KSW_HVM_HYPERVISOR_MSR_LIMIT 0x4FFFFFFFUL
+
 BOOLEAN
 KswordARKHvmExitEmulateMsr(
     _Inout_ KSW_HVM_GPR_FRAME* Frame,
     _In_ BOOLEAN IsWrite,
+    _In_ BOOLEAN HypervisorPresent,
     _Out_ BOOLEAN* InjectFault
     )
 {
     ULONG index = 0UL;
+    ULONGLONG value = 0ULL;
 
     /* Refuse to run without both the register frame and a fault channel. */
     if (Frame == NULL ||
@@ -294,10 +306,7 @@ KswordARKHvmExitEmulateMsr(
     index = (ULONG)Frame->Rcx;
     /*
      * Reaching this routine means the index fell outside both bitmap ranges,
-     * because every in-range MSR is passed through natively.  Those indices
-     * are architecturally undefined on the supported processors, and probing
-     * them in VMX root would fault on the host IDT with no continuation.
-     * Deliver the same #GP the guest would have taken on bare metal.
+     * because every in-range MSR is passed through natively.
      */
     if (KswordArkHvmMsrIndexIsCovered(index)) {
         /*
@@ -308,7 +317,62 @@ KswordARKHvmExitEmulateMsr(
          */
         return FALSE;
     }
+    /*
+     * The synthetic MSRs of the hypervisor beneath us live in the reserved
+     * window and are unreachable through the bitmap, whose two halves only
+     * describe 0x0-0x1FFF and 0xC0000000-0xC0001FFF, so every access to them
+     * exits here.  Faulting them is what killed the resident guest: the
+     * Windows we virtualize writes HV_X64_MSR_EOI on the way out of every
+     * interrupt, and an unexpected #GP there is not survivable.
+     *
+     * Forwarding is a genuine relaxation and is deliberately narrow.  It is
+     * confined to the reserved window, it requires an outer hypervisor to
+     * actually be present - without one those indices really are undefined and
+     * reading them in VMX root would fault on the host IDT with no
+     * continuation - and every index outside the window keeps faulting exactly
+     * as before.  Because the root context and the resident guest are the same
+     * physical processor, executing the access here reaches the same synthetic
+     * state the guest was addressing.
+     */
+    if (HypervisorPresent != FALSE &&
+        index >= KSW_HVM_HYPERVISOR_MSR_BASE &&
+        index <= KSW_HVM_HYPERVISOR_MSR_LIMIT) {
+        __try {
+            if (IsWrite != FALSE) {
+                /* Rebuild the 64-bit operand from the architectural pair. */
+                value = ((ULONGLONG)(ULONG)Frame->Rdx << 32) |
+                        (ULONGLONG)(ULONG)Frame->Rax;
+                /* Apply the guest write to the hypervisor beneath us. */
+                __writemsr(index, value);
+            } else {
+                /* Read the value the guest asked the hypervisor for. */
+                value = __readmsr(index);
+                /* Publish the low half exactly as RDMSR would. */
+                Frame->Rax = (ULONGLONG)(ULONG)value;
+                /* Publish the high half exactly as RDMSR would. */
+                Frame->Rdx = (ULONGLONG)(ULONG)(value >> 32);
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            /*
+             * Best effort only.  A fault taken in VMX root operation dispatches
+             * on the host IDT, and this driver already documents elsewhere that
+             * such a fault has no reliable continuation - so this handler may
+             * never run.  The actual protection is the narrowness of the gate
+             * above it: an outer hypervisor must be present, and the index must
+             * lie in the window reserved for that hypervisor, which is exactly
+             * the set of indices it is obliged to implement for this processor.
+             * The handler is kept because it costs nothing and converts the
+             * recoverable subset into the architectural #GP.
+             */
+            *InjectFault = TRUE;
+            /* Report that no register state was changed. */
+            return FALSE;
+        }
+        /* Report a completely emulated instruction. */
+        return TRUE;
+    }
     /* Undefined MSR access faults identically for reads and writes. */
+    UNREFERENCED_PARAMETER(HypervisorPresent);
     UNREFERENCED_PARAMETER(IsWrite);
     /* Request the architectural #GP for an undefined MSR index. */
     *InjectFault = TRUE;
@@ -383,6 +447,7 @@ BOOLEAN
 KswordARKHvmExitEmulateMsr(
     _Inout_ KSW_HVM_GPR_FRAME* Frame,
     _In_ BOOLEAN IsWrite,
+    _In_ BOOLEAN HypervisorPresent,
     _Out_ BOOLEAN* InjectFault
     )
 {

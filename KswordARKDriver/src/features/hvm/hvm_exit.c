@@ -19,6 +19,7 @@ Environment:
 #include "hvm_exit_emulate.h"
 #include "hvm_cr_policy.h"
 #include "hvm_ept_view.h"
+#include "hvm_ept_switch.h"
 #include "hvm_msr_policy.h"
 #include "hvm_resident.h"
 #include "hvm_ept.h"
@@ -37,6 +38,41 @@ Environment:
 #define KSW_VMCS_GUEST_LINEAR_ADDRESS 0x640AUL
 /* Name the VMCS guest instruction pointer field. */
 #define KSW_VMCS_GUEST_RIP 0x681EUL
+/*
+ * 本处理器当前走的 EPT 层次。EPTP 切换后端在退出路径里改的就是这一个字段，
+ * 而且**只改自己 VMCS 的这一份** —— 别的处理器的层次不受影响，这正是它不必
+ * 把窗口压到一条指令的原因。
+ */
+#define KSW_VMCS_EPT_POINTER 0x201AUL
+/* Guest interruptibility state; bits 0 and 1 block interrupts at VM entry. */
+#define KSW_VMCS_GUEST_INTERRUPTIBILITY 0x4824UL
+/* Guest activity state; value one selects the architectural halt state. */
+#define KSW_VMCS_GUEST_ACTIVITY 0x4826UL
+/* The architectural halt activity state. */
+#define KSW_VMX_ACTIVITY_HLT 1ULL
+/* IA32_VMX_MISC bit 6 reports whether the halt activity state is supported. */
+#define KSW_VMX_MISC_ACTIVITY_HLT (1ULL << 6)
+/* Blocking by STI and by MOV SS both forbid a non-active activity state. */
+#define KSW_VMX_INTERRUPTIBILITY_BLOCKING 3ULL
+/*
+ * Guest SS access rights.  Bits 6:5 carry the descriptor privilege level, which
+ * is the architectural definition of the current privilege level.  This is SS,
+ * not CS at 0x4816: the two encodings are adjacent and reading the wrong one
+ * gives a plausible answer that is silently wrong across a conforming code
+ * segment or a transition.
+ */
+#define KSW_VMCS_GUEST_SS_ACCESS 0x4818UL
+/* Shift and mask that extract the privilege level from those access rights. */
+#define KSW_VMX_ACCESS_RIGHTS_DPL_SHIFT 5U
+#define KSW_VMX_ACCESS_RIGHTS_DPL_MASK 3ULL
+/* The only privilege level allowed to reach a lifecycle or forwarded VMCALL. */
+#define KSW_HVM_SUPERVISOR_CPL 0UL
+/*
+ * Synthetic guest-idle MSR.  Named here only so the comment in the dispatcher
+ * that explains why it is deliberately NOT intercepted has something to point
+ * at; nothing reads this value.
+ */
+#define KSW_HVM_MSR_GUEST_IDLE 0x400000F0UL
 
 /* Identify the monitor-trap flag execution control. */
 #define KSW_VMX_PRIMARY_MONITOR_TRAP_FLAG (1UL << 27)
@@ -314,6 +350,131 @@ KswordARKHvmExitPublishTelemetry(
         (LONG)KSWORD_ARK_HVM_STATE_EVENTS_AVAILABLE);
 }
 
+/*
+ * Report the privilege level the guest executed the current instruction at.
+ *
+ * VMCALL exits before the processor performs any privilege check: SDM orders
+ * "in VMX non-root operation - VM exit" ahead of "CPL > 0 - #GP(0)", so a
+ * ring-3 VMCALL arrives at this dispatcher exactly like a ring-0 one.  Nothing
+ * else supplies the level either - an EPT violation reports no CPL at all - so
+ * every VMCALL disposition that does more than fault has to read it here.
+ *
+ * Failing to read the field yields supervisor-denied rather than supervisor:
+ * the outer hypervisor is known to refuse some guest-state encodings (VMWRITE
+ * of GUEST_SMBASE is refused on this target), and a refusal must never be able
+ * to widen access.
+ */
+static ULONG
+KswordARKHvmExitGuestCpl(
+    VOID
+    )
+{
+    SIZE_T accessRights = 0;
+
+    /* Treat an unreadable privilege level as unprivileged. */
+    if (__vmx_vmread(KSW_VMCS_GUEST_SS_ACCESS, &accessRights) != 0) {
+        /* Report the least privileged level so callers fail closed. */
+        return 3UL;
+    }
+    /* Extract the descriptor privilege level carried in bits 6:5. */
+    return (ULONG)(((ULONGLONG)accessRights >>
+        KSW_VMX_ACCESS_RIGHTS_DPL_SHIFT) & KSW_VMX_ACCESS_RIGHTS_DPL_MASK);
+}
+
+/*
+ * Complete one guest HLT by entering the architectural halt state.
+ *
+ * Resident mode never asks for HLT exiting, but KswordARKHvmAdjustControls
+ * cannot clear a bit the capability MSR reports as must-be-one, and the
+ * hypervisor beneath us does exactly that: measured on nested Hyper-V, the
+ * third exit of a resident guest was reason 12 from the idle loop.  Treating
+ * it as unimplemented dropped the whole processor out of VMX within
+ * milliseconds of VMLAUNCH - residency looked like it started and then simply
+ * evaporated, with RESIDENT_ACTIVE already cleared by the time anything
+ * queried it.
+ *
+ * The architectural answer is to retire the HLT and let VM entry put the
+ * processor into the halt state, so the guest idles exactly as it asked and
+ * wakes on its next interrupt.
+ *
+ * Retire the HLT first, then select the halt state.  An earlier revision read
+ * the interrupt shadow first and, when it was set, resumed on the unretired
+ * HLT expecting the shadow to expire - it does not, because the HLT never
+ * completes, so the same exit repeats forever and the guest makes no progress.
+ * That was a regression written to defend against a storm that a thirty-second
+ * soak had already disproven: 33852 exits over 30s is roughly 1100 per second,
+ * which is a healthy resident guest, not a spin.  Skipping the halt is the
+ * conservative branch and it is taken only when VM entry would refuse the halt
+ * state outright.
+ *
+ * A third-party implementation states the same symptom as an enlightened-VMCS
+ * property - that HLT exiting is always delivered and cannot be disabled under
+ * eVMCS.  The symptom matches what was measured here, but that attribution does
+ * not hold: the TLFS enlightened VMCS field mapping carries both ProcessorControls
+ * at 0x00004002 and GuestSleepState at 0x00004826, and nothing in it forces any
+ * control bit to one.  What actually produces the symptom is ordinary control
+ * adjustment.  The hypervisor beneath us reports HLT exiting in the allowed-zero
+ * half of the capability MSR, so KswordARKHvmAdjustControls must set it however
+ * little we want it - see the request site in hvm_vmcs.c, which asks for HLT
+ * exiting only outside resident mode.  Nothing in this driver has ever activated
+ * eVMCS: hvm_evmcs.c only performs CPUID discovery and returns
+ * STATUS_NOT_IMPLEMENTED.  Keep the distinction, because an eVMCS attribution
+ * would send the next reader to the wrong file.
+ *
+ * Two things can bring exit reason 33, invalid guest state, back.  One is moving
+ * the retirement below the early returns, as described above.  The other is
+ * selecting the halt state on an entry that also injects an event, since the
+ * activity state and the VM-entry interruption-information valid bit constrain
+ * each other.  That does not happen today because every injection path returns
+ * on its own and never shares an exit with this one.
+ *
+ * One honest limit on all of the above: the VMWRITE below is the only one on
+ * this path whose result is discarded, and no counter distinguishes a halt that
+ * was entered from one skipped by the three conservative branches.  The soak
+ * criterion counts unexpected devirtualizations and reads identically either
+ * way, so there is no positive evidence here that the halt state was ever
+ * actually entered.  Anyone tuning this path should add those counters first.
+ */
+static BOOLEAN
+KswordARKHvmExitHandleHlt(
+    _Inout_ KSW_HVM_RESIDENT_VCPU* Context,
+    _In_ ULONG InstructionLength
+    )
+{
+    SIZE_T interruptibility = 0;
+
+    /* Retire the HLT before choosing where the guest resumes. */
+    if (!KswordARKHvmExitAdvanceRip(InstructionLength)) {
+        /* Report an incomplete exit so the caller fails closed. */
+        return FALSE;
+    }
+    /* A processor that does not advertise the halt state cannot enter it. */
+    if ((Context->Runtime->VmxMisc & KSW_VMX_MISC_ACTIVITY_HLT) == 0ULL) {
+        /* Resume without halting rather than risk a VM-entry failure. */
+        return TRUE;
+    }
+    /* VM entry rejects a non-active activity state while interrupts block. */
+    if (__vmx_vmread(
+            KSW_VMCS_GUEST_INTERRUPTIBILITY,
+            &interruptibility) != 0) {
+        /* Resume without halting when the state cannot be verified. */
+        return TRUE;
+    }
+    if (((ULONGLONG)interruptibility &
+            KSW_VMX_INTERRUPTIBILITY_BLOCKING) != 0ULL) {
+        /* Resume without halting while STI or MOV SS still blocks. */
+        return TRUE;
+    }
+    /*
+     * The processor stores the activity state back into the VMCS on every VM
+     * exit, so this selection lasts exactly one entry and does not have to be
+     * cleared on the paths that resume for other reasons.
+     */
+    (void)__vmx_vmwrite(KSW_VMCS_GUEST_ACTIVITY, KSW_VMX_ACTIVITY_HLT);
+    /* Report a completely handled halt. */
+    return TRUE;
+}
+
 /* Emulate one CPUID exit and preserve nested-exposure policy. */
 static BOOLEAN
 KswordARKHvmExitHandleCpuid(
@@ -379,11 +540,14 @@ KswordARKHvmResidentVmExitDispatch(
     ULONG basicReason = KSWORD_ARK_HVM_EXIT_REASON_NONE;
     ULONG access = 0UL;
     ULONG ruleId = 0UL;
+    KSW_HVM_EPT_VIEW_SWITCH viewSwitch = { 0 };
     NTSTATUS status = STATUS_SUCCESS;
     ULONG eptDisposition = KSW_HVM_EPT_DISPOSITION_DEVIRTUALIZE;
     BOOLEAN handled = FALSE;
     BOOLEAN injectFault = FALSE;
     BOOLEAN guestLinearValid = FALSE;
+    /* Set only where a guest hypercall was turned away instead of relayed. */
+    BOOLEAN hypercallRefused = FALSE;
 
     /* Reject a VM exit without an exact active processor context. */
     if (Frame == NULL ||
@@ -444,12 +608,41 @@ KswordARKHvmResidentVmExitDispatch(
             Context,
             Frame,
             telemetry.InstructionLength);
-    /* Dispatch KSword-private lifecycle VMCALLs. */
+    /*
+     * Dispatch KSword-private lifecycle VMCALLs.
+     *
+     * The privilege check is not decoration.  The signature is a plain
+     * immediate in hvm_entry.asm and a plain constant in hvm_resident.h, the
+     * processor performs no privilege check of its own before this exit, and
+     * the STOP command below tears down residency - so without this gate any
+     * user-mode instruction stream could devirtualize the processor with three
+     * instructions.  Refusing at ring 3 costs nothing: the guest sees the same
+     * #UD it would see on a machine with no hypervisor.
+     *
+     * All of the discrimination lives in RAX.  RCX contributes none: the
+     * private subcommands 1, 2 and 3 collide exactly with the TLFS call codes
+     * HvCallSwitchVirtualAddressSpace 0x0001, HvCallFlushVirtualAddressSpace
+     * 0x0002 and HvCallFlushVirtualAddressList 0x0003, and the latter two are
+     * the guest's own TLB flush and inter-processor interrupt hot paths.  RAX
+     * carries the whole gate for two reasons, and both must be re-checked by
+     * anyone who changes the constant.  First, RAX is not an input in the Hv#1
+     * x64 hypercall contract at all - the control word is in RCX and the inputs
+     * are in RDX, R8 and XMM0 through XMM5 - so no legitimate call sets it.
+     * Second, the TLFS hypercall result value reserves bits 31:16 and 63:44 as
+     * zero while this signature has bits set in both ranges, so no hypervisor's
+     * legitimate return value can be left in RAX and be mistaken for it.
+     */
     } else if (basicReason == KSW_VMX_EXIT_VMCALL &&
                Frame->Rax ==
-                    KSW_HVM_HYPERCALL_SIGNATURE) {
+                    KSW_HVM_HYPERCALL_SIGNATURE &&
+               KswordARKHvmExitGuestCpl() ==
+                    KSW_HVM_SUPERVISOR_CPL) {
         /* Complete a private stop by leaving VMX operation. */
-        if (Frame->Rcx == KSW_HVM_HYPERCALL_STOP) {
+        if (Frame->Rcx == KSW_HVM_HYPERCALL_STOP &&
+            InterlockedCompareExchange(
+                &Context->StopRequested,
+                0L,
+                1L) == 1L) {
             /* Publish successful private hypercall return value. */
             Frame->Rax = 0ULL;
             /* Devirtualize and continue after the exact VMCALL. */
@@ -509,14 +702,137 @@ KswordARKHvmResidentVmExitDispatch(
             handled = KswordARKHvmExitAdvanceRip(
                 telemetry.InstructionLength);
         }
-    /* Refuse every VMCALL that does not carry the private signature. */
+    /* Hand every other VMCALL to whatever hypervisor sits above us. */
     } else if (basicReason == KSW_VMX_EXIT_VMCALL) {
         /*
-         * Without a hypervisor VMCALL raises #UD, so unrelated software that
-         * probes for one must see the same result.  Devirtualizing here would
-         * let any user-mode instruction dismantle the resident hypervisor.
+         * The resident guest IS the Windows that was running before residency
+         * began, so its hypercalls belong to the hypervisor that was already
+         * underneath it.  Answering them with #UD bugchecks the machine on the
+         * first VMBus packet - measured as 0x1E / c000001d with
+         * winhv!WinHvpFastHypercall on the stack, from storvsc writing a disk
+         * block.  SDM 25.1.2 makes VMCALL exit unconditionally, so there is no
+         * bitmap that could have let it through instead.
+         *
+         * Do not add an INVVPID here for the TLB flush hypercalls
+         * (HvCallFlushVirtualAddressSpace 0x0002, List 0x0003, SpaceEx 0x0013,
+         * ListEx 0x0014).  A third-party implementation does that because it
+         * enables VPID; this one does not.  hvm_vmcs.c requests only EPT, the
+         * optional #VE and VMFUNC bits, and requiredInstructionControls
+         * (RDTSCP/INVPCID/XSAVES/USER_WAIT/PCONFIG) - never secondary bit 5 -
+         * and VMCS field 0000H (VIRTUAL_PROCESSOR_ID) has no writer anywhere.
+         * Two names mislead here and neither means "VPID is on":
+         * KSW_HVM_VMX_ENABLE_VPID in hvm_runtime.c only decides whether reading
+         * IA32_VMX_EPT_VPID_CAP is legal, and KSWORD_ARK_HVM_FEATURE_VPID
+         * reports that the machine has the INVVPID instruction (CAP bit 32) for
+         * one user interface label.
+         *
+         * With enable VPID clear every guest linear and combined mapping is
+         * tagged VPID 0000H, and both VM exit and VM entry invalidate the
+         * linear and combined mappings for VPID 0000H across all PCIDs and all
+         * EPTRTA values.  SDM Vol 3C 31.4.3.1 in document 325462-092, numbered
+         * 28.3.3.1 around revision 070; see docs/虚拟化规范要点.md:250.  The
+         * direction is the opposite of what it looks like: an implementation
+         * that enables VPID has to invalidate for itself, one that does not has
+         * the hardware do it.  So the guest TLB is already empty on arrival
+         * here and is emptied again on the way back, and this path touches
+         * neither guest page tables nor EPT.
+         *
+         * Adding the instruction is not free either.  SDM 25.1.2, cited just
+         * above for VMCALL, lists INVEPT and INVVPID as unconditional VM-exit
+         * instructions in VMX non-root operation, and this VMX root is non-root
+         * to the hypervisor beneath us - so the extra instruction buys another
+         * round trip out of this partition on the hottest forwarding path.  Two
+         * further reasons point the same way but were not confirmed against the
+         * specification text here: VPID 0000H is reportedly the one tag INVVPID
+         * cannot name, and INVVPID faults with #UD where VPID support is not
+         * reported, which in VMX root is an immediate bugcheck.  This line has
+         * already been burned once by a bare INVEPT.
+         *
+         * The one hazard that may be real is not on this processor but on the
+         * remote ones, and this instruction would not address it: a sibling
+         * logical processor running as our guest may hold stale translations
+         * until its own next exit.  That window is bounded by the outer
+         * hypervisor's own interrupt and scheduling tick, because it must
+         * intercept external interrupts to schedule the virtual processor at
+         * all - our own empty pin controls do not extend it.  What is genuinely
+         * unknown is whether the outer flush also invalidates the nested guest
+         * context, and that is unmeasured.  Its shape would be silent data
+         * corruption with randomly signed bugchecks, needs two or more virtual
+         * processors, and a soak that counts unexpected devirtualizations
+         * cannot see it.  Measure it with a one-processor against
+         * many-processor comparison before changing anything, and note that the
+         * only fix that could address it - forcing every processor out before
+         * returning the result - is the software rendezvous the third-party
+         * implementation itself rejects as a watchdog deadlock.
+         *
+         * Forwarding is only meaningful when something is actually above us:
+         * in root operation on a bare machine VMCALL merely VMfails, and the
+         * guest would consume a fabricated result.  With no outer hypervisor
+         * present the guest cannot have a hypercall page in the first place,
+         * so the architectural #UD remains the correct answer there.
+         *
+         * Two gates, both mandatory.  Ring 3 never gets forwarded: the
+         * processor performs no privilege check before this exit, so without
+         * the CPL test a user-mode VMCALL would be laundered into a
+         * supervisor-mode hypercall issued by us on the guest's behalf - an
+         * escalation primitive the outer hypervisor would have refused itself.
+         * And CPUID advertising a hypervisor is not proof that one answers
+         * VMCALL, so an unserviced call falls back to the same #UD rather than
+         * handing the guest its own pre-call RAX as a hypercall status.
+         *
+         * The interface check is the third gate and is not redundant with the
+         * first.  HYPERVISOR_PRESENT is the generic CPUID.1:ECX[31] bit, while
+         * the stub below hard-codes the Hv#1 register contract and overwrites
+         * RAX with its unserviced sentinel.  Under an outer hypervisor whose
+         * contract puts a live input in RAX, forwarding would corrupt the call
+         * instead of relaying it, and residency is reachable on such a host.
+         * Refusing there costs nothing: Windows builds its hypercall page only
+         * after seeing the same Hv#1 signature, so a guest that does not
+         * present it never issues the calls this gate turns away.
          */
-        handled = KswordARKHvmExitInjectUndefinedOpcode();
+        if ((Context->Runtime->FeatureFlags &
+                KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL &&
+            Context->Runtime->HypervisorInterfaceIsHv1 &&
+            KswordARKHvmExitGuestCpl() == KSW_HVM_SUPERVISOR_CPL) {
+            /* Re-issue the exact call with the guest's own operands. */
+            if (KswordARKHvmAsmForwardHypercall(
+                    Frame,
+                    Context->FxState) == 0UL) {
+                /* Continue at the instruction following the forwarded call. */
+                handled = KswordARKHvmExitAdvanceRip(
+                    telemetry.InstructionLength);
+            } else {
+                /*
+                 * Nothing answered, so deliver the architectural fault.  Record
+                 * it separately: this is the one path that can reproduce the
+                 * 0x1E bugcheck the forwarding exists to prevent, and injecting
+                 * the fault succeeds, so without its own status it would reach
+                 * the event ring as an ordinary handled exit and be
+                 * indistinguishable from a call that was relayed.
+                 */
+                hypercallRefused = TRUE;
+                handled = KswordARKHvmExitInjectUndefinedOpcode();
+            }
+        } else {
+            /*
+             * Without a hypervisor VMCALL raises #UD, so unrelated software
+             * that probes for one must see the same result.  Devirtualizing
+             * here would let any user-mode instruction dismantle the resident
+             * hypervisor.
+             *
+             * Record only the interface refusal, which is a policy decision
+             * worth seeing.  A ring 3 VMCALL landing here is the ordinary
+             * answer an anti-virtualization probe expects and is left
+             * unrecorded so it cannot drown the signal.  The test below reads
+             * cached capability state, never the VMCS.
+             */
+            if ((Context->Runtime->FeatureFlags &
+                    KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL &&
+                !Context->Runtime->HypervisorInterfaceIsHv1) {
+                hypercallRefused = TRUE;
+            }
+            handled = KswordARKHvmExitInjectUndefinedOpcode();
+        }
     /*
      * A VMFUNC exit means the function failed - a successful EPTP switch does
      * not exit at all.  Guest code reached here by naming an entry outside the
@@ -582,6 +898,8 @@ KswordARKHvmResidentVmExitDispatch(
             handled = KswordARKHvmExitEmulateMsr(
                 Frame,
                 isWrite,
+                (BOOLEAN)((Context->Runtime->FeatureFlags &
+                    KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL),
                 &injectFault);
             /* Advance only after a complete emulation wrote every result. */
             if (handled) {
@@ -650,7 +968,87 @@ KswordARKHvmResidentVmExitDispatch(
             access,
             Context->EptLocal,
             &Context->EptTransient,
-            &ruleId);
+            &ruleId,
+            &viewSwitch);
+        /*
+         * Served by its own hierarchy: change the pointer, not the leaf.
+         *
+         * Handled before the monitor-trap branch below because arming the
+         * trap here would be fatal in a way that leaves no evidence: on a
+         * processor that does not offer the Monitor Trap Flag - the only kind
+         * this backend exists for - the VMWRITE succeeds and the next VM
+         * entry fails, so the machine silently drops out of VMX operation on
+         * the first access to a viewed page.
+         */
+        if (handled && viewSwitch.Requested) {
+            ULONG nextIndex = 0UL;
+            ULONGLONG targetEptp = 0ULL;
+            SIZE_T guestRip = 0U;
+            NTSTATUS planStatus = STATUS_UNSUCCESSFUL;
+
+            /* Refuse to plan against a RIP that could not be read. */
+            if (__vmx_vmread(KSW_VMCS_GUEST_RIP, &guestRip) == 0U) {
+                planStatus = KswordARKHvmEptSwitchPlanViolation(
+                    Context->Runtime,
+                    &Context->EptpSwitchProgress,
+                    Context->ActiveEptpIndex,
+                    viewSwitch.LeafSlot,
+                    access,
+                    viewSwitch.Kind,
+                    (ULONGLONG)guestRip,
+                    guestPhysicalAddress,
+                    &nextIndex,
+                    &targetEptp);
+            }
+            if (NT_SUCCESS(planStatus)) {
+                /*
+                 * Invalidate before the write, not after.  The descriptor has
+                 * to name the hierarchy being left, and after the VMWRITE
+                 * that value is no longer in the field to read back.
+                 */
+                (void)KswordARKHvmAsmInveptSingle(
+                    Context->Runtime->EptSwitch.Eptp[Context->ActiveEptpIndex]);
+                handled =
+                    __vmx_vmwrite(KSW_VMCS_EPT_POINTER, (SIZE_T)targetEptp) == 0U;
+                if (handled) {
+                    /*
+                     * The ledger index is updated only after the field it
+                     * describes actually changed.  Updating first and failing
+                     * the write would leave this processor convinced it is on
+                     * a hierarchy it is not on, and every later decision would
+                     * be made from that - with no symptom until a leaf reads
+                     * the wrong value.
+                     */
+                    Context->ActiveEptpIndex = nextIndex;
+                }
+            } else {
+                /* Every refusal reason means fail closed, not switch anyway. */
+                handled = FALSE;
+            }
+            /* Publish the complete exit evidence before resuming. */
+            KswordARKHvmExitPublishTelemetry(
+                Context,
+                &telemetry,
+                guestPhysicalAddress,
+                guestLinearAddress,
+                KSWORD_ARK_HVM_EVENT_TYPE_EPT_VIOLATION,
+                access,
+                ruleId,
+                handled ? STATUS_SUCCESS : planStatus);
+            if (handled) {
+                /* Resume on the newly selected hierarchy; no trap is armed. */
+                return KSW_HVM_EXIT_ACTION_RESUME;
+            }
+            /* Take the shared fail-closed rollback. */
+            handled = KswordARKHvmResidentDeactivateCurrent(
+                Context,
+                0UL,
+                TRUE);
+            /* Return only a verified guest continuation. */
+            return handled
+                ? KSW_HVM_EXIT_ACTION_DEVIRTUALIZE
+                : KSW_HVM_EXIT_ACTION_FATAL;
+        }
         if (handled) {
             /* Restore the primary view value after one instruction. */
             handled = KswordARKHvmExitSetMonitorTrap(TRUE);
@@ -738,9 +1136,29 @@ KswordARKHvmResidentVmExitDispatch(
             /* Refuse the instruction without leaving VMX operation. */
             handled = KswordARKHvmExitInjectUndefinedOpcode();
         }
-    /* HLT should not exit in resident mode unless hardware forced the control. */
-    } else if (basicReason == KSW_VMX_EXIT_HLT ||
-               basicReason ==
+    /*
+     * Resident mode does not request HLT exiting, but the hypervisor beneath
+     * us reports the control as must-be-one, so the idle loop lands here.
+     */
+    } else if (basicReason == KSW_VMX_EXIT_HLT) {
+        /* Retire the halt and let VM entry idle the processor. */
+        handled = KswordARKHvmExitHandleHlt(
+            Context,
+            telemetry.InstructionLength);
+    /*
+     * The guest-idle MSR (KSW_HVM_MSR_GUEST_IDLE) was briefly intercepted here
+     * and answered as a halt, on the theory that replaying its read in VMX root
+     * would park this processor with interrupts masked and never wake it.  The
+     * theory was never tested against the evidence already in hand: a
+     * thirty-second soak had already run with that read forwarded to the
+     * hypervisor beneath us, thirty-three thousand exits, zero unexpected
+     * devirtualizations.  Whatever that read does there, it does not hang.
+     * Intercepting it added a second way into the halt path for no measured
+     * benefit, so it is deliberately absent - do not re-add it without a
+     * reading that shows the forwarded read actually failing.
+     */
+    /* Fail closed for the mandatory exits that have no implementation yet. */
+    } else if (basicReason ==
                     KSW_VMX_EXIT_EXCEPTION_OR_NMI ||
                basicReason ==
                     KSW_VMX_EXIT_EXTERNAL_INTERRUPT ||
@@ -766,9 +1184,11 @@ KswordARKHvmResidentVmExitDispatch(
                 : KSWORD_ARK_HVM_EVENT_TYPE_VMEXIT),
         access,
         ruleId,
-        handled
-            ? STATUS_SUCCESS
-            : STATUS_NOT_SUPPORTED);
+        hypercallRefused
+            ? STATUS_HV_OPERATION_FAILED
+            : (handled
+                ? STATUS_SUCCESS
+                : STATUS_NOT_SUPPORTED));
     /* Resume only exits whose complete semantics succeeded. */
     if (handled) {
         /* Request VMRESUME with the updated register frame and VMCS. */

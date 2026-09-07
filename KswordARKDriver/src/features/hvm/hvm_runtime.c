@@ -21,6 +21,7 @@ Environment:
 #include "hvm_cr_policy.h"
 #include "hvm_ept_view.h"
 #include "hvm_ept_domain.h"
+#include "hvm_ept_switch.h"
 #include "hvm_guest.h"
 #include "hvm_memory.h"
 #include "hvm_msr_policy.h"
@@ -38,6 +39,22 @@ NTKERNELAPI VOID
 KeGenericCallDpc(
     _In_ PKDEFERRED_ROUTINE Routine,
     _In_opt_ PVOID Context
+    );
+
+/*
+ * Declared the same way hvm_memory.c declares them: attaching is the only way
+ * to read a process's page-directory base without hardcoding an EPROCESS
+ * offset that Windows never promised to keep.
+ */
+NTKERNELAPI VOID
+KeStackAttachProcess(
+    _Inout_ PVOID Process,
+    _Out_ PVOID ApcState
+    );
+
+NTKERNELAPI VOID
+KeUnstackDetachProcess(
+    _In_ PVOID ApcState
     );
 
 NTKERNELAPI LOGICAL
@@ -487,6 +504,24 @@ KswordARKHvmReadCapabilities(
             RTL_NUMBER_OF(Runtime->HypervisorVendor),
             hypervisorVendor,
             12UL);
+        /*
+         * Leaf 0x40000000 EAX reports the highest hypervisor leaf, so the
+         * interface leaf is only meaningful when it is inside that range.
+         * Sampling once here is deliberate: the exit path must not execute
+         * CPUID, which would add an exit of its own in VMX root, and this
+         * identity cannot change while the machine is running.
+         */
+        if ((ULONG)registers[0] >= 0x40000001UL) {
+            __cpuid(registers, (int)0x40000001UL);
+            /*
+             * The same signature is spelled KSW_HV_INTERFACE_SIGNATURE in
+             * hvm_evmcs.c.  Two spellings of one magic number can drift apart
+             * silently, and this one now gates hypercall forwarding, whose
+             * failure mode is the 0x1E bugcheck.  Change both or neither.
+             */
+            Runtime->HypervisorInterfaceIsHv1 =
+                ((ULONG)registers[0] == 0x31237648UL) ? TRUE : FALSE;
+        }
     }
 
     /* Stop before VMX MSR access when CPUID does not advertise VMX. */
@@ -501,6 +536,7 @@ KswordARKHvmReadCapabilities(
     __try {
         Runtime->FeatureControl = __readmsr(KSW_IA32_FEATURE_CONTROL);
         Runtime->VmxBasic = __readmsr(KSW_IA32_VMX_BASIC);
+        Runtime->VmxMisc = __readmsr(KSW_HVM_IA32_VMX_MISC);
         Runtime->Cr0Fixed0 = __readmsr(KSW_IA32_VMX_CR0_FIXED0);
         Runtime->Cr0Fixed1 = __readmsr(KSW_IA32_VMX_CR0_FIXED1);
         Runtime->Cr4Fixed0 = __readmsr(KSW_IA32_VMX_CR4_FIXED0);
@@ -678,11 +714,42 @@ KswordARKHvmArmUnloadGuard(
     )
 {
     PVOID previous = NULL;
+    PDRIVER_UNLOAD captured = NULL;
 
-    /* Refuse residency unless KMDF installed an unload entry we can preserve. */
+    /*
+     * 捕获点必须是**武装的这一刻**，不能用 DriverEntry 期的快照。
+     *
+     * 原因是 DriverEntry 里根本捕不到最终值：本驱动的映像入口不是 DriverEntry，
+     * 而是 WDK 的 wdfdriverentry.lib 静态链进来的 KMDF 桩。桩先调用我们的
+     * DriverEntry，**返回之后**才把 DriverObject->DriverUnload 换成映像内的
+     * FxStubDriverUnload。在已构建的 KswordARK.sys 上解出来的序列是：
+     *
+     *   call  <INIT 段的 DriverEntry>
+     *   jns   <成功才继续>
+     *   mov   rax,[rdi+68h]        ; 读 DriverObject->DriverUnload
+     *   mov   [WdfDriverStubDisplacedDriverUnload],rax
+     *   lea   rax,[FxStubDriverUnload]
+     *   mov   [rdi+68h],rax        ; 覆写
+     *
+     * 现场实测 driverUnload = 映像基址 + 0xB0360，正是那条 lea 的目标；全 .text
+     * 里指向该地址的 RIP 相对 LEA 只有安装点与它自身，无任何绝对指针，所以只可能
+     * 由这条指令装入。写者不在本仓库里，任何 grep 都看不见它。
+     *
+     * 后果：EnableResidentLifecycle 捕到的是 WdfDriverCreate 装的框架 unload
+     * （在 Wdf01000.sys 里），而武装时槽位已经是映像内的桩，CAS 必然失配 ——
+     * START_RESIDENT 因此**永远**返回 LIFECYCLE_GUARD_FAILED。把捕获点在
+     * DriverEntry 内前后挪动无济于事：所有位置都在覆写之前。
+     *
+     * 改成延迟捕获之后，两条安全不变式一条没动，其中第二条反而被修好了：
+     *   (1) 只用 CAS 换出「我确实刚读到的那一个值」，绝不盲写；下面的失配判据
+     *       原样保留，它现在判的是「读出现值到 CAS 之间有没有第三方插进来」，
+     *       仍然是真正的竞态守卫，只是基准对了。
+     *   (2) Disarm 时放回去的是「我当初顶掉的那一个」。旧代码若 CAS 侥幸成功过，
+     *       Disarm 会把 Wdf01000.sys 的框架 unload 装回槽位、绕过映像内的
+     *       FxStubDriverUnload —— 那是个比本失败严重得多的潜在错误。
+     */
     if (Runtime == NULL ||
-        Runtime->DriverObject == NULL ||
-        Runtime->OriginalDriverUnload == NULL) {
+        Runtime->DriverObject == NULL) {
         return STATUS_INVALID_DEVICE_STATE;
     }
     /* Treat the exact already-armed state as idempotent success. */
@@ -694,17 +761,28 @@ KswordARKHvmArmUnloadGuard(
             ? STATUS_SUCCESS
             : STATUS_INVALID_DEVICE_STATE;
     }
-    /* Remove only the exact unload entry captured after WdfDriverCreate. */
+    /*
+     * 读出此刻真正挂在槽位上的那个入口。为 NULL 说明要么已经有人顶了它，
+     * 要么 KMDF 根本没装 unload —— 两种都必须 fail-closed，因为 Disarm 将
+     * 没有任何可恢复的值。
+     */
+    captured = Runtime->DriverObject->DriverUnload;
+    if (captured == NULL) {
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    /* Remove only the exact unload entry observed one instruction ago. */
     previous = InterlockedCompareExchangePointer(
         (PVOID volatile*)&Runtime->DriverObject->DriverUnload,
         NULL,
-        (PVOID)Runtime->OriginalDriverUnload);
-    if (previous != (PVOID)Runtime->OriginalDriverUnload) {
+        (PVOID)captured);
+    if (previous != (PVOID)captured) {
         /* Never overwrite a third-party or otherwise unexpected entry. */
         return STATUS_INVALID_DEVICE_STATE;
     }
+    /* Publish the exact displaced entry so Disarm restores that same value. */
+    Runtime->OriginalDriverUnload = captured;
     InterlockedExchange(&Runtime->UnloadGuardArmed, 1L);
-    Runtime->StateFlags |= KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED;
+    KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED);
     return STATUS_SUCCESS;
 }
 
@@ -738,7 +816,7 @@ KswordARKHvmDisarmUnloadGuard(
         return STATUS_INVALID_DEVICE_STATE;
     }
     InterlockedExchange(&Runtime->UnloadGuardArmed, 0L);
-    Runtime->StateFlags &= ~KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED;
+    KswordARKHvmStateClear(Runtime, KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED);
     return STATUS_SUCCESS;
 }
 
@@ -763,15 +841,21 @@ KswordARKHvmInvalidatePowerResumeEvidence(
      */
     Runtime->LocalEptArmed = FALSE;
     Runtime->FeatureFlags &= ~KSWORD_ARK_HVM_FEATURE_LOCAL_EPT_ARMED;
-    Runtime->StateFlags &=
-        ~(KSWORD_ARK_HVM_STATE_SELF_TESTED |
-          KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED |
-          KSWORD_ARK_HVM_STATE_GUEST_READY |
-          KSWORD_ARK_HVM_STATE_GUEST_RUNNING |
-          KSWORD_ARK_HVM_STATE_GUEST_EXITED |
-          KSWORD_ARK_HVM_STATE_RESIDENT_STARTING |
-          KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
-          KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING);
+    /* Same argument, same lifetime: execute-only is a capability too. */
+    Runtime->EptpSwitchArmed = FALSE;
+    Runtime->FeatureFlags &= ~KSWORD_ARK_HVM_FEATURE_EPTP_SWITCH_ARMED;
+    /* The pool is derived from that capability and must not outlive it. */
+    KswordARKHvmEptSwitchRelease(Runtime);
+    KswordARKHvmStateClear(
+        Runtime,
+        KSWORD_ARK_HVM_STATE_SELF_TESTED |
+            KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED |
+            KSWORD_ARK_HVM_STATE_GUEST_READY |
+            KSWORD_ARK_HVM_STATE_GUEST_RUNNING |
+            KSWORD_ARK_HVM_STATE_GUEST_EXITED |
+            KSWORD_ARK_HVM_STATE_RESIDENT_STARTING |
+            KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
+            KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING);
     Runtime->ResidentImplementation =
         Runtime->ResidentStartAllowed
             ? KSWORD_ARK_HVM_IMPLEMENTATION_CAPABILITY_ONLY
@@ -899,8 +983,9 @@ KswordARKHvmCompleteDeferredPowerResumeLocked(
     if (NT_SUCCESS(status)) {
         KswordARKHvmInvalidatePowerResumeEvidence(Runtime);
         InterlockedExchange(&Runtime->PowerTransitionPending, 0L);
-        Runtime->StateFlags &=
-            ~KSWORD_ARK_HVM_STATE_POWER_TRANSITION_PENDING;
+        KswordARKHvmStateClear(
+            Runtime,
+            KSWORD_ARK_HVM_STATE_POWER_TRANSITION_PENDING);
     }
     return status;
 }
@@ -925,18 +1010,18 @@ KswordARKHvmPowerStateCallback(
         /* Block every new resident transition before taking its phase gate. */
         InterlockedExchange(&runtime->PowerTransitionPending, 1L);
         InterlockedIncrement(&runtime->PowerTransitionGeneration);
-        InterlockedOr(
-            (volatile LONG*)&runtime->StateFlags,
-            (LONG)KSWORD_ARK_HVM_STATE_POWER_TRANSITION_PENDING);
+        KswordARKHvmStateSet(
+            runtime,
+            KSWORD_ARK_HVM_STATE_POWER_TRANSITION_PENDING);
         /* Synchronously complete all-CPU VMXOFF before leaving S0. */
         status = KswordARKHvmResidentStop(runtime);
         runtime->LastStatus = status;
         InterlockedIncrement((volatile LONG*)&runtime->Generation);
         if (!NT_SUCCESS(status)) {
-            InterlockedOr(
-                (volatile LONG*)&runtime->StateFlags,
-                (LONG)(KSWORD_ARK_HVM_STATE_FAULTED |
-                    KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED));
+            KswordARKHvmStateSet(
+                runtime,
+                KSWORD_ARK_HVM_STATE_FAULTED |
+                    KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
             /*
              * A DISPATCH_LEVEL phase collision cannot wait safely.  Fail
              * closed even before resident count is published so an in-flight
@@ -1022,8 +1107,7 @@ KswordARKHvmFreeResourcesLocked(
             0L,
             0L) != 0L) {
         /* Publish explicit rollback-required evidence. */
-        Runtime->StateFlags |=
-            KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+        KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
         /* Preserve the authoritative stop failure. */
         Runtime->LastStatus = residentStatus;
         /* Return without releasing live VMX resources. */
@@ -1098,6 +1182,11 @@ KswordARKHvmFreeResourcesLocked(
     /* The arm latch is resource-derived and must not outlive the resources. */
     Runtime->LocalEptArmed = FALSE;
     Runtime->FeatureFlags &= ~KSWORD_ARK_HVM_FEATURE_LOCAL_EPT_ARMED;
+    /* The second backend's latch has exactly the same lifetime. */
+    Runtime->EptpSwitchArmed = FALSE;
+    Runtime->FeatureFlags &= ~KSWORD_ARK_HVM_FEATURE_EPTP_SWITCH_ARMED;
+    /* Release the pool with the resources it was derived from. */
+    KswordARKHvmEptSwitchRelease(Runtime);
     Runtime->MappedRamBytes = 0ULL;
     Runtime->HighestMappedPhysicalAddress = 0ULL;
     Runtime->VmExitCount = 0ULL;
@@ -1116,22 +1205,23 @@ KswordARKHvmFreeResourcesLocked(
             : KSWORD_ARK_HVM_IMPLEMENTATION_UNSUPPORTED;
     Runtime->EptImplementation =
         KSWORD_ARK_HVM_IMPLEMENTATION_CAPABILITY_ONLY;
-    Runtime->StateFlags &=
-        ~(KSWORD_ARK_HVM_STATE_RESOURCES_READY |
-          KSWORD_ARK_HVM_STATE_EPT_READY |
-          KSWORD_ARK_HVM_STATE_SELF_TESTED |
-          KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED |
-          KSWORD_ARK_HVM_STATE_EPT_TRUNCATED |
-          KSWORD_ARK_HVM_STATE_GUEST_READY |
-          KSWORD_ARK_HVM_STATE_GUEST_RUNNING |
-          KSWORD_ARK_HVM_STATE_GUEST_EXITED |
-          KSWORD_ARK_HVM_STATE_NESTED_ACTIVE |
-          KSWORD_ARK_HVM_STATE_NESTED_VALIDATED |
-          KSWORD_ARK_HVM_STATE_RESIDENT_STARTING |
-          KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
-          KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
-          KSWORD_ARK_HVM_STATE_EPT_RULES_ACTIVE |
-          KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
+    KswordARKHvmStateClear(
+        Runtime,
+        KSWORD_ARK_HVM_STATE_RESOURCES_READY |
+            KSWORD_ARK_HVM_STATE_EPT_READY |
+            KSWORD_ARK_HVM_STATE_SELF_TESTED |
+            KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED |
+            KSWORD_ARK_HVM_STATE_EPT_TRUNCATED |
+            KSWORD_ARK_HVM_STATE_GUEST_READY |
+            KSWORD_ARK_HVM_STATE_GUEST_RUNNING |
+            KSWORD_ARK_HVM_STATE_GUEST_EXITED |
+            KSWORD_ARK_HVM_STATE_NESTED_ACTIVE |
+            KSWORD_ARK_HVM_STATE_NESTED_VALIDATED |
+            KSWORD_ARK_HVM_STATE_RESIDENT_STARTING |
+            KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE |
+            KSWORD_ARK_HVM_STATE_RESIDENT_STOPPING |
+            KSWORD_ARK_HVM_STATE_EPT_RULES_ACTIVE |
+            KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
 }
 
 PVOID
@@ -1348,6 +1438,55 @@ KswordARKHvmAllocateProcessorResourcesLocked(
 #endif
 }
 
+/*
+ * Read the page-directory base of the System process.
+ *
+ * The same technique the memory window already uses: Windows publishes no
+ * stable EPROCESS DirectoryTableBase offset, and a hardcoded one fails
+ * silently after an update because a wrong CR3 still walks.  So attach and
+ * read the register the hardware is actually using.
+ *
+ * Detaching before the value is consumed is sound: it names a physical page
+ * that stays resident for the life of the System process, and nothing here
+ * dereferences a virtual address in that address space.
+ */
+static NTSTATUS
+KswordARKHvmCaptureSystemDirectoryBase(
+    _Out_ ULONGLONG* DirectoryBase
+    )
+{
+#if defined(_M_AMD64)
+    DECLSPEC_ALIGN(16) UCHAR attachState[128];
+
+    /* Reject an incomplete caller contract before touching anything. */
+    if (DirectoryBase == NULL) {
+        /* Return the exact caller-contract failure. */
+        return STATUS_INVALID_PARAMETER;
+    }
+    *DirectoryBase = 0ULL;
+    /* Refuse to guess when the exported System process is unavailable. */
+    if (PsInitialSystemProcess == NULL) {
+        /* Return the exact unusable-state failure. */
+        return STATUS_UNSUCCESSFUL;
+    }
+    RtlZeroMemory(attachState, sizeof(attachState));
+    /* Attach only long enough to read the register. */
+    KeStackAttachProcess((PVOID)PsInitialSystemProcess, (PVOID)attachState);
+    *DirectoryBase = (ULONGLONG)__readcr3();
+    KeUnstackDetachProcess((PVOID)attachState);
+    /* Refuse a base that could never translate the host entry point. */
+    if (*DirectoryBase == 0ULL) {
+        /* Return the exact unusable-state failure. */
+        return STATUS_UNSUCCESSFUL;
+    }
+    /* Complete the capture successfully. */
+    return STATUS_SUCCESS;
+#else
+    UNREFERENCED_PARAMETER(DirectoryBase);
+    return STATUS_NOT_SUPPORTED;
+#endif
+}
+
 static NTSTATUS
 KswordARKHvmPrepareLocked(
     _Inout_ KSW_HVM_RUNTIME* Runtime,
@@ -1381,6 +1520,22 @@ KswordARKHvmPrepareLocked(
 #else
     return STATUS_NOT_SUPPORTED;
 #endif
+
+    /*
+     * Capture the host page-directory base before anything else, while this is
+     * still a PASSIVE_LEVEL path that may attach to another process.
+     *
+     * This runs on the thread that issued the IOCTL, so __readcr3() here would
+     * hand back the requesting user-mode process's top-level page table - the
+     * very value that must never reach HOST_CR3.  See KSW_HVM_RUNTIME::HostCr3
+     * for what happens when that page is freed underneath a live VMCS.
+     */
+    status = KswordARKHvmCaptureSystemDirectoryBase(&Runtime->HostCr3);
+    /* Refuse to prepare without a host address space that outlives the caller. */
+    if (!NT_SUCCESS(status)) {
+        /* Return the exact capture failure. */
+        return status;
+    }
 
     /* Capture MTRR state before choosing EPT leaf memory types. */
     status = KswordARKHvmMtrrCapture(&Runtime->Mtrr);
@@ -1432,9 +1587,90 @@ KswordARKHvmPrepareLocked(
         Runtime->FeatureFlags &=
             ~KSWORD_ARK_HVM_FEATURE_LOCAL_EPT_ARMED;
     }
+    /*
+     * A reused bit would be silent and total: the new flag would simply mean
+     * whatever the older one means, every gate would agree, and nothing would
+     * report an error.  Both new encodings are therefore proven disjoint from
+     * every value already defined, at compile time.
+     */
+    C_ASSERT((KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPTP_SWITCH &
+              (KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED |
+               KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
+               KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED |
+               KSWORD_ARK_HVM_CONTROL_FLAG_ONE_SHOT_GUEST |
+               KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPT_EVENTS |
+               KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX |
+               KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EVMCS |
+               KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VE |
+               KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC |
+               KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT)) == 0UL);
+    C_ASSERT((KSWORD_ARK_HVM_FEATURE_EPTP_SWITCH_ARMED &
+              (KSWORD_ARK_HVM_FEATURE_LOCAL_EPT_ARMED |
+               KSWORD_ARK_HVM_FEATURE_EPTP_LIST_READY |
+               KSWORD_ARK_HVM_FEATURE_EPTP_SWITCHING |
+               KSWORD_ARK_HVM_FEATURE_VM_FUNCTIONS |
+               KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG |
+               KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE)) == 0ULL);
+    /*
+     * Arm the EPTP-switching split-view backend only when it was asked for
+     * AND both capabilities it depends on exist.
+     *
+     * The pair is deliberately *not* the pair above.  Single-context INVEPT is
+     * shared: a hierarchy switch still has to drop translations built from the
+     * hierarchy being left.  The second one is execute-only EPT leaves rather
+     * than the Monitor Trap Flag, because this backend never single-steps -
+     * it leaves the guest running on a second hierarchy until an access of the
+     * opposite kind faults it back.  That difference is the entire point: the
+     * Monitor Trap Flag is not offered to a nested guest, execute-only leaves
+     * are, and both CLOAK and HOOK are refused outright without the latter
+     * (KswordArkHvmEptSwKindPermissions checks it before it looks at kind).
+     *
+     * Execute-only has no KSWORD_ARK_HVM_FEATURE_* bit of its own, so it is
+     * read from the capability MSR image rather than from FeatureFlags - a
+     * fully populated FeatureFlags still cannot answer this question.
+     *
+     * Assigned in both directions for the same reason as LocalEptArmed above:
+     * this routine refuses to run while RESOURCES_READY is set, so a stale
+     * TRUE would otherwise survive.
+     */
+    Runtime->EptpSwitchArmed =
+        ((Request->flags &
+             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPTP_SWITCH) != 0UL &&
+         (Runtime->FeatureFlags &
+             KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE) != 0ULL &&
+         (Runtime->VmxEptVpidCapabilities & KSW_EPT_CAP_EXECUTE_ONLY) != 0ULL)
+        ? TRUE
+        : FALSE;
+    if (Runtime->EptpSwitchArmed) {
+        Runtime->FeatureFlags |=
+            KSWORD_ARK_HVM_FEATURE_EPTP_SWITCH_ARMED;
+    } else {
+        Runtime->FeatureFlags &=
+            ~KSWORD_ARK_HVM_FEATURE_EPTP_SWITCH_ARMED;
+    }
+    /*
+     * Reserve the secondary-hierarchy page pool while still at PASSIVE_LEVEL
+     * and while a failure can still be reported as a refused prepare.  Only
+     * the pool: no hierarchy is built here, because a hierarchy is keyed by
+     * the leaf it relaxes and no view exists yet.
+     *
+     * A failure unarms the backend rather than failing the whole prepare.
+     * The alternative would turn a machine that simply cannot spare 512 KiB
+     * of nonpaged pool into a machine where HVM does not start at all, and
+     * the caller can see exactly what happened: EPTP_SWITCH_ARMED is absent
+     * from the published capabilities.
+     */
+    if (Runtime->EptpSwitchArmed) {
+        status = KswordARKHvmEptSwitchReserve(Runtime);
+        if (!NT_SUCCESS(status)) {
+            KswordARKHvmEptSwitchRelease(Runtime);
+            Runtime->EptpSwitchArmed = FALSE;
+            Runtime->FeatureFlags &=
+                ~KSWORD_ARK_HVM_FEATURE_EPTP_SWITCH_ARMED;
+        }
+    }
     /* Resource readiness is published only after both allocation phases pass. */
-    Runtime->StateFlags |=
-        KSWORD_ARK_HVM_STATE_RESOURCES_READY;
+    KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_RESOURCES_READY);
     /* Publish active EPT maturity only after the complete hierarchy exists. */
     Runtime->EptImplementation =
         KSWORD_ARK_HVM_IMPLEMENTATION_ACTIVE;
@@ -1627,18 +1863,20 @@ KswordARKHvmSelfTestLocked(
         return STATUS_POWER_STATE_INVALID;
     }
     Runtime->SelfTestPassedProcessorCount = passed;
-    Runtime->StateFlags |= KSWORD_ARK_HVM_STATE_SELF_TESTED;
+    KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_SELF_TESTED);
     if (passed == Runtime->ProcessorCount &&
         Runtime->ProcessorCount != 0UL) {
-        Runtime->StateFlags |=
+        KswordARKHvmStateSet(
+            Runtime,
             KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED |
-            KSWORD_ARK_HVM_STATE_GUEST_READY;
+                KSWORD_ARK_HVM_STATE_GUEST_READY);
         KswordARKHvmReleaseResidentTransition(Runtime);
         return STATUS_SUCCESS;
     }
-    Runtime->StateFlags &=
-        ~(KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED |
-          KSWORD_ARK_HVM_STATE_GUEST_READY);
+    KswordARKHvmStateClear(
+        Runtime,
+        KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED |
+            KSWORD_ARK_HVM_STATE_GUEST_READY);
     KswordARKHvmReleaseResidentTransition(Runtime);
     return NT_SUCCESS(firstFailure)
         ? STATUS_UNSUCCESSFUL
@@ -1755,11 +1993,12 @@ KswordARKHvmLaunchGuestLocked(
     launchInput.ExpectedPowerTransitionGeneration = powerGeneration;
 
     /* Replace the previous one-shot state with an observable running state. */
-    Runtime->StateFlags &=
-        ~(KSWORD_ARK_HVM_STATE_GUEST_EXITED |
-          KSWORD_ARK_HVM_STATE_NESTED_VALIDATED);
+    KswordARKHvmStateClear(
+        Runtime,
+        KSWORD_ARK_HVM_STATE_GUEST_EXITED |
+            KSWORD_ARK_HVM_STATE_NESTED_VALIDATED);
     /* Publish guest-running state before entering VMX root. */
-    Runtime->StateFlags |= KSWORD_ARK_HVM_STATE_GUEST_RUNNING;
+    KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_GUEST_RUNNING);
     /* Preserve the selected processor identity for both success and failure. */
     Runtime->LastLaunchProcessorGroup = cpu->Row.processorGroup;
     /* Preserve the selected group-relative processor number. */
@@ -1771,8 +2010,7 @@ KswordARKHvmLaunchGuestLocked(
         &launchInput,
         &launchResult);
     /* Clear transient one-shot guest-running state after the launch returns. */
-    Runtime->StateFlags &=
-        ~KSWORD_ARK_HVM_STATE_GUEST_RUNNING;
+    KswordARKHvmStateClear(Runtime, KSWORD_ARK_HVM_STATE_GUEST_RUNNING);
 
     /* Preserve the exact final VMX instruction result on the selected CPU. */
     cpu->Row.vmxInstructionResult =
@@ -1794,8 +2032,7 @@ KswordARKHvmLaunchGuestLocked(
         cpu->Row.stateFlags |=
             KSWORD_ARK_HVM_CPU_STATE_VMEXIT_HANDLED;
         Runtime->VmExitCount += 1ULL;
-        Runtime->StateFlags |=
-            KSWORD_ARK_HVM_STATE_GUEST_EXITED;
+        KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_GUEST_EXITED);
         Runtime->LastExitReason =
             launchResult.Exit.Reason &
             KSW_HVM_VMEXIT_REASON_BASIC_MASK;
@@ -1822,8 +2059,7 @@ KswordARKHvmLaunchGuestLocked(
         : launchResult.Exit.VmInstructionError;
     /* Record that nested VM entry and the expected VMCALL exit both completed. */
     if (NT_SUCCESS(status) && nestedLaunch) {
-        Runtime->StateFlags |=
-            KSWORD_ARK_HVM_STATE_NESTED_VALIDATED;
+        KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_NESTED_VALIDATED);
     }
     return status;
 #else
@@ -1917,7 +2153,14 @@ KswordARKHvmInitialize(
      */
     KswordARKHvmMemoryInitialize();
     g_KswordHvm.Initialized = TRUE;
-    g_KswordHvm.StateFlags = KSWORD_ARK_HVM_STATE_INITIALIZED;
+    /*
+     * The one place a plain store to StateFlags is correct: this runs before
+     * ExRegisterCallback publishes the power callback, so the second writer
+     * that forces every other mutation through the interlocked helpers does
+     * not exist yet.  It is an assignment, not a bit operation, and there is
+     * nothing to lose an update to.
+     */
+    g_KswordHvm.StateFlags = (LONG)KSWORD_ARK_HVM_STATE_INITIALIZED;
     g_KswordHvm.Generation = 1UL;
     g_KswordHvm.LastExitReason =
         KSWORD_ARK_HVM_EXIT_REASON_NONE;
@@ -2021,6 +2264,12 @@ KswordARKHvmEnableResidentLifecycle(
 
     /* Capture the final KMDF unload entry before publishing resident support. */
     g_KswordHvm.DriverObject = DriverObject;
+    /*
+     * 这一份快照**不再是**武装时的比较基准 —— KMDF 桩会在 DriverEntry 返回之后
+     * 覆写这个槽位，所以 DriverEntry 里任何位置捕到的都是过期值（详见
+     * KswordARKHvmArmUnloadGuard 的注释）。真正的捕获在武装的那一刻做。
+     * 这里保留它只作为 DriverEntry 期的诊断留痕，Disarm 用的是 Arm 写进去的值。
+     */
     g_KswordHvm.OriginalDriverUnload = DriverObject->DriverUnload;
     g_KswordHvm.ProcessorChangeRegistration =
         KeRegisterProcessorChangeCallback(
@@ -2155,15 +2404,17 @@ KswordARKHvmUninitialize(
             KswordARKHvmReleaseResidentTransition(&g_KswordHvm);
         }
         if (!NT_SUCCESS(transitionStatus)) {
-            g_KswordHvm.StateFlags |=
-                KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+            KswordARKHvmStateSet(
+                &g_KswordHvm,
+                KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
         }
         /* Publish completed HVM teardown. */
         g_KswordHvm.Initialized = FALSE;
     } else {
         /* Preserve explicit rollback-required evidence on unsafe unload. */
-        g_KswordHvm.StateFlags |=
-            KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED;
+        KswordARKHvmStateSet(
+            &g_KswordHvm,
+            KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
         /* Returning would unmap code still executing from resident host state. */
         KeBugCheckEx(
             KSW_HVM_LIFECYCLE_BUGCHECK_CODE,
@@ -2238,6 +2489,17 @@ KswordARKHvmQuery(
         droppedEventCount;
     Response->nestedState =
         g_KswordHvm.NestedState;
+    /*
+     * Publish the durable refusal count alongside the transient state.  The
+     * state answers "what is happening right now"; this answers "did it ever
+     * happen", and only the second one survives the VMXOFF that follows a
+     * refused launch.
+     */
+    Response->nestedL2LaunchRefusedCount =
+        (ULONG)InterlockedCompareExchange(
+            (volatile LONG*)&g_KswordHvm.NestedL2LaunchRefusedCount,
+            0L,
+            0L);
     Response->evmcsState =
         g_KswordHvm.EvmcsState;
     Response->evmcsVersion =
@@ -2415,10 +2677,23 @@ KswordARKHvmControl(
     /* Select the exact flag vocabulary accepted by this command. */
     switch (Request->command) {
     case KSWORD_ARK_HVM_CONTROL_PREPARE:
-        /* Prepare may opt in to an already exposed nested host only. */
+        /*
+         * Prepare may opt in to an already exposed nested host, and it is
+         * where a split-view backend has to be selected: both backends decide
+         * what the EPT hierarchies look like, and those are built here.
+         *
+         * ENABLE_EPTP_SWITCH is admitted for exactly that reason.  Note the
+         * standing defect it must not repeat: ENABLE_LOCAL_EPT is *read* by
+         * this same prepare path but has never been in this whitelist, so the
+         * request is rejected as INVALID_REQUEST before arming can happen and
+         * LocalEptArmed is unreachable through the protocol.  Admitting a flag
+         * here weakens nothing - it is still refused downstream when its
+         * capability is absent, and the refusal now names a reason.
+         */
         allowedFlags =
             KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED |
-            KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED;
+            KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED |
+            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPTP_SWITCH;
         /* Stop after selecting the prepare flag set. */
         break;
     case KSWORD_ARK_HVM_CONTROL_SELF_TEST:
@@ -2456,7 +2731,24 @@ KswordARKHvmControl(
             KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
             KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED |
             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPT_EVENTS |
-            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX;
+            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX |
+            /*
+             * These three were missing, which made the entire #VE / VMFUNC /
+             * per-processor-EPT feature set unreachable through the protocol:
+             * KswordARKHvmResidentStart reads all three and gates each one
+             * against its capability, but the request never got that far - it
+             * was rejected here as INVALID_REQUEST, an answer that says nothing
+             * about why.  The Qt client sends all three, so starting residency
+             * from the UI could not work at all while the command line could.
+             *
+             * Admitting them does not weaken anything: every one is refused
+             * downstream with STATUS_NOT_SUPPORTED when its capability is
+             * absent, and the mutually exclusive combinations are refused too.
+             * The only change is that the refusal now names the reason.
+             */
+            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VE |
+            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC |
+            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT;
         /* Stop after selecting the resident-start flag set. */
         break;
     case KSWORD_ARK_HVM_CONTROL_SOAK:
@@ -2520,6 +2812,33 @@ KswordARKHvmControl(
         Response->status =
             KSWORD_ARK_HVM_CONTROL_STATUS_INVALID_REQUEST;
         Response->lastStatus = STATUS_INVALID_PARAMETER;
+        return STATUS_SUCCESS;
+    }
+    /*
+     * The two split-view backends describe the same leaf in incompatible
+     * ways, so a request may not select both.
+     *
+     * Per-processor hierarchies exist to bound a leaf *write* to one
+     * processor; EPTP switching never writes a leaf at run time, and its
+     * hierarchy index means something different on every processor already.
+     * Composing them is not merely redundant - the composite has no defined
+     * meaning, and the failure mode of guessing one would be a silent
+     * whole-machine hang rather than an error.
+     *
+     * Refused here, before any allocation, so the caller gets a reason
+     * instead of a half-built runtime.
+     */
+    if ((Request->flags &
+            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPTP_SWITCH) != 0UL &&
+        (Request->flags &
+            (KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT |
+             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC)) != 0UL) {
+        /* Publish the stable invalid-request protocol status. */
+        Response->status =
+            KSWORD_ARK_HVM_CONTROL_STATUS_INVALID_REQUEST;
+        /* Publish the authoritative flag-contract failure. */
+        Response->lastStatus = STATUS_INVALID_PARAMETER;
+        /* Return the complete protocol-level rejection. */
         return STATUS_SUCCESS;
     }
     /* Require one explicit partial subsystem selector for validation. */
@@ -2610,7 +2929,7 @@ KswordARKHvmControl(
 
     /* Publish busy state while the selected lifecycle command executes. */
     g_KswordHvm.Busy = TRUE;
-    g_KswordHvm.StateFlags |= KSWORD_ARK_HVM_STATE_BUSY;
+    KswordARKHvmStateSet(&g_KswordHvm, KSWORD_ARK_HVM_STATE_BUSY);
     if (Request->command == KSWORD_ARK_HVM_CONTROL_PREPARE) {
         status = KswordARKHvmPrepareLocked(
             &g_KswordHvm,
@@ -2688,9 +3007,10 @@ KswordARKHvmControl(
             status = STATUS_DEVICE_BUSY;
         } else {
             /* Clear only recoverable fault and rollback evidence. */
-            g_KswordHvm.StateFlags &=
-                ~(KSWORD_ARK_HVM_STATE_FAULTED |
-                  KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
+            KswordARKHvmStateClear(
+                &g_KswordHvm,
+                KSWORD_ARK_HVM_STATE_FAULTED |
+                    KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
             /* Publish successful recoverable fault reset. */
             status = STATUS_SUCCESS;
         }
@@ -2706,7 +3026,7 @@ KswordARKHvmControl(
             : STATUS_HV_OPERATION_FAILED;
     }
     g_KswordHvm.Busy = FALSE;
-    g_KswordHvm.StateFlags &= ~KSWORD_ARK_HVM_STATE_BUSY;
+    KswordARKHvmStateClear(&g_KswordHvm, KSWORD_ARK_HVM_STATE_BUSY);
     /* Finish a resume that waited for this exact control operation to drain. */
     deferredResumeStatus =
         KswordARKHvmAcquireResidentTransition(&g_KswordHvm);
@@ -2725,9 +3045,9 @@ KswordARKHvmControl(
         status != STATUS_NOT_IMPLEMENTED &&
         status != STATUS_POWER_STATE_INVALID &&
         status != STATUS_DEVICE_BUSY) {
-        g_KswordHvm.StateFlags |= KSWORD_ARK_HVM_STATE_FAULTED;
+        KswordARKHvmStateSet(&g_KswordHvm, KSWORD_ARK_HVM_STATE_FAULTED);
     } else if (NT_SUCCESS(status)) {
-        g_KswordHvm.StateFlags &= ~KSWORD_ARK_HVM_STATE_FAULTED;
+        KswordARKHvmStateClear(&g_KswordHvm, KSWORD_ARK_HVM_STATE_FAULTED);
     }
     g_KswordHvm.Generation += 1UL;
     Response->status =
@@ -2795,6 +3115,97 @@ Complete:
     KswordARKReleasePushLockExclusive(&g_KswordHvm.Lock);
     KeLeaveCriticalRegion();
     return STATUS_SUCCESS;
+}
+
+/* 架构 MSR 编号，只在平台探针里用到。 */
+#define KSW_HVM_IA32_EFER           0xC0000080UL
+#define KSW_HVM_IA32_FS_BASE        0xC0000100UL
+#define KSW_HVM_IA32_GS_BASE        0xC0000101UL
+#define KSW_HVM_IA32_KERNEL_GS_BASE 0xC0000102UL
+#define KSW_HVM_IA32_U_CET          0x000006A0UL
+#define KSW_HVM_IA32_S_CET          0x000006A2UL
+
+NTSTATUS
+KswordARKHvmPlatformProbe(
+    _Out_ KSWORD_ARK_HVM_PLATFORM_RESPONSE* Response
+    )
+{
+#if defined(_M_AMD64)
+    int registers[4] = { 0 };
+
+    /* Reject an incomplete caller contract before touching anything. */
+    if (Response == NULL) {
+        /* Return the exact caller-contract failure. */
+        return STATUS_INVALID_PARAMETER;
+    }
+    /* Start from a deterministic response on every path. */
+    RtlZeroMemory(Response, sizeof(*Response));
+    /* Publish the response protocol identity. */
+    Response->version = KSWORD_ARK_HVM_PLATFORM_PROTOCOL_VERSION;
+    /* Publish the complete fixed response size. */
+    Response->size = sizeof(*Response);
+    /* Record the sampling IRQL so a caller can confirm this was passive. */
+    Response->irql = (ULONG)KeGetCurrentIrql();
+
+    /*
+     * CR4 and CPUID cannot fault here, but every MSR below can: the CET pair
+     * only exists when the processor implements shadow stacks, and reading an
+     * unimplemented MSR is #GP.  Each read therefore gets its own guard and
+     * its own valid bit - a shared guard would let one missing MSR erase the
+     * values that were already read, and a shared valid bit could not say
+     * which one was missing.
+     */
+    Response->cr4 = (ULONGLONG)__readcr4();
+    Response->validMask |= KSWORD_ARK_HVM_PLATFORM_VALID_CR4;
+
+    __cpuidex(registers, 7, 0);
+    Response->cpuid7Ecx = (ULONG)registers[2];
+    Response->cpuid7Edx = (ULONG)registers[3];
+    Response->validMask |= KSWORD_ARK_HVM_PLATFORM_VALID_CPUID7;
+
+    __try {
+        Response->efer = __readmsr(KSW_HVM_IA32_EFER);
+        Response->validMask |= KSWORD_ARK_HVM_PLATFORM_VALID_EFER;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Response->exceptionCode = (ULONG)GetExceptionCode();
+    }
+    __try {
+        Response->fsBase = __readmsr(KSW_HVM_IA32_FS_BASE);
+        Response->validMask |= KSWORD_ARK_HVM_PLATFORM_VALID_FS_BASE;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Response->exceptionCode = (ULONG)GetExceptionCode();
+    }
+    __try {
+        Response->gsBase = __readmsr(KSW_HVM_IA32_GS_BASE);
+        Response->validMask |= KSWORD_ARK_HVM_PLATFORM_VALID_GS_BASE;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Response->exceptionCode = (ULONG)GetExceptionCode();
+    }
+    __try {
+        Response->kernelGsBase = __readmsr(KSW_HVM_IA32_KERNEL_GS_BASE);
+        Response->validMask |= KSWORD_ARK_HVM_PLATFORM_VALID_KERNEL_GS;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Response->exceptionCode = (ULONG)GetExceptionCode();
+    }
+    __try {
+        Response->supervisorCet = __readmsr(KSW_HVM_IA32_S_CET);
+        Response->validMask |= KSWORD_ARK_HVM_PLATFORM_VALID_S_CET;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Response->exceptionCode = (ULONG)GetExceptionCode();
+    }
+    __try {
+        Response->userCet = __readmsr(KSW_HVM_IA32_U_CET);
+        Response->validMask |= KSWORD_ARK_HVM_PLATFORM_VALID_U_CET;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Response->exceptionCode = (ULONG)GetExceptionCode();
+    }
+    /* Complete the read-only probe successfully. */
+    return STATUS_SUCCESS;
+#else
+    UNREFERENCED_PARAMETER(Response);
+    /* Return the explicit architecture boundary. */
+    return STATUS_NOT_SUPPORTED;
+#endif
 }
 
 NTSTATUS
@@ -2870,6 +3281,35 @@ KswordARKHvmEptRuleControl(
         Request->ruleId != 0UL) {
         /* Return the exact add-field contract failure. */
         return STATUS_INVALID_PARAMETER;
+    }
+    /*
+     * Refuse ENFORCE outright.  Its dispositon injects #PF at the faulting
+     * linear address, but the denial lives in EPT and the guest cannot see EPT:
+     * its own page tables say the page is fine, so the fault handler repairs
+     * nothing, returns, re-executes, faults again.  Measured: the machine
+     * livelocks with no bugcheck and no exception ever delivered, so even SEH
+     * in the faulting thread cannot break out.
+     *
+     * "Durable denial" is not reachable by injection while the guest is blind
+     * to the mechanism doing the denying - that is what split views are for,
+     * and they redirect rather than refuse.  Until this rides on a view,
+     * refusing at install is the only disposition that cannot hang a machine.
+     */
+    if ((Request->flags &
+            KSWORD_ARK_HVM_EPT_RULE_FLAG_ENFORCE) != 0UL) {
+        /* Initialize the complete protocol response before refusing. */
+        RtlZeroMemory(Response, sizeof(*Response));
+        /* Publish the response protocol identity. */
+        Response->version = KSWORD_ARK_HVM_PROTOCOL_VERSION;
+        /* Publish the complete fixed response size. */
+        Response->size = sizeof(*Response);
+        /* Publish the stable unimplemented-disposition status. */
+        Response->status =
+            KSWORD_ARK_HVM_EPT_RULE_STATUS_UNIMPLEMENTED;
+        /* Publish the authoritative refusal. */
+        Response->lastStatus = STATUS_NOT_IMPLEMENTED;
+        /* Return a protocol-level result successfully. */
+        return STATUS_SUCCESS;
     }
     /* Reject rule control before runtime initialization. */
     if (!g_KswordHvm.Initialized) {
@@ -2978,8 +3418,7 @@ KswordARKHvmEventControl(
     /* Reset the complete stopped event ring. */
     KswordARKHvmEventReset();
     /* Clear protocol-visible retained-event state. */
-    g_KswordHvm.StateFlags &=
-        ~KSWORD_ARK_HVM_STATE_EVENTS_AVAILABLE;
+    KswordARKHvmStateClear(&g_KswordHvm, KSWORD_ARK_HVM_STATE_EVENTS_AVAILABLE);
     /* Initialize the complete empty response. */
     RtlZeroMemory(Response, sizeof(*Response));
     /* Publish the response protocol identity. */

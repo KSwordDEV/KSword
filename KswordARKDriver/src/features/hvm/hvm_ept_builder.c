@@ -243,8 +243,7 @@ KswordARKHvmBuildEptLocked(
     if (architecturalLimit >
         KSW_HVM_MAX_MAPPED_PHYSICAL) {
         /* Preserve explicit incomplete-coverage evidence for lifecycle gates. */
-        Runtime->StateFlags |=
-            KSWORD_ARK_HVM_STATE_EPT_TRUNCATED;
+        KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_EPT_TRUNCATED);
     }
 #else
     /* This EPT builder is defined only for the AMD64 VMX backend. */
@@ -305,8 +304,7 @@ KswordARKHvmBuildEptLocked(
         /* Mark records outside the proven architectural/backend boundary. */
         if (rangeStart >= mappingLimit) {
             /* Preserve that installed RAM exists beyond the mapped window. */
-            Runtime->StateFlags |=
-                KSWORD_ARK_HVM_STATE_EPT_TRUNCATED;
+            KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_EPT_TRUNCATED);
             /* Continue in case a later record remains representable. */
             continue;
         }
@@ -317,8 +315,7 @@ KswordARKHvmBuildEptLocked(
             /* Retain only the representable portion for EPT accounting. */
             clippedEnd = mappingLimit;
             /* Publish that the physical map is intentionally incomplete. */
-            Runtime->StateFlags |=
-                KSWORD_ARK_HVM_STATE_EPT_TRUNCATED;
+            KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_EPT_TRUNCATED);
         }
         /* Count exact installed bytes instead of rounded large-leaf capacity. */
         clippedBytes = clippedEnd - rangeStart;
@@ -417,7 +414,7 @@ KswordARKHvmBuildEptLocked(
         Runtime->EptPointer |= (1ULL << 6);
     }
     /* Publish EPT readiness only after the complete hierarchy exists. */
-    Runtime->StateFlags |= KSWORD_ARK_HVM_STATE_EPT_READY;
+    KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_EPT_READY);
     /*
      * Build the EPTP list now that a default view exists to occupy slot zero.
      * Failure here is not fatal to the identity map: without a list, VMFUNC is

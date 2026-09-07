@@ -186,8 +186,7 @@ KswordARKHvmNestedValidate(
     Runtime->NestedState =
         KSWORD_ARK_HVM_NESTED_STATE_DISPATCH_READY;
     /* Publish protocol-visible partial state. */
-    Runtime->StateFlags |=
-        KSWORD_ARK_HVM_STATE_NESTED_PARTIAL;
+    KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_NESTED_PARTIAL);
     /* Return not-implemented so validation cannot be mistaken for L2 support. */
     return STATUS_NOT_IMPLEMENTED;
 }
@@ -245,6 +244,16 @@ KswordARKHvmNestedHandleExit(
 
             /* Preserve that L1 attempted an L2 launch. */
             Nested->L2LaunchAttempted = TRUE;
+            /*
+             * Account the refusal on the runtime, not just on this VCPU.
+             *
+             * The per-VCPU flag above is cleared on the next VMXOFF along with
+             * NestedState, so by the time anyone polls, both are gone.  This
+             * counter is the only durable trace that some other hypervisor
+             * asked to start a VM underneath us and was told no.
+             */
+            InterlockedIncrement(
+                &Runtime->NestedL2LaunchRefusedCount);
             /* Validate vmcs12-to-vmcs02 merge prerequisites explicitly. */
             mergeStatus = KswordARKHvmNestedVmcs02Prepare(
                 &Nested->Vmcs12,

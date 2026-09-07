@@ -25,6 +25,15 @@ KswordARKHvmQuery(
     _Out_ KSWORD_ARK_QUERY_HVM_RESPONSE* Response
     );
 
+/*
+ * 只读平台探针：读几个决定"退虚拟化能不能返回用户态"的寄存器。
+ * 不进 VMX、不改任何状态、不分配、不加锁。每个字段自带 valid 位。
+ */
+NTSTATUS
+KswordARKHvmPlatformProbe(
+    _Out_ KSWORD_ARK_HVM_PLATFORM_RESPONSE* Response
+    );
+
 NTSTATUS
 KswordARKHvmControl(
     _In_ const KSWORD_ARK_CONTROL_HVM_REQUEST* Request,

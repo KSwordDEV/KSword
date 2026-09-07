@@ -409,8 +409,7 @@ KswordARKHvmEptResetLocked(
     /* Publish zero active EPT rules. */
     Runtime->EptRuleCount = 0UL;
     /* Clear protocol-visible EPT-rule activity. */
-    Runtime->StateFlags &=
-        ~KSWORD_ARK_HVM_STATE_EPT_RULES_ACTIVE;
+    KswordARKHvmStateClear(Runtime, KSWORD_ARK_HVM_STATE_EPT_RULES_ACTIVE);
 }
 
 NTSTATUS
@@ -603,8 +602,9 @@ KswordARKHvmEptRuleControlLocked(
         /* Clear rule-active state after the final rule is removed. */
         if (Runtime->EptRuleCount == 0UL) {
             /* Clear protocol-visible EPT-rule activity. */
-            Runtime->StateFlags &=
-                ~KSWORD_ARK_HVM_STATE_EPT_RULES_ACTIVE;
+            KswordARKHvmStateClear(
+                Runtime,
+                KSWORD_ARK_HVM_STATE_EPT_RULES_ACTIVE);
         }
     /* Validate and add one new physical-page rule. */
     } else if (Request->operation == KSWORD_ARK_HVM_EPT_RULE_ADD) {
@@ -761,8 +761,7 @@ KswordARKHvmEptRuleControlLocked(
             Request->physicalAddress,
             Request->pageCount);
         /* Publish protocol-visible EPT-rule activity. */
-        Runtime->StateFlags |=
-            KSWORD_ARK_HVM_STATE_EPT_RULES_ACTIVE;
+        KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_EPT_RULES_ACTIVE);
     } else {
         /* Publish the stable invalid-request protocol status. */
         Response->status =

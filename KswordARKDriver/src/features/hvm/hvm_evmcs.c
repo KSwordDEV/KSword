@@ -153,8 +153,7 @@ KswordARKHvmEvmcsDiscover(
         Runtime->EvmcsImplementation =
             KSWORD_ARK_HVM_IMPLEMENTATION_PARTIAL;
         /* Publish protocol-visible partial state. */
-        Runtime->StateFlags |=
-            KSWORD_ARK_HVM_STATE_EVMCS_PARTIAL;
+        KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_EVMCS_PARTIAL);
     }
 }
 
@@ -211,8 +210,7 @@ KswordARKHvmEvmcsValidate(
     Runtime->EvmcsImplementation =
         KSWORD_ARK_HVM_IMPLEMENTATION_PARTIAL;
     /* Preserve protocol-visible partial state. */
-    Runtime->StateFlags |=
-        KSWORD_ARK_HVM_STATE_EVMCS_PARTIAL;
+    KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_EVMCS_PARTIAL);
     /* Return not-implemented so callers cannot mistake validation for active. */
     return STATUS_NOT_IMPLEMENTED;
 }

@@ -19,6 +19,13 @@ Environment:
 #include "hvm_ept.h"
 #include "hvm_nested.h"
 
+/*
+ * 前进性台账的类型来自共享算术头。这里必须用**真的**那个结构而不是镜像一份：
+ * 镜像会让「切换是否在前进」有两个真值来源，而它判错的表现是整机静默死锁 ——
+ * 没有蓝屏、没有事件、没有日志，每一次退出单独看都完全正常。
+ */
+#include "driver/KswordArkHvmEptSwitch.h"
+
 /* Identify a KSword-private VMCALL emitted by the resident lifecycle. */
 #define KSW_HVM_HYPERCALL_SIGNATURE 0x4B53574F52444856ULL
 /* Request devirtualization from the current resident processor. */
@@ -107,6 +114,53 @@ typedef struct _KSW_HVM_RESIDENT_VCPU
     KSW_HVM_EPT_TRANSIENT EptTransient;
     /* Preserve one bounded L1 nested-VMX state machine. */
     KSW_HVM_NESTED_VCPU Nested;
+    /*
+     * Address space the guest was running on, captured while the VMCS is still
+     * current and reloaded immediately after VMXOFF.
+     *
+     * This used to be unnecessary by accident: HOST_CR3 and GUEST_CR3 were both
+     * written from the same __readcr3(), so leaving the host value loaded after
+     * VMXOFF happened to leave the guest on its own page tables.  Once HOST_CR3
+     * became the System address space - which it must be, so residency can
+     * outlive the process that requested it - the two diverge, and the thread
+     * resumes on an address space whose kernel half is right and whose user
+     * half belongs to somebody else.  The machine survives, so nothing reports
+     * an error; the requesting process simply stops producing output.
+     *
+     * Placed at the end deliberately: the assembly entry addresses this
+     * structure by literal offsets and hvm_resident.c asserts every one of
+     * them, so no field may be inserted ahead of FxState or Active.
+     */
+    ULONGLONG GuestCr3;
+    /*
+     * Which EPT hierarchy this processor is currently running on, as an index
+     * into the EPTP-switching backend's table: 0 is the base (every leaf at
+     * its primary value, identical to today's steady state) and index k means
+     * leaf k-1, and only leaf k-1, is relaxed.
+     *
+     * "Is any leaf relaxed" is therefore exactly "is this index non-zero" -
+     * there is deliberately no second boolean to keep in step with it.
+     *
+     * Zero whenever EptpSwitchArmed is FALSE, and the MTF backend never reads
+     * it, so an unarmed runtime behaves exactly as before.
+     */
+    ULONG ActiveEptpIndex;
+    /*
+     * Forward-progress ledger for the EPTP-switching backend.
+     *
+     * A switch that does not retire an instruction is legal once - the guest
+     * re-executes the faulting instruction under the new hierarchy - but a
+     * cycle of switches that keeps returning to the same index is a livelock,
+     * and it presents as a whole-machine hang with no bugcheck, no event and
+     * no log: every individual exit looks completely normal.  This counter is
+     * what lets the exit path notice that and fail closed instead.
+     *
+     * Appended at the end for the same reason as GuestCr3: the assembly entry
+     * addresses this structure by literal offsets and hvm_resident.c asserts
+     * every one of them, so no field may be inserted ahead of FxState or
+     * Active.
+     */
+    KSWORD_ARK_HVM_EPTSW_PROGRESS EptpSwitchProgress;
 } KSW_HVM_RESIDENT_VCPU;
 
 EXTERN_C_START

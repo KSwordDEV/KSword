@@ -10,6 +10,77 @@
  */
 #define KSWORD_ARK_HVM_PROTOCOL_VERSION 4UL
 
+/*
+ * VMCS 配置失败的判别码，承载在既有的 lastVmInstructionError 字段里。
+ *
+ * 存在的理由：VMCS 编程阶段有**至少八个**不同的返回点会让 START_RESIDENT 以
+ * 完全相同的现象失败 —— 每处理器行一律是
+ * vmxInstructionResult=3（汇编包装器的 "never-attempted VM entry"）、
+ * stateFlags=0x27、lastStatus=STATUS_HV_OPERATION_FAILED、
+ * lastVmInstructionError=0。从协议面**分不出**是哪一个。
+ *
+ * 尤其要注意 lastVmInstructionError=0 **不能**用来排除 VMWRITE 失败：
+ * 那个 0 有三个来源（没走到写、VMfailInvalid 不带错误码、以及 VMfailValid
+ * 但随后读 VMCS 0x4400 自身也失败）。把 0 当成"没有 VMWRITE 失败"是错的。
+ *
+ * 编码（bit 31 是判别标记，为 0 时整个值仍是架构 VM-instruction error，
+ * 旧语义不变，因此这不是协议破坏性变更、不需要版本号）：
+ *
+ *   bits 31    : 1 = KSword 判别码
+ *   bits 30-24 : 站点号 KSWORD_ARK_HVM_VMCS_DIAG_SITE_*
+ *   bits 23-8  : 细节（VMCS 字段编码 / 缺失能力位掩码 / 异常码低 16 位）
+ *   bits  7-0  : 架构 VM-instruction error，取不到时为 0
+ */
+#define KSWORD_ARK_HVM_VMCS_DIAG_FLAG 0x80000000UL
+
+#define KSWORD_ARK_HVM_VMCS_DIAG_MAKE(site, detail, arch)      \
+    (KSWORD_ARK_HVM_VMCS_DIAG_FLAG |                           \
+     (((unsigned long)(site)   & 0x7FUL)   << 24) |            \
+     (((unsigned long)(detail) & 0xFFFFUL) <<  8) |            \
+      ((unsigned long)(arch)   & 0xFFUL))
+
+#define KSWORD_ARK_HVM_VMCS_DIAG_IS(v)     (((v) & KSWORD_ARK_HVM_VMCS_DIAG_FLAG) != 0UL)
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE(v)   (((v) >> 24) & 0x7FUL)
+#define KSWORD_ARK_HVM_VMCS_DIAG_DETAIL(v) (((v) >>  8) & 0xFFFFUL)
+#define KSWORD_ARK_HVM_VMCS_DIAG_ARCH(v)    ((v)        & 0xFFUL)
+
+/* VMWRITE 被拒。detail = VMCS 字段编码，arch = 架构错误码（0 = 未取到）。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE_VMWRITE            1UL
+/* 已启用的可选 CR4 状态没有 VMCS 传输能力。detail = 下面的 STATE_* 掩码。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE_STATE_NO_TRANSFER  2UL
+/* 提供了 MSR bitmap 页但 primary 控制没拿到 USE_MSR_BITMAPS。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE_MSR_BITMAP         3UL
+/* CR3/DR 拦截被请求但对应 primary 控制没拿到。detail: 1=TrackCr3 2=InterceptDr。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE_CR_POLICY          4UL
+/* 必需的 primary/secondary/exit/entry 控制缺失。detail = 下面的 CTL_* 掩码。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE_REQUIRED_CONTROLS  5UL
+/* 调试状态的保存与加载控制不成对。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE_DEBUG_PAIRING      6UL
+/* 可选状态的 exit/entry 控制不成对。detail = STATE_* 掩码。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE_STATE_PAIRING      7UL
+/* 必需的 secondary 指令控制缺失。detail = 最低缺失位的位号(0-31)。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE_INSTRUCTION_CTL    8UL
+/* 读可选状态 MSR 时抛异常并被就地吞掉。detail = 异常码低 16 位。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE_MSR_EXCEPTION      16UL
+/* 读能力 MSR 时抛异常并被就地吞掉。detail = 异常码低 16 位。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE_CAP_EXCEPTION      17UL
+/* 诊断用的无条件 I/O 退出被请求但能力 MSR 不允许，判据会静默失效。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE_DIAG_IO_EXITING    18UL
+/* 主机页目录基址为零；装上去会三重故障且既无蓝屏也无转储。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_SITE_HOST_CR3           19UL
+
+/* STATE_* 掩码：哪一个可选处理器状态出的问题。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_STATE_CET   0x0001UL
+#define KSWORD_ARK_HVM_VMCS_DIAG_STATE_PKS   0x0002UL
+#define KSWORD_ARK_HVM_VMCS_DIAG_STATE_UINTR 0x0004UL
+#define KSWORD_ARK_HVM_VMCS_DIAG_STATE_FRED  0x0008UL
+
+/* CTL_* 掩码：REQUIRED_CONTROLS 站点具体缺哪一类。 */
+#define KSWORD_ARK_HVM_VMCS_DIAG_CTL_SECONDARY_ACTIVATE 0x0001UL
+#define KSWORD_ARK_HVM_VMCS_DIAG_CTL_EPT                0x0002UL
+#define KSWORD_ARK_HVM_VMCS_DIAG_CTL_HOST_64            0x0004UL
+#define KSWORD_ARK_HVM_VMCS_DIAG_CTL_ENTRY_IA32E        0x0008UL
+
 #define KSWORD_ARK_IOCTL_FUNCTION_QUERY_HVM   0x8CAUL
 #define KSWORD_ARK_IOCTL_FUNCTION_CONTROL_HVM 0x8CBUL
 // 0x8CC-0x8CD are occupied by driver-dispatch and SLAT/IOMMU on main.
@@ -155,6 +226,15 @@
  * the processor that took the exit, and the refusal can be lifted.
  */
 #define KSWORD_ARK_HVM_FEATURE_LOCAL_EPT_ARMED            0x0010000000000000ULL
+/*
+ * The EPTP-switching split-view backend is armed for this runtime.
+ *
+ * Published only when the caller opted in with ENABLE_EPTP_SWITCH *and* both
+ * capabilities it depends on are present.  Absent means the MTF backend is in
+ * force, which is also what an unarmed runtime reports - so read this bit,
+ * not the request flags, to know which backend a given residency is using.
+ */
+#define KSWORD_ARK_HVM_FEATURE_EPTP_SWITCH_ARMED          0x0020000000000000ULL
 
 #define KSWORD_ARK_HVM_STATE_INITIALIZED      0x00000001UL
 #define KSWORD_ARK_HVM_STATE_RESOURCES_READY  0x00000002UL
@@ -286,6 +366,31 @@
  * the corruption the flag exists to prevent.
  */
 #define KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT 0x00000200UL
+/*
+ * Select the EPTP-switching split-view backend for this runtime.
+ *
+ * OFF BY DEFAULT.  With the flag absent nothing changes: the driver keeps the
+ * existing "write the leaf, single-step under the Monitor Trap Flag, write it
+ * back" backend, byte for byte.
+ *
+ * The two backends answer the same question with different machinery, and the
+ * difference is not performance - it is which capability they require:
+ *
+ *   write-leaf + MTF   needs INVEPT_SINGLE and MONITOR_TRAP_FLAG.
+ *   switch EPTP        needs INVEPT_SINGLE and execute-only EPT leaves
+ *                      (IA32_VMX_EPT_VPID_CAP bit 0).  It needs NEITHER the
+ *                      Monitor Trap Flag NOR VM functions.
+ *
+ * That is the whole reason this flag exists: a nested Hyper-V guest is not
+ * offered the Monitor Trap Flag, so the MTF backend cannot install a single
+ * view there, while execute-only leaves are available and measured.
+ *
+ * Refused rather than silently downgraded, for the same reason as
+ * ENABLE_LOCAL_EPT: a caller that asked for a backend which never writes an
+ * EPT leaf at run time, and silently got one that does, would reason about
+ * cross-processor visibility on a false premise.
+ */
+#define KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPTP_SWITCH 0x00000400UL
 
 #define KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN 0x48564D43UL
 
@@ -371,6 +476,19 @@
 #define KSWORD_ARK_HVM_EPT_RULE_STATUS_TABLE_FULL            5UL
 #define KSWORD_ARK_HVM_EPT_RULE_STATUS_SPLIT_FAILED          6UL
 #define KSWORD_ARK_HVM_EPT_RULE_STATUS_PARTIAL               7UL
+/*
+ * 请求的处置在当前机制下无法实现，安装期就拒绝。
+ *
+ * 目前只有一个来源：ENFORCE。它的语义是"持久拒绝"，实现是往 guest 注 #PF ——
+ * 而拒绝发生在 EPT 层，guest 的页表说那一页好好的，缺页处理器什么都不修就
+ * 返回、重执行、再违规、再注 #PF。实测是无限活锁，把整台机器挂在那里，
+ * 而且异常从没交付到用户态，SEH 也接不住。
+ *
+ * 在 guest 看不见 EPT 的前提下，注入一个 guest 能自己解决的 fault 是做不到的；
+ * 真正的"读到假页"要靠分离视图重定向，不是靠拒绝。所以宁可在这里挡住，
+ * 也不要装上一条一旦命中就挂机器的规则。
+ */
+#define KSWORD_ARK_HVM_EPT_RULE_STATUS_UNIMPLEMENTED         8UL
 
 #define KSWORD_ARK_HVM_EVENT_TYPE_VMEXIT          1UL
 #define KSWORD_ARK_HVM_EVENT_TYPE_EPT_VIOLATION   2UL
@@ -472,7 +590,21 @@ typedef struct _KSWORD_ARK_QUERY_HVM_RESPONSE
     unsigned char lastLaunchProcessorNumber;
     unsigned char lastLaunchWasNested;
     long lastStatus;
-    unsigned long reserved;
+    /*
+     * Times an L1 guest asked us to launch an L2 and we refused.
+     *
+     * This has to be a monotonic counter and not a state, because nestedState
+     * is transient: it reaches L2_PARTIAL at the refused VMLAUNCH and is reset
+     * to DISPATCH_READY on the next VMXOFF, so a two-second poll almost always
+     * misses it.  A nonzero value here is the only durable evidence that some
+     * other hypervisor on this machine - VMware, VirtualBox, WSL2, Docker -
+     * tried to start a VM underneath us and could not.  Without it the user
+     * sees "my VM stopped working" and nothing points at us.
+     *
+     * Occupies the former reserved slot, so the structure size is unchanged
+     * and the protocol version does not move.
+     */
+    unsigned long nestedL2LaunchRefusedCount;
     char cpuVendor[KSWORD_ARK_HVM_VENDOR_CHARS];
     char hypervisorVendor[KSWORD_ARK_HVM_HYPERVISOR_VENDOR_CHARS];
     KSWORD_ARK_HVM_CPU_ROW processors[KSWORD_ARK_HVM_MAX_PROCESSORS];
@@ -1024,6 +1156,75 @@ typedef struct _KSWORD_ARK_HVM_CR_POLICY_RESPONSE
 
 /* Bound the domains a caller may enumerate in one response. */
 #define KSWORD_ARK_HVM_MAX_DOMAIN_ROWS 8UL
+
+/*
+ * 只读平台探针。
+ *
+ * 存在的理由很窄：有三个量各自能独立否决"让退虚拟化返回用户态"这条路，
+ * 而仓库里从没记录过它们在靶机上的实测值 —— CR4.CET（影子栈开着的话
+ * ring-3 的 IRET 有自己的协议，`IA32_U_CET`/`IA32_PL3_SSP` 都不是 VMCS 字段）、
+ * KVA shadow（开着的话用户态退出时 GUEST_CR3 是用户影子 PML4，
+ * VMXOFF 之后写回去等于把内核抹掉）、以及 GS base 到底是不是我们以为的东西。
+ *
+ * 这个 IOCTL **只读**：不进 VMX、不改任何执行路径、不分配、不加锁。
+ * 每个值都配一个"读到了没"的位，因为 0 恰好是很多东西的合法值 ——
+ * 一个读失败被当成 0 用出去，比读不到更糟。
+ */
+#define KSWORD_ARK_IOCTL_FUNCTION_HVM_PLATFORM 0x8BFUL
+#define IOCTL_KSWORD_ARK_HVM_PLATFORM \
+    CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_HVM_PLATFORM, METHOD_BUFFERED, FILE_READ_ACCESS)
+
+#define KSWORD_ARK_HVM_PLATFORM_PROTOCOL_VERSION 1UL
+
+/* 每个 valid 位对应一个字段读成功；一位一个字段，不设总开关。 */
+#define KSWORD_ARK_HVM_PLATFORM_VALID_CR4        0x00000001UL
+#define KSWORD_ARK_HVM_PLATFORM_VALID_S_CET      0x00000002UL
+#define KSWORD_ARK_HVM_PLATFORM_VALID_U_CET      0x00000004UL
+#define KSWORD_ARK_HVM_PLATFORM_VALID_FS_BASE    0x00000008UL
+#define KSWORD_ARK_HVM_PLATFORM_VALID_GS_BASE    0x00000010UL
+#define KSWORD_ARK_HVM_PLATFORM_VALID_KERNEL_GS  0x00000020UL
+#define KSWORD_ARK_HVM_PLATFORM_VALID_CPUID7     0x00000040UL
+#define KSWORD_ARK_HVM_PLATFORM_VALID_EFER       0x00000080UL
+/* 八项全读到才算标定完成；少一项这一轮就没有达成它存在的目的。 */
+#define KSW_PLATFORM_VALID_ALL                   0x000000FFUL
+
+typedef struct _KSWORD_ARK_HVM_PLATFORM_REQUEST
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long flags;
+    unsigned long reserved;
+} KSWORD_ARK_HVM_PLATFORM_REQUEST;
+
+typedef struct _KSWORD_ARK_HVM_PLATFORM_RESPONSE
+{
+    unsigned long version;
+    unsigned long size;
+    /* 哪些字段真的读到了。见 KSWORD_ARK_HVM_PLATFORM_VALID_*。 */
+    unsigned long validMask;
+    /* 读某个字段时抛出的异常码；没抛就是 0。 */
+    unsigned long exceptionCode;
+    /* CR4；bit23 = CET。 */
+    unsigned long long cr4;
+    /* IA32_S_CET (0x6A2)：内核影子栈控制。 */
+    unsigned long long supervisorCet;
+    /* IA32_U_CET (0x6A0)：用户影子栈控制。 */
+    unsigned long long userCet;
+    /* IA32_FS_BASE (0xC0000100)。 */
+    unsigned long long fsBase;
+    /* IA32_GS_BASE (0xC0000101)：内核态下应当是 KPCR。 */
+    unsigned long long gsBase;
+    /* IA32_KERNEL_GS_BASE (0xC0000102)：内核态下应当是用户 TEB。 */
+    unsigned long long kernelGsBase;
+    /* IA32_EFER (0xC0000080)。 */
+    unsigned long long efer;
+    /* CPUID.(EAX=7,ECX=0)：ECX bit7 = CET_SS，EDX bit20 = CET_IBT。 */
+    unsigned long cpuid7Ecx;
+    unsigned long cpuid7Edx;
+    /* 采样时的 IRQL，用来确认这确实是 PASSIVE_LEVEL 的读数。 */
+    unsigned long irql;
+    unsigned long reserved2;
+} KSWORD_ARK_HVM_PLATFORM_RESPONSE;
 
 #define KSWORD_ARK_IOCTL_FUNCTION_HVM_DOMAIN 0x8BEUL
 #define IOCTL_KSWORD_ARK_HVM_DOMAIN \

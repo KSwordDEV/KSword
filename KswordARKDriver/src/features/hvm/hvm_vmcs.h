@@ -41,6 +41,13 @@ typedef struct _KSW_HVM_VMCS_INPUT
     ULONGLONG GuestInstructionPointer;
     ULONGLONG HostInstructionPointer;
     ULONGLONG GuestRflags;
+    /*
+     * Page-directory base loaded into HOST_CR3 on every VM exit.  Must name an
+     * address space that outlives residency - the System process one - not the
+     * CR3 that happens to be current while the VMCS is written, which belongs
+     * to whichever process asked for residency.  Zero is refused.
+     */
+    ULONGLONG HostCr3;
     ULONGLONG MsrBitmapPhysical;
     /*
      * Per-processor #VE information area.  Zero means the caller has none, in

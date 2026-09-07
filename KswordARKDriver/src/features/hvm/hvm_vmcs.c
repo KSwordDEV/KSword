@@ -18,6 +18,8 @@ Environment:
 #include "hvm_vmcs.h"
 
 #include "driver/KswordArkHvmControls.h"
+/* KSWORD_ARK_HVM_VMCS_DIAG_*：配置失败判别码的编码，与用户态工具共用同一份定义。 */
+#include "driver/KswordArkHvmIoctl.h"
 
 #if defined(_M_AMD64)
 #include <intrin.h>
@@ -58,6 +60,27 @@ Environment:
 #define KSW_VMX_PRIMARY_HLT_EXITING (1UL << 7)
 #define KSW_VMX_PRIMARY_CR3_LOAD_EXITING (1UL << 15)
 #define KSW_VMX_PRIMARY_MOV_DR_EXITING (1UL << 23)
+/*
+ * 诊断开关：常驻模式下请求无条件 I/O 退出（SDM Table 25-6 bit 24）。
+ *
+ * 为什么存在：常驻挂死时宿主计数器显示每秒十万次 I/O 拦截，而 perfmon 不给
+ * 端口分解，唯一的观测通道（内核调试器）自己就走串口 —— 报告通道就是待查的
+ * 现象本身。打开这一位以后第一条端口访问变成 exit reason 30，退出限定符
+ * bits31:16 就是端口号，并且它经由已有的 lastExitQualification 走 IOCTL
+ * 回来，完全不经过串口。
+ *
+ * 为什么机器不会因此挂死：派发器没有 reason 30 的分支（hvm_exit.c 常量表里
+ * 没有它），落进 else 的 handled=FALSE，随后 DeactivateCurrent 返回
+ * DEVIRTUALIZE —— 即 VMXOFF、guest 原地续跑。一次退出，一个答案，机器活着。
+ *
+ * 前提：bit25（use I/O bitmaps）必须保持为 0。SDM 25.1.3 规定 bit25 为 1 时
+ * bit24 被忽略，那时这个诊断会静默失效。本驱动从不请求 bit25、也从不写
+ * IO_BITMAP_A/B，将来任何人为别的目的打开位图都会毁掉这个诊断。
+ *
+ * 置 0 即回到原行为，无需改动别处。
+ */
+#define KSW_HVM_DIAG_UNCONDITIONAL_IO_EXITING 0
+#define KSW_VMX_PRIMARY_UNCOND_IO_EXITING (1UL << 24)
 #define KSW_VMX_PRIMARY_USE_MSR_BITMAPS (1UL << 28)
 /* Identify the secondary control converting EPT violations into guest #VE. */
 #define KSW_VMX_SECONDARY_EPT_VIOLATION_VE (1UL << 18)
@@ -415,6 +438,7 @@ KswordARKHvmWriteVmcs(
     )
 {
     ULONG index = 0UL;
+    ULONG architecturalError = 0UL;
 
     /* Reject an invalid write ledger before invoking VMX instructions. */
     if (Writes == NULL || VmInstructionError == NULL) {
@@ -440,9 +464,20 @@ KswordARKHvmWriteVmcs(
             if (__vmx_vmread(
                     (SIZE_T)KSW_VMCS_INSTRUCTION_ERROR,
                     &instructionError) == 0U) {
-                *VmInstructionError = (ULONG)instructionError;
+                architecturalError = (ULONG)instructionError;
             }
         }
+        /*
+         * **哪个字段**被拒是唯一有用的信息，而上一版把它丢掉了：这里只记了错误码，
+         * 而错误码为 0 有三个来源（VMfailInvalid 不带码、VMREAD 0x4400 自身失败、
+         * 以及根本没走到这里），于是"error=0"被误当成"没有 VMWRITE 失败"。
+         * 现在把字段编码与 VMX 结果一并编码进同一个字段，语义见
+         * KswordArkHvmIoctl.h 的 KSWORD_ARK_HVM_VMCS_DIAG_*。
+         */
+        *VmInstructionError = KSWORD_ARK_HVM_VMCS_DIAG_MAKE(
+            KSWORD_ARK_HVM_VMCS_DIAG_SITE_VMWRITE,
+            (ULONG)Writes[index].Field,
+            architecturalError);
         return STATUS_HV_OPERATION_FAILED;
     }
     return STATUS_SUCCESS;
@@ -521,6 +556,16 @@ KswordARKHvmConfigureVmcs(
     }
     /* Initialize the diagnostic before any fallible operation. */
     *VmInstructionError = 0UL;
+    /*
+     * A zero host page-directory base would silently produce a VMCS whose exit
+     * handler cannot be translated, and the failure mode is a triple fault with
+     * no bugcheck and no dump.  Refuse before writing anything.
+     */
+    if (Input->HostCr3 == 0ULL) {
+        *VmInstructionError = KSWORD_ARK_HVM_VMCS_DIAG_MAKE(
+            KSWORD_ARK_HVM_VMCS_DIAG_SITE_HOST_CR3, 0UL, 0UL);
+        return STATUS_INVALID_PARAMETER;
+    }
     /* Capture descriptor tables and selectors on the launch processor. */
     KswordARKHvmCaptureSegments(&snapshot);
     /* Resolve every guest-visible segment from its active descriptor table. */
@@ -657,6 +702,15 @@ KswordARKHvmConfigureVmcs(
         sysenterEip = __readmsr(KSW_IA32_SYSENTER_EIP);
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
+        /*
+         * 异常在这里被就地吞成 NTSTATUS，传不到调用方的外层 __except，
+         * 所以每处理器行的 EXCEPTION 位**不会**亮 —— "没有 EXCEPTION 位"
+         * 因此不能用来排除这条路径。把异常码留下才看得见。
+         */
+        *VmInstructionError = KSWORD_ARK_HVM_VMCS_DIAG_MAKE(
+            KSWORD_ARK_HVM_VMCS_DIAG_SITE_CAP_EXCEPTION,
+            (ULONG)GetExceptionCode() & 0xFFFFUL,
+            0UL);
         return GetExceptionCode();
     }
 
@@ -701,6 +755,22 @@ KswordARKHvmConfigureVmcs(
             (hardwareCr4 & KSW_CR4_UINTR) != 0ULL) ||
         (!fredStateSupported &&
             (hardwareCr4 & KSW_CR4_FRED) != 0ULL)) {
+        /*
+         * 这一条在裸机上是矛盾式：CPUID 报了某个状态的处理器，必然在能力 MSR 里
+         * 给出对应的 LOAD_* 控制。只有嵌套下 CPUID 面与 VMX 能力 MSR 面由 L0
+         * 两段独立代码合成时才可能同时成立。所以要记清是哪一个状态。
+         */
+        *VmInstructionError = KSWORD_ARK_HVM_VMCS_DIAG_MAKE(
+            KSWORD_ARK_HVM_VMCS_DIAG_SITE_STATE_NO_TRANSFER,
+            ((!cetStateSupported && (hardwareCr4 & KSW_CR4_CET) != 0ULL)
+                ? KSWORD_ARK_HVM_VMCS_DIAG_STATE_CET : 0UL) |
+            ((!pkrsStateSupported && (hardwareCr4 & KSW_CR4_PKS) != 0ULL)
+                ? KSWORD_ARK_HVM_VMCS_DIAG_STATE_PKS : 0UL) |
+            ((!uinvStateSupported && (hardwareCr4 & KSW_CR4_UINTR) != 0ULL)
+                ? KSWORD_ARK_HVM_VMCS_DIAG_STATE_UINTR : 0UL) |
+            ((!fredStateSupported && (hardwareCr4 & KSW_CR4_FRED) != 0ULL)
+                ? KSWORD_ARK_HVM_VMCS_DIAG_STATE_FRED : 0UL),
+            0UL);
         return STATUS_NOT_SUPPORTED;
     }
 
@@ -740,7 +810,12 @@ KswordARKHvmConfigureVmcs(
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
+        /* 同上：这条路径同样不会点亮每处理器行的 EXCEPTION 位。 */
         status = GetExceptionCode();
+        *VmInstructionError = KSWORD_ARK_HVM_VMCS_DIAG_MAKE(
+            KSWORD_ARK_HVM_VMCS_DIAG_SITE_MSR_EXCEPTION,
+            (ULONG)status & 0xFFFFUL,
+            0UL);
     }
     if (!NT_SUCCESS(status)) {
         return status;
@@ -785,6 +860,15 @@ KswordARKHvmConfigureVmcs(
             (Input->InterceptDr != 0U
                 ? KSW_VMX_PRIMARY_MOV_DR_EXITING
                 : 0UL) |
+#if KSW_HVM_DIAG_UNCONDITIONAL_IO_EXITING
+            /*
+             * 只对常驻模式请求；一次性受控 guest 保持原样作为对照组——它执行
+             * 的是 vmcall/hlt，本来也不做端口访问。
+             */
+            (Input->ResidentMode != 0U
+                ? KSW_VMX_PRIMARY_UNCOND_IO_EXITING
+                : 0UL) |
+#endif
             KSW_VMX_PRIMARY_SECONDARY_CONTROLS,
         primaryCapability);
     /* 同时启用 EPT 与 Windows 已经通过 CPUID 观察到的指令执行门控。 */
@@ -864,8 +948,23 @@ KswordARKHvmConfigureVmcs(
      */
     if (Input->MsrBitmapPhysical != 0ULL &&
         (primaryControls & KSW_VMX_PRIMARY_USE_MSR_BITMAPS) == 0UL) {
+        *VmInstructionError = KSWORD_ARK_HVM_VMCS_DIAG_MAKE(
+            KSWORD_ARK_HVM_VMCS_DIAG_SITE_MSR_BITMAP, 0UL, 0UL);
         return STATUS_NOT_SUPPORTED;
     }
+#if KSW_HVM_DIAG_UNCONDITIONAL_IO_EXITING
+    /*
+     * 同样的道理：诊断位被能力 MSR 夹掉时必须报出来。默默继续会得到一次
+     * "实验跑完了但什么都没测到" —— 这条线上已经栽过一次（套件没接进工程
+     * 照样报全过），不再让第二次以另一种形式发生。
+     */
+    if (Input->ResidentMode != 0U &&
+        (primaryControls & KSW_VMX_PRIMARY_UNCOND_IO_EXITING) == 0UL) {
+        *VmInstructionError = KSWORD_ARK_HVM_VMCS_DIAG_MAKE(
+            KSWORD_ARK_HVM_VMCS_DIAG_SITE_DIAG_IO_EXITING, 0UL, 0UL);
+        return STATUS_NOT_SUPPORTED;
+    }
+#endif
     /*
      * A policy that asked for these controls must actually get them; silently
      * running without the interception it configured would be worse than
@@ -875,6 +974,15 @@ KswordARKHvmConfigureVmcs(
             (primaryControls & KSW_VMX_PRIMARY_CR3_LOAD_EXITING) == 0UL) ||
         (Input->InterceptDr != 0U &&
             (primaryControls & KSW_VMX_PRIMARY_MOV_DR_EXITING) == 0UL)) {
+        *VmInstructionError = KSWORD_ARK_HVM_VMCS_DIAG_MAKE(
+            KSWORD_ARK_HVM_VMCS_DIAG_SITE_CR_POLICY,
+            ((Input->TrackCr3 != 0U &&
+                (primaryControls & KSW_VMX_PRIMARY_CR3_LOAD_EXITING) == 0UL)
+                ? 1UL : 0UL) |
+            ((Input->InterceptDr != 0U &&
+                (primaryControls & KSW_VMX_PRIMARY_MOV_DR_EXITING) == 0UL)
+                ? 2UL : 0UL),
+            0UL);
         return STATUS_NOT_SUPPORTED;
     }
     /* Reject hardware that cannot activate the required secondary controls. */
@@ -884,11 +992,51 @@ KswordARKHvmConfigureVmcs(
             requiredInstructionControls ||
         (exitControls & KSW_VMX_EXIT_HOST_64_BIT) == 0UL ||
         (entryControls & KSW_VMX_ENTRY_IA32E_GUEST) == 0UL) {
+        const ULONG missingInstruction =
+            requiredInstructionControls & ~secondaryControls;
+
+        /*
+         * requiredInstructionControls 单独给一个站点：它的掩码由 CPUID 组装，
+         * 而 AdjustControls 是**静默夹取**（(Desired | mustBeOne) & mayBeOne），
+         * 请求了 L0 不给的位不会报错、只会被清掉，后果全落在这一条判据上。
+         * 记录最低那个缺失位的位号，比记"这一整条判据失败了"有用得多。
+         */
+        if (missingInstruction != 0UL) {
+            ULONG bitIndex = 0UL;
+
+            while (bitIndex < 31UL &&
+                   (missingInstruction & (1UL << bitIndex)) == 0UL) {
+                ++bitIndex;
+            }
+            *VmInstructionError = KSWORD_ARK_HVM_VMCS_DIAG_MAKE(
+                KSWORD_ARK_HVM_VMCS_DIAG_SITE_INSTRUCTION_CTL,
+                bitIndex,
+                0UL);
+        } else {
+            *VmInstructionError = KSWORD_ARK_HVM_VMCS_DIAG_MAKE(
+                KSWORD_ARK_HVM_VMCS_DIAG_SITE_REQUIRED_CONTROLS,
+                (((primaryControls & KSW_VMX_PRIMARY_SECONDARY_CONTROLS) == 0UL)
+                    ? KSWORD_ARK_HVM_VMCS_DIAG_CTL_SECONDARY_ACTIVATE : 0UL) |
+                (((secondaryControls & KSW_VMX_SECONDARY_EPT) == 0UL)
+                    ? KSWORD_ARK_HVM_VMCS_DIAG_CTL_EPT : 0UL) |
+                (((exitControls & KSW_VMX_EXIT_HOST_64_BIT) == 0UL)
+                    ? KSWORD_ARK_HVM_VMCS_DIAG_CTL_HOST_64 : 0UL) |
+                (((entryControls & KSW_VMX_ENTRY_IA32E_GUEST) == 0UL)
+                    ? KSWORD_ARK_HVM_VMCS_DIAG_CTL_ENTRY_IA32E : 0UL),
+                0UL);
+        }
         return STATUS_NOT_SUPPORTED;
     }
     /* 调试状态必须成对保存与加载，禁止只完成单向切换。 */
     if (((exitControls & KSW_VMX_EXIT_SAVE_DEBUG_CONTROLS) != 0UL) !=
         ((entryControls & KSW_VMX_ENTRY_LOAD_DEBUG_CONTROLS) != 0UL)) {
+        *VmInstructionError = KSWORD_ARK_HVM_VMCS_DIAG_MAKE(
+            KSWORD_ARK_HVM_VMCS_DIAG_SITE_DEBUG_PAIRING,
+            (((exitControls & KSW_VMX_EXIT_SAVE_DEBUG_CONTROLS) != 0UL)
+                ? 1UL : 0UL) |
+            (((entryControls & KSW_VMX_ENTRY_LOAD_DEBUG_CONTROLS) != 0UL)
+                ? 2UL : 0UL),
+            0UL);
         return STATUS_NOT_SUPPORTED;
     }
     if ((cetStateSupported &&
@@ -909,6 +1057,13 @@ KswordARKHvmConfigureVmcs(
                     KSW_VMX_SECONDARY_EXIT_LOAD_FRED)) !=
                 (ULONG)(KSW_VMX_SECONDARY_EXIT_SAVE_FRED |
                     KSW_VMX_SECONDARY_EXIT_LOAD_FRED))))) {
+        *VmInstructionError = KSWORD_ARK_HVM_VMCS_DIAG_MAKE(
+            KSWORD_ARK_HVM_VMCS_DIAG_SITE_STATE_PAIRING,
+            (cetStateSupported ? KSWORD_ARK_HVM_VMCS_DIAG_STATE_CET : 0UL) |
+            (pkrsStateSupported ? KSWORD_ARK_HVM_VMCS_DIAG_STATE_PKS : 0UL) |
+            (uinvStateSupported ? KSWORD_ARK_HVM_VMCS_DIAG_STATE_UINTR : 0UL) |
+            (fredStateSupported ? KSWORD_ARK_HVM_VMCS_DIAG_STATE_FRED : 0UL),
+            0UL);
         return STATUS_NOT_SUPPORTED;
     }
 
@@ -967,7 +1122,6 @@ KswordARKHvmConfigureVmcs(
             { KSW_VMCS_GUEST_TR_ACCESS, tr.AccessRights },
             { KSW_VMCS_GUEST_INTERRUPTIBILITY, 0U },
             { KSW_VMCS_GUEST_ACTIVITY, 0U },
-            { KSW_VMCS_GUEST_SMBASE, 0U },
             { KSW_VMCS_GUEST_CR0, (SIZE_T)guestCr0 },
             { KSW_VMCS_GUEST_CR3, (SIZE_T)__readcr3() },
             { KSW_VMCS_GUEST_CR4, (SIZE_T)guestCr4 },
@@ -1003,7 +1157,14 @@ KswordARKHvmConfigureVmcs(
             { KSW_VMCS_HOST_TR_SELECTOR, tr.Selector & 0xFFF8U },
             { KSW_VMCS_HOST_SYSENTER_CS, (SIZE_T)sysenterCs },
             { KSW_VMCS_HOST_CR0, (SIZE_T)__readcr0() },
-            { KSW_VMCS_HOST_CR3, (SIZE_T)__readcr3() },
+            /*
+             * Never __readcr3() here.  This runs on the thread that asked for
+             * residency, so the live CR3 names that process's top-level page
+             * table; when the process exits, the page is freed and the next VM
+             * exit cannot translate HOST_RIP - #PF, then #DF, then a triple
+             * fault that resets the machine with no bugcheck and no dump.
+             */
+            { KSW_VMCS_HOST_CR3, (SIZE_T)Input->HostCr3 },
             { KSW_VMCS_HOST_CR4, (SIZE_T)__readcr4() },
             { KSW_VMCS_HOST_FS_BASE, (SIZE_T)fsBase },
             { KSW_VMCS_HOST_GS_BASE, (SIZE_T)gsBase },
@@ -1027,6 +1188,27 @@ KswordARKHvmConfigureVmcs(
             return status;
         }
     }
+
+    /*
+     * GUEST_SMBASE(0x4828) 单独走**尽力而为**，它是这份写单里唯一一个可以失败
+     * 而不影响正确性的字段。
+     *
+     * 理由：SMBASE 只在 SMI 与 SMM 的 dual-monitor treatment 下才被消耗
+     * （SDM 32.15）。本驱动从不激活那套机制，也从不请求 "entry to SMM"，
+     * 所以 VM entry 根本不检查这个字段，写它纯属卫生。
+     *
+     * 而它在嵌套下会失败：实测 Hyper-V 作为 L0 时拒绝这个字段编码
+     * （判别码 0x81482800 = 站点 1 VMWRITE / detail 0x4828 / 架构错误码 0，
+     * 错误码为 0 说明是 VMfailInvalid 或连 VMCS 0x4400 都读不出来，
+     * 两者都指向"L0 没实现这个编码"）。放在必须成功的写单里，
+     * 结果是整个 START_RESIDENT 在嵌套下永远起不来，而失败点完全不可见。
+     *
+     * 裸机行为不变：那里这条 VMWRITE 照样执行、照样成功。
+     *
+     * 失败时**不写** *VmInstructionError —— 否则一个无害的失败会留下判别码，
+     * 把后面真正的失败盖掉或者让成功的配置看起来像失败过。
+     */
+    (void)__vmx_vmwrite(KSW_VMCS_GUEST_SMBASE, 0U);
 
     /*
      * Publish the information area only once the control has survived

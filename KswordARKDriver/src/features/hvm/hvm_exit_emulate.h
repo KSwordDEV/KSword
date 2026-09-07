@@ -64,11 +64,16 @@ KswordARKHvmExitEmulateXsetbv(
     _Out_ BOOLEAN* InjectFault
     );
 
-/* Resolve one MSR exit that fell outside the architectural bitmap ranges. */
+/*
+ * Resolve one MSR exit that fell outside the architectural bitmap ranges.
+ * HypervisorPresent enables forwarding the reserved 0x40000000-0x4FFFFFFF
+ * window to the hypervisor beneath us; every other index still faults.
+ */
 BOOLEAN
 KswordARKHvmExitEmulateMsr(
     _Inout_ KSW_HVM_GPR_FRAME* Frame,
     _In_ BOOLEAN IsWrite,
+    _In_ BOOLEAN HypervisorPresent,
     _Out_ BOOLEAN* InjectFault
     );
 
