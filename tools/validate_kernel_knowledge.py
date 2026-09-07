@@ -78,10 +78,18 @@ EXPECTED_COVERAGE = {
     "Partial",
     "Planned",
 }
+# 这一组是「知识中心的专题会跳到 KernelDock 的哪些页」，两端必须一一对应：
+# 每个专题声明的 route 必须在这里，KernelDock::openKnowledgeRoute 提供的分支集合
+# 也必须恰好等于这里。多一个少一个都是错。
+#
+# 曾经列着 "hvm"，但目录里没有任何专题引用它，KernelDock 里也没有对应分支 ——
+# HVM 页面已经搬到 KvmDock，不在这个 dock 里了。一个两端都不存在、只活在期望
+# 列表里的条目，会让这项一致性检查恒为假：CI 一直红着，而红的原因与任何真实
+# 缺陷无关。移除它是把期望修正回事实，不是放宽判据；真要给知识中心加 HVM 专题，
+# 那时连同目录条目和跨 dock 跳转一起加回来。
 EXPECTED_ROUTES = {
     "",
     "cid",
-    "hvm",
     "io_management",
     "ipc",
     "kernel_audit",
