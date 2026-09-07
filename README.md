@@ -100,7 +100,7 @@ Both use the same driver and the same `shared/driver/` protocol. Launcher picks 
 
 **Kernel Knowledge** — 71 bilingual searchable articles, each linked to live R3/R0 evidence pages.
 
-**HVM** — VMX self-test, one-shot guest, guarded Intel VT-x/EPT resident monitor. Refuses on AMD or incompatible config. Lab use only.
+**HVM** — VMX self-test, one-shot guest, guarded Intel VT-x/EPT resident monitor, multiprocessor-capable. EPT split views (execute-only shadow pages) served by an EPTP-switching backend, so hooks work on nested hypervisors that expose no monitor-trap flag. Guided EPT-hook wizard. Refuses on AMD or incompatible config. Lab use only.
 
 <details>
 <summary>Full dock-by-dock table (17 main + 4 auxiliary)</summary>
@@ -214,6 +214,8 @@ All headers under `shared/driver/`.
 
 [CLI使用文档](docs/CLI使用文档.md) · [功能技术文档](docs/功能技术文档.md) · [内核知识中心](docs/内核知识中心.md) · [IOCTL audit](docs/driver_ioctl_audit.md) · [OpenArk对照](docs/OpenArk功能对照与TODO.md) · [动态偏移接入](docs/动态偏移功能接入步骤.md) · [PDB/R0 audit prep](docs/pdb_r0_audit_prep/) · [插件系统](docs/插件系统规范.md) · [多语言规范](docs/多语言语言包规范.md)
 
+Virtualization (HVM): [EPT切换后端设计](docs/next/EPT切换后端设计.md) · [嵌套下的跨核TLB失效](docs/next/嵌套下的跨核TLB失效.md) · [隐蔽Hook安全边界决策](docs/next/隐蔽Hook安全边界决策.md) · [自动化测试](docs/next/自动化测试.md) · [VM测试机搭建](docs/next/VM测试机搭建.md)
+
 ## Notice
 
 This project includes system-level debugging, auditing, and management capabilities. Use only in legally authorized environments.
@@ -242,5 +244,12 @@ If this project helps you, consider supporting its development.
 
 ## Next
 
-Hvm & Nested VM
-Anti BSOD
+**Hvm & Nested VM** — the resident monitor now runs multiprocessor under nested
+Hyper-V, with CLOAK split views verified end-to-end on 2 vCPU. Cross-core TLB
+invalidation, which a forwarded flush hypercall silently drops in that
+environment, is fixed and measured
+([writeup](docs/next/嵌套下的跨核TLB失效.md)). Still open: enlightened-VMCS field
+access (VMCS reads currently go through `VMREAD` on every exit), VPID, and
+nested VMX beyond capability reporting.
+
+**Anti BSOD**
