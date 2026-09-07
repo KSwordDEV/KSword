@@ -999,6 +999,37 @@ static int DoControl(HANDLE h, const HVM_CTL_VERB* verb,
                rsp.soakElapsedMilliseconds,
                rsp.soakUnexpectedDevirtualizations);
     }
+    /*
+     * NOT_PREPARED 这个名字会骗人，所以拿到它就必须把缺的那一位指出来。
+     *
+     * 进入常驻要求**四个**状态位齐备（hvm_runtime.c:1920-1928）：
+     * RESOURCES_READY | EPT_READY | SELF_TEST_PASSED | GUEST_READY。
+     * 缺任何一个都回同一个 STATUS_DEVICE_NOT_READY，被映射成 NOT_PREPARED
+     * （hvm_runtime.c:2086-2088）。于是资源明明准备好了、只差一次 self-test，
+     * 报出来的却是"未准备"——字面意思把人引向"去 prepare"，而重复 prepare
+     * 会返回 ALREADY_PREPARED 并把状态打成 FAULTED，越修越远。
+     *
+     * 这四种缺失在协议上不可分辨（一个码），但在**状态位**上完全可分辨，
+     * 而响应里就带着 newStateFlags。所以这里不猜，直接读它。
+     */
+    if (rsp.status == KSWORD_ARK_HVM_CONTROL_STATUS_NOT_PREPARED) {
+        const unsigned long f = rsp.newStateFlags;
+        printf("  ** NOT_PREPARED 拆解 **：进入常驻要求四个位齐备，"
+               "缺哪一个都报这同一个码。\n");
+        printf("     RESOURCES_READY  : %s\n",
+               (f & KSWORD_ARK_HVM_STATE_RESOURCES_READY) ? "有" : "**缺** -> prepare");
+        printf("     EPT_READY        : %s\n",
+               (f & KSWORD_ARK_HVM_STATE_EPT_READY) ? "有" : "**缺** -> prepare");
+        printf("     SELF_TEST_PASSED : %s\n",
+               (f & KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED) ? "有" : "**缺** -> self-test");
+        printf("     GUEST_READY      : %s\n",
+               (f & KSWORD_ARK_HVM_STATE_GUEST_READY) ? "有" : "**缺** -> self-test");
+        if ((f & KSWORD_ARK_HVM_STATE_FAULTED) != 0UL ||
+            (f & KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED) != 0UL) {
+            printf("     另外 FAULTED/ROLLBACK_REQUIRED 已置位，"
+                   "先 reset-fault，否则后续命令还会被拒。\n");
+        }
+    }
     return (rsp.status == KSWORD_ARK_HVM_CONTROL_STATUS_OK) ? 0 : 2;
 }
 
