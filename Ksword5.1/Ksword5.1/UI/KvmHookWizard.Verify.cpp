@@ -1158,15 +1158,26 @@ namespace ks::ui
 
         KvmCheckVerdict leafVerdict = KvmCheckVerdict::Pass;
         QString leafConclusion;
-        // 两份状态位取并集：探针自带的那两位与本次快照的那两位来自两次 QUERY，
-        // 任何一次说「挂在别的树上」都足以让这条读数失去意义。
-        // 往「无读数」的方向偏是安全的方向，往「通过」的方向偏不是。
-        if (leaf.localEptArmed || leaf.eptpSwitchArmed
-            || snapshot.state.localEptArmed || snapshot.state.eptpSwitchArmed)
+        // 只有**私有 EPT** 会让基座读数失去意义，EPTP 切换不会。
+        //
+        // 这一条早先把两个后端一起挡掉了，是个真缺陷：靶机上唯一能用的后端正是
+        // EPTP 切换，于是四条判据里唯一能证伪「叶写对了却不生效」的那一条被关掉了。
+        // 2026-09-07 在靶机上实测推翻了那个假设 —— 装一条 CLOAK 之后基座叶读回
+        // `0x80000000F1353034  R=0 W=0 X=1`，正是 CLOAK 的主值。
+        //
+        // 依据在设计文档里写死：EPTP 切换的**索引 0 = 基座，每一叶都取主值，
+        // 也就是今天的稳态**；索引 k 只放宽第 k-1 号叶（KswordArkHvmEptSwitch.h
+        // 的层次编号一节）。所以基座叶恰恰就是稳态主值，读它是有效判据。
+        // 它读不到的是「索引 k 那份放宽后的叶」，那属于翻转态，不属于本判据。
+        //
+        // 私有 EPT 则不同：每个处理器各有一棵从基座分叉出去的树，基座不是正在
+        // 装载的那一份，所以那种情形仍然只能是无读数。
+        // 两份状态位取并集：探针自带的那位与本次快照的那位来自两次 QUERY。
+        if (leaf.localEptArmed || snapshot.state.localEptArmed)
         {
             // 盲区必须随读数一起呈现，否则这条判据会变成又一条假判据。
             leafVerdict = KvmCheckVerdict::NoReading;
-            leafConclusion = ks::i18n::sourceText(QStringLiteral("本读数描述的是**基座**层次，不描述正在跑的那个处理器：私有 EPT 与 EPTP 切换后端实际装载的是从基座分叉出去的另一棵树，本探针一个字节也读不到它。所以这里既不能算通过也不能算失败。"));
+            leafConclusion = ks::i18n::sourceText(QStringLiteral("每处理器私有 EPT 已武装：每个处理器各有一棵从基座分叉出去的树，正在装载的不是基座，而本探针只读得到基座。所以这里既不能算通过也不能算失败。"));
         }
         else if (!leaf.ok)
         {
@@ -1205,6 +1216,14 @@ namespace ks::ui
         else
         {
             leafConclusion = ks::i18n::sourceText(QStringLiteral("叶项是真页 | R | W 且不可执行，帧地址也仍是目标页基址，与 HOOK 稳态的 primary 值一致（hvm_ept_view.c:178-180）。这是四条里唯一一条能被 EPT 层面的错误证伪的读数。它仍然不证明执行会落到影子页上——那件事本项目未实测。"));
+        }
+        // EPTP 切换后端下补一句边界：本判据读的是基座，而基座按设计承载每一叶的
+        // 主值，所以它对稳态是有效判据；它不描述索引 k 那份放宽后的叶（翻转态）。
+        if (leafVerdict != KvmCheckVerdict::NoReading
+            && (leaf.eptpSwitchArmed || snapshot.state.eptpSwitchArmed))
+        {
+            leafConclusion += QStringLiteral(" ");
+            leafConclusion += ks::i18n::sourceText(QStringLiteral("后端是 EPTP 切换：本读数取自基座层次，而基座按设计让每一叶都取主值，所以它正是稳态的有效判据。它不描述翻转时切过去的那套层次（索引 k 只放宽第 k-1 号叶），那属于翻转态。"));
         }
         if (leaf.largePage && leafVerdict != KvmCheckVerdict::NoReading)
         {

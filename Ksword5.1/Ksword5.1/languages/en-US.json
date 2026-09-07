@@ -5784,6 +5784,8 @@
     "HVM platform validMask=0x": "HVM platform validMask=0x",
     "DockTabInteraction.h": "DockTabInteraction.h",
     "FlowLayout.h": "FlowLayout.h",
+    "每处理器私有 EPT 已武装：每个处理器各有一棵从基座分叉出去的树，正在装载的不是基座，而本探针只读得到基座。所以这里既不能算通过也不能算失败。": "Per-processor private EPT is armed: each processor has its own tree branched off the base, the loaded one is not the base, and this probe can only read the base. So this counts as neither a pass nor a failure.",
+    "后端是 EPTP 切换：本读数取自基座层次，而基座按设计让每一叶都取主值，所以它正是稳态的有效判据。它不描述翻转时切过去的那套层次（索引 k 只放宽第 k-1 号叶），那属于翻转态。": "The backend is EPTP switching: this reading comes from the base hierarchy, and the base is designed so that every leaf holds its primary value, which makes it exactly the right check for the steady state. It does not describe the hierarchy switched to during a flip (index k relaxes only leaf k-1); that is the flipped state.",
     "已拒绝 %1 次「在我们之下启动虚拟机」的请求：本机另一个 hypervisor（VMware / VirtualBox / WSL2 / Docker 等）尝试过 VMLAUNCH 并被拒。我们不提供嵌套 VMX，所以它的虚拟机在我们常驻期间起不来 —— 用户那边看到的现象是「虚拟机突然起不来了」，而线索不会指向这里。": "Refused %1 request(s) to start a virtual machine underneath us: another hypervisor on this machine (VMware, VirtualBox, WSL2, Docker and the like) attempted VMLAUNCH and was denied. We do not provide nested VMX, so its virtual machines cannot start while we are resident. What the user sees is \"my VM suddenly stopped starting\", and nothing points back here.",
     "补丁：从页内偏移 %1 起，共 %2 字节，止于偏移 %3": "Patch: %2 bytes starting at offset %1 within the page, ending at offset %3",
     "表里没有这个编号：视图已经不在了（可能被别的面板移除，或资源被释放过）。": "This id is not in the table: the view is gone (possibly removed from another panel, or the resources were released).",
