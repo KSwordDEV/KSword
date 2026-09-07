@@ -718,6 +718,60 @@ static void PrintIoQualification(const char* indent, unsigned long long q)
            ((q >> 6) & 1ULL) ? "DX" : "立即数");
 }
 
+/*
+ * 按退出原因的直方图：退出到底花在哪。
+ *
+ * `count` 和 `lastExitReason` 合起来答不了这个问题 —— 把 "reason=18" 读一百遍，
+ * 也分不清 VMCALL 是占了 99% 还是只是碰巧排在最后一个。
+ *
+ * 只打非零项，并按次数从多到少排，因为有意义的是**头部**：占住绝大多数退出的那
+ * 一两种原因就是这台机器的性能与行为画像，尾部的一次两次通常是噪声。
+ */
+static void PrintExitReasonHistogram(
+    const char* indent,
+    const KSWORD_ARK_QUERY_HVM_RESPONSE* rsp)
+{
+    unsigned long order[KSWORD_ARK_HVM_EXIT_REASON_SLOTS];
+    unsigned long nonZero = 0UL;
+    unsigned long i = 0UL;
+    unsigned long j = 0UL;
+    unsigned long long total = 0ULL;
+
+    for (i = 0UL; i < KSWORD_ARK_HVM_EXIT_REASON_SLOTS; ++i) {
+        if (rsp->exitReasonCount[i] != 0ULL) {
+            order[nonZero++] = i;
+            total += rsp->exitReasonCount[i];
+        }
+    }
+    if (nonZero == 0UL) {
+        return;
+    }
+    /* 插入排序：最多 96 项，且几乎总是个位数。 */
+    for (i = 1UL; i < nonZero; ++i) {
+        unsigned long key = order[i];
+        j = i;
+        while (j > 0UL &&
+               rsp->exitReasonCount[order[j - 1UL]] <
+                   rsp->exitReasonCount[key]) {
+            order[j] = order[j - 1UL];
+            --j;
+        }
+        order[j] = key;
+    }
+    printf("%s退出分布     : 合计 %llu，%lu 种原因\n", indent, total, nonZero);
+    for (i = 0UL; i < nonZero; ++i) {
+        unsigned long reason = order[i];
+        unsigned long long value = rsp->exitReasonCount[reason];
+
+        printf("%s  %5.1f%%  %10llu  reason=%-3lu %s\n",
+               indent,
+               (double)value * 100.0 / (double)total,
+               value,
+               reason,
+               ExitReasonName(reason));
+    }
+}
+
 static void PrintExitTelemetry(const char* indent,
                                unsigned long long count,
                                unsigned long reason,
@@ -828,6 +882,31 @@ static int DoQuery(HANDLE h, int asJson)
                rsp.cr4Fixed0, rsp.cr4Fixed1,
                rsp.lastVmInstructionError,
                rsp.eventCount, rsp.droppedEventCount);
+        /*
+         * 只发非零项，键是退出原因编号。
+         *
+         * 96 项里绝大多数恒为零，全发出去会让每次 status 的 JSON 里多出一大片
+         * 没有信息的 "0"，而脚本要的是"这一轮退出都花在哪"。
+         */
+        {
+            unsigned long slot = 0UL;
+            int emitted = 0;
+
+            printf(",\"exitReasonCount\":{");
+            for (slot = 0UL;
+                 slot < KSWORD_ARK_HVM_EXIT_REASON_SLOTS;
+                 ++slot) {
+                if (rsp.exitReasonCount[slot] == 0ULL) {
+                    continue;
+                }
+                printf("%s\"%lu\":%llu",
+                       emitted ? "," : "",
+                       slot,
+                       rsp.exitReasonCount[slot]);
+                emitted = 1;
+            }
+            printf("}");
+        }
         PrintCpuRows(&rsp, 1);
         printf("}\n");
         return 0;
@@ -864,6 +943,7 @@ static int DoQuery(HANDLE h, int asJson)
     PrintExitTelemetry("  ", rsp.vmExitCount, rsp.lastExitReason,
                        rsp.lastExitQualification, rsp.lastGuestRip,
                        rsp.lastGuestRsp, rsp.lastExitInstructionLength);
+    PrintExitReasonHistogram("  ", &rsp);
     printf("  CPU / HV     : %.12s / %.12s\n", rsp.cpuVendor, rsp.hypervisorVendor);
     PrintCpuRows(&rsp, 0);
     return 0;

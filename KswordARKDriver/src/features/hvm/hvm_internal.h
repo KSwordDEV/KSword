@@ -176,6 +176,40 @@ typedef struct _KSW_HVM_CPU_RESOURCE
     PVOID VeInfoVirtual;
     /* Retain the processor-owned #VE information-area physical address. */
     PHYSICAL_ADDRESS VeInfoPhysical;
+    /*
+     * How many exits this processor took, per Intel basic exit reason.
+     *
+     * The driver already reports a total exit count and the *last* reason, and
+     * neither answers the question that actually comes up while diagnosing:
+     * where do the exits go.  Reading "lastExitReason 18" a hundred times does
+     * not distinguish VMCALL being 99% of the traffic from VMCALL being rare
+     * and merely last.
+     *
+     * The event ring cannot answer it either.  One ring is shared by every
+     * processor, so at exit rates in the tens of thousands per second its
+     * writers collide and it discards - measured on 2 vCPU: 1024 slots,
+     * 17071 dropped publications in a single run.  A ring that discards most of
+     * what it is handed is evidence of nothing.  A ring records the last N
+     * exits; this records the shape of all of them, which is what the ring was
+     * being asked for and could not deliver.
+     *
+     * This array cannot drop.  It belongs to one processor, so it has exactly
+     * one writer and needs no interlocked access, no slot ownership and no
+     * failure path.
+     *
+     * Held here, on the resource, rather than on the resident VCPU context:
+     * the VCPU contexts are released and zeroed when residency stops, which
+     * would discard the histogram at exactly the moment someone goes looking
+     * for it.  The resource outlives residency, so a soak's exit shape is still
+     * readable after the soak ends.
+     *
+     * Indexed by basic exit reason, sized past every reason Intel currently
+     * defines; a reason at or beyond the bound is counted nowhere rather than
+     * folded into a neighbour.  ULONG, so a processor sustaining ten thousand
+     * exits a second wraps after about five days - acceptable for a diagnostic
+     * counter, and the protocol widens to 64 bits before summing.
+     */
+    ULONG ExitReasonCount[KSWORD_ARK_HVM_EXIT_REASON_SLOTS];
 } KSW_HVM_CPU_RESOURCE;
 
 /* Track one contiguous page allocated for an EPT hierarchy. */

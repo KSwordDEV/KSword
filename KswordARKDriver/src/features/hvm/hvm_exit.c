@@ -702,6 +702,24 @@ KswordARKHvmResidentVmExitDispatch(
         telemetry.Reason &
         KSW_HVM_VMEXIT_REASON_BASIC_MASK;
     /*
+     * Count the exit here, before anything can decide to leave.
+     *
+     * Placed immediately after the reason is decoded so the histogram counts
+     * exits by what they *were*, independent of how they were later serviced -
+     * including the ones that devirtualize a few lines below and never reach
+     * the servicing switch at all.  An exit the driver refused to handle is
+     * exactly the kind worth having a count of.
+     *
+     * Plain increment, no interlocked: this array belongs to the processor
+     * executing this handler and no other writer exists.  Nothing reads it
+     * concurrently either - the protocol path sums the columns while reporting,
+     * where a torn count would cost a slightly stale diagnostic number and
+     * nothing else.
+     */
+    if (basicReason < KSWORD_ARK_HVM_EXIT_REASON_SLOTS) {
+        Context->Resource->ExitReasonCount[basicReason] += 1UL;
+    }
+    /*
      * Another processor failed closed and asked everyone out.  Leave without
      * servicing this exit.
      *

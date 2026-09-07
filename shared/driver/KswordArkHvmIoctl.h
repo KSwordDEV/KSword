@@ -108,6 +108,16 @@
 #define KSWORD_ARK_HVM_VENDOR_CHARS 16U
 #define KSWORD_ARK_HVM_HYPERVISOR_VENDOR_CHARS 16U
 #define KSWORD_ARK_HVM_MAX_PROCESSORS 256UL
+/*
+ * Slots in the per-reason exit histogram.
+ *
+ * Intel basic exit reasons are a dense small integer space; this is sized past
+ * every reason currently defined so that a processor running on newer silicon
+ * counts its exits somewhere rather than nowhere.  A reason at or beyond this
+ * bound is simply not counted - never folded into a neighbouring slot, which
+ * would turn an unknown exit into a plausible-looking one.
+ */
+#define KSWORD_ARK_HVM_EXIT_REASON_SLOTS 96UL
 #define KSWORD_ARK_HVM_MAX_EPT_RULES 128UL
 #define KSWORD_ARK_HVM_MAX_EVENT_ROWS 64UL
 
@@ -629,6 +639,26 @@ typedef struct _KSWORD_ARK_QUERY_HVM_RESPONSE
     unsigned long nestedL2LaunchRefusedCount;
     char cpuVendor[KSWORD_ARK_HVM_VENDOR_CHARS];
     char hypervisorVendor[KSWORD_ARK_HVM_HYPERVISOR_VENDOR_CHARS];
+    /*
+     * Exits so far by Intel basic exit reason, summed over every processor.
+     *
+     * `vmExitCount` says how many exits happened and `lastExitReason` says what
+     * the most recent one was; neither says where the exits go, which is the
+     * question that actually comes up.  Reading "lastExitReason 18" a hundred
+     * times does not distinguish VMCALL being 99% of the traffic from VMCALL
+     * being rare and merely last.
+     *
+     * Summed rather than reported per processor because the per-processor form
+     * would add this array 256 times over.  The driver keeps it per processor
+     * internally - that is what makes it free of interlocked access - and adds
+     * the columns up here.
+     *
+     * Indexes past the last reason Intel defines stay zero.  A processor's own
+     * counter is 32-bit and wraps after roughly five days at ten thousand exits
+     * a second; this sum is 64-bit, so it only inherits a wrap that already
+     * happened rather than adding one.
+     */
+    unsigned long long exitReasonCount[KSWORD_ARK_HVM_EXIT_REASON_SLOTS];
     KSWORD_ARK_HVM_CPU_ROW processors[KSWORD_ARK_HVM_MAX_PROCESSORS];
 } KSWORD_ARK_QUERY_HVM_RESPONSE;
 

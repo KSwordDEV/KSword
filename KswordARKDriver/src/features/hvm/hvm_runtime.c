@@ -2557,8 +2557,25 @@ KswordARKHvmQuery(
          index < g_KswordHvm.ProcessorCount &&
             index < KSWORD_ARK_HVM_MAX_PROCESSORS;
          ++index) {
+        ULONG slot = 0UL;
+
         Response->processors[index] =
             g_KswordHvm.Processors[index].Row;
+        /*
+         * Sum the per-processor exit histogram into the reported aggregate.
+         *
+         * Summed here rather than reported per processor because the
+         * per-processor form would repeat a 96-entry array 256 times in every
+         * response.  Widened to 64 bits on the way in, so the total does not
+         * add a wrap of its own to whatever the 32-bit columns already did.
+         */
+        for (slot = 0UL;
+             slot < KSWORD_ARK_HVM_EXIT_REASON_SLOTS;
+             ++slot) {
+            Response->exitReasonCount[slot] +=
+                (unsigned long long)
+                    g_KswordHvm.Processors[index].ExitReasonCount[slot];
+        }
     }
     KswordARKReleasePushLockShared(&g_KswordHvm.Lock);
     KeLeaveCriticalRegion();
