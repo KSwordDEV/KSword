@@ -1551,6 +1551,266 @@ static int ProbeControl(HANDLE h, unsigned long command, unsigned long flags,
     return 1;
 }
 /*
+ * tlb-probe：直接测"跨处理器 TLB 失效在常驻下还灵不灵"。
+ *
+ * 要回答的是 hvm_exit.c 转发段那条标着 unmeasured 的隐患：我们把 guest 的
+ * HvCallFlushVirtualAddressSpace/List 原样转发给 L0，而**兄弟逻辑处理器此刻正
+ * 作为我们的 guest 在跑**，L0 的失效是否覆盖到嵌套 guest 上下文是未知的。
+ * 注释预言的形状是"静默数据损坏、随机符号的 bugcheck、需要两个以上虚拟处理器"，
+ * 与 2026-09-07 那次 0x139 逐条对上。
+ *
+ * 注释建议的测法是"单处理器对多处理器的长时间对照"，但那是统计实验：靠撞低概率
+ * 崩溃取证，跑完没崩什么也证明不了。这里换一条**确定性**判据。
+ *
+ * VirtualProtect 返回的语义就是"所有处理器都已经看到新保护"，而它内部正是靠
+ * 跨核 TLB shootdown 兑现这个语义，那条 shootdown 在 Hyper-V 来宾里走的就是被
+ * 我们转发的那个 hypercall。所以：
+ *
+ *   1. 主线程把一页改成 PAGE_NOACCESS，**等 VirtualProtect 返回**
+ *   2. 返回之后才把 epoch 推成奇数，宣告"从现在起谁读到内容都是违规"
+ *   3. 绑在别的处理器上的工作线程在奇数 epoch 里读这一页
+ *   4. 读**成功**就是陈旧翻译 —— 它用的是一条本该已被失效的映射
+ *
+ * epoch 前后各读一次、要求两次相同，是为了排掉"读之前窗口就已经关了"那种情况：
+ * 窗口一变就不计入，宁可漏计也不误判。
+ *
+ * 判据不是"崩没崩"，是 violations 这个数。跑之前/之后各在常驻起与不起两种状态
+ * 下各跑一轮，就是那个单核/多核对照的确定性版本：常驻没起时违规必须是 0
+ * （那是基线，证明探针本身没毛病），常驻起了还是 0 才说明转发没有丢失效。
+ *
+ * 纯用户态，不碰任何 IOCTL（只在开头查一次常驻状态用于报告），不改页表，
+ * 不动驱动。跑崩不了机器。
+ */
+typedef struct _KSW_TLB_WORKER
+{
+    volatile unsigned char* page;
+    volatile LONG* epoch;
+    volatile LONG* stop;
+    unsigned long processorIndex;
+    unsigned long long reads;
+    unsigned long long violations;
+    unsigned long long faults;
+} KSW_TLB_WORKER;
+
+static DWORD WINAPI TlbProbeWorker(LPVOID param)
+{
+    KSW_TLB_WORKER* w = (KSW_TLB_WORKER*)param;
+    DWORD_PTR mask = (DWORD_PTR)1 << (w->processorIndex & 63U);
+
+    /* 绑核。绑不上就照跑 —— 少一个核的覆盖，不是错误。 */
+    (void)SetThreadAffinityMask(GetCurrentThread(), mask);
+
+    while (InterlockedCompareExchange((LONG*)w->stop, 0L, 0L) == 0L) {
+        LONG e1 = InterlockedCompareExchange((LONG*)w->epoch, 0L, 0L);
+        LONG e2 = 0L;
+        int ok = 0;
+
+        /* 只在"禁止访问"窗口里测；偶数 epoch 期间读到内容是正常的。 */
+        if ((e1 & 1L) == 0L) {
+            YieldProcessor();
+            continue;
+        }
+        __try {
+            /* volatile 保证这次访问真的发出去，不被优化掉。 */
+            (void)w->page[0];
+            ok = 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            ok = 0;
+        }
+        e2 = InterlockedCompareExchange((LONG*)w->epoch, 0L, 0L);
+        w->reads += 1ULL;
+        if (!ok) {
+            /* 拿到 AV，这是**正确**结果：失效生效了。 */
+            w->faults += 1ULL;
+        } else if (e2 == e1) {
+            /*
+             * 整个读都发生在同一个奇数 epoch 里，也就是完全落在
+             * VirtualProtect(NOACCESS) 已返回之后、还没放开之前，
+             * 却读成功了 —— 这条翻译本该已经被失效掉。
+             */
+            w->violations += 1ULL;
+        }
+    }
+    return 0;
+}
+
+static int DoTlbProbe(HANDLE h, int asJson, unsigned long durationMs)
+{
+    KSW_TLB_WORKER workers[64];
+    HANDLE threads[64];
+    KSWORD_ARK_QUERY_HVM_REQUEST qreq;
+    KSWORD_ARK_QUERY_HVM_RESPONSE qrsp;
+    DWORD returned = 0;
+    SYSTEM_INFO si;
+    volatile unsigned char* page = NULL;
+    volatile LONG epoch = 0L;
+    volatile LONG stop = 0L;
+    unsigned long processorCount = 0UL;
+    unsigned long residentBefore = 0UL;
+    unsigned long residentAfter = 0UL;
+    unsigned long workerCount = 0UL;
+    unsigned long i = 0UL;
+    unsigned long long totalReads = 0ULL;
+    unsigned long long totalViolations = 0ULL;
+    unsigned long long totalFaults = 0ULL;
+    unsigned long long cycles = 0ULL;
+    DWORD startTick = 0;
+    DWORD oldProtect = 0;
+    int rc = 1;
+
+    memset(workers, 0, sizeof(workers));
+    memset(threads, 0, sizeof(threads));
+
+    if (durationMs == 0UL) {
+        durationMs = 5000UL;
+    }
+
+    /* 只读一次状态，用于报告 —— 起停常驻由调用方负责。 */
+    memset(&qreq, 0, sizeof(qreq));
+    memset(&qrsp, 0, sizeof(qrsp));
+    qreq.version = KSWORD_ARK_HVM_PROTOCOL_VERSION;
+    qreq.size = (unsigned long)sizeof(qreq);
+    if (DeviceIoControl(h, IOCTL_KSWORD_ARK_QUERY_HVM, &qreq, sizeof(qreq),
+                        &qrsp, (DWORD)sizeof(qrsp), &returned, NULL)) {
+        residentBefore = qrsp.residentProcessorCount;
+        processorCount = qrsp.processorCount;
+    }
+
+    GetSystemInfo(&si);
+    if (processorCount == 0UL) {
+        processorCount = (unsigned long)si.dwNumberOfProcessors;
+    }
+
+    /*
+     * 每个处理器一个工作线程，主线程另算。单核上也照跑 —— 那一轮的意义正是
+     * 基线：没有兄弟处理器，违规必须是 0。
+     */
+    workerCount = (unsigned long)si.dwNumberOfProcessors;
+    if (workerCount == 0UL) {
+        workerCount = 1UL;
+    }
+    if (workerCount > 64UL) {
+        workerCount = 64UL;
+    }
+
+    page = (volatile unsigned char*)VirtualAlloc(
+        NULL, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (page == NULL) {
+        fprintf(stderr, "VirtualAlloc 失败：win32=%lu\n", GetLastError());
+        return 1;
+    }
+    page[0] = 0xA5U;
+
+    for (i = 0UL; i < workerCount; ++i) {
+        workers[i].page = page;
+        workers[i].epoch = &epoch;
+        workers[i].stop = &stop;
+        workers[i].processorIndex = i;
+        threads[i] = CreateThread(NULL, 0, TlbProbeWorker,
+                                  &workers[i], 0, NULL);
+        if (threads[i] == NULL) {
+            fprintf(stderr, "CreateThread 失败：win32=%lu\n", GetLastError());
+            InterlockedExchange((LONG*)&stop, 1L);
+            goto cleanup;
+        }
+    }
+
+    startTick = GetTickCount();
+    for (;;) {
+        unsigned long spin = 0UL;
+
+        if ((GetTickCount() - startTick) >= durationMs) {
+            break;
+        }
+        /* 关门。VirtualProtect 返回即代表所有处理器都该看到新保护了。 */
+        if (!VirtualProtect((LPVOID)page, 4096, PAGE_NOACCESS, &oldProtect)) {
+            fprintf(stderr, "VirtualProtect(NOACCESS) 失败：win32=%lu\n",
+                    GetLastError());
+            break;
+        }
+        /* 返回之后才宣告窗口开始 —— 顺序反了会把正常读记成违规。 */
+        InterlockedIncrement((LONG*)&epoch);
+        for (spin = 0UL; spin < 20000UL; ++spin) {
+            YieldProcessor();
+        }
+        /* 先关窗口，再放开保护，同样是为了不误判。 */
+        InterlockedIncrement((LONG*)&epoch);
+        if (!VirtualProtect((LPVOID)page, 4096, PAGE_READWRITE, &oldProtect)) {
+            fprintf(stderr, "VirtualProtect(READWRITE) 失败：win32=%lu\n",
+                    GetLastError());
+            break;
+        }
+        page[0] = 0xA5U;
+        cycles += 1ULL;
+    }
+    InterlockedExchange((LONG*)&stop, 1L);
+    rc = 0;
+
+cleanup:
+    for (i = 0UL; i < workerCount; ++i) {
+        if (threads[i] != NULL) {
+            (void)WaitForSingleObject(threads[i], 10000);
+            (void)CloseHandle(threads[i]);
+        }
+    }
+    /* 保护可能停在 NOACCESS 上，先放开再释放。 */
+    (void)VirtualProtect((LPVOID)page, 4096, PAGE_READWRITE, &oldProtect);
+
+    for (i = 0UL; i < workerCount; ++i) {
+        totalReads += workers[i].reads;
+        totalViolations += workers[i].violations;
+        totalFaults += workers[i].faults;
+    }
+
+    memset(&qreq, 0, sizeof(qreq));
+    memset(&qrsp, 0, sizeof(qrsp));
+    qreq.version = KSWORD_ARK_HVM_PROTOCOL_VERSION;
+    qreq.size = (unsigned long)sizeof(qreq);
+    if (DeviceIoControl(h, IOCTL_KSWORD_ARK_QUERY_HVM, &qreq, sizeof(qreq),
+                        &qrsp, (DWORD)sizeof(qrsp), &returned, NULL)) {
+        residentAfter = qrsp.residentProcessorCount;
+    }
+
+    if (asJson) {
+        printf("{\"kind\":\"tlb-probe\",\"durationMs\":%lu,"
+               "\"processorCount\":%lu,\"workerThreads\":%lu,"
+               "\"residentBefore\":%lu,\"residentAfter\":%lu,"
+               "\"protectCycles\":%llu,\"windowedReads\":%llu,"
+               "\"faults\":%llu,\"violations\":%llu,\"verdict\":\"%s\"}\n",
+               durationMs, processorCount, workerCount,
+               residentBefore, residentAfter,
+               cycles, totalReads, totalFaults, totalViolations,
+               totalViolations != 0ULL
+                   ? "stale-translation-observed"
+                   : (totalReads == 0ULL ? "no-samples" : "coherent"));
+    } else {
+        printf("\n=== 跨处理器 TLB 失效探针 ===\n");
+        printf("  时长/处理器数 : %lu ms / %lu（工作线程 %lu）\n",
+               durationMs, processorCount, workerCount);
+        printf("  常驻核数      : %lu -> %lu\n", residentBefore, residentAfter);
+        printf("  保护翻转      : %llu 轮\n", cycles);
+        printf("  窗口内取样    : %llu 次   AV %llu 次\n",
+               totalReads, totalFaults);
+        printf("  **违规**      : %llu 次\n", totalViolations);
+        if (totalViolations != 0ULL) {
+            printf("  判定          : stale-translation-observed\n");
+            printf("    有处理器在 VirtualProtect(NOACCESS) 已经返回之后，仍然\n"
+                   "    用一条本该失效的映射读到了内容。这正是转发段注释里那条\n"
+                   "    unmeasured 隐患的形状。\n");
+        } else if (totalReads == 0ULL) {
+            printf("  判定          : no-samples（窗口没被取到，加长时长或核数）\n");
+        } else {
+            printf("  判定          : coherent（本轮没观察到陈旧翻译）\n");
+            printf("    注意这是**没观察到**，不是证明不存在。要有说服力，\n"
+                   "    常驻不起那一轮必须也是 0（基线），且取样数要足够大。\n");
+        }
+    }
+    (void)VirtualFree((LPVOID)page, 0, MEM_RELEASE);
+    return rc;
+}
+
+/*
  * rule-allowonce：装一条 ALLOW_ONCE 规则，看安装期的门放不放行。
  *
  * 为什么值得单独一个动词：ALLOW_ONCE 把 EPT 叶临时放宽一条指令再用
@@ -3474,6 +3734,8 @@ static void PrintUsage(void)
            "装规则→起常驻→读→停→清）\n");
     printf("  rule-allowonce   ALLOW_ONCE 规则**安装期**的门（要求常驻没在跑；"
            "装上会立刻删掉）\n");
+    printf("  tlb-probe        跨处理器 TLB 失效探针，毫秒数由第二个参数给出"
+           "（纯用户态，起停常驻由外面控制）\n");
     printf("  view-query       列出已安装的 EPT 分离视图（只读，无需确认）\n");
     printf("  view-probe       分离视图安装期**归因**探针（前提：prepare 过、"
            "常驻没在跑；装上会立刻卸掉）\n");
@@ -3533,6 +3795,8 @@ int main(int argc, char** argv)
         rc = DoProbeExecuteOnly(h, asJson);
     } else if (strcmp(cmd, "rule-allowonce") == 0) {
         rc = DoRuleAllowOnceGate(h, asJson);
+    } else if (strcmp(cmd, "tlb-probe") == 0) {
+        rc = DoTlbProbe(h, asJson, soakMs);
     } else if (strcmp(cmd, "probe-platform") == 0) {
         rc = DoProbePlatform(h, asJson);
     } else if (strcmp(cmd, "probe-flags") == 0) {
