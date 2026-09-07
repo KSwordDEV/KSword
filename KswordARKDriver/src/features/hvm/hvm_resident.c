@@ -1002,9 +1002,10 @@ KswordARKHvmResidentDeactivateCurrent(
      * request has to be visible before this one leaves VMX rather than after.
      *
      * Only on Faulted.  The planned per-processor stop also lands here with
-     * Faulted == FALSE (hvm_exit.c:641-652) and must not drag the other
-     * processors out with it; the rendezvous is already stopping them one by
-     * one, in order, with the correct instruction length.
+     * Faulted == FALSE (the KSW_HVM_HYPERCALL_STOP branch of the dispatcher)
+     * and must not drag the other processors out with it; the rendezvous is
+     * already stopping them one by one, in order, with the correct instruction
+     * length.
      */
     if (Faulted) {
         /* Publish the whole-machine stop request before leaving VMX. */

@@ -561,50 +561,6 @@ KswordARKHvmResidentVmExitDispatch(
         /* Request a bounded fatal trap with no unsafe continuation. */
         return KSW_HVM_EXIT_ACTION_FATAL;
     }
-    /*
-     * Another processor failed closed and asked everyone out.  Leave before
-     * servicing anything.
-     *
-     * Devirtualization only ever covers the current processor, and the IPI
-     * rendezvous is unusable from a VM-exit handler, so this check is the only
-     * way the request reaches the remaining processors.  Without it a
-     * fail-closed exit left the box half devirtualized - measured 2026-09-07 on
-     * 2 vCPU, where residentProcessorCount went 2 -> 1 and stayed.
-     *
-     * InstructionLength is 0 on purpose: this exit was never serviced, so the
-     * intercepted instruction has to re-execute natively after VMXOFF.  That is
-     * the same fail-open continuation every other fail-closed path uses.
-     *
-     * Faulted is FALSE on purpose: this processor is not the origin.  The
-     * processor that failed already published FAULTED and ROLLBACK_REQUIRED,
-     * and re-publishing here would make every follower look like a separate
-     * fault in the telemetry.
-     *
-     * Read it, never consume it.  Every remaining processor has to see the same
-     * request, and there is no way to know how many are still resident from
-     * here.  An exchange would hand the request to whichever processor exited
-     * first and hide it from the rest - correct by accident on two processors,
-     * silently leaving two of four behind on a bigger box.  The flag stays up
-     * until residency starts again, which is the one moment nobody is resident.
-     *
-     * No loop risk: a processor that takes this path leaves VMX and never
-     * re-enters the dispatcher, and a failed devirtualization returns FATAL
-     * rather than falling through.
-     */
-    if (InterlockedCompareExchange(
-            &Context->Runtime->ResidentFaultStopRequested,
-            0L,
-            0L) != 0L) {
-        /* Leave VMX without advancing an unserviced instruction. */
-        handled = KswordARKHvmResidentDeactivateCurrent(
-            Context,
-            0UL,
-            FALSE);
-        /* Return only a verified guest continuation. */
-        return handled
-            ? KSW_HVM_EXIT_ACTION_DEVIRTUALIZE
-            : KSW_HVM_EXIT_ACTION_FATAL;
-    }
     /* Capture protocol-visible VMCS exit telemetry. */
     status = KswordARKHvmReadVmExitTelemetry(
         &telemetry);
@@ -624,6 +580,77 @@ KswordARKHvmResidentVmExitDispatch(
     basicReason =
         telemetry.Reason &
         KSW_HVM_VMEXIT_REASON_BASIC_MASK;
+    /*
+     * Another processor failed closed and asked everyone out.  Leave without
+     * servicing this exit.
+     *
+     * Devirtualization only ever covers the current processor, and the IPI
+     * rendezvous is unusable from a VM-exit handler, so this check is the only
+     * way the request reaches the remaining processors on its own.  Without it
+     * a fail-closed exit left the box half devirtualized - measured 2026-09-07
+     * on 2 vCPU, where residentProcessorCount went 2 -> 1 and stayed.
+     *
+     * The gate is whether this exit's instruction, executed natively after
+     * VMXOFF, means the same thing as servicing it here.  For every intercepted
+     * exit it does: the instruction never executed, guest RIP still points at
+     * it, and re-executing it on a machine with no hypervisor is exactly the
+     * fail-open continuation the other fail-closed paths already rely on.  That
+     * covers the VMX instruction exits we answer with an injected #UD too - a
+     * native execution outside VMX operation raises the same #UD.
+     *
+     * VMCALL is the one exit where it does not.  It is the only instruction we
+     * give a real meaning to (the private lifecycle contract, and the relay to
+     * the L0 hypervisor), and natively it is #UD.  Leaving RIP on it and
+     * dropping out of VMX turns the next native execution into a #UD - and when
+     * the VMCALL came from the stop rendezvous, that #UD lands inside a
+     * KeIpiGenericCall worker at IPI_LEVEL on a processor that just executed
+     * VMXOFF.  Measured 2026-09-07 on 2 vCPU: Hyper-V event 18560, triple
+     * fault, VM reset with no bugcheck and no dump.  So VMCALL falls through to
+     * its own handler, which devirtualizes with the correct instruction length
+     * and publishes the hypercall return value.  Nothing is lost by yielding:
+     * the rendezvous is already walking every still-active processor, and a
+     * relayed hypercall just re-enters the guest and meets this gate again at
+     * its next exit.
+     *
+     * VMFUNC would need the same exemption for the same reason.  This version
+     * never sees one - the EPTP-switching backend switches by VMWRITE from the
+     * exit path and the guest issues no VMFUNC - so it is deliberately not
+     * listed.  Anyone enabling a VMFUNC-based backend has to add it here.
+     *
+     * InstructionLength is 0 on purpose: this exit was never serviced, so the
+     * intercepted instruction has to re-execute natively after VMXOFF.
+     *
+     * Faulted is FALSE on purpose: this processor is not the origin.  The
+     * processor that failed already published FAULTED and ROLLBACK_REQUIRED,
+     * and re-publishing here would make every follower look like a separate
+     * fault in the telemetry.
+     *
+     * Read it, never consume it.  Every remaining processor has to see the same
+     * request, and there is no way to know how many are still resident from
+     * here.  An exchange would hand the request to whichever processor exited
+     * first and hide it from the rest - correct by accident on two processors,
+     * silently leaving two of four behind on a bigger box.  The flag stays up
+     * until residency starts again, which is the one moment nobody is resident.
+     *
+     * No loop risk: a processor that takes this path leaves VMX and never
+     * re-enters the dispatcher, and a failed devirtualization returns FATAL
+     * rather than falling through.
+     */
+    if (basicReason != KSW_VMX_EXIT_VMCALL &&
+        InterlockedCompareExchange(
+            &Context->Runtime->ResidentFaultStopRequested,
+            0L,
+            0L) != 0L) {
+        /* Leave VMX without advancing an unserviced instruction. */
+        handled = KswordARKHvmResidentDeactivateCurrent(
+            Context,
+            0UL,
+            FALSE);
+        /* Return only a verified guest continuation. */
+        return handled
+            ? KSW_HVM_EXIT_ACTION_DEVIRTUALIZE
+            : KSW_HVM_EXIT_ACTION_FATAL;
+    }
     /* Read address fields only for exits where Intel defines their content. */
     if (basicReason == KSW_VMX_EXIT_EPT_VIOLATION ||
         basicReason == KSW_VMX_EXIT_EPT_MISCONFIGURATION) {
