@@ -1,0 +1,31 @@
+{
+  "schema": "ksword.hvm.autotest/1",
+  "startedUtc": "2026-09-07T17:39:30.0567522Z",
+  "vmName": "KSword-HVM-Target",
+  "stage": "stop",
+  "host": {
+    "computer": "DESKTOP-KJE7JPM",
+    "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+    "build": "26300"
+  },
+  "steps": [],
+  "checkpoints": [],
+  "verdict": "ERROR",
+  "notes": [
+    "脚本异常：虚拟机不在运行状态（Stopping）。先 Start-VM。",
+    "收尾停机检查失败（虚拟机可能已失联）",
+    "事件环查询失败"
+  ],
+  "vm": {
+    "state": "Stopping",
+    "vcpu": 2,
+    "nested": true
+  },
+  "checkpointsNow": [
+    "clean-install",
+    "before-resident-0907-133836",
+    "before-self-test-0907-133850",
+    "before-soak-0907-133858"
+  ],
+  "finishedUtc": "2026-09-07T17:39:30.6715795Z"
+}

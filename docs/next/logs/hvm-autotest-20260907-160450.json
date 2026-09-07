@@ -1,0 +1,48 @@
+{
+  "schema": "ksword.hvm.autotest/1",
+  "startedUtc": "2026-09-07T20:04:50.7262895Z",
+  "vmName": "KSword-HVM-Target",
+  "stage": "stop",
+  "host": {
+    "computer": "DESKTOP-KJE7JPM",
+    "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+    "build": "26300"
+  },
+  "steps": [
+    {
+      "name": "deploy:hvm_ctl",
+      "utc": "2026-09-07T20:04:52.3084382Z",
+      "outcome": "OK",
+      "data": 209408
+    },
+    {
+      "name": "status",
+      "utc": "2026-09-07T20:04:53.6228099Z",
+      "outcome": "FAIL",
+      "data": "打不开 \\\\.\\KswordARKLog：win32=2\r\n  2 = 设备不存在（驱动没加载）；5 = 拒绝访问（需要管理员）\r\n",
+      "note": "设备查询失败 —— 驱动可能没加载"
+    }
+  ],
+  "checkpoints": [],
+  "verdict": "BLOCKED",
+  "notes": [
+    "hvm_ctl status 拿不到结果，后续全部未运行。先跑 Deploy-KswordDriverToVm.ps1。"
+  ],
+  "vm": {
+    "state": "Running",
+    "vcpu": 2,
+    "nested": true
+  },
+  "finalStatus": {
+    "kind": "error",
+    "reason": "device-open-failed"
+  },
+  "driverEvents": "hvm-events: io_ok=false bytes_returned=0 win32_error=2 nt_status=0x0\r\nunsupported=false\r\ndetail=HVM event operation=1, returned=0, available=0, dropped=0, newest=0\r\n",
+  "checkpointsNow": [
+    "clean-install",
+    "before-probe-xonly-0907-154906",
+    "before-self-test-0907-154936",
+    "before-view-effect-0907-154948"
+  ],
+  "finishedUtc": "2026-09-07T20:04:57.3400100Z"
+}
