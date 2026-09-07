@@ -47,6 +47,32 @@ KswordARKHvmEptViewResetLocked(
     );
 
 /*
+ * Report whether every installed view is served by switching EPT_POINTER
+ * rather than by flipping a shared leaf.
+ *
+ * This is the property the multicore gates actually care about. A leaf flip
+ * edits a table every processor walks, so on a shared hierarchy the window is
+ * visible machine-wide; a hierarchy switch writes only this processor's VMCS
+ * and its index is per-VCPU, so it carries no such window.
+ *
+ * Asking the views directly, rather than asking whether the switching backend
+ * is armed, is deliberate. The two agree today - an armed install that cannot
+ * build or verify its hierarchy is refused outright and never falls back to
+ * the base (hvm_ept_view.c, the EptpSwitchArmed branch of the add path) - but
+ * that is three separate facts holding at once, and the failure mode if any of
+ * them ever stops holding is a shared-leaf flip on a multicore box: silent
+ * data corruption with no exit, no event and no bugcheck. A predicate over the
+ * installed records cannot be broken that way.
+ *
+ * An empty table returns TRUE: there is nothing that could flip a leaf.
+ * Caller must hold the runtime lock.
+ */
+BOOLEAN
+KswordARKHvmEptViewAllSwitchBackedLocked(
+    _In_ const KSW_HVM_RUNTIME* Runtime
+    );
+
+/*
  * 视图命中时选了哪条服务方式。
  *
  * 存在的理由是两个后端在退出路径上**必须走不同的收尾**：写叶那套要武装

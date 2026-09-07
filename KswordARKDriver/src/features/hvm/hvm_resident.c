@@ -21,6 +21,8 @@ Environment:
 #define KSW_HVM_EPT_LOCAL_ARRAY_POOL_TAG 'AvHK'
 #include "hvm_exit.h"
 #include "hvm_event.h"
+/* The multicore start gate asks the view records whether any would flip a leaf. */
+#include "hvm_ept_view.h"
 #include "hvm_vmcs.h"
 #include "../../platform/pool_compat.h"
 
@@ -607,6 +609,62 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
         if (KswordARKHvmAsmInveptSingle(input.EptPointer) != 0U) {
             /* Refuse the entry rather than launch on an unproven context. */
             status = STATUS_HV_OPERATION_FAILED;
+        }
+    }
+    /*
+     * Do the same for every secondary hierarchy this entry could switch to.
+     *
+     * The invalidation above covers only the root that gets loaded, and for a
+     * long time that was every root there was.  The EPTP-switching backend
+     * added more: a violation can VMWRITE EPT_POINTER to any built
+     * EptSwitch.Eptp[k] without ever passing through here again.  Those roots
+     * carry exactly the same stale-tag exposure, and worse, they are **more**
+     * likely to be stale than the base:
+     *
+     *   - a slot's pages are a fixed slice computed from its index
+     *     (hvm_ept_switch.c:127), and the pool outlives residency, so
+     *     removing a view and adding another hands the new one the same slot,
+     *     the same four pages, and therefore **the same EPTP bit pattern**
+     *     while the tables underneath now describe a different page;
+     *   - KswordARKHvmResidentInvalidateEpt cannot help: it refuses any
+     *     pointer that is not the shared root (see its parameter check), so
+     *     nothing on the view install or release path ever invalidates these.
+     *
+     * That is the 2026-09-06 defect - a restriction correctly written into a
+     * leaf that simply never takes effect - with the fault moved from the base
+     * root to a secondary one. It is also the stated prerequisite for opening
+     * the multicore gate to this backend: do that first and the same failure
+     * comes back, only now with a second processor able to observe it.
+     *
+     * Slot 0 duplicates the base and is invalidated twice; INVEPT is
+     * idempotent and this runs once per processor at residency start, not per
+     * exit, so the cost is not worth a special case.
+     */
+    if (NT_SUCCESS(status) &&
+        Context->Runtime->EptSwitch.Active) {
+        ULONG hierarchy = 0UL;
+        ULONG ledgerLength = Context->Runtime->EptSwitch.HierarchyCount;
+
+        /* Never index past the fixed ledger, whatever the recorded length. */
+        if (ledgerLength >
+            (KSWORD_ARK_HVM_MAX_VIEWS + 1UL)) {
+            ledgerLength = KSWORD_ARK_HVM_MAX_VIEWS + 1UL;
+        }
+        for (hierarchy = 0UL;
+             hierarchy < ledgerLength;
+             ++hierarchy) {
+            ULONGLONG secondary =
+                Context->Runtime->EptSwitch.Eptp[hierarchy];
+
+            /* Skip the slots this runtime never built. */
+            if (secondary == 0ULL) {
+                continue;
+            }
+            if (KswordARKHvmAsmInveptSingle(secondary) != 0U) {
+                /* Refuse the entry rather than launch on an unproven context. */
+                status = STATUS_HV_OPERATION_FAILED;
+                break;
+            }
         }
     }
     /* Preserve the authoritative per-processor VMCS status. */
@@ -1514,7 +1572,8 @@ KswordARKHvmResidentStart(
      */
     if (Runtime->EptViewCount != 0UL &&
         Runtime->ProcessorCount != 1UL &&
-        !localEptRequested) {
+        !localEptRequested &&
+        !KswordARKHvmEptViewAllSwitchBackedLocked(Runtime)) {
         /* Return before host-stack allocation or any VMX transition. */
         return STATUS_NOT_SUPPORTED;
     }
@@ -1529,6 +1588,20 @@ KswordARKHvmResidentStart(
      * The temporary refusal that used to sit here was removed together with
      * that wiring; it existed only while the hierarchies were built but never
      * loaded.
+     *
+     * This paragraph was true and the gate directly above it still refused
+     * anyway, for months, because it was written before that backend existed
+     * and nobody rechecked it when this comment was added. The gate now asks
+     * KswordARKHvmEptViewAllSwitchBackedLocked - which reads the installed
+     * records rather than any latch, so the two can never drift apart again.
+     *
+     * The records, not the latch, on purpose. The predicate that matters is
+     * "can any installed view flip a shared leaf", and only the records answer
+     * it directly. Asking whether the switching backend is armed happens to
+     * give the same answer today, but it is an inference across three separate
+     * facts, and if any of them ever stops holding the gate opens onto a
+     * shared-leaf flip on a multicore box - silent data corruption with no
+     * exit, no event and no bugcheck.
      */
     /* Serialize passive-level context construction against power teardown. */
     if (InterlockedCompareExchange(

@@ -684,8 +684,32 @@ KswordARKHvmEptViewControlLocked(
      * to be started with ENABLE_LOCAL_EPT, and a start that omits it is
      * refused while any view is installed on a multicore box.
      */
+    /*
+     * The EPTP-switching backend is the third way out, and it was being
+     * refused here by a rule written for the other two.
+     *
+     * That backend never flips a leaf at run time: a violation on one of its
+     * views returns from the handler having written nothing but this
+     * processor's own EPT_POINTER, and the hierarchy index it selects is per
+     * VCPU. There is no machine-wide window to protect against, which is why
+     * the comment further down the resident start path already says a view
+     * backed by it "needs no extra refusal here" - that comment described a
+     * refusal that was removed, while this one stayed and kept refusing.
+     *
+     * The consequence was worse than a missing feature: the only backend that
+     * works on a nested target was unreachable on any multicore box, and the
+     * status it returned - MULTIPROCESSOR_UNSAFE - named a hazard that does
+     * not apply to it. Measured 2026-09-07 on a 2 vCPU target: view-effect
+     * reported "installed: false" while the backend was armed and capable.
+     *
+     * The predicate is the arm latch here, not the installed records, because
+     * at this point the record for this view does not exist yet - the check
+     * below is what decides whether it will be built with a hierarchy. The
+     * resident start gate asks the records instead; see its own comment.
+     */
     if (Runtime->ProcessorCount != 1UL &&
-        !Runtime->LocalEptArmed) {
+        !Runtime->LocalEptArmed &&
+        !Runtime->EptpSwitchArmed) {
         /* Publish the stable multiprocessor-unsafe protocol status. */
         Response->status =
             KSWORD_ARK_HVM_VIEW_STATUS_MULTIPROCESSOR_UNSAFE;
@@ -735,6 +759,39 @@ KswordARKHvmEptViewControlLocked(
     Response->lastStatus = status;
     /* Return a protocol-level result successfully. */
     return STATUS_SUCCESS;
+}
+
+BOOLEAN
+KswordARKHvmEptViewAllSwitchBackedLocked(
+    _In_ const KSW_HVM_RUNTIME* Runtime
+    )
+{
+    ULONG index = 0UL;
+
+    /* Treat a missing runtime as "cannot prove it", never as safe. */
+    if (Runtime == NULL) {
+        /* Report the conservative answer. */
+        return FALSE;
+    }
+    /* Inspect every bounded record, not just the first EptViewCount of them. */
+    for (index = 0UL; index < KSWORD_ARK_HVM_MAX_VIEWS; ++index) {
+        /* Skip records that hold no installed view. */
+        if (!Runtime->EptViews[index].Active) {
+            /* Continue to the next bounded record. */
+            continue;
+        }
+        /*
+         * Index zero means this view is served from the base hierarchy, and
+         * that service is a leaf flip - the one thing the multicore gates
+         * exist to refuse.
+         */
+        if (Runtime->EptViews[index].EptSwitchIndex == 0UL) {
+            /* Report that at least one view would flip a shared leaf. */
+            return FALSE;
+        }
+    }
+    /* Report that no installed view flips a leaf; an empty table qualifies. */
+    return TRUE;
 }
 
 VOID
