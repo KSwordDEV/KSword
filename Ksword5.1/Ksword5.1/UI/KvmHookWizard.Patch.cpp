@@ -892,6 +892,16 @@ namespace ks::ui
         }
 
         m_patchSummaryLabel->setText(lines.join(QStringLiteral("\n")));
+
+        // 补丁一变，导航闸门就必须跟着重新求值。
+        //
+        // 放在这里而不是逐个调用点补，是因为本文件里改动补丁的路径有六条
+        // （单字节编辑、模板回写、整页粘贴、还原、重抓基线、切换目标），
+        // 漏掉任何一条的表现都一模一样：摘要说"补丁 21 字节、几何判定通过"，
+        // 而「下一步」还灰着、tooltip 还是进入本步那一刻的「补丁为空」——
+        // **界面上两句话说的是两个时刻**，用户没有任何办法看出是哪一句过期了。
+        // 2026-09-07 实测就是这个形态：六条路径一条都没有刷新导航闸门。
+        updateNavigationState();
     }
 
     void KvmHookWizard::refreshPatchDisassembly()
