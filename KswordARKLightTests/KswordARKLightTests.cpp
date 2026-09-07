@@ -11,8 +11,10 @@
 #include "../KswordARKLight/Features/Memory/MemoryWritePlan.h"
 #include "../KswordARKLight/Ui/EvidenceSession.h"
 #include "../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverTypes.h"
+#include "TestSupport.h"
 
 #include <array>
+#include <clocale>
 #include <iostream>
 #include <cwchar>
 #include <limits>
@@ -33,7 +35,20 @@ void Expect(const bool condition, const wchar_t* label) {
 
 } // namespace
 
+// HOOK 补丁页构造层（shared/evidence/HookPatchCompose.h）的套件入口。
+// 其余套件的声明都在 TestSupport.h 的清单里，这一条按分工留在这里，主会话把它并
+// 过去即可 —— 位置不同不影响判据，缺了它才会让整个套件静默缺席。
+int RunHookPatchComposeTests();
+
 int wmain() {
+    // 宽字符流的默认 "C" locale 无法转换非 ASCII 宽字符：MSVC 会在那一位置给
+    // wcout/wcerr 置 badbit，并**吞掉此后所有输出** —— 包括后续套件的失败标签和
+    // 最终汇总。这在带中文套件名的模块上实测复现过（只输出半行就断掉）。
+    // 切到 UTF-8 locale 让转换成立；失败时退回 classic，至少 ASCII 标签不丢。
+    if (std::setlocale(LC_ALL, ".UTF-8") == nullptr) {
+        std::setlocale(LC_ALL, "C");
+    }
+
     using Ksword::Core::CommandInputKind;
     using Ksword::Core::DriverLeasePolicy;
     using Ksword::Core::EntityKind;
@@ -482,6 +497,21 @@ int wmain() {
         L"latest evidence diff");
     Expect(session.erase(1U) && session.size() == 1U && !session.erase(1U),
         L"evidence session erases one immutable item by sequence");
+
+    // 下一阶段验收（docs/next/KSword_Next_Roadmap_Acceptance.md）的离线自动测试。
+    // 每个套件调用 shared/evidence 的生产实现，返回自己的失败计数。
+    failures += RunEvidenceContractTests();
+    failures += RunCrossViewTests();
+    failures += RunEntityGraphTests();
+    failures += RunDumpFactsTests();
+    failures += RunSnapshotCompareTests();
+    failures += RunSecurityStateTests();
+    failures += RunWfpTests();
+    failures += RunTimelineTests();
+    failures += RunImageIntegrityTests();
+    failures += RunMemoryEvidenceTests();
+    failures += RunHvmEptSwitchTests();
+    failures += RunHookPatchComposeTests();
 
     if (failures == 0) {
         std::wcout << L"KswordARKLightTests: PASS\n";

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
@@ -52,6 +52,36 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="KswordARKLightTests.cpp" />
+    <ClCompile Include="EvidenceContractTests.cpp" />
+    <ClCompile Include="CrossViewTests.cpp" />
+    <ClCompile Include="EntityGraphTests.cpp" />
+    <ClCompile Include="..\shared\evidence\EntityGraph.cpp" />
+    <ClCompile Include="DumpFactsTests.cpp" />
+    <ClCompile Include="..\shared\evidence\DumpFacts.cpp" />
+    <ClCompile Include="SnapshotCompareTests.cpp" />
+    <ClCompile Include="..\shared\evidence\SnapshotCompare.cpp" />
+    <ClCompile Include="SecurityStateTests.cpp" />
+    <ClCompile Include="..\shared\evidence\SecurityState.cpp" />
+    <ClCompile Include="WfpTests.cpp" />
+    <ClCompile Include="..\shared\evidence\WfpAnalysis.cpp" />
+    <ClCompile Include="TimelineTests.cpp" />
+    <ClCompile Include="..\shared\evidence\TimelineCore.cpp" />
+    <ClCompile Include="ImageIntegrityTests.cpp" />
+    <ClCompile Include="..\shared\evidence\PeImageMap.cpp" />
+    <ClCompile Include="..\shared\evidence\ImageDiff.cpp" />
+    <ClCompile Include="MemoryEvidenceTests.cpp" />
+    <ClCompile Include="HvmEptSwitchTests.cpp" />
+    <ClCompile Include="HookPatchComposeTests.cpp" />
+    <ClCompile Include="..\shared\evidence\HookPatchCompose.cpp" />
+    <ClCompile Include="..\shared\evidence\PageTableWalk.cpp" />
+    <ClCompile Include="..\shared\evidence\MemoryRegionEvidence.cpp" />
+    <ClCompile Include="..\shared\evidence\CrossViewDiff.cpp" />
+    <ClCompile Include="..\shared\evidence\EvidenceEnvelope.cpp" />
+    <ClCompile Include="..\shared\evidence\EvidenceJson.cpp" />
+    <ClCompile Include="..\shared\evidence\LiveNavigation.cpp" />
+    <ClCompile Include="..\shared\evidence\LosslessValue.cpp" />
+    <ClCompile Include="..\shared\evidence\ObjectIdentity.cpp" />
+    <ClCompile Include="..\shared\evidence\ScanBudget.cpp" />
     <ClCompile Include="..\KswordARKLight\Core\EntityRef.cpp" />
     <ClCompile Include="..\KswordARKLight\Core\WorkspaceConfig.cpp" />
     <ClCompile Include="..\KswordARKLight\Features\File\PathNavigator.cpp" />
@@ -65,6 +95,26 @@
     <ClCompile Include="..\KswordARKLight\Ui\EvidenceSession.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="TestSupport.h" />
+    <ClInclude Include="..\shared\driver\KswordArkHvmEptSwitch.h" />
+    <ClInclude Include="..\shared\evidence\CrossViewDiff.h" />
+    <ClInclude Include="..\shared\evidence\EntityGraph.h" />
+    <ClInclude Include="..\shared\evidence\DumpFacts.h" />
+    <ClInclude Include="..\shared\evidence\SnapshotCompare.h" />
+    <ClInclude Include="..\shared\evidence\SecurityState.h" />
+    <ClInclude Include="..\shared\evidence\WfpAnalysis.h" />
+    <ClInclude Include="..\shared\evidence\TimelineCore.h" />
+    <ClInclude Include="..\shared\evidence\PeImageMap.h" />
+    <ClInclude Include="..\shared\evidence\ImageDiff.h" />
+    <ClInclude Include="..\shared\evidence\HookPatchCompose.h" />
+    <ClInclude Include="..\shared\evidence\PageTableWalk.h" />
+    <ClInclude Include="..\shared\evidence\MemoryRegionEvidence.h" />
+    <ClInclude Include="..\shared\evidence\EvidenceEnvelope.h" />
+    <ClInclude Include="..\shared\evidence\EvidenceJson.h" />
+    <ClInclude Include="..\shared\evidence\LiveNavigation.h" />
+    <ClInclude Include="..\shared\evidence\LosslessValue.h" />
+    <ClInclude Include="..\shared\evidence\ObjectIdentity.h" />
+    <ClInclude Include="..\shared\evidence\ScanBudget.h" />
     <ClInclude Include="..\KswordARKLight\Core\DriverLeasePolicy.h" />
     <ClInclude Include="..\KswordARKLight\Core\EntityRef.h" />
     <ClInclude Include="..\KswordARKLight\Core\WorkspaceConfig.h" />

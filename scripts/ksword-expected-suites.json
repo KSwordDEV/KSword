@@ -1,0 +1,28 @@
+{
+  "_comment": [
+    "KswordARKLightTests 应当出现的套件清单，以及每个套件的断言条数下限。",
+    "存在的理由：只看退出码抓不到「整个套件没被链接进来」。HvmEptSwitchTests 就",
+    "曾经写完 344 条断言、工程文件里却没有它，测试进程照样退出 0、照样打印",
+    "「全部通过」，那 344 条一次都没跑过。所以清单是判据的一部分：",
+    "  * 清单里的套件没出现在输出里 -> FAIL（不是「少了一行日志」）",
+    "  * 出现了但断言数低于 minAssertions -> FAIL（有人把测试删了）",
+    "  * 出现了清单外的新套件 -> 只警告，因为新增套件是好事，只是要有人来更新清单。",
+    "minAssertions 记的是登记当天的实测值。新增断言只会让它更宽松，不需要改；",
+    "只有确实删掉断言时才该动它，而那时候你被迫解释为什么。"
+  ],
+  "recordedUtc": "2026-09-05T07:36:00Z",
+  "suites": [
+    { "name": "F evidence contract", "minAssertions": 192 },
+    { "name": "X cross-view",        "minAssertions": 180 },
+    { "name": "G entity graph",      "minAssertions": 351 },
+    { "name": "C offline dump facts","minAssertions": 461 },
+    { "name": "D snapshot compare",  "minAssertions": 387 },
+    { "name": "S security state",    "minAssertions": 442 },
+    { "name": "N wfp analysis",      "minAssertions": 545 },
+    { "name": "T timeline",          "minAssertions": 381 },
+    { "name": "I image integrity",   "minAssertions": 395 },
+    { "name": "M memory evidence",   "minAssertions": 199 },
+    { "name": "HVM ept switch",      "minAssertions": 467 },
+    { "name": "HOOK patch compose",  "minAssertions": 182 }
+  ]
+}

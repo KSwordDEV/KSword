@@ -1,11 +1,42 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Tests"><UniqueIdentifier>{AE827AFD-B600-41EA-BDB5-B26A04D21A5B}</UniqueIdentifier></Filter>
     <Filter Include="Production"><UniqueIdentifier>{FE172DD6-662B-42E1-850A-29BF75EBA5C2}</UniqueIdentifier></Filter>
+    <Filter Include="Production\Evidence"><UniqueIdentifier>{0B2C1D74-9E43-4C58-9A1C-0F5B7E63A101}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="KswordARKLightTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="EvidenceContractTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="CrossViewTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="EntityGraphTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\EntityGraph.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="DumpFactsTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\DumpFacts.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="SnapshotCompareTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\SnapshotCompare.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="SecurityStateTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\SecurityState.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="WfpTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\WfpAnalysis.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="TimelineTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\TimelineCore.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="ImageIntegrityTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\PeImageMap.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\ImageDiff.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="MemoryEvidenceTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="HvmEptSwitchTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="HookPatchComposeTests.cpp"><Filter>Tests</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\HookPatchCompose.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\PageTableWalk.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\MemoryRegionEvidence.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\CrossViewDiff.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\EvidenceEnvelope.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\EvidenceJson.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\LiveNavigation.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\LosslessValue.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\ObjectIdentity.cpp"><Filter>Production\Evidence</Filter></ClCompile>
+    <ClCompile Include="..\shared\evidence\ScanBudget.cpp"><Filter>Production\Evidence</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Core\EntityRef.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Core\WorkspaceConfig.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\File\PathNavigator.cpp"><Filter>Production</Filter></ClCompile>
@@ -19,6 +50,26 @@
     <ClCompile Include="..\KswordARKLight\Ui\EvidenceSession.cpp"><Filter>Production</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="TestSupport.h"><Filter>Tests</Filter></ClInclude>
+    <ClInclude Include="..\shared\driver\KswordArkHvmEptSwitch.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\CrossViewDiff.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\EntityGraph.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\DumpFacts.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\SnapshotCompare.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\SecurityState.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\WfpAnalysis.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\TimelineCore.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\PeImageMap.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\ImageDiff.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\HookPatchCompose.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\PageTableWalk.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\MemoryRegionEvidence.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\EvidenceEnvelope.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\EvidenceJson.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\LiveNavigation.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\LosslessValue.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\ObjectIdentity.h"><Filter>Production\Evidence</Filter></ClInclude>
+    <ClInclude Include="..\shared\evidence\ScanBudget.h"><Filter>Production\Evidence</Filter></ClInclude>
     <ClInclude Include="..\KswordARKLight\Core\DriverLeasePolicy.h"><Filter>Production</Filter></ClInclude>
     <ClInclude Include="..\KswordARKLight\Core\EntityRef.h"><Filter>Production</Filter></ClInclude>
     <ClInclude Include="..\KswordARKLight\Core\WorkspaceConfig.h"><Filter>Production</Filter></ClInclude>
