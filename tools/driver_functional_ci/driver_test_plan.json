@@ -1220,6 +1220,22 @@
       "notes": "只读查询 VT-x 生命周期状态；不做 VMXON/VMXOFF。"
     },
     {
+      "id": "r0.hvm-platform",
+      "tier": "probe",
+      "ioctls": [
+        "HVM_PLATFORM"
+      ],
+      "steps": [
+        [
+          "r0",
+          "hvm-platform"
+        ]
+      ],
+      "expect": "graceful",
+      "timeoutSeconds": 120,
+      "notes": "只读平台标定：CR4、CPUID.7、EFER 与 FS/GS/KERNEL_GS/S_CET/U_CET 这几个 MSR。不 VMXON、不装规则、不改任何状态，IOCTL 本身也是 FILE_READ_ACCESS，所以与被 virtualization-lifecycle 排除的那些 HVM 项不同，它在 CI 机器上可测。"
+    },
+    {
       "id": "r0.hvm-events",
       "tier": "probe",
       "ioctls": [

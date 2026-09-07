@@ -451,6 +451,7 @@ int commandArkDriverExtended(const int argc, wchar_t* argv[])
         return rc;
     }
     if (subcommand == L"hvm-status") return finishResult(L"hvm-status", client.queryHvmStatus());
+    if (subcommand == L"hvm-platform") return finishResult(L"hvm-platform", client.hvmPlatform());
     if (subcommand == L"hvm-events") return finishResult(L"hvm-events", client.queryHvmEvents(optionU64(args, L"--after-sequence", 0ULL), optionU32(args, L"--max-rows", 128U), false));
     if (subcommand == L"ioctl-registry") return finishResult(L"ioctl-registry", client.queryIoctlRegistry(optionU32(args, L"--flags", KSWORD_ARK_IOCTL_REGISTRY_FLAG_INCLUDE_HANDLER), optionU32(args, L"--max-entries", 512U)));
     if (subcommand == L"timer-dpc") return finishResult(L"timer-dpc", client.enumerateKernelTimerDpc(optionU32(args, L"--max-entries", KSWORD_ARK_TIMER_DPC_DEFAULT_MAX_ENTRIES), optionU32(args, L"--max-per-bucket", KSWORD_ARK_TIMER_DPC_DEFAULT_BUCKET_BUDGET)));
