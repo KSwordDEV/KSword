@@ -626,6 +626,16 @@ typedef struct _KSW_HVM_RUNTIME
      * VMCS; every processor computes the same values from the same MSRs.
      */
     KSW_HVM_ACTIVE_CONTROLS ActiveControls;
+    /*
+     * Nonzero while the exit path should execute a batch of throwaway VMREADs
+     * on every exit.
+     *
+     * Measurement only.  Published on the runtime rather than kept in the
+     * resident module's own flags because the exit dispatcher cannot see those,
+     * and reading it costs one load on a path that is about to do far more work
+     * than that by construction.
+     */
+    volatile LONG VmreadBenchArmed;
     /* Preserve IA32_VMX_VMFUNC evidence; bit 0 is EPTP switching. */
     ULONGLONG VmFunctionCapabilities;
     /* Retain the 512-entry EPTP list published to VMFUNC. */

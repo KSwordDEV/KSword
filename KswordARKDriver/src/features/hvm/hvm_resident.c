@@ -663,6 +663,12 @@ KswordARKHvmResidentPrepareContexts(
         Runtime->ProcessorCount;
     /* Preserve the exact resident start flags. */
     g_KswordHvmResident.Flags = Flags;
+    /* Publish the VMREAD measurement request where the exit path can see it. */
+    InterlockedExchange(
+        &Runtime->VmreadBenchArmed,
+        ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH) != 0UL)
+            ? 1L
+            : 0L);
     /* Allocate and initialize one host stack per prepared processor. */
     for (index = 0UL;
          index < Runtime->ProcessorCount;

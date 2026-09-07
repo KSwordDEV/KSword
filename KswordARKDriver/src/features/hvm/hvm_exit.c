@@ -720,6 +720,37 @@ KswordARKHvmResidentVmExitDispatch(
         Context->Resource->ExitReasonCount[basicReason] += 1UL;
     }
     /*
+     * Optional VMREAD load, for measuring what a VMCS field access costs here.
+     *
+     * The question this answers is whether moving field access off the VMREAD
+     * instruction and onto a shared page would be worth its cost - a hundred
+     * and fifty field mappings, and the loss of several fields the shared
+     * layout does not carry.  Guessing at that from first principles is exactly
+     * the kind of reasoning this codebase has been wrong about before.
+     *
+     * Adding load rather than timing a single instruction: a timestamp on the
+     * exit path costs as much as the thing being measured, while N extra reads
+     * show up cleanly as reduced exit throughput, and N is known.  The value is
+     * discarded and no VMCS state is touched, so an armed run differs from an
+     * unarmed one only in speed - which is the measurement.
+     */
+    if (InterlockedCompareExchange(
+            &Context->Runtime->VmreadBenchArmed,
+            0L,
+            0L) != 0L) {
+        ULONG iteration = 0UL;
+        SIZE_T discard = 0U;
+
+        for (iteration = 0UL;
+             iteration < KSWORD_ARK_HVM_VMREAD_BENCH_ITERATIONS;
+             ++iteration) {
+            /* Any always-present field; only the access cost is of interest. */
+            (void)KswordARKHvmVmcsFieldLoad(
+                KSW_VMCS_GUEST_RIP,
+                &discard);
+        }
+    }
+    /*
      * Another processor failed closed and asked everyone out.  Leave without
      * servicing this exit.
      *

@@ -401,6 +401,31 @@
  * cross-processor visibility on a false premise.
  */
 #define KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPTP_SWITCH 0x00000400UL
+/*
+ * 测量用：每次 VM exit 额外执行一批 VMREAD，结果丢弃。
+ *
+ * 存在的理由是一个没人量过的数：在嵌套之下，L1 执行 VMREAD 到底贵不贵。它决定
+ * 「把 VMCS 字段访问改成读共享页」值不值得做 —— 那是个要映射一百多个字段、而且
+ * 会丢掉几个较新字段（中断影子栈表、PKRS、UINV）的工程，收益不明就不该开工。
+ *
+ * 直接测单条指令的周期数需要在退出路径上取时间戳，本身就有观测代价；改成**加负载**
+ * 反而干净：多读 N 次，看退出吞吐掉多少，单次成本就出来了，而且完全不改变任何一条
+ * 退出的语义 —— 读出来的值直接丢弃，正常遥测照旧。
+ *
+ * 只在需要这个读数时置位。置位期间退出会变慢，这正是它要量的东西。
+ */
+#define KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH 0x00000800UL
+/*
+ * 每次退出额外执行多少次 VMREAD。
+ *
+ * 取 512 而不是几十：实测 32 次的效应完全淹没在噪声里（三轮交替得到
+ * +18.1% / -13.5% / -6%，符号都不一致，基线自身极差就有 14%），那只说明
+ * 「效应 < 噪声」，并不说明 VMREAD 便宜。**要得出结论就得把信号加大到测得出为止**，
+ * 否则测不出和不存在分不开。
+ *
+ * 512 次若仍然量不到，那才是「单次成本小到可以忽略」的证据。
+ */
+#define KSWORD_ARK_HVM_VMREAD_BENCH_ITERATIONS 512UL
 
 #define KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN 0x48564D43UL
 

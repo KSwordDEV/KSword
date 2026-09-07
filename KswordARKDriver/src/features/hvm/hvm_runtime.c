@@ -2777,7 +2777,13 @@ KswordARKHvmControl(
              */
             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VE |
             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_VMFUNC |
-            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT;
+            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT |
+            /*
+             * Measurement load.  Enables no feature and changes no exit's
+             * semantics; it only makes every exit do extra discarded VMREADs so
+             * their cost shows up as reduced throughput.
+             */
+            KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH;
         /* Stop after selecting the resident-start flag set. */
         break;
     case KSWORD_ARK_HVM_CONTROL_SOAK:

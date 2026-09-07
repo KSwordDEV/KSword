@@ -91,6 +91,17 @@ static const HVM_CTL_VERB g_Verbs[] = {
       KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
       KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED,
       "全处理器常驻 VMM + EPT" },
+    /*
+     * 与 resident 逐位相同，只多一个测量位 —— 单独一个动词而不是给 resident 加
+     * 参数，理由和 prepare-eptpsw 一样：正常那条命令的字节序列必须一个位都不变，
+     * 否则"没测量时行为不变"就没法用同一条命令验。
+     */
+    { "resident-vmreadbench", KSWORD_ARK_HVM_CONTROL_START_RESIDENT,
+      KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED |
+      KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
+      KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED |
+      KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH,
+      "同 resident，但每次退出多做 32 次 VMREAD（只为测量，会变慢）" },
     { "soak",        KSWORD_ARK_HVM_CONTROL_SOAK,
       KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED |
       KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
