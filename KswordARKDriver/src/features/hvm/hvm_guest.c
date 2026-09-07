@@ -159,21 +159,21 @@ KswordARKHvmVmExitDispatch(
     }
 
     /* 在 VMCLEAR 前保存硬件已写回 VMCS 的可选客户机状态。 */
-    if (__vmx_vmread(
+    if (KswordARKHvmVmcsFieldLoad(
             KSW_HVM_VMCS_EXIT_CONTROLS,
             &exitControls) != 0U) {
         context->ExitStatus = STATUS_HV_OPERATION_FAILED;
     } else {
         if ((exitControls & KSW_HVM_EXIT_LOAD_CET) != 0U) {
-            if (__vmx_vmread(
+            if (KswordARKHvmVmcsFieldLoad(
                     KSW_HVM_VMCS_GUEST_S_CET,
                     &value) == 0U) {
                 context->GuestSCet = (ULONGLONG)value;
-                if (__vmx_vmread(
+                if (KswordARKHvmVmcsFieldLoad(
                         KSW_HVM_VMCS_GUEST_SSP,
                         &value) == 0U) {
                     context->GuestSsp = (ULONGLONG)value;
-                    if (__vmx_vmread(
+                    if (KswordARKHvmVmcsFieldLoad(
                             KSW_HVM_VMCS_GUEST_INTERRUPT_SSP_TABLE,
                             &value) == 0U) {
                         context->GuestInterruptSspTable =
@@ -187,7 +187,7 @@ KswordARKHvmVmExitDispatch(
             }
         }
         if ((exitControls & KSW_HVM_EXIT_LOAD_PKRS) != 0U) {
-            if (__vmx_vmread(KSW_HVM_VMCS_GUEST_PKRS, &value) == 0U) {
+            if (KswordARKHvmVmcsFieldLoad(KSW_HVM_VMCS_GUEST_PKRS, &value) == 0U) {
                 context->GuestPkrs = (ULONGLONG)value;
                 context->PkrsStateManaged = 1U;
             } else {
@@ -195,7 +195,7 @@ KswordARKHvmVmExitDispatch(
             }
         }
         if ((exitControls & KSW_HVM_EXIT_CLEAR_UINV) != 0U) {
-            if (__vmx_vmread(KSW_HVM_VMCS_GUEST_UINV, &value) == 0U) {
+            if (KswordARKHvmVmcsFieldLoad(KSW_HVM_VMCS_GUEST_UINV, &value) == 0U) {
                 context->GuestUinv = (ULONGLONG)value & 0xFFULL;
                 context->UinvStateManaged = 1U;
             } else {
@@ -203,11 +203,11 @@ KswordARKHvmVmExitDispatch(
             }
         }
         if ((exitControls & KSW_HVM_EXIT_SAVE_DEBUG_CONTROLS) != 0U) {
-            if (__vmx_vmread(
+            if (KswordARKHvmVmcsFieldLoad(
                     KSW_HVM_VMCS_GUEST_DEBUGCTL,
                     &value) == 0U) {
                 context->GuestDebugControl = (ULONGLONG)value;
-                if (__vmx_vmread(
+                if (KswordARKHvmVmcsFieldLoad(
                         KSW_HVM_VMCS_GUEST_DR7,
                         &value) == 0U) {
                     context->GuestDr7 = (ULONGLONG)value;
@@ -487,7 +487,7 @@ KswordARKHvmLaunchControlledGuest(
             SIZE_T instructionError = 0U;
 
             /* Preserve the VM-instruction error when VMREAD succeeds. */
-            if (__vmx_vmread(
+            if (KswordARKHvmVmcsFieldLoad(
                     KSW_HVM_VMCS_INSTRUCTION_ERROR,
                     &instructionError) == 0U) {
                 context.Result.VmInstructionError =

@@ -20,6 +20,8 @@ Environment:
 --*/
 
 #include "hvm_exit_emulate.h"
+/* VMCS access goes through the seam in hvm_vmcs.h, never the raw intrinsic. */
+#include "hvm_vmcs.h"
 
 #include "driver/KswordArkHvmControls.h"
 
@@ -103,7 +105,7 @@ KswordARKHvmExitInjectException(
         /* Mark the entry-interruption information as carrying an error code. */
         information |= KSW_HVM_INJECT_DELIVER_ERROR;
         /* Publish the exact error code consumed by VM entry. */
-        if (__vmx_vmwrite(
+        if (KswordARKHvmVmcsFieldStore(
                 KSW_VMCS_ENTRY_EXCEPTION_ERROR,
                 (SIZE_T)ErrorCode) != 0U) {
             /* Report failure without leaving a half-written injection. */
@@ -114,14 +116,14 @@ KswordARKHvmExitInjectException(
      * A hardware exception restarts the faulting instruction, so the guest RIP
      * must stay where the exit left it and the instruction length must be zero.
      */
-    if (__vmx_vmwrite(
+    if (KswordARKHvmVmcsFieldStore(
             KSW_VMCS_ENTRY_INSTRUCTION_LENGTH,
             0U) != 0U) {
         /* Report failure before arming the injection. */
         return FALSE;
     }
     /* Arm the injection consumed by the next VM entry. */
-    return __vmx_vmwrite(
+    return KswordARKHvmVmcsFieldStore(
         KSW_VMCS_ENTRY_INTERRUPTION_INFO,
         (SIZE_T)information) == 0U;
 }

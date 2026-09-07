@@ -18,6 +18,8 @@ Environment:
 
 #include "hvm_nested.h"
 #include "hvm_exit.h"
+/* VMCS access goes through the seam in hvm_vmcs.h, never the raw intrinsic. */
+#include "hvm_vmcs.h"
 
 #if defined(_M_AMD64)
 #include <intrin.h>
@@ -75,7 +77,7 @@ KswordARKHvmNestedAdvanceRip(
         return FALSE;
     }
     /* Read the current guest instruction pointer. */
-    if (__vmx_vmread(
+    if (KswordARKHvmVmcsFieldLoad(
             KSW_VMCS_GUEST_RIP,
             &guestRip) != 0U) {
         /* Report VMREAD failure to the caller. */
@@ -84,7 +86,7 @@ KswordARKHvmNestedAdvanceRip(
     /* Advance to the instruction following the intercepted VMX operation. */
     guestRip += InstructionLength;
     /* Write the advanced guest instruction pointer. */
-    return __vmx_vmwrite(
+    return KswordARKHvmVmcsFieldStore(
         KSW_VMCS_GUEST_RIP,
         guestRip) == 0U;
 }
@@ -98,7 +100,7 @@ KswordARKHvmNestedSetInstructionResult(
     SIZE_T guestRflags = 0U;
 
     /* Read the current guest RFLAGS field. */
-    if (__vmx_vmread(
+    if (KswordARKHvmVmcsFieldLoad(
             KSW_VMCS_GUEST_RFLAGS,
             &guestRflags) != 0U) {
         /* Report VMREAD failure to the caller. */
@@ -118,7 +120,7 @@ KswordARKHvmNestedSetInstructionResult(
         guestRflags |= (SIZE_T)KSW_RFLAGS_ZF;
     }
     /* Write the complete guest RFLAGS result. */
-    return __vmx_vmwrite(
+    return KswordARKHvmVmcsFieldStore(
         KSW_VMCS_GUEST_RFLAGS,
         guestRflags) == 0U;
 }

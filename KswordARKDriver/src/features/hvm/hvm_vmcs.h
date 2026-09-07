@@ -117,6 +117,34 @@ typedef struct _KSW_HVM_VMEXIT_TELEMETRY
 
 EXTERN_C_START
 
+/*
+ * Read one field of the current VMCS.  Returns 0 on success, matching the
+ * VMREAD intrinsic this currently forwards to.
+ *
+ * Every VMCS access in the driver goes through here and its write counterpart.
+ * The reason is that field storage is not fixed: under a hypervisor offering
+ * the enlightened VMCS, "the current VMCS" is a shared page to be read with
+ * ordinary loads, and the VMREAD instruction is both unnecessary and, on the
+ * hot exit path, expensive.  Switching storage is one edit here; it is 60-odd
+ * edits if every call site spells the instruction out, and the failure mode of
+ * missing one is a field silently read from the wrong place.
+ *
+ * Callers must not assume the field was actually read on failure - Value is
+ * left untouched, exactly as the intrinsic leaves it.
+ */
+UCHAR
+KswordARKHvmVmcsFieldLoad(
+    _In_ SIZE_T Field,
+    _Out_ SIZE_T* Value
+    );
+
+/* Write one field of the current VMCS.  Returns 0 on success. */
+UCHAR
+KswordARKHvmVmcsFieldStore(
+    _In_ SIZE_T Field,
+    _In_ SIZE_T Value
+    );
+
 VOID
 KswordARKHvmCaptureSegments(
     _Out_ KSW_HVM_SEGMENT_SNAPSHOT* Snapshot

@@ -182,7 +182,7 @@ KswordARKHvmExitAdvanceRip(
         return FALSE;
     }
     /* Read the current guest instruction pointer. */
-    if (__vmx_vmread(
+    if (KswordARKHvmVmcsFieldLoad(
             KSW_VMCS_GUEST_RIP,
             &guestRip) != 0U) {
         /* Report VMREAD failure to the dispatcher. */
@@ -196,7 +196,7 @@ KswordARKHvmExitAdvanceRip(
     /* Advance to the instruction following the intercepted operation. */
     guestRip += InstructionLength;
     /* Write the complete guest instruction continuation. */
-    return __vmx_vmwrite(
+    return KswordARKHvmVmcsFieldStore(
         KSW_VMCS_GUEST_RIP,
         guestRip) == 0U;
 }
@@ -210,7 +210,7 @@ KswordARKHvmExitSetMonitorTrap(
     SIZE_T controls = 0U;
 
     /* Read the current primary processor-based controls. */
-    if (__vmx_vmread(
+    if (KswordARKHvmVmcsFieldLoad(
             KSW_VMCS_PRIMARY_CONTROLS,
             &controls) != 0U) {
         /* Report VMREAD failure to the dispatcher. */
@@ -227,7 +227,7 @@ KswordARKHvmExitSetMonitorTrap(
             ~(SIZE_T)KSW_VMX_PRIMARY_MONITOR_TRAP_FLAG;
     }
     /* Write the complete updated primary controls. */
-    return __vmx_vmwrite(
+    return KswordARKHvmVmcsFieldStore(
         KSW_VMCS_PRIMARY_CONTROLS,
         controls) == 0U;
 }
@@ -241,7 +241,7 @@ KswordARKHvmExitSetNmiWindow(
     SIZE_T controls = 0U;
 
     /* Read the current primary processor-based controls. */
-    if (__vmx_vmread(
+    if (KswordARKHvmVmcsFieldLoad(
             KSW_VMCS_PRIMARY_CONTROLS,
             &controls) != 0U) {
         /* Report VMREAD failure to the dispatcher. */
@@ -257,7 +257,7 @@ KswordARKHvmExitSetNmiWindow(
             ~(SIZE_T)KSW_VMX_PRIMARY_NMI_WINDOW_EXITING;
     }
     /* Write the complete updated primary controls. */
-    return __vmx_vmwrite(
+    return KswordARKHvmVmcsFieldStore(
         KSW_VMCS_PRIMARY_CONTROLS,
         controls) == 0U;
 }
@@ -286,7 +286,7 @@ KswordARKHvmExitDeliverGuestNmi(
     SIZE_T interruptibility = 0U;
 
     /* Without the guest's interruptibility state, hold rather than guess. */
-    if (__vmx_vmread(
+    if (KswordARKHvmVmcsFieldLoad(
             KSW_VMCS_GUEST_INTERRUPTIBILITY,
             &interruptibility) != 0U) {
         return FALSE;
@@ -298,7 +298,7 @@ KswordARKHvmExitDeliverGuestNmi(
         return KswordARKHvmExitSetNmiWindow(TRUE);
     }
     /* Deliver the guest's own NMI on the next VM entry. */
-    return __vmx_vmwrite(
+    return KswordARKHvmVmcsFieldStore(
         KSW_VMCS_ENTRY_INTERRUPTION_INFO,
         KSW_VMX_ENTRY_INTERRUPTION_NMI) == 0U;
 }
@@ -351,7 +351,7 @@ KswordARKHvmExitReadAddresses(
     /* Publish the zero guest-linear default. */
     *GuestLinearAddress = 0ULL;
     /* Preserve guest physical address only when VMREAD succeeds. */
-    if (__vmx_vmread(
+    if (KswordARKHvmVmcsFieldLoad(
             KSW_VMCS_GUEST_PHYSICAL_ADDRESS,
             &guestPhysical) == 0U) {
         /* Publish the complete guest physical address. */
@@ -359,7 +359,7 @@ KswordARKHvmExitReadAddresses(
             (ULONGLONG)guestPhysical;
     }
     /* Preserve guest linear address only when VMREAD succeeds. */
-    if (__vmx_vmread(
+    if (KswordARKHvmVmcsFieldLoad(
             KSW_VMCS_GUEST_LINEAR_ADDRESS,
             &guestLinear) == 0U) {
         /* Publish the complete guest linear address. */
@@ -493,7 +493,7 @@ KswordARKHvmExitGuestCpl(
     SIZE_T accessRights = 0;
 
     /* Treat an unreadable privilege level as unprivileged. */
-    if (__vmx_vmread(KSW_VMCS_GUEST_SS_ACCESS, &accessRights) != 0) {
+    if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_GUEST_SS_ACCESS, &accessRights) != 0) {
         /* Report the least privileged level so callers fail closed. */
         return 3UL;
     }
@@ -575,7 +575,7 @@ KswordARKHvmExitHandleHlt(
         return TRUE;
     }
     /* VM entry rejects a non-active activity state while interrupts block. */
-    if (__vmx_vmread(
+    if (KswordARKHvmVmcsFieldLoad(
             KSW_VMCS_GUEST_INTERRUPTIBILITY,
             &interruptibility) != 0) {
         /* Resume without halting when the state cannot be verified. */
@@ -591,7 +591,7 @@ KswordARKHvmExitHandleHlt(
      * exit, so this selection lasts exactly one entry and does not have to be
      * cleared on the paths that resume for other reasons.
      */
-    (void)__vmx_vmwrite(KSW_VMCS_GUEST_ACTIVITY, KSW_VMX_ACTIVITY_HLT);
+    (void)KswordARKHvmVmcsFieldStore(KSW_VMCS_GUEST_ACTIVITY, KSW_VMX_ACTIVITY_HLT);
     /* Report a completely handled halt. */
     return TRUE;
 }
@@ -1203,7 +1203,7 @@ KswordARKHvmResidentVmExitDispatch(
             NTSTATUS planStatus = STATUS_UNSUCCESSFUL;
 
             /* Refuse to plan against a RIP that could not be read. */
-            if (__vmx_vmread(KSW_VMCS_GUEST_RIP, &guestRip) == 0U) {
+            if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_GUEST_RIP, &guestRip) == 0U) {
                 planStatus = KswordARKHvmEptSwitchPlanViolation(
                     Context->Runtime,
                     &Context->EptpSwitchProgress,
@@ -1225,7 +1225,7 @@ KswordARKHvmResidentVmExitDispatch(
                 (void)KswordARKHvmAsmInveptSingle(
                     Context->Runtime->EptSwitch.Eptp[Context->ActiveEptpIndex]);
                 handled =
-                    __vmx_vmwrite(KSW_VMCS_EPT_POINTER, (SIZE_T)targetEptp) == 0U;
+                    KswordARKHvmVmcsFieldStore(KSW_VMCS_EPT_POINTER, (SIZE_T)targetEptp) == 0U;
                 if (handled) {
                     /*
                      * The ledger index is updated only after the field it
@@ -1411,7 +1411,7 @@ KswordARKHvmResidentVmExitDispatch(
         SIZE_T interruptionInfo = 0U;
 
         /* Redeliver only a descriptor the processor actually marked valid. */
-        if (__vmx_vmread(
+        if (KswordARKHvmVmcsFieldLoad(
                 KSW_VMCS_EXIT_INTERRUPTION_INFO,
                 &interruptionInfo) == 0U &&
             ((ULONGLONG)interruptionInfo &
@@ -1449,7 +1449,7 @@ KswordARKHvmResidentVmExitDispatch(
                 &Context->PendingGuestNmi,
                 0L) != 0L) {
             /* Deliver the NMI that was held while the guest blocked them. */
-            handled = __vmx_vmwrite(
+            handled = KswordARKHvmVmcsFieldStore(
                 KSW_VMCS_ENTRY_INTERRUPTION_INFO,
                 KSW_VMX_ENTRY_INTERRUPTION_NMI) == 0U;
         } else {

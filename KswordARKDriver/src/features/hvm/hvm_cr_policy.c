@@ -25,6 +25,8 @@ Environment:
 --*/
 
 #include "hvm_cr_policy.h"
+/* VMCS access goes through the seam in hvm_vmcs.h, never the raw intrinsic. */
+#include "hvm_vmcs.h"
 
 #if defined(_M_AMD64)
 #include <intrin.h>
@@ -181,13 +183,13 @@ KswordARKHvmCrPolicyHandleControlRegister(
             /* Account the observed address-space switch. */
             InterlockedIncrement64(&Runtime->CrPolicyCr3SwitchCount);
             /* Apply the exact value the guest asked for. */
-            return __vmx_vmwrite(
+            return KswordARKHvmVmcsFieldStore(
                 KSW_VMCS_GUEST_CR3,
                 (SIZE_T)*slot) == 0U;
         }
         if (access == KSW_HVM_CR_ACCESS_FROM_CR) {
             /* Publish the current guest CR3 into the selected register. */
-            if (__vmx_vmread(
+            if (KswordARKHvmVmcsFieldLoad(
                     KSW_VMCS_GUEST_CR3,
                     &current) != 0U) {
                 /* Report an unhandled exit. */
@@ -234,7 +236,7 @@ KswordARKHvmCrPolicyHandleControlRegister(
         ULONGLONG startingValue = 0ULL;
 
         /* Read the value the instruction is about to modify. */
-        if (__vmx_vmread(
+        if (KswordARKHvmVmcsFieldLoad(
                 KSW_VMCS_GUEST_CR0,
                 &guestCr0) != 0U) {
             /* Report an unhandled exit. */
@@ -267,14 +269,14 @@ KswordARKHvmCrPolicyHandleControlRegister(
             InterlockedIncrement64(&Runtime->CrPolicyRefusedWriteCount);
         }
         /* Install the merged value in the architectural register. */
-        if (__vmx_vmwrite(
+        if (KswordARKHvmVmcsFieldStore(
                 guestField,
                 (SIZE_T)merged) != 0U) {
             /* Report an unhandled exit. */
             return FALSE;
         }
         /* Let the guest read back what it asked for. */
-        return __vmx_vmwrite(
+        return KswordARKHvmVmcsFieldStore(
             shadowField,
             (SIZE_T)requested) == 0U;
     }
@@ -306,7 +308,7 @@ KswordARKHvmCrPolicyHandleControlRegister(
         InterlockedIncrement64(&Runtime->CrPolicyRefusedWriteCount);
     }
     /* Install the merged value in the architectural register. */
-    if (__vmx_vmwrite(
+    if (KswordARKHvmVmcsFieldStore(
             guestField,
             (SIZE_T)merged) != 0U) {
         /* Report an unhandled exit. */
@@ -317,7 +319,7 @@ KswordARKHvmCrPolicyHandleControlRegister(
      * it wrote.  Hiding the refusal is the point: code that checks whether its
      * write took effect sees success and does not escalate.
      */
-    return __vmx_vmwrite(
+    return KswordARKHvmVmcsFieldStore(
         shadowField,
         (SIZE_T)requested) == 0U;
 }

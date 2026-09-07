@@ -864,7 +864,7 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
         return status;
     }
     /* Recover the exact optional-state controls selected by the builder. */
-    if (__vmx_vmread(KSW_VMCS_EXIT_CONTROLS, &exitControls) != 0U) {
+    if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_EXIT_CONTROLS, &exitControls) != 0U) {
         status = STATUS_HV_OPERATION_FAILED;
     } else {
         Context->CetStateManaged =
@@ -879,7 +879,7 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
                 : 0U;
         /* Assembly needs the CET enable bit before the final resident entry. */
         if (Context->CetStateManaged != 0U) {
-            if (__vmx_vmread(KSW_VMCS_GUEST_S_CET, &value) != 0U) {
+            if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_GUEST_S_CET, &value) != 0U) {
                 status = STATUS_HV_OPERATION_FAILED;
             } else {
                 Context->GuestSCet = (ULONGLONG)value;
@@ -1008,7 +1008,7 @@ KswordARKHvmWriteResidentGuestSspFromAsm(
         return STATUS_INVALID_ADDRESS;
     }
     /* Commit the SSP captured after every nested configuration call returned. */
-    if (__vmx_vmwrite(
+    if (KswordARKHvmVmcsFieldStore(
             KSW_VMCS_GUEST_SSP,
             (SIZE_T)Context->GuestSsp) != 0U) {
         return STATUS_HV_OPERATION_FAILED;
@@ -1025,15 +1025,15 @@ KswordARKHvmCaptureResidentExtendedState(
 
     /* Capture every component before VMCLEAR destroys the VMCS image. */
     if (Context->CetStateManaged != 0U) {
-        if (__vmx_vmread(KSW_VMCS_GUEST_S_CET, &value) != 0U) {
+        if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_GUEST_S_CET, &value) != 0U) {
             return FALSE;
         }
         Context->GuestSCet = (ULONGLONG)value;
-        if (__vmx_vmread(KSW_VMCS_GUEST_SSP, &value) != 0U) {
+        if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_GUEST_SSP, &value) != 0U) {
             return FALSE;
         }
         Context->GuestSsp = (ULONGLONG)value;
-        if (__vmx_vmread(
+        if (KswordARKHvmVmcsFieldLoad(
                 KSW_VMCS_GUEST_INTERRUPT_SSP_TABLE,
                 &value) != 0U) {
             return FALSE;
@@ -1041,23 +1041,23 @@ KswordARKHvmCaptureResidentExtendedState(
         Context->GuestInterruptSspTable = (ULONGLONG)value;
     }
     if (Context->PkrsStateManaged != 0U) {
-        if (__vmx_vmread(KSW_VMCS_GUEST_PKRS, &value) != 0U) {
+        if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_GUEST_PKRS, &value) != 0U) {
             return FALSE;
         }
         Context->GuestPkrs = (ULONGLONG)value;
     }
     if (Context->UinvStateManaged != 0U) {
-        if (__vmx_vmread(KSW_VMCS_GUEST_UINV, &value) != 0U) {
+        if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_GUEST_UINV, &value) != 0U) {
             return FALSE;
         }
         Context->GuestUinv = (ULONGLONG)value & 0xFFULL;
     }
     if (Context->DebugStateManaged != 0U) {
-        if (__vmx_vmread(KSW_VMCS_GUEST_DEBUGCTL, &value) != 0U) {
+        if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_GUEST_DEBUGCTL, &value) != 0U) {
             return FALSE;
         }
         Context->GuestDebugControl = (ULONGLONG)value;
-        if (__vmx_vmread(KSW_VMCS_GUEST_DR7, &value) != 0U) {
+        if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_GUEST_DR7, &value) != 0U) {
             return FALSE;
         }
         Context->GuestDr7 = (ULONGLONG)value;
@@ -1248,7 +1248,7 @@ KswordARKHvmResidentStartCurrent(
             SIZE_T instructionError = 0U;
 
             /* Preserve VM-instruction error when VMREAD succeeds. */
-            if (__vmx_vmread(
+            if (KswordARKHvmVmcsFieldLoad(
                     KSW_VMCS_INSTRUCTION_ERROR,
                     &instructionError) == 0U) {
                 /* Publish the exact VM-instruction error. */
@@ -1391,13 +1391,13 @@ KswordARKHvmResidentDeactivateCurrent(
         status = STATUS_HV_OPERATION_FAILED;
     }
     /* Read the exact guest stack used for the post-VMX continuation. */
-    if (__vmx_vmread(
+    if (KswordARKHvmVmcsFieldLoad(
             KSW_VMCS_GUEST_RSP,
             &guestRsp) != 0U ||
-        __vmx_vmread(
+        KswordARKHvmVmcsFieldLoad(
             KSW_VMCS_GUEST_RIP,
             &guestRip) != 0U ||
-        __vmx_vmread(
+        KswordARKHvmVmcsFieldLoad(
             KSW_VMCS_GUEST_RFLAGS,
             &guestRflags) != 0U) {
         /* Preserve an unsafe VMREAD failure. */
@@ -1439,7 +1439,7 @@ KswordARKHvmResidentDeactivateCurrent(
         SIZE_T guestCr3 = 0;
 
         /* Read the exact space the guest was executing on. */
-        if (__vmx_vmread(KSW_VMCS_GUEST_CR3, &guestCr3) == 0U &&
+        if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_GUEST_CR3, &guestCr3) == 0U &&
             guestCr3 != 0) {
             /* Publish it for the post-VMXOFF restoration below. */
             Context->GuestCr3 = (ULONGLONG)guestCr3;

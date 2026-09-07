@@ -347,6 +347,46 @@ C_ASSERT(FIELD_OFFSET(KSW_HVM_SEGMENT_SNAPSHOT, Ldtr) == 32);
 /* Keep the packed TR offset synchronized with hvm_entry.asm. */
 C_ASSERT(FIELD_OFFSET(KSW_HVM_SEGMENT_SNAPSHOT, Tr) == 34);
 
+/*
+ * The only two places in this driver allowed to execute a VMCS access
+ * instruction directly.
+ *
+ * Everything else goes through the FieldLoad / FieldStore pair below.  The
+ * indirection is not decoration: VMREAD and VMWRITE are the two operations
+ * whose *implementation* has to change wholesale when the field storage does,
+ * and a driver that spells them out at every call site cannot make that change
+ * without editing every one of those sites correctly.
+ *
+ * Spelled as macros rather than called directly so that a mechanical search for
+ * `KswordARKHvmVmcsFieldLoad(` / `KswordARKHvmVmcsFieldStore(` finds exactly the call sites that still
+ * bypass the seam - which is zero, and should stay zero.
+ */
+#define KSW_HVM_RAW_VMREAD __vmx_vmread
+#define KSW_HVM_RAW_VMWRITE __vmx_vmwrite
+
+UCHAR
+KswordARKHvmVmcsFieldLoad(
+    _In_ SIZE_T Field,
+    _Out_ SIZE_T* Value
+    )
+{
+    /* Reject a missing destination before touching the current VMCS. */
+    if (Value == NULL) {
+        /* Report the same failure shape a VMREAD of an invalid field gives. */
+        return 1U;
+    }
+    return KSW_HVM_RAW_VMREAD(Field, Value);
+}
+
+UCHAR
+KswordARKHvmVmcsFieldStore(
+    _In_ SIZE_T Field,
+    _In_ SIZE_T Value
+    )
+{
+    return KSW_HVM_RAW_VMWRITE(Field, Value);
+}
+
 static ULONG
 KswordARKHvmAdjustControls(
     _In_ ULONG Desired,
@@ -496,7 +536,7 @@ KswordARKHvmWriteVmcs(
         UCHAR result = 0U;
 
         /* Write the encoded field through the compiler VMX intrinsic. */
-        result = __vmx_vmwrite(Writes[index].Field, Writes[index].Value);
+        result = KswordARKHvmVmcsFieldStore(Writes[index].Field, Writes[index].Value);
         /* Continue only when VMWRITE reports success. */
         if (result == 0U) {
             continue;
@@ -506,7 +546,7 @@ KswordARKHvmWriteVmcs(
             SIZE_T instructionError = 0U;
 
             /* Preserve a readable VMCS error code when VMREAD succeeds. */
-            if (__vmx_vmread(
+            if (KswordARKHvmVmcsFieldLoad(
                     (SIZE_T)KSW_VMCS_INSTRUCTION_ERROR,
                     &instructionError) == 0U) {
                 architecturalError = (ULONG)instructionError;
@@ -1274,7 +1314,7 @@ KswordARKHvmConfigureVmcs(
      * 失败时**不写** *VmInstructionError —— 否则一个无害的失败会留下判别码，
      * 把后面真正的失败盖掉或者让成功的配置看起来像失败过。
      */
-    (void)__vmx_vmwrite(KSW_VMCS_GUEST_SMBASE, 0U);
+    (void)KswordARKHvmVmcsFieldStore(KSW_VMCS_GUEST_SMBASE, 0U);
 
     /*
      * Publish the information area only once the control has survived
@@ -1458,37 +1498,37 @@ KswordARKHvmReadVmExitTelemetry(
     /* Clear every field so a partial failure never exposes stale state. */
     RtlZeroMemory(Telemetry, sizeof(*Telemetry));
     /* Read the full exit-reason field, including entry-failure information. */
-    if (__vmx_vmread(KSW_VMCS_EXIT_REASON, &value) != 0U) {
+    if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_EXIT_REASON, &value) != 0U) {
         return STATUS_HV_OPERATION_FAILED;
     }
     /* Preserve only the protocol-visible 32-bit exit reason. */
     Telemetry->Reason = (ULONG)value;
     /* Read the exit qualification associated with the basic reason. */
-    if (__vmx_vmread(KSW_VMCS_EXIT_QUALIFICATION, &value) != 0U) {
+    if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_EXIT_QUALIFICATION, &value) != 0U) {
         return STATUS_HV_OPERATION_FAILED;
     }
     /* Publish the complete natural-width qualification. */
     Telemetry->Qualification = (ULONGLONG)value;
     /* Read the guest instruction pointer at the point of exit. */
-    if (__vmx_vmread(KSW_VMCS_GUEST_RIP, &value) != 0U) {
+    if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_GUEST_RIP, &value) != 0U) {
         return STATUS_HV_OPERATION_FAILED;
     }
     /* Publish the guest instruction pointer. */
     Telemetry->GuestRip = (ULONGLONG)value;
     /* Read the guest stack pointer at the point of exit. */
-    if (__vmx_vmread(KSW_VMCS_GUEST_RSP, &value) != 0U) {
+    if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_GUEST_RSP, &value) != 0U) {
         return STATUS_HV_OPERATION_FAILED;
     }
     /* Publish the guest stack pointer. */
     Telemetry->GuestRsp = (ULONGLONG)value;
     /* Read the instruction length for deterministic VMCALL evidence. */
-    if (__vmx_vmread(KSW_VMCS_EXIT_INSTRUCTION_LENGTH, &value) != 0U) {
+    if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_EXIT_INSTRUCTION_LENGTH, &value) != 0U) {
         return STATUS_HV_OPERATION_FAILED;
     }
     /* Publish the bounded instruction length. */
     Telemetry->InstructionLength = (ULONG)value;
     /* Read the VM-instruction error field as additional diagnostic evidence. */
-    if (__vmx_vmread(KSW_VMCS_INSTRUCTION_ERROR, &value) == 0U) {
+    if (KswordARKHvmVmcsFieldLoad(KSW_VMCS_INSTRUCTION_ERROR, &value) == 0U) {
         Telemetry->VmInstructionError = (ULONG)value;
     }
     return STATUS_SUCCESS;
