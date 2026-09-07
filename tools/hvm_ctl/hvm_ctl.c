@@ -43,6 +43,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winioctl.h>
+/* __cpuid：tlb-probe-exit 用它强制一次无条件 VM exit。 */
+#include <intrin.h>
 
 /* 协议的唯一真值来源。手抄一份就等于给自己埋一个静默的漂移。 */
 #include "../../shared/driver/KswordArkHvmIoctl.h"
@@ -1587,6 +1589,17 @@ typedef struct _KSW_TLB_WORKER
     volatile LONG* epoch;
     volatile LONG* stop;
     unsigned long processorIndex;
+    /*
+     * 置位时，每次读之前先执行一条 CPUID。
+     *
+     * CPUID 是**无条件** VM exit，所以这是从用户态强制本处理器退出一次的最便宜
+     * 办法。它验证的是修法的前提：未启用 VPID 时 VM entry 会失效与 VPID 0000H
+     * 关联的线性映射，因此"把兄弟核打出去一次"就应当足以刷掉陈旧翻译。
+     *
+     * 前提成立 ⇒ 违规数应当塌到 0，那时去实现"转发 flush 时发 NMI 把兄弟核打
+     * 出来"才有意义。前提不成立 ⇒ 违规照旧，那条修法从根上就不通，省下整个实现。
+     */
+    int forceExit;
     unsigned long long reads;
     unsigned long long violations;
     unsigned long long faults;
@@ -1609,6 +1622,11 @@ static DWORD WINAPI TlbProbeWorker(LPVOID param)
         if ((e1 & 1L) == 0L) {
             YieldProcessor();
             continue;
+        }
+        if (w->forceExit) {
+            int regs[4];
+            /* 无条件 VM exit。退出+进入应当刷掉本核的线性映射缓存。 */
+            __cpuid(regs, 0);
         }
         __try {
             /* volatile 保证这次访问真的发出去，不被优化掉。 */
@@ -1635,7 +1653,8 @@ static DWORD WINAPI TlbProbeWorker(LPVOID param)
     return 0;
 }
 
-static int DoTlbProbe(HANDLE h, int asJson, unsigned long durationMs)
+static int DoTlbProbe(HANDLE h, int asJson, unsigned long durationMs,
+                      int forceExit)
 {
     KSW_TLB_WORKER workers[64];
     HANDLE threads[64];
@@ -1707,6 +1726,7 @@ static int DoTlbProbe(HANDLE h, int asJson, unsigned long durationMs)
         workers[i].epoch = &epoch;
         workers[i].stop = &stop;
         workers[i].processorIndex = i;
+        workers[i].forceExit = forceExit;
         threads[i] = CreateThread(NULL, 0, TlbProbeWorker,
                                   &workers[i], 0, NULL);
         if (threads[i] == NULL) {
@@ -1773,11 +1793,12 @@ cleanup:
     }
 
     if (asJson) {
-        printf("{\"kind\":\"tlb-probe\",\"durationMs\":%lu,"
+        printf("{\"kind\":\"%s\",\"durationMs\":%lu,"
                "\"processorCount\":%lu,\"workerThreads\":%lu,"
                "\"residentBefore\":%lu,\"residentAfter\":%lu,"
                "\"protectCycles\":%llu,\"windowedReads\":%llu,"
                "\"faults\":%llu,\"violations\":%llu,\"verdict\":\"%s\"}\n",
+               forceExit ? "tlb-probe-exit" : "tlb-probe",
                durationMs, processorCount, workerCount,
                residentBefore, residentAfter,
                cycles, totalReads, totalFaults, totalViolations,
@@ -3736,6 +3757,8 @@ static void PrintUsage(void)
            "装上会立刻删掉）\n");
     printf("  tlb-probe        跨处理器 TLB 失效探针，毫秒数由第二个参数给出"
            "（纯用户态，起停常驻由外面控制）\n");
+    printf("  tlb-probe-exit   同上，但每次读之前先执行 CPUID 强制一次 VM exit"
+           "（验证「打出去一次就够」这个前提）\n");
     printf("  view-query       列出已安装的 EPT 分离视图（只读，无需确认）\n");
     printf("  view-probe       分离视图安装期**归因**探针（前提：prepare 过、"
            "常驻没在跑；装上会立刻卸掉）\n");
@@ -3796,7 +3819,9 @@ int main(int argc, char** argv)
     } else if (strcmp(cmd, "rule-allowonce") == 0) {
         rc = DoRuleAllowOnceGate(h, asJson);
     } else if (strcmp(cmd, "tlb-probe") == 0) {
-        rc = DoTlbProbe(h, asJson, soakMs);
+        rc = DoTlbProbe(h, asJson, soakMs, 0);
+    } else if (strcmp(cmd, "tlb-probe-exit") == 0) {
+        rc = DoTlbProbe(h, asJson, soakMs, 1);
     } else if (strcmp(cmd, "probe-platform") == 0) {
         rc = DoProbePlatform(h, asJson);
     } else if (strcmp(cmd, "probe-flags") == 0) {

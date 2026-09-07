@@ -57,6 +57,33 @@ Environment:
 #define KSW_IA32_VMX_EXIT_CTLS2         0x493UL
 
 #define KSW_VMX_BASIC_TRUE_CONTROLS (1ULL << 55)
+/*
+ * Pin-based control bit 3: NMI exiting.
+ *
+ * Requested for resident mode only, and requested for one reason: it is the
+ * only way to make a sibling processor leave VMX non-root on demand from a
+ * VM-exit handler.  KeIpiGenericCall is unusable there (VMX root, IRQL
+ * indeterminate), an ordinary IPI is delivered straight to the guest without
+ * an exit, and the VMX preemption timer is a per-VMCS field we cannot write on
+ * another processor.  An NMI IPI plus this control is what is left.
+ *
+ * Why a sibling has to leave at all - measured 2026-09-07 on 2 vCPU:
+ * we forward the guest's HvCallFlushVirtualAddressSpace/List to L0, and L0
+ * invalidates what it believes is the L1 VP, but that VP is running our L2.
+ * A sibling that never exits keeps the stale translation.  `hvm_ctl tlb-probe`
+ * measured 97% of reads succeeding through a mapping VirtualProtect had already
+ * returned from revoking (174,787,358 of 180,208,570), against exactly zero
+ * with residency stopped.  Forcing an exit before each read - `tlb-probe-exit`,
+ * which just runs CPUID - took that to zero with residency still up, which is
+ * what makes this control worth its cost: without VPID, VM entry invalidates
+ * the linear mappings tagged VPID 0000H, so one exit is enough.
+ *
+ * The cost is close to nothing.  NMIs are rare on a healthy machine, so this
+ * control adds no exits of its own; what it adds is the obligation to handle
+ * the ones that do arrive, which the dispatcher now does by reinjecting.
+ */
+#define KSW_VMX_PIN_NMI_EXITING (1UL << 3)
+
 #define KSW_VMX_PRIMARY_HLT_EXITING (1UL << 7)
 #define KSW_VMX_PRIMARY_CR3_LOAD_EXITING (1UL << 15)
 #define KSW_VMX_PRIMARY_MOV_DR_EXITING (1UL << 23)
@@ -834,8 +861,16 @@ KswordARKHvmConfigureVmcs(
             : (hardwareCr4 & ~(1ULL << 13))) |
             Input->Cr4Fixed0)) &
         Input->Cr4Fixed1;
-    /* Request only the pin controls required by the capability MSR. */
-    pinControls = KswordARKHvmAdjustControls(0UL, pinCapability);
+    /*
+     * Request NMI exiting for resident mode only; see the constant's comment.
+     * A one-shot guest never needs a sibling flushed, and every control it does
+     * not request is one less way for its VM entry to fail.
+     */
+    pinControls = KswordARKHvmAdjustControls(
+        (Input->ResidentMode != 0U
+            ? KSW_VMX_PIN_NMI_EXITING
+            : 0UL),
+        pinCapability);
     /* Activate secondary controls and reserve HLT exits for one-shot guests. */
     primaryControls = KswordARKHvmAdjustControls(
         (Input->ResidentMode == 0U

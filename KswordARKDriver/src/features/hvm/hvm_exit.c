@@ -77,6 +77,19 @@ Environment:
 /* Identify the monitor-trap flag execution control. */
 #define KSW_VMX_PRIMARY_MONITOR_TRAP_FLAG (1UL << 27)
 
+/* VM-exit interruption information; describes what caused an exception/NMI exit. */
+#define KSW_VMCS_EXIT_INTERRUPTION_INFO 0x4404UL
+/* VM-entry interruption information; writing it delivers an event on entry. */
+#define KSW_VMCS_ENTRY_INTERRUPTION_INFO 0x4016UL
+/* Bit 31 of either field marks the descriptor valid. */
+#define KSW_VMX_INTERRUPTION_VALID (1ULL << 31)
+/* Bits 10:8 carry the interruption type; type 2 is NMI. */
+#define KSW_VMX_INTERRUPTION_TYPE_SHIFT 8
+#define KSW_VMX_INTERRUPTION_TYPE_MASK 7ULL
+#define KSW_VMX_INTERRUPTION_TYPE_NMI 2ULL
+/* Valid | type NMI | vector 2: the exact descriptor that redelivers an NMI. */
+#define KSW_VMX_ENTRY_INTERRUPTION_NMI 0x80000202ULL
+
 /* Name architecturally common VM-exit reasons. */
 #define KSW_VMX_EXIT_EXCEPTION_OR_NMI 0UL
 /* Name the external-interrupt VM-exit reason. */
@@ -1228,10 +1241,61 @@ KswordARKHvmResidentVmExitDispatch(
      * benefit, so it is deliberately absent - do not re-add it without a
      * reading that shows the forwarded read actually failing.
      */
+    /*
+     * Resident mode requests NMI exiting, so an NMI now stops here instead of
+     * reaching the guest.  Hand it straight back.
+     *
+     * The control is not requested for the NMIs themselves - it is requested
+     * because it is the only way to make a sibling processor leave VMX non-root
+     * on demand, which is what a forwarded remote TLB flush needs (see the
+     * KSW_VMX_PIN_NMI_EXITING comment in hvm_vmcs.c).  This handler is the toll
+     * that control charges: having asked for the exits, we owe the guest every
+     * NMI that was really meant for it.
+     *
+     * Reinjecting rather than swallowing is deliberate and not yet a choice
+     * between two cases: this version sends no NMI of its own, so **every** NMI
+     * arriving here belongs to the guest.  Windows uses them for its own
+     * watchdog and machine-check paths and bugchecks on a lost one, so dropping
+     * even a single one would trade a TLB bug for a worse one.  When a sender
+     * is added it will need a per-VCPU pending count to tell its own NMI apart
+     * from the guest's, and only the former may be swallowed.
+     *
+     * Redelivery is safe here because we do not request virtual NMIs: the NMI
+     * never reached the guest, so the processor set no NMI-blocking state that
+     * a re-entry with this descriptor could violate.
+     *
+     * RIP is deliberately not advanced.  An NMI is not an instruction; the
+     * guest has to resume at exactly the instruction it was about to run.
+     */
+    } else if (basicReason ==
+                    KSW_VMX_EXIT_EXCEPTION_OR_NMI) {
+        SIZE_T interruptionInfo = 0U;
+
+        /* Redeliver only a descriptor the processor actually marked valid. */
+        if (__vmx_vmread(
+                KSW_VMCS_EXIT_INTERRUPTION_INFO,
+                &interruptionInfo) == 0U &&
+            ((ULONGLONG)interruptionInfo &
+                KSW_VMX_INTERRUPTION_VALID) != 0ULL &&
+            (((ULONGLONG)interruptionInfo >>
+                KSW_VMX_INTERRUPTION_TYPE_SHIFT) &
+                KSW_VMX_INTERRUPTION_TYPE_MASK) ==
+                    KSW_VMX_INTERRUPTION_TYPE_NMI) {
+            /* Deliver the guest's own NMI on the next VM entry. */
+            handled = __vmx_vmwrite(
+                KSW_VMCS_ENTRY_INTERRUPTION_INFO,
+                KSW_VMX_ENTRY_INTERRUPTION_NMI) == 0U;
+        } else {
+            /*
+             * An exception, or an unreadable descriptor.  The exception bitmap
+             * is constantly zero, so no exception should reach this dispatcher
+             * at all - arriving here means an assumption broke, and guessing
+             * at redelivery would be worse than leaving VMX.
+             */
+            handled = FALSE;
+        }
     /* Fail closed for the mandatory exits that have no implementation yet. */
     } else if (basicReason ==
-                    KSW_VMX_EXIT_EXCEPTION_OR_NMI ||
-               basicReason ==
                     KSW_VMX_EXIT_EXTERNAL_INTERRUPT ||
                basicReason ==
                     KSW_VMX_EXIT_EPT_MISCONFIGURATION) {
