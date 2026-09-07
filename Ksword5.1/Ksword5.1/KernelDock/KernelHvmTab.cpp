@@ -3,6 +3,7 @@
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../SettingsDock/AppearanceSettings.h"
+#include "../UI/FlowLayout.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../theme.h"
 
@@ -24,6 +25,7 @@
 #include <QTableWidgetItem>
 #include <QTextEdit>
 #include <QVBoxLayout>
+#include <QVariant>
 
 #include <algorithm>
 #include <thread>
@@ -49,6 +51,36 @@ namespace
         auto* item = new QTableWidgetItem(text);
         item->setFlags(item->flags() & ~Qt::ItemIsEditable);
         return item;
+    }
+
+    // 按钮可用性已经把生命周期顺序表达清楚了，缺的是「为什么灰」：
+    // updateButtons 算得出禁用条件，而用户看到的只有一个灰按钮，得自己
+    // 反推该先点哪一个。这里把原因接在静态说明后面。
+    //
+    // 静态说明存进动态属性再取回，是因为本函数每次刷新都会跑一遍：
+    // 直接往 toolTip 上追加会把原因一条条叠成长串。
+    void setGateTooltip(QPushButton* const button, const QString& gateReason)
+    {
+        if (button == nullptr)
+        {
+            return;
+        }
+        const QVariant storedBaseTooltip = button->property("ks_base_tooltip");
+        const QString baseTooltip = storedBaseTooltip.isValid()
+            ? storedBaseTooltip.toString()
+            : button->toolTip();
+        if (!storedBaseTooltip.isValid())
+        {
+            button->setProperty("ks_base_tooltip", baseTooltip);
+        }
+        if (gateReason.isEmpty())
+        {
+            button->setToolTip(baseTooltip);
+            return;
+        }
+        button->setToolTip(baseTooltip.isEmpty()
+            ? gateReason
+            : baseTooltip + QLatin1Char('\n') + gateReason);
     }
 }
 
@@ -90,7 +122,11 @@ void KernelHvmTab::initializeUi()
         "kernel.hvm.hazard.tooltip",
         QStringLiteral("VMX/EPT 操作可能因异常 VM-exit、错误 MTRR 类型、EPT misconfiguration 或与其它 VMM 冲突导致系统不稳定甚至蓝屏。"));
 
-    auto* toolbar = new QHBoxLayout();
+    // 换行布局而不是 QHBoxLayout：这排有八个按钮，标签又都是「启动一次性来宾」
+    // 这种四到六字的完整句子。1024 宽下 QHBoxLayout 会把每个按钮压到 sizeHint
+    // 以下，于是「刷新能力」被裁成「efresh Capabilitie」——按钮还能点，但没人
+    // 读得出它是哪一个。换行布局改为折行，宽窗口仍然是一排。
+    auto* toolbar = new ks::ui::FlowLayout(nullptr, 0, 6, 4);
     m_refreshButton = new QPushButton(
         kernelText("kernel.hvm.refresh", QStringLiteral("刷新能力")),
         this);
@@ -266,9 +302,10 @@ void KernelHvmTab::initializeUi()
     toolbar->addWidget(m_stopResidentButton);
     toolbar->addWidget(m_teardownButton);
     toolbar->addWidget(m_featureActionButton);
-    toolbar->addStretch(1);
-    toolbar->addWidget(m_statusLabel);
     rootLayout->addLayout(toolbar);
+    // 状态标签移出按钮行：换行布局没有 stretch，跟在最后一个按钮后面会被
+    // 当成第九个"按钮"参与折行，位置随窗口宽度乱跳。自己占一行反而稳定。
+    rootLayout->addWidget(m_statusLabel);
 
     m_summaryLabel = new QLabel(this);
     m_summaryLabel->setWordWrap(true);
@@ -838,25 +875,105 @@ void KernelHvmTab::updateButtons()
              KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED |
              KSWORD_ARK_HVM_STATE_UNLOAD_GUARD_ARMED)) == 0U;
     m_refreshButton->setEnabled(!m_operationRunning);
+
+    // 下面每个按钮各算一次「第一条挡住它的门」。顺序与 setEnabled 的条件
+    // 逐条对应，改其中一边必须同时改另一边。
+    const QString busyReason = kernelText(
+        "kernel.hvm.gate.busy",
+        QStringLiteral("灰掉的原因：另一项 VMX 操作正在执行。"));
+    const QString unsupportedReason = kernelText(
+        "kernel.hvm.gate.unsupported",
+        QStringLiteral("灰掉的原因：当前 CPU 或驱动不提供硬件虚拟化后端。"));
+    const QString needResourcesReason = kernelText(
+        "kernel.hvm.gate.needs_resources",
+        QStringLiteral("灰掉的原因：需要先点“准备 VMX/EPT”。"));
+    const QString residentActiveReason = kernelText(
+        "kernel.hvm.gate.resident_active",
+        QStringLiteral("灰掉的原因：驻留 VMM 正在运行；先点“停止驻留 VMM”。"));
+    // commonReason：三条对所有按钮一视同仁的门，按它们实际的判定顺序返回。
+    const auto commonReason = [&]() -> QString {
+        if (m_operationRunning) { return busyReason; }
+        if (!m_supported) { return unsupportedReason; }
+        return QString();
+    };
+
     m_prepareButton->setEnabled(
         !m_operationRunning && m_supported && !resourcesReady);
+    setGateTooltip(m_prepareButton, [&]() -> QString {
+        const QString common = commonReason();
+        if (!common.isEmpty()) { return common; }
+        if (resourcesReady)
+        {
+            return kernelText(
+                "kernel.hvm.gate.already_prepared",
+                QStringLiteral("灰掉的原因：资源已经准备过了；要重新准备先点“释放后端”。"));
+        }
+        return QString();
+    }());
+
     m_selfTestButton->setEnabled(
         !m_operationRunning &&
         m_supported &&
         resourcesReady &&
         !residentActive);
+    setGateTooltip(m_selfTestButton, [&]() -> QString {
+        const QString common = commonReason();
+        if (!common.isEmpty()) { return common; }
+        if (!resourcesReady) { return needResourcesReason; }
+        if (residentActive) { return residentActiveReason; }
+        return QString();
+    }());
+
     m_launchButton->setEnabled(
         !m_operationRunning &&
         m_supported &&
         guestReady &&
         !guestRunning &&
         !residentActive);
+    setGateTooltip(m_launchButton, [&]() -> QString {
+        const QString common = commonReason();
+        if (!common.isEmpty()) { return common; }
+        if (!guestReady)
+        {
+            return kernelText(
+                "kernel.hvm.gate.guest_not_ready",
+                QStringLiteral("灰掉的原因：一次性来宾尚未就绪，需要先准备资源并通过逐 CPU 自检。"));
+        }
+        if (guestRunning)
+        {
+            return kernelText(
+                "kernel.hvm.gate.guest_running",
+                QStringLiteral("灰掉的原因：一次性来宾正在运行。"));
+        }
+        if (residentActive) { return residentActiveReason; }
+        return QString();
+    }());
+
     m_teardownButton->setEnabled(
         !m_operationRunning &&
         m_supported &&
         resourcesReady &&
         !guestRunning &&
         !residentActive);
+    setGateTooltip(m_teardownButton, [&]() -> QString {
+        const QString common = commonReason();
+        if (!common.isEmpty()) { return common; }
+        if (!resourcesReady)
+        {
+            return kernelText(
+                "kernel.hvm.gate.nothing_to_release",
+                QStringLiteral("灰掉的原因：当前没有已准备的资源可释放。"));
+        }
+        if (guestRunning)
+        {
+            return kernelText(
+                "kernel.hvm.gate.guest_running",
+                QStringLiteral("灰掉的原因：一次性来宾正在运行。"));
+        }
+        if (residentActive) { return residentActiveReason; }
+        return QString();
+    }());
+
     m_startResidentButton->setEnabled(
         !m_operationRunning &&
         m_supported &&
@@ -864,12 +981,63 @@ void KernelHvmTab::updateButtons()
         selfTestPassed &&
         !residentActive &&
         m_featureArea != FeatureArea::Evmcs);
+    setGateTooltip(m_startResidentButton, [&]() -> QString {
+        const QString common = commonReason();
+        if (!common.isEmpty()) { return common; }
+        if (m_featureArea == FeatureArea::Evmcs)
+        {
+            return kernelText(
+                "kernel.hvm.gate.evmcs_no_resident",
+                QStringLiteral("灰掉的原因：eVMCS 视图不提供常驻启动入口。"));
+        }
+        if (!residentAvailable)
+        {
+            return kernelText(
+                "kernel.hvm.gate.resident_unavailable",
+                QStringLiteral("灰掉的原因：驱动侧常驻硬件门未通过。非 Intel、外层已有 Hypervisor、EPT 截断、电源转换挂起、故障或待回滚，任何一条都会让这一项一直灰着。"));
+        }
+        if (!selfTestPassed)
+        {
+            return kernelText(
+                "kernel.hvm.gate.self_test_required",
+                QStringLiteral("灰掉的原因：需要先通过“逐 CPU 自检”。"));
+        }
+        if (residentActive)
+        {
+            return kernelText(
+                "kernel.hvm.gate.already_resident",
+                QStringLiteral("灰掉的原因：驻留 VMM 已经在运行。"));
+        }
+        return QString();
+    }());
+
     m_stopResidentButton->setEnabled(
         !m_operationRunning &&
         m_supported &&
         residentActive);
+    setGateTooltip(m_stopResidentButton, [&]() -> QString {
+        const QString common = commonReason();
+        if (!common.isEmpty()) { return common; }
+        if (!residentActive)
+        {
+            return kernelText(
+                "kernel.hvm.gate.resident_inactive",
+                QStringLiteral("灰掉的原因：当前没有驻留 VMM 在运行。"));
+        }
+        return QString();
+    }());
+
     m_featureActionButton->setEnabled(
         !m_operationRunning &&
         m_supported &&
         (m_featureArea != FeatureArea::Ept || resourcesReady));
+    setGateTooltip(m_featureActionButton, [&]() -> QString {
+        const QString common = commonReason();
+        if (!common.isEmpty()) { return common; }
+        if (m_featureArea == FeatureArea::Ept && !resourcesReady)
+        {
+            return needResourcesReason;
+        }
+        return QString();
+    }());
 }

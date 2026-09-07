@@ -454,6 +454,17 @@ namespace ksword::ark
             // 多核上也安全——翻转只落在取到 exit 的那个处理器上。代价是每核
             // 若干页，以及与 VMFUNC、嵌套 VMX 互斥。
             bool enableLocalEpt = false,
+            // enableEptpSwitch：改用 EPTP 切换后端来装分离视图。默认关闭，
+            // 关着时行为与默认后端（写叶 + Monitor Trap Flag）逐字节相同。
+            // 它不放开任何新能力，换的是所需的硬件条件：默认后端要 MTF，而
+            // 嵌套 Hyper-V 客户机拿不到 MTF；这套只要 execute-only EPT 叶。
+            // 所以缺 MTF 的机器上只有它能装上视图——这是选它的唯一理由。
+            // 【只能随 PREPARE 发出】：驱动在 prepare 里决定武装与否，
+            // START_RESIDENT 的白名单不接受这一位，发过去会被判 INVALID_REQUEST。
+            // 这里刻意不按 command 过滤，让发错命令响亮地失败，而不是被悄悄
+            // 丢掉后让调用方以为自己换了后端。
+            // 与 enableLocalEpt、enableVmFunc 互斥，驱动在任何分配之前就拒绝。
+            bool enableEptpSwitch = false,
             // soakMilliseconds：仅 KSWORD_ARK_HVM_CONTROL_SOAK 读取，
             // 表示常驻保持时长；驱动侧会把它夹到协议规定的上下界之间。
             unsigned long soakMilliseconds = 0) const;
@@ -520,6 +531,16 @@ namespace ksword::ark
             bool seedZero,
             bool log,
             bool uiConfirmed) const;
+        // hvmPlatform：只读平台标定（CR4.CET / IA32_S_CET / IA32_U_CET /
+        // FS/GS/KERNEL_GS base / EFER / CPUID.(7,0)）。
+        //
+        // 驱动侧一直有这个 IOCTL，客户端一直没有对应函数 —— 于是这三个量
+        // （CET、KVA shadow、GS base）在 GUI 里完全不可见，而它们各自都能
+        // **独立否决**「退虚拟化返回用户态」这条路。
+        //
+        // 零风险：不进 VMX、不分配、不加锁，任何生命周期状态下都能调。
+        // 判读一律先看 response.validMask，八位不全就是没标定完。
+        HvmPlatformResult hvmPlatform() const;
         // hvmMemory：执行一次 R-1 内存操作（物理/虚拟读写、翻译、窗口查询）。
         // - payload 只在写操作时使用，长度必须与 length 一致；
         // - processId 非零时按该进程的页表解析，directoryBase 被忽略。驱动内部

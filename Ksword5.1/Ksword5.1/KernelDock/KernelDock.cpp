@@ -15,7 +15,6 @@
 #include "KernelBaseNamedObjectsTab.h"
 #include "KernelDockCidTab.h"
 #include "KernelDescriptorTableTab.h"
-#include "KernelHvmTab.h"
 #include "KernelSlatIommuAuditTab.h"
 #include "KernelTextIntegrityTab.h"
 #include "KernelVbsPostureTab.h"
@@ -544,15 +543,10 @@ void KernelDock::initializeUi()
             "kernel.main.tab.wdf_audit.tooltip",
             QStringLiteral("审计 KMDF 绑定函数地址、模块归属/执行节一致性与 WDF 回调，并受控编辑已验证的绑定表函数槽")));
 
-    m_hvmTabIndex = m_tabWidget->addTab(
-        new KernelHvmTab(m_tabWidget),
-        tabIcon(QStringLiteral(":/Icon/process_priority.svg")),
-        QStringLiteral("VT-x/EPT"));
-    m_tabWidget->setTabToolTip(
-        m_hvmTabIndex,
-        kernelText(
-            "kernel.main.tab.hvm.tooltip",
-            QStringLiteral("VT-x/嵌套能力、每 CPU VMX 区域、EPT RAM 映射与受控 VMXON/VMXOFF 自检")));
+    // VT-x/EPT 页已移到顶层「虚拟化 (KVM)」Dock。
+    // 搬家的理由不是页面归属，而是它和标题栏 KVM 右键菜单原本各握一半能力：
+    // 准备/释放资源在菜单里，PREPARE/SELF_TEST/EPT 规则在这一页里，两边零
+    // 交叉引用，用户在任一侧都走不完一次完整的生命周期。
 
     m_slatIommuTabIndex = m_tabWidget->addTab(
         new KernelSlatIommuAuditTab(m_tabWidget),
@@ -712,7 +706,6 @@ void KernelDock::updateTabIconContrast()
     m_tabWidget->setTabIcon(m_ntQueryTabIndex, tabIcon(QStringLiteral(":/Icon/process_details.svg")));
     m_tabWidget->setTabIcon(m_ioManagementTabIndex, tabIcon(QStringLiteral(":/Icon/process_details.svg")));
     m_tabWidget->setTabIcon(m_kernelAuditTabIndex, tabIcon(QStringLiteral(":/Icon/process_critical.svg")));
-    m_tabWidget->setTabIcon(m_hvmTabIndex, tabIcon(QStringLiteral(":/Icon/process_priority.svg")));
     m_tabWidget->setTabIcon(m_slatIommuTabIndex, tabIcon(QStringLiteral(":/Icon/process_priority.svg")));
     m_tabWidget->setTabIcon(m_textIntegrityTabIndex, tabIcon(QStringLiteral(":/Icon/process_details.svg")));
     m_tabWidget->setTabIcon(m_vbsPostureTabIndex, tabIcon(QStringLiteral(":/Icon/process_priority.svg")));
@@ -741,10 +734,6 @@ void KernelDock::updateTabIconContrast()
     else if (currentIndex == m_kernelAuditTabIndex)
     {
         m_tabWidget->setTabIcon(currentIndex, selectedTabIcon(QStringLiteral(":/Icon/process_critical.svg")));
-    }
-    else if (currentIndex == m_hvmTabIndex)
-    {
-        m_tabWidget->setTabIcon(currentIndex, selectedTabIcon(QStringLiteral(":/Icon/process_priority.svg")));
     }
     else if (currentIndex == m_slatIommuTabIndex)
     {
@@ -1322,10 +1311,6 @@ void KernelDock::openKnowledgeRoute(const QString& routeId)
     else if (routeId == QStringLiteral("kernel_audit"))
     {
         targetTabIndex = m_kernelAuditTabIndex;
-    }
-    else if (routeId == QStringLiteral("hvm"))
-    {
-        targetTabIndex = m_hvmTabIndex;
     }
     else if (routeId == QStringLiteral("slat_iommu"))
     {

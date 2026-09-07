@@ -44,6 +44,7 @@
 #include "ScannerDock/ScannerDock.h"
 #include "DriverDock/DriverDock.h"
 #include "KernelDock/KernelDock.h"
+#include "KvmDock/KvmDock.h"
 #include "MonitorDock/MonitorDock.h"
 #include "MonitorDock/MonitorPanelWidget.h"
 #include "HardwareDock/HardwareDock.h"
@@ -235,6 +236,15 @@ private:
     void runKvmSoak(unsigned long milliseconds);
     // runKvmFaultReset：清除可恢复的故障与回滚标记；常驻中会被驱动拒绝。
     void runKvmFaultReset();
+    // runKvmPrepare/runKvmRelease：把 PREPARE 与 TEARDOWN 暴露到 KVM 菜单。
+    // 缺了这两个入口，装视图/策略/域的窗口期在这个菜单里按不出来。
+    void runKvmPrepare();
+    void runKvmRelease();
+    // handleKvmDockAction：虚拟化 (KVM) 页的唯一出口，逐条落到上面这些实现。
+    // 两个入口共用同一批实现，是为了让确认口径不可能走出两套。
+    void handleKvmDockAction(KvmDock::Action action);
+    // createKvmDockContent：两处创建点（预加载与惰性补载）共用的构造与接线。
+    KvmDock* createKvmDockContent();
 
     // hasUiAccessPrivilege 作用：
     // - 查询当前进程令牌 TokenUIAccess 状态；
@@ -346,6 +356,16 @@ private:
     // - 配置文件保存到应用程序 exe 所在目录的 config/ksword_ads_layout.bin；
     // - 返回 true 表示写入成功。
     bool saveDockLayoutToConfig() const;
+
+    // resetDockLayoutToDefault：丢弃已保存的停靠布局，下次启动回到默认排列。
+    //
+    // 存在的理由：顶部标签可以随手拖乱，而在此之前**没有任何界面入口**能回到
+    // 默认，用户只能自己去 exe 目录的 config 里找那个 .bin 删掉。
+    void resetDockLayoutToDefault();
+
+    // m_suppressDockLayoutSave：重置之后阻断本次退出的布局回写。
+    // 不阻断的话，删掉的文件会在关闭应用的瞬间被当前布局原样写回来。
+    bool m_suppressDockLayoutSave = false;
 
     // resolveDockLayoutConfigPath 作用：
     // - 统一生成 ADS 布局配置文件绝对路径；
@@ -653,6 +673,7 @@ private:
     ads::CDockWidget* m_dockFile = nullptr; // m_dockFile：文件页 Dock。
     ads::CDockWidget* m_dockDriver = nullptr; // m_dockDriver：驱动页 Dock。
     ads::CDockWidget* m_dockKernel = nullptr; // m_dockKernel：内核页 Dock。
+    ads::CDockWidget* m_dockKvm = nullptr; // m_dockKvm：虚拟化 (KVM) 页 Dock。
     ads::CDockWidget* m_dockMonitorTab = nullptr; // m_dockMonitorTab：监控页 Dock。
     ads::CDockWidget* m_dockPrivilege = nullptr; // m_dockPrivilege：权限页 Dock。
     ads::CDockWidget* m_dockWindow = nullptr; // m_dockWindow：窗口页 Dock。
@@ -676,6 +697,7 @@ private:
     FileDock* m_shellUnlockerFileDock = nullptr; // m_shellUnlockerFileDock：Shell 右键文件解锁器隐藏宿主。
     DriverDock* m_driverWidget = nullptr; // m_driverWidget：驱动页内容控件。
     KernelDock* m_kernelWidget = nullptr; // m_kernelWidget：内核页内容控件。
+    KvmDock* m_kvmWidget = nullptr; // m_kvmWidget：虚拟化 (KVM) 页内容控件。
     MonitorDock* m_monitorWidget = nullptr; // m_monitorWidget：监控页内容控件。
     MonitorPanelWidget* m_monitorPanelWidget = nullptr; // m_monitorPanelWidget：监视面板性能图内容控件。
     HardwareDock* m_hardwareWidget = nullptr; // m_hardwareWidget：硬件页内容控件。

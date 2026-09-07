@@ -21,10 +21,13 @@
 #include "UI/KvmMemoryDialog.h"
 #include "UI/KvmMsrPolicyDialog.h"
 #include "UI/KvmDomainDialog.h"
+#include "UI/KvmHookWizard.h"
 #include "UI/KvmViewDialog.h"
+#include "UI/KvmWriteAccessGate.h"
 #include "theme.h"
 
 #include <QAction>
+#include <QDialog>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPointer>
@@ -90,8 +93,76 @@ namespace
     }
 }
 
+KvmDock* MainWindow::createKvmDockContent()
+{
+    auto* const dockContent = new KvmDock(this);
+    dockContent->setActionHandler([this](const KvmDock::Action action) {
+        handleKvmDockAction(action);
+    });
+    return dockContent;
+}
+
+void MainWindow::handleKvmDockAction(const KvmDock::Action action)
+{
+    // 这一层只做分派。每一条都落到右键菜单用的同一个实现上，包括那几处
+    // confirmDestructiveAction 高危确认——两个入口因此不可能走出两套口径。
+    const auto showKvmDialog = [](QDialog* const dialog) {
+        // 无父窗口模态：R-1 面板要能和主界面并排使用，与右键菜单一致。
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    };
+
+    switch (action)
+    {
+    case KvmDock::Action::ToggleResident:
+        handleKvmStatusButtonClicked();
+        return;
+    case KvmDock::Action::Soak:
+        runKvmSoak(5000);
+        return;
+    case KvmDock::Action::PrepareResources:
+        runKvmPrepare();
+        return;
+    case KvmDock::Action::ReleaseResources:
+        runKvmRelease();
+        return;
+    case KvmDock::Action::ResetFault:
+        runKvmFaultReset();
+        return;
+    case KvmDock::Action::OpenHookWizard:
+        // 向导自己管非模态生命周期与 WA_DeleteOnClose（openWizard 的契约），
+        // 所以这一条不走 showKvmDialog —— 走了会重复设置属性并多一层 show。
+        ks::ui::KvmHookWizard::openWizard(this);
+        return;
+    case KvmDock::Action::OpenViewDialog:
+        showKvmDialog(new KvmViewDialog(this));
+        return;
+    case KvmDock::Action::OpenDomainDialog:
+        showKvmDialog(new KvmDomainDialog(this));
+        return;
+    case KvmDock::Action::OpenMsrPolicyDialog:
+        showKvmDialog(new KvmMsrPolicyDialog(this));
+        return;
+    case KvmDock::Action::OpenCrPolicyDialog:
+        showKvmDialog(new KvmCrPolicyDialog(this));
+        return;
+    case KvmDock::Action::OpenMemoryDialog:
+        showKvmDialog(new KvmMemoryDialog(this));
+        return;
+    case KvmDock::Action::OpenEventDialog:
+        showKvmDialog(new KvmEventDialog(this));
+        return;
+    }
+}
+
 void MainWindow::applyKvmButtonState()
 {
+    // KVM 页的状态轮询看不到"命令正在跑"这件事：命令期间驱动侧状态锁被独占，
+    // 查询只会排在它后面。只能由发起命令的这一侧推过去。
+    if (m_kvmWidget != nullptr)
+    {
+        m_kvmWidget->setOperationRunning(m_kvmOperationRunning);
+    }
     if (m_kvmStatusButton == nullptr)
     {
         return;
@@ -292,6 +363,103 @@ void MainWindow::runKvmSoak(const unsigned long milliseconds)
     }).detach();
 }
 
+void MainWindow::runKvmPrepare()
+{
+    if (m_kvmOperationRunning)
+    {
+        return;
+    }
+    m_kvmOperationRunning = true;
+    applyKvmButtonState();
+    QPointer<MainWindow> safeThis(this);
+    std::thread([safeThis]() {
+        // ensurePrepared 会按需 PREPARE + SELF_TEST，已就绪时直接返回成功。
+        // 它**不**进入常驻 —— 那正是这个入口存在的理由。
+        const ksword::kvm::KvmCommandResult result =
+            ksword::kvm::ensurePrepared();
+        if (safeThis == nullptr)
+        {
+            return;
+        }
+        QMetaObject::invokeMethod(
+            safeThis,
+            [safeThis, result]() {
+                if (safeThis == nullptr)
+                {
+                    return;
+                }
+                safeThis->m_kvmOperationRunning = false;
+                safeThis->applyKvmButtonState();
+                if (!result.ok)
+                {
+                    QMessageBox::warning(
+                        safeThis,
+                        QStringLiteral("KVM"),
+                        result.message);
+                }
+                else
+                {
+                    QMessageBox::information(
+                        safeThis,
+                        QStringLiteral("KVM"),
+                        ks::i18n::sourceText(QStringLiteral("资源已准备，尚未进入常驻。现在是安装分离视图 / MSR 策略 / CR 策略 / 执行域的窗口期 —— 启动常驻之后这几张表就不可变了。")));
+                }
+                safeThis->refreshKvmStatusAsync();
+            },
+            Qt::QueuedConnection);
+    }).detach();
+}
+
+void MainWindow::runKvmRelease()
+{
+    if (m_kvmOperationRunning)
+    {
+        return;
+    }
+    // 释放资源会丢掉已装的视图/策略/域，所以走高危确认。
+    const bool confirmed = ks::ui::confirmDestructiveAction(
+        this,
+        QStringLiteral("KvmReleaseResources"),
+        ks::i18n::sourceText(QStringLiteral("释放 KVM 资源")),
+        ks::i18n::sourceText(QStringLiteral("本机全部逻辑处理器")),
+        ks::i18n::sourceText(QStringLiteral("将释放全部每处理器资源与 EPT 层次。已安装的分离视图、MSR 策略、CR 策略与执行域会一并消失，叶项与权限恢复原状。改过后端选择或每处理器私有 EPT 时需要这一步：那些选择只在准备资源时被消费。")));
+    if (!confirmed)
+    {
+        return;
+    }
+    m_kvmOperationRunning = true;
+    applyKvmButtonState();
+    QPointer<MainWindow> safeThis(this);
+    const unsigned long generation = m_kvmGeneration;
+    std::thread([safeThis, generation]() {
+        const ksword::kvm::KvmCommandResult result =
+            ksword::kvm::releaseResources(generation);
+        if (safeThis == nullptr)
+        {
+            return;
+        }
+        QMetaObject::invokeMethod(
+            safeThis,
+            [safeThis, result]() {
+                if (safeThis == nullptr)
+                {
+                    return;
+                }
+                safeThis->m_kvmOperationRunning = false;
+                safeThis->applyKvmButtonState();
+                if (!result.ok)
+                {
+                    QMessageBox::warning(
+                        safeThis,
+                        QStringLiteral("KVM"),
+                        result.message);
+                }
+                safeThis->refreshKvmStatusAsync();
+            },
+            Qt::QueuedConnection);
+    }).detach();
+}
+
 void MainWindow::runKvmFaultReset()
 {
     if (m_kvmOperationRunning)
@@ -357,6 +525,40 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
 
     menu.addSeparator();
 
+    // 「准备资源」与「释放资源」必须在这里，否则这个菜单有一条必然踩中的死路。
+    //
+    // 视图 / MSR / CR / 域四个面板都要求资源已准备。而这个菜单原本能做的只有
+    // 「启动常驻」—— 它会在同一次调用里准备完资源**紧接着进入常驻**，于是四个
+    // 面板立刻从「尚未准备」变成「常驻期间不能改」。中间那个唯一可用的窗口期
+    // 在这里按不出来，用户只能在另一个 Dock 的另一个页里找到它，而两边此前
+    // 没有任何交叉引用。
+    //
+    // 「释放资源」同时是让后端开关生效的唯一途径：后端在 PREPARE 时选定，
+    // 而 ensurePrepared 在资源已就绪时不会重发 PREPARE。
+    QAction* const prepareAction = menu.addAction(
+        ks::i18n::sourceText(QStringLiteral("准备资源（不进入常驻）")));
+    prepareAction->setEnabled(!m_kvmOperationRunning &&
+        !m_kvmResidentActive &&
+        m_kvmAvailable);
+    // 一条 sourceText 必须是**一个不拆行的字面量**：相邻字符串拼接会被
+    // i18n 提取器当成多个独立词条，于是语言包里多出几条永远匹配不上的碎片。
+    prepareAction->setToolTip(ks::i18n::sourceText(QStringLiteral("分配每处理器资源并建立 EPT，但不进入常驻。分离视图、MSR 策略、CR 策略与执行域都必须在这一步之后、启动常驻之前安装 —— 常驻期间这几张表都是不可变的。")));
+    connect(prepareAction, &QAction::triggered, this, [this]() {
+        runKvmPrepare();
+    });
+
+    QAction* const releaseAction = menu.addAction(
+        ks::i18n::sourceText(QStringLiteral("释放资源")));
+    releaseAction->setEnabled(!m_kvmOperationRunning &&
+        !m_kvmResidentActive &&
+        m_kvmAvailable);
+    releaseAction->setToolTip(ks::i18n::sourceText(QStringLiteral("释放全部可逆资源，回到未准备状态。改过分离视图后端或每处理器私有 EPT 之后必须走这一步 —— 那两个选择只在准备资源时被消费，已准备的运行时改开关不会生效。")));
+    connect(releaseAction, &QAction::triggered, this, [this]() {
+        runKvmRelease();
+    });
+
+    menu.addSeparator();
+
     // 嵌套模式：外层有 hypervisor 时（虚拟机内、或裸机开着 VBS/HVCI）唯一能跑起来的
     // 方式。不改写任何系统状态，所以不走高风险确认，但要说清代价。
     QAction* const nestedAction = menu.addAction(
@@ -379,8 +581,50 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
     localEptAction->setCheckable(true);
     localEptAction->setChecked(ksword::kvm::isLocalEptEnabled());
     localEptAction->setToolTip(ks::i18n::sourceText(QStringLiteral("给每个处理器一份私有 EPT 层次，翻转只落在取到 exit 的那个处理器上。打开后才能在多核机器上安装 EPT 视图；关着时视图仍然只能在单核拓扑安装。与 VMFUNC、嵌套 VMX 互斥，且每核要多花若干页。")));
-    connect(localEptAction, &QAction::triggered, this, [this](const bool checked) {
+    connect(localEptAction, &QAction::triggered, this, [this, localEptAction](const bool checked) {
+        // 互斥不是偏好而是驱动的硬拒绝：与 EPTP 切换后端同时请求会在任何
+        // 分配之前被判 INVALID_REQUEST。这里拦下来并说明原因，比让用户攒出
+        // 一个必然失败的组合再去猜协议状态码强。
+        if (checked && ksword::kvm::isEptpSwitchEnabled())
+        {
+            localEptAction->setChecked(false);
+            QMessageBox::warning(
+                this,
+                ks::i18n::sourceText(QStringLiteral("私有 EPT 与 EPTP 切换后端互斥")),
+                ks::i18n::sourceText(QStringLiteral("EPTP 切换后端靠在多份 EPT 层次之间换 EPTP 来做视图，私有 EPT 则要给每个处理器各自一份层次，两者对层次的用法冲突，驱动会在分配任何资源之前拒绝同时请求。请先关掉「EPT 分离视图用 EPTP 切换后端」。")));
+            return;
+        }
         ksword::kvm::setLocalEptEnabled(checked);
+        applyKvmButtonState();
+        refreshKvmStatusAsync();
+    });
+
+    // EPTP 切换后端：这一项选的不是"要不要一个能力"，而是"用哪套机器装视图"。
+    // 关掉时行为与默认后端逐字节相同，所以不走高风险确认。选它的唯一理由是
+    // 默认后端要 Monitor Trap Flag，而嵌套 Hyper-V 客户机拿不到 MTF。
+    QAction* const eptpSwitchAction = menu.addAction(
+        ks::i18n::sourceText(QStringLiteral("EPT 分离视图用 EPTP 切换后端")));
+    eptpSwitchAction->setCheckable(true);
+    eptpSwitchAction->setChecked(ksword::kvm::isEptpSwitchEnabled());
+    eptpSwitchAction->setToolTip(ks::i18n::sourceText(QStringLiteral("默认后端是「写 EPT 叶 + 用 Monitor Trap Flag 单步一条指令 + 写回去」，它要求处理器提供 Monitor Trap Flag。EPTP 切换后端换成在两份层次之间切 EPTP，只要 execute-only EPT 叶，既不要 MTF 也不要 VMFUNC。差别不是性能而是能力：嵌套 Hyper-V 客户机拿不到 MTF，那种机器上只有这套后端能装上视图。与私有 EPT、VMFUNC 互斥。这一位只随准备资源发出，改完要重新准备才生效。")));
+    connect(eptpSwitchAction, &QAction::triggered, this, [this, eptpSwitchAction](const bool checked) {
+        if (!checked)
+        {
+            ksword::kvm::setEptpSwitchEnabled(false);
+            applyKvmButtonState();
+            refreshKvmStatusAsync();
+            return;
+        }
+        if (ksword::kvm::isLocalEptEnabled() || ksword::kvm::isVmFuncEnabled())
+        {
+            eptpSwitchAction->setChecked(false);
+            QMessageBox::warning(
+                this,
+                ks::i18n::sourceText(QStringLiteral("EPTP 切换后端与私有 EPT、VMFUNC 互斥")),
+                ks::i18n::sourceText(QStringLiteral("EPTP 切换后端要在多份 EPT 层次之间换 EPTP：私有 EPT 要给每个处理器各自一份层次，VMFUNC 又要所有处理器共享同一份 EPTP list，两者都与它冲突。驱动会在分配任何资源之前拒绝同时请求。请先关掉「每处理器私有 EPT」与「武装 VMFUNC 视图切换」。")));
+            return;
+        }
+        ksword::kvm::setEptpSwitchEnabled(true);
         applyKvmButtonState();
         refreshKvmStatusAsync();
     });
@@ -399,13 +643,11 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
             return;
         }
         // 打开写权限等于解锁一整类可改写系统状态的能力，必须显式确认一次。
-        const bool confirmed = ks::ui::confirmDestructiveAction(
-            this,
-            QStringLiteral("KvmWriteAccess"),
-            ks::i18n::sourceText(QStringLiteral("开启 KSwordVM 写权限")),
-            ks::i18n::sourceText(QStringLiteral("本机物理内存与 EPT 映射")),
-            ks::i18n::sourceText(QStringLiteral("开启后 KVM 的 R-1 改写能力（EPT 强制权限、隐蔽 Hook、内存隐藏、物理内存写入）将可用。这些操作绕过内核层保护，误用会直接损坏运行中的系统。")));
-        ksword::kvm::setWriteAccessEnabled(confirmed);
+        //
+        // 确认文案与 suppressionKey 只存在于 KvmWriteAccessGate 一处：向导的预检
+        // 也要能就地开启，两个入口各拼一遍的话，勾过「不再提示」的用户会在另一个
+        // 入口被重新弹一次，而两处文案只要差一个字就再也说不清用户同意过什么。
+        (void)ks::ui::requestKvmWriteAccess(this);
         applyKvmButtonState();
         refreshKvmStatusAsync();
     });
@@ -484,6 +726,17 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
             ksword::kvm::setVmFuncEnabled(false);
             applyKvmButtonState();
             refreshKvmStatusAsync();
+            return;
+        }
+        // 与私有 EPT 同样的互斥：VMFUNC 要所有处理器共享同一份 EPTP list，
+        // 而 EPTP 切换后端要在多份层次之间换 EPTP，驱动会直接拒绝这个组合。
+        if (ksword::kvm::isEptpSwitchEnabled())
+        {
+            vmFuncAction->setChecked(false);
+            QMessageBox::warning(
+                this,
+                ks::i18n::sourceText(QStringLiteral("VMFUNC 与 EPTP 切换后端互斥")),
+                ks::i18n::sourceText(QStringLiteral("VMFUNC 要求所有处理器共享同一份 EPTP list，而 EPTP 切换后端要在多份 EPT 层次之间换 EPTP，驱动会在分配任何资源之前拒绝同时请求。请先关掉「EPT 分离视图用 EPTP 切换后端」。")));
             return;
         }
         // 写权限前置：武装一个 guest 可见的切换接口属于改变系统行为。

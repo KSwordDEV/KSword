@@ -50,6 +50,14 @@ namespace ksword::kvm
         bool hypervisorPresent = false;
         // nestedResident：当前常驻是作为 L1 跑在别人之下，属于降级模式。
         bool nestedResident = false;
+        // nestedL2LaunchRefusedCount：我们拒绝过多少次「别人想在我们之下起 VM」。
+        //
+        // 方向与 nestedResident 相反：那个说的是我们跑在谁之下，这个说的是**谁想跑在
+        // 我们之下**。常驻期间机器上的 VMware / VirtualBox / WSL2 / Docker 一旦
+        // VMLAUNCH，驱动会拒绝（vmcs02 合并故意没做完），而驱动侧那个状态位在紧接着
+        // 的 VMXOFF 就被清掉——两秒一轮的轮询几乎必然错过。所以这里是只增不减的计数，
+        // 非零就说明我们正在挡着别人的虚拟机，而用户那边看到的现象是「VM 突然起不来」。
+        unsigned long nestedL2LaunchRefusedCount = 0;
         // veArmed：本次常驻武装了 EPT-violation #VE 控制位。
         // 注意语义：这只说明控制位是开的，不说明 #VE 能被投递——驱动侧
         // 的两道保险（全叶项 suppress-#VE、信息区锁 busy）与本位无关。
@@ -61,11 +69,44 @@ namespace ksword::kvm
         bool vmFuncArmed = false;
         // eptpSwitchingAvailable：处理器提供 VM function 0，域才有意义。
         bool eptpSwitchingAvailable = false;
+        // eptpSwitchArmed：本次运行时真的用上了 EPTP 切换后端。
+        // 这一位是唯一可信的后端判据：请求位只说明调用方想要什么，能力不够
+        // 时驱动保持默认后端，两种情形的请求位一模一样。
+        bool eptpSwitchArmed = false;
+        // localEptArmed：本次运行时真的拿到了每处理器私有 EPT 层次。
+        //
+        // 与 eptpSwitchArmed 同理，这一位是唯一可信的判据：菜单上的勾只表示
+        // **请求**，而能力不够时驱动保持共享层次，两种情形的请求位一模一样。
+        // 以前 UI 只显示那个勾，于是「打开了私有 EPT」是一句用户看得到、
+        // 却可能与事实相反的话 —— 唯一的反馈是启动常驻时的一个裸状态码 21。
+        bool localEptArmed = false;
+        // 下面四位是驱动安装 EPT 分离视图（CLOAK/HOOK）时逐条检查的前置条件。
+        // 它们本来就在 QUERY 响应里，只是从没被抬到这一层，于是安装失败时 UI
+        // 只能转述一个协议状态码，说不出"缺的是哪一条"。UI 的职责是把这些约束
+        // 解释清楚——它们由驱动判定，客户端既不能放宽也不该假装能绕过去。
+        //
+        // resourcesReady：PREPARE 已执行且未 TEARDOWN。
+        bool resourcesReady = false;
+        // eptReady：EPT 层次已建好，是安装视图的第一道硬门。
+        bool eptReady = false;
+        // inveptSingleReady：处理器支持单上下文 INVEPT。两套后端都要它——
+        // 无论是写回叶项还是切 EPTP，都得把按旧值建出来的翻译丢掉。
+        bool inveptSingleReady = false;
+        // monitorTrapFlagReady：处理器支持 Monitor Trap Flag。
+        // 只有默认后端（写叶 + 单步一条指令 + 写回）需要它；EPTP 切换后端不需要。
+        // 所以判断"这台机器能不能装视图"必须连着 eptpSwitchArmed 一起看，
+        // 单看这一位会把嵌套 Hyper-V 客户机误判成无解。
+        bool monitorTrapFlagReady = false;
         unsigned long generation = 0;  // 用于 compare-before 控制请求。
         unsigned long processorCount = 0;
         unsigned long residentProcessorCount = 0;
         unsigned long eptRuleCount = 0;
         unsigned long long vmExitCount = 0;
+        // eptPointer：当前生效的 EPT 指针（含 EPTP 的类型与层数编码位）。
+        // 它是判断"驱动到底在用哪一份 EPT 层次"的唯一可观测值：私有 EPT 与
+        // 执行域都会让不同的处理器/域挂在不同的指针上，而共享根被换掉又不
+        // 失效正是最难查的一类故障。抬上来是为了让 UI 能把它摆出来核对。
+        unsigned long long eptPointer = 0;
         unsigned long soakElapsedMilliseconds = 0;
         unsigned long soakUnexpectedDevirtualizations = 0;
         QString shortStatus; // 按钮 tooltip 首行。
@@ -101,6 +142,18 @@ namespace ksword::kvm
 
     // resetFault：清除可恢复的故障与回滚标记。常驻中会被拒绝。
     KvmCommandResult resetFault(unsigned long expectedGeneration);
+
+    // releaseResources：TEARDOWN，释放全部可逆资源，回到"未准备"。
+    //
+    // 加进这一层是因为 KVM 菜单里原本**没有**它，而没有它就存在一条必然踩中的
+    // 死路：视图/MSR/CR/域四个面板都要求资源已准备，可用户在这个菜单里能做的
+    // 只有「启动常驻」——而它会在同一次调用里准备完资源紧接着进入常驻，
+    // 于是四个面板立刻从"尚未准备"变成"常驻期间不能改"。
+    // 中间那个唯一可用的窗口期，在这个菜单里按不出来。
+    //
+    // 它同时是「改了后端开关之后让它生效」的唯一途径：后端在 PREPARE 时选定，
+    // 而 ensurePrepared 在资源已就绪时不会重发 PREPARE。
+    KvmCommandResult releaseResources(unsigned long expectedGeneration);
 
     // 嵌套模式开关：
     // - 默认关闭，裸机独占 VT-x 仍是预期的运行方式；
@@ -146,6 +199,20 @@ namespace ksword::kvm
     // - 【持久化】：它不是危险开关，是更安全的那个方向。
     bool isLocalEptEnabled();
     void setLocalEptEnabled(bool enabled);
+
+    // EPTP 切换后端开关（分离视图用哪套机器装）：
+    // - 关着时行为与今天逐字节相同：默认后端是「写 EPT 叶 + 用 Monitor Trap
+    //   Flag 单步一条指令 + 把叶写回去」；
+    // - 打开后改用「切 EPTP」：两套后端回答同一个问题，差别不是性能而是所需
+    //   能力——默认后端要 Monitor Trap Flag，这套只要 execute-only EPT 叶；
+    // - 存在的理由就在这里：嵌套 Hyper-V 客户机拿不到 MTF，所以在那种机器上
+    //   只有这套后端能装上 CLOAK/HOOK 视图；
+    // - 与 VMFUNC、私有 EPT 互斥，驱动在任何分配之前就拒绝同时请求；
+    // - 这一位只随 PREPARE 发出，驱动在准备资源时决定武装与否。因此资源已经
+    //   准备好之后再改这个开关，要到下一次重新准备才生效；
+    // - 【持久化】：它不放开任何新能力，只是换机器，和私有 EPT 一样。
+    bool isEptpSwitchEnabled();
+    void setEptpSwitchEnabled(bool enabled);
 
     // 写权限门：
     // - 默认关闭。关闭时 KVM 只做观测，任何会改变系统状态的 R-1 操作都被拒绝；
@@ -225,6 +292,21 @@ namespace ksword::kvm
         bool ok = false;
         unsigned long viewId = 0;
         unsigned long viewCount = 0;
+        // protocolStatus/lastStatus：原样上传的两级失败码。
+        //
+        // message 是给人读的一句话，一旦翻译过就丢掉了"失败发生在哪一步"。
+        // 而同一个 protocolStatus 会由多个不同的分支产生（MULTIPROCESSOR_UNSAFE
+        // 既可能是"正在常驻"也可能是"拓扑或能力不满足"），只有配上 lastStatus
+        // 才分得开。调用方要靠这两个值把失败精确退回到产生它的那一步，
+        // 而不是拿字符串去猜。
+        // protocolStatus 取 KSWORD_ARK_HVM_VIEW_STATUS_*，lastStatus 是 NTSTATUS。
+        //
+        // 只在 ok 为假时才去读它们，而且要先看 ok：写权限门与影子页长度这两条
+        // 在客户端就被拒的路径根本没发过 IOCTL，两个字段保持零——而零恰好就是
+        // VIEW_STATUS_OK。不给它们编一个协议里没有的哨兵值，是因为那等于凭空
+        // 发明一个驱动永远不会返回的状态码。
+        unsigned long protocolStatus = 0;
+        long lastStatus = 0;
         QVector<KvmViewEntry> views;
         QString message;
     };

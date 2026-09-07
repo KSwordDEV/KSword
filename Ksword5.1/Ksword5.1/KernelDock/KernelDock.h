@@ -1015,7 +1015,6 @@ private:
     int m_callbackEnumTabIndex = -1;     // m_callbackEnumTabIndex：审计内部回调遍历页索引。
     int m_inlineHookTabIndex = -1;       // m_inlineHookTabIndex：审计内部 Inline Hook 页索引。
     int m_iatEatHookTabIndex = -1;       // m_iatEatHookTabIndex：审计内部 IAT/EAT 页索引。
-    int m_hvmTabIndex = -1;              // m_hvmTabIndex：VT-x/EPT 生命周期与证据页签索引。
     int m_slatIommuTabIndex = -1;        // m_slatIommuTabIndex：SLAT/IOMMU 只读取证页签索引。
     int m_textIntegrityTabIndex = -1;    // m_textIntegrityTabIndex：代码完整性只读扫描页签索引。
     int m_vbsPostureTabIndex = -1;       // m_vbsPostureTabIndex：VBS/HVCI 姿态页签索引。

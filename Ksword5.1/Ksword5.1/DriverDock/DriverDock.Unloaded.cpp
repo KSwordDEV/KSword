@@ -243,7 +243,7 @@ namespace
                 : driverText(
                     "driver.unloaded.status.io_failed",
                     QStringLiteral("状态：查询失败：%1"))
-                    .arg(friendlyDriverIoMessage(result.io.message)));
+                    .arg(describeDriverCollection(result.io)));
             label->setStyleSheet(
                 QStringLiteral("color:%1; font-weight:700;")
                     .arg(KswordTheme::ErrorColor().name(QColor::HexRgb)));

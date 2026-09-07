@@ -575,7 +575,7 @@ void DriverDock::refreshDriverIntegrityAsync(const bool cpuOnly)
                         : driverText(
                             "driver.integrity.status.query_failed",
                             QStringLiteral("状态：查询失败 %1"))
-                            .arg(friendlyDriverIoMessage(result.io.message)));
+                            .arg(describeDriverCollection(result.io)));
                     guardThis->m_integrityStatusLabel->setStyleSheet(
                         QStringLiteral("color:%1; font-weight:700;")
                             .arg(KswordTheme::ErrorColor().name(QColor::HexRgb)));
@@ -825,7 +825,7 @@ void DriverDock::deleteSelectedPiDdbEntry()
                     "R0 精确身份预检失败。状态 %1，NTSTATUS %2。\n%3"))
                 .arg(preflight.status)
                 .arg(formatNtStatusText(preflight.lastStatus))
-                .arg(friendlyDriverIoMessage(preflight.io.message)));
+                .arg(describeDriverCollection(preflight.io)));
         return;
     }
 
@@ -876,7 +876,7 @@ void DriverDock::deleteSelectedPiDdbEntry()
                 QStringLiteral("删除失败。状态 %1，NTSTATUS %2。\n%3"))
                 .arg(deleted.status)
                 .arg(formatNtStatusText(deleted.lastStatus))
-                .arg(friendlyDriverIoMessage(deleted.io.message)));
+                .arg(describeDriverCollection(deleted.io)));
         return;
     }
 

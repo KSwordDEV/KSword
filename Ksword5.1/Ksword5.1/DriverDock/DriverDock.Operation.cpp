@@ -2611,7 +2611,7 @@ void DriverDock::forceUnloadDriverFromServiceRow(const int rowIndex, const bool 
                         QStringLiteral(
                             "驱动卸载完成：%1 | IO说明=%2 | Status=%3 | Flags=%4 | Applied=%5 | Deleted=%6 | Detached=%7 | Threads=%8/%9 fail=%10 last=%11 | Last=%12 | Wait=%13 | Object=%14 | Unload=%15 | Name=%16"))
                         .arg(driverObjectNameText)
-                        .arg(friendlyDriverIoMessage(result.io.message))
+                        .arg(describeDriverCollection(result.io))
                         .arg(driverForceUnloadStatusText(result.status))
                         .arg(formatHex32(result.flags))
                         .arg(formatHex32(result.cleanupFlagsApplied))
@@ -3414,7 +3414,7 @@ void DriverDock::forceUnloadDriverFromModuleRow(
                             : driverText("driver.operation.module_cleanup.mode.clean", QStringLiteral("清理")))
                         .arg(moduleNameText)
                         .arg(formatCompactAddress(moduleBaseValue))
-                        .arg(friendlyDriverIoMessage(result.io.message))
+                        .arg(describeDriverCollection(result.io))
                         .arg(driverForceUnloadStatusText(result.status))
                         .arg(formatHex32(result.flags))
                         .arg(formatHex32(result.cleanupFlagsApplied))
@@ -3551,7 +3551,7 @@ void DriverDock::applyDriverObjectQueryResult(const ksword::ark::DriverObjectQue
 
     if (m_objectInfoStatusLabel != nullptr)
     {
-        const QString readableIoText = friendlyDriverIoMessage(result.io.message);
+        const QString readableIoText = describeDriverCollection(result.io);
         m_objectInfoStatusLabel->setText(
             driverText("driver.object.status.io", QStringLiteral("状态：%1 | %2"))
             .arg(result.io.ok ? driverObjectQueryStatusText(result.queryStatus) : QStringLiteral("IO failed"))
@@ -3560,7 +3560,7 @@ void DriverDock::applyDriverObjectQueryResult(const ksword::ark::DriverObjectQue
 
     if (m_objectInfoSummaryEdit != nullptr)
     {
-        const QString readableIoText = friendlyDriverIoMessage(result.io.message);
+        const QString readableIoText = describeDriverCollection(result.io);
         QStringList summaryLines;
         summaryLines << QStringLiteral("[DriverObject]");
         summaryLines << driverText("driver.object.summary.io_note", QStringLiteral("IO说明: %1"))

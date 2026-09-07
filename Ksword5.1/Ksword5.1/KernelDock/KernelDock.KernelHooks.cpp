@@ -5,6 +5,8 @@
 #include "../UI/VisibleTableWidget.h"
 
 #include "KernelCleanImageBaseline.h"
+// I-02 / I-03：Inline Hook 的磁盘基线走 shared/evidence 的唯一 PE 归一化核。
+#include "../../../shared/evidence/PeImageMap.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../OnlineScan/SandboxUploadActions.h"
 #include "../UI/CodeEditorWidget.h"
@@ -193,15 +195,41 @@ namespace
         // 返回：结构体只保存数据，不提供成员函数返回值。
         bool available = false;              // available：是否成功读取磁盘基线。
         bool differsFromMemory = false;      // differsFromMemory：磁盘基线是否与内存 currentBytes 不同。
+        // notComparable：PE 映射成功，但该 RVA 跨度没有可用的磁盘参考（零填充、
+        // 区段间隙、畸形区段、未归一化的映像或 PE 动态重定位位点）。
+        // 它与 available=false 的其它情况必须分开：那些是"没能去读"，这个是
+        // "读到了，但这里本来就没有可比的东西" —— 绝不能退化成"一致"（I-05）。
+        bool notComparable = false;
         std::uint32_t byteCount = 0;         // byteCount：实际参与比较的字节数。
         std::uint64_t rva = 0;               // rva：函数入口相对模块基址的 RVA。
         QString filePathText;                // filePathText：R3 实际打开的磁盘文件路径。
         QString statusText;                  // statusText：中文差异状态或失败原因。
-        std::vector<std::uint8_t> bytes;     // bytes：磁盘文件同 RVA 读出的字节。
+        std::vector<std::uint8_t> bytes;     // bytes：磁盘文件同 RVA 读出的归一化字节。
+    };
+
+    struct KernelHookMappedModule
+    {
+        // 输入：磁盘模块路径与该模块的实际加载基址。
+        // 处理：保存一次性构建好的归一化映像，供同一模块的多行 Inline Hook 复用。
+        //       只留映像不留文件字节：映像已含全部有效内容，两份都留会让常驻内存翻倍。
+        // 返回：结构体只保存数据，不提供成员函数返回值。
+        Ksword::Evidence::PeImageMap imageMap;  // imageMap：按 loadedBase 归一化后的映像。
+        std::uint64_t loadedBase = 0;           // loadedBase：构建时使用的加载基址。
+        bool built = false;                     // built：是否已经尝试构建过。
+        QString errorText;                      // errorText：构建失败时的中文原因。
+    };
+
+    enum class KernelHookDiskReadOutcome
+    {
+        Ok,             // 归一化后的磁盘字节可用
+        NotComparable,  // PE 映射成功，但该 RVA 跨度不在可比较范围内
+        Failed,         // 打开文件或解析 PE 失败
     };
 
     using KernelHookModulePathMap = QHash<qulonglong, KernelHookLoadedModuleInfo>;
-    using KernelHookDiskFileCache = QHash<QString, QByteArray>;
+    // 缓存的是归一化后的映像而不是原始文件字节：同一模块的多行 Inline Hook 只需
+    // 构建一次，而按 RVA 取字节必须从归一化映像上取。
+    using KernelHookDiskFileCache = QHash<QString, KernelHookMappedModule>;
 
     struct KernelHookSystemModuleEntry
     {
@@ -476,195 +504,138 @@ namespace
         return QString();
     }
 
-    template <typename PodType>
-    bool kernelHookReadPodAtOffset(const QByteArray& fileBytes, const std::uint64_t fileOffset, PodType* valueOut)
-    {
-        // 输入：文件字节、文件偏移和 POD 输出对象。
-        // 处理：检查偏移范围后用 memcpy 复制，避免对未对齐 PE 结构直接解引用。
-        // 返回：读取成功返回 true；参数无效或越界返回 false。
-        if (valueOut == nullptr)
-        {
-            return false;
-        }
-        if (fileOffset > static_cast<std::uint64_t>(fileBytes.size()) ||
-            sizeof(PodType) > static_cast<std::uint64_t>(fileBytes.size()) - fileOffset)
-        {
-            return false;
-        }
+    // I-02 / I-03：磁盘基线的 PE 映射走 shared/evidence 的唯一归一化核。
+    //
+    // 这里原本有一套自己的 PE 解析（kernelHookReadPodAtOffset /
+    // kernelHookRvaToFileOffset / 旧 kernelHookReadPeBytesAtRva），它按 raw 字节读、
+    // **完全不应用重定位**，所以在任何被重定位改写过的位置上都会假报差异；它同时
+    // 是本仓第三套 PE 解析器，违反 I 模块"不能再引入第二套 PE 解析器"的硬约束。
+    // 整段已删除，改为调用 BuildPeImageMap + ReadNormalizedBytes。
 
-        std::memcpy(
-            valueOut,
-            fileBytes.constData() + static_cast<qsizetype>(fileOffset),
-            sizeof(PodType));
-        return true;
-    }
-
-    bool kernelHookRvaToFileOffset(
-        const QByteArray& fileBytes,
-        const std::uint32_t rva,
-        const std::uint32_t bytesToRead,
-        std::uint64_t* fileOffsetOut,
-        QString* errorTextOut)
-    {
-        // 输入：磁盘 PE 文件字节、目标 RVA 和期望读取长度。
-        // 处理：解析 DOS/NT/Optional Header 与节表，把内存 RVA 映射到文件 raw offset，并校验读取区间。
-        // 返回：映射成功返回 true，同时写出文件偏移；失败返回 false 并填充中文原因。
-        auto fail = [errorTextOut](const QString& messageText) -> bool
-            {
-                if (errorTextOut != nullptr)
-                {
-                    *errorTextOut = messageText;
-                }
-                return false;
-            };
-
-        if (fileOffsetOut == nullptr)
-        {
-            return fail(kernelText("kernel.hooks.pe.error.file_offset_output", QStringLiteral("内部错误：文件偏移输出为空。")));
-        }
-        *fileOffsetOut = 0ULL;
-        if (bytesToRead == 0U)
-        {
-            return fail(kernelText("kernel.hooks.pe.error.zero_read_length", QStringLiteral("读取长度为 0。")));
-        }
-        if (fileBytes.size() < static_cast<qsizetype>(sizeof(IMAGE_DOS_HEADER)))
-        {
-            return fail(kernelText("kernel.hooks.pe.error.file_too_small", QStringLiteral("磁盘文件过小，无法读取 DOS 头。")));
-        }
-
-        IMAGE_DOS_HEADER dosHeader{};
-        if (!kernelHookReadPodAtOffset(fileBytes, 0ULL, &dosHeader) ||
-            dosHeader.e_magic != IMAGE_DOS_SIGNATURE ||
-            dosHeader.e_lfanew < 0)
-        {
-            return fail(kernelText("kernel.hooks.pe.error.invalid_mz_pe", QStringLiteral("磁盘文件不是有效 MZ/PE 文件。")));
-        }
-
-        const std::uint64_t ntHeaderOffset = static_cast<std::uint64_t>(dosHeader.e_lfanew);
-        std::uint32_t peSignature = 0U;
-        if (!kernelHookReadPodAtOffset(fileBytes, ntHeaderOffset, &peSignature) ||
-            peSignature != IMAGE_NT_SIGNATURE)
-        {
-            return fail(kernelText("kernel.hooks.pe.error.invalid_pe_signature", QStringLiteral("磁盘文件 PE 签名无效。")));
-        }
-
-        IMAGE_FILE_HEADER fileHeader{};
-        const std::uint64_t fileHeaderOffset = ntHeaderOffset + sizeof(std::uint32_t);
-        if (!kernelHookReadPodAtOffset(fileBytes, fileHeaderOffset, &fileHeader))
-        {
-            return fail(kernelText("kernel.hooks.pe.error.coff_header", QStringLiteral("读取 COFF 文件头失败。")));
-        }
-        if (fileHeader.NumberOfSections == 0U || fileHeader.NumberOfSections > 96U)
-        {
-            return fail(kernelText("kernel.hooks.pe.error.section_count", QStringLiteral("PE 区段数量异常：%1。")).arg(fileHeader.NumberOfSections));
-        }
-
-        const std::uint64_t optionalHeaderOffset = fileHeaderOffset + sizeof(IMAGE_FILE_HEADER);
-        std::uint16_t optionalMagic = 0U;
-        if (!kernelHookReadPodAtOffset(fileBytes, optionalHeaderOffset, &optionalMagic))
-        {
-            return fail(kernelText("kernel.hooks.pe.error.optional_magic_read", QStringLiteral("读取 Optional Header 魔数失败。")));
-        }
-
-        std::uint32_t sizeOfHeaders = 0U;
-        if (optionalMagic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
-        {
-            IMAGE_OPTIONAL_HEADER64 optionalHeader{};
-            if (!kernelHookReadPodAtOffset(fileBytes, optionalHeaderOffset, &optionalHeader))
-            {
-                return fail(kernelText("kernel.hooks.pe.error.optional_header_64", QStringLiteral("读取 PE32+ Optional Header 失败。")));
-            }
-            sizeOfHeaders = optionalHeader.SizeOfHeaders;
-        }
-        else if (optionalMagic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
-        {
-            IMAGE_OPTIONAL_HEADER32 optionalHeader{};
-            if (!kernelHookReadPodAtOffset(fileBytes, optionalHeaderOffset, &optionalHeader))
-            {
-                return fail(kernelText("kernel.hooks.pe.error.optional_header_32", QStringLiteral("读取 PE32 Optional Header 失败。")));
-            }
-            sizeOfHeaders = optionalHeader.SizeOfHeaders;
-        }
-        else
-        {
-            return fail(kernelText("kernel.hooks.pe.error.unknown_optional_magic", QStringLiteral("未知 Optional Header 魔数：0x%1。"))
-                .arg(optionalMagic, 4, 16, QChar('0')).toUpper());
-        }
-
-        if (rva < sizeOfHeaders)
-        {
-            const std::uint64_t headerOffset = static_cast<std::uint64_t>(rva);
-            if (headerOffset <= static_cast<std::uint64_t>(fileBytes.size()) &&
-                bytesToRead <= static_cast<std::uint64_t>(fileBytes.size()) - headerOffset)
-            {
-                *fileOffsetOut = headerOffset;
-                return true;
-            }
-            return fail(kernelText("kernel.hooks.pe.error.header_range", QStringLiteral("RVA 位于 PE 头部，但读取范围超出磁盘文件。")));
-        }
-
-        const std::uint64_t sectionTableOffset = optionalHeaderOffset + fileHeader.SizeOfOptionalHeader;
-        for (std::uint16_t sectionIndex = 0U; sectionIndex < fileHeader.NumberOfSections; ++sectionIndex)
-        {
-            IMAGE_SECTION_HEADER sectionHeader{};
-            const std::uint64_t currentSectionOffset =
-                sectionTableOffset + (static_cast<std::uint64_t>(sectionIndex) * sizeof(IMAGE_SECTION_HEADER));
-            if (!kernelHookReadPodAtOffset(fileBytes, currentSectionOffset, &sectionHeader))
-            {
-                return fail(kernelText("kernel.hooks.pe.error.section_table", QStringLiteral("读取 PE 区段表失败，索引=%1。")).arg(sectionIndex));
-            }
-
-            const std::uint32_t virtualAddress = sectionHeader.VirtualAddress;
-            const std::uint32_t virtualSize = sectionHeader.Misc.VirtualSize;
-            const std::uint32_t rawSize = sectionHeader.SizeOfRawData;
-            const std::uint32_t mappedSize = std::max(virtualSize, rawSize);
-            const std::uint64_t sectionStart = static_cast<std::uint64_t>(virtualAddress);
-            const std::uint64_t sectionEnd = sectionStart + static_cast<std::uint64_t>(mappedSize);
-            const std::uint64_t targetRva = static_cast<std::uint64_t>(rva);
-            if (mappedSize == 0U || targetRva < sectionStart || targetRva >= sectionEnd)
-            {
-                continue;
-            }
-
-            const std::uint32_t delta = rva - virtualAddress;
-            if (delta >= rawSize || bytesToRead > rawSize - delta)
-            {
-                return fail(kernelText("kernel.hooks.pe.error.raw_data_short", QStringLiteral("RVA 落在区段虚拟范围内，但磁盘 raw 数据不足。")));
-            }
-
-            const std::uint64_t rawOffset =
-                static_cast<std::uint64_t>(sectionHeader.PointerToRawData) + static_cast<std::uint64_t>(delta);
-            if (rawOffset > static_cast<std::uint64_t>(fileBytes.size()) ||
-                bytesToRead > static_cast<std::uint64_t>(fileBytes.size()) - rawOffset)
-            {
-                return fail(kernelText("kernel.hooks.pe.error.file_offset_range", QStringLiteral("映射到的磁盘偏移超出文件大小。")));
-            }
-
-            *fileOffsetOut = rawOffset;
-            return true;
-        }
-
-        return fail(kernelText("kernel.hooks.pe.error.section_not_found", QStringLiteral("未找到覆盖目标 RVA 的 PE 区段。")));
-    }
-
-    bool kernelHookReadPeBytesAtRva(
+    // 构建某个模块按实际加载基址归一化后的映像。
+    // 输入：磁盘 PE 路径与模块实际加载基址。
+    // 处理：整读文件后交给唯一 PE 归一化核 —— 它按实际基址应用 .reloc、解析 DVRT，
+    //       并把零填充、区段间隙、畸形区段、动态重定位位点排除出可比较范围。
+    // 返回：无返回值；失败时只写 errorText，imageMap 保持无效状态。
+    void kernelHookBuildNormalizedImage(
         const QString& filePath,
+        const std::uint64_t loadedBase,
+        KernelHookMappedModule* moduleOut)
+    {
+        if (moduleOut == nullptr)
+        {
+            return;
+        }
+        moduleOut->loadedBase = loadedBase;
+        moduleOut->built = true;
+        moduleOut->errorText.clear();
+        moduleOut->imageMap = Ksword::Evidence::PeImageMap{};
+
+        QFile fileObject(filePath);
+        if (!fileObject.open(QIODevice::ReadOnly))
+        {
+            moduleOut->errorText = kernelText("kernel.hooks.pe.error.open_module", QStringLiteral("打开磁盘模块文件失败：%1。"))
+                .arg(fileObject.errorString());
+            return;
+        }
+
+        const QByteArray fileBytes = fileObject.readAll();
+        if (fileBytes.isEmpty())
+        {
+            moduleOut->errorText = kernelText("kernel.hooks.pe.error.module_empty", QStringLiteral("磁盘模块文件为空或读取失败。"));
+            return;
+        }
+
+        moduleOut->imageMap = Ksword::Evidence::BuildPeImageMap(
+            reinterpret_cast<const std::uint8_t*>(fileBytes.constData()),
+            static_cast<std::size_t>(fileBytes.size()),
+            loadedBase);
+        if (!moduleOut->imageMap.valid())
+        {
+            // 状态名是稳定的英文枚举名，不是给用户读的句子；它对定位问题足够，
+            // 又不会因为翻译缺失而丢掉"到底哪一步失败了"。
+            moduleOut->errorText = kernelText("kernel.hooks.pe.error.map_failed", QStringLiteral("PE 映像映射失败：%1。"))
+                .arg(QString::fromLatin1(Ksword::Evidence::PeParseStatusName(moduleOut->imageMap.status)));
+        }
+    }
+
+    // 说明"这一段为什么没有磁盘参考"。
+    // 输入：归一化映像、目标 RVA 与读取长度。
+    // 处理：从最能解释问题的原因往下找，整份映像级的原因优先于单点原因。
+    // 返回：中文原因文本。
+    QString kernelHookDescribeNotComparable(
+        const Ksword::Evidence::PeImageMap& imageMap,
+        const std::uint32_t rva,
+        const std::uint32_t bytesToRead)
+    {
+        if (imageMap.relocation.imageNotNormalized)
+        {
+            return kernelText("kernel.hooks.pe.not_comparable.relocation",
+                QStringLiteral("模块基址已变化但重定位无法归一化（%1），整份映像都没有可用的磁盘参考。"))
+                .arg(QString::fromLatin1(
+                    Ksword::Evidence::RelocationStatusName(imageMap.relocation.status)));
+        }
+        if (imageMap.dynamicRelocation.extentUnknown)
+        {
+            return kernelText("kernel.hooks.pe.not_comparable.dvrt_extent",
+                QStringLiteral("PE 动态重定位表无法界定影响范围（%1），整份映像都没有可用的磁盘参考。"))
+                .arg(QString::fromLatin1(
+                    Ksword::Evidence::DvrtStatusName(imageMap.dynamicRelocation.status)));
+        }
+
+        Ksword::Evidence::RvaRange span;
+        span.rva = rva;
+        span.length = bytesToRead;
+        const std::vector<Ksword::Evidence::RvaRange> dynamicRanges =
+            imageMap.dynamicRelocation.affectedRanges();
+        for (const Ksword::Evidence::RvaRange& range : dynamicRanges)
+        {
+            if (range.overlaps(span))
+            {
+                return kernelText("kernel.hooks.pe.not_comparable.dvrt_site",
+                    QStringLiteral("该范围含 PE 动态重定位位点（import optimization / retpoline），由加载器在启动期写入，磁盘文件里不存在改写后的字节。"));
+            }
+        }
+
+        const Ksword::Evidence::RvaTranslation translation =
+            Ksword::Evidence::TranslateRva(imageMap, rva);
+        switch (translation.kind)
+        {
+        case Ksword::Evidence::RvaKind::OutsideImage:
+            return kernelText("kernel.hooks.pe.not_comparable.outside_image", QStringLiteral("目标 RVA 超出映像范围。"));
+        case Ksword::Evidence::RvaKind::SectionZeroFill:
+            return kernelText("kernel.hooks.pe.not_comparable.zero_fill", QStringLiteral("目标落在区段零填充区：映像里是 0，磁盘文件里没有对应字节。"));
+        case Ksword::Evidence::RvaKind::SectionGap:
+            return kernelText("kernel.hooks.pe.not_comparable.section_gap", QStringLiteral("目标落在区段对齐间隙：不属于任何区段，磁盘文件里没有对应字节。"));
+        case Ksword::Evidence::RvaKind::NotComparable:
+            return kernelText("kernel.hooks.pe.not_comparable.bad_section", QStringLiteral("目标所在区段头畸形，已被标记为不可比较。"));
+        case Ksword::Evidence::RvaKind::Header:
+        case Ksword::Evidence::RvaKind::SectionRawBacked:
+            break;
+        }
+        return kernelText("kernel.hooks.pe.not_comparable.span", QStringLiteral("读取跨度未完整落在可比较范围内，可能跨越了区段或零填充边界。"));
+    }
+
+    KernelHookDiskReadOutcome kernelHookReadPeBytesAtRva(
+        const QString& filePath,
+        const std::uint64_t loadedBase,
         const std::uint32_t rva,
         const std::uint32_t bytesToRead,
         KernelHookDiskFileCache* fileCache,
         std::vector<std::uint8_t>* bytesOut,
         QString* errorTextOut)
     {
-        // 输入：磁盘 PE 路径、目标 RVA 和读取长度。
-        // 处理：读取或复用线程内缓存的文件字节，把 RVA 转换为 raw offset，再复制指定长度的磁盘字节。
-        // 返回：成功返回 true 并填充 bytesOut；失败返回 false 并填充中文错误。
-        auto fail = [errorTextOut](const QString& messageText) -> bool
+        // 输入：磁盘 PE 路径、模块实际加载基址、目标 RVA 和读取长度。
+        // 处理：构建（或复用缓存的）归一化映像，再要求整段落在可比较范围内后取字节。
+        // 返回：Ok 并填充 bytesOut；NotComparable 表示该处本来就没有可比的磁盘字节；
+        //       Failed 表示打开或解析失败。后两种都会填充中文原因。
+        auto fail = [errorTextOut](const QString& messageText) -> KernelHookDiskReadOutcome
             {
                 if (errorTextOut != nullptr)
                 {
                     *errorTextOut = messageText;
                 }
-                return false;
+                return KernelHookDiskReadOutcome::Failed;
             };
 
         if (bytesOut == nullptr)
@@ -673,64 +644,51 @@ namespace
         }
         bytesOut->clear();
 
-        QByteArray localFileBytes;
-        const QByteArray* fileBytes = nullptr;
+        KernelHookMappedModule localModule;
+        const KernelHookMappedModule* mappedModule = nullptr;
         if (fileCache != nullptr)
         {
-            auto cacheIterator = fileCache->constFind(filePath);
-            if (cacheIterator == fileCache->constEnd())
+            // operator[] 在缺失时原地默认构造，映像因此不用被拷贝一次。
+            KernelHookMappedModule& slot = (*fileCache)[filePath];
+            // 一次扫描里同一路径只会有一个加载基址；基址变了必须重建，否则拿上一个
+            // 基址归一化出来的字节去比，会在每个重定位点上假报差异。
+            if (!slot.built || slot.loadedBase != loadedBase)
             {
-                QFile fileObject(filePath);
-                if (!fileObject.open(QIODevice::ReadOnly))
-                {
-                    return fail(kernelText("kernel.hooks.pe.error.open_module", QStringLiteral("打开磁盘模块文件失败：%1。")).arg(fileObject.errorString()));
-                }
-
-                localFileBytes = fileObject.readAll();
-                if (localFileBytes.isEmpty())
-                {
-                    return fail(kernelText("kernel.hooks.pe.error.module_empty", QStringLiteral("磁盘模块文件为空或读取失败。")));
-                }
-
-                fileCache->insert(filePath, localFileBytes);
-                cacheIterator = fileCache->constFind(filePath);
+                kernelHookBuildNormalizedImage(filePath, loadedBase, &slot);
             }
-
-            if (cacheIterator != fileCache->constEnd())
-            {
-                fileBytes = &cacheIterator.value();
-            }
+            mappedModule = &slot;
         }
         else
         {
-            QFile fileObject(filePath);
-            if (!fileObject.open(QIODevice::ReadOnly))
+            kernelHookBuildNormalizedImage(filePath, loadedBase, &localModule);
+            mappedModule = &localModule;
+        }
+
+        if (!mappedModule->errorText.isEmpty())
+        {
+            return fail(mappedModule->errorText);
+        }
+        if (!mappedModule->imageMap.valid())
+        {
+            return fail(kernelText("kernel.hooks.pe.error.map_unavailable", QStringLiteral("PE 映像映射不可用。")));
+        }
+
+        if (!Ksword::Evidence::ReadNormalizedBytes(
+                mappedModule->imageMap, rva, bytesToRead, *bytesOut))
+        {
+            // 这里**不是**"没有差异"。落在零填充区、区段间隙、畸形区段、未归一化
+            // 映像或动态重定位位点上时，磁盘根本没有对应字节。旧实现在这些位置上
+            // 直接拿未归一化的 raw 字节去比（因而假报差异），或者抛一句和真实读取
+            // 失败无法区分的"raw 数据不足"。现在两者分开：这是"不可比较"。
+            bytesOut->clear();
+            if (errorTextOut != nullptr)
             {
-                return fail(kernelText("kernel.hooks.pe.error.open_module", QStringLiteral("打开磁盘模块文件失败：%1。")).arg(fileObject.errorString()));
+                *errorTextOut = kernelHookDescribeNotComparable(
+                    mappedModule->imageMap, rva, bytesToRead);
             }
-
-            localFileBytes = fileObject.readAll();
-            fileBytes = &localFileBytes;
+            return KernelHookDiskReadOutcome::NotComparable;
         }
-
-        if (fileBytes == nullptr || fileBytes->isEmpty())
-        {
-            return fail(kernelText("kernel.hooks.pe.error.module_empty", QStringLiteral("磁盘模块文件为空或读取失败。")));
-        }
-
-        std::uint64_t fileOffset = 0ULL;
-        QString mapErrorText;
-        if (!kernelHookRvaToFileOffset(*fileBytes, rva, bytesToRead, &fileOffset, &mapErrorText))
-        {
-            return fail(mapErrorText);
-        }
-
-        bytesOut->resize(bytesToRead);
-        std::memcpy(
-            bytesOut->data(),
-            fileBytes->constData() + static_cast<qsizetype>(fileOffset),
-            bytesToRead);
-        return true;
+        return KernelHookDiskReadOutcome::Ok;
     }
 
     KernelHookDiskBaselineResult kernelHookReadDiskBaselineForInlineHook(
@@ -792,13 +750,25 @@ namespace
         }
 
         QString readErrorText;
-        if (!kernelHookReadPeBytesAtRva(
+        // 用**实际加载基址**建映像：重定位因此被正确归一化，磁盘基线与内存字节
+        // 在同一个基址口径上，被重定位改写过的位置不再假报差异（I-03）。
+        const KernelHookDiskReadOutcome readOutcome = kernelHookReadPeBytesAtRva(
             baselineResult.filePathText,
+            row.moduleBase,
             static_cast<std::uint32_t>(rva64),
             baselineResult.byteCount,
             fileCache,
             &baselineResult.bytes,
-            &readErrorText))
+            &readErrorText);
+        if (readOutcome == KernelHookDiskReadOutcome::NotComparable)
+        {
+            // I-05：读不到就是缺失。这里绝不能退回"用一片 0 去比"或"当作一致"，
+            // 那正是旧实现的错误 —— 它会把加载器写入的字节报成 Hook。
+            baselineResult.notComparable = true;
+            baselineResult.statusText = kernelText("kernel.hooks.baseline.not_comparable", QStringLiteral("不可比较：%1")).arg(readErrorText);
+            return baselineResult;
+        }
+        if (readOutcome != KernelHookDiskReadOutcome::Ok)
         {
             baselineResult.statusText = kernelText("kernel.hooks.baseline.read_failed", QStringLiteral("不可用：%1")).arg(readErrorText);
             return baselineResult;
@@ -1415,6 +1385,10 @@ namespace
             ? kernelHookFormatAddress(row.functionAddress - row.moduleBase)
             : kernelText("kernel.hooks.placeholder.not_resolved", QStringLiteral("<未解析>"));
 
+        // kernel.hooks.inline.detail 的正文里有一句"磁盘基线是文件同 RVA 的 raw
+        // 字节，未应用重定位"——那是旧读取路径的描述，现在已经不成立。该词条的
+        // 译文由 languages/*.json 承载，本轮不改它，改用一段独立的补充说明纠正，
+        // 避免同一个词条在中英两侧说法不一致。
         return kernelText("kernel.hooks.inline.detail", QStringLiteral(
             "Inline Hook 检测详情\n"
             "模块: %1\n"
@@ -1436,7 +1410,10 @@ namespace
             "说明: 当前协议字段 expectedBytes 在 R0 中来自内存观察，通常是 currentBytes 的同源快照，不代表磁盘原始字节。"
             "本页额外由 R3 按模块基址和 RVA 从磁盘模块文件读取基线字节并与当前内存字节比较；"
             "如果磁盘基线不可用，请只把 R0 观察基线当作诊断快照，不要把它理解为干净基线。"
-            "磁盘基线是文件同 RVA 的 raw 字节，未应用重定位、热补丁或厂商运行时改写校正，差异仍需结合 Hook 类型和目标地址判断。"
+            "磁盘基线由统一 PE 映射核按模块的实际加载基址归一化，已应用 .reloc 基址重定位；"
+            "落在零填充区、区段对齐间隙、畸形区段或 PE 动态重定位位点（import optimization / retpoline，由加载器在启动期写入）"
+            "上的 RVA 会被单独标为\"不可比较\"，而不是拿磁盘原值硬比 —— 那样会把加载器写入的字节报成 Hook。"
+            "热补丁与厂商运行时改写仍未校正，差异仍需结合 Hook 类型和目标地址判断。"
             "摘除操作保持原有 NOP 流程，不新增自动修复能力。"))
             .arg(kernelHookSafeText(row.moduleNameText))
             .arg(kernelHookSafeText(row.functionNameText))
@@ -1456,7 +1433,8 @@ namespace
             .arg(row.diskBaselineStatusText)
             .arg(diskPathText)
             .arg(rvaText)
-            .arg(static_cast<qulonglong>(row.flags), 8, 16, QChar('0'));
+            .arg(static_cast<qulonglong>(row.flags), 8, 16, QChar('0'))
+            ;
     }
 
     void applyDiskBaselineToInlineHookEntry(
@@ -1484,9 +1462,13 @@ namespace
             ? kernelText("kernel.hooks.placeholder.unavailable", QStringLiteral("<不可用>"))
             : QDir::toNativeSeparators(baselineResult.filePathText);
         row->diskBytes = baselineResult.bytes;
+        // "不可比较"与"不可用"必须分开显示：前者说明该处磁盘上本来就没有可比字节，
+        // 后者说明我们没能去读。混成一个占位符会让用户以为是同一回事（I-05）。
         row->diskBytesText = row->diskBaselineAvailable
             ? kernelHookBytesToText(row->diskBytes, baselineResult.byteCount)
-            : kernelText("kernel.hooks.placeholder.unavailable", QStringLiteral("<不可用>"));
+            : (baselineResult.notComparable
+                ? kernelText("kernel.hooks.placeholder.not_comparable", QStringLiteral("<不可比较>"))
+                : kernelText("kernel.hooks.placeholder.unavailable", QStringLiteral("<不可用>")));
         row->detailText = buildInlineHookDetailText(*row);
     }
 

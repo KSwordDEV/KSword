@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
   <ItemGroup>
     <Filter Include="Source Files">
@@ -291,6 +291,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="KernelDock\KernelHvmTab.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="KvmDock\KvmDock.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="KernelDock\KernelSlatIommuAuditTab.cpp">
@@ -850,6 +853,30 @@
     <ClCompile Include="UI\GlobalUiSearch.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UI\DockTabInteraction.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\FlowLayout.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\HookPatchCompose.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\KvmEptLeafProbe.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\KvmWriteAccessGate.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\KvmHookWizard.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\KvmHookWizard.Patch.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\KvmHookWizard.Verify.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="UI\KvmControl.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1077,6 +1104,33 @@
     </ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverError.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\EvidenceEnvelope.cpp">
+      <Filter>Source Files\SharedEvidence</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\EvidenceJson.cpp">
+      <Filter>Source Files\SharedEvidence</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\LiveNavigation.cpp">
+      <Filter>Source Files\SharedEvidence</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\LosslessValue.cpp">
+      <Filter>Source Files\SharedEvidence</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\ObjectIdentity.cpp">
+      <Filter>Source Files\SharedEvidence</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\ScanBudget.cpp">
+      <Filter>Source Files\SharedEvidence</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\CrossViewDiff.cpp">
+      <Filter>Source Files\SharedEvidence</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\PeImageMap.cpp">
+      <Filter>Source Files\SharedEvidence</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\ImageDiff.cpp">
+      <Filter>Source Files\SharedEvidence</Filter>
     </ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverCapability.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
@@ -1488,6 +1542,27 @@
     <ClInclude Include="UI\HexEditorWidget.Internal.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="UI\DockTabInteraction.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\FlowLayout.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\HookPatchCompose.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\KvmEptLeafProbe.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\KvmWriteAccessGate.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\KvmHookPlan.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\KvmHookWizard.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="UI\KvmControl.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1550,6 +1625,36 @@
     </ClInclude>
     <ClInclude Include="ArkDriverClient\ArkDriverError.h">
       <Filter>Header Files\ArkDriverClient</Filter>
+    </ClInclude>
+    <ClInclude Include="ArkDriverClient\ArkDriverEvidence.h">
+      <Filter>Header Files\ArkDriverClient</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\EvidenceEnvelope.h">
+      <Filter>Header Files\SharedEvidence</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\EvidenceJson.h">
+      <Filter>Header Files\SharedEvidence</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\LiveNavigation.h">
+      <Filter>Header Files\SharedEvidence</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\LosslessValue.h">
+      <Filter>Header Files\SharedEvidence</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ObjectIdentity.h">
+      <Filter>Header Files\SharedEvidence</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ScanBudget.h">
+      <Filter>Header Files\SharedEvidence</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\CrossViewDiff.h">
+      <Filter>Header Files\SharedEvidence</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\PeImageMap.h">
+      <Filter>Header Files\SharedEvidence</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ImageDiff.h">
+      <Filter>Header Files\SharedEvidence</Filter>
     </ClInclude>
     <ClInclude Include="..\..\shared\crash\WinCrashHandler.h">
       <Filter>Header Files</Filter>
@@ -1650,6 +1755,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="KernelDock\KernelHvmTab.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="KvmDock\KvmDock.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="KernelDock\KernelSlatIommuAuditTab.h">

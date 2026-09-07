@@ -152,7 +152,7 @@ void DriverDock::controlDriverCommunication(
                             .arg(formatCompactAddress(moduleBaseValue))
                             .arg(driverCommunicationActionText(result.action))
                             .arg(driverCommunicationStateText(result.state))
-                            .arg(friendlyDriverIoMessage(result.io.message))
+                            .arg(describeDriverCollection(result.io))
                             .arg(lastStatusText)
                             .arg(formatHex32(result.targetedMask))
                             .arg(formatHex32(result.changedMask))

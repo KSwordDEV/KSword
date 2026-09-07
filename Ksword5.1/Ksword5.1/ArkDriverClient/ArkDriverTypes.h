@@ -1538,6 +1538,21 @@ namespace ksword::ark
         KSWORD_ARK_HVM_MEMORY_RESPONSE response{};
     };
 
+    // HvmPlatformResult carries one read-only platform calibration.
+    //
+    // 这个探针**不进 VMX、不分配、不加锁**，所以它可以在任何状态下跑，
+    // 包括「什么都还没准备」和「常驻正在跑」。
+    //
+    // 判读时必须先看 response.validMask：每个字段一个独立 valid 位，
+    // 因为 0 是其中很多量的**合法值**，把一次读失败当成 0 用出去比读不到更糟。
+    // 八位不全就是「这一轮没标定完」，不能拿它下结论。
+    struct HvmPlatformResult
+    {
+        IoResult io;
+        bool unsupported = false;
+        KSWORD_ARK_HVM_PLATFORM_RESPONSE response{};
+    };
+
     // Read-only EPT/NPT cross-view and IOMMU firmware/runtime evidence.
     // A clean guest-visible result cannot prove an opaque outer SLAT is clean.
     struct SlatIommuAuditResult

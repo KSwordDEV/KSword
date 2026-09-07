@@ -92,8 +92,10 @@
 #include "KernelDock/KernelDock.CallbackPromptManager.h"
 #include "PluginHost.h"
 #include "Internationalization/LanguageManager.h"
+#include "Framework/DestructiveActionConfirmation.h"
 #include "UI/CodeEditorWidget.h"
 #include "UI/DetailLayoutRegistry.h"
+#include "UI/DockTabInteraction.h"
 #include "UI/GlobalDialogTheme.h"
 #include "UI/GlobalUiBaseStyle.h"
 #include "UI/GlobalUiSearch.h"
@@ -144,7 +146,9 @@ namespace
     // kDockLayoutConfigFileVersion 作用：
     // - 作为 ADS saveState/restoreState 的版本号；
     // - Dock 集合或默认布局发生不兼容变化时递增，可自动放弃旧布局。
-    constexpr int kDockLayoutConfigFileVersion = 6;
+    // 7：新增顶层「虚拟化 (KVM)」Dock。旧布局里没有 ksDock_kvm，ADS 恢复后
+    // 这一页不会出现在任何 Dock 区，用户看不到新页也没有任何提示。
+    constexpr int kDockLayoutConfigFileVersion = 7;
 
     // kDockLayoutConfigFileName 作用：
     // - 定义用户拖拽后的 ADS 布局配置文件名；
@@ -5135,7 +5139,14 @@ MainWindow::MainWindow(
     ads::CDockManager::setConfigFlag(ads::CDockManager::AllTabsHaveCloseButton, false);
     ads::CDockManager::setConfigFlag(ads::CDockManager::DockAreaHasCloseButton, false);
     ads::CDockManager::setConfigFlag(ads::CDockManager::DockAreaHasUndockButton, false);
-    ads::CDockManager::setConfigFlag(ads::CDockManager::DockAreaHasTabsMenuButton, false);
+    // TabsMenuButton 从隐藏改回显示。
+    //
+    // 它是 ADS 在标签溢出时的**标准可达入口**：一个下拉列出该区域全部标签。
+    // 原先为了外观统一把它和关闭/浮动按钮一起关掉了，但那三个是"少一个也能用"，
+    // 这一个不是 —— 标签一多，被挤出可视区的页就只剩滚轮一条路，而滚轮在这个
+    // 版本的 ADS 上实测无效（另见 installDockTabWheelScrolling，那是补滚轮的）。
+    // 结果是拿可达性换了外观，用户真的撞上了"有一个页再也点不到"。
+    ads::CDockManager::setConfigFlag(ads::CDockManager::DockAreaHasTabsMenuButton, true);
     // 自定义 ADS 标签工厂必须早于 CDockManager/DockWidget 创建；
     // 否则默认 CDockWidgetTab 已经实例化，后续再换工厂无法修复当前标签的 hover 白底。
     ensureKswordAdsDockComponentsFactoryInstalled();
@@ -5222,6 +5233,14 @@ MainWindow::MainWindow(
         QStringLiteral("main.startup.progress.dock_layout"),
         QStringLiteral("正在恢复界面布局..."));
     setupDockLayout();
+
+    // 给顶部停靠标签补上横向滚轮滚动。
+    //
+    // 必须放在布局建立**之后**：此刻已有的标签栏要立刻装上过滤器，而之后由
+    // 浮动、restoreState、新建 Dock 造出来的标签栏由函数内部订阅的
+    // dockAreaCreated 接住 —— 只在启动时扫一遍的话，用户拖出一个浮动窗口
+    // 就又滚不动了。
+    ks::ui::installDockTabWheelScrolling(m_pDockManager);
 
     // 初始化外观设置：
     // - 读取 JSON；
@@ -6738,6 +6757,7 @@ QList<ads::CDockWidget*> MainWindow::collectSearchableDockWidgets() const
         m_dockFile,
         m_dockDriver,
         m_dockKernel,
+        m_dockKvm,
         m_dockMonitorTab,
         m_dockHardware,
         m_dockPrivilege,
@@ -7358,6 +7378,53 @@ void MainWindow::initializeWindowDockMenuActions()
         QStringLiteral("menu.log"),
         QStringLiteral("日志输出窗口"));
     connect(logOutputAction, &QAction::triggered, this, &MainWindow::toggleLogOutputWindow);
+
+    m_windowMenu->addSeparator();
+
+    // 「重置停靠布局」放在这里，是因为在此之前用户**没有任何办法**回到默认排列。
+    // 顶部标签可以随手拖乱，而布局被持久化到 exe 目录下的 config/ 里，
+    // 唯一的出路是自己去找到并删掉那个 .bin —— 那不是一个可以要求用户知道的事。
+    QAction* const resetLayoutAction = m_windowMenu->addAction(
+        ks::i18n::sourceText(QStringLiteral("重置停靠布局")));
+    resetLayoutAction->setToolTip(
+        ks::i18n::sourceText(QStringLiteral("丢弃自己排的标签顺序与浮动窗口位置，下次启动回到默认布局。")));
+    connect(resetLayoutAction, &QAction::triggered, this, &MainWindow::resetDockLayoutToDefault);
+}
+
+void MainWindow::resetDockLayoutToDefault()
+{
+    const bool confirmed = ks::ui::confirmDestructiveAction(
+        this,
+        QStringLiteral("ResetDockLayout"),
+        ks::i18n::sourceText(QStringLiteral("重置停靠布局")),
+        ks::i18n::sourceText(QStringLiteral("当前窗口布局")),
+        ks::i18n::sourceText(QStringLiteral("你自己排的标签顺序、浮动出去的窗口位置与各面板宽高都会丢掉，回到出厂默认排列。已打开的页面内容不受影响。")));
+    if (!confirmed)
+    {
+        return;
+    }
+
+    const QString layoutConfigPath = resolveDockLayoutConfigPath();
+    const bool discarded = ks::ui::discardSavedDockLayout(layoutConfigPath);
+
+    // 关键一步：把"已从配置恢复"这个标记清掉。
+    //
+    // 退出时的 saveDockLayoutToConfig 会把**当前**布局写回去，而当前布局就是
+    // 用户刚要丢弃的那一份 —— 不清这个标记、不阻断那次保存，文件删了也会在
+    // 关闭应用的瞬间原样长回来，用户看到的是"点了没用"。
+    m_dockLayoutRestoredFromConfig = false;
+    m_suppressDockLayoutSave = true;
+
+    QMessageBox::information(
+        this,
+        ks::i18n::sourceText(QStringLiteral("重置停靠布局")),
+        discarded
+            // 说明白需要重启，而不是让用户以为点完就好了。
+            // ADS 没有"就地恢复出厂布局"的接口：默认排列是启动期一连串
+            // addDockWidgetTabToArea 调用堆出来的，重放它们要先拆掉当前全部
+            // Dock Area，那条路上任何一步失败都会留下一个比现在更糟的中间态。
+            ? ks::i18n::sourceText(QStringLiteral("已丢弃保存的布局。请重启 KSword，重启后会回到默认排列。本次退出不会再写回当前布局。"))
+            : ks::i18n::sourceText(QStringLiteral("删除保存的布局文件失败，可能是文件被占用或没有写权限。可以手动删除 exe 目录下 config 里的布局文件。")));
 }
 
 QString MainWindow::buildTitleActionButtonStyle() const
@@ -9939,6 +10006,11 @@ void MainWindow::ensureDockContentInitialized(ads::CDockWidget* dockWidget)
         }
         realWidget = m_kernelWidget;
     }
+    else if (dockKey == QStringLiteral("kvm"))
+    {
+        if (m_kvmWidget == nullptr) { m_kvmWidget = createKvmDockContent(); }
+        realWidget = m_kvmWidget;
+    }
     else if (dockKey == QStringLiteral("monitor"))
     {
         if (m_monitorWidget == nullptr) { m_monitorWidget = new MonitorDock(this); }
@@ -10025,8 +10097,11 @@ void MainWindow::ensureDockContentInitialized(ads::CDockWidget* dockWidget)
                 "}"));
     }
 
+    // KVM 页与内核页同理：内部是分隔条 + 表格 + 详情，外面再套一层 QScrollArea
+    // 会把分隔条压到最小高度。
     const bool shouldSuppressOuterScrollArea =
-        isNetworkDock || (dockKey == QStringLiteral("hardware")) || isKernelDock;
+        isNetworkDock || (dockKey == QStringLiteral("hardware")) || isKernelDock ||
+        (dockKey == QStringLiteral("kvm"));
     if (isNetworkDock)
     {
         // 网络页额外要求：
@@ -10199,6 +10274,14 @@ bool MainWindow::saveDockLayoutToConfig() const
     {
         return false;
     }
+    // 用户刚点过「重置停靠布局」：这一次退出**不许**把当前布局写回去。
+    //
+    // 少了这道闸，删掉的文件会在关闭应用的瞬间原样长回来，而用户看到的是
+    // "点了没用"——这正是这个项目最忌讳的那种失败：动作报了成功，效果没有。
+    if (m_suppressDockLayoutSave)
+    {
+        return true;
+    }
 
     const QString layoutConfigPath = resolveDockLayoutConfigPath();
     const QFileInfo layoutFileInfo(layoutConfigPath);
@@ -10286,6 +10369,7 @@ void MainWindow::ensureVisibleLazyDocksInitialized(const QString& reasonText)
         m_dockFile,
         m_dockDriver,
         m_dockKernel,
+        m_dockKvm,
         m_dockMonitorTab,
         m_dockHardware,
         m_dockPrivilege,
@@ -10498,6 +10582,7 @@ void MainWindow::initDockWidgets()
             m_kernelWidget->kswordSelfDriverPage(),
             m_kernelWidget);
     }
+    if (shouldEagerLoad(QStringLiteral("kvm"))) { m_kvmWidget = createKvmDockContent(); }
     if (shouldEagerLoad(QStringLiteral("monitor"))) { m_monitorWidget = new MonitorDock(this); }
     if (shouldEagerLoad(QStringLiteral("hardware"))) { m_hardwareWidget = new HardwareDock(this); }
     if (shouldEagerLoad(QStringLiteral("privilege"))) { m_privilegeWidget = new PrivilegeDock(this); }
@@ -10600,7 +10685,8 @@ void MainWindow::initDockWidgets()
             const bool isNetworkDock = (dockKey == QStringLiteral("network"));
             const bool isKernelDock = (dockKey == QStringLiteral("kernel"));
             const bool shouldSuppressOuterScrollArea =
-                isNetworkDock || (dockKey == QStringLiteral("hardware")) || isKernelDock;
+                isNetworkDock || (dockKey == QStringLiteral("hardware")) || isKernelDock ||
+                (dockKey == QStringLiteral("kvm"));
             QWidget* dockContentWidget = eagerWidget;
             if (dockContentWidget == nullptr)
             {
@@ -10659,6 +10745,7 @@ void MainWindow::initDockWidgets()
     createLazyDockWidget(m_dockFile, m_fileWidget, ks::i18n::text(QStringLiteral("dock.file"), QStringLiteral("文件")), QStringLiteral("file"));
     createLazyDockWidget(m_dockDriver, m_driverWidget, ks::i18n::text(QStringLiteral("dock.driver"), QStringLiteral("驱动")), QStringLiteral("driver"));
     createLazyDockWidget(m_dockKernel, m_kernelWidget, ks::i18n::text(QStringLiteral("dock.kernel"), QStringLiteral("内核")), QStringLiteral("kernel"));
+    createLazyDockWidget(m_dockKvm, m_kvmWidget, ks::i18n::text(QStringLiteral("dock.kvm"), QStringLiteral("虚拟化 (KVM)")), QStringLiteral("kvm"));
     createLazyDockWidget(m_dockMonitorTab, m_monitorWidget, ks::i18n::text(QStringLiteral("dock.monitor"), QStringLiteral("监控")), QStringLiteral("monitor"));
     createLazyDockWidget(m_dockHardware, m_hardwareWidget, ks::i18n::text(QStringLiteral("dock.hardware"), QStringLiteral("硬件")), QStringLiteral("hardware"));
     createLazyDockWidget(m_dockPrivilege, m_privilegeWidget, ks::i18n::text(QStringLiteral("dock.privilege"), QStringLiteral("权限")), QStringLiteral("privilege"));
@@ -10706,6 +10793,7 @@ void MainWindow::initDockWidgets()
         m_dockFile,
         m_dockDriver,
         m_dockKernel,
+        m_dockKvm,
         m_dockMonitorTab,
         m_dockHardware,
         m_dockPrivilege,
@@ -10775,6 +10863,7 @@ void MainWindow::setupDockLayout()
     m_pDockManager->addDockWidgetTabToArea(m_dockFile, leftDockArea);
     m_pDockManager->addDockWidgetTabToArea(m_dockDriver, leftDockArea);
     m_pDockManager->addDockWidgetTabToArea(m_dockKernel, leftDockArea);
+    m_pDockManager->addDockWidgetTabToArea(m_dockKvm, leftDockArea);
     m_pDockManager->addDockWidgetTabToArea(m_dockMonitorTab, leftDockArea);
     m_pDockManager->addDockWidgetTabToArea(m_dockHardware, leftDockArea);
     m_pDockManager->addDockWidgetTabToArea(m_dockPrivilege, leftDockArea);
@@ -11439,6 +11528,11 @@ void MainWindow::initAppearanceSettings()
         {
             targetDock = m_dockKernel;
             targetName = QStringLiteral("内核");
+        }
+        else if (normalizedKey == QStringLiteral("kvm"))
+        {
+            targetDock = m_dockKvm;
+            targetName = QStringLiteral("虚拟化 (KVM)");
         }
         else if (normalizedKey == QStringLiteral("monitor"))
         {

@@ -61,6 +61,7 @@ namespace ksword::ark
         const bool enableVe,
         const bool enableVmFunc,
         const bool enableLocalEpt,
+        const bool enableEptpSwitch,
         const unsigned long soakMilliseconds) const
     {
         HvmControlResult result{};
@@ -103,6 +104,13 @@ namespace ksword::ark
         if (enableLocalEpt)
         {
             request.flags |= KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT;
+        }
+        // 后端选择只在 PREPARE 里被读取，但这里不按 command 过滤：驱动的
+        // START_RESIDENT 白名单会把这一位判成 INVALID_REQUEST，而"发错命令
+        // 被驳回"比"标志被客户端悄悄丢掉、调用方以为换了后端"好得多。
+        if (enableEptpSwitch)
+        {
+            request.flags |= KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPTP_SWITCH;
         }
         if (command == KSWORD_ARK_HVM_CONTROL_LAUNCH_TEST_GUEST)
         {
@@ -406,6 +414,37 @@ namespace ksword::ark
             << ", viewCount=" << result.response.viewCount
             << ", rows=" << result.response.returnedRows
             << ", address=0x" << std::hex << physicalAddress << std::dec;
+        if (result.unsupported)
+        {
+            stream << ", unsupported=true";
+        }
+        result.io.message = stream.str();
+        return result;
+    }
+
+    HvmPlatformResult DriverClient::hvmPlatform() const
+    {
+        HvmPlatformResult result{};
+        KSWORD_ARK_HVM_PLATFORM_REQUEST request{};
+        // 这个 IOCTL 有**自己的**协议版本号，不是通用的那个。用错会被版本检查
+        // 打成失败，而那和「读不到寄存器」在调用方看来完全一样。
+        request.version = KSWORD_ARK_HVM_PLATFORM_PROTOCOL_VERSION;
+        request.size = sizeof(request);
+
+        result.io = deviceIoControl(
+            IOCTL_KSWORD_ARK_HVM_PLATFORM,
+            &request,
+            sizeof(request),
+            &result.response,
+            sizeof(result.response));
+        result.unsupported = !result.io.ok &&
+            isUnsupportedHvmError(result.io.win32Error);
+
+        std::ostringstream stream;
+        stream << "HVM platform validMask=0x" << std::hex
+            << result.response.validMask
+            << ", exception=0x" << result.response.exceptionCode
+            << ", cr4=0x" << result.response.cr4 << std::dec;
         if (result.unsupported)
         {
             stream << ", unsupported=true";

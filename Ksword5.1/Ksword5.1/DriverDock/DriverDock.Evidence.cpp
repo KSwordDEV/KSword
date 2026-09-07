@@ -203,7 +203,7 @@ namespace
             .arg(ioResult.win32Error)
             .arg(formatNtStatusText(ioResult.ntStatus))
             .arg(ioResult.bytesReturned)
-            .arg(friendlyDriverIoMessage(ioResult.message));
+            .arg(describeDriverCollection(ioResult));
     }
 
     // evidenceModuleNameMatches：判断 R0 返回模块名是否对应目标模块。
@@ -1004,7 +1004,7 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
                 .arg(communicationResult.io.ok
                     ? formatNtStatusText(communicationResult.lastStatus)
                     : QStringLiteral("<不可用>"))
-                .arg(friendlyDriverIoMessage(communicationResult.io.message));
+                .arg(describeDriverCollection(communicationResult.io));
             detailLines << driverText(
                 "driver.evidence.communication.state",
                 QStringLiteral(
@@ -1141,7 +1141,7 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
         {
             evidence.hasScanError = true;
             detailLines << driverText("driver.evidence.detail.scan_failed", QStringLiteral("扫描失败: %1"))
-                .arg(friendlyDriverIoMessage(iatEatResult.io.message));
+                .arg(describeDriverCollection(iatEatResult.io));
         }
         else
         {
@@ -1191,7 +1191,7 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
         {
             evidence.hasScanError = true;
             detailLines << driverText("driver.evidence.detail.scan_failed", QStringLiteral("扫描失败: %1"))
-                .arg(friendlyDriverIoMessage(inlineResult.io.message));
+                .arg(describeDriverCollection(inlineResult.io));
         }
         else
         {
@@ -1239,7 +1239,7 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
         {
             evidence.hasScanError = true;
             detailLines << driverText("driver.evidence.detail.enumeration_failed", QStringLiteral("枚举失败: %1"))
-                .arg(friendlyDriverIoMessage(callbackResult.io.message));
+                .arg(describeDriverCollection(callbackResult.io));
         }
         else
         {

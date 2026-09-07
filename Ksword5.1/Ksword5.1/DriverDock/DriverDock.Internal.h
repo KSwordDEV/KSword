@@ -19,6 +19,7 @@
 #include "../UI/CodeEditorWidget.h"
 #include "../UI/DetailLayoutRegistry.h"
 #include "../Internationalization/LanguageManager.h"
+#include "../ArkDriverClient/ArkDriverEvidence.h"
 
 #include <QAbstractItemView>
 #include <QAction>
@@ -134,6 +135,12 @@ namespace ksword::driver_dock_internal
     QString formatHex32(std::uint32_t value);
     QString formatNtStatusText(long statusValue);
     QString friendlyDriverIoMessage(const std::string& rawMessage);
+    // describeDriverCollection：F-05 采集状态归一层的 UI 渲染入口。
+    // 状态由 ArkDriverEvidence.h 的 toCollectionOutcome 判定，不再靠诊断文本子串猜；
+    // 原始 NTSTATUS/Win32 码一律保留在输出里。
+    QString describeDriverCollection(const ksword::ark::IoResult& ioResult,
+                                     bool unsupported = false,
+                                     bool partial = false);
     bool isDriverSignatureLoadError(DWORD errorCode);
     QString formatWin32ErrorTextForAdvice(DWORD errorCode);
     QString buildDriverSignatureLoadAdvice(DWORD errorCode, const QString& serviceNameText, const QString& binaryPathText);

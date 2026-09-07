@@ -1,6 +1,7 @@
 #include "KvmMemoryDialog.h"
 
 #include "KvmControl.h"
+#include "../Framework/DestructiveActionConfirmation.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QComboBox>
@@ -368,6 +369,31 @@ void KvmMemoryDialog::startWrite()
             ks::i18n::sourceText(QStringLiteral("单次写入最多 %1 字节。"))
                 .arg(kMaxTransferBytes));
         return;
+    }
+
+    // R-1 直写是这个模块里唯一一个既能瞬间损坏运行中系统、又只靠一个全局写
+    // 权限开关把门的操作 —— 同批次的启动常驻、SOAK、开写权限、武装 #VE、
+    // 武装 VMFUNC、跟踪 CR3 六个动作全都要求单独确认，只有它漏了。
+    //
+    // 目标写进确认文案而不是只说"内存"：物理写与虚拟写的爆炸半径完全不同，
+    // 而用户此刻正盯着一个自己刚敲进去的十六进制地址。
+    {
+        const QString target = virtualMode
+            ? ks::i18n::sourceText(QStringLiteral("虚拟地址 0x%1（按页目录 0x%2 解析）"))
+                  .arg(address, 0, 16).arg(directoryBase, 0, 16)
+            : ks::i18n::sourceText(QStringLiteral("**物理**地址 0x%1"))
+                  .arg(address, 0, 16);
+        const bool confirmed = ks::ui::confirmDestructiveAction(
+            this,
+            QStringLiteral("KvmMemoryWrite"),
+            ks::i18n::sourceText(QStringLiteral("从 R-1 直接写入内存")),
+            target,
+            ks::i18n::sourceText(QStringLiteral("将写入 %1 字节，绕过页保护、只读段与内核写保护。写错地址不会有任何提示：受害的可能是内核代码、页表或另一个进程的数据，症状往往在很久之后才以看不出关联的方式出现。物理地址写入没有任何归属检查 —— 这个地址属于谁，只有你知道。"))
+                .arg(payload.size()));
+        if (!confirmed)
+        {
+            return;
+        }
     }
 
     setBusy(true);

@@ -23,6 +23,10 @@ namespace ksword::kvm
         const QString kLocalEptSettingKey =
             QStringLiteral("Safety/Kvm/LocalEptEnabled");
         std::atomic<int> g_localEptCache{ -1 };
+        // 后端选择同样不放开能力，只是换一套装视图的机器，所以也持久化。
+        const QString kEptpSwitchSettingKey =
+            QStringLiteral("Safety/Kvm/EptpSwitchEnabled");
+        std::atomic<int> g_eptpSwitchCache{ -1 };
         // #VE 只活在本进程里，没有对应的设置键，这样它无法跨会话残留。
         std::atomic<bool> g_veEnabled{ false };
         // VMFUNC 同样不落设置键：武装一个 guest 可见的接口不该跨会话残留。
@@ -71,6 +75,37 @@ namespace ksword::kvm
                 lines << ks::i18n::sourceText(QStringLiteral("EPT 规则：%1 条"))
                     .arg(state.eptRuleCount);
             }
+            // 装分离视图的后端有两套，且必须按【武装位】而不是按请求显示。
+            // 请求了却因为能力不够没武装上时，驱动保持默认后端并且不报错，
+            // 这时显示成"已开启"比直接报错更糟：调用方会拿一个假前提去推理
+            // 跨处理器可见性。所以三种情形各说各的，不合并。
+            if (state.eptpSwitchArmed)
+            {
+                lines << ks::i18n::sourceText(QStringLiteral("分离视图后端：EPTP 切换（已武装，不需要 Monitor Trap Flag）"));
+            }
+            else if (isEptpSwitchEnabled())
+            {
+                lines << ks::i18n::sourceText(QStringLiteral("分离视图后端：写叶 + Monitor Trap Flag。已请求 EPTP 切换但未武装——驱动没有确认它需要的能力（INVEPT single 与 execute-only EPT 叶），或者资源是在打开这个开关之前准备的"));
+            }
+            else
+            {
+                lines << ks::i18n::sourceText(QStringLiteral("分离视图后端：写叶 + Monitor Trap Flag（默认）"));
+            }
+            // 每处理器私有 EPT 与上面的后端选择是同一个模式：菜单上的勾是
+            // **请求**，只有武装位才是事实。多核上装视图恰恰依赖它，而请求了
+            // 没武装时启动常驻只会回一个裸状态码 21，用户无从知道差在哪。
+            if (state.localEptArmed)
+            {
+                lines << ks::i18n::sourceText(QStringLiteral("每处理器私有 EPT：已武装（多核上可以安装分离视图）"));
+            }
+            else if (isLocalEptEnabled())
+            {
+                lines << ks::i18n::sourceText(QStringLiteral("每处理器私有 EPT：**已请求但未武装** —— 驱动没有确认它需要的能力（INVEPT single 与 Monitor Trap Flag），或者资源是在打开这个开关之前准备的。多核上安装分离视图会被拒"));
+            }
+            else if (state.processorCount > 1UL)
+            {
+                lines << ks::i18n::sourceText(QStringLiteral("每处理器私有 EPT：未请求。这台机器是多核，分离视图在共享层次上不安全，会被拒绝安装"));
+            }
             // 两个危险开关必须在状态里可见，而不是只在菜单勾选框里。
             // 武装了却看不见，等于没有武装的自觉。
             if (state.veArmed)
@@ -91,6 +126,16 @@ namespace ksword::kvm
                 lines << (isNestedAllowed()
                     ? ks::i18n::sourceText(QStringLiteral("嵌套模式：已开启"))
                     : ks::i18n::sourceText(QStringLiteral("嵌套模式：已关闭（外层有 hypervisor，常驻会被拒绝）")));
+            }
+            // 出站方向：谁想跑在我们之下。
+            //
+            // 这一行只在非零时出现，因为它平时恒为零，而它非零时说的是一件用户在
+            // 别处看不出因果的事：机器上的另一个 hypervisor 起不了虚拟机，是我们挡的。
+            // 驱动侧那个瞬时状态位在 VMXOFF 就被清掉，所以这里读的是只增不减的计数。
+            if (state.nestedL2LaunchRefusedCount > 0UL)
+            {
+                lines << ks::i18n::sourceText(QStringLiteral("已拒绝 %1 次「在我们之下启动虚拟机」的请求：本机另一个 hypervisor（VMware / VirtualBox / WSL2 / Docker 等）尝试过 VMLAUNCH 并被拒。我们不提供嵌套 VMX，所以它的虚拟机在我们常驻期间起不来 —— 用户那边看到的现象是「虚拟机突然起不来了」，而线索不会指向这里。"))
+                    .arg(state.nestedL2LaunchRefusedCount);
             }
             lines << (isWriteAccessEnabled()
                 ? ks::i18n::sourceText(QStringLiteral("写权限：已开启（允许 R-1 改写）"))
@@ -207,7 +252,64 @@ namespace ksword::kvm
                 reason = ks::i18n::sourceText(QStringLiteral("系统正在电源转换，已拒绝"));
                 break;
             case KSWORD_ARK_HVM_CONTROL_STATUS_NOT_PREPARED:
-                reason = ks::i18n::sourceText(QStringLiteral("资源尚未准备"));
+                reason = ks::i18n::sourceText(QStringLiteral("资源尚未准备。先在 KVM 菜单里执行「准备资源」"));
+                break;
+            // ---- 以下这一批以前全部落进 default，只给用户一个裸数字 ----
+            //
+            // 撞得最多的是 LOCAL_EPT 那七个（21-27）：它们是「每处理器私有 EPT」
+            // 开关的必经之路，而那个开关又是多核上安装分离视图的唯一途径。
+            // 用户看到的只有「协议状态 21」，既不知道 21 是什么，也不知道
+            // 下一步该做什么。
+            case KSWORD_ARK_HVM_CONTROL_STATUS_INVALID_REQUEST:
+                reason = ks::i18n::sourceText(QStringLiteral("请求本身不合法：多半是同时请求了互斥的能力，或带了这条命令不接受的标志"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_CONFIRMATION_REQUIRED:
+                reason = ks::i18n::sourceText(QStringLiteral("缺少显式确认位。这与安全策略无关，是协议要求调用方明确表态"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_ALREADY_PREPARED:
+                reason = ks::i18n::sourceText(QStringLiteral("资源已经准备过了。重复准备会把状态打成 FAULTED，所以驱动直接拒绝；要换配置请先「释放资源」"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_RESOURCE_FAILED:
+                reason = ks::i18n::sourceText(QStringLiteral("分配每处理器资源失败（多半是非分页内存不足）"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_GUEST_LAUNCH_FAILED:
+                reason = ks::i18n::sourceText(QStringLiteral("一次性受控来宾没能启动：VMCS 构造或 VMLAUNCH 被拒"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_UNEXPECTED_VMEXIT:
+                reason = ks::i18n::sourceText(QStringLiteral("来宾产生了未预期的 VM 退出，已按 fail-closed 处理"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_PARTIAL_IMPLEMENTATION:
+                reason = ks::i18n::sourceText(QStringLiteral("这条路径只有部分实现，驱动拒绝在半成品上继续"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_NESTED_UNSUPPORTED:
+                reason = ks::i18n::sourceText(QStringLiteral("外层 hypervisor 没有向本机暴露嵌套 VMX"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_EVMCS_UNSUPPORTED:
+                reason = ks::i18n::sourceText(QStringLiteral("外层 hypervisor 不提供 eVMCS"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_LIFECYCLE_GUARD_FAILED:
+                reason = ks::i18n::sourceText(QStringLiteral("生命周期守卫拒绝：常驻已在跑，或电源/拓扑/卸载守卫没有全部就位"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_NOT_ARMED:
+                reason = ks::i18n::sourceText(QStringLiteral("请求了每处理器私有 EPT，但它没有被武装。武装发生在**准备资源**那一步，所以打开开关之后必须先「释放资源」再重新准备"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_LEAF_SET_TOO_LARGE:
+                reason = ks::i18n::sourceText(QStringLiteral("要镜像的可翻转叶太多，超出每处理器私有层次的上限。先移除一些视图或规则"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_PAGE_BUDGET_EXHAUSTED:
+                reason = ks::i18n::sourceText(QStringLiteral("私有 EPT 层次的页预算不够。处理器越多每叶越贵，减少视图/规则数量或减少核数"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_SPLIT_MISSING:
+                reason = ks::i18n::sourceText(QStringLiteral("某一页缺少 4KiB 分裂，私有层次无法镜像它。这通常意味着规则或视图表在准备之后被改过"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_VERIFY_FAILED:
+                reason = ks::i18n::sourceText(QStringLiteral("私有 EPT 层次建好之后没有通过自校验，已拒绝使用（宁可不启动，也不在没验过的页表上跑）"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_CONFLICTS_WITH_VMFUNC:
+                reason = ks::i18n::sourceText(QStringLiteral("私有 EPT 与 VMFUNC 互斥：VMFUNC 发布一份全处理器共用的 EPTP 列表，而私有层次让同一个索引在每个处理器上指向不同的东西"));
+                break;
+            case KSWORD_ARK_HVM_CONTROL_STATUS_LOCAL_EPT_CONFLICTS_WITH_NESTED:
+                reason = ks::i18n::sourceText(QStringLiteral("私有 EPT 与嵌套 VMX 互斥。请关掉其中一个"));
                 break;
             case KSWORD_ARK_HVM_CONTROL_STATUS_SELF_TEST_FAILED:
                 reason = ks::i18n::sourceText(QStringLiteral("自检未通过"));
@@ -279,6 +381,7 @@ namespace ksword::kvm
         state.residentProcessorCount = response.residentProcessorCount;
         state.eptRuleCount = response.eptRuleCount;
         state.vmExitCount = response.vmExitCount;
+        state.eptPointer = response.eptPointer;
         state.residentActive = response.residentProcessorCount > 0UL ||
             (response.stateFlags &
                 KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE) != 0UL;
@@ -299,6 +402,8 @@ namespace ksword::kvm
             KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL;
         state.nestedResident = (response.stateFlags &
             KSWORD_ARK_HVM_STATE_RESIDENT_NESTED) != 0UL;
+        state.nestedL2LaunchRefusedCount =
+            response.nestedL2LaunchRefusedCount;
         state.veArmed = (response.stateFlags &
             KSWORD_ARK_HVM_STATE_VE_ACTIVE) != 0UL;
         state.veSuppressedByDefault = (response.featureFlags &
@@ -307,6 +412,24 @@ namespace ksword::kvm
             KSWORD_ARK_HVM_STATE_VMFUNC_ACTIVE) != 0UL;
         state.eptpSwitchingAvailable = (response.featureFlags &
             KSWORD_ARK_HVM_FEATURE_EPTP_SWITCHING) != 0ULL;
+        // 读武装位而不是读本地请求开关：驱动只在能力齐备时才置这一位，
+        // 缺能力时它保持默认后端而不报错，请求位在两种情形下完全一样。
+        state.eptpSwitchArmed = (response.featureFlags &
+            KSWORD_ARK_HVM_FEATURE_EPTP_SWITCH_ARMED) != 0ULL;
+        // 同一条理由，同一个坑：私有 EPT 以前只在菜单勾选框里可见，
+        // 而那是**请求**。驱动能力不够时保持共享层次且不报错。
+        state.localEptArmed = (response.featureFlags &
+            KSWORD_ARK_HVM_FEATURE_LOCAL_EPT_ARMED) != 0ULL;
+        // 视图安装前置：驱动一条一条查，UI 也得能一条一条报。以前这四位没上来，
+        // 于是「装不上」只能显示成一个协议状态码，用户看不出缺的是哪一条。
+        state.resourcesReady = (response.stateFlags &
+            KSWORD_ARK_HVM_STATE_RESOURCES_READY) != 0UL;
+        state.eptReady = (response.stateFlags &
+            KSWORD_ARK_HVM_STATE_EPT_READY) != 0UL;
+        state.inveptSingleReady = (response.featureFlags &
+            KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE) != 0ULL;
+        state.monitorTrapFlagReady = (response.featureFlags &
+            KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG) != 0ULL;
 
         if (state.residentActive)
         {
@@ -339,12 +462,21 @@ namespace ksword::kvm
         if ((status.response.stateFlags &
                 KSWORD_ARK_HVM_STATE_RESOURCES_READY) == 0UL)
         {
+            // 后端选择只有 PREPARE 会读：驱动在准备资源时就决定武装与否，
+            // 而 START_RESIDENT 的白名单会把这一位判成 INVALID_REQUEST。
             const auto prepared = client.controlHvm(
                 KSWORD_ARK_HVM_CONTROL_PREPARE,
                 generation,
                 false,
                 isNestedAllowed(),
-                true);
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                isEptpSwitchEnabled());
             auto result = toCommandResult(
                 prepared,
                 ks::i18n::sourceText(QStringLiteral("准备 KVM 资源")));
@@ -401,6 +533,9 @@ namespace ksword::kvm
             isVeEnabled(),
             isVmFuncEnabled(),
             isLocalEptEnabled());
+        // enableEptpSwitch 刻意留在默认的 false：后端在上面的 ensurePrepared
+        // 里就随 PREPARE 定下来了，这一位出现在 START_RESIDENT 上会被驱动的
+        // 白名单判成 INVALID_REQUEST。
         return toCommandResult(
             started,
             ks::i18n::sourceText(QStringLiteral("启动 KVM 常驻")));
@@ -450,6 +585,9 @@ namespace ksword::kvm
             // enableLocalEpt：保持自检要证明的是常驻能活下来，不是私有层次
             // 能建起来，多建一套只会把失败原因混在一起。
             false,
+            // enableEptpSwitch：这一位只有 PREPARE 认，SOAK 带上会被驳回；
+            // 而且后端选的是怎么装视图，与常驻能不能活下来无关。
+            false,
             milliseconds);
         auto result = toCommandResult(
             soaked,
@@ -483,6 +621,20 @@ namespace ksword::kvm
         return toCommandResult(
             reset,
             ks::i18n::sourceText(QStringLiteral("重置 KVM 故障状态")));
+    }
+
+    KvmCommandResult releaseResources(const unsigned long expectedGeneration)
+    {
+        ksword::ark::DriverClient client;
+        const auto released = client.controlHvm(
+            KSWORD_ARK_HVM_CONTROL_TEARDOWN,
+            expectedGeneration,
+            true,
+            false,
+            true);
+        return toCommandResult(
+            released,
+            ks::i18n::sourceText(QStringLiteral("释放 KVM 资源")));
     }
 
     bool isNestedAllowed()
@@ -536,6 +688,27 @@ namespace ksword::kvm
         QSettings settings;
         settings.setValue(kLocalEptSettingKey, enabled);
         g_localEptCache.store(enabled ? 1 : 0, std::memory_order_relaxed);
+    }
+
+    bool isEptpSwitchEnabled()
+    {
+        const int cached = g_eptpSwitchCache.load(std::memory_order_relaxed);
+        if (cached >= 0)
+        {
+            return cached != 0;
+        }
+        QSettings settings;
+        const bool enabled =
+            settings.value(kEptpSwitchSettingKey, false).toBool();
+        g_eptpSwitchCache.store(enabled ? 1 : 0, std::memory_order_relaxed);
+        return enabled;
+    }
+
+    void setEptpSwitchEnabled(const bool enabled)
+    {
+        QSettings settings;
+        settings.setValue(kEptpSwitchSettingKey, enabled);
+        g_eptpSwitchCache.store(enabled ? 1 : 0, std::memory_order_relaxed);
     }
 
     bool isVmFuncEnabled()
@@ -776,6 +949,15 @@ namespace ksword::kvm
 
     namespace
     {
+        // 视图路径会回传的两个 NTSTATUS。就地给出数值而不是拉进 ntstatus.h：
+        // 这一层只需要把两条分支分开，不需要整张状态码表。
+        // 数值出处 Windows SDK 的 shared/ntstatus.h：
+        // STATUS_DEVICE_BUSY = 0x80000011，STATUS_NOT_SUPPORTED = 0xC00000BB。
+        constexpr long kViewStatusDeviceBusy =
+            static_cast<long>(0x80000011UL);
+        constexpr long kViewStatusNotSupported =
+            static_cast<long>(0xC00000BBUL);
+
         // toViewResult：把驱动视图响应翻译成 UI 可直接展示的结论。
         KvmViewResult toViewResult(
             const ksword::ark::HvmViewResult& result,
@@ -784,6 +966,10 @@ namespace ksword::kvm
             KvmViewResult view;
             view.viewId = result.response.viewId;
             view.viewCount = result.response.viewCount;
+            // 两级失败码在任何一条返回路径上都要带出去：调用方要靠它们定位
+            // 失败发生在哪一步，而 message 一旦成句就丢掉了这个信息。
+            view.protocolStatus = result.response.status;
+            view.lastStatus = result.response.lastStatus;
             view.ok = result.io.ok &&
                 result.response.status == KSWORD_ARK_HVM_VIEW_STATUS_OK;
             if (view.ok)
@@ -818,6 +1004,13 @@ namespace ksword::kvm
             QString reason;
             switch (result.response.status)
             {
+            case KSWORD_ARK_HVM_VIEW_STATUS_INVALID_REQUEST:
+                // 以前这一条落进 default，显示成没有含义的「协议状态 1」。
+                // 驱动把四种校验都归到这个码上，所以文案要把四种一起说出来，
+                // 否则用户只能靠猜来分辨是地址写错了还是版本对不上。
+                reason = ks::i18n::sourceText(
+                    QStringLiteral("请求被判为无效：目标物理地址未按四 KiB 页对齐、或超出驱动映射上界八 TiB、或协议版本与结构大小与驱动不符、或指定的代次与当前代次不一致"));
+                break;
             case KSWORD_ARK_HVM_VIEW_STATUS_CONFIRMATION_REQUIRED:
                 reason = ks::i18n::sourceText(QStringLiteral("需要显式确认"));
                 break;
@@ -843,8 +1036,25 @@ namespace ksword::kvm
                     QStringLiteral("处理器不支持仅执行的 EPT 叶项，无法隐藏"));
                 break;
             case KSWORD_ARK_HVM_VIEW_STATUS_MULTIPROCESSOR_UNSAFE:
-                reason = ks::i18n::sourceText(
-                    QStringLiteral("视图翻转共享叶项，只能在单处理器且未常驻时安装"));
+                // 同一个协议码由两类完全不同的分支产生，只有 lastStatus 分得开：
+                // 常驻中是个可以自己解开的时序问题，而拓扑/能力不满足不是。
+                // 后者不写成「去改 CPU 核数」——多核所需的私有 EPT 请求位在当前
+                // 驱动里送不进 PREPARE 的白名单，那条路走不通，不该把人引过去。
+                if (result.response.lastStatus == kViewStatusDeviceBusy)
+                {
+                    reason = ks::i18n::sourceText(
+                        QStringLiteral("正在常驻：常驻期间视图表、EPT 叶项与影子页都被锁为不可变，请先停止常驻再安装"));
+                }
+                else if (result.response.lastStatus == kViewStatusNotSupported)
+                {
+                    reason = ks::i18n::sourceText(
+                        QStringLiteral("拓扑或能力不满足：多处理器上安装视图需要每处理器私有 EPT 层次，而该请求位当前无法通过协议送达驱动；此外处理器必须支持单上下文 INVEPT，使用默认后端时还必须支持 Monitor Trap Flag"));
+                }
+                else
+                {
+                    reason = ks::i18n::sourceText(
+                        QStringLiteral("视图翻转共享叶项，只能在单处理器且未常驻时安装"));
+                }
                 break;
             case KSWORD_ARK_HVM_VIEW_STATUS_RESOURCE_FAILED:
                 reason = ks::i18n::sourceText(QStringLiteral("影子页分配或捕获失败"));

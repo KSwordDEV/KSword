@@ -11,6 +11,11 @@
 #include "ProcessTraceTimelineWidget.h"
 #include "../Framework.h"
 
+// F-05：ARK 风险中心的每行进程身份都要带一份采集结果（成功 / 权限不足 / 其它失败
+// 是不同的值），所以直接复用共享的 CollectionOutcome，不再另造平行枚举。
+// 该头是 Qt-free / Win32-free 的纯值类型头，不会把分析层拖进 Qt 依赖。
+#include "../../../shared/evidence/EvidenceEnvelope.h"
+
 #include <QElapsedTimer>
 #include <QByteArray>
 #include <QHash>
@@ -564,7 +569,45 @@ public:
         QString riskScoreText;
         double riskScore = 0.0;
         QJsonObject payload;
+
+        // ---- F-09 / F-12：导航所需的身份与证据 id，在采集瞬间固定下来 ----
+
+        // evidenceId：本行在当前快照内的唯一证据编号。
+        // 为什么必须有：F-12 要求导航带得上证据 id，否则跳过去就回不到原始证据；
+        // Ksword::Evidence::DecideNavigation 对空 id 直接判 EvidenceIdMissing。
+        QString evidenceId;
+
+        // identityBootId：采集所属运行会话标识。
+        // 为什么随行保存而不是点击时现取：ObjectIdentity.h 里 ProcessInstanceId 只有
+        // bootId 非空且两侧相等才可能给出 Strong 身份与跨会话主键；若点击时补一个
+        // “当前值”，一份跨会话的旧快照就会假装和现场同属一个启动周期。
+        QString identityBootId;
+
+        // processId：本行指向的进程 PID；0 表示这条风险与任何进程实例无关。
+        std::uint32_t processId = 0U;
+
+        // processCreateTimeKnown / processCreateTime100ns：采集瞬间读到的创建时间。
+        // 为什么拆成两个字段：0 是合法的时间值，用 0 表示“未知”会让 PID 复用检查
+        // 静默失效（LosslessValue.h 里 OptionalU64 的两态约定就是为此）。
+        bool processCreateTimeKnown = false;
+        std::uint64_t processCreateTime100ns = 0U;
+
+        // processIdentityOutcome：采集期身份查询的结果。
+        // 为什么保留整份 outcome：F-05 要求“权限不足 / 进程不存在 / 其它失败”不能塌
+        // 成一个布尔，原始 Win32 错误码与原文消息都要留着；message 是未本地化的源
+        // 文本，因为它在工作线程生成，那里不允许调用 LanguageManager。
+        Ksword::Evidence::CollectionOutcome processIdentityOutcome;
     };
+
+    // navigateToProcessDetailFromArkRiskRow 作用：
+    // - 输入：风险中心表格的显示行号（由该表右键菜单传入）；
+    // - 处理：F-12 先用 Ksword::Evidence::DecideNavigation 判定这条导航请求是否成立
+    //   （身份可用、证据 id 在场且仍在快照内、目标页存在、对象仍在），F-09 再用
+    //   ResolveProcessNavigation 在跳转瞬间重新校验进程实例身份；两道都过才调用
+    //   ks::ui::OpenProcessDetailByIdentity；
+    // - 返回：无返回值。任一判据不过只弹出说明，绝不退回裸 PID 跳转——那正是 PID
+    //   复用后打开无关进程的入口。
+    void navigateToProcessDetailFromArkRiskRow(int tableRow);
 
 private:
     // ========================= UI 初始化 =========================

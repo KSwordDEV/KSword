@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build" ToolsVersion="17.0">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -230,6 +230,7 @@
     <ClCompile Include="KernelDock\KernelPlatformAuditTab.cpp" />
     <ClCompile Include="KernelDock\KernelHvmTab.Experimental.cpp" />
     <ClCompile Include="KernelDock\KernelHvmTab.Formatting.cpp" />
+    <ClCompile Include="KvmDock\KvmDock.cpp" />
     <ClCompile Include="KernelDock\KernelIoctlDecoderTab.cpp" />
     <ClCompile Include="KernelDock\KernelDockIpcTab.cpp" />
     <ClCompile Include="KernelDock\KernelBaseNamedObjectsTab.cpp" />
@@ -434,6 +435,14 @@
     <ClCompile Include="UI\GlobalUiBaseStyle.cpp" />
     <ClCompile Include="UI\GlobalRefreshShortcut.cpp" />
     <ClCompile Include="UI\GlobalUiSearch.cpp" />
+    <ClCompile Include="UI\DockTabInteraction.cpp" />
+    <ClCompile Include="UI\FlowLayout.cpp" />
+    <ClCompile Include="..\..\shared\evidence\HookPatchCompose.cpp" />
+    <ClCompile Include="UI\KvmEptLeafProbe.cpp" />
+    <ClCompile Include="UI\KvmWriteAccessGate.cpp" />
+    <ClCompile Include="UI\KvmHookWizard.cpp" />
+    <ClCompile Include="UI\KvmHookWizard.Patch.cpp" />
+    <ClCompile Include="UI\KvmHookWizard.Verify.cpp" />
     <ClCompile Include="UI\KvmControl.cpp" />
     <ClCompile Include="UI\KvmMemoryDialog.cpp" />
     <ClCompile Include="UI\KvmViewDialog.cpp" />
@@ -504,6 +513,15 @@
     <ClCompile Include="ArkDriverClient\ArkDriverNetworkTraffic.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverStorageForensics.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverError.cpp" />
+    <ClCompile Include="..\..\shared\evidence\EvidenceEnvelope.cpp" />
+    <ClCompile Include="..\..\shared\evidence\EvidenceJson.cpp" />
+    <ClCompile Include="..\..\shared\evidence\LiveNavigation.cpp" />
+    <ClCompile Include="..\..\shared\evidence\LosslessValue.cpp" />
+    <ClCompile Include="..\..\shared\evidence\ObjectIdentity.cpp" />
+    <ClCompile Include="..\..\shared\evidence\ScanBudget.cpp" />
+    <ClCompile Include="..\..\shared\evidence\CrossViewDiff.cpp" />
+    <ClCompile Include="..\..\shared\evidence\PeImageMap.cpp" />
+    <ClCompile Include="..\..\shared\evidence\ImageDiff.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverCapability.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverDynData.cpp" />
     <ClCompile Include="ArkDriverClient\ArkRuntimeDynData.cpp" />
@@ -587,6 +605,7 @@
     <ClInclude Include="KernelDock\KernelDockCidTab.h" />
     <ClInclude Include="KernelDock\KernelDescriptorTableTab.h" />
     <ClInclude Include="KernelDock\KernelHvmTab.h" />
+    <ClInclude Include="KvmDock\KvmDock.h" />
     <ClInclude Include="KernelDock\KernelSlatIommuAuditTab.h" />
     <ClInclude Include="KernelDock\KernelTextIntegrityTab.h" />
     <ClInclude Include="KernelDock\KernelVbsPostureTab.h" />
@@ -629,6 +648,12 @@
     <ClInclude Include="ksword\string\string.h" />
     <ClInclude Include="theme.h" />
     <ClInclude Include="UI\FlatTableModel.h" />
+    <ClInclude Include="UI\DockTabInteraction.h" />
+    <ClInclude Include="UI\FlowLayout.h" />
+    <ClInclude Include="..\..\shared\evidence\HookPatchCompose.h" />
+    <ClInclude Include="UI\KvmEptLeafProbe.h" />
+    <ClInclude Include="UI\KvmWriteAccessGate.h" />
+    <ClInclude Include="UI\KvmHookPlan.h" />
     <ClInclude Include="UI\KvmControl.h" />
     <ClInclude Include="UI\EmbeddedRowDelegate.h" />
     <ClInclude Include="UI\DetailLayoutHost.h" />
@@ -762,6 +787,7 @@
     <QtMoc Include="UI\GlobalUiSearch.h" />
     <QtMoc Include="UI\KvmMemoryDialog.h" />
     <QtMoc Include="UI\KvmViewDialog.h" />
+    <QtMoc Include="UI\KvmHookWizard.h" />
     <QtMoc Include="UI\KvmDomainDialog.h" />
     <QtMoc Include="UI\KvmMsrPolicyDialog.h" />
     <QtMoc Include="UI\KvmEventDialog.h" />
@@ -795,6 +821,16 @@
     <ClInclude Include="ArkDriverClient\ArkDriverTypes.h" />
     <ClInclude Include="ArkDriverClient\ArkRuntimeDynData.h" />
     <ClInclude Include="ArkDriverClient\ArkDriverError.h" />
+    <ClInclude Include="ArkDriverClient\ArkDriverEvidence.h" />
+    <ClInclude Include="..\..\shared\evidence\EvidenceEnvelope.h" />
+    <ClInclude Include="..\..\shared\evidence\EvidenceJson.h" />
+    <ClInclude Include="..\..\shared\evidence\LiveNavigation.h" />
+    <ClInclude Include="..\..\shared\evidence\LosslessValue.h" />
+    <ClInclude Include="..\..\shared\evidence\ObjectIdentity.h" />
+    <ClInclude Include="..\..\shared\evidence\ScanBudget.h" />
+    <ClInclude Include="..\..\shared\evidence\CrossViewDiff.h" />
+    <ClInclude Include="..\..\shared\evidence\PeImageMap.h" />
+    <ClInclude Include="..\..\shared\evidence\ImageDiff.h" />
     <ClInclude Include="..\..\shared\crash\WinCrashHandler.h" />
     <ClInclude Include="ArkDriverClient\ArkDriverCapabilities.h" />
     <ClInclude Include="..\..\third_party\zydis\Zydis.h" />

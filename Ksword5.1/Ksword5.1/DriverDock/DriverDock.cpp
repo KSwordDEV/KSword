@@ -61,7 +61,8 @@ namespace ksword::driver_dock_internal
 
     // friendlyDriverIoMessage：
     // - 输入：ArkDriverClient 返回的底层 IO 诊断字符串；
-    // - 处理：把 DeviceIoControl/unsupported/capability 等机器可读文本转成中文说明；
+    // - 处理：只渲染消息本身。**采集状态不再从这里的子串猜**——那由
+    //   describeDriverCollection 走 F-05 归一层判定，见下。
     // - 返回：适合状态栏、详情区和表格末列展示的短文本。
     QString friendlyDriverIoMessage(const std::string& rawMessage)
     {
@@ -70,19 +71,7 @@ namespace ksword::driver_dock_internal
         {
             return driverText("driver.io.empty", QStringLiteral("无额外驱动消息"));
         }
-        if (rawText.contains(QStringLiteral("DeviceIoControl"), Qt::CaseInsensitive))
-        {
-            return driverText(
-                "driver.io.device_control_failed",
-                QStringLiteral("驱动接口调用失败或当前驱动版本不匹配"));
-        }
-        if (rawText.contains(QStringLiteral("unsupported"), Qt::CaseInsensitive) ||
-            rawText.contains(QStringLiteral("not supported"), Qt::CaseInsensitive))
-        {
-            return driverText(
-                "driver.io.unsupported",
-                QStringLiteral("当前驱动不支持该只读查询入口"));
-        }
+        // capability/DynData 是"缺什么能力"的内容提示，不是采集状态，保留。
         if (rawText.contains(QStringLiteral("capability"), Qt::CaseInsensitive) ||
             rawText.contains(QStringLiteral("DynData"), Qt::CaseInsensitive))
         {
@@ -91,6 +80,79 @@ namespace ksword::driver_dock_internal
                 QStringLiteral("动态偏移能力未满足，请查看内核 DynData/Capability 状态"));
         }
         return rawText;
+    }
+
+    // describeDriverCollection（F-05 采集状态与结论分离）：
+    // - 输入：ArkDriverClient 的 IoResult，以及调用方已知的 unsupported / partial；
+    // - 处理：交给 ArkDriverEvidence.h 的 toCollectionOutcome 归一。此前这里靠
+    //   rawMessage.contains("DeviceIoControl") / contains("unsupported") 猜状态，
+    //   既区分不出拒绝访问与超时，也会丢掉原始错误码；
+    // - 返回："<采集状态>（<域> <原始码>）：<原始消息>"。原始码一律保留，
+    //   任何分支都不产出"正常"结论——结论由分析侧另行给出。
+    QString describeDriverCollection(const ksword::ark::IoResult& ioResult,
+                                     const bool unsupported,
+                                     const bool partial)
+    {
+        namespace ev = Ksword::Evidence;
+
+        ksword::ark::DriverCallShape shape;
+        shape.unsupported = unsupported;
+        shape.partial = partial;
+        const ev::CollectionOutcome outcome = ksword::ark::toCollectionOutcome(ioResult, shape);
+
+        QString stateText;
+        switch (outcome.status)
+        {
+        case ev::CollectionStatus::Success:
+            stateText = driverText("driver.collect.success", QStringLiteral("采集成功"));
+            break;
+        case ev::CollectionStatus::Partial:
+            stateText = driverText(
+                "driver.collect.partial",
+                QStringLiteral("采集不完整：结果被截断或未覆盖请求范围"));
+            break;
+        case ev::CollectionStatus::NotCollected:
+            stateText = driverText("driver.collect.not_collected", QStringLiteral("未采集"));
+            break;
+        case ev::CollectionStatus::Unsupported:
+            stateText = driverText(
+                "driver.io.unsupported",
+                QStringLiteral("当前驱动不支持该只读查询入口"));
+            break;
+        case ev::CollectionStatus::AccessDenied:
+            stateText = driverText("driver.collect.access_denied", QStringLiteral("权限不足，访问被拒绝"));
+            break;
+        case ev::CollectionStatus::Timeout:
+            stateText = driverText("driver.collect.timeout", QStringLiteral("驱动调用超时"));
+            break;
+        case ev::CollectionStatus::Error:
+            stateText = driverText(
+                "driver.io.device_control_failed",
+                QStringLiteral("驱动接口调用失败或当前驱动版本不匹配"));
+            break;
+        }
+
+        QString text = stateText;
+        if (outcome.nativeCode.present)
+        {
+            // NTSTATUS 用十六进制、Win32 用十进制，各自领域的惯用读法。
+            // 两者都直接取 64 位原值，不经过浮点。
+            const QString codeText = (outcome.nativeCodeDomain == "NTSTATUS")
+                ? QStringLiteral("0x%1")
+                      .arg(static_cast<qulonglong>(outcome.nativeCode.value), 8, 16, QChar('0'))
+                      .toUpper()
+                : QString::fromStdString(
+                      ev::FormatU64(outcome.nativeCode.value, ev::U64Format::Decimal));
+            text += QStringLiteral(" (%1 %2)")
+                        .arg(QString::fromStdString(outcome.nativeCodeDomain), codeText);
+        }
+
+        const QString detail = friendlyDriverIoMessage(outcome.message);
+        if (!detail.isEmpty() && detail != stateText)
+        {
+            text += QStringLiteral("：") + detail;
+        }
+        return text;
     }
 
     // isDriverSignatureLoadError：
