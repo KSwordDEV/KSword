@@ -1814,6 +1814,146 @@ static const char* ViewKindName(unsigned long k)
          : ((k == KSWORD_ARK_HVM_VIEW_KIND_HOOK) ? "HOOK" : "<未知>");
 }
 
+static const char* EventTypeName(unsigned long t)
+{
+    switch (t) {
+    case KSWORD_ARK_HVM_EVENT_TYPE_VMEXIT:        return "VMEXIT";
+    case KSWORD_ARK_HVM_EVENT_TYPE_EPT_VIOLATION: return "EPT_VIOLATION";
+    case KSWORD_ARK_HVM_EVENT_TYPE_NESTED_VMX:    return "NESTED_VMX";
+    case KSWORD_ARK_HVM_EVENT_TYPE_FATAL_EXIT:    return "FATAL_EXIT";
+    case KSWORD_ARK_HVM_EVENT_TYPE_LIFECYCLE:     return "LIFECYCLE";
+    default:                                      return "<未知>";
+    }
+}
+
+/* 把 access 位掩码写成 rwx 形状，缺哪一位就是 '-'。 */
+static void EventAccessText(unsigned long access, char out[4])
+{
+    out[0] = (access & KSWORD_ARK_HVM_EPT_ACCESS_READ)    ? 'r' : '-';
+    out[1] = (access & KSWORD_ARK_HVM_EPT_ACCESS_WRITE)   ? 'w' : '-';
+    out[2] = (access & KSWORD_ARK_HVM_EPT_ACCESS_EXECUTE) ? 'x' : '-';
+    out[3] = '\0';
+}
+
+/*
+ * events：把事件环逐行读出来。
+ *
+ * **为什么必须有这个动词**：后端 (b)（EPTP 切换）上 flipCount 结构性恒为 0 ——
+ * 唯一的递增点在 hvm_ept_view.c:903，而该后端在 :821 就提前 return 了。于是
+ * 「这条视图有没有被硬件真的碰过」在这个后端上原本一个可读的数字都没有。
+ *
+ * 而事件环里有：每一次 EPT 违规都留一行，带 access 位与 ruleId（视图翻转承载
+ * 的就是 viewId）。**access 含 x 且 ruleId == 某条 HOOK 视图的编号，就是
+ * 「取指落在这一页上并触发了重定向」的第一手正向证据** —— 那正是路线图里
+ * 「HOOK 方向未实测」欠的那条读数。
+ *
+ * 在此之前 hvm_ctl 只打两个聚合整数（eventCount / droppedEventCount），
+ * 知道"有多少条"，不知道"是哪几条"。
+ *
+ * **事件环是消费型的**：游标推进之后旧行读不回来。所以 afterSequence 要由调用方
+ * 自己推进，别指望重跑一次能读到同一批。droppedRows 非零说明环被覆盖过，
+ * 那时"没读到某条"不构成"它没发生"——这两者必须分开，否则就是又一条假判据。
+ */
+static int DoEvents(HANDLE h, unsigned long long afterSequence, int asJson)
+{
+    KSWORD_ARK_HVM_EVENT_QUERY_REQUEST req;
+    KSWORD_ARK_HVM_EVENT_QUERY_RESPONSE rsp;
+    DWORD returned = 0;
+    BOOL ok;
+    unsigned long i;
+    unsigned long execRows = 0UL;
+
+    memset(&req, 0, sizeof(req));
+    memset(&rsp, 0, sizeof(rsp));
+    req.version = KSWORD_ARK_HVM_PROTOCOL_VERSION;
+    req.size = (unsigned long)sizeof(req);
+    /*
+     * operation 必须显式置 READ。
+     *
+     * READ 是 1，不是 0 —— memset 之后不写这一个字段，发出去的是未知操作码，
+     * 驱动按契约回 STATUS_INVALID_PARAMETER（hvm_event.c:186-192，同时校验
+     * version 与 size）。那是一次干净的拒绝，不是崩溃，但调用方看到的现象是
+     * 「一行都读不到」，很容易被当成"事件环是空的"。这两者必须分开。
+     */
+    req.operation = KSWORD_ARK_HVM_EVENT_QUERY_READ;
+    req.maxRows = KSWORD_ARK_HVM_MAX_EVENT_ROWS;
+    req.afterSequence = afterSequence;
+
+    ok = DeviceIoControl(h, IOCTL_KSWORD_ARK_HVM_EVENTS,
+                         &req, (DWORD)sizeof(req),
+                         &rsp, (DWORD)sizeof(rsp), &returned, NULL);
+    if (returned < sizeof(rsp)) {
+        /* 打到 stdout 而不是 stderr：调用方常常只看 stdout，把失败写进 stderr
+         * 等于让"IOCTL 被拒"长得和"事件环是空的"一模一样。 */
+        printf("\n=== 事件环：读取失败 ===\n");
+        printf("  IOCTL 无完整响应：ok=%d returned=%lu win32=%lu\n",
+               (int)ok, returned, GetLastError());
+        printf("  这是**读不到**，不是**没有事件**。两者不能混为一谈。\n");
+        return 1;
+    }
+
+    for (i = 0UL; i < rsp.returnedRows && i < KSWORD_ARK_HVM_MAX_EVENT_ROWS; ++i) {
+        if ((rsp.rows[i].access & KSWORD_ARK_HVM_EPT_ACCESS_EXECUTE) != 0UL) {
+            ++execRows;
+        }
+    }
+
+    if (asJson) {
+        printf("{\"kind\":\"events\",\"returnedRows\":%lu,\"availableRows\":%lu,"
+               "\"droppedRows\":%lu,\"newestSequence\":%llu,"
+               "\"afterSequence\":%llu,\"executeRows\":%lu,\"rows\":[",
+               rsp.returnedRows, rsp.availableRows, rsp.droppedRows,
+               rsp.newestSequence, afterSequence, execRows);
+        for (i = 0UL; i < rsp.returnedRows && i < KSWORD_ARK_HVM_MAX_EVENT_ROWS; ++i) {
+            char acc[4];
+            EventAccessText(rsp.rows[i].access, acc);
+            printf("%s{\"sequence\":%llu,\"type\":%lu,\"typeName\":\"%s\","
+                   "\"exitReason\":%lu,\"access\":%lu,\"accessText\":\"%s\","
+                   "\"ruleId\":%lu,\"guestPhysicalAddress\":\"0x%016llX\","
+                   "\"guestLinearAddress\":\"0x%016llX\",\"guestRip\":\"0x%016llX\","
+                   "\"qualification\":\"0x%016llX\",\"status\":\"0x%08lX\","
+                   "\"processor\":%u}",
+                   (i == 0UL) ? "" : ",",
+                   rsp.rows[i].sequence, rsp.rows[i].type,
+                   EventTypeName(rsp.rows[i].type),
+                   rsp.rows[i].exitReason, rsp.rows[i].access, acc,
+                   rsp.rows[i].ruleId, rsp.rows[i].guestPhysicalAddress,
+                   rsp.rows[i].guestLinearAddress, rsp.rows[i].guestRip,
+                   rsp.rows[i].qualification, (unsigned long)rsp.rows[i].status,
+                   (unsigned)rsp.rows[i].processorNumber);
+        }
+        printf("]}\n");
+        return 0;
+    }
+
+    printf("\n=== 事件环（afterSequence=%llu）===\n", afterSequence);
+    printf("  本次读回 %lu 行；环里可读 %lu 行；最新序号 %llu\n",
+           rsp.returnedRows, rsp.availableRows, rsp.newestSequence);
+    if (rsp.droppedRows != 0UL) {
+        printf("  **丢弃 %lu 行**：环被覆盖过。此时「没读到某条」不等于「它没发生」。\n",
+               rsp.droppedRows);
+    }
+    if (rsp.returnedRows == 0UL) {
+        printf("  （这一段没有新事件）\n");
+        return 0;
+    }
+    printf("  %-8s %-14s %-4s %-6s %-18s %-18s %s\n",
+           "序号", "类型", "访问", "ruleId", "GPA", "GuestRIP", "exitReason");
+    for (i = 0UL; i < rsp.returnedRows && i < KSWORD_ARK_HVM_MAX_EVENT_ROWS; ++i) {
+        char acc[4];
+        EventAccessText(rsp.rows[i].access, acc);
+        printf("  %-8llu %-14s %-4s %-6lu 0x%016llX 0x%016llX %lu\n",
+               rsp.rows[i].sequence, EventTypeName(rsp.rows[i].type), acc,
+               rsp.rows[i].ruleId, rsp.rows[i].guestPhysicalAddress,
+               rsp.rows[i].guestRip, rsp.rows[i].exitReason);
+    }
+    printf("\n  其中 access 含 x 的 %lu 行。\n", execRows);
+    printf("  含 x 且 ruleId 等于某条 HOOK 视图编号的行 = 取指落在该页并触发了重定向，\n"
+           "  那是「HOOK 方向」的正向证据；一行都没有则是**无读数**（那一页没被执行过），\n"
+           "  既不是成功也不是失败。\n");
+    return 0;
+}
+
 /*
  * 发一次视图 IOCTL。
  *
@@ -3045,6 +3185,7 @@ static void PrintUsage(void)
     printf("  view-verify      添加后自检：逐条已装视图分别验**结构**（叶是不是"
            "主值）与**生效**（读是否真被重定向），两层分开报\n");
     printf("  ept-leaf <PA>    走一遍基座 EPT，打出四级项与 R/W/X（十六进制地址）\n");
+    printf("  events [after]   逐行读事件环（十进制序号，只读大于它的行）\n");
     for (i = 0U; i < sizeof(g_Verbs) / sizeof(g_Verbs[0]); ++i) {
         printf("  %-16s %s\n", g_Verbs[i].name, g_Verbs[i].description);
     }
@@ -3105,6 +3246,13 @@ int main(int argc, char** argv)
         rc = DoSelfCheck(h, asJson);
     } else if (strcmp(cmd, "view-verify") == 0) {
         rc = DoViewVerify(h, asJson);
+    } else if (strcmp(cmd, "events") == 0) {
+        /* 可选参数：只读序号大于它的行。十进制，默认 0 = 环里现存的全部。 */
+        unsigned long long after = 0ULL;
+        if (argi < argc) {
+            after = _strtoui64(argv[argi], NULL, 10);
+        }
+        rc = DoEvents(h, after, asJson);
     } else if (strcmp(cmd, "ept-leaf") == 0) {
         /* 第二个参数是**十六进制**物理地址（main 里那个 soakMs 按十进制解析，
          * 这里不能复用它）。没给就是 0，会打出 GPA 0 的那一条链。 */
