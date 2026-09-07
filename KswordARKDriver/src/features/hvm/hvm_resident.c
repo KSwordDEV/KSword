@@ -539,8 +539,15 @@ KswordARKHvmResidentFindCurrent(
         processor.Number);
 }
 
-/* Release host stacks only after every processor has left VMX operation. */
-static VOID
+/*
+ * Release host stacks only after every processor has left VMX operation.
+ *
+ * Returns FALSE when it declined because somebody is still resident, and TRUE
+ * when the context set is now released and cleared.  The result matters to
+ * callers that go on to overwrite this state: the pointers this function
+ * declines to free are the only record of those allocations.
+ */
+static BOOLEAN
 KswordARKHvmResidentReleaseContexts(
     VOID
     )
@@ -554,8 +561,8 @@ KswordARKHvmResidentReleaseContexts(
                 ResidentProcessorCount,
             0L,
             0L) != 0L) {
-        /* Return without releasing a live VMCS host stack. */
-        return;
+        /* Report that a live VMCS host stack was left allocated. */
+        return FALSE;
     }
     /* Free every processor-owned host stack symmetrically. */
     for (index = 0UL;
@@ -597,6 +604,8 @@ KswordARKHvmResidentReleaseContexts(
     RtlZeroMemory(
         &g_KswordHvmResident,
         sizeof(g_KswordHvmResident));
+    /* Report a complete release. */
+    return TRUE;
 }
 
 /* Allocate and anchor every processor-owned VM-exit host stack. */
@@ -627,8 +636,22 @@ KswordARKHvmResidentPrepareContexts(
      * succeeded.
      */
     (void)KswordARKHvmBuildHostIdtLocked();
-    /* Release reusable stopped contexts before replacing their runtime. */
-    KswordARKHvmResidentReleaseContexts();
+    /*
+     * Release reusable stopped contexts before replacing their runtime, and
+     * refuse to continue if that release did not happen.
+     *
+     * The zeroing below is what makes this mandatory rather than tidy: the
+     * host stack pointers live only in the structure it clears, so preparing
+     * over a set the release declined to free leaks them outright - 32 KiB per
+     * processor plus that processor's private EPT block, with nothing left
+     * pointing at either.  The release declines for one reason, somebody is
+     * still resident, and preparing on top of live contexts would be wrong
+     * even if it leaked nothing.
+     */
+    if (!KswordARKHvmResidentReleaseContexts()) {
+        /* Return the exact lifecycle-ordering failure. */
+        return STATUS_INVALID_DEVICE_STATE;
+    }
     /* Initialize the complete process-wide resident state. */
     RtlZeroMemory(
         &g_KswordHvmResident,
@@ -662,7 +685,7 @@ KswordARKHvmResidentPrepareContexts(
         /* Roll back every prior host stack on allocation failure. */
         if (context->HostStack == NULL) {
             /* Release the fully stopped partial context set. */
-            KswordARKHvmResidentReleaseContexts();
+            (void)KswordARKHvmResidentReleaseContexts();
             /* Return the exact resource failure. */
             return STATUS_INSUFFICIENT_RESOURCES;
         }
@@ -1173,6 +1196,32 @@ KswordARKHvmResidentStartCurrent(
         Context->ApicId = KswordARKHvmReadInitialApicId();
         /* Publish active ownership before any valid VM exit can occur. */
         InterlockedExchange(&Context->Active, 1L);
+        /*
+         * Count this processor **before** the entry that can make it exit,
+         * paired with the marker above and not with the success path below.
+         *
+         * The two used to be split across VMLAUNCH: marker before, count
+         * after.  That leaves a window a few instructions wide where the
+         * processor is already in VMX non-root but uncounted, and an exit
+         * taken there that fails closed decrements a count this processor
+         * never added.  The window is real - VM entry resumes the guest at
+         * KswordARKHvmResidentGuestResume, which returns into the C code just
+         * below, so those instructions genuinely execute in non-root - and the
+         * devirtualization path decrements unconditionally in assembly.
+         *
+         * The damage is not a bad free: every release site tests `!= 0` rather
+         * than `<= 0`, so an undercount fails those guards instead of passing
+         * them.  It is worse in a quieter way - the count never returns to
+         * zero, so contexts are never released and hvm_resident.c refuses to
+         * start residency again.  A machine that needs a reboot, with nothing
+         * logged to say why.
+         *
+         * Nothing can exit between these two writes: VM entry has not happened
+         * yet, so there is no window on this side.  The failure path below
+         * settles the symmetry by testing the marker it clears.
+         */
+        InterlockedIncrement(
+            &Context->Runtime->ResidentProcessorCount);
         /* Attempt resident VM entry through the exact assembly continuation. */
         vmxResult = KswordARKHvmAsmLaunchResident(Context);
         /* Preserve the wrapper VM-entry result. */
@@ -1188,10 +1237,7 @@ KswordARKHvmResidentStartCurrent(
             Context->Resource->Row.stateFlags |=
                 KSWORD_ARK_HVM_CPU_STATE_GUEST_LAUNCHED |
                 KSWORD_ARK_HVM_CPU_STATE_RESIDENT_ACTIVE;
-            /* Publish one additional resident processor. */
-            InterlockedIncrement(
-                &Context->Runtime->
-                    ResidentProcessorCount);
+            /* The count was already published alongside the active marker. */
             /* Preserve successful current-processor status. */
             status = STATUS_SUCCESS;
             /* Leave the guarded transition block in guest context. */
@@ -1222,8 +1268,26 @@ KswordARKHvmResidentStartCurrent(
     }
     /* Clean up only a failed start that remains in VMX root. */
     if (!NT_SUCCESS(status)) {
-        /* Remove a premature active marker. */
-        InterlockedExchange(&Context->Active, 0L);
+        /*
+         * Remove a premature active marker, and give back the count only if
+         * this is the one removing it.
+         *
+         * The marker is the discriminator, and it is exact.  Devirtualization
+         * clears it and decrements in assembly, so a nonzero old value here
+         * means no exit path ran and the count raised before VMLAUNCH is still
+         * outstanding; a zero old value means one already did both.  Testing
+         * the exchange's old value rather than reading the marker separately
+         * is what keeps that from being two decisions that can disagree.
+         *
+         * This also covers the failures that never reached VMLAUNCH at all -
+         * including an exception before the marker was ever set, where the old
+         * value is zero and nothing was counted to give back.
+         */
+        if (InterlockedExchange(&Context->Active, 0L) != 0L) {
+            /* Give back the count this processor raised and never used. */
+            InterlockedDecrement(
+                &Context->Runtime->ResidentProcessorCount);
+        }
         /* Leave VMX operation when this context still owns root state. */
         if (InterlockedCompareExchange(
                 &Context->VmxRoot,
@@ -1942,7 +2006,7 @@ KswordARKHvmResidentStart(
             KSW_HVM_MAX_LOCAL_LEAVES,
             &leafCount);
         if (!NT_SUCCESS(status)) {
-            KswordARKHvmResidentReleaseContexts();
+            (void)KswordARKHvmResidentReleaseContexts();
             InterlockedExchange(
                 &Runtime->ResidentContextPreparing,
                 0L);
@@ -1966,7 +2030,7 @@ KswordARKHvmResidentStart(
                         sizeof(KSW_HVM_EPT_LOCAL),
                     KSW_HVM_EPT_LOCAL_ARRAY_POOL_TAG);
             if (localArray == NULL) {
-                KswordARKHvmResidentReleaseContexts();
+                (void)KswordARKHvmResidentReleaseContexts();
                 InterlockedExchange(
                     &Runtime->ResidentContextPreparing,
                     0L);
@@ -2009,7 +2073,7 @@ KswordARKHvmResidentStart(
                     KswordARKHvmEptLocalRelease(&localArray[index]);
                 }
                 ExFreePool(localArray);
-                KswordARKHvmResidentReleaseContexts();
+                (void)KswordARKHvmResidentReleaseContexts();
                 InterlockedExchange(
                     &Runtime->ResidentContextPreparing,
                     0L);
@@ -2031,7 +2095,7 @@ KswordARKHvmResidentStart(
     /* Own the transition phase without holding its state lock over the IPI. */
     status = KswordARKHvmAcquireResidentTransition(Runtime);
     if (!NT_SUCCESS(status)) {
-        KswordARKHvmResidentReleaseContexts();
+        (void)KswordARKHvmResidentReleaseContexts();
         InterlockedExchange(
             &Runtime->ResidentContextPreparing,
             0L);
@@ -2047,7 +2111,7 @@ KswordARKHvmResidentStart(
             0L,
             0L) != powerGeneration) {
         /* Release the fully stopped contexts without attempting VMX entry. */
-        KswordARKHvmResidentReleaseContexts();
+        (void)KswordARKHvmResidentReleaseContexts();
         InterlockedExchange(
             &Runtime->ResidentContextPreparing,
             0L);
@@ -2058,7 +2122,7 @@ KswordARKHvmResidentStart(
     guardStatus = KswordARKHvmArmUnloadGuard(Runtime);
     if (!NT_SUCCESS(guardStatus)) {
         /* No processor entered VMX, so every prepared host stack is releasable. */
-        KswordARKHvmResidentReleaseContexts();
+        (void)KswordARKHvmResidentReleaseContexts();
         InterlockedExchange(
             &Runtime->ResidentContextPreparing,
             0L);
@@ -2138,7 +2202,7 @@ KswordARKHvmResidentStart(
             return status;
         }
         /* Release host stacks only after rollback reached zero active CPUs. */
-        KswordARKHvmResidentReleaseContexts();
+        (void)KswordARKHvmResidentReleaseContexts();
         /* Restore unload only outside a power transition. */
         if (InterlockedCompareExchange(
                 &Runtime->PowerTransitionPending,
@@ -2260,7 +2324,7 @@ KswordARKHvmResidentStop(
                 0L,
                 0L) == 0L) {
             /* Release stopped contexts retained after a prior fault. */
-            KswordARKHvmResidentReleaseContexts();
+            (void)KswordARKHvmResidentReleaseContexts();
         }
         /* Clear protocol-visible resident active state. */
         KswordARKHvmStateClear(
@@ -2324,7 +2388,7 @@ KswordARKHvmResidentStop(
             : status;
     }
     /* Release host stacks after every CPU completes VMXOFF. */
-    KswordARKHvmResidentReleaseContexts();
+    (void)KswordARKHvmResidentReleaseContexts();
     /* Clear all resident lifecycle state after complete rollback. */
     KswordARKHvmStateClear(
         Runtime,
