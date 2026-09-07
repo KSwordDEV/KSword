@@ -524,6 +524,35 @@ KswordARKHvmResidentRequestTlbNmi(
     __writemsr(KSW_X2APIC_ICR, KSW_APIC_ICR_NMI_ALL_BUT_SELF);
 }
 
+VOID
+KswordARKHvmSetVmreadBenchIterations(
+    _Inout_ KSW_HVM_RUNTIME* Runtime,
+    _In_ ULONG Requested
+    )
+{
+    ULONG depth = Requested;
+
+    /* Reject a missing runtime before publishing measurement state. */
+    if (Runtime == NULL) {
+        return;
+    }
+    /* Zero asks for the default rather than for a benchmark that does nothing. */
+    if (depth == 0UL) {
+        depth = KSWORD_ARK_HVM_VMREAD_BENCH_DEFAULT;
+    }
+    /*
+     * Clamp rather than refuse.  This runs on every exit with interrupts off
+     * on the exit stack; a mistyped depth should cost a pinned measurement,
+     * not a machine nobody can get back.
+     */
+    if (depth > KSWORD_ARK_HVM_VMREAD_BENCH_MAX) {
+        depth = KSWORD_ARK_HVM_VMREAD_BENCH_MAX;
+    }
+    InterlockedExchange(
+        &Runtime->VmreadBenchIterations,
+        (LONG)depth);
+}
+
 KSW_HVM_RESIDENT_VCPU*
 KswordARKHvmResidentFindCurrent(
     VOID
@@ -663,7 +692,13 @@ KswordARKHvmResidentPrepareContexts(
         Runtime->ProcessorCount;
     /* Preserve the exact resident start flags. */
     g_KswordHvmResident.Flags = Flags;
-    /* Publish the VMREAD measurement request where the exit path can see it. */
+    /*
+     * Publish the VMREAD measurement request where the exit path can see it.
+     *
+     * The depth was written by the caller before this point, so arming last
+     * means the exit path never observes an armed benchmark whose iteration
+     * count has not been decided yet.
+     */
     InterlockedExchange(
         &Runtime->VmreadBenchArmed,
         ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH) != 0UL)

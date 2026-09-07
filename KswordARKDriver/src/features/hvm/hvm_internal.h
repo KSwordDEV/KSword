@@ -636,6 +636,14 @@ typedef struct _KSW_HVM_RUNTIME
      * than that by construction.
      */
     volatile LONG VmreadBenchArmed;
+    /*
+     * 武装时每次退出要跑多少遍。由请求给出，已夹在上限内。
+     *
+     * 与 VmreadBenchArmed 分开两个字段而不是"0 表示关闭"：关闭与次数是两件事，
+     * 合成一个值就没法表达"武装了但请求给的是 0（用默认）"，而那正是最常用的
+     * 调用形式。
+     */
+    volatile LONG VmreadBenchIterations;
     /* Preserve IA32_VMX_VMFUNC evidence; bit 0 is EPTP switching. */
     ULONGLONG VmFunctionCapabilities;
     /* Retain the 512-entry EPTP list published to VMFUNC. */

@@ -416,16 +416,22 @@
  */
 #define KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH 0x00000800UL
 /*
- * 每次退出额外执行多少次 VMREAD。
+ * 请求里不给次数时用的默认值。
  *
  * 取 512 而不是几十：实测 32 次的效应完全淹没在噪声里（三轮交替得到
  * +18.1% / -13.5% / -6%，符号都不一致，基线自身极差就有 14%），那只说明
  * 「效应 < 噪声」，并不说明 VMREAD 便宜。**要得出结论就得把信号加大到测得出为止**，
- * 否则测不出和不存在分不开。
- *
- * 512 次若仍然量不到，那才是「单次成本小到可以忽略」的证据。
+ * 否则测不出和不存在分不开。512 次给出了干净信号（四轮 -42% ~ -43.9%）。
  */
-#define KSWORD_ARK_HVM_VMREAD_BENCH_ITERATIONS 512UL
+#define KSWORD_ARK_HVM_VMREAD_BENCH_DEFAULT 512UL
+/*
+ * 次数上限。
+ *
+ * 每次退出都要跑这么多遍，取值过大等于把 guest 拖停；而这条路径在 VMX root、
+ * 关中断、拿着退出栈，停在这里没有人能把它救回来。上限让一个手滑的数字变成
+ * 一次被夹住的测量，而不是一台需要重启的机器。
+ */
+#define KSWORD_ARK_HVM_VMREAD_BENCH_MAX 4096UL
 
 #define KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN 0x48564D43UL
 
@@ -721,7 +727,20 @@ typedef struct _KSWORD_ARK_CONTROL_HVM_REQUEST
     unsigned long expectedGeneration;
     /* Requested soak window in milliseconds; only SOAK reads this field. */
     unsigned long soakMilliseconds;
-    unsigned long reserved;
+    /*
+     * 每次 VM exit 额外执行多少次结果丢弃的 VMREAD。
+     *
+     * 只有 START_RESIDENT 且带 VMREAD_BENCH 位时读这个字段；0 表示用默认值。
+     *
+     * 做成可配置而不是编译期常量，是因为**这个数必须能当场调**：取 32 时三轮交替
+     * 的符号都不一致（+18.1% / -13.5% / -6%），完全淹没在噪声里；取 512 才有干净
+     * 信号（四轮 -42% ~ -43.9%）。"测不出"和"不存在"只能靠加大信号来区分，而每
+     * 换一个数就重编译一次驱动，会让人倾向于接受第一个读数 —— 那正是得出错误
+     * 结论的路径。
+     *
+     * 占用原先的 reserved 槽位，结构大小不变，协议版本不动。
+     */
+    unsigned long vmreadBenchIterations;
 } KSWORD_ARK_CONTROL_HVM_REQUEST;
 
 typedef struct _KSWORD_ARK_CONTROL_HVM_RESPONSE

@@ -101,7 +101,7 @@ static const HVM_CTL_VERB g_Verbs[] = {
       KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
       KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED |
       KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH,
-      "同 resident，但每次退出多做 32 次 VMREAD（只为测量，会变慢）" },
+      "同 resident，但每次退出多做 N 次 VMREAD（第二个参数给 N，缺省 512；只为测量，会变慢）" },
     { "soak",        KSWORD_ARK_HVM_CONTROL_SOAK,
       KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED |
       KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
@@ -1039,6 +1039,17 @@ static int DoControl(HANDLE h, const HVM_CTL_VERB* verb,
     /* soakMilliseconds 对非 SOAK 命令必须为 0，否则驱动判 INVALID_REQUEST。 */
     req.soakMilliseconds =
         (verb->command == KSWORD_ARK_HVM_CONTROL_SOAK) ? soakMs : 0UL;
+    /*
+     * 测量深度复用同一个位置参数：`resident-vmreadbench <次数>`。
+     *
+     * 只有带 VMREAD_BENCH 位的命令才填，其余保持 0 —— 与 soakMilliseconds 同一条
+     * 规矩：一个字段只对声明要它的命令有值，别的命令带上它就是协议噪声。
+     * 0 让驱动取默认值。
+     */
+    req.vmreadBenchIterations =
+        ((verb->flags & KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH) != 0UL)
+            ? soakMs
+            : 0UL;
 
     if (!DeviceIoControl(h, IOCTL_KSWORD_ARK_CONTROL_HVM, &req, sizeof(req),
                          &rsp, (DWORD)sizeof(rsp), &returned, NULL)) {

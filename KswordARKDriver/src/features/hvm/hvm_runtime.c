@@ -2623,6 +2623,10 @@ KswordARKHvmSoakLocked(
     if (requested > KSWORD_ARK_HVM_SOAK_MAX_MILLISECONDS) {
         requested = KSWORD_ARK_HVM_SOAK_MAX_MILLISECONDS;
     }
+    /* Publish the measurement depth before the flag that consumes it. */
+    KswordARKHvmSetVmreadBenchIterations(
+        Runtime,
+        Request->vmreadBenchIterations);
     /* Enter resident VMX through the same all-processor rendezvous as START. */
     status = KswordARKHvmResidentStart(
         Runtime,
@@ -2821,9 +2825,16 @@ KswordARKHvmControl(
     }
     if (Request->version != KSWORD_ARK_HVM_PROTOCOL_VERSION ||
         Request->size != sizeof(*Request) ||
-        Request->reserved != 0UL ||
         (Request->command != KSWORD_ARK_HVM_CONTROL_SOAK &&
             Request->soakMilliseconds != 0UL) ||
+        /*
+         * 与 soakMilliseconds 同一条规矩：一个字段只对声明要它的请求才允许非零。
+         * 这个槽位以前是 reserved、必须为 0；现在它承载测量深度，所以"必须为 0"
+         * 收窄成"没请求测量时必须为 0"，其余情况照旧被拒。
+         */
+        ((Request->flags &
+            KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH) == 0UL &&
+            Request->vmreadBenchIterations != 0UL) ||
         (Request->flags & ~allowedFlags) != 0UL ||
         Request->confirmationToken !=
             KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN ||
@@ -2981,6 +2992,10 @@ KswordARKHvmControl(
             Request);
     } else if (Request->command ==
         KSWORD_ARK_HVM_CONTROL_START_RESIDENT) {
+        /* Publish the measurement depth before the flag that consumes it. */
+        KswordARKHvmSetVmreadBenchIterations(
+            &g_KswordHvm,
+            Request->vmreadBenchIterations);
         /* Enter resident VMX only through the all-processor rendezvous. */
         status = KswordARKHvmResidentStart(
             &g_KswordHvm,

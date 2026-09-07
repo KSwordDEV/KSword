@@ -738,11 +738,15 @@ KswordARKHvmResidentVmExitDispatch(
             &Context->Runtime->VmreadBenchArmed,
             0L,
             0L) != 0L) {
-        ULONG iteration = 0UL;
+        LONG depth = InterlockedCompareExchange(
+            &Context->Runtime->VmreadBenchIterations,
+            0L,
+            0L);
+        LONG iteration = 0L;
         SIZE_T discard = 0U;
 
-        for (iteration = 0UL;
-             iteration < KSWORD_ARK_HVM_VMREAD_BENCH_ITERATIONS;
+        for (iteration = 0L;
+             iteration < depth;
              ++iteration) {
             /* Any always-present field; only the access cost is of interest. */
             (void)KswordARKHvmVmcsFieldLoad(

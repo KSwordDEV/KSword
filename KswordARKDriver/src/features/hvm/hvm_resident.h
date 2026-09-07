@@ -256,6 +256,19 @@ KswordARKHvmResidentClaimTlbNmi(
     _In_ ULONG ApicId
     );
 
+/*
+ * Set how many throwaway VMREADs each exit performs while the measurement flag
+ * is armed.  Zero selects the default; anything past the bound is clamped.
+ *
+ * Call before arming, so the exit path never sees an armed benchmark whose
+ * depth has not been decided.
+ */
+VOID
+KswordARKHvmSetVmreadBenchIterations(
+    _Inout_ KSW_HVM_RUNTIME* Runtime,
+    _In_ ULONG Requested
+    );
+
 /* Devirtualize one current processor from the VM-exit path. */
 BOOLEAN
 KswordARKHvmResidentDeactivateCurrent(

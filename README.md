@@ -244,12 +244,33 @@ If this project helps you, consider supporting its development.
 
 ## Next
 
-**Hvm & Nested VM** — the resident monitor now runs multiprocessor under nested
+**Hvm & Nested VM** — the resident monitor runs multiprocessor under nested
 Hyper-V, with CLOAK split views verified end-to-end on 2 vCPU. Cross-core TLB
 invalidation, which a forwarded flush hypercall silently drops in that
 environment, is fixed and measured
-([writeup](docs/next/嵌套下的跨核TLB失效.md)). Still open: enlightened-VMCS field
-access (VMCS reads currently go through `VMREAD` on every exit), VPID, and
-nested VMX beyond capability reporting.
+([writeup](docs/next/嵌套下的跨核TLB失效.md)).
+
+Two optimizations were evaluated and **declined**, with the readings kept so the
+decision can be revisited on different hardware rather than re-argued:
+
+- *Enlightened VMCS.* A `VMREAD` costs 0.14% of one exit here — measured by
+  adding a known number of throwaway reads per exit and watching throughput, at
+  three depths spanning 16x, agreeing to ±0.003. At ~10 field reads per exit
+  that caps the win at **1.4%**, against a ~150-entry mapping table and the loss
+  of three fields the enlightened layout does not carry. The outer hypervisor
+  turns out to run VMCS shadowing, so the premise this optimization rests on —
+  that a nested `VMREAD` traps — does not hold on this machine. The probe is
+  kept (`hvm_ctl resident-vmreadbench <n>`); one command re-decides it elsewhere.
+- *VPID.* Enabling it would stop VM entry from flushing the linear mappings
+  tagged VPID 0000H, which is precisely what makes the cross-core flush fix
+  work — it would fail **silently**, back to the 97% figure above. The cost is
+  concrete and the benefit is unmeasured, so it stays paired with that fix
+  rather than taken alone.
+
+Genuinely open: nested VMX. The vmcs12→vmcs02 merge path exists and runs on
+every L2 entry attempt, but two-dimensional page-table composition does not, so
+every attempt ends in `VMfailValid` (and is counted, not silently dropped).
+Largest real exit cost is HLT at 62%, which the outer hypervisor forces through
+the capability MSR and we cannot decline.
 
 **Anti BSOD**
