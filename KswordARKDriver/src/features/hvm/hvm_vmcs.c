@@ -1169,6 +1169,24 @@ KswordARKHvmConfigureVmcs(
         return STATUS_NOT_SUPPORTED;
     }
 
+    /*
+     * Record what is about to be enforced, alongside what it was adjusted
+     * against.  A control bit set here that the request did not ask for is one
+     * the capability MSR made mandatory - which is the only way to tell an
+     * outer hypervisor's demand apart from a mistake of ours.
+     */
+    if (Input->ActiveControls != NULL) {
+        Input->ActiveControls->Pin = pinControls;
+        Input->ActiveControls->Primary = primaryControls;
+        Input->ActiveControls->Secondary = secondaryControls;
+        Input->ActiveControls->Exit = exitControls;
+        Input->ActiveControls->Entry = entryControls;
+        Input->ActiveControls->PinCapability = pinCapability;
+        Input->ActiveControls->PrimaryCapability = primaryCapability;
+        Input->ActiveControls->SecondaryCapability = secondaryCapability;
+        Input->ActiveControls->ExitCapability = exitCapability;
+        Input->ActiveControls->EntryCapability = entryCapability;
+    }
     /* Build the complete fixed VMCS write ledger on the launch stack. */
     {
         const KSW_HVM_VMCS_WRITE writes[] = {

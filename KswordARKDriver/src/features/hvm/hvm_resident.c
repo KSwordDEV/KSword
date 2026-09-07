@@ -815,6 +815,11 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     /* Select resident controls rather than one-shot HLT interception. */
     input.ResidentMode = 1U;
     /*
+     * Record what ends up enforced, so the protocol can report which control
+     * bits this machine made mandatory rather than which ones we asked for.
+     */
+    input.ActiveControls = &Context->Runtime->ActiveControls;
+    /*
      * Run VMX root on the private IDT when one was built; zero keeps the
      * guest's table, which is what every build before this one used.
      */

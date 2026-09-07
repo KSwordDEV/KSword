@@ -102,6 +102,12 @@ typedef struct _KSW_HVM_VMCS_INPUT
      * an optimization.  Zero keeps the previous behavior exactly.
      */
     ULONGLONG HostIdtBase;
+    /*
+     * Where to record the controls that end up enforced, or NULL to record
+     * nothing.  Purely diagnostic: configuration behaves identically either
+     * way.
+     */
+    struct _KSW_HVM_ACTIVE_CONTROLS* ActiveControls;
 } KSW_HVM_VMCS_INPUT;
 
 typedef struct _KSW_HVM_VMEXIT_TELEMETRY
@@ -114,6 +120,40 @@ typedef struct _KSW_HVM_VMEXIT_TELEMETRY
     ULONGLONG GuestRip;
     ULONGLONG GuestRsp;
 } KSW_HVM_VMEXIT_TELEMETRY;
+
+/*
+ * What was actually written into the VMCS execution-control fields, and the
+ * capability MSR each one was adjusted against.
+ *
+ * "Which exits does this machine take" and "which of them did we ask for" are
+ * different questions, and the second one used to be answerable only by reading
+ * the source and reasoning.  The exit histogram made the gap concrete: HLT is
+ * the single largest exit reason on the nested target, while resident mode
+ * requests no HLT exiting at all - so either the outer hypervisor forces the
+ * bit through the allowed-0 half of the capability MSR, or the control is being
+ * computed wrongly, and reasoning cannot tell those two apart.
+ *
+ * The adjusted result is what is kept, not the request: the request is a
+ * compile-time constant anyone can read, while the value the processor
+ * enforces is the one that explains the exits.  A bit set here that the
+ * request did not ask for is, by construction, one the capability MSR made
+ * mandatory.
+ */
+typedef struct _KSW_HVM_ACTIVE_CONTROLS
+{
+    ULONG Pin;
+    ULONG Primary;
+    ULONG Secondary;
+    ULONG Exit;
+    ULONG Entry;
+    /* Keep the 64-bit members below naturally aligned. */
+    ULONG Reserved;
+    ULONGLONG PinCapability;
+    ULONGLONG PrimaryCapability;
+    ULONGLONG SecondaryCapability;
+    ULONGLONG ExitCapability;
+    ULONGLONG EntryCapability;
+} KSW_HVM_ACTIVE_CONTROLS;
 
 EXTERN_C_START
 

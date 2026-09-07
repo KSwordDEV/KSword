@@ -719,6 +719,63 @@ static void PrintIoQualification(const char* indent, unsigned long long q)
 }
 
 /*
+ * 执行控制：实际生效的值，以及其中哪些位是**被强制的**。
+ *
+ * 能力 MSR 的低 32 位是 allowed-0：位为 1 表示那一位必须为 1，不管请求方要不要。
+ * 所以 `强制 = 低32位`，而"我们主动要的"就是 `生效 & ~强制`。
+ *
+ * 这个区分是本函数存在的全部理由：只看生效值，分不清一条退出是我们自己要拦的，
+ * 还是外层 hypervisor 逼我们拦的 —— 前者可以优化掉，后者不能。
+ */
+static void PrintControlLine(const char* name,
+                             unsigned long active,
+                             unsigned long long capability)
+{
+    unsigned long forced = (unsigned long)(capability & 0xFFFFFFFFULL);
+    unsigned long forcedActive = active & forced;
+    unsigned long requested = active & ~forced;
+
+    printf("  %-10s: 0x%08lX   被强制 0x%08lX   自选 0x%08lX\n",
+           name, active, forcedActive, requested);
+}
+
+static void PrintActiveControls(const KSWORD_ARK_QUERY_HVM_RESPONSE* rsp)
+{
+    if (rsp->activePinControls == 0UL &&
+        rsp->activePrimaryControls == 0UL &&
+        rsp->activeExitControls == 0UL) {
+        printf("  执行控制     : （尚未配置过常驻，无记录）\n");
+        return;
+    }
+    printf("  执行控制     : 生效值 / 能力 MSR 的 allowed-0 强制位\n");
+    PrintControlLine("pin", rsp->activePinControls, rsp->pinCapability);
+    PrintControlLine("primary", rsp->activePrimaryControls,
+                     rsp->primaryCapability);
+    PrintControlLine("secondary", rsp->activeSecondaryControls,
+                     rsp->secondaryCapability);
+    PrintControlLine("exit", rsp->activeExitControls, rsp->exitCapability);
+    PrintControlLine("entry", rsp->activeEntryControls, rsp->entryCapability);
+    /*
+     * HLT exiting 单独点名：退出直方图上它是最大的一项，而常驻模式并不请求它，
+     * 所以它到底是不是被强制的，直接决定那一大块开销能不能动。
+     */
+    {
+        unsigned long hlt = 1UL << 7;
+        unsigned long forced =
+            (unsigned long)(rsp->primaryCapability & 0xFFFFFFFFULL);
+
+        if ((rsp->activePrimaryControls & hlt) != 0UL) {
+            printf("    HLT exiting: 生效%s\n",
+                   ((forced & hlt) != 0UL)
+                       ? "，且**被能力 MSR 强制**（外层要求，我们关不掉）"
+                       : "，但**没有被强制** —— 是我们自己请求的");
+        } else {
+            printf("    HLT exiting: 未生效\n");
+        }
+    }
+}
+
+/*
  * 按退出原因的直方图：退出到底花在哪。
  *
  * `count` 和 `lastExitReason` 合起来答不了这个问题 —— 把 "reason=18" 读一百遍，
@@ -944,6 +1001,7 @@ static int DoQuery(HANDLE h, int asJson)
                        rsp.lastExitQualification, rsp.lastGuestRip,
                        rsp.lastGuestRsp, rsp.lastExitInstructionLength);
     PrintExitReasonHistogram("  ", &rsp);
+    PrintActiveControls(&rsp);
     printf("  CPU / HV     : %.12s / %.12s\n", rsp.cpuVendor, rsp.hypervisorVendor);
     PrintCpuRows(&rsp, 0);
     return 0;

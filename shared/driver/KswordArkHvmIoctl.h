@@ -659,6 +659,30 @@ typedef struct _KSWORD_ARK_QUERY_HVM_RESPONSE
      * happened rather than adding one.
      */
     unsigned long long exitReasonCount[KSWORD_ARK_HVM_EXIT_REASON_SLOTS];
+    /*
+     * The execution controls actually enforced, and the capability MSR each was
+     * adjusted against.
+     *
+     * Reported because "which exits does this machine take" and "which of them
+     * did we ask for" are different questions.  A control bit set in the active
+     * value that the driver's request did not contain is one the capability
+     * MSR's allowed-0 half made mandatory - which is how an outer hypervisor's
+     * demand is told apart from a mistake in our own control computation.
+     * Without this the distinction is only reachable by reading source.
+     *
+     * Zero until residency has been configured at least once.
+     */
+    unsigned long activePinControls;
+    unsigned long activePrimaryControls;
+    unsigned long activeSecondaryControls;
+    unsigned long activeExitControls;
+    unsigned long activeEntryControls;
+    unsigned long activeControlsReserved;
+    unsigned long long pinCapability;
+    unsigned long long primaryCapability;
+    unsigned long long secondaryCapability;
+    unsigned long long exitCapability;
+    unsigned long long entryCapability;
     KSWORD_ARK_HVM_CPU_ROW processors[KSWORD_ARK_HVM_MAX_PROCESSORS];
 } KSWORD_ARK_QUERY_HVM_RESPONSE;
 

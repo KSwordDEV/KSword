@@ -18,6 +18,8 @@ Environment:
 #pragma once
 
 #include "hvm_runtime.h"
+/* KSW_HVM_ACTIVE_CONTROLS is embedded in the runtime below. */
+#include "hvm_vmcs.h"
 
 /* Define the architectural page size used by VMX and EPT structures. */
 #define KSW_HVM_PAGE_BYTES 0x1000ULL
@@ -601,6 +603,29 @@ typedef struct _KSW_HVM_RUNTIME
     ULONGLONG HostCr3;
     /* Preserve IA32_VMX_EPT_VPID_CAP evidence. */
     ULONGLONG VmxEptVpidCapabilities;
+    /*
+     * What was actually written into the VMCS execution-control fields, and the
+     * capability MSR each one was adjusted against.
+     *
+     * Recorded because "which exits does this machine take" and "which of them
+     * did we ask for" are different questions, and until now the second one
+     * could only be answered by reading the source and reasoning about it.
+     * The exit histogram made the gap concrete: HLT is the single largest exit
+     * reason on the nested target, while resident mode requests no HLT exiting
+     * at all - so either the outer hypervisor forces the bit through the
+     * allowed-0 half of the capability MSR, or the control is being computed
+     * wrongly, and reasoning cannot tell those apart.
+     *
+     * Kept as the adjusted result rather than the request: the request is a
+     * compile-time constant anyone can read, whereas the value the processor
+     * actually enforces is the one that explains the exits.  A bit set here
+     * that the request did not ask for is, by construction, one the capability
+     * MSR made mandatory.
+     *
+     * Written once per residency start, from the processor that configures the
+     * VMCS; every processor computes the same values from the same MSRs.
+     */
+    KSW_HVM_ACTIVE_CONTROLS ActiveControls;
     /* Preserve IA32_VMX_VMFUNC evidence; bit 0 is EPTP switching. */
     ULONGLONG VmFunctionCapabilities;
     /* Retain the 512-entry EPTP list published to VMFUNC. */

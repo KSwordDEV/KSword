@@ -2553,6 +2553,18 @@ KswordARKHvmQuery(
         RTL_NUMBER_OF(Response->hypervisorVendor),
         g_KswordHvm.HypervisorVendor,
         RTL_NUMBER_OF(g_KswordHvm.HypervisorVendor));
+    /* Publish the controls actually enforced, next to what allowed them. */
+    Response->activePinControls = g_KswordHvm.ActiveControls.Pin;
+    Response->activePrimaryControls = g_KswordHvm.ActiveControls.Primary;
+    Response->activeSecondaryControls = g_KswordHvm.ActiveControls.Secondary;
+    Response->activeExitControls = g_KswordHvm.ActiveControls.Exit;
+    Response->activeEntryControls = g_KswordHvm.ActiveControls.Entry;
+    Response->pinCapability = g_KswordHvm.ActiveControls.PinCapability;
+    Response->primaryCapability = g_KswordHvm.ActiveControls.PrimaryCapability;
+    Response->secondaryCapability =
+        g_KswordHvm.ActiveControls.SecondaryCapability;
+    Response->exitCapability = g_KswordHvm.ActiveControls.ExitCapability;
+    Response->entryCapability = g_KswordHvm.ActiveControls.EntryCapability;
     for (index = 0UL;
          index < g_KswordHvm.ProcessorCount &&
             index < KSWORD_ARK_HVM_MAX_PROCESSORS;
