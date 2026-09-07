@@ -436,6 +436,9 @@ try {
         default     { @() }
     }
 
+    # 只增不减：任何一步空过就置真，末尾据此把这一段判成 PARTIAL 而不是 OK。
+    $anyBlocked = $false
+
     foreach ($step in $plan) {
         # probe-xonly 自己会起一次常驻，所以它和 resident/soak 一样危险，
         # 必须先打检查点。
@@ -489,7 +492,14 @@ try {
             Add-Step $step 'BLOCKED' $r.Json `
                 '探针空过：跑完了但没有区分力（前置未建立或标定不全），不算通过'
             [void]$record.notes.Add("$step 空过 —— 这一项这次什么都没测到。")
-            if ($record.verdict -eq 'OK') { $record.verdict = 'PARTIAL' }
+            # 记在一个**只增不减**的标志上，不要在这里改 verdict。
+            #
+            # 上一版写的是 `if ($record.verdict -eq 'OK') { ... = 'PARTIAL' }`，
+            # 而这一刻 verdict 还是初值 'NOT_RUN'（第 99 行），**那个条件永远不成立**；
+            # 紧接着计划循环末尾又无条件写 'OK'，于是 BLOCKED 被静默升级成通过。
+            # 2026-09-07 实测：2 vCPU 上 view-effect 因多核门装不上视图、工具如实
+            # 报「测不到生效与否」并退 3，套件却把这一段印成 [PASS]。
+            $anyBlocked = $true
         } else {
             # **先把响应记下来再做任何别的事。** 上一版在这里先格式化 note、
             # 后 Add-Step，结果格式化抛异常时把整份失败响应弄丢了 ——
@@ -540,7 +550,9 @@ try {
         }
     }
 
-    $record.verdict = 'OK'
+    # 有任何一步空过，这一段就不是 OK。
+    # 「跑完了没崩」与「测到了东西」是两件事，把前者印成后者正是本仓库反复吃亏的形状。
+    $record.verdict = if ($anyBlocked) { 'PARTIAL' } else { 'OK' }
 }
 catch {
     $record.verdict = 'ERROR'

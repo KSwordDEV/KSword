@@ -1568,6 +1568,8 @@ static int DoProbeExecuteOnly(HANDLE h, int asJson)
     int probed = 0;
     int enforced = 0;
     unsigned long residentAfter = 0UL;
+    /* 读之前的常驻核数。判据是"降下来了"，不是"降到 0"——见起常驻处的注释。 */
+    unsigned long residentBefore = 0UL;
     unsigned char observed = 0U;
     int rc = 1;
 
@@ -1665,6 +1667,28 @@ static int DoProbeExecuteOnly(HANDLE h, int asJson)
     started = 1;
 
     /*
+     * 读之前先记下常驻核数 —— 判据要的是**降下来了**，不是**降到 0**。
+     *
+     * fail-closed 只退**当前这一个**处理器（hvm_resident.h:199 的注释逐字写着
+     * "Devirtualize one current processor from the VM-exit path"），驱动里那套
+     * KeIpiGenericCall 会合只服务计划内的起停/失效，不服务 fail-closed ——
+     * 那条路身处 VMX root、IRQL 不确定，本来就发不了 IPI。
+     *
+     * 于是 1 vCPU 上「退当前核」与「全停」不可区分，residentAfter==0 恰好成立；
+     * 2 vCPU 上同样的正确行为会留下另一个核仍在常驻，residentAfter==1，
+     * 旧判据据此判「未强制」——**驱动没变，判据把核数当成了常量**。
+     * 2026-09-07 实测：1 vCPU 报 execute-only-enforced，2 vCPU 报 not-enforced。
+     */
+    memset(&qreq, 0, sizeof(qreq));
+    memset(&qrsp, 0, sizeof(qrsp));
+    qreq.version = KSWORD_ARK_HVM_PROTOCOL_VERSION;
+    qreq.size = (unsigned long)sizeof(qreq);
+    if (DeviceIoControl(h, IOCTL_KSWORD_ARK_QUERY_HVM, &qreq, sizeof(qreq),
+                        &qrsp, (DWORD)sizeof(qrsp), &returned, NULL)) {
+        residentBefore = qrsp.residentProcessorCount;
+    }
+
+    /*
      * --- 5. 读那一页，但**必须让驱动去读**，不能在这里直接碰 page[0] ---
      *
      * 严格命中的处置是 fail-closed 退虚拟化，而退虚拟化路径
@@ -1749,22 +1773,33 @@ cleanup_rules:
     }
 
     /*
-     * 判据：读**之后**常驻还在不在。
-     * 掉到 0 = 严格命中走了 fail-closed 退虚拟化 = 权限被真正强制。
-     * 仍为非零 = 那次读根本没产生 EPT 违规 = L0 没兑现被移除的权限。
+     * 判据：读**之后**常驻核数比读之前少了。
+     *
+     * 少了 = 严格命中走了 fail-closed 退虚拟化 = 权限被真正强制。
+     * 一个没少 = 那次读根本没产生 EPT 违规 = L0 没兑现被移除的权限。
+     *
+     * **不能写成 residentAfter == 0**：fail-closed 只退当前那一个处理器，
+     * 所以 N 核上正确行为留下的是 N-1，不是 0。旧判据在 1 vCPU 上碰巧成立，
+     * 一上多核就把正确行为判成失败（2026-09-07 实测）。
+     *
+     * residentBefore == 0 说明读之前那次 QUERY 就没成功，此时"少了"无从谈起，
+     * 退回只看 faulted —— 缺读数时宁可判不出，也不要拿一个没有基准的差值下结论。
      */
-    enforced = (residentAfter == 0UL) || faulted;
+    enforced = faulted ||
+        (residentBefore > 0UL && residentAfter < residentBefore);
     rc = enforced ? 0 : 2;
 
     if (asJson) {
         printf("{\"kind\":\"probe-xonly\",\"physicalAddress\":\"0x%016llX\","
                "\"ruleId\":%lu,\"requestedDenied\":1,\"effectiveDenied\":%lu,"
-               "\"executeOnlyEncodable\":%s,\"residentAfterRead\":%lu,"
+               "\"executeOnlyEncodable\":%s,\"residentBeforeRead\":%lu,"
+               "\"residentAfterRead\":%lu,"
                "\"readFaulted\":%s,\"observedByte\":%u,\"enforced\":%s,"
                "\"verdict\":\"%s\"}\n",
                physical, ruleId, effectiveDenied,
                ((effectiveDenied & KSWORD_ARK_HVM_EPT_ACCESS_EXECUTE) == 0UL)
                    ? "true" : "false",
+               residentBefore,
                residentAfter,
                faulted ? "true" : "false",
                (unsigned)observed,
@@ -1791,9 +1826,14 @@ cleanup_rules:
         printf("  Q1 驱动侧   : EXECUTE 也被拒了 => 这台机器编码不出 "
                "execute-only，CLOAK 无从谈起\n");
     }
-    printf("  读回字节     : 0x%02X   读后 residentProcessorCount = %lu%s\n",
-           (unsigned)observed, residentAfter,
+    printf("  读回字节     : 0x%02X   常驻核数 %lu -> %lu%s\n",
+           (unsigned)observed, residentBefore, residentAfter,
            faulted ? "   （读本身抛了异常）" : "");
+    printf("  判据         : 常驻核数**降下来了**即视为强制生效，"
+           "不是「降到 0」。\n");
+    printf("                 fail-closed 只退当前那一个处理器"
+           "（hvm_resident.h:199），\n");
+    printf("                 所以 N 核上正确行为留下的是 N-1 而不是 0。\n");
     if (enforced) {
         printf("  Q2 L0 侧    : 那次读**产生了 EPT 违规**（常驻被 fail-closed "
                "打回原生）\n");
