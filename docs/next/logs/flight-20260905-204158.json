@@ -1,0 +1,33 @@
+{
+  "schema": "ksword.hostflight/1",
+  "vmName": "KSword-HVM-Target",
+  "instance": "KSword-HVM-Target:Hv VP 0",
+  "counters": [
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Nested VM Entries/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Total Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\% Guest Run Time",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\% Hypervisor Run Time",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\MSR Accesses/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Hypercalls/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Nested Page Fault Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Long Spin Wait Hypercalls/sec"
+  ],
+  "calibrated": false,
+  "baselineNestedEntriesAvg": 0.0,
+  "calibrationNestedEntriesMax": 0.0,
+  "marks": [
+    {
+      "utc": "2026-09-06T00:42:19.3465152Z",
+      "mark": "launch-test-guest:before"
+    },
+    {
+      "utc": "2026-09-06T00:42:36.6381129Z",
+      "mark": "resident:before"
+    },
+    {
+      "utc": "2026-09-06T00:44:07.7193236Z",
+      "mark": "observe:end"
+    }
+  ],
+  "csv": "C:\\Users\\Felix\\CLionProjects\\KSword\\docs\\next\\logs\\flight-20260905-204158.csv"
+}

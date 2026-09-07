@@ -1,0 +1,827 @@
+
+=== KswordARKLight\KswordARKLight.vcxproj ===
+适用于 .NET Framework MSBuild 版本 17.14.51+25f168cee
+
+  ArkDriverAlpc.cpp
+  ArkDriverAudit.cpp
+  ArkDriverBlind.cpp
+  ArkDriverBugcheck.cpp
+  ArkDriverCallback.cpp
+  ArkDriverCapability.cpp
+  ArkDriverClient.cpp
+  ArkDriverDebugOutput.cpp
+  ArkDriverDispatch.cpp
+  ArkDriverDynData.cpp
+  ArkDriverError.cpp
+  ArkDriverFile.cpp
+  ArkDriverHandle.cpp
+  ArkDriverHvm.cpp
+  ArkDriverHwid.cpp
+  ArkDriverImage.cpp
+  ArkDriverIoctlRegistry.cpp
+  ArkDriverKernel.cpp
+  ArkDriverKernelBaseline.cpp
+  ArkDriverKeyboard.cpp
+  ArkDriverMemory.cpp
+  ArkDriverMutation.cpp
+  ArkDriverNetworkTraffic.cpp
+  ArkDriverPiDdb.cpp
+  ArkDriverPower.cpp
+  ArkDriverProcess.cpp
+  ArkDriverRegistry.cpp
+  ArkDriverSection.cpp
+  ArkDriverStorageForensics.cpp
+  ArkDriverSystemTime.cpp
+  ArkDriverVirtualization.cpp
+  ArkDriverWorkQueue.cpp
+  ArkRuntimeDynData.cpp
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244: “=”: 从“const _Ty”转换到“unsigned char”，可能丢失数据 [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:         with [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:         [ [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:             _Ty=unsigned int [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:         ] [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+  (编译源文件“../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverMutation.cpp”)
+      C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24):
+      模板实例化上下文(最早的实例化上下文)为
+          C:\Users\Felix\CLionProjects\KSword\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverMutation.cpp(56,18):
+          查看对正在编译的函数 模板 实例化“void std::fill<unsigned char*,unsigned int>(const _FwdIt,const _FwdIt,const _Ty &)”的引用
+          with
+          [
+              _FwdIt=unsigned char *,
+              _Ty=unsigned int
+          ]
+  
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244: “初始化”: 从“const _Ty”转换到“unsigned char”，可能丢失数据 [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:         with [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:         [ [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:             _Ty=unsigned int [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:         ] [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+  (编译源文件“../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverMutation.cpp”)
+      C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37):
+      模板实例化上下文(最早的实例化上下文)为
+          C:\Users\Felix\CLionProjects\KSword\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverMutation.cpp(56,18):
+          查看对正在编译的函数 模板 实例化“void std::fill<unsigned char*,unsigned int>(const _FwdIt,const _FwdIt,const _Ty &)”的引用
+          with
+          [
+              _FwdIt=unsigned char *,
+              _Ty=unsigned int
+          ]
+          C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5299,22):
+          查看对正在编译的函数 模板 实例化“void std::_Fill_memset<_FwdIt,_Ty>(_CtgIt,const _Ty,const size_t)”的引用
+          with
+          [
+              _FwdIt=unsigned char *,
+              _Ty=unsigned int,
+              _CtgIt=unsigned char *
+          ]
+  
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244: “=”: 从“const _Ty”转换到“unsigned char”，可能丢失数据 [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:         with [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:         [ [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:             _Ty=unsigned int [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:         ] [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+  (编译源文件“../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverCallback.cpp”)
+      C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24):
+      模板实例化上下文(最早的实例化上下文)为
+          C:\Users\Felix\CLionProjects\KSword\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCallback.cpp(355,14):
+          查看对正在编译的函数 模板 实例化“void std::fill<std::_Vector_iterator<std::_Vector_val<std::_Simple_types<_Ty>>>,unsigned int>(const _FwdIt,const _FwdIt,const unsigned int &)”的引用
+          with
+          [
+              _Ty=uint8_t,
+              _FwdIt=std::_Vector_iterator<std::_Vector_val<std::_Simple_types<uint8_t>>>
+          ]
+  
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244: “初始化”: 从“const _Ty”转换到“unsigned char”，可能丢失数据 [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:         with [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:         [ [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:             _Ty=unsigned int [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:         ] [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+  (编译源文件“../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverCallback.cpp”)
+      C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37):
+      模板实例化上下文(最早的实例化上下文)为
+          C:\Users\Felix\CLionProjects\KSword\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCallback.cpp(355,14):
+          查看对正在编译的函数 模板 实例化“void std::fill<std::_Vector_iterator<std::_Vector_val<std::_Simple_types<_Ty>>>,unsigned int>(const _FwdIt,const _FwdIt,const unsigned int &)”的引用
+          with
+          [
+              _Ty=uint8_t,
+              _FwdIt=std::_Vector_iterator<std::_Vector_val<std::_Simple_types<uint8_t>>>
+          ]
+          C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5299,22):
+          查看对正在编译的函数 模板 实例化“void std::_Fill_memset<unsigned char*,_Ty>(_CtgIt,const _Ty,const size_t)”的引用
+          with
+          [
+              _Ty=unsigned int,
+              _CtgIt=unsigned char *
+          ]
+  
+  DriverService.cpp
+  DriverActions.cpp
+  DriverDebugOutputView.cpp
+  DriverEnumerator.cpp
+  DriverUnloadedView.cpp
+  FileActions.cpp
+  FileFeature.cpp
+  HandleClient.cpp
+  HandlePage.cpp
+  HardwareHwidDispatchView.cpp
+  HardwareView.cpp
+  KernelCallbackEventReceiver.cpp
+  KernelDynDataProfiles.cpp
+  KernelFacade.cpp
+  DriverMemoryClient.cpp
+  MiscFeature.cpp
+  NetworkModel.cpp
+  ProcessDetailCollector.cpp
+  ProcessDetailPage.HotkeyKeyboard.cpp
+  ProcessDetailPage.Thread.cpp
+  ProcessActions.cpp
+  ProcessView.cpp
+  RegistryActions.cpp
+  Win32kTimerEvidenceModel.cpp
+  WindowView.cpp
+C:\Users\Felix\CLionProjects\KSword\KswordARKLight\Features\ProcessDetail\ProcessDetailCollector.cpp(104,23): warning C4127: 条件表达式是常量 [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+      C:\Users\Felix\CLionProjects\KSword\KswordARKLight\Features\ProcessDetail\ProcessDetailCollector.cpp(104,23):
+      考虑改用 "if constexpr" 语句
+  
+  KswordARKLight: standalone build detected; building/signing KswordARKDriver before embedding. Set /p:KswordArkLightEnsureDriverBuilt=false only if a fresh signed KswordARK.sys is already present.
+  Building 'KswordARKDriver' with toolset 'WindowsKernelModeDriver10.0' and the 'Universal' target platform.
+  Stamping x64\Release\KswordARKDriver.inf
+  Stamping [Version] section with DriverVer=04/24/2026,23.31.36.920
+  KswordARKDriver.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  Driver is 'Universal'.
+  ..........................
+  Signability test complete.
+  
+  Errors:
+  None
+  
+  Warnings:
+  None
+  
+  Catalog generation complete.
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKDriver\kswordarkdriver.cat
+  KswordARK: copying unsigned clean driver before post-build variant signing: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK_Clean.sys
+  KswordARK: applying post-build driver variant signing for C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys. Set /p:KswordArkSkipAutoVariantSign=true to skip.
+  KswordARK driver signing root: C:\Users\Felix\CLionProjects\KSword
+  Driver output: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  CSignTool: C:\Users\Felix\CLionProjects\KSword\.cert\CSignTool.exe
+  AuthenticodeVariantGUI: C:\Users\Felix\CLionProjects\KSword\.cert\AuthenticodeVariantGUI.exe
+  Display info: C:\Users\Felix\CLionProjects\KSword\.cert\outer_display_info.dat
+  signtool: C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe
+  TrustAsia Signature Tools v3.2.0
+  
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys	Start signature...	Signature success!
+  Signature finish.
+  After CSignTool signature summary skipped: The 'Get-AuthenticodeSignature' command was found in the module 'Microsoft.PowerShell.Security', but the module could not be loaded. For more information, run 'Import-Module Microsoft.PowerShell.Security'.
+  TrustAsia Signature Tools v3.2.0
+  
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys	Start signature...	Signature success!
+  Signature finish.
+  After CSignTool /ac signature summary skipped: The 'Get-AuthenticodeSignature' command was found in the module 'Microsoft.PowerShell.Security', but the module could not be loaded. For more information, run 'Import-Module Microsoft.PowerShell.Security'.
+  Restored pre-variant driver before legacy fallback: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  WARNING: KswordARK variant signing failed; falling back to legacy non-fatal test signing. Reason: 
+  AuthenticodeVariantGUI did not create expected output: 
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.authvariant.tmp.sys
+  仓库根目录：C:\Users\Felix\CLionProjects\KSword
+  管理员权限：False
+  signtool：C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86\signtool.exe
+  复用文件型测试证书：34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  证书文件：C:\Users\Felix\CLionProjects\KSword\.cert\KswordARK-TestSigning.cer
+  [33;1mWARNING: 导入 CurrentUser 证书信任失败：操作已被用户取消。 (0x800704C7)[0m
+  [33;1mWARNING: 当前不是管理员：无法导入 LocalMachine 信任区。内核加载可能仍然报 577。[0m
+  [33;1mWARNING: 请用管理员 PowerShell 重新运行本脚本，或手工把 .cert\KswordARK-TestSigning.cer 导入“本地计算机\受信任的根证书颁发机构”和“受信任的发布者”。[0m
+  签名目标：C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  The following certificate was selected:
+      Issued to: KswordARK Test Signing Certificate
+  
+      Issued by: KswordARK Test Signing Certificate
+  
+      Expires:   Tue May 06 21:03:25 2036
+  
+      SHA1 hash: 34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  
+  
+  Done Adding Additional Store
+  Successfully signed: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  
+  
+  Number of files successfully Signed: 1
+  
+  Number of warnings: 0
+  
+  Number of errors: 0
+  
+  
+  
+  Verifying: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  
+  
+  Signature Index: 0 (Primary Signature)
+  Hash of file (sha256): 68B6BAD4AABB7747287F0909BD435B1B8B144BC43955310031F6324E5F7AA739
+  
+  Signing Certificate Chain:
+      Issued to: KswordARK Test Signing Certificate
+  
+      Issued by: KswordARK Test Signing Certificate
+  
+      Expires:   Tue May 06 21:03:25 2036
+  
+      SHA1 hash: 34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  
+  
+  File is not timestamped.
+  
+  
+  Number of files successfully Verified: 0
+  
+  Number of warnings: 0
+  
+  Number of errors: 1
+  
+  SignTool Error: A certificate chain processed, but terminated in a root
+  	certificate which is not trusted by the trust provider.
+  [33;1mWARNING: signtool verify /pa 未通过：C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys，退出码：1。[0m
+  [33;1mWARNING: 这通常表示证书尚未导入本机信任区；签名已写入文件，但内核加载前仍需管理员导入 LocalMachine 信任区。[0m
+  签名状态：UnknownError；签名者：CN=KswordARK Test Signing Certificate
+  
+  完成。
+  若加载仍返回 577，请确认：
+  1. bcdedit /enum 中 testsigning 为 Yes，并且已经重启；
+  2. 证书已在 LocalMachine\Root 与 LocalMachine\TrustedPublisher；
+  3. 服务 ImagePath 指向的正是刚刚签名的 KswordARK.sys。
+  Final driver SHA256: C8421D56428D120076EA52EADE1221A03E3C0DA4D97F14AB558CFC571D87CDFD
+  
+  
+  Verifying: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  
+  
+  Signature Index: 0 (Primary Signature)
+  Hash of file (sha256): 68B6BAD4AABB7747287F0909BD435B1B8B144BC43955310031F6324E5F7AA739
+  
+  Signing Certificate Chain:
+      Issued to: KswordARK Test Signing Certificate
+  
+      Issued by: KswordARK Test Signing Certificate
+  
+      Expires:   Tue May 06 21:03:25 2036
+  
+      SHA1 hash: 34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  
+  
+  File is not timestamped.
+  
+  
+  Number of files successfully Verified: 0
+  
+  Number of warnings: 0
+  
+  Number of errors: 1
+  
+  SignTool Error: A certificate chain processed, but terminated in a root
+  	certificate which is not trusted by the trust provider.
+  WARNING: Final kernel signature verification failed with exit code 1. Set -RequireKernelSignature (or 
+  KSWORD_REQUIRE_KERNEL_SIGNATURE=1) to make this fatal for release builds.
+  KswordARKLight: reusing existing signed driver for RCDATA embedding: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys. Set /p:KswordArkLightReuseSignedDriver=false to force a clean restore and re-sign.
+  正在生成代码
+  392 of 51195 functions ( 0.8%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    768 functions had inline decision re-evaluated but remain unchanged
+  已完成代码的生成
+  KswordARKLight.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKLight.exe
+EXIT=0
+=== KswordCLI\KswordCLI.vcxproj ===
+适用于 .NET Framework MSBuild 版本 17.14.51+25f168cee
+
+  KswordCLI.cpp
+  ArkDriverExtended.cpp
+  ArkDriverClient.cpp
+  ArkDriverAudit.cpp
+  ArkDriverBlind.cpp
+  ArkDriverBugcheck.cpp
+  ArkDriverCallbackMonitor.cpp
+  ArkDriverDebugOutput.cpp
+  ArkDriverError.cpp
+  ArkDriverFile.cpp
+  ArkDriverFileIrp.cpp
+  ArkDriverHvm.cpp
+  ArkDriverIoctlRegistry.cpp
+  ArkDriverKernel.cpp
+  ArkDriverKernelBaseline.cpp
+  ArkDriverKeyboard.cpp
+  ArkDriverNetworkTraffic.cpp
+  ArkDriverPiDdb.cpp
+  ArkDriverPower.cpp
+  ArkDriverProcessProtect.cpp
+  正在编译...
+  ArkDriverStorageForensics.cpp
+  ArkDriverSystemTime.cpp
+  ArkDriverVirtualization.cpp
+  ArkDriverWorkQueue.cpp
+  string.cpp
+  正在生成代码
+  Previous IPDB not found, fall back to full compilation.
+  All 2561 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  已完成代码的生成
+  KswordCLI.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordCLI.exe
+EXIT=0
+适用于 .NET Framework MSBuild 版本 17.14.51+25f168cee
+
+  KswordARKLight: standalone build detected; building/signing KswordARKDriver before embedding. Set /p:KswordArkLightEnsureDriverBuilt=false only if a fresh signed KswordARK.sys is already present.
+  Building 'KswordARKDriver' with toolset 'WindowsKernelModeDriver10.0' and the 'Universal' target platform.
+  Stamping x64\Release\KswordARKDriver.inf
+  Stamping [Version] section with DriverVer=04/24/2026,0.50.32.769
+  hvm_ioctl.c
+    正在创建库 C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.lib 和对象 C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.exp
+  KswordARKDriver.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  Driver is 'Universal'.
+  ..........................
+  Signability test complete.
+  
+  Errors:
+  None
+  
+  Warnings:
+  None
+  
+  Catalog generation complete.
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKDriver\kswordarkdriver.cat
+  KswordARK: copying unsigned clean driver before post-build variant signing: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK_Clean.sys
+  KswordARK: applying post-build driver variant signing for C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys. Set /p:KswordArkSkipAutoVariantSign=true to skip.
+  KswordARK driver signing root: C:\Users\Felix\CLionProjects\KSword
+  Driver output: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  CSignTool: C:\Users\Felix\CLionProjects\KSword\.cert\CSignTool.exe
+  AuthenticodeVariantGUI: C:\Users\Felix\CLionProjects\KSword\.cert\AuthenticodeVariantGUI.exe
+  Display info: C:\Users\Felix\CLionProjects\KSword\.cert\outer_display_info.dat
+  signtool: C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe
+  TrustAsia Signature Tools v3.2.0
+  
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys	Start signature...	Signature success!
+  Signature finish.
+  After CSignTool signature summary skipped: The 'Get-AuthenticodeSignature' command was found in the module 'Microsoft.PowerShell.Security', but the module could not be loaded. For more information, run 'Import-Module Microsoft.PowerShell.Security'.
+  TrustAsia Signature Tools v3.2.0
+  
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys	Start signature...	Signature success!
+  Signature finish.
+  After CSignTool /ac signature summary skipped: The 'Get-AuthenticodeSignature' command was found in the module 'Microsoft.PowerShell.Security', but the module could not be loaded. For more information, run 'Import-Module Microsoft.PowerShell.Security'.
+  Restored pre-variant driver before legacy fallback: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  WARNING: KswordARK variant signing failed; falling back to legacy non-fatal test signing. Reason: 
+  AuthenticodeVariantGUI did not create expected output: 
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.authvariant.tmp.sys
+  仓库根目录：C:\Users\Felix\CLionProjects\KSword
+  管理员权限：False
+  signtool：C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86\signtool.exe
+  复用文件型测试证书：34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  证书文件：C:\Users\Felix\CLionProjects\KSword\.cert\KswordARK-TestSigning.cer
+  [33;1mWARNING: 导入 CurrentUser 证书信任失败：操作已被用户取消。 (0x800704C7)[0m
+  [33;1mWARNING: 当前不是管理员：无法导入 LocalMachine 信任区。内核加载可能仍然报 577。[0m
+  [33;1mWARNING: 请用管理员 PowerShell 重新运行本脚本，或手工把 .cert\KswordARK-TestSigning.cer 导入“本地计算机\受信任的根证书颁发机构”和“受信任的发布者”。[0m
+  签名目标：C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  The following certificate was selected:
+      Issued to: KswordARK Test Signing Certificate
+  
+      Issued by: KswordARK Test Signing Certificate
+  
+      Expires:   Tue May 06 21:03:25 2036
+  
+      SHA1 hash: 34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  
+  
+  Done Adding Additional Store
+  Successfully signed: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  
+  
+  Number of files successfully Signed: 1
+  
+  Number of warnings: 0
+  
+  Number of errors: 0
+  
+  
+  
+  Verifying: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  
+  
+  Signature Index: 0 (Primary Signature)
+  Hash of file (sha256): F8BE8F95A831F89FA93CB5D01606103DD6A0A1571DE912A4CD96F8A72F86532B
+  
+  Signing Certificate Chain:
+      Issued to: KswordARK Test Signing Certificate
+  
+      Issued by: KswordARK Test Signing Certificate
+  
+      Expires:   Tue May 06 21:03:25 2036
+  
+      SHA1 hash: 34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  
+  
+  File is not timestamped.
+  
+  
+  Number of files successfully Verified: 0
+  
+  Number of warnings: 0
+  
+  Number of errors: 1
+  
+  SignTool Error: A certificate chain processed, but terminated in a root
+  	certificate which is not trusted by the trust provider.
+  [33;1mWARNING: signtool verify /pa 未通过：C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys，退出码：1。[0m
+  [33;1mWARNING: 这通常表示证书尚未导入本机信任区；签名已写入文件，但内核加载前仍需管理员导入 LocalMachine 信任区。[0m
+  签名状态：UnknownError；签名者：CN=KswordARK Test Signing Certificate
+  
+  完成。
+  若加载仍返回 577，请确认：
+  1. bcdedit /enum 中 testsigning 为 Yes，并且已经重启；
+  2. 证书已在 LocalMachine\Root 与 LocalMachine\TrustedPublisher；
+  3. 服务 ImagePath 指向的正是刚刚签名的 KswordARK.sys。
+  Final driver SHA256: BD531102D63E4911EEDFB872CF45608EFD672B10C3FD7345A10F50A14B86B414
+  
+  
+  Verifying: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  
+  
+  Signature Index: 0 (Primary Signature)
+  Hash of file (sha256): F8BE8F95A831F89FA93CB5D01606103DD6A0A1571DE912A4CD96F8A72F86532B
+  
+  Signing Certificate Chain:
+      Issued to: KswordARK Test Signing Certificate
+  
+      Issued by: KswordARK Test Signing Certificate
+  
+      Expires:   Tue May 06 21:03:25 2036
+  
+      SHA1 hash: 34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  
+  
+  File is not timestamped.
+  
+  
+  Number of files successfully Verified: 0
+  
+  Number of warnings: 0
+  
+  Number of errors: 1
+  
+  SignTool Error: A certificate chain processed, but terminated in a root
+  	certificate which is not trusted by the trust provider.
+  WARNING: Final kernel signature verification failed with exit code 1. Set -RequireKernelSignature (or 
+  KSWORD_REQUIRE_KERNEL_SIGNATURE=1) to make this fatal for release builds.
+  KswordARKLight: reusing existing signed driver for RCDATA embedding: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys. Set /p:KswordArkLightReuseSignedDriver=false to force a clean restore and re-sign.
+  正在生成代码
+  1 of 51195 functions (<0.1%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    146 functions had inline decision re-evaluated but remain unchanged
+  已完成代码的生成
+  KswordARKLight.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKLight.exe
+适用于 .NET Framework MSBuild 版本 17.14.51+25f168cee
+
+  KswordCLI.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordCLI.exe
+适用于 .NET Framework MSBuild 版本 17.14.51+25f168cee
+
+  ArkDriverAlpc.cpp
+  ArkDriverAudit.cpp
+  ArkDriverBlind.cpp
+  ArkDriverBugcheck.cpp
+  ArkDriverCallback.cpp
+  ArkDriverCapability.cpp
+  ArkDriverClient.cpp
+  ArkDriverDebugOutput.cpp
+  ArkDriverDispatch.cpp
+  ArkDriverDynData.cpp
+  ArkDriverError.cpp
+  ArkDriverFile.cpp
+  ArkDriverHandle.cpp
+  ArkDriverHvm.cpp
+  ArkDriverHwid.cpp
+  ArkDriverImage.cpp
+  ArkDriverIoctlRegistry.cpp
+  ArkDriverKernel.cpp
+  ArkDriverKernelBaseline.cpp
+  ArkDriverKeyboard.cpp
+  ArkDriverMemory.cpp
+  ArkDriverMutation.cpp
+  ArkDriverNetworkTraffic.cpp
+  ArkDriverPiDdb.cpp
+  ArkDriverPower.cpp
+  ArkDriverProcess.cpp
+  ArkDriverRegistry.cpp
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244: “=”: 从“const _Ty”转换到“unsigned char”，可能丢失数据 [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:         with [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:         [ [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:             _Ty=unsigned int [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:         ] [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+  (编译源文件“../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverCallback.cpp”)
+      C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24):
+      模板实例化上下文(最早的实例化上下文)为
+          C:\Users\Felix\CLionProjects\KSword\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCallback.cpp(355,14):
+          查看对正在编译的函数 模板 实例化“void std::fill<std::_Vector_iterator<std::_Vector_val<std::_Simple_types<_Ty>>>,unsigned int>(const _FwdIt,const _FwdIt,const unsigned int &)”的引用
+          with
+          [
+              _Ty=uint8_t,
+              _FwdIt=std::_Vector_iterator<std::_Vector_val<std::_Simple_types<uint8_t>>>
+          ]
+  
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244: “初始化”: 从“const _Ty”转换到“unsigned char”，可能丢失数据 [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:         with [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:         [ [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:             _Ty=unsigned int [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:         ] [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+  (编译源文件“../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverCallback.cpp”)
+      C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37):
+      模板实例化上下文(最早的实例化上下文)为
+          C:\Users\Felix\CLionProjects\KSword\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverCallback.cpp(355,14):
+          查看对正在编译的函数 模板 实例化“void std::fill<std::_Vector_iterator<std::_Vector_val<std::_Simple_types<_Ty>>>,unsigned int>(const _FwdIt,const _FwdIt,const unsigned int &)”的引用
+          with
+          [
+              _Ty=uint8_t,
+              _FwdIt=std::_Vector_iterator<std::_Vector_val<std::_Simple_types<uint8_t>>>
+          ]
+          C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5299,22):
+          查看对正在编译的函数 模板 实例化“void std::_Fill_memset<unsigned char*,_Ty>(_CtgIt,const _Ty,const size_t)”的引用
+          with
+          [
+              _Ty=unsigned int,
+              _CtgIt=unsigned char *
+          ]
+  
+  ArkDriverSection.cpp
+  ArkDriverStorageForensics.cpp
+  ArkDriverSystemTime.cpp
+  ArkDriverVirtualization.cpp
+  ArkDriverWorkQueue.cpp
+  ArkRuntimeDynData.cpp
+  DriverService.cpp
+  DriverActions.cpp
+  DriverDebugOutputView.cpp
+  DriverEnumerator.cpp
+  DriverUnloadedView.cpp
+  FileActions.cpp
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244: “=”: 从“const _Ty”转换到“unsigned char”，可能丢失数据 [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:         with [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:         [ [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:             _Ty=unsigned int [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24): warning C4244:         ] [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+  (编译源文件“../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverMutation.cpp”)
+      C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5310,24):
+      模板实例化上下文(最早的实例化上下文)为
+          C:\Users\Felix\CLionProjects\KSword\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverMutation.cpp(56,18):
+          查看对正在编译的函数 模板 实例化“void std::fill<unsigned char*,unsigned int>(const _FwdIt,const _FwdIt,const _Ty &)”的引用
+          with
+          [
+              _FwdIt=unsigned char *,
+              _Ty=unsigned int
+          ]
+  
+  FileFeature.cpp
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244: “初始化”: 从“const _Ty”转换到“unsigned char”，可能丢失数据 [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:         with [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:         [ [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:             _Ty=unsigned int [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37): warning C4244:         ] [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+  (编译源文件“../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverMutation.cpp”)
+      C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5264,37):
+      模板实例化上下文(最早的实例化上下文)为
+          C:\Users\Felix\CLionProjects\KSword\Ksword5.1\Ksword5.1\ArkDriverClient\ArkDriverMutation.cpp(56,18):
+          查看对正在编译的函数 模板 实例化“void std::fill<unsigned char*,unsigned int>(const _FwdIt,const _FwdIt,const _Ty &)”的引用
+          with
+          [
+              _FwdIt=unsigned char *,
+              _Ty=unsigned int
+          ]
+          C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\include\xutility(5299,22):
+          查看对正在编译的函数 模板 实例化“void std::_Fill_memset<_FwdIt,_Ty>(_CtgIt,const _Ty,const size_t)”的引用
+          with
+          [
+              _FwdIt=unsigned char *,
+              _Ty=unsigned int,
+              _CtgIt=unsigned char *
+          ]
+  
+  HandleClient.cpp
+  HandlePage.cpp
+  HardwareHwidDispatchView.cpp
+  HardwareView.cpp
+  KernelCallbackEventReceiver.cpp
+  KernelDynDataProfiles.cpp
+  KernelFacade.cpp
+  DriverMemoryClient.cpp
+  MiscFeature.cpp
+  NetworkModel.cpp
+  ProcessDetailCollector.cpp
+  ProcessDetailPage.HotkeyKeyboard.cpp
+  ProcessDetailPage.Thread.cpp
+  ProcessActions.cpp
+  ProcessView.cpp
+  RegistryActions.cpp
+  Win32kTimerEvidenceModel.cpp
+  WindowView.cpp
+C:\Users\Felix\CLionProjects\KSword\KswordARKLight\Features\ProcessDetail\ProcessDetailCollector.cpp(104,23): warning C4127: 条件表达式是常量 [C:\Users\Felix\CLionProjects\KSword\KswordARKLight\KswordARKLight.vcxproj]
+      C:\Users\Felix\CLionProjects\KSword\KswordARKLight\Features\ProcessDetail\ProcessDetailCollector.cpp(104,23):
+      考虑改用 "if constexpr" 语句
+  
+  KswordARKLight: standalone build detected; building/signing KswordARKDriver before embedding. Set /p:KswordArkLightEnsureDriverBuilt=false only if a fresh signed KswordARK.sys is already present.
+  Building 'KswordARKDriver' with toolset 'WindowsKernelModeDriver10.0' and the 'Universal' target platform.
+  Stamping x64\Release\KswordARKDriver.inf
+  Stamping [Version] section with DriverVer=04/24/2026,3.45.20.328
+  KswordARKDriver.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  Driver is 'Universal'.
+  ..........................
+  Signability test complete.
+  
+  Errors:
+  None
+  
+  Warnings:
+  None
+  
+  Catalog generation complete.
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKDriver\kswordarkdriver.cat
+  KswordARKLight: reusing existing signed driver for RCDATA embedding: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys. Set /p:KswordArkLightReuseSignedDriver=false to force a clean restore and re-sign.
+  正在生成代码
+  389 of 51195 functions ( 0.8%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    702 functions had inline decision re-evaluated but remain unchanged
+  已完成代码的生成
+  KswordARKLight.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKLight.exe
+适用于 .NET Framework MSBuild 版本 17.14.51+25f168cee
+
+  ArkDriverAudit.cpp
+  ArkDriverBlind.cpp
+  ArkDriverBugcheck.cpp
+  ArkDriverCallbackMonitor.cpp
+  ArkDriverClient.cpp
+  ArkDriverDebugOutput.cpp
+  ArkDriverError.cpp
+  ArkDriverFile.cpp
+  ArkDriverFileIrp.cpp
+  ArkDriverHvm.cpp
+  ArkDriverIoctlRegistry.cpp
+  ArkDriverKernel.cpp
+  ArkDriverKernelBaseline.cpp
+  ArkDriverKeyboard.cpp
+  ArkDriverNetworkTraffic.cpp
+  ArkDriverPiDdb.cpp
+  ArkDriverPower.cpp
+  ArkDriverProcessProtect.cpp
+  ArkDriverStorageForensics.cpp
+  ArkDriverSystemTime.cpp
+  正在编译...
+  ArkDriverVirtualization.cpp
+  ArkDriverWorkQueue.cpp
+  ArkDriverExtended.cpp
+  正在生成代码
+  0 of 2561 functions ( 0.0%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    86 functions had inline decision re-evaluated but remain unchanged
+  已完成代码的生成
+  KswordCLI.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordCLI.exe
+适用于 .NET Framework MSBuild 版本 17.14.51+25f168cee
+
+  KswordARKLight: standalone build detected; building/signing KswordARKDriver before embedding. Set /p:KswordArkLightEnsureDriverBuilt=false only if a fresh signed KswordARK.sys is already present.
+  Building 'KswordARKDriver' with toolset 'WindowsKernelModeDriver10.0' and the 'Universal' target platform.
+  Stamping x64\Release\KswordARKDriver.inf
+  Stamping [Version] section with DriverVer=04/24/2026,6.28.23.578
+  KswordARKDriver.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  Driver is 'Universal'.
+  ..........................
+  Signability test complete.
+  
+  Errors:
+  None
+  
+  Warnings:
+  None
+  
+  Catalog generation complete.
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKDriver\kswordarkdriver.cat
+  KswordARK: copying unsigned clean driver before post-build variant signing: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK_Clean.sys
+  KswordARK: applying post-build driver variant signing for C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys. Set /p:KswordArkSkipAutoVariantSign=true to skip.
+  KswordARK driver signing root: C:\Users\Felix\CLionProjects\KSword
+  Driver output: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  CSignTool: C:\Users\Felix\CLionProjects\KSword\.cert\CSignTool.exe
+  AuthenticodeVariantGUI: C:\Users\Felix\CLionProjects\KSword\.cert\AuthenticodeVariantGUI.exe
+  Display info: C:\Users\Felix\CLionProjects\KSword\.cert\outer_display_info.dat
+  signtool: C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe
+  TrustAsia Signature Tools v3.2.0
+  
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys	Start signature...	Signature success!
+  Signature finish.
+  After CSignTool signature summary skipped: The 'Get-AuthenticodeSignature' command was found in the module 'Microsoft.PowerShell.Security', but the module could not be loaded. For more information, run 'Import-Module Microsoft.PowerShell.Security'.
+  TrustAsia Signature Tools v3.2.0
+  
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys	Start signature...	Signature success!
+  Signature finish.
+  After CSignTool /ac signature summary skipped: The 'Get-AuthenticodeSignature' command was found in the module 'Microsoft.PowerShell.Security', but the module could not be loaded. For more information, run 'Import-Module Microsoft.PowerShell.Security'.
+  Restored pre-variant driver before legacy fallback: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  WARNING: KswordARK variant signing failed; falling back to legacy non-fatal test signing. Reason: 
+  AuthenticodeVariantGUI did not create expected output: 
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.authvariant.tmp.sys
+  仓库根目录：C:\Users\Felix\CLionProjects\KSword
+  管理员权限：False
+  signtool：C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86\signtool.exe
+  复用文件型测试证书：34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  证书文件：C:\Users\Felix\CLionProjects\KSword\.cert\KswordARK-TestSigning.cer
+  [33;1mWARNING: 导入 CurrentUser 证书信任失败：操作已被用户取消。 (0x800704C7)[0m
+  [33;1mWARNING: 当前不是管理员：无法导入 LocalMachine 信任区。内核加载可能仍然报 577。[0m
+  [33;1mWARNING: 请用管理员 PowerShell 重新运行本脚本，或手工把 .cert\KswordARK-TestSigning.cer 导入“本地计算机\受信任的根证书颁发机构”和“受信任的发布者”。[0m
+  签名目标：C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  The following certificate was selected:
+      Issued to: KswordARK Test Signing Certificate
+  
+      Issued by: KswordARK Test Signing Certificate
+  
+      Expires:   Tue May 06 21:03:25 2036
+  
+      SHA1 hash: 34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  
+  
+  Done Adding Additional Store
+  Successfully signed: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  
+  
+  Number of files successfully Signed: 1
+  
+  Number of warnings: 0
+  
+  Number of errors: 0
+  
+  
+  
+  Verifying: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  
+  
+  Signature Index: 0 (Primary Signature)
+  Hash of file (sha256): D6EC04AFDF506D1AE6FCC816CAF7CFB2E7E32AA3E28099C43EFAC08FD641D04B
+  
+  Signing Certificate Chain:
+      Issued to: KswordARK Test Signing Certificate
+  
+      Issued by: KswordARK Test Signing Certificate
+  
+      Expires:   Tue May 06 21:03:25 2036
+  
+      SHA1 hash: 34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  
+  
+  File is not timestamped.
+  
+  
+  Number of files successfully Verified: 0
+  
+  Number of warnings: 0
+  
+  Number of errors: 1
+  
+  SignTool Error: A certificate chain processed, but terminated in a root
+  	certificate which is not trusted by the trust provider.
+  [33;1mWARNING: signtool verify /pa 未通过：C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys，退出码：1。[0m
+  [33;1mWARNING: 这通常表示证书尚未导入本机信任区；签名已写入文件，但内核加载前仍需管理员导入 LocalMachine 信任区。[0m
+  签名状态：UnknownError；签名者：CN=KswordARK Test Signing Certificate
+  
+  完成。
+  若加载仍返回 577，请确认：
+  1. bcdedit /enum 中 testsigning 为 Yes，并且已经重启；
+  2. 证书已在 LocalMachine\Root 与 LocalMachine\TrustedPublisher；
+  3. 服务 ImagePath 指向的正是刚刚签名的 KswordARK.sys。
+  Final driver SHA256: 3CECFEF2F6E82380E0120FC2879A8365D89364C450C2CD467E4D1F3650A436F9
+  
+  
+  Verifying: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  
+  
+  Signature Index: 0 (Primary Signature)
+  Hash of file (sha256): D6EC04AFDF506D1AE6FCC816CAF7CFB2E7E32AA3E28099C43EFAC08FD641D04B
+  SignTool Error: A certificate chain processed, but terminated in a root
+  	certificate which is not trusted by the trust provider.
+  
+  Signing Certificate Chain:
+      Issued to: KswordARK Test Signing Certificate
+  
+      Issued by: KswordARK Test Signing Certificate
+  
+      Expires:   Tue May 06 21:03:25 2036
+  
+      SHA1 hash: 34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  
+  
+  File is not timestamped.
+  
+  
+  Number of files successfully Verified: 0
+  
+  Number of warnings: 0
+  
+  Number of errors: 1
+  
+  WARNING: Final kernel signature verification failed with exit code 1. Set -RequireKernelSignature (or 
+  KSWORD_REQUIRE_KERNEL_SIGNATURE=1) to make this fatal for release builds.
+  KswordARKLight: reusing existing signed driver for RCDATA embedding: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys. Set /p:KswordArkLightReuseSignedDriver=false to force a clean restore and re-sign.
+  正在生成代码
+  1 of 51195 functions (<0.1%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    146 functions had inline decision re-evaluated but remain unchanged
+  已完成代码的生成
+  KswordARKLight.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKLight.exe
+适用于 .NET Framework MSBuild 版本 17.14.51+25f168cee
+
+  KswordCLI.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordCLI.exe

@@ -1,0 +1,185 @@
+{
+  "schema": "ksword.hvm.autotest/1",
+  "startedUtc": "2026-09-05T19:57:02.2004125Z",
+  "vmName": "KSword-HVM-Target",
+  "stage": "resident",
+  "host": {
+    "computer": "DESKTOP-KJE7JPM",
+    "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+    "build": "26300"
+  },
+  "steps": [
+    {
+      "name": "deploy:hvm_ctl",
+      "utc": "2026-09-05T19:57:03.4643084Z",
+      "outcome": "OK",
+      "data": 151040
+    },
+    {
+      "name": "status",
+      "utc": "2026-09-05T19:57:04.8745747Z",
+      "outcome": "OK",
+      "data": {
+        "kind": "query",
+        "queryStatus": 0,
+        "stateFlags": 524575,
+        "stateFlagsHex": "0x0008011F",
+        "stateNames": [
+          "INITIALIZED",
+          "RESOURCES_READY",
+          "EPT_READY",
+          "SELF_TESTED",
+          "SELF_TEST_PASSED",
+          "GUEST_READY",
+          "EVMCS_PARTIAL"
+        ],
+        "generation": 5,
+        "processorCount": 4,
+        "preparedProcessorCount": 4,
+        "selfTestPassedProcessorCount": 4,
+        "residentProcessorCount": 0,
+        "residentImplementation": "CAPABILITY_ONLY",
+        "eptImplementation": "ACTIVE",
+        "nestedImplementation": "CAPABILITY_ONLY",
+        "evmcsImplementation": "PARTIAL",
+        "featureFlags": "0x0009803F30FFFFFF",
+        "eptPointer": "0x0000000207FED05E",
+        "eptPageCount": 515,
+        "mappedRamMiB": 8190,
+        "vmExitCount": 0,
+        "lastStatus": "0x00000000",
+        "eventCount": 0,
+        "droppedEventCount": 0
+      }
+    },
+    {
+      "name": "prepare",
+      "utc": "2026-09-05T19:57:04.8752720Z",
+      "outcome": "SKIP",
+      "note": "RESOURCES_READY 已置位；重复 prepare 会返回 ALREADY_PREPARED 并把状态打成 FAULTED"
+    },
+    {
+      "name": "checkpoint:self-test",
+      "utc": "2026-09-05T19:57:10.8040514Z",
+      "outcome": "OK",
+      "data": "before-self-test-0905-155704"
+    },
+    {
+      "name": "alive:self-test",
+      "utc": "2026-09-05T19:57:12.3108147Z",
+      "outcome": "OK",
+      "note": "虚拟机仍然响应"
+    },
+    {
+      "name": "self-test",
+      "utc": "2026-09-05T19:57:12.3112761Z",
+      "outcome": "OK",
+      "data": {
+        "kind": "control",
+        "command": "self-test",
+        "status": 0,
+        "statusName": "OK",
+        "lastStatus": "0x00000000",
+        "oldStateFlags": 524575,
+        "newStateFlags": 524575,
+        "oldStateHex": "0x0008011F",
+        "newStateHex": "0x0008011F",
+        "newStateNames": [
+          "INITIALIZED",
+          "RESOURCES_READY",
+          "EPT_READY",
+          "SELF_TESTED",
+          "SELF_TEST_PASSED",
+          "GUEST_READY",
+          "EVMCS_PARTIAL"
+        ],
+        "oldGeneration": 5,
+        "newGeneration": 6,
+        "preparedProcessorCount": 4,
+        "selfTestPassedProcessorCount": 4,
+        "failedProcessorCount": 0,
+        "residentProcessorCount": 0,
+        "residentImplementation": "CAPABILITY_ONLY",
+        "eptImplementation": "ACTIVE",
+        "nestedImplementation": "CAPABILITY_ONLY",
+        "evmcsImplementation": "PARTIAL",
+        "eptPointer": "0x0000000207FED05E",
+        "eptPageCount": 515,
+        "eptRuleCount": 0,
+        "mappedRamMiB": 8190,
+        "vmExitCount": 0,
+        "lastExitReason": 4294967295,
+        "lastVmInstructionError": 0,
+        "soakElapsedMilliseconds": 0,
+        "soakUnexpectedDevirtualizations": 0
+      }
+    },
+    {
+      "name": "checkpoint:resident",
+      "utc": "2026-09-05T19:57:17.9634621Z",
+      "outcome": "OK",
+      "data": "before-resident-0905-155712"
+    },
+    {
+      "name": "alive:resident",
+      "utc": "2026-09-05T19:57:19.4544441Z",
+      "outcome": "OK",
+      "note": "虚拟机仍然响应"
+    }
+  ],
+  "checkpoints": [
+    "before-self-test-0905-155704",
+    "before-resident-0905-155712"
+  ],
+  "verdict": "ERROR",
+  "notes": [
+    "脚本异常：Method invocation failed because [Deserialized.System.Management.Automation.PSCustomObject] does not contain a method named 'Trim'."
+  ],
+  "vm": {
+    "state": "Running",
+    "vcpu": 4,
+    "nested": true
+  },
+  "finalStatus": {
+    "kind": "query",
+    "queryStatus": 0,
+    "stateFlags": 524639,
+    "stateFlagsHex": "0x0008015F",
+    "stateNames": [
+      "INITIALIZED",
+      "RESOURCES_READY",
+      "EPT_READY",
+      "SELF_TESTED",
+      "SELF_TEST_PASSED",
+      "FAULTED",
+      "GUEST_READY",
+      "EVMCS_PARTIAL"
+    ],
+    "generation": 7,
+    "processorCount": 4,
+    "preparedProcessorCount": 4,
+    "selfTestPassedProcessorCount": 4,
+    "residentProcessorCount": 0,
+    "residentImplementation": "CAPABILITY_ONLY",
+    "eptImplementation": "ACTIVE",
+    "nestedImplementation": "CAPABILITY_ONLY",
+    "evmcsImplementation": "PARTIAL",
+    "featureFlags": "0x0009803F30FFFFFF",
+    "eptPointer": "0x0000000207FED05E",
+    "eptPageCount": 515,
+    "mappedRamMiB": 8190,
+    "vmExitCount": 0,
+    "lastStatus": "0xC0000184",
+    "eventCount": 0,
+    "droppedEventCount": 0
+  },
+  "checkpointsNow": [
+    "clean-install",
+    "before-driver-load-0905-1451",
+    "before-self-test-0905-151647",
+    "before-self-test-0905-154621",
+    "before-self-test-0905-155704",
+    "before-resident-0905-155712"
+  ],
+  "finishedUtc": "2026-09-05T19:57:21.0540995Z"
+}

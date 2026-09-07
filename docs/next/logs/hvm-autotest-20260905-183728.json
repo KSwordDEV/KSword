@@ -1,0 +1,215 @@
+{
+  "schema": "ksword.hvm.autotest/1",
+  "startedUtc": "2026-09-05T22:37:34.3069419Z",
+  "vmName": "KSword-HVM-Target",
+  "stage": "resident",
+  "host": {
+    "computer": "DESKTOP-KJE7JPM",
+    "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+    "build": "26300"
+  },
+  "steps": [
+    {
+      "name": "deploy:hvm_ctl",
+      "utc": "2026-09-05T22:37:35.2652052Z",
+      "outcome": "OK",
+      "data": 156672
+    },
+    {
+      "name": "status",
+      "utc": "2026-09-05T22:37:37.3051076Z",
+      "outcome": "OK",
+      "data": {
+        "kind": "query",
+        "queryStatus": 0,
+        "stateFlags": 524295,
+        "stateFlagsHex": "0x00080007",
+        "stateNames": [
+          "INITIALIZED",
+          "RESOURCES_READY",
+          "EPT_READY",
+          "EVMCS_PARTIAL"
+        ],
+        "generation": 2,
+        "processorCount": 4,
+        "preparedProcessorCount": 4,
+        "selfTestPassedProcessorCount": 0,
+        "residentProcessorCount": 0,
+        "residentImplementation": "CAPABILITY_ONLY",
+        "eptImplementation": "ACTIVE",
+        "nestedImplementation": "CAPABILITY_ONLY",
+        "evmcsImplementation": "PARTIAL",
+        "featureFlags": "0x0009803F30FFFFFF",
+        "vmxEptVpidCapabilities": "0x00000F0106F34041",
+        "eptExecuteOnly": true,
+        "eptPointer": "0x0000000207FED05E",
+        "eptPageCount": 515,
+        "mappedRamMiB": 8190,
+        "vmExitCount": 0,
+        "lastStatus": "0x00000000",
+        "vmxBasic": "0x01D8100000000001",
+        "cr0Fixed0": "0x0000000080000021",
+        "cr0Fixed1": "0x00000000FFFFFFFF",
+        "cr4Fixed0": "0x0000000000002000",
+        "cr4Fixed1": "0x0000000000B72FFF",
+        "lastVmInstructionError": 0,
+        "eventCount": 0,
+        "droppedEventCount": 0,
+        "processors": [
+          {
+            "index": 0,
+            "group": 0,
+            "number": 0,
+            "vmxInstructionResult": 255,
+            "stateFlags": 1,
+            "stateHex": "0x00000001",
+            "lastStatus": "0x00000000",
+            "lastExitReason": 4294967295,
+            "vmExitCount": 0,
+            "stateNames": [
+              "RESOURCE_READY"
+            ]
+          },
+          {
+            "index": 1,
+            "group": 0,
+            "number": 1,
+            "vmxInstructionResult": 255,
+            "stateFlags": 1,
+            "stateHex": "0x00000001",
+            "lastStatus": "0x00000000",
+            "lastExitReason": 4294967295,
+            "vmExitCount": 0,
+            "stateNames": [
+              "RESOURCE_READY"
+            ]
+          },
+          {
+            "index": 2,
+            "group": 0,
+            "number": 2,
+            "vmxInstructionResult": 255,
+            "stateFlags": 1,
+            "stateHex": "0x00000001",
+            "lastStatus": "0x00000000",
+            "lastExitReason": 4294967295,
+            "vmExitCount": 0,
+            "stateNames": [
+              "RESOURCE_READY"
+            ]
+          },
+          {
+            "index": 3,
+            "group": 0,
+            "number": 3,
+            "vmxInstructionResult": 255,
+            "stateFlags": 1,
+            "stateHex": "0x00000001",
+            "lastStatus": "0x00000000",
+            "lastExitReason": 4294967295,
+            "vmExitCount": 0,
+            "stateNames": [
+              "RESOURCE_READY"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "prepare",
+      "utc": "2026-09-05T22:37:37.3071785Z",
+      "outcome": "SKIP",
+      "note": "RESOURCES_READY 已置位；重复 prepare 会返回 ALREADY_PREPARED 并把状态打成 FAULTED"
+    },
+    {
+      "name": "checkpoint:self-test",
+      "utc": "2026-09-05T22:37:42.9283682Z",
+      "outcome": "OK",
+      "data": "before-self-test-0905-183737"
+    },
+    {
+      "name": "alive:self-test",
+      "utc": "2026-09-05T22:37:44.2955501Z",
+      "outcome": "OK",
+      "note": "虚拟机仍然响应"
+    },
+    {
+      "name": "self-test",
+      "utc": "2026-09-05T22:37:44.2959943Z",
+      "outcome": "OK",
+      "data": {
+        "kind": "control",
+        "command": "self-test",
+        "status": 0,
+        "statusName": "OK",
+        "lastStatus": "0x00000000",
+        "oldStateFlags": 524295,
+        "newStateFlags": 524575,
+        "oldStateHex": "0x00080007",
+        "newStateHex": "0x0008011F",
+        "newStateNames": [
+          "INITIALIZED",
+          "RESOURCES_READY",
+          "EPT_READY",
+          "SELF_TESTED",
+          "SELF_TEST_PASSED",
+          "GUEST_READY",
+          "EVMCS_PARTIAL"
+        ],
+        "oldGeneration": 2,
+        "newGeneration": 3,
+        "preparedProcessorCount": 4,
+        "selfTestPassedProcessorCount": 4,
+        "failedProcessorCount": 0,
+        "residentProcessorCount": 0,
+        "residentImplementation": "CAPABILITY_ONLY",
+        "eptImplementation": "ACTIVE",
+        "nestedImplementation": "CAPABILITY_ONLY",
+        "evmcsImplementation": "PARTIAL",
+        "eptPointer": "0x0000000207FED05E",
+        "eptPageCount": 515,
+        "eptRuleCount": 0,
+        "mappedRamMiB": 8190,
+        "vmExitCount": 0,
+        "lastExitReason": 4294967295,
+        "lastVmInstructionError": 0,
+        "soakElapsedMilliseconds": 0,
+        "soakUnexpectedDevirtualizations": 0
+      }
+    },
+    {
+      "name": "prune:before-resident-0905-182349",
+      "utc": "2026-09-05T22:37:44.4865578Z",
+      "outcome": "OK",
+      "note": "自动修剪旧检查点以回收磁盘"
+    },
+    {
+      "name": "checkpoint:resident",
+      "utc": "2026-09-05T22:37:50.3411236Z",
+      "outcome": "OK",
+      "data": "before-resident-0905-183744"
+    }
+  ],
+  "checkpoints": [
+    "before-self-test-0905-183737",
+    "before-resident-0905-183744"
+  ],
+  "verdict": "ERROR",
+  "notes": [
+    "脚本异常：The background process reported an error with the following message: \"The Hyper-V socket target process has ended.\".",
+    "收尾 status 查询失败（虚拟机可能已失联）",
+    "事件环查询失败"
+  ],
+  "vm": {
+    "state": "Running",
+    "vcpu": 4,
+    "nested": true
+  },
+  "checkpointsNow": [
+    "clean-install",
+    "before-driver-load-0905-1830",
+    "before-self-test-0905-183737",
+    "before-resident-0905-183744"
+  ],
+  "finishedUtc": "2026-09-05T22:43:52.0666866Z"
+}

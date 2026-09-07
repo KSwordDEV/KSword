@@ -1,0 +1,153 @@
+{
+  "schema": "ksword.acceptance.autotest/1",
+  "startedUtc": "2026-09-05T23:38:28.3690391Z",
+  "machine": {
+    "computer": "DESKTOP-KJE7JPM",
+    "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+    "build": "26300",
+    "cpu": "13th Gen Intel(R) Core(TM) i7-13700F"
+  },
+  "phases": {
+    "offline": {
+      "verdict": "PASS",
+      "buildExit": 0,
+      "buildLog": "C:\\Users\\Felix\\CLionProjects\\KSword\\docs\\next\\logs\\autotest-build-20260905-193828.txt",
+      "runExit": 0,
+      "runLog": "C:\\Users\\Felix\\CLionProjects\\KSword\\docs\\next\\logs\\autotest-run-20260905-193828.txt",
+      "suites": [
+        {
+          "suite": "F evidence contract",
+          "passed": 192,
+          "total": 192
+        },
+        {
+          "suite": "X cross-view",
+          "passed": 180,
+          "total": 180
+        },
+        {
+          "suite": "G entity graph",
+          "passed": 351,
+          "total": 351
+        },
+        {
+          "suite": "C offline dump facts",
+          "passed": 461,
+          "total": 461
+        },
+        {
+          "suite": "D snapshot compare",
+          "passed": 387,
+          "total": 387
+        },
+        {
+          "suite": "S security state",
+          "passed": 442,
+          "total": 442
+        },
+        {
+          "suite": "N wfp analysis",
+          "passed": 545,
+          "total": 545
+        },
+        {
+          "suite": "T timeline",
+          "passed": 381,
+          "total": 381
+        },
+        {
+          "suite": "I image integrity",
+          "passed": 395,
+          "total": 395
+        },
+        {
+          "suite": "M memory evidence",
+          "passed": 199,
+          "total": 199
+        },
+        {
+          "suite": "HVM ept switch",
+          "passed": 467,
+          "total": 467
+        }
+      ],
+      "suiteCount": 11,
+      "assertions": 4000.0,
+      "passed": 4000.0,
+      "manifest": "C:\\Users\\Felix\\CLionProjects\\KSword\\scripts\\ksword-expected-suites.json",
+      "missingSuites": [],
+      "shrunkSuites": [],
+      "unlistedSuites": []
+    },
+    "tools": {
+      "verdict": "PASS",
+      "artifacts": [
+        {
+          "path": "C:\\Users\\Felix\\CLionProjects\\KSword\\tools\\hvm_probe\\hvm_probe.exe",
+          "bytes": 144896
+        },
+        {
+          "path": "C:\\Users\\Felix\\CLionProjects\\KSword\\tools\\hvm_ctl\\hvm_ctl.exe",
+          "bytes": 156672
+        }
+      ]
+    },
+    "onMachine": {
+      "verdict": "BLOCKED",
+      "controlExit": 1,
+      "resultPath": "C:\\Users\\Felix\\CLionProjects\\KSword\\docs\\next\\logs\\hvm-autotest-20260905-193828.json",
+      "detail": {
+        "schema": "ksword.hvm.autotest/1",
+        "startedUtc": "2026-09-05T23:38:34.191895Z",
+        "vmName": "KSword-HVM-Target",
+        "stage": "resident",
+        "host": {
+          "computer": "DESKTOP-KJE7JPM",
+          "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+          "build": "26300"
+        },
+        "steps": [
+          {
+            "name": "deploy:hvm_ctl",
+            "utc": "2026-09-05T23:38:35.809217Z",
+            "outcome": "OK",
+            "data": 156672
+          },
+          {
+            "name": "status",
+            "utc": "2026-09-05T23:38:37.9624562Z",
+            "outcome": "FAIL",
+            "data": "打不开 \\\\.\\KswordARKLog：win32=2\r\n  2 = 设备不存在（驱动没加载）；5 = 拒绝访问（需要管理员）\r\n",
+            "note": "设备查询失败 —— 驱动可能没加载"
+          }
+        ],
+        "checkpoints": [],
+        "verdict": "BLOCKED",
+        "notes": [
+          "hvm_ctl status 拿不到结果，后续全部未运行。先跑 Deploy-KswordDriverToVm.ps1。"
+        ],
+        "vm": {
+          "state": "Running",
+          "vcpu": 1,
+          "nested": true
+        },
+        "finalStatus": {
+          "kind": "error",
+          "reason": "device-open-failed"
+        },
+        "driverEvents": "hvm-events: io_ok=false bytes_returned=0 win32_error=2 nt_status=0x0\r\nunsupported=false\r\ndetail=HVM event operation=1, returned=0, available=0, dropped=0, newest=0\r\n",
+        "checkpointsNow": [
+          "clean-install",
+          "hung-resident-0905",
+          "before-driver-load-0905-1905",
+          "before-self-test-0905-190737",
+          "before-resident-0905-190743",
+          "hung-0905-193241"
+        ],
+        "finishedUtc": "2026-09-05T23:38:40.645447Z"
+      }
+    }
+  },
+  "finishedUtc": "2026-09-05T23:38:40.6486073Z",
+  "verdict": "BLOCKED"
+}

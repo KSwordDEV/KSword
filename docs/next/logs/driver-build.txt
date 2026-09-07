@@ -1,0 +1,18 @@
+适用于 .NET Framework MSBuild 版本 17.14.51+25f168cee
+
+  Building 'KswordARKDriver' with toolset 'WindowsKernelModeDriver10.0' and the 'Universal' target platform.
+  Stamping x64\Release\KswordARKDriver.inf
+  Stamping [Version] section with DriverVer=04/24/2026,23.43.14.667
+  KswordARKDriver.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARK.sys
+  Driver is 'Universal'.
+  ..........................
+  Signability test complete.
+  
+  Errors:
+  None
+  
+  Warnings:
+  None
+  
+  Catalog generation complete.
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKDriver\kswordarkdriver.cat

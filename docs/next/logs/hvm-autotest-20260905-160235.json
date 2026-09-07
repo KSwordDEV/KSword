@@ -1,0 +1,40 @@
+{
+  "schema": "ksword.hvm.autotest/1",
+  "startedUtc": "2026-09-05T20:02:41.5768209Z",
+  "vmName": "KSword-HVM-Target",
+  "stage": "resident",
+  "host": {
+    "computer": "DESKTOP-KJE7JPM",
+    "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+    "build": "26300"
+  },
+  "steps": [
+    {
+      "name": "deploy:hvm_ctl",
+      "utc": "2026-09-05T20:02:42.7484608Z",
+      "outcome": "OK",
+      "data": 151040
+    }
+  ],
+  "checkpoints": [],
+  "verdict": "ERROR",
+  "notes": [
+    "脚本异常：The term 'if' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.",
+    "收尾 status 查询失败（虚拟机可能已失联）",
+    "事件环查询失败"
+  ],
+  "vm": {
+    "state": "Running",
+    "vcpu": 4,
+    "nested": true
+  },
+  "checkpointsNow": [
+    "clean-install",
+    "before-driver-load-0905-1451",
+    "before-self-test-0905-151647",
+    "before-self-test-0905-154621",
+    "before-self-test-0905-155704",
+    "before-resident-0905-155712"
+  ],
+  "finishedUtc": "2026-09-05T20:02:48.3539285Z"
+}

@@ -1,0 +1,113 @@
+Opened log file 'C:\Users\Felix\CLionProjects\KSword\docs\next\logs\bugcheck-20260906-133845-poolcode.txt'
+
+************* Preparing the environment for Debugger Extensions Gallery repositories **************
+   ExtensionRepository : Implicit
+   UseExperimentalFeatureForNugetShare : true
+   AllowNugetExeUpdate : true
+   NonInteractiveNuget : true
+   AllowNugetMSCredentialProviderInstall : true
+   AllowParallelInitializationOfLocalRepositories : true
+
+   EnableRedirectToV8JsProvider : false
+
+   -- Configuring repositories
+      ----> Repository : LocalInstalled, Enabled: true
+      ----> Repository : UserExtensions, Enabled: true
+
+>>>>>>>>>>>>> Preparing the environment for Debugger Extensions Gallery repositories completed, duration 0.000 seconds
+
+************* Waiting for Debugger Extensions Gallery to Initialize **************
+
+>>>>>>>>>>>>> Waiting for Debugger Extensions Gallery to Initialize completed, duration 0.015 seconds
+   ----> Repository : UserExtensions, Enabled: true, Packages count: 0
+   ----> Repository : LocalInstalled, Enabled: true, Packages count: 29
+
+Microsoft (R) Windows Debugger Version 10.0.26100.6584 AMD64
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+
+Loading Dump File [C:\Users\Felix\AppData\Local\Temp\claude\C--Users-Felix-CLionProjects-KSword\14df0b6d-9962-4d5a-8cbd-8dbc0e3c6906\scratchpad\MEMORY-20260906-1033.DMP]
+Kernel Bitmap Dump File: Kernel address space is available, User address space may not be available.
+
+
+************* Path validation summary **************
+Response                         Time (ms)     Location
+Deferred                                       srv*C:\symbols*
+Symbol search path is: srv*C:\symbols*
+Executable search path is: 
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Kernel.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Usb4Kd.natvis'
+Windows 10 Kernel Version 22621 UP Free x64
+Product: WinNt, suite: TerminalServer SingleUserTS Personal
+Edition build lab: 22621.317.amd64fre.ni_release_svc_prod3.220719-1658
+Kernel base = 0xfffff806`31e00000 PsLoadedModuleList = 0xfffff806`32a12ff0
+Debug session time: Sun Sep  6 13:33:33.324 2026 (UTC - 4:00)
+System Uptime: 0 days 1:43:40.722
+Loading Kernel Symbols
+...............................................................
+................................................................
+..............................
+Loading User Symbols
+
+Loading unloaded module list
+..............................
+For analysis of this file, run !analyze -v
+kd> .echo ===ADDRESS===; !address ffffa1806ca1b1da; .echo ===POOL===; !pool ffffa1806ca1b1da 2; .echo ===DISASM===; u ffffa1806ca1b1da L8; .echo ===BEFORE===; ub ffffa1806ca1b1da L6; .echo ===BYTES===; db ffffa1806ca1b1c0 L40; q
+===ADDRESS===
+
+
+Usage:                  
+Base Address:           ffff808a`fee00000
+End Address:            ffffca8c`2ba01000
+Region Size:            00004a01`2cc01000
+VA Type:                SystemRange
+===POOL===
+unable to get nt!PspSessionIdBitmap
+Pool page ffffa1806ca1b1da region is Unknown
+ffffb5897e200000: Unable to get contents of pool block
+===DISASM===
+ffffa180`6ca1b1da 0f22c0          mov     cr0,rax
+ffffa180`6ca1b1dd 448b97a00a0000  mov     r10d,dword ptr [rdi+0AA0h]
+ffffa180`6ca1b1e4 4c8d87a80a0000  lea     r8,[rdi+0AA8h]
+ffffa180`6ca1b1eb 49c1e204        shl     r10,4
+ffffa180`6ca1b1ef 4533c9          xor     r9d,r9d
+ffffa180`6ca1b1f2 4d03d0          add     r10,r8
+ffffa180`6ca1b1f5 498bd2          mov     rdx,r10
+ffffa180`6ca1b1f8 44398fa40a0000  cmp     dword ptr [rdi+0AA4h],r9d
+===BEFORE===
+ffffa180`6ca1b1c7 080f            or      byte ptr [rdi],cl
+ffffa180`6ca1b1c9 854e03          test    dword ptr [rsi+3],ecx
+ffffa180`6ca1b1cc 0000            add     byte ptr [rax],al
+ffffa180`6ca1b1ce 410f20c4        mov     r12,cr0
+ffffa180`6ca1b1d2 498bc4          mov     rax,r12
+ffffa180`6ca1b1d5 480fbaf010      btr     rax,10h
+===BYTES===
+ffffa180`6ca1b1c0  90 09 00 00 00 00 00 08-0f 85 4e 03 00 00 41 0f  ..........N...A.
+ffffa180`6ca1b1d0  20 c4 49 8b c4 48 0f ba-f0 10 0f 22 c0 44 8b 97   .I..H.....".D..
+ffffa180`6ca1b1e0  a0 0a 00 00 4c 8d 87 a8-0a 00 00 49 c1 e2 04 45  ....L......I...E
+ffffa180`6ca1b1f0  33 c9 4d 03 d0 49 8b d2-44 39 8f a4 0a 00 00 0f  3.M..I..D9......
+quit:
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Kernel.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Usb4Kd.natvis'

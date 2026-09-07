@@ -1,0 +1,38 @@
+{
+  "schema": "ksword-unattended-suite/1",
+  "startedUtc": "2026-09-07T02:14:45.9512278Z",
+  "vmName": "KSword-HVM-Target",
+  "soakMs": 30000,
+  "driverSha256": "FC47F6473CD80DFA6678865DB964C89CF1FF1F358F42BC272654C1E8DEED6FEC",
+  "stages": [
+    {
+      "name": "前置:驱动哈希",
+      "utc": "2026-09-07T02:14:45.9699536Z",
+      "outcome": "PASS",
+      "note": "FC47F6473CD80DFA6678865DB964C89CF1FF1F358F42BC272654C1E8DEED6FEC"
+    },
+    {
+      "name": "前置:驱动已签名",
+      "utc": "2026-09-07T02:14:46.0624107Z",
+      "outcome": "PASS",
+      "note": "UnknownError"
+    },
+    {
+      "name": "前置:清理检查点",
+      "utc": "2026-09-07T02:14:49.6220049Z",
+      "outcome": "PASS",
+      "note": "清理后剩余 60.2 GB（clean-install 保留）"
+    },
+    {
+      "name": "离线断言+工具",
+      "utc": "2026-09-07T02:15:27.7083101Z",
+      "outcome": "PASS",
+      "note": "4000 条断言 + 两个 /MT 工具"
+    }
+  ],
+  "verdict": "ERROR",
+  "notes": [
+    "套件异常：前提不成立 —— 不加载驱动。\nhypervisorlaunchtype 现在是「(bcdedit 里没有这一行 —— 等于默认值 Auto)」，需要 Off。\n在 guest 里（管理员）改回去，然后重启 guest：\n  bcdedit /set hypervisorlaunchtype off\n或者直接跑 .\\scripts\\Configure-KswordHyperVGuest.ps1（它会一并处理 testsigning 与 VBS）。"
+  ],
+  "finishedUtc": "2026-09-07T02:16:08.6951091Z"
+}

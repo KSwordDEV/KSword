@@ -1,0 +1,205 @@
+{
+  "schema": "ksword.hvm.autotest/1",
+  "startedUtc": "2026-09-06T00:24:45.2802940Z",
+  "vmName": "KSword-HVM-Target",
+  "stage": "resident",
+  "host": {
+    "computer": "DESKTOP-KJE7JPM",
+    "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+    "build": "26300"
+  },
+  "steps": [
+    {
+      "name": "deploy:hvm_ctl",
+      "utc": "2026-09-06T00:24:46.6905219Z",
+      "outcome": "OK",
+      "data": 156672
+    },
+    {
+      "name": "status",
+      "utc": "2026-09-06T00:24:47.8307884Z",
+      "outcome": "OK",
+      "data": {
+        "kind": "query",
+        "queryStatus": 0,
+        "stateFlags": 524289,
+        "stateFlagsHex": "0x00080001",
+        "stateNames": [
+          "INITIALIZED",
+          "EVMCS_PARTIAL"
+        ],
+        "generation": 1,
+        "processorCount": 0,
+        "preparedProcessorCount": 0,
+        "selfTestPassedProcessorCount": 0,
+        "residentProcessorCount": 0,
+        "residentImplementation": "CAPABILITY_ONLY",
+        "eptImplementation": "CAPABILITY_ONLY",
+        "nestedImplementation": "CAPABILITY_ONLY",
+        "evmcsImplementation": "PARTIAL",
+        "featureFlags": "0x0001003F30FFFFFF",
+        "vmxEptVpidCapabilities": "0x00000F0106F34041",
+        "eptExecuteOnly": true,
+        "eptPointer": "0x0000000000000000",
+        "eptPageCount": 0,
+        "mappedRamMiB": 0,
+        "vmExitCount": 0,
+        "lastStatus": "0x00000000",
+        "vmxBasic": "0x01D8100000000001",
+        "cr0Fixed0": "0x0000000080000021",
+        "cr0Fixed1": "0x00000000FFFFFFFF",
+        "cr4Fixed0": "0x0000000000002000",
+        "cr4Fixed1": "0x0000000000B72FFF",
+        "lastVmInstructionError": 0,
+        "eventCount": 0,
+        "droppedEventCount": 0,
+        "processors": []
+      }
+    },
+    {
+      "name": "prepare",
+      "utc": "2026-09-06T00:24:49.1057154Z",
+      "outcome": "OK",
+      "data": {
+        "kind": "control",
+        "command": "prepare",
+        "status": 0,
+        "statusName": "OK",
+        "lastStatus": "0x00000000",
+        "oldStateFlags": 524289,
+        "newStateFlags": 524295,
+        "oldStateHex": "0x00080001",
+        "newStateHex": "0x00080007",
+        "newStateNames": [
+          "INITIALIZED",
+          "RESOURCES_READY",
+          "EPT_READY",
+          "EVMCS_PARTIAL"
+        ],
+        "oldGeneration": 1,
+        "newGeneration": 2,
+        "preparedProcessorCount": 1,
+        "selfTestPassedProcessorCount": 0,
+        "failedProcessorCount": 1,
+        "residentProcessorCount": 0,
+        "residentImplementation": "CAPABILITY_ONLY",
+        "eptImplementation": "ACTIVE",
+        "nestedImplementation": "CAPABILITY_ONLY",
+        "evmcsImplementation": "PARTIAL",
+        "eptPointer": "0x0000000207FF605E",
+        "eptPageCount": 515,
+        "eptRuleCount": 0,
+        "mappedRamMiB": 8190,
+        "vmExitCount": 0,
+        "lastExitReason": 4294967295,
+        "lastVmInstructionError": 0,
+        "soakElapsedMilliseconds": 0,
+        "soakUnexpectedDevirtualizations": 0
+      }
+    },
+    {
+      "name": "prune:before-self-test-0905-201641",
+      "utc": "2026-09-06T00:24:49.5963880Z",
+      "outcome": "OK",
+      "note": "自动修剪旧检查点以回收磁盘"
+    },
+    {
+      "name": "prune:before-driver-load-0905-2015",
+      "utc": "2026-09-06T00:24:50.4648636Z",
+      "outcome": "OK",
+      "note": "自动修剪旧检查点以回收磁盘"
+    },
+    {
+      "name": "checkpoint:self-test",
+      "utc": "2026-09-06T00:25:04.5452844Z",
+      "outcome": "OK",
+      "data": "before-self-test-0905-202500"
+    },
+    {
+      "name": "alive:self-test",
+      "utc": "2026-09-06T00:25:05.9228808Z",
+      "outcome": "OK",
+      "note": "虚拟机仍然响应"
+    },
+    {
+      "name": "self-test",
+      "utc": "2026-09-06T00:25:05.9233307Z",
+      "outcome": "OK",
+      "data": {
+        "kind": "control",
+        "command": "self-test",
+        "status": 0,
+        "statusName": "OK",
+        "lastStatus": "0x00000000",
+        "oldStateFlags": 524295,
+        "newStateFlags": 524575,
+        "oldStateHex": "0x00080007",
+        "newStateHex": "0x0008011F",
+        "newStateNames": [
+          "INITIALIZED",
+          "RESOURCES_READY",
+          "EPT_READY",
+          "SELF_TESTED",
+          "SELF_TEST_PASSED",
+          "GUEST_READY",
+          "EVMCS_PARTIAL"
+        ],
+        "oldGeneration": 2,
+        "newGeneration": 3,
+        "preparedProcessorCount": 1,
+        "selfTestPassedProcessorCount": 1,
+        "failedProcessorCount": 0,
+        "residentProcessorCount": 0,
+        "residentImplementation": "CAPABILITY_ONLY",
+        "eptImplementation": "ACTIVE",
+        "nestedImplementation": "CAPABILITY_ONLY",
+        "evmcsImplementation": "PARTIAL",
+        "eptPointer": "0x0000000207FF605E",
+        "eptPageCount": 515,
+        "eptRuleCount": 0,
+        "mappedRamMiB": 8190,
+        "vmExitCount": 0,
+        "lastExitReason": 4294967295,
+        "lastVmInstructionError": 0,
+        "soakElapsedMilliseconds": 0,
+        "soakUnexpectedDevirtualizations": 0
+      }
+    },
+    {
+      "name": "prune:before-resident-0905-201648",
+      "utc": "2026-09-06T00:25:06.5544828Z",
+      "outcome": "OK",
+      "note": "自动修剪旧检查点以回收磁盘"
+    },
+    {
+      "name": "checkpoint:resident",
+      "utc": "2026-09-06T00:25:11.1955509Z",
+      "outcome": "OK",
+      "data": "before-resident-0905-202506"
+    }
+  ],
+  "checkpoints": [
+    "before-self-test-0905-202500",
+    "before-resident-0905-202506"
+  ],
+  "verdict": "ERROR",
+  "notes": [
+    "脚本异常：The background process reported an error with the following message: \"The Hyper-V socket target process has ended.\".",
+    "收尾 status 查询失败（虚拟机可能已失联）",
+    "事件环查询失败"
+  ],
+  "vm": {
+    "state": "Running",
+    "vcpu": 1,
+    "nested": true
+  },
+  "checkpointsNow": [
+    "clean-install",
+    "hung-resident-0905",
+    "hung-0905-193241",
+    "before-driver-load-0905-2023",
+    "before-self-test-0905-202500",
+    "before-resident-0905-202506"
+  ],
+  "finishedUtc": "2026-09-06T00:32:13.0568505Z"
+}

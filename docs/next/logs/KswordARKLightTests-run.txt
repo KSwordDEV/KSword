@@ -1,0 +1,37 @@
+# KswordARKLightTests 执行记录（下一阶段验收 · 离线自动测试 E0）
+
+时间(UTC): 2026-09-05T07:51:00Z
+OS: Microsoft Windows 11 Pro for Workstations Insider Preview  build 26300  版本 10.0.26300
+CPU: 13th Gen Intel(R) Core(TM) i7-13700F   逻辑处理器: 24   内存: 31.7 GiB
+配置: Release x64, MSVC v143 /std:c++20 /W4 /WX /permissive-
+提交: 8b93d2354bc1e26e9a624b57e50670dc1b56937f (+ 未提交工作树改动)
+驱动: 本测试不加载驱动，全部为离线纯算法用例（E0 环境）
+
+覆盖: F 证据契约 / X Cross-view / I 内核完整性 / M 内存证据 / T 时间线 / N WFP / S 安全状态 / D 快照比较 / C 崩溃转储 / G 实体关系
+
+## 构建（/t:Rebuild，不复用旧产物）
+```
+msbuild KswordARKLightTests\KswordARKLightTests.vcxproj /t:Rebuild /p:Configuration=Release /p:Platform=x64
+  MemoryWritePlan.cpp
+  EvidenceSession.cpp
+  正在生成代码...
+  KswordARKLightTests.vcxproj -> C:\Users\Felix\CLionProjects\KSword\KswordARKLightTests\x64\Release\KswordARKLightTests.exe
+BUILD_EXIT=0
+```
+
+## 运行
+```
+  F evidence contract: 192/192 checks passed
+  X cross-view: 180/180 checks passed
+    [G-04 perf] build ring=63ms hub=63ms  400 ring rounds=13ms (p95=48us)  100 hub rounds p95=1372us  10 full walks=166ms  summarize=2ms
+  G entity graph: 351/351 checks passed
+  C offline dump facts: 461/461 checks passed
+  D snapshot compare: 387/387 checks passed
+  S security state: 442/442 checks passed
+  N wfp analysis: 545/545 checks passed
+  T timeline: 381/381 checks passed
+  I image integrity: 395/395 checks passed
+  M memory evidence: 199/199 checks passed
+KswordARKLightTests: PASS
+RUN_EXIT=0
+```

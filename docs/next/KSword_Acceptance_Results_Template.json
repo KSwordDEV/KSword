@@ -1,0 +1,3391 @@
+{
+  "schema_version": 1,
+  "kind": "acceptance_execution_record_template",
+  "generated_on": "2026-09-05",
+  "source_spec": "KSword_Next_Roadmap_Acceptance.md",
+  "reference_repository": "KSwordDEV/KSword",
+  "reference_commit": "6c0ecfe62f9e6b6f757377b0bb9b37fb3523e2d0",
+  "current_local_commit": null,
+  "note": "仅执行记录，不是产品数据。所有条目尚未由本次编写者运行。",
+  "status_rules": {
+    "implementation": [
+      "未开始",
+      "开发中",
+      "已实现"
+    ],
+    "verification": [
+      "NOT_RUN",
+      "PASS",
+      "FAIL",
+      "BLOCKED"
+    ],
+    "applicability": [
+      "required",
+      "not_applicable"
+    ],
+    "pass_requires": "本编号全部适用要求、验证层和必需正向环境均有真实证据；BLOCKED/NOT_RUN 不算通过。"
+  },
+  "acceptance_items": [
+    {
+      "id": "F-01",
+      "module": "现有能力复用与证据基础",
+      "phase": "P0",
+      "title": "本地实现映射",
+      "requirement": "逐个模块记录现有 UI 入口、R3 入口、R0/协议入口、测试入口和具体缺口。路径必须在当前工作树存在；无法确认的内容写未知。",
+      "verification": "阅读当前分支及相关源码，给每个模块至少一条可追踪调用链；对已存在功能实际打开或运行对应测试。",
+      "expected": "每个模块被归为“复用即可／需增强／尚未发现实现”；不把没搜到当成确定不存在；没有创建重复页面或第二套驱动客户端。",
+      "required_verification_layers": "源码核对＋可用环境实测",
+      "applicability": "required",
+      "implementation_status": "已实现",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "docs/next/实现映射.md"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "源码核对层：11 个只读盘点 agent 逐编号核对当前工作树 + 反驳 agent 复核每条“尚未发现实现”，产出 docs/next/实现映射.md（116 编号，每项含现有路径/调用链/现有测试/缺口/分类）。统计：复用即可 5、需增强 95、尚未发现实现 16。",
+        "测试层：构建并运行 KswordARKLightTests.exe（唯一存在的相关测试工程），退出码 0。"
+      ],
+      "evidence_paths": [
+        "docs/next/实现映射.md",
+        "docs/next/logs/KswordARKLightTests-run.txt"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "验证层“可用环境实测”只完成了“运行对应测试”一半：未在本轮实际打开 Qt 主程序逐页核对现有功能，因此总状态不是 PASS。映射本身已可复核。"
+    },
+    {
+      "id": "F-02",
+      "module": "现有能力复用与证据基础",
+      "phase": "P0",
+      "title": "共享接口复用",
+      "requirement": "R3 驱动请求继续经过 ArkDriverClient；共享 ABI 留在 shared/driver；纯分析逻辑与窗口类分开。Light 不因复用而链接 Qt。",
+      "verification": "检查新增依赖和调用点；分别构建受影响的 Qt、Light、CLI、驱动目标。",
+      "expected": "没有 UI 直接发新 DeviceIoControl 的旁路，没有重复定义协议结构，没有把 Qt/ADS 引入 Light。",
+      "required_verification_layers": "源码检查＋构建",
+      "applicability": "required",
+      "implementation_status": "已实现",
+      "verification_status": "PASS",
+      "implementation_paths": [
+        "Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverEvidence.h",
+        "shared/evidence/"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "源码检查层：盘点确认 Ksword5.1 UI / Light / CLI 侧无 KswordARK 设备的 DeviceIoControl 旁路（现存 DeviceIoControl 全是 FSCTL_/IOCTL_DISK_ 系统码），协议结构只在 shared/driver 定义，Light 未链接 Qt。本轮新增代码遵循同一约束：ArkDriverEvidence.h 放在 ArkDriverClient 内且为 inline-only；shared/evidence 为 Qt-free、Win32-free 纯 C++20。",
+        "构建层（部分）：KswordARKLightTests Release x64 /W4 /WX 构建通过，退出码 0；该目标同时编译 ArkDriverClient 头文件与 shared/evidence 全部源文件。",
+        "构建层：Qt 主程序、KswordARKLight、KswordCLI、KswordARKDriver 四个目标分别构建，退出码均为 0（见 docs/next/logs/构建记录.md）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/构建记录.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "两个验证层均已执行。源码检查：本轮无 UI 直发 DeviceIoControl 的旁路（新增的 ArkDriverEvidence.h 在 ArkDriverClient 内、header-only）、无重复协议结构（shared/evidence 是 R3 分析层，不定义 ABI）、未把 Qt/ADS 引入 Light（shared/evidence 为 Qt-free、Win32-free，Light 与 CLI 均构建通过）。驱动无改动仍单独构建确认。"
+    },
+    {
+      "id": "F-03",
+      "module": "现有能力复用与证据基础",
+      "phase": "P0",
+      "title": "稳定对象身份",
+      "requirement": "进程使用启动标识＋PID＋创建时间；线程绑定所属进程实例并保留可用的线程创建标识。驱动、文件、句柄、连接分别记录可获得的生命周期身份，不能只以地址、名字或 PID 作为跨会话主键。",
+      "verification": "输入同 PID 不同创建时间、同地址不同对象、同路径不同文件、相同五元组不同时段等样本。",
+      "expected": "不同实例不合并；身份不足时标识不确定，不能自动连接成确定关系。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/ObjectIdentity.h",
+        "shared/evidence/ObjectIdentity.cpp",
+        "KswordARKLightTests/EvidenceContractTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：TestObjectIdentity 覆盖同 PID 不同创建时间、同地址不同对象、同路径不同文件（volumeSerial+fileId）、相同五元组不同时段、跨启动周期、线程/句柄绑定进程实例，全部通过。变异测试确认这些断言击中生产分支（docs/next/logs/Q-01-变异测试.md）。",
+        "变异实测（评审执行，20 条注入损坏）：18 条被现有断言捕获，2 条存活（均为测试盲区，已单列）。**未发现测试自我印证** —— 期望值是硬编码字面量，测试直接链接生产 TU。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 3/4/5 已全部修复并各自补了负向断言：同哈希异路径 -> Candidate 且两个 crossSessionKey 不同；六个 Match* 统一加身份门槛（任一侧 strength()==Unusable 时最强只给 Candidate）；MatchConnectionIdentity 要求 bootId 非空且相等、且所属进程 Confirmed 才给 Confirmed。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "评审 finding 3：同 contentHash 异路径（System32 正版驱动 vs 用户目录同字节副本）实测判 Confirmed 且共用同一 crossSessionKey，违反“不同实例不合并”。已派修为 Candidate。",
+        "评审 finding 4：DriverInstanceId 双方 strength()==Unusable、crossSessionKey() 为空串时，MatchDriverInstance 实测返回 Confirmed；且出现单调性倒置 —— 补上不同 imagePath（信息变多）反而变 NoMatch。已派修：六个 Match* 统一加身份门槛。",
+        "评审 finding 5：ConnectionIdentity 两侧 bootId 都为空时 CompareBoot 返回 Missing 而非 Differ，跨启动周期保护被完全绕过，实测判 Confirmed。已派修。"
+      ],
+      "notes": "共享身份层已按评审修正并加固。仍未接入生产：DriverDock/KernelDock 仍用 imageBase+名字，句柄用 objectAddress，NetworkDock 用无观察区间的五元组。目标环境实测未执行。"
+    },
+    {
+      "id": "F-04",
+      "module": "现有能力复用与证据基础",
+      "phase": "P0",
+      "title": "来源和时间",
+      "requirement": "每批结果记录 collector id/version、来源分组、采集起止时间、机器/启动/会话标识和采集模式。事件保留源时间及接收时间；UTC 与单调时钟分别使用。",
+      "verification": "混合两个 collector、两个启动周期及乱序事件，往返导出再导入。",
+      "expected": "来源、采集区间和时间精度均保留；不同启动周期不得根据裸 QPC 排序或直接相减。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/EvidenceEnvelope.h"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：TestSourceAndTime 验证同 boot 内单调值可比、跨 bootId 不可比、缺 QPC 频率或缺 bootId 时拒绝产出时长（不做裸相减）。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "SourceRef/CaptureWindow 已定义并测试，但全仓采集路径尚未填 collectorId/collectorVersion/sourceGroup/machineId/bootId/captureMode，R3 接收时间也未落库（盘点确认这些字段此前在仓库中命中 0 次）。“混合两个 collector、两个启动周期及乱序事件往返导出再导入”的完整用例未执行。"
+    },
+    {
+      "id": "F-05",
+      "module": "现有能力复用与证据基础",
+      "phase": "P0",
+      "title": "可用性与结论分离",
+      "requirement": "采集状态与分析结果是两个字段。至少能表达成功、部分、未采集、不支持、拒绝、超时和错误；没有证据时不能生成“正常”结论。",
+      "verification": "分别模拟空但成功、接口失败、只返回一半、未启动、拒绝访问。",
+      "expected": "这五类情况在 UI、导出和报告中可区分；所有失败都保留原始错误码及说明。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/EvidenceEnvelope.h",
+        "shared/evidence/EvidenceEnvelope.cpp",
+        "Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverEvidence.h",
+        "Ksword5.1/Ksword5.1/DriverDock/DriverDock.cpp",
+        "Ksword5.1/Ksword5.1/DriverDock/DriverDock.Internal.h"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：TestStatusAndCoverage + TestDriverOutcomeNormalisation 覆盖“空但成功 / 接口失败 / 只返回一半 / 未启动 / 拒绝访问”五类，并验证 NTSTATUS 与 Win32 原始码、domain、message 均被保留；旧驱动 ERROR_INVALID_FUNCTION 降级为 Unsupported 而非 Error。全部通过。",
+        "生产接入层：DriverDock 的 14 处采集结果展示改为走 describeDriverCollection(io) -> toCollectionOutcome。此前该页靠 rawMessage.contains(\"DeviceIoControl\")/contains(\"unsupported\") 猜采集状态，既区分不出拒绝访问与超时，也丢失原始错误码；现在状态由归一层判定，NTSTATUS/Win32 原始码一律显示。Qt 主程序 Release x64 构建通过（0 编译错误，exit 0）。",
+        "**先前记录的离线测试通过对本编号不完整**：blocker 说明五类状态在最常见的失败形态下并不可区分。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "BLOCKER 已修：toCollectionOutcome 增加 NTSTATUS 分流（按严重级，NT_WARNING 如 STATUS_BUFFER_OVERFLOW 判 Partial 而不是 Error），并加 ntStatusIsAuthoritative 开关。补 10 条断言：ok=true + 0xC0000022 -> AccessDenied 且 deriveConclusion(false)==NoEvidence。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/qt-build-driverdock.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "**BLOCKER**（ArkDriverEvidence.h:74）：IoResult{ok=true, ntStatus=0xC0000022} 实测输出 status=Success，deriveConclusion(false) 返回 NoDifferenceObserved。评审核实全仓 40+ 处都是 io.ntStatus = response->lastStatus/queryStatus/status，即“IOCTL 往返成功而 R0 侧操作失败”正是最常见的失败形态。DriverDock.cpp:101 这个唯一生产调用方走的就是这条路 —— R0 拒绝访问会在 UI 上显示成“采集成功 + 未发现差异”。已派修：按 NTSTATUS 严重级分流，STATUS_BUFFER_OVERFLOW 判 Partial。",
+        "测试盲区：套件里唯一的 ntStatus 用例把 ok 设成了 false，所以 ok=true + NT_ERROR 这条路零覆盖。"
+      ],
+      "notes": "归一层已修正并有第一个生产调用方（DriverDock 14 处）。目标环境实测（实际打开 DriverDock 逐一触发五类状态）未执行，故不记 PASS。"
+    },
+    {
+      "id": "F-06",
+      "module": "现有能力复用与证据基础",
+      "phase": "P0",
+      "title": "不完整采集的账目",
+      "requirement": "结果记录请求范围、已处理范围、失败/跳过/截断数量及上限。可枚举对象的总数未知时明确未知，不能用已返回数量冒充总量。",
+      "verification": "让扫描命中上限、超时和单项失败。",
+      "expected": "剩余范围及原因可见；部分结果可查看；不会显示 100% 完整扫描。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/EvidenceEnvelope.h",
+        "shared/evidence/ScanBudget.h"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：CoverageAccount 覆盖命中上限、单项失败、总数未知三种情形；总数未知时 describeRemaining() 返回 remaining:unknown 而非用已返回数量冒充；命中上限时 fullyCovered() 为假。ApplyStopToCoverage/OutcomeForStop 把预算命中翻译成 Partial+limitHit。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "BLOCKER 已修：fullyCovered() 改为需要正面证据（范围口径要求四个端点同时在场且处理覆盖请求；或数量口径 totalKnown present 且 succeeded>=它），空账目返回 false。describeRemaining() 重写为与之一致（cancelled / limit-hit / truncated:N / incomplete:failed=..,skipped=.. / remaining-range:N / remaining:unknown）。变异复跑：M01 死于 4 条断言，M06 死于 2 条。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "**BLOCKER**（EvidenceEnvelope.cpp:75）：默认构造的 CoverageAccount 的 fullyCovered() 实测返回 true，而同一对象的 describeRemaining() 返回 remaining:unknown —— 两个方法自相矛盾。任何忘记填账目的采集方默认拿到“100% 完整扫描 + 未发现差异”，直接违反 F-06“不会显示 100% 完整扫描”。附带：四个范围端点只有前两个 present 时末尾边界完全不被检查。已派修：改为需要正面证据才判完整。",
+        "变异实测：把 deriveConclusion 里“覆盖不足不得升级成未发现差异”这条核心规则删掉后，102/102 仍全过 —— 该规则零覆盖。CoverageAccount::truncated 与 ::skipped 在测试里 grep 零命中。",
+        "describeRemaining() 的 done 不含 truncated：truncated=3 / succeeded=10 / totalKnown=10 时实测返回 remaining:0，与 fullyCovered() 口径不一致。"
+      ],
+      "notes": "账目结构与判据已验证；尚未接到真实扫描路径（MemoryDock 内核扫描等仍各自记账），目标环境实测未执行。"
+    },
+    {
+      "id": "F-07",
+      "module": "现有能力复用与证据基础",
+      "phase": "P0",
+      "title": "协议输入边界",
+      "requirement": "所有本次新增或改变的请求/响应验证版本、长度、数量、偏移、整数溢出、返回字节数和游标进度；不得信任驱动或导入数据声明的长度。",
+      "verification": "自动覆盖零长度、过短、截断、超大计数、重复游标、游标倒退及未知版本。",
+      "expected": "得到明确失败且不越界、不分配超预算内存、不死循环；合法空结果仍正确。",
+      "required_verification_layers": "自动测试＋R0 变更时隔离环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/EvidenceJson.h",
+        "shared/evidence/EvidenceJson.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "自动测试层（导入侧）：JSON 解析器对零长度、深递归、重复键、尾随垃圾、整数溢出、浮点、裸控制字符均给出明确失败状态，且有深度/长度/成员数/节点数硬上限。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 10 已修：JsonLimits 加 maxTotalBytes(32 MiB) 与 maxEstimatedNodeBytes(64 MiB)，maxTotalNodes 从 1<<22 降到 1<<19。补 5 条断言含节点字节预算触发 SizeLimit。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "评审 finding 10：JsonLimits 的数量上限按“节点个数”给。实测 7.6 MB 输入（4,000,005 节点，全在上限内）解析后进程峰值工作集从 8 MB 涨到 387 MB，约 50 倍放大且 status=Ok。F-07 要求“不分配超预算内存”。已派修：加 maxTotalBytes 与 maxEstimatedNodeBytes。"
+      ],
+      "notes": "本轮未新增或改变任何 IOCTL 请求/响应结构，因此“R0 变更时隔离环境实测”这一层本轮不触发。但“不得信任驱动声明的长度”这条对既有响应解析的自动覆盖（零长度/过短/截断/超大计数/重复游标/游标倒退/未知版本）尚未建立，故不记 PASS。"
+    },
+    {
+      "id": "F-08",
+      "module": "现有能力复用与证据基础",
+      "phase": "P0",
+      "title": "64 位数据不丢失",
+      "requirement": "地址、64 位 ID、计数和高精度时间戳采用不会经过浮点损失的持久化表示；JSON 地址用带格式说明的字符串或等效无损方案。",
+      "verification": "往返测试高于 2^53 的数、最大合法地址、空值和零。",
+      "expected": "导入后逐字段一致；空值不变为 0；展示转换不改变底层值。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/LosslessValue.h",
+        "shared/evidence/LosslessValue.cpp",
+        "shared/evidence/EvidenceJson.h",
+        "shared/evidence/EvidenceJson.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：往返 2^53+1、最大 u64、最大地址、int64 最小值、空值与显式零；JSON 读写器结构上不含浮点类型，带小数点/指数的 number 一律判 FloatingPointRejected。全部通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "算法层已验证，但产品既有导出（EvidenceSession::exportJson 等）尚未切换到该编解码器，F-08 要求的是“持久化表示”，故不记 PASS。"
+    },
+    {
+      "id": "F-09",
+      "module": "现有能力复用与证据基础",
+      "phase": "P0",
+      "title": "会话数据与现场分开",
+      "requirement": "已保存结果不可被后台刷新悄悄覆盖；现场刷新产生新快照。离线结果跳转现场须显式重新验证对象身份。",
+      "verification": "保存后结束目标进程并制造 PID 复用；重开旧会话，点击原对象。",
+      "expected": "旧证据不变；显示对象已退出或身份不匹配，不把操作交给新进程。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/ScanBudget.h",
+        "shared/evidence/LiveNavigation.h",
+        "shared/evidence/LiveNavigation.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：DecideRefresh 拒绝后台刷新覆盖已保存会话、拒绝旧快照、拒绝非最新请求；ResolveProcessNavigation 把“对象已退出 / PID 被复用 / 身份不可确认 / 确认一致”分成四种结果。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 9 已修：DecideNavigation 的身份门槛改为无条件生效，requireExactMatch 语义收窄为“锚点是否必须精确”。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "评审 finding 9：DecideNavigation 的身份门槛可被 requireExactMatch=false 短路 —— 弱身份（navigable()==0）实测返回 Delivered。已派修为身份门槛无条件生效。"
+      ],
+      "notes": "已有生产实现：ProcessDock::requestOpenProcessDetailByIdentity 会在创建时间不符时弹“PID 已被复用”并取消跳转。本轮的共享判据尚无调用方；“保存后结束目标进程并制造 PID 复用、重开旧会话点击原对象”的目标环境实测未执行。"
+    },
+    {
+      "id": "F-10",
+      "module": "现有能力复用与证据基础",
+      "phase": "P0",
+      "title": "取消与并发",
+      "requirement": "任务有独立 id、取消标志、预算和完成状态；同一视图仅接纳最新请求，旧结果不得回填。不可中断的系统调用要显示仍在等待，不得伪报已清理。",
+      "verification": "连续发起 A、B 查询，让 A 后完成；取消正在扫描和等待符号的任务。",
+      "expected": "B 不被 A 覆盖；取消立即在 UI 可见；后台按安全边界结束，页面关闭后不触碰已销毁对象。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/ScanBudget.h",
+        "shared/evidence/ScanBudget.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：LatestRequestGate 验证 A 后完成也不覆盖 B、取消后在途结果立即失效；TaskState 把 Cancelling 与 Cancelled 分开（不许伪报已清理）；EvaluateBudget 中取消优先于预算。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 8 已修：AddressRange 加 reversed 位与 fromBeginEnd(begin,end) 工厂，逆序范围现在真的能产出 RangeValidation::Reversed；未限定批准范围时也有 4 GiB 硬天花板（原先 begin=0/length=MAX 返回 Ok）。评审 finding 11 已修：取消不再被记成命中上限，CoverageAccount 加独立的 cancelled 位。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "评审 finding 8：RangeValidation::Reversed 是死代码（endAddress() 已先走 Overflow），穷举实测四种逆序/溢出写法没有一种能产出 Reversed；M-10 明确要求的“逆序范围”既无实现路径也无用例。另：approved.length==0 时 begin=0 / length=MAX 的“扫全 64 位地址空间”请求实测返回 Ok。已派修。"
+      ],
+      "notes": "判据已验证；未接入真实任务线程，取消可见性与“页面关闭后不触碰已销毁对象”的目标环境实测未执行。"
+    },
+    {
+      "id": "F-11",
+      "module": "现有能力复用与证据基础",
+      "phase": "P0",
+      "title": "来源可信度边界",
+      "requirement": "显示来源属于同一正在运行的 Windows 内核、外部文件还是离线样本。多视图一致只表明这些视图未发现矛盾，不证明系统绝对未受入侵。",
+      "verification": "让所有同源视图返回同一份不完整数据。",
+      "expected": "报告保持覆盖范围与信任限制，不出现“系统保证安全”“不存在 rootkit”等无证据结论。",
+      "required_verification_layers": "离线自动测试＋文案检查",
+      "applicability": "required",
+      "implementation_status": "已实现",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/EvidenceEnvelope.h",
+        "shared/evidence/EvidenceEnvelope.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：TestTrustBoundary 让三个同源视图返回同一份不完整数据，BuildTrustStatement 报告 viewCount=3 / independentSourceGroupCount=1 / anyIncompleteCoverage=true，并产出 singleSourceGroup + noAbsenceProof 限制项；换成真正不同来源后独立来源组数升到 2。通过。",
+        "文案检查层：对 Ksword5.1/KswordARKLight/shared 全量检索中英文安全断言（不存在 rootkit / 系统安全 / 保证安全 / no rootkit / system is safe 等），命中项逐条判定后确认无无证据安全结论，记录在 docs/next/logs/F-11-文案检查.md。",
+        "**先前记录的 PASS 已撤回**：文案检查层仍成立（未发现无证据安全结论），但离线自动测试层被对抗性评审推翻 —— 三分类来源无法表达，且空账目会让覆盖限制消失。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 12 已修：TrustStatement 加 per-SourceOrigin 计数、distinctOriginCount 与 originViewCount()，BuildTrustStatement 对 ExternalFile/OfflineSample 追加两个限制键，F-11 要求的三分类现在表达得出。补 7 条断言。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/F-11-文案检查.md",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "对抗性评审 finding 12：TrustStatement 只有一个 bool allFromSameLiveKernel，它为 false 时结构体里没有任何字段能说明来源是 LiveUserMode / ExternalFile / OfflineSample。实测 BuildTrustStatement({OfflineSample, LiveKernel}) 的 limitationKeys 只有 noAbsenceProof —— “这份结论有一半来自离线样本”在信任声明里完全不可见。F-11 要求的是三分类，当前只表达得出一种。已派修。",
+        "对抗性评审 finding 2（blocker）连带影响：空账目的 fullyCovered() 返回 true，导致 BuildTrustStatement 对未填账目的 envelope 给出 anyIncompleteCoverage=0，limitationKeys 里没有 incompleteCoverage。已派修。",
+        "测试盲区：SourceOrigin::ExternalFile 与 OfflineSample 在 EvidenceContractTests.cpp 中 grep 零命中。",
+        "新增的两个 i18n 键 trust.limitation.externalFile / trust.limitation.offlineSample 在 zh-CN.json / en-US.json 里尚不存在（该函数目前无 UI 调用方，不构成运行时问题，但接入 UI 前必须补词条）。"
+      ],
+      "notes": "两个验证层里，文案检查层已执行且通过；离线自动测试层在修复后也通过。**但仍不记 PASS**：F-11 的要求是“显示”“报告”，而 BuildTrustStatement 至今没有任何 UI 或报告调用方（评审实测 grep 为 0），规范第 3.2 节的“UI 能使用”未满足。"
+    },
+    {
+      "id": "F-12",
+      "module": "现有能力复用与证据基础",
+      "phase": "P0",
+      "title": "现有页面联动",
+      "requirement": "已有风险中心、驱动、进程、内存、网络页面可以接收带身份和证据 id 的导航；复用既有路由，避免新增只会静态展示的总览。",
+      "verification": "从每个本次新增结果至少完成一条到原始证据页的跳转；关闭目标页后再跳。",
+      "expected": "懒加载与定位有效，目标缺失时准确解释，不跳到首行或相近名字。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/LiveNavigation.h",
+        "shared/evidence/LiveNavigation.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：DecideNavigation 把“目标页已关闭 / 对象不在页内 / 身份不足 / 证据未保存 / 正常送达”分成五种结果，身份不足时拒绝跳转而不是落到首行。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 9 已修：evidenceId 为空时返回新增的 NavigationOutcome::EvidenceIdMissing，不再直接 Delivered。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "评审 finding 9：evidenceId 为空时的短路让请求跳过 EvidenceNotSaved 检查，实测返回 Delivered，而 F-12 要求的正是“带身份和证据 id 的导航”。已派修。",
+        "评审 finding 13 实测 grep：DecideNavigation / ResolveProcessNavigation / DecideRefresh / LatestRequestGate / ValidateRange / EvaluateBudget / BuildTrustStatement / MatchProcessInstance / fullyCovered / describeRemaining 在 shared/evidence 与测试之外**全部 0 命中**。F 模块唯一的生产接入点是 DriverDock.cpp:101 的 toCollectionOutcome。"
+      ],
+      "notes": "既有路由骨架齐全（Qt 端 10 个具名槽 + 懒加载 pendingNavigation_；Light 端 EntityRef + 8 个 NavigationTarget），但只有 openProcessDetailByIdentity 一条带身份，其余仍是裸 PID/裸路径，且本轮判据尚无调用方。目标环境实测未执行。"
+    },
+    {
+      "id": "I-01",
+      "module": "内核完整性检查深化",
+      "phase": "P0",
+      "title": "模块身份匹配",
+      "requirement": "比较前核对架构、映像大小、版本/调试标识等可用信息及文件身份；磁盘同名文件不自动视为加载时的对应版本。必要信息不足时降低比较可信度。",
+      "verification": "提供正确文件、同名异版、被替换文件、无磁盘文件、无 PDB 的样本。",
+      "expected": "只有匹配依据充分的区域进入可归一化比较；错误版本不会被批量报为 hook。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：Ksword5.1/Ksword5.1/KernelDock/KernelCleanImageBaseline.cpp:576；Ksword5.1/Ksword5.1/KernelDock/KernelCleanImageBaseline.cpp:930；Ksword5.1/Ksword5.1/KernelDock/KernelCleanImageBaseline.cpp:1012。缺口：身份判据只有 machine/timestamp/SizeOfImage/CheckSum + SigningLevel + loadedModuleBase 匹配（KernelCleanImageBaseline.cpp:1012-1041），缺版本资源与 PDB(RSDS) 身份，且结果是二值——任何一项不合就 return false 整模块拒绝，没有「必要信息不足时降低比较可信度」的分级；ArkRuntimeDynData.cpp:392 readRsdsIdentity / :698 findIdentityMatchedImage 已有可复用的 PDB 身份提取，尚未接进 prepareTrustedImage。"
+    },
+    {
+      "id": "I-02",
+      "module": "内核完整性检查深化",
+      "phase": "P0",
+      "title": "PE 文件到映像的正确映射",
+      "requirement": "区分文件偏移、RVA、VA、raw size、virtual size、节对齐和零填充；只处理经过边界校验的节表。依据 [M1]。",
+      "verification": "使用节大小不等、零填充、截断、重叠或越界节的样本。",
+      "expected": "合法范围映射准确；畸形映像被拒绝或局部跳过，绝不越界读取。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/PeImageMap.h",
+        "shared/evidence/PeImageMap.cpp",
+        "KswordARKLightTests/ImageIntegrityTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：用代码构造 PE64 夹具（节大小不等、零填充、截断、重叠节、越界节），验证合法范围 RVA↔文件偏移双向映射精确；零填充区返回独立状态 SectionZeroFill 且 fileOffset 保持 unset（不退化成 0）；畸形节按**节粒度**标 NotComparable 并跳过，其余节继续，且任何路径都不越界读。155 项 I 断言全绿。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "对抗性评审发现 3 条本编号问题（1 major + 2 minor），已确认为真并派修：(1) 数据目录在 SizeOfOptionalHeader=112 且 NumberOfRvaAndSizes=16 时从节表字节里解出，攻击者用一个 8 字节节名即可控制重定位目录 RVA/size；(2) 节重叠检查不含 PE 头区间，VirtualAddress 落在头部里的节会覆盖已拷入的头部字节且被判为正常映射，来源回溯双向矛盾；(3) 重定位可写入零填充区，破坏“这些字节确实是 0”的契约，跨界时还会把 delta 带进可比较字节。修复完成前本编号的离线测试结论不成立。"
+    },
+    {
+      "id": "I-03",
+      "module": "内核完整性检查深化",
+      "phase": "P0",
+      "title": "重定位与加载变更",
+      "requirement": "对支持的 x64 重定位精确归一化；IAT 等运行期写入单独解释。不能粗暴忽略整页、整节或所有跳转指令。依据 [M1]。",
+      "verification": "同一 PE 在两个基址建立测试映像，再改变一个非重定位字节；加入不支持的重定位类型。",
+      "expected": "仅重定位差异不产生未解释代码差异；真正修改定位到正确 RVA；不支持的部分标记不可比较。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/PeImageMap.h",
+        "shared/evidence/PeImageMap.cpp",
+        "KswordARKLightTests/ImageIntegrityTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：**证据已被对抗性评审推翻**，见 notes。原 155/155 的运行结果对本编号不成立，修复后需重新取证。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "两个 BLOCKER 已修：(1) 测试的“现场”侧改由夹具侧的独立加载器 IndependentLoadedImage() 产出，与 PeImageMap 零代码共享，并加两条“生产映像必须与独立加载映像逐字节相同”的断言；**变异复跑：修复前 155/155 全过，修复后 274/280（6 条失败）**。(2) 重定位无法应用时（Stripped/DirectoryMissing/DirectoryUnbacked/DirectoryMalformed）整个映像范围进入 notComparableRanges，结论自动降到 Indeterminate —— 不再凭空报出 17-18 条假“未解释差异”。补 TestRelocationCannotNormalize 覆盖三种状态的双向情形。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "原测试夹具自我印证（Q-01 违规），修复前不得据此记任何通过状态。"
+      ],
+      "notes": "离线算法层已按评审修正并重新取证。**仍不记 PASS**：该核尚无生产调用方，仓库里 KernelCleanImageBaseline::mapPeImage 与 kernelHookReadPeBytesAtRva 两套实现原样还在，合并未做（理由见 docs/next/使用与限制说明.md 第 6 节）。另有已知缺口：DVRT 动态重定位未实现，而既有实现已支持三类动态重定位符号 —— 直接替换会让 ntoskrnl 退步。"
+    },
+    {
+      "id": "I-04",
+      "module": "内核完整性检查深化",
+      "phase": "P0",
+      "title": "热补丁和未知合法变化",
+      "requirement": "只有存在具体可核对依据时才把变化标为“已解释”；签名有效、文件属于 Microsoft、差异像跳板都不是自动豁免理由。不能解释的保留为未解释差异。",
+      "verification": "输入有明确说明的测试补丁、相似但无依据的补丁和普通代码变化。",
+      "expected": "已解释与未解释分开；豁免精确到范围和规则版本；不得给整份驱动永久放行。",
+      "required_verification_layers": "离线自动测试＋审阅",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/ImageDiff.h",
+        "shared/evidence/ImageDiff.cpp",
+        "KswordARKLightTests/ImageIntegrityTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：ExplanationRule 带 ruleId + ruleVersion + 生效 RVA 范围；有依据的补丁标 Explained 并记录命中规则，相似但无依据的补丁与普通代码变化一律 Unexplained。API 层面没有按模块整体豁免的入口，签名有效/属于 Microsoft/看起来像跳板都无法触发豁免。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "对抗性评审发现 1 条 major：ExplanationRule 的 range 长度没有上限，一条 range={0, 0xFFFFFFFF} 的规则即可解释模块内全部差异 —— 实测 ruleId=\"vendor.microsoft.signed\" 让两个被改字节的 unexplainedEntries 变成 0，正是 I-04 通过条件禁止的“给整份驱动永久放行”，也与 ImageDiff.h 自己写的“没有按模块整体豁免的入口”矛盾。原测试只测了空范围规则，该路径零覆盖。已派修。"
+    },
+    {
+      "id": "I-05",
+      "module": "内核完整性检查深化",
+      "phase": "P0",
+      "title": "差异定位和上下文",
+      "requirement": "每条差异含模块实例、节、RVA/VA、范围长度、比较前后字节、读取状态、前后少量反汇编及证据来源。邻近差异可折叠但原始范围可展开。",
+      "verification": "在离线映像开头、中部、末尾及跨页处改变已知字节。",
+      "expected": "位置和长度逐一吻合；读不到的字节用缺失标记，不补 00；反汇编失败不影响原始证据。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/ImageDiff.h",
+        "shared/evidence/ImageDiff.cpp",
+        "KswordARKLightTests/ImageIntegrityTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：**证据已被对抗性评审推翻**，见 notes。原 155/155 的运行结果对本编号不成立，修复后需重新取证。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 7/9 已修：ImageDiffEntry 补上模块实例引用与 DisassemblyContext（结构上能区分“没尝试”与“尝试过但解不出来”）；ReadNormalizedBytes 现在要求请求跨度完全落在 comparableRanges 内，零填充与节间隙一律拒绝而不是返回一片伪造的 0。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "原测试夹具自我印证（Q-01 违规），修复前不得据此记任何通过状态。"
+      ],
+      "notes": "对抗性评审发现 2 条问题：(1) major —— ImageDiffEntry 只提供 I-05 要求的 8 项里的 6 项，缺**模块实例**字段与**前后反汇编上下文**字段（grep disas|instruction|opcode|mnemonic 命中 0），但测试文件头声称已覆盖；(2) minor —— ReadNormalizedBytes 不查 rawBackedRanges，对零填充区与节间隙返回“成功 + 一片伪造的 0”。另外本编号的差异断言同样受 I-03 的自我印证 BLOCKER 影响。均已派修。"
+    },
+    {
+      "id": "I-06",
+      "module": "内核完整性检查深化",
+      "phase": "P0",
+      "title": "跳转目标和所有者",
+      "requirement": "现有 inline/IAT/EAT 分析结果补充目标地址所属模块/区域及解析路径；跟随跳转须有深度、字节数和环检测上限。导出转发与未解析间接目标分别表示。",
+      "verification": "测试直接跳转、间接跳转、导出转发、循环、目标不可读、目标位于其他正常模块。",
+      "expected": "可解析的目标正确；跨模块不自动等于恶意；循环和未知目标明确结束。",
+      "required_verification_layers": "离线自动测试＋选定模块实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/ImageDiff.h",
+        "shared/evidence/ImageDiff.cpp",
+        "KswordARKLightTests/ImageIntegrityTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：跳转跟随六种结果各有断言 —— 直接跳转解析成功、间接未解析、导出转发（与未解析间接目标是两个不同枚举值）、循环被环检测终止、目标不可读、目标落在另一个正常模块。深度/字节预算生效。API 中无 malicious/threat 字段，跨模块不等于恶意。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "离线断言本身未被评审判为无效（跳转跟随的六种终止原因、环检测、导出转发与未解析间接目标分开表示均成立）。但本层不解码指令、不读间接指针、不解析导出目录识别 forwarder —— BranchResolver 是调用方回调，真正的解码接线在 KswordARKDriver/src/features/kernel/hook_scan.c（本轮未改）。“选定模块实测”验证层完全未做。"
+    },
+    {
+      "id": "I-07",
+      "module": "内核完整性检查深化",
+      "phase": "P0",
+      "title": "CPU 相关证据正确分组",
+      "requirement": "IDT/MSR 等只复用已支持的读取能力，结果标明处理器组和逻辑处理器；不同 CPU 的合理差异不能按“所有 CPU 必须相等”判异常。",
+      "verification": "用多 CPU 不同合法配置与单项异常样本测试；在可用多核环境查询。",
+      "expected": "显示实际检查的 CPU 覆盖及未检查项；不添加未验证私有 MSR 读取。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：复用即可。现有入口：KswordARKDriver/src/features/kernel/kernel_cpu_integrity.c:938；KswordARKDriver/src/features/kernel/kernel_cpu_integrity.c:974；KswordARKDriver/src/features/kernel/kernel_cpu_integrity.c:1002。缺口：多处理器组遍历、每行 group/number/vector 标注、IDTR 多数派 + 启动期基线双判据（kernel_idt_consistency.h:15 的 DIVERGED/RELOCATED）都在，MSR 只读 CR0/CR4/EFER/LSTAR/SYSENTER_EIP 这些架构寄存器、无私有 MSR（kernel_cpu_integrity.c:548）。剩余小缺口：状态栏只报 cpuCount 与「响应已截断」（KernelDescriptorTableTab.cpp:374-392），没有逐 CPU 的「已检查/未检查」明细，也没有把「合法差异」（如 IST/每核私有栈导致的 handler 差异）显式排除在异常之外。"
+    },
+    {
+      "id": "I-08",
+      "module": "内核完整性检查深化",
+      "phase": "P0",
+      "title": "可执行权限证据",
+      "requirement": "区分 PE 声明、当前页表观测、用户可见区域属性和二级地址转换信息；未知权限不推导成 RWX。WX 或非映像可执行区域只是调查线索。",
+      "verification": "测试只读代码、RW、RX、RWX、不可读页表和只有 PE 标志的输入。",
+      "expected": "权限依据明确；不同层的权限不混成同一值；“无映像归属”不直接标为恶意驱动。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：shared/driver/KswordArkMemoryIoctl.h:266；shared/driver/KswordArkMemoryIoctl.h:274；shared/driver/KswordArkMemoryIoctl.h:587。缺口：三层证据其实都已存在且分层良好：PE 声明（KSW_IMAGE_SECTION_RESULT_EXECUTABLE / kernel_image_section_map.h:22）、页表观测（pteFlags / KERNEL_EXEC_RISK_CODE_PAGE_NOT_EXECUTABLE 与 CODE_PAGE_WRITABLE 明确区分了「PE 说可执行但页表说不是」）、用户可见位（PermissionUser）。缺口有两处：(1) 二级地址转换（EPT/SLAT）权限没有并入这套权限证据——SLAT 视图在 KernelDock 另一个页，未与可执行页行对齐；(2) 这套证据完全在 MemoryDock，KernelDock 的「代码完整性」页（KernelTextIntegrityTab）一个权限列都没有，I 模块的差异行看不到目标页当前权限，无法满足「权限依据明确、不同层不混成同一值」在本模块内的呈现要求。"
+    },
+    {
+      "id": "I-09",
+      "module": "内核完整性检查深化",
+      "phase": "P0",
+      "title": "扫描覆盖和竞态",
+      "requirement": "按模块、字节和页分别统计尝试/成功/失败/排除；读取前后核对模块身份，卸载或变化时标记过期。",
+      "verification": "扫描中使自有测试模块结束或使模拟映像版本变化，同时制造单页失败。",
+      "expected": "不中断全部结果、不使用过期地址继续解释；部分扫描不输出全模块一致。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/ImageDiff.h",
+        "shared/evidence/ImageDiff.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：按模块/字节/页分别统计 attempted/succeeded/failed/excluded；CheckModuleStillSame 在模块身份读前读后不一致（卸载或换版）时返回 Stale。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "对抗性评审发现 3 条问题：(1) major —— ModuleStalenessVerdict::Unverifiable（读前读后身份无法确认）走正常路径，实测给出 outcome=Success、conclusion=NoDifferenceObserved，把“分析无法判断”塌成“正确的空集合”；(2) minor —— 含排除窗口但大部分被比较的页从不进 pages.excluded，实测 excludedBytes=8 而 pages excl=0；(3) minor —— 未写进文档的 pieceCap 才是真正停住扫描的上限，触发时实测 8192 个请求字节里 7103 个（87%）不进任何字节桶，coverage.limit 报的还是条目数。均已派修。"
+    },
+    {
+      "id": "I-10",
+      "module": "内核完整性检查深化",
+      "phase": "P0",
+      "title": "磁盘参考的可信度",
+      "requirement": "报告说明比较对象是本机磁盘、用户选择的参考映像还是已保存快照；文件签名状态与“字节一致”分开，不把本机磁盘当不可篡改信任根。",
+      "verification": "对相同字节但参考来源不同的样本生成报告。",
+      "expected": "差异结论一致，信任说明不同；不出现“与磁盘一致所以安全”的结论。",
+      "required_verification_layers": "离线自动测试＋文案检查",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/ImageDiff.h",
+        "shared/evidence/ImageDiff.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：同一份字节配 LocalDisk / UserSelectedImage / SavedSnapshot 三种 ReferenceSource -> 差异条目完全相同，仅信任说明不同。BuildTrustNotes 只返回 i18n key，结构上无法产出“与磁盘一致所以安全”。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/F-11-文案检查.md",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本编号的离线断言（同一份字节配三种 ReferenceSource -> 差异条目相同、信任说明不同、trust notes 不含安全结论键）未被评审判为无效。但产出的只是 i18n 键，zh-CN.json / en-US.json 里对应词条尚未创建，UI 也没有“本次比较对象是谁”的显示与“选择参考映像”的入口。"
+    },
+    {
+      "id": "I-11",
+      "module": "内核完整性检查深化",
+      "phase": "P0",
+      "title": "只读扫描范围",
+      "requirement": "本模块不发写内存、重定向、卸载或恢复请求；“定位到地址”只导航到现有只读视图。正常读取可能影响驻留等状态，不能宣传完全无观测副作用。依据 [M2]。",
+      "verification": "审计本模块的所有驱动请求；运行一次完整查询并记录操作类型。",
+      "expected": "无目标修改操作；不为方便比较而暂停全机、改页权限或临时禁用保护。",
+      "required_verification_layers": "源码检查＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "已实现",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "Ksword5.1/Ksword5.1/KernelDock/KernelTextIntegrityTab.cpp",
+        "Ksword5.1/Ksword5.1/KernelDock/KernelCleanImageBaseline.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "源码检查层：审计完整性检查模块（KernelDock「代码完整性」页 + KernelCleanImageBaseline）发出的全部驱动请求，共 4 种且全部只读 —— readVirtualMemory / queryImageSignature / querySecurityStatus / queryHyperVSummary；页面动作面只有「扫描」「取消」两个按钮，无写内存/重定向/卸载/恢复入口。记录在 docs/next/logs/I-11-只读扫描审计.md。",
+        "范围外问题复核：对 CTL_CODE 访问位不一致做了影响分析（驱动精确匹配分发 + access 参与编码），结论是修改会破坏旧驱动兼容，故保持原状并记录理由。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/I-11-只读扫描审计.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "IOCTL_KSWORD_ARK_QUERY_IMAGE_SIGNATURE 的 CTL_CODE 声明为 FILE_READ_ACCESS|FILE_WRITE_ACCESS，但该操作是纯查询；声明与语义不一致，本轮未改（范围外）。",
+        "KernelDock 另外两个页签（IDT/GDT 的“恢复选中 IDT 基线”、inline hook 的“NOP 摘除选中”）确实带写路径，但它们是既有独立修复功能、不属于本验收定义的完整性检查模块，本轮未改动；若要把整个 KernelDock 约束成只读需单独授权。",
+        "【已决定不改】IOCTL_KSWORD_ARK_QUERY_IMAGE_SIGNATURE 的 CTL_CODE 声明为 FILE_READ_ACCESS|FILE_WRITE_ACCESS 而该操作是纯查询。核实后不予修改：驱动在 ioctl_registry.c:457 按 IoControlCode 精确相等分发，而 CTL_CODE 把 access 编进 bit14-15，改成 FILE_READ_ACCESS 会改变 IOCTL 的数值 —— 新 R3 配任何已部署的旧驱动都会变成未知 IOCTL，整个映像签名查询失效，直接违反 Q-04“原有页面和操作仍可用”。这是为了声明整洁而弄坏可用功能，不做。若将来要纠正，必须与一次协议版本升级一起做，并保留旧编号的兼容分发。"
+      ],
+      "notes": "验证层是“源码检查＋目标环境实测”。源码检查已完成；目标环境实测（真实加载驱动跑一次完整查询并记录实际操作类型）未执行，故不记 PASS。同时保留限制说明：读取本身会影响驻留与时序，不能宣传为完全无观测副作用。"
+    },
+    {
+      "id": "I-12",
+      "module": "内核完整性检查深化",
+      "phase": "P0",
+      "title": "最小实测交付",
+      "requirement": "至少对 ntoskrnl 和 KSword 自身驱动完成真实读取、比较覆盖说明、一次保存/重开；正向差异检测在离线测试映像验证，不要求破坏运行中的内核。",
+      "verification": "在已获授权且驱动可正常加载的测试环境执行，保存样本和日志。",
+      "expected": "真实采集与离线差异算法分别有证据；缺 R0 时现场部分为 BLOCKED，不能用样本替代。",
+      "required_verification_layers": "目标环境实测＋离线自动测试",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：Ksword5.1/Ksword5.1/KernelDock/KernelTextIntegrityTab.cpp:250；Ksword5.1/Ksword5.1/KernelDock/KernelTextIntegrityTab.cpp:133；Ksword5.1/Ksword5.1/KernelDock/KernelCleanImageBaseline.cpp:432。缺口：真实读取路径齐备且能按模块名过滤到 ntoskrnl / KswordARKDriver，比较覆盖说明有字节级三分类；但两条通过条件都没落地：(1)「一次保存/重开」不存在——本页只有通用 TSV 导出，没有保存完整扫描结果再重新打开的入口（全仓 grep 不到 saveReport/loadReport/重开 在本模块）；(2)「正向差异检测在离线测试映像验证」没有任何离线夹具或测试目标，KswordARKDriver/tests 与 KswordARKLightTests 都不覆盖本模块，因此 R0 可用时也只能给出现场部分，离线部分必然 NOT_RUN。"
+    },
+    {
+      "id": "X-01",
+      "module": "Cross-view 差异解释与复核",
+      "phase": "P0",
+      "title": "来源独立性可见",
+      "requirement": "每个视图说明入口、底层证据来源、依赖链和共享关系。同一个 collector 的两层包装不是两个独立来源。",
+      "verification": "把同一个底层快照经两种 UI/API 包装输入，另给一份真正不同来源的证据。",
+      "expected": "前两者归入同源组；报告同时显示视图数与来源组数，不靠重复视图提高可信度。",
+      "required_verification_layers": "源码核对＋离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/CrossViewDiff.h",
+        "shared/evidence/CrossViewDiff.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "源码核对层：盘点确认既有 ProcessDock.CrossView.cpp 无来源分组概念。离线自动测试层：把同一底层 collector 经两种包装 + 一个真正不同来源输入，报告同时给出 viewCount=3 与 independentSourceGroupCount=2；同源两层不虚增来源数。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "两个 BLOCKER 之一已修：普查改为跨全部轮次 —— 视图集合取并集、独立来源组数取每轮最小值、BuildTrustStatement 吃全部轮次的 envelope；并加自检不变式（latestHits.size() 必须等于 report.viewCount，independentSourceGroupCount 不得超过最新轮实际出现的来源组数）。新增 TestCrossRoundCensus 四种拓扑。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "**BLOCKER**（CrossViewDiff.cpp:101）：视图/来源组普查只取 rounds.front()。实测三例 —— 后续轮 collector 崩掉只剩 2 视图时仍报 views=3 groups=3（用已不存在的独立来源撑可信度）；首轮 1 视图、后续 3 视图时 latestHits.size()=3 却自称 viewCount=1（自相矛盾）；后两轮两个视图并入同一 sourceGroup 时仍报 independentSourceGroupCount=2（正是 X-01 禁止的靠重复视图提高可信度）。已派修。",
+        "评审 finding 15（在 EvidenceEnvelope.cpp:209）：singleSourceGroup 限制键被 viewCount > 1 的守卫压掉 —— 单视图单来源组时实测 limitationKeys 里没有 singleSourceGroup，报告却给每个对象盖了“未发现差异”的章。"
+      ],
+      "notes": "SourceRef.sourceGroup/dependsOn 已在引擎中生效并有测试，但现有 Cross-view 页面尚未填这些字段，故实现状态为开发中。"
+    },
+    {
+      "id": "X-02",
+      "module": "Cross-view 差异解释与复核",
+      "phase": "P0",
+      "title": "进程实例关联",
+      "requirement": "关联进程必须优先使用启动标识＋PID＋创建时间；地址作为本次辅助证据，不用于跨启动匹配。创建时间缺失时明确关联弱。",
+      "verification": "测试 PID 复用、同名进程、仅一个视图有创建时间和系统特殊对象。",
+      "expected": "不会误合并或错误报告隐藏；身份不足保留候选关系。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/CrossViewDiff.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：PID 复用（同 PID 两个创建时间）保持为两个对象；只有一个视图有创建时间时该记录计入 weakIdentityRecords 并保留候选关系，既不合并也不生成第二个确定对象。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 5 已部分修复：弱身份记录不再被丢弃 —— 新增 ViewRecord::candidateKey()（分析局部去重键，明确不是跨会话主键）、独立的 'W' 键空间、DiscrepancyState::CandidateOnly（禁止升级为 Persistent）、weakIdentityRecords 与 weakIdentityObjects 分开计数。评审的探针已复现：同一弱对象 3 视图 × 2 轮 -> records=6、objects=1、findings=1、latestHits 带 3 个逐视图 raw id。",
+        "X-02 的最后一块由集成 owner 补完：新增 CandidateLink，把弱身份记录与强身份对象之间的候选关系**显式建成边**（此前弱记录只是一条孤立的 CandidateOnly finding，看不出它可能对应哪个已确认对象；而反向合并进去正是 X-02 禁止的误合并）。判定走 ObjectIdentity 的 MatchProcessInstance/MatchThreadInstance/MatchDriverInstance —— 这是 AnalyzeCrossView 里第一次真正调用这些匹配器，此前它们对 X 模块是死代码。按 PID/TID/镜像路径分桶，复杂度是 O(strong+weak) 而不是 O(weak×strong)。链接强度被硬钉在 Candidate（统一身份门槛已经保证，这里再钉一道防将来放宽）。新增 11 条断言（X 169->180）：两条独立 finding 不合并、双向候选边、依据文本、以及两个反例（同 PID 不同创建时间的 PID 复用不建边、不同 PID 不建边）。构建 0 / 运行 0。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "评审 finding 5（major）：identityKey 为空的记录只 ++weakIdentityRecords 然后 continue，记录本身彻底消失。实测同一个弱身份对象出现在 3 视图 × 2 轮 → weakIdentityRecords=6、findings=0，kind/displayText/rawRecordId/viewId 全丢，一个对象被记成 6。X-02 要求的“身份不足保留候选关系”保留的只是一个整数。攻击面：只要让记录缺一个 createTime 就能从 cross-view 结果里彻底消失。已派修。",
+        "评审确认：AnalyzeCrossView 从头到尾没有调用过 MatchProcessInstance / MatchThreadInstance / MatchDriverInstance，合并纯靠 crossSessionKey 字符串相等，ObjectIdentity 的 MatchResult::Candidate 机制对 X 模块是死代码。",
+        "",
+        "【已闭环】此前 partially_fixed 的那条（Match* 对 X 模块是死代码、候选关系未表达）已由集成 owner 补完 CandidateLink 解决，见 executions。"
+      ],
+      "notes": "目标环境实测（同名进程、系统特殊对象）未执行。"
+    },
+    {
+      "id": "X-03",
+      "module": "Cross-view 差异解释与复核",
+      "phase": "P0",
+      "title": "线程所属与生命周期",
+      "requirement": "线程匹配必须绑定进程实例及可用线程创建信息；对线程退出、进程退出和权限不足分别处理。",
+      "verification": "持续创建/结束自有线程并抓取多视图；离线构造 TID 复用。",
+      "expected": "生命周期竞态不升级为确定隐藏；残缺所属信息不会挂到同 PID 新进程。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/CrossViewDiff.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：线程记录绑定进程实例；TID 复用与所属进程 PID 复用两种情形均判 NoMatch，不挂到同 PID 新进程；构造离线 TID 复用的三视图样本，被删记录精确定位。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "评审 finding 10：X-03 点名的负面用例“离线构造 TID 复用”在 CrossViewTests.cpp 里零断言（TID 复用只在 F-03 匹配器层面测过，X 层从不调用 MatchThreadInstance）。已派修。"
+      ],
+      "notes": "“持续创建/结束自有线程并抓取多视图”的目标环境实测未执行。"
+    },
+    {
+      "id": "X-04",
+      "module": "Cross-view 差异解释与复核",
+      "phase": "P0",
+      "title": "驱动实例关联",
+      "requirement": "区分加载模块、DriverObject、DeviceObject 和磁盘服务配置，不要求一对一对应。模块列表缺项与无 DriverObject 是不同现象。",
+      "verification": "输入一个模块多个对象、服务存在未加载、无设备驱动对象、模块卸载等样本。",
+      "expected": "差异类型准确，不把合法多对多结构报告成 rootkit。",
+      "required_verification_layers": "离线自动测试＋现场样本核对",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/CrossViewDiff.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：驱动实例按 imagePath+timeDateStamp+imageSize+PDB 身份匹配，同路径异 PDB 判为不同映像；离线三视图样本中被删的驱动记录精确定位，未被删的判 NoDiscrepancy。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 9/10 已修：ViewSnapshot 加实体类别（ProcessList / ThreadList / LoadedModuleList / DriverObjectTable / DeviceObjectTree / ServiceConfig），缺项推断只在同类别视图之间做；跨类别落成 CategoryObservation 的基数事实而不是差异。测试侧删除了 X-04 的覆盖声明，并把原先锁死错误语义的用例（断言模块在服务配置视图里缺失即 Persistent）重写。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "评审 finding 9（major）：模型里没有 DriverObject / DeviceObject / 磁盘服务配置的类别概念。实测一个 boot-start 驱动出现在模块列表、合法地不出现在设备树，3 轮后被判 Persistent + DifferenceObserved —— 正是 X-04 禁止的“把合法多对多结构报告成 rootkit”。",
+        "评审 finding 10（major）：CrossViewTests.cpp:381-417 把磁盘服务配置视图当成又一个“加载模块列表”视图，断言模块在服务视图里缺失即 Persistent。**这条测试锁死的正是 X-04 禁止的语义。** 已派修：删除 X-04 覆盖声明并重写该用例。"
+      ],
+      "notes": "类别模型已落地，但 X-04 要求的四类对象里只有“加载模块实例”有真正的身份类型；DriverObject / DeviceObject / 服务配置目前只是视图类别标签，没有各自的生命周期身份。现场样本核对未执行。"
+    },
+    {
+      "id": "X-05",
+      "module": "Cross-view 差异解释与复核",
+      "phase": "P0",
+      "title": "复采样确认",
+      "requirement": "首次缺项标为待复核；默认在至少两个后续采样中尝试复查，并记录间隔。只有身份、来源状态和观察区间满足要求才判为持续差异。",
+      "verification": "样本分别在一轮、两轮后出现，另一个持续缺失；目标在复查前退出。",
+      "expected": "瞬态、持续差异、对象已结束、无法复查四种结果可区分；不能把固定等待时间当恶意判据。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/CrossViewDiff.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：复采样状态机四种结果各有断言 —— 第二轮出现判 Transient；连续两轮复查仍缺判 Persistent；所有视图都不再列出判 ObjectEnded；复查轮全部失败判 Unverifiable；复查轮数不足判 PendingRecheck。复查间隔被记录在 recheckHistory。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 6/8/16 已修：时钟回拨不再产出回绕的巨大间隔（改为不写间隔并置 clockWentBackwards）；conclusion 与 state 改为取同一证据窗口并加不变式禁止 Persistent+NoEvidence / ObjectEnded+NoDifferenceObserved 这类组合；空轮次的 continue 条件修正。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "评审 finding 6（major）：intervalFromFirst100ns 用无符号相减且不先比大小。实测 NTP 回拨 5 秒后得到 18446744073659551616（约 5.8e13 年）且 present=true。X-09 要连续跑 10 分钟，期间一次时钟校正就能触发。已派修。",
+        "评审 finding 8（major）：state 由全历史推导而 conclusion 只由最后一轮推导，两者会矛盾。实测 state=Persistent 而 conclusion=NoEvidence；反方向 state=ObjectEnded 而 conclusion=NoDifferenceObserved。已派修。",
+        "评审 finding 16：空轮次让阈值检查变成冗余分支，else-Unverifiable 几乎不可达 —— 正因如此把阈值改成 >= 1U 的变异才能 32/32 全过。已派修。"
+      ],
+      "notes": "默认要求两轮后续采样（CrossViewOptions::requiredRecheckRounds=2）。目标环境实测未执行。"
+    },
+    {
+      "id": "X-06",
+      "module": "Cross-view 差异解释与复核",
+      "phase": "P0",
+      "title": "失败不是缺项",
+      "requirement": "视图超时、拒绝访问、截断、符号不支持均不得当作“该视图确认不存在”。",
+      "verification": "使一份视图空成功、另一份失败、第三份只返回上限数量。",
+      "expected": "只把成功且完整覆盖目标范围的视图用于缺项推断；其它显示未知。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/CrossViewDiff.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：ViewUsableForAbsence 对超时/拒绝访问/截断/不支持/未覆盖目标范围一律返回 false；一份视图空成功、一份失败、一份只返回上限数量时，只有完整成功那份计入 AbsentInUsableView，其余为 Unknown，结论不得为 NoDifferenceObserved。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "两个 BLOCKER 已修：(1) ObjectEnded 现在要求该轮 unusableViews==0 且**所有曾报告过该对象的见证视图**本轮都可用且不再列出它，见证视图超时一律落到 Unverifiable；(2) 第 3 步改为按全部轮次视图 id 的并集遍历，整轮缺席的视图产出 UnknownViewFailed/NotCollected 的 ViewHit 并计入 unusableViews —— 评审的原探针现在得到 state=Unverifiable、conclusion != NoDifferenceObserved。评审 finding 4 已修：ViewUsableForAbsence 增加 CoverageProvesCompleteness 与 ViewAccountMatchesRecords 两道正面证据要求，静默损坏的 collector 不再获得“确认缺失”资格。评审 finding 11 已修：改为逐视图断言精确的 presence 与 viewStatus。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "**BLOCKER**（CrossViewDiff.cpp:237）：objectEnded 分支只看 presentViews/usableAbsentViews，完全无视 unusableViews。实测唯一见证视图 Timeout 后被判 state=ObjectEnded，而 hits 里明写着 presence=UnknownViewFailed status=Timeout —— 正是 X-06 禁止的“视图超时当作该视图确认不存在”，且方向是良性化：真被隐藏的对象拿到“对象已结束”。已派修。",
+        "**BLOCKER**（CrossViewDiff.cpp:147）：第 3 步只遍历 round.views，整轮缺席的视图不产生任何 ViewHit 也不计入 unusableViews。实测第 2/3 轮内核视图整体缺席时 recheckHistory 显示 unusable=0（看上去“干干净净全都可用”），最终 conclusion=NoDifferenceObserved —— 一个从未被采集的视图推出了“未发现矛盾”，踩 F-05 红线。已派修。",
+        "评审 finding 4（major）：ViewUsableForAbsence 完全押在 fullyCovered() 上，而字段全默认的 CoverageAccount 返回 true，coversTargetScope 又默认 true —— 两道闸门默认全开。实测一个静默损坏的 collector（Success + 空列表 + 账目原封不动）连续 3 轮把合法进程判成 Persistent + DifferenceObserved。已派修。",
+        "评审 finding 11（major）：唯一检查“未知”的断言把 UnknownViewFailed 与 UnknownOutOfCoverage 加进同一个计数器 —— 实测把两个 presence 赋值对调后仍 32/32 全过。ViewHit::viewStatus 零断言。已派修。"
+      ],
+      "notes": "验证层只有离线自动测试，算法层已完全覆盖；但该引擎尚无生产调用方（现有 ProcessDock.CrossView.cpp 仍是独立实现），故不记 PASS。"
+    },
+    {
+      "id": "X-07",
+      "module": "Cross-view 差异解释与复核",
+      "phase": "P0",
+      "title": "解释证据可展开",
+      "requirement": "每条持续差异可展开各视图命中情况、采样区间、原始记录、身份依据和复核历史。",
+      "verification": "选择一个离线持续缺项样本和一个真实无差异对象。",
+      "expected": "从结论可回到每条源记录；无差异结果也可核对覆盖，不只是红绿图标。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/CrossViewDiff.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：每条 finding 携带 latestHits（含 viewId/sourceGroup/presence/rawRecordId/viewStatus）与 recheckHistory；测试断言可从结论回到源记录 id（r0-1000）并指出受影响视图（r3.toolhelp）；无差异对象同样带完整命中记录而不只是状态。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 7 已修：逐视图命中记录进 RecheckEntry，可展开每一轮；CrossViewFinding 加 firstSeenViewId / firstSeenRawRecordId 供 ObjectEnded 一类结论回溯。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "评审 finding 7（major）：latestHits 只取最后一轮，RecheckEntry 里只有三个计数、没有 viewId/presence/rawRecordId，历史展不开。实测 ObjectEnded 的 finding 其 latestHits 每条 raw 都是空串 —— 从结论回不到当初报告过该对象的源记录，直接违反 X-07。已派修。"
+      ],
+      "notes": "UI 展开面尚未实现，目标环境实测未执行。"
+    },
+    {
+      "id": "X-08",
+      "module": "Cross-view 差异解释与复核",
+      "phase": "P0",
+      "title": "可重放的检测正例",
+      "requirement": "在离线快照副本中删除一个视图里的已知进程、线程或驱动记录，作为显式测试数据；不能把数据改写器编进生产采集路径。",
+      "verification": "对三类对象分别运行固定输入和预期结果。",
+      "expected": "准确指出被删除对象及受影响视图；不得用条件编译伪造生产结果通过。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/CrossViewDiff.cpp",
+        "KswordARKLightTests/CrossViewTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：对进程、线程、驱动三类对象各构造一组三轮快照，用测试专属的 RemoveRecordFromView 从快照副本删掉一条已知记录，引擎准确指出被删对象与受影响视图，未被删对象判 NoDiscrepancy。改写器只存在于测试翻译单元，生产路径 AnalyzeCrossView 无任何读取测试真值的分支，也无条件编译。通过。",
+        "评审确认本模块**不存在**测试自我印证：期望值全是字面量，输入由测试手工构造，改写器 RemoveRecordFromView 只存在于测试翻译单元，AnalyzeCrossView 里没有读取测试真值的分支；对照变异 M8/M9 能正常被捕获。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "变异复跑：此前存活的 7 条注入损坏**全部被捕获**（M1 取首轮 latestHits -> 8 条失败；M2 交换两个 unknown 标签 -> 9 条；M3 阈值改 >=1 -> 1 条；M4 sourceGroup 改用 collectorId -> 6 条；M5/M6/M7 同样被捕获）。断言从 32 增至 169。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "但变异实测显示断言面过窄：9 个真实逻辑损坏里 **7 个 32/32 全过**（latestHits 取首轮、交换两个 unknown 标签、把 X-05 升级阈值改成 >=1、sourceGroup 改用 collectorId、普查改从末轮采、strength 硬编码、roundCount=0）。已派修：补各轮视图集不同的用例、可配置阈值用例、逐视图精确断言。"
+      ],
+      "notes": "验证层只有离线自动测试，三类对象均已覆盖；但引擎尚无生产调用方，故不记 PASS。"
+    },
+    {
+      "id": "X-09",
+      "module": "Cross-view 差异解释与复核",
+      "phase": "P0",
+      "title": "高频创建退出场景",
+      "requirement": "自有负载连续 10 分钟创建和结束进程/线程；记录已知活动及采集丢失，不拿系统里未知对象假定干净。",
+      "verification": "在受支持测试机上运行自有可识别负载，并对抽样实例复核。",
+      "expected": "已知实例不因 PID/TID 复用或采样时差被标为确定恶意；无法解释的差异保留事实与限制。",
+      "required_verification_layers": "目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [
+        "E2"
+      ],
+      "executions": [
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 13 已修：为每个 (round, view) 预建 unordered_map 索引，identityKey 每条记录只算一次。实测 4000 对象从 13,542.7 ms 降到 **43.8 ms**（约 309 倍），X-09 的 10 分钟采样窗口不再被单次分析本身撑爆。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "评审 finding 13（major）：内层 std::find_if 的谓词对每条记录重新调用 identityKey()（每次分配 std::string），整体 O(rounds × objects × views × records)。/O2 实测 objects=4000 → 13,542.7 ms（干净二次曲线），外推 30000 对象约 12.7 分钟 —— **比 X-09 的 10 分钟采样窗口还长，该场景实际跑不完**，且会阻塞 UI。已派修：预建哈希索引。"
+      ],
+      "notes": "性能障碍已排除，但 X-09 的验证层只有“目标环境实测”：仍需在受支持测试机上跑 10 分钟自有进程/线程高频创建退出负载并对抽样实例复核，本轮未执行。"
+    },
+    {
+      "id": "X-10",
+      "module": "Cross-view 差异解释与复核",
+      "phase": "P0",
+      "title": "实体扩展不降标准",
+      "requirement": "句柄、设备、网络只有在定义了对象身份、来源语义及复核行为后才接入统一判定；未接入的现有页面继续可用。",
+      "verification": "核对扩展清单；对每个宣称支持的实体重复失败/复用/瞬态三类用例。",
+      "expected": "每个宣称支持的实体都有测试；未支持实体清楚标注，不用空表冒充完成。",
+      "required_verification_layers": "源码核对＋自动测试",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [
+        "E0"
+      ],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：Ksword5.1/Ksword5.1/ksword/file/file_handle_tools.cpp:1948-2043；Ksword5.1/Ksword5.1/ksword/file/file_handle_tools.h:48-60；Ksword5.1/Ksword5.1/句柄/HandleDock.cpp:1220-1228。缺口：三个扩展实体的成熟度完全不同，且都没有按 X-10 要求先定义身份/来源语义再接入。句柄最成熟（有 UserOnly/KernelOnly/Both 三态、有截断提示、有 churn 与失败的区分测试），但合并键是 {PID, handleValue}，PID 复用会误配（file_handle_tools.h:220 已有 processCreationTime 字段却没进 key）。网络只做并列展示不做判定：NetworkAuditPage.cpp:1412 那句 diffText 只区分「已对比/未对比」，且来自句柄快照而非连接本身，全文再无 diff 逻辑；ConnectionIdentity 要求的观察区间（ObjectIdentity.h:143-158）不存在。设备完全没有 R0 侧来源，KernelDeviceDriverObjectsWorker 只有 R3 目录枚举。当前也没有任何地方声明「哪些实体已接入统一判定、哪些未接入」的清单，等于用可用页面冒充已支持。"
+    },
+    {
+      "id": "M-01",
+      "module": "内存证据与地址翻译深化",
+      "phase": "P0",
+      "title": "区域信息语义",
+      "requirement": "展示 base、size、state、type、protection、allocation base、映射路径及来源；R3 区域查询与 R0 VAD 证据分开。",
+      "verification": "自有程序创建 reserve、commit、mapped file 和 image 区域并记录真值。",
+      "expected": "字段符合各自来源；未读取 VAD 时不显示“VAD 已验证”。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/MemoryRegionEvidence.h",
+        "shared/evidence/MemoryRegionEvidence.cpp",
+        "KswordARKLightTests/MemoryEvidenceTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：RegionRecord 含 base/size/state/type/protection/allocationBase/allocationProtect/mappedPath 与 RegionEvidenceSource{R3VirtualQuery,R0VadWalk,OfflineSnapshot}；VadVerified() 仅在 source==R0VadWalk 且 VAD 字段齐全时为真，R3 来源恒为 false。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "既有 MemoryDock RegionEntry 缺 allocationBase/allocationProtect 与来源字段（R0 响应其实已返回）。本轮只做了语义模型与判据，没有采集器接线；“自有程序创建 reserve/commit/mapped/image 四类区域并记录真值”的目标环境实测未执行。"
+    },
+    {
+      "id": "M-02",
+      "module": "内存证据与地址翻译深化",
+      "phase": "P0",
+      "title": "安全读取与部分结果",
+      "requirement": "使用仓库规定的 KswordARKRuntimeReadMemory 等既有封装，在合法 IRQL 分块读。保留返回状态和实际字节数，不能以异常包装的直接解引用替代。依据 [R4][M2]。",
+      "verification": "测试页边界、不可读区域、部分复制、目标退出和数据变化。",
+      "expected": "不越界、不蓝屏；缺失字节明确表示；完整成功与部分成功不混用。",
+      "required_verification_layers": "自动测试＋R0 变更时隔离实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/MemoryRegionEvidence.h",
+        "shared/evidence/MemoryRegionEvidence.cpp",
+        "KswordARKLightTests/MemoryEvidenceTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "自动测试层（R3 语义侧）：跨页边界读取、第二页不可读 -> 第一页字节逐字节一致、第二页保持孔洞（present 位为假，不补 0）、DescribeHoles 精确给出孔洞范围、outcome 为 Partial 而非 Success。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 BLOCKER 已修：MergeReadSpans 的两趟循环改用同一个准入判据 MergeAdmits()，并在算 base 前额外确认 span 落在 [lowest, highest] 内 —— 修复前 begin=0xFFFFFFFFFFFFFFF0/length=32 的 span 会造成越界读写。ChunkReader 改为回填 ChunkReadResult（copied + status + nativeCode + domain + message），STATUS_ACCESS_DENIED 与 STATUS_PROCESS_IS_TERMINATING 现在在结果里可区分。补真正的块内部分复制用例。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "R0 侧的 KswordARKRuntimeReadMemory / MmCopyMemory / IRQL 门禁 / 分块读本来就已满足（既有 process_memory.c，且有 SafeReadRegression.ps1 静态回归）。本轮只补 R3 侧孔洞语义。既有缺口仍在：MemoryDock 恒传 ZERO_FILL_UNREADABLE 且十六进制视图不标注补零孔洞——本轮未改。本轮无 R0 改动，故“R0 变更时隔离实测”不触发。"
+    },
+    {
+      "id": "M-03",
+      "module": "内存证据与地址翻译深化",
+      "phase": "P0",
+      "title": "VA 翻译上下文",
+      "requirement": "每次翻译保存进程实例、地址空间/页表根来源、时间和已支持的分页模式；失效上下文禁止复用。",
+      "verification": "同 VA 在两个进程映射不同内容，再结束一个进程。",
+      "expected": "两者翻译不串用；退出后只显示历史观测，不声称仍有效。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/PageTableWalk.h",
+        "shared/evidence/PageTableWalk.cpp",
+        "KswordARKLightTests/MemoryEvidenceTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：同一个 VA 在两套页表根下翻译出不同物理地址（证明上下文不串用）；TranslationContext 保存进程实例/页表根来源/时间/分页模式；进程退出或身份不匹配时 CheckContextUsable 判上下文失效、禁止复用（复用 LiveNavigation 的 ResolveProcessNavigation）。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "既有 KSWORD_ARK_TRANSLATE_VIRTUAL_ADDRESS_REQUEST 只带 processId，无进程实例键/期望创建时间，响应也无采集时间戳与分页模式声明。协议头在 shared/driver/ 下，本轮未改（无 R0 变更）。目标环境实测未执行。"
+    },
+    {
+      "id": "M-04",
+      "module": "内存证据与地址翻译深化",
+      "phase": "P0",
+      "title": "分页边界与大页",
+      "requirement": "实现与声明一致的页表层级；覆盖 4 KiB 和 2 MiB 翻译，1 GiB 在硬件/模式允许时按能力处理。不支持模式明确拒绝；不伪造物理地址。",
+      "verification": "固定离线页表样本测试普通页、大页、非 canonical 地址、缺项和保留位异常；现场对可获得映射核对。",
+      "expected": "已支持样本逐层索引、偏移和结果正确；不可翻译给理由；未能实测的大页单独列未验证。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/PageTableWalk.h",
+        "shared/evidence/PageTableWalk.cpp",
+        "KswordARKLightTests/MemoryEvidenceTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：用代码构造模拟物理内存与四套页表，期望物理地址按位手算写死（不由被测代码反算）。覆盖 4KiB 逐层索引与最终 PA、2MiB（PDE.PS=1）与 1GiB（PDPTE.PS=1）的偏移位宽、非 canonical 地址被拒、某级 present=0 -> EntryNotPresent 且无 PA、PS=1 时置保留低位 -> ReservedBitSet 且无 PA、超过 MAXPHYADDR 的地址位 -> ReservedBitSet。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 已修：TranslateOptions 增加 supports1GiBPages（默认 false，来源 CPUID.80000001H:EDX[26]）—— 不支持 1GiB 的机器上 PDPTE.PS=1 现在判 ReservedBitSet 而不是翻译出物理地址；maxPhysAddrBits 默认从 52 改为“未提供”，避免 MAXPHYADDR 保留位检查默认失效。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "既有 R0 KswordARKPageTableWalk 只判 P 位、不检查保留位（MAXPHYADDR 以上位、PS=1 时的保留低位），保留位异常会被当成正常映射。本轮的新核补上了该校验，但尚未接入 R0/UI。"
+      ],
+      "notes": "LA57 五级分页是**声明不支持**（TranslateOptions.mode 只接受 LongMode4Level，其余一律 UnsupportedMode），符合规范“不支持模式明确拒绝”。1GiB 大页只有离线夹具验证，本机未实测，按规范应单独列未验证——UI 侧标记未做。目标环境实测未执行。"
+    },
+    {
+      "id": "M-05",
+      "module": "内存证据与地址翻译深化",
+      "phase": "P0",
+      "title": "非驻留与观测副作用",
+      "requirement": "缺页、过渡态和软件页表项与有效硬件映射区分。只做页表查看时不为了凑结果读目标页；显式读内存可能改变驻留状态，需与之前观测分时记录。依据 [M2]。",
+      "verification": "提供 present、not-present、过渡态样本；先观察再读取可分页区域。",
+      "expected": "不从无效项生成 PA；不会把两次不同时间观测包装成原子快照。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/PageTableWalk.h",
+        "shared/evidence/PageTableWalk.cpp",
+        "KswordARKLightTests/MemoryEvidenceTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：present=0 时解码软件 PTE，Transition(bit11)/Prototype(bit10)/PageFile/Zero/Unknown 五类各被识别，且**任一类都不产出物理地址**；MergeReadSpans 对同一地址两次读到不同值的情形做冲突检测，不合成原子快照。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 已修：DecodeSoftwarePte 不再把 PageFileHigh==0 的表项硬判成 PageFile 并伪造 pageFileNumber/pageFileOffset，新增 DemandZero 分类且两个字段保持 unset；ReadSpan/BoundedReadRequest 加 observedUtc100ns，MergeReadSpans 在输入来自不同采集时刻时**无条件降级为 Partial**（字节相同也不算同一时刻）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "只做了一半：规范还要求“只做页表查看时不为了凑结果读目标页”“显式读内存改变驻留状态需与之前观测分时记录”——PageTableEntryEvidence 上没有观测时间戳字段，也没有副作用标注。既有 R0 把所有非 present 项并成 NOT_PRESENT，无过渡态/原型/PageFile 区分。目标环境实测未执行。"
+    },
+    {
+      "id": "M-06",
+      "module": "内存证据与地址翻译深化",
+      "phase": "P0",
+      "title": "VAD profile 约束",
+      "requirement": "仅使用当前匹配且验证过的 PDB/DynData 字段；profile 缺失、版本不符或链结构异常时停止相关遍历。R3 区域浏览仍可使用。",
+      "verification": "断开符号、使用错版 profile、制造循环和不合理区间的离线树。",
+      "expected": "明确不支持/数据异常，保留可用 R3 结果；不回退猜偏移。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [
+        "E0"
+      ],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：KswordARKDriver/src/features/section/section_support.c:36；KswordARKDriver/src/features/section/section_support.c:78；KswordARKDriver/src/features/section/section_support.c:188。缺口：profile 门禁只覆盖 DynData 偏移（section_support.c:188/267），但 MMVAD_SHORT / MMVAD 的结构布局是在 section_support.c:36-91 里硬编码的 C 结构体，不随 PDB profile 变化——错版内核下会按错误偏移解读 StartingVpn/ViewLinks 而不是停下来。同时没有进程 VadRoot 的 AVL 遍历（EpVadRoot 只登记不使用），也没有循环/不合理区间的防护与「不支持/数据异常」的显式状态位；R3 侧 MemoryDock 完全不接 Section/VAD，M-06 要求的「保留可用 R3 结果」目前是因为压根没接才成立。"
+    },
+    {
+      "id": "M-07",
+      "module": "内存证据与地址翻译深化",
+      "phase": "P0",
+      "title": "可执行区域线索",
+      "requirement": "支持 private executable、image 代码差异、起始地址/映射归属不一致等有证据的规则；规则逐条列出事实，不靠单个属性直接判恶意。",
+      "verification": "正常自有 JIT/RX 区域、普通映像、已知改写的离线映像均入样本。",
+      "expected": "JIT 等仅显示特征与上下文；真正差异精确呈现；未知归属保持未知。",
+      "required_verification_layers": "离线自动测试＋自有进程实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/MemoryRegionEvidence.h",
+        "shared/evidence/MemoryRegionEvidence.cpp",
+        "KswordARKLightTests/MemoryEvidenceTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：三条规则（private executable、image 区域字节不一致、起始地址/映射归属不一致）各自输出**它依据的事实列表**加规则 id/version，而不是恶意布尔；自有 JIT 风格的 private RX 区域只显示特征与上下文；归属未知保持 OwnerAttribution::Unknown。API 中无 malicious/threat 字段。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "三条规则都是在“输入结构体已被填好”的前提下测的：真正的磁盘 vs 内存字节比对与热补丁归一化在 ImageDiff 那一侧，本层的 ImageBytesComparison 是输入而非产出。既有 DriverClient 解析丢字段（rowFlags/backingKind/sectionHintStatus 等 R0 已算好却没拷贝）——本轮未改。自有进程实测未执行。"
+    },
+    {
+      "id": "M-08",
+      "module": "内存证据与地址翻译深化",
+      "phase": "P0",
+      "title": "区域、模块与页表联动",
+      "requirement": "从区域定位到模块、从差异定位到内存视图、从 VA 打开该上下文的翻译详情；未采集的数据不能在离线会话里悄悄现场补齐。",
+      "verification": "完成一条 Process→Region→Image/Bytes→Translation 的操作链，再离线重放。",
+      "expected": "各页引用同一实例/快照；离线缺项明确显示未保存。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：Ksword5.1/Ksword5.1/MemoryDock/MemoryDock.ProcessRegion.cpp:1370；Ksword5.1/Ksword5.1/MemoryDock/MemoryDock.UiWireAndStatus.cpp:656；Ksword5.1/Ksword5.1/MemoryDock/MemoryDock.ViewBreakpointUtil.cpp:38。缺口：Process→Region→Bytes 一段已经通了（UiWireAndStatus.cpp:656 的区域右键「R0 读取」和 jumpToAddress），但链路缺后半段：全仓库没有 setCurrentWidget(m_tabProcessPteTranslate) 的调用，区域行无法打开该 VA 的翻译详情；更关键的是完全没有调查会话/快照容器——grep 不到任何 InvestigationSession / EvidenceStore / 离线重放入口，各 Tab 只有各自的 m_*Cache，页间共享的唯一「实例」标识是 m_processAttachmentGeneration (MemoryDock.h:1195) 这个进程内计数器，无法跨会话保存，也就谈不上「离线缺项明确显示未保存」。"
+    },
+    {
+      "id": "M-09",
+      "module": "内存证据与地址翻译深化",
+      "phase": "P0",
+      "title": "内核 pool 归因边界",
+      "requirement": "已有 pool 统计或标签可接入；标签不是唯一所有者证明。没有事先采集的分配栈/事件时，不声称知道每块内存由谁分配。",
+      "verification": "输入多组件共用标签、没有标签、只有范围命中的样本。",
+      "expected": "所有者字段按直接证据/候选/未知区分，不生成假调用栈。",
+      "required_verification_layers": "离线自动测试＋文案检查",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/MemoryRegionEvidence.h",
+        "shared/evidence/MemoryRegionEvidence.cpp",
+        "KswordARKLightTests/MemoryEvidenceTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：OwnerAttribution 三档（DirectEvidence / Candidate / Unknown）；多组件共用同一 tag -> 返回 Candidate 并列出全部候选；无 tag -> Unknown。结构体中不存在调用栈字段，无法生成假调用栈。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/F-11-文案检查.md",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "验证层是“离线自动测试＋文案检查”。文案层面已确认不存在无证据归因结论。但 UI 侧 Owner 列仍不区分三档、confidence 只裸打数字，实现未完整，故不记 PASS。"
+    },
+    {
+      "id": "M-10",
+      "module": "内存证据与地址翻译深化",
+      "phase": "P0",
+      "title": "扫描预算",
+      "requirement": "用户可限定进程、地址范围、字节/页数和时间预算；内核扫描不越过已批准范围，达到上限返回部分结果。",
+      "verification": "给出大范围、逆序范围、溢出范围和很小预算；在中途取消。",
+      "expected": "拒绝非法范围；合法任务按上限停止并保留已完成内容；不会为完成进度条扫描全 RAM。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/ScanBudget.h",
+        "KswordARKLightTests/MemoryEvidenceTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "离线自动测试层：范围校验覆盖空范围/逆序/溢出/越出已批准范围；字节、页、条目、时间四条预算独立生效，命中即停并保留已完成部分（Partial + limitHit），取消优先于预算。通过。",
+        "修复轮后的最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**837 项断言全绿**（F 189 / X 169 / I 280 / M 199）。",
+        "评审 finding 已修：无预算请求直接拒绝（原先能一次读走 64 MiB）；超过 kMaxReadSpanBytes 的请求不再伪装成“正常跑完”；新增 (begin,end) 入口使逆序范围真的可拒。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "既有实现有范围与行数/字节上限，但没有时间预算，且内核扫描不可中途取消（KernelMemoryEvidence.cpp 的线程一路跑到 IOCTL 返回）。本轮的判据尚未接入该扫描路径；“不越过已批准范围”在 R0 侧是否照做未验证。目标环境实测未执行。"
+    },
+    {
+      "id": "M-11",
+      "module": "内存证据与地址翻译深化",
+      "phase": "P0",
+      "title": "离线字节和隐私",
+      "requirement": "保存字节必须由用户选择范围并显示大小；默认不保存所有进程内存，不上传。保存的孔洞、来源和读取时间随字节保留。",
+      "verification": "保存含不可读孔洞的测试范围，关闭目标后重开。",
+      "expected": "可用字节逐位一致，孔洞仍是孔洞，文件无越界范围；离线打开不需要管理员或驱动。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：Ksword5.1/Ksword5.1/MemoryDock/MemoryDock.DriverMemoryView.cpp:367；Ksword5.1/Ksword5.1/MemoryDock/MemoryDock.ProcessRegion.cpp:1711；Ksword5.1/Ksword5.1/MemoryDock/MemoryDock.ProcessRegion.cpp:1810。缺口：KMDUMP1 已经有可用骨架：declaredRegionSize 与 dumpedBytes 的差值天然表达孔洞，文件头带 pid 和时间戳。但 (1) dumpProcessMemoryToFile 从 lpMinimumApplicationAddress 扫到 lpMaximumApplicationAddress，是「默认保存所有进程内存」，没有用户选区与体积预告；(2) 全仓库只有 ProcessRegion.cpp:1869 一处写 KMDUMP1，没有读取器，离线打不开；(3) DriverMemoryView.cpp:367 的选区快照落盘只有裸字节/十六进制文本，不写来源、读取时间和孔洞位置，而读取时又恒开 ZERO_FILL_UNREADABLE（DriverMemoryRw.cpp:712），补零孔洞在文件里与真实 0 无法区分。DriverDock.Operation.cpp:245 的 zeroFilledChunkCount 是现成的孔洞记账范式，可直接搬。"
+    },
+    {
+      "id": "M-12",
+      "module": "内存证据与地址翻译深化",
+      "phase": "P0",
+      "title": "现场翻译验证",
+      "requirement": "实际地址翻译须以受控映射或可用调试工具作独立核对；离线样本只能证明解析算法。无法稳定核对的地址标明限制。",
+      "verification": "在测试机为自有进程选取稳定映射，保留查询记录及独立对照。",
+      "expected": "真实地址上下文与结果有可复核记录；没有环境时为 BLOCKED，不复制离线期望值。",
+      "required_verification_layers": "目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：尚未发现实现。现有入口：docs/RXPF实验机制.md:374；docs/RXPF实验机制.md:394；KswordARKDriver/tests/DriverFunctionalMatrix.ps1:925。缺口：缺一条完整链路：R3 侧需要为自有进程分配一块可控映射（如 VirtualAlloc + MEM_COMMIT + 已知内容）、记录 PID/创建时间/VA/查询时刻，调用 IOCTL_KSWORD_ARK_TRANSLATE_VIRTUAL_ADDRESS 拿到 PA，再用 IOCTL_KSWORD_ARK_READ_PHYSICAL_MEMORY 回读该 PA 比对特征字节，把「对照通过 / 无法稳定核对 / BLOCKED」三态落到记录里。当前 memory_pagetable.c 与 memory_physical.c 两个后端都在，但没有任何调用方把它们串起来做核对，也没有 BLOCKED 语义。"
+    },
+    {
+      "id": "T-01",
+      "module": "统一时间线与调查会话",
+      "phase": "P1",
+      "title": "会话生命周期",
+      "requirement": "明确新建、开始、暂停显示、停止采集、保存、打开；暂停显示与停止采集不能是同一个含糊按钮。",
+      "verification": "按各状态启动、暂停、继续、停止，并在各阶段关闭页面/程序。",
+      "expected": "状态与后台实际行为一致；停止后不再记入新事件；暂停期间的缓存/落盘策略可见。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/TimelineCore.h",
+        "shared/evidence/TimelineCore.cpp",
+        "KswordARKLightTests/TimelineTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/TimelineCore.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/TimelineTests.cpp，**381 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **14 条问题（4 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 18 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MonitorDock / ProcessTraceMonitorWidget / KernelCallbackMonitorWidget 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "T-02",
+      "module": "统一时间线与调查会话",
+      "phase": "P1",
+      "title": "事件类型与原始数据",
+      "requirement": "事件统一 envelope，但保留 provider、event id/version/opcode、原始字段和解析版本；未知事件版本不套旧结构。",
+      "verification": "六类已声明事件各取固定样本，另输入未知 schema。",
+      "expected": "已支持字段正确；未知事件可保存为未解析记录，不错位解析。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/TimelineCore.h",
+        "shared/evidence/TimelineCore.cpp",
+        "KswordARKLightTests/TimelineTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/TimelineCore.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/TimelineTests.cpp，**381 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **14 条问题（4 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 18 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MonitorDock / ProcessTraceMonitorWidget / KernelCallbackMonitorWidget 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "T-03",
+      "module": "统一时间线与调查会话",
+      "phase": "P1",
+      "title": "源和 UI 过滤分离",
+      "requirement": "界面区分采集过滤与显示过滤；后者不能让导出误以为被隐藏事件不存在。",
+      "verification": "采集两个自有进程，只显示其中一个，再分别导出可见结果和完整会话。",
+      "expected": "两种导出数量及说明符合选择，原始会话不因 UI 过滤损坏。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/TimelineCore.h",
+        "shared/evidence/TimelineCore.cpp",
+        "KswordARKLightTests/TimelineTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/TimelineCore.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/TimelineTests.cpp，**381 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **14 条问题（4 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 18 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MonitorDock / ProcessTraceMonitorWidget / KernelCallbackMonitorWidget 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "T-04",
+      "module": "统一时间线与调查会话",
+      "phase": "P1",
+      "title": "时间语义和乱序",
+      "requirement": "跨源排序保留源时间、接收时间、精度与可用校准；乱序迟到可补入但不得改写原始时间。不能宣称跨 CPU/源严格全序。",
+      "verification": "注入乱序、重复时间、时钟校准变化和两个启动周期。",
+      "expected": "排序确定可解释；原始时间不丢失；用户能识别迟到/不确定顺序。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/TimelineCore.h",
+        "shared/evidence/TimelineCore.cpp",
+        "KswordARKLightTests/TimelineTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/TimelineCore.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/TimelineTests.cpp，**381 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **14 条问题（4 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 18 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MonitorDock / ProcessTraceMonitorWidget / KernelCallbackMonitorWidget 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "T-05",
+      "module": "统一时间线与调查会话",
+      "phase": "P1",
+      "title": "进程复用与事件归属",
+      "requirement": "事件绑定进程实例；缺进程开始事件时建立“身份不完整”的临时实体，不将事件静默归给当前同 PID 进程。",
+      "verification": "丢掉一个开始事件、重放 PID 复用以及目标已结束后的迟到事件。",
+      "expected": "不误归属；补齐证据时关联过程可追踪。",
+      "required_verification_layers": "离线自动测试＋自有进程实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/TimelineCore.h",
+        "shared/evidence/TimelineCore.cpp",
+        "KswordARKLightTests/TimelineTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/TimelineCore.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/TimelineTests.cpp，**381 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **14 条问题（4 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 18 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MonitorDock / ProcessTraceMonitorWidget / KernelCallbackMonitorWidget 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "T-06",
+      "module": "统一时间线与调查会话",
+      "phase": "P1",
+      "title": "丢失、跳过和截断",
+      "requirement": "分别记录源端丢失、驱动 ring 覆盖/争用、R3 队列丢弃、解析失败、过滤掉、保留策略删除。来源只能报告总计时不编造精确丢失时间区间。依据 [R5][M3]。",
+      "verification": "自动测试强制 ring 覆盖及队列溢出，现场查询 ETW 会话统计。",
+      "expected": "缺口可见且不重复计数；不得把部分轨迹显示为完整；0 也有可解释的统计来源。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/TimelineCore.h",
+        "shared/evidence/TimelineCore.cpp",
+        "KswordARKLightTests/TimelineTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/TimelineCore.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/TimelineTests.cpp，**381 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **14 条问题（4 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 18 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MonitorDock / ProcessTraceMonitorWidget / KernelCallbackMonitorWidget 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "T-07",
+      "module": "统一时间线与调查会话",
+      "phase": "P1",
+      "title": "不干扰现有消费者",
+      "requirement": "统一时间线有独立游标/租约；停止它不得停掉已有 File Monitor、Callback Monitor 或他人 ETW 会话。",
+      "verification": "同时运行旧监控与新时间线，依次停止、重开任意一方。",
+      "expected": "另一方仍采集；只清理本功能实际拥有的会话与引用，不使用全局 stop。",
+      "required_verification_layers": "目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。该编号的验证层只有目标环境实测 / 真实样本对照 / UI 实测，无法用离线单测替代：同时运行旧监控与新时间线，依次停止、重开任意一方。"
+    },
+    {
+      "id": "T-08",
+      "module": "统一时间线与调查会话",
+      "phase": "P1",
+      "title": "有界数据与保留策略",
+      "requirement": "采集前显示缓冲/磁盘上限及达到上限后的行为；事件落盘分批，不把整个会话加载成 UI 行对象。",
+      "verification": "用第 7 节吞吐负载达到内存、磁盘策略阈值。",
+      "expected": "按配置停止或淘汰旧数据且明确标记，内存有上限，没有无提示丢数据。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/TimelineCore.h",
+        "shared/evidence/TimelineCore.cpp",
+        "KswordARKLightTests/TimelineTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/TimelineCore.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/TimelineTests.cpp，**381 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **14 条问题（4 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 18 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MonitorDock / ProcessTraceMonitorWidget / KernelCallbackMonitorWidget 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "T-09",
+      "module": "统一时间线与调查会话",
+      "phase": "P1",
+      "title": "可靠保存与重开",
+      "requirement": "复用既有证据格式；不足时使用版本化本地会话格式。保存原始记录、解析版本、collector 能力、丢失统计与查询范围。",
+      "verification": "保存后关闭进程和驱动，在离线状态重开并对比统计和抽样事件。",
+      "expected": "同一会话关键数据一致；离线查看不触发采集、网络下载或目标操作。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/TimelineCore.h",
+        "shared/evidence/TimelineCore.cpp",
+        "KswordARKLightTests/TimelineTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/TimelineCore.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/TimelineTests.cpp，**381 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **14 条问题（4 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 18 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MonitorDock / ProcessTraceMonitorWidget / KernelCallbackMonitorWidget 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "T-10",
+      "module": "统一时间线与调查会话",
+      "phase": "P1",
+      "title": "中断恢复与坏文件",
+      "requirement": "只承诺恢复已提交批次；不完整尾部、磁盘满、无权限、格式版本过新都要有明确状态。",
+      "verification": "在写批次前后强制结束自有测试程序；使用截断/损坏会话。",
+      "expected": "已提交数据可恢复或明确诊断，未提交部分标记缺失；不修改原文件后假装恢复成功。",
+      "required_verification_layers": "离线自动测试＋受控中断测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/TimelineCore.h",
+        "shared/evidence/TimelineCore.cpp",
+        "KswordARKLightTests/TimelineTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/TimelineCore.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/TimelineTests.cpp，**381 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **14 条问题（4 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 18 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MonitorDock / ProcessTraceMonitorWidget / KernelCallbackMonitorWidget 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "T-11",
+      "module": "统一时间线与调查会话",
+      "phase": "P1",
+      "title": "端到端已知工作负载",
+      "requirement": "自有辅助程序按记录顺序启动子进程/线程、加载自有 DLL、写临时文件/HKCU 测试键、建立 loopback 连接，并输出独立真值日志。",
+      "verification": "每类执行 100 个有唯一 run id 的受控操作；等待明确启动就绪后开始；按 collector 语义预先规定对应事件而非要求 1 操作=1 事件。",
+      "expected": "支持范围内每个操作有相应证据或明确缺失；该验收负载中不可解释缺失为失败，不能因显示 dropped 就视为吞吐通过。",
+      "required_verification_layers": "目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。该编号的验证层只有目标环境实测 / 真实样本对照 / UI 实测，无法用离线单测替代：每类执行 100 个有唯一 run id 的受控操作；等待明确启动就绪后开始；按 collector 语义预先规定对应事件而非要求 1 操作=1 事件。"
+    },
+    {
+      "id": "T-12",
+      "module": "统一时间线与调查会话",
+      "phase": "P1",
+      "title": "关系不冒充因果",
+      "requirement": "界面允许“同进程”“父子”“相邻发生”“来源直接提供关联”等不同边类型；因果措辞仅用于有明确关联证据的范围。",
+      "verification": "放入两个时间接近但无关的进程与文件操作。",
+      "expected": "不生成“由 A 导致 B”的错误链；关系可点开查看依据。",
+      "required_verification_layers": "离线自动测试＋UI 实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/TimelineCore.h",
+        "shared/evidence/TimelineCore.cpp",
+        "KswordARKLightTests/TimelineTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/TimelineCore.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/TimelineTests.cpp，**381 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **14 条问题（4 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 18 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MonitorDock / ProcessTraceMonitorWidget / KernelCallbackMonitorWidget 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "N-01",
+      "module": "WFP 与网络规则解释",
+      "phase": "P1",
+      "title": "WFP 对象关系",
+      "requirement": "显示 GUID/运行时 ID、provider、layer、sublayer、weight/effective weight、action、callout 和可用条件；本地化名称不是唯一键。依据 [M4]。",
+      "verification": "导出当前对象，并以系统接口结果对照；离线样本含同名异 GUID。",
+      "expected": "关联正确，不因名称相同合并；缺失关联显示未知对象。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/WfpAnalysis.h",
+        "shared/evidence/WfpAnalysis.cpp",
+        "KswordARKLightTests/WfpTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/WfpAnalysis.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/WfpTests.cpp，**545 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **11 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 26 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 NetworkDock 的 NetworkFirewallPage / NetworkAuditPage 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "N-02",
+      "module": "WFP 与网络规则解释",
+      "phase": "P1",
+      "title": "条件类型完整解释",
+      "requirement": "支持的条件明确解析数据类型、地址族、掩码/前缀、范围、方向和比较运算；不认识的条件保留原始值。",
+      "verification": "IPv4/IPv6、端口范围、AppId、协议、方向及未知条件逐项测试。",
+      "expected": "显示与输入一致；未知条件不被当成“无条件匹配”。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/WfpAnalysis.h",
+        "shared/evidence/WfpAnalysis.cpp",
+        "KswordARKLightTests/WfpTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/WfpAnalysis.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/WfpTests.cpp，**545 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **11 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 26 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 NetworkDock 的 NetworkFirewallPage / NetworkAuditPage 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "N-03",
+      "module": "WFP 与网络规则解释",
+      "phase": "P1",
+      "title": "静态候选分析",
+      "requirement": "输入一条连接或流量描述，结果使用匹配/不匹配/信息不足三态；按 layer 和 sublayer 分组解释，不能全局只按一个数字排序。依据 [M4]。",
+      "verification": "构造规则组含不同 sublayer、不同权重、缺失元数据和 callout 动态判断。",
+      "expected": "规则候选与可知部分正确；存在动态行为时最终决策保留未知。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/WfpAnalysis.h",
+        "shared/evidence/WfpAnalysis.cpp",
+        "KswordARKLightTests/WfpTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/WfpAnalysis.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/WfpTests.cpp，**545 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **11 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 26 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 NetworkDock 的 NetworkFirewallPage / NetworkAuditPage 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "N-04",
+      "module": "WFP 与网络规则解释",
+      "phase": "P1",
+      "title": "实际事件独立展示",
+      "requirement": "只有来自已启用并受支持的审计/ETW/诊断来源的记录才称“实际命中/阻断”；显示事件来源及过滤器引用。",
+      "verification": "导入一条运行记录和一条仅静态候选。",
+      "expected": "两者展示与导出清楚区分；不存在运行记录时不生成实际经过路径。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/WfpAnalysis.h",
+        "shared/evidence/WfpAnalysis.cpp",
+        "KswordARKLightTests/WfpTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/WfpAnalysis.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/WfpTests.cpp，**545 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **11 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 26 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 NetworkDock 的 NetworkFirewallPage / NetworkAuditPage 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "N-05",
+      "module": "WFP 与网络规则解释",
+      "phase": "P1",
+      "title": "所有者归因可信度",
+      "requirement": "provider/callout 显示名称、服务配置、模块地址归属是不同证据；无直接映射时不凭名称猜驱动文件。",
+      "verification": "样本含同名组件、找不到服务、模块卸载和有直接地址证据。",
+      "expected": "标明直接/候选/未知归因；无依据不编造签名证书或所有者。",
+      "required_verification_layers": "离线自动测试＋现场抽查",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/WfpAnalysis.h",
+        "shared/evidence/WfpAnalysis.cpp",
+        "KswordARKLightTests/WfpTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/WfpAnalysis.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/WfpTests.cpp，**545 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **11 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 26 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 NetworkDock 的 NetworkFirewallPage / NetworkAuditPage 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "N-06",
+      "module": "WFP 与网络规则解释",
+      "phase": "P1",
+      "title": "动态变化和引用失效",
+      "requirement": "枚举中规则增删、BFE 不可用、访问拒绝、旧快照 ID 已复用均有可解释状态。",
+      "verification": "在授权测试环境增删自有动态 session 的规则；离线模拟服务失败。",
+      "expected": "不崩溃、不误连旧 ID，保留采集时间和失效提示。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/WfpAnalysis.h",
+        "shared/evidence/WfpAnalysis.cpp",
+        "KswordARKLightTests/WfpTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/WfpAnalysis.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/WfpTests.cpp，**545 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **11 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 26 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 NetworkDock 的 NetworkFirewallPage / NetworkAuditPage 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "N-07",
+      "module": "WFP 与网络规则解释",
+      "phase": "P1",
+      "title": "自有规则端到端",
+      "requirement": "测试只在明确授权的隔离环境创建具有唯一标记的临时规则；限定 loopback/自有测试进程，不修改其它规则。",
+      "verification": "测试匹配和不匹配连接，记录本工具规则清单及清理结果。",
+      "expected": "候选解释与受支持运行观测一致；退出后只清理本次规则，原有网络配置不受影响。",
+      "required_verification_layers": "隔离环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。该编号的验证层只有目标环境实测 / 真实样本对照 / UI 实测，无法用离线单测替代：测试匹配和不匹配连接，记录本工具规则清单及清理结果。"
+    },
+    {
+      "id": "N-08",
+      "module": "WFP 与网络规则解释",
+      "phase": "P1",
+      "title": "网络页复用与跳转",
+      "requirement": "从连接跳到进程实例、相关规则和时间线；从规则回看关联证据。",
+      "verification": "现场选择自有测试连接，再离线打开保存会话。",
+      "expected": "身份和采集时间一致；离线缺少数据明确显示，不能偷偷发请求重现连接。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/WfpAnalysis.h",
+        "shared/evidence/WfpAnalysis.cpp",
+        "KswordARKLightTests/WfpTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/WfpAnalysis.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/WfpTests.cpp，**545 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **11 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 0/15 条变异存活）。全部 finding 已修，修复后重跑 26 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 NetworkDock 的 NetworkFirewallPage / NetworkAuditPage 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "S-01",
+      "module": "平台安全状态与原因解释",
+      "phase": "P1",
+      "title": "状态拆分",
+      "requirement": "至少分别表示硬件/系统支持、配置状态、实际运行状态和查询结果。Win32_DeviceGuard 的 Configured 与 Running 不可混用。依据 [M5]。",
+      "verification": "输入未配置、已配置未运行、正在运行、无权限、未知枚举值等样本。",
+      "expected": "状态逐项正确；查询失败不是关闭；新枚举值保留原值且不错误解释。",
+      "required_verification_layers": "离线自动测试＋现场对照",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SecurityState.h",
+        "shared/evidence/SecurityState.cpp",
+        "KswordARKLightTests/SecurityStateTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SecurityState.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SecurityStateTests.cpp，**442 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **12 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 13/29 条变异存活）。全部 finding 已修，修复后重跑 30 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 VBS/WDAC/Defender/BCD 等安全状态页 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "S-02",
+      "module": "平台安全状态与原因解释",
+      "phase": "P1",
+      "title": "来源和新鲜度",
+      "requirement": "每个字段显示具体查询入口、采集时间、原始值和规范化解释；重启前的历史状态不得当成当前值。",
+      "verification": "保存状态后重开旧会话，和当前状态同时查看。",
+      "expected": "两个时间点明确分开；前端不覆盖原始值。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SecurityState.h",
+        "shared/evidence/SecurityState.cpp",
+        "KswordARKLightTests/SecurityStateTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SecurityState.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SecurityStateTests.cpp，**442 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **12 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 13/29 条变异存活）。全部 finding 已修，修复后重跑 30 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 VBS/WDAC/Defender/BCD 等安全状态页 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "S-03",
+      "module": "平台安全状态与原因解释",
+      "phase": "P1",
+      "title": "启动安全",
+      "requirement": "Secure Boot、TPM 存在/就绪及可获得的启动相关状态分开；查不到测量日志不能输出“Measured Boot 正常”。",
+      "verification": "准备缺 TPM、未就绪、BIOS 不支持/查询不可用、日志缺失等离线样本并现场核对可用项。",
+      "expected": "每种情况有具体说明；不推导不存在的远程证明结论。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SecurityState.h",
+        "shared/evidence/SecurityState.cpp",
+        "KswordARKLightTests/SecurityStateTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SecurityState.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SecurityStateTests.cpp，**442 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **12 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 13/29 条变异存活）。全部 finding 已修，修复后重跑 30 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 VBS/WDAC/Defender/BCD 等安全状态页 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "S-04",
+      "module": "平台安全状态与原因解释",
+      "phase": "P1",
+      "title": "WDAC 与代码完整性",
+      "requirement": "区分 audit/enforced、策略配置与有效策略信息；签名有效不等同当前策略允许加载。",
+      "verification": "输入审计、强制、查询失败及多策略样本；核对现有公开查询返回。",
+      "expected": "不混淆配置/执行/签名；查不到实际策略状态时保留未知。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SecurityState.h",
+        "shared/evidence/SecurityState.cpp",
+        "KswordARKLightTests/SecurityStateTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SecurityState.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SecurityStateTests.cpp，**442 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **12 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 13/29 条变异存活）。全部 finding 已修，修复后重跑 30 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 VBS/WDAC/Defender/BCD 等安全状态页 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "S-05",
+      "module": "平台安全状态与原因解释",
+      "phase": "P1",
+      "title": "冲突与待生效",
+      "requirement": "数据源不一致时同时展示，解释可能范围，不自动选有利值；只有来源明确给出待重启/待生效证据才如此标注。",
+      "verification": "人为构造 WMI、注册表配置与运行查询不一致的样本。",
+      "expected": "输出冲突而非“已开启”；不把每种不一致都猜成需要重启。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SecurityState.h",
+        "shared/evidence/SecurityState.cpp",
+        "KswordARKLightTests/SecurityStateTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SecurityState.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SecurityStateTests.cpp，**442 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **12 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 13/29 条变异存活）。全部 finding 已修，修复后重跑 30 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 VBS/WDAC/Defender/BCD 等安全状态页 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "S-06",
+      "module": "平台安全状态与原因解释",
+      "phase": "P1",
+      "title": "KSword 能力解释",
+      "requirement": "能力不可用时指出具体当前约束和来源；AMD/Intel、驱动缺失、profile 缺失、安全配置不支持分别表示。",
+      "verification": "用不兼容配置打开相关页面。",
+      "expected": "不能运行的能力不会启动；不自动建议或执行禁用保护作为默认修复。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SecurityState.h",
+        "shared/evidence/SecurityState.cpp",
+        "KswordARKLightTests/SecurityStateTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SecurityState.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SecurityStateTests.cpp，**442 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **12 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 13/29 条变异存活）。全部 finding 已修，修复后重跑 30 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 VBS/WDAC/Defender/BCD 等安全状态页 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "S-07",
+      "module": "平台安全状态与原因解释",
+      "phase": "P1",
+      "title": "只读与权限降级",
+      "requirement": "无管理员可读取的状态仍可读；需要权限的字段单独标明，不能整页假空。",
+      "verification": "普通用户、管理员无驱动、管理员有驱动分别打开/导出。",
+      "expected": "权限要求精确到字段/能力；无设置被修改，没有自动提权重启。",
+      "required_verification_layers": "目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SecurityState.h",
+        "shared/evidence/SecurityState.cpp",
+        "KswordARKLightTests/SecurityStateTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SecurityState.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SecurityStateTests.cpp，**442 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **12 条问题（2 个 blocker）**，并注入变异检验断言有效性（评审时 13/29 条变异存活）。全部 finding 已修，修复后重跑 30 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 VBS/WDAC/Defender/BCD 等安全状态页 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "S-08",
+      "module": "平台安全状态与原因解释",
+      "phase": "P1",
+      "title": "实测配置清单",
+      "requirement": "支持声明至少核对一套普通配置和一套 VBS/HVCI 运行配置；本工具驱动不兼容时验证禁用相关采集和 R3 降级，而不是绕过限制。",
+      "verification": "记录实际 build、配置来源和当前驱动加载状态；没有第二套环境则保留 BLOCKED。",
+      "expected": "只对测试过配置报告通过；页面不因缺某字段阻止其它功能。",
+      "required_verification_layers": "目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。该编号的验证层只有目标环境实测 / 真实样本对照 / UI 实测，无法用离线单测替代：记录实际 build、配置来源和当前驱动加载状态；没有第二套环境则保留 BLOCKED。"
+    },
+    {
+      "id": "D-01",
+      "module": "快照比较与变化解释",
+      "phase": "P1",
+      "title": "快照范围和来源",
+      "requirement": "快照注明系统/启动、collector 版本、选择范围、成功/失败项和采集区间；不是一个无说明的结果表。",
+      "verification": "保存全范围、部分范围和部分失败三种快照。",
+      "expected": "范围可核对；选择范围不同不能被默认解释成对象被删除。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SnapshotCompare.h",
+        "shared/evidence/SnapshotCompare.cpp",
+        "KswordARKLightTests/SnapshotCompareTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SnapshotCompare.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SnapshotCompareTests.cpp，**387 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **9 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 0/20 条变异存活）。全部 finding 已修，修复后重跑 20 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 UI/TableSnapshotCompare 与 Light 的 Ui/EvidenceSession 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "D-02",
+      "module": "快照比较与变化解释",
+      "phase": "P1",
+      "title": "语义比较键",
+      "requirement": "按实体类型使用稳定身份；重启后可比较驱动/服务/规则的逻辑属性，但不能把进程实例跨启动硬配。",
+      "verification": "输入同名异对象、相同对象排序变化及重启前后地址变化。",
+      "expected": "不因排序或地址变化生成大量假增删；无法稳定匹配时标注不确定。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SnapshotCompare.h",
+        "shared/evidence/SnapshotCompare.cpp",
+        "KswordARKLightTests/SnapshotCompareTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SnapshotCompare.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SnapshotCompareTests.cpp，**387 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **9 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 0/20 条变异存活）。全部 finding 已修，修复后重跑 20 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 UI/TableSnapshotCompare 与 Light 的 Ui/EvidenceSession 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "D-03",
+      "module": "快照比较与变化解释",
+      "phase": "P1",
+      "title": "地址归一化",
+      "requirement": "内核/驱动地址比较优先以匹配映像身份＋RVA 表示；只有确认两个映像可比较时才归一化。",
+      "verification": "同映像不同装载地址、不同版本相同 RVA、模块缺失三种样本。",
+      "expected": "前者无假差异；后两者不会被错误当成相同代码。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SnapshotCompare.h",
+        "shared/evidence/SnapshotCompare.cpp",
+        "KswordARKLightTests/SnapshotCompareTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SnapshotCompare.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SnapshotCompareTests.cpp，**387 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **9 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 0/20 条变异存活）。全部 finding 已修，修复后重跑 20 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 UI/TableSnapshotCompare 与 Light 的 Ui/EvidenceSession 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "D-04",
+      "module": "快照比较与变化解释",
+      "phase": "P1",
+      "title": "未知不等于删除",
+      "requirement": "旧快照有数据，新快照来源失败/不支持/截断时，结论为不可比较或覆盖不足。",
+      "verification": "对每个支持实体注入 collector 失败。",
+      "expected": "不会报告“全部对象已移除”；已成功覆盖部分可单独比较。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SnapshotCompare.h",
+        "shared/evidence/SnapshotCompare.cpp",
+        "KswordARKLightTests/SnapshotCompareTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SnapshotCompare.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SnapshotCompareTests.cpp，**387 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **9 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 0/20 条变异存活）。全部 finding 已修，修复后重跑 20 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 UI/TableSnapshotCompare 与 Light 的 Ui/EvidenceSession 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "D-05",
+      "module": "快照比较与变化解释",
+      "phase": "P1",
+      "title": "变化说明",
+      "requirement": "字段变化显示旧值、新值、来源、时间和相关证据；对风险的解释与变化事实分开。",
+      "verification": "改变自有测试配置或离线字段，检查每条结果。",
+      "expected": "精确说明改变了什么；不把所有配置变化标为恶意。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SnapshotCompare.h",
+        "shared/evidence/SnapshotCompare.cpp",
+        "KswordARKLightTests/SnapshotCompareTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SnapshotCompare.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SnapshotCompareTests.cpp，**387 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **9 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 0/20 条变异存活）。全部 finding 已修，修复后重跑 20 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 UI/TableSnapshotCompare 与 Light 的 Ui/EvidenceSession 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "D-06",
+      "module": "快照比较与变化解释",
+      "phase": "P1",
+      "title": "持久化兼容",
+      "requirement": "当前版本能读取本任务定义的首个格式版本；未知可选字段可保留/跳过，未知主版本明确拒绝。",
+      "verification": "旧版 fixture、未来可选字段、未来主版本、损坏格式。",
+      "expected": "合法旧数据仍可查看；错误状态明确，不悄悄修改源文件。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SnapshotCompare.h",
+        "shared/evidence/SnapshotCompare.cpp",
+        "KswordARKLightTests/SnapshotCompareTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SnapshotCompare.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SnapshotCompareTests.cpp，**387 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **9 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 0/20 条变异存活）。全部 finding 已修，修复后重跑 20 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 UI/TableSnapshotCompare 与 Light 的 Ui/EvidenceSession 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "D-07",
+      "module": "快照比较与变化解释",
+      "phase": "P1",
+      "title": "脱敏不破坏关联",
+      "requirement": "导出前可选择脱敏；同一导出内一致映射路径/用户名/主机标识，声明哪些内容被删除。",
+      "verification": "对包含同一用户多个路径的会话脱敏再比对。",
+      "expected": "关联仍可用，敏感原值不藏在原始字段或附件里；源会话不被覆盖。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/SnapshotCompare.h",
+        "shared/evidence/SnapshotCompare.cpp",
+        "KswordARKLightTests/SnapshotCompareTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/SnapshotCompare.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/SnapshotCompareTests.cpp，**387 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **9 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 0/20 条变异存活）。全部 finding 已修，修复后重跑 20 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 UI/TableSnapshotCompare 与 Light 的 Ui/EvidenceSession 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "D-08",
+      "module": "快照比较与变化解释",
+      "phase": "P1",
+      "title": "真实前后变化",
+      "requirement": "在测试环境仅修改自有临时服务配置/规则/测试文件等已授权对象，采集前后结果再清理。",
+      "verification": "预先列出本次改变的字段及对象身份。",
+      "expected": "结果含准确预期变化，清理后再采集可观察恢复；其它变化只记录不擅自归因。",
+      "required_verification_layers": "目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。该编号的验证层只有目标环境实测 / 真实样本对照 / UI 实测，无法用离线单测替代：预先列出本次改变的字段及对象身份。"
+    },
+    {
+      "id": "C-01",
+      "module": "离线崩溃转储分析",
+      "phase": "P2",
+      "title": "可选调试引擎",
+      "requirement": "优先采用独立受控 helper 承载现有可用 DbgEng；明确探测位置/版本，缺少引擎时本页不可用但主程序正常。",
+      "verification": "有引擎、缺引擎、错误架构、引擎初始化失败各运行一次。",
+      "expected": "错误精确，主程序不退出；不从未知路径加载 DLL，不自动下载二进制。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。该编号的验证层只有目标环境实测 / 真实样本对照 / UI 实测，无法用离线单测替代：有引擎、缺引擎、错误架构、引擎初始化失败各运行一次。"
+    },
+    {
+      "id": "C-02",
+      "module": "离线崩溃转储分析",
+      "phase": "P2",
+      "title": "文件识别与支持范围",
+      "requirement": "识别支持的转储类型、目标架构和基本头信息；不支持的格式明确拒绝。首轮不把用户态 minidump 当成内核 dump。",
+      "verification": "合法 small/kernel dump、用户态 dump、空文件、截断文件及随机文件。",
+      "expected": "分类正确，不崩溃、不按扩展名硬解析；未支持格式不冒充解析成功。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/DumpFacts.h",
+        "shared/evidence/DumpFacts.cpp",
+        "KswordARKLightTests/DumpFactsTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/DumpFacts.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/DumpFactsTests.cpp，**461 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **10 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 2/25 条变异存活）。全部 finding 已修，修复后重跑 38 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MinidumpDock 的 KernelDumpParser / DumpStackWalker / DumpSymbolResolver 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "C-03",
+      "module": "离线崩溃转储分析",
+      "phase": "P2",
+      "title": "崩溃事实",
+      "requirement": "展示 bugcheck code、四参数、目标 OS/build、可用的时间/uptime、转储类型；缺字段注明缺失。",
+      "verification": "同一文件用可用 WinDbg 读取 .bugcheck 和基本目标信息进行对照。",
+      "expected": "事实字段一致；时间或 uptime 缺失时不填 0 冒充真实值。",
+      "required_verification_layers": "真实 dump 对照测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/DumpFacts.h",
+        "shared/evidence/DumpFacts.cpp",
+        "KswordARKLightTests/DumpFactsTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/DumpFacts.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/DumpFactsTests.cpp，**461 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **10 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 2/25 条变异存活）。全部 finding 已修，修复后重跑 38 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MinidumpDock 的 KernelDumpParser / DumpStackWalker / DumpSymbolResolver 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "C-04",
+      "module": "离线崩溃转储分析",
+      "phase": "P2",
+      "title": "符号精确匹配",
+      "requirement": "保留符号匹配标识、加载结果和缓存来源；错误 PDB 不可用于给出确定函数/行号。网络符号下载须用户启用、可取消、有限时。",
+      "verification": "正确 PDB、错误版本、无网络和部分模块无符号分别测试。",
+      "expected": "正确符号可用；错版不误用；无符号仍显示模块＋偏移与可用事实。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/DumpFacts.h",
+        "shared/evidence/DumpFacts.cpp",
+        "KswordARKLightTests/DumpFactsTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/DumpFacts.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/DumpFactsTests.cpp，**461 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **10 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 2/25 条变异存活）。全部 finding 已修，修复后重跑 38 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MinidumpDock 的 KernelDumpParser / DumpStackWalker / DumpSymbolResolver 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "C-05",
+      "module": "离线崩溃转储分析",
+      "phase": "P2",
+      "title": "栈与模块",
+      "requirement": "显示地址、模块、函数/偏移、展开状态与可用参数；无法展开的部分保留边界，不拼接猜测帧。",
+      "verification": "选至少两个已知转储，与同版本引擎的独立交互查询对照。",
+      "expected": "可用帧与模块一致；损坏/缺失栈明确停止；优化导致的归因歧义保留。",
+      "required_verification_layers": "真实 dump 对照测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/DumpFacts.h",
+        "shared/evidence/DumpFacts.cpp",
+        "KswordARKLightTests/DumpFactsTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/DumpFacts.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/DumpFactsTests.cpp，**461 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **10 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 2/25 条变异存活）。全部 finding 已修，修复后重跑 38 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MinidumpDock 的 KernelDumpParser / DumpStackWalker / DumpSymbolResolver 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "C-06",
+      "module": "离线崩溃转储分析",
+      "phase": "P2",
+      "title": "可疑模块解释",
+      "requirement": "模块在栈上、故障 IP 所属模块、Verifier 明确报告等证据分开；只生成调查线索与依据，不输出无校准的责任百分比。",
+      "verification": "使用普通故障、可能延迟内存损坏、只有 ntoskrnl 栈顶的样本。",
+      "expected": "不把 ntoskrnl 或最后一帧直接当根因；证据不足写无法确定。",
+      "required_verification_layers": "真实 dump 对照＋文案检查",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/DumpFacts.h",
+        "shared/evidence/DumpFacts.cpp",
+        "KswordARKLightTests/DumpFactsTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/DumpFacts.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/DumpFactsTests.cpp，**461 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **10 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 2/25 条变异存活）。全部 finding 已修，修复后重跑 38 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MinidumpDock 的 KernelDumpParser / DumpStackWalker / DumpSymbolResolver 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "C-07",
+      "module": "离线崩溃转储分析",
+      "phase": "P2",
+      "title": "缺失内存的边界",
+      "requirement": "small dump 不保证包含 IRP、锁、完整进程或 pool；页面按真实可用性展示，不能靠扫描其它文件补全而不说明。依据 [M7]。",
+      "verification": "对缺 IRP/锁/对象页的文件执行对应查看。",
+      "expected": "明确“转储未包含/当前无法解析”，不生成空对象当真实数据。",
+      "required_verification_layers": "真实 dump 对照测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/DumpFacts.h",
+        "shared/evidence/DumpFacts.cpp",
+        "KswordARKLightTests/DumpFactsTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/DumpFacts.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/DumpFactsTests.cpp，**461 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **10 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 2/25 条变异存活）。全部 finding 已修，修复后重跑 38 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MinidumpDock 的 KernelDumpParser / DumpStackWalker / DumpSymbolResolver 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "C-08",
+      "module": "离线崩溃转储分析",
+      "phase": "P2",
+      "title": "超时、取消与隔离",
+      "requirement": "调试引擎卡住、符号服务器阻塞、扩展解析失败不得卡住 UI；仅可结束本模块拥有的 helper，不终止其它 debugger/构建任务。",
+      "verification": "注入 helper 停顿、断开通信、取消符号查询。",
+      "expected": "UI 按预算响应，保留部分结果并明确中断；再次打开可恢复。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/DumpFacts.h",
+        "shared/evidence/DumpFacts.cpp",
+        "KswordARKLightTests/DumpFactsTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/DumpFacts.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/DumpFactsTests.cpp，**461 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **10 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 2/25 条变异存活）。全部 finding 已修，修复后重跑 38 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MinidumpDock 的 KernelDumpParser / DumpStackWalker / DumpSymbolResolver 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "C-09",
+      "module": "离线崩溃转储分析",
+      "phase": "P2",
+      "title": "不可信路径与输出",
+      "requirement": "路径、转储文本和符号名按数据处理，不拼接 shell 命令；报告 HTML 转义；只允许实现内固定的必要分析命令。",
+      "verification": "文件名与模块名含引号、分号、换行、HTML、DML/命令样式文本。",
+      "expected": "无命令执行、无脚本注入、无报告外部资源自动访问。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/DumpFacts.h",
+        "shared/evidence/DumpFacts.cpp",
+        "KswordARKLightTests/DumpFactsTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/DumpFacts.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/DumpFactsTests.cpp，**461 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **10 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 2/25 条变异存活）。全部 finding 已修，修复后重跑 38 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MinidumpDock 的 KernelDumpParser / DumpStackWalker / DumpSymbolResolver 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "C-10",
+      "module": "离线崩溃转储分析",
+      "phase": "P2",
+      "title": "已知来源样本与导出",
+      "requirement": "测试样本须有来源/取得权限说明；没有真实样本就列 BLOCKED。保存报告注明引擎版本、符号状态、输入身份和分析范围。",
+      "verification": "对每个声明支持的类型完成一次从打开到导出的实际流程。",
+      "expected": "报告可重核；模拟解析结构不能替代真实格式验收；没有自动把 dump 打包上传。",
+      "required_verification_layers": "真实 dump 对照测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/DumpFacts.h",
+        "shared/evidence/DumpFacts.cpp",
+        "KswordARKLightTests/DumpFactsTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/DumpFacts.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/DumpFactsTests.cpp，**461 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **10 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 2/25 条变异存活）。全部 finding 已修，修复后重跑 38 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 MinidumpDock 的 KernelDumpParser / DumpStackWalker / DumpSymbolResolver 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "G-01",
+      "module": "实体关系与跨页调查",
+      "phase": "P2",
+      "title": "边的语义",
+      "requirement": "每条边含关系类型、方向、时间有效区间、证据引用和确定性；不同关系不能用一条“相关”边混掉。",
+      "verification": "输入 owns、loads、maps、opens、candidate-owner、temporal-neighbor 等样本。",
+      "expected": "图/列表能区分且可筛选；缺证据关系不显示为确定。",
+      "required_verification_layers": "离线自动测试＋UI 实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/EntityGraph.h",
+        "shared/evidence/EntityGraph.cpp",
+        "KswordARKLightTests/EntityGraphTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/EntityGraph.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/EntityGraphTests.cpp，**351 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **15 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 10/12 条变异存活）。全部 finding 已修，修复后重跑 12 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 Light 的 Core/EntityRef + Ui/EntityNavigation 与 Qt 侧跨页路由 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "G-02",
+      "module": "实体关系与跨页调查",
+      "phase": "P2",
+      "title": "生命周期和旧对象",
+      "requirement": "不同启动周期、不同 PID 创建时间、地址复用对象分开；历史边不能自动套到当前对象。",
+      "verification": "重放同 PID/地址多实例，再从历史边打开现场。",
+      "expected": "保留历史对象；现场身份不匹配时拒绝自动定位到新对象。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/EntityGraph.h",
+        "shared/evidence/EntityGraph.cpp",
+        "KswordARKLightTests/EntityGraphTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/EntityGraph.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/EntityGraphTests.cpp，**351 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **15 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 10/12 条变异存活）。全部 finding 已修，修复后重跑 12 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 Light 的 Core/EntityRef + Ui/EntityNavigation 与 Qt 侧跨页路由 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "G-03",
+      "module": "实体关系与跨页调查",
+      "phase": "P2",
+      "title": "最小可用调查链",
+      "requirement": "交付三条链：Process→Thread/Module/Handle；Device→DriverObject→Driver image→可证实的 Service；Connection→Process instance→Timeline。无数据环节明确缺失。",
+      "verification": "自有目标或已授权现场完成三条链并保存会话。",
+      "expected": "每一步可打开来源详情；不能只画出节点而不能导航。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/EntityGraph.h",
+        "shared/evidence/EntityGraph.cpp",
+        "KswordARKLightTests/EntityGraphTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/EntityGraph.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/EntityGraphTests.cpp，**351 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **15 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 10/12 条变异存活）。全部 finding 已修，修复后重跑 12 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 Light 的 Core/EntityRef + Ui/EntityNavigation 与 Qt 侧跨页路由 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "G-04",
+      "module": "实体关系与跨页调查",
+      "phase": "P2",
+      "title": "有界展开与性能",
+      "requirement": "初始只显示目标及一跳关系；默认最多 200 节点/500 边，更多需用户明确展开；计数不能暗示已加载全部。",
+      "verification": "输入 10,000 节点/50,000 边的离线数据集，反复展开、折叠和筛选。",
+      "expected": "界面保持第 7 节响应预算；超限说明和继续加载有效，不隐藏真实总量状态。",
+      "required_verification_layers": "离线性能测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/EntityGraph.h",
+        "shared/evidence/EntityGraph.cpp",
+        "KswordARKLightTests/EntityGraphTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/EntityGraph.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/EntityGraphTests.cpp，**351 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **15 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 10/12 条变异存活）。全部 finding 已修，修复后重跑 12 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 Light 的 Core/EntityRef + Ui/EntityNavigation 与 Qt 侧跨页路由 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "G-05",
+      "module": "实体关系与跨页调查",
+      "phase": "P2",
+      "title": "孤立与未知不等于异常",
+      "requirement": "缺少 owner、对象已卸载、来源未采集与实际不一致分别表示。",
+      "verification": "输入四类节点。",
+      "expected": "不存在“无边就恶意”的规则；孤立节点仍可查看原始证据。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/EntityGraph.h",
+        "shared/evidence/EntityGraph.cpp",
+        "KswordARKLightTests/EntityGraphTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/EntityGraph.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/EntityGraphTests.cpp，**351 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **15 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 10/12 条变异存活）。全部 finding 已修，修复后重跑 12 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 Light 的 Core/EntityRef + Ui/EntityNavigation 与 Qt 侧跨页路由 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "G-06",
+      "module": "实体关系与跨页调查",
+      "phase": "P2",
+      "title": "离线和跨视图一致",
+      "requirement": "关系图、列表、详情和导出引用相同实体 id/证据 id；离线展开只使用已保存数据。",
+      "verification": "同一会话在图和列表选同一对象，保存重开并比对。",
+      "expected": "身份与关系一致；不偷偷现场查询或执行目标操作。",
+      "required_verification_layers": "离线自动测试＋目标环境实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/EntityGraph.h",
+        "shared/evidence/EntityGraph.cpp",
+        "KswordARKLightTests/EntityGraphTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/EntityGraph.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/EntityGraphTests.cpp，**351 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **15 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 10/12 条变异存活）。全部 finding 已修，修复后重跑 12 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 Light 的 Core/EntityRef + Ui/EntityNavigation 与 Qt 侧跨页路由 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "G-07",
+      "module": "实体关系与跨页调查",
+      "phase": "P2",
+      "title": "可用性与既有风格",
+      "requirement": "提供可排序的关系列表作为图的等价操作方式；键盘能选择、打开详情、返回；主题/语言沿用现有体系。",
+      "verification": "只用键盘走完一条链，在现有中英文和明暗主题检查。",
+      "expected": "无需依赖颜色区分关系，地址可完整复制，没有新增硬编码字体/主题旁路。",
+      "required_verification_layers": "UI 实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。该编号的验证层只有目标环境实测 / 真实样本对照 / UI 实测，无法用离线单测替代：只用键盘走完一条链，在现有中英文和明暗主题检查。"
+    },
+    {
+      "id": "G-08",
+      "module": "实体关系与跨页调查",
+      "phase": "P2",
+      "title": "图是证据视图不是分析真值",
+      "requirement": "所有推断可展开规则和来源；图布局位置、节点大小与颜色不增加未定义的风险含义。",
+      "verification": "同一数据换布局和排序，比较导出结论。",
+      "expected": "分析结果不变；没有把视觉相邻当成逻辑相关。",
+      "required_verification_layers": "离线自动测试＋UI 审阅",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "shared/evidence/EntityGraph.h",
+        "shared/evidence/EntityGraph.cpp",
+        "KswordARKLightTests/EntityGraphTests.cpp"
+      ],
+      "environments": [],
+      "executions": [
+        "模块级：新增 shared/evidence/EntityGraph.h/.cpp（Qt-free、Win32-free 纯分析层）与 KswordARKLightTests/EntityGraphTests.cpp，**351 项断言**。随后由一个不写实现的 agent 做对抗性评审，在隔离副本上实测复现出 **15 条问题（1 个 blocker）**，并注入变异检验断言有效性（评审时 10/12 条变异存活）。全部 finding 已修，修复后重跑 12 条变异，**存活 0 条**。",
+        "最终离线运行：KswordARKLightTests Release x64 /W4 /WX 完整重建（/t:Rebuild）退出码 0，运行退出码 0，**3,533 项断言全绿**（F 192 / X 180 / I 395 / M 199 / T 381 / N 545 / S 442 / D 387 / C 461 / G 351）。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "docs/next/logs/Q-01-变异测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮交付的是**离线可验证的分析核**，不含采集器与 UI 接线：既有的 Light 的 Core/EntityRef + Ui/EntityNavigation 与 Qt 侧跨页路由 仍走各自旧路径，本核尚无生产调用方。规范第 3.2 节的\"UI 能使用 + 保存结果能复核\"未满足，所有需要目标环境实测的验证层一次都没跑，因此不记 PASS。"
+    },
+    {
+      "id": "Q-01",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "新增逻辑确实被测试",
+      "requirement": "解析、匹配、归一化、判定逻辑的测试调用生产实现；fixture 有独立期望值。不得复制实现到测试里再互相证明。",
+      "verification": "审查链接目标和调用链；故意改变一条生产分支，确认相应测试失败，再撤回测试变更。",
+      "expected": "关键规则都能被对应测试击中；编译成功或 grep 找到符号不算算法通过。",
+      "required_verification_layers": "自动测试＋源码审阅",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [
+        "KswordARKLightTests/KswordARKLightTests.vcxproj",
+        "KswordARKLightTests/EvidenceContractTests.cpp",
+        "KswordARKLightTests/CrossViewTests.cpp",
+        "KswordARKLightTests/HvmEptSwitchTests.cpp"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "自动测试＋源码审阅层（仅限本轮新增逻辑）：确认测试工程直接编译 shared/evidence 的 7 个生产 .cpp，测试只 include 头文件；随后在 MatchProcessInstance 注入一条生产分支变异（PID 复用改判 Confirmed），重建后 4 条跨 F-03/F-09 的断言失败，撤回变异后 134 项断言全绿。记录在 docs/next/logs/Q-01-变异测试.md。",
+        "反向证据：对 I 模块做同样的变异复核时，独立评审 agent 证明其 155 项断言无法检出 PeImageMap 的静默损坏（详见 docs/next/logs/Q-01-变异测试.md 第 6 节）。这说明变异测试必须由不写实现的一方执行。",
+        "HVM ept switch 套件（467 条）的变异情况**不计入本项通过**：上一轮由不写实现的评审 agent 注入 36 条变异，其中 11 条存活；本轮由**写修复的同一个 agent** 复跑并报告 35 条被杀、1 条（M15）经 374 万组输入的并排差分证明为等价变异。按既定纪律，实现方自评的变异结果不作为独立证据，因此这一套件仍欠一次由第三方注入的变异复核。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/Q-01-变异测试.md",
+        "docs/next/logs/KswordARKLightTests-run.txt"
+      ],
+      "blocking_reason": null,
+      "known_issues": [
+        "I 模块（ImageIntegrityTests.cpp:349 LiveFromMap）被独立对抗性评审判定为测试自我印证：现场侧直接取生产归一化输出，注入静默损坏后 155/155 仍全过。已派修，修复前 I-03/I-05 不得据此记通过。",
+        "HVM ept switch 套件的 36 条变异复跑由实现方自己执行，属自评；独立复核未做。"
+      ],
+      "notes": "F/X 模块的断言经变异验证有效（4 条断言捕获注入的生产分支改动）。I 模块的断言被判定无效并已派修。M 模块的断言未做变异验证，但独立评审在其中找到 14 条问题（含 1 条越界读写 blocker），同样已派修。因此 Q-01 目前只对 F/X 成立。"
+    },
+    {
+      "id": "Q-02",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "正反边界齐全",
+      "requirement": "每模块至少含正常输入、可检测差异、不可用/失败、竞态/过期、格式边界和取消用例；不适用的须解释实体语义。",
+      "verification": "对照本规范每个编号列出对应测试/实测步骤。",
+      "expected": "无只测试 happy path 的已完成模块；没有测试名存在但不执行实际断言的空测试。",
+      "required_verification_layers": "测试检查＋运行",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：KswordFsDecodeTests/KswordFsDecodeTests.cpp:139；KswordFsDecodeTests/KswordFsDecodeTests.cpp:73；tools/scanner_tests/scanner_self_test.cpp:596。缺口：缺三样：(1) 没有任何“验收编号 ↔ 测试”映射产物，docs/next/KSword_Acceptance_Results_Template.json 的 evidence_paths 全为空数组，无人填；(2) 取消用例只有 driver_test_plan.json:16 的 timeout 一条口径，Qt/Light 侧全无 —— 全仓 isInterruptionRequested/m_cancelRequested 只有 4 处实际调用（FileDock.cpp、ksword/file/file_handle_tools.cpp 等），且无对应测试；(3) 竞态/过期用例只有 KswordARKLightTests 的 snapshot 分支，Ksword5.1 无测试工程因此完全靠人工。"
+    },
+    {
+      "id": "Q-03",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "构建范围和结果",
+      "requirement": "受影响目标正常构建；新增源文件纳入项目/filters，语言资源和必要依赖进入现有路径。签名、打包、真实加载与构建分开报告。",
+      "verification": "在当前真实工具链构建一次集成结果，记录命令、退出码、产物路径；未改动产物不盲目全量重建。",
+      "expected": "不复用旧产物冒充新实现；驱动后置校验失败不能叫完整构建成功；无需每个子 agent 重复全仓构建。",
+      "required_verification_layers": "构建",
+      "applicability": "required",
+      "implementation_status": "已实现",
+      "verification_status": "PASS",
+      "implementation_paths": [
+        "Ksword5.1/Ksword5.1/Ksword5.1.vcxproj",
+        "KswordARKLightTests/KswordARKLightTests.vcxproj",
+        "scripts/Invoke-KswordAutomatedAcceptance.ps1"
+      ],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "构建层：五个目标全部构建通过并记录命令、退出码、产物路径 —— KswordARKLightTests(/t:Rebuild, 0)、Ksword5.1 Qt 主程序(0，0 编译错误)、KswordARKLight(0)、KswordCLI(0)、KswordARKDriver(0，ApiValidator 报 Driver is 'Universal.')。新增源文件已进 .vcxproj 与 .filters；语言资源定点新增各 10 行且 i18n 审计通过。签名/打包/真实加载分开报告：signtool 因测试证书未导入信任区而失败（既有状态，本轮未改也未导入），未打包，未加载驱动。",
+        "修复轮后的复核构建：四个受影响目标全部重新构建通过 —— KswordARKLightTests(/t:Rebuild, 构建 0 / 运行 0, 837 断言全绿)、Ksword5.1 Qt 主程序(0，0 编译错误，因 ArkDriverEvidence.h 的 NTSTATUS 分流变更而必须重建)、KswordARKLight(0)、KswordCLI(0)。",
+        "自动化轮：新增 scripts/Invoke-KswordAutomatedAcceptance.ps1 一条命令跑完构建+运行+核验。本次实跑 -OfflineOnly：MSBuild KswordARKLightTests(/t:Build) 退出码 0，运行退出码 0，11 个套件 4000 条断言全过（此前为 10 套件 3533 条；新增的是 HVM ept switch 467 条）。hvm_probe.exe / hvm_ctl.exe 用 /MT 静态链接重新编译，cl /W4 /WX 退出码 0。在机段本次记 NOT_RUN（-OfflineOnly），总判定 PARTIAL —— 不记 PASS。",
+        "工程接线修复：HvmEptSwitchTests.cpp 此前写完 467 条断言却不在任何 ItemGroup 里，测试进程照样退出 0、照样打印「全部通过」，那 467 条一次都没跑过。已加进 KswordARKLightTests.vcxproj/.filters、TestSupport.h 与主入口的 Run* 链。为防同类静默缺席，scripts/ksword-expected-suites.json 登记了应出现的套件与断言下限，自动化脚本核验清单；已做负向测试：往清单里加一个不存在的套件，脚本判 FAIL、退出码 1。"
+      ],
+      "evidence_paths": [
+        "docs/next/logs/构建记录.md",
+        "docs/next/logs/qt-build-driverdock.txt",
+        "docs/next/logs/light-cli-build.txt",
+        "docs/next/logs/driver-build.txt",
+        "docs/next/logs/KswordARKLightTests-run.txt",
+        "scripts/Invoke-KswordAutomatedAcceptance.ps1",
+        "scripts/ksword-expected-suites.json",
+        "docs/next/自动化测试.md"
+      ],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "验证层只有“构建”，已全部实际执行。驱动无源码改动，构建它只是确认未牵动 R0。"
+    },
+    {
+      "id": "Q-04",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "旧驱动兼容",
+      "requirement": "新 R3 配旧驱动、无驱动或缺 capability 时准确降级；旧 R3 配新驱动时原 IOCTL 语义保持。",
+      "verification": "至少验证可获得的上一兼容协议样本，并在环境允许时真实组合测试。",
+      "expected": "原有页面和操作仍可用；新增功能不支持时有说明，不误解响应结构。",
+      "required_verification_layers": "自动测试＋可用兼容组合实测",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [
+        "自动测试层（部分）：toCollectionOutcome 把旧驱动对未知 IOCTL 返回的 ERROR_INVALID_FUNCTION / ERROR_NOT_SUPPORTED 归一成 CollectionStatus::Unsupported 而不是 Error，并有断言覆盖；新增的 NTSTATUS 分流也保留原始码。"
+      ],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [
+        "本轮未新增或改变任何 IOCTL，因此没有引入新的协议兼容风险；但“旧 R3 配新驱动时原 IOCTL 语义保持”与“可获得的上一兼容协议样本”这两项未验证。"
+      ],
+      "notes": "本轮的兼容性工作只到 R3 归一层：未知 IOCTL 正确降级为 Unsupported。真实的新旧组合实测（E4）未执行。"
+    },
+    {
+      "id": "Q-05",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "两个客户端并用",
+      "requirement": "Qt、Light、CLI 的驱动租约/采集所有权互不破坏；本轮未新增 Light UI 的模块至少保持 Light 既有功能与会话格式兼容。",
+      "verification": "同时打开 Qt 与 Light，用 CLI 做一次只读查询，再按不同顺序关闭。",
+      "expected": "驱动不会被仍有使用者时卸载，预先运行的驱动不会被误认成自己的；现有功能不被停止。",
+      "required_verification_layers": "目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：KswordARKLight/Core/DriverLease.cpp:10；KswordARKLight/Core/DriverLease.cpp:11；KswordARKLight/Core/DriverLease.cpp:175。缺口：租约是 KswordARKLight 私有的，连命名对象都带 KswordARKLight 前缀（DriverLease.cpp:10-11），Qt 主程序与 CLI 都不注册。DriverDock.Operation.cpp:4366/4487 的停止与删除服务路径不查任何租约，可以在 Light 仍持有句柄时把驱动停掉；反向也一样，Light 退出时的 ShouldStopOnLastRelease 只统计 Light 自己的租约数，不知道 Qt 还开着。需要把 DriverLease 提到 shared/ 并让三端共用，且给“预先运行的驱动不误认成自己的”写跨进程实测。"
+    },
+    {
+      "id": "Q-06",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "UI 响应预算",
+      "requirement": "遵守第 7 节测量条件：用户操作到可见反馈 p95≤200 ms；测试中单次 UI 停顿超过 1 s 视为失败。后台 IO/解析/符号不得在 UI 线程同步等待。",
+      "verification": "数据就绪后执行 200 次选择/排序/筛选/取消交互并记录 event-loop 延迟。",
+      "expected": "给出原始样本及 p95/最大值；未达标先定位修复，不自改目标。",
+      "required_verification_layers": "性能实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：tools/file_detail_tab_latency_test.cpp:1；tools/file_detail_tab_latency_test.cpp:27；tools/table_freeze_lifetime_test.cpp:1。缺口：“UI 线程不同步等待”的实现纪律确实在（scheduleDeferredTabActivation + 1899 处 guardThis + 后台线程调用服务 API），但 Q-06 要求的测量能力完全没有：全仓搜不到任何 p95/percentile/event-loop 延迟采样器，只有 tools/file_detail_tab_latency_test.cpp 这种行为回归。需要新建可执行的延迟采样 harness（200 次选择/排序/筛选/取消，记录原始样本与 p95/max），并把两个孤儿 harness 补上 vcxproj 接进 CI。"
+    },
+    {
+      "id": "Q-07",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "吞吐与大数据",
+      "requirement": "达到第 7 节固定离线回放负载和端到端受控负载；区分算法吞吐、持久化吞吐与实际 collector 吞吐。",
+      "verification": "按固定 seed 生成数据，通过真实生产入口回放并测量。",
+      "expected": "没有把内存 mock 的高吞吐宣称为真实内核采集能力；数量、丢失、耗时、峰值内存有记录。",
+      "required_verification_layers": "性能实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：尚未发现实现。现有入口：Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverCallbackMonitor.cpp:54；Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverCallbackMonitor.cpp:237；Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverDebugOutput.cpp:52。缺口：“算法吞吐 / 持久化吞吐 / 真实 collector 吞吐”三分与丢失记账的**协议字段**已经有（droppedCount 遍布 ArkDriverCallbackMonitor/DebugOutput/Audit/File），但 §7.2 的 L1–L5 固定负载完全没有落点：全仓搜不到固定 seed 生成器（无 mt19937/--seed/kSeed）、没有 100,000 实体或 1,000,000 事件的回放入口、没有吞吐/丢失/峰值内存的测量记录器。唯一的持续负载工具是 HVM 专用的 SOAK（ArkDriverHvm.cpp:61），只测 devirtualize 次数，不测事件吞吐。需要新建带 seed 的 fixture 生成器 + 经生产入口回放的 harness。"
+    },
+    {
+      "id": "Q-08",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "资源归还",
+      "requirement": "新增会话/任务停止后释放其拥有的句柄、队列、订阅、对象引用；缓存可保留但须有明确上限。",
+      "verification": "空载预热后执行 50 次启动/停止/关闭循环；再做 30 分钟受控采集。",
+      "expected": "应用级 tracked live allocations/handles/tasks 回到预定静止状态；系统/堆缓存不机械要求 RSS 归零，任何持续增长都须解释并受限。",
+      "required_verification_layers": "目标环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.cpp:28；Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.cpp:56；Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.cpp:278。缺口：“停止后归还”的机制在（in-flight 租约 + idle condition + RAII 句柄 + 后台 retire），但 Q-08 要的**可枚举账目**没有：全仓没有 tracked live allocations/handles/tasks 的计数入口（GetProcessHandleCount 只在 ksword/process/process.cpp:3580/3678 与 OtherDock.cpp:1952 用于展示别的进程，不是自检），没有 50 次启动/停止/关闭循环 harness，也没有缓存上限声明（file_handle_tools.h:151 的 nameResolveBudget 是单次查询预算，不是缓存上限）。"
+    },
+    {
+      "id": "Q-09",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "错误压力",
+      "requirement": "覆盖磁盘满、权限拒绝、断符号网、驱动忙、响应损坏和页面被关闭；只故障注入本功能的测试适配层/隔离环境。",
+      "verification": "每类错误至少运行一条从操作到提示到恢复流程。",
+      "expected": "有界结束或准确显示仍在清理；不产生假成功、不无限重试、不影响无关功能。",
+      "required_verification_layers": "自动测试＋受控故障实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.cpp:120；Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.cpp:509；Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverError.cpp。缺口：六类错误里只有“权限拒绝”“驱动忙”“页面被关闭”有生产实现；缺三样：(1) 没有任何故障注入测试适配层 —— 全仓无 fault-inject/simulateFailure/TestHook 之类的可注入接缝，也没有 class Fake/Mock/Stub 测试替身；(2) 磁盘满（ERROR_DISK_FULL）与响应损坏在全仓零命中，只有 corruptLinkCount/corruptBucketCount 这类**驱动上报的**内核链表损坏计数（ArkDriverAudit.cpp:1367/1435），不是 R3 对损坏响应的防御；(3) 断符号网只有 DumpSymbolResolver 的 FakeProcessHandle，没有断网路径测试。"
+    },
+    {
+      "id": "Q-10",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "驱动新增路径的验证",
+      "requirement": "有 R0 改动时测试本轮新增/变更 IOCTL 和引用生命周期；Verifier 仅在获授权的测试系统、仅对指定 KSword 测试驱动启用。依据 [M8]。",
+      "verification": "运行与改动相关的参数边界、并发退出和 verifier 场景，记录选项、运行时长和日志。",
+      "expected": "无与本轮修改相关的 bugcheck/违规/引用泄漏；没有环境即 BLOCKED，不在工作机自动启用。",
+      "required_verification_layers": "隔离环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：tools/driver_functional_ci/plan_gate.py；tools/driver_functional_ci/driver_test_plan.json:6；tools/driver_functional_ci/driver_test_plan.json:19。缺口：参数边界与并发退出的执行器很完整（三层归因、targetGuard、journal WriteThrough、上一轮崩溃阻塞），但 Q-10 明确点名的 **Driver Verifier 完全没有接入**：全仓 grep verifier 只命中 Ksword5.1/Ksword5.1/ksword/startup/startup.cpp:2549-2801 的 IFEO Application Verifier **检测**功能，DriverFunctionalMatrix.ps1 与 driver-functional-ci.yml 里零命中，也就没有“仅对指定 KSword 测试驱动启用、记录选项与运行时长”的机制。此外引用泄漏（对象引用计数）没有任何断言，只靠“不崩溃”兜底。"
+    },
+    {
+      "id": "Q-11",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "睡眠与恢复边界",
+      "requirement": "涉及持续采集或 R0 生命周期的模块在系统实际支持的睡眠模型上验证；恢复后重建会话/时间映射或明确已停止。不得自动开启未支持的 HVM 状态。",
+      "verification": "在授权测试系统执行 3 次实际支持的睡眠/唤醒；硬件不支持的模式列不适用，缺硬件列 BLOCKED。",
+      "expected": "无过期地址、假连续时间线、重复订阅；缺口和重新启动状态明确。",
+      "required_verification_layers": "授权环境实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：KswordARKDriver/src/features/hvm/hvm_runtime.c；KswordARKDriver/src/features/hvm/hvm_resident.c；KswordARKDriver/src/features/hvm/hvm_internal.h。缺口：只有 HVM 一条路径做了睡眠边界（PowerTransitionGeneration + PO_CB_SYSTEM_STATE_LOCK 出现在 7 个驱动文件里），其余持续采集路径（CallbackMonitor drain、DebugOutput drain、FileMonitor、ETW）没有任何电源转换处理。R3 侧全仓零命中 WM_POWERBROADCAST / PBT_APMRESUMEAUTOMATIC / PBT_APMSUSPEND —— Qt 主窗口不订阅电源广播，睡眠后采集会话与时间映射既不重建也不显式标记“已停止”，符合 Q-11 说的“假连续时间线”风险。"
+    },
+    {
+      "id": "Q-12",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "导入和报告安全",
+      "requirement": "会话、dump、路径、符号名、规则文本全部是不可信输入；限制大小/深度/数量，防路径穿越、命令注入和 HTML/外部资源注入。",
+      "verification": "使用固定畸形样本集，包含极深关系、重复 id、超大长度和特殊路径。",
+      "expected": "拒绝/隔离准确，UI 不挂死；不执行附带脚本/命令，不写出用户选择目录之外。",
+      "required_verification_layers": "离线自动测试",
+      "applicability": "required",
+      "implementation_status": "开发中",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [
+        "离线自动测试层（部分）：JSON 解析器对零长度、深递归、重复键、尾随垃圾、整数溢出、浮点、裸控制字符均给出明确失败状态并有硬上限；但上述 DoS 路径此前未覆盖。"
+      ],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [
+        "评审 finding 7（major）：JSON 重复键检测是 O(n²) 线性扫描。实测 128,000 成员（1.4 MB）耗时 15,343 ms，按默认上限 1,048,576 成员外推约 1,030 秒（17 分钟）且全程 status=Ok。会话/报告导入是明确的不可信输入路径，违反 Q-12“UI 不挂死”。已派修：改哈希索引 + 加 maxTotalBytes。"
+      ],
+      "notes": "本轮只覆盖了 JSON 导入这一条不可信输入路径。规范要求的“会话、dump、路径、符号名、规则文本全部是不可信输入”其余各项本轮未做。"
+    },
+    {
+      "id": "Q-13",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "中文英文及空状态",
+      "requirement": "沿用仓库语言与主题机制；说明单位、权限原因、未采集和无结果，地址列可复制完整值。",
+      "verification": "两语言/两主题，普通权限和缺驱动状态下检查新增入口。",
+      "expected": "没有裸翻译 key、硬编码术语墙、截断后无法复制的关键值；旧布局不被重置。",
+      "required_verification_layers": "UI 实测",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：tools/i18n_language_pack.py:586；tools/i18n_language_pack.py:625；tools/test_i18n_language_pack.py。缺口：两个真缺口：(1) i18n 审计的 --source-root 硬钉在 Ksword5.1/Ksword5.1（vcxproj:820 与 ci.yml:234 两处），KswordARKLight 的 174 个 .cpp 全是硬编码中文宽字符串（App/MainWindow.cpp、Features/Kernel/KernelPage.cpp、Features/Driver/DriverUnloadedView.cpp 等，KswordARKLight.vcxproj 里连 languages 条目都没有），KswordCLI 同样零 i18n —— 本轮若在 Light 加入口，必然违反“没有裸翻译 key/硬编码术语墙”；(2) “未采集/无结果/权限原因”没有统一表达：shared/evidence/EvidenceEnvelope.h:22 的 CollectionStatus{NotCollected,Partial,Unsupported,AccessDenied,...} 正是为此写的，但该文件未接入任何工程也无任何引用，现状仍是各页面自己拼 setPlaceholderText 字面量。"
+    },
+    {
+      "id": "Q-14",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "范围不偷偷扩大",
+      "requirement": "每个改动须映射到本规范编号或明确必要依赖；发现范围外缺陷记录位置和影响，不趁机重写其它模块。",
+      "verification": "检查最后 diff 和实际依赖。",
+      "expected": "无关格式化、工具链升级、目录重组、许可证修改和未经授权的远程发布不存在。",
+      "required_verification_layers": "源码检查",
+      "applicability": "required",
+      "implementation_status": "已实现",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "源码检查层：本轮改动清单为 shared/evidence/（新增，F/X 共享契约）、Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverEvidence.h（新增，F-05 归一层）、KswordARKLightTests/（新增 3 个测试文件 + 工程文件登记）、docs/next/（规范、映射与证据日志）、tools/acceptance_record.py（验收记录维护工具）。无无关格式化、无工具链升级、无目录重组、无许可证修改、无远程发布。"
+      ],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "每个新增文件都映射到具体编号（见各文件头注释）。范围外发现的缺陷已记录而未擅自修改：见 I-11 的两条 known_issues。"
+    },
+    {
+      "id": "Q-15",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "最终状态诚实",
+      "requirement": "按“实现状态＋验证状态＋验证环境”分别汇总；BLOCKED/NOT_RUN 不算通过，已有实现也要按本轮要求证明后才可记 PASS。",
+      "verification": "从结果表随机抽至少 10 条，打开其日志/样本/源码映射复核。",
+      "expected": "每条 PASS 有对应证据；报告明确未验证硬件、配置与已知缺陷；测试文件存在不等于测试已执行。",
+      "required_verification_layers": "交付检查",
+      "applicability": "required",
+      "implementation_status": "未开始",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [],
+      "executions": [],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [],
+      "notes": "本轮未实施。开工核对结论：需增强。现有入口：docs/next/KSword_Acceptance_Results_Template.json:10；docs/next/KSword_Acceptance_Results_Template.json:28；docs/next/KSword_Acceptance_Results_Template.json:39。缺口：模板齐全但没有任何执行侧保障：(1) docs/next/ 整个目录当前是 untracked（git status 显示 ?? docs/next/），ci.yml:217 用 git ls-files 取路径，因此这份模板连语法校验都不过；(2) 没有校验脚本落实 pass_requires —— 无人检查“verification_status=PASS 时 evidence_paths 非空且路径存在”“BLOCKED 必须有 blocking_reason”，可以随手把 116 条全改成 PASS 而不被发现；(3) docs/第二规划R0R3验收矩阵.md 是上一轮同类产物，纯手工 markdown，同样无校验，可作为反面参照。补法：照 tools/validate_kernel_knowledge.py 的模式写一个 results 校验器接进 ci.yml。"
+    },
+    {
+      "id": "Q-16",
+      "module": "集成、可靠性与交付",
+      "phase": "贯穿 P0–P2",
+      "title": "虚拟化边界不被改写",
+      "requirement": "本规范不得覆盖原虚拟化 roadmap、AMD P3 真机要求或 Intel/AMD 生命周期限制；只读接入既有事件/能力需要新增测试。",
+      "verification": "对照本地虚拟化任务与本次 diff，核对共享头变更。",
+      "expected": "不把“本轮非 HVM 功能可运行”写成“虚拟化全部验收”；缺 AMD 仍保留真实待验收状态。",
+      "required_verification_layers": "源码检查＋任务状态核对",
+      "applicability": "required",
+      "implementation_status": "已实现",
+      "verification_status": "NOT_RUN",
+      "implementation_paths": [],
+      "environments": [
+        "E0"
+      ],
+      "executions": [
+        "源码检查＋任务状态核对层：本轮 diff 未触碰任何 HVM/虚拟化文件。核对期间另一会话把虚拟化改动提交为 dbdfcb63「AMD 上如实报告 SVM 能力」与 f3486a9d；本轮改动与之无文件重叠。共享头只新增 shared/evidence/（纯 R3 分析层），未改动 shared/driver/ 下任何 ABI 头。",
+        "自动化轮更正：本轮**确实动了 shared/driver 与 tools/**，上一条记录的「未触碰任何 HVM/虚拟化文件」自本轮起不再成立，逐项列出如下 —— (1) 新增 shared/driver/KswordArkHvmEptSwitch.h（EPTP 切换后端的纯算术+状态机头，header-only，无任何生产 .c 包含它，因此不改变任何现有 R0 行为）；(2) 删除 shared/driver/KswordArkHvmEptpSwitch.h 与 tools/hvm_unit_tests/hvm_eptp_switch_tests.c —— 这两个是同一设计在同一天的第二次实现，无任何生产代码引用、也不在 ci.yml 的编译列表里，其唯一独有判据（前进性台账）已合并进保留的那个头；副本留在本轮 scratchpad；(3) 重写 tools/hvm_ctl/hvm_ctl.c，改为直接 include shared/driver/KswordArkHvmIoctl.h 而不再手抄协议结构。**没有修改任何既有 ABI 头、任何 hvm_*.c/h、safety_policy.c，也没有降低或改写虚拟化 roadmap 的任何真机验收要求。**",
+        "嵌套虚拟化在机进展（E2 级证据，与本文件的验收项独立，记在这里只为不让虚拟化边界的状态被误读）：(1) SELF_TEST 4/4 通过 —— 但它只做 VMXON/VMXOFF，对 VMCS/EPTP/VMLAUNCH 零证据；(2) LAUNCH_TEST_GUEST 通过：CPU0 状态位 0xE7 含 GUEST_LAUNCHED|VMEXIT_HANDLED，vmExitCount=1、lastExitReason=18(VMCALL)、全局新增 NESTED_VALIDATED —— 证明 VMCS 构造 / EPTP 装载 / VMLAUNCH / 退出派发在嵌套 Hyper-V 下全部成立；(3) START_RESIDENT 仍然失败，且会把 guest 硬挂死（多核在 IPI_LEVEL 自旋，无蓝屏无转储），因此**不得**把 (2) 读成「常驻可用」。为使 (2) 能跑通改了两处驱动：ArmUnloadGuard 延迟到武装时刻捕获 DriverUnload（KMDF 桩在 DriverEntry 返回后才覆写该槽位，DriverEntry 内任何位置捕到的都是过期值）；GUEST_SMBASE 改为尽力而为（L0 不实现该字段编码，而它只在 dual-monitor SMM 下才被消耗）。两处都不放宽任何安全判据，裸机行为不变。"
+      ],
+      "evidence_paths": [],
+      "blocking_reason": null,
+      "known_issues": [
+        "START_RESIDENT 在嵌套 Hyper-V 下会把 guest 硬挂死；该失效形态无转储、无诊断面，需要内核调试器才能定位。在定位之前不得声称常驻在嵌套下可用。"
+      ],
+      "notes": "本轮不覆盖原虚拟化 roadmap，AMD P3 真机要求与 Intel/AMD 生命周期限制保持原状；本文件的验收状态与虚拟化验收互不替代。未“只读接入既有 HVM 事件/能力”，因此不涉及为此新增测试。 更正：自动化轮起本文件确实新增/删除了 shared/driver 下的文件（见 executions 末条），但改动全部限于一个未被任何生产代码包含的 header-only 新头、它的一份重复实现的删除，以及一个用户态测试工具；既有虚拟化验收要求与 AMD P3 真机要求保持原状，未被本文件替代。"
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "schema": "ksword-unattended-suite/1",
+  "startedUtc": "2026-09-06T16:35:07.2398272Z",
+  "vmName": "KSword-HVM-Target",
+  "soakMs": 60000,
+  "driverSha256": "4B10D917D0E6F0ED24F77DE7D104C521D251F34DE276F5F6FE283E46BD01F934",
+  "stages": [
+    {
+      "name": "前置:驱动哈希",
+      "utc": "2026-09-06T16:35:07.2625581Z",
+      "outcome": "PASS",
+      "note": "4B10D917D0E6F0ED24F77DE7D104C521D251F34DE276F5F6FE283E46BD01F934"
+    },
+    {
+      "name": "前置:驱动已签名",
+      "utc": "2026-09-06T16:35:07.3211744Z",
+      "outcome": "PASS",
+      "note": "UnknownError"
+    },
+    {
+      "name": "前置:清理检查点",
+      "utc": "2026-09-06T16:38:45.2182763Z",
+      "outcome": "PASS",
+      "note": "清理后剩余 78.8 GB（clean-install 保留）"
+    },
+    {
+      "name": "离线断言+工具",
+      "utc": "2026-09-06T16:38:54.7369049Z",
+      "outcome": "PASS",
+      "note": "4000 条断言 + 两个 /MT 工具"
+    },
+    {
+      "name": "部署+哈希核验",
+      "utc": "2026-09-06T16:39:21.0054693Z",
+      "outcome": "PASS",
+      "note": "guest 上就是刚构建的那份"
+    }
+  ],
+  "verdict": "ERROR",
+  "notes": [
+    "套件异常：Cannot validate argument on parameter 'Stage'. The argument \"-Stage\" does not belong to the set \"safe,status,prepare,self-test,launch-guest,resident,probe-platform,probe-flags,probe-xonly,soak,stop,teardown,reset-fault,full\" specified by the ValidateSet attribute. Supply an argument that is in the set and then try the command again."
+  ],
+  "finishedUtc": "2026-09-06T16:39:36.6129168Z"
+}

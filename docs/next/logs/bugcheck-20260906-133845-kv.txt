@@ -1,0 +1,94 @@
+Opened log file 'C:\Users\Felix\CLionProjects\KSword\docs\next\logs\bugcheck-20260906-133845-kv.txt'
+
+************* Preparing the environment for Debugger Extensions Gallery repositories **************
+   ExtensionRepository : Implicit
+   UseExperimentalFeatureForNugetShare : true
+   AllowNugetExeUpdate : true
+   NonInteractiveNuget : true
+   AllowNugetMSCredentialProviderInstall : true
+   AllowParallelInitializationOfLocalRepositories : true
+
+   EnableRedirectToV8JsProvider : false
+
+   -- Configuring repositories
+      ----> Repository : LocalInstalled, Enabled: true
+      ----> Repository : UserExtensions, Enabled: true
+
+>>>>>>>>>>>>> Preparing the environment for Debugger Extensions Gallery repositories completed, duration 0.000 seconds
+
+************* Waiting for Debugger Extensions Gallery to Initialize **************
+
+>>>>>>>>>>>>> Waiting for Debugger Extensions Gallery to Initialize completed, duration 0.016 seconds
+   ----> Repository : UserExtensions, Enabled: true, Packages count: 0
+   ----> Repository : LocalInstalled, Enabled: true, Packages count: 29
+
+Microsoft (R) Windows Debugger Version 10.0.26100.6584 AMD64
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+
+Loading Dump File [C:\Users\Felix\CLionProjects\KSword\docs\next\logs\bugcheck-20260906-133845-090626-5078-01.dmp]
+Mini Kernel Dump File: Only registers and stack trace are available
+
+
+************* Path validation summary **************
+Response                         Time (ms)     Location
+Deferred                                       srv*C:\symbols*
+Symbol search path is: srv*C:\symbols*
+Executable search path is: 
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Kernel.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Usb4Kd.natvis'
+Windows 10 Kernel Version 22621 UP Free x64
+Product: WinNt, suite: TerminalServer SingleUserTS Personal
+Edition build lab: 22621.317.amd64fre.ni_release_svc_prod3.220719-1658
+Kernel base = 0xfffff806`31e00000 PsLoadedModuleList = 0xfffff806`32a12ff0
+Debug session time: Sun Sep  6 13:33:33.324 2026 (UTC - 4:00)
+System Uptime: 0 days 1:43:40.722
+Loading Kernel Symbols
+...............................................................
+................................................................
+..............................
+Loading User Symbols
+
+Loading unloaded module list
+..............................
+For analysis of this file, run !analyze -v
+kd> kv; q
+ # Child-SP          RetAddr               : Args to Child                                                           : Call Site
+00 fffff806`37c467c8 fffff806`32231da9     : 00000000`0000000a 00007fff`ffff0000 00000000`00000002 00000000`00000000 : nt!KeBugCheckEx
+01 fffff806`37c467d0 fffff806`3222dce8     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : nt!KiBugCheckDispatch+0x69
+02 fffff806`37c46910 fffff806`32246325     : fffff806`37c47d20 ffffa180`6ca1b1da 00000000`00000000 00000000`00000000 : nt!KiPageFault+0x468 (TrapFrame @ fffff806`37c46910)
+03 fffff806`37c46aa0 fffff806`320c3e95     : fffff806`37c47d20 fffff806`37c47ae8 0000000b`7be64000 00000000`00000000 : nt!RtlpxVirtualUnwind+0x180565
+04 fffff806`37c46b60 fffff806`320c7c51     : ffffffff`ffffffff fffff806`37c47b90 fffff806`37c47b90 fffff806`37c47300 : nt!RtlDispatchException+0x215
+05 fffff806`37c472d0 fffff806`32231eda     : fffff806`37c34ab0 00000000`01dd3e25 00000000`00000080 fffff806`323f0617 : nt!KiDispatchException+0x1b1
+06 fffff806`37c479b0 fffff806`3222d877     : 00000000`00000000 00000000`00000000 fffff806`304d0180 00000000`00000000 : nt!KiExceptionDispatch+0x11a
+07 fffff806`37c47b90 ffffa180`6ca1b1da     : 0000000b`7be64000 fffff806`37c34810 00000000`0000000e fffff806`31ec7ddc : nt!KiGeneralProtectionFault+0x337 (TrapFrame @ fffff806`37c47b90)
+08 fffff806`37c47d20 0000000b`7be64000     : fffff806`37c34810 00000000`0000000e fffff806`31ec7ddc 00000000`00000000 : 0xffffa180`6ca1b1da
+09 fffff806`37c47d28 fffff806`37c34810     : 00000000`0000000e fffff806`31ec7ddc 00000000`00000000 fffff806`37c47ff8 : 0x0000000b`7be64000
+0a fffff806`37c47d30 00000000`0000000e     : fffff806`31ec7ddc 00000000`00000000 fffff806`37c47ff8 00000000`0000009f : 0xfffff806`37c34810
+0b fffff806`37c47d38 fffff806`31ec7ddc     : 00000000`00000000 fffff806`37c47ff8 00000000`0000009f fffff806`37c48018 : 0xe
+0c fffff806`37c47d40 00000000`00000000     : fffff806`37c47ff8 00000000`0000009f fffff806`37c48018 00000049`00000001 : nt!_xmmc0010007c0010006c0010005c0010004+0x7ae5c
+quit:
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Kernel.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Usb4Kd.natvis'

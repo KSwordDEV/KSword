@@ -1,0 +1,335 @@
+{
+  "schema": "ksword.acceptance.autotest/1",
+  "startedUtc": "2026-09-05T22:32:30.1822844Z",
+  "machine": {
+    "computer": "DESKTOP-KJE7JPM",
+    "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+    "build": "26300",
+    "cpu": "13th Gen Intel(R) Core(TM) i7-13700F"
+  },
+  "phases": {
+    "offline": {
+      "verdict": "PASS",
+      "buildExit": 0,
+      "buildLog": "C:\\Users\\Felix\\CLionProjects\\KSword\\docs\\next\\logs\\autotest-build-20260905-183230.txt",
+      "runExit": 0,
+      "runLog": "C:\\Users\\Felix\\CLionProjects\\KSword\\docs\\next\\logs\\autotest-run-20260905-183230.txt",
+      "suites": [
+        {
+          "suite": "F evidence contract",
+          "passed": 192,
+          "total": 192
+        },
+        {
+          "suite": "X cross-view",
+          "passed": 180,
+          "total": 180
+        },
+        {
+          "suite": "G entity graph",
+          "passed": 351,
+          "total": 351
+        },
+        {
+          "suite": "C offline dump facts",
+          "passed": 461,
+          "total": 461
+        },
+        {
+          "suite": "D snapshot compare",
+          "passed": 387,
+          "total": 387
+        },
+        {
+          "suite": "S security state",
+          "passed": 442,
+          "total": 442
+        },
+        {
+          "suite": "N wfp analysis",
+          "passed": 545,
+          "total": 545
+        },
+        {
+          "suite": "T timeline",
+          "passed": 381,
+          "total": 381
+        },
+        {
+          "suite": "I image integrity",
+          "passed": 395,
+          "total": 395
+        },
+        {
+          "suite": "M memory evidence",
+          "passed": 199,
+          "total": 199
+        },
+        {
+          "suite": "HVM ept switch",
+          "passed": 467,
+          "total": 467
+        }
+      ],
+      "suiteCount": 11,
+      "assertions": 4000.0,
+      "passed": 4000.0,
+      "manifest": "C:\\Users\\Felix\\CLionProjects\\KSword\\scripts\\ksword-expected-suites.json",
+      "missingSuites": [],
+      "shrunkSuites": [],
+      "unlistedSuites": []
+    },
+    "tools": {
+      "verdict": "PASS",
+      "artifacts": [
+        {
+          "path": "C:\\Users\\Felix\\CLionProjects\\KSword\\tools\\hvm_probe\\hvm_probe.exe",
+          "bytes": 144896
+        },
+        {
+          "path": "C:\\Users\\Felix\\CLionProjects\\KSword\\tools\\hvm_ctl\\hvm_ctl.exe",
+          "bytes": 156672
+        }
+      ]
+    },
+    "onMachine": {
+      "verdict": "FAIL",
+      "controlExit": 1,
+      "resultPath": "C:\\Users\\Felix\\CLionProjects\\KSword\\docs\\next\\logs\\hvm-autotest-20260905-183230.json",
+      "detail": {
+        "schema": "ksword.hvm.autotest/1",
+        "startedUtc": "2026-09-05T22:32:36.4768487Z",
+        "vmName": "KSword-HVM-Target",
+        "stage": "resident",
+        "host": {
+          "computer": "DESKTOP-KJE7JPM",
+          "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+          "build": "26300"
+        },
+        "steps": [
+          {
+            "name": "deploy:hvm_ctl",
+            "utc": "2026-09-05T22:32:37.9393728Z",
+            "outcome": "OK",
+            "data": 156672
+          },
+          {
+            "name": "status",
+            "utc": "2026-09-05T22:32:39.9366626Z",
+            "outcome": "OK",
+            "data": {
+              "kind": "query",
+              "queryStatus": 0,
+              "stateFlags": 524289,
+              "stateFlagsHex": "0x00080001",
+              "stateNames": [
+                "INITIALIZED",
+                "EVMCS_PARTIAL"
+              ],
+              "generation": 1,
+              "processorCount": 0,
+              "preparedProcessorCount": 0,
+              "selfTestPassedProcessorCount": 0,
+              "residentProcessorCount": 0,
+              "residentImplementation": "CAPABILITY_ONLY",
+              "eptImplementation": "CAPABILITY_ONLY",
+              "nestedImplementation": "CAPABILITY_ONLY",
+              "evmcsImplementation": "PARTIAL",
+              "featureFlags": "0x0001003F30FFFFFF",
+              "vmxEptVpidCapabilities": "0x00000F0106F34041",
+              "eptExecuteOnly": true,
+              "eptPointer": "0x0000000000000000",
+              "eptPageCount": 0,
+              "mappedRamMiB": 0,
+              "vmExitCount": 0,
+              "lastStatus": "0x00000000",
+              "vmxBasic": "0x01D8100000000001",
+              "cr0Fixed0": "0x0000000080000021",
+              "cr0Fixed1": "0x00000000FFFFFFFF",
+              "cr4Fixed0": "0x0000000000002000",
+              "cr4Fixed1": "0x0000000000B72FFF",
+              "lastVmInstructionError": 0,
+              "eventCount": 0,
+              "droppedEventCount": 0,
+              "processors": []
+            }
+          },
+          {
+            "name": "prepare",
+            "utc": "2026-09-05T22:32:41.1454728Z",
+            "outcome": "OK",
+            "data": {
+              "kind": "control",
+              "command": "prepare",
+              "status": 0,
+              "statusName": "OK",
+              "lastStatus": "0x00000000",
+              "oldStateFlags": 524289,
+              "newStateFlags": 524295,
+              "oldStateHex": "0x00080001",
+              "newStateHex": "0x00080007",
+              "newStateNames": [
+                "INITIALIZED",
+                "RESOURCES_READY",
+                "EPT_READY",
+                "EVMCS_PARTIAL"
+              ],
+              "oldGeneration": 1,
+              "newGeneration": 2,
+              "preparedProcessorCount": 4,
+              "selfTestPassedProcessorCount": 0,
+              "failedProcessorCount": 4,
+              "residentProcessorCount": 0,
+              "residentImplementation": "CAPABILITY_ONLY",
+              "eptImplementation": "ACTIVE",
+              "nestedImplementation": "CAPABILITY_ONLY",
+              "evmcsImplementation": "PARTIAL",
+              "eptPointer": "0x0000000207FED05E",
+              "eptPageCount": 515,
+              "eptRuleCount": 0,
+              "mappedRamMiB": 8190,
+              "vmExitCount": 0,
+              "lastExitReason": 4294967295,
+              "lastVmInstructionError": 0,
+              "soakElapsedMilliseconds": 0,
+              "soakUnexpectedDevirtualizations": 0
+            }
+          }
+        ],
+        "checkpoints": [],
+        "verdict": "ERROR",
+        "notes": [
+          "脚本异常：Checkpoint operation failed.\n\n'KSword-HVM-Target' could not initiate a checkpoint operation.\n\n'KSword-HVM-Target' failed to save RAM contents during a checkpoint operation: 磁盘空间不足。 (0x80070070).\r\n\r\nCheckpoint operation for 'KSword-HVM-Target' failed. (Virtual machine ID 01F7B608-BF8F-462D-983B-F6BDA6B5D178)\n\n'KSword-HVM-Target' could not initiate a checkpoint operation: 磁盘空间不足。 (0x80070070). (Virtual machine ID 01F7B608-BF8F-462D-983B-F6BDA6B5D178)\n\n'KSword-HVM-Target' failed to save RAM contents during a checkpoint operation: 磁盘空间不足。 (0x80070070). (Virtual machine ID 01F7B608-BF8F-462D-983B-F6BDA6B5D178)"
+        ],
+        "vm": {
+          "state": "Running",
+          "vcpu": 4,
+          "nested": true
+        },
+        "finalStatus": {
+          "kind": "query",
+          "queryStatus": 0,
+          "stateFlags": 524295,
+          "stateFlagsHex": "0x00080007",
+          "stateNames": [
+            "INITIALIZED",
+            "RESOURCES_READY",
+            "EPT_READY",
+            "EVMCS_PARTIAL"
+          ],
+          "generation": 2,
+          "processorCount": 4,
+          "preparedProcessorCount": 4,
+          "selfTestPassedProcessorCount": 0,
+          "residentProcessorCount": 0,
+          "residentImplementation": "CAPABILITY_ONLY",
+          "eptImplementation": "ACTIVE",
+          "nestedImplementation": "CAPABILITY_ONLY",
+          "evmcsImplementation": "PARTIAL",
+          "featureFlags": "0x0009803F30FFFFFF",
+          "vmxEptVpidCapabilities": "0x00000F0106F34041",
+          "eptExecuteOnly": true,
+          "eptPointer": "0x0000000207FED05E",
+          "eptPageCount": 515,
+          "mappedRamMiB": 8190,
+          "vmExitCount": 0,
+          "lastStatus": "0x00000000",
+          "vmxBasic": "0x01D8100000000001",
+          "cr0Fixed0": "0x0000000080000021",
+          "cr0Fixed1": "0x00000000FFFFFFFF",
+          "cr4Fixed0": "0x0000000000002000",
+          "cr4Fixed1": "0x0000000000B72FFF",
+          "lastVmInstructionError": 0,
+          "eventCount": 0,
+          "droppedEventCount": 0,
+          "processors": [
+            {
+              "index": 0,
+              "group": 0,
+              "number": 0,
+              "vmxInstructionResult": 255,
+              "stateFlags": 1,
+              "stateHex": "0x00000001",
+              "lastStatus": "0x00000000",
+              "lastExitReason": 4294967295,
+              "vmExitCount": 0,
+              "stateNames": [
+                "RESOURCE_READY"
+              ]
+            },
+            {
+              "index": 1,
+              "group": 0,
+              "number": 1,
+              "vmxInstructionResult": 255,
+              "stateFlags": 1,
+              "stateHex": "0x00000001",
+              "lastStatus": "0x00000000",
+              "lastExitReason": 4294967295,
+              "vmExitCount": 0,
+              "stateNames": [
+                "RESOURCE_READY"
+              ]
+            },
+            {
+              "index": 2,
+              "group": 0,
+              "number": 2,
+              "vmxInstructionResult": 255,
+              "stateFlags": 1,
+              "stateHex": "0x00000001",
+              "lastStatus": "0x00000000",
+              "lastExitReason": 4294967295,
+              "vmExitCount": 0,
+              "stateNames": [
+                "RESOURCE_READY"
+              ]
+            },
+            {
+              "index": 3,
+              "group": 0,
+              "number": 3,
+              "vmxInstructionResult": 255,
+              "stateFlags": 1,
+              "stateHex": "0x00000001",
+              "lastStatus": "0x00000000",
+              "lastExitReason": 4294967295,
+              "vmExitCount": 0,
+              "stateNames": [
+                "RESOURCE_READY"
+              ]
+            }
+          ]
+        },
+        "driverEvents": "hvm-events: io_ok=true bytes_returned=5152 win32_error=0 nt_status=0x0\r\nunsupported=false\r\ndetail=HVM event operation=1, returned=0, available=0, dropped=0, newest=0\r\n",
+        "checkpointsNow": [
+          "clean-install",
+          "before-driver-load-0905-1451",
+          "before-self-test-0905-151647",
+          "before-self-test-0905-154621",
+          "before-self-test-0905-155704",
+          "before-resident-0905-155712",
+          "before-self-test-0905-160707",
+          "before-resident-0905-160714",
+          "before-self-test-0905-161028",
+          "before-resident-0905-161036",
+          "before-driver-load-0905-1615",
+          "before-driver-load-0905-1617",
+          "before-driver-load-0905-1620",
+          "before-self-test-0905-162231",
+          "before-resident-0905-162511",
+          "before-driver-load-0905-1706",
+          "before-self-test-0905-170717",
+          "before-resident-0905-170804",
+          "before-driver-load-0905-1821",
+          "before-self-test-0905-182342",
+          "before-resident-0905-182349",
+          "before-driver-load-0905-1830"
+        ],
+        "finishedUtc": "2026-09-05T22:32:45.9821882Z"
+      }
+    }
+  },
+  "finishedUtc": "2026-09-05T22:32:45.9856602Z",
+  "verdict": "FAIL"
+}

@@ -1,0 +1,477 @@
+Opened log file 'C:\Users\Felix\CLionProjects\KSword\docs\next\logs\bugcheck-20260906-004929-analyze.txt'
+
+************* Preparing the environment for Debugger Extensions Gallery repositories **************
+   ExtensionRepository : Implicit
+   UseExperimentalFeatureForNugetShare : true
+   AllowNugetExeUpdate : true
+   NonInteractiveNuget : true
+   AllowNugetMSCredentialProviderInstall : true
+   AllowParallelInitializationOfLocalRepositories : true
+
+   EnableRedirectToV8JsProvider : false
+
+   -- Configuring repositories
+      ----> Repository : LocalInstalled, Enabled: true
+      ----> Repository : UserExtensions, Enabled: true
+
+>>>>>>>>>>>>> Preparing the environment for Debugger Extensions Gallery repositories completed, duration 0.000 seconds
+
+************* Waiting for Debugger Extensions Gallery to Initialize **************
+
+>>>>>>>>>>>>> Waiting for Debugger Extensions Gallery to Initialize completed, duration 0.016 seconds
+   ----> Repository : UserExtensions, Enabled: true, Packages count: 0
+   ----> Repository : LocalInstalled, Enabled: true, Packages count: 29
+
+Microsoft (R) Windows Debugger Version 10.0.26100.6584 AMD64
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+
+Loading Dump File [C:\Users\Felix\CLionProjects\KSword\docs\next\logs\bugcheck-20260906-004929-090526-3062-01.dmp]
+Mini Kernel Dump File: Only registers and stack trace are available
+
+
+************* Path validation summary **************
+Response                         Time (ms)     Location
+Deferred                                       srv*C:\symbols*https://msdl.microsoft.com/download/symbols
+OK                                             C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKDriver
+Symbol search path is: srv*C:\symbols*https://msdl.microsoft.com/download/symbols;C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKDriver
+Executable search path is: 
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Kernel.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Usb4Kd.natvis'
+Windows 10 Kernel Version 22621 UP Free x64
+Product: WinNt, suite: TerminalServer SingleUserTS Personal
+Edition build lab: 22621.1.amd64fre.ni_release.220506-1250
+Kernel base = 0xfffff803`19a00000 PsLoadedModuleList = 0xfffff803`1a613450
+Debug session time: Sat Sep  5 22:50:10.110 2026 (UTC - 4:00)
+System Uptime: 0 days 0:01:10.019
+Loading Kernel Symbols
+...............................................................
+................................................................
+.............................
+Loading User Symbols
+PEB is paged out (Peb.Ldr = 00000043`b8bd4018).  Type ".hh dbgerr001" for details
+Loading unloaded module list
+...........
+For analysis of this file, run !analyze -v
+kd> !analyze -v; lm m Ksword*; kb; q
+*******************************************************************************
+*                                                                             *
+*                        Bugcheck Analysis                                    *
+*                                                                             *
+*******************************************************************************
+
+KMODE_EXCEPTION_NOT_HANDLED (1e)
+This is a very common BugCheck.  Usually the exception address pinpoints
+the driver/function that caused the problem.  Always note this address
+as well as the link date of the driver/image that contains this address.
+Arguments:
+Arg1: ffffffffc000001d, The exception code that was not handled
+Arg2: fffff80318cf0000, The address that the exception occurred at
+Arg3: ffffc80e451f4e38, Parameter 0 of the exception
+Arg4: fffff803188fb900, Parameter 1 of the exception
+
+Debugging Details:
+------------------
+
+*** WARNING: Unable to verify timestamp for storvsc.sys
+*************************************************************************
+***                                                                   ***
+***                                                                   ***
+***    Either you specified an unqualified symbol, or your debugger   ***
+***    doesn't have full symbol information.  Unqualified symbol      ***
+***    resolution is turned off by default. Please either specify a   ***
+***    fully qualified symbol module!symbolname, or enable resolution ***
+***    of unqualified symbols by typing ".symopt- 100". Note that     ***
+***    enabling unqualified symbol resolution with network symbol     ***
+***    server shares in the symbol path may cause the debugger to     ***
+***    appear to hang for long periods of time when an incorrect      ***
+***    symbol name is typed or the network symbol server is down.     ***
+***                                                                   ***
+***    For some commands to work properly, your symbol path           ***
+***    must point to .pdb files that have full type information.      ***
+***                                                                   ***
+***    Certain .pdb files (such as the public OS symbols) do not      ***
+***    contain the required information.  Contact the group that      ***
+***    provided you with these symbols if you need this command to    ***
+***    work.                                                          ***
+***                                                                   ***
+***    Type referenced: ExceptionRecord                               ***
+***                                                                   ***
+*************************************************************************
+*************************************************************************
+***                                                                   ***
+***                                                                   ***
+***    Either you specified an unqualified symbol, or your debugger   ***
+***    doesn't have full symbol information.  Unqualified symbol      ***
+***    resolution is turned off by default. Please either specify a   ***
+***    fully qualified symbol module!symbolname, or enable resolution ***
+***    of unqualified symbols by typing ".symopt- 100". Note that     ***
+***    enabling unqualified symbol resolution with network symbol     ***
+***    server shares in the symbol path may cause the debugger to     ***
+***    appear to hang for long periods of time when an incorrect      ***
+***    symbol name is typed or the network symbol server is down.     ***
+***                                                                   ***
+***    For some commands to work properly, your symbol path           ***
+***    must point to .pdb files that have full type information.      ***
+***                                                                   ***
+***    Certain .pdb files (such as the public OS symbols) do not      ***
+***    contain the required information.  Contact the group that      ***
+***    provided you with these symbols if you need this command to    ***
+***    work.                                                          ***
+***                                                                   ***
+***    Type referenced: ContextRecord                                 ***
+***                                                                   ***
+*************************************************************************
+*************************************************************************
+***                                                                   ***
+***                                                                   ***
+***    Either you specified an unqualified symbol, or your debugger   ***
+***    doesn't have full symbol information.  Unqualified symbol      ***
+***    resolution is turned off by default. Please either specify a   ***
+***    fully qualified symbol module!symbolname, or enable resolution ***
+***    of unqualified symbols by typing ".symopt- 100". Note that     ***
+***    enabling unqualified symbol resolution with network symbol     ***
+***    server shares in the symbol path may cause the debugger to     ***
+***    appear to hang for long periods of time when an incorrect      ***
+***    symbol name is typed or the network symbol server is down.     ***
+***                                                                   ***
+***    For some commands to work properly, your symbol path           ***
+***    must point to .pdb files that have full type information.      ***
+***                                                                   ***
+***    Certain .pdb files (such as the public OS symbols) do not      ***
+***    contain the required information.  Contact the group that      ***
+***    provided you with these symbols if you need this command to    ***
+***    work.                                                          ***
+***                                                                   ***
+***    Type referenced: ExceptionRecord                               ***
+***                                                                   ***
+*************************************************************************
+*************************************************************************
+***                                                                   ***
+***                                                                   ***
+***    Either you specified an unqualified symbol, or your debugger   ***
+***    doesn't have full symbol information.  Unqualified symbol      ***
+***    resolution is turned off by default. Please either specify a   ***
+***    fully qualified symbol module!symbolname, or enable resolution ***
+***    of unqualified symbols by typing ".symopt- 100". Note that     ***
+***    enabling unqualified symbol resolution with network symbol     ***
+***    server shares in the symbol path may cause the debugger to     ***
+***    appear to hang for long periods of time when an incorrect      ***
+***    symbol name is typed or the network symbol server is down.     ***
+***                                                                   ***
+***    For some commands to work properly, your symbol path           ***
+***    must point to .pdb files that have full type information.      ***
+***                                                                   ***
+***    Certain .pdb files (such as the public OS symbols) do not      ***
+***    contain the required information.  Contact the group that      ***
+***    provided you with these symbols if you need this command to    ***
+***    work.                                                          ***
+***                                                                   ***
+***    Type referenced: ContextRecord                                 ***
+***                                                                   ***
+*************************************************************************
+
+KEY_VALUES_STRING: 1
+
+    Key  : Analysis.CPU.mSec
+    Value: 1889
+
+    Key  : Analysis.Elapsed.mSec
+    Value: 2380
+
+    Key  : Analysis.IO.Other.Mb
+    Value: 0
+
+    Key  : Analysis.IO.Read.Mb
+    Value: 0
+
+    Key  : Analysis.IO.Write.Mb
+    Value: 0
+
+    Key  : Analysis.Init.CPU.mSec
+    Value: 249
+
+    Key  : Analysis.Init.Elapsed.mSec
+    Value: 569
+
+    Key  : Analysis.Memory.CommitPeak.Mb
+    Value: 94
+
+    Key  : Bugcheck.Code.LegacyAPI
+    Value: 0x1e
+
+    Key  : Failure.Bucket
+    Value: 0x1E_C000001D_BAD_IP_winhv!WinHvpFastHypercall
+
+    Key  : Failure.Hash
+    Value: {692d3a86-3143-8bfc-4b32-b61e41286385}
+
+    Key  : Hypervisor.Enlightenments.Value
+    Value: 1113060
+
+    Key  : Hypervisor.Enlightenments.ValueHex
+    Value: 10fbe4
+
+    Key  : Hypervisor.Flags.AnyHypervisorPresent
+    Value: 1
+
+    Key  : Hypervisor.Flags.ApicEnlightened
+    Value: 0
+
+    Key  : Hypervisor.Flags.ApicVirtualizationAvailable
+    Value: 0
+
+    Key  : Hypervisor.Flags.AsyncMemoryHint
+    Value: 0
+
+    Key  : Hypervisor.Flags.CoreSchedulerRequested
+    Value: 0
+
+    Key  : Hypervisor.Flags.CpuManager
+    Value: 0
+
+    Key  : Hypervisor.Flags.DeprecateAutoEoi
+    Value: 1
+
+    Key  : Hypervisor.Flags.DynamicCpuDisabled
+    Value: 1
+
+    Key  : Hypervisor.Flags.Epf
+    Value: 0
+
+    Key  : Hypervisor.Flags.ExtendedProcessorMasks
+    Value: 1
+
+    Key  : Hypervisor.Flags.HardwareMbecAvailable
+    Value: 1
+
+    Key  : Hypervisor.Flags.MaxBankNumber
+    Value: 0
+
+    Key  : Hypervisor.Flags.MemoryZeroingControl
+    Value: 0
+
+    Key  : Hypervisor.Flags.NoExtendedRangeFlush
+    Value: 0
+
+    Key  : Hypervisor.Flags.NoNonArchCoreSharing
+    Value: 0
+
+    Key  : Hypervisor.Flags.Phase0InitDone
+    Value: 1
+
+    Key  : Hypervisor.Flags.PowerSchedulerQos
+    Value: 0
+
+    Key  : Hypervisor.Flags.RootScheduler
+    Value: 0
+
+    Key  : Hypervisor.Flags.SynicAvailable
+    Value: 1
+
+    Key  : Hypervisor.Flags.UseQpcBias
+    Value: 0
+
+    Key  : Hypervisor.Flags.Value
+    Value: 659708
+
+    Key  : Hypervisor.Flags.ValueHex
+    Value: a10fc
+
+    Key  : Hypervisor.Flags.VpAssistPage
+    Value: 1
+
+    Key  : Hypervisor.Flags.VsmAvailable
+    Value: 1
+
+    Key  : Hypervisor.RootFlags.AccessStats
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.CrashdumpEnlightened
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.CreateVirtualProcessor
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.DisableHyperthreading
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.HostTimelineSync
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.HypervisorDebuggingEnabled
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.IsHyperV
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.LivedumpEnlightened
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.MapDeviceInterrupt
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.MceEnlightened
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.Nested
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.StartLogicalProcessor
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.Value
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.ValueHex
+    Value: 0
+
+    Key  : WER.OS.Branch
+    Value: ni_release
+
+    Key  : WER.OS.Version
+    Value: 10.0.22621.1
+
+
+BUGCHECK_CODE:  1e
+
+BUGCHECK_P1: ffffffffc000001d
+
+BUGCHECK_P2: fffff80318cf0000
+
+BUGCHECK_P3: ffffc80e451f4e38
+
+BUGCHECK_P4: fffff803188fb900
+
+FILE_IN_CAB:  bugcheck-20260906-004929-090526-3062-01.dmp
+
+VIRTUAL_MACHINE:  HyperV
+
+EXCEPTION_PARAMETER1:  ffffc80e451f4e38
+
+EXCEPTION_PARAMETER2:  fffff803188fb900
+
+BLACKBOXBSD: 1 (!blackboxbsd)
+
+
+BLACKBOXNTFS: 1 (!blackboxntfs)
+
+
+BLACKBOXPNP: 1 (!blackboxpnp)
+
+
+BLACKBOXWINLOGON: 1
+
+CUSTOMER_CRASH_COUNT:  1
+
+PROCESS_NAME:  hvm_ctl.exe
+
+FAILED_INSTRUCTION_ADDRESS: 
++0
+fffff803`18cf0000 0000            add     byte ptr [rax],al
+
+STACK_TEXT:  
+fffff803`188fb038 fffff803`19f5792f     : 00000000`0000001e ffffffff`c000001d fffff803`18cf0000 ffffc80e`451f4e38 : nt!KeBugCheckEx
+fffff803`188fb040 fffff803`19e398b6     : fffff803`188fb900 fffff803`19d51855 ffffc80e`451f5078 fffff803`18cf0000 : nt!KiFatalFilter+0x1f
+fffff803`188fb080 fffff803`19de0421     : fffff803`00000002 ffffc80e`451f4e38 ffffc80e`451f1000 ffffc80e`451f8000 : nt!KeExpandKernelStackAndCalloutInternal$filt$0+0x16
+fffff803`188fb0c0 fffff803`19e2684f     : ffffc80e`451f4e38 fffff803`188fb6c0 ffffc80e`451f4e00 fffff803`19c95e5a : nt!_C_specific_handler+0xa1
+fffff803`188fb130 fffff803`19cc3803     : ffffc80e`451f6f00 ffffc80e`451f4e38 fffff803`19c95e5a fffff803`19ad5dd8 : nt!RtlpExecuteHandlerForException+0xf
+fffff803`188fb160 fffff803`19cc74e1     : ffffffff`ffffffff ffffc80e`451f4ee0 ffffc80e`451f4ee0 fffff803`188fb900 : nt!RtlDispatchException+0x2f3
+fffff803`188fb8d0 fffff803`19e1df82     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : nt!KiDispatchException+0x1b1
+fffff803`188fbfb0 fffff803`19e1df50     : fffff803`19e301d3 ffffcf0d`a18003b9 ffffcf0d`00000000 00000000`0000008a : nt!KxExceptionDispatchOnExceptionStack+0x12
+ffffc80e`451f4cf8 fffff803`19e301d3     : ffffcf0d`a18003b9 ffffcf0d`00000000 00000000`0000008a ffff0000`ffffffff : nt!KiExceptionDispatchOnExceptionStackContinue
+ffffc80e`451f4d00 fffff803`19e2a1a1     : 00000000`00000000 ffffc80e`451f5390 00000000`00000000 fffff803`1c55693e : nt!KiExceptionDispatch+0x113
+ffffc80e`451f4ee0 fffff803`18cf0000     : fffff803`19d8e45a 00000000`00000000 ffffc80e`451f5628 00000000`00000000 : nt!KiInvalidOpcodeFault+0x321
+ffffc80e`451f5078 fffff803`19d8e45a     : 00000000`00000000 ffffc80e`451f5628 00000000`00000000 ffffc80e`451f5540 : 0xfffff803`18cf0000
+ffffc80e`451f5080 fffff803`1ed210f6     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : nt!HvcallInitiateHypercall+0x6a
+ffffc80e`451f5120 fffff803`1ed2108c     : 00000000`00000000 00000000`0001005d 00000000`00000000 00000000`00000000 : winhv!WinHvpFastHypercall+0x46
+ffffc80e`451f5150 fffff803`1ecb135d     : ffffb80a`2d815320 ffffb80a`2d8bb010 00000000`00000000 00000000`00000000 : winhv!WinHvSignalEvent+0x3c
+ffffc80e`451f51d0 fffff803`1ecf25bf     : ffffb80a`2d92eb70 00000000`00000000 00000000`00000000 fffff803`1f43a2ef : vmbus!BusChSendInterrupt+0x8d
+ffffc80e`451f5230 fffff803`1ecf21e8     : 000045a8`00000000 ffffc80e`451f5440 ffffb80a`2d92eb70 00000000`00000040 : vmbkmcl!OutSendPacket+0x30f
+ffffc80e`451f5300 fffff803`1f4114af     : ffffb80a`31a92490 ffffc80e`451f53a0 ffffb80a`00000040 ffffc80e`451f5418 : vmbkmcl!VmbPacketSendWithExternalMdl+0xa8
+ffffc80e`451f5340 ffffb80a`31a92490     : ffffc80e`451f53a0 ffffb80a`00000040 ffffc80e`451f5418 00000000`00000000 : storvsc+0x14af
+ffffc80e`451f5348 ffffc80e`451f53a0     : ffffb80a`00000040 ffffc80e`451f5418 00000000`00000000 00000000`00002000 : 0xffffb80a`31a92490
+ffffc80e`451f5350 ffffb80a`00000040     : ffffc80e`451f5418 00000000`00000000 00000000`00002000 00000000`00000013 : 0xffffc80e`451f53a0
+ffffc80e`451f5358 ffffc80e`451f5418     : 00000000`00000000 00000000`00002000 00000000`00000013 00000000`00000000 : 0xffffb80a`00000040
+ffffc80e`451f5360 00000000`00000000     : 00000000`00002000 00000000`00000013 00000000`00000000 00000028`00002000 : 0xffffc80e`451f5418
+
+
+SYMBOL_NAME:  winhv!WinHvpFastHypercall+46
+
+MODULE_NAME: winhv
+
+IMAGE_NAME:  winhv.sys
+
+IMAGE_VERSION:  10.0.22621.1774
+
+STACK_COMMAND:  .cxr; .ecxr ; kb
+
+BUCKET_ID_FUNC_OFFSET:  46
+
+FAILURE_BUCKET_ID:  0x1E_C000001D_BAD_IP_winhv!WinHvpFastHypercall
+
+OS_VERSION:  10.0.22621.1
+
+BUILDLAB_STR:  ni_release
+
+OSPLATFORM_TYPE:  x64
+
+OSNAME:  Windows 10
+
+FAILURE_ID_HASH:  {692d3a86-3143-8bfc-4b32-b61e41286385}
+
+Followup:     MachineOwner
+---------
+
+Browse full module list
+start             end                 module name
+fffff803`1c4a0000 fffff803`1cca4000   KswordARK   (deferred)             
+ # RetAddr               : Args to Child                                                           : Call Site
+00 fffff803`19f5792f     : 00000000`0000001e ffffffff`c000001d fffff803`18cf0000 ffffc80e`451f4e38 : nt!KeBugCheckEx
+01 fffff803`19e398b6     : fffff803`188fb900 fffff803`19d51855 ffffc80e`451f5078 fffff803`18cf0000 : nt!KiFatalFilter+0x1f
+02 fffff803`19de0421     : fffff803`00000002 ffffc80e`451f4e38 ffffc80e`451f1000 ffffc80e`451f8000 : nt!KeExpandKernelStackAndCalloutInternal$filt$0+0x16
+03 fffff803`19e2684f     : ffffc80e`451f4e38 fffff803`188fb6c0 ffffc80e`451f4e00 fffff803`19c95e5a : nt!_C_specific_handler+0xa1
+04 fffff803`19cc3803     : ffffc80e`451f6f00 ffffc80e`451f4e38 fffff803`19c95e5a fffff803`19ad5dd8 : nt!RtlpExecuteHandlerForException+0xf
+05 fffff803`19cc74e1     : ffffffff`ffffffff ffffc80e`451f4ee0 ffffc80e`451f4ee0 fffff803`188fb900 : nt!RtlDispatchException+0x2f3
+06 fffff803`19e1df82     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : nt!KiDispatchException+0x1b1
+07 fffff803`19e1df50     : fffff803`19e301d3 ffffcf0d`a18003b9 ffffcf0d`00000000 00000000`0000008a : nt!KxExceptionDispatchOnExceptionStack+0x12
+08 fffff803`19e301d3     : ffffcf0d`a18003b9 ffffcf0d`00000000 00000000`0000008a ffff0000`ffffffff : nt!KiExceptionDispatchOnExceptionStackContinue
+09 fffff803`19e2a1a1     : 00000000`00000000 ffffc80e`451f5390 00000000`00000000 fffff803`1c55693e : nt!KiExceptionDispatch+0x113
+0a fffff803`18cf0000     : fffff803`19d8e45a 00000000`00000000 ffffc80e`451f5628 00000000`00000000 : nt!KiInvalidOpcodeFault+0x321
+0b fffff803`19d8e45a     : 00000000`00000000 ffffc80e`451f5628 00000000`00000000 ffffc80e`451f5540 : 0xfffff803`18cf0000
+0c fffff803`1ed210f6     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : nt!HvcallInitiateHypercall+0x6a
+0d fffff803`1ed2108c     : 00000000`00000000 00000000`0001005d 00000000`00000000 00000000`00000000 : winhv!WinHvpFastHypercall+0x46
+0e fffff803`1ecb135d     : ffffb80a`2d815320 ffffb80a`2d8bb010 00000000`00000000 00000000`00000000 : winhv!WinHvSignalEvent+0x3c
+0f fffff803`1ecf25bf     : ffffb80a`2d92eb70 00000000`00000000 00000000`00000000 fffff803`1f43a2ef : vmbus!BusChSendInterrupt+0x8d
+10 fffff803`1ecf21e8     : 000045a8`00000000 ffffc80e`451f5440 ffffb80a`2d92eb70 00000000`00000040 : vmbkmcl!OutSendPacket+0x30f
+11 fffff803`1f4114af     : ffffb80a`31a92490 ffffc80e`451f53a0 ffffb80a`00000040 ffffc80e`451f5418 : vmbkmcl!VmbPacketSendWithExternalMdl+0xa8
+12 ffffb80a`31a92490     : ffffc80e`451f53a0 ffffb80a`00000040 ffffc80e`451f5418 00000000`00000000 : storvsc+0x14af
+13 ffffc80e`451f53a0     : ffffb80a`00000040 ffffc80e`451f5418 00000000`00000000 00000000`00002000 : 0xffffb80a`31a92490
+14 ffffb80a`00000040     : ffffc80e`451f5418 00000000`00000000 00000000`00002000 00000000`00000013 : 0xffffc80e`451f53a0
+15 ffffc80e`451f5418     : 00000000`00000000 00000000`00002000 00000000`00000013 00000000`00000000 : 0xffffb80a`00000040
+16 00000000`00000000     : 00000000`00002000 00000000`00000013 00000000`00000000 00000028`00002000 : 0xffffc80e`451f5418
+quit:
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Kernel.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Usb4Kd.natvis'

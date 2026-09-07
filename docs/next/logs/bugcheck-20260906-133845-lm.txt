@@ -1,0 +1,271 @@
+Opened log file 'C:\Users\Felix\CLionProjects\KSword\docs\next\logs\bugcheck-20260906-133845-lm.txt'
+
+************* Preparing the environment for Debugger Extensions Gallery repositories **************
+   ExtensionRepository : Implicit
+   UseExperimentalFeatureForNugetShare : true
+   AllowNugetExeUpdate : true
+   NonInteractiveNuget : true
+   AllowNugetMSCredentialProviderInstall : true
+   AllowParallelInitializationOfLocalRepositories : true
+
+   EnableRedirectToV8JsProvider : false
+
+   -- Configuring repositories
+      ----> Repository : LocalInstalled, Enabled: true
+      ----> Repository : UserExtensions, Enabled: true
+
+>>>>>>>>>>>>> Preparing the environment for Debugger Extensions Gallery repositories completed, duration 0.000 seconds
+
+************* Waiting for Debugger Extensions Gallery to Initialize **************
+
+>>>>>>>>>>>>> Waiting for Debugger Extensions Gallery to Initialize completed, duration 0.016 seconds
+   ----> Repository : UserExtensions, Enabled: true, Packages count: 0
+   ----> Repository : LocalInstalled, Enabled: true, Packages count: 29
+
+Microsoft (R) Windows Debugger Version 10.0.26100.6584 AMD64
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+
+Loading Dump File [C:\Users\Felix\CLionProjects\KSword\docs\next\logs\bugcheck-20260906-133845-090626-5078-01.dmp]
+Mini Kernel Dump File: Only registers and stack trace are available
+
+
+************* Path validation summary **************
+Response                         Time (ms)     Location
+Deferred                                       srv*C:\symbols*
+Symbol search path is: srv*C:\symbols*
+Executable search path is: 
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Kernel.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Usb4Kd.natvis'
+Windows 10 Kernel Version 22621 UP Free x64
+Product: WinNt, suite: TerminalServer SingleUserTS Personal
+Edition build lab: 22621.317.amd64fre.ni_release_svc_prod3.220719-1658
+Kernel base = 0xfffff806`31e00000 PsLoadedModuleList = 0xfffff806`32a12ff0
+Debug session time: Sun Sep  6 13:33:33.324 2026 (UTC - 4:00)
+System Uptime: 0 days 1:43:40.722
+Loading Kernel Symbols
+...............................................................
+................................................................
+..............................
+Loading User Symbols
+
+Loading unloaded module list
+..............................
+For analysis of this file, run !analyze -v
+kd> lm n; q
+start             end                 module name
+fffff806`308d0000 fffff806`30c53000   mcupdate_GenuineIntel mcupdate_GenuineIntel.dll
+fffff806`30c80000 fffff806`30c86000   hal      hal.dll     
+fffff806`30c90000 fffff806`30c9b000   kd       kd.dll      
+fffff806`30ca0000 fffff806`30cc9000   tm       tm.sys      
+fffff806`30cd0000 fffff806`30d3c000   CLFS     CLFS.SYS    
+fffff806`30d40000 fffff806`30d5b000   PSHED    PSHED.dll   
+fffff806`30d60000 fffff806`30d6d000   BOOTVID  BOOTVID.dll 
+fffff806`30d70000 fffff806`30de6000   FLTMGR   FLTMGR.SYS  
+fffff806`30df0000 fffff806`30dff000   cmimcext cmimcext.sys
+fffff806`31e00000 fffff806`32e47000   nt       ntkrnlmp.exe
+fffff806`36200000 fffff806`36314000   clipsp   clipsp.sys  
+fffff806`36320000 fffff806`3634c000   ksecdd   ksecdd.sys  
+fffff806`36350000 fffff806`363b1000   msrpc    msrpc.sys   
+fffff806`363c0000 fffff806`363d6000   werkernel werkernel.sys
+fffff806`363e0000 fffff806`363ec000   ntosext  ntosext.sys 
+fffff806`363f0000 fffff806`364e1000   CI       CI.dll      
+fffff806`364f0000 fffff806`365ad000   cng      cng.sys     
+fffff806`365b0000 fffff806`36677000   Wdf01000 Wdf01000.sys
+fffff806`36680000 fffff806`36697000   WDFLDR   WDFLDR.SYS  
+fffff806`366a0000 fffff806`366b3000   WppRecorder WppRecorder.sys
+fffff806`366c0000 fffff806`366ce000   PRM      PRM.sys     
+fffff806`366d0000 fffff806`366f7000   acpiex   acpiex.sys  
+fffff806`36700000 fffff806`367b7000   ACPI     ACPI.sys    
+fffff806`367c0000 fffff806`367cc000   WMILIB   WMILIB.SYS  
+fffff806`367d0000 fffff806`367db000   msisadrv msisadrv.sys
+fffff806`367e0000 fffff806`36869000   pci      pci.sys     
+fffff806`36870000 fffff806`368c7000   tpm      tpm.sys     
+fffff806`368e0000 fffff806`36956000   intelpep intelpep.sys
+fffff806`36960000 fffff806`36978000   WindowsTrustedRT WindowsTrustedRT.sys
+fffff806`36980000 fffff806`36993000   IntelPMT IntelPMT.sys
+fffff806`369a0000 fffff806`369ab000   WindowsTrustedRTProxy WindowsTrustedRTProxy.sys
+fffff806`369b0000 fffff806`369c6000   pcw      pcw.sys     
+fffff806`369d0000 fffff806`369ec000   vdrvroot vdrvroot.sys
+fffff806`369f0000 fffff806`36a21000   pdc      pdc.sys     
+fffff806`36a30000 fffff806`36a48000   CEA      CEA.sys     
+fffff806`36a50000 fffff806`36a83000   partmgr  partmgr.sys 
+fffff806`36a90000 fffff806`36b71000   spaceport spaceport.sys
+fffff806`36b80000 fffff806`36b9c000   volmgr   volmgr.sys  
+fffff806`36ba0000 fffff806`36c04000   volmgrx  volmgrx.sys 
+fffff806`36c10000 fffff806`36c44000   vmbus    vmbus.sys   
+fffff806`36c50000 fffff806`36c77000   vmbkmcl  vmbkmcl.sys 
+fffff806`36c80000 fffff806`36c95000   winhv    winhv.sys   
+fffff806`36ca0000 fffff806`36cca000   hvsocket hvsocket.sys
+fffff806`36cd0000 fffff806`36d6d000   NETIO    NETIO.SYS   
+fffff806`36d70000 fffff806`36efe000   NDIS     NDIS.SYS    
+fffff806`36f00000 fffff806`36f1f000   mountmgr mountmgr.sys
+fffff806`36f20000 fffff806`36f44000   EhStorClass EhStorClass.sys
+fffff806`36f50000 fffff806`36f6c000   fileinfo fileinfo.sys
+fffff806`36f70000 fffff806`36fb5000   Wof      Wof.sys     
+fffff806`36fc0000 fffff806`37062000   WdFilter WdFilter.sys
+fffff806`37070000 fffff806`373a6000   Ntfs     Ntfs.sys    
+fffff806`373b0000 fffff806`373c3000   storvsc  storvsc.sys 
+fffff806`373d0000 fffff806`374ea000   storport storport.sys
+fffff806`374f0000 fffff806`374ff000   Fs_Rec   Fs_Rec.sys  
+fffff806`37500000 fffff806`37535000   ksecpkg  ksecpkg.sys 
+fffff806`37540000 fffff806`3786d000   tcpip    tcpip.sys   
+fffff806`37870000 fffff806`378f3000   fwpkclnt fwpkclnt.sys
+fffff806`37900000 fffff806`37931000   wfplwfs  wfplwfs.sys 
+fffff806`37940000 fffff806`37a14000   fvevol   fvevol.sys  
+fffff806`37a20000 fffff806`37a2b000   volume   volume.sys  
+fffff806`37a30000 fffff806`37aa0000   volsnap  volsnap.sys 
+fffff806`37ab0000 fffff806`37b01000   rdyboost rdyboost.sys
+fffff806`37b10000 fffff806`37b37000   mup      mup.sys     
+fffff806`37b40000 fffff806`37b53000   iorate   iorate.sys  
+fffff806`37b80000 fffff806`37ba0000   disk     disk.sys    
+fffff806`37bb0000 fffff806`37c25000   CLASSPNP CLASSPNP.SYS
+fffff806`38290000 fffff806`382c2000   cdrom    cdrom.sys   
+fffff806`382d0000 fffff806`382e6000   filecrypt filecrypt.sys
+fffff806`382f0000 fffff806`38300000   tbs      tbs.sys     
+fffff806`38310000 fffff806`3831b000   Null     Null.SYS    
+fffff806`38320000 fffff806`3832a000   Beep     Beep.SYS    
+fffff806`38330000 fffff806`387a9000   dxgkrnl  dxgkrnl.sys 
+fffff806`387b0000 fffff806`387d2000   watchdog watchdog.sys
+fffff806`387e0000 fffff806`387f7000   BasicDisplay BasicDisplay.sys
+fffff806`38800000 fffff806`38812000   BasicRender BasicRender.sys
+fffff806`38820000 fffff806`3883c000   Npfs     Npfs.SYS    
+fffff806`38840000 fffff806`38852000   Msfs     Msfs.SYS    
+fffff806`38860000 fffff806`38888000   CimFS    CimFS.SYS   
+fffff806`38890000 fffff806`388b4000   tdx      tdx.sys     
+fffff806`388c0000 fffff806`388d1000   TDI      TDI.SYS     
+fffff806`388e0000 fffff806`38931000   netbt    netbt.sys   
+fffff806`38940000 fffff806`38954000   afunix   afunix.sys  
+fffff806`38960000 fffff806`38a08000   afd      afd.sys     
+fffff806`38a10000 fffff806`38a2b000   vwififlt vwififlt.sys
+fffff806`38a30000 fffff806`38a5b000   pacer    pacer.sys   
+fffff806`38a60000 fffff806`38a75000   ndiscap  ndiscap.sys 
+fffff806`38a80000 fffff806`38a95000   netbios  netbios.sys 
+fffff806`38aa0000 fffff806`38b68000   Vid      Vid.sys     
+fffff806`38b70000 fffff806`38b98000   winhvr   winhvr.sys  
+fffff806`38ba0000 fffff806`38c1d000   rdbss    rdbss.sys   
+fffff806`38c20000 fffff806`38c33000   nsiproxy nsiproxy.sys
+fffff806`38c40000 fffff806`38c50000   npsvctrig npsvctrig.sys
+fffff806`38c60000 fffff806`38c71000   mssmbios mssmbios.sys
+fffff806`38c80000 fffff806`38cad000   dfsc     dfsc.sys    
+fffff806`38d60000 fffff806`38d88000   crashdmp crashdmp.sys
+fffff806`39eb0000 fffff806`3a6b6000   KswordARK KswordARK.sys
+fffff806`3a7c0000 fffff806`3a7dd000   monitor  monitor.sys 
+fffff806`3ac00000 fffff806`3ac17000   umbus    umbus.sys   
+fffff806`3ac20000 fffff806`3ac36000   dmvsc    dmvsc.sys   
+fffff806`3ac40000 fffff806`3ac4f000   VMBusHID VMBusHID.sys
+fffff806`3ac50000 fffff806`3ac94000   HIDCLASS HIDCLASS.SYS
+fffff806`3aca0000 fffff806`3acb6000   HIDPARSE HIDPARSE.SYS
+fffff806`3acc0000 fffff806`3accd000   hyperkbd hyperkbd.sys
+fffff806`3acd0000 fffff806`3ace5000   kbdclass kbdclass.sys
+fffff806`3acf0000 fffff806`3ad01000   HyperVideo HyperVideo.sys
+fffff806`3ad10000 fffff806`3ad5b000   netvsc   netvsc.sys  
+fffff806`3ad60000 fffff806`3ad6c000   vmgencounter vmgencounter.sys
+fffff806`3ad70000 fffff806`3adbd000   intelppm intelppm.sys
+fffff806`3adc0000 fffff806`3adce000   NdisVirtualBus NdisVirtualBus.sys
+fffff806`3add0000 fffff806`3addc000   swenum   swenum.sys  
+fffff806`3ade0000 fffff806`3ae65000   ks       ks.sys      
+fffff806`3ae70000 fffff806`3ae80000   rdpbus   rdpbus.sys  
+fffff806`3ae90000 fffff806`3aea1000   mouhid   mouhid.sys  
+fffff806`3aeb0000 fffff806`3aec5000   mouclass mouclass.sys
+fffff806`3aed0000 fffff806`3aedc000   WIN32KSGD WIN32KSGD.SYS
+fffff806`3aee0000 fffff806`3af3f000   udfs     udfs.sys    
+fffff806`3af60000 fffff806`3af71000   dump_diskdump dump_diskdump.sys
+fffff806`3afa0000 fffff806`3afb3000   dump_storvsc dump_storvsc.sys
+fffff806`3afc0000 fffff806`3afe7000   dump_vmbkmcl dump_vmbkmcl.sys
+fffff806`3b010000 fffff806`3b02e000   dump_dumpfve dump_dumpfve.sys
+fffff806`3b050000 fffff806`3b166000   dxgmms2  dxgmms2.sys 
+fffff806`3b170000 fffff806`3b1aa000   appid    appid.sys   
+fffff806`3b1b0000 fffff806`3b1bc000   applockerfltr applockerfltr.sys
+fffff806`3b1c0000 fffff806`3b1e6000   bowser   bowser.sys  
+fffff806`3b1f0000 fffff806`3b25a000   msquic   msquic.sys  
+fffff806`3b260000 fffff806`3b2ff000   mrxsmb   mrxsmb.sys  
+fffff806`3b300000 fffff806`3b34e000   mrxsmb20 mrxsmb20.sys
+fffff806`3b350000 fffff806`3b35c000   vmgid    vmgid.sys   
+fffff806`3b360000 fffff806`3b374000   bfs      bfs.sys     
+fffff806`3b380000 fffff806`3b3aa000   luafv    luafv.sys   
+fffff806`3b3b0000 fffff806`3b3e9000   wcifs    wcifs.sys   
+fffff806`3b3f0000 fffff806`3b47b000   cldflt   cldflt.sys  
+fffff806`3b480000 fffff806`3b49b000   storqosflt storqosflt.sys
+fffff806`3b4a0000 fffff806`3b4c8000   bindflt  bindflt.sys 
+fffff806`3b4d0000 fffff806`3b4e6000   mmcss    mmcss.sys   
+fffff806`3b4f0000 fffff806`3b509000   lltdio   lltdio.sys  
+fffff806`3b510000 fffff806`3b529000   mslldp   mslldp.sys  
+fffff806`3b530000 fffff806`3b54d000   rspndr   rspndr.sys  
+fffff806`3b550000 fffff806`3b702000   HTTP     HTTP.sys    
+fffff806`3b710000 fffff806`3b72b000   mpsdrv   mpsdrv.sys  
+fffff806`3b730000 fffff806`3b78a000   srvnet   srvnet.sys  
+fffff806`3b790000 fffff806`3b864000   srv2     srv2.sys    
+fffff806`3b870000 fffff806`3b89e000   Ndu      Ndu.sys     
+fffff806`3b8a0000 fffff806`3b971000   peauth   peauth.sys  
+fffff806`3b980000 fffff806`3b995000   tcpipreg tcpipreg.sys
+fffff806`3b9a0000 fffff806`3b9bd000   wtd      wtd.sys     
+fffff806`3b9c0000 fffff806`3b9d3000   condrv   condrv.sys  
+fffff806`3b9e0000 fffff806`3b9f8000   KslD     KslD.sys    
+fffff806`3ba00000 fffff806`3ba23000   WdNisDrv WdNisDrv.sys
+fffff806`3bae0000 fffff806`3bb4e000   fastfat  fastfat.SYS 
+fffff806`3bb50000 fffff806`3bb6a000   bam      bam.sys     
+fffff806`3bb70000 fffff806`3bbcb000   ahcache  ahcache.sys 
+fffff806`3bbd0000 fffff806`3bbe4000   CompositeBus CompositeBus.sys
+fffff806`3bbf0000 fffff806`3bbff000   kdnic    kdnic.sys   
+fffffacf`8be00000 fffffacf`8c170000   win32kbase win32kbase.sys
+fffffacf`8c180000 fffffacf`8c52a000   win32kfull win32kfull.sys
+fffffacf`8c530000 fffffacf`8c576000   cdd      cdd.dll     
+fffffacf`8c820000 fffffacf`8c8ca000   win32k   win32k.sys  
+
+Unloaded modules:
+fffff806`3aae0000 fffff806`3aaf1000   ksthunk.sys
+fffff806`3aac0000 fffff806`3aad3000   MSKSSRV.sys
+fffff806`3a7a0000 fffff806`3a7be000   monitor.sys
+fffff806`3a780000 fffff806`3a79e000   monitor.sys
+fffff806`3a760000 fffff806`3a77e000   monitor.sys
+fffff806`3a740000 fffff806`3a75e000   monitor.sys
+fffff806`3a720000 fffff806`3a73e000   monitor.sys
+fffff806`3a700000 fffff806`3a71e000   monitor.sys
+fffff806`3a6e0000 fffff806`3a6fe000   monitor.sys
+fffff806`3a6c0000 fffff806`3a6de000   monitor.sys
+fffff806`39e90000 fffff806`39eae000   monitor.sys
+fffff806`39600000 fffff806`39e07000   KswordARK.sy
+fffff806`39e70000 fffff806`39e8e000   monitor.sys
+fffff806`39e50000 fffff806`39e6e000   monitor.sys
+fffff806`39e30000 fffff806`39e4e000   monitor.sys
+fffff806`39e10000 fffff806`39e2e000   monitor.sys
+fffff806`3ab00000 fffff806`3ab1e000   monitor.sys
+fffff806`3a2b0000 fffff806`3aab7000   KswordARK.sy
+fffff806`3ba70000 fffff806`3ba8e000   monitor.sys
+fffff806`3b030000 fffff806`3b04e000   monitor.sys
+fffff806`3ba50000 fffff806`3ba61000   ksthunk.sys
+fffff806`3ba30000 fffff806`3ba43000   MSKSSRV.sys
+fffff806`38db0000 fffff806`38dc2000   dump_storpor
+fffff806`38200000 fffff806`38214000   dump_storvsc
+fffff806`38220000 fffff806`38248000   dump_vmbkmcl
+fffff806`38270000 fffff806`3828f000   dump_dumpfve
+fffff806`38cb0000 fffff806`38cd1000   dam.sys 
+fffff806`38ce0000 fffff806`38cf0000   KMPDC.sys
+fffff806`368d0000 fffff806`368da000   WdBoot.sys
+fffff806`37b60000 fffff806`37b72000   hwpolicy.sys
+quit:
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Kernel.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Usb4Kd.natvis'

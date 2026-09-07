@@ -1,0 +1,218 @@
+{
+  "schema": "ksword.hvm.autotest/1",
+  "startedUtc": "2026-09-06T04:41:31.2040371Z",
+  "vmName": "KSword-HVM-Target",
+  "stage": "probe-xonly",
+  "host": {
+    "computer": "DESKTOP-KJE7JPM",
+    "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+    "build": "26300"
+  },
+  "steps": [
+    {
+      "name": "deploy:hvm_ctl",
+      "utc": "2026-09-06T04:41:32.4972167Z",
+      "outcome": "OK",
+      "data": 163328
+    },
+    {
+      "name": "status",
+      "utc": "2026-09-06T04:41:33.6064602Z",
+      "outcome": "OK",
+      "data": {
+        "kind": "query",
+        "queryStatus": 0,
+        "stateFlags": 524289,
+        "stateFlagsHex": "0x00080001",
+        "stateNames": [
+          "INITIALIZED",
+          "EVMCS_PARTIAL"
+        ],
+        "generation": 1,
+        "processorCount": 0,
+        "preparedProcessorCount": 0,
+        "selfTestPassedProcessorCount": 0,
+        "residentProcessorCount": 0,
+        "residentImplementation": "CAPABILITY_ONLY",
+        "eptImplementation": "CAPABILITY_ONLY",
+        "nestedImplementation": "CAPABILITY_ONLY",
+        "evmcsImplementation": "PARTIAL",
+        "featureFlags": "0x0001003F30FFFFFF",
+        "vmxEptVpidCapabilities": "0x00000F0106F34041",
+        "eptExecuteOnly": true,
+        "eptPointer": "0x0000000000000000",
+        "eptPageCount": 0,
+        "mappedRamMiB": 0,
+        "vmExitCount": 0,
+        "lastExitReason": 4294967295,
+        "lastExitQualification": "0x0000000000000000",
+        "lastGuestRip": "0x0000000000000000",
+        "lastGuestRsp": "0x0000000000000000",
+        "lastExitInstructionLength": 0,
+        "lastStatus": "0x00000000",
+        "vmxBasic": "0x01D8100000000001",
+        "cr0Fixed0": "0x0000000080000021",
+        "cr0Fixed1": "0x00000000FFFFFFFF",
+        "cr4Fixed0": "0x0000000000002000",
+        "cr4Fixed1": "0x0000000000B72FFF",
+        "lastVmInstructionError": 0,
+        "eventCount": 0,
+        "droppedEventCount": 0,
+        "processors": []
+      }
+    },
+    {
+      "name": "prepare",
+      "utc": "2026-09-06T04:41:34.8328328Z",
+      "outcome": "OK",
+      "data": {
+        "kind": "control",
+        "command": "prepare",
+        "status": 0,
+        "statusName": "OK",
+        "lastStatus": "0x00000000",
+        "oldStateFlags": 524289,
+        "newStateFlags": 524295,
+        "oldStateHex": "0x00080001",
+        "newStateHex": "0x00080007",
+        "newStateNames": [
+          "INITIALIZED",
+          "RESOURCES_READY",
+          "EPT_READY",
+          "EVMCS_PARTIAL"
+        ],
+        "oldGeneration": 1,
+        "newGeneration": 2,
+        "preparedProcessorCount": 1,
+        "selfTestPassedProcessorCount": 0,
+        "failedProcessorCount": 1,
+        "residentProcessorCount": 0,
+        "residentImplementation": "CAPABILITY_ONLY",
+        "eptImplementation": "ACTIVE",
+        "nestedImplementation": "CAPABILITY_ONLY",
+        "evmcsImplementation": "PARTIAL",
+        "eptPointer": "0x0000000207FF605E",
+        "eptPageCount": 515,
+        "eptRuleCount": 0,
+        "mappedRamMiB": 8190,
+        "vmExitCount": 0,
+        "lastExitReason": 4294967295,
+        "lastExitQualification": "0x0000000000000000",
+        "lastGuestRip": "0x0000000000000000",
+        "lastGuestRsp": "0x0000000000000000",
+        "lastExitInstructionLength": 0,
+        "lastVmInstructionError": 0,
+        "soakElapsedMilliseconds": 0,
+        "soakUnexpectedDevirtualizations": 0
+      }
+    },
+    {
+      "name": "prune:before-self-test-0906-003604",
+      "utc": "2026-09-06T04:41:35.3939530Z",
+      "outcome": "OK",
+      "note": "自动修剪旧检查点以回收磁盘"
+    },
+    {
+      "name": "prune:before-driver-load-0906-0035",
+      "utc": "2026-09-06T04:41:36.3116884Z",
+      "outcome": "OK",
+      "note": "自动修剪旧检查点以回收磁盘"
+    },
+    {
+      "name": "checkpoint:self-test",
+      "utc": "2026-09-06T04:41:50.3043815Z",
+      "outcome": "OK",
+      "data": "before-self-test-0906-004146"
+    },
+    {
+      "name": "alive:self-test",
+      "utc": "2026-09-06T04:41:51.6264568Z",
+      "outcome": "OK",
+      "note": "虚拟机仍然响应"
+    },
+    {
+      "name": "self-test",
+      "utc": "2026-09-06T04:41:51.6269126Z",
+      "outcome": "OK",
+      "data": {
+        "kind": "control",
+        "command": "self-test",
+        "status": 0,
+        "statusName": "OK",
+        "lastStatus": "0x00000000",
+        "oldStateFlags": 524295,
+        "newStateFlags": 524575,
+        "oldStateHex": "0x00080007",
+        "newStateHex": "0x0008011F",
+        "newStateNames": [
+          "INITIALIZED",
+          "RESOURCES_READY",
+          "EPT_READY",
+          "SELF_TESTED",
+          "SELF_TEST_PASSED",
+          "GUEST_READY",
+          "EVMCS_PARTIAL"
+        ],
+        "oldGeneration": 2,
+        "newGeneration": 3,
+        "preparedProcessorCount": 1,
+        "selfTestPassedProcessorCount": 1,
+        "failedProcessorCount": 0,
+        "residentProcessorCount": 0,
+        "residentImplementation": "CAPABILITY_ONLY",
+        "eptImplementation": "ACTIVE",
+        "nestedImplementation": "CAPABILITY_ONLY",
+        "evmcsImplementation": "PARTIAL",
+        "eptPointer": "0x0000000207FF605E",
+        "eptPageCount": 515,
+        "eptRuleCount": 0,
+        "mappedRamMiB": 8190,
+        "vmExitCount": 0,
+        "lastExitReason": 4294967295,
+        "lastExitQualification": "0x0000000000000000",
+        "lastGuestRip": "0x0000000000000000",
+        "lastGuestRsp": "0x0000000000000000",
+        "lastExitInstructionLength": 0,
+        "lastVmInstructionError": 0,
+        "soakElapsedMilliseconds": 0,
+        "soakUnexpectedDevirtualizations": 0
+      }
+    },
+    {
+      "name": "prune:before-resident-0906-003610",
+      "utc": "2026-09-06T04:41:52.1566280Z",
+      "outcome": "OK",
+      "note": "自动修剪旧检查点以回收磁盘"
+    },
+    {
+      "name": "checkpoint:probe-xonly",
+      "utc": "2026-09-06T04:41:57.0658385Z",
+      "outcome": "OK",
+      "data": "before-probe-xonly-0906-004152"
+    }
+  ],
+  "checkpoints": [
+    "before-self-test-0906-004146",
+    "before-probe-xonly-0906-004152"
+  ],
+  "verdict": "NOT_RUN",
+  "notes": [
+    "收尾停机检查失败（虚拟机可能已失联）",
+    "事件环查询失败"
+  ],
+  "vm": {
+    "state": "Running",
+    "vcpu": 1,
+    "nested": true
+  },
+  "checkpointsNow": [
+    "clean-install",
+    "hung-resident-0905",
+    "hung-0905-193241",
+    "KSword-HVM-Target - (2026/9/5 - 20:37:24)",
+    "before-driver-load-0906-0040",
+    "before-self-test-0906-004146",
+    "before-probe-xonly-0906-004152"
+  ],
+  "finishedUtc": "2026-09-06T04:43:49.5389526Z"
+}

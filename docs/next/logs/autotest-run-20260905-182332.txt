@@ -1,0 +1,14 @@
+  F evidence contract: 192/192 checks passed
+  X cross-view: 180/180 checks passed
+    [G-04 perf] build ring=67ms hub=69ms  400 ring rounds=13ms (p95=49us)  100 hub rounds p95=1284us  10 full walks=161ms  summarize=1ms
+  G entity graph: 351/351 checks passed
+  C offline dump facts: 461/461 checks passed
+  D snapshot compare: 387/387 checks passed
+  S security state: 442/442 checks passed
+  N wfp analysis: 545/545 checks passed
+  T timeline: 381/381 checks passed
+  I image integrity: 395/395 checks passed
+  M memory evidence: 199/199 checks passed
+  HVM ept switch: 467/467 checks passed
+KswordARKLightTests: PASS
+

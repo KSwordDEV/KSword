@@ -1,0 +1,304 @@
+Opened log file 'C:\Users\Felix\CLionProjects\KSword\docs\next\logs\bugcheck-20260906-133845-analyze.txt'
+
+************* Preparing the environment for Debugger Extensions Gallery repositories **************
+   ExtensionRepository : Implicit
+   UseExperimentalFeatureForNugetShare : true
+   AllowNugetExeUpdate : true
+   NonInteractiveNuget : true
+   AllowNugetMSCredentialProviderInstall : true
+   AllowParallelInitializationOfLocalRepositories : true
+
+   EnableRedirectToV8JsProvider : false
+
+   -- Configuring repositories
+      ----> Repository : LocalInstalled, Enabled: true
+      ----> Repository : UserExtensions, Enabled: true
+
+>>>>>>>>>>>>> Preparing the environment for Debugger Extensions Gallery repositories completed, duration 0.000 seconds
+
+************* Waiting for Debugger Extensions Gallery to Initialize **************
+
+>>>>>>>>>>>>> Waiting for Debugger Extensions Gallery to Initialize completed, duration 0.032 seconds
+   ----> Repository : UserExtensions, Enabled: true, Packages count: 0
+   ----> Repository : LocalInstalled, Enabled: true, Packages count: 29
+
+Microsoft (R) Windows Debugger Version 10.0.26100.6584 AMD64
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+
+Loading Dump File [C:\Users\Felix\CLionProjects\KSword\docs\next\logs\bugcheck-20260906-133845-090626-5078-01.dmp]
+Mini Kernel Dump File: Only registers and stack trace are available
+
+
+************* Path validation summary **************
+Response                         Time (ms)     Location
+Deferred                                       srv*C:\symbols*https://msdl.microsoft.com/download/symbols
+OK                                             C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKDriver
+Symbol search path is: srv*C:\symbols*https://msdl.microsoft.com/download/symbols;C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKDriver
+Executable search path is: 
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Kernel.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Usb4Kd.natvis'
+Windows 10 Kernel Version 22621 UP Free x64
+Product: WinNt, suite: TerminalServer SingleUserTS Personal
+Edition build lab: 22621.317.amd64fre.ni_release_svc_prod3.220719-1658
+Kernel base = 0xfffff806`31e00000 PsLoadedModuleList = 0xfffff806`32a12ff0
+Debug session time: Sun Sep  6 13:33:33.324 2026 (UTC - 4:00)
+System Uptime: 0 days 1:43:40.722
+Loading Kernel Symbols
+...............................................................
+................................................................
+..............................
+Loading User Symbols
+
+Loading unloaded module list
+..............................
+For analysis of this file, run !analyze -v
+kd> !analyze -v; lm m Ksword*; kb; q
+*******************************************************************************
+*                                                                             *
+*                        Bugcheck Analysis                                    *
+*                                                                             *
+*******************************************************************************
+
+IRQL_NOT_LESS_OR_EQUAL (a)
+An attempt was made to access a pageable (or completely invalid) address at an
+interrupt request level (IRQL) that is too high.  This is usually
+caused by drivers using improper addresses.
+If a kernel debugger is available get the stack backtrace.
+Arguments:
+Arg1: 00007fffffff0000, memory referenced
+Arg2: 0000000000000002, IRQL
+Arg3: 0000000000000000, bitfield :
+	bit 0 : value 0 = read operation, 1 = write operation
+	bit 3 : value 0 = not an execute operation, 1 = execute operation (only on chips which support this level of status)
+Arg4: fffff80632246325, address which referenced memory
+
+Debugging Details:
+------------------
+
+
+KEY_VALUES_STRING: 1
+
+    Key  : Analysis.CPU.mSec
+    Value: 3233
+
+    Key  : Analysis.Elapsed.mSec
+    Value: 1872
+
+    Key  : Analysis.IO.Other.Mb
+    Value: 10
+
+    Key  : Analysis.IO.Read.Mb
+    Value: 0
+
+    Key  : Analysis.IO.Write.Mb
+    Value: 23
+
+    Key  : Analysis.Init.CPU.mSec
+    Value: 19546
+
+    Key  : Analysis.Init.Elapsed.mSec
+    Value: 20059
+
+    Key  : Analysis.Memory.CommitPeak.Mb
+    Value: 90
+
+    Key  : Bugcheck.Code.LegacyAPI
+    Value: 0xa
+
+    Key  : Failure.Bucket
+    Value: AV_nt!RtlpxVirtualUnwind
+
+    Key  : Failure.Hash
+    Value: {90caf8d4-a034-a257-3599-d8f696fd9681}
+
+    Key  : Hypervisor.Enlightenments.Value
+    Value: 1113060
+
+    Key  : Hypervisor.Enlightenments.ValueHex
+    Value: 10fbe4
+
+    Key  : Hypervisor.Flags.AnyHypervisorPresent
+    Value: 1
+
+    Key  : Hypervisor.Flags.ApicEnlightened
+    Value: 0
+
+    Key  : Hypervisor.Flags.ApicVirtualizationAvailable
+    Value: 0
+
+    Key  : Hypervisor.Flags.AsyncMemoryHint
+    Value: 0
+
+    Key  : Hypervisor.Flags.CoreSchedulerRequested
+    Value: 0
+
+    Key  : Hypervisor.Flags.CpuManager
+    Value: 0
+
+    Key  : Hypervisor.Flags.DeprecateAutoEoi
+    Value: 1
+
+    Key  : Hypervisor.Flags.DynamicCpuDisabled
+    Value: 1
+
+    Key  : Hypervisor.Flags.Epf
+    Value: 0
+
+    Key  : Hypervisor.Flags.ExtendedProcessorMasks
+    Value: 1
+
+    Key  : Hypervisor.Flags.HardwareMbecAvailable
+    Value: 1
+
+    Key  : Hypervisor.Flags.MaxBankNumber
+    Value: 0
+
+    Key  : Hypervisor.Flags.MemoryZeroingControl
+    Value: 0
+
+    Key  : Hypervisor.Flags.NoExtendedRangeFlush
+    Value: 0
+
+    Key  : Hypervisor.Flags.NoNonArchCoreSharing
+    Value: 0
+
+    Key  : Hypervisor.Flags.Phase0InitDone
+    Value: 1
+
+    Key  : Hypervisor.Flags.PowerSchedulerQos
+    Value: 0
+
+    Key  : Hypervisor.Flags.RootScheduler
+    Value: 0
+
+    Key  : Hypervisor.Flags.SynicAvailable
+    Value: 1
+
+    Key  : Hypervisor.Flags.UseQpcBias
+    Value: 0
+
+    Key  : Hypervisor.Flags.Value
+    Value: 659708
+
+    Key  : Hypervisor.Flags.ValueHex
+    Value: a10fc
+
+    Key  : Hypervisor.Flags.VpAssistPage
+    Value: 1
+
+    Key  : Hypervisor.Flags.VsmAvailable
+    Value: 1
+
+    Key  : Hypervisor.RootFlags.AccessStats
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.CrashdumpEnlightened
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.CreateVirtualProcessor
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.DisableHyperthreading
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.HostTimelineSync
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.HypervisorDebuggingEnabled
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.IsHyperV
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.LivedumpEnlightened
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.MapDeviceInterrupt
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.MceEnlightened
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.Nested
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.StartLogicalProcessor
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.Value
+    Value: 0
+
+    Key  : Hypervisor.RootFlags.ValueHex
+    Value: 0
+
+    Key  : WER.OS.Branch
+    Value: ni_release_svc_prod3
+
+    Key  : WER.OS.Version
+    Value: 10.0.22621.317
+
+
+BUGCHECK_CODE:  a
+
+BUGCHECK_P1: 7fffffff0000
+
+BUGCHECK_P2: 2
+
+BUGCHECK_P3: 0
+
+BUGCHECK_P4: fffff80632246325
+
+FILE_IN_CAB:  bugcheck-20260906-133845-090626-5078-01.dmp
+
+VIRTUAL_MACHINE:  HyperV
+
+READ_ADDRESS: fffff80632b1c468: Unable to get MiVisibleState
+c0000005 Exception in ext.analyze debugger extension.
+      PC: 00007fff`e52506f5  VA: 00007fff`e54bd000  R/W: 1  Parameter: 00000000`00000000
+Browse full module list
+start             end                 module name
+fffff806`39eb0000 fffff806`3a6b6000   KswordARK   (deferred)             
+
+Unloaded modules:
+fffff806`39600000 fffff806`39e07000   KswordARK.sy
+fffff806`3a2b0000 fffff806`3aab7000   KswordARK.sy
+ # RetAddr               : Args to Child                                                           : Call Site
+00 fffff806`32231da9     : 00000000`0000000a 00007fff`ffff0000 00000000`00000002 00000000`00000000 : nt!KeBugCheckEx
+01 fffff806`3222dce8     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : nt!KiBugCheckDispatch+0x69
+02 fffff806`32246325     : fffff806`37c47d20 ffffa180`6ca1b1da 00000000`00000000 00000000`00000000 : nt!KiPageFault+0x468
+03 fffff806`320c3e95     : fffff806`37c47d20 fffff806`37c47ae8 0000000b`7be64000 00000000`00000000 : nt!RtlpxVirtualUnwind+0x180565
+04 fffff806`320c7c51     : ffffffff`ffffffff fffff806`37c47b90 fffff806`37c47b90 fffff806`37c47300 : nt!RtlDispatchException+0x215
+05 fffff806`32231eda     : fffff806`37c34ab0 00000000`01dd3e25 00000000`00000080 fffff806`323f0617 : nt!KiDispatchException+0x1b1
+06 fffff806`3222d877     : 00000000`00000000 00000000`00000000 fffff806`304d0180 00000000`00000000 : nt!KiExceptionDispatch+0x11a
+07 ffffa180`6ca1b1da     : 0000000b`7be64000 fffff806`37c34810 00000000`0000000e fffff806`31ec7ddc : nt!KiGeneralProtectionFault+0x337
+08 0000000b`7be64000     : fffff806`37c34810 00000000`0000000e fffff806`31ec7ddc 00000000`00000000 : 0xffffa180`6ca1b1da
+09 fffff806`37c34810     : 00000000`0000000e fffff806`31ec7ddc 00000000`00000000 fffff806`37c47ff8 : 0x0000000b`7be64000
+0a 00000000`0000000e     : fffff806`31ec7ddc 00000000`00000000 fffff806`37c47ff8 00000000`0000009f : 0xfffff806`37c34810
+0b fffff806`31ec7ddc     : 00000000`00000000 fffff806`37c47ff8 00000000`0000009f fffff806`37c48018 : 0xe
+0c 00000000`00000000     : fffff806`37c47ff8 00000000`0000009f fffff806`37c48018 00000049`00000001 : nt!_xmmc0010007c0010006c0010005c0010004+0x7ae5c
+quit:
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Kernel.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Usb4Kd.natvis'

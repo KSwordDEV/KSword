@@ -1,0 +1,426 @@
+{
+  "schema": "ksword.acceptance.autotest/1",
+  "startedUtc": "2026-09-06T03:39:42.7876366Z",
+  "machine": {
+    "computer": "DESKTOP-KJE7JPM",
+    "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+    "build": "26300",
+    "cpu": "13th Gen Intel(R) Core(TM) i7-13700F"
+  },
+  "phases": {
+    "offline": {
+      "verdict": "PASS",
+      "buildExit": 0,
+      "buildLog": "C:\\Users\\Felix\\CLionProjects\\KSword\\docs\\next\\logs\\autotest-build-20260905-233942.txt",
+      "runExit": 0,
+      "runLog": "C:\\Users\\Felix\\CLionProjects\\KSword\\docs\\next\\logs\\autotest-run-20260905-233942.txt",
+      "suites": [
+        {
+          "suite": "F evidence contract",
+          "passed": 192,
+          "total": 192
+        },
+        {
+          "suite": "X cross-view",
+          "passed": 180,
+          "total": 180
+        },
+        {
+          "suite": "G entity graph",
+          "passed": 351,
+          "total": 351
+        },
+        {
+          "suite": "C offline dump facts",
+          "passed": 461,
+          "total": 461
+        },
+        {
+          "suite": "D snapshot compare",
+          "passed": 387,
+          "total": 387
+        },
+        {
+          "suite": "S security state",
+          "passed": 442,
+          "total": 442
+        },
+        {
+          "suite": "N wfp analysis",
+          "passed": 545,
+          "total": 545
+        },
+        {
+          "suite": "T timeline",
+          "passed": 381,
+          "total": 381
+        },
+        {
+          "suite": "I image integrity",
+          "passed": 395,
+          "total": 395
+        },
+        {
+          "suite": "M memory evidence",
+          "passed": 199,
+          "total": 199
+        },
+        {
+          "suite": "HVM ept switch",
+          "passed": 467,
+          "total": 467
+        }
+      ],
+      "suiteCount": 11,
+      "assertions": 4000.0,
+      "passed": 4000.0,
+      "manifest": "C:\\Users\\Felix\\CLionProjects\\KSword\\scripts\\ksword-expected-suites.json",
+      "missingSuites": [],
+      "shrunkSuites": [],
+      "unlistedSuites": []
+    },
+    "tools": {
+      "verdict": "PASS",
+      "artifacts": [
+        {
+          "path": "C:\\Users\\Felix\\CLionProjects\\KSword\\tools\\hvm_probe\\hvm_probe.exe",
+          "bytes": 144896
+        },
+        {
+          "path": "C:\\Users\\Felix\\CLionProjects\\KSword\\tools\\hvm_ctl\\hvm_ctl.exe",
+          "bytes": 158208
+        }
+      ]
+    },
+    "onMachine": {
+      "verdict": "PASS",
+      "controlExit": 0,
+      "resultPath": "C:\\Users\\Felix\\CLionProjects\\KSword\\docs\\next\\logs\\hvm-autotest-20260905-233942.json",
+      "detail": {
+        "schema": "ksword.hvm.autotest/1",
+        "startedUtc": "2026-09-06T03:39:49.1807036Z",
+        "vmName": "KSword-HVM-Target",
+        "stage": "soak",
+        "host": {
+          "computer": "DESKTOP-KJE7JPM",
+          "os": "Microsoft Windows 11 Pro for Workstations Insider Preview",
+          "build": "26300"
+        },
+        "steps": [
+          {
+            "name": "deploy:hvm_ctl",
+            "utc": "2026-09-06T03:39:50.4600356Z",
+            "outcome": "OK",
+            "data": 158208
+          },
+          {
+            "name": "status",
+            "utc": "2026-09-06T03:39:51.5833722Z",
+            "outcome": "OK",
+            "data": {
+              "kind": "query",
+              "queryStatus": 0,
+              "stateFlags": 9044255,
+              "stateFlagsHex": "0x008A011F",
+              "stateNames": [
+                "INITIALIZED",
+                "RESOURCES_READY",
+                "EPT_READY",
+                "SELF_TESTED",
+                "SELF_TEST_PASSED",
+                "GUEST_READY",
+                "EVENTS_AVAILABLE",
+                "EVMCS_PARTIAL",
+                "RESIDENT_NESTED"
+              ],
+              "generation": 4,
+              "processorCount": 1,
+              "preparedProcessorCount": 1,
+              "selfTestPassedProcessorCount": 1,
+              "residentProcessorCount": 0,
+              "residentImplementation": "CAPABILITY_ONLY",
+              "eptImplementation": "ACTIVE",
+              "nestedImplementation": "CAPABILITY_ONLY",
+              "evmcsImplementation": "PARTIAL",
+              "featureFlags": "0x0009807F30FFFFFF",
+              "vmxEptVpidCapabilities": "0x00000F0106F34041",
+              "eptExecuteOnly": true,
+              "eptPointer": "0x0000000207FF605E",
+              "eptPageCount": 515,
+              "mappedRamMiB": 8190,
+              "vmExitCount": 14079,
+              "lastExitReason": 18,
+              "lastExitQualification": "0x0000000000000000",
+              "lastGuestRip": "0xFFFFF80763E011AF",
+              "lastGuestRsp": "0xFFFFD1049FB1EED8",
+              "lastExitInstructionLength": 3,
+              "lastStatus": "0x00000000",
+              "vmxBasic": "0x01D8100000000001",
+              "cr0Fixed0": "0x0000000080000021",
+              "cr0Fixed1": "0x00000000FFFFFFFF",
+              "cr4Fixed0": "0x0000000000002000",
+              "cr4Fixed1": "0x0000000000B72FFF",
+              "lastVmInstructionError": 12,
+              "eventCount": 1024,
+              "droppedEventCount": 13057,
+              "processors": [
+                {
+                  "index": 0,
+                  "group": 0,
+                  "number": 0,
+                  "vmxInstructionResult": 0,
+                  "stateFlags": 1127,
+                  "stateHex": "0x00000467",
+                  "lastStatus": "0x00000000",
+                  "lastExitReason": 18,
+                  "vmExitCount": 14079,
+                  "stateNames": [
+                    "RESOURCE_READY",
+                    "SELF_TESTED",
+                    "VMXON_SUCCEEDED",
+                    "VMCS_LOADED",
+                    "GUEST_LAUNCHED",
+                    "DEVIRTUALIZED"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "name": "prepare",
+            "utc": "2026-09-06T03:39:51.5839805Z",
+            "outcome": "SKIP",
+            "note": "RESOURCES_READY 已置位；重复 prepare 会返回 ALREADY_PREPARED 并把状态打成 FAULTED"
+          },
+          {
+            "name": "prune:before-driver-load-0905-2335",
+            "utc": "2026-09-06T03:39:52.2081402Z",
+            "outcome": "OK",
+            "note": "自动修剪旧检查点以回收磁盘"
+          },
+          {
+            "name": "checkpoint:self-test",
+            "utc": "2026-09-06T03:39:56.833743Z",
+            "outcome": "OK",
+            "data": "before-self-test-0905-233952"
+          },
+          {
+            "name": "alive:self-test",
+            "utc": "2026-09-06T03:39:58.3468261Z",
+            "outcome": "OK",
+            "note": "虚拟机仍然响应"
+          },
+          {
+            "name": "self-test",
+            "utc": "2026-09-06T03:39:58.3471758Z",
+            "outcome": "OK",
+            "data": {
+              "kind": "control",
+              "command": "self-test",
+              "status": 0,
+              "statusName": "OK",
+              "lastStatus": "0x00000000",
+              "oldStateFlags": 9044255,
+              "newStateFlags": 9044255,
+              "oldStateHex": "0x008A011F",
+              "newStateHex": "0x008A011F",
+              "newStateNames": [
+                "INITIALIZED",
+                "RESOURCES_READY",
+                "EPT_READY",
+                "SELF_TESTED",
+                "SELF_TEST_PASSED",
+                "GUEST_READY",
+                "EVENTS_AVAILABLE",
+                "EVMCS_PARTIAL",
+                "RESIDENT_NESTED"
+              ],
+              "oldGeneration": 4,
+              "newGeneration": 5,
+              "preparedProcessorCount": 1,
+              "selfTestPassedProcessorCount": 1,
+              "failedProcessorCount": 0,
+              "residentProcessorCount": 0,
+              "residentImplementation": "CAPABILITY_ONLY",
+              "eptImplementation": "ACTIVE",
+              "nestedImplementation": "CAPABILITY_ONLY",
+              "evmcsImplementation": "PARTIAL",
+              "eptPointer": "0x0000000207FF605E",
+              "eptPageCount": 515,
+              "eptRuleCount": 0,
+              "mappedRamMiB": 8190,
+              "vmExitCount": 14079,
+              "lastExitReason": 18,
+              "lastExitQualification": "0x0000000000000000",
+              "lastGuestRip": "0xFFFFF80763E011AF",
+              "lastGuestRsp": "0xFFFFD1049FB1EED8",
+              "lastExitInstructionLength": 3,
+              "lastVmInstructionError": 12,
+              "soakElapsedMilliseconds": 0,
+              "soakUnexpectedDevirtualizations": 0
+            }
+          },
+          {
+            "name": "prune:before-self-test-0905-233551",
+            "utc": "2026-09-06T03:39:58.8929949Z",
+            "outcome": "OK",
+            "note": "自动修剪旧检查点以回收磁盘"
+          },
+          {
+            "name": "checkpoint:soak",
+            "utc": "2026-09-06T03:40:03.9243006Z",
+            "outcome": "OK",
+            "data": "before-soak-0905-233958"
+          },
+          {
+            "name": "alive:soak",
+            "utc": "2026-09-06T03:40:39.6424159Z",
+            "outcome": "OK",
+            "note": "虚拟机仍然响应"
+          },
+          {
+            "name": "soak",
+            "utc": "2026-09-06T03:40:39.6429811Z",
+            "outcome": "OK",
+            "data": {
+              "kind": "control",
+              "command": "soak",
+              "status": 0,
+              "statusName": "OK",
+              "lastStatus": "0x00000000",
+              "oldStateFlags": 9044255,
+              "newStateFlags": 9044255,
+              "oldStateHex": "0x008A011F",
+              "newStateHex": "0x008A011F",
+              "newStateNames": [
+                "INITIALIZED",
+                "RESOURCES_READY",
+                "EPT_READY",
+                "SELF_TESTED",
+                "SELF_TEST_PASSED",
+                "GUEST_READY",
+                "EVENTS_AVAILABLE",
+                "EVMCS_PARTIAL",
+                "RESIDENT_NESTED"
+              ],
+              "oldGeneration": 5,
+              "newGeneration": 6,
+              "preparedProcessorCount": 1,
+              "selfTestPassedProcessorCount": 1,
+              "failedProcessorCount": 0,
+              "residentProcessorCount": 0,
+              "residentImplementation": "CAPABILITY_ONLY",
+              "eptImplementation": "ACTIVE",
+              "nestedImplementation": "CAPABILITY_ONLY",
+              "evmcsImplementation": "PARTIAL",
+              "eptPointer": "0x0000000207FF605E",
+              "eptPageCount": 515,
+              "eptRuleCount": 0,
+              "mappedRamMiB": 8190,
+              "vmExitCount": 145597,
+              "lastExitReason": 18,
+              "lastExitQualification": "0x0000000000000000",
+              "lastGuestRip": "0xFFFFF80763E011AF",
+              "lastGuestRsp": "0xFFFFD104A1036ED8",
+              "lastExitInstructionLength": 3,
+              "lastVmInstructionError": 12,
+              "soakElapsedMilliseconds": 30000,
+              "soakUnexpectedDevirtualizations": 0
+            }
+          }
+        ],
+        "checkpoints": [
+          "before-self-test-0905-233952",
+          "before-soak-0905-233958"
+        ],
+        "verdict": "OK",
+        "notes": [],
+        "vm": {
+          "state": "Running",
+          "vcpu": 1,
+          "nested": true
+        },
+        "finalStatus": {
+          "kind": "query",
+          "queryStatus": 0,
+          "stateFlags": 9044255,
+          "stateFlagsHex": "0x008A011F",
+          "stateNames": [
+            "INITIALIZED",
+            "RESOURCES_READY",
+            "EPT_READY",
+            "SELF_TESTED",
+            "SELF_TEST_PASSED",
+            "GUEST_READY",
+            "EVENTS_AVAILABLE",
+            "EVMCS_PARTIAL",
+            "RESIDENT_NESTED"
+          ],
+          "generation": 6,
+          "processorCount": 1,
+          "preparedProcessorCount": 1,
+          "selfTestPassedProcessorCount": 1,
+          "residentProcessorCount": 0,
+          "residentImplementation": "CAPABILITY_ONLY",
+          "eptImplementation": "ACTIVE",
+          "nestedImplementation": "CAPABILITY_ONLY",
+          "evmcsImplementation": "PARTIAL",
+          "featureFlags": "0x0009807F30FFFFFF",
+          "vmxEptVpidCapabilities": "0x00000F0106F34041",
+          "eptExecuteOnly": true,
+          "eptPointer": "0x0000000207FF605E",
+          "eptPageCount": 515,
+          "mappedRamMiB": 8190,
+          "vmExitCount": 145597,
+          "lastExitReason": 18,
+          "lastExitQualification": "0x0000000000000000",
+          "lastGuestRip": "0xFFFFF80763E011AF",
+          "lastGuestRsp": "0xFFFFD104A1036ED8",
+          "lastExitInstructionLength": 3,
+          "lastStatus": "0x00000000",
+          "vmxBasic": "0x01D8100000000001",
+          "cr0Fixed0": "0x0000000080000021",
+          "cr0Fixed1": "0x00000000FFFFFFFF",
+          "cr4Fixed0": "0x0000000000002000",
+          "cr4Fixed1": "0x0000000000B72FFF",
+          "lastVmInstructionError": 12,
+          "eventCount": 1024,
+          "droppedEventCount": 144577,
+          "processors": [
+            {
+              "index": 0,
+              "group": 0,
+              "number": 0,
+              "vmxInstructionResult": 0,
+              "stateFlags": 1127,
+              "stateHex": "0x00000467",
+              "lastStatus": "0x00000000",
+              "lastExitReason": 18,
+              "vmExitCount": 145597,
+              "stateNames": [
+                "RESOURCE_READY",
+                "SELF_TESTED",
+                "VMXON_SUCCEEDED",
+                "VMCS_LOADED",
+                "GUEST_LAUNCHED",
+                "DEVIRTUALIZED"
+              ]
+            }
+          ]
+        },
+        "checkpointsNow": [
+          "clean-install",
+          "hung-resident-0905",
+          "hung-0905-193241",
+          "KSword-HVM-Target - (2026/9/5 - 20:37:24)",
+          "before-soak-0905-233558",
+          "before-self-test-0905-233952",
+          "before-soak-0905-233958"
+        ],
+        "finishedUtc": "2026-09-06T03:40:41.0861438Z"
+      }
+    }
+  },
+  "finishedUtc": "2026-09-06T03:40:41.0897268Z",
+  "verdict": "PASS"
+}

@@ -1,0 +1,144 @@
+适用于 .NET Framework MSBuild 版本 17.14.51+25f168cee
+
+   Qt/MSBuild: 3.5.0.0
+   Qt: 6.9.3
+  i18n audit passed: 24284 source strings
+  theme token audit self-test passed: 5 marked cases
+  theme token audit passed: 14 dynamic tokens, 658 source files
+  Ksword5.1.vcxproj -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\Ksword5.1.exe
+  compressed: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\Ksword5.1\profiles\ark_dyndata_pack_v4.json -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\profiles\ark_dyndata_pack_v4.json.qz
+  compressed: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\Ksword5.1\profiles\registry_optimization_items.json -> C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\profiles\registry_optimization_items.json.qz
+  Deploying Qt runtime and plugins to C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\
+  Adding local dependencyC:/Users/Felix/CLionProjects/KSword/Ksword5.1/x64/Release/qtadvanceddocking.dll
+  Adding local dependencyC:/Users/Felix/CLionProjects/KSword/Ksword5.1/x64/Release/MSVCP140.dll
+  Adding local dependencyC:/Users/Felix/CLionProjects/KSword/Ksword5.1/x64/Release/VCRUNTIME140_1.dll
+  Adding local dependencyC:/Users/Felix/CLionProjects/KSword/Ksword5.1/x64/Release/VCRUNTIME140.dll
+  Adding local dependencyC:/Users/Felix/CLionProjects/KSword/Ksword5.1/x64/Release/MSVCP140_1.dll
+  Adding local dependencyC:/Users/Felix/CLionProjects/KSword/Ksword5.1/x64/Release/MSVCP140_2.dll
+  C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\Ksword5.1.exe 64 bit, release executable
+  Adding in plugin type generic for module: Qt6Gui
+  Adding in plugin type iconengines for module: Qt6Gui
+  Adding in plugin type imageformats for module: Qt6Gui
+  Adding in plugin type networkinformation for module: Qt6Network
+  Adding in plugin type platforms for module: Qt6Gui
+  Adding in plugin type styles for module: Qt6Widgets
+EXEC : warning : Cannot find any version of the dxcompiler.dll and dxil.dll. [C:\Users\Felix\CLionProjects\KSword\Ksword5.1\Ksword5.1\Ksword5.1.vcxproj]
+  Adding in plugin type tls for module: Qt6Network
+  Skipping plugin qopensslbackend.dll. Use -force-openssl or specify -openssl-root if you want to use it.
+  Direct dependencies: Qt6Core Qt6Gui Qt6Network Qt6Svg Qt6Widgets
+  All dependencies   : Qt6Core Qt6Gui Qt6Network Qt6Svg Qt6Widgets
+  To be deployed     : Qt6Core Qt6Gui Qt6Network Qt6Svg Qt6Widgets
+EXEC : warning : Cannot find Visual Studio installation directory, VCINSTALLDIR is not set. [C:\Users\Felix\CLionProjects\KSword\Ksword5.1\Ksword5.1\Ksword5.1.vcxproj]
+  Updating Qt6Core.dll.
+  Updating Qt6Gui.dll.
+  Updating Qt6Network.dll.
+  Updating Qt6Svg.dll.
+  Updating Qt6Widgets.dll.
+  Updating D3Dcompiler_47.dll.
+  Updating qtuiotouchplugin.dll.
+  Updating qsvgicon.dll.
+  Updating qgif.dll.
+  Updating qico.dll.
+  Updating qjpeg.dll.
+  Updating qsvg.dll.
+  Updating qnetworklistmanager.dll.
+  Updating qwindows.dll.
+  Updating qmodernwindowsstyle.dll.
+  Updating qcertonlybackend.dll.
+  Updating qschannelbackend.dll.
+  Creating qt_ar.qm...
+  Creating qt_bg.qm...
+  Creating qt_ca.qm...
+  Creating qt_cs.qm...
+  Creating qt_da.qm...
+  Creating qt_de.qm...
+  Creating qt_en.qm...
+  Creating qt_es.qm...
+  Creating qt_fa.qm...
+  Creating qt_fi.qm...
+  Creating qt_fr.qm...
+  Creating qt_gd.qm...
+  Creating qt_he.qm...
+  Creating qt_hr.qm...
+  Creating qt_hu.qm...
+  Creating qt_it.qm...
+  Creating qt_ja.qm...
+  Creating qt_ka.qm...
+  Creating qt_ko.qm...
+  Creating qt_lg.qm...
+  Creating qt_lv.qm...
+  Creating qt_nl.qm...
+  Creating qt_nn.qm...
+  Creating qt_pl.qm...
+  Creating qt_pt_BR.qm...
+  Creating qt_ru.qm...
+  Creating qt_sk.qm...
+  Creating qt_sv.qm...
+  Creating qt_tr.qm...
+  Creating qt_uk.qm...
+  Creating qt_zh_CN.qm...
+  Creating qt_zh_TW.qm...
+  Ksword5.1: attempting non-fatal test-sign for C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\Ksword5.1.exe. Set /p:KswordArkSkipAutoTestSign=true to skip.
+  仓库根目录：C:\Users\Felix\CLionProjects\KSword
+  管理员权限：False
+  signtool：C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86\signtool.exe
+  复用文件型测试证书：34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  证书文件：C:\Users\Felix\CLionProjects\KSword\.cert\KswordARK-TestSigning.cer
+  [33;1mWARNING: 导入 CurrentUser 证书信任失败：操作已被用户取消。 (0x800704C7)[0m
+  [33;1mWARNING: 当前不是管理员：无法导入 LocalMachine 信任区。内核加载可能仍然报 577。[0m
+  [33;1mWARNING: 请用管理员 PowerShell 重新运行本脚本，或手工把 .cert\KswordARK-TestSigning.cer 导入“本地计算机\受信任的根证书颁发机构”和“受信任的发布者”。[0m
+  签名目标：C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\Ksword5.1.exe
+  The following certificate was selected:
+      Issued to: KswordARK Test Signing Certificate
+  
+      Issued by: KswordARK Test Signing Certificate
+  
+      Expires:   Tue May 06 21:03:25 2036
+  
+      SHA1 hash: 34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  
+  
+  Done Adding Additional Store
+  Successfully signed: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\Ksword5.1.exe
+  
+  
+  Number of files successfully Signed: 1
+  
+  Number of warnings: 0
+  
+  Number of errors: 0
+  
+  
+  
+  Verifying: C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\Ksword5.1.exe
+  
+  
+  Signature Index: 0 (Primary Signature)
+  Hash of file (sha256): 030F45DA0BB643081D85435A1A95810804473FCA7252D4AB9EB70DE6F4746EF9
+  SignTool Error: A certificate chain processed, but terminated in a root
+  
+  Signing Certificate Chain:
+  	certificate which is not trusted by the trust provider.
+      Issued to: KswordARK Test Signing Certificate
+  
+      Issued by: KswordARK Test Signing Certificate
+  
+      Expires:   Tue May 06 21:03:25 2036
+  
+      SHA1 hash: 34E402E89002C19830BD6FE0C64EB292C6AB0C2C
+  
+  
+  File is not timestamped.
+  
+  
+  Number of files successfully Verified: 0
+  
+  Number of warnings: 0
+  
+  Number of errors: 1
+  
+  [33;1mWARNING: signtool verify /pa 未通过：C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\Ksword5.1.exe，退出码：1。[0m
+  [33;1mWARNING: 这通常表示证书尚未导入本机信任区；签名已写入文件，但内核加载前仍需管理员导入 LocalMachine 信任区。[0m
+  签名状态：UnknownError；签名者：CN=KswordARK Test Signing Certificate
+  
+  完成。

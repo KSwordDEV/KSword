@@ -1,0 +1,46 @@
+{
+  "schema": "ksword.hostflight/1",
+  "vmName": "KSword-HVM-Target",
+  "instance": "KSword-HVM-Target:Hv VP 0",
+  "counters": [
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Nested VM Entries/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Total Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\% Guest Run Time",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\% Hypervisor Run Time",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\MSR Accesses/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Hypercalls/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Nested Page Fault Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Total Virtualization Instructions Emulated/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\VMREAD Emulation Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\VMWRITE Emulation Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\VMPTRLD Emulation Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\VMCLEAR Emulation Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\VMXON Emulation Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\VMXOFF Emulation Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\InvEpt Single Context Emulation Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\InvEpt All Context Emulation Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Emulated Instructions/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Page Fault Intercepts/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Memory Intercept Messages/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\IO Intercept Messages/sec",
+    "\\Hyper-V Hypervisor Virtual Processor(KSword-HVM-Target:Hv VP 0)\\Other Intercepts/sec"
+  ],
+  "calibrated": false,
+  "baselineNestedEntriesAvg": 0.0,
+  "calibrationNestedEntriesMax": 0.0,
+  "marks": [
+    {
+      "utc": "2026-09-06T01:25:35.8111282Z",
+      "mark": "launch-test-guest:before"
+    },
+    {
+      "utc": "2026-09-06T01:25:53.2241847Z",
+      "mark": "resident:before"
+    },
+    {
+      "utc": "2026-09-06T01:29:24.7103848Z",
+      "mark": "observe:end"
+    }
+  ],
+  "csv": "C:\\Users\\Felix\\CLionProjects\\KSword\\docs\\next\\logs\\flight-20260905-212511.csv"
+}

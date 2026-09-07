@@ -56,3 +56,13 @@ __pycache__/
 
 # Local-only VoIP debugging utility; never publish its source or build output.
 /tools/voip_status_debugger/
+
+# HVM 验收工具的构建产物。源码提交，二进制不提交：它们由
+# scripts/Build-KswordHvmTools.ps1 现编，且每次都要投进测试机，
+# 提交进来只会让每轮验收都产生一次无意义的二进制 diff。
+/tools/hvm_ctl/*.exe
+/tools/hvm_probe/*.exe
+/tools/attest_probe/*.exe
+
+# MSVC 在仓库根留下的编译器 PDB。
+/vc140.pdb

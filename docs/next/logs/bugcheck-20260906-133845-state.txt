@@ -1,0 +1,159 @@
+Opened log file 'C:\Users\Felix\CLionProjects\KSword\docs\next\logs\bugcheck-20260906-133845-state.txt'
+
+************* Preparing the environment for Debugger Extensions Gallery repositories **************
+   ExtensionRepository : Implicit
+   UseExperimentalFeatureForNugetShare : true
+   AllowNugetExeUpdate : true
+   NonInteractiveNuget : true
+   AllowNugetMSCredentialProviderInstall : true
+   AllowParallelInitializationOfLocalRepositories : true
+
+   EnableRedirectToV8JsProvider : false
+
+   -- Configuring repositories
+      ----> Repository : LocalInstalled, Enabled: true
+      ----> Repository : UserExtensions, Enabled: true
+
+>>>>>>>>>>>>> Preparing the environment for Debugger Extensions Gallery repositories completed, duration 0.000 seconds
+
+************* Waiting for Debugger Extensions Gallery to Initialize **************
+
+>>>>>>>>>>>>> Waiting for Debugger Extensions Gallery to Initialize completed, duration 0.015 seconds
+   ----> Repository : UserExtensions, Enabled: true, Packages count: 0
+   ----> Repository : LocalInstalled, Enabled: true, Packages count: 29
+
+Microsoft (R) Windows Debugger Version 10.0.26100.6584 AMD64
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+
+Loading Dump File [C:\Users\Felix\AppData\Local\Temp\claude\C--Users-Felix-CLionProjects-KSword\14df0b6d-9962-4d5a-8cbd-8dbc0e3c6906\scratchpad\MEMORY-20260906-1033.DMP]
+Kernel Bitmap Dump File: Kernel address space is available, User address space may not be available.
+
+
+************* Path validation summary **************
+Response                         Time (ms)     Location
+Deferred                                       srv*C:\symbols*
+OK                                             C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release
+Symbol search path is: srv*C:\symbols*;C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release
+Executable search path is: 
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Kernel.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'
+NatVis script successfully loaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Usb4Kd.natvis'
+Windows 10 Kernel Version 22621 UP Free x64
+Product: WinNt, suite: TerminalServer SingleUserTS Personal
+Edition build lab: 22621.317.amd64fre.ni_release_svc_prod3.220719-1658
+Kernel base = 0xfffff806`31e00000 PsLoadedModuleList = 0xfffff806`32a12ff0
+Debug session time: Sun Sep  6 13:33:33.324 2026 (UTC - 4:00)
+System Uptime: 0 days 1:43:40.722
+Loading Kernel Symbols
+...............................................................
+................................................................
+..............................
+Loading User Symbols
+
+Loading unloaded module list
+..............................
+For analysis of this file, run !analyze -v
+kd> .echo ===STACK===; dps fffff806`37c47d20 L30; .echo ===OURSTATE===; dt KswordARK!g_KswordHvm StateFlags ResidentProcessorCount CrPolicyCr0PinnedMask CrPolicyCr0PinnedValue CrPolicyRefusedWriteCount ProcessorCount; .echo ===CR4===; r cr4; q
+===STACK===
+fffff806`37c47d20  0000000b`7be64000
+fffff806`37c47d28  fffff806`37c34810
+fffff806`37c47d30  00000000`0000000e
+fffff806`37c47d38  fffff806`31ec7ddc nt!_xmmc0010007c0010006c0010005c0010004+0x7ae5c
+fffff806`37c47d40  00000000`00000000
+fffff806`37c47d48  fffff806`37c47ff8
+fffff806`37c47d50  00000000`0000009f
+fffff806`37c47d58  fffff806`37c48018
+fffff806`37c47d60  00000049`00000001
+fffff806`37c47d68  fffff806`0001ceb8
+fffff806`37c47d70  a39fe0d8`decc0874
+fffff806`37c47d78  b3b6ed5f`314ea52d
+fffff806`37c47d80  fffff806`37c29fb0
+fffff806`37c47d88  b589795b`8a80012f
+fffff806`37c47d90  00000000`0000ffff
+fffff806`37c47d98  00000000`00000002
+fffff806`37c47da0  f80637c2`7000ffff
+fffff806`37c47da8  fffff806`31e0ffff nt!POP_ETW_ADPM_SESSION_INPUT_STATE+0x1e7
+fffff806`37c47db0  5620aa10`b1f9bb21
+fffff806`37c47db8  5620aa10`b81a9d58
+fffff806`37c47dc0  fffff806`31ec7ddc nt!_xmmc0010007c0010006c0010005c0010004+0x7ae5c
+fffff806`37c47dc8  fffff806`320c5ec4 nt!RtlpxVirtualUnwind+0x104
+fffff806`37c47dd0  fffff806`31e00000 nt!`_CmDeleteDeviceInterfaceRegKeyWorker'::`2'::ObjectPathRootPrefix <PERF> (nt+0x0)
+fffff806`37c47dd8  fffff806`37c484f0
+fffff806`37c47de0  fffff806`37c49678
+fffff806`37c47de8  fffff806`37c346b0
+fffff806`37c47df0  fffff806`37c346b0
+fffff806`37c47df8  ffffa180`6ca002ca
+fffff806`37c47e00  00000000`000039e3
+fffff806`37c47e08  00000000`00000003
+fffff806`37c47e10  00000000`005f05be
+fffff806`37c47e18  00000000`000039e3
+fffff806`37c47e20  00000000`00000003
+fffff806`37c47e28  fffff806`323f08b6 nt!ExpTimeZoneDpcRoutine$fin$2+0x207
+fffff806`37c47e30  00000000`00000001
+fffff806`37c47e38  fffff806`37c484f0
+fffff806`37c47e40  fffff806`37c48750
+fffff806`37c47e48  fffff806`321524f5 nt!KeCheckStackAndTargetAddress+0x35
+fffff806`37c47e50  fffff806`37c346b0
+fffff806`37c47e58  fffff806`323f058f nt!ExpTimeZoneDpcRoutine+0x9f
+fffff806`37c47e60  00000000`00000002
+fffff806`37c47e68  00000000`005f058f
+fffff806`37c47e70  fffff806`31ec7dfc nt!_xmmc0010007c0010006c0010005c0010004+0x7ae7c
+fffff806`37c47e78  fffff806`321e1f61 nt!_C_specific_handler+0x191
+fffff806`37c47e80  00000000`00000003
+fffff806`37c47e88  00000000`00000062
+fffff806`37c47e90  fffff806`37c2e000
+fffff806`37c47e98  fffff806`37c35000
+===OURSTATE===
+Unable to load image \??\C:\Windows\System32\drivers\KswordARK.sys, Win32 error 0n2
+*************************************************************************
+***                                                                   ***
+***                                                                   ***
+***    Either you specified an unqualified symbol, or your debugger   ***
+***    doesn't have full symbol information.  Unqualified symbol      ***
+***    resolution is turned off by default. Please either specify a   ***
+***    fully qualified symbol module!symbolname, or enable resolution ***
+***    of unqualified symbols by typing ".symopt- 100". Note that     ***
+***    enabling unqualified symbol resolution with network symbol     ***
+***    server shares in the symbol path may cause the debugger to     ***
+***    appear to hang for long periods of time when an incorrect      ***
+***    symbol name is typed or the network symbol server is down.     ***
+***                                                                   ***
+***    For some commands to work properly, your symbol path           ***
+***    must point to .pdb files that have full type information.      ***
+***                                                                   ***
+***    Certain .pdb files (such as the public OS symbols) do not      ***
+***    contain the required information.  Contact the group that      ***
+***    provided you with these symbols if you need this command to    ***
+***    work.                                                          ***
+***                                                                   ***
+***    Type referenced: KswordARK!g_KswordHvm                         ***
+***                                                                   ***
+*************************************************************************
+Symbol KswordARK!g_KswordHvm not found.
+===CR4===
+cr4=0000000000b50ef8
+quit:
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Kernel.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Usb4Kd.natvis'
