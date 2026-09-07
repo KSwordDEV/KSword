@@ -489,6 +489,28 @@
  * 也不要装上一条一旦命中就挂机器的规则。
  */
 #define KSWORD_ARK_HVM_EPT_RULE_STATUS_UNIMPLEMENTED         8UL
+/*
+ * 这台机器上这条规则的处置无法安全实现，安装期就拒绝。
+ *
+ * 目前只有一个来源：多核机器上的 ALLOW_ONCE。它的实现是把 EPT 叶临时放宽一条
+ * 指令再用 monitor-trap 复原，而在**共享**层次上那个窗口是全机可见的 —— 别的
+ * 处理器在同一瞬间也拿到了放宽后的权限。所以运行期有一道门（hvm_ept.c 的
+ * allAllowOnce 分支）要求"独占一个处理器，或者走私有层次"，两者都不满足就
+ * 判 fail-closed。
+ *
+ * 问题不在那道门，在于**它太晚了**：规则装得上，看上去是成功的，直到某次真的
+ * 命中 —— 然后整台机器退出 VMX（fail-closed 现在是全机停机，不再只停当前核，
+ * 见 hvm_internal.h 的 ResidentFaultStopRequested）。用户得到的是"装好了"然后
+ * 某个时刻虚拟化悄悄没了，中间没有任何东西把这两件事联系起来。
+ *
+ * 私有层次这条出路在嵌套下走不通：它要 LocalEptArmed，而那要求 INVEPT_SINGLE
+ * **和** MONITOR_TRAP_FLAG，嵌套 Hyper-V 不给 MTF。所以在嵌套靶机上"多核 +
+ * ALLOW_ONCE"是恒不可用的组合，更该在安装期说清楚。
+ *
+ * 这不是"ALLOW_ONCE 做不到"，是"这台机器上做不到"：单核、或者武装了私有 EPT
+ * 的多核，都照旧放行。
+ */
+#define KSWORD_ARK_HVM_EPT_RULE_STATUS_MULTIPROCESSOR_UNSAFE 9UL
 
 #define KSWORD_ARK_HVM_EVENT_TYPE_VMEXIT          1UL
 #define KSWORD_ARK_HVM_EVENT_TYPE_EPT_VIOLATION   2UL

@@ -680,6 +680,34 @@ KswordARKHvmEptRuleControlLocked(
          */
         if ((Request->flags &
                 KSWORD_ARK_HVM_EPT_RULE_FLAG_ALLOW_ONCE) != 0UL) {
+            /*
+             * Refuse a one-instruction grant this machine cannot serve.
+             *
+             * The runtime gate (the allAllowOnce branch further down) already
+             * requires either a private hierarchy or exactly one processor,
+             * and fails closed otherwise.  That gate is correct but it fires
+             * too late: the rule installs, reports success, and only on some
+             * later hit does the machine leave VMX - and since fail-closed
+             * became a whole-machine stop, it takes every processor with it.
+             * Nothing connects the install the user did to the moment
+             * virtualization silently went away.
+             *
+             * Mirroring the runtime condition here, not a weaker proxy: the
+             * latch is what admission below already consults, and a rule
+             * added while stopped has no per-VCPU record to ask instead.
+             * ENFORCE never reaches this branch - it is rejected earlier as
+             * UNIMPLEMENTED, and storing it drops ALLOW_ONCE anyway.
+             */
+            if (Runtime->ProcessorCount != 1UL &&
+                !Runtime->LocalEptArmed) {
+                /* Publish the stable machine-capability refusal. */
+                Response->status =
+                    KSWORD_ARK_HVM_EPT_RULE_STATUS_MULTIPROCESSOR_UNSAFE;
+                /* Publish the authoritative capability failure. */
+                Response->lastStatus = STATUS_NOT_SUPPORTED;
+                /* Return a protocol-level result successfully. */
+                return STATUS_SUCCESS;
+            }
             status = KswordARKHvmEptLocalCheckAdmission(
                 Runtime,
                 Request->physicalAddress,

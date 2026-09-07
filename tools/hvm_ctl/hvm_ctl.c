@@ -1550,6 +1550,173 @@ static int ProbeControl(HANDLE h, unsigned long command, unsigned long flags,
     }
     return 1;
 }
+/*
+ * rule-allowonce：装一条 ALLOW_ONCE 规则，看安装期的门放不放行。
+ *
+ * 为什么值得单独一个动词：ALLOW_ONCE 把 EPT 叶临时放宽一条指令再用
+ * monitor-trap 复原，在**共享**层次上那个窗口全机可见。运行期有门挡着
+ * （不满足就 fail-closed），但那太晚 —— 规则装上了、报成功了，直到某次真的
+ * 命中，整台机器才退出 VMX。安装期该拒的就在安装期拒。
+ *
+ * 这条路径在产品里是可达的：GUI 的 KernelHvmTab 行为下拉第二项就是它，
+ * 而工具里此前没有任何动词会设这个位 —— 于是这道门装上也没法验。
+ *
+ * 本动词只报**事实**，不替调用方判对错：处理器数、两个相关能力位、
+ * 安装返回的 status。判据留给外面 —— 多核且没武装私有 EPT 时应当是
+ * gate-refused，其余情况 installed 才对。装上了就当场删掉，不留脏。
+ */
+static int DoRuleAllowOnceGate(HANDLE h, int asJson)
+{
+    KSWORD_ARK_QUERY_HVM_REQUEST qreq;
+    KSWORD_ARK_QUERY_HVM_RESPONSE qrsp;
+    KSWORD_ARK_HVM_MEMORY_REQUEST mreq;
+    KSWORD_ARK_HVM_MEMORY_RESPONSE mrsp;
+    KSWORD_ARK_HVM_EPT_RULE_REQUEST rreq;
+    KSWORD_ARK_HVM_EPT_RULE_RESPONSE rrsp;
+    DWORD returned = 0;
+    volatile unsigned char* page = NULL;
+    unsigned long long physical = 0ULL;
+    unsigned long processorCount = 0UL;
+    unsigned long long features = 0ULL;
+    int hasInveptSingle = 0;
+    int hasMonitorTrap = 0;
+    int removed = 0;
+    const char* verdict = "unknown";
+    int rc = 1;
+
+    /* --- 0. 常驻必须没在跑：常驻期间规则表不可变 --- */
+    memset(&qreq, 0, sizeof(qreq));
+    memset(&qrsp, 0, sizeof(qrsp));
+    qreq.version = KSWORD_ARK_HVM_PROTOCOL_VERSION;
+    qreq.size = (unsigned long)sizeof(qreq);
+    if (!DeviceIoControl(h, IOCTL_KSWORD_ARK_QUERY_HVM, &qreq, sizeof(qreq),
+                         &qrsp, (DWORD)sizeof(qrsp), &returned, NULL)) {
+        fprintf(stderr, "QUERY_HVM 失败：win32=%lu\n", GetLastError());
+        return 1;
+    }
+    if (qrsp.residentProcessorCount != 0UL) {
+        fprintf(stderr,
+                "常驻正在跑（residentProcessorCount=%lu）。\n"
+                "常驻期间规则表是不可变的，装不上规则。先 hvm_ctl stop。\n",
+                qrsp.residentProcessorCount);
+        return 1;
+    }
+    processorCount = qrsp.processorCount;
+    features = qrsp.featureFlags;
+    hasInveptSingle =
+        (features & KSWORD_ARK_HVM_FEATURE_INVEPT_SINGLE) != 0ULL;
+    hasMonitorTrap =
+        (features & KSWORD_ARK_HVM_FEATURE_MONITOR_TRAP_FLAG) != 0ULL;
+
+    /* --- 1. 拿一页自己的内存并落地成真实物理页 --- */
+    page = (volatile unsigned char*)VirtualAlloc(
+        NULL, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (page == NULL) {
+        fprintf(stderr, "VirtualAlloc 失败：win32=%lu\n", GetLastError());
+        return 1;
+    }
+    (void)VirtualLock((LPVOID)page, 4096);
+    page[0] = 0xA5U;
+
+    /* --- 2. VA -> PA。这个 IOCTL 有自己的版本号和 UI_CONFIRMED 位 --- */
+    memset(&mreq, 0, sizeof(mreq));
+    memset(&mrsp, 0, sizeof(mrsp));
+    mreq.version = KSWORD_ARK_HVM_MEMORY_PROTOCOL_VERSION;
+    mreq.size = (unsigned long)sizeof(mreq);
+    mreq.operation = KSWORD_ARK_HVM_MEMORY_OP_TRANSLATE;
+    mreq.flags = KSWORD_ARK_HVM_MEMORY_FLAG_UI_CONFIRMED;
+    mreq.confirmationToken = KSWORD_ARK_HVM_MEMORY_CONFIRMATION_TOKEN;
+    mreq.address = (unsigned long long)(ULONG_PTR)page;
+    mreq.length = 1UL;
+    if (!DeviceIoControl(h, IOCTL_KSWORD_ARK_HVM_MEMORY, &mreq, sizeof(mreq),
+                         &mrsp, (DWORD)sizeof(mrsp), &returned, NULL) ||
+        mrsp.status != KSWORD_ARK_HVM_MEMORY_STATUS_OK) {
+        fprintf(stderr, "TRANSLATE 失败：status=%lu nt=0x%08lX win32=%lu\n",
+                mrsp.status, (unsigned long)mrsp.ntStatus, GetLastError());
+        goto cleanup;
+    }
+    physical = mrsp.physicalAddress;
+
+    /* --- 3. 装一条 ALLOW_ONCE 规则，看门放不放行 --- */
+    memset(&rreq, 0, sizeof(rreq));
+    memset(&rrsp, 0, sizeof(rrsp));
+    rreq.version = KSWORD_ARK_HVM_PROTOCOL_VERSION;
+    rreq.size = (unsigned long)sizeof(rreq);
+    rreq.operation = KSWORD_ARK_HVM_EPT_RULE_ADD;
+    /* ENFORCE 会被更早的门判 UNIMPLEMENTED，而且存储时会丢掉 ALLOW_ONCE。 */
+    rreq.flags = KSWORD_ARK_HVM_EPT_RULE_FLAG_UI_CONFIRMED |
+                 KSWORD_ARK_HVM_EPT_RULE_FLAG_ALLOW_ONCE;
+    rreq.confirmationToken = KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+    rreq.deniedAccess = KSWORD_ARK_HVM_EPT_ACCESS_WRITE;
+    rreq.physicalAddress = physical & ~0xFFFULL;
+    rreq.pageCount = 1ULL;
+    if (!DeviceIoControl(h, IOCTL_KSWORD_ARK_HVM_EPT_RULE, &rreq, sizeof(rreq),
+                         &rrsp, (DWORD)sizeof(rrsp), &returned, NULL)) {
+        fprintf(stderr, "EPT_RULE ADD 下发失败：win32=%lu\n", GetLastError());
+        goto cleanup;
+    }
+
+    if (rrsp.status == KSWORD_ARK_HVM_EPT_RULE_STATUS_MULTIPROCESSOR_UNSAFE) {
+        verdict = "gate-refused";
+    } else if (rrsp.status == KSWORD_ARK_HVM_EPT_RULE_STATUS_OK) {
+        verdict = "installed";
+        /* 装上了就当场删掉 —— 这个动词只探门，不留规则。 */
+        memset(&rreq, 0, sizeof(rreq));
+        rreq.version = KSWORD_ARK_HVM_PROTOCOL_VERSION;
+        rreq.size = (unsigned long)sizeof(rreq);
+        rreq.operation = KSWORD_ARK_HVM_EPT_RULE_REMOVE;
+        rreq.flags = KSWORD_ARK_HVM_EPT_RULE_FLAG_UI_CONFIRMED;
+        rreq.confirmationToken = KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+        rreq.ruleId = rrsp.ruleId;
+        {
+            KSWORD_ARK_HVM_EPT_RULE_RESPONSE drsp;
+            memset(&drsp, 0, sizeof(drsp));
+            removed = DeviceIoControl(
+                h, IOCTL_KSWORD_ARK_HVM_EPT_RULE, &rreq, sizeof(rreq),
+                &drsp, (DWORD)sizeof(drsp), &returned, NULL) &&
+                drsp.status == KSWORD_ARK_HVM_EPT_RULE_STATUS_OK;
+        }
+    } else {
+        verdict = "other-status";
+    }
+    rc = 0;
+
+    if (asJson) {
+        printf("{\"kind\":\"rule-allowonce\",\"processorCount\":%lu,"
+               "\"inveptSingle\":%s,\"monitorTrapFlag\":%s,"
+               "\"status\":%lu,\"lastStatus\":\"0x%08lX\","
+               "\"ruleRemoved\":%s,\"verdict\":\"%s\"}\n",
+               processorCount,
+               hasInveptSingle ? "true" : "false",
+               hasMonitorTrap ? "true" : "false",
+               rrsp.status, (unsigned long)rrsp.lastStatus,
+               removed ? "true" : "false",
+               verdict);
+    } else {
+        printf("处理器数        : %lu\n", processorCount);
+        printf("INVEPT_SINGLE   : %s\n", hasInveptSingle ? "有" : "无");
+        printf("MONITOR_TRAP    : %s\n", hasMonitorTrap ? "有" : "无");
+        printf("ALLOW_ONCE 安装 : status=%lu nt=0x%08lX\n",
+               rrsp.status, (unsigned long)rrsp.lastStatus);
+        printf("判定            : %s\n", verdict);
+        if (strcmp(verdict, "gate-refused") == 0) {
+            printf("  安装期的门拒了这条规则 —— 这台机器上 ALLOW_ONCE 无法安全\n"
+                   "  实现（多核共享层次，放宽窗口全机可见），拒在安装期而不是\n"
+                   "  等它某次命中把整机退出 VMX。\n");
+        } else if (strcmp(verdict, "installed") == 0) {
+            printf("  规则装上了（已删除）。只有单核、或者武装了私有 EPT 的多核\n"
+                   "  才应该走到这里。\n");
+        }
+    }
+
+cleanup:
+    if (page != NULL) {
+        (void)VirtualUnlock((LPVOID)page, 4096);
+        (void)VirtualFree((LPVOID)page, 0, MEM_RELEASE);
+    }
+    return rc;
+}
+
 static int DoProbeExecuteOnly(HANDLE h, int asJson)
 {
     KSWORD_ARK_QUERY_HVM_REQUEST qreq;
@@ -1570,6 +1737,8 @@ static int DoProbeExecuteOnly(HANDLE h, int asJson)
     unsigned long residentAfter = 0UL;
     /* 读之前的常驻核数。判据是"降下来了"，不是"降到 0"——见起常驻处的注释。 */
     unsigned long residentBefore = 0UL;
+    /* 等了多久其余处理器才自退。0 表示第一次采样就已经降完。 */
+    unsigned long residentSettleMs = 0UL;
     unsigned char observed = 0U;
     int rc = 1;
 
@@ -1669,15 +1838,21 @@ static int DoProbeExecuteOnly(HANDLE h, int asJson)
     /*
      * 读之前先记下常驻核数 —— 判据要的是**降下来了**，不是**降到 0**。
      *
-     * fail-closed 只退**当前这一个**处理器（hvm_resident.h:199 的注释逐字写着
-     * "Devirtualize one current processor from the VM-exit path"），驱动里那套
-     * KeIpiGenericCall 会合只服务计划内的起停/失效，不服务 fail-closed ——
-     * 那条路身处 VMX root、IRQL 不确定，本来就发不了 IPI。
-     *
-     * 于是 1 vCPU 上「退当前核」与「全停」不可区分，residentAfter==0 恰好成立；
-     * 2 vCPU 上同样的正确行为会留下另一个核仍在常驻，residentAfter==1，
-     * 旧判据据此判「未强制」——**驱动没变，判据把核数当成了常量**。
+     * 这条判据的由来：fail-closed 当初只退**当前这一个**处理器，
+     * KeIpiGenericCall 那套会合只服务计划内的起停/失效，不服务 fail-closed ——
+     * 那条路身处 VMX root、IRQL 不确定，本来就发不了 IPI。于是 1 vCPU 上
+     * 「退当前核」与「全停」不可区分，residentAfter==0 恰好成立；2 vCPU 上
+     * 同样的正确行为会留下另一个核仍在常驻，residentAfter==1，旧判据据此判
+     * 「未强制」——**驱动没变，判据把核数当成了常量**。
      * 2026-09-07 实测：1 vCPU 报 execute-only-enforced，2 vCPU 报 not-enforced。
+     *
+     * **驱动侧后来修了**：失败关闭的那个核会置位 ResidentFaultStopRequested，
+     * 其余处理器在各自下一次 VM exit 时看到并自退，现在是真正的全机停机
+     * （同日实测 2 vCPU：residentBefore=2 -> residentAfter=0）。
+     *
+     * 判据仍然保持 before -> after 的形式，**故意不改回 ==0**：它对两种行为
+     * 都成立，而 ==0 只对其中一种成立。把一条更宽的判据收紧到刚好贴合当前
+     * 实现，等于把下一次行为变化变成一次假红。
      */
     memset(&qreq, 0, sizeof(qreq));
     memset(&qrsp, 0, sizeof(qrsp));
@@ -1725,18 +1900,58 @@ static int DoProbeExecuteOnly(HANDLE h, int asJson)
     /* 这次读确实发生过，判定才有依据。 */
     probed = 1;
 
-    /* --- 5b. 立刻回读常驻状态，这才是判据 --- */
-    memset(&qreq, 0, sizeof(qreq));
-    memset(&qrsp, 0, sizeof(qrsp));
-    qreq.version = KSWORD_ARK_HVM_PROTOCOL_VERSION;
-    qreq.size = (unsigned long)sizeof(qreq);
-    if (!DeviceIoControl(h, IOCTL_KSWORD_ARK_QUERY_HVM, &qreq, sizeof(qreq),
-                         &qrsp, (DWORD)sizeof(qrsp), &returned, NULL)) {
-        fprintf(stderr, "读后 QUERY_HVM 失败：win32=%lu\n", GetLastError());
-        probed = 0;
-        goto cleanup_rules;
+    /*
+     * --- 5b. 回读常驻状态，这才是判据 ---
+     *
+     * **有界轮询，不是立刻读一次。** 全机停机是**最终一致**的，不是即时的：
+     * 失败关闭的那个核当场退出并置位 ResidentFaultStopRequested，其余处理器
+     * 要等**各自的下一次 VM exit** 才看到标志并自退 —— 从 VMX root 发不了 IPI，
+     * 这是唯一能把请求送到它们那里的通道。
+     *
+     * 于是"读完立刻采样"量到的是竞态而不是机制。2026-09-07 实测，2 vCPU 上
+     * 连跑 5 次立刻采样：4 次 residentAfter=1，1 次 =0 —— 同一个驱动、同一条
+     * 代码路径，读数却在 0 和 1 之间跳。拿其中任何一次单独下结论都是错的。
+     *
+     * 实际延迟很短：soak 量到约 5500 次退出/秒，另一个核通常在毫秒内就会撞上
+     * 一次退出。所以给一个几百毫秒的上界足够宽，同时又能把"最终退不下来"
+     * 这种真故障暴露出来。
+     *
+     * 报 waitedMs 而不是把等待藏起来：判据是"降到 0，且用了多久"，
+     * 一个悄悄重试到成功的探针跟一个假绿没有区别。
+     */
+    {
+        const unsigned long kSettleBudgetMs = 500UL;
+        const unsigned long kSettleStepMs = 10UL;
+        unsigned long waited = 0UL;
+
+        for (;;) {
+            memset(&qreq, 0, sizeof(qreq));
+            memset(&qrsp, 0, sizeof(qrsp));
+            qreq.version = KSWORD_ARK_HVM_PROTOCOL_VERSION;
+            qreq.size = (unsigned long)sizeof(qreq);
+            if (!DeviceIoControl(h, IOCTL_KSWORD_ARK_QUERY_HVM,
+                                 &qreq, sizeof(qreq),
+                                 &qrsp, (DWORD)sizeof(qrsp),
+                                 &returned, NULL)) {
+                fprintf(stderr, "读后 QUERY_HVM 失败：win32=%lu\n",
+                        GetLastError());
+                probed = 0;
+                goto cleanup_rules;
+            }
+            residentAfter = qrsp.residentProcessorCount;
+            /* 降到 0 就是终态，没有必要再等。 */
+            if (residentAfter == 0UL) {
+                break;
+            }
+            /* 预算用尽就如实报当前值，不再等。 */
+            if (waited >= kSettleBudgetMs) {
+                break;
+            }
+            Sleep(kSettleStepMs);
+            waited += kSettleStepMs;
+        }
+        residentSettleMs = waited;
     }
-    residentAfter = qrsp.residentProcessorCount;
 
     /* --- 6. 先停常驻，否则下面清规则会被拒 --- */
     (void)ProbeControl(h, KSWORD_ARK_HVM_CONTROL_STOP_RESIDENT,
@@ -1778,9 +1993,17 @@ cleanup_rules:
      * 少了 = 严格命中走了 fail-closed 退虚拟化 = 权限被真正强制。
      * 一个没少 = 那次读根本没产生 EPT 违规 = L0 没兑现被移除的权限。
      *
-     * **不能写成 residentAfter == 0**：fail-closed 只退当前那一个处理器，
-     * 所以 N 核上正确行为留下的是 N-1，不是 0。旧判据在 1 vCPU 上碰巧成立，
-     * 一上多核就把正确行为判成失败（2026-09-07 实测）。
+     * **不能写成 residentAfter == 0**，有两层理由：
+     *
+     * 一是历史的：fail-closed 当初只退当前那一个处理器，N 核上正确行为留下的
+     * 是 N-1 不是 0，旧判据在 1 vCPU 上碰巧成立，一上多核就把正确行为判成失败
+     * （2026-09-07 实测）。
+     *
+     * 二是现在仍然成立的：驱动改成全机停机之后，"降到 0"是**最终**成立而不是
+     * 立刻成立的（其余核要等各自下次 VM exit）。上面那段有界轮询把这件事测成
+     * 终态，但即使轮询超时，"少了"依然证明了 EPT 真的强制过一次 —— 那才是本
+     * 探针要回答的问题。把判据收紧到 ==0 会让一次调度抖动变成假红。
+     * 全机停机是否真的完成，看 residentAfterRead 与 residentSettleMs。
      *
      * residentBefore == 0 说明读之前那次 QUERY 就没成功，此时"少了"无从谈起，
      * 退回只看 faulted —— 缺读数时宁可判不出，也不要拿一个没有基准的差值下结论。
@@ -1793,7 +2016,7 @@ cleanup_rules:
         printf("{\"kind\":\"probe-xonly\",\"physicalAddress\":\"0x%016llX\","
                "\"ruleId\":%lu,\"requestedDenied\":1,\"effectiveDenied\":%lu,"
                "\"executeOnlyEncodable\":%s,\"residentBeforeRead\":%lu,"
-               "\"residentAfterRead\":%lu,"
+               "\"residentAfterRead\":%lu,\"residentSettleMs\":%lu,"
                "\"readFaulted\":%s,\"observedByte\":%u,\"enforced\":%s,"
                "\"verdict\":\"%s\"}\n",
                physical, ruleId, effectiveDenied,
@@ -1801,6 +2024,7 @@ cleanup_rules:
                    ? "true" : "false",
                residentBefore,
                residentAfter,
+               residentSettleMs,
                faulted ? "true" : "false",
                (unsigned)observed,
                enforced ? "true" : "false",
@@ -1826,14 +2050,16 @@ cleanup_rules:
         printf("  Q1 驱动侧   : EXECUTE 也被拒了 => 这台机器编码不出 "
                "execute-only，CLOAK 无从谈起\n");
     }
-    printf("  读回字节     : 0x%02X   常驻核数 %lu -> %lu%s\n",
+    printf("  读回字节     : 0x%02X   常驻核数 %lu -> %lu（等了 %lu ms）%s\n",
            (unsigned)observed, residentBefore, residentAfter,
+           residentSettleMs,
            faulted ? "   （读本身抛了异常）" : "");
     printf("  判据         : 常驻核数**降下来了**即视为强制生效，"
            "不是「降到 0」。\n");
-    printf("                 fail-closed 只退当前那一个处理器"
-           "（hvm_resident.h:199），\n");
-    printf("                 所以 N 核上正确行为留下的是 N-1 而不是 0。\n");
+    printf("                 失败关闭的核当场退出并置位全机停机请求，其余核要\n");
+    printf("                 等各自下次 VM exit 才自退 —— 从 VMX root 发不了\n");
+    printf("                 IPI，那是唯一的通道。所以「降到 0」是**最终**成立，\n");
+    printf("                 上面的毫秒数就是等它成立花的时间（0 = 一读就已降完）。\n");
     if (enforced) {
         printf("  Q2 L0 侧    : 那次读**产生了 EPT 违规**（常驻被 fail-closed "
                "打回原生）\n");
@@ -3246,6 +3472,8 @@ static void PrintUsage(void)
            "**正确地**拒绝）\n");
     printf("  probe-xonly      execute-only 探针（要求常驻**没在跑**；自己走完 "
            "装规则→起常驻→读→停→清）\n");
+    printf("  rule-allowonce   ALLOW_ONCE 规则**安装期**的门（要求常驻没在跑；"
+           "装上会立刻删掉）\n");
     printf("  view-query       列出已安装的 EPT 分离视图（只读，无需确认）\n");
     printf("  view-probe       分离视图安装期**归因**探针（前提：prepare 过、"
            "常驻没在跑；装上会立刻卸掉）\n");
@@ -3303,6 +3531,8 @@ int main(int argc, char** argv)
         rc = DoQuery(h, asJson);
     } else if (strcmp(cmd, "probe-xonly") == 0) {
         rc = DoProbeExecuteOnly(h, asJson);
+    } else if (strcmp(cmd, "rule-allowonce") == 0) {
+        rc = DoRuleAllowOnceGate(h, asJson);
     } else if (strcmp(cmd, "probe-platform") == 0) {
         rc = DoProbePlatform(h, asJson);
     } else if (strcmp(cmd, "probe-flags") == 0) {
