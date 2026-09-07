@@ -84,6 +84,24 @@ typedef struct _KSW_HVM_VMCS_INPUT
      */
     UCHAR EnableVmFunctions;
     USHORT Reserved;
+    /*
+     * Interrupt descriptor table to install as HOST_IDTR_BASE, or zero to keep
+     * using the guest's own.
+     *
+     * VMX root runs on whatever IDT this field names, and until now that was
+     * the guest's - which is correct for everything the host does on purpose,
+     * because the host raises no exceptions.  It stops being correct as soon
+     * as something *sends* this processor an NMI: an NMI that lands while the
+     * processor is in VMX root is not converted into a VM exit no matter what
+     * the pin controls say, so it is delivered through this IDT, and the
+     * guest's vector 2 belongs to Windows, which bugchecks 0x80 on an NMI it
+     * cannot attribute.  Measured 2026-09-07 - that is exactly how the first
+     * cross-processor flush attempt failed.
+     *
+     * A private IDT is therefore a precondition for sending NMIs at all, not
+     * an optimization.  Zero keeps the previous behavior exactly.
+     */
+    ULONGLONG HostIdtBase;
 } KSW_HVM_VMCS_INPUT;
 
 typedef struct _KSW_HVM_VMEXIT_TELEMETRY

@@ -48,6 +48,9 @@ PUBLIC KswordARKHvmAsmResidentHypercall
 PUBLIC KswordARKHvmResidentGuestResume
 PUBLIC KswordARKHvmResidentVmExitEntry
 PUBLIC KswordARKHvmAsmInveptSingle
+PUBLIC KswordARKHvmAsmHostNmiStub
+EXTERN g_KswordHvmOriginalNmiHandler:QWORD
+EXTERN g_KswordHvmPendingTlbNmi:DWORD
 
 .CODE
 
@@ -791,5 +794,64 @@ KswordARKHvmAsmForwardHypercallUnserviced:
     ; Return to the C dispatcher.
     ret
 KswordARKHvmAsmForwardHypercall ENDP
+
+;------------------------------------------------------------------------------
+; Vector 2 of the private host IDT.
+;
+; Only NMIs that arrive while this processor is in VMX **root** reach here; one
+; that arrives in non-root is converted to a VM exit by the pin control and
+; handled in C.  Both halves exist because an NMI cannot be told to wait.
+;
+; Claim one NMI this driver asked for, or forward the guest's own.
+;
+; The claim is a decrement of this processor's slot in
+; g_KswordHvmPendingTlbNmi, which the sender raised before broadcasting.
+; Decrement-then-restore rather than test-then-decrement, so two senders racing
+; cannot both claim the same delivery: the only NMI swallowed is one whose slot
+; was really positive.  Getting it wrong in the other direction is cheap - the
+; guest receives a spurious NMI, which its handler must already tolerate.
+;
+; CPUID.1:EBX[31:24] is the initial APIC id, and it is how this stub knows which
+; slot is its own.  There is no per-processor context to read here: GS is the
+; host base, and the VCPU structure is not reachable without one.  CPUID is
+; serializing and executes natively - the processor is in VMX root, so it does
+; not exit.
+;
+; Forwarding preserves the interrupt frame byte for byte: registers are restored
+; before the jump and the stack is back where the processor left it.  The IST
+; index copied from the guest descriptor already put us on the stack the real
+; handler expects.  A jump, not a call - that handler owns the IRETQ.
+;------------------------------------------------------------------------------
+KswordARKHvmAsmHostNmiStub PROC
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    ; Identify this processor without touching any per-CPU pointer.
+    mov eax, 1
+    cpuid
+    shr ebx, 24
+    and ebx, 0FFh
+    lea rax, [g_KswordHvmPendingTlbNmi]
+    ; Claim speculatively; a non-negative result means the slot really was ours.
+    lock dec DWORD PTR [rax + rbx * 4]
+    jns KswordARKHvmAsmHostNmiSwallow
+    ; Underflow: nothing was pending, so this NMI belongs to the guest.
+    lock inc DWORD PTR [rax + rbx * 4]
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
+    jmp QWORD PTR [g_KswordHvmOriginalNmiHandler]
+
+KswordARKHvmAsmHostNmiSwallow:
+    ; Ours.  Returning is the whole point: this processor already left non-root,
+    ; so its stale linear mappings die on the next VM entry.
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
+    iretq
+KswordARKHvmAsmHostNmiStub ENDP
 
 END

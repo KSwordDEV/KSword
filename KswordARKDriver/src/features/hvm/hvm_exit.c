@@ -90,6 +90,27 @@ Environment:
 /* Valid | type NMI | vector 2: the exact descriptor that redelivers an NMI. */
 #define KSW_VMX_ENTRY_INTERRUPTION_NMI 0x80000202ULL
 
+/*
+ * TLFS call codes that ask the hypervisor to invalidate translations on
+ * processors other than the caller.  Bits 15:0 of the hypercall input value,
+ * which the guest passes in RCX.
+ *
+ * These four are the whole reason the NMI machinery exists.  Every other
+ * forwarded call is a relay and nothing more; these are the ones whose effect
+ * L0 cannot deliver on our behalf, because the sibling it would have to
+ * invalidate is running our guest rather than L1 directly.
+ *
+ * Deliberately not listed: HvCallFlushGuestPhysicalAddressSpace/List.  Those
+ * name a *nested* address space, which on this machine is ours to manage - we
+ * invalidate EPT with INVEPT and never ask L0 to do it.
+ */
+#define KSW_HV_CALL_FLUSH_VA_SPACE 0x0002ULL
+#define KSW_HV_CALL_FLUSH_VA_LIST 0x0003ULL
+#define KSW_HV_CALL_FLUSH_VA_SPACE_EX 0x0013ULL
+#define KSW_HV_CALL_FLUSH_VA_LIST_EX 0x0014ULL
+/* Bits 15:0 of RCX carry the call code in both fast and slow hypercalls. */
+#define KSW_HV_CALL_CODE_MASK 0xFFFFULL
+
 /* Name architecturally common VM-exit reasons. */
 #define KSW_VMX_EXIT_EXCEPTION_OR_NMI 0UL
 /* Name the external-interrupt VM-exit reason. */
@@ -878,6 +899,9 @@ KswordARKHvmResidentVmExitDispatch(
                 KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) != 0ULL &&
             Context->Runtime->HypervisorInterfaceIsHv1 &&
             KswordARKHvmExitGuestCpl() == KSW_HVM_SUPERVISOR_CPL) {
+            /* Read the call code before forwarding overwrites the frame. */
+            ULONGLONG callCode = Frame->Rcx & KSW_HV_CALL_CODE_MASK;
+
             /* Re-issue the exact call with the guest's own operands. */
             if (KswordARKHvmAsmForwardHypercall(
                     Frame,
@@ -885,6 +909,27 @@ KswordARKHvmResidentVmExitDispatch(
                 /* Continue at the instruction following the forwarded call. */
                 handled = KswordARKHvmExitAdvanceRip(
                     telemetry.InstructionLength);
+                /*
+                 * A remote flush L0 accepted still has not reached the siblings
+                 * running as our guest, so finish what it could not: push every
+                 * other resident processor through one VM entry, which is what
+                 * actually drops their stale mappings.
+                 *
+                 * After forwarding, not instead of it - L1's own view of the
+                 * flush is L0's to maintain, and the guest is entitled to the
+                 * real hypercall result.
+                 *
+                 * Only when the forward was serviced and RIP advanced.  A
+                 * refused call flushed nothing, so there is nothing to finish
+                 * and the NMIs would be pure cost.
+                 */
+                if (handled &&
+                    (callCode == KSW_HV_CALL_FLUSH_VA_SPACE ||
+                     callCode == KSW_HV_CALL_FLUSH_VA_LIST ||
+                     callCode == KSW_HV_CALL_FLUSH_VA_SPACE_EX ||
+                     callCode == KSW_HV_CALL_FLUSH_VA_LIST_EX)) {
+                    KswordARKHvmResidentRequestTlbNmi(Context);
+                }
             } else {
                 /*
                  * Nothing answered, so deliver the architectural fault.  Record
@@ -1252,13 +1297,20 @@ KswordARKHvmResidentVmExitDispatch(
      * that control charges: having asked for the exits, we owe the guest every
      * NMI that was really meant for it.
      *
-     * Reinjecting rather than swallowing is deliberate and not yet a choice
-     * between two cases: this version sends no NMI of its own, so **every** NMI
-     * arriving here belongs to the guest.  Windows uses them for its own
-     * watchdog and machine-check paths and bugchecks on a lost one, so dropping
-     * even a single one would trade a TLB bug for a worse one.  When a sender
-     * is added it will need a per-VCPU pending count to tell its own NMI apart
-     * from the guest's, and only the former may be swallowed.
+     * Two cases, told apart by the pending-flush ledger:
+     *
+     * Ours - raised before a broadcast that followed a forwarded remote TLB
+     * flush.  Swallow it.  Swallowing *is* the point: the exit and the re-entry
+     * are the work, because without VPID a VM entry invalidates the linear
+     * mappings tagged VPID 0000H, which is exactly the stale state the
+     * forwarded flush failed to clear on this processor.
+     *
+     * The guest's - Windows uses NMIs for its own watchdog and machine-check
+     * paths and bugchecks on a lost one, so those go back untouched.
+     *
+     * The same ledger is consumed by the assembly stub for NMIs that land while
+     * this processor is in VMX root, where no exit occurs at all.  Both halves
+     * claim the same way and neither can claim a credit the other already took.
      *
      * Redelivery is safe here because we do not request virtual NMIs: the NMI
      * never reached the guest, so the processor set no NMI-blocking state that
@@ -1281,10 +1333,15 @@ KswordARKHvmResidentVmExitDispatch(
                 KSW_VMX_INTERRUPTION_TYPE_SHIFT) &
                 KSW_VMX_INTERRUPTION_TYPE_MASK) ==
                     KSW_VMX_INTERRUPTION_TYPE_NMI) {
-            /* Deliver the guest's own NMI on the next VM entry. */
-            handled = __vmx_vmwrite(
-                KSW_VMCS_ENTRY_INTERRUPTION_INFO,
-                KSW_VMX_ENTRY_INTERRUPTION_NMI) == 0U;
+            if (KswordARKHvmResidentClaimTlbNmi(Context->ApicId)) {
+                /* Ours.  The re-entry below is the flush. */
+                handled = TRUE;
+            } else {
+                /* Deliver the guest's own NMI on the next VM entry. */
+                handled = __vmx_vmwrite(
+                    KSW_VMCS_ENTRY_INTERRUPTION_INFO,
+                    KSW_VMX_ENTRY_INTERRUPTION_NMI) == 0U;
+            }
         } else {
             /*
              * An exception, or an unreadable descriptor.  The exception bitmap

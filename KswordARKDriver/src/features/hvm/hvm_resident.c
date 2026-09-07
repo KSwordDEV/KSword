@@ -247,6 +247,283 @@ KswordARKHvmResidentFindProcessor(
     return NULL;
 }
 
+#pragma pack(push, 1)
+/* The ten-byte operand SIDT stores. */
+typedef struct _KSW_HVM_IDT_REGISTER
+{
+    USHORT Limit;
+    ULONG_PTR Base;
+} KSW_HVM_IDT_REGISTER;
+
+/* One 64-bit interrupt gate. */
+typedef struct _KSW_HVM_IDT_ENTRY
+{
+    USHORT OffsetLow;
+    USHORT Selector;
+    /* Bits 2:0 select the interrupt stack table entry; the rest is type/DPL/P. */
+    USHORT IstAndType;
+    USHORT OffsetMiddle;
+    ULONG OffsetHigh;
+    ULONG Reserved;
+} KSW_HVM_IDT_ENTRY;
+#pragma pack(pop)
+
+/* A full 64-bit IDT is 256 sixteen-byte gates. */
+#define KSW_HVM_IDT_VECTOR_COUNT 256UL
+#define KSW_HVM_IDT_BYTES \
+    (KSW_HVM_IDT_VECTOR_COUNT * sizeof(KSW_HVM_IDT_ENTRY))
+/* Vector 2 is NMI. */
+#define KSW_HVM_IDT_VECTOR_NMI 2UL
+/*
+ * CPUID.1:EBX[31:24] is eight bits wide, so it addresses at most this many
+ * processors.  A machine with more logical processors than that reports its
+ * ids through CPUID leaf 0x0B instead and would alias here; the send path
+ * refuses to fire in that case rather than signalling the wrong processor.
+ */
+#define KSW_HVM_APIC_ID_CAPACITY 256UL
+
+/*
+ * Where the guest's vector 2 pointed, so the stub can forward there.
+ *
+ * Not static: hvm_entry.asm jumps through it by name.
+ */
+ULONGLONG g_KswordHvmOriginalNmiHandler = 0ULL;
+
+/* The private VMX-root IDT, or NULL while none has been built. */
+static KSW_HVM_IDT_ENTRY* g_KswordHvmHostIdt = NULL;
+
+/*
+ * How many NMIs each processor still owes to a flush this driver requested,
+ * indexed by initial APIC id.
+ *
+ * Indexed by APIC id rather than held per VCPU because both consumers have to
+ * agree and only one of them can reach a VCPU: the assembly stub runs on an
+ * interrupt frame in VMX root with the host GS base loaded and no per-processor
+ * pointer available, so CPUID.1:EBX[31:24] is the only identity it can get
+ * cheaply.  The C dispatcher indexes the same array with the id its own
+ * processor recorded at launch, so the two halves consume one ledger.
+ *
+ * Both halves are needed because an NMI cannot be told to wait: one that
+ * arrives in VMX non-root becomes a VM exit and is claimed in C, one that
+ * arrives in VMX root is delivered through the private IDT and is claimed by
+ * the stub.
+ *
+ * Not static: hvm_entry.asm addresses it by name.
+ */
+volatile LONG g_KswordHvmPendingTlbNmi[KSW_HVM_APIC_ID_CAPACITY] = { 0 };
+
+/* Read this processor's initial APIC id, the way the stub reads it. */
+static ULONG
+KswordARKHvmReadInitialApicId(
+    VOID
+    )
+{
+    int registers[4] = { 0 };
+
+    __cpuid(registers, 1);
+    return ((ULONG)registers[1] >> 24) & 0xFFUL;
+}
+
+/*
+ * Build one IDT for VMX root, copied from the running one with vector 2
+ * redirected.
+ *
+ * Why VMX root needs its own IDT at all: an NMI that arrives while this
+ * processor is in VMX root is **not** converted into a VM exit, whatever the
+ * pin controls say - it is delivered through HOST_IDTR_BASE.  That has been
+ * the guest's own table, whose vector 2 belongs to Windows, and Windows
+ * bugchecks 0x80 on an NMI it cannot attribute to a source it knows.  So a
+ * private table is a precondition for this driver ever *sending* an NMI, not
+ * an optimization.  Measured 2026-09-07: the first cross-processor flush
+ * attempt failed exactly this way.
+ *
+ * Copied rather than authored: VMX root should raise no exception at all, but
+ * "should" is not a guarantee, and a table holding only vector 2 would turn any
+ * mistake in the exit path into a triple fault - a reset with no bugcheck and
+ * no dump, the least debuggable failure this driver can produce.  Copying keeps
+ * every other vector behaving exactly as it does today, so the private table
+ * changes the behavior of NMIs and nothing else.
+ *
+ * Selector, IST index and type/DPL/present bits are preserved from the guest's
+ * own descriptor; only the 64-bit offset is rewritten.  The IST index matters
+ * most: Windows runs its NMI handler on a dedicated stack, and the stub
+ * forwards there, so the stack the processor switches to has to be the one
+ * that handler expects.
+ *
+ * One table for the whole machine.  Windows keeps the same gate layout on
+ * every processor - the per-processor half of a stack switch lives in that
+ * processor's TSS, which the IST index selects and this table does not carry.
+ *
+ * Idempotent: the first processor to reach it builds the table and the rest
+ * reuse it.  Callers hold the runtime lock.
+ */
+static NTSTATUS
+KswordARKHvmBuildHostIdtLocked(
+    VOID
+    )
+{
+    KSW_HVM_IDT_REGISTER idtr = { 0 };
+    const KSW_HVM_IDT_ENTRY* source = NULL;
+    KSW_HVM_IDT_ENTRY* target = NULL;
+    ULONGLONG stub = (ULONGLONG)(ULONG_PTR)KswordARKHvmAsmHostNmiStub;
+    ULONG copyBytes = 0UL;
+
+    /* Reuse the table the first processor built. */
+    if (g_KswordHvmHostIdt != NULL) {
+        return STATUS_SUCCESS;
+    }
+    __sidt(&idtr);
+    /* Refuse a table that cannot even hold the vector being replaced. */
+    if (idtr.Base == 0 ||
+        idtr.Limit <
+            (((KSW_HVM_IDT_VECTOR_NMI + 1UL) *
+                sizeof(KSW_HVM_IDT_ENTRY)) - 1UL)) {
+        return STATUS_NOT_SUPPORTED;
+    }
+    source = (const KSW_HVM_IDT_ENTRY*)idtr.Base;
+    /* Copy what the running table actually holds, never past its limit. */
+    copyBytes = (ULONG)idtr.Limit + 1UL;
+    if (copyBytes > (ULONG)KSW_HVM_IDT_BYTES) {
+        copyBytes = (ULONG)KSW_HVM_IDT_BYTES;
+    }
+    target = (KSW_HVM_IDT_ENTRY*)KswordARKAllocateNonPagedPool(
+        KSW_HVM_IDT_BYTES,
+        KSW_HVM_RESIDENT_POOL_TAG);
+    if (target == NULL) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    /* Vectors past the guest's limit stay zero: not present, same as absent. */
+    RtlZeroMemory(target, KSW_HVM_IDT_BYTES);
+    RtlCopyMemory(target, source, copyBytes);
+    /* Preserve the forwarding target before overwriting the descriptor. */
+    g_KswordHvmOriginalNmiHandler =
+        ((ULONGLONG)target[KSW_HVM_IDT_VECTOR_NMI].OffsetLow) |
+        (((ULONGLONG)target[KSW_HVM_IDT_VECTOR_NMI].OffsetMiddle) << 16) |
+        (((ULONGLONG)target[KSW_HVM_IDT_VECTOR_NMI].OffsetHigh) << 32);
+    /* Refuse to install a table whose forwarding target is unusable. */
+    if (g_KswordHvmOriginalNmiHandler == 0ULL) {
+        ExFreePool(target);
+        return STATUS_NOT_SUPPORTED;
+    }
+    /* Rewrite only the offset; selector, IST and type stay as they were. */
+    target[KSW_HVM_IDT_VECTOR_NMI].OffsetLow =
+        (USHORT)(stub & 0xFFFFULL);
+    target[KSW_HVM_IDT_VECTOR_NMI].OffsetMiddle =
+        (USHORT)((stub >> 16) & 0xFFFFULL);
+    target[KSW_HVM_IDT_VECTOR_NMI].OffsetHigh =
+        (ULONG)((stub >> 32) & 0xFFFFFFFFULL);
+    /* Order every descriptor byte before any processor can load the table. */
+    KeMemoryBarrier();
+    g_KswordHvmHostIdt = target;
+    return STATUS_SUCCESS;
+}
+
+/* IA32_APIC_BASE. */
+#define KSW_IA32_APIC_BASE 0x1BUL
+/* IA32_APIC_BASE bit 10: the local APIC is in x2APIC mode. */
+#define KSW_APIC_BASE_X2APIC_ENABLED (1ULL << 10)
+/* x2APIC interrupt command register, writable with a single WRMSR. */
+#define KSW_X2APIC_ICR 0x830UL
+/*
+ * Delivery mode NMI (100b at bits 10:8) plus destination shorthand
+ * "all excluding self" (11b at bits 19:18).
+ *
+ * The shorthand is what makes this affordable from a VM-exit handler: without
+ * it the sender would need a destination field per target and a loop of writes.
+ * With it there is one write and no destination to get wrong.
+ */
+#define KSW_APIC_ICR_NMI_ALL_BUT_SELF 0x000C0400ULL
+
+BOOLEAN
+KswordARKHvmResidentClaimTlbNmi(
+    _In_ ULONG ApicId
+    )
+{
+    /* Reject an identity that cannot index the ledger. */
+    if (ApicId >= KSW_HVM_APIC_ID_CAPACITY) {
+        return FALSE;
+    }
+    /*
+     * Claim speculatively and restore on underflow, matching the stub exactly.
+     * Testing first and decrementing after would let two deliveries claim one
+     * credit; this way the only NMI swallowed is one whose slot really was
+     * positive.
+     */
+    if (InterlockedDecrement(
+            &g_KswordHvmPendingTlbNmi[ApicId]) >= 0L) {
+        return TRUE;
+    }
+    InterlockedIncrement(&g_KswordHvmPendingTlbNmi[ApicId]);
+    return FALSE;
+}
+
+VOID
+KswordARKHvmResidentRequestTlbNmi(
+    _In_ KSW_HVM_RESIDENT_VCPU* Self
+    )
+{
+    ULONG index = 0UL;
+    BOOLEAN anyTarget = FALSE;
+
+    /* Reject a missing caller context before touching the ledger. */
+    if (Self == NULL) {
+        return;
+    }
+    /*
+     * Without the private IDT an NMI that lands on a target in VMX root goes
+     * to the guest's vector 2, and Windows bugchecks 0x80 on an NMI it cannot
+     * attribute.  Refusing to send is the only safe answer.
+     */
+    if (g_KswordHvmHostIdt == NULL) {
+        return;
+    }
+    /*
+     * x2APIC only.  In xAPIC mode the ICR is MMIO and would need a page mapped
+     * at prepare time; rather than half-implement that, send nothing and let
+     * the probe's violation count say whether this machine needed it.
+     */
+    if ((__readmsr(KSW_IA32_APIC_BASE) &
+            KSW_APIC_BASE_X2APIC_ENABLED) == 0ULL) {
+        return;
+    }
+    /*
+     * Publish intent before sending.  A broadcast that outran its own ledger
+     * entries would be handed to the guest as a spurious NMI - harmless, but it
+     * would also flush nothing.
+     */
+    for (index = 0UL;
+         index < g_KswordHvmResident.ProcessorCount;
+         ++index) {
+        KSW_HVM_RESIDENT_VCPU* context =
+            &g_KswordHvmResident.Processors[index];
+
+        /* Skip the processor that is asking; it flushes on its own re-entry. */
+        if (context == Self) {
+            continue;
+        }
+        /* Skip processors not in VMX non-root; they hold nothing stale. */
+        if (InterlockedCompareExchange(
+                &context->Active,
+                0L,
+                0L) == 0L) {
+            continue;
+        }
+        /* Refuse to signal a processor whose identity cannot index the ledger. */
+        if (context->ApicId >= KSW_HVM_APIC_ID_CAPACITY) {
+            continue;
+        }
+        InterlockedIncrement(
+            &g_KswordHvmPendingTlbNmi[context->ApicId]);
+        anyTarget = TRUE;
+    }
+    /* Send nothing when this processor is the only resident one. */
+    if (!anyTarget) {
+        return;
+    }
+    /* One broadcast reaches every target; there is no per-target send. */
+    __writemsr(KSW_X2APIC_ICR, KSW_APIC_ICR_NMI_ALL_BUT_SELF);
+}
+
 KSW_HVM_RESIDENT_VCPU*
 KswordARKHvmResidentFindCurrent(
     VOID
@@ -339,6 +616,17 @@ KswordARKHvmResidentPrepareContexts(
         /* Return the exact caller-contract failure. */
         return STATUS_INVALID_PARAMETER;
     }
+    /*
+     * Build the VMX-root IDT here, at PASSIVE_LEVEL, because it allocates.
+     * The processors that will load it enter VMX from an IPI worker where
+     * allocation is not available.
+     *
+     * A failure is not fatal to preparing: HostIdtBase stays zero, VMX root
+     * keeps running on the guest's table exactly as it did before, and the
+     * only capability lost is sending NMIs - which nothing does unless this
+     * succeeded.
+     */
+    (void)KswordARKHvmBuildHostIdtLocked();
     /* Release reusable stopped contexts before replacing their runtime. */
     KswordARKHvmResidentReleaseContexts();
     /* Initialize the complete process-wide resident state. */
@@ -503,6 +791,11 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
     input.GuestRflags = Context->LaunchRflags;
     /* Select resident controls rather than one-shot HLT interception. */
     input.ResidentMode = 1U;
+    /*
+     * Run VMX root on the private IDT when one was built; zero keeps the
+     * guest's table, which is what every build before this one used.
+     */
+    input.HostIdtBase = (ULONGLONG)(ULONG_PTR)g_KswordHvmHostIdt;
     /* Select nested instruction exposure only when explicitly requested. */
     input.EnableNestedVmx =
         Context->Nested.Enabled ? 1U : 0U;
@@ -871,6 +1164,13 @@ KswordARKHvmResidentStartCurrent(
         /* Publish current-VMCS evidence. */
         Context->Resource->Row.stateFlags |=
             KSWORD_ARK_HVM_CPU_STATE_VMCS_LOADED;
+        /*
+         * Record the identity the flush ledger is indexed by, before this
+         * processor can be a target.  Written here rather than at prepare
+         * because CPUID only answers for the processor executing it, and this
+         * is the point where that is guaranteed to be this context's own.
+         */
+        Context->ApicId = KswordARKHvmReadInitialApicId();
         /* Publish active ownership before any valid VM exit can occur. */
         InterlockedExchange(&Context->Active, 1L);
         /* Attempt resident VM entry through the exact assembly continuation. */

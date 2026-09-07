@@ -161,6 +161,20 @@ typedef struct _KSW_HVM_RESIDENT_VCPU
      * Active.
      */
     KSWORD_ARK_HVM_EPTSW_PROGRESS EptpSwitchProgress;
+    /*
+     * This processor's initial APIC id (CPUID.1:EBX[31:24]), captured at
+     * launch.
+     *
+     * It is the index into the pending-flush-NMI ledger, and it is recorded
+     * here so the send path can address a *remote* processor's slot - CPUID
+     * only ever answers for the processor executing it.  The receiving halves
+     * read their own id directly, so this field is written once and only ever
+     * read by senders.
+     *
+     * Appended at the end for the same reason as the fields above it: the
+     * assembly entry addresses this structure by literal offsets.
+     */
+    ULONG ApicId;
 } KSW_HVM_RESIDENT_VCPU;
 
 EXTERN_C_START
@@ -194,6 +208,36 @@ KswordARKHvmConfigureResidentVmcsFromAsm(
 NTSTATUS
 KswordARKHvmWriteResidentGuestSspFromAsm(
     _Inout_ KSW_HVM_RESIDENT_VCPU* Context
+    );
+
+/*
+ * Ask every other resident processor to pass through one VM entry, so the
+ * linear mappings a forwarded remote TLB flush just revoked are actually
+ * dropped there.
+ *
+ * Callable from the VM-exit path.  Not a rendezvous and does not wait: it
+ * raises each target's slot in the pending ledger and broadcasts one NMI with
+ * the all-excluding-self shorthand, then returns.  Waiting is what turns this
+ * into a watchdog deadlock - a remote that needs *this* processor to service
+ * something would never answer.  Not waiting leaves a window the width of NMI
+ * delivery instead of an unbounded one.
+ *
+ * Does nothing unless the private host IDT was installed: without it an NMI
+ * that lands while a target is in VMX root goes to the guest's vector 2 and
+ * Windows bugchecks 0x80.  Also does nothing when the local APIC is not in
+ * x2APIC mode - xAPIC would need a mapped MMIO page this version does not
+ * carry.  Either way the violation count `hvm_ctl tlb-probe` reports is what
+ * says whether that mattered on a given machine.
+ */
+VOID
+KswordARKHvmResidentRequestTlbNmi(
+    _In_ KSW_HVM_RESIDENT_VCPU* Self
+    );
+
+/* Claim one pending flush NMI for a processor, by its recorded APIC id. */
+BOOLEAN
+KswordARKHvmResidentClaimTlbNmi(
+    _In_ ULONG ApicId
     );
 
 /* Devirtualize one current processor from the VM-exit path. */
@@ -232,6 +276,18 @@ KswordARKHvmResidentGuestResume(
 /* Receive every resident VM exit on the processor-owned host stack. */
 VOID
 KswordARKHvmResidentVmExitEntry(
+    VOID
+    );
+
+/*
+ * Vector 2 of the private VMX-root IDT.
+ *
+ * Never called from C - its address is written into a gate descriptor, and it
+ * runs on an interrupt frame the processor pushed, so it has no C-callable
+ * signature and no return.  Declared only so the descriptor can name it.
+ */
+VOID
+KswordARKHvmAsmHostNmiStub(
     VOID
     );
 

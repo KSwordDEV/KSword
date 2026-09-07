@@ -1205,7 +1205,11 @@ KswordARKHvmConfigureVmcs(
             { KSW_VMCS_HOST_GS_BASE, (SIZE_T)gsBase },
             { KSW_VMCS_HOST_TR_BASE, (SIZE_T)tr.Base },
             { KSW_VMCS_HOST_GDTR_BASE, (SIZE_T)snapshot.Gdtr.Base },
-            { KSW_VMCS_HOST_IDTR_BASE, (SIZE_T)snapshot.Idtr.Base },
+            /* Run VMX root on the private IDT when one was built. */
+            { KSW_VMCS_HOST_IDTR_BASE,
+              (SIZE_T)(Input->HostIdtBase != 0ULL
+                  ? (ULONG_PTR)Input->HostIdtBase
+                  : (ULONG_PTR)snapshot.Idtr.Base) },
             { KSW_VMCS_HOST_SYSENTER_ESP, (SIZE_T)sysenterEsp },
             { KSW_VMCS_HOST_SYSENTER_EIP, (SIZE_T)sysenterEip },
             { KSW_VMCS_HOST_RSP, (SIZE_T)Input->HostStackPointer },
