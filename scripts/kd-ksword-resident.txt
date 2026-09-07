@@ -1,0 +1,80 @@
+$$ KSword resident-path breakpoint script.
+$$
+$$ ASCII only, on purpose. kd reads a script file as ANSI, so a UTF-8 file with
+$$ Chinese comments renders as mojibake in the kd console. Cosmetic, but it buries
+$$ the output that matters.
+$$
+$$ Also: never write the script-include token inside a comment. kd still parses it
+$$ and tries to run a nested script -- observed as a garbled echo plus
+$$ "Unable to enumerate locals, Win32 error 0n318".
+$$ Start-KswordVmDebugger.ps1 runs this file LINE BY LINE. It must not use the
+$$ variant that joins every line with semicolons: .sympath+ takes a
+$$ semicolon-separated path list, so it swallows every command that follows and
+$$ nothing gets armed.
+$$
+$$ GOAL: answer the decisive question -- did VM entry hand control to anyone?
+$$   ResidentGuestResume hit  => entry succeeded (model A: exits never come back)
+$$   ResidentVmExitEntry hit  => at least one exit was taken and dispatched
+$$   neither hit              => entry never delivered control (model B)
+$$ Breaking in AFTER the wedge is impossible -- NMI and Ctrl+C both fail and kd
+$$ reports "transport connection lost" -- so every breakpoint must be armed first.
+$$
+$$ bu, not bp: the driver service is start= demand, so the module is NOT loaded
+$$ when the debugger attaches. bp fails to resolve and silently arms nothing.
+$$ bu defers until the module loads.
+
+.echo === symbol path ===
+.symfix+ C:\symbols
+.sympath+ C:\Users\Felix\CLionProjects\KSword\Ksword5.1\x64\Release\KswordARKDriver
+
+.echo === break once when the driver loads (only then can symbols be verified) ===
+sxe ld:KswordARK.sys
+
+.echo === waypoints: print and continue ===
+bu KswordARK!KswordARKHvmResidentStart ".echo [1] ResidentStart; g"
+bu KswordARK!KswordARKHvmResidentStartCurrent ".echo [2] StartCurrent; g"
+
+$$ ConfigureVmcs auto-continues again. Already measured by hand: gu returns to
+$$ AsmLaunchResident+0x1c with eax == 0, i.e. ConfigureVmcs completes cleanly and
+$$ execution reaches the vmlaunch at +0x4d. That question is settled; do not spend
+$$ another run on it.
+$$
+$$ NEVER SINGLE-STEP IN THIS RUN. Stepping (p/t) over vmlaunch first REMOVES every
+$$ software breakpoint, so a SUCCESSFUL VM entry would not hit the guest-side
+$$ breakpoint and the reading is worthless. Measured that the hard way. Use g only.
+$$ The three breakpoints below answer the question on their own.
+bu KswordARK!KswordARKHvmConfigureResidentVmcsFromAsm ".echo [3] ConfigureVmcs; g"
+
+bu KswordARK!KswordARKHvmAsmLaunchResident ".echo [4] AsmLaunchResident (pre-vmlaunch); g"
+
+.echo === decisive one-shot breakpoints (stop, do not continue) ===
+$$ VmExitEntry fires thousands of times per second once resident. A normal
+$$ breakpoint there floods the serial link and wedges the machine by itself --
+$$ we must not manufacture a second hang to confuse the first. We only need to
+$$ know whether the FIRST one ever arrives, so use one-shot breakpoints.
+bu /1 KswordARK!KswordARKHvmResidentGuestResume
+bu /1 KswordARK!KswordARKHvmResidentVmExitEntry
+
+.echo === VMRESUME failure (should never hit) ===
+bu KswordARK!KswordARKHvmResidentVmResumeFailure
+
+.echo === breakpoint list ("u" here only means not yet resolved) ===
+bl
+
+.echo
+.echo Armed. Releasing now. In another window, in this order:
+.echo   1) .\scripts\Deploy-KswordDriverToVm.ps1
+.echo      kd breaks on module load. Then type:
+.echo          .reload /f KswordARK.sys
+.echo          bl        (breakpoints must no longer show "u")
+.echo          g
+.echo   2) .\scripts\Invoke-KswordAutomatedAcceptance.ps1 -Stage resident
+.echo
+.echo Do NOT single-step anywhere in this run. Let it run and report which of
+.echo these three fires (or that none does):
+.echo   ResidentGuestResume     -- VM entry SUCCEEDED, guest is in L2
+.echo   ResidentVmExitEntry     -- at least one exit reached the host entry
+.echo   ResidentVmResumeFailure -- VMRESUME failed (should never happen)
+.echo If one fires, capture:  r   k   and for an exit also:  rdmsr / dt
+.echo
+g
