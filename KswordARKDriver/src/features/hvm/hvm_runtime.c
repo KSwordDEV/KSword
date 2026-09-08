@@ -2440,6 +2440,8 @@ KswordARKHvmQuery(
     ULONG index = 0UL;
     ULONG eventCount = 0UL;
     ULONG droppedEventCount = 0UL;
+    ULONG overwrittenEventCount = 0UL;
+    ULONGLONG publishedEventCount = 0ULL;
 
     /* A fixed response makes status queries deterministic across UI refreshes. */
     if (Response == NULL) {
@@ -2483,10 +2485,16 @@ KswordARKHvmQuery(
         g_KswordHvm.EptRuleCount;
     KswordARKHvmEventGetCounts(
         &eventCount,
-        &droppedEventCount);
+        &droppedEventCount,
+        &overwrittenEventCount,
+        &publishedEventCount);
     Response->eventCount = eventCount;
     Response->droppedEventCount =
         droppedEventCount;
+    Response->overwrittenEventCount =
+        overwrittenEventCount;
+    Response->publishedEventCount =
+        publishedEventCount;
     Response->nestedState =
         g_KswordHvm.NestedState;
     /*
@@ -2698,6 +2706,8 @@ KswordARKHvmControl(
     ULONG oldGeneration = 0UL;
     ULONG eventCount = 0UL;
     ULONG droppedEventCount = 0UL;
+    ULONG overwrittenEventCount = 0UL;
+    ULONGLONG publishedEventCount = 0ULL;
     ULONG allowedFlags = 0UL;
 
     /* Validate the complete versioned request before acquiring the state lock. */
@@ -2787,7 +2797,13 @@ KswordARKHvmControl(
              * semantics; it only makes every exit do extra discarded VMREADs so
              * their cost shows up as reduced throughput.
              */
-            KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH;
+            KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH |
+            /*
+             * Diagnostic retention choice.  Enables no feature and changes no
+             * exit's semantics; it only decides whether routine exits occupy
+             * ring slots that the four evidence classes would otherwise hold.
+             */
+            KSWORD_ARK_HVM_CONTROL_FLAG_TRACE_ROUTINE_EXITS;
         /* Stop after selecting the resident-start flag set. */
         break;
     case KSWORD_ARK_HVM_CONTROL_SOAK:
@@ -2797,7 +2813,8 @@ KswordARKHvmControl(
             KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
             KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED |
             KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPT_EVENTS |
-            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX;
+            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX |
+            KSWORD_ARK_HVM_CONTROL_FLAG_TRACE_ROUTINE_EXITS;
         /* Stop after selecting the soak flag set. */
         break;
     case KSWORD_ARK_HVM_CONTROL_VALIDATE_NESTED:
@@ -3138,10 +3155,14 @@ Complete:
         g_KswordHvm.EptRuleCount;
     KswordARKHvmEventGetCounts(
         &eventCount,
-        &droppedEventCount);
+        &droppedEventCount,
+        &overwrittenEventCount,
+        &publishedEventCount);
     Response->eventCount = eventCount;
-    /* Keep the intentionally unreturned dropped count warning-free. */
+    /* The control response carries only the retained count; loss goes in query. */
     UNREFERENCED_PARAMETER(droppedEventCount);
+    UNREFERENCED_PARAMETER(overwrittenEventCount);
+    UNREFERENCED_PARAMETER(publishedEventCount);
     Response->eptPageCount = g_KswordHvm.EptPageCount;
     Response->eptPointer = g_KswordHvm.EptPointer;
     Response->mappedRamBytes = g_KswordHvm.MappedRamBytes;

@@ -306,20 +306,24 @@ KswordARKHvmEventQuery(
 VOID
 KswordARKHvmEventGetCounts(
     _Out_ ULONG* RetainedCount,
-    _Out_ ULONG* DroppedCount
+    _Out_ ULONG* PublicationDropCount,
+    _Out_ ULONG* OverwrittenCount,
+    _Out_ ULONGLONG* PublishedCount
     )
 {
     ULONGLONG newest = 0ULL;
     ULONGLONG oldest = 0ULL;
     ULONGLONG retained = 0ULL;
-    ULONGLONG dropped = 0ULL;
+    ULONGLONG overwritten = 0ULL;
     ULONGLONG publicationDrops = 0ULL;
     ULONG slotIndex = 0UL;
 
-    /* Reject either missing fixed output pointer. */
+    /* Reject any missing fixed output pointer. */
     if (RetainedCount == NULL ||
-        DroppedCount == NULL) {
-        /* Return without publishing a partial count pair. */
+        PublicationDropCount == NULL ||
+        OverwrittenCount == NULL ||
+        PublishedCount == NULL) {
+        /* Return without publishing a partial count set. */
         return;
     }
     /* Snapshot the newest assigned sequence with interlocked ordering. */
@@ -360,21 +364,35 @@ KswordARKHvmEventGetCounts(
             retained += 1ULL;
         }
     }
-    /* Count overwritten, unclaimed, and currently busy sequence assignments. */
-    dropped = newest > retained
+    /*
+     * Displacement by ring wrap is reported apart from publication loss.
+     *
+     * These two numbers answer different questions and were previously folded
+     * together by a max(), which made the result unreadable: a 1024-slot ring
+     * that has carried a million events reports "999k displaced" even when the
+     * consumer read every one of them before it was overwritten.  Only the
+     * publication drop count is evidence that an event was never written at
+     * all, and only that number justifies changing the ring's structure.
+     *
+     * Whether displacement is an actual loss depends on the reader's polling
+     * interval, which the driver cannot see - so the driver reports the raw
+     * displacement and leaves that judgement to the caller.
+     */
+    overwritten = newest > retained
         ? newest - retained
         : 0ULL;
-    /* Never under-report an exact failed nonblocking ownership claim. */
-    if (dropped < publicationDrops) {
-        /* Preserve the conservative exact publication-loss floor. */
-        dropped = publicationDrops;
-    }
     /* Publish the retained count within protocol width. */
     *RetainedCount = retained > MAXULONG
         ? MAXULONG
         : (ULONG)retained;
-    /* Saturate the total unavailable-sequence count within protocol width. */
-    *DroppedCount = dropped > MAXULONG
+    /* Publish exact failed nonblocking ownership claims within protocol width. */
+    *PublicationDropCount = publicationDrops > MAXULONG
         ? MAXULONG
-        : (ULONG)dropped;
+        : (ULONG)publicationDrops;
+    /* Saturate the wrap-displaced sequence count within protocol width. */
+    *OverwrittenCount = overwritten > MAXULONG
+        ? MAXULONG
+        : (ULONG)overwritten;
+    /* Publish the full-width total so the two counters have a denominator. */
+    *PublishedCount = newest;
 }

@@ -472,8 +472,7 @@ void KernelHvmTab::applyStatus(ksword::ark::HvmStatusResult result)
         kernelText(
             "kernel.hvm.summary.implementation",
             QStringLiteral(
-                "\n实现成熟度（Resident / EPT / Nested / eVMCS）："
-                "%1 / %2 / %3 / %4；驻留 CPU：%5；规则：%6；事件：%7（丢弃 %8）"))
+                "\n实现成熟度（Resident / EPT / Nested / eVMCS）：%1 / %2 / %3 / %4；驻留 CPU：%5；规则：%6；事件：%7（丢失 %8 / 环回 %9 / 累计 %10）"))
             .arg(implementationText(
                 m_snapshot.residentImplementation))
             .arg(implementationText(
@@ -485,7 +484,9 @@ void KernelHvmTab::applyStatus(ksword::ark::HvmStatusResult result)
             .arg(m_snapshot.residentProcessorCount)
             .arg(m_snapshot.eptRuleCount)
             .arg(m_snapshot.eventCount)
-            .arg(m_snapshot.droppedEventCount));
+            .arg(m_snapshot.droppedEventCount)
+            .arg(m_snapshot.overwrittenEventCount)
+            .arg(m_snapshot.publishedEventCount));
 
     const int rowCount = static_cast<int>(std::min<unsigned long>(
         m_snapshot.processorCount,

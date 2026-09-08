@@ -4283,6 +4283,8 @@ KernelOperationResult QueryHvmStatus(const KernelRequest& request) {
         { L"EptPages", std::to_wstring(response.eptPageCount) },
         { L"Events", std::to_wstring(response.eventCount) },
         { L"DroppedEvents", std::to_wstring(response.droppedEventCount) },
+        { L"OverwrittenEvents", std::to_wstring(response.overwrittenEventCount) },
+        { L"PublishedEvents", std::to_wstring(response.publishedEventCount) },
         { L"NestedState", std::to_wstring(response.nestedState) },
         { L"EvmcsState", std::to_wstring(response.evmcsState) },
         { L"FeatureFlags", HexText(response.featureFlags) },

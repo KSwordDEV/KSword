@@ -92,7 +92,7 @@ QString KernelHvmTab::buildDetail(
         "kernel.hvm.detail.experimental",
         QStringLiteral(
             "\n\nResident 实现：%1（CPU %2）"
-            "\nEPT 实现：%3；规则 %4；事件 %5；丢弃 %6"
+            "\nEPT 实现：%3；规则 %4；事件 %5；丢失 %6；环回 %14；累计 %15"
             "\nNested 实现：%7；状态 %8"
             "\neVMCS 实现：%9；状态 %10；版本 %11；标志 0x%12"
             "\nVP-assist MSR：0x%13"
@@ -118,7 +118,11 @@ QString KernelHvmTab::buildDetail(
         .arg(QString::number(response.evmcsFlags, 16).toUpper())
         .arg(QString::number(
             response.evmcsVpAssistMsr,
-            16).toUpper());
+            16).toUpper())
+        // 环回与累计排在最后：QString::arg 按占位符编号消费，与文本位置无关，
+        // 插在中间会逼着后面十个占位符全部重编号。
+        .arg(response.overwrittenEventCount)
+        .arg(response.publishedEventCount);
     return detail;
 }
 

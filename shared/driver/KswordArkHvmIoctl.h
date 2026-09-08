@@ -432,6 +432,23 @@
  * 一次被夹住的测量，而不是一台需要重启的机器。
  */
 #define KSWORD_ARK_HVM_VMREAD_BENCH_MAX 4096UL
+/*
+ * 把每一条普通退出也逐条写进事件环。默认关闭。
+ *
+ * 关掉它不是为了省开销，是为了让环还能装得下证据。实测（2026-09-07，2 vCPU、
+ * 30 秒常驻）：发布 682829 条、抢槽失败 0 条、被环回挤掉 681805 条。也就是说
+ * 环从来没有写不进去的问题，它的问题是**一秒钟轮空二十二次** —— 1024 个槽在
+ * 22750 次/秒的退出率下 45 毫秒就翻一遍。
+ *
+ * 而这 68 万条几乎全是同一类：普通退出（type VMEXIT）。它们的聚合答案退出原因
+ * 直方图已经免费给了，逐条留着只做一件事——把 EPT 违例、嵌套 VMX、致命退出、
+ * 生命周期这四类真正稀有的证据在 45 毫秒内挤出去。查一次罕见事件要求轮询快过
+ * 环的翻转速度，这个条件在实机上没法成立。
+ *
+ * 所以默认只留那四类，普通退出交给直方图与 lastExit* 字段。需要逐条轨迹时置位
+ * 本位，行为回到原来的样子——**能力没有被删掉，只是不再是默认**。
+ */
+#define KSWORD_ARK_HVM_CONTROL_FLAG_TRACE_ROUTINE_EXITS 0x00001000UL
 
 #define KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN 0x48564D43UL
 
@@ -619,7 +636,37 @@ typedef struct _KSWORD_ARK_QUERY_HVM_RESPONSE
     unsigned long evmcsImplementation;
     unsigned long eptRuleCount;
     unsigned long eventCount;
+    /*
+     * Events a VM exit tried to publish and could not - the only real loss.
+     *
+     * A publisher in VMX root never waits, so when it finds its slot owned by
+     * another processor it discards the event and counts it here.  A nonzero
+     * value is contention: two processors mapped to the same slot at the same
+     * moment.  This is the number that justifies changing the ring's shape.
+     *
+     * This field used to carry max(displacement, publication loss), which made
+     * it unreadable - displacement dominates by three orders of magnitude and
+     * is not necessarily a loss at all, so the combined number always looked
+     * catastrophic and never distinguished the two causes.
+     */
     unsigned long droppedEventCount;
+    /*
+     * Events pushed out of the ring by wrap since residency started.
+     *
+     * Not a loss on its own: a consumer polling faster than the ring fills has
+     * already read them.  It becomes a loss exactly when it grows between two
+     * consecutive reads by more than the ring capacity, which is a comparison
+     * only the caller can make because only the caller knows its own interval.
+     */
+    unsigned long overwrittenEventCount;
+    /*
+     * Total events ever published, as the denominator for the two above.
+     *
+     * Full width rather than 32-bit: at the exit rates measured under nested
+     * virtualization a 32-bit total wraps within hours, and a wrapped total
+     * silently turns both ratios above into nonsense.
+     */
+    unsigned long long publishedEventCount;
     unsigned long nestedState;
     unsigned long evmcsState;
     unsigned short evmcsVersion;

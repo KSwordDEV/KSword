@@ -45,11 +45,19 @@ KswordARKHvmEventQuery(
     _Out_ KSWORD_ARK_HVM_EVENT_QUERY_RESPONSE* Response
     );
 
-/* Return current retained and overwritten/unavailable event counts. */
+/*
+ * Return the four event-ring counts as separate numbers.
+ *
+ * PublicationDropCount is the only one that means an event was never written.
+ * OverwrittenCount is ring wrap, which is a loss only if the reader is slower
+ * than the ring; PublishedCount is the denominator for both.
+ */
 VOID
 KswordARKHvmEventGetCounts(
     _Out_ ULONG* RetainedCount,
-    _Out_ ULONG* DroppedCount
+    _Out_ ULONG* PublicationDropCount,
+    _Out_ ULONG* OverwrittenCount,
+    _Out_ ULONGLONG* PublishedCount
     );
 
 EXTERN_C_END

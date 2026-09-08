@@ -704,6 +704,19 @@ KswordARKHvmResidentPrepareContexts(
         ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH) != 0UL)
             ? 1L
             : 0L);
+    /*
+     * Publish whether routine exits go into the ring, before the first exit.
+     *
+     * Set per resident start rather than sticky, so a run that did not ask for
+     * a trace never inherits one from an earlier run - a trace silently left on
+     * would fill the ring and evict exactly the evidence the next run is
+     * looking for, which is the failure this default exists to prevent.
+     */
+    InterlockedExchange(
+        &Runtime->TraceRoutineExits,
+        ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_TRACE_ROUTINE_EXITS) != 0UL)
+            ? 1L
+            : 0L);
     /* Allocate and initialize one host stack per prepared processor. */
     for (index = 0UL;
          index < Runtime->ProcessorCount;

@@ -463,8 +463,34 @@ KswordARKHvmExitPublishTelemetry(
         Telemetry->Qualification;
     /* Preserve the authoritative dispatch status. */
     eventRow.status = Status;
-    /* Publish the complete nonblocking event row. */
-    KswordARKHvmEventPublish(&eventRow);
+    /*
+     * A routine exit reaches the ring only when a trace was asked for.
+     *
+     * Everything above this point still runs for every exit: the counters, the
+     * lastExit* fields and the per-reason histogram are untouched, so "how many
+     * exits", "what was the most recent one" and "where do they go" all answer
+     * exactly as before.  What changes is only which rows occupy the 1024 ring
+     * slots.
+     *
+     * Measured 2026-09-07 on 2 vCPU over 30 s of residency: 682829 published,
+     * 0 that failed to claim a slot, 681805 pushed out by wrap.  The ring never
+     * had a write problem - it turns over about twenty-two times a second, and
+     * virtually all of that volume is this one routine class.  Keeping it meant
+     * an EPT violation, a nested VMX instruction, a fatal exit or a lifecycle
+     * event survived roughly 45 ms, so reading any of them required polling
+     * faster than the ring wraps.  That is not a condition a user-mode reader
+     * can meet on a real machine.
+     *
+     * The four evidence classes are rare by construction and are always kept.
+     */
+    if (eventRow.type != KSWORD_ARK_HVM_EVENT_TYPE_VMEXIT ||
+        InterlockedCompareExchange(
+            &Context->Runtime->TraceRoutineExits,
+            0L,
+            0L) != 0L) {
+        /* Publish the complete nonblocking event row. */
+        KswordARKHvmEventPublish(&eventRow);
+    }
     /* Publish protocol-visible event availability. */
     InterlockedOr(
         (volatile LONG*)&Context->Runtime->StateFlags,

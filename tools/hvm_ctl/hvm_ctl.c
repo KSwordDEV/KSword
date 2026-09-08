@@ -102,6 +102,17 @@ static const HVM_CTL_VERB g_Verbs[] = {
       KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED |
       KSWORD_ARK_HVM_CONTROL_FLAG_VMREAD_BENCH,
       "同 resident，但每次退出多做 N 次 VMREAD（第二个参数给 N，缺省 512；只为测量，会变慢）" },
+    /*
+     * 同样单独一个动词：常驻默认只把四类证据事件写进环，普通退出交给直方图。
+     * 要逐条轨迹时用这个，环会在几十毫秒内被普通退出填满——那正是默认关掉它的
+     * 原因，也正是偶尔需要它的原因。
+     */
+    { "resident-trace", KSWORD_ARK_HVM_CONTROL_START_RESIDENT,
+      KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED |
+      KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
+      KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED |
+      KSWORD_ARK_HVM_CONTROL_FLAG_TRACE_ROUTINE_EXITS,
+      "同 resident，但普通退出也逐条进事件环（环会几十毫秒翻一遍，只在要轨迹时用）" },
     { "soak",        KSWORD_ARK_HVM_CONTROL_SOAK,
       KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED |
       KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
@@ -927,7 +938,9 @@ static int DoQuery(HANDLE h, int asJson)
                "\"cr4Fixed0\":\"0x%016llX\",\"cr4Fixed1\":\"0x%016llX\","
                "\"lastVmInstructionError\":%lu,"
                "\"eventCount\":%lu,"
-               "\"droppedEventCount\":%lu",
+               "\"droppedEventCount\":%lu,"
+               "\"overwrittenEventCount\":%lu,"
+               "\"publishedEventCount\":%llu",
                rsp.generation, rsp.processorCount,
                rsp.preparedProcessorCount, rsp.selfTestPassedProcessorCount,
                rsp.residentProcessorCount,
@@ -949,7 +962,8 @@ static int DoQuery(HANDLE h, int asJson)
                rsp.cr0Fixed0, rsp.cr0Fixed1,
                rsp.cr4Fixed0, rsp.cr4Fixed1,
                rsp.lastVmInstructionError,
-               rsp.eventCount, rsp.droppedEventCount);
+               rsp.eventCount, rsp.droppedEventCount,
+               rsp.overwrittenEventCount, rsp.publishedEventCount);
         /*
          * 只发非零项，键是退出原因编号。
          *

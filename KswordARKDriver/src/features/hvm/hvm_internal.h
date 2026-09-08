@@ -644,6 +644,13 @@ typedef struct _KSW_HVM_RUNTIME
      * 调用形式。
      */
     volatile LONG VmreadBenchIterations;
+    /*
+     * 非零时把普通退出也逐条写进事件环；默认零，只留四类证据事件。
+     *
+     * 和上面两个字段同样放在 runtime 上：退出派发器看不见常驻模块自己的标志位，
+     * 而这一个必须在**每次**退出的发布点被读到。
+     */
+    volatile LONG TraceRoutineExits;
     /* Preserve IA32_VMX_VMFUNC evidence; bit 0 is EPTP switching. */
     ULONGLONG VmFunctionCapabilities;
     /* Retain the 512-entry EPTP list published to VMFUNC. */
