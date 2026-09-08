@@ -1742,7 +1742,14 @@ typedef struct _KSWORD_ARK_HVM_INJECT_ROW
     unsigned long long executionCount;
     /* 这次注入占用的执行视图标识。 */
     unsigned long viewId;
-    unsigned long reserved;
+    /*
+     * 这段空隙是由哪种填充字节构成的：0x00 / 0xCC / 0x90。
+     *
+     * 回报它是为了归因：0xCC 与 0x90 是编译器在函数之间放的对齐填充，0x00 多半
+     * 是节尾或未初始化区域。出问题时"用的是哪一种"决定了该怀疑什么——比如在
+     * 一段本该是填充的 0xCC 上出事，要查的是那里是不是其实嵌着数据。
+     */
+    unsigned long caveFiller;
 } KSWORD_ARK_HVM_INJECT_ROW;
 
 typedef struct _KSWORD_ARK_HVM_INJECT_REQUEST

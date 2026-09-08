@@ -1413,8 +1413,20 @@ KswordARKHvmIoctlProcess(
         processResponse);
     /* 协议层结果一律回报定长完成长度。 */
     *BytesReturned = sizeof(*processResponse);
+    /*
+     * 语义层的拒绝要以**协议层成功**完成，否则响应回不来。
+     *
+     * 后端对"目标受保护""前提没满足"这类情形返回的是真正的 NTSTATUS 失败码。
+     * 照原样往外传，I/O 管理器就不回拷输出缓冲区——调用方拿到的是 returned=0
+     * 加一个笼统的 Win32 码，而真正说明了原因的那个协议状态码，恰恰在没被回拷
+     * 的那块缓冲区里。
+     *
+     * 响应已经填好了、它自己带着结论，所以这里一律以成功完成。缓冲区取不到、
+     * 授权不过这类**协议层之前**的失败仍然照原样返回——那些情形下没有响应。
+     */
+    UNREFERENCED_PARAMETER(status);
     /* 返回完整的进程处置操作结果。 */
-    return status;
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS
@@ -1535,6 +1547,8 @@ KswordARKHvmIoctlInject(
         injectResponse);
     ExFreePool(requestSnapshot);
     *BytesReturned = sizeof(*injectResponse);
+    /* 与进程处置同一条规矩：语义层拒绝以协议层成功完成，响应才回得来。 */
+    UNREFERENCED_PARAMETER(status);
     /* 返回完整的注入操作结果。 */
-    return status;
+    return STATUS_SUCCESS;
 }

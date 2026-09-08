@@ -4031,13 +4031,14 @@ static void PrintInjectTable(const KSWORD_ARK_HVM_INJECT_RESPONSE* rsp, int asJs
                    "\"directoryBase\":\"0x%016llX\","
                    "\"guestLinearAddress\":\"0x%016llX\","
                    "\"guestPhysicalAddress\":\"0x%016llX\","
-                   "\"caveOffset\":%lu,\"caveBytes\":%lu,"
+                   "\"caveOffset\":%lu,\"caveBytes\":%lu,\"caveFiller\":%lu,"
                    "\"executionCount\":%llu,\"viewId\":%lu}",
                    (i == 0UL) ? "" : ",",
                    rsp->rows[i].processId, rsp->rows[i].payloadBytes,
                    rsp->rows[i].directoryBase, rsp->rows[i].guestLinearAddress,
                    rsp->rows[i].guestPhysicalAddress,
                    rsp->rows[i].caveOffset, rsp->rows[i].caveBytes,
+                   rsp->rows[i].caveFiller,
                    rsp->rows[i].executionCount, rsp->rows[i].viewId);
         }
         printf("]}\n");
@@ -4057,8 +4058,9 @@ static void PrintInjectTable(const KSWORD_ARK_HVM_INJECT_RESPONSE* rsp, int asJs
                rsp->rows[i].processId, rsp->rows[i].directoryBase,
                rsp->rows[i].guestPhysicalAddress,
                rsp->rows[i].guestLinearAddress);
-        printf("           空隙偏移=%lu 长度=%lu 载荷=%lu 执行=%llu 视图#%lu\n",
+        printf("           空隙偏移=%lu 长度=%lu 填充=0x%02lX 载荷=%lu 执行=%llu 视图#%lu\n",
                rsp->rows[i].caveOffset, rsp->rows[i].caveBytes,
+               rsp->rows[i].caveFiller,
                rsp->rows[i].payloadBytes, rsp->rows[i].executionCount,
                rsp->rows[i].viewId);
     }

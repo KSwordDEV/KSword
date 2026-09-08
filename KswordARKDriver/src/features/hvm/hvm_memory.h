@@ -63,11 +63,19 @@ KswordARKHvmMemoryResolveProcessDirectoryBase(
  * 用给定的层次基址翻译一个虚拟地址。大页在终止走表的那一级解析，所以 2 MiB
  * 与 1 GiB 映射得到的物理地址与处理器算出来的一致。
  */
+/*
+ * LeafEntry 给出终止这次走表的那一项，可以传 NULL 不要。
+ *
+ * R-1 注入跨页找空隙时必须看它：候选页要既可执行（NX 位为零）又是用户页
+ * （U/S 位置位）。只拿到物理地址判断不了这两件事，而把载荷放进一页不可执行的
+ * 内存里，表现是注入装上了却永远不触发——和成功在外面看不出区别。
+ */
 NTSTATUS
 KswordARKHvmMemoryTranslate(
     _In_ ULONGLONG DirectoryBase,
     _In_ ULONGLONG VirtualAddress,
-    _Out_ ULONGLONG* PhysicalAddress
+    _Out_ ULONGLONG* PhysicalAddress,
+    _Out_opt_ ULONGLONG* LeafEntry
     );
 
 EXTERN_C_END

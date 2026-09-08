@@ -30,6 +30,23 @@ Environment:
 #define KSW_HVM_INJECT_PID_IDLE 0UL
 #define KSW_HVM_INJECT_PID_SYSTEM 4UL
 
+/* 客户页表项：NX 在最高位，U/S 是第 2 位。 */
+#define KSW_HVM_INJECT_PTE_NO_EXECUTE 0x8000000000000000ULL
+#define KSW_HVM_INJECT_PTE_USER 0x0000000000000004ULL
+
+/*
+ * 跨页找空隙时最多往前看多少页。
+ *
+ * 填充在节的末尾，而正在执行的那一页通常在节中间，所以要往**高地址**方向找。
+ * 512 页是 2 MiB：足以覆盖绝大多数模块的 .text，而每页只是一次走表加一次读页，
+ * 都发生在 PASSIVE 的安装路径上，只做一次。
+ *
+ * 设上限而不是一直找到不可执行为止：走表会跨过节边界进到别的节甚至别的模块，
+ * 那里就算有空隙也不该用——外壳与被劫持的代码离得越远，越可能落在一个生命周期
+ * 完全不同的映射上（比如一张随时会被换出的页）。
+ */
+#define KSW_HVM_INJECT_MAX_CAVE_SCAN_PAGES 512UL
+
 /*
  * 外壳的固定开销。
  *
@@ -69,8 +86,27 @@ typedef struct _KSW_HVM_INJECT_SLOT
     ULONG CaveBytes;
     /* 结尾那条 jmp rel32 的操作数在页内的偏移，违规时把返回位移回填到这里。 */
     ULONG ReturnSlotOffset;
-    /* 本条占用的执行视图标识。 */
+    /*
+     * 触发页的执行视图标识。
+     *
+     * 触发页就是调用方指定的那一页——被劫持的线程此刻在执行它。它的影子与真页
+     * 逐字节相同，装视图的唯一目的是拿到一次取指违规，好在那一刻改 RIP。
+     */
     ULONG ViewId;
+    /*
+     * 空隙页的执行视图标识；空隙与触发同页时为零。
+     *
+     * 真实模块里这两页通常**不是同一页**：正在执行的那一页整页都是代码，而填充
+     * 在节的末尾页上。所以外壳装在空隙页的影子里，RIP 指到那边去。
+     */
+    ULONG CaveViewId;
+    /* 空隙页的客户线性地址，页对齐。RIP 由它加偏移算出。 */
+    ULONGLONG CaveGuestLinearAddress;
+    /* 空隙页的客户物理地址，页对齐。 */
+    ULONGLONG CaveGuestPhysicalAddress;
+    /* 这段空隙由哪种填充字节构成：0x00 / 0xCC / 0x90。 */
+    UCHAR CaveFiller;
+    UCHAR Reserved1[3];
     /* 目标地址空间，已掩成层次物理页帧。 */
     ULONGLONG DirectoryBase;
     /* 被劫持那一页的客户物理地址，页对齐。 */
@@ -150,52 +186,91 @@ KswordARKHvmInjectEmit64(
 }
 
 /*
- * 在页里找一段足够长的空隙。
+ * 认哪些字节算"填充"。
  *
- * 只认连续的零字节，并且要求至少 KSWORD_ARK_HVM_INJECT_MIN_CAVE_BYTES 长：太短
- * 的一段零多半不是节尾填充，而是真代码里恰好连续的零，写进去就是把目标打死。
+ * 只认零是不够的：真实模块的 .text 页里几乎没有连续的零，而**函数之间的对齐填充
+ * 到处都是**——MSVC 用 0xCC（int3），有些工具链用 0x90（nop），节尾与未初始化
+ * 区域才是零。原先只认零，等于把最常见的那种空隙排除在外，于是除了专门准备的
+ * 空白页以外一律 NO_CAVE。
  *
- * 从页尾往前找。节尾填充在页的后半段，而页的前半段更可能是正在执行的代码——
- * 被劫持的线程此刻的 RIP 就在这一页上。
+ * 认这三种是安全的，理由不在"猜得准"，而在这套视图的性质：**数据读永远走真页**。
+ * 即使某处 0xCC 其实是 .text 里嵌的常量数据，读它的人读到的仍然是真页上的原值——
+ * 我们只改影子。唯一会出事的情形是那段被**执行**，而填充按定义不会被执行到
+ * （0xCC 真被执行会直接断到调试器）。
+ */
+static BOOLEAN
+KswordARKHvmInjectIsFiller(
+    _In_ UCHAR Value
+    )
+{
+    /* 返回这个字节是否属于三种填充之一。 */
+    return (BOOLEAN)(Value == 0x00U || Value == 0xCCU || Value == 0x90U);
+}
+
+/*
+ * 在页里找一段足够长、且由**同一种**填充字节构成的空隙。
+ *
+ * 要求同一种而不是"三种混着算"：混着的一段多半不是填充，而是恰好相邻的真代码或
+ * 数据（0x90 是 nop，0xCC 是 int3，两者混排在正常填充里不出现）。这一条把误判的
+ * 面收窄了很多，代价只是偶尔少认一段本来也能用的空隙。
+ *
+ * 同时要求至少 KSWORD_ARK_HVM_INJECT_MIN_CAVE_BYTES 长：太短的一段多半是真代码里
+ * 恰好连续的相同字节。
+ *
+ * 从页尾往前找。填充更多出现在页的后半段，而前半段更可能是正在执行的代码——被
+ * 劫持的线程此刻的 RIP 就在这一页上。
  */
 static BOOLEAN
 KswordARKHvmInjectFindCave(
     _In_reads_(KSWORD_ARK_HVM_VIEW_PAGE_BYTES) const UCHAR* Page,
     _In_ ULONG NeededBytes,
-    _Out_ ULONG* CaveOffset
+    _Out_ ULONG* CaveOffset,
+    _Out_ UCHAR* CaveFiller
     )
 {
-    ULONG runEnd = KSWORD_ARK_HVM_VIEW_PAGE_BYTES;
-    ULONG index = 0UL;
+    ULONG index = KSWORD_ARK_HVM_VIEW_PAGE_BYTES;
+    /*
+     * 两个下限取大者：既要放得下外壳与载荷，也要长到不像巧合。
+     * 短于 MIN_CAVE 的一段同值字节多半是真代码，不是填充。
+     */
+    const ULONG required =
+        (NeededBytes > KSWORD_ARK_HVM_INJECT_MIN_CAVE_BYTES)
+            ? NeededBytes
+            : KSWORD_ARK_HVM_INJECT_MIN_CAVE_BYTES;
 
     *CaveOffset = 0UL;
+    *CaveFiller = 0U;
     /* 需要的长度超过一页时无从谈起。 */
     if (NeededBytes == 0UL ||
-        NeededBytes > KSWORD_ARK_HVM_VIEW_PAGE_BYTES) {
+        required > KSWORD_ARK_HVM_VIEW_PAGE_BYTES) {
         /* 返回未找到。 */
         return FALSE;
     }
-    for (index = KSWORD_ARK_HVM_VIEW_PAGE_BYTES; index > 0UL; --index) {
-        if (Page[index - 1UL] != 0U) {
-            /* 一段零结束了，看它够不够长。 */
-            const ULONG runLength = runEnd - index;
+    while (index > 0UL) {
+        const UCHAR filler = Page[index - 1UL];
+        ULONG runStart = index;
 
-            if (runLength >= NeededBytes &&
-                runLength >= KSWORD_ARK_HVM_INJECT_MIN_CAVE_BYTES) {
-                /* 落在这段零的起点上，后面留出的都是空隙。 */
-                *CaveOffset = index;
-                /* 返回找到。 */
-                return TRUE;
-            }
-            runEnd = index - 1UL;
+        if (!KswordARKHvmInjectIsFiller(filler)) {
+            /* 不是填充，往前挪一格继续找。 */
+            index -= 1UL;
+            continue;
         }
-    }
-    /* 整页都是零也算——那多半是一张还没写过的页。 */
-    if (runEnd >= NeededBytes &&
-        runEnd >= KSWORD_ARK_HVM_INJECT_MIN_CAVE_BYTES) {
-        *CaveOffset = 0UL;
-        /* 返回找到。 */
-        return TRUE;
+        /* 往前扩到这一段同值填充的起点。 */
+        while (runStart > 0UL && Page[runStart - 1UL] == filler) {
+            runStart -= 1UL;
+        }
+        if ((index - runStart) >= required) {
+            /*
+             * 落在这一段的起点上。用起点而不是"末尾往回数 NeededBytes"，是为了
+             * 让外壳整体落在填充里，而不是一半压在填充、一半压在后面那段真内容上。
+             */
+            *CaveOffset = runStart;
+            *CaveFiller = filler;
+            /* 返回找到。 */
+            return TRUE;
+        }
+        /* 这一段不够长，从它的起点之前接着找。 */
+        index = runStart;
     }
     /* 返回未找到。 */
     return FALSE;
@@ -436,15 +511,27 @@ KswordARKHvmInjectReleaseSlotLocked(
     KSWORD_ARK_HVM_VIEW_REQUEST viewRequest = { 0 };
     KSWORD_ARK_HVM_VIEW_RESPONSE viewResponse = { 0 };
 
-    /* 先摘视图再清记录：反过来会丢掉视图标识而泄露一张影子页。 */
+    /*
+     * 先摘视图再清记录：反过来会丢掉视图标识而泄露影子页。
+     *
+     * 空隙与触发不同页时有**两张**视图，两张都要摘。只摘一张的后果是目标里留着
+     * 一段谁也不会再跳进去的代码，而它占着一张影子页直到常驻拆卸。
+     */
+    viewRequest.version = KSWORD_ARK_HVM_VIEW_PROTOCOL_VERSION;
+    viewRequest.size = sizeof(viewRequest);
+    viewRequest.operation = KSWORD_ARK_HVM_VIEW_OP_REMOVE;
+    viewRequest.flags = KSWORD_ARK_HVM_VIEW_FLAG_UI_CONFIRMED;
+    viewRequest.confirmationToken =
+        KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+    if (Slot->CaveViewId != 0UL) {
+        viewRequest.viewId = Slot->CaveViewId;
+        (void)KswordARKHvmEptViewControlLocked(
+            Runtime,
+            &viewRequest,
+            &viewResponse);
+    }
     if (Slot->ViewId != 0UL) {
-        viewRequest.version = KSWORD_ARK_HVM_VIEW_PROTOCOL_VERSION;
-        viewRequest.size = sizeof(viewRequest);
-        viewRequest.operation = KSWORD_ARK_HVM_VIEW_OP_REMOVE;
         viewRequest.viewId = Slot->ViewId;
-        viewRequest.flags = KSWORD_ARK_HVM_VIEW_FLAG_UI_CONFIRMED;
-        viewRequest.confirmationToken =
-            KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
         (void)KswordARKHvmEptViewControlLocked(
             Runtime,
             &viewRequest,
@@ -467,13 +554,20 @@ KswordARKHvmInjectFillRow(
     Row->processId = Slot->ProcessId;
     Row->payloadBytes = Slot->PayloadBytes;
     Row->directoryBase = Slot->DirectoryBase;
-    Row->guestLinearAddress = Slot->GuestLinearAddress;
-    Row->guestPhysicalAddress = Slot->GuestPhysicalAddress;
+    /*
+     * 回报的是**空隙页**的地址，不是触发页。
+     *
+     * 排查时想知道的是"外壳落在哪里"——那是唯一被改过内容的地方。触发页的影子
+     * 与真页逐字节相同，报它只会让人以为那一页被动过。
+     */
+    Row->guestLinearAddress = Slot->CaveGuestLinearAddress;
+    Row->guestPhysicalAddress = Slot->CaveGuestPhysicalAddress;
     Row->caveOffset = Slot->CaveOffset;
     Row->caveBytes = Slot->CaveBytes;
     Row->executionCount = (ULONGLONG)InterlockedCompareExchange64(
         (volatile LONG64*)&Slot->ExecutionCount, 0LL, 0LL);
     Row->viewId = Slot->ViewId;
+    Row->caveFiller = (unsigned long)Slot->CaveFiller;
 }
 
 /* 把整张表写进响应。 */
@@ -522,8 +616,15 @@ KswordARKHvmInjectArmLocked(
     ULONGLONG directoryBase = 0ULL;
     ULONGLONG guestPhysical = 0ULL;
     ULONGLONG physicalPage = 0ULL;
+    ULONGLONG physicalPageVa = 0ULL;
+    ULONGLONG cavePageVa = 0ULL;
+    ULONGLONG cavePagePhysical = 0ULL;
+    ULONG caveViewId = 0UL;
+    ULONG triggerViewId = 0UL;
+    ULONG neededBytes = 0UL;
     SIZE_T copied = 0U;
     ULONG caveOffset = 0UL;
+    UCHAR caveFiller = 0U;
     ULONG shellBytes = 0UL;
     ULONG returnSlotOffset = 0UL;
     ULONG index = 0UL;
@@ -605,7 +706,8 @@ KswordARKHvmInjectArmLocked(
     status = KswordARKHvmMemoryTranslate(
         directoryBase,
         Request->guestLinearAddress,
-        &guestPhysical);
+        &guestPhysical,
+        NULL);
     if (!NT_SUCCESS(status)) {
         Response->status =
             KSWORD_ARK_HVM_INJECT_STATUS_TRANSLATION_FAILED;
@@ -614,6 +716,9 @@ KswordARKHvmInjectArmLocked(
         return status;
     }
     physicalPage = guestPhysical & KSW_HVM_INJECT_PAGE_MASK;
+    physicalPageVa =
+        Request->guestLinearAddress & KSW_HVM_INJECT_PAGE_MASK;
+    neededBytes = KswordARKHvmInjectNeededBytes(Request);
     /*
      * 影子先在非分页内存里拼好，再交给视图后端。
      *
@@ -649,15 +754,86 @@ KswordARKHvmInjectArmLocked(
         /* 返回明确的取页失败。 */
         return NT_SUCCESS(status) ? STATUS_PARTIAL_COPY : status;
     }
-    /* 找空隙。找不到就在装任何东西之前拒绝。 */
+    /*
+     * 找空隙：先看触发页自己，再往高地址方向逐页找。
+     *
+     * 真实模块里触发页通常整页都是代码——正在执行的那一页在节中间，而填充在节的
+     * 末尾页上。所以"只在触发页里找"这条在专门准备的空白页之外几乎必然 NO_CAVE，
+     * 实测就是这样。
+     *
+     * 往高地址找是因为填充在节尾。每个候选页要同时满足三条：翻译得出来、可执行
+     * （NX 为零）、是用户页（U/S 置位）。后两条不能省——把外壳放进一页不可执行
+     * 的内存里，表现是注入装上了却永远不触发，与成功在外面看不出区别。
+     */
+    cavePageVa = physicalPageVa;
+    cavePagePhysical = physicalPage;
     if (!KswordARKHvmInjectFindCave(
             shadow,
-            KswordARKHvmInjectNeededBytes(Request),
-            &caveOffset)) {
-        ExFreePool(shadow);
-        Response->status = KSWORD_ARK_HVM_INJECT_STATUS_NO_CAVE;
-        /* 返回明确的空隙不足。 */
-        return STATUS_NOT_FOUND;
+            neededBytes,
+            &caveOffset,
+            &caveFiller)) {
+        ULONG scan = 0UL;
+        BOOLEAN found = FALSE;
+
+        for (scan = 1UL;
+             scan <= KSW_HVM_INJECT_MAX_CAVE_SCAN_PAGES;
+             ++scan) {
+            const ULONGLONG candidateVa = physicalPageVa +
+                ((ULONGLONG)scan * KSWORD_ARK_HVM_VIEW_PAGE_BYTES);
+            ULONGLONG candidatePhysical = 0ULL;
+            ULONGLONG candidateEntry = 0ULL;
+
+            if (!NT_SUCCESS(KswordARKHvmMemoryTranslate(
+                    directoryBase,
+                    candidateVa,
+                    &candidatePhysical,
+                    &candidateEntry))) {
+                /*
+                 * 跳过而不是停下。映像页是按需调入的：一页从没被访问过，它的
+                 * 页表项就还不是"存在"的形态，而我们要找的节尾填充恰恰在那些
+                 * 很少被执行到的页上。原先在这里 break，等于扫到第一页没被碰过
+                 * 的代码就收工——真实模块上几乎必然一无所获。
+                 */
+                continue;
+            }
+            if ((candidateEntry & KSW_HVM_INJECT_PTE_NO_EXECUTE) != 0ULL ||
+                (candidateEntry & KSW_HVM_INJECT_PTE_USER) == 0ULL) {
+                /*
+                 * 不可执行或不是用户页：跳过而不是停下。节之间可能夹着这样的页，
+                 * 而我们要找的填充在更后面。
+                 */
+                continue;
+            }
+            candidatePhysical &= KSW_HVM_INJECT_PAGE_MASK;
+            copyAddress.PhysicalAddress.QuadPart =
+                (LONGLONG)candidatePhysical;
+            if (!NT_SUCCESS(MmCopyMemory(
+                    shadow,
+                    copyAddress,
+                    (SIZE_T)KSWORD_ARK_HVM_VIEW_PAGE_BYTES,
+                    MM_COPY_MEMORY_PHYSICAL,
+                    &copied)) ||
+                copied != (SIZE_T)KSWORD_ARK_HVM_VIEW_PAGE_BYTES) {
+                /* 读不到就跳过，读不到的页也放不了外壳。 */
+                continue;
+            }
+            if (KswordARKHvmInjectFindCave(
+                    shadow,
+                    neededBytes,
+                    &caveOffset,
+                    &caveFiller)) {
+                cavePageVa = candidateVa;
+                cavePagePhysical = candidatePhysical;
+                found = TRUE;
+                break;
+            }
+        }
+        if (!found) {
+            ExFreePool(shadow);
+            Response->status = KSWORD_ARK_HVM_INJECT_STATUS_NO_CAVE;
+            /* 返回明确的空隙不足。 */
+            return STATUS_NOT_FOUND;
+        }
     }
     status = KswordARKHvmInjectBuildShell(
         shadow,
@@ -673,12 +849,12 @@ KswordARKHvmInjectArmLocked(
         /* 返回明确的外壳构造失败。 */
         return status;
     }
-    /* 装执行视图：读写看真页，执行跑影子。 */
+    /* 装空隙页的执行视图：读写看真页，执行跑带着外壳的影子。 */
     viewRequest.version = KSWORD_ARK_HVM_VIEW_PROTOCOL_VERSION;
     viewRequest.size = sizeof(viewRequest);
     viewRequest.operation = KSWORD_ARK_HVM_VIEW_OP_ADD;
     viewRequest.kind = KSWORD_ARK_HVM_VIEW_KIND_HOOK;
-    viewRequest.physicalAddress = physicalPage;
+    viewRequest.physicalAddress = cavePagePhysical;
     viewRequest.flags = KSWORD_ARK_HVM_VIEW_FLAG_UI_CONFIRMED;
     viewRequest.confirmationToken =
         KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
@@ -686,29 +862,87 @@ KswordARKHvmInjectArmLocked(
         viewRequest.shadow,
         shadow,
         (SIZE_T)KSWORD_ARK_HVM_VIEW_PAGE_BYTES);
-    ExFreePool(shadow);
     status = KswordARKHvmEptViewControlLocked(
         Runtime,
         &viewRequest,
         &viewResponse);
     if (!NT_SUCCESS(status) ||
         viewResponse.status != KSWORD_ARK_HVM_VIEW_STATUS_OK) {
+        ExFreePool(shadow);
         Response->status = KSWORD_ARK_HVM_INJECT_STATUS_VIEW_FAILED;
         Response->lastStatus = viewResponse.lastStatus;
         /* 返回明确的视图安装失败。 */
         return NT_SUCCESS(status) ? STATUS_UNSUCCESSFUL : status;
     }
+    caveViewId = viewResponse.viewId;
+    /*
+     * 空隙不在触发页上时，还要给触发页装一张视图。
+     *
+     * 它的影子与真页逐字节相同，装它的唯一目的是拿到一次取指违规——只有在那个
+     * 时刻我们才既知道客户机正在执行这一页、又能改 RIP。没有它就没有触发点，
+     * 外壳装得再对也永远不会被跳进去。
+     */
+    if (cavePagePhysical != physicalPage) {
+        KSWORD_ARK_HVM_VIEW_RESPONSE triggerResponse = { 0 };
+
+        copyAddress.PhysicalAddress.QuadPart = (LONGLONG)physicalPage;
+        status = MmCopyMemory(
+            shadow,
+            copyAddress,
+            (SIZE_T)KSWORD_ARK_HVM_VIEW_PAGE_BYTES,
+            MM_COPY_MEMORY_PHYSICAL,
+            &copied);
+        if (NT_SUCCESS(status) &&
+            copied == (SIZE_T)KSWORD_ARK_HVM_VIEW_PAGE_BYTES) {
+            viewRequest.physicalAddress = physicalPage;
+            RtlCopyMemory(
+                viewRequest.shadow,
+                shadow,
+                (SIZE_T)KSWORD_ARK_HVM_VIEW_PAGE_BYTES);
+            status = KswordARKHvmEptViewControlLocked(
+                Runtime,
+                &viewRequest,
+                &triggerResponse);
+        }
+        if (!NT_SUCCESS(status) ||
+            triggerResponse.status != KSWORD_ARK_HVM_VIEW_STATUS_OK) {
+            /*
+             * 触发视图装不上就把空隙视图也摘掉。留着它等于在目标里放了一段
+             * 永远不会被执行的代码，而表里还记着一条"装好了"的注入。
+             */
+            KSWORD_ARK_HVM_VIEW_REQUEST removeRequest = viewRequest;
+            KSWORD_ARK_HVM_VIEW_RESPONSE removeResponse = { 0 };
+
+            removeRequest.operation = KSWORD_ARK_HVM_VIEW_OP_REMOVE;
+            removeRequest.viewId = caveViewId;
+            (void)KswordARKHvmEptViewControlLocked(
+                Runtime, &removeRequest, &removeResponse);
+            ExFreePool(shadow);
+            Response->status = KSWORD_ARK_HVM_INJECT_STATUS_VIEW_FAILED;
+            Response->lastStatus = triggerResponse.lastStatus;
+            /* 返回明确的触发视图安装失败。 */
+            return NT_SUCCESS(status) ? STATUS_UNSUCCESSFUL : status;
+        }
+        triggerViewId = triggerResponse.viewId;
+    } else {
+        /* 同页时那一张视图身兼两职。 */
+        triggerViewId = caveViewId;
+    }
+    ExFreePool(shadow);
     /* 全部就绪之后才发布记录。 */
     slot->ProcessId = Request->processId;
     slot->PayloadBytes = Request->payloadBytes;
     slot->CaveOffset = caveOffset;
+    slot->CaveFiller = caveFiller;
     slot->CaveBytes = shellBytes;
     slot->ReturnSlotOffset = returnSlotOffset;
-    slot->ViewId = viewResponse.viewId;
+    slot->ViewId = triggerViewId;
+    slot->CaveViewId = (caveViewId != triggerViewId) ? caveViewId : 0UL;
     slot->DirectoryBase = directoryBase;
     slot->GuestPhysicalAddress = physicalPage;
-    slot->GuestLinearAddress =
-        Request->guestLinearAddress & KSW_HVM_INJECT_PAGE_MASK;
+    slot->GuestLinearAddress = physicalPageVa;
+    slot->CaveGuestLinearAddress = cavePageVa;
+    slot->CaveGuestPhysicalAddress = cavePagePhysical;
     slot->ExecutionCount = 0LL;
     slot->Fired = FALSE;
     /* InUse 最后置位：退出路径靠它判断这一条是否可用。 */
@@ -891,13 +1125,19 @@ KswordARKHvmInjectHijackRip(
      * rel32 的基准是**下一条指令**的地址，也就是操作数之后。两端都在同一页上，
      * 所以位移必然放得下三十二位。
      */
-    shadow = KswordARKHvmEptViewShadowForViewId(Runtime, slot->ViewId);
+    shadow = KswordARKHvmEptViewShadowForViewId(
+        Runtime,
+        (slot->CaveViewId != 0UL) ? slot->CaveViewId : slot->ViewId);
     if (shadow == NULL) {
         /* 返回不劫持：没有影子就没有可回填的位移。 */
         return FALSE;
     }
     {
-        const ULONGLONG nextInstruction = slot->GuestLinearAddress +
+        /*
+         * 基准是**空隙页**，不是触发页。外壳住在空隙页的影子里，那条 jmp 也在
+         * 那里执行——用触发页算位移，跳出去的地方会差整整一段页距。
+         */
+        const ULONGLONG nextInstruction = slot->CaveGuestLinearAddress +
             (ULONGLONG)slot->ReturnSlotOffset + 4ULL;
         const LONG displacement =
             (LONG)(LONG64)(GuestRip - nextInstruction);
@@ -911,7 +1151,7 @@ KswordARKHvmInjectHijackRip(
     /* 一次性：置位之后同一页的后续违规按普通视图切换处理。 */
     slot->Fired = TRUE;
     InterlockedIncrement64(&slot->ExecutionCount);
-    *NewRip = slot->GuestLinearAddress + (ULONGLONG)slot->CaveOffset;
+    *NewRip = slot->CaveGuestLinearAddress + (ULONGLONG)slot->CaveOffset;
     /* 返回劫持。 */
     return TRUE;
 }

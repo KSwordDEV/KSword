@@ -372,7 +372,8 @@ NTSTATUS
 KswordARKHvmMemoryTranslate(
     _In_ ULONGLONG DirectoryBase,
     _In_ ULONGLONG VirtualAddress,
-    _Out_ ULONGLONG* PhysicalAddress
+    _Out_ ULONGLONG* PhysicalAddress,
+    _Out_opt_ ULONGLONG* LeafEntry
     )
 {
     ULONGLONG tableBase = DirectoryBase & KSW_HVM_MEMORY_ENTRY_FRAME_MASK;
@@ -384,6 +385,9 @@ KswordARKHvmMemoryTranslate(
 
     /* Start from a deterministic value for every failure path. */
     *PhysicalAddress = 0ULL;
+    if (LeafEntry != NULL) {
+        *LeafEntry = 0ULL;
+    }
     for (level = 0UL; level < 4UL; ++level) {
         /* Select this level's entry inside the current table. */
         const ULONGLONG index =
@@ -414,6 +418,10 @@ KswordARKHvmMemoryTranslate(
             *PhysicalAddress =
                 ((entry & KSW_HVM_MEMORY_ENTRY_FRAME_MASK) & ~offsetMask) |
                 (VirtualAddress & offsetMask);
+            /* 把终止这次走表的那一项交出去，调用方据此判 NX / US。 */
+            if (LeafEntry != NULL) {
+                *LeafEntry = entry;
+            }
             /* Report a complete large-page translation. */
             return STATUS_SUCCESS;
         }
@@ -422,6 +430,10 @@ KswordARKHvmMemoryTranslate(
     }
     /* Combine the leaf frame with the four-KiB page offset. */
     *PhysicalAddress = tableBase | (VirtualAddress & 0xFFFULL);
+    /* 四 KiB 路径上，循环结束时 entry 就是那一项。 */
+    if (LeafEntry != NULL) {
+        *LeafEntry = entry;
+    }
     /* Report a complete four-KiB translation. */
     return STATUS_SUCCESS;
 }
@@ -806,7 +818,8 @@ KswordARKHvmMemoryExecute(
         status = KswordARKHvmMemoryTranslate(
             directoryBase,
             Request->address,
-            &physicalAddress);
+            &physicalAddress,
+            NULL);
         /* Stop when the address is not mapped in that hierarchy. */
         if (!NT_SUCCESS(status)) {
             /* Publish the stable translation-failure protocol status. */

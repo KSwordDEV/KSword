@@ -39,6 +39,9 @@ param(
     # 省掉每次重新部署都要手工敲一遍密码。
     [string] $GuestUser     = 'felix',
     [string] $GuestPassword = 'password',
+    # 本脚本自己造的 before-driver-load-* 保留几个（含这次新建的那个）。
+    # 每个约 8 GiB 内存映像加一个差分盘，留多了会把系统盘吃光。
+    [int]    $KeepCheckpoints = 2,
     [switch] $SkipCheckpoint
 )
 
@@ -221,8 +224,46 @@ Show-Check '内核转储已启用（CrashDumpEnabled=2）' ($dump.Enabled -eq 2)
 # ---------------------------------------------------------------------------
 if (-not $SkipCheckpoint) {
     Write-Host "`n--- 3. 加载前检查点 ---" -ForegroundColor Cyan
+    <#
+      建之前先裁剪自己造的旧检查点。
+
+      这一段本来就该在这里，缺了它的代价 2026-09-08 付过一次：一晚上部署十来次
+      就攒下十个 before-driver-load-*，每个约 8 GiB 内存映像加一个差分盘，把系统盘
+      吃到 0，Hyper-V 把虚拟机置成 PausedCritical。表现是**部署命令挂住不返回**——
+      因为它在等一台已经被冻住的机器，而不是任何一步慢。
+
+      靠调用方记得加 -SkipCheckpoint 不算防线：忘了才是常态，而忘的代价是整台机器
+      停摆。Invoke-KswordHvmControl.ps1 早就在建之前裁剪，这里照同一套做。
+    #>
+    try {
+        $mine = @(Get-VMSnapshot -VMName $VMName -ErrorAction Stop |
+                  Where-Object { $_.Name -like 'before-driver-load-*' } |
+                  Sort-Object CreationTime -Descending)
+        if ($mine.Count -ge $KeepCheckpoints) {
+            foreach ($old in $mine[($KeepCheckpoints - 1)..($mine.Count - 1)]) {
+                Remove-VMSnapshot -VMName $VMName -Name $old.Name -Confirm:$false
+                Write-Host "  已修剪旧检查点 '$($old.Name)'" -ForegroundColor DarkGray
+            }
+            # 合并是异步的：不等它做完，下一次 Checkpoint-VM 仍可能撞上空间不足。
+            $deadline = (Get-Date).AddMinutes(15)
+            while ((Get-Date) -lt $deadline -and
+                   (Get-VM -Name $VMName).Status -match 'Merg|合并') {
+                Start-Sleep -Seconds 10
+            }
+        }
+    } catch {
+        Write-Host "  检查点修剪失败（不影响部署）：$($_.Exception.Message)" -ForegroundColor Yellow
+    }
     $stamp = 'before-driver-load-' + (Get-Date -Format 'MMdd-HHmm')
-    Checkpoint-VM -Name $VMName -SnapshotName $stamp
+    try {
+        Checkpoint-VM -Name $VMName -SnapshotName $stamp
+    } catch {
+        # 空间不足是可恢复的操作问题，与驱动无关。分开报，并给出清理命令。
+        if ("$($_.Exception.Message)" -match '0x80070070|磁盘空间不足|not enough space') {
+            throw "建检查点失败：磁盘空间不足，与驱动无关。清理：.\scripts\Clear-KswordVmCheckpoints.ps1 -Confirm"
+        }
+        throw
+    }
     Write-Host "  已建 '$stamp'" -ForegroundColor Green
     Write-Host "  回滚：Restore-VMCheckpoint -VMName '$VMName' -Name '$stamp' -Confirm:`$false"
 } else {

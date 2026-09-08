@@ -283,7 +283,8 @@ KswordARKHvmProcessArmLocked(
     status = KswordARKHvmMemoryTranslate(
         directoryBase,
         Request->guestLinearAddress,
-        &guestPhysical);
+        &guestPhysical,
+        NULL);
     if (!NT_SUCCESS(status)) {
         Response->status =
             KSWORD_ARK_HVM_PROCESS_STATUS_TRANSLATION_FAILED;
