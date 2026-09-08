@@ -64,6 +64,9 @@ __pycache__/
 /tools/hvm_probe/*.exe
 /tools/hvm_target/*.exe
 /tools/attest_probe/*.exe
+# hvm_probe_dll 是 DLL 不是 exe，套不进上面那几条模式，所以要单列一行——
+# 它曾因此被 `git add tools/` 一并提交进来。
+/tools/hvm_probe_dll/*.dll
 
 # MSVC 在仓库根留下的编译器 PDB。
 /vc140.pdb
