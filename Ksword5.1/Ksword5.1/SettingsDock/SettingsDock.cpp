@@ -907,6 +907,94 @@ void SettingsDock::initializeAppearanceTab()
     startupRootLayout->addWidget(startupGroupBox);
     startupRootLayout->addStretch();
 
+    // ===== 权限按钮排分组 =====
+    QGroupBox* privilegeGroupBox = new QGroupBox(QStringLiteral("权限状态按钮"), m_appearanceTab);
+    languageManager.bindText(
+        privilegeGroupBox,
+        QStringLiteral("settings.privilege_buttons.group"),
+        QStringLiteral("权限状态按钮"));
+    QVBoxLayout* privilegeLayout = new QVBoxLayout(privilegeGroupBox);
+    privilegeLayout->setSpacing(8);
+
+    QLabel* privilegeHintLabel = new QLabel(
+        QStringLiteral("选择右上角显示哪些权限等级。取消勾选只是不再显示，不会改变任何能力。"),
+        privilegeGroupBox);
+    privilegeHintLabel->setWordWrap(true);
+    languageManager.bindText(
+        privilegeHintLabel,
+        QStringLiteral("settings.privilege_buttons.hint"),
+        QStringLiteral("选择右上角显示哪些权限等级。取消勾选只是不再显示，不会改变任何能力。"));
+    privilegeLayout->addWidget(privilegeHintLabel);
+
+    m_privilegeUiAccessCheckBox = new QCheckBox(QStringLiteral("UIAccess（跨权限窗口置顶）"), privilegeGroupBox);
+    languageManager.bindText(
+        m_privilegeUiAccessCheckBox,
+        QStringLiteral("settings.privilege_buttons.uiaccess"),
+        QStringLiteral("UIAccess（跨权限窗口置顶）"));
+    privilegeLayout->addWidget(m_privilegeUiAccessCheckBox);
+
+    m_privilegeAdminCheckBox = new QCheckBox(QStringLiteral("Admin（管理员）"), privilegeGroupBox);
+    languageManager.bindText(
+        m_privilegeAdminCheckBox,
+        QStringLiteral("settings.privilege_buttons.admin"),
+        QStringLiteral("Admin（管理员）"));
+    privilegeLayout->addWidget(m_privilegeAdminCheckBox);
+
+    m_privilegeDebugCheckBox = new QCheckBox(QStringLiteral("Debug（调试特权）"), privilegeGroupBox);
+    languageManager.bindText(
+        m_privilegeDebugCheckBox,
+        QStringLiteral("settings.privilege_buttons.debug"),
+        QStringLiteral("Debug（调试特权）"));
+    privilegeLayout->addWidget(m_privilegeDebugCheckBox);
+
+    m_privilegeSystemCheckBox = new QCheckBox(QStringLiteral("System（系统账户）"), privilegeGroupBox);
+    languageManager.bindText(
+        m_privilegeSystemCheckBox,
+        QStringLiteral("settings.privilege_buttons.system"),
+        QStringLiteral("System（系统账户）"));
+    privilegeLayout->addWidget(m_privilegeSystemCheckBox);
+
+    m_privilegeR0CheckBox = new QCheckBox(QStringLiteral("R0（内核驱动）"), privilegeGroupBox);
+    languageManager.bindText(
+        m_privilegeR0CheckBox,
+        QStringLiteral("settings.privilege_buttons.r0"),
+        QStringLiteral("R0（内核驱动）"));
+    privilegeLayout->addWidget(m_privilegeR0CheckBox);
+
+    m_privilegeHvmCheckBox = new QCheckBox(QStringLiteral("R-1（硬件虚拟化）"), privilegeGroupBox);
+    languageManager.bindText(
+        m_privilegeHvmCheckBox,
+        QStringLiteral("settings.privilege_buttons.hvm"),
+        QStringLiteral("R-1（硬件虚拟化）"));
+    privilegeLayout->addWidget(m_privilegeHvmCheckBox);
+
+    QHBoxLayout* hvmNameLayout = new QHBoxLayout();
+    hvmNameLayout->setSpacing(6);
+    QLabel* hvmNameLabel = new QLabel(QStringLiteral("虚拟化按钮显示为"), privilegeGroupBox);
+    languageManager.bindText(
+        hvmNameLabel,
+        QStringLiteral("settings.privilege_buttons.hvm_name"),
+        QStringLiteral("虚拟化按钮显示为"));
+    hvmNameLayout->addWidget(hvmNameLabel, 0);
+    m_hvmDisplayNameCombo = new QComboBox(privilegeGroupBox);
+    // 三个都是产品名或体系结构术语，不随界面语言变化，所以条目文本不绑词条。
+    m_hvmDisplayNameCombo->addItem(
+        QStringLiteral("KVM"),
+        static_cast<int>(ks::settings::HvmDisplayName::Kvm));
+    m_hvmDisplayNameCombo->addItem(
+        QStringLiteral("HVM"),
+        static_cast<int>(ks::settings::HvmDisplayName::Hvm));
+    m_hvmDisplayNameCombo->addItem(
+        QStringLiteral("R-1"),
+        static_cast<int>(ks::settings::HvmDisplayName::RingMinusOne));
+    // 整串写在一行：跨行拼接会被 i18n 审计当成多个独立源串，逐段都要词条。
+    m_hvmDisplayNameCombo->setToolTip(
+        QStringLiteral("同一个能力的三种叫法：KVM 是产品内部名，HVM 是硬件术语，R-1 是按权限分层的称呼。只影响右上角按钮。"));
+    hvmNameLayout->addWidget(m_hvmDisplayNameCombo, 1);
+    privilegeLayout->addLayout(hvmNameLayout);
+
+    appearanceRootLayout->addWidget(privilegeGroupBox);
+
     // ===== 日志通知分组 =====
     QGroupBox* notificationGroupBox = new QGroupBox(QStringLiteral("日志通知"), m_appearanceTab);
     languageManager.bindText(notificationGroupBox, QStringLiteral("settings.notification.group"), QStringLiteral("日志通知"));
@@ -1174,6 +1262,30 @@ void SettingsDock::bindAppearanceSignals()
         markPendingChanges(QString());
         });
 
+    // 权限按钮排：六个开关与一个称呼下拉，任一变化都进同一个待应用标记。
+    for (QCheckBox* privilegeCheckBox : {
+             m_privilegeUiAccessCheckBox,
+             m_privilegeAdminCheckBox,
+             m_privilegeDebugCheckBox,
+             m_privilegeSystemCheckBox,
+             m_privilegeR0CheckBox,
+             m_privilegeHvmCheckBox})
+    {
+        if (privilegeCheckBox == nullptr)
+        {
+            continue;
+        }
+        connect(privilegeCheckBox, &QCheckBox::toggled, this, [this](const bool /*checkedState*/) {
+            markPendingChanges(QString());
+            });
+    }
+    if (m_hvmDisplayNameCombo != nullptr)
+    {
+        connect(m_hvmDisplayNameCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+            markPendingChanges(QString());
+            });
+    }
+
     connect(m_backgroundPathEdit, &QLineEdit::editingFinished, this, [this]() {
         markPendingChanges(QStringLiteral("背景路径编辑完成"));
         });
@@ -1411,6 +1523,36 @@ void SettingsDock::applySettingsToUi(const ks::settings::AppearanceSettings& set
     if (m_textAntialiasingCheckBox != nullptr)
     {
         m_textAntialiasingCheckBox->setChecked(settings.textAntialiasingEnabled);
+    }
+    if (m_privilegeUiAccessCheckBox != nullptr)
+    {
+        m_privilegeUiAccessCheckBox->setChecked(settings.privilegeButtonUiAccessVisible);
+    }
+    if (m_privilegeAdminCheckBox != nullptr)
+    {
+        m_privilegeAdminCheckBox->setChecked(settings.privilegeButtonAdminVisible);
+    }
+    if (m_privilegeDebugCheckBox != nullptr)
+    {
+        m_privilegeDebugCheckBox->setChecked(settings.privilegeButtonDebugVisible);
+    }
+    if (m_privilegeSystemCheckBox != nullptr)
+    {
+        m_privilegeSystemCheckBox->setChecked(settings.privilegeButtonSystemVisible);
+    }
+    if (m_privilegeR0CheckBox != nullptr)
+    {
+        m_privilegeR0CheckBox->setChecked(settings.privilegeButtonR0Visible);
+    }
+    if (m_privilegeHvmCheckBox != nullptr)
+    {
+        m_privilegeHvmCheckBox->setChecked(settings.privilegeButtonHvmVisible);
+    }
+    if (m_hvmDisplayNameCombo != nullptr)
+    {
+        const int hvmNameIndex = m_hvmDisplayNameCombo->findData(
+            static_cast<int>(settings.hvmDisplayName));
+        m_hvmDisplayNameCombo->setCurrentIndex(hvmNameIndex >= 0 ? hvmNameIndex : 0);
     }
 
     if (m_startupMaximizedCheckBox != nullptr)
@@ -1662,6 +1804,42 @@ ks::settings::AppearanceSettings SettingsDock::collectSettingsFromUi() const
         : m_currentAppearanceSettings.fontFamily;
     collectedSettings.textAntialiasingEnabled =
         (m_textAntialiasingCheckBox != nullptr) && m_textAntialiasingCheckBox->isChecked();
+    /*
+     * 权限按钮可见性：控件缺失时保留当前值，而不是当作"没勾选"。
+     *
+     * 其余复选框用的是 `(ptr != nullptr) && isChecked()`，控件不在就得到 false。
+     * 那个写法在这里会变成"设置页没构造好 = 把整排按钮藏掉"，是个用界面故障
+     * 去改用户配置的行为。默认全显示，所以缺省必须回到当前值。
+     */
+    collectedSettings.privilegeButtonUiAccessVisible =
+        (m_privilegeUiAccessCheckBox != nullptr)
+            ? m_privilegeUiAccessCheckBox->isChecked()
+            : m_currentAppearanceSettings.privilegeButtonUiAccessVisible;
+    collectedSettings.privilegeButtonAdminVisible =
+        (m_privilegeAdminCheckBox != nullptr)
+            ? m_privilegeAdminCheckBox->isChecked()
+            : m_currentAppearanceSettings.privilegeButtonAdminVisible;
+    collectedSettings.privilegeButtonDebugVisible =
+        (m_privilegeDebugCheckBox != nullptr)
+            ? m_privilegeDebugCheckBox->isChecked()
+            : m_currentAppearanceSettings.privilegeButtonDebugVisible;
+    collectedSettings.privilegeButtonSystemVisible =
+        (m_privilegeSystemCheckBox != nullptr)
+            ? m_privilegeSystemCheckBox->isChecked()
+            : m_currentAppearanceSettings.privilegeButtonSystemVisible;
+    collectedSettings.privilegeButtonR0Visible =
+        (m_privilegeR0CheckBox != nullptr)
+            ? m_privilegeR0CheckBox->isChecked()
+            : m_currentAppearanceSettings.privilegeButtonR0Visible;
+    collectedSettings.privilegeButtonHvmVisible =
+        (m_privilegeHvmCheckBox != nullptr)
+            ? m_privilegeHvmCheckBox->isChecked()
+            : m_currentAppearanceSettings.privilegeButtonHvmVisible;
+    collectedSettings.hvmDisplayName =
+        (m_hvmDisplayNameCombo != nullptr)
+            ? static_cast<ks::settings::HvmDisplayName>(
+                  m_hvmDisplayNameCombo->currentData().toInt())
+            : m_currentAppearanceSettings.hvmDisplayName;
     collectedSettings.notificationCardsEnabled =
         (m_notificationCardsEnabledCheckBox != nullptr) && m_notificationCardsEnabledCheckBox->isChecked();
     collectedSettings.notificationMinimumLevel =
@@ -1935,6 +2113,13 @@ void SettingsDock::saveAndEmitFromUi(const QString& triggerReason)
         && nextSettings.detailDisplayScheme == m_currentAppearanceSettings.detailDisplayScheme
         && nextSettings.fontFamily.compare(m_currentAppearanceSettings.fontFamily, Qt::CaseInsensitive) == 0
         && nextSettings.textAntialiasingEnabled == m_currentAppearanceSettings.textAntialiasingEnabled
+        && nextSettings.privilegeButtonUiAccessVisible == m_currentAppearanceSettings.privilegeButtonUiAccessVisible
+        && nextSettings.privilegeButtonAdminVisible == m_currentAppearanceSettings.privilegeButtonAdminVisible
+        && nextSettings.privilegeButtonDebugVisible == m_currentAppearanceSettings.privilegeButtonDebugVisible
+        && nextSettings.privilegeButtonSystemVisible == m_currentAppearanceSettings.privilegeButtonSystemVisible
+        && nextSettings.privilegeButtonR0Visible == m_currentAppearanceSettings.privilegeButtonR0Visible
+        && nextSettings.privilegeButtonHvmVisible == m_currentAppearanceSettings.privilegeButtonHvmVisible
+        && nextSettings.hvmDisplayName == m_currentAppearanceSettings.hvmDisplayName
         && nextSettings.notificationCardsEnabled == m_currentAppearanceSettings.notificationCardsEnabled
         && nextSettings.notificationMinimumLevel == m_currentAppearanceSettings.notificationMinimumLevel
         && nextSettings.notificationLogDisplaySeconds == m_currentAppearanceSettings.notificationLogDisplaySeconds

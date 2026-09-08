@@ -36,6 +36,22 @@ namespace ks::settings
         TopDown = 1
     };
 
+    // HvmDisplayName：硬件虚拟化能力在界面上的称呼。
+    //
+    // 同一件东西在不同语境下有三个通行叫法：产品内部叫 KVM（KSwordVM），
+    // 硬件与文档语境叫 HVM，而按权限分层讲它是 R-1。三者指的是同一个能力，
+    // 只是读者背景不同；把称呼做成可选项，比替使用者选一个更合适。
+    //
+    // 只作用于右上角权限按钮那一处标识。说明性文字里的提及不跟随切换——那些
+    // 句子把名字嵌在语义里（"KVM：KSwordVM 硬件虚拟化（R-1）常驻状态…"），
+    // 整串替换会读不通，逐句改写要重排四十余条中英词条，代价与收益不成比例。
+    enum class HvmDisplayName
+    {
+        Kvm = 0,
+        Hvm = 1,
+        RingMinusOne = 2
+    };
+
     // DetailDisplayScheme：严格命中页面的统一详情布局方案。
     // BottomCollapsed：表格下方折叠；Right：表格右侧；
     // Embedded：在数据行后插入详情行；Floating：每个页面使用独立详情窗口。
@@ -135,7 +151,34 @@ namespace ks::settings
         QString logWindowGeometryBase64;
         QString virusTotalApiKey;
         QString threatBookApiKey;
+        // 右上角权限按钮排里各按钮是否显示。
+        //
+        // 六个独立开关而不是一个位掩码：这一排每个按钮的含义、点击行为和风险
+        // 各不相同（UIAccess 会重启程序、R0 起停驱动、KVM 进出 R-1 常驻），
+        // 用位掩码会让"第 3 位是哪个"变成一件需要查表的事，而这里没有任何
+        // 需要按集合运算处理的场景。
+        //
+        // 默认全开，等于此前的固定行为：设置项只用来减少显示，不改变能力。
+        bool privilegeButtonUiAccessVisible = true;
+        bool privilegeButtonAdminVisible = true;
+        bool privilegeButtonDebugVisible = true;
+        bool privilegeButtonSystemVisible = true;
+        bool privilegeButtonR0Visible = true;
+        bool privilegeButtonHvmVisible = true;
+        // 右上角那个按钮上写哪个名字；见 HvmDisplayName 的说明。
+        HvmDisplayName hvmDisplayName = HvmDisplayName::Kvm;
     };
+
+    // hvmDisplayNameToJsonText 作用：把称呼枚举转成 JSON 存档文本。
+    QString hvmDisplayNameToJsonText(HvmDisplayName displayName);
+
+    // hvmDisplayNameFromJsonText 作用：把 JSON 文本解析回称呼枚举；
+    // 无法识别时返回 Kvm，与未配置过的行为一致。
+    HvmDisplayName hvmDisplayNameFromJsonText(const QString& text);
+
+    // hvmDisplayNameLabel 作用：返回该称呼在界面上显示的字面文本。
+    // 这三个是产品名与体系结构术语，不随界面语言改变，所以不走语言包。
+    QString hvmDisplayNameLabel(HvmDisplayName displayName);
 
     // tintAlphaFromOpacityPercent 作用：
     // - 把 0~100 的着色不透明度换算成 0~255 的 alpha 通道值；

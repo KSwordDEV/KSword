@@ -211,6 +211,12 @@ private:
     // - 布局恢复后调用，欢迎页随用户布局移动/浮动时按钮组随该 Dock Area 移动。
     void attachPrivilegeStatusButtonsToPrimaryDockTabBar();
     void refreshPrivilegeStatusButtons();
+
+    // applyPrivilegeButtonVisibility 作用：
+    // - 按设置显示/隐藏右上角权限按钮排里的每个按钮，全部隐藏时收起整排；
+    // - 同时把硬件虚拟化按钮的标题与提示换成设置里选定的称呼。
+    // 调用方式：refreshPrivilegeStatusButtons 开头，以及设置变更时。
+    void applyPrivilegeButtonVisibility();
     void applyPrivilegeButtonStyle(QPushButton* button, bool activeState);
     void handleR0DriverUnavailable(unsigned long win32Error);
     void handleR0PermissionRequired(unsigned long win32Error);

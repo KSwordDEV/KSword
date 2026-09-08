@@ -425,6 +425,14 @@ namespace
         defaultSettings.logWindowGeometryBase64.clear();
         defaultSettings.virusTotalApiKey.clear();
         defaultSettings.threatBookApiKey.clear();
+        // 六个按钮默认全显示，与设置项出现之前的固定行为一致。
+        defaultSettings.privilegeButtonUiAccessVisible = true;
+        defaultSettings.privilegeButtonAdminVisible = true;
+        defaultSettings.privilegeButtonDebugVisible = true;
+        defaultSettings.privilegeButtonSystemVisible = true;
+        defaultSettings.privilegeButtonR0Visible = true;
+        defaultSettings.privilegeButtonHvmVisible = true;
+        defaultSettings.hvmDisplayName = ks::settings::HvmDisplayName::Kvm;
         return defaultSettings;
     }
 }
@@ -463,6 +471,51 @@ ks::settings::ThemeMode ks::settings::themeModeFromJsonText(const QString& jsonT
         return ThemeMode::Dark;
     }
     return ThemeMode::FollowSystem;
+}
+
+QString ks::settings::hvmDisplayNameToJsonText(const HvmDisplayName displayName)
+{
+    // JSON 保持英文稳定值，和主题一样：存档不因界面语言而变。
+    switch (displayName)
+    {
+    case HvmDisplayName::Hvm:
+        return QStringLiteral("hvm");
+    case HvmDisplayName::RingMinusOne:
+        return QStringLiteral("ring_minus_one");
+    case HvmDisplayName::Kvm:
+    default:
+        return QStringLiteral("kvm");
+    }
+}
+
+ks::settings::HvmDisplayName ks::settings::hvmDisplayNameFromJsonText(
+    const QString& text)
+{
+    const QString normalizedText = text.trimmed().toLower();
+    if (normalizedText == QStringLiteral("hvm"))
+    {
+        return HvmDisplayName::Hvm;
+    }
+    if (normalizedText == QStringLiteral("ring_minus_one"))
+    {
+        return HvmDisplayName::RingMinusOne;
+    }
+    return HvmDisplayName::Kvm;
+}
+
+QString ks::settings::hvmDisplayNameLabel(const HvmDisplayName displayName)
+{
+    switch (displayName)
+    {
+    case HvmDisplayName::Hvm:
+        return QStringLiteral("HVM");
+    case HvmDisplayName::RingMinusOne:
+        // 连字符而非减号：这是权限层级的通行写法，与 R0/R3 排在一起时也齐整。
+        return QStringLiteral("R-1");
+    case HvmDisplayName::Kvm:
+    default:
+        return QStringLiteral("KVM");
+    }
 }
 
 QString ks::settings::detailDisplaySchemeToJsonText(const DetailDisplayScheme scheme)
@@ -739,6 +792,35 @@ ks::settings::AppearanceSettings ks::settings::loadAppearanceSettings()
     loadedSettings.suppressR0FeaturePrompts = rootObject
         .value(QStringLiteral("suppress_r0_feature_prompts"))
         .toBool(loadedSettings.suppressR0FeaturePrompts);
+    /*
+     * 权限按钮可见性与称呼。
+     *
+     * 缺省一律取「当前值」，也就是 defaults() 给的 true —— 旧配置文件里没有这
+     * 几个键，读出来必须等于设置项出现之前的行为，而不是一片 false 把整排按钮
+     * 都藏掉。
+     */
+    loadedSettings.privilegeButtonUiAccessVisible = rootObject
+        .value(QStringLiteral("privilege_button_uiaccess_visible"))
+        .toBool(loadedSettings.privilegeButtonUiAccessVisible);
+    loadedSettings.privilegeButtonAdminVisible = rootObject
+        .value(QStringLiteral("privilege_button_admin_visible"))
+        .toBool(loadedSettings.privilegeButtonAdminVisible);
+    loadedSettings.privilegeButtonDebugVisible = rootObject
+        .value(QStringLiteral("privilege_button_debug_visible"))
+        .toBool(loadedSettings.privilegeButtonDebugVisible);
+    loadedSettings.privilegeButtonSystemVisible = rootObject
+        .value(QStringLiteral("privilege_button_system_visible"))
+        .toBool(loadedSettings.privilegeButtonSystemVisible);
+    loadedSettings.privilegeButtonR0Visible = rootObject
+        .value(QStringLiteral("privilege_button_r0_visible"))
+        .toBool(loadedSettings.privilegeButtonR0Visible);
+    loadedSettings.privilegeButtonHvmVisible = rootObject
+        .value(QStringLiteral("privilege_button_hvm_visible"))
+        .toBool(loadedSettings.privilegeButtonHvmVisible);
+    loadedSettings.hvmDisplayName = hvmDisplayNameFromJsonText(
+        rootObject
+            .value(QStringLiteral("hvm_display_name"))
+            .toString(hvmDisplayNameToJsonText(loadedSettings.hvmDisplayName)));
     loadedSettings.suppressDangerousActionConfirmations = rootObject
         .value(QStringLiteral("suppress_dangerous_action_confirmations"))
         .toBool(loadedSettings.suppressDangerousActionConfirmations);
@@ -889,6 +971,27 @@ bool ks::settings::saveAppearanceSettings(const AppearanceSettings& settings, QS
     rootObject.insert(
         QStringLiteral("suppress_r0_feature_prompts"),
         settings.suppressR0FeaturePrompts);
+    rootObject.insert(
+        QStringLiteral("privilege_button_uiaccess_visible"),
+        settings.privilegeButtonUiAccessVisible);
+    rootObject.insert(
+        QStringLiteral("privilege_button_admin_visible"),
+        settings.privilegeButtonAdminVisible);
+    rootObject.insert(
+        QStringLiteral("privilege_button_debug_visible"),
+        settings.privilegeButtonDebugVisible);
+    rootObject.insert(
+        QStringLiteral("privilege_button_system_visible"),
+        settings.privilegeButtonSystemVisible);
+    rootObject.insert(
+        QStringLiteral("privilege_button_r0_visible"),
+        settings.privilegeButtonR0Visible);
+    rootObject.insert(
+        QStringLiteral("privilege_button_hvm_visible"),
+        settings.privilegeButtonHvmVisible);
+    rootObject.insert(
+        QStringLiteral("hvm_display_name"),
+        hvmDisplayNameToJsonText(settings.hvmDisplayName));
     rootObject.insert(
         QStringLiteral("suppress_dangerous_action_confirmations"),
         settings.suppressDangerousActionConfirmations);

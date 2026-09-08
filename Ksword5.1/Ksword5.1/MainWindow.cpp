@@ -8245,8 +8245,60 @@ void MainWindow::enableR0ForUserRequest()
     }
 }
 
+void MainWindow::applyPrivilegeButtonVisibility()
+{
+    // 容器尚未建立时无事可做；建立时会立刻回调本函数。
+    if (m_privilegeButtonContainer == nullptr)
+    {
+        return;
+    }
+
+    const ks::settings::AppearanceSettings& settings = m_currentAppearanceSettings;
+    const std::array<std::pair<QPushButton*, bool>, 6> visibility{{
+        {m_uiAccessStatusButton, settings.privilegeButtonUiAccessVisible},
+        {m_adminStatusButton, settings.privilegeButtonAdminVisible},
+        {m_debugStatusButton, settings.privilegeButtonDebugVisible},
+        {m_systemStatusButton, settings.privilegeButtonSystemVisible},
+        {m_r0StatusButton, settings.privilegeButtonR0Visible},
+        {m_kvmStatusButton, settings.privilegeButtonHvmVisible}
+    }};
+    int visibleCount = 0;
+    for (const std::pair<QPushButton*, bool>& entry : visibility)
+    {
+        if (entry.first == nullptr)
+        {
+            continue;
+        }
+        entry.first->setVisible(entry.second);
+        if (entry.second)
+        {
+            ++visibleCount;
+        }
+    }
+
+    // 一个都不显示时整排收起来，否则会在 Tab 栏右侧留下一块什么都没有的空白，
+    // 看起来像布局坏了而不是像"我把它们关掉了"。
+    m_privilegeButtonContainer->setVisible(visibleCount > 0);
+
+    // 称呼只作用于这一个按钮的标题与提示开头；页面内的说明文字不跟随切换。
+    if (m_kvmStatusButton != nullptr)
+    {
+        const QString displayName =
+            ks::settings::hvmDisplayNameLabel(settings.hvmDisplayName);
+        m_kvmStatusButton->setText(displayName);
+        // 整串写在一行：跨行拼接会被 i18n 审计当成多个独立源串，逐段都要词条。
+        m_kvmStatusButton->setToolTip(
+            QStringLiteral("%1：KSwordVM 硬件虚拟化（R-1）常驻状态。左键启动或停止常驻，右键打开 R-1 能力菜单。")
+                .arg(displayName));
+    }
+}
+
 void MainWindow::refreshPrivilegeStatusButtons()
 {
+    // 先应用可见性与称呼：两者都只影响这一排按钮的呈现，与状态查询无关，
+    // 放在最前面可以让被隐藏的按钮不必再参与后面的样式与提示更新。
+    applyPrivilegeButtonVisibility();
+
     // 读取当前权限状态。
     const bool adminEnabled = hasAdminPrivilege();
     const bool debugEnabled = hasDebugPrivilege();
@@ -11767,6 +11819,10 @@ void MainWindow::applyAppearanceSettings(
         && (themeVisualRefreshRequired || backgroundChanged || fontChanged);
 
     m_currentAppearanceSettings = settings;
+    // 权限按钮排只依赖缓存下来的这份设置，所以紧接着赋值应用。
+    // 无条件调用而不是只在变化时调用：这是一次纯属性写入，没有重建、没有查询，
+    // 比"判断哪些字段变了"更省，也少一处会漏判的条件。
+    applyPrivilegeButtonVisibility();
     ks::ui::DetailLayoutRegistry::applyGlobalScheme(settings.detailDisplayScheme);
     if (smoothScrollingChanged)
     {

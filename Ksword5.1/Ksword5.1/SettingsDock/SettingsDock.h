@@ -378,6 +378,18 @@ private:
     // m_scrollBarWidthCombo 作用：设置全局滚动条宽度（窄/宽）。
     QComboBox* m_scrollBarWidthCombo = nullptr;
 
+    // 右上角权限按钮排的显示开关，逐个按钮一个复选框。
+    // 顺序与按钮排本身一致（UIAccess / Admin / Debug / System / R0 / 虚拟化），
+    // 这样设置页读起来和界面上看到的是同一个次序。
+    QCheckBox* m_privilegeUiAccessCheckBox = nullptr;
+    QCheckBox* m_privilegeAdminCheckBox = nullptr;
+    QCheckBox* m_privilegeDebugCheckBox = nullptr;
+    QCheckBox* m_privilegeSystemCheckBox = nullptr;
+    QCheckBox* m_privilegeR0CheckBox = nullptr;
+    QCheckBox* m_privilegeHvmCheckBox = nullptr;
+    // m_hvmDisplayNameCombo 作用：选择硬件虚拟化按钮上显示 KVM / HVM / R-1。
+    QComboBox* m_hvmDisplayNameCombo = nullptr;
+
     // m_scrollBarAutoHideCheckBox 作用：设置滚动条是否弱显示/悬停显示。
     QCheckBox* m_scrollBarAutoHideCheckBox = nullptr;
 
