@@ -467,6 +467,74 @@ namespace ksword::ark
         return result;
     }
 
+    HvmInjectResult DriverClient::controlHvmInject(
+        const unsigned long operation,
+        const unsigned long processId,
+        const unsigned long injectType,
+        const std::uint64_t guestLinearAddress,
+        const std::uint64_t loadLibraryAddress,
+        const unsigned char* const payload,
+        const unsigned long payloadBytes,
+        const bool uiConfirmed) const
+    {
+        HvmInjectResult result{};
+        /*
+         * 请求带一整页载荷，放不进栈，堆上分配一份。
+         *
+         * 用 vector<unsigned char> 而不是 new：这条路径上有多个提前返回，裸指针
+         * 会在其中一条上漏掉。
+         */
+        std::vector<unsigned char> storage(
+            sizeof(KSWORD_ARK_HVM_INJECT_REQUEST), 0U);
+        auto* const request =
+            reinterpret_cast<KSWORD_ARK_HVM_INJECT_REQUEST*>(storage.data());
+
+        request->version = KSWORD_ARK_HVM_INJECT_PROTOCOL_VERSION;
+        request->size = sizeof(*request);
+        request->operation = operation;
+        request->processId = processId;
+        request->injectType = injectType;
+        request->guestLinearAddress = guestLinearAddress;
+        request->loadLibraryAddress = loadLibraryAddress;
+        if (payload != nullptr &&
+            payloadBytes != 0UL &&
+            payloadBytes <= KSWORD_ARK_HVM_INJECT_MAX_PAYLOAD_BYTES)
+        {
+            std::memcpy(request->payload, payload, payloadBytes);
+            request->payloadBytes = payloadBytes;
+        }
+        if (uiConfirmed)
+        {
+            request->flags |= KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED;
+            request->confirmationToken =
+                KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+        }
+
+        result.io = deviceIoControl(
+            IOCTL_KSWORD_ARK_HVM_INJECT,
+            request,
+            static_cast<unsigned long>(storage.size()),
+            &result.response,
+            sizeof(result.response));
+        result.unsupported = !result.io.ok &&
+            isUnsupportedHvmError(result.io.win32Error);
+        result.io.ntStatus = result.response.lastStatus;
+
+        std::ostringstream stream;
+        stream << "HVM inject operation=" << operation
+            << ", pid=" << processId
+            << ", type=" << injectType
+            << ", status=" << result.response.status
+            << ", rows=" << result.response.returnedRows
+            << ", gla=0x" << std::hex << guestLinearAddress << std::dec;
+        if (result.unsupported)
+        {
+            stream << ", unsupported=true";
+        }
+        result.io.message = stream.str();
+        return result;
+    }
+
     HvmPlatformResult DriverClient::hvmPlatform() const
     {
         HvmPlatformResult result{};

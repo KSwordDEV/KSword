@@ -1510,6 +1510,16 @@ namespace ksword::ark
         KSWORD_ARK_HVM_PROCESS_RESPONSE response{};
     };
 
+    // HvmInjectResult 承载一次 R-1 进程注入。表里回报的是**空隙页**的地址与
+    // 那段空隙的填充字节——外壳落在哪里、用的是哪种填充，是排查时唯一有用的
+    // 两个数，而触发页的影子与真页逐字节相同，报它只会让人以为那页被动过。
+    struct HvmInjectResult
+    {
+        IoResult io;
+        bool unsupported = false;
+        KSWORD_ARK_HVM_INJECT_RESPONSE response{};
+    };
+
     // HvmDomainResult carries one EPT execution-domain operation. rows are
     // filled on every operation, because a caller that just created or
     // restricted a domain needs to see the resulting shape immediately.

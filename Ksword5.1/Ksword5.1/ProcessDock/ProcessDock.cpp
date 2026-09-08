@@ -10782,6 +10782,14 @@ void ProcessDock::showTableContextMenu(const QPoint& localPosition)
         buildR0ActionIcon(":/Icon/process_refresh.svg"),
         processContextText("process.menu.hvm_release", QStringLiteral("%1 解除处置"))
             .arg(hvmName));
+    QAction* hvmInjectAction = contextMenu.addAction(
+        buildR0ActionIcon(":/Icon/process_terminate.svg"),
+        processContextText("process.menu.hvm_inject", QStringLiteral("%1 注入 DLL"))
+            .arg(hvmName));
+    QAction* hvmInjectReleaseAction = contextMenu.addAction(
+        buildR0ActionIcon(":/Icon/process_refresh.svg"),
+        processContextText("process.menu.hvm_inject_release", QStringLiteral("%1 撤销注入"))
+            .arg(hvmName));
     QAction* refreshPplLevelAction = contextMenu.addAction(
         blueTintedIcon(":/Icon/process_refresh.svg"),
         processContextText("process.menu.refresh_ppl", QStringLiteral("手动刷新PPL保护级别")));
@@ -11995,6 +12003,12 @@ void ProcessDock::showTableContextMenu(const QPoint& localPosition)
         else if (selectedAction == hvmReleaseAction) {
             executeHvmProcessDispositionAction(
                 KSWORD_ARK_HVM_PROCESS_OP_RELEASE);
+        }
+        else if (selectedAction == hvmInjectAction) {
+            executeHvmInjectAction(KSWORD_ARK_HVM_INJECT_OP_ARM);
+        }
+        else if (selectedAction == hvmInjectReleaseAction) {
+            executeHvmInjectAction(KSWORD_ARK_HVM_INJECT_OP_RELEASE);
         }
         else if (selectedAction == r0HideUnlinkOnlyAction) {
             executeR0SetProcessHiddenAction(true, KSWORD_ARK_PROCESS_VISIBILITY_FLAG_UNLINK_ACTIVE_LIST);
@@ -14491,6 +14505,130 @@ void ProcessDock::showHvmDispositionResult(
         advice.isEmpty() ? detail : (advice + QStringLiteral("\n\n") + detail));
 }
 
+/*
+ * 把 R-1 安装的三条前提按顺序补齐。成功返回 true；失败时自己把原因报出来。
+ *
+ * 处置与注入共用这一段。抽出来不是为了少写几行，而是因为这里每一步的顺序都是
+ * 硬的（CR3 追踪与后端只在 PREPARE / 建 VMCS 时被读；安装要求常驻停着；teardown
+ * 会清掉 EPT，所以 prepare 必须排在它之后）。留两份副本，早晚有一份会先改。
+ */
+/*
+ * 装完之后把常驻恢复回去。失败返回 true（"这一步出问题了"）。
+ *
+ * 单独一个函数是因为它的失败要与安装失败分开报：走到这里时东西**已经装上了**，
+ * 只是没人在执行它。混成一句会让人以为什么都没发生，然后下一次安装撞上
+ * ALREADY_ARMED 却不知道为什么。
+ */
+bool ProcessDock::stepFailedRestartResident(
+    const QString& actionTitle,
+    const kLogEvent& actionEvent)
+{
+    const ksword::kvm::KvmCommandResult started = ksword::kvm::startResident(0UL);
+
+    if (started.ok)
+    {
+        return false;
+    }
+    showHvmDispositionResult(
+        actionTitle,
+        false,
+        (ks::i18n::sourceText(QStringLiteral("启动常驻（已经装上了，但常驻没起来）")) +
+            QStringLiteral("：") + started.message).toStdString(),
+        KSWORD_ARK_HVM_PROCESS_STATUS_OK,
+        actionEvent);
+    return true;
+}
+
+bool ProcessDock::prepareHvmForArming(
+    const QString& actionTitle,
+    const kLogEvent& actionEvent)
+{
+    const auto stepFailed = [&](const QString& stepName,
+                                const ksword::kvm::KvmCommandResult& r) {
+        if (r.ok)
+        {
+            return false;
+        }
+        showHvmDispositionResult(
+            actionTitle,
+            false,
+            (stepName + QStringLiteral("：") + r.message).toStdString(),
+            KSWORD_ARK_HVM_PROCESS_STATUS_OK,
+            actionEvent);
+        return true;
+    };
+    // 停常驻。已经停着时返回成功，不需要先查。
+    if (stepFailed(ks::i18n::sourceText(QStringLiteral("停止常驻")),
+                   ksword::kvm::stopResident(0UL)))
+    {
+        return false;
+    }
+    /*
+     * 释放资源。必须做，不能因为"看起来已经准备好了"就跳过：
+     * 后端与 CR3 追踪都只在 PREPARE / 建 VMCS 时被读，而 ensurePrepared 在资源
+     * 已就绪时不会重发 PREPARE——不先释放，这两个设置这一轮根本不会生效。
+     */
+    if (stepFailed(ks::i18n::sourceText(QStringLiteral("释放资源")),
+                   ksword::kvm::releaseResources(0UL)))
+    {
+        return false;
+    }
+    /*
+     * CR3 追踪：处置的作用域完全靠它，且只在建 VMCS 时被读。
+     *
+     * 必须先读再写。CR 策略的 OP_SET 是**整体替换**而不是合并
+     * （hvm_cr_policy.c 里直接 `CrPolicyFlags = flags`、`Cr0PinnedMask = ...`），
+     * 所以直接发一个 `0, 0, trackCr3=true, false, false` 会把用户在 CR 策略
+     * 面板里配的 CR0/CR4 钉住掩码清零、把 DR 拦截和日志一起关掉——而且悄无
+     * 声息。我们要改的只有 CR3 追踪这一位，其余必须原样带回去。
+     *
+     * 走 applyCrPolicy 而不是自己发 IOCTL，还因为它带写权限门：R-1 写权限
+     * 关着的时候这条链路本来就不该改任何策略。
+     */
+    const ksword::kvm::KvmCrPolicyResult currentCrPolicy =
+        ksword::kvm::readCrPolicy();
+    const ksword::kvm::KvmCrPolicyResult crResult = ksword::kvm::applyCrPolicy(
+        currentCrPolicy.ok ? currentCrPolicy.cr0PinnedMask : 0ULL,
+        currentCrPolicy.ok ? currentCrPolicy.cr4PinnedMask : 0ULL,
+        true,
+        currentCrPolicy.ok ? currentCrPolicy.interceptDr : false,
+        currentCrPolicy.ok ? currentCrPolicy.log : false);
+    if (!crResult.ok)
+    {
+        showHvmDispositionResult(
+            actionTitle, false,
+            crResult.message.toStdString(),
+            KSWORD_ARK_HVM_PROCESS_STATUS_CR3_TRACKING_REQUIRED,
+            actionEvent);
+        return false;
+    }
+    /*
+     * 受限层次的唯一来源是 EPTP 切换后端，它在 PREPARE 时选定。
+     *
+     * 打开它之前要先挡住互斥项：私有 EPT 与 VMFUNC 都与这套后端互斥，驱动在
+     * 任何分配之前就会拒绝。手动勾这个开关的路径有这道检查，这里补上——
+     * 少了它，最后一步启动常驻会以一个与真因无关的状态码失败，而处置那时
+     * 已经装上了。
+     */
+    if (ksword::kvm::isLocalEptEnabled() || ksword::kvm::isVmFuncEnabled())
+    {
+        showHvmDispositionResult(
+            actionTitle, false,
+            ks::i18n::sourceText(QStringLiteral("R-1 处置需要 EPTP 切换后端，而它与「每处理器私有 EPT」「VMFUNC」互斥。请先在虚拟化菜单里关掉这两项。")).toStdString(),
+            KSWORD_ARK_HVM_PROCESS_STATUS_EPTP_SWITCH_REQUIRED,
+            actionEvent);
+        return false;
+    }
+    ksword::kvm::setEptpSwitchEnabled(true);
+    if (stepFailed(ks::i18n::sourceText(QStringLiteral("准备资源")),
+                   ksword::kvm::ensurePrepared()))
+    {
+        return false;
+    }
+    /* 三条前提都就位了。 */
+    return true;
+}
+
 void ProcessDock::executeHvmProcessDispositionAction(
     const unsigned long operation)
 {
@@ -14699,85 +14837,7 @@ void ProcessDock::executeHvmProcessDispositionAction(
      * 那一层还顺带处理了 generation 传递、资源已就绪时不重复 PREPARE、以及把
      * 协议状态码翻成已本地化的原因——这三件如果在这里重做，就是第三份副本。
      */
-    const auto stepFailed = [&](const QString& stepName,
-                                const ksword::kvm::KvmCommandResult& r) {
-        if (r.ok)
-        {
-            return false;
-        }
-        showHvmDispositionResult(
-            actionTitle,
-            false,
-            (stepName + QStringLiteral("：") + r.message).toStdString(),
-            KSWORD_ARK_HVM_PROCESS_STATUS_OK,
-            actionEvent);
-        return true;
-    };
-    // 停常驻。已经停着时返回成功，不需要先查。
-    if (stepFailed(ks::i18n::sourceText(QStringLiteral("停止常驻")),
-                   ksword::kvm::stopResident(0UL)))
-    {
-        return;
-    }
-    /*
-     * 释放资源。必须做，不能因为"看起来已经准备好了"就跳过：
-     * 后端与 CR3 追踪都只在 PREPARE / 建 VMCS 时被读，而 ensurePrepared 在资源
-     * 已就绪时不会重发 PREPARE——不先释放，这两个设置这一轮根本不会生效。
-     */
-    if (stepFailed(ks::i18n::sourceText(QStringLiteral("释放资源")),
-                   ksword::kvm::releaseResources(0UL)))
-    {
-        return;
-    }
-    /*
-     * CR3 追踪：处置的作用域完全靠它，且只在建 VMCS 时被读。
-     *
-     * 必须先读再写。CR 策略的 OP_SET 是**整体替换**而不是合并
-     * （hvm_cr_policy.c 里直接 `CrPolicyFlags = flags`、`Cr0PinnedMask = ...`），
-     * 所以直接发一个 `0, 0, trackCr3=true, false, false` 会把用户在 CR 策略
-     * 面板里配的 CR0/CR4 钉住掩码清零、把 DR 拦截和日志一起关掉——而且悄无
-     * 声息。我们要改的只有 CR3 追踪这一位，其余必须原样带回去。
-     *
-     * 走 applyCrPolicy 而不是自己发 IOCTL，还因为它带写权限门：R-1 写权限
-     * 关着的时候这条链路本来就不该改任何策略。
-     */
-    const ksword::kvm::KvmCrPolicyResult currentCrPolicy =
-        ksword::kvm::readCrPolicy();
-    const ksword::kvm::KvmCrPolicyResult crResult = ksword::kvm::applyCrPolicy(
-        currentCrPolicy.ok ? currentCrPolicy.cr0PinnedMask : 0ULL,
-        currentCrPolicy.ok ? currentCrPolicy.cr4PinnedMask : 0ULL,
-        true,
-        currentCrPolicy.ok ? currentCrPolicy.interceptDr : false,
-        currentCrPolicy.ok ? currentCrPolicy.log : false);
-    if (!crResult.ok)
-    {
-        showHvmDispositionResult(
-            actionTitle, false,
-            crResult.message.toStdString(),
-            KSWORD_ARK_HVM_PROCESS_STATUS_CR3_TRACKING_REQUIRED,
-            actionEvent);
-        return;
-    }
-    /*
-     * 受限层次的唯一来源是 EPTP 切换后端，它在 PREPARE 时选定。
-     *
-     * 打开它之前要先挡住互斥项：私有 EPT 与 VMFUNC 都与这套后端互斥，驱动在
-     * 任何分配之前就会拒绝。手动勾这个开关的路径有这道检查，这里补上——
-     * 少了它，最后一步启动常驻会以一个与真因无关的状态码失败，而处置那时
-     * 已经装上了。
-     */
-    if (ksword::kvm::isLocalEptEnabled() || ksword::kvm::isVmFuncEnabled())
-    {
-        showHvmDispositionResult(
-            actionTitle, false,
-            ks::i18n::sourceText(QStringLiteral("R-1 处置需要 EPTP 切换后端，而它与「每处理器私有 EPT」「VMFUNC」互斥。请先在虚拟化菜单里关掉这两项。")).toStdString(),
-            KSWORD_ARK_HVM_PROCESS_STATUS_EPTP_SWITCH_REQUIRED,
-            actionEvent);
-        return;
-    }
-    ksword::kvm::setEptpSwitchEnabled(true);
-    if (stepFailed(ks::i18n::sourceText(QStringLiteral("准备资源")),
-                   ksword::kvm::ensurePrepared()))
+    if (!prepareHvmForArming(actionTitle, actionEvent))
     {
         return;
     }
@@ -14799,9 +14859,7 @@ void ProcessDock::executeHvmProcessDispositionAction(
          * 失败混成一句，会让人以为什么都没发生，然后下一次安装撞上 ALREADY_ARMED
          * 却不知道为什么。
          */
-        if (stepFailed(
-                ks::i18n::sourceText(QStringLiteral("启动常驻（处置已装上，但常驻没起来）")),
-                ksword::kvm::startResident(0UL)))
+        if (stepFailedRestartResident(actionTitle, actionEvent))
         {
             return;
         }
@@ -14824,6 +14882,155 @@ void ProcessDock::executeHvmProcessDispositionAction(
         result.response.status,
         actionEvent,
         successAdvice);
+}
+
+void ProcessDock::executeHvmInjectAction(const unsigned long operation)
+{
+    // 输入：operation 取 ARM（注入 DLL）或 RELEASE（撤销）。
+    // 处理：补齐前提、选 DLL、下达注入，最后恢复常驻。
+    // 返回：无返回值；结果通过消息框与日志反馈。
+    const std::vector<ProcessActionTarget> actionTargets = selectedActionTargets();
+    if (actionTargets.empty())
+    {
+        kLogEvent logEvent;
+        warn << logEvent
+            << "[ProcessDock] executeHvmInjectAction 被忽略：当前没有选中进程。"
+            << eol;
+        return;
+    }
+    const QString hvmName = ks::settings::hvmDisplayNameLabel(
+        ks::settings::loadAppearanceSettings().hvmDisplayName);
+    // 往别的进程里放可执行代码，写权限门管得比处置更严，不能少。
+    if (!ksword::kvm::isWriteAccessEnabled())
+    {
+        QMessageBox::information(
+            this,
+            hvmName,
+            ks::i18n::sourceText(QStringLiteral("R-1 写权限当前是关闭的（只读观测）。注入会改变系统状态，请先在虚拟化菜单里开启写权限。")));
+        return;
+    }
+    const ProcessActionTarget& target = actionTargets.front();
+    const unsigned long targetPid = target.record.pid;
+
+    if (operation == KSWORD_ARK_HVM_INJECT_OP_RELEASE)
+    {
+        kLogEvent releaseEvent;
+        ksword::ark::DriverClient releaseClient;
+        const ksword::ark::HvmInjectResult releaseResult =
+            releaseClient.controlHvmInject(
+                KSWORD_ARK_HVM_INJECT_OP_RELEASE,
+                targetPid, 0UL, 0ULL, 0ULL, nullptr, 0UL, true);
+        showHvmDispositionResult(
+            ks::i18n::sourceText(QStringLiteral("%1 撤销注入")).arg(hvmName),
+            releaseResult.io.ok &&
+                releaseResult.response.status ==
+                    KSWORD_ARK_HVM_INJECT_STATUS_OK,
+            releaseResult.io.message,
+            KSWORD_ARK_HVM_PROCESS_STATUS_OK,
+            releaseEvent);
+        return;
+    }
+
+    const QString dllPath = QFileDialog::getOpenFileName(
+        this,
+        ks::i18n::sourceText(QStringLiteral("%1 注入：选择要加载的 DLL")).arg(hvmName),
+        QString(),
+        ks::i18n::sourceText(QStringLiteral("动态链接库 (*.dll)")));
+    if (dllPath.isEmpty())
+    {
+        return;
+    }
+    /*
+     * 触发地址取目标线程此刻正在执行的位置。
+     *
+     * 驱动从这个地址所在的页开始往前找空隙，所以它必须落在一段**会被执行到**的
+     * 代码上。入口点不行：它只在启动时执行一次，对已经跑起来的进程等于永远不
+     * 触发，而那和成功在外面看不出区别。
+     */
+    const quint64 triggerAddress = hvmProcessRunningThreadRip(targetPid);
+    if (triggerAddress == 0ULL)
+    {
+        QMessageBox::warning(
+            this,
+            hvmName,
+            ks::i18n::sourceText(QStringLiteral("取不到这个进程正在执行的地址，无法确定从哪一页开始找空隙。")));
+        return;
+    }
+    /*
+     * LoadLibraryW 在本进程里解析。
+     *
+     * kernel32 在同一次启动内对所有进程是同一个基址（系统 DLL 的 ASLR 每次启动
+     * 重定一次，不是每进程一次），所以这里解析出来的值对目标同样成立。
+     */
+    const HMODULE kernel32 = ::GetModuleHandleW(L"kernel32.dll");
+    const FARPROC loadLibrary = (kernel32 != nullptr)
+        ? ::GetProcAddress(kernel32, "LoadLibraryW")
+        : nullptr;
+    if (loadLibrary == nullptr)
+    {
+        QMessageBox::warning(
+            this,
+            hvmName,
+            ks::i18n::sourceText(QStringLiteral("解析 LoadLibraryW 失败，无法构造注入外壳。")));
+        return;
+    }
+
+    const QString actionTitle =
+        ks::i18n::sourceText(QStringLiteral("%1 注入 DLL")).arg(hvmName);
+    if (!ks::ui::confirmDestructiveAction(
+            this,
+            QStringLiteral("process-inject-hvm"),
+            actionTitle,
+            ks::i18n::sourceText(QStringLiteral("PID %1；%2")).arg(targetPid).arg(dllPath),
+            ks::i18n::sourceText(QStringLiteral("注入不调用任何内核 API：载荷只存在于该页的执行视图里，读这一页的人看到的仍是原始字节。它跑在目标一个正在运行的线程上——不是新线程，而是把那个线程借用一小段，因此可能与目标当前正在做的事相互干扰。生效时机取决于目标何时再执行到那一页，所以不是即时的。安装过程会自动停止并重新启动虚拟化常驻——这期间全机器的虚拟化监控是断开的。"))))
+    {
+        clearContextActionBinding();
+        return;
+    }
+
+    kLogEvent actionEvent;
+    warn << actionEvent
+        << "[ProcessDock] executeHvmInjectAction: pid=" << targetPid
+        << eol;
+    if (!prepareHvmForArming(actionTitle, actionEvent))
+    {
+        return;
+    }
+    /*
+     * 路径按 UTF-16 传（LoadLibraryW），长度不含结尾的零——驱动把超出长度的部分
+     * 补零，结尾符因此是白来的。
+     */
+    const std::wstring widePath = dllPath.toStdWString();
+    const unsigned long payloadBytes = static_cast<unsigned long>(
+        widePath.size() * sizeof(wchar_t));
+    ksword::ark::DriverClient driverClient;
+    const ksword::ark::HvmInjectResult result = driverClient.controlHvmInject(
+        KSWORD_ARK_HVM_INJECT_OP_ARM,
+        targetPid,
+        KSWORD_ARK_HVM_INJECT_TYPE_DLL_PATH,
+        static_cast<std::uint64_t>(triggerAddress),
+        static_cast<std::uint64_t>(reinterpret_cast<ULONG_PTR>(loadLibrary)),
+        reinterpret_cast<const unsigned char*>(widePath.c_str()),
+        payloadBytes,
+        true);
+    const bool armed = result.io.ok &&
+        result.response.status == KSWORD_ARK_HVM_INJECT_STATUS_OK;
+    if (armed)
+    {
+        // 注入只有在常驻起来之后才真的生效。这一步失败要单独报：注入**已经装上
+        // 了**，只是没人在执行它。
+        if (stepFailedRestartResident(actionTitle, actionEvent))
+        {
+            return;
+        }
+    }
+    showHvmDispositionResult(
+        actionTitle,
+        armed,
+        result.io.message,
+        KSWORD_ARK_HVM_PROCESS_STATUS_OK,
+        actionEvent,
+        ks::i18n::sourceText(QStringLiteral("注入已装上。它在目标下一次执行到那一页时才生效，所以可能不会立刻看到效果。若长时间没有反应，多半是那一页没被执行到，或这一带找不到足够长的空隙。")));
 }
 
 void ProcessDock::executeR0SetProcessHiddenAction(

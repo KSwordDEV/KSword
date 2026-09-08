@@ -543,6 +543,23 @@ namespace ksword::ark
             unsigned long processId,
             std::uint64_t guestLinearAddress,
             bool uiConfirmed) const;
+        // controlHvmInject：R-1 层的进程注入——分离视图 + 线程劫持。
+        // - 与 R0 注入（ZwAllocateVirtualMemory + ZwCreateThreadEx）是两条不同的
+        //   通路：这一条一个内核 API 都不调，目标里也不会多出线程或内存区域；
+        // - guestLinearAddress 必填，且要指向一个**会被执行到**的地址。驱动从
+        //   它所在的页开始往前找空隙，找不到就报 NO_CAVE；
+        // - loadLibraryAddress 只有 DLL 类型用。同一次启动内 kernel32 对所有进程
+        //   同基址，所以本进程解析出来的值对目标同样成立；
+        // - 载荷跑在一个被借用的线程上，必须位置无关、可重入、短。
+        HvmInjectResult controlHvmInject(
+            unsigned long operation,
+            unsigned long processId,
+            unsigned long injectType,
+            std::uint64_t guestLinearAddress,
+            std::uint64_t loadLibraryAddress,
+            const unsigned char* payload,
+            unsigned long payloadBytes,
+            bool uiConfirmed) const;
         // hvmPlatform：只读平台标定（CR4.CET / IA32_S_CET / IA32_U_CET /
         // FS/GS/KERNEL_GS base / EFER / CPUID.(7,0)）。
         //

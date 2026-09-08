@@ -857,6 +857,20 @@ private:
     // - 只作用于选中的第一个进程：处置是逐地址空间的，批量下达会让"哪一页对应
     //   哪个进程"在一次操作里失去对应关系。
     void executeHvmProcessDispositionAction(unsigned long operation);
+    // executeHvmInjectAction 作用：
+    // - 下达一次 R-1 注入（装 DLL / 撤销）；
+    // - 触发地址取目标线程此刻正在执行的位置，驱动从那一页开始往前找空隙；
+    // - LoadLibraryW 在本进程解析：kernel32 同一次启动内全系统同基址。
+    void executeHvmInjectAction(unsigned long operation);
+    // prepareHvmForArming 作用：
+    // - 把 R-1 安装的三条前提按顺序补齐（停常驻、释放资源、CR3 追踪、带 EPTP
+    //   后端准备）；成功返回 true，失败时自己把原因报出来；
+    // - 处置与注入共用。顺序是硬的，留两份副本早晚有一份会先改。
+    bool prepareHvmForArming(const QString& actionTitle, const kLogEvent& actionEvent);
+    // stepFailedRestartResident 作用：
+    // - 装完之后恢复常驻；这一步失败返回 true 并单独报——东西已经装上了，只是
+    //   没人在执行它，与安装失败是两回事。
+    bool stepFailedRestartResident(const QString& actionTitle, const kLogEvent& actionEvent);
     // hvmDispositionStatusAdvice 作用：
     // - 把处置状态码翻成"接下来该做什么"；
     // - 光摆一个数字等于没说：这些码大多是前提没满足，而每条前提要做的事不同，
