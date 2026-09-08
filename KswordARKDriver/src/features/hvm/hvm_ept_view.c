@@ -1035,3 +1035,30 @@ KswordARKHvmEptViewControl(
     /* Return the complete protocol operation result. */
     return status;
 }
+
+volatile UCHAR*
+KswordARKHvmEptViewShadowForViewId(
+    _In_ const KSW_HVM_RUNTIME* Runtime,
+    _In_ ULONG ViewId
+    )
+{
+    ULONG index = 0UL;
+
+    /* 拒绝不完整的调用契约与不可能命中的标识。 */
+    if (Runtime == NULL || ViewId == 0UL) {
+        /* 返回未命中。 */
+        return NULL;
+    }
+    for (index = 0UL; index < KSWORD_ARK_HVM_MAX_VIEWS; ++index) {
+        const KSW_HVM_EPT_VIEW_SLOT* slot = &Runtime->EptViews[index];
+
+        if (slot->Active &&
+            slot->ViewId == ViewId &&
+            slot->ShadowVirtual != NULL) {
+            /* 返回这张视图的影子页。 */
+            return (volatile UCHAR*)slot->ShadowVirtual;
+        }
+    }
+    /* 返回未命中。 */
+    return NULL;
+}

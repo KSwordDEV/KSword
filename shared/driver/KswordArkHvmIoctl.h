@@ -1613,3 +1613,191 @@ typedef struct _KSWORD_ARK_HVM_PROCESS_RESPONSE
     unsigned long long stateFlags;
     KSWORD_ARK_HVM_PROCESS_ROW rows[KSWORD_ARK_HVM_MAX_PROCESS_DISPOSITIONS];
 } KSWORD_ARK_HVM_PROCESS_RESPONSE;
+
+/*
+ * R-1 层的进程注入。
+ *
+ * 与 R0 那条注入（ZwAllocateVirtualMemory + ZwCreateThreadEx，见
+ * process_inject.c）是**两条不同的通路**，不是同一件事换个标签：R0 那条的每一
+ * 步都要调内核 API，每一步都能被进程/线程创建回调、镜像加载回调、PatchGuard
+ * 与 EDR 看见；这一条一个内核 API 都不调，目标进程里也不会多出线程或内存区域。
+ *
+ * 机制是**分离视图 + 线程劫持**，四步：
+ *
+ *   1. 选目标地址空间里一页已经可执行、且会被执行到的页；
+ *   2. 建一张影子页 = 真页的完整副本 + 载荷写进它的空隙（节尾填充、code cave）；
+ *   3. 装一张 KIND_HOOK 视图：**读写看真页，执行跑影子**。载荷因此只存在于
+ *      执行视图里——任何读这一页的东西（完整性校验、内存转储、进程自查）看到
+ *      的都是未改动的原始字节；
+ *   4. 在一次受控的 VM exit 上把 RIP 指向影子里载荷的位置，载荷执行完跳回原
+ *      来那条指令。
+ *
+ * **不新建映射，也不改客户页表。** 那条路会和 Windows 的内存管理器竞争同一份
+ * 页表：我们塞进去的 PTE 随时可能被回收，而回收发生在我们看不见的地方，症状是
+ * 目标在某个不确定的时刻崩掉。写进已有可执行页的空隙则不碰任何管理结构。
+ *
+ * ## 载荷的硬约束
+ *
+ * 载荷跑在**一个任意线程的任意指令边界上**——不是新线程，是把某个正在跑的线程
+ * 借用一小段时间。这不是实现偷懒，是这条通路的本质：R-1 没有"创建线程"这个
+ * 概念，它只能在已有的执行流里插队。由此：
+ *
+ *   - 必须位置无关，必须可重入，必须短。被借用的线程可能正持有锁、正在系统调用
+ *     的中途；在里面做任何会阻塞或会重入同一把锁的事都会死锁；
+ *   - 不要用 ret 返回。这台机器上 CET 影子栈是开着的，由 hypervisor 压进去的
+ *     返回地址与影子栈对不上，会直接吃一个 #CP。驱动自己包的外壳用绝对跳转
+ *     回去，不走 ret；
+ *   - 寄存器与标志位由驱动包的外壳负责保存和恢复，载荷本体不必自己做，但也
+ *     **不能**假设外壳之外还有别的保护。
+ *
+ * ## 这不是隐蔽性保证
+ *
+ * 与隐蔽 Hook 同源的性质：执行视图能被同样的手段拆掉（见隐蔽Hook安全边界决策）。
+ * 它躲开的是"读这一页"这类检查，不是一个知道这套机制存在的对手。
+ */
+#define KSWORD_ARK_IOCTL_FUNCTION_HVM_INJECT 0x910UL
+#define IOCTL_KSWORD_ARK_HVM_INJECT \
+    CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_HVM_INJECT, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+
+#define KSWORD_ARK_HVM_INJECT_PROTOCOL_VERSION 1UL
+
+/* 只读当前注入表。 */
+#define KSWORD_ARK_HVM_INJECT_OP_QUERY   0UL
+/* 装一次注入：建影子、装视图、武装触发。 */
+#define KSWORD_ARK_HVM_INJECT_OP_ARM     1UL
+/* 撤销一条：摘视图、解除触发。已经执行过的载荷不会被撤回。 */
+#define KSWORD_ARK_HVM_INJECT_OP_RELEASE 2UL
+/* 清空整张表。 */
+#define KSWORD_ARK_HVM_INJECT_OP_RELEASE_ALL 3UL
+
+/*
+ * 载荷本体的上限。
+ *
+ * 影子只有一页，而外壳（保存/恢复寄存器与标志位、绝对跳转回去）要占掉几十字节，
+ * 页里还得留下真页原有的内容不动——能用的只有空隙。给 1024 而不是"剩下多少算
+ * 多少"：一个会随目标页内容浮动的上限，会让同一份载荷在这个进程装得上、在那个
+ * 进程装不上，而失败原因看起来与载荷无关。
+ */
+#define KSWORD_ARK_HVM_INJECT_MAX_PAYLOAD_BYTES 1024UL
+
+/*
+ * 两种载荷，与 R0 那条注入保持同样的分法。
+ *
+ * SHELLCODE 是这条通路的原语：一段位置无关的机器码，跑在被借用的线程上。
+ * DLL_PATH 是它上面的一层：外壳把路径地址放进 RCX，再 call 调用方给出的
+ * LoadLibraryW。分成两种而不是只留 shellcode，是因为"注入一个 DLL"是实际要做
+ * 的事，而让每个调用方自己拼一段调用 LoadLibraryW 的机器码，等于把同一段容易
+ * 出错的代码复制很多份。
+ */
+#define KSWORD_ARK_HVM_INJECT_TYPE_SHELLCODE 1UL
+#define KSWORD_ARK_HVM_INJECT_TYPE_DLL_PATH  2UL
+
+/*
+ * 空隙至少要这么长才认。
+ *
+ * 太短的"空隙"多半不是填充而是真代码里恰好连续的零字节，写进去就是把目标打死。
+ */
+#define KSWORD_ARK_HVM_INJECT_MIN_CAVE_BYTES 64UL
+
+#define KSWORD_ARK_HVM_INJECT_STATUS_OK                    0UL
+#define KSWORD_ARK_HVM_INJECT_STATUS_INVALID_REQUEST       1UL
+#define KSWORD_ARK_HVM_INJECT_STATUS_NOT_PREPARED          2UL
+#define KSWORD_ARK_HVM_INJECT_STATUS_REQUIRES_RESIDENT_STOPPED 3UL
+#define KSWORD_ARK_HVM_INJECT_STATUS_PROCESS_LOOKUP_FAILED 4UL
+#define KSWORD_ARK_HVM_INJECT_STATUS_TRANSLATION_FAILED    5UL
+#define KSWORD_ARK_HVM_INJECT_STATUS_TABLE_FULL            6UL
+#define KSWORD_ARK_HVM_INJECT_STATUS_NOT_FOUND             7UL
+#define KSWORD_ARK_HVM_INJECT_STATUS_ALREADY_ARMED         8UL
+#define KSWORD_ARK_HVM_INJECT_STATUS_PROTECTED_TARGET      9UL
+/* 前提：作用域靠 CR3-load exiting，缺了拒绝落到全机器而不是一个进程头上。 */
+#define KSWORD_ARK_HVM_INJECT_STATUS_CR3_TRACKING_REQUIRED 10UL
+/* 前提：执行视图与受限层次都由 EPTP 切换后端提供。 */
+#define KSWORD_ARK_HVM_INJECT_STATUS_EPTP_SWITCH_REQUIRED  11UL
+/* 这一页里找不到足够长的空隙来放外壳加载荷。 */
+#define KSWORD_ARK_HVM_INJECT_STATUS_NO_CAVE               12UL
+/* 装执行视图失败。 */
+#define KSWORD_ARK_HVM_INJECT_STATUS_VIEW_FAILED           13UL
+/* 目标页不可执行——把载荷放在一页永远不会被执行的地方等于什么都没做。 */
+#define KSWORD_ARK_HVM_INJECT_STATUS_PAGE_NOT_EXECUTABLE   14UL
+
+#define KSWORD_ARK_HVM_MAX_INJECTIONS 4UL
+
+typedef struct _KSWORD_ARK_HVM_INJECT_ROW
+{
+    /* 下达时的 PID。PID 会被回收，判据是 directoryBase。 */
+    unsigned long processId;
+    /* 载荷本体长度。 */
+    unsigned long payloadBytes;
+    /* 目标地址空间，低位的 PCID 与标志已掩掉。 */
+    unsigned long long directoryBase;
+    /* 被劫持那一页的客户线性地址（页对齐）。 */
+    unsigned long long guestLinearAddress;
+    /* 该页的客户物理地址。 */
+    unsigned long long guestPhysicalAddress;
+    /* 外壳在页内的偏移，也就是 RIP 会被指向的位置。 */
+    unsigned long caveOffset;
+    /* 外壳加载荷占掉的总字节数。 */
+    unsigned long caveBytes;
+    /* 载荷已经被执行了多少次。一次性注入完成后应为 1。 */
+    unsigned long long executionCount;
+    /* 这次注入占用的执行视图标识。 */
+    unsigned long viewId;
+    unsigned long reserved;
+} KSWORD_ARK_HVM_INJECT_ROW;
+
+typedef struct _KSWORD_ARK_HVM_INJECT_REQUEST
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long operation;
+    unsigned long flags;
+    unsigned long confirmationToken;
+    unsigned long processId;
+    /*
+     * 要劫持的那一页里的任意一个客户线性地址。**必填**。
+     *
+     * 驱动不猜这一页。"哪一页会被执行到"没有普适答案，而猜错的表现是载荷装上了
+     * 却永远不执行——从外面看和成功完全一样。调用方能答得比驱动好：取目标某个
+     * 线程此刻正在执行的位置，那一页**按定义**会被执行到。
+     *
+     * 驱动侧拿不到这个答案：用户态 RIP 要从线程的陷阱帧里取，而那是调用方在
+     * PASSIVE 上下文里顺手能做、驱动要绕一大圈的事。
+     */
+    unsigned long long guestLinearAddress;
+    /* 见 KSWORD_ARK_HVM_INJECT_TYPE_*。 */
+    unsigned long injectType;
+    /* 载荷本体长度，不含驱动包的外壳。 */
+    unsigned long payloadBytes;
+    /*
+     * DLL 类型专用：目标进程里 LoadLibraryW 的客户线性地址。
+     *
+     * 由调用方解析而不是驱动：同一个 DLL 在不同进程里的基址不同，而调用方本来
+     * 就在枚举目标的模块表。驱动去解析等于把同一件事做第二遍，还容易与调用方
+     * 看到的不一致。
+     */
+    unsigned long long loadLibraryAddress;
+    /*
+     * 载荷本体。
+     *
+     * SHELLCODE：位置无关、可重入的机器码，寄存器与标志位由外壳保存恢复。
+     * DLL_PATH：以零结尾的 UTF-16 路径，外壳会把它的地址放进 RCX 再 call
+     *           loadLibraryAddress。这里的 call 与它自己的 ret 是配对的，
+     *           因此不会踩 CET 影子栈——只有"压一个没有对应 call 的返回地址"
+     *           才会。
+     */
+    unsigned char payload[KSWORD_ARK_HVM_INJECT_MAX_PAYLOAD_BYTES];
+} KSWORD_ARK_HVM_INJECT_REQUEST;
+
+typedef struct _KSWORD_ARK_HVM_INJECT_RESPONSE
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long status;
+    unsigned long returnedRows;
+    unsigned long rowCount;
+    unsigned long generation;
+    long lastStatus;
+    unsigned long reserved;
+    unsigned long long stateFlags;
+    KSWORD_ARK_HVM_INJECT_ROW rows[KSWORD_ARK_HVM_MAX_INJECTIONS];
+} KSWORD_ARK_HVM_INJECT_RESPONSE;

@@ -25,6 +25,7 @@ Environment:
 #include "hvm_ept.h"
 #include "hvm_event.h"
 #include "hvm_nested.h"
+#include "hvm_inject.h"
 #include "hvm_process.h"
 #include "hvm_vmcs.h"
 
@@ -1445,6 +1446,37 @@ KswordARKHvmResidentVmExitDispatch(
                 access,
                 ruleId,
                 handled ? STATUS_SUCCESS : planStatus);
+            /*
+             * 执行视图已经选好了，这时才轮到 R-1 注入决定要不要改 RIP。
+             *
+             * 顺序是硬的：RIP 指向的是影子页里的外壳，而影子只有在切到执行层次
+             * 之后才是这一页的内容。反过来先改 RIP 再切，中间那一瞬客户机会从
+             * 真页的同一个偏移取指——那里是原始字节，不是外壳。
+             */
+            if (handled) {
+                SIZE_T injectCr3 = 0U;
+                SIZE_T injectRip = 0U;
+                ULONGLONG hijackRip = 0ULL;
+
+                if (KswordARKHvmVmcsFieldLoad(
+                        KSW_VMCS_GUEST_CR3, &injectCr3) == 0U &&
+                    KswordARKHvmVmcsFieldLoad(
+                        KSW_VMCS_GUEST_RIP, &injectRip) == 0U &&
+                    KswordARKHvmInjectHijackRip(
+                        Context->Runtime,
+                        guestPhysicalAddress,
+                        access,
+                        (ULONGLONG)injectCr3,
+                        (ULONGLONG)injectRip,
+                        &hijackRip)) {
+                    /*
+                     * 写不进去就维持原 RIP 继续。载荷不跑是可以接受的结果，
+                     * 把 RIP 改成一个半成品的值不是。
+                     */
+                    (void)KswordARKHvmVmcsFieldStore(
+                        KSW_VMCS_GUEST_RIP, (SIZE_T)hijackRip);
+                }
+            }
             if (handled) {
                 /* Resume on the newly selected hierarchy; no trap is armed. */
                 return KSW_HVM_EXIT_ACTION_RESUME;

@@ -20,6 +20,7 @@ Environment:
 #include "hvm_internal.h"
 #include "hvm_cr_policy.h"
 #include "hvm_ept_view.h"
+#include "hvm_inject.h"
 #include "hvm_process.h"
 #include "hvm_ept_domain.h"
 #include "hvm_ept_switch.h"
@@ -1131,6 +1132,13 @@ KswordARKHvmFreeResourcesLocked(
      * 台账与页就对不上了。
      */
     KswordARKHvmProcessResetLocked(Runtime);
+    /*
+     * 摘掉每一条 R-1 注入占用的执行视图，且要在视图表被清空之前。
+     *
+     * 排在这里是因为注入是靠视图标识去摘视图的：视图先被清掉，注入手里的标识
+     * 就指向一张不存在的视图，摘不掉也报不出来，影子页跟着泄露。
+     */
+    KswordARKHvmInjectResetLocked(Runtime);
     /* Restore view leaves and free shadows before rules touch the same pages. */
     KswordARKHvmEptViewResetLocked(Runtime);
     /* Restore baseline EPT leaves before releasing split table pages. */

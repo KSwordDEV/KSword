@@ -18,6 +18,7 @@ Environment:
 #include "hvm_cr_policy.h"
 #include "hvm_ept_domain.h"
 #include "hvm_ept_view.h"
+#include "hvm_inject.h"
 #include "hvm_process.h"
 #include "hvm_memory.h"
 #include "hvm_msr_policy.h"
@@ -1413,5 +1414,127 @@ KswordARKHvmIoctlProcess(
     /* 协议层结果一律回报定长完成长度。 */
     *BytesReturned = sizeof(*processResponse);
     /* 返回完整的进程处置操作结果。 */
+    return status;
+}
+
+NTSTATUS
+KswordARKHvmIoctlInject(
+    _In_ WDFDEVICE Device,
+    _In_ WDFREQUEST Request,
+    _In_ size_t InputBufferLength,
+    _In_ size_t OutputBufferLength,
+    _Out_ size_t* BytesReturned
+    )
+{
+    PVOID inputBuffer = NULL;
+    PVOID outputBuffer = NULL;
+    size_t actualInputLength = 0U;
+    size_t actualOutputLength = 0U;
+    NTSTATUS status = STATUS_SUCCESS;
+    /*
+     * 请求带一整页载荷，太大不能放栈上，单独分配一份快照。
+     *
+     * 快照本身仍然是必须的：METHOD_BUFFERED 让输入输出共用同一个 SystemBuffer，
+     * 而后端在读操作码与载荷之前会把响应清零——不先快照，读到的载荷是刚被清掉
+     * 的那片零。
+     */
+    KSWORD_ARK_HVM_INJECT_REQUEST* requestSnapshot = NULL;
+    KSWORD_ARK_HVM_INJECT_RESPONSE* injectResponse = NULL;
+
+    if (BytesReturned == NULL) {
+        /* 返回明确的派发契约失败。 */
+        return STATUS_INVALID_PARAMETER;
+    }
+    *BytesReturned = 0U;
+    /* 往别的进程里放可执行代码，必须要写授权。 */
+    status = KswordARKValidateDeviceIoControlWriteAccess(Request);
+    if (!NT_SUCCESS(status)) {
+        /* 返回明确的授权失败。 */
+        return status;
+    }
+    status = WdfRequestRetrieveInputBuffer(
+        Request,
+        sizeof(KSWORD_ARK_HVM_INJECT_REQUEST),
+        &inputBuffer,
+        &actualInputLength);
+    if (!NT_SUCCESS(status) ||
+        InputBufferLength < sizeof(KSWORD_ARK_HVM_INJECT_REQUEST) ||
+        actualInputLength < sizeof(KSWORD_ARK_HVM_INJECT_REQUEST)) {
+        /* 返回明确的 WDF 或定长失败。 */
+        return NT_SUCCESS(status)
+            ? STATUS_INFO_LENGTH_MISMATCH
+            : status;
+    }
+    requestSnapshot = (KSWORD_ARK_HVM_INJECT_REQUEST*)ExAllocatePool2(
+        POOL_FLAG_NON_PAGED,
+        sizeof(KSWORD_ARK_HVM_INJECT_REQUEST),
+        'qnIK');
+    if (requestSnapshot == NULL) {
+        /* 返回明确的资源失败。 */
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    RtlCopyMemory(
+        requestSnapshot,
+        inputBuffer,
+        sizeof(*requestSnapshot));
+    status = WdfRequestRetrieveOutputBuffer(
+        Request,
+        sizeof(KSWORD_ARK_HVM_INJECT_RESPONSE),
+        &outputBuffer,
+        &actualOutputLength);
+    if (!NT_SUCCESS(status) ||
+        OutputBufferLength < sizeof(KSWORD_ARK_HVM_INJECT_RESPONSE) ||
+        actualOutputLength < sizeof(KSWORD_ARK_HVM_INJECT_RESPONSE)) {
+        ExFreePool(requestSnapshot);
+        /* 返回明确的 WDF 或定长失败。 */
+        return NT_SUCCESS(status)
+            ? STATUS_BUFFER_TOO_SMALL
+            : status;
+    }
+    injectResponse =
+        (KSWORD_ARK_HVM_INJECT_RESPONSE*)outputBuffer;
+    /* 每一个会改变状态的操作都过一遍中央高风险策略。 */
+    if (requestSnapshot->operation !=
+            KSWORD_ARK_HVM_INJECT_OP_QUERY) {
+        KSWORD_ARK_SAFETY_CONTEXT safetyContext = { 0 };
+
+        safetyContext.Operation =
+            KSWORD_ARK_SAFETY_OPERATION_PROCESS_INJECT;
+        safetyContext.ContextFlags =
+            (requestSnapshot->flags &
+                KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED) != 0UL
+            ? KSWORD_ARK_SAFETY_CONTEXT_FLAG_UI_CONFIRMED
+            : 0UL;
+        safetyContext.TargetText =
+            L"R-1 code injection into one guest address space";
+        safetyContext.TargetTextChars =
+            (USHORT)(RTL_NUMBER_OF(
+                L"R-1 code injection into one guest address space") -
+                1U);
+        status = KswordARKSafetyEvaluate(
+            Device,
+            &safetyContext);
+        if (!NT_SUCCESS(status)) {
+            RtlZeroMemory(
+                injectResponse,
+                sizeof(*injectResponse));
+            injectResponse->version =
+                KSWORD_ARK_HVM_INJECT_PROTOCOL_VERSION;
+            injectResponse->size = sizeof(*injectResponse);
+            injectResponse->status =
+                KSWORD_ARK_HVM_INJECT_STATUS_INVALID_REQUEST;
+            injectResponse->lastStatus = status;
+            *BytesReturned = sizeof(*injectResponse);
+            ExFreePool(requestSnapshot);
+            /* 返回权威的策略失败。 */
+            return status;
+        }
+    }
+    status = KswordARKHvmInjectControl(
+        requestSnapshot,
+        injectResponse);
+    ExFreePool(requestSnapshot);
+    *BytesReturned = sizeof(*injectResponse);
+    /* 返回完整的注入操作结果。 */
     return status;
 }

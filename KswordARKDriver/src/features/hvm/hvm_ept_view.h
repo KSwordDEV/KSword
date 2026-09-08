@@ -106,6 +106,19 @@ typedef struct _KSW_HVM_EPT_VIEW_SWITCH
  * already lives in that leaf's own hierarchy, so the function only reports
  * which leaf and which kind, and the caller switches the pointer instead.
  */
+/*
+ * 按视图标识取它那张影子页的内核虚拟地址，取不到返回 NULL。
+ *
+ * 存在的理由是 R-1 注入要在 VMX root 里往影子页里回填一个返回地址。影子是驱动
+ * 自己分配的非分页内存，任何 IRQL 下都能碰；但它的指针只有视图表知道，而注入
+ * 那边只记得住视图标识——让它自己去翻视图表，就是把视图表的内部布局漏出去。
+ */
+volatile UCHAR*
+KswordARKHvmEptViewShadowForViewId(
+    _In_ const KSW_HVM_RUNTIME* Runtime,
+    _In_ ULONG ViewId
+    );
+
 BOOLEAN
 KswordARKHvmEptViewHandleViolation(
     _Inout_ KSW_HVM_RUNTIME* Runtime,
