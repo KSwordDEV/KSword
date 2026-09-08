@@ -20,6 +20,7 @@ Environment:
 #include "hvm_internal.h"
 #include "hvm_cr_policy.h"
 #include "hvm_ept_view.h"
+#include "hvm_process.h"
 #include "hvm_ept_domain.h"
 #include "hvm_ept_switch.h"
 #include "hvm_guest.h"
@@ -1123,6 +1124,13 @@ KswordARKHvmFreeResourcesLocked(
      * to dismantle.
      */
     KswordARKHvmEptDomainResetLocked(Runtime);
+    /*
+     * 放掉每一条 R-1 进程处置占用的层次，且要在层次页池被释放之前。
+     *
+     * 排在视图之前是因为两者用同一个池：处置的记录还指着某个层次序号时释放池，
+     * 台账与页就对不上了。
+     */
+    KswordARKHvmProcessResetLocked(Runtime);
     /* Restore view leaves and free shadows before rules touch the same pages. */
     KswordARKHvmEptViewResetLocked(Runtime);
     /* Restore baseline EPT leaves before releasing split table pages. */

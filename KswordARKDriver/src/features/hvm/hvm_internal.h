@@ -379,6 +379,34 @@ typedef struct _KSW_HVM_EPT_VIEW_SLOT
     ULONG Reserved1;
 } KSW_HVM_EPT_VIEW_SLOT;
 
+/* 一条 R-1 进程处置的完整驱动侧状态。 */
+typedef struct _KSW_HVM_PROCESS_SLOT
+{
+    /* 非零表示本槽在用。 */
+    BOOLEAN InUse;
+    /* 保持后面的成员自然对齐。 */
+    UCHAR Reserved0[3];
+    /* 下达时的 PID，只用于回报；判据是 DirectoryBase。 */
+    ULONG ProcessId;
+    /* OP_FREEZE 或 OP_TERMINATE。 */
+    ULONG Disposition;
+    /*
+     * 本条占用的受限层次序号（1..LeafCapacity），0 是基座、永远不会出现在这里。
+     *
+     * 层次的叶把目标页写成不可执行，其余与基座共享，所以这套层次只有"那一页不
+     * 能执行"这一个差别。
+     */
+    ULONG HierarchyIndex;
+    /* 目标地址空间，低位的 PCID 与标志已掩掉。 */
+    ULONGLONG DirectoryBase;
+    /* 被拒绝执行的页的客户物理地址，已按页对齐。 */
+    ULONGLONG GuestPhysicalAddress;
+    /* 下达时给出的客户线性地址，用来回溯这一页是怎么选出来的。 */
+    ULONGLONG GuestLinearAddress;
+    /* 本条拦下过多少次执行。冻结下会持续增长，那就是自旋的证据。 */
+    volatile LONG64 InterceptCount;
+} KSW_HVM_PROCESS_SLOT;
+
 /*
  * Root-to-leaf pages one secondary EPT hierarchy copies.
  *
@@ -728,6 +756,10 @@ typedef struct _KSW_HVM_RUNTIME
      * otherwise, so an unarmed runtime carries the storage but never a page.
      */
     KSW_HVM_EPTSW EptSwitch;
+    /* 每条 R-1 进程处置。表只在常驻停着时被改，退出路径不加锁读。 */
+    KSW_HVM_PROCESS_SLOT ProcessDispositions[KSWORD_ARK_HVM_MAX_PROCESS_DISPOSITIONS];
+    /* 表里当前有多少条。 */
+    ULONG ProcessDispositionCount;
     /* Preserve the number of installed EPT split views. */
     ULONG EptViewCount;
     /* Preserve the next view identifier handed out by the view backend. */

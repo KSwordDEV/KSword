@@ -25,6 +25,7 @@ Environment:
 #include "hvm_ept.h"
 #include "hvm_event.h"
 #include "hvm_nested.h"
+#include "hvm_process.h"
 #include "hvm_vmcs.h"
 
 #if defined(_M_AMD64)
@@ -44,6 +45,8 @@ Environment:
  * 把窗口压到一条指令的原因。
  */
 #define KSW_VMCS_EPT_POINTER 0x201AUL
+/* 客户 CR3；R-1 进程处置靠它认出正在跑的地址空间。 */
+#define KSW_VMCS_GUEST_CR3 0x6802UL
 /* Guest interruptibility state; bits 0 and 1 block interrupts at VM entry. */
 #define KSW_VMCS_GUEST_INTERRUPTIBILITY 0x4824UL
 /* Guest activity state; value one selects the architectural halt state. */
@@ -1213,6 +1216,47 @@ KswordARKHvmResidentVmExitDispatch(
             Context->Runtime,
             Frame,
             telemetry.Qualification);
+        /*
+         * 地址空间换了，跟着换层次。
+         *
+         * R-1 进程处置的作用域完全靠这一步：命中的地址空间进入受限层次，其余
+         * 一律回基座。放在这里而不是逐页判 CR3，是因为逐页那条路要求"拒绝一次
+         * 再放行一次"的翻转，而翻转要 monitor-trap——嵌套靶机上没有那一位，
+         * 那条路在那里根本跑不起来。
+         *
+         * 只在表非空时才碰 VMCS：表空时这一整段就是一次比较，而常驻期间每次
+         * 地址空间切换都要走过它。
+         */
+        if (handled &&
+            Context->Runtime->ProcessDispositionCount != 0UL) {
+            SIZE_T guestCr3 = 0U;
+            ULONGLONG targetEptp = 0ULL;
+
+            if (KswordARKHvmVmcsFieldLoad(
+                    KSW_VMCS_GUEST_CR3,
+                    &guestCr3) == 0U) {
+                if (!KswordARKHvmProcessSelectHierarchy(
+                        Context->Runtime,
+                        (ULONGLONG)guestCr3,
+                        &targetEptp)) {
+                    /*
+                     * 回基座要用这个处理器**真正**装载的那一套：开了私有层次
+                     * 时共享指针不是它在用的东西，写回去等于把这个核换到别人
+                     * 的层次上。
+                     */
+                    targetEptp = (Context->EptLocal != NULL &&
+                        Context->EptLocal->EptPointer != 0ULL)
+                        ? Context->EptLocal->EptPointer
+                        : Context->Runtime->EptPointer;
+                }
+                /* 算不出层次就不写：失败即维持现状，绝不切到零。 */
+                if (targetEptp != 0ULL) {
+                    handled = KswordARKHvmVmcsFieldStore(
+                        KSW_VMCS_EPT_POINTER,
+                        (SIZE_T)targetEptp) == 0U;
+                }
+            }
+        }
         /* Advance only after the register state was completely written. */
         if (handled) {
             /* Continue at the instruction following the MOV. */
@@ -1251,6 +1295,77 @@ KswordARKHvmResidentVmExitDispatch(
         /* Decode attempted read, write, and execute access. */
         access = KswordARKHvmExitDecodeEptAccess(
             telemetry.Qualification);
+        /*
+         * R-1 进程处置排在视图与规则之前认领。
+         *
+         * 顺序不是偏好：处置的页只在它自己那套受限层次里没有执行位，而视图与
+         * 规则装在基座上。同一个客户物理地址完全可能既被处置盯上、又被某条
+         * 规则覆盖；这时先跑规则会把这次取指按规则的语义放行，处置就静默失效
+         * 了——又是一次"装上了却什么都没发生"。
+         *
+         * 反过来不会伤到视图与规则：本模块只认取指违规，而且只认自己表里那一
+         * 页，其余一律返回 None 落回原有路径。
+         */
+        {
+            KSW_HVM_PROCESS_ACTION disposition =
+                KswordARKHvmProcessHandleViolation(
+                    Context->Runtime,
+                    guestPhysicalAddress,
+                    access);
+
+            if (disposition != KswHvmProcessActionNone) {
+                if (disposition == KswHvmProcessActionResume) {
+                    /*
+                     * 这一条已被解除，而本处理器还卡在受限层次里自旋。把指针换
+                     * 回它**真正**该用的那一套并原地继续，什么都不注入。
+                     *
+                     * 这是解除对"已经冻住的那个核"唯一生效的地方：解除只改了
+                     * 一个字段，正在自旋的核不会因此收到任何通知，它是在自己的
+                     * 下一次违规上走到这里，把自己放出来的。
+                     */
+                    ULONGLONG baseEptp =
+                        (Context->EptLocal != NULL &&
+                            Context->EptLocal->EptPointer != 0ULL)
+                        ? Context->EptLocal->EptPointer
+                        : Context->Runtime->EptPointer;
+
+                    handled = baseEptp != 0ULL &&
+                        KswordARKHvmVmcsFieldStore(
+                            KSW_VMCS_EPT_POINTER,
+                            (SIZE_T)baseEptp) == 0U;
+                } else if (disposition == KswHvmProcessActionTerminate) {
+                    /*
+                     * 硬件异常重启故障指令，所以 RIP 不动、指令长度为零。结束
+                     * 靠的是客户机自己把这个未处理异常变成进程终止。
+                     */
+                    handled = KswordARKHvmExitInjectUndefinedOpcode();
+                } else {
+                    /*
+                     * 同样重启故障指令——冻结要的正是"这条指令永远不退休"，
+                     * 进程状态因此一个字节都没变，解除后从原地继续。
+                     */
+                    handled = KswordARKHvmExitInjectPageFault(
+                        guestLinearAddress,
+                        access);
+                }
+                /* 记事件并按注入结果收尾，不再往视图与规则走。 */
+                KswordARKHvmExitPublishTelemetry(
+                    Context,
+                    &telemetry,
+                    guestPhysicalAddress,
+                    guestLinearAddress,
+                    KSWORD_ARK_HVM_EVENT_TYPE_EPT_VIOLATION,
+                    access,
+                    0UL,
+                    handled
+                        ? STATUS_SUCCESS
+                        : STATUS_HV_OPERATION_FAILED);
+                /* 完整地结束这一次退出派发。 */
+                return handled
+                    ? KSW_HVM_EXIT_ACTION_RESUME
+                    : KSW_HVM_EXIT_ACTION_FATAL;
+            }
+        }
         /*
          * Views own their leaf exclusively, so a page covered by one never
          * reaches the rule backend.  A view match that could not be completed

@@ -18,6 +18,7 @@ Environment:
 #include "hvm_cr_policy.h"
 #include "hvm_ept_domain.h"
 #include "hvm_ept_view.h"
+#include "hvm_process.h"
 #include "hvm_memory.h"
 #include "hvm_msr_policy.h"
 #include "../../dispatch/ioctl_validation.h"
@@ -1273,5 +1274,144 @@ KswordARKHvmIoctlDomain(
     /* Publish the fixed completion size on protocol-level results. */
     *BytesReturned = sizeof(*domainResponse);
     /* Return the complete EPT domain operation result. */
+    return status;
+}
+
+NTSTATUS
+KswordARKHvmIoctlProcess(
+    _In_ WDFDEVICE Device,
+    _In_ WDFREQUEST Request,
+    _In_ size_t InputBufferLength,
+    _In_ size_t OutputBufferLength,
+    _Out_ size_t* BytesReturned
+    )
+{
+    PVOID inputBuffer = NULL;
+    PVOID outputBuffer = NULL;
+    size_t actualInputLength = 0U;
+    size_t actualOutputLength = 0U;
+    NTSTATUS status = STATUS_SUCCESS;
+    /* 请求足够小，快照放栈上。 */
+    KSWORD_ARK_HVM_PROCESS_REQUEST requestSnapshot = { 0 };
+    KSWORD_ARK_HVM_PROCESS_RESPONSE* processResponse = NULL;
+
+    /* 在碰任何请求缓冲区之前拒绝不完整的派发契约。 */
+    if (BytesReturned == NULL) {
+        /* 返回明确的派发契约失败。 */
+        return STATUS_INVALID_PARAMETER;
+    }
+    /* 每一条路径上都先把完成长度初始化。 */
+    *BytesReturned = 0U;
+    /* 冻结或结束一个进程需要写授权。 */
+    status = KswordARKValidateDeviceIoControlWriteAccess(Request);
+    /* 句柄授权不过就在碰缓冲区之前停下。 */
+    if (!NT_SUCCESS(status)) {
+        /* 返回明确的授权失败。 */
+        return status;
+    }
+    /* 取完整的定长请求。 */
+    status = WdfRequestRetrieveInputBuffer(
+        Request,
+        sizeof(KSWORD_ARK_HVM_PROCESS_REQUEST),
+        &inputBuffer,
+        &actualInputLength);
+    /* 拒绝被截断或取不到的输入缓冲区。 */
+    if (!NT_SUCCESS(status) ||
+        InputBufferLength < sizeof(KSWORD_ARK_HVM_PROCESS_REQUEST) ||
+        actualInputLength < sizeof(KSWORD_ARK_HVM_PROCESS_REQUEST)) {
+        /* 返回明确的 WDF 或定长失败。 */
+        return NT_SUCCESS(status)
+            ? STATUS_INFO_LENGTH_MISMATCH
+            : status;
+    }
+    /*
+     * METHOD_BUFFERED 让输入与输出共用同一个 SystemBuffer，而后端在读操作码、
+     * PID 与线性地址之前会把响应清零。所以必须先把请求快照下来。
+     */
+    RtlCopyMemory(
+        &requestSnapshot,
+        inputBuffer,
+        sizeof(requestSnapshot));
+    /* 取完整的定长响应。 */
+    status = WdfRequestRetrieveOutputBuffer(
+        Request,
+        sizeof(KSWORD_ARK_HVM_PROCESS_RESPONSE),
+        &outputBuffer,
+        &actualOutputLength);
+    /* 拒绝被截断或取不到的输出缓冲区。 */
+    if (!NT_SUCCESS(status) ||
+        OutputBufferLength < sizeof(KSWORD_ARK_HVM_PROCESS_RESPONSE) ||
+        actualOutputLength < sizeof(KSWORD_ARK_HVM_PROCESS_RESPONSE)) {
+        /* 返回明确的 WDF 或定长失败。 */
+        return NT_SUCCESS(status)
+            ? STATUS_BUFFER_TOO_SMALL
+            : status;
+    }
+    /* 绑定定长协议输出视图。 */
+    processResponse =
+        (KSWORD_ARK_HVM_PROCESS_RESPONSE*)outputBuffer;
+    /* 每一个会改变状态的操作都过一遍中央高风险策略。 */
+    if (requestSnapshot.operation !=
+            KSWORD_ARK_HVM_PROCESS_OP_QUERY) {
+        KSWORD_ARK_SAFETY_CONTEXT safetyContext = { 0 };
+
+        /*
+         * 按处置类型归类，而不是一律归成"结束进程"。
+         *
+         * 中央策略是按操作类别配的，把冻结也报成结束会让一条只针对结束的规则
+         * 连带挡住冻结，或者反过来——两种错法都表现为"策略配了却不按预期生效"。
+         */
+        safetyContext.Operation =
+            (requestSnapshot.operation ==
+                KSWORD_ARK_HVM_PROCESS_OP_FREEZE)
+            ? KSWORD_ARK_SAFETY_OPERATION_PROCESS_SUSPEND
+            : KSWORD_ARK_SAFETY_OPERATION_PROCESS_TERMINATE;
+        /* 把显式界面确认留进中央策略证据里。 */
+        safetyContext.ContextFlags =
+            (requestSnapshot.flags &
+                KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED) != 0UL
+            ? KSWORD_ARK_SAFETY_CONTEXT_FLAG_UI_CONFIRMED
+            : 0UL;
+        /* 说清楚这一类改动为什么有后果。 */
+        safetyContext.TargetText =
+            L"R-1 execution denial scoped to one guest address space";
+        /* 发布精确的定长目标文本长度。 */
+        safetyContext.TargetTextChars =
+            (USHORT)(RTL_NUMBER_OF(
+                L"R-1 execution denial scoped to one guest address space") -
+                1U);
+        /* 在不削弱协议确认的前提下评估中央策略。 */
+        status = KswordARKSafetyEvaluate(
+            Device,
+            &safetyContext);
+        /* 被拒时返回一个完整的"需要确认"响应。 */
+        if (!NT_SUCCESS(status)) {
+            /* 初始化完整的定长响应。 */
+            RtlZeroMemory(
+                processResponse,
+                sizeof(*processResponse));
+            /* 发布响应协议身份。 */
+            processResponse->version =
+                KSWORD_ARK_HVM_PROCESS_PROTOCOL_VERSION;
+            /* 发布完整的响应长度。 */
+            processResponse->size = sizeof(*processResponse);
+            /* 发布稳定的"需要确认"状态。 */
+            processResponse->status =
+                KSWORD_ARK_HVM_PROCESS_STATUS_CONFIRMATION_REQUIRED;
+            /* 发布权威的策略失败码。 */
+            processResponse->lastStatus = status;
+            /* 发布定长完成长度。 */
+            *BytesReturned = sizeof(*processResponse);
+            /* 返回权威的策略失败。 */
+            return status;
+        }
+    }
+    /* 执行版本化的进程处置操作。 */
+    status = KswordARKHvmProcessControl(
+        &requestSnapshot,
+        processResponse);
+    /* 协议层结果一律回报定长完成长度。 */
+    *BytesReturned = sizeof(*processResponse);
+    /* 返回完整的进程处置操作结果。 */
     return status;
 }

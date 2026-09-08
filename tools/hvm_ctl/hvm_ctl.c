@@ -3916,6 +3916,189 @@ static int DoViewVerify(HANDLE h, int asJson)
     return (bad != 0UL) ? 2 : ((voidCount != 0UL) ? 3 : 0);
 }
 
+/*
+ * CR 策略：这里只做 R-1 进程处置需要的那一件事——打开 / 关掉 CR3 追踪。
+ *
+ * 不做钉位（cr0/cr4 pinning）：那是另一类操作，掩码写错的后果是客户机再也改不了
+ * 某个控制位，而这个工具的用途是在靶机上一条命令走完一次验证，不是配策略。
+ */
+static const char* CrPolicyStatusName(unsigned long s)
+{
+    switch (s) {
+    case 0UL:  return "OK";
+    default:   return "NOT_OK";
+    }
+}
+
+static int DoCrTrackCr3(HANDLE h, int enable, int asJson)
+{
+    KSWORD_ARK_HVM_CR_POLICY_REQUEST req;
+    KSWORD_ARK_HVM_CR_POLICY_RESPONSE rsp;
+    DWORD returned = 0;
+    BOOL ok;
+
+    memset(&req, 0, sizeof(req));
+    req.version = KSWORD_ARK_HVM_CR_POLICY_PROTOCOL_VERSION;
+    req.size = (unsigned long)sizeof(req);
+    req.operation = enable
+        ? KSWORD_ARK_HVM_CR_POLICY_OP_SET
+        : KSWORD_ARK_HVM_CR_POLICY_OP_CLEAR;
+    req.flags = KSWORD_ARK_HVM_CR_POLICY_FLAG_UI_CONFIRMED |
+        (enable ? KSWORD_ARK_HVM_CR_POLICY_FLAG_TRACK_CR3 : 0UL);
+    req.confirmationToken = KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+    memset(&rsp, 0, sizeof(rsp));
+    ok = DeviceIoControl(h, IOCTL_KSWORD_ARK_HVM_CR_POLICY, &req, (DWORD)sizeof(req),
+                         &rsp, (DWORD)sizeof(rsp), &returned, NULL);
+    if (returned < sizeof(rsp)) {
+        fprintf(stderr, "CR_POLICY IOCTL 无完整响应：ok=%d returned=%lu win32=%lu\n",
+                (int)ok, returned, GetLastError());
+        return 1;
+    }
+    if (asJson) {
+        printf("{\"kind\":\"cr-track-cr3\",\"enable\":%d,\"status\":%lu,"
+               "\"flags\":%lu,\"generation\":%lu,\"cr3SwitchCount\":%llu}\n",
+               enable, rsp.status, rsp.flags, rsp.generation, rsp.cr3SwitchCount);
+        return (rsp.status == 0UL) ? 0 : 2;
+    }
+    printf("\n=== CR3 追踪 %s ===\n", enable ? "打开" : "关闭");
+    printf("  status       : %lu (%s)\n", rsp.status, CrPolicyStatusName(rsp.status));
+    printf("  策略位       : 0x%lX  TRACK_CR3=%s\n", rsp.flags,
+           ((rsp.flags & KSWORD_ARK_HVM_CR_POLICY_FLAG_TRACK_CR3) != 0UL)
+               ? "是" : "否");
+    printf("  代次         : %lu   已观察地址空间切换 %llu 次\n",
+           rsp.generation, rsp.cr3SwitchCount);
+    printf("  注意：这一位在**常驻启动时**写进 VMCS，常驻起来之后再改不生效。\n");
+    return (rsp.status == 0UL) ? 0 : 2;
+}
+
+static const char* ProcessStatusName(unsigned long s)
+{
+    switch (s) {
+    case KSWORD_ARK_HVM_PROCESS_STATUS_OK:                    return "OK";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_INVALID_REQUEST:       return "INVALID_REQUEST";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_CONFIRMATION_REQUIRED: return "CONFIRMATION_REQUIRED";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_NOT_RESIDENT:          return "NOT_RESIDENT";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_PROCESS_LOOKUP_FAILED: return "PROCESS_LOOKUP_FAILED";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_TABLE_FULL:            return "TABLE_FULL";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_NOT_FOUND:             return "NOT_FOUND";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_ALREADY_ARMED:         return "ALREADY_ARMED";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_CR3_TRACKING_REQUIRED: return "CR3_TRACKING_REQUIRED";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_EPTP_SWITCH_REQUIRED:  return "EPTP_SWITCH_REQUIRED";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_TRANSLATION_FAILED:    return "TRANSLATION_FAILED";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_PROTECTED_TARGET:      return "PROTECTED_TARGET";
+    default:                                                  return "UNKNOWN";
+    }
+}
+
+static const char* ProcessDispositionName(unsigned long d)
+{
+    switch (d) {
+    case KSWORD_ARK_HVM_PROCESS_OP_FREEZE:    return "冻结";
+    case KSWORD_ARK_HVM_PROCESS_OP_TERMINATE: return "结束";
+    /* 已解除、层次尚未回收：常驻停下来时才真正清掉。 */
+    case KSWORD_ARK_HVM_PROCESS_DISPOSITION_RELEASED: return "已解除";
+    default:                                  return "?";
+    }
+}
+
+static int ProcessIoctl(HANDLE h,
+                        KSWORD_ARK_HVM_PROCESS_REQUEST* req,
+                        KSWORD_ARK_HVM_PROCESS_RESPONSE* rsp)
+{
+    DWORD returned = 0;
+    BOOL ok;
+
+    req->version = KSWORD_ARK_HVM_PROCESS_PROTOCOL_VERSION;
+    req->size = (unsigned long)sizeof(*req);
+    memset(rsp, 0, sizeof(*rsp));
+    ok = DeviceIoControl(h, IOCTL_KSWORD_ARK_HVM_PROCESS, req, (DWORD)sizeof(*req),
+                         rsp, (DWORD)sizeof(*rsp), &returned, NULL);
+    if (returned >= sizeof(*rsp)) {
+        /* 响应完整就用响应，无论 ok 是真是假。 */
+        return 0;
+    }
+    fprintf(stderr, "PROCESS IOCTL 无完整响应：ok=%d returned=%lu win32=%lu\n",
+            (int)ok, returned, GetLastError());
+    return 1;
+}
+
+/*
+ * R-1 进程处置。
+ *
+ * op 为 QUERY 时其余参数全忽略；FREEZE / TERMINATE 需要 pid 与**十六进制**的
+ * 客户线性地址——驱动不猜这一页，猜错的后果是拒绝落在一页永远不会被执行的
+ * 地址上，那从外面看和成功一模一样。
+ */
+static int DoProcess(HANDLE h, unsigned long op, unsigned long pid,
+                     unsigned long long gla, int asJson)
+{
+    KSWORD_ARK_HVM_PROCESS_REQUEST req;
+    KSWORD_ARK_HVM_PROCESS_RESPONSE rsp;
+    unsigned long i;
+
+    memset(&req, 0, sizeof(req));
+    req.operation = op;
+    req.processId = pid;
+    req.guestLinearAddress = gla;
+    req.confirmationToken = KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+    req.flags = KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED;
+    if (ProcessIoctl(h, &req, &rsp) != 0) { return 1; }
+
+    if (asJson) {
+        printf("{\"kind\":\"hvm-process\",\"status\":%lu,\"statusName\":\"%s\","
+               "\"lastStatus\":\"0x%08lX\",\"rowCount\":%lu,\"generation\":%lu,"
+               "\"rows\":[",
+               rsp.status, ProcessStatusName(rsp.status),
+               (unsigned long)rsp.lastStatus, rsp.rowCount, rsp.generation);
+        for (i = 0UL; i < rsp.returnedRows &&
+                      i < KSWORD_ARK_HVM_MAX_PROCESS_DISPOSITIONS; ++i) {
+            printf("%s{\"processId\":%lu,\"disposition\":%lu,"
+                   "\"directoryBase\":\"0x%016llX\","
+                   "\"guestPhysicalAddress\":\"0x%016llX\","
+                   "\"guestLinearAddress\":\"0x%016llX\","
+                   "\"interceptCount\":%llu,\"hierarchyIndex\":%lu}",
+                   (i == 0UL) ? "" : ",",
+                   rsp.rows[i].processId, rsp.rows[i].disposition,
+                   rsp.rows[i].directoryBase, rsp.rows[i].guestPhysicalAddress,
+                   rsp.rows[i].guestLinearAddress, rsp.rows[i].interceptCount,
+                   rsp.rows[i].hierarchyIndex);
+        }
+        printf("]}\n");
+        return (rsp.status == KSWORD_ARK_HVM_PROCESS_STATUS_OK) ? 0 : 2;
+    }
+
+    printf("\n=== R-1 进程处置 ===\n");
+    printf("  status       : %lu (%s)  lastStatus=0x%08lX\n",
+           rsp.status, ProcessStatusName(rsp.status),
+           (unsigned long)rsp.lastStatus);
+    printf("  表内条数     : %lu   代次=%lu\n", rsp.rowCount, rsp.generation);
+    if (rsp.returnedRows == 0UL) {
+        printf("  （表里没有任何处置）\n");
+    }
+    for (i = 0UL; i < rsp.returnedRows &&
+                  i < KSWORD_ARK_HVM_MAX_PROCESS_DISPOSITIONS; ++i) {
+        printf("  pid=%-6lu %s  cr3=0x%016llX gpa=0x%016llX gla=0x%016llX 拦截=%llu 层次#%lu\n",
+               rsp.rows[i].processId,
+               ProcessDispositionName(rsp.rows[i].disposition),
+               rsp.rows[i].directoryBase, rsp.rows[i].guestPhysicalAddress,
+               rsp.rows[i].guestLinearAddress, rsp.rows[i].interceptCount,
+               rsp.rows[i].hierarchyIndex);
+    }
+    if (rsp.status == KSWORD_ARK_HVM_PROCESS_STATUS_CR3_TRACKING_REQUIRED) {
+        printf("  ** 缺 CR3 追踪 **：作用域完全靠它。先用 cr-policy 打开 TRACK_CR3，\n");
+        printf("     再起常驻——这一位在常驻启动时写进 VMCS，起来之后改不了。\n");
+    }
+    if (rsp.status == KSWORD_ARK_HVM_PROCESS_STATUS_EPTP_SWITCH_REQUIRED) {
+        printf("  ** 缺 EPTP 切换后端 **：没有第二套层次就没有\"受限\"可选。\n");
+        printf("     prepare 时带 ENABLE_EPTP_SWITCH。\n");
+    }
+    if (rsp.status == KSWORD_ARK_HVM_PROCESS_STATUS_NOT_RESIDENT) {
+        printf("  ** 装不进去 **：安装要在常驻**停着**时做——常驻期间退出路径\n");
+        printf("     不持锁读这张表与它的层次。与 EPT 规则、分离视图同一条规矩。\n");
+    }
+    return (rsp.status == KSWORD_ARK_HVM_PROCESS_STATUS_OK) ? 0 : 2;
+}
+
 static void PrintUsage(void)
 {
     size_t i;
@@ -3944,6 +4127,16 @@ static void PrintUsage(void)
            "主值）与**生效**（读是否真被重定向），两层分开报\n");
     printf("  ept-leaf <PA>    走一遍基座 EPT，打出四级项与 R/W/X（十六进制地址）\n");
     printf("  events [after]   逐行读事件环（十进制序号，只读大于它的行）\n");
+    printf("  cr-track-cr3-on  打开 CR3 追踪（R-1 进程处置的前提；常驻起来后改不了）\n");
+    printf("  cr-track-cr3-off 关闭 CR3 追踪\n");
+    printf("  proc-query       列出 R-1 进程处置（只读）\n");
+    printf("  proc-freeze <pid> <GLA>      冻结：拒执行 + 注 #PF，可逆，被冻线程会自旋\n");
+    printf("  proc-terminate <pid> <GLA>   结束：拒执行 + 注 #UD，由客户机自己拆进程\n");
+    printf("  proc-release <pid>           撤销一条处置\n");
+    printf("  proc-release-all             清空整张表\n");
+    printf("     GLA 是**十六进制**客户线性地址，不能省：驱动不猜哪一页代表这个\n");
+    printf("     进程，猜错就是拒绝落在一页永不执行的地址上——那和成功长得一样。\n");
+    printf("     前提三条：TRACK_CR3 已开、EPTP 切换后端已武装、安装时常驻停着。\n");
     for (i = 0U; i < sizeof(g_Verbs) / sizeof(g_Verbs[0]); ++i) {
         printf("  %-16s %s\n", g_Verbs[i].name, g_Verbs[i].description);
     }
@@ -4025,6 +4218,37 @@ int main(int argc, char** argv)
             target = _strtoui64(argv[argi], NULL, 16);
         }
         rc = DoEptLeaf(h, target, asJson);
+    } else if (strcmp(cmd, "cr-track-cr3-on") == 0) {
+        rc = DoCrTrackCr3(h, 1, asJson);
+    } else if (strcmp(cmd, "cr-track-cr3-off") == 0) {
+        rc = DoCrTrackCr3(h, 0, asJson);
+    } else if (strcmp(cmd, "proc-query") == 0) {
+        rc = DoProcess(h, KSWORD_ARK_HVM_PROCESS_OP_QUERY, 0UL, 0ULL, asJson);
+    } else if (strcmp(cmd, "proc-release-all") == 0) {
+        rc = DoProcess(h, KSWORD_ARK_HVM_PROCESS_OP_RELEASE_ALL, 0UL, 0ULL, asJson);
+    } else if (strcmp(cmd, "proc-release") == 0) {
+        /* 第二个参数是十进制 PID。 */
+        unsigned long pid = (argi < argc)
+            ? (unsigned long)strtoul(argv[argi], NULL, 10) : 0UL;
+        rc = DoProcess(h, KSWORD_ARK_HVM_PROCESS_OP_RELEASE, pid, 0ULL, asJson);
+    } else if (strcmp(cmd, "proc-freeze") == 0 ||
+               strcmp(cmd, "proc-terminate") == 0) {
+        /*
+         * 两个参数：十进制 PID，再加**十六进制**客户线性地址。
+         *
+         * 地址不能省。驱动这里没有"这个进程的主映像入口"这么一个便宜的答案，
+         * 猜一页的后果是拒绝落在一页永远不会被执行的地址上——那等于什么都
+         * 没做，而且从外面看和成功完全一样。
+         */
+        unsigned long pid = 0UL;
+        unsigned long long gla = 0ULL;
+        if (argi < argc) { pid = (unsigned long)strtoul(argv[argi++], NULL, 10); }
+        if (argi < argc) { gla = _strtoui64(argv[argi], NULL, 16); }
+        rc = DoProcess(h,
+                       (strcmp(cmd, "proc-freeze") == 0)
+                           ? KSWORD_ARK_HVM_PROCESS_OP_FREEZE
+                           : KSWORD_ARK_HVM_PROCESS_OP_TERMINATE,
+                       pid, gla, asJson);
     } else {
         const HVM_CTL_VERB* verb = NULL;
         for (i = 0U; i < sizeof(g_Verbs) / sizeof(g_Verbs[0]); ++i) {

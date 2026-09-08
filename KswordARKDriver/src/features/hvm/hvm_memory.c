@@ -368,7 +368,7 @@ KswordARKHvmMemoryReadEntry(
  * pages are resolved at the level that terminates the walk, so a 2 MiB or 1 GiB
  * mapping produces the same physical address the processor would use.
  */
-static NTSTATUS
+NTSTATUS
 KswordARKHvmMemoryTranslate(
     _In_ ULONGLONG DirectoryBase,
     _In_ ULONGLONG VirtualAddress,
@@ -619,7 +619,7 @@ KswordARKHvmMemoryShutdown(
  * reads physical memory through the private window, not virtual memory in the
  * target address space.
  */
-static NTSTATUS
+NTSTATUS
 KswordARKHvmMemoryResolveProcessDirectoryBase(
     _In_ ULONG ProcessId,
     _Out_ ULONGLONG* DirectoryBase

@@ -62,6 +62,7 @@ __pycache__/
 # 提交进来只会让每轮验收都产生一次无意义的二进制 diff。
 /tools/hvm_ctl/*.exe
 /tools/hvm_probe/*.exe
+/tools/hvm_target/*.exe
 /tools/attest_probe/*.exe
 
 # MSVC 在仓库根留下的编译器 PDB。

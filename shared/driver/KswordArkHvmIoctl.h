@@ -1465,3 +1465,135 @@ typedef struct _KSWORD_ARK_HVM_DOMAIN_RESPONSE
     unsigned long long stateFlags;
     KSWORD_ARK_HVM_DOMAIN_ROW rows[KSWORD_ARK_HVM_MAX_DOMAIN_ROWS];
 } KSWORD_ARK_HVM_DOMAIN_RESPONSE;
+
+/*
+ * R-1 层的进程处置。
+ *
+ * 名字里的"进程"要小心读：hypervisor 不认识进程，它只看得见 CR3 与客户物理页。
+ * 这条通路做的事是——**在目标地址空间里拒绝执行**，再决定拒绝时给客户机什么。
+ * 两个操作的差别只在注入哪个向量：
+ *
+ *   冻结  注入 #PF(present=1)。故障指令永不退休，进程状态一个字节都没变，
+ *         撤掉规则它就从原地继续。这是真正意义上的挂起——**可逆**是它与
+ *         结束的本质区别，而不是程度差别。代价明写在这里：被冻结的线程会在
+ *         故障上自旋，占着自己的时间片；机器不会挂，但那个核在空转。
+ *   结束  注入 #UD。用户态未处理异常，Windows 走它自己的进程拆除路径。
+ *         我们不调用任何内核 API，进程是被客户机自己收掉的。
+ *
+ * 作用域靠 CR3 而不是逐页判权限：常驻打开 CR3-load exiting，地址空间切进来时
+ * 选受限层次、切出去时选基础层次。这样非目标进程从来不在受限层次下运行，
+ * 也就不存在"拒绝一次再放行一次"那套需要 MTF 的翻转——嵌套靶机上没有 MTF，
+ * 走逐页判权限这条路在那里根本跑不起来。
+ *
+ * **这不是安全边界。** 与隐蔽 Hook 同源的性质：失败即放行。目标进程若能让
+ * 自己的代码页换一个客户物理页（重定位、自改写、换映射），它就不在被拒绝的
+ * 那一页上了；能改 CR3 的代码也不受本机制约束。它是一条 R0 之外的处置通路，
+ * 用来在内核 API 被挡住时仍然能动手，不是用来对抗一个知道它存在的对手。
+ */
+#define KSWORD_ARK_IOCTL_FUNCTION_HVM_PROCESS 0x90FUL
+#define IOCTL_KSWORD_ARK_HVM_PROCESS \
+    CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_HVM_PROCESS, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+
+#define KSWORD_ARK_HVM_PROCESS_PROTOCOL_VERSION 1UL
+
+/* 只读当前处置表。 */
+#define KSWORD_ARK_HVM_PROCESS_OP_QUERY     0UL
+/* 冻结：拒绝执行 + 注入 #PF，可逆。 */
+#define KSWORD_ARK_HVM_PROCESS_OP_FREEZE    1UL
+/* 结束：拒绝执行 + 注入 #UD，不可逆。 */
+#define KSWORD_ARK_HVM_PROCESS_OP_TERMINATE 2UL
+/*
+ * 撤销一条处置。
+ *
+ * 常驻停着时是完整撤销：清记录、放层次。常驻期间是**解除**：记录留着、层次也
+ * 留着，但不再有人会切进去，而已经卡在受限层次里自旋的那个核会在自己的下一次
+ * 违规上把 EPT_POINTER 换回基座、继续执行。
+ *
+ * 分两种不是保守：常驻期间真把层次的页放掉，而某个核此刻正指着它，那是没有任何
+ * 症状可循的内存破坏。而只清记录不管正在自旋的核，被冻结的线程会永远冻着——
+ * 于是"解除冻结"要求先关掉整个 hypervisor，那样它就只是半个功能。
+ */
+#define KSWORD_ARK_HVM_PROCESS_OP_RELEASE   3UL
+/*
+ * 已解除但层次还没回收。只会出现在常驻期间被撤销的记录上。
+ *
+ * 作为一个显式状态而不是直接清掉记录：退出路径要靠"这一页属于一条已解除的
+ * 处置"才知道该把指针换回基座，记录一清它就什么都不知道了。
+ */
+#define KSWORD_ARK_HVM_PROCESS_DISPOSITION_RELEASED 3UL
+/* 清空整张表。 */
+#define KSWORD_ARK_HVM_PROCESS_OP_RELEASE_ALL 4UL
+
+#define KSWORD_ARK_HVM_PROCESS_STATUS_OK                    0UL
+#define KSWORD_ARK_HVM_PROCESS_STATUS_INVALID_REQUEST       1UL
+#define KSWORD_ARK_HVM_PROCESS_STATUS_CONFIRMATION_REQUIRED 2UL
+#define KSWORD_ARK_HVM_PROCESS_STATUS_NOT_RESIDENT          3UL
+#define KSWORD_ARK_HVM_PROCESS_STATUS_PROCESS_LOOKUP_FAILED 4UL
+#define KSWORD_ARK_HVM_PROCESS_STATUS_TABLE_FULL            5UL
+#define KSWORD_ARK_HVM_PROCESS_STATUS_NOT_FOUND             6UL
+#define KSWORD_ARK_HVM_PROCESS_STATUS_ALREADY_ARMED         7UL
+/*
+ * 缺 CR3-load exiting。作用域完全依赖它：没有它就没法知道哪个地址空间正在跑，
+ * 拒绝就会落到全机器而不是一个进程头上——那是必须拒绝执行的情形，不是降级。
+ */
+#define KSWORD_ARK_HVM_PROCESS_STATUS_CR3_TRACKING_REQUIRED 8UL
+/* 缺 EPTP 切换后端；没有第二个层次就没有"受限"可选。 */
+#define KSWORD_ARK_HVM_PROCESS_STATUS_EPTP_SWITCH_REQUIRED  9UL
+/* 目标地址空间里那一页翻译不出客户物理地址。 */
+#define KSWORD_ARK_HVM_PROCESS_STATUS_TRANSLATION_FAILED    10UL
+/* 拒绝对自己或系统进程动手。 */
+#define KSWORD_ARK_HVM_PROCESS_STATUS_PROTECTED_TARGET      11UL
+
+/* 表的上限。每条占一个 EPT 受限层次，层次数由 EPTP 列表容量决定。 */
+#define KSWORD_ARK_HVM_MAX_PROCESS_DISPOSITIONS 8UL
+
+typedef struct _KSWORD_ARK_HVM_PROCESS_ROW
+{
+    /* 下达处置时的 PID。PID 会被回收，所以判据是 directoryBase 不是它。 */
+    unsigned long processId;
+    /* 本条的处置类型，取 OP_FREEZE / OP_TERMINATE。 */
+    unsigned long disposition;
+    /* 目标地址空间。低位的 PCID/标志已经掩掉，只留层次物理页帧。 */
+    unsigned long long directoryBase;
+    /* 被拒绝执行的那一页的客户物理地址。 */
+    unsigned long long guestPhysicalAddress;
+    /* 下达时给的客户线性地址，用来回溯这一页是怎么选出来的。 */
+    unsigned long long guestLinearAddress;
+    /* 本条已经拦下多少次执行。冻结下会持续增长，那正是自旋的证据。 */
+    unsigned long long interceptCount;
+    /* 本条占用的受限层次序号。 */
+    unsigned long hierarchyIndex;
+    unsigned long reserved;
+} KSWORD_ARK_HVM_PROCESS_ROW;
+
+typedef struct _KSWORD_ARK_HVM_PROCESS_REQUEST
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long operation;
+    unsigned long flags;
+    unsigned long confirmationToken;
+    unsigned long processId;
+    /*
+     * 要拒绝执行的客户线性地址。给 0 表示由驱动取该进程主映像的入口页。
+     *
+     * 允许调用方指定是因为"哪一页代表这个进程"没有普适答案：入口页对刚起来的
+     * 进程有效，对已经跑进消息循环的进程则未必会再被执行到，而没被执行到的
+     * 拒绝等于什么都没做。
+     */
+    unsigned long long guestLinearAddress;
+} KSWORD_ARK_HVM_PROCESS_REQUEST;
+
+typedef struct _KSWORD_ARK_HVM_PROCESS_RESPONSE
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long status;
+    unsigned long returnedRows;
+    unsigned long rowCount;
+    unsigned long generation;
+    long lastStatus;
+    unsigned long reserved;
+    unsigned long long stateFlags;
+    KSWORD_ARK_HVM_PROCESS_ROW rows[KSWORD_ARK_HVM_MAX_PROCESS_DISPOSITIONS];
+} KSWORD_ARK_HVM_PROCESS_RESPONSE;

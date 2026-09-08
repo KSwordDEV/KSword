@@ -34,6 +34,10 @@ if (-not (Test-Path $VcVars)) { throw "找不到 vcvars64.bat（试过 $VcVars�
 $targets = @(
     [pscustomobject]@{ Name = 'hvm_probe';    Dir = (Join-Path $repo 'tools\hvm_probe')    ; Libs = '' },
     [pscustomobject]@{ Name = 'hvm_ctl';      Dir = (Join-Path $repo 'tools\hvm_ctl')      ; Libs = '' },
+    # hvm_target 是 R-1 进程处置的靶子：自报主循环地址 + 打心跳，让"冻结生效"、
+    # "结束生效"与"页选错了什么都没发生"这三种结局在外面可区分。它不碰驱动，
+    # 只是个被处置的普通进程。
+    [pscustomobject]@{ Name = 'hvm_target';   Dir = (Join-Path $repo 'tools\hvm_target')   ; Libs = '' },
     # attest_probe 跑在**宿主**上，不投进 guest —— 它读的是安全内核签名的运行时
     # 驱动报告，那是 VBS 开着的机器才有的东西，而靶机恰恰要求 VBS 关闭。
     # 一起用 /MT 只是为了和其余两个保持一致，换机器拷过去就能跑。
