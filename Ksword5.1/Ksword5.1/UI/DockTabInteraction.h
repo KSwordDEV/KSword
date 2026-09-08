@@ -1,14 +1,6 @@
 #pragma once
 
-// 顶部 ADS 停靠标签的两个可达性缺口，都是真机上撞出来的：
-//
-//   1. 标签溢出之后**滚不动**。ads::CDockAreaTabBar 派生自 QAbstractScrollArea
-//      并声明了 wheelEvent，但实测滚轮无效，而 ADS 是预编译库、改不了内部。
-//   2. 标签顺序**可以拖乱、无法复位**。布局持久化在 exe 目录下的
-//      config/ksword_ads_layout.bin，用户唯一的出路是手动去删那个文件。
-//
-// 两件事都只能在 ADS 外面补，所以单独放一个文件，而不是继续往一万两千行的
-// MainWindow.cpp 里塞。
+// ADS 标签栏的溢出滚动、左右导航和保存布局的复位支持。
 
 #include <QObject>
 #include <QString>
@@ -20,7 +12,7 @@ namespace ads
 
 namespace ks::ui
 {
-    // 给 ADS 的标签栏补上横向滚轮滚动。
+    // 安装鼠标/触控板横向滚动和仅在溢出时显示的左右箭头。
     //
     // 必须挂在管理器上而不是"启动时扫一遍"：标签栏会**后来才出现** ——
     // 浮动容器、restoreState 之后、以及新建 Dock 都会造出新的标签栏。

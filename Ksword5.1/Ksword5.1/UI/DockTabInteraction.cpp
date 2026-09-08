@@ -1,164 +1,196 @@
 #include "DockTabInteraction.h"
 
-// ADS 头按**相对路径**引，与 MainWindow.h 的 "include/ads/..." 同源。
-// 这个项目没有把 include/ 放进包含目录，`<ads/...>` 形式找不到。
 #include "../include/ads/DockAreaTabBar.h"
 #include "../include/ads/DockAreaTitleBar.h"
 #include "../include/ads/DockAreaWidget.h"
 #include "../include/ads/DockContainerWidget.h"
 #include "../include/ads/DockManager.h"
+#include "../Internationalization/LanguageManager.h"
+#include "../theme.h"
 
-#include <QAbstractScrollArea>
+#include <QApplication>
 #include <QEvent>
 #include <QFile>
 #include <QFileInfo>
-#include <QPointer>
 #include <QScrollBar>
+#include <QTimer>
+#include <QToolButton>
 #include <QWheelEvent>
+#include <cmath>
 
 namespace ks::ui
 {
     namespace
     {
-        // 一次滚轮"格"走多少像素。
-        //
-        // 取一个标签典型宽度的一小半：太小要滚很多下才看得出在动，太大会一下
-        // 掠过好几个标签，两种都让人觉得"这东西不受控"。
         constexpr int kWheelStepPixels = 48;
+        constexpr const char* kInstalledProperty = "ksword_dock_tab_scrolling_installed";
 
-        // 标记已经装过过滤器的标签栏，保证幂等。
-        //
-        // 用动态属性而不是容器：标签栏会被 ADS 随时销毁（浮动、合并、恢复布局），
-        // 外部容器就得跟着处理销毁通知，而属性随对象一起消失，不会留下悬垂键。
-        constexpr const char* kWheelFilterInstalledProperty =
-            "kswordDockTabWheelFilterInstalled";
-
-        class DockTabWheelScroller final : public QObject
+        class DockTabScroller final : public QObject
         {
         public:
-            explicit DockTabWheelScroller(QObject* parent)
-                : QObject(parent)
+            explicit DockTabScroller(ads::CDockAreaTitleBar* titleBar)
+                : QObject(titleBar->tabBar()), m_tabBar(titleBar->tabBar()),
+                  m_viewport(m_tabBar->viewport())
             {
+                // 标签栏使用剩余宽度，完整标签在内部滚动，不撑大窗口最小宽度。
+                m_tabBar->setMinimumWidth(0);
+                m_tabBar->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+                m_tabBar->setProperty("ksword_disable_smooth_scroll", true);
+                m_tabBar->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+                m_tabBar->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+                m_left = new QToolButton(titleBar);
+                m_right = new QToolButton(titleBar);
+                m_left->setObjectName(QStringLiteral("ks_dock_scroll_left"));
+                m_right->setObjectName(QStringLiteral("ks_dock_scroll_right"));
+                m_left->setArrowType(Qt::LeftArrow);
+                m_right->setArrowType(Qt::RightArrow);
+                for (QToolButton* button : { m_left, m_right })
+                {
+                    KswordTheme::ApplyCompactIconButtonMetrics(button);
+                    button->setAutoRepeat(true);
+                    button->setAutoRaise(true);
+                    button->hide();
+                }
+                auto& language = ks::i18n::LanguageManager::instance();
+                language.bindToolTip(m_left, QStringLiteral("dock.tabs.scroll_left"), QStringLiteral("向左滚动标签"));
+                language.bindToolTip(m_right, QStringLiteral("dock.tabs.scroll_right"), QStringLiteral("向右滚动标签"));
+                titleBar->insertWidget(titleBar->indexOf(m_tabBar), m_left);
+                titleBar->insertWidget(titleBar->indexOf(m_tabBar) + 1, m_right);
+
+                QScrollBar* const bar = m_tabBar->horizontalScrollBar();
+                connect(m_left, &QToolButton::clicked, this, [this, bar]()
+                    { bar->setValue(bar->value() - qMax(kWheelStepPixels, m_tabBar->viewport()->width() / 2)); });
+                connect(m_right, &QToolButton::clicked, this, [this, bar]()
+                    { bar->setValue(bar->value() + qMax(kWheelStepPixels, m_tabBar->viewport()->width() / 2)); });
+                connect(bar, &QScrollBar::rangeChanged, this, [this]() { scheduleButtons(); });
+                connect(bar, &QScrollBar::valueChanged, this, [this]() { scheduleButtons(); });
+
+                // 在 viewportEvent 转发前捕获滚轮，覆盖文字、图标和动态子控件。
+                // QApplication 过滤器只接管本标签栏的后代。
+                qApp->installEventFilter(this);
+                scheduleButtons();
             }
 
         protected:
             bool eventFilter(QObject* watched, QEvent* event) override
             {
-                if (event == nullptr || event->type() != QEvent::Wheel)
+                if (event->type() == QEvent::Resize && watched == m_viewport)
                 {
-                    return QObject::eventFilter(watched, event);
+                    scheduleButtons();
                 }
-                auto* const scrollArea = qobject_cast<QAbstractScrollArea*>(watched);
-                if (scrollArea == nullptr)
+                if (event->type() != QEvent::Wheel)
                 {
-                    return QObject::eventFilter(watched, event);
+                    return false;
                 }
-                QScrollBar* const bar = scrollArea->horizontalScrollBar();
-                if (bar == nullptr || bar->minimum() >= bar->maximum())
+                auto* widget = qobject_cast<QWidget*>(watched);
+                while (widget != nullptr && widget != m_tabBar)
                 {
-                    // 没有可滚的余量：**不要吞掉事件**。吞了就等于告诉外层
-                    // "这里处理过了"，而实际上什么都没发生，用户会觉得滚轮死了。
-                    return QObject::eventFilter(watched, event);
+                    widget = widget->parentWidget();
+                }
+                if (widget != m_tabBar)
+                {
+                    return false;
                 }
 
                 auto* const wheel = static_cast<QWheelEvent*>(event);
-                // 竖直滚轮映射成横向位移 —— 大多数鼠标只有竖轮，而这排标签
-                // 只有横向可滚。同时保留真正的横向滚动（触控板、水平轮）。
-                int delta = wheel->angleDelta().x();
-                if (delta == 0)
+                const QPoint pixelDelta = wheel->pixelDelta();
+                const QPoint angleDelta = wheel->angleDelta();
+                const bool pixels = !pixelDelta.isNull();
+                const QPoint delta = pixels ? pixelDelta : angleDelta;
+                const int axisDelta = delta.x() != 0 ? delta.x() : delta.y();
+                if (axisDelta == 0)
                 {
-                    delta = wheel->angleDelta().y();
+                    return false;
                 }
-                if (delta == 0)
+                const qreal distance = pixels ? qreal(axisDelta)
+                    : qreal(axisDelta) * kWheelStepPixels / 120.0;
+                // 累计高分辨率滚轮的亚像素余量，换向时清除上一方向的余量。
+                if (distance * m_remainder < 0)
                 {
-                    return QObject::eventFilter(watched, event);
+                    m_remainder = 0;
                 }
-
-                const int previous = bar->value();
-                // angleDelta 以 1/8 度计，一"格"是 120。按格数走，
-                // 高分辨率滚轮（每次几度）也能平滑推进而不是原地不动。
-                const int steps = delta / 120;
-                const int pixels = (steps != 0)
-                    ? steps * kWheelStepPixels
-                    : ((delta > 0) ? kWheelStepPixels : -kWheelStepPixels);
-                // 轮子向前（正）= 看更靠前的标签 = 向左滚。
-                bar->setValue(previous - pixels);
-
-                if (bar->value() == previous)
+                m_remainder += distance;
+                const int wholePixels = static_cast<int>(std::trunc(m_remainder));
+                m_remainder -= wholePixels;
+                QScrollBar* const bar = m_tabBar->horizontalScrollBar();
+                bar->setValue(bar->value() - wholePixels);
+                if ((distance > 0 && bar->value() == bar->minimum())
+                    || (distance < 0 && bar->value() == bar->maximum()))
                 {
-                    // 已经顶到头，这一次没能滚动：同样不吞，让上层还有机会响应。
-                    return QObject::eventFilter(watched, event);
+                    m_remainder = 0;
                 }
-                event->accept();
+                // 到边界仍归标签栏处理，防止 ADS 改为切页或滚动下方内容。
+                wheel->accept();
                 return true;
             }
+
+        private:
+            void scheduleButtons()
+            {
+                if (m_updatePending)
+                {
+                    return;
+                }
+                m_updatePending = true;
+                QTimer::singleShot(0, this, [this]()
+                    {
+                        m_updatePending = false;
+                        QScrollBar* const bar = m_tabBar->horizontalScrollBar();
+                        // 加回箭头占用空间再判断溢出，避免临界宽度反复显示/隐藏。
+                        const int buttonWidth = (m_left->isHidden() ? 0 : m_left->width())
+                            + (m_right->isHidden() ? 0 : m_right->width());
+                        const bool overflowing = bar->maximum() - bar->minimum() > buttonWidth;
+                        m_left->setVisible(overflowing);
+                        m_right->setVisible(overflowing);
+                        m_left->setEnabled(bar->value() > bar->minimum());
+                        m_right->setEnabled(bar->value() < bar->maximum());
+                    });
+            }
+
+            ads::CDockAreaTabBar* m_tabBar;
+            QWidget* m_viewport;
+            QToolButton* m_left;
+            QToolButton* m_right;
+            qreal m_remainder = 0;
+            bool m_updatePending = false;
         };
 
-        void installOnTabBar(ads::CDockAreaWidget* dockArea, QObject* filter)
+        void installOnTabBar(ads::CDockAreaWidget* dockArea)
         {
-            if (dockArea == nullptr || filter == nullptr)
+            if (dockArea == nullptr || dockArea->titleBar() == nullptr)
             {
                 return;
             }
-            ads::CDockAreaTitleBar* const titleBar = dockArea->titleBar();
-            if (titleBar == nullptr)
+            ads::CDockAreaTabBar* const tabBar = dockArea->titleBar()->tabBar();
+            if (tabBar == nullptr || tabBar->property(kInstalledProperty).toBool())
             {
                 return;
             }
-            ads::CDockAreaTabBar* const tabBar = titleBar->tabBar();
-            if (tabBar == nullptr)
-            {
-                return;
-            }
-            if (tabBar->property(kWheelFilterInstalledProperty).toBool())
-            {
-                return;
-            }
-            tabBar->setProperty(kWheelFilterInstalledProperty, true);
-            tabBar->installEventFilter(filter);
+            tabBar->setProperty(kInstalledProperty, true);
+            new DockTabScroller(dockArea->titleBar());
         }
     }
 
     void installDockTabWheelScrolling(ads::CDockManager* dockManager)
     {
-        if (dockManager == nullptr)
+        if (dockManager == nullptr || dockManager->property(kInstalledProperty).toBool())
         {
             return;
         }
-        // 过滤器挂在管理器名下，生命周期跟着它走。
-        auto* const filter = new DockTabWheelScroller(dockManager);
-
-        // 已经存在的区域。注意要遍历**全部容器**而不只是主容器：浮动出去的
-        // 窗口各有自己的容器，而它们同样会溢出。
-        const auto containers = dockManager->dockContainers();
-        for (ads::CDockContainerWidget* const container : containers)
+        dockManager->setProperty(kInstalledProperty, true);
+        for (ads::CDockContainerWidget* container : dockManager->dockContainers())
         {
-            if (container == nullptr)
+            if (container != nullptr)
             {
-                continue;
-            }
-            const auto areas = container->openedDockAreas();
-            for (ads::CDockAreaWidget* const area : areas)
-            {
-                installOnTabBar(area, filter);
+                for (ads::CDockAreaWidget* area : container->openedDockAreas())
+                {
+                    installOnTabBar(area);
+                }
             }
         }
-
-        // 之后新建的区域。restoreState、浮动、以及新增 Dock 都会走到这里 ——
-        // 只在启动时扫一遍的话，用户拖出一个浮动窗口就又滚不动了。
-        QPointer<QObject> safeFilter(filter);
-        QObject::connect(
-            dockManager,
-            &ads::CDockManager::dockAreaCreated,
-            filter,
-            [safeFilter](ads::CDockAreaWidget* dockArea)
-            {
-                if (safeFilter.isNull())
-                {
-                    return;
-                }
-                installOnTabBar(dockArea, safeFilter.data());
-            });
+        QObject::connect(dockManager, &ads::CDockManager::dockAreaCreated,
+            dockManager, [](ads::CDockAreaWidget* area) { installOnTabBar(area); });
     }
 
     bool discardSavedDockLayout(const QString& layoutConfigPath)
@@ -170,7 +202,6 @@ namespace ks::ui
         const QFileInfo info(layoutConfigPath);
         if (!info.exists())
         {
-            // 本来就没有保存过：目标已经达成，不是失败。
             return true;
         }
         return QFile::remove(layoutConfigPath);

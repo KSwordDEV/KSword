@@ -5139,14 +5139,9 @@ MainWindow::MainWindow(
     ads::CDockManager::setConfigFlag(ads::CDockManager::AllTabsHaveCloseButton, false);
     ads::CDockManager::setConfigFlag(ads::CDockManager::DockAreaHasCloseButton, false);
     ads::CDockManager::setConfigFlag(ads::CDockManager::DockAreaHasUndockButton, false);
-    // TabsMenuButton 从隐藏改回显示。
-    //
-    // 它是 ADS 在标签溢出时的**标准可达入口**：一个下拉列出该区域全部标签。
-    // 原先为了外观统一把它和关闭/浮动按钮一起关掉了，但那三个是"少一个也能用"，
-    // 这一个不是 —— 标签一多，被挤出可视区的页就只剩滚轮一条路，而滚轮在这个
-    // 版本的 ADS 上实测无效（另见 installDockTabWheelScrolling，那是补滚轮的）。
-    // 结果是拿可达性换了外观，用户真的撞上了"有一个页再也点不到"。
-    ads::CDockManager::setConfigFlag(ads::CDockManager::DockAreaHasTabsMenuButton, true);
+    // 溢出标签通过横向滚动和左右箭头访问，不再显示区域下拉菜单。
+    ads::CDockManager::setConfigFlag(ads::CDockManager::DockAreaHasTabsMenuButton, false);
+    ads::CDockManager::setConfigFlag(ads::CDockManager::DisableTabTextEliding, true);
     // 自定义 ADS 标签工厂必须早于 CDockManager/DockWidget 创建；
     // 否则默认 CDockWidgetTab 已经实例化，后续再换工厂无法修复当前标签的 hover 白底。
     ensureKswordAdsDockComponentsFactoryInstalled();
