@@ -271,7 +271,11 @@ $report.verdict =
     else                                   { 'PASS' }
 
 $jsonPath = Join-Path $logDir "acceptance-autotest-$stamp.json"
-$report | ConvertTo-Json -Depth 14 | Set-Content -Path $jsonPath -Encoding UTF8
+# JSON 必须无 BOM，见文件末尾说明。
+[IO.File]::WriteAllText(
+    $jsonPath,
+    ($report | ConvertTo-Json -Depth 14),
+    (New-Object Text.UTF8Encoding($false)))
 
 $mdPath = Join-Path $logDir "acceptance-autotest-$stamp.md"
 $md = New-Object System.Text.StringBuilder

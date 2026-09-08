@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     在 Hyper-V 测试机里自动推进 KSword HVM 生命周期：先读状态、再决定该做什么、
     进 VMX 之前打检查点、之后确认虚拟机还活着，全程输出机器可读的 JSON 记录。
@@ -116,7 +116,11 @@ function Add-Step {
 
 function Save-Record {
     $record.finishedUtc = (Get-Date).ToUniversalTime().ToString('o')
-    $record | ConvertTo-Json -Depth 12 | Set-Content -Path $ResultPath -Encoding UTF8
+    # JSON 必须无 BOM，见文件末尾说明。
+    [IO.File]::WriteAllText(
+        $ResultPath,
+        ($record | ConvertTo-Json -Depth 12),
+        (New-Object Text.UTF8Encoding($false)))
 }
 
 function Invoke-Guest {

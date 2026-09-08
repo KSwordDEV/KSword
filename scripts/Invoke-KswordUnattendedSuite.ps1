@@ -68,7 +68,11 @@ $resultPath = Join-Path $logDir "unattended-$stamp.json"
 
 function Save-Record {
     $record.finishedUtc = (Get-Date).ToUniversalTime().ToString('o')
-    $record | ConvertTo-Json -Depth 14 | Set-Content -Path $resultPath -Encoding UTF8
+    # JSON 必须无 BOM，见文件末尾说明。
+    [IO.File]::WriteAllText(
+        $resultPath,
+        ($record | ConvertTo-Json -Depth 14),
+        (New-Object Text.UTF8Encoding($false)))
 }
 
 function Add-Stage {

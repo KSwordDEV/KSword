@@ -285,7 +285,7 @@ if ($SkipResident) {
 
 # --- 落盘与判读 --------------------------------------------------------------
 $samples | Export-Csv -Path $csv -NoTypeInformation -Encoding UTF8
-[ordered]@{
+$flightRecord = [ordered]@{
     schema     = 'ksword.hostflight/1'
     vmName     = $VMName
     instance   = $instance
@@ -295,7 +295,12 @@ $samples | Export-Csv -Path $csv -NoTypeInformation -Encoding UTF8
     calibrationNestedEntriesMax = $calAvg
     marks      = $marks
     csv        = $csv
-} | ConvertTo-Json -Depth 8 | Set-Content -Path $json -Encoding UTF8
+}
+# JSON 必须无 BOM，见文件末尾说明。
+[IO.File]::WriteAllText(
+    $json,
+    ($flightRecord | ConvertTo-Json -Depth 8),
+    (New-Object Text.UTF8Encoding($false)))
 
 $obs = @($samples | Where-Object { $_.phase -eq 'observe' -and $_.PSObject.Properties['nested_vm_entries_sec'] })
 Write-Host "`n=== 判读 ===" -ForegroundColor Cyan
