@@ -100,7 +100,44 @@ KSword 是 Windows 10/11 x64 上的 ARK（Anti-Rootkit）和系统分析工具�
 
 **内核知识** — 71 篇中英双语可搜索文章，每篇链接到 R3/R0 实时证据页。
 
-**HVM** — VMX 自检、一次性来宾、受保护的 Intel VT-x/EPT 常驻监控。AMD 或不兼容配置下拒绝启动。仅限实验用途。
+**HVM** — VMX 自检、一次性来宾、受保护的 Intel VT-x/EPT 常驻监控，支持多核。EPT 分离视图（execute-only 影子页）由 EPTP 切换后端服务，因此在不提供 monitor-trap flag 的嵌套 hypervisor 上也能装 Hook。带引导的 EPT Hook 向导。R-1 层的进程冻结与结束。AMD 或不兼容配置下拒绝启动。仅限实验用途。
+
+<details>
+<summary>这一层在哪里，以及"常驻"是什么</summary>
+
+<br>
+
+KSword HVM **不启动第二个 Windows**。它对**已经在跑的**那个系统做一次后期虚拟化接管：
+`VMLAUNCH` 之后，原本的执行上下文原地继续往下跑，只是从此运行在 VMX non-root 模式，
+而 KSword HVM 在 VMX root 模式处理它的 VM exit。没有重启，桌面上什么都不会发生 ——
+所以"看不出变化"是正确表现，不是没生效。
+
+```text
+CPU
+└─ Intel VT-x / EPT
+   └─ Hyper-V (L0)              ← 拥有物理虚拟化层
+      ├─ 根分区
+      │  ├─ 宿主 Windows
+      │  └─ VBS / HVCI          ← 可以继续开着，它属于 L0
+      │
+      └─ 子分区
+         └─ KSword HVM (L1, VMX root)
+            └─ 同一个来宾 Windows
+               （L2, VMX non-root）
+```
+
+裸机上没有 `Hyper-V (L0)` 这一层，KSword HVM 自己就是 L0。两种情形下，接管前后
+都是**同一个**操作系统。
+
+**常驻**就是这一层存在与否本身。一次性来宾只证明 VMX 能进能出；常驻把正在运行的
+Windows 放进 non-root 并保持在那里。停掉常驻，硬件不再查我们的 EPT，所有基于 EPT
+的能力 —— 隐蔽 Hook、分离视图、执行域、R-1 进程处置 —— **在同一瞬间全部失效**，
+不是降级，是那一层不在了。这也解释了为什么安装这些能力都要求先停常驻，以及为什么
+`sc stop` 在常驻期间返回 1052。
+
+完整说明见[嵌套虚拟化架构](next/嵌套虚拟化架构.md)。
+
+</details>
 
 <details>
 <summary>按 Dock 展开的完整清单（17 主 + 4 辅助）</summary>
@@ -213,6 +250,8 @@ $apiValidatorX64 = 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64'
 ## 文档
 
 [CLI使用文档](CLI使用文档.md) · [功能技术文档](功能技术文档.md) · [内核知识中心](内核知识中心.md) · [IOCTL 审计](driver_ioctl_audit.md) · [OpenArk对照](OpenArk功能对照与TODO.md) · [动态偏移接入](动态偏移功能接入步骤.md) · [PDB/R0 审计准备](pdb_r0_audit_prep/) · [插件系统](插件系统规范.md) · [多语言规范](多语言语言包规范.md)
+
+虚拟化（HVM）：[嵌套虚拟化架构](next/嵌套虚拟化架构.md) · [EPT切换后端设计](next/EPT切换后端设计.md) · [嵌套下的跨核TLB失效](next/嵌套下的跨核TLB失效.md) · [隐蔽Hook安全边界决策](next/隐蔽Hook安全边界决策.md) · [自动化测试](next/自动化测试.md) · [VM测试机搭建](next/VM测试机搭建.md)
 
 ## 声明
 

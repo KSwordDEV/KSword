@@ -679,6 +679,24 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
                 ks::i18n::sourceText(QStringLiteral("EPTP 切换后端靠在多份 EPT 层次之间换 EPTP 来做视图，私有 EPT 则要给每个处理器各自一份层次，两者对层次的用法冲突，驱动会在分配任何资源之前拒绝同时请求。请先关掉「EPT 分离视图用 EPTP 切换后端」。")));
             return;
         }
+        /*
+         * 与 VMFUNC 也互斥，这一条原先两边都漏了。
+         *
+         * 漏掉的后果比"少一次提示"重：驱动确实会拒绝这个组合，但它返回的
+         * STATUS_INVALID_PARAMETER 在 START_RESIDENT 上没有对应的状态映射，
+         * 落到兜底分支报成 RENDEZVOUS_FAILED —— 一个与真因毫无关系的名字，
+         * 会把人引到多核同步那边去查。这一项自己的说明文字里就写着"与 VMFUNC
+         * 互斥"，只是代码没照着做。
+         */
+        if (checked && ksword::kvm::isVmFuncEnabled())
+        {
+            localEptAction->setChecked(false);
+            QMessageBox::warning(
+                this,
+                ks::i18n::sourceText(QStringLiteral("私有 EPT 与 VMFUNC 互斥")),
+                ks::i18n::sourceText(QStringLiteral("VMFUNC 要求所有处理器共享同一份 EPTP list，而私有 EPT 要给每个处理器各自一份层次，驱动会拒绝同时请求。请先关掉「武装 VMFUNC / EPTP 切换」。")));
+            return;
+        }
         ksword::kvm::setLocalEptEnabled(checked);
         applyKvmButtonState();
         refreshKvmStatusAsync();
@@ -822,6 +840,17 @@ void MainWindow::showKvmMenu(const QPoint& globalPosition)
                 this,
                 ks::i18n::sourceText(QStringLiteral("VMFUNC 与 EPTP 切换后端互斥")),
                 ks::i18n::sourceText(QStringLiteral("VMFUNC 要求所有处理器共享同一份 EPTP list，而 EPTP 切换后端要在多份 EPT 层次之间换 EPTP，驱动会在分配任何资源之前拒绝同时请求。请先关掉「EPT 分离视图用 EPTP 切换后端」。")));
+            return;
+        }
+        // 与私有 EPT 也互斥。理由同私有 EPT 那一项：驱动的拒绝会以
+        // RENDEZVOUS_FAILED 这个与真因无关的名字出现，在这里拦下更省事。
+        if (ksword::kvm::isLocalEptEnabled())
+        {
+            vmFuncAction->setChecked(false);
+            QMessageBox::warning(
+                this,
+                ks::i18n::sourceText(QStringLiteral("VMFUNC 与私有 EPT 互斥")),
+                ks::i18n::sourceText(QStringLiteral("VMFUNC 要求所有处理器共享同一份 EPTP list，而私有 EPT 要给每个处理器各自一份层次，驱动会拒绝同时请求。请先关掉「每处理器私有 EPT」。")));
             return;
         }
         // 写权限前置：武装一个 guest 可见的切换接口属于改变系统行为。

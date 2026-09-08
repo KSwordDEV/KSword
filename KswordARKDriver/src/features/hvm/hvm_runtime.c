@@ -2733,18 +2733,31 @@ KswordARKHvmControl(
          * where a split-view backend has to be selected: both backends decide
          * what the EPT hierarchies look like, and those are built here.
          *
-         * ENABLE_EPTP_SWITCH is admitted for exactly that reason.  Note the
-         * standing defect it must not repeat: ENABLE_LOCAL_EPT is *read* by
-         * this same prepare path but has never been in this whitelist, so the
-         * request is rejected as INVALID_REQUEST before arming can happen and
-         * LocalEptArmed is unreachable through the protocol.  Admitting a flag
-         * here weakens nothing - it is still refused downstream when its
-         * capability is absent, and the refusal now names a reason.
+         * ENABLE_EPTP_SWITCH and ENABLE_LOCAL_EPT are both admitted for exactly
+         * that reason: this prepare path *reads* both of them when it decides
+         * what to build.
+         *
+         * ENABLE_LOCAL_EPT was the standing defect this comment used to
+         * describe: it was read here but was never in this whitelist, so every
+         * request carrying it died as INVALID_REQUEST before arming could
+         * happen, and LocalEptArmed was unreachable through the protocol.  The
+         * damage was not that the feature was off - it was that the UI offered
+         * a switch for it, sent it on START_RESIDENT (where the whitelist does
+         * accept it), and the driver then refused at the LocalEptArmed check
+         * with STATUS_NOT_SUPPORTED, surfacing as UNSUPPORTED_CPU.  A user who
+         * ticked that box was told their CPU could not do this, permanently and
+         * across sessions, by a machine that could.
+         *
+         * Admitting it weakens nothing.  The assignment below still clears it
+         * when INVEPT_SINGLE or MONITOR_TRAP_FLAG is missing, and the
+         * EPTP_SWITCH/LOCAL_EPT/VMFUNC exclusion above still rejects the
+         * conflicting combinations before a single page is allocated.
          */
         allowedFlags =
             KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED |
             KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED |
-            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPTP_SWITCH;
+            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_EPTP_SWITCH |
+            KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_LOCAL_EPT;
         /* Stop after selecting the prepare flag set. */
         break;
     case KSWORD_ARK_HVM_CONTROL_SELF_TEST:

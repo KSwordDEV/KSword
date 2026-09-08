@@ -4,6 +4,8 @@
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../SettingsDock/AppearanceSettings.h"
 #include "../UI/FlowLayout.h"
+// isNestedAllowed：嵌套开关的权威来源。这个页面原先自己算一份，且算得比它窄。
+#include "../UI/KvmControl.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../theme.h"
 
@@ -590,14 +592,39 @@ void KernelHvmTab::runControlAsync(
             QStringLiteral("正在执行 HVM 生命周期操作...")));
     updateButtons();
     const unsigned long generation = m_snapshot.generation;
-    const bool allowNested =
-        command == KSWORD_ARK_HVM_CONTROL_VALIDATE_NESTED
-            ? (enableNestedVmx || enableEvmcs)
-            : ((command == KSWORD_ARK_HVM_CONTROL_PREPARE ||
-                command == KSWORD_ARK_HVM_CONTROL_SELF_TEST ||
-                command ==
-                    KSWORD_ARK_HVM_CONTROL_LAUNCH_TEST_GUEST) &&
-               m_featureArea == FeatureArea::NestedVmx);
+    /*
+     * ALLOW_NESTED 取自用户的嵌套开关，不再由"当前在哪个功能页"决定。
+     *
+     * 原先的规则把这一位绑在 `m_featureArea == NestedVmx` 上，并且**结构性地
+     * 不包含 START_RESIDENT**。后果是在任何嵌套或开着 VBS 的机器上，这个页面的
+     * 「启动驻留 VMM」恒定失败：驱动检测到外层已有 hypervisor 而请求没带这一位，
+     * 返回 STATUS_HV_FEATURE_UNAVAILABLE，界面报 HYPERVISOR_CONFLICT。
+     *
+     * 更难查的是它只在**最后一步**炸：PREPARE 和 SELF_TEST 在嵌套页是带这一位
+     * 的，所以前两步顺利通过，用户走到最后才撞墙，而报错说的是"hypervisor 冲突"
+     * ——听起来像环境问题，不像请求少了一位。
+     *
+     * 权威来源只有一个：ksword::kvm::isNestedAllowed()，也就是虚拟化菜单里那个
+     * 开关，KvmControl 那一层用的就是它。这里跟着它走，就不会再有两个入口对同
+     * 一条命令给出不同标志位的情况。
+     *
+     * VALIDATE_NESTED 保留它自己的额外条件：它的用途就是探测嵌套能力，勾了要探
+     * 的项就得带上这一位，哪怕总开关还没开。
+     *
+     * 只对白名单里含 ALLOW_NESTED 的命令给：TEARDOWN / STOP_RESIDENT / RESET_FAULT
+     * 不接受它，多给一位整条请求会被判 INVALID_REQUEST。
+     */
+    const bool commandAcceptsNested =
+        command == KSWORD_ARK_HVM_CONTROL_PREPARE ||
+        command == KSWORD_ARK_HVM_CONTROL_SELF_TEST ||
+        command == KSWORD_ARK_HVM_CONTROL_LAUNCH_TEST_GUEST ||
+        command == KSWORD_ARK_HVM_CONTROL_START_RESIDENT ||
+        command == KSWORD_ARK_HVM_CONTROL_SOAK ||
+        command == KSWORD_ARK_HVM_CONTROL_VALIDATE_NESTED;
+    const bool allowNested = commandAcceptsNested &&
+        (ksword::kvm::isNestedAllowed() ||
+         (command == KSWORD_ARK_HVM_CONTROL_VALIDATE_NESTED &&
+          (enableNestedVmx || enableEvmcs)));
     QPointer<KernelHvmTab> safeThis(this);
     std::thread([
         safeThis,

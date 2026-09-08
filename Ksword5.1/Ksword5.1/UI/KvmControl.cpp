@@ -475,7 +475,16 @@ namespace ksword::kvm
                 false,
                 false,
                 false,
-                false,
+                /*
+                 * enableLocalEpt 必须在这里发，不能只在 START_RESIDENT 发。
+                 *
+                 * LocalEptArmed 只由 PREPARE 置位——常驻启动时驱动查的是那个
+                 * 已经定下来的值。只在 START_RESIDENT 带这一位的话，门口过得了
+                 * （白名单里有它），随后 LocalEptArmed 恒为假，驱动以
+                 * STATUS_NOT_SUPPORTED 拒绝，界面显示"CPU 不支持"——而真因是
+                 * 这一位从来没到过能置位的那条路径上。
+                 */
+                isLocalEptEnabled(),
                 isEptpSwitchEnabled());
             auto result = toCommandResult(
                 prepared,
