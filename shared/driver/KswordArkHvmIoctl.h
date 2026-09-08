@@ -1527,7 +1527,15 @@ typedef struct _KSWORD_ARK_HVM_DOMAIN_RESPONSE
 #define KSWORD_ARK_HVM_PROCESS_STATUS_OK                    0UL
 #define KSWORD_ARK_HVM_PROCESS_STATUS_INVALID_REQUEST       1UL
 #define KSWORD_ARK_HVM_PROCESS_STATUS_CONFIRMATION_REQUIRED 2UL
-#define KSWORD_ARK_HVM_PROCESS_STATUS_NOT_RESIDENT          3UL
+/*
+ * 常驻正在跑，而安装要求它停着。
+ *
+ * 占 3 号不是随意的：这个码原先叫 NOT_RESIDENT，两种条件共用，而实际发生的
+ * 几乎总是这一种（常驻起来之后才想起来处置某个进程）。把它留在 3 号，新界面
+ * 配旧驱动时给出的建议仍然是对的；反过来编号，那段窗口里界面会说"还没
+ * prepare"——与实情正好相反，照着做只会越走越远。
+ */
+#define KSWORD_ARK_HVM_PROCESS_STATUS_REQUIRES_RESIDENT_STOPPED 3UL
 #define KSWORD_ARK_HVM_PROCESS_STATUS_PROCESS_LOOKUP_FAILED 4UL
 #define KSWORD_ARK_HVM_PROCESS_STATUS_TABLE_FULL            5UL
 #define KSWORD_ARK_HVM_PROCESS_STATUS_NOT_FOUND             6UL
@@ -1543,6 +1551,14 @@ typedef struct _KSWORD_ARK_HVM_DOMAIN_RESPONSE
 #define KSWORD_ARK_HVM_PROCESS_STATUS_TRANSLATION_FAILED    10UL
 /* 拒绝对自己或系统进程动手。 */
 #define KSWORD_ARK_HVM_PROCESS_STATUS_PROTECTED_TARGET      11UL
+/*
+ * 驱动还没 prepare 过，运行时里什么都没有。
+ *
+ * 与上面那个分成两个码，是因为它们要人做的事**相反**：一个是"还没起来，先
+ * prepare"，一个是"正在跑，先停下"。原先合用一个叫 NOT_RESIDENT 的码更糟——
+ * 那个名字描述的条件恰恰是实际条件的反面，照着它排查会一路走反方向。
+ */
+#define KSWORD_ARK_HVM_PROCESS_STATUS_NOT_PREPARED          12UL
 
 /* 表的上限。每条占一个 EPT 受限层次，层次数由 EPTP 列表容量决定。 */
 #define KSWORD_ARK_HVM_MAX_PROCESS_DISPOSITIONS 8UL

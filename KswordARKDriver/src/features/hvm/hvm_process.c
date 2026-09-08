@@ -512,7 +512,7 @@ KswordARKHvmProcessControl(
         Response->version = KSWORD_ARK_HVM_PROCESS_PROTOCOL_VERSION;
         Response->size = sizeof(*Response);
         Response->status =
-            KSWORD_ARK_HVM_PROCESS_STATUS_NOT_RESIDENT;
+            KSWORD_ARK_HVM_PROCESS_STATUS_NOT_PREPARED;
         Response->lastStatus = STATUS_DEVICE_NOT_READY;
         /* 协议层成功，语义层拒绝。 */
         status = STATUS_SUCCESS;
@@ -531,7 +531,7 @@ KswordARKHvmProcessControl(
         Response->version = KSWORD_ARK_HVM_PROCESS_PROTOCOL_VERSION;
         Response->size = sizeof(*Response);
         Response->status =
-            KSWORD_ARK_HVM_PROCESS_STATUS_NOT_RESIDENT;
+            KSWORD_ARK_HVM_PROCESS_STATUS_REQUIRES_RESIDENT_STOPPED;
         Response->lastStatus = STATUS_DEVICE_BUSY;
         /* 没有任何一条记录或层次被改动。 */
         status = STATUS_SUCCESS;

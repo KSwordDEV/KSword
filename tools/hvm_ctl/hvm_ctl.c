@@ -3977,7 +3977,9 @@ static const char* ProcessStatusName(unsigned long s)
     case KSWORD_ARK_HVM_PROCESS_STATUS_OK:                    return "OK";
     case KSWORD_ARK_HVM_PROCESS_STATUS_INVALID_REQUEST:       return "INVALID_REQUEST";
     case KSWORD_ARK_HVM_PROCESS_STATUS_CONFIRMATION_REQUIRED: return "CONFIRMATION_REQUIRED";
-    case KSWORD_ARK_HVM_PROCESS_STATUS_NOT_RESIDENT:          return "NOT_RESIDENT";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_NOT_PREPARED:          return "NOT_PREPARED";
+    case KSWORD_ARK_HVM_PROCESS_STATUS_REQUIRES_RESIDENT_STOPPED:
+        return "REQUIRES_RESIDENT_STOPPED";
     case KSWORD_ARK_HVM_PROCESS_STATUS_PROCESS_LOOKUP_FAILED: return "PROCESS_LOOKUP_FAILED";
     case KSWORD_ARK_HVM_PROCESS_STATUS_TABLE_FULL:            return "TABLE_FULL";
     case KSWORD_ARK_HVM_PROCESS_STATUS_NOT_FOUND:             return "NOT_FOUND";
@@ -4092,9 +4094,13 @@ static int DoProcess(HANDLE h, unsigned long op, unsigned long pid,
         printf("  ** 缺 EPTP 切换后端 **：没有第二套层次就没有\"受限\"可选。\n");
         printf("     prepare 时带 ENABLE_EPTP_SWITCH。\n");
     }
-    if (rsp.status == KSWORD_ARK_HVM_PROCESS_STATUS_NOT_RESIDENT) {
-        printf("  ** 装不进去 **：安装要在常驻**停着**时做——常驻期间退出路径\n");
+    if (rsp.status == KSWORD_ARK_HVM_PROCESS_STATUS_REQUIRES_RESIDENT_STOPPED) {
+        printf("  ** 常驻正在跑 **：安装要在常驻**停着**时做——常驻期间退出路径\n");
         printf("     不持锁读这张表与它的层次。与 EPT 规则、分离视图同一条规矩。\n");
+        printf("     顺序：stop -> proc-freeze/terminate -> self-test -> resident。\n");
+    }
+    if (rsp.status == KSWORD_ARK_HVM_PROCESS_STATUS_NOT_PREPARED) {
+        printf("  ** 还没 prepare **：运行时里什么都没有。先 prepare-eptpsw。\n");
     }
     return (rsp.status == KSWORD_ARK_HVM_PROCESS_STATUS_OK) ? 0 : 2;
 }
