@@ -245,6 +245,135 @@ namespace
         return rip;
     }
 
+    // HvmInjectWakeContext 说明：
+    // - 输入：由 EnumWindows 回调读写；
+    // - 处理逻辑：匹配目标 PID 的顶层窗口，逐个投递一条空消息；
+    // - 返回行为：postedCount 为 0 表示目标没有可唤醒的顶层窗口。
+    struct HvmInjectWakeContext
+    {
+        unsigned long processId = 0UL; // processId：要唤醒的目标进程。
+        std::size_t postedCount = 0U;  // postedCount：成功投递的窗口数。
+    };
+
+    // enumHvmInjectWakeProc 作用：
+    // - 输入：Win32 顶层窗口枚举回调参数；
+    // - 处理：属于目标进程的窗口投一条 WM_NULL，其余跳过；
+    // - 返回：恒为 TRUE——要唤醒的是整个进程，不是某一个窗口。
+    BOOL CALLBACK enumHvmInjectWakeProc(HWND windowHandle, LPARAM parameter)
+    {
+        auto* const context = reinterpret_cast<HvmInjectWakeContext*>(parameter);
+        if (context == nullptr || windowHandle == nullptr)
+        {
+            return TRUE;
+        }
+        DWORD owningProcessId = 0UL;
+        (void)::GetWindowThreadProcessId(windowHandle, &owningProcessId);
+        if (owningProcessId != context->processId)
+        {
+            return TRUE;
+        }
+        if (::PostMessageW(windowHandle, WM_NULL, 0U, 0L) != FALSE)
+        {
+            context->postedCount += 1U;
+        }
+        return TRUE;
+    }
+
+    /*
+     * hvmProcessWakeMessageLoops 作用：
+     * - 入参 processId：目标进程 PID；
+     * - 处理：给它的每个顶层窗口投一条 WM_NULL；
+     * - 返回：投递成功的窗口数，0 表示目标没有顶层窗口。
+     *
+     * 这不是注入的一部分，是给注入一个发生的机会。R-1 注入是**陷阱**不是推送：
+     * 只有目标自己执行到被劫持的那一页才会触发。静止的进程线程全停在等待里，
+     * 那一页可以永远不被执行到——而那和失败在外面看不出区别。
+     *
+     * WM_NULL 是代价最小的一种唤醒：不写目标内存、不建线程、不改它任何状态，
+     * 只是让停在 GetMessage 里的线程返回用户态，继续执行原来那一页。但它终究
+     * 是一次用户态交互，消息钩子看得见——所以只在执行数仍为零时才用，并且要在
+     * 结果里明说做过这一步，不能悄悄做。
+     */
+    std::size_t hvmProcessWakeMessageLoops(const unsigned long processId)
+    {
+        HvmInjectWakeContext context;
+        context.processId = processId;
+        (void)::EnumWindows(
+            &enumHvmInjectWakeProc,
+            reinterpret_cast<LPARAM>(&context));
+        return context.postedCount;
+    }
+
+    /*
+     * hvmInjectExecutionCount 作用：
+     * - 入参 processId：下达注入时用的 PID；
+     * - 处理：读回 R-1 注入表里那一条已经被执行的次数；
+     * - 返回：执行次数；表里没有这一条或读不到时返回 0。
+     *
+     * 光看返回码分不出"装上了"和"跑过了"：安装成功与载荷永远不被执行长得
+     * 一模一样。执行数是唯一能把这两件事分开的读数。
+     */
+    unsigned long long hvmInjectExecutionCount(const unsigned long processId)
+    {
+        ksword::ark::DriverClient client;
+        const ksword::ark::HvmInjectResult result = client.controlHvmInject(
+            KSWORD_ARK_HVM_INJECT_OP_QUERY,
+            processId,
+            0UL,
+            0ULL,
+            0ULL,
+            nullptr,
+            0UL,
+            true);
+        if (!result.io.ok ||
+            result.response.status != KSWORD_ARK_HVM_INJECT_STATUS_OK)
+        {
+            return 0ULL;
+        }
+        const unsigned long rowCount = std::min<unsigned long>(
+            result.response.returnedRows,
+            KSWORD_ARK_HVM_MAX_INJECTIONS);
+        for (unsigned long index = 0UL; index < rowCount; ++index)
+        {
+            if (result.response.rows[index].processId == processId)
+            {
+                return result.response.rows[index].executionCount;
+            }
+        }
+        return 0ULL;
+    }
+
+    // 装上之后等执行数的上限。触发要等目标下一次执行到那一页，超过这个时长仍是
+    // 零就不再等——等不到不代表没装上，载荷会一直挂着。
+    constexpr unsigned long long HvmInjectSettleMilliseconds = 2000ULL;
+
+    /*
+     * hvmInjectWaitForExecution 作用：
+     * - 入参 processId：目标 PID；timeoutMilliseconds：最长等待时长；
+     * - 处理：轮询执行数，非零立刻返回；
+     * - 返回：观察到的执行次数。
+     *
+     * 这里刻意不抽事件循环：前一步刚停过又起过常驻，界面本来就阻塞了更久，
+     * 而在等注入结果的两秒里放用户点别的动作只会带来重入。
+     */
+    unsigned long long hvmInjectWaitForExecution(
+        const unsigned long processId,
+        const unsigned long long timeoutMilliseconds)
+    {
+        const unsigned long long deadline =
+            ::GetTickCount64() + timeoutMilliseconds;
+        for (;;)
+        {
+            const unsigned long long executed =
+                hvmInjectExecutionCount(processId);
+            if (executed != 0ULL || ::GetTickCount64() >= deadline)
+            {
+                return executed;
+            }
+            ::Sleep(50UL);
+        }
+    }
+
     // 亲和性恢复失败后从 1 秒开始退避，避免短暂拒绝导致每轮刷新都重复打开句柄。
     constexpr std::uint32_t AffinityRestoreRetryBaseMilliseconds = 1000U;
 
@@ -15024,13 +15153,56 @@ void ProcessDock::executeHvmInjectAction(const unsigned long operation)
             return;
         }
     }
+    /*
+     * 装上不等于跑过，所以这里要去读执行数。
+     *
+     * 返回码只说明外壳与载荷已经写进影子页，它对"这一页会不会被执行到"一无所知；
+     * 而一个永远不触发的注入与一次成功的注入在返回码上完全相同。执行数是唯一能
+     * 把这两件事分开的读数，因此必须读，并且要把读到的数报给人看。
+     *
+     * 执行数为零时再主动给目标一次继续执行的机会：静止的进程线程全停在等待里，
+     * 那一页可以一直等不到。
+     */
+    QString injectDetail = ks::i18n::sourceText(QStringLiteral("注入已装上。它在目标下一次执行到那一页时才生效，所以可能不会立刻看到效果。若长时间没有反应，多半是那一页没被执行到，或这一带找不到足够长的空隙。"));
+    if (armed)
+    {
+        unsigned long long executionCount =
+            hvmInjectWaitForExecution(targetPid, HvmInjectSettleMilliseconds);
+        std::size_t wakenedWindows = 0U;
+        if (executionCount == 0ULL)
+        {
+            wakenedWindows = hvmProcessWakeMessageLoops(targetPid);
+            if (wakenedWindows != 0U)
+            {
+                executionCount = hvmInjectWaitForExecution(
+                    targetPid, HvmInjectSettleMilliseconds);
+            }
+        }
+        warn << actionEvent
+            << "[ProcessDock] executeHvmInjectAction: executionCount="
+            << executionCount
+            << " wakenedWindows=" << static_cast<unsigned long long>(wakenedWindows)
+            << eol;
+        if (executionCount != 0ULL)
+        {
+            injectDetail = ks::i18n::sourceText(QStringLiteral("载荷已经在目标里执行过 %1 次，注入确实生效了。")).arg(executionCount);
+        }
+        else if (wakenedWindows != 0U)
+        {
+            injectDetail = ks::i18n::sourceText(QStringLiteral("注入已装上，但目标还没有执行到那一页。已向它的 %1 个窗口各投递一条空消息把消息循环唤醒（不写目标内存、不建线程），仍未触发。载荷会一直挂着，目标下次执行到那一页时自然生效。")).arg(wakenedWindows);
+        }
+        else
+        {
+            injectDetail = ks::i18n::sourceText(QStringLiteral("注入已装上，但目标当前是静止的：它的线程都停在等待里，那一页还没有被执行到，而且它没有可唤醒的顶层窗口。载荷会一直挂着，等目标自己再次运行才生效——对长期空闲的后台进程，这可能一直不发生。"));
+        }
+    }
     showHvmDispositionResult(
         actionTitle,
         armed,
         result.io.message,
         KSWORD_ARK_HVM_PROCESS_STATUS_OK,
         actionEvent,
-        ks::i18n::sourceText(QStringLiteral("注入已装上。它在目标下一次执行到那一页时才生效，所以可能不会立刻看到效果。若长时间没有反应，多半是那一页没被执行到，或这一带找不到足够长的空隙。")));
+        injectDetail);
 }
 
 void ProcessDock::executeR0SetProcessHiddenAction(
