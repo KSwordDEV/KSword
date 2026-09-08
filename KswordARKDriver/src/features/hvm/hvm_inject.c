@@ -37,9 +37,14 @@ Environment:
  * 的 lea/mov/call 与路径本身，那部分按需另算。
  */
 #define KSW_HVM_INJECT_PROLOGUE_BYTES 35UL
-#define KSW_HVM_INJECT_EPILOGUE_BYTES 41UL
-/* DLL 类型的调用序列：lea rcx,[rip+d32] + mov rax,imm64 + call rax。 */
-#define KSW_HVM_INJECT_CALL_BYTES 17UL
+#define KSW_HVM_INJECT_EPILOGUE_BYTES 32UL
+/*
+ * DLL 类型除路径压栈之外的固定部分：
+ * mov rcx,rsp(3) + sub rsp,32(4) + mov rax,imm64(10) + call rax(2)。
+ */
+#define KSW_HVM_INJECT_CALL_BYTES 19UL
+/* 路径每八个字节一组，每组 mov rax,imm64(10) + push rax(1)。 */
+#define KSW_HVM_INJECT_PATH_CHUNK_BYTES 11UL
 
 /* 一条注入的完整驱动侧状态。 */
 typedef struct _KSW_HVM_INJECT_SLOT
@@ -62,7 +67,7 @@ typedef struct _KSW_HVM_INJECT_SLOT
     ULONG CaveOffset;
     /* 外壳加载荷占掉的总长度。 */
     ULONG CaveBytes;
-    /* 返回地址槽在页内的偏移，违规时把原 RIP 写进这里。 */
+    /* 结尾那条 jmp rel32 的操作数在页内的偏移，违规时把返回位移回填到这里。 */
     ULONG ReturnSlotOffset;
     /* 本条占用的执行视图标识。 */
     ULONG ViewId;
@@ -210,6 +215,16 @@ KswordARKHvmInjectFindCave(
  *
  * 第 4 步不用 ret 是硬要求：这台机器上 CET 影子栈开着，压一个没有对应 call 的
  * 返回地址再 ret，会直接吃一个 #CP。DLL 类型里的 call/ret 是配对的，不受影响。
+ *
+ * 返回用 `jmp rel32`，位移是**指令流里的立即数**，不是从内存读出来的地址。
+ * 这一条是实机撞出来的：最初写成 `jmp qword ptr [rip+0]` 加一个八字节返回地址槽，
+ * 结果那条 jmp 要**读**紧随其后的八个字节——而 KIND_HOOK 的语义恰恰是"读看真页、
+ * 执行跑影子"。槽在影子里被填好了，取到的却是真页上的零，于是跳到地址 0，靶机
+ * 蓝屏。取指走影子、数据读走真页这件事，正是这套视图存在的理由，也正是它对
+ * 载荷施加的硬约束：**外壳与载荷都不能从被劫持的这一页读数据**。
+ *
+ * rel32 一定放得下：违规是这一页上的取指故障，所以要跳回去的那条指令与外壳同页，
+ * 位移最多几千字节。
  */
 static NTSTATUS
 KswordARKHvmInjectBuildShell(
@@ -247,7 +262,6 @@ KswordARKHvmInjectBuildShell(
         0x5F, 0x5E, 0x5D, 0x5B, 0x5A, 0x59, 0x58, 0x9D
     };
     ULONG cursor = CaveOffset;
-    ULONG pathOffset = 0UL;
     ULONG jumpOperandCursor = 0UL;
 
     KswordARKHvmInjectEmitBytes(
@@ -258,37 +272,61 @@ KswordARKHvmInjectBuildShell(
         Shadow, &cursor, prologueFrame, sizeof(prologueFrame));
 
     if (Request->injectType == KSWORD_ARK_HVM_INJECT_TYPE_DLL_PATH) {
-        ULONG leaOperandCursor = 0UL;
+        /*
+         * 路径在**栈上**现拼，不放在这一页里。
+         *
+         * 与返回位移同一个理由，而且更致命：LoadLibraryW 要读这个字符串，而这一页
+         * 的数据读走的是真页——把路径写进影子，被调用方读到的是真页上的原始
+         * 字节。栈是普通可读写内存，不受视图影响。
+         *
+         * 每八个字节一组，倒序压栈，于是字符串在低地址处按正序排好。组数补成偶数
+         * 是为了保持十六字节对齐：上面刚 and rsp,-16 对齐过，奇数组会把它破坏掉，
+         * 而被调用方一用 movaps 就 #GP。
+         */
+        ULONG chunkCount = (Request->payloadBytes + 7UL) / 8UL;
+        ULONG chunkIndex = 0UL;
 
-        /* lea rcx, [rip + disp32]，操作数稍后回填成到路径的距离。 */
+        if ((chunkCount & 1UL) != 0UL) {
+            chunkCount += 1UL;
+        }
+        for (chunkIndex = chunkCount; chunkIndex > 0UL; --chunkIndex) {
+            const ULONG offset = (chunkIndex - 1UL) * 8UL;
+            ULONGLONG chunk = 0ULL;
+            ULONG byteIndex = 0UL;
+
+            for (byteIndex = 0UL; byteIndex < 8UL; ++byteIndex) {
+                const ULONG sourceIndex = offset + byteIndex;
+
+                /* 超出路径长度的部分补零，同时给字符串留出结尾。 */
+                if (sourceIndex < Request->payloadBytes) {
+                    chunk |= ((ULONGLONG)Request->payload[sourceIndex]) <<
+                        (byteIndex * 8U);
+                }
+            }
+            /* mov rax, imm64 ; push rax */
+            KswordARKHvmInjectEmit8(Shadow, &cursor, 0x48U);
+            KswordARKHvmInjectEmit8(Shadow, &cursor, 0xB8U);
+            KswordARKHvmInjectEmit64(Shadow, &cursor, chunk);
+            KswordARKHvmInjectEmit8(Shadow, &cursor, 0x50U);
+        }
+        /* mov rcx, rsp —— 第一个参数就是刚拼好的那个字符串。 */
         KswordARKHvmInjectEmit8(Shadow, &cursor, 0x48U);
-        KswordARKHvmInjectEmit8(Shadow, &cursor, 0x8DU);
-        KswordARKHvmInjectEmit8(Shadow, &cursor, 0x0DU);
-        leaOperandCursor = cursor;
-        KswordARKHvmInjectEmit32(Shadow, &cursor, 0UL);
+        KswordARKHvmInjectEmit8(Shadow, &cursor, 0x89U);
+        KswordARKHvmInjectEmit8(Shadow, &cursor, 0xE1U);
+        /* sub rsp, 32 —— Win64 要求调用方为被调用方留出影子空间。 */
+        KswordARKHvmInjectEmit8(Shadow, &cursor, 0x48U);
+        KswordARKHvmInjectEmit8(Shadow, &cursor, 0x83U);
+        KswordARKHvmInjectEmit8(Shadow, &cursor, 0xECU);
+        KswordARKHvmInjectEmit8(Shadow, &cursor, 0x20U);
         /* mov rax, imm64 —— 调用方解析出来的 LoadLibraryW。 */
         KswordARKHvmInjectEmit8(Shadow, &cursor, 0x48U);
         KswordARKHvmInjectEmit8(Shadow, &cursor, 0xB8U);
         KswordARKHvmInjectEmit64(
             Shadow, &cursor, Request->loadLibraryAddress);
-        /* call rax */
+        /* call rax。它与自己的 ret 配对，因此不踩 CET 影子栈。 */
         KswordARKHvmInjectEmit8(Shadow, &cursor, 0xFFU);
         KswordARKHvmInjectEmit8(Shadow, &cursor, 0xD0U);
-        /*
-         * 路径排在整个外壳之后，所以到它的距离要等尾部长度定下来才知道。
-         * 先把位置记住，尾部写完再回填。
-         */
-        pathOffset = cursor +
-            (ULONG)sizeof(epilogueFrame) +
-            (ULONG)sizeof(epilogueHigh) +
-            (ULONG)sizeof(epilogueLow) +
-            6UL +   /* jmp qword ptr [rip+disp32] */
-            8UL;    /* 返回地址槽 */
-        /* RIP 相对的基准是**下一条指令**的地址，也就是操作数之后。 */
-        KswordARKHvmInjectEmit32(
-            Shadow,
-            &leaOperandCursor,
-            pathOffset - (leaOperandCursor + 4UL));
+        /* 栈由结尾的 mov rsp,rbp 一次性收回，这里不必逐组弹。 */
     } else {
         /* SHELLCODE：原样写入，寄存器与标志位已经由外壳护住。 */
         KswordARKHvmInjectEmitBytes(
@@ -301,23 +339,15 @@ KswordARKHvmInjectBuildShell(
         Shadow, &cursor, epilogueHigh, sizeof(epilogueHigh));
     KswordARKHvmInjectEmitBytes(
         Shadow, &cursor, epilogueLow, sizeof(epilogueLow));
-    /* jmp qword ptr [rip + disp32]，跳到紧随其后的返回地址槽。 */
-    KswordARKHvmInjectEmit8(Shadow, &cursor, 0xFFU);
-    KswordARKHvmInjectEmit8(Shadow, &cursor, 0x25U);
+    /*
+     * jmp rel32。位移在违规时才知道，这里先留零，把操作数的位置交出去。
+     *
+     * 不用间接跳转：那要从这一页读数据，而这一页的数据读走的是真页。
+     */
+    KswordARKHvmInjectEmit8(Shadow, &cursor, 0xE9U);
     jumpOperandCursor = cursor;
+    *ReturnSlotOffset = jumpOperandCursor;
     KswordARKHvmInjectEmit32(Shadow, &cursor, 0UL);
-    /* 槽就在操作数之后，所以相对距离恒为零。 */
-    KswordARKHvmInjectEmit32(Shadow, &jumpOperandCursor, 0UL);
-    *ReturnSlotOffset = cursor;
-    /* 槽的内容在违规时才知道，这里先留零。 */
-    KswordARKHvmInjectEmit64(Shadow, &cursor, 0ULL);
-
-    if (Request->injectType == KSWORD_ARK_HVM_INJECT_TYPE_DLL_PATH) {
-        /* 路径紧跟在返回地址槽之后，位置与上面算的一致。 */
-        NT_ASSERT(cursor == pathOffset);
-        KswordARKHvmInjectEmitBytes(
-            Shadow, &cursor, Request->payload, Request->payloadBytes);
-    }
     *ShellBytes = cursor - CaveOffset;
     /* 返回完整的外壳构造结果。 */
     return STATUS_SUCCESS;
@@ -330,11 +360,22 @@ KswordARKHvmInjectNeededBytes(
     )
 {
     ULONG needed = KSW_HVM_INJECT_PROLOGUE_BYTES +
-        KSW_HVM_INJECT_EPILOGUE_BYTES +
-        Request->payloadBytes;
+        KSW_HVM_INJECT_EPILOGUE_BYTES;
 
     if (Request->injectType == KSWORD_ARK_HVM_INJECT_TYPE_DLL_PATH) {
-        needed += KSW_HVM_INJECT_CALL_BYTES;
+        /*
+         * DLL 类型不把路径写进页里，而是拆成八字节一组压栈——所以占的是**指令**
+         * 空间而不是数据空间，每组十一字节。组数补成偶数以保持十六字节对齐。
+         */
+        ULONG chunkCount = (Request->payloadBytes + 7UL) / 8UL;
+
+        if ((chunkCount & 1UL) != 0UL) {
+            chunkCount += 1UL;
+        }
+        needed += KSW_HVM_INJECT_CALL_BYTES +
+            chunkCount * KSW_HVM_INJECT_PATH_CHUNK_BYTES;
+    } else {
+        needed += Request->payloadBytes;
     }
     /* 返回完整需求。 */
     return needed;
@@ -841,23 +882,30 @@ KswordARKHvmInjectHijackRip(
         return FALSE;
     }
     /*
-     * 把返回地址写进影子页的槽里。
+     * 把返回位移回填进影子页里那条 jmp rel32 的操作数。
      *
      * 影子是驱动自己分配的非分页内存，任何 IRQL 下都能碰。写的是"载荷跑完要跳
      * 回哪里"——也就是客户机本来要执行的那条指令。这一步必须在改 RIP 之前完成：
-     * 顺序反了而中间失败，客户机会跳进一个还是零的槽。
+     * 顺序反了而中间失败，客户机会跳到一个位移还是零的地方。
+     *
+     * rel32 的基准是**下一条指令**的地址，也就是操作数之后。两端都在同一页上，
+     * 所以位移必然放得下三十二位。
      */
     shadow = KswordARKHvmEptViewShadowForViewId(Runtime, slot->ViewId);
     if (shadow == NULL) {
-        /* 返回不劫持：没有影子就没有可写的返回槽。 */
+        /* 返回不劫持：没有影子就没有可回填的位移。 */
         return FALSE;
     }
     {
+        const ULONGLONG nextInstruction = slot->GuestLinearAddress +
+            (ULONGLONG)slot->ReturnSlotOffset + 4ULL;
+        const LONG displacement =
+            (LONG)(LONG64)(GuestRip - nextInstruction);
         ULONG index = 0UL;
 
-        for (index = 0UL; index < 8UL; ++index) {
+        for (index = 0UL; index < 4UL; ++index) {
             shadow[slot->ReturnSlotOffset + index] =
-                (UCHAR)((GuestRip >> (index * 8U)) & 0xFFULL);
+                (UCHAR)(((ULONG)displacement >> (index * 8U)) & 0xFFUL);
         }
     }
     /* 一次性：置位之后同一页的后续违规按普通视图切换处理。 */

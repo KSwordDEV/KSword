@@ -3971,6 +3971,172 @@ static int DoCrTrackCr3(HANDLE h, int enable, int asJson)
     return (rsp.status == 0UL) ? 0 : 2;
 }
 
+static const char* InjectStatusName(unsigned long s)
+{
+    switch (s) {
+    case KSWORD_ARK_HVM_INJECT_STATUS_OK:                    return "OK";
+    case KSWORD_ARK_HVM_INJECT_STATUS_INVALID_REQUEST:       return "INVALID_REQUEST";
+    case KSWORD_ARK_HVM_INJECT_STATUS_NOT_PREPARED:          return "NOT_PREPARED";
+    case KSWORD_ARK_HVM_INJECT_STATUS_REQUIRES_RESIDENT_STOPPED:
+        return "REQUIRES_RESIDENT_STOPPED";
+    case KSWORD_ARK_HVM_INJECT_STATUS_PROCESS_LOOKUP_FAILED: return "PROCESS_LOOKUP_FAILED";
+    case KSWORD_ARK_HVM_INJECT_STATUS_TRANSLATION_FAILED:    return "TRANSLATION_FAILED";
+    case KSWORD_ARK_HVM_INJECT_STATUS_TABLE_FULL:            return "TABLE_FULL";
+    case KSWORD_ARK_HVM_INJECT_STATUS_NOT_FOUND:             return "NOT_FOUND";
+    case KSWORD_ARK_HVM_INJECT_STATUS_ALREADY_ARMED:         return "ALREADY_ARMED";
+    case KSWORD_ARK_HVM_INJECT_STATUS_PROTECTED_TARGET:      return "PROTECTED_TARGET";
+    case KSWORD_ARK_HVM_INJECT_STATUS_CR3_TRACKING_REQUIRED: return "CR3_TRACKING_REQUIRED";
+    case KSWORD_ARK_HVM_INJECT_STATUS_EPTP_SWITCH_REQUIRED:  return "EPTP_SWITCH_REQUIRED";
+    case KSWORD_ARK_HVM_INJECT_STATUS_NO_CAVE:               return "NO_CAVE";
+    case KSWORD_ARK_HVM_INJECT_STATUS_VIEW_FAILED:           return "VIEW_FAILED";
+    case KSWORD_ARK_HVM_INJECT_STATUS_PAGE_NOT_EXECUTABLE:   return "PAGE_NOT_EXECUTABLE";
+    default:                                                 return "UNKNOWN";
+    }
+}
+
+static int InjectIoctl(HANDLE h,
+                       KSWORD_ARK_HVM_INJECT_REQUEST* req,
+                       KSWORD_ARK_HVM_INJECT_RESPONSE* rsp)
+{
+    DWORD returned = 0;
+    BOOL ok;
+
+    req->version = KSWORD_ARK_HVM_INJECT_PROTOCOL_VERSION;
+    req->size = (unsigned long)sizeof(*req);
+    memset(rsp, 0, sizeof(*rsp));
+    ok = DeviceIoControl(h, IOCTL_KSWORD_ARK_HVM_INJECT, req, (DWORD)sizeof(*req),
+                         rsp, (DWORD)sizeof(*rsp), &returned, NULL);
+    if (returned >= sizeof(*rsp)) {
+        /* 响应完整就用响应，无论 ok 是真是假。 */
+        return 0;
+    }
+    fprintf(stderr, "INJECT IOCTL 无完整响应：ok=%d returned=%lu win32=%lu\n",
+            (int)ok, returned, GetLastError());
+    return 1;
+}
+
+static void PrintInjectTable(const KSWORD_ARK_HVM_INJECT_RESPONSE* rsp, int asJson)
+{
+    unsigned long i;
+
+    if (asJson) {
+        printf("{\"kind\":\"hvm-inject\",\"status\":%lu,\"statusName\":\"%s\","
+               "\"lastStatus\":\"0x%08lX\",\"rowCount\":%lu,\"generation\":%lu,"
+               "\"rows\":[",
+               rsp->status, InjectStatusName(rsp->status),
+               (unsigned long)rsp->lastStatus, rsp->rowCount, rsp->generation);
+        for (i = 0UL; i < rsp->returnedRows &&
+                      i < KSWORD_ARK_HVM_MAX_INJECTIONS; ++i) {
+            printf("%s{\"processId\":%lu,\"payloadBytes\":%lu,"
+                   "\"directoryBase\":\"0x%016llX\","
+                   "\"guestLinearAddress\":\"0x%016llX\","
+                   "\"guestPhysicalAddress\":\"0x%016llX\","
+                   "\"caveOffset\":%lu,\"caveBytes\":%lu,"
+                   "\"executionCount\":%llu,\"viewId\":%lu}",
+                   (i == 0UL) ? "" : ",",
+                   rsp->rows[i].processId, rsp->rows[i].payloadBytes,
+                   rsp->rows[i].directoryBase, rsp->rows[i].guestLinearAddress,
+                   rsp->rows[i].guestPhysicalAddress,
+                   rsp->rows[i].caveOffset, rsp->rows[i].caveBytes,
+                   rsp->rows[i].executionCount, rsp->rows[i].viewId);
+        }
+        printf("]}\n");
+        return;
+    }
+    printf("\n=== R-1 进程注入 ===\n");
+    printf("  status       : %lu (%s)  lastStatus=0x%08lX\n",
+           rsp->status, InjectStatusName(rsp->status),
+           (unsigned long)rsp->lastStatus);
+    printf("  表内条数     : %lu   代次=%lu\n", rsp->rowCount, rsp->generation);
+    if (rsp->returnedRows == 0UL) {
+        printf("  （表里没有任何注入）\n");
+    }
+    for (i = 0UL; i < rsp->returnedRows &&
+                  i < KSWORD_ARK_HVM_MAX_INJECTIONS; ++i) {
+        printf("  pid=%-6lu cr3=0x%016llX gpa=0x%016llX gla=0x%016llX\n",
+               rsp->rows[i].processId, rsp->rows[i].directoryBase,
+               rsp->rows[i].guestPhysicalAddress,
+               rsp->rows[i].guestLinearAddress);
+        printf("           空隙偏移=%lu 长度=%lu 载荷=%lu 执行=%llu 视图#%lu\n",
+               rsp->rows[i].caveOffset, rsp->rows[i].caveBytes,
+               rsp->rows[i].payloadBytes, rsp->rows[i].executionCount,
+               rsp->rows[i].viewId);
+    }
+    if (rsp->status == KSWORD_ARK_HVM_INJECT_STATUS_NO_CAVE) {
+        printf("  ** 这一页没有足够长的空隙 **：外壳加载荷放不下。换一页，或用\n");
+        printf("     hvm_target 打印的 probe 页（整页空白，专为首次验证准备）。\n");
+    }
+    if (rsp->status == KSWORD_ARK_HVM_INJECT_STATUS_REQUIRES_RESIDENT_STOPPED) {
+        printf("  ** 常驻正在跑 **：装注入要在常驻停着时做。\n");
+        printf("     顺序：stop -> inject-test -> self-test -> resident。\n");
+    }
+}
+
+/*
+ * inject-test：最小可观测载荷 —— 往一个已知地址写一个常数。
+ *
+ * 选它做首次验证是因为判据干净：标记值从 0 变成这个常数，就证明外壳跑通了；
+ * 而心跳继续推进，证明被借用的线程被完好地还了回来。两条缺一不可——只看
+ * "进程没崩"证明不了载荷跑过，只看"标记变了"证明不了线程还能用。
+ *
+ *   48 B8 <imm64>   mov rax, markerAddress
+ *   C7 00 <imm32>   mov dword ptr [rax], value
+ *
+ * 用绝对地址而不是 RIP 相对：外壳在页里的落点由驱动找空隙决定，调用方这边算不出
+ * 相对距离。rax 由外壳负责保存恢复。
+ */
+static int DoInjectTest(HANDLE h, unsigned long pid,
+                        unsigned long long gla,
+                        unsigned long long markerAddress,
+                        unsigned long value, int asJson)
+{
+    KSWORD_ARK_HVM_INJECT_REQUEST req;
+    KSWORD_ARK_HVM_INJECT_RESPONSE rsp;
+    unsigned long cursor = 0UL;
+    unsigned long i;
+
+    memset(&req, 0, sizeof(req));
+    req.operation = KSWORD_ARK_HVM_INJECT_OP_ARM;
+    req.injectType = KSWORD_ARK_HVM_INJECT_TYPE_SHELLCODE;
+    req.processId = pid;
+    req.guestLinearAddress = gla;
+    req.confirmationToken = KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+    req.flags = KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED;
+
+    req.payload[cursor++] = 0x48U;
+    req.payload[cursor++] = 0xB8U;
+    for (i = 0UL; i < 8UL; ++i) {
+        req.payload[cursor++] =
+            (unsigned char)((markerAddress >> (i * 8U)) & 0xFFULL);
+    }
+    req.payload[cursor++] = 0xC7U;
+    req.payload[cursor++] = 0x00U;
+    for (i = 0UL; i < 4UL; ++i) {
+        req.payload[cursor++] =
+            (unsigned char)((value >> (i * 8U)) & 0xFFUL);
+    }
+    req.payloadBytes = cursor;
+
+    if (InjectIoctl(h, &req, &rsp) != 0) { return 1; }
+    PrintInjectTable(&rsp, asJson);
+    return (rsp.status == KSWORD_ARK_HVM_INJECT_STATUS_OK) ? 0 : 2;
+}
+
+static int DoInjectSimple(HANDLE h, unsigned long op, unsigned long pid, int asJson)
+{
+    KSWORD_ARK_HVM_INJECT_REQUEST req;
+    KSWORD_ARK_HVM_INJECT_RESPONSE rsp;
+
+    memset(&req, 0, sizeof(req));
+    req.operation = op;
+    req.processId = pid;
+    req.confirmationToken = KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+    req.flags = KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED;
+    if (InjectIoctl(h, &req, &rsp) != 0) { return 1; }
+    PrintInjectTable(&rsp, asJson);
+    return (rsp.status == KSWORD_ARK_HVM_INJECT_STATUS_OK) ? 0 : 2;
+}
+
 static const char* ProcessStatusName(unsigned long s)
 {
     switch (s) {
@@ -4135,6 +4301,11 @@ static void PrintUsage(void)
     printf("  events [after]   逐行读事件环（十进制序号，只读大于它的行）\n");
     printf("  cr-track-cr3-on  打开 CR3 追踪（R-1 进程处置的前提；常驻起来后改不了）\n");
     printf("  cr-track-cr3-off 关闭 CR3 追踪\n");
+    printf("  inject-query     列出 R-1 进程注入（只读）\n");
+    printf("  inject-test <pid> <靶页GLA> <标记地址> [值]   最小可观测注入：往标记地址写一个常数\n");
+    printf("  inject-release <pid> / inject-release-all     撤销注入\n");
+    printf("     靶页 GLA 与标记地址都是**十六进制**。hvm_target.exe 启动时会把\n");
+    printf("     probe 页与 marker 的地址打出来，首次验证直接用那两个。\n");
     printf("  proc-query       列出 R-1 进程处置（只读）\n");
     printf("  proc-freeze <pid> <GLA>      冻结：拒执行 + 注 #PF，可逆，被冻线程会自旋\n");
     printf("  proc-terminate <pid> <GLA>   结束：拒执行 + 注 #UD，由客户机自己拆进程\n");
@@ -4228,6 +4399,25 @@ int main(int argc, char** argv)
         rc = DoCrTrackCr3(h, 1, asJson);
     } else if (strcmp(cmd, "cr-track-cr3-off") == 0) {
         rc = DoCrTrackCr3(h, 0, asJson);
+    } else if (strcmp(cmd, "inject-query") == 0) {
+        rc = DoInjectSimple(h, KSWORD_ARK_HVM_INJECT_OP_QUERY, 0UL, asJson);
+    } else if (strcmp(cmd, "inject-release-all") == 0) {
+        rc = DoInjectSimple(h, KSWORD_ARK_HVM_INJECT_OP_RELEASE_ALL, 0UL, asJson);
+    } else if (strcmp(cmd, "inject-release") == 0) {
+        unsigned long pid = (argi < argc)
+            ? (unsigned long)strtoul(argv[argi], NULL, 10) : 0UL;
+        rc = DoInjectSimple(h, KSWORD_ARK_HVM_INJECT_OP_RELEASE, pid, asJson);
+    } else if (strcmp(cmd, "inject-test") == 0) {
+        /* pid（十进制） 靶页GLA（十六进制） 标记地址（十六进制） [值（十六进制）] */
+        unsigned long pid = 0UL;
+        unsigned long long gla = 0ULL;
+        unsigned long long marker = 0ULL;
+        unsigned long value = 0x4B535744UL;   /* 'KSWD' */
+        if (argi < argc) { pid = (unsigned long)strtoul(argv[argi++], NULL, 10); }
+        if (argi < argc) { gla = _strtoui64(argv[argi++], NULL, 16); }
+        if (argi < argc) { marker = _strtoui64(argv[argi++], NULL, 16); }
+        if (argi < argc) { value = (unsigned long)strtoul(argv[argi], NULL, 16); }
+        rc = DoInjectTest(h, pid, gla, marker, value, asJson);
     } else if (strcmp(cmd, "proc-query") == 0) {
         rc = DoProcess(h, KSWORD_ARK_HVM_PROCESS_OP_QUERY, 0UL, 0ULL, asJson);
     } else if (strcmp(cmd, "proc-release-all") == 0) {
