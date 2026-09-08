@@ -157,8 +157,14 @@ jobs:
       - name: Check changed-file whitespace
         shell: pwsh
         run: |
+          # 捕获的工具输出不受源码卫生检查约束。
+          #
+          # docs/next/logs/ 里是 kd !analyze、验收套件、飞行记录仪逐字写下来的
+          # 转录。kd 的输出本身就带行尾空格，而这些文件的价值恰恰在于"与工具当时
+          # 打出来的一模一样"——为过检查去改它，等于把证据改成了别的东西。
+          $skipLogs = @(':(exclude)docs/next/logs/**')
           if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
-            git diff --check "origin/$env:GITHUB_BASE_REF...HEAD"
+            git diff --check "origin/$env:GITHUB_BASE_REF...HEAD" -- . @skipLogs
           }
           elseif ($env:GITHUB_EVENT_NAME -eq 'push') {
             $event = Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
@@ -175,7 +181,7 @@ jobs:
             }
 
             if ($before -and $before -ne $zeroCommit -and $LASTEXITCODE -eq 0) {
-              git diff --check $before $after
+              git diff --check $before $after -- . @skipLogs
             }
             else {
               $commits = @($event.commits)
@@ -207,11 +213,11 @@ jobs:
               }
 
               Write-Warning "Previous push commit is unavailable; checking all $expectedCommitCount commits from the push payload."
-              git diff --check $fallbackBase $after
+              git diff --check $fallbackBase $after -- . @skipLogs
             }
           }
           else {
-            git diff --check HEAD~1 HEAD
+            git diff --check HEAD~1 HEAD -- . @skipLogs
           }
 
       - name: Validate tracked JSON

@@ -2852,6 +2852,16 @@
       "detail": "安装 EPT 分离视图会把执行或读取重定向到影子页，并要求单处理器拓扑。CI 机器通常已在 Hyper-V/VBS 之下且是多核，装不上也测不了。"
     },
     {
+      "ioctl": "HVM_PROCESS",
+      "reason": "virtualization-lifecycle",
+      "detail": "按地址空间拒绝执行：命中时冻结（注 #PF，被冻线程持续自旋占核）或结束（注 #UD，由客户机自己拆掉进程）目标。要求常驻已起、CR3-load exiting 已开、EPTP 切换后端已武装——CI 机器通常已在 Hyper-V/VBS 之下，这三条都装不上；真装上了，被处置的若是 runner 自己的进程，失败不可归因。"
+    },
+    {
+      "ioctl": "HVM_INJECT",
+      "reason": "code-injection",
+      "detail": "在目标已有的可执行页上装 KIND_HOOK 视图，把外壳与载荷写进影子页的空隙，再在取指违规时劫持 RIP。崩溃取决于载荷而不是驱动；且与 HVM_PROCESS 同样要求常驻已起、CR3 追踪与 EPTP 切换后端都就位，CI 机器上凑不齐。"
+    },
+    {
       "ioctl": "HWID_DISPATCH_CONTROL",
       "reason": "alters-host-identity",
       "detail": "改写磁盘/网卡/GPU 标识，会污染 CI 机器并影响后续运行。"
