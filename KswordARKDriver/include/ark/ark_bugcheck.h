@@ -93,7 +93,7 @@ KswordARKBugcheckIoctlSetVerdictResources(
     );
 
 
-// Initialize and tear down the independent one-shot BugCheck delay guard.
+// Initialize and tear down the independent BugCheck guard with persistent ignore mode.
 // HVCI systems use a delay-only callback; other systems may use the exported
 // KeBugCheckEx entry hook and must restore it before driver unload. The guard
 // is intentionally not coupled to the optional VMware panel.

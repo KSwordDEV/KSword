@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    Explicitly-confirmed, one-shot KeBugCheckEx delay guard.
+    Explicitly-confirmed KeBugCheckEx guard with persistent ignore mode.
 
 --*/
 
@@ -355,6 +355,9 @@ KswordARKBugcheckGuardDelay(
             ULONG sliceIndex;
 
             for (sliceIndex = 0UL; sliceIndex < 20000UL; ++sliceIndex) {
+                if (InterlockedCompareExchange(&g_KswordArkBugcheckGuard.Enabled, 0L, 0L) == 0L) { /* Let an explicit off request cancel the remaining delay. */
+                    return; /* Leave crash forwarding or return handling to the caller. */
+                }
                 KeStallExecutionProcessor(50UL);
             }
         }
@@ -367,6 +370,9 @@ KswordARKBugcheckGuardDelay(
         while ((ULONGLONG)(
                 KeQueryPerformanceCounter(NULL).QuadPart -
                 start.QuadPart) < (ULONGLONG)frequency.QuadPart) {
+            if (InterlockedCompareExchange(&g_KswordArkBugcheckGuard.Enabled, 0L, 0L) == 0L) { /* Observe switch-off without waiting for the full configured delay. */
+                return; /* Do not acquire control locks in the crash path. */
+            }
             KeStallExecutionProcessor(50UL);
         }
     }
@@ -378,19 +384,15 @@ KswordARKBugcheckGuardCallback(
     _In_ ULONG Length
     )
 {
-    BOOLEAN firstHit;
+    BOOLEAN enabled; /* Snapshot the switch without consuming an activation. */
 
     UNREFERENCED_PARAMETER(Buffer);
     UNREFERENCED_PARAMETER(Length);
 
     InterlockedIncrement(&g_KswordArkBugcheckGuard.HookExecutions);
-    firstHit =
-        InterlockedExchange(&g_KswordArkBugcheckGuard.Enabled, 0L) != 0L &&
-        InterlockedCompareExchange(
-            &g_KswordArkBugcheckGuard.Fired,
-            1L,
-            0L) == 0L;
-    if (firstHit) {
+    enabled = InterlockedCompareExchange(&g_KswordArkBugcheckGuard.Enabled, 0L, 0L) != 0L; /* Read the persistent switch. */
+    if (enabled) { /* Each callback keeps the registration active until disable. */
+        InterlockedExchange(&g_KswordArkBugcheckGuard.Fired, 1L); /* Record history without disarming the guard. */
         KswordARKBugcheckGuardDelay(
             g_KswordArkBugcheckGuard.DelaySeconds);
     }
@@ -408,35 +410,35 @@ KswordARKBugcheckGuardHook(
     )
 {
     KSWORD_ARK_KE_BUGCHECK_EX_FN target;
-    BOOLEAN firstHit;
+    BOOLEAN enabled; /* Preserve whether this invocation entered an enabled guard. */
     BOOLEAN tryIgnoreError;
     NTSTATUS restoreStatus;
 
     InterlockedIncrement(&g_KswordArkBugcheckGuard.HookExecutions);
     target =
         (KSWORD_ARK_KE_BUGCHECK_EX_FN)g_KswordArkBugcheckGuard.Target;
-    firstHit =
-        InterlockedCompareExchange(&g_KswordArkBugcheckGuard.Fired, 1L, 0L) == 0L;
+    enabled = InterlockedCompareExchange(&g_KswordArkBugcheckGuard.Enabled, 0L, 0L) != 0L; /* Read the switch without clearing it. */
     tryIgnoreError = InterlockedCompareExchange(
         &g_KswordArkBugcheckGuard.TryIgnoreError,
         1L,
         1L) != 0L;
 
-    InterlockedExchange(&g_KswordArkBugcheckGuard.Enabled, 0L);
-    restoreStatus = KswordARKBugcheckGuardRestoreFromCrashPath();
-    if (firstHit) {
-        KswordARKBugcheckGuardDelay(g_KswordArkBugcheckGuard.DelaySeconds);
+    if (enabled) { /* Apply the configured delay on every intercepted call. */
+        InterlockedExchange(&g_KswordArkBugcheckGuard.Fired, 1L); /* Fired is history, not an automatic off switch. */
+        KswordARKBugcheckGuardDelay(g_KswordArkBugcheckGuard.DelaySeconds); /* Keep the entry installed throughout the delay. */
     }
+    if (enabled && tryIgnoreError &&
+        InterlockedCompareExchange(&g_KswordArkBugcheckGuard.Enabled, 0L, 0L) != 0L) { /* An explicit disable takes precedence over persistent interception. */
+        // The entry remains installed for subsequent calls. A forced return still
+        // does not repair the fault or supply a valid continuation for no-return callers.
+        InterlockedExchange(&g_KswordArkBugcheckGuard.ErrorIgnored, 1L); /* Report a return attempt, not system recovery. */
+        InterlockedDecrement(&g_KswordArkBugcheckGuard.HookExecutions); /* Release this invocation before returning. */
+        return; /* Only explicit disable or the normal forwarding mode restores the entry. */
+    }
+    InterlockedExchange(&g_KswordArkBugcheckGuard.Enabled, 0L); /* Normal forwarding leaves interception before entering Windows bugcheck. */
+    restoreStatus = KswordARKBugcheckGuardRestoreFromCrashPath(); /* Restore only when forwarding, never on a persistent ignore hit. */
     if (!NT_SUCCESS(restoreStatus)) {
         g_KswordArkBugcheckGuard.LastStatus = restoreStatus;
-        InterlockedExchange(&g_KswordArkBugcheckGuard.ErrorIgnored, 1L);
-        InterlockedDecrement(&g_KswordArkBugcheckGuard.HookExecutions);
-        return;
-    }
-    if (tryIgnoreError) {
-        // KeBugCheckEx is declared no-return and many callers have no valid
-        // continuation. Returning is only a best-effort experiment and can
-        // immediately fault or invoke another bugcheck.
         InterlockedExchange(&g_KswordArkBugcheckGuard.ErrorIgnored, 1L);
         InterlockedDecrement(&g_KswordArkBugcheckGuard.HookExecutions);
         return;
@@ -518,7 +520,8 @@ KswordARKBugcheckGuardEnableLocked(
         return KswordARKBugcheckGuardEnableCallbackLocked(DelaySeconds);
     }
     if (InterlockedCompareExchange(&g_KswordArkBugcheckGuard.HookState, 0L, 0L) != KSWORD_ARK_BUGCHECK_GUARD_STATE_UNINSTALLED) {
-        return STATUS_ALREADY_REGISTERED;
+        return InterlockedCompareExchange(&g_KswordArkBugcheckGuard.Enabled, 0L, 0L) != 0L
+            ? STATUS_ALREADY_REGISTERED : STATUS_DEVICE_BUSY; /* A pending disable is not an active installation. */
     }
     if (InterlockedCompareExchange(
             &g_KswordArkBugcheckGuard.HookExecutions,

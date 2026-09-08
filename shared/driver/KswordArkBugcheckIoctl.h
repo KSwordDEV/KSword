@@ -3,7 +3,7 @@
 #include "KswordArkProcessIoctl.h"
 
 // Optional R3 -> R0 packets for the on-demand BGP blue-screen diagnostics,
-// VMware legacy bitmap resources, and the explicitly-confirmed one-shot guard.
+// VMware legacy bitmap resources, and the explicitly-confirmed persistent guard.
 // The diagnostic feature itself is detected and enabled entirely in R0.
 #ifndef FILE_WRITE_ACCESS
 #define FILE_WRITE_ACCESS 0x0002
@@ -167,10 +167,11 @@ typedef struct _KSWORD_ARK_BUGCHECK_DIAGNOSTICS_RESPONSE
 // The delay guard is deliberately separate from the VMware display panel.
 // On systems where HVCI protects kernel code it uses a supported BugCheck
 // callback as a delay-only backend. Otherwise it can intercept the exported
-// KeBugCheckEx entry for one bugcheck and restore the entry before forwarding
-// the call or attempting an unsupported return. Neither backend is a
-// crash-recovery API.
-#define KSWORD_ARK_BUGCHECK_GUARD_PROTOCOL_VERSION 4UL
+// KeBugCheckEx entry. Ignore mode keeps the hook enabled across return attempts
+// until explicitly disabled; delay-only mode restores the entry before forwarding.
+// Neither backend is a crash-recovery API. Version 5 distinguishes persistent
+// activation from older drivers that silently disarm after the first hit.
+#define KSWORD_ARK_BUGCHECK_GUARD_PROTOCOL_VERSION 5UL
 #define KSWORD_ARK_IOCTL_FUNCTION_CONFIGURE_BUGCHECK_GUARD 0x8FBUL
 
 #define IOCTL_KSWORD_ARK_CONFIGURE_BUGCHECK_GUARD \

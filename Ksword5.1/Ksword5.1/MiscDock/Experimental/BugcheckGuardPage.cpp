@@ -72,7 +72,7 @@ namespace
                         "已启用：蓝屏前会暂停几秒，之后仍会蓝屏"))
                 : ks::i18n::text(
                     QStringLiteral("misc.experimental.bugcheck.status.active"),
-                    QStringLiteral("已启用，等待蓝屏触发"));
+                    QStringLiteral("拦截已开启，等待蓝屏触发"));
             break;
         case KSWORD_ARK_BUGCHECK_GUARD_STATUS_INACTIVE:
             reason = hvciEnabled
@@ -225,7 +225,7 @@ namespace ks::misc
             m_persistenceLabel,
             QStringLiteral("misc.experimental.bugcheck.persistence"),
             QStringLiteral(
-                "每次启用只生效一次。触发后会自动关闭；关闭或卸载驱动也会取消。"));
+                "开启后持续拦截：尝试继续运行时保留 Hook，后续触发仍会拦截，直到手动关闭。仅暂停模式仍会在暂停后进入蓝屏。"));
         rootLayout->addWidget(m_persistenceLabel);
 
         auto* controlGroup = new QGroupBox(this);
@@ -268,6 +268,7 @@ namespace ks::misc
         controlLayout->addWidget(m_acknowledgeCheck);
 
         m_tryIgnoreErrorCheck = new QCheckBox(controlGroup);
+        m_tryIgnoreErrorCheck->setChecked(true);
         language.bindText(
             m_tryIgnoreErrorCheck,
             QStringLiteral("misc.experimental.bugcheck.try_ignore"),
@@ -307,29 +308,21 @@ namespace ks::misc
             QIcon(QStringLiteral(":/Icon/process_start.svg")),
             QString(),
             controlGroup);
-        m_disableButton = new QPushButton(
-            QIcon(QStringLiteral(":/Icon/codeeditor_replace.svg")),
-            QString(),
-            controlGroup);
+        m_enableButton->setCheckable(true);
         language.bindText(
             m_refreshButton,
             QStringLiteral("misc.experimental.bugcheck.refresh"),
             QStringLiteral("刷新状态"));
         language.bindText(
             m_enableButton,
-            QStringLiteral("misc.experimental.bugcheck.enable"),
-            QStringLiteral("启用一次"));
-        language.bindText(
-            m_disableButton,
-            QStringLiteral("misc.experimental.bugcheck.disable"),
-            QStringLiteral("关闭"));
+            QStringLiteral("misc.experimental.bugcheck.switch"),
+            QStringLiteral("拦截开关"));
         for (QPushButton* button :
-             { m_refreshButton, m_enableButton, m_disableButton }) {
+             { m_refreshButton, m_enableButton }) {
             button->setStyleSheet(KswordTheme::ThemedButtonStyle());
         }
         actionLayout->addWidget(m_refreshButton);
         actionLayout->addWidget(m_enableButton);
-        actionLayout->addWidget(m_disableButton);
         actionLayout->addStretch(1);
         controlLayout->addLayout(actionLayout);
         rootLayout->addWidget(controlGroup);
@@ -366,12 +359,14 @@ namespace ks::misc
             m_enableButton,
             &QPushButton::clicked,
             this,
-            [this]() { enableGuard(); });
-        connect(
-            m_disableButton,
-            &QPushButton::clicked,
-            this,
-            [this]() { disableGuard(); });
+            [this]() {
+                if (m_active || m_triggered) {
+                    disableGuard();
+                }
+                else {
+                    enableGuard();
+                }
+            });
         connect(
             m_acknowledgeCheck,
             &QCheckBox::toggled,
@@ -489,14 +484,16 @@ namespace ks::misc
         const auto result = client.configureBugcheckGuard(
             KSWORD_ARK_BUGCHECK_GUARD_ACTION_DISABLE);
         setBusy(false);
-        if (!result.io.ok) {
+        if (!result.io.ok || result.response.status != KSWORD_ARK_BUGCHECK_GUARD_STATUS_INACTIVE) {
             showOpaqueMessage(
                 this,
                 QMessageBox::Critical,
                 ks::i18n::text(
                     QStringLiteral("misc.experimental.bugcheck.title"),
                     QStringLiteral("蓝屏缓冲（实验性）")),
-                QString::fromStdString(result.io.message));
+                result.io.ok
+                    ? bugcheckGuardStatusText(result.response.status, result.response.lastStatus, result.response.stateFlags)
+                    : QString::fromStdString(result.io.message));
         }
         refreshStatus();
     }
@@ -609,10 +606,13 @@ namespace ks::misc
 
         if (ignored) {
             m_statusLabel->setText(
-                ks::i18n::text(
-                    QStringLiteral("misc.experimental.bugcheck.status.ignored"),
-                    QStringLiteral(
-                        "已尝试继续运行。请立即保存文件并重启，系统可能随时再次崩溃。")));
+                m_active
+                    ? ks::i18n::text(
+                        QStringLiteral("misc.experimental.bugcheck.status.ignored_active"),
+                        QStringLiteral("已尝试继续运行，拦截仍保持开启；这不代表故障已恢复。"))
+                    : ks::i18n::text(
+                        QStringLiteral("misc.experimental.bugcheck.status.ignored"),
+                        QStringLiteral("已尝试继续运行。请立即保存文件并重启，系统可能随时再次崩溃。")));
         }
         else if (executing) {
             m_statusLabel->setText(
@@ -630,7 +630,7 @@ namespace ks::misc
                             "暂停已结束，Windows 会继续蓝屏。"))
                     : ks::i18n::text(
                         QStringLiteral("misc.experimental.bugcheck.status.fired"),
-                        QStringLiteral("已触发一次，拦截已自动关闭。")));
+                        QStringLiteral("已触发拦截；当前开关状态以驱动回读为准。")));
         }
         else {
             m_statusLabel->setText(
@@ -704,10 +704,9 @@ namespace ks::misc
     {
         m_refreshButton->setEnabled(!m_busy);
         m_enableButton->setEnabled(
-            !m_busy && m_supported && !m_active && !m_triggered &&
-            m_acknowledgeCheck->isChecked());
-        m_disableButton->setEnabled(
-            !m_busy && m_supported && (m_active || m_triggered));
+            !m_busy && m_supported &&
+            (m_active || m_triggered || m_acknowledgeCheck->isChecked()));
+        m_enableButton->setChecked(m_active || m_triggered);
         m_delaySpin->setEnabled(!m_busy && !m_active && !m_triggered);
         m_acknowledgeCheck->setEnabled(!m_busy && !m_active && !m_triggered);
         m_tryIgnoreErrorCheck->setEnabled(

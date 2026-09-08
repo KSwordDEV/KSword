@@ -317,7 +317,7 @@ Return Value:
     KswordARKDriverResetDirectoryScanCache();
 
 #if KSWORD_ARK_BUGCHECK_DIAGNOSTICS_ENABLED
-    // 先还原一次性 Guard 与 Shield 回调，再撤销 BGP 资源。
+    // 先还原 Guard 入口与 Shield 回调，再撤销 BGP 资源。
     KswordARKBugcheckGuardUninitialize();
     KswordARKBugcheckShieldUninitialize();
     KswordARKBugcheckControlUninitialize();

@@ -134,7 +134,7 @@ private:
     ks::misc::SoundSourcePage* m_soundSourcePage = nullptr; // m_soundSourcePage：全局输出声音来源检测页。
     ks::misc::SystemTimePage* m_systemTimePage = nullptr; // m_systemTimePage：系统全局变速控制页。
     ks::misc::VirtualLocationPage* m_virtualLocationPage = nullptr; // m_virtualLocationPage：系统默认位置伪装页。
-    ks::misc::BugcheckGuardPage* m_bugcheckGuardPage = nullptr; // m_bugcheckGuardPage：实验性一次性蓝屏缓冲控制页。
+    ks::misc::BugcheckGuardPage* m_bugcheckGuardPage = nullptr; // m_bugcheckGuardPage：实验性持续拦截与蓝屏缓冲控制页。
     bool m_bugcheckDiagnosticsVisible = false; // m_bugcheckDiagnosticsVisible：蓝屏诊断入口是否由配置或本次安装授权显示。
     ks::misc::DisableDsePage* m_disableDsePage = nullptr; // m_disableDsePage：驱动签名强制（DSE）开关页。
     ks::misc::RenderBenchmarkPage* m_renderBenchmarkPage = nullptr; // m_renderBenchmarkPage：窗口渲染与 DWM 合成基准页。

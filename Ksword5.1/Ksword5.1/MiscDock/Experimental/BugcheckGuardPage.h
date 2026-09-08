@@ -14,7 +14,7 @@ class QTimer;
 
 namespace ks::misc
 {
-    // An opt-in, one-shot BugCheck delay control. HVCI systems use a callback
+    // An opt-in BugCheck switch with persistent ignore mode. HVCI systems use a callback
     // backend; other systems may use the KeBugCheckEx entry hook. The page
     // never claims that either backend is a crash recovery mechanism.
     class BugcheckGuardPage final : public QWidget
@@ -54,7 +54,6 @@ namespace ks::misc
         QCheckBox* m_acknowledgeCheck = nullptr;
         QPushButton* m_refreshButton = nullptr;
         QPushButton* m_enableButton = nullptr;
-        QPushButton* m_disableButton = nullptr;
         QTimer* m_screenshotPollTimer = nullptr;
         ksword::ark::DriverHandle m_screenshotDriverHandle;
         bool m_supported = false;

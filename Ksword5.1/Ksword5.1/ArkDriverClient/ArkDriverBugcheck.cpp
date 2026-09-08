@@ -260,6 +260,8 @@ namespace ksword::ark
             (result.io.bytesReturned < sizeof(result.response) ||
              result.response.version != KSWORD_ARK_BUGCHECK_GUARD_PROTOCOL_VERSION ||
              result.response.size != sizeof(result.response))) {
+            result.unsupported = result.io.bytesReturned >= sizeof(result.response) &&
+                result.response.version != KSWORD_ARK_BUGCHECK_GUARD_PROTOCOL_VERSION;
             result.io.ok = false;
             result.io.win32Error = ERROR_INVALID_DATA;
         }
