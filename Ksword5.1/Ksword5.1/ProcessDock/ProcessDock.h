@@ -849,6 +849,34 @@ private:
     // - 通过 R0 驱动 IOCTL 请求内核态挂起目标进程；
     // - 成功/失败细节统一写入日志面板。
     void executeR0SuspendProcessAction();
+    // executeHvmProcessDispositionAction 作用：
+    // - 下达一次 R-1 进程处置（冻结 / 结束 / 解除）；
+    // - 冻结与结束需要一个"会被执行到的客户线性地址"，由对话框取得，默认预填
+    //   主模块入口点。默认值只对刚启动的进程有效，所以它是可改的输入而不是
+    //   界面替用户定下来的答案；
+    // - 只作用于选中的第一个进程：处置是逐地址空间的，批量下达会让"哪一页对应
+    //   哪个进程"在一次操作里失去对应关系。
+    void executeHvmProcessDispositionAction(unsigned long operation);
+    // hvmDispositionStatusAdvice 作用：
+    // - 把处置状态码翻成"接下来该做什么"；
+    // - 光摆一个数字等于没说：这些码大多是前提没满足，而每条前提要做的事不同，
+    //   其中两条方向相反（还没起来 vs 正在跑）。
+    // - 返回空串表示没有可给的建议，调用方只显示原始行。
+    static QString hvmDispositionStatusAdvice(unsigned long status);
+    // showHvmDispositionResult 作用：
+    // - 记日志并弹窗回报一次处置结果；
+    // - 弹窗不能省：前提没满足这类拒绝只写日志的话，界面上完全无声；
+    // - status 用来取上面那条建议，失败时排在原始行前面。
+    // - successAdvice 在成功时排在原始行前面。成功指的是"处置装上了"，不是
+    //   目标已经死掉或停住——中间隔着一个不确定的时间差，不说清楚那段时间
+    //   看起来就像失败。
+    void showHvmDispositionResult(
+        const QString& title,
+        bool actionOk,
+        const std::string& detailText,
+        unsigned long status,
+        const kLogEvent& actionEvent,
+        const QString& successAdvice = QString());
     // executeR0SetPplProtectionAction 作用：
     // - 通过 R0 驱动 IOCTL 请求设置目标进程 PPL 保护层级；
     // - protectionLevel 使用单字节原生层级编码（Signer<<4 | Type）。

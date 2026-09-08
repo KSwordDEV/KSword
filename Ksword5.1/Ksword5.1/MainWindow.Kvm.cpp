@@ -38,24 +38,90 @@
 
 namespace
 {
-    // KVM 按钮的三态样式。
-    //
-    // 与 R0 的二态不同：KVM 多一个"驱动在、但硬件门没过"的不可用态，
-    // 这一态必须一眼可辨，否则用户会反复点一个永远不会生效的按钮。
-    QString buildKvmButtonStyle(const bool residentActive, const bool available)
+    /*
+     * KVM 按钮的显示状态：**一个**有序状态，不是两个独立布尔量。
+     *
+     * 原先背景色编码"常驻是否激活"、边框与文字色编码"能力是否可用"，两个通道
+     * 各自独立取值，于是能画出自相矛盾的组合——出故障时背景说"正在跑"、边框
+     * 说"不可用"；更糟的是 NotPrepared 被算成"可用"，一个还没准备的驱动被画成
+     * 有能力的样子，而提示文字同时在说它没准备。看的人只能二选一地相信。
+     *
+     * 改成单一状态之后，"按钮长什么样"与"现在能不能点、点了会发生什么"是同一
+     * 件事的两种说法，不可能互相打架。
+     */
+    enum class KvmButtonState
     {
+        Unavailable,   // 硬件门没过、驱动没起、或外层 hypervisor 占着。
+        Faulted,       // 有故障或待回滚，点之前必须先重置。
+        NotPrepared,   // 能力齐备但资源没准备，点一下会先准备再常驻。
+        Ready,         // 已准备、未常驻，点一下启动常驻。
+        Resident       // 正在常驻，点一下停止。
+    };
+
+    /*
+     * 优先级是有意的：先答"能不能用"，再答"现在处于哪一步"。
+     *
+     * 故障排在常驻之前，因为故障态下即使还有处理器在常驻，用户要做的第一件事
+     * 也是重置而不是停止——把它画成普通的"正在跑"会把这一步藏起来。
+     */
+    KvmButtonState resolveKvmButtonState(
+        const ksword::kvm::KvmAvailability availability,
+        const bool residentActive,
+        const bool faulted)
+    {
+        if (availability != ksword::kvm::KvmAvailability::Available &&
+            availability != ksword::kvm::KvmAvailability::NotPrepared &&
+            availability != ksword::kvm::KvmAvailability::Faulted)
+        {
+            return KvmButtonState::Unavailable;
+        }
+        if (faulted || availability == ksword::kvm::KvmAvailability::Faulted)
+        {
+            return KvmButtonState::Faulted;
+        }
+        if (residentActive)
+        {
+            return KvmButtonState::Resident;
+        }
+        if (availability == ksword::kvm::KvmAvailability::NotPrepared)
+        {
+            return KvmButtonState::NotPrepared;
+        }
+        return KvmButtonState::Ready;
+    }
+
+    QString buildKvmButtonStyle(const KvmButtonState state)
+    {
+        const bool residentActive = state == KvmButtonState::Resident;
+        // 只有 Ready 与 Resident 是"这一刻真的可以按预期工作"。
+        // NotPrepared 画成弱可用：能点，但点了要先走一步准备。
+        const bool available = state == KvmButtonState::Ready ||
+            state == KvmButtonState::Resident ||
+            state == KvmButtonState::NotPrepared;
         const QString backgroundColor = residentActive
             ? KswordTheme::PrimaryBlueHex
             : KswordTheme::SurfaceHex();
+        /*
+         * 故障单独一种颜色，不与"不可用"合流。
+         *
+         * 两者要人做的事完全不同：故障是点一下重置就能继续，不可用是这台机器
+         * 或这套配置根本走不通。画成同一个灰色，一次可恢复的故障会被读成"换台
+         * 机器吧"，而那正好是最贵的误读。
+         */
+        const bool faulted = state == KvmButtonState::Faulted;
         // 非激活态的强调色文字要先对 Surface 校准，否则高亮度强调色会糊在底上。
         const QString textColor = residentActive
             ? KswordTheme::OnAccentHex()
+            : (faulted
+                ? KswordTheme::WarningHex()
+                : (available
+                    ? KswordTheme::AccentButtonTextHex()
+                    : KswordTheme::TextSecondaryHex()));
+        const QString borderColor = faulted
+            ? KswordTheme::WarningHex()
             : (available
-                ? KswordTheme::AccentButtonTextHex()
-                : KswordTheme::TextSecondaryHex());
-        const QString borderColor = available
-            ? KswordTheme::PrimaryBlueBorderHex
-            : KswordTheme::BorderHex();
+                ? KswordTheme::PrimaryBlueBorderHex
+                : KswordTheme::BorderHex());
         const QString hoverColor = residentActive
             ? KswordTheme::PrimaryBlueSolidHoverHex()
             : KswordTheme::PrimaryBlueSubtleHex();
@@ -168,17 +234,28 @@ void MainWindow::applyKvmButtonState()
         return;
     }
     m_kvmStatusButton->setStyleSheet(
-        buildKvmButtonStyle(m_kvmResidentActive, m_kvmAvailable));
+        buildKvmButtonStyle(resolveKvmButtonState(
+            m_kvmAvailability,
+            m_kvmResidentActive,
+            m_kvmFaulted)));
     // 操作进行中禁用按钮：常驻切换与保持自检都会独占驱动侧状态锁。
     m_kvmStatusButton->setEnabled(!m_kvmOperationRunning);
+    /*
+     * 提示文字跟随显示名。
+     *
+     * 这里原先写死 "KVM"，于是设置里把显示名换成 HVM 或 R-1 之后，按钮文字改了
+     * 而提示还在自称 KVM——同一个控件的两处文本各叫各的名字。
+     */
+    const QString hvmName = ks::settings::hvmDisplayNameLabel(
+        m_currentAppearanceSettings.hvmDisplayName);
     if (m_kvmOperationRunning)
     {
         m_kvmStatusButton->setToolTip(
-            ks::i18n::sourceText(QStringLiteral("KVM 操作进行中...")));
+            ks::i18n::sourceText(QStringLiteral("%1 操作进行中...")).arg(hvmName));
         return;
     }
     m_kvmStatusButton->setToolTip(m_kvmTooltip.isEmpty()
-        ? ks::i18n::sourceText(QStringLiteral("KVM：KSwordVM 硬件虚拟化（R-1）常驻状态。左键启动或停止常驻，右键打开 R-1 能力菜单。"))
+        ? ks::i18n::sourceText(QStringLiteral("%1：KSwordVM 硬件虚拟化（R-1）常驻状态。左键启动或停止常驻，右键打开 R-1 能力菜单。")).arg(hvmName)
         : m_kvmTooltip);
 }
 
@@ -206,6 +283,14 @@ void MainWindow::refreshKvmStatusAsync()
                 }
                 safeThis->m_kvmQueryInFlight = false;
                 safeThis->m_kvmResidentActive = state.residentActive;
+                /*
+                 * 保留完整的可用性取值，不再压成一个布尔量。
+                 *
+                 * 压扁是矛盾的来源：NotPrepared 被并进"可用"，于是没准备过的
+                 * 驱动画成有能力的样子；Faulted 被并进"不可用"，于是一次可重置
+                 * 的故障和"这机器不支持"长得一样。按钮状态现在从这个原值算。
+                 */
+                safeThis->m_kvmAvailability = state.availability;
                 safeThis->m_kvmAvailable =
                     state.availability == ksword::kvm::KvmAvailability::Available ||
                     state.availability == ksword::kvm::KvmAvailability::NotPrepared;

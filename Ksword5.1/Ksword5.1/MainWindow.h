@@ -51,6 +51,8 @@
 #include "PrivilegeDock/PrivilegeDock.h"
 #include "SettingsDock/SettingsDock.h"
 #include "SettingsDock/AppearanceSettings.h"
+// KvmAvailability：右上角虚拟化按钮的状态从这个完整取值算，见 m_kvmAvailability。
+#include "UI/KvmControl.h"
 #include "StartupDock/StartupDock.h"
 #include "ServerDock/ServiceDock.h"
 #include "WindowDock/WindowDock.h"
@@ -747,6 +749,11 @@ private:
     QPushButton* m_kvmStatusButton = nullptr;   // m_kvmStatusButton：KSwordVM（R-1 层）常驻开关与能力入口。
     bool m_kvmResidentActive = false;           // m_kvmResidentActive：最近一次快照中是否有处理器处于 VMX non-root。
     bool m_kvmAvailable = false;                // m_kvmAvailable：硬件与驱动是否满足常驻硬件门。
+    // m_kvmAvailability：完整的可用性取值。按钮样式从它算，不用上面那个压扁的
+    // 布尔量——压扁会把 NotPrepared 并进"可用"、Faulted 并进"不可用"，两处都
+    // 会让按钮画出与实情相反的样子。
+    ksword::kvm::KvmAvailability m_kvmAvailability =
+        ksword::kvm::KvmAvailability::DriverNotRunning;
     bool m_kvmFaulted = false;                  // m_kvmFaulted：存在故障或待回滚，点击前必须先重置。
     bool m_kvmQueryInFlight = false;            // m_kvmQueryInFlight：合并并发的后台状态查询，避免请求堆积。
     bool m_kvmOperationRunning = false;         // m_kvmOperationRunning：常驻切换或保持自检期间禁用按钮。

@@ -531,6 +531,18 @@ namespace ksword::ark
             bool seedZero,
             bool log,
             bool uiConfirmed) const;
+        // controlHvmProcess：R-1 层的进程处置——在目标地址空间里拒绝执行。
+        // - 冻结注 #PF、结束注 #UD；冻结可逆，结束不可逆；
+        // - guestLinearAddress 指定"要拒绝执行的那一页"，不能为 0：驱动不猜
+        //   哪一页代表这个进程，猜错就是拒绝落在一页永不执行的地址上，而那从
+        //   外面看和成功完全一样；
+        // - 前提三条：CR3 追踪已开、EPTP 切换后端已武装、**安装时常驻停着**。
+        //   撤销不受最后一条限制（它只改记录里的一个字段）。
+        HvmProcessResult controlHvmProcess(
+            unsigned long operation,
+            unsigned long processId,
+            std::uint64_t guestLinearAddress,
+            bool uiConfirmed) const;
         // hvmPlatform：只读平台标定（CR4.CET / IA32_S_CET / IA32_U_CET /
         // FS/GS/KERNEL_GS base / EFER / CPUID.(7,0)）。
         //

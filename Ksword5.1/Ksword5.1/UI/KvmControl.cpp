@@ -626,10 +626,24 @@ namespace ksword::kvm
     KvmCommandResult releaseResources(const unsigned long expectedGeneration)
     {
         ksword::ark::DriverClient client;
+        /*
+         * TEARDOWN 的许可位里**只有** UI_CONFIRMED，不接受 FORCE。
+         *
+         * 这里原先传了 force=true，于是驱动的
+         * `(flags & ~allowedFlags) != 0` 恒成立，这条命令**从来没有成功过**：
+         * 菜单上的"释放资源"一按就是 INVALID_REQUEST。而多给一位不会被忽略、
+         * 拒绝理由也只说"请求不合法"，不指出是哪一位——这类错法没有任何症状
+         * 指向真因，只能拿命令白名单逐条对。
+         *
+         * 对照 hvm_runtime.c 里那个 allowedFlags switch：
+         *   STOP_RESIDENT / TEARDOWN   仅 UI_CONFIRMED
+         *   PREPARE                    UI_CONFIRMED | ALLOW_NESTED | ENABLE_EPTP_SWITCH
+         *   SELF_TEST / START_RESIDENT UI_CONFIRMED | FORCE | ALLOW_NESTED | …
+         */
         const auto released = client.controlHvm(
             KSWORD_ARK_HVM_CONTROL_TEARDOWN,
             expectedGeneration,
-            true,
+            false,
             false,
             true);
         return toCommandResult(

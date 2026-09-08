@@ -422,6 +422,51 @@ namespace ksword::ark
         return result;
     }
 
+    HvmProcessResult DriverClient::controlHvmProcess(
+        const unsigned long operation,
+        const unsigned long processId,
+        const std::uint64_t guestLinearAddress,
+        const bool uiConfirmed) const
+    {
+        HvmProcessResult result{};
+        KSWORD_ARK_HVM_PROCESS_REQUEST request{};
+        // 这个 IOCTL 有**自己的**协议版本号，不是通用的那个。
+        request.version = KSWORD_ARK_HVM_PROCESS_PROTOCOL_VERSION;
+        request.size = sizeof(request);
+        request.operation = operation;
+        request.processId = processId;
+        request.guestLinearAddress = guestLinearAddress;
+        if (uiConfirmed)
+        {
+            request.flags |= KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED;
+            request.confirmationToken =
+                KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+        }
+
+        result.io = deviceIoControl(
+            IOCTL_KSWORD_ARK_HVM_PROCESS,
+            &request,
+            sizeof(request),
+            &result.response,
+            sizeof(result.response));
+        result.unsupported = !result.io.ok &&
+            isUnsupportedHvmError(result.io.win32Error);
+        result.io.ntStatus = result.response.lastStatus;
+
+        std::ostringstream stream;
+        stream << "HVM process operation=" << operation
+            << ", pid=" << processId
+            << ", status=" << result.response.status
+            << ", rows=" << result.response.returnedRows
+            << ", gla=0x" << std::hex << guestLinearAddress << std::dec;
+        if (result.unsupported)
+        {
+            stream << ", unsupported=true";
+        }
+        result.io.message = stream.str();
+        return result;
+    }
+
     HvmPlatformResult DriverClient::hvmPlatform() const
     {
         HvmPlatformResult result{};

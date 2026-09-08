@@ -15,6 +15,13 @@
 #include "../Internationalization/LanguageManager.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../Framework/DestructiveActionConfirmation.h"
+#include "../SettingsDock/AppearanceSettings.h"
+// R-1 处置的前提编排走这一层，不自己拼 controlHvm：每条命令的许可位白名单
+// 各不相同，自己拼等于把驱动的规则在第二个地方重抄一遍。
+#include "../UI/KvmControl.h"
+// EnumProcessModules / GetModuleInformation：取目标主模块的入口点，作为处置
+// 对话框里那个可改默认值。
+#include <psapi.h>
 #include "../ksword/network/network_process_etw_monitor.h"
 #include "../ksword/process/ProcessImageDeleteGuard.h"
 
@@ -46,6 +53,8 @@
 #include <QItemSelection>
 #include <QItemSelectionModel>
 #include <QInputDialog>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QList>
@@ -131,6 +140,111 @@
 
 namespace
 {
+    /*
+     * R-1 进程处置对话框里预填的地址：目标主模块的入口点。
+     *
+     * 只是个**默认值**，不是正确答案。入口点对刚启动的进程有效，对已经跑进消息
+     * 循环的进程可能再也不会被执行到，而没被执行到的拒绝等于什么都没做。所以
+     * 界面把它填进一个可改的输入框，而不是替用户定下来。
+     *
+     * 取不到就返回 0，输入框留一个显眼的 0x0，逼调用方自己填。
+     */
+    std::uint64_t hvmProcessEntryPointAddress(const std::uint32_t processId)
+    {
+        const HANDLE processHandle = ::OpenProcess(
+            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+            FALSE,
+            processId);
+        if (processHandle == nullptr)
+        {
+            return 0ULL;
+        }
+        std::uint64_t entryPoint = 0ULL;
+        HMODULE mainModule = nullptr;
+        DWORD neededBytes = 0UL;
+        // 第一个模块就是主映像；这里只要它，不枚举整张表。
+        if (::EnumProcessModules(
+                processHandle,
+                &mainModule,
+                sizeof(mainModule),
+                &neededBytes) != FALSE)
+        {
+            MODULEINFO moduleInfo{};
+            if (::GetModuleInformation(
+                    processHandle,
+                    mainModule,
+                    &moduleInfo,
+                    sizeof(moduleInfo)) != FALSE)
+            {
+                entryPoint =
+                    reinterpret_cast<std::uint64_t>(moduleInfo.EntryPoint);
+            }
+        }
+        ::CloseHandle(processHandle);
+        return entryPoint;
+    }
+
+    /*
+     * 取目标进程某个线程**此刻正在执行**的地址。
+     *
+     * 一键操作要的就是这个：入口点只在启动时执行一次，对一个已经跑进消息循环
+     * 的进程钉在入口页上等于什么都没做——而"什么都没做"和成功在外面长得一模
+     * 一样，这是这类机制最贵的失效方式。线程当前的 RIP 则**按定义**是会被执行
+     * 到的那一页。
+     *
+     * 挂起是必须的：不挂起 GetThreadContext 拿到的 RIP 没有意义（线程正在跑，
+     * 读到的值可能是任意中间态）。挂起窗口只有一次取上下文那么长。
+     *
+     * 取不到就返回 0，调用方回落到入口点并让人自己改。
+     */
+    std::uint64_t hvmProcessRunningThreadRip(const std::uint32_t processId)
+    {
+        const HANDLE snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0UL);
+        if (snapshot == INVALID_HANDLE_VALUE)
+        {
+            return 0ULL;
+        }
+        std::uint64_t rip = 0ULL;
+        THREADENTRY32 threadEntry{};
+        threadEntry.dwSize = sizeof(threadEntry);
+        if (::Thread32First(snapshot, &threadEntry) != FALSE)
+        {
+            do
+            {
+                if (threadEntry.th32OwnerProcessID != processId)
+                {
+                    continue;
+                }
+                const HANDLE threadHandle = ::OpenThread(
+                    THREAD_GET_CONTEXT | THREAD_SUSPEND_RESUME,
+                    FALSE,
+                    threadEntry.th32ThreadID);
+                if (threadHandle == nullptr)
+                {
+                    continue;
+                }
+                if (::SuspendThread(threadHandle) != static_cast<DWORD>(-1))
+                {
+                    CONTEXT threadContext{};
+                    threadContext.ContextFlags = CONTEXT_CONTROL;
+                    if (::GetThreadContext(threadHandle, &threadContext) != FALSE)
+                    {
+                        rip = static_cast<std::uint64_t>(threadContext.Rip);
+                    }
+                    ::ResumeThread(threadHandle);
+                }
+                ::CloseHandle(threadHandle);
+                // 只要拿到一个就够：任何一个正在执行的线程都落在会被执行的页上。
+                if (rip != 0ULL)
+                {
+                    break;
+                }
+            } while (::Thread32Next(snapshot, &threadEntry) != FALSE);
+        }
+        ::CloseHandle(snapshot);
+        return rip;
+    }
+
     // 亲和性恢复失败后从 1 秒开始退避，避免短暂拒绝导致每轮刷新都重复打开句柄。
     constexpr std::uint32_t AffinityRestoreRetryBaseMilliseconds = 1000U;
 
@@ -10648,6 +10762,26 @@ void ProcessDock::showTableContextMenu(const QPoint& localPosition)
     QAction* r0SuspendAction = contextMenu.addAction(
         buildR0ActionIcon(":/Icon/process_suspend.svg"),
         processContextText("process.menu.r0_suspend", QStringLiteral("R0挂起进程")));
+    /*
+     * R-1 两项跟随右上角那个显示名（KVM / HVM / R-1）。
+     *
+     * 每次建菜单时现读设置而不是缓存：这个名字可以在设置页随时改，缓存下来会
+     * 让菜单里叫一个名字、右上角叫另一个，而两处指的是同一个能力。
+     */
+    const QString hvmName = ks::settings::hvmDisplayNameLabel(
+        ks::settings::loadAppearanceSettings().hvmDisplayName);
+    QAction* hvmFreezeAction = contextMenu.addAction(
+        buildR0ActionIcon(":/Icon/process_suspend.svg"),
+        processContextText("process.menu.hvm_freeze", QStringLiteral("%1 冻结进程（可逆）"))
+            .arg(hvmName));
+    QAction* hvmTerminateAction = contextMenu.addAction(
+        buildR0ActionIcon(":/Icon/process_terminate.svg"),
+        processContextText("process.menu.hvm_terminate", QStringLiteral("%1 结束进程"))
+            .arg(hvmName));
+    QAction* hvmReleaseAction = contextMenu.addAction(
+        buildR0ActionIcon(":/Icon/process_refresh.svg"),
+        processContextText("process.menu.hvm_release", QStringLiteral("%1 解除处置"))
+            .arg(hvmName));
     QAction* refreshPplLevelAction = contextMenu.addAction(
         blueTintedIcon(":/Icon/process_refresh.svg"),
         processContextText("process.menu.refresh_ppl", QStringLiteral("手动刷新PPL保护级别")));
@@ -11850,6 +11984,18 @@ void ProcessDock::showTableContextMenu(const QPoint& localPosition)
         else if (selectedAction == r0TerminateAction) { executeR0TerminateProcessAction(); }
         else if (selectedAction == r0TerminateTreeAction) { executeR0TerminateProcessTreeAction(); }
         else if (selectedAction == r0SuspendAction) { executeR0SuspendProcessAction(); }
+        else if (selectedAction == hvmFreezeAction) {
+            executeHvmProcessDispositionAction(
+                KSWORD_ARK_HVM_PROCESS_OP_FREEZE);
+        }
+        else if (selectedAction == hvmTerminateAction) {
+            executeHvmProcessDispositionAction(
+                KSWORD_ARK_HVM_PROCESS_OP_TERMINATE);
+        }
+        else if (selectedAction == hvmReleaseAction) {
+            executeHvmProcessDispositionAction(
+                KSWORD_ARK_HVM_PROCESS_OP_RELEASE);
+        }
         else if (selectedAction == r0HideUnlinkOnlyAction) {
             executeR0SetProcessHiddenAction(true, KSWORD_ARK_PROCESS_VISIBILITY_FLAG_UNLINK_ACTIVE_LIST);
         }
@@ -14268,6 +14414,416 @@ void ProcessDock::executeR0SuspendProcessAction()
         false,
         false,
         true);
+}
+
+QString ProcessDock::hvmDispositionStatusAdvice(const unsigned long status)
+{
+    /*
+     * 把状态码翻成"接下来该做什么"。
+     *
+     * 光把 status=3 摆给人看等于没说：这些码大部分是**前提没满足**，而每一条
+     * 前提要人做的事都不一样，有两条甚至方向相反（一条是"还没起来，先 prepare"，
+     * 另一条是"正在跑，先停下"）。hvm_ctl 早就在打这些提示，界面这边缺了，
+     * 于是同一个拒绝在命令行下能照着做、在界面上只剩一个数字。
+     */
+    switch (status)
+    {
+    case KSWORD_ARK_HVM_PROCESS_STATUS_REQUIRES_RESIDENT_STOPPED:
+        return ks::i18n::sourceText(QStringLiteral("虚拟化常驻正在运行，而安装处置要求它停着——常驻期间退出路径不持锁读这张表。请先用右上角的虚拟化按钮停止常驻，装上处置后再启动。"));
+    case KSWORD_ARK_HVM_PROCESS_STATUS_NOT_PREPARED:
+        return ks::i18n::sourceText(QStringLiteral("虚拟化运行时还没准备过。请先在内核页完成 prepare，并且要带 EPTP 切换后端。"));
+    case KSWORD_ARK_HVM_PROCESS_STATUS_CR3_TRACKING_REQUIRED:
+        return ks::i18n::sourceText(QStringLiteral("缺 CR3 追踪。处置的作用范围完全靠它来区分是哪个进程；没有它，拒绝会落到整台机器而不是一个进程上，所以这里是拒绝而不是降级。请先打开 CR3 追踪再启动常驻——这一位在常驻启动时写进 VMCS，起来之后改不了。"));
+    case KSWORD_ARK_HVM_PROCESS_STATUS_EPTP_SWITCH_REQUIRED:
+        return ks::i18n::sourceText(QStringLiteral("缺 EPTP 切换后端。没有第二套页表层次就没有\"受限\"可选。请在 prepare 时启用它。"));
+    case KSWORD_ARK_HVM_PROCESS_STATUS_TRANSLATION_FAILED:
+        return ks::i18n::sourceText(QStringLiteral("这个地址在目标进程里翻译不出物理页。请确认它确实落在该进程已映射的代码上。"));
+    case KSWORD_ARK_HVM_PROCESS_STATUS_PROTECTED_TARGET:
+        return ks::i18n::sourceText(QStringLiteral("拒绝对该目标动手：系统进程与本程序自身不在可处置范围内。"));
+    case KSWORD_ARK_HVM_PROCESS_STATUS_ALREADY_ARMED:
+        return ks::i18n::sourceText(QStringLiteral("这个进程已经有一条处置了。请先解除再重新下达。"));
+    case KSWORD_ARK_HVM_PROCESS_STATUS_TABLE_FULL:
+        return ks::i18n::sourceText(QStringLiteral("处置表已满。请先解除一条不再需要的。"));
+    case KSWORD_ARK_HVM_PROCESS_STATUS_NOT_FOUND:
+        return ks::i18n::sourceText(QStringLiteral("这个进程上没有已安装的处置。"));
+    case KSWORD_ARK_HVM_PROCESS_STATUS_PROCESS_LOOKUP_FAILED:
+        return ks::i18n::sourceText(QStringLiteral("找不到这个进程，它可能已经退出。"));
+    case KSWORD_ARK_HVM_PROCESS_STATUS_CONFIRMATION_REQUIRED:
+        return ks::i18n::sourceText(QStringLiteral("被安全策略拦下，需要显式确认。"));
+    default:
+        return QString();
+    }
+}
+
+void ProcessDock::showHvmDispositionResult(
+    const QString& title,
+    const bool actionOk,
+    const std::string& detailText,
+    const unsigned long status,
+    const kLogEvent& actionEvent,
+    const QString& successAdvice)
+{
+    // 日志与弹窗都要：日志留调用链，弹窗让人当场看到结论。
+    // 只记日志不弹窗的话，"前提没满足"这类拒绝在界面上完全无声。
+    showActionResultMessage(title, actionOk, detailText, actionEvent);
+    const QString detail = QString::fromStdString(detailText);
+    if (actionOk)
+    {
+        /*
+         * 成功时也要给一句话，因为"成功"在这里指的是**处置装上了**，不是
+         * 目标已经死掉/停住了。这两件事之间隔着一个不确定的时间差：注入只在
+         * 目标地址空间真的执行到那一页时才发生。装上之后目标可能还在列表里
+         * 待一会儿——不解释的话，那段时间看起来就像失败。
+         */
+        QMessageBox::information(
+            this,
+            title,
+            successAdvice.isEmpty()
+                ? detail
+                : (successAdvice + QStringLiteral("\n\n") + detail));
+        return;
+    }
+    // 先说该怎么办，再附上原始那行——两者都要：一行给人看，一行给排查用。
+    const QString advice = hvmDispositionStatusAdvice(status);
+    QMessageBox::warning(
+        this,
+        title,
+        advice.isEmpty() ? detail : (advice + QStringLiteral("\n\n") + detail));
+}
+
+void ProcessDock::executeHvmProcessDispositionAction(
+    const unsigned long operation)
+{
+    // 输入：operation 取 FREEZE / TERMINATE / RELEASE。
+    // 处理：解析目标页的客户线性地址，确认后下达一次 R-1 处置。
+    // 返回：无返回值；结果通过消息框与日志反馈。
+    const std::vector<ProcessActionTarget> actionTargets = selectedActionTargets();
+    if (actionTargets.empty())
+    {
+        kLogEvent logEvent;
+        warn << logEvent
+            << "[ProcessDock] executeHvmProcessDispositionAction 被忽略：当前没有选中进程。"
+            << eol;
+        return;
+    }
+    const QString hvmName = ks::settings::hvmDisplayNameLabel(
+        ks::settings::loadAppearanceSettings().hvmDisplayName);
+    /*
+     * 写权限门。冻结、结束、解除都会改变系统状态，全部归它管。
+     *
+     * 这道门是进程内的第二道，与驱动侧的确认令牌和 FILE_WRITE_ACCESS 并存。
+     * 漏掉它的后果不是"少一层保险"，而是这条链路成了绕过它的路：菜单里把
+     * R-1 设成只读观测之后，右键仍然能改 CR 策略、仍然能冻结和结束进程。
+     */
+    if (!ksword::kvm::isWriteAccessEnabled())
+    {
+        QMessageBox::information(
+            this,
+            hvmName,
+            ks::i18n::sourceText(QStringLiteral("R-1 写权限当前是关闭的（只读观测）。进程处置会改变系统状态，请先在虚拟化菜单里开启写权限。")));
+        return;
+    }
+    const ProcessActionTarget& target = actionTargets.front();
+    const unsigned long targetPid = target.record.pid;
+
+    if (operation == KSWORD_ARK_HVM_PROCESS_OP_RELEASE)
+    {
+        kLogEvent releaseEvent;
+        ksword::ark::DriverClient releaseClient;
+        const ksword::ark::HvmProcessResult releaseResult =
+            releaseClient.controlHvmProcess(
+                KSWORD_ARK_HVM_PROCESS_OP_RELEASE,
+                targetPid,
+                0ULL,
+                true);
+        showHvmDispositionResult(
+            ks::i18n::sourceText(QStringLiteral("%1 解除处置")).arg(hvmName),
+            releaseResult.io.ok &&
+                releaseResult.response.status ==
+                    KSWORD_ARK_HVM_PROCESS_STATUS_OK,
+            releaseResult.io.message,
+            releaseResult.response.status,
+            releaseEvent);
+        return;
+    }
+
+    /*
+     * 默认走一键：自动选页、自动补齐前提，只跟人确认一次。
+     *
+     * 之前的形态要求用户先开 CR3 追踪、再带 EPTP 后端 prepare、再停常驻、再回来
+     * 右键、还要自己填一个十六进制地址——五步里任何一步漏掉都只换来一个拒绝码。
+     * 那不是"能力强"，那是把驱动的内部约束原样倒给了用户。
+     *
+     * 这些约束本身没消失（安装确实要求常驻停着），但它们全都是**可以由界面代劳
+     * 的顺序问题**，不是需要人做判断的问题。所以这里把整条链走完，只在动手前
+     * 说清楚会发生什么。
+     *
+     * 按住 Shift 走旧的手选地址路径——保留它是因为自动选页有一个真实的边界：
+     * 它取的是"此刻某个线程在执行的页"，对一个正好卡在别处的进程未必是最想钉
+     * 的那一页。
+     */
+    const bool manualAddress =
+        (QApplication::keyboardModifiers() & Qt::ShiftModifier) != 0;
+    /*
+     * 自动选页：优先取"此刻某个线程正在执行的地址"，取不到才回落到入口点。
+     *
+     * 顺序不能反。入口点只在启动时执行一次，对已经跑起来的进程钉在那里等于
+     * 什么都没做，而那和成功在外面看不出区别——这类静默失效是这套机制最贵的
+     * 失败方式，不该出现在默认路径上。
+     */
+    quint64 guestLinearAddress = hvmProcessRunningThreadRip(target.record.pid);
+    if (guestLinearAddress == 0ULL)
+    {
+        guestLinearAddress = hvmProcessEntryPointAddress(target.record.pid);
+    }
+    if (manualAddress)
+    {
+    const QString defaultAddress = QStringLiteral("0x%1")
+        .arg(guestLinearAddress, 0, 16);
+    /*
+     * 自建对话框而不是 QInputDialog::getText。
+     *
+     * QInputDialog 的标签**不自动换行**，宽度按最长的一行算。这段说明有三句话，
+     * 于是对话框被撑到比主窗口还宽，右边的按钮直接被切出屏幕——实测就是这样，
+     * 用户看到的是一个没有取消按钮的框。加 \n 手工断行治不了本：任何一种语言的
+     * 译文变长就会重新撑破，而写这段说明的人不会再回来量一次。
+     *
+     * 所以显式开自动换行并限死宽度，让"文本多长"和"对话框多宽"彻底解耦。
+     */
+    QDialog addressDialog(this);
+    addressDialog.setWindowTitle(
+        ks::i18n::sourceText(QStringLiteral("%1 进程处置：选择要拒绝执行的页"))
+            .arg(hvmName));
+    QVBoxLayout* const addressLayout = new QVBoxLayout(&addressDialog);
+    QLabel* const addressHint = new QLabel(
+        // 整串一行：跨行拼接会被 i18n 审计按分段逐条要词条。
+        ks::i18n::sourceText(QStringLiteral("输入该进程内一个会被执行到的客户线性地址（十六进制）。\n处置作用在这个地址所在的整页上。若这一页在处置期间从未被执行，拒绝就不会发生——那和成功在外面看不出区别。\n默认值是主模块入口点，对刚启动的进程有效。")),
+        &addressDialog);
+    addressHint->setWordWrap(true);
+    addressHint->setMaximumWidth(520);
+    addressLayout->addWidget(addressHint);
+    QLineEdit* const addressEdit = new QLineEdit(defaultAddress, &addressDialog);
+    addressEdit->selectAll();
+    addressLayout->addWidget(addressEdit);
+    QDialogButtonBox* const addressButtons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
+        &addressDialog);
+    addressLayout->addWidget(addressButtons);
+    connect(addressButtons, &QDialogButtonBox::accepted, &addressDialog, &QDialog::accept);
+    connect(addressButtons, &QDialogButtonBox::rejected, &addressDialog, &QDialog::reject);
+    addressEdit->setFocus();
+    if (addressDialog.exec() != QDialog::Accepted)
+    {
+        return;
+    }
+    const QString addressText = addressEdit->text();
+    bool addressParsed = false;
+    guestLinearAddress =
+        addressText.trimmed().startsWith(QStringLiteral("0x"), Qt::CaseInsensitive)
+            ? addressText.trimmed().mid(2).toULongLong(&addressParsed, 16)
+            : addressText.trimmed().toULongLong(&addressParsed, 16);
+    if (!addressParsed || guestLinearAddress == 0ULL)
+    {
+        QMessageBox::warning(
+            this,
+            ks::i18n::sourceText(QStringLiteral("地址无效")),
+            ks::i18n::sourceText(QStringLiteral(
+                "要拒绝执行的地址必须是非零的十六进制值。")));
+        return;
+    }
+    }
+    if (guestLinearAddress == 0ULL)
+    {
+        QMessageBox::warning(
+            this,
+            ks::i18n::sourceText(QStringLiteral("地址无效")),
+            ks::i18n::sourceText(QStringLiteral("取不到这个进程正在执行的地址，也读不到它的主模块入口点。按住 Shift 再点这一项可以手动指定要拒绝执行的地址。")));
+        return;
+    }
+
+    const bool freezing = operation == KSWORD_ARK_HVM_PROCESS_OP_FREEZE;
+    const QString actionTitle = freezing
+        ? ks::i18n::sourceText(QStringLiteral("%1 冻结进程")).arg(hvmName)
+        : ks::i18n::sourceText(QStringLiteral("%1 结束进程")).arg(hvmName);
+    /*
+     * 两段风险说明不同，因为两个操作的性质不同：冻结可逆、代价是自旋占核；
+     * 结束不可逆。合成一段会让其中一个的说明是错的。
+     */
+    // 两串各写一行，理由同上。
+    const QString riskText = freezing
+        ? ks::i18n::sourceText(QStringLiteral("冻结在硬件层拒绝该地址空间执行这一页，进程状态不变、可解除。代价是被冻结的线程会在故障上自旋，持续占用一个核。生效时机取决于目标何时再执行到这一页，因此不是即时的。安装过程会自动停止并重新启动虚拟化常驻——这期间全机器的虚拟化监控是断开的。"))
+        : ks::i18n::sourceText(QStringLiteral("结束在硬件层向该进程注入未定义指令异常，由系统自身的未处理异常路径拆除进程。不可逆，可能造成数据丢失。生效时机取决于目标何时再执行到这一页，因此进程退出可能有延迟。安装过程会自动停止并重新启动虚拟化常驻——这期间全机器的虚拟化监控是断开的。"));
+    if (!ks::ui::confirmDestructiveAction(
+            this,
+            QStringLiteral("process-disposition-hvm"),
+            actionTitle,
+            ks::i18n::sourceText(QStringLiteral("PID %1；页 0x%2"))
+                .arg(targetPid)
+                .arg(guestLinearAddress, 0, 16),
+            riskText))
+    {
+        clearContextActionBinding();
+        return;
+    }
+
+    kLogEvent actionEvent;
+    warn << actionEvent
+        << "[ProcessDock] executeHvmProcessDispositionAction: op="
+        << operation
+        << " pid=" << targetPid
+        << eol;
+    ksword::ark::DriverClient driverClient;
+    /*
+     * 把三条前提按顺序补齐，再下达处置，最后把常驻恢复回去。
+     *
+     * 顺序是硬的，不是风格：
+     *   - CR3 追踪与 EPTP 后端都在**建 VMCS / prepare 时**被消费，常驻起来之后
+     *     再设置不生效，所以必须排在启动常驻之前；
+     *   - 安装本身要求常驻停着（退出路径不持锁读这张表），所以要先停；
+     *   - teardown 会清掉 EPT 与层次池，所以 prepare 必须在 teardown 之后。
+     *
+     * 每一步都不检查"是不是本来就满足"，一律重做一遍：查一遍状态再决定跳过哪
+     * 一步，需要把驱动的状态机在界面这边复制一份，而那份副本一旦与驱动不同步
+     * 就会跳过一个其实没满足的前提，再把失败归到别处。重做是幂等的，代价只是
+     * 几次 IOCTL。
+     */
+    /*
+     * 每一步都走 ksword::kvm 那一层，不自己拼 controlHvm。
+     *
+     * 直接拼的代价刚刚付过一次：每条命令的许可位白名单各不相同（stop/teardown
+     * 只收 UI_CONFIRMED，prepare 不收 FORCE），而驱动的检查是
+     * `(flags & ~allowedFlags) != 0` —— 多给一位整条请求就是 INVALID_REQUEST，
+     * 不是忽略多余的位。自己拼等于把驱动的规则在第二个地方重抄一遍，抄错了
+     * 只会换回一句"请求不合法"，不说是哪一位多了。
+     *
+     * 那一层还顺带处理了 generation 传递、资源已就绪时不重复 PREPARE、以及把
+     * 协议状态码翻成已本地化的原因——这三件如果在这里重做，就是第三份副本。
+     */
+    const auto stepFailed = [&](const QString& stepName,
+                                const ksword::kvm::KvmCommandResult& r) {
+        if (r.ok)
+        {
+            return false;
+        }
+        showHvmDispositionResult(
+            actionTitle,
+            false,
+            (stepName + QStringLiteral("：") + r.message).toStdString(),
+            KSWORD_ARK_HVM_PROCESS_STATUS_OK,
+            actionEvent);
+        return true;
+    };
+    // 停常驻。已经停着时返回成功，不需要先查。
+    if (stepFailed(ks::i18n::sourceText(QStringLiteral("停止常驻")),
+                   ksword::kvm::stopResident(0UL)))
+    {
+        return;
+    }
+    /*
+     * 释放资源。必须做，不能因为"看起来已经准备好了"就跳过：
+     * 后端与 CR3 追踪都只在 PREPARE / 建 VMCS 时被读，而 ensurePrepared 在资源
+     * 已就绪时不会重发 PREPARE——不先释放，这两个设置这一轮根本不会生效。
+     */
+    if (stepFailed(ks::i18n::sourceText(QStringLiteral("释放资源")),
+                   ksword::kvm::releaseResources(0UL)))
+    {
+        return;
+    }
+    /*
+     * CR3 追踪：处置的作用域完全靠它，且只在建 VMCS 时被读。
+     *
+     * 必须先读再写。CR 策略的 OP_SET 是**整体替换**而不是合并
+     * （hvm_cr_policy.c 里直接 `CrPolicyFlags = flags`、`Cr0PinnedMask = ...`），
+     * 所以直接发一个 `0, 0, trackCr3=true, false, false` 会把用户在 CR 策略
+     * 面板里配的 CR0/CR4 钉住掩码清零、把 DR 拦截和日志一起关掉——而且悄无
+     * 声息。我们要改的只有 CR3 追踪这一位，其余必须原样带回去。
+     *
+     * 走 applyCrPolicy 而不是自己发 IOCTL，还因为它带写权限门：R-1 写权限
+     * 关着的时候这条链路本来就不该改任何策略。
+     */
+    const ksword::kvm::KvmCrPolicyResult currentCrPolicy =
+        ksword::kvm::readCrPolicy();
+    const ksword::kvm::KvmCrPolicyResult crResult = ksword::kvm::applyCrPolicy(
+        currentCrPolicy.ok ? currentCrPolicy.cr0PinnedMask : 0ULL,
+        currentCrPolicy.ok ? currentCrPolicy.cr4PinnedMask : 0ULL,
+        true,
+        currentCrPolicy.ok ? currentCrPolicy.interceptDr : false,
+        currentCrPolicy.ok ? currentCrPolicy.log : false);
+    if (!crResult.ok)
+    {
+        showHvmDispositionResult(
+            actionTitle, false,
+            crResult.message.toStdString(),
+            KSWORD_ARK_HVM_PROCESS_STATUS_CR3_TRACKING_REQUIRED,
+            actionEvent);
+        return;
+    }
+    /*
+     * 受限层次的唯一来源是 EPTP 切换后端，它在 PREPARE 时选定。
+     *
+     * 打开它之前要先挡住互斥项：私有 EPT 与 VMFUNC 都与这套后端互斥，驱动在
+     * 任何分配之前就会拒绝。手动勾这个开关的路径有这道检查，这里补上——
+     * 少了它，最后一步启动常驻会以一个与真因无关的状态码失败，而处置那时
+     * 已经装上了。
+     */
+    if (ksword::kvm::isLocalEptEnabled() || ksword::kvm::isVmFuncEnabled())
+    {
+        showHvmDispositionResult(
+            actionTitle, false,
+            ks::i18n::sourceText(QStringLiteral("R-1 处置需要 EPTP 切换后端，而它与「每处理器私有 EPT」「VMFUNC」互斥。请先在虚拟化菜单里关掉这两项。")).toStdString(),
+            KSWORD_ARK_HVM_PROCESS_STATUS_EPTP_SWITCH_REQUIRED,
+            actionEvent);
+        return;
+    }
+    ksword::kvm::setEptpSwitchEnabled(true);
+    if (stepFailed(ks::i18n::sourceText(QStringLiteral("准备资源")),
+                   ksword::kvm::ensurePrepared()))
+    {
+        return;
+    }
+    // 下达处置。此刻常驻是停着的，正是安装要求的状态。
+    const ksword::ark::HvmProcessResult result = driverClient.controlHvmProcess(
+        operation,
+        targetPid,
+        static_cast<std::uint64_t>(guestLinearAddress),
+        true);
+    const bool armed = result.io.ok &&
+        result.response.status == KSWORD_ARK_HVM_PROCESS_STATUS_OK;
+    if (armed)
+    {
+        /*
+         * 恢复常驻——处置只有在常驻起来之后才真的生效。
+         * startResident 内部会按需先做自检，所以这里不用单独发一次。
+         *
+         * 这一步失败要单独报：处置**已经装上了**，只是没人在执行它。把它和安装
+         * 失败混成一句，会让人以为什么都没发生，然后下一次安装撞上 ALREADY_ARMED
+         * 却不知道为什么。
+         */
+        if (stepFailed(
+                ks::i18n::sourceText(QStringLiteral("启动常驻（处置已装上，但常驻没起来）")),
+                ksword::kvm::startResident(0UL)))
+        {
+            return;
+        }
+    }
+    /*
+     * 生效时机要单独说，因为它不是即时的。
+     *
+     * 拒绝发生在目标地址空间**执行到那一页**的那一刻。目标要是正卡在等待、
+     * 睡眠或别的代码路径上，处置就一直等着——进程会继续留在列表里。不写这
+     * 一句，那段等待期看起来和"没生效"完全一样，而两者要做的事相反：一个是
+     * 等，一个是换一页重下。
+     */
+    const QString successAdvice = freezing
+        ? ks::i18n::sourceText(QStringLiteral("处置已装上。它在目标下一次执行到这一页时才生效，所以进程可能不会立刻停住——正卡在等待或睡眠中的进程要等它再次运行到那里。若长时间没有反应，多半是这一页没被执行到：按住 Shift 重新下达可以换一个地址。"))
+        : ks::i18n::sourceText(QStringLiteral("处置已装上。它在目标下一次执行到这一页时才生效，所以进程退出可能有延迟——正卡在等待或睡眠中的进程要等它再次运行到那里，期间它会继续留在列表里。若长时间没有退出，多半是这一页没被执行到：按住 Shift 重新下达可以换一个地址。"));
+    showHvmDispositionResult(
+        actionTitle,
+        armed,
+        result.io.message,
+        result.response.status,
+        actionEvent,
+        successAdvice);
 }
 
 void ProcessDock::executeR0SetProcessHiddenAction(

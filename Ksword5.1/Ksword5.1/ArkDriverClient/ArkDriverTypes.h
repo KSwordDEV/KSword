@@ -1501,6 +1501,15 @@ namespace ksword::ark
         KSWORD_ARK_HVM_VIEW_RESPONSE response{};
     };
 
+    // HvmProcessResult 承载一次 R-1 进程处置。每种操作都会回填整张表，
+    // 因为刚下达处置的调用方紧接着就要知道它落在哪个层次、拦下了几次。
+    struct HvmProcessResult
+    {
+        IoResult io;
+        bool unsupported = false;
+        KSWORD_ARK_HVM_PROCESS_RESPONSE response{};
+    };
+
     // HvmDomainResult carries one EPT execution-domain operation. rows are
     // filled on every operation, because a caller that just created or
     // restricted a domain needs to see the resulting shape immediately.

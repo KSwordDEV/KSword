@@ -103,6 +103,45 @@ Both use the same driver and the same `shared/driver/` protocol. Launcher picks 
 **HVM** — VMX self-test, one-shot guest, guarded Intel VT-x/EPT resident monitor, multiprocessor-capable. EPT split views (execute-only shadow pages) served by an EPTP-switching backend, so hooks work on nested hypervisors that expose no monitor-trap flag. Guided EPT-hook wizard. Refuses on AMD or incompatible config. Lab use only.
 
 <details>
+<summary>Where the HVM layer sits (and what "resident" means)</summary>
+
+<br>
+
+KSword HVM does **not** boot a second Windows. It performs a late virtualization
+transition on the OS that is already running: after `VMLAUNCH` the original
+execution context continues unchanged in VMX non-root, while KSword HVM services
+its VM exits from VMX root. Nothing restarts; nothing visibly happens.
+
+```text
+CPU
+└─ Intel VT-x / EPT
+   └─ Hyper-V (L0)              ← owns the physical virtualization layer
+      ├─ Root Partition
+      │  ├─ Windows Host
+      │  └─ VBS / HVCI          ← may stay on; it belongs to L0
+      │
+      └─ Child Partition
+         └─ KSword HVM (L1, VMX root)
+            └─ the same guest Windows
+               (L2, VMX non-root)
+```
+
+On bare metal the `Hyper-V (L0)` layer is simply absent and KSword HVM is L0
+itself. Either way it is the **same** OS above and below the transition.
+
+**Resident** is the mode in which that layer exists at all. A one-shot guest only
+proves VMX can be entered and left; residency puts the running Windows into
+non-root and keeps it there. Stop residency and every EPT-based capability —
+covert hooks, split views, execution domains, R-1 process dispositions — stops
+existing at the same instant, because the hardware is no longer consulting our
+EPT. That is also why installing any of them requires residency to be stopped
+first, and why `sc stop` returns 1052 while it is running.
+
+Full write-up: [嵌套虚拟化架构](docs/next/嵌套虚拟化架构.md).
+
+</details>
+
+<details>
 <summary>Full dock-by-dock table (17 main + 4 auxiliary)</summary>
 
 <br>
@@ -214,7 +253,7 @@ All headers under `shared/driver/`.
 
 [CLI使用文档](docs/CLI使用文档.md) · [功能技术文档](docs/功能技术文档.md) · [内核知识中心](docs/内核知识中心.md) · [IOCTL audit](docs/driver_ioctl_audit.md) · [OpenArk对照](docs/OpenArk功能对照与TODO.md) · [动态偏移接入](docs/动态偏移功能接入步骤.md) · [PDB/R0 audit prep](docs/pdb_r0_audit_prep/) · [插件系统](docs/插件系统规范.md) · [多语言规范](docs/多语言语言包规范.md)
 
-Virtualization (HVM): [EPT切换后端设计](docs/next/EPT切换后端设计.md) · [嵌套下的跨核TLB失效](docs/next/嵌套下的跨核TLB失效.md) · [隐蔽Hook安全边界决策](docs/next/隐蔽Hook安全边界决策.md) · [自动化测试](docs/next/自动化测试.md) · [VM测试机搭建](docs/next/VM测试机搭建.md)
+Virtualization (HVM): [嵌套虚拟化架构](docs/next/嵌套虚拟化架构.md) · [EPT切换后端设计](docs/next/EPT切换后端设计.md) · [嵌套下的跨核TLB失效](docs/next/嵌套下的跨核TLB失效.md) · [隐蔽Hook安全边界决策](docs/next/隐蔽Hook安全边界决策.md) · [自动化测试](docs/next/自动化测试.md) · [VM测试机搭建](docs/next/VM测试机搭建.md)
 
 ## Notice
 
