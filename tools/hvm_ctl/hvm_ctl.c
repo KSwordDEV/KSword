@@ -4122,6 +4122,72 @@ static int DoInjectTest(HANDLE h, unsigned long pid,
     return (rsp.status == KSWORD_ARK_HVM_INJECT_STATUS_OK) ? 0 : 2;
 }
 
+/*
+ * inject-dll：把一个 DLL 路径交给目标进程里的 LoadLibraryW。
+ *
+ * loadLibraryAddress 由调用方给，不由驱动解析：同一个模块在不同进程里基址不同，
+ * 而调用方本来就在枚举目标的模块表。驱动再解析一遍等于把同一件事做两遍，还容易
+ * 与调用方看到的不一致。
+ *
+ * 路径按 UTF-16 传（LoadLibraryW），长度不含结尾的零——驱动那边把超出长度的部分
+ * 补零，结尾符因此是白来的。
+ */
+static int DoInjectDll(HANDLE h, unsigned long pid,
+                       unsigned long long gla,
+                       unsigned long long loadLibrary,
+                       const char* path, int asJson)
+{
+    KSWORD_ARK_HVM_INJECT_REQUEST req;
+    KSWORD_ARK_HVM_INJECT_RESPONSE rsp;
+    int wideChars;
+
+    /*
+     * 给 0 就地解析。
+     *
+     * kernel32 在同一次启动内对所有进程是同一个基址（系统 DLL 的 ASLR 每次启动
+     * 重定一次，不是每进程一次），所以在本进程里解析出来的 LoadLibraryW 对靶子
+     * 同样成立。让这个原生程序自己解析，省掉调用方绕 PowerShell 互操作那一圈——
+     * 那一圈的失败方式是**静默返回 0**，而 0 传进去只会换来一条"参数无效"。
+     */
+    if (loadLibrary == 0ULL) {
+        HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+        FARPROC resolved = (kernel32 != NULL)
+            ? GetProcAddress(kernel32, "LoadLibraryW")
+            : NULL;
+
+        if (resolved == NULL) {
+            fprintf(stderr, "解析 LoadLibraryW 失败：win32=%lu\n", GetLastError());
+            return 1;
+        }
+        loadLibrary = (unsigned long long)(ULONG_PTR)resolved;
+        fprintf(stderr, "LoadLibraryW = 0x%016llX（就地解析）\n", loadLibrary);
+    }
+
+    memset(&req, 0, sizeof(req));
+    req.operation = KSWORD_ARK_HVM_INJECT_OP_ARM;
+    req.injectType = KSWORD_ARK_HVM_INJECT_TYPE_DLL_PATH;
+    req.processId = pid;
+    req.guestLinearAddress = gla;
+    req.loadLibraryAddress = loadLibrary;
+    req.confirmationToken = KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+    req.flags = KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED;
+
+    /* 不含结尾零：驱动补零，且补出来的零正好是字符串终止符。 */
+    wideChars = MultiByteToWideChar(
+        CP_ACP, 0, path, -1,
+        (wchar_t*)req.payload,
+        (int)(KSWORD_ARK_HVM_INJECT_MAX_PAYLOAD_BYTES / sizeof(wchar_t)));
+    if (wideChars <= 1) {
+        fprintf(stderr, "路径转换失败或为空：%s\n", path);
+        return 1;
+    }
+    req.payloadBytes = (unsigned long)((wideChars - 1) * (int)sizeof(wchar_t));
+
+    if (InjectIoctl(h, &req, &rsp) != 0) { return 1; }
+    PrintInjectTable(&rsp, asJson);
+    return (rsp.status == KSWORD_ARK_HVM_INJECT_STATUS_OK) ? 0 : 2;
+}
+
 static int DoInjectSimple(HANDLE h, unsigned long op, unsigned long pid, int asJson)
 {
     KSWORD_ARK_HVM_INJECT_REQUEST req;
@@ -4303,6 +4369,7 @@ static void PrintUsage(void)
     printf("  cr-track-cr3-off 关闭 CR3 追踪\n");
     printf("  inject-query     列出 R-1 进程注入（只读）\n");
     printf("  inject-test <pid> <靶页GLA> <标记地址> [值]   最小可观测注入：往标记地址写一个常数\n");
+    printf("  inject-dll <pid> <靶页GLA> <LoadLibraryW地址> <DLL路径>   注入一个 DLL\n");
     printf("  inject-release <pid> / inject-release-all     撤销注入\n");
     printf("     靶页 GLA 与标记地址都是**十六进制**。hvm_target.exe 启动时会把\n");
     printf("     probe 页与 marker 的地址打出来，首次验证直接用那两个。\n");
@@ -4418,6 +4485,22 @@ int main(int argc, char** argv)
         if (argi < argc) { marker = _strtoui64(argv[argi++], NULL, 16); }
         if (argi < argc) { value = (unsigned long)strtoul(argv[argi], NULL, 16); }
         rc = DoInjectTest(h, pid, gla, marker, value, asJson);
+    } else if (strcmp(cmd, "inject-dll") == 0) {
+        /* pid（十进制） 靶页GLA（十六进制） LoadLibraryW地址（十六进制） DLL路径 */
+        unsigned long pid = 0UL;
+        unsigned long long gla = 0ULL;
+        unsigned long long loadLib = 0ULL;
+        const char* path = NULL;
+        if (argi < argc) { pid = (unsigned long)strtoul(argv[argi++], NULL, 10); }
+        if (argi < argc) { gla = _strtoui64(argv[argi++], NULL, 16); }
+        if (argi < argc) { loadLib = _strtoui64(argv[argi++], NULL, 16); }
+        if (argi < argc) { path = argv[argi]; }
+        if (path == NULL) {
+            fprintf(stderr, "用法: inject-dll <pid> <靶页GLA> <LoadLibraryW地址> <DLL路径>\n");
+            rc = 1;
+        } else {
+            rc = DoInjectDll(h, pid, gla, loadLib, path, asJson);
+        }
     } else if (strcmp(cmd, "proc-query") == 0) {
         rc = DoProcess(h, KSWORD_ARK_HVM_PROCESS_OP_QUERY, 0UL, 0ULL, asJson);
     } else if (strcmp(cmd, "proc-release-all") == 0) {

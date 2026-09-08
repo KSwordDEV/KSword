@@ -43,17 +43,24 @@ $targets = @(
     # 一起用 /MT 只是为了和其余两个保持一致，换机器拷过去就能跑。
     # wintrust.lib：算 Authenticode PE image hash（CryptCATAdminCalcHashFromFileHandle2）。
     # 报告里的 ImageHash 就是这个哈希，**不是**文件 flat hash —— 已对 afd.sys 逐字节标定过。
-    [pscustomobject]@{ Name = 'attest_probe'; Dir = (Join-Path $repo 'tools\attest_probe') ; Libs = 'psapi.lib wintrust.lib' }
+    [pscustomobject]@{ Name = 'attest_probe'; Dir = (Join-Path $repo 'tools\attest_probe') ; Libs = 'psapi.lib wintrust.lib' },
+    # hvm_probe_dll 是 R-1 **DLL** 注入的证据：被加载时写一个带 PID 的文件。
+    # 只有它是 DLL，所以走 /LD 而不是产出 exe。
+    [pscustomobject]@{ Name = 'hvm_probe_dll'; Dir = (Join-Path $repo 'tools\hvm_probe_dll'); Libs = ''; Dll = $true }
 )
 
 $failed = 0
 foreach ($t in $targets) {
     $src = Join-Path $t.Dir ($t.Name + '.c')
     if (-not (Test-Path $src)) { Write-Host "  [跳过] 没有 $src" -ForegroundColor Yellow; continue }
-    $exe = Join-Path $t.Dir ($t.Name + '.exe')
+    # DLL 目标产出 .dll，其余产出 .exe；/LD 同时换掉入口点与链接方式。
+    $isDll = [bool]$t.Dll
+    $ext = if ($isDll) { '.dll' } else { '.exe' }
+    $exe = Join-Path $t.Dir ($t.Name + $ext)
     $obj = Join-Path $t.Dir ($t.Name + '.obj')
+    $ldFlag = if ($isDll) { '/LD' } else { '' }
 
-    $cmd = "`"$VcVars`" >nul 2>&1 && cd /d `"$($t.Dir)`" && cl /nologo /W4 /WX /O2 /MT $($t.Name).c /Fe:$($t.Name).exe /Fo:$($t.Name).obj $($t.Libs)"
+    $cmd = "`"$VcVars`" >nul 2>&1 && cd /d `"$($t.Dir)`" && cl /nologo /W4 /WX /O2 /MT $ldFlag $($t.Name).c /Fe:$($t.Name)$ext /Fo:$($t.Name).obj $($t.Libs)"
     $out = cmd /c $cmd 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe)) {
         Write-Host "  [FAIL] $($t.Name)" -ForegroundColor Red
