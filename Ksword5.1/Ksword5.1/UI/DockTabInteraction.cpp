@@ -5,13 +5,16 @@
 #include "../include/ads/DockAreaWidget.h"
 #include "../include/ads/DockContainerWidget.h"
 #include "../include/ads/DockManager.h"
+#include "../include/ads/DockWidgetTab.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../theme.h"
 
 #include <QApplication>
+#include <QLayout>
 #include <QEvent>
 #include <QFile>
 #include <QFileInfo>
+#include <QPointer>
 #include <QScrollBar>
 #include <QTimer>
 #include <QToolButton>
@@ -30,11 +33,15 @@ namespace ks::ui
         public:
             explicit DockTabScroller(ads::CDockAreaTitleBar* titleBar)
                 : QObject(titleBar->tabBar()), m_tabBar(titleBar->tabBar()),
-                  m_viewport(m_tabBar->viewport())
+                  m_titleBar(titleBar), m_viewport(m_tabBar->viewport()),
+                  m_tabsContainer(m_tabBar->widget())
             {
-                // 标签栏使用剩余宽度，完整标签在内部滚动，不撑大窗口最小宽度。
+                // Ignored 保留可收缩的零最小宽度，但必须同时设置拉伸权重。
+                // 否则 ADS 标题栏的 Expanding 占位控件会吃掉全部余量，标签栏被压成零宽。
                 m_tabBar->setMinimumWidth(0);
-                m_tabBar->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+                QSizePolicy tabBarPolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+                tabBarPolicy.setHorizontalStretch(1);
+                m_tabBar->setSizePolicy(tabBarPolicy);
                 m_tabBar->setProperty("ksword_disable_smooth_scroll", true);
                 m_tabBar->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
                 m_tabBar->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -45,7 +52,7 @@ namespace ks::ui
                 m_right->setObjectName(QStringLiteral("ks_dock_scroll_right"));
                 m_left->setArrowType(Qt::LeftArrow);
                 m_right->setArrowType(Qt::RightArrow);
-                for (QToolButton* button : { m_left, m_right })
+                for (QToolButton* button : { m_left.data(), m_right.data() })
                 {
                     KswordTheme::ApplyCompactIconButtonMetrics(button);
                     button->setAutoRepeat(true);
@@ -59,12 +66,20 @@ namespace ks::ui
                 titleBar->insertWidget(titleBar->indexOf(m_tabBar) + 1, m_right);
 
                 QScrollBar* const bar = m_tabBar->horizontalScrollBar();
-                connect(m_left, &QToolButton::clicked, this, [this, bar]()
-                    { bar->setValue(bar->value() - qMax(kWheelStepPixels, m_tabBar->viewport()->width() / 2)); });
-                connect(m_right, &QToolButton::clicked, this, [this, bar]()
-                    { bar->setValue(bar->value() + qMax(kWheelStepPixels, m_tabBar->viewport()->width() / 2)); });
+                connect(m_left.data(), &QToolButton::clicked, this, [this]() { scrollByPage(-1); });
+                connect(m_right.data(), &QToolButton::clicked, this, [this]() { scrollByPage(1); });
                 connect(bar, &QScrollBar::rangeChanged, this, [this]() { scheduleButtons(); });
                 connect(bar, &QScrollBar::valueChanged, this, [this]() { scheduleButtons(); });
+                connect(m_tabBar.data(), &ads::CDockAreaTabBar::tabInserted, this, [this]() { scheduleButtons(); });
+                connect(m_tabBar.data(), &ads::CDockAreaTabBar::removingTab, this, [this]() { scheduleButtons(); });
+                connect(m_tabBar.data(), &ads::CDockAreaTabBar::tabOpened, this, [this]() { scheduleButtons(); });
+                connect(m_tabBar.data(), &ads::CDockAreaTabBar::tabClosed, this, [this]() { scheduleButtons(); });
+                connect(m_tabBar.data(), &ads::CDockAreaTabBar::tabMoved, this, [this]() { scheduleButtons(); });
+                connect(m_tabBar.data(), &ads::CDockAreaTabBar::currentChanged, this, [this]()
+                    {
+                        m_revealCurrent = true;
+                        scheduleButtons();
+                    });
 
                 // 在 viewportEvent 转发前捕获滚轮，覆盖文字、图标和动态子控件。
                 // QApplication 过滤器只接管本标签栏的后代。
@@ -72,28 +87,67 @@ namespace ks::ui
                 scheduleButtons();
             }
 
+            ~DockTabScroller() override
+            {
+                if (qApp != nullptr)
+                {
+                    qApp->removeEventFilter(this);
+                }
+                // 箭头属于标题栏；单独销毁/替换标签栏时也要移除其附属按钮。
+                for (QToolButton* button : { m_left.data(), m_right.data() })
+                {
+                    if (button != nullptr)
+                    {
+                        button->deleteLater();
+                    }
+                }
+            }
+
         protected:
             bool eventFilter(QObject* watched, QEvent* event) override
             {
-                if (event->type() == QEvent::Resize && watched == m_viewport)
+                if (event == nullptr || !m_tabBar || !m_titleBar || !m_viewport)
                 {
-                    scheduleButtons();
+                    return false;
+                }
+                if (watched == m_viewport || watched == m_tabBar ||
+                    watched == m_titleBar || watched == m_tabsContainer)
+                {
+                    switch (event->type())
+                    {
+                    case QEvent::Resize:
+                        m_revealCurrent = m_revealCurrent || watched == m_viewport;
+                        scheduleButtons();
+                        break;
+                    case QEvent::Show:
+                    case QEvent::Hide:
+                    case QEvent::LayoutRequest:
+                    case QEvent::FontChange:
+                    case QEvent::StyleChange:
+                    case QEvent::LanguageChange:
+                        scheduleButtons();
+                        break;
+                    default:
+                        break;
+                    }
                 }
                 if (event->type() != QEvent::Wheel)
                 {
                     return false;
                 }
-                auto* widget = qobject_cast<QWidget*>(watched);
-                while (widget != nullptr && widget != m_tabBar)
-                {
-                    widget = widget->parentWidget();
-                }
-                if (widget != m_tabBar)
+                auto* const widget = qobject_cast<QWidget*>(watched);
+                if (widget == nullptr || !m_tabBar->isVisible() || !m_tabBar->isEnabled() ||
+                    (widget != m_tabBar && !m_tabBar->isAncestorOf(widget) &&
+                        widget != m_left && widget != m_right))
                 {
                     return false;
                 }
 
                 auto* const wheel = static_cast<QWheelEvent*>(event);
+                if (wheel->phase() == Qt::ScrollBegin || wheel->phase() == Qt::ScrollEnd)
+                {
+                    m_remainder = 0;
+                }
                 const QPoint pixelDelta = wheel->pixelDelta();
                 const QPoint angleDelta = wheel->angleDelta();
                 const bool pixels = !pixelDelta.isNull();
@@ -101,7 +155,9 @@ namespace ks::ui
                 const int axisDelta = delta.x() != 0 ? delta.x() : delta.y();
                 if (axisDelta == 0)
                 {
-                    return false;
+                    // 触控板开始/结束事件可能没有位移，不再交给 ADS 二次转发。
+                    wheel->accept();
+                    return true;
                 }
                 const qreal distance = pixels ? qreal(axisDelta)
                     : qreal(axisDelta) * kWheelStepPixels / 120.0;
@@ -126,6 +182,72 @@ namespace ks::ui
             }
 
         private:
+            void scrollByPage(int direction)
+            {
+                if (!m_tabBar || !m_viewport)
+                {
+                    return;
+                }
+                QScrollBar* const bar = m_tabBar->horizontalScrollBar();
+                m_remainder = 0;
+                bar->setValue(bar->value() + direction * qMax(kWheelStepPixels, m_viewport->width() / 2));
+            }
+
+            void updateButtons()
+            {
+                if (!m_tabBar || !m_titleBar || !m_viewport || !m_tabsContainer || !m_left || !m_right)
+                {
+                    return;
+                }
+                QLayout* const tabsLayout = m_tabsContainer->layout();
+                QLayout* const titleLayout = m_titleBar->layout();
+                if (tabsLayout == nullptr || titleLayout == nullptr)
+                {
+                    return;
+                }
+
+                // 使用完整标签的自然宽度，不用可能滞后的滚动条 range 推算内容宽度。
+                // 加回已显示箭头及其布局间距，以“不放箭头时能否容纳全部标签”为判据。
+                const int spacing = qMax(0, titleLayout->spacing());
+                int availableWidth = m_viewport->width();
+                for (QToolButton* button : { m_left.data(), m_right.data() })
+                {
+                    if (!button->isHidden())
+                    {
+                        availableWidth += button->width() + spacing;
+                    }
+                }
+                const bool overflowing = m_tabBar->isVisible() && availableWidth > 0 &&
+                    tabsLayout->sizeHint().width() > availableWidth;
+                const bool visibilityChanged = m_left->isHidden() == overflowing ||
+                    m_right->isHidden() == overflowing;
+                if (visibilityChanged)
+                {
+                    m_left->setVisible(overflowing);
+                    m_right->setVisible(overflowing);
+                    // 箭头改变可视宽度后，等布局完成再读取滚动范围和定位当前标签。
+                    scheduleButtons();
+                    return;
+                }
+
+                QScrollBar* const bar = m_tabBar->horizontalScrollBar();
+                if (!overflowing)
+                {
+                    m_remainder = 0;
+                    bar->setValue(bar->minimum());
+                }
+                if (m_revealCurrent && m_tabBar->isVisible())
+                {
+                    m_revealCurrent = false;
+                    if (ads::CDockWidgetTab* current = m_tabBar->currentTab())
+                    {
+                        m_tabBar->ensureWidgetVisible(current, 0, 0);
+                    }
+                }
+                m_left->setEnabled(overflowing && bar->value() > bar->minimum());
+                m_right->setEnabled(overflowing && bar->value() < bar->maximum());
+            }
+
             void scheduleButtons()
             {
                 if (m_updatePending)
@@ -136,24 +258,19 @@ namespace ks::ui
                 QTimer::singleShot(0, this, [this]()
                     {
                         m_updatePending = false;
-                        QScrollBar* const bar = m_tabBar->horizontalScrollBar();
-                        // 加回箭头占用空间再判断溢出，避免临界宽度反复显示/隐藏。
-                        const int buttonWidth = (m_left->isHidden() ? 0 : m_left->width())
-                            + (m_right->isHidden() ? 0 : m_right->width());
-                        const bool overflowing = bar->maximum() - bar->minimum() > buttonWidth;
-                        m_left->setVisible(overflowing);
-                        m_right->setVisible(overflowing);
-                        m_left->setEnabled(bar->value() > bar->minimum());
-                        m_right->setEnabled(bar->value() < bar->maximum());
+                        updateButtons();
                     });
             }
 
-            ads::CDockAreaTabBar* m_tabBar;
-            QWidget* m_viewport;
-            QToolButton* m_left;
-            QToolButton* m_right;
+            QPointer<ads::CDockAreaTabBar> m_tabBar;
+            QPointer<ads::CDockAreaTitleBar> m_titleBar;
+            QPointer<QWidget> m_viewport;
+            QPointer<QWidget> m_tabsContainer;
+            QPointer<QToolButton> m_left;
+            QPointer<QToolButton> m_right;
             qreal m_remainder = 0;
             bool m_updatePending = false;
+            bool m_revealCurrent = false;
         };
 
         void installOnTabBar(ads::CDockAreaWidget* dockArea)
@@ -163,7 +280,8 @@ namespace ks::ui
                 return;
             }
             ads::CDockAreaTabBar* const tabBar = dockArea->titleBar()->tabBar();
-            if (tabBar == nullptr || tabBar->property(kInstalledProperty).toBool())
+            if (tabBar == nullptr || dockArea->titleBar()->indexOf(tabBar) < 0 ||
+                tabBar->property(kInstalledProperty).toBool())
             {
                 return;
             }
