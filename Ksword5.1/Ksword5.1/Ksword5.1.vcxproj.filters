@@ -95,6 +95,12 @@
     <ClCompile Include="MiscDock\RenderBenchmark\RenderBenchmarkPage.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MiscDock\DesktopDrawing\DesktopDrawingRenderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MiscDock\DesktopDrawing\DesktopDrawingPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MiscDock\SystemTime\SystemTimePage.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1315,6 +1321,12 @@
       <Filter>Header Files</Filter>
     </QtMoc>
     <ClInclude Include="MiscDock\RenderBenchmark\RenderBenchmarkPage.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MiscDock\DesktopDrawing\DesktopDrawingRenderer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MiscDock\DesktopDrawing\DesktopDrawingPage.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MiscDock\SystemTime\SystemTimePage.h">

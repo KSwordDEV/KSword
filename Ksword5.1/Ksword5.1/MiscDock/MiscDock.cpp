@@ -7,6 +7,7 @@
 #include "Experimental/BugcheckGuardPage.h"
 #include "DiskEditor/DiskEditorTab.h"
 #include "RenderBenchmark/RenderBenchmarkPage.h"
+#include "DesktopDrawing/DesktopDrawingPage.h"
 #include "SoundSource/SoundSourcePage.h"
 #include "SystemTime/SystemTimePage.h"
 #include "VirtualLocation/VirtualLocationPage.h"
@@ -75,6 +76,7 @@ void MiscDock::initializeUi()
     m_diskEditorHostWidget = new QWidget(m_mainTabWidget);
     m_applicationControlHostWidget = new QWidget(m_mainTabWidget);
     m_renderBenchmarkHostWidget = new QWidget(m_mainTabWidget);
+    m_desktopDrawingHostWidget = new QWidget(m_mainTabWidget);
     m_scannerHostWidget = new QWidget(m_mainTabWidget);
     m_minidumpHostWidget = new QWidget(m_mainTabWidget);
     m_pluginHostWidget = new QWidget(m_mainTabWidget);
@@ -179,6 +181,17 @@ void MiscDock::initializeUi()
         m_renderBenchmarkHostWidget,
         QStringLiteral("misc.render_benchmark.tab"),
         QStringLiteral("渲染基准"));
+
+    // 页面懒加载且默认不绘制；用户开始后可跨页运行，用全局热键停止。
+    m_desktopDrawingTabIndex = m_mainTabWidget->addTab(
+        m_desktopDrawingHostWidget,
+        QIcon(QStringLiteral(":/Icon/codeeditor_replace.svg")),
+        QStringLiteral("桌面绘制"));
+    ks::i18n::LanguageManager::instance().bindTab(
+        m_mainTabWidget,
+        m_desktopDrawingHostWidget,
+        QStringLiteral("misc.desktop_drawing.tab"),
+        QStringLiteral("桌面绘制"));
 
     // 以下三页原本是顶层 Dock，为精简 dock 栏入口并入杂项：
     // - 页签顺序沿用它们在原 dock 栏中的相对先后（扫描器 -> 转储分析 -> 插件）；
@@ -293,6 +306,11 @@ void MiscDock::ensureTabInitialized(const int tabIndex)
     if (tabIndex == m_renderBenchmarkTabIndex)
     {
         initializeRenderBenchmarkPage();
+        return;
+    }
+    if (tabIndex == m_desktopDrawingTabIndex)
+    {
+        initializeDesktopDrawingPage();
         return;
     }
     if (tabIndex == m_scannerTabIndex)
@@ -473,6 +491,18 @@ void MiscDock::initializeRenderBenchmarkPage()
     QVBoxLayout* const hostLayout = buildHostLayout(m_renderBenchmarkHostWidget);
     m_renderBenchmarkPage = new ks::misc::RenderBenchmarkPage(m_renderBenchmarkHostWidget);
     hostLayout->addWidget(m_renderBenchmarkPage, 1);
+}
+
+void MiscDock::initializeDesktopDrawingPage()
+{
+    if (m_desktopDrawingHostWidget == nullptr || m_desktopDrawingPage != nullptr)
+    {
+        return;
+    }
+
+    QVBoxLayout* const hostLayout = buildHostLayout(m_desktopDrawingHostWidget);
+    m_desktopDrawingPage = new ks::misc::DesktopDrawingPage(m_desktopDrawingHostWidget);
+    hostLayout->addWidget(m_desktopDrawingPage, 1);
 }
 
 void MiscDock::initializeScannerPage()

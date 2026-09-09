@@ -262,6 +262,8 @@
     <ClCompile Include="MiscDock\SoundSource\SoundSourceDetector.cpp" />
     <ClCompile Include="MiscDock\SoundSource\SoundSourcePage.cpp" />
     <ClCompile Include="MiscDock\RenderBenchmark\RenderBenchmarkPage.cpp" />
+    <ClCompile Include="MiscDock\DesktopDrawing\DesktopDrawingRenderer.cpp" />
+    <ClCompile Include="MiscDock\DesktopDrawing\DesktopDrawingPage.cpp" />
     <ClCompile Include="MiscDock\SystemTime\SystemTimePage.cpp" />
     <ClCompile Include="MiscDock\VirtualLocation\VirtualLocationBackend.cpp" />
     <ClCompile Include="MiscDock\VirtualLocation\VirtualLocationPage.cpp" />
@@ -698,6 +700,8 @@
     <ClInclude Include="MiscDock\SoundSource\SoundSourceDetector.h" />
     <QtMoc Include="MiscDock\SoundSource\SoundSourcePage.h" />
     <ClInclude Include="MiscDock\RenderBenchmark\RenderBenchmarkPage.h" />
+    <ClInclude Include="MiscDock\DesktopDrawing\DesktopDrawingRenderer.h" />
+    <ClInclude Include="MiscDock\DesktopDrawing\DesktopDrawingPage.h" />
     <ClInclude Include="MiscDock\SystemTime\SystemTimePage.h" />
     <ClInclude Include="MiscDock\VirtualLocation\VirtualLocationBackend.h" />
     <ClInclude Include="MiscDock\VirtualLocation\VirtualLocationPage.h" />
