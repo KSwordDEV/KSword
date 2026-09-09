@@ -61,17 +61,6 @@ namespace ks::misc
         root->setContentsMargins(12, 12, 12, 12);
         root->setSpacing(10);
 
-        auto* scope = new QLabel(this);
-        scope->setWordWrap(true);
-        language.bindText(scope, QStringLiteral("misc.desktop_drawing.scope"),
-            QStringLiteral("直接向当前桌面的屏幕绘制图案，不创建绘制窗口。可用于检查 UIAccess 界面的覆盖效果；持续覆盖取决于系统合成与目标程序刷新，需实机确认。"));
-        root->addWidget(scope);
-        auto* limits = new QLabel(this);
-        limits->setWordWrap(true);
-        language.bindText(limits, QStringLiteral("misc.desktop_drawing.limits"),
-            QStringLiteral("图案可能被重绘覆盖或闪烁。停止后请求受影响区域重绘；若仍有残影，请刷新对应界面。锁屏、切换输入桌面或显示器变化时自动停止。"));
-        root->addWidget(limits);
-
         auto* scroll = new QScrollArea(this);
         scroll->setWidgetResizable(true);
         scroll->setFrameShape(QFrame::NoFrame);
@@ -142,7 +131,7 @@ namespace ks::misc
         m_hotkeyLabel = new QLabel(this);
         m_hotkeyLabel->setWordWrap(true);
         language.bindText(m_hotkeyLabel, QStringLiteral("misc.desktop_drawing.hotkey"),
-            QStringLiteral("绘制期间可按 Ctrl+Alt+F10 停止。切换页签或最小化主窗口后仍会继续绘制。"));
+            QStringLiteral("按 Ctrl+Alt+F10 停止绘制。"));
         root->addWidget(m_hotkeyLabel);
         m_statusLabel = new QLabel(this);
         m_statusLabel->setWordWrap(true);
@@ -251,18 +240,18 @@ namespace ks::misc
         if (m_hotkeyRegistered)
         {
             language.bindText(m_hotkeyLabel, QStringLiteral("misc.desktop_drawing.hotkey"),
-                QStringLiteral("绘制期间可按 Ctrl+Alt+F10 停止。切换页签或最小化主窗口后仍会继续绘制。"));
+                QStringLiteral("按 Ctrl+Alt+F10 停止绘制。"));
         }
         else
         {
             language.bindText(m_hotkeyLabel, QStringLiteral("misc.desktop_drawing.hotkey_unavailable"),
-                QStringLiteral("Ctrl+Alt+F10 注册失败，可能已被占用。请使用本页的“停止并刷新”按钮。"));
+                QStringLiteral("快捷键不可用，请使用“停止并刷新”。"));
         }
         ks::ui::ApplyStatusRole(m_hotkeyLabel, m_hotkeyRegistered ? ks::ui::StatusRole::None : ks::ui::StatusRole::Warning);
         m_timer->start((1000 + m_rateSpin->value() - 1) / m_rateSpin->value());
         setRunning(true);
         language.bindText(m_statusLabel, QStringLiteral("misc.desktop_drawing.running"),
-            QStringLiteral("正在向屏幕提交图案；请观察目标 UIAccess 界面以确认覆盖效果。"));
+            QStringLiteral("正在绘制。"));
         ks::ui::ApplyStatusRole(m_statusLabel, ks::ui::StatusRole::Info);
     }
 
@@ -283,7 +272,7 @@ namespace ks::misc
         if (wasRunning)
         {
             ks::i18n::LanguageManager::instance().bindText(m_statusLabel,
-                QStringLiteral("misc.desktop_drawing.stopped"), QStringLiteral("已停止绘制，并请求受影响区域重绘。"));
+                QStringLiteral("misc.desktop_drawing.stopped"), QStringLiteral("已停止绘制。"));
             ks::ui::ApplyStatusRole(m_statusLabel, ks::ui::StatusRole::Idle);
         }
     }
@@ -311,7 +300,7 @@ namespace ks::misc
         if (result == desktop_drawing::DrawResult::DesktopUnavailable)
         {
             language.bindText(m_statusLabel, QStringLiteral("misc.desktop_drawing.desktop_unavailable"),
-                QStringLiteral("当前输入桌面不可用或已切换，绘制已停止。返回原桌面后可重新开始。"));
+                QStringLiteral("桌面已切换，绘制已停止。"));
         }
         else if (result == desktop_drawing::DrawResult::DisplayChanged)
         {
@@ -321,7 +310,7 @@ namespace ks::misc
         else
         {
             language.bindText(m_statusLabel, QStringLiteral("misc.desktop_drawing.failed"),
-                QStringLiteral("无法获取屏幕绘图资源或提交图案，绘制已停止。"));
+                QStringLiteral("绘制失败，请重新开始。"));
         }
         ks::ui::ApplyStatusRole(m_statusLabel, ks::ui::StatusRole::Warning);
     }
