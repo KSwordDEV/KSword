@@ -150,11 +150,20 @@ namespace ks::dwm_order::transport
         prepared = {};
         if (readerSid.empty() || !IsValidSid(const_cast<unsigned char*>(readerSid.data()))
             || GetLengthSid(const_cast<unsigned char*>(readerSid.data())) != readerSid.size()) return ERROR_INVALID_SID;
-        const auto separator = sourcePath.find_last_of(L'\\');
-        if (separator == std::wstring::npos) return ERROR_BAD_PATHNAME;
+        if (sourcePath.empty() || sourcePath.find(L'\0') != std::wstring::npos) return ERROR_BAD_PATHNAME;
+        // Resolve once in the caller before opening or deriving any paths. The
+        // remote loader requires a fully qualified DLL_LOAD_DIR path, and the
+        // target process can have a different current directory.
+        wchar_t fullPath[MAX_PATH]{};
+        const DWORD length = GetFullPathNameW(sourcePath.c_str(), MAX_PATH, fullPath, nullptr);
+        if (!length) return GetLastError();
+        if (length >= MAX_PATH) return ERROR_FILENAME_EXCED_RANGE;
+        const std::wstring absolutePath(fullPath, length);
+        const auto separator = absolutePath.find_last_of(L'\\');
+        if (separator == std::wstring::npos || separator + 1 == absolutePath.size()) return ERROR_BAD_PATHNAME;
         std::lock_guard guard(g_deployMutex);
         File source;
-        source.value = CreateFileW(sourcePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+        source.value = CreateFileW(absolutePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
             OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (source.value == INVALID_HANDLE_VALUE) return GetLastError();
         std::vector<unsigned char> bytes;
@@ -163,9 +172,9 @@ namespace ks::dwm_order::transport
         std::wstring digest;
         error = Digest(bytes, digest);
         if (error) return error;
-        const std::wstring root = sourcePath.substr(0, separator) + L"\\dwm-agent";
+        const std::wstring root = absolutePath.substr(0, separator) + L"\\dwm-agent";
         const std::wstring version = root + L"\\" + digest;
-        const std::wstring copy = version + L"\\" + sourcePath.substr(separator + 1);
+        const std::wstring copy = version + L"\\" + absolutePath.substr(separator + 1);
         if (copy.size() >= MAX_PATH) return ERROR_FILENAME_EXCED_RANGE;
         auto lease = std::make_shared<Lease>();
         auto* reader = const_cast<unsigned char*>(readerSid.data());

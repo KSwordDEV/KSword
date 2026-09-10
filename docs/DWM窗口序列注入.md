@@ -69,6 +69,8 @@
 
 ## 验证
 
+部署入口将源 DLL 路径按调用进程的当前目录一次性解析为绝对路径，文件读取、副本目录和返回路径均使用该结果。`LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` 要求完整路径，见 [LoadLibraryExW 文档](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-loadlibraryexw)；此前相对路径输入会使副本加载返回 87，模块回执比对也随之失败。回归覆盖绝对路径、裸文件名及两种斜杠的相对路径复用同一副本，并在不同工作目录的子进程中验证正式加载与回执。
+
 ```powershell
 python tools/dwm_zorder/verify_profile.py --self-test
 & $msbuild DwmZOrderAgent/tests/OrderTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m:1

@@ -95,9 +95,45 @@ ks::dwm_order::transport::PreparedAgent RunDeploymentTests(void (*check)(bool, c
         PreparedAgent repeated;
         check(PrepareAgentCopy(agentPath, readerSid, repeated) == ERROR_SUCCESS && repeated.path == prepared.path,
             "unchanged agent content reuses the existing verified copy");
+        wchar_t absoluteSource[MAX_PATH]{}, absoluteCopy[MAX_PATH]{}, currentDirectory[32768]{};
+        const DWORD sourceLength = GetFullPathNameW(agentPath, MAX_PATH, absoluteSource, nullptr);
+        const DWORD copyLength = GetFullPathNameW(prepared.path.c_str(), MAX_PATH, absoluteCopy, nullptr);
+        const DWORD directoryLength = GetCurrentDirectoryW(32768, currentDirectory);
+        check(copyLength && copyLength < MAX_PATH && prepared.path == absoluteCopy,
+            "deployment publishes a fully qualified path for DLL_LOAD_DIR");
+        const bool pathsReady = sourceLength && sourceLength < MAX_PATH
+            && directoryLength && directoryLength < 32768;
+        check(pathsReady, "capture absolute source and caller directory for relative-path regression");
+        if (pathsReady)
+        {
+            const std::wstring sourcePath(absoluteSource);
+            const auto separator = sourcePath.find_last_of(L'\\');
+            const auto name = sourcePath.substr(separator + 1);
+            const bool changed = SetCurrentDirectoryW(sourcePath.substr(0, separator).c_str()) != FALSE;
+            check(changed, "enter source directory to test bare and relative DLL names");
+            if (changed)
+            {
+                for (const auto& alias : {name, L".\\" + name, L"./" + name})
+                {
+                    PreparedAgent relative;
+                    check(PrepareAgentCopy(alias, readerSid, relative) == ERROR_SUCCESS
+                        && relative.path == prepared.path && relative.lease,
+                        "bare, backslash and forward-slash paths reuse the same absolute agent copy");
+                }
+                check(SetCurrentDirectoryW(currentDirectory) != FALSE,
+                    "restore caller directory before remote loading from a different child directory");
+            }
+        }
         PreparedAgent invalid;
         check(PrepareAgentCopy(agentPath, {}, invalid) == ERROR_INVALID_SID && invalid.path.empty(),
             "missing target SID is rejected without preparing another copy");
+        for (const auto& invalidPath : {std::wstring(), std::wstring(agentPath) + L'\0' + L"suffix"})
+        {
+            invalid = prepared;
+            check(PrepareAgentCopy(invalidPath, readerSid, invalid) == ERROR_BAD_PATHNAME
+                && invalid.path.empty() && !invalid.lease,
+                "empty and embedded-NUL paths are rejected without retaining a stale deployment");
+        }
     }
     LocalFree(reader);
     return prepared;
