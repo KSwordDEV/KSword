@@ -10,6 +10,7 @@
 #include <vector>
 #include "../RuntimeResolver.h"
 #include "../RuntimeSignatures.h"
+#include "../RuntimeWin10Signatures.h"
 
 namespace
 {
@@ -92,13 +93,40 @@ namespace
             Write(ntOffset, nt);
             return rva;
         }
+
+        std::vector<RUNTIME_FUNCTION> Fragments(std::uint32_t root) const
+        {
+            std::vector<RUNTIME_FUNCTION> parts;
+            const auto nt = Read<IMAGE_NT_HEADERS64>(ntOffset);
+            const auto dir = nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION];
+            for (unsigned at = 0; at + sizeof(RUNTIME_FUNCTION) <= dir.Size; at += sizeof(RUNTIME_FUNCTION))
+            {
+                const auto f = Read<RUNTIME_FUNCTION>(dir.VirtualAddress + at);
+                auto owner = f;
+                for (unsigned depth = 0; depth < 16; ++depth)
+                {
+                    if (!(Read<unsigned char>(owner.UnwindData) & (UNW_FLAG_CHAININFO << 3))) break;
+                    const auto count = Read<unsigned char>(owner.UnwindData + 2);
+                    owner = Read<RUNTIME_FUNCTION>(owner.UnwindData + 4 + ((count + 1u) & ~1u) * 2);
+                }
+                if (owner.BeginAddress == root) parts.push_back(f);
+            }
+            std::stable_sort(parts.begin(), parts.end(), [root](const auto& a, const auto& b) {
+                if ((a.BeginAddress == root) != (b.BeginAddress == root)) return a.BeginAddress == root;
+                return a.BeginAddress < b.BeginAddress;
+            });
+            return parts;
+        }
     };
 
     const Pattern* Selected(const Fixture& image, const Resolved& result, Node node)
     {
         const auto start = result.functions[static_cast<unsigned>(node)];
-        for (const auto& p : signatures::kPatterns)
+        const auto* patterns = result.model == 2 ? win10_signatures::kPatterns : signatures::kPatterns;
+        const auto count = result.model == 2 ? std::size(win10_signatures::kPatterns) : std::size(signatures::kPatterns);
+        for (std::size_t at = 0; at < count; ++at)
         {
+            const auto& p = patterns[at];
             if (p.node != node || start + p.length > image.bytes.size()) continue;
             bool match = true;
             for (unsigned i = 0; i < p.length; ++i)
@@ -122,6 +150,16 @@ namespace
 
     void Regression(const Fixture& image, const Resolved& original)
     {
+        const bool win10 = original.model == 2;
+        Check(original.model == 1 || win10, "exactly one supported ABI family is selected");
+        Check(original.layout.dataDwmWindow == 0x18 && original.layout.dataHwnd == 0x28
+            && original.layout.dataBand == (win10 ? 0x70u : 0x80u)
+            && original.layout.dataDesktop == (win10 ? 0x78u : 0x88u)
+            && original.layout.dataVisual == (win10 ? 0x180u : 0x1b8u)
+            && original.windowListOffset == (win10 ? 0x1e8u : 0x1a8u)
+            && original.destroySlot == 1 && original.zOrderSlot == 6
+            && original.updateSlot == (win10 ? 44u : 47u),
+            "resolved layout and hook slots agree with independently reviewed family values");
         auto changed = image;
         auto nt = changed.Read<IMAGE_NT_HEADERS64>(changed.ntOffset);
         nt.FileHeader.TimeDateStamp ^= 0x12345678;
@@ -180,7 +218,8 @@ namespace
         changed.bytes[order] = 0xe9;
         Reject(changed, Failure::MissingPattern, "patched entry rejected");
 
-        constexpr unsigned char splice[] = {0x4c,0x89,0x01,0x48,0x89,0x41,0x08,0x49,0x89,0x48,0x08};
+        const auto splice = win10 ? std::vector<unsigned char>{0x48,0x89,0x41,0x08,0x48,0x89}
+            : std::vector<unsigned char>{0x4c,0x89,0x01,0x48,0x89,0x41,0x08,0x49,0x89,0x48,0x08};
         auto begin = image.bytes.begin() + order;
         auto end = begin + pattern->length;
         auto found = std::search(begin, end, std::begin(splice), std::end(splice));
@@ -188,10 +227,11 @@ namespace
         if (found != end)
         {
             changed = image;
-            changed.bytes[static_cast<std::size_t>(found - image.bytes.begin()) + 6] = 0;
+            changed.bytes[static_cast<std::size_t>(found - image.bytes.begin()) + (win10 ? 3 : 6)] = 0;
             Reject(changed, Failure::MissingPattern, "changed insertion direction rejected");
         }
-        constexpr unsigned char desktop[] = {0x48,0x8b,0x92,0x88,0x00,0x00,0x00};
+        const auto desktop = win10 ? std::vector<unsigned char>{0x48,0x8b,0x42,0x78}
+            : std::vector<unsigned char>{0x48,0x8b,0x92,0x88,0x00,0x00,0x00};
         found = std::search(begin, end, std::begin(desktop), std::end(desktop));
         Check(found != end, "locate layout evidence");
         if (found != end)
@@ -203,7 +243,7 @@ namespace
         for (unsigned i = 0; i < pattern->referenceCount; ++i)
         {
             const auto& ref = pattern->references[i];
-            if (ref.node == Node::DesktopList)
+            if (ref.node == Node::DesktopList || (win10 && ref.node == Node::SyncedData))
             {
                 changed = image;
                 changed.Write(order + ref.displacement, static_cast<std::int32_t>(
@@ -216,6 +256,34 @@ namespace
                 changed.Write(order + ref.displacement, changed.Read<std::int32_t>(order + ref.displacement) + 8);
                 Reject(changed, Failure::ReferenceMismatch, "lock references must agree across methods");
             }
+        }
+        if (win10)
+        {
+            const auto parts = image.Fragments(order);
+            Check(parts.size() == pattern->fragmentCount + 1u && parts.size() > 1,
+                "Win10 ordering function includes all reviewed hot and cold fragments");
+            if (parts.size() > 1)
+            {
+                changed = image;
+                changed.bytes[parts[1].BeginAddress] ^= 1;
+                Reject(changed, Failure::MissingPattern, "modified cold fragment cannot reuse the hot signature");
+                changed = image;
+                changed.bytes[parts[1].UnwindData] = 0;
+                Reject(changed, Failure::InvalidFragments, "invalid cold-fragment ownership rejected");
+            }
+            bool testedBranch = false;
+            for (unsigned i = 0; i < pattern->referenceCount; ++i)
+            {
+                const auto& ref = pattern->references[i];
+                if (ref.targetFragment == UINT16_MAX || ref.width != 4) continue;
+                changed = image;
+                changed.Write(order + ref.displacement, static_cast<std::int32_t>(
+                    original.functions[static_cast<unsigned>(Node::FindWindow)] - order - ref.nextInstruction));
+                Reject(changed, Failure::ReferenceMismatch, "masked hot-to-cold branch must retain its exact destination role");
+                testedBranch = true;
+                break;
+            }
+            Check(testedBranch, "exercise Win10 cross-fragment branch validation");
         }
         changed = image;
         changed.Write(original.vtable + original.zOrderSlot * 8, image.base + original.functions[static_cast<unsigned>(Node::FindWindow)]);
@@ -234,15 +302,21 @@ namespace
         // A second exact byte signature at another valid function start must not
         // silently become the selected target, even before call-graph checking.
         changed = image;
-        const auto copy = changed.AddSection(pattern->length, IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_EXECUTE);
+        const auto duplicateRole = win10 ? Node::FindWindow : Node::ZOrder;
+        const auto duplicateSource = original.functions[static_cast<unsigned>(duplicateRole)];
+        const auto* duplicatePattern = Selected(image, original, duplicateRole);
+        Check(duplicatePattern != nullptr, "select a reviewed duplicate candidate");
+        if (!duplicatePattern) return;
+        const auto copy = changed.AddSection(duplicatePattern->length, IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_EXECUTE);
         const auto exception = nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION];
         const auto functions = changed.AddSection(exception.Size + sizeof(RUNTIME_FUNCTION), IMAGE_SCN_MEM_READ);
         Check(copy != 0 && functions != 0, "duplicate fixture has bounded additional sections");
         if (copy && functions)
         {
-            std::memcpy(changed.bytes.data() + copy, image.bytes.data() + order, pattern->length);
+            std::memcpy(changed.bytes.data() + copy, image.bytes.data() + duplicateSource, duplicatePattern->length);
             std::memcpy(changed.bytes.data() + functions, image.bytes.data() + exception.VirtualAddress, exception.Size);
-            RUNTIME_FUNCTION duplicate{copy, copy + pattern->length, 0};
+            const auto parts = image.Fragments(duplicateSource);
+            RUNTIME_FUNCTION duplicate{copy, copy + duplicatePattern->length, win10 && !parts.empty() ? parts[0].UnwindData : 0};
             changed.Write(functions + exception.Size, duplicate);
             auto header = changed.Read<IMAGE_NT_HEADERS64>(changed.ntOffset);
             header.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION] = {functions, exception.Size + sizeof(RUNTIME_FUNCTION)};

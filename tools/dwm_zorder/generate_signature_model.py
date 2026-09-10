@@ -1,4 +1,4 @@
-"""Generate the reviewed 24H2 ABI signature family from exact PE/PDB fixtures.
+"""Generate reviewed Windows 10/11 ABI signature families from exact PE/PDB fixtures.
 
 This is an offline developer tool (pefile + capstone); neither Python nor PDBs
 are needed by the agent. The selected function bodies retain field accesses,
@@ -36,7 +36,7 @@ NODES = [
     ("BandChange", "CWindowList", "ZorderBandChange"),
 ]
 FIXTURES = [
-    ("26100.8875", "cd922128568c413ac76aa5b373485f8be7b824e1acf65e1039f2aa6dbfd5d2fb"),
+    ("26100.9022", "cd922128568c413ac76aa5b373485f8be7b824e1acf65e1039f2aa6dbfd5d2fb"),
     ("26100.1", "8f6860b1d4d84af9eab60517eb9a55abcca306bf9650821096e8d46203553909"),
     ("26100.2454", "000f7eef3436e6abd350b1898a6e5570d084945ded5f7a8dc802aa8fb5e928e7"),
     ("26100.1591", "254d95d70300d86e831420d5635d27ebe3600eb684fd649639381d9dc45d268d"),
@@ -46,6 +46,7 @@ FIXTURES = [
     ("26100.7705", "19462e0e4e9bfe34a0af27e6474913aad73503a76de41ab6b46516ac17b657ce"),
     ("26100.7920", "5e71c8007e61c26ffb92c2fec9475465e0550b80f0c08e817dd42feb37b049ab"),
     ("26100.9278", "3360935b0b39574e948757027066a1f1b8548815142f25527e0559ba4bd9e9af"),
+    ("26100.3037", "a5a2d641a52e725278fb6f1f95660fc0b6b7690f17e1cfc66f6bc1bcc0cbe3fb"),
 ]
 
 
@@ -78,10 +79,13 @@ def fixture_patterns(directory, version, expected_hash):
     if hashlib.sha256(data).hexdigest() != expected_hash:
         raise ValueError(f"unreviewed fixture: {image}")
     publics = image.parent / "publics.json"
-    if version == "26100.8875" and not publics.exists():
+    if version == "26100.9022" and not publics.exists():
         publics = ROOT / ".deps/symbols/uDWM.pdb/0B64C1D1F2048615FC50D28401BCBB931/publics.json"
     syms = json.loads(publics.read_text(encoding="utf-8"))
     pe = pefile.PE(data=data)
+    fixed = pe.VS_FIXEDFILEINFO[0]
+    if f"{fixed.FileVersionLS >> 16}.{fixed.FileVersionLS & 65535}" != version:
+        raise ValueError(f"fixture version label disagrees with PE resource: {image}")
     rvas = {node: symbol(syms, cls, method) for node, cls, method in NODES}
     reverse = {rva: node for node, rva in rvas.items()}
     bindings = {
@@ -215,6 +219,8 @@ def main():
     out += ["};", "}", ""]
     args.output.write_text("\n".join(out), encoding="utf-8")
     print(f"UNIQUE_SIGNATURE_VARIANTS={len(patterns)} OUTPUT={args.output}")
+    from generate_win10_signatures import generate
+    generate(args.corpus, args.output.with_name("RuntimeWin10Signatures.h"))
 
 
 if __name__ == "__main__":

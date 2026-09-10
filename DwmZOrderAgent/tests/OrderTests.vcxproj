@@ -29,5 +29,6 @@
     <ClCompile Include="..\RuntimeResolver.cpp" />
     <ClInclude Include="..\RuntimeResolver.h" />
     <ClInclude Include="..\RuntimeSignatures.h" />
+    <ClInclude Include="..\RuntimeWin10Signatures.h" />
   </ItemGroup>
 </Project>

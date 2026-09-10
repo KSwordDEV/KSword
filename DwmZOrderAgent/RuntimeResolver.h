@@ -22,6 +22,18 @@ namespace ks::dwm_order::runtime
         Node node; // Count means an external dependency, not another model node.
         Binding binding;
         const char* importName;
+        // Cross-fragment branches are resolved through PE chained unwind records.
+        std::uint16_t targetFragment = UINT16_MAX;
+        std::uint16_t targetOffset = 0;
+        std::uint8_t width = 4;
+    };
+    struct Fragment
+    {
+        const unsigned char* bytes;
+        const unsigned char* mask;
+        std::uint16_t length;
+        const Reference* references;
+        std::uint16_t referenceCount;
     };
     struct Pattern
     {
@@ -31,6 +43,9 @@ namespace ks::dwm_order::runtime
         std::uint16_t length;
         const Reference* references;
         std::uint16_t referenceCount;
+        // Additional fragments in RVA order; the primary fragment is index zero.
+        const Fragment* fragments = nullptr;
+        std::uint16_t fragmentCount = 0;
     };
     struct Layout
     {
@@ -39,7 +54,7 @@ namespace ks::dwm_order::runtime
     enum class Failure : std::uint32_t
     {
         None, InvalidImage, MissingPattern, AmbiguousPattern, ReferenceMismatch,
-        InvalidVtable, InvalidCfg, InvalidWindowList
+        InvalidVtable, InvalidCfg, InvalidWindowList, InvalidFragments
     };
     struct Resolved
     {

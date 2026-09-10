@@ -5,12 +5,26 @@
 #include <cstring>
 #include "RuntimeResolver.h"
 #include "RuntimeSignatures.h"
+#include "RuntimeWin10Signatures.h"
 
 namespace ks::dwm_order::runtime
 {
     namespace
     {
         constexpr unsigned kNodes = static_cast<unsigned>(Node::Count);
+        constexpr unsigned kMaxFragments = 64;
+        struct Model
+        {
+            std::uint32_t id;
+            Layout layout;
+            const Pattern* patterns;
+            std::size_t patternCount;
+            bool fragmented;
+        };
+        const Model kModels[] = {
+            {1, signatures::kLayout, signatures::kPatterns, std::size(signatures::kPatterns), false},
+            {2, win10_signatures::kLayout, win10_signatures::kPatterns, std::size(win10_signatures::kPatterns), true}
+        };
 
         bool Accessible(const void* memory, std::size_t bytes)
         {
@@ -136,16 +150,68 @@ namespace ks::dwm_order::runtime
 
             bool Relative(std::uint32_t start, const Reference& ref, std::uint32_t& target) const
             {
-                if (!In(start + ref.displacement, 4, Section::Code)) return false;
+                if ((ref.width != 1 && ref.width != 4) || !In(start + ref.displacement, ref.width, Section::Code)) return false;
                 const auto address = static_cast<std::int64_t>(start) + ref.nextInstruction
-                    + Read<std::int32_t>(start + ref.displacement);
+                    + (ref.width == 1 ? Read<std::int8_t>(start + ref.displacement)
+                        : Read<std::int32_t>(start + ref.displacement));
                 if (address < 0 || address > UINT32_MAX) return false;
                 target = static_cast<std::uint32_t>(address);
                 return In(target, 1, ref.section) && (!ref.importName || Import(target, ref.importName));
             }
+
+            const RUNTIME_FUNCTION* Function(std::uint32_t start) const
+            {
+                const auto* found = std::lower_bound(functions, functions + functionCount, start,
+                    [](const RUNTIME_FUNCTION& f, std::uint32_t at) { return f.BeginAddress < at; });
+                return found != functions + functionCount && found->BeginAddress == start ? found : nullptr;
+            }
+
+            bool Owner(RUNTIME_FUNCTION entry, std::uint32_t& root) const
+            {
+                for (unsigned depth = 0; depth < 16; ++depth)
+                {
+                    if (!In(entry.UnwindData, 4, Section::ReadOnly)) return false;
+                    const auto versionFlags = Read<unsigned char>(entry.UnwindData);
+                    if ((versionFlags & 7) != 1 && (versionFlags & 7) != 2) return false;
+                    const auto codes = Read<unsigned char>(entry.UnwindData + 2);
+                    const auto length = 4u + ((codes + 1u) & ~1u) * 2u;
+                    if (!In(entry.UnwindData, length, Section::ReadOnly)) return false;
+                    if (!(versionFlags & (UNW_FLAG_CHAININFO << 3)))
+                    { root = entry.BeginAddress; return true; }
+                    if (versionFlags & ((UNW_FLAG_EHANDLER | UNW_FLAG_UHANDLER) << 3)
+                        || !In(entry.UnwindData + length, sizeof(entry), Section::ReadOnly)) return false;
+                    entry = Read<RUNTIME_FUNCTION>(entry.UnwindData + length);
+                    const auto* parent = Function(entry.BeginAddress);
+                    if (!parent || parent->EndAddress != entry.EndAddress || parent->UnwindData != entry.UnwindData)
+                        return false;
+                }
+                return false; // Cyclic or unbounded chained unwind records.
+            }
+
+            bool Fragments(std::uint32_t start, const Pattern& pattern, std::uint32_t* starts) const
+            {
+                if (pattern.fragmentCount >= kMaxFragments) return false;
+                const auto* first = Function(start);
+                std::uint32_t root = 0;
+                if (!first || !Owner(*first, root) || root != start
+                    || pattern.length > first->EndAddress - start) return false;
+                starts[0] = start;
+                unsigned count = 0;
+                for (unsigned i = 0; i < functionCount; ++i)
+                {
+                    const auto& f = functions[i];
+                    if (f.BeginAddress == start) continue;
+                    if (!Owner(f, root)) return false;
+                    if (root != start) continue;
+                    if (count >= pattern.fragmentCount
+                        || pattern.fragments[count].length > f.EndAddress - f.BeginAddress) return false;
+                    starts[++count] = f.BeginAddress;
+                }
+                return count == pattern.fragmentCount;
+            }
         };
 
-        bool Match(const Image& image, std::uint32_t start, const Pattern& pattern)
+        template<class T> bool Match(const Image& image, std::uint32_t start, const T& pattern)
         {
             if (!image.In(start, pattern.length, Section::Code)) return false;
             const auto* bytes = image.data + start;
@@ -248,45 +314,76 @@ namespace ks::dwm_order::runtime
             return valid == 3;
         }
 
-        Failure ResolveImage(Image& image, Resolved& result, Node* failedNode)
+        Failure ResolveModel(const Image& image, const Model& model, Resolved& result,
+            Node* failedNode, unsigned& progress)
         {
-            if (!image.Open()) return Failure::InvalidImage;
             const Pattern* chosen[kNodes]{};
+            std::uint32_t fragmentStarts[kNodes][kMaxFragments]{};
             for (unsigned node = 0; node < kNodes; ++node)
             {
+                bool required = false;
+                for (std::size_t p = 0; p < model.patternCount; ++p)
+                    required |= static_cast<unsigned>(model.patterns[p].node) == node;
+                if (!required) continue;
                 if (failedNode) *failedNode = static_cast<Node>(node);
-                for (const auto& pattern : signatures::kPatterns)
+                for (std::size_t p = 0; p < model.patternCount; ++p)
                 {
+                    const auto& pattern = model.patterns[p];
                     if (static_cast<unsigned>(pattern.node) != node) continue;
                     for (unsigned i = 0; i < image.functionCount; ++i)
                     {
                         const auto rva = image.functions[i].BeginAddress;
                         if (!Match(image, rva, pattern)) continue;
+                        std::uint32_t starts[kMaxFragments]{rva};
+                        if (model.fragmented)
+                        {
+                            if (!image.Fragments(rva, pattern, starts)) return Failure::InvalidFragments;
+                            bool matches = true;
+                            for (unsigned f = 0; f < pattern.fragmentCount; ++f)
+                                matches &= Match(image, starts[f + 1], pattern.fragments[f]);
+                            if (!matches) continue;
+                        }
                         if (result.functions[node] && result.functions[node] != rva) return Failure::AmbiguousPattern;
                         // Even variants sharing byte masks must agree on all
                         // reference roles; the generator deduplicates those.
                         if (chosen[node] && chosen[node] != &pattern) return Failure::AmbiguousPattern;
                         result.functions[node] = rva;
                         chosen[node] = &pattern;
+                        std::memcpy(fragmentStarts[node], starts, sizeof(starts));
                     }
                 }
                 if (!chosen[node]) return Failure::MissingPattern;
+                ++progress;
             }
             for (unsigned node = 0; node < kNodes; ++node)
             {
+                if (!chosen[node]) continue;
                 if (failedNode) *failedNode = static_cast<Node>(node);
                 const auto& pattern = *chosen[node];
-                for (unsigned i = 0; i < pattern.referenceCount; ++i)
+                for (unsigned f = 0; f <= pattern.fragmentCount; ++f)
                 {
-                    const auto& ref = pattern.references[i];
-                    std::uint32_t target = 0;
-                    if (!image.Relative(result.functions[node], ref, target)
-                        || (ref.node != Node::Count && target != result.functions[static_cast<unsigned>(ref.node)]))
-                        return Failure::ReferenceMismatch;
-                    std::uint32_t* slot = ref.binding == Binding::DesktopManager ? &result.desktopManager
-                        : ref.binding == Binding::CriticalSection ? &result.criticalSection
-                        : ref.binding == Binding::Vtable ? &result.vtable : nullptr;
-                    if (slot && !Bind(*slot, target)) return Failure::ReferenceMismatch;
+                    const auto* refs = f ? pattern.fragments[f - 1].references : pattern.references;
+                    const auto count = f ? pattern.fragments[f - 1].referenceCount : pattern.referenceCount;
+                    for (unsigned i = 0; i < count; ++i)
+                    {
+                        const auto& ref = refs[i];
+                        std::uint32_t target = 0;
+                        if (!image.Relative(fragmentStarts[node][f], ref, target)
+                            || (ref.node != Node::Count && target != result.functions[static_cast<unsigned>(ref.node)]))
+                            return Failure::ReferenceMismatch;
+                        if (ref.targetFragment != UINT16_MAX)
+                        {
+                            if (ref.targetFragment > pattern.fragmentCount) return Failure::ReferenceMismatch;
+                            const auto length = ref.targetFragment ? pattern.fragments[ref.targetFragment - 1].length : pattern.length;
+                            if (ref.targetOffset >= length
+                                || target != fragmentStarts[node][ref.targetFragment] + ref.targetOffset)
+                                return Failure::ReferenceMismatch;
+                        }
+                        std::uint32_t* slot = ref.binding == Binding::DesktopManager ? &result.desktopManager
+                            : ref.binding == Binding::CriticalSection ? &result.criticalSection
+                            : ref.binding == Binding::Vtable ? &result.vtable : nullptr;
+                        if (slot && !Bind(*slot, target)) return Failure::ReferenceMismatch;
+                    }
                 }
             }
             if (failedNode) *failedNode = Node::Count;
@@ -296,8 +393,8 @@ namespace ks::dwm_order::runtime
             if (!Vtable(image, result)) return Failure::InvalidVtable;
             if (!Cfg(image, result)) return Failure::InvalidCfg;
             if (!WindowListOffset(image, result)) return Failure::InvalidWindowList;
-            result.layout = signatures::kLayout;
-            result.model = 1; // Reviewed x64 back-to-front CWindowList ABI family.
+            result.layout = model.layout;
+            result.model = model.id;
             return Failure::None;
         }
     }
@@ -308,9 +405,27 @@ namespace ks::dwm_order::runtime
         result = {};
         if (failedNode) *failedNode = Node::Count;
         Image input{static_cast<const unsigned char*>(image), bytes, loadBase};
-        Resolved candidate{};
-        const auto failure = ResolveImage(input, candidate, failedNode);
-        if (failure == Failure::None) result = candidate;
-        return failure;
+        if (!input.Open()) return Failure::InvalidImage;
+        Failure bestFailure = Failure::MissingPattern;
+        unsigned bestProgress = 0;
+        Node bestNode = Node::Count;
+        Resolved selected{};
+        for (const auto& model : kModels)
+        {
+            Resolved candidate{};
+            unsigned progress = 0;
+            Node node = Node::Count;
+            const auto failure = ResolveModel(input, model, candidate, &node, progress);
+            if (failure == Failure::None)
+            {
+                if (selected.model) return Failure::AmbiguousPattern;
+                selected = candidate;
+            }
+            else if (progress >= bestProgress)
+            { bestFailure = failure; bestProgress = progress; bestNode = node; }
+        }
+        if (selected.model) { result = selected; return Failure::None; }
+        if (failedNode) *failedNode = bestNode;
+        return bestFailure;
     }
 }

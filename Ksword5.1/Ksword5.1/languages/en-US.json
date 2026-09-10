@@ -9,6 +9,7 @@
   "fallback": "zh-CN",
   "translations": {
     "window.dwm_order.title": "Adjust window order inside DWM",
+    "window.dwm_order.support": "Compatibility: Windows 11 24H2 x64; Windows 10 with the 19041 DWM family, x64 (experimental, awaiting live validation). Each component version must pass full signature validation.",
     "window.dwm_order.hint": "Adjust composition order across bands. Mouse hit testing, focus, and the original band are unchanged. Maintain one window at a time; selecting a new target restores the previous one.",
     "window.dwm_order.position": "Composition position",
     "window.dwm_order.front": "Move to front of composition",
@@ -5829,6 +5830,7 @@
   "source_translations": {
     "注入 DWM 调整窗口序列": "Adjust window order inside DWM",
     "可跨 Band 调整合成遮挡顺序；鼠标命中、焦点和原始 Band 不变。持续保持一次作用于一个窗口，切换目标时恢复上一个窗口。": "Adjust composition order across bands. Mouse hit testing, focus, and the original band are unchanged. Maintain one window at a time; selecting a new target restores the previous one.",
+    "适配范围：Windows 11 24H2 x64；Windows 10 的 19041 系列 DWM x64（实验性，待实机验证）。具体组件版本须通过完整特征校验。": "Compatibility: Windows 11 24H2 x64; Windows 10 with the 19041 DWM family, x64 (experimental, awaiting live validation). Each component version must pass full signature validation.",
     "合成位置": "Composition position",
     "移到合成最前": "Move to front of composition",
     "移到合成最后": "Send to back of composition",

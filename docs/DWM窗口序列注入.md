@@ -10,17 +10,21 @@
 
 代理不再把单个构建号、时间戳、映像大小或 PDB 身份当作运行时放行条件。它在 DWM 已加载的 `uDWM.dll` 内按函数边界扫描特征，解析 RIP 相对引用和调用目标，并同时校验 `CWindowData` 字段、`CWindowList` 虚表槽、CFG 元数据以及链表到视觉树的排序方向。任一依赖无法唯一解析就返回不支持，不会用旧版本地址继续执行。
 
-当前已逐项核对的 AMD64 Windows 11 24H2 样本为 `26100.1`、`26100.1591`、`26100.2454`、`26100.3037`、`26100.4061`、`26100.4343`、`26100.5074`、`26100.7705`、`26100.7920` 和 `26100.9278`。这些样本的函数 RVA 不同，但共用同一个完整排序 ABI 模型；其他版本仍需先加入离线样本并通过模型验证：
+以下版本均指 `uDWM.dll` 文件版本（省略 `10.0.`），不是 `winver` 显示的系统构建号。支持范围按完整模型划分；表中每个样本均已核对精确 PE/PDB 并通过离线回归。
 
-| 身份项 | 值 |
-| --- | --- |
-| PDB GUID | `0B64C1D1-F204-8615-FC50-D28401BCBB93` |
-| PDB Age | `1` |
-| 已审查样本 | `26100.1`、`26100.1591`、`26100.2454`、`26100.3037`、`26100.4061`、`26100.4343`、`26100.5074`、`26100.7705`、`26100.7920`、`26100.9278` |
-| 解析方式 | 代码段特征 + PE 函数边界 + 类型化 RIP/rel32 引用 + 调用图 |
-| 运行时放行 | 15 个依赖函数、3 个虚表槽、锁/管理器全局和 WindowList 字段全部唯一通过 |
+| 系统 / 架构 | 已审查组件版本 | 状态 |
+| --- | --- | --- |
+| Windows 10，19041 组件系列，x64 | `19041.546`、`19041.6157`、`19041.6456` | **实验性**：3 个样本离线通过，尚未在 Win10 实际注入验收 |
+| Windows 11 24H2，x64 | `26100.1`、`26100.1591`、`26100.2454`、`26100.3037`、`26100.4061`、`26100.4343`、`26100.5074`、`26100.7705`、`26100.7920`、`26100.9022`、`26100.9278` | 11 个样本离线通过；此前用户已确认本机置顶生效，各样本仍不等于逐一实机验收 |
+| Windows 10 更早的组件系列、其它 Windows 11 组件系列、x86 / ARM64 | 未建立完整模型 | 暂不支持 |
 
-`tools/dwm_zorder/generate_signature_model.py` 只在离线生成阶段使用精确 Microsoft PDB 来标注函数和调用关系；生成的代理只携带特征字节和校验规则，不读取或下载 PDB。工具会拒绝不唯一的符号、缺少异常函数边界、排序调用图变化、布局字段变化和重复特征。新增系统构建必须重新审查完整模型，不能只添加一个入口通配字节。
+Windows 10 2004、20H2、21H1、21H2、22H2 共用系统文件基础，参见 [Microsoft KB5015684](https://support.microsoft.com/en-us/servicing/os/windows-10/2022/06/kb5015684-featured-update-to-windows-10-version-22h2-by-using-an-enablement-package)。因此适配按 DLL 的 19041 组件系列判断，不能仅因系统显示 19044 / 19045 就拒绝，也不能据此宣称所有更新版本均已支持。未列出的组件即使具有相同 ABI，也必须通过运行时完整特征校验；列入正式验证范围前仍需补充精确样本。
+
+Windows 11 模型含 15 个依赖函数；Windows 10 模型含 11 个依赖函数，每个已审查映像共 33 个热 / 冷代码片段。两个模型分别解析，不能混用函数或结构偏移。每个模型均要求全部依赖、3 个虚表槽、锁 / 管理器全局、WindowList 字段及 CFG 校验通过；只有唯一一个完整模型成功才发布运行时绑定。
+
+Win10 的部分函数拆分到相距较远的冷代码块。代理按 `.pdata` / `.xdata` 的 chained unwind 归属逐块校验，跨块跳转必须落到该函数已匹配片段的指定位置；归属损坏、遗漏片段或跳转错位均拒绝。不能把首尾之间的无关代码当成同一个函数，也不能只匹配入口热代码。元数据格式见 [Microsoft x64 异常处理文档](https://learn.microsoft.com/en-us/cpp/build/exception-handling-x64?view=msvc-170)。
+
+`tools/dwm_zorder/generate_signature_model.py` 及其 Win10 生成模块只在离线生成阶段使用精确 Microsoft PDB 标注函数和调用关系；生成的代理只携带特征字节和校验规则，不读取或下载 PDB。工具核对样本 SHA256 和 PE 文件版本，拒绝不唯一的符号、缺少异常函数边界、排序调用图变化和布局字段变化，并对等价特征去重。新增系统构建必须重新审查完整模型，不能只添加一个入口通配字节。原先标成 `26100.8875` 的基准 DLL 已按其 PE 版本资源更正为 `26100.9022`。
 
 ## 执行链路
 
@@ -37,7 +41,9 @@
 
 原生桌面链表沿 `Flink` 从视觉最后方走向最前方。`CWindowList::ZOrder` 将目标插到第三个参数之后，因此第三个参数代表目标**下方**的窗口；传空代表链表哨兵，会把目标放到最下面。
 
-此方向已在上述十个样本的实际调用链中核对：`ZOrder` 写入新的前后链，`InsertIntoVisualTree` 使用 `FindPrecedingVisibleWindowVisual` 沿 `Blink` 查找参照，然后通过 `InsertChildAfter` 和 `CContainerVisualProxy::InsertChild` 调用 `IDCompositionVisual::AddVisual`，其中 `insertAbove=TRUE`。参照非空时这表示绘制在参照上方；参照为空时则表示位于所有兄弟节点下方，见 [Microsoft AddVisual 文档](https://learn.microsoft.com/en-us/windows/win32/api/dcomp/nf-dcomp-idcompositionvisual-addvisual)。
+此方向已在上述 11 个 Win11 样本的实际调用链中核对：`ZOrder` 写入新的前后链，`InsertIntoVisualTree` 使用 `FindPrecedingVisibleWindowVisual` 沿 `Blink` 查找参照，然后通过 `InsertChildAfter` 和 `CContainerVisualProxy::InsertChild` 调用 `IDCompositionVisual::AddVisual`，其中 `insertAbove=TRUE`。参照非空时这表示绘制在参照上方；参照为空时则表示位于所有兄弟节点下方，见 [Microsoft AddVisual 文档](https://learn.microsoft.com/en-us/windows/win32/api/dcomp/nf-dcomp-idcompositionvisual-addvisual)。
+
+三个 Win10 样本也沿 `Flink` 从后往前排列，目标插到下方参照之后；视觉更新使用 `VisualCollection::InsertRelative(after=true, send=true)`，按“参照索引 + 1”插入或移动节点，再向合成通道提交相同索引。该链路独立校验 `CVisualProxy::InsertChildAt` 及通道的插入 / 重排虚表槽，不套用 Win11 的 AddVisual 特征。
 
 | 界面操作 | 传给原生 ZOrder 的下方参照 |
 | --- | --- |
@@ -48,11 +54,11 @@
 
 恢复 Windows 当前顺序时，以 `GetWindow(GW_HWNDNEXT)` 寻找目标下方仍参与合成的窗口，再把目标插到其上方；`GW_HWNDPREV` 给出的是上方窗口，不能直接作为这里的下方参照。相邻窗口的 Win32 语义见 [GetWindow 文档](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindow)。
 
-先前实现把原生链表头误认为视觉最前方，排序测试也沿用了同一假设，因此“移到合成最前”实际会置底。现已同时修正四种操作、恢复方向和回执索引；链表、Blink 遍历、视觉插入和 AddVisual 方向都纳入特征模型校验。
+先前实现把原生链表头误认为视觉最前方，排序测试也沿用了同一假设，因此“移到合成最前”实际会置底。现已同时修正四种操作、恢复方向和回执索引；链表、Blink 遍历和对应系统模型的视觉插入方向均纳入特征校验。
 
 ## 维护所需的内部位置
 
-以下是旧样本的 RVA，仅用于解释和离线回归；代理运行时使用 `DwmZOrderAgent/RuntimeResolver.cpp` 解析出的地址，不读取这些固定值。
+以下是 `10.0.26100.9022` 基准样本的 RVA，仅用于解释和离线回归，其 PDB GUID 为 `0B64C1D1-F204-8615-FC50-D28401BCBB93`、Age 为 `1`。代理运行时使用 `DwmZOrderAgent/RuntimeResolver.cpp` 解析出的地址，不读取这些固定值。
 
 | 项目 | RVA / 布局 |
 | --- | --- |
@@ -65,6 +71,15 @@
 | `ZOrder` / `UpdateScene` / `DestroyWindow` | `0xEE380 / 0x21A80 / 0x8DC80` |
 | WindowData 的 IDwmWindow / HWND / Band / Desktop / Visual | `0x18 / 0x28 / 0x80 / 0x88 / 0x1B8` |
 
+两个模型的布局差异如下，字段由对应函数的实际访问校验，管理器字段和虚表槽从匹配后的引用解析：
+
+| 项目 | Win10 19041 系列 | Win11 24H2 系列 |
+| --- | --- | --- |
+| WindowData 的 IDwmWindow / HWND / Band / Desktop / Visual | `0x18 / 0x28 / 0x70 / 0x78 / 0x180` | `0x18 / 0x28 / 0x80 / 0x88 / 0x1B8` |
+| DesktopManager 的 WindowList | `0x1E8` | `0x1A8` |
+| 销毁 / 排序 / 场景更新虚表槽 | `1 / 6 / 44` | `1 / 6 / 47` |
+| 桌面链表查询 | `GetWindowListForDesktop` | `GetWindowListForDesktopCanFail` |
+
 原型来自匹配的 Microsoft PDB，调用约定、字段访问及排序到视觉树的链路使用每个样本二进制反汇编核对。研究时还参考了 [DWMBlurGlass 的结构声明](https://github.com/Maplespe/DWMBlurGlass/blob/master/DWMBlurGlassExt/Common/DWMStruct.h)；本实现未引入其代码或依赖。每次支持新的系统组件版本，必须重新检查这些原型、布局和调用路径。
 
 ## 验证
@@ -76,6 +91,9 @@ python tools/dwm_zorder/verify_profile.py --self-test
 & $msbuild DwmZOrderAgent/tests/OrderTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m:1
 & DwmZOrderAgent/tests/x64/Release/DwmZOrderTests.exe (Join-Path $PWD 'Ksword5.1/x64/Release/KswordDwmZOrder.dll')
 & DwmZOrderAgent/tests/x64/Release/DwmZOrderTests.exe --runtime `
+  .deps/dwm-zorder-corpus/19041.546/uDWM.dll `
+  .deps/dwm-zorder-corpus/19041.6157/uDWM.dll `
+  .deps/dwm-zorder-corpus/19041.6456/uDWM.dll `
   .deps/dwm-zorder-corpus/26100.1/uDWM.dll `
   .deps/dwm-zorder-corpus/26100.1591/uDWM.dll `
   .deps/dwm-zorder-corpus/26100.2454/uDWM.dll `
@@ -85,10 +103,11 @@ python tools/dwm_zorder/verify_profile.py --self-test
   .deps/dwm-zorder-corpus/26100.5074/uDWM.dll `
   .deps/dwm-zorder-corpus/26100.7705/uDWM.dll `
   .deps/dwm-zorder-corpus/26100.7920/uDWM.dll `
+  .deps/dwm-zorder-corpus/26100.9022/uDWM.dll `
   .deps/dwm-zorder-corpus/26100.9278/uDWM.dll
 ```
 
-离线检查验证旧样本的精确回归表，并拒绝损坏的身份、函数、虚表、CFG 及排序方向样本。运行时特征回归把十个已审查的 24H2 映像映射到内存，验证地址重定位、调用图、字段布局、虚表和 CFG；它不加载这些系统 DLL，也不注入 CI 的 DWM。原生测试覆盖排序边界、相邻位置、重复应用、非目标窗口顺序、无效句柄模型、新旧协议拒绝和拒绝在普通测试进程内修改运行时。排序模型另按 DirectComposition 从后往前绘制的顺序计算重叠像素所属窗口，检查置顶后的目标覆盖其他节点、相对前后关系、恢复时的下方参照，以及最前位置和上方/下方邻居回执；该模型不等同于实际桌面截图验收。加载回归测试在独立测试子进程中运行正式传输代码：验证文件不存在返回 126、真实 DLL 初始化拒绝返回 1114、Identification 级模拟复现 1346、加载线程没有模拟令牌、正式代理副本加载成功及 64 位模块回执一致。同时检查原文件权限不变、副本仅增加指定 SID 的读执行权限、文件租约阻止写入、重复准备复用副本，以及只读进程句柄对 PID、创建时间和进程退出的校验。CI 不注入实际 DWM。
+离线检查验证旧样本的精确回归表，并拒绝损坏的身份、函数、虚表、CFG 及排序方向样本。运行时特征回归把 3 个 Win10 和 11 个 Win11 映像映射到内存，验证模型选择、地址重定位、调用图、字段布局、虚表和 CFG，并拒绝损坏的 Win10 冷代码块、归属元数据及跨块跳转；它不加载这些系统 DLL，也不注入 CI 的 DWM。本次 14 个映像共 506 项检查通过。原生测试覆盖排序边界、相邻位置、重复应用、非目标窗口顺序、无效句柄模型、新旧协议拒绝和拒绝在普通测试进程内修改运行时。排序模型另按 DirectComposition 从后往前绘制的顺序计算重叠像素所属窗口，检查置顶后的目标覆盖其他节点、相对前后关系、恢复时的下方参照，以及最前位置和上方/下方邻居回执；该模型不等同于实际桌面截图验收。加载回归测试在独立测试子进程中运行正式传输代码：验证文件不存在返回 126、真实 DLL 初始化拒绝返回 1114、Identification 级模拟复现 1346、加载线程没有模拟令牌、正式代理副本加载成功及 64 位模块回执一致。同时检查原文件权限不变、副本仅增加指定 SID 的读执行权限、文件租约阻止写入、重复准备复用副本，以及只读进程句柄对 PID、创建时间和进程退出的校验。CI 不注入实际 DWM。
 
 CFG 回归使用启用 CFG 的独立 fixture DLL，其中两个查询函数均未进入 GFIDS 表。测试检查正式查询绑定页为只读、两个封装均可正确调用，以及 64 位桌面参数不被截断；另在调试器控制的测试子进程中运行原来的调用方式，确认退出状态为 `0xC0000409`、异常参数为 `FAST_FAIL_GUARD_ICALL_CHECK_FAILURE`（`0xA`）。正常测试进程及正式代理的 CFG 均保持开启。离线适配检查还核对两个 helper 的直接调用属性及三个虚方法的 CFG 目标资格，并拒绝损坏的 CFG 元数据样本。
 

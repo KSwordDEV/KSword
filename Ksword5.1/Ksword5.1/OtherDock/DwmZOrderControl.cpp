@@ -70,6 +70,10 @@ namespace ks::dwm_order
                 hint->setWordWrap(true);
                 Bind(hint, "window.dwm_order.hint", "可跨 Band 调整合成遮挡顺序；鼠标命中、焦点和原始 Band 不变。持续保持一次作用于一个窗口，切换目标时恢复上一个窗口。");
                 layout->addWidget(hint);
+                auto* support = new QLabel(this);
+                support->setWordWrap(true);
+                Bind(support, "window.dwm_order.support", "适配范围：Windows 11 24H2 x64；Windows 10 的 19041 系列 DWM x64（实验性，待实机验证）。具体组件版本须通过完整特征校验。");
+                layout->addWidget(support);
                 auto* form = new QGridLayout;
                 auto* orderLabel = new QLabel(this);
                 Bind(orderLabel, "window.dwm_order.position", "合成位置");
