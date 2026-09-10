@@ -97,8 +97,8 @@ jobs:
           }
 
           common='(^tools/|^scripts/|^shared/|^third_party/|^\.deps/|^\.github/workflows/|^.*\.sln$|(^|/)(Directory\.Build\..*|.*\.props|.*\.targets)$)'
-          usermode_re="^(TaskmgrHijack\.ps1$|Ksword5\.1/|Launcher/|Taskbar/|KswordHUD/|APIMonitor_x64/|KswordCLI/|KswordFsDecodeTests/)|$common"
-          setup_re="^(TaskmgrHijack\.ps1$|KswordSetup/|Ksword5\.1/|Launcher/|Taskbar/|KswordHUD/|APIMonitor_x64/|KswordCLI/|KswordARKDriver/|KswordARKLight/)|$common"
+          usermode_re="^(TaskmgrHijack\.ps1$|Ksword5\.1/|Launcher/|Taskbar/|KswordHUD/|APIMonitor_x64/|KswordCLI/|KswordFsDecodeTests/|DwmZOrderAgent/)|$common"
+          setup_re="^(TaskmgrHijack\.ps1$|KswordSetup/|Ksword5\.1/|Launcher/|Taskbar/|KswordHUD/|APIMonitor_x64/|KswordCLI/|KswordARKDriver/|KswordARKLight/|DwmZOrderAgent/)|$common"
           arklight_re="^(KswordARKLight/|KswordARKLightTests/|KswordARKDriver/|Ksword5\.1/Ksword5\.1/(ArkDriverClient/|Resource/)|shared/driver/|scripts/Sign-KswordArkDriverVariant\.ps1)|$common"
           ce_plugin_re="^(CheatEnginePlugin/|Ksword5\.1/Ksword5\.1/(ArkDriverClient/|ksword/string/)|shared/driver/)|$common"
           ce_launcher_re="^(CheatEngineExecutablePlugin/|Ksword5\.1/Ksword5\.1/(ArkDriverClient/|ksword/string/))|$common"
@@ -375,7 +375,8 @@ jobs:
             'KswordHUD/KswordHUD.vcxproj',
             'APIMonitor_x64/APIMonitor_x64.vcxproj',
             'KswordCLI/KswordCLI.vcxproj',
-            'KswordFsDecodeTests/KswordFsDecodeTests.vcxproj'
+            'KswordFsDecodeTests/KswordFsDecodeTests.vcxproj',
+            'DwmZOrderAgent/tests/OrderTests.vcxproj'
           )
           foreach ($project in $projects) {
             & $msbuild $project @properties
@@ -395,6 +396,13 @@ jobs:
             throw "File-system decode tests failed with exit code $LASTEXITCODE."
           }
 
+          # Loads the agent only in the test process; never injects into CI's DWM.
+          & 'DwmZOrderAgent/tests/x64/Release/DwmZOrderTests.exe' `
+            (Join-Path $PWD 'Ksword5.1/x64/Release/KswordDwmZOrder.dll')
+          if ($LASTEXITCODE -ne 0) {
+            throw "DWM order model/agent protocol tests failed with exit code $LASTEXITCODE."
+          }
+
       - name: Verify primary build artifacts
         shell: pwsh
         run: |
@@ -404,6 +412,7 @@ jobs:
             'Ksword5.1/x64/Release/Taskbar.exe',
             'Ksword5.1/x64/Release/KswordHUD.exe',
             'Ksword5.1/x64/Release/APIMonitor_x64.dll',
+            'Ksword5.1/x64/Release/KswordDwmZOrder.dll',
             'Ksword5.1/x64/Release/KswordCLI.exe'
           )
           $missing = $artifacts | Where-Object { -not (Test-Path $_) }

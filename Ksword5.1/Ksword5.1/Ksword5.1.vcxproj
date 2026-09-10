@@ -54,7 +54,9 @@
   <Target Name="QtMsBuildNotFound" BeforeTargets="CustomBuild;ClCompile" Condition="!Exists('$(QtMsBuild)\qt.targets') or !Exists('$(QtMsBuild)\qt.props')">
     <Message Importance="High" Text="QtMsBuild: could not locate qt.targets, qt.props; project may not build correctly." />
   </Target>
-  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
+  </ImportGroup>
   <ImportGroup Label="Shared" />
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
@@ -373,6 +375,9 @@
     <ClCompile Include="OtherDock\OtherDock.cpp" />
     <ClCompile Include="OtherDock\WindowCaptureProtection.cpp" />
     <ClCompile Include="OtherDock\WindowDwmControl.cpp" />
+    <ClCompile Include="OtherDock\DwmZOrderClient.cpp" />
+    <ClCompile Include="OtherDock\DwmAgentDeployment.cpp" />
+    <ClCompile Include="OtherDock\DwmZOrderControl.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeDock.cpp" />
     <ClCompile Include="RegistryDock_Themed.cpp" />
     <ClCompile Include="RegistryDock\RegistryOptimizationPage.cpp" />
@@ -760,6 +765,12 @@
     <ClInclude Include="OnlineScan\VirusTotalOnlineScan.h" />
     <QtMoc Include="OtherDock\OtherDock.h" />
     <ClInclude Include="OtherDock\WindowCaptureProtection.h" />
+    <ClInclude Include="OtherDock\DwmZOrderClient.h" />
+    <ClInclude Include="OtherDock\DwmAgentDeployment.h" />
+    <ClInclude Include="..\..\shared\window\DwmProcessIdentity.h" />
+    <ClInclude Include="OtherDock\DwmZOrderControl.h" />
+    <ClInclude Include="..\..\shared\window\DwmZOrderProtocol.h" />
+    <ClInclude Include="..\..\shared\window\DwmRemoteLoader.h" />
     <QtMoc Include="PrivilegeDock\PrivilegeDock.h" />
     <QtMoc Include="RegistryDock\RegistryDock.h" />
     <ClInclude Include="KernelDock\KernelCleanImageBaseline.h" />
@@ -1051,7 +1062,23 @@
     <Exec Command="&quot;$(KswordArkPowerShellExe)&quot; -ExecutionPolicy Bypass -File &quot;$(KswordArkSignScript)&quot; -TargetPath &quot;$(TargetPath)&quot; -NonFatal" ContinueOnError="WarnAndContinue" IgnoreStandardErrorWarningFormat="true" Condition="Exists('$(KswordArkSignScript)')" />
     <Warning Condition="!Exists('$(KswordArkSignScript)')" Text="Ksword5.1 auto test-sign skipped because script was not found: $(KswordArkSignScript)" />
   </Target>
+  <ItemGroup>
+    <ProjectReference Include="..\..\DwmZOrderAgent\DwmZOrderAgent.vcxproj">
+      <Project>{CFEC311C-A4F4-46C6-8A41-7333EE5FB817}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ItemGroup><MASM Include="OtherDock\DwmRemoteLoader.asm" /></ItemGroup>
+  <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
+  <Target Name="CopyKswordDwmZOrderAgent" AfterTargets="Build">
+    <MSBuild Projects="$(MSBuildProjectDirectory)\..\..\DwmZOrderAgent\DwmZOrderAgent.vcxproj"
+             Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=$(Platform)">
+      <Output TaskParameter="TargetOutputs" ItemName="KswordDwmZOrderAgentTarget" />
+    </MSBuild>
+    <Copy SourceFiles="@(KswordDwmZOrderAgentTarget)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">
     <Import Project="$(QtMsBuild)\qt.targets" Condition="Exists('$(QtMsBuild)\qt.targets')" />
   </ImportGroup>

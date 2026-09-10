@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup><ClCompile Include="OrderTests.cpp" /><ClInclude Include="..\OrderPlan.h" /><ClInclude Include="..\..\shared\window\DwmZOrderProtocol.h" /></ItemGroup>
+  <ItemGroup><ClCompile Include="CfgTests.cpp" /><ClInclude Include="..\NativeQueries.h" /></ItemGroup>
+  <ItemGroup><ClCompile Include="LoaderTests.cpp" /><ClCompile Include="..\..\Ksword5.1\Ksword5.1\OtherDock\DwmZOrderClient.cpp" /></ItemGroup>
+  <ItemGroup><ClCompile Include="DeploymentTests.cpp" /><ClCompile Include="..\..\Ksword5.1\Ksword5.1\OtherDock\DwmAgentDeployment.cpp" /></ItemGroup>
+  <ItemGroup><ClInclude Include="..\..\shared\window\DwmProcessIdentity.h" /><ClInclude Include="..\..\Ksword5.1\Ksword5.1\OtherDock\DwmAgentDeployment.h" /></ItemGroup>
+  <ItemGroup><ClInclude Include="..\..\shared\window\DwmRemoteLoader.h" /><ClInclude Include="..\..\Ksword5.1\Ksword5.1\OtherDock\DwmZOrderClient.h" /></ItemGroup>
+  <ItemGroup><MASM Include="..\..\Ksword5.1\Ksword5.1\OtherDock\DwmRemoteLoader.asm" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="RuntimeTests.cpp" />
+    <ClCompile Include="..\RuntimeResolver.cpp" />
+    <ClInclude Include="..\RuntimeResolver.h" />
+    <ClInclude Include="..\RuntimeSignatures.h" />
+  </ItemGroup>
+</Project>

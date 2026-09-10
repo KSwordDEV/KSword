@@ -5,6 +5,8 @@ VisualStudioVersion = 17.14.36414.22
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Ksword5.1", "Ksword5.1\Ksword5.1.vcxproj", "{DB322F56-140F-4CBF-8CF4-2D89B3DD293E}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DwmZOrderAgent", "..\DwmZOrderAgent\DwmZOrderAgent.vcxproj", "{CFEC311C-A4F4-46C6-8A41-7333EE5FB817}"
+EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Taskbar", "..\Taskbar\Taskbar.vcxproj", "{F695C34B-DEFC-4DA4-A7C8-7133C07A1BC3}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KswordHUD", "..\KswordHUD\KswordHUD.vcxproj", "{FD474EA8-79AC-46C1-952C-5F0222CBC178}"
@@ -44,6 +46,10 @@ Global
 		Release|x64 = Release|x64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CFEC311C-A4F4-46C6-8A41-7333EE5FB817}.Debug|x64.ActiveCfg = Debug|x64
+		{CFEC311C-A4F4-46C6-8A41-7333EE5FB817}.Debug|x64.Build.0 = Debug|x64
+		{CFEC311C-A4F4-46C6-8A41-7333EE5FB817}.Release|x64.ActiveCfg = Release|x64
+		{CFEC311C-A4F4-46C6-8A41-7333EE5FB817}.Release|x64.Build.0 = Release|x64
 		{DB322F56-140F-4CBF-8CF4-2D89B3DD293E}.Debug|x64.ActiveCfg = Debug|x64
 		{DB322F56-140F-4CBF-8CF4-2D89B3DD293E}.Debug|x64.Build.0 = Debug|x64
 		{DB322F56-140F-4CBF-8CF4-2D89B3DD293E}.Release|x64.ActiveCfg = Release|x64

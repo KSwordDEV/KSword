@@ -56,6 +56,7 @@
 
 #include "../Internationalization/LanguageManager.h"
 #include "../theme.h"
+#include "DwmZOrderControl.h"
 
 #include <array>
 #include <optional>
@@ -665,6 +666,8 @@ namespace ks::window::dwmctl
             containerLayout->setContentsMargins(0, 0, 0, 0);
             containerLayout->setSpacing(8);
 
+            containerLayout->addWidget(ks::dwm_order::CreateControl(
+                reinterpret_cast<std::uint64_t>(m_target), container));
             containerLayout->addWidget(buildPresetGroup(container));
             containerLayout->addWidget(buildEnumeratedGroup(container));
             containerLayout->addWidget(buildColorGroup(container));

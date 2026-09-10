@@ -85,6 +85,7 @@ Copy-Item 'Ksword5.1\x64\Release\KswordARKLight.exe' $stage -Force
 Copy-Item 'Ksword5.1\x64\Release\Taskbar.exe' $stage -Force
 Copy-Item 'Ksword5.1\x64\Release\KswordHUD.exe' $stage -Force
 Copy-Item 'Ksword5.1\x64\Release\APIMonitor_x64.dll' $stage -Force
+Copy-Item 'Ksword5.1\x64\Release\KswordDwmZOrder.dll' $stage -Force
 Copy-Item 'Ksword5.1\x64\Release\APIMonitor_x64.pdb' $stage -Force
 Copy-Item 'Ksword5.1\x64\Release\KswordARK.sys' $stage -Force
 Copy-Item 'Ksword5.1\x64\Release\KswordARK.pdb' $stage -Force
@@ -146,7 +147,7 @@ $seven='C:\Users\Felix\CLionProjects\Wisdom-Weasel\7z.exe'
 & $seven l $archive 'Release\Launcher.exe' 'Release\Ksword5.1.exe' 'Release\KswordARKLight.exe' 'Release\Taskbar.exe' 'Release\KswordHUD.exe' 'Release\APIMonitor_x64.dll' 'Release\KswordARK.sys' 'Release\KswordARKDriver\KswordARK.sys' 'Release\LICENSE' 'Release\COMMUNITY_COVENANT.md' 'Release\licenses\third_party\systeminformer-LICENSE.txt' 'Release\licenses\third_party\easy-hwid-spoofer-LICENSE.txt' 'Release\licenses\third_party\fltk-LICENSE.txt' 'Release\licenses\third_party\qt-advanced-docking-system-LICENSE.txt' 'Release\licenses\third_party\zstd-LICENSE.txt' 'Release\profiles\launcher_support_manifest.json' 'Release\profiles\ark_dyndata_pack_v4.json.qz' 'Release\profiles\registry_optimization_items.json.qz' 'Release\profiles\registry_optimization_assets\Config\Data.zip' 'Release\languages\zh-CN.json' 'Release\languages\en-US.json' 'Release\platforms\qwindows.dll'
 ```
 
-校验通过时，`7z t` 输出应包含 `Everything is Ok`；主程序顶部“许可证”页面从 exe 同目录读取根 `LICENSE`。本流程生成的包根目录必须是 `Release\`，不要把 `dist\KswordARK-release-work\` 或其它临时目录打进包里。
+校验通过时，`7z t` 输出应包含 `Everything is Ok`；另需确认主程序项目引用生成的 `Release\KswordDwmZOrder.dll` 已入包，窗口 DWM 排序功能从 exe 同目录加载该 DLL。主程序顶部“许可证”页面从 exe 同目录读取根 `LICENSE`。本流程生成的包根目录必须是 `Release\`，不要把 `dist\KswordARK-release-work\` 或其它临时目录打进包里。
 
 ## Launcher 用户报告接入
 

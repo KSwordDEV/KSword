@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations"><ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration></ItemGroup>
+  <PropertyGroup Label="Globals"><VCProjectVersion>17.0</VCProjectVersion><ProjectGuid>{57B8F94C-DF03-49D7-BD99-BF2B44A5E41D}</ProjectGuid><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration"><ConfigurationType>DynamicLibrary</ConfigurationType><PlatformToolset>v143</PlatformToolset><CharacterSet>Unicode</CharacterSet></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup><OutDir>$(ProjectDir)x64\$(Configuration)\</OutDir><IntDir>$(OutDir)obj\LoaderFixture\</IntDir><TargetName>DwmLoaderFixture</TargetName></PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile><ControlFlowGuard>Guard</ControlFlowGuard></ClCompile>
+    <Link><ControlFlowGuard>Guard</ControlFlowGuard></Link>
+    <ClCompile><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><RuntimeLibrary>MultiThreaded</RuntimeLibrary><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions></ClCompile>
+    <Link><AdditionalDependencies>Advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies><EnableUAC>false</EnableUAC></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup><ClCompile Include="LoaderFixture.cpp" /></ItemGroup>
+  <ItemGroup><ClCompile Include="PrivateQueryFixture.cpp" /></ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="CopyRejectFixture" AfterTargets="Build"><Copy SourceFiles="$(TargetPath)" DestinationFiles="$(TargetDir)DwmLoaderReject.dll" SkipUnchangedFiles="true" /></Target>
+</Project>
