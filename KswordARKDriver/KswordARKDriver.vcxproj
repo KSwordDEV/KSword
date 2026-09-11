@@ -284,6 +284,7 @@
     <ClCompile Include="src\features\win32k\win32k_queue_layout.c" />
     <ClCompile Include="src\features\win32k\win32k_runtime_query.c" />
     <ClCompile Include="src\features\win32k\win32k_query.c" />
+    <ClCompile Include="src\features\win32k\window_band.c" />
     <ClCompile Include="src\features\win32k\win32k_detail.c" />
     <ClCompile Include="src\features\win32k\win32k_timer.c" />
     <ClCompile Include="src\features\win32k\win32k_event_hook.c" />
@@ -422,6 +423,7 @@
     <ClInclude Include="..\shared\driver\KswordArkDriverImageEditorIoctl.h" />
     <ClInclude Include="src\features\kernel\driver_image_editor_internal.h" />
     <ClInclude Include="..\shared\driver\KswordArkWin32kIoctl.h" />
+    <ClInclude Include="..\shared\driver\KswordArkWindowBandIoctl.h" />
     <ClInclude Include="..\shared\driver\KswordArkUnloadedDriverIoctl.h" />
     <ClInclude Include="src\features\redirect\redirect_internal.h" />
     <ClInclude Include="src\features\network\network_internal.h" />

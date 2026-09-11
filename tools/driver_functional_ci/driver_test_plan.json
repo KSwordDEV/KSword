@@ -30,7 +30,8 @@
       "^HVM_EPT_RULE$",
       "^DELETE_PIDDB$",
       "^HWID_DISPATCH_CONTROL$",
-      "^SET_PROCESS_VISIBILITY$"
+      "^SET_PROCESS_VISIBILITY$",
+      "^WINDOW_BAND$"
     ],
     "patternWaivers": {},
     "gapBudget": {
@@ -2875,6 +2876,11 @@
       "ioctl": "MUTATE_KEYBOARD_HOTKEY",
       "reason": "no-cli-path",
       "detail": "KswordCLI 当前没有对应子命令，无法在本 harness 内触发；属于覆盖缺口，不是安全排除。"
+    },
+    {
+      "ioctl": "WINDOW_BAND",
+      "reason": "alters-desktop-input-order",
+      "detail": "该 IOCTL 同时包含改变实际桌面 Band 与点击分发的写操作。通用矩阵的 window.hwnd 不是 harness 自建窗口，不能用它修改 runner 或用户窗口；需专用交互桌面上的自建普通/UIAccess 窗口验收。当前仅有客户端恢复事务替身测试，原生 Win32k 调用尚未实机验收。"
     },
     {
       "ioctl": "NETWORK_CONTROL_TRAFFIC_CAPTURE",

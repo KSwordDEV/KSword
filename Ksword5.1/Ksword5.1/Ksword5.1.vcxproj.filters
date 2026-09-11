@@ -1107,6 +1107,7 @@
     <ClCompile Include="ArkDriverClient\ArkDriverAudit.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkDriverWindowBand.cpp"><Filter>Source Files\ArkDriverClient</Filter></ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverNetworkTraffic.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>

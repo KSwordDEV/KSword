@@ -411,6 +411,7 @@
     <ClInclude Include="src\features\kernel\driver_image_editor_internal.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\features\hwid\hwid_dispatch_hooks.h"><Filter>Source Files\Features\Hwid</Filter></ClInclude>
     <ClInclude Include="..\shared\driver\KswordArkWin32kIoctl.h"><Filter>Header Files\Ark</Filter></ClInclude>
+    <ClInclude Include="..\shared\driver\KswordArkWindowBandIoctl.h"><Filter>Header Files\Ark</Filter></ClInclude>
     <ClInclude Include="..\shared\driver\KswordArkUnloadedDriverIoctl.h"><Filter>Header Files\Ark</Filter></ClInclude>
     <ClInclude Include="include\ark\ark_thread_crossview.h"><Filter>Header Files\Ark</Filter></ClInclude>
     <ClInclude Include="src\features\process\process_crossview.h"><Filter>Header Files</Filter></ClInclude>
@@ -1176,5 +1177,8 @@
     <ClInclude Include="..\shared\driver\KswordArkRxPfIoctl.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\features\win32k\window_band.c"><Filter>Source Files\Features\Win32k</Filter></ClCompile>
   </ItemGroup>
 </Project>

@@ -183,6 +183,7 @@ NTSTATUS KswordARKSecurityAuditIoctlQueryDriverTrustView(_In_ WDFDEVICE Device, 
 NTSTATUS KswordARKSecurityAuditIoctlQueryHyperVSummary(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKSecurityAuditIoctlQueryAppControlStatus(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKWin32kIoctlQueryProfileStatus(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
+NTSTATUS KswordARKWindowBandIoctl(WDFDEVICE Device, WDFREQUEST Request, size_t InputBufferLength, size_t OutputBufferLength, size_t* BytesReturned);
 NTSTATUS KswordARKWin32kIoctlQueryWindows(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKWin32kIoctlQueryGuiThreads(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
 NTSTATUS KswordARKWin32kIoctlQueryHotkeysPdb(_In_ WDFDEVICE Device, _In_ WDFREQUEST Request, _In_ size_t InputBufferLength, _In_ size_t OutputBufferLength, _Out_ size_t* BytesReturned);
@@ -393,6 +394,7 @@ static const KSWORD_ARK_IOCTL_ENTRY g_KswordArkIoctlTable[] = {
     { IOCTL_KSWORD_ARK_QUERY_HYPERV_SUMMARY, KswordARKSecurityAuditIoctlQueryHyperVSummary, "IOCTL_KSWORD_ARK_QUERY_HYPERV_SUMMARY", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_QUERY_APP_CONTROL_STATUS, KswordARKSecurityAuditIoctlQueryAppControlStatus, "IOCTL_KSWORD_ARK_QUERY_APP_CONTROL_STATUS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_QUERY_WIN32K_PROFILE_STATUS, KswordARKWin32kIoctlQueryProfileStatus, "IOCTL_KSWORD_ARK_QUERY_WIN32K_PROFILE_STATUS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
+    { IOCTL_KSWORD_ARK_WINDOW_BAND, KswordARKWindowBandIoctl, "IOCTL_KSWORD_ARK_WINDOW_BAND", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_QUERY_WIN32K_WINDOWS, KswordARKWin32kIoctlQueryWindows, "IOCTL_KSWORD_ARK_QUERY_WIN32K_WINDOWS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_QUERY_WIN32K_GUI_THREADS, KswordARKWin32kIoctlQueryGuiThreads, "IOCTL_KSWORD_ARK_QUERY_WIN32K_GUI_THREADS", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },
     { IOCTL_KSWORD_ARK_QUERY_WIN32K_HOTKEYS_PDB, KswordARKWin32kIoctlQueryHotkeysPdb, "IOCTL_KSWORD_ARK_QUERY_WIN32K_HOTKEYS_PDB", KSWORD_ARK_IOCTL_CAPABILITY_NONE, KSWORD_ARK_IOCTL_FLAG_NONE },

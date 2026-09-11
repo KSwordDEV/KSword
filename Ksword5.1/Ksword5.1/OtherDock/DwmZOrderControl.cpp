@@ -114,7 +114,7 @@ namespace ks::dwm_order
                 status_->setWordWrap(true);
                 status_->setTextFormat(Qt::PlainText);
                 status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-                status_->setText(Text("window.dwm_order.disconnected", "请先在“杂项 → DWM / Win32k 注入”中加载 DWM 代理。"));
+                status_->setText(Text("window.dwm_order.disconnected", "请使用本页的“加载 DWM 代理”按钮连接 DWM。"));
                 layout->addWidget(status_);
                 identityOk_ = CaptureWindow(expected.hwnd, identity_, identityError_)
                     && identity_.processId == expected.processId && identity_.threadId == expected.threadId
@@ -136,6 +136,7 @@ namespace ks::dwm_order
             void Busy(bool busy)
             {
                 busy_ = busy;
+                setProperty("ks_window_operation_pending", busy);
                 for (auto* button : {apply_, query_, restore_}) button->setEnabled(!busy);
                 order_->setEnabled(!busy);
                 maintain_->setEnabled(!busy);
@@ -186,7 +187,7 @@ namespace ks::dwm_order
                     Busy(false);
                     QString text = ErrorText(result->response.status);
                     if (result->response.status == Status::NotRunning)
-                        text = Text("window.dwm_order.disconnected", "请先在“杂项 → DWM / Win32k 注入”中加载 DWM 代理。");
+                        text = Text("window.dwm_order.disconnected", "请使用本页的“加载 DWM 代理”按钮连接 DWM。");
                     if (result->response.status == Status::HookConflict && result->stage == Stage::Window)
                         text = Text("window.dwm_order.input_conflict", "请先恢复正在使用的遮挡点击模式，再单独调整画面顺序。");
                     if (result->response.status == Status::TransportFailure && result->stage == Stage::PrepareAgent)

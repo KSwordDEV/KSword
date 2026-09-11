@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <Windows.h>
 #include "../../Ksword5.1/Ksword5.1/OtherDock/WindowInputClient.h"
+#include "../../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.h"
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -15,6 +16,9 @@ namespace
     std::uint64_t maintained = 0;
     int dwmCalls = 0;
     int failures = 0;
+    ULONG fixtureBand = 1;
+    bool kernelFails = false, kernelRestoreFails = false;
+    int kernelCalls = 0;
 
     void Check(bool ok, const char* name)
     {
@@ -68,6 +72,37 @@ namespace
         if (IS_INTRESOURCE(name)) return 1;
         if (std::wstring(name).find(L"KSword.WindowInput.") == 0) RemovePropW(hwnd, name);
         return 1;
+    }
+}
+
+// Deliberate R0 stub: tests never open a driver or mutate kernel memory.
+namespace ksword::ark
+{
+    WindowBandResult DriverClient::controlWindowBand(KSWORD_ARK_WINDOW_BAND_REQUEST q) const
+    {
+        ++kernelCalls;
+        WindowBandResult r;
+        r.io.ok = true;
+        r.response.size = sizeof(r.response);
+        r.response.version = KSWORD_ARK_WINDOW_BAND_VERSION;
+        r.response.flags = KSW_BAND_VERIFIED | KSW_BAND_POSITION_VERIFIED;
+        r.response.previousBand = r.response.currentBand = fixtureBand;
+        r.response.windowObject = q.hwnd ^ 0xA51200000000ULL;
+        if (q.operation == KSW_BAND_SET)
+        {
+            Check(q.confirmation == KSW_BAND_CONFIRMED && q.expectedBand == fixtureBand &&
+                q.expectedObject == r.response.windowObject, "band mutation uses queried identity and expected band");
+            if (kernelFails || (kernelRestoreFails && q.newBand == 1))
+            { r.response.lastStatus = static_cast<LONG>(0xC0000001); r.response.flags = 0; }
+            else
+            {
+                fixtureBand = q.newBand;
+                r.response.currentBand = fixtureBand;
+                SetWindowPos(reinterpret_cast<HWND>(q.hwnd), HWND_TOPMOST, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+        }
+        return r;
     }
 }
 
@@ -159,6 +194,7 @@ int wmain(int argc, wchar_t** argv)
             && color == RGB(1, 2, 3) && alpha == 123 && flags == (LWA_ALPHA | LWA_COLORKEY), "preserve original alpha and color key");
         Check(Apply(ownDc, Mode::ClickThrough, L"").status == Status::UnsupportedWindow, "reject unsupported layered class");
         Check(dwmCalls == 0, "basic input modes do not access DWM");
+        Check(kernelCalls == 0, "basic input modes do not access Win32k");
 
         behavior = DwmBehavior::Missing;
         Check(Apply(normal, Mode::Covered, L"").status == Status::DwmFailure, "covered mode requires preloaded agent");
@@ -190,6 +226,28 @@ int wmain(int argc, wchar_t** argv)
         Check(Apply(child, Mode::Disabled, L"").status == Status::Ok, "prepare restore all disabled child");
         Check(RestoreAll(L"").status == Status::Ok, "restore all input settings");
         Check(IsWindowEnabled(windows.child) && !Query(normal).clickThrough, "restore all readback");
+
+        const int beforeDwm = dwmCalls;
+        Check(Apply(normal, Mode::UiAccessFront, L"").status == Status::Ok && fixtureBand == 2,
+            "native UIAccess front works without a prior enable or probe");
+        Check(QueryBandSupport().status == Status::Ok && fixtureBand == 2, "optional support query does not alter band");
+        Check(dwmCalls == beforeDwm, "native band order does not depend on DWM injection");
+        Check(Query(normal).band == 2, "read native band");
+        kernelRestoreFails = true;
+        Check(Restore(normal, L"").status == Status::RestoreFailed && Query(normal).managed, "retain failed band restore");
+        kernelRestoreFails = false;
+        Check(Restore(normal, L"").status == Status::Ok && fixtureBand == 1, "restore original band");
+        Check(!(GetWindowLongPtrW(windows.normal, GWL_EXSTYLE) & WS_EX_TOPMOST), "restore original native topmost after band restore");
+        behavior = DwmBehavior::ApplyFailure;
+        Check(Apply(normal, Mode::UiAccessCovered, L"").status == Status::DwmFailure && fixtureBand == 1,
+            "failed compositor mode rolls back native band");
+        behavior = DwmBehavior::Ready;
+        Check(Apply(normal, Mode::UiAccessBack, L"").status == Status::Ok, "UIAccess band back");
+        Check(RestoreAll(L"").status == Status::Ok && fixtureBand == 1, "global restore includes native band");
+        kernelFails = true;
+        Check(Apply(normal, Mode::UiAccessFront, L"").status == Status::RestoreFailed, "kernel errors never report success");
+        kernelFails = false;
+        Check(RestoreAll(L"").status == Status::Ok, "retry recovery after kernel failure");
     }
     PostThreadMessageW(process.dwThreadId, WM_QUIT, 0, 0);
     if (WaitForSingleObject(process.hProcess, 5000) != WAIT_OBJECT_0) TerminateProcess(process.hProcess, 4);

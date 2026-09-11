@@ -519,6 +519,7 @@
     <QtUic Include="WelcomeDock\Welcome.ui" />
     <ClCompile Include="ArkDriverClient\ArkDriverClient.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverAudit.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkDriverWindowBand.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverNetworkTraffic.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverStorageForensics.cpp" />
     <ClCompile Include="ArkDriverClient\ArkDriverError.cpp" />

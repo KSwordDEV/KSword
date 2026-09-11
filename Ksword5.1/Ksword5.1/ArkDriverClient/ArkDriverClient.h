@@ -28,6 +28,7 @@ namespace ksword::ark
     class DriverClient
     {
     public:
+        WindowBandResult controlWindowBand(KSWORD_ARK_WINDOW_BAND_REQUEST request) const;
         // setR0UnavailableHandler：
         // - 为整个 R0 客户端注册一个“控制设备不存在”的 UI 通知入口；
         // - handler 可能从工作线程调用，接收方必须自行切回 UI 线程；

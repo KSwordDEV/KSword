@@ -4,11 +4,11 @@
 
 namespace ks::window_input
 {
-    enum class Mode { Unchanged, Disabled, ClickThrough, Covered };
+    enum class Mode { Unchanged, Disabled, ClickThrough, Covered, UiAccessFront, UiAccessBack, UiAccessCovered };
     enum class Status
     {
         Ok, InvalidWindow, SelfWindow, UnsupportedWindow, NativeFailure,
-        DwmFailure, OrderInUse, RestoreFailed, LimitReached, OrderChanged
+        DwmFailure, OrderInUse, RestoreFailed, LimitReached, OrderChanged, KernelFailure
     };
     struct Result
     {
@@ -20,6 +20,9 @@ namespace ks::window_input
         bool managed = false;
         bool restored = false;
         bool dwmAttempted = false;
+        bool kernelAttempted = false;
+        std::int32_t kernelStatus = 0;
+        std::uint32_t band = 0;
         Mode mode = Mode::Unchanged;
         dwm_order::Reply dwm;
     };
@@ -31,4 +34,5 @@ namespace ks::window_input
     Result Restore(const dwm_order::WindowIdentity& identity, const std::wstring& agentPath);
     Result RestoreAll(const std::wstring& agentPath);
     bool HasCoveredWindow();
+    Result QueryBandSupport();
 }

@@ -39,6 +39,7 @@
 #include "../../../shared/driver/KswordArkSecurityAuditIoctl.h"
 #include "../../../shared/driver/KswordArkTrustIoctl.h"
 #include "../../../shared/driver/KswordArkWin32kIoctl.h"
+#include "../../../shared/driver/KswordArkWindowBandIoctl.h"
 #include "../../../shared/driver/KswordArkDeviceAuditIoctl.h"
 #include "../../../shared/driver/KswordArkPlatformAuditIoctl.h"
 #include "../../../shared/driver/KswordArkI8042AuditIoctl.h"
@@ -67,6 +68,12 @@ namespace ksword::ark
         long ntStatus = 0;
         std::string message;
         unsigned long bytesReturned = 0;
+    };
+
+    struct WindowBandResult
+    {
+        IoResult io;
+        KSWORD_ARK_WINDOW_BAND_RESPONSE response{};
     };
 
     // ResearchTopicQueryResult：保留《第二规划》专题的 R0 现场上下文

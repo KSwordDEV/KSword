@@ -27,6 +27,7 @@
 #include "driver/KswordArkNetworkIoctl.h"
 #include "driver/KswordArkKeyboardIoctl.h"
 #include "driver/KswordArkWin32kIoctl.h"
+#include "driver/KswordArkWindowBandIoctl.h"
 #include "driver/KswordArkStorageIoctl.h"
 #include "driver/KswordArkStorageForensicsIoctl.h"
 #include "driver/KswordArkKernelBaselineIoctl.h"

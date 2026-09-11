@@ -15,6 +15,7 @@ Environment:
 --*/
 
 #include "ark/ark_driver.h"
+#include "driver/KswordArkWindowBandIoctl.h"
 #include "io_queue.tmh"
 
 #ifdef ALLOC_PRAGMA
@@ -90,8 +91,8 @@ KswordARKDriverEvtIoInCallerContext(
     WDF_REQUEST_PARAMETERS_INIT(&parameters);
     WdfRequestGetParameters(Request, &parameters);
     if (parameters.Type == WdfRequestTypeDeviceControl &&
-        parameters.Parameters.DeviceIoControl.IoControlCode ==
-            IOCTL_KSWORD_ARK_MUTATE_KEYBOARD_HOTKEY) {
+        (parameters.Parameters.DeviceIoControl.IoControlCode == IOCTL_KSWORD_ARK_MUTATE_KEYBOARD_HOTKEY ||
+         parameters.Parameters.DeviceIoControl.IoControlCode == IOCTL_KSWORD_ARK_WINDOW_BAND)) {
         KswordARKDriverDispatchDeviceControl(
             Device,
             WDF_NO_HANDLE,

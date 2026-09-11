@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <Windows.h>
+#include "../ArkDriverClient/ArkDriverClient.h"
 #include <map>
 
 namespace ks::window_input
@@ -20,9 +21,43 @@ namespace ks::window_input
             bool changedTopmost = false;
             bool changedDwm = false;
             bool layerAttributesInitialized = false;
+            std::uint32_t originalBand = 0;
+            std::uint64_t windowObject = 0;
+            bool changedBand = false;
         };
         std::map<std::uint64_t, Saved> savedWindows;
         std::uintptr_t nextCookie = 0;
+
+        bool CrossBand(Mode mode)
+        { return mode == Mode::UiAccessFront || mode == Mode::UiAccessBack || mode == Mode::UiAccessCovered; }
+        bool Covered(Mode mode) { return mode == Mode::Covered || mode == Mode::UiAccessCovered; }
+
+        ksword::ark::WindowBandResult BandCall(const dwm_order::WindowIdentity& identity,
+            ULONG operation, ULONG expected = 0, ULONG desired = 0, ULONG position = KSW_BAND_TOP,
+            std::uint64_t object = 0)
+        {
+            KSWORD_ARK_WINDOW_BAND_REQUEST request{};
+            request.operation = operation;
+            request.hwnd = identity.hwnd;
+            request.processId = identity.processId;
+            request.threadId = identity.threadId;
+            request.processCreated = identity.processCreated;
+            request.expectedBand = expected;
+            request.newBand = desired;
+            request.position = position;
+            request.expectedObject = object;
+            if (operation == KSW_BAND_SET) request.confirmation = KSW_BAND_CONFIRMED;
+            return ksword::ark::DriverClient().controlWindowBand(request);
+        }
+
+        bool BandReceipt(const ksword::ark::WindowBandResult& reply, Result& result)
+        {
+            result.kernelAttempted = true;
+            result.kernelStatus = reply.response.lastStatus;
+            result.band = reply.response.currentBand;
+            if (!reply.io.ok) result.error = reply.io.win32Error;
+            return reply.io.ok && reply.response.lastStatus >= 0 && (reply.response.flags & KSW_BAND_VERIFIED);
+        }
 
         const wchar_t* PropertyName()
         {
@@ -126,6 +161,14 @@ namespace ks::window_input
         {
             if (!Alive(saved)) return true; // Do not touch a replacement window.
             const HWND hwnd = Window(saved.identity);
+            if (saved.changedBand)
+            {
+                auto current = BandCall(saved.identity, KSW_BAND_QUERY);
+                if (!BandReceipt(current, result) || current.response.windowObject != saved.windowObject) return false;
+                if (!BandReceipt(BandCall(saved.identity, KSW_BAND_SET, current.response.currentBand,
+                    saved.originalBand, KSW_BAND_TOP, saved.windowObject), result)) return false;
+                saved.changedBand = false;
+            }
             if (saved.changedTopmost)
             {
                 if (!SetTopmost(hwnd, (saved.originalExStyle & WS_EX_TOPMOST) != 0, result.error)) return false;
@@ -202,7 +245,14 @@ namespace ks::window_input
         const std::lock_guard<std::recursive_mutex> lock(dwm_order::OperationMutex());
         Prune();
         Result result = ReadState(identity);
-        if (result.status == Status::Ok && result.managed && result.mode == Mode::Covered)
+        if (result.status == Status::Ok && result.managed && CrossBand(result.mode))
+        {
+            auto reply = BandCall(identity, KSW_BAND_QUERY, 0, 0,
+                result.mode == Mode::UiAccessBack ? KSW_BAND_BOTTOM : KSW_BAND_TOP);
+            if (!BandReceipt(reply, result)) result.status = Status::KernelFailure;
+            else if (result.band != 2 || !(reply.response.flags & KSW_BAND_POSITION_VERIFIED)) result.status = Status::OrderChanged;
+        }
+        if (result.status == Status::Ok && result.managed && Covered(result.mode))
         {
             dwm_order::Request request;
             request.target = identity;
@@ -246,6 +296,8 @@ namespace ks::window_input
         Result result = ReadState(identity);
         if (result.status != Status::Ok) return result;
         if (identity.processId == GetCurrentProcessId()) { result.status = Status::SelfWindow; return result; }
+        if (mode < Mode::Unchanged || mode > Mode::UiAccessCovered)
+        { result.status = Status::UnsupportedWindow; return result; }
         if (mode == Mode::Unchanged) return Restore(identity, agentPath);
         if (result.managed)
         {
@@ -263,12 +315,22 @@ namespace ks::window_input
         if (mode == Mode::ClickThrough && !(saved.originalExStyle & WS_EX_LAYERED)
             && (GetClassLongPtrW(hwnd, GCL_STYLE) & (CS_OWNDC | CS_CLASSDC)))
         { result.status = Status::UnsupportedWindow; return result; }
-        if (mode == Mode::Covered)
+        if (Covered(mode) || CrossBand(mode))
         {
             if (GetAncestor(hwnd, GA_ROOT) != hwnd || GetWindow(hwnd, GW_OWNER)
                 || !result.enabled || (saved.originalExStyle & WS_EX_TRANSPARENT)
                 || !IsWindowVisible(hwnd) || IsIconic(hwnd))
             { result.status = Status::UnsupportedWindow; return result; }
+        }
+        if (CrossBand(mode))
+        {
+            auto reply = BandCall(identity, KSW_BAND_QUERY);
+            if (!BandReceipt(reply, result)) { result.status = Status::KernelFailure; return result; }
+            saved.originalBand = reply.response.currentBand;
+            saved.windowObject = reply.response.windowObject;
+        }
+        if (Covered(mode))
+        {
             dwm_order::Request request;
             request.target = identity;
             result.dwmAttempted = true;
@@ -303,11 +365,23 @@ namespace ks::window_input
                 if (!ok) result.error = GetLastError();
             }
         }
-        else if (mode == Mode::Covered)
+        else if (Covered(mode) || CrossBand(mode))
         {
-            record.changedTopmost = (record.originalExStyle & WS_EX_TOPMOST) == 0;
-            ok = SetTopmost(hwnd, true, result.error);
-            if (ok)
+            if (CrossBand(mode))
+            {
+                // Keep recovery even if transport fails after R0 has committed.
+                record.changedBand = true;
+                record.changedTopmost = true;
+                ok = BandReceipt(BandCall(identity, KSW_BAND_SET, record.originalBand, 2,
+                    mode == Mode::UiAccessBack ? KSW_BAND_BOTTOM : KSW_BAND_TOP, record.windowObject), result);
+                if (!ok) result.status = Status::KernelFailure;
+            }
+            else
+            {
+                record.changedTopmost = (record.originalExStyle & WS_EX_TOPMOST) == 0;
+                ok = SetTopmost(hwnd, true, result.error);
+            }
+            if (ok && Covered(mode))
             {
                 dwm_order::Request request;
                 request.action = dwm_order::Action::Apply;
@@ -330,7 +404,13 @@ namespace ks::window_input
             if (current.status == Status::Ok
                 && (mode != Mode::Disabled || !current.enabled)
                 && (mode != Mode::ClickThrough || current.clickThrough)
-                && (mode != Mode::Covered || current.topmost)) return current;
+                && (!Covered(mode) || current.topmost))
+            {
+                current.kernelAttempted = result.kernelAttempted;
+                current.kernelStatus = result.kernelStatus;
+                current.band = result.band;
+                return current;
+            }
         }
         if (result.status == Status::Ok) result.status = Status::NativeFailure;
         Result rollback;
@@ -340,6 +420,7 @@ namespace ks::window_input
             result.status = Status::RestoreFailed;
             result.error = rollback.error;
             if (rollback.dwmAttempted) { result.dwm = rollback.dwm; result.dwmAttempted = true; }
+            if (rollback.kernelAttempted) { result.kernelStatus = rollback.kernelStatus; result.kernelAttempted = true; }
         }
         return result;
     }
@@ -360,6 +441,14 @@ namespace ks::window_input
             }
         }
         return firstFailure;
+    }
+
+    Result QueryBandSupport()
+    {
+        const std::lock_guard<std::recursive_mutex> lock(dwm_order::OperationMutex());
+        Result result;
+        if (!BandReceipt(BandCall({}, KSW_BAND_PROBE), result)) result.status = Status::KernelFailure;
+        return result;
     }
 
     bool HasCoveredWindow()
