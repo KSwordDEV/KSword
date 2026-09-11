@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup><Filter Include="Source Files" /><Filter Include="Header Files" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="WindowInputTests.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="..\..\Ksword5.1\Ksword5.1\OtherDock\WindowInputClient.cpp"><Filter>Source Files</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup><ClInclude Include="..\..\Ksword5.1\Ksword5.1\OtherDock\WindowInputClient.h"><Filter>Header Files</Filter></ClInclude></ItemGroup>
+</Project>

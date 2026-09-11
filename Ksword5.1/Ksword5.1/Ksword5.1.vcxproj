@@ -378,6 +378,8 @@
     <ClCompile Include="OtherDock\DwmZOrderClient.cpp" />
     <ClCompile Include="OtherDock\DwmAgentDeployment.cpp" />
     <ClCompile Include="OtherDock\DwmZOrderControl.cpp" />
+    <ClCompile Include="OtherDock\WindowInputClient.cpp" />
+    <ClCompile Include="OtherDock\WindowInputControl.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeDock.cpp" />
     <ClCompile Include="RegistryDock_Themed.cpp" />
     <ClCompile Include="RegistryDock\RegistryOptimizationPage.cpp" />
@@ -769,6 +771,8 @@
     <ClInclude Include="OtherDock\DwmAgentDeployment.h" />
     <ClInclude Include="..\..\shared\window\DwmProcessIdentity.h" />
     <ClInclude Include="OtherDock\DwmZOrderControl.h" />
+    <ClInclude Include="OtherDock\WindowInputClient.h" />
+    <ClInclude Include="OtherDock\WindowInputControl.h" />
     <ClInclude Include="..\..\shared\window\DwmZOrderProtocol.h" />
     <ClInclude Include="..\..\shared\window\DwmRemoteLoader.h" />
     <QtMoc Include="PrivilegeDock\PrivilegeDock.h" />

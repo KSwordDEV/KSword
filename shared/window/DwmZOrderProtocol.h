@@ -5,9 +5,9 @@
 
 namespace ks::dwm_order
 {
-    inline constexpr std::uint32_t kProtocolVersion = 2;
+    inline constexpr std::uint32_t kProtocolVersion = 3;
     inline constexpr std::uint32_t kMagic = 0x4f5a5744;
-    enum class Action : std::uint32_t { Query, Apply, Restore, Stop };
+    enum class Action : std::uint32_t { Query, Apply, Restore, Stop, Connect };
     enum class Position : std::uint32_t { Front, Back, Before, After };
     enum class Status : std::uint32_t
     {

@@ -16,6 +16,7 @@
 #include "../MinidumpDock/MinidumpDock.h"
 #include "../ScannerDock/ScannerDock.h"
 #include "../PluginHost.h"
+#include "../OtherDock/WindowInputControl.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include <QIcon>
@@ -77,6 +78,7 @@ void MiscDock::initializeUi()
     m_applicationControlHostWidget = new QWidget(m_mainTabWidget);
     m_renderBenchmarkHostWidget = new QWidget(m_mainTabWidget);
     m_desktopDrawingHostWidget = new QWidget(m_mainTabWidget);
+    m_windowInjectionHostWidget = new QWidget(m_mainTabWidget);
     m_scannerHostWidget = new QWidget(m_mainTabWidget);
     m_minidumpHostWidget = new QWidget(m_mainTabWidget);
     m_pluginHostWidget = new QWidget(m_mainTabWidget);
@@ -192,6 +194,11 @@ void MiscDock::initializeUi()
         m_desktopDrawingHostWidget,
         QStringLiteral("misc.desktop_drawing.tab"),
         QStringLiteral("桌面绘制"));
+
+    m_windowInjectionTabIndex = m_mainTabWidget->addTab(
+        m_windowInjectionHostWidget, QStringLiteral("DWM / Win32k 注入"));
+    ks::i18n::LanguageManager::instance().bindTab(m_mainTabWidget,
+        m_windowInjectionHostWidget, QStringLiteral("misc.window_injection.tab"), QStringLiteral("DWM / Win32k 注入"));
 
     // 以下三页原本是顶层 Dock，为精简 dock 栏入口并入杂项：
     // - 页签顺序沿用它们在原 dock 栏中的相对先后（扫描器 -> 转储分析 -> 插件）；
@@ -311,6 +318,11 @@ void MiscDock::ensureTabInitialized(const int tabIndex)
     if (tabIndex == m_desktopDrawingTabIndex)
     {
         initializeDesktopDrawingPage();
+        return;
+    }
+    if (tabIndex == m_windowInjectionTabIndex)
+    {
+        initializeWindowInjectionPage();
         return;
     }
     if (tabIndex == m_scannerTabIndex)
@@ -515,6 +527,14 @@ void MiscDock::initializeScannerPage()
     QVBoxLayout* const hostLayout = buildHostLayout(m_scannerHostWidget);
     m_scannerPage = new ScannerDock(m_scannerHostWidget);
     hostLayout->addWidget(m_scannerPage, 1);
+}
+
+void MiscDock::initializeWindowInjectionPage()
+{
+    if (!m_windowInjectionHostWidget || m_windowInjectionPage) return;
+    auto* layout = buildHostLayout(m_windowInjectionHostWidget);
+    m_windowInjectionPage = ks::window_input::CreateInjectionPage(m_windowInjectionHostWidget);
+    layout->addWidget(m_windowInjectionPage);
 }
 
 void MiscDock::initializeMinidumpPage()

@@ -186,7 +186,7 @@ namespace
                     else if (job->work == Work::Request)
                     {
                         job->operation.time = standalone::Timestamp();
-                        job->operation.reply = ExecuteRequest(job->operation.request, (standalone::ExecutableDirectory() / L"KswordDwmZOrder.dll").wstring());
+                        job->operation.reply = ExecuteRequest(job->operation.request, (standalone::ExecutableDirectory() / L"KswordDwmZOrder.dll").wstring(), true);
                     }
                     else job->destination = standalone::SaveReport(job->destination, job->diagnostic, job->history,
                         job->observation, job->notes, job->includeImage);

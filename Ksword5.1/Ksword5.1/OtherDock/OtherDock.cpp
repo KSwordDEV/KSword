@@ -16,6 +16,7 @@
 #include "../ProcessDock/ProcessDetailWindow.h"
 #include "../OnlineScan/SandboxUploadActions.h"
 #include "WindowCaptureProtection.h"
+#include "WindowInputControl.h"
 #include "../theme.h"
 #include "../UI/CodeEditorWidget.h"
 
@@ -232,7 +233,7 @@ namespace
             { "WS_EX_STATICEDGE", static_cast<quint64>(WS_EX_STATICEDGE), "三维静态边框样式。" },
             { "WS_EX_TOOLWINDOW", static_cast<quint64>(WS_EX_TOOLWINDOW), "工具窗口样式（小标题栏、通常不在任务栏）。" },
             { "WS_EX_TOPMOST", static_cast<quint64>(WS_EX_TOPMOST), "窗口保持置顶层级。" },
-            { "WS_EX_TRANSPARENT", static_cast<quint64>(WS_EX_TRANSPARENT), "命中测试先让同线程下层窗口处理。" },
+            { "WS_EX_TRANSPARENT", static_cast<quint64>(WS_EX_TRANSPARENT), "通常影响同线程窗口绘制顺序；与 WS_EX_LAYERED 组合时可让鼠标点击穿透。" },
             { "WS_EX_WINDOWEDGE", static_cast<quint64>(WS_EX_WINDOWEDGE), "窗口外框使用凸起边缘效果。" }
         };
         return kExStyleDefinitionList;
@@ -1809,6 +1810,14 @@ private:
         ks::i18n::LanguageManager::instance().bindTab(
             m_tabWidget, advancedPage, QStringLiteral("window.detail.tab.advanced"), QStringLiteral("高级属性"));
 
+        const ks::dwm_order::WindowIdentity inputIdentity{m_info.hwndValue,
+            m_info.processId, m_info.threadId, m_info.processCreationTime100ns};
+        auto* inputPage = ks::window_input::CreateControl(inputIdentity, m_tabWidget);
+        inputPage->setObjectName(QStringLiteral("ks_window_input_page"));
+        m_tabWidget->addTab(inputPage, QStringLiteral("窗口输入与顺序"));
+        ks::i18n::LanguageManager::instance().bindTab(m_tabWidget, inputPage,
+            QStringLiteral("window.input.tab"), QStringLiteral("窗口输入与顺序"));
+
         // ==================== 底部按钮 ====================
         QHBoxLayout* buttonLayout = new QHBoxLayout();
         rootLayout->addLayout(buttonLayout);
@@ -3163,6 +3172,17 @@ void OtherDock::initializeUi()
     m_windowListToolLayout->addWidget(m_windowPickerButton, 0);
     m_windowListToolLayout->addWidget(m_protectCaptureButton, 0);
     m_windowListToolLayout->addWidget(m_unprotectCaptureButton, 0);
+    auto* inputButton = new QPushButton(m_windowListToolWidget);
+    ks::i18n::LanguageManager::instance().bindText(inputButton,
+        QStringLiteral("window.input.tab"), QStringLiteral("窗口输入与顺序"));
+    m_windowListToolLayout->addWidget(inputButton);
+    connect(inputButton, &QPushButton::clicked, this, [this]
+    {
+        const auto* item = m_windowTree->currentItem();
+        if (!item || item->data(0, Qt::UserRole + 1).toBool()) return;
+        const auto* selected = findInfoByHwnd(item->data(0, Qt::UserRole).toULongLong());
+        if (selected) openWindowDetailDialog(*selected, true);
+    });
     m_windowListToolLayout->addWidget(m_windowPickerHintLabel, 0);
     m_windowListToolLayout->addStretch(1);
     m_windowListPageLayout->addWidget(m_windowListToolWidget, 0);
@@ -4324,6 +4344,9 @@ void OtherDock::showWindowContextMenu(const QPoint& localPos)
     QAction* topMostAction = menu.addAction(QIcon(":/Icon/process_priority.svg"), QStringLiteral("置顶/取消置顶"));
     QAction* showHideAction = menu.addAction(QIcon(":/Icon/process_pause.svg"), QStringLiteral("显示/隐藏"));
     QAction* enableDisableAction = menu.addAction(QIcon(":/Icon/process_suspend.svg"), QStringLiteral("启用/禁用"));
+    const WindowInfo inputSnapshot = *windowInfo;
+    QAction* inputAction = menu.addAction(ks::i18n::text(
+        QStringLiteral("window.input.tab"), QStringLiteral("窗口输入与顺序")));
     QAction* flashAction = menu.addAction(QIcon(":/Icon/window_picker_target.svg"), QStringLiteral("闪烁窗口"));
     QAction* protectCaptureAction = menu.addAction(QIcon(":/Icon/titlebar_capture_protected.svg"), QStringLiteral("启用防截图保护"));
     QAction* unprotectCaptureAction = menu.addAction(QIcon(":/Icon/titlebar_capture_allowed.svg"), QStringLiteral("取消防截图保护"));
@@ -4365,8 +4388,12 @@ void OtherDock::showWindowContextMenu(const QPoint& localPos)
         return;
     }
 
+    if (selectedAction == inputAction)
+    {
+        openWindowDetailDialog(inputSnapshot, true);
+        return;
+    }
     HWND windowHandle = toHwnd(windowInfo->hwndValue);
-
     if (selectedAction == activateAction)
     {
         kLogEvent event;
@@ -4623,7 +4650,7 @@ void OtherDock::exportVisibleRowsToTsv()
     QMessageBox::information(this, QStringLiteral("导出窗口列表"), QStringLiteral("导出完成：%1").arg(outputPath));
 }
 
-void OtherDock::openWindowDetailDialog(const WindowInfo& windowInfo)
+void OtherDock::openWindowDetailDialog(const WindowInfo& windowInfo, bool inputSettings)
 {
     kLogEvent event;
     info << event
@@ -4634,6 +4661,12 @@ void OtherDock::openWindowDetailDialog(const WindowInfo& windowInfo)
         << eol;
 
     WindowDetailDialog* dialog = new WindowDetailDialog(windowInfo, this);
+    if (inputSettings)
+    {
+        auto* page = dialog->findChild<QWidget*>(QStringLiteral("ks_window_input_page"));
+        for (auto* tabs : dialog->findChildren<QTabWidget*>())
+            if (page && tabs->indexOf(page) >= 0) tabs->setCurrentWidget(page);
+    }
     dialog->show();
     dialog->raise();
     dialog->activateWindow();

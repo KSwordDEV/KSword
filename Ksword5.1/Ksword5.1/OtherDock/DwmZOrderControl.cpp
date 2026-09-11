@@ -1,5 +1,6 @@
 #include "DwmZOrderControl.h"
 #include "DwmZOrderClient.h"
+#include "WindowInputClient.h"
 #include "../Internationalization/LanguageManager.h"
 #include <QCheckBox>
 #include <QComboBox>
@@ -62,9 +63,9 @@ namespace ks::dwm_order
         class Control final : public QGroupBox
         {
         public:
-            Control(std::uint64_t hwnd, QWidget* parent) : QGroupBox(parent)
+            Control(const WindowIdentity& expected, QWidget* parent) : QGroupBox(parent)
             {
-                Bind(this, "window.dwm_order.title", "注入 DWM 调整窗口序列");
+                Bind(this, "window.dwm_order.title", "画面遮挡顺序");
                 auto* layout = new QVBoxLayout(this);
                 auto* hint = new QLabel(this);
                 hint->setWordWrap(true);
@@ -103,26 +104,25 @@ namespace ks::dwm_order
                 layout->addWidget(maintain_);
                 auto* actions = new QGridLayout;
                 apply_ = MakeButton("window.dwm_order.apply", "应用 DWM 顺序");
-                query_ = MakeButton("window.dwm_order.query", "连接并读取顺序");
+                query_ = MakeButton("window.dwm_order.query", "读取画面顺序");
                 restore_ = MakeButton("window.dwm_order.restore", "恢复系统顺序");
-                stop_ = MakeButton("window.dwm_order.stop", "停止全部保持并恢复");
                 actions->addWidget(apply_, 0, 0);
                 actions->addWidget(query_, 0, 1);
                 actions->addWidget(restore_, 1, 0);
-                actions->addWidget(stop_, 1, 1);
                 layout->addLayout(actions);
                 status_ = new QLabel(this);
                 status_->setWordWrap(true);
                 status_->setTextFormat(Qt::PlainText);
                 status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-                status_->setText(Text("window.dwm_order.disconnected", "尚未连接 DWM；操作时将加载排序代理。"));
+                status_->setText(Text("window.dwm_order.disconnected", "请先在“杂项 → DWM / Win32k 注入”中加载 DWM 代理。"));
                 layout->addWidget(status_);
-                identityOk_ = CaptureWindow(hwnd, identity_, identityError_);
+                identityOk_ = CaptureWindow(expected.hwnd, identity_, identityError_)
+                    && identity_.processId == expected.processId && identity_.threadId == expected.threadId
+                    && identity_.processCreated == expected.processCreated;
                 connect(order_, &QComboBox::currentIndexChanged, this, [this] { reference_->setEnabled(!busy_ && order_->currentIndex() >= 2); });
                 connect(apply_, &QPushButton::clicked, this, [this] { Start(Action::Apply); });
                 connect(query_, &QPushButton::clicked, this, [this] { Start(Action::Query); });
                 connect(restore_, &QPushButton::clicked, this, [this] { Start(Action::Restore); });
-                connect(stop_, &QPushButton::clicked, this, [this] { Start(Action::Stop); });
             }
 
         private:
@@ -136,7 +136,7 @@ namespace ks::dwm_order
             void Busy(bool busy)
             {
                 busy_ = busy;
-                for (auto* button : {apply_, query_, restore_, stop_}) button->setEnabled(!busy);
+                for (auto* button : {apply_, query_, restore_}) button->setEnabled(!busy);
                 order_->setEnabled(!busy);
                 maintain_->setEnabled(!busy);
                 reference_->setEnabled(!busy && order_->currentIndex() >= 2);
@@ -172,13 +172,23 @@ namespace ks::dwm_order
                 auto result = std::make_shared<Reply>();
                 auto* worker = QThread::create([request, dll, result]
                 {
-                    try { *result = ExecuteRequest(request, dll); }
+                    try
+                    {
+                        const std::lock_guard<std::recursive_mutex> lock(OperationMutex());
+                        if (request.action != Action::Query && ks::window_input::HasCoveredWindow())
+                        { result->response.status = Status::HookConflict; return; }
+                        *result = ExecuteRequest(request, dll);
+                    }
                     catch (...) { result->response.status = Status::InternalException; }
                 });
                 connect(worker, &QThread::finished, this, [this, result]
                 {
                     Busy(false);
                     QString text = ErrorText(result->response.status);
+                    if (result->response.status == Status::NotRunning)
+                        text = Text("window.dwm_order.disconnected", "请先在“杂项 → DWM / Win32k 注入”中加载 DWM 代理。");
+                    if (result->response.status == Status::HookConflict && result->stage == Stage::Window)
+                        text = Text("window.dwm_order.input_conflict", "请先恢复正在使用的遮挡点击模式，再单独调整画面顺序。");
                     if (result->response.status == Status::TransportFailure && result->stage == Stage::PrepareAgent)
                         text = Text("window.dwm_order.prepare_failure", "DWM 已打开，但未能准备代理副本或授予读取权限。");
                     if (result->response.status == Status::TransportFailure && result->stage == Stage::LoadAgent)
@@ -190,9 +200,8 @@ namespace ks::dwm_order
                         if (result->response.flags & Restored)
                             text = Text("window.dwm_order.restored", "已恢复 Windows 当前顺序，并停止对应的持续保持。");
                         if (result->response.windowCount)
-                            text += QStringLiteral("\n") + Text("window.dwm_order.state", "DWM 合成位置：%1 / %2（1 为最前）；Band：%3；上方窗口：0x%4；下方窗口：0x%5。")
-                                .arg(result->response.index + 1).arg(result->response.windowCount).arg(result->response.band)
-                                .arg(result->response.previous, 0, 16).arg(result->response.next, 0, 16);
+                            text += QStringLiteral("\n") + Text("window.dwm_order.state", "画面从前到后排第 %1 位。DWM 共跟踪 %2 个窗口节点，其中包含不可见窗口；这个数字不是屏幕上的窗口数。")
+                                .arg(result->response.index + 1).arg(result->response.windowCount);
                     }
                     else
                     {
@@ -231,10 +240,27 @@ namespace ks::dwm_order
             QPushButton* apply_ = nullptr;
             QPushButton* query_ = nullptr;
             QPushButton* restore_ = nullptr;
-            QPushButton* stop_ = nullptr;
             QLabel* status_ = nullptr;
         };
     }
 
-    QWidget* CreateControl(std::uint64_t hwnd, QWidget* parent) { return new Control(hwnd, parent); }
+    QWidget* CreateControl(const WindowIdentity& identity, QWidget* parent) { return new Control(identity, parent); }
+
+    QString ErrorDescription(const Reply& reply)
+    {
+        QString text = ErrorText(reply.response.status);
+        if (reply.error)
+            text += QLatin1Char('\n') + Text("window.dwm_order.error_detail", "%1；Win32 %2。")
+                .arg(StageText(reply.stage)).arg(reply.error);
+        if (reply.response.nativeResult)
+            text += QLatin1Char('\n') + Text("window.dwm_order.error_hresult", "DWM 调用 HRESULT：0x%1。")
+                .arg(static_cast<std::uint32_t>(reply.response.nativeResult), 8, 16, QLatin1Char('0'));
+        if (reply.loaderThreadExitCode)
+            text += QLatin1Char('\n') + Text("window.dwm_order.loader_thread", "加载线程退出码：0x%1。")
+                .arg(reply.loaderThreadExitCode, 8, 16, QLatin1Char('0'));
+        if (reply.requestThreadExitCode)
+            text += QLatin1Char('\n') + Text("window.dwm_order.request_thread", "排序线程退出码：0x%1。")
+                .arg(reply.requestThreadExitCode, 8, 16, QLatin1Char('0'));
+        return text;
+    }
 }

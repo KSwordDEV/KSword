@@ -82,6 +82,7 @@ private:
     void initializeApplicationControlPage();
     void initializeRenderBenchmarkPage();
     void initializeDesktopDrawingPage();
+    void initializeWindowInjectionPage();
     void initializeScannerPage();
     void initializeMinidumpPage();
     void initializePluginPage();
@@ -110,6 +111,7 @@ private:
     QWidget* m_applicationControlHostWidget = nullptr;  // m_applicationControlHostWidget：应用控制页占位控件。
     QWidget* m_renderBenchmarkHostWidget = nullptr;     // m_renderBenchmarkHostWidget：渲染基准页占位控件。
     QWidget* m_desktopDrawingHostWidget = nullptr;      // 屏幕直接绘制页占位控件。
+    QWidget* m_windowInjectionHostWidget = nullptr;
     QWidget* m_scannerHostWidget = nullptr;             // m_scannerHostWidget：扫描器页占位控件。
     QWidget* m_minidumpHostWidget = nullptr;            // m_minidumpHostWidget：转储分析页占位控件。
     QWidget* m_pluginHostWidget = nullptr;              // m_pluginHostWidget：插件页占位控件。
@@ -126,6 +128,7 @@ private:
     int m_applicationControlTabIndex = -1;  // m_applicationControlTabIndex：应用控制页页签索引。
     int m_renderBenchmarkTabIndex = -1;     // m_renderBenchmarkTabIndex：渲染基准页页签索引。
     int m_desktopDrawingTabIndex = -1;      // 屏幕直接绘制页页签索引。
+    int m_windowInjectionTabIndex = -1;
     int m_scannerTabIndex = -1;             // m_scannerTabIndex：扫描器页页签索引。
     int m_minidumpTabIndex = -1;            // m_minidumpTabIndex：转储分析页页签索引。
     int m_pluginTabIndex = -1;              // m_pluginTabIndex：插件页页签索引。
@@ -143,6 +146,7 @@ private:
     ks::misc::DisableDsePage* m_disableDsePage = nullptr; // m_disableDsePage：驱动签名强制（DSE）开关页。
     ks::misc::RenderBenchmarkPage* m_renderBenchmarkPage = nullptr; // m_renderBenchmarkPage：窗口渲染与 DWM 合成基准页。
     ks::misc::DesktopDrawingPage* m_desktopDrawingPage = nullptr; // 无绘制窗口的桌面图案控制页。
+    QWidget* m_windowInjectionPage = nullptr;
     ScannerDock* m_scannerPage = nullptr;   // m_scannerPage：PE/ELF/Mach-O 扫描与安全编辑页。
     MinidumpDock* m_minidumpPage = nullptr; // m_minidumpPage：崩溃转储分析页。
     QWidget* m_pluginPage = nullptr;        // m_pluginPage：进程隔离 Tab 插件宿主容器。

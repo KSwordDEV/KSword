@@ -2,6 +2,7 @@
 
 #include "../../../shared/window/DwmZOrderProtocol.h"
 #include <string>
+#include <mutex>
 
 namespace ks::dwm_order
 {
@@ -17,5 +18,7 @@ namespace ks::dwm_order
     };
 
     bool CaptureWindow(std::uint64_t hwnd, WindowIdentity& identity, std::uint32_t& error);
-    Reply ExecuteRequest(const Request& request, const std::wstring& agentPath);
+    // All window-order transactions share this lock, including input-mode rollback.
+    std::recursive_mutex& OperationMutex();
+    Reply ExecuteRequest(const Request& request, const std::wstring& agentPath, bool allowLoad = false);
 }

@@ -152,7 +152,7 @@ private:
     // ===================== 交互操作 ======================
     void showWindowContextMenu(const QPoint& localPos);
     void exportVisibleRowsToTsv();
-    void openWindowDetailDialog(const WindowInfo& info);
+    void openWindowDetailDialog(const WindowInfo& info, bool inputSettings = false);
     const WindowInfo* findInfoByHwnd(quint64 hwndValue) const;
     // setCaptureProtectionForSelectedWindow：
     // - 作用：对当前选中的窗口启用/取消防截图保护；

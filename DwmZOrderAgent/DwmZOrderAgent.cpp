@@ -398,6 +398,13 @@ namespace ks::dwm_order
             const auto& request = packet.request;
             void* list = WindowList();
             if (!list) { response.status = Status::UnsupportedRuntime; return; }
+            if (request.action == Action::Connect)
+            {
+                response.status = Status::Ok;
+                response.flags |= Verified;
+                Describe(list, request, response);
+                return;
+            }
             if (request.action == Action::Stop)
             {
                 HRESULT restoreHr = S_OK;
@@ -494,7 +501,7 @@ namespace ks::dwm_order
             packet.response = {};
             if (packet.magic != kMagic || packet.version != kProtocolVersion || packet.bytes != sizeof(Packet)
                 || packet.reserved || packet.request.reserved || packet.request.maintain > 1
-                || packet.request.action > Action::Stop || packet.request.position > Position::After)
+                || packet.request.action > Action::Connect || packet.request.position > Position::After)
             { packet.response.status = Status::InvalidRequest; return; }
             packet.response.status = Initialize();
             if (packet.response.status != Status::Ok) return;

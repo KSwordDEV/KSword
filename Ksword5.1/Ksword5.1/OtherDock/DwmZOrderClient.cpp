@@ -7,6 +7,7 @@
 #include <TlHelp32.h>
 #include "../../../shared/window/DwmProcessIdentity.h"
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <cwchar>
 #include <vector>
@@ -166,6 +167,7 @@ namespace ks::dwm_order
                 && bytes == sizeof(registered) && registered == 0;
         }
 
+        std::atomic<unsigned> activeRemoteCalls{0};
         struct RemoteCallState
         {
             HANDLE process = nullptr;
@@ -173,12 +175,14 @@ namespace ks::dwm_order
             void* allocation = nullptr;
             const void* unwindFlag = nullptr;
             std::shared_ptr<void> lease;
+            bool counted = false;
             ~RemoteCallState()
             {
                 if (allocation && CanReleaseAllocation(process, unwindFlag))
                     VirtualFreeEx(process, allocation, 0, MEM_RELEASE);
                 if (thread) CloseHandle(thread);
                 if (process) CloseHandle(process);
+                if (counted) --activeRemoteCalls;
             }
         };
 
@@ -235,6 +239,8 @@ namespace ks::dwm_order
             state->thread = CreateRemoteThread(process, nullptr, 0,
                 reinterpret_cast<LPTHREAD_START_ROUTINE>(entry), parameter, 0, nullptr);
             if (!state->thread) return GetLastError();
+            ++activeRemoteCalls;
+            state->counted = true;
             state->unwindFlag = unwindFlag;
             const DWORD waited = WaitForSingleObject(state->thread, 10000);
             if (waited != WAIT_OBJECT_0)
@@ -398,8 +404,15 @@ namespace ks::dwm_order
         return true;
     }
 
-    Reply ExecuteRequest(const Request& request, const std::wstring& agentPath)
+    std::recursive_mutex& OperationMutex()
     {
+        static std::recursive_mutex mutex;
+        return mutex;
+    }
+
+    Reply ExecuteRequest(const Request& request, const std::wstring& agentPath, bool allowLoad)
+    {
+        const std::lock_guard<std::recursive_mutex> lock(OperationMutex());
         Reply reply;
         DebugPrivilege privilege;
         auto fail = [&](Stage stage, DWORD error, Status status = Status::TransportFailure)
@@ -410,7 +423,12 @@ namespace ks::dwm_order
             return reply;
         };
         std::uint32_t identityError = 0;
-        if (request.action != Action::Stop && !SameIdentity(request.target, identityError))
+        // A timeout does not cancel the remote thread. Do not allow a later
+        // restore to overtake an outstanding apply/load in this client process.
+        if (activeRemoteCalls.load() != 0)
+            return fail(Stage::Request, ERROR_TIMEOUT, Status::Timeout);
+        const bool needsTarget = request.action != Action::Stop && request.action != Action::Connect;
+        if (needsTarget && !SameIdentity(request.target, identityError))
             return fail(Stage::Window, identityError, Status::InvalidWindow);
         if (request.action == Action::Apply && (request.position == Position::Before || request.position == Position::After)
             && (!SameIdentity(request.reference, identityError) || request.reference.hwnd == request.target.hwnd))
@@ -418,7 +436,7 @@ namespace ks::dwm_order
 
         DWORD currentSession = 0, targetSession = 0;
         if (!ProcessIdToSessionId(GetCurrentProcessId(), &currentSession)) return fail(Stage::DwmProcess, GetLastError());
-        if (request.action != Action::Stop
+        if (needsTarget
             && (!ProcessIdToSessionId(request.target.processId, &targetSession) || targetSession != currentSession))
             return fail(Stage::Window, ERROR_INVALID_PARAMETER, Status::DifferentDesktop);
         DWORD dwmPid = 0, error = 0;
@@ -431,7 +449,7 @@ namespace ks::dwm_order
         MODULEENTRY32W remoteModule{};
         bool loaded = FindModule(dwmPid, filename, nullptr, remoteModule, error);
         if (!loaded && error != ERROR_MOD_NOT_FOUND) return fail(Stage::LoadAgent, error, Status::AgentMismatch);
-        if (!loaded && (request.action == Action::Restore || request.action == Action::Stop))
+        if (!loaded && (!allowLoad || request.action == Action::Restore || request.action == Action::Stop))
             return fail(Stage::Request, ERROR_SUCCESS, Status::NotRunning);
 
         std::vector<unsigned char> dwmSid;
@@ -467,14 +485,14 @@ namespace ks::dwm_order
         }
         if (!RemoteImageMatches(process.get(), remoteModule, timestamp, imageSize, error))
             return fail(Stage::LoadAgent, error, Status::AgentMismatch);
-        if (request.action != Action::Stop && !SameIdentity(request.target, identityError))
+        if (needsTarget && !SameIdentity(request.target, identityError))
             return fail(Stage::Window, identityError, Status::InvalidWindow);
         Packet packet;
         packet.request = request;
         auto handles = std::make_shared<QueryHandles>();
         if (!DuplicateHandle(GetCurrentProcess(), process.get(), GetCurrentProcess(), &handles->process,
             0, FALSE, DUPLICATE_SAME_ACCESS)) return fail(Stage::Request, GetLastError());
-        if (request.action != Action::Stop)
+        if (needsTarget)
         {
             error = handles->Add(request.target, handles->target);
             if (error) return fail(Stage::Window, error, Status::InvalidWindow);

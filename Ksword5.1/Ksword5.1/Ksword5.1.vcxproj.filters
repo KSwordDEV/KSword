@@ -601,6 +601,8 @@
     <ClCompile Include="OtherDock\DwmZOrderClient.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="OtherDock\DwmAgentDeployment.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="OtherDock\DwmZOrderControl.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="OtherDock\WindowInputClient.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="OtherDock\WindowInputControl.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="PrivilegeDock\PrivilegeDock.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1412,6 +1414,8 @@
     <ClInclude Include="..\..\shared\window\DwmProcessIdentity.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\shared\window\DwmRemoteLoader.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="OtherDock\DwmZOrderControl.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="OtherDock\WindowInputClient.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="OtherDock\WindowInputControl.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="..\..\shared\window\DwmZOrderProtocol.h"><Filter>Header Files</Filter></ClInclude>
     <QtMoc Include="PrivilegeDock\PrivilegeDock.h">
       <Filter>Header Files</Filter>
