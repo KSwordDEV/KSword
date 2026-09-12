@@ -92,6 +92,17 @@ static const HVM_CTL_VERB g_Verbs[] = {
       KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED,
       "全处理器常驻 VMM + EPT" },
     /*
+     * 与 resident 逐位相同，只多 ENABLE_NESTED_VMX —— 单独一个动词的理由与
+     * resident-vmreadbench 一样：普通那条命令的字节序列必须一个位都不变，
+     * 否则"没开嵌套时行为不变"就没法用同一条命令来验。
+     */
+    { "resident-nested", KSWORD_ARK_HVM_CONTROL_START_RESIDENT,
+      KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED |
+      KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
+      KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED |
+      KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX,
+      "同 resident，但开启嵌套 VMX 指令派发（nested-probe 的前提）" },
+    /*
      * 与 resident 逐位相同，只多一个测量位 —— 单独一个动词而不是给 resident 加
      * 参数，理由和 prepare-eptpsw 一样：正常那条命令的字节序列必须一个位都不变，
      * 否则"没测量时行为不变"就没法用同一条命令验。
@@ -4205,6 +4216,105 @@ static int DoInjectSimple(HANDLE h, unsigned long op, unsigned long pid, int asJ
     return (rsp.status == KSWORD_ARK_HVM_INJECT_STATUS_OK) ? 0 : 2;
 }
 
+/* 把一条 VMX 指令的架构结果译成能直接读的判据。 */
+static const char* NestedProbeStepName(unsigned long r)
+{
+    switch (r) {
+    case 0UL: return "成功";
+    case 1UL: return "VMfailValid";
+    case 2UL: return "VMfailInvalid";
+    case KSWORD_ARK_HVM_NESTED_PROBE_STEP_SKIPPED: return "**没执行到**";
+    default:  return "?";
+    }
+}
+
+static const char* NestedProbeStatusName(unsigned long s)
+{
+    switch (s) {
+    case KSWORD_ARK_HVM_NESTED_PROBE_STATUS_OK: return "OK";
+    case KSWORD_ARK_HVM_NESTED_PROBE_STATUS_INVALID_REQUEST:
+        return "INVALID_REQUEST";
+    case KSWORD_ARK_HVM_NESTED_PROBE_STATUS_CONFIRMATION_REQUIRED:
+        return "CONFIRMATION_REQUIRED";
+    case KSWORD_ARK_HVM_NESTED_PROBE_STATUS_NOT_ARMED:
+        return "NOT_ARMED（本核没常驻，或嵌套派发没开）";
+    case KSWORD_ARK_HVM_NESTED_PROBE_STATUS_NO_RESOURCES:
+        return "NO_RESOURCES";
+    case KSWORD_ARK_HVM_NESTED_PROBE_STATUS_VMXE_REFUSED:
+        return "VMXE_REFUSED（CR4.VMXE 置不上）";
+    default: return "UNKNOWN";
+    }
+}
+
+static int DoNestedProbe(HANDLE h, int asJson)
+{
+    KSWORD_ARK_HVM_NESTED_PROBE_REQUEST req;
+    KSWORD_ARK_HVM_NESTED_PROBE_RESPONSE rsp;
+    DWORD returned = 0;
+    BOOL ok;
+
+    memset(&req, 0, sizeof(req));
+    req.version = KSWORD_ARK_HVM_NESTED_PROBE_PROTOCOL_VERSION;
+    req.size = (unsigned long)sizeof(req);
+    req.flags = KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED;
+    req.confirmationToken = KSWORD_ARK_HVM_CONTROL_CONFIRMATION_TOKEN;
+    memset(&rsp, 0, sizeof(rsp));
+    ok = DeviceIoControl(h, IOCTL_KSWORD_ARK_HVM_NESTED_PROBE,
+                         &req, (DWORD)sizeof(req),
+                         &rsp, (DWORD)sizeof(rsp), &returned, NULL);
+    if (returned < sizeof(rsp)) {
+        fprintf(stderr,
+                "NESTED_PROBE IOCTL 无完整响应：ok=%d returned=%lu win32=%lu\n",
+                (int)ok, returned, GetLastError());
+        return 1;
+    }
+    if (asJson) {
+        printf("{\"kind\":\"nested-probe\",\"status\":%lu,"
+               "\"processorIndex\":%lu,\"vmxon\":%lu,\"vmptrld\":%lu,"
+               "\"vmwrite\":%lu,\"vmread\":%lu,\"vmptrst\":%lu,"
+               "\"vmxoff\":%lu,\"vmreadMatched\":%lu,\"vmptrstMatched\":%lu,"
+               "\"vmreadValue\":\"0x%016llX\",\"vmwriteValue\":\"0x%016llX\","
+               "\"dispatched\":%llu,\"nestedStateAfter\":%lu,"
+               "\"lastInstructionError\":%lu}\n",
+               rsp.status, rsp.processorIndex, rsp.vmxonResult,
+               rsp.vmptrldResult, rsp.vmwriteResult, rsp.vmreadResult,
+               rsp.vmptrstResult, rsp.vmxoffResult, rsp.vmreadMatched,
+               rsp.vmptrstMatched, rsp.vmreadValue, rsp.vmwriteValue,
+               rsp.dispatchedInstructions, rsp.nestedStateAfter,
+               rsp.lastInstructionError);
+    } else {
+        printf("\n=== 嵌套 VMX 自检（客户机上下文里真的执行 VMX 指令）===\n");
+        printf("  status       : %lu (%s)\n",
+               rsp.status, NestedProbeStatusName(rsp.status));
+        printf("  处理器       : %lu\n", rsp.processorIndex);
+        printf("  VMXON        : %s\n",
+               NestedProbeStepName(rsp.vmxonResult));
+        printf("  VMPTRLD      : %s\n",
+               NestedProbeStepName(rsp.vmptrldResult));
+        printf("  VMWRITE      : %s   写入 0x%016llX\n",
+               NestedProbeStepName(rsp.vmwriteResult), rsp.vmwriteValue);
+        printf("  VMREAD       : %s   读回 0x%016llX  %s\n",
+               NestedProbeStepName(rsp.vmreadResult), rsp.vmreadValue,
+               rsp.vmreadMatched ? "**逐位相同**" : "不相同");
+        printf("  VMPTRST      : %s   %s\n",
+               NestedProbeStepName(rsp.vmptrstResult),
+               rsp.vmptrstMatched ? "**取回的就是刚装的那个**" : "指针不符");
+        printf("  VMXOFF       : %s\n",
+               NestedProbeStepName(rsp.vmxoffResult));
+        printf("  本核派发指令 : %llu 条\n", rsp.dispatchedInstructions);
+        printf("  嵌套状态     : %lu\n", rsp.nestedStateAfter);
+        printf("  末次错误号   : %lu\n", rsp.lastInstructionError);
+        printf("\n  判据：VMXON/VMPTRLD/VMWRITE/VMREAD/VMPTRST 全部成功，\n"
+               "        且 VMREAD 逐位读回所写、VMPTRST 取回所装 ——\n"
+               "        缺任何一条都说明那一步的派发没按架构语义工作。\n");
+    }
+    return (rsp.status == KSWORD_ARK_HVM_NESTED_PROBE_STATUS_OK &&
+            rsp.vmxonResult == 0UL && rsp.vmptrldResult == 0UL &&
+            rsp.vmwriteResult == 0UL && rsp.vmreadResult == 0UL &&
+            rsp.vmreadMatched == 1UL && rsp.vmptrstMatched == 1UL)
+        ? 0 : 2;
+}
+
 static const char* ProcessStatusName(unsigned long s)
 {
     switch (s) {
@@ -4348,6 +4458,10 @@ static void PrintUsage(void)
            "GS base）\n");
     printf("  probe-flags      负向探针（ENFORCE、能力 flag、互斥组合是否被"
            "**正确地**拒绝）\n");
+    printf("  nested-probe     嵌套 VMX 自检：在**客户机上下文**里真的执行一遍 "
+           "VMXON/VMPTRLD/VMWRITE/VMREAD/VMPTRST/VMXOFF，逐条看架构结果。\n"
+           "                   前提：常驻在跑**且**起常驻时给了 ENABLE_NESTED_VMX；"
+           "不满足会被拒绝而不是去试（试就是自己吃 #UD）。\n");
     printf("  probe-xonly      execute-only 探针（要求常驻**没在跑**；自己走完 "
            "装规则→起常驻→读→停→清）\n");
     printf("  rule-allowonce   ALLOW_ONCE 规则**安装期**的门（要求常驻没在跑；"
@@ -4427,6 +4541,8 @@ int main(int argc, char** argv)
 
     if (strcmp(cmd, "status") == 0) {
         rc = DoQuery(h, asJson);
+    } else if (strcmp(cmd, "nested-probe") == 0) {
+        rc = DoNestedProbe(h, asJson);
     } else if (strcmp(cmd, "probe-xonly") == 0) {
         rc = DoProbeExecuteOnly(h, asJson);
     } else if (strcmp(cmd, "rule-allowonce") == 0) {

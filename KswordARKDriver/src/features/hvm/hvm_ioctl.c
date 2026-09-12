@@ -19,6 +19,7 @@ Environment:
 #include "hvm_ept_domain.h"
 #include "hvm_ept_view.h"
 #include "hvm_inject.h"
+#include "hvm_nested_probe.h"
 #include "hvm_process.h"
 #include "hvm_memory.h"
 #include "hvm_msr_policy.h"
@@ -1550,5 +1551,85 @@ KswordARKHvmIoctlInject(
     /* 与进程处置同一条规矩：语义层拒绝以协议层成功完成，响应才回得来。 */
     UNREFERENCED_PARAMETER(status);
     /* 返回完整的注入操作结果。 */
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+KswordARKHvmIoctlNestedProbe(
+    _In_ WDFDEVICE Device,
+    _In_ WDFREQUEST Request,
+    _In_ size_t InputBufferLength,
+    _In_ size_t OutputBufferLength,
+    _Out_ size_t* BytesReturned
+    )
+{
+    PVOID inputBuffer = NULL;
+    PVOID outputBuffer = NULL;
+    size_t actualInputLength = 0U;
+    size_t actualOutputLength = 0U;
+    NTSTATUS status = STATUS_SUCCESS;
+    /*
+     * METHOD_BUFFERED 让输入输出共用一个 SystemBuffer，而后端第一件事就是把
+     * 响应清零 —— 不先快照，读到的请求是刚被清掉的那片零。请求很小，放栈上。
+     */
+    KSWORD_ARK_HVM_NESTED_PROBE_REQUEST requestSnapshot = { 0 };
+    KSWORD_ARK_HVM_NESTED_PROBE_RESPONSE* probeResponse = NULL;
+
+    UNREFERENCED_PARAMETER(Device);
+    if (BytesReturned == NULL) {
+        /* 返回明确的派发契约失败。 */
+        return STATUS_INVALID_PARAMETER;
+    }
+    *BytesReturned = 0U;
+    /* 自检会在客户机里执行 VMX 指令并临时改 CR4，按写操作把关。 */
+    status = KswordARKValidateDeviceIoControlWriteAccess(Request);
+    if (!NT_SUCCESS(status)) {
+        /* 返回明确的授权失败。 */
+        return status;
+    }
+    status = WdfRequestRetrieveInputBuffer(
+        Request,
+        sizeof(requestSnapshot),
+        &inputBuffer,
+        &actualInputLength);
+    if (!NT_SUCCESS(status) ||
+        InputBufferLength < sizeof(requestSnapshot) ||
+        actualInputLength < sizeof(requestSnapshot)) {
+        /* 返回明确的 WDF 或定长失败。 */
+        return NT_SUCCESS(status)
+            ? STATUS_INFO_LENGTH_MISMATCH
+            : status;
+    }
+    RtlCopyMemory(
+        &requestSnapshot,
+        inputBuffer,
+        sizeof(requestSnapshot));
+    status = WdfRequestRetrieveOutputBuffer(
+        Request,
+        sizeof(KSWORD_ARK_HVM_NESTED_PROBE_RESPONSE),
+        &outputBuffer,
+        &actualOutputLength);
+    if (!NT_SUCCESS(status) ||
+        OutputBufferLength <
+            sizeof(KSWORD_ARK_HVM_NESTED_PROBE_RESPONSE) ||
+        actualOutputLength <
+            sizeof(KSWORD_ARK_HVM_NESTED_PROBE_RESPONSE)) {
+        /* 返回明确的 WDF 或定长失败。 */
+        return NT_SUCCESS(status)
+            ? STATUS_BUFFER_TOO_SMALL
+            : status;
+    }
+    probeResponse =
+        (KSWORD_ARK_HVM_NESTED_PROBE_RESPONSE*)outputBuffer;
+    (void)KswordARKHvmNestedProbeRun(
+        &requestSnapshot,
+        probeResponse);
+    *BytesReturned = sizeof(*probeResponse);
+    /*
+     * 语义结果以协议层成功完成交付。
+     *
+     * 返回 NTSTATUS 失败会让 I/O 管理器不回拷输出缓冲区，于是逐步结果全部丢失，
+     * 调用方只拿到一个笼统的 Win32 码 —— 而这条命令的全部价值就在那些逐步结果上。
+     */
     return STATUS_SUCCESS;
 }

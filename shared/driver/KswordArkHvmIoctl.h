@@ -1816,3 +1816,90 @@ typedef struct _KSWORD_ARK_HVM_INJECT_RESPONSE
     unsigned long long stateFlags;
     KSWORD_ARK_HVM_INJECT_ROW rows[KSWORD_ARK_HVM_MAX_INJECTIONS];
 } KSWORD_ARK_HVM_INJECT_RESPONSE;
+
+/*
+ * 嵌套 VMX 自检。
+ *
+ * ## 为什么必须在驱动里做
+ *
+ * VMX 指令只能在 CPL 0 执行，所以这一段无法像 probe-xonly 那样在工具里用现成
+ * IOCTL 组合出来。而它要验的恰恰是"客户机执行 VMX 指令时，我们的嵌套派发有没有
+ * 按架构语义服务它" —— 那就需要有人在**客户机上下文**里真的执行一次。
+ *
+ * 驱动自己来做这件事并不矛盾：驱动的 L0 部分跑在 VMX root，而这条 IOCTL 路径跑
+ * 在客户机里。客户机执行 VMXON 必定产生 VM 退出，退出落到我们自己的派发上 ——
+ * 这正是被测对象。
+ *
+ * ## 前提是硬的
+ *
+ * 嵌套派发没开时，`KswordARKHvmNestedHandleExit` 返回不处理，退出路径会注 #UD ——
+ * 而那个 #UD 落在**我们自己的内核代码**上，直接蓝屏。所以这条命令在嵌套未启用或
+ * 本处理器未常驻时必须拒绝，而不是"试试看"。
+ *
+ * 同理，CR4.VMXE 没能置上就执行 VMXON 会吃 #UD。必须回读确认之后才往下走。
+ */
+#define KSWORD_ARK_IOCTL_FUNCTION_HVM_NESTED_PROBE 0x911UL
+#define IOCTL_KSWORD_ARK_HVM_NESTED_PROBE \
+    CTL_CODE(KSWORD_ARK_IOCTL_DEVICE_TYPE, KSWORD_ARK_IOCTL_FUNCTION_HVM_NESTED_PROBE, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+
+#define KSWORD_ARK_HVM_NESTED_PROBE_PROTOCOL_VERSION 1UL
+
+/* 整段自检成功完成（每一步的结果仍要逐条看）。 */
+#define KSWORD_ARK_HVM_NESTED_PROBE_STATUS_OK 0UL
+/* 请求本身不合契约。 */
+#define KSWORD_ARK_HVM_NESTED_PROBE_STATUS_INVALID_REQUEST 1UL
+/* 缺 UI_CONFIRMED。 */
+#define KSWORD_ARK_HVM_NESTED_PROBE_STATUS_CONFIRMATION_REQUIRED 2UL
+/* 本处理器没有常驻，或嵌套派发没开——执行下去会把自己打死。 */
+#define KSWORD_ARK_HVM_NESTED_PROBE_STATUS_NOT_ARMED 3UL
+/* 自检要用的两页分配不出来。 */
+#define KSWORD_ARK_HVM_NESTED_PROBE_STATUS_NO_RESOURCES 4UL
+/* CR4.VMXE 置不上，后续每一步都不执行。 */
+#define KSWORD_ARK_HVM_NESTED_PROBE_STATUS_VMXE_REFUSED 5UL
+
+/* 这一步根本没有执行到。 */
+#define KSWORD_ARK_HVM_NESTED_PROBE_STEP_SKIPPED 3UL
+
+typedef struct _KSWORD_ARK_HVM_NESTED_PROBE_REQUEST
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long flags;
+    unsigned long confirmationToken;
+} KSWORD_ARK_HVM_NESTED_PROBE_REQUEST;
+
+typedef struct _KSWORD_ARK_HVM_NESTED_PROBE_RESPONSE
+{
+    unsigned long version;
+    unsigned long size;
+    unsigned long status;
+    unsigned long processorIndex;
+    unsigned long long stateFlags;
+    /*
+     * 每一步的架构结果：0=成功，1=VMfailValid，2=VMfailInvalid，3=没执行到。
+     *
+     * 用架构值而不是布尔，是因为"失败"分两种而它们含义不同：VMfailValid 说明
+     * 我们认下了这条指令并给了错误号，VMfailInvalid 说明连当前 VMCS 都没有。
+     * 合并成一个布尔就把"派发到了但拒绝"和"根本没派发"混成一样。
+     */
+    unsigned long vmxonResult;
+    unsigned long vmptrldResult;
+    unsigned long vmwriteResult;
+    unsigned long vmreadResult;
+    unsigned long vmptrstResult;
+    unsigned long vmxoffResult;
+    /* 写进去又读回来的那个字段是否逐位相同。 */
+    unsigned long vmreadMatched;
+    /* VMPTRST 取回的指针是否等于刚 VMPTRLD 的那个。 */
+    unsigned long vmptrstMatched;
+    /* 读回来的实际值，不匹配时用它归因。 */
+    unsigned long long vmreadValue;
+    /* 写进去的值。 */
+    unsigned long long vmwriteValue;
+    /* 自检期间这个处理器派发了多少条嵌套 VMX 指令。 */
+    unsigned long long dispatchedInstructions;
+    /* 自检结束时本处理器的嵌套状态。 */
+    unsigned long nestedStateAfter;
+    /* 最后一次 VMfailValid 的 Intel 错误号。 */
+    unsigned long lastInstructionError;
+} KSWORD_ARK_HVM_NESTED_PROBE_RESPONSE;
