@@ -584,6 +584,29 @@ KswordARKHvmMemoryInitialize(
 #endif
 }
 
+BOOLEAN
+KswordARKHvmMemorySelfMapBase(
+    _Out_ ULONGLONG* SelfMapBase
+    )
+{
+    const KSW_HVM_MEMORY_WINDOW* window = &g_KswordHvmMemory;
+
+    /* Reject an incomplete caller contract before reporting a base. */
+    if (SelfMapBase == NULL) {
+        /* Report that no base is available. */
+        return FALSE;
+    }
+    *SelfMapBase = 0ULL;
+    /* Report nothing when discovery never completed. */
+    if (!window->Ready || window->SelfMapBase == 0ULL) {
+        /* Report that no base is available. */
+        return FALSE;
+    }
+    *SelfMapBase = window->SelfMapBase;
+    /* Report the discovered base. */
+    return TRUE;
+}
+
 VOID
 KswordARKHvmMemoryShutdown(
     VOID

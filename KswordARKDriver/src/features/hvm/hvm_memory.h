@@ -37,6 +37,25 @@ KswordARKHvmMemoryShutdown(
     VOID
     );
 
+/*
+ * Publish the page-table self-map base this module discovered.
+ *
+ * Returns FALSE when discovery never succeeded, in which case no caller may
+ * derive a page-table entry address.
+ *
+ * Exposed so the VM-exit-safe windows do not repeat the discovery.  The slot
+ * is randomized per boot but the same for every address space, and finding it
+ * costs a probe of up to 512 candidates plus MmIsAddressValid on each - work
+ * that belongs on an initialization path exactly once.  Having a second copy
+ * of the search would also mean a second chance to get the sign-extension
+ * masking wrong, and that mistake does not fault: it silently edits an entry
+ * that maps nothing.
+ */
+BOOLEAN
+KswordARKHvmMemorySelfMapBase(
+    _Out_ ULONGLONG* SelfMapBase
+    );
+
 /* Execute one versioned ring -1 memory request. */
 NTSTATUS
 KswordARKHvmMemoryExecute(

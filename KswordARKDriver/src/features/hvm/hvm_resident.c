@@ -767,6 +767,17 @@ KswordARKHvmResidentPrepareContexts(
                 KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_VMX) !=
                 0UL,
             Runtime->EptPointer);
+        /*
+         * Borrow this processor's physical mapping window.
+         *
+         * Deliberately not fatal when absent.  Everything that exists today
+         * runs without one; only paths that must read a guest physical page
+         * from an exit need it, and those check for NULL and refuse cleanly.
+         * Failing residency here would trade the hypervisor itself for a
+         * feature that is off by default.
+         */
+        context->PhysWindow =
+            KswordARKHvmPhysWindowForProcessor(index);
     }
     /* Publish that every processor has a complete host-stack context. */
     g_KswordHvmResident.Prepared = TRUE;

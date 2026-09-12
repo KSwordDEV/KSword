@@ -18,6 +18,7 @@ Environment:
 
 #include "hvm_ept.h"
 #include "hvm_nested.h"
+#include "hvm_phys_window.h"
 
 /*
  * 前进性台账的类型来自共享算术头。这里必须用**真的**那个结构而不是镜像一份：
@@ -114,6 +115,15 @@ typedef struct _KSW_HVM_RESIDENT_VCPU
     KSW_HVM_EPT_TRANSIENT EptTransient;
     /* Preserve one bounded L1 nested-VMX state machine. */
     KSW_HVM_NESTED_VCPU Nested;
+    /*
+     * This processor's VM-exit-safe physical mapping window, or NULL.
+     *
+     * A borrowed pointer, not storage: the windows outlive residency because
+     * releasing one needs PASSIVE_LEVEL and the residency teardown path does
+     * not guarantee it.  NULL means this processor has no window, and every
+     * user must handle that rather than assume one exists.
+     */
+    KSW_HVM_PHYS_WINDOW* PhysWindow;
     /*
      * Address space the guest was running on, captured while the VMCS is still
      * current and reloaded immediately after VMXOFF.

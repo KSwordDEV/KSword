@@ -26,6 +26,7 @@ Environment:
 #include "hvm_ept_switch.h"
 #include "hvm_guest.h"
 #include "hvm_memory.h"
+#include "hvm_phys_window.h"
 #include "hvm_msr_policy.h"
 #include "hvm_ept.h"
 #include "hvm_event.h"
@@ -2168,6 +2169,12 @@ KswordARKHvmInitialize(
      * and a failed reservation only downgrades the feature to its fallback.
      */
     KswordARKHvmMemoryInitialize();
+    /*
+     * Reserve the per-processor VM-exit windows immediately after, because
+     * they borrow the self-map base the call above discovers.  Reversing the
+     * order leaves every window unreserved with no other symptom.
+     */
+    KswordARKHvmPhysWindowInitializeAll();
     g_KswordHvm.Initialized = TRUE;
     /*
      * The one place a plain store to StateFlags is correct: this runs before
@@ -2378,6 +2385,11 @@ KswordARKHvmUninitialize(
     if (!g_KswordHvm.Initialized) {
         return;
     }
+    /*
+     * Close the per-processor windows before the module window they derived
+     * from, mirroring the initialization order in reverse.
+     */
+    KswordARKHvmPhysWindowShutdownAll();
     /* Close the ring -1 window before any other teardown can use it. */
     KswordARKHvmMemoryShutdown();
     /* Block new residency before draining either lifecycle callback. */
