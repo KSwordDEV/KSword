@@ -67,6 +67,11 @@ KswordARKHvmNestedVmcs12Decompose(
         /* Report an encoding outside the model. */
         return FALSE;
     }
+    /* Reject an index this bounded model does not address. */
+    if (index >= KSW_HVM_VMCS12_INDEX_COUNT) {
+        /* Report an encoding outside the model. */
+        return FALSE;
+    }
     /*
      * The high half exists only for 64-bit fields.
      *
@@ -78,7 +83,11 @@ KswordARKHvmNestedVmcs12Decompose(
         /* Report an encoding outside the model. */
         return FALSE;
     }
-    *Slot = (type * KSW_HVM_VMCS12_INDEX_COUNT) + index;
+    /* Width is part of the identity, not a hint - see the header. */
+    *Slot =
+        (width * KSW_HVM_VMCS12_TYPE_COUNT * KSW_HVM_VMCS12_INDEX_COUNT) +
+        (type * KSW_HVM_VMCS12_INDEX_COUNT) +
+        index;
     *Width = width;
     *HighHalf = high;
     /* Report a complete decomposition. */

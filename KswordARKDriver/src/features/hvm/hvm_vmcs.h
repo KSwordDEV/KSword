@@ -190,6 +190,31 @@ KswordARKHvmCaptureSegments(
     _Out_ KSW_HVM_SEGMENT_SNAPSHOT* Snapshot
     );
 
+/* Describe one resolved segment in the layout VMCS guest state expects. */
+typedef struct _KSW_HVM_SEGMENT_STATE
+{
+    USHORT Selector;
+    ULONG Limit;
+    ULONG AccessRights;
+    ULONGLONG Base;
+} KSW_HVM_SEGMENT_STATE;
+
+/*
+ * Resolve one selector against a captured descriptor-table snapshot.
+ *
+ * Exported rather than kept private because anything constructing guest state
+ * needs exactly this decoding - the system-segment high base, the unusable
+ * marker for a null selector, the packed access-rights format.  A second copy
+ * would be a second place for those three to drift, and the symptom of drift
+ * is a VM entry that fails on guest state with no indication which field.
+ */
+NTSTATUS
+KswordARKHvmReadSegment(
+    _In_ const KSW_HVM_SEGMENT_SNAPSHOT* Snapshot,
+    _In_ USHORT Selector,
+    _Out_ KSW_HVM_SEGMENT_STATE* Segment
+    );
+
 ULONGLONG
 KswordARKHvmAsmReadSsp(
     VOID

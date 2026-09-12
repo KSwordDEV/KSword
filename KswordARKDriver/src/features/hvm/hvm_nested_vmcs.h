@@ -21,27 +21,38 @@ Environment:
 /*
  * Address vmcs12 storage by field encoding instead of searching for it.
  *
- * Intel's encoding carries the index in bits 9:1 and the field type in bits
- * 11:10, so (type, index) forms a dense 2048-entry space that indexes a plain
- * array.  The previous sparse cache held 64 entries and searched them
- * linearly, which had two problems worth naming:
+ * The key is (width, type, index) - all three.  Width is not decoration:
+ * Intel reuses the same index within the same type across widths, so
  *
- *   - A real vmcs12 has well over a hundred fields.  L1 would fill the cache
- *     part-way through configuring its VMCS and start receiving
- *     unsupported-component errors - and L1 does not treat those as fatal, so
- *     it would carry on to VMLAUNCH holding a control state we silently
- *     truncated.
- *   - "Cache full" is our limitation wearing an architectural error's name.
- *     With direct indexing the failure mode does not exist.
+ *     0x0800  ES selector          width 0 (16-bit), type 2, index 0
+ *     0x6800  guest CR0            width 3 (natural), type 2, index 0
+ *
+ * collide on any key that leaves width out.  A key of (type, index) alone
+ * makes every segment selector and its same-index control register share one
+ * slot, so each write destroys the other - and the only symptom is a VM entry
+ * that fails on guest state with no indication which field.  Measured, not
+ * reasoned about: that is exactly what the first L2 launch reported.
+ *
+ * The previous sparse 64-entry cache searched linearly and had its own
+ * problems: a real vmcs12 has well over a hundred fields, so L1 would fill it
+ * part-way through configuring its VMCS and start receiving
+ * unsupported-component errors - which L1 does not treat as fatal, so it would
+ * carry on to VMLAUNCH holding a control state we silently truncated.
  *
  * Access type (bit 0) is deliberately not part of the key: it selects the high
- * half of a 64-bit field, which is the same storage.  Bits 14:13 (width) are
- * likewise derived from the encoding rather than stored.
+ * half of a 64-bit field, which is the same storage.
+ *
+ * Index is bounded to 128 rather than the encodable 512.  The highest index
+ * any defined field uses is far below that, and an encoding above it is
+ * reported as an unsupported component - which is the truthful answer, since
+ * this model genuinely does not address it.
  */
+#define KSW_HVM_VMCS12_WIDTH_COUNT 4UL
 #define KSW_HVM_VMCS12_TYPE_COUNT 4UL
-#define KSW_HVM_VMCS12_INDEX_COUNT 512UL
+#define KSW_HVM_VMCS12_INDEX_COUNT 128UL
 #define KSW_HVM_VMCS12_SLOT_COUNT \
-    (KSW_HVM_VMCS12_TYPE_COUNT * KSW_HVM_VMCS12_INDEX_COUNT)
+    (KSW_HVM_VMCS12_WIDTH_COUNT * KSW_HVM_VMCS12_TYPE_COUNT * \
+     KSW_HVM_VMCS12_INDEX_COUNT)
 
 /* Preserve bounded vmcs12 identity, launch state, and fields. */
 typedef struct _KSW_HVM_VMCS12_STATE

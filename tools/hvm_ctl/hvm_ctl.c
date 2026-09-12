@@ -4275,13 +4275,18 @@ static int DoNestedProbe(HANDLE h, int asJson)
                "\"vmxoff\":%lu,\"vmreadMatched\":%lu,\"vmptrstMatched\":%lu,"
                "\"vmreadValue\":\"0x%016llX\",\"vmwriteValue\":\"0x%016llX\","
                "\"dispatched\":%llu,\"nestedStateAfter\":%lu,"
-               "\"lastInstructionError\":%lu}\n",
+               "\"lastInstructionError\":%lu,\"vmlaunch\":%lu,"
+               "\"l2Reached\":%lu,\"l2ExitReason\":\"0x%016llX\","
+               "\"l2Qualification\":\"0x%016llX\","
+               "\"l2GuestRip\":\"0x%016llX\"}\n",
                rsp.status, rsp.processorIndex, rsp.vmxonResult,
                rsp.vmptrldResult, rsp.vmwriteResult, rsp.vmreadResult,
                rsp.vmptrstResult, rsp.vmxoffResult, rsp.vmreadMatched,
                rsp.vmptrstMatched, rsp.vmreadValue, rsp.vmwriteValue,
                rsp.dispatchedInstructions, rsp.nestedStateAfter,
-               rsp.lastInstructionError);
+               rsp.lastInstructionError, rsp.vmlaunchResult,
+               rsp.l2Reached, rsp.l2ExitReason, rsp.l2Qualification,
+               rsp.l2GuestRip);
     } else {
         printf("\n=== 嵌套 VMX 自检（客户机上下文里真的执行 VMX 指令）===\n");
         printf("  status       : %lu (%s)\n",
@@ -4301,12 +4306,27 @@ static int DoNestedProbe(HANDLE h, int asJson)
                rsp.vmptrstMatched ? "**取回的就是刚装的那个**" : "指针不符");
         printf("  VMXOFF       : %s\n",
                NestedProbeStepName(rsp.vmxoffResult));
+        printf("  --- L2 ---\n");
+        printf("  VMLAUNCH     : %s\n",
+               NestedProbeStepName(rsp.vmlaunchResult));
+        printf("  L2 真的跑过  : %s\n",
+               rsp.l2Reached ? "**是** —— 退出被反射回了 L1" : "否");
+        printf("  L2 退出原因  : 0x%016llX%s\n", rsp.l2ExitReason,
+               ((rsp.l2ExitReason & 0x80000000ULL) != 0ULL)
+                   ? "   （bit31 置位 = VM entry 失败，不是 L2 执行产生的退出）"
+                   : ((rsp.l2ExitReason & 0xFFFFULL) == 10ULL
+                          ? "   （10 = CPUID，正是 L2 唯一那条指令）"
+                          : ""));
+        printf("  L2 qualif.   : 0x%016llX\n", rsp.l2Qualification);
+        printf("  L2 停在      : 0x%016llX\n", rsp.l2GuestRip);
         printf("  本核派发指令 : %llu 条\n", rsp.dispatchedInstructions);
         printf("  嵌套状态     : %lu\n", rsp.nestedStateAfter);
         printf("  末次错误号   : %lu\n", rsp.lastInstructionError);
-        printf("\n  判据：VMXON/VMPTRLD/VMWRITE/VMREAD/VMPTRST 全部成功，\n"
-               "        且 VMREAD 逐位读回所写、VMPTRST 取回所装 ——\n"
-               "        缺任何一条都说明那一步的派发没按架构语义工作。\n");
+        printf("\n  判据：指令段要求 VMXON/VMPTRLD/VMWRITE/VMREAD/VMPTRST 全成功，\n"
+               "        且 VMREAD 逐位读回所写、VMPTRST 取回所装。\n"
+               "        L2 段的唯一正向判据是「L2 真的跑过」为是 **且** 退出原因\n"
+               "        低 16 位为 10（CPUID）—— 那说明 vmcs02 被硬件接受、L2 执行了\n"
+               "        指令、退出落到我们手上、并且被投递给了 L1。\n");
     }
     return (rsp.status == KSWORD_ARK_HVM_NESTED_PROBE_STATUS_OK &&
             rsp.vmxonResult == 0UL && rsp.vmptrldResult == 0UL &&

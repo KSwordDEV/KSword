@@ -312,14 +312,6 @@ Environment:
 #define KSW_VMCS_HOST_SSP 0x6C1AUL
 #define KSW_VMCS_HOST_INTERRUPT_SSP_TABLE 0x6C1CUL
 
-typedef struct _KSW_HVM_SEGMENT_STATE
-{
-    USHORT Selector;
-    ULONG Limit;
-    ULONG AccessRights;
-    ULONGLONG Base;
-} KSW_HVM_SEGMENT_STATE;
-
 typedef struct _KSW_HVM_VMCS_WRITE
 {
     SIZE_T Field;
@@ -403,7 +395,7 @@ KswordARKHvmAdjustControls(
     return KswordArkHvmAdjustControls(Desired, Capability);
 }
 
-static NTSTATUS
+NTSTATUS
 KswordARKHvmReadSegment(
     _In_ const KSW_HVM_SEGMENT_SNAPSHOT* Snapshot,
     _In_ USHORT Selector,

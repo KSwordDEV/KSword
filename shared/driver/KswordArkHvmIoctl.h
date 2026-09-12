@@ -1902,4 +1902,20 @@ typedef struct _KSWORD_ARK_HVM_NESTED_PROBE_RESPONSE
     unsigned long nestedStateAfter;
     /* 最后一次 VMfailValid 的 Intel 错误号。 */
     unsigned long lastInstructionError;
+    /* VMLAUNCH 的架构结果；0 也可能是"进去过又回来了"，看 l2Reached。 */
+    unsigned long vmlaunchResult;
+    /*
+     * L2 真的跑起来过并且退出被反射回了 L1。
+     *
+     * 这一位是整条链路唯一的正向判据：它为 1 意味着 vmcs02 合并被硬件接受、
+     * L2 执行了指令、退出落到我们手上、我们把它投递给了 L1，而 L1 的宿主
+     * 处理器真的拿到了控制权。中间任何一环断掉，它都是 0。
+     */
+    unsigned long l2Reached;
+    /* L1 从 vmcs12 里读到的退出原因；0x80000021 表示客户状态非法。 */
+    unsigned long long l2ExitReason;
+    /* 同上的 qualification。 */
+    unsigned long long l2Qualification;
+    /* L2 停在哪条指令上。 */
+    unsigned long long l2GuestRip;
 } KSWORD_ARK_HVM_NESTED_PROBE_RESPONSE;
