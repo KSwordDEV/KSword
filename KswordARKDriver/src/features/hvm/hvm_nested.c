@@ -18,6 +18,12 @@ Environment:
 
 #include "hvm_nested.h"
 #include "hvm_nested_decode.h"
+#include "hvm_nested_l2.h"
+/*
+ * The full resident context is needed, not just its forward declaration: L2
+ * entry reaches through it for the VMCS pages and the mapping window.
+ */
+#include "hvm_resident.h"
 #include "hvm_exit.h"
 /* VMCS access goes through the seam in hvm_vmcs.h, never the raw intrinsic. */
 #include "hvm_vmcs.h"
@@ -539,13 +545,14 @@ KswordARKHvmNestedDispatchVmcsField(
 
 BOOLEAN
 KswordARKHvmNestedHandleExit(
-    _Inout_ KSW_HVM_RUNTIME* Runtime,
-    _Inout_ KSW_HVM_NESTED_VCPU* Nested,
+    _Inout_ struct _KSW_HVM_RESIDENT_VCPU* Vcpu,
     _Inout_ struct _KSW_HVM_GPR_FRAME* Frame,
     _In_ ULONG ExitReason,
     _In_ ULONG InstructionLength
     )
 {
+    KSW_HVM_RUNTIME* Runtime = (Vcpu != NULL) ? Vcpu->Runtime : NULL;
+    KSW_HVM_NESTED_VCPU* Nested = (Vcpu != NULL) ? &Vcpu->Nested : NULL;
     UCHAR instructionResult = 2U;
     ULONG instructionError = 0UL;
 
@@ -578,56 +585,35 @@ KswordARKHvmNestedHandleExit(
             /* Select VMX instruction success. */
             instructionResult = 0U;
         }
-    /* VMLAUNCH requires a complete vmcs02 merge that is not advertised. */
-    } else if (ExitReason == KSW_VMX_EXIT_VMLAUNCH) {
+    /* VMLAUNCH and VMRESUME both attempt a real L2 entry. */
+    } else if (ExitReason == KSW_VMX_EXIT_VMLAUNCH ||
+               ExitReason == KSW_VMX_EXIT_VMRESUME) {
         /* Report invalid current state before any vmcs12 pointer exists. */
-        if (!Nested->Vmxon ||
-            !Nested->VmcsCurrent) {
+        if (!Nested->Vmxon || !Nested->VmcsCurrent) {
             /* Select VMfailInvalid for an absent current VMCS. */
             instructionResult = 2U;
         } else {
-            NTSTATUS mergeStatus = STATUS_SUCCESS;
-
-            /* Preserve that L1 attempted an L2 launch. */
-            Nested->L2LaunchAttempted = TRUE;
             /*
-             * Account the refusal on the runtime, not just on this VCPU.
+             * Advance L1's RIP before entering, not after.
              *
-             * The per-VCPU flag above is cleared on the next VMXOFF along with
-             * NestedState, so by the time anyone polls, both are gone.  This
-             * counter is the only durable trace that some other hypervisor
-             * asked to start a VM underneath us and was told no.
+             * If entry succeeds nothing here runs again: the processor leaves
+             * for L2 and the next thing on this processor is the exit stub.
+             * The RIP L1 resumes at, whenever it eventually does, has to have
+             * been recorded already - and the entry path captures it from the
+             * VMCS, which still holds the pre-advance value at this point.
              */
+            const ULONG entryError = KswordARKHvmNestedL2Enter(
+                Vcpu,
+                (BOOLEAN)(ExitReason == KSW_VMX_EXIT_VMRESUME));
+
+            /* Reaching here at all means the entry did not happen. */
             InterlockedIncrement(
                 &Runtime->NestedL2LaunchRefusedCount);
-            /* Validate vmcs12-to-vmcs02 merge prerequisites explicitly. */
-            mergeStatus = KswordARKHvmNestedVmcs02Prepare(
-                &Nested->Vmcs12,
-                Nested->ShadowEpt.ComposedEptPointer,
-                &Nested->Vmcs02);
-            /* Publish explicit L2-partial state. */
+            Nested->L2LaunchAttempted = TRUE;
             Nested->State =
                 KSWORD_ARK_HVM_NESTED_STATE_L2_PARTIAL;
-            /* Select VMfailValid for the deliberately incomplete merge. */
             instructionResult = 1U;
-            /* Publish the exact invalid-control-fields failure class. */
-            instructionError = NT_SUCCESS(mergeStatus)
-                ? KSW_VMX_ERROR_INVALID_CONTROL_FIELDS
-                : Nested->Vmcs02.InstructionError;
-        }
-    /* VMRESUME cannot succeed before a complete L2 launch. */
-    } else if (ExitReason == KSW_VMX_EXIT_VMRESUME) {
-        /* Select VMfailValid only when a current vmcs12 exists. */
-        if (Nested->Vmxon &&
-            Nested->VmcsCurrent) {
-            /* Select VMfailValid for a non-launched vmcs12. */
-            instructionResult = 1U;
-            /* Publish the exact resume-before-launch failure class. */
-            instructionError =
-                KSW_VMX_ERROR_RESUME_NON_LAUNCHED_VMCS;
-        } else {
-            /* Select VMfailInvalid for an absent VMX/current-VMCS state. */
-            instructionResult = 2U;
+            instructionError = entryError;
         }
     /* VMXON establishes L1 VMX operation from a decoded region pointer. */
     } else if (ExitReason == KSW_VMX_EXIT_VMXON) {
@@ -722,13 +708,14 @@ KswordARKHvmNestedValidate(
 
 BOOLEAN
 KswordARKHvmNestedHandleExit(
-    _Inout_ KSW_HVM_RUNTIME* Runtime,
-    _Inout_ KSW_HVM_NESTED_VCPU* Nested,
+    _Inout_ struct _KSW_HVM_RESIDENT_VCPU* Vcpu,
     _Inout_ struct _KSW_HVM_GPR_FRAME* Frame,
     _In_ ULONG ExitReason,
     _In_ ULONG InstructionLength
     )
 {
+    KSW_HVM_RUNTIME* Runtime = (Vcpu != NULL) ? Vcpu->Runtime : NULL;
+    KSW_HVM_NESTED_VCPU* Nested = (Vcpu != NULL) ? &Vcpu->Nested : NULL;
     /* Keep non-x64 builds explicit and warning-free. */
     UNREFERENCED_PARAMETER(Runtime);
     /* Keep non-x64 builds explicit and warning-free. */

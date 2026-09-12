@@ -585,6 +585,14 @@
 #define KSWORD_ARK_HVM_NESTED_STATE_L1_VMXON        3UL
 #define KSWORD_ARK_HVM_NESTED_STATE_VMCS12_CURRENT  4UL
 #define KSWORD_ARK_HVM_NESTED_STATE_L2_PARTIAL      5UL
+/*
+ * L2 is executing under a composed hierarchy.
+ *
+ * Distinct from L2_PARTIAL, which means an L2 entry was attempted and refused.
+ * This one means the processor is actually running L1's guest, so a reader
+ * that sees it can conclude the merge and the shadow hierarchy both held.
+ */
+#define KSWORD_ARK_HVM_NESTED_STATE_L2_ACTIVE       6UL
 
 #define KSWORD_ARK_HVM_EVMCS_STATE_UNAVAILABLE     0UL
 #define KSWORD_ARK_HVM_EVMCS_STATE_CAPABILITY_ONLY 1UL

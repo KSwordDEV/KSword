@@ -18,21 +18,30 @@ Environment:
 
 #include "hvm_internal.h"
 
-/* Bound vmcs12 field storage without VM-exit allocation. */
-#define KSW_HVM_VMCS12_FIELD_CAPACITY 64UL
-
-/* Preserve one cached vmcs12 field encoding and value. */
-typedef struct _KSW_HVM_VMCS12_FIELD
-{
-    /* Record whether this cache slot contains a field. */
-    BOOLEAN Active;
-    /* Keep the structure explicitly initialized across architectures. */
-    UCHAR Reserved0[3];
-    /* Preserve the Intel VMCS field encoding. */
-    ULONG Encoding;
-    /* Preserve the L1-provided field value. */
-    ULONGLONG Value;
-} KSW_HVM_VMCS12_FIELD;
+/*
+ * Address vmcs12 storage by field encoding instead of searching for it.
+ *
+ * Intel's encoding carries the index in bits 9:1 and the field type in bits
+ * 11:10, so (type, index) forms a dense 2048-entry space that indexes a plain
+ * array.  The previous sparse cache held 64 entries and searched them
+ * linearly, which had two problems worth naming:
+ *
+ *   - A real vmcs12 has well over a hundred fields.  L1 would fill the cache
+ *     part-way through configuring its VMCS and start receiving
+ *     unsupported-component errors - and L1 does not treat those as fatal, so
+ *     it would carry on to VMLAUNCH holding a control state we silently
+ *     truncated.
+ *   - "Cache full" is our limitation wearing an architectural error's name.
+ *     With direct indexing the failure mode does not exist.
+ *
+ * Access type (bit 0) is deliberately not part of the key: it selects the high
+ * half of a 64-bit field, which is the same storage.  Bits 14:13 (width) are
+ * likewise derived from the encoding rather than stored.
+ */
+#define KSW_HVM_VMCS12_TYPE_COUNT 4UL
+#define KSW_HVM_VMCS12_INDEX_COUNT 512UL
+#define KSW_HVM_VMCS12_SLOT_COUNT \
+    (KSW_HVM_VMCS12_TYPE_COUNT * KSW_HVM_VMCS12_INDEX_COUNT)
 
 /* Preserve bounded vmcs12 identity, launch state, and fields. */
 typedef struct _KSW_HVM_VMCS12_STATE
@@ -47,8 +56,8 @@ typedef struct _KSW_HVM_VMCS12_STATE
     ULONG InstructionError;
     /* Preserve the current vmcs12 physical address. */
     ULONGLONG PhysicalAddress;
-    /* Preserve a bounded field cache. */
-    KSW_HVM_VMCS12_FIELD Fields[KSW_HVM_VMCS12_FIELD_CAPACITY];
+    /* Preserve every field L1 wrote, indexed by (type, index). */
+    ULONGLONG Fields[KSW_HVM_VMCS12_SLOT_COUNT];
 } KSW_HVM_VMCS12_STATE;
 
 /* Preserve explicit vmcs02 merge maturity without claiming L2 active. */

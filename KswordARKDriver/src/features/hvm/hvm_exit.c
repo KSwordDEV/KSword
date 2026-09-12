@@ -25,6 +25,7 @@ Environment:
 #include "hvm_ept.h"
 #include "hvm_event.h"
 #include "hvm_nested.h"
+#include "hvm_nested_l2.h"
 #include "hvm_inject.h"
 #include "hvm_process.h"
 #include "hvm_vmcs.h"
@@ -688,6 +689,7 @@ KswordARKHvmResidentVmExitDispatch(
     KSW_HVM_VMEXIT_TELEMETRY telemetry = { 0 };
     ULONGLONG guestPhysicalAddress = 0ULL;
     ULONGLONG guestLinearAddress = 0ULL;
+    ULONG nestedBasicReason = KSWORD_ARK_HVM_EXIT_REASON_NONE;
     ULONG basicReason = KSWORD_ARK_HVM_EXIT_REASON_NONE;
     ULONG access = 0UL;
     ULONG ruleId = 0UL;
@@ -726,6 +728,22 @@ KswordARKHvmResidentVmExitDispatch(
         return handled
             ? KSW_HVM_EXIT_ACTION_DEVIRTUALIZE
             : KSW_HVM_EXIT_ACTION_FATAL;
+    }
+    /*
+     * Route an L2 exit before anything else looks at it.
+     *
+     * While L2 runs, every field this handler reads describes L2, not the
+     * guest we host directly - so the ordinary handling below would act on the
+     * wrong guest's state.  Reflection either delivers the exit to L1 and
+     * leaves vmcs01 loaded for the resume, or declines and leaves vmcs02
+     * loaded so the exit is handled here as our own.
+     */
+    nestedBasicReason =
+        telemetry.Reason & KSW_HVM_VMEXIT_REASON_BASIC_MASK;
+    if (Context->Nested.InL2 &&
+        KswordARKHvmNestedL2Reflect(Context, nestedBasicReason)) {
+        /* Resume L1 at the VM-exit handler it configured in vmcs12. */
+        return KSW_HVM_EXIT_ACTION_RESUME;
     }
     /* Decode the Intel basic VM-exit reason. */
     basicReason =
@@ -1556,8 +1574,7 @@ KswordARKHvmResidentVmExitDispatch(
         basicReason)) {
         /* Execute the explicit partial vmcs12 state machine. */
         handled = KswordARKHvmNestedHandleExit(
-            Context->Runtime,
-            &Context->Nested,
+            Context,
             Frame,
             basicReason,
             telemetry.InstructionLength);

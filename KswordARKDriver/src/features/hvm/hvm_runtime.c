@@ -1159,6 +1159,10 @@ KswordARKHvmFreeResourcesLocked(
             MmFreeContiguousMemory(
                 Runtime->Processors[index].VeInfoVirtual);
         }
+        if (Runtime->Processors[index].Vmcs02Virtual != NULL) {
+            MmFreeContiguousMemory(
+                Runtime->Processors[index].Vmcs02Virtual);
+        }
         RtlZeroMemory(
             &Runtime->Processors[index],
             sizeof(Runtime->Processors[index]));
@@ -1394,11 +1398,31 @@ KswordARKHvmAllocateProcessorResourcesLocked(
                     highest,
                     boundary,
                     MmCached);
+            /*
+             * The vmcs02 region is reserved unconditionally rather than only
+             * when nested dispatch is enabled: residency start flags are not
+             * known here, and one page per processor is cheaper than a second
+             * allocation path that only ever runs on the rarer branch.
+             */
+            cpu->Vmcs02Virtual =
+                MmAllocateContiguousMemorySpecifyCache(
+                    (SIZE_T)KSW_HVM_PAGE_BYTES,
+                    lowest,
+                    highest,
+                    boundary,
+                    MmCached);
             if (cpu->VmxonVirtual == NULL ||
                 cpu->VmcsVirtual == NULL ||
-                cpu->VeInfoVirtual == NULL) {
+                cpu->VeInfoVirtual == NULL ||
+                cpu->Vmcs02Virtual == NULL) {
                 return STATUS_INSUFFICIENT_RESOURCES;
             }
+            RtlZeroMemory(
+                cpu->Vmcs02Virtual,
+                (SIZE_T)KSW_HVM_PAGE_BYTES);
+            *(volatile ULONG*)cpu->Vmcs02Virtual = revision;
+            cpu->Vmcs02Physical =
+                MmGetPhysicalAddress(cpu->Vmcs02Virtual);
 
             /*
              * Latch the area busy before it can ever be reachable from a

@@ -174,6 +174,18 @@ typedef struct _KSW_HVM_CPU_RESOURCE
     PVOID VmcsVirtual;
     /* Retain the processor-owned VMCS physical address. */
     PHYSICAL_ADDRESS VmcsPhysical;
+    /*
+     * Retain the processor-owned vmcs02 - the hardware VMCS that runs L2.
+     *
+     * A second real VMCS, not a copy of vmcs12.  vmcs12 is L1's idea of a VMCS
+     * and lives in L1's memory in whatever format L1 chose; this is the one the
+     * processor actually loads, holding our host state, L1's guest state, and
+     * controls merged from both.  Allocated per processor beside the others
+     * because it has exactly the same lifetime and the same page requirements.
+     */
+    PVOID Vmcs02Virtual;
+    /* Retain the processor-owned vmcs02 physical address. */
+    PHYSICAL_ADDRESS Vmcs02Physical;
     /* Retain the processor-owned #VE information-area virtual address. */
     PVOID VeInfoVirtual;
     /* Retain the processor-owned #VE information-area physical address. */

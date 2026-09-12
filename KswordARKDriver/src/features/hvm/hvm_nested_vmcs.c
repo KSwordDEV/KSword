@@ -39,6 +39,73 @@ KswordARKHvmNestedVmcsInitialize(
     }
 }
 
+/*
+ * Decompose one VMCS field encoding.
+ *
+ * Returns FALSE for an encoding this model does not address, which is what
+ * makes the architectural "unsupported component" answer honest rather than a
+ * stand-in for running out of room.
+ */
+static BOOLEAN
+KswordARKHvmNestedVmcs12Decompose(
+    _In_ ULONG Encoding,
+    _Out_ ULONG* Slot,
+    _Out_ ULONG* Width,
+    _Out_ BOOLEAN* HighHalf
+    )
+{
+    const ULONG index = (Encoding >> 1) & 0x1FFUL;
+    const ULONG type = (Encoding >> 10) & 0x3UL;
+    const ULONG width = (Encoding >> 13) & 0x3UL;
+    const BOOLEAN high = ((Encoding & 0x1UL) != 0UL);
+
+    *Slot = 0UL;
+    *Width = 0UL;
+    *HighHalf = FALSE;
+    /* Reject bits above the encoding Intel defines. */
+    if ((Encoding & ~0x00007FFFUL) != 0UL) {
+        /* Report an encoding outside the model. */
+        return FALSE;
+    }
+    /*
+     * The high half exists only for 64-bit fields.
+     *
+     * Width one is the 64-bit class; every other class is a single storage
+     * unit, so an access-type bit set on one is a malformed encoding rather
+     * than a request for its upper half.
+     */
+    if (high && width != 1UL) {
+        /* Report an encoding outside the model. */
+        return FALSE;
+    }
+    *Slot = (type * KSW_HVM_VMCS12_INDEX_COUNT) + index;
+    *Width = width;
+    *HighHalf = high;
+    /* Report a complete decomposition. */
+    return TRUE;
+}
+
+/* Narrow one stored value to the width its encoding declares. */
+static ULONGLONG
+KswordARKHvmNestedVmcs12Narrow(
+    _In_ ULONGLONG Value,
+    _In_ ULONG Width
+    )
+{
+    /* Select the sixteen-bit field class. */
+    if (Width == 0UL) {
+        /* Return only the bits a sixteen-bit field holds. */
+        return Value & 0xFFFFULL;
+    }
+    /* Select the thirty-two-bit field class. */
+    if (Width == 2UL) {
+        /* Return only the bits a thirty-two-bit field holds. */
+        return Value & 0xFFFFFFFFULL;
+    }
+    /* Return the full value for the 64-bit and natural-width classes. */
+    return Value;
+}
+
 NTSTATUS
 KswordARKHvmNestedVmcs12Write(
     _Inout_ KSW_HVM_VMCS12_STATE* Vmcs12,
@@ -46,52 +113,34 @@ KswordARKHvmNestedVmcs12Write(
     _In_ ULONGLONG Value
     )
 {
-    ULONG index = 0UL;
-    KSW_HVM_VMCS12_FIELD* freeSlot = NULL;
+    ULONG slot = 0UL;
+    ULONG width = 0UL;
+    BOOLEAN high = FALSE;
 
-    /* Require one current vmcs12 and a nonzero field encoding. */
-    if (Vmcs12 == NULL ||
-        !Vmcs12->Current ||
-        Encoding == 0UL) {
+    /* Require one current vmcs12 before touching its storage. */
+    if (Vmcs12 == NULL || !Vmcs12->Current) {
         /* Return the exact nested-state contract failure. */
         return STATUS_INVALID_DEVICE_STATE;
     }
-    /* Replace an existing field or retain the first free slot. */
-    for (index = 0UL;
-         index < KSW_HVM_VMCS12_FIELD_CAPACITY;
-         ++index) {
-        KSW_HVM_VMCS12_FIELD* field =
-            &Vmcs12->Fields[index];
-
-        /* Replace the exact existing field encoding. */
-        if (field->Active &&
-            field->Encoding == Encoding) {
-            /* Publish the new L1-provided field value. */
-            field->Value = Value;
-            /* Complete the bounded field replacement successfully. */
-            return STATUS_SUCCESS;
-        }
-        /* Preserve only the first inactive field slot. */
-        if (!field->Active &&
-            freeSlot == NULL) {
-            /* Retain the reusable bounded cache slot. */
-            freeSlot = field;
-        }
+    /* Reject an encoding this model does not address. */
+    if (!KswordARKHvmNestedVmcs12Decompose(
+            Encoding,
+            &slot,
+            &width,
+            &high)) {
+        /* Return the exact unsupported-component failure. */
+        return STATUS_NOT_FOUND;
     }
-    /* Report bounded vmcs12 field capacity exhaustion. */
-    if (freeSlot == NULL) {
-        /* Return the exact fixed-capacity failure. */
-        return STATUS_INSUFFICIENT_RESOURCES;
+    if (high) {
+        /* Replace only the upper half the access type names. */
+        Vmcs12->Fields[slot] =
+            (Vmcs12->Fields[slot] & 0xFFFFFFFFULL) |
+            ((Value & 0xFFFFFFFFULL) << 32);
+    } else {
+        Vmcs12->Fields[slot] =
+            KswordARKHvmNestedVmcs12Narrow(Value, width);
     }
-    /* Publish the exact VMCS field encoding. */
-    freeSlot->Encoding = Encoding;
-    /* Publish the exact L1-provided field value. */
-    freeSlot->Value = Value;
-    /* Order field data before publishing the active marker. */
-    KeMemoryBarrier();
-    /* Publish the complete cached field. */
-    freeSlot->Active = TRUE;
-    /* Complete the bounded field insertion successfully. */
+    /* Complete the field write successfully. */
     return STATUS_SUCCESS;
 }
 
@@ -102,34 +151,38 @@ KswordARKHvmNestedVmcs12Read(
     _Out_ ULONGLONG* Value
     )
 {
-    ULONG index = 0UL;
+    ULONG slot = 0UL;
+    ULONG width = 0UL;
+    BOOLEAN high = FALSE;
 
     /* Require one current vmcs12 and a fixed output. */
-    if (Vmcs12 == NULL ||
-        Value == NULL ||
-        !Vmcs12->Current ||
-        Encoding == 0UL) {
+    if (Vmcs12 == NULL || Value == NULL || !Vmcs12->Current) {
         /* Return the exact nested-state contract failure. */
         return STATUS_INVALID_DEVICE_STATE;
     }
-    /* Search the bounded vmcs12 field cache. */
-    for (index = 0UL;
-         index < KSW_HVM_VMCS12_FIELD_CAPACITY;
-         ++index) {
-        const KSW_HVM_VMCS12_FIELD* field =
-            &Vmcs12->Fields[index];
-
-        /* Match only the exact active field encoding. */
-        if (field->Active &&
-            field->Encoding == Encoding) {
-            /* Publish the cached L1 field value. */
-            *Value = field->Value;
-            /* Complete the bounded field read successfully. */
-            return STATUS_SUCCESS;
-        }
+    *Value = 0ULL;
+    /* Reject an encoding this model does not address. */
+    if (!KswordARKHvmNestedVmcs12Decompose(
+            Encoding,
+            &slot,
+            &width,
+            &high)) {
+        /* Return the exact unsupported-component failure. */
+        return STATUS_NOT_FOUND;
     }
-    /* Report an uncached vmcs12 field explicitly. */
-    return STATUS_NOT_FOUND;
+    /*
+     * A field never written reads as zero rather than failing.
+     *
+     * That is the architectural shape: whether a component is supported is a
+     * property of its encoding, not of whether anyone has written it yet.
+     * Failing on an unwritten field would make VMREAD-before-VMWRITE - which
+     * L1 is entitled to do - look like an unsupported component.
+     */
+    *Value = high
+        ? ((Vmcs12->Fields[slot] >> 32) & 0xFFFFFFFFULL)
+        : KswordARKHvmNestedVmcs12Narrow(Vmcs12->Fields[slot], width);
+    /* Complete the field read successfully. */
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS
