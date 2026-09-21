@@ -1,9 +1,25 @@
-# Run from the staged nested-probe share after a cold guest boot; never touch the host.
+﻿# Run from the staged nested-probe share after a cold guest boot; never touch the host.
 [CmdletBinding()]
 param([ValidateSet(1,2,4,8)][int]$Vcpu=1,
-      [ValidateRange(1,1000)][int]$Cycles=1)
+      [ValidateRange(1,1000)][int]$Cycles=1,
+      [switch]$GeneralResident)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+function Stop-GeneralService([string]$Evidence, [int]$TimeoutMilliseconds=30000) {
+    # Reach this only after the runner proved all CPUs stopped and resources released.
+    & sc.exe stop KswordARK 2>&1 | Out-File (Join-Path $evidence 'sc-stop.txt') -Encoding UTF8
+    if ($LASTEXITCODE -ne 0) { throw 'General smoke completed but service stop failed; retain evidence.' }
+    $deadline=[DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        $state=& sc.exe query KswordARK
+        $queryExit=$LASTEXITCODE
+        $state | Out-File (Join-Path $evidence 'sc-final.txt') -Encoding UTF8
+        if ($queryExit -ne 0) { throw 'Cannot query service unload completion.' }
+        if (($state -join "`n") -match 'STATE\s*:\s*1\s+STOPPED') { break }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (($state -join "`n") -notmatch 'STATE\s*:\s*1\s+STOPPED') { throw 'Service unload did not reach STOPPED.' }
+}
 $machine=Get-CimInstance Win32_ComputerSystem
 $os=Get-CimInstance Win32_OperatingSystem
 if ($machine.Manufacturer -notmatch 'VMware' -or $os.Caption -notmatch 'Windows 10' -or
@@ -20,8 +36,9 @@ if (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\KswordARK') {
 }
 $identity=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'identity.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $suffix=(Get-Date -Format yyyyMMdd-HHmmss)+'-'+[guid]::NewGuid().ToString('N')
+$runKind=if ($GeneralResident) {'general-resident'} else {'nested-probe'}
 $candidate=Join-Path $env:SystemDrive ('KSwordLab\nested-candidate-'+$suffix)
-$evidence=Join-Path $env:SystemDrive ('KSwordLab\nested-probe-'+$suffix)
+$evidence=Join-Path $env:SystemDrive ('KSwordLab\'+$runKind+'-'+$suffix)
 New-Item -ItemType Directory -Path $candidate | Out-Null
 foreach ($name in @('KswordARK.sys','KswordARK.pdb','hvm_ctl.exe')) {
     $source=Join-Path $PSScriptRoot $name
@@ -33,9 +50,14 @@ foreach ($name in @('KswordARK.sys','KswordARK.pdb','hvm_ctl.exe')) {
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'identity.json') -Destination $candidate
 try {
     & (Join-Path $PSScriptRoot 'Load-GuestCandidate.ps1') -CandidateDirectory $candidate -ControlSourceDirectory $PSScriptRoot | Out-Null
-    Write-Host "Candidate loaded. Starting bounded nested probe; evidence: $evidence"
+    Write-Host "Candidate loaded. Starting $runKind; evidence: $evidence"
     & (Join-Path $PSScriptRoot 'Invoke-GuestAcceptance.ps1') -Ctl (Join-Path $candidate 'hvm_ctl.exe') `
-        -EvidenceDirectory $evidence -Vcpu $Vcpu -Cycles $Cycles -NestedProbe
+        -EvidenceDirectory $evidence -Vcpu $Vcpu -Cycles $Cycles -NestedProbe:(-not $GeneralResident) -GeneralResident:$GeneralResident
+    if ($GeneralResident) {
+        Stop-GeneralService -Evidence $evidence
+        @{result='PASS';kind='general-svm-resident-smoke';serviceState='Stopped';innerOperatingSystemTested=$false} |
+            ConvertTo-Json | Set-Content (Join-Path $evidence 'complete.json') -Encoding UTF8
+    }
 } finally {
     # Export completed and failed evidence alike. Never issue a driver control from cleanup.
     if (-not (Test-Path -LiteralPath $evidence)) { New-Item -ItemType Directory -Path $evidence | Out-Null }
@@ -45,7 +67,7 @@ try {
     }
     $results=[string]::Concat([char]92,[char]92,'vmware-host',[char]92,'Shared Folders',[char]92,'KSwordResults')
     if (Test-Path -LiteralPath $results) {
-        $destination=Join-Path $results ('nested-probe-'+$suffix)
+        $destination=Join-Path $results ($runKind+'-'+$suffix)
         New-Item -ItemType Directory -Path $destination | Out-Null
         $records=@()
         foreach ($file in @(Get-ChildItem -LiteralPath $evidence -File -Recurse)) {

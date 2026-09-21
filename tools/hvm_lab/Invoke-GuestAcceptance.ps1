@@ -7,9 +7,11 @@ param([Parameter(Mandatory)][string]$Ctl,
       [ValidateRange(1,60)][int]$IdleSeconds=10,
       [ValidateRange(0,86400)][int]$SoakSeconds=0,
       [ValidateRange(10,600)][int]$CommandTimeoutSeconds=60,
-      [switch]$NestedProbe)
+      [switch]$NestedProbe,
+      [switch]$GeneralResident)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+if ($NestedProbe -and $GeneralResident) { throw 'Probe and general residency are mutually exclusive.' }
 if ($NestedProbe -and $SoakSeconds -ne 0) { throw 'The bounded nested probe cannot run a residency soak.' }
 $os=Get-CimInstance Win32_OperatingSystem
 $machine=Get-CimInstance Win32_ComputerSystem
@@ -99,9 +101,35 @@ function CheckNestedProbe($Metrics, $Previous) {
     }
     return $seen
 }
+function CheckGeneral($Metrics, [bool]$Active) {
+    if ($Metrics.version -ne 5 -or $Metrics.backend -ne 2 -or @($Metrics.svmProcessors).Count -ne $Vcpu) {
+        throw 'General residency requires metrics v5 and the complete AMD CPU set.'
+    }
+    $seen=@{}
+    foreach ($cpu in $Metrics.svmProcessors) {
+        $id="$($cpu.group):$($cpu.number)"
+        if ($cpu.group -ne 0 -or $cpu.number -lt 0 -or $cpu.number -ge $Vcpu -or $seen.ContainsKey($id)) {
+            throw 'Duplicate, missing or unexpected general CPU identity.'
+        }
+        $seen[$id]=$true
+        $g=$cpu.general
+        if ($g.valid -ne 1 -or [uint64]$g.sequence -eq 0 -or ([uint64]$g.sequence % 2) -ne 0 -or
+            [uint64]$g.preparedEntries -eq 0 -or (-not $Active -and [uint64]$g.hardwareExits -eq 0) -or
+            $cpu.failureStatus -ne '0x00000000') {
+            throw "CPU $id lacks coherent, executed general-mode evidence."
+        }
+        $enabled=if ($Active) {1} else {0}
+        if ($g.enabled -ne $enabled -or $g.initialized -ne $enabled) { throw "CPU $id general ownership mismatch." }
+        if (-not $Active -and ($g.pending -ne 0 -or $g.nmiCaptured -ne 0 -or
+            [uint64]$g.leaseToken -ne 0 -or [uint64]$g.armedToken -ne 0 -or [uint64]$g.retryToken -ne 0)) {
+            throw "CPU $id retains general event or VMCB ownership."
+        }
+    }
+}
 $metadata=@{os=$os.Caption;build=$os.BuildNumber;bootId=$os.LastBootUpTime.ToUniversalTime().ToString('o');
     cpuCount=$Vcpu;cycles=$Cycles;idleSeconds=$IdleSeconds;soakSeconds=$SoakSeconds;ctlHash=(Get-FileHash $Ctl).Hash;hardwareResult='NotRun';
-    kind=$(if ($NestedProbe) {'bounded-svm-nested-probe'} else {'resident-acceptance'})}
+    innerOperatingSystemTested=$false;
+    kind=$(if ($NestedProbe) {'bounded-svm-nested-probe'} elseif ($GeneralResident) {'general-svm-resident-smoke'} else {'resident-acceptance'})}
 $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $EvidenceDirectory 'guest.json') -Encoding UTF8
 try {
     $initial=Hvm status
@@ -132,7 +160,9 @@ try {
             innerOperatingSystemTested=$false;evidence=$EvidenceDirectory} | ConvertTo-Json
         return
     }
-    Hvm prepare | Out-Null
+    $prepareVerb=if ($GeneralResident) {'prepare-svm-general'} else {'prepare'}
+    $residentVerb=if ($GeneralResident) {'resident-svm-general'} else {'resident'}
+    Hvm $prepareVerb | Out-Null
     $prepared=Hvm status
     CheckSet $prepared $false
     Hvm self-test | Out-Null
@@ -141,9 +171,10 @@ try {
     $epoch=$tested.powerGeneration
     Hvm metrics | Out-Null
     for ($cycle=1; $cycle -le $Cycles; $cycle++) {
-        Hvm resident | Out-Null
+        Hvm $residentVerb | Out-Null
         $active=Hvm status
         CheckSet $active $true
+        if ($GeneralResident) { CheckGeneral (Hvm metrics) $true }
         if ($active.powerGeneration -ne $epoch) { throw 'Power/topology generation changed.' }
         if ($cycle -eq 1) {
             # A tight CPUID-heavy loop can miss masked timer interrupts. Allow idle,
@@ -157,6 +188,7 @@ try {
         }
         Hvm stop | Out-Null
         CheckSet (Hvm status) $false
+        if ($GeneralResident) { CheckGeneral (Hvm metrics) $false }
         # Repeated stop is part of the public idempotency contract.
         Hvm stop | Out-Null
         Hvm metrics | Out-Null
@@ -165,7 +197,7 @@ try {
         }
     }
     if ($SoakSeconds -gt 0) {
-        Hvm resident | Out-Null
+        Hvm $residentVerb | Out-Null
         . (Join-Path $PSScriptRoot 'GuestWorkload.ps1')
         [KswordLabWorkload]::Start($Vcpu,$EvidenceDirectory)
         $lastProgress=New-Object long[] $Vcpu
@@ -177,6 +209,7 @@ try {
                 Start-Sleep -Seconds ([Math]::Min(10,[Math]::Max(1,($deadline-[DateTime]::UtcNow).TotalSeconds)))
                 $active=Hvm status
                 CheckSet $active $true
+                if ($GeneralResident) { CheckGeneral (Hvm metrics) $true }
                 if ($active.powerGeneration -ne $epoch) { throw 'Soak crossed a power/topology generation.' }
                 $progress=@([KswordLabWorkload]::Progress())
                 Record @{phase='workload';progress=$progress;errors=@([KswordLabWorkload]::Errors())}
@@ -196,6 +229,7 @@ try {
         if ([KswordLabWorkload]::Errors().Length) { throw 'Workload reported a failure while stopping.' }
         Hvm stop | Out-Null
         CheckSet (Hvm status) $false
+        if ($GeneralResident) { CheckGeneral (Hvm metrics) $false }
     }
     Hvm teardown | Out-Null
     $released=Hvm status
@@ -203,7 +237,8 @@ try {
     Record @{phase='complete';result='PASS';cycles=$Cycles;soakSeconds=$SoakSeconds}
     $metadata.hardwareResult='PASS'
     $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $EvidenceDirectory 'guest.json') -Encoding UTF8
-    [pscustomobject]@{result='PASS';vcpu=$Vcpu;cycles=$Cycles;idleSeconds=$IdleSeconds;soakSeconds=$SoakSeconds;
+    [pscustomobject]@{result='PASS';kind=$metadata.kind;innerOperatingSystemTested=$false;
+        vcpu=$Vcpu;cycles=$Cycles;idleSeconds=$IdleSeconds;soakSeconds=$SoakSeconds;
         preparedProcessorCount=$released.preparedProcessorCount;residentProcessorCount=$released.residentProcessorCount;
         evidence=$EvidenceDirectory} | ConvertTo-Json
 } catch {

@@ -180,3 +180,14 @@ Intel 保留原执行路径，新增调度边界目前由 AMD 接入；共享 ph
 [KeIpiGenericCall](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-keipigenericcall)。
 
 静态候选现使用 metrics v5，CLI和当前验收脚本须与驱动同批构建；历史v4导出仍可由只读验证器解释其不变的nestedProbe子集。`general`诊断不复用探针完成位。`build-tests.cmd --build-only`只编译链接宿主测试目标，打印TEST_EXECUTION=NOT_RUN；不执行测试或装载驱动。
+
+## 通用模式测试候选（2026-09-21）
+
+`Start-GuestGeneralTest.ps1 -Vcpu 1 -Cycles 1` 复用来宾候选校验、装载和证据导出，调用
+`prepare-svm-general → self-test → resident-svm-general → stop → teardown`。
+先短周期验证通用退出循环本身，再测试内层操作系统。单核通过后直接用8核克隆执行
+`-Vcpu 8 -Cycles 100`。此处 `Vcpu` 指装载 KSword 的 Windows 克隆CPU数，**不是内层OS的CPU验收**。
+脚本结果固定 `innerOperatingSystemTested=false`；通用模式和固定probe互斥。
+正常收尾额外等待 SCM STOPPED，失败/超时不推断回滚，不自动卸载未知状态驱动。
+需要先取得宿主 LabHostReady、VMware原生模式与来宾KD连接证据；不要在普通启动环境运行。
+`Test-GeneralAcceptance.ps1` 只验证离线快照门禁；`Test-AcceptanceCapture.ps1` 只验证进程输出采集。
