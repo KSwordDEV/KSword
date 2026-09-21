@@ -154,6 +154,9 @@ NTSTATUS KswordSvmSelfTest(KSW_HVM_RUNTIME* Runtime, ULONG Flags)
     /* Resource readiness and count both form the preparation contract. */
     if (state == NULL || Runtime->ResidentProcessorCount || Runtime->PreparedProcessorCount != state->Count ||
         state->PreparedPowerGeneration != generation) { return STATUS_DEVICE_NOT_READY; }
+    /* A bounded probe can only consume resources deliberately prepared for that probe. */
+    if ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_SVM_NESTED_PROBE) &&
+        !(state->PreparedFlags & KSWORD_ARK_HVM_CONTROL_FLAG_SVM_NESTED_PROBE)) { return STATUS_INVALID_DEVICE_STATE; }
     /* Share the same phase as resident start/stop and power callbacks. */
     status = KswordARKHvmAcquireResidentTransition(Runtime);
     /* Do not wait at an unsafe IRQL when another transition owns the phase. */
@@ -262,6 +265,9 @@ NTSTATUS KswordSvmStart(KSW_HVM_RUNTIME* Runtime, ULONG Flags)
     if (!Runtime->ResidentStartAllowed || state == NULL || !state->Npt.RootPa ||
         !(Runtime->StateFlags & KSWORD_ARK_HVM_STATE_SELF_TEST_PASSED) ||
         Runtime->PreparedProcessorCount != state->Count || Runtime->SelfTestPassedProcessorCount != state->Count) { return STATUS_DEVICE_NOT_READY; }
+    /* Changing the command flags cannot convert a fixed probe preparation into ordinary residency. */
+    if ((state->PreparedFlags & KSWORD_ARK_HVM_CONTROL_FLAG_SVM_NESTED_PROBE) ||
+        ((Flags ^ state->PreparedFlags) & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_SVM)) { return STATUS_INVALID_DEVICE_STATE; }
     /* Never replace a live or uncertain ownership state. */
     if (Runtime->ResidentProcessorCount || (Runtime->StateFlags & (KSWORD_ARK_HVM_STATE_FAULTED | KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED))) { return STATUS_INVALID_DEVICE_STATE; }
     /* Serialize against power and other hardware transitions. */
@@ -283,12 +289,19 @@ NTSTATUS KswordSvmStart(KSW_HVM_RUNTIME* Runtime, ULONG Flags)
         /* Reset only when no CPU from an earlier attempt remains resident. */
         ULONG index;
         /* Keep cleanup evidence until the next authorized start. */
-        for (index = 0; index < state->Count; ++index) { state->Cpus[index].FailureStatus = STATUS_SUCCESS; state->Cpus[index].FailureStage = 0; }
+        for (index = 0; index < state->Count; ++index) {
+            /* Every target receives the same explicitly requested mode before the IPI begins. */
+            state->Cpus[index].GeneralRequested = (Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_SVM) != 0;
+            /* Preserve old failure evidence until the new transition has acquired unload ownership. */
+            state->Cpus[index].FailureStatus = STATUS_SUCCESS; state->Cpus[index].FailureStage = 0;
+        }
     }
     /* Observers can see Starting, never premature Active. */
     KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_RESIDENT_STARTING);
     /* Each worker publishes a private native/guest continuation acknowledgement. */
     status = KswSvmBroadcast(state, TRUE);
+    /* Report software scope separately from hardware feature bits and full OS acceptance. */
+    if (Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_SVM) { Runtime->NestedImplementation = KSWORD_ARK_HVM_IMPLEMENTATION_PARTIAL; }
     /* Recheck epoch after rendezvous, including complete sleep/resume cycles. */
     if (NT_SUCCESS(status) && (Runtime->PowerTransitionPending || Runtime->PowerTransitionGeneration != state->TestedPowerGeneration ||
         Runtime->ResidentProcessorCount != (LONG)state->Count)) { status = STATUS_POWER_STATE_INVALID; }
@@ -310,6 +323,8 @@ NTSTATUS KswordSvmStart(KSW_HVM_RUNTIME* Runtime, ULONG Flags)
         } else {
             /* Successful rollback leaves capability-only, not Active. */
             Runtime->ResidentImplementation = KSWORD_ARK_HVM_IMPLEMENTATION_CAPABILITY_ONLY;
+            /* No general dispatcher remains active after complete rollback. */
+            Runtime->NestedImplementation = KSWORD_ARK_HVM_IMPLEMENTATION_UNSUPPORTED;
             /* Return the unload entry only when power state permits it. */
             rollback = KswSvmDisarm(Runtime);
             /* Failed unload restoration is still an incomplete lifecycle. */
@@ -345,6 +360,8 @@ NTSTATUS KswordSvmStop(KSW_HVM_RUNTIME* Runtime)
         KswordARKHvmStateClear(Runtime, KSWORD_ARK_HVM_STATE_RESIDENT_ACTIVE);
         /* Keep the backend available for another tested start. */
         Runtime->ResidentImplementation = KSWORD_ARK_HVM_IMPLEMENTATION_CAPABILITY_ONLY;
+        /* The general dispatch mode no longer executes on any processor. */
+        Runtime->NestedImplementation = KSWORD_ARK_HVM_IMPLEMENTATION_UNSUPPORTED;
     } else if (NT_SUCCESS(status)) { status = STATUS_HV_OPERATION_FAILED; }
     /* Failed stop retains all allocations and the unload guard. */
     if (!NT_SUCCESS(status)) { KswordARKHvmStateSet(Runtime, KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED); }

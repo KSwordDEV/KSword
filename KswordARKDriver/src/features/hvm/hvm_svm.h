@@ -147,6 +147,8 @@ typedef struct _KSW_SVM_CPU {
     ULONGLONG NestedEntryEnabled;
     /* Resource and runtime ownership beyond the assembly prefix. */
     KSW_HVM_RUNTIME* Runtime;
+    /* Chosen under the common transition before the all-CPU resident launch. */
+    ULONG GeneralRequested;
     /* Public row owns processor identity and common states. */
     KSW_HVM_CPU_RESOURCE* Resource;
     /* Captured capability image used for all entry checks. */
@@ -249,6 +251,8 @@ typedef struct _KSW_SVM_STATE {
     KSW_SVM_CPU* Cpus;
     /* Frozen topology size. */
     ULONG Count;
+    /* Resource mode is frozen at prepare; a later start cannot reinterpret probe allocations. */
+    ULONG PreparedFlags;
     /* Power generation that produced the self-test evidence. */
     LONG TestedPowerGeneration;
     /* Preparation and execution must use the same power epoch. */

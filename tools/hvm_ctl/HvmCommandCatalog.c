@@ -11,6 +11,12 @@
 #include "../../shared/driver/KswordArkHvmIoctl.h"
 
 static const HVM_COMMAND_SPEC g_commands[] = {
+    { "prepare-svm-general", "准备 AMD 通用嵌套实验", "生命周期", "预分配通用 SVM/NPT 资源；与有界探针配置互斥，尚未完成操作系统验收。", HvmControl, 0, KSWORD_ARK_HVM_CONTROL_PREPARE,
+      KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED | KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED | KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_SVM, 0,
+      { { NULL, HvmDecimal32, NULL } } },
+    { "resident-svm-general", "启动 AMD 通用嵌套实验", "生命周期", "需要 prepare-svm-general 和逐核自检；暴露 SVM，启用实验性通用退出分派。", HvmControl, 0, KSWORD_ARK_HVM_CONTROL_START_RESIDENT,
+      KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED | KSWORD_ARK_HVM_CONTROL_FLAG_FORCE | KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED | KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_SVM, 0,
+      { { NULL, HvmDecimal32, NULL } } },
     { "prepare-svm-probe", "准备 AMD 嵌套探针", "生命周期", "预分配 AMD 有界嵌套自检资源；不开放内层虚拟机运行。", HvmControl, 0, KSWORD_ARK_HVM_CONTROL_PREPARE,
       KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED | KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED | KSWORD_ARK_HVM_CONTROL_FLAG_SVM_NESTED_PROBE, 0,
       { { NULL, HvmDecimal32, NULL } } },

@@ -224,6 +224,13 @@ NTSTATUS KswordSvmEnterCurrent(KSW_SVM_CPU* Cpu)
     NTSTATUS status = KswordSvmBuildVmcb(Cpu);
     /* A failed builder has not entered virtualization. */
     if (!NT_SUCCESS(status)) { Cpu->Result = status; return status; }
+    /* Bind the current Windows continuation only for the explicit general resident mode. */
+    if (!Cpu->SelfTest && Cpu->GeneralRequested) {
+        /* All resources already exist; the pinned callback allocates nothing and uses the just-built VMCB. */
+        status = KswordSvmNestedInitializeGeneral(Cpu);
+        /* A failed binding has not acquired physical SVM ownership. */
+        if (!NT_SUCCESS(status)) { Cpu->Result = status; return status; }
+    }
     /* Preserve a deterministic entry failure until guest continuation proves otherwise. */
     Cpu->Result = STATUS_HV_OPERATION_FAILED;
     /* Entry rejection checks count exits within this launch, not a previous self-test. */
@@ -236,6 +243,17 @@ NTSTATUS KswordSvmEnterCurrent(KSW_SVM_CPU* Cpu)
     status = KswordSvmAsmLaunch(Cpu);
     /* An invalid VMCB also returns natively, but must never publish Active. */
     if (Cpu->Stage == KSWORD_ARK_HVM_STAGE_FAILED || Cpu->SelfTest) { status = Cpu->Result; }
+    /* A first-entry INVALID may return natively before any general guest instruction executed. */
+    if (!NT_SUCCESS(status) && !Cpu->SelfTest && Cpu->NestedEntryEnabled) {
+        /* Do not retire a constructed overlay until this CPU proves physical ownership was restored. */
+        if (__readmsr(KSW_SVM_MSR_EFER) != Cpu->OriginalEfer || __readmsr(KSW_SVM_MSR_HSAVE) != Cpu->OriginalHsave ||
+            !KswordSvmVerifyNativeState(Cpu) || !KswordSvmNestedCancelFirstEntry(Cpu)) {
+            /* An unproven native return retains the driver image and all per-CPU resources. */
+            KswordARKHvmStateSet(Cpu->Runtime, KSWORD_ARK_HVM_STATE_FAULTED | KSWORD_ARK_HVM_STATE_ROLLBACK_REQUIRED);
+            /* The saved launch continuation cannot be reused to hide uncertain ownership. */
+            KeBugCheckEx(0x20001, 0x53564dUL, (ULONG_PTR)Cpu, 5, 0);
+        }
+    }
     /* A self-test succeeds only after ownership registers are natively restored. */
     if (Cpu->SelfTest &&
         (__readmsr(KSW_SVM_MSR_EFER) != Cpu->OriginalEfer || __readmsr(KSW_SVM_MSR_HSAVE) != Cpu->OriginalHsave ||

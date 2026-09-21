@@ -125,3 +125,5 @@ ULONG KswordSvmNestedGeneralExit(KSW_SVM_CPU* Cpu);
 BOOLEAN KswordSvmNestedBusy(const KSW_SVM_CPU* Cpu);
 /* Retire a general binding only after the caller independently proved native register restoration. */
 BOOLEAN KswordSvmNestedCompleteNative(KSW_SVM_CPU* Cpu);
+/* Only after independent native readback for the very first real VMRUN's INVALID result. */
+BOOLEAN KswordSvmNestedCancelFirstEntry(KSW_SVM_CPU* Cpu);

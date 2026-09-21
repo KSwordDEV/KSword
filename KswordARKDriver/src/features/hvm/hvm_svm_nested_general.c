@@ -275,7 +275,35 @@ BOOLEAN KswordSvmNestedBusy(const KSW_SVM_CPU* Cpu)
         nested->Nmi.Armed || nested->Nmi.Count) { return TRUE; }
     /* Acknowledged events or executable overlay windows retain their containing CPU resources. */
     return nested->GeneralExecution.Pending.Count || nested->GeneralMachine.ArmedToken ||
-        nested->GeneralMachine.NmiCount || nested->GeneralMachine.Overlay.Applied || nested->GeneralMachine.IrqWindow.Applied;
+        nested->GeneralMachine.NmiCount || nested->GeneralMachine.Overlay.Applied || nested->GeneralMachine.IrqWindow.Applied ||
+        nested->GeneralMachine.NmiHardwareMask || nested->GeneralMachine.NmiBlocked || nested->GeneralMachine.HeldNmiGuard ||
+        nested->GeneralMachine.Iret.Applied || nested->GeneralMachine.Iret.Requested;
+}
+
+/* The caller already verified native EFER/HSAVE/current extended state on this exact CPU. */
+BOOLEAN KswordSvmNestedCancelFirstEntry(KSW_SVM_CPU* Cpu)
+{
+    /* A failed initial entry owns a constructed overlay, but no executed guest event. */
+    KSW_SVM_NESTED* nested;
+    /* No later INVALID or failed stop can use this narrow cancellation path. */
+    if (!Cpu || !(nested = Cpu->Nested) || Cpu->Active || Cpu->SelfTest || !Cpu->Resource ||
+        Cpu->Stage != KSWORD_ARK_HVM_STAGE_FAILED || Cpu->Resource->Row.vmExitCount != 1 ||
+        Cpu->Resource->Row.svmExitCode != KSW_SVM_EXIT_INVALID || !nested->GeneralInitialized ||
+        !Cpu->NestedEntryEnabled || (nested->GeneralSequence & 1) || nested->GeneralHardwareExits ||
+        nested->GeneralMachine.Transitions != 1 || nested->Session.Phase != KSW_NSVM_SESSION_IDLE ||
+        nested->Session.Lease.Token || nested->GeneralExecution.Pending.Count || nested->GeneralMachine.ArmedToken ||
+        nested->GeneralMachine.NmiCount || nested->GeneralMachine.NmiHardwareMask || nested->GeneralMachine.NmiBlocked ||
+        nested->GeneralMachine.Iret.Applied || nested->GeneralMachine.Iret.Requested || nested->Nmi.Armed || nested->Nmi.Count) { return FALSE; }
+    /* Publish native cancellation separately from any successful general hardware cycle. */
+    InterlockedIncrement64(&nested->GeneralSequence);
+    /* INVALID did not consume the executable interrupt overlay. No guest state is rolled back here. */
+    nested->GeneralMachine.Overlay.Applied = 0; nested->GeneralMachine.LastAction = KSW_NSVM_MACHINE_FAULT;
+    /* Preserve the rejected hardware result for subsequent read-only diagnostics. */
+    nested->GeneralLastHardwareExit = KSW_SVM_EXIT_INVALID; nested->GeneralHardwareExits = 1;
+    /* Only the independently proven native caller may make this allocation releasable. */
+    Cpu->NestedEntryEnabled = 0; Cpu->HostInterruptsAllowed = 0; nested->GeneralInitialized = 0;
+    /* The failed stage/result remain unchanged; this is not a successful resident entry. */
+    InterlockedIncrement64(&nested->GeneralSequence); return TRUE;
 }
 
 /* Called only after STOP returned natively and the common worker verified current CPU registers. */

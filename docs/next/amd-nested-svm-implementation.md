@@ -1,5 +1,13 @@
 # AMD 嵌套 SVM：第二阶段实现记录
 
+## 2026-09-21 通用实验入口（优先于下方历史）
+
+`prepare-svm-general → self-test → resident-svm-general → stop → teardown` 已有从命令目录、协议、准备配置、逐核绑定到实际汇编入口的调用链。GENERAL 与有界 PROBE 配置互斥，启动必须匹配准备时的配置；原普通常驻不自动开启通用嵌套。成功进入只发布 `PARTIAL`，不宣布内层操作系统兼容。首次硬件 INVALID 的撤销要求 native/EFER/HSAVE 回读和严格的首次进入证据，后续执行失败不能套用该清理路径。
+
+本次驱动标准 WDK Release x64 编译链接、x64 ApiValidator Universal 和 CAT 生成通过，零警告；`hvm_ctl`、KswordCLI、GUI 构建通过。GUI 有4条既有宏重定义/Qt部署警告；其构建自带 i18n/theme 门禁运行。新增 HVM 源用例仅编译链接，未运行；CLI 参数回归源用例已补入新命令，尚未执行。没有签名、替换共享候选、加载驱动或启动虚拟机。
+
+此入口仍是实验实现：事件协调器中的 `WINDOW` 返回会进入保留现场的故障路径，不能视作自动恢复或无害跳过；NMI shadow/事件碰撞等剩余实现边界须按最新收尾记录处理，不能把“入口接通”写成“完整 L2 静态完成”。
+
 2026-09-21 静态VIRQ复用：VINTR临时请求按排队IRQ与原V_IRQ的可投递条件并集唤醒，保存/恢复原vector/priority/IGN_TPR；已就绪的物理确认事件优先（APM15.21.4），原虚拟IRQ只在队列阻塞时按原IF/TPR/shadow投递，原EVENTINJ不改。L1要求VINTR反射且L2仍持确认队列时继续保留WINDOW，未伪造EXITINTINFO。扩展源用例未执行；WDK/API/CAT零警告通过build-nested-virq-20260921.log。GUI metrics v5整批构建最终成功（build-gui-metrics5-20260921.log），共8条既有宏重定义/Qt部署警告，链接器自行从32位重启到64位后成功；未手动替换工具链。GUI构建自带i18n/theme门禁自动执行，无HVM测试或硬件运行。
 
 2026-09-21 静态重复启停：实际native寄存器核验通过后，CompleteNative再次检查general stop动作/lease/队列/NMI/窗口为空，再关闭NestedEntryEnabled与绑定标志；保留诊断至下一次明确初始化。下一次绑定重取Windows当前状态并重置本次运行计数，不复用旧continuation。部分初始化的odd sequence拒绝重试，需正常释放/重新prepare。WDK/API/CAT零警告通过，日志build-nested-retire-20260921.log，也覆盖上一阶段最后raw-exit字段微调。无运行验证。

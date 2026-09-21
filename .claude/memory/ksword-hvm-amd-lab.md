@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 通用实验激活已接通：HVM v6 新增显式 ENABLE_NESTED_SVM(0x10000)，hvm_ctl 增加 prepare-svm-general/resident-svm-general，中间仍用 self-test。准备配置绑定到启动，PROBE 与 GENERAL 互斥；probe 不能通过普通 resident 绕过限制。逐核 BuildVmcb 后绑定 GeneralMachine，再进入已有真实汇编桥；成功常驻只发布 PARTIAL。首次真实 INVALID 仅在 EFER/HSAVE/native 状态回读一致、无后续硬件/队列/lease 时撤销未进入的绑定，其它失败仍保留。驱动标准 WDK/API/CAT 零警告；hvm_ctl、KswordCLI、主程序编译链接成功，GUI 有4条既有宏/Qt部署警告。构建自带 i18n/theme 门禁已运行，HVM测试未执行。命令仅属于 hvm_ctl，不向已移除该目录依赖的 GUI 语言包添加文案。仍有事件 WINDOW 分支，不得称完整 L2 或仅剩硬件验收；未签名/加载/暂存/启动VM/推送。
+
 2026-09-21 IRET完成窗口：新增nested_iret，以TF/#DB及全异常/异步拦截观察原IRET执行，区分NPF重试、IRET自身异常、完成后真实退出和纯monitor BS；保留原TF/DR6与IRET实际弹出的TF，不模拟返回栈。machine区分物理mask所有权/虚拟NMI服务屏蔽，完成IRET才清除；二次NMI延迟、仅首次投递前的物理pending可合并并计数；停止拒绝未完成mask/watch。用例仅编译、WDK/API/CAT零警告，build-nested-iret-20260921.log与build-static-fixtures-iret-20260921.log。未执行，不能把模拟输入当硬件IRET证明。NMI shadow/异步队列多owner交接仍有WINDOW分支；继续独立实验激活入口，不能说全部静态完成。
 
 2026-09-21 NMI首次投递前屏蔽保护：machine在物理确认token仍Physical且本次不注入时叠加IRET拦截，退出按逆序恢复控制；IRET未执行即保留WINDOW，token/原RIP/GIF不变，避免near-RET确认后由无关guest IRET过早解除硬件NMI屏蔽。STGI后实际注入时撤销该临时拦截。此为补齐明确失败边界，不是软件NMI屏蔽/IRET完成窗口实现；该路径还需继续做，普通通用激活仍关闭。WDK/API/CAT零警告及全部fixture编译链接通过，日志build-nested-held-nmi-20260921-r2.log/build-static-fixtures-held-nmi-20260921-r2.log（含所有临时overlay的停止门）；TEST_EXECUTION=NOT_RUN，未动态验证。

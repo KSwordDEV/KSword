@@ -219,9 +219,13 @@ NTSTATUS KswordSvmValidateFlags(KSW_HVM_RUNTIME* Runtime, ULONG Flags)
 {
     /* Only baseline lifecycle flags have AMD implementations. */
     const ULONG allowed = KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED | KSWORD_ARK_HVM_CONTROL_FLAG_FORCE |
-        KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED | KSWORD_ARK_HVM_CONTROL_FLAG_SVM_NESTED_PROBE;
+        KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED | KSWORD_ARK_HVM_CONTROL_FLAG_SVM_NESTED_PROBE |
+        KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_SVM;
     /* Unknown/Intel-specific features must not silently degrade to baseline. */
     if (Flags & ~allowed) { return STATUS_NOT_SUPPORTED; }
+    /* Bounded probe and arbitrary VMM execution have different continuation contracts. */
+    if ((Flags & KSWORD_ARK_HVM_CONTROL_FLAG_SVM_NESTED_PROBE) &&
+        (Flags & KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_SVM)) { return STATUS_INVALID_PARAMETER; }
     /* Running under a VMM requires opt-in and a specifically supported outer host. */
     if (Runtime->FeatureFlags & KSWORD_ARK_HVM_FEATURE_HYPERVISOR_PRESENT) {
         /* Do not spoof CPUID or accept an unknown host to make entry pass. */
@@ -331,6 +335,8 @@ NTSTATUS KswordSvmPrepare(KSW_HVM_RUNTIME* Runtime, ULONG Flags)
     Runtime->BackendContext = state;
     /* Freeze the target count for subsequent allocations. */
     state->Count = count;
+    /* Later lifecycle requests must match this allocation contract. */
+    state->PreparedFlags = Flags;
     /* Bind capability/allocation evidence to the current power epoch. */
     state->PreparedPowerGeneration = Runtime->PowerTransitionGeneration;
     /* Allocate all contexts before pinning individual processors. */
@@ -444,7 +450,8 @@ NTSTATUS KswordSvmPrepare(KSW_HVM_RUNTIME* Runtime, ULONG Flags)
     /* NPT uses the common cache/address-width contract established above. */
     if (NT_SUCCESS(status)) { status = KswordNptBuild(&state->Npt, &state->Cpus[0].Caps); }
     /* Probe resources are opt-in and never allocated by ordinary prepare. */
-    if (NT_SUCCESS(status) && (Flags & KSWORD_ARK_HVM_CONTROL_FLAG_SVM_NESTED_PROBE)) {
+    if (NT_SUCCESS(status) && (Flags & (KSWORD_ARK_HVM_CONTROL_FLAG_SVM_NESTED_PROBE |
+        KSWORD_ARK_HVM_CONTROL_FLAG_ENABLE_NESTED_SVM))) {
         /* Prepare every CPU before publishing any enhanced self-test readiness. */
         for (index = 0; index < count; ++index) {
             /* No mapping/stack allocation occurs in the later VMEXIT path. */

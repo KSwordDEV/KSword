@@ -41,6 +41,8 @@ def main():
         (["events", "123", "7"], [123, 7]),
         (["resident-vmreadbench"], [512]),
         (["resident-nested-fullsnapshot"], []),
+        (["prepare-svm-general"], []),
+        (["resident-svm-general"], []),
         (["soak"], [1000]),
         (["nested-page-map", "1234501e", "7000000", "d1"], [0x1234501E, 0x7000000, 0xD1, 0]),
         (["nested-page-map", "1234501e", "7000000", "d1", "1234"], [0x1234501E, 0x7000000, 0xD1, 1234]),
@@ -63,6 +65,9 @@ def main():
                 assert wire["expectedGeneration"] == 0
                 assert wire["soakMilliseconds"] == (expected[0] if command[0] == "soak" else 0)
                 assert wire["vmreadBenchIterations"] == (expected[0] if command[0] == "resident-vmreadbench" else 0)
+                if command[0] in ("prepare-svm-general", "resident-svm-general"):
+                    assert wire["flags"] & 0x10000, "General nesting must be explicit"
+                    assert not (wire["flags"] & 0x8000), "General and bounded probe profiles are exclusive"
             parsed.append(value)
         assert parsed[0] == parsed[1], command
 
@@ -76,6 +81,7 @@ def main():
         ["gdt-dump", "-1"], ["gdt-dump", "4294967295"], ["gdt-dump", "1junk"], ["status", "1"],
         ["msr-log", "100000000"], ["msr-log", "-1"], ["msr-log", " 1b"],
         ["events", "18446744073709551616"], ["soak", "4294967296"],
+        ["prepare-svm-general", "1"], ["resident-svm-general", "1"],
         ["nested-page-map", "1234501e", "7000001", "d1"],
         ["nested-page-map", "1234501e", "7000000", "100"],
         ["nested-page-map", "10000000000000000", "7000000", "00"],
