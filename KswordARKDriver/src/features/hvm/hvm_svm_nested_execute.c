@@ -61,6 +61,11 @@ static unsigned KswNsvmRaise(KSW_NSVM_EXECUTION* Execution, unsigned Vector, uns
             /* No replacement exception is injected after losing ownership of its predecessor. */
             return KSW_NSVM_EXEC_FAULT;
         }
+        /* A reused interrupted token now waits behind the replacement exception and may be parked on VMEXIT. */
+        if (retry && retry->Owner == owner && retry->Event == Execution->Exception.Deferred &&
+            !KswSvmNestedPendingDefer(&Execution->Pending, retry->Token)) { return KSW_NSVM_EXEC_FAULT; }
+        /* The next EVENTINJ belongs to the exception plan, never to this deferred acknowledgement. */
+        Execution->RetryEventToken = 0;
     }
     /* CR2 and EVENTINJ commit together only after deferred ownership was retained. */
     return KswSvmNestedExceptionInject(Execution->Current, &Execution->Exception, 1) ?

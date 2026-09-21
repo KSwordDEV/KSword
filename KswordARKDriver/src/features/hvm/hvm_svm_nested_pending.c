@@ -213,14 +213,27 @@ int KswSvmNestedPendingPrepareTransfer(const KSW_NSVM_PENDING* Pending,
             /* Rebinding happens only after successful architectural VMCB writeback. */
             physical = item->Token;
         } else {
-            /* All other acknowledged events need the exact hardware-interrupted record, not a same-vector guess. */
-            if (transfer || !item->Interrupted || item->Token != RetryToken || item->Event != (ReflectedEvent & 0xffffffffULL)) { return 0; }
+            /* Unstarted guest events are parked under the VMCB lease, never fabricated as EXITINTINFO. */
+            if (!item->Interrupted) { continue; }
+            /* Only the exact currently interrupted event is handed to architectural EXITINTINFO. */
+            if (transfer || item->Token != RetryToken || item->Event != (ReflectedEvent & 0xffffffffULL)) { return 0; }
             /* Exactly one event can be represented by EXITINTINFO. */
             transfer = item->Token;
         }
     }
     /* Neither output changes on failure, so partial preflight cannot authorize either mutation. */
     *TransferToken = transfer; *PhysicalToken = physical; return 1;
+}
+
+/* Separate the postponed acknowledgement from the exception now being delivered in its place. */
+int KswSvmNestedPendingDefer(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token)
+{
+    /* Stale tokens cannot reclassify another event in a recycled slot. */
+    KSW_NSVM_PENDING_ITEM* item = KswNsvmPendingFind(Pending, Token);
+    /* Only a genuinely interrupted, now-queued attempt may be postponed. */
+    if (!item || item->State != KSW_NSVM_PENDING_QUEUED || item->Physical || !item->Interrupted) { return 0; }
+    /* Its event remains owned, but no longer describes the next attempted delivery. */
+    item->Interrupted = 0; return 1;
 }
 
 /* Only committed VMEXIT writeback may hand an interrupted event to the inner VMM. */

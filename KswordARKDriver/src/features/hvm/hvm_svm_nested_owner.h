@@ -1,6 +1,7 @@
 /* Lifetime-bounded, nonblocking ownership of translated VMCB physical pages. */
 #pragma once
 #include "hvm_svm_arch.h"
+#include "hvm_svm_nested_pending.h"
 /* Keys never move during one prepared lifetime; exhaustion is explicit rather than unsafe eviction. */
 #define KSW_NSVM_OWNER_SLOTS 4096U
 #define KSW_NSVM_LEASE_OK 0U
@@ -13,6 +14,10 @@ typedef struct _KSW_NSVM_OWNER_SLOT {
     volatile long long Key;
     /* Zero means idle; a nonzero token is unique throughout this prepared lifetime. */
     volatile long long Token;
+    /* Deferred guest events follow this VMCB across physical CPUs while its lease is idle. */
+    KSW_SVM_U64 Deferred[KSW_NSVM_PENDING_CAPACITY];
+    /* Published atomically for teardown; payload access requires this slot's exclusive lease. */
+    volatile long DeferredCount;
 } KSW_NSVM_OWNER_SLOT;
 /* Allocate/zero once at PASSIVE_LEVEL; do not reset while any processor can enter. */
 typedef struct _KSW_NSVM_OWNER_TABLE {
@@ -35,3 +40,10 @@ unsigned KswSvmNestedOwnerAcquire(KSW_NSVM_OWNER_TABLE* Table, KSW_SVM_U64 HostP
 int KswSvmNestedOwnerRelease(KSW_NSVM_OWNER_TABLE* Table, KSW_NSVM_LEASE* Lease);
 /* Read-only quiescence check used after all native acknowledgements, never as a live rendezvous. */
 int KswSvmNestedOwnersIdle(KSW_NSVM_OWNER_TABLE* Table);
+/* These bounded transactions require a current lease; physical NMIs never enter the mailbox. */
+int KswSvmNestedOwnerCanPark(KSW_NSVM_OWNER_TABLE* Table, const KSW_NSVM_LEASE* Lease,
+    const KSW_NSVM_PENDING* Pending);
+int KswSvmNestedOwnerPark(KSW_NSVM_OWNER_TABLE* Table, const KSW_NSVM_LEASE* Lease,
+    KSW_NSVM_PENDING* Pending);
+int KswSvmNestedOwnerRestore(KSW_NSVM_OWNER_TABLE* Table, const KSW_NSVM_LEASE* Lease,
+    KSW_NSVM_PENDING* Pending);

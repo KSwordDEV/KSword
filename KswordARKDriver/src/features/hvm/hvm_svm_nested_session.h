@@ -49,6 +49,8 @@ typedef struct _KSW_NSVM_SESSION_IO {
     KSW_NSVM_OWNER_TABLE* Owners;
     /* Windows processor group:number identity frozen by prepare. */
     unsigned CpuIdentity;
+    /* Optional for fixed probes; general execution persists deferred events under the VMCB lease. */
+    KSW_NSVM_PENDING* Pending;
     /* Per-CPU preallocated output maps and their already validated host identities. */
     unsigned char* MergedMsr;
     unsigned char* MergedIo;

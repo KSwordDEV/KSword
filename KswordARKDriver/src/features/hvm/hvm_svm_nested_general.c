@@ -144,6 +144,8 @@ NTSTATUS KswordSvmNestedInitializeGeneral(KSW_SVM_CPU* Cpu)
     io->Policy.EferSupported = Cpu->Caps.Efer | KSW_SVM_EFER_SVME; io->Policy.Cr4Supported = Cpu->Caps.Cr4;
     /* Exact writeback and cross-CPU VMCB authority are shared with the bounded probe. */
     io->Commit = KswordSvmNestedCommitVmcb; io->Owners = nested->Owners; io->CpuIdentity = nested->CpuIdentity;
+    /* Deferred inner events follow the shared VMCB identity across later CPU scheduling. */
+    io->Pending = &nested->GeneralExecution.Pending;
     /* Both merged maps are hardware-contiguous prepared buffers. */
     io->MergedMsr = nested->MergedMaps; io->MergedIo = nested->MergedMaps + KSW_NSVM_MSRPM_BYTES;
     /* Guest-provided addresses are never substituted for these physical map identities. */

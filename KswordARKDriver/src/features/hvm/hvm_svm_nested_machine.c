@@ -295,11 +295,8 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
     if (inner && KswSvmNestedPendingOwned(&execution->Pending, 0)) {
         /* A VMRUN with a still-pending physical NMI follows L1's original NMI-intercept policy. */
         const KSW_NSVM_PENDING_ITEM* nmi = KswSvmNestedPendingLookup(&execution->Pending, Machine->PhysicalNmiToken);
-        /* Multiple/previously injected events cannot be reassigned through this hardware-pending rule. */
-        if (!nmi || !nmi->Physical || nmi->Owner || KswSvmNestedPendingOwned(&execution->Pending, 0) != 1) {
-            /* Retain acknowledgement ownership rather than injecting into the wrong context. */
-            return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW);
-        }
+        /* Deferred L1 injections stay on this CPU until L1 resumes; only a physical NMI follows VMRUN. */
+        if (nmi && nmi->Physical && !nmi->Owner) {
         /* An intercepted pending NMI produces virtual VMEXIT before the first L2 instruction. */
         if (!Machine->NmiBlocked && KswSvmNestedInterceptRequested(&execution->Session->Vmcb12, 0x61) == 1) {
             /* No IDT delivery began, so EXITINTINFO must remain invalid. */
@@ -315,6 +312,7 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
         } else if (!Machine->NmiBlocked && !KswSvmNestedPendingMovePhysical(&execution->Pending, nmi->Token, owner)) {
             /* L1 allowed direct delivery, but a stale ledger token cannot authorize it. */
             return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
+        }
         }
     }
 SelectCurrent:

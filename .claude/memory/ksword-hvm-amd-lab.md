@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 跨层事件积压已接线：共享VMCB owner slot新增16项有界Deferred邮箱；Session在完整VMEXIT写回后、释放同一HPA lease前，按token先后保存未投递guest事件；下次VMRUN在同一lease下导入并分配目标CPU新token，允许换CPU，physical NMI与当前EXITINTINFO不进邮箱。放入替代异常前清除旧retry的Interrupted属性；L1自己的延期事件在L2运行时保留原owner。邮箱不空时OwnersIdle拒绝释放，容量/序列/脏数据/旧lease失败不丢事件。新增多CPU身份导入、容量预检及停止门源fixture；WDK/API/CAT零警告build-event-mailbox-20260921.log，源fixture仅编译build-event-mailbox-fixtures-20260921.log，未运行。继续NMI窗口，不新增硬件结论。
+
 2026-09-21 递送顺序缺口已补：每次队列注入临时拦截全部异常，真实退出先还原原异常位图，再判定异事件EXITINTINFO。APM15.7.3要求先检查异常拦截再聚合，所以此保护下异事件属于原注入完成后的后续递送；原token记完成，新raw事件继续原分派。同事件重试忽略EV=0时未定义的ERRORCODE高32位，归属/反射比较及ResumeEvent同步。无保护的旧观察API仍拒绝异事件。WDK/API/CAT零警告，build-event-order-20260921.log；全部源fixture编译链接，build-event-order-fixtures-20260921.log，TEST_EXECUTION=NOT_RUN。未加载或新增硬件证据。
 
 2026-09-21 物理NMI交接收尾：PendingPrepareTransfer 独立预检一个真实 interrupted token 与一个未开始投递的 physical NMI；SessionReflect 完整写回后，前者才转交给 EXITINTINFO，后者只改 owner=0，保持 queued，不伪造递送完成。允许两者同时存在；部分写回保留原账本。已就绪且被 L1 拦截的 V_IRQ 可反射 VINTR，再按恢复的 L1/GIF0 重新选择事件；不复用 L2 调度输入。驱动 build-general-handoff-20260921.log 完整 WDK/API/CAT 零警告；build-static-fixtures-general-20260921.log 仅编译链接，TEST_EXECUTION=NOT_RUN。新增源码用例包含 physical-only 和 interrupted+physical 共存。当前仍未闭合：未阻塞NMI遇shadow/无关EVENTINJ、ArmedToken与另一有效EXITINTINFO不一致、多个非physical未投递事件跨owner反射。不得写成只剩测试；无新增硬件结果，详见 docs/next/ksword-amd-lab-status.md 的最新节。

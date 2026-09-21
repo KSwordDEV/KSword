@@ -1529,6 +1529,7 @@
     <ClCompile Include="src\features\hvm\hvm_svm_xstate.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_event.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_owner.c" />
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_mailbox.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_transfer.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_tlb.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_register.c" />

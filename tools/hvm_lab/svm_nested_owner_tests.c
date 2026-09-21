@@ -6,6 +6,7 @@
 static KSW_NSVM_OWNER_TABLE owners;
 static unsigned checks;
 static volatile LONG entered, failures;
+static KSW_NSVM_PENDING sourceEvents, targetEvents;
 #define CHECK(x) do { ++checks; if (!(x)) { printf("FAIL %u: %s\n", __LINE__, #x); return 1; } } while (0)
 static DWORD WINAPI contender(void* argument)
 {
@@ -31,6 +32,8 @@ int main(void)
     KSW_NSVM_LEASE first = {0}, second = {0}, stale;
     HANDLE threads[8];
     unsigned i;
+    KSW_SVM_U64 low, high;
+    const KSW_NSVM_PENDING_ITEM* selected;
     CHECK(KswSvmNestedOwnerAcquire(&owners, 0, 0x10002, &first) == KSW_NSVM_LEASE_OK);
     CHECK(first.CpuIdentity == 0x10002 && !KswSvmNestedOwnersIdle(&owners));
     CHECK(KswSvmNestedOwnerAcquire(&owners, 0, 0x10003, &second) == KSW_NSVM_LEASE_BUSY && !second.Token);
@@ -46,6 +49,32 @@ int main(void)
     CHECK(WaitForMultipleObjects(8, threads, TRUE, 30000) == WAIT_OBJECT_0);
     for (i = 0; i < 8; ++i) { CloseHandle(threads[i]); }
     CHECK(!failures && !entered && KswSvmNestedOwnersIdle(&owners));
+    CHECK(KswSvmNestedOwnerAcquire(&owners, 0x4000, 1, &first) == KSW_NSVM_LEASE_OK);
+    CHECK(KswSvmNestedPendingPush(&sourceEvents, 0x80000050ULL, 0x4001, &low));
+    CHECK(KswSvmNestedPendingPush(&sourceEvents, 0x800000e0ULL, 0x4001, &high));
+    CHECK(KswSvmNestedOwnerPark(&owners, &first, &sourceEvents));
+    CHECK(!sourceEvents.Count && !sourceEvents.Delivered);
+    stale = first;
+    CHECK(KswSvmNestedOwnerRelease(&owners, &first));
+    CHECK(!KswSvmNestedOwnersIdle(&owners)); /* Idle execution lease still owns deferred events. */
+    CHECK(!KswSvmNestedOwnerRestore(&owners, &stale, &targetEvents));
+    CHECK(KswSvmNestedOwnerAcquire(&owners, 0x4000, 7, &second) == KSW_NSVM_LEASE_OK);
+    targetEvents.Serial = ~0ULL - 1;
+    CHECK(!KswSvmNestedOwnerRestore(&owners, &second, &targetEvents));
+    CHECK(!targetEvents.Count && owners.Slots[second.Slot].DeferredCount == 2);
+    targetEvents.Serial = 100;
+    CHECK(KswSvmNestedOwnerRestore(&owners, &second, &targetEvents));
+    CHECK(targetEvents.Count == 2 && !owners.Slots[second.Slot].DeferredCount);
+    selected = KswSvmNestedPendingSelect(&targetEvents, 0x4001, 1, 1, 0);
+    CHECK(selected && selected->Event == 0x800000e0ULL && selected->Token == 102);
+    CHECK(KswSvmNestedPendingArm(&targetEvents, selected->Token));
+    CHECK(KswSvmNestedPendingObserve(&targetEvents, selected->Token, 1, 0));
+    selected = KswSvmNestedPendingSelect(&targetEvents, 0x4001, 1, 1, 0);
+    CHECK(selected && selected->Event == 0x80000050ULL && selected->Token == 101);
+    CHECK(KswSvmNestedPendingArm(&targetEvents, selected->Token));
+    CHECK(KswSvmNestedPendingObserve(&targetEvents, selected->Token, 1, 0));
+    CHECK(KswSvmNestedOwnerPark(&owners, &second, &targetEvents));
+    CHECK(KswSvmNestedOwnerRelease(&owners, &second) && KswSvmNestedOwnersIdle(&owners));
     memset(&owners, 0, sizeof(owners));
     for (i = 0; i < KSW_NSVM_OWNER_SLOTS; ++i) {
         CHECK(KswSvmNestedOwnerAcquire(&owners, (KSW_SVM_U64)i << 12, 0, &first) == KSW_NSVM_LEASE_OK);

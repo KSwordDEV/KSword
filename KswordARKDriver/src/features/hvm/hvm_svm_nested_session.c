@@ -157,6 +157,8 @@ unsigned int KswSvmNestedSessionEnter(KSW_NSVM_SESSION* Session,
     Io->Mmu->InnerNx = (KswSvmRead64(&Session->L1, KSW_VMCB_EFER) & (1ULL << 11)) != 0;
     /* Cache publication is tied to this exact reset generation. */
     Io->Mmu->Epoch = Io->Shadow->Epoch;
+    /* Restore this VMCB's events even when L1 scheduled it on a different physical processor. */
+    if (!KswSvmNestedOwnerRestore(Io->Owners, &Session->Lease, Io->Pending)) { return KswNsvmSessionFault(Session); }
     /* VMRUN sets guest GIF; the interrupt arbiter translates this logical state. */
     Session->VirtualGif = 1;
     /* Only now can the caller publish the inner owner before executing hardware. */
@@ -174,6 +176,8 @@ unsigned int KswSvmNestedSessionReflect(KSW_NSVM_SESSION* Session,
         Session->Phase != KSW_NSVM_SESSION_L2) { return KSW_NSVM_ACTION_FAULT; }
     /* An invalid physical VMCB02 is our builder/hardware-contract fault, not automatically L1's fault. */
     if (KswSvmRead64(Current, KSW_VMCB_EXITCODE) == KSW_SVM_EXIT_INVALID) { return KswNsvmSessionFault(Session); }
+    /* Validate event storage before any partial VMCB output could become visible. */
+    if (!KswSvmNestedOwnerCanPark(Io->Owners, &Session->Lease, Io->Pending)) { return KswNsvmSessionFault(Session); }
     /* Merge hardware outputs into the captured source, preserving all L1 control fields. */
     KswSvmNestedReflectExit(&Session->Vmcb12, Current, 1);
     /* Bind output to the same physical page even if a future outer owner supports remapping. */
@@ -182,7 +186,9 @@ unsigned int KswSvmNestedSessionReflect(KSW_NSVM_SESSION* Session,
         /* A partial or rejected output keeps L2 resources owned for diagnosis. */
         return KswNsvmSessionFault(Session);
     }
-    /* Publish physical output before releasing the unique VMCB execution owner. */
+    /* Persist unstarted guest-owned deliveries only after the complete architectural writeback. */
+    if (!KswSvmNestedOwnerPark(Io->Owners, &Session->Lease, Io->Pending)) { return KswNsvmSessionFault(Session); }
+    /* Publish physical output and parked events before releasing the unique VMCB execution owner. */
     if (!KswSvmNestedOwnerRelease(Io->Owners, &Session->Lease)) { return KswNsvmSessionFault(Session); }
     /* Current VMLOAD state/CR2/DR6 survive while L1's current VMRUN core state returns. */
     KswSvmNestedRestoreL1(Current, &Session->L1, Current);

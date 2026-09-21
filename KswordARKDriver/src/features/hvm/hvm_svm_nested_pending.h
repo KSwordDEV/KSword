@@ -42,6 +42,8 @@ int KswSvmNestedPendingObserve(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
 /* All secondary exceptions intercepted: a different delivery must follow completion of ours. */
 int KswSvmNestedPendingObserveProtected(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
     KSW_SVM_U64 ExitIntInfo);
+/* A replacement exception postpones a previously interrupted event instead of retrying it now. */
+int KswSvmNestedPendingDefer(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token);
 /* Validate the complete owner backlog before any architectural VMEXIT writeback. */
 int KswSvmNestedPendingPrepareTransfer(const KSW_NSVM_PENDING* Pending,
     KSW_SVM_U64 Owner, KSW_SVM_U64 RetryToken, KSW_SVM_U64 ReflectedEvent,

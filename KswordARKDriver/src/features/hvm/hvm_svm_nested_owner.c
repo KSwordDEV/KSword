@@ -74,6 +74,8 @@ int KswSvmNestedOwnersIdle(KSW_NSVM_OWNER_TABLE* Table)
     for (slot = 0; slot < KSW_NSVM_OWNER_SLOTS; ++slot) {
         /* One live or fault-retained owner forbids teardown of the shared lifetime. */
         if (_InterlockedCompareExchange64(&Table->Slots[slot].Token, 0, 0)) { return 0; }
+        /* An idle VMCB can still own an acknowledged event awaiting its next execution. */
+        if (_InterlockedCompareExchange(&Table->Slots[slot].DeferredCount, 0, 0)) { return 0; }
     }
     /* This is a quiescent ledger check, not authorization to stop an executing CPU. */
     return 1;

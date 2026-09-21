@@ -47,8 +47,8 @@ int main(void)
     CHECK(KswSvmNestedPendingOwned(&pending, 0) == 0);
     CHECK(KswSvmNestedPendingOwned(&pending, 0x1001) == 1);
     transfer = 77;
-    CHECK(!KswSvmNestedPendingPrepareTransfer(&pending, 0x1001, alien, 0x80000202ULL, &transfer, &physical));
-    CHECK(transfer == 77 && pending.Count == 1);
+    CHECK(KswSvmNestedPendingPrepareTransfer(&pending, 0x1001, alien, 0x80000202ULL, &transfer, &physical));
+    CHECK(transfer == 0 && physical == 0 && pending.Count == 1); /* Must be parked, not transferred as interrupted. */
     CHECK(KswSvmNestedPendingArm(&pending, alien));
     CHECK(!KswSvmNestedPendingObserve(&pending, alien, 2, 0));
     CHECK(KswSvmNestedPendingObserve(&pending, alien, 1, 0x80000202ULL));

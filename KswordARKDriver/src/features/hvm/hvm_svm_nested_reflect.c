@@ -17,6 +17,9 @@ unsigned KswSvmNestedReturnL1(KSW_NSVM_EXECUTION* Execution)
     /* A queued but never injected event cannot be smuggled into architectural EXITINTINFO. */
     if (!KswSvmNestedPendingPrepareTransfer(&Execution->Pending, owner,
         Execution->RetryEventToken, transferEvent, &transferToken, &physicalToken)) { return KSW_NSVM_EXEC_EVENT_BLOCKED; }
+    /* A session without the shared mailbox binding must not release an unstarted guest backlog. */
+    if (KswSvmNestedPendingOwned(&Execution->Pending, owner) > (unsigned)!!transferToken + (unsigned)!!physicalToken &&
+        Execution->Io->Pending != &Execution->Pending) { return KSW_NSVM_EXEC_EVENT_BLOCKED; }
     /* Partial output retains the live lease and acknowledgement; it is never a native return. */
     if (KswSvmNestedSessionReflect(Execution->Session, Execution->Io, Execution->Current) != KSW_NSVM_ACTION_RETURN) {
         /* The caller retains the entire resource graph for diagnosis. */
@@ -32,6 +35,8 @@ unsigned KswSvmNestedReturnL1(KSW_NSVM_EXECUTION* Execution)
         /* Never fabricate an injected event to conceal an invalid pending-latch handoff. */
         return KSW_NSVM_EXEC_FAULT;
     }
+    /* Completed reflection must have parked or handed off every source event before releasing its lease. */
+    if (KswSvmNestedPendingOwned(&Execution->Pending, owner)) { return KSW_NSVM_EXEC_FAULT; }
     /* No stale retry identity may refer to an acknowledgement now owned by L1. */
     Execution->RetryEventToken = 0;
     /* Virtual VMEXIT closes GIF before the physical coordinator prepares L1 execution. */
