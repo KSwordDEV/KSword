@@ -38,7 +38,11 @@ EXPECTED_COMMANDS = len(re.findall(
 assert EXPECTED_COMMANDS > 0
 assert len(json.loads(commands)['commands']) == EXPECTED_COMMANDS
 metrics = json.loads(subprocess.check_output([str(fixture), 'metrics']))
-assert metrics['version'] == 4 and metrics['backend'] == 2
+assert metrics['version'] == 5 and metrics['backend'] == 2
+general = metrics['svmProcessors'][0]['general']
+assert general['valid'] == 1 and int(general['sequence']) == 0x100000002
+assert int(general['preparedEntries']) == 13 and int(general['hardwareExits']) == 12
+assert general['exitCode'] == '0xFEDCBA9876543210'
 assert metrics['svmProcessors'][0]['nestedProbe'] == {
     'valid': 1, 'sequence': 2, 'status': '0x00000000', 'entries': 1,
     'reflections': 1, 'faults': 7, 'exit': '0xFEDCBA9876543210',

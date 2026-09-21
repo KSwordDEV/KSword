@@ -28,6 +28,11 @@ static BOOL WINAPI FakeDeviceIoControl(HANDLE device, DWORD code, LPVOID input,
         cpu->nestedProbeFaults = 7;
         cpu->nestedProbeExit = 0xFEDCBA9876543210ULL;
         cpu->nestedProbeMarker = 0x4B534E31ULL;
+        cpu->general.valid = 1;
+        cpu->general.sequence = 0x100000002ULL;
+        cpu->general.preparedEntries = 13;
+        cpu->general.hardwareExits = 12;
+        cpu->general.exitCode = 0xFEDCBA9876543210ULL;
         *returned = sizeof(*metrics);
         return TRUE;
     }

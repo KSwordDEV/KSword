@@ -19,6 +19,8 @@ static VOID KswNsvmProbeSessionIo(KSW_SVM_CPU* Cpu, KSW_NSVM_SESSION_IO* Io)
 {
     /* Ownership remains processor-local throughout the transaction. */
     KSW_SVM_NESTED* nested = Cpu->Nested;
+    /* Optional general-session fields, including Pending, must never inherit stack contents. */
+    RtlZeroMemory(Io, sizeof(*Io));
     /* Bind physical access to the trusted outer map. */
     KswNsvmProbeIo(Cpu, &Io->Operand);
     /* The probe does not introduce control features absent from its current Windows state. */

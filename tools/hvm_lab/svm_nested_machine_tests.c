@@ -61,6 +61,8 @@ static void initialize(void)
     m->ackValue = 1;
     KswSvmWrite64(&m->current, KSW_VMCB_RIP, 0x10000);
     KswSvmWrite64(&m->current, KSW_VMCB_RFLAGS, 0x202);
+    /* SVM instruction tests execute in protected mode, as required by admission. */
+    KswSvmWrite64(&m->current, KSW_VMCB_CR0, 1);
     KswSvmWrite32(&m->current, KSW_VMCB_MISC1, 1U << 18);
 }
 static void hardware_exit(KSW_SVM_U64 code, KSW_SVM_U64 event)
@@ -144,6 +146,8 @@ static int nmi_ownership(void)
     hardware_exit(0x84, 0); /* Virtual STGI, processed by the real instruction engine. */
     CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_READY);
     CHECK(model.execution.Gif == 1);
+    CHECK(KswSvmRead64(&model.current, KSW_VMCB_RIP) == 0x10002);
+    CHECK(!(KswSvmRead64(&model.current, KSW_VMCB_EVENT) & (1ULL << 31)));
     CHECK(KswSvmNestedMachineEntry(m) == KSW_NSVM_MACHINE_READY);
     CHECK(m->ArmedToken == m->PhysicalNmiToken);
     CHECK(m->HeldNmiGuard && m->NmiBlocked && m->NmiHardwareMask);

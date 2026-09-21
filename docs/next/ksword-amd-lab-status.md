@@ -2,6 +2,16 @@
 
 ## 当前进度（以下本节优先于后面的历史记录）
 
+### 09-21 开测：离线通过，硬件等待实验启动
+
+实际执行全部21个 HVM 测试目标，首轮18通过、3失败。修复探针的生产问题：`KswNsvmProbeSessionIo` 没有清零完整会话参数，新增 `Pending` 指针继承栈垃圾，优化构建发生访问异常，调试构建则在反射阶段失败。现在构造前清零可选字段。另两处是 fixture 漂移：EV=0 的未定义错误码高32位应归一化；STGI 模拟输入必须设置 CR0.PE。保留原场景断言，增加 EV=1 错误码保留及 STGI 实际推进检查。
+
+修复后整套重新编译并执行，21/21通过，包括8线程各100次模拟会话；这是用户态逻辑证据，不是8核硬件嵌套。CLI JSON 用例同步 metrics v5，并验证64位 general 序号/退出码与准备、实际退出计数分离；PS5.1 CP936 JSON、82命令目录、32有效/22拒绝参数、来宾加载器及日志采集测试均通过。标准 WDK Release x64、x64 ApiValidator Universal、CAT生成通过，零警告。
+
+日志：`tools/hvm_lab/test-general-retry-20260921.log`、`test-cli-20260921.log`、`build-probe-init-20260921.log`；初次失败的逐项记录保留在 `tools/hvm_lab/artifacts/offline-general-20260921-172008/`，CDB定位日志为 `test-probe-av-20260921.log`、`test-probe-debug-20260921.log`。
+
+本次环境实查：宿主 HypervisorPresent=True，KswordARK STOPPED，无 VMware VMX/KD 进程；当前工具进程非管理员，启动脚本只读检查被权限门拒绝。未装载本轮驱动、未启动虚拟机、未签名或修改启动项。需管理员执行进入实验环境脚本并重启，重新核验 LabHostReady 后继续单核，再直接8核。完整 L2 OS 与内层并发仍为 NOT_RUN。
+
 ### 09-21 本轮收尾：此前点名的三类分支已有实现，待执行验证
 
 1. **不同 EXITINTINFO 的处理**：队列注入时临时拦截全部异常，在异常聚合之前取得退出，再区分原事件重试与原事件完成后的后续递送。EV=0 的未定义高32位不参与异步事件身份比较。提交 `c114634`。

@@ -400,10 +400,17 @@ static int test_resume_event(void)
             KswSvmWrite64(&image, KSW_VMCB_EVENT, 0x1234);
             saved = image;
             CHECK(KswSvmNestedResumeEvent(&image) == expected);
-            if (expected == KSW_NSVM_EVENT_OK) { KswSvmWrite64(&saved, KSW_VMCB_EVENT, event); }
+            /* EV=0 leaves the high error-code word undefined; preserve raw evidence only. */
+            if (expected == KSW_NSVM_EVENT_OK) { KswSvmWrite64(&saved, KSW_VMCB_EVENT, event & 0xffffffffULL); }
             CHECK(!memcmp(&image, &saved, sizeof(image)));
         }
     }
+    /* EV=1 preserves the architectural error code while leaving EXITINTINFO unchanged. */
+    KswSvmWrite64(&image, KSW_VMCB_EXITINTINFO, 0x1080000b0dULL);
+    saved = image;
+    KswSvmWrite64(&saved, KSW_VMCB_EVENT, 0x1080000b0dULL);
+    CHECK(KswSvmNestedResumeEvent(&image) == KSW_NSVM_EVENT_OK);
+    CHECK(!memcmp(&image, &saved, sizeof(image)));
     KswSvmWrite64(&image, KSW_VMCB_EXITINTINFO, 0x80000480);
     KswSvmWrite64(&image, KSW_VMCB_NRIP, 0);
     saved = image;
