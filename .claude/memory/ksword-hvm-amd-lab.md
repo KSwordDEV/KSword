@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21静态window：VINTR sentinel按真实queued IRQ优先级等IF/TPR/shadow，先恢复window再restoreoverlay，禁止sentinel进IDT。物理NMI首次注入前可按新VMRUN的NMIintercept反射或绑定L2；已开始递送不可迁移。复杂碰撞/NMIshadow仍WINDOW，继续平台绑定，未验证。
+
 2026-09-21静态machine：通用退出/控制overlay/TPR/NMI二阶段确认/事件token重试/停止门串联，正常模拟指令与虚拟VMRUN消费shadow；事件反射先完整写回再transfer。注入碰撞/阻塞/跨owner待处理仍WINDOW，禁止重入；平台绑定及WINDOW实现继续做，未验证。修正测试列表旧exit导致新增项不可达。
 
 2026-09-21静态interrupt：控制overlay按实际L1IF处理V_INTR_MASKING、GIF0抑制IRQ/VIRQ并拦NMI，退出恢复原controls再route，真实CR8/mask输出分开。NMI叶已改同CS/IST0近返回保留硬件NMIblock，由guest真正完成IRET解除；未验证，不能沿用前段IRETQ说明。全局资源释放门保留NMIcount/窗口。继续平台队列/TPR/停止接线。

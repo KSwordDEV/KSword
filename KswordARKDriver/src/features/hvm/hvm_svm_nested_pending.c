@@ -62,12 +62,39 @@ int KswSvmNestedPendingPush(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Event,
         /* Allocate a new identity without ever wrapping through zero. */
         Pending->Items[index].Token = ++Pending->Serial;
         /* Publish queued state only after every payload field is complete. */
-        Pending->Items[index].State = KSW_NSVM_PENDING_QUEUED; ++Pending->Count;
+        Pending->Items[index].State = KSW_NSVM_PENDING_QUEUED; Pending->Items[index].Physical = 0; ++Pending->Count;
         /* The caller may relinquish its source record only on success. */
         *Token = Pending->Items[index].Token; return 1;
     }
     /* Count/slot inconsistency remains a fault rather than destructive repair. */
     return 0;
+}
+
+/* The caller must retain actual physical acknowledgement evidence until this succeeds. */
+int KswSvmNestedPendingPhysicalNmi(KSW_NSVM_PENDING* Pending, KSW_SVM_U64* Token)
+{
+    /* This operation cannot turn a guest-requested injection into a physical event. */
+    KSW_NSVM_PENDING_ITEM* item;
+    /* A confirmed NMI initially belongs to the virtual host's hardware context. */
+    if (!KswSvmNestedPendingPush(Pending, 0x80000202ULL, 0, Token)) { return 0; }
+    /* The same single-writer call still owns the exact freshly allocated slot. */
+    item = KswNsvmPendingFind(Pending, *Token);
+    /* Missing identity is a ledger fault, never permission to clear physical evidence. */
+    if (!item) { return 0; }
+    /* No IDT delivery has begun; a later VMRUN may change where this physical event is taken. */
+    item->Physical = 1; return 1;
+}
+
+/* Never migrate an interrupted delivery or a guest-injected event to a different IDT. */
+int KswSvmNestedPendingMovePhysical(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
+    KSW_SVM_U64 Owner)
+{
+    /* Lookup verifies a unique acknowledgement identity rather than an event/vector match. */
+    KSW_NSVM_PENDING_ITEM* item = KswNsvmPendingFind(Pending, Token);
+    /* Once armed, the original guest context owns all delivery faults and retries. */
+    if (!item || !item->Physical || item->State != KSW_NSVM_PENDING_QUEUED) { return 0; }
+    /* Rebinding is allowed only before the first injection ever began. */
+    item->Owner = Owner; return 1;
 }
 
 /* Eligibility is supplied by a separate GIF/IF/NMI-blocking owner. */
@@ -109,7 +136,7 @@ int KswSvmNestedPendingArm(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token)
     /* Duplicate arming could otherwise inject one acknowledgement twice. */
     if (!item || item->State != KSW_NSVM_PENDING_QUEUED) { return 0; }
     /* Hardware entry/result is handled by the platform after this call. */
-    item->State = KSW_NSVM_PENDING_ARMED; return 1;
+    item->State = KSW_NSVM_PENDING_ARMED; item->Physical = 0; return 1;
 }
 
 /* Observe before emulation replaces EVENTINJ/EXITINTINFO or switches virtual context. */

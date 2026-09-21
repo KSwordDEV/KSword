@@ -92,3 +92,9 @@ NMI 确认 leaf 调整为同 CS、IST0 的受控近返回，保留硬件 NMI blo
 已排队注入中遇到 NPF 时保留同一 token 并重试，不再次确认、不重复入队；真实 EXITINTINFO 可在完整 VMEXIT 写回后交给 L1。正常模拟指令完成消耗之前的单指令 interrupt shadow。停止条件逐核检查 L2/lease、虚拟 SVME/HSAVE、事件、GIF 和活动 overlay，不能从 CLI 退出推断停止。
 
 协调器对尚未处理的注入碰撞、阻塞窗口、跨上下文待处理事件返回 WINDOW，明确禁止当作 READY 重入；这些分支和 Windows 平台绑定/公开入口继续实现，不能据此称全部静态工作完成。新增源码已入工程，修正新增测试命令在旧 exit 后不可达的问题；本阶段未构建或执行测试。
+
+## IRQ 窗口与物理 NMI 待处理规则（静态、未验证）
+
+新增 nested_window：对被 IF/TPR/shadow 阻塞的已确认 IRQ，使用原 vector 优先级的 V_IRQ + 强制 VINTR 截获请求可递送窗口；真实递送随后由原 queue token 完成，sentinel 不能进入来宾 IDT，退出时先撤销窗口再撤销 GIF 控制覆盖。已有 EVENTINJ/V_IRQ 碰撞不盲目覆盖。
+
+物理 NMI 在首次注入之前单独标记 physical：L1 带待处理 NMI 再执行 VMRUN 时，若其 VMCB12 要求 NMI 截获则在首条 L2 指令前返回 NMI VMEXIT；否则该尚未开始的物理递送可绑定到 L2。已经注入/中断递送的事件不能重新绑定，且始终保留唯一 token。复杂 EVENTINJ 碰撞、NMI shadow 等窗口仍显式 WINDOW，后续平台接线和这些边界继续写；不宣布硬件或静态全部完成。未构建、未运行。

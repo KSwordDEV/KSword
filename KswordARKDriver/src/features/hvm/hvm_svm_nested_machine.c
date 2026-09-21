@@ -62,7 +62,9 @@ static unsigned KswNsvmMachinePhysical(KSW_NSVM_MACHINE* Machine)
     /* Zero/multiple/saturated observations are never turned into one fabricated event. */
     if (Machine->NmiCount != 1) { return KSW_NSVM_MACHINE_FAULT; }
     /* Physical NMI is for the virtual host once the inner intercept returns control to it. */
-    if (!KswSvmNestedPendingPush(&execution->Pending, 0x80000202ULL, 0, &token)) { return KSW_NSVM_MACHINE_FAULT; }
+    if (!KswSvmNestedPendingPhysicalNmi(&execution->Pending, &token)) { return KSW_NSVM_MACHINE_FAULT; }
+    /* Distinguish a hardware-pending NMI from an event whose delivery already started in an IDT. */
+    Machine->PhysicalNmiToken = token;
     /* Clear the capture counter only after the software ledger accepted its ownership. */
     if (!Machine->Io.CommitNmi(Machine->Io.Context, 1)) { return KSW_NSVM_MACHINE_FAULT; }
     /* The event now belongs to Pending; no duplicate physical acknowledgement can be consumed. */
@@ -111,7 +113,7 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
     /* Raw hardware values are read once before restoring the control overlay. */
     KSW_SVM_U64 event;
     /* TPR is actual physical state, not a count or an APIC ID. */
-    unsigned tpr, action, inner, wasMasked;
+    unsigned tpr, action, inner, wasMasked, windowExit = 0;
     /* No exit may be processed twice for one hardware entry. */
     if (!Machine || !Machine->Initialized || !(execution = Machine->Execution) || !Machine->Overlay.Applied) {
         /* Preserve outstanding ownership if the caller violated ordering. */
@@ -142,6 +144,11 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
     }
     /* Observe physical priority while all interrupts remain closed in root. */
     tpr = Machine->Io.ReadTpr(Machine->Io.Context);
+    /* Synthetic scheduling controls sit on top of the ordinary GIF/masking overlay. */
+    if (Machine->IrqWindow.Applied && !KswSvmNestedIrqWindowRestore(execution->Current, &Machine->IrqWindow, &windowExit)) {
+        /* Never route an internal sentinel as a real L1-owned interrupt. */
+        return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
+    }
     /* Preserve whether L2 had direct physical CR8 access before removing the overlay. */
     inner = execution->Session->Phase == KSW_NSVM_SESSION_L2;
     /* Forced L1 masking and L1-requested L2 masking have different output owners. */
@@ -156,6 +163,13 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
         /* L1 host restoration must not rewind that shared physical APIC priority. */
         KswSvmWrite64(&execution->Session->L1, KSW_VMCB_INTCTL,
             (KswSvmRead64(&execution->Session->L1, KSW_VMCB_INTCTL) & ~15ULL) | tpr);
+    }
+    /* VINTR already proved IF/TPR/shadow eligibility; no guest instruction needs emulation. */
+    if (windowExit) {
+        /* Any interrupted event still belongs to hardware's original delivery transaction. */
+        if (KswSvmNestedResumeEvent(execution->Current) != KSW_NSVM_EVENT_OK) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT); }
+        /* The next Entry selects and injects the original queued vector once. */
+        return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_READY);
     }
     /* Physical events have an acknowledgement contract unlike ordinary instructions. */
     if (Machine->LastExit >= 0x60 && Machine->LastExit <= 0x63) {
@@ -181,6 +195,8 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
     KSW_NSVM_EXECUTION* execution;
     /* Borrow an event without consuming its acknowledgement. */
     const KSW_NSVM_PENDING_ITEM* pending;
+    /* A blocked maskable request may arm a hardware eligibility window without consuming its token. */
+    const KSW_NSVM_PENDING_ITEM* window = NULL;
     /* Event owner and physical TPR are independent of virtual ASID. */
     KSW_SVM_U64 owner, control, event, flags;
     /* Virtual shadow and guest IF must be checked before unconditional EVENTINJ. */
@@ -197,8 +213,29 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
     owner = inner ? execution->Session->OperandHostPa + 1ULL : 0;
     /* A virtual VMRUN cannot silently move an already acknowledged L1 event to another IDT. */
     if (inner && KswSvmNestedPendingOwned(&execution->Pending, 0)) {
-        /* The pending-event window/architectural handoff must be completed separately. */
-        return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW);
+        /* A VMRUN with a still-pending physical NMI follows L1's original NMI-intercept policy. */
+        const KSW_NSVM_PENDING_ITEM* nmi = KswSvmNestedPendingLookup(&execution->Pending, Machine->PhysicalNmiToken);
+        /* Multiple/previously injected events cannot be reassigned through this hardware-pending rule. */
+        if (!nmi || !nmi->Physical || nmi->Owner || KswSvmNestedPendingOwned(&execution->Pending, 0) != 1) {
+            /* Retain acknowledgement ownership rather than injecting into the wrong context. */
+            return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW);
+        }
+        /* An intercepted pending NMI produces virtual VMEXIT before the first L2 instruction. */
+        if (KswSvmNestedInterceptRequested(&execution->Session->Vmcb12, 0x61) == 1) {
+            /* No IDT delivery began, so EXITINTINFO must remain invalid. */
+            KswSvmWrite64(execution->Current, KSW_VMCB_EXITCODE, 0x61);
+            /* These event-specific exit operands are undefined and deterministic zero here. */
+            KswSvmWrite64(execution->Current, KSW_VMCB_EXITINFO1, 0); KswSvmWrite64(execution->Current, KSW_VMCB_EXITINFO2, 0);
+            /* Never claim that an acknowledgement has already been injected into L2. */
+            KswSvmWrite64(execution->Current, KSW_VMCB_EXITINTINFO, 0); KswSvmWrite64(execution->Current, KSW_VMCB_NRIP, 0);
+            /* The pending source remains in L0's queue while L1 receives its NMI-intercept return. */
+            if (KswNsvmMachineReflect(Machine) != KSW_NSVM_MACHINE_READY) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT); }
+            /* Continue this same preparation with L1's now-closed GIF and original event owner. */
+            inner = 0; owner = 0;
+        } else if (!KswSvmNestedPendingMovePhysical(&execution->Pending, nmi->Token, owner)) {
+            /* L1 allowed direct delivery, but a stale ledger token cannot authorize it. */
+            return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
+        }
     }
     /* Read all scheduling inputs from the same current image. */
     control = KswSvmRead64(execution->Current, KSW_VMCB_INTCTL);
@@ -221,8 +258,12 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
     /* An enabled GIF with pending but blocked delivery needs an explicit window implementation. */
     if (execution->Gif && KswSvmNestedPendingOwned(&execution->Pending, owner) &&
         (!pending || ((event & (1ULL << 31)) && (pending->Token != execution->RetryEventToken || pending->Event != event)))) {
-        /* WINDOW is not READY and must never be treated as permission to run indefinitely. */
-        return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW);
+        /* NMI/shadow and existing injection collisions cannot be represented by a VINTR sentinel. */
+        if (pending || (event & (1ULL << 31)) || (control & (1ULL << 8))) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
+        /* Find the highest-priority maskable event independently of currently blocked IF/TPR. */
+        window = KswSvmNestedPendingSelect(&execution->Pending, owner, 1, 0, 0);
+        /* A pending NMI has higher priority and cannot be delayed behind an IRQ scheduling window. */
+        if (!window || KswSvmNestedPendingSelect(&execution->Pending, owner, 0, 1, 0)) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
     }
     /* CR8 writes while L1 GIF was closed affected V_TPR; synchronize them before reentry. */
     tpr = (unsigned)(KswSvmRead64(inner ? &execution->Session->L1 : execution->Current, KSW_VMCB_INTCTL) & 15ULL);
@@ -231,6 +272,11 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
     /* Apply masks only after all previous failure paths have retained their original state. */
     if (!KswSvmNestedInterruptPrepare(execution->Current, execution->Session, execution->Gif, &Machine->Overlay)) {
         /* No executable control overlay means no hardware entry is authorized. */
+        return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
+    }
+    /* The sentinel causes a VINTR exit before any IDT access; it is not a second acknowledgement. */
+    if (window && !KswSvmNestedIrqWindowArm(execution->Current, window->Event, window->Token, &Machine->IrqWindow)) {
+        /* Keep both the queue and ordinary overlay retained on a window-construction failure. */
         return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
     }
     /* Reserve the queue identity before committing its injection control. */

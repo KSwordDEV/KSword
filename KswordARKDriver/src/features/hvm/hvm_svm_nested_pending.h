@@ -11,7 +11,7 @@ typedef struct _KSW_NSVM_PENDING_ITEM {
     /* Unique identity survives retries; zero is never a live token. */
     KSW_SVM_U64 Token, Event, Owner;
     /* Owner zero is L1; nonzero is the translated VMCB12 page plus one. */
-    unsigned State;
+    unsigned State, Physical;
 } KSW_NSVM_PENDING_ITEM;
 typedef struct _KSW_NSVM_PENDING {
     /* Entries never move while a caller holds a token. */
@@ -24,6 +24,11 @@ typedef struct _KSW_NSVM_PENDING {
 /* Accept only already acknowledged external interrupts/NMIs, not arbitrary injection words. */
 int KswSvmNestedPendingPush(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Event,
     KSW_SVM_U64 Owner, KSW_SVM_U64* Token);
+/* Only a confirmed physical NMI may follow VMRUN's change of the current execution context. */
+int KswSvmNestedPendingPhysicalNmi(KSW_NSVM_PENDING* Pending, KSW_SVM_U64* Token);
+/* A not-yet-injected physical NMI may enter L2 when L1 explicitly did not intercept it. */
+int KswSvmNestedPendingMovePhysical(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
+    KSW_SVM_U64 Owner);
 /* Select without consuming; NMI priority and FIFO order within priority are preserved. */
 const KSW_NSVM_PENDING_ITEM* KswSvmNestedPendingSelect(const KSW_NSVM_PENDING* Pending,
     KSW_SVM_U64 Owner, unsigned AllowIrq, unsigned AllowNmi, unsigned Tpr);

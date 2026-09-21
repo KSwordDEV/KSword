@@ -2,6 +2,7 @@
 #pragma once
 #include "hvm_svm_nested_execute.h"
 #include "hvm_svm_nested_interrupt.h"
+#include "hvm_svm_nested_window.h"
 #define KSW_NSVM_MACHINE_READY 0U
 #define KSW_NSVM_MACHINE_FAULT 1U
 #define KSW_NSVM_MACHINE_UNSUPPORTED 2U
@@ -30,8 +31,12 @@ typedef struct _KSW_NSVM_MACHINE {
     KSW_NSVM_MACHINE_IO Io;
     /* Controls are restored before interpreting raw exits or reflecting them to L1. */
     KSW_NSVM_INTERRUPT_OVERLAY Overlay;
+    /* Applied only for a maskable pending event whose IF/TPR/shadow is currently blocking delivery. */
+    KSW_NSVM_IRQ_WINDOW IrqWindow;
     /* Exactly one queued event can be bound to a hardware entry attempt. */
     KSW_SVM_U64 ArmedToken, ArmedEvent, ArmedOwner;
+    /* The one physically blocked NMI may follow an un-intercepted virtual VMRUN before injection. */
+    KSW_SVM_U64 PhysicalNmiToken;
     /* Preserve raw action/event and transition counts independently of guest instruction emulation. */
     KSW_SVM_U64 LastExit, Transitions;
     unsigned LastAction, LastPhysicalAction, NmiCount;
