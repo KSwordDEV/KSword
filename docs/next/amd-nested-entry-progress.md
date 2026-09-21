@@ -62,3 +62,9 @@ Session 先解析身份、获取持有权、重新读取受保护快照，再进
 ## 通用 CPUID 契约静态增量（未验证）
 
 新增 nested_cpuid，动态 OSXSAVE/CPUID.D 使用 guest CR4/XCR0/XSS；SVM 叶仅在调用者明确启用且满足 NPT/NRIP/ASID 门时发布，限制为 NPT/NRIP/flush-by-ASID/decode assists。L2 不发布更深层 SVM。未保存的 MPX/AMX/PKU/PKS/LA57/UINTR、未实现 supervisor CET/SEV 与未知 leaf7 子叶不透传；AVX/AVX512 与已分配组件集一致，硬件拓扑/外层 vendor 保留。probe 的 leaf D 已经调用公共函数。完整通用路径尚未公开启用，此模块不自行放开能力门。未构建测试。
+
+## 通用执行分派静态增量（未验证）
+
+新增 nested_execute，将已有 VMRUN/反射、VMLOAD/VMSAVE、CPUID、状态 MSR、XSETBV、INVLPGA、异常合成与 NPF 组成事务接为一般退出引擎。L1 原始截获优先；物理事件与 GIF 变更返回专用动作，必须由平台仲裁完成后才重入，不能当成普通成功。NPF 源故障与外层故障分开，页表预算满时重置 epoch 后重新遍历；部分写回保留所有权。
+
+按 APM 的退出码表修正上一静态阶段写错的 INVLPGA 分支：正确退出码为 0x7a，0x86 是 SKINIT；后者明确拒绝，并清除相应 CPUID 能力。fixture 同步修正。当前引擎尚未接入普通 resident，未编译、未测试，不表示物理事件桥接或完整 L2 OS 已完成。

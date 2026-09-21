@@ -383,7 +383,7 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
         ++nested->Entries;
         /* The assembly host loop performs the real VMRUN with this VMCB02 image. */
         return 0;
-    } else if (code == 0x86ULL) {
+    } else if (code == KSW_SVM_EXIT_INVLPGA) {
         /* INVLPGA operates on this logical processor's virtual translation cache. */
         KSW_NSVM_SESSION_IO io;
         /* Do not advance or change cache state for an unavailable/undecodable instruction. */

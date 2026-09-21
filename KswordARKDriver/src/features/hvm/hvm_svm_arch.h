@@ -48,6 +48,10 @@ typedef char KSW_SVM_ASSERT_SEGMENT[(sizeof(KSW_SVM_SEGMENT) == 16) ? 1 : -1];
 #define KSW_SVM_EFER_SVME (1ULL << 12)
 /* CPUID exit. */
 #define KSW_SVM_EXIT_CPUID 0x72ULL
+/* INVLPGA is a miscellaneous-vector-1 exit; 86h belongs to SKINIT. */
+#define KSW_SVM_EXIT_INVLPGA 0x7aULL
+/* Secure-init is never implemented by the nested backend. */
+#define KSW_SVM_EXIT_SKINIT 0x86ULL
 /* MSR exit; EXITINFO1 distinguishes read/write. */
 #define KSW_SVM_EXIT_MSR 0x7cULL
 /* First SVM instruction exit. */

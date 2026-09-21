@@ -70,7 +70,7 @@ int KswSvmNestedCpuid(const KSW_NSVM_CPUID_POLICY* Policy, KSW_SVM_U64 GuestCr4,
     /* The SVM bit is public only for the level whose complete execution backend is enabled. */
     if (Leaf == 0x80000001U) {
         /* Clear raw physical/outer ownership before adding virtual software support. */
-        Words[2] &= ~4U;
+        Words[2] &= ~(4U | (1U << 12)); /* SKINIT is unavailable at both virtual levels. */
         /* SVM support is meaningful only with a nonzero usable virtual ASID namespace. */
         if (Policy->ExposeSvm && Policy->AsidCount >= 2) { Words[2] |= 4U; }
         /* AMD's XOP/FMA4 also require AVX-managed upper-vector state. */

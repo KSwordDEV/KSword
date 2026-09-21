@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21静态执行器：nested_execute接一般事务/状态/NPF/异常，物理事件与GIF动作留给平台，未挂普通resident。修正fc5阶段INVLPGA退出码错误86→7a（86是SKINIT，拒绝并隐藏CPUID）；未验证。继续事件桥，不阶段停止。
+
 2026-09-21静态CPUID：nested_cpuid过滤不支持的状态/控制扩展，动态guest OSXSAVE/leafD，显式ExposeSvm+NPT/NRIP/ASID门，SVMfeatures仅0xc9；L2更深SVM不暴露。probe leafD已接，普通resident仍隐藏SVM。代码未验证，继续通用执行分派与事件桥接。
 
 2026-09-21静态寄存器层：nested_register已接受限probe，EFER虚拟SVME/当前模式/LMA与PG门、L1HSAVE/VMCR隔离、XSS软件值、L2G_PAT更新与L1缓存契约拒绝、S_CET门。未编译测试。接下来重点完整通用分派、GIF/IRQ/NMI及平台桥接，仍不开放普通resident SVM能力或宣称完整L2完成。

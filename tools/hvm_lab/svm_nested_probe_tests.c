@@ -190,7 +190,7 @@ static int test_roundtrip(void)
     CHECK(emit(0x8d, cpu.HostXcr0) == 0 && cpu.GuestXcr0 == 0xe7 && nested.Xcr0Writes == 2);
     CHECK(emit(0x83, nested.OperandPa) == 0);
     cpu.Gpr[1] = 1;
-    CHECK(emit(0x86, 0x12345000) == 0 && nested.Session.Invalidations == 1);
+    CHECK(emit(KSW_SVM_EXIT_INVLPGA, 0x12345000) == 0 && nested.Session.Invalidations == 1);
     CHECK(nested.Session.LastInvalidationAsid == 1 && nested.Session.LastInvalidationLinear == 0x12345000);
     CHECK(nested.Config.Epoch == nested.Shadow.Epoch && nested.Session.LastInvalidationEpoch == nested.Shadow.Epoch);
     CHECK(emit(0x84, nested.OperandPa) == 0 && nested.VirtualGif);
