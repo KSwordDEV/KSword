@@ -73,6 +73,8 @@ NTSTATUS KswordSvmBuildVmcb(KSW_SVM_CPU* Cpu)
         current.CetPresent != Cpu->Caps.CetPresent) { return STATUS_NOT_SUPPORTED; }
     /* Only the bounded self-test compares to launch-time thread state, never resident stop. */
     Cpu->Caps.Ucet = current.Ucet; Cpu->Caps.Pl3Ssp = current.Pl3Ssp;
+    /* Each fresh launch starts from the verified native mask, never a previous probe's value. */
+    Cpu->HostXcr0 = Cpu->GuestXcr0 = current.Xcr0;
     /* Reinitialize control and state areas on every fresh launch. */
     RtlZeroMemory(v, sizeof(*v));
     /* Capture selector and GDTR/IDTR values on the target CPU. */

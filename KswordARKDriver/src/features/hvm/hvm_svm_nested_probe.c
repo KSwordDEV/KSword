@@ -91,6 +91,8 @@ static ULONG KswNsvmFinish(KSW_SVM_CPU* Cpu, NTSTATUS Status)
     nested->Msrs.Efer &= ~KSW_SVM_EFER_SVME;
     /* A failed test must not leave virtual ownership in the next test's context. */
     nested->Msrs.Hsave = 0;
+    /* Only this bounded instruction stream may abort to the original Windows XCR0. */
+    Cpu->GuestXcr0 = Cpu->HostXcr0;
     /* Self-test return status remains separate from the assembly continuation's EAX. */
     Cpu->Result = Status;
     /* Restore the known entry CALL chain rather than an arbitrary rejected operand. */
@@ -124,6 +126,8 @@ NTSTATUS KswordSvmNestedBuildProbe(KSW_SVM_CPU* Cpu)
     /* A missing pool is a preparation failure, never a reason to allocate at high IRQL. */
     if (!nested || !nested->Operand || !nested->Stack || !nested->MergedMaps ||
         !nested->Shadow.Pages || nested->RunningL2) { return STATUS_DEVICE_NOT_READY; }
+    /* Mask transitions require an implemented dependency set and SSE-enabled native caller. */
+    if (!KswSvmXcr0MaskValid(Cpu->HostXcr0) || !(Cpu->HostXcr0 & 2ULL)) { return STATUS_NOT_SUPPORTED; }
     /* Previous permission snapshots cannot authorize a later probe invocation. */
     nested->Session.Permissions.Ready = 0;
     /* Each test starts a fresh transaction with independently counted virtual returns. */
@@ -134,6 +138,8 @@ NTSTATUS KswordSvmNestedBuildProbe(KSW_SVM_CPU* Cpu)
     InterlockedIncrement(&nested->Sequence);
     /* Each test begins with no successful inner hardware entry or reflection. */
     nested->Begun = nested->Entries = nested->Reflections = nested->Faults = 0;
+    /* Completion must account for both independently intercepted XSETBV instructions. */
+    nested->Xcr0Writes = 0;
     /* Reset raw evidence separately from the public baseline exit counter. */
     nested->LastExit = nested->LastMarker = 0;
     /* Software GIF is diagnostic in this IF=0 bounded probe, not full NMI virtualization. */
@@ -301,7 +307,25 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
     /* Every admitted SVM/MSR operation belongs to the kernel-only test sequence. */
     if (((PUCHAR)Cpu->Guest)[KSW_VMCB_CPL] != 0) { return KswNsvmFinish(Cpu, STATUS_ACCESS_DENIED); }
     /* Virtual MSRs are exercised before and after the actual inner execution. */
-    if (code == KSW_SVM_EXIT_MSR) {
+    if (code == 0x8dULL) {
+        /* The private probe must reduce to x87-only, then restore the prepared native mask. */
+        ULONGLONG value = ((Cpu->Gpr[2] & 0xffffffffULL) << 32) | (operand & 0xffffffffULL);
+        /* Validate NRIP before mutating software state; this test aborts instead of injecting faults. */
+        if (nested->Xcr0Writes >= 2 || (nested->Xcr0Writes && !nested->Reflections) ||
+            value != (nested->Xcr0Writes ? Cpu->HostXcr0 : 1ULL) ||
+            !KswSvmNextRipValid(KswSvmRead64(Cpu->Guest, KSW_VMCB_RIP), KswSvmRead64(Cpu->Guest, KSW_VMCB_NRIP))) {
+            /* Missing, duplicate or reordered transitions cannot pass the fixed probe. */
+            return KswNsvmFinish(Cpu, STATUS_DATA_ERROR);
+        }
+        /* Use the same allocation-bounded policy intended for the future general XSETBV handler. */
+        if (KswSvmXcr0Write(Cpu->HostXcr0, KswSvmRead64(Cpu->Guest, KSW_VMCB_CR4),
+            ((PUCHAR)Cpu->Guest)[KSW_VMCB_CPL], (ULONG)Cpu->Gpr[1], value, &Cpu->GuestXcr0) != KSW_SVM_XCR_OK) {
+            /* The probe may only execute known-valid instructions. */
+            return KswNsvmFinish(Cpu, STATUS_HV_OPERATION_FAILED);
+        }
+        /* Do not write real XCR0 from C, which may still emit SSE instructions. */
+        ++nested->Xcr0Writes;
+    } else if (code == KSW_SVM_EXIT_MSR) {
         /* Reconstruct WRMSR's EDX:EAX operand with architectural truncation. */
         ULONGLONG value = ((Cpu->Gpr[2] & 0xffffffffULL) << 32) | (operand & 0xffffffffULL);
         /* Intercept info distinguishes reads from writes. */
@@ -338,6 +362,7 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
         /* Entry is restricted only by this test harness, not by the general transaction. */
         if (!(nested->Msrs.Efer & KSW_SVM_EFER_SVME) || operand != nested->OperandPa ||
             nested->Msrs.Hsave != nested->OperandPa + 4096ULL || nested->Entries ||
+            nested->Xcr0Writes != 1 || Cpu->GuestXcr0 != 1 ||
             (KswSvmRead64(Cpu->Guest, KSW_VMCB_RFLAGS) & 0x200ULL)) { return KswNsvmFinish(Cpu, STATUS_INVALID_DEVICE_STATE); }
         /* Reuse the current CPU's fixed resources and trusted outer capability contract. */
         KswNsvmProbeSessionIo(Cpu, &io);
@@ -370,6 +395,7 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
         /* Final success requires both hardware entry/reflection and virtual ownership cleanup. */
         BOOLEAN passed = nested->Entries == 1 && nested->Reflections == 1 && nested->Faults != 0 &&
             nested->Session.InvalidEntries == 1 && nested->Session.Returns == 1 &&
+            nested->Xcr0Writes == 2 && Cpu->GuestXcr0 == Cpu->HostXcr0 &&
             nested->LastExit == KSW_SVM_EXIT_CPUID && nested->LastMarker == KSW_NSVM_INNER_MARKER &&
             !(nested->Msrs.Efer & KSW_SVM_EFER_SVME) && !nested->Msrs.Hsave && nested->VirtualGif;
         /* Complete native restoration before the public per-CPU self-test result is counted. */

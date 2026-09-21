@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21续接XCR0：新增分配边界/依赖检查与HostXcr0/GuestXcr0汇编切换（118/120偏移断言），root恢复原掩码后固定全mask XSAVE，guest restore后安装子集；XSS仍固定。探针x87-only跨INVALID/真实内层再恢复，并由L1/L2 XGETBV读回。policy590326/生产分派390及既有回归、WDK/API/CAT零警告通过，硬件NOT_RUN，未签名/未暂存。用户新指令：一直把剩余静态实现写完，不阶段性停下；每块本地commit、不推送、暂不运行验证，后续新代码必须明确未验证。不加载驱动/启动VM/复现冻结；不使用旧关机授权。
+
 2026-09-21冻结后继续离线：nested_route已接生产probe，按原VMCB+权限图判退出归属（双重拦截先反射L1；NPF走MMU；物理INTR/NMI/SMI/INIT走专门仲裁，禁止盲目重入）。NPF重入恢复EXITINTINFO事件或清旧EVENTINJ；软件INT无有效NRIP则拒绝，不宣称异常合成/GIF完成。route1925/nested4551/分派241及entry8765/session65/8线程100模拟/其它回归通过；标准WDK/API/CAT零警告。Release输出是新未签名构建；共享nested-entry-20260921仍为4ec4d724/age5已签名但NOT_RUN候选，未覆盖未加载。当前不启动VM、不进行宿主虚拟化动态测试。继续实现XSTATE/IRQ/NMI等前保留故障原因UNKNOWN，不能推断VMware安全漏洞。
 
 2026-09-21 10:11宿主整机冻结：用户确认硬挂后重启，LastBoot10:13:20，Kernel-Power41/BugcheckCode0、6008异常关闭；无本次新dump。八核前次10:08:33正常VMXexit0；新单核10:10:02 CPL0/NumVCPUs1启动，Tools运行，日志截止10:11:10。新候选4ec4d724仅构建/签名/暂存nested-entry-20260921（SYS/PDB age5），未执行来宾加载/探针，也未在物理宿主发出驱动装载或常驻。KD重连等待，旧会话失效；所有测试进程随宿主重启终止。宿主现HypervisorPresent=true、Ksword服务Stopped；暂不再启动VM或硬件试验，只读取证和离线实现继续。故障根因未知，不能称CPU锁/漏洞，也不能凭重启后Stopped排除冻结时全部驱动状态。证据artifacts/host-freeze-20260921-101828，报告docs/next/evidence/amd-host-freeze-20260921.md。旧00:31dump访问拒绝，不改ACL提权，不归因本次。

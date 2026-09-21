@@ -133,6 +133,10 @@ typedef struct _KSW_SVM_CPU {
     ULONG XstateCompacted;
     /* 114: CET MSRs exist and native return must restore ISST_ADDR/S_CET. */
     ULONG CetPresent;
+    /* 118: immutable root XCR0, paired with the preallocated save-area layout. */
+    ULONGLONG HostXcr0;
+    /* 120: current guest XCR0; VMRUN/VMEXIT do not switch this register. */
+    ULONGLONG GuestXcr0;
     /* Resource and runtime ownership beyond the assembly prefix. */
     KSW_HVM_RUNTIME* Runtime;
     /* Public row owns processor identity and common states. */
@@ -181,6 +185,9 @@ C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, HsavePa) == 0x108);
 /* Keep the format selector and optional native-return MSR guard paired with MASM. */
 C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, XstateCompacted) == 0x110);
 C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, CetPresent) == 0x114);
+/* Switching masks must not change any preceding assembly-visible offsets. */
+C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, HostXcr0) == 0x118);
+C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, GuestXcr0) == 0x120);
 /* MASM native restoration consumes these exact ordinary-VMCB offsets. */
 C_ASSERT(KSW_VMCB_S_CET == 0x5e0 && KSW_VMCB_SSP == 0x5e8 && KSW_VMCB_ISST == 0x5f0);
 

@@ -20,3 +20,11 @@
 通用入口仍未向普通常驻来宾开放。还需实现并集成：虚拟 GIF、物理 IRQ/NMI 与 L1/L2 事件归属和重注入；XCR0/XSS 切换及完整扩展状态管理；通用 MSR/IOIO/异常处理；跨核 VMCB 所有权及 NPT 源修改/失效协作；最后使用完整内层 OS 验证并发运行、停止和卸载。当前 NPT-only、扩展控制拒绝门未放宽，不支持的状态不会通过伪造 INVALID 来掩盖。
 
 源码依据为 AMD APM Volume 2 的 VMRUN/VMEXIT、Event Injection、Nested Paging 与 VMCB Layout；本机保存的参考文本为 revision 3.38。字段写回目前包含 decode assists 的长度及 15 个指令字节。结构性 NPT01 生命周期稳定是读写 API 的前提；路径重验不能替代未来的跨核失效协议或对同一 VMCB 的同步。
+
+## XCR0 切换增量
+
+新增 `hvm_svm_xstate` 的分配边界与组件依赖校验，CPU 固定汇编前缀追加 HostXcr0/GuestXcr0 并断言偏移。退出后以整数指令恢复宿主 XCR0，再用固定全掩码保存状态；进入前先恢复完整状态，再切换来宾 XCR0。XSS 保持准备时原值，保存格式与容量不随来宾缩减掩码而改变。普通常驻仍拒绝 XSETBV，通用嵌套未开放。
+
+受限探针新增 x87-only → INVALID 返回 → 真实内层入口 → L1 恢复原 XCR0；L1 和内层代码均执行 XGETBV 硬件读回。完整通过还需两次合法 XSETBV、内层往返和最终原生回读。失败仅在这个固定探针范围内恢复原 Windows 掩码。此硬件路径尚未运行，不能据编译/模拟断言 SIMD 内容保持已被硬件验证。
+
+本轮已完成的验证：XSTATE policy 590326 项、生产分派 390 项，既有回归通过；标准 WDK Release/API/CAT 零警告。未签名、未装载，旧共享候选未替换。用户随后要求剩余静态实现连续推进、逐阶段 commit、暂不验证；之后新增内容单独标为未验证，不沿用本轮结果。

@@ -71,6 +71,22 @@ StandardLoad:
 Loaded:
 endm
 
+; Switch only after saving GPRs; do not execute SIMD until the root mask is restored.
+KSW_SWITCH_XCR0 macro TargetOffset
+    LOCAL Unchanged
+    mov rax, [rcx+118h]          ; Immutable host mask also describes the XSAVE allocation.
+    cmp rax, [rcx+120h]          ; Ordinary residency keeps both masks equal.
+    je Unchanged                ; Preserve the existing instruction path when no switch is needed.
+    mov r9, rcx                 ; XSETBV consumes ECX, so keep the context in a scratch register.
+    mov rax, [rcx+TargetOffset]  ; Use only a mask validated before this assembly transition.
+    mov rdx, rax                ; Split the mask without touching any SIMD register.
+    shr rdx, 32                 ; Upper XCR0 bits.
+    xor ecx, ecx                ; XCR0 is the only supported extended control register.
+    xsetbv                      ; VMRUN and VMEXIT themselves do not switch XCR0.
+    mov rcx, r9                 ; Restore the caller's context anchor.
+Unchanged:
+endm
+
 KswordSvmAsmLaunch proc frame
     .endprolog                   ; No permanent allocation on the Windows stack.
     mov [rcx+20h], rsp           ; Record exact CALL continuation stack.
@@ -130,6 +146,7 @@ KswSvmRun:
     mov byte ptr [rbx+5ch], 1    ; Full TLB flush on every VMRUN, including first entry.
     mov dword ptr [rbx+0c0h], 0  ; Do not trust clean-bit caching in this first backend.
     KSW_LOAD_XSTATE              ; Undo host C code's SIMD modifications.
+    KSW_SWITCH_XCR0 120h         ; Install guest enablement after restoring the fixed full state image.
     mov rax, [rsp+20h]           ; Context for GPR restoration.
     KSW_LOAD_GPRS                ; Restore all non-VMCB guest registers.
     mov rax, [rax]               ; Physical VMCB operand, not guest RAX.
@@ -141,7 +158,8 @@ KswSvmRun:
     mov rdx, [rcx+10h]           ; Guest VMCB virtual address.
     mov rax, [rdx+5f8h]          ; Guest RAX is saved by hardware, not in host RAX.
     mov [rcx+48h], rax           ; Retain it for native stop continuation.
-    KSW_SAVE_XSTATE              ; Save guest XSTATE before any C instruction can use SIMD.
+    KSW_SWITCH_XCR0 118h         ; Reenable prepared components before XSAVE and any root SIMD use.
+    KSW_SAVE_XSTATE              ; Save every prepared component in the unchanged full-mask layout.
     mov rcx, [rsp+20h]           ; Reload stable context.
     mov rax, [rcx]               ; Guest physical VMCB operand.
     vmsave rax                   ; Capture current guest FS/GS/TR/LDTR/syscall state.
@@ -154,6 +172,7 @@ KswSvmRun:
     mov r15, [rsp+20h]           ; Native continuation anchor; no further C calls.
     mov rcx, r15                 ; Restore all guest XSTATE first.
     KSW_LOAD_XSTATE              ; Guest CR0.TS/EM is restored only after XRSTOR.
+    KSW_SWITCH_XCR0 120h         ; Native continuation inherits current guest enablement, not root policy.
     mov rbx, [r15+10h]           ; Guest state image for native restoration.
     mov rax, [rbx+5d8h]          ; Exact current guest RSP, not launch-time RSP.
     mov [r15+0f0h], rax          ; Retain until final stack switch.
@@ -295,8 +314,22 @@ KswordSvmAsmNestedProbe proc
     cli                         ; The probe never opens a maskable-interrupt window.
     push rbx                    ; Preserve the Windows caller's nonvolatile scratch register.
     push rsi                    ; Retain the caller's second nonvolatile register.
+    push r12                    ; Keep the original XCR0 across intercepted instructions.
     mov rsi, rdx                ; Begin returned the owned VMCB's guest virtual mapping.
     mov rbx, rax                ; Keep the prevalidated VMCB12 physical operand.
+    xor ecx, ecx                ; Read the real guest-visible XCR0 before changing it.
+    xgetbv                      ; This instruction runs in guest hardware, not a simulated query.
+    shl rdx, 32                 ; Reconstruct all enabled state bits.
+    or rax, rdx                 ; Combine the high and low halves.
+    mov r12, rax                ; Retain the original native mask for final restoration.
+    mov eax, 1                  ; Exercise guest execution with SSE and AVX disabled.
+    xor edx, edx                ; All high components stay disabled for the bounded inner marker.
+    xsetbv                      ; L0 validates the request and installs it immediately before entry.
+    xgetbv                      ; Prove the hardware mask changed, not just a software variable.
+    cmp eax, 1                  ; No SSE/AVX component may remain enabled in this guest window.
+    jne KswSvmNestedBadReturn   ; Wrong hardware enablement fails through the intercepted marker.
+    test edx, edx               ; The high half must also match x87-only.
+    jne KswSvmNestedBadReturn   ; Preserve failure evidence instead of entering the inner guest.
     mov ecx, 0c0000080h          ; Read the virtual EFER image.
     rdmsr                       ; Must be handled as virtual ownership, not physical host state.
     or eax, 1000h               ; Request virtual SVM ownership.
@@ -315,6 +348,17 @@ KswordSvmAsmNestedProbe proc
     mov dword ptr [rsi+58h], 1  ; Correct the same VMCB without restarting the monitor.
     stgi                        ; Exercise virtual GIF release after the invalid-entry return.
     vmrun rax                   ; Intercept, build VMCB02, enter the inner marker and reflect its exit.
+    mov rax, r12                ; Restore the real pre-probe native XCR0 after nested reflection.
+    mov rdx, rax                ; Split all enabled components.
+    shr rdx, 32                 ; High XCR0 half.
+    xor ecx, ecx                ; Select XCR0, independently of the reflected inner CPUID registers.
+    xsetbv                      ; This is a second validated transition, never a root C write.
+    xgetbv                      ; Confirm hardware returned to the full original mask.
+    shl rdx, 32                 ; Reconstruct the readback value.
+    or rax, rdx                 ; Join low and high halves.
+    cmp rax, r12                ; Software bookkeeping alone cannot pass this assertion.
+    jne KswSvmNestedBadReturn   ; Report failed restoration before any native Windows return.
+    mov rax, rbx                ; VMSAVE still needs its VMCB physical operand.
     vmsave rax                  ; Exercise state persistence across a virtual VMEXIT.
     stgi                        ; Complete the virtual host's GIF transition in this IF=0 test.
     xor eax, eax                ; Release the virtual HSAVE declaration.
@@ -325,6 +369,7 @@ KswordSvmAsmNestedProbe proc
     rdmsr                       ; Preserve every non-SVME guest bit.
     and eax, 0ffffefffh          ; Release only the virtual SVM owner.
     wrmsr                       ; The dispatcher checks cleanup before final success.
+    pop r12                     ; Restore the Windows caller's nonvolatile XCR0 scratch register.
     pop rsi                     ; Restore the extra mapping register after all ownership cleanup.
     pop rbx                     ; Restore the Windows caller's nonvolatile register.
     mov eax, 4b534e32h           ; Unique outer continuation marker, not the inner CPUID marker.
@@ -335,11 +380,21 @@ KswSvmNestedBadReturn:
     ud2                         ; A successful dispatcher never returns past the final marker.
 KswordSvmAsmNestedProbe endp
 
-; The inner guest executes two instructions and cannot enter arbitrary Windows code.
+; The inner guest checks hardware XCR0 before exiting at its bounded marker.
 KswordSvmAsmNestedPayload proc
+    xor ecx, ecx                ; XCR0 is shared across virtual VMRUN, not an automatic VMCB field.
+    xgetbv                      ; Verify the inner guest also observes the reduced hardware mask.
+    cmp eax, 1                  ; SSE/AVX must remain disabled through NPT faults and inner entry.
+    jne KswSvmInnerBadXcr0      ; A software-only mask update cannot count as success.
+    test edx, edx               ; Upper enablement bits must stay clear.
+    jne KswSvmInnerBadXcr0      ; Reject an inconsistent inner hardware mask.
     mov eax, 4b534e31h           ; Prove that this inner instruction stream actually executed.
     cpuid                       ; Reflect this intercepted exit into the virtual host VMCB12.
     ud2                         ; Missing interception is a test failure, not a success continuation.
+KswSvmInnerBadXcr0:
+    mov eax, 4b534e00h           ; Distinguish the failed hardware check from the passing marker.
+    cpuid                       ; The bounded dispatcher preserves evidence and returns failure.
+    ud2                         ; There is no accepted continuation after a failed inner marker.
 KswordSvmAsmNestedPayload endp
 
 ; Private kernel-only hypercall; RCX argument becomes RDX operation.

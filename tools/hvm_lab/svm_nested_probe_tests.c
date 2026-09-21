@@ -69,7 +69,8 @@ static int initialize(void)
     msrpm[0x820] = 3; /* EFER read/write, independent APM offset. */
     cpu.Nested = &nested;
     cpu.Caps.PhysicalBits = 45;
-    cpu.Caps.AsidCount = 64; cpu.Caps.Efer = 0xd01; cpu.Caps.Cr4 = 0;
+    cpu.Caps.AsidCount = 64; cpu.Caps.Efer = 0xd01; cpu.Caps.Cr4 = 1ULL << 18;
+    cpu.HostXcr0 = cpu.GuestXcr0 = 0xe7;
     cpu.Caps.Page1Gb = TRUE;
     cpu.Caps.Pat = 0x0007010600070106ULL;
     cpu.OriginalEfer = 0xd01;
@@ -91,6 +92,7 @@ static int initialize(void)
     memory[3][0] = 0x4007;
     for (i = 0; i < 64; ++i) { memory[4][i] = 4096ULL * i | 7; }
     KswSvmWrite64(&guest, KSW_VMCB_CR3, 0x12345000);
+    KswSvmWrite64(&guest, KSW_VMCB_CR4, cpu.Caps.Cr4);
     KswSvmWrite64(&guest, KSW_VMCB_EFER, 0x1d01);
     KswSvmWrite64(&guest, KSW_VMCB_RFLAGS, 0x202);
     KswSvmWrite64(&guest, KSW_VMCB_GS, 0xaabbccdd);
@@ -132,6 +134,8 @@ static int begin(void)
     CHECK(emit(KSW_SVM_EXIT_VMMCALL, nested.OperandPa) == 0);
     CHECK(nested.Begun && nested.OriginalGpr[3] == 0x1122334455667788ULL);
     KswSvmWrite64(&guest, KSW_VMCB_RFLAGS, 2);
+    cpu.Gpr[1] = cpu.Gpr[2] = 0;
+    CHECK(emit(0x8d, 1) == 0 && cpu.GuestXcr0 == 1 && nested.Xcr0Writes == 1);
     CHECK(write_msr(KSW_SVM_MSR_EFER, 0x1d01) == 0);
     CHECK(write_msr(KSW_SVM_MSR_HSAVE, nested.OperandPa + 4096) == 0);
     KswSvmWrite32(operand, KSW_VMCB_ASID, 0);
@@ -173,6 +177,9 @@ static int test_roundtrip(void)
     CHECK(KswSvmRead64(&guest, KSW_VMCB_IOPM) == 0x22000);
     CHECK(KswSvmRead64(operand, KSW_VMCB_EXITCODE) == KSW_SVM_EXIT_CPUID);
     CHECK(KswSvmRead64(operand, KSW_VMCB_GS) == 0xbeef);
+    CHECK(cpu.GuestXcr0 == 1); /* Reflection must not implicitly restore L1's XCR0. */
+    cpu.Gpr[1] = cpu.Gpr[2] = 0;
+    CHECK(emit(0x8d, cpu.HostXcr0) == 0 && cpu.GuestXcr0 == 0xe7 && nested.Xcr0Writes == 2);
     CHECK(emit(0x83, nested.OperandPa) == 0);
     CHECK(emit(0x84, nested.OperandPa) == 0 && nested.VirtualGif);
     CHECK(write_msr(KSW_SVM_MSR_HSAVE, 0) == 0);
@@ -223,6 +230,7 @@ static int test_failures(void)
         CHECK(KswSvmRead64(&guest, KSW_VMCB_RSP) == cpu.LaunchRsp);
         CHECK(KswSvmRead64(&guest, KSW_VMCB_CR3) == 0x12345000);
         CHECK(cpu.Gpr[3] == 0x1122334455667788ULL);
+        CHECK(cpu.GuestXcr0 == cpu.HostXcr0); /* Only the bounded abort restores the entry mask. */
     }
     return 0;
 }
@@ -242,9 +250,44 @@ static int test_nonidentity_permissions(void)
     CHECK(nested.Session.Permissions.Msr[0x820] == 0 && merged[0x820] == 3);
     return 0;
 }
+static int test_xcr0_failures(void)
+{
+    unsigned scenario;
+    for (scenario = 0; scenario < 7; ++scenario) {
+        if (initialize() || begin()) { return 1; }
+        cpu.Gpr[1] = cpu.Gpr[2] = 0;
+        switch (scenario) {
+        case 0: /* Duplicated reduction may not masquerade as the required restoration. */
+            CHECK(emit(0x8d, 1) == 1); break;
+        case 1: /* Full mask restored before inner reflection is not an exercised transition. */
+            CHECK(emit(0x8d, cpu.HostXcr0) == 1); break;
+        case 2: /* Host policy must never expand to an unallocated component. */
+            CHECK(emit(0x8d, 0x207) == 1); break;
+        case 3: /* A malformed architectural operand must not reach the assembler. */
+            CHECK(emit(0x8d, 5) == 1); break;
+        case 4: /* VMEXIT/VMRUN cannot reset a shared XCR0 register implicitly. */
+            cpu.GuestXcr0 = cpu.HostXcr0;
+            CHECK(emit(KSW_SVM_EXIT_VMRUN, nested.OperandPa) == 1); break;
+        case 5: /* A shortened probe omitting XSETBV may not reach the inner entry. */
+            nested.Xcr0Writes = 0;
+            CHECK(emit(KSW_SVM_EXIT_VMRUN, nested.OperandPa) == 1); break;
+        case 6: /* Interrupted inner execution must also restore the bounded Windows mask. */
+            CHECK(emit(KSW_SVM_EXIT_VMRUN, nested.OperandPa) == 0);
+            CHECK(emit(0x8d, 1) == 1); break;
+        }
+        CHECK(!NT_SUCCESS(cpu.Result) && !nested.RunningL2);
+        CHECK(cpu.GuestXcr0 == cpu.HostXcr0);
+    }
+    if (initialize()) { return 1; }
+    cpu.HostXcr0 = 0x207; /* Unknown component dependencies need an implementation first. */
+    CHECK(KswordSvmNestedBuildProbe(&cpu) == STATUS_NOT_SUPPORTED);
+    cpu.HostXcr0 = 1; /* Root C requires a prepared native SSE state. */
+    CHECK(KswordSvmNestedBuildProbe(&cpu) == STATUS_NOT_SUPPORTED);
+    return 0;
+}
 int main(void)
 {
-    if (test_roundtrip() || test_failures() || test_nonidentity_permissions()) { return 1; }
+    if (test_roundtrip() || test_failures() || test_nonidentity_permissions() || test_xcr0_failures()) { return 1; }
     printf("SVM_PRODUCTION_DISPATCH_CHECKS=%u RESULT=PASS (simulated exits, no hardware)\n", checks);
     return 0;
 }

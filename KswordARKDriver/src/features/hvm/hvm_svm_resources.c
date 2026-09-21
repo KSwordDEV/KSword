@@ -354,6 +354,8 @@ NTSTATUS KswordSvmPrepare(KSW_HVM_RUNTIME* Runtime, ULONG Flags)
             __cpuidex(r, 0xd, (int)cpu->XstateCompacted); cpu->XstateBytes = (ULONG)r[1];
             /* Save exactly the enabled components using the matching instruction family. */
             cpu->XstateMask = cpu->Caps.Xcr0 | cpu->Caps.Xss;
+            /* Guest changes are bounded by this immutable root mask and existing allocation. */
+            cpu->HostXcr0 = cpu->GuestXcr0 = cpu->Caps.Xcr0;
             /* Assembly must never touch CET MSRs on the old non-CET VMware baseline. */
             cpu->CetPresent = cpu->Caps.CetPresent;
         }

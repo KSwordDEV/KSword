@@ -16,6 +16,7 @@
 #include "hvm_svm_nested_writeback.h"
 #include "hvm_svm_nested_session.h"
 #include "hvm_svm_nested_route.h"
+#include "hvm_svm_xstate.h"
 /* Enough sparse tables for the bounded probe; exhaustion returns a failed test. */
 #define KSW_NSVM_PROBE_PAGES 64U
 /* Private markers distinguish the inner exit from the final outer continuation. */
@@ -64,6 +65,8 @@ typedef struct _KSW_SVM_NESTED {
     KSW_NSVM_MSRS Msrs;
     /* Probe entry/reflection counters are evidence, not general nested support flags. */
     ULONG Begun, RunningL2, Entries, Reflections, Faults, VirtualGif;
+    /* A bounded probe must reduce and restore XCR0 across real exits before claiming success. */
+    ULONG Xcr0Writes;
     /* Odd during a probe; even only after verified native EFER/HSAVE restoration. */
     volatile LONG Sequence;
     /* Published together with the completed sequence, including failed probes. */
