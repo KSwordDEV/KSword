@@ -906,7 +906,7 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
     </ClCompile>
-    <MASM Include="src\features\hvm\hvm_svm_nmi.asm">
+    <MASM Include="src\features\hvm\hvm_svm_nmi_entry.asm">
       <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
     </MASM>
     <ClCompile Include="src\features\hvm\hvm_svm_nested_interrupt.c">

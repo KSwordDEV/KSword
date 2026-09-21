@@ -1536,7 +1536,7 @@
     <ClCompile Include="src\features\hvm\hvm_svm_nested_machine.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_interrupt.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nmi.c" />
-    <MASM Include="src\features\hvm\hvm_svm_nmi.asm" />
+    <MASM Include="src\features\hvm\hvm_svm_nmi_entry.asm" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_pending.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_session.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_commit.c" />
