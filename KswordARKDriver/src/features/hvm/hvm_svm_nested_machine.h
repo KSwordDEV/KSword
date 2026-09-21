@@ -42,6 +42,8 @@ typedef struct _KSW_NSVM_MACHINE {
     KSW_NSVM_IRQ_WINDOW IrqWindow;
     /* Exactly one queued event can be bound to a hardware entry attempt. */
     KSW_SVM_U64 ArmedToken, ArmedEvent, ArmedOwner;
+    /* Prevent unobserved exception aggregation from hiding the injected event's completion. */
+    unsigned ArmedExceptions, ArmedObservation;
     /* The one physically blocked NMI may follow an un-intercepted virtual VMRUN before injection. */
     KSW_SVM_U64 PhysicalNmiToken;
     /* Until first injection, guest IRET must not release the acknowledgement leaf's physical NMI mask. */

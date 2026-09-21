@@ -120,6 +120,8 @@ unsigned int KswSvmNestedResumeEvent(KSW_SVM_VMCB* Current)
     if (!Current) { return KSW_NSVM_EVENT_INVALID; }
     /* Read the return record before replacing a potentially stale EVENTINJ request. */
     event = KswSvmRead64(Current, KSW_VMCB_EXITINTINFO);
+    /* APM leaves ERRORCODE undefined when EV is clear; do not treat it as injection payload. */
+    if (!(event & (1ULL << 11))) { event &= 0xffffffffULL; }
     /* A previous injected event that completed must not be injected a second time. */
     if (!(event & (1ULL << 31))) {
         /* Discard all stale event data when hardware reports no interrupted delivery. */

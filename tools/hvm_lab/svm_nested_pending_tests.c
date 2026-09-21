@@ -67,6 +67,17 @@ int main(void)
     memset(&pending, 0, sizeof(pending)); pending.Serial = ~0ULL;
     CHECK(!KswSvmNestedPendingPush(&pending, 0x80000050ULL, 0, &token));
     CHECK(pending.Count == 0);
+    memset(&pending, 0, sizeof(pending));
+    CHECK(KswSvmNestedPendingPush(&pending, 0x80000050ULL, 0, &token));
+    CHECK(KswSvmNestedPendingArm(&pending, token));
+    CHECK(KswSvmNestedPendingObserveProtected(&pending, token, 0xfeedface80000050ULL));
+    CHECK(pending.Retried == 1 && pending.Count == 1);
+    CHECK(KswSvmNestedPendingArm(&pending, token));
+    CHECK(!KswSvmNestedPendingObserveProtected(&pending, token, 0x80000b50ULL));
+    CHECK(pending.Count == 1 && pending.Delivered == 0);
+    CHECK(KswSvmNestedPendingObserveProtected(&pending, token, 0x80000b0eULL));
+    CHECK(pending.Count == 0 && pending.Delivered == 1);
+    CHECK(!KswSvmNestedPendingObserveProtected(&pending, token, 0));
     puts("nested pending-event ledger passed");
     return 0;
 }

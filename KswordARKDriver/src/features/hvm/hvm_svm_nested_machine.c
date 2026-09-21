@@ -95,7 +95,7 @@ unsigned KswSvmNestedMachineInitialize(KSW_NSVM_MACHINE* Machine)
         !execution->Io || !Machine->Io.ReadTpr || !Machine->Io.WriteTpr ||
         !Machine->Io.AcknowledgeNmi || !Machine->Io.CommitNmi || Machine->Initialized ||
         Machine->Overlay.Applied || Machine->HeldNmiGuard || Machine->Iret.Requested || Machine->Iret.Applied ||
-        Machine->NmiHardwareMask || Machine->NmiBlocked || Machine->ArmedToken || execution->Pending.Count ||
+        Machine->NmiHardwareMask || Machine->NmiBlocked || Machine->ArmedToken || Machine->ArmedObservation || execution->Pending.Count ||
         execution->Session->Phase != KSW_NSVM_SESSION_IDLE || execution->Session->Lease.Token) {
         /* Initialization never performs a best-effort partial entry. */
         return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
@@ -133,7 +133,17 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
     event = KswSvmRead64(execution->Current, KSW_VMCB_EXITINTINFO);
     /* An invalid real VMCB is an L0 construction failure; never fabricate a virtual INVALID here. */
     if (Machine->LastExit == KSW_SVM_EXIT_INVALID) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT); }
-    /* The IRET observer is the outermost overlay and must restore before any event ownership decision. */
+    /* Injection observation is outermost and must be restored before original exception routing. */
+    if (Machine->ArmedObservation) {
+        /* Hardware must have executed with every secondary exception intercepted. */
+        if (!Machine->ArmedToken || (unsigned)KswSvmRead64(execution->Current, 0x008U) != ~0U) {
+            /* Retain both raw event records after an invalid observation contract. */
+            return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
+        }
+        /* Restore only this dword; adjacent CR/DR intercepts retain their original contents. */
+        KswSvmWrite32(execution->Current, 0x008U, Machine->ArmedExceptions);
+    }
+    /* The IRET observer is below injection observation; the two never arm together. */
     stepExit = Machine->Iret.Applied;
     /* The original raw exit remains available even after observer-only TF/intercepts are removed. */
     if (stepExit) {
@@ -163,20 +173,18 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
     if (stepExit && Machine->Iret.Completed) { Machine->NmiHardwareMask = Machine->NmiBlocked = 0; }
     /* A queued injection must have an explicit hardware completion before dropping its token. */
     if (Machine->ArmedToken) {
-        /* Interrupted injection remains owned; the dedicated retry/window path must decide its next action. */
-        if ((event & (1ULL << 31)) && event != Machine->ArmedEvent) {
-            /* A different delivery may involve exception aggregation; do not assume our event completed. */
-            return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW);
-        }
-        /* No delivery-in-progress record remains after this successful VMRUN. */
-        if (!KswSvmNestedPendingObserve(&execution->Pending, Machine->ArmedToken, 1, event)) {
+        /* All secondary exceptions were intercepted before aggregation, proving distinct-event ordering. */
+        if (!Machine->ArmedObservation || !KswSvmNestedPendingObserveProtected(&execution->Pending, Machine->ArmedToken, event)) {
             /* Stale/duplicate token completion is not a successful delivery. */
             return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
         }
         /* An interrupted attempt retains the same token for NPF retry or VMEXIT handoff. */
-        execution->RetryEventToken = (event & (1ULL << 31)) ? Machine->ArmedToken : 0;
+        execution->RetryEventToken = (event & (1ULL << 31)) &&
+            (event & 0xffffffffULL) == Machine->ArmedEvent ? Machine->ArmedToken : 0;
         /* Only the ledger's successful completion permits reusing the injection slot. */
         Machine->ArmedToken = Machine->ArmedEvent = Machine->ArmedOwner = 0;
+        /* The completed observation no longer blocks another entry or native stop. */
+        Machine->ArmedObservation = 0;
     }
     /* Observe physical priority while all interrupts remain closed in root. */
     tpr = Machine->Io.ReadTpr(Machine->Io.Context);
@@ -275,7 +283,7 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
     unsigned inner, shadow, tpr;
     /* Every hardware entry has exactly one fresh overlay and at most one armed queue token. */
     if (!Machine || !Machine->Initialized || !(execution = Machine->Execution) || Machine->Overlay.Applied ||
-        Machine->HeldNmiGuard || Machine->Iret.Applied || Machine->ArmedToken || Machine->NmiCount || execution->Session->Phase == KSW_NSVM_SESSION_FAULTED) {
+        Machine->HeldNmiGuard || Machine->Iret.Applied || Machine->ArmedToken || Machine->ArmedObservation || Machine->NmiCount || execution->Session->Phase == KSW_NSVM_SESSION_FAULTED) {
         /* No best-effort entry after a partial physical or architectural transaction. */
         return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
     }
@@ -409,6 +417,10 @@ SelectCurrent:
     }
     /* Reserve the queue identity before committing its injection control. */
     if (pending) {
+        /* Observe every secondary exception before it can replace an unfinished asynchronous delivery. */
+        Machine->ArmedExceptions = (unsigned)KswSvmRead64(execution->Current, 0x008U);
+        /* Original exception ownership is restored before dispatch/VMEXIT reflection. */
+        KswSvmWrite32(execution->Current, 0x008U, ~0U); Machine->ArmedObservation = 1;
         /* The fixed queue is single-writer, so the borrowed token cannot change concurrently. */
         if (!KswSvmNestedPendingArm(&execution->Pending, pending->Token)) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT); }
         /* Preserve the exact attempt identity until MachineExit sees a real hardware result. */
@@ -433,7 +445,7 @@ unsigned KswSvmNestedMachineCanStop(const KSW_NSVM_MACHINE* Machine)
     if (!Machine || !Machine->Initialized || !(execution = Machine->Execution) || !execution->Session ||
         !execution->Registers.Svm || execution->Session->Phase == KSW_NSVM_SESSION_FAULTED ||
         Machine->Overlay.Applied || Machine->IrqWindow.Applied || Machine->HeldNmiGuard ||
-        Machine->Iret.Applied || Machine->Iret.Requested) { return KSW_NSVM_STOP_FAULT; }
+        Machine->Iret.Applied || Machine->Iret.Requested || Machine->ArmedObservation) { return KSW_NSVM_STOP_FAULT; }
     /* A live inner VMRUN cannot be returned directly to the original Windows caller. */
     if (execution->Session->Phase == KSW_NSVM_SESSION_L2 || execution->Session->Lease.Token) { return KSW_NSVM_STOP_L2; }
     /* Virtual SVM ownership must have been explicitly relinquished by the inner VMM. */

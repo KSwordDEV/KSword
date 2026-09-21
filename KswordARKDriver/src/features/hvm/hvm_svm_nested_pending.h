@@ -39,6 +39,9 @@ int KswSvmNestedPendingArm(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token);
 /* Hardware INVALID leaves ownership armed. Interrupted delivery requeues the same identity. */
 int KswSvmNestedPendingObserve(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
     unsigned Entered, KSW_SVM_U64 ExitIntInfo);
+/* All secondary exceptions intercepted: a different delivery must follow completion of ours. */
+int KswSvmNestedPendingObserveProtected(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
+    KSW_SVM_U64 ExitIntInfo);
 /* Validate the complete owner backlog before any architectural VMEXIT writeback. */
 int KswSvmNestedPendingPrepareTransfer(const KSW_NSVM_PENDING* Pending,
     KSW_SVM_U64 Owner, KSW_SVM_U64 RetryToken, KSW_SVM_U64 ReflectedEvent,

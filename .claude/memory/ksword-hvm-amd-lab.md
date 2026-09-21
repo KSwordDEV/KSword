@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 递送顺序缺口已补：每次队列注入临时拦截全部异常，真实退出先还原原异常位图，再判定异事件EXITINTINFO。APM15.7.3要求先检查异常拦截再聚合，所以此保护下异事件属于原注入完成后的后续递送；原token记完成，新raw事件继续原分派。同事件重试忽略EV=0时未定义的ERRORCODE高32位，归属/反射比较及ResumeEvent同步。无保护的旧观察API仍拒绝异事件。WDK/API/CAT零警告，build-event-order-20260921.log；全部源fixture编译链接，build-event-order-fixtures-20260921.log，TEST_EXECUTION=NOT_RUN。未加载或新增硬件证据。
+
 2026-09-21 物理NMI交接收尾：PendingPrepareTransfer 独立预检一个真实 interrupted token 与一个未开始投递的 physical NMI；SessionReflect 完整写回后，前者才转交给 EXITINTINFO，后者只改 owner=0，保持 queued，不伪造递送完成。允许两者同时存在；部分写回保留原账本。已就绪且被 L1 拦截的 V_IRQ 可反射 VINTR，再按恢复的 L1/GIF0 重新选择事件；不复用 L2 调度输入。驱动 build-general-handoff-20260921.log 完整 WDK/API/CAT 零警告；build-static-fixtures-general-20260921.log 仅编译链接，TEST_EXECUTION=NOT_RUN。新增源码用例包含 physical-only 和 interrupted+physical 共存。当前仍未闭合：未阻塞NMI遇shadow/无关EVENTINJ、ArmedToken与另一有效EXITINTINFO不一致、多个非physical未投递事件跨owner反射。不得写成只剩测试；无新增硬件结果，详见 docs/next/ksword-amd-lab-status.md 的最新节。
 
 2026-09-21 通用实验激活已接通：HVM v6 新增显式 ENABLE_NESTED_SVM(0x10000)，hvm_ctl 增加 prepare-svm-general/resident-svm-general，中间仍用 self-test。准备配置绑定到启动，PROBE 与 GENERAL 互斥；probe 不能通过普通 resident 绕过限制。逐核 BuildVmcb 后绑定 GeneralMachine，再进入已有真实汇编桥；成功常驻只发布 PARTIAL。首次真实 INVALID 仅在 EFER/HSAVE/native 状态回读一致、无后续硬件/队列/lease 时撤销未进入的绑定，其它失败仍保留。驱动标准 WDK/API/CAT 零警告；hvm_ctl、KswordCLI、主程序编译链接成功，GUI 有4条既有宏/Qt部署警告。构建自带 i18n/theme 门禁已运行，HVM测试未执行。命令仅属于 hvm_ctl，不向已移除该目录依赖的 GUI 语言包添加文案。仍有事件 WINDOW 分支，不得称完整 L2 或仅剩硬件验收；未签名/加载/暂存/启动VM/推送。

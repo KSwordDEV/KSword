@@ -76,7 +76,7 @@ unsigned KswSvmNestedExceptionPlan(const KSW_SVM_VMCB* Current,
             }
         }
         /* Hardware already acknowledged an interrupted external interrupt/NMI delivery. */
-        if (oldType == 0 || oldType == 2) { Plan->Deferred = prior; }
+        if (oldType == 0 || oldType == 2) { Plan->Deferred = prior & 0xffffffffULL; }
         /* Software INT/faults restart through guest architectural fault handling, not a second queued IRQ. */
     }
     /* CR2 is changed only when actually injecting the page fault, never for another exception. */

@@ -153,7 +153,7 @@ int KswSvmNestedPendingObserve(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
     if (ExitIntInfo & (1ULL << 31)) {
         /* A different valid event may be a later, separate delivery after ours completed.
            Without that ordering proof this API deliberately retains both raw records. */
-        if (ExitIntInfo != item->Event || Pending->Retried == ~0ULL) { return 0; }
+        if ((ExitIntInfo & 0xffffffffULL) != item->Event || Pending->Retried == ~0ULL) { return 0; }
         /* Caller owns reinjection timing; the event is not rearmed automatically. */
         item->State = KSW_NSVM_PENDING_QUEUED; item->Interrupted = 1; ++Pending->Retried; return 1;
     }
@@ -161,6 +161,30 @@ int KswSvmNestedPendingObserve(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
     if (!Pending->Count || Pending->Delivered == ~0ULL) { return 0; }
     /* No interrupted event remains after a successful entry, so this injection completed. */
     item->State = KSW_NSVM_PENDING_FREE; --Pending->Count; ++Pending->Delivered; return 1;
+}
+
+/* APM 15.7.3 checks secondary exception intercepts before combining with a prior event. */
+int KswSvmNestedPendingObserveProtected(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
+    KSW_SVM_U64 ExitIntInfo)
+{
+    /* The coordinator must have kept every exception intercepted for this entire VMRUN. */
+    const KSW_NSVM_PENDING_ITEM* item = KswSvmNestedPendingLookup(Pending, Token);
+    /* Decode only a valid architectural record; EV=0 leaves its upper error-code word undefined. */
+    unsigned type = (unsigned)((ExitIntInfo >> 8) & 7ULL);
+    /* Lost ownership cannot be repaired by marking an arbitrary event delivered. */
+    if (!item || item->State != KSW_NSVM_PENDING_ARMED) { return 0; }
+    /* Original-event retry and no interrupted delivery use the ordinary observation contract. */
+    if (!(ExitIntInfo & (1ULL << 31)) || (ExitIntInfo & 0xffffffffULL) == item->Event) {
+        /* Keep undefined error bits out of asynchronous event identity comparisons. */
+        return KswSvmNestedPendingObserve(Pending, Token, 1, ExitIntInfo);
+    }
+    /* A malformed hardware record cannot supply ordering proof. */
+    if ((ExitIntInfo & 0x7ffff000ULL) || (type != 0 && type != 2 && type != 3 && type != 4) ||
+        ((type == 0 || type == 2 || type == 4) && (ExitIntInfo & (1ULL << 11))) ||
+        (type == 3 && ((ExitIntInfo & 255ULL) > 31 || (ExitIntInfo & 255ULL) == 2))) { return 0; }
+    /* No secondary exception could replace the injected event before an exit. A different record
+       therefore belongs to a later delivery; leave that raw record to the ordinary exit planner. */
+    return KswSvmNestedPendingObserve(Pending, Token, 1, 0);
 }
 
 /* Read-only preflight keeps a failed/partial VMCB writeback from consuming source ownership. */
@@ -190,7 +214,7 @@ int KswSvmNestedPendingPrepareTransfer(const KSW_NSVM_PENDING* Pending,
             physical = item->Token;
         } else {
             /* All other acknowledged events need the exact hardware-interrupted record, not a same-vector guess. */
-            if (transfer || !item->Interrupted || item->Token != RetryToken || item->Event != ReflectedEvent) { return 0; }
+            if (transfer || !item->Interrupted || item->Token != RetryToken || item->Event != (ReflectedEvent & 0xffffffffULL)) { return 0; }
             /* Exactly one event can be represented by EXITINTINFO. */
             transfer = item->Token;
         }
@@ -206,7 +230,7 @@ int KswSvmNestedPendingTransfer(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
     /* The caller supplies the exact EVENTINFO written back to the same owner. */
     KSW_NSVM_PENDING_ITEM* item = KswNsvmPendingFind(Pending, Token);
     /* Refuse a transfer that could silently drop or substitute an acknowledgement. */
-    if (!item || item->Event != ReflectedEvent || !Pending->Count || item->Physical ||
+    if (!item || item->Event != (ReflectedEvent & 0xffffffffULL) || !Pending->Count || item->Physical ||
         !item->Interrupted || item->State != KSW_NSVM_PENDING_QUEUED) { return 0; }
     /* Transfer is not hardware delivery and does not increment Delivered. */
     item->State = KSW_NSVM_PENDING_FREE; --Pending->Count; return 1;
