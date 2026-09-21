@@ -1,0 +1,28 @@
+{
+  "kind": "physical-host-general-residency-observation",
+  "result": "ACTIVE_SNAPSHOTS_VERIFIED",
+  "evidenceSource": "User-executed commands; assistant verified saved records only",
+  "logicalProcessors": 32,
+  "generation": 11,
+  "powerGeneration": 0,
+  "initialExitCount": 6,
+  "laterExitCount": 1400,
+  "generalEnabledCpuCount": 32,
+  "innerOperatingSystemTested": false,
+  "innerConcurrentVcpusTested": false,
+  "thisActivationStopUnloadVerified": false,
+  "priorActivationCleanupRecorded": true,
+  "loadedBinaryIdentityBoundInTheseLogs": false,
+  "durationIndependentlyVerified": false,
+  "signatureValidationPassed": false,
+  "files": {
+    "clean-resident-restart.txt": {
+      "path": "artifacts/live-hvm-20260921-resident/clean-resident-restart.txt",
+      "sha256": "985c9a683f613c8bf5cfe83946ced1ff82b5f8259b7ca3bb774b03fea64c76ba"
+    },
+    "steady-state-status.txt": {
+      "path": "artifacts/live-hvm-20260921-resident/steady-state-status.txt",
+      "sha256": "03a45cc6fd5f898cbee1725466df39985e23798ee77e974c6cfc0d38935854ab"
+    }
+  }
+}

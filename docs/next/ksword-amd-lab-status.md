@@ -2,6 +2,12 @@
 
 ## 当前进度（以下本节优先于后面的历史记录）
 
+### 09-21 18:47 实体机32核general活动记录核验
+
+用户自行执行后提供的两份日志已只读核验：prepare-svm-general、自检32/32及resident-svm-general成功；前后查询均为完整CPU0:0..31、stage4/RESIDENT_ACTIVE、UNLOAD_GUARD_ARMED、lastStatus0，generation11/power0不变，退出计数6→1400。metrics的32项general均valid/initialized/enabled=1、失败状态0，nestedImplementation=PARTIAL。[记录与哈希](evidence/amd-host-general-resident-32cpu-observation.json)。
+
+本项仅确认保存记录中的实体机短时活动状态。日志开头的stop/reset-fault/teardown属于上一轮，不能作为本次激活的停止/卸载证据；本轮仍缺完整内层OS、内层多核并发、最终退出验收，日志也未绑定已加载二进制哈希及独立持续时间。此前标准内核签名校验失败的结论保持独立；助手未执行本次宿主装载或常驻。
+
 ### 09-21 18:05 八核通用模式100轮硬件启停 PASS
 
 同一 `3aeca4c2` 候选在单插槽8核克隆中完成100轮general常驻/停止、重复停止、最终资源释放与SCM卸载。导出1635份文件哈希/大小核验通过；逐项核对101个活动CPU集合快照、100轮完整停止后的general计数和归属，均为CPU0:0..7、无代次改变及失败状态。各轮停止时累计的逐CPU真实general退出次数为325、7049、1221、708、897、3516、327、314。最终prepared/resident均0、slatReady0、SCM STOPPED。[八核证据](evidence/amd-general-resident-8cpu-100cycles.json)。
