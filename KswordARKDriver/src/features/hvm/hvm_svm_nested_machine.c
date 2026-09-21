@@ -176,6 +176,17 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
         /* INTR/NMI raw state stays intact until this explicit platform path accepts it. */
         return KswNsvmMachineResult(Machine, KswNsvmMachinePhysical(Machine));
     }
+    /* Private lifecycle controls are recognized only after raw event/overlay ownership is resolved. */
+    if (Machine->Io.PrivateControl) {
+        /* The callback cannot impersonate an ordinary L1/L2 instruction handler. */
+        action = Machine->Io.PrivateControl(Machine->Io.Context, Machine);
+        /* Query/rejected stop may resume; only a fully quiescent stop may return natively. */
+        if (action != KSW_NSVM_MACHINE_NOT_CONTROL) {
+            /* Reject arbitrary callback values rather than interpreting them as successful entry. */
+            return KswNsvmMachineResult(Machine, action == KSW_NSVM_MACHINE_READY || action == KSW_NSVM_MACHINE_NATIVE ?
+                action : KSW_NSVM_MACHINE_FAULT);
+        }
+    }
     /* Dispatch current execution after restoring original ownership controls. */
     action = KswSvmNestedExecute(execution);
     /* The overlay implements L1 GIF changes; actual entry applies it only after this commit. */

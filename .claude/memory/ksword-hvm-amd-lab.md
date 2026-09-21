@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21静态平台绑定：nested_general接CR8、NMI计数二阶段、CPUID、Session资源/可信IDTR及私有query/stop，GeneralMachine/Execution嵌入逐核资源，父子释放共用Busy。初始化不等于激活；公共flag/汇编激活及复杂窗口继续写，未构建验证。
+
 2026-09-21静态window：VINTR sentinel按真实queued IRQ优先级等IF/TPR/shadow，先恢复window再restoreoverlay，禁止sentinel进IDT。物理NMI首次注入前可按新VMRUN的NMIintercept反射或绑定L2；已开始递送不可迁移。复杂碰撞/NMIshadow仍WINDOW，继续平台绑定，未验证。
 
 2026-09-21静态machine：通用退出/控制overlay/TPR/NMI二阶段确认/事件token重试/停止门串联，正常模拟指令与虚拟VMRUN消费shadow；事件反射先完整写回再transfer。注入碰撞/阻塞/跨owner待处理仍WINDOW，禁止重入；平台绑定及WINDOW实现继续做，未验证。修正测试列表旧exit导致新增项不可达。

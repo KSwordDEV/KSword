@@ -98,3 +98,9 @@ NMI 确认 leaf 调整为同 CS、IST0 的受控近返回，保留硬件 NMI blo
 新增 nested_window：对被 IF/TPR/shadow 阻塞的已确认 IRQ，使用原 vector 优先级的 V_IRQ + 强制 VINTR 截获请求可递送窗口；真实递送随后由原 queue token 完成，sentinel 不能进入来宾 IDT，退出时先撤销窗口再撤销 GIF 控制覆盖。已有 EVENTINJ/V_IRQ 碰撞不盲目覆盖。
 
 物理 NMI 在首次注入之前单独标记 physical：L1 带待处理 NMI 再执行 VMRUN 时，若其 VMCB12 要求 NMI 截获则在首条 L2 指令前返回 NMI VMEXIT；否则该尚未开始的物理递送可绑定到 L2。已经注入/中断递送的事件不能重新绑定，且始终保留唯一 token。复杂 EVENTINJ 碰撞、NMI shadow 等窗口仍显式 WINDOW，后续平台接线和这些边界继续写；不宣布硬件或静态全部完成。未构建、未运行。
+
+## Windows 平台绑定静态增量（未验证）
+
+新增 nested_general，使用现有逐核 NPT01/RAM window、合并权限图、Session/lease、XSTATE 与可信 IDTR 绑定协调器。提供 root CR8 读写/回读、NMI 确认与 queue 提交、原始 CPUID 回调；不分配 root 内存、不调用 Windows ISR。私有 query/stop 在退出控制恢复后处理，L2 不得使用 L0 的停止 hypercall；SVME/HSAVE、L2、待处理事件或 GIF 未交还时 stop 返回非零并保持常驻。
+
+通用状态全部纳入逐核堆资源，父子释放共用 Busy 判据，防止子释放保留后父层仍释放宿主栈/HSAVE。初始化仅绑定资源；公共 flag、汇编入口激活和剩余复杂窗口仍未开放/未完成，现有普通 resident 不会因这次提交开始 SVM 转发。此阶段未构建、未测试。

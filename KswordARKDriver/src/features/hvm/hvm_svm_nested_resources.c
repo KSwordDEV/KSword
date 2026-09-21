@@ -72,7 +72,7 @@ VOID KswordSvmNestedRelease(KSW_SVM_CPU* Cpu)
     /* No allocation was acquired for an ordinary baseline prepare. */
     if (!nested) { return; }
     /* Retain everything if the owner could still issue a nested VMRUN. */
-    if (Cpu->Active || nested->RunningL2 || nested->Session.Lease.Token || nested->Nmi.Armed || nested->Nmi.Count) { return; }
+    if (KswordSvmNestedBusy(Cpu)) { return; }
     /* Reverse the complete allocation set, including unused shadow pages. */
     for (index = KSW_NSVM_PROBE_PAGES; index != 0;) {
         /* Descend through the allocation ledger, not hardware pointers. */

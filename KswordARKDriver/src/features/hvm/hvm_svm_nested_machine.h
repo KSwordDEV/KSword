@@ -8,6 +8,10 @@
 #define KSW_NSVM_MACHINE_UNSUPPORTED 2U
 #define KSW_NSVM_MACHINE_WINDOW 3U
 #define KSW_NSVM_MACHINE_SHUTDOWN 4U
+#define KSW_NSVM_MACHINE_NATIVE 5U
+#define KSW_NSVM_MACHINE_NOT_CONTROL (~0U)
+/* Forward declaration permits the trusted private-control callback to inspect stop prerequisites. */
+struct _KSW_NSVM_MACHINE;
 #define KSW_NSVM_STOP_READY 0U
 #define KSW_NSVM_STOP_L2 1U
 #define KSW_NSVM_STOP_OWNER 2U
@@ -22,6 +26,8 @@ typedef struct _KSW_NSVM_MACHINE_IO {
     /* These callbacks run only with complete root state and closed physical GIF/IF. */
     unsigned (*ReadTpr)(void* Context);
     int (*WriteTpr)(void* Context, unsigned Value);
+    /* Called after control restoration; only the trusted L0 private hypercall ABI may return NATIVE. */
+    unsigned (*PrivateControl)(void* Context, struct _KSW_NSVM_MACHINE* Machine);
     /* Callback context is processor-owned nonpageable storage. */
     void* Context;
 } KSW_NSVM_MACHINE_IO;

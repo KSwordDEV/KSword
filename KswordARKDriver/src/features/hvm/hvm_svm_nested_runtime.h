@@ -20,6 +20,7 @@
 #include "hvm_svm_nested_cpuid.h"
 #include "hvm_svm_xstate.h"
 #include "hvm_svm_nmi.h"
+#include "hvm_svm_nested_machine.h"
 /* Enough sparse tables for the bounded probe; exhaustion returns a failed test. */
 #define KSW_NSVM_PROBE_PAGES 64U
 /* Private markers distinguish the inner exit from the final outer continuation. */
@@ -36,6 +37,12 @@ typedef struct _KSW_SVM_NESTED {
     KSW_NSVM_SESSION Session;
     /* An optional general-engine NMI window owns its private IDT and acknowledgement count. */
     KSW_SVM_NMI_CAPTURE Nmi;
+    /* General execution uses the same prepared Session/cache/maps but has separate control state. */
+    KSW_NSVM_SESSION_IO GeneralIo;
+    KSW_NSVM_EXECUTION GeneralExecution;
+    KSW_NSVM_MACHINE GeneralMachine;
+    /* Initialization does not publish a public nested-virtualization capability. */
+    ULONG GeneralInitialized;
     /* Borrowed shared lifetime ledger; never freed independently of the backend. */
     KSW_NSVM_OWNER_TABLE* Owners;
     /* Frozen Windows group:number identity for this CPU's acquisition evidence. */
@@ -105,3 +112,10 @@ int KswordSvmNestedCommitVmcb(void* Context, KSW_SVM_U64 HostPa,
 VOID KswordSvmAsmNestedProbe(VOID);
 /* Inner code performs a unique intercepted CPUID; it never runs an OS. */
 VOID KswordSvmAsmNestedPayload(VOID);
+/* Bind processor-private resources to the general engine; caller still owns admission/public enablement. */
+NTSTATUS KswordSvmNestedInitializeGeneral(KSW_SVM_CPU* Cpu);
+/* Root-only wrappers: no hardware entry is issued for WINDOW/FAULT/UNSUPPORTED results. */
+ULONG KswordSvmNestedGeneralEntry(KSW_SVM_CPU* Cpu);
+ULONG KswordSvmNestedGeneralExit(KSW_SVM_CPU* Cpu);
+/* Shared release predicate covers both the bounded probe and general queued event ownership. */
+BOOLEAN KswordSvmNestedBusy(const KSW_SVM_CPU* Cpu);
