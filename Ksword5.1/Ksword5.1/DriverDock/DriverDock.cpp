@@ -462,6 +462,21 @@ namespace ksword::driver_dock_internal
         return driverText("driver.location.unresolved_module", QStringLiteral("未解析模块"));
     }
 
+    QString driverStartIoStateText(const ksword::ark::DriverStartIoEntry& entry)
+    {
+        switch (entry.state)
+        {
+        case KSWORD_ARK_DRIVER_START_IO_STATE_NULL:
+            return driverText("driver.object.start_io.null", QStringLiteral("空值（未使用 StartIo）"));
+        case KSWORD_ARK_DRIVER_START_IO_STATE_READ_FAILED:
+            return driverText("driver.object.start_io.read_failed", QStringLiteral("读取失败"));
+        case KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT:
+            return driverDispatchLocationText(entry.flags);
+        default:
+            return driverText("driver.object.start_io.not_queried", QStringLiteral("未查询（驱动协议较旧）"));
+        }
+    }
+
 }
 
 

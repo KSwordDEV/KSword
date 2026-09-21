@@ -1102,6 +1102,46 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
             }
         }
         evidence.hasMajorFunctionExternalJump = evidence.majorFunctionExternalCount != 0U;
+
+        // DriverStartIo 与 dispatch 表分开陈述：空值是常态（多数驱动不排队 IRP），
+        // 只有非空且落在自身镜像外才算外跳线索；旧驱动协议不返回该字段时直说未查询。
+        detailLines << QStringLiteral("[DriverStartIo]");
+        switch (objectResult.startIo.state)
+        {
+        case KSWORD_ARK_DRIVER_START_IO_STATE_NULL:
+            detailLines << driverText(
+                "driver.evidence.detail.start_io_null",
+                QStringLiteral("DriverStartIo 为空值，该驱动未安装 StartIo 例程。"));
+            break;
+        case KSWORD_ARK_DRIVER_START_IO_STATE_READ_FAILED:
+            evidence.hasScanError = true;
+            detailLines << driverText(
+                "driver.evidence.detail.start_io_read_failed",
+                QStringLiteral("DriverStartIo 读取失败，未取得该字段证据。"));
+            break;
+        case KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT:
+            detailLines << driverText(
+                "driver.evidence.detail.start_io_present",
+                QStringLiteral("DriverStartIo=%1 module=%2 moduleBase=%3 location=%4"))
+                .arg(formatCompactAddress(objectResult.startIo.address))
+                .arg(QString::fromStdWString(objectResult.startIo.moduleName).isEmpty()
+                    ? QStringLiteral("-")
+                    : QString::fromStdWString(objectResult.startIo.moduleName))
+                .arg(formatCompactAddress(objectResult.startIo.moduleBase))
+                .arg(driverDispatchLocationText(objectResult.startIo.flags));
+            break;
+        default:
+            detailLines << (objectResult.io.ok
+                ? driverText(
+                    "driver.evidence.detail.start_io_not_queried",
+                    QStringLiteral("DriverStartIo 未查询：当前驱动协议版本不返回该字段。"))
+                : driverText(
+                    "driver.evidence.detail.start_io_query_failed",
+                    QStringLiteral("DriverStartIo 未查询：DriverObject 查询未成功。")));
+            break;
+        }
+        detailLines << QString();
+
         const std::uint32_t communicationConflictCount =
             evidenceCommunicationMaskCount(evidence.communicationConflictMask);
         if (evidence.communicationConflict)

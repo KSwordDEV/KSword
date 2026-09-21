@@ -373,6 +373,9 @@
     <ClCompile Include="KernelDock\KernelIoTimerTab.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="KernelDock\KernelDriverStartIoTab.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="KernelDock\KernelIoctlAuditTab.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1889,6 +1892,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="KernelDock\KernelIoTimerTab.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="KernelDock\KernelDriverStartIoTab.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="KernelDock\KernelIoctlAuditTab.h">

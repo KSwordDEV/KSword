@@ -300,6 +300,19 @@ void KernelIoctlAuditTab::refreshAsync()
                     row.flags = major.flags;
                     snapshot.dispatchRows.push_back(std::move(row));
                 }
+                if (query.startIo.state != KSWORD_ARK_DRIVER_START_IO_STATE_NOT_QUERIED)
+                {
+                    DispatchRow row;
+                    row.driverName = driverPath;
+                    row.driverObjectAddress = query.driverObjectAddress;
+                    row.dispatchAddress = query.startIo.address;
+                    row.moduleBase = query.startIo.moduleBase;
+                    row.moduleName = QString::fromStdWString(query.startIo.moduleName);
+                    row.flags = query.startIo.flags;
+                    row.isStartIo = true;
+                    row.startIoState = query.startIo.state;
+                    snapshot.dispatchRows.push_back(std::move(row));
+                }
             }
         }
 
@@ -475,17 +488,34 @@ void KernelIoctlAuditTab::populateTables()
     {
         const int tableRow = m_dispatchTable->rowCount();
         m_dispatchTable->insertRow(tableRow);
-        const QString dispatchStatus = (row.flags & 0x00000002U) != 0U
+        QString dispatchStatus = (row.flags & 0x00000002U) != 0U
             ? kernelText("kernel.ioctl_audit.dispatch.own_image", QStringLiteral("本驱动镜像"))
             : ((row.flags & 0x00000001U) != 0U
                 ? kernelText("kernel.ioctl_audit.dispatch.external_module", QStringLiteral("外部模块"))
                 : kernelText("kernel.ioctl_audit.dispatch.unresolved", QStringLiteral("模块未解析")));
+        if (row.isStartIo && row.startIoState == KSWORD_ARK_DRIVER_START_IO_STATE_NULL)
+        {
+            dispatchStatus = kernelText("kernel.ioctl_audit.dispatch.start_io_null", QStringLiteral("空值（未使用 StartIo）"));
+        }
+        else if (row.isStartIo && row.startIoState == KSWORD_ARK_DRIVER_START_IO_STATE_READ_FAILED)
+        {
+            dispatchStatus = kernelText("kernel.ioctl_audit.dispatch.start_io_read_failed", QStringLiteral("读取失败"));
+        }
+        const bool hasStartIoAddress = row.isStartIo && row.startIoState == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT;
         m_dispatchTable->setItem(tableRow, 0, readOnlyItem(row.driverName));
         m_dispatchTable->setItem(tableRow, 1, readOnlyItem(hex64(row.driverObjectAddress)));
-        m_dispatchTable->setItem(tableRow, 2, readOnlyItem(majorFunctionName(row.majorFunction)));
-        m_dispatchTable->setItem(tableRow, 3, readOnlyItem(QString::number(row.majorFunction)));
-        m_dispatchTable->setItem(tableRow, 4, readOnlyItem(hex64(row.dispatchAddress)));
-        m_dispatchTable->setItem(tableRow, 5, readOnlyItem(hex64(row.moduleBase)));
+        m_dispatchTable->setItem(tableRow, 2, readOnlyItem(row.isStartIo
+            ? QStringLiteral("DriverStartIo")
+            : majorFunctionName(row.majorFunction)));
+        m_dispatchTable->setItem(tableRow, 3, readOnlyItem(row.isStartIo
+            ? QStringLiteral("-")
+            : QString::number(row.majorFunction)));
+        m_dispatchTable->setItem(tableRow, 4, readOnlyItem(row.isStartIo && !hasStartIoAddress
+            ? QStringLiteral("-")
+            : hex64(row.dispatchAddress)));
+        m_dispatchTable->setItem(tableRow, 5, readOnlyItem(row.isStartIo && !hasStartIoAddress
+            ? QStringLiteral("-")
+            : hex64(row.moduleBase)));
         m_dispatchTable->setItem(tableRow, 6, readOnlyItem(row.moduleName.isEmpty() ? QStringLiteral("-") : row.moduleName));
         m_dispatchTable->setItem(tableRow, 7, readOnlyItem(hex32(row.flags)));
         m_dispatchTable->setItem(tableRow, 8, readOnlyItem(dispatchStatus));

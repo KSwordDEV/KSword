@@ -2273,6 +2273,16 @@ namespace ksword::ark
         std::wstring moduleName;               // 所属模块名。
     };
 
+    // DriverStartIoEntry 是 DriverObject->DriverStartIo 单行模型，三态见 KSWORD_ARK_DRIVER_START_IO_STATE_*。
+    struct DriverStartIoEntry
+    {
+        std::uint32_t state = KSWORD_ARK_DRIVER_START_IO_STATE_NOT_QUERIED; // 空值/读取失败/非空；旧驱动为未查询。
+        std::uint32_t flags = 0;               // KSWORD_ARK_DRIVER_START_IO_FLAG_*。
+        std::uint64_t address = 0;             // StartIo 入口地址，仅展示。
+        std::uint64_t moduleBase = 0;          // 所属模块基址，仅展示。
+        std::wstring moduleName;               // 所属模块名。
+    };
+
     // DriverDeviceEntry 是 Phase-9 DeviceObject/AttachedDevice 单行模型。
     struct DriverDeviceEntry
     {
@@ -2313,6 +2323,7 @@ namespace ksword::ark
         std::wstring serviceKeyName;
         std::wstring imagePath;
         std::vector<DriverMajorFunctionEntry> majorFunctions;
+        DriverStartIoEntry startIo;
         std::vector<DriverDeviceEntry> devices;
     };
 

@@ -5137,8 +5137,11 @@ namespace
             std::vector<std::uint8_t> buffer(kLargeResponseBytes, 0U);
             const int rc = sendRawIoctl(L"IOCTL_KSWORD_ARK_QUERY_DRIVER_OBJECT", IOCTL_KSWORD_ARK_QUERY_DRIVER_OBJECT, &request, sizeof(request), buffer, io);
             if (rc != 0) return rc;
-            constexpr std::size_t headerSize = sizeof(KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE) - sizeof(KSWORD_ARK_DRIVER_DEVICE_ENTRY);
             const auto* response = reinterpret_cast<const KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE*>(buffer.data());
+            // v2 驱动的响应头不含 startIo；devices[] 偏移随版本变化。
+            const std::size_t headerSize = response->version >= KSWORD_ARK_DRIVER_OBJECT_PROTOCOL_VERSION_V3
+                ? (sizeof(KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE) - sizeof(KSWORD_ARK_DRIVER_DEVICE_ENTRY))
+                : KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE_V2_HEADER_SIZE;
             std::size_t available = 0U;
             try { available = validateVariable(io.bytesReturned, headerSize, response->deviceEntrySize, sizeof(KSWORD_ARK_DRIVER_DEVICE_ENTRY), L"query-driver-object"); }
             catch (...) { return 4; }
@@ -5164,6 +5167,17 @@ namespace
                            << L" dispatch=" << hex64(major.dispatchAddress)
                            << L" moduleBase=" << hex64(major.moduleBase)
                            << std::dec << L" module='" << fixedWide(major.moduleName, KSWORD_ARK_DRIVER_MODULE_NAME_CHARS) << L"'\n";
+            }
+            if ((response->fieldFlags & KSWORD_ARK_DRIVER_OBJECT_FIELD_START_IO_PRESENT) != 0UL)
+            {
+                const auto& startIo = response->startIo;
+                const wchar_t* stateText = startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_NULL ? L"null"
+                    : (startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_READ_FAILED ? L"read-failed" : L"present");
+                std::wcout << L"  startIo state=" << stateText
+                           << L" flags=0x" << std::hex << startIo.flags
+                           << L" address=" << hex64(startIo.address)
+                           << L" moduleBase=" << hex64(startIo.moduleBase)
+                           << std::dec << L" module='" << fixedWide(startIo.moduleName, KSWORD_ARK_DRIVER_MODULE_NAME_CHARS) << L"'\n";
             }
             const std::size_t parsed = responseCountLimit(response->returnedDeviceCount, available, getOptionU32(args, L"--limit", 64U));
             for (std::size_t i = 0; i < parsed; ++i)
@@ -7111,8 +7125,11 @@ namespace
             std::vector<std::uint8_t> buffer(kLargeResponseBytes, 0U);
             const int rc = sendRawIoctl(L"IOCTL_KSWORD_ARK_QUERY_DRIVER_OBJECT", IOCTL_KSWORD_ARK_QUERY_DRIVER_OBJECT, &request, sizeof(request), buffer, io);
             if (rc != 0) return normalizeIoctlRc(L"driver detail", io, rc);
-            constexpr std::size_t headerSize = sizeof(KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE) - sizeof(KSWORD_ARK_DRIVER_DEVICE_ENTRY);
             const auto* response = reinterpret_cast<const KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE*>(buffer.data());
+            // v2 驱动的响应头不含 startIo；devices[] 偏移随版本变化。
+            const std::size_t headerSize = response->version >= KSWORD_ARK_DRIVER_OBJECT_PROTOCOL_VERSION_V3
+                ? (sizeof(KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE) - sizeof(KSWORD_ARK_DRIVER_DEVICE_ENTRY))
+                : KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE_V2_HEADER_SIZE;
             std::size_t available = 0U;
             try { available = validateVariable(io.bytesReturned, headerSize, response->deviceEntrySize, sizeof(KSWORD_ARK_DRIVER_DEVICE_ENTRY), L"driver detail"); }
             catch (...) { return 4; }

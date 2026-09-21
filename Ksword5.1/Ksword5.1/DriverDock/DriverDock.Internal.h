@@ -149,4 +149,7 @@ namespace ksword::driver_dock_internal
     QString driverMajorFunctionName(std::uint32_t majorFunction);
     QString driverDeviceTypeText(std::uint32_t deviceType);
     QString driverDispatchLocationText(std::uint32_t flags);
+    // driverStartIoStateText：把 DriverStartIo 的三态（空值/读取失败/非空）渲染成一行文本；
+    // 非空时复用 dispatch 的位置判定，空值不是异常。
+    QString driverStartIoStateText(const ksword::ark::DriverStartIoEntry& entry);
 }

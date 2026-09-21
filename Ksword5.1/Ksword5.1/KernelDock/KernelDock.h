@@ -1006,6 +1006,7 @@ private:
     int m_ioIdtTabIndex = -1;            // m_ioIdtTabIndex：内部 IDT 子页索引。
     int m_ioGdtTabIndex = -1;            // m_ioGdtTabIndex：内部 GDT 子页索引。
     int m_ioIoctlTabIndex = -1;          // m_ioIoctlTabIndex：内部 IOCTLS 解码器子页索引。
+    int m_ioStartIoTabIndex = -1;        // m_ioStartIoTabIndex：内部 DriverStartIo 子页索引。
     int m_dynDataTabIndex = -1;          // m_dynDataTabIndex：自身驱动内部 DynData 总览页索引。
     int m_dynDataProfileTabIndex = -1;   // m_dynDataProfileTabIndex：自身驱动内部 PDB Profile 页索引。
     int m_driverStatusTabIndex = -1;      // m_driverStatusTabIndex：自身驱动内部状态页索引。

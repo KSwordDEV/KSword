@@ -1030,6 +1030,37 @@ KswordARKDriverIntegrityAddDriverObjectRows(
             85UL, ~0UL, ~0UL, ~0UL, KswordARKDriverIntegrityFindModuleForAddress(ModuleInfo, address), detail);
         row = KswordARKDriverIntegrityLastEvidence(Builder, KSWORD_ARK_DRIVER_INTEGRITY_CLASS_MAJOR_FUNCTION, (ULONGLONG)(ULONG_PTR)&DriverObject->MajorFunction[index], address); if (row != NULL) { row->fieldMask |= KSWORD_ARK_DRIVER_INTEGRITY_FIELD_DISPATCH_TARGET | KSWORD_ARK_DRIVER_INTEGRITY_FIELD_DRIVER_OBJECT; row->ordinal = index; row->driverObjectAddress = (ULONGLONG)(ULONG_PTR)DriverObject; row->driverStart = driverStart; row->driverSize = driverSize; row->rangeState = KswordARKDriverIntegrityRangeState(ModuleInfo, driverModule, address); }
     }
+    {
+        /* DriverStartIo 三态：读取失败给出明确证据；空值属正常（多数驱动不用 StartIo 队列），不报风险；非空按指针风险归类。 */
+        PVOID startIo = NULL;
+        const ULONGLONG fieldAddress = (ULONGLONG)(ULONG_PTR)&DriverObject->DriverStartIo;
+        if (!KswordARKHookReadMemorySafe(&DriverObject->DriverStartIo, &startIo, sizeof(startIo))) {
+            KswordARKDriverIntegrityAddEvidence(Builder, KSWORD_ARK_DRIVER_INTEGRITY_CLASS_START_IO, fieldAddress, 0ULL,
+                KSWORD_ARK_DRIVER_INTEGRITY_RISK_NONE, KSWORD_ARK_DRIVER_INTEGRITY_SOURCE_DRIVER_OBJECT,
+                30UL, ~0UL, ~0UL, ~0UL, NULL, L"DriverObject->DriverStartIo read failed.");
+        }
+        else if (startIo == NULL) {
+            KswordARKDriverIntegrityAddEvidence(Builder, KSWORD_ARK_DRIVER_INTEGRITY_CLASS_START_IO, fieldAddress, 0ULL,
+                KSWORD_ARK_DRIVER_INTEGRITY_RISK_NONE, KSWORD_ARK_DRIVER_INTEGRITY_SOURCE_DRIVER_OBJECT,
+                85UL, ~0UL, ~0UL, ~0UL, NULL, L"DriverObject->DriverStartIo is NULL.");
+        }
+        else {
+            const ULONGLONG address = (ULONGLONG)(ULONG_PTR)startIo;
+            KswordARKDriverIntegrityFormatDetail(detail, RTL_NUMBER_OF(detail), L"DriverStartIo=0x%llX.", address);
+            KswordARKDriverIntegrityAddEvidence(Builder, KSWORD_ARK_DRIVER_INTEGRITY_CLASS_START_IO, fieldAddress, address,
+                KswordARKDriverIntegrityPointerRisk(ModuleInfo, driverModule, address),
+                KSWORD_ARK_DRIVER_INTEGRITY_SOURCE_DRIVER_OBJECT | KSWORD_ARK_DRIVER_INTEGRITY_SOURCE_SYSTEM_MODULE,
+                85UL, ~0UL, ~0UL, ~0UL, KswordARKDriverIntegrityFindModuleForAddress(ModuleInfo, address), detail);
+            row = KswordARKDriverIntegrityLastEvidence(Builder, KSWORD_ARK_DRIVER_INTEGRITY_CLASS_START_IO, fieldAddress, address);
+            if (row != NULL) {
+                row->fieldMask |= KSWORD_ARK_DRIVER_INTEGRITY_FIELD_DISPATCH_TARGET | KSWORD_ARK_DRIVER_INTEGRITY_FIELD_DRIVER_OBJECT;
+                row->driverObjectAddress = (ULONGLONG)(ULONG_PTR)DriverObject;
+                row->driverStart = driverStart;
+                row->driverSize = driverSize;
+                row->rangeState = KswordARKDriverIntegrityRangeState(ModuleInfo, driverModule, address);
+            }
+        }
+    }
     if (DriverObject->FastIoDispatch != NULL) {
         for (index = 0UL; index < RTL_NUMBER_OF(g_KswordArkFastIoFields); ++index) {
             const UCHAR* fieldAddress = (const UCHAR*)DriverObject->FastIoDispatch + g_KswordArkFastIoFields[index].Offset;

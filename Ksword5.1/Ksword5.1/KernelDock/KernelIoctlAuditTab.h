@@ -73,6 +73,8 @@ private:
         std::uint64_t moduleBase = 0;
         QString moduleName;
         std::uint32_t flags = 0;
+        bool isStartIo = false;            // true 表示该行是 DriverObject->DriverStartIo，而非 MajorFunction。
+        std::uint32_t startIoState = 0;    // KSWORD_ARK_DRIVER_START_IO_STATE_*，仅 isStartIo 时有效。
     };
 
     struct Snapshot

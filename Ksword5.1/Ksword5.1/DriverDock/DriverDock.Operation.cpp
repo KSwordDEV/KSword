@@ -124,6 +124,7 @@ namespace
         case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DRIVER_SECTION: return QStringLiteral("DriverSection");
         case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_MAJOR_FUNCTION: return QStringLiteral("MajorFunction");
         case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_FAST_IO: return QStringLiteral("FastIo");
+        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_START_IO: return QStringLiteral("StartIo");
         case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DEVICE_CHAIN: return QStringLiteral("DeviceChain");
         case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_SERVICE: return QStringLiteral("Service");
         case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_CPU_CONTROL: return QStringLiteral("CPU");
@@ -3579,6 +3580,11 @@ void DriverDock::applyDriverObjectQueryResult(const ksword::ark::DriverObjectQue
         summaryLines << QStringLiteral("Flags: %1 FieldFlags=%2")
             .arg(formatHex32(result.driverFlags))
             .arg(formatHex32(result.fieldFlags));
+        summaryLines << QStringLiteral("DriverStartIo: %1 (%2)")
+            .arg(result.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT
+                ? formatCompactAddress(result.startIo.address)
+                : QStringLiteral("-"))
+            .arg(driverStartIoStateText(result.startIo));
         summaryLines << QStringLiteral("MajorFunctions: %1 DeviceObjects: %2/%3")
             .arg(result.majorFunctions.size())
             .arg(result.devices.size())
@@ -3625,6 +3631,11 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
         lines << QStringLiteral("DriverStart: %1").arg(formatCompactAddress(result.driverStart));
         lines << QStringLiteral("DriverSection: %1").arg(formatCompactAddress(result.driverSection));
         lines << QStringLiteral("DriverUnload: %1").arg(formatCompactAddress(result.driverUnload));
+        lines << QStringLiteral("DriverStartIo: %1 (%2)")
+            .arg(result.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT
+                ? formatCompactAddress(result.startIo.address)
+                : QStringLiteral("-"))
+            .arg(driverStartIoStateText(result.startIo));
         lines << QStringLiteral("DriverSize: %1").arg(formatHex32(result.driverSize));
         lines << QStringLiteral("DriverFlags: %1").arg(formatHex32(result.driverFlags));
         lines << QStringLiteral("MajorFunctions: %1").arg(result.majorFunctions.size());
@@ -3642,6 +3653,7 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
             QStringLiteral("DriverStart"),
             QStringLiteral("DriverSection"),
             QStringLiteral("DriverUnload"),
+            QStringLiteral("DriverStartIo"),
             QStringLiteral("DriverSize"),
             QStringLiteral("DriverFlags"),
             QStringLiteral("FieldFlags"),
@@ -3653,12 +3665,20 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
             formatCompactAddress(result.driverStart),
             formatCompactAddress(result.driverSection),
             formatCompactAddress(result.driverUnload),
+            result.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT
+                ? formatCompactAddress(result.startIo.address)
+                : QStringLiteral("-"),
             formatHex32(result.driverSize),
             formatHex32(result.driverFlags),
             formatHex32(result.fieldFlags),
             QString::number(result.majorFunctions.size()),
             QStringLiteral("%1/%2").arg(result.devices.size()).arg(result.totalDeviceCount)
         };
+        // DriverStartIo 的“-”同时代表空值与读取失败，所以状态必须写进说明列，
+        // 否则两种完全不同的结论在表上长得一样。
+        const QString readOnlySummaryText =
+            driverText("driver.object.evidence.read_only_summary", QStringLiteral("DriverObject 只读摘要"));
+        const int startIoRowIndex = rows.indexOf(QStringLiteral("DriverStartIo"));
         m_driverObjectEvidenceTable->setRowCount(rows.size());
         for (int index = 0; index < rows.size(); ++index)
         {
@@ -3670,7 +3690,9 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
                 QStringLiteral("-"),
                 driverText("driver.integrity.risk.normal", QStringLiteral("正常")),
                 QStringLiteral("100"),
-                driverText("driver.object.evidence.read_only_summary", QStringLiteral("DriverObject 只读摘要")));
+                index == startIoRowIndex
+                    ? driverStartIoStateText(result.startIo)
+                    : readOnlySummaryText);
         }
         m_driverObjectEvidenceTable->setSortingEnabled(true);
     }
@@ -3724,6 +3746,27 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
                     }
                 }
             }
+        }
+        if (result.startIo.state != KSWORD_ARK_DRIVER_START_IO_STATE_NOT_QUERIED)
+        {
+            /* DriverStartIo 与 dispatch 同表展示：三态（空值/读取失败/非空）在“位置”列说清，
+             * 空值不是异常，多数驱动不用 StartIo 队列。 */
+            const ksword::ark::DriverStartIoEntry& startIo = result.startIo;
+            const bool present = startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT;
+            const int rowIndex = m_majorFunctionTable->rowCount();
+            m_majorFunctionTable->insertRow(rowIndex);
+            QTableWidgetItem* const startIoItem = createReadOnlyItem(QStringLiteral("DriverStartIo"));
+            startIoItem->setData(Qt::UserRole, static_cast<qulonglong>(startIo.address));
+            m_majorFunctionTable->setItem(rowIndex, 0, startIoItem);
+            m_majorFunctionTable->setItem(rowIndex, 1, createReadOnlyItem(
+                present ? formatCompactAddress(startIo.address) : QStringLiteral("-")));
+            m_majorFunctionTable->setItem(rowIndex, 2, createReadOnlyItem(
+                QString::fromStdWString(startIo.moduleName).isEmpty()
+                    ? QStringLiteral("-")
+                    : QString::fromStdWString(startIo.moduleName)));
+            m_majorFunctionTable->setItem(rowIndex, 3, createReadOnlyItem(
+                present ? formatCompactAddress(startIo.moduleBase) : QStringLiteral("-")));
+            m_majorFunctionTable->setItem(rowIndex, 4, createReadOnlyItem(driverStartIoStateText(startIo)));
         }
         m_majorFunctionTable->setSortingEnabled(true);
     }
@@ -3824,6 +3867,7 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
             if (row.evidenceClass != KSWORD_ARK_DRIVER_INTEGRITY_CLASS_FAST_IO &&
                 row.evidenceClass != KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DRIVER_OBJECT &&
                 row.evidenceClass != KSWORD_ARK_DRIVER_INTEGRITY_CLASS_MAJOR_FUNCTION &&
+                row.evidenceClass != KSWORD_ARK_DRIVER_INTEGRITY_CLASS_START_IO &&
                 row.evidenceClass != KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DRIVER_SECTION)
             {
                 continue;

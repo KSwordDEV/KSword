@@ -20,6 +20,7 @@
 #include "KernelVbsPostureTab.h"
 #include "KernelDockIpcTab.h"
 #include "KernelDeviceDriverObjectsTab.h"
+#include "KernelDriverStartIoTab.h"
 #include "KernelIoTimerTab.h"
 #include "KernelIoctlAuditTab.h"
 #include "KernelIoctlDecoderTab.h"
@@ -816,6 +817,20 @@ void KernelDock::initializeIoManagementTab()
         ioctlDecoderTab,
         kernelText("kernel.main.inner_tab.ioctls", QStringLiteral("IOCTLS")));
 
+    // DriverStartIo 子页会对每个 DriverObject 发起 R0 查询，因此与 IOCTL 审计同样
+    // 只在用户切入时采集，不在 KernelDock 构造期预取。
+    auto* startIoTab = new KernelDriverStartIoTab(m_ioManagementInnerTabWidget);
+    m_ioStartIoTabIndex = m_ioManagementInnerTabWidget->addTab(
+        startIoTab,
+        kernelText("kernel.main.inner_tab.driver_start_io", QStringLiteral("DriverStartIo")));
+    connect(m_ioManagementInnerTabWidget, &QTabWidget::currentChanged, this,
+        [this, startIoTab](const int tabIndex) {
+            if (m_ioManagementInnerTabWidget->widget(tabIndex) == startIoTab)
+            {
+                startIoTab->requestInitialRefresh();
+            }
+        });
+
     m_ioManagementInnerTabWidget->setTabToolTip(
         m_ioSsdtTabIndex,
         kernelText("kernel.main.tab.ssdt.tooltip", QStringLiteral("驱动侧 SSDT 服务索引遍历结果")));
@@ -833,6 +848,11 @@ void KernelDock::initializeIoManagementTab()
     m_ioManagementInnerTabWidget->setTabToolTip(
         m_ioIoctlTabIndex,
         kernelText("kernel.main.inner_tab.ioctls.tooltip", QStringLiteral("解析 32 位 CTL_CODE 的 Device、Function、Access 与 Method")));
+    m_ioManagementInnerTabWidget->setTabToolTip(
+        m_ioStartIoTabIndex,
+        kernelText(
+            "kernel.main.inner_tab.driver_start_io.tooltip",
+            QStringLiteral("逐个读取 DriverObject->DriverStartIo，区分空值、读取失败与非空三种状态")));
     m_ioManagementInnerTabWidget->setCurrentIndex(m_ioSsdtTabIndex);
 }
 
