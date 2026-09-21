@@ -167,8 +167,10 @@ static int test_return(void)
     CHECK(KswSvmRead64(&inner, KSW_VMCB_EXITINFO1) == 0);
     CHECK(KswSvmRead64(&inner, KSW_VMCB_EXITINFO2) == 0);
     CHECK(KswSvmRead64(&inner, KSW_VMCB_EXITINTINFO) == 0);
+    CHECK(KswSvmRead64(&inner, KSW_VMCB_EVENT) == 0);
     for (index = 0; index < 4096; ++index) {
-        if (index < KSW_VMCB_EXITCODE || index >= KSW_VMCB_EXITCODE + 32) {
+        if ((index < KSW_VMCB_EXITCODE || index >= KSW_VMCB_EXITCODE + 32) &&
+            (index < KSW_VMCB_EVENT || index >= KSW_VMCB_EVENT + 8)) {
             CHECK(((unsigned char*)&inner)[index] == ((unsigned char*)&saved)[index]);
         }
     }

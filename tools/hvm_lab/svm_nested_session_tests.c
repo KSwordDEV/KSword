@@ -142,6 +142,44 @@ static int test_transitions(void)
     CHECK(!m->commitCalls && m->session.Phase == 2);
     return 0;
 }
+/* Regression for consumed IRQ68 surviving a reflected CR4-write and being injected again. */
+static int test_event_consumption(void)
+{
+    MODEL* m = &model[0];
+    KSW_SVM_VMCB* operand = (KSW_SVM_VMCB*)m->ram[6];
+    unsigned interrupted;
+    for (interrupted = 0; interrupted < 2; ++interrupted) {
+        CHECK(initialize(m, 0));
+        KswSvmWrite64(operand, KSW_VMCB_EVENT, 0x80000068ULL);
+        CHECK(enter(m) == KSW_NSVM_ACTION_ENTER);
+        CHECK(KswSvmRead64(&m->current, KSW_VMCB_EVENT) == 0x80000068ULL);
+        /* Hardware clears EVENTINJ on exit; interrupted delivery lives in EXITINTINFO. */
+        KswSvmWrite64(&m->current, KSW_VMCB_EVENT, 0);
+        KswSvmWrite64(&m->current, KSW_VMCB_EXITCODE, interrupted ? 0x400 : 0x14);
+        KswSvmWrite64(&m->current, KSW_VMCB_EXITINTINFO, interrupted ? 0x80000068ULL : 0);
+        CHECK(KswSvmNestedSessionReflect(&m->session, &m->io, &m->current) == KSW_NSVM_ACTION_RETURN);
+        CHECK(KswSvmRead64(operand, KSW_VMCB_EVENT) == 0);
+        CHECK(KswSvmRead64(operand, KSW_VMCB_EXITINTINFO) == (interrupted ? 0x80000068ULL : 0));
+        /* L1 does not touch EVENTINJ: the next VMRUN must not replay the consumed request. */
+        KswSvmWrite64(&m->current, KSW_VMCB_NRIP, KswSvmRead64(&m->current, KSW_VMCB_RIP) + 3);
+        CHECK(enter(m) == KSW_NSVM_ACTION_ENTER);
+        CHECK(KswSvmRead64(&m->current, KSW_VMCB_EVENT) == 0);
+        exit_cpuid(m);
+        CHECK(KswSvmNestedSessionReflect(&m->session, &m->io, &m->current) == KSW_NSVM_ACTION_RETURN);
+        /* A deliberate new L1 injection remains allowed; this is not global IRQ suppression. */
+        KswSvmWrite64(operand, KSW_VMCB_EVENT, 0x80000069ULL);
+        KswSvmWrite64(&m->current, KSW_VMCB_NRIP, KswSvmRead64(&m->current, KSW_VMCB_RIP) + 3);
+        CHECK(enter(m) == KSW_NSVM_ACTION_ENTER);
+        CHECK(KswSvmRead64(&m->current, KSW_VMCB_EVENT) == 0x80000069ULL);
+    }
+    /* Invalid virtual VMRUN also completes with an architectural exit, not a pending request. */
+    CHECK(initialize(m, 0));
+    KswSvmWrite32(operand, KSW_VMCB_ASID, 0);
+    KswSvmWrite64(operand, KSW_VMCB_EVENT, 0x1234567880000b0dULL);
+    CHECK(enter(m) == KSW_NSVM_ACTION_INVALID);
+    CHECK(KswSvmRead64(operand, KSW_VMCB_EVENT) == 0);
+    return 0;
+}
 static DWORD WINAPI run_parallel(void* argument)
 {
     MODEL* m = argument;
@@ -163,7 +201,7 @@ static DWORD WINAPI run_parallel(void* argument)
 int main(void)
 {
     HANDLE threads[8]; unsigned i; DWORD resultCode;
-    if (test_transitions()) { return 1; }
+    if (test_transitions() || test_event_consumption()) { return 1; }
     for (i = 0; i < 8; ++i) { CHECK(initialize(&model[i], i)); threads[i] = CreateThread(NULL, 0, run_parallel, &model[i], 0, NULL); CHECK(threads[i]); }
     CHECK(WaitForMultipleObjects(8, threads, TRUE, 30000) == WAIT_OBJECT_0);
     for (i = 0; i < 8; ++i) {

@@ -17,11 +17,13 @@ KSW_SVM_U64 KswSvmNestedWritebackMask(unsigned int Offset,
     }
     /* Software admission failures do not save an unexecuted guest context. */
     if (Operation == KSW_NSVM_SAVE_INVALID) {
-        /* INVALID and deterministic diagnostic operands are the only writes. */
-        return Offset >= 0x070U && Offset < 0x090U ? ~0ULL : 0;
+        /* INVALID outputs and cleared EVENTINJ are the only writes; save state remains untouched. */
+        return (Offset >= 0x070U && Offset < 0x090U) || Offset == KSW_VMCB_EVENT ? ~0ULL : 0;
     }
     /* Unknown operations cannot accidentally become a whole-page memcpy. */
     if (Operation != KSW_NSVM_SAVE_VMEXIT) { return 0; }
+    /* The prepared reflection image has consumed EVENTINJ; its full 64-bit zero must reach L1 RAM. */
+    if (Offset == KSW_VMCB_EVENT) { return ~0ULL; }
     /* Preserve L1's interrupt policy while updating hardware V_IRQ/V_TPR. */
     if (Offset == 0x060U) { return 0x10fULL; }
     /* Only the implemented interrupt-shadow bit is hardware output here. */

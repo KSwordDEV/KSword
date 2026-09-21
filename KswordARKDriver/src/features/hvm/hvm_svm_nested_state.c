@@ -62,6 +62,8 @@ void KswSvmNestedReflectExit(KSW_SVM_VMCB* Vmcb12, const KSW_SVM_VMCB* Vmcb02,
 {
     /* EXITCODE/INFO1/INFO2/EXITINTINFO retain all 64 bits, including INVALID. */
     KswNsvmCopy(Vmcb12, Vmcb02, KSW_VMCB_EXITCODE, 32);
+    /* VMRUN's VMEXIT effects clear the entire injection request, including its error payload. */
+    KswSvmWrite64(Vmcb12, KSW_VMCB_EVENT, 0);
     /* NRIP is already zero for exits without architecturally defined next RIP. */
     KswNsvmCopy(Vmcb12, Vmcb02, KSW_VMCB_NRIP, 8);
     /* Decode assists return the hardware byte count and its fifteen instruction bytes. */

@@ -102,7 +102,7 @@ unsigned int KswSvmNestedSessionEnter(KSW_NSVM_SESSION* Session,
     if (status == KSW_NSVM_ENTRY_INVALID) {
         /* Save the real per-instruction continuation before returning the virtual exit. */
         KswNsvmSessionSaveL1(Session, Current);
-        /* Leave the unexecuted guest state and all source controls untouched. */
+        /* Preserve unexecuted guest state while applying INVALID outputs and EVENTINJ consumption. */
         KswSvmNestedInvalidExit(&Session->Vmcb12);
         /* A failed physical write cannot publish a completed virtual VMEXIT. */
         status = KswSvmNestedWriteback(&Io->Operand, Session->OperandPa, Session->OperandHostPa,

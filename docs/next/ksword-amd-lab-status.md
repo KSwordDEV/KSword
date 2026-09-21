@@ -2,6 +2,12 @@
 
 ## 当前进度（以下本节优先于后面的历史记录）
 
+### 09-21 根据首故障现场修复EVENTINJ消费漏写，待硬件复测
+
+已独立核验CPU0:22的冻结VMCB与manifest。现场在CR4写退出后进入新会话时重新出现IRQ0x68注入。生产代码确认虚拟VMEXIT未清除/写回VMCB12的EVENTINJ；新增会话回归在修复前失败，修复后通过。正常及INVALID反射现在清除完整注入字段，保留EXITINTINFO，不修改NPF或中断屏蔽逻辑。[分析与修复证据](evidence/amd-eventinj-consumption-fix.md)。
+
+22项离线目标、标准WDK/API/CAT通过且驱动零警告；独立未签名候选 `tools/hvm_lab/artifacts/eventinj-clear-v6/` 未加载，运行中的驱动和VM均未停止/重置。确认代码缺陷不等于确认本次shutdown的唯一原因，完整L2 OS仍待复测。
+
 ### 09-21 首故障记录与只读导出已编译，待硬件验证
 
 metrics v6新增独立flight：每CPU预分配32条L2进入/退出摘要，原始SHUTDOWN/INVALID在反射前冻结完整VMCB快照；内部失败标注处理后采集。首记录不被后续退出或stop/start覆盖，teardown/重启后消失。不添加新的异常拦截，不保证记录首异常，也没有修复尚未定位的L2故障。

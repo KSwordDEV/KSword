@@ -237,11 +237,13 @@ unsigned int KswSvmNestedBuildEntry(KSW_SVM_VMCB* Destination,
     return KswNsvmEntryFail(Result, KSW_NSVM_ENTRY_OK, 0, 0);
 }
 
-/* Invalid-entry reflection deliberately leaves all virtual control/save bytes intact. */
+/* Invalid-entry reflection preserves unexecuted save state but consumes EVENTINJ on VMEXIT. */
 void KswSvmNestedInvalidExit(KSW_SVM_VMCB* Inner)
 {
     /* VMEXIT_INVALID is a full-width architectural value, not an Intel exit index. */
     KswSvmWrite64(Inner, KSW_VMCB_EXITCODE, KSW_SVM_EXIT_INVALID);
+    /* Invalid VMRUN also returns with no pending injection request or stale error-code payload. */
+    KswSvmWrite64(Inner, KSW_VMCB_EVENT, 0);
     /* These undefined exit operands are deterministically zeroed without leaking host state. */
     KswSvmWrite64(Inner, KSW_VMCB_EXITINFO1, 0); KswSvmWrite64(Inner, KSW_VMCB_EXITINFO2, 0);
     /* No guest event started delivery during this software-rejected entry. */

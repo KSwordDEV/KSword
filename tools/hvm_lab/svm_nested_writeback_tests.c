@@ -39,6 +39,8 @@ static void reset(void)
 {
     memset(memory, 0, sizeof(memory));
     memset(&source, 0x5a, sizeof(source));
+    /* Reflection/invalid-exit producers clear the hardware-owned injection request before commit. */
+    KswSvmWrite64(&source, KSW_VMCB_EVENT, 0);
     memset(memory[6], 0xa5, 4096);
     memcpy(&expected, memory[6], 4096);
     memory[1][0] = 0x2007; memory[2][0] = 0x3007; memory[3][0] = 0x4007;
@@ -61,9 +63,13 @@ int main(void)
             CHECK(calls == 1 && result.HostPa == 0x6000 && result.GuestPa == 0x9000 && result.Words);
             /* Compare against the independent field-copy implementation, not our masks. */
             if (op == 1) { KswSvmNestedReflectExit(&expected, &source, np); }
-            if (op == 2) { memcpy((unsigned char*)&expected + 0x70, (unsigned char*)&source + 0x70, 32); }
+            if (op == 2) {
+                memcpy((unsigned char*)&expected + 0x70, (unsigned char*)&source + 0x70, 32);
+                KswSvmWrite64(&expected, KSW_VMCB_EVENT, 0);
+            }
             if (op == 3) { KswSvmNestedCopyVmload(&expected, &source); }
             CHECK(!memcmp(&expected, memory[6], 4096));
+            CHECK(memory[6][KSW_VMCB_EVENT / 8] == (op == 3 ? 0xa5a5a5a5a5a5a5a5ULL : 0));
             /* Pointer/control ownership never changes, whatever the source's raw bytes. */
             for (offset = 0; offset < 0x60; ++offset) { CHECK(((unsigned char*)memory[6])[offset] == 0xa5); }
             CHECK(KswSvmNestedWritebackMask(1, op, np) == 0);

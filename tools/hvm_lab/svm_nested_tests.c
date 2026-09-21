@@ -353,6 +353,8 @@ static int test_state(void)
     KswSvmWrite64(&source, 0x68, 1);
     memset(&destination, 0xaa, sizeof(destination));
     KswSvmNestedReflectExit(&destination, &source, 1);
+    /* Never copy a stale software EVENTINJ even if the source image was synthesized. */
+    CHECK(KswSvmRead64(&destination, KSW_VMCB_EVENT) == 0);
     CHECK(KswSvmRead64(&destination, KSW_VMCB_S_CET) == 0x3333333333333333ULL);
     CHECK(KswSvmRead64(&destination, KSW_VMCB_SSP) == 0x3333333333333333ULL);
     CHECK(KswSvmRead64(&destination, KSW_VMCB_ISST) == 0x3333333333333333ULL);
