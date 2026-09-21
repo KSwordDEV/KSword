@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21静态异常增量：nested_event实现原异常L1截获优先、contributory/PF合成DF、DF/shutdown二次截获；IRQ/NMI已确认事件Deferred必须保留才注入，guestCR2与RIP规则明确。普通GP/UD已接，普通路径尚无异步队列故保留故障。新增测试源码/工程清单，未构建未执行。继续写物理事件/GIF、通用指令与多核所有权；不可说静态全完成。
+
 2026-09-21静态续写：XSS Host/Guest128/130汇编切换，CET_U子集写门；CPUID.D几何固定/当前guest大小计算已接受限probe，汇编x87-only检查EBX576。原生核验比较guest当前mask，probe要求原mask；补用例未运行。此阶段用户明确不验证，未编译/测试/签名/装载，不复用977725df的通过结果。后续继续静态写事件仲裁与跨核所有权等；每阶段本地commit，不阶段性结束。
 
 2026-09-21续接XCR0：新增分配边界/依赖检查与HostXcr0/GuestXcr0汇编切换（118/120偏移断言），root恢复原掩码后固定全mask XSAVE，guest restore后安装子集；XSS仍固定。探针x87-only跨INVALID/真实内层再恢复，并由L1/L2 XGETBV读回。policy590326/生产分派390及既有回归、WDK/API/CAT零警告通过，硬件NOT_RUN，未签名/未暂存。用户新指令：一直把剩余静态实现写完，不阶段性停下；每块本地commit、不推送、暂不运行验证，后续新代码必须明确未验证。不加载驱动/启动VM/复现冻结；不使用旧关机授权。

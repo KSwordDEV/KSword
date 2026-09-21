@@ -1,6 +1,7 @@
 /* AMD VMEXIT dispatcher: processor-local writes, no pageable code or allocation. */
 #include "hvm_svm.h"
 #include "hvm_svm_nested_runtime.h"
+#include "hvm_svm_nested_event.h"
 #include <intrin.h>
 
 /* Publish raw evidence without global locks or kernel logging in the hot path. */
@@ -65,10 +66,15 @@ static VOID KswSvmAdvance(KSW_SVM_CPU* Cpu)
 /* Inject #GP(0) or #UD without advancing the faulting instruction. */
 static VOID KswSvmInject(KSW_SVM_CPU* Cpu, ULONG Vector)
 {
-    /* Do not overwrite an event whose delivery was interrupted. */
-    if (KswSvmRead64(Cpu->Guest, KSW_VMCB_EXITINTINFO) & (1ULL << 31)) { KswSvmFatal(Cpu, 2); }
-    /* Exception type=3, valid=1; #GP includes a zero error code. */
-    KswSvmWrite64(Cpu->Guest, KSW_VMCB_EVENT, KswSvmExceptionEvent(Vector));
+    /* Use the same architectural aggregation rules as future nested exception delivery. */
+    KSW_NSVM_EVENT_PLAN plan;
+    /* Ordinary residency has no L1 intercept owner; #GP/#UD keep their faulting RIP. */
+    if (KswSvmNestedExceptionPlan(Cpu->Guest, NULL, Vector, 0, 0, &plan) != KSW_NSVM_EVENT_INJECT) {
+        /* Preserve shutdown/invalid-event evidence until an ordinary-resident shutdown path exists. */
+        KswSvmFatal(Cpu, 2);
+    }
+    /* This baseline has no acknowledged-IRQ queue; refuse instead of silently losing that event. */
+    if (!KswSvmNestedExceptionInject(Cpu->Guest, &plan, 0)) { KswSvmFatal(Cpu, 2); }
 }
 
 /* Complete only MSRs intentionally owned/intercepted by this backend. */

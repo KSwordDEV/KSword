@@ -34,3 +34,7 @@
 CPU 前缀追加 HostXss/GuestXss（128/130）；与 XCR0 一样，退出恢复 root 保存掩码后再 XSAVES，进入在完整 XRSTORS 后安装 guest 掩码，原生返回保留当前 guest 掩码。允许的 XSS 范围仍只有准备时已分配的 CET_U 子集，不支持 supervisor CET。原生读回比较当前 guest 掩码，固定自检额外要求它等于原值。
 
 准备时固定每核 CPUID.D 组件几何，校验用户/监督组件归属、标准区域不重叠、大小/对齐及实际容量。来宾 CPUID.D.0/1 用 guest XCR0/XSS 算标准/压缩大小，其他子叶保留硬件布局，只暴露已分配组件；不查询 root 当前掩码作为 guest 答案。受限探针接入 leaf D，并在真实 x87-only 窗口检查 EBX=576。普通常驻尚不开放这些写操作。补了离线用例源码但按用户要求没有运行，也没有构建、签名、装载或硬件测试。
+
+## 异常合成静态增量（未验证）
+
+新增 nested_event：先检查原始异常的 L1 截获，再合成 contributory/#PF/#DF，单独检查合成 #DF 与 shutdown 的截获。shutdown 返回虚拟 CPU 状态决策，不执行宿主关机/复位。#PF 注入更新 guest CR2，所有故障保持 RIP。被打断且已确认的 IRQ/NMI 在结果中标为 Deferred；调用者未保留它时拒绝提交注入。普通 #GP/#UD 注入已使用该合成器；普通路径还没有 deferred 队列，遇到该状态仍保留故障，不丢事件。新增离线用例及构建清单，按用户指令未运行验证。物理 IRQ/NMI 确认、GIF/IRET 窗口和完整队列执行器仍需继续实现。

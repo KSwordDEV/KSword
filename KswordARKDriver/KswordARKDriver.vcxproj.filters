@@ -1499,6 +1499,7 @@
     <ClInclude Include="src\features\hvm\hvm_svm_nested_entry.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_route.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_xstate.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_nested_event.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_session.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_writeback.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_msr.h" />
@@ -1513,6 +1514,7 @@
     <ClCompile Include="src\features\hvm\hvm_svm_nested_entry.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_route.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_xstate.c" />
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_event.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_session.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_commit.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_writeback.c" />
