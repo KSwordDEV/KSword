@@ -810,6 +810,7 @@
     <ClInclude Include="src\features\hvm\hvm_svm_nested_event.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_owner.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_register.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_nested_cpuid.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_session.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_writeback.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_msr.h" />
@@ -880,6 +881,11 @@
       <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="src\features\hvm\hvm_svm_nested_event.c">
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_cpuid.c">
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <TreatWarningAsError>true</TreatWarningAsError>
       <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>

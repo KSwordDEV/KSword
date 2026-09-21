@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21静态CPUID：nested_cpuid过滤不支持的状态/控制扩展，动态guest OSXSAVE/leafD，显式ExposeSvm+NPT/NRIP/ASID门，SVMfeatures仅0xc9；L2更深SVM不暴露。probe leafD已接，普通resident仍隐藏SVM。代码未验证，继续通用执行分派与事件桥接。
+
 2026-09-21静态寄存器层：nested_register已接受限probe，EFER虚拟SVME/当前模式/LMA与PG门、L1HSAVE/VMCR隔离、XSS软件值、L2G_PAT更新与L1缓存契约拒绝、S_CET门。未编译测试。接下来重点完整通用分派、GIF/IRQ/NMI及平台桥接，仍不开放普通resident SVM能力或宣称完整L2完成。
 
 2026-09-21静态TLB：SessionInvalidate实现L1 INVLPGA→当前vCPU全部NPT02缓存重置/epoch推进，输入ASID只记诊断、不发真实INVLPGA；probe真实inner反射后新增一条并要求Invalidations1。跨CPU仍需L1逐核shootdown，不能把本地失效称全局完成；外层NPT01保持不可变。未构建未执行，继续写通用执行与物理事件桥接。

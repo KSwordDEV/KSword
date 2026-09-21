@@ -288,9 +288,13 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
     if (code == KSW_SVM_EXIT_CPUID && (ULONG)operand == 0xdU) {
         /* Root has restored its own masks; querying raw CPUID here would report the wrong EBX. */
         unsigned words[4];
+        /* The fixed probe requests leaf D only; no root-time raw CPUID callback is needed. */
+        KSW_NSVM_CPUID_POLICY policy = {0};
+        /* Reuse the general feature contract even while its SVM exposure remains off. */
+        policy.Xstate = &Cpu->XstateLayout;
         /* Layout uses prepared component metadata with current guest enablement. */
-        if (!KswSvmXstateCpuid(&Cpu->XstateLayout, Cpu->GuestXcr0, Cpu->GuestXss,
-            (ULONG)Cpu->Gpr[1], words)) { return KswNsvmFinish(Cpu, STATUS_DATA_ERROR); }
+        if (!KswSvmNestedCpuid(&policy, KswSvmRead64(Cpu->Guest, KSW_VMCB_CR4),
+            Cpu->GuestXcr0, Cpu->GuestXss, 0xdU, (ULONG)Cpu->Gpr[1], words)) { return KswNsvmFinish(Cpu, STATUS_DATA_ERROR); }
         /* Architectural CPUID outputs zero-extend all four 32-bit registers. */
         KswSvmWrite64(Cpu->Guest, KSW_VMCB_RAX, words[0]); Cpu->Gpr[3] = words[1];
         /* RCX and RDX are separately saved by the assembly GPR path. */

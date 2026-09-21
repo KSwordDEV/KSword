@@ -58,3 +58,7 @@ Session 先解析身份、获取持有权、重新读取受保护快照，再进
 ## 状态 MSR 通用层静态增量（未验证）
 
 新增 nested_register：EFER 的虚拟 SVME 与执行 VMCB 所需 SVME 分离；按当前 CPL、允许位和 CR0.PG 检查写入，LMA 保留硬件当前值。L2 不能访问/更改 L1 的 HSAVE/VM_CR。XSS 使用已分配组件的虚拟值。PAT 检查全部字节：L2 更新自己的 G_PAT，L1 改变固定 NPT01 缓存契约返回实现不支持；S_CET 非零仍明确不支持。其它 MSR 不猜测转发。生产 probe 已改用此公共层，未验证。通用调度器还需将 GP/unsupported/反射等动作连接到各自状态路径。
+
+## 通用 CPUID 契约静态增量（未验证）
+
+新增 nested_cpuid，动态 OSXSAVE/CPUID.D 使用 guest CR4/XCR0/XSS；SVM 叶仅在调用者明确启用且满足 NPT/NRIP/ASID 门时发布，限制为 NPT/NRIP/flush-by-ASID/decode assists。L2 不发布更深层 SVM。未保存的 MPX/AMX/PKU/PKS/LA57/UINTR、未实现 supervisor CET/SEV 与未知 leaf7 子叶不透传；AVX/AVX512 与已分配组件集一致，硬件拓扑/外层 vendor 保留。probe 的 leaf D 已经调用公共函数。完整通用路径尚未公开启用，此模块不自行放开能力门。未构建测试。
