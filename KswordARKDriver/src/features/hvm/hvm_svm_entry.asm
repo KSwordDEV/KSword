@@ -87,6 +87,22 @@ KSW_SWITCH_XCR0 macro TargetOffset
 Unchanged:
 endm
 
+; XSS controls saved supervisor components independently from their live feature MSRs.
+KSW_SWITCH_XSS macro TargetOffset
+    LOCAL Unchanged
+    mov rax, [rcx+128h]          ; Root full-mask supervisor save contract.
+    cmp rax, [rcx+130h]          ; Zero/zero also skips the MSR on CPUs without XSAVES.
+    je Unchanged                ; No register access is needed when both contexts agree.
+    mov r9, rcx                 ; WRMSR consumes ECX.
+    mov rax, [rcx+TargetOffset]  ; Values are subsets of the prepared XSS mask.
+    mov rdx, rax                ; Split the architectural 64-bit value.
+    shr rdx, 32                 ; Upper supervisor component mask.
+    mov ecx, 0da0h              ; Architectural XSS MSR.
+    wrmsr                       ; Execute only outside C and with physical GIF closed.
+    mov rcx, r9                 ; Retain the per-CPU context for the next state operation.
+Unchanged:
+endm
+
 KswordSvmAsmLaunch proc frame
     .endprolog                   ; No permanent allocation on the Windows stack.
     mov [rcx+20h], rsp           ; Record exact CALL continuation stack.
@@ -146,6 +162,7 @@ KswSvmRun:
     mov byte ptr [rbx+5ch], 1    ; Full TLB flush on every VMRUN, including first entry.
     mov dword ptr [rbx+0c0h], 0  ; Do not trust clean-bit caching in this first backend.
     KSW_LOAD_XSTATE              ; Undo host C code's SIMD modifications.
+    KSW_SWITCH_XSS 130h          ; The guest sees its current supervisor save enablement.
     KSW_SWITCH_XCR0 120h         ; Install guest enablement after restoring the fixed full state image.
     mov rax, [rsp+20h]           ; Context for GPR restoration.
     KSW_LOAD_GPRS                ; Restore all non-VMCB guest registers.
@@ -158,6 +175,7 @@ KswSvmRun:
     mov rdx, [rcx+10h]           ; Guest VMCB virtual address.
     mov rax, [rdx+5f8h]          ; Guest RAX is saved by hardware, not in host RAX.
     mov [rcx+48h], rax           ; Retain it for native stop continuation.
+    KSW_SWITCH_XSS 128h          ; Restore fixed XSAVES component ownership before saving guest state.
     KSW_SWITCH_XCR0 118h         ; Reenable prepared components before XSAVE and any root SIMD use.
     KSW_SAVE_XSTATE              ; Save every prepared component in the unchanged full-mask layout.
     mov rcx, [rsp+20h]           ; Reload stable context.
@@ -172,6 +190,7 @@ KswSvmRun:
     mov r15, [rsp+20h]           ; Native continuation anchor; no further C calls.
     mov rcx, r15                 ; Restore all guest XSTATE first.
     KSW_LOAD_XSTATE              ; Guest CR0.TS/EM is restored only after XRSTOR.
+    KSW_SWITCH_XSS 130h          ; Native return preserves current guest XSS rather than a launch snapshot.
     KSW_SWITCH_XCR0 120h         ; Native continuation inherits current guest enablement, not root policy.
     mov rbx, [r15+10h]           ; Guest state image for native restoration.
     mov rax, [rbx+5d8h]          ; Exact current guest RSP, not launch-time RSP.
@@ -330,6 +349,13 @@ KswordSvmAsmNestedProbe proc
     jne KswSvmNestedBadReturn   ; Wrong hardware enablement fails through the intercepted marker.
     test edx, edx               ; The high half must also match x87-only.
     jne KswSvmNestedBadReturn   ; Preserve failure evidence instead of entering the inner guest.
+    push rbx                    ; CPUID uses EBX, which currently retains the owned operand PA.
+    mov eax, 0dh                ; Ask for the guest's current standard save-area requirement.
+    xor ecx, ecx                ; Subleaf zero reports XCR0-managed user components.
+    cpuid                       ; L0 must synthesize EBX from guest XCR0, not its own full mask.
+    cmp ebx, 576                ; x87-only uses the legacy area and header without AVX/ZMM payload.
+    pop rbx                     ; Restore the operand without changing the comparison flags.
+    jne KswSvmNestedBadReturn   ; Reporting the root allocation size fails this executable probe.
     mov ecx, 0c0000080h          ; Read the virtual EFER image.
     rdmsr                       ; Must be handled as virtual ownership, not physical host state.
     or eax, 1000h               ; Request virtual SVM ownership.

@@ -71,6 +71,11 @@ static int initialize(void)
     cpu.Caps.PhysicalBits = 45;
     cpu.Caps.AsidCount = 64; cpu.Caps.Efer = 0xd01; cpu.Caps.Cr4 = 1ULL << 18;
     cpu.HostXcr0 = cpu.GuestXcr0 = 0xe7;
+    cpu.XstateLayout.Ready = 1; cpu.XstateLayout.User = 0xe7; cpu.XstateLayout.Features = 0xf;
+    cpu.XstateLayout.Component[2][0] = 256; cpu.XstateLayout.Component[2][1] = 576;
+    cpu.XstateLayout.Component[5][0] = 64; cpu.XstateLayout.Component[5][1] = 1088;
+    cpu.XstateLayout.Component[6][0] = 512; cpu.XstateLayout.Component[6][1] = 1152;
+    cpu.XstateLayout.Component[7][0] = 1024; cpu.XstateLayout.Component[7][1] = 1664;
     cpu.Caps.Page1Gb = TRUE;
     cpu.Caps.Pat = 0x0007010600070106ULL;
     cpu.OriginalEfer = 0xd01;

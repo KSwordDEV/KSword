@@ -3,6 +3,7 @@
 #include "hvm_internal.h"
 #include "hvm_metrics.h"
 #include "hvm_svm_arch.h"
+#include "hvm_svm_xstate.h"
 
 /* Bound the static NPT allocation ledger to 64 MiB of hardware tables. */
 #define KSW_NPT_MAX_PAGES 16384UL
@@ -137,6 +138,8 @@ typedef struct _KSW_SVM_CPU {
     ULONGLONG HostXcr0;
     /* 120: current guest XCR0; VMRUN/VMEXIT do not switch this register. */
     ULONGLONG GuestXcr0;
+    /* 128/130: root save enablement and the independently virtualized guest XSS. */
+    ULONGLONG HostXss, GuestXss;
     /* Resource and runtime ownership beyond the assembly prefix. */
     KSW_HVM_RUNTIME* Runtime;
     /* Public row owns processor identity and common states. */
@@ -155,6 +158,8 @@ typedef struct _KSW_SVM_CPU {
     PVOID Stack, XstateAllocation;
     /* XSAVE capacity; XCR0 changes are validated against this before entry. */
     ULONG XstateBytes;
+    /* Pinned CPUID geometry for guest-mask-aware leaf D responses. */
+    KSW_SVM_XSTATE_LAYOUT XstateLayout;
     /* Entry-stage evidence independent of VMX status bits. */
     volatile LONG Stage;
     /* Per-CPU self-test success marker. */
@@ -188,6 +193,9 @@ C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, CetPresent) == 0x114);
 /* Switching masks must not change any preceding assembly-visible offsets. */
 C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, HostXcr0) == 0x118);
 C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, GuestXcr0) == 0x120);
+/* XSS is not automatically switched by VMRUN/VMEXIT either. */
+C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, HostXss) == 0x128);
+C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, GuestXss) == 0x130);
 /* MASM native restoration consumes these exact ordinary-VMCB offsets. */
 C_ASSERT(KSW_VMCB_S_CET == 0x5e0 && KSW_VMCB_SSP == 0x5e8 && KSW_VMCB_ISST == 0x5f0);
 

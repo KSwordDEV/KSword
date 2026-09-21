@@ -93,6 +93,8 @@ static ULONG KswNsvmFinish(KSW_SVM_CPU* Cpu, NTSTATUS Status)
     nested->Msrs.Hsave = 0;
     /* Only this bounded instruction stream may abort to the original Windows XCR0. */
     Cpu->GuestXcr0 = Cpu->HostXcr0;
+    /* Bounded cleanup also restores the original supervisor save enablement. */
+    Cpu->GuestXss = Cpu->HostXss;
     /* Self-test return status remains separate from the assembly continuation's EAX. */
     Cpu->Result = Status;
     /* Restore the known entry CALL chain rather than an arbitrary rejected operand. */
@@ -127,7 +129,8 @@ NTSTATUS KswordSvmNestedBuildProbe(KSW_SVM_CPU* Cpu)
     if (!nested || !nested->Operand || !nested->Stack || !nested->MergedMaps ||
         !nested->Shadow.Pages || nested->RunningL2) { return STATUS_DEVICE_NOT_READY; }
     /* Mask transitions require an implemented dependency set and SSE-enabled native caller. */
-    if (!KswSvmXcr0MaskValid(Cpu->HostXcr0) || !(Cpu->HostXcr0 & 2ULL)) { return STATUS_NOT_SUPPORTED; }
+    if (!KswSvmXcr0MaskValid(Cpu->HostXcr0) || !(Cpu->HostXcr0 & 2ULL) ||
+        !Cpu->XstateLayout.Ready) { return STATUS_NOT_SUPPORTED; }
     /* Previous permission snapshots cannot authorize a later probe invocation. */
     nested->Session.Permissions.Ready = 0;
     /* Each test starts a fresh transaction with independently counted virtual returns. */
@@ -307,7 +310,17 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
     /* Every admitted SVM/MSR operation belongs to the kernel-only test sequence. */
     if (((PUCHAR)Cpu->Guest)[KSW_VMCB_CPL] != 0) { return KswNsvmFinish(Cpu, STATUS_ACCESS_DENIED); }
     /* Virtual MSRs are exercised before and after the actual inner execution. */
-    if (code == 0x8dULL) {
+    if (code == KSW_SVM_EXIT_CPUID && (ULONG)operand == 0xdU) {
+        /* Root has restored its own masks; querying raw CPUID here would report the wrong EBX. */
+        unsigned words[4];
+        /* Layout uses prepared component metadata with current guest enablement. */
+        if (!KswSvmXstateCpuid(&Cpu->XstateLayout, Cpu->GuestXcr0, Cpu->GuestXss,
+            (ULONG)Cpu->Gpr[1], words)) { return KswNsvmFinish(Cpu, STATUS_DATA_ERROR); }
+        /* Architectural CPUID outputs zero-extend all four 32-bit registers. */
+        KswSvmWrite64(Cpu->Guest, KSW_VMCB_RAX, words[0]); Cpu->Gpr[3] = words[1];
+        /* RCX and RDX are separately saved by the assembly GPR path. */
+        Cpu->Gpr[1] = words[2]; Cpu->Gpr[2] = words[3];
+    } else if (code == 0x8dULL) {
         /* The private probe must reduce to x87-only, then restore the prepared native mask. */
         ULONGLONG value = ((Cpu->Gpr[2] & 0xffffffffULL) << 32) | (operand & 0xffffffffULL);
         /* Validate NRIP before mutating software state; this test aborts instead of injecting faults. */
@@ -330,6 +343,19 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
         ULONGLONG value = ((Cpu->Gpr[2] & 0xffffffffULL) << 32) | (operand & 0xffffffffULL);
         /* Intercept info distinguishes reads from writes. */
         ULONG write = (ULONG)(KswSvmRead64(Cpu->Guest, KSW_VMCB_EXITINFO1) & 1ULL);
+        /* XSS has an independent virtual value; never forward a root-time WRMSR. */
+        if ((ULONG)Cpu->Gpr[1] == 0xda0U) {
+            /* Unsupported XSAVES/MSR access remains an explicit bounded test failure. */
+            if (!(Cpu->Caps.XsaveFeatures & 8U) || (write &&
+                KswSvmXssWrite(Cpu->HostXss, Cpu->Caps.XsaveFeatures, 0, value, &Cpu->GuestXss) != KSW_SVM_XCR_OK)) {
+                /* No real supervisor enablement changed on a rejected write. */
+                return KswNsvmFinish(Cpu, STATUS_HV_OPERATION_FAILED);
+            }
+            /* Reads reflect the software guest contract, not the root-restored XSS. */
+            if (!write) { KswSvmWrite64(Cpu->Guest, KSW_VMCB_RAX, (ULONG)Cpu->GuestXss); Cpu->Gpr[2] = (ULONG)(Cpu->GuestXss >> 32); }
+            /* Complete only after NRIP is known; an invalid probe continuation aborts natively. */
+            return KswNsvmAdvance(Cpu) ? 0 : KswNsvmFinish(Cpu, STATUS_DATA_ERROR);
+        }
         /* No real RDMSR/WRMSR is performed by this virtual ownership handler. */
         if (KswSvmNestedMsrAccess(&nested->Msrs, (ULONG)Cpu->Gpr[1], write, &value) != KSW_NSVM_MSR_OK) {
             /* A rejected test operation terminates the bounded test; it is not a general exception emulator. */
@@ -396,6 +422,7 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
         BOOLEAN passed = nested->Entries == 1 && nested->Reflections == 1 && nested->Faults != 0 &&
             nested->Session.InvalidEntries == 1 && nested->Session.Returns == 1 &&
             nested->Xcr0Writes == 2 && Cpu->GuestXcr0 == Cpu->HostXcr0 &&
+            Cpu->GuestXss == Cpu->HostXss &&
             nested->LastExit == KSW_SVM_EXIT_CPUID && nested->LastMarker == KSW_NSVM_INNER_MARKER &&
             !(nested->Msrs.Efer & KSW_SVM_EFER_SVME) && !nested->Msrs.Hsave && nested->VirtualGif;
         /* Complete native restoration before the public per-CPU self-test result is counted. */

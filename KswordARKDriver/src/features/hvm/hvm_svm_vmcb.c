@@ -75,6 +75,8 @@ NTSTATUS KswordSvmBuildVmcb(KSW_SVM_CPU* Cpu)
     Cpu->Caps.Ucet = current.Ucet; Cpu->Caps.Pl3Ssp = current.Pl3Ssp;
     /* Each fresh launch starts from the verified native mask, never a previous probe's value. */
     Cpu->HostXcr0 = Cpu->GuestXcr0 = current.Xcr0;
+    /* XSS starts at the same verified native save contract on every fresh launch. */
+    Cpu->HostXss = Cpu->GuestXss = current.Xss;
     /* Reinitialize control and state areas on every fresh launch. */
     RtlZeroMemory(v, sizeof(*v));
     /* Capture selector and GDTR/IDTR values on the target CPU. */
@@ -190,10 +192,14 @@ BOOLEAN KswordSvmVerifyNativeState(KSW_SVM_CPU* Cpu)
 {
     /* All reads execute on the same pinned CPU, after SVM ownership restoration. */
     __try {
-        /* XCR0 changes would invalidate either allocated XSTATE layout. */
-        if (_xgetbv(0) != Cpu->Caps.Xcr0) { return FALSE; }
+        /* Bounded tests must return the original mask; ordinary stop preserves current guest state. */
+        if (Cpu->SelfTest && Cpu->GuestXcr0 != Cpu->HostXcr0) { return FALSE; }
+        /* Assembly must return with current guest enablement, not merely the root save mask. */
+        if (_xgetbv(0) != Cpu->GuestXcr0) { return FALSE; }
         /* Query XSS only on processors that enumerate its instruction family. */
-        if ((Cpu->Caps.XsaveFeatures & 8U) && __readmsr(0xda0U) != Cpu->Caps.Xss) { return FALSE; }
+        if (Cpu->SelfTest && Cpu->GuestXss != Cpu->HostXss) { return FALSE; }
+        /* XSS readback is independent of XCR0 and is performed only when the MSR exists. */
+        if ((Cpu->Caps.XsaveFeatures & 8U) && __readmsr(0xda0U) != Cpu->GuestXss) { return FALSE; }
         /* Non-CET virtual CPUs must not execute the optional MSR reads. */
         if (Cpu->CetPresent) {
             /* Current guest ISST, not the launch-time address, must be restored on stop. */

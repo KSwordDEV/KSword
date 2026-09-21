@@ -4,6 +4,19 @@
 #include "../../platform/pool_compat.h"
 #include <intrin.h>
 
+/* Capture component layout while the prepare caller is pinned to the owning CPU. */
+static VOID KswSvmReadXstateCpuid(void* Context, unsigned Leaf, unsigned Subleaf, unsigned Words[4])
+{
+    /* CPUID itself requires no pageable state or borrowed OS service. */
+    int r[4];
+    /* This callback reads only the already selected processor. */
+    UNREFERENCED_PARAMETER(Context);
+    /* Signed intrinsic operands/results preserve their exact 32-bit architectural patterns. */
+    __cpuidex(r, (int)Leaf, (int)Subleaf);
+    /* Copy explicitly instead of relying on differently signed pointer aliasing. */
+    Words[0] = (unsigned)r[0]; Words[1] = (unsigned)r[1]; Words[2] = (unsigned)r[2]; Words[3] = (unsigned)r[3];
+}
+
 /* Read each MSR independently; absent evidence must not look like zero. */
 static VOID KswSvmReadEvidence(KSW_SVM_CAPS* Caps, ULONG Msr, ULONG Bit, ULONGLONG* Value)
 {
@@ -356,6 +369,11 @@ NTSTATUS KswordSvmPrepare(KSW_HVM_RUNTIME* Runtime, ULONG Flags)
             cpu->XstateMask = cpu->Caps.Xcr0 | cpu->Caps.Xss;
             /* Guest changes are bounded by this immutable root mask and existing allocation. */
             cpu->HostXcr0 = cpu->GuestXcr0 = cpu->Caps.Xcr0;
+            /* No guest XSS change can enable a component absent from this fixed root save mask. */
+            cpu->HostXss = cpu->GuestXss = cpu->Caps.Xss;
+            /* A failed layout stays unpublished; the nested builder refuses it before entry. */
+            (void)KswSvmXstateLayoutCapture(&cpu->XstateLayout, cpu->Caps.Xcr0, cpu->Caps.Xss,
+                cpu->XstateBytes, cpu->XstateCompacted, KswSvmReadXstateCpuid, NULL);
             /* Assembly must never touch CET MSRs on the old non-CET VMware baseline. */
             cpu->CetPresent = cpu->Caps.CetPresent;
         }

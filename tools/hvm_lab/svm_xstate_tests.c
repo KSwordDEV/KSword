@@ -1,8 +1,58 @@
 /* Production policy tests: no privileged instructions or driver loading. */
 #include "../../KswordARKDriver/src/features/hvm/hvm_svm_xstate.h"
 #include <stdio.h>
+#include <string.h>
 static unsigned checks;
 #define CHECK(x) do { ++checks; if (!(x)) { printf("FAIL %u: %s\n", __LINE__, #x); return 1; } } while (0)
+static unsigned geometry[64][4];
+static void cpuid_fixture(void* context, unsigned leaf, unsigned subleaf, unsigned words[4])
+{
+    (void)context; (void)leaf;
+    memcpy(words, geometry[subleaf], sizeof(geometry[0]));
+}
+static int layout_tests(void)
+{
+    KSW_SVM_XSTATE_LAYOUT layout;
+    KSW_SVM_U64 xss = 0x800;
+    unsigned words[4];
+    memset(geometry, 0, sizeof(geometry));
+    memset(&layout, 0, sizeof(layout));
+    geometry[0][0] = 0xe7;
+    geometry[1][0] = 0xf; geometry[1][2] = 0x800;
+    geometry[2][0] = 256; geometry[2][1] = 576;
+    geometry[5][0] = 64; geometry[5][1] = 1088;
+    geometry[6][0] = 512; geometry[6][1] = 1152;
+    geometry[7][0] = 1024; geometry[7][1] = 1664;
+    geometry[11][0] = 16; geometry[11][2] = 1;
+    CHECK(KswSvmXstateLayoutCapture(&layout, 0xe7, 0x800, 2448, 1, cpuid_fixture, NULL));
+    CHECK(KswSvmXstateCpuid(&layout, 1, 0, 0, words) && words[0] == 0xe7 && words[1] == 576 && words[2] == 2688);
+    CHECK(KswSvmXstateCpuid(&layout, 7, 0, 0, words) && words[1] == 832);
+    CHECK(KswSvmXstateCpuid(&layout, 0xe7, 0x800, 1, words) && words[1] == 2448 && words[2] == 0x800);
+    CHECK(KswSvmXstateCpuid(&layout, 1, 0x800, 1, words) && words[1] == 592);
+    CHECK(KswSvmXstateCpuid(&layout, 1, 0, 11, words) && words[0] == 16 && words[1] == 0 && words[2] == 1);
+    CHECK(KswSvmXstateCpuid(&layout, 1, 0, 64, words) && !(words[0] | words[1] | words[2] | words[3]));
+    CHECK(!KswSvmXstateCpuid(&layout, 5, 0, 0, words));
+    CHECK(!KswSvmXstateLayoutCapture(&layout, 0xe7, 0x800, 2447, 1, cpuid_fixture, NULL) && !layout.Ready);
+    geometry[11][2] = 3; /* Alignment padding is meaningful with a small guest mask. */
+    CHECK(KswSvmXstateLayoutCapture(&layout, 0xe7, 0x800, 2448, 1, cpuid_fixture, NULL));
+    CHECK(KswSvmXstateCpuid(&layout, 7, 0x800, 1, words) && words[1] == 848);
+    geometry[5][1] = 576; /* Overlap is forbidden even though the root saves compacted data. */
+    CHECK(!KswSvmXstateLayoutCapture(&layout, 0xe7, 0x800, 2448, 1, cpuid_fixture, NULL));
+    geometry[5][1] = 1088;
+    geometry[11][2] = 2; /* A supervisor bitmap cannot name a user-managed descriptor. */
+    CHECK(!KswSvmXstateLayoutCapture(&layout, 0xe7, 0x800, 2448, 1, cpuid_fixture, NULL));
+    geometry[11][2] = 1;
+    CHECK(!KswSvmXstateLayoutCapture(&layout, 0xe7, 0x800, 2688, 0, cpuid_fixture, NULL));
+    CHECK(KswSvmXstateLayoutCapture(&layout, 0xe7, 0, 2688, 0, cpuid_fixture, NULL));
+    CHECK(KswSvmXstateCpuid(&layout, 1, 0, 11, words) && !words[0]); /* No stale previous XSS descriptor exposed. */
+    CHECK(KswSvmXssWrite(0x800, 0xf, 0, 0, &xss) == KSW_SVM_XCR_OK && !xss);
+    CHECK(KswSvmXssWrite(0x800, 0xf, 0, 0x800, &xss) == KSW_SVM_XCR_OK && xss == 0x800);
+    CHECK(KswSvmXssWrite(0x800, 0xf, 0, 0x1000, &xss) == KSW_SVM_XCR_GP && xss == 0x800);
+    CHECK(KswSvmXssWrite(0x800, 7, 0, 0, &xss) == KSW_SVM_XCR_GP && xss == 0x800);
+    CHECK(KswSvmXssWrite(0x800, 0xf, 3, 0, &xss) == KSW_SVM_XCR_GP && xss == 0x800);
+    CHECK(KswSvmXssWrite(0x1000, 0xf, 0, 0, &xss) == KSW_SVM_XCR_UNSUPPORTED);
+    return 0;
+}
 int main(void)
 {
     const KSW_SVM_U64 masks[] = { 1, 3, 7, 0xe7 };
@@ -38,6 +88,7 @@ int main(void)
     CHECK(KswSvmXcr0Write(7, 1ULL << 18, 0, 0, 1, NULL) == KSW_SVM_XCR_UNSUPPORTED);
     CHECK(KswSvmXcr0Write(0xe7, 1ULL << 18, 0, 0, 1, &current) == KSW_SVM_XCR_OK && current == 1);
     CHECK(KswSvmXcr0Write(0xe7, 1ULL << 18, 0, 0, 0xe7, &current) == KSW_SVM_XCR_OK && current == 0xe7);
+    if (layout_tests()) { return 1; }
     printf("SVM_XSTATE_POLICY_CHECKS=%u RESULT=PASS (no hardware)\n", checks);
     return 0;
 }
