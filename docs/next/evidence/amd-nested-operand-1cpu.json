@@ -1,0 +1,28 @@
+{
+  "result": "PASS",
+  "scope": "bounded-svm-nested-probe",
+  "vcpu": 1,
+  "cycles": 1,
+  "filesVerified": 30,
+  "completedCpuRoundTrips": 1,
+  "released": true,
+  "innerOperatingSystemTested": false,
+  "concurrentInnerVcpusTested": false,
+  "rsds": {
+    "guid": "e4cc4cb2-c439-411a-b14d-0a1a0f78fedc",
+    "age": 3
+  },
+  "exportManifestSha256": "19c688d748bf88cb306e5933e36b287938f5f282793a0a1366302b1a346115b3",
+  "processors": [
+    {
+      "group": 0,
+      "number": 0,
+      "finalSequence": 2,
+      "npfMin": 5,
+      "npfMax": 5
+    }
+  ],
+  "sourceCommit": "ec61b3df",
+  "rawEvidence": "tools/hvm_lab/artifacts/guest-results/nested-probe-20260921-085216-7af421ad03814e60a8e1a6067ff5d346",
+  "kdMatchedPrivateSymbols": true
+}
