@@ -1,5 +1,15 @@
 # AMD 嵌套 SVM：第二阶段实现记录
 
+## 2026-09-21 本轮三个具体缺口的实现更新
+
+此前明确列出的三类分支已接入生产路径：注入期间全异常观察用于区分不同 EXITINTINFO 的时序；共享 VMCB owner 邮箱用于保存未投递事件并跨 CPU 恢复；独立 NMI eligibility window 用于 shadow/已有注入的等待。前两项分别提交 `c114634`、`408bec4f`，第三项新增 `hvm_svm_nested_nmi_window.c/.h` 并接到 machine 的进入、退出和停止门。
+
+邮箱预分配在共享 owner table 内，每个 VMCB 最多16项；使用现有非阻塞 lease，不引入 root 分配或等待锁。保存发生在完整 VMCB 写回后、lease 释放前，导入发生在新 VMRUN admission 后、L2 发布前。容量、序列、旧lease、原始记录损坏均保留失败。当前 interrupted 记录只能通过实际 EXITINTINFO 交给 L1，physical NMI 继续跟随物理执行上下文，不以邮箱代替物理确认。
+
+NMI window 保留已有 EVENTINJ、guest IF/GIF/shadow，以 TF/RF 与异常/异步拦截观察阻塞窗口；每个token最多64次。退出恢复临时状态，只消费纯 monitor BS；真实异常/NPF/异步退出仍走原分派，随后重新判定资格，不把观察次数当NMI已递送。这个实现仍必须验证实际指令与注入对 TF/RF/DR6 的影响，特别是 PUSHF/POPF/IRET、断点、异常入口及重试；模拟输出不能证明这些硬件语义正确。
+
+标准驱动 WDK/API/CAT 零警告，全部 fixture 编译链接成功；日志见最新状态文档。用户要求暂不测试，本轮未执行 fixture、加载或启动虚拟机。本节更新的是静态调用链，后续测试发现的行为缺陷仍需修复；不据此宣布完整 L2 OS 或内层多核并发 PASS。
+
 ## 2026-09-21 事件交接收尾
 
 物理 NMI 在尚未注入时可随完整 VMEXIT 写回转交到 L1，继续保留 queued 所有权；已经由硬件报告中断递送的另一个事件则通过真实 EXITINTINFO 转交。两者可以共存，任一预检或写回失败均不提前消费。L1 请求的 VINTR 也接入此事务，保留原 V_IRQ，返回后重新读取 L1 控制与 GIF，避免继续使用 L2 的调度输入。

@@ -221,9 +221,36 @@ static int retained_failures(void)
     CHECK(!model.ackCalls && !model.commitCalls && model.execution.Pending.Count == KSW_NSVM_PENDING_CAPACITY);
     return 0;
 }
+static int nmi_collision(void)
+{
+    KSW_NSVM_MACHINE* m = &model.machine;
+    KSW_SVM_U64 token;
+    unsigned collision;
+    for (collision = 0; collision < 2; ++collision) {
+        initialize();
+        CHECK(KswSvmNestedMachineInitialize(m) == KSW_NSVM_MACHINE_READY);
+        CHECK(KswSvmNestedPendingPush(&model.execution.Pending, 0x80000202ULL, 0, &token));
+        if (collision) { KswSvmWrite64(&model.current, KSW_VMCB_EVENT, 0x80000b0eULL); }
+        else { KswSvmWrite64(&model.current, 0x068, 1); }
+        CHECK(KswSvmNestedMachineEntry(m) == KSW_NSVM_MACHINE_READY);
+        CHECK(m->NmiWindow.Applied && !m->ArmedToken && model.execution.Pending.Count == 1);
+        CHECK(KswSvmRead64(&model.current, KSW_VMCB_EVENT) == (collision ? 0x80000b0eULL : 0));
+        CHECK(KswSvmNestedMachineCanStop(m) == KSW_NSVM_STOP_FAULT);
+        hardware_exit(0x41, 0);
+        KswSvmWrite64(&model.current, KSW_VMCB_DR6, 1ULL << 14);
+        KswSvmWrite64(&model.current, 0x068, 0);
+        CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_READY);
+        CHECK(!m->NmiWindow.Applied && !m->Overlay.Applied && model.execution.Pending.Count == 1);
+        CHECK(!KswSvmRead64(&model.current, KSW_VMCB_EVENT));
+        CHECK(KswSvmNestedMachineEntry(m) == KSW_NSVM_MACHINE_READY && m->ArmedToken == token);
+        hardware_exit(KSW_SVM_EXIT_CPUID, 0);
+        CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_READY && !model.execution.Pending.Count);
+    }
+    return 0;
+}
 int main(void)
 {
-    if (ordinary_cycle() || irq_window() || nmi_ownership() || held_nmi_iret() || retained_failures()) { return 1; }
+    if (ordinary_cycle() || irq_window() || nmi_ownership() || held_nmi_iret() || retained_failures() || nmi_collision()) { return 1; }
     puts("nested coordinator integration fixtures passed (simulated hardware only)");
     return 0;
 }

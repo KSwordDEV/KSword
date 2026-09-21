@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 NMI窗口代码接线完成：新增nested_nmi_window，pending NMI遇shadow/已有EVENTINJ时保存当前控制与调试状态，启用有界TF/RF观察，既有注入原样保留；退出先去除临时位图/调试位，再按真实事件分派，仅纯monitor BS可消费，下一次Entry重新检查GIF/shadow/NMI-block与token。每token最多64次，不把超限算成功。与IRET观察互斥，停止拒绝未还原窗口；held IRET前清理已完成注入的陈旧EVENTINJ，避免后续IRET观察因旧valid位失败。WDK/API/CAT零警告build-nmi-window-20260921.log；全部fixture仅编译build-nmi-window-fixtures-20260921.log，TEST_EXECUTION=NOT_RUN。本轮点名的三类普通分支已各有实现（另两项c114634/408bec4f）；这是候选代码接通，不是架构或硬件正确性证明。特别须验证注入期间/之后TF、RF、DR6、PUSHF/POPF/IRET、断点与NMI时序，不能仅用模拟#DB输出证明。无新运行/加载/签名/VM/推送。
+
 2026-09-21 跨层事件积压已接线：共享VMCB owner slot新增16项有界Deferred邮箱；Session在完整VMEXIT写回后、释放同一HPA lease前，按token先后保存未投递guest事件；下次VMRUN在同一lease下导入并分配目标CPU新token，允许换CPU，physical NMI与当前EXITINTINFO不进邮箱。放入替代异常前清除旧retry的Interrupted属性；L1自己的延期事件在L2运行时保留原owner。邮箱不空时OwnersIdle拒绝释放，容量/序列/脏数据/旧lease失败不丢事件。新增多CPU身份导入、容量预检及停止门源fixture；WDK/API/CAT零警告build-event-mailbox-20260921.log，源fixture仅编译build-event-mailbox-fixtures-20260921.log，未运行。继续NMI窗口，不新增硬件结论。
 
 2026-09-21 递送顺序缺口已补：每次队列注入临时拦截全部异常，真实退出先还原原异常位图，再判定异事件EXITINTINFO。APM15.7.3要求先检查异常拦截再聚合，所以此保护下异事件属于原注入完成后的后续递送；原token记完成，新raw事件继续原分派。同事件重试忽略EV=0时未定义的ERRORCODE高32位，归属/反射比较及ResumeEvent同步。无保护的旧观察API仍拒绝异事件。WDK/API/CAT零警告，build-event-order-20260921.log；全部源fixture编译链接，build-event-order-fixtures-20260921.log，TEST_EXECUTION=NOT_RUN。未加载或新增硬件证据。

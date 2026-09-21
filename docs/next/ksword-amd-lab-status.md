@@ -2,6 +2,18 @@
 
 ## 当前进度（以下本节优先于后面的历史记录）
 
+### 09-21 本轮收尾：此前点名的三类分支已有实现，待执行验证
+
+1. **不同 EXITINTINFO 的处理**：队列注入时临时拦截全部异常，在异常聚合之前取得退出，再区分原事件重试与原事件完成后的后续递送。EV=0 的未定义高32位不参与异步事件身份比较。提交 `c114634`。
+2. **多事件跨层与跨 CPU 保存**：未投递的 guest 事件保存到共享 VMCB 身份下的有界邮箱，完整 VMEXIT 写回后才交接，下次 VMRUN 在同一物理身份的独占 lease 下恢复。当前 interrupted 事件和 physical NMI 仍分别走各自交接，不混入邮箱；邮箱不空阻止资源释放。提交 `408bec4f`。
+3. **NMI 等待窗口**：shadow/已有 EVENTINJ 不再直接走未实现 WINDOW；新增独立、有界的 TF/RF 观察路径，保留原注入，恢复控制后重新检查 NMI 资格。只消费 monitor 自己的 BS，真实异常和其它退出继续分派；与 IRET 完成观察分开，超限保留故障。补上 held IRET 路径清理陈旧 EVENTINJ。
+
+本轮构建：标准驱动 WDK Release x64、x64 ApiValidator Universal、CAT 生成通过，零警告。所有 HVM 源 fixture 编译链接通过，`TEST_EXECUTION=NOT_RUN`。日志分别为 `tools/hvm_lab/build-event-order-20260921.log`、`build-event-mailbox-20260921.log`、`build-nmi-window-20260921.log` 及各自 `*-fixtures-*` 日志。无共享协议/CLI布局变更，无加载、签名、暂存新候选或虚拟机运行。
+
+**后续工作转为执行和调试这些候选路径，不代表可以跳过硬件验证。** 离线用例需实际运行；NMI 窗口需重点验证 TF/RF/DR6、PUSHF/POPF/IRET、调试断点、已有注入及次生异常的组合；邮箱需验证真实跨 CPU 调度与错误回滚。随后按单核完整 L2 OS → 同一内层8 vCPU并发 → 全核停止与卸载取得证据。普通路径实现齐备不等于所有输入、调试状态组合或 VMware 兼容已通过；保留 PARTIAL，完整 L2 与并发结论仍为 NOT_RUN。
+
+### 以下为本轮前的缺口记录，以上节更新为准
+
 ### 09-21 静态收尾：已接通通用实验链，尚不能标记“仅剩测试”
 
 本轮新增 IRET 完成观察及虚拟 NMI 屏蔽、显式通用 SVM 准备/常驻入口、准备与启动配置匹配、首次 INVALID 原生回读后的绑定清理、物理 NMI 随 L2→L1 的事务交接及 VINTR 反射。通用入口成功只发布 PARTIAL；普通常驻和固定探针各自保留原配置边界。

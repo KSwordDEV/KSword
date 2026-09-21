@@ -4,6 +4,7 @@
 #include "hvm_svm_nested_interrupt.h"
 #include "hvm_svm_nested_window.h"
 #include "hvm_svm_nested_iret.h"
+#include "hvm_svm_nested_nmi_window.h"
 #define KSW_NSVM_MACHINE_READY 0U
 #define KSW_NSVM_MACHINE_FAULT 1U
 #define KSW_NSVM_MACHINE_UNSUPPORTED 2U
@@ -55,6 +56,8 @@ typedef struct _KSW_NSVM_MACHINE {
     KSW_SVM_U64 NmiCoalesced;
     /* A hardware IRET, rather than a guessed stack/RIP update, releases these masks. */
     KSW_NSVM_IRET Iret;
+    /* Eligibility wait preserves an existing injection and retries after an observed guest boundary. */
+    KSW_NSVM_NMI_WINDOW NmiWindow;
     /* Preserve raw action/event and transition counts independently of guest instruction emulation. */
     KSW_SVM_U64 LastExit, Transitions;
     unsigned LastAction, LastPhysicalAction, NmiCount;

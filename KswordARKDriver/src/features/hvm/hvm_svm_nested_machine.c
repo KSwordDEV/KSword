@@ -94,7 +94,7 @@ unsigned KswSvmNestedMachineInitialize(KSW_NSVM_MACHINE* Machine)
     if (!Machine || !(execution = Machine->Execution) || !execution->Current || !execution->Session ||
         !execution->Io || !Machine->Io.ReadTpr || !Machine->Io.WriteTpr ||
         !Machine->Io.AcknowledgeNmi || !Machine->Io.CommitNmi || Machine->Initialized ||
-        Machine->Overlay.Applied || Machine->HeldNmiGuard || Machine->Iret.Requested || Machine->Iret.Applied ||
+        Machine->Overlay.Applied || Machine->HeldNmiGuard || Machine->Iret.Requested || Machine->Iret.Applied || Machine->NmiWindow.Applied ||
         Machine->NmiHardwareMask || Machine->NmiBlocked || Machine->ArmedToken || Machine->ArmedObservation || execution->Pending.Count ||
         execution->Session->Phase != KSW_NSVM_SESSION_IDLE || execution->Session->Lease.Token) {
         /* Initialization never performs a best-effort partial entry. */
@@ -122,6 +122,8 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
     KSW_SVM_U64 event;
     /* TPR is actual physical state, not a count or an APIC ID. */
     unsigned tpr, action, inner, wasMasked, windowExit = 0, heldIret = 0, stepExit, stepResult = KSW_NSVM_IRET_CONTINUE;
+    /* NMI eligibility observation and IRET service completion have separate meanings. */
+    unsigned nmiWindowExit, nmiWindowResult = KSW_NSVM_NMI_WINDOW_EXIT;
     /* No exit may be processed twice for one hardware entry. */
     if (!Machine || !Machine->Initialized || !(execution = Machine->Execution) || !Machine->Overlay.Applied) {
         /* Preserve outstanding ownership if the caller violated ordering. */
@@ -142,6 +144,15 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
         }
         /* Restore only this dword; adjacent CR/DR intercepts retain their original contents. */
         KswSvmWrite32(execution->Current, 0x008U, Machine->ArmedExceptions);
+    }
+    /* Restore temporary tracing before any fault, reflection or IRET completion decision. */
+    nmiWindowExit = Machine->NmiWindow.Applied;
+    /* A window never consumes its waiting NMI or fabricates successful delivery. */
+    if (nmiWindowExit) {
+        /* Preserve the original physical result when the observer cannot restore its own state. */
+        nmiWindowResult = KswSvmNestedNmiWindowRestore(execution->Current, &Machine->NmiWindow);
+        /* The full executable state remains retained on failed observation. */
+        if (nmiWindowResult == KSW_NSVM_NMI_WINDOW_FAULT) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT); }
     }
     /* The IRET observer is below injection observation; the two never arm together. */
     stepExit = Machine->Iret.Applied;
@@ -210,6 +221,11 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
     }
     /* Honor an original inner IRET intercept before allowing hardware to execute the instruction. */
     if (heldIret) {
+        /* IRET was not executed; stale EVENTINJ from an earlier completed delivery must not be repeated. */
+        if ((event & (1ULL << 31)) || KswSvmNestedResumeEvent(execution->Current) != KSW_NSVM_EVENT_OK) {
+            /* An instruction intercept during unfinished IDT delivery violates this entry's contract. */
+            return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
+        }
         /* L1's requested intercept takes precedence over this monitor's observation need. */
         if (inner && KswSvmNestedInterceptRequested(&execution->Session->Vmcb12, 0x74) == 1) {
             /* Reflection retains hardware masking until L1 or a subsequent L2 completes its own IRET. */
@@ -220,12 +236,12 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
             KSW_NSVM_MACHINE_READY : KSW_NSVM_MACHINE_FAULT);
     }
     /* Only a monitor-created, otherwise unowned #DB is consumed by the observer. */
-    if (stepResult == KSW_NSVM_IRET_MONITOR_DB) {
+    if (stepResult == KSW_NSVM_IRET_MONITOR_DB || nmiWindowResult == KSW_NSVM_NMI_WINDOW_DB) {
         /* No interrupted delivery existed in this window; preserve the actual completed IRET target. */
         KswSvmWrite64(execution->Current, KSW_VMCB_EVENT, 0); return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_READY);
     }
     /* An observation-only INTR/VINTR must yield to ordinary hardware delivery without consuming its source. */
-    if (stepExit && (Machine->LastExit == 0x60 || Machine->LastExit == 0x64) &&
+    if ((stepExit || nmiWindowExit) && (Machine->LastExit == 0x60 || Machine->LastExit == 0x64) &&
         (!inner || KswSvmNestedInterceptRequested(&execution->Session->Vmcb12, Machine->LastExit) != 1)) {
         /* Original controls are restored, so a subsequent entry can dispatch the original request. */
         return KswNsvmMachineResult(Machine, KswSvmNestedResumeEvent(execution->Current) == KSW_NSVM_EVENT_OK ?
@@ -241,7 +257,7 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
     /* Physical events have an acknowledgement contract unlike ordinary instructions. */
     if (Machine->LastExit >= 0x60 && Machine->LastExit <= 0x63) {
         /* INTR/NMI raw state stays intact until this explicit platform path accepts it. */
-        return KswNsvmMachineResult(Machine, KswNsvmMachinePhysical(Machine, stepExit));
+        return KswNsvmMachineResult(Machine, KswNsvmMachinePhysical(Machine, stepExit || nmiWindowExit));
     }
     /* Private lifecycle controls are recognized only after raw event/overlay ownership is resolved. */
     if (Machine->Io.PrivateControl) {
@@ -277,13 +293,15 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
     const KSW_NSVM_PENDING_ITEM* pending;
     /* A blocked maskable request may arm a hardware eligibility window without consuming its token. */
     const KSW_NSVM_PENDING_ITEM* window = NULL;
+    /* NMI ignores IF/TPR; its shadow/injection collision needs a different observation mechanism. */
+    const KSW_NSVM_PENDING_ITEM* nmiWindow = NULL;
     /* Event owner and physical TPR are independent of virtual ASID. */
     KSW_SVM_U64 owner, control, event, flags;
     /* Virtual shadow and guest IF must be checked before unconditional EVENTINJ. */
     unsigned inner, shadow, tpr;
     /* Every hardware entry has exactly one fresh overlay and at most one armed queue token. */
     if (!Machine || !Machine->Initialized || !(execution = Machine->Execution) || Machine->Overlay.Applied ||
-        Machine->HeldNmiGuard || Machine->Iret.Applied || Machine->ArmedToken || Machine->ArmedObservation || Machine->NmiCount || execution->Session->Phase == KSW_NSVM_SESSION_FAULTED) {
+        Machine->HeldNmiGuard || Machine->Iret.Applied || Machine->NmiWindow.Applied || Machine->ArmedToken || Machine->ArmedObservation || Machine->NmiCount || execution->Session->Phase == KSW_NSVM_SESSION_FAULTED) {
         /* No best-effort entry after a partial physical or architectural transaction. */
         return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
     }
@@ -363,16 +381,16 @@ SelectCurrent:
     if (!Machine->Iret.Requested && execution->Gif && KswSvmNestedPendingOwned(&execution->Pending, owner) &&
         (!pending || ((event & (1ULL << 31)) && (pending->Token != execution->RetryEventToken || pending->Event != event)))) {
         /* A pending NMI has higher priority and cannot be represented by a maskable sentinel. */
-        if (!Machine->NmiBlocked && KswSvmNestedPendingSelect(&execution->Pending, owner, 0, 1, 0)) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
+        if (!Machine->NmiBlocked) { nmiWindow = KswSvmNestedPendingSelect(&execution->Pending, owner, 0, 1, 0); }
         /* Find the highest-priority IRQ independently of IF/TPR and an existing synchronous injection. */
-        window = KswSvmNestedPendingSelect(&execution->Pending, owner, 1, 0, 0);
+        if (!nmiWindow) { window = KswSvmNestedPendingSelect(&execution->Pending, owner, 1, 0, 0); }
         /* Preserve all ownership when the ledger cannot supply an eligible scheduling identity. */
-        if (!window && !Machine->NmiBlocked) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
+        if (!window && !nmiWindow && !Machine->NmiBlocked) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT); }
         /* Existing EVENTINJ is delivered first. The IRQ token remains queued until hardware VINTR eligibility. */
         pending = NULL;
     }
     /* IRET completion must be observed without an intervening injection changing its instruction pointer. */
-    if (Machine->Iret.Requested) { pending = NULL; window = NULL; }
+    if (Machine->Iret.Requested) { pending = NULL; window = NULL; nmiWindow = NULL; }
     /* An injected physical NMI needs software blocking if an earlier unrelated IRET released the hardware mask. */
     if (pending && pending->Physical && ((pending->Event >> 8) & 7ULL) == 2) { Machine->NmiBlocked = 1; }
     /* CR8 writes while L1 GIF was closed affected V_TPR; synchronize them before reentry. */
@@ -407,6 +425,11 @@ SelectCurrent:
             /* The guard is executable only after its original controls and token are retained. */
             Machine->HeldNmiGuard = 1;
         }
+    }
+    /* Trace only the obstructed eligibility window; never consume or overwrite its NMI token here. */
+    if (nmiWindow && !KswSvmNestedNmiWindowArm(execution->Current, nmiWindow->Token, &Machine->NmiWindow)) {
+        /* Retain lower overlays and the original EVENTINJ when the bounded observer cannot be built. */
+        return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
     }
     /* Execute only the original IRET, with all event delivery intercepted until completion is known. */
     if (Machine->Iret.Requested && !KswSvmNestedIretArm(execution->Current, &Machine->Iret)) {
@@ -443,13 +466,16 @@ unsigned KswSvmNestedMachineCanStop(const KSW_NSVM_MACHINE* Machine)
     if (!Machine || !Machine->Initialized || !(execution = Machine->Execution) || !execution->Session ||
         !execution->Registers.Svm || execution->Session->Phase == KSW_NSVM_SESSION_FAULTED ||
         Machine->Overlay.Applied || Machine->IrqWindow.Applied || Machine->HeldNmiGuard ||
-        Machine->Iret.Applied || Machine->Iret.Requested || Machine->ArmedObservation) { return KSW_NSVM_STOP_FAULT; }
+        Machine->Iret.Applied || Machine->Iret.Requested || Machine->ArmedObservation || Machine->NmiWindow.Applied) { return KSW_NSVM_STOP_FAULT; }
     /* A live inner VMRUN cannot be returned directly to the original Windows caller. */
     if (execution->Session->Phase == KSW_NSVM_SESSION_L2 || execution->Session->Lease.Token) { return KSW_NSVM_STOP_L2; }
     /* Virtual SVM ownership must have been explicitly relinquished by the inner VMM. */
     if ((execution->Registers.Svm->Efer & KSW_SVM_EFER_SVME) || execution->Registers.Svm->Hsave) { return KSW_NSVM_STOP_OWNER; }
     /* Acknowledged but undelivered events survive CLI termination or a stop request. */
     if (execution->Pending.Count || Machine->ArmedToken || Machine->NmiCount || Machine->NmiHardwareMask || Machine->NmiBlocked) { return KSW_NSVM_STOP_EVENTS; }
+    /* Refuse the quiesce vote before native return if another scheduled VMCB still owns parked events.
+       Discovering this only during resource release would leave no resident CPU able to drain them. */
+    if (execution->Io && execution->Io->Owners && !KswSvmNestedOwnersIdle(execution->Io->Owners)) { return KSW_NSVM_STOP_EVENTS; }
     /* Native Windows must not inherit a monitor-created closed global interrupt window. */
     if (!execution->Gif) { return KSW_NSVM_STOP_GIF; }
     /* The common lifecycle still has to execute and independently acknowledge actual native return. */

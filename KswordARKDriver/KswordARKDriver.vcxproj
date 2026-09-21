@@ -821,6 +821,7 @@
     <ClInclude Include="src\features\hvm\hvm_svm_nested_window.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_machine.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_iret.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_nested_nmi_window.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_interrupt.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nmi.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_pending.h" />
@@ -977,6 +978,12 @@
       <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="src\features\hvm\hvm_svm_nested_mailbox.c">
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_nmi_window.c">
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
