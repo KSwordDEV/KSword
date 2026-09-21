@@ -2,6 +2,8 @@
 
 最终验收仍是完整 L2 操作系统启动及内层 vCPU 并发运行；本变更没有完成该验收。
 
+IRET 后续增量替换了单纯拒绝：`nested_iret` 让硬件执行原 IRET，以临时 TF/#DB、全异常及异步拦截区分完成与失败；NPF 可重试，IRET 自身异常按原语义分派，原调试状态与实际返回帧加载的 TF 保留。仅 monitor 产生的 BS 陷阱被消费。协调器把硬件 NMI mask 与虚拟 NMI 屏蔽分开，完成 IRET 后解除，停止须等待这些状态清空。源码及用例编译链接通过，WDK/API/CAT 零警告；**用例与硬件均未执行**。NMI 中断阴影等待和复杂多 owner 事件交接仍有限制，不据此宣称完整 L2 已可用。
+
 NMI 首次投递前新增 IRET 保护：物理确认记录仍等待投递时，临时拦截来宾 IRET，阻止无关 IRET 提前解除确认叶函数保留的硬件 NMI 屏蔽。其他退出逆序还原控制，STGI 后真正注入时移除该保护；命中 IRET 保留 WINDOW、原 RIP 和 token。**这不等于已实现 IRET 完成窗口**，软件 NMI 屏蔽/延迟投递仍是通用入口的未完项。驱动 WDK/API/CAT 零警告、全部 fixture 编译链接完成；未执行 fixture 或硬件测试。
 
 协调器集成用例源码已补齐：将生产退出引擎、事件队列、反射、窗口及其 portable 依赖链接，平台回调和 VMEXIT 输出为模拟输入。覆盖普通 CPUID、IRQ 等待/注入、GIF0 NMI 确认、INVALID/提交失败/队列满保留及停止条件。当前仅 `/W4 /WX` 编译链接成功，日志 `build-static-fixtures-machine-20260921.log` 明确 `TEST_EXECUTION=NOT_RUN`；硬件 NMI 屏蔽与 IRET 语义不由该模拟证明。

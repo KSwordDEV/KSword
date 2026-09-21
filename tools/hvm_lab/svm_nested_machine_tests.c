@@ -146,7 +146,7 @@ static int nmi_ownership(void)
     CHECK(model.execution.Gif == 1);
     CHECK(KswSvmNestedMachineEntry(m) == KSW_NSVM_MACHINE_READY);
     CHECK(m->ArmedToken == m->PhysicalNmiToken);
-    CHECK(!m->HeldNmiGuard && !(KswSvmRead64(&model.current, KSW_VMCB_MISC1) & (1ULL << 20)));
+    CHECK(m->HeldNmiGuard && m->NmiBlocked && m->NmiHardwareMask);
     hardware_exit(KSW_SVM_EXIT_CPUID, 0);
     CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_READY);
     CHECK(model.execution.Pending.Delivered == 1 && !model.execution.Pending.Count);
@@ -165,13 +165,23 @@ static int held_nmi_iret(void)
     CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_READY);
     CHECK(KswSvmNestedMachineEntry(m) == KSW_NSVM_MACHINE_READY && m->HeldNmiGuard);
     hardware_exit(0x74, 0); /* IRET is intercepted before it can unmask the physical NMI source. */
-    CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_WINDOW);
+    CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_READY && m->Iret.Requested);
     CHECK(!m->HeldNmiGuard && !m->Overlay.Applied && !model.execution.Gif);
     CHECK(KswSvmRead64(&model.current, KSW_VMCB_RIP) == 0x10000);
     item = KswSvmNestedPendingLookup(&model.execution.Pending, m->PhysicalNmiToken);
     CHECK(item && item->Physical && !item->Interrupted && model.execution.Pending.Count == 1);
     CHECK(model.ackCalls == 1 && model.commitCalls == 1 && !model.execution.Pending.Delivered);
-    CHECK(KswSvmNestedMachineCanStop(m) == KSW_NSVM_STOP_EVENTS);
+    CHECK(KswSvmNestedMachineCanStop(m) == KSW_NSVM_STOP_FAULT);
+    CHECK(KswSvmNestedMachineEntry(m) == KSW_NSVM_MACHINE_READY && m->Iret.Applied);
+    CHECK(!(KswSvmRead64(&model.current, KSW_VMCB_MISC1) & (1ULL << 20)));
+    hardware_exit(0x41, 0);
+    KswSvmWrite64(&model.current, KSW_VMCB_RIP, 0x20000);
+    KswSvmWrite64(&model.current, KSW_VMCB_RFLAGS, 2); /* IRET popped TF=0. */
+    KswSvmWrite64(&model.current, KSW_VMCB_DR6, 1ULL << 14);
+    CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_READY);
+    CHECK(!m->Iret.Requested && !m->NmiHardwareMask && !m->NmiBlocked);
+    CHECK(model.execution.Pending.Count == 1 && !model.execution.Gif);
+    CHECK(KswSvmRead64(&model.current, KSW_VMCB_RIP) == 0x20000);
     return 0;
 }
 static int retained_failures(void)

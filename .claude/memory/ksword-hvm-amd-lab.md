@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 IRET完成窗口：新增nested_iret，以TF/#DB及全异常/异步拦截观察原IRET执行，区分NPF重试、IRET自身异常、完成后真实退出和纯monitor BS；保留原TF/DR6与IRET实际弹出的TF，不模拟返回栈。machine区分物理mask所有权/虚拟NMI服务屏蔽，完成IRET才清除；二次NMI延迟、仅首次投递前的物理pending可合并并计数；停止拒绝未完成mask/watch。用例仅编译、WDK/API/CAT零警告，build-nested-iret-20260921.log与build-static-fixtures-iret-20260921.log。未执行，不能把模拟输入当硬件IRET证明。NMI shadow/异步队列多owner交接仍有WINDOW分支；继续独立实验激活入口，不能说全部静态完成。
+
 2026-09-21 NMI首次投递前屏蔽保护：machine在物理确认token仍Physical且本次不注入时叠加IRET拦截，退出按逆序恢复控制；IRET未执行即保留WINDOW，token/原RIP/GIF不变，避免near-RET确认后由无关guest IRET过早解除硬件NMI屏蔽。STGI后实际注入时撤销该临时拦截。此为补齐明确失败边界，不是软件NMI屏蔽/IRET完成窗口实现；该路径还需继续做，普通通用激活仍关闭。WDK/API/CAT零警告及全部fixture编译链接通过，日志build-nested-held-nmi-20260921-r2.log/build-static-fixtures-held-nmi-20260921-r2.log（含所有临时overlay的停止门）；TEST_EXECUTION=NOT_RUN，未动态验证。
 
 2026-09-21 协调器源用例：svm_nested_machine_tests将生产machine/execute/reflect及其全部portable依赖实际链接在一起，只模拟CR8/NMI/CPUID/硬件输出；覆盖普通CPUID完成、IF阻塞→VINTR→IRQ注入、GIF0 NMI两阶段确认→STGI、INVALID保留、确认提交失败和队列满时不确认、停止拒绝条件。/W4 /WX编译链接成功（build-static-fixtures-machine-20260921.log），TEST_EXECUTION=NOT_RUN，不声称用例或NMI硬件通过。未重新构建未改的驱动、未装载/启动VM。

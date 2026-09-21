@@ -3,6 +3,7 @@
 #include "hvm_svm_nested_execute.h"
 #include "hvm_svm_nested_interrupt.h"
 #include "hvm_svm_nested_window.h"
+#include "hvm_svm_nested_iret.h"
 #define KSW_NSVM_MACHINE_READY 0U
 #define KSW_NSVM_MACHINE_FAULT 1U
 #define KSW_NSVM_MACHINE_UNSUPPORTED 2U
@@ -46,6 +47,12 @@ typedef struct _KSW_NSVM_MACHINE {
     /* Until first injection, guest IRET must not release the acknowledgement leaf's physical NMI mask. */
     KSW_SVM_U64 HeldNmiToken;
     unsigned HeldNmiMisc1, HeldNmiGuard;
+    /* Hardware mask ownership and virtual NMI service are distinct before first injection. */
+    unsigned NmiHardwareMask, NmiBlocked;
+    /* Coalescing applies only to physical NMIs still pending before their first delivery. */
+    KSW_SVM_U64 NmiCoalesced;
+    /* A hardware IRET, rather than a guessed stack/RIP update, releases these masks. */
+    KSW_NSVM_IRET Iret;
     /* Preserve raw action/event and transition counts independently of guest instruction emulation. */
     KSW_SVM_U64 LastExit, Transitions;
     unsigned LastAction, LastPhysicalAction, NmiCount;
