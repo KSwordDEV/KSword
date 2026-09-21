@@ -108,3 +108,35 @@ unsigned int KswSvmNestedInterceptRequested(const KSW_SVM_VMCB* Vmcb12,
     /* This reports a raw request; MSR/IOIO still require their permission-map lookup. */
     return (bytes[offset + bit / 8U] >> (bit & 7U)) & 1U;
 }
+
+/* APM 15.7.2: an NPF in event delivery needs reinjection before retrying the guest. */
+unsigned int KswSvmNestedResumeEvent(KSW_SVM_VMCB* Current)
+{
+    /* EXITINTINFO is hardware's aggregate interrupted event, not a new exception request. */
+    KSW_SVM_U64 event;
+    /* Type/vector fields are meaningful only if the valid bit is set. */
+    unsigned int type, vector;
+    /* A missing executable image is never a successful reentry preparation. */
+    if (!Current) { return KSW_NSVM_EVENT_INVALID; }
+    /* Read the return record before replacing a potentially stale EVENTINJ request. */
+    event = KswSvmRead64(Current, KSW_VMCB_EXITINTINFO);
+    /* A previous injected event that completed must not be injected a second time. */
+    if (!(event & (1ULL << 31))) {
+        /* Discard all stale event data when hardware reports no interrupted delivery. */
+        KswSvmWrite64(Current, KSW_VMCB_EVENT, 0); return KSW_NSVM_EVENT_OK;
+    }
+    /* Preserve vector and error code; only architectural control metadata is validated here. */
+    type = (unsigned int)((event >> 8) & 7ULL); vector = (unsigned int)(event & 255ULL);
+    /* Never forward a malformed control word into another hardware VMRUN. */
+    if ((event & 0x7ffff000ULL) || (type != 0U && type != 2U && type != 3U && type != 4U) ||
+        (type == 3U && (vector == 2U || vector > 31U))) { return KSW_NSVM_EVENT_INVALID; }
+    /* Software INT delivery pushes the instruction's next RIP, not an invented length. */
+    if (type == 4U && !KswSvmNextRipValid(KswSvmRead64(Current, KSW_VMCB_RIP), KswSvmRead64(Current, KSW_VMCB_NRIP))) {
+        /* Leave the original image intact for the caller's retained-fault path. */
+        return KSW_NSVM_EVENT_NRIP_REQUIRED;
+    }
+    /* Do not advance RIP: hardware retries the interrupted event delivery. */
+    KswSvmWrite64(Current, KSW_VMCB_EVENT, event);
+    /* This does not acknowledge physical IRQ/NMI or alter virtual GIF. */
+    return KSW_NSVM_EVENT_OK;
+}

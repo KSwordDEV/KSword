@@ -229,7 +229,10 @@ static ULONG KswNsvmNpf(KSW_SVM_CPU* Cpu)
         (ULONG)(info & (KSW_NNPT_WRITE | KSW_NNPT_EXECUTE)), info & (KSW_NMMU_FINAL | KSW_NMMU_TABLE),
         &nested->LastTranslation);
     /* A competing A/D update is retried by the same bounded hardware NPF loop. */
-    if (status == KSW_NNPT_RETRY) { return 0; }
+    if (status == KSW_NNPT_RETRY) {
+        /* Preserve delivery if the translation fault interrupted an injected event. */
+        return KswSvmNestedResumeEvent(Cpu->Guest) == KSW_NSVM_EVENT_OK ? 0 : KswNsvmFinish(Cpu, STATUS_DATA_ERROR);
+    }
     /* Failed translation never falls back to the outer identity root. */
     if (status != KSW_NNPT_OK) { return KswNsvmFinish(Cpu, STATUS_HV_OPERATION_FAILED); }
     /* Publish only a candidate from the current shadow epoch. */
@@ -237,8 +240,8 @@ static ULONG KswNsvmNpf(KSW_SVM_CPU* Cpu)
         /* Retain raw fault/resolution evidence for KD before returning natively. */
         return KswNsvmFinish(Cpu, STATUS_INSUFFICIENT_RESOURCES);
     }
-    /* The existing assembly loop issues TLB_CONTROL=1 on every actual VMRUN. */
-    return 0;
+    /* Restore interrupted event delivery before the next full-flush VMRUN. */
+    return KswSvmNestedResumeEvent(Cpu->Guest) == KSW_NSVM_EVENT_OK ? 0 : KswNsvmFinish(Cpu, STATUS_DATA_ERROR);
 }
 
 /* Execute virtual SVM only for the exact, driver-owned bounded probe. */
@@ -270,11 +273,23 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
     }
     /* A current inner image needs inner exit routing before ordinary SVM handling. */
     if (nested->RunningL2) {
+        /* Classify against the captured sources, not the OR-combined executable image. */
+        KSW_NSVM_SESSION_IO io;
+        /* The same immutable inner permission image governed this VMRUN. */
+        KSW_NSVM_PERMISSION_VIEW inner;
+        /* L0 permission identity remains separate from the captured L1 bitmap. */
+        KswNsvmProbeSessionIo(Cpu, &io);
+        /* A missing snapshot cannot authorize any reflected exit. */
+        if (!KswSvmNestedPermissionView(&nested->Session.Permissions, &inner)) { return KswNsvmFinish(Cpu, STATUS_DATA_ERROR); }
+        /* Route before changing registers, advancing RIP or synthesizing an event. */
+        KswSvmNestedRouteExit(&nested->Session.L1, &nested->Session.Vmcb12,
+            &io.OuterPermissions, &inner, code, KswSvmRead64(Cpu->Guest, KSW_VMCB_EXITINFO1),
+            (ULONG)Cpu->Gpr[1], &nested->LastRoute);
         /* Sparse NPT02 creates demand faults even for guest page-table walks. */
-        if (code == KSW_SVM_EXIT_NPF) { return KswNsvmNpf(Cpu); }
+        if (nested->LastRoute.Action == KSW_NSVM_ROUTE_NPF) { return KswNsvmNpf(Cpu); }
         /* Only execution of the known inner marker proves this probe's hardware entry. */
         if (code != KSW_SVM_EXIT_CPUID || (ULONG)operand != KSW_NSVM_INNER_MARKER ||
-            KswSvmNestedInterceptRequested(&nested->Session.Vmcb12, code) != 1U) {
+            nested->LastRoute.Action != KSW_NSVM_ROUTE_REFLECT) {
             /* Unknown exits are evidence of failure, never a guessed successful reflection. */
             return KswNsvmFinish(Cpu, STATUS_HV_OPERATION_FAILED);
         }

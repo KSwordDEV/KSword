@@ -15,3 +15,10 @@ unsigned int KswSvmNestedInterceptRequested(const KSW_SVM_VMCB* Vmcb12,
     KSW_SVM_U64 ExitCode);
 /* Unknown exit ranges must not silently become handled/reenter decisions. */
 #define KSW_NSVM_INTERCEPT_UNKNOWN 2U
+
+/* Resume an L0-handled exit with exactly the interrupted event, if any.
+   This is event reinjection only, not aggregation of a newly raised exception. */
+#define KSW_NSVM_EVENT_OK 0U
+#define KSW_NSVM_EVENT_INVALID 1U
+#define KSW_NSVM_EVENT_NRIP_REQUIRED 2U
+unsigned int KswSvmNestedResumeEvent(KSW_SVM_VMCB* Current);

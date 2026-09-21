@@ -15,6 +15,7 @@
 #include "hvm_svm_nested_entry.h"
 #include "hvm_svm_nested_writeback.h"
 #include "hvm_svm_nested_session.h"
+#include "hvm_svm_nested_route.h"
 /* Enough sparse tables for the bounded probe; exhaustion returns a failed test. */
 #define KSW_NSVM_PROBE_PAGES 64U
 /* Private markers distinguish the inner exit from the final outer continuation. */
@@ -33,6 +34,8 @@ typedef struct _KSW_SVM_NESTED {
     KSW_NSVM_OPERAND_RESULT LastOperand;
     /* Admission errors retain architecture-vs-implementation classification. */
     KSW_NSVM_ENTRY_RESULT LastEntry;
+    /* Routing precedes emulation so shared intercept ownership is never lost. */
+    KSW_NSVM_EXIT_ROUTE LastRoute;
     /* One contiguous allocation: merged MSRPM followed by merged IOPM. */
     PUCHAR MergedMaps;
     /* Derived at PASSIVE_LEVEL and checked against MAXPHYADDR before use. */

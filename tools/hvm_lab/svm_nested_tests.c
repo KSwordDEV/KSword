@@ -380,11 +380,46 @@ static int test_state(void)
     CHECK(KswSvmNestedInterceptRequested(&destination, KSW_SVM_EXIT_INVALID) == KSW_NSVM_INTERCEPT_UNKNOWN);
     return 0;
 }
+static int test_resume_event(void)
+{
+    KSW_SVM_VMCB image, saved;
+    unsigned type, vector;
+    memset(&image, 0, sizeof(image));
+    KswSvmWrite64(&image, KSW_VMCB_EVENT, 0x8000030d);
+    KswSvmWrite64(&image, KSW_VMCB_EXITINTINFO, 0x7fffffff);
+    CHECK(KswSvmNestedResumeEvent(&image) == KSW_NSVM_EVENT_OK);
+    CHECK(KswSvmRead64(&image, KSW_VMCB_EVENT) == 0);
+    for (type = 0; type < 8; ++type) {
+        for (vector = 0; vector < 256; ++vector) {
+            KSW_SVM_U64 event = 0x1080000000ULL | (type << 8) | vector;
+            unsigned expected = ((type != 0 && type != 2 && type != 3 && type != 4) ||
+                (type == 3 && (vector == 2 || vector > 31))) ? KSW_NSVM_EVENT_INVALID : KSW_NSVM_EVENT_OK;
+            KswSvmWrite64(&image, KSW_VMCB_RIP, 0x8000);
+            KswSvmWrite64(&image, KSW_VMCB_NRIP, 0x8002);
+            KswSvmWrite64(&image, KSW_VMCB_EXITINTINFO, event);
+            KswSvmWrite64(&image, KSW_VMCB_EVENT, 0x1234);
+            saved = image;
+            CHECK(KswSvmNestedResumeEvent(&image) == expected);
+            if (expected == KSW_NSVM_EVENT_OK) { KswSvmWrite64(&saved, KSW_VMCB_EVENT, event); }
+            CHECK(!memcmp(&image, &saved, sizeof(image)));
+        }
+    }
+    KswSvmWrite64(&image, KSW_VMCB_EXITINTINFO, 0x80000480);
+    KswSvmWrite64(&image, KSW_VMCB_NRIP, 0);
+    saved = image;
+    CHECK(KswSvmNestedResumeEvent(&image) == KSW_NSVM_EVENT_NRIP_REQUIRED);
+    CHECK(!memcmp(&image, &saved, sizeof(image)));
+    KswSvmWrite64(&image, KSW_VMCB_EXITINTINFO, 0x80001020);
+    CHECK(KswSvmNestedResumeEvent(&image) == KSW_NSVM_EVENT_INVALID);
+    CHECK(KswSvmNestedResumeEvent(NULL) == KSW_NSVM_EVENT_INVALID);
+    return 0;
+}
+
 int main(void)
 {
     KSW_NSVM_MSRS msrs = {0xd01, 0, 8, 0};
     KSW_SVM_U64 value;
-    if (test_walk() || test_ad() || test_mmu() || test_shadow() || test_state()) { return 1; }
+    if (test_walk() || test_ad() || test_mmu() || test_shadow() || test_state() || test_resume_event()) { return 1; }
     msrs.AddressMask = KswNptAddressMask(45);
     value = 0x1d01;
     CHECK(KswSvmNestedMsrAccess(&msrs, KSW_SVM_MSR_EFER, 1, &value) == KSW_NSVM_MSR_OK);

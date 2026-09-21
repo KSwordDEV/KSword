@@ -1,5 +1,11 @@
 # AMD 实验后端与重启续接
 
+2026-09-21冻结后继续离线：nested_route已接生产probe，按原VMCB+权限图判退出归属（双重拦截先反射L1；NPF走MMU；物理INTR/NMI/SMI/INIT走专门仲裁，禁止盲目重入）。NPF重入恢复EXITINTINFO事件或清旧EVENTINJ；软件INT无有效NRIP则拒绝，不宣称异常合成/GIF完成。route1925/nested4551/分派241及entry8765/session65/8线程100模拟/其它回归通过；标准WDK/API/CAT零警告。Release输出是新未签名构建；共享nested-entry-20260921仍为4ec4d724/age5已签名但NOT_RUN候选，未覆盖未加载。当前不启动VM、不进行宿主虚拟化动态测试。继续实现XSTATE/IRQ/NMI等前保留故障原因UNKNOWN，不能推断VMware安全漏洞。
+
+2026-09-21 10:11宿主整机冻结：用户确认硬挂后重启，LastBoot10:13:20，Kernel-Power41/BugcheckCode0、6008异常关闭；无本次新dump。八核前次10:08:33正常VMXexit0；新单核10:10:02 CPL0/NumVCPUs1启动，Tools运行，日志截止10:11:10。新候选4ec4d724仅构建/签名/暂存nested-entry-20260921（SYS/PDB age5），未执行来宾加载/探针，也未在物理宿主发出驱动装载或常驻。KD重连等待，旧会话失效；所有测试进程随宿主重启终止。宿主现HypervisorPresent=true、Ksword服务Stopped；暂不再启动VM或硬件试验，只读取证和离线实现继续。故障根因未知，不能称CPU锁/漏洞，也不能凭重启后Stopped排除冻结时全部驱动状态。证据artifacts/host-freeze-20260921-101828，报告docs/next/evidence/amd-host-freeze-20260921.md。旧00:31dump访问拒绝，不改ACL提权，不归因本次。
+
+2026-09-21通用入口提交4ec4d724：新增nested_entry/writeback/commit/session；生产probe先ASID0→INVALID正常返回L1，修正同一VMCB再真实内层CPUID。NPT01写权限/HPA绑定，VMEXIT/INVALID/VMSAVE字段白名单，部分写进度，实际L1续执行。普通常驻仍不开放SVM，IRQ/NMI/GIF、XSTATE、通用退出/跨核失效未完成，完整L2 OS/内层并发未通过。entry8765/writeback622/session65（另8宿主线程×100模拟）/分派240及既有回归通过，标准WDK/API/CAT零警告。硬件新候选NOT_RUN；用户目标仍是完整OS+内层多核，不推送、不用旧关机授权。
+
 2026-09-21 09:28八核新候选PASS：nested-operand-20260921同一ec61b3df/age3候选。导出nested-probe-20260921-092817-a6830b52ca494d5dabe7af1efd99fad6共624文件，verify_nested_probe独立核验全部哈希、控制/CPU集合/完成序列及最终释放。8vCPU各100轮，共800次逐核串行嵌套往返，CPU0:0..7最终sequence200、每轮NPF5、released=true。报告docs/next/evidence/amd-nested-operand-8cpu.json。不宣称并发内层vCPU或完整L2 OS运行；权限图读取/合并新路径已完成1核1轮和8核100轮硬件回归，下一步是通用VMCB准入、L1续执行/异常反射和IRQ/NMI/GIF，不必继续重复本探针轮次。用户要求通过即commit，不推送。
 
 2026-09-21 08:52单核新候选PASS：ec61b3df对应nested-operand-20260921、SYS/PDB e4cc4cb2-c439-411a-b14d-0a1a0f78fedc age3。导出nested-probe-20260921-085216-7af421ad03814e60a8e1a6067ff5d346共30文件，verify_nested_probe独立核验哈希、控制顺序、逐核状态及最终释放通过；CPU0:0完成sequence2、NPF5、VMEXIT18、failed0。KD52376实际query断点命中并解析匹配私有PDB。仅固定探针往返，不是L2 OS或并发内层vCPU通过。按用户偏好立即提交证据后正常关闭克隆、保存单核冷态快照并直接改8vCPU；同一候选无需重编译。宿主不重启、不关机、不推送。

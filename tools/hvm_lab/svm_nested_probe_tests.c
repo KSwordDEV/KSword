@@ -160,8 +160,11 @@ static int test_roundtrip(void)
     CHECK(KswSvmRead64(&guest, KSW_VMCB_RIP) == (ULONGLONG)(ULONG_PTR)KswordSvmAsmNestedPayload);
     KswSvmWrite64(&guest, KSW_VMCB_EXITINFO1, KSW_NMMU_FINAL | 6);
     KswSvmWrite64(&guest, KSW_VMCB_EXITINFO2, 0x2123);
+    KswSvmWrite64(&guest, KSW_VMCB_EXITINTINFO, 0x1080000b0dULL);
     CHECK(emit(KSW_SVM_EXIT_NPF, 0) == 0);
     CHECK(nested.Faults == 1 && nested.LastTranslation.Status == KSW_NNPT_OK && nested.Shadow.Used == 4);
+    CHECK(KswSvmRead64(&guest, KSW_VMCB_EVENT) == 0x1080000b0dULL);
+    KswSvmWrite64(&guest, KSW_VMCB_EXITINTINFO, 0);
     CHECK(emit(KSW_SVM_EXIT_CPUID, KSW_NSVM_INNER_MARKER) == 0);
     CHECK(!nested.RunningL2 && nested.Reflections == 1 && nested.LastMarker == KSW_NSVM_INNER_MARKER);
     CHECK(KswSvmRead64(&guest, KSW_VMCB_RIP) == continuation);
