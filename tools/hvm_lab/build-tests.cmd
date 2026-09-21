@@ -82,5 +82,9 @@ if errorlevel 1 exit /b %errorlevel%
 if "%KSW_RUN_TESTS%"=="1" tools\hvm_lab\svm_nested_window_tests.exe
 if errorlevel 1 exit /b %errorlevel%
 
+cl /nologo /W4 /WX /O2 tools\hvm_lab\svm_nested_reflect_tests.c KswordARKDriver\src\features\hvm\hvm_svm_nested_reflect.c KswordARKDriver\src\features\hvm\hvm_svm_nested_pending.c /Fe:tools\hvm_lab\svm_nested_reflect_tests.exe /Fo:tools\hvm_lab\
+if errorlevel 1 exit /b %errorlevel%
+if "%KSW_RUN_TESTS%"=="1" tools\hvm_lab\svm_nested_reflect_tests.exe
+if errorlevel 1 exit /b %errorlevel%
 if "%KSW_RUN_TESTS%"=="0" echo TEST_EXECUTION=NOT_RUN
 exit /b 0

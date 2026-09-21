@@ -12,6 +12,8 @@ typedef struct _KSW_NSVM_PENDING_ITEM {
     KSW_SVM_U64 Token, Event, Owner;
     /* Owner zero is L1; nonzero is the translated VMCB12 page plus one. */
     unsigned State, Physical;
+    /* Set only by hardware's interrupted-delivery observation, never by enqueue alone. */
+    unsigned Interrupted;
 } KSW_NSVM_PENDING_ITEM;
 typedef struct _KSW_NSVM_PENDING {
     /* Entries never move while a caller holds a token. */
@@ -37,7 +39,11 @@ int KswSvmNestedPendingArm(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token);
 /* Hardware INVALID leaves ownership armed. Interrupted delivery requeues the same identity. */
 int KswSvmNestedPendingObserve(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
     unsigned Entered, KSW_SVM_U64 ExitIntInfo);
-/* Architectural VMEXIT can explicitly transfer an armed event through EXITINTINFO. */
+/* Validate the complete owner backlog before any architectural VMEXIT writeback. */
+int KswSvmNestedPendingPrepareTransfer(const KSW_NSVM_PENDING* Pending,
+    KSW_SVM_U64 Owner, KSW_SVM_U64 RetryToken, KSW_SVM_U64 ReflectedEvent,
+    KSW_SVM_U64* TransferToken);
+/* Architectural VMEXIT transfers only a hardware-observed interrupted delivery. */
 int KswSvmNestedPendingTransfer(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
     KSW_SVM_U64 ReflectedEvent);
 /* Refuse context destruction/migration while an acknowledged event still belongs to it. */

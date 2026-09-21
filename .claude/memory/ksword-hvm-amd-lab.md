@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 静态事件交接：新增nested_reflect统一一般指令/物理事件的L2→L1事务。账本Interrupted仅由真实VMEXIT同一EXITINTINFO置位，反射前核验单一owner/token/递送状态，完整VMCB写回后才移交；不再允许仅排队事件凭同vector被消费。物理退出现在可移交同一被打断事件；多项积压/未开始投递仍明确WINDOW。新增边界fixture（提交失败、跨owner、重复/未开始移交）并更新pending源用例，全部仅编译链接，TEST_EXECUTION=NOT_RUN。WDK Release/API Universal/CAT零警告，build-nested-reflect-20260921.log；通用入口仍未开放，无动态验证。
+
 2026-09-21 静态VIRQ复用：VINTR临时请求按排队IRQ与原V_IRQ的可投递条件并集唤醒，保存/恢复原vector/priority/IGN_TPR；已就绪的物理确认事件优先（APM15.21.4），原虚拟IRQ只在队列阻塞时按原IF/TPR/shadow投递，原EVENTINJ不改。L1要求VINTR反射且L2仍持确认队列时继续保留WINDOW，未伪造EXITINTINFO。扩展源用例未执行；WDK/API/CAT零警告通过build-nested-virq-20260921.log。GUI metrics v5整批构建最终成功（build-gui-metrics5-20260921.log），共8条既有宏重定义/Qt部署警告，链接器自行从32位重启到64位后成功；未手动替换工具链。GUI构建自带i18n/theme门禁自动执行，无HVM测试或硬件运行。
 
 2026-09-21 静态重复启停：实际native寄存器核验通过后，CompleteNative再次检查general stop动作/lease/队列/NMI/窗口为空，再关闭NestedEntryEnabled与绑定标志；保留诊断至下一次明确初始化。下一次绑定重取Windows当前状态并重置本次运行计数，不复用旧continuation。部分初始化的odd sequence拒绝重试，需正常释放/重新prepare。WDK/API/CAT零警告通过，日志build-nested-retire-20260921.log，也覆盖上一阶段最后raw-exit字段微调。无运行验证。

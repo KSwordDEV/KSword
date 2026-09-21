@@ -24,40 +24,6 @@ static unsigned KswNsvmComplete(KSW_NSVM_EXECUTION* Execution)
     return KSW_NSVM_EXEC_RESUME;
 }
 
-/* Reflection does not emulate the intercepted instruction before returning to L1. */
-static unsigned KswNsvmReturnL1(KSW_NSVM_EXECUTION* Execution)
-{
-    /* Exactly one interrupted delivery can be represented by architectural EXITINTINFO. */
-    KSW_SVM_U64 transferToken = 0, transferEvent = 0;
-    /* An event queued for L2 must not accidentally be delivered using L1's IDT. */
-    if (KswSvmNestedPendingOwned(&Execution->Pending, Execution->Session->OperandHostPa + 1ULL)) {
-        /* The raw hardware event, rather than a fabricated queued event, authorizes handoff. */
-        const KSW_NSVM_PENDING_ITEM* item = KswSvmNestedPendingLookup(&Execution->Pending, Execution->RetryEventToken);
-        /* Multiple backlog events cannot be compressed into one architectural field. */
-        if (!item || item->Owner != Execution->Session->OperandHostPa + 1ULL ||
-            KswSvmNestedPendingOwned(&Execution->Pending, item->Owner) != 1 ||
-            item->Event != KswSvmRead64(Execution->Current, KSW_VMCB_EXITINTINFO)) { return KSW_NSVM_EXEC_FAULT; }
-        /* Preserve values before the session's committed writeback changes the current image. */
-        transferToken = item->Token; transferEvent = item->Event;
-    }
-    /* Partial output keeps the session/lease retained; no original Windows snapshot is used. */
-    if (KswSvmNestedSessionReflect(Execution->Session, Execution->Io, Execution->Current) != KSW_NSVM_ACTION_RETURN) {
-        /* Caller preserves all buffers and the exact failed commit for diagnosis. */
-        return KSW_NSVM_EXEC_FAULT;
-    }
-    /* Only successful architectural writeback can transfer an acknowledgement out of L0's ledger. */
-    if (transferToken && !KswSvmNestedPendingTransfer(&Execution->Pending, transferToken, transferEvent)) {
-        /* Preserve the remaining runtime if a ledger invariant failed after writeback. */
-        return KSW_NSVM_EXEC_FAULT;
-    }
-    /* The inner VMM now owns any reflected interrupted delivery. */
-    Execution->RetryEventToken = 0;
-    /* Virtual VMEXIT always clears L1 GIF; event controls must enforce it before reentry. */
-    Execution->Gif = Execution->GifRequested = 0;
-    /* The current image is now the actual L1 continuation after its VMRUN. */
-    return KSW_NSVM_EXEC_RESUME;
-}
-
 /* Apply architectural exception ordering before deciding whether L1 or guest delivery owns it. */
 static unsigned KswNsvmRaise(KSW_NSVM_EXECUTION* Execution, unsigned Vector, unsigned Error,
     KSW_SVM_U64 Address)
@@ -77,7 +43,7 @@ static unsigned KswNsvmRaise(KSW_NSVM_EXECUTION* Execution, unsigned Vector, uns
         /* No instruction pointer advance precedes the virtual exit. */
         KswSvmWrite64(Execution->Current, KSW_VMCB_EXITINFO2, Execution->Exception.Info2);
         /* Complete L1's current VMRUN, not a stale probe launch. */
-        return KswNsvmReturnL1(Execution);
+        return KswSvmNestedReturnL1(Execution);
     }
     /* Unknown/invalid event encodings remain a retained fault. */
     if (action != KSW_NSVM_EVENT_INJECT) { return KSW_NSVM_EXEC_FAULT; }
@@ -127,7 +93,7 @@ static unsigned KswNsvmResolve(KSW_NSVM_EXECUTION* Execution)
         /* EXITCODE remains the original NPF from the combined hardware guest. */
         KswSvmWrite64(Execution->Current, KSW_VMCB_EXITINFO2, Execution->Translation.FaultAddress);
         /* L1 may repair its own mapping and execute VMRUN again. */
-        return KswNsvmReturnL1(Execution);
+        return KswSvmNestedReturnL1(Execution);
     }
     /* Outer access/cache/RAM failures must not be disguised as a virtual guest's page fault. */
     if (status != KSW_NNPT_OK) { return KSW_NSVM_EXEC_FAULT; }
@@ -197,7 +163,7 @@ unsigned KswSvmNestedExecute(KSW_NSVM_EXECUTION* Execution)
             &Execution->Io->OuterPermissions, &maps, code, KswSvmRead64(Execution->Current, KSW_VMCB_EXITINFO1),
             (unsigned)Execution->Gpr[1], &Execution->Route);
         /* A requested inner exit is reflected before RIP/register/injection changes. */
-        if (action == KSW_NSVM_ROUTE_REFLECT) { return KswNsvmReturnL1(Execution); }
+        if (action == KSW_NSVM_ROUTE_REFLECT) { return KswSvmNestedReturnL1(Execution); }
         /* Physical events still need acknowledgement and GIF/masking arbitration. */
         if (action == KSW_NSVM_ROUTE_ASYNC) { return KSW_NSVM_EXEC_PHYSICAL_EVENT; }
         /* NPT faults require explicit ownership from the composed walk. */

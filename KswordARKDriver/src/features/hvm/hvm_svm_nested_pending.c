@@ -61,6 +61,8 @@ int KswSvmNestedPendingPush(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Event,
         Pending->Items[index].Event = Event; Pending->Items[index].Owner = Owner;
         /* Allocate a new identity without ever wrapping through zero. */
         Pending->Items[index].Token = ++Pending->Serial;
+        /* Slot reuse never inherits a previous event's hardware-delivery proof. */
+        Pending->Items[index].Interrupted = 0;
         /* Publish queued state only after every payload field is complete. */
         Pending->Items[index].State = KSW_NSVM_PENDING_QUEUED; Pending->Items[index].Physical = 0; ++Pending->Count;
         /* The caller may relinquish its source record only on success. */
@@ -136,7 +138,7 @@ int KswSvmNestedPendingArm(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token)
     /* Duplicate arming could otherwise inject one acknowledgement twice. */
     if (!item || item->State != KSW_NSVM_PENDING_QUEUED) { return 0; }
     /* Hardware entry/result is handled by the platform after this call. */
-    item->State = KSW_NSVM_PENDING_ARMED; item->Physical = 0; return 1;
+    item->State = KSW_NSVM_PENDING_ARMED; item->Physical = 0; item->Interrupted = 0; return 1;
 }
 
 /* Observe before emulation replaces EVENTINJ/EXITINTINFO or switches virtual context. */
@@ -146,19 +148,43 @@ int KswSvmNestedPendingObserve(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
     /* The exact token ties one hardware attempt to one source event. */
     KSW_NSVM_PENDING_ITEM* item = KswNsvmPendingFind(Pending, Token);
     /* INVALID does not consume or reclassify an acknowledged event. */
-    if (!item || item->State != KSW_NSVM_PENDING_ARMED || !Entered) { return 0; }
+    if (!item || item->State != KSW_NSVM_PENDING_ARMED || Entered != 1) { return 0; }
     /* Interrupted delivery keeps the same acknowledgement identity for retry. */
     if (ExitIntInfo & (1ULL << 31)) {
         /* A different valid event may be a later, separate delivery after ours completed.
            Without that ordering proof this API deliberately retains both raw records. */
         if (ExitIntInfo != item->Event || Pending->Retried == ~0ULL) { return 0; }
         /* Caller owns reinjection timing; the event is not rearmed automatically. */
-        item->State = KSW_NSVM_PENDING_QUEUED; ++Pending->Retried; return 1;
+        item->State = KSW_NSVM_PENDING_QUEUED; item->Interrupted = 1; ++Pending->Retried; return 1;
     }
     /* Counter exhaustion cannot turn into false fresh evidence. */
     if (!Pending->Count || Pending->Delivered == ~0ULL) { return 0; }
     /* No interrupted event remains after a successful entry, so this injection completed. */
     item->State = KSW_NSVM_PENDING_FREE; --Pending->Count; ++Pending->Delivered; return 1;
+}
+
+/* Read-only preflight keeps a failed/partial VMCB writeback from consuming source ownership. */
+int KswSvmNestedPendingPrepareTransfer(const KSW_NSVM_PENDING* Pending,
+    KSW_SVM_U64 Owner, KSW_SVM_U64 RetryToken, KSW_SVM_U64 ReflectedEvent,
+    KSW_SVM_U64* TransferToken)
+{
+    /* Only one interrupted event fits in architectural EXITINTINFO. */
+    const KSW_NSVM_PENDING_ITEM* item;
+    /* Unknown output/ledger state cannot authorize a context switch. */
+    unsigned count;
+    /* Owner zero is the physical virtual host, never the departing L2 VMCB. */
+    if (!Pending || !TransferToken || !Owner) { return 0; }
+    /* Leave caller output unchanged on every failed preflight. */
+    count = KswSvmNestedPendingOwned(Pending, Owner);
+    /* Events owned by other contexts are preserved and cannot populate this VMCB's field. */
+    if (!count) { *TransferToken = 0; return 1; }
+    /* Resolve the exact last interrupted hardware attempt, not a same-vector queue entry. */
+    item = KswSvmNestedPendingLookup(Pending, RetryToken);
+    /* Multiple queued events or an unstarted injection require a separate scheduling/handoff path. */
+    if (count != 1 || !item || item->Owner != Owner || item->Physical || !item->Interrupted ||
+        item->State != KSW_NSVM_PENDING_QUEUED || item->Event != ReflectedEvent) { return 0; }
+    /* The immutable token remains valid until the same root writer completes or fails its writeback. */
+    *TransferToken = item->Token; return 1;
 }
 
 /* Only committed VMEXIT writeback may hand an interrupted event to the inner VMM. */
@@ -168,7 +194,8 @@ int KswSvmNestedPendingTransfer(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
     /* The caller supplies the exact EVENTINFO written back to the same owner. */
     KSW_NSVM_PENDING_ITEM* item = KswNsvmPendingFind(Pending, Token);
     /* Refuse a transfer that could silently drop or substitute an acknowledgement. */
-    if (!item || item->Event != ReflectedEvent || !Pending->Count) { return 0; }
+    if (!item || item->Event != ReflectedEvent || !Pending->Count || item->Physical ||
+        !item->Interrupted || item->State != KSW_NSVM_PENDING_QUEUED) { return 0; }
     /* Transfer is not hardware delivery and does not increment Delivered. */
     item->State = KSW_NSVM_PENDING_FREE; --Pending->Count; return 1;
 }

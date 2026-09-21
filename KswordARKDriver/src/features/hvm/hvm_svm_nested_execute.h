@@ -14,6 +14,8 @@
 #define KSW_NSVM_EXEC_PHYSICAL_EVENT 3U
 #define KSW_NSVM_EXEC_SHUTDOWN 4U
 #define KSW_NSVM_EXEC_GIF_CHANGED 5U
+/* A live event backlog prevents reflection; this never authorizes another VMRUN. */
+#define KSW_NSVM_EXEC_EVENT_BLOCKED 6U
 /* Root-private state; every pointer refers to preallocated storage owned by this CPU/lifetime. */
 typedef struct _KSW_NSVM_EXECUTION {
     /* Current image and nonautomatic general registers change together. */
@@ -52,5 +54,7 @@ typedef struct _KSW_NSVM_EXECUTION {
 /* Do not call on a fixed probe merely to skip its evidence/marker checks.
    Physical-event/GIF_CHANGED are requests to the platform arbiter, never permission to reenter. */
 unsigned KswSvmNestedExecute(KSW_NSVM_EXECUTION* Execution);
+/* Shared instruction/physical-event reflection, with writeback before event-ownership transfer. */
+unsigned KswSvmNestedReturnL1(KSW_NSVM_EXECUTION* Execution);
 /* Commit a GIF instruction only after the platform can enforce its physical and virtual masking. */
 unsigned KswSvmNestedCommitGif(KSW_NSVM_EXECUTION* Execution);

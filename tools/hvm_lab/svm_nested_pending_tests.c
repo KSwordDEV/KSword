@@ -7,7 +7,7 @@ int main(void)
 {
     KSW_NSVM_PENDING pending;
     const KSW_NSVM_PENDING_ITEM* item;
-    KSW_SVM_U64 low, high, nmi, alien, token, before;
+    KSW_SVM_U64 low, high, nmi, alien, token, before, transfer;
     unsigned index;
     memset(&pending, 0, sizeof(pending));
     CHECK(!KswSvmNestedPendingPush(&pending, 0x80000b0dULL, 0, &token));
@@ -36,13 +36,28 @@ int main(void)
     item = KswSvmNestedPendingSelect(&pending, 0, 1, 1, 5);
     CHECK(item && item->Token == high);
     CHECK(!KswSvmNestedPendingTransfer(&pending, high, 0x80000050ULL));
+    CHECK(!KswSvmNestedPendingTransfer(&pending, high, 0x800000e0ULL));
+    CHECK(KswSvmNestedPendingArm(&pending, high));
+    CHECK(!KswSvmNestedPendingTransfer(&pending, high, 0x800000e0ULL));
+    CHECK(KswSvmNestedPendingObserve(&pending, high, 1, 0x800000e0ULL));
     CHECK(KswSvmNestedPendingTransfer(&pending, high, 0x800000e0ULL));
     CHECK(!KswSvmNestedPendingSelect(&pending, 0, 1, 1, 5));
     CHECK(KswSvmNestedPendingArm(&pending, low));
     CHECK(KswSvmNestedPendingObserve(&pending, low, 1, 0));
     CHECK(KswSvmNestedPendingOwned(&pending, 0) == 0);
     CHECK(KswSvmNestedPendingOwned(&pending, 0x1001) == 1);
+    transfer = 77;
+    CHECK(!KswSvmNestedPendingPrepareTransfer(&pending, 0x1001, alien, 0x80000202ULL, &transfer));
+    CHECK(transfer == 77 && pending.Count == 1);
+    CHECK(KswSvmNestedPendingArm(&pending, alien));
+    CHECK(!KswSvmNestedPendingObserve(&pending, alien, 2, 0));
+    CHECK(KswSvmNestedPendingObserve(&pending, alien, 1, 0x80000202ULL));
+    CHECK(KswSvmNestedPendingPrepareTransfer(&pending, 0x1001, alien, 0x80000202ULL, &transfer));
+    CHECK(transfer == alien);
     CHECK(KswSvmNestedPendingTransfer(&pending, alien, 0x80000202ULL));
+    CHECK(!KswSvmNestedPendingTransfer(&pending, alien, 0x80000202ULL));
+    CHECK(KswSvmNestedPendingPrepareTransfer(&pending, 0x1001, alien, 0, &transfer));
+    CHECK(transfer == 0);
     for (index = 0; index < KSW_NSVM_PENDING_CAPACITY; ++index) {
         CHECK(KswSvmNestedPendingPush(&pending, 0x80000050ULL, 0, &token));
     }

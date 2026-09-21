@@ -2,6 +2,8 @@
 
 最终验收仍是完整 L2 操作系统启动及内层 vCPU 并发运行；本变更没有完成该验收。
 
+最新静态增量：`nested_reflect` 统一指令与物理事件反射；先检查整个 L2 事件集合，确认 token 对应真实被打断的递送，再提交 VMCB，成功后才消费该确认记录。未开始的排队事件、不同 owner 或多项积压不伪造 EXITINTINFO，保留 WINDOW。新增交接边界用例仅编译，没有执行。标准 WDK Release x64 / API Universal / CAT 构建零警告（`tools/hvm_lab/build-nested-reflect-20260921.log`）；宿主用例编译日志明确 `TEST_EXECUTION=NOT_RUN`。通用激活及 NMI/IRET 等剩余路径未完成。
+
 10:11 宿主冻结后硬件验证暂停，故障取证见 [事件记录](evidence/amd-host-freeze-20260921.md)。`nested-entry-20260921` 保存的是 `4ec4d724`、PDB age 5 候选，硬件未执行；后续退出路由改动只做离线测试和构建，没有覆盖该已签名候选。
 
 已实现并接入生产受限探针：

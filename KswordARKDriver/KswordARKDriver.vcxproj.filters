@@ -1533,6 +1533,7 @@
     <ClCompile Include="src\features\hvm\hvm_svm_nested_register.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_cpuid.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_execute.c" />
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_reflect.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_general.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_window.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_machine.c" />

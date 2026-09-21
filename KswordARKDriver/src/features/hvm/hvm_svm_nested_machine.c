@@ -13,22 +13,12 @@ static unsigned KswNsvmMachineResult(KSW_NSVM_MACHINE* Machine, unsigned Action)
 /* Coordinator reflection uses the same exact VMCB transaction as ordinary L1-owned exits. */
 static unsigned KswNsvmMachineReflect(KSW_NSVM_MACHINE* Machine)
 {
-    /* The current owner must exist before reading its operand identity. */
-    KSW_NSVM_EXECUTION* execution = Machine->Execution;
-    /* Acknowledged L2 events require explicit transfer instead of crossing into the L1 IDT. */
-    if (KswSvmNestedPendingOwned(&execution->Pending, execution->Session->OperandHostPa + 1ULL)) {
-        /* Preserve the guest and its live lease if no architectural event handoff exists. */
-        return KSW_NSVM_MACHINE_WINDOW;
-    }
-    /* Only a committed output restores the real L1 continuation. */
-    if (KswSvmNestedSessionReflect(execution->Session, execution->Io, execution->Current) != KSW_NSVM_ACTION_RETURN) {
-        /* Partial writeback keeps the resource owner rather than fabricating rollback. */
-        return KSW_NSVM_MACHINE_FAULT;
-    }
-    /* Software VMEXIT clears GIF just like a physical VMEXIT. */
-    execution->Gif = execution->GifRequested = 0;
-    /* Entry preparation still has to apply the closed-GIF hardware mask. */
-    return KSW_NSVM_MACHINE_READY;
+    /* One implementation owns both writeback ordering and interrupted-event transfer. */
+    unsigned action = KswSvmNestedReturnL1(Machine->Execution);
+    /* An unstarted backlog still requires scheduling; it is never fabricated as EXITINTINFO. */
+    if (action == KSW_NSVM_EXEC_EVENT_BLOCKED) { return KSW_NSVM_MACHINE_WINDOW; }
+    /* Only complete architectural return permits the next L1 entry preparation. */
+    return action == KSW_NSVM_EXEC_RESUME ? KSW_NSVM_MACHINE_READY : KSW_NSVM_MACHINE_FAULT;
 }
 
 /* Complete a physical event without ever calling a Windows ISR on the root stack. */
@@ -195,6 +185,8 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
     if (action == KSW_NSVM_EXEC_SHUTDOWN) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_SHUTDOWN); }
     /* Unimplemented instruction/extension handling remains an explicit software restriction. */
     if (action == KSW_NSVM_EXEC_UNSUPPORTED) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_UNSUPPORTED); }
+    /* Instruction reflection uses the same backlog restriction as physical-event reflection. */
+    if (action == KSW_NSVM_EXEC_EVENT_BLOCKED) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
     /* No unrecognized action permits a blind hardware retry. */
     return KswNsvmMachineResult(Machine, action == KSW_NSVM_EXEC_RESUME ? KSW_NSVM_MACHINE_READY : KSW_NSVM_MACHINE_FAULT);
 }
