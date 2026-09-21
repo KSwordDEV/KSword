@@ -44,3 +44,7 @@ CPU 前缀追加 HostXss/GuestXss（128/130）；与 XCR0 一样，退出恢复 
 新增所有 CPU 共享的 4096 项固定身份表：键为翻译后的 VMCB 物理页，键在准备生命周期内不移动/删除，每次持有使用唯一原子 token。不同 GPA 的同页别名竞争同一项；无全局等待锁，过期释放不能清除新持有者，身份预算或 token 用尽明确拒绝。
 
 Session 先解析身份、获取持有权、重新读取受保护快照，再进入/写回。INVALID 完整写回或真实 VMEXIT 输出完成后释放；部分写回或捕获失败保留 token。固定探针失败也要等汇编原生返回及真实寄存器回读之后才释放，公共 teardown 额外要求表内无持有者。CPU 证据使用 Windows group:number。该表协调 monitor 的 VMRUN；尚不能阻止来宾普通内存指令并发写 VMCB 或 NPT，后者继续实现。新增竞争/别名/过期释放/预算用例但未运行，未构建。
+
+## VMLOAD/VMSAVE 通用事务静态增量（未验证）
+
+新增 nested_transfer，并将生产受限探针的 VMLOAD/VMSAVE 改为调用它：任意操作数先经可信 NPT01 翻译，取得与 VMRUN 共用的 HPA lease，重读后只复制 VMLOAD 字段或按 VMSAVE 白名单写回。禁止借用运行中/故障保留的 Session；NRIP 在修改前检查，部分写入保留进度与 lease。原生确认后才允许故障清理。探针自身仍限制固定操作数；通用事务无此固定地址假设。未构建、未测试。

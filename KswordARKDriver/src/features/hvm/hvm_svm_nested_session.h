@@ -64,3 +64,8 @@ unsigned int KswSvmNestedSessionEnter(KSW_NSVM_SESSION* Session,
 /* Reflect a real or synthesized inner-owned exit before resuming the saved L1 continuation. */
 unsigned int KswSvmNestedSessionReflect(KSW_NSVM_SESSION* Session,
     const KSW_NSVM_SESSION_IO* Io, KSW_SVM_VMCB* Current);
+/* VMLOAD/VMSAVE use the same translated ownership domain but never start an inner VMRUN.
+   Caller checks virtual SVME/CPL/instruction legality and advances RIP only on RETURN. */
+unsigned int KswSvmNestedSessionTransfer(KSW_NSVM_SESSION* Session,
+    const KSW_NSVM_SESSION_IO* Io, KSW_SVM_VMCB* Current, KSW_SVM_U64 OperandPa,
+    unsigned Save);

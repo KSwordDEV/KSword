@@ -14,33 +14,6 @@ static VOID KswNsvmProbeIo(KSW_SVM_CPU* Cpu, KSW_NSVM_OPERAND_IO* Io)
     Io->Nx = nested->Config.OuterNx; Io->Read = KswordSvmNestedRead; Io->Context = nested;
 }
 
-/* Capture permission/VMCB pages through the prepared outer translation and RAM guard. */
-static int KswNsvmProbeReadMap(void* Context, KSW_SVM_U64 Address, unsigned char* Page)
-{
-    /* Source access never uses VMCB12's NCR3 or PAT as the outer authority. */
-    KSW_SVM_CPU* cpu = Context;
-    /* A small stack descriptor borrows only immutable outer mapping metadata. */
-    KSW_NSVM_OPERAND_IO io;
-    /* Use the same outer translation contract for reads and architectural writeback. */
-    KswNsvmProbeIo(cpu, &io);
-    /* Failure remains distinct from an all-zero permission map. */
-    return KswSvmNestedReadOperandPage(&io, Address, Page, &cpu->Nested->LastOperand) == KSW_NNPT_OK;
-}
-
-/* Exercise the general architectural writeback path on the probe's owned operand. */
-static BOOLEAN KswNsvmProbeWrite(KSW_SVM_CPU* Cpu, ULONG Operation)
-{
-    /* The probe's physical operand is identity mapped; general callers retain captured HPA. */
-    KSW_SVM_NESTED* nested = Cpu->Nested;
-    /* Do not carry a mapped pointer across a root callback. */
-    KSW_NSVM_OPERAND_IO io;
-    /* The source page is a CPU-owned snapshot, never the mutable guest mapping. */
-    KswNsvmProbeIo(Cpu, &io);
-    /* A rejected or partial commit must stop this test instead of resuming with stale data. */
-    return KswSvmNestedWriteback(&io, nested->OperandPa, nested->OperandPa,
-        &nested->Session.Vmcb12, Operation, 1, KswordSvmNestedCommitVmcb, &nested->LastOperand) == KSW_NNPT_OK;
-}
-
 /* Select the probe's prepared storage for the same transaction used by general VMRUN. */
 static VOID KswNsvmProbeSessionIo(KSW_SVM_CPU* Cpu, KSW_NSVM_SESSION_IO* Io)
 {
@@ -368,20 +341,13 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
     } else if (code == 0x82ULL || code == 0x83ULL) {
         /* Software VMLOAD/VMSAVE may access only the dedicated operand in this phase. */
         if (!(nested->Msrs.Efer & KSW_SVM_EFER_SVME) || operand != nested->OperandPa) { return KswNsvmFinish(Cpu, STATUS_ACCESS_DENIED); }
-        /* VMLOAD changes only its own architectural subset in the current executable image. */
-        if (code == 0x82ULL) {
-            /* VMLOAD consumes a translated owned snapshot, not a raw physical pointer. */
-            if (!KswNsvmProbeReadMap(Cpu, operand, (PUCHAR)&nested->Session.Vmcb12)) { return KswNsvmFinish(Cpu, STATUS_ACCESS_DENIED); }
-            /* Automatic state and permission controls are not part of VMLOAD. */
-            KswSvmNestedCopyVmload(Cpu->Guest, &nested->Session.Vmcb12);
-        }
-        /* VMSAVE leaves all VMRUN controls and automatic state untouched. */
-        else {
-            /* Only the VMSAVE whitelist will be written; all other scratch bytes are ignored. */
-            KswSvmNestedCopyVmload(&nested->Session.Vmcb12, Cpu->Guest);
-            /* Preserve the input page's controls and automatic state during output. */
-            if (!KswNsvmProbeWrite(Cpu, KSW_NSVM_SAVE_VMSAVE)) { return KswNsvmFinish(Cpu, STATUS_DATA_ERROR); }
-        }
+        /* Reuse the general translated, cross-CPU-owned transfer transaction. */
+        KSW_NSVM_SESSION_IO io;
+        /* The explicit harness restriction above is independent of the reusable implementation. */
+        KswNsvmProbeSessionIo(Cpu, &io);
+        /* VMLOAD/VMSAVE share VMCB identity with VMRUN and retain partial failures. */
+        if (KswSvmNestedSessionTransfer(&nested->Session, &io, Cpu->Guest, operand,
+            code == 0x83ULL) != KSW_NSVM_ACTION_RETURN) { return KswNsvmFinish(Cpu, STATUS_DATA_ERROR); }
     } else if (code == KSW_SVM_EXIT_VMRUN) {
         /* General transaction is shared with arbitrary VMCB entry/return handling. */
         KSW_NSVM_SESSION_IO io;

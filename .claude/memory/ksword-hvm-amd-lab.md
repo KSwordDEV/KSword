@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21静态transfer：新增nested_transfer，VMLOAD/VMSAVE共用session/translated-HPA lease，捕获后持有再重读，仅架构字段复制/白名单写回，partial保留；生产probe已改调用，不再有旧固定地址读取适配内部实现（harness限制仍在）。未编译未测试。继续一般状态MSR/指令及事件控制，不阶段停下。
+
 2026-09-21静态多核增量：nested_owner共享4096永久HPA键/唯一CAS token无等待锁；session获取后重读、完整INVALID/VMEXIT写回后释放、故障保留，probe等原生读回后释放；teardown要求全部token空。记录group:number。解决monitor并行VMRUN同页互斥，不阻止来宾普通内存写表；跨核NPT失效仍待做。测试源码已补未运行，未构建，按用户要求继续静态实现并本地逐块commit。
 
 2026-09-21静态异常增量：nested_event实现原异常L1截获优先、contributory/PF合成DF、DF/shutdown二次截获；IRQ/NMI已确认事件Deferred必须保留才注入，guestCR2与RIP规则明确。普通GP/UD已接，普通路径尚无异步队列故保留故障。新增测试源码/工程清单，未构建未执行。继续写物理事件/GIF、通用指令与多核所有权；不可说静态全完成。
