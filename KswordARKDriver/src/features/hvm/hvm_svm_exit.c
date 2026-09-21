@@ -50,6 +50,19 @@ static DECLSPEC_NORETURN VOID KswSvmFatal(KSW_SVM_CPU* Cpu, ULONG Detail)
     KeBugCheckEx(0x20001, 0x53564dUL, (ULONG_PTR)Cpu, Detail, (ULONG_PTR)KswSvmRead64(Cpu->Guest, KSW_VMCB_EXITCODE));
 }
 
+/* Called from assembly with complete host state, closed GIF/IF and a stable private host stack. */
+VOID KswordSvmGeneralPrepareEntry(KSW_SVM_CPU* Cpu)
+{
+    /* Self-tests must keep their independent marker and restoration contracts. */
+    ULONG action;
+    /* No partial general binding can silently fall back to a baseline VMRUN. */
+    if (!Cpu->NestedEntryEnabled || Cpu->SelfTest || !Cpu->Nested || !Cpu->Nested->GeneralInitialized) { KswSvmFatal(Cpu, 0x100); }
+    /* This happens after assembly sets the actual continuation, including first-entry RFLAGS. */
+    action = KswordSvmNestedGeneralEntry(Cpu);
+    /* WINDOW/UNSUPPORTED/FAULT retain their original transaction and are not executable entries. */
+    if (action != KSW_NSVM_MACHINE_READY) { KswSvmFatal(Cpu, 0x110U + action); }
+}
+
 /* Advance only completed instructions; exceptions keep the faulting RIP. */
 static VOID KswSvmAdvance(KSW_SVM_CPU* Cpu)
 {
@@ -155,6 +168,17 @@ ULONG KswordSvmExit(KSW_SVM_CPU* Cpu)
         KswSvmWrite64(Cpu->Guest, KSW_VMCB_RSP, Cpu->LaunchRsp);
         /* Complete the self-test through the native-state restoration path. */
         return 1;
+    }
+    /* Raw exit accounting and bounded self-test handling precede every general dispatch. */
+    if (Cpu->NestedEntryEnabled) {
+        /* The coordinator restores temporary controls before interpreting L1/L2 ownership. */
+        ULONG action = KswordSvmNestedGeneralExit(Cpu);
+        /* Native return requires a quiescent private stop and still needs the caller's register readback. */
+        if (action == KSW_NSVM_MACHINE_NATIVE) { return 1; }
+        /* Only READY proceeds to a fresh event/control preparation in the assembly loop. */
+        if (action == KSW_NSVM_MACHINE_READY) { return 0; }
+        /* Unsupported guest shutdown/window cases are retained, never delegated to native Windows by accident. */
+        KswSvmFatal(Cpu, 0x120U + action);
     }
     /* CPUID preserves outer VMware identity but hides unimplemented nested SVM. */
     if (code == KSW_SVM_EXIT_CPUID) {

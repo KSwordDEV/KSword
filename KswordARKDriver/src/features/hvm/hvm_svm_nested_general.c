@@ -204,7 +204,9 @@ NTSTATUS KswordSvmNestedInitializeGeneral(KSW_SVM_CPU* Cpu)
     /* Capture actual initial TPR, but do not create an executable overlay before assembly sets final RIP/RFLAGS. */
     if (KswSvmNestedMachineInitialize(&nested->GeneralMachine) != KSW_NSVM_MACHINE_READY) { return STATUS_NOT_SUPPORTED; }
     /* This is bound-resource readiness; public activation and hardware success are separate evidence. */
-    nested->GeneralInitialized = 1; return STATUS_SUCCESS;
+    nested->GeneralInitialized = 1;
+    /* Assembly can observe this only after every platform callback and state owner has been initialized. */
+    Cpu->NestedEntryEnabled = 1; return STATUS_SUCCESS;
 }
 
 /* The assembly-facing caller is responsible for refusing every non-READY action. */

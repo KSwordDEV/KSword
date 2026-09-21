@@ -1,5 +1,7 @@
 # AMD 嵌套 SVM：第二阶段实现记录
 
+2026-09-21 静态汇编桥：NestedEntryEnabled新增固定偏移140并断言；完整general绑定后才发布。真实VMRUN前在最终RIP/RFLAGS/host stack就位后调用事件准备，真实VMEXIT原始计数后进入machine；非READY/NATIVE均保留故障，不能盲目继续或恢复L2为native。普通/受控probe零值保持原路径。WDK Release/API Universal/CAT零警告通过，build-nested-entry-bridge-20260921.log；无签名/装载/测试。InitializeGeneral尚无正常控制入口调用，公共能力不开放；NMI/IRET、原VIRQ优先级和复杂事件重试仍未全部实现，不能称完整静态完成。
+
 2026-09-21 静态IRQ/异常碰撞：排队IRQ允许在既有EVENTINJ保持原值的同时挂VINTR等待窗口；原异常先投递，随后按handler实际IF/TPR/shadow等待IRQ，token不提前消费。NMIshadow/原L1 V_IRQ碰撞继续保留WINDOW，不能冒充已解决。补window离线源用例。build-tests.cmd新增--build-only；当前全部宿主测试目标/W4/WX编译链接完成，明确TEST_EXECUTION=NOT_RUN，未执行测试。日志build-static-fixtures-20260921.log。
 
 2026-09-21 静态操作数捕获：nested_fetch从L1四级页表经NPT01读取硬件RIP..NRIP范围，逐层重查映射、限制WB/RAM、不直接解引用guest地址；跨页失败保留，不伪造guest PF。SVM隐式rAX解码识别执行模式/67h/repeated prefix/REX，覆盖VMRUN/VMLOAD/VMSAVE/INVLPGA并接general执行器。L1 legacy非LMA取指仍明确不支持；L2不暴露SVM。新增离线源用例未运行。WDK Release x64、API Universal/CAT零警告通过，日志build-nested-fetch-20260921.log；未签名、未装载，通用激活仍未开放。

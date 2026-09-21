@@ -143,6 +143,8 @@ typedef struct _KSW_SVM_CPU {
     ULONGLONG HostXss, GuestXss;
     /* 138: event arbiter's physical-IF value captured by VMRUN when V_INTR_MASKING=1. */
     ULONGLONG HostInterruptsAllowed;
+    /* 140: published only after a complete, separately admitted general coordinator is bound. */
+    ULONGLONG NestedEntryEnabled;
     /* Resource and runtime ownership beyond the assembly prefix. */
     KSW_HVM_RUNTIME* Runtime;
     /* Public row owns processor identity and common states. */
@@ -201,6 +203,8 @@ C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, HostXss) == 0x128);
 C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, GuestXss) == 0x130);
 /* Ordinary residency leaves this zero and uses V_INTR_MASKING=0 as before. */
 C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, HostInterruptsAllowed) == 0x138);
+/* Assembly skips the dormant general path without issuing an extra baseline C callback. */
+C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, NestedEntryEnabled) == 0x140);
 /* MASM native restoration consumes these exact ordinary-VMCB offsets. */
 C_ASSERT(KSW_VMCB_S_CET == 0x5e0 && KSW_VMCB_SSP == 0x5e8 && KSW_VMCB_ISST == 0x5f0);
 
@@ -272,6 +276,8 @@ NTSTATUS KswordSvmEnterCurrent(KSW_SVM_CPU* Cpu);
 BOOLEAN KswordSvmVerifyNativeState(KSW_SVM_CPU* Cpu);
 VOID KswordSvmTrace(KSW_SVM_CPU* Cpu, ULONG Stage);
 ULONG KswordSvmExit(KSW_SVM_CPU* Cpu);
+/* Root entry preparation either produces READY or retains a fault; it cannot fall back to baseline. */
+VOID KswordSvmGeneralPrepareEntry(KSW_SVM_CPU* Cpu);
 /* AMD assembly wrappers, never called on Intel. */
 NTSTATUS KswordSvmAsmLaunch(KSW_SVM_CPU* Cpu);
 ULONGLONG KswordSvmAsmCall(ULONGLONG Operation);

@@ -1,6 +1,7 @@
 ; AMD-specific host loop. Offsets are asserted in hvm_svm.h and portable tests.
 option casemap:none
 extern KswordSvmExit:proc
+extern KswordSvmGeneralPrepareEntry:proc
 .code
 
 ; Save the non-VMCB general registers. RAX is hardware-saved in the VMCB.
@@ -157,6 +158,11 @@ KswSvmOperandReady:
     mov rsp, [r15+18h]           ; Switch to this CPU's dedicated host stack.
     mov [rsp+20h], r15           ; Anchor above Windows x64 call shadow space.
 KswSvmRun:
+    mov rcx, [rsp+20h]           ; Entry binding is checked only after final RIP/RFLAGS/stack are installed.
+    cmp qword ptr [rcx+140h], 0 ; Ordinary residency and bounded probes never enter the general coordinator.
+    je KswSvmPreparedEntry       ; Preserve the existing baseline without another C call.
+    call KswordSvmGeneralPrepareEntry ; Only a READY event/control transaction returns to this point.
+KswSvmPreparedEntry:
     mov rcx, [rsp+20h]           ; Restore processor context after any C call.
     mov rbx, [rcx+10h]           ; VMCB virtual address.
     mov byte ptr [rbx+5ch], 1    ; Full TLB flush on every VMRUN, including first entry.
