@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21续接：已先按用户要求fetch并快进到f7779802，保留本地工作。宿主HypervisorPresent=False，32LP，克隆起始关机/8vCPU。新增hvm_svm_nested_operand.c/.h：L1物理页经可信NPT01遍历、只接受WB叶缓存属性、每个物理字通过RAM窗口回调读取，复制后重验页表结构（忽略硬件A/D）；失败清零目标并返回明确状态。权限图捕获已改用此路径，取消CPU原有map地址白名单，固定VMRUN操作数/标记限制仍保留。此读取不提供对L1并发数据写入的原子快照、跨核失效或通用VMRUN准入。MSVC/WDK Release/API/CAT零警告、hvm_ctl构建通过；operand1049/分派180/权限917803/AMD74056/nested449/Intel85逻辑检查通过。新候选尚未加载/硬件验证；旧probe候选保留，本次另建共享子目录nested-operand-20260921，计划1vCPU冷启动+KD后用户运行Start-GuestNestedProbe，再按偏好跳8核。旧关机命令不再适用，本轮不关机、不推送。
+
 2026-09-19晚间收尾：按用户授权已推送一次，远端前进导致首次拒绝后fetch/merge，保留hvm_internal.h双方字段（BackendContext及NativeVmcsFields），合并提交02655653已推送；真实32核5秒证据提交4c9295bc。远端提示新地址KSwordDEV/KSword，origin未擅改。随后实现hvm_svm_nested_permissions：私有权限图捕获/失效、完整地址范围、启用位感知OR、MSR/IOIO逐位归属（包括IOPM尾部不回绕、隐式MSR拦截）。每核新增20KiB连续合并图，生产固定探针在VMRUN前实际捕获/合并并替换硬件指针，反射恢复L1原指针；只接受原有固定map地址。917803项权限图断言、158生产分派模拟、AMD74056/nested449/Intel85通过，标准WDK/API/CAT零警告。通用L1物理快照适配、跨核失效、VMCB合法性、一般IRQ/NMI/GIF与真实L2 OS仍未完成；正常CPUID继续隐藏SVM。Release SYS已被新未签名构建替换，旧通过候选仍在artifacts/amd-host-cet-user-v6；现有host测试哈希锁会拒绝新SYS，不可直接让用户跑旧脚本当成新验证。用户明确今晚不再动态验证，当前代码本地commit后执行shutdown -s -t 0；不再推送、不再额外审计。
 
 实体机32核完整短常驻PASS（2026-09-19）：host-self-test-20260919-000749-f718b7a6f2e548dc9146617747f6547d原始证据经生产验证器独立回放：32核串行自检、并发进入、两次Active查询间隔5.0321852秒且代次不变、全核stop、teardown归零、SCM STOPPED。报告docs/next/evidence/amd-host-resident-32cpu-5seconds.json；仍是7004a13c/age13候选，不是L2操作系统通过。随后用户手动常驻32核，VMware报AMD-V/RVI不可用、MonitorMode失败；当前普通CPUID隐藏SVM且不提供通用SVM转发，与此现象相符。此次VMware失败仅有用户报告，未取得对应vmware.log。用户明确授权本次提交后推送一次，再继续实现；后续不自动再推送。当前SCM独立查询已Stopped。

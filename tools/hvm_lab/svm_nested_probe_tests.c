@@ -24,6 +24,8 @@ int KswordSvmNestedRead(void* context, KSW_SVM_U64 address, KSW_SVM_U64* value)
 {
     (void)context;
     if ((address & 7) || address >= sizeof(memory)) { return 0; }
+    if (address >= 0x20000 && address < 0x22000) { memcpy(value, msrpm + (size_t)(address - 0x20000), 8); return 1; }
+    if (address >= 0x22000 && address < 0x25000) { memcpy(value, iopm + (size_t)(address - 0x22000), 8); return 1; }
     *value = memory[address >> 12][(address & 4095) / 8];
     return 1;
 }
@@ -122,6 +124,7 @@ static int test_roundtrip(void)
     CHECK(emit(KSW_SVM_EXIT_VMRUN, nested.OperandPa) == 0);
     CHECK(nested.RunningL2 && nested.Entries == 1 && !nested.Reflections);
     CHECK(nested.Permissions.Ready == 1 && merged[0x820] == 3);
+    CHECK(nested.LastOperand.Status == KSW_NNPT_OK && nested.LastOperand.Words == 512);
     CHECK(KswSvmRead64(&guest, KSW_VMCB_MSRPM) == 0x80000);
     CHECK(KswSvmRead64(&guest, KSW_VMCB_IOPM) == 0x82000);
     CHECK(KswSvmRead64(&guest, KSW_VMCB_NCR3) == nested.Pages[0].Physical);
@@ -191,9 +194,25 @@ static int test_failures(void)
     }
     return 0;
 }
+static int test_nonidentity_permissions(void)
+{
+    if (initialize() || begin()) { return 1; }
+    /* These L1 GPAs are not equal to the owned physical map addresses. */
+    memory[4][48] = 0x20007; memory[4][49] = 0x21007;
+    KswSvmWrite64(operand, KSW_VMCB_MSRPM, 0x30000);
+    CHECK(emit(KSW_SVM_EXIT_VMRUN, nested.OperandPa) == 0);
+    CHECK(nested.LastOperand.GuestPa == 0x31000 && nested.LastOperand.HostPa == 0x21000);
+    CHECK(nested.Permissions.Ready && nested.Permissions.Msr[0x820] == 3 && merged[0x820] == 3);
+    /* Outer protections survive an inner map containing no requested intercepts. */
+    if (initialize() || begin()) { return 1; }
+    KswSvmWrite64(operand, KSW_VMCB_MSRPM, 0x30000);
+    CHECK(emit(KSW_SVM_EXIT_VMRUN, nested.OperandPa) == 0);
+    CHECK(nested.Permissions.Msr[0x820] == 0 && merged[0x820] == 3);
+    return 0;
+}
 int main(void)
 {
-    if (test_roundtrip() || test_failures()) { return 1; }
+    if (test_roundtrip() || test_failures() || test_nonidentity_permissions()) { return 1; }
     printf("SVM_PRODUCTION_DISPATCH_CHECKS=%u RESULT=PASS (simulated exits, no hardware)\n", checks);
     return 0;
 }

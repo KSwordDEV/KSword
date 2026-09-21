@@ -1,34 +1,23 @@
 /* Bounded executable nesting probe. This is not admission for an arbitrary inner VMM. */
 #include "hvm_svm_nested_runtime.h"
 
-/* Only the bounded probe's already owned maps are readable by this adapter.
-   General L1 physical reads require the separate NPT01/RAM snapshot adapter. */
+/* Capture permission pages through the prepared outer translation and RAM guard. */
 static int KswNsvmProbeReadMap(void* Context, KSW_SVM_U64 Address, unsigned char* Page)
 {
-    /* All source addresses were resolved while building the original outer VMCB. */
+    /* Only trusted outer translation metadata is borrowed from the current CPU. */
     KSW_SVM_CPU* cpu = Context;
-    /* Original preserves those owned pointers across the virtual VMRUN transition. */
-    ULONGLONG msr = KswSvmRead64(&cpu->Nested->Original, KSW_VMCB_MSRPM);
-    /* Disabled IOPM still has an owned, valid physical allocation. */
-    ULONGLONG io = KswSvmRead64(&cpu->Nested->Original, KSW_VMCB_IOPM);
-    /* Capture only makes aligned, full-page requests. */
-    if (Address & 4095ULL) { return 0; }
-    /* A caller cannot substitute an arbitrary guest physical address. */
-    if (Address >= msr && Address - msr < KSW_NSVM_MSRPM_BYTES && cpu->Msrpm) {
-        /* Borrow the stable CPU-private map, never dereference the supplied physical value. */
-        RtlCopyMemory(Page, (PUCHAR)cpu->Msrpm + (SIZE_T)(Address - msr), 4096);
-        /* One complete owned page was captured. */
-        return 1;
-    }
-    /* Apply the same exact allocation ownership check to all three I/O pages. */
-    if (Address >= io && Address - io < KSW_NSVM_IOPM_BYTES && cpu->Iopm) {
-        /* No guest-writable mapping survives this copy. */
-        RtlCopyMemory(Page, (PUCHAR)cpu->Iopm + (SIZE_T)(Address - io), 4096);
-        /* Snapshot capture can proceed to the next owned page. */
-        return 1;
-    }
-    /* Unknown operands terminate the probe; they never become permissive zero pages. */
-    return 0;
+    /* Configuration remains fixed for the entire prepared backend lifetime. */
+    KSW_SVM_NESTED* nested = cpu->Nested;
+    /* Source access never uses VMCB12's NCR3 or guest PAT as the outer authority. */
+    KSW_NSVM_OPERAND_IO io;
+    /* Bind both source translation and cache interpretation to L0. */
+    io.Root = nested->Config.OuterRoot; io.Pat = nested->Config.OuterPat;
+    /* Match the actual outer CPU's physical-address and paging features. */
+    io.PhysicalBits = nested->Config.OuterBits; io.Page1Gb = nested->Config.OuterPage1Gb;
+    /* The same platform callback protects page-table and final data RAM reads. */
+    io.Nx = nested->Config.OuterNx; io.Read = KswordSvmNestedRead; io.Context = nested;
+    /* Failure remains distinct from an all-zero permission map. */
+    return KswSvmNestedReadOperandPage(&io, Address, Page, &nested->LastOperand) == KSW_NNPT_OK;
 }
 
 /* Complete the controlled probe using its original, fully captured Windows context. */

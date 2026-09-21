@@ -11,6 +11,7 @@
 #include "hvm_svm_nested_state.h"
 #include "hvm_svm_nested_msr.h"
 #include "hvm_svm_nested_permissions.h"
+#include "hvm_svm_nested_operand.h"
 /* Enough sparse tables for the bounded probe; exhaustion returns a failed test. */
 #define KSW_NSVM_PROBE_PAGES 64U
 /* Private markers distinguish the inner exit from the final outer continuation. */
@@ -29,6 +30,8 @@ typedef struct _KSW_SVM_NESTED {
     KSW_SVM_VMCB Vmcb12;
     /* Immutable permission evidence belongs to the same VMRUN as Vmcb12. */
     KSW_NSVM_PERMISSION_IMAGE Permissions;
+    /* Last permission/VMCB capture outcome, retained independently of inner NPFs. */
+    KSW_NSVM_OPERAND_RESULT LastOperand;
     /* One contiguous allocation: merged MSRPM followed by merged IOPM. */
     PUCHAR MergedMaps;
     /* Derived at PASSIVE_LEVEL and checked against MAXPHYADDR before use. */
