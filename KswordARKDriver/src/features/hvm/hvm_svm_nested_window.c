@@ -12,8 +12,8 @@ int KswSvmNestedIrqWindowArm(KSW_SVM_VMCB* Current, KSW_SVM_U64 Event,
     /* NMI has no IF/TPR eligibility window and must not use this mechanism. */
     if (!Current || !Window || Window->Applied || !Token ||
         (Event & ~255ULL) != 0x80000000ULL || vector < 16) { return 0; }
-    /* An existing injection must complete under its own original delivery contract. */
-    if (KswSvmRead64(Current, KSW_VMCB_EVENT) & (1ULL << 31)) { return 0; }
+    /* Existing EVENTINJ retains priority and its exact payload; VINTR waits until that delivery
+       and the resulting handler state make the queued IRQ eligible. Never overwrite EVENTINJ. */
     /* Preserve real V_IRQ requests rather than changing interrupt priority/order. */
     control = KswSvmRead64(Current, KSW_VMCB_INTCTL);
     /* Existing virtual IRQ collision needs a distinct arbiter, not blind replacement. */

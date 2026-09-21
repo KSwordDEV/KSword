@@ -269,12 +269,16 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
     /* An enabled GIF with pending but blocked delivery needs an explicit window implementation. */
     if (execution->Gif && KswSvmNestedPendingOwned(&execution->Pending, owner) &&
         (!pending || ((event & (1ULL << 31)) && (pending->Token != execution->RetryEventToken || pending->Event != event)))) {
-        /* NMI/shadow and existing injection collisions cannot be represented by a VINTR sentinel. */
-        if (pending || (event & (1ULL << 31)) || (control & (1ULL << 8))) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
-        /* Find the highest-priority maskable event independently of currently blocked IF/TPR. */
+        /* An original L1 V_IRQ needs a separate priority arbiter and cannot be overwritten. */
+        if (control & (1ULL << 8)) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
+        /* A pending NMI has higher priority and cannot be represented by a maskable sentinel. */
+        if (KswSvmNestedPendingSelect(&execution->Pending, owner, 0, 1, 0)) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
+        /* Find the highest-priority IRQ independently of IF/TPR and an existing synchronous injection. */
         window = KswSvmNestedPendingSelect(&execution->Pending, owner, 1, 0, 0);
-        /* A pending NMI has higher priority and cannot be delayed behind an IRQ scheduling window. */
-        if (!window || KswSvmNestedPendingSelect(&execution->Pending, owner, 0, 1, 0)) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
+        /* Preserve all ownership when the ledger cannot supply an eligible scheduling identity. */
+        if (!window) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
+        /* Existing EVENTINJ is delivered first. The IRQ token remains queued until hardware VINTR eligibility. */
+        pending = NULL;
     }
     /* CR8 writes while L1 GIF was closed affected V_TPR; synchronize them before reentry. */
     tpr = (unsigned)(KswSvmRead64(inner ? &execution->Session->L1 : execution->Current, KSW_VMCB_INTCTL) & 15ULL);

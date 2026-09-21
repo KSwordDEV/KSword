@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 静态IRQ/异常碰撞：排队IRQ允许在既有EVENTINJ保持原值的同时挂VINTR等待窗口；原异常先投递，随后按handler实际IF/TPR/shadow等待IRQ，token不提前消费。NMIshadow/原L1 V_IRQ碰撞继续保留WINDOW，不能冒充已解决。补window离线源用例。build-tests.cmd新增--build-only；当前全部宿主测试目标/W4/WX编译链接完成，明确TEST_EXECUTION=NOT_RUN，未执行测试。日志build-static-fixtures-20260921.log。
+
 2026-09-21 静态操作数捕获：nested_fetch从L1四级页表经NPT01读取硬件RIP..NRIP范围，逐层重查映射、限制WB/RAM、不直接解引用guest地址；跨页失败保留，不伪造guest PF。SVM隐式rAX解码识别执行模式/67h/repeated prefix/REX，覆盖VMRUN/VMLOAD/VMSAVE/INVLPGA并接general执行器。L1 legacy非LMA取指仍明确不支持；L2不暴露SVM。新增离线源用例未运行。WDK Release x64、API Universal/CAT零警告通过，日志build-nested-fetch-20260921.log；未签名、未装载，通用激活仍未开放。
 
 2026-09-21 用户允许编译，仍不执行测试/装载。累计general/停止代码首次WDK链接因hvm_svm_nmi.c与同名.asm输出同一OBJ触发LNK4042/LNK1218；汇编改名hvm_svm_nmi_entry.asm并同步工程。随后标准MSVC/WDK Release x64完整Build退出0，ApiValidator Universal、CAT生成通过，零警告。日志tools/hvm_lab/build-nested-static-20260921-r2.log。未签名、未暂存到来宾、未运行任何新测试；不等于通用激活完成。
