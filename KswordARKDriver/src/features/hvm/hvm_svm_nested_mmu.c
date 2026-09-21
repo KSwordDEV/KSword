@@ -196,11 +196,13 @@ unsigned int KswSvmNestedMmuResolve(const KSW_NMMU_CONFIG* Config,
     }
     /* Recover a precise fault/retry that a boolean callback could not express. */
     if (context.CallbackStatus != KSW_NNPT_OK) { status = context.CallbackStatus; }
-    /* A leaf installed for reads must fault on its first write to maintain source D bits. */
+    /* Clean source leaves still fault on their first write; already dirty paths need no extra exit. */
     if (status == KSW_NNPT_OK) {
-        /* The source A bits are already committed; D only follows a write resolution. */
-        Result->Leaf = (leaf & ((Access & KSW_NNPT_WRITE) ? ~0ULL : ~2ULL)) |
-            0x20ULL | ((Access & KSW_NNPT_WRITE) ? 0x40ULL : 0ULL);
+        /* Both final source entries were revalidated and retain their current dirty accounting. */
+        unsigned int dirty = (Result->Inner.EntryValue[Result->Inner.Count - 1] &
+            Result->Outer.EntryValue[Result->Outer.Count - 1] & 0x40ULL) != 0;
+        /* Reuse only intersected permissions; a read-only source never becomes writable. */
+        Result->Leaf = (leaf & (dirty ? ~0ULL : ~2ULL)) | 0x20ULL | (dirty ? 0x40ULL : 0ULL);
     }
     /* Never equate a usable candidate leaf with hardware entry success. */
     Result->Status = status;

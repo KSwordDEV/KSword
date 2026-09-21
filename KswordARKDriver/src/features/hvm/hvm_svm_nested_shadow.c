@@ -154,6 +154,26 @@ unsigned int KswSvmNestedShadowInstall(KSW_NSHADOW* Shadow, const KSW_NMMU_RESUL
     }
     /* Commit a fully resolved leaf only after all parents are present. */
     Shadow->Pages[page].Words[indices[3]] = Result->Leaf;
+    /* Two large source leaves prove uniform translation/permissions/cache over this aligned 2-MiB span. */
+    if ((Result->Inner.LeafShift == 21U || Result->Inner.LeafShift == 30U) &&
+        (Result->Outer.LeafShift == 21U || Result->Outer.LeafShift == 30U) &&
+        ((Result->Gpa ^ Result->Inner.Address) & 0x1fffffULL) == 0 &&
+        ((Result->Gpa ^ Result->Outer.Address) & 0x1fffffULL) == 0) {
+        /* Preserve the composed 4-KiB PAT encoding and all existing permission restrictions. */
+        KSW_SVM_U64 flags = Result->Leaf & ~Shadow->AddressMask;
+        /* The validated source leaves cover every frame without walking neighboring source entries. */
+        KSW_SVM_U64 base = Result->Outer.Address & Shadow->AddressMask & ~0x1fffffULL;
+        /* Populate only empty siblings; do not downgrade previously resolved writable pages. */
+        unsigned int slot;
+        /* Bound prefilling to the already allocated PT page; no extra allocation or source access. */
+        for (slot = 0; slot < 512U; ++slot) {
+            /* A/D accounting belongs to the same two large source leaves for every sibling. */
+            if (!Shadow->Pages[page].Words[slot]) {
+                /* Clean sources stay read-only until their real first write commits D. */
+                Shadow->Pages[page].Words[slot] = (base + (KSW_SVM_U64)slot * 4096ULL) | flags;
+            }
+        }
+    }
     /* All installs, including permission reductions/replacements, require a flush. */
     Shadow->FlushPending = 1;
     /* No source A/D work or memory allocation remains in this installation. */

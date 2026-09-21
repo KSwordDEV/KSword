@@ -199,6 +199,19 @@ static int test_mmu(void)
     setup_mmu(&config, &io);
     CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, KSW_NNPT_EXECUTE, KSW_NMMU_TABLE, &r) == KSW_NNPT_OK);
     CHECK((r.Leaf & 0x62) == 0x62 && r.Inner.Access == KSW_NNPT_WRITE);
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_FINAL, &r) == KSW_NNPT_OK);
+    CHECK((r.Leaf & 0x62) == 0x62); /* Already dirty source paths need no second write fault. */
+    memory.page[19][2] &= ~0x40ULL;
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_FINAL, &r) == KSW_NNPT_OK);
+    CHECK(!(r.Leaf & 0x42)); /* Clearing either D bit re-arms first-write tracking. */
+    memory.page[19][2] |= 0x40;
+    memory.page[4][24] &= ~0x40ULL;
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_FINAL, &r) == KSW_NNPT_OK);
+    CHECK(!(r.Leaf & 0x42));
+    memory.page[4][24] |= 0x40;
+    memory.page[19][2] &= ~2ULL;
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_FINAL, &r) == KSW_NNPT_OK);
+    CHECK(!(r.Leaf & 2)); /* Dirty does not grant write permission. */
     for (pat = 0; pat < 8; ++pat) {
         unsigned type = (unsigned)((PAT >> (pat * 8)) & 255);
         setup_mmu(&config, &io);
@@ -241,6 +254,44 @@ static int test_mmu(void)
     return 0;
 }
 __declspec(align(4096)) static KSW_SVM_U64 shadow_words[8][512];
+static int test_large_span(void)
+{
+    KSW_NSHADOW_PAGE pages[4];
+    KSW_NSHADOW shadow = {0};
+    KSW_NMMU_CONFIG config;
+    KSW_NMMU_IO io;
+    KSW_NMMU_RESULT r;
+    unsigned i;
+    setup_mmu(&config, &io);
+    memory.page[3][0] = 0x87; /* Outer identity mapping for inner page tables. */
+    memory.page[3][1] = 0x400087;
+    memory.page[8][0] = 0x9007;
+    memory.page[9][0] = 0xa007;
+    memory.page[10][0] = 0x20009f | KSW_NNPT_NX; /* UC/NX large inner leaf. */
+    for (i = 0; i < 4; ++i) {
+        pages[i].Words = shadow_words[i];
+        pages[i].Physical = 0x100000 + 4096ULL * i;
+    }
+    CHECK(KswSvmNestedShadowInitialize(&shadow, pages, 4, 45) == KSW_NSHADOW_OK);
+    config.Epoch = shadow.Epoch;
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_FINAL, &r) == KSW_NNPT_OK);
+    CHECK(r.Inner.LeafShift == 21 && r.Outer.LeafShift == 21);
+    CHECK(KswSvmNestedShadowInstall(&shadow, &r) == KSW_NSHADOW_OK && shadow.Used == 4);
+    for (i = 0; i < 512; ++i) {
+        CHECK(shadow_words[3][i] == ((0x400000 + 4096ULL * i) | 0x3d | KSW_NNPT_NX));
+    }
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 2, KSW_NMMU_FINAL, &r) == KSW_NNPT_OK);
+    CHECK(KswSvmNestedShadowInstall(&shadow, &r) == KSW_NSHADOW_OK);
+    CHECK((shadow_words[3][2] & 0x42) == 0x42 && !(shadow_words[3][1] & 2));
+    CHECK(KswSvmNestedShadowReset(&shadow) == KSW_NSHADOW_OK);
+    config.Epoch = shadow.Epoch;
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x1ff123, 0, KSW_NMMU_FINAL, &r) == KSW_NNPT_OK);
+    CHECK(KswSvmNestedShadowInstall(&shadow, &r) == KSW_NSHADOW_OK);
+    CHECK(shadow_words[3][0] == (0x40007f | KSW_NNPT_NX));
+    CHECK(shadow_words[3][511] == (0x5ff07f | KSW_NNPT_NX));
+    CHECK(shadow_words[2][1] == 0); /* No prefill outside either validated source span. */
+    return 0;
+}
 static int test_shadow(void)
 {
     KSW_NSHADOW_PAGE pages[8];
@@ -279,6 +330,7 @@ static int test_shadow(void)
     CHECK(shadow_words[0][0] == 0);
     CHECK(KswSvmNestedShadowInstall(&shadow, &r) == KSW_NSHADOW_STALE);
     config.Epoch = shadow.Epoch;
+    memory.page[19][2] &= ~0x40ULL; /* Guest invalidation cleared D: writes must fault again. */
     CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_FINAL, &r) == KSW_NNPT_OK);
     CHECK(KswSvmNestedShadowInstall(&shadow, &r) == KSW_NSHADOW_OK && shadow_words[1][0] == 0x102007);
     CHECK(!(shadow_words[3][2] & 2)); /* Read resolutions cannot bypass dirty logging. */
@@ -428,7 +480,7 @@ int main(void)
 {
     KSW_NSVM_MSRS msrs = {0xd01, 0, 8, 0};
     KSW_SVM_U64 value;
-    if (test_walk() || test_ad() || test_mmu() || test_shadow() || test_state() || test_resume_event()) { return 1; }
+    if (test_walk() || test_ad() || test_mmu() || test_shadow() || test_large_span() || test_state() || test_resume_event()) { return 1; }
     msrs.AddressMask = KswNptAddressMask(45);
     value = 0x1d01;
     CHECK(KswSvmNestedMsrAccess(&msrs, KSW_SVM_MSR_EFER, 1, &value) == KSW_NSVM_MSR_OK);
