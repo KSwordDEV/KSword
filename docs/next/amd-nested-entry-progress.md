@@ -54,3 +54,7 @@ Session 先解析身份、获取持有权、重新读取受保护快照，再进
 新增处理器本地全量虚拟失效：拒绝正在 L2/持有未完成 VMCB 的 Session，重置 NPT02 全部组成缓存并推进 epoch，保留原线性地址/虚拟 ASID/失效次数；下一次真实 VMRUN 仍 TLB_CONTROL=1。探针在真实内层返回后执行一条 INVLPGA，完成门要求它被处理。没有把 guest ASID 直接交给物理 INVLPGA。
 
 这只满足当前虚拟 CPU 的失效语义：L1 修改共享 NPT 后仍须按架构在相关 vCPU 执行 shootdown；L0 不能把一核的本地 INVLPGA 当成所有核已确认。每次虚拟 VMRUN 原有的全缓存重置继续保留。跨核事件递送/停机确认和外层 NPT01 动态修改尚未开放，不能称并发完整验收完成。代码、fixture 和工程清单已写，未验证。
+
+## 状态 MSR 通用层静态增量（未验证）
+
+新增 nested_register：EFER 的虚拟 SVME 与执行 VMCB 所需 SVME 分离；按当前 CPL、允许位和 CR0.PG 检查写入，LMA 保留硬件当前值。L2 不能访问/更改 L1 的 HSAVE/VM_CR。XSS 使用已分配组件的虚拟值。PAT 检查全部字节：L2 更新自己的 G_PAT，L1 改变固定 NPT01 缓存契约返回实现不支持；S_CET 非零仍明确不支持。其它 MSR 不猜测转发。生产 probe 已改用此公共层，未验证。通用调度器还需将 GP/unsupported/反射等动作连接到各自状态路径。

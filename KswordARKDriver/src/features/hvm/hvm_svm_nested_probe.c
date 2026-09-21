@@ -318,22 +318,21 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
         ULONGLONG value = ((Cpu->Gpr[2] & 0xffffffffULL) << 32) | (operand & 0xffffffffULL);
         /* Intercept info distinguishes reads from writes. */
         ULONG write = (ULONG)(KswSvmRead64(Cpu->Guest, KSW_VMCB_EXITINFO1) & 1ULL);
-        /* XSS has an independent virtual value; never forward a root-time WRMSR. */
-        if ((ULONG)Cpu->Gpr[1] == 0xda0U) {
-            /* Unsupported XSAVES/MSR access remains an explicit bounded test failure. */
-            if (!(Cpu->Caps.XsaveFeatures & 8U) || (write &&
-                KswSvmXssWrite(Cpu->HostXss, Cpu->Caps.XsaveFeatures, 0, value, &Cpu->GuestXss) != KSW_SVM_XCR_OK)) {
-                /* No real supervisor enablement changed on a rejected write. */
-                return KswNsvmFinish(Cpu, STATUS_HV_OPERATION_FAILED);
-            }
-            /* Reads reflect the software guest contract, not the root-restored XSS. */
-            if (!write) { KswSvmWrite64(Cpu->Guest, KSW_VMCB_RAX, (ULONG)Cpu->GuestXss); Cpu->Gpr[2] = (ULONG)(Cpu->GuestXss >> 32); }
-            /* Complete only after NRIP is known; an invalid probe continuation aborts natively. */
-            return KswNsvmAdvance(Cpu) ? 0 : KswNsvmFinish(Cpu, STATUS_DATA_ERROR);
-        }
-        /* No real RDMSR/WRMSR is performed by this virtual ownership handler. */
-        if (KswSvmNestedMsrAccess(&nested->Msrs, (ULONG)Cpu->Gpr[1], write, &value) != KSW_NSVM_MSR_OK) {
-            /* A rejected test operation terminates the bounded test; it is not a general exception emulator. */
+        /* Bind guest mode/ownership and immutable root state without a real RDMSR/WRMSR. */
+        KSW_NSVM_REGISTER_IO registers;
+        /* This branch is L1 only; running L2 exits were routed above. */
+        registers.Current = Cpu->Guest; registers.Svm = &nested->Msrs; registers.GuestXss = &Cpu->GuestXss;
+        /* Prepared masks/cache policy remain separate from the current executing guest image. */
+        registers.PreparedXss = Cpu->HostXss; registers.RootPat = Cpu->Caps.Pat;
+        /* The probe exposes no EFER feature absent from the prepared context. */
+        registers.EferAllowed = Cpu->Caps.Efer | KSW_SVM_EFER_SVME;
+        /* Instruction-family evidence is captured on the owning CPU, never fabricated in root. */
+        registers.XsaveFeatures = Cpu->Caps.XsaveFeatures; registers.CetPresent = Cpu->Caps.CetPresent;
+        /* Only this explicit fixed L1 test may manipulate virtual SVM ownership. */
+        registers.ExposeSvm = 1; registers.Inner = 0;
+        /* Rejected/unsupported instructions fail the harness; general dispatch will synthesize faults separately. */
+        if (KswSvmNestedRegisterAccess(&registers, (ULONG)Cpu->Gpr[1], write, &value) != KSW_NSVM_MSR_OK) {
+            /* No physical ownership or MSR state changed on failure. */
             return KswNsvmFinish(Cpu, STATUS_HV_OPERATION_FAILED);
         }
         /* RDMSR writes both guest halves with zero extension. */

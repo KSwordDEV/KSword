@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21静态寄存器层：nested_register已接受限probe，EFER虚拟SVME/当前模式/LMA与PG门、L1HSAVE/VMCR隔离、XSS软件值、L2G_PAT更新与L1缓存契约拒绝、S_CET门。未编译测试。接下来重点完整通用分派、GIF/IRQ/NMI及平台桥接，仍不开放普通resident SVM能力或宣称完整L2完成。
+
 2026-09-21静态TLB：SessionInvalidate实现L1 INVLPGA→当前vCPU全部NPT02缓存重置/epoch推进，输入ASID只记诊断、不发真实INVLPGA；probe真实inner反射后新增一条并要求Invalidations1。跨CPU仍需L1逐核shootdown，不能把本地失效称全局完成；外层NPT01保持不可变。未构建未执行，继续写通用执行与物理事件桥接。
 
 2026-09-21静态transfer：新增nested_transfer，VMLOAD/VMSAVE共用session/translated-HPA lease，捕获后持有再重读，仅架构字段复制/白名单写回，partial保留；生产probe已改调用，不再有旧固定地址读取适配内部实现（harness限制仍在）。未编译未测试。继续一般状态MSR/指令及事件控制，不阶段停下。

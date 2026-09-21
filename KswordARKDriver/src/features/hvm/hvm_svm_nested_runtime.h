@@ -16,6 +16,7 @@
 #include "hvm_svm_nested_writeback.h"
 #include "hvm_svm_nested_session.h"
 #include "hvm_svm_nested_route.h"
+#include "hvm_svm_nested_register.h"
 #include "hvm_svm_xstate.h"
 /* Enough sparse tables for the bounded probe; exhaustion returns a failed test. */
 #define KSW_NSVM_PROBE_PAGES 64U

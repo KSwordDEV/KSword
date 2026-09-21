@@ -22,7 +22,7 @@ typedef struct _KSW_SVM_CPU {
     ULONGLONG HostXcr0, GuestXcr0;
     ULONGLONG HostXss, GuestXss;
     KSW_SVM_XSTATE_LAYOUT XstateLayout;
-    struct { ULONG PhysicalBits, AsidCount, XsaveFeatures; BOOLEAN Page1Gb; ULONGLONG Pat, VmCr, Efer, Cr4; } Caps;
+    struct { ULONG PhysicalBits, AsidCount, XsaveFeatures, CetPresent; BOOLEAN Page1Gb; ULONGLONG Pat, VmCr, Efer, Cr4; } Caps;
     NTSTATUS Result;
     struct _KSW_SVM_NESTED* Nested;
 } KSW_SVM_CPU;
