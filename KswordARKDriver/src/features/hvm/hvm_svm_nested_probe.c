@@ -54,6 +54,8 @@ static VOID KswNsvmProbeSessionIo(KSW_SVM_CPU* Cpu, KSW_NSVM_SESSION_IO* Io)
     Io->Policy.EferSupported = Cpu->Caps.Efer | KSW_SVM_EFER_SVME; Io->Policy.Cr4Supported = Cpu->Caps.Cr4;
     /* Output uses the verified per-CPU physical window, with architectural field masks. */
     Io->Commit = KswordSvmNestedCommitVmcb;
+    /* Every CPU borrows the same immutable-key ownership domain. */
+    Io->Owners = nested->Owners; Io->CpuIdentity = nested->CpuIdentity;
     /* Host-owned combined maps are contiguous but retain their two architectural sizes. */
     Io->MergedMsr = nested->MergedMaps; Io->MergedIo = nested->MergedMaps + KSW_NSVM_MSRPM_BYTES;
     /* These hardware addresses were resolved and verified at PASSIVE_LEVEL. */
@@ -127,7 +129,7 @@ NTSTATUS KswordSvmNestedBuildProbe(KSW_SVM_CPU* Cpu)
     KSW_SVM_NESTED* nested = Cpu->Nested;
     /* A missing pool is a preparation failure, never a reason to allocate at high IRQL. */
     if (!nested || !nested->Operand || !nested->Stack || !nested->MergedMaps ||
-        !nested->Shadow.Pages || nested->RunningL2) { return STATUS_DEVICE_NOT_READY; }
+        !nested->Shadow.Pages || !nested->Owners || nested->RunningL2 || nested->Session.Lease.Token) { return STATUS_DEVICE_NOT_READY; }
     /* Mask transitions require an implemented dependency set and SSE-enabled native caller. */
     if (!KswSvmXcr0MaskValid(Cpu->HostXcr0) || !(Cpu->HostXcr0 & 2ULL) ||
         !Cpu->XstateLayout.Ready) { return STATUS_NOT_SUPPORTED; }

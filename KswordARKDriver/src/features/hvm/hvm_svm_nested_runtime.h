@@ -31,6 +31,10 @@ typedef struct _KSW_SVM_NESTED {
     KSW_SVM_VMCB Original;
     /* General VMRUN transaction is independent of the bounded test's original snapshot. */
     KSW_NSVM_SESSION Session;
+    /* Borrowed shared lifetime ledger; never freed independently of the backend. */
+    KSW_NSVM_OWNER_TABLE* Owners;
+    /* Frozen Windows group:number identity for this CPU's acquisition evidence. */
+    ULONG CpuIdentity;
     /* Last permission/VMCB capture outcome, retained independently of inner NPFs. */
     KSW_NSVM_OPERAND_RESULT LastOperand;
     /* Admission errors retain architecture-vs-implementation classification. */

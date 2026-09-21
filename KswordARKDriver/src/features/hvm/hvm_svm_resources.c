@@ -258,6 +258,8 @@ VOID KswordSvmRelease(KSW_HVM_RUNTIME* Runtime)
     ULONG index;
     /* Never free even apparently inactive per-CPU pages before a complete stop. */
     if (state == NULL || Runtime->ResidentProcessorCount != 0) { return; }
+    /* Partial nested output/ownership faults also retain the shared lifetime. */
+    if (!KswSvmNestedOwnersIdle(&state->NestedOwners)) { return; }
     /* Check individual owners as well as the summary count. */
     for (index = 0; state->Cpus != NULL && index < state->Count; ++index) {
         /* A stale summary cannot authorize freeing an active CPU's stack. */

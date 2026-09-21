@@ -58,10 +58,10 @@ unsigned int KswSvmNestedSessionEnter(KSW_NSVM_SESSION* Session,
     /* Keep software validation status distinct from an eventual hardware exit. */
     unsigned int status;
     /* No partial context is allowed to reach entry preparation. */
-    if (!Session || !Io || !Current || !Io->Commit || !Io->MergedMsr || !Io->MergedIo ||
+    if (!Session || !Io || !Current || !Io->Commit || !Io->Owners || !Io->MergedMsr || !Io->MergedIo ||
         !Io->Shadow || !Io->Mmu || !Io->Shadow->Pages || !Io->Shadow->Capacity) { return KSW_NSVM_ACTION_UNSUPPORTED; }
     /* Neither reentrant entry nor a previous failed writeback can replace an owner. */
-    if (Session->Phase != KSW_NSVM_SESSION_IDLE) { return KSW_NSVM_ACTION_FAULT; }
+    if (Session->Phase != KSW_NSVM_SESSION_IDLE || Session->Lease.Token) { return KSW_NSVM_ACTION_FAULT; }
     /* A stale/missing hardware NRIP cannot be turned into an invented L1 continuation. */
     if (!KswSvmNextRipValid(KswSvmRead64(Current, KSW_VMCB_RIP), KswSvmRead64(Current, KSW_VMCB_NRIP))) {
         /* State is retained for diagnosis; the instruction has not completed. */
@@ -76,10 +76,26 @@ unsigned int KswSvmNestedSessionEnter(KSW_NSVM_SESSION* Session,
     if (status != KSW_NNPT_OK) { return KswNsvmSessionFault(Session); }
     /* Save identities independently from later map reads or writeback diagnostics. */
     Session->OperandPa = OperandPa; Session->OperandHostPa = Session->OperandResult.HostPa;
+    /* GPA aliases on different virtual CPUs must contend on the same translated physical page. */
+    status = KswSvmNestedOwnerAcquire(Io->Owners, Session->OperandHostPa, Io->CpuIdentity, &Session->Lease);
+    /* Diagnostic evidence distinguishes contention from malformed virtual state. */
+    Session->OwnerStatus = status;
+    /* A concurrently owned operand cannot overwrite another CPU's live VMCB output. */
+    if (status != KSW_NSVM_LEASE_OK) { return KSW_NSVM_ACTION_UNSUPPORTED; }
+    /* The first read found the identity; only a snapshot taken under the lease may execute. */
+    status = KswSvmNestedReadOperandPage(&Io->Operand, OperandPa,
+        (unsigned char*)&Session->Vmcb12, &Session->OperandResult);
+    /* Changed translation or a failed capture retains the lease until a proven native abort. */
+    if (status != KSW_NNPT_OK || Session->OperandResult.HostPa != Session->Lease.HostPa) { return KswNsvmSessionFault(Session); }
     /* Replacing untrusted controls with valid host pointers must not hide invalid guest input. */
     status = KswSvmNestedValidateEntry(&Session->Vmcb12, &Io->Policy, &Session->Admission);
     /* Implementation restrictions preserve the original runnable L1 image. */
-    if (status == KSW_NSVM_ENTRY_UNSUPPORTED) { return KSW_NSVM_ACTION_UNSUPPORTED; }
+    if (status == KSW_NSVM_ENTRY_UNSUPPORTED) {
+        /* No hardware state or physical output changed; release exactly this entry's token. */
+        if (!KswSvmNestedOwnerRelease(Io->Owners, &Session->Lease)) { return KswNsvmSessionFault(Session); }
+        /* Unsupported instructions leave their original L1 continuation intact. */
+        return KSW_NSVM_ACTION_UNSUPPORTED;
+    }
     /* Architecturally invalid VMRUN returns to L1 with INVALID, not to the initial Windows caller. */
     if (status == KSW_NSVM_ENTRY_INVALID) {
         /* Save the real per-instruction continuation before returning the virtual exit. */
@@ -91,6 +107,8 @@ unsigned int KswSvmNestedSessionEnter(KSW_NSVM_SESSION* Session,
             &Session->Vmcb12, KSW_NSVM_SAVE_INVALID, 1, Io->Commit, &Session->OperandResult);
         /* Do not automatically retry a possibly partial write. */
         if (status != KSW_NNPT_OK) { return KswNsvmSessionFault(Session); }
+        /* INVALID output is complete before another CPU may acquire this VMCB. */
+        if (!KswSvmNestedOwnerRelease(Io->Owners, &Session->Lease)) { return KswNsvmSessionFault(Session); }
         /* Apply the architectural host-return effects using the current context. */
         KswSvmNestedRestoreL1(Current, &Session->L1, Current);
         /* Virtual VMEXIT clears GIF even when the inner guest never executed. */
@@ -150,7 +168,8 @@ unsigned int KswSvmNestedSessionReflect(KSW_NSVM_SESSION* Session,
     const KSW_NSVM_SESSION_IO* Io, KSW_SVM_VMCB* Current)
 {
     /* An L1 instruction exit cannot be mistaken for an active L2 reflection. */
-    if (!Session || !Io || !Current || Session->Phase != KSW_NSVM_SESSION_L2) { return KSW_NSVM_ACTION_FAULT; }
+    if (!Session || !Io || !Io->Owners || !Current || !Session->Lease.Token ||
+        Session->Phase != KSW_NSVM_SESSION_L2) { return KSW_NSVM_ACTION_FAULT; }
     /* An invalid physical VMCB02 is our builder/hardware-contract fault, not automatically L1's fault. */
     if (KswSvmRead64(Current, KSW_VMCB_EXITCODE) == KSW_SVM_EXIT_INVALID) { return KswNsvmSessionFault(Session); }
     /* Merge hardware outputs into the captured source, preserving all L1 control fields. */
@@ -161,6 +180,8 @@ unsigned int KswSvmNestedSessionReflect(KSW_NSVM_SESSION* Session,
         /* A partial or rejected output keeps L2 resources owned for diagnosis. */
         return KswNsvmSessionFault(Session);
     }
+    /* Publish physical output before releasing the unique VMCB execution owner. */
+    if (!KswSvmNestedOwnerRelease(Io->Owners, &Session->Lease)) { return KswNsvmSessionFault(Session); }
     /* Current VMLOAD state/CR2/DR6 survive while L1's current VMRUN core state returns. */
     KswSvmNestedRestoreL1(Current, &Session->L1, Current);
     /* The virtual host resumes with GIF clear; the arbiter controls actual event delivery. */

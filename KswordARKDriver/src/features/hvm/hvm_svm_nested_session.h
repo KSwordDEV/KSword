@@ -3,6 +3,7 @@
 #include "hvm_svm_nested_entry.h"
 #include "hvm_svm_nested_writeback.h"
 #include "hvm_svm_nested_shadow.h"
+#include "hvm_svm_nested_owner.h"
 
 /* Phases describe retained ownership, not public resident capability. */
 #define KSW_NSVM_SESSION_IDLE 0U
@@ -22,6 +23,10 @@ typedef struct _KSW_NSVM_SESSION {
     KSW_NSVM_PERMISSION_IMAGE Permissions;
     /* Both identities bind reflection to exactly the operand captured at entry. */
     KSW_SVM_U64 OperandPa, OperandHostPa;
+    /* A live lease persists across hardware execution and partial architectural writeback. */
+    KSW_NSVM_LEASE Lease;
+    /* Busy, exhausted and invalid ownership are retained separately from VMCB admission. */
+    unsigned OwnerStatus;
     /* Completion counters include only committed transitions. */
     KSW_SVM_U64 Entries, Returns, InvalidEntries;
     /* Entry failure and physical IO failure must remain distinguishable. */
@@ -36,6 +41,10 @@ typedef struct _KSW_NSVM_SESSION_IO {
     KSW_NSVM_ENTRY_POLICY Policy;
     KSW_NSVM_OPERAND_IO Operand;
     KSW_NSVM_COMMIT_VMCB Commit;
+    /* One shared identity domain for all CPUs using this immutable NPT01 lifetime. */
+    KSW_NSVM_OWNER_TABLE* Owners;
+    /* Windows processor group:number identity frozen by prepare. */
+    unsigned CpuIdentity;
     /* Per-CPU preallocated output maps and their already validated host identities. */
     unsigned char* MergedMsr;
     unsigned char* MergedIo;

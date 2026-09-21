@@ -249,6 +249,12 @@ NTSTATUS KswordSvmEnterCurrent(KSW_SVM_CPU* Cpu)
     }
     /* Publish nested probe completion only after the actual native ownership readback. */
     if (Cpu->SelfTest == 2U && Cpu->Nested) {
+        /* Only now has assembly returned natively and actual SVM/XSTATE ownership been read back. */
+        if (Cpu->Nested->Session.Lease.Token &&
+            !KswSvmNestedOwnerRelease(Cpu->Nested->Owners, &Cpu->Nested->Session.Lease)) {
+            /* A mismatched retained authority must prevent later resource teardown. */
+            status = STATUS_HV_OPERATION_FAILED;
+        }
         /* Retain failed test results as completed evidence, never as successful entries. */
         Cpu->Nested->CompletionStatus = status;
         /* Even sequence publishes counters and the precise status together. */

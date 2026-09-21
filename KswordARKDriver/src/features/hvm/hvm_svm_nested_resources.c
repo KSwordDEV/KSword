@@ -72,7 +72,7 @@ VOID KswordSvmNestedRelease(KSW_SVM_CPU* Cpu)
     /* No allocation was acquired for an ordinary baseline prepare. */
     if (!nested) { return; }
     /* Retain everything if the owner could still issue a nested VMRUN. */
-    if (Cpu->Active || nested->RunningL2) { return; }
+    if (Cpu->Active || nested->RunningL2 || nested->Session.Lease.Token) { return; }
     /* Reverse the complete allocation set, including unused shadow pages. */
     for (index = KSW_NSVM_PROBE_PAGES; index != 0;) {
         /* Descend through the allocation ledger, not hardware pointers. */
@@ -119,6 +119,10 @@ NTSTATUS KswordSvmNestedPrepare(KSW_SVM_CPU* Cpu, ULONG Index)
     nested->Window = KswordARKHvmPhysWindowForProcessor(Index);
     /* Borrow the backend lifetime's immutable outer map. */
     nested->Outer = &state->Npt;
+    /* All virtual CPUs share one translated VMCB ownership domain. */
+    nested->Owners = &state->NestedOwners;
+    /* Stable Windows topology identity, independent of sparse hardware APIC IDs. */
+    nested->CpuIdentity = ((ULONG)Cpu->Resource->Row.processorGroup << 16) | Cpu->Resource->Row.processorNumber;
     /* Refuse to execute without the physical access/cache admission mechanism. */
     if (!nested->Window || !state->Npt.Ranges) { return STATUS_NOT_SUPPORTED; }
     /* Highest representable host physical byte. */

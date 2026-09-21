@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21静态多核增量：nested_owner共享4096永久HPA键/唯一CAS token无等待锁；session获取后重读、完整INVALID/VMEXIT写回后释放、故障保留，probe等原生读回后释放；teardown要求全部token空。记录group:number。解决monitor并行VMRUN同页互斥，不阻止来宾普通内存写表；跨核NPT失效仍待做。测试源码已补未运行，未构建，按用户要求继续静态实现并本地逐块commit。
+
 2026-09-21静态异常增量：nested_event实现原异常L1截获优先、contributory/PF合成DF、DF/shutdown二次截获；IRQ/NMI已确认事件Deferred必须保留才注入，guestCR2与RIP规则明确。普通GP/UD已接，普通路径尚无异步队列故保留故障。新增测试源码/工程清单，未构建未执行。继续写物理事件/GIF、通用指令与多核所有权；不可说静态全完成。
 
 2026-09-21静态续写：XSS Host/Guest128/130汇编切换，CET_U子集写门；CPUID.D几何固定/当前guest大小计算已接受限probe，汇编x87-only检查EBX576。原生核验比较guest当前mask，probe要求原mask；补用例未运行。此阶段用户明确不验证，未编译/测试/签名/装载，不复用977725df的通过结果。后续继续静态写事件仲裁与跨核所有权等；每阶段本地commit，不阶段性结束。

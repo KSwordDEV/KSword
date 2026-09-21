@@ -4,6 +4,7 @@
 #include "hvm_metrics.h"
 #include "hvm_svm_arch.h"
 #include "hvm_svm_xstate.h"
+#include "hvm_svm_nested_owner.h"
 
 /* Bound the static NPT allocation ledger to 64 MiB of hardware tables. */
 #define KSW_NPT_MAX_PAGES 16384UL
@@ -232,6 +233,8 @@ C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, ReturnFlags) == 0x100);
 
 /* Runtime-private state, allocated only by prepare. */
 typedef struct _KSW_SVM_STATE {
+    /* Shared VMCB identity ledger survives all CPU exits and fault-retained transactions. */
+    KSW_NSVM_OWNER_TABLE NestedOwners;
     /* Shared immutable identity map. */
     KSW_NPT Npt;
     /* Per-processor ownership array. */

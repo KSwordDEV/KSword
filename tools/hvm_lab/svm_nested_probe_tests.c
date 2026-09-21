@@ -9,6 +9,7 @@ static KSW_SVM_CPU cpu;
 static KSW_SVM_NESTED nested;
 static KSW_SVM_VMCB guest, operand[2];
 static KSW_NPT outer;
+static KSW_NSVM_OWNER_TABLE owners;
 static unsigned char stack[KSW_SVM_STACK_BYTES];
 static unsigned char msrpm[KSW_NSVM_MSRPM_BYTES], iopm[KSW_NSVM_IOPM_BYTES];
 static unsigned char merged[KSW_NSVM_MSRPM_BYTES + KSW_NSVM_IOPM_BYTES];
@@ -60,6 +61,8 @@ static int initialize(void)
     unsigned i;
     memset(&cpu, 0, sizeof(cpu));
     memset(&nested, 0, sizeof(nested));
+    memset(&owners, 0, sizeof(owners));
+    nested.Owners = &owners;
     memset(&guest, 0, sizeof(guest));
     memset(memory, 0, sizeof(memory));
     cpu.Guest = &guest;

@@ -8,6 +8,7 @@ static unsigned checks;
 typedef struct _MODEL {
     KSW_NSVM_SESSION session;
     KSW_NSVM_SESSION_IO io;
+    KSW_NSVM_OWNER_TABLE owners;
     KSW_NMMU_CONFIG mmu;
     KSW_NSHADOW shadow;
     KSW_NSHADOW_PAGE pages[4];
@@ -47,6 +48,7 @@ static int initialize(MODEL* m, unsigned id)
     unsigned i;
     KSW_SVM_VMCB* operand;
     memset(m, 0, sizeof(*m)); m->id = id;
+    m->io.Owners = &m->owners; m->io.CpuIdentity = id;
     m->ram[1][0] = 0x2007; m->ram[2][0] = 0x3007; m->ram[3][0] = 0x4007;
     m->ram[4][9] = 0x6007;
     operand = (KSW_SVM_VMCB*)m->ram[6];
