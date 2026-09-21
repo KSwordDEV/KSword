@@ -117,7 +117,7 @@ NTSTATUS KswordSvmNestedInitializeGeneral(KSW_SVM_CPU* Cpu)
     /* No partial or previously live state may be reinitialized. */
     if (!Cpu || !(nested = Cpu->Nested) || Cpu->SelfTest || Cpu->Active || nested->GeneralInitialized ||
         nested->Session.Lease.Token || nested->Session.Phase != KSW_NSVM_SESSION_IDLE ||
-        !nested->Outer || !nested->Window || !Cpu->XstateLayout.Ready) { return STATUS_INVALID_DEVICE_STATE; }
+        !nested->Outer || !nested->Window || !Cpu->XstateLayout.Ready || (nested->GeneralSequence & 1)) { return STATUS_INVALID_DEVICE_STATE; }
     /* An incomplete initialization remains an odd, invalid diagnostic snapshot. */
     InterlockedIncrement64(&nested->GeneralSequence);
     /* The software register owner starts from native SVM-free Windows state. */
@@ -206,6 +206,8 @@ NTSTATUS KswordSvmNestedInitializeGeneral(KSW_SVM_CPU* Cpu)
     /* Capture actual initial TPR, but do not create an executable overlay before assembly sets final RIP/RFLAGS. */
     if (KswSvmNestedMachineInitialize(&nested->GeneralMachine) != KSW_NSVM_MACHINE_READY) { return STATUS_NOT_SUPPORTED; }
     /* This is bound-resource readiness; public activation and hardware success are separate evidence. */
+    nested->GeneralHardwareExits = nested->GeneralLastHardwareExit = 0;
+    /* Counters now describe this binding lifetime, matching the new machine transition counter. */
     nested->GeneralInitialized = 1;
     /* Assembly can observe this only after every platform callback and state owner has been initialized. */
     Cpu->NestedEntryEnabled = 1;
@@ -274,4 +276,26 @@ BOOLEAN KswordSvmNestedBusy(const KSW_SVM_CPU* Cpu)
     /* Acknowledged events or executable overlay windows retain their containing CPU resources. */
     return nested->GeneralExecution.Pending.Count || nested->GeneralMachine.ArmedToken ||
         nested->GeneralMachine.NmiCount || nested->GeneralMachine.Overlay.Applied || nested->GeneralMachine.IrqWindow.Applied;
+}
+
+/* Called only after STOP returned natively and the common worker verified current CPU registers. */
+BOOLEAN KswordSvmNestedCompleteNative(KSW_SVM_CPU* Cpu)
+{
+    /* Retain diagnostics until a later explicit reinitialization or teardown. */
+    KSW_SVM_NESTED* nested;
+    /* An absent coordinator is the ordinary residency path, with no general binding to retire. */
+    if (!Cpu || !(nested = Cpu->Nested)) { return Cpu != NULL; }
+    /* A partially published mode cannot be silently reset into ordinary execution. */
+    if (!Cpu->NestedEntryEnabled && !nested->GeneralInitialized) { return TRUE; }
+    /* Only an actual successful general private stop is eligible for retirement. */
+    if (!Cpu->NestedEntryEnabled || !nested->GeneralInitialized || (nested->GeneralSequence & 1) ||
+        nested->GeneralMachine.LastAction != KSW_NSVM_MACHINE_NATIVE ||
+        KswSvmNestedMachineCanStop(&nested->GeneralMachine) != KSW_NSVM_STOP_READY ||
+        nested->Nmi.Armed || nested->Nmi.Count || nested->GeneralMachine.IrqWindow.Applied) { return FALSE; }
+    /* No general mode reentry may race a partially retired diagnostic snapshot. */
+    InterlockedIncrement64(&nested->GeneralSequence);
+    /* The subsequent fresh start must bind the new Windows continuation instead of old virtual registers. */
+    Cpu->NestedEntryEnabled = 0; Cpu->HostInterruptsAllowed = 0; nested->GeneralInitialized = 0;
+    /* Do not clear counters, raw exits, failures, maps or NMI descriptors on the acknowledgement path. */
+    InterlockedIncrement64(&nested->GeneralSequence); return TRUE;
 }

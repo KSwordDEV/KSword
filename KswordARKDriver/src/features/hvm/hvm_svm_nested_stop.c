@@ -108,6 +108,9 @@ static ULONG_PTR KswNsvmStopIpi(ULONG_PTR Parameter)
             __readmsr(KSW_SVM_MSR_HSAVE) != cpu->OriginalHsave || !KswordSvmVerifyNativeState(cpu)) {
             /* Record native return separately so a later retry never executes VMMCALL natively. */
             cpu->NativeReturnSeen = 1; status = STATUS_HV_OPERATION_FAILED;
+        } else if (!KswordSvmNestedCompleteNative(cpu)) {
+            /* Native execution occurred, but retained event/session state forbids erasing the binding. */
+            cpu->NativeReturnSeen = 1; status = STATUS_HV_OPERATION_FAILED;
         } else {
             /* Only independently acknowledged native state clears the resident owner. */
             InterlockedExchange(&cpu->Active, 0); InterlockedDecrement(&cpu->Runtime->ResidentProcessorCount);

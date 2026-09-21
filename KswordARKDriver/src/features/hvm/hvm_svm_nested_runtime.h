@@ -123,3 +123,5 @@ ULONG KswordSvmNestedGeneralEntry(KSW_SVM_CPU* Cpu);
 ULONG KswordSvmNestedGeneralExit(KSW_SVM_CPU* Cpu);
 /* Shared release predicate covers both the bounded probe and general queued event ownership. */
 BOOLEAN KswordSvmNestedBusy(const KSW_SVM_CPU* Cpu);
+/* Retire a general binding only after the caller independently proved native register restoration. */
+BOOLEAN KswordSvmNestedCompleteNative(KSW_SVM_CPU* Cpu);
