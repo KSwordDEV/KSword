@@ -25,6 +25,11 @@ static unsigned KswNsvmComplete(KSW_NSVM_EXECUTION* Execution)
 /* Reflection does not emulate the intercepted instruction before returning to L1. */
 static unsigned KswNsvmReturnL1(KSW_NSVM_EXECUTION* Execution)
 {
+    /* An event queued for L2 must not accidentally be delivered using L1's IDT. */
+    if (KswSvmNestedPendingOwned(&Execution->Pending, Execution->Session->OperandHostPa + 1ULL)) {
+        /* A separate event handoff must complete before this context can be reflected/migrated. */
+        return KSW_NSVM_EXEC_FAULT;
+    }
     /* Partial output keeps the session/lease retained; no original Windows snapshot is used. */
     if (KswSvmNestedSessionReflect(Execution->Session, Execution->Io, Execution->Current) != KSW_NSVM_ACTION_RETURN) {
         /* Caller preserves all buffers and the exact failed commit for diagnosis. */
@@ -61,10 +66,15 @@ static unsigned KswNsvmRaise(KSW_NSVM_EXECUTION* Execution, unsigned Vector, uns
     if (action != KSW_NSVM_EVENT_INJECT) { return KSW_NSVM_EXEC_FAULT; }
     /* Preserve acknowledged interrupted IRQ/NMI before installing a replacement exception. */
     if (Execution->Exception.Deferred) {
-        /* Queue exhaustion is explicit; overwriting/dropping events is forbidden. */
-        if (Execution->DeferredCount >= 16) { return KSW_NSVM_EXEC_FAULT; }
-        /* This queue belongs solely to this CPU; event delivery consumes it separately. */
-        Execution->Deferred[Execution->DeferredCount++] = Execution->Exception.Deferred;
+        /* Each acknowledgement belongs to its original virtual IDT/context. */
+        KSW_SVM_U64 owner = inner ? Execution->Session->OperandHostPa + 1ULL : 0;
+        /* The queue supplies a unique identity rather than overwriting a raw ring slot. */
+        KSW_SVM_U64 token;
+        /* Queue exhaustion leaves the original VMCB and EXITINTINFO intact. */
+        if (!KswSvmNestedPendingPush(&Execution->Pending, Execution->Exception.Deferred, owner, &token)) {
+            /* No replacement exception is injected after losing ownership of its predecessor. */
+            return KSW_NSVM_EXEC_FAULT;
+        }
     }
     /* CR2 and EVENTINJ commit together only after deferred ownership was retained. */
     return KswSvmNestedExceptionInject(Execution->Current, &Execution->Exception, 1) ?

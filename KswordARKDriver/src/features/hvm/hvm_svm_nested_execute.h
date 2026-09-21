@@ -5,6 +5,7 @@
 #include "hvm_svm_nested_register.h"
 #include "hvm_svm_nested_cpuid.h"
 #include "hvm_svm_nested_event.h"
+#include "hvm_svm_nested_pending.h"
 /* Callers may issue VMRUN only for an explicit RESUME action after event preparation. */
 #define KSW_NSVM_EXEC_RESUME 0U
 #define KSW_NSVM_EXEC_FAULT 1U
@@ -38,8 +39,7 @@ typedef struct _KSW_NSVM_EXECUTION {
     KSW_NMMU_RESULT Translation;
     KSW_NSVM_EVENT_PLAN Exception;
     /* Acknowledged interrupted events cannot be lost when raising a replacement exception. */
-    KSW_SVM_U64 Deferred[16];
-    unsigned DeferredCount;
+    KSW_NSVM_PENDING Pending;
     /* Cache recycling is deliberate, bounded by preallocated capacity and always followed by flush. */
     KSW_SVM_U64 CacheRecycles;
 } KSW_NSVM_EXECUTION;
