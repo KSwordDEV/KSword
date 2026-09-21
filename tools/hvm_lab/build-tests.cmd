@@ -67,3 +67,8 @@ cl /nologo /W4 /WX /O2 tools\hvm_lab\svm_nested_interrupt_tests.c KswordARKDrive
 if errorlevel 1 exit /b %errorlevel%
 tools\hvm_lab\svm_nested_interrupt_tests.exe
 if errorlevel 1 exit /b %errorlevel%
+
+cl /nologo /W4 /WX /O2 tools\hvm_lab\svm_nested_fetch_tests.c KswordARKDriver\src\features\hvm\hvm_svm_nested_fetch.c /Fe:tools\hvm_lab\svm_nested_fetch_tests.exe /Fo:tools\hvm_lab\
+if errorlevel 1 exit /b %errorlevel%
+tools\hvm_lab\svm_nested_fetch_tests.exe
+if errorlevel 1 exit /b %errorlevel%

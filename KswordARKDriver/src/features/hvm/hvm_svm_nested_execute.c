@@ -276,6 +276,24 @@ unsigned KswSvmNestedExecute(KSW_NSVM_EXECUTION* Execution)
             (KswSvmRead64(Execution->Current, KSW_VMCB_RFLAGS) & (1ULL << 17))) { return KswNsvmRaise(Execution, 6, 0, 0); }
         /* SVM instructions other than the hypercall are privileged to the virtual host. */
         if (((const unsigned char*)Execution->Current)[KSW_VMCB_CPL]) { return KswNsvmRaise(Execution, 13, 0, 0); }
+        /* Decode effective address size before any VMCB read, lease acquisition or invalidation. */
+        if (code == 0x80 || code == 0x82 || code == 0x83 || code == KSW_SVM_EXIT_INVLPGA) {
+            /* Hardware decode-assist bytes are not defined for these exits; capture the actual instruction. */
+            const KSW_SVM_SEGMENT* cs = (const KSW_SVM_SEGMENT*)((const unsigned char*)Execution->Current + KSW_VMCB_CS);
+            /* A failed capture never falls back to assuming a three-byte, 64-bit operand instruction. */
+            Execution->OperandAddressBits = 0;
+            /* This reads L1 page tables through NPT01, without dereferencing guest linear pointers. */
+            Execution->InstructionStatus = KswSvmNestedFetchInstruction(&Execution->Io->Operand, Execution->Current,
+                Execution->Instruction, &Execution->InstructionLength);
+            /* Preserve the sampled image and exact failure as diagnostic evidence. */
+            if (Execution->InstructionStatus != KSW_NNPT_OK) { return KSW_NSVM_EXEC_FAULT; }
+            /* Independently reconcile opcode, NRIP length, execution mode and prefix-selected width. */
+            Execution->InstructionStatus = KswSvmNestedDecodeSvmOperand(Execution->Instruction, Execution->InstructionLength,
+                code, (cs->attributes & 0x200U) != 0, (cs->attributes & 0x400U) != 0, operand, &operand,
+                &Execution->OperandAddressBits);
+            /* A changed/mismatching instruction cannot authorize a different operand than the real exit. */
+            if (Execution->InstructionStatus != KSW_NNPT_OK) { return KSW_NSVM_EXEC_FAULT; }
+        }
         /* General virtual VMRUN owns its actual L1 continuation and translated operand. */
         if (code == 0x80) {
             /* A virtual save area must be declared before acquiring a guest execution context. */

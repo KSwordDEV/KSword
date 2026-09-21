@@ -1,5 +1,7 @@
 # AMD 嵌套 SVM：第二阶段实现记录
 
+2026-09-21 静态操作数捕获：nested_fetch从L1四级页表经NPT01读取硬件RIP..NRIP范围，逐层重查映射、限制WB/RAM、不直接解引用guest地址；跨页失败保留，不伪造guest PF。SVM隐式rAX解码识别执行模式/67h/repeated prefix/REX，覆盖VMRUN/VMLOAD/VMSAVE/INVLPGA并接general执行器。L1 legacy非LMA取指仍明确不支持；L2不暴露SVM。新增离线源用例未运行。WDK Release x64、API Universal/CAT零警告通过，日志build-nested-fetch-20260921.log；未签名、未装载，通用激活仍未开放。
+
 2026-09-21 用户允许编译，仍不执行测试/装载。累计general/停止代码首次WDK链接因hvm_svm_nmi.c与同名.asm输出同一OBJ触发LNK4042/LNK1218；汇编改名hvm_svm_nmi_entry.asm并同步工程。随后标准MSVC/WDK Release x64完整Build退出0，ApiValidator Universal、CAT生成通过，零警告。日志tools/hvm_lab/build-nested-static-20260921-r2.log。未签名、未暂存到来宾、未运行任何新测试；不等于通用激活完成。
 
 2026-09-21 静态停止协调：新增 nested_stop，general上下文采用同一次IPI内的逐核只读quiesce投票、统一commit/abort决定和原生恢复后的第二道屏障；核身份逐项校验，250ms软件等待预算。根模式只检查本核，不等待。投票后新NMI/故障仍可能造成部分退出，必须保留实际Active/NativeReturnSeen和卸载互锁，不声称硬件原子回滚；KeIpiGenericCall本身无可取消超时。普通常驻沿用已有路径。未编译、未执行测试/装载；通用激活与复杂事件语义仍待完成。

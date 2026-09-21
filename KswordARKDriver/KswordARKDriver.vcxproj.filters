@@ -1497,6 +1497,7 @@
     <ClInclude Include="src\features\hvm\hvm_svm_nested_state.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_permissions.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_operand.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_nested_fetch.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_entry.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_route.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_xstate.h" />
@@ -1521,6 +1522,7 @@
     <ClCompile Include="src\features\hvm\hvm_svm_nested_state.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_permissions.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_operand.c" />
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_fetch.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_entry.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_route.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_xstate.c" />

@@ -1,5 +1,6 @@
 /* General nested exit engine. Platform event delivery/physical acknowledgement is a separate layer. */
 #pragma once
+#include "hvm_svm_nested_fetch.h"
 #include "hvm_svm_nested_session.h"
 #include "hvm_svm_nested_route.h"
 #include "hvm_svm_nested_register.h"
@@ -44,6 +45,9 @@ typedef struct _KSW_NSVM_EXECUTION {
     KSW_SVM_U64 RetryEventToken;
     /* Cache recycling is deliberate, bounded by preallocated capacity and always followed by flush. */
     KSW_SVM_U64 CacheRecycles;
+    /* Capture evidence belongs to the latest implicit SVM operand, not to hardware decode assists. */
+    unsigned char Instruction[15];
+    unsigned InstructionLength, InstructionStatus, OperandAddressBits;
 } KSW_NSVM_EXECUTION;
 /* Do not call on a fixed probe merely to skip its evidence/marker checks.
    Physical-event/GIF_CHANGED are requests to the platform arbiter, never permission to reenter. */
