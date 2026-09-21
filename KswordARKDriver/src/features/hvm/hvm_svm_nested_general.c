@@ -83,8 +83,13 @@ static unsigned KswNsvmGeneralControl(void* Context, KSW_NSVM_MACHINE* Machine)
         !KswSvmNextRipValid(KswSvmRead64(cpu->Guest, KSW_VMCB_RIP), next)) { return KSW_NSVM_MACHINE_FAULT; }
     /* Queries retain their established private response signature. */
     if (cpu->Gpr[2] == KSW_SVM_CALL_QUERY) { value = KSW_SVM_CALL_SIGNATURE; }
+    /* Vote inspects the live session without changing residency or clearing virtual SVM ownership. */
+    else if (cpu->Gpr[2] == KSW_SVM_CALL_QUIESCE && cpu->StopRequested == 2 && cpu->Active) {
+        /* The caller waits for all votes in Windows IPI execution, never on this root stack. */
+        value = KswSvmNestedMachineCanStop(Machine) == KSW_NSVM_STOP_READY ? 0 : (ULONG)STATUS_DEVICE_BUSY;
+    }
     /* Only the IPI stop owner may request native execution on an active CPU. */
-    else if (cpu->Gpr[2] == KSW_SVM_CALL_STOP && cpu->StopRequested && cpu->Active) {
+    else if (cpu->Gpr[2] == KSW_SVM_CALL_STOP && cpu->StopRequested == 1 && cpu->Active) {
         /* Busy retains resident ownership; a nonzero result prevents the caller's native readback path. */
         native = KswSvmNestedMachineCanStop(Machine) == KSW_NSVM_STOP_READY;
         /* Never clear virtual SVM ownership or discard pending events to make stop appear successful. */

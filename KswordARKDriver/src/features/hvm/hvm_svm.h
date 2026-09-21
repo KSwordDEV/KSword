@@ -260,6 +260,9 @@ VOID KswordSvmRelease(KSW_HVM_RUNTIME* Runtime);
 NTSTATUS KswordSvmSelfTest(KSW_HVM_RUNTIME* Runtime, ULONG Flags);
 NTSTATUS KswordSvmStart(KSW_HVM_RUNTIME* Runtime, ULONG Flags);
 NTSTATUS KswordSvmStop(KSW_HVM_RUNTIME* Runtime);
+/* General nested owners require a full-set quiescence vote before any planned native exit. */
+BOOLEAN KswordSvmHasGeneral(const KSW_SVM_STATE* State);
+NTSTATUS KswordSvmNestedStopBroadcast(KSW_SVM_STATE* State);
 NTSTATUS KswordNptBuild(KSW_NPT* Npt, const KSW_SVM_CAPS* Caps);
 VOID KswordNptRelease(KSW_NPT* Npt);
 /* Processor-pinned, nonpageable execution helpers. */

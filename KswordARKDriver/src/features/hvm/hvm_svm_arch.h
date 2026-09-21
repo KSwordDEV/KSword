@@ -68,6 +68,8 @@ typedef char KSW_SVM_ASSERT_SEGMENT[(sizeof(KSW_SVM_SEGMENT) == 16) ? 1 : -1];
 #define KSW_SVM_CALL_STOP 1ULL
 /* QUERY hypercall operation. */
 #define KSW_SVM_CALL_QUERY 2ULL
+/* Private read-only stop vote; operation three remains reserved for the bounded probe. */
+#define KSW_SVM_CALL_QUIESCE 4ULL
 /* Diagnostic self-test CPUID leaf. */
 #define KSW_SVM_TEST_LEAF 0x4b535753U
 

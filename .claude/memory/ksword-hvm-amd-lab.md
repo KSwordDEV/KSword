@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 静态停止协调：新增 nested_stop，general上下文采用同一次IPI内的逐核只读quiesce投票、统一commit/abort决定和原生恢复后的第二道屏障；核身份逐项校验，250ms软件等待预算。根模式只检查本核，不等待。投票后新NMI/故障仍可能造成部分退出，必须保留实际Active/NativeReturnSeen和卸载互锁，不声称硬件原子回滚；KeIpiGenericCall本身无可取消超时。普通常驻沿用已有路径。未编译、未执行测试/装载；通用激活与复杂事件语义仍待完成。
+
 2026-09-21静态平台绑定：nested_general接CR8、NMI计数二阶段、CPUID、Session资源/可信IDTR及私有query/stop，GeneralMachine/Execution嵌入逐核资源，父子释放共用Busy。初始化不等于激活；公共flag/汇编激活及复杂窗口继续写，未构建验证。
 
 2026-09-21静态window：VINTR sentinel按真实queued IRQ优先级等IF/TPR/shadow，先恢复window再restoreoverlay，禁止sentinel进IDT。物理NMI首次注入前可按新VMRUN的NMIintercept反射或绑定L2；已开始递送不可迁移。复杂碰撞/NMIshadow仍WINDOW，继续平台绑定，未验证。

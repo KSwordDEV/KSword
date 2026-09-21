@@ -120,6 +120,8 @@ static NTSTATUS KswSvmBroadcast(KSW_SVM_STATE* State, BOOLEAN Start)
     KSW_SVM_RENDEZVOUS call = {0};
     /* Verification iterates the frozen topology. */
     ULONG index;
+    /* A general nested context requires quiescence across the complete frozen CPU set. */
+    if (!Start && KswordSvmHasGeneral(State)) { return KswordSvmNestedStopBroadcast(State); }
     /* Give each callback the same immutable target set. */
     call.State = State; call.Start = Start;
     /* Synchronous completion establishes lifetime of call and Seen array. */
