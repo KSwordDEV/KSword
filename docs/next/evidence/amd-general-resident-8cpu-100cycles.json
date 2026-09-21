@@ -1,0 +1,40 @@
+{
+  "result": "PASS",
+  "kind": "general-svm-resident-smoke",
+  "vcpu": 8,
+  "cycles": 100,
+  "idleSeconds": 10,
+  "innerOperatingSystemTested": false,
+  "innerConcurrentVcpusTested": false,
+  "sourceCommit": "3aeca4c2b07139086a7c12cd3023719e589bf457",
+  "candidateSha256": {
+    "KswordARK.sys": "001dc2295e855c11fe73d635cea85cb5bec0daf2e269dcbfa7e0b39ae49af4af",
+    "KswordARK.pdb": "77602136b0bb2b0c7098f1b7bb2400f8c7fddef14210ece41cca7c5045f90b62",
+    "hvm_ctl.exe": "8d9a76168349f0e03be3b4d7c48cb13186621aed51b99a22593420d73fb778db",
+    "AMD-Lab-TestSigning.cer": "b791debf39851cc1034d00cf154c86b7dfe227ea4928a5c8c950b7c5f93dad8c",
+    "signing.json": "f790dea54120d10a9cbb426e88efe37873fce77271744058f66f1ca4ebb9debb"
+  },
+  "rsds": {
+    "guid": "e4cc4cb2-c439-411a-b14d-0a1a0f78fedc",
+    "age": 24
+  },
+  "exportDirectory": "tools/hvm_lab/artifacts/guest-results/general-resident-20260921-180436-28f8472334b64fb1bcd372a0bbf7eb9e",
+  "exportFilesVerified": 1635,
+  "exportManifestSha256": "64e51e9683b0acd45e3e11a5bb97c59c48df00479ff4e8df8711eed6bbafea7b",
+  "activeCpuSetSnapshots": 101,
+  "stoppedCpuSetSnapshots": 102,
+  "completeStoppedCycles": 100,
+  "generalHardwareExitsByCpu": [
+    325,
+    7049,
+    1221,
+    708,
+    897,
+    3516,
+    327,
+    314
+  ],
+  "finalPreparedCount": 0,
+  "finalResidentCount": 0,
+  "serviceState": "Stopped"
+}

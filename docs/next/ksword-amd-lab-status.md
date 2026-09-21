@@ -2,6 +2,12 @@
 
 ## 当前进度（以下本节优先于后面的历史记录）
 
+### 09-21 18:05 八核通用模式100轮硬件启停 PASS
+
+同一 `3aeca4c2` 候选在单插槽8核克隆中完成100轮general常驻/停止、重复停止、最终资源释放与SCM卸载。导出1635份文件哈希/大小核验通过；逐项核对101个活动CPU集合快照、100轮完整停止后的general计数和归属，均为CPU0:0..7、无代次改变及失败状态。各轮停止时累计的逐CPU真实general退出次数为325、7049、1221、708、897、3516、327、314。最终prepared/resident均0、slatReady0、SCM STOPPED。[八核证据](evidence/amd-general-resident-8cpu-100cycles.json)。
+
+这证明8核通用模式同时常驻及100轮启停闭环；尚未启动完整内层操作系统，仍不能宣称内层8vCPU并发运行成功。下一项为调试克隆中的内层VMM/OS启动验证。
+
 ### 09-21 17:59 单核通用模式硬件启停 PASS
 
 冻结候选 `3aeca4c2` 在 VMware 原生 CPL0/SVM/NPT 的 Windows 10 单核克隆上完成通用模式准备、自检、常驻、10秒空闲后唤醒、停止、重复停止、资源释放和服务卸载。导出的51份文件均核验哈希/大小；CPU0:0记录162次general硬件退出，停止后stage6、失败状态0，事件/VMCB归属清空，最终SCM STOPPED。KD查询断点命中且加载匹配private PDB（age24）。[验收证据](evidence/amd-general-resident-1cpu.json)。
