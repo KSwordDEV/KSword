@@ -1,0 +1,76 @@
+{
+  "result": "PASS",
+  "scope": "bounded-svm-nested-probe",
+  "vcpu": 8,
+  "cycles": 100,
+  "filesVerified": 624,
+  "completedCpuRoundTrips": 800,
+  "released": true,
+  "innerOperatingSystemTested": false,
+  "concurrentInnerVcpusTested": false,
+  "rsds": {
+    "guid": "e4cc4cb2-c439-411a-b14d-0a1a0f78fedc",
+    "age": 3
+  },
+  "exportManifestSha256": "90e05b16b429fdfcb17a740ef4eb68337ee0d823c94521e13ee6f23c75d10e5f",
+  "processors": [
+    {
+      "group": 0,
+      "number": 0,
+      "finalSequence": 200,
+      "npfMin": 5,
+      "npfMax": 5
+    },
+    {
+      "group": 0,
+      "number": 1,
+      "finalSequence": 200,
+      "npfMin": 5,
+      "npfMax": 5
+    },
+    {
+      "group": 0,
+      "number": 2,
+      "finalSequence": 200,
+      "npfMin": 5,
+      "npfMax": 5
+    },
+    {
+      "group": 0,
+      "number": 3,
+      "finalSequence": 200,
+      "npfMin": 5,
+      "npfMax": 5
+    },
+    {
+      "group": 0,
+      "number": 4,
+      "finalSequence": 200,
+      "npfMin": 5,
+      "npfMax": 5
+    },
+    {
+      "group": 0,
+      "number": 5,
+      "finalSequence": 200,
+      "npfMin": 5,
+      "npfMax": 5
+    },
+    {
+      "group": 0,
+      "number": 6,
+      "finalSequence": 200,
+      "npfMin": 5,
+      "npfMax": 5
+    },
+    {
+      "group": 0,
+      "number": 7,
+      "finalSequence": 200,
+      "npfMin": 5,
+      "npfMax": 5
+    }
+  ],
+  "sourceCommit": "ec61b3df",
+  "rawEvidence": "tools/hvm_lab/artifacts/guest-results/nested-probe-20260921-092817-a6830b52ca494d5dabe7af1efd99fad6"
+}

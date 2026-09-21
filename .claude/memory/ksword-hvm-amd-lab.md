@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 09:28八核新候选PASS：nested-operand-20260921同一ec61b3df/age3候选。导出nested-probe-20260921-092817-a6830b52ca494d5dabe7af1efd99fad6共624文件，verify_nested_probe独立核验全部哈希、控制/CPU集合/完成序列及最终释放。8vCPU各100轮，共800次逐核串行嵌套往返，CPU0:0..7最终sequence200、每轮NPF5、released=true。报告docs/next/evidence/amd-nested-operand-8cpu.json。不宣称并发内层vCPU或完整L2 OS运行；权限图读取/合并新路径已完成1核1轮和8核100轮硬件回归，下一步是通用VMCB准入、L1续执行/异常反射和IRQ/NMI/GIF，不必继续重复本探针轮次。用户要求通过即commit，不推送。
+
 2026-09-21 08:52单核新候选PASS：ec61b3df对应nested-operand-20260921、SYS/PDB e4cc4cb2-c439-411a-b14d-0a1a0f78fedc age3。导出nested-probe-20260921-085216-7af421ad03814e60a8e1a6067ff5d346共30文件，verify_nested_probe独立核验哈希、控制顺序、逐核状态及最终释放通过；CPU0:0完成sequence2、NPF5、VMEXIT18、failed0。KD52376实际query断点命中并解析匹配私有PDB。仅固定探针往返，不是L2 OS或并发内层vCPU通过。按用户偏好立即提交证据后正常关闭克隆、保存单核冷态快照并直接改8vCPU；同一候选无需重编译。宿主不重启、不关机、不推送。
 
 2026-09-21续接：已先按用户要求fetch并快进到f7779802，保留本地工作。宿主HypervisorPresent=False，32LP，克隆起始关机/8vCPU。新增hvm_svm_nested_operand.c/.h：L1物理页经可信NPT01遍历、只接受WB叶缓存属性、每个物理字通过RAM窗口回调读取，复制后重验页表结构（忽略硬件A/D）；失败清零目标并返回明确状态。权限图捕获已改用此路径，取消CPU原有map地址白名单，固定VMRUN操作数/标记限制仍保留。此读取不提供对L1并发数据写入的原子快照、跨核失效或通用VMRUN准入。MSVC/WDK Release/API/CAT零警告、hvm_ctl构建通过；operand1049/分派180/权限917803/AMD74056/nested449/Intel85逻辑检查通过。新候选尚未加载/硬件验证；旧probe候选保留，本次另建共享子目录nested-operand-20260921，计划1vCPU冷启动+KD后用户运行Start-GuestNestedProbe，再按偏好跳8核。旧关机命令不再适用，本轮不关机、不推送。
