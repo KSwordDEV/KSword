@@ -1,9 +1,10 @@
 #pragma once
 
 #include "KswordArkHvmIoctl.h"
+#include "KswordArkHvmFlightRecorder.h"
 
 /* Independent versioning keeps existing HVM query clients ABI-compatible. */
-#define KSWORD_ARK_HVM_METRICS_VERSION 5UL
+#define KSWORD_ARK_HVM_METRICS_VERSION 6UL
 
 /* General execution observations are independent of bounded-probe completion evidence. */
 typedef struct _KSWORD_ARK_HVM_SVM_GENERAL_METRICS {
@@ -44,6 +45,8 @@ typedef struct _KSWORD_ARK_HVM_SVM_METRICS {
     unsigned long long observedVmCr, observedEfer, observedHsave;
     /* Version five adds a separate seqlock snapshot; it never reuses the probe valid bit. */
     KSWORD_ARK_HVM_SVM_GENERAL_METRICS general;
+    /* Version six retains the first terminal incident independently from recent exits. */
+    KSWORD_HVM_FLIGHT_RECORDER flight;
 } KSWORD_ARK_HVM_SVM_METRICS;
 #define KSWORD_ARK_IOCTL_FUNCTION_HVM_METRICS 0x916UL
 #define IOCTL_KSWORD_ARK_HVM_METRICS \

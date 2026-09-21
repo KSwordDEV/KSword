@@ -2,6 +2,33 @@
 #include "hvm_svm.h"
 #include "hvm_svm_nested_runtime.h"
 
+/* Query copies into the existing buffered response, never a large kernel-stack temporary. */
+static VOID KswSvmFlightMetrics(KSW_SVM_NESTED* Nested, KSWORD_HVM_FLIGHT_RECORDER* Output)
+{
+    /* Bound reader retries; the root writer never waits for a query. */
+    ULONG attempt;
+    /* An unprepared backend has no recorder allocation. */
+    if (!Nested) { return; }
+    /* Acquire the immutable first incident even when subsequent general transitions are busy. */
+    if (InterlockedCompareExchange(&Nested->FlightFrozen, 0, 0)) {
+        /* All writers stop touching Flight after the release publication. */
+        RtlCopyMemory(Output, &Nested->Flight, sizeof(*Output)); Output->coherent = 1; return;
+    }
+    /* Live history needs the same bounded sequence validation as other general observations. */
+    for (attempt = 0; attempt < 3; ++attempt) {
+        /* Odd means a root-side mutation is in flight. */
+        LONG64 before = InterlockedCompareExchange64(&Nested->GeneralSequence, 0, 0);
+        /* Do not wait for another processor at high exit frequency. */
+        if (before & 1) { continue; }
+        /* Readers own this response buffer under the common resource lifetime lock. */
+        RtlCopyMemory(Output, &Nested->Flight, sizeof(*Output));
+        /* Acquire recheck prevents publishing a mixed snapshot. */
+        if (before == InterlockedCompareExchange64(&Nested->GeneralSequence, 0, 0)) { Output->coherent = 1; return; }
+    }
+    /* Never export stale addresses or partially copied VMCBs as a valid observation. */
+    RtlZeroMemory(Output, sizeof(*Output));
+}
+
 /* No root CPU waits for telemetry: the reader makes at most three optimistic copies. */
 static VOID KswSvmGeneralMetrics(KSW_SVM_CPU* Cpu, KSWORD_ARK_HVM_SVM_GENERAL_METRICS* Output)
 {
@@ -96,6 +123,8 @@ VOID KswordSvmMetrics(KSW_HVM_RUNTIME* Runtime, KSWORD_ARK_HVM_METRICS_RESPONSE*
         output->observedVmCr = cpu->Caps.VmCr; output->observedEfer = cpu->Caps.Efer; output->observedHsave = cpu->Caps.Hsave;
         /* Tag this snapshot with the public lifecycle generation. */
         output->generation = Runtime->Generation;
+        /* The diagnostic record has its own validity and survives a successful stop. */
+        KswSvmFlightMetrics(cpu->Nested, &output->flight);
         /* Prepared immutable resource addresses aid dump attribution. */
         output->vmcbPa = cpu->GuestPa; output->hsavePa = cpu->HsavePa; output->nptRootPa = state->Npt.RootPa;
         /* Observed VMRUN completions requested the baseline full flush. */

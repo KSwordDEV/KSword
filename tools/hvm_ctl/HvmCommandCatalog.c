@@ -23,7 +23,7 @@ static const HVM_COMMAND_SPEC g_commands[] = {
     { "self-test-svm-nested", "AMD 嵌套 VMRUN 自检", "生命周期", "逐核执行虚拟 SVM 寄存器、VMRUN、内层退出反射与原生恢复；需要 prepare-svm-probe。", HvmControl, 0, KSWORD_ARK_HVM_CONTROL_SELF_TEST,
       KSWORD_ARK_HVM_CONTROL_FLAG_UI_CONFIRMED | KSWORD_ARK_HVM_CONTROL_FLAG_FORCE | KSWORD_ARK_HVM_CONTROL_FLAG_ALLOW_NESTED | KSWORD_ARK_HVM_CONTROL_FLAG_SVM_NESTED_PROBE, 0,
       { { NULL, HvmDecimal32, NULL } } },
-    { "metrics", "虚拟化测量", "查询与观测", "读取逐核转换时间与资源计数；AMD 另含 SVM 原始退出与 NPT 诊断。", HvmMetrics, 1, 0UL, 0UL, 0,
+    { "metrics", "虚拟化测量", "查询与观测", "读取逐核转换时间与资源计数；AMD 另含 SVM 原始退出、NPT 诊断及首故障锁存。", HvmMetrics, 1, 0UL, 0UL, 0,
       { { NULL, HvmDecimal32, NULL } } },
     { "status", "运行状态", "查询与观测", "读取完整能力、处理器状态与退出计数。", HvmStatus, 1, 0UL, 0UL, 0,
       { { NULL, HvmDecimal32, NULL } } },

@@ -2,6 +2,30 @@
 #include "hvm_svm_nested_runtime.h"
 #include <intrin.h>
 
+/* Called inside GeneralSequence while this processor exclusively owns both images. */
+static VOID KswNsvmObserve(KSW_SVM_CPU* Cpu, ULONG Kind, ULONG Reason, ULONG Timing)
+{
+    /* No additional allocation, intercept or wait is introduced in the execution path. */
+    KSW_SVM_NESTED* nested = Cpu->Nested;
+    /* A frozen incident survives later normal execution and successful stop. */
+    if (nested->Flight.latched) { return; }
+    /* Keep only inner activity unless an outer/internal terminal observation needs attribution. */
+    if (nested->Session.Phase == KSW_NSVM_SESSION_L2 || Reason) {
+        /* Bind this record to the current lifecycle generation and captured operand identity. */
+        KswSvmFlightRecord(&nested->Flight, Cpu->Guest, Kind, nested->Session.Phase,
+            nested->GeneralMachine.LastAction, Cpu->Runtime->Generation, __rdtsc(),
+            nested->Session.OperandHostPa, nested->Session.Lease.Token);
+    }
+    /* Capture SHUTDOWN/INVALID before reflection even when the coordinator treats reflection as success. */
+    if (Reason) {
+        /* An idle or released session cannot authenticate the stale Vmcb12 member. */
+        KswSvmFlightLatch(&nested->Flight, Cpu->Guest,
+            nested->Session.Phase == KSW_NSVM_SESSION_L2 ? &nested->Session.Vmcb12 : NULL, Reason, Timing);
+        /* Publish a fully written immutable snapshot independently from the busy general seqlock. */
+        InterlockedExchange(&nested->FlightFrozen, 1);
+    }
+}
+
 /* The coordinator never calls an OS interrupt handler to discover the current priority. */
 static unsigned KswNsvmReadTpr(void* Context)
 {
@@ -228,6 +252,10 @@ ULONG KswordSvmNestedGeneralEntry(KSW_SVM_CPU* Cpu)
     InterlockedIncrement64(&Cpu->Nested->GeneralSequence);
     /* This writes only processor-owned state and invokes the closed-root callbacks above. */
     action = KswSvmNestedMachineEntry(&Cpu->Nested->GeneralMachine);
+    /* Observe actual installed entry controls; terminal entry errors are explicitly post-dispatch. */
+    KswNsvmObserve(Cpu, KSW_HVM_FLIGHT_ENTRY,
+        (action == KSW_NSVM_MACHINE_FAULT || action == KSW_NSVM_MACHINE_UNSUPPORTED ||
+         action == KSW_NSVM_MACHINE_SHUTDOWN) ? KSW_HVM_FLIGHT_INTERNAL : 0U, 2U);
     /* Host IF is installed by assembly while physical GIF remains closed. */
     if (action == KSW_NSVM_MACHINE_READY) { Cpu->HostInterruptsAllowed = Cpu->Nested->GeneralMachine.Overlay.HostIf; }
     /* Publish the complete result, including a retained failure/window action. */
@@ -247,6 +275,8 @@ ULONG KswordSvmNestedGeneralExit(KSW_SVM_CPU* Cpu)
     if (Cpu->Nested->GeneralHardwareExits == ~0ULL) {
         /* Publish the retained exhaustion without authorizing a further VMRUN. */
         Cpu->Nested->GeneralMachine.LastAction = KSW_NSVM_MACHINE_FAULT;
+        /* Retain counter exhaustion without replacing an earlier first incident. */
+        KswNsvmObserve(Cpu, KSW_HVM_FLIGHT_EXIT, KSW_HVM_FLIGHT_INTERNAL, 1U);
         /* A completed diagnostic record may describe failure as well as success. */
         InterlockedIncrement64(&Cpu->Nested->GeneralSequence); return KSW_NSVM_MACHINE_FAULT;
     }
@@ -254,10 +284,19 @@ ULONG KswordSvmNestedGeneralExit(KSW_SVM_CPU* Cpu)
     ++Cpu->Nested->GeneralHardwareExits;
     /* Preserve raw hardware input even if a missing overlay makes machine dispatch fail before classification. */
     Cpu->Nested->GeneralLastHardwareExit = KswSvmRead64(Cpu->Guest, KSW_VMCB_EXITCODE);
+    /* Raw terminal exits must be copied before MachineExit restores controls or reflects to L1. */
+    KswNsvmObserve(Cpu, KSW_HVM_FLIGHT_EXIT,
+        Cpu->Nested->GeneralLastHardwareExit == 0x7fULL ? KSW_HVM_FLIGHT_SHUTDOWN :
+        (Cpu->Nested->GeneralLastHardwareExit == KSW_SVM_EXIT_INVALID ? KSW_HVM_FLIGHT_INVALID : 0U), 1U);
     /* Native return is requested only by the private, quiescent stop callback. */
     {
         /* Keep the exact coordinator outcome after all mutation is complete. */
         ULONG action = KswSvmNestedMachineExit(&Cpu->Nested->GeneralMachine);
+        /* Internal failures have a separately labelled post-dispatch snapshot; raw faults already won. */
+        if (action == KSW_NSVM_MACHINE_FAULT || action == KSW_NSVM_MACHINE_UNSUPPORTED || action == KSW_NSVM_MACHINE_SHUTDOWN) {
+            /* Preserve retained owners and failure output even when no hardware SHUTDOWN was seen. */
+            KswNsvmObserve(Cpu, KSW_HVM_FLIGHT_EXIT, KSW_HVM_FLIGHT_INTERNAL, 2U);
+        }
         /* Root NMI acknowledgement, queue transfer and reflection all belong to this same sequence. */
         InterlockedIncrement64(&Cpu->Nested->GeneralSequence); return action;
     }

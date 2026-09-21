@@ -53,32 +53,34 @@ namespace ksword::ark
     HvmMetricsResult DriverClient::queryHvmMetrics() const
     {
         HvmMetricsResult result{};
+        result.response = std::make_unique<KSWORD_ARK_HVM_METRICS_RESPONSE>();
+        auto& response = *result.response;
         KSWORD_ARK_HVM_METRICS_REQUEST request{};
         request.version = KSWORD_ARK_HVM_METRICS_VERSION;
         request.size = sizeof(request);
         result.io = deviceIoControl(IOCTL_KSWORD_ARK_HVM_METRICS,
-            &request, sizeof(request), &result.response, sizeof(result.response));
+            &request, sizeof(request), &response, sizeof(response));
         result.unsupported = !result.io.ok && isUnsupportedHvmError(result.io.win32Error);
-        if (result.io.ok && (result.io.bytesReturned != sizeof(result.response) ||
-            result.response.version != KSWORD_ARK_HVM_METRICS_VERSION ||
-            result.response.size != sizeof(result.response) ||
-            result.response.processorCount > KSWORD_ARK_HVM_MAX_PROCESSORS ||
-            result.response.qpcFrequency == 0))
+        if (result.io.ok && (result.io.bytesReturned != sizeof(response) ||
+            response.version != KSWORD_ARK_HVM_METRICS_VERSION ||
+            response.size != sizeof(response) ||
+            response.processorCount > KSWORD_ARK_HVM_MAX_PROCESSORS ||
+            response.qpcFrequency == 0))
         {
             result.io.ok = false;
             result.io.win32Error = ERROR_INVALID_DATA;
         }
         std::ostringstream stream;
-        stream << "HVM metrics coherent=" << result.response.transitionCoherent
-            << ", sequence=" << result.response.transitionSequence
-            << ", qpcFrequency=" << result.response.qpcFrequency
-            << ", processors=" << result.response.processorCount
-            << ", inveptAttempts=" << result.response.inveptAttempts
-            << ", inveptFailed=" << result.response.inveptFailed
-            << ", ruleAllocations=" << result.response.ruleAllocations
-            << ", ruleFrees=" << result.response.ruleFrees
-            << ", replacementAllocations=" << result.response.replacementAllocations
-            << ", replacementFrees=" << result.response.replacementFrees;
+        stream << "HVM metrics coherent=" << response.transitionCoherent
+            << ", sequence=" << response.transitionSequence
+            << ", qpcFrequency=" << response.qpcFrequency
+            << ", processors=" << response.processorCount
+            << ", inveptAttempts=" << response.inveptAttempts
+            << ", inveptFailed=" << response.inveptFailed
+            << ", ruleAllocations=" << response.ruleAllocations
+            << ", ruleFrees=" << response.ruleFrees
+            << ", replacementAllocations=" << response.replacementAllocations
+            << ", replacementFrees=" << response.replacementFrees;
         result.io.message = stream.str();
         return result;
     }

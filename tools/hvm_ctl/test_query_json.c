@@ -33,6 +33,19 @@ static BOOL WINAPI FakeDeviceIoControl(HANDLE device, DWORD code, LPVOID input,
         cpu->general.preparedEntries = 13;
         cpu->general.hardwareExits = 12;
         cpu->general.exitCode = 0xFEDCBA9876543210ULL;
+        cpu->flight.coherent = 1;
+        cpu->flight.latched = 1;
+        cpu->flight.reason = 1;
+        cpu->flight.captureTiming = 1;
+        cpu->flight.vmcb12Valid = 1;
+        cpu->flight.total = 0x100000003ULL;
+        cpu->flight.count = 2;
+        cpu->flight.next = 1;
+        cpu->flight.rows[31].ordinal = 0x100000002ULL;
+        cpu->flight.rows[0].ordinal = 0x100000003ULL;
+        cpu->flight.rows[0].exitCode = 0xFEDCBA9876543210ULL;
+        cpu->flight.vmcb12[4095] = 0xA5;
+        cpu->flight.currentVmcb[0] = 0x5A;
         *returned = sizeof(*metrics);
         return TRUE;
     }
@@ -59,6 +72,11 @@ static BOOL WINAPI FakeDeviceIoControl(HANDLE device, DWORD code, LPVOID input,
 
 int main(int argc, char** argv)
 {
+    if (argc == 3 && strcmp(argv[1], "--json") == 0) {
+        if (strcmp(argv[2], "metrics") == 0) { return DoMetrics(NULL, 1); }
+        if (strcmp(argv[2], "status") == 0) { return DoQuery(NULL, 1); }
+        return 2;
+    }
     if (argc > 1 && strcmp(argv[1], "metrics") == 0) { return DoMetrics(NULL, 1); }
     if (argc == 1 || strcmp(argv[1], "strings") != 0) { return DoQuery(NULL, 1); }
     KswordHvmPrintJsonString("没有拒绝过\"\\\n\t\xf0\x9f\x98\x80");

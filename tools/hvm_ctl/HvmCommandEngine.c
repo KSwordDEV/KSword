@@ -7517,6 +7517,37 @@ static int DoProcess(HANDLE h, unsigned long op, unsigned long pid,
     return (rsp.status == KSWORD_ARK_HVM_PROCESS_STATUS_OK) ? 0 : 2;
 }
 
+/* Flight data is already copied by the driver; printing never changes the recorder. */
+static void PrintFlightJson(const KSWORD_HVM_FLIGHT_RECORDER* f)
+{
+    unsigned i, j;
+    printf(",\"flight\":{\"coherent\":%u", f->coherent);
+    if (!f->coherent) { printf("}"); return; }
+    printf(",\"latched\":%u,\"reason\":%u,\"captureTiming\":%u,\"vmcb12Valid\":%u,\"total\":\"%llu\",\"rows\":[",
+        f->latched, f->reason, f->captureTiming, f->vmcb12Valid, f->total);
+    for (i = 0; i < f->count && i < KSW_HVM_FLIGHT_ROWS; ++i) {
+        const KSWORD_HVM_FLIGHT_ROW* r = &f->rows[(f->next + KSW_HVM_FLIGHT_ROWS - f->count + i) % KSW_HVM_FLIGHT_ROWS];
+        printf("%s{\"ordinal\":\"%llu\",\"tsc\":\"%llu\",\"kind\":%u,\"phase\":%u,\"action\":%u,\"generation\":%u,"
+            "\"operandPa\":\"0x%016llX\",\"leaseToken\":\"%llu\",\"exitCode\":\"0x%016llX\","
+            "\"info1\":\"0x%016llX\",\"info2\":\"0x%016llX\",\"rip\":\"0x%016llX\",\"rsp\":\"0x%016llX\","
+            "\"cr2\":\"0x%016llX\",\"cr3\":\"0x%016llX\",\"event\":\"0x%016llX\",\"exitIntInfo\":\"0x%016llX\",\"nrip\":\"0x%016llX\"}",
+            i ? "," : "", r->ordinal, r->tsc, r->kind, r->phase, r->action, r->generation,
+            r->operandPa, r->leaseToken, r->exitCode, r->info1, r->info2, r->rip, r->rsp,
+            r->cr2, r->cr3, r->event, r->exitIntInfo, r->nrip);
+    }
+    printf("]");
+    if (f->latched) {
+        const unsigned char* pages[2] = { f->vmcb12, f->currentVmcb };
+        const char* names[2] = { "vmcb12Hex", "currentVmcbHex" };
+        for (i = 0; i < 2; ++i) {
+            printf(",\"%s\":\"", names[i]);
+            for (j = 0; j < KSW_HVM_FLIGHT_PAGE_BYTES; ++j) { printf("%02X", (unsigned)pages[i][j]); }
+            printf("\"");
+        }
+    }
+    printf("}");
+}
+
 static int DoMetrics(HANDLE h, int asJson)
 {
     static const char* const globalNames[KSW_HVM_TIME_GLOBAL_STAGES] = {
@@ -7636,13 +7667,14 @@ static int DoMetrics(HANDLE h, int asJson)
                    "\"sequence\":\"%llu\",\"preparedEntries\":\"%llu\",\"hardwareExits\":\"%llu\",\"exitCode\":\"0x%016llX\","
                    "\"leaseToken\":\"%llu\",\"operandHostPa\":\"0x%016llX\",\"armedToken\":\"%llu\",\"retryToken\":\"%llu\","
                    "\"delivered\":\"%llu\",\"retried\":\"%llu\",\"cacheRecycles\":\"%llu\",\"virtualEfer\":\"0x%016llX\","
-                   "\"virtualHsave\":\"0x%016llX\",\"guestXcr0\":\"0x%016llX\",\"guestXss\":\"0x%016llX\"}}",
+                   "\"virtualHsave\":\"0x%016llX\",\"guestXcr0\":\"0x%016llX\",\"guestXss\":\"0x%016llX\"}",
                    row->general.valid, row->general.initialized, row->general.enabled, row->general.phase, row->general.action, row->general.gif,
                    row->general.pending, row->general.nmiCaptured, row->general.instructionStatus, row->general.instructionLength,
                    row->general.operandAddressBits, row->general.shadowPages, row->general.sequence, row->general.preparedEntries,
                    row->general.hardwareExits, row->general.exitCode, row->general.leaseToken, row->general.operandHostPa,
                    row->general.armedToken, row->general.retryToken, row->general.delivered, row->general.retried,
                    row->general.cacheRecycles, row->general.virtualEfer, row->general.virtualHsave, row->general.guestXcr0, row->general.guestXss);
+            PrintFlightJson(&row->flight); printf("}");
         } else {
             printf("SVM cpu=%u:%u stage=%lu valid=%lu exit=0x%016llX info1=0x%016llX info2=0x%016llX flush=%llu\n",
                    (unsigned)row->group, (unsigned)row->number, row->stage, row->valid,

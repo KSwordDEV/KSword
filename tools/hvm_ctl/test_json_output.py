@@ -38,11 +38,17 @@ EXPECTED_COMMANDS = len(re.findall(
 assert EXPECTED_COMMANDS > 0
 assert len(json.loads(commands)['commands']) == EXPECTED_COMMANDS
 metrics = json.loads(subprocess.check_output([str(fixture), 'metrics']))
-assert metrics['version'] == 5 and metrics['backend'] == 2
+assert metrics['version'] == 6 and metrics['backend'] == 2
 general = metrics['svmProcessors'][0]['general']
 assert general['valid'] == 1 and int(general['sequence']) == 0x100000002
 assert int(general['preparedEntries']) == 13 and int(general['hardwareExits']) == 12
 assert general['exitCode'] == '0xFEDCBA9876543210'
+flight = metrics['svmProcessors'][0]['flight']
+assert flight['coherent'] == 1 and flight['latched'] == 1
+assert [int(r['ordinal']) for r in flight['rows']] == [0x100000002, 0x100000003]
+assert flight['rows'][1]['exitCode'] == '0xFEDCBA9876543210'
+assert len(flight['vmcb12Hex']) == 8192 and flight['vmcb12Hex'].endswith('A5')
+assert len(flight['currentVmcbHex']) == 8192 and flight['currentVmcbHex'].startswith('5A')
 assert metrics['svmProcessors'][0]['nestedProbe'] == {
     'valid': 1, 'sequence': 2, 'status': '0x00000000', 'entries': 1,
     'reflections': 1, 'faults': 7, 'exit': '0xFEDCBA9876543210',

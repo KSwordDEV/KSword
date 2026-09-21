@@ -33,7 +33,7 @@ function Assert-HostSvmSelfTestEvidence($Prepared,$After,$Metrics,$Control,[int]
     }
     if ($Control.status -ne 0 -or $Control.failedProcessorCount -ne 0 -or
         $Control.selfTestPassedProcessorCount -ne $Count -or $Control.residentProcessorCount -ne 0 -or
-        $Metrics.backend -ne 2 -or $Metrics.version -ne 5) { throw 'Self-test control/metrics mismatch.' }
+        $Metrics.backend -ne 2 -or $Metrics.version -ne 6) { throw 'Self-test control/metrics mismatch.' }
     $sets=@()
     foreach ($rows in @(@($Prepared.processors),@($After.processors),@($Metrics.svmProcessors))) {
         $keys=@($rows | ForEach-Object { '{0}:{1}' -f $_.group,$_.number } | Sort-Object)

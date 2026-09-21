@@ -21,6 +21,7 @@
 #include "hvm_svm_xstate.h"
 #include "hvm_svm_nmi.h"
 #include "hvm_svm_nested_machine.h"
+#include "hvm_svm_flightrecorder.h"
 /* Enough sparse tables for the bounded probe; exhaustion returns a failed test. */
 #define KSW_NSVM_PROBE_PAGES 64U
 /* Private markers distinguish the inner exit from the final outer continuation. */
@@ -47,6 +48,10 @@ typedef struct _KSW_SVM_NESTED {
     volatile LONG64 GeneralSequence;
     /* A prepared attempt and an observed physical exit are deliberately different counters. */
     ULONGLONG GeneralHardwareExits, GeneralLastHardwareExit;
+    /* Preallocated diagnostic storage survives stop/start until resource teardown. */
+    KSWORD_HVM_FLIGHT_RECORDER Flight;
+    /* Release/acquire publication makes the first latched snapshot immutable to readers. */
+    volatile LONG FlightFrozen;
     /* Borrowed shared lifetime ledger; never freed independently of the backend. */
     KSW_NSVM_OWNER_TABLE* Owners;
     /* Frozen Windows group:number identity for this CPU's acquisition evidence. */

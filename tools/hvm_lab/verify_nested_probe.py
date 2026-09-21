@@ -89,7 +89,7 @@ def verify(root, candidate):
                 "CPU status did not acknowledge completion")
         require(not ({"FAULTED", "ROLLBACK_REQUIRED"} & set(status["stateNames"])), "Fault retained")
         rows = metrics["svmProcessors"]
-        require(metrics["version"] in (4, 5) and metrics["backend"] == 2 and len(rows) == count and
+        require(metrics["version"] in (4, 5, 6) and metrics["backend"] == 2 and len(rows) == count and
                 {(r["group"], r["number"]) for r in rows} == expected, "Wrong metrics version/CPU set")
         for row in rows:
             cpu = row["group"], row["number"]

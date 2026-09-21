@@ -802,6 +802,13 @@
     </ClCompile>
     <ClInclude Include="src\features\hvm\hvm_backend.h" />
     <ClInclude Include="src\features\hvm\hvm_svm.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_flightrecorder.h" />
+    <ClInclude Include="..\shared\driver\KswordArkHvmFlightRecorder.h" />
+    <ClCompile Include="src\features\hvm\hvm_svm_flightrecorder.c">
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClInclude Include="src\features\hvm\hvm_svm_arch.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_npt.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_mmu.h" />

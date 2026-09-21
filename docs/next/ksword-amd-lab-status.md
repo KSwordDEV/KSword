@@ -2,6 +2,12 @@
 
 ## 当前进度（以下本节优先于后面的历史记录）
 
+### 09-21 首故障记录与只读导出已编译，待硬件验证
+
+metrics v6新增独立flight：每CPU预分配32条L2进入/退出摘要，原始SHUTDOWN/INVALID在反射前冻结完整VMCB快照；内部失败标注处理后采集。首记录不被后续退出或stop/start覆盖，teardown/重启后消失。不添加新的异常拦截，不保证记录首异常，也没有修复尚未定位的L2故障。
+
+`Export-SvmIncident.ps1`只读保存status/metrics、VMware日志、VMCB二进制和哈希；超时保留进程/现场。独立未签名候选在 `tools/hvm_lab/artifacts/flightrecorder-v6/`，配套SYS/PDB/CLI；未加载、未运行硬件。驱动标准WDK/API/CAT零警告，22项离线目标、JSON/PS5导出和协议相关门禁通过，主程序/KswordCLI编译通过（GUI4条既有警告）。[构建记录](evidence/amd-flightrecorder-build.json)。完整L2 OS仍未通过。
+
 ### 09-21 18:50 完整 L2 启动失败，现场已保存
 
 用户在实体宿主 KSword general 常驻时启动8核 VMware 克隆，来宾 vcpu-0 于18:50:41.422报告三重故障。本次已识别AMD-V、到达EFI，但没有完整Windows启动证据。18:53只读查询宿主32核仍ACTIVE/lastStatus0；这不代表嵌套语义正确。已保存日志、配置、逐核指标、当前VMX非侵入转储和8GiB来宾内存文件，未重置虚拟机或修改驱动状态。[故障报告](evidence/amd-host-l2-triplefault-20260921.md)。

@@ -1,0 +1,60 @@
+{
+  "kind": "svm-first-fault-recorder-build",
+  "metricsVersion": 6,
+  "candidateDirectory": "tools/hvm_lab/artifacts/flightrecorder-v6",
+  "files": {
+    "KswordARK.sys": {
+      "bytes": 2823680,
+      "sha256": "7db13d5792f805aca9a856b2cbb1842150778919fe05c528148ed328ad837347"
+    },
+    "KswordARK.pdb": {
+      "bytes": 11374592,
+      "sha256": "0cced7d22250830e27001efc11eeb2aa31a3a19727afab328e2ca23fc29953fa"
+    },
+    "hvm_ctl.exe": {
+      "bytes": 322048,
+      "sha256": "9ec8e53144219ace0d1baf98ea722fb7b9dbd3d6aadac5404d2b407125bc8f29"
+    },
+    "Export-SvmIncident.ps1": {
+      "bytes": 6025,
+      "sha256": "90b4e3e7fec64a10302b848cf50d93929a5a3feb4b2af306fd1c578312cebc6c"
+    }
+  },
+  "peRsds": {
+    "guid": "c17c1ac1-a95b-487e-a566-35c96978872d",
+    "age": 1
+  },
+  "pdbIdentity": {
+    "guid": "c17c1ac1-a95b-487e-a566-35c96978872d",
+    "age": 1
+  },
+  "driverBuild": "PASS MSVC/WDK Release x64, zero warnings",
+  "wdkApiValidator": "PASS Universal",
+  "catalog": "generated",
+  "signed": false,
+  "loaded": false,
+  "hardwareExecuted": false,
+  "virtualMachineStarted": false,
+  "checks": {
+    "hvmOfflineTargets": "22/22 PASS, simulated hardware only",
+    "json": "production formatter and PS5 CP936 PASS",
+    "export": "PS5 real exporter with simulated CLI; 4096-byte VMCBs and hashes PASS",
+    "generalEvidence": "PASS",
+    "nestedEvidence": "16 cases PASS",
+    "hostSelfTestEvidence": "37 checks PASS",
+    "catalog": "82 commands PASS",
+    "ioctlPlan": "204 registered, coverage PASS",
+    "i18n": "26054 source strings PASS"
+  },
+  "limits": [
+    "No new exception intercepts; first exception may not be observed",
+    "Frozen snapshot survives stop/start but not resource teardown or host restart",
+    "Post-dispatch internal failure snapshot is explicitly labelled; not original hardware context",
+    "Current loaded binary identity is not verified by disk hashes or SCM path"
+  ],
+  "clients": {
+    "hvm_ctl": "PASS",
+    "KswordCLI": "PASS",
+    "mainApplication": "PASS; 4 pre-existing macro/deployment warnings"
+  }
+}

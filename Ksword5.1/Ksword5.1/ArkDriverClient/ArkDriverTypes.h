@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -1767,7 +1768,8 @@ namespace ksword::ark
     {
         IoResult io;
         bool unsupported = false;
-        KSWORD_ARK_HVM_METRICS_RESPONSE response{};
+        // Large diagnostics live on the heap, not the default Windows thread stack.
+        std::unique_ptr<KSWORD_ARK_HVM_METRICS_RESPONSE> response;
     };
 
     // HvmControlResult carries one generation-bound prepare, self-test, or
