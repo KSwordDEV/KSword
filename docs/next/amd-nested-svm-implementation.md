@@ -1,5 +1,13 @@
 # AMD 嵌套 SVM：第二阶段实现记录
 
+## 2026-09-21 事件交接收尾
+
+物理 NMI 在尚未注入时可随完整 VMEXIT 写回转交到 L1，继续保留 queued 所有权；已经由硬件报告中断递送的另一个事件则通过真实 EXITINTINFO 转交。两者可以共存，任一预检或写回失败均不提前消费。L1 请求的 VINTR 也接入此事务，保留原 V_IRQ，返回后重新读取 L1 控制与 GIF，避免继续使用 L2 的调度输入。
+
+对应驱动构建日志为 `tools/hvm_lab/build-general-handoff-20260921.log`（WDK Release x64、API Universal、CAT、零警告）；源用例构建日志为 `tools/hvm_lab/build-static-fixtures-general-20260921.log`（`TEST_EXECUTION=NOT_RUN`）。新增物理 NMI 单独交接、与实际 interrupted 事件共存的源用例，尚未执行。
+
+仍有明确的静态缺口：未阻塞 NMI 遇 interrupt shadow 或无关 EVENTINJ；已 armed 事件遇不同的有效 EXITINTINFO；多个未开始投递的非 physical 事件在 L2→L1 时的归属交接。这些会保留 `WINDOW`，不能作为正常可继续分支宣传。完整 L2 操作系统与内层多核并发仍未验证。
+
 ## 2026-09-21 通用实验入口（优先于下方历史）
 
 `prepare-svm-general → self-test → resident-svm-general → stop → teardown` 已有从命令目录、协议、准备配置、逐核绑定到实际汇编入口的调用链。GENERAL 与有界 PROBE 配置互斥，启动必须匹配准备时的配置；原普通常驻不自动开启通用嵌套。成功进入只发布 `PARTIAL`，不宣布内层操作系统兼容。首次硬件 INVALID 的撤销要求 native/EFER/HSAVE 回读和严格的首次进入证据，后续执行失败不能套用该清理路径。

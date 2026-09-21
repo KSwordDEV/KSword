@@ -42,7 +42,7 @@ int KswSvmNestedPendingObserve(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
 /* Validate the complete owner backlog before any architectural VMEXIT writeback. */
 int KswSvmNestedPendingPrepareTransfer(const KSW_NSVM_PENDING* Pending,
     KSW_SVM_U64 Owner, KSW_SVM_U64 RetryToken, KSW_SVM_U64 ReflectedEvent,
-    KSW_SVM_U64* TransferToken);
+    KSW_SVM_U64* TransferToken, KSW_SVM_U64* PhysicalToken);
 /* Architectural VMEXIT transfers only a hardware-observed interrupted delivery. */
 int KswSvmNestedPendingTransfer(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
     KSW_SVM_U64 ReflectedEvent);

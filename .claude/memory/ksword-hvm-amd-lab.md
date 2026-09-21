@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 物理NMI交接收尾：PendingPrepareTransfer 独立预检一个真实 interrupted token 与一个未开始投递的 physical NMI；SessionReflect 完整写回后，前者才转交给 EXITINTINFO，后者只改 owner=0，保持 queued，不伪造递送完成。允许两者同时存在；部分写回保留原账本。已就绪且被 L1 拦截的 V_IRQ 可反射 VINTR，再按恢复的 L1/GIF0 重新选择事件；不复用 L2 调度输入。驱动 build-general-handoff-20260921.log 完整 WDK/API/CAT 零警告；build-static-fixtures-general-20260921.log 仅编译链接，TEST_EXECUTION=NOT_RUN。新增源码用例包含 physical-only 和 interrupted+physical 共存。当前仍未闭合：未阻塞NMI遇shadow/无关EVENTINJ、ArmedToken与另一有效EXITINTINFO不一致、多个非physical未投递事件跨owner反射。不得写成只剩测试；无新增硬件结果，详见 docs/next/ksword-amd-lab-status.md 的最新节。
+
 2026-09-21 通用实验激活已接通：HVM v6 新增显式 ENABLE_NESTED_SVM(0x10000)，hvm_ctl 增加 prepare-svm-general/resident-svm-general，中间仍用 self-test。准备配置绑定到启动，PROBE 与 GENERAL 互斥；probe 不能通过普通 resident 绕过限制。逐核 BuildVmcb 后绑定 GeneralMachine，再进入已有真实汇编桥；成功常驻只发布 PARTIAL。首次真实 INVALID 仅在 EFER/HSAVE/native 状态回读一致、无后续硬件/队列/lease 时撤销未进入的绑定，其它失败仍保留。驱动标准 WDK/API/CAT 零警告；hvm_ctl、KswordCLI、主程序编译链接成功，GUI 有4条既有宏/Qt部署警告。构建自带 i18n/theme 门禁已运行，HVM测试未执行。命令仅属于 hvm_ctl，不向已移除该目录依赖的 GUI 语言包添加文案。仍有事件 WINDOW 分支，不得称完整 L2 或仅剩硬件验收；未签名/加载/暂存/启动VM/推送。
 
 2026-09-21 IRET完成窗口：新增nested_iret，以TF/#DB及全异常/异步拦截观察原IRET执行，区分NPF重试、IRET自身异常、完成后真实退出和纯monitor BS；保留原TF/DR6与IRET实际弹出的TF，不模拟返回栈。machine区分物理mask所有权/虚拟NMI服务屏蔽，完成IRET才清除；二次NMI延迟、仅首次投递前的物理pending可合并并计数；停止拒绝未完成mask/watch。用例仅编译、WDK/API/CAT零警告，build-nested-iret-20260921.log与build-static-fixtures-iret-20260921.log。未执行，不能把模拟输入当硬件IRET证明。NMI shadow/异步队列多owner交接仍有WINDOW分支；继续独立实验激活入口，不能说全部静态完成。

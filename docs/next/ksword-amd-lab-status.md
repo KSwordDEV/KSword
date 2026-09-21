@@ -1,6 +1,20 @@
-# AMD 实验实现状态（2026-09-18，多核常驻与嵌套 SVM 开发）
+# AMD 实验实现状态（2026-09-21，多核常驻与嵌套 SVM 开发）
 
 ## 当前进度（以下本节优先于后面的历史记录）
+
+### 09-21 静态收尾：已接通通用实验链，尚不能标记“仅剩测试”
+
+本轮新增 IRET 完成观察及虚拟 NMI 屏蔽、显式通用 SVM 准备/常驻入口、准备与启动配置匹配、首次 INVALID 原生回读后的绑定清理、物理 NMI 随 L2→L1 的事务交接及 VINTR 反射。通用入口成功只发布 PARTIAL；普通常驻和固定探针各自保留原配置边界。
+
+编译结果：驱动 Release x64 完整 WDK Build、x64 ApiValidator Universal、CAT 生成成功，零警告；hvm_ctl、KswordCLI、主程序编译链接成功。主程序有4条既有宏重定义/Qt部署警告，其构建自带 i18n/theme 门禁已运行。HVM 源用例仅编译链接，未执行；CLI 参数回归源用例已更新，未运行。没有签名、装载、暂存新候选、启动虚拟机或新增硬件验收。日志位于 `tools/hvm_lab/build-general-handoff-20260921.log`、`build-static-fixtures-general-20260921.log`、`build-cli-general-entry-20260921.log`、`build-gui-general-entry-20260921.log`。
+
+剩余静态缺口集中在事件协调器：未阻塞 NMI 遇 interrupt shadow/无关 EVENTINJ，已 armed 事件遇不同有效 EXITINTINFO，以及多个未投递非 physical 事件跨 owner 反射。这些明确返回 WINDOW 并进入故障保留路径，不是已完成的正常等待。详见[实现记录](amd-nested-svm-implementation.md)。不能以本轮编译成功替代这些实现，也不能保证 VMware 或任意内层 OS 已可启动。
+
+后续测试需区分四类证据：离线状态机/参数用例实际运行；普通常驻回归；通用模式单核完整 L2 OS 启动与关闭；同一内层 VM 的8个 vCPU 同时运行并持续前进，随后关机、全核 stop、teardown 和卸载。最后两项才涉及完整内层 OS 验收，固定探针串行轮询不替代它们。按用户当前要求，本轮不执行这些测试。
+
+已有硬件证据的准确范围：09-19 实体机32逻辑处理器已完成5秒并发常驻、全核退出、资源释放与驱动卸载；09-21 固定嵌套探针8 vCPU/100轮通过的是逐核串行800次往返。完整 L2 操作系统、内层多核并发均无通过证据；两小时压力由用户中止，不记 PASS。以下更早记录中的“尚未完成实体机5秒”已被此段及[最终短常驻证据](evidence/amd-host-resident-32cpu-5seconds.json)覆盖。
+
+### 09-18 至09-19 历史记录
 
 **09-19 00:00 实体机32核同时进入与完整 stop 已通过，5秒测试被脚本误判中断。** 全32核实际 stage=4/ENTERED，脚本误期望3/ENTERING，导致尚未等待就进入finally；stop返回成功，逐核stage6、resident0、VMMCALL退出81、failure0。已修正脚本并增加共享协议常量及真实快照回归。[进入/停止证据](evidence/amd-host-resident-enter-stop.json)。此次资源与驱动有意保留，尚未teardown/卸载；不能记为完整5秒常驻验收通过。需要先释放已停止资源、卸载，再重跑修正脚本；不需修改驱动或重启。
 

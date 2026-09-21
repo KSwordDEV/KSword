@@ -166,25 +166,37 @@ int KswSvmNestedPendingObserve(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
 /* Read-only preflight keeps a failed/partial VMCB writeback from consuming source ownership. */
 int KswSvmNestedPendingPrepareTransfer(const KSW_NSVM_PENDING* Pending,
     KSW_SVM_U64 Owner, KSW_SVM_U64 RetryToken, KSW_SVM_U64 ReflectedEvent,
-    KSW_SVM_U64* TransferToken)
+    KSW_SVM_U64* TransferToken, KSW_SVM_U64* PhysicalToken)
 {
-    /* Only one interrupted event fits in architectural EXITINTINFO. */
-    const KSW_NSVM_PENDING_ITEM* item;
-    /* Unknown output/ledger state cannot authorize a context switch. */
-    unsigned count;
+    /* One interrupted delivery and one not-yet-delivered physical NMI have different handoffs. */
+    KSW_SVM_U64 transfer = 0, physical = 0;
+    /* Validate every owned entry before publishing either handoff token. */
+    unsigned index;
     /* Owner zero is the physical virtual host, never the departing L2 VMCB. */
-    if (!Pending || !TransferToken || !Owner) { return 0; }
-    /* Leave caller output unchanged on every failed preflight. */
-    count = KswSvmNestedPendingOwned(Pending, Owner);
-    /* Events owned by other contexts are preserved and cannot populate this VMCB's field. */
-    if (!count) { *TransferToken = 0; return 1; }
-    /* Resolve the exact last interrupted hardware attempt, not a same-vector queue entry. */
-    item = KswSvmNestedPendingLookup(Pending, RetryToken);
-    /* Multiple queued events or an unstarted injection require a separate scheduling/handoff path. */
-    if (count != 1 || !item || item->Owner != Owner || item->Physical || !item->Interrupted ||
-        item->State != KSW_NSVM_PENDING_QUEUED || item->Event != ReflectedEvent) { return 0; }
-    /* The immutable token remains valid until the same root writer completes or fails its writeback. */
-    *TransferToken = item->Token; return 1;
+    if (!Pending || !TransferToken || !PhysicalToken || TransferToken == PhysicalToken || !Owner) { return 0; }
+    /* Unrelated owners retain their own state; they never populate this departing VMCB's EXITINTINFO. */
+    for (index = 0; index < KSW_NSVM_PENDING_CAPACITY; ++index) {
+        /* The private root writer owns this immutable preflight view. */
+        const KSW_NSVM_PENDING_ITEM* item = &Pending->Items[index];
+        /* A free or unrelated entry has no handoff in this transaction. */
+        if (!item->State || item->Owner != Owner) { continue; }
+        /* No in-flight hardware attempt may be reflected before its real output was observed. */
+        if (item->State != KSW_NSVM_PENDING_QUEUED || !item->Token) { return 0; }
+        /* An undelivered physical NMI follows VMEXIT's current CPU context without fabricating EXITINTINFO. */
+        if (item->Physical) {
+            /* Hardware has one pending NMI latch; interrupted delivery is no longer movable. */
+            if (physical || item->Interrupted || ((item->Event >> 8) & 7ULL) != 2) { return 0; }
+            /* Rebinding happens only after successful architectural VMCB writeback. */
+            physical = item->Token;
+        } else {
+            /* All other acknowledged events need the exact hardware-interrupted record, not a same-vector guess. */
+            if (transfer || !item->Interrupted || item->Token != RetryToken || item->Event != ReflectedEvent) { return 0; }
+            /* Exactly one event can be represented by EXITINTINFO. */
+            transfer = item->Token;
+        }
+    }
+    /* Neither output changes on failure, so partial preflight cannot authorize either mutation. */
+    *TransferToken = transfer; *PhysicalToken = physical; return 1;
 }
 
 /* Only committed VMEXIT writeback may hand an interrupted event to the inner VMM. */

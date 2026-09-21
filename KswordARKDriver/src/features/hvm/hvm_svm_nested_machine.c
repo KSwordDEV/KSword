@@ -309,7 +309,8 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
             return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
         }
     }
-    /* Read all scheduling inputs from the same current image. */
+SelectCurrent:
+    /* Read all scheduling inputs from the same current image, including a just-reflected L1 continuation. */
     control = KswSvmRead64(execution->Current, KSW_VMCB_INTCTL);
     /* Existing injections cannot be overwritten by a new asynchronous event. */
     event = KswSvmRead64(execution->Current, KSW_VMCB_EVENT);
@@ -332,8 +333,18 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
         KswSvmNestedPreferVirq(execution->Current, pending ? pending->Event : 0)) {
         /* A requested VINTR is L1-owned; reflecting it with retained L2 acknowledgements needs explicit handoff. */
         if (inner && KswSvmNestedInterceptRequested(&execution->Session->Vmcb12, 0x64) == 1) {
-            /* Preserve both requests instead of fabricating an EXITINTINFO record for an unstarted delivery. */
-            return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW);
+            /* VINTR precedes V_IRQ consumption and IDT delivery, so it carries no EXITINTINFO. */
+            KswSvmWrite64(execution->Current, KSW_VMCB_EXITCODE, 0x64); KswSvmWrite64(execution->Current, KSW_VMCB_EXITINTINFO, 0);
+            /* These undefined operands are deterministic, without fabricating an instruction advance. */
+            KswSvmWrite64(execution->Current, KSW_VMCB_EXITINFO1, 0); KswSvmWrite64(execution->Current, KSW_VMCB_EXITINFO2, 0);
+            /* VINTR has no intercepted instruction whose length could be reused by the inner VMM. */
+            KswSvmWrite64(execution->Current, KSW_VMCB_NRIP, 0);
+            /* A not-yet-injected physical NMI can follow VMEXIT; other unrepresentable backlog remains blocked. */
+            tpr = KswNsvmMachineReflect(Machine);
+            /* Partial writeback and unrepresentable event state never authorize another hardware attempt. */
+            if (tpr != KSW_NSVM_MACHINE_READY) { return KswNsvmMachineResult(Machine, tpr); }
+            /* Re-select once in L1's closed-GIF context using its actual restored controls. */
+            inner = 0; owner = 0; goto SelectCurrent;
         }
         /* Only a nonintercepted eligible virtual IRQ is converted to the equivalent unconditional injection. */
         event = (1ULL << 31) | ((control >> 32) & 255ULL);

@@ -72,6 +72,26 @@ int main(void)
     CHECK(KswSvmNestedReturnL1(&execution) == KSW_NSVM_EXEC_FAULT);
     CHECK(calls == 1 && observedCount == 1 && execution.Pending.Count == 1);
     CHECK(session.Lease.Token == 7 && execution.RetryEventToken == token && execution.Gif == 1);
+    initialize();
+    CHECK(KswSvmNestedPendingPhysicalNmi(&execution.Pending, &token));
+    CHECK(KswSvmNestedPendingMovePhysical(&execution.Pending, token, 0x2001));
+    CHECK(KswSvmNestedReturnL1(&execution) == KSW_NSVM_EXEC_RESUME);
+    CHECK(observedCount == 1 && execution.Pending.Count == 1 && !execution.Pending.Delivered);
+    CHECK(KswSvmNestedPendingLookup(&execution.Pending, token)->Owner == 0);
+    CHECK(KswSvmNestedPendingLookup(&execution.Pending, token)->Physical);
+
+    initialize();
+    CHECK(KswSvmNestedPendingPush(&execution.Pending, 0x80000050ULL, 0x2001, &token));
+    CHECK(KswSvmNestedPendingArm(&execution.Pending, token));
+    CHECK(KswSvmNestedPendingObserve(&execution.Pending, token, 1, 0x80000050ULL));
+    execution.RetryEventToken = token;
+    KswSvmWrite64(&current, KSW_VMCB_EXITINTINFO, 0x80000050ULL);
+    CHECK(KswSvmNestedPendingPhysicalNmi(&execution.Pending, &other));
+    CHECK(KswSvmNestedPendingMovePhysical(&execution.Pending, other, 0x2001));
+    CHECK(KswSvmNestedReturnL1(&execution) == KSW_NSVM_EXEC_RESUME);
+    CHECK(observedCount == 2 && execution.Pending.Count == 1 && !execution.Pending.Delivered);
+    CHECK(!KswSvmNestedPendingLookup(&execution.Pending, token));
+    CHECK(KswSvmNestedPendingLookup(&execution.Pending, other)->Owner == 0);
     puts("nested reflection boundary fixtures passed");
     return 0;
 }

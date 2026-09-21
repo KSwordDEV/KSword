@@ -5,7 +5,7 @@
 unsigned KswSvmNestedReturnL1(KSW_NSVM_EXECUTION* Execution)
 {
     /* Retain exact values before the session replaces Current with the saved L1 continuation. */
-    KSW_SVM_U64 transferToken = 0, transferEvent, owner;
+    KSW_SVM_U64 transferToken = 0, physicalToken = 0, transferEvent, owner;
     /* Reject an absent/already completed transaction before deriving a VMCB owner. */
     if (!Execution || !Execution->Current || !Execution->Session || !Execution->Io ||
         Execution->Session->Phase != KSW_NSVM_SESSION_L2 || !Execution->Session->Lease.Token ||
@@ -16,7 +16,7 @@ unsigned KswSvmNestedReturnL1(KSW_NSVM_EXECUTION* Execution)
     transferEvent = KswSvmRead64(Execution->Current, KSW_VMCB_EXITINTINFO);
     /* A queued but never injected event cannot be smuggled into architectural EXITINTINFO. */
     if (!KswSvmNestedPendingPrepareTransfer(&Execution->Pending, owner,
-        Execution->RetryEventToken, transferEvent, &transferToken)) { return KSW_NSVM_EXEC_EVENT_BLOCKED; }
+        Execution->RetryEventToken, transferEvent, &transferToken, &physicalToken)) { return KSW_NSVM_EXEC_EVENT_BLOCKED; }
     /* Partial output retains the live lease and acknowledgement; it is never a native return. */
     if (KswSvmNestedSessionReflect(Execution->Session, Execution->Io, Execution->Current) != KSW_NSVM_ACTION_RETURN) {
         /* The caller retains the entire resource graph for diagnosis. */
@@ -25,6 +25,11 @@ unsigned KswSvmNestedReturnL1(KSW_NSVM_EXECUTION* Execution)
     /* Only the complete writeback authorizes the exact hardware-observed event's transfer. */
     if (transferToken && !KswSvmNestedPendingTransfer(&Execution->Pending, transferToken, transferEvent)) {
         /* A violated single-writer invariant after writeback still cannot authorize reentry. */
+        return KSW_NSVM_EXEC_FAULT;
+    }
+    /* A hardware-pending NMI remains pending after virtual VMEXIT; its next IDT is L1's current context. */
+    if (physicalToken && !KswSvmNestedPendingMovePhysical(&Execution->Pending, physicalToken, 0)) {
+        /* Never fabricate an injected event to conceal an invalid pending-latch handoff. */
         return KSW_NSVM_EXEC_FAULT;
     }
     /* No stale retry identity may refer to an acknowledgement now owned by L1. */
