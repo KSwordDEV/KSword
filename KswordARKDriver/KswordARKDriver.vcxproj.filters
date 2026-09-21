@@ -1518,6 +1518,7 @@
     <ClCompile Include="src\features\hvm\hvm_svm_nested_event.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_owner.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_transfer.c" />
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_tlb.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_session.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_commit.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_writeback.c" />

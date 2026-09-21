@@ -48,3 +48,9 @@ Session 先解析身份、获取持有权、重新读取受保护快照，再进
 ## VMLOAD/VMSAVE 通用事务静态增量（未验证）
 
 新增 nested_transfer，并将生产受限探针的 VMLOAD/VMSAVE 改为调用它：任意操作数先经可信 NPT01 翻译，取得与 VMRUN 共用的 HPA lease，重读后只复制 VMLOAD 字段或按 VMSAVE 白名单写回。禁止借用运行中/故障保留的 Session；NRIP 在修改前检查，部分写入保留进度与 lease。原生确认后才允许故障清理。探针自身仍限制固定操作数；通用事务无此固定地址假设。未构建、未测试。
+
+## 虚拟 INVLPGA 静态增量（未验证）
+
+新增处理器本地全量虚拟失效：拒绝正在 L2/持有未完成 VMCB 的 Session，重置 NPT02 全部组成缓存并推进 epoch，保留原线性地址/虚拟 ASID/失效次数；下一次真实 VMRUN 仍 TLB_CONTROL=1。探针在真实内层返回后执行一条 INVLPGA，完成门要求它被处理。没有把 guest ASID 直接交给物理 INVLPGA。
+
+这只满足当前虚拟 CPU 的失效语义：L1 修改共享 NPT 后仍须按架构在相关 vCPU 执行 shootdown；L0 不能把一核的本地 INVLPGA 当成所有核已确认。每次虚拟 VMRUN 原有的全缓存重置继续保留。跨核事件递送/停机确认和外层 NPT01 动态修改尚未开放，不能称并发完整验收完成。代码、fixture 和工程清单已写，未验证。

@@ -883,6 +883,11 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_tlb.c">
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="src\features\hvm\hvm_svm_nested_transfer.c">
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <TreatWarningAsError>true</TreatWarningAsError>

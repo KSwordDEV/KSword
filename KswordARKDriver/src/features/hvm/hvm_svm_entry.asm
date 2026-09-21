@@ -386,6 +386,9 @@ KswordSvmAsmNestedProbe proc
     jne KswSvmNestedBadReturn   ; Report failed restoration before any native Windows return.
     mov rax, rbx                ; VMSAVE still needs its VMCB physical operand.
     vmsave rax                  ; Exercise state persistence across a virtual VMEXIT.
+    lea rax, KswordSvmAsmNestedPayload ; Supply a real inner linear address for virtual invalidation.
+    mov ecx, 1                  ; Guest ASID is input evidence, never a real L0 ASID allocation.
+    invlpga rax, ecx            ; L0 drops this CPU's entire composed cache before acknowledging.
     stgi                        ; Complete the virtual host's GIF transition in this IF=0 test.
     xor eax, eax                ; Release the virtual HSAVE declaration.
     xor edx, edx                ; Upper half must also be zero.

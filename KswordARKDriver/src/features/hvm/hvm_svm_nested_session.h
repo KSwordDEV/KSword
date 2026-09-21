@@ -27,6 +27,10 @@ typedef struct _KSW_NSVM_SESSION {
     KSW_NSVM_LEASE Lease;
     /* Busy, exhausted and invalid ownership are retained separately from VMCB admission. */
     unsigned OwnerStatus;
+    /* Virtual invalidations are distinct from assembly's physical flush-on-every-entry counter. */
+    KSW_SVM_U64 Invalidations, LastInvalidationLinear, LastInvalidationEpoch;
+    /* Guest ASIDs are diagnostic inputs; physical ASIDs are always owned separately by L0. */
+    unsigned LastInvalidationAsid;
     /* Completion counters include only committed transitions. */
     KSW_SVM_U64 Entries, Returns, InvalidEntries;
     /* Entry failure and physical IO failure must remain distinguishable. */
@@ -69,3 +73,7 @@ unsigned int KswSvmNestedSessionReflect(KSW_NSVM_SESSION* Session,
 unsigned int KswSvmNestedSessionTransfer(KSW_NSVM_SESSION* Session,
     const KSW_NSVM_SESSION_IO* Io, KSW_SVM_VMCB* Current, KSW_SVM_U64 OperandPa,
     unsigned Save);
+/* INVLPGA may invalidate more translations than requested. This first implementation
+   discards every cached composition on this virtual CPU, independently of guest ASID. */
+unsigned int KswSvmNestedSessionInvalidate(KSW_NSVM_SESSION* Session,
+    KSW_NSVM_SESSION_IO* Io, KSW_SVM_U64 Linear, unsigned Asid);

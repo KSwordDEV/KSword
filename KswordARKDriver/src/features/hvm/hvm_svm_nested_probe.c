@@ -380,6 +380,22 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
         ++nested->Entries;
         /* The assembly host loop performs the real VMRUN with this VMCB02 image. */
         return 0;
+    } else if (code == 0x86ULL) {
+        /* INVLPGA operates on this logical processor's virtual translation cache. */
+        KSW_NSVM_SESSION_IO io;
+        /* Do not advance or change cache state for an unavailable/undecodable instruction. */
+        if (!(nested->Msrs.Efer & KSW_SVM_EFER_SVME) || !nested->Reflections ||
+            !KswSvmNextRipValid(KswSvmRead64(Cpu->Guest, KSW_VMCB_RIP), KswSvmRead64(Cpu->Guest, KSW_VMCB_NRIP))) {
+            /* This bounded harness expects one invalidation after the actual inner return. */
+            return KswNsvmFinish(Cpu, STATUS_INVALID_DEVICE_STATE);
+        }
+        /* Reuse the same prepared root and per-CPU cache epoch as the VMRUN transaction. */
+        KswNsvmProbeSessionIo(Cpu, &io);
+        /* Full virtual cache invalidation is stronger than the requested single-address ASID operation. */
+        if (KswSvmNestedSessionInvalidate(&nested->Session, &io, operand, (ULONG)Cpu->Gpr[1]) != KSW_NSVM_ACTION_RETURN) {
+            /* No root-time hardware INVLPGA with untrusted ASID is issued. */
+            return KswNsvmFinish(Cpu, STATUS_HV_OPERATION_FAILED);
+        }
     } else if (code == 0x84ULL) {
         /* The probe restores virtual GIF before returning to the Windows continuation. */
         if (!(nested->Msrs.Efer & KSW_SVM_EFER_SVME)) { return KswNsvmFinish(Cpu, STATUS_INVALID_DEVICE_STATE); }
@@ -389,6 +405,7 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu)
         /* Final success requires both hardware entry/reflection and virtual ownership cleanup. */
         BOOLEAN passed = nested->Entries == 1 && nested->Reflections == 1 && nested->Faults != 0 &&
             nested->Session.InvalidEntries == 1 && nested->Session.Returns == 1 &&
+            nested->Session.Invalidations == 1 &&
             nested->Xcr0Writes == 2 && Cpu->GuestXcr0 == Cpu->HostXcr0 &&
             Cpu->GuestXss == Cpu->HostXss &&
             nested->LastExit == KSW_SVM_EXIT_CPUID && nested->LastMarker == KSW_NSVM_INNER_MARKER &&

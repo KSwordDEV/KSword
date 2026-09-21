@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21静态TLB：SessionInvalidate实现L1 INVLPGA→当前vCPU全部NPT02缓存重置/epoch推进，输入ASID只记诊断、不发真实INVLPGA；probe真实inner反射后新增一条并要求Invalidations1。跨CPU仍需L1逐核shootdown，不能把本地失效称全局完成；外层NPT01保持不可变。未构建未执行，继续写通用执行与物理事件桥接。
+
 2026-09-21静态transfer：新增nested_transfer，VMLOAD/VMSAVE共用session/translated-HPA lease，捕获后持有再重读，仅架构字段复制/白名单写回，partial保留；生产probe已改调用，不再有旧固定地址读取适配内部实现（harness限制仍在）。未编译未测试。继续一般状态MSR/指令及事件控制，不阶段停下。
 
 2026-09-21静态多核增量：nested_owner共享4096永久HPA键/唯一CAS token无等待锁；session获取后重读、完整INVALID/VMEXIT写回后释放、故障保留，probe等原生读回后释放；teardown要求全部token空。记录group:number。解决monitor并行VMRUN同页互斥，不阻止来宾普通内存写表；跨核NPT失效仍待做。测试源码已补未运行，未构建，按用户要求继续静态实现并本地逐块commit。
