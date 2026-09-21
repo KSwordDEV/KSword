@@ -86,5 +86,9 @@ cl /nologo /W4 /WX /O2 tools\hvm_lab\svm_nested_reflect_tests.c KswordARKDriver\
 if errorlevel 1 exit /b %errorlevel%
 if "%KSW_RUN_TESTS%"=="1" tools\hvm_lab\svm_nested_reflect_tests.exe
 if errorlevel 1 exit /b %errorlevel%
+cl /nologo /W4 /WX /O2 tools\hvm_lab\svm_nested_machine_tests.c KswordARKDriver\src\features\hvm\hvm_svm_nested_machine.c KswordARKDriver\src\features\hvm\hvm_svm_nested_execute.c KswordARKDriver\src\features\hvm\hvm_svm_nested_reflect.c KswordARKDriver\src\features\hvm\hvm_svm_nested_interrupt.c KswordARKDriver\src\features\hvm\hvm_svm_nested_window.c KswordARKDriver\src\features\hvm\hvm_svm_nested_pending.c KswordARKDriver\src\features\hvm\hvm_svm_nested_fetch.c KswordARKDriver\src\features\hvm\hvm_svm_nested_register.c KswordARKDriver\src\features\hvm\hvm_svm_nested_cpuid.c KswordARKDriver\src\features\hvm\hvm_svm_nested_event.c KswordARKDriver\src\features\hvm\hvm_svm_nested_mmu.c KswordARKDriver\src\features\hvm\hvm_svm_nested_shadow.c KswordARKDriver\src\features\hvm\hvm_svm_nested_session.c KswordARKDriver\src\features\hvm\hvm_svm_nested_tlb.c KswordARKDriver\src\features\hvm\hvm_svm_nested_transfer.c KswordARKDriver\src\features\hvm\hvm_svm_nested_owner.c KswordARKDriver\src\features\hvm\hvm_svm_nested_entry.c KswordARKDriver\src\features\hvm\hvm_svm_nested_state.c KswordARKDriver\src\features\hvm\hvm_svm_nested_permissions.c KswordARKDriver\src\features\hvm\hvm_svm_nested_operand.c KswordARKDriver\src\features\hvm\hvm_svm_nested_writeback.c KswordARKDriver\src\features\hvm\hvm_svm_nested_route.c KswordARKDriver\src\features\hvm\hvm_svm_xstate.c /Fe:tools\hvm_lab\svm_nested_machine_tests.exe /Fo:tools\hvm_lab\
+if errorlevel 1 exit /b %errorlevel%
+if "%KSW_RUN_TESTS%"=="1" tools\hvm_lab\svm_nested_machine_tests.exe
+if errorlevel 1 exit /b %errorlevel%
 if "%KSW_RUN_TESTS%"=="0" echo TEST_EXECUTION=NOT_RUN
 exit /b 0

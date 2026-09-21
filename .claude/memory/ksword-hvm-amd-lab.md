@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 协调器源用例：svm_nested_machine_tests将生产machine/execute/reflect及其全部portable依赖实际链接在一起，只模拟CR8/NMI/CPUID/硬件输出；覆盖普通CPUID完成、IF阻塞→VINTR→IRQ注入、GIF0 NMI两阶段确认→STGI、INVALID保留、确认提交失败和队列满时不确认、停止拒绝条件。/W4 /WX编译链接成功（build-static-fixtures-machine-20260921.log），TEST_EXECUTION=NOT_RUN，不声称用例或NMI硬件通过。未重新构建未改的驱动、未装载/启动VM。
+
 2026-09-21 静态事件交接：新增nested_reflect统一一般指令/物理事件的L2→L1事务。账本Interrupted仅由真实VMEXIT同一EXITINTINFO置位，反射前核验单一owner/token/递送状态，完整VMCB写回后才移交；不再允许仅排队事件凭同vector被消费。物理退出现在可移交同一被打断事件；多项积压/未开始投递仍明确WINDOW。新增边界fixture（提交失败、跨owner、重复/未开始移交）并更新pending源用例，全部仅编译链接，TEST_EXECUTION=NOT_RUN。WDK Release/API Universal/CAT零警告，build-nested-reflect-20260921.log；通用入口仍未开放，无动态验证。
 
 2026-09-21 静态VIRQ复用：VINTR临时请求按排队IRQ与原V_IRQ的可投递条件并集唤醒，保存/恢复原vector/priority/IGN_TPR；已就绪的物理确认事件优先（APM15.21.4），原虚拟IRQ只在队列阻塞时按原IF/TPR/shadow投递，原EVENTINJ不改。L1要求VINTR反射且L2仍持确认队列时继续保留WINDOW，未伪造EXITINTINFO。扩展源用例未执行；WDK/API/CAT零警告通过build-nested-virq-20260921.log。GUI metrics v5整批构建最终成功（build-gui-metrics5-20260921.log），共8条既有宏重定义/Qt部署警告，链接器自行从32位重启到64位后成功；未手动替换工具链。GUI构建自带i18n/theme门禁自动执行，无HVM测试或硬件运行。
