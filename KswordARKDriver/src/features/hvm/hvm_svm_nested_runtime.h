@@ -12,6 +12,9 @@
 #include "hvm_svm_nested_msr.h"
 #include "hvm_svm_nested_permissions.h"
 #include "hvm_svm_nested_operand.h"
+#include "hvm_svm_nested_entry.h"
+#include "hvm_svm_nested_writeback.h"
+#include "hvm_svm_nested_session.h"
 /* Enough sparse tables for the bounded probe; exhaustion returns a failed test. */
 #define KSW_NSVM_PROBE_PAGES 64U
 /* Private markers distinguish the inner exit from the final outer continuation. */
@@ -24,14 +27,12 @@
 typedef struct _KSW_SVM_NESTED {
     /* Saved initial Windows image supports bounded-test abort, never arbitrary VM abort. */
     KSW_SVM_VMCB Original;
-    /* VMRUN's virtual host state is separate from its opaque HSAVE page. */
-    KSW_SVM_VMCB L1;
-    /* Snapshot of the complete, driver-owned VMCB12. */
-    KSW_SVM_VMCB Vmcb12;
-    /* Immutable permission evidence belongs to the same VMRUN as Vmcb12. */
-    KSW_NSVM_PERMISSION_IMAGE Permissions;
+    /* General VMRUN transaction is independent of the bounded test's original snapshot. */
+    KSW_NSVM_SESSION Session;
     /* Last permission/VMCB capture outcome, retained independently of inner NPFs. */
     KSW_NSVM_OPERAND_RESULT LastOperand;
+    /* Admission errors retain architecture-vs-implementation classification. */
+    KSW_NSVM_ENTRY_RESULT LastEntry;
     /* One contiguous allocation: merged MSRPM followed by merged IOPM. */
     PUCHAR MergedMaps;
     /* Derived at PASSIVE_LEVEL and checked against MAXPHYADDR before use. */
@@ -79,6 +80,12 @@ ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu);
 int KswordSvmNestedRead(void* Context, KSW_SVM_U64 Address, KSW_SVM_U64* Value);
 /* Atomic source A/D commit through the same per-processor physical window. */
 int KswordSvmNestedCompareOr(void* Context, KSW_SVM_U64 Address, KSW_SVM_U64 Expected, KSW_SVM_U64 Bits);
+/* Validate the complete word/page against the retained outer RAM inventory. */
+BOOLEAN KswordSvmNestedRamRange(const KSW_SVM_NESTED* Nested, ULONGLONG Address, ULONG Bytes);
+/* Architectural output fields only; partial progress is never reported as success. */
+int KswordSvmNestedCommitVmcb(void* Context, KSW_SVM_U64 HostPa,
+    const KSW_SVM_VMCB* Image, unsigned int Operation, unsigned int NestedPaging,
+    unsigned int* WordsWritten);
 /* Assembly markers are also used to validate the exact probe continuation. */
 VOID KswordSvmAsmNestedProbe(VOID);
 /* Inner code performs a unique intercepted CPUID; it never runs an OS. */

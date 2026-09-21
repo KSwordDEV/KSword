@@ -18,7 +18,7 @@ typedef struct _KSW_SVM_CPU {
     void* Msrpm;
     void* Iopm;
     ULONGLONG Gpr[16], LaunchRsp, LaunchFlags, OriginalEfer;
-    struct { ULONG PhysicalBits; BOOLEAN Page1Gb; ULONGLONG Pat, VmCr; } Caps;
+    struct { ULONG PhysicalBits, AsidCount; BOOLEAN Page1Gb; ULONGLONG Pat, VmCr, Efer, Cr4; } Caps;
     NTSTATUS Result;
     struct _KSW_SVM_NESTED* Nested;
 } KSW_SVM_CPU;

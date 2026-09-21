@@ -294,6 +294,8 @@ KswordSvmAsmNestedProbe proc
     vmmcall                     ; Capture the executable Windows return image and original GPRs.
     cli                         ; The probe never opens a maskable-interrupt window.
     push rbx                    ; Preserve the Windows caller's nonvolatile scratch register.
+    push rsi                    ; Retain the caller's second nonvolatile register.
+    mov rsi, rdx                ; Begin returned the owned VMCB's guest virtual mapping.
     mov rbx, rax                ; Keep the prevalidated VMCB12 physical operand.
     mov ecx, 0c0000080h          ; Read the virtual EFER image.
     rdmsr                       ; Must be handled as virtual ownership, not physical host state.
@@ -306,6 +308,12 @@ KswordSvmAsmNestedProbe proc
     wrmsr                       ; Record software ownership without installing real hardware state.
     mov rax, rbx                ; VMCB12 contains the exact supported test state.
     vmload rax                  ; Exercise the separately virtualized extended state subset.
+    mov dword ptr [rsi+58h], 0  ; ASID zero must return architectural VMEXIT_INVALID.
+    vmrun rax                   ; Software rejection must resume this exact L1 continuation.
+    cmp qword ptr [rsi+70h], -1 ; Verify the returned full-width INVALID exit in guest RAM.
+    jne KswSvmNestedBadReturn   ; A stale/missing output is a failed probe, never a PASS.
+    mov dword ptr [rsi+58h], 1  ; Correct the same VMCB without restarting the monitor.
+    stgi                        ; Exercise virtual GIF release after the invalid-entry return.
     vmrun rax                   ; Intercept, build VMCB02, enter the inner marker and reflect its exit.
     vmsave rax                  ; Exercise state persistence across a virtual VMEXIT.
     stgi                        ; Complete the virtual host's GIF transition in this IF=0 test.
@@ -317,9 +325,13 @@ KswordSvmAsmNestedProbe proc
     rdmsr                       ; Preserve every non-SVME guest bit.
     and eax, 0ffffefffh          ; Release only the virtual SVM owner.
     wrmsr                       ; The dispatcher checks cleanup before final success.
+    pop rsi                     ; Restore the extra mapping register after all ownership cleanup.
     pop rbx                     ; Restore the Windows caller's nonvolatile register.
     mov eax, 4b534e32h           ; Unique outer continuation marker, not the inner CPUID marker.
     cpuid                       ; Native return is permitted only after the complete nested round trip.
+KswSvmNestedBadReturn:
+    mov eax, 4b534e00h           ; An unexpected return is an intercepted probe failure.
+    cpuid                       ; Preserve diagnostics and restore the known bounded caller.
     ud2                         ; A successful dispatcher never returns past the final marker.
 KswordSvmAsmNestedProbe endp
 

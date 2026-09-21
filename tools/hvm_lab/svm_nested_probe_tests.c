@@ -24,6 +24,7 @@ int KswordSvmNestedRead(void* context, KSW_SVM_U64 address, KSW_SVM_U64* value)
 {
     (void)context;
     if ((address & 7) || address >= sizeof(memory)) { return 0; }
+    if (address >= 0x10000 && address < 0x11000) { memcpy(value, (unsigned char*)operand + (size_t)(address - 0x10000), 8); return 1; }
     if (address >= 0x20000 && address < 0x22000) { memcpy(value, msrpm + (size_t)(address - 0x20000), 8); return 1; }
     if (address >= 0x22000 && address < 0x25000) { memcpy(value, iopm + (size_t)(address - 0x22000), 8); return 1; }
     *value = memory[address >> 12][(address & 4095) / 8];
@@ -37,6 +38,21 @@ int KswordSvmNestedCompareOr(void* context, KSW_SVM_U64 address, KSW_SVM_U64 exp
     slot = &memory[address >> 12][(address & 4095) / 8];
     if (*slot != expected) { return 0; }
     *slot |= bits;
+    return 1;
+}
+int KswordSvmNestedCommitVmcb(void* context, KSW_SVM_U64 pa, const KSW_SVM_VMCB* image,
+    unsigned operation, unsigned np, unsigned* written)
+{
+    unsigned offset;
+    (void)context; *written = 0;
+    if (pa != 0x10000) { return 0; }
+    for (offset = 0; offset < 4096; offset += 8) {
+        KSW_SVM_U64 mask = KswSvmNestedWritebackMask(offset, operation, np);
+        if (mask) {
+            KswSvmWrite64(operand, offset, (KswSvmRead64(operand, offset) & ~mask) | (KswSvmRead64(image, offset) & mask));
+            ++*written;
+        }
+    }
     return 1;
 }
 static int initialize(void)
@@ -53,6 +69,7 @@ static int initialize(void)
     msrpm[0x820] = 3; /* EFER read/write, independent APM offset. */
     cpu.Nested = &nested;
     cpu.Caps.PhysicalBits = 45;
+    cpu.Caps.AsidCount = 64; cpu.Caps.Efer = 0xd01; cpu.Caps.Cr4 = 0;
     cpu.Caps.Page1Gb = TRUE;
     cpu.Caps.Pat = 0x0007010600070106ULL;
     cpu.OriginalEfer = 0xd01;
@@ -78,6 +95,11 @@ static int initialize(void)
     KswSvmWrite64(&guest, KSW_VMCB_RFLAGS, 0x202);
     KswSvmWrite64(&guest, KSW_VMCB_GS, 0xaabbccdd);
     KswSvmWrite32(&guest, KSW_VMCB_MISC1, (1U << 18) | KSW_NSVM_MSR_PROT);
+    KswSvmWrite32(&guest, KSW_VMCB_MISC2, 1);
+    KswSvmWrite32(&guest, KSW_VMCB_ASID, 1);
+    KswSvmWrite64(&guest, KSW_VMCB_NP, 1);
+    KswSvmWrite64(&guest, KSW_VMCB_NCR3, outer.RootPa);
+    KswSvmWrite64(&guest, KSW_VMCB_PAT, cpu.Caps.Pat);
     KswSvmWrite64(&guest, KSW_VMCB_MSRPM, 0x20000);
     KswSvmWrite64(&guest, KSW_VMCB_IOPM, 0x22000);
     CHECK(KswordSvmNestedBuildProbe(&cpu) == STATUS_SUCCESS);
@@ -112,6 +134,13 @@ static int begin(void)
     KswSvmWrite64(&guest, KSW_VMCB_RFLAGS, 2);
     CHECK(write_msr(KSW_SVM_MSR_EFER, 0x1d01) == 0);
     CHECK(write_msr(KSW_SVM_MSR_HSAVE, nested.OperandPa + 4096) == 0);
+    KswSvmWrite32(operand, KSW_VMCB_ASID, 0);
+    CHECK(emit(KSW_SVM_EXIT_VMRUN, nested.OperandPa) == 0);
+    CHECK(nested.Session.InvalidEntries == 1 && !nested.Entries && !nested.RunningL2);
+    CHECK(KswSvmRead64(operand, KSW_VMCB_EXITCODE) == ~0ULL);
+    CHECK(KswSvmRead64(&guest, KSW_VMCB_RIP) == fakeRip);
+    KswSvmWrite32(operand, KSW_VMCB_ASID, 1);
+    CHECK(emit(0x84, nested.OperandPa) == 0);
     return 0;
 }
 static int test_roundtrip(void)
@@ -123,7 +152,7 @@ static int test_roundtrip(void)
     continuation = fakeRip + 3;
     CHECK(emit(KSW_SVM_EXIT_VMRUN, nested.OperandPa) == 0);
     CHECK(nested.RunningL2 && nested.Entries == 1 && !nested.Reflections);
-    CHECK(nested.Permissions.Ready == 1 && merged[0x820] == 3);
+    CHECK(nested.Session.Permissions.Ready == 1 && merged[0x820] == 3);
     CHECK(nested.LastOperand.Status == KSW_NNPT_OK && nested.LastOperand.Words == 512);
     CHECK(KswSvmRead64(&guest, KSW_VMCB_MSRPM) == 0x80000);
     CHECK(KswSvmRead64(&guest, KSW_VMCB_IOPM) == 0x82000);
@@ -168,7 +197,7 @@ static int test_failures(void)
         if (scenario == 7) {
             KswSvmWrite64(operand, KSW_VMCB_MSRPM, 0x70000);
             CHECK(emit(KSW_SVM_EXIT_VMRUN, nested.OperandPa) == 1);
-            CHECK(!nested.Permissions.Ready && !nested.Entries);
+            CHECK(!nested.Session.Permissions.Ready && !nested.Entries);
         }
         if (scenario == 8) {
             /* Hardware CPUID trapped by L0 cannot falsely count as an L1-requested exit. */
@@ -202,12 +231,12 @@ static int test_nonidentity_permissions(void)
     KswSvmWrite64(operand, KSW_VMCB_MSRPM, 0x30000);
     CHECK(emit(KSW_SVM_EXIT_VMRUN, nested.OperandPa) == 0);
     CHECK(nested.LastOperand.GuestPa == 0x31000 && nested.LastOperand.HostPa == 0x21000);
-    CHECK(nested.Permissions.Ready && nested.Permissions.Msr[0x820] == 3 && merged[0x820] == 3);
+    CHECK(nested.Session.Permissions.Ready && nested.Session.Permissions.Msr[0x820] == 3 && merged[0x820] == 3);
     /* Outer protections survive an inner map containing no requested intercepts. */
     if (initialize() || begin()) { return 1; }
     KswSvmWrite64(operand, KSW_VMCB_MSRPM, 0x30000);
     CHECK(emit(KSW_SVM_EXIT_VMRUN, nested.OperandPa) == 0);
-    CHECK(nested.Permissions.Msr[0x820] == 0 && merged[0x820] == 3);
+    CHECK(nested.Session.Permissions.Msr[0x820] == 0 && merged[0x820] == 3);
     return 0;
 }
 int main(void)

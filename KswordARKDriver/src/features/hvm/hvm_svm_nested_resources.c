@@ -3,12 +3,13 @@
 #include "../../platform/pool_compat.h"
 
 /* Validate full operands against the retained, immutable RAM inventory. */
-static BOOLEAN KswNsvmRam(const KSW_SVM_NESTED* Nested, ULONGLONG Address)
+BOOLEAN KswordSvmNestedRamRange(const KSW_SVM_NESTED* Nested, ULONGLONG Address, ULONG Bytes)
 {
     /* Walk the trusted Windows inventory, never guest-supplied intervals. */
     ULONG index;
-    /* Reads/atomic updates are exactly one aligned word. */
-    if ((Address & 7ULL) || Address > Nested->Outer->Limit - 8ULL || !Nested->Outer->Ranges) { return FALSE; }
+    /* Word reads and whole-page commits must fit without unsigned subtraction underflow. */
+    if (!Nested || !Nested->Outer || !Bytes || (Address & 7ULL) ||
+        Bytes > Nested->Outer->Limit || Address > Nested->Outer->Limit - Bytes || !Nested->Outer->Ranges) { return FALSE; }
     /* The inventory was validated before any CPU entered SVM. */
     for (index = 0; Nested->Outer->Ranges[index].NumberOfBytes.QuadPart; ++index) {
         /* Decode a validated nonnegative interval. */
@@ -16,7 +17,7 @@ static BOOLEAN KswNsvmRam(const KSW_SVM_NESTED* Nested, ULONGLONG Address)
         /* The builder already checked addition against the physical-address limit. */
         ULONGLONG high = low + (ULONGLONG)Nested->Outer->Ranges[index].NumberOfBytes.QuadPart;
         /* No MMIO/unknown hole is mapped with the window's RAM cache attributes. */
-        if (Address >= low && Address <= high - 8ULL) { return TRUE; }
+        if (Bytes <= high - low && Address >= low && Address <= high - Bytes) { return TRUE; }
     }
     /* Unclassified physical memory is not an admissible table operand. */
     return FALSE;
@@ -30,7 +31,7 @@ int KswordSvmNestedRead(void* Context, KSW_SVM_U64 Address, KSW_SVM_U64* Value)
     /* Never return or retain the transient mapping pointer. */
     volatile VOID* mapped = NULL;
     /* RAM validation precedes window mapping. */
-    if (!KswNsvmRam(nested, Address) ||
+    if (!KswordSvmNestedRamRange(nested, Address, 8) ||
         KswordARKHvmPhysWindowMap(nested->Window, Address, 8, &mapped) != KSW_HVM_PHYS_WINDOW_OK) { return 0; }
     /* Aligned x64 word access does not fabricate a value on mapping failure. */
     *Value = *(volatile ULONGLONG*)mapped;
@@ -51,7 +52,7 @@ int KswordSvmNestedCompareOr(void* Context, KSW_SVM_U64 Address,
     /* Preserve the actual compare-exchange observation. */
     LONG64 observed;
     /* This callback may alter only the architectural Accessed/Dirty bits. */
-    if ((Bits & ~0x60ULL) || !KswNsvmRam(nested, Address) ||
+    if ((Bits & ~0x60ULL) || !KswordSvmNestedRamRange(nested, Address, 8) ||
         KswordARKHvmPhysWindowMap(nested->Window, Address, 8, &mapped) != KSW_HVM_PHYS_WINDOW_OK) { return 0; }
     /* LOCK CMPXCHG is nonblocking and does not acquire a kernel spinlock. */
     observed = InterlockedCompareExchange64((volatile LONG64*)mapped, (LONG64)(Expected | Bits), (LONG64)Expected);

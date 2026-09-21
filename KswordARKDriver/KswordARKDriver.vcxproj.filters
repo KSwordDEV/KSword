@@ -1496,6 +1496,9 @@
     <ClInclude Include="src\features\hvm\hvm_svm_nested_state.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_permissions.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_operand.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_nested_entry.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_nested_session.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_nested_writeback.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_msr.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_runtime.h" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_resources.c" />
@@ -1505,6 +1508,10 @@
     <ClCompile Include="src\features\hvm\hvm_svm_nested_state.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_permissions.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_operand.c" />
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_entry.c" />
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_session.c" />
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_commit.c" />
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_writeback.c" />
     <MASM Include="src\features\hvm\hvm_svm_entry.asm" />
   </ItemGroup>
 </Project>

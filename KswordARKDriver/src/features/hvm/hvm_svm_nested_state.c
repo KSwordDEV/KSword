@@ -64,6 +64,8 @@ void KswSvmNestedReflectExit(KSW_SVM_VMCB* Vmcb12, const KSW_SVM_VMCB* Vmcb02,
     KswNsvmCopy(Vmcb12, Vmcb02, KSW_VMCB_EXITCODE, 32);
     /* NRIP is already zero for exits without architecturally defined next RIP. */
     KswNsvmCopy(Vmcb12, Vmcb02, KSW_VMCB_NRIP, 8);
+    /* Decode assists return the hardware byte count and its fifteen instruction bytes. */
+    KswNsvmCopy(Vmcb12, Vmcb02, 0x0d0U, 16);
     /* The hardware-updated V_IRQ and V_TPR bits coexist with L1-owned controls. */
     KswSvmWrite64(Vmcb12, KSW_VMCB_INTCTL,
         (KswSvmRead64(Vmcb12, KSW_VMCB_INTCTL) & ~0x10fULL) |

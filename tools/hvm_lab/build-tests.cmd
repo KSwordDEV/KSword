@@ -21,7 +21,19 @@ cl /nologo /W4 /WX /O2 tools\hvm_lab\svm_nested_operand_tests.c KswordARKDriver\
 if errorlevel 1 exit /b %errorlevel%
 tools\hvm_lab\svm_nested_operand_tests.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /W4 /WX /O2 /DKSW_SVM_NESTED_HOST_TEST /Itools\hvm_lab tools\hvm_lab\svm_nested_probe_tests.c KswordARKDriver\src\features\hvm\hvm_svm_nested_probe.c KswordARKDriver\src\features\hvm\hvm_svm_nested_mmu.c KswordARKDriver\src\features\hvm\hvm_svm_nested_shadow.c KswordARKDriver\src\features\hvm\hvm_svm_nested_state.c KswordARKDriver\src\features\hvm\hvm_svm_nested_permissions.c KswordARKDriver\src\features\hvm\hvm_svm_nested_operand.c /Fe:tools\hvm_lab\svm_nested_probe_tests.exe /Fo:tools\hvm_lab\
+cl /nologo /W4 /WX /O2 tools\hvm_lab\svm_nested_entry_tests.c KswordARKDriver\src\features\hvm\hvm_svm_nested_entry.c KswordARKDriver\src\features\hvm\hvm_svm_nested_state.c KswordARKDriver\src\features\hvm\hvm_svm_nested_permissions.c /Fe:tools\hvm_lab\svm_nested_entry_tests.exe /Fo:tools\hvm_lab\
+if errorlevel 1 exit /b %errorlevel%
+tools\hvm_lab\svm_nested_entry_tests.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /W4 /WX /O2 tools\hvm_lab\svm_nested_writeback_tests.c KswordARKDriver\src\features\hvm\hvm_svm_nested_writeback.c KswordARKDriver\src\features\hvm\hvm_svm_nested_state.c /Fe:tools\hvm_lab\svm_nested_writeback_tests.exe /Fo:tools\hvm_lab\
+if errorlevel 1 exit /b %errorlevel%
+tools\hvm_lab\svm_nested_writeback_tests.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /W4 /WX /O2 tools\hvm_lab\svm_nested_session_tests.c KswordARKDriver\src\features\hvm\hvm_svm_nested_session.c KswordARKDriver\src\features\hvm\hvm_svm_nested_entry.c KswordARKDriver\src\features\hvm\hvm_svm_nested_state.c KswordARKDriver\src\features\hvm\hvm_svm_nested_permissions.c KswordARKDriver\src\features\hvm\hvm_svm_nested_operand.c KswordARKDriver\src\features\hvm\hvm_svm_nested_writeback.c KswordARKDriver\src\features\hvm\hvm_svm_nested_shadow.c /Fe:tools\hvm_lab\svm_nested_session_tests.exe /Fo:tools\hvm_lab\
+if errorlevel 1 exit /b %errorlevel%
+tools\hvm_lab\svm_nested_session_tests.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /W4 /WX /O2 /DKSW_SVM_NESTED_HOST_TEST /Itools\hvm_lab tools\hvm_lab\svm_nested_probe_tests.c KswordARKDriver\src\features\hvm\hvm_svm_nested_probe.c KswordARKDriver\src\features\hvm\hvm_svm_nested_mmu.c KswordARKDriver\src\features\hvm\hvm_svm_nested_shadow.c KswordARKDriver\src\features\hvm\hvm_svm_nested_state.c KswordARKDriver\src\features\hvm\hvm_svm_nested_permissions.c KswordARKDriver\src\features\hvm\hvm_svm_nested_operand.c KswordARKDriver\src\features\hvm\hvm_svm_nested_entry.c KswordARKDriver\src\features\hvm\hvm_svm_nested_writeback.c KswordARKDriver\src\features\hvm\hvm_svm_nested_session.c /Fe:tools\hvm_lab\svm_nested_probe_tests.exe /Fo:tools\hvm_lab\
 if errorlevel 1 exit /b %errorlevel%
 tools\hvm_lab\svm_nested_probe_tests.exe
 if errorlevel 1 exit /b %errorlevel%

@@ -804,6 +804,9 @@
     <ClInclude Include="src\features\hvm\hvm_svm_nested_state.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_permissions.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_operand.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_nested_entry.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_nested_session.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_nested_writeback.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_msr.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_runtime.h" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_resources.c">
@@ -837,6 +840,26 @@
       <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="src\features\hvm\hvm_svm_nested_operand.c">
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_entry.c">
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_session.c">
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_commit.c">
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_writeback.c">
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <TreatWarningAsError>true</TreatWarningAsError>
       <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
