@@ -118,6 +118,8 @@ NTSTATUS KswordSvmNestedInitializeGeneral(KSW_SVM_CPU* Cpu)
     if (!Cpu || !(nested = Cpu->Nested) || Cpu->SelfTest || Cpu->Active || nested->GeneralInitialized ||
         nested->Session.Lease.Token || nested->Session.Phase != KSW_NSVM_SESSION_IDLE ||
         !nested->Outer || !nested->Window || !Cpu->XstateLayout.Ready) { return STATUS_INVALID_DEVICE_STATE; }
+    /* An incomplete initialization remains an odd, invalid diagnostic snapshot. */
+    InterlockedIncrement64(&nested->GeneralSequence);
     /* The software register owner starts from native SVM-free Windows state. */
     nested->Msrs.Efer = Cpu->Caps.Efer & ~KSW_SVM_EFER_SVME; nested->Msrs.Hsave = 0;
     /* Firmware disable/lock and the physical-width mask remain read-only virtual capabilities. */
@@ -206,7 +208,9 @@ NTSTATUS KswordSvmNestedInitializeGeneral(KSW_SVM_CPU* Cpu)
     /* This is bound-resource readiness; public activation and hardware success are separate evidence. */
     nested->GeneralInitialized = 1;
     /* Assembly can observe this only after every platform callback and state owner has been initialized. */
-    Cpu->NestedEntryEnabled = 1; return STATUS_SUCCESS;
+    Cpu->NestedEntryEnabled = 1;
+    /* A nonzero even sequence publishes binding readiness, never hardware execution evidence. */
+    InterlockedIncrement64(&nested->GeneralSequence); return STATUS_SUCCESS;
 }
 
 /* The assembly-facing caller is responsible for refusing every non-READY action. */
@@ -216,10 +220,14 @@ ULONG KswordSvmNestedGeneralEntry(KSW_SVM_CPU* Cpu)
     ULONG action;
     /* Do not turn a missing optional resource into baseline residency silently. */
     if (!Cpu || !Cpu->Nested || !Cpu->Nested->GeneralInitialized) { return KSW_NSVM_MACHINE_FAULT; }
+    /* Queries may not sample partially installed entry controls as a coherent machine. */
+    InterlockedIncrement64(&Cpu->Nested->GeneralSequence);
     /* This writes only processor-owned state and invokes the closed-root callbacks above. */
     action = KswSvmNestedMachineEntry(&Cpu->Nested->GeneralMachine);
     /* Host IF is installed by assembly while physical GIF remains closed. */
     if (action == KSW_NSVM_MACHINE_READY) { Cpu->HostInterruptsAllowed = Cpu->Nested->GeneralMachine.Overlay.HostIf; }
+    /* Publish the complete result, including a retained failure/window action. */
+    InterlockedIncrement64(&Cpu->Nested->GeneralSequence);
     /* WINDOW/FAULT/UNSUPPORTED never authorize a blind VMRUN. */
     return action;
 }
@@ -229,8 +237,26 @@ ULONG KswordSvmNestedGeneralExit(KSW_SVM_CPU* Cpu)
 {
     /* Initialization and activation are deliberately separate contracts. */
     if (!Cpu || !Cpu->Nested || !Cpu->Nested->GeneralInitialized) { return KSW_NSVM_MACHINE_FAULT; }
+    /* A real hardware exit must be counted independently from entry preparation. */
+    InterlockedIncrement64(&Cpu->Nested->GeneralSequence);
+    /* Counter exhaustion remains a retained fault rather than reused execution evidence. */
+    if (Cpu->Nested->GeneralHardwareExits == ~0ULL) {
+        /* Publish the retained exhaustion without authorizing a further VMRUN. */
+        Cpu->Nested->GeneralMachine.LastAction = KSW_NSVM_MACHINE_FAULT;
+        /* A completed diagnostic record may describe failure as well as success. */
+        InterlockedIncrement64(&Cpu->Nested->GeneralSequence); return KSW_NSVM_MACHINE_FAULT;
+    }
+    /* This wrapper is reached only from the physical VMEXIT dispatcher. */
+    ++Cpu->Nested->GeneralHardwareExits;
+    /* Preserve raw hardware input even if a missing overlay makes machine dispatch fail before classification. */
+    Cpu->Nested->GeneralLastHardwareExit = KswSvmRead64(Cpu->Guest, KSW_VMCB_EXITCODE);
     /* Native return is requested only by the private, quiescent stop callback. */
-    return KswSvmNestedMachineExit(&Cpu->Nested->GeneralMachine);
+    {
+        /* Keep the exact coordinator outcome after all mutation is complete. */
+        ULONG action = KswSvmNestedMachineExit(&Cpu->Nested->GeneralMachine);
+        /* Root NMI acknowledgement, queue transfer and reflection all belong to this same sequence. */
+        InterlockedIncrement64(&Cpu->Nested->GeneralSequence); return action;
+    }
 }
 
 /* Do not release the host stack/HSAVE simply because a nested sub-release refused to free itself. */

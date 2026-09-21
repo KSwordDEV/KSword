@@ -1,4 +1,4 @@
-# Test the production acceptance predicate without executing a driver or VM.
+﻿# Test the production acceptance predicate without executing a driver or VM.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $tokens=$null; $errors=$null
@@ -10,7 +10,7 @@ $function=$ast.Find({param($node) $node -is [System.Management.Automation.Langua
 Invoke-Expression $function.Extent.Text
 $Vcpu=2
 function New-Metrics {
-    return [pscustomobject]@{version=4;backend=2;svmProcessors=@(0..1 | ForEach-Object {
+    return [pscustomobject]@{version=5;backend=2;svmProcessors=@(0..1 | ForEach-Object {
         [pscustomobject]@{group=0;number=$_;nestedProbe=[pscustomobject]@{
             valid=1;sequence=2;status='0x00000000';entries=1;reflections=1;faults=7;
             exit='0x0000000000000072';marker='0x000000004B534E31'}}

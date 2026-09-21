@@ -1,4 +1,4 @@
-﻿/*
+/*
  * hvm_ctl —— KSword HVM 控制与状态的最小命令行工具（无 Qt 依赖）。
  *
  * 存在的理由：KswordCLI 只提供只读的 hvm-status / hvm-events，启动 HVM 要走
@@ -7627,10 +7627,22 @@ static int DoMetrics(HANDLE h, int asJson)
                    row->stage, row->asid, row->generation, row->exitCode, row->exitInfo1, row->exitInfo2,
                    row->rip, row->rsp, row->cr3, row->nrip, row->event, row->tsc, row->vmcbPa, row->hsavePa,
                    row->nptRootPa, row->tlbRequests, row->ringPosition, row->ringOverwritten, row->msrValidMask, row->svmFeatures, row->asidCount, row->physicalBits, row->observedVmCr, row->observedEfer, row->observedHsave, row->failureStatus, row->failureStage);
-            printf("\"nestedProbe\":{\"valid\":%lu,\"sequence\":%lu,\"status\":\"0x%08lX\",\"entries\":%lu,\"reflections\":%lu,\"faults\":%lu,\"exit\":\"0x%016llX\",\"marker\":\"0x%016llX\"}}",
+            printf("\"nestedProbe\":{\"valid\":%lu,\"sequence\":%lu,\"status\":\"0x%08lX\",\"entries\":%lu,\"reflections\":%lu,\"faults\":%lu,\"exit\":\"0x%016llX\",\"marker\":\"0x%016llX\"},",
                    row->nestedProbeValid, row->nestedProbeSequence, row->nestedProbeStatus,
                    row->nestedProbeEntries, row->nestedProbeReflections, row->nestedProbeFaults,
                    row->nestedProbeExit, row->nestedProbeMarker);
+            printf("\"general\":{\"valid\":%lu,\"initialized\":%lu,\"enabled\":%lu,\"phase\":%lu,\"action\":%lu,\"gif\":%lu,"
+                   "\"pending\":%lu,\"nmiCaptured\":%lu,\"instructionStatus\":%lu,\"instructionLength\":%lu,\"operandAddressBits\":%lu,\"shadowPages\":%lu,"
+                   "\"sequence\":\"%llu\",\"preparedEntries\":\"%llu\",\"hardwareExits\":\"%llu\",\"exitCode\":\"0x%016llX\","
+                   "\"leaseToken\":\"%llu\",\"operandHostPa\":\"0x%016llX\",\"armedToken\":\"%llu\",\"retryToken\":\"%llu\","
+                   "\"delivered\":\"%llu\",\"retried\":\"%llu\",\"cacheRecycles\":\"%llu\",\"virtualEfer\":\"0x%016llX\","
+                   "\"virtualHsave\":\"0x%016llX\",\"guestXcr0\":\"0x%016llX\",\"guestXss\":\"0x%016llX\"}}",
+                   row->general.valid, row->general.initialized, row->general.enabled, row->general.phase, row->general.action, row->general.gif,
+                   row->general.pending, row->general.nmiCaptured, row->general.instructionStatus, row->general.instructionLength,
+                   row->general.operandAddressBits, row->general.shadowPages, row->general.sequence, row->general.preparedEntries,
+                   row->general.hardwareExits, row->general.exitCode, row->general.leaseToken, row->general.operandHostPa,
+                   row->general.armedToken, row->general.retryToken, row->general.delivered, row->general.retried,
+                   row->general.cacheRecycles, row->general.virtualEfer, row->general.virtualHsave, row->general.guestXcr0, row->general.guestXss);
         } else {
             printf("SVM cpu=%u:%u stage=%lu valid=%lu exit=0x%016llX info1=0x%016llX info2=0x%016llX flush=%llu\n",
                    (unsigned)row->group, (unsigned)row->number, row->stage, row->valid,

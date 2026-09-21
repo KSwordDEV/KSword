@@ -3,7 +3,19 @@
 #include "KswordArkHvmIoctl.h"
 
 /* Independent versioning keeps existing HVM query clients ABI-compatible. */
-#define KSWORD_ARK_HVM_METRICS_VERSION 4UL
+#define KSWORD_ARK_HVM_METRICS_VERSION 5UL
+
+/* General execution observations are independent of bounded-probe completion evidence. */
+typedef struct _KSWORD_ARK_HVM_SVM_GENERAL_METRICS {
+    /* Stable/even sequence validates this entire record; zero never means an executed entry. */
+    unsigned long valid, initialized, enabled, phase, action, gif;
+    /* These are retained software owners, not proof that a processor returned natively. */
+    unsigned long pending, nmiCaptured, instructionStatus, instructionLength, operandAddressBits, shadowPages;
+    /* Keep all counters, tokens and physical identities at their architectural width. */
+    unsigned long long sequence, preparedEntries, hardwareExits, exitCode;
+    unsigned long long leaseToken, operandHostPa, armedToken, retryToken;
+    unsigned long long delivered, retried, cacheRecycles, virtualEfer, virtualHsave, guestXcr0, guestXss;
+} KSWORD_ARK_HVM_SVM_GENERAL_METRICS;
 
 /* AMD diagnostics have their own full-width exit namespace and validity flag. */
 typedef struct _KSWORD_ARK_HVM_SVM_METRICS {
@@ -30,6 +42,8 @@ typedef struct _KSWORD_ARK_HVM_SVM_METRICS {
     unsigned long long nestedProbeExit, nestedProbeMarker;
     /* Values must not be interpreted when the corresponding valid bit is clear. */
     unsigned long long observedVmCr, observedEfer, observedHsave;
+    /* Version five adds a separate seqlock snapshot; it never reuses the probe valid bit. */
+    KSWORD_ARK_HVM_SVM_GENERAL_METRICS general;
 } KSWORD_ARK_HVM_SVM_METRICS;
 #define KSWORD_ARK_IOCTL_FUNCTION_HVM_METRICS 0x916UL
 #define IOCTL_KSWORD_ARK_HVM_METRICS \

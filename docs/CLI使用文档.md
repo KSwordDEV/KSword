@@ -403,7 +403,7 @@ WSL silo and Linux PID/TID diagnostics.
 | `r0 image-signature` | `KswordCLI.exe r0 image-signature --path PATH [--module-base VA] [--flags 0xN]` | 读取 Authenticode 证书表和 CI 证据。 | 必填：--path。可选：--module-base、--flags。 | `IOCTL_KSWORD_ARK_QUERY_IMAGE_SIGNATURE`。 |
 | `r0 debug-output` | `KswordCLI.exe r0 debug-output [--after-sequence N] [--max-records N] [--limit N]` | 读取内核调试输出环。 | 可选：--after-sequence、--max-records、--limit。 | `IOCTL_KSWORD_ARK_DEBUG_OUTPUT_DRAIN`，不改变捕获状态。 |
 | `r0 hvm-status` | `KswordCLI.exe r0 hvm-status` | 查询 HVM v6 的 VMX/EPT 或实验性 SVM/NPT 生命周期与能力状态。 | 无。 | `IOCTL_KSWORD_ARK_QUERY_HVM`。 |
-| `r0 hvm-metrics` | `KswordCLI.exe r0 hvm-metrics` | 查询转换计时有效性及 INVEPT、替换页资源计数。 | 无。 | `IOCTL_KSWORD_ARK_HVM_METRICS` v4；完整逐核 JSON：`hvm_ctl --json metrics`，包括影子 EPT 缓存、A/D 维护计数。主程序“完整操作”使用同一引擎。 |
+| `r0 hvm-metrics` | `KswordCLI.exe r0 hvm-metrics` | 查询转换计时有效性及 INVEPT、替换页资源计数。 | 无。 | `IOCTL_KSWORD_ARK_HVM_METRICS` v5；完整逐核 JSON：`hvm_ctl --json metrics`，包括影子 EPT 缓存、A/D 维护计数。主程序“完整操作”使用同一引擎。 |
 | `r0 hvm-events` | `KswordCLI.exe r0 hvm-events [--after-sequence N] [--max-rows N]` | 读取 HVM 事件环，不清空事件。 | 可选：--after-sequence、--max-rows。 | `IOCTL_KSWORD_ARK_HVM_EVENTS`。 |
 | `r0 ioctl-registry` | `KswordCLI.exe r0 ioctl-registry [--flags 0xN] [--max-entries N]` | 查询驱动已注册的 IOCTL 分发表。 | 可选：--flags、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_IOCTL_REGISTRY`。 |
 | `r0 timer-dpc` | `KswordCLI.exe r0 timer-dpc [--max-entries N] [--max-per-bucket N]` | 枚举内核定时器与 DPC 证据。 | 可选：--max-entries、--max-per-bucket。 | `IOCTL_KSWORD_ARK_ENUM_TIMER_DPC`。 |
@@ -444,7 +444,7 @@ WSL silo and Linux PID/TID diagnostics.
 调用者须在这些操作前移除映射，并在控制期间保留目标页。
 
 
-### AMD SVM/NPT 实验后端（HVM v6 / metrics v4）
+### AMD SVM/NPT 实验后端（HVM v6 / metrics v5）
 
 HVM v6 在 `status.svmProbe` 增加 `rejectReason`/`rejectReasonName`、`stateValidMask`、`cpuid1Ecx`、`xsaveFeatures`、`cr4`、`xcr0`、`xss`。状态有效位 1/2/4/8/16 分别对应 CR4、CPUID.1、CPUID.D.1、XCR0、XSS；无有效位的零值不代表状态关闭。拒绝码 7 是非零 HSAVE、8 是 CR4 中未支持的状态、9 是 XSAVE/OSXSAVE 不可用、10 是扩展状态读取异常、11 是非零 XSS、12 是物理地址宽度不支持。该查询不修改寄存器、不进入 SVM；SYS、主程序与 CLI 必须同步更新，旧 v5 请求拒绝。
 
@@ -462,3 +462,5 @@ AMD 不支持 nested、EPTP switch、local EPT、VMREAD benchmark、一次性 In
 新增 `prepare-svm-probe`、`self-test-svm-nested` 专用命令：前者分配每核嵌套探针资源，后者执行驱动拥有的固定内层 VMRUN→CPUID→退出反射→原生返回序列。两者只能用于 AMD；先从已释放状态准备，完成后使用 `teardown`。该准备配置禁止 `resident`，不会向正常 Windows 宣传可运行任意内层 VMM。
 metrics v4 在每条 `svmProcessors` 中增加 `nestedProbe`：valid、sequence、status、entries、reflections、faults、64 位 exit/marker。仅 valid=1、偶数且递增 sequence、status=0、entries/reflections=1、faults>0、exit=0x72、marker=0x4B534E31 才算该核完整探针通过。此结果不等于内层操作系统启动或两小时压力通过。驱动、主程序与 CLI 必须一起更新，v3 metrics 客户端不兼容。
 环境脚本、克隆与调试步骤见 [AMD 实验工具](../tools/hvm_lab/README.md)。硬件验收仍以该目录记录为准。
+
+AMD metrics v5 的 `svmProcessors[].general` 使用独立64位序列校验。`valid=1` 只表示整个诊断快照一致；`preparedEntries` 是软件进入准备次数，`hardwareExits` 才是该通用入口收到的物理VMEXIT次数，两者都不证明完整内层操作系统启动。`nestedProbe` 仍只记录有界探针。`phase/action/gif/pending/nmiCaptured/leaseToken/armedToken/retryToken` 用于解释停止/事件窗口；无通用绑定时 general.valid=0。旧metrics客户端必须重编译，不与v5结构混用。

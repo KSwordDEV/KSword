@@ -78,8 +78,8 @@ function CheckSet($Query,[bool]$Active) {
     if ($Query.stateNames -contains 'ROLLBACK_REQUIRED' -or $Query.stateNames -contains 'FAULTED') { throw 'Driver retained a fault or rollback requirement.' }
 }
 function CheckNestedProbe($Metrics, $Previous) {
-    if ($Metrics.version -ne 4 -or $Metrics.backend -ne 2 -or @($Metrics.svmProcessors).Count -ne $Vcpu) {
-        throw 'Nested probe requires metrics v4 and a complete AMD CPU set.'
+    if ($Metrics.version -ne 5 -or $Metrics.backend -ne 2 -or @($Metrics.svmProcessors).Count -ne $Vcpu) {
+        throw 'Nested probe requires metrics v5 and a complete AMD CPU set.'
     }
     $seen=@{}
     foreach ($cpu in $Metrics.svmProcessors) {

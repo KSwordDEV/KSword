@@ -178,3 +178,5 @@ Intel 保留原执行路径，新增调度边界目前由 AMD 接入；共享 ph
 [一次性启动](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/bcdedit--bootsequence)、
 [BitLocker 的 BCD 检查](https://learn.microsoft.com/en-us/windows/security/operating-system-security/data-protection/bitlocker/bcd-settings-and-bitlocker)、
 [KeIpiGenericCall](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-keipigenericcall)。
+
+静态候选现使用 metrics v5，CLI和当前验收脚本须与驱动同批构建；历史v4导出仍可由只读验证器解释其不变的nestedProbe子集。`general`诊断不复用探针完成位。`build-tests.cmd --build-only`只编译链接宿主测试目标，打印TEST_EXECUTION=NOT_RUN；不执行测试或装载驱动。

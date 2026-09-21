@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 静态诊断协议：metrics独立升v5，SVM行新增general快照，以64位sequence覆盖root入口/退出/NMI事务，区分preparedEntries与实际hardwareExits，保留phase/action/GIF/lease/事件token/XSTATE/取指状态。共享头、命令引擎JSON、当前验收脚本及源fixture同步；历史证据验证器接受v4/v5不变的probe子集。驱动WDK/API/CAT与hvm_ctl、KswordCLI编译链接通过；最后raw-exit保留字段微调仍需增量编译。GUI同批构建进行中，自动运行其既有i18n/theme门禁（不是手动执行HVM测试），还未取得最终链接结果。无HVM测试/装载/签名/暂存或推送。
+
 2026-09-21 静态汇编桥：NestedEntryEnabled新增固定偏移140并断言；完整general绑定后才发布。真实VMRUN前在最终RIP/RFLAGS/host stack就位后调用事件准备，真实VMEXIT原始计数后进入machine；非READY/NATIVE均保留故障，不能盲目继续或恢复L2为native。普通/受控probe零值保持原路径。WDK Release/API Universal/CAT零警告通过，build-nested-entry-bridge-20260921.log；无签名/装载/测试。InitializeGeneral尚无正常控制入口调用，公共能力不开放；NMI/IRET、原VIRQ优先级和复杂事件重试仍未全部实现，不能称完整静态完成。
 
 2026-09-21 静态IRQ/异常碰撞：排队IRQ允许在既有EVENTINJ保持原值的同时挂VINTR等待窗口；原异常先投递，随后按handler实际IF/TPR/shadow等待IRQ，token不提前消费。NMIshadow/原L1 V_IRQ碰撞继续保留WINDOW，不能冒充已解决。补window离线源用例。build-tests.cmd新增--build-only；当前全部宿主测试目标/W4/WX编译链接完成，明确TEST_EXECUTION=NOT_RUN，未执行测试。日志build-static-fixtures-20260921.log。

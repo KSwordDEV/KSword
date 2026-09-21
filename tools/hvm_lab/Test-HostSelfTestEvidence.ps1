@@ -1,4 +1,4 @@
-# Exercise only the production evidence validator; never load a driver or execute SVM.
+﻿# Exercise only the production evidence validator; never load a driver or execute SVM.
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $tokens=$null; $errors=$null
@@ -23,7 +23,7 @@ function New-TestEvidence([int]$Count=2) {
         Prepared=@{queryStatus=0;backend=2;stateFlags=3;preparedProcessorCount=$Count;powerGeneration=0;generation=2;processors=$cpus}
         After=@{queryStatus=0;backend=2;stateFlags=19;processorCount=$Count;preparedProcessorCount=$Count;
             selfTestPassedProcessorCount=$Count;residentProcessorCount=0;powerGeneration=0;generation=3;processors=$cpus}
-        Metrics=@{backend=2;version=4;svmProcessors=$metrics}
+        Metrics=@{backend=2;version=5;svmProcessors=$metrics}
         Control=@{status=0;failedProcessorCount=0;selfTestPassedProcessorCount=$Count;residentProcessorCount=0}
     } | ConvertTo-Json -Depth 8 | ConvertFrom-Json)
 }

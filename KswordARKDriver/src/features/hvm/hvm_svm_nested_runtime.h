@@ -43,6 +43,10 @@ typedef struct _KSW_SVM_NESTED {
     KSW_NSVM_MACHINE GeneralMachine;
     /* Initialization does not publish a public nested-virtualization capability. */
     ULONG GeneralInitialized;
+    /* Bracket every root-side general mutation independently of the bounded probe sequence. */
+    volatile LONG64 GeneralSequence;
+    /* A prepared attempt and an observed physical exit are deliberately different counters. */
+    ULONGLONG GeneralHardwareExits, GeneralLastHardwareExit;
     /* Borrowed shared lifetime ledger; never freed independently of the backend. */
     KSW_NSVM_OWNER_TABLE* Owners;
     /* Frozen Windows group:number identity for this CPU's acquisition evidence. */
