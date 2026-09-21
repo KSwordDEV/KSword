@@ -174,7 +174,7 @@ unsigned int KswSvmNestedValidateEntry(const KSW_SVM_VMCB* Inner,
     /* Virtual interrupt/APIC extensions need a dedicated pending-event state machine. */
     value = KswSvmRead64(Inner, KSW_VMCB_INTCTL);
     /* Baseline V_TPR/V_IRQ/priority/masking/vector bits are representable here. */
-    if (value & ~0x000000ff010f010fULL) { return KswNsvmEntryFail(Result, KSW_NSVM_ENTRY_UNSUPPORTED, KSW_VMCB_INTCTL, value); }
+    if (value & ~0x000000ff011f010fULL) { return KswNsvmEntryFail(Result, KSW_NSVM_ENTRY_UNSUPPORTED, KSW_VMCB_INTCTL, value); }
     /* Success resets any diagnostics from a previous rejected operand. */
     return KswNsvmEntryFail(Result, KSW_NSVM_ENTRY_OK, 0, 0);
 }

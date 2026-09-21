@@ -263,7 +263,9 @@ VOID KswordSvmRelease(KSW_HVM_RUNTIME* Runtime)
     /* Check individual owners as well as the summary count. */
     for (index = 0; state->Cpus != NULL && index < state->Count; ++index) {
         /* A stale summary cannot authorize freeing an active CPU's stack. */
-        if (state->Cpus[index].Active || (state->Cpus[index].Nested && state->Cpus[index].Nested->RunningL2)) { return; }
+        if (state->Cpus[index].Active || (state->Cpus[index].Nested &&
+            (state->Cpus[index].Nested->RunningL2 || state->Cpus[index].Nested->Session.Lease.Token ||
+             state->Cpus[index].Nested->Nmi.Armed || state->Cpus[index].Nested->Nmi.Count))) { return; }
     }
     /* Release per-CPU allocations in exact reverse ownership order. */
     for (index = state->Count; state->Cpus != NULL && index != 0;) {

@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21静态interrupt：控制overlay按实际L1IF处理V_INTR_MASKING、GIF0抑制IRQ/VIRQ并拦NMI，退出恢复原controls再route，真实CR8/mask输出分开。NMI叶已改同CS/IST0近返回保留硬件NMIblock，由guest真正完成IRET解除；未验证，不能沿用前段IRETQ说明。全局资源释放门保留NMIcount/窗口。继续平台队列/TPR/停止接线。
+
 2026-09-21静态物理事件入口：hvm_svm_nmi.{c,h,asm}可信IDT副本/临时vector2计数、IF0有限STGI/CLGI窗口、描述符复核与计数保留；普通路径没有调用点。HostInterruptsAllowed138汇编桥、VMEXIT立即CLI；默认零。未验证，继续注入/IRET/平台接线，不能称完整静态完成。
 
 2026-09-21静态pending：固定token事件账本区分Queued/Armed/完成，NMI优先与owner隔离；执行器Deferred已接，L2未交接事件阻止反射，未验证。继续物理NMI确认与窗口平台桥，不能声称通用入口完成。

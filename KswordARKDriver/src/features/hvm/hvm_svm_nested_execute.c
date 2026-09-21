@@ -226,7 +226,7 @@ unsigned KswSvmNestedExecute(KSW_NSVM_EXECUTION* Execution)
         /* The shared register layer validates privilege and mode before writing software state. */
         result = KswSvmNestedRegisterAccess(&Execution->Registers, (unsigned)Execution->Gpr[1], (unsigned)direction, &value);
         /* Only an architectural refusal becomes #GP(0). */
-        if (result == KSW_NSVM_MSR_GP) { return KswNsvmRaise(Execution, 13, 0, 0); }
+        if (result == KSW_NSVM_MSR_GP || result == KSW_NSVM_MSR_OTHER) { return KswNsvmRaise(Execution, 13, 0, 0); }
         /* Unknown/unsupported register state remains explicitly unimplemented; never a root passthrough. */
         if (result != KSW_NSVM_MSR_OK) { return KSW_NSVM_EXEC_UNSUPPORTED; }
         /* Successful reads return zero-extended architectural halves. */
@@ -248,14 +248,14 @@ unsigned KswSvmNestedExecute(KSW_NSVM_EXECUTION* Execution)
     }
     /* SVM virtual instructions exist only in the admitted L1 virtual VMM. */
     if (code == KSW_SVM_EXIT_INVLPGA || (code >= 0x80 && code <= 0x86)) {
+        /* Unsupported hypercalls/secure-init have no virtual ABI at any privilege level. */
+        if (code == KSW_SVM_EXIT_VMMCALL || code == KSW_SVM_EXIT_SKINIT) { return KswNsvmRaise(Execution, 6, 0, 0); }
         /* Private KSword control calls must be consumed by the outer dispatcher before this engine. */
         if (inner || !Execution->Registers.ExposeSvm || !(Execution->Registers.Svm->Efer & KSW_SVM_EFER_SVME) ||
             !(KswSvmRead64(Execution->Current, KSW_VMCB_CR0) & 1ULL) ||
             (KswSvmRead64(Execution->Current, KSW_VMCB_RFLAGS) & (1ULL << 17))) { return KswNsvmRaise(Execution, 6, 0, 0); }
         /* SVM instructions other than the hypercall are privileged to the virtual host. */
         if (((const unsigned char*)Execution->Current)[KSW_VMCB_CPL]) { return KswNsvmRaise(Execution, 13, 0, 0); }
-        /* No nested hypercall ABI is implemented here. */
-        if (code == 0x81 || code == KSW_SVM_EXIT_SKINIT) { return KswNsvmRaise(Execution, 6, 0, 0); }
         /* General virtual VMRUN owns its actual L1 continuation and translated operand. */
         if (code == 0x80) {
             /* A virtual save area must be declared before acquiring a guest execution context. */

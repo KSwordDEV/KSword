@@ -78,3 +78,9 @@ Session 先解析身份、获取持有权、重新读取受保护快照，再进
 新增 root NMI 确认 leaf：预先复制可信当前核 IDT，仅替换 vector 2 为不调用 C/Windows ISR 的计数/IRETQ 入口。确认前要求 IF=0、描述符身份未变、无旧待交接计数；在 GIF=0 安装，有限 STGI 窗口确认真实 NMI，再 CLGI 恢复原表。精确一次才返回成功，多次/饱和/未确认均保留 Count，不伪造事件已递送。它只允许从完整 root GS/CR3/XSTATE/私有栈、S_CET=0、GIF=0 环境调用；当前没有普通 resident 调用点，不能从 Windows 普通函数直接试运行。
 
 CPU 汇编前缀追加 HostInterruptsAllowed（138），事件仲裁可在 GIF=0 时设置 VMRUN 保存的宿主 IF；每次 VMEXIT 后立即 CLI，再保存状态和调用 C。默认零且普通 INTCTL 不变，尚无入口启用新策略。NMI 描述符纳入逐核资源，未交接计数或活动窗口阻止释放。未构建/测试，物理 NMI 的来宾重新递送、IRET 完成与通用运行开关仍未完成。
+
+## 中断控制转换静态增量（未验证）
+
+新增 nested_interrupt：进入前覆盖执行控制，退出后先恢复原始控制再做归属判断；L1 GIF=0 时以 V_INTR_MASKING/hostIF=0 关闭物理 IRQ，保留并暂时屏蔽 V_IRQ，拦截 NMI。L2 保留内层 masking/TPR 请求，hostIF 来自实际 L1 VMRUN 保存的 IF。硬件 V_TPR/V_IRQ 输出单独合并，mask0 时真实 CR8 是权威值。INTR 反射保持 APIC 待处理，root 不做 INTACK/EOI；NMI 必须确认后保存，SMI/INIT 未实现路径明确拒绝。V_IGN_TPR 位准入补全。
+
+NMI 确认 leaf 调整为同 CS、IST0 的受控近返回，保留硬件 NMI blocking；避免先在 root IRET 解屏蔽，再用本身不阻塞后续 NMI 的 EVENTINJ 制造错误窗口。实际 guest IRET 完成才自然解除硬件阻塞，不能在 IRET 截获时提前宣布解除。保存原 RSP（包括硬件对齐前值）和寄存器/flags；计数必须交接，资源全局释放门同步保留其宿主栈/HSAVE。此实现未构建/运行，需要后续硬件验证，现阶段仍无普通 resident 调用点。通用调度器还需接 CR8 同步、队列窗口、停止协议。

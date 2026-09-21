@@ -17,6 +17,9 @@ KswordSvmAsmAcknowledgeNmi proc frame
     jne NmiDone                ; Preserve the existing window's counter.
     cmp dword ptr [rcx], 0     ; Previous acknowledgements must first be handed off.
     jne NmiDone                ; Never clear unconsumed hardware evidence here.
+    mov dx, cs                 ; Near return from the private leaf requires exactly the interrupted CS.
+    cmp dx, [rcx+52h]          ; Private table starts at 30h; vector-two selector is at +22h.
+    jne NmiDone                ; A changed root code selector requires fresh preparation.
     pushfq                     ; Verify that physical maskable interrupts stay closed.
     pop rdx                    ; Only volatile registers are used by this leaf.
     test edx, 200h             ; IF must already be zero on entry.
@@ -50,12 +53,26 @@ NmiDone:
     ret                        ; GIF remains clear; IF was never changed.
 KswordSvmAsmAcknowledgeNmi endp
 
-; RCX is immutable while this gate is installed. Hardware saves/restores RFLAGS around IRETQ.
+; RCX is immutable while this gate is installed. Same-CPL, IST=0, supervisor-CET=0 only.
 KswordSvmAsmCaptureNmi proc
+    mov [rcx+1030h], rax       ; Save the only scratch GPR before decoding the hardware frame.
+    mov rax, [rsp]             ; Long-mode frame: RIP, CS, RFLAGS, RSP, SS (all eight-byte slots).
+    mov [rcx+1038h], rax       ; Resume the exact interrupted root instruction.
+    mov rax, [rsp+18h]         ; Original RSP precedes hardware's sixteen-byte alignment.
+    mov [rcx+1040h], rax       ; Do not guess the original stack by adding a frame size.
+    mov rax, [rsp+10h]         ; Original root flags have IF=0 by the entry contract.
+    mov [rcx+1048h], rax       ; Retain flags while leaving the interrupt frame.
     cmp dword ptr [rcx], -1    ; Saturation retains a fault marker rather than wrapping to no evidence.
     je NmiSaturated             ; The platform cannot treat saturation as successful handoff.
     inc dword ptr [rcx]        ; One write records one actual NMI acknowledgement; no GPR is clobbered.
 NmiSaturated:
-    iretq                      ; Complete this physical NMI and restore the root window flags/stack.
+    mov ax, [rsp+20h]          ; Restore the same trusted root SS, not a guest selector.
+    mov ss, ax                 ; The private gate never changes privilege level or CS.
+    mov rsp, [rcx+1040h]       ; Return to the interrupted root window's exact stack.
+    push qword ptr [rcx+1038h] ; CET supervisor shadow stacks are excluded by admission.
+    push qword ptr [rcx+1048h] ; Restore flags without using IRET (which would unblock NMI early).
+    popfq                      ; IF remains zero; GIF is closed by the caller's next bounded step.
+    mov rax, [rcx+1030h]       ; Restore the interrupted value before relinquishing RCX ownership.
+    ret                        ; Physical NMI stays blocked until the eventual guest's completed IRET.
 KswordSvmAsmCaptureNmi endp
 end

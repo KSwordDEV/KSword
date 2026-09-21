@@ -812,6 +812,7 @@
     <ClInclude Include="src\features\hvm\hvm_svm_nested_register.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_cpuid.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_execute.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_nested_interrupt.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nmi.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_pending.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_session.h" />
@@ -901,6 +902,11 @@
     <MASM Include="src\features\hvm\hvm_svm_nmi.asm">
       <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
     </MASM>
+    <ClCompile Include="src\features\hvm\hvm_svm_nested_interrupt.c">
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="src\features\hvm\hvm_svm_nested_execute.c">
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <TreatWarningAsError>true</TreatWarningAsError>
