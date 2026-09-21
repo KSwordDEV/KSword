@@ -43,6 +43,9 @@ typedef struct _KSW_NSVM_MACHINE {
     KSW_SVM_U64 ArmedToken, ArmedEvent, ArmedOwner;
     /* The one physically blocked NMI may follow an un-intercepted virtual VMRUN before injection. */
     KSW_SVM_U64 PhysicalNmiToken;
+    /* Until first injection, guest IRET must not release the acknowledgement leaf's physical NMI mask. */
+    KSW_SVM_U64 HeldNmiToken;
+    unsigned HeldNmiMisc1, HeldNmiGuard;
     /* Preserve raw action/event and transition counts independently of guest instruction emulation. */
     KSW_SVM_U64 LastExit, Transitions;
     unsigned LastAction, LastPhysicalAction, NmiCount;

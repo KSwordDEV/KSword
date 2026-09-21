@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-21 NMI首次投递前屏蔽保护：machine在物理确认token仍Physical且本次不注入时叠加IRET拦截，退出按逆序恢复控制；IRET未执行即保留WINDOW，token/原RIP/GIF不变，避免near-RET确认后由无关guest IRET过早解除硬件NMI屏蔽。STGI后实际注入时撤销该临时拦截。此为补齐明确失败边界，不是软件NMI屏蔽/IRET完成窗口实现；该路径还需继续做，普通通用激活仍关闭。WDK/API/CAT零警告及全部fixture编译链接通过，日志build-nested-held-nmi-20260921-r2.log/build-static-fixtures-held-nmi-20260921-r2.log（含所有临时overlay的停止门）；TEST_EXECUTION=NOT_RUN，未动态验证。
+
 2026-09-21 协调器源用例：svm_nested_machine_tests将生产machine/execute/reflect及其全部portable依赖实际链接在一起，只模拟CR8/NMI/CPUID/硬件输出；覆盖普通CPUID完成、IF阻塞→VINTR→IRQ注入、GIF0 NMI两阶段确认→STGI、INVALID保留、确认提交失败和队列满时不确认、停止拒绝条件。/W4 /WX编译链接成功（build-static-fixtures-machine-20260921.log），TEST_EXECUTION=NOT_RUN，不声称用例或NMI硬件通过。未重新构建未改的驱动、未装载/启动VM。
 
 2026-09-21 静态事件交接：新增nested_reflect统一一般指令/物理事件的L2→L1事务。账本Interrupted仅由真实VMEXIT同一EXITINTINFO置位，反射前核验单一owner/token/递送状态，完整VMCB写回后才移交；不再允许仅排队事件凭同vector被消费。物理退出现在可移交同一被打断事件；多项积压/未开始投递仍明确WINDOW。新增边界fixture（提交失败、跨owner、重复/未开始移交）并更新pending源用例，全部仅编译链接，TEST_EXECUTION=NOT_RUN。WDK Release/API Universal/CAT零警告，build-nested-reflect-20260921.log；通用入口仍未开放，无动态验证。

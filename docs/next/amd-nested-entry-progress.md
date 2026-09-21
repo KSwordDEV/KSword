@@ -2,6 +2,8 @@
 
 最终验收仍是完整 L2 操作系统启动及内层 vCPU 并发运行；本变更没有完成该验收。
 
+NMI 首次投递前新增 IRET 保护：物理确认记录仍等待投递时，临时拦截来宾 IRET，阻止无关 IRET 提前解除确认叶函数保留的硬件 NMI 屏蔽。其他退出逆序还原控制，STGI 后真正注入时移除该保护；命中 IRET 保留 WINDOW、原 RIP 和 token。**这不等于已实现 IRET 完成窗口**，软件 NMI 屏蔽/延迟投递仍是通用入口的未完项。驱动 WDK/API/CAT 零警告、全部 fixture 编译链接完成；未执行 fixture 或硬件测试。
+
 协调器集成用例源码已补齐：将生产退出引擎、事件队列、反射、窗口及其 portable 依赖链接，平台回调和 VMEXIT 输出为模拟输入。覆盖普通 CPUID、IRQ 等待/注入、GIF0 NMI 确认、INVALID/提交失败/队列满保留及停止条件。当前仅 `/W4 /WX` 编译链接成功，日志 `build-static-fixtures-machine-20260921.log` 明确 `TEST_EXECUTION=NOT_RUN`；硬件 NMI 屏蔽与 IRET 语义不由该模拟证明。
 
 最新静态增量：`nested_reflect` 统一指令与物理事件反射；先检查整个 L2 事件集合，确认 token 对应真实被打断的递送，再提交 VMCB，成功后才消费该确认记录。未开始的排队事件、不同 owner 或多项积压不伪造 EXITINTINFO，保留 WINDOW。新增交接边界用例仅编译，没有执行。标准 WDK Release x64 / API Universal / CAT 构建零警告（`tools/hvm_lab/build-nested-reflect-20260921.log`）；宿主用例编译日志明确 `TEST_EXECUTION=NOT_RUN`。通用激活及 NMI/IRET 等剩余路径未完成。

@@ -77,7 +77,7 @@ unsigned KswSvmNestedMachineInitialize(KSW_NSVM_MACHINE* Machine)
     if (!Machine || !(execution = Machine->Execution) || !execution->Current || !execution->Session ||
         !execution->Io || !Machine->Io.ReadTpr || !Machine->Io.WriteTpr ||
         !Machine->Io.AcknowledgeNmi || !Machine->Io.CommitNmi || Machine->Initialized ||
-        Machine->Overlay.Applied || Machine->ArmedToken || execution->Pending.Count ||
+        Machine->Overlay.Applied || Machine->HeldNmiGuard || Machine->ArmedToken || execution->Pending.Count ||
         execution->Session->Phase != KSW_NSVM_SESSION_IDLE || execution->Session->Lease.Token) {
         /* Initialization never performs a best-effort partial entry. */
         return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
@@ -103,7 +103,7 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
     /* Raw hardware values are read once before restoring the control overlay. */
     KSW_SVM_U64 event;
     /* TPR is actual physical state, not a count or an APIC ID. */
-    unsigned tpr, action, inner, wasMasked, windowExit = 0;
+    unsigned tpr, action, inner, wasMasked, windowExit = 0, heldIret = 0;
     /* No exit may be processed twice for one hardware entry. */
     if (!Machine || !Machine->Initialized || !(execution = Machine->Execution) || !Machine->Overlay.Applied) {
         /* Preserve outstanding ownership if the caller violated ordering. */
@@ -115,6 +115,23 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
     event = KswSvmRead64(execution->Current, KSW_VMCB_EXITINTINFO);
     /* An invalid real VMCB is an L0 construction failure; never fabricate a virtual INVALID here. */
     if (Machine->LastExit == KSW_SVM_EXIT_INVALID) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT); }
+    /* This outermost overlay prevents an unrelated IRET from releasing a not-yet-delivered NMI. */
+    if (Machine->HeldNmiGuard) {
+        /* No guest instruction can change the private acknowledgement identity while running. */
+        const KSW_NSVM_PENDING_ITEM* held = KswSvmNestedPendingLookup(&execution->Pending, Machine->HeldNmiToken);
+        /* Retain the raw controls if the source record disappeared or was improperly armed. */
+        if (!held || !held->Physical || held->State != KSW_NSVM_PENDING_QUEUED ||
+            !(KswSvmRead64(execution->Current, KSW_VMCB_MISC1) & (1ULL << 20))) {
+            /* A missing acknowledgement is never repaired by opening NMI delivery. */
+            return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
+        }
+        /* IRET interception precedes exceptions and instruction completion, hence does not release NMI. */
+        heldIret = Machine->LastExit == 0x74;
+        /* Restore in reverse order: held-NMI guard, IRQ window, then ordinary interrupt masking. */
+        KswSvmWrite32(execution->Current, KSW_VMCB_MISC1, Machine->HeldNmiMisc1);
+        /* The source acknowledgement remains queued; only the temporary intercept has been consumed. */
+        Machine->HeldNmiGuard = 0;
+    }
     /* A queued injection must have an explicit hardware completion before dropping its token. */
     if (Machine->ArmedToken) {
         /* Interrupted injection remains owned; the dedicated retry/window path must decide its next action. */
@@ -154,6 +171,8 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
         KswSvmWrite64(&execution->Session->L1, KSW_VMCB_INTCTL,
             (KswSvmRead64(&execution->Session->L1, KSW_VMCB_INTCTL) & ~15ULL) | tpr);
     }
+    /* Executing this IRET requires software NMI-blocking/proven completion support, not RIP advancement. */
+    if (heldIret) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
     /* VINTR already proved IF/TPR/shadow eligibility; no guest instruction needs emulation. */
     if (windowExit) {
         /* Any interrupted event still belongs to hardware's original delivery transaction. */
@@ -206,7 +225,7 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
     unsigned inner, shadow, tpr;
     /* Every hardware entry has exactly one fresh overlay and at most one armed queue token. */
     if (!Machine || !Machine->Initialized || !(execution = Machine->Execution) || Machine->Overlay.Applied ||
-        Machine->ArmedToken || Machine->NmiCount || execution->Session->Phase == KSW_NSVM_SESSION_FAULTED) {
+        Machine->HeldNmiGuard || Machine->ArmedToken || Machine->NmiCount || execution->Session->Phase == KSW_NSVM_SESSION_FAULTED) {
         /* No best-effort entry after a partial physical or architectural transaction. */
         return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
     }
@@ -299,6 +318,24 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
         /* Keep both the queue and ordinary overlay retained on a window-construction failure. */
         return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT);
     }
+    /* The acknowledgement leaf intentionally returned without IRET to keep physical NMI blocked. */
+    if (Machine->PhysicalNmiToken && (!pending || pending->Token != Machine->PhysicalNmiToken)) {
+        /* Tokens survive slot reuse; a completed historical acknowledgement creates no new guard. */
+        const KSW_NSVM_PENDING_ITEM* held = KswSvmNestedPendingLookup(&execution->Pending, Machine->PhysicalNmiToken);
+        /* Only a source not yet injected has physical masking that an unrelated guest IRET could release. */
+        if (held && held->Physical) {
+            /* A physical acknowledgement may not be simultaneously armed by another injection path. */
+            if (held->State != KSW_NSVM_PENDING_QUEUED) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT); }
+            /* Snapshot after all other overlays so reverse restoration preserves their own controls. */
+            Machine->HeldNmiMisc1 = (unsigned)KswSvmRead64(execution->Current, KSW_VMCB_MISC1);
+            /* Stable token identifies the exact physical acknowledgement protected by this entry. */
+            Machine->HeldNmiToken = held->Token;
+            /* AMD IRET intercept is MISC1 bit 20, VMEXIT 0x74, before exception checking. */
+            KswSvmWrite32(execution->Current, KSW_VMCB_MISC1, Machine->HeldNmiMisc1 | (1U << 20));
+            /* The guard is executable only after its original controls and token are retained. */
+            Machine->HeldNmiGuard = 1;
+        }
+    }
     /* Reserve the queue identity before committing its injection control. */
     if (pending) {
         /* The fixed queue is single-writer, so the borrowed token cannot change concurrently. */
@@ -323,7 +360,8 @@ unsigned KswSvmNestedMachineCanStop(const KSW_NSVM_MACHINE* Machine)
     const KSW_NSVM_EXECUTION* execution;
     /* Unknown state cannot authorize freeing a stack, page table or hardware save area. */
     if (!Machine || !Machine->Initialized || !(execution = Machine->Execution) || !execution->Session ||
-        !execution->Registers.Svm || execution->Session->Phase == KSW_NSVM_SESSION_FAULTED || Machine->Overlay.Applied) { return KSW_NSVM_STOP_FAULT; }
+        !execution->Registers.Svm || execution->Session->Phase == KSW_NSVM_SESSION_FAULTED ||
+        Machine->Overlay.Applied || Machine->IrqWindow.Applied || Machine->HeldNmiGuard) { return KSW_NSVM_STOP_FAULT; }
     /* A live inner VMRUN cannot be returned directly to the original Windows caller. */
     if (execution->Session->Phase == KSW_NSVM_SESSION_L2 || execution->Session->Lease.Token) { return KSW_NSVM_STOP_L2; }
     /* Virtual SVM ownership must have been explicitly relinquished by the inner VMM. */

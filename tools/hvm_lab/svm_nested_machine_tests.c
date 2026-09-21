@@ -78,6 +78,11 @@ static int ordinary_cycle(void)
     initialize();
     CHECK(KswSvmNestedMachineInitialize(m) == KSW_NSVM_MACHINE_READY);
     CHECK(KswSvmNestedMachineCanStop(m) == KSW_NSVM_STOP_READY);
+    m->HeldNmiGuard = 1;
+    CHECK(KswSvmNestedMachineCanStop(m) == KSW_NSVM_STOP_FAULT);
+    m->HeldNmiGuard = 0; m->IrqWindow.Applied = 1;
+    CHECK(KswSvmNestedMachineCanStop(m) == KSW_NSVM_STOP_FAULT);
+    m->IrqWindow.Applied = 0;
     CHECK(KswSvmNestedMachineEntry(m) == KSW_NSVM_MACHINE_READY);
     CHECK(m->Overlay.Applied && m->Transitions == 1);
     CHECK(KswSvmNestedMachineCanStop(m) == KSW_NSVM_STOP_FAULT);
@@ -134,16 +139,39 @@ static int nmi_ownership(void)
     CHECK(KswSvmNestedMachineCanStop(m) == KSW_NSVM_STOP_EVENTS);
     CHECK(KswSvmNestedMachineEntry(m) == KSW_NSVM_MACHINE_READY);
     CHECK(!m->ArmedToken); /* Closed GIF retains ownership without injecting. */
+    CHECK(m->HeldNmiGuard && (KswSvmRead64(&model.current, KSW_VMCB_MISC1) & (1ULL << 20)));
     model.msrs.Efer = KSW_SVM_EFER_SVME;
     hardware_exit(0x84, 0); /* Virtual STGI, processed by the real instruction engine. */
     CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_READY);
     CHECK(model.execution.Gif == 1);
     CHECK(KswSvmNestedMachineEntry(m) == KSW_NSVM_MACHINE_READY);
     CHECK(m->ArmedToken == m->PhysicalNmiToken);
+    CHECK(!m->HeldNmiGuard && !(KswSvmRead64(&model.current, KSW_VMCB_MISC1) & (1ULL << 20)));
     hardware_exit(KSW_SVM_EXIT_CPUID, 0);
     CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_READY);
     CHECK(model.execution.Pending.Delivered == 1 && !model.execution.Pending.Count);
     /* No assertion here claims physical NMI-blocking/IRET hardware correctness. */
+    return 0;
+}
+static int held_nmi_iret(void)
+{
+    KSW_NSVM_MACHINE* m = &model.machine;
+    const KSW_NSVM_PENDING_ITEM* item;
+    initialize();
+    CHECK(KswSvmNestedMachineInitialize(m) == KSW_NSVM_MACHINE_READY);
+    model.execution.Gif = model.execution.GifRequested = 0;
+    CHECK(KswSvmNestedMachineEntry(m) == KSW_NSVM_MACHINE_READY);
+    hardware_exit(0x61, 0);
+    CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_READY);
+    CHECK(KswSvmNestedMachineEntry(m) == KSW_NSVM_MACHINE_READY && m->HeldNmiGuard);
+    hardware_exit(0x74, 0); /* IRET is intercepted before it can unmask the physical NMI source. */
+    CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_WINDOW);
+    CHECK(!m->HeldNmiGuard && !m->Overlay.Applied && !model.execution.Gif);
+    CHECK(KswSvmRead64(&model.current, KSW_VMCB_RIP) == 0x10000);
+    item = KswSvmNestedPendingLookup(&model.execution.Pending, m->PhysicalNmiToken);
+    CHECK(item && item->Physical && !item->Interrupted && model.execution.Pending.Count == 1);
+    CHECK(model.ackCalls == 1 && model.commitCalls == 1 && !model.execution.Pending.Delivered);
+    CHECK(KswSvmNestedMachineCanStop(m) == KSW_NSVM_STOP_EVENTS);
     return 0;
 }
 static int retained_failures(void)
@@ -185,7 +213,7 @@ static int retained_failures(void)
 }
 int main(void)
 {
-    if (ordinary_cycle() || irq_window() || nmi_ownership() || retained_failures()) { return 1; }
+    if (ordinary_cycle() || irq_window() || nmi_ownership() || held_nmi_iret() || retained_failures()) { return 1; }
     puts("nested coordinator integration fixtures passed (simulated hardware only)");
     return 0;
 }
