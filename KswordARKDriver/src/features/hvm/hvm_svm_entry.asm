@@ -161,6 +161,13 @@ KswSvmRun:
     mov rbx, [rcx+10h]           ; VMCB virtual address.
     mov byte ptr [rbx+5ch], 1    ; Full TLB flush on every VMRUN, including first entry.
     mov dword ptr [rbx+0c0h], 0  ; Do not trust clean-bit caching in this first backend.
+    cmp qword ptr [rcx+138h], 0 ; Nested event arbiter selects saved host IF independently of guest IF.
+    je KswSvmHostIfClosed        ; Baseline/probe keep the existing IF=0 root policy.
+    sti                          ; GIF is still zero, so no physical event can enter this root window.
+    jmp KswSvmHostIfReady         ; Host IF matters only when V_INTR_MASKING is set in the VMCB.
+KswSvmHostIfClosed:
+    cli                          ; A closed virtual-host interrupt window remains closed in hardware.
+KswSvmHostIfReady:
     KSW_LOAD_XSTATE              ; Undo host C code's SIMD modifications.
     KSW_SWITCH_XSS 130h          ; The guest sees its current supervisor save enablement.
     KSW_SWITCH_XCR0 120h         ; Install guest enablement after restoring the fixed full state image.
@@ -169,6 +176,7 @@ KswSvmRun:
     mov rax, [rax]               ; Physical VMCB operand, not guest RAX.
     vmload rax                   ; Restore guest extended segment/syscall state.
     vmrun rax                    ; Hardware switches RIP/RSP/RAX and core state.
+    cli                          ; VMEXIT cleared GIF; close restored host IF before any C/acknowledgement.
     mov rax, [rsp+20h]           ; VMEXIT restored the hardware host stack.
     KSW_SAVE_GPRS                ; Preserve guest GPRs before using scratch registers.
     mov rcx, rax                 ; Context for XSAVE and exit dispatch.

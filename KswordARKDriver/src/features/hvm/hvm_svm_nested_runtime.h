@@ -19,6 +19,7 @@
 #include "hvm_svm_nested_register.h"
 #include "hvm_svm_nested_cpuid.h"
 #include "hvm_svm_xstate.h"
+#include "hvm_svm_nmi.h"
 /* Enough sparse tables for the bounded probe; exhaustion returns a failed test. */
 #define KSW_NSVM_PROBE_PAGES 64U
 /* Private markers distinguish the inner exit from the final outer continuation. */
@@ -33,6 +34,8 @@ typedef struct _KSW_SVM_NESTED {
     KSW_SVM_VMCB Original;
     /* General VMRUN transaction is independent of the bounded test's original snapshot. */
     KSW_NSVM_SESSION Session;
+    /* An optional general-engine NMI window owns its private IDT and acknowledgement count. */
+    KSW_SVM_NMI_CAPTURE Nmi;
     /* Borrowed shared lifetime ledger; never freed independently of the backend. */
     KSW_NSVM_OWNER_TABLE* Owners;
     /* Frozen Windows group:number identity for this CPU's acquisition evidence. */

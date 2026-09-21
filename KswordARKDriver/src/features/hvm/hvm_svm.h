@@ -141,6 +141,8 @@ typedef struct _KSW_SVM_CPU {
     ULONGLONG GuestXcr0;
     /* 128/130: root save enablement and the independently virtualized guest XSS. */
     ULONGLONG HostXss, GuestXss;
+    /* 138: event arbiter's physical-IF value captured by VMRUN when V_INTR_MASKING=1. */
+    ULONGLONG HostInterruptsAllowed;
     /* Resource and runtime ownership beyond the assembly prefix. */
     KSW_HVM_RUNTIME* Runtime;
     /* Public row owns processor identity and common states. */
@@ -197,6 +199,8 @@ C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, GuestXcr0) == 0x120);
 /* XSS is not automatically switched by VMRUN/VMEXIT either. */
 C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, HostXss) == 0x128);
 C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, GuestXss) == 0x130);
+/* Ordinary residency leaves this zero and uses V_INTR_MASKING=0 as before. */
+C_ASSERT(FIELD_OFFSET(KSW_SVM_CPU, HostInterruptsAllowed) == 0x138);
 /* MASM native restoration consumes these exact ordinary-VMCB offsets. */
 C_ASSERT(KSW_VMCB_S_CET == 0x5e0 && KSW_VMCB_SSP == 0x5e8 && KSW_VMCB_ISST == 0x5f0);
 

@@ -1504,6 +1504,7 @@
     <ClInclude Include="src\features\hvm\hvm_svm_nested_register.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_cpuid.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_execute.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_nmi.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_pending.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_session.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_nested_writeback.h" />
@@ -1526,6 +1527,8 @@
     <ClCompile Include="src\features\hvm\hvm_svm_nested_register.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_cpuid.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_execute.c" />
+    <ClCompile Include="src\features\hvm\hvm_svm_nmi.c" />
+    <MASM Include="src\features\hvm\hvm_svm_nmi.asm" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_pending.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_session.c" />
     <ClCompile Include="src\features\hvm\hvm_svm_nested_commit.c" />

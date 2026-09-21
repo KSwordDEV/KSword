@@ -72,3 +72,9 @@ Session 先解析身份、获取持有权、重新读取受保护快照，再进
 ## 已确认事件账本静态增量（未验证）
 
 新增 nested_pending：固定 16 项、唯一 token、L1/翻译后 VMCB12 身份隔离、NMI/IRQ 优先级与同优先级 FIFO；Queued/Armed 分离，硬件 INVALID 不消费，EXITINTINFO 中断递送重排原 token，完成递送或已提交的明确反射才能移除。溢出/代次耗尽保留现场。执行器异常 Deferred 已接该账本，L2 尚有待交接事件时拒绝直接反射/释放，防止跨 IDT 错投。补了测试源码及构建清单，未执行。物理确认、注入窗口与 IRET 完成判定仍继续实现。
+
+## 物理事件入口静态增量（未验证、尚未开放）
+
+新增 root NMI 确认 leaf：预先复制可信当前核 IDT，仅替换 vector 2 为不调用 C/Windows ISR 的计数/IRETQ 入口。确认前要求 IF=0、描述符身份未变、无旧待交接计数；在 GIF=0 安装，有限 STGI 窗口确认真实 NMI，再 CLGI 恢复原表。精确一次才返回成功，多次/饱和/未确认均保留 Count，不伪造事件已递送。它只允许从完整 root GS/CR3/XSTATE/私有栈、S_CET=0、GIF=0 环境调用；当前没有普通 resident 调用点，不能从 Windows 普通函数直接试运行。
+
+CPU 汇编前缀追加 HostInterruptsAllowed（138），事件仲裁可在 GIF=0 时设置 VMRUN 保存的宿主 IF；每次 VMEXIT 后立即 CLI，再保存状态和调用 C。默认零且普通 INTCTL 不变，尚无入口启用新策略。NMI 描述符纳入逐核资源，未交接计数或活动窗口阻止释放。未构建/测试，物理 NMI 的来宾重新递送、IRET 完成与通用运行开关仍未完成。
