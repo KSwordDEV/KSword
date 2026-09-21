@@ -2,6 +2,12 @@
 
 ## 当前进度（以下本节优先于后面的历史记录）
 
+### 09-21 18:50 完整 L2 启动失败，现场已保存
+
+用户在实体宿主 KSword general 常驻时启动8核 VMware 克隆，来宾 vcpu-0 于18:50:41.422报告三重故障。本次已识别AMD-V、到达EFI，但没有完整Windows启动证据。18:53只读查询宿主32核仍ACTIVE/lastStatus0；这不代表嵌套语义正确。已保存日志、配置、逐核指标、当前VMX非侵入转储和8GiB来宾内存文件，未重置虚拟机或修改驱动状态。[故障报告](evidence/amd-host-l2-triplefault-20260921.md)。
+
+根因未定：最新退出指标和等待提示框的VMX线程栈无法重建第一条来宾异常；需补首次异常/SHUTDOWN及VMCB12/02现场保留。完整L2操作系统和内层多核并发仍未通过，原有常驻启停smoke不能替代此项。
+
 ### 09-21 18:47 实体机32核general活动记录核验
 
 用户自行执行后提供的两份日志已只读核验：prepare-svm-general、自检32/32及resident-svm-general成功；前后查询均为完整CPU0:0..31、stage4/RESIDENT_ACTIVE、UNLOAD_GUARD_ARMED、lastStatus0，generation11/power0不变，退出计数6→1400。metrics的32项general均valid/initialized/enabled=1、失败状态0，nestedImplementation=PARTIAL。[记录与哈希](evidence/amd-host-general-resident-32cpu-observation.json)。
