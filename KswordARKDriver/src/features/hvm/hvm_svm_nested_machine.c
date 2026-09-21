@@ -266,11 +266,24 @@ unsigned KswSvmNestedMachineEntry(KSW_NSVM_MACHINE* Machine)
         pending = KswSvmNestedPendingSelect(&execution->Pending, owner,
             execution->Gif && !shadow && (flags & (1ULL << 9)), execution->Gif && !shadow, (unsigned)(control & 15ULL));
     }
+    /* A virtual IRQ may run while the acknowledged queue is masked; physical events otherwise take precedence. */
+    if (execution->Gif && KswSvmNestedPendingOwned(&execution->Pending, owner) &&
+        KswSvmNestedPreferVirq(execution->Current, pending ? pending->Event : 0)) {
+        /* A requested VINTR is L1-owned; reflecting it with retained L2 acknowledgements needs explicit handoff. */
+        if (inner && KswSvmNestedInterceptRequested(&execution->Session->Vmcb12, 0x64) == 1) {
+            /* Preserve both requests instead of fabricating an EXITINTINFO record for an unstarted delivery. */
+            return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW);
+        }
+        /* Only a nonintercepted eligible virtual IRQ is converted to the equivalent unconditional injection. */
+        event = (1ULL << 31) | ((control >> 32) & 255ULL);
+        /* Clear the source request at the same architectural point, before beginning its IDT delivery. */
+        control &= ~(1ULL << 8); KswSvmWrite64(execution->Current, KSW_VMCB_INTCTL, control);
+        /* The original virtual interrupt remains separately represented from the queued physical acknowledgement. */
+        KswSvmWrite64(execution->Current, KSW_VMCB_EVENT, event); pending = NULL;
+    }
     /* An enabled GIF with pending but blocked delivery needs an explicit window implementation. */
     if (execution->Gif && KswSvmNestedPendingOwned(&execution->Pending, owner) &&
         (!pending || ((event & (1ULL << 31)) && (pending->Token != execution->RetryEventToken || pending->Event != event)))) {
-        /* An original L1 V_IRQ needs a separate priority arbiter and cannot be overwritten. */
-        if (control & (1ULL << 8)) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
         /* A pending NMI has higher priority and cannot be represented by a maskable sentinel. */
         if (KswSvmNestedPendingSelect(&execution->Pending, owner, 0, 1, 0)) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
         /* Find the highest-priority IRQ independently of IF/TPR and an existing synchronous injection. */

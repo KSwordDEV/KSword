@@ -1,5 +1,7 @@
 # AMD 嵌套 SVM：第二阶段实现记录
 
+2026-09-21 静态VIRQ复用：VINTR临时请求按排队IRQ与原V_IRQ的可投递条件并集唤醒，保存/恢复原vector/priority/IGN_TPR；已就绪的物理确认事件优先（APM15.21.4），原虚拟IRQ只在队列阻塞时按原IF/TPR/shadow投递，原EVENTINJ不改。L1要求VINTR反射且L2仍持确认队列时继续保留WINDOW，未伪造EXITINTINFO。扩展源用例未执行；WDK/API/CAT零警告通过build-nested-virq-20260921.log。GUI metrics v5整批构建最终成功（build-gui-metrics5-20260921.log），共8条既有宏重定义/Qt部署警告，链接器自行从32位重启到64位后成功；未手动替换工具链。GUI构建自带i18n/theme门禁自动执行，无HVM测试或硬件运行。
+
 2026-09-21 静态重复启停：实际native寄存器核验通过后，CompleteNative再次检查general stop动作/lease/队列/NMI/窗口为空，再关闭NestedEntryEnabled与绑定标志；保留诊断至下一次明确初始化。下一次绑定重取Windows当前状态并重置本次运行计数，不复用旧continuation。部分初始化的odd sequence拒绝重试，需正常释放/重新prepare。WDK/API/CAT零警告通过，日志build-nested-retire-20260921.log，也覆盖上一阶段最后raw-exit字段微调。无运行验证。
 
 2026-09-21 静态诊断协议：metrics独立升v5，SVM行新增general快照，以64位sequence覆盖root入口/退出/NMI事务，区分preparedEntries与实际hardwareExits，保留phase/action/GIF/lease/事件token/XSTATE/取指状态。共享头、命令引擎JSON、当前验收脚本及源fixture同步；历史证据验证器接受v4/v5不变的probe子集。驱动WDK/API/CAT与hvm_ctl、KswordCLI编译链接通过；最后raw-exit保留字段微调仍需增量编译。GUI同批构建进行中，自动运行其既有i18n/theme门禁（不是手动执行HVM测试），还未取得最终链接结果。无HVM测试/装载/签名/暂存或推送。
