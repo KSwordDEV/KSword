@@ -45,6 +45,8 @@ static void KswNsvmSessionSaveL1(KSW_NSVM_SESSION* Session, const KSW_SVM_VMCB* 
     KswSvmWrite64(&Session->L1, KSW_VMCB_RIP, KswSvmRead64(Current, KSW_VMCB_NRIP));
     /* An event preceding the intercepted VMRUN already completed; do not inject it twice. */
     KswSvmWrite64(&Session->L1, KSW_VMCB_EVENT, 0);
+    /* Completing the intercepted VMRUN consumes any preceding single-instruction interrupt shadow. */
+    KswSvmWrite64(&Session->L1, 0x068U, 0);
 }
 
 /* Bind each transaction to one arbitrary translated operand and one processor-private cache. */

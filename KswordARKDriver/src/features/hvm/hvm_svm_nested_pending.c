@@ -1,6 +1,23 @@
 /* An event disappears only after observed hardware delivery or explicit architectural transfer. */
 #include "hvm_svm_nested_pending.h"
 
+/* A token is never resolved by slot index alone. */
+const KSW_NSVM_PENDING_ITEM* KswSvmNestedPendingLookup(const KSW_NSVM_PENDING* Pending,
+    KSW_SVM_U64 Token)
+{
+    /* Search only the fixed per-CPU storage. */
+    unsigned index;
+    /* Zero denotes no owned event. */
+    if (!Pending || !Token) { return NULL; }
+    /* Recycled slots have different serials even when the event/vector is identical. */
+    for (index = 0; index < KSW_NSVM_PENDING_CAPACITY; ++index) {
+        /* A free slot's historical token cannot authorize a retry. */
+        if (Pending->Items[index].State && Pending->Items[index].Token == Token) { return &Pending->Items[index]; }
+    }
+    /* The caller must preserve the raw hardware evidence when the identity is missing. */
+    return NULL;
+}
+
 /* Reject invalid/reserved encodings instead of silently changing an acknowledged event. */
 static int KswNsvmPendingValid(KSW_SVM_U64 Event)
 {

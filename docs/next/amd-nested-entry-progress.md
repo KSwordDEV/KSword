@@ -84,3 +84,11 @@ CPU 汇编前缀追加 HostInterruptsAllowed（138），事件仲裁可在 GIF=0
 新增 nested_interrupt：进入前覆盖执行控制，退出后先恢复原始控制再做归属判断；L1 GIF=0 时以 V_INTR_MASKING/hostIF=0 关闭物理 IRQ，保留并暂时屏蔽 V_IRQ，拦截 NMI。L2 保留内层 masking/TPR 请求，hostIF 来自实际 L1 VMRUN 保存的 IF。硬件 V_TPR/V_IRQ 输出单独合并，mask0 时真实 CR8 是权威值。INTR 反射保持 APIC 待处理，root 不做 INTACK/EOI；NMI 必须确认后保存，SMI/INIT 未实现路径明确拒绝。V_IGN_TPR 位准入补全。
 
 NMI 确认 leaf 调整为同 CS、IST0 的受控近返回，保留硬件 NMI blocking；避免先在 root IRET 解屏蔽，再用本身不阻塞后续 NMI 的 EVENTINJ 制造错误窗口。实际 guest IRET 完成才自然解除硬件阻塞，不能在 IRET 截获时提前宣布解除。保存原 RSP（包括硬件对齐前值）和寄存器/flags；计数必须交接，资源全局释放门同步保留其宿主栈/HSAVE。此实现未构建/运行，需要后续硬件验证，现阶段仍无普通 resident 调用点。通用调度器还需接 CR8 同步、队列窗口、停止协议。
+
+## 运行协调器静态增量（未验证）
+
+新增 nested_machine，串联退出控制恢复、物理事件分类/确认/排队/反射、通用指令执行、GIF 提交、下一次 TPR/控制/事件准备。首次读取真实 CR8；mask0 的 L2 对物理 CR8 修改保留给返回 L1，L1 受强制 masking 的 CR8 修改在下一次进入前同步。NMI 确认分两步，只有软件账本接收后才能清物理捕获计数。
+
+已排队注入中遇到 NPF 时保留同一 token 并重试，不再次确认、不重复入队；真实 EXITINTINFO 可在完整 VMEXIT 写回后交给 L1。正常模拟指令完成消耗之前的单指令 interrupt shadow。停止条件逐核检查 L2/lease、虚拟 SVME/HSAVE、事件、GIF 和活动 overlay，不能从 CLI 退出推断停止。
+
+协调器对尚未处理的注入碰撞、阻塞窗口、跨上下文待处理事件返回 WINDOW，明确禁止当作 READY 重入；这些分支和 Windows 平台绑定/公开入口继续实现，不能据此称全部静态工作完成。新增源码已入工程，修正新增测试命令在旧 exit 后不可达的问题；本阶段未构建或执行测试。

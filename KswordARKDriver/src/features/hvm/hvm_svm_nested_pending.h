@@ -37,3 +37,6 @@ int KswSvmNestedPendingTransfer(KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Token,
     KSW_SVM_U64 ReflectedEvent);
 /* Refuse context destruction/migration while an acknowledged event still belongs to it. */
 unsigned KswSvmNestedPendingOwned(const KSW_NSVM_PENDING* Pending, KSW_SVM_U64 Owner);
+/* Borrow one exact identity for retry/architectural handoff; do not keep it across a mutation. */
+const KSW_NSVM_PENDING_ITEM* KswSvmNestedPendingLookup(const KSW_NSVM_PENDING* Pending,
+    KSW_SVM_U64 Token);

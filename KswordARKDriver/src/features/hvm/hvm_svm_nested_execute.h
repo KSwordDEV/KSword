@@ -40,6 +40,8 @@ typedef struct _KSW_NSVM_EXECUTION {
     KSW_NSVM_EVENT_PLAN Exception;
     /* Acknowledged interrupted events cannot be lost when raising a replacement exception. */
     KSW_NSVM_PENDING Pending;
+    /* A hardware-interrupted injection retries/transfers the same acknowledgement identity. */
+    KSW_SVM_U64 RetryEventToken;
     /* Cache recycling is deliberate, bounded by preallocated capacity and always followed by flush. */
     KSW_SVM_U64 CacheRecycles;
 } KSW_NSVM_EXECUTION;
