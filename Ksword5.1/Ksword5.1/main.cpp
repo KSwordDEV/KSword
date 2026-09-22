@@ -1277,6 +1277,9 @@ namespace
         void hideSplashAndDetach()
         {
             m_hidden = true;
+            // 首帧时刻才是用户"看见主窗口"的时间点，window.show() 只是发起；
+            // 两者之间的差值是启动耗时里最容易被忽略的一段。
+            startupTraceRaw("first_frame_painted");
             if (m_splashWindow != nullptr)
             {
                 m_splashWindow->progress("启动完成", 100);
@@ -1734,6 +1737,12 @@ int main(int argc, char* argv[])
     const MainWindow::StartupProgressCallback startupProgressCallback =
         [splashReady](const int progressPercent, const QString& statusText)
         {
+            // 进度点同时打进启动追踪文件：
+            // - 追踪行带毫秒时间戳，主窗口构造内部的分段耗时才有得看；
+            // - 不受 splashReady 影响，无启动页时同样留下时间线。
+            startupTraceRaw(
+                "startup_progress " + std::to_string(progressPercent) + "%: "
+                + statusText.toUtf8().toStdString());
             if (!splashReady)
             {
                 return;

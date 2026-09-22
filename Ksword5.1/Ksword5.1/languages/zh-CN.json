@@ -1325,6 +1325,7 @@
     "process.table.header.gpu_shared_memory": "共享 GPU 内存",
     "process.table.header.process_type": "类型",
     "process.table.header.cpu_core": "CPU核心",
+    "process.table.header.injection_surface": "注入面",
     "process.table.cell.status_running": "正在运行",
     "process.table.cell.status_suspended": "已挂起",
     "process.table.cell.job_object_member": "归属作业",
@@ -5898,7 +5899,8 @@
     "kernel.iotimer.control.start": "启动定时器",
     "kernel.iotimer.control.stop": "停止定时器",
     "settings.background.translucency_material.blur": "毛玻璃磨砂（推荐）",
-    "settings.background.translucency_material.acrylic": "磨砂玻璃"
+    "settings.background.translucency_material.acrylic": "磨砂玻璃",
+    "notification.copy.log_template": "%1\n%2\n%3\n文件：%4\n函数：%5\nGUID：%6"
   },
   "source_translations": {
     "%1 项（%2 TiB）": "%1 项（%2 TiB）",
@@ -34013,6 +34015,10 @@
     "效率模式（绿叶）": "效率模式（绿叶）",
     "勾上挂起当前进程，取消勾选恢复。勾选态反映进程当前是否处于挂起，不表示是谁挂的。": "勾上挂起当前进程，取消勾选恢复。勾选态反映进程当前是否处于挂起，不表示是谁挂的。",
     "勾上开启当前进程效率模式（绿叶），取消勾选关闭。本机或该进程不支持时勾选无效，详情页的效率模式一行会显示不可用。": "勾上开启当前进程效率模式（绿叶），取消勾选关闭。本机或该进程不支持时勾选无效，详情页的效率模式一行会显示不可用。",
-    "走驱动的 PsSuspendProcess，取不到则退到 Zw/NtSuspendProcess。取消勾选走 PsResumeProcess。勾选态与上面那条共用同一个读数——它反映的是进程当前是否挂起，不表示是谁挂的。": "走驱动的 PsSuspendProcess，取不到则退到 Zw/NtSuspendProcess。取消勾选走 PsResumeProcess。勾选态与上面那条共用同一个读数——它反映的是进程当前是否挂起，不表示是谁挂的。"
+    "走驱动的 PsSuspendProcess，取不到则退到 Zw/NtSuspendProcess。取消勾选走 PsResumeProcess。勾选态与上面那条共用同一个读数——它反映的是进程当前是否挂起，不表示是谁挂的。": "走驱动的 PsSuspendProcess，取不到则退到 Zw/NtSuspendProcess。取消勾选走 PsResumeProcess。勾选态与上面那条共用同一个读数——它反映的是进程当前是否挂起，不表示是谁挂的。",
+    "[ProcessDock] 单系统会话 CSwitch 逐核心 CPU 采集器启动失败, detail=%1": "[ProcessDock] 单系统会话 CSwitch 逐核心 CPU 采集器启动失败, detail=%1",
+    "[ProcessDock] 单系统会话 CSwitch 逐核心 CPU 采集器启动成功": "[ProcessDock] 单系统会话 CSwitch 逐核心 CPU 采集器启动成功",
+    "[ProcessDock] 进程网络吞吐 ETW 采集器启动失败, detail=%1": "[ProcessDock] 进程网络吞吐 ETW 采集器启动失败, detail=%1",
+    "[ProcessDock] 进程网络吞吐 ETW 采集器启动成功": "[ProcessDock] 进程网络吞吐 ETW 采集器启动成功"
   }
 }

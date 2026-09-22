@@ -1325,6 +1325,7 @@
     "process.table.header.gpu_shared_memory": "Shared GPU memory",
     "process.table.header.process_type": "Type",
     "process.table.header.cpu_core": "CPU cores",
+    "process.table.header.injection_surface": "Injection surface",
     "process.table.cell.status_running": "Running",
     "process.table.cell.status_suspended": "Suspended",
     "process.table.cell.job_object_member": "In job",
@@ -5898,7 +5899,8 @@
     "kernel.iotimer.control.start": "Start timer",
     "kernel.iotimer.control.stop": "Stop timer",
     "settings.background.translucency_material.blur": "Frosted blur (recommended)",
-    "settings.background.translucency_material.acrylic": "Frosted glass"
+    "settings.background.translucency_material.acrylic": "Frosted glass",
+    "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
     "%1 项（%2 TiB）": "%1 entries (%2 TiB)",
@@ -34013,6 +34015,10 @@
     "效率模式（绿叶）": "Efficiency mode (green leaf)",
     "勾上挂起当前进程，取消勾选恢复。勾选态反映进程当前是否处于挂起，不表示是谁挂的。": "Check to suspend this process, clear to resume. The checkbox reflects whether the process is currently suspended, not who suspended it.",
     "勾上开启当前进程效率模式（绿叶），取消勾选关闭。本机或该进程不支持时勾选无效，详情页的效率模式一行会显示不可用。": "Check to turn on efficiency mode (green leaf) for this process, clear to turn it off. It has no effect when this machine or process does not support it; the efficiency mode row on the detail page then reads unavailable.",
-    "走驱动的 PsSuspendProcess，取不到则退到 Zw/NtSuspendProcess。取消勾选走 PsResumeProcess。勾选态与上面那条共用同一个读数——它反映的是进程当前是否挂起，不表示是谁挂的。": "Uses the driver's PsSuspendProcess, falling back to Zw/NtSuspendProcess when it cannot be resolved. Clearing the checkbox calls PsResumeProcess. The checkbox shares its reading with the entry above: it reflects whether the process is currently suspended, not who suspended it."
+    "走驱动的 PsSuspendProcess，取不到则退到 Zw/NtSuspendProcess。取消勾选走 PsResumeProcess。勾选态与上面那条共用同一个读数——它反映的是进程当前是否挂起，不表示是谁挂的。": "Uses the driver's PsSuspendProcess, falling back to Zw/NtSuspendProcess when it cannot be resolved. Clearing the checkbox calls PsResumeProcess. The checkbox shares its reading with the entry above: it reflects whether the process is currently suspended, not who suspended it.",
+    "[ProcessDock] 单系统会话 CSwitch 逐核心 CPU 采集器启动失败, detail=%1": "[ProcessDock] single-session CSwitch per-core CPU collector startup failed, detail=%1",
+    "[ProcessDock] 单系统会话 CSwitch 逐核心 CPU 采集器启动成功": "[ProcessDock] single-session CSwitch per-core CPU collector started",
+    "[ProcessDock] 进程网络吞吐 ETW 采集器启动失败, detail=%1": "[ProcessDock] process network throughput ETW collector startup failed, detail=%1",
+    "[ProcessDock] 进程网络吞吐 ETW 采集器启动成功": "[ProcessDock] process network throughput ETW collector started"
   }
 }

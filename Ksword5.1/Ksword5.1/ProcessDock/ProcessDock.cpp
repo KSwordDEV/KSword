@@ -4231,12 +4231,20 @@ void ProcessDock::ensureProcessNetworkTrafficCaptureStarted()
 
     const bool started = m_processNetworkTrafficService->Start();
 
+    // 同上：整句单条源文本，失败分支用 %1 承载 detail。
     kLogEvent logEvent;
-    (started ? info : warn) << logEvent
-        << "[ProcessDock] 进程网络吞吐 ETW 采集器"
-        << (started ? "启动成功" : "启动失败")
-        << (started ? std::string() : (", detail=" + m_processNetworkTrafficService->LastErrorText()))
-        << eol;
+    if (started)
+    {
+        info << logEvent << "[ProcessDock] 进程网络吞吐 ETW 采集器启动成功" << eol;
+    }
+    else
+    {
+        warn << logEvent
+            << QStringLiteral("[ProcessDock] 进程网络吞吐 ETW 采集器启动失败, detail=%1")
+                .arg(QString::fromStdString(m_processNetworkTrafficService->LastErrorText()))
+                .toStdString()
+            << eol;
+    }
 }
 
 void ProcessDock::stopProcessNetworkTrafficCapture()
@@ -4281,14 +4289,24 @@ void ProcessDock::ensureCpuCoreUsageCaptureStarted()
             // 用户在启动完成前已暂停时立即后台回收，避免短暂遗留无人消费的高频会话。
             cpuCoreService->Stop();
         }
+        // 整句写成单条源文本（失败分支带 %1）：
+        // - 通知卡片与日志面板按整行查 source_translations，分段拼接的内容永远配不上词条；
+        // - %1 交给模板匹配捕获，detail 原样带出，不参与翻译。
         kLogEvent logEvent;
-        (started ? info : warn) << logEvent
-            << "[ProcessDock] 单系统会话 CSwitch 逐核心 CPU 采集器"
-            << (started ? "启动成功" : "启动失败")
-            << (started
-                ? std::string()
-                : (", detail=" + cpuCoreService->LastErrorText()))
-            << eol;
+        if (started)
+        {
+            info << logEvent
+                << "[ProcessDock] 单系统会话 CSwitch 逐核心 CPU 采集器启动成功"
+                << eol;
+        }
+        else
+        {
+            warn << logEvent
+                << QStringLiteral("[ProcessDock] 单系统会话 CSwitch 逐核心 CPU 采集器启动失败, detail=%1")
+                    .arg(QString::fromStdString(cpuCoreService->LastErrorText()))
+                    .toStdString()
+                << eol;
+        }
     });
     startTask->setAutoDelete(true);
     QThreadPool::globalInstance()->start(startTask);

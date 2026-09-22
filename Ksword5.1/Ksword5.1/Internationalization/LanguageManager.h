@@ -7,6 +7,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <memory>
+
 class QComboBox;
 class QLineEdit;
 class QSpinBox;
@@ -59,32 +61,20 @@ namespace ks::i18n
         void retranslateAll();
 
     private:
-        LanguageManager() = default;
+        LanguageManager();
+        ~LanguageManager() override;
         Q_DISABLE_COPY_MOVE(LanguageManager)
 
-        struct LanguagePack
-        {
-            struct SourceTemplate
-            {
-                QRegularExpression expression;
-                QHash<QString, int> placeholderCaptureGroups;
-                QString translatedPattern;
-                QString requiredPrefix;
-                QString requiredSuffix;
-                int literalLength = 0;
-            };
-
-            LanguageInfo info;
-            QString fallbackLanguageId;
-            QHash<QString, QString> translations;
-            QHash<QString, QString> contextTranslations;
-            QHash<QString, QString> sourceTranslations;
-            QHash<QString, QString> renderedSources;
-            QList<SourceTemplate> sourceTemplates;
-        };
+        // 语言包按需加载：启动只读取每个包的元数据清单，翻译表在第一次真正用到时才解析。
+        // State 持有清单与已加载的翻译表；PackRef 是一次查询拿到的只读快照。
+        struct State;
+        struct PackRef;
 
         void discoverLanguagePacks(QStringList* warningListOut);
-        bool loadLanguagePack(const QString& filePath, LanguagePack* packOut, QString* errorTextOut) const;
+        // acquirePack：按语言 id 取包；尚未加载时在此处解析。找不到或解析失败时 data 为空。
+        PackRef acquirePack(const QString& languageId) const;
+        // hasAnyPack：清单里是否有可用语言包；只看元数据，不触发加载。
+        bool hasAnyPack() const;
         QString resolvePreferredLanguageId(const QString& preferredLanguageId) const;
         QString resolveText(
             const QString& languageId,
@@ -108,7 +98,7 @@ namespace ks::i18n
         void applyApplicationDirection() const;
         bool eventFilter(QObject* watched, QEvent* event) override;
 
-        QList<LanguagePack> m_languagePacks;
+        std::unique_ptr<State> m_state;
         QString m_currentLanguageId;
         bool m_applicationEventFilterInstalled = false;
         bool m_applyingRuntimeTranslations = false;

@@ -46,6 +46,32 @@ namespace
         return QString::fromUtf8(utf8Text.data(), static_cast<int>(utf8Text.size()));
     }
 
+    // localizedBackendText 作用：
+    // - 日志与进度文本由后端以源语言（中文）写入 std::string，显示时才翻译；
+    // - 与 DriverDock 的调试输出同一做法：按行 displayText，避免多行内容整体失配；
+    // - 未登记的文本原样返回，不会丢内容。
+    QString localizedBackendText(const std::string& utf8Text)
+    {
+        const QString rawText = toUiText(utf8Text);
+        if (rawText.isEmpty())
+        {
+            return rawText;
+        }
+        if (!rawText.contains(QChar(u'\n')))
+        {
+            return ks::i18n::displayText(rawText);
+        }
+
+        QStringList localizedLines;
+        const QStringList rawLines = rawText.split(QChar(u'\n'));
+        localizedLines.reserve(rawLines.size());
+        for (const QString& rawLine : rawLines)
+        {
+            localizedLines.append(ks::i18n::displayText(rawLine));
+        }
+        return localizedLines.join(QChar(u'\n'));
+    }
+
     QColor levelColor(const kLogLevel level)
     {
         switch (level)
@@ -64,10 +90,12 @@ namespace
 
     QString logCopyText(const kEvent& eventItem)
     {
-        return QStringLiteral("%1\n%2\n%3\n文件：%4\n函数：%5\nGUID：%6")
+        return ks::i18n::contextText(
+                QStringLiteral("notification.copy.log_template"),
+                QStringLiteral("%1\n%2\n%3\n文件：%4\n函数：%5\nGUID：%6"))
             .arg(QString::fromStdString(LogLevelToString(eventItem.level)))
             .arg(QString::fromStdString(FormatTimeToString(eventItem.timestamp)).right(8))
-            .arg(toUiText(eventItem.content))
+            .arg(localizedBackendText(eventItem.content))
             .arg(toUiText(eventItem.fileLocation))
             .arg(toUiText(eventItem.functionName))
             .arg(QString::fromStdString(GuidToString(eventItem.guid)));
@@ -77,8 +105,8 @@ namespace
     {
         const int percent = std::clamp(static_cast<int>(std::lround(taskItem.progress * 100.0f)), 0, 100);
         return QStringLiteral("%1\n%2\n%3%")
-            .arg(toUiText(taskItem.taskName))
-            .arg(toUiText(taskItem.stepName))
+            .arg(localizedBackendText(taskItem.taskName))
+            .arg(localizedBackendText(taskItem.stepName))
             .arg(percent);
     }
 
@@ -210,7 +238,7 @@ namespace ks::ui
                 QStringLiteral("%1  %2")
                 .arg(QString::fromStdString(LogLevelToString(eventItem.level)))
                 .arg(QString::fromStdString(FormatTimeToString(eventItem.timestamp)).right(8)));
-            m_bodyLabel->setText(toUiText(eventItem.content));
+            m_bodyLabel->setText(localizedBackendText(eventItem.content));
             m_copyText = logCopyText(eventItem);
             m_accentColor = levelColor(eventItem.level);
             m_logHeightLimitEnabled = heightLimitEnabled;
@@ -237,8 +265,8 @@ namespace ks::ui
 
         void setProgressTask(const kProgressTask& taskItem)
         {
-            m_titleLabel->setText(toUiText(taskItem.taskName));
-            m_bodyLabel->setText(toUiText(taskItem.stepName));
+            m_titleLabel->setText(localizedBackendText(taskItem.taskName));
+            m_bodyLabel->setText(localizedBackendText(taskItem.stepName));
             if (m_progressBar != nullptr)
             {
                 m_progressBar->setValue(std::clamp(static_cast<int>(std::lround(taskItem.progress * 100.0f)), 0, 100));
