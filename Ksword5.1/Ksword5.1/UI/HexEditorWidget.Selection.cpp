@@ -29,14 +29,14 @@ namespace
     }
 
     // buildSelectionInspectorPanelStyle：
-    // - 统一选区检查器面板边框和背景样式；
-    // - 保持与十六进制编辑器主面板主题一致。
+    // - 选区检查器面板只保留顶部分隔线，去掉四周边框，减少视觉噪声；
+    // - 与上方主体区域之间用一条细线隔开即可。
     QString buildSelectionInspectorPanelStyle()
     {
         return QStringLiteral(
             "#ksHexSelectionInspectorPanel{"
-            "  border:1px solid %1;"
-            "  border-radius:4px;"
+            "  border:none;"
+            "  border-top:1px solid %1;"
             "  background:transparent;"
             "  background-color:transparent;"
             "}"
@@ -70,9 +70,9 @@ void HexEditorWidget::initializeSelectionInspector()
     m_selectionInspectorPanel->setAutoFillBackground(false);
     m_selectionInspectorPanel->setAttribute(Qt::WA_StyledBackground, true);
     m_selectionInspectorLayout = new QGridLayout(m_selectionInspectorPanel);
-    m_selectionInspectorLayout->setContentsMargins(8, 8, 8, 8);
-    m_selectionInspectorLayout->setHorizontalSpacing(8);
-    m_selectionInspectorLayout->setVerticalSpacing(4);
+    m_selectionInspectorLayout->setContentsMargins(6, 4, 6, 4);
+    m_selectionInspectorLayout->setHorizontalSpacing(6);
+    m_selectionInspectorLayout->setVerticalSpacing(2);
     m_selectionInspectorPanel->setStyleSheet(buildSelectionInspectorPanelStyle());
 
     auto buildValueLabel = [this]() -> QLabel*

@@ -13,7 +13,7 @@ void HexEditorWidget::initializeUi()
 {
     m_rootLayout = new QVBoxLayout(this);
     m_rootLayout->setContentsMargins(0, 0, 0, 0);
-    m_rootLayout->setSpacing(6);
+    m_rootLayout->setSpacing(4);
 
     // 顶部工具条：摘要 + 行宽 + 查找/跳转/导出。
     QWidget* toolbarWidget = new QWidget(this);
@@ -187,6 +187,7 @@ void HexEditorWidget::initializeUi()
             "}"
             "QTableView::item{"
             "  border:none;"
+            "  padding:0 3px;"
             "  color:%3;"
             "}"
         "QTableCornerButton::section{"
@@ -201,7 +202,7 @@ void HexEditorWidget::initializeUi()
     QFont fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     // 系统等宽字体缺少中文字形时 Windows 会回退到宋体，显式指定雅黑承接中文。
     fixedFont.setFamilies(QStringList{ fixedFont.family(), QStringLiteral("Microsoft YaHei UI") });
-    fixedFont.setPointSize(std::max(fixedFont.pointSize(), 12));
+    fixedFont.setPointSize(std::max(fixedFont.pointSize(), 13));
     // ksword_preserve_custom_font 作用：阻止全局表格字体刷新覆盖 HEX 对齐所需的等宽字体。
     m_hexTable->setProperty("ksword_preserve_custom_font", true);
     m_hexTable->horizontalHeader()->setProperty("ksword_preserve_custom_font", true);
@@ -209,6 +210,12 @@ void HexEditorWidget::initializeUi()
     m_hexTable->setFont(fixedFont);
     m_hexTable->horizontalHeader()->setFont(fixedFont);
     m_hexTable->verticalHeader()->setFont(fixedFont);
+
+    // 紧凑行高：以字体行高为基准只加 4px 上下余白，避免 Qt 默认 margin 吃掉大量空间。
+    // QFontMetrics::height() = ascent + descent，是文字实际占用的像素高度。
+    const int compactRowHeight = QFontMetrics(fixedFont).height() + 4;
+    m_hexTable->verticalHeader()->setDefaultSectionSize(compactRowHeight);
+    m_hexTable->verticalHeader()->setMinimumSectionSize(compactRowHeight);
 
     // 鼠标悬浮显示 I-beam，强调“可直接输入”编辑体验。
     m_hexTable->viewport()->setCursor(Qt::IBeamCursor);
