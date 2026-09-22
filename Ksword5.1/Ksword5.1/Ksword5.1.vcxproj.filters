@@ -376,6 +376,9 @@
     <ClCompile Include="KernelDock\KernelDriverStartIoTab.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="KernelDock\KernelObjectTypeProcedureTab.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="KernelDock\KernelIoctlAuditTab.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -967,6 +970,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\TableHeaderSortingSupport.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\IntegrityRiskPresentation.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\TableInteractionSupport.cpp">
@@ -1792,6 +1798,9 @@
     <ClInclude Include="UI\TableHeaderSortingSupport.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="UI\IntegrityRiskPresentation.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="UI\TableInteractionSupport.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1895,6 +1904,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="KernelDock\KernelDriverStartIoTab.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="KernelDock\KernelObjectTypeProcedureTab.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="KernelDock\KernelIoctlAuditTab.h">

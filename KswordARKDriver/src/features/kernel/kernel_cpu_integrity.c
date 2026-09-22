@@ -11,6 +11,7 @@ Environment:
 #include "kernel_idt_baseline.h"
 #include "kernel_idt_consistency.h"
 #include "kernel_image_section_map.h"
+#include "kernel_interrupt_object.h"
 #include <intrin.h>
 #include <ntstrsafe.h>
 #include <stdarg.h>
@@ -61,6 +62,8 @@ typedef struct _KSW_CPU_INTEGRITY_SAMPLE
     ULONGLONG Efer;
     ULONGLONG Lstar;
     ULONGLONG SysenterEip;
+    // 该 CPU 的 KPRCB 地址。KeGetPcr() 只在绑定亲和性期间对得上，所以必须在绑定的那一段里取。
+    ULONGLONG Prcb;
     KSW_CPU_INTEGRITY_DESCRIPTOR_REGISTER Idtr;
     KSW_CPU_INTEGRITY_DESCRIPTOR_REGISTER Gdtr;
 } KSW_CPU_INTEGRITY_SAMPLE, *PKSW_CPU_INTEGRITY_SAMPLE;
@@ -550,6 +553,8 @@ Return Value:
     Sample->SysenterEip = __readmsr(KSW_CPU_INTEGRITY_MSR_SYSENTER_EIP);
     __sidt(&Sample->Idtr);
     KswordARKCpuStoreGdtr(&Sample->Gdtr);
+    // 调用方已把线程绑到目标 CPU，此刻 KeGetPcr()->CurrentPrcb 就是该 CPU 的 KPRCB。
+    Sample->Prcb = (ULONGLONG)(ULONG_PTR)KeGetPcr()->CurrentPrcb;
     Sample->Captured = 1UL;
 #else
     UNREFERENCED_PARAMETER(Sample);
@@ -656,25 +661,37 @@ KswordARKCpuIntegrityEmitIdtRows(
     _Inout_ KSW_DRIVER_INTEGRITY_BUILDER* Builder,
     _In_ const KSW_CPU_INTEGRITY_SAMPLE* Sample,
     _In_opt_ const KSW_HOOK_SYSTEM_MODULE_INFORMATION* ModuleInfo,
-    _In_ ULONG MaxVectors
+    _In_ ULONG MaxVectors,
+    _Inout_ KSW_INTERRUPT_OBJECT_CONTEXT* InterruptContext
     )
 /*++
 Routine Description:
-    Read copied IDT entries and emit handler owner evidence rows.
+    Read copied IDT entries and emit handler owner evidence rows. After each
+    gate row, follow the vector to its interrupt object and emit the secondary
+    ISR pointer evidence (class INTERRUPT_OBJECT).
 Arguments:
     Builder - Response builder.
     Sample - Captured descriptor state for one CPU.
     ModuleInfo - Optional module snapshot for owner attribution.
     MaxVectors - Maximum vectors to emit for this CPU.
+    InterruptContext - Per-query interrupt-object layout state shared across CPUs.
 Return Value:
     None. IDT rows are appended to Builder.
 --*/
 {
     ULONG vector = 0UL;
     ULONG vectorCount = 0UL;
+    KSW_INTERRUPT_OBJECT_CPU interruptCpu;
     if (Builder == NULL || Sample == NULL || Sample->Captured == 0UL || Sample->Idtr.Base == 0U) {
         return;
     }
+    // KPRCB 地址取自绑定亲和性的那一段，这里只是把它连同 IDT 现场一起交给二级对象取证。
+    RtlZeroMemory(&interruptCpu, sizeof(interruptCpu));
+    interruptCpu.ProcessorGroup = Sample->Group;
+    interruptCpu.ProcessorNumber = Sample->Number;
+    interruptCpu.PrcbAddress = Sample->Prcb;
+    interruptCpu.IdtBase = (ULONGLONG)Sample->Idtr.Base;
+    interruptCpu.IdtLimit = (ULONG)Sample->Idtr.Limit;
     vectorCount = ((ULONG)Sample->Idtr.Limit + 1UL) / KSW_CPU_INTEGRITY_IDT_ENTRY_BYTES;
     if (vectorCount > 256UL) {
         vectorCount = 256UL;
@@ -801,6 +818,8 @@ Return Value:
             row->baselineDescriptorRawLow = baselineRawLow;
             row->baselineDescriptorRawHigh = baselineRawHigh;
         }
+        // 网关行之后：沿该向量走到中断对象，核对网关之后的二级指针（只读，布局运行时自验证）。
+        KswordARKInterruptObjectEmitForVector(Builder, InterruptContext, ModuleInfo, &interruptCpu, vector, handler, riskFlags);
     }
 }
 
@@ -961,10 +980,13 @@ Return Value:
     ULONG totalCpus = 0UL;
     ULONG allActiveCount = 0UL;
     KSW_IDT_CONSISTENCY_VIEW* consistencyView = NULL;
+    KSW_INTERRUPT_OBJECT_CONTEXT interruptContext;
     if (Builder == NULL || CpuCountOut == NULL) {
         return STATUS_INVALID_PARAMETER;
     }
     *CpuCountOut = 0UL;
+    // 中断对象布局在整次查询内只解析一次；验证不过时只产出一行说明，其后静默。
+    KswordARKInterruptObjectContextInitialize(&interruptContext);
     // 先做一轮只读的全机 IDTR 采样，后续每个 CPU 的证据行都能引用多数派结论。
     // 采集失败不影响其余证据，consistencyView 保持 NULL 即可。
     (VOID)KswordARKIdtConsistencyCollect(&consistencyView);
@@ -1008,7 +1030,7 @@ Return Value:
             totalCpus += 1UL;
             KswordARKCpuIntegrityEmitControlRows(Builder, &sample, ModuleInfo, consistencyView);
             if ((Flags & KSWORD_ARK_DRIVER_INTEGRITY_FLAG_IDT_ENTRIES) != 0UL) {
-                KswordARKCpuIntegrityEmitIdtRows(Builder, &sample, ModuleInfo, MaxIdtVectorsPerCpu);
+                KswordARKCpuIntegrityEmitIdtRows(Builder, &sample, ModuleInfo, MaxIdtVectorsPerCpu, &interruptContext);
             }
             if ((Flags & KSWORD_ARK_DRIVER_INTEGRITY_FLAG_GDT_ENTRIES) != 0UL) {
                 KswordARKCpuIntegrityEmitGdtRows(Builder, &sample);
@@ -1016,6 +1038,8 @@ Return Value:
         }
     }
     *CpuCountOut = totalCpus;
+    // 中断对象二级核对的整次汇总：干净的部分只占这一行，异常行在逐向量处已经各自产出。
+    KswordARKInterruptObjectEmitSummary(Builder, &interruptContext);
     // 一致性视图只在本次采集期间有效，归还它的非分页池。
     KswordARKIdtConsistencyRelease(consistencyView);
     return STATUS_SUCCESS;

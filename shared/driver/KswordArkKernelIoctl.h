@@ -355,6 +355,17 @@ typedef struct _KSWORD_ARK_QUERY_IOCTL_REGISTRY_RESPONSE
 #define KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_TABLE_RELOCATED   0x00400000UL
 // 目标指针虽落在某个已加载模块内，但不在该模块的可执行节里。
 #define KSWORD_ARK_DRIVER_INTEGRITY_RISK_TARGET_NON_EXEC       0x00800000UL
+// 「隐藏行为」总标志：指针只有沿二级结构（中断对象 KINTERRUPT、ObjectType 的方法表）
+// 才看得到，而一级检查（IDT 网关地址 / 对象类型地址）看起来是干净的。这类改动会
+// 骗过只核对一级地址的检测，所以 R3 必须把带此位的行高亮并明说"存在隐藏行为"。
+#define KSWORD_ARK_DRIVER_INTEGRITY_RISK_HIDDEN_HOOK           0x01000000UL
+// 核心内核（ntoskrnl 自己创建）的对象类型，其方法指针却落到了 ntoskrnl 之外。
+#define KSWORD_ARK_DRIVER_INTEGRITY_RISK_OBJTYPE_PROC_NON_CORE 0x02000000UL
+// 目标函数入口处是一条跳到其它模块的跳板（E9 / FF 25 / mov rax,imm64;jmp rax），
+// 即"指针没变、函数体被改"的内联绕行。
+#define KSWORD_ARK_DRIVER_INTEGRITY_RISK_PROC_DETOUR           0x04000000UL
+// 结构布局没能通过运行时自验证，本行只是参考信息，绝不当作"被劫持"的证据。
+#define KSWORD_ARK_DRIVER_INTEGRITY_RISK_LAYOUT_UNVERIFIED     0x08000000UL
 
 // Driver Integrity response field flags.
 // These bits describe which v2 typed columns were populated by R0. Older R3
@@ -418,6 +429,9 @@ typedef struct _KSWORD_ARK_QUERY_IOCTL_REGISTRY_RESPONSE
 #define KSWORD_ARK_DRIVER_INTEGRITY_CLASS_OPTIONAL_GLOBAL      13UL
 #define KSWORD_ARK_DRIVER_INTEGRITY_CLASS_GDT_DESCRIPTOR       14UL
 #define KSWORD_ARK_DRIVER_INTEGRITY_CLASS_START_IO             15UL
+// 沿 IDT 网关 -> 中断对象（KINTERRUPT）取到的二级指针：ordinal 0 = ServiceRoutine，
+// 1 = MessageServiceRoutine；objectAddress = 中断对象，targetAddress = 该指针的值。
+#define KSWORD_ARK_DRIVER_INTEGRITY_CLASS_INTERRUPT_OBJECT     16UL
 
 // Driver Integrity query status.
 #define KSWORD_ARK_DRIVER_INTEGRITY_STATUS_UNAVAILABLE         0UL
@@ -513,9 +527,9 @@ typedef struct _KSWORD_ARK_QUERY_IOCTL_REGISTRY_RESPONSE
 #define KSWORD_ARK_DRIVER_START_IO_STATE_READ_FAILED   2UL
 #define KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT       3UL
 
-// DriverStartIo 行 flags，语义与 MajorFunction 行一致。
-#define KSWORD_ARK_DRIVER_START_IO_FLAG_MODULE_RESOLVED 0x00000001UL
-#define KSWORD_ARK_DRIVER_START_IO_FLAG_OWN_IMAGE       0x00000002UL
+// dispatch 入口归属 flags：MajorFunction 行与 DriverStartIo 行共用同一对位。
+#define KSWORD_ARK_DRIVER_DISPATCH_FLAG_MODULE_RESOLVED 0x00000001UL
+#define KSWORD_ARK_DRIVER_DISPATCH_FLAG_OWN_IMAGE       0x00000002UL
 
 #define KSWORD_ARK_SSDT_ENTRY_MAX_NAME 96U
 #define KSWORD_ARK_SSDT_ENTRY_MAX_MODULE 64U
@@ -778,7 +792,7 @@ typedef struct _KSWORD_ARK_DRIVER_DEVICE_ENTRY
 typedef struct _KSWORD_ARK_DRIVER_START_IO_ENTRY
 {
     unsigned long state;        // KSWORD_ARK_DRIVER_START_IO_STATE_*。
-    unsigned long flags;        // KSWORD_ARK_DRIVER_START_IO_FLAG_*。
+    unsigned long flags;        // KSWORD_ARK_DRIVER_DISPATCH_FLAG_*。
     unsigned long long address; // DriverObject->DriverStartIo；空值/读取失败时为 0。
     unsigned long long moduleBase;
     wchar_t moduleName[KSWORD_ARK_DRIVER_MODULE_NAME_CHARS];

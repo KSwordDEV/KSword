@@ -693,6 +693,23 @@
       "timeoutSeconds": 120
     },
     {
+      "id": "r0.object-type-procedures",
+      "tier": "probe",
+      "ioctls": [
+        "ENUM_OBJECT_TYPE_PROCEDURES"
+      ],
+      "steps": [
+        [
+          "r0",
+          "object-type-procedures",
+          "--max-entries",
+          "64"
+        ]
+      ],
+      "expect": "graceful",
+      "timeoutSeconds": 120
+    },
+    {
       "id": "r0.workqueue",
       "tier": "probe",
       "ioctls": [

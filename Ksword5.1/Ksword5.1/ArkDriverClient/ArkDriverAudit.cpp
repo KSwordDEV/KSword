@@ -2572,6 +2572,204 @@ namespace ksword::ark
         return result;
     }
 
+    ObjectTypeProceduresResult DriverClient::enumObjectTypeProcedures(const unsigned long flags, const unsigned long startIndex, const unsigned long maxEntries) const
+    {
+        constexpr const char* operationName = "IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES";
+        // 翻页上限：驱动按 \ObjectTypes 命名空间枚举，最多 KSWORD_ARK_OBJECT_TYPE_TABLE_MAX_SLOTS(256)
+        // 个类型，正常一页就取完，翻页只是驱动按 maxEntries 或输出缓冲截断时的续读。
+        // 64 页远超实际需要，只用来挡住驱动异常时的死循环。
+        constexpr unsigned long kMaxPages = 64UL;
+        constexpr std::size_t headerSize =
+            sizeof(KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES_RESPONSE) -
+            sizeof(KSWORD_ARK_OBJECT_TYPE_PROCEDURE_ENTRY);
+
+        ObjectTypeProceduresResult result{};
+        unsigned long cursor = startIndex;
+        unsigned long totalBytes = 0UL;
+        bool finished = false;
+        bool layoutConsistent = true;
+        std::string pageNote;
+
+        for (unsigned long page = 0UL; page < kMaxPages; ++page)
+        {
+            KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES_REQUEST request{};
+            request.version = KSWORD_ARK_OBJECT_TYPE_PROCEDURES_PROTOCOL_VERSION;
+            request.flags = flags;
+            request.startIndex = cursor;
+            request.maxEntries = maxEntries;
+
+            std::vector<std::uint8_t> responseBuffer(kDefaultAuditBufferBytes, 0U);
+            IoResult pageIo = deviceIoControl(
+                IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES,
+                &request,
+                sizeof(request),
+                responseBuffer.data(),
+                static_cast<unsigned long>(responseBuffer.size()));
+            if (!pageIo.ok)
+            {
+                if (page == 0UL)
+                {
+                    result.io = pageIo;
+                    markUnsupportedIfNeeded(result, operationName);
+                    return result;
+                }
+                // 后续页失败：保留已经取到的行，明确标成被截断，不把半张表当完整结果。
+                result.truncated = true;
+                pageNote = "page " + std::to_string(page) + " failed: " + pageIo.message;
+                break;
+            }
+
+            const auto* response =
+                reinterpret_cast<const KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES_RESPONSE*>(
+                    responseBuffer.data());
+            const std::size_t parsedCount = validateAuditRows(
+                pageIo,
+                headerSize,
+                response->entrySize,
+                sizeof(KSWORD_ARK_OBJECT_TYPE_PROCEDURE_ENTRY),
+                response->returnedCount,
+                operationName);
+            if (pageIo.ok && response->version != KSWORD_ARK_OBJECT_TYPE_PROCEDURES_PROTOCOL_VERSION)
+            {
+                pageIo.ok = false;
+                pageIo.win32Error = ERROR_INVALID_DATA;
+                pageIo.message = std::string(operationName) + " version invalid, version=" + std::to_string(response->version);
+            }
+            if (!pageIo.ok)
+            {
+                if (page == 0UL)
+                {
+                    result.io = pageIo;
+                    return result;
+                }
+                result.truncated = true;
+                pageNote = "page " + std::to_string(page) + " invalid: " + pageIo.message;
+                break;
+            }
+
+            totalBytes += pageIo.bytesReturned;
+            ++result.pageCount;
+            if (page == 0UL)
+            {
+                result.io = pageIo;
+                result.version = response->version;
+                result.status = response->status;
+                result.flags = response->flags;
+                result.entrySize = response->entrySize;
+                result.lastStatus = response->lastStatus;
+                result.layoutState = response->layoutState;
+                result.procedureBlockOffset = response->procedureBlockOffset;
+                result.layoutAnchorTypes = response->layoutAnchorTypes;
+                result.layoutAnchorAgree = response->layoutAnchorAgree;
+                result.layoutReason = static_cast<std::uint32_t>(response->reserved0 & 0xFFFFFFFFULL);
+                result.tableAddress = response->tableAddress;
+            }
+            if ((response->flags & KSWORD_ARK_OBJTYPE_RESPONSE_FLAG_SKIPPED_TYPES) != 0UL)
+            {
+                result.skippedTypes = true;
+            }
+            // 布局结论是一次枚举内的整体属性；各页不一致就说明驱动中途重新判定过，
+            // 这时任何一页的“已验证”都不可信，结尾统一降成 UNVERIFIED。
+            // 这条核对与上面的 skippedTypes 无关，必须每页都做——之前写成 else 分支，
+            // 一旦某页带了 SKIPPED_TYPES 标志，那一页的布局就再也不会被核对了。
+            if (response->layoutState != result.layoutState ||
+                response->procedureBlockOffset != result.procedureBlockOffset)
+            {
+                layoutConsistent = false;
+            }
+            // 状态只往坏的方向走：首个非 OK 状态优先保留。
+            if (result.status == KSWORD_ARK_OBJECT_TYPE_TABLE_STATUS_OK &&
+                response->status != KSWORD_ARK_OBJECT_TYPE_TABLE_STATUS_OK)
+            {
+                result.status = response->status;
+                result.lastStatus = response->lastStatus;
+            }
+            // 每页都是驱动按 \ObjectTypes 现场重新枚举的：如果两页之间总数变了，说明
+            // 命名空间在两次查询之间被改动过（有类型对象被创建/销毁），续读游标指向的
+            // 序号已经对不上原来那个类型——不能装作没事地接着拼，按截断收场。
+            if (page != 0UL && response->totalCount != result.totalCount)
+            {
+                result.truncated = true;
+                pageNote += (pageNote.empty() ? "" : "; ");
+                pageNote += "\\ObjectTypes changed between pages (totalCount " +
+                    std::to_string(result.totalCount) + " -> " + std::to_string(response->totalCount) +
+                    "); stopping to avoid a shifted ordinal";
+                break;
+            }
+            result.totalCount = std::max<std::uint32_t>(result.totalCount, response->totalCount);
+            result.returnedCount += response->returnedCount;
+            result.nextIndex = response->nextIndex;
+
+            const std::vector<KSWORD_ARK_OBJECT_TYPE_PROCEDURE_ENTRY> rawRows =
+                parseVariableRows<KSWORD_ARK_OBJECT_TYPE_PROCEDURE_ENTRY>(
+                    responseBuffer,
+                    headerSize,
+                    response->entrySize,
+                    parsedCount);
+            result.entries.reserve(result.entries.size() + rawRows.size());
+            for (const KSWORD_ARK_OBJECT_TYPE_PROCEDURE_ENTRY& raw : rawRows)
+            {
+                ObjectTypeProcedureEntry row{};
+                row.typeIndex = raw.typeIndex;
+                row.procedureKind = raw.procedureKind;
+                row.riskFlags = raw.riskFlags;
+                row.entryFlags = raw.entryFlags;
+                row.ownerModuleSize = raw.ownerModuleSize;
+                row.lastStatus = raw.lastStatus;
+                row.objectTypeAddress = raw.objectTypeAddress;
+                row.slotAddress = raw.slotAddress;
+                row.targetAddress = raw.targetAddress;
+                row.ownerModuleBase = raw.ownerModuleBase;
+                row.detourTargetAddress = raw.detourTargetAddress;
+                row.typeName = fixedAuditWideToString(raw.typeName, std::size(raw.typeName));
+                row.ownerModule = fixedAuditWideToString(raw.ownerModule, std::size(raw.ownerModule));
+                row.sectionName = fixedAuditWideToString(raw.sectionName, std::size(raw.sectionName));
+                result.entries.push_back(std::move(row));
+            }
+
+            if (response->nextIndex >= KSWORD_ARK_OBJECT_TYPE_TABLE_MAX_SLOTS)
+            {
+                finished = true;
+                break;
+            }
+            if (response->nextIndex <= cursor)
+            {
+                // 驱动说还有下一页却不前进：再请求只会原地打转，按被截断收场。
+                pageNote = "nextIndex did not advance, nextIndex=" + std::to_string(response->nextIndex);
+                break;
+            }
+            cursor = response->nextIndex;
+        }
+
+        result.truncated = result.truncated || !finished;
+        if (!layoutConsistent)
+        {
+            result.layoutState = KSWORD_ARK_OBJTYPE_LAYOUT_UNVERIFIED;
+            pageNote += (pageNote.empty() ? "" : "; ");
+            pageNote += "layout state differs between pages, downgraded to UNVERIFIED";
+        }
+        result.io.bytesReturned = totalBytes;
+        result.io.ntStatus = result.lastStatus;
+        std::ostringstream stream;
+        stream << appendAuditSummary(
+                operationName,
+                result.totalCount,
+                result.returnedCount,
+                result.entries.size(),
+                result.io.bytesReturned)
+            << ", layoutState=" << result.layoutState
+            << ", blockOffset=0x" << std::hex << result.procedureBlockOffset << std::dec
+            << ", anchors=" << result.layoutAnchorAgree << "/" << result.layoutAnchorTypes
+            << ", pages=" << result.pageCount
+            << ", truncated=" << (result.truncated ? 1 : 0);
+        if (!pageNote.empty())
+        {
+            stream << ", note=" << pageNote;
+        }
+        result.io.message = stream.str();
+        return result;
+    }
+
     KernelObjectSummaryAuditResult DriverClient::queryKernelObjectSummary(const unsigned long targetKind, const unsigned long cidValue, const std::uint64_t expectedObjectAddress, const unsigned long flags) const
     {
         KernelObjectSummaryAuditResult result{};

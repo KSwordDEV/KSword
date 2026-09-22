@@ -1010,6 +1010,13 @@ namespace ksword::ark
         CpuPowerResult controlCpuPower(const KSWORD_ARK_CPU_POWER_CONTROL_REQUEST& request) const;
         CidTableAuditResult enumCidTable(unsigned long flags = KSWORD_ARK_CID_ENUM_FLAG_INCLUDE_ALL, unsigned long maxEntries = 4096UL, unsigned long maxVisitCount = 65536UL, unsigned long startCid = 0UL, unsigned long endCid = 0UL) const;
         ObjectTypeTableAuditResult enumObjectTypeTable(unsigned long flags = KSWORD_ARK_OBJECT_TYPE_TABLE_FLAG_INCLUDE_ALL, unsigned long maxEntries = KSWORD_ARK_OBJECT_TYPE_TABLE_MAX_SLOTS, unsigned long startIndex = 0UL) const;
+        // enumObjectTypeProcedures：
+        // - 输入：flags（协议暂未定义查询位，传 0）、startIndex（续读起点：上一页响应的 nextIndex，
+        //   是 \ObjectTypes 命名空间的枚举序号，不经过 ObTypeIndexTable）、
+        //   maxEntries（每页最多多少个类型，0 = 用驱动默认上限）；
+        // - 处理：单个类型的八行永远同页返回；内部按 nextIndex 翻页取完，设页数上限防驱动异常死循环；
+        // - 返回：ObjectTypeProceduresResult，layoutState 不是 VALIDATED 时行仅供参考，truncated 标明是否被截断。
+        ObjectTypeProceduresResult enumObjectTypeProcedures(unsigned long flags = 0UL, unsigned long startIndex = 0UL, unsigned long maxEntries = 0UL) const;
         KernelObjectSummaryAuditResult queryKernelObjectSummary(unsigned long targetKind, unsigned long cidValue = 0UL, std::uint64_t expectedObjectAddress = 0ULL, unsigned long flags = KSWORD_ARK_OBJECT_SUMMARY_FLAG_INCLUDE_ALL) const;
         IpcSummaryAuditResult queryIpcSummary(unsigned long processId = 0UL, std::uint64_t handleValue = 0ULL, unsigned long flags = KSWORD_ARK_IPC_QUERY_FLAG_INCLUDE_ALL, unsigned long maxEntries = 64UL) const;
     };

@@ -169,15 +169,20 @@ Return Value:
         ULONG sectionHeaderRva = 0UL;
         ULONG sectionLength = 0UL;
 
-        /* 计算第 sectionIndex 个节头的 RVA，溢出即终止遍历。 */
+        /*
+         * 计算第 sectionIndex 个节头的 RVA，溢出即终止遍历。
+         * 节表没走完就不知道目标到底在哪个节，必须返回 UNKNOWN（无法判断）：
+         * 若在这里 break 后落到末尾的 OUTSIDE_SECTIONS，一个合法函数只因为它之前的某个
+         * 节头页恰好读失败，就会被当成"落在节外"，进而被上层升级成最高危的隐藏行为。
+         */
         if (!KswordARKHookAddRvaOffset(sectionTableRva, sectionIndex, sizeof(IMAGE_SECTION_HEADER), &sectionHeaderRva)) {
-            break;
+            return KSW_IMAGE_SECTION_RESULT_UNKNOWN;
         }
 
-        /* 节头必须完整落在映像内才允许读取。 */
+        /* 节头必须完整落在映像内才允许读取；读失败同样是"无法判断"，不是"节外"。 */
         RtlZeroMemory(&sectionHeader, sizeof(sectionHeader));
         if (!KswordARKHookReadImageBytes(ModuleEntry, sectionHeaderRva, &sectionHeader, sizeof(sectionHeader))) {
-            break;
+            return KSW_IMAGE_SECTION_RESULT_UNKNOWN;
         }
 
         /* 内存中的节长度取 VirtualSize 与 SizeOfRawData 的较大值，兼容两种对齐写法。 */

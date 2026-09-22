@@ -488,9 +488,9 @@ void KernelIoctlAuditTab::populateTables()
     {
         const int tableRow = m_dispatchTable->rowCount();
         m_dispatchTable->insertRow(tableRow);
-        QString dispatchStatus = (row.flags & 0x00000002U) != 0U
+        QString dispatchStatus = (row.flags & KSWORD_ARK_DRIVER_DISPATCH_FLAG_OWN_IMAGE) != 0U
             ? kernelText("kernel.ioctl_audit.dispatch.own_image", QStringLiteral("本驱动镜像"))
-            : ((row.flags & 0x00000001U) != 0U
+            : ((row.flags & KSWORD_ARK_DRIVER_DISPATCH_FLAG_MODULE_RESOLVED) != 0U
                 ? kernelText("kernel.ioctl_audit.dispatch.external_module", QStringLiteral("外部模块"))
                 : kernelText("kernel.ioctl_audit.dispatch.unresolved", QStringLiteral("模块未解析")));
         if (row.isStartIo && row.startIoState == KSWORD_ARK_DRIVER_START_IO_STATE_NULL)
@@ -546,7 +546,12 @@ void KernelIoctlAuditTab::populateTables()
         .arg(m_queryFailureCount)
         .arg(m_partialDriverCount)
         .arg(static_cast<qulonglong>(m_deviceRows.size()))
-        .arg(static_cast<qulonglong>(m_dispatchRows.size()))
+        // %5 标注的是 "MajorFunction 行"，m_dispatchRows 里还混着每个驱动一条的
+        // DriverStartIo 行，直接用 size() 会把计数抬高，对不上 28×驱动数。
+        .arg(static_cast<qulonglong>(std::count_if(
+            m_dispatchRows.begin(),
+            m_dispatchRows.end(),
+            [](const DispatchRow& row) { return !row.isStartIo; })))
         .arg(static_cast<qulonglong>(m_registryRows.size()))
         .arg(m_registryTotal)
         .arg(m_registryDuplicate);

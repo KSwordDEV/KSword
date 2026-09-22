@@ -2277,7 +2277,7 @@ namespace ksword::ark
     struct DriverStartIoEntry
     {
         std::uint32_t state = KSWORD_ARK_DRIVER_START_IO_STATE_NOT_QUERIED; // 空值/读取失败/非空；旧驱动为未查询。
-        std::uint32_t flags = 0;               // KSWORD_ARK_DRIVER_START_IO_FLAG_*。
+        std::uint32_t flags = 0;               // KSWORD_ARK_DRIVER_DISPATCH_FLAG_*。
         std::uint64_t address = 0;             // StartIo 入口地址，仅展示。
         std::uint64_t moduleBase = 0;          // 所属模块基址，仅展示。
         std::wstring moduleName;               // 所属模块名。
@@ -3319,6 +3319,50 @@ namespace ksword::ark
         std::uint32_t otNameOffset = KSWORD_ARK_KERNEL_OBJECT_OFFSET_UNAVAILABLE;
         std::uint32_t otIndexOffset = KSWORD_ARK_KERNEL_OBJECT_OFFSET_UNAVAILABLE;
         std::vector<KSWORD_ARK_OBJECT_TYPE_TABLE_ENTRY> entries;
+    };
+
+    // ObjectTypeProcedureEntry 承载 ObjectType 方法指针的一行证据：一个类型的一个方法槽。
+    // 输入：enumObjectTypeProcedures 逐行解析 KSWORD_ARK_OBJECT_TYPE_PROCEDURE_ENTRY。
+    // 处理：定长宽字符数组已转成 std::wstring，数值字段与共享协议一一对应。
+    // 返回行为：只读展示；空指针(entryFlags.NULL_POINTER)与读取失败(entryFlags.READ_FAILED)是两种状态。
+    struct ObjectTypeProcedureEntry
+    {
+        std::uint32_t typeIndex = 0;            // typeIndex：\ObjectTypes 命名空间的枚举序号（不是 ObTypeIndexTable 槽位，也不是 OBJECT_TYPE.Index）。
+        std::uint32_t procedureKind = 0;        // procedureKind：KSWORD_ARK_OBJTYPE_PROC_*。
+        std::uint32_t riskFlags = 0;            // riskFlags：KSWORD_ARK_DRIVER_INTEGRITY_RISK_*。
+        std::uint32_t entryFlags = 0;           // entryFlags：KSWORD_ARK_OBJTYPE_ENTRY_FLAG_*。
+        std::uint32_t ownerModuleSize = 0;      // ownerModuleSize：归属模块映像大小。
+        long lastStatus = 0;                    // lastStatus：该行读取/解析的 NTSTATUS。
+        std::uint64_t objectTypeAddress = 0;    // objectTypeAddress：OBJECT_TYPE 地址。
+        std::uint64_t slotAddress = 0;          // slotAddress：OBJECT_TYPE 内该指针槽的地址。
+        std::uint64_t targetAddress = 0;        // targetAddress：指针值（空指针时为 0，需结合 entryFlags 判断）。
+        std::uint64_t ownerModuleBase = 0;      // ownerModuleBase：归属模块基址。
+        std::uint64_t detourTargetAddress = 0;  // detourTargetAddress：入口跳板的最终落点，无跳板为 0。
+        std::wstring typeName;                  // typeName：对象类型名。
+        std::wstring ownerModule;               // ownerModule：归属模块名。
+        std::wstring sectionName;               // sectionName：目标所在节名。
+    };
+
+    // ObjectTypeProceduresResult 承载 ObjectType 方法指针完整性枚举的完整结果。
+    // 输入：enumObjectTypeProcedures 返回；客户端封装内部会按 nextIndex 翻页取完。
+    // 处理：保留响应级 layoutState/procedureBlockOffset/layoutAnchorTypes/layoutAnchorAgree，
+    //       UI 必须据此如实显示“本机布局未验证”，不能只看行数。
+    // 返回行为：只读；layoutState 不是 VALIDATED 时行仅供参考，不构成“被劫持”或“干净”的结论。
+    struct ObjectTypeProceduresResult : VariableAuditResultBase
+    {
+        // status/lastStatus 继承自 VariableAuditResultBase；totalCount 取各页最大值，
+        // returnedCount 为各页累加，二者只用于诊断，类型数请按 entries 里的 typeIndex 去重统计。
+        std::uint32_t nextIndex = 0;             // nextIndex：最后一页的续读游标（\ObjectTypes 枚举序号）；>= KSWORD_ARK_OBJECT_TYPE_TABLE_MAX_SLOTS 表示已取完。
+        std::uint32_t layoutState = 0;           // layoutState：KSWORD_ARK_OBJTYPE_LAYOUT_*，默认 UNAVAILABLE。
+        std::uint32_t procedureBlockOffset = 0;  // procedureBlockOffset：方法指针块相对 OBJECT_TYPE 的偏移，未验证为 0。
+        std::uint32_t layoutAnchorTypes = 0;     // layoutAnchorTypes：参与统计的对象类型数（能读到窗口的类型）。
+        std::uint32_t layoutAnchorAgree = 0;     // layoutAnchorAgree：锚点偏移上共享同一个 nt 内指针的类型数。
+        std::uint32_t layoutReason = 0;          // layoutReason：KSWORD_ARK_OBJTYPE_LAYOUT_REASON_*，布局没验证过时说明为什么。
+        bool skippedTypes = false;               // skippedTypes：有对象类型的表槽读失败被跳过，结果不完整。
+        std::uint64_t tableAddress = 0;          // tableAddress：ObTypeIndexTable 地址。
+        std::uint32_t pageCount = 0;             // pageCount：实际发起的 IOCTL 页数。
+        bool truncated = false;                  // truncated：true 表示没能取完（页数上限、无进展或后续页失败）。
+        std::vector<ObjectTypeProcedureEntry> entries;
     };
 
     // KernelObjectSummaryAuditResult 承载单对象 header/type/counter 摘要。

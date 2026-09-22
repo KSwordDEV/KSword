@@ -22,6 +22,7 @@
 #include <io.h>
 #include <limits>
 #include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -1269,6 +1270,7 @@ namespace
         { L"r0", L"platform", L"KswordCLI.exe r0 platform [--scope 0xN] [--max-rows N]", L"Query HAL and WDF platform-audit evidence.", L"Optional: --scope defaults to all, --max-rows.", L"Backed by IOCTL_KSWORD_ARK_QUERY_PLATFORM_AUDIT." },
         { L"r0", L"i8042", L"KswordCLI.exe r0 i8042 [--max-rows N]", L"Query i8042prt callback and stack evidence without reading input data.", L"Optional: --max-rows.", L"Backed by IOCTL_KSWORD_ARK_QUERY_I8042_AUDIT." },
         { L"r0", L"object-types", L"KswordCLI.exe r0 object-types [--flags 0xN] [--max-entries N] [--start-index N]", L"Enumerate the kernel object-type table.", L"Optional: --flags, --max-entries, --start-index.", L"Backed by IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_TABLE." },
+        { L"r0", L"object-type-procedures", L"KswordCLI.exe r0 object-type-procedures [--start-index N] [--max-entries N]", L"Audit the eight method pointers (Dump/Open/Close/Delete/Parse/Security/QueryName/OkayToClose) embedded in every OBJECT_TYPE.", L"Optional: --start-index, --max-entries (object types per page, 0 = driver default).", L"Backed by IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES. Prints the layout self-verification state; exit code 5 means the layout was not verified on this machine, so rows are reference only and do not prove the absence of hooks; exit code 6 means the layout was verified but the scan was incomplete (truncated, or some object types could not be read)." },
         { L"r0", L"win32k-timers", L"KswordCLI.exe r0 win32k-timers [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N]", L"Query PDB-backed win32k timer evidence.", L"Optional: --flags, --session-id, --pid, --tid, --max-entries.", L"Backed by IOCTL_KSWORD_ARK_QUERY_WIN32K_TIMERS." },
         { L"r0", L"win32k-events", L"KswordCLI.exe r0 win32k-events [--flags 0xN] [--session-id N] [--pid PID] [--tid TID] [--max-entries N]", L"Query PDB-backed WinEvent-hook evidence.", L"Optional: --flags, --session-id, --pid, --tid, --max-entries.", L"Backed by IOCTL_KSWORD_ARK_QUERY_WIN32K_EVENT_HOOKS." },
         { L"trust", L"query-image", L"KswordCLI.exe trust query-image --path PATH [--flags 0xN]", L"Query image trust and signing evidence.", L"Required: --path. Optional: --flags.", L"" },
@@ -8025,6 +8027,339 @@ namespace
         return 1;
     }
 
+    // objectTypeProcedureKindName renders KSWORD_ARK_OBJTYPE_PROC_* as the OBJECT_TYPE_INITIALIZER member name.
+    // Inputs: procedureKind from one response row.
+    // Processing: plain switch; values outside the protocol range stay visible as Unknown.
+    // Returns: static wide string.
+    const wchar_t* objectTypeProcedureKindName(const std::uint32_t procedureKind)
+    {
+        switch (procedureKind)
+        {
+        case KSWORD_ARK_OBJTYPE_PROC_DUMP: return L"Dump";
+        case KSWORD_ARK_OBJTYPE_PROC_OPEN: return L"Open";
+        case KSWORD_ARK_OBJTYPE_PROC_CLOSE: return L"Close";
+        case KSWORD_ARK_OBJTYPE_PROC_DELETE: return L"Delete";
+        case KSWORD_ARK_OBJTYPE_PROC_PARSE: return L"Parse";
+        case KSWORD_ARK_OBJTYPE_PROC_SECURITY: return L"Security";
+        case KSWORD_ARK_OBJTYPE_PROC_QUERY_NAME: return L"QueryName";
+        case KSWORD_ARK_OBJTYPE_PROC_OKAY_TO_CLOSE: return L"OkayToClose";
+        default: return L"Unknown";
+        }
+    }
+
+    // objectTypeLayoutStateName renders KSWORD_ARK_OBJTYPE_LAYOUT_* for the header line.
+    // Inputs: layoutState from the response header.
+    // Processing: plain switch; unknown values are kept visible instead of being folded into VALIDATED.
+    // Returns: static wide string.
+    const wchar_t* objectTypeLayoutStateName(const std::uint32_t layoutState)
+    {
+        switch (layoutState)
+        {
+        case KSWORD_ARK_OBJTYPE_LAYOUT_UNAVAILABLE: return L"UNAVAILABLE";
+        case KSWORD_ARK_OBJTYPE_LAYOUT_VALIDATED: return L"VALIDATED";
+        case KSWORD_ARK_OBJTYPE_LAYOUT_UNVERIFIED: return L"UNVERIFIED";
+        default: return L"UNKNOWN";
+        }
+    }
+
+    // objectTypeLayoutReasonName renders KSWORD_ARK_OBJTYPE_LAYOUT_REASON_* so a failed self-validation says why.
+    // Inputs: reason from the low 32 bits of response.reserved0.
+    // Returns: static wide string; unknown values stay visible as UNKNOWN.
+    const wchar_t* objectTypeLayoutReasonName(const std::uint32_t reason)
+    {
+        switch (reason)
+        {
+        case KSWORD_ARK_OBJTYPE_LAYOUT_REASON_NONE: return L"none";
+        case KSWORD_ARK_OBJTYPE_LAYOUT_REASON_NO_MODULE_SNAPSHOT: return L"no-module-snapshot";
+        case KSWORD_ARK_OBJTYPE_LAYOUT_REASON_TOO_FEW_TYPES: return L"too-few-types";
+        case KSWORD_ARK_OBJTYPE_LAYOUT_REASON_NO_DOMINANT_ANCHOR: return L"no-dominant-anchor";
+        case KSWORD_ARK_OBJTYPE_LAYOUT_REASON_BLOCK_SHAPE_FAILED: return L"block-shape-failed";
+        case KSWORD_ARK_OBJTYPE_LAYOUT_REASON_OUT_OF_MEMORY: return L"out-of-memory";
+        default: return L"UNKNOWN";
+        }
+    }
+
+    // objectTypeProcedureRiskNames renders the risk bits of one method-pointer row.
+    // Inputs: riskFlags carrying KSWORD_ARK_DRIVER_INTEGRITY_RISK_* bits.
+    // Processing: names the bits this command can produce; any other bit is printed as raw hex
+    //             so nothing is silently dropped.
+    // Returns: '|' separated names, or "none" when no bit is set.
+    std::wstring objectTypeProcedureRiskNames(const std::uint32_t riskFlags)
+    {
+        struct RiskName
+        {
+            std::uint32_t bit;
+            const wchar_t* name;
+        };
+        static const RiskName kRiskNames[] = {
+            { KSWORD_ARK_DRIVER_INTEGRITY_RISK_HIDDEN_HOOK, L"HIDDEN_HOOK" },
+            { KSWORD_ARK_DRIVER_INTEGRITY_RISK_OBJTYPE_PROC_NON_CORE, L"OBJTYPE_PROC_NON_CORE" },
+            { KSWORD_ARK_DRIVER_INTEGRITY_RISK_PROC_DETOUR, L"PROC_DETOUR" },
+            { KSWORD_ARK_DRIVER_INTEGRITY_RISK_LAYOUT_UNVERIFIED, L"LAYOUT_UNVERIFIED" },
+            { KSWORD_ARK_DRIVER_INTEGRITY_RISK_OWNER_MISMATCH, L"OWNER_MISMATCH" },
+            { KSWORD_ARK_DRIVER_INTEGRITY_RISK_OUTSIDE_DRIVER_IMAGE, L"OUTSIDE_DRIVER_IMAGE" },
+            { KSWORD_ARK_DRIVER_INTEGRITY_RISK_TARGET_NON_EXEC, L"TARGET_NON_EXEC" },
+            { KSWORD_ARK_DRIVER_INTEGRITY_RISK_MODULE_UNRESOLVED, L"MODULE_UNRESOLVED" },
+            { KSWORD_ARK_DRIVER_INTEGRITY_RISK_NULL_POINTER, L"NULL_POINTER" },
+            { KSWORD_ARK_DRIVER_INTEGRITY_RISK_QUERY_FAILED, L"QUERY_FAILED" },
+        };
+        std::wstring text;
+        std::uint32_t knownBits = 0U;
+        for (const RiskName& item : kRiskNames)
+        {
+            knownBits |= item.bit;
+            if ((riskFlags & item.bit) != 0U)
+            {
+                if (!text.empty())
+                {
+                    text += L'|';
+                }
+                text += item.name;
+            }
+        }
+        const std::uint32_t otherBits = riskFlags & ~knownBits;
+        if (otherBits != 0U)
+        {
+            std::wostringstream otherText;
+            otherText << L"other=0x" << std::hex << otherBits;
+            if (!text.empty())
+            {
+                text += L'|';
+            }
+            text += otherText.str();
+        }
+        return text.empty() ? std::wstring(L"none") : text;
+    }
+
+    // commandR0ObjectTypeProcedures 作用：r0 object-type-procedures 子命令。
+    // Inputs: argc/argv from wmain; options --start-index and --max-entries.
+    // Processing: pages through IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES by nextIndex (the eight rows
+    //             of one object type always arrive together), prints the layout self-verification state
+    //             first, then one line per method pointer, then a summary. Read-only; nothing is written.
+    // Returns: 0 when the layout is VALIDATED; 5 (unsupported / unavailable) when the driver lacks the
+    //          IOCTL or the layout was not verified, so a script never reads "unverified" as "clean".
+    int commandR0ObjectTypeProcedures(int argc, wchar_t* argv[])
+    {
+        const NamedArgs args = parseNamedArgs(argc, argv, 3);
+        std::uint32_t cursor = getOptionU32(args, L"--start-index", 0U);
+        const std::uint32_t maxEntries = getOptionU32(args, L"--max-entries", 0U);
+        // 翻页上限只用来挡住驱动异常时的死循环；256 个槽位正常一页就取完。
+        constexpr std::uint32_t kMaxPages = 64U;
+        constexpr std::size_t headerSize =
+            offsetof(KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES_RESPONSE, entries);
+
+        std::uint32_t firstLayoutState = KSWORD_ARK_OBJTYPE_LAYOUT_UNAVAILABLE;
+        std::uint32_t firstBlockOffset = 0U;
+        bool layoutConsistent = true;
+        bool finished = false;
+        bool truncated = false;
+        // 有对象类型的表槽读取失败被跳过，或某页状态是 PARTIAL：结果不完整，不能当成"全部干净"。
+        bool incompleteScan = false;
+        std::uint32_t firstLayoutReason = KSWORD_ARK_OBJTYPE_LAYOUT_REASON_NONE;
+        std::uint32_t pageCount = 0U;
+        std::uint64_t rowCount = 0ULL;
+        std::uint64_t suspiciousRows = 0ULL;
+        std::uint64_t hiddenRows = 0ULL;
+        // 覆盖度：能给出硬判据的类型数（entryFlags 带 TYPE_JUDGED）比上见过的类型总数——
+        // 没标 TYPE_JUDGED 的类型不代表"干净"，只代表本版本对它没有硬判据（见协议头注释）。
+        std::set<std::uint64_t> judgedTypeAddresses;
+        std::set<std::uint64_t> seenTypeAddresses;
+
+        for (std::uint32_t page = 0U; page < kMaxPages; ++page)
+        {
+            KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES_REQUEST request{};
+            request.version = KSWORD_ARK_OBJECT_TYPE_PROCEDURES_PROTOCOL_VERSION;
+            request.flags = 0UL;
+            request.startIndex = cursor;
+            request.maxEntries = maxEntries;
+
+            IoctlResult io{};
+            std::vector<std::uint8_t> buffer(kHugeResponseBytes, 0U);
+            const int rc = sendRawIoctl(
+                L"IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES",
+                IOCTL_KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES,
+                &request,
+                static_cast<DWORD>(sizeof(request)),
+                buffer,
+                io);
+            if (rc != 0)
+            {
+                if (page == 0U)
+                {
+                    return normalizeIoctlRc(L"r0 object-type-procedures", io, rc);
+                }
+                truncated = true;
+                break;
+            }
+
+            const auto* response =
+                reinterpret_cast<const KSWORD_ARK_ENUM_OBJECT_TYPE_PROCEDURES_RESPONSE*>(buffer.data());
+            std::size_t available = 0U;
+            try
+            {
+                available = validateVariable(
+                    io.bytesReturned,
+                    headerSize,
+                    response->entrySize,
+                    sizeof(KSWORD_ARK_OBJECT_TYPE_PROCEDURE_ENTRY),
+                    L"object-type-procedures");
+            }
+            catch (...)
+            {
+                if (page == 0U)
+                {
+                    return 4;
+                }
+                truncated = true;
+                break;
+            }
+            if (response->version != KSWORD_ARK_OBJECT_TYPE_PROCEDURES_PROTOCOL_VERSION)
+            {
+                std::wcerr << L"error: object-type-procedures invalid protocol version=" << response->version << L"\n";
+                if (page == 0U)
+                {
+                    return 4;
+                }
+                truncated = true;
+                break;
+            }
+
+            ++pageCount;
+            if ((response->flags & KSWORD_ARK_OBJTYPE_RESPONSE_FLAG_SKIPPED_TYPES) != 0UL ||
+                response->status == KSWORD_ARK_OBJECT_TYPE_TABLE_STATUS_PARTIAL)
+            {
+                incompleteScan = true;
+            }
+            if (page == 0U)
+            {
+                firstLayoutState = response->layoutState;
+                firstBlockOffset = response->procedureBlockOffset;
+                firstLayoutReason = static_cast<std::uint32_t>(response->reserved0 & 0xFFFFFFFFULL);
+                std::wcout << L"object-type-procedures: version=" << response->version
+                           << L" status=" << response->status
+                           << L" total=" << response->totalCount
+                           << L" returned=" << response->returnedCount
+                           << L" entrySize=" << response->entrySize
+                           << L" flags=0x" << std::hex << response->flags
+                           << L" lastStatus=0x" << static_cast<unsigned long>(response->lastStatus)
+                           << std::dec << L" bytesReturned=" << io.bytesReturned << L"\n";
+                std::wcout << L"layout: state=" << objectTypeLayoutStateName(response->layoutState)
+                           << L"(" << response->layoutState << L")"
+                           << L" blockOffset=0x" << std::hex << response->procedureBlockOffset << std::dec
+                           << L" types=" << response->layoutAnchorTypes
+                           << L" sharedAnchor=" << response->layoutAnchorAgree
+                           << L" reason=" << objectTypeLayoutReasonName(firstLayoutReason)
+                           << L" tableAddress=0x" << std::hex << response->tableAddress << std::dec << L"\n";
+            }
+            else if (response->layoutState != firstLayoutState ||
+                     response->procedureBlockOffset != firstBlockOffset)
+            {
+                // 布局结论是一次枚举内的整体属性；各页不一致说明驱动中途重新判定过，
+                // 此时任何一页的“已验证”都不可信。
+                layoutConsistent = false;
+            }
+
+            const std::size_t parsed = responseCountLimit(response->returnedCount, available, 0xFFFFFFFFU);
+            for (std::size_t i = 0U; i < parsed; ++i)
+            {
+                const auto* entry = reinterpret_cast<const KSWORD_ARK_OBJECT_TYPE_PROCEDURE_ENTRY*>(
+                    buffer.data() + headerSize + (i * response->entrySize));
+                std::wcout << L"  [" << rowCount << L"] index=" << entry->typeIndex
+                           << L" type=0x" << std::hex << entry->objectTypeAddress << std::dec
+                           << L" name='" << fixedWide(entry->typeName, KSWORD_ARK_KERNEL_OBJECT_TYPE_NAME_CHARS)
+                           << L"' proc=" << objectTypeProcedureKindName(entry->procedureKind)
+                           << L" slot=0x" << std::hex << entry->slotAddress;
+                // 空指针与读取失败是两回事：前者是很多类型的合法常态，后者是证据缺失。
+                if ((entry->entryFlags & KSWORD_ARK_OBJTYPE_ENTRY_FLAG_READ_FAILED) != 0UL)
+                {
+                    std::wcout << std::dec << L" target=read-failed";
+                }
+                else if ((entry->entryFlags & KSWORD_ARK_OBJTYPE_ENTRY_FLAG_NULL_POINTER) != 0UL)
+                {
+                    std::wcout << std::dec << L" target=null";
+                }
+                else
+                {
+                    std::wcout << L" target=0x" << entry->targetAddress << std::dec;
+                }
+                std::wcout << L" owner='" << fixedWide(entry->ownerModule, 64U)
+                           << L"' section='" << fixedWide(entry->sectionName, 16U)
+                           << L"' risk=0x" << std::hex << entry->riskFlags
+                           << L"(" << objectTypeProcedureRiskNames(entry->riskFlags) << L")"
+                           << L" entryFlags=0x" << entry->entryFlags << std::dec;
+                if ((entry->entryFlags & KSWORD_ARK_OBJTYPE_ENTRY_FLAG_DETOUR) != 0UL)
+                {
+                    std::wcout << L" detour=0x" << std::hex << entry->detourTargetAddress << std::dec;
+                }
+                if ((entry->riskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_HIDDEN_HOOK) != 0UL)
+                {
+                    std::wcout << L" HIDDEN_BEHAVIOR";
+                    ++hiddenRows;
+                }
+                if ((entry->entryFlags & KSWORD_ARK_OBJTYPE_ENTRY_FLAG_TYPE_JUDGED) != 0UL)
+                {
+                    std::wcout << L" JUDGED";
+                    judgedTypeAddresses.insert(entry->objectTypeAddress);
+                }
+                seenTypeAddresses.insert(entry->objectTypeAddress);
+                std::wcout << L"\n";
+                if ((entry->riskFlags & ~KSWORD_ARK_DRIVER_INTEGRITY_RISK_LAYOUT_UNVERIFIED) != 0UL)
+                {
+                    ++suspiciousRows;
+                }
+                ++rowCount;
+            }
+
+            if (response->nextIndex >= KSWORD_ARK_OBJECT_TYPE_TABLE_MAX_SLOTS)
+            {
+                finished = true;
+                break;
+            }
+            if (response->nextIndex <= cursor)
+            {
+                // 驱动说还有下一页却不前进：再请求只会原地打转，按被截断收场。
+                std::wcerr << L"warning: object-type-procedures nextIndex did not advance (nextIndex="
+                           << response->nextIndex << L"); stopping\n";
+                break;
+            }
+            cursor = response->nextIndex;
+        }
+
+        truncated = truncated || !finished;
+        const bool layoutVerified =
+            layoutConsistent && firstLayoutState == KSWORD_ARK_OBJTYPE_LAYOUT_VALIDATED;
+        std::wcout << L"summary: rows=" << rowCount << L" pages=" << pageCount
+                   << L" truncated=" << (truncated ? L"true" : L"false")
+                   << L" layout_verified=" << (layoutVerified ? L"true" : L"false");
+        if (layoutVerified)
+        {
+            std::wcout << L" suspicious_rows=" << suspiciousRows
+                       << L" hidden_behavior_rows=" << hiddenRows
+                       << L" judged_types=" << judgedTypeAddresses.size() << L"/" << seenTypeAddresses.size() << L"\n";
+            std::wcout << L"note: judged_types counts object types where a single-slot hook among this type's "
+                          L"own method pointers is guaranteed to be caught; types outside that count are not "
+                          L"known to be clean, this build simply has no hard evidence either way for them.\n";
+            if (truncated || incompleteScan)
+            {
+                // 布局验证过了，但没能扫完全部对象类型：脚本不能把这次当成"完整且干净"。
+                std::wcout << L"note: scan incomplete (truncated or some object types could not be read); "
+                              L"a clean result here does not cover every object type.\n";
+                return 6;
+            }
+            return 0;
+        }
+
+        // 布局没通过运行时自验证：行只是参考，既不能当"被劫持"也不能当"干净"。
+        std::wcout << L" suspicious_rows=n/a hidden_behavior_rows=n/a\n";
+        if (!layoutConsistent)
+        {
+            std::wcout << L"note: layout state differs between pages; treated as unverified.\n";
+        }
+        return commandUnsupported(
+            L"r0 object-type-procedures",
+            L"ObjectType method-pointer layout was not verified on this machine; the check is disabled and this does NOT mean there are no hooks");
+    }
+
     // Inputs: argc/argv from wmain; argv[1] is the command family.
     // Processing: keeps family routing centralized and leaves subcommand parsing
     //             to the family handlers.
@@ -8077,7 +8412,16 @@ namespace
         if (family == L"capability") return commandCapabilityFamily(argc, argv);
         if (family == L"wsl") return commandWslFamily(argc, argv);
         if (family == L"ddma") return commandDdmaFamily(argc, argv);
-        if (family == L"r0") return commandArkDriverExtended(argc, argv);
+        if (family == L"r0")
+        {
+            // object-type-procedures 走本文件里的裸 IOCTL 实现（要逐行打印证据并按布局自验证结果定退出码），
+            // 其余 r0 子命令仍交给复用 ArkDriverClient 的 commandArkDriverExtended。
+            if (argc >= 3 && argv[2] != nullptr && std::wstring(argv[2]) == L"object-type-procedures")
+            {
+                return commandR0ObjectTypeProcedures(argc, argv);
+            }
+            return commandArkDriverExtended(argc, argv);
+        }
 
         std::wcerr << L"error: unknown family '" << family << L"'\n";
         printUsage();

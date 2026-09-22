@@ -568,6 +568,31 @@ KswordARKDriverIntegrityScoreRisk(
     if ((RiskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_DESCRIPTOR_INVALID) != 0UL) {
         score += 50UL;
     }
+    // 以下几位此前没有计分：只带这些位的行 riskScore 恒为 0，排序与阈值都会漏掉它们。
+    // IDT 网关与启动期基线不一致 / 整张表偏离多数派 / 整张表被搬走：都是直接的 IDT 篡改痕迹。
+    if ((RiskFlags & (KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_BASELINE_CHANGED | KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_TABLE_DIVERGED | KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_TABLE_RELOCATED)) != 0UL) {
+        score += 50UL;
+    }
+    // 目标落在模块映像内却不在可执行节：比"完全不在任何模块"略轻，但同样不该是 0。
+    if ((RiskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_TARGET_NON_EXEC) != 0UL) {
+        score += 45UL;
+    }
+    // 核心内核对象类型的方法指针落到 ntoskrnl 之外 / 函数入口是跳到别处的跳板。
+    if ((RiskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_OBJTYPE_PROC_NON_CORE) != 0UL) {
+        score += 50UL;
+    }
+    if ((RiskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_PROC_DETOUR) != 0UL) {
+        score += 60UL;
+    }
+    // 隐藏行为：二级指针被劫持而一级检查看起来干净。这是最高档，单独一位就直接到顶，
+    // 保证带此位的行在任何排序 / 阈值下都排在最前，不会被别的低分位稀释。
+    if ((RiskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_HIDDEN_HOOK) != 0UL) {
+        score += 100UL;
+    }
+    // 布局未验证只是参考信息，不是篡改证据，计低分。
+    if ((RiskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_LAYOUT_UNVERIFIED) != 0UL) {
+        score += 5UL;
+    }
     return (score > 100UL) ? 100UL : score;
 }
 static VOID

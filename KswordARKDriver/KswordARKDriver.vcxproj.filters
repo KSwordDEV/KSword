@@ -240,6 +240,9 @@
     <ClInclude Include="src\features\kernel\kernel_idt_consistency.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\features\kernel\kernel_interrupt_object.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="src\features\kernel\kernel_image_section_map.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -750,6 +753,9 @@
       <Filter>Source Files\Features\Kernel</Filter>
     </ClCompile>
     <ClCompile Include="src\features\kernel\kernel_idt_consistency.c">
+      <Filter>Source Files\Features\Kernel</Filter>
+    </ClCompile>
+    <ClCompile Include="src\features\kernel\kernel_interrupt_object.c">
       <Filter>Source Files\Features\Kernel</Filter>
     </ClCompile>
     <ClCompile Include="src\features\kernel\kernel_image_section_map.c">

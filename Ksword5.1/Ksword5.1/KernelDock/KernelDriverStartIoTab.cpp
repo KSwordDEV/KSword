@@ -178,8 +178,16 @@ void KernelDriverStartIoTab::refreshAsync()
 
                 StartIoRow row;
                 row.driverName = driverPath;
+                // 本页只用 startIo 与 imagePath：startIo 在 R0 是无条件填充的，
+                // imagePath 只需要 INCLUDE_NAMES。不要用默认的 INCLUDE_ALL，
+                // 那会让 R0 对每个驱动走完整设备链并逐设备 ObQueryNameString，
+                // 结果全被本页丢弃。
                 const ksword::ark::DriverObjectQueryResult query =
-                    client.queryDriverObject(driverPath.toStdWString());
+                    client.queryDriverObject(
+                        driverPath.toStdWString(),
+                        KSWORD_ARK_DRIVER_OBJECT_QUERY_FLAG_INCLUDE_NAMES,
+                        0UL,
+                        0UL);
                 row.lastStatus = static_cast<std::int32_t>(query.lastStatus);
                 if (!query.io.ok)
                 {
@@ -279,9 +287,9 @@ QString KernelDriverStartIoTab::stateText(const StartIoRow& row) const
     switch (row.state)
     {
     case KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT:
-        return (row.flags & KSWORD_ARK_DRIVER_START_IO_FLAG_OWN_IMAGE) != 0U
+        return (row.flags & KSWORD_ARK_DRIVER_DISPATCH_FLAG_OWN_IMAGE) != 0U
             ? kernelText("kernel.start_io.state.own_image", QStringLiteral("非空 · 本驱动镜像"))
-            : ((row.flags & KSWORD_ARK_DRIVER_START_IO_FLAG_MODULE_RESOLVED) != 0U
+            : ((row.flags & KSWORD_ARK_DRIVER_DISPATCH_FLAG_MODULE_RESOLVED) != 0U
                 ? kernelText("kernel.start_io.state.external_module", QStringLiteral("非空 · 外部模块"))
                 : kernelText("kernel.start_io.state.unresolved", QStringLiteral("非空 · 模块未解析")));
     case KSWORD_ARK_DRIVER_START_IO_STATE_NULL:

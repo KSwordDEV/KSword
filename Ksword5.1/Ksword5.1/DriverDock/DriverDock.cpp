@@ -449,8 +449,8 @@ namespace ksword::driver_dock_internal
     // - “外部模块”用文本明确展示，不只依赖颜色。
     QString driverDispatchLocationText(const std::uint32_t flags)
     {
-        const bool resolvedModule = (flags & 0x00000001U) != 0U;
-        const bool insideOwnImage = (flags & 0x00000002U) != 0U;
+        const bool resolvedModule = (flags & KSWORD_ARK_DRIVER_DISPATCH_FLAG_MODULE_RESOLVED) != 0U;
+        const bool insideOwnImage = (flags & KSWORD_ARK_DRIVER_DISPATCH_FLAG_OWN_IMAGE) != 0U;
         if (insideOwnImage)
         {
             return driverText("driver.location.inside_image", QStringLiteral("自身镜像内"));
@@ -462,7 +462,7 @@ namespace ksword::driver_dock_internal
         return driverText("driver.location.unresolved_module", QStringLiteral("未解析模块"));
     }
 
-    QString driverStartIoStateText(const ksword::ark::DriverStartIoEntry& entry)
+    QString driverStartIoStateText(const ksword::ark::DriverStartIoEntry& entry, const bool queryOk)
     {
         switch (entry.state)
         {
@@ -473,7 +473,11 @@ namespace ksword::driver_dock_internal
         case KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT:
             return driverDispatchLocationText(entry.flags);
         default:
-            return driverText("driver.object.start_io.not_queried", QStringLiteral("未查询（驱动协议较旧）"));
+            // NOT_QUERIED 有两个来源，必须分开说：查询本身失败时怪到"驱动协议较旧"
+            // 会把人送去查驱动版本，而真因是设备没打开/驱动没加载/拒绝访问。
+            return queryOk
+                ? driverText("driver.object.start_io.not_queried", QStringLiteral("未查询（驱动协议较旧）"))
+                : driverText("driver.object.start_io.query_failed", QStringLiteral("未查询（DriverObject 查询未成功）"));
         }
     }
 
