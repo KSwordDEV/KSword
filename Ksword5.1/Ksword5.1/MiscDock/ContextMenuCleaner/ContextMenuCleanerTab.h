@@ -25,6 +25,7 @@ class QPushButton;
 class QTableWidget;
 class QTabWidget;
 class QVBoxLayout;
+class CodeEditorWidget;
 
 namespace ks::misc
 {
@@ -96,6 +97,7 @@ namespace ks::misc
             QPushButton* copyButton = nullptr;    // copyButton：复制选中注册表路径按钮。
             QLineEdit* filterEdit = nullptr;      // filterEdit：当前分类关键词筛选框。
             QTableWidget* table = nullptr;        // table：右键菜单项列表。
+            CodeEditorWidget* detailEditor = nullptr; // detailEditor：本分类的只读详情编辑器，交由详情布局系统托管。
             QLabel* statusLabel = nullptr;        // statusLabel：当前分类统计与提示。
             QVector<ContextMenuEntry> entries;    // entries：当前分类最近一次完整枚举结果。
             bool hasLoaded = false;               // hasLoaded：该分类是否至少完成过一次按需枚举。
@@ -167,6 +169,27 @@ namespace ks::misc
         // - 处理：把选中行的注册表路径复制到剪贴板；
         // - 返回：无。
         void copySelectedEntries(MenuArea area) const;
+
+        // updateAreaDetail：
+        // - 输入 area：目标分区；
+        // - 处理：读取该分类表格的当前行，按 Qt::UserRole 映射回 entries 下标，
+        //   把该条目的完整信息写进本分类的只读详情编辑器；
+        //   详情布局宿主（DetailLayoutHost）随后把编辑器文本镜像到当前布局方案里；
+        // - 返回：无。无选中行时写入引导占位文本。
+        void updateAreaDetail(MenuArea area);
+
+        // buildEntryDetailText：
+        // - 输入 entry：单条 Shell 关联快照；
+        // - 处理：**只用枚举阶段已采集的字段**拼装详情文本，
+        //   其中 CLSID 友好名与服务器路径复用 Internal.h 里既有的 HKCR 查询 helper；
+        // - 返回：可直接给只读编辑器显示的多行文本。
+        QString buildEntryDetailText(const ContextMenuEntry& entry) const;
+
+        // applyAreaDetailPlaceholder：
+        // - 输入 area：目标分区；
+        // - 处理：把该分类的引导文本写进详情编辑器（尚未刷新或未选中任何行时使用）；
+        // - 返回：无。
+        void applyAreaDetailPlaceholder(MenuArea area);
 
         // enumerateEntriesForArea：
         // - 输入 area：目标分区；

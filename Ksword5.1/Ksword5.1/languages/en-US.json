@@ -34019,6 +34019,25 @@
     "[ProcessDock] 单系统会话 CSwitch 逐核心 CPU 采集器启动失败, detail=%1": "[ProcessDock] single-session CSwitch per-core CPU collector startup failed, detail=%1",
     "[ProcessDock] 单系统会话 CSwitch 逐核心 CPU 采集器启动成功": "[ProcessDock] single-session CSwitch per-core CPU collector started",
     "[ProcessDock] 进程网络吞吐 ETW 采集器启动失败, detail=%1": "[ProcessDock] process network throughput ETW collector startup failed, detail=%1",
-    "[ProcessDock] 进程网络吞吐 ETW 采集器启动成功": "[ProcessDock] process network throughput ETW collector started"
+    "[ProcessDock] 进程网络吞吐 ETW 采集器启动成功": "[ProcessDock] process network throughput ETW collector started",
+    "分类        ：%1": "Category: %1",
+    "名称        ：%1": "Name: %1",
+    "显示名      ：%1": "Display name: %1",
+    "类型        ：%1": "Kind: %1",
+    "来源        ：%1": "Source: %1",
+    "根键        ：%1": "Root key: %1",
+    "注册表位置  ：%1": "Registry path: %1",
+    "命令/处理器 ：%1": "Command/handler: %1",
+    "状态        ：%1": "Status: %1",
+    "CLSID       ：%1": "CLSID: %1",
+    "CLSID 名称  ：%1": "CLSID name: %1",
+    "服务器      ：%1": "Server: %1",
+    "补充详情：": "Additional detail:",
+    "删除粒度    ：%1": "Delete granularity: %1",
+    "本页可删除  ：%1": "Deletable here: %1",
+    "仅删除注册表值 %1": "Delete only the registry value %1",
+    "删除整棵子键树": "Delete the whole subkey tree",
+    "否（系统保护项或受策略限制）": "No (system-protected or restricted by policy)",
+    "【%1 详情】\n\n在上方表格中选择一行，这里显示该条 Shell 关联的完整信息：注册表根键与精确位置、命令或 CLSID 处理器、状态标记与删除粒度。\n\n详情显示方式可在设置中切换：下方折叠（默认）、行内展开、独立窗口、右侧面板。": "[%1 detail]\n\nSelect a row in the table above to see everything about that Shell association: registry root key and exact path, command or CLSID handler, status flags and delete granularity.\n\nDetail display mode is switchable in settings: bottom collapsed (default), inline, floating window, right panel."
   }
 }
