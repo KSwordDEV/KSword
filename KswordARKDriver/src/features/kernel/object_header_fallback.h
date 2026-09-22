@@ -28,24 +28,16 @@ KswordARKObjectHeaderQueryFallback(
     _Out_ KSW_OBJECT_HEADER_FALLBACK_RESULT* Result
     );
 
-//
-// Take a reference on an object body the caller holds no reference into, such
-// as a pointer decoded out of ActiveProcessLinks or PspCidTable.
-//
-// ObReferenceObjectByPointer and ObfReferenceObject both raise bugcheck 0x18
-// (REFERENCE_BY_POINTER) when the pointer count has already reached zero, and
-// that is a bugcheck rather than an exception, so no __except around them can
-// hold it.  This routine increments the count only while it is still positive,
-// and refuses the object otherwise.
-//
-// STATUS_SUCCESS means a reference was taken and the caller must release it
-// with ObDereferenceObject.  STATUS_DELETE_PENDING means the object is already
-// being deleted.  STATUS_NOT_SUPPORTED means the header layout is unresolved,
-// in which case no reference may be taken at all.
-//
+/* Obtain a documented ID-based reference, then require exact pointer identity.
+   Object is only an observed address until lookup succeeds. No object-header
+   layout or direct reference-count write is used. A successful call owns one
+   reference; the caller releases it with ObDereferenceObject. Lookup failure
+   or identity drift must remain unconfirmed, read-only evidence. APC_LEVEL max. */
 NTSTATUS
 KswordARKObjectHeaderReferenceObjectSafe(
-    _In_ PVOID Object
+    _In_ PVOID Object,
+    _In_ HANDLE ObjectId,
+    _In_ POBJECT_TYPE ExpectedObjectType
     );
 
 EXTERN_C_END

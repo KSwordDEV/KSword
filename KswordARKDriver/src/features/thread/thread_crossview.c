@@ -972,6 +972,7 @@ Return Value:
 static NTSTATUS
 KswordARKThreadCrossViewTryReferenceTypedObject(
     _In_ PVOID CandidateObject,
+    _In_ HANDLE CandidateId,
     _In_opt_ POBJECT_TYPE ExpectedObjectType,
     _Out_ BOOLEAN* TypeMatchedOut,
     _Out_ BOOLEAN* ReferencedOut
@@ -985,6 +986,7 @@ Routine Description:
 Arguments:
 
     CandidateObject - Decoded thread object body pointer.
+    CandidateId - ID observed from the source, used for a protected lookup.
     ExpectedObjectType - Required object type, such as PsThreadType.
     TypeMatchedOut - Receives whether ObGetObjectType matched ExpectedObjectType.
     ReferencedOut - Receives whether the reference was taken.
@@ -994,8 +996,9 @@ Return Value:
     STATUS_SUCCESS when a reference was taken; otherwise a validation or read
     status.
 
-    STATUS_DELETE_PENDING means the candidate is a real object that is already
-    being torn down rather than a read failure.
+    A failed ID lookup or pointer comparison does not establish object lifetime.
+    TypeMatchedOut remains only a guarded type observation on such a failure;
+    retain unconfirmed evidence without dereferencing CandidateObject.
 
 --*/
 {
@@ -1025,14 +1028,10 @@ Return Value:
     }
     *TypeMatchedOut = TRUE;
 
-    //
-    // Same hazard as the process cross-view: the candidate is a pointer decoded
-    // out of a kernel structure we hold no reference into, and a thread that has
-    // just exited keeps its links while its pointer count is already zero.  The
-    // Ob reference exports bugcheck 0x18 on such an object and no __except can
-    // catch that, so take the reference by hand.
-    //
-    status = KswordARKObjectHeaderReferenceObjectSafe(CandidateObject);
+    /* The type read is observational. Only a matching ID-based reference
+       establishes storage lifetime; a failed lookup remains read-only evidence. */
+    status = KswordARKObjectHeaderReferenceObjectSafe(
+        CandidateObject, CandidateId, ExpectedObjectType);
     if (!NT_SUCCESS(status)) {
         return status;
     }
@@ -1320,7 +1319,6 @@ Return Value:
 
     processCursor = psGetNextProcess(NULL);
     while (processCursor != NULL) {
-        PEPROCESS nextProcess = psGetNextProcess(processCursor);
         PETHREAD threadCursor = NULL;
         const ULONG processId = HandleToULong(PsGetProcessId(processCursor));
 
@@ -1329,14 +1327,12 @@ Return Value:
         if (KswordARKThreadCrossViewProcessInRequest(Context, processId)) {
             threadCursor = psGetNextProcessThread(processCursor, NULL);
             while (threadCursor != NULL) {
-                PETHREAD nextThread = psGetNextProcessThread(processCursor, threadCursor);
                 if (visitedThreads >= Context->MaxNodes) {
                     Context->Truncated = TRUE;
                     Context->LastStatus = STATUS_BUFFER_OVERFLOW;
+                    /* No advance occurs on early termination. */
                     ObDereferenceObject(threadCursor);
-                    if (nextThread != NULL) {
-                        ObDereferenceObject(nextThread);
-                    }
+                    threadCursor = NULL;
                     break;
                 }
                 visitedThreads += 1UL;
@@ -1349,16 +1345,18 @@ Return Value:
                     processId,
                     HandleToULong(PsGetThreadId(threadCursor)),
                     "Observed through PsGetNextProcessThread.");
-                ObDereferenceObject(threadCursor);
-                threadCursor = nextThread;
+                /* The enumerator consumes the current cursor reference. */
+                threadCursor = psGetNextProcessThread(processCursor, threadCursor);
             }
         }
 
-        ObDereferenceObject(processCursor);
-        processCursor = nextProcess;
         if (Context->Truncated) {
+            /* An aborted walk must release the still-owned current cursor. */
+            ObDereferenceObject(processCursor);
+            processCursor = NULL;
             break;
         }
+        processCursor = psGetNextProcess(processCursor);
     }
 
     if (!Context->Truncated) {
@@ -1488,8 +1486,11 @@ Return Value:
         }
 
         candidateThread = (PVOID)((PUCHAR)current - Context->DynState.Kernel.EtThreadListEntry);
+        (VOID)KswordARKThreadCrossViewReadCidFields(
+            Context, candidateThread, &cidProcessId, &cidThreadId);
         referenceStatus = KswordARKThreadCrossViewTryReferenceTypedObject(
             candidateThread,
+            ULongToHandle(cidThreadId),
             (PsThreadType != NULL) ? *PsThreadType : NULL,
             &typeMatched,
             &referenced);
@@ -1599,16 +1600,17 @@ Return Value:
 
     processCursor = psGetNextProcess(NULL);
     while (processCursor != NULL) {
-        PEPROCESS nextProcess = psGetNextProcess(processCursor);
         const ULONG processId = HandleToULong(PsGetProcessId(processCursor));
         if (KswordARKThreadCrossViewProcessInRequest(Context, processId)) {
             KswordARKThreadCrossViewCollectOneThreadList(Context, processCursor, &walkedThreads);
         }
-        ObDereferenceObject(processCursor);
-        processCursor = nextProcess;
         if (Context->Truncated) {
+            /* An aborted walk must release the still-owned current cursor. */
+            ObDereferenceObject(processCursor);
+            processCursor = NULL;
             break;
         }
+        processCursor = psGetNextProcess(processCursor);
     }
 }
 

@@ -20,11 +20,18 @@ Environment:
 #include "object_header_fallback.h"
 #include "../../platform/runtime_signature_scan.h"
 
+extern POBJECT_TYPE* PsProcessType;
+extern POBJECT_TYPE* PsThreadType;
+NTSYSAPI NTSTATUS NTAPI PsLookupProcessByProcessId(
+    _In_ HANDLE ProcessId, _Outptr_ PEPROCESS* Process);
+NTSYSAPI NTSTATUS NTAPI PsLookupThreadByThreadId(
+    _In_ HANDLE ThreadId, _Outptr_ PETHREAD* Thread);
+NTKERNELAPI POBJECT_TYPE NTAPI ObGetObjectType(_In_ PVOID Object);
+
 #define KSW_OBJECT_HEADER_SCAN_BYTES       0x0100UL
 #define KSW_OBJECT_HEADER_MIN_BODY_OFFSET  0x0010UL
 #define KSW_OBJECT_HEADER_MAX_BODY_OFFSET  0x0100UL
 #define KSW_OBJECT_HEADER_MAX_COUNT        0x40000000ULL
-#define KSW_OBJECT_HEADER_SAFE_REFERENCE_ATTEMPTS 64UL
 
 typedef struct _KSW_OBJECT_HEADER_ANCHOR_CODE
 {
@@ -441,87 +448,48 @@ KswordARKObjectHeaderQueryFallback(
 
 NTSTATUS
 KswordARKObjectHeaderReferenceObjectSafe(
-    _In_ PVOID Object
+    _In_ PVOID Object,
+    _In_ HANDLE ObjectId,
+    _In_ POBJECT_TYPE ExpectedObjectType
     )
-/*++
-
-Routine Description:
-
-    Reference an object body that the caller does not own, without resurrecting
-    one whose pointer count has already reached zero.
-
-    The Ob reference exports all end in the same sequence: they add one to
-    OBJECT_HEADER.PointerCount unconditionally and then bugcheck 0x18 when the
-    result is not greater than one.  A caller holding a pointer picked out of a
-    kernel structure - an ActiveProcessLinks node, a PspCidTable slot - cannot
-    rule that out, and cannot catch it either.  So do the increment here with a
-    compare-exchange that never starts from a non-positive count.
-
-Arguments:
-
-    Object - Object body pointer to reference.
-
-Return Value:
-
-    STATUS_SUCCESS when a reference was taken; the caller owns it and must
-    release it with ObDereferenceObject.  STATUS_DELETE_PENDING when the object
-    is already being deleted, STATUS_NOT_SUPPORTED when the header layout could
-    not be resolved, STATUS_DATA_ERROR when the count is unreadable or absurd.
-
---*/
 {
-    ULONG bodyOffset = 0UL;
-    ULONG handleOffset = 0UL;
-    volatile LONG64* pointerCount = NULL;
-    ULONG attempt = 0UL;
+    PVOID referenced = NULL;
+    NTSTATUS status;
 
-    if (Object == NULL) {
+    if (Object == NULL || ObjectId == NULL || ExpectedObjectType == NULL) {
         return STATUS_INVALID_PARAMETER;
     }
-    if (!NT_SUCCESS(KswordARKObjectHeaderResolveCachedLayout(
-            &bodyOffset,
-            &handleOffset)) ||
-        (ULONG_PTR)Object < bodyOffset) {
-        return STATUS_NOT_SUPPORTED;
+    if (KeGetCurrentIrql() > APC_LEVEL) {
+        return STATUS_INVALID_DEVICE_STATE;
     }
-    pointerCount = (volatile LONG64*)((PUCHAR)Object - bodyOffset);
-
-    for (attempt = 0UL; attempt < KSW_OBJECT_HEADER_SAFE_REFERENCE_ATTEMPTS; ++attempt) {
-        LONG64 observed = 0LL;
-        LONG64 previous = 0LL;
-
-        if (!KswordARKRuntimeReadMemory(
-                (const VOID*)(ULONG_PTR)pointerCount,
-                &observed,
-                sizeof(observed))) {
-            return STATUS_DATA_ERROR;
-        }
-        if (observed <= 0LL) {
-            return STATUS_DELETE_PENDING;
-        }
-        if ((ULONG64)observed > KSW_OBJECT_HEADER_MAX_COUNT) {
-            return STATUS_DATA_ERROR;
-        }
-
-        __try {
-            previous = InterlockedCompareExchange64(
-                (volatile LONG64*)pointerCount,
-                observed + 1LL,
-                observed);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {
-            return STATUS_DATA_ERROR;
-        }
-        if (previous == observed) {
-            return STATUS_SUCCESS;
-        }
-        YieldProcessor();
+    if (PsProcessType != NULL && ExpectedObjectType == *PsProcessType) {
+        PEPROCESS process = NULL;
+        status = PsLookupProcessByProcessId(ObjectId, &process);
+        referenced = process;
     }
-
-    //
-    // Losing the compare-exchange this many times in a row means the count is
-    // moving under us faster than it can be read.  Refusing is the only answer
-    // that cannot resurrect a dying object.
-    //
-    return STATUS_DEVICE_BUSY;
+    else if (PsThreadType != NULL && ExpectedObjectType == *PsThreadType) {
+        PETHREAD thread = NULL;
+        status = PsLookupThreadByThreadId(ObjectId, &thread);
+        referenced = thread;
+    }
+    else {
+        return STATUS_OBJECT_TYPE_MISMATCH;
+    }
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+    if (referenced == NULL) {
+        return STATUS_DATA_ERROR;
+    }
+    /* Only the lookup result owns a reference; never dereference the candidate
+       on failure. An ID recycled to a different address is not this observation. */
+    if (referenced != Object) {
+        ObDereferenceObject(referenced);
+        return STATUS_REVISION_MISMATCH;
+    }
+    if (ObGetObjectType(referenced) != ExpectedObjectType) {
+        ObDereferenceObject(referenced);
+        return STATUS_OBJECT_TYPE_MISMATCH;
+    }
+    return STATUS_SUCCESS;
 }
