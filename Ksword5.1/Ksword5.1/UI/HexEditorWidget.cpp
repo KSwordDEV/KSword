@@ -17,31 +17,31 @@ namespace ksword::ui::hex_editor_internal
     // - 常态无边框/透明背景，只在 hover/pressed 时才显示边框，减少视觉噪声。
     QString buildToolbarButtonStyle()
     {
+        // 占位符编号必须与 arg() 调用一一对应：QString::arg 替换的是字符串里
+        // 编号最小的 %n，而不是固定的 %1，删掉占位符却留着 arg 会让颜色整体错位。
         return QStringLiteral(
             "QToolButton {"
             "  border:1px solid transparent;"
             "  border-radius:3px;"
             "  padding:2px 6px;"
             "  background:transparent;"
-            "  color:%3;"
+            "  color:%1;"
             "}"
             "QToolButton:hover {"
-            "  border:1px solid %4;"
-            "  background:%5;"
-            "  color:%7;"
+            "  border:1px solid %2;"
+            "  background:%3;"
+            "  color:%5;"
             "}"
             "QToolButton:pressed {"
-            "  border:1px solid %4;"
-            "  background:%6;"
-            "  color:%7;"
+            "  border:1px solid %2;"
+            "  background:%4;"
+            "  color:%5;"
             "}")
-            .arg(KswordTheme::BorderHex())         // %1 保留占位，字符串已不使用
-            .arg(KswordTheme::SurfaceHex())        // %2 保留占位，字符串已不使用
-            .arg(KswordTheme::TextPrimaryHex())    // %3
-            .arg(KswordTheme::PrimaryBlueHex)      // %4
-            .arg(KswordTheme::PrimaryBlueHoverHex) // %5
-            .arg(KswordTheme::PrimaryBluePressedHex) // %6
-            .arg(QStringLiteral("palette(highlighted-text)")); // %7
+            .arg(KswordTheme::TextPrimaryHex())      // %1
+            .arg(KswordTheme::PrimaryBlueHex)        // %2
+            .arg(KswordTheme::PrimaryBlueHoverHex)   // %3
+            .arg(KswordTheme::PrimaryBluePressedHex) // %4
+            .arg(QStringLiteral("palette(highlighted-text)")); // %5
     }
 
     // buildInputStyle：

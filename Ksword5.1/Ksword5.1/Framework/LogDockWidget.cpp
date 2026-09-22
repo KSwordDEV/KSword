@@ -527,6 +527,9 @@ void LogDockWidget::initializeUi()
     m_logTable->setColumnWidth(FileColumn, 240);
     m_logTable->setColumnWidth(FunctionColumn, 320);
     m_logTable->verticalHeader()->setVisible(false);
+    // 日志行高由下面的 InstallVisibleRowHeightRefresh 按内容动态测量（长日志会折行），
+    // 这里标记为自管理，阻止全局紧凑行高规则把它压回固定值。
+    m_logTable->setProperty("ksword_preserve_custom_row_height", true);
     m_logTable->verticalHeader()->setDefaultSectionSize(28);
     m_logTable->verticalHeader()->setMinimumSectionSize(24);
     m_logTable->verticalHeader()->setMaximumSectionSize(120);
