@@ -376,6 +376,13 @@ void KernelDescriptorTableTab::applyResult(
     std::size_t gdtCount = 0U;
     std::size_t trustedIdtIndex = 0U;
     std::size_t hiddenRowCount = 0U;
+    // m_trustedIdtBaselines 按 sourceIndex 和 m_rows 对齐，GDT/中断对象行也要占位——
+    // 但信任基线摘要只该统计真正的 IDT 网关行，那些占位槽本身不是"未支持的网关"，
+    // 不能被 count_if(m_trustedIdtBaselines) 一起数进 unsupported。这里在推入的同时
+    // 单独记一份只含网关行的统计。
+    std::size_t trustedGateTotal = 0U;
+    std::size_t trustedGateAvailable = 0U;
+    std::size_t trustedGateMismatch = 0U;
     bool interruptLayoutUnverified = false;
     bool interruptPartial = false;
     QString interruptSummaryText;
@@ -385,8 +392,18 @@ void KernelDescriptorTableTab::applyResult(
         {
             ++idtCount;
             m_rows.push_back(std::move(row));
+            ++trustedGateTotal;
             if (trustedIdtIndex < trustedIdtBaselines.size())
             {
+                const ks::kernel::TrustedIdtBaselineResult& baseline = trustedIdtBaselines[trustedIdtIndex];
+                if (baseline.available)
+                {
+                    ++trustedGateAvailable;
+                    if (!baseline.handlerMatches)
+                    {
+                        ++trustedGateMismatch;
+                    }
+                }
                 m_trustedIdtBaselines.push_back(
                     std::move(
                         trustedIdtBaselines[trustedIdtIndex]));
@@ -456,31 +473,17 @@ void KernelDescriptorTableTab::applyResult(
     }
     if (idtOnly)
     {
-        const std::size_t trustedAvailable = static_cast<std::size_t>(
-            std::count_if(
-                m_trustedIdtBaselines.cbegin(),
-                m_trustedIdtBaselines.cend(),
-                [](const ks::kernel::TrustedIdtBaselineResult& baseline)
-                {
-                    return baseline.available;
-                }));
-        const std::size_t trustedMismatch = static_cast<std::size_t>(
-            std::count_if(
-                m_trustedIdtBaselines.cbegin(),
-                m_trustedIdtBaselines.cend(),
-                [](const ks::kernel::TrustedIdtBaselineResult& baseline)
-                {
-                    return baseline.available
-                        && !baseline.handlerMatches;
-                }));
+        // 用推入网关行时同步记的统计，不能用 m_trustedIdtBaselines.size()：那个数组还
+        // 混着中断对象行的占位槽（为了按 sourceIndex 跟 m_rows 对齐），拿它当分母会把
+        // "这一行根本不是网关"也算进 unsupported，虚报本机不支持的网关数。
         summary += kernelText(
             "kernel.descriptor.status.trusted_baseline_summary",
             QStringLiteral(
                 "；可信映像/PDB 基线可用 %1，偏离 %2，unsupported %3"))
-            .arg(static_cast<qulonglong>(trustedAvailable))
-            .arg(static_cast<qulonglong>(trustedMismatch))
+            .arg(static_cast<qulonglong>(trustedGateAvailable))
+            .arg(static_cast<qulonglong>(trustedGateMismatch))
             .arg(static_cast<qulonglong>(
-                m_trustedIdtBaselines.size() - trustedAvailable));
+                trustedGateTotal - trustedGateAvailable));
     }
     if (idtOnly && hiddenRowCount != 0U)
     {
