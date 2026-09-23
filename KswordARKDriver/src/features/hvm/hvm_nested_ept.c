@@ -102,14 +102,18 @@ static ULONGLONG KswordARKHvmNestedPageLeaf(
  */
 static ULONG KswordARKHvmNestedPageLargeLeaf(
     KSW_HVM_RUNTIME* Runtime, KSW_HVM_SHADOW_EPT_STATE* Shadow,
-    ULONGLONG GuestPhysical, ULONGLONG ComposedLeaf, ULONGLONG* LargeLeaf)
+    ULONGLONG GuestPhysical, ULONGLONG ComposedLeaf, ULONG OuterLeafShift,
+    ULONGLONG* LargeLeaf)
 {
     KSW_HVM_NESTED_PAGE* page =
         KswordARKHvmNestedPageForAddress(Runtime, Shadow, GuestPhysical);
 
     *LargeLeaf = 0ULL;
-    /* No override, or one published at ordinary granularity. */
-    if (page == NULL || page->Plan.LeafShift <= KSW_PLAN_SHIFT_4K) {
+    /* Both translation levels must cover the whole region. A selected view
+       can narrow a different page even if this address uses a coarse base leaf. */
+    if (page == NULL || !KswordHvmLeafPolicyUseLarge(page->Plan.LeafShift,
+            page->Translation.EntryCount, page->ScanAdmitted, OuterLeafShift,
+            Runtime->EptSwitch.Active || Shadow->OuterViewIndex != 0UL)) {
         return KSW_PLAN_SHIFT_4K;
     }
     /* Only write-back RAM is replaced, exactly as at 4 KiB. */
@@ -122,10 +126,9 @@ static ULONG KswordARKHvmNestedPageLargeLeaf(
      * The frame is the region base and not the faulting page's frame: hardware
      * supplies the offset from the address it is translating, so a leaf naming
      * an offset frame would serve the whole region shifted by that offset.
-     * Permissions and memory type come from the composed 4-KiB leaf, which is
-     * sound only because the plan already refused any region whose source leaf
-     * is finer than the leaf being installed - so these bits describe every
-     * page beneath it, not merely the one that faulted.
+     * Permissions and memory type come from the composed 4-KiB leaf. The
+     * publication policy requires both source leaves to cover the full region
+     * and excludes selected views; neither level may narrow another page.
      */
     *LargeLeaf = (ComposedLeaf & ~KSW_HVM_NEPT_FRAME_MASK) |
         KswordHvmLeafPlanLeafFrame(&page->Plan) | KSW_HVM_NEPT_LARGE;
@@ -845,6 +848,7 @@ KswordARKHvmNestedEptFill(
     ULONGLONG permissions = 0ULL;
     /* Where EPT12's own leaf for this page lives, for folding A/D back. */
     ULONGLONG l1EntryAddress = 0ULL;
+    volatile ULONGLONG* publishedLeaf = NULL;
     volatile ULONGLONG* table = NULL;
     ULONGLONG hostLeaf = 0ULL;
     ULONGLONG composedLeaf = 0ULL;
@@ -950,7 +954,7 @@ retryTranslation:
     {
         ULONGLONG largeLeaf = 0ULL;
         const ULONG leafShift = KswordARKHvmNestedPageLargeLeaf(
-            Runtime, Shadow, GuestPhysicalAddress, composedLeaf, &largeLeaf);
+            Runtime, Shadow, GuestPhysicalAddress, composedLeaf, hostShift, &largeLeaf);
 
         if (leafShift > KSW_PLAN_SHIFT_4K) {
             /* PDPT for 1 GiB, PD for 2 MiB; both are inside the interior walk. */
@@ -1020,7 +1024,8 @@ retryTranslation:
          * holds a cached translation through it. Leaking a table page until
          * release is bounded; freeing one early is not.
          */
-        table[leafIndex] = leaf;
+        publishedLeaf = &table[leafIndex];
+        *publishedLeaf = leaf;
         /*
          * Read the assignment back.  One load, and it separates "we composed
          * the wrong mapping" from "we composed the right one somewhere else" -
@@ -1128,7 +1133,7 @@ retryTranslation:
                      * on every sample of a region that is in fact correct.
                      */
                     const ULONG expectedShift = KswordARKHvmNestedPageLargeLeaf(
-                        Runtime, Shadow, pending, composed, &expectedLarge);
+                        Runtime, Shadow, pending, composed, hostShift, &expectedLarge);
                     const ULONGLONG expectedFrame =
                         (expectedShift > KSW_PLAN_SHIFT_4K)
                             ? (expectedLarge & KSW_HVM_NEPT_FRAME_MASK)
@@ -1161,7 +1166,7 @@ retryTranslation:
     }
     /* Retain every source until its writable A/D state has been published. */
     if (Shadow->AccessedDirtyActive && !KswordARKHvmNestedAdRecord(Shadow,
-            &table[(GuestPhysicalAddress >> shifts[3]) & 0x1FFULL], l1EntryAddress)) {
+            publishedLeaf, l1EntryAddress)) {
         /* An untracked translation must never run with advertised A/D support. */
         Shadow->Faulted = TRUE;
         /* Return a local resource failure rather than a fictitious L1 fault. */

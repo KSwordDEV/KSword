@@ -669,6 +669,28 @@ void AppendDriverObjectMajorRows(
         row.querySucceeded = query.io.ok;
         rows.push_back(std::move(row));
     }
+    // DriverStartIo is one row next to the dispatch rows. NULL is the common,
+    // healthy case, so the state travels with the row instead of a bare zero.
+    if (query.startIo.state != KSWORD_ARK_DRIVER_START_IO_STATE_NOT_QUERIED) {
+        const ksword::ark::DriverStartIoEntry& startIo = query.startIo;
+        const bool present = startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT;
+        DriverObjectRow row;
+        row.directoryPathText = L"R0 DriverStartIo";
+        row.objectNameText = L"DriverStartIo";
+        row.objectTypeText = L"DriverStartIo";
+        row.fullPathText = requestedName;
+        row.targetPathText = startIo.moduleName;
+        row.referenceCountText = present ? CompactHex(startIo.moduleBase) : std::wstring(L"-");
+        row.handleCountText = present ? CompactHex(startIo.address) : std::wstring(L"-");
+        row.statusText = present
+            ? std::wstring(L"present; flags=") + CompactHex(startIo.flags)
+            : (startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_NULL
+                ? std::wstring(L"null")
+                : std::wstring(L"read-failed"));
+        row.capabilityHint = std::wstring(L"DriverObject->DriverStartIo");
+        row.querySucceeded = query.io.ok;
+        rows.push_back(std::move(row));
+    }
 }
 
 // AppendDriverObjectDeviceRows writes DeviceObject/AttachedDevice entries from
@@ -725,6 +747,7 @@ std::wstring DriverIntegrityClassText(const std::uint32_t evidenceClass) {
     case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DRIVER_SECTION: return L"DriverSection";
     case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_MAJOR_FUNCTION: return L"MajorFunction";
     case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_FAST_IO: return L"FastIo";
+    case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_START_IO: return L"StartIo";
     case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DEVICE_CHAIN: return L"DeviceObject";
     case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_SERVICE: return L"Service";
     case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_OPTIONAL_GLOBAL: return L"MmUnloaded/PiDDB";

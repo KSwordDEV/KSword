@@ -11,6 +11,7 @@
 #include <vector>
 
 class QLabel;
+class QEvent;
 class QLineEdit;
 class QPoint;
 class QPushButton;
@@ -43,6 +44,8 @@ public:
 
 protected:
     void showEvent(QShowEvent* event) override;
+    // changeEvent：应用调色板变更（换主题）时用已缓存的行重建表，刷新烘焙进单元格的高亮画刷。
+    void changeEvent(QEvent* event) override;
 
 private:
     void initializeUi();
@@ -67,7 +70,6 @@ private:
         std::size_t sourceIndex) const;
     static QString tableName(const ksword::ark::DriverIntegrityEvidenceEntry& row);
     static QString descriptorTypeText(const ksword::ark::DriverIntegrityEvidenceEntry& row);
-    static QString riskText(std::uint32_t riskFlags);
     static QString hex64(std::uint64_t value);
     static QString hex32(std::uint32_t value);
     static QString rowClipboardText(QTableWidget* table, int row, bool includeHeader);

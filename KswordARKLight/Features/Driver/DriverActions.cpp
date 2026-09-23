@@ -206,6 +206,15 @@ DriverActionResult DriverActions::BuildDriverObjectDetailText(const std::wstring
     AppendLine(text, L"DriverFlags", HexText(query.driverFlags));
     AppendLine(text, L"DriverSize", HexText(query.driverSize));
     AppendLine(text, L"MajorFunctionCount", std::to_wstring(query.majorFunctionCount));
+    // DriverStartIo 三态在同一行说清：空值、读取失败与非空地址不能都渲染成 0。
+    AppendLine(text, L"DriverStartIo",
+        query.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT
+            ? HexText(query.startIo.address) + L" (" + query.startIo.moduleName + L", flags=" + HexText(query.startIo.flags) + L")"
+            : (query.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_NULL
+                ? std::wstring(L"NULL")
+                : (query.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_READ_FAILED
+                    ? std::wstring(L"ReadFailed")
+                    : std::wstring(L"NotQueried"))));
     AppendLine(text, L"TotalDeviceCount", std::to_wstring(query.totalDeviceCount));
     AppendLine(text, L"ReturnedDeviceCount", std::to_wstring(query.returnedDeviceCount));
     AppendLine(text, L"Message", Utf8ToWide(query.io.message));

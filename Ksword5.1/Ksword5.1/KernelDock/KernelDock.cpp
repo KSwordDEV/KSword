@@ -20,12 +20,14 @@
 #include "KernelVbsPostureTab.h"
 #include "KernelDockIpcTab.h"
 #include "KernelDeviceDriverObjectsTab.h"
+#include "KernelDriverStartIoTab.h"
 #include "KernelIoTimerTab.h"
 #include "KernelIoctlAuditTab.h"
 #include "KernelIoctlDecoderTab.h"
 #include "KernelKnowledgeTab.h"
 #include "KernelObjectDirectoryDeepTab.h"
 #include "KernelObjectTypeMatrixTab.h"
+#include "KernelObjectTypeProcedureTab.h"
 #include "KernelPlatformAuditTab.h"
 #include "KernelSymbolicLinkTab.h"
 #include "KernelThreadAuditTab.h"
@@ -816,6 +818,14 @@ void KernelDock::initializeIoManagementTab()
         ioctlDecoderTab,
         kernelText("kernel.main.inner_tab.ioctls", QStringLiteral("IOCTLS")));
 
+    // DriverStartIo 子页会对每个 DriverObject 发起 R0 查询，因此与其它 I/O 管理子页
+    // 一样只在用户切入时采集：首刷登记进 ensureIoManagementTabInitialized，不另起一条
+    // currentChanged，否则会绕开"外层页签当前可见"这道门。
+    m_driverStartIoTab = new KernelDriverStartIoTab(m_ioManagementInnerTabWidget);
+    m_ioStartIoTabIndex = m_ioManagementInnerTabWidget->addTab(
+        m_driverStartIoTab,
+        kernelText("kernel.main.inner_tab.driver_start_io", QStringLiteral("DriverStartIo")));
+
     m_ioManagementInnerTabWidget->setTabToolTip(
         m_ioSsdtTabIndex,
         kernelText("kernel.main.tab.ssdt.tooltip", QStringLiteral("驱动侧 SSDT 服务索引遍历结果")));
@@ -833,6 +843,11 @@ void KernelDock::initializeIoManagementTab()
     m_ioManagementInnerTabWidget->setTabToolTip(
         m_ioIoctlTabIndex,
         kernelText("kernel.main.inner_tab.ioctls.tooltip", QStringLiteral("解析 32 位 CTL_CODE 的 Device、Function、Access 与 Method")));
+    m_ioManagementInnerTabWidget->setTabToolTip(
+        m_ioStartIoTabIndex,
+        kernelText(
+            "kernel.main.inner_tab.driver_start_io.tooltip",
+            QStringLiteral("逐个读取 DriverObject->DriverStartIo，区分空值、读取失败与非空三种状态")));
     m_ioManagementInnerTabWidget->setCurrentIndex(m_ioSsdtTabIndex);
 }
 
@@ -891,6 +906,18 @@ void KernelDock::initializeObjectNamespaceTab()
         ioctlAuditTab,
         tabIcon(QStringLiteral(":/Icon/process_list.svg")),
         kernelText("kernel.main.inner_tab.ioctl_audit", QStringLiteral("IOCTL 派遣表")));
+    // ObjectType 方法指针检查：只核对类型表/类型对象地址会漏掉被改写的二级方法指针（Open/Parse/...），
+    // 首刷同样只在用户切入子页后才发起 R0 查询。
+    auto* objectTypeProcedureTab = new KernelObjectTypeProcedureTab(m_objectNamespaceInnerTabWidget);
+    const int objectTypeProcedureTabIndex = m_objectNamespaceInnerTabWidget->addTab(
+        objectTypeProcedureTab,
+        tabIcon(QStringLiteral(":/Icon/process_list.svg")),
+        kernelText("kernel.main.inner_tab.object_type_procedures", QStringLiteral("ObjectType 方法指针")));
+    m_objectNamespaceInnerTabWidget->setTabToolTip(
+        objectTypeProcedureTabIndex,
+        kernelText(
+            "kernel.main.inner_tab.object_type_procedures.tooltip",
+            QStringLiteral("逐个读取 OBJECT_TYPE 里的八个方法指针并核对归属模块，布局未通过运行时自验证时如实显示检查未启用")));
     m_objectNamespaceInnerTabWidget->addTab(
         new KernelObjectTypeMatrixTab(m_objectNamespaceInnerTabWidget),
         tabIcon(QStringLiteral(":/Icon/process_list.svg")),
@@ -899,7 +926,7 @@ void KernelDock::initializeObjectNamespaceTab()
     // IOCTL 审计与 IoTimer 都会对每个 DriverObject 发起 R0 查询。KernelDock 即使不是
     // 当前主 Dock 也会为布局恢复而创建，因此只能在用户实际切入子页后开始首轮采集。
     connect(m_objectNamespaceInnerTabWidget, &QTabWidget::currentChanged, this,
-        [this, ioctlAuditTab, ioTimerTab](const int tabIndex) {
+        [this, ioctlAuditTab, ioTimerTab, objectTypeProcedureTab](const int tabIndex) {
             if (m_objectNamespaceInnerTabWidget->widget(tabIndex) == ioctlAuditTab)
             {
                 ioctlAuditTab->requestInitialRefresh();
@@ -907,6 +934,10 @@ void KernelDock::initializeObjectNamespaceTab()
             else if (m_objectNamespaceInnerTabWidget->widget(tabIndex) == ioTimerTab)
             {
                 ioTimerTab->requestInitialRefresh();
+            }
+            else if (m_objectNamespaceInnerTabWidget->widget(tabIndex) == objectTypeProcedureTab)
+            {
+                objectTypeProcedureTab->requestInitialRefresh();
             }
         });
 
@@ -1481,5 +1512,12 @@ void KernelDock::ensureIoManagementTabInitialized(const int innerTabIndex)
         m_shadowSsdtTabInitialized = true;
         hideTabInitializingProgress();
         refreshShadowSsdtAsync();
+        return;
+    }
+
+    if (innerTabIndex == m_ioStartIoTabIndex && m_driverStartIoTab != nullptr)
+    {
+        // requestInitialRefresh 自身幂等，重复进出该子页不会重复发起 R0 查询。
+        m_driverStartIoTab->requestInitialRefresh();
     }
 }

@@ -1,4 +1,5 @@
 #include "HardwareR0EvidencePage.h"
+#include "../UI/IntegrityRiskPresentation.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
 
@@ -444,29 +445,10 @@ namespace
         applyColumnPresetToTable(table, groupA, QStringLiteral("A"), buttonA, buttonB, buttonC);
     }
 
-    QString classText(const std::uint32_t evidenceClass)
-    {
-        // 输入：KSWORD_ARK_DRIVER_INTEGRITY_CLASS_*。
-        // 处理：映射为硬件页可读分类。
-        // 返回：分类文本。
-        switch (evidenceClass)
-        {
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_CPU_CONTROL: return QStringLiteral("CPU控制寄存器");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DESCRIPTOR_TABLE: return QStringLiteral("IDTR/GDTR");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_MSR_ENTRY: return QStringLiteral("MSR入口");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_IDT_HANDLER: return QStringLiteral("IDT向量");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_MODULE_VIEW: return QStringLiteral("模块视图");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_PS_LOADED_MODULES: return QStringLiteral("PsLoadedModules");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DRIVER_OBJECT: return QStringLiteral("DriverObject");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DRIVER_SECTION: return QStringLiteral("DriverSection");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_MAJOR_FUNCTION: return QStringLiteral("MajorFunction");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_FAST_IO: return QStringLiteral("FastIo");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DEVICE_CHAIN: return QStringLiteral("DeviceChain");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_SERVICE: return QStringLiteral("Service");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_OPTIONAL_GLOBAL: return QStringLiteral("OptionalGlobal");
-        default: return QStringLiteral("Class(%1)").arg(evidenceClass);
-        }
-    }
+    // classText / riskText 已收口到 UI/IntegrityRiskPresentation：本页不再自带一份，
+    // 否则新增风险位（HIDDEN_HOOK 等）只补进别处时，这里的风险单元格会显示为空。
+    using ks::ui::integrity::classText;
+    using ks::ui::integrity::riskText;
 
     QString sourceMaskText(const std::uint32_t sourceMask)
     {
@@ -522,39 +504,6 @@ namespace
             .arg(result.statusFlags, 8, 16, QChar('0'))
             .arg(static_cast<qulonglong>(result.capabilityMask), 0, 16)
             .toUpper();
-    }
-
-    QString riskText(const std::uint32_t flags)
-    {
-        // 输入：KSWORD_ARK_DRIVER_INTEGRITY_RISK_* 位集合。
-        // 处理：转换为硬件页关注的风险标签。
-        // 返回：无风险返回“正常”。
-        if (flags == 0U)
-        {
-            return QStringLiteral("正常");
-        }
-        QStringList parts;
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_UNAVAILABLE) parts << QStringLiteral("不可用");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_QUERY_FAILED) parts << QStringLiteral("查询失败");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_MODULE_UNRESOLVED) parts << QStringLiteral("模块未解析");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_OWNER_MISMATCH) parts << QStringLiteral("Owner不匹配");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_OUTSIDE_DRIVER_IMAGE) parts << QStringLiteral("外跳");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_SECTION_MISMATCH) parts << QStringLiteral("Section不匹配");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_SERVICE_MISSING) parts << QStringLiteral("服务缺失");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_EMPTY_UNLOAD) parts << QStringLiteral("Unload为空");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_DEVICE_LOOP) parts << QStringLiteral("Device环");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_ATTACHED_LOOP) parts << QStringLiteral("Attached环");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CROSS_DRIVER_ATTACH) parts << QStringLiteral("跨驱动挂接");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_NULL_POINTER) parts << QStringLiteral("空指针");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_NON_CORE_OWNER) parts << QStringLiteral("IDT外部Owner");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CPU_WP_DISABLED) parts << QStringLiteral("WP关闭");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CPU_NXE_DISABLED) parts << QStringLiteral("NXE关闭");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CPU_SMEP_DISABLED) parts << QStringLiteral("SMEP关闭");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CPU_SMAP_DISABLED) parts << QStringLiteral("SMAP关闭");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_DESCRIPTOR_INVALID) parts << QStringLiteral("描述符异常");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_DYNDATA_UNAVAILABLE) parts << QStringLiteral("DynData缺失");
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_TRUNCATED) parts << QStringLiteral("截断");
-        return parts.join(QStringLiteral(" | "));
     }
 
     QString queryStatusText(const std::uint32_t statusValue)
@@ -1367,6 +1316,9 @@ void HardwareR0EvidencePage::rebuildEvidenceTable()
             .arg(integrityStatusFlagText(row.statusFlags))));
         m_evidenceTable->setItem(rowIndex, columnIndex(R0EvidenceColumn::RiskScore), numericItem(QString::number(row.riskScore), row.riskScore));
         m_evidenceTable->setItem(rowIndex, columnIndex(R0EvidenceColumn::Remark), textItem(remarkParts.join(QStringLiteral("；"))));
+
+        // 整行高亮：带 HIDDEN_HOOK 的行整行标红并在 tooltip 里说明成因；此时排序已关闭，改颜色不会触发重排。
+        ks::ui::integrity::applyRiskRowHighlight(m_evidenceTable, rowIndex, row.riskFlags);
     }
 
     if (m_evidenceTable->rowCount() > 0 && m_evidenceTable->currentRow() < 0)

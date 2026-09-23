@@ -4,6 +4,7 @@
 /* The source scan reads EPT entries through the same callback the lease walker
    uses, so a caller never has to supply two different readers for one region. */
 #include "hvm_nested_lease_walk.h"
+#include "hvm_nested_leaf_policy.h"
 
 /* Keep the planner independent of Windows so adversarial cases can be tested. */
 typedef unsigned long long KSW_PLAN_U64;
@@ -93,8 +94,7 @@ static __inline int KswordHvmLeafPlanCreate(unsigned int LeafShift,
     /* Initialize before any test so a refusal never returns stale fields. */
     *Plan = empty;
     /* Only the three architectural granularities may be requested. */
-    if (LeafShift != KSW_PLAN_SHIFT_4K && LeafShift != KSW_PLAN_SHIFT_2M &&
-        LeafShift != KSW_PLAN_SHIFT_1G) {
+    if (!KswordHvmLeafPolicyValidShift(LeafShift)) {
         Plan->Refusal = KSW_PLAN_REFUSE_SHIFT;
         return 0;
     }
@@ -128,20 +128,11 @@ static __inline int KswordHvmLeafPlanCreate(unsigned int LeafShift,
         Plan->Refusal = KSW_PLAN_REFUSE_SOURCE_UNKNOWN;
         return 0;
     }
-    /*
-     * The source must treat the whole region uniformly - by granularity, or by
-     * inspection.
-     *
-     * A source leaf at least as coarse as the request settles it outright: one
-     * leaf cannot disagree with itself. A finer source can still be admissible,
-     * but only once every leaf under the region has actually been read and found
-     * to grant the same access and memory type; SourceUniform carries that
-     * proof, and KswordHvmLeafPlanScanSource is what produces it. Passing a
-     * SourceUniform this scan did not establish admits exactly the hole the test
-     * exists to close, which is why it is a separate argument rather than a
-     * default.
-     */
-    if (sourceShift < LeafShift && !SourceUniform) {
+    /* Uniform attributes do not prove contiguous frames, stable leases or
+       one-to-one A/D ownership. Keep the parameter for source compatibility,
+       but admit a region only when one captured source leaf covers it. */
+    (void)SourceUniform;
+    if (!KswordHvmLeafPolicySourceCovers(LeafShift, SourceEntryCount)) {
         Plan->Refusal = KSW_PLAN_REFUSE_SOURCE_GRANULARITY;
         return 0;
     }
@@ -188,25 +179,8 @@ typedef struct _KSW_HVM_LEAF_SOURCE_SCAN {
     int Complete;
 } KSW_HVM_LEAF_SOURCE_SCAN;
 
-/*
- * Decide admissibility from the property that matters, not from a proxy.
- *
- * A leaf larger than 4 KiB applies one permission set and one memory type to
- * every page beneath it. Requiring the source's own leaf to be at least as
- * coarse makes that safe automatically, because a single source leaf cannot
- * disagree with itself -- but it is only a sufficient condition, and it refuses
- * every region whose VMM happens to back memory at 4 KiB. Which is most of them.
- *
- * The necessary condition is that all the source leaves under the region agree.
- * This scan reads them and answers that directly: uniform means one leaf can
- * stand for all of them, and a single disagreeing entry -- one page the
- * intermediate VMM made read-only, one page it marked uncacheable -- makes the
- * region inadmissible no matter how many of its neighbours agree.
- *
- * Bits 0-2 are read/write/execute and bits 3-6 are memory type and ignore-PAT.
- * Accessed and dirty are excluded: hardware sets them per page, so including
- * them would make every region non-uniform as soon as the guest ran.
- */
+/* Diagnostic attribute scan only. Its result never authorizes coarse mapping.
+   A/D bits are excluded because hardware changes them independently. */
 static __inline int KswordHvmLeafPlanScanSource(KSW_PLAN_U64 EptPointer,
     KSW_PLAN_U64 GuestBase, unsigned int LeafShift, KSW_LEASE_READ Read,
     void* Context, KSW_HVM_LEAF_SOURCE_SCAN* Scan)
@@ -221,7 +195,9 @@ static __inline int KswordHvmLeafPlanScanSource(KSW_PLAN_U64 EptPointer,
 
     if (Scan == 0) { return 0; }
     *Scan = empty;
-    if (Read == 0 || LeafShift < KSW_PLAN_SHIFT_4K || LeafShift > KSW_PLAN_SHIFT_1G) {
+    if (Read == 0 || !KswordHvmLeafPolicyValidShift(LeafShift) ||
+        GuestBase >= KSW_PLAN_GPA_LIMIT ||
+        (GuestBase & ((1ULL << LeafShift) - 1ULL)) != 0ULL) {
         return 0;
     }
     regionBytes = 1ULL << LeafShift;

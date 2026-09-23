@@ -14,33 +14,34 @@ namespace ksword::ui::hex_editor_internal
 
     // buildToolbarButtonStyle：
     // - 统一工具按钮样式；
-    // - 深浅色都读取主题色。
+    // - 常态无边框/透明背景，只在 hover/pressed 时才显示边框，减少视觉噪声。
     QString buildToolbarButtonStyle()
     {
+        // 占位符编号必须与 arg() 调用一一对应：QString::arg 替换的是字符串里
+        // 编号最小的 %n，而不是固定的 %1，删掉占位符却留着 arg 会让颜色整体错位。
         return QStringLiteral(
             "QToolButton {"
-            "  border:1px solid %1;"
+            "  border:1px solid transparent;"
             "  border-radius:3px;"
             "  padding:2px 6px;"
-            "  background:%2;"
-            "  color:%3;"
+            "  background:transparent;"
+            "  color:%1;"
             "}"
             "QToolButton:hover {"
-            "  border:1px solid %4;"
-            "  background:%5;"
-            "  color:%7;"
+            "  border:1px solid %2;"
+            "  background:%3;"
+            "  color:%5;"
             "}"
             "QToolButton:pressed {"
-            "  background:%6;"
-            "  color:%7;"
+            "  border:1px solid %2;"
+            "  background:%4;"
+            "  color:%5;"
             "}")
-            .arg(KswordTheme::BorderHex())
-            .arg(KswordTheme::SurfaceHex())
-            .arg(KswordTheme::TextPrimaryHex())
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::PrimaryBlueHoverHex)
-            .arg(KswordTheme::PrimaryBluePressedHex)
-            .arg(QStringLiteral("palette(highlighted-text)"));
+            .arg(KswordTheme::TextPrimaryHex())      // %1
+            .arg(KswordTheme::PrimaryBlueHex)        // %2
+            .arg(KswordTheme::PrimaryBlueHoverHex)   // %3
+            .arg(KswordTheme::PrimaryBluePressedHex) // %4
+            .arg(QStringLiteral("palette(highlighted-text)")); // %5
     }
 
     // buildInputStyle：
@@ -66,7 +67,8 @@ namespace ksword::ui::hex_editor_internal
     }
 
     // buildHeaderStyle：
-    // - 表头统一主题样式，保证深浅模式下视觉一致。
+    // - 表头统一主题样式，保证深浅模式下视觉一致；
+    // - padding 压缩为 2px 上下 / 4px 左右，减少表头占高。
     QString buildHeaderStyle()
     {
         return QStringLiteral(
@@ -74,7 +76,7 @@ namespace ksword::ui::hex_editor_internal
             "  color:%1;"
             "  background:transparent; /* %2 */"
             "  border:none;"
-            "  padding:4px;"
+            "  padding:2px 4px;"
             "  font-weight:600;"
             "}")
             .arg(KswordTheme::PrimaryBlueHex)

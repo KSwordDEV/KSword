@@ -2,6 +2,7 @@
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
+#include "../UI/IntegrityRiskPresentation.h"
 #include "../UI/KernelDisassemblyDialog.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -11,6 +12,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
+#include <QEvent>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -92,6 +94,34 @@ void KernelDescriptorTableTab::showEvent(QShowEvent* event)
     {
         m_firstRefreshStarted = true;
         QMetaObject::invokeMethod(this, [this]() { refreshAsync(); }, Qt::QueuedConnection);
+    }
+}
+
+void KernelDescriptorTableTab::changeEvent(QEvent* event)
+{
+    QWidget::changeEvent(event);
+    // 行高亮的画刷在 rebuildTable 里按当时的主题令牌烘焙进单元格，换主题后会过期；
+    // 收到应用调色板变更就用已缓存的 m_rows 重建一遍，不再访问驱动。
+    if (event != nullptr
+        && event->type() == QEvent::ApplicationPaletteChange
+        && m_table != nullptr)
+    {
+        const QPointer<KernelDescriptorTableTab> safeThis(this);
+        if (ks::ui::DeferTableUiCommitIfContextMenuOpen(
+            this,
+            QStringLiteral("kernel-descriptor-table-theme-rebuild"),
+            { m_table },
+            [safeThis]()
+            {
+                if (!safeThis.isNull())
+                {
+                    safeThis->rebuildTable();
+                }
+            }))
+        {
+            return;
+        }
+        rebuildTable();
     }
 }
 
@@ -345,14 +375,35 @@ void KernelDescriptorTableTab::applyResult(
     std::size_t idtCount = 0U;
     std::size_t gdtCount = 0U;
     std::size_t trustedIdtIndex = 0U;
+    std::size_t hiddenRowCount = 0U;
+    // m_trustedIdtBaselines 按 sourceIndex 和 m_rows 对齐，GDT/中断对象行也要占位——
+    // 但信任基线摘要只该统计真正的 IDT 网关行，那些占位槽本身不是"未支持的网关"，
+    // 不能被 count_if(m_trustedIdtBaselines) 一起数进 unsupported。这里在推入的同时
+    // 单独记一份只含网关行的统计。
+    std::size_t trustedGateTotal = 0U;
+    std::size_t trustedGateAvailable = 0U;
+    std::size_t trustedGateMismatch = 0U;
+    bool interruptLayoutUnverified = false;
+    bool interruptPartial = false;
+    QString interruptSummaryText;
     for (ksword::ark::DriverIntegrityEvidenceEntry& row : result.entries)
     {
         if (row.evidenceClass == KSWORD_ARK_DRIVER_INTEGRITY_CLASS_IDT_HANDLER)
         {
             ++idtCount;
             m_rows.push_back(std::move(row));
+            ++trustedGateTotal;
             if (trustedIdtIndex < trustedIdtBaselines.size())
             {
+                const ks::kernel::TrustedIdtBaselineResult& baseline = trustedIdtBaselines[trustedIdtIndex];
+                if (baseline.available)
+                {
+                    ++trustedGateAvailable;
+                    if (!baseline.handlerMatches)
+                    {
+                        ++trustedGateMismatch;
+                    }
+                }
                 m_trustedIdtBaselines.push_back(
                     std::move(
                         trustedIdtBaselines[trustedIdtIndex]));
@@ -366,6 +417,36 @@ void KernelDescriptorTableTab::applyResult(
         else if (row.evidenceClass == KSWORD_ARK_DRIVER_INTEGRITY_CLASS_GDT_DESCRIPTOR)
         {
             ++gdtCount;
+            m_rows.push_back(std::move(row));
+            m_trustedIdtBaselines.emplace_back();
+        }
+        else if (row.evidenceClass == KSWORD_ARK_DRIVER_INTEGRITY_CLASS_INTERRUPT_OBJECT
+            && m_tableKind == KernelDescriptorTableKind::Idt)
+        {
+            // 沿 IDT 网关走到中断对象后取得的二级指针行：网关地址可以是干净的，
+            // 被改的是 ServiceRoutine 等字段，所以必须和网关行放在同一张表里让人看到。
+            if ((row.riskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_HIDDEN_HOOK) != 0U)
+            {
+                ++hiddenRowCount;
+            }
+            if ((row.riskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_LAYOUT_UNVERIFIED) != 0U)
+            {
+                // 驱动对"完全没法检查"和"只有 Message/Dispatch 字段没验证"用同一个风险位，
+                // 靠 detail 前缀区分：部分可用时 ServiceRoutine 仍然核对过了。
+                if (row.detail.rfind(L"Interrupt-object check is partial", 0) == 0)
+                {
+                    interruptPartial = true;
+                }
+                else
+                {
+                    interruptLayoutUnverified = true;
+                }
+            }
+            else if (row.ordinal == 3U && row.riskFlags == 0U)
+            {
+                // 整次查询的汇总行：干净时"检查确实做过"的证据。
+                interruptSummaryText = QString::fromStdWString(row.detail);
+            }
             m_rows.push_back(std::move(row));
             m_trustedIdtBaselines.emplace_back();
         }
@@ -392,31 +473,44 @@ void KernelDescriptorTableTab::applyResult(
     }
     if (idtOnly)
     {
-        const std::size_t trustedAvailable = static_cast<std::size_t>(
-            std::count_if(
-                m_trustedIdtBaselines.cbegin(),
-                m_trustedIdtBaselines.cend(),
-                [](const ks::kernel::TrustedIdtBaselineResult& baseline)
-                {
-                    return baseline.available;
-                }));
-        const std::size_t trustedMismatch = static_cast<std::size_t>(
-            std::count_if(
-                m_trustedIdtBaselines.cbegin(),
-                m_trustedIdtBaselines.cend(),
-                [](const ks::kernel::TrustedIdtBaselineResult& baseline)
-                {
-                    return baseline.available
-                        && !baseline.handlerMatches;
-                }));
+        // 用推入网关行时同步记的统计，不能用 m_trustedIdtBaselines.size()：那个数组还
+        // 混着中断对象行的占位槽（为了按 sourceIndex 跟 m_rows 对齐），拿它当分母会把
+        // "这一行根本不是网关"也算进 unsupported，虚报本机不支持的网关数。
         summary += kernelText(
             "kernel.descriptor.status.trusted_baseline_summary",
             QStringLiteral(
                 "；可信映像/PDB 基线可用 %1，偏离 %2，unsupported %3"))
-            .arg(static_cast<qulonglong>(trustedAvailable))
-            .arg(static_cast<qulonglong>(trustedMismatch))
+            .arg(static_cast<qulonglong>(trustedGateAvailable))
+            .arg(static_cast<qulonglong>(trustedGateMismatch))
             .arg(static_cast<qulonglong>(
-                m_trustedIdtBaselines.size() - trustedAvailable));
+                trustedGateTotal - trustedGateAvailable));
+    }
+    if (idtOnly && hiddenRowCount != 0U)
+    {
+        // 用户的明确要求：检测到隐藏项要高亮并明说"存在隐藏行为"。
+        summary += kernelText(
+            "kernel.descriptor.status.hidden_hook",
+            QStringLiteral("；检测到 %1 项隐藏行为（中断对象的二级指针被劫持，只核对 IDT 网关地址的检测发现不了它，见高亮行）"))
+            .arg(static_cast<qulonglong>(hiddenRowCount));
+    }
+    else if (idtOnly && interruptLayoutUnverified)
+    {
+        summary += kernelText(
+            "kernel.descriptor.status.interrupt_unverified",
+            QStringLiteral("；中断对象二级检查在本机不可用（布局未通过运行时自验证，这不代表没有 Hook）"));
+    }
+    else if (idtOnly && !interruptSummaryText.isEmpty())
+    {
+        summary += kernelText(
+            "kernel.descriptor.status.interrupt_clean",
+            QStringLiteral("；中断对象二级核对完成，未发现隐藏行为（%1）"))
+            .arg(interruptSummaryText);
+    }
+    if (idtOnly && hiddenRowCount == 0U && interruptPartial)
+    {
+        summary += kernelText(
+            "kernel.descriptor.status.interrupt_partial",
+            QStringLiteral("；中断对象二级检查只部分可用：ServiceRoutine 已核对，Message/Dispatch 字段未能通过自验证"));
     }
     m_statusLabel->setText(summary);
     rebuildTable();
@@ -430,7 +524,10 @@ bool KernelDescriptorTableTab::rowMatchesFilter(
     const std::uint32_t expectedClass = m_tableKind == KernelDescriptorTableKind::Idt
         ? KSWORD_ARK_DRIVER_INTEGRITY_CLASS_IDT_HANDLER
         : KSWORD_ARK_DRIVER_INTEGRITY_CLASS_GDT_DESCRIPTOR;
-    if (row.evidenceClass != expectedClass)
+    const bool interruptObjectRowOnIdtPage =
+        m_tableKind == KernelDescriptorTableKind::Idt &&
+        row.evidenceClass == KSWORD_ARK_DRIVER_INTEGRITY_CLASS_INTERRUPT_OBJECT;
+    if (row.evidenceClass != expectedClass && !interruptObjectRowOnIdtPage)
     {
         return false;
     }
@@ -468,22 +565,23 @@ void KernelDescriptorTableTab::rebuildTable()
             {
                 item->setData(Qt::UserRole, static_cast<qulonglong>(sourceIndex));
             }
-            if (column == ColumnRisk)
-            {
-                item->setForeground(row.riskFlags == 0U
+            m_table->setItem(tableRow, column, item);
+        }
+
+        // 整行高亮由该行的 riskFlags 决定：带 HIDDEN_HOOK 的行整行标红并在 tooltip 里解释成因；
+        // 单元格自己的前景色（完整性正常、可信映像基线一致/偏离）在整行高亮之后再叠加，不被它覆盖。
+        ks::ui::integrity::applyRiskRowHighlight(m_table, tableRow, row.riskFlags);
+        if (row.riskFlags == 0U)
+        {
+            m_table->item(tableRow, ColumnRisk)->setForeground(KswordTheme::SuccessColor());
+        }
+        if (sourceIndex < m_trustedIdtBaselines.size()
+            && m_trustedIdtBaselines[sourceIndex].available)
+        {
+            m_table->item(tableRow, ColumnTrustedImageBaseline)->setForeground(
+                m_trustedIdtBaselines[sourceIndex].handlerMatches
                     ? KswordTheme::SuccessColor()
                     : KswordTheme::ErrorColor());
-            }
-            if (column == ColumnTrustedImageBaseline
-                && sourceIndex < m_trustedIdtBaselines.size()
-                && m_trustedIdtBaselines[sourceIndex].available)
-            {
-                item->setForeground(
-                    m_trustedIdtBaselines[sourceIndex].handlerMatches
-                        ? KswordTheme::SuccessColor()
-                        : KswordTheme::ErrorColor());
-            }
-            m_table->setItem(tableRow, column, item);
         }
     }
     m_table->resizeColumnsToContents();
@@ -492,9 +590,27 @@ void KernelDescriptorTableTab::rebuildTable()
 
 QString KernelDescriptorTableTab::tableName(const ksword::ark::DriverIntegrityEvidenceEntry& row)
 {
+    if (row.evidenceClass == KSWORD_ARK_DRIVER_INTEGRITY_CLASS_INTERRUPT_OBJECT)
+    {
+        return QStringLiteral("IDT > KINTERRUPT");
+    }
     return row.evidenceClass == KSWORD_ARK_DRIVER_INTEGRITY_CLASS_IDT_HANDLER
         ? QStringLiteral("IDT")
         : QStringLiteral("GDT");
+}
+
+// interruptFieldText 把中断对象证据行的 ordinal 翻成被核对的字段名。
+// ordinal 为 ~0 的是"布局未验证"的说明行，不对应任何字段。
+static QString interruptFieldText(const ksword::ark::DriverIntegrityEvidenceEntry& row)
+{
+    switch (row.ordinal)
+    {
+    case 0U: return QStringLiteral("ServiceRoutine");
+    case 1U: return QStringLiteral("MessageServiceRoutine");
+    case 2U: return QStringLiteral("DispatchAddress");
+    case 3U: return QStringLiteral("Summary");
+    default: return QStringLiteral("-");
+    }
 }
 
 QString KernelDescriptorTableTab::descriptorTypeText(const ksword::ark::DriverIntegrityEvidenceEntry& row)
@@ -539,57 +655,31 @@ QString KernelDescriptorTableTab::descriptorTypeText(const ksword::ark::DriverIn
     }
 }
 
-QString KernelDescriptorTableTab::riskText(const std::uint32_t riskFlags)
-{
-    if (riskFlags == 0U)
-    {
-        return kernelText("kernel.descriptor.risk.clean", QStringLiteral("正常"));
-    }
-    QStringList risks;
-    if ((riskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_DESCRIPTOR_INVALID) != 0U)
-    {
-        risks.push_back(kernelText("kernel.descriptor.risk.invalid", QStringLiteral("描述符异常")));
-    }
-    if ((riskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_NON_CORE_OWNER) != 0U)
-    {
-        risks.push_back(kernelText("kernel.descriptor.risk.non_core", QStringLiteral("非核心模块")));
-    }
-    if ((riskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_MODULE_UNRESOLVED) != 0U)
-    {
-        risks.push_back(kernelText("kernel.descriptor.risk.unresolved", QStringLiteral("模块未解析")));
-    }
-    if ((riskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_QUERY_FAILED) != 0U)
-    {
-        risks.push_back(kernelText("kernel.descriptor.risk.read_failed", QStringLiteral("读取失败")));
-    }
-    if ((riskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_BASELINE_CHANGED) != 0U)
-    {
-        risks.push_back(kernelText("kernel.descriptor.risk.baseline_changed", QStringLiteral("偏离启动期基线")));
-    }
-    if ((riskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_TABLE_DIVERGED) != 0U)
-    {
-        risks.push_back(kernelText("kernel.descriptor.risk.table_diverged", QStringLiteral("IDT 表与多数 CPU 不一致")));
-    }
-    if ((riskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_TABLE_RELOCATED) != 0U)
-    {
-        risks.push_back(kernelText("kernel.descriptor.risk.table_relocated", QStringLiteral("IDT 表被重定位")));
-    }
-    if ((riskFlags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_TARGET_NON_EXEC) != 0U)
-    {
-        risks.push_back(kernelText("kernel.descriptor.risk.target_non_exec", QStringLiteral("目标不在可执行节")));
-    }
-    if (risks.isEmpty())
-    {
-        risks.push_back(hex32(riskFlags));
-    }
-    return risks.join(QStringLiteral(" / "));
-}
-
 QString KernelDescriptorTableTab::columnText(
     const ksword::ark::DriverIntegrityEvidenceEntry& row,
     const int column,
     const std::size_t sourceIndex) const
 {
+    if (row.evidenceClass == KSWORD_ARK_DRIVER_INTEGRITY_CLASS_INTERRUPT_OBJECT)
+    {
+        // 中断对象二级指针行只有一部分列有意义；其余列写 "-"，不套用 IDT 描述符的语义。
+        // 布局未验证的说明行没有 CPU/向量（驱动把它们置成 ~0），也写 "-"。
+        const bool noCpu = row.processorGroup == 0xFFFFFFFFU || row.processorNumber == 0xFFFFFFFFU;
+        switch (column)
+        {
+        case ColumnTable: return tableName(row);
+        case ColumnCpu:
+            return noCpu ? QStringLiteral("-") : QStringLiteral("%1:%2").arg(row.processorGroup).arg(row.processorNumber);
+        case ColumnVectorSelector:
+            return row.vector == 0xFFFFFFFFU ? QStringLiteral("-") : QString::number(row.vector);
+        case ColumnEntryAddress: return hex64(row.objectAddress);
+        case ColumnTargetBase: return hex64(row.targetAddress);
+        case ColumnType: return interruptFieldText(row);
+        case ColumnOwner: return QString::fromStdWString(row.ownerModule);
+        case ColumnRisk: return ks::ui::integrity::riskText(row.riskFlags);
+        default: return QStringLiteral("-");
+        }
+    }
     const bool isIdt = row.evidenceClass == KSWORD_ARK_DRIVER_INTEGRITY_CLASS_IDT_HANDLER;
     switch (column)
     {
@@ -614,7 +704,7 @@ QString KernelDescriptorTableTab::columnText(
             ? QStringLiteral("-")
             : ((row.descriptorFlags & KSWORD_ARK_DESCRIPTOR_FLAG_GRANULARITY_PAGE) != 0U ? QStringLiteral("PAGE") : QStringLiteral("BYTE"));
     case ColumnOwner: return QString::fromStdWString(row.ownerModule);
-    case ColumnRisk: return riskText(row.riskFlags);
+    case ColumnRisk: return ks::ui::integrity::riskText(row.riskFlags);
     case ColumnBaseline:
         if ((row.descriptorBaselineFlags & KSWORD_ARK_DESCRIPTOR_BASELINE_FLAG_AVAILABLE) == 0U)
         {
@@ -662,7 +752,7 @@ QString KernelDescriptorTableTab::detailText(
         .arg(hex32(row.descriptorSelector), descriptorTypeText(row))
         .arg(row.descriptorDpl)
         .arg(hex64(row.descriptorBase), hex64(row.descriptorLimit));
-    lines << kernelText("kernel.descriptor.detail.flags", QStringLiteral("Flags: %1  风险: %2")).arg(hex32(row.descriptorFlags), riskText(row.riskFlags));
+    lines << kernelText("kernel.descriptor.detail.flags", QStringLiteral("Flags: %1  风险: %2")).arg(hex32(row.descriptorFlags), ks::ui::integrity::riskText(row.riskFlags));
     lines << kernelText("kernel.descriptor.detail.raw", QStringLiteral("Raw: %1 / %2")).arg(hex64(row.descriptorRawLow), hex64(row.descriptorRawHigh));
     if ((row.descriptorBaselineFlags & KSWORD_ARK_DESCRIPTOR_BASELINE_FLAG_AVAILABLE) != 0U)
     {

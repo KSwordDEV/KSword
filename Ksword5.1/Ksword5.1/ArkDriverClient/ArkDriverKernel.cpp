@@ -779,10 +779,12 @@ namespace ksword::ark
             return queryResult;
         }
 
-        constexpr std::size_t headerSize =
+        // v3 起响应头在 devices[] 前多出 startIo；旧驱动（v2）头更短，先按 v2 长度取 version 再定头长。
+        constexpr std::size_t headerSizeV2 = KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE_V2_HEADER_SIZE;
+        constexpr std::size_t headerSizeV3 =
             sizeof(KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE) -
             sizeof(KSWORD_ARK_DRIVER_DEVICE_ENTRY);
-        if (queryResult.io.bytesReturned < headerSize)
+        if (queryResult.io.bytesReturned < headerSizeV2)
         {
             queryResult.io.ok = false;
             queryResult.io.message =
@@ -793,6 +795,16 @@ namespace ksword::ark
 
         const auto* responseHeader =
             reinterpret_cast<const KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE*>(responseBuffer.data());
+        const bool hasStartIo = responseHeader->version >= KSWORD_ARK_DRIVER_OBJECT_PROTOCOL_VERSION_V3;
+        const std::size_t headerSize = hasStartIo ? headerSizeV3 : headerSizeV2;
+        if (queryResult.io.bytesReturned < headerSize)
+        {
+            queryResult.io.ok = false;
+            queryResult.io.message =
+                "driver-object response too small, bytesReturned=" +
+                std::to_string(queryResult.io.bytesReturned);
+            return queryResult;
+        }
         if (responseHeader->deviceEntrySize < KSWORD_ARK_DRIVER_DEVICE_ENTRY_V1_SIZE)
         {
             queryResult.io.ok = false;
@@ -834,6 +846,16 @@ namespace ksword::ark
             row.moduleBase = static_cast<std::uint64_t>(sourceEntry.moduleBase);
             row.moduleName = fixedKernelWideToString(sourceEntry.moduleName, KSWORD_ARK_DRIVER_MODULE_NAME_CHARS);
             queryResult.majorFunctions.push_back(std::move(row));
+        }
+
+        if (hasStartIo)
+        {
+            const KSWORD_ARK_DRIVER_START_IO_ENTRY& startIo = responseHeader->startIo;
+            queryResult.startIo.state = static_cast<std::uint32_t>(startIo.state);
+            queryResult.startIo.flags = static_cast<std::uint32_t>(startIo.flags);
+            queryResult.startIo.address = static_cast<std::uint64_t>(startIo.address);
+            queryResult.startIo.moduleBase = static_cast<std::uint64_t>(startIo.moduleBase);
+            queryResult.startIo.moduleName = fixedKernelWideToString(startIo.moduleName, KSWORD_ARK_DRIVER_MODULE_NAME_CHARS);
         }
 
         const std::size_t availableDeviceCount =

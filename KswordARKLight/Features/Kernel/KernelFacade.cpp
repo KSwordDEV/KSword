@@ -2305,6 +2305,7 @@ std::wstring DriverIntegrityClassText(const std::uint32_t evidenceClass) {
     case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DRIVER_SECTION: return L"DriverSection";
     case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_MAJOR_FUNCTION: return L"MajorFunction";
     case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_FAST_IO: return L"FastIo";
+    case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_START_IO: return L"StartIo";
     case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DEVICE_CHAIN: return L"DeviceChain";
     case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_SERVICE: return L"Service";
     case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_CPU_CONTROL: return L"CPU";
@@ -2981,6 +2982,24 @@ void AppendDriverObjectQueryRows(
             { L"ModuleBase", HexText(entry.moduleBase) },
             { L"Flags", HexText(entry.flags) },
         }, entry.moduleName));
+    }
+
+    if (query.startIo.state != KSWORD_ARK_DRIVER_START_IO_STATE_NOT_QUERIED) {
+        const ksword::ark::DriverStartIoEntry& startIo = query.startIo;
+        const wchar_t* stateText = startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_NULL ? L"NULL"
+            : (startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_READ_FAILED ? L"ReadFailed" : L"Present");
+        result.rows.push_back(Row({
+            { L"Source", L"R0 DriverStartIo" },
+            { L"Name", L"DriverStartIo" },
+            { L"Type", L"DriverStartIo" },
+            { L"Path", driverName },
+            { L"DriverName", driverName },
+            { L"State", stateText },
+            { L"Dispatch", HexText(startIo.address) },
+            { L"Module", startIo.moduleName },
+            { L"ModuleBase", HexText(startIo.moduleBase) },
+            { L"Flags", HexText(startIo.flags) },
+        }, startIo.moduleName));
     }
 
     for (const ksword::ark::DriverDeviceEntry& entry : query.devices) {

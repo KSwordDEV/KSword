@@ -243,6 +243,8 @@
     <ClCompile Include="KernelDock\KernelDriverImageEditorDialog.cpp" />
     <ClCompile Include="KernelDock\KernelDeviceDriverObjectsWorker.cpp" />
     <ClCompile Include="KernelDock\KernelIoTimerTab.cpp" />
+    <ClCompile Include="KernelDock\KernelDriverStartIoTab.cpp" />
+    <ClCompile Include="KernelDock\KernelObjectTypeProcedureTab.cpp" />
     <ClCompile Include="KernelDock\KernelIoctlAuditTab.cpp" />
     <ClCompile Include="KernelDock\KernelDockAtomWorker.cpp" />
     <ClCompile Include="KernelDock\KernelDockObjectNamespaceWorker.cpp" />
@@ -484,6 +486,7 @@
     <ClCompile Include="UI\TableColumnAutoFit.cpp" />
     <ClCompile Include="UI\TableFreezeSupport.cpp" />
     <ClCompile Include="UI\TableHeaderSortingSupport.cpp" />
+    <ClCompile Include="UI\IntegrityRiskPresentation.cpp" />
     <ClCompile Include="UI\TableInteractionSupport.cpp" />
     <ClCompile Include="UI\WindowPickerButton.cpp" />
     <ClCompile Include="UI\TableSearchSupport.cpp" />
@@ -628,6 +631,8 @@
     <ClInclude Include="KernelDock\KernelDriverImageEditorDialog.h" />
     <ClInclude Include="KernelDock\KernelDeviceDriverObjectsWorker.h" />
     <ClInclude Include="KernelDock\KernelIoTimerTab.h" />
+    <ClInclude Include="KernelDock\KernelDriverStartIoTab.h" />
+    <ClInclude Include="KernelDock\KernelObjectTypeProcedureTab.h" />
     <ClInclude Include="KernelDock\KernelIoctlAuditTab.h" />
     <ClInclude Include="KernelDock\KernelDockObjectNamespaceWorker.h" />
     <ClInclude Include="KernelDock\KernelDockQueryWorker.h" />
@@ -699,6 +704,7 @@
     <ClInclude Include="UI\TableColumnAutoFit.h" />
     <ClInclude Include="UI\TableFreezeSupport.h" />
     <ClInclude Include="UI\TableHeaderSortingSupport.h" />
+    <ClInclude Include="UI\IntegrityRiskPresentation.h" />
     <ClInclude Include="UI\TableInteractionSupport.h" />
     <ClInclude Include="UI\TableSearchSupport.h" />
     <ClInclude Include="UI\TextSearchReplaceSupport.h" />

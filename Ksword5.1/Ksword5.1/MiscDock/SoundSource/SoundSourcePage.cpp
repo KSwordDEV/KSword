@@ -754,18 +754,18 @@ namespace ks::misc
             QStringLiteral("color:%1;")
             .arg(KswordTheme::TextSecondaryColorHex()));
 
+        // 常态不描边不铺底，选中态已有实心强调色足够区分，hover 才补边框。
+        // 占位符编号与 arg() 严格一一对应：arg 替换的是编号最小的 %n，不是固定 %1。
         const QString presetButtonStyle = QStringLiteral(
-            "QToolButton{background:%1;color:%2;border:1px solid %3;border-radius:4px;}"
-            "QToolButton:hover{border-color:%4;background:%5;}"
-            "QToolButton:checked{background:%4;color:%6;border-color:%4;}"
-            "QToolButton:disabled{color:%7;background:%1;border-color:%3;}")
-            .arg(KswordTheme::SurfaceColorHex())
-            .arg(KswordTheme::TextPrimaryColorHex())
-            .arg(KswordTheme::BorderColorHex())
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue))
-            .arg(KswordTheme::SurfaceAltColorHex())
-            .arg(KswordTheme::OnAccentHex())
-            .arg(KswordTheme::TextDisabledColorHex());
+            "QToolButton{background:transparent;color:%1;border:1px solid transparent;border-radius:4px;}"
+            "QToolButton:hover{border-color:%2;background:%3;}"
+            "QToolButton:checked{background:%2;color:%4;border-color:%2;}"
+            "QToolButton:disabled{color:%5;background:transparent;border-color:transparent;}")
+            .arg(KswordTheme::TextPrimaryColorHex())                     // %1
+            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue))  // %2
+            .arg(KswordTheme::SurfaceAltColorHex())                      // %3
+            .arg(KswordTheme::OnAccentHex())                             // %4
+            .arg(KswordTheme::TextDisabledColorHex());                   // %5
         m_refreshButton->setStyleSheet(presetButtonStyle);
         m_overviewPresetButton->setStyleSheet(presetButtonStyle);
         m_audioPresetButton->setStyleSheet(presetButtonStyle);

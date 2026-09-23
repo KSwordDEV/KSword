@@ -1308,6 +1308,7 @@ Return Value:
 static NTSTATUS
 KswordARKCrossViewTryReferenceTypedObject(
     _In_ PVOID CandidateObject,
+    _In_ HANDLE CandidateId,
     _In_ POBJECT_TYPE ExpectedObjectType,
     _Out_ BOOLEAN* TypeMatchedOut,
     _Out_ BOOLEAN* ReferencedOut
@@ -1322,6 +1323,7 @@ Routine Description:
 Arguments:
 
     CandidateObject - Decoded object body pointer from a kernel-owned source.
+    CandidateId - ID observed from the source, used for a protected lookup.
     ExpectedObjectType - Required object type, such as PsProcessType.
     TypeMatchedOut - Receives whether ObGetObjectType matched ExpectedObjectType.
     ReferencedOut - Receives whether the reference was taken.
@@ -1332,9 +1334,9 @@ Return Value:
     otherwise. Caller must dereference CandidateObject only when ReferencedOut is
     TRUE.
 
-    STATUS_DELETE_PENDING means the candidate is a real object that is already
-    being torn down - the caller should report it as a dangling observation
-    rather than treat it as a read failure.
+    A failed ID lookup or pointer comparison does not establish object lifetime.
+    TypeMatchedOut remains only a guarded type observation on such a failure;
+    retain unconfirmed evidence without dereferencing CandidateObject.
 
 --*/
 {
@@ -1364,15 +1366,10 @@ Return Value:
     }
     *TypeMatchedOut = TRUE;
 
-    //
-    // CandidateObject came out of ActiveProcessLinks or PspCidTable, so we hold
-    // no reference on it and it may already be mid-deletion: a process that has
-    // exited keeps its list membership until PspProcessDelete runs, which is
-    // after its pointer count reaches zero.  ObReferenceObjectByPointer would
-    // bugcheck 0x18 on exactly that object, and the __try around it would never
-    // see anything, so take the reference by hand instead.
-    //
-    status = KswordARKObjectHeaderReferenceObjectSafe(CandidateObject);
+    /* The preceding type read is only an observation. Establish lifetime by
+       looking up the source ID and comparing the referenced pointer, not CAS. */
+    status = KswordARKObjectHeaderReferenceObjectSafe(
+        CandidateObject, CandidateId, ExpectedObjectType);
     if (!NT_SUCCESS(status)) {
         return status;
     }
@@ -1870,6 +1867,7 @@ Return Value:
     RtlZeroMemory(&entry, sizeof(entry));
     referenceStatus = KswordARKCrossViewTryReferenceTypedObject(
         ObjectBody,
+        ULongToHandle(CidValue),
         Context->ExpectedObjectType,
         &typeMatched,
         &referenced);
@@ -2289,8 +2287,12 @@ Return Value:
         }
 
         candidateObject = (PVOID)((PUCHAR)current - DynState->Kernel.EpActiveProcessLinks);
+        /* A guarded scalar observation is not an object reference. */
+        (VOID)KswordARKCrossViewReadPointerField(candidateObject,
+            DynState->Kernel.EpUniqueProcessId, &uniqueProcessIdPointer);
         referenceStatus = KswordARKCrossViewTryReferenceTypedObject(
             candidateObject,
+            uniqueProcessIdPointer,
             *PsProcessType,
             &typeMatched,
             &referenced);
@@ -2379,8 +2381,6 @@ Return Value:
 
     processCursor = psGetNextProcess(NULL);
     while (processCursor != NULL) {
-        PEPROCESS nextProcess = NULL;
-
         if (visited >= Context->MaxNodes) {
             Context->Truncated = TRUE;
             Context->LastStatus = STATUS_BUFFER_OVERFLOW;
@@ -2389,7 +2389,6 @@ Return Value:
         }
         visited += 1UL;
 
-        nextProcess = psGetNextProcess(processCursor);
         KswordARKProcessCrossViewMergeProcessObject(
             Context,
             processCursor,
@@ -2397,8 +2396,8 @@ Return Value:
             STATUS_SUCCESS,
             HandleToULong(PsGetProcessId(processCursor)),
             "Observed through PsGetNextProcess.");
-        ObDereferenceObject(processCursor);
-        processCursor = nextProcess;
+        /* Advancing consumes the previous enumeration reference. */
+        processCursor = psGetNextProcess(processCursor);
     }
 }
 
@@ -2470,6 +2469,7 @@ Return Value:
 
         referenceStatus = KswordARKCrossViewTryReferenceTypedObject(
             PsInitialSystemProcess,
+            ULongToHandle(4UL),
             (PsProcessType != NULL) ? *PsProcessType : NULL,
             &typeMatched,
             &referenced);
@@ -2574,8 +2574,12 @@ Return Value:
         }
 
         candidateObject = (PVOID)((PUCHAR)current - Context->DynState.Kernel.EpActiveProcessLinks);
+        /* A guarded scalar observation is not an object reference. */
+        (VOID)KswordARKCrossViewReadPointerField(candidateObject,
+            Context->DynState.Kernel.EpUniqueProcessId, &processIdPointer);
         referenceStatus = KswordARKCrossViewTryReferenceTypedObject(
             candidateObject,
+            processIdPointer,
             (PsProcessType != NULL) ? *PsProcessType : NULL,
             &typeMatched,
             &referenced);

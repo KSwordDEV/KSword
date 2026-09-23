@@ -2,6 +2,7 @@
 #include "DriverDock.ModuleDumpFile.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../OnlineScan/SandboxUploadActions.h"
+#include "../UI/IntegrityRiskPresentation.h"
 #include "../UI/TableInteractionSupport.h"
 
 #include <QDesktopServices>
@@ -110,84 +111,9 @@ namespace
         return QStringLiteral("\\??\\") + pathText;
     }
 
-    // integrityClassText：
-    // - 输入：Driver Integrity 证据类别常量；
-    // - 处理：把类别映射为 DriverDock 侧可读文本；
-    // - 返回：类别名称，未知值保留数值信息。
-    QString integrityClassText(const std::uint32_t evidenceClass)
-    {
-        switch (evidenceClass)
-        {
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_MODULE_VIEW: return QStringLiteral("ModuleView");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_PS_LOADED_MODULES: return QStringLiteral("PsLoadedModules");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DRIVER_OBJECT: return QStringLiteral("DriverObject");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DRIVER_SECTION: return QStringLiteral("DriverSection");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_MAJOR_FUNCTION: return QStringLiteral("MajorFunction");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_FAST_IO: return QStringLiteral("FastIo");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DEVICE_CHAIN: return QStringLiteral("DeviceChain");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_SERVICE: return QStringLiteral("Service");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_CPU_CONTROL: return QStringLiteral("CPU");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DESCRIPTOR_TABLE: return QStringLiteral("Descriptor");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_MSR_ENTRY: return QStringLiteral("MSR");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_IDT_HANDLER: return QStringLiteral("IDT");
-        case KSWORD_ARK_DRIVER_INTEGRITY_CLASS_OPTIONAL_GLOBAL: return QStringLiteral("OptionalGlobal");
-        default: return QStringLiteral("Class(%1)").arg(evidenceClass);
-        }
-    }
-
-    // integrityRiskText：
-    // - 输入：Driver Integrity 风险位；
-    // - 处理：转换为短文本，便于在证据页直接浏览；
-    // - 返回：空风险显示“正常”。
-    QString integrityRiskText(const std::uint32_t flags)
-    {
-        if (flags == 0U)
-        {
-            return driverText("driver.integrity.risk.normal", QStringLiteral("正常"));
-        }
-        QStringList parts;
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_UNAVAILABLE)
-            parts << driverText("driver.integrity.risk.unavailable", QStringLiteral("不可用"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_QUERY_FAILED)
-            parts << driverText("driver.integrity.risk.query_failed", QStringLiteral("查询失败"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_MODULE_UNRESOLVED)
-            parts << driverText("driver.integrity.risk.module_unresolved", QStringLiteral("模块未解析"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_OWNER_MISMATCH)
-            parts << driverText("driver.integrity.risk.owner_mismatch", QStringLiteral("Owner不匹配"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_OUTSIDE_DRIVER_IMAGE)
-            parts << driverText("driver.integrity.risk.outside_image", QStringLiteral("外跳"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_SECTION_MISMATCH)
-            parts << driverText("driver.integrity.risk.section_mismatch", QStringLiteral("Section不匹配"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_SERVICE_MISSING)
-            parts << driverText("driver.integrity.risk.service_missing", QStringLiteral("服务缺失"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_EMPTY_UNLOAD)
-            parts << driverText("driver.integrity.risk.empty_unload", QStringLiteral("Unload为空"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_DEVICE_LOOP)
-            parts << driverText("driver.integrity.risk.device_loop", QStringLiteral("Device环"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_ATTACHED_LOOP)
-            parts << driverText("driver.integrity.risk.attached_loop", QStringLiteral("Attached环"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CROSS_DRIVER_ATTACH)
-            parts << driverText("driver.integrity.risk.cross_driver_attach", QStringLiteral("跨驱动挂接"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_NULL_POINTER)
-            parts << driverText("driver.integrity.risk.null_pointer", QStringLiteral("空指针"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_NON_CORE_OWNER)
-            parts << driverText("driver.integrity.risk.idt_external_owner", QStringLiteral("IDT外部Owner"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CPU_WP_DISABLED)
-            parts << driverText("driver.integrity.risk.wp_disabled", QStringLiteral("WP关闭"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CPU_NXE_DISABLED)
-            parts << driverText("driver.integrity.risk.nxe_disabled", QStringLiteral("NXE关闭"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CPU_SMEP_DISABLED)
-            parts << driverText("driver.integrity.risk.smep_disabled", QStringLiteral("SMEP关闭"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CPU_SMAP_DISABLED)
-            parts << driverText("driver.integrity.risk.smap_disabled", QStringLiteral("SMAP关闭"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_DESCRIPTOR_INVALID)
-            parts << driverText("driver.integrity.risk.descriptor_invalid", QStringLiteral("描述符异常"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_DYNDATA_UNAVAILABLE)
-            parts << driverText("driver.integrity.risk.dyndata_unavailable", QStringLiteral("DynData缺失"));
-        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_TRUNCATED)
-            parts << driverText("driver.integrity.risk.truncated", QStringLiteral("截断"));
-        return parts.join(QStringLiteral(" | "));
-    }
+    // integrityClassText / integrityRiskText 已收口到 UI/IntegrityRiskPresentation（此处不再自带一份，
+    // 调用点直接用 ks::ui::integrity::classText / riskText），避免新增风险位只补进别处时，
+    // 本页的风险单元格显示为空。
 
     // appendEvidenceRow：
     // - 输入：通用证据表、行号和字段内容；
@@ -3579,6 +3505,11 @@ void DriverDock::applyDriverObjectQueryResult(const ksword::ark::DriverObjectQue
         summaryLines << QStringLiteral("Flags: %1 FieldFlags=%2")
             .arg(formatHex32(result.driverFlags))
             .arg(formatHex32(result.fieldFlags));
+        summaryLines << QStringLiteral("DriverStartIo: %1 (%2)")
+            .arg(result.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT
+                ? formatCompactAddress(result.startIo.address)
+                : QStringLiteral("-"))
+            .arg(driverStartIoStateText(result.startIo, result.io.ok));
         summaryLines << QStringLiteral("MajorFunctions: %1 DeviceObjects: %2/%3")
             .arg(result.majorFunctions.size())
             .arg(result.devices.size())
@@ -3625,6 +3556,11 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
         lines << QStringLiteral("DriverStart: %1").arg(formatCompactAddress(result.driverStart));
         lines << QStringLiteral("DriverSection: %1").arg(formatCompactAddress(result.driverSection));
         lines << QStringLiteral("DriverUnload: %1").arg(formatCompactAddress(result.driverUnload));
+        lines << QStringLiteral("DriverStartIo: %1 (%2)")
+            .arg(result.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT
+                ? formatCompactAddress(result.startIo.address)
+                : QStringLiteral("-"))
+            .arg(driverStartIoStateText(result.startIo, result.io.ok));
         lines << QStringLiteral("DriverSize: %1").arg(formatHex32(result.driverSize));
         lines << QStringLiteral("DriverFlags: %1").arg(formatHex32(result.driverFlags));
         lines << QStringLiteral("MajorFunctions: %1").arg(result.majorFunctions.size());
@@ -3642,6 +3578,7 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
             QStringLiteral("DriverStart"),
             QStringLiteral("DriverSection"),
             QStringLiteral("DriverUnload"),
+            QStringLiteral("DriverStartIo"),
             QStringLiteral("DriverSize"),
             QStringLiteral("DriverFlags"),
             QStringLiteral("FieldFlags"),
@@ -3653,12 +3590,20 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
             formatCompactAddress(result.driverStart),
             formatCompactAddress(result.driverSection),
             formatCompactAddress(result.driverUnload),
+            result.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT
+                ? formatCompactAddress(result.startIo.address)
+                : QStringLiteral("-"),
             formatHex32(result.driverSize),
             formatHex32(result.driverFlags),
             formatHex32(result.fieldFlags),
             QString::number(result.majorFunctions.size()),
             QStringLiteral("%1/%2").arg(result.devices.size()).arg(result.totalDeviceCount)
         };
+        // DriverStartIo 的“-”同时代表空值与读取失败，所以状态必须写进说明列，
+        // 否则两种完全不同的结论在表上长得一样。
+        const QString readOnlySummaryText =
+            driverText("driver.object.evidence.read_only_summary", QStringLiteral("DriverObject 只读摘要"));
+        const int startIoRowIndex = rows.indexOf(QStringLiteral("DriverStartIo"));
         m_driverObjectEvidenceTable->setRowCount(rows.size());
         for (int index = 0; index < rows.size(); ++index)
         {
@@ -3670,7 +3615,9 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
                 QStringLiteral("-"),
                 driverText("driver.integrity.risk.normal", QStringLiteral("正常")),
                 QStringLiteral("100"),
-                driverText("driver.object.evidence.read_only_summary", QStringLiteral("DriverObject 只读摘要")));
+                index == startIoRowIndex
+                    ? driverStartIoStateText(result.startIo, result.io.ok)
+                    : readOnlySummaryText);
         }
         m_driverObjectEvidenceTable->setSortingEnabled(true);
     }
@@ -3724,6 +3671,27 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
                     }
                 }
             }
+        }
+        if (result.startIo.state != KSWORD_ARK_DRIVER_START_IO_STATE_NOT_QUERIED)
+        {
+            /* DriverStartIo 与 dispatch 同表展示：三态（空值/读取失败/非空）在“位置”列说清，
+             * 空值不是异常，多数驱动不用 StartIo 队列。 */
+            const ksword::ark::DriverStartIoEntry& startIo = result.startIo;
+            const bool present = startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT;
+            const int rowIndex = m_majorFunctionTable->rowCount();
+            m_majorFunctionTable->insertRow(rowIndex);
+            QTableWidgetItem* const startIoItem = createReadOnlyItem(QStringLiteral("DriverStartIo"));
+            startIoItem->setData(Qt::UserRole, static_cast<qulonglong>(startIo.address));
+            m_majorFunctionTable->setItem(rowIndex, 0, startIoItem);
+            m_majorFunctionTable->setItem(rowIndex, 1, createReadOnlyItem(
+                present ? formatCompactAddress(startIo.address) : QStringLiteral("-")));
+            m_majorFunctionTable->setItem(rowIndex, 2, createReadOnlyItem(
+                QString::fromStdWString(startIo.moduleName).isEmpty()
+                    ? QStringLiteral("-")
+                    : QString::fromStdWString(startIo.moduleName)));
+            m_majorFunctionTable->setItem(rowIndex, 3, createReadOnlyItem(
+                present ? formatCompactAddress(startIo.moduleBase) : QStringLiteral("-")));
+            m_majorFunctionTable->setItem(rowIndex, 4, createReadOnlyItem(driverStartIoStateText(startIo, result.io.ok)));
         }
         m_majorFunctionTable->setSortingEnabled(true);
     }
@@ -3824,6 +3792,7 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
             if (row.evidenceClass != KSWORD_ARK_DRIVER_INTEGRITY_CLASS_FAST_IO &&
                 row.evidenceClass != KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DRIVER_OBJECT &&
                 row.evidenceClass != KSWORD_ARK_DRIVER_INTEGRITY_CLASS_MAJOR_FUNCTION &&
+                row.evidenceClass != KSWORD_ARK_DRIVER_INTEGRITY_CLASS_START_IO &&
                 row.evidenceClass != KSWORD_ARK_DRIVER_INTEGRITY_CLASS_DRIVER_SECTION)
             {
                 continue;
@@ -3833,12 +3802,15 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
             appendEvidenceRow(
                 m_fastIoEvidenceTable,
                 rowIndex,
-                integrityClassText(row.evidenceClass),
+                ks::ui::integrity::classText(row.evidenceClass),
                 formatCompactAddress(row.objectAddress),
                 formatCompactAddress(row.targetAddress),
-                integrityRiskText(row.riskFlags),
+                ks::ui::integrity::riskText(row.riskFlags),
                 QString::number(row.confidence),
                 QString::fromStdWString(row.detail));
+            // 整行高亮：FastIo/StartIo/DriverObject 证据里带 HIDDEN_HOOK 等位的行整行标红；
+            // 此时排序已关闭，改颜色不会触发重排。
+            ks::ui::integrity::applyRiskRowHighlight(m_fastIoEvidenceTable, rowIndex, row.riskFlags);
             ++visibleRows;
         }
         if (visibleRows == 0)

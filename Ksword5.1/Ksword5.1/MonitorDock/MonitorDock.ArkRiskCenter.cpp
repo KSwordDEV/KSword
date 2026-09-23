@@ -796,6 +796,17 @@ namespace
         if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_SECTION_MISMATCH) score += 18.0;
         if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CROSS_DRIVER_ATTACH) score += 18.0;
         if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CPU_SMAP_DISABLED) score += 18.0;
+        // 以下几位此前没有计分：分值与 driver_integrity.c::KswordARKDriverIntegrityScoreRisk 保持一致，
+        // 两处各自维护一份评分（没有共用实现），漏掉任何一处新位都会让风险中心的汇总分与驱动侧证据
+        // 行自带的 riskScore 对不上——尤其是 HIDDEN_HOOK：驱动侧单独一位就顶到 100，这里必须一样。
+        if (flags & (KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_BASELINE_CHANGED |
+            KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_TABLE_DIVERGED |
+            KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_TABLE_RELOCATED)) score += 50.0;
+        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_TARGET_NON_EXEC) score += 45.0;
+        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_OBJTYPE_PROC_NON_CORE) score += 50.0;
+        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_PROC_DETOUR) score += 60.0;
+        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_HIDDEN_HOOK) score += 100.0;
+        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_LAYOUT_UNVERIFIED) score += 5.0;
         score += std::min<double>(15.0, static_cast<double>(confidence) / 10.0);
         return clampScore(score);
     }
@@ -816,6 +827,14 @@ namespace
         if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_CROSS_DRIVER_ATTACH) parts << QStringLiteral("跨驱动挂接");
         if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_MODULE_UNRESOLVED) parts << QStringLiteral("模块未解析");
         if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_DYNDATA_UNAVAILABLE) parts << QStringLiteral("DynData缺失");
+        if (flags & (KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_BASELINE_CHANGED |
+            KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_TABLE_DIVERGED |
+            KSWORD_ARK_DRIVER_INTEGRITY_RISK_IDT_TABLE_RELOCATED)) parts << QStringLiteral("IDT基线偏离");
+        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_TARGET_NON_EXEC) parts << QStringLiteral("目标非可执行节");
+        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_OBJTYPE_PROC_NON_CORE) parts << QStringLiteral("方法指针非核心归属");
+        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_PROC_DETOUR) parts << QStringLiteral("入口跳板");
+        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_HIDDEN_HOOK) parts << QStringLiteral("存在隐藏行为");
+        if (flags & KSWORD_ARK_DRIVER_INTEGRITY_RISK_LAYOUT_UNVERIFIED) parts << QStringLiteral("布局未验证");
         return parts.isEmpty() ? hex32(flags) : parts.join(QStringLiteral(" | "));
     }
 

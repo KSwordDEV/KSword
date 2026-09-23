@@ -180,6 +180,13 @@ namespace
     constexpr const char* kKswordTableSelectionOutlineStylePropertyName = "ksword_table_selection_outline_style";
     constexpr const char* kKswordComboPopupAutoThemedPropertyName = "ksword_combo_popup_auto_themed";
     constexpr const char* kKswordComboPopupThemeUpdatePendingPropertyName = "ksword_combo_popup_theme_update_pending";
+    // kKswordPreserveCustomRowHeightPropertyName 作用：
+    // - 标记该表格自己管理行高（例如日志表按内容折行），全局紧凑行高不得接管。
+    constexpr const char* kKswordPreserveCustomRowHeightPropertyName = "ksword_preserve_custom_row_height";
+    // kKswordCompactRowHeightAppliedPropertyName 作用：
+    // - 记录行高是由全局紧凑规则设置的，字体变更后才允许按新字体重算；
+    // - 各页面自己显式设过行高的表格没有这个标记，永远不会被重算覆盖。
+    constexpr const char* kKswordCompactRowHeightAppliedPropertyName = "ksword_compact_row_height_applied";
     constexpr int kResizeBorderOverlayWidth = 3;
     constexpr int kResizeCornerTriangleLeg = 6;
 
@@ -2262,6 +2269,55 @@ namespace
     // - 在 QTableView/QTableWidget 首次显示前安装统一 delegate；
     // - 后续懒加载 Dock 和弹窗创建的表格自动获得同一选中态；
     // - 带专用 delegate 的表格通过动态属性明确跳过，避免破坏编辑或自定义绘制。
+    // applyCompactRowHeightToTable 作用：
+    // - 把仍在使用 Qt 平台默认行高的表格收紧到“当前字体行高 + 6px”；
+    // - 项目里绝大多数表格从未显式设过行高，Windows 平台默认值比文字实际需要
+    //   高出约 8px，在密集数据表上等于每屏少看四分之一的行。
+    // 入参 tableView：目标表格，可为 nullptr；
+    // 入参 recalculateApplied：true 表示字体已变更，对之前由本函数设过的表格按新字体重算
+    //   （此时允许调大，否则大字号下文字会被压扁）；false 表示首次接管，只收紧不放大。
+    // 无返回值。
+    void applyCompactRowHeightToTable(QTableView* tableView, const bool recalculateApplied = false)
+    {
+        if (tableView == nullptr)
+        {
+            return;
+        }
+
+        // 自管理行高的表格（日志表按内容折行）必须原样保留。
+        if (tableView->property(kKswordPreserveCustomRowHeightPropertyName).toBool())
+        {
+            return;
+        }
+
+        QHeaderView* const verticalHeader = tableView->verticalHeader();
+        if (verticalHeader == nullptr)
+        {
+            return;
+        }
+
+        // 行高随当前字体走，避免高 DPI 或用户调大字号后把文字压扁。
+        const int compactSectionSize = QFontMetrics(tableView->font()).height() + 6;
+
+        if (recalculateApplied)
+        {
+            // 重算路径只认本函数自己设过的表格，不去动各页面显式指定的行高。
+            if (!tableView->property(kKswordCompactRowHeightAppliedPropertyName).toBool())
+            {
+                return;
+            }
+        }
+        else if (verticalHeader->defaultSectionSize() <= compactSectionSize + 4)
+        {
+            // 首次接管只收紧“明显还是平台默认值”的表格：
+            // 各页面已显式设过的 18/20/22/24 都落在这个阈值内，不会被改动。
+            return;
+        }
+
+        verticalHeader->setDefaultSectionSize(compactSectionSize);
+        tableView->setProperty(kKswordCompactRowHeightAppliedPropertyName, true);
+    }
+
     class GlobalTableSelectionOutlineFilter final : public QObject
     {
     public:
@@ -2303,7 +2359,10 @@ namespace
                 return QObject::eventFilter(watchedObject, eventObject);
             }
 
-            installDelegateForTable(qobject_cast<QTableView*>(watchedObject));
+            QTableView* const tableView = qobject_cast<QTableView*>(watchedObject);
+            installDelegateForTable(tableView);
+            // 各 Dock 是懒加载的，表格要等首次显示才存在，因此行高也在这里接管。
+            applyCompactRowHeightToTable(tableView);
             return QObject::eventFilter(watchedObject, eventObject);
         }
     };
@@ -2399,8 +2458,9 @@ namespace
 
         for (QWidget* widget : appInstance->allWidgets())
         {
-            GlobalTableSelectionOutlineFilter::installDelegateForTable(
-                qobject_cast<QTableView*>(widget));
+            QTableView* const tableView = qobject_cast<QTableView*>(widget);
+            GlobalTableSelectionOutlineFilter::installDelegateForTable(tableView);
+            applyCompactRowHeightToTable(tableView);
         }
     }
 
@@ -2432,6 +2492,10 @@ namespace
             }
 
             itemView->setFont(applicationFont);
+
+            // 紧凑行高是按字体算出来的，字体换了就必须跟着重算，
+            // 否则调大字号后行高不变会把文字压扁。
+            applyCompactRowHeightToTable(qobject_cast<QTableView*>(itemView), true);
         }
     }
 
@@ -12848,13 +12912,19 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
         "  border-bottom:none !important;"
         "  padding:0px;"
         "}"
-        "QGroupBox,QFrame#card,QWidget#card{"
+        "QFrame#card,QWidget#card{"
         "  border:1px solid %1;"
         "  border-radius:8px;"
         "  background:%2;"
         "  margin-top:12px;"
         "}"
+        // 分组框与卡片分开：卡片本来就是独立方块，边框合理；分组框在一屏里
+        // 常有七八个，四周边框会叠成一堆套嵌方框，只留标题下的一条分隔线。
         "QGroupBox{"
+        "  border:none;"
+        "  border-top:1px solid %1;"
+        "  background:%2;"
+        "  margin-top:12px;"
         "  padding-top:6px;"
         "}"
         "QGroupBox::title{"

@@ -158,7 +158,8 @@ void MemoryCompositionHistoryWidget::paintEvent(QPaintEvent* paintEventPointer)
     if (!compactHeight)
     {
         painter.setPen(textColor);
-        painter.setFont(QFont(painter.font().family(), 9));
+        // 硬编码 9pt 在高 DPI 下几乎不可读；跟随当前字体并给一个 10pt 下限。
+        painter.setFont(QFont(painter.font().family(), std::max(painter.font().pointSize(), 10)));
         painter.drawText(
             plotRect.adjusted(6.0, 4.0, -6.0, -4.0),
             Qt::AlignTop | Qt::AlignLeft,
@@ -319,7 +320,9 @@ void MemoryCompositionHistoryWidget::drawLegend(QPainter& painter, const QRectF&
     const std::array<CompositionColor, 4> colorList = buildCompositionColorList();
     const QColor textColor = KswordTheme::TextPrimaryColor();
 
-    painter.setFont(QFont(painter.font().family(), 8));
+    // 图例原本 8pt，小到辨不出色块对应哪一项；下限提到 9pt——
+    // 再大会撑破下面 58px 的标签宽度和 68px 的条目间距。
+    painter.setFont(QFont(painter.font().family(), std::max(painter.font().pointSize() - 1, 9)));
     painter.setPen(textColor);
 
     double xValue = plotRect.left();

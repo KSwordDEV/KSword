@@ -395,8 +395,9 @@ void WelcomeDock::initializePerformanceCards()
 
 void WelcomeDock::initializeContributorCollapse()
 {
+    // 折叠标题常态不描边，只在 hover/展开时才亮出边框，避免首页一上来就是两个蓝框。
     const QString headerStyle = QStringLiteral(
-        "QToolButton{background:transparent;color:%1;border:1px solid #409EFF;padding:7px 12px;"
+        "QToolButton{background:transparent;color:%1;border:1px solid transparent;padding:7px 12px;"
         "font-size:16px;font-weight:600;text-align:center;}"
         "QToolButton:hover{background:transparent;border-color:#64B5F6;}"
         "QToolButton:checked{background:transparent;border-color:#409EFF;}")

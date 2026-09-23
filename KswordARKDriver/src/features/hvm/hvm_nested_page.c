@@ -66,6 +66,12 @@ BOOLEAN KswordARKHvmNestedPageValidateTranslation(KSW_HVM_RUNTIME* Runtime,
     if (page == NULL || page->Ept12Pointer != EptPointer) { return TRUE; }
     /* Revocation is sticky until an explicit drain and a new map operation. */
     if (ReadAcquire(&Runtime->NestedPageRevocationReason) != 0L) { return FALSE; }
+    /* Refuse any legacy/inconsistent rule that relies on sampled fine leaves. */
+    if (page->ScanAdmitted || !KswordHvmLeafPolicySourceCovers(
+            page->Plan.LeafShift, page->Translation.EntryCount)) {
+        KswordARKHvmPageRevoke(Runtime, KSWORD_ARK_HVM_PAGE_LEASE_REGION_DRIFTED);
+        return FALSE;
+    }
     /* Compare all captured path entries, never just a recycled root pointer. */
     result = KswordHvmLeaseValidate(&page->Translation, KswordARKHvmPageReadSourceRoot, Window);
     /* A mismatch and an inaccessible source are separately observable rejections. */
@@ -78,22 +84,9 @@ BOOLEAN KswordARKHvmNestedPageValidateTranslation(KSW_HVM_RUNTIME* Runtime,
     return ReadAcquire(&Runtime->NestedPageRevocationReason) == 0L;
 }
 
-/*
- * Recheck one page of a scan-admitted region, from the exit path.
- *
- * Admission by scanning reads all 512 source leaves once and admits on their
- * agreement. That agreement is not stable: the intermediate VMM rewrites its
- * per-page permissions while the guest runs, and a region admitted at one moment
- * has been measured to disagree a few seconds later. Rechecking all 512 at every
- * composition is not affordable - compositions run on the order of 1e5 per
- * second - so one page is checked per call and the cursor advances, which covers
- * the region in as many calls as it has pages.
- *
- * The consequence is stated rather than hidden: detection is eventual, so a
- * region can serve for a bounded interval after its condition stops holding.
- * That is still the difference between a condition nobody rechecks and one that
- * expires; a lease that is never rechecked cannot expire at all.
- */
+/* Legacy diagnostic sampler. New admission rejects fine-source coarse rules.
+   Fill-driven sampling has no wall-clock completion guarantee and must never
+   authorize a mapping or substitute for source validation/invalidation. */
 VOID KswordARKHvmNestedPageSampleRegion(KSW_HVM_RUNTIME* Runtime,
     KSW_HVM_PHYS_WINDOW* Window)
 {
@@ -414,6 +407,10 @@ NTSTATUS KswordARKHvmNestedPageControl(const KSWORD_ARK_HVM_NESTED_PAGE_REQUEST*
     if (Request->version != KSWORD_ARK_HVM_NESTED_PAGE_VERSION ||
         Request->size != sizeof(*Request) ||
         Request->operation > KSWORD_ARK_HVM_NESTED_PAGE_STAGE ||
+        /* Validate before scanning or constructing a shifted synthetic backing. */
+        (Request->operation == KSWORD_ARK_HVM_NESTED_PAGE_MAP &&
+         Request->leafShift != 0UL &&
+         !KswordHvmLeafPolicyValidShift(Request->leafShift)) ||
         /* Granularity is meaningful only when creating the region. */
         (Request->operation != KSWORD_ARK_HVM_NESTED_PAGE_MAP &&
          Request->leafShift != 0UL) ||
@@ -564,15 +561,8 @@ NTSTATUS KswordARKHvmNestedPageControl(const KSWORD_ARK_HVM_NESTED_PAGE_REQUEST*
             ? Request->leafShift : KSWORD_ARK_HVM_NESTED_PAGE_SHIFT_4K;
         KSW_HVM_LEAF_PLAN probe;
 
-        /*
-         * Read the source only when the caller asked for that rule.
-         *
-         * The scan is what lets a region be published over a source that maps it
-         * one page at a time, and it costs a weaker lease; see the flag's
-         * definition. Running it unasked would hand that trade to callers who
-         * never chose it, so an unset flag leaves sourceUniform zero and the
-         * coarse-source rule decides alone.
-         */
+        /* Preserve explicitly requested scan diagnostics. Uniform attributes
+           no longer override the single-source-leaf admission requirement. */
         if ((Request->flags & KSWORD_ARK_HVM_NESTED_PAGE_SCAN_SOURCE) != 0UL) {
             KSW_HVM_LEAF_SOURCE_SCAN scan;
 
@@ -588,7 +578,9 @@ NTSTATUS KswordARKHvmNestedPageControl(const KSWORD_ARK_HVM_NESTED_PAGE_REQUEST*
                 page->Translation.EntryCount, sourceUniform,
                 (KSW_PLAN_U64)1ULL << requestedShift,
                 (KSW_PLAN_U64)1ULL << requestedShift, &probe)) {
-            /* Reclaim the never-published rule. */
+            const ULONG sourceLeafShift =
+                KswordHvmLeafSourceShift(page->Translation.EntryCount);
+            /* Save diagnostics before reclaiming the never-published rule. */
             KswordARKHvmNestedPageFree(page);
             /*
              * Name the refusal rather than reporting one generic error.
@@ -603,8 +595,7 @@ NTSTATUS KswordARKHvmNestedPageControl(const KSWORD_ARK_HVM_NESTED_PAGE_REQUEST*
                 ? STATUS_NOT_SUPPORTED : STATUS_INVALID_PARAMETER;
             /* Publish the refused geometry so the caller can read why. */
             Response->leafShift = requestedShift;
-            Response->sourceLeafShift =
-                KswordHvmLeafSourceShift(page->Translation.EntryCount);
+            Response->sourceLeafShift = sourceLeafShift;
             goto complete;
         }
         page->BackingBytes = probe.RegionBytes;
@@ -684,6 +675,14 @@ NTSTATUS KswordARKHvmNestedPageControl(const KSWORD_ARK_HVM_NESTED_PAGE_REQUEST*
                 goto complete;
             }
         }
+    }
+    /* Allocation/copy may outlive the captured source mapping. */
+    if (KswordHvmLeaseValidate(&page->Translation,
+            KswordARKHvmPageReadSource, NULL) != 1) {
+        KswordARKHvmNestedPageFree(page);
+        status = STATUS_REVISION_MISMATCH;
+        KswordARKHvmPageTrace(&trace, KSW_HVM_PAGE_ALLOCATE_END, status);
+        goto complete;
     }
     /* Bind lifetime before publication; cleanup also releases failed admission. */
     status = KswordARKHvmPageBindOwner(runtime, page, Request);
@@ -833,10 +832,16 @@ complete:
             page->Plan.Refusal == KSW_PLAN_OK && page->ShadowVirtual != NULL) {
             ULONGLONG sourceDigest = 0ULL, backingDigest = 0ULL;
 
-            if (KswordARKHvmPageDigestPhysical(page->Translation.SourcePage,
+            if (KswordHvmLeafPolicySourceCovers(page->Plan.LeafShift,
+                    page->Translation.EntryCount) &&
+                KswordHvmLeaseValidate(&page->Translation,
+                    KswordARKHvmPageReadSource, NULL) == 1 &&
+                KswordARKHvmPageDigestPhysical(page->Translation.SourcePage,
                     page->BackingBytes, &sourceDigest) &&
                 KswordARKHvmPageDigestPhysical(page->ShadowPhysicalPage,
-                    page->BackingBytes, &backingDigest)) {
+                    page->BackingBytes, &backingDigest) &&
+                KswordHvmLeaseValidate(&page->Translation,
+                    KswordARKHvmPageReadSource, NULL) == 1) {
                 Response->sourceDigest = sourceDigest;
                 Response->backingDigest = backingDigest;
                 Response->digestBytes = page->BackingBytes;

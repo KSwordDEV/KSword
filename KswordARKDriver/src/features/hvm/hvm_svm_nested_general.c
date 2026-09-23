@@ -318,7 +318,8 @@ BOOLEAN KswordSvmNestedBusy(const KSW_SVM_CPU* Cpu)
     return nested->GeneralExecution.Pending.Count || nested->GeneralMachine.ArmedToken ||
         nested->GeneralMachine.NmiCount || nested->GeneralMachine.Overlay.Applied || nested->GeneralMachine.IrqWindow.Applied ||
         nested->GeneralMachine.NmiHardwareMask || nested->GeneralMachine.NmiBlocked || nested->GeneralMachine.HeldNmiGuard ||
-        nested->GeneralMachine.Iret.Applied || nested->GeneralMachine.Iret.Requested;
+        nested->GeneralMachine.Iret.Applied || nested->GeneralMachine.Iret.Requested ||
+        nested->GeneralMachine.NmiWindow.Applied;
 }
 
 /* The caller already verified native EFER/HSAVE/current extended state on this exact CPU. */

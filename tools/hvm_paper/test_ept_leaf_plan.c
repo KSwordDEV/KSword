@@ -174,16 +174,22 @@ static void scan(void) {
     fixture f; KSW_HVM_LEAF_SOURCE_SCAN s; KSW_HVM_LEAF_PLAN p;
     const KSW_PLAN_U64 eptp=0x105E;
 
-    /* 512 uniform 4-KiB leaves: one leaf may stand for all of them. */
+    /* Uniform attributes remain diagnostic, not coarse-publication authority. */
     fine(&f,0x37);
     assert(KswordHvmLeafPlanScanSource(eptp,0,KSW_PLAN_SHIFT_2M,rd,&f,&s));
     assert(s.Complete && s.Uniform && s.Shift==KSW_PLAN_SHIFT_4K);
     assert(s.LeafCount==512 && s.SharedBits==0x37);
-    /* And that proof is what admits the region a coarse source would admit. */
+    /* Neither a scan flag nor uniform attributes can bypass source geometry. */
     assert(!KswordHvmLeafPlanCreate(KSW_PLAN_SHIFT_2M,0,SRC_4K,0,BACK_2M,0x200000,&p));
     assert(p.Refusal==KSW_PLAN_REFUSE_SOURCE_GRANULARITY);
-    assert(KswordHvmLeafPlanCreate(KSW_PLAN_SHIFT_2M,0,SRC_4K,1,BACK_2M,0x200000,&p));
-    assert(p.Refusal==KSW_PLAN_OK && p.PageCount==512);
+    assert(!KswordHvmLeafPlanCreate(KSW_PLAN_SHIFT_2M,0,SRC_4K,1,BACK_2M,0x200000,&p));
+    assert(p.Refusal==KSW_PLAN_REFUSE_SOURCE_GRANULARITY);
+    /* A permutation of equally attributed PFNs is also rejected. */
+    { KSW_PLAN_U64 tmp=f.tables[3][1]; f.tables[3][1]=f.tables[3][400]; f.tables[3][400]=tmp; }
+    assert(KswordHvmLeafPlanScanSource(eptp,0,KSW_PLAN_SHIFT_2M,rd,&f,&s));
+    assert(s.Complete && s.Uniform);
+    assert(!KswordHvmLeafPlanCreate(KSW_PLAN_SHIFT_2M,0,SRC_4K,1,BACK_2M,0x200000,&p));
+    assert(p.Refusal==KSW_PLAN_REFUSE_SOURCE_GRANULARITY);
 
     /* One page the VMM made read-only breaks the whole region. */
     fine(&f,0x37); f.tables[3][300]=(0xA00ULL+300)<<12 | 0x35;
@@ -240,14 +246,20 @@ static void scan(void) {
     assert(!KswordHvmLeafPlanScanSource(eptp,0,KSW_PLAN_SHIFT_2M,rd,&f,0));
     assert(!KswordHvmLeafPlanScanSource(eptp,0,KSW_PLAN_SHIFT_2M,0,&f,&s));
     assert(!KswordHvmLeafPlanScanSource(eptp,0,11U,rd,&f,&s));
+    assert(!KswordHvmLeafPlanScanSource(eptp,0,13U,rd,&f,&s));
+    assert(!KswordHvmLeafPlanScanSource(eptp,0,64U,rd,&f,&s));
+    assert(!KswordHvmLeafPlanScanSource(eptp,0,~0U,rd,&f,&s));
+    assert(!KswordHvmLeafPlanScanSource(eptp,0x1000,KSW_PLAN_SHIFT_2M,rd,&f,&s));
+    assert(!KswordHvmLeafPlanScanSource(eptp,KSW_PLAN_GPA_LIMIT,KSW_PLAN_SHIFT_2M,rd,&f,&s));
 }
 
 /* Rechecking what the scan proved, one page at a time. */
 static void recheck(void) {
     fixture f; KSW_HVM_LEAF_PLAN p, refused;
     const KSW_PLAN_U64 eptp=0x105E;
-    /* The region the scan above admits: 512 ordinary pages sharing 0x37. */
-    assert(KswordHvmLeafPlanCreate(KSW_PLAN_SHIFT_2M,0,SRC_4K,1,BACK_2M,0x200000,&p));
+    /* Exercise the legacy sampler on region geometry, independently of
+       admission. A finer source would be revoked by the runtime lease gate. */
+    assert(KswordHvmLeafPlanCreate(KSW_PLAN_SHIFT_2M,0,SRC_2M,0,BACK_2M,0x200000,&p));
 
     /* Nothing has changed, so every page still agrees. */
     fine(&f,0x37);
@@ -311,6 +323,24 @@ static void recheck(void) {
     assert(KswordHvmLeafPlanRecheckPage(eptp,&refused,0,0x37,rd,&f)==KSW_PLAN_RECHECK_UNKNOWN);
 }
 
+static void publication_policy(void) {
+    unsigned int entries, outer, shift;
+    const unsigned int shifts[3] = {12U, 21U, 30U};
+    for (shift=0; shift<3; ++shift) {
+        for (entries=0; entries<=5; ++entries) {
+            for (outer=0; outer<64; ++outer) {
+                const unsigned int source = entries==4 ? 12U :
+                    entries==3 ? 21U : entries==2 ? 30U : 0U;
+                const int expected = shifts[shift]>12U && source>=shifts[shift] &&
+                    (outer==12U || outer==21U || outer==30U) && outer>=shifts[shift];
+                assert(KswordHvmLeafPolicyUseLarge(shifts[shift],entries,0,outer,0)==expected);
+                assert(!KswordHvmLeafPolicyUseLarge(shifts[shift],entries,1,outer,0));
+                assert(!KswordHvmLeafPolicyUseLarge(shifts[shift],entries,0,outer,1));
+            }
+        }
+    }
+}
+
 int main(void) {
     granularity();
     geometry();
@@ -318,6 +348,7 @@ int main(void) {
     ownership();
     scan();
     recheck();
+    publication_policy();
     puts("EPT_LEAF_PLAN=PASS: source granularity, geometry, backing, ownership, "
          "source uniformity scan, published-region recheck");
     return 0;

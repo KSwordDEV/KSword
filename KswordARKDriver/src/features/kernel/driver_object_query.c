@@ -15,6 +15,7 @@ Environment:
 --*/
 
 #include "ark/ark_driver.h"
+#include "hook_scan_support.h"
 
 #include <ntstrsafe.h>
 
@@ -364,15 +365,85 @@ Return Value:
             row->moduleName,
             KSWORD_ARK_DRIVER_MODULE_NAME_CHARS);
         if (row->moduleBase != 0ULL) {
-            row->flags |= 0x00000001UL;
+            row->flags |= KSWORD_ARK_DRIVER_DISPATCH_FLAG_MODULE_RESOLVED;
         }
         if ((ULONG_PTR)dispatchAddress >= (ULONG_PTR)DriverObject->DriverStart &&
             (ULONG_PTR)dispatchAddress < ((ULONG_PTR)DriverObject->DriverStart + (ULONG_PTR)DriverObject->DriverSize)) {
-            row->flags |= 0x00000002UL;
+            row->flags |= KSWORD_ARK_DRIVER_DISPATCH_FLAG_OWN_IMAGE;
         }
     }
 
     Response->fieldFlags |= KSWORD_ARK_DRIVER_OBJECT_FIELD_MAJOR_PRESENT;
+}
+
+static VOID
+KswordARKFillStartIoRow(
+    _In_ PDRIVER_OBJECT DriverObject,
+    _In_opt_ const KSW_SYSTEM_MODULE_INFORMATION* ModuleInfo,
+    _Inout_ KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE* Response
+    )
+/*++
+
+Routine Description:
+
+    读取 DriverObject->DriverStartIo 并归类到所属模块。三态：空值、读取失败、非空。
+    读取走 MmCopyMemory，DriverObject 页异常时只让本行失败，不影响其余查询。
+
+Arguments:
+
+    DriverObject - Referenced driver object.
+    ModuleInfo - Optional module snapshot.
+    Response - Response header being filled.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    KSWORD_ARK_DRIVER_START_IO_ENTRY* row = NULL;
+    PVOID startIo = NULL;
+
+    if (DriverObject == NULL || Response == NULL) {
+        return;
+    }
+
+    row = &Response->startIo;
+    RtlZeroMemory(row, sizeof(*row));
+    /*
+     * READ_FAILED 是防御性状态：本函数的 DriverObject 已经过 ObReference 且 IOCTL 在
+     * PASSIVE_LEVEL 下派发，安全读实际不会失败（唯一失败路径是 IRQL > APC_LEVEL）。
+     * 保留它是因为协议契约要求三态可区分，且日后若有 IRQL 不确定的调用点，这里能如实
+     * 报"没读到"而不是把 NULL 冒充成"未使用 StartIo"。
+     */
+    if (!KswordARKHookReadMemorySafe(&DriverObject->DriverStartIo, &startIo, sizeof(startIo))) {
+        row->state = KSWORD_ARK_DRIVER_START_IO_STATE_READ_FAILED;
+        Response->fieldFlags |= KSWORD_ARK_DRIVER_OBJECT_FIELD_START_IO_PRESENT;
+        return;
+    }
+
+    if (startIo == NULL) {
+        row->state = KSWORD_ARK_DRIVER_START_IO_STATE_NULL;
+        Response->fieldFlags |= KSWORD_ARK_DRIVER_OBJECT_FIELD_START_IO_PRESENT;
+        return;
+    }
+
+    row->state = KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT;
+    row->address = (ULONGLONG)(ULONG_PTR)startIo;
+    KswordARKResolveModuleForAddress(
+        ModuleInfo,
+        startIo,
+        &row->moduleBase,
+        row->moduleName,
+        KSWORD_ARK_DRIVER_MODULE_NAME_CHARS);
+    if (row->moduleBase != 0ULL) {
+        row->flags |= KSWORD_ARK_DRIVER_DISPATCH_FLAG_MODULE_RESOLVED;
+    }
+    if ((ULONG_PTR)startIo >= (ULONG_PTR)DriverObject->DriverStart &&
+        (ULONG_PTR)startIo < ((ULONG_PTR)DriverObject->DriverStart + (ULONG_PTR)DriverObject->DriverSize)) {
+        row->flags |= KSWORD_ARK_DRIVER_DISPATCH_FLAG_OWN_IMAGE;
+    }
+    Response->fieldFlags |= KSWORD_ARK_DRIVER_OBJECT_FIELD_START_IO_PRESENT;
 }
 
 static NTSTATUS
@@ -971,6 +1042,9 @@ Return Value:
     if (!NT_SUCCESS(status)) {
         moduleInfo = NULL;
     }
+
+    /* DriverStartIo 与 DriverUnload 同级，是 DriverObject 基础字段，不跟随 MajorFunction 开关。 */
+    KswordARKFillStartIoRow(driverObject, moduleInfo, response);
 
     if (includeMajor) {
         KswordARKFillMajorFunctionRows(driverObject, moduleInfo, response);
