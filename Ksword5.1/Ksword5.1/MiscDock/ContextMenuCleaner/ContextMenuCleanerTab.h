@@ -13,6 +13,9 @@
 #include <QVector>
 #include <QWidget>
 
+#include <atomic>
+#include <memory>
+
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -191,6 +194,116 @@ namespace ks::misc
         // - 返回：无。
         void applyAreaDetailPlaceholder(MenuArea area);
 
+        // ===================== 完整备份 / 恢复（防崩溃兜底）=====================
+        // 背景：右键菜单注册表散布在多个根键与 32/64 视图下。一旦本程序在测量过程中
+        // 异常退出，就可能留下"临时禁用"的覆盖项，用户会看到菜单残缺。
+        // 所以：① 开始测量前自动整份导出；② 恢复备份前也先把当前状态整份导出（加时间戳），
+        // 因为"恢复备份"本身也是遗弃当前状态。
+
+        // contextMenuBackupDirectory：
+        // - 输入：无；
+        // - 处理：返回备份目录（优先 exe 同级 ContextMenuBackups；不可写时回落
+        //   %LOCALAPPDATA%\Ksword\ContextMenuBackups）；
+        // - 返回：目录绝对路径（可能尚未创建）。
+        QString contextMenuBackupDirectory() const;
+
+        // exportContextMenuBackupToFile：
+        // - 输入 filePathOut/errorTextOut：可为空；
+        // - 处理：把本页覆盖的全部菜单注册表位置递归导出为 JSON（含根键与 32/64 视图）；
+        // - 返回：成功返回 true 并写回文件路径；失败返回 false 并写回原因。
+        bool exportContextMenuBackupToFile(QString* filePathOut, QString* errorTextOut) const;
+
+        // backupContextMenuToFile：
+        // - 输入 showSuccessMessage：true 时弹窗提示路径（按钮触发），false 只写日志（自动备份）；
+        // - 处理：调用导出并反馈结果；
+        // - 返回：成功返回导出文件路径，失败返回空字符串。
+        QString backupContextMenuToFile(bool showSuccessMessage);
+
+        // restoreContextMenuFromFile：
+        // - 输入：无（内部弹文件选择框，默认目录为备份目录）；
+        // - 处理：① 先把当前状态整份导出（时间戳 + -before-restore）；② 二次确认并列将写回/将删除数量；
+        //   ③ 按备份覆盖写回并删除当前多出的键；④ 刷新全部子页；
+        // - 返回：无，结果通过弹窗与日志反馈。
+        void restoreContextMenuFromFile();
+
+        // ===================== 耗时测量（逐条差值法）=====================
+
+        // LatencyProbeItem：传给后台线程的单条待测项。
+        // 说明：只带纯数据，避免后台线程访问 UI 侧容器与 Qt 控件。
+        struct LatencyProbeItem
+        {
+            int entryIndex = -1;      // entryIndex：在 entries 中的下标。
+            QString itemName;         // itemName：注册表子键名。
+            QString displayName;      // displayName：菜单显示名。
+            QString subKeyPath;       // subKeyPath：相对 HKCU 的覆盖路径（HKCU\Software\Classes\... 形式）。
+            QString kind;             // kind：shell / shellex / IE MenuExt。
+            bool isHandler = false;   // isHandler：true=处理器（改默认值置空），false=verb（加 LegacyDisable）。
+            // aliasPaths：与本条指向**同一个扩展**的全部注册项路径（含自身）。
+            // 同一个 CLSID 常被注册到多个位置（例如同时挂在 Directory\Background 与 DesktopBackground），
+            // 只禁用其中一处，另一处仍会加载并照样慢，差值就会被算成 0 —— 必须整组一起禁用。
+            QStringList aliasPaths;
+        };
+
+        // currentArea：
+        // - 输入：无；
+        // - 处理：把当前选中的子页签映射回 MenuArea；
+        // - 返回：当前分类（越界时回退到文件右键菜单）。
+        MenuArea currentArea() const;
+
+        // areaSupportsLatencyProbe：
+        // - 输入 area：目标分类；
+        // - 处理：判断该分类是否对应"真实可程序化触发的右键菜单"
+        //   （URL 绑定 / 打开方式 / 资源管理器主页不是菜单，无耗时可言）；
+        // - 返回：可测量返回 true。
+        static bool areaSupportsLatencyProbe(MenuArea area);
+
+        // collectLatencyProbeItems：
+        // - 输入 area：目标分类；
+        // - 处理：从该分类的 entries 里筛出"可临时禁用"的项（shellex 处理器优先），并算出 HKCU 覆盖路径；
+        // - 返回：待测项数组（已按上限截断，超出的项数写进 truncatedCountOut）。
+        QVector<LatencyProbeItem> collectLatencyProbeItems(MenuArea area, int* truncatedCountOut) const;
+
+        // startLatencyMeasurement / cancelLatencyMeasurement：
+        // - 输入：无；
+        // - 处理：启动后台测量（基准 + 逐条临时禁用复测），或请求停止
+        //   （kProgress 没有取消接口，长任务必须自带停止标志）；
+        // - 返回：无。
+        void startLatencyMeasurement();
+        void cancelLatencyMeasurement();
+
+        // applyLatencyResults：
+        // - 输入 area：目标分类；baselineMs：基准耗时；perEntryMs：与 entries 等长的逐条贡献
+        //   （<0 表示该条未测，0 表示"很短"）；report：完整报告文本；
+        // - 处理：写耗时列（超过门限标红）、把报告写进详情编辑器、刷新状态栏；
+        // - 返回：无。
+        void applyLatencyResults(MenuArea area, double baselineMs, const QVector<double>& perEntryMs,
+                                 const QString& report);
+
+        // applySingleLatencyResult：
+        // - 输入 area：目标分类；entryIndex：entries 下标；valueMs：该条的贡献（0 表示很短）；
+        // - 处理：**只更新这一行**的耗时单元格 —— 用于"测完一条立刻填一条"，
+        //   让用户不必等整轮跑完才看到结果；
+        // - 返回：无。后台线程通过队列调用，按 Qt::UserRole 定位行，筛选/排序后依然正确。
+        void applySingleLatencyResult(MenuArea area, int entryIndex, double valueMs);
+
+        // writeLatencyCell：
+        // - 输入 widgets：目标分类控件组；row：表格行号；valueMs：贡献值（0=很短）；
+        // - 处理：把数值写进耗时列并套用标红/灰色的显示规则（单条更新与整表更新共用同一套规则）；
+        // - 返回：无。
+        void writeLatencyCell(AreaWidgets* widgets, int row, double valueMs) const;
+
+        // clearLatencyColumn：
+        // - 输入 area：目标分类；
+        // - 处理：清空该分类的耗时列（重新枚举/筛选重建时调用）；
+        // - 返回：无。
+        void clearLatencyColumn(MenuArea area);
+
+        // setLatencyUiRunning：
+        // - 输入 running：是否正在测量；
+        // - 处理：切换"测量/停止"按钮可用性与状态栏文案；
+        // - 返回：无。
+        void setLatencyUiRunning(bool running);
+
         // enumerateEntriesForArea：
         // - 输入 area：目标分区；
         // - 处理：按分区分派到右键菜单、关联或命名空间枚举器；
@@ -243,6 +356,19 @@ namespace ks::misc
     private:
         QVBoxLayout* m_rootLayout = nullptr;   // m_rootLayout：本页根布局。
         QTabWidget* m_areaTabWidget = nullptr; // m_areaTabWidget：七类 Shell 关联子 Tab 容器。
+
+        // ===================== 页面级工具栏（备份 / 恢复 / 耗时测量） =====================
+        QWidget* m_pageToolbar = nullptr;              // m_pageToolbar：子 Tab 上方的页面级工具栏。
+        QPushButton* m_backupButton = nullptr;         // m_backupButton：导出整份右键菜单备份。
+        QPushButton* m_restoreBackupButton = nullptr;  // m_restoreBackupButton：从备份文件恢复。
+        QPushButton* m_latencyButton = nullptr;        // m_latencyButton：开始测量当前分类耗时。
+        QPushButton* m_latencyStopButton = nullptr;    // m_latencyStopButton：请求停止测量。
+        QLabel* m_latencyStatusLabel = nullptr;        // m_latencyStatusLabel：测量状态与摘要。
+
+        // ===================== 耗时测量运行状态 =====================
+        std::atomic<bool> m_latencyRunning{ false };            // m_latencyRunning：是否有测量任务在跑。
+        std::atomic<bool> m_latencyCancelRequested{ false };    // m_latencyCancelRequested：停止标志。
+        int m_latencyProgressPid = 0;                           // m_latencyProgressPid：kProgress 任务 PID。
         AreaWidgets m_ieWidgets;               // m_ieWidgets：IE 右键菜单子页控件组。
         AreaWidgets m_desktopWidgets;          // m_desktopWidgets：桌面右键菜单子页控件组。
         AreaWidgets m_fileWidgets;             // m_fileWidgets：文件右键菜单子页控件组。

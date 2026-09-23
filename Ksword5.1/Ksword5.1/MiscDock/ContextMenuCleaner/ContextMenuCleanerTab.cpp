@@ -51,6 +51,64 @@ void ContextMenuCleanerTab::initializeUi()
     m_rootLayout->setContentsMargins(6, 6, 6, 6);
     m_rootLayout->setSpacing(6);
 
+    // 页面级工具栏：整份菜单备份 / 恢复备份 / 当前分类耗时测量。
+    // 放在子页签上方，因为这三件事都是跨分类的操作（备份与恢复覆盖全部七类）。
+    m_pageToolbar = new QWidget(this);
+    QHBoxLayout* pageToolbarLayout = new QHBoxLayout(m_pageToolbar);
+    pageToolbarLayout->setContentsMargins(0, 0, 0, 0);
+    pageToolbarLayout->setSpacing(6);
+
+    m_backupButton = new QPushButton(QIcon(QStringLiteral(":/Icon/log_copy.svg")),
+        QStringLiteral("备份右键菜单"), m_pageToolbar);
+    m_backupButton->setToolTip(QStringLiteral(
+        "把全部七类 Shell 关联注册表导出成 JSON 文件，存放在 exe 同级目录的 ContextMenuBackups 下。\n"
+        "测量耗时会自动先做一次同样的备份。"));
+    m_restoreBackupButton = new QPushButton(QIcon(QStringLiteral(":/Icon/codeeditor_undo.svg")),
+        QStringLiteral("恢复备份"), m_pageToolbar);
+    m_restoreBackupButton->setToolTip(QStringLiteral(
+        "选择一份备份文件恢复右键菜单。恢复等于遗弃当前状态，因此恢复前会自动把当前状态另存一份。"));
+    m_latencyButton = new QPushButton(QIcon(QStringLiteral(":/Icon/log_track.svg")),
+        QStringLiteral("测量本页耗时"), m_pageToolbar);
+    m_latencyButton->setToolTip(QStringLiteral(
+        "测量当前分类对应右键菜单的耗时，并逐条算出各项的耗时贡献（差值法）。\n"
+        "仅桌面右键菜单可程序化测量；测量会短暂弹出菜单并自动关闭，不注入鼠标键盘。"));
+    m_latencyStopButton = new QPushButton(QStringLiteral("停止测量"), m_pageToolbar);
+    m_latencyStopButton->setEnabled(false);
+    m_latencyStopButton->setToolTip(QStringLiteral("请求中止当前测量，已测结果会保留"));
+    // 只有桌面右键菜单能程序化测量：其余分类干脆不显示测量入口，不给用户假按钮。
+    // 初次可见性由页签切换回调统一维护（默认停在 IE 右键菜单，属于不可测分类）。
+    m_latencyButton->setVisible(false);
+    m_latencyStopButton->setVisible(false);
+    m_latencyStatusLabel = new QLabel(QStringLiteral("尚未测量。"), m_pageToolbar);
+    m_latencyStatusLabel->setStyleSheet(
+        QStringLiteral("QLabel{color:%1;}").arg(KswordTheme::TextSecondaryHex()));
+
+    m_backupButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+    m_restoreBackupButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+    m_latencyButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+    m_latencyStopButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+
+    pageToolbarLayout->addWidget(m_backupButton);
+    pageToolbarLayout->addWidget(m_restoreBackupButton);
+    pageToolbarLayout->addSpacing(12);
+    pageToolbarLayout->addWidget(m_latencyButton);
+    pageToolbarLayout->addWidget(m_latencyStopButton);
+    pageToolbarLayout->addWidget(m_latencyStatusLabel, 1);
+    m_rootLayout->addWidget(m_pageToolbar);
+
+    connect(m_backupButton, &QPushButton::clicked, this, [this]() {
+        backupContextMenuToFile(true);
+    });
+    connect(m_restoreBackupButton, &QPushButton::clicked, this, [this]() {
+        restoreContextMenuFromFile();
+    });
+    connect(m_latencyButton, &QPushButton::clicked, this, [this]() {
+        startLatencyMeasurement();
+    });
+    connect(m_latencyStopButton, &QPushButton::clicked, this, [this]() {
+        cancelLatencyMeasurement();
+    });
+
     m_areaTabWidget = new QTabWidget(this);
     m_areaTabWidget->setObjectName(QStringLiteral("ksContextMenuCleanerAreaTabs"));
     m_rootLayout->addWidget(m_areaTabWidget, 1);
@@ -90,6 +148,17 @@ void ContextMenuCleanerTab::initializeUi()
             if (areaWidgets != nullptr && !areaWidgets->hasLoaded)
             {
                 refreshArea(area);
+            }
+
+            // 测量入口只在该分类真的存在可触发的右键菜单时出现（当前仅桌面右键菜单可测）。
+            const bool measurable = areaSupportsLatencyProbe(area);
+            if (m_latencyButton != nullptr)
+            {
+                m_latencyButton->setVisible(measurable);
+            }
+            if (m_latencyStopButton != nullptr)
+            {
+                m_latencyStopButton->setVisible(measurable);
             }
         });
 }
@@ -166,7 +235,8 @@ void ContextMenuCleanerTab::createAreaPage(const MenuArea area)
         QStringLiteral("命令/处理器"),
         QStringLiteral("注册表位置"),
         QStringLiteral("状态"),
-        QStringLiteral("详情") });
+        QStringLiteral("详情"),
+        QStringLiteral("耗时") });
     areaWidgets->table->setSelectionBehavior(QAbstractItemView::SelectRows);
     areaWidgets->table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     areaWidgets->table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -184,6 +254,8 @@ void ContextMenuCleanerTab::createAreaPage(const MenuArea area)
     areaWidgets->table->horizontalHeader()->setSectionResizeMode(kColumnRegistryPath, QHeaderView::Stretch);
     areaWidgets->table->horizontalHeader()->setSectionResizeMode(kColumnStatus, QHeaderView::ResizeToContents);
     areaWidgets->table->horizontalHeader()->setSectionResizeMode(kColumnDetail, QHeaderView::Stretch);
+    // 耗时列：由"测量本页耗时"填充（逐条差值法），未测量时为空。
+    areaWidgets->table->horizontalHeader()->setSectionResizeMode(kColumnLatency, QHeaderView::ResizeToContents);
 
     // 详情编辑器：只读，承载当前选中行的完整信息。
     // 这里只用既有字段拼文本，不新增表格列，也不改枚举逻辑。
@@ -245,6 +317,8 @@ void ContextMenuCleanerTab::refreshArea(const MenuArea area)
     const QVector<ContextMenuEntry> newEntries = enumerateEntriesForArea(area);
     areaWidgets->entries = newEntries;
     areaWidgets->hasLoaded = true;
+    // 重新枚举后上一轮的耗时结论已失效，先清空耗时列再重建。
+    clearLatencyColumn(area);
     rebuildAreaTable(area);
 
     kLogEvent event;

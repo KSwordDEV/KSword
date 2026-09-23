@@ -293,6 +293,8 @@
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.Explorer.cpp" />
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.Helpers.cpp" />
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.Registry.cpp" />
+    <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.BackupFile.cpp" />
+    <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.Latency.cpp" />
     <ClCompile Include="MemoryDock\MemoryDock.cpp" />
     <ClCompile Include="MemoryDock\MemoryDock.DriverMemoryRw.cpp" />
     <ClCompile Include="MemoryDock\MemoryDock.DriverMemorySource.cpp" />
@@ -513,6 +515,7 @@
     <ClCompile Include="ksword\process\process_cpu_core_etw_monitor.cpp" />
     <ClCompile Include="ksword\process\process.cpp" />
     <ClCompile Include="ksword\process\ProcessImageDeleteGuard.cpp" />
+    <ClCompile Include="ksword\window\context_menu_probe.cpp" />
     <ClCompile Include="ksword\service\service.cpp" />
     <ClCompile Include="ksword\startup\startup.cpp" />
     <ClCompile Include="ksword\startup\startup_hidden.cpp" />
@@ -673,6 +676,7 @@
     <ClInclude Include="ksword\process\process_cpu_core_etw_monitor.h" />
     <ClInclude Include="ksword\process\process.h" />
     <ClInclude Include="ksword\process\ProcessImageDeleteGuard.h" />
+    <ClInclude Include="ksword\window\context_menu_probe.h" />
     <ClInclude Include="ksword\profile\ProfileJsonLoader.h" />
     <ClInclude Include="ksword\service\service.h" />
     <ClInclude Include="ksword\startup\startup.h" />

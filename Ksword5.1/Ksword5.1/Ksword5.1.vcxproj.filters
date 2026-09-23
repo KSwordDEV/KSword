@@ -194,6 +194,12 @@
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.Registry.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.BackupFile.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.Latency.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="DriverDock\DriverDock.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1072,6 +1078,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ksword\process\ProcessImageDeleteGuard.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ksword\window\context_menu_probe.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ksword\service\service.cpp">
@@ -1985,6 +1994,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ksword\process\ProcessImageDeleteGuard.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ksword\window\context_menu_probe.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ksword\service\service.h">

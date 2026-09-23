@@ -35,7 +35,10 @@ namespace ks::misc::context_menu_cleaner_detail
     inline constexpr int kColumnRegistryPath = 5;
     inline constexpr int kColumnStatus = 6;
     inline constexpr int kColumnDetail = 7;
-    inline constexpr int kColumnCount = 8;
+    // 耗时列：放置"逐条差值法"测得的该条贡献（毫秒），未测量时为空。
+    // 说明：Shell 不提供单条耗时，这里的数值是"禁用该条后整菜单耗时下降了多少"的差值。
+    inline constexpr int kColumnLatency = 8;
+    inline constexpr int kColumnCount = 9;
 
     // RegistryLocationDefinition：
     // - 输入：由枚举逻辑按分类构造；
