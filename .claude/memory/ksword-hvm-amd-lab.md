@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-24 softint-npf-v7实测最新：已重启到LabHostReady，boot01:42:30.5Z；正常SCM加载签后修复版，32/32 selftest/general resident及5秒复核PASS。09:46启动既有8核克隆，vmrun0；用户确认Windows logo并正在准备自动修复，未卡住但目测性能<30%（非基准）。a-f六次快照32resident/lastStatus0、热点全有效；e/f10.766秒L2增2950230/NPF2871252，性能瓶颈仍在。Tools短暂running后超时，不等于桌面开机通过。无一致flight终止锁存，但部分CPU flight/general无效必须保留未知。证据artifacts/softint-npf-v7-live-20260924-094511；报告docs/next/evidence/amd-softint-npf-live.md。当前32核驱动和8核VM仍运行，未停止/重置/卸载，不要重复start或换版。用户正常开机会告知；继续只读采集。最新通过仅新版宿主32核常驻，完整内层多核OS尚未PASS。
+
 2026-09-24 09:41 重启续接优先：用户明确同意“现在切换并重启”。已提权执行Enter-AmdLab -NoRestart成功，target946da84e-b34f-11f1-bbb6-9074aed049fd；再-Check=PendingReboot，reboot-ready=READY，日志仍在softint-npf-v7-live-20260924-093828。接下来发起正常/r /t0（不/f）；新会话首先检查LabHostReady和bootId是否改变。softint-npf-v7已签并正常SCM加载/卸载过，目前驱动Manual/Stopped，无VM。下一步用新的证据目录运行已保存Load-Activate/Start-Resident/Start-Sample（更新脚本base到新目录），验证32核后启动既有8核克隆，用户授权继续测试；不要沿用旧done/error文件或再加载operand-page-v7。此次重启授权仅为切实验项，不是循环重启授权。
 
 2026-09-24 09:38 最新续接：用户已签softint-npf-v7并授权测试。签后SYS/PDB身份匹配，正常SCM加载成功，但崩溃重启已回普通loader bf214426-63fa-11f1-98a5-ae6e2902c624、Hypervisor=true/VBS2/launchtypeAuto。在prepare前拦住；query仅INITIALIZED、prepared/resident0、reject SVM_NPT_ASID。已正常SCM卸载并确认Manual/Stopped，无VM进程，未进行任何常驻或VM重试。证据artifacts/softint-npf-v7-live-20260924-093828，脚本和签后哈希在内；正在询问用户是否现在允许一次性实验启动并重启（中断工作需确认）。下一次用新证据目录保留本轮阻塞记录，重启后先Enter-AmdLab -Check=LabHostReady再加载softint-npf-v7；无须重新签或构建。不得把本轮Windows接受加载当作SVM通过。
