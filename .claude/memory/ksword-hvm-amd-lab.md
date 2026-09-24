@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-24 npt-cache-v7实测续接：用户done签名后确认无vmware-vmx进程，正常SCM换版（旧32核完整stop/native→teardown→卸载，新SYS加载成功），32/32自检/general常驻及5秒复核PASS。候选路径tools/hvm_lab/artifacts/npt-cache-v7，当前正在运行；同8vCPU克隆由vmrun启动，真实退出码0。证据artifacts/npt-cache-v7-live-20260924含签后哈希/逐核状态/四次采样。首a/b约5.47秒L1增2506100/L2增0；c时累计L2退出220440/NPF208470、L1 VMRUN16345；c/d约30.52秒L1增13881959（MSR11471151）、L2增0。所有热点配对有效，末次32核active/lastStatus0/无终止锁存。不能说永久未进L2，也未证明缓存性能改善或VM正常开机。VM与驱动保持运行，等用户确认桌面；不要擅自复启。签名检查显示证书有效期问题，加载仅用正常SCM且Windows接受，未修改签名策略。
+
 2026-09-24 NPT02复用候选：general模式仅在同VMCB/虚拟ASID/NCR3/L1分页状态/外层配置/epoch和连续owner token、TLB_CONTROL=0时保留CPU私有缓存；非零TLB命令、INVLPGA、池重置或跨核接手后清空。实际硬件每VMRUN全flush保留；NPT01必须生命周期不可变。23离线目标通过，session1559检查；标准WDK/API/CAT零警告。候选tools/hvm_lab/artifacts/npt-cache-v7，尚未签名或加载。当前hotspots-v7驱动32核常驻和8核VM保持运行，用户正常开机后会告知；不得擅自重置换版。详情docs/next/evidence/amd-npt-cache-reuse.md。当前验收要求明确为VM正常开机，未达到。
 
 2026-09-24 用户明确调整当前HVM调试工作方式：测试脚本无需注释；新增源码注释允许跑通后补，不让逐句注释要求拖慢本轮定位。优先实现和必要测试，避免扩展审计。
