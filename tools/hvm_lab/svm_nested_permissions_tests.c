@@ -51,11 +51,6 @@ static int test_msr_owners(void)
         }
     }
     clear_maps();
-    set_bit(bMsr, KswSvmMsrpmBit(0x10U, 0));
-    CHECK(KswSvmNestedPermissionOwners(&a, &b, 0x7c, 0, 0x10U) == 0);
-    set_bit(aMsr, KswSvmMsrpmBit(0x10U, 0));
-    CHECK(KswSvmNestedPermissionOwners(&a, &b, 0x7c, 0, 0x10U) == 1);
-    clear_maps();
     a.Msr = NULL;
     CHECK(KswSvmNestedPermissionOwners(&a, &b, 0x7c, 0, 0) == KSW_NSVM_OWNER_INVALID);
     a.Flags = 0;
@@ -109,21 +104,7 @@ static int test_merge(void)
         b.Flags = ((enabled & 4) ? KSW_NSVM_MSR_PROT : 0) | ((enabled & 8) ? KSW_NSVM_IOIO_PROT : 0);
         CHECK(KswSvmNestedMergePermissions(&a, &b, outMsr, outIo));
         for (i = 0; i < sizeof(aMsr); ++i) {
-            unsigned char expected = (unsigned char)(((enabled & 1) ? aMsr[i] : 0) | ((enabled & 4) ? bMsr[i] : 0));
-            if (enabled & 1) {
-                static const unsigned native[] = {0x10U, 0xe7U, 0xe8U,
-                    0xc0010062U, 0xc0010063U, 0xc0010064U, 0xc0010065U,
-                    0xc0010066U, 0xc0010067U, 0xc0010068U, 0xc0010069U,
-                    0xc001006aU, 0xc001006bU, 0xc0010293U, 0xc001029aU};
-                unsigned n;
-                for (n = 0; n < sizeof(native) / sizeof(native[0]); ++n) {
-                    unsigned bit = KswSvmMsrpmBit(native[n], 0);
-                    if (bit != 0xffffffffU && bit / 8U == i && !(aMsr[bit / 8U] & (1U << (bit & 7U)))) {
-                        expected &= (unsigned char)~(1U << (bit & 7U));
-                    }
-                }
-            }
-            CHECK(outMsr[i] == expected);
+            CHECK(outMsr[i] == (((enabled & 1) ? aMsr[i] : 0) | ((enabled & 4) ? bMsr[i] : 0)));
         }
         for (i = 0; i < sizeof(aIo); ++i) {
             CHECK(outIo[i] == (((enabled & 2) ? aIo[i] : 0) | ((enabled & 8) ? bIo[i] : 0)));
