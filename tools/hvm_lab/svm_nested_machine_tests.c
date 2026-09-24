@@ -304,7 +304,7 @@ static int software_int_npf(void)
             CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_READY);
             CHECK(!m->Overlay.Applied && model.session.Phase == KSW_NSVM_SESSION_L2);
             CHECK(model.execution.Translation.Status == 0 && model.execution.NpfRetries == 0);
-            CHECK(model.shadow.Used == 3);
+            CHECK(model.shadow.Used == 2);
             CHECK(KswSvmRead64(&model.current, KSW_VMCB_RIP) == 0xfffff806305fd103ULL);
             CHECK(KswSvmRead64(&model.current, KSW_VMCB_EVENT) == (injected ? 0x8000042dULL : 0));
             CHECK(KswSvmRead64(&model.current, KSW_VMCB_NRIP) == (injected ? 0xfffff806305fd10aULL : 0));

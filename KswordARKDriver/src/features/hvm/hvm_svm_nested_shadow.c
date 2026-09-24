@@ -24,15 +24,15 @@ static unsigned int KswNshadowFind(const KSW_NSHADOW* Shadow, KSW_SVM_U64 Physic
     return Shadow->Capacity;
 }
 
-/* Try a 2-MiB NPT leaf before falling back to the 4-KiB path. */
+/* Try an aligned large NPT leaf before falling back to the 4-KiB path. */
 static int KswNshadowTryLarge(KSW_NSHADOW* Shadow,
-    const unsigned int* Indices, KSW_SVM_U64 Leaf)
+    const unsigned int* Indices, unsigned int TargetLevel, KSW_SVM_U64 Leaf)
 {
-    unsigned int page = 0, level, missing = 2;
+    unsigned int page = 0, level, missing = TargetLevel;
     KSW_SVM_U64 entry;
 
-    /* Only the PML4 and PDPT may need allocation before a PD leaf. */
-    for (level = 0; level < 2; ++level) {
+    /* Only ancestors before the selected large leaf may need allocation. */
+    for (level = 0; level < TargetLevel; ++level) {
         entry = Shadow->Pages[page].Words[Indices[level]];
         if (!entry) { missing = level; break; }
         if ((entry & ~Shadow->AddressMask & ~0x20ULL) != 7ULL) { return -2; }
@@ -41,19 +41,19 @@ static int KswNshadowTryLarge(KSW_NSHADOW* Shadow,
     }
 
     /* A table already occupying this PD slot may contain 4-KiB leaves. */
-    entry = Shadow->Pages[page].Words[Indices[2]];
+    entry = Shadow->Pages[page].Words[Indices[TargetLevel]];
     if (entry && !(entry & 0x80ULL)) { return -1; }
-    if (2U - missing > Shadow->Capacity - Shadow->Used) { return -3; }
+    if (TargetLevel - missing > Shadow->Capacity - Shadow->Used) { return -3; }
 
-    for (level = missing; level < 2; ++level) {
+    for (level = missing; level < TargetLevel; ++level) {
         unsigned int child = Shadow->Used++;
         KswNshadowClear(Shadow->Pages[child].Words);
         Shadow->Pages[page].Words[Indices[level]] = Shadow->Pages[child].Physical | 7ULL;
         page = child;
     }
-    entry = Shadow->Pages[page].Words[Indices[2]];
+    entry = Shadow->Pages[page].Words[Indices[TargetLevel]];
     if (!entry || entry != Leaf) {
-        Shadow->Pages[page].Words[Indices[2]] = Leaf;
+        Shadow->Pages[page].Words[Indices[TargetLevel]] = Leaf;
         Shadow->FlushPending = 1;
     }
     return 0;
@@ -154,7 +154,21 @@ unsigned int KswSvmNestedShadowInstall(KSW_NSHADOW* Shadow, const KSW_NMMU_RESUL
         ((Result->Leaf & 2ULL) && !(Result->Leaf & 0x40ULL))) { return KSW_NSHADOW_INVALID; }
     /* Compute each index from the original L2 GPA, never from the final host PA. */
     for (level = 0; level < 4; ++level) { indices[level] = (unsigned int)((Result->Gpa >> (39U - 9U * level)) & 511ULL); }
-    /* A pair of aligned large source leaves covers the complete 2-MiB span. */
+    /* A pair of aligned 1-GiB source leaves covers the complete large span. */
+    if ((Result->Inner.LeafShift >= 30U && Result->Outer.LeafShift >= 30U) &&
+        ((Result->Gpa ^ Result->Inner.Address) & 0x3fffffffULL) == 0ULL &&
+        ((Result->Gpa ^ Result->Outer.Address) & 0x3fffffffULL) == 0ULL) {
+        unsigned int pat = (unsigned int)(((Result->Leaf >> 3) & 3ULL) |
+            (((Result->Leaf >> 7) & 1ULL) << 2));
+        KSW_SVM_U64 large = (Result->Outer.Address & Shadow->AddressMask & ~0x3fffffffULL) |
+            (Result->Leaf & (0x7ULL | 0x18ULL | 0x60ULL | KSW_NNPT_NX)) |
+            (KswNptLeafFlags(3U, pat) & ~7ULL);
+        int largeStatus = KswNshadowTryLarge(Shadow, indices, 1U, large);
+        if (largeStatus >= 0) { return (unsigned int)largeStatus; }
+        if (largeStatus == -3) { return KSW_NSHADOW_FULL; }
+        if (largeStatus == -2) { return KSW_NSHADOW_INVALID; }
+    }
+    /* A pair of aligned 2-MiB source leaves covers the complete smaller span. */
     if ((Result->Inner.LeafShift >= 21U && Result->Outer.LeafShift >= 21U) &&
         ((Result->Gpa ^ Result->Inner.Address) & 0x1fffffULL) == 0ULL &&
         ((Result->Gpa ^ Result->Outer.Address) & 0x1fffffULL) == 0ULL) {
@@ -163,7 +177,7 @@ unsigned int KswSvmNestedShadowInstall(KSW_NSHADOW* Shadow, const KSW_NMMU_RESUL
         KSW_SVM_U64 large = (Result->Outer.Address & Shadow->AddressMask & ~0x1fffffULL) |
             (Result->Leaf & (0x7ULL | 0x18ULL | 0x60ULL | KSW_NNPT_NX)) |
             (KswNptLeafFlags(2U, pat) & ~7ULL);
-        int largeStatus = KswNshadowTryLarge(Shadow, indices, large);
+        int largeStatus = KswNshadowTryLarge(Shadow, indices, 2U, large);
         if (largeStatus >= 0) { return (unsigned int)largeStatus; }
         if (largeStatus == -3) { return KSW_NSHADOW_FULL; }
         if (largeStatus == -2) { return KSW_NSHADOW_INVALID; }
