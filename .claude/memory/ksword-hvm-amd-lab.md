@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-24 v8诊断补充：用户怀疑正常VM应单核连续而当前多核来回切换。metrics8新增ownerTransitions与ownerCpuTransitions；后者由VMCB owner table记录上一次Windows group:number，表示同一VMCB跨CPU接手的相关信号，不等于证明guest线程迁移。缓存资格、调度、TLB策略不变。新离线session2620、CLI JSON与WDK/API/CAT零警告通过；候选仍未签/加载。
+
 2026-09-24 v8静态收尾：metrics8候选已提交前完成重新构建；23离线HVM目标、CLI JSON/PS5.1/命令一致性/IOCTL门、差值分析器均PASS，WDK/API/CAT零警告；主程序Release兼容编译链接退出0，仅既有测试证书信任校验warning。候选目录tools/hvm_lab/artifacts/npt-cache-stats-v8含未签SYS/PDB、v8CLI、导出器、分析器、identity和构建日志，SYS/PDB RSDS匹配。当前未提权、未换版；现有npt-transfer-cache-v7和VM现场保持。
 
 2026-09-24 诊断候选npt-cache-stats-v8：因用户仍logo/约1/20速度且观察核心交替忙，新增逐核NPT缓存lookups/hits/resets/resetFailures及18类重叠原因（disabled/cold/epoch/owner/TLB/13keys），另导出INVLPGA和pool回收。仅诊断，不改变缓存资格或硬件flush；ownerChanged不是直接线程迁移证据。metrics升8，匹配CLI与导出器/离线分析器已更新，GUI二进制未重建。23HVM目标PASS、session2616，CLI JSON/旧版及短包拒绝、PS5.1、差值分析器/证据门/命令一致性/IOCTL门通过；WDK/API/CAT零警告。候选tools/hvm_lab/artifacts/npt-cache-stats-v8未签未加载；当前仍npt-transfer-cache-v7驱动32核与8核VM现场，无停止/重置。下一步用户签新SYS，配同目录v8CLI安全换版，logo阶段成对采样原因后再选性能修复。报告docs/next/evidence/amd-npt-cache-stats.md。

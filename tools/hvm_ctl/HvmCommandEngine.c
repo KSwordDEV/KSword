@@ -7530,10 +7530,12 @@ static void PrintNptCacheJson(const KSWORD_ARK_HVM_SVM_GENERAL_METRICS* general)
     unsigned i;
     printf(",\"nptCache\":{\"valid\":%lu,\"sequence\":\"%llu\",\"saturated\":%lu,"
         "\"lookups\":\"%llu\",\"hits\":\"%llu\",\"resets\":\"%llu\",\"resetFailures\":\"%llu\","
+        "\"ownerTransitions\":\"%llu\",\"ownerCpuTransitions\":\"%llu\","
         "\"lastMissMask\":\"0x%08lX\",\"invlpgaCount\":\"%llu\",\"poolRecycles\":\"%llu\","
         "\"shadowEpoch\":\"%llu\",\"reasons\":{",
         general->valid, general->sequence, stats->saturated, stats->lookups, stats->hits,
-        stats->resets, stats->resetFailures, stats->lastMissMask, general->invlpgaCount,
+        stats->resets, stats->resetFailures, stats->ownerTransitions, stats->ownerCpuTransitions,
+        stats->lastMissMask, general->invlpgaCount,
         general->cacheRecycles, general->shadowEpoch);
     for (i = 0; i < KSW_HVM_NPT_CACHE_REASONS; ++i) {
         printf("%s\"%s\":\"%llu\"", i ? "," : "", reasons[i], stats->reasons[i]);

@@ -134,6 +134,12 @@ unsigned int KswSvmNestedSessionEnter(KSW_NSVM_SESSION* Session,
     Session->OwnerStatus = status;
     /* A concurrently owned operand cannot overwrite another CPU's live VMCB output. */
     if (status != KSW_NSVM_LEASE_OK) { return KSW_NSVM_ACTION_UNSUPPORTED; }
+    if (Session->Lease.PreviousToken) {
+        KswHvmNptCacheCount(&Session->CacheStats, &Session->CacheStats.ownerTransitions);
+        if (Session->Lease.PreviousCpuIdentity != Io->CpuIdentity) {
+            KswHvmNptCacheCount(&Session->CacheStats, &Session->CacheStats.ownerCpuTransitions);
+        }
+    }
     /* The first read found the identity; only a snapshot taken under the lease may execute. */
     status = KswSvmNestedReadOperandPage(&Io->Operand, OperandPa,
         (unsigned char*)&Session->Vmcb12, &Session->OperandResult);

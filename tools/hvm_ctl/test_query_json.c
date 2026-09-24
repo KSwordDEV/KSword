@@ -38,6 +38,8 @@ static BOOL WINAPI FakeDeviceIoControl(HANDLE device, DWORD code, LPVOID input,
         cpu->general.nptCache.hits = 0x10000000aULL;
         cpu->general.nptCache.resets = 5;
         cpu->general.nptCache.resetFailures = 1;
+        cpu->general.nptCache.ownerTransitions = 9;
+        cpu->general.nptCache.ownerCpuTransitions = 3;
         cpu->general.nptCache.reasons[KSW_HVM_NPT_CACHE_OWNER] = 4;
         cpu->general.nptCache.reasons[KSW_HVM_NPT_CACHE_KEY_BASE + 4] = 2;
         cpu->general.nptCache.lastMissMask = (1U << KSW_HVM_NPT_CACHE_OWNER);

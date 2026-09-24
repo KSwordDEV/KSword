@@ -38,6 +38,12 @@ unsigned int KswSvmNestedSessionTransfer(KSW_NSVM_SESSION* Session,
         Io->CpuIdentity, &Session->Lease);
     /* Busy/exhaustion is an implementation admission result, not an invented #GP. */
     if (Session->OwnerStatus != KSW_NSVM_LEASE_OK) { return KSW_NSVM_ACTION_UNSUPPORTED; }
+    if (Session->Lease.PreviousToken) {
+        KswHvmNptCacheCount(&Session->CacheStats, &Session->CacheStats.ownerTransitions);
+        if (Session->Lease.PreviousCpuIdentity != Io->CpuIdentity) {
+            KswHvmNptCacheCount(&Session->CacheStats, &Session->CacheStats.ownerCpuTransitions);
+        }
+    }
     /* Re-read only after all monitor-managed users of this physical VMCB are excluded. */
     status = KswSvmNestedReadOperandPage(&Io->Operand, OperandPa,
         (unsigned char*)&Session->Vmcb12, &Session->OperandResult);

@@ -485,7 +485,7 @@ AMD metrics v7 增加 `svmProcessors[].hotspots`，按原始硬件退出时的 L
 v7驱动必须配套重新构建的CLI/主程序；导出脚本继续支持历史v6，不能用v7 CLI向v6驱动查询metrics。
 
 AMD metrics v8 增加 `svmProcessors[].nptCache`，与 `general` 共用有效位和序列。
-`lookups/hits/resets/resetFailures` 分别统计进入阶段的缓存检查、命中、成功清空和清空失败；
+`lookups/hits/resets/resetFailures` 分别统计进入阶段的缓存检查、命中、成功清空和清空失败；`ownerTransitions/ownerCpuTransitions` 分别统计重复接手和跨 Windows group:number 接手；
 `reasons` 区分未启用复用、冷缓存、epoch、所有权令牌、TLB 请求及 13 个配置键变化。
 同一次未命中可能包含多个原因，不能把原因次数相加当作清空总数。`ownerChanged` 不直接证明 Windows 线程迁移。
 `invlpgaCount/poolRecycles` 分别统计虚拟 INVLPGA 和页表池回收；它们可能同时造成下一次检查的 `epochChanged`。

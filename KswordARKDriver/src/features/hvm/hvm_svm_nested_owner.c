@@ -39,7 +39,9 @@ unsigned KswSvmNestedOwnerAcquire(KSW_NSVM_OWNER_TABLE* Table, KSW_SVM_U64 HostP
         /* This CPU now owns both the operand snapshot and subsequent architectural output. */
         Lease->HostPa = HostPa; Lease->Token = (KSW_SVM_U64)token;
         Lease->PreviousToken = Table->Slots[slot].LastToken;
+        Lease->PreviousCpuIdentity = (unsigned)_InterlockedCompareExchange(&Table->Slots[slot].LastCpuIdentity, 0, 0);
         Table->Slots[slot].LastToken = Lease->Token;
+        Table->Slots[slot].LastCpuIdentity = (long)CpuIdentity;
         /* Retain frozen topology identity for failure evidence and release bookkeeping. */
         Lease->Slot = slot; Lease->CpuIdentity = CpuIdentity;
         /* There was no allocation or wait at root execution level. */

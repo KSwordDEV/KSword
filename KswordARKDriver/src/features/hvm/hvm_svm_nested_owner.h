@@ -15,6 +15,7 @@ typedef struct _KSW_NSVM_OWNER_SLOT {
     /* Zero means idle; a nonzero token is unique throughout this prepared lifetime. */
     volatile long long Token;
     KSW_SVM_U64 LastToken;
+    volatile long LastCpuIdentity;
     /* Deferred guest events follow this VMCB across physical CPUs while its lease is idle. */
     KSW_SVM_U64 Deferred[KSW_NSVM_PENDING_CAPACITY];
     /* Published atomically for teardown; payload access requires this slot's exclusive lease. */
@@ -32,6 +33,7 @@ typedef struct _KSW_NSVM_LEASE {
     /* The pair binds writeback and release to the exact translated page and acquisition. */
     KSW_SVM_U64 HostPa, Token;
     KSW_SVM_U64 PreviousToken;
+    unsigned PreviousCpuIdentity;
     /* CPU identity is Windows group:number packed as two 16-bit values, never APIC ID. */
     unsigned Slot, CpuIdentity;
 } KSW_NSVM_LEASE;

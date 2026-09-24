@@ -317,6 +317,8 @@ static int test_cache_transfer_chain(void)
             CHECK(KswSvmNestedOwnerRelease(&m->owners, &other));
             CHECK(cache_transfer(m, 0x9000, scenario) == 0);
             CHECK(m->session.CacheOwnerToken == token);
+            CHECK(m->session.CacheStats.ownerTransitions > 0);
+            CHECK(m->session.CacheStats.ownerCpuTransitions == (scenario == 1 ? 1U : 0U));
         } else if (scenario < 4) {
             m->failCommit = scenario - 1;
             KswSvmWrite64(&m->current, KSW_VMCB_NRIP, KswSvmRead64(&m->current, KSW_VMCB_RIP) + 3);
