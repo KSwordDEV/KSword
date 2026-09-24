@@ -270,11 +270,21 @@ ULONG KswordSvmNestedGeneralEntry(KSW_SVM_CPU* Cpu)
          action == KSW_NSVM_MACHINE_SHUTDOWN) ? KSW_HVM_FLIGHT_INTERNAL : 0U, 2U);
     /* Host IF is installed by assembly while physical GIF remains closed. */
     if (action == KSW_NSVM_MACHINE_READY) { Cpu->HostInterruptsAllowed = Cpu->Nested->GeneralMachine.Overlay.HostIf; }
-    /* Flush only after NPT02 publication/reset; ordinary VMEXIT re-entry keeps translations. */
+    /* Flush only after NPT02 publication/reset or an L1 TLB_CONTROL request. */
     if (action == KSW_NSVM_MACHINE_READY) {
-        /* AMD TLB_CONTROL=3 flushes only this ASID when FlushByASID is exposed. */
-        Cpu->NestedTlbControl = Cpu->Nested->Shadow.FlushPending ?
-            ((Cpu->Caps.Features & 64U) ? 3U : 1U) : 0U;
+        /* Preserve the virtual VMCB's architectural flush request without rebuilding NPT02. */
+        unsigned char requested = 0;
+        if (Cpu->Nested->Session.Phase == KSW_NSVM_SESSION_L2) {
+            requested = ((const unsigned char*)&Cpu->Nested->Session.Vmcb12)[KSW_VMCB_TLB];
+        }
+        /* Preserve a guest full/all-context request; software updates need ASID flush. */
+        if (requested == 1U || requested == 7U) {
+            Cpu->NestedTlbControl = requested;
+        } else if (requested == 3U || Cpu->Nested->Shadow.FlushPending) {
+            Cpu->NestedTlbControl = (Cpu->Caps.Features & 64U) ? 3U : 1U;
+        } else {
+            Cpu->NestedTlbControl = 0U;
+        }
         Cpu->Nested->Shadow.FlushPending = 0;
     } else {
         Cpu->NestedTlbControl = 1U;
