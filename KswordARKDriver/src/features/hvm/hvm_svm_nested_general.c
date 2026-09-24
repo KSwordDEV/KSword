@@ -175,7 +175,12 @@ NTSTATUS KswordSvmNestedInitializeGeneral(KSW_SVM_CPU* Cpu)
     /* Both merged maps are hardware-contiguous prepared buffers. */
     io->MergedMsr = nested->MergedMaps; io->MergedIo = nested->MergedMaps + KSW_NSVM_MSRPM_BYTES;
     /* Guest-provided addresses are never substituted for these physical map identities. */
-    io->MsrPa = nested->MergedMapsPa; io->IoPa = nested->MergedMapsPa + KSW_NSVM_MSRPM_BYTES; io->Asid = 1;
+    io->MsrPa = nested->MergedMapsPa; io->IoPa = nested->MergedMapsPa + KSW_NSVM_MSRPM_BYTES;
+    if (io->Policy.AsidCount < 4U) { return STATUS_NOT_SUPPORTED; }
+    /* L1 uses hardware ASID 1. Give each CPU's L2 a stable private ASID so
+       NPT01 translations can never be reused for NPT02. */
+    io->Asid = 2U + ((ULONG)Cpu->Resource->Row.processorGroup << 8) + Cpu->Resource->Row.processorNumber;
+    if (!KswSvmAsidValid(io->Policy.AsidCount, io->Asid)) { io->Asid = 2U + (nested->CpuIdentity % (io->Policy.AsidCount - 2U)); }
     /* The initial L0 intercept set is immutable even when per-entry masking overlays change MISC1. */
     io->OuterPermissions.Flags = (unsigned)KswSvmRead64(Cpu->Guest, KSW_VMCB_MISC1);
     /* L1 cannot weaken a bit in either immutable outer bitmap. */
@@ -392,3 +397,4 @@ BOOLEAN KswordSvmNestedCompleteNative(KSW_SVM_CPU* Cpu)
     /* Do not clear counters, raw exits, failures, maps or NMI descriptors on the acknowledgement path. */
     InterlockedIncrement64(&nested->GeneralSequence); return TRUE;
 }
+

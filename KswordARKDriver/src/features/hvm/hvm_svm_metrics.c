@@ -141,7 +141,7 @@ VOID KswordSvmMetrics(KSW_HVM_RUNTIME* Runtime, KSWORD_ARK_HVM_METRICS_RESPONSE*
         /* Cleanup does not overwrite the cause that required it. */
         output->failureStatus = (ULONG)cpu->FailureStatus; output->failureStage = cpu->FailureStage;
         /* The initial implementation reserves ASID one per processor. */
-        output->asid = 1;
+        output->asid = cpu->Nested && cpu->Nested->GeneralInitialized ? cpu->Nested->GeneralIo.Asid : 1;
         /* MSR validity is independent of whether a VMEXIT record exists. */
         output->msrValidMask = cpu->Caps.Valid; output->svmFeatures = cpu->Caps.Features;
         /* Preserve enumeration used by allocation and ASID selection. */
