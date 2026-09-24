@@ -162,6 +162,7 @@ NTSTATUS KswordSvmNestedInitializeGeneral(KSW_SVM_CPU* Cpu)
     io->Operand.PhysicalBits = Cpu->Caps.PhysicalBits; io->Operand.Page1Gb = Cpu->Caps.Page1Gb;
     /* No physical callback allocates or retains a mapped pointer across calls. */
     io->Operand.Nx = nested->Config.OuterNx; io->Operand.Read = KswordSvmNestedRead; io->Operand.Context = nested;
+    io->Operand.ReadPage = KswordSvmNestedReadPage;
     /* Virtual capabilities cannot exceed what this prepared CPU can restore natively. */
     io->Policy.PhysicalBits = Cpu->Caps.PhysicalBits; io->Policy.AsidCount = Cpu->Caps.AsidCount;
     /* This first general contract still explicitly rejects unsupported CR4/EFER extensions. */

@@ -41,6 +41,25 @@ int KswordSvmNestedRead(void* Context, KSW_SVM_U64 Address, KSW_SVM_U64* Value)
     return 1;
 }
 
+int KswordSvmNestedReadPage(void* Context, KSW_SVM_U64 Address,
+    unsigned char* Destination, unsigned* WordsRead)
+{
+    KSW_SVM_NESTED* nested = (KSW_SVM_NESTED*)Context;
+    volatile VOID* mapped = NULL;
+    unsigned word, byte;
+    if (!WordsRead) { return 0; }
+    *WordsRead = 0;
+    if (!Destination || (Address & 4095ULL) || !KswordSvmNestedRamRange(nested, Address, 4096) ||
+        KswordARKHvmPhysWindowMap(nested->Window, Address, 4096, &mapped) != KSW_HVM_PHYS_WINDOW_OK) { return 0; }
+    for (word = 0; word < 512; ++word) {
+        ULONGLONG value = ((volatile ULONGLONG*)mapped)[word];
+        for (byte = 0; byte < 8; ++byte) { Destination[word * 8 + byte] = (unsigned char)(value >> (byte * 8)); }
+    }
+    KswordARKHvmPhysWindowUnmap(nested->Window);
+    *WordsRead = 512;
+    return 1;
+}
+
 /* Publish A/D without overwriting a concurrent frame/permission change. */
 int KswordSvmNestedCompareOr(void* Context, KSW_SVM_U64 Address,
     KSW_SVM_U64 Expected, KSW_SVM_U64 Bits)

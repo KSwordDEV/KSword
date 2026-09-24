@@ -114,6 +114,8 @@ NTSTATUS KswordSvmNestedBuildProbe(KSW_SVM_CPU* Cpu);
 ULONG KswordSvmNestedProbeExit(KSW_SVM_CPU* Cpu);
 /* Physical RAM callbacks for production MMU resolution, not the host-test adapter. */
 int KswordSvmNestedRead(void* Context, KSW_SVM_U64 Address, KSW_SVM_U64* Value);
+int KswordSvmNestedReadPage(void* Context, KSW_SVM_U64 Address,
+    unsigned char* Destination, unsigned* WordsRead);
 /* Atomic source A/D commit through the same per-processor physical window. */
 int KswordSvmNestedCompareOr(void* Context, KSW_SVM_U64 Address, KSW_SVM_U64 Expected, KSW_SVM_U64 Bits);
 /* Validate the complete word/page against the retained outer RAM inventory. */

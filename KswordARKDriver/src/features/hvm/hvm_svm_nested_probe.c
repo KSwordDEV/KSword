@@ -12,6 +12,7 @@ static VOID KswNsvmProbeIo(KSW_SVM_CPU* Cpu, KSW_NSVM_OPERAND_IO* Io)
     Io->PhysicalBits = nested->Config.OuterBits; Io->Page1Gb = nested->Config.OuterPage1Gb;
     /* The same platform callback protects page-table and final data RAM reads. */
     Io->Nx = nested->Config.OuterNx; Io->Read = KswordSvmNestedRead; Io->Context = nested;
+    Io->ReadPage = NULL;
 }
 
 /* Select the probe's prepared storage for the same transaction used by general VMRUN. */

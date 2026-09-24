@@ -51,8 +51,11 @@ unsigned int KswSvmNestedReadOperandPage(const KSW_NSVM_OPERAND_IO* Io,
     }
     /* A 4-KiB aligned GPA remains aligned through supported 4K/2M/1G mappings. */
     Result->HostPa = walk.Address;
-    /* Every read still passes the trusted RAM inventory check in the platform callback. */
-    for (offset = 0; offset < 4096U; offset += 8U) {
+    if (Io->ReadPage) {
+        if (!Io->ReadPage(Io->Context, walk.Address, Destination, &Result->Words) || Result->Words != 512U) {
+            return KswNsvmOperandFail(Destination, Result, KSW_NNPT_UNREADABLE);
+        }
+    } else for (offset = 0; offset < 4096U; offset += 8U) {
         /* The current page's full physical range is within the successfully walked leaf. */
         if (!Io->Read(Io->Context, walk.Address + offset, &value)) {
             /* Preserve partial progress, but remove the partial data itself. */

@@ -12,6 +12,8 @@ typedef struct _KSW_NSVM_OPERAND_IO {
     KSW_NNPT_READ Read;
     /* Context must not contain a window shared with another running processor. */
     void* Context;
+    int (*ReadPage)(void* Context, KSW_SVM_U64 HostPa,
+        unsigned char* Destination, unsigned* WordsRead);
 } KSW_NSVM_OPERAND_IO;
 
 /* Results distinguish a denied outer mapping from a missing physical operand. */

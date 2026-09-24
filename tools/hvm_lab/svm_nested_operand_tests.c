@@ -11,16 +11,34 @@ static KSW_NSVM_OPERAND_IO io;
 static KSW_NSVM_OPERAND_RESULT result;
 static KSW_SVM_U64 failAt, mutateBits;
 static unsigned payloadReads;
+static unsigned bulkMode, pageCalls, wordCalls, shortSuccess;
 
 static int read_word(void* context, KSW_SVM_U64 address, KSW_SVM_U64* value)
 {
     (void)context;
+    ++wordCalls;
     if ((address & 7) || address >= sizeof(ram) || address == failAt) { return 0; }
     *value = ram[address >> 12][(address & 4095) >> 3];
     if (address >= 0x6000 && address < 0x7000) {
         ++payloadReads;
         if (address == 0x6ff8) { ram[4][9] ^= mutateBits; }
     }
+    return 1;
+}
+static int read_page(void* context, KSW_SVM_U64 address, unsigned char* destination, unsigned* words)
+{
+    unsigned i;
+    (void)context;
+    ++pageCalls; *words = 0;
+    if ((address & 4095) || address > sizeof(ram) - 4096) { return 0; }
+    for (i = 0; i < 512; ++i) {
+        if (address + i * 8ULL == failAt) { return 0; }
+        memcpy(destination + i * 8, &ram[address >> 12][i], 8);
+        ++*words;
+        if (address == 0x6000) { ++payloadReads; }
+    }
+    if (address == 0x6000) { ram[4][9] ^= mutateBits; }
+    if (shortSuccess) { *words = 511; }
     return 1;
 }
 static void reset(void)
@@ -32,6 +50,8 @@ static void reset(void)
     for (i = 0; i < 512; ++i) { ram[6][i] = 0x0807060504030201ULL ^ i; }
     io.Root = 0x1000; io.Pat = 0x0007010600070106ULL;
     io.PhysicalBits = 45; io.Page1Gb = 1; io.Nx = 1; io.Read = read_word; io.Context = NULL;
+    io.ReadPage = bulkMode ? read_page : NULL;
+    pageCalls = wordCalls = shortSuccess = 0;
     failAt = ~0ULL; mutateBits = 0; payloadReads = 0;
 }
 static int cleared(void)
@@ -43,10 +63,12 @@ static int cleared(void)
 int main(void)
 {
     unsigned i;
+    for (bulkMode = 0; bulkMode < 2; ++bulkMode) {
     reset();
     CHECK(KswSvmNestedReadOperandPage(&io, 0x9000, output, &result) == KSW_NNPT_OK);
     CHECK(result.HostPa == 0x6000 && result.GuestPa == 0x9000 && result.Words == 512);
     CHECK(!memcmp(output, ram[6], 4096));
+    CHECK(wordCalls == (bulkMode ? 8U : 520U) && pageCalls == bulkMode);
     /* Inject failure in every one of the 512 reads, not just at page boundaries. */
     for (i = 0; i < 512; ++i) {
         reset(); failAt = 0x6000 + (KSW_SVM_U64)i * 8;
@@ -85,6 +107,10 @@ int main(void)
     reset(); ram[2][0] = 0x87; /* Likewise for a 1-GiB outer leaf. */
     CHECK(KswSvmNestedReadOperandPage(&io, 0x6000, output, &result) == KSW_NNPT_OK);
     CHECK(result.HostPa == 0x6000 && !memcmp(output, ram[6], 4096));
+    }
+    bulkMode = 1; reset(); shortSuccess = 1;
+    CHECK(KswSvmNestedReadOperandPage(&io, 0x9000, output, &result) == KSW_NNPT_UNREADABLE);
+    CHECK(result.Words == 511 && cleared() && pageCalls == 1);
     printf("SVM_OPERAND_CHECKS=%u RESULT=PASS (no hardware executed)\n", checks);
     return 0;
 }
