@@ -165,11 +165,11 @@ KswSvmRun:
 KswSvmPreparedEntry:
     mov rcx, [rsp+20h]           ; Restore processor context after any C call.
     mov rbx, [rcx+10h]           ; VMCB virtual address.
-    cmp qword ptr [rcx+140h], 0  ; General nested entries use the shadow-cache decision.
+    cmp qword ptr [rcx+140h], 0  ; General nested entries use a distinct NPT context.
     je KswSvmFullTlbFlush        ; Baseline residency and bounded probes retain the full flush.
-    mov al, byte ptr [rcx+148h]  ; 0 keeps NPT02 translations; 1 flushes after a cache change.
-    mov byte ptr [rbx+5ch], al
-    jmp KswSvmTlbSelected
+    ; L1 and L2 currently share software ASID 1, while their NPT roots differ.
+    ; Retaining translations across that boundary is architecturally unsafe.
+    mov byte ptr [rbx+5ch], 1    ; Full flush before every L2 entry.
 KswSvmFullTlbFlush:
     mov byte ptr [rbx+5ch], 1    ; Full TLB flush for ordinary residency and bounded probes.
 KswSvmTlbSelected:
