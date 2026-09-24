@@ -81,8 +81,12 @@ static unsigned KswNsvmResolve(KSW_NSVM_EXECUTION* Execution)
     KSW_SVM_U64 gpa = KswSvmRead64(Execution->Current, KSW_VMCB_EXITINFO2);
     /* Real failures and cache-capacity recycling are separate outcomes. */
     unsigned status;
-    /* A malicious or unstable guest table must not create an unbounded root-only retry loop. */
-    if (++Execution->NpfRetries > 64) { return KSW_NSVM_EXEC_FAULT; }
+    /* A stale shadow walk must not turn into a host bugcheck after the bounded retry budget.
+       Return the original NPF to L1 so its NPT12 owner can repair or reject the mapping. */
+    if (++Execution->NpfRetries > 64) {
+        Execution->NpfRetries = 0;
+        return KswSvmNestedReturnL1(Execution);
+    }
     /* All physical memory access goes through the prepared RAM/window callbacks. */
     status = KswSvmNestedMmuResolve(Execution->Io->Mmu, &Execution->MmuIo, gpa,
         (unsigned)(info & (KSW_NNPT_WRITE | KSW_NNPT_EXECUTE)), info & (KSW_NMMU_FINAL | KSW_NMMU_TABLE), &Execution->Translation);
