@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-24 性能候选npt-walk-cache-v7：用户报告Windows一直自动修复，要求优先性能。新增单次MmuResolve四项NPT01已提交翻译缓存，仅general明确OuterImmutable=1；probe=0/通用默认0。NPT12重读/全路径CAS及RAM门保留，缓存不跨resolve；跨VMRUN键、owner、TLBflush均不改。相同结果和完整页表内容对照，4K读取112→48/更新56→24，2M86→20/43→10，1G60→16/30→8；含非身份映射/失败/变更/下一次重映射/缓存权限，23离线目标PASS、nested5228；WDK/API/CAT零警告。候选tools/hvm_lab/artifacts/npt-walk-cache-v7未签名未加载，沿用metrics7CLI。报告docs/next/evidence/amd-npt-walk-cache.md。不能把回调减少57%-77%说成虚拟机速度增幅；实际性能和正常开机待签后换版实测。当前softint-npf-v7驱动32核及8核VM运行现场保持，没有停止/重置/卸载。
+
 2026-09-24 softint-npf-v7实测最新：已重启到LabHostReady，boot01:42:30.5Z；正常SCM加载签后修复版，32/32 selftest/general resident及5秒复核PASS。09:46启动既有8核克隆，vmrun0；用户确认Windows logo并正在准备自动修复，未卡住但目测性能<30%（非基准）。a-f六次快照32resident/lastStatus0、热点全有效；e/f10.766秒L2增2950230/NPF2871252，性能瓶颈仍在。Tools短暂running后超时，不等于桌面开机通过。无一致flight终止锁存，但部分CPU flight/general无效必须保留未知。证据artifacts/softint-npf-v7-live-20260924-094511；报告docs/next/evidence/amd-softint-npf-live.md。当前32核驱动和8核VM仍运行，未停止/重置/卸载，不要重复start或换版。用户正常开机会告知；继续只读采集。最新通过仅新版宿主32核常驻，完整内层多核OS尚未PASS。
 
 2026-09-24 09:41 重启续接优先：用户明确同意“现在切换并重启”。已提权执行Enter-AmdLab -NoRestart成功，target946da84e-b34f-11f1-bbb6-9074aed049fd；再-Check=PendingReboot，reboot-ready=READY，日志仍在softint-npf-v7-live-20260924-093828。接下来发起正常/r /t0（不/f）；新会话首先检查LabHostReady和bootId是否改变。softint-npf-v7已签并正常SCM加载/卸载过，目前驱动Manual/Stopped，无VM。下一步用新的证据目录运行已保存Load-Activate/Start-Resident/Start-Sample（更新脚本base到新目录），验证32核后启动既有8核克隆，用户授权继续测试；不要沿用旧done/error文件或再加载operand-page-v7。此次重启授权仅为切实验项，不是循环重启授权。

@@ -27,6 +27,8 @@ typedef struct _KSW_NMMU_CONFIG {
     unsigned int InnerBits, OuterBits, InnerPage1Gb, OuterPage1Gb;
     /* NX reserved-bit checks follow the corresponding page-table owner's EFER. */
     unsigned int InnerNx, OuterNx;
+    /* Mapping/permissions of NPT01 must remain fixed throughout this resolve; A/D may change. */
+    unsigned int OuterImmutable;
 } KSW_NMMU_CONFIG;
 
 /* Callbacks operate on host physical RAM, validate ownership, and never allocate. */

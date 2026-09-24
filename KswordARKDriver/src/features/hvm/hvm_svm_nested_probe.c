@@ -152,6 +152,7 @@ NTSTATUS KswordSvmNestedBuildProbe(KSW_SVM_CPU* Cpu)
     nested->Config.InnerRoot = nested->Outer->RootPa;
     /* The outer root stays immutable apart from hardware/software A/D. */
     nested->Config.OuterRoot = nested->Outer->RootPa;
+    nested->Config.OuterImmutable = 0;
     /* This bounded test uses the already validated, unchanged hardware PAT at all levels. */
     nested->Config.InnerPat = nested->Config.OuterPat = nested->Config.HardwarePat = Cpu->Caps.Pat;
     /* Match candidate translations to the newly reset software cache. */

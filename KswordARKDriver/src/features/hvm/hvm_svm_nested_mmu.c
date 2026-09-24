@@ -1,6 +1,10 @@
 /* AMD NPT composition. Hardware publication/ASID invalidation is a separate owner. */
 #include "hvm_svm_nested_mmu.h"
 
+typedef struct _KSW_NMMU_TABLE_CACHE {
+    KSW_SVM_U64 InputBase, OutputBase, OffsetMask;
+} KSW_NMMU_TABLE_CACHE;
+
 /* Keep the walk adapter on the caller's nonpaged exit stack. */
 typedef struct _KSW_NMMU_CONTEXT {
     /* Immutable roots, capability limits and PAT layouts. */
@@ -11,6 +15,8 @@ typedef struct _KSW_NMMU_CONTEXT {
     KSW_NMMU_RESULT* Result;
     /* Callback failures have more precise status than a generic unreadable slot. */
     unsigned int CallbackStatus;
+    KSW_NMMU_TABLE_CACHE Tables[4];
+    unsigned int TableCount;
 } KSW_NMMU_CONTEXT;
 
 /* Count actual reads; never infer success from an initialized output value. */
@@ -54,7 +60,17 @@ static unsigned int KswNmmuTableAddress(KSW_NMMU_CONTEXT* Context,
     /* Alias the immutable owner configuration. */
     const KSW_NMMU_CONFIG* config = Context->Config;
     /* Never read a guest-physical table as if it were host physical. */
-    unsigned int status = KswSvmNestedNptWalk(config->OuterRoot, Address,
+    unsigned int index, status;
+    if (config->OuterImmutable) {
+        for (index = 0; index < Context->TableCount; ++index) {
+            const KSW_NMMU_TABLE_CACHE* cached = &Context->Tables[index];
+            if ((Address & ~cached->OffsetMask) == cached->InputBase) {
+                *Physical = cached->OutputBase | (Address & cached->OffsetMask);
+                return KSW_NNPT_OK;
+            }
+        }
+    }
+    status = KswSvmNestedNptWalk(config->OuterRoot, Address,
         config->OuterBits, config->OuterPage1Gb, config->OuterNx, KSW_NNPT_WRITE,
         KswNmmuReadHost, Context, &path);
     /* Even an inner-table read is an outer user write (APM 15.25.5). */
@@ -80,6 +96,12 @@ static unsigned int KswNmmuTableAddress(KSW_NMMU_CONTEXT* Context,
     }
     /* This slot is writable RAM only if the host callback subsequently admits it. */
     *Physical = path.Address;
+    if (config->OuterImmutable && Context->TableCount < 4U) {
+        KSW_NMMU_TABLE_CACHE* cached = &Context->Tables[Context->TableCount++];
+        cached->OffsetMask = (1ULL << path.LeafShift) - 1ULL;
+        cached->InputBase = Address & ~cached->OffsetMask;
+        cached->OutputBase = path.Address & ~cached->OffsetMask;
+    }
     /* Let the caller perform exactly one word operation. */
     return KSW_NNPT_OK;
 }
@@ -148,6 +170,7 @@ unsigned int KswSvmNestedMmuResolve(const KSW_NMMU_CONFIG* Config,
     context.Result = Result;
     /* Zero means no callback has yet failed. */
     context.CallbackStatus = KSW_NNPT_OK;
+    context.TableCount = 0;
     /* The first walk resolves L2 GPA to L1 GPA through translated table accesses. */
     status = KswSvmNestedNptWalk(Config->InnerRoot, Gpa, Config->InnerBits,
         Config->InnerPage1Gb, Config->InnerNx, Access, KswNmmuReadInner, &context, &Result->Inner);

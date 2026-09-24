@@ -254,6 +254,85 @@ static int test_mmu(void)
     return 0;
 }
 __declspec(align(4096)) static KSW_SVM_U64 shadow_words[8][512];
+static MEMORY cached_expected;
+static KSW_SVM_U64 cached_bias;
+static int cached_read(void* context, KSW_SVM_U64 address, KSW_SVM_U64* value)
+{
+    if (address >= cached_bias) { address -= cached_bias; }
+    return read_word(context, address, value);
+}
+static int cached_compare(void* context, KSW_SVM_U64 address, KSW_SVM_U64 expected, KSW_SVM_U64 bits)
+{
+    if (address >= cached_bias) { address -= cached_bias; }
+    return compare_or(context, address, expected, bits);
+}
+static void setup_cached_mmu(KSW_NMMU_CONFIG* config, KSW_NMMU_IO* io, unsigned large)
+{
+    unsigned i;
+    setup_mmu(config, io);
+    if (!large) { return; }
+    for (i = 0; i < 4; ++i) { memcpy(memory.page[8 + i], memory.page[16 + i], 4096); }
+    cached_bias = large == 3 ? 0x200000ULL : (large == 4 ? 0x40000000ULL : 0);
+    if (large == 1 || large == 3) { memory.page[3][0] = cached_bias | 0x87; }
+    else { memory.page[2][0] = cached_bias | 0x87; }
+    if (cached_bias) { io->Read = cached_read; io->CompareOr = cached_compare; }
+}
+static int test_mmu_table_cache(void)
+{
+    KSW_NMMU_CONFIG config;
+    KSW_NMMU_IO io;
+    KSW_NMMU_RESULT baseline, fast;
+    unsigned large, access, baselineReads, baselineWrites, level, enabled;
+    for (large = 0; large < 5; ++large) {
+        for (access = 0; access <= 2; access += 2) {
+            setup_cached_mmu(&config, &io, large);
+            CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, access, KSW_NMMU_FINAL, &baseline) == KSW_NNPT_OK);
+            cached_expected = memory;
+            baselineReads = memory.reads; baselineWrites = memory.writes;
+            setup_cached_mmu(&config, &io, large); config.OuterImmutable = 1;
+            CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, access, KSW_NMMU_FINAL, &fast) == KSW_NNPT_OK);
+            if (large >= 3) { CHECK(fast.Outer.Address == cached_bias + 0x18123); }
+            CHECK(memory.reads < baselineReads && memory.writes < baselineWrites);
+            CHECK(!memcmp(memory.page, cached_expected.page, sizeof(memory.page)));
+            baseline.Reads = fast.Reads;
+            CHECK(!memcmp(&baseline, &fast, sizeof(fast)));
+            printf("NPT01_CACHE large=%u access=%u reads=%u->%u updates=%u->%u\n",
+                large, access, baselineReads, memory.reads, baselineWrites, memory.writes);
+        }
+    }
+    for (enabled = 0; enabled < 2; ++enabled) {
+        for (level = 0; level < 4; ++level) {
+            setup_mmu(&config, &io); config.OuterImmutable = enabled;
+            memory.mutateCas = ((KSW_SVM_U64)16 + level) * 4096 + (level == 3 ? 16 : 0);
+            CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, KSW_NNPT_WRITE, KSW_NMMU_FINAL, &fast) == KSW_NNPT_RETRY);
+            CHECK(fast.Leaf == 0);
+            setup_mmu(&config, &io); config.OuterImmutable = enabled;
+            memory.failRead = ((KSW_SVM_U64)16 + level) * 4096 + (level == 3 ? 16 : 0);
+            CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_FINAL, &fast) == KSW_NNPT_UNREADABLE);
+            CHECK(!fast.Leaf && fast.FaultOwner == KSW_NMMU_PHYSICAL && fast.FaultAddress == memory.failRead);
+        }
+    }
+    setup_mmu(&config, &io); config.OuterImmutable = 1;
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_TABLE, &fast) == KSW_NNPT_OK);
+    CHECK((fast.Leaf & 0x62) == 0x62);
+    memory.page[4][24] = 0x29007; ++config.Epoch;
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_FINAL, &fast) == KSW_NNPT_OK);
+    CHECK((fast.Leaf & KSW_NNPT_FRAME) == 0x29000 && !(fast.Leaf & 2));
+    memory.page[4][9] &= ~2ULL;
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_FINAL, &fast) == KSW_NNPT_FAULT);
+    CHECK(!fast.Leaf && fast.FaultOwner == KSW_NMMU_OUTER_TABLE && fast.FaultAddress == 0x9000);
+    setup_mmu(&config, &io); config.OuterImmutable = 1;
+    memory.page[19][2] |= 0x18;
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_FINAL, &fast) == KSW_NNPT_OK);
+    CHECK((fast.Leaf & 0x18) == 0x18);
+    config.HardwarePat = 0x0606060606060606ULL;
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_FINAL, &fast) == KSW_NNPT_UNSUPPORTED && !fast.Leaf);
+    setup_mmu(&config, &io); config.OuterImmutable = 1;
+    memory.page[19][2] |= KSW_NNPT_NX;
+    CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, KSW_NNPT_EXECUTE, KSW_NMMU_FINAL, &fast) == KSW_NNPT_FAULT);
+    CHECK(!fast.Leaf && fast.FaultOwner == KSW_NMMU_INNER);
+    return 0;
+}
 static int test_large_span(void)
 {
     KSW_NSHADOW_PAGE pages[4];
@@ -551,7 +630,7 @@ int main(void)
 {
     KSW_NSVM_MSRS msrs = {0xd01, 0, 8, 0};
     KSW_SVM_U64 value;
-    if (test_walk() || test_ad() || test_mmu() || test_shadow() || test_large_span() || test_state() || test_resume_event() || test_npf_software_event()) { return 1; }
+    if (test_walk() || test_ad() || test_mmu() || test_mmu_table_cache() || test_shadow() || test_large_span() || test_state() || test_resume_event() || test_npf_software_event()) { return 1; }
     msrs.AddressMask = KswNptAddressMask(45);
     value = 0x1d01;
     CHECK(KswSvmNestedMsrAccess(&msrs, KSW_SVM_MSR_EFER, 1, &value) == KSW_NSVM_MSR_OK);

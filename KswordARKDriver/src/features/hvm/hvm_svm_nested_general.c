@@ -150,6 +150,7 @@ NTSTATUS KswordSvmNestedInitializeGeneral(KSW_SVM_CPU* Cpu)
     nested->Msrs.VmCr = Cpu->Caps.VmCr; nested->Msrs.AddressMask = nested->Outer->AddressMask;
     /* NPT01 is immutable for the complete prepared lifetime. */
     nested->Config.OuterRoot = nested->Outer->RootPa; nested->Config.OuterPat = Cpu->Caps.Pat;
+    nested->Config.OuterImmutable = 1;
     /* Both translations use the unchanged hardware PAT encoding. */
     nested->Config.HardwarePat = Cpu->Caps.Pat; nested->Config.OuterBits = Cpu->Caps.PhysicalBits;
     /* NPT address/large-page/NX policy comes from this same processor's admitted capabilities. */
