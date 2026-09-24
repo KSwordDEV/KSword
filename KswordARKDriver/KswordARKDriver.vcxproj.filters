@@ -330,6 +330,9 @@
     <ClInclude Include="src\features\hvm\hvm_metrics.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\shared\driver\KswordArkHvmNptCacheStats.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="..\shared\driver\KswordArkHvmMetricsIoctl.h">
       <Filter>Header Files</Filter>
     </ClInclude>

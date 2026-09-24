@@ -53,7 +53,8 @@ static unsigned KswNsvmSessionCache(KSW_NSVM_SESSION* Session,
     KSW_NSVM_SESSION_IO* Io, const KSW_SVM_VMCB* Current)
 {
     KSW_SVM_U64 key[13];
-    unsigned i, reuse;
+    unsigned i, miss = 0;
+    KSWORD_HVM_NPT_CACHE_STATS* stats = &Session->CacheStats;
     key[0] = Session->OperandHostPa;
     key[1] = KswSvmRead64(&Session->Vmcb12, KSW_VMCB_NCR3);
     key[2] = KswSvmRead64(&Session->Vmcb12, KSW_VMCB_ASID) & 0xffffffffULL;
@@ -68,13 +69,29 @@ static unsigned KswNsvmSessionCache(KSW_NSVM_SESSION* Session,
     key[11] = (KSW_SVM_U64)Io->Mmu->OuterBits |
         ((KSW_SVM_U64)Io->Mmu->OuterPage1Gb << 32) | ((KSW_SVM_U64)Io->Mmu->OuterNx << 40);
     key[12] = (KSW_SVM_U64)Io->Policy.PhysicalBits | ((KSW_SVM_U64)Io->Operand.Page1Gb << 32);
-    reuse = Io->ReuseNpt && Session->CacheValid && Session->CacheEpoch == Io->Shadow->Epoch &&
-        Session->CacheOwnerToken == Session->Lease.PreviousToken &&
-        ((const unsigned char*)&Session->Vmcb12)[KSW_VMCB_TLB] == 0;
-    for (i = 0; i < 13; ++i) {
-        if (key[i] != Session->CacheKey[i]) { reuse = 0; }
+    if (!Io->ReuseNpt) { miss |= 1U << KSW_HVM_NPT_CACHE_DISABLED; }
+    if (!Session->CacheValid) { miss |= 1U << KSW_HVM_NPT_CACHE_COLD; }
+    if (((const unsigned char*)&Session->Vmcb12)[KSW_VMCB_TLB]) { miss |= 1U << KSW_HVM_NPT_CACHE_TLB; }
+    if (Session->CacheValid) {
+        if (Session->CacheEpoch != Io->Shadow->Epoch) { miss |= 1U << KSW_HVM_NPT_CACHE_EPOCH; }
+        if (Session->CacheOwnerToken != Session->Lease.PreviousToken) { miss |= 1U << KSW_HVM_NPT_CACHE_OWNER; }
+        for (i = 0; i < KSW_HVM_NPT_CACHE_KEYS; ++i) {
+            if (key[i] != Session->CacheKey[i]) { miss |= 1U << (KSW_HVM_NPT_CACHE_KEY_BASE + i); }
+        }
     }
-    if (!reuse && KswSvmNestedShadowReset(Io->Shadow) != KSW_NSHADOW_OK) { return 0; }
+    KswHvmNptCacheCount(stats, &stats->lookups);
+    if (miss) {
+        stats->lastMissMask = miss;
+        for (i = 0; i < KSW_HVM_NPT_CACHE_REASONS; ++i) {
+            if (miss & (1U << i)) { KswHvmNptCacheCount(stats, &stats->reasons[i]); }
+        }
+        if (KswSvmNestedShadowReset(Io->Shadow) != KSW_NSHADOW_OK) {
+            KswHvmNptCacheCount(stats, &stats->resetFailures); return 0;
+        }
+        KswHvmNptCacheCount(stats, &stats->resets);
+    } else {
+        KswHvmNptCacheCount(stats, &stats->hits);
+    }
     for (i = 0; i < 13; ++i) { Session->CacheKey[i] = key[i]; }
     Session->CacheEpoch = Io->Shadow->Epoch;
     Session->CacheOwnerToken = Session->Lease.Token;

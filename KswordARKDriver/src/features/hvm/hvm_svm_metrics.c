@@ -97,6 +97,8 @@ static VOID KswSvmGeneralMetrics(KSW_SVM_CPU* Cpu, KSWORD_ARK_HVM_SVM_GENERAL_ME
         copy.delivered = nested->GeneralExecution.Pending.Delivered; copy.retried = nested->GeneralExecution.Pending.Retried;
         /* Cache eviction is a software action; hardware invalidation remains the separate TLB counter. */
         copy.cacheRecycles = nested->GeneralExecution.CacheRecycles;
+        copy.nptCache = nested->Session.CacheStats;
+        copy.invlpgaCount = nested->Session.Invalidations; copy.shadowEpoch = nested->Shadow.Epoch;
         /* These are virtual register values, not MSR probes of the query CPU. */
         copy.virtualEfer = nested->Msrs.Efer; copy.virtualHsave = nested->Msrs.Hsave;
         /* XSTATE values refer to the owner CPU's current virtual execution context. */

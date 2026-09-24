@@ -521,6 +521,7 @@
     <ClInclude Include="src\features\hvm\hvm_descriptor.h" />
     <ClInclude Include="src\features\hvm\hvm_metrics.h" />
     <ClInclude Include="..\shared\driver\KswordArkHvmMetricsIoctl.h" />
+    <ClInclude Include="..\shared\driver\KswordArkHvmNptCacheStats.h" />
     <ClInclude Include="src\features\hvm\hvm_guest.h" />
     <ClInclude Include="..\shared\driver\KswordArkHvmIoctl.h" />
     <ClInclude Include="..\shared\driver\KswordArkSlatIommuAuditIoctl.h" />

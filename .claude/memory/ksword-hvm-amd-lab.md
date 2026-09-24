@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-24 诊断候选npt-cache-stats-v8：因用户仍logo/约1/20速度且观察核心交替忙，新增逐核NPT缓存lookups/hits/resets/resetFailures及18类重叠原因（disabled/cold/epoch/owner/TLB/13keys），另导出INVLPGA和pool回收。仅诊断，不改变缓存资格或硬件flush；ownerChanged不是直接线程迁移证据。metrics升8，匹配CLI与导出器/离线分析器已更新，GUI二进制未重建。23HVM目标PASS、session2616，CLI JSON/旧版及短包拒绝、PS5.1、差值分析器/证据门/命令一致性/IOCTL门通过；WDK/API/CAT零警告。候选tools/hvm_lab/artifacts/npt-cache-stats-v8未签未加载；当前仍npt-transfer-cache-v7驱动32核与8核VM现场，无停止/重置。下一步用户签新SYS，配同目录v8CLI安全换版，logo阶段成对采样原因后再选性能修复。报告docs/next/evidence/amd-npt-cache-stats.md。
+
 2026-09-24 npt-transfer-cache-v7用户最终画面反馈：仍在Windows logo转圈，从启动进入winboot也很慢；此前30%为乐观估计，按开机时间主观估算约原生1/20。这不是正式基准，但当前性能不可用，完整OS开机仍未通过。不能把NPF采样下降当作用户体验改善。当前新版32核常驻与8核VM现场保留。后续优先定量区分SessionCache的owner/key/TLB/epoch失效与INVLPG触发，而非凭NPF总数继续猜；现有metrics7没有这些失效原因计数。
 
 2026-09-24 npt-transfer-cache-v7实测续接：用户done签后，SYS/PDB匹配，VM已关闭后UAC正常换版。旧32核完整stop/native→teardown→SCM Stopped；新候选正常加载，32/32自检/general常驻及5秒稳态PASS，8vCPU克隆vmrun返回0。证据artifacts/npt-transfer-cache-v7-live-20260924-103130（指针artifacts/npt-transfer-current-run.txt）。a/b和c/d均32对热点有效，NPF约79454/s、100114/s，不同启动阶段不可宣称比例提速。末次32resident/generation4/lastStatus0，flight无已锁存但1核不一致，不能以此判无故障。采样已完成，当前驱动与VM保持运行，正在等待用户画面反馈；完整内层OS未通过，勿重复start/擅自重置换版。

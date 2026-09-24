@@ -3,9 +3,10 @@
 #include "KswordArkHvmIoctl.h"
 #include "KswordArkHvmFlightRecorder.h"
 #include "KswordArkHvmHotspots.h"
+#include "KswordArkHvmNptCacheStats.h"
 
 /* Independent versioning keeps existing HVM query clients ABI-compatible. */
-#define KSWORD_ARK_HVM_METRICS_VERSION 7UL
+#define KSWORD_ARK_HVM_METRICS_VERSION 8UL
 
 /* General execution observations are independent of bounded-probe completion evidence. */
 typedef struct _KSWORD_ARK_HVM_SVM_GENERAL_METRICS {
@@ -17,6 +18,8 @@ typedef struct _KSWORD_ARK_HVM_SVM_GENERAL_METRICS {
     unsigned long long sequence, preparedEntries, hardwareExits, exitCode;
     unsigned long long leaseToken, operandHostPa, armedToken, retryToken;
     unsigned long long delivered, retried, cacheRecycles, virtualEfer, virtualHsave, guestXcr0, guestXss;
+    KSWORD_HVM_NPT_CACHE_STATS nptCache;
+    unsigned long long invlpgaCount, shadowEpoch;
 } KSWORD_ARK_HVM_SVM_GENERAL_METRICS;
 
 /* AMD diagnostics have their own full-width exit namespace and validity flag. */

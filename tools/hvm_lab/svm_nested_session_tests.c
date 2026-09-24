@@ -203,6 +203,8 @@ static int test_cache_lifetime(void)
         CHECK(initialize(m, 0)); m->io.ReuseNpt = 1;
         CHECK(cache_roundtrip(m) == 0);
         epoch = m->shadow.Epoch;
+        CHECK(m->session.CacheStats.lookups == 1 && m->session.CacheStats.resets == 1);
+        CHECK(m->session.CacheStats.lastMissMask == (1U << KSW_HVM_NPT_CACHE_COLD));
         mapping.Status = KSW_NNPT_OK; mapping.Gpa = 0x1000; mapping.Epoch = epoch; mapping.Leaf = 0x3067;
         mapping.Inner.Complete = mapping.Outer.Complete = 1;
         mapping.Inner.InputAddress = 0x1000; mapping.Inner.Address = 0x2000;
@@ -247,6 +249,13 @@ static int test_cache_lifetime(void)
             break;
         }
         CHECK(cache_roundtrip(m) == 0);
+        {
+            static const unsigned expected[17] = {4,4,4,7,6,9,12,10,11,8,13,14,15,0,3,2,2};
+            CHECK(m->session.CacheStats.lookups == 10 && m->session.CacheStats.hits == 8);
+            CHECK(m->session.CacheStats.resets == 2 && !m->session.CacheStats.resetFailures);
+            CHECK(m->session.CacheStats.lastMissMask == (1U << expected[scenario]));
+            CHECK(m->session.CacheStats.reasons[expected[scenario]] == 1);
+        }
         CHECK(m->shadow.Epoch > epoch && m->pages[0].Words[0] == 0 && m->shadow.Used == 1);
         CHECK(KswSvmNestedShadowInstall(&m->shadow, &mapping) == KSW_NSHADOW_STALE);
         mapping.Epoch = m->shadow.Epoch; mapping.Leaf = 0x5065;
@@ -301,6 +310,8 @@ static int test_cache_transfer_chain(void)
             CHECK(m->pages[3].Words[1] == 0x3067);
         }
         token = m->session.CacheOwnerToken;
+        CHECK(m->session.CacheStats.lookups == 9 && m->session.CacheStats.hits == 8);
+        CHECK(m->session.CacheStats.resets == 1 && !m->session.CacheStats.reasons[KSW_HVM_NPT_CACHE_OWNER]);
         if (scenario < 2) {
             CHECK(KswSvmNestedOwnerAcquire(&m->owners, 0x6000, scenario, &other) == KSW_NSVM_LEASE_OK);
             CHECK(KswSvmNestedOwnerRelease(&m->owners, &other));
@@ -327,6 +338,35 @@ static int test_cache_transfer_chain(void)
     }
     return 0;
 }
+static int test_cache_counter_edges(void)
+{
+    MODEL* m = &model[0];
+    KSWORD_HVM_NPT_CACHE_STATS* stats = &m->session.CacheStats;
+    KSW_SVM_U64 epoch;
+    CHECK(initialize(m, 0)); m->io.ReuseNpt = 1;
+    CHECK(cache_roundtrip(m) == 0);
+    ((unsigned char*)m->ram[6])[KSW_VMCB_TLB] = 1;
+    KswSvmWrite64((KSW_SVM_VMCB*)m->ram[6], KSW_VMCB_NCR3, 0x8000);
+    CHECK(cache_roundtrip(m) == 0);
+    CHECK(stats->resets == 2 && stats->reasons[KSW_HVM_NPT_CACHE_TLB] == 1);
+    CHECK(stats->reasons[KSW_HVM_NPT_CACHE_KEY_BASE + 1] == 1);
+    CHECK(stats->lastMissMask == ((1U << KSW_HVM_NPT_CACHE_TLB) | (1U << (KSW_HVM_NPT_CACHE_KEY_BASE + 1))));
+    stats->lookups = stats->resets = stats->reasons[KSW_HVM_NPT_CACHE_TLB] = ~0ULL;
+    epoch = m->shadow.Epoch;
+    CHECK(cache_roundtrip(m) == 0);
+    CHECK(stats->saturated == 1 && stats->lookups == ~0ULL && stats->resets == ~0ULL);
+    CHECK(stats->reasons[KSW_HVM_NPT_CACHE_TLB] == ~0ULL && m->shadow.Epoch == epoch + 1);
+    ((unsigned char*)m->ram[6])[KSW_VMCB_TLB] = 0;
+    stats->hits = ~0ULL;
+    CHECK(cache_roundtrip(m) == 0);
+    CHECK(stats->hits == ~0ULL && m->shadow.Epoch == epoch + 1);
+    CHECK(initialize(m, 0)); m->io.ReuseNpt = 1;
+    m->shadow.Epoch = ~0ULL;
+    CHECK(enter(m) == KSW_NSVM_ACTION_FAULT);
+    CHECK(stats->lookups == 1 && stats->resetFailures == 1 && stats->resets == 0 && stats->hits == 0);
+    CHECK(m->session.Lease.Token && m->session.Phase == KSW_NSVM_SESSION_FAULTED);
+    return 0;
+}
 static DWORD WINAPI run_parallel(void* argument)
 {
     MODEL* m = argument;
@@ -348,7 +388,7 @@ static DWORD WINAPI run_parallel(void* argument)
 int main(void)
 {
     HANDLE threads[8]; unsigned i; DWORD resultCode;
-    if (test_transitions() || test_event_consumption() || test_cache_lifetime() || test_cache_transfer_chain()) { return 1; }
+    if (test_transitions() || test_event_consumption() || test_cache_lifetime() || test_cache_transfer_chain() || test_cache_counter_edges()) { return 1; }
     for (i = 0; i < 8; ++i) { CHECK(initialize(&model[i], i)); threads[i] = CreateThread(NULL, 0, run_parallel, &model[i], 0, NULL); CHECK(threads[i]); }
     CHECK(WaitForMultipleObjects(8, threads, TRUE, 30000) == WAIT_OBJECT_0);
     for (i = 0; i < 8; ++i) {

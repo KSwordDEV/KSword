@@ -4,6 +4,7 @@
 #include "hvm_svm_nested_writeback.h"
 #include "hvm_svm_nested_shadow.h"
 #include "hvm_svm_nested_owner.h"
+#include "../../../../shared/driver/KswordArkHvmNptCacheStats.h"
 
 /* Phases describe retained ownership, not public resident capability. */
 #define KSW_NSVM_SESSION_IDLE 0U
@@ -40,6 +41,7 @@ typedef struct _KSW_NSVM_SESSION {
     unsigned int Phase, VirtualGif;
     KSW_SVM_U64 CacheKey[13], CacheEpoch, CacheOwnerToken;
     unsigned CacheValid;
+    KSWORD_HVM_NPT_CACHE_STATS CacheStats;
 } KSW_NSVM_SESSION;
 
 typedef struct _KSW_NSVM_SESSION_IO {
