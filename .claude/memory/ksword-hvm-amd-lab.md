@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-24 09:38 最新续接：用户已签softint-npf-v7并授权测试。签后SYS/PDB身份匹配，正常SCM加载成功，但崩溃重启已回普通loader bf214426-63fa-11f1-98a5-ae6e2902c624、Hypervisor=true/VBS2/launchtypeAuto。在prepare前拦住；query仅INITIALIZED、prepared/resident0、reject SVM_NPT_ASID。已正常SCM卸载并确认Manual/Stopped，无VM进程，未进行任何常驻或VM重试。证据artifacts/softint-npf-v7-live-20260924-093828，脚本和签后哈希在内；正在询问用户是否现在允许一次性实验启动并重启（中断工作需确认）。下一次用新证据目录保留本轮阻塞记录，重启后先Enter-AmdLab -Check=LabHostReady再加载softint-npf-v7；无须重新签或构建。不得把本轮Windows接受加载当作SVM通过。
+
 2026-09-24 软件INT/NPF修复：CPU私有EventEntry在最终MachineEntry保存实际注入、RIP/NRIP、CS/base与owner token；L0处理NPF后，原生INTn无注入时保持RIP并清EVENT重试，已注入INTn严格匹配后恢复保存的NRIP。NPT12反射保持原始字段；不猜RIP+2、不改保护门。捕获VMCB+flight上一entry离线回放legacy2→fixed0，完整imageUnchanged1；23离线目标通过（nested5131、新coordinator连续NPF集成），WDK/API/CAT零警告。候选tools/hvm_lab/artifacts/softint-npf-v7，未签名/未加载，metrics7 CLI不变。本轮未常驻/未启动VM，完整开机仍未验收。报告docs/next/evidence/amd-softint-npf-recovery.md；下一步由用户签名后另行协调实测，不自动重试严重故障版本。
 
 2026-09-24 严重故障/优先续接：operand-page-v7实际加载32核常驻后启动8核VM，宿主蓝屏重启。当前Manual/Stopped，无VM进程，不得自动重载/重试。完整2.7GB dump与小转储及签后SYS/PDB已保存在artifacts/host-crash-20260924-0910。确认bugcheck20001/SVM magic/Detail121/exit400，CPU0:24、L2软件INT2d递送期间NPF，EXITINTINFO8000042d、RIPfffff806305fd103、NRIP0。MMU成功/两walk complete/叶17f1aa067/NpfRetries0；生产ResumeEvent因type4缺NRIP返回2→EXEC_FAULT→MACHINE_FAULT1→KswSvmFatal主动宿主bugcheck。原始VMCB离线调用未改生产函数已核验该返回链；没有重新硬件重现。不是旧SHUTDOWN/DF。前一entry未注入事件，不能简单套预注入NRIP恢复或伪造RIP+2。完整报告docs/next/evidence/amd-host-crash-20260924.md。用户要求先排查，本轮仅证据/诊断，无生产修复或动态测试。

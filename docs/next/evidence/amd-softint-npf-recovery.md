@@ -30,3 +30,9 @@ rip=fffff806305fd103 nrip=0 event=0
 标准 MSVC/WDK Release x64 编译、链接、x64 ApiValidator（Universal）和 CAT 生成通过，零警告。日志 `tools/hvm_lab/build-softint-npf.log`、`build-softint-npf-tests.log`。
 
 新候选 `tools/hvm_lab/artifacts/softint-npf-v7/KswordARK.sys`，对应 PDB 与沿用的 metrics v7 CLI 同目录。候选未签名、未加载。完整 L2 操作系统正常启动仍未通过验收；此次修复只覆盖已定位的 INTn/NPF 导致宿主致命停止路径。
+
+## 签后加载与环境阻塞（同日 09:38）
+
+用户完成签名并要求实测后，确认签后 SYS/PDB GUID/Age 与候选一致，正常 SCM 加载成功。常驻脚本在任何 prepare/self-test/resident 命令前因 HypervisorPresent=true 停止。当前启动项是原始普通 Windows 10（loader bf214426-63fa-11f1-98a5-ae6e2902c624），hypervisorlaunchtype=Auto，VBS=2，boot ID 2026-09-24T01:10:52.5000000Z；一次性实验启动已在此前崩溃重启后结束。
+
+驱动查询仅 INITIALIZED、prepared/resident=0，能力准入拒绝 SVM_NPT_ASID。完成只读采集后正常 SCM 卸载，确认 Manual/Stopped；没有启动 VMware。证据目录 `artifacts/softint-npf-v7-live-20260924-093828`，包含签后哈希、加载记录、blocked-status、boot-check、BCD/VBS 和卸载后服务状态。签名离线检查仍报告证书有效期问题，实际加载结果只记录 Windows 正常 SCM 接受，没有修改签名策略。需要另行确认重启进入实验项后继续硬件测试，不能记作修复版本常驻或开机通过。
