@@ -50,6 +50,7 @@ typedef struct _KSW_NSVM_EXECUTION {
     /* Capture evidence belongs to the latest implicit SVM operand, not to hardware decode assists. */
     unsigned char Instruction[15];
     unsigned InstructionLength, InstructionStatus, OperandAddressBits;
+    KSW_NSVM_EVENT_ENTRY EventEntry;
 } KSW_NSVM_EXECUTION;
 /* Do not call on a fixed probe merely to skip its evidence/marker checks.
    Physical-event/GIF_CHANGED are requests to the platform arbiter, never permission to reenter. */

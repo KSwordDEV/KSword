@@ -89,7 +89,7 @@ static unsigned KswNsvmResolve(KSW_NSVM_EXECUTION* Execution)
     /* Concurrent A/D changes may be retried without advancing the faulting guest instruction. */
     if (status == KSW_NNPT_RETRY) {
         /* Keep interrupted event delivery intact through a recoverable page-table race. */
-        return KswSvmNestedResumeEvent(Execution->Current) == KSW_NSVM_EVENT_OK ? KSW_NSVM_EXEC_RESUME : KSW_NSVM_EXEC_FAULT;
+        return KswSvmNestedResumeNpfEvent(Execution->Current, &Execution->EventEntry, Execution->Session->Lease.Token) == KSW_NSVM_EVENT_OK ? KSW_NSVM_EXEC_RESUME : KSW_NSVM_EXEC_FAULT;
     }
     /* Only a fault owned by the inner page-table translation can be reflected as guest NPF. */
     if (status == KSW_NNPT_FAULT && Execution->Translation.FaultOwner == KSW_NMMU_INNER) {
@@ -111,14 +111,14 @@ static unsigned KswNsvmResolve(KSW_NSVM_EXECUTION* Execution)
         /* Do not install the now-stale candidate; the next NPF performs a fresh source walk. */
         Execution->Io->Mmu->Epoch = Execution->Io->Shadow->Epoch; ++Execution->CacheRecycles;
         /* Assembly must issue TLB_CONTROL=1 before reentry into the emptied root. */
-        return KswSvmNestedResumeEvent(Execution->Current) == KSW_NSVM_EVENT_OK ? KSW_NSVM_EXEC_RESUME : KSW_NSVM_EXEC_FAULT;
+        return KswSvmNestedResumeNpfEvent(Execution->Current, &Execution->EventEntry, Execution->Session->Lease.Token) == KSW_NSVM_EVENT_OK ? KSW_NSVM_EXEC_RESUME : KSW_NSVM_EXEC_FAULT;
     }
     /* Wrong epoch or corrupt storage is not a reason to widen guest permissions. */
     if (status != KSW_NSHADOW_OK) { return KSW_NSVM_EXEC_FAULT; }
     /* An installed page is progress; future faults receive their own bounded retry budget. */
     Execution->NpfRetries = 0;
     /* NPF during an injected event needs that same interrupted event on retry. */
-    return KswSvmNestedResumeEvent(Execution->Current) == KSW_NSVM_EVENT_OK ? KSW_NSVM_EXEC_RESUME : KSW_NSVM_EXEC_FAULT;
+    return KswSvmNestedResumeNpfEvent(Execution->Current, &Execution->EventEntry, Execution->Session->Lease.Token) == KSW_NSVM_EVENT_OK ? KSW_NSVM_EXEC_RESUME : KSW_NSVM_EXEC_FAULT;
 }
 
 /* Called by a platform event bridge only after it can enforce the requested physical masks. */

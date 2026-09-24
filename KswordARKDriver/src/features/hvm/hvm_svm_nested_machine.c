@@ -453,6 +453,8 @@ SelectCurrent:
     if (Machine->Transitions == ~0ULL) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_FAULT); }
     /* This counts prepared attempts; only real exits count as hardware execution. */
     ++Machine->Transitions;
+    KswSvmNestedCaptureEventEntry(execution->Current, &execution->EventEntry,
+        execution->Session->Phase == KSW_NSVM_SESSION_L2 ? execution->Session->Lease.Token : 0);
     /* Assembly still must install Overlay.HostIf with GIF=0 and request a full TLB flush. */
     return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_READY);
 }

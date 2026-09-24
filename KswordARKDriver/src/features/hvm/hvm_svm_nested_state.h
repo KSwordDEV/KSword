@@ -22,3 +22,12 @@ unsigned int KswSvmNestedInterceptRequested(const KSW_SVM_VMCB* Vmcb12,
 #define KSW_NSVM_EVENT_INVALID 1U
 #define KSW_NSVM_EVENT_NRIP_REQUIRED 2U
 unsigned int KswSvmNestedResumeEvent(KSW_SVM_VMCB* Current);
+
+typedef struct _KSW_NSVM_EVENT_ENTRY {
+    KSW_SVM_U64 Event, Rip, NextRip, Cs, CsBase, Owner;
+    unsigned Valid;
+} KSW_NSVM_EVENT_ENTRY;
+void KswSvmNestedCaptureEventEntry(const KSW_SVM_VMCB* Current,
+    KSW_NSVM_EVENT_ENTRY* Entry, KSW_SVM_U64 Owner);
+unsigned KswSvmNestedResumeNpfEvent(KSW_SVM_VMCB* Current,
+    const KSW_NSVM_EVENT_ENTRY* Entry, KSW_SVM_U64 Owner);

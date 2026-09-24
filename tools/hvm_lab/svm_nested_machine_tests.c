@@ -17,6 +17,23 @@ typedef struct _MODEL {
     unsigned tpr, ackValue, ackCalls, commitCalls, failCommit, failWrite;
 } MODEL;
 static MODEL model;
+__declspec(align(4096)) static KSW_SVM_U64 npfTables[4][512];
+static KSW_NSHADOW_PAGE npfPages[4];
+
+static int npf_read(void* context, KSW_SVM_U64 pa, KSW_SVM_U64* value)
+{
+    (void)context;
+    if (pa == 0x1000) { *value = 0x2067; return 1; }
+    if (pa == 0x2000) { *value = 0xe7; return 1; }
+    if (pa == 0x3000) { *value = 0x4067; return 1; }
+    if (pa == 0x4000) { *value = 0xe7; return 1; }
+    return 0;
+}
+static int npf_compare(void* context, KSW_SVM_U64 pa, KSW_SVM_U64 expected, KSW_SVM_U64 bits)
+{
+    KSW_SVM_U64 value;
+    return npf_read(context, pa, &value) && value == expected && (value & bits) == bits;
+}
 
 static unsigned read_tpr(void* context) { return ((MODEL*)context)->tpr; }
 static int write_tpr(void* context, unsigned value)
@@ -252,9 +269,54 @@ static int nmi_collision(void)
     }
     return 0;
 }
+static int software_int_npf(void)
+{
+    unsigned injected, i, cycle;
+    for (injected = 0; injected < 2; ++injected) {
+        KSW_NSVM_MACHINE* m = &model.machine;
+        initialize();
+        CHECK(KswSvmNestedMachineInitialize(m) == KSW_NSVM_MACHINE_READY);
+        model.session.Phase = KSW_NSVM_SESSION_L2;
+        model.session.Lease.Token = 0x871d8;
+        model.session.Permissions.Ready = 1;
+        model.mmu.InnerRoot = 0x1000; model.mmu.OuterRoot = 0x3000;
+        model.mmu.InnerBits = model.mmu.OuterBits = 45;
+        model.mmu.InnerPage1Gb = model.mmu.OuterPage1Gb = 1;
+        model.mmu.InnerNx = model.mmu.OuterNx = 1;
+        model.mmu.InnerPat = model.mmu.OuterPat = model.mmu.HardwarePat = 0x0007010600070106ULL;
+        for (i = 0; i < 4; ++i) {
+            npfPages[i].Words = npfTables[i]; npfPages[i].Physical = 0x100000 + i * 4096ULL;
+        }
+        CHECK(KswSvmNestedShadowInitialize(&model.shadow, npfPages, 4, 45) == KSW_NSHADOW_OK);
+        model.mmu.Epoch = model.shadow.Epoch;
+        model.execution.MmuIo.Read = npf_read; model.execution.MmuIo.CompareOr = npf_compare;
+        KswSvmWrite64(&model.current, KSW_VMCB_RIP, 0xfffff806305fd103ULL);
+        KswSvmWrite64(&model.current, KSW_VMCB_EVENT, injected ? 0x8000042d : 0);
+        KswSvmWrite64(&model.current, KSW_VMCB_NRIP, injected ? 0xfffff806305fd10aULL : 0);
+        for (cycle = 0; cycle < 3; ++cycle) {
+            CHECK(KswSvmNestedMachineEntry(m) == KSW_NSVM_MACHINE_READY);
+            CHECK(model.execution.EventEntry.Valid && model.execution.EventEntry.Owner == 0x871d8);
+            hardware_exit(KSW_SVM_EXIT_NPF, 0x8000042d);
+            KswSvmWrite64(&model.current, KSW_VMCB_NRIP, 0);
+            KswSvmWrite64(&model.current, KSW_VMCB_EVENT, 0);
+            KswSvmWrite64(&model.current, KSW_VMCB_EXITINFO1, 0x100000004ULL);
+            KswSvmWrite64(&model.current, KSW_VMCB_EXITINFO2, 0x60932d0 + cycle * 4096ULL);
+            CHECK(KswSvmNestedMachineExit(m) == KSW_NSVM_MACHINE_READY);
+            CHECK(!m->Overlay.Applied && model.session.Phase == KSW_NSVM_SESSION_L2);
+            CHECK(model.execution.Translation.Status == 0 && model.execution.NpfRetries == 0);
+            CHECK(model.shadow.Used == 4);
+            CHECK(KswSvmRead64(&model.current, KSW_VMCB_RIP) == 0xfffff806305fd103ULL);
+            CHECK(KswSvmRead64(&model.current, KSW_VMCB_EVENT) == (injected ? 0x8000042dULL : 0));
+            CHECK(KswSvmRead64(&model.current, KSW_VMCB_NRIP) == (injected ? 0xfffff806305fd10aULL : 0));
+            CHECK(KswSvmRead64(&model.current, KSW_VMCB_EXITINTINFO) == 0x8000042d);
+        }
+    }
+    return 0;
+}
+
 int main(void)
 {
-    if (ordinary_cycle() || irq_window() || nmi_ownership() || held_nmi_iret() || retained_failures() || nmi_collision()) { return 1; }
+    if (ordinary_cycle() || irq_window() || nmi_ownership() || held_nmi_iret() || retained_failures() || nmi_collision() || software_int_npf()) { return 1; }
     puts("nested coordinator integration fixtures passed (simulated hardware only)");
     return 0;
 }

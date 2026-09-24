@@ -144,3 +144,38 @@ unsigned int KswSvmNestedResumeEvent(KSW_SVM_VMCB* Current)
     /* This does not acknowledge physical IRQ/NMI or alter virtual GIF. */
     return KSW_NSVM_EVENT_OK;
 }
+
+void KswSvmNestedCaptureEventEntry(const KSW_SVM_VMCB* Current,
+    KSW_NSVM_EVENT_ENTRY* Entry, KSW_SVM_U64 Owner)
+{
+    Entry->Event = KswSvmRead64(Current, KSW_VMCB_EVENT);
+    Entry->Rip = KswSvmRead64(Current, KSW_VMCB_RIP);
+    Entry->NextRip = KswSvmRead64(Current, KSW_VMCB_NRIP);
+    Entry->Cs = KswSvmRead64(Current, KSW_VMCB_CS);
+    Entry->CsBase = KswSvmRead64(Current, KSW_VMCB_CS + 8);
+    Entry->Owner = Owner;
+    Entry->Valid = 1;
+}
+
+unsigned KswSvmNestedResumeNpfEvent(KSW_SVM_VMCB* Current,
+    const KSW_NSVM_EVENT_ENTRY* Entry, KSW_SVM_U64 Owner)
+{
+    KSW_SVM_U64 event;
+    unsigned result = KswSvmNestedResumeEvent(Current);
+    if (result != KSW_NSVM_EVENT_NRIP_REQUIRED) { return result; }
+    if (!Entry || !Entry->Valid || Entry->Owner != Owner ||
+        KswSvmRead64(Current, KSW_VMCB_EXITCODE) != KSW_SVM_EXIT_NPF) { return result; }
+    event = KswSvmRead64(Current, KSW_VMCB_EXITINTINFO) & 0xffffffffULL;
+    if ((Entry->Event & 0x80000700ULL) == 0x80000400ULL) {
+        if ((Entry->Event & 0xffffffffULL) != event ||
+            Entry->Rip != KswSvmRead64(Current, KSW_VMCB_RIP) ||
+            Entry->Cs != KswSvmRead64(Current, KSW_VMCB_CS) ||
+            Entry->CsBase != KswSvmRead64(Current, KSW_VMCB_CS + 8) ||
+            !KswSvmNextRipValid(Entry->Rip, Entry->NextRip)) { return result; }
+        KswSvmWrite64(Current, KSW_VMCB_NRIP, Entry->NextRip);
+        return KswSvmNestedResumeEvent(Current);
+    }
+    /* Native INTn can execute again after the NPF is repaired; NPF clears hardware NRIP. */
+    KswSvmWrite64(Current, KSW_VMCB_EVENT, 0);
+    return KSW_NSVM_EVENT_OK;
+}
