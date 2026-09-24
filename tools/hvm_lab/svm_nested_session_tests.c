@@ -261,6 +261,72 @@ static int test_cache_lifetime(void)
     }
     return 0;
 }
+static int cache_transfer(MODEL* m, KSW_SVM_U64 pa, unsigned save)
+{
+    KSW_SVM_U64 next = KswSvmRead64(&m->current, KSW_VMCB_RIP) + 3;
+    KswSvmWrite64(&m->current, KSW_VMCB_NRIP, next);
+    CHECK(KswSvmNestedSessionTransfer(&m->session, &m->io, &m->current, pa, save) == KSW_NSVM_ACTION_RETURN);
+    CHECK(!m->session.Lease.Token && m->session.Phase == KSW_NSVM_SESSION_IDLE);
+    KswSvmWrite64(&m->current, KSW_VMCB_RIP, next);
+    return 0;
+}
+static int test_cache_transfer_chain(void)
+{
+    MODEL* m = &model[0];
+    KSW_NMMU_RESULT mapping = {0};
+    KSW_NSVM_LEASE other = {0};
+    KSW_SVM_U64 epoch, token;
+    unsigned scenario, i;
+    for (scenario = 0; scenario < 6; ++scenario) {
+        CHECK(initialize(m, 0)); m->io.ReuseNpt = 1;
+        m->ram[4][10] = 0x7007;
+        memcpy(m->ram[7], m->ram[6], 4096);
+        CHECK(cache_roundtrip(m) == 0);
+        epoch = m->shadow.Epoch;
+        mapping.Status = KSW_NNPT_OK; mapping.Gpa = 0x1000; mapping.Epoch = epoch; mapping.Leaf = 0x3067;
+        mapping.Inner.Complete = mapping.Outer.Complete = 1;
+        mapping.Inner.InputAddress = 0x1000; mapping.Inner.Address = 0x2000;
+        mapping.Outer.InputAddress = 0x2000; mapping.Outer.Address = 0x3000;
+        mapping.Inner.Permissions = mapping.Outer.Permissions = 7;
+        mapping.Inner.LeafShift = mapping.Outer.LeafShift = 12;
+        CHECK(KswSvmNestedShadowInstall(&m->shadow, &mapping) == KSW_NSHADOW_OK);
+        for (i = 0; i < 8; ++i) {
+            CHECK(cache_transfer(m, 0x9000, 1) == 0);
+            token = m->session.CacheOwnerToken;
+            CHECK(cache_transfer(m, 0xa000, 0) == 0);
+            CHECK(m->session.CacheOwnerToken == token);
+            CHECK(cache_transfer(m, 0x9000, 0) == 0);
+            CHECK(cache_roundtrip(m) == 0);
+            CHECK(m->shadow.Epoch == epoch && m->shadow.Used == 4);
+            CHECK(m->pages[3].Words[1] == 0x3067);
+        }
+        token = m->session.CacheOwnerToken;
+        if (scenario < 2) {
+            CHECK(KswSvmNestedOwnerAcquire(&m->owners, 0x6000, scenario, &other) == KSW_NSVM_LEASE_OK);
+            CHECK(KswSvmNestedOwnerRelease(&m->owners, &other));
+            CHECK(cache_transfer(m, 0x9000, scenario) == 0);
+            CHECK(m->session.CacheOwnerToken == token);
+        } else if (scenario < 4) {
+            m->failCommit = scenario - 1;
+            KswSvmWrite64(&m->current, KSW_VMCB_NRIP, KswSvmRead64(&m->current, KSW_VMCB_RIP) + 3);
+            CHECK(KswSvmNestedSessionTransfer(&m->session, &m->io, &m->current, 0x9000, 1) == KSW_NSVM_ACTION_FAULT);
+            CHECK(m->session.CacheOwnerToken == token && m->session.Lease.Token);
+            CHECK(m->session.Phase == KSW_NSVM_SESSION_FAULTED);
+            CHECK(m->session.OperandResult.Words == (scenario == 3 ? 1U : 0U));
+            continue;
+        } else if (scenario == 4) {
+            CHECK(cache_transfer(m, 0x9000, 0) == 0);
+            ((unsigned char*)m->ram[6])[KSW_VMCB_TLB] = 1;
+        } else {
+            CHECK(cache_transfer(m, 0x9000, 1) == 0);
+            KswSvmWrite64((KSW_SVM_VMCB*)m->ram[6], KSW_VMCB_NCR3, 0x8000);
+        }
+        CHECK(cache_roundtrip(m) == 0);
+        CHECK(m->shadow.Epoch > epoch && m->shadow.Used == 1 && !m->pages[0].Words[0]);
+        CHECK(KswSvmNestedShadowInstall(&m->shadow, &mapping) == KSW_NSHADOW_STALE);
+    }
+    return 0;
+}
 static DWORD WINAPI run_parallel(void* argument)
 {
     MODEL* m = argument;
@@ -282,7 +348,7 @@ static DWORD WINAPI run_parallel(void* argument)
 int main(void)
 {
     HANDLE threads[8]; unsigned i; DWORD resultCode;
-    if (test_transitions() || test_event_consumption() || test_cache_lifetime()) { return 1; }
+    if (test_transitions() || test_event_consumption() || test_cache_lifetime() || test_cache_transfer_chain()) { return 1; }
     for (i = 0; i < 8; ++i) { CHECK(initialize(&model[i], i)); threads[i] = CreateThread(NULL, 0, run_parallel, &model[i], 0, NULL); CHECK(threads[i]); }
     CHECK(WaitForMultipleObjects(8, threads, TRUE, 30000) == WAIT_OBJECT_0);
     for (i = 0; i < 8; ++i) {

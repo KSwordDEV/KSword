@@ -17,6 +17,7 @@ unsigned int KswSvmNestedSessionTransfer(KSW_NSVM_SESSION* Session,
 {
     /* The same physical identity must survive both capture passes and writeback. */
     unsigned status;
+    KSW_SVM_U64 cacheToken = 0;
     /* This storage cannot be borrowed from a running or fault-retained VMRUN transaction. */
     if (!Session || !Io || !Io->Owners || !Io->Commit || !Current || Save > 1 ||
         Session->Phase != KSW_NSVM_SESSION_IDLE || Session->Lease.Token) { return KSW_NSVM_ACTION_UNSUPPORTED; }
@@ -55,8 +56,13 @@ unsigned int KswSvmNestedSessionTransfer(KSW_NSVM_SESSION* Session,
         /* A partial output retains the same lease and its written-word progress. */
         if (status != KSW_NNPT_OK) { return KswNsvmTransferFault(Session); }
     }
+    if (Session->CacheValid && Session->CacheKey[0] == Session->Lease.HostPa &&
+        Session->CacheOwnerToken == Session->Lease.PreviousToken) {
+        cacheToken = Session->Lease.Token;
+    }
     /* End physical operand ownership only after the read/output transaction completed. */
     if (!KswSvmNestedOwnerRelease(Io->Owners, &Session->Lease)) { return KswNsvmTransferFault(Session); }
+    if (cacheToken) { Session->CacheOwnerToken = cacheToken; }
     /* The owned snapshot remains stable even when L1 changes the original page afterward. */
     if (!Save) { KswSvmNestedCopyVmload(Current, &Session->Vmcb12); }
     /* Caller completes this virtual instruction with its already validated hardware NRIP. */
