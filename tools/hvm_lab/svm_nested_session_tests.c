@@ -180,6 +180,87 @@ static int test_event_consumption(void)
     CHECK(KswSvmRead64(operand, KSW_VMCB_EVENT) == 0);
     return 0;
 }
+static int cache_roundtrip(MODEL* m)
+{
+    KSW_SVM_U64 next = KswSvmRead64(&m->current, KSW_VMCB_RIP) + 3;
+    KswSvmWrite64(&m->current, KSW_VMCB_NRIP, next);
+    CHECK(enter(m) == KSW_NSVM_ACTION_ENTER);
+    CHECK(((unsigned char*)&m->current)[KSW_VMCB_TLB] == 1);
+    exit_cpuid(m);
+    CHECK(KswSvmNestedSessionReflect(&m->session, &m->io, &m->current) == KSW_NSVM_ACTION_RETURN);
+    CHECK(KswSvmRead64(&m->current, KSW_VMCB_RIP) == next);
+    return 0;
+}
+static int test_cache_lifetime(void)
+{
+    MODEL* m = &model[0];
+    KSW_SVM_VMCB* operand = (KSW_SVM_VMCB*)m->ram[6];
+    KSW_NSVM_LEASE other = {0};
+    KSW_NMMU_RESULT mapping = {0};
+    KSW_SVM_U64 epoch, token;
+    unsigned scenario, i;
+    for (scenario = 0; scenario < 17; ++scenario) {
+        CHECK(initialize(m, 0)); m->io.ReuseNpt = 1;
+        CHECK(cache_roundtrip(m) == 0);
+        epoch = m->shadow.Epoch;
+        mapping.Status = KSW_NNPT_OK; mapping.Gpa = 0x1000; mapping.Epoch = epoch; mapping.Leaf = 0x3067;
+        mapping.Inner.Complete = mapping.Outer.Complete = 1;
+        mapping.Inner.InputAddress = 0x1000; mapping.Inner.Address = 0x2000;
+        mapping.Outer.InputAddress = 0x2000; mapping.Outer.Address = 0x3000;
+        mapping.Inner.Permissions = mapping.Outer.Permissions = 7;
+        mapping.Inner.LeafShift = mapping.Outer.LeafShift = 12;
+        CHECK(KswSvmNestedShadowInstall(&m->shadow, &mapping) == KSW_NSHADOW_OK);
+        for (i = 0; i < 8; ++i) {
+            CHECK(cache_roundtrip(m) == 0);
+            CHECK(m->shadow.Epoch == epoch);
+            CHECK(m->shadow.Used == 4 && m->pages[0].Words[0] == (m->pages[1].Physical | 7ULL));
+            CHECK(m->pages[3].Words[1] == 0x3067);
+        }
+        switch (scenario) {
+        case 0: ((unsigned char*)operand)[KSW_VMCB_TLB] = 1; break;
+        case 1: ((unsigned char*)operand)[KSW_VMCB_TLB] = 3; break;
+        case 2: ((unsigned char*)operand)[KSW_VMCB_TLB] = 7; break;
+        case 3: KswSvmWrite32(operand, KSW_VMCB_ASID, 2); break;
+        case 4: KswSvmWrite64(operand, KSW_VMCB_NCR3, 0x8000); break;
+        case 5: KswSvmWrite64(&m->current, KSW_VMCB_CR3, 0x1000); break;
+        case 6: KswSvmWrite64(&m->current, KSW_VMCB_PAT, 0x0606060606060606ULL); break;
+        case 7: KswSvmWrite64(&m->current, KSW_VMCB_CR4, 0x30); break;
+        case 8: KswSvmWrite64(&m->current, KSW_VMCB_EFER, 0x1501); break;
+        case 9: KswSvmWrite64(&m->current, KSW_VMCB_CR0, 0x80010011); break;
+        case 10: m->mmu.OuterRoot = 0x2000; break;
+        case 11: m->mmu.OuterPat = 0x0606060606060606ULL; break;
+        case 12: m->mmu.HardwarePat = 0x0606060606060606ULL; break;
+        case 13: m->io.ReuseNpt = 0; break;
+        case 14:
+            token = m->session.CacheOwnerToken;
+            CHECK(KswSvmNestedOwnerAcquire(&m->owners, 0x6000, 1, &other) == KSW_NSVM_LEASE_OK);
+            CHECK(other.PreviousToken == token);
+            CHECK(KswSvmNestedOwnerRelease(&m->owners, &other));
+            break;
+        case 15:
+            CHECK(KswSvmNestedSessionInvalidate(&m->session, &m->io, 0x12345000, 1) == KSW_NSVM_ACTION_RETURN);
+            CHECK(m->pages[0].Words[0] == 0);
+            break;
+        default:
+            CHECK(KswSvmNestedShadowReset(&m->shadow) == KSW_NSHADOW_OK);
+            CHECK(m->pages[0].Words[0] == 0);
+            break;
+        }
+        CHECK(cache_roundtrip(m) == 0);
+        CHECK(m->shadow.Epoch > epoch && m->pages[0].Words[0] == 0 && m->shadow.Used == 1);
+        CHECK(KswSvmNestedShadowInstall(&m->shadow, &mapping) == KSW_NSHADOW_STALE);
+        mapping.Epoch = m->shadow.Epoch; mapping.Leaf = 0x5065;
+        mapping.Outer.Address = 0x5000; mapping.Inner.Permissions = 5;
+        CHECK(KswSvmNestedShadowInstall(&m->shadow, &mapping) == KSW_NSHADOW_OK);
+        CHECK(m->pages[3].Words[1] == 0x5065);
+        epoch = m->shadow.Epoch;
+        ((unsigned char*)operand)[KSW_VMCB_TLB] = 0;
+        m->io.ReuseNpt = 1;
+        CHECK(cache_roundtrip(m) == 0);
+        CHECK(m->shadow.Epoch == epoch);
+    }
+    return 0;
+}
 static DWORD WINAPI run_parallel(void* argument)
 {
     MODEL* m = argument;
@@ -201,7 +282,7 @@ static DWORD WINAPI run_parallel(void* argument)
 int main(void)
 {
     HANDLE threads[8]; unsigned i; DWORD resultCode;
-    if (test_transitions() || test_event_consumption()) { return 1; }
+    if (test_transitions() || test_event_consumption() || test_cache_lifetime()) { return 1; }
     for (i = 0; i < 8; ++i) { CHECK(initialize(&model[i], i)); threads[i] = CreateThread(NULL, 0, run_parallel, &model[i], 0, NULL); CHECK(threads[i]); }
     CHECK(WaitForMultipleObjects(8, threads, TRUE, 30000) == WAIT_OBJECT_0);
     for (i = 0; i < 8; ++i) {

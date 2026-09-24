@@ -49,6 +49,39 @@ static void KswNsvmSessionSaveL1(KSW_NSVM_SESSION* Session, const KSW_SVM_VMCB* 
     KswSvmWrite64(&Session->L1, 0x068U, 0);
 }
 
+static unsigned KswNsvmSessionCache(KSW_NSVM_SESSION* Session,
+    KSW_NSVM_SESSION_IO* Io, const KSW_SVM_VMCB* Current)
+{
+    KSW_SVM_U64 key[13];
+    unsigned i, reuse;
+    key[0] = Session->OperandHostPa;
+    key[1] = KswSvmRead64(&Session->Vmcb12, KSW_VMCB_NCR3);
+    key[2] = KswSvmRead64(&Session->Vmcb12, KSW_VMCB_ASID) & 0xffffffffULL;
+    key[3] = KswSvmRead64(Current, KSW_VMCB_CR0);
+    key[4] = KswSvmRead64(Current, KSW_VMCB_CR3);
+    key[5] = KswSvmRead64(Current, KSW_VMCB_CR4);
+    key[6] = KswSvmRead64(Current, KSW_VMCB_EFER);
+    key[7] = KswSvmRead64(Current, KSW_VMCB_PAT);
+    key[8] = Io->Mmu->OuterRoot;
+    key[9] = Io->Mmu->OuterPat;
+    key[10] = Io->Mmu->HardwarePat;
+    key[11] = (KSW_SVM_U64)Io->Mmu->OuterBits |
+        ((KSW_SVM_U64)Io->Mmu->OuterPage1Gb << 32) | ((KSW_SVM_U64)Io->Mmu->OuterNx << 40);
+    key[12] = (KSW_SVM_U64)Io->Policy.PhysicalBits | ((KSW_SVM_U64)Io->Operand.Page1Gb << 32);
+    reuse = Io->ReuseNpt && Session->CacheValid && Session->CacheEpoch == Io->Shadow->Epoch &&
+        Session->CacheOwnerToken == Session->Lease.PreviousToken &&
+        ((const unsigned char*)&Session->Vmcb12)[KSW_VMCB_TLB] == 0;
+    for (i = 0; i < 13; ++i) {
+        if (key[i] != Session->CacheKey[i]) { reuse = 0; }
+    }
+    if (!reuse && KswSvmNestedShadowReset(Io->Shadow) != KSW_NSHADOW_OK) { return 0; }
+    for (i = 0; i < 13; ++i) { Session->CacheKey[i] = key[i]; }
+    Session->CacheEpoch = Io->Shadow->Epoch;
+    Session->CacheOwnerToken = Session->Lease.Token;
+    Session->CacheValid = 1;
+    return 1;
+}
+
 /* Bind each transaction to one arbitrary translated operand and one processor-private cache. */
 unsigned int KswSvmNestedSessionEnter(KSW_NSVM_SESSION* Session,
     KSW_NSVM_SESSION_IO* Io, KSW_SVM_VMCB* Current, KSW_SVM_U64 OperandPa)
@@ -136,8 +169,7 @@ unsigned int KswSvmNestedSessionEnter(KSW_NSVM_SESSION* Session,
         /* An incoherent outer permission descriptor is an implementation failure. */
         return KswNsvmSessionFault(Session);
     }
-    /* Every new virtual VMRUN invalidates cached source mappings regardless of virtual ASID. */
-    if (KswSvmNestedShadowReset(Io->Shadow) != KSW_NSHADOW_OK) { return KswNsvmSessionFault(Session); }
+    if (!KswNsvmSessionCache(Session, Io, Current)) { return KswNsvmSessionFault(Session); }
     /* Preserve the host continuation before replacing its automatic execution state. */
     KswNsvmSessionSaveL1(Session, Current);
     /* Build with real processor-local ASID and L0-owned map/NPT pointers only. */
@@ -155,7 +187,7 @@ unsigned int KswSvmNestedSessionEnter(KSW_NSVM_SESSION* Session,
     Io->Mmu->InnerPage1Gb = Io->Operand.Page1Gb;
     /* NPT12 NX interpretation uses the virtual host EFER. */
     Io->Mmu->InnerNx = (KswSvmRead64(&Session->L1, KSW_VMCB_EFER) & (1ULL << 11)) != 0;
-    /* Cache publication is tied to this exact reset generation. */
+    /* Cache publication is tied to the current translation epoch. */
     Io->Mmu->Epoch = Io->Shadow->Epoch;
     /* Restore this VMCB's events even when L1 scheduled it on a different physical processor. */
     if (!KswSvmNestedOwnerRestore(Io->Owners, &Session->Lease, Io->Pending)) { return KswNsvmSessionFault(Session); }

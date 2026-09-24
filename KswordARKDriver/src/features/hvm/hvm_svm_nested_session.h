@@ -38,6 +38,8 @@ typedef struct _KSW_NSVM_SESSION {
     KSW_NSVM_OPERAND_RESULT OperandResult;
     /* Caller must hold resources if a physical commit failed or L2 still owns the CPU. */
     unsigned int Phase, VirtualGif;
+    KSW_SVM_U64 CacheKey[13], CacheEpoch, CacheOwnerToken;
+    unsigned CacheValid;
 } KSW_NSVM_SESSION;
 
 typedef struct _KSW_NSVM_SESSION_IO {
@@ -61,6 +63,7 @@ typedef struct _KSW_NSVM_SESSION_IO {
     /* No allocation or shared-cache lock is taken by a nested transition. */
     KSW_NSHADOW* Shadow;
     KSW_NMMU_CONFIG* Mmu;
+    unsigned ReuseNpt;
 } KSW_NSVM_SESSION_IO;
 
 /* Virtual instruction legality/EFER/HSAVE/GIF are checked by the dispatcher first.

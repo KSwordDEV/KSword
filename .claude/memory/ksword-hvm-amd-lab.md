@@ -1,5 +1,11 @@
 # AMD 实验后端与重启续接
 
+2026-09-24 NPT02复用候选：general模式仅在同VMCB/虚拟ASID/NCR3/L1分页状态/外层配置/epoch和连续owner token、TLB_CONTROL=0时保留CPU私有缓存；非零TLB命令、INVLPGA、池重置或跨核接手后清空。实际硬件每VMRUN全flush保留；NPT01必须生命周期不可变。23离线目标通过，session1559检查；标准WDK/API/CAT零警告。候选tools/hvm_lab/artifacts/npt-cache-v7，尚未签名或加载。当前hotspots-v7驱动32核常驻和8核VM保持运行，用户正常开机后会告知；不得擅自重置换版。详情docs/next/evidence/amd-npt-cache-reuse.md。当前验收要求明确为VM正常开机，未达到。
+
+2026-09-24 用户明确调整当前HVM调试工作方式：测试脚本无需注释；新增源码注释允许跑通后补，不让逐句注释要求拖慢本轮定位。优先实现和必要测试，避免扩展审计。
+
+2026-09-24 v7实体机复测：old32核stop/native阶段6→teardown→SCM卸载、新v7加载/32核selftest/general常驻均通过。原8vCPU克隆启动后a/b热点全部有效，5.6秒L1退出2526011（MSR2088206）/L2增量0，热点RIP归属vmx86.sys+96e8/+9833 EFER保存恢复路径；后续c复采显示L2恢复推进（比b多3025071退出，其中NPF2776931；L1 VMRUN275788），因此不得把短窗口零L2增量说成永久L1死循环。日志EFI/PCI/SVGA进展，没有完整OS验收。证据artifacts/hotspots-v7-live-20260924，current driver/VM均未停止。候选性能瓶颈仍需定位；不能直接删每次VMRUN的NPT02重置而忽略虚拟ASID/远程失效/NPT源变化。
+
 2026-09-24 metrics v7热点候选：resume-20260924在实体机32核准入/自检/general常驻成功但完整L2仍黑屏；两只读快照和EFI/SVGA进展见artifacts/black-screen-20260924-081502，229200总退出/约5.7秒并非纯NPF。新增hotspots独立短序列、按L1/L2原始code分桶、每层前16个MSR精确读写计数+overflow；无效快照不可作零差值。23离线目标及JSON/PS证据检查通过，WDK/API/CAT零警告，CLI/KswordCLI重编。hotspots-v7候选未签名未加载，主程序同步构建成功（4条既有编译/部署警告及测试签名验证警告）；这仅是定位版本，不宣称黑屏修复。运行现场未停止/重置。报告docs/next/evidence/amd-hotspots-v7.md。
 
 2026-09-21 黑屏NPF成本定点修复：两快照general总退出增加19054622，但包括L1 MSR，L2 RIP/GPA仍变化，不能断言同页死循环或唯一黑屏根因。MMU对两级已验证D=1源叶保留交集RW；任一D清零仍写保护。两级均大页且2MiB偏移一致时填充空4KiB兄弟，保留UC/NX/A-D/既有叶；4KiB源不扩大。每VMRUN清空仍保留。22离线目标/WDK/API/CAT零警告通过；候选npf-prefill-v6未签名未加载，黑屏未实测解决，driver/VM现场未动。报告docs/next/evidence/amd-npf-prefill.md。
