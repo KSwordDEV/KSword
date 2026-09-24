@@ -107,6 +107,15 @@ int main(void)
     reset(); ram[2][0] = 0x87; /* Likewise for a 1-GiB outer leaf. */
     CHECK(KswSvmNestedReadOperandPage(&io, 0x6000, output, &result) == KSW_NNPT_OK);
     CHECK(result.HostPa == 0x6000 && !memcmp(output, ram[6], 4096));
+    reset();
+    CHECK(KswSvmNestedResolveOperand(&io, 0x9000, &result) == KSW_NNPT_OK);
+    CHECK(result.HostPa == 0x6000 && result.GuestPa == 0x9000 && result.Words == 0);
+    CHECK(!payloadReads && pageCalls == 0 && wordCalls > 0 && wordCalls < 16);
+    CHECK(KswSvmNestedResolveOperand(&io, 0x9001, &result) == KSW_NNPT_UNSUPPORTED);
+    CHECK(KswSvmNestedResolveOperand(&io, 1ULL << 45, &result) == KSW_NNPT_UNSUPPORTED);
+    reset(); ram[4][9] |= 0x18;
+    CHECK(KswSvmNestedResolveOperand(&io, 0x9000, &result) == KSW_NNPT_UNSUPPORTED);
+    CHECK(!payloadReads && pageCalls == 0);
     }
     bulkMode = 1; reset(); shortSuccess = 1;
     CHECK(KswSvmNestedReadOperandPage(&io, 0x9000, output, &result) == KSW_NNPT_UNREADABLE);

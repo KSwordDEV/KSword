@@ -26,9 +26,8 @@ unsigned int KswSvmNestedSessionTransfer(KSW_NSVM_SESSION* Session,
         /* The original image remains intact for diagnosis. */
         return KswNsvmTransferFault(Session);
     }
-    /* Resolve the operand without assuming GPA=HPA or borrowing VMCB12's own NCR3. */
-    status = KswSvmNestedReadOperandPage(&Io->Operand, OperandPa,
-        (unsigned char*)&Session->Vmcb12, &Session->OperandResult);
+    /* Resolve identity before leasing; defer the expensive snapshot until ownership is held. */
+    status = KswSvmNestedResolveOperand(&Io->Operand, OperandPa, &Session->OperandResult);
     /* A physical access failure is not the fabricated success of a zero-filled operand. */
     if (status != KSW_NNPT_OK) { return KswNsvmTransferFault(Session); }
     /* Retain identities before a writeback callback repurposes its diagnostic output. */

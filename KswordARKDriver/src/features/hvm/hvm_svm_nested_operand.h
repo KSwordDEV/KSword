@@ -24,6 +24,10 @@ typedef struct _KSW_NSVM_OPERAND_RESULT {
     KSW_SVM_U64 GuestPa, HostPa;
 } KSW_NSVM_OPERAND_RESULT;
 
+/* Resolve only the outer physical identity; no guest payload is copied. */
+unsigned int KswSvmNestedResolveOperand(const KSW_NSVM_OPERAND_IO* Io,
+    KSW_SVM_U64 GuestPa, KSW_NSVM_OPERAND_RESULT* Result);
+
 /* Destination is one owned 4-KiB buffer; on failure all its bytes become zero.
    Translation rechecks detect remaps, not unsynchronized writes to the data page. */
 unsigned int KswSvmNestedReadOperandPage(const KSW_NSVM_OPERAND_IO* Io,
