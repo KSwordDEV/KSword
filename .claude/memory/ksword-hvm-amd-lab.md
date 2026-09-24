@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-24 v8实测已收敛根因：换版后32核常驻、8vCPU VM启动采样完成。v8 cache-a/b约5.69s，32核中31对有效，lookups20929/hits14288（68.3%）/resets6641，resets几乎全由tlbRequested=6641；c/d约5.74s，lookups13061/hits0/resets13061，tlbRequested=13061；ownerChanged仅20/15，跨CPU不是主因证据。VM仍logo慢。基于AMD指南，TLB_CONTROL硬件flush不等于必须重建稳定NPT02，做v9：TLB请求单独统计但不作软件shadow reset，INVLPGA/epoch/key/owner仍清空。v9新候选tools/hvm_lab/artifacts/npt-cache-reuse-v9未签未加载，metrics9，离线session2586、CLI/分析器/WDK/API/CAT PASS。此修复仍待实机验证。
+
 2026-09-24 v8诊断补充：用户怀疑正常VM应单核连续而当前多核来回切换。metrics8新增ownerTransitions与ownerCpuTransitions；后者由VMCB owner table记录上一次Windows group:number，表示同一VMCB跨CPU接手的相关信号，不等于证明guest线程迁移。缓存资格、调度、TLB策略不变。新离线session2620、CLI JSON与WDK/API/CAT零警告通过；候选仍未签/加载。
 
 2026-09-24 v8静态收尾：metrics8候选已提交前完成重新构建；23离线HVM目标、CLI JSON/PS5.1/命令一致性/IOCTL门、差值分析器均PASS，WDK/API/CAT零警告；主程序Release兼容编译链接退出0，仅既有测试证书信任校验warning。候选目录tools/hvm_lab/artifacts/npt-cache-stats-v8含未签SYS/PDB、v8CLI、导出器、分析器、identity和构建日志，SYS/PDB RSDS匹配。当前未提权、未换版；现有npt-transfer-cache-v7和VM现场保持。

@@ -6,7 +6,7 @@
 #include "KswordArkHvmNptCacheStats.h"
 
 /* Independent versioning keeps existing HVM query clients ABI-compatible. */
-#define KSWORD_ARK_HVM_METRICS_VERSION 8UL
+#define KSWORD_ARK_HVM_METRICS_VERSION 9UL
 
 /* General execution observations are independent of bounded-probe completion evidence. */
 typedef struct _KSWORD_ARK_HVM_SVM_GENERAL_METRICS {

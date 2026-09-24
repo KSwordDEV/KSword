@@ -71,7 +71,9 @@ static unsigned KswNsvmSessionCache(KSW_NSVM_SESSION* Session,
     key[12] = (KSW_SVM_U64)Io->Policy.PhysicalBits | ((KSW_SVM_U64)Io->Operand.Page1Gb << 32);
     if (!Io->ReuseNpt) { miss |= 1U << KSW_HVM_NPT_CACHE_DISABLED; }
     if (!Session->CacheValid) { miss |= 1U << KSW_HVM_NPT_CACHE_COLD; }
-    if (((const unsigned char*)&Session->Vmcb12)[KSW_VMCB_TLB]) { miss |= 1U << KSW_HVM_NPT_CACHE_TLB; }
+    if (((const unsigned char*)&Session->Vmcb12)[KSW_VMCB_TLB]) {
+        KswHvmNptCacheCount(stats, &stats->tlbRequests);
+    }
     if (Session->CacheValid) {
         if (Session->CacheEpoch != Io->Shadow->Epoch) { miss |= 1U << KSW_HVM_NPT_CACHE_EPOCH; }
         if (Session->CacheOwnerToken != Session->Lease.PreviousToken) { miss |= 1U << KSW_HVM_NPT_CACHE_OWNER; }

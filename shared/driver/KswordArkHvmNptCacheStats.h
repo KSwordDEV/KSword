@@ -12,7 +12,7 @@
 /* Reasons may overlap. Validity is inherited from the enclosing general snapshot. */
 typedef struct _KSWORD_HVM_NPT_CACHE_STATS {
     unsigned long long lookups, hits, resets, resetFailures;
-    unsigned long long ownerTransitions, ownerCpuTransitions;
+    unsigned long long ownerTransitions, ownerCpuTransitions, tlbRequests;
     unsigned long long reasons[KSW_HVM_NPT_CACHE_REASONS];
     unsigned long lastMissMask, saturated;
 } KSWORD_HVM_NPT_CACHE_STATS;

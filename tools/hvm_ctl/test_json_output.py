@@ -41,12 +41,13 @@ metrics = json.loads(subprocess.check_output([str(fixture), 'metrics']))
 for invalid in ('metrics-old', 'metrics-short'):
     rejected = subprocess.run([str(fixture), invalid], capture_output=True)
     assert rejected.returncode != 0, invalid
-assert metrics['version'] == 8 and metrics['backend'] == 2
+assert metrics['version'] == 9 and metrics['backend'] == 2
 cache = metrics['svmProcessors'][0]['nptCache']
 assert cache['valid'] == 1 and int(cache['sequence']) == 0x100000002
 assert int(cache['lookups']) == 0x100000010 and int(cache['hits']) == 0x10000000a
 assert int(cache['resets']) == 5 and int(cache['resetFailures']) == 1
 assert int(cache['ownerTransitions']) == 9 and int(cache['ownerCpuTransitions']) == 3
+assert int(cache['tlbRequests']) == 17
 assert int(cache['invlpgaCount']) == 8 and int(cache['shadowEpoch']) == 0x100000003
 assert cache['lastMissMask'] == '0x00000008' and len(cache['reasons']) == 18
 assert int(cache['reasons']['ownerChanged']) == 4 and int(cache['reasons']['l1Cr3']) == 2

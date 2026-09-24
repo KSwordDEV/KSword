@@ -7522,7 +7522,7 @@ static int DoProcess(HANDLE h, unsigned long op, unsigned long pid,
 static void PrintNptCacheJson(const KSWORD_ARK_HVM_SVM_GENERAL_METRICS* general)
 {
     static const char* const reasons[KSW_HVM_NPT_CACHE_REASONS] = {
-        "reuseDisabled", "cold", "epochChanged", "ownerChanged", "tlbRequested",
+        "reuseDisabled", "cold", "epochChanged", "ownerChanged", "tlbGateReserved",
         "vmcbHpa", "ncr3", "asid", "l1Cr0", "l1Cr3", "l1Cr4", "l1Efer", "l1Pat",
         "outerRoot", "outerPat", "hardwarePat", "outerCapabilities", "innerCapabilities"
     };
@@ -7530,11 +7530,11 @@ static void PrintNptCacheJson(const KSWORD_ARK_HVM_SVM_GENERAL_METRICS* general)
     unsigned i;
     printf(",\"nptCache\":{\"valid\":%lu,\"sequence\":\"%llu\",\"saturated\":%lu,"
         "\"lookups\":\"%llu\",\"hits\":\"%llu\",\"resets\":\"%llu\",\"resetFailures\":\"%llu\","
-        "\"ownerTransitions\":\"%llu\",\"ownerCpuTransitions\":\"%llu\","
+        "\"ownerTransitions\":\"%llu\",\"ownerCpuTransitions\":\"%llu\",\"tlbRequests\":\"%llu\","
         "\"lastMissMask\":\"0x%08lX\",\"invlpgaCount\":\"%llu\",\"poolRecycles\":\"%llu\","
         "\"shadowEpoch\":\"%llu\",\"reasons\":{",
         general->valid, general->sequence, stats->saturated, stats->lookups, stats->hits,
-        stats->resets, stats->resetFailures, stats->ownerTransitions, stats->ownerCpuTransitions,
+        stats->resets, stats->resetFailures, stats->ownerTransitions, stats->ownerCpuTransitions, stats->tlbRequests,
         stats->lastMissMask, general->invlpgaCount,
         general->cacheRecycles, general->shadowEpoch);
     for (i = 0; i < KSW_HVM_NPT_CACHE_REASONS; ++i) {

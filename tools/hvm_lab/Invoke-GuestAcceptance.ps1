@@ -1,4 +1,4 @@
-﻿# Run only in the isolated VMware Windows 10 guest, after KD and driver loading were verified.
+# Run only in the isolated VMware Windows 10 guest, after KD and driver loading were verified.
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$Ctl,
       [Parameter(Mandatory)][string]$EvidenceDirectory,
@@ -80,8 +80,8 @@ function CheckSet($Query,[bool]$Active) {
     if ($Query.stateNames -contains 'ROLLBACK_REQUIRED' -or $Query.stateNames -contains 'FAULTED') { throw 'Driver retained a fault or rollback requirement.' }
 }
 function CheckNestedProbe($Metrics, $Previous) {
-    if ($Metrics.version -ne 8 -or $Metrics.backend -ne 2 -or @($Metrics.svmProcessors).Count -ne $Vcpu) {
-        throw 'Nested probe requires metrics v8 and a complete AMD CPU set.'
+    if ($Metrics.version -ne 9 -or $Metrics.backend -ne 2 -or @($Metrics.svmProcessors).Count -ne $Vcpu) {
+        throw 'Nested probe requires metrics v9 and a complete AMD CPU set.'
     }
     $seen=@{}
     foreach ($cpu in $Metrics.svmProcessors) {
@@ -102,8 +102,8 @@ function CheckNestedProbe($Metrics, $Previous) {
     return $seen
 }
 function CheckGeneral($Metrics, [bool]$Active) {
-    if ($Metrics.version -ne 8 -or $Metrics.backend -ne 2 -or @($Metrics.svmProcessors).Count -ne $Vcpu) {
-        throw 'General residency requires metrics v8 and the complete AMD CPU set.'
+    if ($Metrics.version -ne 9 -or $Metrics.backend -ne 2 -or @($Metrics.svmProcessors).Count -ne $Vcpu) {
+        throw 'General residency requires metrics v9 and the complete AMD CPU set.'
     }
     $seen=@{}
     foreach ($cpu in $Metrics.svmProcessors) {

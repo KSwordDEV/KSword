@@ -251,6 +251,13 @@ static int test_cache_lifetime(void)
         CHECK(cache_roundtrip(m) == 0);
         {
             static const unsigned expected[17] = {4,4,4,7,6,9,12,10,11,8,13,14,15,0,3,2,2};
+            if (scenario < 3) {
+                CHECK(m->session.CacheStats.lookups == 10 && m->session.CacheStats.hits == 9);
+                CHECK(m->session.CacheStats.resets == 1 && m->session.CacheStats.tlbRequests == 1);
+                CHECK(m->shadow.Epoch == epoch && m->shadow.Used == 4);
+                ((unsigned char*)operand)[KSW_VMCB_TLB] = 0;
+                continue;
+            }
             CHECK(m->session.CacheStats.lookups == 10 && m->session.CacheStats.hits == 8);
             CHECK(m->session.CacheStats.resets == 2 && !m->session.CacheStats.resetFailures);
             CHECK(m->session.CacheStats.lastMissMask == (1U << expected[scenario]));
@@ -335,6 +342,10 @@ static int test_cache_transfer_chain(void)
             KswSvmWrite64((KSW_SVM_VMCB*)m->ram[6], KSW_VMCB_NCR3, 0x8000);
         }
         CHECK(cache_roundtrip(m) == 0);
+        if (scenario == 4) {
+            CHECK(m->shadow.Epoch == epoch && m->shadow.Used == 4);
+            continue;
+        }
         CHECK(m->shadow.Epoch > epoch && m->shadow.Used == 1 && !m->pages[0].Words[0]);
         CHECK(KswSvmNestedShadowInstall(&m->shadow, &mapping) == KSW_NSHADOW_STALE);
     }
@@ -350,14 +361,15 @@ static int test_cache_counter_edges(void)
     ((unsigned char*)m->ram[6])[KSW_VMCB_TLB] = 1;
     KswSvmWrite64((KSW_SVM_VMCB*)m->ram[6], KSW_VMCB_NCR3, 0x8000);
     CHECK(cache_roundtrip(m) == 0);
-    CHECK(stats->resets == 2 && stats->reasons[KSW_HVM_NPT_CACHE_TLB] == 1);
+    CHECK(stats->resets == 2 && stats->tlbRequests == 1);
     CHECK(stats->reasons[KSW_HVM_NPT_CACHE_KEY_BASE + 1] == 1);
-    CHECK(stats->lastMissMask == ((1U << KSW_HVM_NPT_CACHE_TLB) | (1U << (KSW_HVM_NPT_CACHE_KEY_BASE + 1))));
-    stats->lookups = stats->resets = stats->reasons[KSW_HVM_NPT_CACHE_TLB] = ~0ULL;
+    CHECK(stats->lastMissMask == (1U << (KSW_HVM_NPT_CACHE_KEY_BASE + 1)));
+    KswSvmWrite64((KSW_SVM_VMCB*)m->ram[6], KSW_VMCB_NCR3, 0x9000);
+    stats->lookups = stats->resets = stats->reasons[KSW_HVM_NPT_CACHE_KEY_BASE + 1] = ~0ULL;
     epoch = m->shadow.Epoch;
     CHECK(cache_roundtrip(m) == 0);
     CHECK(stats->saturated == 1 && stats->lookups == ~0ULL && stats->resets == ~0ULL);
-    CHECK(stats->reasons[KSW_HVM_NPT_CACHE_TLB] == ~0ULL && m->shadow.Epoch == epoch + 1);
+    CHECK(stats->reasons[KSW_HVM_NPT_CACHE_KEY_BASE + 1] == ~0ULL && m->shadow.Epoch == epoch + 1);
     ((unsigned char*)m->ram[6])[KSW_VMCB_TLB] = 0;
     stats->hits = ~0ULL;
     CHECK(cache_roundtrip(m) == 0);

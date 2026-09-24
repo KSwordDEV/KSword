@@ -3,7 +3,7 @@ import argparse
 import json
 import pathlib
 
-COUNTERS = ('lookups', 'hits', 'resets', 'resetFailures', 'invlpgaCount', 'poolRecycles')
+COUNTERS = ('lookups', 'hits', 'resets', 'resetFailures', 'tlbRequests', 'invlpgaCount', 'poolRecycles')
 
 
 def read(path):
@@ -13,8 +13,8 @@ def read(path):
 
 def compare(first, second):
     for snapshot in (first, second):
-        if snapshot.get('version') != 8 or snapshot.get('backend') != 2:
-            raise ValueError('Matching AMD metrics v8 snapshots required')
+        if snapshot.get('version') != 9 or snapshot.get('backend') != 2:
+            raise ValueError('Matching AMD metrics v9 snapshots required')
     frequency = int(first['qpcFrequency'])
     ticks = int(second['snapshotBeginQpc']) - int(first['snapshotBeginQpc'])
     if frequency <= 0 or frequency != int(second['qpcFrequency']) or ticks <= 0:

@@ -63,7 +63,7 @@ try {
     Save-Query 'status'
     Save-Query 'metrics'
     $metrics=[IO.File]::ReadAllText((Join-Path $EvidenceDirectory 'metrics.json')) | ConvertFrom-Json
-    if ($metrics.version -notin @(6,7,8) -or $metrics.backend -ne 2) { throw 'A matching metrics v6/v7/v8 AMD driver and CLI are required.' }
+    if ($metrics.version -notin @(6,7,8,9) -or $metrics.backend -ne 2) { throw 'A matching metrics v6/v7/v8/v9 AMD driver and CLI are required.' }
     $latched=0; $incoherent=0; $seen=@{}
     foreach ($cpu in $metrics.svmProcessors) {
         $group=[int]$cpu.group; $number=[int]$cpu.number
