@@ -233,6 +233,10 @@ NTSTATUS KswordSvmNestedInitializeGeneral(KSW_SVM_CPU* Cpu)
     if (KswSvmNestedMachineInitialize(&nested->GeneralMachine) != KSW_NSVM_MACHINE_READY) { return STATUS_NOT_SUPPORTED; }
     /* This is bound-resource readiness; public activation and hardware success are separate evidence. */
     nested->GeneralHardwareExits = nested->GeneralLastHardwareExit = 0;
+    /* New residency starts its own zeroed hotspot epoch under lifecycle exclusion. */
+    RtlZeroMemory(&nested->Hotspots, sizeof(nested->Hotspots));
+    /* No count is readable until the first complete observation. */
+    nested->HotSequence = 0;
     /* Counters now describe this binding lifetime, matching the new machine transition counter. */
     nested->GeneralInitialized = 1;
     /* Assembly can observe this only after every platform callback and state owner has been initialized. */
@@ -284,6 +288,15 @@ ULONG KswordSvmNestedGeneralExit(KSW_SVM_CPU* Cpu)
     ++Cpu->Nested->GeneralHardwareExits;
     /* Preserve raw hardware input even if a missing overlay makes machine dispatch fail before classification. */
     Cpu->Nested->GeneralLastHardwareExit = KswSvmRead64(Cpu->Guest, KSW_VMCB_EXITCODE);
+    /* Publish raw per-level counters before the dispatcher mutates RCX, RIP or session ownership. */
+    InterlockedIncrement64(&Cpu->Nested->HotSequence);
+    /* The shared short transaction does no guest memory access or root event processing. */
+    KswSvmHotObserve(&Cpu->Nested->Hotspots, Cpu->Nested->Session.Phase,
+        Cpu->Nested->GeneralLastHardwareExit, KswSvmRead64(Cpu->Guest, KSW_VMCB_RIP),
+        KswSvmRead64(Cpu->Guest, KSW_VMCB_EXITINFO1), KswSvmRead64(Cpu->Guest, KSW_VMCB_EXITINFO2),
+        (ULONG)Cpu->Gpr[1]);
+    /* Release the independently coherent counters before expensive general exit handling. */
+    InterlockedIncrement64(&Cpu->Nested->HotSequence);
     /* Raw terminal exits must be copied before MachineExit restores controls or reflects to L1. */
     KswNsvmObserve(Cpu, KSW_HVM_FLIGHT_EXIT,
         Cpu->Nested->GeneralLastHardwareExit == 0x7fULL ? KSW_HVM_FLIGHT_SHUTDOWN :

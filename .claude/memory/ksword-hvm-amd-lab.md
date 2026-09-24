@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-24 metrics v7热点候选：resume-20260924在实体机32核准入/自检/general常驻成功但完整L2仍黑屏；两只读快照和EFI/SVGA进展见artifacts/black-screen-20260924-081502，229200总退出/约5.7秒并非纯NPF。新增hotspots独立短序列、按L1/L2原始code分桶、每层前16个MSR精确读写计数+overflow；无效快照不可作零差值。23离线目标及JSON/PS证据检查通过，WDK/API/CAT零警告，CLI/KswordCLI重编。hotspots-v7候选未签名未加载，主程序同步构建成功（4条既有编译/部署警告及测试签名验证警告）；这仅是定位版本，不宣称黑屏修复。运行现场未停止/重置。报告docs/next/evidence/amd-hotspots-v7.md。
+
 2026-09-21 黑屏NPF成本定点修复：两快照general总退出增加19054622，但包括L1 MSR，L2 RIP/GPA仍变化，不能断言同页死循环或唯一黑屏根因。MMU对两级已验证D=1源叶保留交集RW；任一D清零仍写保护。两级均大页且2MiB偏移一致时填充空4KiB兄弟，保留UC/NX/A-D/既有叶；4KiB源不扩大。每VMRUN清空仍保留。22离线目标/WDK/API/CAT零警告通过；候选npf-prefill-v6未签名未加载，黑屏未实测解决，driver/VM现场未动。报告docs/next/evidence/amd-npf-prefill.md。
 
 2026-09-21 EVENTINJ消费漏写离线修复：独立核验19:39导出manifest和VMCB；flight 407192为CR4写退出（EVENTINJ/EXITINTINFO均0，lease68328），407193同一operand0x58180f000的新lease68329又注入IRQ68，最后7f/EXITINTINFO80000b08。production ReflectExit和writeback mask均遗漏EVENTINJ输出，SessionEnter会重用旧请求。新生产会话回归修前FAIL、修后22目标PASS（session90/writeback628；8线程模拟不算硬件）。正常及INVALID VMEXIT清完整EVENTINJ并写回，EXITINTINFO保留，VMSAVE不变；不改NPF/NPT/异常语义。报告docs/next/evidence/amd-eventinj-consumption-fix.md引用Linux上游69b721a86d0d所引APM规则。新候选artifacts/eventinj-clear-v6，标准WDK/API/CAT零警告、未签名/未加载，沿用metrics6 CLI。已确认缺陷但尚不能断言它是该shutdown唯一原因或L2已修复。宿主driver/VM未停止或重置；补采vmware-followup.log记录19:38:50来宾vcpu0 triplefault，与宿主CPU0:22勿混同。

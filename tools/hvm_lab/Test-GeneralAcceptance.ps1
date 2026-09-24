@@ -10,7 +10,7 @@ Invoke-Expression $function.Extent.Text
 $Vcpu=8
 function Snapshot([bool]$Active) {
     $enabled=if ($Active) {1} else {0}
-    return [pscustomobject]@{version=6;backend=2;svmProcessors=@(0..7 | ForEach-Object {
+    return [pscustomobject]@{version=7;backend=2;svmProcessors=@(0..7 | ForEach-Object {
         [pscustomobject]@{group=0;number=$_;failureStatus='0x00000000';general=[pscustomobject]@{
             valid=1;sequence='4294967298';preparedEntries='1';hardwareExits=$(if ($Active) {'0'} else {'1'});
             enabled=$enabled;initialized=$enabled;pending=0;nmiCaptured=0;

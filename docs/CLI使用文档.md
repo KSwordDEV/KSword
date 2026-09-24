@@ -403,7 +403,7 @@ WSL silo and Linux PID/TID diagnostics.
 | `r0 image-signature` | `KswordCLI.exe r0 image-signature --path PATH [--module-base VA] [--flags 0xN]` | 读取 Authenticode 证书表和 CI 证据。 | 必填：--path。可选：--module-base、--flags。 | `IOCTL_KSWORD_ARK_QUERY_IMAGE_SIGNATURE`。 |
 | `r0 debug-output` | `KswordCLI.exe r0 debug-output [--after-sequence N] [--max-records N] [--limit N]` | 读取内核调试输出环。 | 可选：--after-sequence、--max-records、--limit。 | `IOCTL_KSWORD_ARK_DEBUG_OUTPUT_DRAIN`，不改变捕获状态。 |
 | `r0 hvm-status` | `KswordCLI.exe r0 hvm-status` | 查询 HVM v6 的 VMX/EPT 或实验性 SVM/NPT 生命周期与能力状态。 | 无。 | `IOCTL_KSWORD_ARK_QUERY_HVM`。 |
-| `r0 hvm-metrics` | `KswordCLI.exe r0 hvm-metrics` | 查询转换计时有效性及 INVEPT、替换页资源计数。 | 无。 | `IOCTL_KSWORD_ARK_HVM_METRICS` v6；完整逐核 JSON：`hvm_ctl --json metrics`，包括影子 EPT 缓存、A/D 维护计数。主程序“完整操作”使用同一引擎。 |
+| `r0 hvm-metrics` | `KswordCLI.exe r0 hvm-metrics` | 查询转换计时有效性及 INVEPT、替换页资源计数。 | 无。 | `IOCTL_KSWORD_ARK_HVM_METRICS` v7；完整逐核 JSON：`hvm_ctl --json metrics`，包括影子 EPT 缓存、A/D 维护计数。主程序“完整操作”使用同一引擎。 |
 | `r0 hvm-events` | `KswordCLI.exe r0 hvm-events [--after-sequence N] [--max-rows N]` | 读取 HVM 事件环，不清空事件。 | 可选：--after-sequence、--max-rows。 | `IOCTL_KSWORD_ARK_HVM_EVENTS`。 |
 | `r0 ioctl-registry` | `KswordCLI.exe r0 ioctl-registry [--flags 0xN] [--max-entries N]` | 查询驱动已注册的 IOCTL 分发表。 | 可选：--flags、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_IOCTL_REGISTRY`。 |
 | `r0 timer-dpc` | `KswordCLI.exe r0 timer-dpc [--max-entries N] [--max-per-bucket N]` | 枚举内核定时器与 DPC 证据。 | 可选：--max-entries、--max-per-bucket。 | `IOCTL_KSWORD_ARK_ENUM_TIMER_DPC`。 |
@@ -445,7 +445,7 @@ WSL silo and Linux PID/TID diagnostics.
 调用者须在这些操作前移除映射，并在控制期间保留目标页。
 
 
-### AMD SVM/NPT 实验后端（HVM v6 / metrics v6）
+### AMD SVM/NPT 实验后端（HVM v6 / metrics v7）
 
 HVM v6 在 `status.svmProbe` 增加 `rejectReason`/`rejectReasonName`、`stateValidMask`、`cpuid1Ecx`、`xsaveFeatures`、`cr4`、`xcr0`、`xss`。状态有效位 1/2/4/8/16 分别对应 CR4、CPUID.1、CPUID.D.1、XCR0、XSS；无有效位的零值不代表状态关闭。拒绝码 7 是非零 HSAVE、8 是 CR4 中未支持的状态、9 是 XSAVE/OSXSAVE 不可用、10 是扩展状态读取异常、11 是非零 XSS、12 是物理地址宽度不支持。该查询不修改寄存器、不进入 SVM；SYS、主程序与 CLI 必须同步更新，旧 v5 请求拒绝。
 
@@ -474,3 +474,12 @@ AMD metrics v6 在 `svmProcessors[].flight` 增加独立首故障记录：`coher
 锁存时还导出4096字节VMCB的完整十六进制字符串 `vmcb12Hex`、`currentVmcbHex`；`vmcb12Valid=0`时前者不可解释，current是否为VMCB02由故障行的phase决定（1=L2）。`generation`绑定事件发生时的代次，`total`只在本次资源生命周期单调计数。数据不代表跨CPU同时快照，也不保证跨重启保留。旧v5 metrics客户端明确拒绝，必须同步驱动与CLI/主程序。
 
 故障后可运行 `tools/hvm_lab/Export-SvmIncident.ps1 -Ctl <配套hvm_ctl.exe> -EvidenceDirectory <新目录> -Vmx <克隆vmx路径>`。脚本只执行status/metrics及文件复制，导出原始JSON、VMCB二进制、VMware日志和SHA256；不加载/停止驱动、不重置VM、不清除记录。`latchedCpus=0`不是通过，`incoherentCpus>0`表示部分现场不可用。超时保留进程和日志，不推断回滚。
+
+
+AMD metrics v7 增加 `svmProcessors[].hotspots`，按原始硬件退出时的 L1/L2 分开计数。
+`valid=1` 且 `saturated=0` 才可用于同一次启动、同一运行代次的差值；不能用无效快照的零值计算增长。
+`levels[].codes` 保留 0x00～0xff 的精确退出编号，NPF、INVALID 和未知扩展分别计入 `npf`、`invalid`、`other`。
+每层保留最先出现的16个 MSR 编号及读写次数，满表后未知编号计入 `msrOverflow`，不会伪装成完整排名。
+`lastMsr` 仅指最近一次 MSR 退出；`lastRip/lastInfo1/lastInfo2` 属于该层最近一次任意退出，两者未必是同一次。
+该记录使用独立短序列，不依赖 `general.valid` 或 `flight.coherent`，也不等于 L2 已成功启动。
+v7驱动必须配套重新构建的CLI/主程序；导出脚本继续支持历史v6，不能用v7 CLI向v6驱动查询metrics。

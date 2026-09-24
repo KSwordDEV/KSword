@@ -38,7 +38,7 @@ EXPECTED_COMMANDS = len(re.findall(
 assert EXPECTED_COMMANDS > 0
 assert len(json.loads(commands)['commands']) == EXPECTED_COMMANDS
 metrics = json.loads(subprocess.check_output([str(fixture), 'metrics']))
-assert metrics['version'] == 6 and metrics['backend'] == 2
+assert metrics['version'] == 7 and metrics['backend'] == 2
 general = metrics['svmProcessors'][0]['general']
 assert general['valid'] == 1 and int(general['sequence']) == 0x100000002
 assert int(general['preparedEntries']) == 13 and int(general['hardwareExits']) == 12
@@ -70,3 +70,9 @@ result = subprocess.run(['powershell.exe', '-NoProfile', '-Command', script], ca
 assert result.returncode == 0, result.stderr
 print(result.stdout.decode('ascii').strip())
 print('QUERY_JSON_UTF8_ESCAPES=PASS (production formatter; simulated response only)')
+
+hot = metrics["svmProcessors"][0]["hotspots"]
+assert hot["valid"] == 1 and int(hot["sequence"]) == 0x100000002
+assert hot["levels"][0]["msrs"][0]["number"] == "0xC0000080"
+assert int(hot["levels"][0]["msrs"][0]["reads"]) == 0x100000003
+assert int(hot["levels"][1]["npf"]) == 99

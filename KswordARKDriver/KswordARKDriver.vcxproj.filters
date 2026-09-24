@@ -1497,6 +1497,7 @@
     <ClInclude Include="src\features\hvm\hvm_backend.h" />
     <ClInclude Include="src\features\hvm\hvm_svm.h" />
     <ClInclude Include="src\features\hvm\hvm_svm_flightrecorder.h" />
+    <ClInclude Include="src\features\hvm\hvm_svm_hotspots.h" />
     <ClInclude Include="..\shared\driver\KswordArkHvmFlightRecorder.h" />
     <ClCompile Include="src\features\hvm\hvm_svm_flightrecorder.c" />
     <ClInclude Include="src\features\hvm\hvm_svm_arch.h" />

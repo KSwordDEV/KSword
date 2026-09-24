@@ -33,6 +33,12 @@ static BOOL WINAPI FakeDeviceIoControl(HANDLE device, DWORD code, LPVOID input,
         cpu->general.preparedEntries = 13;
         cpu->general.hardwareExits = 12;
         cpu->general.exitCode = 0xFEDCBA9876543210ULL;
+        cpu->hotspots.valid = 1;
+        cpu->hotspots.sequence = 0x100000002ULL;
+        cpu->hotspots.levels[0].msrUsed = 1;
+        cpu->hotspots.levels[0].msrs[0].number = 0xc0000080UL;
+        cpu->hotspots.levels[0].msrs[0].reads = 0x100000003ULL;
+        cpu->hotspots.levels[1].npf = 99;
         cpu->flight.coherent = 1;
         cpu->flight.latched = 1;
         cpu->flight.reason = 1;
