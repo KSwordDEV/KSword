@@ -265,6 +265,13 @@ ULONG KswordSvmNestedGeneralEntry(KSW_SVM_CPU* Cpu)
          action == KSW_NSVM_MACHINE_SHUTDOWN) ? KSW_HVM_FLIGHT_INTERNAL : 0U, 2U);
     /* Host IF is installed by assembly while physical GIF remains closed. */
     if (action == KSW_NSVM_MACHINE_READY) { Cpu->HostInterruptsAllowed = Cpu->Nested->GeneralMachine.Overlay.HostIf; }
+    /* Flush only after NPT02 publication/reset; ordinary VMEXIT re-entry keeps translations. */
+    if (action == KSW_NSVM_MACHINE_READY) {
+        Cpu->NestedTlbControl = Cpu->Nested->Shadow.FlushPending ? 1U : 0U;
+        Cpu->Nested->Shadow.FlushPending = 0;
+    } else {
+        Cpu->NestedTlbControl = 1U;
+    }
     /* Publish the complete result, including a retained failure/window action. */
     InterlockedIncrement64(&Cpu->Nested->GeneralSequence);
     /* WINDOW/FAULT/UNSUPPORTED never authorize a blind VMRUN. */

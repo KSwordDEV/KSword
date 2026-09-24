@@ -153,7 +153,12 @@ unsigned int KswSvmNestedShadowInstall(KSW_NSHADOW* Shadow, const KSW_NMMU_RESUL
         page = child;
     }
     /* Commit a fully resolved leaf only after all parents are present. */
-    Shadow->Pages[page].Words[indices[3]] = Result->Leaf;
+    {
+        KSW_SVM_U64 previous = Shadow->Pages[page].Words[indices[3]];
+        Shadow->Pages[page].Words[indices[3]] = Result->Leaf;
+        /* A newly present leaf cannot have a stale positive TLB entry; replacement can. */
+        if (previous && previous != Result->Leaf) { Shadow->FlushPending = 1; }
+    }
     /* Two large source leaves prove uniform translation/permissions/cache over this aligned 2-MiB span. */
     if ((Result->Inner.LeafShift == 21U || Result->Inner.LeafShift == 30U) &&
         (Result->Outer.LeafShift == 21U || Result->Outer.LeafShift == 30U) &&
@@ -174,8 +179,7 @@ unsigned int KswSvmNestedShadowInstall(KSW_NSHADOW* Shadow, const KSW_NMMU_RESUL
             }
         }
     }
-    /* All installs, including permission reductions/replacements, require a flush. */
-    Shadow->FlushPending = 1;
+    /* New leaves are visible on the next walk; reset/replacement paths already request a flush. */
     /* No source A/D work or memory allocation remains in this installation. */
     return KSW_NSHADOW_OK;
 }

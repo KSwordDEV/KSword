@@ -165,7 +165,14 @@ KswSvmRun:
 KswSvmPreparedEntry:
     mov rcx, [rsp+20h]           ; Restore processor context after any C call.
     mov rbx, [rcx+10h]           ; VMCB virtual address.
-    mov byte ptr [rbx+5ch], 1    ; Full TLB flush on every VMRUN, including first entry.
+    cmp qword ptr [rcx+140h], 0  ; General nested entries use the shadow-cache decision.
+    je KswSvmFullTlbFlush        ; Baseline residency and bounded probes retain the full flush.
+    mov al, byte ptr [rcx+148h]  ; 0 keeps NPT02 translations; 1 flushes after a cache change.
+    mov byte ptr [rbx+5ch], al
+    jmp KswSvmTlbSelected
+KswSvmFullTlbFlush:
+    mov byte ptr [rbx+5ch], 1    ; Full TLB flush for ordinary residency and bounded probes.
+KswSvmTlbSelected:
     mov dword ptr [rbx+0c0h], 0  ; Do not trust clean-bit caching in this first backend.
     cmp qword ptr [rcx+138h], 0 ; Nested event arbiter selects saved host IF independently of guest IF.
     je KswSvmHostIfClosed        ; Baseline/probe keep the existing IF=0 root policy.
