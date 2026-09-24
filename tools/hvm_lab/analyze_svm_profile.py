@@ -30,6 +30,7 @@ def main():
         matches = glob.glob(item, recursive=True)
         files.extend(matches or [item])
     counts = Counter()
+    cycle_counts = Counter()
     cpu_totals = defaultdict(int)
     npf = Counter()
     samples = 0
@@ -47,6 +48,21 @@ def main():
                     n = int(count)
                     if n:
                         counts[f"svm;{cpu};L{level};exit_{raw}"] += n
+            flight = row.get("flight", {})
+            history = flight.get("rows", [])
+            for before, after in zip(history, history[1:]):
+                t0, t1 = int(before.get("tsc", 0)), int(after.get("tsc", 0))
+                delta = t1 - t0
+                if delta <= 0 or delta > 10_000_000_000:
+                    continue
+                level = int(before.get("phase", 0))
+                if before.get("kind") == 2:
+                    stack = f"svm;{cpu};L{level};dispatch_after_{before.get('exitCode')}"
+                elif before.get("kind") == 1:
+                    stack = f"svm;{cpu};L{level};guest_between_exits"
+                else:
+                    continue
+                cycle_counts[stack] += delta
             general = row.get("general", {})
             if general.get("valid"):
                 for name2, value in (("prepared", general.get("preparedEntries", 0)),
@@ -54,19 +70,24 @@ def main():
                     counts[f"svm;{cpu};general;{name2}"] += int(value)
     total = sum(counts.values())
     collapsed = "\n".join(f"{stack} {count}" for stack, count in sorted(counts.items())) + ("\n" if counts else "")
+    cycle_path = str(Path(ns.out).with_suffix(".cycles.collapsed"))
+    cycle_collapsed = "\n".join(f"{stack} {count}" for stack, count in sorted(cycle_counts.items())) + ("\n" if cycle_counts else "")
     result = {
         "kind": "ksword-amd-exit-profile",
         "samples": samples,
         "weight": "observed exits and lifecycle counters",
         "instructionCycleSampling": False,
+        "transitionCycleSampling": True,
         "totalWeight": total,
         "npfByCpuLevel": {f"{cpu}/L{level}": count for (cpu, level), count in sorted(npf.items())},
         "cpuExitTotals": dict(sorted(cpu_totals.items())),
         "collapsedPath": str(Path(ns.out).with_suffix(".collapsed")),
+        "cycleCollapsedPath": cycle_path,
     }
     out = Path(ns.out)
     out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     Path(result["collapsedPath"]).write_text(collapsed, encoding="utf-8")
+    Path(cycle_path).write_text(cycle_collapsed, encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
