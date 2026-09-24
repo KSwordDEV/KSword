@@ -277,10 +277,10 @@ ULONG KswordSvmNestedGeneralEntry(KSW_SVM_CPU* Cpu)
         if (Cpu->Nested->Session.Phase == KSW_NSVM_SESSION_L2) {
             requested = ((const unsigned char*)&Cpu->Nested->Session.Vmcb12)[KSW_VMCB_TLB];
         }
-        /* Preserve a guest full/all-context request; software updates need ASID flush. */
-        if (requested == 1U || requested == 7U) {
+        /* This L0 gives the nested context one private ASID on this CPU. */
+        if (requested == 7U) {
             Cpu->NestedTlbControl = requested;
-        } else if (requested == 3U || Cpu->Nested->Shadow.FlushPending) {
+        } else if (requested == 1U || requested == 3U || Cpu->Nested->Shadow.FlushPending) {
             Cpu->NestedTlbControl = (Cpu->Caps.Features & 64U) ? 3U : 1U;
         } else {
             Cpu->NestedTlbControl = 0U;
