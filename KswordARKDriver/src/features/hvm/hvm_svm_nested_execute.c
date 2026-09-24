@@ -94,7 +94,12 @@ static unsigned KswNsvmResolve(KSW_NSVM_EXECUTION* Execution)
     /* Only a fault owned by the inner page-table translation can be reflected as guest NPF. */
     if (status == KSW_NNPT_FAULT && Execution->Translation.FaultOwner == KSW_NMMU_INNER) {
         /* Fault address and context come from the validated walker, never a host PA. */
-        KswSvmWrite64(Execution->Current, KSW_VMCB_EXITINFO1, Execution->Translation.FaultInfo);
+        /* VMware 16 consumes the reflected GPA as the final NPT12 mapping fault.
+           Keep the low architectural access bits, but do not re-advertise L0's
+           guest-page-walk stage after the L1 NPT12 walk has already identified
+           the missing GPA. */
+        KswSvmWrite64(Execution->Current, KSW_VMCB_EXITINFO1,
+            (Execution->Translation.FaultInfo & ~(KSW_NMMU_TABLE)) | KSW_NMMU_FINAL);
         /* EXITCODE remains the original NPF from the combined hardware guest. */
         KswSvmWrite64(Execution->Current, KSW_VMCB_EXITINFO2, Execution->Translation.FaultAddress);
         /* L1 may repair its own mapping and execute VMRUN again. */
