@@ -24,6 +24,41 @@ static unsigned int KswNshadowFind(const KSW_NSHADOW* Shadow, KSW_SVM_U64 Physic
     return Shadow->Capacity;
 }
 
+/* Try a 2-MiB NPT leaf before falling back to the 4-KiB path. */
+static int KswNshadowTryLarge(KSW_NSHADOW* Shadow,
+    const unsigned int* Indices, KSW_SVM_U64 Leaf)
+{
+    unsigned int page = 0, level, missing = 2;
+    KSW_SVM_U64 entry;
+
+    /* Only the PML4 and PDPT may need allocation before a PD leaf. */
+    for (level = 0; level < 2; ++level) {
+        entry = Shadow->Pages[page].Words[Indices[level]];
+        if (!entry) { missing = level; break; }
+        if ((entry & ~Shadow->AddressMask & ~0x20ULL) != 7ULL) { return -2; }
+        page = KswNshadowFind(Shadow, entry & Shadow->AddressMask);
+        if (page == Shadow->Capacity) { return -2; }
+    }
+
+    /* A table already occupying this PD slot may contain 4-KiB leaves. */
+    entry = Shadow->Pages[page].Words[Indices[2]];
+    if (entry && !(entry & 0x80ULL)) { return -1; }
+    if (2U - missing > Shadow->Capacity - Shadow->Used) { return -3; }
+
+    for (level = missing; level < 2; ++level) {
+        unsigned int child = Shadow->Used++;
+        KswNshadowClear(Shadow->Pages[child].Words);
+        Shadow->Pages[page].Words[Indices[level]] = Shadow->Pages[child].Physical | 7ULL;
+        page = child;
+    }
+    entry = Shadow->Pages[page].Words[Indices[2]];
+    if (!entry || entry != Leaf) {
+        Shadow->Pages[page].Words[Indices[2]] = Leaf;
+        Shadow->FlushPending = 1;
+    }
+    return 0;
+}
+
 /* Validate the entire pool before clearing or publishing any page. */
 unsigned int KswSvmNestedShadowInitialize(KSW_NSHADOW* Shadow,
     KSW_NSHADOW_PAGE* Pages, unsigned int Count, unsigned int PhysicalBits)
@@ -119,6 +154,20 @@ unsigned int KswSvmNestedShadowInstall(KSW_NSHADOW* Shadow, const KSW_NMMU_RESUL
         ((Result->Leaf & 2ULL) && !(Result->Leaf & 0x40ULL))) { return KSW_NSHADOW_INVALID; }
     /* Compute each index from the original L2 GPA, never from the final host PA. */
     for (level = 0; level < 4; ++level) { indices[level] = (unsigned int)((Result->Gpa >> (39U - 9U * level)) & 511ULL); }
+    /* A pair of aligned large source leaves covers the complete 2-MiB span. */
+    if ((Result->Inner.LeafShift >= 21U && Result->Outer.LeafShift >= 21U) &&
+        ((Result->Gpa ^ Result->Inner.Address) & 0x1fffffULL) == 0ULL &&
+        ((Result->Gpa ^ Result->Outer.Address) & 0x1fffffULL) == 0ULL) {
+        unsigned int pat = (unsigned int)(((Result->Leaf >> 3) & 3ULL) |
+            (((Result->Leaf >> 7) & 1ULL) << 2));
+        KSW_SVM_U64 large = (Result->Outer.Address & Shadow->AddressMask & ~0x1fffffULL) |
+            (Result->Leaf & (0x7ULL | 0x18ULL | 0x60ULL | KSW_NNPT_NX)) |
+            (KswNptLeafFlags(2U, pat) & ~7ULL);
+        int largeStatus = KswNshadowTryLarge(Shadow, indices, large);
+        if (largeStatus >= 0) { return (unsigned int)largeStatus; }
+        if (largeStatus == -3) { return KSW_NSHADOW_FULL; }
+        if (largeStatus == -2) { return KSW_NSHADOW_INVALID; }
+    }
     /* Inspect existing tables without mutating on budget/corruption failure. */
     for (level = 0; level < 3; ++level) {
         /* Read a host-owned parent entry, not a guest-controlled table. */

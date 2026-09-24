@@ -355,20 +355,23 @@ static int test_large_span(void)
     config.Epoch = shadow.Epoch;
     CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 0, KSW_NMMU_FINAL, &r) == KSW_NNPT_OK);
     CHECK(r.Inner.LeafShift == 21 && r.Outer.LeafShift == 21);
-    CHECK(KswSvmNestedShadowInstall(&shadow, &r) == KSW_NSHADOW_OK && shadow.Used == 4);
-    for (i = 0; i < 512; ++i) {
-        CHECK(shadow_words[3][i] == ((0x400000 + 4096ULL * i) | 0x3d | KSW_NNPT_NX));
+    CHECK(KswSvmNestedShadowInstall(&shadow, &r) == KSW_NSHADOW_OK && shadow.Used == 3);
+    {
+        unsigned pat = (unsigned)(((r.Leaf >> 3) & 3ULL) | (((r.Leaf >> 7) & 1ULL) << 2));
+        KSW_SVM_U64 large = 0x400000ULL | (r.Leaf & (0x7ULL | 0x18ULL | 0x60ULL | KSW_NNPT_NX)) |
+            (KswNptLeafFlags(2U, pat) & ~7ULL);
+        CHECK(shadow_words[2][0] == large && (shadow_words[2][0] & 0x80ULL));
+        CHECK(shadow_words[3][0] == 0 && shadow_words[3][511] == 0);
     }
     CHECK(KswSvmNestedMmuResolve(&config, &io, 0x2123, 2, KSW_NMMU_FINAL, &r) == KSW_NNPT_OK);
     CHECK(KswSvmNestedShadowInstall(&shadow, &r) == KSW_NSHADOW_OK);
-    CHECK((shadow_words[3][2] & 0x42) == 0x42 && !(shadow_words[3][1] & 2));
+    CHECK((shadow_words[2][0] & 0x42) == 0x42);
     CHECK(KswSvmNestedShadowReset(&shadow) == KSW_NSHADOW_OK);
     config.Epoch = shadow.Epoch;
     CHECK(KswSvmNestedMmuResolve(&config, &io, 0x1ff123, 0, KSW_NMMU_FINAL, &r) == KSW_NNPT_OK);
     CHECK(KswSvmNestedShadowInstall(&shadow, &r) == KSW_NSHADOW_OK);
-    CHECK(shadow_words[3][0] == (0x40007f | KSW_NNPT_NX));
-    CHECK(shadow_words[3][511] == (0x5ff07f | KSW_NNPT_NX));
-    CHECK(shadow_words[2][1] == 0); /* No prefill outside either validated source span. */
+    CHECK((shadow_words[2][0] & KSW_NNPT_FRAME & ~0x1fffffULL) == 0x400000ULL && (shadow_words[2][0] & 0x80ULL));
+    CHECK(shadow_words[2][1] == 0); /* No mapping outside the validated source span. */
     return 0;
 }
 static int test_shadow(void)
