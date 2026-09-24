@@ -399,7 +399,7 @@ static int test_shadow(void)
     CHECK(shadow_words[2][0] == 0x103007 && shadow_words[3][2] == r.Leaf);
     CHECK(shadow_words[3][1] == 0 && shadow_words[3][3] == 0);
     shadow.FlushPending = 0; /* Simulate the owning entry loop having consumed the flush request. */
-    CHECK(KswSvmNestedShadowInstall(&shadow, &r) == KSW_NSHADOW_OK && shadow.Used == 4 && shadow.FlushPending);
+    CHECK(KswSvmNestedShadowInstall(&shadow, &r) == KSW_NSHADOW_OK && shadow.Used == 4 && !shadow.FlushPending);
     /* Hardware may set Accessed on any intermediate table. */
     shadow_words[1][0] |= 0x20;
     CHECK(KswSvmNestedShadowInstall(&shadow, &r) == KSW_NSHADOW_OK && shadow.Used == 4);
