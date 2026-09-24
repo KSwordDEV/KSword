@@ -43,16 +43,16 @@ unsigned int KswSvmNestedSessionTransfer(KSW_NSVM_SESSION* Session,
             KswHvmNptCacheCount(&Session->CacheStats, &Session->CacheStats.ownerCpuTransitions);
         }
     }
-    /* Re-read only after all monitor-managed users of this physical VMCB are excluded. */
-    status = KswSvmNestedReadOperandPage(&Io->Operand, OperandPa,
-        (unsigned char*)&Session->Vmcb12, &Session->OperandResult);
-    /* A remap cannot change the ownership identity after acquisition. */
-    if (status != KSW_NNPT_OK || Session->OperandResult.HostPa != Session->Lease.HostPa) {
-        /* The lease is released only by a later, independently proven native abort. */
-        return KswNsvmTransferFault(Session);
-    }
-    /* VMLOAD only copies its architectural subset; VMRUN automatic state remains current. */
-    if (Save) {
+    /* VMLOAD needs a post-lease snapshot; VMSAVE's writeback re-walks NPT01 with write access. */
+    if (!Save) {
+        status = KswSvmNestedReadOperandPage(&Io->Operand, OperandPa,
+            (unsigned char*)&Session->Vmcb12, &Session->OperandResult);
+        /* A remap cannot change the ownership identity after acquisition. */
+        if (status != KSW_NNPT_OK || Session->OperandResult.HostPa != Session->Lease.HostPa) {
+            /* The lease is released only by a later, independently proven native abort. */
+            return KswNsvmTransferFault(Session);
+        }
+    } else {
         /* Merge just VMLOAD-managed state into a private snapshot for whitelist writeback. */
         KswSvmNestedCopyVmload(&Session->Vmcb12, Current);
         /* The generic writer keeps controls, other state and reserved bits untouched. */
