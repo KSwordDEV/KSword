@@ -75,6 +75,9 @@ __pycache__/
 # 报告本身是每次现生成的，提交进来只会让每轮 CI 产生一次无意义的 diff。
 /artifacts/
 
+# Driver build and live-test evidence is generated locally and is not source.
+/KswordARKDriver/artifacts/
+
 # Full kernel memory dumps. The repository tracks small minidumps (under 1 MB)
 # as evidence; a complete memory image is a different thing at ~500 MB, cannot be
 # removed from history once committed, and exceeds what hosting will accept.
