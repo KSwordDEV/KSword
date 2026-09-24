@@ -20,3 +20,9 @@ SessionTransfer now carries its successful lease token into CacheOwnerToken only
 - Unsigned candidate: `tools/hvm_lab/artifacts/npt-transfer-cache-v7/KswordARK.sys`, matching PDB and unchanged metrics-v7 CLI staged alongside it. This candidate has not been loaded or tested on hardware.
 
 The running npt-walk-cache-v7 driver and VM were not stopped, reset or replaced during this correction. Next step: user signs the new SYS; coordinate a normal VM shutdown and guarded driver swap, then compare exits and actual Windows boot progress.
+
+## Signed candidate hardware follow-up
+
+The signed candidate loaded through normal SCM after the VM was off and the previous driver acknowledged native state on all 32 CPUs, released resources and reached Stopped. New 32/32 self-test, general residency and five-second steady-state checks passed. The existing 8-vCPU clone started with vmrun exit 0. Evidence: `artifacts/npt-transfer-cache-v7-live-20260924-103130/live-result.json`.
+
+Both a/b and c/d hotspot pairs were valid for all 32 CPUs. NPF rates were about 79,454/s and 100,114/s respectively; different boot phases prevent a controlled speedup claim. The last sample remained generation 4, 32 resident CPUs, lastStatus 0. The flight export reported no latched CPU but one incoherent CPU, so absence of a failure record is not a pass. The running driver/VM were retained after collection. Full Windows boot and application usability remain unverified pending user observation.

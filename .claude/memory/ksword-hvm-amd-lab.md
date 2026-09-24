@@ -1,5 +1,7 @@
 # AMD 实验后端与重启续接
 
+2026-09-24 npt-transfer-cache-v7实测续接：用户done签后，SYS/PDB匹配，VM已关闭后UAC正常换版。旧32核完整stop/native→teardown→SCM Stopped；新候选正常加载，32/32自检/general常驻及5秒稳态PASS，8vCPU克隆vmrun返回0。证据artifacts/npt-transfer-cache-v7-live-20260924-103130（指针artifacts/npt-transfer-current-run.txt）。a/b和c/d均32对热点有效，NPF约79454/s、100114/s，不同启动阶段不可宣称比例提速。末次32resident/generation4/lastStatus0，flight无已锁存但1核不一致，不能以此判无故障。采样已完成，当前驱动与VM保持运行，正在等待用户画面反馈；完整内层OS未通过，勿重复start/擅自重置换版。
+
 2026-09-24 最新更正与候选npt-transfer-cache-v7：用户确认当前npt-walk-cache-v7是Windows logo持续转圈，没有自动修复，性能无明显改善。当前该版已签加载32核常驻、8核VM仍运行；证据artifacts/npt-walk-cache-v7-live-20260924-101733，e/f32对热点有效，10.971s NPF增2073544，完整OS未通过。定位同session同VMCB的VMLOAD/VMSAVE推进owner LastToken却未衔接CacheOwnerToken，使下次VMRUN无谓清NPT02。仅成功完整transfer且HPA/PreviousToken均匹配时衔接新token；其它HPA不改，跨核/其它acquire不能修复断链，TLB/epoch/全部键保护保留。新回归修前失败，修后23目标PASS、session2471，WDK/API/CAT零警告。新候选tools/hvm_lab/artifacts/npt-transfer-cache-v7未签未加载，metrics7CLI不变；报告docs/next/evidence/amd-npt-transfer-cache.md。当前VM/旧驱动现场未动，下一步用户签名后协调正常关机换版，未证明提速或正常开机。
 
 2026-09-24 性能候选npt-walk-cache-v7：用户报告Windows一直自动修复，要求优先性能。新增单次MmuResolve四项NPT01已提交翻译缓存，仅general明确OuterImmutable=1；probe=0/通用默认0。NPT12重读/全路径CAS及RAM门保留，缓存不跨resolve；跨VMRUN键、owner、TLBflush均不改。相同结果和完整页表内容对照，4K读取112→48/更新56→24，2M86→20/43→10，1G60→16/30→8；含非身份映射/失败/变更/下一次重映射/缓存权限，23离线目标PASS、nested5228；WDK/API/CAT零警告。候选tools/hvm_lab/artifacts/npt-walk-cache-v7未签名未加载，沿用metrics7CLI。报告docs/next/evidence/amd-npt-walk-cache.md。不能把回调减少57%-77%说成虚拟机速度增幅；实际性能和正常开机待签后换版实测。当前softint-npf-v7驱动32核及8核VM运行现场保持，没有停止/重置/卸载。
