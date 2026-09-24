@@ -272,7 +272,9 @@ ULONG KswordSvmNestedGeneralEntry(KSW_SVM_CPU* Cpu)
     if (action == KSW_NSVM_MACHINE_READY) { Cpu->HostInterruptsAllowed = Cpu->Nested->GeneralMachine.Overlay.HostIf; }
     /* Flush only after NPT02 publication/reset; ordinary VMEXIT re-entry keeps translations. */
     if (action == KSW_NSVM_MACHINE_READY) {
-        Cpu->NestedTlbControl = Cpu->Nested->Shadow.FlushPending ? 1U : 0U;
+        /* AMD TLB_CONTROL=3 flushes only this ASID when FlushByASID is exposed. */
+        Cpu->NestedTlbControl = Cpu->Nested->Shadow.FlushPending ?
+            ((Cpu->Caps.Features & 64U) ? 3U : 1U) : 0U;
         Cpu->Nested->Shadow.FlushPending = 0;
     } else {
         Cpu->NestedTlbControl = 1U;
