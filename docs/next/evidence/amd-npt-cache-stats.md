@@ -12,7 +12,7 @@ Validation:
 - Production CLI JSON fixture and Windows PowerShell 5.1 parsing passed; old-version and short responses rejected. Counter widths exceed 32 bits in the fixture.
 - Analyzer cases cover complete deltas, invalid/odd sequence, saturation, generation changes, decreasing/inconsistent counters, duplicate topology, wrong version and invalid time intervals.
 - General/nested/host evidence gates passed with synthetic inputs. Command parity and IOCTL audit passed.
-- Standard MSVC/WDK Release x64 Build, Universal API validator and CAT generation passed with zero warnings. Driver and CLI logs are `tools/hvm_lab/build-cache-stats-*.log`.
+- Standard MSVC/WDK Release x64 Build, Universal API validator and CAT generation passed with zero warnings. Driver, CLI and main-program logs are `tools/hvm_lab/build-cache-stats-*.log`. The main Release project compiled and linked with exit 0; its existing test-certificate trust verification warning is separate from compilation and loading.
 
 Candidate directory: `tools/hvm_lab/artifacts/npt-cache-stats-v8`. SYS is unsigned; matched PDB, v8 CLI, updated exporter and analyzer are staged alongside it. The GUI binary is not rebuilt for this diagnostic handoff; use the staged CLI. No new candidate was loaded and no running driver or VM was stopped/reset during this change.
 
