@@ -94,12 +94,18 @@ static unsigned KswNsvmResolve(KSW_NSVM_EXECUTION* Execution)
     /* Only a fault owned by the inner page-table translation can be reflected as guest NPF. */
     if (status == KSW_NNPT_FAULT && Execution->Translation.FaultOwner == KSW_NMMU_INNER) {
         /* Fault address and context come from the validated walker, never a host PA. */
-        /* VMware 16 consumes the reflected GPA as the final NPT12 mapping fault.
-           Keep the low architectural access bits, but do not re-advertise L0's
-           guest-page-walk stage after the L1 NPT12 walk has already identified
-           the missing GPA. */
-        KswSvmWrite64(Execution->Current, KSW_VMCB_EXITINFO1,
-            (Execution->Translation.FaultInfo & ~(KSW_NMMU_TABLE)) | KSW_NMMU_FINAL);
+        /* The L0 walk supplies the low access bits; the hardware exit supplies
+           the stage (page-table or final) that L1 must repair.  Do not rewrite
+           a table fault as final: VMware uses the distinction when updating
+           its shadow NPT12 mapping. */
+        {
+            KSW_SVM_U64 rawStage = info & (KSW_NMMU_FINAL | KSW_NMMU_TABLE);
+            KSW_SVM_U64 walkStage = Execution->Translation.FaultInfo & (KSW_NMMU_FINAL | KSW_NMMU_TABLE);
+            KSW_SVM_U64 stage = (rawStage == KSW_NMMU_FINAL || rawStage == KSW_NMMU_TABLE) ? rawStage : walkStage;
+            if (stage != KSW_NMMU_FINAL && stage != KSW_NMMU_TABLE) { stage = KSW_NMMU_FINAL; }
+            KswSvmWrite64(Execution->Current, KSW_VMCB_EXITINFO1,
+                (Execution->Translation.FaultInfo & ~(KSW_NMMU_FINAL | KSW_NMMU_TABLE)) | stage);
+        }
         /* EXITCODE remains the original NPF from the combined hardware guest. */
         KswSvmWrite64(Execution->Current, KSW_VMCB_EXITINFO2, Execution->Translation.FaultAddress);
         /* L1 may repair its own mapping and execute VMRUN again. */

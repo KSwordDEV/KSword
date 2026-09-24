@@ -280,12 +280,8 @@ unsigned KswSvmNestedMachineExit(KSW_NSVM_MACHINE* Machine)
     if (action == KSW_NSVM_EXEC_UNSUPPORTED) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_UNSUPPORTED); }
     /* Instruction reflection uses the same backlog restriction as physical-event reflection. */
     if (action == KSW_NSVM_EXEC_EVENT_BLOCKED) { return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_WINDOW); }
-    /* A recoverable L2 dispatch fault must return the hardware exit to L1 before failing closed. */
-    if (action == KSW_NSVM_EXEC_FAULT && inner &&
-        KswSvmNestedReturnL1(execution) == KSW_NSVM_EXEC_RESUME) {
-        /* L1 now owns the reflected exit and the next VMRUN remains architecturally valid. */
-        return KswNsvmMachineResult(Machine, KSW_NSVM_MACHINE_READY);
-    }
+    /* Only the NPF resolver may reflect an L2 fault.  Other faults indicate
+       an incomplete L0 transaction and must not be disguised as L1 exits. */
     /* No unrecognized action permits a blind hardware retry. */
     return KswNsvmMachineResult(Machine, action == KSW_NSVM_EXEC_RESUME ? KSW_NSVM_MACHINE_READY : KSW_NSVM_MACHINE_FAULT);
 }
