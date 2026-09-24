@@ -9,6 +9,21 @@ static unsigned int KswNsvmPermissionValid(const KSW_NSVM_PERMISSION_VIEW* View)
         (!(View->Flags & KSW_NSVM_IOIO_PROT) || View->Io);
 }
 
+/* These reads are safe to execute natively and are high-frequency on Windows. */
+static unsigned int KswNsvmNativeReadMsr(unsigned int Msr)
+{
+    return Msr == 0x10U || Msr == 0xe7U || Msr == 0xe8U ||
+        (Msr >= 0xc0010062U && Msr <= 0xc001006bU) ||
+        Msr == 0xc0010293U || Msr == 0xc001029aU;
+}
+
+/* Remove only the L1 read bit when L0 does not own that MSR. */
+static void KswNsvmClearNativeRead(unsigned char* MsrMap, unsigned int Msr)
+{
+    unsigned int bit = KswSvmMsrpmBit(Msr, 0);
+    if (bit != 0xffffffffU) { MsrMap[bit / 8U] &= (unsigned char)~(1U << (bit & 7U)); }
+}
+
 /* Normalize architectural bases without truncating unsupported high address bits. */
 unsigned int KswSvmNestedMapAddress(KSW_SVM_U64 Address, unsigned int Bytes,
     unsigned int PhysicalBits, KSW_SVM_U64* Base)
@@ -109,6 +124,20 @@ unsigned int KswSvmNestedMergePermissions(const KSW_NSVM_PERMISSION_VIEW* Outer,
         Msr[index] = (unsigned char)(((Outer->Flags & KSW_NSVM_MSR_PROT) ? Outer->Msr[index] : 0) |
             ((Inner->Flags & KSW_NSVM_MSR_PROT) ? Inner->Msr[index] : 0));
     }
+    if (Outer->Flags & KSW_NSVM_MSR_PROT) {
+        static const unsigned int nativeReads[] = {
+            0x10U, 0xe7U, 0xe8U,
+            0xc0010062U, 0xc0010063U, 0xc0010064U, 0xc0010065U, 0xc0010066U,
+            0xc0010067U, 0xc0010068U, 0xc0010069U, 0xc001006aU,
+            0xc001006bU, 0xc0010293U, 0xc001029aU
+        };
+        for (index = 0; index < sizeof(nativeReads) / sizeof(nativeReads[0]); ++index) {
+            unsigned int bit = KswSvmMsrpmBit(nativeReads[index], 0);
+            if (bit != 0xffffffffU && !((Outer->Msr[bit / 8U] >> (bit & 7U)) & 1U)) {
+                KswNsvmClearNativeRead(Msr, nativeReads[index]);
+            }
+        }
+    }
     /* The tail bits are significant for multibyte I/O at the last port. */
     for (index = 0; index < KSW_NSVM_IOPM_BYTES; ++index) {
         /* Hardware control bits must separately be the OR of both owners' intercepts. */
@@ -172,7 +201,12 @@ unsigned int KswSvmNestedPermissionOwners(const KSW_NSVM_PERMISSION_VIEW* Outer,
         /* Other exit classes require their own intercept/exception ownership rules. */
         return KSW_NSVM_OWNER_INVALID;
     }
-    /* When both request an exit, L1 sees its intercept before local side effects. */
-    return (KswNsvmPermissionRequested(Outer, ExitCode, bit, width) ? KSW_NSVM_OWNER_L0 : 0U) |
-        (KswNsvmPermissionRequested(Inner, ExitCode, bit, width) ? KSW_NSVM_OWNER_L1 : 0U);
+    /* Native-read policy mirrors the devirtz/KVM fast path without allowing writes through. */
+    {
+        unsigned int owners = KswNsvmPermissionRequested(Outer, ExitCode, bit, width) ? KSW_NSVM_OWNER_L0 : 0U;
+        if (!(ExitCode == KSW_SVM_EXIT_MSR && ExitInfo1 == 0 && KswNsvmNativeReadMsr(MsrNumber))) {
+            if (KswNsvmPermissionRequested(Inner, ExitCode, bit, width)) { owners |= KSW_NSVM_OWNER_L1; }
+        }
+        return owners;
+    }
 }
