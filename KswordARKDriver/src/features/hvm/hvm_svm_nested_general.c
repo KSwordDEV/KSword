@@ -280,7 +280,11 @@ ULONG KswordSvmNestedGeneralEntry(KSW_SVM_CPU* Cpu)
         /* This L0 gives the nested context one private ASID on this CPU. */
         if (requested == 7U) {
             Cpu->NestedTlbControl = requested;
-        } else if (requested == 1U || requested == 3U || Cpu->Nested->Shadow.FlushPending) {
+        } else if (Cpu->Nested->Session.Phase == KSW_NSVM_SESSION_L2 ||
+            requested == 1U || requested == 3U || Cpu->Nested->Shadow.FlushPending) {
+            /* L2 shadow roots can be rebuilt after a VMCB owner migrates to
+               another CPU.  AMD may retain a negative NPT walk, so a clean
+               L2 entry always starts with an ASID-scoped flush. */
             Cpu->NestedTlbControl = (Cpu->Caps.Features & 64U) ? 3U : 1U;
         } else {
             Cpu->NestedTlbControl = 0U;
