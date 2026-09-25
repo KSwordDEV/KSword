@@ -5908,6 +5908,10 @@
     "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
+    ", complete=": ", complete=",
+    ", terminating=": ", terminating=",
+    ", trustedHidden=": ", trustedHidden=",
+    ", unconfirmed=": ", unconfirmed=",
     "布局已验证（方法指针块偏移 %1，参与统计 %2 个对象类型，其中 %3 个共享锚点指针）。类型 %4 个，可疑 %5 行，存在隐藏行为 %6 行，有硬判据覆盖的类型 %7/%8。": "Layout verified (method-pointer block offset %1; %2 object types took part in the statistics, %3 of them share the anchor pointer). %4 types, %5 suspicious rows, %6 rows with hidden behavior, %7/%8 types covered by a hard judgement.",
     "本类型无硬判据，干净仅代表未查出问题": "no hard judgement for this type; clean only means nothing was found, not that it was verified",
     "IDT基线偏离": "IDT baseline drift",

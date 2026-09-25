@@ -171,8 +171,25 @@ namespace ksword::ark
         std::uint32_t version = 0;
         std::uint32_t totalCount = 0;
         std::uint32_t returnedCount = 0;
+        bool complete = false;
         std::vector<ProcessEntry> entries;
     };
+
+    // 只有完整 CID/活动链表对照、独立对象引用和存活证据同时成立，
+    // R0-only 行才允许进入主进程列表；弱证据仍保留给 CrossView 诊断。
+    inline bool isTrustedHiddenProcessFlags(const std::uint32_t flags) noexcept
+    {
+        constexpr std::uint32_t required =
+            KSWORD_ARK_PROCESS_FLAG_KERNEL_ENUMERATED |
+            KSWORD_ARK_PROCESS_FLAG_HIDDEN_FROM_ACTIVE_LIST |
+            KSWORD_ARK_PROCESS_FLAG_CID_TABLE_ENUMERATED |
+            KSWORD_ARK_PROCESS_FLAG_CID_OBJECT_REFERENCE_STABLE;
+        constexpr std::uint32_t rejected =
+            KSWORD_ARK_PROCESS_FLAG_CID_TABLE_REFERENCE_FAILED |
+            KSWORD_ARK_PROCESS_FLAG_TERMINATING_OR_EXITED |
+            KSWORD_ARK_PROCESS_FLAG_CID_TABLE_UNCONFIRMED;
+        return (flags & required) == required && (flags & rejected) == 0U;
+    }
 
     // ProcessVisibilityResult 承载 R0 可恢复隐藏标记的更新结果。
     struct ProcessVisibilityResult

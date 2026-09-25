@@ -133,6 +133,16 @@ KswordARKCrossViewReferenceProcessByActiveList(
     _Out_opt_ ULONG* VisitedEntriesOut
     );
 
+/* Validate that ActiveProcessLinks is a complete, reciprocal, bounded walk.
+ * No rows are produced; STATUS_SUCCESS means the walk returned to its head
+ * and every candidate passed the object reference/type check. */
+NTSTATUS
+KswordARKCrossViewValidateActiveProcessLinks(
+    _In_ const KSW_DYN_STATE* DynState,
+    _In_ ULONG MaxNodes,
+    _Out_opt_ ULONG* VisitedEntriesOut
+    );
+
 NTSTATUS
 KswordARKDriverQueryProcessCrossView(
     _Out_writes_bytes_to_(OutputBufferLength, *BytesWrittenOut) PVOID OutputBuffer,

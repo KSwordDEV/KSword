@@ -335,13 +335,22 @@ typedef struct _KSWORD_ARK_PROCESS_TOKEN_PRIVILEGE_RESPONSE
 //   object type, but R0 could not take a stable reference for detail sampling.
 // - TERMINATING_OR_EXITED marks rows whose EPROCESS.ObjectTable is already NULL.
 // Processing:
-// - R3 should still display these rows because the CID table evidence exists.
+// - These flags are diagnostic evidence only. R3 must not synthesize a main-list
+//   hidden-process row unless the independent object reference and complete
+//   ActiveProcessLinks comparison flags are also present.
 // Return behavior:
-// - These flags are display/diagnostic hints only; the row PID remains the CID
-//   table value so R0 actions can still attempt object-based resolution.
+// - The CID value remains available to the diagnostic/CrossView view, while
+//   weak evidence is excluded from the trusted main process list.
 #define KSWORD_ARK_PROCESS_FLAG_CID_TABLE_ENUMERATED       0x00000008UL
 #define KSWORD_ARK_PROCESS_FLAG_CID_TABLE_REFERENCE_FAILED 0x00000010UL
 #define KSWORD_ARK_PROCESS_FLAG_TERMINATING_OR_EXITED      0x00000020UL
+// CID_OBJECT_REFERENCE_STABLE means the decoded CID object was independently
+// referenced through ObReferenceObjectByPointer and passed type, identity,
+// lifetime and (when available) ObjectTable checks.
+#define KSWORD_ARK_PROCESS_FLAG_CID_OBJECT_REFERENCE_STABLE 0x00000040UL
+// CID_TABLE_UNCONFIRMED keeps weak or incomplete CID evidence in diagnostics;
+// it is an explicit veto for the trusted R3 hidden-process predicate.
+#define KSWORD_ARK_PROCESS_FLAG_CID_TABLE_UNCONFIRMED      0x00000080UL
 
 #define KSWORD_ARK_PROCESS_VISIBILITY_ACTION_HIDE 1UL
 #define KSWORD_ARK_PROCESS_VISIBILITY_ACTION_UNHIDE 2UL

@@ -16,7 +16,6 @@ Environment:
 
 #include "process_crossview.h"
 #include "..\kernel\hook_scan_support.h"
-#include "..\kernel\object_header_fallback.h"
 #include "..\..\dispatch\ioctl_validation.h"
 
 #include <ntstrsafe.h>
@@ -1323,7 +1322,8 @@ Routine Description:
 Arguments:
 
     CandidateObject - Decoded object body pointer from a kernel-owned source.
-    CandidateId - ID observed from the source, used for a protected lookup.
+    CandidateId - ID observed from the source. It is retained for callers that
+                  perform identity validation after the independent reference.
     ExpectedObjectType - Required object type, such as PsProcessType.
     TypeMatchedOut - Receives whether ObGetObjectType matched ExpectedObjectType.
     ReferencedOut - Receives whether the reference was taken.
@@ -1334,14 +1334,16 @@ Return Value:
     otherwise. Caller must dereference CandidateObject only when ReferencedOut is
     TRUE.
 
-    A failed ID lookup or pointer comparison does not establish object lifetime.
-    TypeMatchedOut remains only a guarded type observation on such a failure;
-    retain unconfirmed evidence without dereferencing CandidateObject.
+    The reference is established directly through the object manager pointer
+    path. No PsLookupProcessByProcessId/PsLookupThreadByThreadId lookup is used,
+    so a hooked lookup routine cannot substitute a different object.
 
 --*/
 {
     POBJECT_TYPE objectType = NULL;
     NTSTATUS status = STATUS_SUCCESS;
+
+    UNREFERENCED_PARAMETER(CandidateId);
 
     if (TypeMatchedOut == NULL || ReferencedOut == NULL) {
         return STATUS_INVALID_PARAMETER;
@@ -1366,10 +1368,16 @@ Return Value:
     }
     *TypeMatchedOut = TRUE;
 
-    /* The preceding type read is only an observation. Establish lifetime by
-       looking up the source ID and comparing the referenced pointer, not CAS. */
-    status = KswordARKObjectHeaderReferenceObjectSafe(
-        CandidateObject, CandidateId, ExpectedObjectType);
+    /* Establish lifetime through the independent object-manager pointer path.
+       Zero desired access keeps this operation read-only. */
+    if (KeGetCurrentIrql() > APC_LEVEL) {
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+    status = ObReferenceObjectByPointer(
+        CandidateObject,
+        0UL,
+        ExpectedObjectType,
+        KernelMode);
     if (!NT_SUCCESS(status)) {
         return status;
     }
@@ -2193,7 +2201,7 @@ KswordARKCrossViewReferenceProcessByActiveList(
 Routine Description:
 
     Resolve one process object from ActiveProcessLinks and return a stable
-    reference to the caller. 中文说明：这是终止流程的 hook-resistant 解析后端；
+    reference to the caller. 中文说明：这是终止流程的独立对象引用解析后端；
     它只走内核链表和 ObReferenceObjectByPointer，不调用 NtOpenProcess、
     ZwOpenProcess 或 PsLookupProcessByProcessId。
 
@@ -3031,6 +3039,113 @@ Return Value:
 
     KswordARKCrossViewFree(context.Rows, KSW_PROCESS_CROSSVIEW_TAG);
     context.Rows = NULL;
+    return status;
+}
+
+NTSTATUS
+KswordARKCrossViewValidateActiveProcessLinks(
+    _In_ const KSW_DYN_STATE* DynState,
+    _In_ ULONG MaxNodes,
+    _Out_opt_ ULONG* VisitedEntriesOut
+    )
+{
+    KSW_CROSSVIEW_VISITED_SET visited;
+    LIST_ENTRY* head = NULL;
+    LIST_ENTRY* current = NULL;
+    ULONG walked = 0UL;
+    NTSTATUS status = STATUS_SUCCESS;
+    BOOLEAN headTypeMatched = FALSE;
+    BOOLEAN headReferenced = FALSE;
+
+    if (VisitedEntriesOut != NULL) {
+        *VisitedEntriesOut = 0UL;
+    }
+    if (DynState == NULL || MaxNodes == 0UL || PsInitialSystemProcess == NULL ||
+        !KswordARKCrossViewOffsetPresent(DynState->Kernel.EpActiveProcessLinks) ||
+        PsProcessType == NULL || *PsProcessType == NULL) {
+        return STATUS_PROCEDURE_NOT_FOUND;
+    }
+
+    RtlZeroMemory(&visited, sizeof(visited));
+    status = KswordARKCrossViewVisitedInitialize(&visited, MaxNodes);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+    head = (LIST_ENTRY*)((PUCHAR)PsInitialSystemProcess + DynState->Kernel.EpActiveProcessLinks);
+    if (!KswordARKCrossViewPointerAligned((ULONG_PTR)head) ||
+        !NT_SUCCESS(KswordARKCrossViewReadPointerAddress(&head->Flink, (PVOID*)&current))) {
+        KswordARKCrossViewVisitedDestroy(&visited);
+        return STATUS_DATA_ERROR;
+    }
+    status = KswordARKCrossViewTryReferenceTypedObject(
+        PsInitialSystemProcess,
+        NULL,
+        *PsProcessType,
+        &headTypeMatched,
+        &headReferenced);
+    if (!NT_SUCCESS(status) || !headTypeMatched || !headReferenced) {
+        KswordARKCrossViewVisitedDestroy(&visited);
+        return NT_SUCCESS(status) ? STATUS_OBJECT_TYPE_MISMATCH : status;
+    }
+    ObDereferenceObject(PsInitialSystemProcess);
+
+    while (current != NULL && current != head) {
+        LIST_ENTRY* next = NULL;
+        LIST_ENTRY* blink = NULL;
+        PVOID candidateObject = NULL;
+        BOOLEAN typeMatched = FALSE;
+        BOOLEAN referenced = FALSE;
+
+        if (walked >= MaxNodes ||
+            !KswordARKCrossViewPointerAligned((ULONG_PTR)current) ||
+            KswordARKCrossViewVisitedCheckAndAdd(&visited, (ULONG_PTR)current)) {
+            status = STATUS_BUFFER_OVERFLOW;
+            break;
+        }
+        ++walked;
+        if (!NT_SUCCESS(KswordARKCrossViewReadPointerAddress(&current->Flink, (PVOID*)&next)) ||
+            !NT_SUCCESS(KswordARKCrossViewReadPointerAddress(&current->Blink, (PVOID*)&blink)) ||
+            next == NULL || blink == NULL) {
+            status = STATUS_DATA_ERROR;
+            break;
+        }
+        if (!KswordARKCrossViewPointerAligned((ULONG_PTR)next) ||
+            !KswordARKCrossViewPointerAligned((ULONG_PTR)blink)) {
+            status = STATUS_DATATYPE_MISALIGNMENT;
+            break;
+        }
+        {
+            LIST_ENTRY* nextBlink = NULL;
+            LIST_ENTRY* blinkFlink = NULL;
+            if (!NT_SUCCESS(KswordARKCrossViewReadPointerAddress(&next->Blink, (PVOID*)&nextBlink)) ||
+                !NT_SUCCESS(KswordARKCrossViewReadPointerAddress(&blink->Flink, (PVOID*)&blinkFlink)) ||
+                nextBlink != current || blinkFlink != current) {
+                status = STATUS_DATA_ERROR;
+                break;
+            }
+        }
+        candidateObject = (PVOID)((PUCHAR)current - DynState->Kernel.EpActiveProcessLinks);
+        status = KswordARKCrossViewTryReferenceTypedObject(
+            candidateObject,
+            NULL,
+            *PsProcessType,
+            &typeMatched,
+            &referenced);
+        if (!NT_SUCCESS(status) || !typeMatched || !referenced) {
+            status = NT_SUCCESS(status) ? STATUS_OBJECT_TYPE_MISMATCH : status;
+            break;
+        }
+        ObDereferenceObject(candidateObject);
+        current = next;
+    }
+
+    if (VisitedEntriesOut != NULL) {
+        *VisitedEntriesOut = walked;
+    }
+    if (NT_SUCCESS(status) && current != head) {
+        status = STATUS_DATA_ERROR;
+    }
+    KswordARKCrossViewVisitedDestroy(&visited);
     return status;
 }
 

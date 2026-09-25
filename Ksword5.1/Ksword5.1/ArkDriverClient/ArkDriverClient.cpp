@@ -1326,6 +1326,9 @@ namespace ksword::ark
         enumResult.returnedCount = responseHeader->returnedCount;
         const std::size_t availableCount = (enumResult.io.bytesReturned - headerSize) / static_cast<std::size_t>(responseHeader->entrySize);
         const std::size_t parsedCount = std::min<std::size_t>(static_cast<std::size_t>(responseHeader->returnedCount), availableCount);
+        enumResult.complete =
+            responseHeader->returnedCount == responseHeader->totalCount &&
+            parsedCount == static_cast<std::size_t>(responseHeader->returnedCount);
         enumResult.entries.reserve(parsedCount);
         for (std::size_t index = 0; index < parsedCount; ++index)
         {

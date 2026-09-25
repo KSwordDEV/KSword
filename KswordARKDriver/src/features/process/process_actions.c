@@ -19,6 +19,7 @@ Environment:
 #include "..\..\platform\process_resolver.h"
 #include "process_crossview.h"
 #include "process_extended.h"
+#include "../../platform/runtime_signature_scan.h"
 #include <ntstrsafe.h>
 #include <stdarg.h>
 
@@ -271,6 +272,35 @@ Return Value:
     return hidden;
 }
 
+static BOOLEAN
+KswordARKDriverIsOwnedHiddenObject(
+    _In_ ULONG CidValue,
+    _In_ PEPROCESS ProcessObject
+    )
+{
+    ULONG index = 0UL;
+    BOOLEAN owned = FALSE;
+
+    if (ProcessObject == NULL) {
+        return FALSE;
+    }
+
+    KswordARKDriverEnsureProcessHideStateInitialized();
+    KswordARKAcquirePushLockShared(&g_KswordArkProcessHideState.Lock);
+    for (index = 0UL; index < g_KswordArkProcessHideState.Count; ++index) {
+        const KSWORD_ARK_PROCESS_HIDE_RECORD* record =
+            &g_KswordArkProcessHideState.Records[index];
+        if (record->ProcessObject == ProcessObject &&
+            (record->Pid == CidValue ||
+             HandleToULong(record->OriginalUniqueProcessId) == CidValue)) {
+            owned = TRUE;
+            break;
+        }
+    }
+    KswordARKReleasePushLockShared(&g_KswordArkProcessHideState.Lock);
+    return owned;
+}
+
 static KSWORD_PS_GET_NEXT_PROCESS_FN
 KswordARKDriverResolvePsGetNextProcess(
     VOID
@@ -438,11 +468,11 @@ Return Value:
         return STATUS_PROCEDURE_NOT_FOUND;
     }
 
-    __try {
-        RtlCopyMemory(&handleValue, (PUCHAR)ProcessObject + Offset, sizeof(handleValue));
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        return GetExceptionCode();
+    if (!KswordARKRuntimeReadMemory(
+            (const UCHAR*)ProcessObject + Offset,
+            &handleValue,
+            sizeof(handleValue))) {
+        return STATUS_ACCESS_VIOLATION;
     }
 
     *ValueOut = handleValue;
@@ -827,8 +857,8 @@ Routine Description:
 
     Remove one process from the kernel ActiveProcessLinks list. 中文说明：本函数
     只摘 ActiveProcessLinks，不删除 PspCidTable，也不关闭句柄表；因此
-    普通 NtQuerySystemInformation 视图不可见，但 Ksword 仍可通过
-    PsLookupProcessByProcessId/CID 扫描重新拿到 EPROCESS。
+    普通 NtQuerySystemInformation 视图不可见，但 Ksword 仍可通过 CID
+    表对象指针和独立对象管理器引用路径重新验证 EPROCESS。
 
 Arguments:
 
@@ -1042,7 +1072,7 @@ KswordARKDriverReadProcessPointerField(
 
 Routine Description:
 
-    按 EPROCESS 偏移读取一个指针字段，并用 SEH 防护异常地址访问。
+    按 EPROCESS 偏移读取一个指针字段，统一通过 RuntimeReadMemory 访问候选地址。
 
 Arguments:
 
@@ -1068,12 +1098,14 @@ Return Value:
         return STATUS_PROCEDURE_NOT_FOUND;
     }
 
-    __try {
-        RtlCopyMemory(&pointerValue, (PUCHAR)ProcessObject + Offset, sizeof(pointerValue));
-        *ValueOut = (ULONG64)(ULONG_PTR)pointerValue;
+    if (!KswordARKRuntimeReadMemory(
+            (const UCHAR*)ProcessObject + Offset,
+            &pointerValue,
+            sizeof(pointerValue))) {
+        status = STATUS_ACCESS_VIOLATION;
     }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        status = GetExceptionCode();
+    else {
+        *ValueOut = (ULONG64)(ULONG_PTR)pointerValue;
     }
 
     return status;
@@ -1136,6 +1168,30 @@ Return Value:
     }
 
     return (objectTableAddress == 0ULL) ? TRUE : FALSE;
+}
+
+static BOOLEAN
+KswordARKDriverHasStableProcessLifetime(
+    _In_ PEPROCESS ProcessObject,
+    _In_ const KSW_DYN_STATE* DynState
+    )
+{
+    ULONG64 objectTableAddress = 0ULL;
+
+    if (ProcessObject == NULL || PsGetProcessExitStatus(ProcessObject) != STATUS_PENDING) {
+        return FALSE;
+    }
+    if (DynState == NULL || !DynState->Initialized ||
+        !KswordARKDriverProcessDynOffsetPresent(DynState->Kernel.EpObjectTable)) {
+        return TRUE;
+    }
+    if (!NT_SUCCESS(KswordARKDriverReadProcessPointerField(
+            ProcessObject,
+            DynState->Kernel.EpObjectTable,
+            &objectTableAddress))) {
+        return FALSE;
+    }
+    return objectTableAddress != 0ULL;
 }
 
 static VOID
@@ -1222,9 +1278,10 @@ KswordARKDriverEnumProcessCidCallback(
 
 Routine Description:
 
-    Merge one direct PspCidTable process candidate into the normal process
-    enumeration response. 中文说明：CID 表命中的进程必须可见；即使对象无法
-    reference 或已进入 terminating，也只降级成灰色诊断行，不再丢弃。
+    Merge one direct PspCidTable process candidate into the enumeration
+    response. Weak CID evidence is retained for diagnostics, but only a stable
+    object reference plus complete active-list comparison receives the trusted
+    hidden-process flags consumed by R3.
 
 Arguments:
 
@@ -1266,21 +1323,32 @@ Return Value:
     if (enumContext->ActiveWalkAvailable) {
         processFlags |= KSWORD_ARK_PROCESS_FLAG_HIDDEN_FROM_ACTIVE_LIST;
     }
+    else {
+        processFlags |= KSWORD_ARK_PROCESS_FLAG_CID_TABLE_UNCONFIRMED;
+    }
     if (KswordARKDriverIsProcessHiddenByUi(Entry->CidValue)) {
         processFlags |= KSWORD_ARK_PROCESS_FLAG_HIDDEN_BY_KSWORD_UI;
     }
 
     if (Entry->Referenced && Entry->Object != NULL) {
         PEPROCESS processObject = (PEPROCESS)Entry->Object;
-        if (KswordARKDriverShouldSkipTerminatingProcess(processObject, enumContext->DynState)) {
-            //
-            // 已退出但仍被父进程句柄引用的 EPROCESS 会从 ActiveProcessLinks 摘除，
-            // 却继续留在 PspCidTable 中。这类残骸多半不是隐藏进程，但驱动侧仍然上报：
-            // 判据只有“ExitStatus 不是 STATUS_PENDING”，无法区分残骸与刚被摘链的存活进程，
-            // 直接丢弃会连真隐藏一起漏掉。改为打上 TERMINATING_OR_EXITED，
-            // 由 R3 标注“可能为误报”并灰显，取舍交给用户。
-            //
+        const BOOLEAN terminating =
+            KswordARKDriverShouldSkipTerminatingProcess(processObject, enumContext->DynState);
+        const BOOLEAN identityMatches =
+            (HandleToULong(PsGetProcessId(processObject)) == Entry->CidValue) ||
+            KswordARKDriverIsOwnedHiddenObject(Entry->CidValue, processObject);
+        const BOOLEAN stableLifetime =
+            KswordARKDriverHasStableProcessLifetime(processObject, enumContext->DynState);
+
+        if (terminating) {
             processFlags |= KSWORD_ARK_PROCESS_FLAG_TERMINATING_OR_EXITED;
+        }
+        if (!identityMatches || !stableLifetime || terminating ||
+            !enumContext->ActiveWalkAvailable) {
+            processFlags |= KSWORD_ARK_PROCESS_FLAG_CID_TABLE_UNCONFIRMED;
+        }
+        else {
+            processFlags |= KSWORD_ARK_PROCESS_FLAG_CID_OBJECT_REFERENCE_STABLE;
         }
         parentProcessId = HandleToULong(PsGetProcessInheritedFromUniqueProcessId(processObject));
         imageName = PsGetProcessImageFileName(processObject);
@@ -1296,6 +1364,7 @@ Return Value:
     }
 
     processFlags |= KSWORD_ARK_PROCESS_FLAG_CID_TABLE_REFERENCE_FAILED;
+    processFlags |= KSWORD_ARK_PROCESS_FLAG_CID_TABLE_UNCONFIRMED;
     KswordARKDriverAppendProcessEntry(
         enumContext->Response,
         enumContext->EntryCapacity,
@@ -1338,8 +1407,9 @@ Arguments:
 
 Return Value:
 
-    STATUS_SUCCESS when the CID table walk completed or was bounded; otherwise
-    resolver/walker status for diagnostics. Rows already appended remain valid.
+    STATUS_SUCCESS only when the CID table walk completed; overflow or any
+    resolver/walker failure is returned so callers can veto trusted flags.
+    Rows already appended remain diagnostic evidence.
 
 --*/
 {
@@ -1392,9 +1462,6 @@ Return Value:
         &enumContext,
         &visitedEntries);
     UNREFERENCED_PARAMETER(visitedEntries);
-    if (status == STATUS_BUFFER_OVERFLOW) {
-        return STATUS_SUCCESS;
-    }
     return status;
 }
 
@@ -2722,7 +2789,7 @@ KswordARKDriverEnumerateProcesses(
     BOOLEAN scanCidTable = FALSE;
     UCHAR* pidBitmap = NULL;
     size_t pidBitmapBytes = 0;
-    ULONG scanPid = 0;
+    BOOLEAN activeWalkComplete = FALSE;
     NTSTATUS cidWalkStatus = STATUS_SUCCESS;
     KSWORD_PS_GET_NEXT_PROCESS_FN psGetNextProcess = NULL;
     PEPROCESS processCursor = NULL;
@@ -2837,6 +2904,12 @@ KswordARKDriverEnumerateProcesses(
     }
 
     if (scanCidTable) {
+        if (psGetNextProcess != NULL && pidBitmap != NULL) {
+            activeWalkComplete = NT_SUCCESS(KswordARKCrossViewValidateActiveProcessLinks(
+                &dynState,
+                KSWORD_ARK_ENUM_CID_WALK_MAX_NODES,
+                NULL));
+        }
         cidWalkStatus = KswordARKDriverEnumerateProcessesByCidTable(
             response,
             entryCapacity,
@@ -2845,60 +2918,23 @@ KswordARKDriverEnumerateProcesses(
             pidBitmapBytes,
             scanStartPid,
             scanEndPid,
-            (psGetNextProcess != NULL && pidBitmap != NULL) ? TRUE : FALSE);
+            activeWalkComplete);
     }
 
     if (scanCidTable && !NT_SUCCESS(cidWalkStatus)) {
-        scanPid = scanStartPid;
-        for (;;) {
-            PEPROCESS hiddenProcessObject = NULL;
-            NTSTATUS lookupStatus = STATUS_UNSUCCESSFUL;
-            BOOLEAN presentInActiveList = FALSE;
-
-            if (psGetNextProcess != NULL && pidBitmap != NULL) {
-                presentInActiveList = KswordARKDriverBitmapHasPid(pidBitmap, pidBitmapBytes, scanPid);
+        ULONG entryIndex = 0UL;
+        for (entryIndex = 0UL; entryIndex < response->returnedCount; ++entryIndex) {
+            KSWORD_ARK_PROCESS_ENTRY* entry = &response->entries[entryIndex];
+            if ((entry->flags & KSWORD_ARK_PROCESS_FLAG_CID_TABLE_ENUMERATED) == 0U) {
+                continue;
             }
-
-            if (!presentInActiveList) {
-                lookupStatus = PsLookupProcessByProcessId(ULongToHandle(scanPid), &hiddenProcessObject);
-                if (NT_SUCCESS(lookupStatus)) {
-                    const ULONG parentProcessId =
-                        HandleToULong(PsGetProcessInheritedFromUniqueProcessId(hiddenProcessObject));
-                    const CHAR* imageName = PsGetProcessImageFileName(hiddenProcessObject);
-                    ULONG processFlags = KSWORD_ARK_PROCESS_FLAG_KERNEL_ENUMERATED;
-                    const BOOLEAN terminatingProcess =
-                        KswordARKDriverShouldSkipTerminatingProcess(hiddenProcessObject, &dynState);
-
-                    if (psGetNextProcess != NULL && pidBitmap != NULL) {
-                        processFlags |= KSWORD_ARK_PROCESS_FLAG_HIDDEN_FROM_ACTIVE_LIST;
-                    }
-                    if (terminatingProcess) {
-                        processFlags |= KSWORD_ARK_PROCESS_FLAG_TERMINATING_OR_EXITED;
-                    }
-                    if (KswordARKDriverIsProcessHiddenByUi(scanPid)) {
-                        processFlags |= KSWORD_ARK_PROCESS_FLAG_HIDDEN_BY_KSWORD_UI;
-                    }
-
-                    //
-                    // 与 CID 扫描同理：这里查的是“不在活动链表里的 PID”，已退出但对象仍存活的
-                    // 残骸同样上报，只带 TERMINATING_OR_EXITED 标志交给 R3 标注“可能为误报”。
-                    //
-                    KswordARKDriverAppendProcessEntry(
-                        response,
-                        entryCapacity,
-                        scanPid,
-                        parentProcessId,
-                        processFlags,
-                        imageName,
-                        hiddenProcessObject);
-                    ObDereferenceObject(hiddenProcessObject);
-                }
-            }
-
-            if ((scanEndPid - scanPid) < KSWORD_ARK_ENUM_PID_STEP) {
-                break;
-            }
-            scanPid += KSWORD_ARK_ENUM_PID_STEP;
+            entry->flags |= KSWORD_ARK_PROCESS_FLAG_CID_TABLE_UNCONFIRMED;
+            entry->flags &= ~(
+                KSWORD_ARK_PROCESS_FLAG_HIDDEN_FROM_ACTIVE_LIST |
+                KSWORD_ARK_PROCESS_FLAG_CID_OBJECT_REFERENCE_STABLE);
+        }
+        if (response->totalCount != MAXULONG) {
+            response->totalCount = response->returnedCount + 1UL;
         }
     }
 

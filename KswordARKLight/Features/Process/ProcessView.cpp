@@ -382,8 +382,11 @@ struct KernelProcessSnapshotEntry {
 // 返回值语义：querySucceeded=false 表示驱动不可用或 IOCTL 失败，但普通 R3 刷新继续执行。
 struct HiddenProcessAuditResult {
     bool querySucceeded = false;
+    bool enumerationComplete = false;
     std::size_t kernelEnumeratedCount = 0;
     std::size_t kernelOnlyCount = 0;
+    std::size_t unconfirmedCount = 0;
+    std::size_t terminatingCount = 0;
     std::wstring detailText;
 };
 
@@ -1440,13 +1443,17 @@ std::wstring ProcessR0StatusText(const std::uint32_t statusValue) {
 // 参数 processListOut 接收 R0 行；detailTextOut 接收 ArkDriverClient 诊断文本；返回 true 表示可对比。
 bool EnumerateProcessesByR0Driver(
     std::vector<KernelProcessSnapshotEntry>* const processListOut,
-    std::wstring* const detailTextOut) {
+    std::wstring* const detailTextOut,
+    bool* const completeOut) {
     if (processListOut == nullptr) {
         return false;
     }
     processListOut->clear();
     if (detailTextOut != nullptr) {
         detailTextOut->clear();
+    }
+    if (completeOut != nullptr) {
+        *completeOut = false;
     }
 
     const ksword::ark::DriverClient driverClient;
@@ -1478,7 +1485,13 @@ bool EnumerateProcessesByR0Driver(
     }
 
     if (detailTextOut != nullptr) {
-        *detailTextOut = NarrowToWide(enumResult.io.message);
+        *detailTextOut = NarrowToWide(enumResult.io.message) +
+            L", complete=" + (enumResult.complete ? L"true" : L"false") +
+            L", total=" + std::to_wstring(enumResult.totalCount) +
+            L", returned=" + std::to_wstring(enumResult.returnedCount);
+    }
+    if (completeOut != nullptr) {
+        *completeOut = enumResult.complete;
     }
     return true;
 }
@@ -1590,7 +1603,8 @@ HiddenProcessAuditResult ApplyDefaultHiddenProcessAudit(std::vector<ProcessSnaps
     HiddenProcessAuditResult result{};
     std::vector<KernelProcessSnapshotEntry> kernelRows;
     std::wstring queryDetail;
-    if (!EnumerateProcessesByR0Driver(&kernelRows, &queryDetail)) {
+    bool enumerationComplete = false;
+    if (!EnumerateProcessesByR0Driver(&kernelRows, &queryDetail, &enumerationComplete)) {
         result.detailText = L"R0隐藏检查: 待驱动装载/查询失败";
         if (!queryDetail.empty()) {
             result.detailText += L" " + queryDetail;
@@ -1599,6 +1613,7 @@ HiddenProcessAuditResult ApplyDefaultHiddenProcessAudit(std::vector<ProcessSnaps
     }
 
     result.querySucceeded = true;
+    result.enumerationComplete = enumerationComplete;
     result.kernelEnumeratedCount = kernelRows.size();
 
     std::unordered_map<DWORD, const KernelProcessSnapshotEntry*> kernelByPid;
@@ -1618,8 +1633,18 @@ HiddenProcessAuditResult ApplyDefaultHiddenProcessAudit(std::vector<ProcessSnaps
     }
 
     for (const KernelProcessSnapshotEntry& kernelProcess : kernelRows) {
+        if ((kernelProcess.flags & KSWORD_ARK_PROCESS_FLAG_CID_TABLE_ENUMERATED) != 0U &&
+            !ksword::ark::isTrustedHiddenProcessFlags(kernelProcess.flags)) {
+            ++result.unconfirmedCount;
+            if ((kernelProcess.flags & KSWORD_ARK_PROCESS_FLAG_TERMINATING_OR_EXITED) != 0U) {
+                ++result.terminatingCount;
+            }
+        }
         const DWORD processId = static_cast<DWORD>(kernelProcess.processId);
         if (userPidSet.find(processId) != userPidSet.end()) {
+            continue;
+        }
+        if (!ksword::ark::isTrustedHiddenProcessFlags(kernelProcess.flags)) {
             continue;
         }
         rows.push_back(BuildKernelOnlyRow(kernelProcess));
@@ -1631,6 +1656,9 @@ HiddenProcessAuditResult ApplyDefaultHiddenProcessAudit(std::vector<ProcessSnaps
         std::to_wstring(result.kernelEnumeratedCount) +
         L"，疑似隐藏 " +
         std::to_wstring(result.kernelOnlyCount);
+    result.detailText += L"，未确认 " + std::to_wstring(result.unconfirmedCount) +
+        L"，退出残留 " + std::to_wstring(result.terminatingCount) +
+        L"，完整=" + (result.enumerationComplete ? L"true" : L"false");
     return result;
 }
 

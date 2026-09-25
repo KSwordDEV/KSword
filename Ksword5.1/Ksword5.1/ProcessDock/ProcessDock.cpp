@@ -3470,7 +3470,8 @@ namespace
     // - 输出可用于“R3 列表 vs R0 列表”差异比对的数据。
     bool enumerateProcessesByR0Driver(
         std::vector<KernelProcessSnapshotEntry>* const processListOut,
-        std::string* const detailTextOut)
+        std::string* const detailTextOut,
+        bool* const completeOut)
     {
         if (processListOut == nullptr)
         {
@@ -3480,6 +3481,10 @@ namespace
         if (detailTextOut != nullptr)
         {
             detailTextOut->clear();
+        }
+        if (completeOut != nullptr)
+        {
+            *completeOut = false;
         }
 
         const ksword::ark::DriverClient driverClient;
@@ -3541,7 +3546,14 @@ namespace
 
         if (detailTextOut != nullptr)
         {
-            *detailTextOut = processDockIoMessageStdString(enumResult.io.message);
+            *detailTextOut = processDockIoMessageStdString(enumResult.io.message) +
+                ", complete=" + (enumResult.complete ? "true" : "false") +
+                ", total=" + std::to_string(enumResult.totalCount) +
+                ", returned=" + std::to_string(enumResult.returnedCount);
+        }
+        if (completeOut != nullptr)
+        {
+            *completeOut = enumResult.complete;
         }
         return true;
     }
@@ -3591,7 +3603,7 @@ namespace
         // 返回值：true 表示已从 R0 枚举中找到同 PID 并合并 Phase-2 扩展字段。
         std::vector<KernelProcessSnapshotEntry> kernelProcessList;
         std::string queryDetailText;
-        const bool queryOk = enumerateProcessesByR0Driver(&kernelProcessList, &queryDetailText);
+        const bool queryOk = enumerateProcessesByR0Driver(&kernelProcessList, &queryDetailText, nullptr);
         if (!queryOk)
         {
             if (detailTextOut != nullptr)
@@ -7650,8 +7662,13 @@ ProcessDock::RefreshResult ProcessDock::buildRefreshResult(
     {
         std::vector<KernelProcessSnapshotEntry> kernelProcessList;
         std::string kernelQueryDetailText;
-        const bool queryKernelOk = enumerateProcessesByR0Driver(&kernelProcessList, &kernelQueryDetailText);
+        bool kernelEnumerationComplete = false;
+        const bool queryKernelOk = enumerateProcessesByR0Driver(
+            &kernelProcessList,
+            &kernelQueryDetailText,
+            &kernelEnumerationComplete);
         refreshResult.kernelQuerySucceeded = queryKernelOk;
+        refreshResult.kernelEnumerationComplete = kernelEnumerationComplete;
         refreshResult.kernelQueryDetailText = kernelQueryDetailText;
         refreshResult.kernelEnumeratedCount = kernelProcessList.size();
 
@@ -7663,7 +7680,20 @@ ProcessDock::RefreshResult ProcessDock::buildRefreshResult(
             for (const KernelProcessSnapshotEntry& kernelProcess : kernelProcessList)
             {
                 kernelProcessByPid[kernelProcess.processId] = kernelProcess;
+                if ((kernelProcess.flags & KSWORD_ARK_PROCESS_FLAG_CID_TABLE_ENUMERATED) != 0U &&
+                    !ksword::ark::isTrustedHiddenProcessFlags(kernelProcess.flags))
+                {
+                    ++refreshResult.kernelUnconfirmedCount;
+                    if ((kernelProcess.flags & KSWORD_ARK_PROCESS_FLAG_TERMINATING_OR_EXITED) != 0U)
+                    {
+                        ++refreshResult.kernelTerminatingCount;
+                    }
+                }
             }
+            refreshResult.kernelQueryDetailText +=
+                ", trustedHidden=" + std::to_string(refreshResult.kernelOnlyCount) +
+                ", unconfirmed=" + std::to_string(refreshResult.kernelUnconfirmedCount) +
+                ", terminating=" + std::to_string(refreshResult.kernelTerminatingCount);
             for (const ks::process::ProcessRecord& processRecord : latestProcessList)
             {
                 userPidSet.insert(processRecord.pid);
@@ -7673,6 +7703,12 @@ ProcessDock::RefreshResult ProcessDock::buildRefreshResult(
             {
                 if (userPidSet.find(kernelProcess.processId) != userPidSet.end())
                 {
+                    continue;
+                }
+                if (!ksword::ark::isTrustedHiddenProcessFlags(kernelProcess.flags))
+                {
+                    // CID residuals, failed references, incomplete scans and
+                    // identity mismatches remain diagnostic evidence only.
                     continue;
                 }
                 userPidSet.insert(kernelProcess.processId);
