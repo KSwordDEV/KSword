@@ -21,6 +21,14 @@
 
 #include <algorithm>
 
+namespace
+{
+    // 缩略图不能随左侧栏无限变宽，否则拖动分割器后会吞掉设备名称区域。
+    constexpr int kSparkChartMaxWidth = 88;
+    constexpr int kSparkChartTextReserveWidth = 96;
+    constexpr int kSparkChartMinWidth = 36;
+}
+
 PerformanceNavCard::PerformanceNavCard(QWidget* parent)
     : QWidget(parent)
     , m_accentColor(KswordTheme::PrimaryBlueColor)
@@ -251,16 +259,16 @@ void PerformanceNavCard::paintEvent(QPaintEvent* paintEventPointer)
     painter.drawRoundedRect(cardRect, 4.0, 4.0);
 
     // 缩略图区域：保留边框与曲线，内部背景保持透明。
-    // showSparkChart 用途：只根据卡片自身可用宽度决定是否显示折线图。
-    // 不依赖顶层窗口宽度，避免硬件页 QSplitter 拖动与欢迎页宿主窗口条件互相干扰。
-    const bool showSparkChart = cardRect.width() >= 140;
     // compactMode 用途：窄宽度/低高度下收缩文字字号，避免左侧列表触发滚动条。
     const bool compactMode = cardRect.width() < 176 || cardRect.height() < 48;
     const int sparkInset = compactMode ? 4 : 5;
-    // 800px 以上时折线图与文字各占卡片内容宽度的一半，不再使用固定的窄图比例。
-    const int sparkWidth = showSparkChart
-        ? std::max(1, cardRect.width() / 2 - sparkInset)
-        : 0;
+    // showSparkChart 用途：只有在能为文字保留可读空间时才绘制缩略图。
+    // 折线宽度设有绝对上限，避免分割器拖宽左栏后再次占据卡片的一半。
+    const int availableSparkWidth = std::max(
+        0,
+        cardRect.width() - (sparkInset * 2) - kSparkChartTextReserveWidth - 7);
+    const int sparkWidth = std::min(kSparkChartMaxWidth, availableSparkWidth);
+    const bool showSparkChart = sparkWidth >= kSparkChartMinWidth;
     const QRect sparkRect(
         cardRect.left() + sparkInset,
         cardRect.top() + sparkInset,

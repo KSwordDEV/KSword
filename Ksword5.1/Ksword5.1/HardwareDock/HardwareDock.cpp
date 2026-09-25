@@ -3682,6 +3682,25 @@ void HardwareDock::initializeUtilizationTab()
     {
         splitterHandle->installEventFilter(this);
     }
+    // opaque resize 关闭时左侧列表不会跟随橡皮筋实时重排；监听 splitterMoved，
+    // 在最终宽度提交后重新定位卡片，确保设备名称不会留在旧的绘制区域之外。
+    connect(
+        m_utilizationBodySplitter,
+        &QSplitter::splitterMoved,
+        this,
+        [this](const int, const int)
+        {
+            QTimer::singleShot(0, this, [this]()
+            {
+                if (m_utilizationBodySplitter == nullptr
+                    || m_utilizationSidebarList == nullptr)
+                {
+                    return;
+                }
+                syncUtilizationSidebarCardWidths();
+                adjustUtilizationChartHeights();
+            });
+        });
     m_utilizationBodySplitter->setStretchFactor(0, 0);
     m_utilizationBodySplitter->setStretchFactor(1, 1);
     // 先给出可用的预置值；首次显示后 applyInitialUtilizationSplitterSize 会按实际
@@ -3893,18 +3912,30 @@ void HardwareDock::syncUtilizationSidebarCardWidths()
     for (int rowIndex = 0; rowIndex < m_utilizationSidebarList->count(); ++rowIndex)
     {
         QListWidgetItem* const itemPointer = m_utilizationSidebarList->item(rowIndex);
-        if (itemPointer == nullptr || itemPointer->sizeHint() == nextSizeHint)
+        if (itemPointer == nullptr)
         {
             continue;
         }
 
-        itemPointer->setSizeHint(nextSizeHint);
-        itemSizeChanged = true;
+        if (itemPointer->sizeHint() != nextSizeHint)
+        {
+            itemPointer->setSizeHint(nextSizeHint);
+            itemSizeChanged = true;
+        }
 
         if (QWidget* const cardWidget = m_utilizationSidebarList->itemWidget(itemPointer))
         {
             cardWidget->setMinimumWidth(0);
             cardWidget->setMaximumWidth(QWIDGETSIZE_MAX);
+            // QListWidget 的 index widget 在 splitter 松动后可能仍保留上一轮宽度。
+            // 用当前 item 矩形的纵坐标和 viewport 宽度同步一次，随后由视图布局接管。
+            QRect cardGeometry = m_utilizationSidebarList->visualItemRect(itemPointer);
+            if (cardGeometry.height() <= 0)
+            {
+                cardGeometry.setHeight(nextSizeHint.height());
+            }
+            cardGeometry.setWidth(cardWidth);
+            cardWidget->setGeometry(cardGeometry);
             cardWidget->updateGeometry();
             cardWidget->update();
         }
