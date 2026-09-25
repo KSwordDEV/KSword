@@ -6009,14 +6009,18 @@ void ProcessDetailWindow::initializeConnections()
     connect(m_kernelCallbackFilterEdit, &QLineEdit::textChanged, this, [this](const QString& filterText) {
         filterKernelCallbackTable(filterText);
     });
-    connect(
-        m_kernelCallbackTable->horizontalHeader(),
-        &QHeaderView::sortIndicatorChanged,
-        this,
-        [this](int, Qt::SortOrder) {
-            filterKernelCallbackTable(
-                m_kernelCallbackFilterEdit != nullptr ? m_kernelCallbackFilterEdit->text() : QString());
-        });
+    // 内核回调页是懒加载的；首次连接阶段表格尚未创建，等页面初始化后再连接。
+    if (m_kernelCallbackTable != nullptr && m_kernelCallbackTable->horizontalHeader() != nullptr)
+    {
+        connect(
+            m_kernelCallbackTable->horizontalHeader(),
+            &QHeaderView::sortIndicatorChanged,
+            this,
+            [this](int, Qt::SortOrder) {
+                filterKernelCallbackTable(
+                    m_kernelCallbackFilterEdit != nullptr ? m_kernelCallbackFilterEdit->text() : QString());
+            });
+    }
     connect(m_pebTargetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
         if (m_pebDetailOutput != nullptr)
         {
