@@ -498,6 +498,8 @@ private:
     void applyKernelCallbackRefreshResult(const KernelCallbackRefreshResult& refreshResult);
     // rebuildKernelCallbackTable 作用：根据最近一次缓存重建回调表格。
     void rebuildKernelCallbackTable();
+    // filterKernelCallbackTable 作用：按搜索框内容隐藏不匹配的回调表行。
+    void filterKernelCallbackTable(const QString& filterText);
     // requestAsyncHotkeyRefresh 作用：
     // - 后台扫描当前进程相关热键来源；
     // - 不直接访问驱动，不阻塞详情窗口 UI 线程。
@@ -563,6 +565,8 @@ private:
     void requestAsyncModuleRefresh(bool forceRefresh);
     void applyModuleRefreshResult(const ModuleRefreshResult& refreshResult);
     void rebuildModuleTable();
+    // filterModuleTable 作用：按搜索框内容隐藏不匹配的模块表行。
+    void filterModuleTable(const QString& filterText);
     void updateModuleStatusLabel(const QString& statusText, bool refreshing);
     // requestAsyncDllHijackScan：只读扫描程序目录与实际加载模块，
     // 使用签名可信的架构匹配系统 DLL 作为基线，不加载任何待检 DLL。
@@ -870,6 +874,7 @@ private:
     QPushButton* m_injectionTraceButton = nullptr;     // 只读注入痕迹检查按钮（快速）。
     QPushButton* m_injectionTraceDeepButton = nullptr; // 只读注入痕迹检查按钮（深度）。
     QCheckBox* m_signatureCheckBox = nullptr;  // 是否刷新时做签名校验。
+    QLineEdit* m_moduleFilterEdit = nullptr;   // 模块列表筛选输入框。
     QLabel* m_moduleStatusLabel = nullptr;     // 模块刷新状态标签。
     QTreeWidget* m_moduleTable = nullptr;      // 模块表格。
 
@@ -1029,6 +1034,7 @@ private:
     // ======== PEB.KernelCallbackTable 页控件与状态 ========
     QVBoxLayout* m_kernelCallbackLayout = nullptr; // 内核回调表页布局。
     QPushButton* m_refreshKernelCallbackButton = nullptr; // 刷新内核回调表按钮。
+    QLineEdit* m_kernelCallbackFilterEdit = nullptr; // 内核回调表筛选输入框。
     QLabel* m_kernelCallbackStatusLabel = nullptr; // 内核回调表刷新状态。
     QTableWidget* m_kernelCallbackTable = nullptr; // 内核回调表结果表格。
     bool m_kernelCallbackRefreshing = false;       // 当前是否正在读取回调表。

@@ -248,6 +248,39 @@ void ProcessDetailWindow::rebuildModuleTable()
     }
 
     m_moduleTable->sortItems(toModuleColumnIndex(ModuleColumn::Path), Qt::AscendingOrder);
+    filterModuleTable(m_moduleFilterEdit != nullptr ? m_moduleFilterEdit->text() : QString());
+}
+
+void ProcessDetailWindow::filterModuleTable(const QString& filterText)
+{
+    if (m_moduleTable == nullptr)
+    {
+        return;
+    }
+
+    const QString normalizedFilter = filterText.trimmed();
+    for (int rowIndex = 0; rowIndex < m_moduleTable->topLevelItemCount(); ++rowIndex)
+    {
+        QTreeWidgetItem* const rowItem = m_moduleTable->topLevelItem(rowIndex);
+        if (rowItem == nullptr)
+        {
+            continue;
+        }
+
+        bool matched = normalizedFilter.isEmpty();
+        if (!matched)
+        {
+            for (int columnIndex = 0; columnIndex < m_moduleTable->columnCount(); ++columnIndex)
+            {
+                if (rowItem->text(columnIndex).contains(normalizedFilter, Qt::CaseInsensitive))
+                {
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        rowItem->setHidden(!matched);
+    }
 }
 
 void ProcessDetailWindow::updateModuleStatusLabel(const QString& statusText, const bool refreshing)

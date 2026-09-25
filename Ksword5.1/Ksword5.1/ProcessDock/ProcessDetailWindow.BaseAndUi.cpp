@@ -5160,6 +5160,14 @@ void ProcessDetailWindow::initializeModuleTab()
     m_moduleTopBarLayout->addWidget(m_injectionTraceButton);
     m_moduleTopBarLayout->addWidget(m_injectionTraceDeepButton);
     m_moduleTopBarLayout->addWidget(m_signatureCheckBox);
+    m_moduleFilterEdit = new QLineEdit(m_moduleTab);
+    m_moduleFilterEdit->setClearButtonEnabled(true);
+    m_moduleFilterEdit->setPlaceholderText(ks::i18n::sourceText(
+        QStringLiteral("按模块路径过滤关键字")));
+    m_moduleFilterEdit->setToolTip(ks::i18n::sourceText(
+        QStringLiteral("按模块路径过滤关键字")));
+    m_moduleFilterEdit->setMinimumWidth(220);
+    m_moduleTopBarLayout->addWidget(m_moduleFilterEdit);
     m_moduleTopBarLayout->addStretch(1);
     m_moduleTopBarLayout->addWidget(m_moduleStatusLabel);
     m_moduleLayout->addLayout(m_moduleTopBarLayout);
@@ -5732,6 +5740,15 @@ void ProcessDetailWindow::initializeKernelCallbackTab()
     m_refreshKernelCallbackButton->setStyleSheet(buildBlueButtonStyle());
     topBarLayout->addWidget(m_refreshKernelCallbackButton);
 
+    m_kernelCallbackFilterEdit = new QLineEdit(m_kernelCallbackTab);
+    m_kernelCallbackFilterEdit->setClearButtonEnabled(true);
+    m_kernelCallbackFilterEdit->setPlaceholderText(ks::i18n::sourceText(
+        QStringLiteral("按索引/回调名称/地址/模块/保护属性/状态筛选")));
+    m_kernelCallbackFilterEdit->setToolTip(ks::i18n::sourceText(
+        QStringLiteral("按索引/回调名称/地址/模块/保护属性/状态筛选")));
+    m_kernelCallbackFilterEdit->setMinimumWidth(260);
+    topBarLayout->addWidget(m_kernelCallbackFilterEdit);
+
     m_kernelCallbackStatusLabel = new QLabel(QStringLiteral("● 尚未刷新"), m_kernelCallbackTab);
     m_kernelCallbackStatusLabel->setStyleSheet(buildStateLabelStyle(statusSecondaryColor(), 600));
     topBarLayout->addWidget(m_kernelCallbackStatusLabel, 1);
@@ -5989,6 +6006,17 @@ void ProcessDetailWindow::initializeConnections()
     connect(m_refreshKernelCallbackButton, &QPushButton::clicked, this, [this]() {
         requestAsyncKernelCallbackRefresh();
     });
+    connect(m_kernelCallbackFilterEdit, &QLineEdit::textChanged, this, [this](const QString& filterText) {
+        filterKernelCallbackTable(filterText);
+    });
+    connect(
+        m_kernelCallbackTable->horizontalHeader(),
+        &QHeaderView::sortIndicatorChanged,
+        this,
+        [this](int, Qt::SortOrder) {
+            filterKernelCallbackTable(
+                m_kernelCallbackFilterEdit != nullptr ? m_kernelCallbackFilterEdit->text() : QString());
+        });
     connect(m_pebTargetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
         if (m_pebDetailOutput != nullptr)
         {
@@ -6276,6 +6304,9 @@ void ProcessDetailWindow::initializeConnections()
             << "[ProcessDetailWindow] 用户点击“刷新模块”, pid=" << m_baseRecord.pid
             << eol;
         requestAsyncModuleRefresh(true);
+    });
+    connect(m_moduleFilterEdit, &QLineEdit::textChanged, this, [this](const QString& filterText) {
+        filterModuleTable(filterText);
     });
 
     // DLL 劫持检测始终在后台只读执行，不复用注入/加载路径。

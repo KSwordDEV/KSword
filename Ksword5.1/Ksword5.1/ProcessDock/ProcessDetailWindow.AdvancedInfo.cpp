@@ -5230,6 +5230,35 @@ void ProcessDetailWindow::rebuildKernelCallbackTable()
     }
 
     m_kernelCallbackTable->setSortingEnabled(sortingEnabled);
+    filterKernelCallbackTable(
+        m_kernelCallbackFilterEdit != nullptr ? m_kernelCallbackFilterEdit->text() : QString());
+}
+
+void ProcessDetailWindow::filterKernelCallbackTable(const QString& filterText)
+{
+    if (m_kernelCallbackTable == nullptr)
+    {
+        return;
+    }
+
+    const QString normalizedFilter = filterText.trimmed();
+    for (int rowIndex = 0; rowIndex < m_kernelCallbackTable->rowCount(); ++rowIndex)
+    {
+        bool matched = normalizedFilter.isEmpty();
+        if (!matched)
+        {
+            for (int columnIndex = 0; columnIndex < m_kernelCallbackTable->columnCount(); ++columnIndex)
+            {
+                const QTableWidgetItem* const item = m_kernelCallbackTable->item(rowIndex, columnIndex);
+                if (item != nullptr && item->text().contains(normalizedFilter, Qt::CaseInsensitive))
+                {
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        m_kernelCallbackTable->setRowHidden(rowIndex, !matched);
+    }
 }
 
 void ProcessDetailWindow::requestAsyncPebRefresh()

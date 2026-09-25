@@ -21122,6 +21122,7 @@
     "按根目录/目录路径/对象名/对象类型/状态筛选": "Filter by root directory/directory path/object name/object type/status",
     "按模块基址反查 DriverObject，仅调用 DriverUnload；高危后处理需二次确认。": "Reverse lookup DriverObject from module base; calls only DriverUnload; high-risk post-processing requires secondary confirmation",
     "按模块路径过滤关键字": "Filter keywords by module path",
+    "按索引/回调名称/地址/模块/保护属性/状态筛选": "Filter by index/callback name/address/module/protection/status",
     "按模块路径过滤，如 ntoskrnl.exe / drivers\\xxx.sys": "Filter by module path, e.g., ntoskrnl.exe / drivers\\xxx.sys",
     "按此目标路径过滤": "Filter by this target path",
     "按目标路径 / DOS 候选过滤": "Filter by target path/DOS candidate",
