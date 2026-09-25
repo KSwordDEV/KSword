@@ -8717,7 +8717,7 @@ void ProcessDock::rebuildTable()
     }
 
     // 根据本轮数据刷新标题栏“占用总和”。
-    updateUsageSummaryInHeader(displayRows);
+    updateUsageSummaryInHeader();
     applyR0ColumnAvailability(displayRows);
 
     // 恢复滚动位置：保持用户当前视图位置不被刷新打断。
@@ -8760,11 +8760,13 @@ void ProcessDock::rebuildTable()
         << eol;
 }
 
-void ProcessDock::updateUsageSummaryInHeader(const std::vector<DisplayRow>& displayRows)
+void ProcessDock::updateUsageSummaryInHeader()
 {
     // 标题栏展示占用总和：
     // - QTableView 没有 headerItem，动态标题由 ProcessTableSortProxy::headerData 提供；
-    // - 本函数只计算当前可见行聚合值并更新代理表头，不触碰模型行数据。
+    // - 汇总必须基于当前数据集中的真实进程，而不是 displayRows：友好视图/树视图折叠
+    //   后，子进程不会出现在 displayRows；友好视图展开时还会同时出现应用聚合行。
+    // - 本函数只更新代理表头，不触碰模型行数据。
     if (m_processSortProxy == nullptr)
     {
         return;
@@ -8776,29 +8778,64 @@ void ProcessDock::updateUsageSummaryInHeader(const std::vector<DisplayRow>& disp
     double totalGpuPercent = 0.0;
     double totalNetKBps = 0.0;
     std::uint64_t totalHandleCount = 0;
-    for (const DisplayRow& displayRow : displayRows)
+
+    const auto accumulateRecord = [this,
+        &totalCpuPercent,
+        &totalRamMB,
+        &totalDiskMBps,
+        &totalGpuPercent,
+        &totalNetKBps,
+        &totalHandleCount](const ks::process::ProcessRecord& processRecord, const bool isExited)
     {
-        if (displayRow.record == nullptr ||
-            displayRow.rowKind != ProcessTableRowKind::Process ||
-            displayRow.isExited)
+        if (isExited || !processRecordMatchesSearch(processRecord))
         {
-            continue;
+            return;
         }
 
         // CPU 汇总按用户要求排除“System Idle Process”(PID=0) 的空闲占比。
         const bool isSystemIdleProcess =
-            (displayRow.record->pid == 0) ||
-            (QString::fromStdString(displayRow.record->processName).compare("System Idle Process", Qt::CaseInsensitive) == 0);
+            (processRecord.pid == 0) ||
+            (QString::fromStdString(processRecord.processName).compare("System Idle Process", Qt::CaseInsensitive) == 0);
         if (!isSystemIdleProcess)
         {
-            totalCpuPercent += displayRow.record->cpuPercent;
+            totalCpuPercent += processRecord.cpuPercent;
         }
 
-        totalRamMB += displayRow.record->ramMB;
-        totalDiskMBps += displayRow.record->diskMBps;
-        totalGpuPercent += displayRow.record->gpuPercent;
-        totalNetKBps += displayRow.record->netKBps;
-        totalHandleCount += displayRow.record->handleCount;
+        totalRamMB += processRecord.ramMB;
+        totalDiskMBps += processRecord.diskMBps;
+        totalGpuPercent += processRecord.gpuPercent;
+        totalNetKBps += processRecord.netKBps;
+        totalHandleCount += processRecord.handleCount;
+    };
+
+    if (isProcessActivityTableSnapshotActive())
+    {
+        // 历史表格没有实时缓存对应关系，直接汇总当前时间轴快照中的真实进程。
+        for (const ks::process::ProcessRecord& processRecord : m_activityTableSnapshotRecords)
+        {
+            accumulateRecord(processRecord, false);
+        }
+    }
+    else
+    {
+        // 实时汇总按 identity 遍历缓存，确保每个进程只计一次；合成的友好视图
+        // 分组/应用行不在缓存中，因此不会导致重复计数。
+        for (const auto& cachePair : m_cacheByIdentity)
+        {
+            const CacheEntry& cacheEntry = cachePair.second;
+            const ks::process::ProcessRecord& processRecord = cacheEntry.record;
+            const bool isKswordHidden =
+                ((processRecord.r0Flags & KSWORD_ARK_PROCESS_FLAG_HIDDEN_BY_KSWORD_UI) != 0U) ||
+                (m_hiddenProcessPidSet.find(processRecord.pid) != m_hiddenProcessPidSet.end());
+            const bool showKswordHidden =
+                (m_showKswordHiddenProcessCheck != nullptr && m_showKswordHiddenProcessCheck->isChecked());
+            if (isKswordHidden && !showKswordHidden)
+            {
+                continue;
+            }
+
+            accumulateRecord(processRecord, cacheEntry.isExitedInLatestRound);
+        }
     }
 
     QStringList headerTexts = ProcessTableHeaders;

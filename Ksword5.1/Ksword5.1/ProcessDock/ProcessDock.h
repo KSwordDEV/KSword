@@ -799,7 +799,7 @@ private:
       void executeExperimentalFirmwareRebootAction();
     void executeTerminateThreadAction();
     void executeR0TerminateThreadAction();
-    void updateUsageSummaryInHeader(const std::vector<DisplayRow>& displayRows);
+    void updateUsageSummaryInHeader();
 
     // ======== 进程活动记录与时间轴 ========
     bool isProcessActivityMetricEnabled(ProcessActivityMetric metric) const;

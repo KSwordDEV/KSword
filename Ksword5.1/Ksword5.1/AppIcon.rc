@@ -6,4 +6,4 @@
 #include <windows.h>
 
 // RELEASE_APP_ICON_FILE_MARKER
-IDI_APP_ICON ICON "Resource/Logo/KswordLogo.ico"
+IDI_APP_ICON ICON "Resource/Logo/KswordLogo_PRE.ico"

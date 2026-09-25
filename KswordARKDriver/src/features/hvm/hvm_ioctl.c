@@ -1586,8 +1586,7 @@ KswordARKHvmIoctlInject(
             ? STATUS_INFO_LENGTH_MISMATCH
             : status;
     }
-    requestSnapshot = (KSWORD_ARK_HVM_INJECT_REQUEST*)ExAllocatePool2(
-        POOL_FLAG_NON_PAGED,
+    requestSnapshot = (KSWORD_ARK_HVM_INJECT_REQUEST*)KswordARKAllocateNonPagedPool(
         sizeof(KSWORD_ARK_HVM_INJECT_REQUEST),
         'qnIK');
     if (requestSnapshot == NULL) {

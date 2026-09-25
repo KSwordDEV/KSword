@@ -74,8 +74,8 @@ namespace
         QStringLiteral("NtKrnl64"), QStringLiteral("一花一树叶"), QStringLiteral("hzh")
     }};
 
-    const QString kReleaseVersionText = QStringLiteral("5.1.4.3-Pre"); // RELEASE_META_VERSION_MARKER
-    const QString kReleaseBuildTimeText = QStringLiteral("2026-08-17 22:41:10.119 +08:00"); // RELEASE_META_BUILD_TIME_MARKER
+    const QString kReleaseVersionText = QStringLiteral("5.1.5.0Pre"); // RELEASE_META_VERSION_MARKER
+    const QString kReleaseBuildTimeText = QStringLiteral("2026-09-23 17:24:49.281 +08:00"); // RELEASE_META_BUILD_TIME_MARKER
     const QString kQQGroupInviteUrl = QStringLiteral("https://qm.qq.com/q/5tWNPfIxkk");
     const QString kPplControlRepositoryUrl = QStringLiteral("https://github.com/itm4n/PPLcontrol");
     const QString kSystemInformerRepositoryUrl = QStringLiteral("https://github.com/winsiderss/systeminformer");

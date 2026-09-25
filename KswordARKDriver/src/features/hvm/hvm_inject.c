@@ -18,6 +18,7 @@ Environment:
 #include "hvm_ept.h"
 #include "hvm_ept_view.h"
 #include "hvm_memory.h"
+#include "../../platform/pool_compat.h"
 
 #if defined(_M_AMD64)
 
@@ -725,8 +726,7 @@ KswordARKHvmInjectArmLocked(
      * 不直接改真页：KIND_HOOK 的全部意义就是真页一个字节都不动，读它的人看到的
      * 仍然是原始内容。
      */
-    shadow = (UCHAR*)ExAllocatePool2(
-        POOL_FLAG_NON_PAGED,
+    shadow = (UCHAR*)KswordARKAllocateNonPagedPool(
         (SIZE_T)KSWORD_ARK_HVM_VIEW_PAGE_BYTES,
         'jnIK');
     if (shadow == NULL) {

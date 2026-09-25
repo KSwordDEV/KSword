@@ -29,6 +29,7 @@ Environment:
 
 #include "ark/ark_driver.h"
 #include "ark/ark_injection_scan.h"
+#include "../../platform/pool_compat.h"
 
 #if defined(_M_AMD64) || defined(_M_X64)
 #include <intrin.h>
@@ -447,8 +448,8 @@ Return Value:
      * 四张表页各留一块。合起来 16 KiB，放栈上会直接吃掉内核栈的一大半，
      * 所以走非分页池。
      */
-    pml4 = (KSW_INJ_PTE_TABLE*)ExAllocatePool2(
-        POOL_FLAG_NON_PAGED, sizeof(KSW_INJ_PTE_TABLE) * 4U, 'jnIK');
+    pml4 = (KSW_INJ_PTE_TABLE*)KswordARKAllocateNonPagedPool(
+        sizeof(KSW_INJ_PTE_TABLE) * 4U, 'jnIK');
     if (pml4 == NULL) {
         response->status = KSWORD_ARK_INJECTION_SCAN_STATUS_WALK_FAILED;
         response->lastStatus = STATUS_INSUFFICIENT_RESOURCES;
