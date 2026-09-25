@@ -160,6 +160,7 @@ private:
         std::vector<QString> history;          // 路径历史列表。
         int historyIndex = -1;                 // 当前历史索引。
         QString currentPath;                   // 当前目录路径。
+        QString pendingSelectionPath;          // 返回上级后待恢复选中的子目录路径。
         QString manualLoadedPath;              // 手动解析模型当前已加载目录路径。
         QString panelNameText;                 // 面板名称（日志与提示使用）。
         QString lastStatusLogSignature;        // 状态栏日志去重签名。
@@ -280,6 +281,11 @@ private:
     // updatePanelStatus：
     // - 作用：更新状态栏（路径、选中数量、容量等）。
     void updatePanelStatus(FilePanelWidgets& panel);
+
+    // selectPendingPath：
+    // - 作用：在当前目录模型已经可见后，选中返回上级前所在的子目录；
+    // - 说明：Windows API 模型等待 directoryLoaded，手动模型等待异步回填完成。
+    void selectPendingPath(FilePanelWidgets& panel);
 
     // applyPanelFilterAndSort：
     // - 作用：应用显示隐藏文件、名称过滤和排序模式。

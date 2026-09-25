@@ -136,7 +136,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <LinkIncremental>false</LinkIncremental>
@@ -1116,11 +1116,12 @@
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ItemGroup><MASM Include="OtherDock\DwmRemoteLoader.asm" /></ItemGroup>
+  <ItemGroup>
+    <MASM Include="OtherDock\DwmRemoteLoader.asm" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
   <Target Name="CopyKswordDwmZOrderAgent" AfterTargets="Build">
-    <MSBuild Projects="$(MSBuildProjectDirectory)\..\..\DwmZOrderAgent\DwmZOrderAgent.vcxproj"
-             Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=$(Platform)">
+    <MSBuild Projects="$(MSBuildProjectDirectory)\..\..\DwmZOrderAgent\DwmZOrderAgent.vcxproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=$(Platform)">
       <Output TaskParameter="TargetOutputs" ItemName="KswordDwmZOrderAgentTarget" />
     </MSBuild>
     <Copy SourceFiles="@(KswordDwmZOrderAgentTarget)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
@@ -1131,8 +1132,11 @@
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
   <ItemGroup>
-    <ClCompile Include="UI\KvmGuestVmPanel.cpp"></ClCompile>
+    <ClCompile Include="UI\KvmGuestVmPanel.cpp">
+    </ClCompile>
     <ClInclude Include="UI\KvmGuestVmPanel.h" />
   </ItemGroup>
-  <ItemGroup><ClInclude Include="..\..\shared\driver\KswordArkHvmRequest.h" /></ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\shared\driver\KswordArkHvmRequest.h" />
+  </ItemGroup>
 </Project>

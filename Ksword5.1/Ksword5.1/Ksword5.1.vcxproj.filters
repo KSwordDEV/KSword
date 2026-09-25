@@ -331,7 +331,8 @@
     </ClCompile>
     <ClCompile Include="KernelDock\KernelHvmTab.Formatting.cpp">
       <Filter>Source Files</Filter>
-    </ClCompile>    <ClCompile Include="KernelDock\KernelIoctlDecoderTab.cpp">
+    </ClCompile>
+    <ClCompile Include="KernelDock\KernelIoctlDecoderTab.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="KernelDock\KernelDockIpcTab.cpp">
@@ -622,11 +623,21 @@
     <ClCompile Include="OtherDock\WindowDwmControl.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="OtherDock\DwmZOrderClient.cpp"><Filter>Source Files</Filter></ClCompile>
-    <ClCompile Include="OtherDock\DwmAgentDeployment.cpp"><Filter>Source Files</Filter></ClCompile>
-    <ClCompile Include="OtherDock\DwmZOrderControl.cpp"><Filter>Source Files</Filter></ClCompile>
-    <ClCompile Include="OtherDock\WindowInputClient.cpp"><Filter>Source Files</Filter></ClCompile>
-    <ClCompile Include="OtherDock\WindowInputControl.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="OtherDock\DwmZOrderClient.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="OtherDock\DwmAgentDeployment.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="OtherDock\DwmZOrderControl.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="OtherDock\WindowInputClient.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="OtherDock\WindowInputControl.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="PrivilegeDock\PrivilegeDock.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1164,7 +1175,9 @@
     <ClCompile Include="ArkDriverClient\ArkDriverAudit.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>
-    <ClCompile Include="ArkDriverClient\ArkDriverWindowBand.cpp"><Filter>Source Files\ArkDriverClient</Filter></ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkDriverWindowBand.cpp">
+      <Filter>Source Files\ArkDriverClient</Filter>
+    </ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverNetworkTraffic.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
     </ClCompile>
@@ -1173,42 +1186,6 @@
     </ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverError.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\shared\evidence\EvidenceEnvelope.cpp">
-      <Filter>Source Files\SharedEvidence</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\shared\evidence\EvidenceJson.cpp">
-      <Filter>Source Files\SharedEvidence</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\shared\evidence\LiveNavigation.cpp">
-      <Filter>Source Files\SharedEvidence</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\shared\evidence\LosslessValue.cpp">
-      <Filter>Source Files\SharedEvidence</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\shared\evidence\ObjectIdentity.cpp">
-      <Filter>Source Files\SharedEvidence</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\shared\evidence\ScanBudget.cpp">
-      <Filter>Source Files\SharedEvidence</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\shared\evidence\CrossViewDiff.cpp">
-      <Filter>Source Files\SharedEvidence</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\shared\evidence\PeImageMap.cpp">
-      <Filter>Source Files\SharedEvidence</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\shared\evidence\ImageDiff.cpp">
-      <Filter>Source Files\SharedEvidence</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\shared\evidence\MemoryRegionEvidence.cpp">
-      <Filter>Source Files\SharedEvidence</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\shared\evidence\DdmaScratchPlan.cpp">
-      <Filter>Source Files\SharedEvidence</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\shared\evidence\InjectionSurvey.cpp">
-      <Filter>Source Files\SharedEvidence</Filter>
     </ClCompile>
     <ClCompile Include="ArkDriverClient\ArkDriverCapability.cpp">
       <Filter>Source Files\ArkDriverClient</Filter>
@@ -1343,6 +1320,54 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="HardwareDock\HardwareI8042AuditPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MemoryDock\TamperDetectionPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\TextSearchReplaceSupport.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\EvidenceEnvelope.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\EvidenceJson.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\LiveNavigation.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\LosslessValue.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\ObjectIdentity.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\ScanBudget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\CrossViewDiff.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\PeImageMap.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\ImageDiff.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\MemoryRegionEvidence.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\DdmaScratchPlan.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\MemoryTamperCrossView.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\DmaProcessOpPlan.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\evidence\InjectionSurvey.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -1488,14 +1513,30 @@
     <ClInclude Include="OtherDock\WindowCaptureProtection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="OtherDock\DwmZOrderClient.h"><Filter>Header Files</Filter></ClInclude>
-    <ClInclude Include="OtherDock\DwmAgentDeployment.h"><Filter>Header Files</Filter></ClInclude>
-    <ClInclude Include="..\..\shared\window\DwmProcessIdentity.h"><Filter>Header Files</Filter></ClInclude>
-    <ClInclude Include="..\..\shared\window\DwmRemoteLoader.h"><Filter>Header Files</Filter></ClInclude>
-    <ClInclude Include="OtherDock\DwmZOrderControl.h"><Filter>Header Files</Filter></ClInclude>
-    <ClInclude Include="OtherDock\WindowInputClient.h"><Filter>Header Files</Filter></ClInclude>
-    <ClInclude Include="OtherDock\WindowInputControl.h"><Filter>Header Files</Filter></ClInclude>
-    <ClInclude Include="..\..\shared\window\DwmZOrderProtocol.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="OtherDock\DwmZOrderClient.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="OtherDock\DwmAgentDeployment.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\window\DwmProcessIdentity.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\window\DwmRemoteLoader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="OtherDock\DwmZOrderControl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="OtherDock\WindowInputClient.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="OtherDock\WindowInputControl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\window\DwmZOrderProtocol.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <QtMoc Include="PrivilegeDock\PrivilegeDock.h">
       <Filter>Header Files</Filter>
     </QtMoc>
@@ -1664,9 +1705,6 @@
     <ClInclude Include="UI\KvmHookPlan.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="UI\KvmHookWizard.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="UI\KvmControl.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1733,45 +1771,18 @@
     <ClInclude Include="ArkDriverClient\ArkDriverEvidence.h">
       <Filter>Header Files\ArkDriverClient</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\shared\evidence\EvidenceEnvelope.h">
-      <Filter>Header Files\SharedEvidence</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\shared\evidence\EvidenceJson.h">
-      <Filter>Header Files\SharedEvidence</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\shared\evidence\LiveNavigation.h">
-      <Filter>Header Files\SharedEvidence</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\shared\evidence\LosslessValue.h">
-      <Filter>Header Files\SharedEvidence</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\shared\evidence\ObjectIdentity.h">
-      <Filter>Header Files\SharedEvidence</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\shared\evidence\ScanBudget.h">
-      <Filter>Header Files\SharedEvidence</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\shared\evidence\CrossViewDiff.h">
-      <Filter>Header Files\SharedEvidence</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\shared\evidence\PeImageMap.h">
-      <Filter>Header Files\SharedEvidence</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\shared\evidence\ImageDiff.h">
-      <Filter>Header Files\SharedEvidence</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\shared\evidence\MemoryRegionEvidence.h">
-      <Filter>Header Files\SharedEvidence</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\shared\evidence\InjectionSurvey.h">
-      <Filter>Header Files\SharedEvidence</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\shared\crash\WinCrashHandler.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ArkDriverClient\ArkDriverCapabilities.h">
       <Filter>Header Files\ArkDriverClient</Filter>
     </ClInclude>
+    <QtMoc Include="UI\WindowPickerButton.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="UI\KvmHookWizard.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="UI\UI.css\UI_css.h">
@@ -2197,6 +2208,48 @@
     <ClInclude Include="HardwareDock\MemoryCompositionHistoryWidget.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="UI\TextSearchReplaceSupport.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MemoryDock\TamperDetectionPage.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MemoryDock\DmaProcessOpPage.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\EvidenceEnvelope.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\EvidenceJson.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\LiveNavigation.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\LosslessValue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ObjectIdentity.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ScanBudget.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\CrossViewDiff.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\PeImageMap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\ImageDiff.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\MemoryRegionEvidence.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\evidence\InjectionSurvey.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="qtvars.pro" />
@@ -2260,10 +2313,20 @@
       <Filter>Form Files</Filter>
     </QtUic>
   </ItemGroup>
-  <ItemGroup><MASM Include="OtherDock\DwmRemoteLoader.asm"><Filter>Source Files</Filter></MASM></ItemGroup>
   <ItemGroup>
-    <ClCompile Include="UI\KvmGuestVmPanel.cpp"><Filter>Source Files</Filter></ClCompile>
-    <ClInclude Include="UI\KvmGuestVmPanel.h"><Filter>Header Files</Filter></ClInclude>
+    <MASM Include="OtherDock\DwmRemoteLoader.asm">
+      <Filter>Source Files</Filter>
+    </MASM>
   </ItemGroup>
-  <ItemGroup><ClInclude Include="..\..\shared\driver\KswordArkHvmRequest.h" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="UI\KvmGuestVmPanel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="UI\KvmGuestVmPanel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\shared\driver\KswordArkHvmRequest.h" />
+  </ItemGroup>
 </Project>

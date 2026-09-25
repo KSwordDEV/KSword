@@ -1013,20 +1013,21 @@ private:
     int m_dynDataTabIndex = -1;          // m_dynDataTabIndex：自身驱动内部 DynData 总览页索引。
     int m_dynDataProfileTabIndex = -1;   // m_dynDataProfileTabIndex：自身驱动内部 PDB Profile 页索引。
     int m_driverStatusTabIndex = -1;      // m_driverStatusTabIndex：自身驱动内部状态页索引。
-    int m_ntQueryTabIndex = -1;          // m_ntQueryTabIndex：历史 NtQuery 页签索引。
+    int m_miscTabIndex = -1;              // m_miscTabIndex：内核杂项聚合顶层页索引（不是杂项 Dock）。
+    int m_ntQueryTabIndex = -1;          // m_ntQueryTabIndex：杂项内部历史 NtQuery 页签索引。
     int m_kernelAuditTabIndex = -1;       // m_kernelAuditTabIndex：内核审计与回调顶层页索引。
     int m_callbackTabIndex = -1;         // m_callbackTabIndex：审计内部驱动回调页索引。
     int m_callbackEnumTabIndex = -1;     // m_callbackEnumTabIndex：审计内部回调遍历页索引。
     int m_inlineHookTabIndex = -1;       // m_inlineHookTabIndex：审计内部 Inline Hook 页索引。
     int m_iatEatHookTabIndex = -1;       // m_iatEatHookTabIndex：审计内部 IAT/EAT 页索引。
     int m_slatIommuTabIndex = -1;        // m_slatIommuTabIndex：SLAT/IOMMU 只读取证页签索引。
-    int m_textIntegrityTabIndex = -1;    // m_textIntegrityTabIndex：代码完整性只读扫描页签索引。
-    int m_vbsPostureTabIndex = -1;       // m_vbsPostureTabIndex：VBS/HVCI 姿态页签索引。
+    int m_textIntegrityTabIndex = -1;    // m_textIntegrityTabIndex：杂项内部代码完整性只读扫描页签索引。
+    int m_vbsPostureTabIndex = -1;       // m_vbsPostureTabIndex：杂项内部 VBS/HVCI 姿态页签索引。
     int m_timerDpcTabIndex = -1;          // m_timerDpcTabIndex：KTIMER/DPC 页签索引。
     int m_crossViewTabIndex = -1;        // m_crossViewTabIndex：CID/交叉视图页签索引。
     int m_ipcTabIndex = -1;              // m_ipcTabIndex：IPC/NamedPipe/ALPC 页签索引。
     int m_workQueueThreadTabIndex = -1;   // m_workQueueThreadTabIndex：工作队列线程审计页索引。
-    int m_knowledgeTabIndex = -1;         // m_knowledgeTabIndex：71 专题内核知识中心页签索引。
+    int m_knowledgeTabIndex = -1;         // m_knowledgeTabIndex：杂项内部 71 专题内核知识中心页签索引。
     KernelKnowledgeTab* m_knowledgeTab = nullptr; // m_knowledgeTab：可检索知识中心实例。
     bool m_objectNamespaceTabInitialized = false; // m_objectNamespaceTabInitialized：对象命名空间页是否已初始化。
     bool m_atomTabInitialized = false;            // m_atomTabInitialized：原子表页是否已初始化。
@@ -1071,6 +1072,9 @@ private:
     CodeEditorWidget* m_atomDetailEditor = nullptr; // m_atomDetailEditor：原子详情编辑器（只读）。
 
     // ==================== 历史 NtQuery 页 ====================
+    QWidget* m_miscPage = nullptr;                    // m_miscPage：内核杂项聚合页容器（不是杂项 Dock）。
+    QVBoxLayout* m_miscLayout = nullptr;               // m_miscLayout：杂项聚合页布局。
+    QTabWidget* m_miscInnerTabWidget = nullptr;        // m_miscInnerTabWidget：历史 NtQuery/知识/完整性/VBS 二级页容器。
     QWidget* m_ntQueryPage = nullptr;                  // m_ntQueryPage：历史 NtQuery 页容器。
     QVBoxLayout* m_ntQueryLayout = nullptr;            // m_ntQueryLayout：历史 NtQuery 页布局。
     QHBoxLayout* m_ntQueryToolLayout = nullptr;        // m_ntQueryToolLayout：历史 NtQuery 工具栏布局。

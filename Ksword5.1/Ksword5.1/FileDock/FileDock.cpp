@@ -41,6 +41,7 @@
 #include <QColor>
 #include <QComboBox>
 #include <QCryptographicHash>
+#include <QCollator>
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -99,6 +100,7 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QThreadPool>
+#include <QTimer>
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -2091,6 +2093,96 @@ namespace
                 return ks::i18n::displayText(baseValue.toString());
             }
             return baseValue;
+        }
+    };
+
+    // ExplorerFileSortProxyModel：
+    // - 目录始终排在文件之前；
+    // - 名称列使用大小写不敏感的自然排序（例如 item2 排在 item10 之前）；
+    // - 同一名称的大小写变体再用大小写敏感比较稳定排序。
+    // QFileSystemModel 的默认排序与 QSortFilterProxyModel 的字符串比较在不同
+    // Qt/文件系统后端下可能产生不同结果，因此这里把资源管理器的默认规则固定
+    // 在 FileDock 自己的代理层。
+    class ExplorerFileSortProxyModel final : public QSortFilterProxyModel
+    {
+    public:
+        explicit ExplorerFileSortProxyModel(QObject* parent = nullptr)
+            : QSortFilterProxyModel(parent)
+        {
+        }
+
+    protected:
+        bool lessThan(
+            const QModelIndex& left,
+            const QModelIndex& right) const override
+        {
+            // QSortFilterProxyModel::lessThan 接收的是源模型索引，不能再次
+            // mapToSource；重复映射会得到无效索引并退回 Qt 默认字符串排序。
+            if (!left.isValid() || !right.isValid())
+            {
+                return QSortFilterProxyModel::lessThan(left, right);
+            }
+
+            const bool leftIsDirectory = isDirectory(left);
+            const bool rightIsDirectory = isDirectory(right);
+            if (leftIsDirectory != rightIsDirectory)
+            {
+                return leftIsDirectory;
+            }
+
+            if (left.column() == 0)
+            {
+                const QString leftName = displayName(left);
+                const QString rightName = displayName(right);
+                QCollator collator;
+                collator.setCaseSensitivity(Qt::CaseInsensitive);
+                collator.setNumericMode(true);
+                const int naturalCompare = collator.compare(leftName, rightName);
+                if (naturalCompare != 0)
+                {
+                    return naturalCompare < 0;
+                }
+
+                const int stableCompare = QString::compare(
+                    leftName,
+                    rightName,
+                    Qt::CaseSensitive);
+                if (stableCompare != 0)
+                {
+                    return stableCompare < 0;
+                }
+            }
+
+            return QSortFilterProxyModel::lessThan(left, right);
+        }
+
+    private:
+        bool isDirectory(const QModelIndex& sourceIndex) const
+        {
+            QAbstractItemModel* const source =
+                const_cast<QAbstractItemModel*>(sourceModel());
+            if (QFileSystemModel* const fileSystemModel =
+                    qobject_cast<QFileSystemModel*>(source))
+            {
+                return QFileInfo(fileSystemModel->filePath(sourceIndex)).isDir();
+            }
+
+            return sourceIndex.siblingAtColumn(0)
+                .data(Qt::UserRole + 1)
+                .toBool();
+        }
+
+        QString displayName(const QModelIndex& sourceIndex) const
+        {
+            QAbstractItemModel* const source =
+                const_cast<QAbstractItemModel*>(sourceModel());
+            if (QFileSystemModel* const fileSystemModel =
+                    qobject_cast<QFileSystemModel*>(source))
+            {
+                return QFileInfo(fileSystemModel->filePath(sourceIndex)).fileName();
+            }
+
+            return sourceIndex.siblingAtColumn(0).data(Qt::DisplayRole).toString();
         }
     };
 
@@ -12128,7 +12220,7 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
     // 关闭“仅灰显不隐藏”行为，确保名称过滤严格只显示匹配项。
     panel.fsModel->setNameFilterDisables(false);
 
-    panel.proxyModel = new QSortFilterProxyModel(panel.rootWidget);
+    panel.proxyModel = new ExplorerFileSortProxyModel(panel.rootWidget);
     panel.proxyModel->setSourceModel(panel.fsModel);
     panel.proxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
     panel.proxyModel->setFilterKeyColumn(0);
@@ -12142,7 +12234,7 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
     panel.manualModel->setHeaderData(static_cast<int>(ManualModelColumn::FullPath), Qt::Horizontal, QStringLiteral("完整路径"));
     panel.manualModel->setHeaderData(static_cast<int>(ManualModelColumn::IsDirectory), Qt::Horizontal, QStringLiteral("目录标记"));
 
-    panel.manualProxyModel = new QSortFilterProxyModel(panel.rootWidget);
+    panel.manualProxyModel = new ExplorerFileSortProxyModel(panel.rootWidget);
     panel.manualProxyModel->setSourceModel(panel.manualModel);
     panel.manualProxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
     panel.manualProxyModel->setFilterKeyColumn(static_cast<int>(ManualModelColumn::Name));
@@ -12489,6 +12581,27 @@ void FileDock::initializeConnections(FilePanelWidgets& panel)
     // 模型目录加载完成后更新状态栏，提示当前目录数据可见。
     connect(panel.fsModel, &QFileSystemModel::directoryLoaded, this, [this, &panel](const QString&) {
         updatePanelStatus(panel);
+        if (!currentModeIsManual(panel) && panel.fileView != nullptr && panel.sortModeCombo != nullptr)
+        {
+            int sortColumn = 0;
+            switch (panel.sortModeCombo->currentIndex())
+            {
+            case 1:
+                sortColumn = 1;
+                break;
+            case 2:
+                sortColumn = 3;
+                break;
+            case 3:
+                sortColumn = 2;
+                break;
+            default:
+                sortColumn = 0;
+                break;
+            }
+            panel.fileView->sortByColumn(sortColumn, Qt::AscendingOrder);
+        }
+        selectPendingPath(panel);
     });
 
     // Alt+D：快速切换到路径编辑模式，行为与常见文件管理器保持一致。
@@ -12596,6 +12709,20 @@ void FileDock::navigateToPath(FilePanelWidgets& panel, const QString& pathText, 
         return;
     }
 
+    // 如果目标正好是当前目录的父目录，记住刚离开的目录，稍后在新模型
+    // 可见后恢复选中。模型加载是异步的，所以不能只依赖一次 setCurrentIndex。
+    const QString previousPath = panel.currentPath;
+    panel.pendingSelectionPath.clear();
+    if (!previousPath.isEmpty())
+    {
+        QDir previousDir(previousPath);
+        if (previousDir.cdUp() &&
+            pathEqualsCaseInsensitive(previousDir.absolutePath(), normalizedPath))
+        {
+            panel.pendingSelectionPath = previousPath;
+        }
+    }
+
     // 根据当前读取模式更新模型根路径。
     if (currentModeIsManual(panel))
     {
@@ -12646,6 +12773,10 @@ void FileDock::navigateToPath(FilePanelWidgets& panel, const QString& pathText, 
     rebuildBreadcrumb(panel);
     setPathEditMode(panel, false);
     applyPanelFilterAndSort(panel);
+    selectPendingPath(panel);
+    QTimer::singleShot(0, this, [this, &panel]() {
+        selectPendingPath(panel);
+    });
     updatePanelStatus(panel);
 
     {
@@ -12970,6 +13101,72 @@ void FileDock::updatePanelStatus(FilePanelWidgets& panel)
             << QDir::toNativeSeparators(panel.currentPath).toStdString()
             << eol;
     }
+}
+
+void FileDock::selectPendingPath(FilePanelWidgets& panel)
+{
+    if (panel.pendingSelectionPath.isEmpty() ||
+        panel.fileView == nullptr ||
+        panel.fileView->selectionModel() == nullptr)
+    {
+        return;
+    }
+
+    QModelIndex proxyIndex;
+    if (currentModeIsManual(panel))
+    {
+        if (panel.manualModel == nullptr || panel.manualProxyModel == nullptr)
+        {
+            return;
+        }
+
+        for (int row = 0; row < panel.manualModel->rowCount(); ++row)
+        {
+            const QModelIndex sourcePathIndex = panel.manualModel->index(
+                row,
+                static_cast<int>(ManualModelColumn::FullPath));
+            if (!sourcePathIndex.isValid() ||
+                !pathEqualsCaseInsensitive(
+                    sourcePathIndex.data(Qt::DisplayRole).toString(),
+                    panel.pendingSelectionPath))
+            {
+                continue;
+            }
+
+            const QModelIndex sourceNameIndex = panel.manualModel->index(
+                row,
+                static_cast<int>(ManualModelColumn::Name));
+            proxyIndex = panel.manualProxyModel->mapFromSource(sourceNameIndex);
+            break;
+        }
+    }
+    else if (panel.fsModel != nullptr && panel.proxyModel != nullptr)
+    {
+        const QModelIndex sourceIndex = panel.fsModel->index(panel.pendingSelectionPath);
+        if (sourceIndex.isValid())
+        {
+            proxyIndex = panel.proxyModel->mapFromSource(sourceIndex);
+        }
+    }
+
+    // 目录还没有进入代理模型时保留 pendingSelectionPath，等待
+    // QFileSystemModel::directoryLoaded 或手动解析异步回填再次尝试。
+    if (!proxyIndex.isValid())
+    {
+        return;
+    }
+
+    QItemSelectionModel* const selectionModel = panel.fileView->selectionModel();
+    selectionModel->select(
+        proxyIndex,
+        QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    selectionModel->setCurrentIndex(proxyIndex, QItemSelectionModel::NoUpdate);
+    panel.fileView->scrollTo(proxyIndex, QAbstractItemView::EnsureVisible);
+    if (panel.compactFileView != nullptr)
+    {
+        panel.compactFileView->scrollTo(proxyIndex, QAbstractItemView::EnsureVisible);
+    }
+    panel.pendingSelectionPath.clear();
 }
 
 void FileDock::applyPanelFilterAndSort(FilePanelWidgets& panel)
@@ -13929,6 +14126,7 @@ void FileDock::requestAsyncManualReload(FilePanelWidgets& panel, const bool show
 
                     // 模型回填后重新应用过滤/排序，让视图立即更新到当前条件。
                     safeThis->applyPanelFilterAndSort(commitPanel);
+                    safeThis->selectPendingPath(commitPanel);
                     kPro.set(
                         progressPid,
                         (backendText +
