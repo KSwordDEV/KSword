@@ -59,6 +59,20 @@ Return Value:
     va_end(arguments);
 }
 
+static BOOLEAN
+KswordARKIsSafeOnUnsupportedOsBuild(
+    _In_ ULONG IoControlCode
+    )
+{
+    switch (IoControlCode) {
+    case IOCTL_KSWORD_ARK_QUERY_PREFLIGHT:
+    case IOCTL_KSWORD_ARK_QUERY_IOCTL_REGISTRY:
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
 VOID
 KswordARKDriverDispatchDeviceControl(
     _In_ WDFDEVICE Device,
@@ -102,6 +116,31 @@ Return Value:
         (int)OutputBufferLength,
         (int)InputBufferLength,
         IoControlCode);
+
+    /*
+     * The client is not a trust boundary.  On a build outside the validated
+     * DynData envelope, do not let any caller reach an offset-dependent
+     * handler.  Keep only the static registry and preflight evidence paths
+     * available so the caller can diagnose why the rest is unavailable.
+     */
+    if (!KswordArkStartupIsOsBuildSupported() &&
+        !KswordARKIsSafeOnUnsupportedOsBuild(IoControlCode)) {
+        KswordARKDispatchLog(
+            Device,
+            "Warn",
+            "IOCTL denied: OS build is outside supported range, code=0x%08X, status=0x%08X.",
+            (unsigned int)IoControlCode,
+            (unsigned int)STATUS_NOT_SUPPORTED);
+        KswordARKCapabilityRecordLastError(
+            STATUS_NOT_SUPPORTED,
+            "ioctl_dispatch",
+            "OS build is outside the validated DynData range; offset-dependent IOCTLs are disabled.");
+        WdfRequestCompleteWithInformation(
+            Request,
+            STATUS_NOT_SUPPORTED,
+            0U);
+        return;
+    }
 
     ioctlEntry = KswordARKLookupIoctlEntry(IoControlCode);
     if (ioctlEntry == NULL || ioctlEntry->Handler == NULL) {

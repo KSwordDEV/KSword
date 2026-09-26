@@ -18,6 +18,7 @@ Environment:
 #include "ark/ark_push_lock.h"
 #include "ark/ark_dyndata_fields.h"
 #include "ark/ark_log.h"
+#include "ark/ark_startup.h"
 #include "../../platform/dyndata_fallback_resolver.h"
 #include "../../platform/kernel_module_identity.h"
 #include "../../platform/process_resolver.h"
@@ -981,6 +982,16 @@ Return Value:
     BOOLEAN sectionSignaturePresent = FALSE;
 
     if (State == NULL) {
+        return;
+    }
+
+    /*
+     * Runtime pattern/layout fallbacks are only valid inside the advertised
+     * OS-build envelope.  A newer build may look structurally similar while
+     * private offsets have moved; leave every such field unavailable until an
+     * exact profile is explicitly supported.
+     */
+    if (!KswordArkStartupIsOsBuildSupported()) {
         return;
     }
 

@@ -44,4 +44,9 @@ KswordArkStartupGetOsBuildNumber(
     VOID
     );
 
+BOOLEAN
+KswordArkStartupIsOsBuildSupported(
+    VOID
+    );
+
 EXTERN_C_END

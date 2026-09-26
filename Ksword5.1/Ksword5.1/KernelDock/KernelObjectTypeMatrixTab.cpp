@@ -260,8 +260,17 @@ void KernelObjectTypeMatrixTab::refreshAsync()
         R0SnapshotState r0State{};
         r0State.attempted = true;
 
+        /*
+         * Keep the GUI R0 snapshot on the address/index evidence path. Names
+         * are already supplied by the R3 namespace snapshot above; asking an
+         * older driver for the optional Object Manager namespace fallback can
+         * hand it a stale private-table pointer. The driver now rejects those
+         * pointers as well, but omitting the optional flag keeps the GUI safe
+         * when it is paired with an older VM driver during an upgrade.
+         */
         const ksword::ark::ObjectTypeTableAuditResult r0Result =
-            ksword::ark::DriverClient().enumObjectTypeTable();
+            ksword::ark::DriverClient().enumObjectTypeTable(
+                KSWORD_ARK_OBJECT_TYPE_TABLE_FLAG_VALIDATE_INDEX);
         r0State.transportOk = r0Result.io.ok;
         r0State.unsupported = r0Result.unsupported;
         r0State.status = r0Result.status;

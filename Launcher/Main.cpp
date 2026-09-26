@@ -170,6 +170,20 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 0;
     }
 
+    /*
+     * Do not let a stale marker or an explicit target override bypass the
+     * manifest's build envelope.  The driver also fails closed at R0; this
+     * check keeps the normal GUI path from launching an unverified build.
+     * Internal upload mode remains available for collecting a support bundle.
+     */
+    if (manifest.advertisedMaximumBuild != 0UL &&
+        os.build > manifest.advertisedMaximumBuild &&
+        !manifest.allowNewerWindows11 &&
+        !options.internalUpload) {
+        ShowUnsupportedBuildDialog(os, manifest.advertisedMaximumBuild, chinese);
+        return 0;
+    }
+
     bool markerValid = false;
     if (!options.checkOnly && !options.internalUpload && !options.internalMarker) {
         MarkerState marker;

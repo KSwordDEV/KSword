@@ -51,6 +51,7 @@ static ULONG g_KswordArkStartupCallbackMask = 0UL;
 
 // 本次启动观察到的系统内部版本号。
 static ULONG g_KswordArkStartupOsBuildNumber = 0UL;
+static volatile LONG g_KswordArkStartupOsBuildSupported = 0L;
 
 static VOID
 KswordArkStartupCaptureBuildIdentity(
@@ -318,7 +319,23 @@ Return Value:
     }
 
     g_KswordArkStartupOsBuildNumber = versionInfo.dwBuildNumber;
+    InterlockedExchange(
+        &g_KswordArkStartupOsBuildSupported,
+        (versionInfo.dwBuildNumber >= KSWORD_ARK_MINIMUM_SUPPORTED_OS_BUILD &&
+         versionInfo.dwBuildNumber <= KSWORD_ARK_MAXIMUM_SUPPORTED_OS_BUILD) ?
+            1L : 0L);
     return g_KswordArkStartupOsBuildNumber;
+}
+
+BOOLEAN
+KswordArkStartupIsOsBuildSupported(
+    VOID
+    )
+{
+    return InterlockedCompareExchange(
+        &g_KswordArkStartupOsBuildSupported,
+        0L,
+        0L) != 0L;
 }
 
 VOID

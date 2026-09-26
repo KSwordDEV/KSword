@@ -36,6 +36,11 @@
 // with STATUS_NOT_SUPPORTED instead of failing later inside callback setup.
 #define KSWORD_ARK_MINIMUM_SUPPORTED_OS_BUILD 16299UL
 
+// Highest OS build for which the checked-in DynData/runtime-offset set is
+// supported. Newer or unknown builds keep the driver loadable for diagnostics,
+// but all offset-dependent IOCTLs are rejected by the R0 dispatch gate.
+#define KSWORD_ARK_MAXIMUM_SUPPORTED_OS_BUILD 26100UL
+
 // Startup stages, ordered exactly like the DriverEntry call sequence. The
 // numeric values are part of the R3 contract and must never be reordered.
 typedef enum _KSWORD_ARK_START_STAGE

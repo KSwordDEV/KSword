@@ -7,7 +7,7 @@
     "qtMinimumBuild": 17763,
     "advertisedMaximumBuild": 26100,
     "advertisedRange": "Windows 10 1809 - Windows 11 24H2",
-    "allowNewerWindows11": true
+    "allowNewerWindows11": false
   },
   "modules": [
     {

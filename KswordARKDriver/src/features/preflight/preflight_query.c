@@ -313,6 +313,20 @@ Return Value:
         "Release driver build is loaded.");
 #endif
 
+    KswordARKPreflightAddCheck(
+        &builder,
+        KSWORD_ARK_PREFLIGHT_CHECK_OS_BUILD_SUPPORT,
+        KswordArkStartupIsOsBuildSupported()
+            ? KSWORD_ARK_PREFLIGHT_STATUS_PASS
+            : KSWORD_ARK_PREFLIGHT_STATUS_FAIL,
+        KswordArkStartupIsOsBuildSupported()
+            ? STATUS_SUCCESS
+            : STATUS_NOT_SUPPORTED,
+        "OS build support",
+        KswordArkStartupIsOsBuildSupported()
+            ? "OS build is inside the validated DynData range."
+            : "OS build is outside the validated DynData range; offset-dependent IOCTLs are disabled.");
+
     KswordARKDynDataSnapshot(&dynState);
     response->dynDataCapabilityMask = dynState.CapabilityMask;
     response->dynDataLastStatus = dynState.LastStatus;

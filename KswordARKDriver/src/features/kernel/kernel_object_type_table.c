@@ -758,9 +758,20 @@ Return Value:
                         KSWORD_ARK_OBJECT_TYPE_ENTRY_FIELD_NAME;
                 }
             }
+            /*
+             * ObQueryNameString consumes a live Object Manager object.  The
+             * table entries above come from a private kernel table and are
+             * only validated as readable pointer values; a stale entry must
+             * never be passed to the Object Manager.  Keep the namespace
+             * fallback limited to the four identities obtained from exported
+             * POBJECT_TYPE globals, which are live object references.  All
+             * other names are supplied by the DynData-gated, MmCopyMemory
+             * based path above (or reported as unavailable).
+             */
             if ((Request->flags &
                     KSWORD_ARK_OBJECT_TYPE_TABLE_FLAG_INCLUDE_NAMES) != 0UL &&
-                !nameRead) {
+                !nameRead &&
+                KswordARKObjectTypeIsKnown(objectTypeAddress)) {
                 nameRead = KswordARKObjectTypeReadNamespaceName(
                     objectTypeAddress,
                     entry->typeName,

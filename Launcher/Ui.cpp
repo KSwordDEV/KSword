@@ -59,6 +59,15 @@ int ShowUnsupportedOsDialog(const OsInfo& os, bool chinese) {
     return TaskDialog(Text(chinese, L"Ksword 兼容性检查", L"Ksword compatibility check"), body, Text(chinese, L"系统版本不受支持", L"Unsupported Windows version"), TDCBF_OK, chinese);
 }
 
+int ShowUnsupportedBuildDialog(const OsInfo& os, DWORD maximumBuild, bool chinese) {
+    const std::wstring version = L"Windows " + std::to_wstring(os.major) + L"." + std::to_wstring(os.minor) + L" (Build " + std::to_wstring(os.build) + L")";
+    const std::wstring limit = std::to_wstring(maximumBuild);
+    const std::wstring body = chinese
+        ? L"此 Windows build 超出 Ksword 已验证的最高版本（Build " + limit + L"）。主程序不会启动需要内核偏移的功能；可以使用诊断模式收集上报信息。\n检测到版本：" + version
+        : L"This Windows build is newer than the highest Ksword-validated build (" + limit + L"). The main program will not start offset-dependent kernel features; diagnostic collection remains available.\nDetected version: " + version;
+    return TaskDialog(Text(chinese, L"Ksword 兼容性检查", L"Ksword compatibility check"), body, Text(chinese, L"Windows build 暂不受支持", L"Windows build is not supported"), TDCBF_OK, chinese);
+}
+
 int ShowEarlyWindowsChoiceDialog(bool chinese) {
     const std::wstring title = Text(chinese, L"Ksword 兼容性检查", L"Ksword compatibility check");
     const std::wstring instruction = Text(chinese, L"当前 Windows 版本早于主程序的 Qt 6.9.3 要求", L"This Windows version predates the main program's Qt 6.9.3 requirement");

@@ -62,7 +62,7 @@ struct SupportManifest {
     DWORD minimumWindowsMajor = 10;
     DWORD qtMinimumBuild = 17763;
     DWORD advertisedMaximumBuild = 26100;
-    bool allowNewerWindows11 = true;
+    bool allowNewerWindows11 = false;
     std::vector<ModuleDefinition> modules;
     std::vector<SupportProfile> profiles;
     std::string sha256;
@@ -159,6 +159,7 @@ bool LoadMarker(const RuntimePaths& paths, MarkerState* marker);
 bool WriteMarker(const RuntimePaths& paths, const MarkerState& marker, bool* accessDenied);
 
 int ShowUnsupportedOsDialog(const OsInfo& os, bool chinese);
+int ShowUnsupportedBuildDialog(const OsInfo& os, DWORD maximumBuild, bool chinese);
 int ShowEarlyWindowsChoiceDialog(bool chinese);
 int ShowMissingDataDialog(bool chinese);
 int ShowUploadElevationFailureDialog(bool chinese);
