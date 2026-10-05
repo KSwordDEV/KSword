@@ -6,12 +6,20 @@
 
 讨论和协作遵守 `COMMUNITY_COVENANT.md`；它是社区约定，不会给许可再加限制。
 
+## 开始开发
+
+先读取本平台可用的用户/历史记忆，以及仓库共享记忆索引 [`.claude/memory/MEMORY.md`](.claude/memory/MEMORY.md)，再按任务主题阅读相关记忆。UI、主题和窗口背景变更先阅读 [UI 架构](.claude/memory/ksword-ui-architecture.md)。
+
+工具链、HostX64 检查、链接器恢复、驱动后置校验、发行包和 Launcher 报告接入见 [构建与发布](docs/构建与发布.md)。主程序构建使用 `tools/Invoke-KSwordBuildCheck.ps1`；构建通过不代表签名、驱动加载或硬件实验通过。
+
 ## 模块边界
 
 - 共享 IOCTL 协议只放在 `shared/driver/`。
 - 驱动新 IOCTL 先在 `KswordARKDriver/src/dispatch/ioctl_registry.c` 注册，再在 `src/features/<module>/<module>_ioctl.c` 实现 handler。
 - 用户态 R0 调用只通过 `Ksword5.1/Ksword5.1/ArkDriverClient/`。Dock UI 不直接调用 KswordARK `DeviceIoControl`。
 - 新增源码必须加入对应 `.vcxproj` 和 `.filters`。
+- 修改 CLI 命令、别名或参数时，同步 `KswordCLI.cpp` 内置 help 与 [CLI 使用文档](docs/CLI使用文档.md)。
+- 修改主程序用户可见文本时，定点更新 `Ksword5.1/Ksword5.1/languages/zh-CN.json`、`en-US.json` 并运行 `tools/i18n_language_pack.py audit`；不要用 JSON 序列化脚本整体重写语言包。
 - 第三方代码必须保留原有许可证文本。
 - DynData 共享协议只能维护在 `shared/driver/KswordArkDynDataIoctl.h`；驱动侧不要复制结构体定义。
 - 统一驱动状态/能力协议只能维护在 `shared/driver/KswordArkCapabilityIoctl.h`；KernelDock 能力页只通过 `ArkDriverClient::queryDriverCapabilities()` 获取状态。

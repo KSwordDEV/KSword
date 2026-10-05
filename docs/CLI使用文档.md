@@ -1,6 +1,6 @@
 # KswordCLI 使用文档
 
-本文档覆盖 `KswordCLI.exe` 当前内置 help 元数据中的全部命令、别名和参数语法。多数命令需要管理员权限，并要求 KswordARK 驱动设备已经加载且可打开。
+本文档按当前命令分发器、内置 help 元数据和 `shared/driver/` 协议核对，覆盖 28 个命令族、187 条命令及别名（2026-10-05）。多数命令需要管理员权限，并要求 KswordARK 驱动设备已经加载且可打开。构建与发行目录见 [构建与发布](构建与发布.md)。
 
 ## Help 查询
 
@@ -52,7 +52,8 @@ KswordCLI.exe <family> <subcommand> --help
 | `mutation` | Prepare, commit, rollback, and audit bounded mutation transactions. |
 | `capability` | Unified driver feature capability query. |
 | `wsl` | WSL silo and Linux PID/TID diagnostics. |
-| `r0` | Desktop-parity R0 forensic queries and bounded evidence reads. |
+| `ddma` | 磁盘 DMA 能力探测、拒绝路径自检与物理内存读取。读取过程会临时写入指定暂存扇区。 |
+| `r0` | 复用桌面端的 R0 取证查询、证据读取与剪贴板规则控制。 |
 
 ## 具体命令语法
 
@@ -72,6 +73,7 @@ Inspect and control process visibility, PPL, DKOM, and cross-view state.
 | --- | --- | --- | --- | --- |
 | `process terminate` | `KswordCLI.exe process terminate --pid PID [--exit-status NTSTATUS]` | Terminate one process through the driver. | Required: --pid. Optional: --exit-status defaults to 0xC000013A. |  |
 | `process suspend` | `KswordCLI.exe process suspend --pid PID` | Suspend one process. | Required: --pid. |  |
+| `process resume` | `KswordCLI.exe process resume --pid PID` | 恢复已挂起的进程。 | 必填：--pid。 | 与 `process suspend` 配对；驱动优先调用 `PsResumeProcess`，不可用时尝试 `Zw/NtResumeProcess`。 |
 | `process set-ppl` | `KswordCLI.exe process set-ppl --pid PID --level LEVEL` | Set the process protection level byte. | Required: --pid, --level. |  |
 | `process set-integrity` | `KswordCLI.exe process set-integrity --pid PID (--rid RID \| --level untrusted\|low\|medium\|medium-plus\|high\|system) [--flags 0xN] [--confirm]` | Set a process mandatory integrity label through R0. | Required: --pid and one integrity selector. Optional: --flags, --confirm. | Uses `IOCTL_KSWORD_ARK_SET_PROCESS_INTEGRITY`. |
 | `process inject-dll` | `KswordCLI.exe process inject-dll --pid PID --dll PATH [--flags 0xN] [--wait-thread] --confirm` | Inject a DLL path through the R0 process injection protocol. | Required: --pid, --dll, --confirm. Optional: --flags, --wait-thread. | Uses `IOCTL_KSWORD_ARK_INJECT_PROCESS` with `LoadLibraryW`. |
@@ -391,9 +393,21 @@ WSL silo and Linux PID/TID diagnostics.
 | --- | --- | --- | --- | --- |
 | `wsl query-silo` | `KswordCLI.exe wsl query-silo [--pid PID] [--tid TID] [--flags 0xN]` | Query WSL silo process/thread evidence. | Optional: --pid, --tid, --flags. |  |
 
+### `ddma`
+
+DDMA 借助磁盘控制器的 DMA 通道传输物理页；后端有 ATA 与 SCSI 直通分支，是否可用取决于实际设备探测。`probe` 不带 `--lba` 时只枚举；带 `--lba` 会在所枚举磁盘上发出真实的读取探测。`selftest` 检查协议、设备、跨页和确认标志的拒绝路径，不写磁盘扇区；带 `--lba` 时也会做读取探测，输出 `PASS` / `FAIL` / `NOT_APPLICABLE`。当前 CLI 的探测文案仍称 ATA，`readyDisks` 实际可能来自 SCSI 分支。
+
+`read` 的“读”指物理内存读取：它先备份磁盘暂存区，再临时写入目标物理页内容，读回后还原。必须指定可以临时覆盖的专用磁盘暂存区；`--bytes` 默认 64，最多 4096 且不能跨物理页。当前 CLI 自动设置协议确认位，没有额外的 `--confirm` 参数或交互确认。应核对返回的 `readStatus`、各阶段状态和 `SCRATCH_RESTORED` 标志，不能只凭进程退出码或 `bytesRead` 判断磁盘已还原。能力标志报告内核调试已启用时，当前 `MmMapIoSpace` 通路有触发 `MiShowBadMapper` 的蓝屏风险，勿执行物理内存传输。
+
+| 命令 | 语法 | 用途 | 参数 | 备注 |
+| --- | --- | --- | --- | --- |
+| `ddma selftest` | `KswordCLI.exe ddma selftest [--lba N]` | 检查 DDMA 协议和拒绝路径。 | 可选：--lba。 | 不写磁盘扇区；提供 LBA 会做真实读取探测。环境不具备传输通道时可为 `NOT_APPLICABLE`。 |
+| `ddma probe` | `KswordCLI.exe ddma probe [--lba N] [--max-disks N]` | 枚举磁盘并查询 DMA 能力。 | 可选：--lba、--max-disks（默认 8，上限 32）。 | `IOCTL_KSWORD_ARK_DDMA_QUERY_CAPABILITY`；不带 LBA 不发传输命令。 |
+| `ddma read` | `KswordCLI.exe ddma read --disk N --pa ADDR --lba N [--bytes N]` | 通过磁盘 DMA 读取物理内存。 | 必填：--disk、--pa、--lba。可选：--bytes。 | `IOCTL_KSWORD_ARK_DDMA_READ_PHYSICAL`；会临时写磁盘暂存区。当前 CLI 没有公开 `ddma write` 命令。 |
+
 ### `r0`
 
-桌面端 `ArkDriverClient` 已有、此前 CLI 未覆盖的只读 R0 取证接口。命令共享桌面端的协议版本、边界校验与旧驱动降级处理，输出中会给出 `io_ok`、Win32/NT 状态及已返回的行数。`traffic` 只读取驱动中现有的捕获环，不会启动捕获；`raw-disk-read` 只读，默认最多显示 256 字节。
+复用桌面端 `ArkDriverClient` 的 R0 取证与控制接口。多数命令为查询；`clipboard-policy-set-rules` 会替换规则表。命令共享桌面端的协议版本、边界校验与旧驱动降级处理，输出中会给出 `io_ok`、Win32/NT 状态及已返回的行数。`traffic` 只读取驱动中现有的捕获环，不会启动捕获；`raw-disk-read` 只读，默认最多显示 256 字节。
 
 | 命令 | 语法 | 用途 | 参数 | 备注 |
 | --- | --- | --- | --- | --- |
@@ -403,8 +417,10 @@ WSL silo and Linux PID/TID diagnostics.
 | `r0 image-signature` | `KswordCLI.exe r0 image-signature --path PATH [--module-base VA] [--flags 0xN]` | 读取 Authenticode 证书表和 CI 证据。 | 必填：--path。可选：--module-base、--flags。 | `IOCTL_KSWORD_ARK_QUERY_IMAGE_SIGNATURE`。 |
 | `r0 debug-output` | `KswordCLI.exe r0 debug-output [--after-sequence N] [--max-records N] [--limit N]` | 读取内核调试输出环。 | 可选：--after-sequence、--max-records、--limit。 | `IOCTL_KSWORD_ARK_DEBUG_OUTPUT_DRAIN`，不改变捕获状态。 |
 | `r0 hvm-status` | `KswordCLI.exe r0 hvm-status` | 查询 HVM v6 的 VMX/EPT 或实验性 SVM/NPT 生命周期与能力状态。 | 无。 | `IOCTL_KSWORD_ARK_QUERY_HVM`。 |
-| `r0 hvm-metrics` | `KswordCLI.exe r0 hvm-metrics` | 查询转换计时有效性及 INVEPT、替换页资源计数。 | 无。 | `IOCTL_KSWORD_ARK_HVM_METRICS` v8；完整逐核 JSON：`hvm_ctl --json metrics`，包括影子 EPT 缓存、A/D 维护计数。 |
+| `r0 debugger-status` | `KswordCLI.exe r0 debugger-status` | 查询原生调试后端协议和线程/内存能力。 | 无。 | `IOCTL_KSWORD_ARK_DEBUGGER` 的只读 QUERY；不启动 HVM 或修改目标。 |
+| `r0 hvm-metrics` | `KswordCLI.exe r0 hvm-metrics` | 查询转换计时有效性及 INVEPT、替换页资源计数。 | 无。 | `IOCTL_KSWORD_ARK_HVM_METRICS` v9；完整逐核 JSON：`hvm_ctl --json metrics`，包括 Intel 影子 EPT 与 AMD NPT 缓存计数。 |
 | `r0 hvm-events` | `KswordCLI.exe r0 hvm-events [--after-sequence N] [--max-rows N]` | 读取 HVM 事件环，不清空事件。 | 可选：--after-sequence、--max-rows。 | `IOCTL_KSWORD_ARK_HVM_EVENTS`。 |
+| `r0 hvm-platform` | `KswordCLI.exe r0 hvm-platform` | 查询 CR4、CPUID 与 CET MSR 平台校准证据。 | 无。 | `IOCTL_KSWORD_ARK_HVM_PLATFORM`；不进入 VMX。 |
 | `r0 ioctl-registry` | `KswordCLI.exe r0 ioctl-registry [--flags 0xN] [--max-entries N]` | 查询驱动已注册的 IOCTL 分发表。 | 可选：--flags、--max-entries。 | `IOCTL_KSWORD_ARK_QUERY_IOCTL_REGISTRY`。 |
 | `r0 timer-dpc` | `KswordCLI.exe r0 timer-dpc [--max-entries N] [--max-per-bucket N]` | 枚举内核定时器与 DPC 证据。 | 可选：--max-entries、--max-per-bucket。 | `IOCTL_KSWORD_ARK_ENUM_TIMER_DPC`。 |
 | `r0 unloaded` | `KswordCLI.exe r0 unloaded [--source mm\|piddb\|hash] [--max-rows N]` | 查询已卸载驱动、PiDDB 或哈希桶证据。 | 可选：--source 默认 `mm`，--max-rows。 | `IOCTL_KSWORD_ARK_QUERY_UNLOADED_DRIVERS`。 |
@@ -445,12 +461,16 @@ WSL silo and Linux PID/TID diagnostics.
 | 命令 | 参数与结果 |
 | --- | --- |
 | `hvm_ctl --json nested-page-map <EPT12> <GPA> <fill> [ownerPID]` | 前三项为十六进制；可选 VMM PID 是十进制，默认 `0` 自动要求恰好一个 `vmware-vmx.exe`。内核校验 PID 和创建时间，拒绝已退出或被复用的进程身份。 |
-| `hvm_ctl --json nested-page-query` | 映射 ABI v3 返回进程身份，以及 `leaseRevocationReason`、`sourcePhysicalPage` 和 `sourcePath`。进程退出或原 EPT 路径发生翻译变化后撤销规则；替换页仍保留到显式移除完成全核失效。 |
+| `hvm_ctl --json nested-page-query` | 映射 ABI v4 返回进程身份、`leaseRevocationReason`、`sourcePhysicalPage`、源表路径、叶粒度与区间大小。进程退出或原 EPT 路径发生翻译变化后撤销规则；替换页仍保留到显式移除完成全核失效。 |
+| `hvm_ctl --json nested-page-map-region <EPT12> <GPA> [leafShift] [ownerPID]` | EPT12/GPA 为十六进制，后两项为十进制，默认 `leafShift=21`、`ownerPID=0`。叶粒度 12/21/30 对应 4 KiB/2 MiB/1 GiB，基址必须按粒度对齐；源 EPT12 叶粒度不够时整体拒绝。映射先克隆原内容，再通过 stage 改指定页。 |
+| `hvm_ctl --json nested-page-map-region-scan <EPT12> <GPA> [leafShift] [ownerPID]` | 参数同上；逐项扫描源映射，权限及内存类型一致时才接受。此模式只对首页路径即时检测漂移，其余表项的改变可能延迟发现；它不会提供与普通 region 模式相同的租约保证。 |
+| `hvm_ctl --json nested-page-stage <pageIndex> <fill>` | 索引从 0 起、十进制；fill 为十六进制字节。改写已发布区间中的一个 4 KiB 替换页，越界拒绝。更新不是原子的，并发读取可能看到混合字节。 |
+| `hvm_ctl --json nested-page-digest` | 返回已发布区间与源区间的内容摘要；会读取整个区间两次，适合按需核验。只给摘要，不返回任意物理内存字节。 |
 | `hvm_ctl --json resident-nested-fullsnapshot` | 与 `resident-nested-hidehv` 相同的嵌套和身份策略，但保留 CPUID 的完整诊断 VMREAD，供同一驱动二进制内的性能对照。普通模式省略无关的 qualification 和 instruction-error 字段读取。 |
 | `hvm_ctl --json nested-page-remove` | 取消发布、全核失效、回收；失败时保留 backing，不能仅凭 `active=0` 判断已经释放。 |
-| `hvm_ctl --json metrics` | metrics ABI v2 返回逐核 `shadowEpt` 数组。计数在资源重建时清零，查询是时间区间内的观察值，不是所有 CPU 的同时快照。 |
+| `hvm_ctl --json metrics` | 当前 metrics ABI v9 返回 Intel 的 `shadowEpt` 与 AMD 的 `svmProcessors` 等逐核证据。计数在资源重建时清零，查询是时间区间内的观察值，不是所有 CPU 的同时快照。 |
 
-旧 page v1 / metrics v1 客户端不能搭配此驱动使用；同时更新主程序、
+旧 page v1/v2/v3 或旧 metrics 客户端不能搭配此驱动使用；同时更新主程序、
 `KswordCLI.exe` 和 `hvm_ctl.exe`。普通 HVM 状态查询 ABI 不变。
 进程租约不能检测同一 VMM 进程内的来宾重启、快照恢复或 GPA 重用；
 调用者须在这些操作前移除映射，并在控制期间保留目标页。
@@ -469,12 +489,12 @@ HVM v6 在 `status.svmProbe` 增加 `rejectReason`/`rejectReasonName`、`stateVa
 现有命令目录为前三条显式附加 ALLOW_NESTED；AMD 仅接受 VMware 外层，仍需全 CPU 实际 VMRUN 自检。
 AMD 的 self-test 包含已知 CPUID 退出和完整原生返回；`selfcheck` 只读，不替代它。
 `stop`、`teardown` 不要求重新提供进入许可。生命周期 generation 每次控制递增，powerGeneration 才是跨电源检查使用的代次。
-AMD 不支持 nested、EPTP switch、local EPT、VMREAD benchmark、一次性 Intel guest 或驱动内置 Intel soak；由实验采集脚本执行多核循环和压力。
+AMD 的普通模式不暴露嵌套 SVM；通用嵌套实验另有专用命令，见下文。AMD 不支持 Intel EPTP switch、local EPT、VMREAD benchmark、一次性 Intel guest 或驱动内置 Intel soak；由实验采集脚本执行多核循环和压力。
 旧 HVM/metrics 协议版本明确拒绝。
 新增 `prepare-svm-probe`、`self-test-svm-nested` 专用命令：前者分配每核嵌套探针资源，后者执行驱动拥有的固定内层 VMRUN→CPUID→退出反射→原生返回序列。两者只能用于 AMD；先从已释放状态准备，完成后使用 `teardown`。该准备配置禁止 `resident`，不会向正常 Windows 宣传可运行任意内层 VMM。
 
 实验性通用 AMD 路径使用独立命令 `prepare-svm-general → self-test → resident-svm-general → stop → teardown`，共享标志 `ENABLE_NESTED_SVM=0x00010000`，HVM v6 结构不变。准备与启动模式必须一致；普通 `prepare/resident` 仍隐藏 SVM，探针准备不能通过省略标志改为常驻。Intel 明确拒绝该 AMD 标志。通用模式逐核绑定当前 Windows 状态和退出协调器，采用相同全核启动/回滚和停止互锁；有虚拟 SVM 所有权、L2 执行或未完成事件时停止返回忙，不能直接卸载。嵌套实现报告 PARTIAL；这些命令是后续实验入口，**没有完整 L2 OS/内层并发通过证据**，不应在日常实体机上直接试运行。
-metrics v4 在每条 `svmProcessors` 中增加 `nestedProbe`：valid、sequence、status、entries、reflections、faults、64 位 exit/marker。仅 valid=1、偶数且递增 sequence、status=0、entries/reflections=1、faults>0、exit=0x72、marker=0x4B534E31 才算该核完整探针通过。此结果不等于内层操作系统启动或两小时压力通过。驱动、主程序与 CLI 必须一起更新，v3 metrics 客户端不兼容。
+以下 v4～v9 是 metrics 结构的演进记录，当前请求统一使用 v9，不应逐节切换客户端。metrics v4 在每条 `svmProcessors` 中增加 `nestedProbe`：valid、sequence、status、entries、reflections、faults、64 位 exit/marker。仅 valid=1、偶数且递增 sequence、status=0、entries/reflections=1、faults>0、exit=0x72、marker=0x4B534E31 才算该核完整探针通过。此结果不等于内层操作系统启动或两小时压力通过。驱动、主程序与 CLI 必须一起更新。
 环境脚本、克隆与调试步骤见 [AMD 实验工具](../tools/hvm_lab/README.md)。硬件验收仍以该目录记录为准。
 
 AMD metrics v5 的 `svmProcessors[].general` 使用独立64位序列校验。`valid=1` 只表示整个诊断快照一致；`preparedEntries` 是软件进入准备次数，`hardwareExits` 才是该通用入口收到的物理VMEXIT次数，两者都不证明完整内层操作系统启动。`nestedProbe` 仍只记录有界探针。`phase/action/gif/pending/nmiCaptured/leaseToken/armedToken/retryToken` 用于解释停止/事件窗口；无通用绑定时 general.valid=0。旧metrics客户端必须重编译，不与v5结构混用。
@@ -502,4 +522,4 @@ AMD metrics v9 增加 `svmProcessors[].nptCache`，与 `general` 共用有效位
 `invlpgaCount/poolRecycles` 分别统计虚拟 INVLPGA 和页表池回收；它们可能同时造成下一次检查的 `epochChanged`。
 只有同一运行代次、`valid=1`、稳定偶数序列且 `saturated=0` 的成对记录可计算差值；无效记录不当作零增长。
 `python tools/hvm_lab/analyze_npt_cache.py first/metrics.json second/metrics.json --output delta.json` 会报告有效 CPU 覆盖率和排除原因。
-v9 驱动需配套 v9 CLI；旧客户端明确拒绝版本不匹配。现有主程序二进制需重新构建后才可查询 v8 metrics。
+v9 驱动需配套重新构建的 v9 CLI 与主程序；旧客户端明确拒绝版本不匹配。源码中的协议版本不能证明已下载或已发布二进制同步完成。
