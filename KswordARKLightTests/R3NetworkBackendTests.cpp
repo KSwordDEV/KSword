@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/window/ClipboardControl.h"
 #include "../shared/usermode/backend/window/WindowListCapture.h"
 #include "../shared/usermode/backend/security/BugcheckEvidence.h"
 #include "../shared/usermode/backend/security/BamAhcache.h"

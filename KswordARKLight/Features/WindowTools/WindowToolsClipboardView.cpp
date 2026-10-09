@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/window/ClipboardControl.h"
 #include "../../../shared/usermode/backend/window/Clipboard.h"
 #include "WindowToolsClipboardView.h"
 
@@ -23,6 +24,7 @@
 
 namespace Ksword::Features::WindowTools {
 namespace {
+using namespace ks::r3::window_tools;
 using namespace ks::r3::window_tools;
 
 constexpr wchar_t kClipboardViewClass[] = L"KswordARKLight.WindowTools.ClipboardView";
@@ -132,32 +134,12 @@ struct ClipboardViewState final {
 // CurrentClipboardOwnerProcessId intentionally reads the owner HWND again at
 // click time. The snapshot is useful evidence, but its HWND and PID can both be
 // stale by the time the user opens process details.
-DWORD CurrentClipboardOwnerProcessId() {
-    const HWND owner = ::GetClipboardOwner();
-    if (!owner || !::IsWindow(owner)) {
-        return 0;
-    }
-    DWORD processId = 0;
-    if (::GetWindowThreadProcessId(owner, &processId) == 0U || processId == 0U) {
-        return 0;
-    }
-    return ::GetClipboardOwner() == owner ? processId : 0U;
-}
+
 
 // CurrentClipboardOpenProcessId follows the same live-read rule for the window
 // currently holding OpenClipboard. That window is often the direct explanation
 // for an unavailable snapshot, so it must not be confused with the data owner.
-DWORD CurrentClipboardOpenProcessId() {
-    const HWND opener = ::GetOpenClipboardWindow();
-    if (!opener || !::IsWindow(opener)) {
-        return 0;
-    }
-    DWORD processId = 0;
-    if (::GetWindowThreadProcessId(opener, &processId) == 0U || processId == 0U) {
-        return 0;
-    }
-    return ::GetOpenClipboardWindow() == opener ? processId : 0U;
-}
+
 
 void SetDetailText(HWND list, const int row, const int column, const std::wstring& text) {
     if (column == 0) {
@@ -389,17 +371,9 @@ void EmptyClipboardWithConfirm(ClipboardViewState& state) {
         return;
     }
 
-    bool emptied = false;
-    DWORD error = 0;
-    {
-        ScopedClipboard clipboard(state.hwnd);
-        if (clipboard.opened()) {
-            emptied = ::EmptyClipboard() != FALSE;
-            error = emptied ? 0 : ::GetLastError();
-        } else {
-            error = clipboard.lastError();
-        }
-    }
+    const auto cleared = ks::r3::window_tools::ClearClipboard(state.hwnd);
+    const bool emptied = cleared.emptied;
+    const DWORD error = cleared.error;
 
     RefreshClipboard(state);
     state.statusText = emptied
@@ -711,3 +685,8 @@ HWND CreateClipboardInspectorView(HWND parent, const RECT& bounds) {
 }
 
 } // namespace Ksword::Features::WindowTools
+
+namespace Ksword::Features::WindowTools { namespace {
+
+
+}}

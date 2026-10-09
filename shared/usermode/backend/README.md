@@ -70,3 +70,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | security BAM and ahcache | 62-security-bam |
 | security Bugcheck VMware R3 evidence | 63-security-bugcheck |
 | window list capture protection | 64-window-list-capture |
+| clipboard clearing and live owner queries | 65-clipboard-control |
