@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/process/ProcessPeb.h"
 #include "../shared/usermode/backend/process/ProcessTokenSwitches.h"
 #include "../shared/usermode/backend/process/ProcessToken.h"
 #include "../shared/usermode/backend/process/ModuleActions.h"
@@ -135,6 +136,7 @@ int RunR3NetworkBackendTests() {
     suite.expect(!invalidIdentity.valid() && identityError == L"process identity is unavailable; action skipped", L"native process actions reject missing creation identity");
     suite.expect(!ks::r3::process_detail::token::QueryTokenReportSnapshotR3(GetCurrentProcessId(), 0, {}).identityMatched, L"token rejects missing identity");
     suite.expect(!ks::r3::process_detail::token::CollectTokenSwitchSnapshot(GetCurrentProcessId(), 0).identityMatched, L"token switches reject missing identity");
+    suite.expect(!ks::r3::process_detail::peb::CollectPebSnapshot(GetCurrentProcessId(), 0, 0).identityMatched, L"PEB rejects missing identity");
     suite.report();
     return suite.failures();
 }
