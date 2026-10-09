@@ -198,7 +198,6 @@
     <ClCompile Include="Features\HardwareStats\DiskActivityView.cpp" />
     <ClCompile Include="Features\HardwareStats\PerformanceView.cpp" />
     <ClCompile Include="Features\HardwareStats\UsbTopologyView.cpp" />
-    <ClCompile Include="Features\SysTools\ContextMenuScanner.cpp" />
     <ClCompile Include="Features\SysTools\ContextMenuView.cpp" />
     <ClCompile Include="Features\SysTools\EventLogView.cpp" />
     <ClCompile Include="Features\SysTools\FileHolderView.cpp" />
@@ -1028,6 +1027,18 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\system\EventLogReader.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\system\AdminState.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\system\AdminState.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\system\ContextMenuScanner.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\system\ContextMenuScanner.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

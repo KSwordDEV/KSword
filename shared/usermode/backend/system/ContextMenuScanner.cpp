@@ -1,6 +1,6 @@
 #include "ContextMenuScanner.h"
 
-#include "../../Core/Privilege.h"
+#include "AdminState.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -14,7 +14,7 @@
 
 #pragma comment(lib, "Advapi32.lib")
 
-namespace Ksword::Features::SysTools {
+namespace ks::r3::system_tools {
 namespace {
 
 // kBackupRoot lives under HKLM rather than HKCU because the entries it protects
@@ -287,7 +287,7 @@ std::wstring ContextMenuBackupRootPath() {
 
 ContextMenuScanResult ScanContextMenuEntries() {
     ContextMenuScanResult result{};
-    result.elevated = Ksword::Core::IsRunningAsAdmin();
+    result.elevated = ks::r3::common::IsRunningAsAdmin();
 
     for (const RegistrationRoot& root : kRegistrationRoots) {
         const std::vector<std::wstring> names = EnumerateSubKeyNames(HKEY_CLASSES_ROOT, root.path);
@@ -450,4 +450,4 @@ ContextMenuActionResult EnableContextMenuEntry(const ContextMenuEntry& entry) {
     return result;
 }
 
-} // namespace Ksword::Features::SysTools
+} // namespace ks::r3::system_tools

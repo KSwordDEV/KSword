@@ -1,4 +1,5 @@
 #pragma once
+#include "../../shared/usermode/backend/system/AdminState.h"
 
 #include "Win32Lean.h"
 
@@ -20,7 +21,7 @@ struct PrivilegeEnableResult {
 // IsRunningAsAdmin checks the current token elevation/member state. There is no
 // input; processing queries the process token and Administrators SID; output is
 // true when elevated enough for SCM/driver operations.
-bool IsRunningAsAdmin();
+using ks::r3::common::IsRunningAsAdmin;
 
 // RelaunchElevated starts the same executable through ShellExecuteW("runas").
 // Input is the current command tail; processing asks UAC for elevation; output

@@ -49,3 +49,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | ETW sessions event capture and filtering | 41-monitor-etw |
 | system file holder scanning | 42-system-file-holder |
 | system event log reading | 43-system-event-log |
+| system context menu scanning and recovery | 44-system-context-menu |
