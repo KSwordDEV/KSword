@@ -1,5 +1,6 @@
 #include "CodeEditorWidget.h"
 #include "./FlatButtonTheme.h"
+#include "ThemeAccentIcon.h"
 #include "CodeTextEdit.h"
 #include "CodeEditorFileSession.h"
 
@@ -36,14 +37,12 @@
 #include <QLineEdit>
 #include <QMimeData>
 #include <QPaintEvent>
-#include <QPainter>
+#include <QPalette>
 #include <QPlainTextEdit>
-#include <QPixmap>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QShortcut>
 #include <QSize>
-#include <QSvgRenderer>
 #include <QSyntaxHighlighter>
 #include <QTextBlock>
 #include <QTextDocument>
@@ -62,11 +61,12 @@ namespace
 
     // buildToolButtonStyle：
     // - 统一工具按钮样式，去掉边框让图标本体更突出；
-    // - hover/pressed 仅保留轻量底色反馈，避免 SVG 被边框吃掉。
+    // - 常态透明，hover/focus/pressed 与 checked 使用共享强调底，避免页面复制旧配方。
     QString buildToolButtonStyle()
     {
-        // 工具按钮保持原图标点击区，纯色 checked/禁用状态由公共按钮规则提供。
-        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+        // 工具按钮保持原图标点击区，透明常态与各状态色由公共按钮规则提供。
+        return ks::ui::BuildFlatButtonStyle(
+            ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat)
             + QStringLiteral("QToolButton{border-radius:4px;padding:1px;}");
     }
 
@@ -116,70 +116,16 @@ namespace
     }
 
     // buildToolbarSvgIcon：
-    // - 从 SVG 资源生成工具栏图标；
-    // - 分别生成普通、悬停、禁用和选中配色，避免图标与强调背景同色。
-    QIcon buildToolbarSvgIcon(const QString& resourcePath, const QToolButton* button,
-        const QSize& iconSize = QSize(22, 22))
+    // - 保留原始单色 SVG 引擎的矢量缩放、alpha 与 DPR，绘制时查询共享按钮真实底色；
+    // - 普通透明、悬停、按下、焦点、禁用和选中均由同一动态引擎处理，不缓存旧状态色。
+    QIcon buildToolbarSvgIcon(const QString& resourcePath, QToolButton* button)
     {
-        QSvgRenderer renderer(resourcePath);
-        if (!renderer.isValid())
+        const QIcon sourceIcon(resourcePath); // 未着色资源轮廓，后续主题切换不累计覆盖像素。
+        if (button == nullptr)
         {
-            return QIcon(resourcePath);
+            return sourceIcon;
         }
-
-        QPixmap iconPixmap(iconSize);
-        iconPixmap.fill(Qt::transparent);
-
-        QPainter painter(&iconPixmap);
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        renderer.render(&painter, QRectF(0, 0, iconSize.width(), iconSize.height()));
-        painter.end();
-
-        QIcon icon;
-        const auto addColoredPixmap = [&](const QColor& color, QIcon::Mode mode, QIcon::State state)
-        {
-            QPixmap coloredPixmap = iconPixmap;
-            QPainter colorPainter(&coloredPixmap);
-            colorPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-            colorPainter.fillRect(coloredPixmap.rect(), color);
-            colorPainter.end();
-            icon.addPixmap(coloredPixmap, mode, state);
-        };
-        // 图标按按钮的真实实心底色生成，不能再按父面板的透明背景校准。
-        const QPalette colors = button != nullptr && button->parentWidget() != nullptr
-            ? button->parentWidget()->palette() : QApplication::palette();
-        QColor surface = colors.color(QPalette::Active, QPalette::Button);
-        surface.setAlpha(255);
-        const QColor checkedBackground = colors.color(QPalette::Active, QPalette::Highlight);
-        const bool darkSurface = KswordTheme::RelativeLuminance(surface) < 0.25;
-        const QColor hoverBackground = darkSurface ? surface.lighter(125) : surface.darker(108);
-        const QColor pressedBackground = darkSurface ? surface.lighter(145) : surface.darker(120);
-        const QColor disabledBackground = colors.color(QPalette::Disabled, QPalette::Button);
-        const QColor normalInk = KswordTheme::EnsureTextContrast(
-            colors.color(QPalette::Active, QPalette::ButtonText), surface, 4.5);
-        const QColor checkedInk = KswordTheme::EnsureTextContrast(
-            colors.color(QPalette::Active, QPalette::HighlightedText), checkedBackground, 4.5);
-        const QColor disabledInk = KswordTheme::EnsureTextContrast(
-            colors.color(QPalette::Disabled, QPalette::ButtonText), disabledBackground, 3.0);
-        const bool pressed = button != nullptr && button->isDown();
-        const bool focused = button != nullptr && button->hasFocus();
-        // 与 FlatButtonTheme::buildStyle 使用同一公式；On 状态始终匹配 Highlight。
-        // 键盘焦点时 Qt 仍可能请求 Normal 图标，因此 Normal 也按 focus 底色校准。
-        for (QIcon::State state : { QIcon::Off, QIcon::On })
-        {
-            const QColor normalBackground = pressed ? pressedBackground
-                : (focused ? hoverBackground : surface);
-            const QColor activeBackground = pressed ? pressedBackground : hoverBackground;
-            const QColor normalForeground = state == QIcon::On ? checkedInk
-                : KswordTheme::EnsureTextContrast(normalInk, normalBackground, 4.5);
-            const QColor activeForeground = state == QIcon::On ? checkedInk
-                : KswordTheme::EnsureTextContrast(normalInk, activeBackground, 4.5);
-            addColoredPixmap(normalForeground, QIcon::Normal, state);
-            addColoredPixmap(activeForeground, QIcon::Active, state);
-            addColoredPixmap(activeForeground, QIcon::Selected, state);
-            addColoredPixmap(disabledInk, QIcon::Disabled, state);
-        }
-        return icon;
+        return ks::ui::MakeThemeButtonAccentIcon(sourceIcon, QColor(), button);
     }
 
     // 排队读取最终调色板：Qt 的按下/释放和 QSS polish 可能先经过瞬时背景。
@@ -1191,6 +1137,22 @@ void CodeEditorWidget::applyThemeStyle()
         "QWidget#code_editor_footer QLabel { color:palette(text); }"));
     m_findPanel->setStyleSheet(QStringLiteral(
         "QWidget#code_editor_find_panel { background:palette(alternate-base); border-bottom:1px solid palette(mid); }"));
+    // 本函数已由 changeEvent 零延迟合并刷新；查找条实际绘制 AlternateBase。
+    // 只将该条自身 Base 同步到实际底色，替换行的透明子按钮继承它，toolbar 的 Base 原样保留。
+    QPalette findPalette = m_findPanel->palette(); // 保留独立编辑器当前局部主题及其它颜色角色。
+    for (const QPalette::ColorGroup group : { QPalette::Active, QPalette::Inactive, QPalette::Disabled })
+    {
+        findPalette.setColor(group, QPalette::Base, findPalette.color(group, QPalette::AlternateBase));
+    }
+    if (findPalette != m_findPanel->palette())
+    {
+        const QPointer<CodeEditorWidget> guardedEditor(this); // palette 事件可同步关闭宿主。
+        m_findPanel->setPalette(findPalette);
+        if (guardedEditor.isNull())
+        {
+            return;
+        }
+    }
     m_languageCombo->setStyleSheet(buildFloatingSwitchStyle());
     // 父/子样式全部安装后再读按钮背景，避免缓存上一阶段的对比色。
     for (QToolButton* button : buttonList)
@@ -1311,7 +1273,7 @@ bool CodeEditorWidget::eventFilter(QObject* watchedObject, QEvent* eventObject)
         else if (watchedObject == m_toolbarWidget
             && (eventObject->type() == QEvent::PaletteChange || eventObject->type() == QEvent::StyleChange))
         {
-            // 实心按钮的父级 Button 调色板变化也要补刷，不能读取 QSS 改写后的自身背景。
+            // 透明按钮读取父级真实 Base/Highlight；父调色板变化仍补刷资源，几何保持原样。
             for (QToolButton* toolbarButton : m_toolbarWidget->findChildren<QToolButton*>(QString(), Qt::FindDirectChildrenOnly))
             {
                 if (!toolbarButton->property("ksword_editor_icon_path").toString().isEmpty())

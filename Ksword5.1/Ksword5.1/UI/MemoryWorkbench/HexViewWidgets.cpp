@@ -1,18 +1,23 @@
 // HexViewWidgets.cpp
 // 作用：HexViewWidgets.h 里条带底板（HexViewBarFrame）与图标按钮（HexViewGlyphButton）的实现。
 // 分段按钮、消息标签、状态条在 HexViewWidgets.Text.cpp。
-// 约定：所有颜色在每次 paintEvent 里现取 KswordTheme 的静态颜色访问器，不缓存、不用样式表。
+// 约定：条带自绘底色实时取主题；按钮状态色复用共享规则，普通图形不会另画旧实心按钮底。
 
 #include "HexViewWidgets.h"
 
 #include "../../theme.h"
+#include "../FlatButtonTheme.h"
+#include "../ThemeBinding.h"
 
+#include <QApplication>
 #include <QFont>
 #include <QFontMetrics>
 #include <QMenu>
 #include <QPaintEvent>
 #include <QPainter>
+#include <QPalette>
 #include <QPen>
+#include <QPointer>
 #include <QPolygonF>
 
 #include <algorithm>
@@ -182,6 +187,28 @@ namespace ks::ui
         , m_edge(edge)
     {
         setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        // 条带实际绘制 SurfaceAlt，Base/Window 必须同步描述这层真实底色。
+        // 透明子按钮可据此求对比度，不能把继承的主 Surface 或旧 Button 当作合成底。
+        const QPointer<HexViewBarFrame> guardedBar(this); // 控件销毁后停止排队刷新。
+        const auto refreshPalette = [guardedBar]()
+        {
+            if (guardedBar.isNull())
+            {
+                return;
+            }
+            QPalette colors = guardedBar->parentWidget() != nullptr
+                ? guardedBar->parentWidget()->palette() : QApplication::palette();
+            const QColor surface = KswordTheme::SurfaceAltColor(); // 与本条带 paintEvent 保持同一表面。
+            colors.setColor(QPalette::Base, surface);
+            colors.setColor(QPalette::Window, surface);
+            if (colors != guardedBar->palette())
+            {
+                guardedBar->setPalette(colors);
+            }
+            guardedBar->update();
+        };
+        refreshPalette(); // 构造阶段可安全建立初始色板，后续热主题刷新由公共队列处理。
+        BindWidgetTheme(this, refreshPalette);
     }
 
     // 边线位置。
@@ -222,6 +249,8 @@ namespace ks::ui
         setFocusPolicy(Qt::TabFocus);
         setCursor(Qt::PointingHandCursor);
         setAutoRaise(true);
+        // 自绘图形只改变轮廓，颜色所有权显式登记为透明工具按钮，不依赖祖先 QSS 猜测。
+        ApplyFlatButtonTheme(this, FlatButtonTone::Neutral, FlatButtonAppearance::Flat);
     }
 
     // 图形种类。
@@ -275,43 +304,44 @@ namespace ks::ui
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing, true);
 
-        // 自绘按钮与普通工具按钮采用同样的实心状态底色，尺寸/菜单仍由原控件管理。
+        // 自绘与普通工具按钮共用状态配方；透明常态露出父 Base，交互态填真实强调底。
         const QPalette colors = parentWidget() != nullptr ? parentWidget()->palette() : palette();
-        QColor surface = colors.color(QPalette::Active, QPalette::Button);
-        surface.setAlpha(255);
-        const QColor accent = colors.color(QPalette::Active, QPalette::Highlight);
-        const QColor text = colors.color(QPalette::Active, QPalette::ButtonText);
-        const QColor disabledText = colors.color(QPalette::Disabled, QPalette::ButtonText);
-        const bool darkSurface = KswordTheme::RelativeLuminance(surface) < 0.25;
-
-        const QRectF plate = QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5);
-        QColor plateColor = surface;
+        FlatButtonState visualState = FlatButtonState::Normal; // 仅合成当前状态，不复制颜色公式。
+        if (underMouse() || hasFocus())
+        {
+            visualState = FlatButtonState::Hover;
+        }
+        if (isDown())
+        {
+            visualState = FlatButtonState::Pressed;
+        }
+        if (isChecked())
+        {
+            visualState = FlatButtonState::Checked;
+        }
         if (!isEnabled())
         {
-            plateColor = colors.color(QPalette::Disabled, QPalette::Button);
+            visualState = FlatButtonState::Disabled;
         }
-        else if (isChecked())
+        const FlatButtonStateColors stateColors = FlatButtonColorsForState(
+            colors, FlatButtonTone::Neutral, FlatButtonAppearance::Flat, visualState);
+        const QIcon::Mode iconMode = isEnabled() ? QIcon::Normal : QIcon::Disabled;
+        const QIcon::State iconState = isChecked() ? QIcon::On : QIcon::Off;
+        QColor plateColor = stateColors.background; // 首次绑定排队期间也使用公共配方。
+        const bool sharedBackgroundKnown = TryGetFlatButtonBackground(this, iconMode, iconState, &plateColor);
+        const bool transparent = sharedBackgroundKnown
+            ? IsFlatButtonBackgroundTransparent(this, iconMode, iconState) : stateColors.transparent;
+        const QRectF plate = QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5); // 保留已有点击区内的绘制边距。
+        if (!transparent)
         {
-            plateColor = accent;
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(plateColor);
+            painter.drawRoundedRect(plate, 4.0, 4.0);
         }
-        else if (isDown())
-        {
-            plateColor = darkSurface ? surface.lighter(145) : surface.darker(120);
-        }
-        else if (underMouse() || hasFocus())
-        {
-            // 与公共按钮一致，焦点通过悬停实色底反馈而不追加轮廓。
-            plateColor = darkSurface ? surface.lighter(125) : surface.darker(108);
-        }
-        plateColor.setAlpha(255);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(plateColor);
-        painter.drawRoundedRect(plate, 4.0, 4.0);
 
         // 每一种实际底色都校准图形前景，禁用时仍保持可辨认而不冒充可操作状态。
-        const QColor normalInk = KswordTheme::EnsureTextContrast(text, surface, 4.5);
-        const QColor preferredInk = !isEnabled() ? disabledText
-            : (isChecked() ? colors.color(QPalette::Active, QPalette::HighlightedText) : normalInk);
+        const QColor preferredInk = !isEnabled() ? colors.color(QPalette::Disabled, QPalette::Text)
+            : colors.color(QPalette::Active, QPalette::Highlight);
         const QColor ink = KswordTheme::EnsureTextContrast(
             preferredInk, plateColor, isEnabled() ? 4.5 : 3.0);
         const QColor secondaryInk = ink;

@@ -21,7 +21,26 @@ namespace
 {
     // kBindingProperty 保存控件自身的绑定对象；该对象由控件的 QObject 子树持有。
     constexpr char kBindingProperty[] = "KSWORD_EXPLICIT_THEME_BINDING";
+    constexpr char kSearchFieldProperty[] = "KSWORD_SEARCH_FIELD_THEME"; // 已明确登记的搜索框。
+    constexpr char kSearchStyleBegin[] = "/* KSWORD_SEARCH_FIELD_BEGIN */"; // 本组件样式起点。
+    constexpr char kSearchStyleEnd[] = "/* KSWORD_SEARCH_FIELD_END */"; // 本组件样式终点。
     class WidgetThemeBinding;
+
+    // 只替换本组件拥有的颜色片段，页面的尺寸、padding 和其它规则继续保留。
+    QString replaceSearchFieldStyle(QString style, const QString& replacement)
+    {
+        const qsizetype begin = style.indexOf(QLatin1String(kSearchStyleBegin));
+        const qsizetype end = style.indexOf(QLatin1String(kSearchStyleEnd), begin);
+        if (begin >= 0 && end >= begin)
+        {
+            style.replace(begin, end + qstrlen(kSearchStyleEnd) - begin, replacement);
+        }
+        else
+        {
+            style += replacement;
+        }
+        return style;
+    }
 
     // ThemeBindingRegistry 只维护已登记对象和合并队列，不猜测颜色含义或扫描业务控件树。
     class ThemeBindingRegistry final : public QObject
@@ -316,6 +335,102 @@ bool ks::ui::BindSpinBoxTheme(QAbstractSpinBox* spinBox)
     });
     return outerBound && editorBound;
 }
+
+bool ks::ui::BindSearchFieldTheme(QLineEdit* searchField)
+{
+    if (searchField == nullptr)
+    {
+        return false;
+    }
+    // 表格布局反复核验专用搜索框时不重复登记，已安装的绑定仍负责热主题刷新。
+    if (searchField->property(kSearchFieldProperty).toBool() && HasWidgetThemeBinding(searchField))
+    {
+        return true;
+    }
+    const QPointer<QLineEdit> guardedField(searchField); // 排队刷新不会延长字段的寿命。
+    const bool bound = BindWidgetTheme(searchField, [guardedField]()
+    {
+        if (guardedField.isNull())
+        {
+            return;
+        }
+        const QPalette parentColors = guardedField->parentWidget() != nullptr
+            ? guardedField->parentWidget()->palette() : QApplication::palette();
+        QColor pageSurface = parentColors.color(QPalette::Active, QPalette::Base);
+        if (!pageSurface.isValid() || pageSurface.alpha() != 255)
+        {
+            // 透明背景中的零 alpha 黑并不代表实际黑底，不能直接把它改成不透明。
+            pageSurface = KswordTheme::SurfaceColor();
+        }
+        QColor background = parentColors.color(QPalette::Active, QPalette::AlternateBase);
+        if (!background.isValid() || background.alpha() != 255)
+        {
+            background = KswordTheme::SurfaceAltColor();
+        }
+        if (KswordTheme::ContrastRatio(background, pageSurface) < 1.15)
+        {
+            // 页面和 AlternateBase 接近时轻混入明暗反向色，让输入面可以被识别。
+            const QColor contrastSeed = KswordTheme::RelativeLuminance(pageSurface) < 0.25
+                ? QColor(Qt::white) : QColor(Qt::black);
+            background = KswordTheme::BlendColors(pageSurface, contrastSeed, 32);
+        }
+        // 占位提示常有半透明 alpha；先还原明确前景再校准，不能把透明黑当有效首选色。
+        const auto opaqueForeground = [](QColor preferred, const QColor& fallback)
+        {
+            if (!preferred.isValid() || preferred.alpha() == 0)
+            {
+                preferred = fallback;
+            }
+            preferred.setAlpha(255);
+            return preferred;
+        };
+        const QColor foreground = KswordTheme::EnsureTextContrast(opaqueForeground(
+            parentColors.color(QPalette::Active, QPalette::Text), KswordTheme::TextPrimaryColor()), background, 4.5);
+        const QColor placeholder = KswordTheme::EnsureTextContrast(opaqueForeground(
+            parentColors.color(QPalette::Active, QPalette::PlaceholderText), KswordTheme::TextSecondaryColor()), background, 4.5);
+        const QColor disabledForeground = KswordTheme::EnsureTextContrast(opaqueForeground(
+            parentColors.color(QPalette::Disabled, QPalette::Text), KswordTheme::TextDisabledColor()), background, 3.0);
+        const QColor disabledPlaceholder = KswordTheme::EnsureTextContrast(opaqueForeground(
+            parentColors.color(QPalette::Disabled, QPalette::PlaceholderText), KswordTheme::TextSecondaryColor()), background, 3.0);
+
+        // 覆盖原来的 hover/focus 线框，但不声明任何几何属性或 placeholder 文本。
+        const QString block = QString::fromLatin1(kSearchStyleBegin) + QStringLiteral(
+            "QLineEdit,QLineEdit:hover,QLineEdit:focus,QLineEdit:read-only{"
+            "background-color:%1;color:%2;border:none;}"
+            "QLineEdit:disabled{background-color:%1;color:%3;border:none;}")
+            .arg(background.name(), foreground.name(), disabledForeground.name())
+            + QString::fromLatin1(kSearchStyleEnd);
+        const QString style = replaceSearchFieldStyle(guardedField->styleSheet(), block);
+        if (guardedField->styleSheet() != style)
+        {
+            guardedField->setStyleSheet(style);
+        }
+        if (guardedField.isNull())
+        {
+            return;
+        }
+        // PlaceholderText 由 QLineEdit 实际绘制读取，不依赖父级 color 或半透明默认色。
+        QPalette fieldColors = guardedField->palette(); // 只改本字段自己的可读颜色角色。
+        for (const QPalette::ColorGroup group : {QPalette::Active, QPalette::Inactive, QPalette::Disabled})
+        {
+            const bool disabled = group == QPalette::Disabled;
+            fieldColors.setColor(group, QPalette::Base, background);
+            fieldColors.setColor(group, QPalette::Text, disabled ? disabledForeground : foreground);
+            fieldColors.setColor(group, QPalette::PlaceholderText,
+                disabled ? disabledPlaceholder : placeholder);
+        }
+        if (guardedField->palette() != fieldColors)
+        {
+            guardedField->setPalette(fieldColors);
+        }
+    });
+    if (bound && !guardedField.isNull())
+    {
+        guardedField->setProperty(kSearchFieldProperty, true);
+    }
+    return bound;
+}
+
 bool ks::ui::HasWidgetThemeBinding(const QWidget* widget)
 {
     // 判定只在 GUI 线程的旧样式兼容路径调用；未登记子控件仍允许原补偿机制处理。

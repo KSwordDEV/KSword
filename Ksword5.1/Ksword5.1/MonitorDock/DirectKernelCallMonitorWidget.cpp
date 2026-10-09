@@ -1,5 +1,6 @@
 #include "DirectKernelCallMonitorWidget.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ThemeBinding.h"
 
 // ============================================================
 // DirectKernelCallMonitorWidget.cpp
@@ -479,6 +480,11 @@ void DirectKernelCallMonitorWidget::initializeUi()
     m_globalFilterEdit = new QLineEdit(m_filterPanel);
     m_globalFilterEdit->setPlaceholderText(QStringLiteral("对整行文本做统一过滤"));
     m_globalFilterEdit->setStyleSheet(blueInputStyle());
+    // 各列过滤提示没有统一的 search 元数据，明确登记四个结果过滤框；采集 PID 不在此列。
+    for (QLineEdit* field : {m_processFilterEdit, m_serviceFilterEdit, m_detailFilterEdit, m_globalFilterEdit})
+    {
+        ks::ui::BindSearchFieldTheme(field);
+    }
     filterLayout->addWidget(m_globalFilterEdit, 1, 1, 1, 3);
 
     m_regexCheck = new QCheckBox(QStringLiteral("正则"), m_filterPanel);

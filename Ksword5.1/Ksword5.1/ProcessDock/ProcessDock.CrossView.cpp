@@ -1,6 +1,8 @@
 #include "ProcessDock.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/FlatButtonTheme.h"
+#include "../UI/ThemeBinding.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../UI/StructuredFieldView.h"
@@ -428,11 +430,16 @@ void ProcessDock::initializeCrossViewPage()
 
     m_crossViewRefreshButton = new QPushButton(QIcon(QStringLiteral(":/Icon/process_refresh.svg")), QString(), m_crossViewPage);
     KswordTheme::ApplyStandardIconButtonMetrics(m_crossViewRefreshButton);
+    // 工具按钮明确拥有透明常态与主题交互态，避免 Dock 透明兜底截断共享绑定。
+    ks::ui::ApplyFlatButtonTheme(m_crossViewRefreshButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
     m_crossViewRefreshButton->setToolTip(QStringLiteral("查询 R0 Process/Thread Cross-View 证据"));
 
     m_crossViewSearchEdit = new QLineEdit(m_crossViewPage);
     m_crossViewSearchEdit->setClearButtonEnabled(true);
     m_crossViewSearchEdit->setPlaceholderText(QStringLiteral("过滤 PID/TID/进程名/异常/详情"));
+    // 搜索位于两张内层 Tab 表格之外，需显式登记，保留既有过滤文本和连接。
+    ks::ui::BindSearchFieldTheme(m_crossViewSearchEdit);
 
     m_crossViewAnomalyOnlyCheck = new QCheckBox(QStringLiteral("仅异常"), m_crossViewPage);
     m_crossViewAnomalyOnlyCheck->setChecked(true);

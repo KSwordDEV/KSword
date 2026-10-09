@@ -100,7 +100,8 @@ namespace ks::ui
                     ? m_fixedAccent : KswordTheme::PrimaryAccentColor(); // 本次图形的主题种子。
 
                 // buttonBackground 用途：仅由共享按钮组件确认拥有的实际状态底色。
-                // 模式不能代表按钮底色：Neutral 的 Active 仍是中性底，checked 则是强调底。
+                // 透明 Neutral 常态取父级真实合成底；hover/focus/down/checked 取实际强调底。
+                // 不自行填图标背景，也不再从旧 Neutral 实底配方猜测当前模式对应的颜色。
                 QColor buttonBackground;
                 if (!m_button.isNull() && TryGetFlatButtonBackground(
                     m_button.data(), mode, state, &buttonBackground))
@@ -111,9 +112,16 @@ namespace ks::ui
                     }
                     const QPalette colors = m_button->parentWidget() != nullptr // 按钮 QSS 配方所用父级色板。
                         ? m_button->parentWidget()->palette() : QApplication::palette();
+                    QColor buttonAccent = colors.color(QPalette::Active, QPalette::Highlight); // 当前按钮强调种子。
+                    if (!buttonAccent.isValid() || buttonAccent.alpha() == 0)
+                    {
+                        buttonAccent = KswordTheme::PrimaryAccentColor(); // 透明继承色不能被强制变成黑色种子。
+                    }
+                    buttonAccent.setAlpha(255); // 图标轮廓只继承源 alpha，主题色自身保持不透明。
                     const bool disabled = mode == QIcon::Disabled || !m_button->isEnabled(); // 实际禁用态优先。
-                    const QColor preferred = disabled
-                        ? colors.color(QPalette::Disabled, QPalette::ButtonText) : accent;
+                    QColor preferred = disabled
+                        ? colors.color(QPalette::Disabled, QPalette::ButtonText) : buttonAccent;
+                    preferred.setAlpha(255); // 禁用色也保留原轮廓 alpha，不能把父级透明色当作图标透明度。
                     return KswordTheme::EnsureTextContrast(preferred, buttonBackground, 3.0);
                 }
 

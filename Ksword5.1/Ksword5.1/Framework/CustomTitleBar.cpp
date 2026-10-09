@@ -851,12 +851,12 @@ namespace ks::ui
         setStyleSheet(titleBarStyleSheetText);
         // 标题栏六个功能控件逐项接入纯色规则，保留输入组边框、按钮尺寸与窗口信号。
         // 子按钮自己的样式优先于标题栏的背景兜底，图标也能取得相同的真实状态底色。
-        ks::ui::ApplyFlatButtonTheme(m_inputModeButton);
+        ks::ui::ApplyFlatButtonTheme(m_inputModeButton, ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
         for (QPushButton* button : {m_captureProtectionButton, m_pinButton, m_minButton, m_maxButton})
         {
-            ks::ui::ApplyFlatButtonTheme(button);
+            ks::ui::ApplyFlatButtonTheme(button, ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
         }
-        ks::ui::ApplyFlatButtonTheme(m_closeButton, ks::ui::FlatButtonTone::Danger);
+        ks::ui::ApplyFlatButtonTheme(m_closeButton, ks::ui::FlatButtonTone::Danger, ks::ui::FlatButtonAppearance::Flat);
 
     }
 

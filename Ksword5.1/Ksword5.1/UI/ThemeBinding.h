@@ -4,6 +4,7 @@
 
 class QWidget;
 class QAbstractSpinBox;
+class QLineEdit;
 
 namespace ks::ui
 {
@@ -25,6 +26,11 @@ namespace ks::ui
     // 为数值控件及其内部编辑器显式绑定可读主题色，避免父级 QSS 把数字染成底色。
     // 仅接管文字与表面色，保留 value/suffix、尺寸、步进按钮、验证器与编辑状态。
     bool BindSpinBoxTheme(QAbstractSpinBox* spinBox);
+
+    // 仅为页面明确登记的表格搜索框绑定无线框底色、文字和占位提示色。
+    // 保留现有 padding/尺寸、输入内容、具体 placeholder、验证器和过滤信号。
+    // 透明父 palette 回退主题表面色；普通输入框和数值控件不自动接入。
+    bool BindSearchFieldTheme(QLineEdit* searchField);
 
     // HasWidgetThemeBinding：只判断该控件自身是否声明完整主题刷新，不跨到其未登记子控件。
     // 旧色值补偿据此跳过明确绑定的控件；其余存量控件仍沿用原有兼容路径。

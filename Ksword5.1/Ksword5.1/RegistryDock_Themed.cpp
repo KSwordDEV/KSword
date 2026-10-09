@@ -3,6 +3,7 @@
 #include "RegistryDock/RegistryWorkbenchAccess.h"
 #include "RegistryDock/RegistryDocument.h"
 #include "UI/UI_All.h"
+#include "UI/ThemeBinding.h"
 #include <QScrollArea>
 #include <QTabBar>
 #include <QCompleter>
@@ -499,6 +500,8 @@ void RegistryDock::initializeUi()
     m_driverRegistryModeLabel->setToolTip(QStringLiteral("驱动可用时启用增强的注册表浏览与编辑。"));
 
     m_searchEdit = new QLineEdit(m_toolBarWidget);
+    // 注册表结果搜索保留键/值/数据与 hex 查询语义，仅更新输入面的颜色。
+    ks::ui::BindSearchFieldTheme(m_searchEdit);
     m_searchEdit->setStyleSheet(blueInputStyle());
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索键/值/数据"));
     m_searchEdit->setMaximumWidth(320);

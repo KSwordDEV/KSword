@@ -2,6 +2,7 @@
 
 #include <QElapsedTimer>
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ThemeBinding.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QColor>
@@ -204,6 +205,8 @@ void StartupDock::initializeToolbar()
     m_copyButton->setFixedSize(28, 28);
 
     m_filterEdit = new QLineEdit(m_toolbarWidget);
+    // 启动项树保留既有双语提示与分批结果过滤，只补搜索面板颜色。
+    ks::ui::BindSearchFieldTheme(m_filterEdit);
     languageManager.bindPlaceholder(
         m_filterEdit,
         QStringLiteral("startup.toolbar.filter.placeholder"),

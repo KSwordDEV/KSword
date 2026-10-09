@@ -23,7 +23,7 @@ foreach ($resultPart in @('ucrt', 'shared', 'um')) {
 $resultApp = 'Ksword5.1/Ksword5.1'
 $resultSources = @(
     'tools/result_table_tests.cpp', "$resultApp/UI/UiCommitCoordinator.cpp", "$resultApp/UI/ResultTableHost.cpp",
-    "$resultApp/UI/TablePresentation.cpp", "$resultApp/UI/GlobalUiBaseStyle.cpp", "$resultApp/UI/ThemeControlGlyphs.cpp", "$resultApp/UI/ThemeStatusRole.cpp",
+    "$resultApp/UI/TablePresentation.cpp", "$resultApp/UI/GlobalUiBaseStyle.cpp", "$resultApp/UI/FlatButtonTheme.cpp", "$resultApp/UI/ThemeBinding.cpp", "$resultApp/UI/ThemeControlGlyphs.cpp", "$resultApp/UI/ThemeStatusRole.cpp",
     "$resultApp/UI/TableInteractionSupport.cpp", "$resultApp/UI/TableFreezeSupport.cpp", "$resultApp/UI/TableHeaderSortingSupport.cpp",
     "$resultApp/UI/TableSearchSupport.cpp", "$resultApp/UI/TableSnapshotCompare.cpp", "$resultApp/Internationalization/LanguageManager.cpp"
 )

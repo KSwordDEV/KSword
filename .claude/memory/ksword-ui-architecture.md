@@ -146,3 +146,11 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 - 共享实心按钮的 SVG 必须按该按钮实际 normal/hover/focus/pressed/checked/disabled 底色校准，不能沿用通用图标 Active 的强调底假设。默认主题的共享强调按钮也需要上下文；菜单、模型、多色图标和 ADS 自管图标不跟随按钮上下文。
 - `UI/FloatingScrollbars` 保留原生条对象和业务信号，用自己的零厚度样式块收回布局位置，仅另画悬浮细线；不能强设 AlwaysOff、改 viewportMargins 或添加另一套滚轮算法。步长/追踪开关没有值变化信号，需要条件刷新。硬件浮窗归还时恢复所有捕获滚动区的倍率，Hex 检查器复制区显式避让。
 - 逐页范围、用户审查基线与最终验证记录见 [逐页主题与悬浮滚动条回归](../../docs/逐页主题与悬浮滚动条回归-20261009.md)。组件、硬件 GL 夹具与完整 Release 编译分别报告，不推定生产 GUI 已全部实机验收。
+
+### 同日实机反馈后的修正
+
+- `7b986859` 的全按钮常态实底被真实截图否定：标题/图标工具不应铺底，普通操作需要与页面区别，交互态必须用主题色。`FlatButtonAppearance` 明确区分 Auto/Solid/Flat；Auto 尊重既有 setFlat 和纯图标工具语义，危险标题关闭仅交互态着色。
+- Qt 透明父 QSS 会将 Base/Button/Window 同时设为透明黑；不能只强制 alpha=255，也不能靠黑色 lighter 恢复高亮。查询实际 backgroundRole 与透明祖先回退，QSS/SVG/自绘共用状态配方。未知局部/祖先数据样式的所有权保护仍保留，遗漏工具在构造点显式登记。
+- 原生 `QLineEditIconButton` 与 `_q_qlineeditclearaction` 的圆底和 X 不能用 SourceIn 合并成一种颜色；按钮及动作两路均跳过并恢复历史原图。
+- 专用表格搜索使用 `BindSearchFieldTheme`，有区别的实底、无框、显式不透明 PlaceholderText；保留具体提示、输入、选区、过滤和尺寸，排除扫描值/地址/命令/编辑器查找。树表及外层 Tab 搜索需逐页显式接入，不能假设内层 QTable 元数据会发现它们。
+- 透明控件验证必须采样整窗合成；QPushButton hover 需真正 MouseMove 更新私有 hovering，不能只设 WA_UnderMouse。Qt offscreen 要显式加载系统字体，避免把方框当文字。新夹具 200+110 项覆盖真实透明父和原生 clear；仍不替代生产 GUI 逐页验收。

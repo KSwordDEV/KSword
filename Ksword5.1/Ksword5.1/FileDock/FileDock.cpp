@@ -1,5 +1,6 @@
 #include "FileDock.h"
 #include "../UI/FlatButtonTheme.h"
+#include "../UI/ThemeBinding.h"
 #include "../Framework/DestructiveActionConfirmation.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/VisibleTableWidget.h"
@@ -13135,6 +13136,8 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
         "后两种会与常规视图对照，把只有绕过路径可见的条目标为疑似隐藏项。"));
 
     panel.filterEdit = new QLineEdit(panel.toolWidget);
+    // 文件树/列表两种投影共用此过滤框，只更新可读搜索主题。
+    ks::ui::BindSearchFieldTheme(panel.filterEdit);
     panel.filterEdit->setPlaceholderText(QStringLiteral("快速过滤"));
     panel.filterEdit->setStyleSheet(buildBlueInputStyle());
 
@@ -15137,6 +15140,7 @@ void FileDock::initializeRecoveryPage()
 
     // 扫描结果动辄上万条，必须能就地查找，否则只能靠滚动条翻找。
     m_recoveryFilterEdit = new QLineEdit(toolWidget);
+    ks::ui::BindSearchFieldTheme(m_recoveryFilterEdit);
     m_recoveryFilterEdit->setPlaceholderText(QStringLiteral("查找结果（文件名/路径/恢复能力）"));
     m_recoveryFilterEdit->setClearButtonEnabled(true);
     m_recoveryFilterEdit->setStyleSheet(buildBlueInputStyle());

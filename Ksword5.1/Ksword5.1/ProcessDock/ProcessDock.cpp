@@ -3844,10 +3844,15 @@ namespace
     }
 
     // 统一按钮蓝色样式，和现有主题风格保持一致。
-    QString buildBlueButtonStyle(const bool iconOnlyButton)
+    QString buildBlueButtonStyle(const bool iconOnlyButton,
+        ks::ui::FlatButtonAppearance appearance = ks::ui::FlatButtonAppearance::Auto)
     {
-        // 纯色按钮共用主题状态；保留页面原有紧凑尺寸。
-        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+        // 图标工具保持透明常态，普通表单操作保留可辨识实底；几何仍由原参数决定。
+        if (iconOnlyButton && appearance == ks::ui::FlatButtonAppearance::Auto)
+        {
+            appearance = ks::ui::FlatButtonAppearance::Flat;
+        }
+        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral, appearance)
             + QStringLiteral("QPushButton{border-radius:3px;padding:%1;}")
                 .arg(iconOnlyButton ? QStringLiteral("4px") : QStringLiteral("4px 10px"));
     }
@@ -4888,6 +4893,7 @@ void ProcessDock::initializeTopControls()
         QStringLiteral("process.tooltip.search"),
         QStringLiteral("切到进程列表页后可直接输入搜索词"));
     m_processSearchLineEdit->setStyleSheet(buildBlueLineEditStyle());
+    ks::ui::BindSearchFieldTheme(m_processSearchLineEdit);
     m_processSearchLineEdit->setMaximumWidth(320);
 
     // 内核对比开关：
@@ -4958,7 +4964,7 @@ void ProcessDock::initializeTopControls()
         m_columnChooserButton,
         QStringLiteral("process.tooltip.column_chooser"),
         QStringLiteral("添加或移除进程列表中显示的列。"));
-    m_columnChooserButton->setStyleSheet(buildBlueButtonStyle(false));
+    m_columnChooserButton->setStyleSheet(buildBlueButtonStyle(false, ks::ui::FlatButtonAppearance::Flat));
 
     // 进程列表设置入口：仅显示齿轮图标，具体选项在独立窗口中即时生效。
     m_processSettingsButton = new QPushButton(QIcon(QStringLiteral(":/Icon/process_settings.svg")), QString(), this);
@@ -5025,7 +5031,7 @@ void ProcessDock::initializeProcessActivityPanel()
         m_activityClearButton,
         QStringLiteral("process.activity.tooltip.clear"),
         QStringLiteral("清空当前刷新同步记录的进程活动样本。"));
-    m_activityClearButton->setStyleSheet(buildBlueButtonStyle(false));
+    m_activityClearButton->setStyleSheet(buildBlueButtonStyle(false, ks::ui::FlatButtonAppearance::Flat));
 
     m_activityHistoryModeCombo = new QComboBox(m_activityPanelWidget);
     m_activityHistoryModeCombo->addItem(QStringLiteral("不记录历史"), static_cast<int>(ActivityHistoryMode::None));

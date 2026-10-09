@@ -283,6 +283,23 @@ namespace
             QVariant::fromValue<qulonglong>(appliedIcon.cacheKey()));
     }
 
+    // restoreExcludedNativeIcon：原生 clear 图标含独立底形和叉号，不能用 SourceIn 压成一个颜色。
+    // 若旧管理器曾保存原图则恢复最新源并撤销自身身份属性；新原生对象不写任何记录。
+    QIcon restoreExcludedNativeIcon(QObject* ownerObject,
+        const char* originalProperty, const char* lastKeyProperty, const QIcon& currentIcon)
+    {
+        const QVariant originalValue = ownerObject->property(originalProperty); // 旧管理器原始图标记录。
+        if (!originalValue.isValid() || !originalValue.canConvert<QIcon>())
+        {
+            return currentIcon;
+        }
+        const QIcon originalIcon = originalIconFromProperty(
+            ownerObject, originalProperty, lastKeyProperty, currentIcon);
+        ownerObject->setProperty(originalProperty, QVariant());
+        ownerObject->setProperty(lastKeyProperty, QVariant());
+        return originalIcon;
+    }
+
     // directWidgetActions：
     // - 合并控件关联的 actions() 与其直接拥有的 QAction；
     // - 禁止对每个控件递归 findChildren，避免启动期遍历退化为 O(N²)。
@@ -488,6 +505,11 @@ bool ks::ui::SvgThemeIconManager::eventFilter(
         // 已染色的图标不排队，因此常驻刷新不会重复栅格化或形成重绘循环。
         if (auto* buttonPointer = qobject_cast<QAbstractButton*>(watchedObject))
         {
+            // 输入框清空钮是 Qt 内部多层图标，Paint 不得重复排队着色或触碰其 palette。
+            if (buttonPointer->inherits("QLineEditIconButton"))
+            {
+                return QObject::eventFilter(watchedObject, eventObject);
+            }
             const QIcon currentIcon = buttonPointer->icon(); // 按钮当前图标。
             if (!buttonPointer->property("ksword_theme_icon_managed").toBool() &&
                 !currentIcon.isNull() &&
@@ -566,6 +588,18 @@ int ks::ui::SvgThemeIconManager::applyToWidget(
     if (auto* buttonPointer = qobject_cast<QAbstractButton*>(widgetPointer))
     {
         const QIcon currentIcon = buttonPointer->icon();
+        // 原生 clear 按钮的圆底和叉号必须保留不同颜色，恢复历史原图后完全交回 Qt。
+        if (buttonPointer->inherits("QLineEditIconButton"))
+        {
+            const QIcon originalIcon = restoreExcludedNativeIcon(buttonPointer,
+                OriginalButtonIconProperty, LastButtonIconKeyProperty, currentIcon);
+            if (originalIcon.cacheKey() != currentIcon.cacheKey())
+            {
+                buttonPointer->setIcon(originalIcon);
+                ++changedCount;
+            }
+            return changedCount;
+        }
         const bool sharedButtonTheme = hasSharedFlatButtonTheme(buttonPointer); // 当前实际共享样式所有权。
         const bool previouslyManaged = buttonPointer->property(LastButtonIconKeyProperty).isValid();
         // ADS 提供器已生成各状态/DPI 的主题图标，不再把它压成单一 Normal 颜色。
@@ -679,6 +713,19 @@ bool ks::ui::SvgThemeIconManager::applyToAction(
 {
     if (actionPointer == nullptr || actionPointer->icon().isNull())
     {
+        return false;
+    }
+    // Qt 清空动作的图标同时供原生输入框按钮使用，不能经动作路径再次压成纯色圆点。
+    if (actionPointer->objectName() == QLatin1String("_q_qlineeditclearaction"))
+    {
+        const QIcon currentIcon = actionPointer->icon(); // Qt 此刻使用的原生图标。
+        const QIcon originalIcon = restoreExcludedNativeIcon(actionPointer,
+            OriginalActionIconProperty, LastActionIconKeyProperty, currentIcon);
+        if (originalIcon.cacheKey() != currentIcon.cacheKey())
+        {
+            actionPointer->setIcon(originalIcon);
+            return true;
+        }
         return false;
     }
     // 默认主题只还原此前被本管理器处理的动作，不扫描新菜单的候选色或建立图标引擎。

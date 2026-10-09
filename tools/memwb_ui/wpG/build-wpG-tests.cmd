@@ -61,7 +61,7 @@ if not defined CL set "CL=/MP"
 cl /nologo /std:c++latest /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W4 /WX /O2 /Gy /DWIN32_LEAN_AND_MEAN /external:W0 /DNOMINMAX /DUNICODE /D_UNICODE /DQT_CORE_LIB /DQT_GUI_LIB /DQT_WIDGETS_LIB /external:I"%QT%\include" /external:I"%QT%\include\QtCore" /external:I"%QT%\include\QtGui" /external:I"%QT%\include\QtWidgets" ^
   "%FIX%\wpG_tests.cpp" "%FIX%\wpG_common.cpp" "%FIX%\wpG_tests.SessionBar.cpp" "%FIX%\wpG_tests.StatusBar.cpp" "%FIX%\wpG_tests.Confirmations.cpp" "%FIX%\wpG_tests.Shots.cpp" "%FIX%\wpG_tests.Gaps.cpp" "%FIX%\wpG_tests.Gaps2.cpp" "%FIX%\wpG_tests.Review2.cpp" ^
   "%UI%\WorkbenchMessages.cpp" "%UI%\WorkbenchSettings.cpp" "%UI%\WorkbenchActions.cpp" "%UI%\WriteModeSwitch.cpp" "%UI%\WorkbenchSessionBar.cpp" "%UI%\WorkbenchStatusBar.cpp" "%UI%\WorkbenchConfirmations.cpp" "%UI%\WorkbenchStringWriteDialog.cpp" ^
-  "%UI%\HexViewWidgets.cpp" "%UI%\HexViewWidgets.Text.cpp" "%UI%\HexViewFormat.cpp" "%APP%\UI\FlowLayout.cpp" "%APP%\UI\ThemeStatusRole.cpp" ^
+  "%UI%\HexViewWidgets.cpp" "%UI%\HexViewWidgets.Text.cpp" "%UI%\HexViewFormat.cpp" "%APP%\UI\FlowLayout.cpp" "%APP%\UI\ThemeStatusRole.cpp" "%APP%\UI\FlatButtonTheme.cpp" "%APP%\UI\ThemeBinding.cpp" ^
   "%APP%\Internationalization\LanguageManager.cpp" ^
   "%APP%\UI\StructuredFieldView.cpp" "%MOC%\moc_StructuredFieldView.cpp" ^
   "%MOC%\moc_WorkbenchSessionBar.cpp" "%MOC%\moc_WriteModeSwitch.cpp" "%MOC%\moc_WorkbenchStatusBar.cpp" "%MOC%\moc_WorkbenchStringWriteDialog.cpp" "%MOC%\moc_HexViewWidgets.cpp" "%MOC%\qrc_wpG_icons.cpp" ^
@@ -99,7 +99,7 @@ rem wpG_tests.exe 或其它任何进程。只链接 WorkbenchStringWriteDialog �
 rem 源文件，复用上面已经生成的 moc_WorkbenchStringWriteDialog.cpp。
 cl /nologo /std:c++latest /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W4 /WX /O2 /Gy /DWIN32_LEAN_AND_MEAN /external:W0 /DNOMINMAX /DUNICODE /D_UNICODE /DQT_CORE_LIB /DQT_GUI_LIB /DQT_WIDGETS_LIB /external:I"%QT%\include" /external:I"%QT%\include\QtCore" /external:I"%QT%\include\QtGui" /external:I"%QT%\include\QtWidgets" ^
   "%FIX%\wpG_gbk_tests.cpp" ^
-  "%UI%\WorkbenchMessages.cpp" "%UI%\WorkbenchStringWriteDialog.cpp" "%APP%\UI\ThemeStatusRole.cpp" "%APP%\Internationalization\LanguageManager.cpp" ^
+  "%UI%\WorkbenchMessages.cpp" "%UI%\WorkbenchStringWriteDialog.cpp" "%APP%\UI\ThemeStatusRole.cpp" "%APP%\UI\FlatButtonTheme.cpp" "%APP%\UI\ThemeBinding.cpp" "%APP%\Internationalization\LanguageManager.cpp" ^
   "%MOC%\moc_WorkbenchStringWriteDialog.cpp" ^
   /Fo"%OBJ%\\" /Fe"%OUT%\wpG_gbk_tests.exe" ^
   /link /OPT:REF /MANIFEST:EMBED /MANIFESTINPUT:"%FIX%\wpG_gbk.manifest" /LIBPATH:"%QT%\lib" Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib user32.lib advapi32.lib

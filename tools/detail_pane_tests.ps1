@@ -28,7 +28,7 @@ $detailSources = @(
     "$detailApp/UI/CodeEditorWidget.cpp", "$detailApp/UI/CodeTextEdit.cpp", "$detailApp/UI/CodeEditorFileSession.cpp",
     "$detailApp/UI/StructuredFieldView.cpp",
     "$detailApp/UI/FlowLayout.cpp", "$detailApp/UI/ThemeStatusRole.cpp", "$detailApp/UI/ThemeControlGlyphs.cpp",
-    "$detailApp/UI/SmoothScrollSupport.cpp", "$detailApp/Internationalization/LanguageManager.cpp"
+    "$detailApp/UI/SmoothScrollSupport.cpp", "$detailApp/UI/FlatButtonTheme.cpp", "$detailApp/UI/ThemeBinding.cpp", "$detailApp/UI/ThemeAccentIcon.cpp", "$detailApp/Internationalization/LanguageManager.cpp"
 )
 $detailMoc = Join-Path $detailOutput 'detail_pane_moc_CodeEditorWidget.cpp'
 & (Join-Path $detailQt 'bin/moc.exe') (Join-Path $detailRepository "$detailApp/UI/CodeEditorWidget.h") -o $detailMoc

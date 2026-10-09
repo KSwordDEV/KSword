@@ -19,7 +19,8 @@ namespace ks::ui
     // MakeThemeButtonAccentIcon：仅为已判定为单色主题候选的 push/tool 按钮建立独立图标。
     // button 为真实绘制上下文，绘制时读取共享实心按钮的 tone、父 palette 和当前状态。
     // 使用 QPointer 跟踪按钮寿命，不共享跨按钮结果；未知本地样式沿用通用状态语义。
-    // sourceIcon 必须为未包装的原图，fixedAccent 为管理器本轮主题色；空源图原样返回。
+    // sourceIcon 必须为未包装的原图；共享按钮优先读取当前父 palette 的 Highlight 作为种子。
+    // fixedAccent 为未知样式回退所用的管理器主题快照；空源图原样返回。
     QIcon MakeThemeButtonAccentIcon(const QIcon& sourceIcon,
         const QColor& fixedAccent, QAbstractButton* button);
 }

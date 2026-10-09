@@ -34,7 +34,7 @@ try {
         'tools/memory_row_views_portable_tests.cpp',
         "$uiSource/MemoryRowCanvas.cpp", "$uiSource/WorkbenchDisasmView.cpp", "$uiSource/WorkbenchDisasmView.Canvas.cpp", "$uiSource/WorkbenchDisasmView.Edit.cpp", "$uiSource/AssemblyPreviewDialog.cpp", "$uiSource/WorkbenchTextView.cpp",
         "$uiSource/HexCanvasFormat.cpp", "$uiSource/HexViewFormat.cpp", "$uiSource/HexViewWidgets.cpp", "$uiSource/HexViewWidgets.Text.cpp",
-        "$appSource/UI/FlowLayout.cpp", "$appSource/UI/CodeTextEdit.cpp", "$appSource/UI/CodeEditorWidget.cpp", "$appSource/UI/CodeEditorFileSession.cpp", "$appSource/UI/StructuredFieldView.cpp", "$appSource/UI/TypedSyntaxDocument.cpp", "$appSource/UI/ThemeStatusRole.cpp", "$appSource/UI/GlobalUiBaseStyle.cpp", "$appSource/UI/ThemeControlGlyphs.cpp", "$appSource/UI/SmoothScrollSupport.cpp",
+        "$appSource/UI/FlowLayout.cpp", "$appSource/UI/CodeTextEdit.cpp", "$appSource/UI/CodeEditorWidget.cpp", "$appSource/UI/CodeEditorFileSession.cpp", "$appSource/UI/StructuredFieldView.cpp", "$appSource/UI/TypedSyntaxDocument.cpp", "$appSource/UI/ThemeStatusRole.cpp", "$appSource/UI/GlobalUiBaseStyle.cpp", "$appSource/UI/ThemeControlGlyphs.cpp", "$appSource/UI/SmoothScrollSupport.cpp", "$appSource/UI/FlatButtonTheme.cpp", "$appSource/UI/ThemeBinding.cpp", "$appSource/UI/ThemeAccentIcon.cpp",
         "$appSource/UI/MemorySnapshotBytesProvider.cpp",
         "$appSource/Internationalization/LanguageManager.cpp", "$appSource/UI/MemoryAssembly.cpp", "$appSource/UI/MemoryAssembly.Core.cpp",
         "$coreSource/MemoryTextDecode.cpp", "$coreSource/MemoryDiffOverlay.cpp", "$coreSource/MemoryDiffOverlay.Patches.cpp"

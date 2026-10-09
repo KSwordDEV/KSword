@@ -1,5 +1,6 @@
 #include "../UI/StructuredFieldView.h"
 #include "../UI/FlatButtonTheme.h"
+#include "../UI/ThemeBinding.h"
 #include "OtherDock.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../Framework/DestructiveActionConfirmation.h"
@@ -3180,6 +3181,8 @@ void OtherDock::initializeUi()
     m_autoRefreshIntervalSpin->setStyleSheet(blueInputStyle());
 
     m_filterEdit = new QLineEdit(m_toolBarWidget);
+    // 窗口树的标题/进程/类名过滤使用同一无线框搜索外观。
+    ks::ui::BindSearchFieldTheme(m_filterEdit);
     m_filterEdit->setPlaceholderText(QStringLiteral("筛选：标题 / 进程名 / 类名 / HWND"));
     m_filterEdit->setToolTip(QStringLiteral("输入关键字实时过滤窗口"));
     m_filterEdit->setStyleSheet(blueInputStyle());

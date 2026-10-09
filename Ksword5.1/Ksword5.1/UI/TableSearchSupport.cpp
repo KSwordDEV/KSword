@@ -1,12 +1,15 @@
 #include "TableSearchSupport.h"
 #include "./FlatButtonTheme.h"
+#include "ThemeBinding.h"
 
 #include "GlobalUiSearch.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../theme.h"
 
 #include <QAbstractItemModel>
+#include <QAbstractSpinBox>
 #include <QApplication>
+#include <QComboBox>
 
 #include <QEvent>
 #include <QFrame>
@@ -93,6 +96,7 @@ namespace
         }
         const QPoint tableTopLeft = tableView->mapTo(pageRoot, QPoint(0, 0));
         const QList<QLineEdit*> lineEditList = pageRoot->findChildren<QLineEdit*>();
+        bool dedicatedSearchFound = false; // 同页可有多张表和多个专用搜索框，不能首个即退出。
         for (QLineEdit* lineEdit : lineEditList)
         {
             if (lineEdit == nullptr
@@ -120,10 +124,41 @@ namespace
             const bool sharesImmediateContainer = lineEdit->parentWidget() == tableView->parentWidget();
             if (directlyAboveTable || sharesImmediateContainer)
             {
-                return true;
+                dedicatedSearchFound = true;
+                // 沿现有专用表格搜索识别路径接入，跳过数值/下拉内部编辑器与扫描值表单。
+                // 只改已经承担文本过滤的字段，不接管所有 QLineEdit，也不修改过滤连接。
+                bool belongsToTextSearch = false; // 编辑器查找/替换保持自己的输入语义和主题。
+                for (QWidget* owner = lineEdit->parentWidget(); owner != nullptr; owner = owner->parentWidget())
+                {
+                    if (owner->objectName() == QStringLiteral("code_editor")
+                        || owner->objectName() == QStringLiteral("KswordTextSearchBar"))
+                    {
+                        belongsToTextSearch = true;
+                        break;
+                    }
+                    if (owner->isWindow())
+                    {
+                        break;
+                    }
+                }
+                const QString placeholderSource = ks::i18n::LanguageManager::instance().sourceForRenderedText(
+                    lineEdit->placeholderText()); // 比较规范源文本，中文和译文都保持相同排除边界。
+                if (qobject_cast<QAbstractSpinBox*>(lineEdit->parentWidget()) == nullptr
+                    && qobject_cast<QComboBox*>(lineEdit->parentWidget()) == nullptr
+                    && !lineEdit->isReadOnly()
+                    && !belongsToTextSearch
+                    && placeholderSource != QStringLiteral("输入搜索值")
+                    && placeholderSource != QStringLiteral("搜索：AA BB ?? 或 ASCII/UTF-16 文本"))
+                {
+                    if (lineEdit->placeholderText().isEmpty())
+                    {
+                        lineEdit->setPlaceholderText(ks::i18n::sourceText(QStringLiteral("搜索")));
+                    }
+                    ks::ui::BindSearchFieldTheme(lineEdit);
+                }
             }
         }
-        return false;
+        return dedicatedSearchFound;
     }
 
     // tableNeedsSearchAccess：只有模型内容实际超过当前垂直可视页时才需要入口。

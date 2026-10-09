@@ -1,5 +1,6 @@
 #include "KernelKnowledgeTab.h"
 #include "../UI/DetailDialogChrome.h"
+#include "../UI/ThemeBinding.h"
 #include "../UI/StructuredFieldView.h"
 
 #include "KernelKnowledgeCatalog.h"
@@ -149,6 +150,8 @@ void KernelKnowledgeTab::initializeUi()
     directoryLayout->setSpacing(6);
 
     m_searchEdit = new QLineEdit(directoryPanel);
+    // 知识目录树筛选保留后续加载的具体提示和条目过滤。
+    ks::ui::BindSearchFieldTheme(m_searchEdit);
     m_searchEdit->setClearButtonEnabled(true);
     directoryLayout->addWidget(m_searchEdit, 0);
 

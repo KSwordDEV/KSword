@@ -6,6 +6,7 @@
 #include "../Ksword5.1/Ksword5.1/UI/SmoothScrollSupport.h"
 #include "../Ksword5.1/Ksword5.1/UI/VisibleTableWidget.h"
 #include "../Ksword5.1/Ksword5.1/theme.h"
+#include "page_theme_regression_fixtures.h"
 
 #include <QAbstractScrollArea>
 #include <QApplication>
@@ -16,6 +17,8 @@
 #include <QPushButton>
 #include <QToolButton>
 #include <QPainter>
+#include <QFontDatabase>
+#include <QFont>
 #include <QSpinBox>
 #include <QStandardItemModel>
 #include <QThread>
@@ -303,6 +306,65 @@ namespace
             "restored_initial_data_style_survives_copied_callback");
     }
 
+    // 专用搜索框验证真实 placeholder 与无框表面，保留输入数据、选区及过滤信号。
+    void searchFieldThemeTest(QApplication& app)
+    {
+        for (int dark = 0; dark < 2; ++dark)
+        {
+            KswordTheme::SetDarkModeEnabled(dark != 0);
+            QWidget host;
+            host.setAttribute(Qt::WA_DontShowOnScreen);
+            host.resize(340, 100);
+            host.setStyleSheet(QStringLiteral("QWidget#searchRoot{background:%1;}")
+                .arg(KswordTheme::SurfaceColor().name()));
+            host.setObjectName(QStringLiteral("searchRoot"));
+            QWidget page(&host);
+            page.setGeometry(0, 0, 340, 100);
+            page.setStyleSheet(QStringLiteral("background:transparent;"));
+            QLineEdit process(&page);
+            QLineEdit module(&page);
+            process.setGeometry(10, 10, 300, 24);
+            module.setGeometry(10, 45, 300, 24);
+            const QString oldStyle = QStringLiteral(
+                "QLineEdit{border:1px solid white;padding:1px 3px;}"
+                "QLineEdit:focus{border:1px solid white;}");
+            process.setStyleSheet(oldStyle);
+            module.setStyleSheet(oldStyle);
+            process.setPlaceholderText(QStringLiteral("搜索进程"));
+            module.setPlaceholderText(QStringLiteral("搜索模块"));
+            process.setText(QStringLiteral("PID123"));
+            process.setSelection(0, 3);
+            int changed = 0;
+            QObject::connect(&process, &QLineEdit::textChanged, [&changed]() { ++changed; });
+            host.show();
+            check(ks::ui::BindSearchFieldTheme(&process)
+                && ks::ui::BindSearchFieldTheme(&module), "two_dedicated_search_fields_bound");
+            drain();
+            check(process.text() == QStringLiteral("PID123") && process.selectedText() == QStringLiteral("PID")
+                && changed == 0, "search_binding_preserves_data_selection_filter_signals");
+            check(process.styleSheet().contains(QStringLiteral("padding:1px 3px"))
+                && process.geometry() == QRect(10, 10, 300, 24), "search_geometry_preserved");
+            check(process.placeholderText() == QStringLiteral("搜索进程")
+                && module.placeholderText() == QStringLiteral("搜索模块"), "specific_search_placeholders_preserved");
+            const QImage frame = host.grab().toImage();
+            const QColor surface = frame.pixelColor(QPoint(4, 57));
+            const QColor inside = frame.pixelColor(QPoint(304, 57));
+            const QColor edge = frame.pixelColor(QPoint(10, 57));
+            check(KswordTheme::ContrastRatio(inside, surface) >= 1.14, "search_surface_distinct_from_page");
+            check(edge == inside, "search_white_wire_border_removed");
+            const QColor placeholder = module.palette().color(QPalette::Active, QPalette::PlaceholderText);
+            check(placeholder.alpha() == 255 && KswordTheme::ContrastRatio(placeholder, inside) >= 4.49,
+                "search_placeholder_opaque_and_readable");
+            module.setEnabled(false);
+            drain();
+            check(module.placeholderText() == QStringLiteral("搜索模块")
+                && module.palette().color(QPalette::Disabled, QPalette::PlaceholderText).alpha() == 255,
+                "disabled_search_keeps_opaque_placeholder");
+        }
+        KswordTheme::SetDarkModeEnabled(false);
+        Q_UNUSED(app);
+    }
+
     // 真实原条维持策略和数值；视觉层不能占用 viewport，也不能另造滚动单位。
     void scrollbarThemeTest()
     {
@@ -467,12 +529,20 @@ namespace
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
+    // offscreen 平台不自动枚举 Windows 字体；显式加载系统字体，确保实际文字而非方框被采样。
+    const int fixtureFont = QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
+    if (fixtureFont >= 0 && !QFontDatabase::applicationFontFamilies(fixtureFont).isEmpty())
+    {
+        app.setFont(QFont(QFontDatabase::applicationFontFamilies(fixtureFont).first(), 9));
+    }
     ks::ui::InstallGlobalFlatButtonTheme(&app);
     ks::ui::InstallGlobalSmoothScrollSupport(&app);
     numericThemeTest(app);
     buttonThemeTest(app);
     buttonIconThemeTest(app);
+    searchFieldThemeTest(app);
     scrollbarThemeTest();
+    failures += RunPageThemeRegressionFixtures(app);
     std::cout << "PAGE_THEME_CHECKS=" << checks << " FAILURES=" << failures << std::endl;
     return failures == 0 ? 0 : 1;
 }

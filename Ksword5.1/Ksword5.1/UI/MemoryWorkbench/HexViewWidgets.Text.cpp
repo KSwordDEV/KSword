@@ -2,13 +2,14 @@
 // 作用：HexViewWidgets.h 里"文字型"三个控件的实现：
 //   HexViewSegmented（分段按钮）、HexViewMessageLabel（单行消息）、HexViewStatusBar（状态条）。
 // 图标按钮与条带底板在 HexViewWidgets.cpp。
-// 约定：所有颜色在每次 paintEvent 里现取 KswordTheme 的静态颜色访问器，不缓存、不用样式表。
+// 约定：自绘颜色每次绘制读取；分段工具按钮复用共享状态配方，不复制按钮亮度偏移公式。
 
 #include "HexViewWidgets.h"
 
 #include "HexViewFormat.h"
 
 #include "../../theme.h"
+#include "../FlatButtonTheme.h"
 
 #include <QEvent>
 #include <QFontMetrics>
@@ -204,23 +205,22 @@ namespace ks::ui
         return -1;
     }
 
-    // 绘制：各段实心主题底色、选中/焦点反馈与对比度校准文字。
+    // 绘制：保留容器表面；普通段透明，悬停/选中采用公共强调底及对比度校准文字。
     void HexViewSegmented::paintEvent(QPaintEvent* event)
     {
         Q_UNUSED(event);
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing, true);
 
-        // 分段控件是互斥按钮组：每段常态实心，选中/焦点用强调底而不画轮廓。
+        // 分段本身没有 QAbstractButton，显式以 Flat 外观调用同一纯状态配方。
+        // Base 来自真实父条带的表面，不读取生产中代表强调色的 Button 角色。
         const QPalette colors = parentWidget() != nullptr ? parentWidget()->palette() : palette();
-        const QColor surface = colors.color(QPalette::Active, QPalette::Button);
-        const QColor accent = colors.color(QPalette::Active, QPalette::Highlight);
-        const QColor text = colors.color(QPalette::Active, QPalette::ButtonText);
-        const QColor disabledText = colors.color(QPalette::Disabled, QPalette::ButtonText);
-        const QColor disabledSurface = colors.color(QPalette::Disabled, QPalette::Button);
-        const bool darkSurface = KswordTheme::RelativeLuminance(surface) < 0.25;
+        const FlatButtonStateColors normalColors = FlatButtonColorsForState(
+            colors, FlatButtonTone::Neutral, FlatButtonAppearance::Flat, FlatButtonState::Normal);
         const QRectF outer = QRectF(rect()).adjusted(0.5, 1.5, -0.5, -1.5);
         painter.setPen(Qt::NoPen);
+        painter.setBrush(normalColors.background); // 容器保留原表面底，各段常态不重复覆盖它。
+        painter.drawRoundedRect(outer, 4.0, 4.0);
 
         // 逐段画底与文字：先裁剪到外框圆角，避免首尾段的底色溢出圆角。
         QPainterPath clip;
@@ -236,22 +236,27 @@ namespace ks::ui
             // 禁用段不画悬停高亮：它点不了，高亮会误导成"可点"。
             const bool hovered = (index == m_hover) && segmentEnabled;
 
-            // 单段禁用保留淡选中提示但不冒充可点击状态，焦点只强调当前可用段。
-            QColor plate = segmentEnabled ? surface : disabledSurface;
+            // 只传语义状态：checked 覆盖 hover，disabled 最后优先，不混入另一份配色算法。
+            FlatButtonState state = FlatButtonState::Normal;
+            if (hovered || (selected && hasFocus()))
+            {
+                state = FlatButtonState::Hover;
+            }
             if (selected)
             {
-                plate = segmentEnabled ? (hasFocus() ? accent.lighter(112) : accent)
-                    : KswordTheme::BlendColors(disabledSurface, accent, 32);
+                state = FlatButtonState::Checked;
             }
-            else if (hovered)
+            if (!segmentEnabled)
             {
-                plate = darkSurface ? surface.lighter(125) : surface.darker(108);
+                state = FlatButtonState::Disabled;
             }
-            plate.setAlpha(255);
-            painter.fillRect(segment, plate);
-            const QColor ink = KswordTheme::EnsureTextContrast(
-                segmentEnabled ? text : disabledText, plate, segmentEnabled ? 4.5 : 3.0);
-            painter.setPen(ink);
+            const FlatButtonStateColors segmentColors = FlatButtonColorsForState(
+                colors, FlatButtonTone::Neutral, FlatButtonAppearance::Flat, state);
+            if (!segmentColors.transparent)
+            {
+                painter.fillRect(segment, segmentColors.background);
+            }
+            painter.setPen(segmentColors.foreground);
             painter.drawText(segment, Qt::AlignCenter, m_labels[index]);
         }
         painter.restore();

@@ -1,5 +1,6 @@
 #include "StructuredFieldView.h"
 #include "../Internationalization/LanguageManager.h"
+#include "ThemeBinding.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -251,6 +252,8 @@ namespace ks::ui
         auto* toolbar = new QHBoxLayout;
         toolbar->setSpacing(6);
         m_search = new QLineEdit(this);
+        // 结构属性树搜索是结果过滤，不属于代码编辑器查找/替换输入。
+        BindSearchFieldTheme(m_search);
         m_search->setClearButtonEnabled(true);
         m_search->setMinimumWidth(0);
         m_search->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);

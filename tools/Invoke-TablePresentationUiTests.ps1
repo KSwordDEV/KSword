@@ -28,7 +28,7 @@ try {
     $tableObjects = @()
     foreach ($tableSource in @('tools/table_presentation_ui_tests.cpp',
         'Ksword5.1/Ksword5.1/UI/TablePresentation.cpp',
-        'Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.cpp',
+        'Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.cpp', 'Ksword5.1/Ksword5.1/UI/FlatButtonTheme.cpp', 'Ksword5.1/Ksword5.1/UI/ThemeBinding.cpp',
         'Ksword5.1/Ksword5.1/UI/ThemeControlGlyphs.cpp',
         'Ksword5.1/Ksword5.1/UI/ThemeStatusRole.cpp')) {
         $tableObject = Join-Path $tableOutput (([IO.Path]::GetFileNameWithoutExtension($tableSource)) + '.o')

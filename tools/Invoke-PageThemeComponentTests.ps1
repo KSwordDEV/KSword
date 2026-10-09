@@ -22,7 +22,7 @@ foreach ($testPart in @('ucrt', 'um')) {
 }
 Push-Location $testRoot
 try {
-    & $testCompiler /nologo /std:c++17 /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W4 /WX /O2 /external:W0 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE /DNOMINMAX @testIncludeArgs tools/page_theme_component_tests.cpp Ksword5.1/Ksword5.1/UI/FlatButtonTheme.cpp Ksword5.1/Ksword5.1/UI/FloatingScrollbars.cpp Ksword5.1/Ksword5.1/UI/ThemeBinding.cpp Ksword5.1/Ksword5.1/UI/SmoothScrollSupport.cpp Ksword5.1/Ksword5.1/UI/ThemeAccentIcon.cpp Ksword5.1/Ksword5.1/UI/SvgThemeIconManager.cpp /Fooutput/ /Feoutput/page_theme_component_tests.exe /link /INCREMENTAL:NO @testLibArgs Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib Qt6OpenGL.lib Qt6OpenGLWidgets.lib Qt6Svg.lib
+    & $testCompiler /nologo /std:c++17 /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W4 /WX /O2 /external:W0 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE /DNOMINMAX @testIncludeArgs tools/page_theme_component_tests.cpp tools/page_theme_regression_fixtures.cpp Ksword5.1/Ksword5.1/UI/FlatButtonTheme.cpp Ksword5.1/Ksword5.1/UI/FloatingScrollbars.cpp Ksword5.1/Ksword5.1/UI/ThemeBinding.cpp Ksword5.1/Ksword5.1/UI/SmoothScrollSupport.cpp Ksword5.1/Ksword5.1/UI/ThemeAccentIcon.cpp Ksword5.1/Ksword5.1/UI/SvgThemeIconManager.cpp Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.cpp Ksword5.1/Ksword5.1/UI/ThemeStatusRole.cpp Ksword5.1/Ksword5.1/UI/ThemeControlGlyphs.cpp /Fooutput/ /Feoutput/page_theme_component_tests.exe /link /INCREMENTAL:NO @testLibArgs Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib Qt6OpenGL.lib Qt6OpenGLWidgets.lib Qt6Svg.lib
     if ($LASTEXITCODE -ne 0) { throw 'Page theme fixture compilation failed.' }
     # DLL 和平台插件只影响此次测试；所有显示窗口都使用 DontShowOnScreen。
     $testOldPath = $env:PATH

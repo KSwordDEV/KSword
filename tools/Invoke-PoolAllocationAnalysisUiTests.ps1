@@ -27,7 +27,7 @@ try {
         'tools/pool_allocation_analysis_ui_tests.cpp',
         "$sourceRoot/MemoryDock/PoolAllocationAnalysisWidget.cpp",
         "$sourceRoot/UI/FlowLayout.cpp",
-        "$sourceRoot/UI/CodeEditorWidget.cpp", "$sourceRoot/UI/CodeTextEdit.cpp", "$sourceRoot/UI/CodeEditorFileSession.cpp", "$sourceRoot/UI/StructuredFieldView.cpp", "$sourceRoot/UI/TypedSyntaxDocument.cpp", "$sourceRoot/UI/ThemeControlGlyphs.cpp", "$sourceRoot/UI/ThemeStatusRole.cpp", "$sourceRoot/UI/SmoothScrollSupport.cpp", $poolMoc, $poolFieldMoc,
+        "$sourceRoot/UI/CodeEditorWidget.cpp", "$sourceRoot/UI/CodeTextEdit.cpp", "$sourceRoot/UI/CodeEditorFileSession.cpp", "$sourceRoot/UI/StructuredFieldView.cpp", "$sourceRoot/UI/TypedSyntaxDocument.cpp", "$sourceRoot/UI/ThemeControlGlyphs.cpp", "$sourceRoot/UI/ThemeStatusRole.cpp", "$sourceRoot/UI/SmoothScrollSupport.cpp", "$sourceRoot/UI/FlatButtonTheme.cpp", "$sourceRoot/UI/ThemeBinding.cpp", "$sourceRoot/UI/ThemeAccentIcon.cpp", $poolMoc, $poolFieldMoc,
         "$sourceRoot/Internationalization/LanguageManager.cpp",
         'shared/evidence/PoolAllocationAnalysis.cpp',
         "-L$qt/lib", '-lQt6Widgets', '-lQt6Gui', '-lQt6Core', '-lQt6Test', '-lQt6Svg', '-luser32', '-ladvapi32',

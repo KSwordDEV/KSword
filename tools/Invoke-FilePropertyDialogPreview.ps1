@@ -69,7 +69,7 @@ try {
     $previewObjects = @()
     foreach ($previewUnit in @('tools/file_property_dialog_preview.cpp',
         'Ksword5.1/Ksword5.1/UI/UIBaseFunction.cpp',
-        'Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.cpp',
+        'Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.cpp', 'Ksword5.1/Ksword5.1/UI/FlatButtonTheme.cpp',
         'Ksword5.1/Ksword5.1/UI/TablePresentation.cpp',
         'Ksword5.1/Ksword5.1/UI/ThemeControlGlyphs.cpp',
         'Ksword5.1/Ksword5.1/UI/ThemeStatusRole.cpp',
@@ -80,7 +80,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Production shell fixture compilation failed: $previewUnit" }
         $previewObjects += $previewObject
     }
-    foreach ($previewShared in @('StructuredFieldView.o', 'moc_StructuredFieldView.o', 'LanguageManager.o')) {
+    foreach ($previewShared in @('StructuredFieldView.o', 'moc_StructuredFieldView.o', 'LanguageManager.o', 'ThemeBinding.o')) {
         $previewObjects += Join-Path $previewRepository "work/file-property-view-ui-tests/$previewShared"
     }
     $previewLanguages = Join-Path $previewOutput 'languages'

@@ -1,6 +1,7 @@
 
 #include "KernelDock.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ThemeBinding.h"
 #include "../UI/ThemeAccentIcon.h"
 #include "../UI/ThemeItemForeground.h"
 
@@ -991,6 +992,8 @@ void KernelDock::initializeObjectNamespaceTab()
     KswordTheme::ApplyCompactIconButtonMetrics(m_refreshObjectNamespaceButton);
 
     m_objectNamespaceFilterEdit = new QLineEdit(m_objectNamespaceOverviewPage);
+    // 命名空间树的专用文本过滤保持原树与过滤信号。
+    ks::ui::BindSearchFieldTheme(m_objectNamespaceFilterEdit);
     m_objectNamespaceFilterEdit->setPlaceholderText(kernelText("kernel.main.object_namespace.filter.placeholder", QStringLiteral("按根目录/目录路径/对象名/对象类型/状态筛选")));
     m_objectNamespaceFilterEdit->setToolTip(kernelText("kernel.main.object_namespace.filter.tooltip", QStringLiteral("输入关键字后实时过滤对象命名空间树")));
     m_objectNamespaceFilterEdit->setClearButtonEnabled(true);

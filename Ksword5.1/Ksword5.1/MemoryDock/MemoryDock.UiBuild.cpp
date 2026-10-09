@@ -3,6 +3,7 @@
 #include "DdmaPage.h"
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll / IsolateMinimumSize：页内滚动壳与最小尺寸隔离。
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ThemeBinding.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QCompleter> // 进程下拉的包含式补全需要完整类型。
@@ -629,6 +630,8 @@ void MemoryDock::initializeProcessModuleTab()
     m_processFilterEdit->setPlaceholderText("按进程名或 PID 过滤");
     m_processFilterEdit->setClearButtonEnabled(true);
     m_processFilterEdit->setStyleSheet(buildBlueInputStyle());
+    // 进程专用搜索保留具体提示和原输入几何，只接管无线框底面及文字对比度。
+    ks::ui::BindSearchFieldTheme(m_processFilterEdit);
     processTopBarLayout->addWidget(m_processFilterEdit, 1);
 
     m_processCountLabel = new QLabel(processPanel);
@@ -689,6 +692,8 @@ void MemoryDock::initializeProcessModuleTab()
     m_moduleFilterEdit = new QLineEdit(modulePanel);
     m_moduleFilterEdit->setPlaceholderText("按模块路径过滤关键字");
     m_moduleFilterEdit->setStyleSheet(buildBlueInputStyle());
+    // 模块表为 QTreeWidget，不走通用 QTableView 识别，需明确登记同一搜索主题。
+    ks::ui::BindSearchFieldTheme(m_moduleFilterEdit);
     moduleTopBarLayout->addWidget(m_moduleFilterEdit, 1);
 
     m_moduleStatusLabel = new QLabel("● 待刷新", modulePanel);
@@ -752,6 +757,8 @@ void MemoryDock::initializeMemoryRegionTab()
         QIcon(QStringLiteral(":/Icon/process_refresh.svg")), "刷新区域", m_tabRegions);
     m_regionRefreshButton->setToolTip("重新枚举当前附加进程的内存区域");
     m_regionFilterEdit = new QLineEdit(m_tabRegions);
+    // 区域结果过滤与扫描值/范围地址输入分开登记。
+    ks::ui::BindSearchFieldTheme(m_regionFilterEdit);
     m_regionFilterEdit->setPlaceholderText("按基址、保护属性或映射文件路径过滤");
     m_regionFilterEdit->setClearButtonEnabled(true);
     m_regionFilterEdit->setToolTip("输入关键字后只显示匹配的区域行");

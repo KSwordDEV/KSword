@@ -1,6 +1,7 @@
 #include "../UI/StructuredFieldView.h"
 #include "KernelCallbackMonitorWidget.h"
 #include "../UI/CodeEditorWidget.h"
+#include "../UI/ThemeBinding.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/TableInteractionSupport.h"
@@ -619,6 +620,12 @@ void KernelCallbackMonitorWidget::initializeUi()
     filterLayout->addWidget(new QLabel(QStringLiteral("结果"), filterPanel), 1, 4);
     m_resultFilterEdit = new QLineEdit(filterPanel);
     m_resultFilterEdit->setPlaceholderText(QStringLiteral("NTSTATUS 十六进制"));
+    // 这些 PID/路径/状态字段均为结果表的文本过滤，保留原匹配语义与提示。
+    for (QLineEdit* field : {m_operationFilterEdit, m_pidFilterEdit, m_processFilterEdit,
+        m_pathFilterEdit, m_resultFilterEdit})
+    {
+        ks::ui::BindSearchFieldTheme(field);
+    }
     filterLayout->addWidget(m_resultFilterEdit, 1, 5);
     m_regexCheck = new QCheckBox(QStringLiteral("正则"), filterPanel);
     m_keepBottomCheck = new QCheckBox(QStringLiteral("保持贴底"), filterPanel);

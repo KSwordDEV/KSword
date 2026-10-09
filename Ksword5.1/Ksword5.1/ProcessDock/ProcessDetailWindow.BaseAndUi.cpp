@@ -1,5 +1,6 @@
 ﻿#include "ProcessDetailWindow.InternalCommon.h"
 #include "../UI/FlatButtonTheme.h"
+#include "../UI/ThemeBinding.h"
 #include "ProcessAffinityUtils.h"
 #include "ProcessAffinityPersistence.h"
 #include "ThreadAffinityMenu.h"
@@ -5284,6 +5285,8 @@ void ProcessDetailWindow::initializeModuleTab()
     m_moduleTopBarLayout->addWidget(m_injectionTraceDeepButton);
     m_moduleTopBarLayout->addWidget(m_signatureCheckBox);
     m_moduleFilterEdit = new QLineEdit(m_moduleTab);
+    // 模块树专用文本过滤，颜色绑定不改变原来的过滤信号和尺寸。
+    ks::ui::BindSearchFieldTheme(m_moduleFilterEdit);
     m_moduleFilterEdit->setClearButtonEnabled(true);
     m_moduleFilterEdit->setPlaceholderText(ks::i18n::sourceText(
         QStringLiteral("按模块路径过滤关键字")));
@@ -5952,6 +5955,7 @@ void ProcessDetailWindow::initializeKernelCallbackTab()
     topBarLayout->addWidget(m_refreshKernelCallbackButton);
 
     m_kernelCallbackFilterEdit = new QLineEdit(m_kernelCallbackTab);
+    ks::ui::BindSearchFieldTheme(m_kernelCallbackFilterEdit);
     m_kernelCallbackFilterEdit->setClearButtonEnabled(true);
     m_kernelCallbackFilterEdit->setPlaceholderText(ks::i18n::sourceText(
         QStringLiteral("按索引/回调名称/地址/模块/保护属性/状态筛选")));

@@ -1,5 +1,6 @@
 #include "../UI/StructuredFieldView.h"
 #include "../UI/FlatButtonTheme.h"
+#include "../UI/ThemeBinding.h"
 #include "RegistryOptimizationPage.h"
 #include "RegistryOptimizationTransactions.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
@@ -958,6 +959,8 @@ void RegistryOptimizationPage::initializeUi()
     presetButtonLayout->addWidget(m_columnPresetBButton);
 
     m_filterEdit = new QLineEdit(this);
+    // 优化项/分组结果过滤共用此字段，不改变原有去抖和列预设。
+    ks::ui::BindSearchFieldTheme(m_filterEdit);
     m_filterEdit->setPlaceholderText(QStringLiteral("过滤组名、项目名、作用域或条件"));
     m_filterEdit->setStyleSheet(QStringLiteral(
         "QLineEdit{border:1px solid %1;border-radius:3px;background:transparent;/* %2 */color:%3;padding:3px 6px;}"

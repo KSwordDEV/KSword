@@ -1,5 +1,6 @@
 #include "ProcessTraceMonitorWidget.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ThemeBinding.h"
 #include "../UI/ThemeStatusRole.h"
 #include "../UI/ThemeAccentIcon.h"
 
@@ -433,6 +434,12 @@ void ProcessTraceMonitorWidget::initializeUi()
     m_eventGlobalFilterEdit = new QLineEdit(m_filterPanel);
     m_eventGlobalFilterEdit->setPlaceholderText(QStringLiteral("对整行文本做统一过滤"));
     m_eventGlobalFilterEdit->setStyleSheet(blueInputStyle());
+    // 结果表的五个文本过滤与采集目标/Provider 配置分开，只接管已确认的过滤输入。
+    for (QLineEdit* field : {m_eventProviderFilterEdit, m_eventProcessFilterEdit,
+        m_eventNameFilterEdit, m_eventDetailFilterEdit, m_eventGlobalFilterEdit})
+    {
+        ks::ui::BindSearchFieldTheme(field);
+    }
     filterLayout->addWidget(m_eventGlobalFilterEdit, 1, 5, 1, 3);
 
     m_eventRegexCheck = new QCheckBox(QStringLiteral("正则"), m_filterPanel);
