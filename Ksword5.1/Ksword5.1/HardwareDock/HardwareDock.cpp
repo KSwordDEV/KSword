@@ -128,22 +128,6 @@
 
 namespace
 {
-    void applyUtilizationScrollBarStyle(QAbstractScrollArea* list, const double scale)
-    {
-        if (list == nullptr || list->verticalScrollBar() == nullptr) return;
-        const int width = std::clamp(qRound(10.0 * scale), 6, 24);
-        const int radius = std::max(2, width / 2 - 1);
-        const int minimumLength = std::max(16, qRound(28.0 * scale));
-        list->verticalScrollBar()->setStyleSheet(QStringLiteral(
-            "QScrollBar:vertical{border:none;background:transparent;width:%1px;margin:2px 1px;}"
-            "QScrollBar::handle:vertical{background:palette(midlight);border:none;"
-            "border-radius:%2px;min-height:%3px;}"
-            "QScrollBar::handle:vertical:hover{background:palette(highlight);}"
-            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0px;border:none;}"
-            "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:transparent;}"
-        ).arg(width).arg(radius).arg(minimumLength));
-    }
-
     // hardwareR0QueryMutex 用途：
     // - 串行化 HardwareDock 内的健康快照与设备审计 IOCTL；
     // - 避免自动刷新和快速切页同时向同一驱动设备提交大体积查询。
@@ -3659,7 +3643,6 @@ namespace
                 copy->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
                 copy->setSpacing(2);
                 copy->setMinimumWidth(140);
-                applyUtilizationScrollBarStyle(copy, 1.0);
                 m_sidebarSource = list;
                 m_sidebarCopy = copy;
                 connect(copy, &QListWidget::currentRowChanged, copy,
@@ -4610,7 +4593,6 @@ void HardwareDock::initializeUtilizationTab()
             "QListWidget::item{border:none;padding:0px;margin:0px;}"
             "QListWidget::item:selected{background:transparent;}"));
     appendTransparentBackgroundStyle(m_utilizationSidebarList);
-    applyUtilizationScrollBarStyle(m_utilizationSidebarList, 1.0);
     m_utilizationBodySplitter->addWidget(m_utilizationSidebarList);
 
     m_utilizationDetailStack = new QStackedWidget(m_utilizationBodySplitter);
@@ -5706,14 +5688,12 @@ void HardwareDock::applyUtilizationFloatingContentScale(const bool forceRestyle)
         && m_utilizationSidebarList != nullptr)
     {
         m_utilizationSidebarList->setMinimumWidth(std::max(1, scaledPx(140)));
-        applyUtilizationScrollBarStyle(m_utilizationSidebarList, scale);
         syncUtilizationSidebarCardWidths();
     }
     else
     {
         if (page == m_virtualNetworkPage)
         {
-            applyUtilizationScrollBarStyle(m_virtualNetworkScrollArea, scale);
             relayoutVirtualNetworkTiles();
         }
         adjustUtilizationChartHeights();
@@ -5791,11 +5771,6 @@ void HardwareDock::restoreUtilizationFloatingContentScale()
         && m_utilizationSidebarList != nullptr)
     {
         m_utilizationSidebarList->setMinimumWidth(140);
-        applyUtilizationScrollBarStyle(m_utilizationSidebarList, 1.0);
-    }
-    if (page == m_virtualNetworkPage)
-    {
-        applyUtilizationScrollBarStyle(m_virtualNetworkScrollArea, 1.0);
     }
     m_utilizationFloatingWidgetStyles.clear();
     m_utilizationFloatingLayoutStyles.clear();
@@ -7662,7 +7637,6 @@ void HardwareDock::ensureVirtualNetworkPage()
     m_virtualNetworkScrollArea->setWidgetResizable(true);
     m_virtualNetworkScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_virtualNetworkScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    applyUtilizationScrollBarStyle(m_virtualNetworkScrollArea, 1.0);
     configureCompressibleWidget(m_virtualNetworkScrollArea, QSizePolicy::Ignored, QSizePolicy::Expanding);
     appendTransparentBackgroundStyle(m_virtualNetworkScrollArea);
     pageLayout->addWidget(m_virtualNetworkScrollArea, 1);

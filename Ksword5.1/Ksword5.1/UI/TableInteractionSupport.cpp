@@ -709,6 +709,8 @@ namespace
             m_snapshotLayout->setSpacing(2);
             m_snapshotScrollArea->setWidget(m_snapshotContent);
             layout->addWidget(m_snapshotScrollArea, 1);
+            connect(m_snapshotScrollArea->horizontalScrollBar(), &QScrollBar::rangeChanged,
+                this, [this]() { scheduleSnapshotLayout(); });
 
             m_addSnapshotButton = createButton("增加快照");
             m_cleanupButton = createButton("清理");
@@ -862,6 +864,9 @@ namespace
         void changeEvent(QEvent* eventObject) override
         {
             QFrame::changeEvent(eventObject);
+            if (eventObject != nullptr && m_snapshotScrollArea != nullptr
+                && (eventObject->type() == QEvent::FontChange || eventObject->type() == QEvent::StyleChange))
+                scheduleSnapshotLayout();
             if (eventObject == nullptr || eventObject->type() != QEvent::LanguageChange)
             {
                 return;
@@ -914,15 +919,17 @@ namespace
                 return;
             }
 
+            updateSnapshotContentSize();
+            const bool actionBarVisible = m_mode != TableActionBarMode::None;
+            auto* host = ks::ui::TableActionBarHostFor(m_table.data());
+            if (host != nullptr) host->setTopActionBarHeight(actionBarVisible ? height() : 0);
             // 冻结窗格会改变视口边距，操作条位置依赖那个结果，所以必须先刷新冻结窗格。
             if (m_frozenPaneController != nullptr)
             {
                 m_frozenPaneController->refreshGeometry();
             }
-            if (ks::ui::TableActionBarHost* host = ks::ui::TableActionBarHostFor(m_table.data()))
+            if (host != nullptr)
             {
-                const bool actionBarVisible = m_mode != TableActionBarMode::None;
-                host->setTopActionBarHeight(actionBarVisible ? kActionBarHeight : 0);
                 setVisible(actionBarVisible);
                 if (actionBarVisible)
                 {
@@ -1623,9 +1630,17 @@ namespace
             }
             m_snapshotLayout->addStretch(1);
             updateSnapshotContentSize();
+            scheduleSnapshotLayout();
+        }
+
+        void scheduleSnapshotLayout()
+        {
+            if (m_snapshotLayoutPending) return;
+            m_snapshotLayoutPending = true;
             QTimer::singleShot(0, this, [this]()
                 {
-                    updateSnapshotContentSize();
+                    m_snapshotLayoutPending = false;
+                    updatePosition();
                 });
         }
 
@@ -1642,12 +1657,24 @@ namespace
             QSize desiredSize = m_snapshotLayout->sizeHint().expandedTo(
                 m_snapshotLayout->minimumSize());
             desiredSize.setWidth(std::max(1, desiredSize.width()));
+            const bool needsHorizontalBar = m_mode == TableActionBarMode::Full
+                && !m_snapshotButtons.isEmpty()
+                && desiredSize.width() > m_snapshotScrollArea->viewport()->width();
+            const int horizontalBarHeight = needsHorizontalBar
+                ? std::max(0, m_snapshotScrollArea->horizontalScrollBar()->sizeHint().height()) : 0;
+            const int frameHeight = m_snapshotScrollArea->frameWidth() * 2;
+            const int stripHeight = std::max(kActionBarHeight - 4,
+                desiredSize.height() + horizontalBarHeight + frameHeight);
+            if (m_snapshotScrollArea->height() != stripHeight) m_snapshotScrollArea->setFixedHeight(stripHeight);
+            const QMargins margins = layout()->contentsMargins();
+            const int barHeight = m_mode == TableActionBarMode::Full
+                ? std::max(kActionBarHeight, stripHeight + margins.top() + margins.bottom()) : kActionBarHeight;
+            if (height() != barHeight) setFixedHeight(barHeight);
             desiredSize.setHeight(std::max(
                 desiredSize.height(),
-                m_snapshotScrollArea->viewport()->height()));
-            m_snapshotContent->setMinimumSize(desiredSize);
-            m_snapshotContent->resize(desiredSize);
-            m_snapshotContent->updateGeometry();
+                stripHeight - horizontalBarHeight - frameHeight));
+            if (m_snapshotContent->minimumSize() != desiredSize) m_snapshotContent->setMinimumSize(desiredSize);
+            if (m_snapshotContent->size() != desiredSize) m_snapshotContent->resize(desiredSize);
         }
 
         void selectSnapshot(const quint64 sequence, const bool checked)
@@ -2306,6 +2333,7 @@ namespace
         bool m_snapshotCaptureInProgress = false;
         bool m_comparisonInProgress = false;
         bool m_pauseCaptureInProgress = false;
+        bool m_snapshotLayoutPending = false;
         TableActionBarMode m_mode = TableActionBarMode::Full;
         QToolButton* m_copyAllButton = nullptr;
         QToolButton* m_exportButton = nullptr;

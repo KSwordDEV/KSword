@@ -195,12 +195,6 @@ namespace network_dock_detail
                 "  height:1px;"
                 "  background:%4;"
                 "  margin:2px 6px;"
-                "}"
-                "QScrollBar:vertical,QScrollBar:horizontal{"
-                "  background:%3;"
-                "}"
-                "QScrollBar::handle:vertical,QScrollBar::handle:horizontal{"
-                "  background:%7;"
                 "}")
                 .arg(windowBackground)
                 .arg(textColor)

@@ -198,48 +198,6 @@ const QString QSS_MainWindow_dockStyle = R"(
         border-color: palette(highlight);
     }
 
-    QScrollBar:vertical {
-        background-color: palette(window);
-        width: 12px;
-        margin: 0px;
-        border: none;
-    }
-
-    QScrollBar::handle:vertical {
-        background-color: palette(highlight);
-        min-height: 20px;
-        border-radius: 2px;
-    }
-
-    QScrollBar::handle:vertical:hover {
-        background-color: palette(highlight);
-    }
-
-    QScrollBar:horizontal {
-        background-color: palette(window);
-        height: 12px;
-        margin: 0px;
-        border: none;
-    }
-
-    QScrollBar::handle:horizontal {
-        background-color: palette(highlight);
-        min-width: 20px;
-        border-radius: 2px;
-    }
-
-    QScrollBar::handle:horizontal:hover {
-        background-color: palette(highlight);
-    }
-
-    QScrollBar::add-line,
-    QScrollBar::sub-line,
-    QScrollBar::add-page,
-    QScrollBar::sub-page {
-        background: transparent;
-        border: none;
-    }
-
     QTableCornerButton::section {
         background-color: transparent;
         border: none;

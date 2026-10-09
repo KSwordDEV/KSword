@@ -749,8 +749,6 @@ bool WriteSettings(const InstallOptions& o, std::wstring* log) {
          << "    \"startup_window_scale_factor\": 1.0,\n"
          << "    \"startup_scale_recommend_prompt_disabled\": false,\n"
          << "    \"unlocker_shell_context_menu_enabled\": false,\n"
-         << "    \"use_wide_scroll_bars\": false,\n"
-         << "    \"scroll_bar_auto_hide_enabled\": false,\n"
          << "    \"slider_wheel_adjust_enabled\": false\n"
          << "}\n";
     const std::string data = json.str();
