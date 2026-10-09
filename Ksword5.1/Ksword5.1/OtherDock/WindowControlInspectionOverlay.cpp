@@ -1,6 +1,7 @@
 #include "WindowControlInspectionOverlay.h"
 #include "WindowListInteraction.h"
 #include "../Internationalization/LanguageManager.h"
+#include "../theme.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <QRegion>
@@ -129,10 +130,10 @@ namespace ks::control_inspection
                     std::set<std::tuple<quintptr, int, int, int, int>> painted;
                     for (const auto& node : nodes)
                         if (painted.emplace(reinterpret_cast<quintptr>(node.host), node.bounds.x(), node.bounds.y(),
-                            node.bounds.width(), node.bounds.height()).second) draw(node, 75, 1, Qt::SolidLine, false);
+                            node.bounds.width(), node.bounds.height()).second) draw(node, 180, 3, Qt::SolidLine, false);
                 }
-                draw(selected, 200, 2, Qt::DashLine, false);
-                draw(hovered, 240, 2, Qt::SolidLine, true);
+                draw(selected, 235, 4, Qt::DashLine, false);
+                draw(hovered, 255, 4, Qt::SolidLine, true);
                 if (!tips || hovered.id.isEmpty() || hovered.offscreen) return;
                 const QStringList lines{hovered.name.isEmpty() ? T("<无名称>") : hovered.name,
                     hovered.type, T("位置：%1, %2　大小：%3 × %4").arg(hovered.bounds.x()).arg(hovered.bounds.y())
@@ -155,8 +156,13 @@ namespace ks::control_inspection
                 position.setX(std::max(canvas.left(), std::min(position.x(), canvas.right() - width)));
                 position.setY(std::max(canvas.top(), std::min(position.y(), canvas.bottom() - height)));
                 const QRectF card(position, QSizeF(width, height));
-                painter.setPen(QPen(accent, 1)); painter.setBrush(palette().color(QPalette::Active, QPalette::Base));
-                painter.drawRoundedRect(card, 4, 4); painter.setPen(palette().color(QPalette::Active, QPalette::Text));
+                // Transparent application palettes are valid for the main
+                // window, but must never make this information card transparent.
+                QColor background = KswordTheme::SurfaceColor(); background.setAlpha(255);
+                QColor text = KswordTheme::EnsureTextContrast(KswordTheme::TextPrimaryColor(), background);
+                text.setAlpha(255);
+                painter.setPen(QPen(accent, 2)); painter.setBrush(background);
+                painter.drawRoundedRect(card, 4, 4); painter.setPen(text);
                 qreal y = card.top() + 10;
                 for (const auto& line : lines) {
                     painter.drawText(QRectF(card.left() + 12, y, card.width() - 24, metrics.height()),

@@ -199,10 +199,28 @@ static void run()
         const auto ordinary = overlay->grab().toImage();
         require(ordinary.rect().contains(inside) && ordinary.pixelColor(inside).alpha() == 0,
             "Ordinary controls have no fill, preventing nested-container tint accumulation");
+        const QPoint innerBorder(buttonNode.bounds.left() + 1 - offset.x(), inside.y());
+        require(ordinary.pixelColor(innerBorder).alpha() >= 160,
+            "Ordinary outline remains visible one physical pixel inside the edge");
         ci::UpdateOverlay(overlay, {buttonNode}, buttonNode, {}, true, false, {});
         const auto hovered = overlay->grab().toImage();
         require(hovered.pixelColor(inside).alpha() >= 15 && hovered.pixelColor(inside).alpha() <= 40,
             "Hovered control has a faint independent fill");
+        const QPalette originalPalette = overlay->palette();
+        QPalette transparentPalette = originalPalette;
+        transparentPalette.setColor(QPalette::Base, Qt::transparent);
+        overlay->setPalette(transparentPalette);
+        ci::UpdateOverlay(overlay, {buttonNode}, buttonNode, {}, true, true, buttonNode.bounds.center());
+        const auto card = overlay->grab().toImage();
+        const qreal scale = overlay->devicePixelRatioF();
+        const QPoint backgroundProbe = inside + QPoint(qRound(24 * scale), qRound(28 * scale));
+        require(card.rect().contains(backgroundProbe) && card.pixelColor(backgroundProbe).alpha() == 255,
+            "Hover card stays opaque when the application's Base palette is transparent");
+        require(card.copy(QRect(inside + QPoint(qRound(12 * scale), qRound(16 * scale)),
+            QSize(qRound(400 * scale), qRound(150 * scale))).intersected(card.rect()))
+                .save(".codex-build-logs/control-inspection-tests/hover-card.png"), "Save readable hover-card preview");
+        overlay->setPalette(originalPalette);
+        ci::UpdateOverlay(overlay, {buttonNode}, buttonNode, {}, true, false, {});
         HWND occluder = ::CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW, L"STATIC", L"Occluder",
             WS_POPUP | WS_VISIBLE, buttonNode.bounds.center().x() - 10, buttonNode.bounds.center().y() - 10,
             20, 20, nullptr, nullptr, type.hInstance, nullptr);
