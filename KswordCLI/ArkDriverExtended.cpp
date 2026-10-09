@@ -181,7 +181,7 @@ namespace
             (result.io.win32Error == ERROR_FILE_NOT_FOUND || result.io.win32Error == ERROR_PATH_NOT_FOUND))
             std::wcerr << L"hint: run 'sc start KswordARK' for an installed service, "
                        << L"or run Launcher.exe / Ksword5.1.exe as administrator to load the driver.\n";
-        return result.io.ok;
+        return result.io.ok && result.io.ntStatus >= 0;
     }
 
     void printBytes(const std::vector<std::uint8_t>& bytes, const std::size_t limit)
@@ -381,6 +381,8 @@ namespace
         {
             if (result.unsupported) return 5;
         }
+        const auto status = static_cast<std::uint32_t>(result.io.ntStatus);
+        if (status == 0xC00000BBU || status == 0xC0000002U || status == 0xC000007AU) return 5;
         return 3;
     }
 }

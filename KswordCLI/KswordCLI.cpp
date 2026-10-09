@@ -78,6 +78,15 @@ namespace
     constexpr std::size_t kMaxHexBytes = 256U;
     DWORD lastIoctlError = ERROR_SUCCESS;
     DWORD lastOpenError = ERROR_SUCCESS;
+    int responseFailureRc = 0;
+
+    // Transport success does not imply that the operation in the packet succeeded.
+    int operationStatusRc(long status)
+    {
+        const auto value = static_cast<std::uint32_t>(status);
+        if (value == 0xC00000BBU || value == 0xC0000002U || value == 0xC000007AU) return 5;
+        return status < 0 || value == 0x102U ? 3 : 0;
+    }
 
     // IoctlResult mirrors the Win32 DeviceIoControl completion state.
     // Inputs: fields are assigned by sendIoctl after each kernel request.
@@ -751,6 +760,8 @@ namespace
     // Returns: no value.
     void reportFixedResponse(std::uint32_t version, std::uint32_t status, long lastStatus, DWORD bytesReturned)
     {
+        const int failure = operationStatusRc(lastStatus);
+        if (failure != 0) responseFailureRc = failure;
         std::wcout << L"version=" << version
                    << L" status=" << status
                    << L" lastStatus=0x" << std::hex << static_cast<unsigned long>(lastStatus)
@@ -772,6 +783,8 @@ namespace
     // Returns: no value.
     void reportFixedStatus(std::uint32_t version, std::uint32_t status, long lastStatus)
     {
+        const int failure = operationStatusRc(lastStatus);
+        if (failure != 0) responseFailureRc = failure;
         std::wcout << L"version=" << version
                    << L" status=" << status
                    << L" lastStatus=0x" << std::hex << static_cast<unsigned long>(lastStatus)
@@ -8553,6 +8566,7 @@ int wmain(int argc, wchar_t* argv[])
     try
     {
         const int rc = dispatchCommand(argc, argv);
+        if (rc == 0 && responseFailureRc != 0) return responseFailureRc;
         // Fixed-response handlers return 3 on transport failure; audit handlers
         // already return 5 for an unsupported IOCTL. Keep both paths consistent.
         if (rc == 3 && lastOpenError != ERROR_SUCCESS) return 2;
