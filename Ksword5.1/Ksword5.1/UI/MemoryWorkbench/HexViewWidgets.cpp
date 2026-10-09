@@ -275,59 +275,46 @@ namespace ks::ui
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing, true);
 
-        // 本次绘制用到的主题色，全部现取。
-        const QColor surface = KswordTheme::SurfaceAltColor();
-        const QColor accent = KswordTheme::PrimaryAccentColor();
-        const QColor border = KswordTheme::BorderColor();
-        const QColor text = KswordTheme::TextPrimaryColor();
-        const QColor textSecondary = KswordTheme::TextSecondaryColor();
-        const QColor disabledText = KswordTheme::TextDisabledColor();
+        // 自绘按钮与普通工具按钮采用同样的实心状态底色，尺寸/菜单仍由原控件管理。
+        const QPalette colors = parentWidget() != nullptr ? parentWidget()->palette() : palette();
+        QColor surface = colors.color(QPalette::Active, QPalette::Button);
+        surface.setAlpha(255);
+        const QColor accent = colors.color(QPalette::Active, QPalette::Highlight);
+        const QColor text = colors.color(QPalette::Active, QPalette::ButtonText);
+        const QColor disabledText = colors.color(QPalette::Disabled, QPalette::ButtonText);
+        const bool darkSurface = KswordTheme::RelativeLuminance(surface) < 0.25;
 
-        // 底板：选中用强调色混合，按下更深，悬停用边框色轻混合，平时透明（露出条带底色）。
         const QRectF plate = QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5);
-        QColor plateColor = Qt::transparent;
-        if (isChecked())
+        QColor plateColor = surface;
+        if (!isEnabled())
         {
-            plateColor = KswordTheme::BlendColors(surface, accent, isDown() ? 130 : 95);
+            plateColor = colors.color(QPalette::Disabled, QPalette::Button);
+        }
+        else if (isChecked())
+        {
+            plateColor = accent;
         }
         else if (isDown())
         {
-            plateColor = KswordTheme::BlendColors(surface, border, 160);
+            plateColor = darkSurface ? surface.lighter(145) : surface.darker(120);
         }
-        else if (underMouse() && isEnabled())
+        else if (underMouse() || hasFocus())
         {
-            plateColor = KswordTheme::BlendColors(surface, border, 110);
+            // 与公共按钮一致，焦点通过悬停实色底反馈而不追加轮廓。
+            plateColor = darkSurface ? surface.lighter(125) : surface.darker(108);
         }
+        plateColor.setAlpha(255);
         painter.setPen(Qt::NoPen);
         painter.setBrush(plateColor);
         painter.drawRoundedRect(plate, 4.0, 4.0);
 
-        // 选中时再描一圈强调色细边：色弱情况下也能靠轮廓分辨当前状态。
-        if (isChecked())
-        {
-            painter.setPen(QPen(accent, 1.0));
-            painter.setBrush(Qt::NoBrush);
-            painter.drawRoundedRect(plate, 4.0, 4.0);
-        }
-
-        // 键盘焦点环：只在拥有焦点时画，虚线强调色。
-        if (hasFocus())
-        {
-            painter.setPen(QPen(accent, 1.0, Qt::DotLine));
-            painter.setBrush(Qt::NoBrush);
-            painter.drawRoundedRect(plate.adjusted(1.5, 1.5, -1.5, -1.5), 3.0, 3.0);
-        }
-
-        // 图形墨色：禁用灰；选中时对底板做对比度校准；其余主文字色。
-        QColor ink = text;
-        if (!isEnabled())
-        {
-            ink = disabledText;
-        }
-        else if (isChecked())
-        {
-            ink = KswordTheme::EnsureTextContrast(accent, plateColor.alpha() > 0 ? plateColor : surface);
-        }
+        // 每一种实际底色都校准图形前景，禁用时仍保持可辨认而不冒充可操作状态。
+        const QColor normalInk = KswordTheme::EnsureTextContrast(text, surface, 4.5);
+        const QColor preferredInk = !isEnabled() ? disabledText
+            : (isChecked() ? colors.color(QPalette::Active, QPalette::HighlightedText) : normalInk);
+        const QColor ink = KswordTheme::EnsureTextContrast(
+            preferredInk, plateColor, isEnabled() ? 4.5 : 3.0);
+        const QColor secondaryInk = ink;
 
         // 图形位置：左内边距 6，垂直居中；有徽标或菜单时图形靠左，其余居中。
         const bool hasBadge = !m_badge.isEmpty();
@@ -345,7 +332,7 @@ namespace ks::ui
             badgeFont.setPixelSize(std::max(9, QFontMetrics(font()).height() - 4));
             badgeFont.setBold(true);
             painter.setFont(badgeFont);
-            painter.setPen(isEnabled() ? textSecondary : disabledText);
+            painter.setPen(secondaryInk);
             const QRectF badgeRect(
                 box.right() + 2.0,
                 0.0,
@@ -360,7 +347,7 @@ namespace ks::ui
             const qreal arrowX = static_cast<qreal>(width()) - 8.0;
             const qreal arrowY = static_cast<qreal>(height()) / 2.0;
             painter.setPen(Qt::NoPen);
-            painter.setBrush(isEnabled() ? textSecondary : disabledText);
+            painter.setBrush(secondaryInk);
             painter.drawPolygon(QPolygonF({
                 QPointF(arrowX - 2.5, arrowY - 1.2),
                 QPointF(arrowX + 2.5, arrowY - 1.2),

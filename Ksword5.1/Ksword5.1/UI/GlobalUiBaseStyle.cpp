@@ -1,4 +1,5 @@
 #include "GlobalUiBaseStyle.h"
+#include "./FlatButtonTheme.h"
 
 #include "ThemeStatusRole.h"
 
@@ -264,6 +265,7 @@ namespace ks::ui
         baseControlStyle.replace(
             QStringLiteral("__ON_ACCENT_PRESSED__"),
             KswordTheme::OnAccentHex(KswordTheme::ControlAccentPressedColor()));
-        return baseControlStyle;
+        // 默认控件仅获得按钮状态基线；业务本地几何与语义色仍由逐页接入负责。
+        return baseControlStyle + BuildFlatButtonStyle(FlatButtonTone::Neutral);
     }
 }

@@ -23,6 +23,7 @@ $fixtureSources = @(
     'Ksword5.1\Ksword5.1\UI\DockThemeIcons.cpp',
     'Ksword5.1\Ksword5.1\UI\ThemeColorRemap.cpp',
     'Ksword5.1\Ksword5.1\UI\ThemeBinding.cpp',
+    'Ksword5.1\Ksword5.1\UI\FlatButtonTheme.cpp',
     'Ksword5.1\Ksword5.1\UI\PerformanceChartTheme.cpp',
     'shared\ui\KsPainterChart.cpp'
 ) | ForEach-Object { Join-Path $testRepository $_ }

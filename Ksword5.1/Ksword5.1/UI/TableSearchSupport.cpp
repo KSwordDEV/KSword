@@ -1,4 +1,5 @@
 #include "TableSearchSupport.h"
+#include "./FlatButtonTheme.h"
 
 #include "GlobalUiSearch.h"
 #include "../Internationalization/LanguageManager.h"
@@ -654,14 +655,10 @@ namespace
                 "QLineEdit{background:%1;color:%2;border:1px solid %3;border-radius:3px;padding:0 6px;}"
                 "QLineEdit:focus{border-color:%4;}"
 
-                "QToolButton{background:transparent;color:%2;border:1px solid transparent;border-radius:3px;}"
-                "QToolButton:hover{background:%5;border-color:%4;}" )
-                .arg(
-                    KswordTheme::SurfaceHex(),
-                    KswordTheme::TextPrimaryHex(),
-                    KswordTheme::BorderStrongHex(),
-                    KswordTheme::PrimaryBlueHex,
-                    KswordTheme::SurfaceAltHex()));
+                "QToolButton{border-radius:3px;}" )
+                .arg(KswordTheme::SurfaceHex(), KswordTheme::TextPrimaryHex(),
+                    KswordTheme::BorderStrongHex(), KswordTheme::PrimaryBlueHex)
+                + ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral));
             show();
             raise();
         }

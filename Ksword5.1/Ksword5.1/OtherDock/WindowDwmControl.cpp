@@ -1862,8 +1862,8 @@ namespace ks::window::dwmctl
             // 描边取 palette(mid)：写死的半透明黑在深色主题下会和底色糊成一片，
             // 选到深色时连按钮边界都看不出来。
             row.colorButton->setStyleSheet(
-                QStringLiteral("QPushButton{background:%1;border:1px solid %2;border-radius:4px; }")
-                    .arg(row.customColor.name(QColor::HexRgb), KswordTheme::BorderHex()));
+                QStringLiteral("QPushButton{background:%1;border:0;border-radius:4px; }")
+                    .arg(row.customColor.name(QColor::HexRgb)));
             row.colorButton->setToolTip(row.customColor.name(QColor::HexRgb).toUpper());
         }
 
@@ -1874,8 +1874,8 @@ namespace ks::window::dwmctl
                 return;
             }
             m_accentColorButton->setStyleSheet(
-                QStringLiteral("QPushButton{background:%1;border:1px solid %2;border-radius:4px; }")
-                    .arg(m_accentColor.name(QColor::HexRgb), KswordTheme::BorderHex()));
+                QStringLiteral("QPushButton{background:%1;border:0;border-radius:4px; }")
+                    .arg(m_accentColor.name(QColor::HexRgb)));
             m_accentColorButton->setToolTip(m_accentColor.name(QColor::HexRgb).toUpper());
         }
 

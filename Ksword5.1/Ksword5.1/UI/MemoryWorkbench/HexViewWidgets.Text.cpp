@@ -204,24 +204,23 @@ namespace ks::ui
         return -1;
     }
 
-    // 绘制：外框 + 各段（选中段强调色底、悬停段轻底）+ 文字。
+    // 绘制：各段实心主题底色、选中/焦点反馈与对比度校准文字。
     void HexViewSegmented::paintEvent(QPaintEvent* event)
     {
         Q_UNUSED(event);
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing, true);
 
-        // 本次绘制的主题色，全部现取。
-        const QColor surface = KswordTheme::SurfaceAltColor();
-        const QColor accent = KswordTheme::PrimaryAccentColor();
-        const QColor border = KswordTheme::BorderStrongColor();
-        const QColor text = KswordTheme::TextPrimaryColor();
-        const QColor disabledText = KswordTheme::TextDisabledColor();
-
-        // 外框：整体圆角矩形，段与段之间画竖分隔线。
+        // 分段控件是互斥按钮组：每段常态实心，选中/焦点用强调底而不画轮廓。
+        const QPalette colors = parentWidget() != nullptr ? parentWidget()->palette() : palette();
+        const QColor surface = colors.color(QPalette::Active, QPalette::Button);
+        const QColor accent = colors.color(QPalette::Active, QPalette::Highlight);
+        const QColor text = colors.color(QPalette::Active, QPalette::ButtonText);
+        const QColor disabledText = colors.color(QPalette::Disabled, QPalette::ButtonText);
+        const QColor disabledSurface = colors.color(QPalette::Disabled, QPalette::Button);
+        const bool darkSurface = KswordTheme::RelativeLuminance(surface) < 0.25;
         const QRectF outer = QRectF(rect()).adjusted(0.5, 1.5, -0.5, -1.5);
-        painter.setPen(QPen(border, 1.0));
-        painter.setBrush(Qt::NoBrush);
+        painter.setPen(Qt::NoPen);
 
         // 逐段画底与文字：先裁剪到外框圆角，避免首尾段的底色溢出圆角。
         QPainterPath clip;
@@ -237,52 +236,28 @@ namespace ks::ui
             // 禁用段不画悬停高亮：它点不了，高亮会误导成"可点"。
             const bool hovered = (index == m_hover) && segmentEnabled;
 
-            // 底色：选中 = 强调色混合（禁用的选中段权重减半，看得出"选中但不可用"），悬停 = 边框色轻混合，其余透明。
-            QColor plate = Qt::transparent;
+            // 单段禁用保留淡选中提示但不冒充可点击状态，焦点只强调当前可用段。
+            QColor plate = segmentEnabled ? surface : disabledSurface;
             if (selected)
             {
-                plate = KswordTheme::BlendColors(surface, accent, segmentEnabled ? 110 : 50);
+                plate = segmentEnabled ? (hasFocus() ? accent.lighter(112) : accent)
+                    : KswordTheme::BlendColors(disabledSurface, accent, 32);
             }
             else if (hovered)
             {
-                plate = KswordTheme::BlendColors(surface, border, 90);
+                plate = darkSurface ? surface.lighter(125) : surface.darker(108);
             }
-            if (plate.alpha() > 0)
-            {
-                painter.fillRect(segment, plate);
-            }
-
-            // 文字：禁用灰；选中对底色做对比度校准；其余主文字色。
-            QColor ink = text;
-            if (!segmentEnabled)
-            {
-                ink = disabledText;
-            }
-            else if (selected)
-            {
-                ink = KswordTheme::EnsureTextContrast(text, plate);
-            }
+            plate.setAlpha(255);
+            painter.fillRect(segment, plate);
+            const QColor ink = KswordTheme::EnsureTextContrast(
+                segmentEnabled ? text : disabledText, plate, segmentEnabled ? 4.5 : 3.0);
             painter.setPen(ink);
             painter.drawText(segment, Qt::AlignCenter, m_labels[index]);
         }
         painter.restore();
 
-        // 分隔线：相邻段之间一条竖线。
-        painter.setPen(QPen(border, 1.0));
-        for (int index = 1; index < m_labels.size(); ++index)
-        {
-            const int x = segmentRect(index).left();
-            painter.drawLine(QPointF(x + 0.5, outer.top()), QPointF(x + 0.5, outer.bottom()));
-        }
+        // 原尺寸、裁剪和键盘选择不变，按钮组不再绘制外框/焦点虚线。
 
-        // 外框线与键盘焦点环。
-        painter.setBrush(Qt::NoBrush);
-        painter.drawRoundedRect(outer, 4.0, 4.0);
-        if (hasFocus())
-        {
-            painter.setPen(QPen(accent, 1.0, Qt::DotLine));
-            painter.drawRoundedRect(outer.adjusted(1.5, 1.5, -1.5, -1.5), 3.0, 3.0);
-        }
     }
 
     // 鼠标点击：命中某段就切换到它。

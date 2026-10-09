@@ -1,4 +1,5 @@
 #include "WindowGlobalHotkeyTab.h"
+#include "../UI/FlatButtonTheme.h"
 
 #include "../Framework.h"
 #include "../Internationalization/LanguageManager.h"
@@ -178,7 +179,7 @@ void WindowGlobalHotkeyTab::initializeUi()
     m_refreshButton = new QPushButton(
         allHotkeyText("window.global_hotkey.refresh", QStringLiteral("刷新全部热键")),
         this);
-    m_refreshButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+    m_refreshButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
     m_filterEdit = new QLineEdit(this);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(allHotkeyText(

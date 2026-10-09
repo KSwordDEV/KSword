@@ -1,4 +1,5 @@
 #include "ScannerDock.h"
+#include "../UI/FlatButtonTheme.h"
 
 #include "Internationalization/LanguageManager.h"
 #include "ksword/scanner/binary_scanner.h"
@@ -432,19 +433,11 @@ QWidget* ScannerDock::createStructuredTablePage(
     auto buttons = std::make_shared<std::vector<QPointer<QPushButton>>>(); // buttons：可安全失效的列组按钮。
 
     // activeStyle/inactiveStyle：当前预设使用主题强调色；自定义显隐时全部取消着色。
-    const QString activeStyle = QStringLiteral(
-        "QPushButton { background:%1; color:%2; border:1px solid %1; padding:3px 10px; }")
-        .arg(
-            KswordTheme::AccentHex(KswordTheme::AccentRole::Blue),
-            KswordTheme::OnAccentDynamicHex()); // activeStyle：激活预设的样式。
-    const QString inactiveStyle = QStringLiteral(
-        "QPushButton { background:%1; color:%2; border:1px solid %3; padding:3px 10px; }"
-        "QPushButton:hover { background:%4; }")
-        .arg(
-            KswordTheme::SurfaceHex(),
-            KswordTheme::TextPrimaryHex(),
-            KswordTheme::BorderHex(),
-            KswordTheme::SurfaceAltHex()); // inactiveStyle：未选中或自定义布局样式。
+    // A/B/C 的强调状态仍由列预设决定；自定义布局保持中性实心底色。
+    const QString activeStyle = ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Accent)
+        + QStringLiteral("QPushButton{padding:3px 10px;}");
+    const QString inactiveStyle = ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+        + QStringLiteral("QPushButton{padding:3px 10px;}");
 
     for (int groupIndex = 0; groupIndex < groupCount; ++groupIndex)
     {

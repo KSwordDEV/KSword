@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/CodeTextEdit.h"
 #include "../UI/VisibleTableWidget.h"
 #include "NetworkFirewallPage.h"
@@ -54,18 +55,26 @@ void NetworkDock::initializeTrafficMonitorTab()
     m_monitorControlLayout->setSpacing(6);
 
     m_startMonitorButton = new QPushButton(m_trafficMonitorPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_startMonitorButton, ks::ui::FlatButtonTone::Accent);
     m_startMonitorButton->setIcon(QIcon(":/Icon/process_start.svg"));
     m_startMonitorButton->setToolTip(QStringLiteral("启动网络流量监控"));
 
     m_stopMonitorButton = new QPushButton(m_trafficMonitorPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_stopMonitorButton, ks::ui::FlatButtonTone::Neutral);
     m_stopMonitorButton->setIcon(QIcon(":/Icon/process_pause.svg"));
     m_stopMonitorButton->setToolTip(QStringLiteral("停止网络流量监控"));
 
     m_clearPacketButton = new QPushButton(m_trafficMonitorPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_clearPacketButton, ks::ui::FlatButtonTone::Neutral);
     m_clearPacketButton->setIcon(QIcon(":/Icon/log_clear.svg"));
     m_clearPacketButton->setToolTip(QStringLiteral("清空当前流量列表"));
 
     m_networkPluginButton = new QPushButton(QStringLiteral("插件"), m_trafficMonitorPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_networkPluginButton, ks::ui::FlatButtonTone::Neutral);
     m_networkPluginButton->setIcon(QIcon(":/Icon/process_start.svg"));
     m_networkPluginButton->setToolTip(QStringLiteral("运行声明支持网络目标的独立插件"));
     m_networkPluginMenu = new QMenu(m_networkPluginButton);
@@ -89,6 +98,8 @@ void NetworkDock::initializeTrafficMonitorTab()
     m_monitorFilterHeaderLayout->setSpacing(6);
 
     m_monitorFilterToggleButton = new QPushButton(m_trafficMonitorPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_monitorFilterToggleButton, ks::ui::FlatButtonTone::Neutral);
     m_monitorFilterToggleButton->setCheckable(true);
     m_monitorFilterToggleButton->setChecked(false);
     m_monitorFilterToggleButton->setIcon(QIcon(":/Icon/filter_funnel.svg"));
@@ -98,26 +109,38 @@ void NetworkDock::initializeTrafficMonitorTab()
     filterTitleLabel->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
 
     m_addMonitorFilterGroupButton = new QPushButton(QStringLiteral("新增规则组"), m_trafficMonitorPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_addMonitorFilterGroupButton, ks::ui::FlatButtonTone::Neutral);
     m_addMonitorFilterGroupButton->setIcon(QIcon(":/Icon/plus.svg"));
     m_addMonitorFilterGroupButton->setToolTip(QStringLiteral("新增一个 OR 规则组"));
 
     m_applyMonitorFilterButton = new QPushButton(QStringLiteral("应用"), m_trafficMonitorPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_applyMonitorFilterButton, ks::ui::FlatButtonTone::Accent);
     m_applyMonitorFilterButton->setIcon(QIcon(":/Icon/log_track.svg"));
     m_applyMonitorFilterButton->setToolTip(QStringLiteral("应用当前全部规则组过滤条件"));
 
     m_saveMonitorFilterButton = new QPushButton(QStringLiteral("保存"), m_trafficMonitorPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_saveMonitorFilterButton, ks::ui::FlatButtonTone::Accent);
     m_saveMonitorFilterButton->setIcon(QIcon(":/Icon/codeeditor_save.svg"));
     m_saveMonitorFilterButton->setToolTip(QStringLiteral("保存到 exe 目录下 config/wireshark.cfg"));
 
     m_importMonitorFilterButton = new QPushButton(QStringLiteral("导入"), m_trafficMonitorPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_importMonitorFilterButton, ks::ui::FlatButtonTone::Neutral);
     m_importMonitorFilterButton->setIcon(QIcon(":/Icon/codeeditor_open.svg"));
     m_importMonitorFilterButton->setToolTip(QStringLiteral("从配置文件导入规则组"));
 
     m_exportMonitorFilterButton = new QPushButton(QStringLiteral("导出"), m_trafficMonitorPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_exportMonitorFilterButton, ks::ui::FlatButtonTone::Neutral);
     m_exportMonitorFilterButton->setIcon(QIcon(":/Icon/log_export.svg"));
     m_exportMonitorFilterButton->setToolTip(QStringLiteral("导出当前规则组到配置文件"));
 
     m_clearMonitorFilterButton = new QPushButton(QStringLiteral("一键清空"), m_trafficMonitorPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_clearMonitorFilterButton, ks::ui::FlatButtonTone::Danger);
     m_clearMonitorFilterButton->setIcon(QIcon(":/Icon/log_clear.svg"));
     m_clearMonitorFilterButton->setToolTip(QStringLiteral("清空全部规则组配置"));
 
@@ -249,14 +272,20 @@ void NetworkDock::initializeRateLimitTab()
     m_rateLimitSuspendMsSpin->setToolTip(QStringLiteral("超限后挂起时长"));
 
     m_applyRateLimitButton = new QPushButton(m_rateLimitPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_applyRateLimitButton, ks::ui::FlatButtonTone::Accent);
     m_applyRateLimitButton->setIcon(QIcon(":/Icon/process_priority.svg"));
     m_applyRateLimitButton->setToolTip(QStringLiteral("新增或更新限速规则"));
 
     m_removeRateLimitButton = new QPushButton(m_rateLimitPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_removeRateLimitButton, ks::ui::FlatButtonTone::Danger);
     m_removeRateLimitButton->setIcon(QIcon(":/Icon/log_clear.svg"));
     m_removeRateLimitButton->setToolTip(QStringLiteral("删除选中的限速规则"));
 
     m_clearRateLimitButton = new QPushButton(m_rateLimitPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_clearRateLimitButton, ks::ui::FlatButtonTone::Danger);
     m_clearRateLimitButton->setIcon(QIcon(":/Icon/log_clear.svg"));
     m_clearRateLimitButton->setToolTip(QStringLiteral("清空全部限速规则"));
 
@@ -330,20 +359,28 @@ void NetworkDock::initializeConnectionManageTab()
     m_connectionControlLayout->setSpacing(6);
 
     m_refreshConnectionButton = new QPushButton(m_connectionManagePage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_refreshConnectionButton, ks::ui::FlatButtonTone::Neutral);
     m_refreshConnectionButton->setIcon(QIcon(":/Icon/process_start.svg"));
     m_refreshConnectionButton->setToolTip(QStringLiteral("立即刷新 TCP/UDP 连接快照"));
 
     m_autoRefreshConnectionButton = new QPushButton(m_connectionManagePage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_autoRefreshConnectionButton, ks::ui::FlatButtonTone::Neutral);
     m_autoRefreshConnectionButton->setCheckable(true);
     m_autoRefreshConnectionButton->setChecked(true);
     m_autoRefreshConnectionButton->setIcon(QIcon(":/Icon/process_pause.svg"));
     m_autoRefreshConnectionButton->setToolTip(QStringLiteral("自动刷新已开启，点击暂停"));
 
     m_terminateTcpButton = new QPushButton(m_connectionManagePage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_terminateTcpButton, ks::ui::FlatButtonTone::Danger);
     m_terminateTcpButton->setIcon(QIcon(":/Icon/process_terminate.svg"));
     m_terminateTcpButton->setToolTip(QStringLiteral("终止当前选中的 TCP 连接（DELETE_TCB）"));
 
     m_clearConnectionPidFilterButton = new QPushButton(m_connectionManagePage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_clearConnectionPidFilterButton, ks::ui::FlatButtonTone::Neutral);
     m_clearConnectionPidFilterButton->setIcon(QIcon(":/Icon/log_clear.svg"));
     m_clearConnectionPidFilterButton->setToolTip(QStringLiteral("清除进程页跳转带入的 PID 筛选"));
     m_clearConnectionPidFilterButton->setEnabled(false);
@@ -653,10 +690,14 @@ void NetworkDock::initializeManualRequestTab()
     QHBoxLayout* actionButtonLayout = new QHBoxLayout();
 
     m_manualExecuteButton = new QPushButton(QStringLiteral("执行请求"), actionGroup);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_manualExecuteButton, ks::ui::FlatButtonTone::Accent);
     m_manualExecuteButton->setIcon(QIcon(":/Icon/process_start.svg"));
     m_manualExecuteButton->setToolTip(QStringLiteral("按上方参数立即执行一次网络请求。"));
 
     m_manualResetButton = new QPushButton(QStringLiteral("恢复默认参数"), actionGroup);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_manualResetButton, ks::ui::FlatButtonTone::Neutral);
     m_manualResetButton->setIcon(QIcon(":/Icon/log_clear.svg"));
     m_manualResetButton->setToolTip(QStringLiteral("重置请求构造页全部参数。"));
 

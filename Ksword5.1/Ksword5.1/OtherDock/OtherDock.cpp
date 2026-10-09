@@ -1,4 +1,5 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/FlatButtonTheme.h"
 #include "OtherDock.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../Framework/DestructiveActionConfirmation.h"
@@ -103,7 +104,7 @@ namespace
     // 统一按钮样式：与全局蓝色主题保持一致，避免界面风格割裂。
     QString blueButtonStyle()
     {
-        return KswordTheme::ThemedButtonStyle();
+        return ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}");
     }
 
     // 统一输入框样式：过滤框、下拉框、数值输入用同一套视觉反馈。
@@ -1688,6 +1689,7 @@ private:
         m_styleApplyButton->setToolTip(QStringLiteral("应用当前样式位勾选状态"));
         m_styleRefreshButton->setStyleSheet(blueButtonStyle());
         m_styleApplyButton->setStyleSheet(blueButtonStyle());
+        ks::ui::ApplyFlatButtonTheme(m_styleApplyButton, ks::ui::FlatButtonTone::Accent);
         KswordTheme::ApplyCompactIconButtonMetrics(m_styleRefreshButton);
         KswordTheme::ApplyCompactIconButtonMetrics(m_styleApplyButton);
         styleActionLayout->addWidget(styleHintLabel, 1);

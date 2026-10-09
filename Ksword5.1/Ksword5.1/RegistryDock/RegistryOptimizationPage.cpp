@@ -1,4 +1,5 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/FlatButtonTheme.h"
 #include "RegistryOptimizationPage.h"
 #include "RegistryOptimizationTransactions.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
@@ -1526,14 +1527,9 @@ void RegistryOptimizationPage::applyColumnPreset(const ColumnPreset preset)
 void RegistryOptimizationPage::refreshColumnPresetButtonStyles()
 {
     const QString inactiveStyle = KswordTheme::ThemedButtonStyle();
-    const QString activeStyle = QStringLiteral(
-        "QPushButton{background:%1;color:palette(highlighted-text);border:1px solid %2;border-radius:3px;padding:3px 8px;font-weight:700;}"
-        "QPushButton:hover{background:%3;}"
-        "QPushButton:pressed{background:%4;}").arg(
-            KswordTheme::PrimaryBlueHex,
-            KswordTheme::PrimaryBlueBorderHex,
-            KswordTheme::PrimaryBlueActiveHex,
-            KswordTheme::PrimaryBluePressedHex);
+    // 列预设使用实心主题强调，业务自定义显隐仍解除 A/B 高亮。
+    const QString activeStyle = ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Accent)
+        + QStringLiteral("QPushButton{border-radius:3px;padding:3px 8px;font-weight:700;}");
 
     if (m_columnPresetAButton != nullptr)
     {

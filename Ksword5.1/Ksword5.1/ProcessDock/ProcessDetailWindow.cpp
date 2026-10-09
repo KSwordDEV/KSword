@@ -1,4 +1,5 @@
 #include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/DetailDialogChrome.h"
 
 // ============================================================
@@ -47,7 +48,7 @@ namespace process_detail_window_internal
     // 统一按钮样式全部走动态主题角色，详情窗口开着时切换深浅色也会跟随。
     QString buildBlueButtonStyle()
     {
-        return KswordTheme::ThemedButtonStyle();
+        return ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}");
     }
 
     QString buildProcessDetailRootStyle()

@@ -1,3 +1,4 @@
+#include "../UI/FlatButtonTheme.h"
 #include "CustomTitleBar.h"
 #include "../UI/ThemeBinding.h"
 
@@ -796,7 +797,7 @@ namespace ks::ui
             "  background:transparent;"
             "  color:%5;"
             "  border:none;"
-            "  border-right:1px solid %6;"
+
             "  border-top-left-radius:2px;"
             "  border-bottom-left-radius:2px;"
             "  padding:0 7px;"
@@ -848,6 +849,14 @@ namespace ks::ui
             .replace(QStringLiteral("__TITLE_CLOSE_HOVER__"), KswordTheme::AccentHex(KswordTheme::AccentRole::Red, 53, 27))
             .replace(QStringLiteral("__TITLE_CLOSE_PRESSED__"), KswordTheme::AccentHex(KswordTheme::AccentRole::Red, 30, 4));
         setStyleSheet(titleBarStyleSheetText);
+        // 标题栏六个功能控件逐项接入纯色规则，保留输入组边框、按钮尺寸与窗口信号。
+        // 子按钮自己的样式优先于标题栏的背景兜底，图标也能取得相同的真实状态底色。
+        ks::ui::ApplyFlatButtonTheme(m_inputModeButton);
+        for (QPushButton* button : {m_captureProtectionButton, m_pinButton, m_minButton, m_maxButton})
+        {
+            ks::ui::ApplyFlatButtonTheme(button);
+        }
+        ks::ui::ApplyFlatButtonTheme(m_closeButton, ks::ui::FlatButtonTone::Danger);
 
     }
 

@@ -1,4 +1,5 @@
 #pragma once
+#include "./FlatButtonTheme.h"
 
 // 只共享详情外框；页面、模型、索引和业务动作继续由原控件持有。
 #include "../theme.h"
@@ -19,8 +20,6 @@ namespace ks::ui
 {
     inline QString BuildDetailDialogChromeStyle(const QString& rootObjectName = QString())
     {
-        const QColor selected = KswordTheme::BlendColors(
-            KswordTheme::SurfaceColor(), KswordTheme::ControlAccentColor(), 44);
         QString style = QStringLiteral(
             "QWidget[ksword_detail_shell=\"true\"]{background:%1;color:%2;border:0;}"
             "QWidget[ksword_detail_shell=\"true\"] QTabWidget::pane{background:%1;border:0;padding:0;margin:0;}"
@@ -31,14 +30,10 @@ namespace ks::ui
             "QWidget[ksword_detail_shell=\"true\"] QGroupBox{background:%1;border:0;border-radius:0;margin-top:8px;padding-top:6px;}"
             "QWidget[ksword_detail_shell=\"true\"] QGroupBox::title{subcontrol-origin:margin;left:0;padding:0 6px 0 0;color:%2;}"
             "QWidget[ksword_detail_shell=\"true\"] QWidget[ksword_detail_sidebar=\"true\"],QWidget[ksword_detail_shell=\"true\"] QScrollArea[ksword_detail_sidebar=\"true\"],QWidget[ksword_detail_shell=\"true\"] QScrollArea[ksword_detail_sidebar=\"true\"] > QWidget,QWidget[ksword_detail_shell=\"true\"] QScrollArea[ksword_detail_sidebar=\"true\"] > QWidget > QWidget{background:%3;border:0;padding:0;margin:0;}"
-            "QWidget[ksword_detail_shell=\"true\"] QWidget[ksword_detail_sidebar=\"true\"] QToolButton{background:transparent;color:%2;border:0;border-radius:7px;padding:8px;text-align:left;}"
-            "QWidget[ksword_detail_shell=\"true\"] QWidget[ksword_detail_sidebar=\"true\"] QToolButton:checked{background:%4;color:%5;}"
-            "QWidget[ksword_detail_shell=\"true\"] QWidget[ksword_detail_sidebar=\"true\"] QToolButton:hover:!checked{background:%4;}"
-            "QWidget[ksword_detail_shell=\"true\"] QWidget[ksword_detail_sidebar=\"true\"] QToolButton:disabled{color:%6;}"
-            "QWidget[ksword_detail_shell=\"true\"] QWidget#ks_detail_footer{background:%1;border:0;border-top:1px solid %7;}")
+            "QWidget[ksword_detail_shell=\"true\"] QWidget[ksword_detail_sidebar=\"true\"] QToolButton{border-radius:7px;padding:8px;text-align:left;}"
+            "QWidget[ksword_detail_shell=\"true\"] QWidget#ks_detail_footer{background:%1;border:0;border-top:1px solid %4;}")
             .arg(KswordTheme::SurfaceHex(), KswordTheme::TextPrimaryHex(), KswordTheme::SurfaceAltHex(),
-                selected.name(), KswordTheme::EnsureTextContrast(KswordTheme::TextPrimaryColor(), selected).name(),
-                KswordTheme::TextDisabledColor().name(), KswordTheme::BorderHex());
+                KswordTheme::BorderHex());
         if (!rootObjectName.isEmpty())
             style.replace(QStringLiteral("QWidget[ksword_detail_shell=\"true\"]"),
                 QStringLiteral("QWidget#%1[ksword_detail_shell=\"true\"]").arg(rootObjectName));
@@ -144,6 +139,8 @@ namespace ks::ui
                 {
                     auto* button = new QToolButton(m_navigation);
                     button->setCheckable(true);
+                    // 详情导航只接管按钮颜色，不改变 tab 索引、checked、可见性或图标。
+                    ApplyFlatButtonTheme(button, FlatButtonTone::Neutral);
                     button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
                     button->setIconSize(QSize(18, 18));
                     button->setMinimumHeight(38);

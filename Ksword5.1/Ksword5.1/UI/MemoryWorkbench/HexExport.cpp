@@ -1,4 +1,5 @@
 // HexExport.cpp
+#include "../FlatButtonTheme.h"
 // 作用：HexExport.h 的实现——转储格式化、写文件、保存路径对话框与错误框。
 
 #include "HexExport.h"
@@ -182,19 +183,12 @@ namespace ks::ui::hexexport
         QMessageBox box(QMessageBox::Warning, QStringLiteral("导出失败"), reason, QMessageBox::Ok, parent);
         box.setAttribute(Qt::WA_TranslucentBackground, false);
         box.setAutoFillBackground(true);
+        // 错误对话框保持不透明面板；确认按钮保留原 padding，改用实心中性样式。
         box.setStyleSheet(QStringLiteral(
-            "QMessageBox{background-color:%1;}"
-            "QMessageBox QLabel{color:%2;background-color:transparent;}"
-            "QMessageBox QPushButton{background-color:%3;color:%2;border:1px solid %4;padding:4px 14px;}"
-            "QMessageBox QPushButton:hover{background-color:%5;color:%6;}"
-            "QMessageBox QPushButton:disabled{color:%7;}")
-            .arg(KswordTheme::SurfaceColorHex())
-            .arg(KswordTheme::TextPrimaryColorHex())
-            .arg(KswordTheme::SurfaceAltColorHex())
-            .arg(KswordTheme::BorderColorHex())
-            .arg(KswordTheme::ThemeColorName(KswordTheme::PrimaryAccentColor()))
-            .arg(KswordTheme::OnAccentHex())
-            .arg(KswordTheme::TextDisabledColorHex()));
+            "QMessageBox{background-color:palette(base);}"
+            "QMessageBox QLabel{color:palette(text);background-color:transparent;}"
+            "QMessageBox QPushButton{padding:4px 14px;}")
+            + ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral));
         box.exec();
     }
 }

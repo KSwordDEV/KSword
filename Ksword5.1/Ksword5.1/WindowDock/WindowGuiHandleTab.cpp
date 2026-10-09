@@ -1,4 +1,5 @@
 #include "WindowGuiHandleTab.h"
+#include "../UI/FlatButtonTheme.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/TableInteractionSupport.h"
@@ -555,7 +556,7 @@ void WindowGuiHandleTab::initializeUi()
     m_refreshButton = new QPushButton(
         guiHandleText("window.gui_handle.refresh", QStringLiteral("刷新 GUI 句柄")),
         this);
-    m_refreshButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+    m_refreshButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
     m_typeFilterCombo = new QComboBox(this);
     m_typeFilterCombo->addItem(guiHandleText("window.gui_handle.filter.all", QStringLiteral("全部类型")), -1);
     m_typeFilterCombo->addItem(QStringLiteral("Window"), 1);

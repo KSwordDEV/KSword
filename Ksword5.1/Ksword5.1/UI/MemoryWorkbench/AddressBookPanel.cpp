@@ -1,4 +1,5 @@
 // AddressBookPanel.cpp
+#include "../FlatButtonTheme.h"
 // 作用：AddressBookPanel.h 声明的实现——UI 装配、列组切换、kind 分段、键盘/双击行为、
 // previewCopyText/selectedIds 等查询方法，以及两个内部辅助类
 // （detail::AddressBookTableView、detail::ValueColumnDelegate）的实现。
@@ -68,18 +69,10 @@ namespace ks::ui
             const QString outerRadius = leftButton
                 ? QStringLiteral("border-top-left-radius:3px;border-bottom-left-radius:3px;")
                 : QStringLiteral("border-top-right-radius:3px;border-bottom-right-radius:3px;border-left:0px;");
-            return QStringLiteral(
-                "QPushButton{min-width:27px;max-width:27px;min-height:26px;max-height:26px;padding:0px;font-weight:700;"
-                "color:%1;background:%2;border:1px solid %3;border-radius:0px;%4}"
-                "QPushButton:hover:!checked{background:%5;color:%1;}"
-                "QPushButton:checked{background:%6;color:%7;border-color:%6;}")
-                .arg(KswordTheme::TextPrimaryHex())
-                .arg(KswordTheme::SurfaceHex())
-                .arg(KswordTheme::BorderHex())
-                .arg(outerRadius)
-                .arg(KswordTheme::PrimaryBlueSubtleHex())
-                .arg(KswordTheme::PrimaryBlueHex)
-                .arg(KswordTheme::OnAccentDynamicHex());
+            // 紧贴 A/B 保留固定点击区与外侧圆角，checked 状态由实心主题规则绘制。
+            return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+                + QStringLiteral("QPushButton{min-width:27px;max-width:27px;min-height:26px;max-height:26px;"
+                    "padding:0px;font-weight:700;border-radius:0px;%1}").arg(outerRadius);
         }
     }
 

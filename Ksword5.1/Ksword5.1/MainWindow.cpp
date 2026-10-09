@@ -7524,49 +7524,12 @@ void MainWindow::resetDockLayoutToDefault()
 
 QString MainWindow::buildTitleActionButtonStyle() const
 {
-    // 标题栏功能按钮样式按当前主题实时生成，避免主题切换后保留旧颜色。
-    const bool darkModeEnabled = KswordTheme::IsDarkModeEnabled();
-    const QString hoverColor = KswordTheme::RgbaColorName(
-        KswordTheme::PrimaryBlueColor,
-        darkModeEnabled ? 56 : 36);
-    const QString pressedColor = KswordTheme::RgbaColorName(
-        KswordTheme::PrimaryBlueColor,
-        darkModeEnabled ? 87 : 62);
-    const QString textColor = KswordTheme::TextPrimaryColorHex();
-    const QString borderColor = KswordTheme::RgbaColorName(
-        KswordTheme::PrimaryBlueColor,
-        darkModeEnabled ? 117 : 82);
-
-    return QStringLiteral(
-        "QToolButton{"
-        "  background:transparent !important;"
-        "  color:%1 !important;"
-        "  border:1px solid transparent !important;"
-        "  border-radius:4px;"
-        "  margin:0;"
-        "  padding:1px 5px;"
-        "  font-weight:600;"
-        "  text-align:left;"
-        "}"
-        "QToolButton:hover{"
-        "  background:%2 !important;"
-        "  color:%1 !important;"
-        "  border-color:%4 !important;"
-        "}"
-        "QToolButton:pressed{"
-        "  background:%3 !important;"
-        "  color:%1 !important;"
-        "  border-color:%4 !important;"
-        "}"
-        "QToolButton::menu-indicator{"
-        "  image:none;"
-        "  width:0;"
-        "  height:0;"
-        "}")
-        .arg(textColor)
-        .arg(hoverColor)
-        .arg(pressedColor)
-        .arg(borderColor);
+    // 标题栏功能按钮也使用不透明状态填充；保留紧凑尺寸、菜单指示与文字对齐。
+    return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+        + QStringLiteral(
+            "QToolButton{border-radius:4px;margin:0;padding:1px 5px;"
+            "font-weight:600;text-align:left;}"
+            "QToolButton::menu-indicator{image:none;width:0;height:0;}");
 }
 
 void MainWindow::refreshTitleActionButtonStyles()
@@ -9610,48 +9573,16 @@ bool MainWindow::showUnsignedDriverFailureDialog(
     continueR3Button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     continueR3Button->setMinimumHeight(42);
     continueR3Button->setStyleSheet(QStringLiteral(
-        "QPushButton{"
-        "  background:%1;"
-        "  color:%2;"
-        "  border:1px solid %1;"
-        "  border-radius:4px;"
-        "  font-weight:700;"
-        "}"
-        "QPushButton:hover{"
-        "  background:%4;"
-        "}"
-        "QPushButton:pressed{"
-        "  background:%3;"
-        "}")
-        .arg(KswordTheme::PrimaryBlueHex)
-        .arg(adaptiveTextColor)
-        .arg(KswordTheme::PrimaryBluePressedHex)
-        .arg(KswordTheme::PrimaryBlueSolidHoverHex()));
+        "QPushButton{border-radius:4px;font-weight:700;}"));
+    ks::ui::ApplyFlatButtonTheme(continueR3Button, ks::ui::FlatButtonTone::Accent);
     rootLayout->addWidget(continueR3Button);
 
     QPushButton* enableTestModeButton = new QPushButton(QStringLiteral("开启测试模式"), &decisionDialog);
     enableTestModeButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     enableTestModeButton->setMinimumHeight(42);
     enableTestModeButton->setStyleSheet(QStringLiteral(
-        "QPushButton{"
-        "  background:%1;"
-        "  color:%2;"
-        "  border:1px solid %2;"
-        "  border-radius:4px;"
-        "  font-weight:700;"
-        "}"
-        "QPushButton:hover{"
-        "  background:%3;"
-        "}"
-        "QPushButton:pressed{"
-        "  background:%4;"
-        "}")
-        .arg(KswordTheme::SurfaceHex())
-        // 文字色在 hover/pressed 时不变，底色却一路走到强调色混合底；
-        // 直接用 PrimaryBlueHex 会让高亮度强调色下的按钮文字贴到底色上。
-        .arg(KswordTheme::AccentButtonTextHex())
-        .arg(KswordTheme::PrimaryBlueSubtleHex())
-        .arg(KswordTheme::ThemeColorName(KswordTheme::PrimaryBlueSurfacePressedColor())));
+        "QPushButton{border-radius:4px;font-weight:700;}"));
+    ks::ui::ApplyFlatButtonTheme(enableTestModeButton, ks::ui::FlatButtonTone::Danger);
     rootLayout->addWidget(enableTestModeButton);
 
     bool enableTestMode = false;
@@ -12998,35 +12929,8 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
     // sharedOverlayStyle 作用：
     // - 统一 hover/pressed 与 Tab 高亮；
     // - 当前 Tab 采用反差色，避免图标与选中底色混在一起。
-    const QString buttonInteractionStyle = QStringLiteral(
-        "QPushButton,QToolButton{"
-        "  background-color:%4 !important;"
-        "  color:%5 !important;"
-        "  border:1px solid %6 !important;"
-        "}"
-        "QPushButton:hover,QToolButton:hover{"
-        "  background-color:%1 !important;"
-        "  color:%3 !important;"
-        "  border-color:%1 !important;"
-        "}"
-        "QPushButton:pressed,QToolButton:pressed{"
-        "  background-color:%2 !important;"
-        "  color:%3 !important;"
-        "  border-color:%2 !important;"
-        "}"
-        "QPushButton:disabled,QToolButton:disabled{"
-        "  background-color:%7 !important;"
-        "  color:%8 !important;"
-        "  border-color:%6 !important;"
-        "}")
-        .arg(activeThemeHoverColor)
-        .arg(activeThemePressedColor)
-        .arg(controlAccentTextColor)
-        .arg(darkModeEnabled ? surfaceAltBackgroundText : subtleThemeColor)
-        .arg(primaryTextColor)
-        .arg(borderStrongColorText)
-        .arg(surfaceMutedBackgroundText)
-        .arg(disabledTextColor);
+    const QString buttonInteractionStyle = ks::ui::BuildFlatButtonStyle(
+        ks::ui::FlatButtonTone::Neutral);
 
     // tabStyle 作用：统一普通 Tab 与 ADS Dock Tab 的颜色、边距和选中态。
     // 字号不在这里设置，保证所有 Tab 栏继承 Qt 默认应用字号。
@@ -13282,11 +13186,6 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
                 "  color:%3 !important;"
                 "  border:1px solid %4;"
                 "}"
-                "QPushButton,QToolButton{"
-                "  background-color:%2 !important;"
-                "  color:%3 !important;"
-                "  border:1px solid %5 !important;"
-                "}"
                 "QTableView,QTableWidget,QTreeView,QTreeWidget,QListView,QListWidget{"
                 "  background:%1 !important;"
                 "  alternate-background-color:%6 !important;"
@@ -13347,11 +13246,6 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
             "  background-color:%2 !important;"
             "  color:%3 !important;"
             "  border:1px solid %4;"
-            "}"
-            "QPushButton,QToolButton{"
-            "  background-color:%6 !important;"
-            "  color:%3 !important;"
-            "  border:1px solid %5 !important;"
             "}"
             "QTableView,QTableWidget,QTreeView,QTreeWidget,QListView,QListWidget{"
             "  background:%2 !important;"

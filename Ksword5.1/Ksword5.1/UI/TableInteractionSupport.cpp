@@ -1,4 +1,5 @@
 #include "TableInteractionSupport.h"
+#include "./FlatButtonTheme.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../theme.h"
@@ -594,26 +595,8 @@ namespace
                 "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QToolButton{"
                 "  min-height:20px;"
                 "  padding:2px 7px;"
-                "  color:palette(text) !important;"
-                "  background-color:transparent !important;"
-                "  border:1px solid transparent !important;"
                 "  border-radius:3px;"
                 "  font-weight:400;"
-                "}"
-                "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QToolButton:hover{"
-                "  background-color:palette(alternate-base) !important;"
-                "  border-color:transparent !important;"
-                "}"
-                "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QToolButton:pressed,"
-                "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QToolButton:checked{"
-                "  background-color:palette(highlight) !important;"
-                "  color:palette(highlighted-text) !important;"
-                "  border-color:palette(highlight) !important;"
-                "}"
-                "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QToolButton:disabled{"
-                "  color:palette(placeholder-text) !important;"
-                "  background-color:transparent !important;"
-                "  border-color:transparent !important;"
                 "}"
                 "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QScrollArea,"
                 "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QScrollArea::viewport{"
@@ -623,7 +606,7 @@ namespace
                 "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QCheckBox{"
                 "  background-color:transparent !important;"
                 "  font-weight:400;"
-                "}"));
+                "}") + ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral));
 
             auto* layout = new QHBoxLayout(this);
             layout->setContentsMargins(4, 2, 4, 2);
@@ -977,22 +960,9 @@ namespace
                         .arg(snapshot.visitedSourceRows);
             }
             button->setToolTip(tooltip);
-            button->setStyleSheet(QStringLiteral(
-                "QToolButton {"
-                "  padding: 2px 7px;"
-                "  border: 1px solid palette(mid);"
-                "  border-radius: 3px;"
-                "  background-color: transparent;"
-                "  color: palette(button-text);"
-                "}"
-                "QToolButton:hover {"
-                "  border-color: palette(highlight);"
-                "}"
-                "QToolButton:checked {"
-                "  background-color: palette(highlight);"
-                "  border-color: palette(highlight);"
-                "  color: palette(highlighted-text);"
-                "}"));
+            // 快照仍通过 checked 标识当前帧；保留紧凑工具条几何，去掉单独线框。
+            button->setStyleSheet(ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+                + QStringLiteral("QToolButton{padding:2px 7px;border-radius:3px;}"));
             return button;
         }
 

@@ -1,4 +1,7 @@
 #include "ThemeBinding.h"
+#include "../theme.h"
+#include <QAbstractSpinBox>
+#include <QLineEdit>
 
 #include <QApplication>
 #include <QEvent>
@@ -256,6 +259,63 @@ bool ks::ui::BindWidgetTheme(QWidget* widget, std::function<void()> refresh,
     return true;
 }
 
+// 数值与单位由原生编辑器维护；主题绑定只修复可见文字与实际底色的对比度。
+bool ks::ui::BindSpinBoxTheme(QAbstractSpinBox* spinBox)
+{
+    if (spinBox == nullptr)
+    {
+        return false;
+    }
+    const QPointer<QAbstractSpinBox> guardedSpin(spinBox);
+    const bool outerBound = BindWidgetTheme(spinBox, [guardedSpin]()
+    {
+        if (guardedSpin.isNull())
+        {
+            return;
+        }
+        const QColor background = KswordTheme::SurfaceColor(); // 受控表面，避免透明父级同色冲突。
+        const QColor foreground = KswordTheme::EnsureTextContrast(
+            KswordTheme::TextPrimaryColor(), background, 4.5);
+        const QString style = QStringLiteral(
+            "QAbstractSpinBox{background-color:%1;color:%2;}")
+            .arg(background.name()).arg(foreground.name());
+        if (guardedSpin->styleSheet() != style)
+        {
+            guardedSpin->setStyleSheet(style);
+        }
+    });
+
+    // 内部 QLineEdit 单独登记，旧色值补偿不会再次覆盖已经明确拥有的前景规则。
+    QLineEdit* editor = spinBox->findChild<QLineEdit*>(QStringLiteral("qt_spinbox_lineedit"));
+    if (editor == nullptr)
+    {
+        return outerBound;
+    }
+    const QPointer<QLineEdit> guardedEditor(editor);
+    const bool editorBound = BindWidgetTheme(editor, [guardedEditor]()
+    {
+        if (guardedEditor.isNull())
+        {
+            return;
+        }
+        const QColor background = KswordTheme::SurfaceColor();
+        const QColor foreground = KswordTheme::EnsureTextContrast(
+            KswordTheme::TextPrimaryColor(), background, 4.5);
+        const QColor disabledForeground = KswordTheme::EnsureTextContrast(
+            KswordTheme::TextDisabledColor(), background, 3.0);
+        const QString style = QStringLiteral(
+            "QLineEdit{background:transparent;color:%1;border:none;"
+            "selection-background-color:%2;selection-color:%3;}"
+            "QLineEdit:disabled{color:%4;}")
+            .arg(foreground.name()).arg(KswordTheme::PrimaryBlueColor.name())
+            .arg(KswordTheme::OnAccentColor().name()).arg(disabledForeground.name());
+        if (guardedEditor->styleSheet() != style)
+        {
+            guardedEditor->setStyleSheet(style);
+        }
+    });
+    return outerBound && editorBound;
+}
 bool ks::ui::HasWidgetThemeBinding(const QWidget* widget)
 {
     // 判定只在 GUI 线程的旧样式兼容路径调用；未登记子控件仍允许原补偿机制处理。

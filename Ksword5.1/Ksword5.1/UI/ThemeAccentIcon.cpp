@@ -1,11 +1,15 @@
 #include "../Framework.h"
 #include "ThemeAccentIcon.h"
+#include "./FlatButtonTheme.h"
 #include "../theme.h"
 
 #include <QIconEngine>
 #include <QApplication>
+#include <QAbstractButton>
 #include <QPainter>
+#include <QPalette>
 #include <QPixmap>
+#include <QPointer>
 #include <QStyle>
 #include <QStyleOption>
 #include <cmath>
@@ -20,16 +24,19 @@ namespace ks::ui
         {
         public:
             // sourceIcon 用途：复制固定默认色源图；模式、状态和缩放仍由源引擎决定。
-            explicit ThemeAccentIconEngine(const QIcon& sourceIcon, const QColor& fixedAccent = QColor())
+            // fixedAccent 为主题色快照，button 可为空；非空时只保存寿命受控的绘制上下文。
+            explicit ThemeAccentIconEngine(const QIcon& sourceIcon,
+                const QColor& fixedAccent = QColor(), QAbstractButton* button = nullptr)
                 : m_sourceIcon(sourceIcon)
                 , m_fixedAccent(fixedAccent)
+                , m_button(button)
             {
             }
 
             // clone：Qt 图标分离时仅复制原始源图，不捕获当时的主题色或派生位图。
             QIconEngine* clone() const override
             {
-                return new ThemeAccentIconEngine(m_sourceIcon, m_fixedAccent);
+                return new ThemeAccentIconEngine(m_sourceIcon, m_fixedAccent, m_button.data());
             }
 
             // isNull/actualSize/availableSizes：转发源图能力，不把空源或小轮廓伪装成新资源。
@@ -81,10 +88,37 @@ namespace ks::ui
         private:
             // foregroundColor 按Qt请求的模式/状态校准，不能把黑/白主体色原样画在同色底上。
             // sourceAccent无效时动态读取全局种子；多种中性底共用Normal，强调底使用独立状态。
-            QColor foregroundColor(const QIcon::Mode mode, const QIcon::State state) const
+            // flatButtonBackgroundKnown 回传是否已按共享按钮底色校准，用于禁止二次禁用灰化。
+            QColor foregroundColor(const QIcon::Mode mode, const QIcon::State state,
+                bool* flatButtonBackgroundKnown) const
             {
+                if (flatButtonBackgroundKnown != nullptr)
+                {
+                    *flatButtonBackgroundKnown = false;
+                }
                 const QColor accent = m_fixedAccent.isValid()
                     ? m_fixedAccent : KswordTheme::PrimaryAccentColor(); // 本次图形的主题种子。
+
+                // buttonBackground 用途：仅由共享按钮组件确认拥有的实际状态底色。
+                // 模式不能代表按钮底色：Neutral 的 Active 仍是中性底，checked 则是强调底。
+                QColor buttonBackground;
+                if (!m_button.isNull() && TryGetFlatButtonBackground(
+                    m_button.data(), mode, state, &buttonBackground))
+                {
+                    if (flatButtonBackgroundKnown != nullptr)
+                    {
+                        *flatButtonBackgroundKnown = true;
+                    }
+                    const QPalette colors = m_button->parentWidget() != nullptr // 按钮 QSS 配方所用父级色板。
+                        ? m_button->parentWidget()->palette() : QApplication::palette();
+                    const bool disabled = mode == QIcon::Disabled || !m_button->isEnabled(); // 实际禁用态优先。
+                    const QColor preferred = disabled
+                        ? colors.color(QPalette::Disabled, QPalette::ButtonText) : accent;
+                    return KswordTheme::EnsureTextContrast(preferred, buttonBackground, 3.0);
+                }
+
+                // 非共享样式、菜单和模型没有已知按钮底色，保留原有通用图标角色。
+                // 不凭旧 managed 属性猜测数据原色，不把全局 Active 改成 Neutral。
                 if (mode == QIcon::Selected || state == QIcon::On)
                 {
                     return KswordTheme::EnsureTextContrast(accent, KswordTheme::PrimaryAccentColor(), 3.0);
@@ -121,12 +155,16 @@ namespace ks::ui
                 // painter 用途：仅在临时副本上使用 SourceIn，不修改共享源图缓存。
                 QPainter painter(&themedPixmap);
                 painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-                painter.fillRect(themedPixmap.rect(), foregroundColor(mode, state));
+                bool flatButtonBackgroundKnown = false; // 是否已按共享按钮真实底色完成校准。
+                painter.fillRect(themedPixmap.rect(), foregroundColor(
+                    mode, state, &flatButtonBackgroundKnown));
                 painter.end();
 
                 // applicationStyle/styleOption 用途：让 Qt 按当前 palette 生成真实禁用态。
                 QStyle* applicationStyle = QApplication::style();
-                if (mode == QIcon::Disabled && applicationStyle != nullptr)
+                // 共享按钮禁用态已经用 disabled palette 和实际底色求得前景。
+                // 二次 generatedIconPixmap 灰化会破坏刚保证的对比度，只保留未知控件旧行为。
+                if (mode == QIcon::Disabled && !flatButtonBackgroundKnown && applicationStyle != nullptr)
                 {
                     QStyleOption styleOption;
                     styleOption.palette = QApplication::palette();
@@ -140,6 +178,7 @@ namespace ks::ui
 
             QIcon m_sourceIcon; // m_sourceIcon：固定默认蓝源图，包含源引擎的模式与状态。
             QColor m_fixedAccent; // 无效表示随全局种子变化；有效表示管理器本轮主体色。
+            QPointer<QAbstractButton> m_button; // 仅按钮包装持有的弱上下文，销毁后自动失效。
         };
     }
 
@@ -156,5 +195,17 @@ namespace ks::ui
             return sourceIcon;
         }
         return QIcon(new ThemeAccentIconEngine(sourceIcon, fixedAccent));
+    }
+
+    // MakeThemeButtonAccentIcon：每个按钮创建自己的引擎，Qt 分离副本仍跟随同一弱上下文。
+    // 不进入全局着色缓存；按钮销毁后安全回退通用主题语义，不解引用已释放的控件。
+    QIcon MakeThemeButtonAccentIcon(const QIcon& sourceIcon,
+        const QColor& fixedAccent, QAbstractButton* button)
+    {
+        if (sourceIcon.isNull())
+        {
+            return sourceIcon;
+        }
+        return QIcon(new ThemeAccentIconEngine(sourceIcon, fixedAccent, button));
     }
 }

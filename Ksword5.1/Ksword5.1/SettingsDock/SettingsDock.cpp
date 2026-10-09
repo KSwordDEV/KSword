@@ -1,4 +1,5 @@
 #include "SettingsDock.h"
+#include "../UI/FlatButtonTheme.h"
 
 #include "../Framework.h"
 #include "../Internationalization/LanguageManager.h"
@@ -2338,50 +2339,11 @@ void SettingsDock::saveAndEmitFromUi(const QString& triggerReason)
 
 void SettingsDock::updateThemeButtonStyle()
 {
-    const bool darkModeEnabled = KswordTheme::IsDarkModeEnabled();
-    const QString normalStyle = darkModeEnabled
-        ? QStringLiteral(
-            "QToolButton{"
-            "  border:1px solid %1;"
-            "  border-radius:2px;"
-            "  background:%2;"
-            "}"
-            "QToolButton:hover{"
-            "  background:%3;"
-            "}")
-            .arg(KswordTheme::BorderHex())
-            .arg(KswordTheme::SurfaceAltHex())
-            .arg(KswordTheme::SurfaceMutedColorHex())
-        : QStringLiteral(
-            "QToolButton{"
-            "  border:1px solid %1;"
-            "  border-radius:2px;"
-            "  background:%2;"
-            "}"
-            "QToolButton:hover{"
-            "  background:%3;"
-            "}")
-            .arg(KswordTheme::BorderHex())
-            .arg(KswordTheme::PrimaryBlueSubtleHex())
-            .arg(KswordTheme::PrimaryBlueSubtleHex());
-
-    const QString checkedStyle = darkModeEnabled
-        ? QStringLiteral(
-            "QToolButton{"
-            "  border:2px solid %1;"
-            "  border-radius:2px;"
-            "  background:%2;"
-            "}")
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::PrimaryBlueSubtleHex())
-        : QStringLiteral(
-            "QToolButton{"
-            "  border:2px solid %1;"
-            "  border-radius:2px;"
-            "  background:%2;"
-            "}")
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::PrimaryBlueSubtleHex());
+    // 主题选择以纯色强调当前模式，保留按钮组 checked 状态及原尺寸。
+    const QString normalStyle = ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+        + QStringLiteral("QToolButton{border-radius:2px;}");
+    const QString checkedStyle = ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Accent)
+        + QStringLiteral("QToolButton{border-radius:2px;}");
 
     const QList<QAbstractButton*> themeButtons = m_themeButtonGroup->buttons();
     for (QAbstractButton* themeButton : themeButtons)

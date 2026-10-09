@@ -1,4 +1,5 @@
 #include "NetworkAuditPage.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
 
@@ -870,6 +871,8 @@ void NetworkAuditPage::initializeUi()
     m_headerLayout->addWidget(m_statusLabel, 1);
 
     m_refreshButton = new QPushButton(QStringLiteral("刷新"), this);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_refreshButton, ks::ui::FlatButtonTone::Neutral);
     m_refreshButton->setIcon(QIcon(QStringLiteral(":/Icon/process_refresh.svg")));
     m_headerLayout->addWidget(m_refreshButton);
 
@@ -901,6 +904,8 @@ void NetworkAuditPage::initializeUi()
     m_crossControlLayout->setSpacing(6);
 
     m_crossAutoRefreshButton = new QPushButton(QStringLiteral("自动刷新"), m_crossViewPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_crossAutoRefreshButton, ks::ui::FlatButtonTone::Neutral);
     m_crossAutoRefreshButton->setIcon(QIcon(QStringLiteral(":/Icon/process_refresh.svg")));
     m_crossAutoRefreshButton->setToolTip(QStringLiteral("每 2.2 秒自动刷新 TCP/UDP Cross-View"));
     m_crossAutoRefreshButton->setCheckable(true);
@@ -908,12 +913,16 @@ void NetworkAuditPage::initializeUi()
     m_crossControlLayout->addWidget(m_crossAutoRefreshButton);
 
     m_crossTerminateButton = new QPushButton(QStringLiteral("终止 TCP"), m_crossViewPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_crossTerminateButton, ks::ui::FlatButtonTone::Danger);
     m_crossTerminateButton->setIcon(QIcon(QStringLiteral(":/Icon/process_terminate.svg")));
     m_crossTerminateButton->setToolTip(QStringLiteral("终止选中的 R3 IPv4 TCP 活动连接"));
     m_crossTerminateButton->setEnabled(false);
     m_crossControlLayout->addWidget(m_crossTerminateButton);
 
     m_clearProcessFilterButton = new QPushButton(QStringLiteral("清除 PID 筛选"), m_crossViewPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_clearProcessFilterButton, ks::ui::FlatButtonTone::Neutral);
     m_clearProcessFilterButton->setIcon(QIcon(QStringLiteral(":/Icon/log_clear.svg")));
     m_clearProcessFilterButton->setToolTip(QStringLiteral("显示全部进程的 TCP/UDP 连接"));
     m_clearProcessFilterButton->setEnabled(false);

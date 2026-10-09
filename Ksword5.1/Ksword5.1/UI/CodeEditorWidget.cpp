@@ -1,4 +1,5 @@
 #include "CodeEditorWidget.h"
+#include "./FlatButtonTheme.h"
 #include "CodeTextEdit.h"
 #include "CodeEditorFileSession.h"
 
@@ -64,32 +65,9 @@ namespace
     // - hover/pressed 仅保留轻量底色反馈，避免 SVG 被边框吃掉。
     QString buildToolButtonStyle()
     {
-        return QStringLiteral(
-            "QToolButton{"
-            "  border:none;"
-            "  border-radius:4px;"
-            "  padding:1px;"
-            "  background:transparent;"
-            "  color:%1;"
-            "}"
-            "QToolButton:hover{"
-            "  background:palette(alternate-base);"
-            "  color:palette(text);"
-            "}"
-            "QToolButton:pressed,QToolButton:checked:pressed{"
-            "  background:%3;"
-            "  color:%5;"
-            "}"
-            "QToolButton:checked{"
-            "  background:%2;"
-            "  color:%4;"
-            "}")
-            .arg(KswordTheme::TextPrimaryHex())
-            .arg(KswordTheme::ThemeColorName(KswordTheme::PrimaryAccentColor()))
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue, -14, -40))
-            .arg(KswordTheme::OnAccentHex())
-            .arg(KswordTheme::OnAccentHex(
-                KswordTheme::AccentColor(KswordTheme::AccentRole::Blue, -14, -40)));
+        // 工具按钮保持原图标点击区，纯色 checked/禁用状态由公共按钮规则提供。
+        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QToolButton{border-radius:4px;padding:1px;}");
     }
 
     // buildFloatingSwitchStyle：
@@ -167,29 +145,39 @@ namespace
             colorPainter.end();
             icon.addPixmap(coloredPixmap, mode, state);
         };
-        // Normal 按钮透明；可见底色来自父面板，不能用 QSS 改写的按钮 Base。
-        const QWidget* parentSurface = button != nullptr ? button->parentWidget() : nullptr;
-        const QPalette::ColorRole surfaceRole = parentSurface != nullptr
-            && parentSurface->objectName() == QStringLiteral("code_editor_find_panel")
-            ? QPalette::AlternateBase : QPalette::Base;
-        const QColor surface = parentSurface != nullptr
-            ? parentSurface->palette().color(surfaceRole) : KswordTheme::SurfaceColor();
-        const QColor checkedBackground = KswordTheme::PrimaryAccentColor();
-        const QColor pressedBackground = KswordTheme::AccentColor(KswordTheme::AccentRole::Blue, -14, -40);
+        // 图标按按钮的真实实心底色生成，不能再按父面板的透明背景校准。
+        const QPalette colors = button != nullptr && button->parentWidget() != nullptr
+            ? button->parentWidget()->palette() : QApplication::palette();
+        QColor surface = colors.color(QPalette::Active, QPalette::Button);
+        surface.setAlpha(255);
+        const QColor checkedBackground = colors.color(QPalette::Active, QPalette::Highlight);
+        const bool darkSurface = KswordTheme::RelativeLuminance(surface) < 0.25;
+        const QColor hoverBackground = darkSurface ? surface.lighter(125) : surface.darker(108);
+        const QColor pressedBackground = darkSurface ? surface.lighter(145) : surface.darker(120);
+        const QColor disabledBackground = colors.color(QPalette::Disabled, QPalette::Button);
+        const QColor normalInk = KswordTheme::EnsureTextContrast(
+            colors.color(QPalette::Active, QPalette::ButtonText), surface, 4.5);
+        const QColor checkedInk = KswordTheme::EnsureTextContrast(
+            colors.color(QPalette::Active, QPalette::HighlightedText), checkedBackground, 4.5);
+        const QColor disabledInk = KswordTheme::EnsureTextContrast(
+            colors.color(QPalette::Disabled, QPalette::ButtonText), disabledBackground, 3.0);
         const bool pressed = button != nullptr && button->isDown();
-        // Active同时覆盖悬停和按下；键盘按下时Qt可能仍请求Normal，按实际down状态补齐。
-        const QColor activeForeground = pressed
-            ? KswordTheme::ControlGlyphColor(pressedBackground)
-            : KswordTheme::ControlGlyphColor(button && button->isChecked()
-                ? checkedBackground : (button ? button->palette().color(QPalette::AlternateBase) : surface));
+        const bool focused = button != nullptr && button->hasFocus();
+        // 与 FlatButtonTheme::buildStyle 使用同一公式；On 状态始终匹配 Highlight。
+        // 键盘焦点时 Qt 仍可能请求 Normal 图标，因此 Normal 也按 focus 底色校准。
         for (QIcon::State state : { QIcon::Off, QIcon::On })
         {
             const QColor normalBackground = pressed ? pressedBackground
-                : (state == QIcon::On ? checkedBackground : surface);
-            addColoredPixmap(KswordTheme::ControlGlyphColor(normalBackground), QIcon::Normal, state);
+                : (focused ? hoverBackground : surface);
+            const QColor activeBackground = pressed ? pressedBackground : hoverBackground;
+            const QColor normalForeground = state == QIcon::On ? checkedInk
+                : KswordTheme::EnsureTextContrast(normalInk, normalBackground, 4.5);
+            const QColor activeForeground = state == QIcon::On ? checkedInk
+                : KswordTheme::EnsureTextContrast(normalInk, activeBackground, 4.5);
+            addColoredPixmap(normalForeground, QIcon::Normal, state);
             addColoredPixmap(activeForeground, QIcon::Active, state);
             addColoredPixmap(activeForeground, QIcon::Selected, state);
-            addColoredPixmap(KswordTheme::ControlGlyphColor(surface, true), QIcon::Disabled, state);
+            addColoredPixmap(disabledInk, QIcon::Disabled, state);
         }
         return icon;
     }
@@ -222,6 +210,7 @@ namespace
             if (!path.isEmpty())
             {
                 guardedButton->setProperty("ksword_editor_glyph_down", guardedButton->isDown());
+                guardedButton->setProperty("ksword_editor_glyph_focus", guardedButton->hasFocus());
                 if (guardedButton.isNull())
                 {
                     return;
@@ -773,6 +762,7 @@ void CodeEditorWidget::initializeUi()
         button->setProperty("ksword_theme_icon_managed", true);
         const auto refreshIcon = [button, iconPath]() {
             button->setProperty("ksword_editor_glyph_down", button->isDown());
+            button->setProperty("ksword_editor_glyph_focus", button->hasFocus());
             button->setIcon(buildToolbarSvgIcon(iconPath, button));
         };
         connect(button, &QToolButton::pressed, button, refreshIcon);
@@ -1304,7 +1294,8 @@ bool CodeEditorWidget::eventFilter(QObject* watchedObject, QEvent* eventObject)
     // 释放/失焦取消按下后即使按钮隐藏也补刷，不能只等可见控件的 Paint。
     if (!m_destroying && eventObject != nullptr
         && (eventObject->type() == QEvent::PaletteChange || eventObject->type() == QEvent::StyleChange
-            || eventObject->type() == QEvent::MouseButtonRelease || eventObject->type() == QEvent::FocusOut))
+            || eventObject->type() == QEvent::MouseButtonRelease
+            || eventObject->type() == QEvent::FocusIn || eventObject->type() == QEvent::FocusOut))
     {
         if (auto* button = qobject_cast<QToolButton*>(watchedObject))
         {
@@ -1320,7 +1311,7 @@ bool CodeEditorWidget::eventFilter(QObject* watchedObject, QEvent* eventObject)
         else if (watchedObject == m_toolbarWidget
             && (eventObject->type() == QEvent::PaletteChange || eventObject->type() == QEvent::StyleChange))
         {
-            // 透明按钮的实际父表面变化也要补刷，不能只依赖按钮自身的 Base。
+            // 实心按钮的父级 Button 调色板变化也要补刷，不能读取 QSS 改写后的自身背景。
             for (QToolButton* toolbarButton : m_toolbarWidget->findChildren<QToolButton*>(QString(), Qt::FindDirectChildrenOnly))
             {
                 if (!toolbarButton->property("ksword_editor_icon_path").toString().isEmpty())
@@ -1334,15 +1325,18 @@ bool CodeEditorWidget::eventFilter(QObject* watchedObject, QEvent* eventObject)
             }
         }
     }
-    // setDown(false)、失焦等取消路径未必发released；绘制前只在down改变时修正Normal图标。
+    // setDown(false)、键盘聚焦等路径未必发 released；绘制前同步实际 down/focus 状态。
     if (!m_destroying && eventObject != nullptr && eventObject->type() == QEvent::Paint)
     {
         if (auto* button = qobject_cast<QToolButton*>(watchedObject))
         {
             const QString path = button->property("ksword_editor_icon_path").toString();
-            if (!path.isEmpty() && button->property("ksword_editor_glyph_down").toBool() != button->isDown())
+            if (!path.isEmpty()
+                && (button->property("ksword_editor_glyph_down").toBool() != button->isDown()
+                    || button->property("ksword_editor_glyph_focus").toBool() != button->hasFocus()))
             {
                 button->setProperty("ksword_editor_glyph_down", button->isDown());
+                button->setProperty("ksword_editor_glyph_focus", button->hasFocus());
                 button->setIcon(buildToolbarSvgIcon(path, button));
             }
         }

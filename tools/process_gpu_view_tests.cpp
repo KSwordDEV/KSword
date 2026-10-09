@@ -3,6 +3,7 @@
 #include "../Ksword5.1/Ksword5.1/UI/TablePresentation.h"
 #include "../Ksword5.1/Ksword5.1/UI/SmoothScrollSupport.h"
 #include "../Ksword5.1/Ksword5.1/UI/TableFreezeSupport.h"
+#include "../Ksword5.1/Ksword5.1/UI/FloatingScrollbars.h"
 #include <QTreeWidget>
 #include <QTableWidget>
 #include <QBrush>
@@ -117,6 +118,8 @@ namespace
 int main(int argc, char** argv)
 {
     QApplication application(argc, argv);
+    // 组合真实共享悬浮条与进程 GL/raster、冻结窗格，不只单测各自独立外观。
+    ks::ui::InstallGlobalFloatingScrollbars(&application);
     application.setStyleSheet(QStringLiteral(
         "QTableView{border:none;color:palette(text);selection-background-color:palette(highlight);"
         "selection-color:palette(highlighted-text);}"));

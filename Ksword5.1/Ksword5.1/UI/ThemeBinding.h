@@ -3,6 +3,7 @@
 #include <functional>
 
 class QWidget;
+class QAbstractSpinBox;
 
 namespace ks::ui
 {
@@ -20,6 +21,10 @@ namespace ks::ui
     // PreserveLocal 会在重建 QSS 后恢复调用前的局部 palette，防止 Qt repolish 丢失独立底色。
     bool BindWidgetTheme(QWidget* widget, std::function<void()> refresh,
         ThemePalettePolicy palettePolicy = ThemePalettePolicy::FollowApplication);
+
+    // 为数值控件及其内部编辑器显式绑定可读主题色，避免父级 QSS 把数字染成底色。
+    // 仅接管文字与表面色，保留 value/suffix、尺寸、步进按钮、验证器与编辑状态。
+    bool BindSpinBoxTheme(QAbstractSpinBox* spinBox);
 
     // HasWidgetThemeBinding：只判断该控件自身是否声明完整主题刷新，不跨到其未登记子控件。
     // 旧色值补偿据此跳过明确绑定的控件；其余存量控件仍沿用原有兼容路径。

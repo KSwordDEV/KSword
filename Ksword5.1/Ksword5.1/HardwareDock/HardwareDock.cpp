@@ -1,4 +1,6 @@
 #include "HardwareDock.h"
+#include "../UI/FlatButtonTheme.h"
+#include "../UI/FloatingScrollbars.h"
 #include "../../../shared/ui/KsPainterChart.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -416,25 +418,10 @@ namespace
     // - 返回：QPushButton stylesheet 文本。
     QString buildColumnPresetButtonStyle(const bool selected)
     {
-        const QString backgroundText = selected
-            ? KswordTheme::AccentHex(KswordTheme::AccentRole::Blue)
-            : QStringLiteral("transparent");
-        const QString borderText = selected
-            ? KswordTheme::AccentHex(KswordTheme::AccentRole::Blue)
-            : KswordTheme::BorderHex();
-        const QString textColor = selected
-            ? KswordTheme::OnAccentDynamicHex()
-            : KswordTheme::TextPrimaryHex();
-        return QStringLiteral(
-            "QPushButton{min-width:24px;max-width:24px;padding:3px 0;border:1px solid %1;"
-            "border-radius:0;color:%2;background:%3;font-weight:700;}"
-            "QPushButton:hover{border-color:%4;}"
-            "QPushButton:pressed{background:%4;color:%5;}")
-            .arg(borderText)
-            .arg(textColor)
-            .arg(backgroundText)
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue))
-            .arg(KswordTheme::OnAccentDynamicHex());
+        // 纯色主题只接管颜色；保留本页按钮尺寸和业务选中状态。
+        return ks::ui::BuildFlatButtonStyle(selected ? ks::ui::FlatButtonTone::Accent : ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QPushButton{min-width:24px;max-width:24px;padding:3px 0;border-radius:0;font-weight:700;}");
+
     }
 
     // updateColumnPresetButtons 作用：
@@ -5572,6 +5559,11 @@ void HardwareDock::applyUtilizationFloatingContentScale(const bool forceRestyle)
 
     for (QWidget* const widget : widgets)
     {
+        // 悬浮条自绘尺寸不依赖 QSS 字号，必须显式跟随利用率浮窗内容倍率。
+        if (auto* scrollArea = qobject_cast<QAbstractScrollArea*>(widget))
+        {
+            ks::ui::SetFloatingScrollbarScale(scrollArea, scale);
+        }
         auto existing = std::find_if(m_utilizationFloatingWidgetStyles.begin(),
             m_utilizationFloatingWidgetStyles.end(), [widget](const FloatingWidgetStyleState& state)
             {
@@ -5711,6 +5703,12 @@ void HardwareDock::restoreUtilizationFloatingContentScale()
     {
         if (QWidget* const widget = state.widget.data())
         {
+            // 借出时修改了根页及所有后代滚动区；归还逐项恢复主界面的默认 1 倍。
+            // 当前工程只有浮窗缩放会改此倍率，控制器默认值也是 1.0，不改业务滚动几何。
+            if (auto* scrollArea = qobject_cast<QAbstractScrollArea*>(widget))
+            {
+                ks::ui::SetFloatingScrollbarScale(scrollArea, 1.0);
+            }
             const QString restoredStyle = ks::ui::RemapStaleThemeColorsInText(
                 state.themeColors, state.styleSheet);
             if (widget->styleSheet() != restoredStyle)

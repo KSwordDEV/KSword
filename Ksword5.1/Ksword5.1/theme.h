@@ -1,4 +1,5 @@
 #pragma once
+#include "UI/FlatButtonTheme.h"
 
 // Central theme helpers for all Qt UI code.
 //
@@ -1737,10 +1738,10 @@ namespace KswordTheme
     {
         return QStringLiteral(R"(
 ads--CDockAreaTitleBar,ads--CDockAreaTabBar{ background:%1 !important;background-color:%1 !important;color:%2 !important;}
-ads--CDockAreaTitleBar QToolButton,ads--CDockAreaTitleBar QPushButton{ background:transparent !important;color:%2 !important;}
+ads--CDockAreaTitleBar QToolButton,ads--CDockAreaTitleBar QPushButton{ background:%1 !important;background-color:%1 !important;color:%2 !important;border:none !important;}
 ads--CDockAreaTitleBar QToolButton:hover,ads--CDockAreaTitleBar QPushButton:hover{ background:%3 !important;background-color:%3 !important;color:%4 !important;}
 ads--CDockAreaTitleBar QToolButton:pressed,ads--CDockAreaTitleBar QPushButton:pressed{ background:%5 !important;background-color:%5 !important;color:%6 !important;}
-ads--CDockAreaTitleBar QToolButton:disabled,ads--CDockAreaTitleBar QPushButton:disabled{ background:transparent !important;background-color:transparent !important;color:%2 !important;}
+ads--CDockAreaTitleBar QToolButton:disabled,ads--CDockAreaTitleBar QPushButton:disabled{ background:%1 !important;background-color:%1 !important;color:%2 !important;border:none !important;}
 ads--CDockAreaTabBar{border:none !important;padding:0px;}
 ads--CDockWidgetTab,ads--CAutoHideTab{ background:%1 !important;background-color:%1 !important;color:%2 !important; border:none !important;border-radius:0px !important; padding:3px 12px;margin:0px;min-height:22px;}
 ads--CDockWidgetTab QLabel,ads--CDockWidgetTab QWidget,ads--CAutoHideTab QLabel,ads--CAutoHideTab QWidget{ background:transparent !important;background-color:transparent !important; color:%2 !important;}
@@ -1812,24 +1813,12 @@ ads--CDockWidgetTab[activeTab="true"] QLabel,ads--CDockWidgetTab[activeTab="true
 
     inline QString ThemedButtonStyle()
     {
-        return QStringLiteral(
-            "QPushButton,QToolButton{"
-            "background-color:%1 !important;color:%2 !important;border:1px solid %3 !important;"
-            "border-radius:%8px;padding:4px 10px;font-weight:600;}"
-            "QPushButton:hover,QToolButton:hover{background-color:%4 !important;color:%5 !important;border-color:%4 !important;}"
-            "QPushButton:pressed,QToolButton:pressed{background-color:%6 !important;color:%9 !important;border-color:%6 !important;}"
-            "QPushButton:disabled,QToolButton:disabled{background-color:%1 !important;color:%7 !important;border-color:%3 !important;}")
-            .arg(SurfaceAltHex())
-            .arg(TextPrimaryHex())
-            .arg(BorderHex())
-            .arg(PrimaryBlueSolidHoverHex())
-            .arg(OnAccentHex(PrimaryBlueSolidHoverColor()))
-            .arg(ThemeColorName(PrimaryAccentColor()))
-            .arg(TextSecondaryHex())
-            .arg(ControlCornerRadius)
-            .arg(OnAccentHex());
+        // 对话框和普通页面共用实心无线框状态色，几何仍保持原来的紧凑按钮尺寸。
+        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral(
+                "QPushButton,QToolButton{border-radius:%1px;padding:4px 10px;font-weight:600;}")
+                .arg(ControlCornerRadius);
     }
-
     // ThemedComboBoxPopupViewStyle / ThemedComboBoxStyle 作用：
     // - 为普通、可编辑及嵌入表格的组合框提供同一套不透明表面、箭头区和 Popup 列表规则；
     // - Popup 使用显式 base 表面，避免独立顶层窗口回退到平台默认的透明/黑色背景；

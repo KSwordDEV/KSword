@@ -1,4 +1,5 @@
 ﻿#include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/FlatButtonTheme.h"
 #include "ProcessAffinityUtils.h"
 #include "ProcessAffinityPersistence.h"
 #include "ThreadAffinityMenu.h"
@@ -66,7 +67,7 @@ namespace
             exportButton->setObjectName(QStringLiteral("ProcessGeneralExport"));
             for (auto* button : { copy, exportButton })
             {
-                button->setStyleSheet(KswordTheme::ThemedButtonStyle());
+                button->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
                 button->setMinimumHeight(30);
                 button->setIconSize(QSize(16, 16));
             }
@@ -420,20 +421,9 @@ namespace
 
     QString buildAffinityCoreButtonStyle()
     {
-        return QStringLiteral(
-            "QToolButton {"
-            "  min-width:42px; min-height:28px; padding:2px 6px;"
-            "  color:%1; background:transparent; border:1px solid %2; border-radius:4px;"
-            "}"
-            "QToolButton:hover { border-color:%3; background:%4; }"
-            "QToolButton:checked { color:%5; background:%3; border-color:%3; }"
-            "QToolButton:disabled { color:%6; border-color:%2; background:transparent; }")
-            .arg(KswordTheme::TextPrimaryHex())
-            .arg(KswordTheme::BorderHex())
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::SurfaceAltHex())
-            .arg(QStringLiteral("palette(highlighted-text)"))
-            .arg(KswordTheme::TextSecondaryHex());
+        // CPU 核心继续用 checked 表示选中，禁用态交给共享主题。
+        return ks::ui::BuildFlatButtonStyle()
+            + QStringLiteral("QToolButton{min-width:42px;min-height:28px;padding:2px 6px;border-radius:4px;}");
     }
 
     QString detailProcessFieldSourceText(const std::uint32_t sourceValue)
@@ -2626,6 +2616,8 @@ void ProcessDetailWindow::initializeUi()
     for (int tabIndex = 0; tabIndex < m_tabWidget->count(); ++tabIndex)
     {
         auto* navigationButton = new QToolButton(m_tabNavigation);
+        // 左侧导航保留互斥选中，统一普通/checked/disabled 纯色状态。
+        ks::ui::ApplyFlatButtonTheme(navigationButton);
         navigationButton->setCheckable(true);
         navigationButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         navigationButton->setIcon(m_tabWidget->tabIcon(tabIndex));
@@ -3833,7 +3825,7 @@ void ProcessDetailWindow::initializeDetailTab()
     for (auto* button : {m_copyPathButton, m_openPathFolderButton, m_openFileDetailButton,
         m_copyCommandButton, m_detailOpenHandleDockButton, m_gotoParentButton, m_refreshDetailOverviewButton})
     {
-        button->setStyleSheet(KswordTheme::ThemedButtonStyle());
+        button->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
         button->setMinimumHeight(30);
         button->setIconSize(QSize(16, 16));
     }

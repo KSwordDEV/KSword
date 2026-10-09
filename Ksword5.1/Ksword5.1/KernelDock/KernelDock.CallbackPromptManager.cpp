@@ -1,4 +1,5 @@
 #include "KernelDock.h"
+#include "../UI/FlatButtonTheme.h"
 #include "KernelDock.CallbackPromptManager.h"
 
 #include "../theme.h"
@@ -139,115 +140,17 @@ namespace
 
     QString buildPopupThemeStyleSheet()
     {
-        const bool darkModeEnabled = KswordTheme::IsDarkModeEnabled();
-        const QColor accentColor = resolveCurrentAccentColor();
-
-        const QColor accentHoverColor = KswordTheme::ThemeLighterColor(accentColor);
-        const QColor accentPressedColor = KswordTheme::ThemeDarkerColor(accentColor);
-        const QColor neutralHoverColor = KswordTheme::SurfaceAltColor();
-        const QColor neutralPressedColor = KswordTheme::SurfaceMutedColor();
-
-        QColor denyBackgroundColor = KswordTheme::WarningAccentColor();
-        denyBackgroundColor.setAlpha(darkModeEnabled ? 58 : 36);
-        QColor denyHoverColor = KswordTheme::WarningAccentColor();
-        denyHoverColor.setAlpha(darkModeEnabled ? 88 : 60);
-        QColor denyPressedColor = KswordTheme::WarningAccentColor();
-        denyPressedColor.setAlpha(darkModeEnabled ? 118 : 78);
-        const QColor denyBorderColor = KswordTheme::WarningAccentColor();
-
-        QColor detailBackgroundColor = accentColor;
-        detailBackgroundColor.setAlpha(darkModeEnabled ? 56 : 30);
-        QColor detailHoverColor = accentColor;
-        detailHoverColor.setAlpha(darkModeEnabled ? 86 : 54);
-        QColor detailPressedColor = accentColor;
-        detailPressedColor.setAlpha(darkModeEnabled ? 114 : 76);
-
+        // 弹窗面板和标题仍保留原主题层级，按钮颜色交给逐项语义绑定。
         return QStringLiteral(
-            "QDialog#KswordCallbackDecisionPopup{"
-            "  background-color:palette(window);"
-            "  color:palette(text);"
-            "  border:1px solid %1;"
-            "  border-radius:10px;"
-            "}"
-            "QDialog#KswordCallbackDecisionPopup QLabel{"
-            "  color:palette(text);"
-            "}"
+            "QDialog#KswordCallbackDecisionPopup{background-color:palette(window);"
+            "color:palette(text);border:1px solid %1;border-radius:10px;}"
+            "QDialog#KswordCallbackDecisionPopup QLabel{color:palette(text);}"
             "QDialog#KswordCallbackDecisionPopup QLabel#KswordCallbackTitleLabel{"
-            "  color:%1;"
-            "  font-size:15px;"
-            "  font-weight:800;"
-            "}"
-            "QDialog#KswordCallbackDecisionPopup QLabel#KswordCallbackSectionLabel{"
-            "  color:%1;"
-            "  font-weight:700;"
-            "}"
-            "QDialog#KswordCallbackDecisionPopup QLabel#KswordCallbackInitiatorLink{"
-            "  color:%1;"
-            "}"
-            "QDialog#KswordCallbackDecisionPopup QPushButton{"
-            "  background-color:palette(base);"
-            "  color:palette(text);"
-            "  border:1px solid palette(mid);"
-            "  border-radius:2px;"
-            "  padding:6px 14px;"
-            "  min-height:30px;"
-            "}"
-            "QDialog#KswordCallbackDecisionPopup QPushButton:hover{"
-            "  background-color:%2;"
-            "  border-color:%1;"
-            "}"
-            "QDialog#KswordCallbackDecisionPopup QPushButton:pressed{"
-            "  background-color:%3;"
-            "}"
-            "QPushButton#KswordCallbackAllowButton{"
-            "  background-color:%1;"
-            "  color:palette(highlighted-text);"
-            "  border:1px solid %1;"
-            "}"
-            "QPushButton#KswordCallbackAllowButton:hover{"
-            "  background-color:%4;"
-            "  border-color:%4;"
-            "}"
-            "QPushButton#KswordCallbackAllowButton:pressed{"
-            "  background-color:%5;"
-            "  border-color:%5;"
-            "}"
-            "QPushButton#KswordCallbackDenyButton{"
-            "  background-color:%6;"
-            "  border:1px solid %7;"
-            "}"
-            "QPushButton#KswordCallbackDenyButton:hover{"
-            "  background-color:%8;"
-            "  border-color:%7;"
-            "}"
-            "QPushButton#KswordCallbackDenyButton:pressed{"
-            "  background-color:%9;"
-            "  border-color:%7;"
-            "}"
-            "QPushButton#KswordCallbackDetailButton{"
-            "  background-color:%10;"
-            "  border:1px solid %1;"
-            "}"
-            "QPushButton#KswordCallbackDetailButton:hover{"
-            "  background-color:%11;"
-            "  border-color:%1;"
-            "}"
-            "QPushButton#KswordCallbackDetailButton:pressed{"
-            "  background-color:%12;"
-            "  border-color:%1;"
-            "}")
-            .arg(accentColor.name(QColor::HexRgb))
-            .arg(neutralHoverColor.name(QColor::HexRgb))
-            .arg(neutralPressedColor.name(QColor::HexRgb))
-            .arg(accentHoverColor.name(QColor::HexRgb))
-            .arg(accentPressedColor.name(QColor::HexRgb))
-            .arg(denyBackgroundColor.name(QColor::HexArgb))
-            .arg(denyBorderColor.name(QColor::HexRgb))
-            .arg(denyHoverColor.name(QColor::HexArgb))
-            .arg(denyPressedColor.name(QColor::HexArgb))
-            .arg(detailBackgroundColor.name(QColor::HexArgb))
-            .arg(detailHoverColor.name(QColor::HexArgb))
-            .arg(detailPressedColor.name(QColor::HexArgb));
+            "color:%1;font-size:15px;font-weight:800;}"
+            "QDialog#KswordCallbackDecisionPopup QLabel#KswordCallbackSectionLabel{color:%1;font-weight:700;}"
+            "QDialog#KswordCallbackDecisionPopup QLabel#KswordCallbackInitiatorLink{color:%1;}"
+            "QDialog#KswordCallbackDecisionPopup QPushButton{border-radius:2px;padding:6px 14px;min-height:30px;}")
+            .arg(currentAccentColorHex());
     }
 
     QString buildDecisionButtonText(
@@ -525,6 +428,10 @@ void CallbackPromptManager::initializePopupUi()
     m_denyButton->setObjectName(QStringLiteral("KswordCallbackDenyButton"));
     m_detailButton = new QPushButton(kernelText("kernel.callback.prompt.button.details", QStringLiteral("查看详情")), popupDialog);
     m_detailButton->setObjectName(QStringLiteral("KswordCallbackDetailButton"));
+    // 允许为主要操作，拒绝保持危险语义，详情为中性；不改变倒计时或默认决策。
+    ks::ui::ApplyFlatButtonTheme(m_allowButton, ks::ui::FlatButtonTone::Accent);
+    ks::ui::ApplyFlatButtonTheme(m_denyButton, ks::ui::FlatButtonTone::Danger);
+    ks::ui::ApplyFlatButtonTheme(m_detailButton, ks::ui::FlatButtonTone::Neutral);
 
     actionLayout->addStretch(1);
     actionLayout->addWidget(m_allowButton, 0);

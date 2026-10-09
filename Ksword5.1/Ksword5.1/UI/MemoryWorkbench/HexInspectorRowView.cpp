@@ -5,6 +5,7 @@
 #include "HexInspectorWidgets.h"
 
 #include "../../theme.h"
+#include "../FloatingScrollbars.h"
 
 #include <QAbstractScrollArea>
 #include <QContextMenuEvent>
@@ -35,6 +36,8 @@ namespace ks::ui
         setFocusPolicy(Qt::StrongFocus);
         setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        // 右缘复制动作必须保持完整点击区，细线滑块放在动作列左侧。
+        ks::ui::SetFloatingScrollbarInsets(this, QMargins(0, 0, kActionWidth + 2, 0));
         viewport()->setMouseTracking(true);
         viewport()->setAutoFillBackground(false);
         rebuildMetrics();

@@ -1,4 +1,5 @@
 #include "KernelPlatformAuditTab.h"
+#include "../UI/FlatButtonTheme.h"
 
 #include "KernelCleanImageBaseline.h"
 #include "KernelDock.h"
@@ -143,18 +144,10 @@ namespace
 
     QString platformColumnButtonStyle(const bool selected)
     {
-        return QStringLiteral(
-            "QPushButton{min-width:28px;padding:4px 8px;border:1px solid %1;"
-            "background:%2;color:%3;}"
-            "QPushButton:hover{background:%4;}")
-            .arg(KswordTheme::BorderHex())
-            .arg(selected
-                     ? KswordTheme::PrimaryBlueHex
-                     : KswordTheme::SurfaceAltHex())
-            .arg(selected
-                     ? KswordTheme::OnAccentDynamicHex()
-                     : KswordTheme::TextPrimaryHex())
-            .arg(KswordTheme::PrimaryBlueHoverHex);
+        // 纯色主题只接管颜色；保留本页按钮尺寸和业务选中状态。
+        return ks::ui::BuildFlatButtonStyle(selected ? ks::ui::FlatButtonTone::Accent : ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QPushButton{min-width:28px;padding:4px 8px;}");
+
     }
 
     bool validateRuntimeCleanPointer(

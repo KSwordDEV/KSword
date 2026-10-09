@@ -1,4 +1,5 @@
 #include "HandleDock.h"
+#include "../UI/FlatButtonTheme.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/TableInteractionSupport.h"
@@ -59,7 +60,7 @@ namespace
     // - iconOnly=true 时收紧内边距，适合 28x28 图标按钮。
     QString buildBlueButtonStyle(const bool iconOnly)
     {
-        QString buttonStyle = KswordTheme::ThemedButtonStyle();
+        QString buttonStyle = ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}");
         if (iconOnly)
         {
             buttonStyle += QStringLiteral("QPushButton{padding:4px;}");

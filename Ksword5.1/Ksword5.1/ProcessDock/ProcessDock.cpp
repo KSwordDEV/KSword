@@ -1,10 +1,12 @@
 #include "ProcessDock.h"
+#include "../UI/FlatButtonTheme.h"
 #include "ProcessAffinityUtils.h"
 #include "ProcessAffinityPersistence.h"
 #include "ProcessCpuCapacityCell.h"
 #include "./ProcessGpuTableView.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ThemeBinding.h"
 #include "../UI/ThemeAccentIcon.h"
 #include "../UI/X64DbgNavigation.h"
 
@@ -3844,32 +3846,10 @@ namespace
     // 统一按钮蓝色样式，和现有主题风格保持一致。
     QString buildBlueButtonStyle(const bool iconOnlyButton)
     {
-        // 图标按钮采用更紧凑 padding，避免出现多余空白。
-        const QString paddingText = iconOnlyButton ? QStringLiteral("4px") : QStringLiteral("4px 10px");
-        return QStringLiteral(
-            "QPushButton {"
-            "  color: %1;"
-            "  background: %6;"
-            "  border: 1px solid %2;"
-            "  border-radius: 3px;"
-            "  padding: %5;"
-            "}"
-            "QPushButton:hover {"
-            "  background: %3;"
-            "  color: %7;"
-            "  border: 1px solid %3;"
-            "}"
-            "QPushButton:pressed {"
-            "  background: %4;"
-            "  color: %7;"
-            "}")
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::PrimaryBlueBorderHex)
-            .arg(KswordTheme::PrimaryBlueHoverHex)
-            .arg(KswordTheme::PrimaryBluePressedHex)
-            .arg(paddingText)
-            .arg(KswordTheme::SurfaceHex())
-            .arg(QStringLiteral("palette(highlighted-text)"));
+        // 纯色按钮共用主题状态；保留页面原有紧凑尺寸。
+        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QPushButton{border-radius:3px;padding:%1;}")
+                .arg(iconOnlyButton ? QStringLiteral("4px") : QStringLiteral("4px 10px"));
     }
 
     // 下拉框主题描边样式，保持与按钮同色系。
@@ -5068,6 +5048,8 @@ void ProcessDock::initializeProcessActivityPanel()
     m_activityHistoryLimitSpin->setValue(50);
     m_activityHistoryLimitSpin->setKeyboardTracking(false);
     m_activityHistoryLimitSpin->setMaximumWidth(120);
+    // 数字与单位使用明确的主题文字/表面角色，不能依赖父级输入框颜色继承。
+    ks::ui::BindSpinBoxTheme(m_activityHistoryLimitSpin);
     m_activityHistoryLimitSpin->setSuffix(QStringLiteral(" 次"));
     languageManager.bindSuffix(m_activityHistoryLimitSpin,
         QStringLiteral("process.activity.history.count_suffix"), QStringLiteral(" 次"));
@@ -5076,27 +5058,8 @@ void ProcessDock::initializeProcessActivityPanel()
         QStringLiteral("process.activity.history.tooltip.limit"),
         QStringLiteral("保留最近的采样次数，默认 50 次；减少次数会立即移除更早的历史样本。"));
 
-    const QString metricButtonStyle = QStringLiteral(
-        "QPushButton {"
-        "  color:%1;"
-        "  background:%2;"
-        "  border:1px solid %3;"
-        "  border-radius:3px;"
-        "  padding:3px 8px;"
-        "}"
-        "QPushButton:checked {"
-        "  color:%5;"
-        "  background:%4;"
-        "  border:1px solid %4;"
-        "}"
-        "QPushButton:hover {"
-        "  border:1px solid %4;"
-        "}")
-        .arg(KswordTheme::TextPrimaryHex())
-        .arg(KswordTheme::SurfaceHex())
-        .arg(KswordTheme::BorderHex())
-        .arg(KswordTheme::PrimaryBlueHex)
-        .arg(QStringLiteral("palette(highlighted-text)"));
+    const QString metricButtonStyle = ks::ui::BuildFlatButtonStyle()
+        + QStringLiteral("QPushButton{border-radius:3px;padding:3px 8px;}");
 
     // 指标按钮必须可独立开关：
     // - 默认全部点亮，用户打开页面即可看到 CPU/内存/磁盘/网络/GPU 全部曲线；
@@ -11708,20 +11671,10 @@ void ProcessDock::showTableContextMenu(const QPoint& localPosition)
                 return;
             }
 
-            const QString privilegeButtonStyle = QStringLiteral(
-                "QPushButton {"
-                "  min-width:300px; min-height:30px; max-height:30px;"
-                "  padding:0 12px; text-align:left;"
-                "  color:%1; background:transparent;"
-                "  border:none; border-bottom:1px solid %4;"
-                "}"
-                "QPushButton:hover { background:%2; }"
-                "QPushButton:pressed { background:%2; }"
-                "QPushButton:disabled { color:%3; }")
-                .arg(KswordTheme::TextPrimaryHex())
-                .arg(KswordTheme::SurfaceAltHex())
-                .arg(KswordTheme::TextSecondaryHex())
-                .arg(KswordTheme::BorderHex());
+            const QString privilegeButtonStyle = ks::ui::BuildFlatButtonStyle()
+                // 特权菜单保留完整可点击行和文字对齐，不再绘制按钮底边。
+                + QStringLiteral("QPushButton{min-width:300px;min-height:30px;max-height:30px;"
+                    "padding:0 12px;text-align:left;}");
 
             const std::size_t privilegeCount = ks::process::KnownTokenPrivilegeNames().size();
             std::vector<std::size_t> controllablePrivilegeIndices;
@@ -12153,19 +12106,11 @@ void ProcessDock::showTableContextMenu(const QPoint& localPosition)
     else
     {
         constexpr int affinityMatrixColumnCount = 6;
-        const QString affinityCoreButtonStyle = QStringLiteral(
-            "QToolButton {"
-            "  min-width:42px; min-height:28px; padding:2px 6px;"
-            "  color:%1; background:transparent; border:1px solid %2; border-radius:4px;"
-            "}"
-            "QToolButton:hover { border-color:%3; background:%4; }"
-            "QToolButton:checked { color:%5; background:%3; border-color:%3; }"
-            "QToolButton[affinityMixed=\"true\"] { border-color:%3; border-style:dashed; }")
-            .arg(KswordTheme::TextPrimaryHex())
-            .arg(KswordTheme::BorderHex())
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue))
-            .arg(KswordTheme::SurfaceAltHex())
-            .arg(KswordTheme::OnAccentDynamicHex());
+        const QString affinityCoreButtonStyle = ks::ui::BuildFlatButtonStyle()
+            + QStringLiteral("QToolButton{min-width:42px;min-height:28px;padding:2px 6px;border-radius:4px;}")
+            // 混合亲和性以独立实色底提示，保留已有三态业务属性。
+            + QStringLiteral("QToolButton[affinityMixed=\"true\"]:enabled{"
+                "background-color:palette(base);color:palette(text);}");
 
         const auto affinityCoordinates = std::make_shared<
             std::vector<ks::process::LogicalProcessorCoordinate>>(

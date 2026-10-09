@@ -1,4 +1,5 @@
 
+#include "../UI/FlatButtonTheme.h"
 #include "MonitorDock.h"
 #include "../../../shared/ui/KsPainterChart.h"
 #include <MonitorDock/EtwArchiveCompression.h>
@@ -884,31 +885,10 @@ namespace
     // - 返回：可直接应用到 QToolButton 的样式表。
     QString collapseHeaderButtonStyle()
     {
-        return QStringLiteral(
-            "QToolButton{"
-            "  background:%1;"
-            "  color:%2;"
-            "  border:1px solid %3;"
-            "  border-radius:5px;"
-            "  padding:5px 8px;"
-            "  font-weight:600;"
-            "  text-align:left;"
-            "}"
-            "QToolButton:hover{"
-            "  background:%4;"
-            "  color:%2;"
-            "  border-color:%5;"
-            "}"
-            "QToolButton:checked{"
-            "  background:%4;"
-            "  color:%2;"
-            "  border-color:%5;"
-            "}")
-            .arg(KswordTheme::SurfaceAltHex())
-            .arg(KswordTheme::TextPrimaryHex())
-            .arg(KswordTheme::BorderHex())
-            .arg(KswordTheme::PrimaryBlueSubtleHex())
-            .arg(KswordTheme::PrimaryBlueHex);
+        // 纯色主题只接管颜色；保留本页按钮尺寸和业务选中状态。
+        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QToolButton{border-radius:5px;padding:5px 8px;font-weight:600;text-align:left;}");
+
     }
 
     // createIndependentCollapseSection 作用：

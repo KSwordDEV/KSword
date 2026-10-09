@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../theme.h"
 
@@ -775,10 +776,14 @@ void NetworkDock::initializeMultiThreadDownloadTab()
     m_multiDownloadThreadCountSpin->setToolTip(QStringLiteral("下载开始前可调整线程数，默认 16。"));
 
     m_multiDownloadBrowseDirButton = new QPushButton(m_multiThreadDownloadPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_multiDownloadBrowseDirButton, ks::ui::FlatButtonTone::Neutral);
     m_multiDownloadBrowseDirButton->setIcon(QIcon(":/Icon/file_find.svg"));
     m_multiDownloadBrowseDirButton->setToolTip(QStringLiteral("选择下载目录"));
 
     m_multiDownloadStartButton = new QPushButton(m_multiThreadDownloadPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_multiDownloadStartButton, ks::ui::FlatButtonTone::Accent);
     m_multiDownloadStartButton->setIcon(QIcon(":/Icon/process_start.svg"));
     m_multiDownloadStartButton->setToolTip(QStringLiteral("启动新的多线程下载任务"));
 
@@ -818,6 +823,8 @@ void NetworkDock::initializeMultiThreadDownloadTab()
         QStringLiteral("支持以 ; , 空格 分隔后缀名，自动补全前导点。"));
 
     m_multiDownloadSaveCaptureSettingsButton = new QPushButton(captureSettingsGroup);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_multiDownloadSaveCaptureSettingsButton, ks::ui::FlatButtonTone::Accent);
     m_multiDownloadSaveCaptureSettingsButton->setIcon(QIcon(":/Icon/codeeditor_save.svg"));
     m_multiDownloadSaveCaptureSettingsButton->setToolTip(QStringLiteral("保存下载捕获设置到 JSON"));
 
@@ -1336,6 +1343,8 @@ void NetworkDock::refreshMultiThreadDownloadUi()
             actionLayout->setSpacing(4);
 
             QPushButton* pauseButton = new QPushButton(actionWidget);
+            // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+            ks::ui::ApplyFlatButtonTheme(pauseButton, ks::ui::FlatButtonTone::Neutral);
             connect(pauseButton, &QPushButton::clicked, this, [this, taskId = taskState->taskId]()
                 {
                     const std::shared_ptr<MultiThreadDownloadTaskState> currentTask = findMultiThreadDownloadTaskById(taskId);
@@ -1346,6 +1355,8 @@ void NetworkDock::refreshMultiThreadDownloadUi()
                 });
 
             QPushButton* cancelButton = new QPushButton(actionWidget);
+            // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+            ks::ui::ApplyFlatButtonTheme(cancelButton, ks::ui::FlatButtonTone::Danger);
             connect(cancelButton, &QPushButton::clicked, this, [this, taskId = taskState->taskId]()
                 {
                     cancelMultiThreadDownloadTask(taskId);

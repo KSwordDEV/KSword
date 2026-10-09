@@ -1529,6 +1529,12 @@
     <ClCompile Include="UI\TableInteractionSupport.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UI\FlatButtonTheme.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\FloatingScrollbars.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="UI\ThemeBinding.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2737,6 +2743,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="UI\TableInteractionSupport.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\FlatButtonTheme.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\FloatingScrollbars.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="UI\ThemeBinding.h">

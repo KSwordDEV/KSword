@@ -1,4 +1,5 @@
 #include "CommandExecutionPopup.h"
+#include "./FlatButtonTheme.h"
 #include "ThemeBinding.h"
 
 #include "../Internationalization/LanguageManager.h"
@@ -229,6 +230,10 @@ namespace ks::ui
         m_executeButton->setIconSize(QSize(16, 16));
         m_executeButton->setMinimumWidth(88);
         m_executeButton->setMinimumHeight(28);
+        // 弹层三个工具按钮分别绑定明确语义，保留固定点击区和执行配置。
+        ApplyFlatButtonTheme(m_closeButton, FlatButtonTone::Neutral);
+        ApplyFlatButtonTheme(m_browseDirectoryButton, FlatButtonTone::Neutral);
+        ApplyFlatButtonTheme(m_executeButton, FlatButtonTone::Accent);
         actionLayout->addWidget(m_executeButton, 0);
         rootLayout->addLayout(actionLayout, 0);
 
@@ -308,11 +313,6 @@ namespace ks::ui
         const QString textPrimaryHex = KswordTheme::TextPrimaryHex();
         const QString textSecondaryHex = KswordTheme::TextSecondaryHex();
         const QString accentHex = KswordTheme::AccentHex(KswordTheme::AccentRole::Blue);
-        const QString accentHoverHex = KswordTheme::PrimaryBlueSolidHoverHex();
-        const QString accentTextHex = KswordTheme::OnAccentHex(
-            KswordTheme::AccentColor(KswordTheme::AccentRole::Blue));
-        const QString accentHoverTextHex = KswordTheme::OnAccentHex(
-            KswordTheme::PrimaryBlueSolidHoverColor());
 
         // 弹层显式设置各类控件背景，避免透明主窗口下继承黑色默认底色。
         setStyleSheet(QStringLiteral(
@@ -341,27 +341,9 @@ namespace ks::ui
             "#ksCommandExecutionPopup QComboBox:focus{"
             "border:1px solid %6;"
             "}"
-            "#ksCommandExecutionPopup QToolButton{"
-            "color:%4;"
-            "background:transparent;"
-            "border:1px solid transparent;"
-            "border-radius:3px;"
-            "}"
-            "#ksCommandExecutionPopup QToolButton:hover{"
-            "background:%7;"
-            "}"
+            "#ksCommandExecutionPopup QToolButton{border-radius:3px;}"
             "#ksCommandExecutionPopup QToolButton#ksCommandExecutionPopupExecuteButton{"
-            "background:%6;"
-            "color:%8;"
-            "border:1px solid %6;"
-            "font-weight:600;"
-            "padding:3px 10px;"
-            "}"
-            "#ksCommandExecutionPopup QToolButton#ksCommandExecutionPopupExecuteButton:hover{"
-            "background:%7;"
-            "border:1px solid %7;"
-            "color:__EXECUTE_HOVER_TEXT__;"
-            "}"
+            "font-weight:600;padding:3px 10px;}"
             "#ksCommandExecutionPopup QLabel#ksCommandExecutionPopupHint{"
             "color:%3;"
             "}"
@@ -374,10 +356,7 @@ namespace ks::ui
                 textSecondaryHex,
                 textPrimaryHex,
                 alternateBackgroundHex,
-                accentHex,
-                accentHoverHex,
-                accentTextHex)
-            .replace(QStringLiteral("__EXECUTE_HOVER_TEXT__"), accentHoverTextHex));
+                accentHex));
     }
 
     void CommandExecutionPopup::showPopupPanel()

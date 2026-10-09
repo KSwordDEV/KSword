@@ -139,3 +139,10 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 
 - 新增源码必须同步 `.vcxproj` 和 `.vcxproj.filters`。
 - 用户可见文本必须同步 `languages/zh-CN.json` 与 `en-US.json`，并通过 `tools/i18n_language_pack.py audit`。
+
+## 2026-10-09 逐页按钮与悬浮滚动条
+
+- 共享按钮颜色由 `UI/FlatButtonTheme` 的明确标记拥有；更新时必须检查本地与祖先 QSS 的所有权，未知数据色不能被旧主题绑定重新覆盖。显式 tone 在 queued 首次刷新之前也必须优先；ThemeBinding 会复制回调，首次应用状态不能只保存为 mutable 闭包 bool。
+- 共享实心按钮的 SVG 必须按该按钮实际 normal/hover/focus/pressed/checked/disabled 底色校准，不能沿用通用图标 Active 的强调底假设。默认主题的共享强调按钮也需要上下文；菜单、模型、多色图标和 ADS 自管图标不跟随按钮上下文。
+- `UI/FloatingScrollbars` 保留原生条对象和业务信号，用自己的零厚度样式块收回布局位置，仅另画悬浮细线；不能强设 AlwaysOff、改 viewportMargins 或添加另一套滚轮算法。步长/追踪开关没有值变化信号，需要条件刷新。硬件浮窗归还时恢复所有捕获滚动区的倍率，Hex 检查器复制区显式避让。
+- 逐页范围、用户审查基线与最终验证记录见 [逐页主题与悬浮滚动条回归](../../docs/逐页主题与悬浮滚动条回归-20261009.md)。组件、硬件 GL 夹具与完整 Release 编译分别报告，不推定生产 GUI 已全部实机验收。
