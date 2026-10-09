@@ -10,6 +10,8 @@ namespace ks::r3::service {
 struct ServiceActionResult {
     bool success = false;
     std::wstring message;
+    std::uint32_t win32Error = 0, finalState = 0;
+    bool partial = false;
 };
 
 // ServiceStartTypeChoice is what the start-type combo offers. It is a closed set

@@ -6,6 +6,7 @@ The caller owns VM power/snapshot isolation; this runner never changes the drive
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 from ksword_cli_vm import Guest
 
@@ -42,6 +43,8 @@ exit $rc
     guest = Guest(args.dll, args.vmx, 'Administrator', '')
     try:
         guest.copy(str(cli), guest_root + r'\KswordCLI-R3.exe')
+        if feature == 'service':
+            guest.copy(str(Path(os.environ['LOCALAPPDATA']) / 'KSwordTestBuilds/CLI-R3/R3Fixture.exe'), guest_root + r'\R3Fixture.exe')
         for name in ('Test-KSwordCliR3.ps1', 'KswordCliR3TestSupport.ps1'):
             guest.copy(str(ROOT / 'tools' / name), guest_root + '\\' + name)
         guest.copy(str(local_runner), guest_root + r'\r3-feature-runner.ps1')

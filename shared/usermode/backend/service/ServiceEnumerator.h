@@ -40,6 +40,7 @@ enum class ServiceDetailAvailability {
 struct ServiceDetailSection {
     ServiceDetailAvailability availability = ServiceDetailAvailability::Available;
     std::wstring diagnosticText;
+    std::uint32_t win32Error = 0;
 };
 
 // ServiceFailureActionSnapshot owns one configured SCM recovery action. Both

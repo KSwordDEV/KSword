@@ -376,6 +376,7 @@ ServiceEntry BuildEntry(const ks::service::ServiceRecord& record) {
             &entry.dependencyLoadOrderGroups);
         entry.accountName = record.config.accountName;
         entry.delayedAutoStart = record.config.delayedAutoStart;
+        entry.hasDelayedAutoStart = record.config.hasDelayedAutoStart;
         if (entry.displayName.empty()) {
             entry.displayName = record.config.displayName;
         }
@@ -464,6 +465,7 @@ ServiceDetailSnapshot QueryServiceReadOnlyDetails(const ServiceEntry& entry) {
         }
     } else {
         snapshot.failureSettingsStatus = OptionalQueryFailure(failureErrorText, failureWin32Error);
+        snapshot.failureSettingsStatus.win32Error = failureWin32Error;
     }
 
     std::vector<std::wstring> reverseDependencies;
@@ -474,6 +476,7 @@ ServiceDetailSnapshot QueryServiceReadOnlyDetails(const ServiceEntry& entry) {
         snapshot.dependencies.directDependentServiceNames = std::move(reverseDependencies);
     } else {
         snapshot.reverseDependenciesStatus = OptionalQueryFailure(reverseErrorText, reverseWin32Error);
+        snapshot.reverseDependenciesStatus.win32Error = reverseWin32Error;
     }
 
     AppendFailureSettingsProperties(&snapshot.properties, snapshot.failureSettings, snapshot.failureSettingsStatus);
@@ -494,6 +497,7 @@ ServiceEnumerationResult EnumerateServices() {
         SERVICE_WIN32 | SERVICE_KERNEL_DRIVER | SERVICE_FILE_SYSTEM_DRIVER | SERVICE_ADAPTER | SERVICE_RECOGNIZER_DRIVER;
     if (!ks::service::EnumerateServiceRecords(typeMask, SERVICE_STATE_ALL, &records, &errorText, &win32Error)) {
         result.success = false;
+        result.win32Error = win32Error;
         result.diagnosticText = L"服务枚举失败：" + WidenUtf8(errorText);
         return result;
     }
@@ -517,6 +521,7 @@ ServiceEnumerationResult QuerySingleService(const std::wstring& serviceName) {
     std::string errorText;
     std::uint32_t win32Error = 0;
     if (!ks::service::QueryServiceRecord(serviceName, &record, &errorText, &win32Error)) {
+        result.win32Error = win32Error;
         result.diagnosticText = L"查询服务失败：" + WidenUtf8(errorText);
         return result;
     }

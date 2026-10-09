@@ -234,7 +234,7 @@ namespace
     {
         if (!queryConfigByHandle(svc, cfgOut, textOut, codeOut)) { return false; }
         bool delayed = false;
-        if (queryDelayedByHandle(svc, &delayed)) { cfgOut->delayedAutoStart = delayed; }
+        if (queryDelayedByHandle(svc, &delayed)) { cfgOut->delayedAutoStart = delayed; cfgOut->hasDelayedAutoStart = true; }
         std::wstring desc;
         const bool descOk = queryDescriptionByHandle(svc, &desc, nullptr, nullptr);
         if (descOut != nullptr && descOk) { *descOut = std::move(desc); }

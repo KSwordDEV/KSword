@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
+param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\KswordCliR3TestSupport.ps1"
 switch ($Feature) {
@@ -137,6 +137,56 @@ switch ($Feature) {
                 $bounded = (Invoke-Cli @('network','endpoint-audit','afd','query','--limit','1000','--json') 6) | ConvertFrom-Json
                 Assert ($bounded.status -eq 'partial' -and $bounded.data.backendTruncated -and !$bounded.data.displayTruncated) 'Backend cap must not pretend full evidence'
             } finally { foreach ($l in $listeners) { $l.Stop() } }
+        }
+    }
+    'service' {
+        $top=Invoke-Cli @('help')
+        Assert ($top.Contains('service') -and !$top.Contains('set-start-type')) 'Service top help'
+        $help=Invoke-Cli @('help','service','set-start-type')
+        Assert ($help.Contains('--type') -and $help.Contains('--confirm')) 'Service start type help'
+        Assert ((Invoke-Cli @('service','set-start-type','--help')) -eq $help) 'Service inline help'
+        foreach ($bad in @(
+            @('service','query','--json'),
+            @('service','query','--name','EventLog','--backend','r0','--json'),
+            @('service','enum','--bogus','1','--json'),
+            @('service','stop','--name','EventLog','--json'),
+            @('service','set-start-type','--name','EventLog','--type','BOGUS','--confirm','--json')
+        )) { Assert (((Invoke-Cli $bad 1) | ConvertFrom-Json).status -eq 'failed') 'Service invalid arguments' }
+        $oracle=Get-Service EventLog
+        $query=(Invoke-Cli @('service','query','--name','EventLog','--json')) | ConvertFrom-Json
+        Assert ($query.data.hasConfig -and $query.data.hasStatus -and $query.data.state -eq [int]$oracle.Status) 'Independent SCM status'
+        $enum=(Invoke-Cli @('service','enum','--name','eventlog','--json')) | ConvertFrom-Json
+        Assert ($enum.data.matchedCount -eq 1 -and $enum.data.services[0].name -eq 'EventLog') 'Case-insensitive SCM name'
+        $missing=(Invoke-Cli @('service','query','--name','KSwordCliMissing-9283147','--json') 3) | ConvertFrom-Json
+        Assert ($missing.data.win32Error -eq 1060) 'Missing service raw error'
+        $detail=(Invoke-Cli @('service','detail','query','--name','EventLog','--json') @(0,6)) | ConvertFrom-Json
+        Assert ($detail.data.service.name -eq 'EventLog' -and $null -ne $detail.data.failureSettingsStatus.availability) 'Independent detail sections'
+        Assert ((Invoke-Cli @('service','query','--name','EventLog')).Contains('binaryPath:')) 'Service text'
+        if ($InGuest) {
+            $name='KSwordCliService-'+[Guid]::NewGuid().ToString('N')
+            $fixture=Join-Path $PSScriptRoot 'R3Fixture.exe'
+            try {
+                New-Service -Name $name -BinaryPathName ($fixture+' --service') -StartupType Manual -Description 'KSword CLI service fixture' | Out-Null
+                foreach ($step in @(@('start',4),@('pause',7),@('continue',4),@('stop',1))) {
+                    $arguments=@('service',$step[0],'--name',$name,'--json')
+                    if ($step[0] -eq 'stop') { $arguments+='--confirm' }
+                    $action=(Invoke-Cli $arguments) | ConvertFrom-Json
+                    Assert ($action.data.requestSucceeded -and $action.data.verified -and $action.data.postcheck.state -eq $step[1]) 'Service transition result'
+                    Assert ([int](Get-Service $name).Status -eq $step[1]) 'SCM transition oracle'
+                }
+                foreach ($step in @(@('delayed',2,1),@('automatic',2,0),@('disabled',4,0),@('manual',3,0))) {
+                    $action=(Invoke-Cli @('service','set-start-type','--name',$name,'--type',$step[0],'--confirm','--json')) | ConvertFrom-Json
+                    Assert ($action.data.verified -and $action.data.postcheck.startType -eq $step[1]) 'Service configuration result'
+                    $registry=Get-ItemProperty ('HKLM:\SYSTEM\CurrentControlSet\Services\'+$name)
+                    Assert ($registry.Start -eq $step[1]) 'SCM registry startup type'
+                    if ($step[1] -eq 2) { Assert ($registry.DelayedAutoStart -eq $step[2]) 'SCM registry delayed flag' }
+                }
+                $details=(Invoke-Cli @('service','detail','query','--name',$name,'--json')) | ConvertFrom-Json
+                Assert ($details.data.service.description -eq 'KSword CLI service fixture' -and $details.data.dependents.Count -eq 0) 'Fixture details'
+            } finally {
+                Stop-Service -Name $name -Force -ErrorAction SilentlyContinue
+                & sc.exe delete $name | Out-Null
+            }
         }
     }
 }

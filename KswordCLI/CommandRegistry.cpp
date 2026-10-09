@@ -71,6 +71,9 @@ Json Json::array(const std::vector<Json>& values) {
         display += L"\n[" + std::to_wstring(i) + L"] " + values[i].display; }
     return {out + L"]", values.empty() ? L"(empty)" : display};
 }
+Json Json::strings(const std::vector<std::wstring>& values) { std::vector<Json> rows; for (const auto& value : values) rows.push_back(string(value)); return array(rows); }
+Json Json::count(std::uint64_t value) { return string(std::to_wstring(value)); }
+Json Json::hex(std::uint64_t value) { std::wostringstream out; out << L"0x" << std::hex << value; return string(out.str()); }
 bool Args::has(const std::wstring& key) const { return values.contains(key); }
 std::wstring Args::get(const std::wstring& key, const std::wstring& fallback) const { const auto it = values.find(key); return it == values.end() ? fallback : it->second; }
 std::wstring Args::require(const std::wstring& key) const {

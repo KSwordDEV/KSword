@@ -83,4 +83,14 @@
     <ClCompile Include="..\shared\usermode\backend\network\EndpointAudit.cpp" />
     <ClInclude Include="..\shared\usermode\backend\network\EndpointAudit.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3Service.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceActions.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceTypes.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\service\service.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceEnumerator.h" />
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceActions.h" />
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceTypes.h" />
+  </ItemGroup>
 </Project>

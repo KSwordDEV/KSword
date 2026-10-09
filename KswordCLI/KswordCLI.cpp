@@ -1453,6 +1453,7 @@ namespace
             ks::cli::registerNetworkDns();
             ks::cli::registerNetworkFirewall();
             ks::cli::registerNetworkEndpointAudit();
+            ks::cli::registerService();
             #endif
             return true;
         }();

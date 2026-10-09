@@ -17,6 +17,9 @@ struct Json {
     static Json boolean(bool value);
     static Json object(const std::vector<std::pair<std::wstring, Json>>& values);
     static Json array(const std::vector<Json>& values);
+    static Json strings(const std::vector<std::wstring>& values);
+    static Json count(std::uint64_t value);
+    static Json hex(std::uint64_t value);
 };
 struct Result {
     int code = 0;
@@ -48,4 +51,5 @@ void registerNetworkTraceRoute();
 void registerNetworkDns();
 void registerNetworkFirewall();
 void registerNetworkEndpointAudit();
+void registerService();
 }
