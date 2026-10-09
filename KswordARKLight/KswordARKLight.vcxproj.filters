@@ -122,9 +122,6 @@
     <ClCompile Include="App\MainWindow.cpp">
       <Filter>App</Filter>
     </ClCompile>
-    <ClCompile Include="Core\Common.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
     <ClCompile Include="Core\DriverLease.cpp">
       <Filter>Core</Filter>
     </ClCompile>
@@ -538,9 +535,6 @@
       <Filter>Features\Service</Filter>
     </ClCompile>
     <ClCompile Include="Features\Startup\StartupActions.cpp">
-      <Filter>Features\Startup</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Startup\StartupEnumerator.cpp">
       <Filter>Features\Startup</Filter>
     </ClCompile>
     <ClCompile Include="Features\Startup\StartupFeature.cpp">
@@ -1555,6 +1549,31 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\registry\RegistryMutations.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\Common.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\Common.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupTypes.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupEnumerator.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupEnumerator.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

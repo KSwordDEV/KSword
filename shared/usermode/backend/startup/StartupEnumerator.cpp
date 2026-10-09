@@ -1,6 +1,6 @@
 #include "StartupEnumerator.h"
 
-#include "../../Core/Common.h"
+#include "../Common.h"
 
 #include <algorithm>
 #include <cstring>
@@ -11,7 +11,7 @@
 #include <vector>
 #include <winsvc.h>
 
-namespace Ksword::Features::Startup {
+namespace ks::r3::startup {
 namespace {
 constexpr wchar_t kRunKey[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 constexpr wchar_t kRunOnceKey[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce";
@@ -549,7 +549,7 @@ bool EnumerateServices(std::vector<StartupEntry>& entries, std::vector<std::wstr
         error.scope = StartupEntryScope::LocalMachine;
         error.state = StartupEntryState::Unknown;
         error.name = L"Service enumeration failed";
-        error.description = Ksword::Core::LastErrorMessage();
+        error.description = ks::r3::common::LastErrorMessage();
         entries.push_back(std::move(error));
         return false;
     }
@@ -795,4 +795,4 @@ StartupEnumerationResult EnumerateStartupEntries() {
     return result;
 }
 
-} // namespace Ksword::Features::Startup
+} // namespace ks::r3::startup

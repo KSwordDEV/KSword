@@ -1,6 +1,6 @@
 #include "Common.h"
 
-namespace Ksword::Core {
+namespace ks::r3::common {
 
 UniqueHandle::UniqueHandle() noexcept : handle_(nullptr) {}
 
@@ -64,4 +64,4 @@ std::wstring LastErrorMessage() {
     return LastErrorMessage(::GetLastError());
 }
 
-} // namespace Ksword::Core
+} // namespace ks::r3::common

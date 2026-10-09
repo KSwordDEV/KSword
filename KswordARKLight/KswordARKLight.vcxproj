@@ -92,7 +92,6 @@
   <ItemGroup>
     <ClCompile Include="App\Main.cpp" />
     <ClCompile Include="App\MainWindow.cpp" />
-    <ClCompile Include="Core\Common.cpp" />
     <ClCompile Include="Core\DriverLease.cpp" />
     <ClCompile Include="Core\DriverService.cpp" />
     <ClCompile Include="Core\EntityRef.cpp" />
@@ -236,7 +235,6 @@
     <ClCompile Include="Features\Service\ServiceModel.cpp" />
     <ClCompile Include="Features\Service\ServiceView.cpp" />
     <ClCompile Include="Features\Startup\StartupActions.cpp" />
-    <ClCompile Include="Features\Startup\StartupEnumerator.cpp" />
     <ClCompile Include="Features\Startup\StartupFeature.cpp" />
     <ClCompile Include="Features\Startup\StartupModel.cpp" />
     <ClCompile Include="Features\Startup\StartupView.cpp" />
@@ -683,6 +681,21 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\registry\RegistryMutations.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\Common.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\Common.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupEnumerator.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupEnumerator.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
