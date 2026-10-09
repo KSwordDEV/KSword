@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../shared/usermode/backend/hardware/BusTopology.h"
 #include "../../../shared/usermode/backend/hardware/UsbTopology.h"
 
 #include "HardwareStatsModel.h"
@@ -24,6 +25,6 @@ using ks::r3::hardware_stats::EnumerateUsbTopology;
 // present devnode. It is off by default because resource arbitration has to be
 // queried per devnode, and doing that for the couple of thousand nodes on a
 // typical desktop costs seconds for rows nobody asked for.
-BusDeviceSnapshot EnumerateBusDevices(bool includeAllEnumerators);
+using ks::r3::hardware_stats::EnumerateBusDevices;
 
 } // namespace Ksword::Features::HardwareStats

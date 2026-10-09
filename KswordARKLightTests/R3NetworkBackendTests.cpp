@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/hardware/BusTopology.h"
 #include "../shared/usermode/backend/hardware/UsbTopology.h"
 #include "../shared/usermode/backend/hardware/PerformanceSampler.h"
 #include "../shared/usermode/backend/hardware/HardwareEnumerator.h"
