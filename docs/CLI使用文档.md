@@ -26,7 +26,7 @@ KswordCLI.exe <family> <subcommand> --help
 
 IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计结论统一写入 stderr，保证合并重定向时先原因、后结论；成功数据继续写入 stdout。
 
-退出码沿用既有约定：`0` 成功，`1` 用法/参数错误，`2` 设备打开失败，`3` I/O 调用或响应中的操作失败（包括等待超时），`4` 响应格式错误，`5` 不支持或证据不可用。即使 DeviceIoControl 成功，响应中的失败 NTSTATUS 也会返回非零退出码；输出保留原始状态。所有未支持的 IOCTL 传输错误（Win32 1/50/120/127）和响应中的不支持状态统一返回 `5`，包括固定响应、变长审计和 `r0`/Callback Monitor 命令。个别证据命令另以 `6` 表示扫描不完整，见该命令说明。
+退出码沿用既有约定：`0` 成功，`1` 用法/参数错误，`2` 设备打开失败，`3` I/O 调用或响应中的操作失败（包括等待超时），`4` 响应格式错误，`5` 不支持或证据不可用。即使 DeviceIoControl 成功，响应中的失败 NTSTATUS 也会返回非零退出码；输出保留原始状态。所有未支持的 IOCTL 传输错误（Win32 1/50/120/127）和响应中的不支持状态统一返回 `5`，包括固定响应、变长审计和 `r0`/Callback Monitor 命令。个别命令另以 `6` 表示扫描不完整或完整卸载尚未确认，见该命令说明。
 
 若所有只读命令连同 `capability query-driver-capabilities` 都返回 `win32=50`，不能仅凭 IOCTL 名称判断驱动缺少实现。请运行 `preflight query` 和 `r0 ioctl-registry`，核对 `sc qc KswordARK` 的实际加载路径及配套版本。2026-10-01 的旧驱动会在 OS build 高于 26100 时拦截包括能力查询在内的请求；该上限已于 2026-10-03 移除，仍须使用匹配的内核 profile。
 
@@ -156,7 +156,7 @@ Inspect SSDT, hooks, driver objects, CPU, physical layout, CID, and IPC state.
 | `kernel patch-inline-hook` | `KswordCLI.exe kernel patch-inline-hook --mode MODE --function VA (--expected-hex HEX \| --expected-file PATH) [--restore-hex HEX \| --restore-file PATH] [--flags 0xN]` | Patch or restore an inline hook using bounded byte evidence. | Required: --mode, --function, and expected payload. Optional: restore payload, --flags. | Hex and file payload forms are mutually exclusive per payload. |
 | `kernel query-driver-object` | `KswordCLI.exe kernel query-driver-object --driver NAME [--flags 0xN] [--max-devices N] [--max-attached N] [--limit N]` | Query one DriverObject and device chain. | Required: --driver. Optional: --flags, --max-devices, --max-attached, --limit. |  |
 | `kernel query-driver-integrity` | `KswordCLI.exe kernel query-driver-integrity [--driver NAME] [--module-base VA] [--flags 0xN] [--max-rows N] [--max-idt-vectors N] [--max-devices N] [--max-attached N] [--limit N]` | Query driver integrity evidence rows. | Optional: --driver, --module-base, --flags, --max-rows, --max-idt-vectors, --max-devices, --max-attached, --limit. |  |
-| `kernel force-unload-driver` | `KswordCLI.exe kernel force-unload-driver --driver NAME [--module-base VA] [--timeout-ms N] [--flags 0xN]` | Force an unload path for one driver. | Required: --driver. Optional: --module-base, --timeout-ms, --flags. | Print requested/effective flags, reached stages and preflight evidence; detailed step statuses are in driver log. |
+| `kernel force-unload-driver` | `KswordCLI.exe kernel force-unload-driver --driver NAME [--module-base VA] [--timeout-ms N] [--flags 0xN]` | Force an unload path for one driver. | Required: --driver. Optional: --module-base, --timeout-ms, --flags. | Exit 0 requires UNLOADED; routine-called/cleanup-only returns 6 and queries DriverObject presence. Print requested/effective flags and preflight evidence; detailed step statuses are in driver log. |
 | `kernel query-cpu` | `KswordCLI.exe kernel query-cpu` | Query CPU hardware summary. | No options. |  |
 | `kernel query-phys-layout` | `KswordCLI.exe kernel query-phys-layout` | Query physical memory layout summary. | No options. |  |
 | `kernel cid` | `KswordCLI.exe kernel cid [--flags 0xN] [--max-entries N] [--max-visits N] [--start-cid CID] [--end-cid CID] [--limit N]` | Enumerate CID table evidence. | Optional: --flags, --max-entries, --max-visits, --start-cid, --end-cid, --limit. |  |
@@ -575,10 +575,14 @@ metrics 升为 v11，主协议仍 v6；旧 metrics 请求明确版本不匹配�
 
 ### 强制卸载诊断与成功对照
 
+`kernel force-unload-driver` 的退出码 `0` 表示响应为 `status=1`（UNLOADED），且主操作/等待状态成功，即驱动后端已确认完整卸载。`status=9`（UNLOAD_ROUTINE_CALLED）只证明卸载例程调用完成，返回 `6`，输出 `unloadOutcome=unload-routine-called fullUnloadConfirmed=0 commandExitCode=6`。`status=7`（FORCED_CLEANUP）表示完成清理，但完整卸载未由该状态确认，同样返回 `6`。失败或超时仍返回 `3`，不支持仍返回 `5`，原始响应状态保持不变。
+
+返回 `6` 时 CLI 自动进行一次只读 DriverObject 查询，打印 `driverObjectPresent=yes/no/unknown` 和查询诊断：`yes` 明确表示查询时该名字的 DriverObject 仍可引用；`no` 仅表示对象查询未找到，不能单独证明内核模块已消失；查询传输、版本、长度或引用证据不可用时显示 `unknown`。这个后置查询不改写原始操作回执，也不把退出码升级为 `0`。需要对比实际驻留模块时，另行保存内核模块枚举结果。
+
 `kernel force-unload-driver` 额外打印 `requestedFlags`、`droppedFlags`、`diagnosticFlags`、`reached` 和 `evidence`。`reached` 列出已经到达的引用、预检、ZwUnloadDriver、直接调用以及验证步骤；`evidence` 列出观察到的阻塞条件，例如 `device-reference`、`resident-threads`、`module-callbacks` 或三类尚未恢复的编辑记录。多项证据可以同时存在，不应把每项都理解成当前路径的决定原因。
 
 诊断复用 V2 响应的 `reserved2`，不改变 IOCTL 编号、结构大小或版本。旧驱动没有 VALID 位时显示 `diagnostics=unavailable`。GUI/Light 的共享客户端保留原始 flags 和可选诊断字段，原有功能仍可使用旧驱动。
 
 失败后立即保存 `log --max-frames 256`，查找 `R0 unload diag summary`、`flags`、`gates`、`thread-evidence`、`callback-evidence`、`loader-image`、`zw` 和 `direct`，这些日志保留各步骤原始状态和计数。`--flags 0x290` 包含直接调用和清理授权，但预检不允许清理时仍可能降为 `0x200`；应比较 requested/effective/dropped，不能把被移除的 flags 当成已经执行的清理。
 
-Beep 返回 DEVICE_BUSY 本身不能证明通路错误，也不能作为成功对照。专用构建夹具与后续来宾对照步骤见 [unload_probe](../KswordARKDriver/tests/unload_probe/README.md)。本轮仅构建，未安装、加载或实测该夹具；没有新增强制卸载成功样本。
+Beep 返回 DEVICE_BUSY 本身不能证明通路错误，也不能作为成功对照。专用构建夹具与后续来宾对照步骤见 [unload_probe](../KswordARKDriver/tests/unload_probe/README.md)。用户提供的探针回执证明默认 flags 的完整卸载路径可用；显式 `0x200` 仅调用卸载例程后对象和模块仍存在。Beep 的新回执定位到 device-reference，属于当前保护条件下的拒绝。本次 CLI 修改仅构建，未新增运行实测。

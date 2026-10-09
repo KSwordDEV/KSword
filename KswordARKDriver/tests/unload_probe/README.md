@@ -11,6 +11,8 @@
   /m:1 /v:minimal
 ```
 
-后续允许实测时，在专用来宾为该产物使用来宾现有测试签名流程，以 SCM 服务名 `KswordUnloadProbe` 注册。先验证普通 SCM 停止能够卸载，再重新加载，用 `kernel force-unload-driver --driver \Driver\KswordUnloadProbe --timeout-ms 5000` 保存回执，立即读取 `log --max-frames 256`。成功必须同时满足 CLI 退出码 0、响应 UNLOADED、DriverObject 查询不到且模块枚举中不存在。若要比较 `--flags 0x200`，重新加载后单独执行，记录是否仅调用了卸载例程及闭环验证结果；不得把 UNLOAD_ROUTINE_CALLED 当成镜像已卸载。
+后续允许实测时，在专用来宾为该产物使用来宾现有测试签名流程，以 SCM 服务名 `KswordUnloadProbe` 注册。先验证普通 SCM 停止能够卸载，再重新加载，用 `kernel force-unload-driver --driver \Driver\KswordUnloadProbe --timeout-ms 5000` 保存回执，立即读取 `log --max-frames 256`。成功必须同时满足 CLI 退出码 0、响应 UNLOADED、DriverObject 查询不到且模块枚举中不存在。若要比较 `--flags 0x200`，重新加载后单独执行，记录是否仅调用了卸载例程及闭环验证结果；当前 CLI 对 UNLOAD_ROUTINE_CALLED 返回 6，明确输出 fullUnloadConfirmed=0，并只读回查 DriverObject 是否仍存在。不得把例程调用完成当成镜像已卸载。
 
 实验结束由测试操作者停止和删除该专用服务。不要用 Beep 或其他系统驱动作为这个成功对照。
+
+用户提供的探针回执已确认：默认 flags 返回 UNLOADED，随后对象和模块消失；显式 `0x200` 返回 UNLOAD_ROUTINE_CALLED，随后对象和模块仍在。该证据支持完整卸载路径可用，不是本次 agent 执行的实测。

@@ -1225,7 +1225,7 @@ namespace
         { L"kernel", L"patch-inline-hook", L"KswordCLI.exe kernel patch-inline-hook --mode MODE --function VA (--expected-hex HEX | --expected-file PATH) [--restore-hex HEX | --restore-file PATH] [--flags 0xN]", L"Patch or restore an inline hook using bounded byte evidence.", L"Required: --mode, --function, and expected payload. Optional: restore payload, --flags.", L"Hex and file payload forms are mutually exclusive per payload." },
         { L"kernel", L"query-driver-object", L"KswordCLI.exe kernel query-driver-object --driver NAME [--flags 0xN] [--max-devices N] [--max-attached N] [--limit N]", L"Query one DriverObject and device chain.", L"Required: --driver. Optional: --flags, --max-devices, --max-attached, --limit.", L"" },
         { L"kernel", L"query-driver-integrity", L"KswordCLI.exe kernel query-driver-integrity [--driver NAME] [--module-base VA] [--flags 0xN] [--max-rows N] [--max-idt-vectors N] [--max-devices N] [--max-attached N] [--limit N]", L"Query driver integrity evidence rows.", L"Optional: --driver, --module-base, --flags, --max-rows, --max-idt-vectors, --max-devices, --max-attached, --limit.", L"" },
-        { L"kernel", L"force-unload-driver", L"KswordCLI.exe kernel force-unload-driver --driver NAME [--module-base VA] [--timeout-ms N] [--flags 0xN]", L"Force an unload path for one driver.", L"Required: --driver. Optional: --module-base, --timeout-ms, --flags.", L"Print requested/effective flags, reached stages and preflight evidence; detailed step statuses are in driver log." },
+        { L"kernel", L"force-unload-driver", L"KswordCLI.exe kernel force-unload-driver --driver NAME [--module-base VA] [--timeout-ms N] [--flags 0xN]", L"Force an unload path for one driver.", L"Required: --driver. Optional: --module-base, --timeout-ms, --flags.", L"Exit 0 requires UNLOADED; routine-called/cleanup-only returns 6 and queries DriverObject presence. Print requested/effective flags and preflight evidence; detailed step statuses are in driver log." },
         { L"kernel", L"query-cpu", L"KswordCLI.exe kernel query-cpu", L"Query CPU hardware summary.", L"No options.", L"" },
         { L"kernel", L"query-phys-layout", L"KswordCLI.exe kernel query-phys-layout", L"Query physical memory layout summary.", L"No options.", L"" },
         { L"kernel", L"cid", L"KswordCLI.exe kernel cid [--flags 0xN] [--max-entries N] [--max-visits N] [--start-cid CID] [--end-cid CID] [--limit N]", L"Enumerate CID table evidence.", L"Optional: --flags, --max-entries, --max-visits, --start-cid, --end-cid, --limit.", L"" },
@@ -1902,6 +1902,58 @@ namespace
     // Inputs: argc/argv from wmain.
     // Processing: reads bounded frames until END_OF_LOG or --max-frames.
     // Returns: process exit code.
+    // Only UNLOADED proves the command's full objective; routine/cleanup success is incomplete.
+    int driverUnloadRc(const KSWORD_ARK_FORCE_UNLOAD_DRIVER_RESPONSE& response)
+    {
+        const int operationRc = operationStatusRc(response.lastStatus);
+        if (operationRc != 0) return operationRc;
+        const int waitRc = operationStatusRc(response.waitStatus);
+        if (waitRc != 0) return waitRc;
+        if (response.status == KSWORD_ARK_DRIVER_UNLOAD_STATUS_UNLOADED) return 0;
+        if (response.status == KSWORD_ARK_DRIVER_UNLOAD_STATUS_UNLOAD_ROUTINE_CALLED ||
+            response.status == KSWORD_ARK_DRIVER_UNLOAD_STATUS_FORCED_CLEANUP) return 6;
+        return 3;
+    }
+
+    // Read back the named DriverObject once after an incomplete unload. This cannot prove module removal.
+    void printIncompleteDriverUnloadPresence(const KSWORD_ARK_FORCE_UNLOAD_DRIVER_REQUEST& unloadRequest,
+                                            const KSWORD_ARK_FORCE_UNLOAD_DRIVER_RESPONSE& unloadResponse)
+    {
+        KSWORD_ARK_QUERY_DRIVER_OBJECT_REQUEST request{};
+        KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE response{};
+        const wchar_t* name = unloadResponse.driverName[0] != L'\0' ? unloadResponse.driverName : unloadRequest.driverName;
+        std::copy_n(name, KSWORD_ARK_DRIVER_OBJECT_NAME_CHARS, request.driverName);
+        request.driverName[KSWORD_ARK_DRIVER_OBJECT_NAME_CHARS - 1U] = L'\0';
+        DriverHandle handle = openDriver(GENERIC_READ);
+        IoctlResult io{};
+        if (handle.valid())
+            io = sendIoctl(handle, IOCTL_KSWORD_ARK_QUERY_DRIVER_OBJECT, &request,
+                           static_cast<DWORD>(sizeof(request)), &response, static_cast<DWORD>(sizeof(response)));
+        else
+            io.win32Error = lastOpenError;
+
+        const bool valid = io.ok && io.bytesReturned >= offsetof(KSWORD_ARK_QUERY_DRIVER_OBJECT_RESPONSE, driverName) &&
+            response.version >= KSWORD_ARK_DRIVER_OBJECT_PROTOCOL_VERSION_V1 &&
+            response.version <= KSWORD_ARK_DRIVER_OBJECT_PROTOCOL_VERSION;
+        const wchar_t* present = L"unknown";
+        if (valid && (response.queryStatus == KSWORD_ARK_DRIVER_OBJECT_QUERY_STATUS_OK ||
+                      response.queryStatus == KSWORD_ARK_DRIVER_OBJECT_QUERY_STATUS_PARTIAL) &&
+            (response.fieldFlags & KSWORD_ARK_DRIVER_OBJECT_FIELD_BASIC_PRESENT) != 0 && response.driverObjectAddress != 0)
+            present = L"yes";
+        else if (valid && (static_cast<std::uint32_t>(response.lastStatus) == 0xC0000034U ||
+                           static_cast<std::uint32_t>(response.lastStatus) == 0xC000003AU))
+            present = L"no";
+
+        std::wcout << L"driverObjectPresent=" << present
+                   << L" driverObjectQueryValid=" << (valid ? 1 : 0)
+                   << L" driverObjectQueryWin32=" << io.win32Error
+                   << L" driverObjectQueryStatus=" << response.queryStatus
+                   << L" driverObjectQueryNtStatus=";
+        if (valid) std::wcout << L"0x" << std::hex << static_cast<unsigned long>(response.lastStatus);
+        else std::wcout << L"n/a";
+        std::wcout << L" observedDriverObject=" << hex64(response.driverObjectAddress) << std::dec << L"\n";
+    }
+
     void printDriverUnloadDiagnostics(const KSWORD_ARK_FORCE_UNLOAD_DRIVER_RESPONSE& response)
     {
         std::wcout << L"requestedFlags=0x" << std::hex << response.reserved
@@ -5414,7 +5466,15 @@ namespace
                        << L" callbackLastStatus=0x" << std::hex << static_cast<unsigned long>(response.callbackLastStatus)
                        << std::dec << L" driverName='" << fixedWide(response.driverName, KSWORD_ARK_DRIVER_OBJECT_NAME_CHARS) << L"'\n";
             printDriverUnloadDiagnostics(response);
-            return 0;
+            const int rc = driverUnloadRc(response);
+            const wchar_t* outcome = rc == 0 ? L"unloaded" : L"failed";
+            if (rc == 6)
+                outcome = response.status == KSWORD_ARK_DRIVER_UNLOAD_STATUS_UNLOAD_ROUTINE_CALLED
+                    ? L"unload-routine-called" : L"cleanup-only";
+            std::wcout << L"unloadOutcome=" << outcome << L" fullUnloadConfirmed=" << (rc == 0 ? 1 : 0)
+                       << L" commandExitCode=" << rc << L"\n";
+            if (rc == 6) printIncompleteDriverUnloadPresence(request, response);
+            return rc;
         }
 
         if (sub == L"query-cpu")

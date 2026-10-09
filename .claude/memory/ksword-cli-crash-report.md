@@ -39,3 +39,11 @@
 - 新增 tests/unload_probe 独立 WDM 构建夹具，无设备/回调/线程，只设置自身 DriverUnload；项目与 filters 完整，不进入生产工程。Release/x64、Universal 校验通过，未签名/加载/运行，不声称已有卸载成功样本。
 - 生产驱动与 CLI 最终 Release/x64 完整构建通过；驱动零警告、ApiValidator Universal、Inf2Cat 通过。主程序构建脚本 BUILD_RESULT=SUCCESS / EXIT_CODE=0（154 秒），i18n 29269 字串与主题门禁通过。Light 构建通过，保留已有非本次修改的警告；显式跳过驱动签名与驱动重复构建，未执行运行测试。
 - 分页读取依据微软 DDI 文档：MmIsAddressValid 要求不可分页地址，MmCopyMemory 会尝试使不驻留的虚拟内存驻留。https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/nf-ntddk-mmcopymemory 。当前现场缺少逐导出解析日志，仍需复测确认触发操作。
+
+## 2026-10-09 卸载例程调用与完整卸载语义
+
+- 用户提供 sample2-probe-direct 回执：flags=200 / status=9 / last=0，操作后同一 DriverObject 仍存在；用户报告内核模块也仍在。默认 flags 返回 status=1 并使对象和模块消失，已有完整卸载成功对照。不能把这两种结果都解释为驱动已卸载。
+- CLI 的 force-unload-driver 现在只对 status=1 且主操作/等待成功返回 0；status=9 或清理完成 status=7 返回 6（完整卸载未确认）。其他响应失败状态即使 last=0 也返回 3，NTSTATUS 不支持仍为 5。驱动响应、保护策略和 ABI 未修改。
+- 对 incomplete 结果自动进行一次只读 QUERY_DRIVER_OBJECT，输出 yes/no/unknown 与查询状态。存在按 BASIC_PRESENT 和非零对象地址确认，缺失仅按明确名称/路径不存在；失效长度/版本/传输或引用错误为 unknown。对象缺失不能替代模块消失证据，也不把 incomplete 升为成功。
+- 用户 Beep 新回执 direct 在预检阶段拒绝，evidence=device-reference,preflight-denied；用户报告默认路径到达 zw-verify。此为保护条件拒绝，不能归为卸载通路缺陷，不绕过引用保护。
+- 本次只修改 CLI 结果解释、help、文档与共享记忆；CLI Release/x64 完整构建通过，无运行实测。GUI/Light 及生产驱动代码、共享客户端/协议未变化，沿用上次通过的构建与兼容性证据。
