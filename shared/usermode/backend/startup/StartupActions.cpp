@@ -1,6 +1,6 @@
 #include "StartupActions.h"
 
-#include "../../Core/Common.h"
+#include "../Common.h"
 
 #include <algorithm>
 #include <cwchar>
@@ -16,7 +16,7 @@
 #include <vector>
 #include <winsvc.h>
 
-namespace Ksword::Features::Startup {
+namespace ks::r3::startup {
 namespace {
 constexpr wchar_t kServiceDisabledStore[] = L"Software\\KswordARKLight\\DisabledStartup\\Services";
 constexpr wchar_t kDisabledStartupFolderBase[] = L"KswordARKLight\\DisabledStartup\\StartupFolder";
@@ -545,10 +545,10 @@ StartupActionResult MoveRegistryValue(HKEY sourceRoot, DWORD sourceView, const s
         return { false, L"Registry value is missing or not string-like." };
     }
     if (!WriteRegistryString(dest.get(), valueName, command)) {
-        return { false, L"Failed to write destination registry value: " + Ksword::Core::LastErrorMessage() };
+        return { false, L"Failed to write destination registry value: " + ks::r3::common::LastErrorMessage() };
     }
     if (!DeleteRegistryValue(source.get(), valueName)) {
-        return { false, L"Failed to delete source registry value: " + Ksword::Core::LastErrorMessage() };
+        return { false, L"Failed to delete source registry value: " + ks::r3::common::LastErrorMessage() };
     }
     return { true, L"Registry startup entry moved." };
 }
@@ -564,7 +564,7 @@ StartupActionResult MoveFileEntry(const std::wstring& source, const std::wstring
         return { false, L"Failed to create destination folder." };
     }
     if (!::MoveFileExW(source.c_str(), dest.c_str(), MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING)) {
-        return { false, L"MoveFileExW failed: " + Ksword::Core::LastErrorMessage() };
+        return { false, L"MoveFileExW failed: " + ks::r3::common::LastErrorMessage() };
     }
     return { true, L"Startup folder entry moved." };
 }
@@ -623,11 +623,11 @@ StartupActionResult ChangeServiceStartType(const StartupEntry& entry, DWORD star
     ServiceHandle scm;
     ServiceHandle service = OpenServiceForChange(entry.serviceName, SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG, scm);
     if (!service.valid()) {
-        return { false, L"OpenServiceW failed: " + Ksword::Core::LastErrorMessage() };
+        return { false, L"OpenServiceW failed: " + ks::r3::common::LastErrorMessage() };
     }
     if (!::ChangeServiceConfigW(service.get(), SERVICE_NO_CHANGE, startType, SERVICE_NO_CHANGE,
             nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr)) {
-        return { false, L"ChangeServiceConfigW failed: " + Ksword::Core::LastErrorMessage() };
+        return { false, L"ChangeServiceConfigW failed: " + ks::r3::common::LastErrorMessage() };
     }
     return { true, L"Service startup type changed." };
 }
@@ -719,7 +719,7 @@ StartupActionResult DeleteStartupEntry(const StartupEntry& entry) {
             return { false, L"Registry key is not available." };
         }
         if (!DeleteRegistryValue(key.get(), entry.registryValueName)) {
-            return { false, L"RegDeleteValueW failed: " + Ksword::Core::LastErrorMessage() };
+            return { false, L"RegDeleteValueW failed: " + ks::r3::common::LastErrorMessage() };
         }
         return { true, L"Registry startup entry deleted." };
     }
@@ -729,7 +729,7 @@ StartupActionResult DeleteStartupEntry(const StartupEntry& entry) {
             return { false, L"Startup file path is empty." };
         }
         if (!::DeleteFileW(path.c_str())) {
-            return { false, L"DeleteFileW failed: " + Ksword::Core::LastErrorMessage() };
+            return { false, L"DeleteFileW failed: " + ks::r3::common::LastErrorMessage() };
         }
         return { true, L"Startup folder entry deleted." };
     }
@@ -737,10 +737,10 @@ StartupActionResult DeleteStartupEntry(const StartupEntry& entry) {
         ServiceHandle scm;
         ServiceHandle service = OpenServiceForChange(entry.serviceName, DELETE, scm);
         if (!service.valid()) {
-            return { false, L"OpenServiceW failed: " + Ksword::Core::LastErrorMessage() };
+            return { false, L"OpenServiceW failed: " + ks::r3::common::LastErrorMessage() };
         }
         if (!::DeleteService(service.get())) {
-            return { false, L"DeleteService failed: " + Ksword::Core::LastErrorMessage() };
+            return { false, L"DeleteService failed: " + ks::r3::common::LastErrorMessage() };
         }
         return { true, L"Service delete requested." };
     }
@@ -785,4 +785,4 @@ StartupActionResult OpenStartupEntryLocation(const StartupEntry& entry) {
     return { false, L"Unsupported startup entry kind." };
 }
 
-} // namespace Ksword::Features::Startup
+} // namespace ks::r3::startup

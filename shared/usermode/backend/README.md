@@ -17,3 +17,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | registry search | 09-registry-search |
 | registry mutations | 10-registry-mutations |
 | startup enumeration | 11-startup-enumeration |
+| startup enable disable and deletion | 12-startup-actions |

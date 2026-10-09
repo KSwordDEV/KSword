@@ -534,9 +534,6 @@
     <ClCompile Include="Features\Service\ServiceView.cpp">
       <Filter>Features\Service</Filter>
     </ClCompile>
-    <ClCompile Include="Features\Startup\StartupActions.cpp">
-      <Filter>Features\Startup</Filter>
-    </ClCompile>
     <ClCompile Include="Features\Startup\StartupFeature.cpp">
       <Filter>Features\Startup</Filter>
     </ClCompile>
@@ -1574,6 +1571,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\startup\StartupEnumerator.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupActions.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupActions.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

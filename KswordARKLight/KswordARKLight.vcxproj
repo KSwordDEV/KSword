@@ -234,7 +234,6 @@
     <ClCompile Include="Features\Service\ServiceFeature.cpp" />
     <ClCompile Include="Features\Service\ServiceModel.cpp" />
     <ClCompile Include="Features\Service\ServiceView.cpp" />
-    <ClCompile Include="Features\Startup\StartupActions.cpp" />
     <ClCompile Include="Features\Startup\StartupFeature.cpp" />
     <ClCompile Include="Features\Startup\StartupModel.cpp" />
     <ClCompile Include="Features\Startup\StartupView.cpp" />
@@ -696,6 +695,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\startup\StartupEnumerator.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupActions.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupActions.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
