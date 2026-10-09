@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../../shared/usermode/backend/network/Firewall.h"
+
 #include "../../../shared/usermode/backend/network/Connections.h"
 
 #include "../../Core/Win32Lean.h"
@@ -9,6 +11,9 @@
 #include <vector>
 
 namespace Ksword::Features::NetTools {
+using ks::r3::network::FirewallRuleEntry;
+using ks::r3::network::FirewallEnumerationResult;
+
 using ks::r3::network::ConnectionProtocol;
 using ks::r3::network::ConnectionEntry;
 using ks::r3::network::ConnectionEnumerationResult;
@@ -90,34 +95,12 @@ private:
 // FirewallRuleEntry is one rule read back from INetFwPolicy2. Every field is
 // stored as the API reported it; the numeric ones are turned into text only at
 // display time so the filter can still match on the raw port lists.
-struct FirewallRuleEntry {
-    std::wstring name;
-    std::wstring description;
-    std::wstring grouping;
-    std::wstring applicationName;
-    std::wstring serviceName;
-    std::wstring localPorts;
-    std::wstring remotePorts;
-    std::wstring localAddresses;
-    std::wstring remoteAddresses;
-    std::wstring interfaceTypes;
-    std::int32_t direction = 0;   // NET_FW_RULE_DIR_*
-    std::int32_t action = 0;      // NET_FW_ACTION_*
-    std::int32_t protocol = 0;    // IANA protocol number, 256 for "any".
-    std::int32_t profiles = 0;    // NET_FW_PROFILE_TYPE2 bitmask.
-    bool enabled = false;
-    bool edgeTraversal = false;
-};
+
 
 // FirewallEnumerationResult carries one rule-store read plus the per-profile
 // on/off summary. The summary matters as much as the rules: a blocking rule in a
 // profile whose firewall is switched off is not actually blocking anything.
-struct FirewallEnumerationResult {
-    bool success = false;
-    std::wstring diagnosticText;
-    std::wstring profileSummary;
-    std::vector<FirewallRuleEntry> entries;
-};
+
 
 // FirewallDirectionFilter narrows the rule table. Inbound and outbound rules are
 // usually audited separately, and the store returns them interleaved.

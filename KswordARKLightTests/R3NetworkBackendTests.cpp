@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/network/Firewall.h"
 #include "../shared/usermode/backend/network/Diagnostics.h"
 #include "../shared/usermode/backend/network/Connections.h"
 #include <winsock2.h>
