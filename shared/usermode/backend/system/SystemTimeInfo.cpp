@@ -14,7 +14,7 @@
 
 #pragma comment(lib, "Advapi32.lib")
 
-namespace Ksword::Features::SysTools {
+namespace ks::r3::system_tools {
 namespace {
 
 constexpr wchar_t kW32TimeParametersKey[] = L"SYSTEM\\CurrentControlSet\\Services\\W32Time\\Parameters";
@@ -293,4 +293,4 @@ std::wstring RenderSystemTimeReport(const SystemTimeInfoSnapshot& snapshot) {
     return text;
 }
 
-} // namespace Ksword::Features::SysTools
+} // namespace ks::r3::system_tools

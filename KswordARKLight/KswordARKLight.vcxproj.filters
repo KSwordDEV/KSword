@@ -426,9 +426,6 @@
     <ClCompile Include="Features\SysTools\SysToolsFeature.cpp">
       <Filter>Features\SysTools</Filter>
     </ClCompile>
-    <ClCompile Include="Features\SysTools\SystemTimeInfo.cpp">
-      <Filter>Features\SysTools</Filter>
-    </ClCompile>
     <ClCompile Include="Features\SysTools\SystemTimeView.cpp">
       <Filter>Features\SysTools</Filter>
     </ClCompile>
@@ -2119,6 +2116,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\system\ContextMenuScanner.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\system\SystemTimeInfo.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\system\SystemTimeInfo.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

@@ -204,7 +204,6 @@
     <ClCompile Include="Features\SysTools\IoctlDecoder.cpp" />
     <ClCompile Include="Features\SysTools\IoctlDecoderView.cpp" />
     <ClCompile Include="Features\SysTools\SysToolsFeature.cpp" />
-    <ClCompile Include="Features\SysTools\SystemTimeInfo.cpp" />
     <ClCompile Include="Features\SysTools\SystemTimeView.cpp" />
     <ClCompile Include="Features\WindowTools\WindowToolsCaptureView.cpp" />
     <ClCompile Include="Features\WindowTools\WindowToolsClipboardView.cpp" />
@@ -1039,6 +1038,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\system\ContextMenuScanner.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\system\SystemTimeInfo.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\system\SystemTimeInfo.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

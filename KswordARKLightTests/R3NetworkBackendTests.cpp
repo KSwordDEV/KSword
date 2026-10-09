@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/system/SystemTimeInfo.h"
 #include "../shared/usermode/backend/system/ContextMenuScanner.h"
 #include "../shared/usermode/backend/system/AdminState.h"
 #include "../shared/usermode/backend/system/EventLogReader.h"
