@@ -1,4 +1,5 @@
 #include "DiskFileSystemForensicsPanel.h"
+#include "../../UI/DetailDialogChrome.h"
 
 #include "../../ArkDriverClient/ArkDriverTypes.h"
 #include "../../UI/StructuredFieldView.h"
@@ -1070,6 +1071,7 @@ namespace ks::misc
                                 disassembly.exec();
                             });
                         layout->addWidget(buttons);
+                        ks::ui::ApplyDetailDialogChrome(&dialog);
                         dialog.exec();
                     },
                     Qt::QueuedConnection);

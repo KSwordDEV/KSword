@@ -1,4 +1,5 @@
 #include "RegistryAdvancedDialogs.h"
+#include "../UI/DetailDialogChrome.h"
 #include "RegistryValueCodec.h"
 #include "RegistryValueEditorWidget.h"
 #include "../UI/CodeEditorWidget.h"
@@ -139,7 +140,12 @@ namespace
         {
             setObjectName(QStringLiteral("registry_key_permissions"));
             setWindowTitle(trText(QStringLiteral("注册表键权限")));
-            auto* layout = new QVBoxLayout(this);
+            auto* rootLayout = new QVBoxLayout(this);
+            auto* content = new QWidget(this);
+            auto* layout = new QVBoxLayout(content);
+            layout->setContentsMargins(8, 8, 8, 8);
+            layout->setSpacing(6);
+            rootLayout->addWidget(content, 1);
             auto* address = new QLabel(path, this);
             address->setProperty("ks_i18n_preserve_data_text", true);
             address->setTextFormat(Qt::PlainText);
@@ -180,8 +186,9 @@ namespace
             connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
             connect(refresh, &QPushButton::clicked, this, [this] { reload(); });
             connect(m_apply, &QPushButton::clicked, this, [this] { apply(); });
-            layout->addWidget(buttons);
+            rootLayout->addWidget(buttons);
             ks::ui::applyResponsiveWindowGeometry(this, parent, QSize(880, 680), QSize(460, 380));
+            ks::ui::ApplyDetailDialogChrome(this);
             reload();
         }
 

@@ -1,4 +1,5 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/DetailDialogChrome.h"
 #include "DriverDock.Internal.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -925,6 +926,7 @@ void DriverDock::showSelectedUnloadedPiddbDetailDialog()
         &dialog,
         &QDialog::reject);
     layout->addWidget(buttonBox);
+    ks::ui::ApplyDetailDialogChrome(&dialog);
     dialog.exec();
 }
 

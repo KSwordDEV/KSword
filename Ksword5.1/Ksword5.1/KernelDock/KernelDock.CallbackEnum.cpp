@@ -1,4 +1,5 @@
 #include "KernelDock.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../UI/TableInteractionSupport.h"
 
 #include <memory>
@@ -375,7 +376,6 @@ namespace
 
         QVBoxLayout* rootLayout = new QVBoxLayout(&detailDialog);
         QTabWidget* tabWidget = new QTabWidget(&detailDialog);
-        rootLayout->addWidget(tabWidget, 1);
 
         ks::ui::StructuredFieldView* generalEditor = new ks::ui::StructuredFieldView(&detailDialog);
 
@@ -387,10 +387,12 @@ namespace
         peEditor->setDocument(file_dock_detail::buildPeAnalysisDocument(filePath));
         tabWidget->addTab(peEditor, kernelText("kernel.callback.enum.file.tab.pe", QStringLiteral("PE信息")));
 
+        rootLayout->addWidget(ks::ui::CreateDetailTabShell(tabWidget, &detailDialog), 1);
         QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, &detailDialog);
         QObject::connect(buttonBox, &QDialogButtonBox::rejected, &detailDialog, &QDialog::reject);
         QObject::connect(buttonBox, &QDialogButtonBox::accepted, &detailDialog, &QDialog::accept);
         rootLayout->addWidget(buttonBox, 0);
+        ks::ui::ApplyDetailDialogChrome(&detailDialog);
         detailDialog.exec();
     }
 

@@ -11,6 +11,7 @@
 #include "../theme.h"
 #include "../UI/UI_All.h"
 #include "../UI/TableInteractionSupport.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../ksword/log/log.h"
 #include "../ksword/dbghelp_serialization.h"
 
@@ -568,6 +569,7 @@ void ThreadStackWindow::initializeUi()
     m_rootLayout->addWidget(m_frameTable, 1);
     updateBoundaryText();
     applyAdaptiveColumnWidths();
+    ks::ui::ApplyDetailDialogChrome(this);
 }
 
 void ThreadStackWindow::initializeConnections()

@@ -1,4 +1,5 @@
 #include "StartupDock.Internal.h"
+#include "../UI/DetailDialogChrome.h"
 
 #include "../UI/StructuredFieldView.h"
 
@@ -128,6 +129,7 @@ namespace
 
         layout->addWidget(detailEditor, 1);
         layout->addWidget(buttonBox, 0);
+        ks::ui::ApplyDetailDialogChrome(&detailDialog);
         detailDialog.exec();
     }
 

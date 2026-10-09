@@ -1,4 +1,5 @@
 #include "HvmWatchEventDialog.h"
+#include "./DetailDialogChrome.h"
 
 #include "StructuredFieldView.h"
 #include "HvmControl.h"
@@ -288,6 +289,7 @@ namespace ks::ui
         QObject::connect(buttonBox, &QDialogButtonBox::rejected,
             &dialog, &QDialog::reject);
         layout->addWidget(buttonBox);
+        ApplyDetailDialogChrome(&dialog);
         dialog.exec();
     }
 }

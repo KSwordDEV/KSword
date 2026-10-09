@@ -5,6 +5,7 @@
 #include "../UI/UI_All.h"
 #include "FilePropertyPeAnalyzer.h"
 #include "../UI/StructuredFieldView.h"
+#include "../UI/DetailDialogChrome.h"
 #include "DriverFileSystemParser.h"
 #include "IrpFileSystemParser.h"
 #include "FileHandleUsageScanner.h"
@@ -4765,7 +4766,8 @@ namespace
             .arg(KswordTheme::OnAccentDynamicHex())
             .arg(navigationSelection.name())
             .arg(KswordTheme::EnsureTextContrast(KswordTheme::TextPrimaryColor(), navigationSelection).name())
-            .arg(KswordTheme::TextDisabledColor().name());
+            .arg(KswordTheme::TextDisabledColor().name())
+            + ks::ui::BuildDetailDialogChromeStyle(QStringLiteral("FileDetailDialogRoot"));
     }
 
     // buildLogPreviewText 作用：
@@ -5581,8 +5583,6 @@ namespace
 
             m_tabNavigation = new QWidget(this);
             m_tabNavigation->setObjectName(QStringLiteral("FileDetailTabNavigation"));
-            m_tabNavigation->setFixedWidth(224);
-            m_tabNavigation->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
             QVBoxLayout* navigationLayout = new QVBoxLayout(m_tabNavigation);
             navigationLayout->setContentsMargins(10, 16, 10, 16);
             navigationLayout->setSpacing(5);
@@ -5594,6 +5594,7 @@ namespace
             navigationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
             navigationScroll->setFixedWidth(240);
             navigationScroll->setWidget(m_tabNavigation);
+            ks::ui::ConfigureDetailNavigation(navigationScroll, m_tabNavigation);
 
             m_tabWidget = new QTabWidget(this);
             m_tabWidget->setMinimumSize(0, 0);
@@ -5775,6 +5776,7 @@ namespace
             {
                 m_tabNavigationButtons.front()->setChecked(true);
             }
+            ks::ui::ConfigureDetailDialogRoot(this);
             applyThemeStyle();
         }
 
@@ -15563,6 +15565,7 @@ void FileDock::showDeletedFilePropertiesDialog(const int rowIndex)
         QStringLiteral("以上为扫描时刻的 MFT 快照；恢复前会按记录号和序列号重新校验，不依赖此处的旧数据。"),
         &dialog);
     noteLabel->setWordWrap(true);
+    noteLabel->setContentsMargins(8, 6, 8, 6);
     rootLayout->addWidget(noteLabel, 0);
 
     QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
@@ -15570,6 +15573,7 @@ void FileDock::showDeletedFilePropertiesDialog(const int rowIndex)
     connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     rootLayout->addWidget(buttonBox, 0);
 
+    ks::ui::ApplyDetailDialogChrome(&dialog);
     dialog.exec();
 }
 

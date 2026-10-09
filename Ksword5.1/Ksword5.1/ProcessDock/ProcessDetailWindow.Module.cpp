@@ -1,4 +1,5 @@
 #include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../UI/X64DbgNavigation.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -504,6 +505,7 @@ void ProcessDetailWindow::showCurrentModuleDetailDialog()
         << formatHexText(moduleRecord->moduleBaseAddress).toStdString()
         << eol;
 
+    ks::ui::ApplyDetailDialogChrome(&detailDialog);
     detailDialog.exec();
 }
 

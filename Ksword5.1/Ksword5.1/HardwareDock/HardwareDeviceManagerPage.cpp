@@ -1,4 +1,5 @@
 #include "HardwareDeviceManagerPage.h"
+#include "../UI/DetailDialogChrome.h"
 
 // ============================================================
 // HardwareDeviceManagerPage.cpp
@@ -764,10 +765,12 @@ namespace
         QPushButton* closeButton = new QPushButton(QStringLiteral("关闭"), &dialog);
         QObject::connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
         QHBoxLayout* buttonLayout = new QHBoxLayout();
+        buttonLayout->setContentsMargins(8, 6, 8, 6);
         buttonLayout->addStretch(1);
         buttonLayout->addWidget(closeButton);
         layout->addLayout(buttonLayout);
 
+        ks::ui::ApplyDetailDialogChrome(&dialog);
         dialog.exec();
     }
 

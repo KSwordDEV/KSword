@@ -1,4 +1,5 @@
 #include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/DetailDialogChrome.h"
 
 // ============================================================
 // ProcessDetailWindow.cpp
@@ -51,33 +52,13 @@ namespace process_detail_window_internal
 
     QString buildProcessDetailRootStyle()
     {
-        // Native tables and headers are owned by the shared UI baseline.
-        // This window adds only its sidebar and lightweight property sections.
+        // The shared detail shell owns surfaces, navigation and section framing.
+        // Keep this window's read-only form field treatment independent of it.
         return QStringLiteral(
-            "QWidget#ProcessDetailWindowRoot{background:%1;color:%2;}"
-            "QWidget#ProcessDetailWindowRoot QGroupBox{"
-            "border:0;border-top:1px solid %3;margin-top:16px;padding-top:12px;"
-            "background:transparent;color:%2;}"
-            "QWidget#ProcessDetailWindowRoot QGroupBox::title{"
-            "subcontrol-origin:margin;left:0;padding:0 8px 0 0;color:%2;}"
-            "QWidget#ProcessDetailWindowRoot QTabWidget::pane{border:0;background:%1;}"
-            "QScrollArea#ProcessDetailNavigationScroll{background:%4;border:0;}"
-            "QWidget#ProcessDetailTabNavigation{background:%4;border:0;}"
-            "QWidget#ProcessDetailTabNavigation QToolButton{"
-            "background:transparent;color:%2;border:0;border-radius:7px;"
-            "text-align:left;padding:8px 10px;min-height:22px;}"
-            "QWidget#ProcessDetailTabNavigation QToolButton:checked{"
-            "background:%6;color:%5;border:0;}"
-            "QWidget#ProcessDetailTabNavigation QToolButton:hover:!checked{background:%7;}"
             "QWidget#ProcessDetailWindowRoot QLineEdit[readOnly=\"true\"]{"
-            "background:transparent;border:0;border-bottom:1px solid %3;border-radius:0;padding:5px 3px;}")
-            .arg(KswordTheme::SurfaceHex())
-            .arg(KswordTheme::TextPrimaryHex())
+            "background:transparent;border:0;border-bottom:1px solid %1;border-radius:0;padding:5px 3px;}")
             .arg(KswordTheme::BorderHex())
-            .arg(KswordTheme::SurfaceAltHex())
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::PrimaryBlueSubtleHex())
-            .arg(KswordTheme::SurfaceAltHex());
+            + ks::ui::BuildDetailDialogChromeStyle();
     }
 
     QString buildProcessDetailMenuStyle()

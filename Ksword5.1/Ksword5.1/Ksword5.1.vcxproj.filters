@@ -2706,6 +2706,9 @@
     <ClInclude Include="UI\TablePresentation.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="UI\DetailDialogChrome.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="HardwareDock\HardwareFieldDocuments.h">
       <Filter>Header Files</Filter>
     </ClInclude>

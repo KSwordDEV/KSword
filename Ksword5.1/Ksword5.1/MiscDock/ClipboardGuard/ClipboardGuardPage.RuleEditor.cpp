@@ -1,4 +1,5 @@
 #include "ClipboardGuardPage.h"
+#include "../../UI/DetailDialogChrome.h"
 #include "../../theme.h"
 #include "../../UI/CodeEditorWidget.h"
 #include "../../UI/StructuredFieldView.h"
@@ -69,6 +70,7 @@ namespace ks::misc
             {
                 *editorOut = editorValue;
             }
+            ks::ui::ApplyDetailDialogChrome(dialogValue);
             return dialogValue;
         }
 
@@ -383,10 +385,11 @@ namespace ks::misc
         raw->setReadOnly(true);
         raw->setRawText(rawText);
         tabs->addTab(raw, QStringLiteral("正文"));
-        layout->addWidget(tabs, 1);
+        layout->addWidget(ks::ui::CreateDetailTabShell(tabs, dialog), 1);
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
         QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
         layout->addWidget(buttons);
+        ks::ui::ApplyDetailDialogChrome(dialog);
         dialog->exec();
         dialog->deleteLater();
     }

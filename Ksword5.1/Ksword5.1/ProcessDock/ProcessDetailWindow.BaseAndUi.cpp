@@ -12,6 +12,7 @@
 #include <QSaveFile>
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/DetailLayoutRegistry.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../PluginHost.h"
 
 #include <QTimer>
@@ -2520,16 +2521,15 @@ void ProcessDetailWindow::initializeUi()
     // 页面区保留 QTabWidget，避免影响现有页面跳转、currentChanged 与惰性刷新逻辑。
     // 原生 QTabBar 隐藏后，以左侧单列导航提供全部页面入口。
     m_rootLayout = new QHBoxLayout(this);
-    m_rootLayout->setContentsMargins(8, 8, 8, 8);
-    m_rootLayout->setSpacing(6);
+    ks::ui::ConfigureDetailDialogRoot(this);
 
     m_tabNavigation = new QWidget(this);
     m_tabNavigation->setObjectName(QStringLiteral("ProcessDetailTabNavigation"));
 
     m_tabNavigation->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     auto* tabNavigationLayout = new QVBoxLayout(m_tabNavigation);
-    tabNavigationLayout->setContentsMargins(5, 5, 5, 5);
-    tabNavigationLayout->setSpacing(4);
+    tabNavigationLayout->setContentsMargins(10, 16, 10, 16);
+    tabNavigationLayout->setSpacing(5);
 
     m_tabWidget = new QTabWidget(this);
     // QTabWidget 会取所有已构造页面中最大的 minimumSizeHint。详情页采用懒加载，
@@ -2545,11 +2545,7 @@ void ProcessDetailWindow::initializeUi()
     navigationScroll->setFrameShape(QFrame::NoFrame);
     navigationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     navigationScroll->setWidget(m_tabNavigation);
-    navigationScroll->setMinimumWidth(156);
-    navigationScroll->setMaximumWidth(224);
-    m_tabNavigation->setMinimumWidth(0);
-    m_tabNavigation->setMaximumWidth(QWIDGETSIZE_MAX);
-    m_tabNavigation->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
+    ks::ui::ConfigureDetailNavigation(navigationScroll, m_tabNavigation);
     m_rootLayout->addWidget(navigationScroll);
     m_rootLayout->addWidget(m_tabWidget, 1);
 
@@ -2636,7 +2632,7 @@ void ProcessDetailWindow::initializeUi()
         navigationButton->setIconSize(QSize(18, 18));
         navigationButton->setText(m_tabWidget->tabText(tabIndex));
         navigationButton->setToolTip(m_tabWidget->tabText(tabIndex));
-        navigationButton->setMinimumHeight(30);
+        navigationButton->setMinimumHeight(38);
         navigationButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         m_tabNavigationButtonGroup->addButton(navigationButton, tabIndex);
         tabNavigationLayout->addWidget(navigationButton);

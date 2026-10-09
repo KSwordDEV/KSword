@@ -3,6 +3,7 @@
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/UI_All.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../theme.h"
 
 #include <QAbstractItemView>
@@ -420,6 +421,7 @@ void ProcessMessageHookWindow::initializeUi()
     rootLayout->addWidget(m_table, 1);
 
     applyColumnPreset(QStringLiteral("A"));
+    ks::ui::ApplyDetailDialogChrome(this);
 }
 
 void ProcessMessageHookWindow::initializeConnections()

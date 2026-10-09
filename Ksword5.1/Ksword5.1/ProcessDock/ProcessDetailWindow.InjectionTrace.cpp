@@ -1,4 +1,5 @@
 #include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../UI/StructuredFieldView.h"
 
 #include "../ksword/process/injection_trace_collector.h"
@@ -1286,7 +1287,7 @@ namespace
                      injectionText("process.detail.injection.tab.semantics",
                                    QStringLiteral("结果怎么读")));
 
-        layout->addWidget(tabs, 1);
+        layout->addWidget(ks::ui::CreateDetailTabShell(tabs, &dialog), 1);
 
         QHBoxLayout* const buttonLayout = new QHBoxLayout();
         buttonLayout->addStretch(1);
@@ -1314,6 +1315,7 @@ namespace
         {
             tree->setCurrentItem(tree->topLevelItem(0));
         }
+        ks::ui::ApplyDetailDialogChrome(&dialog);
         dialog.exec();
     }
 }

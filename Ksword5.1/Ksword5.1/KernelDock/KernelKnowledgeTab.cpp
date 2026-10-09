@@ -1,4 +1,5 @@
 #include "KernelKnowledgeTab.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../UI/StructuredFieldView.h"
 
 #include "KernelKnowledgeCatalog.h"
@@ -804,6 +805,7 @@ void KernelKnowledgeTab::collectCurrentEvidence()
                     document.note(QStringLiteral("边界：此快照证明当前 R3→WDF→WDM 请求上下文与 R0 业务来源注册状态；业务扫描的当前数据、DynData 降级与 partial 状态必须在「打开相关功能」页中单独采集。"));
                 }
                 editor->setDocument(document);
+                ks::ui::ApplyDetailDialogChrome(dialog);
                 dialog->show();
             },
             Qt::QueuedConnection);

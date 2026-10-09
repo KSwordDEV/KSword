@@ -1,4 +1,5 @@
 #include "GlobalDialogTheme.h"
+#include "./DetailDialogChrome.h"
 
 #include "../theme.h"
 
@@ -321,7 +322,9 @@ namespace
             const bool darkModeEnabled = KswordTheme::IsDarkModeEnabled();
             const QPalette sourcePalette = (qApp != nullptr) ? qApp->palette() : dialog->palette();
             const QString originalStyleSheet = originalStyleSheetForDialog(dialog);
-            const QString targetStyleSheet = originalStyleSheet + buildGlobalDialogStyleSheetBlock(darkModeEnabled);
+            const QString targetStyleSheet = originalStyleSheet + buildGlobalDialogStyleSheetBlock(darkModeEnabled)
+                + (dialog->property("ksword_detail_shell").toBool()
+                    ? ks::ui::BuildDetailDialogChromeStyle(dialog->objectName()) : QString());
 
             dialog->setProperty(kGlobalDialogThemePropertyName, QStringLiteral("true"));
             dialog->setProperty(kGlobalDialogDarkModePropertyName, darkModeEnabled);

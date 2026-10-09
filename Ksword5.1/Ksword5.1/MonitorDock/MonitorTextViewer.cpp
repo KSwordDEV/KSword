@@ -1,6 +1,7 @@
 #include "MonitorTextViewer.h"
 #include "../theme.h"
 #include "../UI/CodeEditorWidget.h"
+#include "../UI/DetailDialogChrome.h"
 
 // ============================================================
 // MonitorTextViewer.cpp
@@ -47,12 +48,13 @@ namespace monitor_text_viewer
             raw->setReadOnly(true);
             raw->setRawText(document.rawPayload);
             tabs->addTab(raw, ks::i18n::sourceText(QStringLiteral("原始数据")));
-            layout->addWidget(tabs, 1);
+            layout->addWidget(ks::ui::CreateDetailTabShell(tabs, dialog), 1);
         }
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
         QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
         QObject::connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
         layout->addWidget(buttons);
+        ks::ui::ApplyDetailDialogChrome(dialog);
         dialog->show();
         dialog->raise();
         dialog->activateWindow();

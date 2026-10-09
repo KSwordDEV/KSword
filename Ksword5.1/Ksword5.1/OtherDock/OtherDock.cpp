@@ -6,6 +6,7 @@
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/AdaptivePageScroll.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../UI/UI_All.h"
 
 // ============================================================
@@ -132,37 +133,6 @@ namespace
             .arg(KswordTheme::PrimaryBlueHex)
             .arg(KswordTheme::SurfaceHex())
             .arg(KswordTheme::BorderHex());
-    }
-
-    // buildOpaqueWindowDetailDialogStyle 作用：
-    // - 覆盖父级 Dock 透明样式，避免“窗口详细信息”在浅色主题出现黑底；
-    // - 强制文本编辑器/表格/滚动区使用不透明背景。
-    QString buildOpaqueWindowDetailDialogStyle(const QString& dialogObjectName)
-    {
-        return QStringLiteral(
-            "QDialog#%1{"
-            "  background-color:palette(window) !important;"
-            "  color:palette(text) !important;"
-            "}"
-            "QDialog#%1 QTabWidget::pane{"
-            "  background-color:palette(window) !important;"
-            "  border:none;"
-            "}"
-            "QDialog#%1 QPlainTextEdit,"
-            "QDialog#%1 QTextEdit,"
-            "QDialog#%1 QTreeWidget,"
-            "QDialog#%1 QTableWidget,"
-            "QDialog#%1 QAbstractScrollArea,"
-            "QDialog#%1 QAbstractScrollArea::viewport{"
-            "  background-color:palette(base) !important;"
-            "  color:palette(text) !important;"
-            "}"
-            "QDialog#%1 QHeaderView::section{"
-            "  background:transparent !important;"
-            "  background-color:transparent !important;"
-            "  color:palette(text) !important;"
-            "}")
-            .arg(dialogObjectName);
     }
 
     // 转换布尔文本：统一“是/否”显示，避免各处写法不一致。
@@ -1185,11 +1155,11 @@ public:
         setProperty("ksword.windowDetail.targetHwnd", QVariant::fromValue(info.hwndValue));
         setAttribute(Qt::WA_StyledBackground, true);
         setAutoFillBackground(true);
-        setStyleSheet(buildOpaqueWindowDetailDialogStyle(objectName()));
         setWindowTitle(QStringLiteral("窗口属性 - [%1] (%2)")
             .arg(info.titleText.isEmpty() ? QStringLiteral("<无标题>") : info.titleText,
                 hwndToText(info.hwndValue)));
         initializeUi();
+        setStyleSheet(ks::ui::BuildDetailDialogChromeStyle());
         ks::ui::applyResponsiveWindowGeometry(this, parent, QSize(1000, 820), QSize(640, 480));
         refreshRuntimeInfo();
         startMessageMonitor();
@@ -1565,25 +1535,24 @@ private:
         return appearanceWriteOk;
     }
 
-    // 构建 UI：创建 5 个标签页（前四类属性合并到“基础属性”）并绑定底部操作按钮。
+    // 构建 UI：保留全部属性页，由共享详情侧栏承载导航，并绑定底部操作按钮。
     void initializeUi()
     {
         QVBoxLayout* rootLayout = new QVBoxLayout(this);
-        rootLayout->setContentsMargins(12, 12, 12, 12);
-        rootLayout->setSpacing(12);
+        ks::ui::ConfigureDetailDialogRoot(this);
 
         m_tabWidget = new QTabWidget(this);
         ks::ui::IsolateMinimumSize(m_tabWidget);
         ks::ui::IsolateMinimumSize(m_tabWidget->findChild<QStackedWidget*>());
         m_tabWidget->setUsesScrollButtons(true);
-        rootLayout->addWidget(m_tabWidget, 1);
+        rootLayout->addWidget(ks::ui::CreateDetailTabShell(m_tabWidget, this), 1);
 
         // ==================== 1. 基础属性 Tab（合并前四个页签） ====================
         QWidget* basicPage = new QWidget(m_tabWidget);
         QWidget* basicContent = ks::ui::EnablePageInnerScroll(basicPage);
         QVBoxLayout* basicLayout = new QVBoxLayout(basicContent);
-        basicLayout->setContentsMargins(12, 12, 12, 12);
-        basicLayout->setSpacing(12);
+        basicLayout->setContentsMargins(8, 8, 8, 8);
+        basicLayout->setSpacing(8);
         const int fieldHeight = std::max(28, fontMetrics().height() + 12);
 
         // 常规信息分组：集中展示句柄关系和标题类名等关键字段。
@@ -1791,39 +1760,45 @@ private:
         connect(m_styleApplyButton, &QPushButton::clicked, this, [this]() {
             applyStyleCheckBoxChanges(true);
         });
-        m_tabWidget->addTab(basicPage, QStringLiteral("基础属性"));
+        m_tabWidget->addTab(basicPage, QIcon(QStringLiteral(":/Icon/process_details.svg")), QStringLiteral("基础属性"));
         ks::i18n::LanguageManager::instance().bindTab(
             m_tabWidget, basicPage, QStringLiteral("window.detail.tab.basic"), QStringLiteral("基础属性"));
 
         // ==================== 2. 进程线程 Tab ====================
         QWidget* processPage = new QWidget(m_tabWidget);
         QVBoxLayout* processLayout = new QVBoxLayout(processPage);
+        processLayout->setContentsMargins(8, 8, 8, 8);
+        processLayout->setSpacing(6);
         m_processThreadText = new ks::ui::StructuredFieldView(processPage);
 
         processLayout->addWidget(m_processThreadText, 1);
-        m_tabWidget->addTab(processPage, QStringLiteral("进程与线程"));
+        m_tabWidget->addTab(processPage, QIcon(QStringLiteral(":/Icon/process_threads.svg")), QStringLiteral("进程与线程"));
         ks::i18n::LanguageManager::instance().bindTab(
             m_tabWidget, processPage, QStringLiteral("window.detail.tab.process"), QStringLiteral("进程与线程"));
 
         // ==================== 3. 类信息 Tab ====================
         QWidget* classPage = new QWidget(m_tabWidget);
         QVBoxLayout* classLayout = new QVBoxLayout(classPage);
+        classLayout->setContentsMargins(8, 8, 8, 8);
+        classLayout->setSpacing(6);
         m_classText = new ks::ui::StructuredFieldView(classPage);
 
         classLayout->addWidget(m_classText, 1);
-        m_tabWidget->addTab(classPage, QStringLiteral("类信息"));
+        m_tabWidget->addTab(classPage, QIcon(QStringLiteral(":/Icon/knowledge_book.svg")), QStringLiteral("类信息"));
         ks::i18n::LanguageManager::instance().bindTab(
             m_tabWidget, classPage, QStringLiteral("window.detail.tab.class"), QStringLiteral("类信息"));
 
         auto* inspectionPage = ks::control_inspection::CreatePage(toHwnd(m_info.hwndValue),
             m_info.processId, m_info.threadId, m_info.processCreationTime100ns, m_tabWidget);
-        m_tabWidget->addTab(inspectionPage, QStringLiteral("控件检查"));
+        m_tabWidget->addTab(inspectionPage, QIcon(QStringLiteral(":/Icon/window_picker_aim.svg")), QStringLiteral("控件检查"));
         ks::i18n::LanguageManager::instance().bindTab(m_tabWidget, inspectionPage,
             QStringLiteral("window.detail.tab.control_inspection"), QStringLiteral("控件检查"));
 
         // ==================== 4. 消息钩子 Tab ====================
         QWidget* hookPage = new QWidget(m_tabWidget);
         QVBoxLayout* hookLayout = new QVBoxLayout(hookPage);
+        hookLayout->setContentsMargins(8, 8, 8, 8);
+        hookLayout->setSpacing(6);
 
         // 概览文本：保留原有消息队列状态、焦点等摘要，便于快速判断窗口活性。
         m_hookText = new ks::ui::StructuredFieldView(hookPage);
@@ -1936,17 +1911,19 @@ private:
             clearMessageTable();
         });
 
-        m_tabWidget->addTab(hookPage, QStringLiteral("消息钩子"));
+        m_tabWidget->addTab(hookPage, QIcon(QStringLiteral(":/Icon/process_main.svg")), QStringLiteral("消息钩子"));
         ks::i18n::LanguageManager::instance().bindTab(
             m_tabWidget, hookPage, QStringLiteral("window.detail.tab.hooks"), QStringLiteral("消息钩子"));
 
         // ==================== 5. 高级属性 Tab ====================
         QWidget* advancedPage = new QWidget(m_tabWidget);
         QVBoxLayout* advancedLayout = new QVBoxLayout(advancedPage);
+        advancedLayout->setContentsMargins(8, 8, 8, 8);
+        advancedLayout->setSpacing(6);
         m_advancedText = new ks::ui::StructuredFieldView(advancedPage);
 
         advancedLayout->addWidget(m_advancedText, 1);
-        m_tabWidget->addTab(advancedPage, QStringLiteral("高级属性"));
+        m_tabWidget->addTab(advancedPage, QIcon(QStringLiteral(":/Icon/process_settings.svg")), QStringLiteral("高级属性"));
         ks::i18n::LanguageManager::instance().bindTab(
             m_tabWidget, advancedPage, QStringLiteral("window.detail.tab.advanced"), QStringLiteral("高级属性"));
 
@@ -1954,13 +1931,16 @@ private:
             m_info.processId, m_info.threadId, m_info.processCreationTime100ns};
         auto* inputPage = ks::window_input::CreateControl(inputIdentity, m_tabWidget);
         inputPage->setObjectName(QStringLiteral("ks_window_input_page"));
-        m_tabWidget->addTab(inputPage, QStringLiteral("窗口输入与顺序"));
+        m_tabWidget->addTab(inputPage, QIcon(QStringLiteral(":/Icon/process_hotkey.svg")), QStringLiteral("窗口输入与顺序"));
         ks::i18n::LanguageManager::instance().bindTab(m_tabWidget, inputPage,
             QStringLiteral("window.input.tab"), QStringLiteral("窗口输入与顺序"));
 
         // ==================== 底部按钮 ====================
-        QHBoxLayout* buttonLayout = new QHBoxLayout();
-        rootLayout->addLayout(buttonLayout);
+        QWidget* footer = new QWidget(this);
+        footer->setObjectName(QStringLiteral("ks_detail_footer"));
+        QHBoxLayout* buttonLayout = new QHBoxLayout(footer);
+        buttonLayout->setContentsMargins(8, 6, 8, 6);
+        rootLayout->addWidget(footer);
         buttonLayout->addStretch(1);
         m_refreshButton = new QPushButton(QIcon(":/Icon/process_refresh.svg"), QString(), this);
         m_applyButton = new QPushButton(QIcon(":/Icon/process_start.svg"), QString(), this);

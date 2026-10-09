@@ -1,4 +1,5 @@
 #include "VirusTotalOnlineScan.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../UI/VisibleTableWidget.h"
 
 #include "OnlineScanSupport.h"
@@ -2889,7 +2890,6 @@ void VirusTotalOnlineScan::ensureResultDialog()
 
     QTabWidget* resultTabWidget = new QTabWidget(resultDialog);
     resultTabWidget->setDocumentMode(false);
-    dialogLayout->addWidget(resultTabWidget, 1);
 
     const auto createCommonPane = [this, resultDialog, resultTabWidget](const VtApiKind apiKind) -> ApiPaneUi
         {
@@ -3143,6 +3143,7 @@ void VirusTotalOnlineScan::ensureResultDialog()
         m_apiPanes[static_cast<std::size_t>(apiIndex(apiKind))] = createCommonPane(apiKind);
     }
 
+    dialogLayout->addWidget(ks::ui::CreateDetailTabShell(resultTabWidget, resultDialog), 1);
     QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, resultDialog);
 
     QObject::connect(runAllButton, &QPushButton::clicked, this, [this]()
@@ -3184,6 +3185,7 @@ void VirusTotalOnlineScan::ensureResultDialog()
     QObject::connect(buttonBox, &QDialogButtonBox::rejected, resultDialog, &QDialog::close);
     dialogLayout->addWidget(buttonBox, 0);
 
+    ks::ui::ApplyDetailDialogChrome(resultDialog);
     m_resultDialog = resultDialog;
     m_resultSummaryLabel.clear();
     m_resultTabWidget = resultTabWidget;

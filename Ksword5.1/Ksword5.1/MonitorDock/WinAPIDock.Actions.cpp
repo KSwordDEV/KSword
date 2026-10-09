@@ -1,4 +1,5 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/DetailDialogChrome.h"
 #include "WinAPIDock.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
@@ -1228,6 +1229,7 @@ void WinAPIDock::showEventDetailDialog(const int rowValue)
     connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     layout->addWidget(buttonBox, 0);
 
+    ks::ui::ApplyDetailDialogChrome(&dialog);
     dialog.exec();
 }
 

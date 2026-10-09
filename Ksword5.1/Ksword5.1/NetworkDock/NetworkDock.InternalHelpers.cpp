@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalHelpers.h"
+#include "../UI/DetailDialogChrome.h"
 
 #include "../UI/MemoryWorkbench/HexView.h"
 #include "../UI/TableInteractionSupport.h"
@@ -264,8 +265,7 @@ namespace network_dock_detail
                         .arg(packetRecord.payloadSize));
                 }
                 metaLabel->setWordWrap(true);
-                metaLabel->setStyleSheet(QStringLiteral("padding:6px 8px;border:1px solid %1;border-radius:4px;")
-                    .arg(KswordTheme::BorderHex()));
+                metaLabel->setStyleSheet(QStringLiteral("padding:8px 10px;border:0;"));
                 rootLayout->addWidget(metaLabel);
 
                 // 可读摘要：先展示“内容预览列同款”的语义化 ASCII 摘要，便于快速判断协议文本。
@@ -320,6 +320,7 @@ namespace network_dock_detail
                 hexPageLayout->addWidget(hexEditorWidget, 1);
 
                 detailTabWidget->addTab(hexPage, QStringLiteral("十六进制"));
+                ks::ui::ApplyDetailDialogChrome(this);
             }
         };
     }

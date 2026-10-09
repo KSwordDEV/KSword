@@ -1,4 +1,5 @@
 #include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../UI/StructuredFieldView.h"
 
 #include "../ksword/process/dll_hijack_detector.h"
@@ -529,6 +530,7 @@ namespace
         {
             table->selectRow(0);
         }
+        ks::ui::ApplyDetailDialogChrome(&dialog);
         dialog.exec();
     }
 }

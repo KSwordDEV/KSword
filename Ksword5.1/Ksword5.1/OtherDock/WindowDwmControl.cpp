@@ -2091,6 +2091,10 @@ namespace ks::window::dwmctl
         int bestScore = -1;
         for (QTabWidget* tabs : dialog->findChildren<QTabWidget*>())
         {
+            if (tabs->property("ksword_detail_tabs").toBool())
+            {
+                return tabs;
+            }
             const int score = tabs->count() + (tabs->parentWidget() == dialog ? 1000 : 0);
             if (score > bestScore)
             {

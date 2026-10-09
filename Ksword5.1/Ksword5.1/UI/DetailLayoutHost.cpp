@@ -1,4 +1,5 @@
 #include "DetailLayoutHost.h"
+#include "./DetailDialogChrome.h"
 
 #include "CodeEditorWidget.h"
 #include "EmbeddedRowDelegate.h"
@@ -924,6 +925,7 @@ void ks::ui::DetailLayoutHost::showFloatingWindow()
             floatingEditor = editor;
         }
         windowLayout->addWidget(floatingEditor, 1);
+        ApplyDetailDialogChrome(detailWindow);
 
         QScreen* targetScreen = m_ownerWidget->screen();
         if (targetScreen == nullptr)
