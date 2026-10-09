@@ -1,4 +1,4 @@
-#include "../../../shared/usermode/backend/hardware/PerformanceSamplerSupport.h"
+#include "PerformanceSamplerSupport.h"
 #include <algorithm>
 #include <map>
 namespace ks::r3::hardware_stats {

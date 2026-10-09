@@ -636,12 +636,14 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\KswordARKLight\Features\HardwareStats\PerformanceSampler.cpp">
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareStatsFormatting.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareStatsFormatting.cpp">
+    <ClCompile Include="..\shared\usermode\backend\hardware\DiskActivitySampler.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

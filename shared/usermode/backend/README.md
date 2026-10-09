@@ -38,3 +38,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | driver R3 enumeration and metadata | 30-driver |
 | hardware device enumeration | 31-hardware-devices |
 | hardware system performance sampling | 32-hardware-performance |
+| hardware disk activity sampling | 33-hardware-disk |

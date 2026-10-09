@@ -411,9 +411,6 @@
     <ClCompile Include="Features\HardwareStats\DiskActivityView.cpp">
       <Filter>Features\HardwareStats</Filter>
     </ClCompile>
-    <ClCompile Include="Features\HardwareStats\PerformanceSampler.cpp">
-      <Filter>Features\HardwareStats</Filter>
-    </ClCompile>
     <ClCompile Include="Features\HardwareStats\PerformanceView.cpp">
       <Filter>Features\HardwareStats</Filter>
     </ClCompile>
@@ -1921,6 +1918,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\hardware\SystemPerformanceSampler.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\hardware\DiskActivitySampler.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>
