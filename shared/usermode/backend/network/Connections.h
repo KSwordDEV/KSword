@@ -36,6 +36,7 @@ struct ConnectionEnumerationResult {
 struct NetToolsActionResult {
     bool success = false;
     std::wstring message;
+    std::uint32_t win32Error = 0;
 };
 ConnectionEnumerationResult EnumerateConnections();
 NetToolsActionResult CloseTcpConnection(const ConnectionEntry& entry);

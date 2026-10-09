@@ -63,6 +63,7 @@
 #include "../shared/driver/KswordArkWslSiloIoctl.h"
 #include "../shared/driver/KswordArkClipboardPolicyIoctl.h"
 #include "ArkDriverExtended.h"
+#include "CommandRegistry.h"
 
 #pragma comment(lib, "Iphlpapi.lib")
 #pragma comment(lib, "Ws2_32.lib")
@@ -1436,6 +1437,21 @@ namespace
         }
     }
 
+    void ensureHelpRegistry()
+    {
+        static const bool initialized = [] {
+            for (const auto& family : kFamilyHelps) ks::cli::addFamily(family.name, family.summary);
+            for (const auto& entry : kCommandHelps) {
+                std::wstring path = entry.family;
+                if (entry.subcommand[0]) path += L" " + std::wstring(entry.subcommand);
+                ks::cli::addCommand({path, entry.syntax, entry.summary, entry.options, entry.notes, {}});
+            }
+            ks::cli::registerNetworkConnections();
+            return true;
+        }();
+        (void)initialized;
+    }
+
     // printCommandHelpEntry renders detailed help for one command row.
     // Inputs: static CommandHelp metadata.
     // Processing: writes syntax, summary, options, and optional notes to stdout.
@@ -1466,28 +1482,8 @@ namespace
     // Returns: true when the family exists; false otherwise.
     bool printFamilyHelp(const std::wstring& family)
     {
-        const FamilyHelp* familyHelp = findFamilyHelp(family);
-        if (familyHelp == nullptr)
-        {
-            std::wcerr << L"error: unknown family '" << family << L"'\n";
-            return false;
-        }
-
-        std::wcout << L"Family: " << familyHelp->name << L"\n"
-                   << L"Summary: " << familyHelp->summary << L"\n"
-                   << L"Commands:\n";
-        for (const CommandHelp& command : kCommandHelps)
-        {
-            if (family == command.family)
-            {
-                std::wcout << L"  " << command.syntax << L"\n"
-                           << L"    " << command.summary << L"\n";
-                const std::wstring options = command.options;
-                if (options.find(L"Required:") != std::wstring::npos || options.find(L"必填") != std::wstring::npos)
-                    std::wcout << L"    " << command.options << L"\n";
-            }
-        }
-        return true;
+        ensureHelpRegistry();
+        return ks::cli::printHelp(family);
     }
 
     // printSpecificCommandHelp renders help for one family/subcommand pair.
@@ -1496,21 +1492,8 @@ namespace
     // Returns: true when a concrete command was found.
     bool printSpecificCommandHelp(const std::wstring& family, const std::wstring& subcommand)
     {
-        for (const CommandHelp& command : kCommandHelps)
-        {
-            if (family == command.family && subcommand == command.subcommand)
-            {
-                printCommandHelpEntry(command);
-                return true;
-            }
-        }
-
-        std::wcerr << L"error: unknown command '" << family << L" " << subcommand << L"'\n";
-        if (findFamilyHelp(family) != nullptr)
-        {
-            printFamilyHelp(family);
-        }
-        return false;
+        ensureHelpRegistry();
+        return ks::cli::printHelp(family + L" " + subcommand);
     }
 
     // printUsage prints the CLI command reference.
@@ -1519,47 +1502,8 @@ namespace
     // Returns: no value; output goes to stdout.
     void printUsage()
     {
-        std::wcout
-            << L"KswordCLI CLI\n"
-            << L"usage: KswordCLI.exe <family> <subcommand> [--named-options]\n"
-            << L"       KswordCLI.exe log [--max-frames N]\n"
-            << L"       KswordCLI.exe help [family] [subcommand]\n\n"
-            << L"Help forms:\n"
-            << L"  KswordCLI.exe help\n"
-            << L"  KswordCLI.exe help process\n"
-            << L"  KswordCLI.exe help process enum\n"
-            << L"  KswordCLI.exe process help\n"
-            << L"  KswordCLI.exe process enum --help\n\n"
-            << L"Families and subcommands:\n";
-
-        for (const FamilyHelp& family : kFamilyHelps)
-        {
-            std::wcout << L"  " << std::left << std::setw(11) << family.name;
-            bool first = true;
-            for (const CommandHelp& command : kCommandHelps)
-            {
-                if (std::wcscmp(family.name, command.family) != 0)
-                {
-                    continue;
-                }
-                if (!first)
-                {
-                    std::wcout << L" | ";
-                }
-                std::wcout << ((command.subcommand[0] == L'\0') ? L"[no subcommand]" : command.subcommand);
-                first = false;
-            }
-            std::wcout << std::right << L"\n";
-        }
-
-        std::wcout
-            << L"\nCommon options: --flags 0xN --limit N --hexdump\n"
-            << L"Use 'KswordCLI.exe help <family> <subcommand>' for exact syntax.\n"
-            << L"Examples:\n"
-            << L"  KswordCLI.exe capability query-driver-capabilities\n"
-            << L"  KswordCLI.exe process enum --flags 0x1 --limit 32\n"
-            << L"  KswordCLI.exe memory read-va --pid 1234 --address 0x7ff700000000 --bytes 64 --hexdump\n"
-            << L"  KswordCLI.exe help memory read-va\n";
+        ensureHelpRegistry();
+        ks::cli::printHelp(L"");
     }
 
     // printHelpForTarget handles help command argument routing.
@@ -1568,20 +1512,8 @@ namespace
     // Returns: process exit code; zero means help text was found and printed.
     int printHelpForTarget(int argc, wchar_t* argv[], int startIndex)
     {
-        if (startIndex >= argc || argv[startIndex] == nullptr || isHelpToken(argv[startIndex]))
-        {
-            printUsage();
-            return 0;
-        }
-
-        const std::wstring family = argv[startIndex];
-        if (startIndex + 1 >= argc || argv[startIndex + 1] == nullptr || isHelpToken(argv[startIndex + 1]))
-        {
-            return printFamilyHelp(family) ? 0 : 1;
-        }
-
-        const std::wstring subcommand = argv[startIndex + 1];
-        return printSpecificCommandHelp(family, subcommand) ? 0 : 1;
+        ensureHelpRegistry();
+        return ks::cli::printHelp(ks::cli::commandPath(argc, argv, startIndex)) ? 0 : 1;
     }
 
     // hasTrailingHelpToken detects inline help requests after a command target.
@@ -8635,19 +8567,15 @@ namespace
             return 1;
         }
 
+        ensureHelpRegistry();
         const std::wstring family = argv[1];
         if (isHelpToken(argv[1]))
         {
             return printHelpForTarget(argc, argv, 2);
         }
-        if (argc >= 3 && isHelpToken(argv[2]))
-        {
+        if (hasTrailingHelpToken(argc, argv, 2))
             return printHelpForTarget(argc, argv, 1);
-        }
-        if (argc >= 4 && hasTrailingHelpToken(argc, argv, 3))
-        {
-            return printSpecificCommandHelp(family, argv[2]) ? 0 : 1;
-        }
+        if (const auto result = ks::cli::dispatchR3(argc, argv)) return *result;
         validateCommandOptions(family, family == L"log" || argc < 3 ? L"" : argv[2],
             argc, argv, family == L"log" ? 2 : 3);
         if (family == L"log") return commandLogFamily(argc, argv);

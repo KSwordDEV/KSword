@@ -1,4 +1,4 @@
-﻿# KswordCLI 使用文档
+# KswordCLI 使用文档
 
 本文档按当前命令分发器、内置 help 元数据和 `shared/driver/` 协议核对，覆盖 28 个命令族、187 条命令及别名（2026-10-05）。多数命令需要管理员权限，并要求 KswordARK 驱动设备已经加载且可打开。构建与发行目录见 [构建与发布](构建与发布.md)。
 
@@ -16,9 +16,25 @@ KswordCLI.exe <family> <subcommand> --help
 
 维护要求：每新增、删除或调整一个 `KswordCLI` 命令、别名或参数，必须同步更新 `KswordCLI.cpp` 内置 help 元数据和本文档。
 
-顶层 `help` 与 `help driver` 均列出 `integrity`、`detail`、`device`、`major`、`fastio`、`unloaded`、`piddb`；这些项由同一命令元数据生成。当前版本已包含此行为，回归测试同时核对两种帮助形式。
+顶层 `help` 只展示命令族和简介；业务层只展示直接子节点；具体叶子帮助展示完整参数、输出和限制。
+原来的 `help <family> <subcommand>`、`<family> help`、`<command> --help`、`-h`、`/?` 继续有效，新增任意深度路径，例如：
 
-命令族帮助会直接显示含必填项的参数说明，例如 `help handle` 中 `enum` 的 `Required: --pid`，与具体命令帮助使用同一条元数据。
+```powershell
+KswordCLI.exe help network
+KswordCLI.exe help network connections
+KswordCLI.exe help network connections close
+KswordCLI.exe network connections help
+```
+
+## R3 功能与输出
+
+已接入迁移项：01 TCP/UDP 枚举与 IPv4 TCP 关闭。详细语法见 [网络 R3 命令](cli/network.md)。
+新增纯 R3 命令默认使用 R3，支持显式 `--backend r3`，不自动切换 R0；既有命令的默认后端和输出保持兼容。
+
+默认输出可读 UTF-8 文本，`--json` 在 stdout 输出一个 JSON 文档：`schemaVersion`（1）、`command`、
+`backend`、`status`（success/partial/unsupported/failed）、`data`、`diagnostics`。
+参数错误仍返回 1 并提供语法；已识别的 R3 命令在 JSON 模式下同时输出结构化失败。
+地址和句柄为十六进制字符串，大于安全整数范围的计数为十进制字符串。部分完成返回 6。
 
 ## 参数约定
 

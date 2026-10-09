@@ -50,4 +50,13 @@
   <ItemGroup>
     <ClInclude Include="ArkDriverExtended.h"><Filter>头文件</Filter></ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="CommandRegistry.cpp" />
+    <ClCompile Include="R3NetworkConnections.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\Connections.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\NetworkSupport.cpp" />
+    <ClInclude Include="CommandRegistry.h" />
+    <ClInclude Include="..\shared\usermode\backend\network\Connections.h" />
+    <ClInclude Include="..\shared\usermode\backend\network\NetworkSupport.h" />
+  </ItemGroup>
 </Project>
