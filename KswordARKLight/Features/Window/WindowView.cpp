@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/window/WindowListCapture.h"
 #include "WindowView.h"
 
 #include "WindowActions.h"
@@ -33,6 +34,7 @@
 
 namespace Ksword::Features::Window {
 namespace {
+using namespace ks::r3::window;
 constexpr wchar_t kWindowViewClass[] = L"KswordARKLight.Window.FeatureView";
 constexpr int kRefreshButtonId = 62001;
 constexpr int kFrontButtonId = 62002;
@@ -621,18 +623,7 @@ HWND SelectedWindow(WindowViewState* state) {
 
 void ShowDetail(WindowViewState* state, int modelIndex);
 
-std::wstring CaptureAffinityText(const DWORD affinity) {
-    switch (affinity) {
-    case WDA_NONE:
-        return L"允许窗口被捕获（WDA_NONE）";
-    case WDA_MONITOR:
-        return L"阻止屏幕捕获（WDA_MONITOR）";
-    case WDA_EXCLUDEFROMCAPTURE:
-        return L"从捕获中排除（WDA_EXCLUDEFROMCAPTURE）";
-    default:
-        return L"未知捕获保护值";
-    }
-}
+
 
 bool ConfirmCaptureProtection(HWND owner, const WindowSnapshotRow& row, const DWORD affinity) {
     const std::wstring title = row.title.empty() ? L"(无标题)" : row.title;
@@ -671,19 +662,7 @@ void SetCaptureProtection(WindowViewState* state, const DWORD affinity) {
         return;
     }
 
-    const bool applied = ::SetWindowDisplayAffinity(row.hwnd, affinity) != FALSE;
-    const DWORD error = applied ? ERROR_SUCCESS : ::GetLastError();
-    if (applied) {
-        DWORD current = WDA_NONE;
-        state->statusText = ::GetWindowDisplayAffinity(row.hwnd, &current)
-            ? L"已设置为 " + CaptureAffinityText(current) + L"。"
-            : L"设置调用成功，但回读属性失败。";
-    } else {
-        state->statusText = L"设置窗口捕获保护失败（错误码 " + std::to_wstring(error) + L"）。";
-        if (error == ERROR_ACCESS_DENIED) {
-            state->statusText += L" 该 API 主要用于进程保护自身窗口，跨进程设置通常被拒绝。";
-        }
-    }
+    state->statusText = ks::r3::window::ApplyWindowListCaptureAffinity(row.hwnd, affinity);
     ShowDetail(state, SelectedModelIndex(state));
     ::InvalidateRect(state->hwnd, nullptr, TRUE);
 }
@@ -1976,3 +1955,7 @@ bool RequestWindowFeatureViewQuery(HWND page, const std::wstring& query) {
 }
 
 } // namespace Ksword::Features::Window
+
+namespace Ksword::Features::Window { namespace {
+
+}}
