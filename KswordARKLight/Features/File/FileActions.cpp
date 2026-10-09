@@ -1,4 +1,5 @@
 #include "FileActions.h"
+#include "../../../shared/usermode/backend/file/FileOperations.h"
 
 #include "PathNavigator.h"
 
@@ -29,6 +30,12 @@
 
 namespace Ksword::Features::File {
 namespace {
+using ks::r3::file::CopyOrMovePathToFolder;
+using ks::r3::file::CreateEmptyFile;
+using ks::r3::file::CreateNewDirectory;
+using ks::r3::file::ShortPathForFile;
+using ks::r3::file::ResolveLinkTarget;
+
 
 
 // Utf8ToWide converts ArkDriverClient narrow diagnostics to UTF-16 UI text.
@@ -194,63 +201,12 @@ bool OpenTerminalAtDirectory(HWND owner, const std::wstring& directory) {
 
 // ShortPathForFile returns the DOS 8.3 path when the volume provides one. Input
 // is a full path; output is empty when GetShortPathNameW fails.
-std::wstring ShortPathForFile(const std::wstring& path) {
-    const DWORD needed = ::GetShortPathNameW(path.c_str(), nullptr, 0);
-    if (needed == 0) {
-        return {};
-    }
-    std::wstring shortPath(needed + 1, L'\0');
-    const DWORD written = ::GetShortPathNameW(path.c_str(), shortPath.data(), static_cast<DWORD>(shortPath.size()));
-    if (written == 0 || written >= shortPath.size()) {
-        return {};
-    }
-    shortPath.resize(written);
-    return shortPath;
-}
+
 
 // ResolveLinkTarget reads a shell link target using IShellLink/IPersistFile.
 // Input is a selected .lnk path; output is the resolved path or empty on
 // unsupported file types/failures.
-std::wstring ResolveLinkTarget(const std::wstring& path) {
-    if (path.size() < 4 || _wcsicmp(path.c_str() + path.size() - 4, L".lnk") != 0) {
-        return {};
-    }
-    const HRESULT initResult = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    const bool uninitializeCom = initResult == S_OK || initResult == S_FALSE;
-    IShellLinkW* shellLink = nullptr;
-    HRESULT hr = ::CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&shellLink));
-    if (FAILED(hr) || shellLink == nullptr) {
-        if (uninitializeCom) {
-            ::CoUninitialize();
-        }
-        return {};
-    }
-    IPersistFile* persistFile = nullptr;
-    hr = shellLink->QueryInterface(IID_PPV_ARGS(&persistFile));
-    if (FAILED(hr) || persistFile == nullptr) {
-        shellLink->Release();
-        if (uninitializeCom) {
-            ::CoUninitialize();
-        }
-        return {};
-    }
-    std::wstring target(MAX_PATH, L'\0');
-    hr = persistFile->Load(path.c_str(), STGM_READ);
-    if (SUCCEEDED(hr)) {
-        WIN32_FIND_DATAW data{};
-        hr = shellLink->GetPath(target.data(), static_cast<int>(target.size()), &data, SLGP_UNCPRIORITY);
-    }
-    persistFile->Release();
-    shellLink->Release();
-    if (uninitializeCom) {
-        ::CoUninitialize();
-    }
-    if (FAILED(hr)) {
-        return {};
-    }
-    target.resize(std::wcslen(target.c_str()));
-    return target;
-}
+
 
 // ParentDirectoryOf returns the parent folder for a full path. Input is a file
 // or directory path; output is empty if no separator exists.
@@ -318,38 +274,7 @@ std::wstring PickTargetFolder(HWND owner, const wchar_t* title) {
 // target folder. Inputs are source path, destination directory, and move flag;
 // processing uses std::filesystem so both files and directories are covered;
 // output is a FileActionResult-style status through statusOut and a success bit.
-bool CopyOrMovePathToFolder(
-    const std::wstring& sourcePath,
-    const std::wstring& targetFolder,
-    bool move,
-    std::wstring& statusOut) {
-    if (sourcePath.empty() || targetFolder.empty()) {
-        statusOut = L"源路径或目标文件夹为空。";
-        return false;
-    }
 
-    std::error_code error;
-    const std::filesystem::path source(sourcePath);
-    const std::filesystem::path target = std::filesystem::path(targetFolder) / source.filename();
-    if (move) {
-        std::filesystem::rename(source, target, error);
-        if (error) {
-            std::filesystem::copy(source, target, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, error);
-            if (!error) {
-                std::filesystem::remove_all(source, error);
-            }
-        }
-    } else {
-        std::filesystem::copy(source, target, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, error);
-    }
-
-    if (error) {
-        statusOut = std::wstring(move ? L"移动失败: " : L"复制失败: ") + std::wstring(error.message().begin(), error.message().end());
-        return false;
-    }
-    statusOut = std::wstring(move ? L"已移动到: " : L"已复制到: ") + target.wstring();
-    return true;
-}
 
 // TakeOwnershipPath sets the selected file or directory owner to the current
 // user. Inputs are a Win32 path and owner HWND only for diagnostics; processing
@@ -979,43 +904,11 @@ PeStaticSummaryResult BuildPeStaticSummary(const std::wstring& path) {
 // CreateEmptyFile creates one new empty text file under the current directory.
 // Inputs are a directory path; output is the created full path or empty on
 // failure. Existing files are never overwritten.
-std::wstring CreateEmptyFile(const std::wstring& directory) {
-    if (directory.empty()) {
-        return {};
-    }
-    for (int index = 1; index < 1000; ++index) {
-        const std::wstring name = index == 1 ? L"新建文件.txt" : L"新建文件 (" + std::to_wstring(index) + L").txt";
-        const std::wstring path = PathNavigator::joinChildPath(directory, name);
-        HANDLE file = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (file != INVALID_HANDLE_VALUE) {
-            ::CloseHandle(file);
-            return path;
-        }
-        if (::GetLastError() != ERROR_FILE_EXISTS && ::GetLastError() != ERROR_ALREADY_EXISTS) {
-            return {};
-        }
-    }
-    return {};
-}
+
 
 // CreateNewDirectory creates a unique "新建文件夹" child. Inputs are a directory;
 // output is the created path or empty if all attempts fail.
-std::wstring CreateNewDirectory(const std::wstring& directory) {
-    if (directory.empty()) {
-        return {};
-    }
-    for (int index = 1; index < 1000; ++index) {
-        const std::wstring name = index == 1 ? L"新建文件夹" : L"新建文件夹 (" + std::to_wstring(index) + L")";
-        const std::wstring path = PathNavigator::joinChildPath(directory, name);
-        if (::CreateDirectoryW(path.c_str(), nullptr)) {
-            return path;
-        }
-        if (::GetLastError() != ERROR_ALREADY_EXISTS) {
-            return {};
-        }
-    }
-    return {};
-}
+
 
 } // namespace
 
@@ -1210,13 +1103,13 @@ FileActionResult FileActions::execute(FileActionId action, const FileActionConte
             return result;
         }
         if (context.selectedEntry.kind == FileEntryKind::Directory) {
-            if (::RemoveDirectoryW(selected.c_str())) {
+            if (ks::r3::file::DeleteEmptyDirectory(selected)) {
                 result.refreshRequested = true;
                 result.statusText = L"目录已删除。";
             } else {
                 result.statusText = L"目录删除失败，错误 " + std::to_wstring(::GetLastError());
             }
-        } else if (::DeleteFileW(selected.c_str())) {
+        } else if (ks::r3::file::DeleteFilePath(selected)) {
             result.refreshRequested = true;
             result.statusText = L"文件已删除。";
         } else {
@@ -1309,7 +1202,7 @@ FileActionResult FileActions::execute(FileActionId action, const FileActionConte
             result.statusText = L"已取消重命名。";
             return result;
         }
-        if (::MoveFileExW(selected.c_str(), target.c_str(), MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING)) {
+        if (ks::r3::file::RenamePath(selected, target)) {
             result.refreshRequested = true;
             result.statusText = L"已重命名为：" + target;
         } else {

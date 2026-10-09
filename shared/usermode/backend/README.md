@@ -20,3 +20,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | startup enable disable and deletion | 12-startup-actions |
 | current process token and privilege control | 13-privilege |
 | directory browsing and path navigation | 14-directory |
+| file creation transfer rename and deletion | 15-file-operations |

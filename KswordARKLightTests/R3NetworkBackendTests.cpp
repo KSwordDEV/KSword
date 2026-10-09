@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/file/FileOperations.h"
 #include "../shared/usermode/backend/file/PathNavigator.h"
 #include "../shared/usermode/backend/file/Directory.h"
 #include "../shared/usermode/backend/registry/RegistryBackend.h"
@@ -94,6 +95,22 @@ int RunR3NetworkBackendTests() {
         suite.expect(ks::r3::registry::DeleteRegistryKey(testKey).success, L"own temporary key cleaned up");
     }
     suite.expect(ks::r3::file::PathNavigator::normalizeKnownDirectoryPath(L"C:\\probe\\folder") == L"C:\\probe\\folder", L"known absolute file navigation preserved");
+    wchar_t tempBase[MAX_PATH]{};
+    const DWORD tempLength = ::GetTempPathW(MAX_PATH, tempBase);
+    suite.expect(tempLength > 0 && tempLength < MAX_PATH, L"temporary file base available");
+    const std::wstring tempRoot = std::wstring(tempBase) + L"KswordR3Test_" + std::to_wstring(::GetCurrentProcessId()) + L"_" + std::to_wstring(::GetTickCount64());
+    const bool madeTemp = ::CreateDirectoryW(tempRoot.c_str(), nullptr) != FALSE;
+    suite.expect(madeTemp, L"own temporary file directory created");
+    if (madeTemp) {
+        const auto firstFile = ks::r3::file::CreateEmptyFile(tempRoot);
+        const auto secondFile = ks::r3::file::CreateEmptyFile(tempRoot);
+        suite.expect(!firstFile.empty() && !secondFile.empty() && firstFile != secondFile, L"new file naming never overwrites existing file");
+        const auto renamedFile = ks::r3::file::PathNavigator::joinChildPath(tempRoot, L"renamed.txt");
+        suite.expect(ks::r3::file::RenamePath(firstFile, renamedFile) != FALSE, L"own file renamed");
+        suite.expect(ks::r3::file::DeleteEmptyDirectory(tempRoot) == FALSE, L"nonempty directory still rejects deletion");
+        suite.expect(ks::r3::file::DeleteFilePath(renamedFile) != FALSE && ks::r3::file::DeleteFilePath(secondFile) != FALSE, L"own files cleaned up");
+        suite.expect(ks::r3::file::DeleteEmptyDirectory(tempRoot) != FALSE, L"own empty directory cleaned up");
+    }
     suite.report();
     return suite.failures();
 }
