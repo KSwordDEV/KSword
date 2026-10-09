@@ -35,3 +35,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | process token switches | 27-process-token-switches |
 | process PEB and memory queries | 28-process-peb |
 | process usermode hotkey collection | 29-process-hotkeys |
+| driver R3 enumeration and metadata | 30-driver |

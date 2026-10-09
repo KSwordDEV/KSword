@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../shared/usermode/backend/driver/DriverTypes.h"
 
 // ============================================================
 // DriverModel.h
@@ -15,39 +16,21 @@
 #include <vector>
 
 namespace Ksword::Features::Driver {
+using ks::r3::driver::DriverOverviewRow;
+using ks::r3::driver::DriverObjectRow;
+using ks::r3::driver::FormatHexAddress;
+using ks::r3::driver::FormatByteSize;
+
 
 // DriverOverviewRow stores one loaded-driver summary row. Inputs are module
 // enumeration results; processing is done in DriverEnumerator; output is the
 // value object consumed by DriverOverviewView and export helpers.
-struct DriverOverviewRow {
-    std::wstring driverName;       // driverName: driver base name or display name.
-    std::wstring baseAddressText;   // baseAddressText: hex base address text.
-    std::wstring memoryRangeText;   // memoryRangeText: start-end kernel image range derived from module base and size.
-    std::wstring sizeText;         // sizeText: formatted image size text.
-    std::wstring pathText;         // pathText: full module path.
-    std::wstring signatureText;    // signatureText: R3 Authenticode/trust status for the module image when the path resolves.
-    std::wstring statusText;       // statusText: load/diagnostic status.
-    std::wstring anomalyText;      // anomalyText: R0 integrity risk flags or graceful unavailable/partial text.
-    std::wstring capabilityHint;   // capabilityHint: future analysis hint.
-};
+
 
 // DriverObjectRow stores one object-manager row from the driver-related
 // directories. Inputs are directory enumeration and optional count lookups;
 // processing is done in DriverEnumerator; output feeds DriverObjectView.
-struct DriverObjectRow {
-    std::wstring directoryPathText;    // directoryPathText: source directory such as \Driver.
-    std::wstring objectNameText;       // objectNameText: entry name.
-    std::wstring objectTypeText;       // objectTypeText: object type text.
-    std::wstring referenceCountText;   // referenceCountText: reference/pointer count text.
-    std::wstring handleCountText;      // handleCountText: handle count text.
-    std::wstring fullPathText;        // fullPathText: joined object path.
-    std::wstring targetPathText;     // targetPathText: symbolic-link target when available.
-    std::wstring statusText;         // statusText: enumeration/diagnostic status.
-    std::wstring capabilityHint;     // capabilityHint: Chinese next-step hint.
-    bool isDirectory = false;          // isDirectory: true when the object is a directory.
-    bool isSymbolicLink = false;       // isSymbolicLink: true when the object is a symlink.
-    bool querySucceeded = false;      // querySucceeded: true when the row was successfully built.
-};
+
 
 // DriverModel owns the latest overview/object snapshots and exposes filtering
 // helpers for the Win32 views. Inputs are row vectors and filter strings;
@@ -130,11 +113,11 @@ private:
 // FormatHexAddress converts a pointer-sized value into uppercase hexadecimal.
 // Input is an address value; processing pads the hex text; output is a display
 // string such as 0xFFFFF80012345678.
-std::wstring FormatHexAddress(std::uint64_t value, std::size_t width = sizeof(void*) * 2u);
+
 
 // FormatByteSize converts bytes into a compact human-readable size string.
 // Input is a byte count; processing chooses B/KiB/MiB/GiB units; output is
 // suitable for the overview size column.
-std::wstring FormatByteSize(std::uint64_t bytes);
+
 
 } // namespace Ksword::Features::Driver

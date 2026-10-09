@@ -1,3 +1,5 @@
+#include "../shared/usermode/backend/driver/DriverQueries.h"
+#include "../shared/usermode/backend/driver/DriverFormatting.h"
 #include "../shared/usermode/backend/process/ProcessHotkeys.h"
 #include "../shared/usermode/backend/process/ProcessPeb.h"
 #include "../shared/usermode/backend/process/ProcessTokenSwitches.h"
