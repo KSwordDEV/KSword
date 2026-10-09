@@ -159,11 +159,8 @@
     <ClCompile Include="Features\Memory\MemorySnapshot.cpp" />
     <ClCompile Include="Features\Memory\MemoryWritePlan.cpp" />
     <ClCompile Include="Features\Misc\MiscFeature.cpp" />
-    <ClCompile Include="Features\Monitor\EtwEventModel.cpp" />
     <ClCompile Include="Features\Monitor\EtwFilterDialog.cpp" />
-    <ClCompile Include="Features\Monitor\EtwFilterModel.cpp" />
     <ClCompile Include="Features\Monitor\EtwMonitorView.cpp" />
-    <ClCompile Include="Features\Monitor\EtwSessionController.cpp" />
     <ClCompile Include="Features\Monitor\MonitorFeature.cpp" />
     <ClCompile Include="Features\Monitor\CallbackMonitorView.cpp" />
     <ClCompile Include="Features\Network\NetworkFeature.cpp" />
@@ -997,6 +994,24 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\window\GlobalHotkeyProbe.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\monitor\EtwEventModel.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\monitor\EtwEventModel.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\monitor\EtwFilterModel.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\monitor\EtwFilterModel.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\monitor\EtwSessionController.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\monitor\EtwSessionController.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

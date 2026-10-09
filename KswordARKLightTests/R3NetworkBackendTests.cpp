@@ -1,3 +1,6 @@
+#include "../shared/usermode/backend/monitor/EtwSessionController.h"
+#include "../shared/usermode/backend/monitor/EtwFilterModel.h"
+#include "../shared/usermode/backend/monitor/EtwEventModel.h"
 #include "../shared/usermode/backend/window/GlobalHotkeyProbe.h"
 #include "../shared/usermode/backend/window/PointerText.h"
 #include "../shared/usermode/backend/window/WindowHierarchy.h"

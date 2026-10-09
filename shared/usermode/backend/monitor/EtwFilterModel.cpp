@@ -1,6 +1,6 @@
 #include "EtwFilterModel.h"
 
-namespace Ksword::Features::Monitor {
+namespace ks::r3::monitor {
 namespace {
 
 GUID MakeGuid(
@@ -140,4 +140,4 @@ bool EventMatchesFilter(
     return true;
 }
 
-} // namespace Ksword::Features::Monitor
+} // namespace ks::r3::monitor

@@ -13,7 +13,7 @@
 #pragma comment(lib, "Advapi32.lib")
 #pragma comment(lib, "Tdh.lib")
 
-namespace Ksword::Features::Monitor {
+namespace ks::r3::monitor {
 namespace {
 
 constexpr std::size_t kTracePropertiesBufferBytes =
@@ -319,4 +319,4 @@ void EtwSessionController::publishLastError(const std::wstring& text) {
     publishStatus(text);
 }
 
-} // namespace Ksword::Features::Monitor
+} // namespace ks::r3::monitor

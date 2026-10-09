@@ -46,3 +46,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | window capture protection | 38-window-capture |
 | window hierarchy diagnostics | 39-window-hierarchy |
 | global hotkey occupancy probing | 40-window-hotkey |
+| ETW sessions event capture and filtering | 41-monitor-etw |

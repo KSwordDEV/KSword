@@ -323,19 +323,10 @@
     <ClCompile Include="Features\Misc\MiscFeature.cpp">
       <Filter>Features\Misc</Filter>
     </ClCompile>
-    <ClCompile Include="Features\Monitor\EtwEventModel.cpp">
-      <Filter>Features\Monitor</Filter>
-    </ClCompile>
     <ClCompile Include="Features\Monitor\EtwFilterDialog.cpp">
       <Filter>Features\Monitor</Filter>
     </ClCompile>
-    <ClCompile Include="Features\Monitor\EtwFilterModel.cpp">
-      <Filter>Features\Monitor</Filter>
-    </ClCompile>
     <ClCompile Include="Features\Monitor\EtwMonitorView.cpp">
-      <Filter>Features\Monitor</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Monitor\EtwSessionController.cpp">
       <Filter>Features\Monitor</Filter>
     </ClCompile>
     <ClCompile Include="Features\Monitor\MonitorFeature.cpp">
@@ -2057,6 +2048,36 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\window\GlobalHotkeyProbe.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\monitor\EtwEventModel.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\monitor\EtwEventModel.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\monitor\EtwFilterModel.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\monitor\EtwFilterModel.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\monitor\EtwSessionController.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\monitor\EtwSessionController.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

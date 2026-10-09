@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <iterator>
 
-namespace Ksword::Features::Monitor {
+namespace ks::r3::monitor {
 namespace {
 
 std::wstring SanitizeTsvCell(std::wstring value) {
@@ -128,4 +128,4 @@ std::wstring BuildVisibleEtwEventsTsv(
     return output;
 }
 
-} // namespace Ksword::Features::Monitor
+} // namespace ks::r3::monitor
