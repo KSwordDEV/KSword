@@ -30,3 +30,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | native process controls | 22-process-controls |
 | process detail basic collection | 23-process-detail-basic |
 | process thread queries and controls | 24-process-threads |
+| process module queries and controls | 25-process-modules |

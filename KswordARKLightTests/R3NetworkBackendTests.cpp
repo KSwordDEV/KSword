@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/process/ModuleActions.h"
 #include "../shared/usermode/backend/process/ThreadActions.h"
 #include "../shared/usermode/backend/process/ProcessBasicInfo.h"
 #include "../shared/usermode/backend/process/ProcessControls.h"

@@ -1,4 +1,5 @@
 #include "ProcessDetailCollector.h"
+#include "../../../shared/usermode/backend/process/ProcessModulesSupport.h"
 #include "../../../shared/usermode/backend/process/ProcessThreadsSupport.h"
 #include "../../../shared/usermode/backend/process/ProcessBasicInfo.h"
 #include "../../../shared/usermode/backend/process/ProcessBasicInfoSupport.h"
@@ -19,6 +20,7 @@
 namespace Ksword::Features::ProcessDetail {
 namespace {
 using namespace ks::r3::process_detail::detail;
+using namespace ks::r3::process_detail::detail;
 using ks::r3::process_detail::CollectBasicInfo;
 using namespace ks::r3::process_detail::detail;
 
@@ -32,9 +34,9 @@ using namespace ks::r3::process_detail::detail;
 
 
 
-using EnumProcessModulesExFn = BOOL(WINAPI*)(HANDLE, HMODULE*, DWORD, LPDWORD, DWORD);
-using GetModuleInformationFn = BOOL(WINAPI*)(HANDLE, HMODULE, LPMODULEINFO, DWORD);
-using GetModuleFileNameExWFn = DWORD(WINAPI*)(HANDLE, HMODULE, LPWSTR, DWORD);
+
+
+
 
 // NativeProcessBasicInformation is the stable native layout for class 0.
 // Inputs come from NtQueryInformationProcess; processing reads only the PEB
@@ -49,19 +51,7 @@ using GetModuleFileNameExWFn = DWORD(WINAPI*)(HANDLE, HMODULE, LPWSTR, DWORD);
 // ModuleApi stores dynamically resolved PSAPI/K32 module enumeration exports.
 // Inputs are loader module handles from LoadModuleApi; processing never requires
 // adding a PSAPI import library to the project; callers check available() first.
-struct ModuleApi {
-    HMODULE library = nullptr;
-    EnumProcessModulesExFn enumProcessModulesEx = nullptr;
-    GetModuleInformationFn getModuleInformation = nullptr;
-    GetModuleFileNameExWFn getModuleFileNameExW = nullptr;
 
-    // available reports whether every module enumeration export was resolved.
-    // There is no input; processing checks stored function pointers; output is
-    // true only when CollectModules can call the API set safely.
-    bool available() const {
-        return enumProcessModulesEx && getModuleInformation && getModuleFileNameExW;
-    }
-};
 
 // NtThreadApi stores optional ntdll thread metadata exports. Inputs are dynamic
 // loader results; processing is read-only and optional; callers may continue
@@ -76,18 +66,7 @@ struct ModuleApi {
 // FormatHexPointer formats an address for list-view display. Input is an
 // integer pointer value; processing emits fixed-width hexadecimal text; output
 // is a string such as 0x00007FF612340000.
-std::wstring FormatHexPointer(std::uintptr_t value) {
-    std::wostringstream stream;
-    stream << L"0x" << std::hex << std::uppercase;
-    if (sizeof(void*) == 8) {
-        stream.width(16);
-    } else {
-        stream.width(8);
-    }
-    stream.fill(L'0');
-    stream << value;
-    return stream.str();
-}
+
 
 // NarrowToWide converts ArkDriverClient diagnostics and row details to UI text.
 // Input is UTF-8/ASCII from the shared client; output is best-effort UTF-16.
@@ -209,28 +188,7 @@ std::wstring CrossViewAnomalyText(ULONG anomalyFlags) {
 // psapi.dll fallback exports. There is no input; processing may load psapi.dll;
 // output reports function pointers and keeps the library loaded for process
 // lifetime so pointers remain valid.
-ModuleApi LoadModuleApi() {
-    ModuleApi api{};
 
-    HMODULE kernel32 = ::GetModuleHandleW(L"kernel32.dll");
-    api.library = kernel32;
-    api.enumProcessModulesEx = ResolveProc<EnumProcessModulesExFn>(kernel32, "K32EnumProcessModulesEx");
-    api.getModuleInformation = ResolveProc<GetModuleInformationFn>(kernel32, "K32GetModuleInformation");
-    api.getModuleFileNameExW = ResolveProc<GetModuleFileNameExWFn>(kernel32, "K32GetModuleFileNameExW");
-    if (api.available()) {
-        return api;
-    }
-
-    HMODULE psapi = ::GetModuleHandleW(L"psapi.dll");
-    if (!psapi) {
-        psapi = ::LoadLibraryW(L"psapi.dll");
-    }
-    api.library = psapi;
-    api.enumProcessModulesEx = ResolveProc<EnumProcessModulesExFn>(psapi, "EnumProcessModulesEx");
-    api.getModuleInformation = ResolveProc<GetModuleInformationFn>(psapi, "GetModuleInformation");
-    api.getModuleFileNameExW = ResolveProc<GetModuleFileNameExWFn>(psapi, "GetModuleFileNameExW");
-    return api;
-}
 
 // LoadNtThreadApi resolves NtQueryInformationThread. There is no input;
 // processing reads ntdll from the current process; output may be unavailable on
@@ -310,113 +268,19 @@ ModuleApi LoadModuleApi() {
 // BaseNameFromPath extracts the final path component. Input is a full path;
 // processing searches slash and backslash separators; output is never longer
 // than the input and may equal the input for bare names.
-std::wstring BaseNameFromPath(const std::wstring& path) {
-    const std::size_t pos = path.find_last_of(L"\\/");
-    if (pos == std::wstring::npos || pos + 1 >= path.size()) {
-        return path;
-    }
-    return path.substr(pos + 1);
-}
+
 
 // CollectModules enumerates modules loaded in the process. Input is processId;
 // processing uses EnumProcessModulesEx and GetModuleInformation/GetModuleFile-
 // NameExW; output is sorted by base address with per-row status.
-std::vector<ProcessModuleInfo> CollectModules(DWORD processId, bool& succeededOut, std::wstring& statusOut) {
-    succeededOut = false;
-    statusOut.clear();
-    std::vector<ProcessModuleInfo> rows;
 
-    const ModuleApi moduleApi = LoadModuleApi();
-    if (!moduleApi.available()) {
-        statusOut = L"Module enumeration API unavailable.";
-        return rows;
-    }
-
-    Ksword::Core::UniqueHandle process(::OpenProcess(kProcessReadAccess, FALSE, processId));
-    if (!process.valid()) {
-        statusOut = Win32ErrorText(L"OpenProcess", ::GetLastError());
-        return rows;
-    }
-
-    DWORD neededBytes = 0;
-    std::vector<HMODULE> modules(256);
-    if (!moduleApi.enumProcessModulesEx(process.get(), modules.data(), static_cast<DWORD>(modules.size() * sizeof(HMODULE)), &neededBytes, LIST_MODULES_ALL)) {
-        statusOut = Win32ErrorText(L"EnumProcessModulesEx", ::GetLastError());
-        return rows;
-    }
-    if (neededBytes > modules.size() * sizeof(HMODULE)) {
-        modules.resize(neededBytes / sizeof(HMODULE));
-        if (!moduleApi.enumProcessModulesEx(process.get(), modules.data(), static_cast<DWORD>(modules.size() * sizeof(HMODULE)), &neededBytes, LIST_MODULES_ALL)) {
-            statusOut = Win32ErrorText(L"EnumProcessModulesEx retry", ::GetLastError());
-            return rows;
-        }
-    }
-    modules.resize(neededBytes / sizeof(HMODULE));
-
-    for (HMODULE module : modules) {
-        ProcessModuleInfo row{};
-        MODULEINFO moduleInfo{};
-        if (moduleApi.getModuleInformation(process.get(), module, &moduleInfo, sizeof(moduleInfo))) {
-            row.baseAddress = reinterpret_cast<std::uintptr_t>(moduleInfo.lpBaseOfDll);
-            row.imageSize = moduleInfo.SizeOfImage;
-        }
-
-        std::wstring path(MAX_PATH, L'\0');
-        DWORD copied = moduleApi.getModuleFileNameExW(process.get(), module, path.data(), static_cast<DWORD>(path.size()));
-        if (copied >= path.size() - 1) {
-            path.resize(kMaxPathBufferChars, L'\0');
-            copied = moduleApi.getModuleFileNameExW(process.get(), module, path.data(), static_cast<DWORD>(path.size()));
-        }
-        if (copied > 0) {
-            path.resize(copied);
-            row.modulePath = path;
-            row.moduleName = BaseNameFromPath(path);
-            row.statusText = L"OK";
-        } else {
-            row.moduleName = FormatHexPointer(reinterpret_cast<std::uintptr_t>(module));
-            row.modulePath = L"<module path unavailable>";
-            row.statusText = Win32ErrorText(L"GetModuleFileNameExW", ::GetLastError());
-        }
-        rows.push_back(std::move(row));
-    }
-
-    succeededOut = true;
-    statusOut = L"OK";
-    std::sort(rows.begin(), rows.end(), [](const ProcessModuleInfo& left, const ProcessModuleInfo& right) {
-        return left.baseAddress < right.baseAddress;
-    });
-    return rows;
-}
 
 // AttachRepresentativeThreads maps already-collected thread start addresses to
 // loaded module address ranges. Inputs are the module rows and thread rows from
 // the same PID snapshot; processing chooses the first thread whose Win32 start
 // address lies inside each module; no value is returned because modules are
 // updated in place for the Modules tab context menu.
-void AttachRepresentativeThreads(
-    std::vector<ProcessModuleInfo>& modules,
-    const std::vector<ProcessThreadInfo>& threads) {
-    if (modules.empty() || threads.empty()) {
-        return;
-    }
 
-    for (ProcessModuleInfo& module : modules) {
-        const std::uintptr_t moduleStart = module.baseAddress;
-        const std::uintptr_t moduleEnd = moduleStart + static_cast<std::uintptr_t>(module.imageSize);
-        if (moduleStart == 0 || moduleEnd <= moduleStart) {
-            continue;
-        }
-
-        for (const ProcessThreadInfo& thread : threads) {
-            if (thread.creationTime100ns != 0U &&
-                thread.startAddress >= moduleStart && thread.startAddress < moduleEnd) {
-                module.representativeThreadId = thread.threadId;
-                module.representativeThreadCreationTime100ns = thread.creationTime100ns;
-                break;
-            }
-        }
-    }
-}
 
 // AddR0AuditRow appends one read-only driver evidence row to the ProcessDetail
 // R0 tab. Inputs are the target vector and display-ready scalar fields;
