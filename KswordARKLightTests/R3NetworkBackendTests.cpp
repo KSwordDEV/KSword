@@ -1,3 +1,5 @@
+#include "../shared/usermode/backend/file/PathNavigator.h"
+#include "../shared/usermode/backend/file/Directory.h"
 #include "../shared/usermode/backend/registry/RegistryBackend.h"
 #include "../shared/usermode/backend/service/ServiceActions.h"
 #include "../shared/usermode/backend/service/ServiceEnumerator.h"
@@ -91,6 +93,7 @@ int RunR3NetworkBackendTests() {
         suite.expect(ks::r3::registry::DeleteRegistryValue(testKey, L"renamed").success, L"own temporary value deleted");
         suite.expect(ks::r3::registry::DeleteRegistryKey(testKey).success, L"own temporary key cleaned up");
     }
+    suite.expect(ks::r3::file::PathNavigator::normalizeKnownDirectoryPath(L"C:\\probe\\folder") == L"C:\\probe\\folder", L"known absolute file navigation preserved");
     suite.report();
     return suite.failures();
 }

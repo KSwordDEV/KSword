@@ -1,43 +1,31 @@
 #pragma once
 
+#include "../../../shared/usermode/backend/file/Directory.h"
+
 #include "../../Core/Win32Lean.h"
 
 #include <string>
 #include <vector>
 
 namespace Ksword::Features::File {
+using ks::r3::file::FileEntryKind;
+using ks::r3::file::FileEntry;
+using ks::r3::file::DirectoryEnumerationResult;
+
 
 // FileEntryKind describes how the file view should render and open an entry.
 // Values come only from Win32 drive enumeration and FindFirstFileW data.
-enum class FileEntryKind {
-    Drive,
-    Directory,
-    File
-};
+
 
 // FileEntry is the UI-neutral row model for the File page. Inputs are populated
 // by FileSystemEnumerator; consumers read name/path/attributes/size to display
 // rows and to choose context-menu actions.
-struct FileEntry {
-    FileEntryKind kind = FileEntryKind::File;
-    std::wstring name;
-    std::wstring fullPath;
-    DWORD attributes = 0;
-    ULONGLONG size = 0;
-    FILETIME lastWriteTime{};
-    bool reparsePoint = false;
-};
+
 
 // DirectoryEnumerationResult carries either a normal directory listing or the
 // virtual drive-root listing. Inputs are a requested path; processing fills rows
 // from Windows APIs; status fields preserve failures without throwing.
-struct DirectoryEnumerationResult {
-    std::wstring directory;
-    std::vector<FileEntry> entries;
-    DWORD errorCode = ERROR_SUCCESS;
-    std::wstring statusText;
-    bool virtualDriveRoot = false;
-};
+
 
 enum class DirectorySource {
     Win32,

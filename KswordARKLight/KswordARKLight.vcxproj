@@ -116,7 +116,6 @@
     <ClCompile Include="Features\File\FileFeature.cpp" />
     <ClCompile Include="Features\File\FileSystemEnumerator.cpp" />
     <ClCompile Include="Features\File\FileView.cpp" />
-    <ClCompile Include="Features\File\PathNavigator.cpp" />
     <ClCompile Include="Features\Hardware\HardwareEnumerator.cpp" />
     <ClCompile Include="Features\Hardware\HardwareFeature.cpp" />
     <ClCompile Include="Features\Hardware\HardwareHwidDispatchView.cpp" />
@@ -717,6 +716,21 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeActions.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\file\PathNavigator.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\file\PathNavigator.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\file\Directory.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\file\DirectorySupport.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\file\Directory.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

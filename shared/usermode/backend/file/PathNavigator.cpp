@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace Ksword::Features::File {
+namespace ks::r3::file {
 namespace {
 
 // TrimWhitespace removes leading and trailing ASCII/Unicode whitespace from a
@@ -297,4 +297,4 @@ void PathNavigator::pushHistory(const std::wstring& path) {
     backStack_.push_back(path);
 }
 
-} // namespace Ksword::Features::File
+} // namespace ks::r3::file

@@ -194,9 +194,6 @@
     <ClCompile Include="Features\File\FileView.cpp">
       <Filter>Features\File</Filter>
     </ClCompile>
-    <ClCompile Include="Features\File\PathNavigator.cpp">
-      <Filter>Features\File</Filter>
-    </ClCompile>
     <ClCompile Include="Features\Hardware\HardwareEnumerator.cpp">
       <Filter>Features\Hardware</Filter>
     </ClCompile>
@@ -1605,6 +1602,31 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeActions.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\file\PathNavigator.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\file\PathNavigator.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\file\Directory.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\file\DirectorySupport.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\file\Directory.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

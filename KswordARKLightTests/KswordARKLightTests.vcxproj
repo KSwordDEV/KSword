@@ -161,7 +161,6 @@
     <ClCompile Include="..\shared\evidence\ScanBudget.cpp" />
     <ClCompile Include="..\KswordARKLight\Core\EntityRef.cpp" />
     <ClCompile Include="..\KswordARKLight\Core\WorkspaceConfig.cpp" />
-    <ClCompile Include="..\KswordARKLight\Features\File\PathNavigator.cpp" />
     <ClCompile Include="..\KswordARKLight\Features\Monitor\EtwEventModel.cpp" />
     <ClCompile Include="..\KswordARKLight\Features\SysTools\IoctlDecoder.cpp" />
     <ClCompile Include="..\KswordARKLight\Features\Window\Win32kTimerEvidenceModel.cpp" />
@@ -331,6 +330,21 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\registry\RegistryMutations.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\file\PathNavigator.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\file\Directory.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\file\Directory.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\file\DirectorySupport.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\file\PathNavigator.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
