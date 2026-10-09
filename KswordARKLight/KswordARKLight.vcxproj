@@ -226,8 +226,6 @@
     <ClCompile Include="Features\Startup\StartupFeature.cpp" />
     <ClCompile Include="Features\Startup\StartupModel.cpp" />
     <ClCompile Include="Features\Startup\StartupView.cpp" />
-    <ClCompile Include="Features\Window\WindowActions.cpp" />
-    <ClCompile Include="Features\Window\WindowEnumerator.cpp" />
     <ClCompile Include="Features\Window\WindowFeature.cpp" />
     <ClCompile Include="Features\Window\WindowModel.cpp" />
     <ClCompile Include="Features\Window\Win32kTimerEvidenceModel.cpp" />
@@ -927,6 +925,36 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\hardware\BusTopology.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\window\WindowTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\window\WindowFormatting.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\window\WindowFormatting.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\window\WindowEnumerator.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\window\WindowEnumerator.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\window\WindowActions.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\window\WindowActions.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\window\WindowToolsTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\window\WindowQueries.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\window\WindowQueries.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

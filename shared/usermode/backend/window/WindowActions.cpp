@@ -1,9 +1,9 @@
 #include "WindowActions.h"
 
-#include "../../Core/Common.h"
-#include "WindowModel.h"
+#include "../Common.h"
+#include "WindowTypes.h"
 
-namespace Ksword::Features::Window {
+namespace ks::r3::window {
 namespace {
 
 // ValidateWindowForAction checks that an HWND still maps to a live window. Input
@@ -27,7 +27,7 @@ WindowActionResult BringWindowToFront(HWND hwnd) {
         ::ShowWindow(hwnd, SW_RESTORE);
     }
     if (!::SetForegroundWindow(hwnd)) {
-        return { false, L"SetForegroundWindow failed for " + HwndToText(hwnd) + L": " + Ksword::Core::LastErrorMessage() };
+        return { false, L"SetForegroundWindow failed for " + HwndToText(hwnd) + L": " + ks::r3::common::LastErrorMessage() };
     }
     return { true, L"Brought window to front: " + HwndToText(hwnd) };
 }
@@ -65,9 +65,9 @@ WindowActionResult CloseWindowGracefully(HWND hwnd) {
         return valid;
     }
     if (!::PostMessageW(hwnd, WM_CLOSE, 0, 0)) {
-        return { false, L"WM_CLOSE post failed for " + HwndToText(hwnd) + L": " + Ksword::Core::LastErrorMessage() };
+        return { false, L"WM_CLOSE post failed for " + HwndToText(hwnd) + L": " + ks::r3::common::LastErrorMessage() };
     }
     return { true, L"Close requested: " + HwndToText(hwnd) };
 }
 
-} // namespace Ksword::Features::Window
+} // namespace ks::r3::window

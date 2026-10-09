@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../shared/usermode/backend/window/WindowTypes.h"
 
 #include "../../Core/Win32Lean.h"
 
@@ -6,63 +7,40 @@
 #include <vector>
 
 namespace Ksword::Features::Window {
+using ks::r3::window::WindowSortMode;
+using ks::r3::window::WindowSnapshotRow;
+using ks::r3::window::WindowProperty;
+using ks::r3::window::WindowDetail;
+using ks::r3::window::WindowEnumerationResult;
+using ks::r3::window::WindowStateText;
+using ks::r3::window::HwndToText;
+using ks::r3::window::RectToText;
+
 
 // WindowSortMode controls the retained window-list order. Inputs are selected
 // from the WindowView combo box; processing happens inside WindowModel so the UI
 // can rebuild without re-enumerating windows.
-enum class WindowSortMode {
-    StackingOrder,
-    ProcessOrder
-};
+
 
 // WindowSnapshotRow is one top-level non-desktop window captured by EnumWindows.
 // Inputs come from Win32 window APIs; consumers treat hwnd as a transient value
 // that must be revalidated before any operation.
-struct WindowSnapshotRow {
-    HWND hwnd = nullptr;
-    DWORD processId = 0;
-    DWORD threadId = 0;
-    DWORD style = 0;
-    DWORD exStyle = 0;
-    RECT windowRect{};
-    RECT clientRect{};
-    bool visible = false;
-    bool enabled = false;
-    bool minimized = false;
-    bool maximized = false;
-    bool unicode = false;
-    std::wstring title;
-    std::wstring className;
-    std::wstring processImagePath;
-    std::wstring processName;
-};
+
 
 // WindowProperty is one detail-pane name/value pair. Inputs are raw Win32 fields
 // formatted by WindowEnumerator or WindowModel; consumers display the value as a
 // string and do not parse it back into window handles or style flags.
-struct WindowProperty {
-    std::wstring name;
-    std::wstring value;
-};
+
 
 // WindowDetail is a live detail snapshot for one HWND. Input is an HWND selected
 // from the list; processing revalidates the window before querying details; the
 // found flag reports whether the handle still represents a window.
-struct WindowDetail {
-    bool found = false;
-    HWND hwnd = nullptr;
-    std::wstring title;
-    std::vector<WindowProperty> properties;
-};
+
 
 // WindowEnumerationResult contains one EnumWindows pass. success is false only
 // when a fatal precondition fails; individual windows that disappear mid-query
 // are skipped without failing the whole pass.
-struct WindowEnumerationResult {
-    bool success = false;
-    std::wstring diagnosticText;
-    std::vector<WindowSnapshotRow> rows;
-};
+
 
 // WindowModel stores the latest top-level window snapshot and prepares display
 // strings. Inputs are WindowSnapshotRow vectors; processing keeps sorting and
@@ -112,14 +90,14 @@ private:
 
 // WindowStateText formats common visible/enabled/minimized state. Input is a
 // row; output is a compact human-readable label.
-std::wstring WindowStateText(const WindowSnapshotRow& row);
+
 
 // HwndToText formats an HWND as hexadecimal text. Input is an HWND; output is a
 // stable display string that does not imply ownership of the handle.
-std::wstring HwndToText(HWND hwnd);
+
 
 // RectToText formats a RECT as left,top,width,height text. Input is a RECT;
 // output is compact display text used by detail panes.
-std::wstring RectToText(const RECT& rect);
+
 
 } // namespace Ksword::Features::Window

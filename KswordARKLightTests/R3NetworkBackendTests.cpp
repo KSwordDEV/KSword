@@ -1,3 +1,7 @@
+#include "../shared/usermode/backend/window/WindowActions.h"
+#include "../shared/usermode/backend/window/WindowEnumerator.h"
+#include "../shared/usermode/backend/window/WindowQueries.h"
+#include "../shared/usermode/backend/window/WindowFormatting.h"
 #include "../shared/usermode/backend/hardware/BusTopology.h"
 #include "../shared/usermode/backend/hardware/UsbTopology.h"
 #include "../shared/usermode/backend/hardware/PerformanceSampler.h"
@@ -145,6 +149,8 @@ int RunR3NetworkBackendTests() {
     suite.expect(!ks::r3::process_detail::token::QueryTokenReportSnapshotR3(GetCurrentProcessId(), 0, {}).identityMatched, L"token rejects missing identity");
     suite.expect(!ks::r3::process_detail::token::CollectTokenSwitchSnapshot(GetCurrentProcessId(), 0).identityMatched, L"token switches reject missing identity");
     suite.expect(!ks::r3::process_detail::peb::CollectPebSnapshot(GetCurrentProcessId(), 0, 0).identityMatched, L"PEB rejects missing identity");
+    suite.expect(!ks::r3::window::QueryWindowDetails(nullptr).found, L"closed HWND has no details");
+    suite.expect(!ks::r3::window::CloseWindowGracefully(nullptr).success, L"closed HWND action rejected");
     suite.report();
     return suite.failures();
 }

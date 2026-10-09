@@ -1,6 +1,6 @@
 #include "WindowEnumerator.h"
 
-#include "../../Core/Common.h"
+#include "../Common.h"
 
 #include <algorithm>
 #include <cwchar>
@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-namespace Ksword::Features::Window {
+namespace ks::r3::window {
 namespace {
 
 // AddProperty appends a non-empty detail row. Inputs are detail, label and value;
@@ -155,7 +155,7 @@ WindowEnumerationResult EnumerateTopLevelWindows() {
     WindowEnumerationResult result;
     if (!::EnumWindows(EnumWindowsThunk, reinterpret_cast<LPARAM>(&result.rows))) {
         result.success = false;
-        result.diagnosticText = L"EnumWindows failed: " + Ksword::Core::LastErrorMessage();
+        result.diagnosticText = L"EnumWindows failed: " + ks::r3::common::LastErrorMessage();
         return result;
     }
     result.success = true;
@@ -193,4 +193,4 @@ WindowDetail QueryWindowDetails(HWND hwnd) {
     return detail;
 }
 
-} // namespace Ksword::Features::Window
+} // namespace ks::r3::window
