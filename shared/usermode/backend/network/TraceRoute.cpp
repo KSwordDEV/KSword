@@ -5,6 +5,8 @@ using namespace detail;
 DiagnosticResult RunTraceRoute(const DiagnosticRequest& request) {
     DiagnosticResult result{};
     const ResolvedTarget target = ResolveIpv4(request.target);
+    result.resolvedAddress = target.addressText;
+    result.win32Error = target.error;
     if (!target.resolved) {
         result.text = target.diagnostic;
         result.summary = L"路由跟踪未执行：目标解析失败。";
@@ -13,6 +15,7 @@ DiagnosticResult RunTraceRoute(const DiagnosticRequest& request) {
 
     IcmpSession session;
     if (!session.valid()) {
+        result.win32Error = ::GetLastError();
         result.text = L"无法创建 ICMP 句柄：" + FormatWin32Error(::GetLastError()) + L"。";
         result.summary = L"路由跟踪未执行：ICMP 句柄创建失败。";
         return result;
@@ -32,6 +35,7 @@ DiagnosticResult RunTraceRoute(const DiagnosticRequest& request) {
     bool reached = false;
     std::uint32_t lastHop = 0;
     for (std::uint32_t hop = 1; hop <= maxHops && !reached; ++hop) {
+        ++result.sent;
         lastHop = hop;
         IP_OPTION_INFORMATION options{};
         options.Ttl = static_cast<UCHAR>(hop);
@@ -50,6 +54,7 @@ DiagnosticResult RunTraceRoute(const DiagnosticRequest& request) {
         const std::wstring prefix = (hop < 10 ? L"  " : L" ") + std::to_wstring(hop);
         if (replies == 0) {
             const DWORD error = ::GetLastError();
+            result.probes.push_back({hop, error, 0, 0, 0, L"", false});
             if (error == IP_REQ_TIMED_OUT) {
                 AppendLine(result.text, prefix + L"\t*\t请求超时");
                 continue;
@@ -59,6 +64,9 @@ DiagnosticResult RunTraceRoute(const DiagnosticRequest& request) {
         }
 
         const auto* reply = reinterpret_cast<const ICMP_ECHO_REPLY*>(replyBuffer.data());
+        ++result.received;
+        result.probes.push_back({hop, reply->Status, reply->RoundTripTime, reply->Options.Ttl,
+            reply->DataSize, FormatIpv4Address(static_cast<std::uint32_t>(reply->Address)), true});
         const std::wstring hopAddress = FormatIpv4Address(static_cast<std::uint32_t>(reply->Address));
         if (reply->Status == IP_SUCCESS) {
             reached = true;
@@ -79,6 +87,7 @@ DiagnosticResult RunTraceRoute(const DiagnosticRequest& request) {
     AppendLine(result.text, L"");
     AppendLine(result.text, reached ? L"跟踪完成。" : L"未在跃点上限内到达目标，跟踪结束。");
     result.success = reached;
+    result.reached = reached;
     result.summary = reached
         ? L"路由跟踪完成：" + std::to_wstring(lastHop) + L" 跳到达 " + target.addressText + L"。"
         : L"路由跟踪结束：" + std::to_wstring(lastHop) + L" 跳内未到达 " + target.addressText + L"。";

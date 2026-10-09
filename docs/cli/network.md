@@ -38,3 +38,15 @@ KswordCLI.exe network ping query --target HOST [--count N] [--timeout-ms N] [--b
 全部回应返回 0，部分回应返回 6，没有成功回应或解析失败返回 3。未收到回执时耗时和 TTL 为 null。
 地址解析或 ICMP 句柄创建错误保留 win32Error；每个探针独立保留系统／IP 状态。
 不会自动改用 IPv6，也不需要 KswordARK 驱动。
+
+## 路由跟踪（迁移项 03）
+
+```powershell
+KswordCLI.exe network trace-route query --target HOST [--max-hops N] [--timeout-ms N] [--backend r3] [--json]
+```
+
+IPv4 ICMP 跟踪，每跳一次探针。max-hops 默认 30、范围 1–64，timeout-ms 默认 2000、范围 1–60000。
+输出 resolvedAddress、reached、attemptedHops、win32Error 和 hops；每跳保留地址、原始 IP 状态、是否回应、
+往返毫秒数与回复 TTL。超时跳保留原始状态，耗时为 null。
+到达目标返回 0；获得部分跃点但未到达目标返回 6；解析失败或没有任何跃点回应返回 3。
+不把 TTL 过期当成到达目标，也不自动切换到 IPv6。无需驱动。

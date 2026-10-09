@@ -1449,6 +1449,7 @@ namespace
             #ifndef KSWORD_CLI_LEGACY_FIXTURE
             ks::cli::registerNetworkConnections();
             ks::cli::registerNetworkPing();
+            ks::cli::registerNetworkTraceRoute();
             #endif
             return true;
         }();

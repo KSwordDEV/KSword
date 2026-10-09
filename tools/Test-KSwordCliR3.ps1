@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping')][string]$Feature, [string]$ReportPath)
+param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route')][string]$Feature, [string]$ReportPath)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\KswordCliR3TestSupport.ps1"
 switch ($Feature) {
@@ -24,6 +24,29 @@ switch ($Feature) {
         Assert ((Invoke-Cli @('network','ping','query','--target','127.0.0.1','--count','1')).Contains('received: 1')) 'Ping text'
         $errorResult = (Invoke-Cli @('network','ping','query','--target','::1','--count','1','--json') 3) | ConvertFrom-Json
         Assert ($errorResult.data.win32Error -ne 0 -and $errorResult.data.sent -eq 0) 'IPv6 cannot pretend an IPv4 ping succeeded'
+    }
+    'trace-route' {
+        $help = Invoke-Cli @('help','network','trace-route','query')
+        Assert ($help.Contains('--max-hops')) 'Trace route help'
+        Assert ((Invoke-Cli @('network','trace-route','query','--help')) -eq $help) 'Trace inline help'
+        foreach ($bad in @(
+            @('network','trace-route','query','--json'),
+            @('network','trace-route','query','--target','127.0.0.1','--max-hops','0','--json'),
+            @('network','trace-route','query','--target','127.0.0.1','--max-hops','65','--json'),
+            @('network','trace-route','query','--target','127.0.0.1','--backend','r0','--json'),
+            @('network','trace-route','query','--target','127.0.0.1','--typo','1','--json')
+        )) { Assert (((Invoke-Cli $bad 1) | ConvertFrom-Json).status -eq 'failed') 'Trace parameter JSON' }
+        $oracle = [Net.NetworkInformation.Ping]::new()
+        try {
+            $options = [Net.NetworkInformation.PingOptions]::new(1,$false)
+            Assert ($oracle.Send('127.0.0.1',1000,(New-Object byte[] 32),$options).Status -eq [Net.NetworkInformation.IPStatus]::Success) 'Independent TTL 1 echo'
+        } finally { $oracle.Dispose() }
+        $trace = (Invoke-Cli @('network','trace-route','query','--target','127.0.0.1','--max-hops','2','--timeout-ms','1000','--json')) | ConvertFrom-Json
+        Assert ($trace.status -eq 'success' -and $trace.data.reached -and $trace.data.attemptedHops -eq 1 -and $trace.data.hops.Count -eq 1) 'Loopback route'
+        Assert ($trace.data.hops[0].hop -eq 1 -and $trace.data.hops[0].replied -and $trace.data.hops[0].status -eq 0 -and $trace.data.hops[0].address -eq '127.0.0.1') 'Hop fields'
+        Assert ((Invoke-Cli @('network','trace-route','query','--target','127.0.0.1','--max-hops','1')).Contains('reached: true')) 'Trace text'
+        $failure = (Invoke-Cli @('network','trace-route','query','--target','::1','--max-hops','1','--json') 3) | ConvertFrom-Json
+        Assert (!$failure.data.reached -and $failure.data.win32Error -ne 0 -and $failure.data.attemptedHops -eq 0) 'Trace IPv6 rejection'
     }
 }
 Save-Report

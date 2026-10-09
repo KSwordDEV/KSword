@@ -30,6 +30,7 @@ struct DiagnosticResult {
     std::wstring resolvedAddress;
     std::uint32_t win32Error = 0, sent = 0, received = 0;
     std::vector<Probe> probes;
+    bool reached = false;
 };
 DiagnosticResult RunPing(const DiagnosticRequest& request);
 DiagnosticResult RunTraceRoute(const DiagnosticRequest& request);

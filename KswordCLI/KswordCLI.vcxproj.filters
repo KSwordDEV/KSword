@@ -65,4 +65,8 @@
     <ClInclude Include="..\shared\usermode\backend\network\Diagnostics.h" />
     <ClInclude Include="..\shared\usermode\backend\network\IcmpSupport.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3NetworkTraceRoute.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\TraceRoute.cpp" />
+  </ItemGroup>
 </Project>
