@@ -1,4 +1,6 @@
 #include "CodeEditorWidget.h"
+#include "CodeTextEdit.h"
+#include "CodeEditorFileSession.h"
 
 // ============================================================
 // CodeEditorWidget.cpp
@@ -20,6 +22,12 @@
 #include <QStackedWidget>
 #include <QEvent>
 #include <QFile>
+#include <QFileInfo>
+#include <QSaveFile>
+#include <QMenu>
+#include <QAction>
+#include <QGridLayout>
+#include <QPointer>
 #include <QFileDialog>
 #include <QFontDatabase>
 #include <QFrame>
@@ -184,8 +192,8 @@ namespace
             "  color:%1;"
             "}"
             "QToolButton:hover{"
-            "  background:%2;"
-            "  color:%4;"
+            "  background:palette(alternate-base);"
+            "  color:palette(text);"
             "}"
             "QToolButton:pressed,QToolButton:checked:pressed{"
             "  background:%3;"
@@ -278,14 +286,15 @@ namespace
             colorPainter.end();
             icon.addPixmap(coloredPixmap, mode, state);
         };
-        const QColor surface = KswordTheme::SurfaceColor();
+        const QColor surface = button ? button->palette().color(QPalette::Base) : KswordTheme::SurfaceColor();
         const QColor checkedBackground = KswordTheme::PrimaryAccentColor();
         const QColor pressedBackground = KswordTheme::AccentColor(KswordTheme::AccentRole::Blue, -14, -40);
         const bool pressed = button != nullptr && button->isDown();
         // Active同时覆盖悬停和按下；键盘按下时Qt可能仍请求Normal，按实际down状态补齐。
         const QColor activeForeground = pressed
             ? KswordTheme::ControlGlyphColor(pressedBackground)
-            : KswordTheme::ControlGlyphColor(checkedBackground);
+            : KswordTheme::ControlGlyphColor(button && button->isChecked()
+                ? checkedBackground : (button ? button->palette().color(QPalette::AlternateBase) : surface));
         for (QIcon::State state : { QIcon::Off, QIcon::On })
         {
             const QColor normalBackground = pressed ? pressedBackground
@@ -296,51 +305,6 @@ namespace
             addColoredPixmap(KswordTheme::ControlGlyphColor(surface, true), QIcon::Disabled, state);
         }
         return icon;
-    }
-
-    // isOpenBracket：
-    // - 判断字符是否是左括号。
-    bool isOpenBracket(const QChar ch)
-    {
-        return ch == QChar('(') || ch == QChar('[') || ch == QChar('{');
-    }
-
-    // isCloseBracket：
-    // - 判断字符是否是右括号。
-    bool isCloseBracket(const QChar ch)
-    {
-        return ch == QChar(')') || ch == QChar(']') || ch == QChar('}');
-    }
-
-    // pairBracket：
-    // - 返回匹配括号字符。
-    QChar pairBracket(const QChar ch)
-    {
-        if (ch == QChar('('))
-        {
-            return QChar(')');
-        }
-        if (ch == QChar('['))
-        {
-            return QChar(']');
-        }
-        if (ch == QChar('{'))
-        {
-            return QChar('}');
-        }
-        if (ch == QChar(')'))
-        {
-            return QChar('(');
-        }
-        if (ch == QChar(']'))
-        {
-            return QChar('[');
-        }
-        if (ch == QChar('}'))
-        {
-            return QChar('{');
-        }
-        return QChar();
     }
 
     // FileDecodeResult：
@@ -497,49 +461,13 @@ namespace
     // - 自动识别 BOM / UTF-8 / 本地编码。
     FileDecodeResult decodeTextFileBytesAuto(const QByteArray& fileBytes)
     {
+        code_editor_file_session::FileSessionMetadata metadata;
         FileDecodeResult result;
-        result.success = true;
-
-        if (fileBytes.startsWith("\xEF\xBB\xBF"))
-        {
-            result.encoding = QStringConverter::Utf8;
-            result.hasBom = true;
-            result.text = QString::fromUtf8(fileBytes.constData() + 3, fileBytes.size() - 3);
-        }
-        else if (fileBytes.size() >= 2
-            && static_cast<unsigned char>(fileBytes.at(0)) == 0xFF
-            && static_cast<unsigned char>(fileBytes.at(1)) == 0xFE)
-        {
-            result.encoding = QStringConverter::Utf16LE;
-            result.hasBom = true;
-            result.text = readAllTextWithEncoding(fileBytes.mid(2), QStringConverter::Utf16LE);
-        }
-        else if (fileBytes.size() >= 2
-            && static_cast<unsigned char>(fileBytes.at(0)) == 0xFE
-            && static_cast<unsigned char>(fileBytes.at(1)) == 0xFF)
-        {
-            result.encoding = QStringConverter::Utf16BE;
-            result.hasBom = true;
-            result.text = readAllTextWithEncoding(fileBytes.mid(2), QStringConverter::Utf16BE);
-        }
-        else
-        {
-            const QString utf8Text = QString::fromUtf8(fileBytes);
-            if (!fileBytes.isEmpty() && utf8Text.contains(QChar::ReplacementCharacter))
-            {
-                result.encoding = QStringConverter::System;
-                result.hasBom = false;
-                result.text = QString::fromLocal8Bit(fileBytes);
-            }
-            else
-            {
-                result.encoding = QStringConverter::Utf8;
-                result.hasBom = false;
-                result.text = utf8Text;
-            }
-        }
-
-        result.lineEndingText = detectDominantLineEnding(result.text);
+        result.text = code_editor_file_session::decodeTextFileBytes(fileBytes, &metadata);
+        result.success = metadata.validFromFile;
+        result.encoding = metadata.encoding;
+        result.hasBom = metadata.hasBom;
+        result.lineEndingText = metadata.lineEndingText;
         return result;
     }
 
@@ -710,351 +638,6 @@ namespace ks::ui
     }
 }
 
-class EmbeddedBracketHighlighter final : public QSyntaxHighlighter
-{
-public:
-    // 构造函数：绑定目标文本文档。
-    explicit EmbeddedBracketHighlighter(QTextDocument* document)
-        : QSyntaxHighlighter(document)
-    {
-    }
-
-protected:
-    // highlightBlock：按括号类型设置颜色。
-    void highlightBlock(const QString& text) override
-    {
-        QTextCharFormat roundFormat;
-        roundFormat.setForeground(KswordTheme::AccentColor(KswordTheme::AccentRole::Blue, 22, -4));
-
-        QTextCharFormat squareFormat;
-        squareFormat.setForeground(KswordTheme::AccentColor(KswordTheme::AccentRole::Green, 42, 16));
-
-        QTextCharFormat braceFormat;
-        braceFormat.setForeground(KswordTheme::AccentColor(KswordTheme::AccentRole::Orange, 38, 12));
-
-        for (int index = 0; index < text.size(); ++index)
-        {
-            const QChar ch = text.at(index);
-            if (ch == QChar('(') || ch == QChar(')'))
-            {
-                setFormat(index, 1, roundFormat);
-                continue;
-            }
-            if (ch == QChar('[') || ch == QChar(']'))
-            {
-                setFormat(index, 1, squareFormat);
-                continue;
-            }
-            if (ch == QChar('{') || ch == QChar('}'))
-            {
-                setFormat(index, 1, braceFormat);
-            }
-        }
-    }
-};
-
-class EmbeddedCodeTextEdit;
-
-class EmbeddedLineNumberArea final : public QWidget
-{
-public:
-    // 构造函数：保存主编辑器指针。
-    explicit EmbeddedLineNumberArea(EmbeddedCodeTextEdit* owner);
-
-    // sizeHint：返回行号区域宽度。
-    QSize sizeHint() const override;
-
-protected:
-    // paintEvent：转发给主编辑器统一绘制。
-    void paintEvent(QPaintEvent* event) override;
-
-private:
-    // m_owner：主代码编辑器。
-    EmbeddedCodeTextEdit* m_owner = nullptr;
-};
-
-class EmbeddedCodeTextEdit final : public QPlainTextEdit
-{
-public:
-    // 构造函数：初始化行号、字体和括号匹配高亮。
-    explicit EmbeddedCodeTextEdit(QWidget* parent = nullptr)
-        : QPlainTextEdit(parent)
-    {
-        QFont fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-        // 系统等宽字体缺少中文字形时 Windows 会回退到宋体，显式指定雅黑承接中文。
-        fixedFont.setFamilies(QStringList{ fixedFont.family(), QStringLiteral("Microsoft YaHei UI") });
-        fixedFont.setPointSize(std::max(12, fixedFont.pointSize()));
-        setFont(fixedFont);
-        setTabStopDistance(QFontMetricsF(fixedFont).horizontalAdvance(QChar(' ')) * 4.0);
-        setLineWrapMode(QPlainTextEdit::WidgetWidth);
-        setFrameShape(QFrame::NoFrame);
-
-        m_lineNumberArea = new EmbeddedLineNumberArea(this);
-        m_bracketHighlighter = new EmbeddedBracketHighlighter(document());
-
-        connect(this, &QPlainTextEdit::blockCountChanged, this, [this](int)
-            {
-                setViewportMargins(lineNumberAreaWidth(), 0, 0, 0);
-            });
-
-        connect(this, &QPlainTextEdit::updateRequest, this, [this](const QRect& rect, int deltaY)
-            {
-                if (deltaY != 0)
-                {
-                    m_lineNumberArea->scroll(0, deltaY);
-                }
-                else
-                {
-                    m_lineNumberArea->update(0, rect.y(), m_lineNumberArea->width(), rect.height());
-                }
-                if (rect.contains(viewport()->rect()))
-                {
-                    setViewportMargins(lineNumberAreaWidth(), 0, 0, 0);
-                }
-            });
-
-        connect(this, &QPlainTextEdit::cursorPositionChanged, this, [this]()
-            {
-                refreshExtraSelections();
-            });
-
-        connect(this, &QPlainTextEdit::textChanged, this, [this]()
-            {
-                refreshExtraSelections();
-            });
-
-        setViewportMargins(lineNumberAreaWidth(), 0, 0, 0);
-        refreshExtraSelections();
-    }
-
-    // 析构函数：释放括号高亮对象。
-    ~EmbeddedCodeTextEdit() override
-    {
-        delete m_bracketHighlighter;
-        m_bracketHighlighter = nullptr;
-    }
-
-    // lineNumberAreaWidth：按文档行数计算行号宽度。
-    int lineNumberAreaWidth() const
-    {
-        int digits = 1;
-        int maxLines = std::max(1, blockCount());
-        while (maxLines >= 10)
-        {
-            maxLines /= 10;
-            ++digits;
-        }
-        return 8 + fontMetrics().horizontalAdvance(QChar('9')) * digits;
-    }
-
-    // paintLineNumberArea：绘制可视区域行号。
-    void paintLineNumberArea(QPaintEvent* event)
-    {
-        QPainter painter(m_lineNumberArea);
-        painter.fillRect(event->rect(), KswordTheme::SurfaceMutedColor());
-
-        QTextBlock block = firstVisibleBlock();
-        int blockNumber = block.blockNumber();
-        int top = static_cast<int>(blockBoundingGeometry(block).translated(contentOffset()).top());
-        int bottom = top + static_cast<int>(blockBoundingRect(block).height());
-
-        while (block.isValid() && top <= event->rect().bottom())
-        {
-            if (block.isVisible() && bottom >= event->rect().top())
-            {
-                painter.setPen(KswordTheme::TextSecondaryColor());
-                painter.drawText(
-                    0,
-                    top,
-                    m_lineNumberArea->width() - 4,
-                    fontMetrics().height(),
-                    Qt::AlignRight,
-                    QString::number(blockNumber + 1));
-            }
-
-            block = block.next();
-            top = bottom;
-            bottom = top + static_cast<int>(blockBoundingRect(block).height());
-            ++blockNumber;
-        }
-    }
-
-    // gotoLine：跳转到指定 1 基行号。
-    bool gotoLine(int oneBasedLine)
-    {
-        if (oneBasedLine <= 0)
-        {
-            return false;
-        }
-
-        const QTextBlock block = document()->findBlockByLineNumber(oneBasedLine - 1);
-        if (!block.isValid())
-        {
-            return false;
-        }
-
-        QTextCursor cursor(document());
-        cursor.setPosition(block.position());
-        setTextCursor(cursor);
-        centerCursor();
-        return true;
-    }
-
-protected:
-    // 排队合并palette通知；只重算格式，不重置正文、光标、滚动位置或撤销历史。
-    void changeEvent(QEvent* event) override
-    {
-        QPlainTextEdit::changeEvent(event);
-        if (event == nullptr || (event->type() != QEvent::PaletteChange
-            && event->type() != QEvent::ApplicationPaletteChange) || m_themeRefreshPending)
-        {
-            return;
-        }
-        m_themeRefreshPending = true;
-        QTimer::singleShot(0, this, [this]()
-        {
-            // 格式刷新不代表内容编辑，避免业务监听误标记文件或重建结构视图。
-            const QSignalBlocker themeSignalBlocker(this);
-            if (m_bracketHighlighter != nullptr) m_bracketHighlighter->rehighlight();
-            refreshExtraSelections();
-            if (m_lineNumberArea != nullptr) m_lineNumberArea->update();
-            viewport()->update();
-            m_themeRefreshPending = false;
-        });
-    }
-
-    // resizeEvent：窗口变化时同步行号区域几何。
-    void resizeEvent(QResizeEvent* event) override
-    {
-        QPlainTextEdit::resizeEvent(event);
-        const QRect rect = contentsRect();
-        m_lineNumberArea->setGeometry(rect.left(), rect.top(), lineNumberAreaWidth(), rect.height());
-    }
-
-private:
-    // refreshExtraSelections：当前行和括号匹配高亮。
-    void refreshExtraSelections()
-    {
-        QList<QTextEdit::ExtraSelection> extraSelections;
-
-        QTextEdit::ExtraSelection lineSelection;
-        lineSelection.cursor = textCursor();
-        lineSelection.cursor.clearSelection();
-        lineSelection.format.setProperty(QTextFormat::FullWidthSelection, true);
-        lineSelection.format.setBackground(KswordTheme::PrimaryBlueSubtleColor());
-        extraSelections.push_back(lineSelection);
-
-        const QString allText = toPlainText();
-        if (!allText.isEmpty())
-        {
-            int bracketPos = -1;
-            QChar bracketCh;
-            const int cursorPos = textCursor().position();
-
-            if (cursorPos > 0 && (isOpenBracket(allText.at(cursorPos - 1)) || isCloseBracket(allText.at(cursorPos - 1))))
-            {
-                bracketPos = cursorPos - 1;
-                bracketCh = allText.at(bracketPos);
-            }
-            else if (cursorPos < allText.size() && (isOpenBracket(allText.at(cursorPos)) || isCloseBracket(allText.at(cursorPos))))
-            {
-                bracketPos = cursorPos;
-                bracketCh = allText.at(bracketPos);
-            }
-
-            if (bracketPos >= 0)
-            {
-                int pairPos = -1;
-                const QChar pairCh = pairBracket(bracketCh);
-                if (isOpenBracket(bracketCh))
-                {
-                    int depth = 0;
-                    for (int i = bracketPos; i < allText.size(); ++i)
-                    {
-                        if (allText.at(i) == bracketCh) ++depth;
-                        if (allText.at(i) == pairCh) --depth;
-                        if (depth == 0)
-                        {
-                            pairPos = i;
-                            break;
-                        }
-                    }
-                }
-                else
-                {
-                    int depth = 0;
-                    for (int i = bracketPos; i >= 0; --i)
-                    {
-                        if (allText.at(i) == bracketCh) ++depth;
-                        if (allText.at(i) == pairCh) --depth;
-                        if (depth == 0)
-                        {
-                            pairPos = i;
-                            break;
-                        }
-                    }
-                }
-
-                auto appendBracketSelection = [this, &extraSelections](int pos, const QColor& bg)
-                    {
-                        QTextEdit::ExtraSelection sel;
-                        sel.cursor = textCursor();
-                        sel.cursor.setPosition(pos);
-                        sel.cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
-                        // 底色可能是选中蓝，也可能是括号不匹配时的错误红；
-                        // 前景必须按实际底色求，不能套用对强调色校准的无参版本。
-                        sel.format.setForeground(KswordTheme::OnAccentColor(bg));
-                        sel.format.setBackground(bg);
-                        extraSelections.push_back(sel);
-                    };
-
-                const QColor matchedBg = KswordTheme::EditorSelectionColor();
-                appendBracketSelection(bracketPos, pairPos >= 0 ? matchedBg : KswordTheme::ErrorColor());
-                if (pairPos >= 0)
-                {
-                    appendBracketSelection(pairPos, matchedBg);
-                }
-            }
-        }
-
-        setExtraSelections(extraSelections);
-    }
-
-private:
-    // m_lineNumberArea：行号区域。
-    QWidget* m_lineNumberArea = nullptr;
-
-    // m_bracketHighlighter：括号着色器。
-    EmbeddedBracketHighlighter* m_bracketHighlighter = nullptr;
-
-    bool m_themeRefreshPending = false; // 合并一轮主题变化中的多个palette事件。
-
-    friend class EmbeddedLineNumberArea;
-};
-
-QSize EmbeddedLineNumberArea::sizeHint() const
-{
-    if (m_owner == nullptr)
-    {
-        return QSize(0, 0);
-    }
-    return QSize(m_owner->lineNumberAreaWidth(), 0);
-}
-
-EmbeddedLineNumberArea::EmbeddedLineNumberArea(EmbeddedCodeTextEdit* owner)
-    : QWidget(owner)
-    , m_owner(owner)
-{
-}
-
-void EmbeddedLineNumberArea::paintEvent(QPaintEvent* event)
-{
-    if (m_owner != nullptr)
-    {
-        m_owner->paintLineNumberArea(event);
-    }
-}
-
 CodeEditorWidget::CodeEditorWidget(QWidget* parent)
     : QWidget(parent)
 {
@@ -1104,7 +687,9 @@ void CodeEditorWidget::setRawText(const QString& plainText)
         return;
     }
 
-    m_editor->setPlainText(applyStructuredAutoFormatIfNeeded(plainText));
+    const QPointer<CodeEditorWidget> self(this);
+    m_editor->setPlainText(plainText);
+    if (!self) return;
     resetFileSessionMetadata();
     updateStatusText();
 }
@@ -1119,8 +704,9 @@ void CodeEditorWidget::setLocalizedText(const QString& sourceText)
         return;
     }
 
-    m_editor->setPlainText(applyStructuredAutoFormatIfNeeded(
-        localizeGeneratedReport(m_localizedSourceText) + m_localizedRawSuffix));
+    const QPointer<CodeEditorWidget> self(this);
+    m_editor->setPlainText(localizeGeneratedReport(m_localizedSourceText) + m_localizedRawSuffix);
+    if (!self) return;
     resetFileSessionMetadata();
     updateStatusText();
 }
@@ -1137,8 +723,9 @@ void CodeEditorWidget::setLocalizedTextWithRawSuffix(
         return;
     }
 
-    m_editor->setPlainText(applyStructuredAutoFormatIfNeeded(
-        localizeGeneratedReport(m_localizedSourceText) + m_localizedRawSuffix));
+    const QPointer<CodeEditorWidget> self(this);
+    m_editor->setPlainText(localizeGeneratedReport(m_localizedSourceText) + m_localizedRawSuffix);
+    if (!self) return;
     resetFileSessionMetadata();
     updateStatusText();
 }
@@ -1167,8 +754,9 @@ void CodeEditorWidget::changeEvent(QEvent* event)
 
     const int verticalScrollValue = m_editor->verticalScrollBar()->value();
     const int horizontalScrollValue = m_editor->horizontalScrollBar()->value();
-    m_editor->setPlainText(applyStructuredAutoFormatIfNeeded(
-        localizeGeneratedReport(m_localizedSourceText) + m_localizedRawSuffix));
+    const QPointer<CodeEditorWidget> self(this);
+    m_editor->setPlainText(localizeGeneratedReport(m_localizedSourceText) + m_localizedRawSuffix);
+    if (!self) return;
     m_editor->verticalScrollBar()->setValue(verticalScrollValue);
     m_editor->horizontalScrollBar()->setValue(horizontalScrollValue);
     updateStatusText();
@@ -1243,44 +831,39 @@ bool CodeEditorWidget::reopenCurrentFileWithEncoding(const QStringConverter::Enc
 
 void CodeEditorWidget::initializeUi()
 {
+    setObjectName(QStringLiteral("code_editor"));
     m_rootLayout = new QVBoxLayout(this);
     m_rootLayout->setContentsMargins(0, 0, 0, 0);
-    m_rootLayout->setSpacing(6);
-
+    m_rootLayout->setSizeConstraint(QLayout::SetNoConstraint);
+    m_rootLayout->setSpacing(0);
     m_toolbarWidget = new QWidget(this);
+    m_toolbarWidget->setObjectName(QStringLiteral("code_editor_toolbar"));
+    m_toolbarWidget->setMinimumWidth(0);
+    m_toolbarWidget->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_toolbarWidget->installEventFilter(this);
     m_toolbarLayout = new QHBoxLayout(m_toolbarWidget);
-    m_toolbarLayout->setContentsMargins(0, 0, 0, 0);
-    m_toolbarLayout->setSpacing(4);
-
-    // buildButton：
-    // - 统一构建工具按钮；
-    // - 所有按钮图标固定来自 qrc 的 SVG 图标库。
-    auto buildButton = [this](const QString& iconPath, const QString& tip) -> QToolButton*
-        {
-            QToolButton* button = new QToolButton(m_toolbarWidget);
-            button->setProperty("ksword_editor_icon_path", iconPath);
-            // 自管各状态，禁止全局SVG扫描把反色/禁用图标再次压成单态主体色。
-            button->setProperty("ksword_theme_icon_managed", true);
-            const auto refreshIcon = [button, iconPath]()
-            {
-                button->setProperty("ksword_editor_glyph_down", button->isDown());
-                button->setIcon(buildToolbarSvgIcon(iconPath, button));
-            };
-            connect(button, &QToolButton::pressed, button, refreshIcon);
-            connect(button, &QToolButton::released, button, refreshIcon);
-            connect(button, &QToolButton::toggled, button, refreshIcon);
-            button->installEventFilter(this);
-            refreshIcon();
-            button->setIconSize(QSize(22, 22));
-            button->setToolTip(tip);
-            button->setAutoRaise(true);
-            button->setFocusPolicy(Qt::NoFocus);
-            button->setFixedSize(24, 24);
-            return button;
+    m_toolbarLayout->setContentsMargins(8, 5, 8, 5);
+    m_toolbarLayout->setSpacing(3);
+    auto buildButton = [this](const QString& iconPath, const QString& tip) {
+        auto* button = new QToolButton(m_toolbarWidget);
+        button->setObjectName(QFileInfo(iconPath).baseName().replace(QStringLiteral("codeeditor_"), QStringLiteral("code_editor_")));
+        button->setProperty("ksword_editor_icon_path", iconPath);
+        button->setProperty("ksword_theme_icon_managed", true);
+        const auto refreshIcon = [button, iconPath]() {
+            button->setProperty("ksword_editor_glyph_down", button->isDown());
+            button->setIcon(buildToolbarSvgIcon(iconPath, button));
         };
-
-    // 工具栏图标语义映射：
-    // - 与功能一一对应，避免使用 MainLogo 造成误导。
+        connect(button, &QToolButton::pressed, button, refreshIcon);
+        connect(button, &QToolButton::released, button, refreshIcon);
+        connect(button, &QToolButton::toggled, button, refreshIcon);
+        button->installEventFilter(this);
+        refreshIcon();
+        KswordTheme::ApplyCompactIconButtonMetrics(button);
+        button->setToolTip(tip);
+        button->setAutoRaise(true);
+        button->setFocusPolicy(Qt::NoFocus);
+        return button;
+    };
     m_newButton = buildButton(QStringLiteral(":/Icon/codeeditor_new.svg"), QStringLiteral("新建 Ctrl+N"));
     m_openButton = buildButton(QStringLiteral(":/Icon/codeeditor_open.svg"), QStringLiteral("打开 Ctrl+O"));
     m_saveButton = buildButton(QStringLiteral(":/Icon/codeeditor_save.svg"), QStringLiteral("保存 Ctrl+S"));
@@ -1295,114 +878,197 @@ void CodeEditorWidget::initializeUi()
     m_gotoButton = buildButton(QStringLiteral(":/Icon/codeeditor_goto.svg"), QStringLiteral("跳转行 Ctrl+G"));
     m_wrapButton = buildButton(QStringLiteral(":/Icon/codeeditor_wrap.svg"), QStringLiteral("切换自动换行"));
     m_wrapButton->setCheckable(true);
-
-    m_toolbarLayout->addWidget(m_newButton);
-    m_toolbarLayout->addWidget(m_openButton);
-    m_toolbarLayout->addWidget(m_saveButton);
-    m_toolbarLayout->addWidget(m_saveAsButton);
-    m_toolbarLayout->addSpacing(4);
-    m_toolbarLayout->addWidget(m_undoButton);
-    m_toolbarLayout->addWidget(m_redoButton);
-    m_toolbarLayout->addWidget(m_cutButton);
-    m_toolbarLayout->addWidget(m_copyButton);
-    m_toolbarLayout->addWidget(m_pasteButton);
-    m_toolbarLayout->addSpacing(4);
-    m_toolbarLayout->addWidget(m_findButton);
-    m_toolbarLayout->addWidget(m_replaceButton);
-    m_toolbarLayout->addWidget(m_gotoButton);
-    m_toolbarLayout->addWidget(m_wrapButton);
-    m_toolbarLayout->addStretch(1);
+    m_fileLabel = new QLabel(this);
+    m_fileLabel->setObjectName(QStringLiteral("code_editor_file"));
+    m_fileLabel->installEventFilter(this);
+    m_fileLabel->setTextFormat(Qt::PlainText);
+    m_fileLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_toolbarLayout->addWidget(m_fileLabel, 1);
+    for (auto* button : {m_openButton, m_saveButton, m_undoButton, m_redoButton, m_copyButton, m_findButton, m_replaceButton, m_wrapButton})
+        m_toolbarLayout->addWidget(button);
+    for (auto* button : {m_newButton, m_saveAsButton, m_cutButton, m_pasteButton, m_gotoButton}) button->hide();
+    m_languageCombo = new QComboBox(m_toolbarWidget);
+    m_languageCombo->setObjectName(QStringLiteral("code_editor_language"));
+    m_languageCombo->addItems({QStringLiteral("自动"), QStringLiteral("纯文本"), QStringLiteral("JSON"),
+        QStringLiteral("XML"), QStringLiteral("C/C++"), QStringLiteral("INI"), QStringLiteral("Shell")});
+    m_languageCombo->setToolTip(QStringLiteral("语法高亮语言；切换不会改写正文。"));
+    m_languageCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_languageCombo->setMinimumContentsLength(5);
+    m_toolbarLayout->addWidget(m_languageCombo);
+    m_moreButton = new QToolButton(m_toolbarWidget);
+    m_moreButton->setObjectName(QStringLiteral("code_editor_more"));
+    m_moreButton->setText(QStringLiteral("⋯"));
+    m_moreButton->setToolTip(QStringLiteral("更多编辑操作"));
+    KswordTheme::ApplyCompactIconButtonMetrics(m_moreButton);
+    m_moreButton->setPopupMode(QToolButton::InstantPopup);
+    auto* menu = new QMenu(m_moreButton);
+    for (auto* button : {m_newButton, m_openButton, m_saveButton, m_saveAsButton, m_undoButton, m_redoButton,
+        m_cutButton, m_copyButton, m_pasteButton, m_findButton, m_replaceButton, m_gotoButton, m_wrapButton}) {
+        auto* action = menu->addAction(button->toolTip());
+        action->setCheckable(button->isCheckable());
+        connect(action, &QAction::triggered, button, &QToolButton::click);
+        connect(menu, &QMenu::aboutToShow, action, [this, action, button]() {
+            action->setText(button->toolTip());
+            action->setIcon(button->icon());
+            action->setEnabled(button->isEnabled());
+            action->setChecked(button->isChecked());
+            action->setVisible(!m_readOnlyMode || button == m_copyButton || button == m_findButton
+                || button == m_gotoButton || button == m_wrapButton);
+        });
+    }
+    menu->addSeparator();
+    auto* syntaxMenu = menu->addMenu(QStringLiteral("语法高亮"));
+    for (int index = 0; index < m_languageCombo->count(); ++index)
+    {
+        auto* action = syntaxMenu->addAction(m_languageCombo->itemText(index));
+        action->setCheckable(true);
+        connect(action, &QAction::triggered, this, [this, index]() { m_languageCombo->setCurrentIndex(index); });
+        connect(syntaxMenu, &QMenu::aboutToShow, action, [this, action, index]() {
+            action->setText(m_languageCombo->itemText(index));
+            action->setChecked(m_languageCombo->currentIndex() == index);
+        });
+    }
+    m_formatAction = menu->addAction(QStringLiteral("格式化 JSON / XML"));
+    connect(menu, &QMenu::aboutToShow, m_formatAction, [this]() { m_formatAction->setVisible(!m_readOnlyMode); });
+    connect(m_formatAction, &QAction::triggered, this, &CodeEditorWidget::formatDocument);
+    m_whitespaceAction = menu->addAction(QStringLiteral("显示空白字符"));
+    m_whitespaceAction->setCheckable(true);
+    connect(m_whitespaceAction, &QAction::toggled, this, [this](bool visible) { m_editor->setWhitespaceVisible(visible); });
+    m_moreButton->setMenu(menu);
+    m_toolbarLayout->addWidget(m_moreButton);
     m_rootLayout->addWidget(m_toolbarWidget);
 
     m_findPanel = new QWidget(this);
-    m_findLayout = new QHBoxLayout(m_findPanel);
-    m_findLayout->setContentsMargins(0, 0, 0, 0);
-    m_findLayout->setSpacing(4);
-
+    m_findPanel->setObjectName(QStringLiteral("code_editor_find_panel"));
+    m_findPanel->setMinimumWidth(0);
+    m_findPanel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    auto* findRows = new QVBoxLayout(m_findPanel);
+    findRows->setContentsMargins(8, 5, 8, 5);
+    findRows->setSpacing(4);
+    m_findLayout = new QHBoxLayout;
+    m_findLayout->setSpacing(3);
+    findRows->addLayout(m_findLayout);
     m_findEdit = new QLineEdit(m_findPanel);
+    m_findEdit->setObjectName(QStringLiteral("code_editor_find"));
     m_findEdit->setPlaceholderText(QStringLiteral("查找"));
-    m_replaceEdit = new QLineEdit(m_findPanel);
-    m_replaceEdit->setPlaceholderText(QStringLiteral("替换为"));
-
+    m_findEdit->setMinimumWidth(30);
+    m_matchCaseButton = new QToolButton(m_findPanel);
+    m_matchCaseButton->setObjectName(QStringLiteral("code_editor_match_case"));
+    m_matchCaseButton->setText(QStringLiteral("Aa"));
+    m_matchCaseButton->setToolTip(QStringLiteral("区分大小写"));
+    m_matchCaseButton->setCheckable(true);
+    m_wholeWordButton = new QToolButton(m_findPanel);
+    m_wholeWordButton->setObjectName(QStringLiteral("code_editor_whole_word"));
+    m_wholeWordButton->setText(QStringLiteral("W"));
+    m_wholeWordButton->setToolTip(QStringLiteral("全词匹配"));
+    m_wholeWordButton->setCheckable(true);
     m_findPrevButton = new QToolButton(m_findPanel);
     m_findPrevButton->setText(QStringLiteral("↑"));
     m_findPrevButton->setToolTip(QStringLiteral("向上查找上一个匹配项"));
     m_findNextButton = new QToolButton(m_findPanel);
     m_findNextButton->setText(QStringLiteral("↓"));
     m_findNextButton->setToolTip(QStringLiteral("向下查找下一个匹配项"));
-    m_replaceOneButton = new QToolButton(m_findPanel);
+    m_findCloseButton = new QToolButton(m_findPanel);
+    m_findCloseButton->setText(QStringLiteral("×"));
+    m_findCloseButton->setToolTip(QStringLiteral("关闭查找替换栏"));
+    m_findResultLabel = new QLabel(m_findPanel);
+    m_findResultLabel->setObjectName(QStringLiteral("code_editor_find_result"));
+    m_findResultLabel->setTextFormat(Qt::PlainText);
+    m_findResultLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_findLayout->addWidget(m_findEdit, 1);
+    for (auto* button : {m_matchCaseButton, m_wholeWordButton, m_findPrevButton, m_findNextButton, m_findCloseButton}) m_findLayout->addWidget(button);
+    m_findLayout->addWidget(m_findResultLabel);
+    m_replaceRow = new QWidget(m_findPanel);
+    auto* replaceLayout = new QHBoxLayout(m_replaceRow);
+    replaceLayout->setContentsMargins(0, 0, 0, 0);
+    replaceLayout->setSpacing(3);
+    m_replaceEdit = new QLineEdit(m_replaceRow);
+    m_replaceEdit->setObjectName(QStringLiteral("code_editor_replace"));
+    m_replaceEdit->setPlaceholderText(QStringLiteral("替换为"));
+    m_replaceEdit->setMinimumWidth(30);
+    m_replaceOneButton = new QToolButton(m_replaceRow);
     m_replaceOneButton->setText(QStringLiteral("替换"));
     m_replaceOneButton->setToolTip(QStringLiteral("替换当前这一处匹配，并跳到下一处"));
-    m_replaceAllButton = new QToolButton(m_findPanel);
-    m_replaceAllButton->setText(QStringLiteral("全部"));
+    m_replaceAllButton = new QToolButton(m_replaceRow);
+    m_replaceAllButton->setObjectName(QStringLiteral("code_editor_replace_all"));
+    m_replaceAllButton->setText(QStringLiteral("全部替换"));
     m_replaceAllButton->setToolTip(QStringLiteral("一次性替换文中所有匹配项"));
-    m_findCloseButton = new QToolButton(m_findPanel);
-    m_findCloseButton->setText(QStringLiteral("关闭"));
-    m_findCloseButton->setToolTip(QStringLiteral("关闭查找替换栏"));
-
-    m_findLayout->addWidget(m_findEdit, 1);
-    m_findLayout->addWidget(m_replaceEdit, 1);
-    m_findLayout->addWidget(m_findPrevButton);
-    m_findLayout->addWidget(m_findNextButton);
-    m_findLayout->addWidget(m_replaceOneButton);
-    m_findLayout->addWidget(m_replaceAllButton);
-    m_findLayout->addWidget(m_findCloseButton);
-    m_findPanel->setVisible(false);
+    replaceLayout->addWidget(m_replaceEdit, 1);
+    replaceLayout->addWidget(m_replaceOneButton);
+    replaceLayout->addWidget(m_replaceAllButton);
+    findRows->addWidget(m_replaceRow);
+    m_replaceRow->hide();
+    m_findPanel->hide();
     m_rootLayout->addWidget(m_findPanel);
-
     m_gotoPanel = new QWidget(this);
     m_gotoLayout = new QHBoxLayout(m_gotoPanel);
-    m_gotoLayout->setContentsMargins(0, 0, 0, 0);
+    m_gotoLayout->setContentsMargins(8, 5, 8, 5);
     m_gotoLayout->setSpacing(4);
     m_gotoLineEdit = new QLineEdit(m_gotoPanel);
+    m_gotoLineEdit->setObjectName(QStringLiteral("code_editor_goto_input"));
     m_gotoLineEdit->setPlaceholderText(QStringLiteral("行号(从1开始)"));
     m_gotoApplyButton = new QToolButton(m_gotoPanel);
     m_gotoApplyButton->setText(QStringLiteral("执行"));
-    m_gotoApplyButton->setToolTip(QStringLiteral("跳转到左侧输入的行号"));
     m_gotoCloseButton = new QToolButton(m_gotoPanel);
-    m_gotoCloseButton->setText(QStringLiteral("关闭"));
+    m_gotoCloseButton->setText(QStringLiteral("×"));
     m_gotoCloseButton->setToolTip(QStringLiteral("关闭跳转行栏"));
     m_gotoLayout->addWidget(new QLabel(QStringLiteral("跳转行:"), m_gotoPanel));
     m_gotoLayout->addWidget(m_gotoLineEdit, 1);
     m_gotoLayout->addWidget(m_gotoApplyButton);
     m_gotoLayout->addWidget(m_gotoCloseButton);
-    m_gotoPanel->setVisible(false);
+    m_gotoPanel->hide();
     m_rootLayout->addWidget(m_gotoPanel);
-
-    m_editor = new EmbeddedCodeTextEdit(this);
-    m_editor->setPlaceholderText(QStringLiteral("即时窗口：支持行号、括号匹配、查找替换、跳转行。"));
-
-    // 纯文本与结构视图叠在同一位置：切换只换页，不改变外层布局和分隔器比例。
+    m_editor = new CodeTextEdit(this);
+    m_editor->setObjectName(QStringLiteral("code_editor_text"));
+    m_editor->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+    m_editor->setPlaceholderText(QStringLiteral("输入文本或打开文件，支持语法高亮、查找替换与行跳转。"));
     m_viewStack = new QStackedWidget(this);
+    m_viewStack->setMinimumSize(0, 0);
+    m_viewStack->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     m_structuredView = new ks::ui::ReportStructuredView(m_viewStack);
     m_viewStack->addWidget(m_editor);
     m_viewStack->addWidget(m_structuredView);
-    m_viewStack->setCurrentWidget(m_editor);
     m_rootLayout->addWidget(m_viewStack, 1);
-
-    // 切换控件浮在内容区右上角，而不是混在顶部那排编辑动作里：
-    // 它切的是“这块内容怎么看”，和新建/保存/剪贴板不是一类操作，放在内容自己的角上更好找。
-    // 用下拉框而不是按钮：两个选项都摆在明面上，当前在哪一边、还能切到哪一边一眼看全，
-    // 也和文件常规页那套切换框保持同一种形态。控件不进布局，由 positionStructuredSwitch 贴角。
-    m_structuredCombo = new QComboBox(m_viewStack);
-    m_structuredCombo->addItem(QStringLiteral("结构视图"));
-    m_structuredCombo->addItem(QStringLiteral("原始文本"));
-    m_structuredCombo->setCursor(Qt::PointingHandCursor);
-    m_structuredCombo->setToolTip(
-        QStringLiteral("在结构视图与原始文本之间切换：结构视图按字段和表格解析当前报告，原始文本保留完整报告便于全文检索和整段复制"));
-    // 悬浮控件压在正文之上，必须自带不透明底色和边框，否则叠在属性表行上会看不清。
-    m_structuredCombo->setStyleSheet(buildFloatingSwitchStyle());
-    // 入口默认隐藏：只有内容确实是可解析的只读报告时才由 updateStructuredReportView 放出来。
-    m_structuredCombo->setVisible(false);
-    // m_viewStack 换页或改尺寸时都要重新贴角，事件过滤器比逐页 connect 省事也更不易漏。
-    m_viewStack->installEventFilter(this);
-
-    m_statusLabel = new QLabel(QStringLiteral("就绪。"), this);
-    m_rootLayout->addWidget(m_statusLabel);
+    m_structuredCombo = new QComboBox(m_toolbarWidget);
+    m_structuredCombo->setObjectName(QStringLiteral("code_editor_structure"));
+    m_structuredCombo->addItems({QStringLiteral("结构视图"), QStringLiteral("原始文本")});
+    m_structuredCombo->setToolTip(QStringLiteral("在结构视图与原始文本之间切换：结构视图按字段和表格解析当前报告，原始文本保留完整报告便于全文检索和整段复制"));
+    m_toolbarLayout->insertWidget(1, m_structuredCombo);
+    m_structuredCombo->hide();
+    m_statusWidget = new QWidget(this);
+    m_statusWidget->setObjectName(QStringLiteral("code_editor_footer"));
+    m_statusWidget->setMinimumWidth(0);
+    m_statusWidget->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    auto* statusLayout = new QHBoxLayout(m_statusWidget);
+    statusLayout->setContentsMargins(10, 4, 10, 4);
+    statusLayout->setSpacing(12);
+    const auto label = [this](const QString& name) {
+        auto* value = new QLabel(m_statusWidget);
+        value->setObjectName(name);
+        value->setTextFormat(Qt::PlainText);
+        value->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+        return value;
+    };
+    m_positionLabel = label(QStringLiteral("code_editor_position"));
+    m_documentLabel = label(QStringLiteral("code_editor_length"));
+    m_modeLabel = label(QStringLiteral("code_editor_mode"));
+    m_encodingLabel = label(QStringLiteral("code_editor_encoding"));
+    m_statusLabel = label(QStringLiteral("code_editor_status"));
+    m_statusLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    for (auto* item : {m_positionLabel, m_documentLabel, m_modeLabel, m_encodingLabel}) statusLayout->addWidget(item);
+    statusLayout->addWidget(m_statusLabel, 1);
+    m_rootLayout->addWidget(m_statusWidget);
 }
 
 void CodeEditorWidget::initializeConnections()
 {
+    connect(m_languageCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+        m_editor->setSyntaxLanguage(static_cast<CodeTextEdit::SyntaxLanguage>(index));
+    });
+    connect(m_findEdit, &QLineEdit::textChanged, this, &CodeEditorWidget::updateFindHighlights);
+    connect(m_matchCaseButton, &QToolButton::toggled, this, &CodeEditorWidget::updateFindHighlights);
+    connect(m_wholeWordButton, &QToolButton::toggled, this, &CodeEditorWidget::updateFindHighlights);
+    connect(m_editor->document(), &QTextDocument::modificationChanged, this, [this]() { updateStatusText(); });
     connect(m_newButton, &QToolButton::clicked, this, [this]()
         {
             if (m_readOnlyMode)
@@ -1412,7 +1078,9 @@ void CodeEditorWidget::initializeConnections()
             m_localizedSourceText.clear();
             m_localizedRawSuffix.clear();
             m_localizedTextActive = false;
+            const QPointer<CodeEditorWidget> self(this);
             m_editor->clear();
+            if (!self) return;
             m_currentFilePath.clear();
             resetFileSessionMetadata();
             updateStatusText();
@@ -1492,6 +1160,7 @@ void CodeEditorWidget::initializeConnections()
     connect(m_findCloseButton, &QToolButton::clicked, this, [this]()
         {
             m_findPanel->setVisible(false);
+            m_editor->setExternalExtraSelections({});
         });
 
     connect(m_findEdit, &QLineEdit::returnPressed, this, [this]()
@@ -1523,7 +1192,18 @@ void CodeEditorWidget::initializeConnections()
         {
             updateStatusText();
             updateStructuredReportView();
-            emit contentChanged(text());
+            updateFindHighlights();
+            // A consumer may close the owner. Notify after Qt's native document
+            // update has returned, coalescing bursts into the latest contents.
+            if (!m_contentNotificationPending)
+            {
+                m_contentNotificationPending = true;
+                QTimer::singleShot(0, this, [this]() {
+                    m_contentNotificationPending = false;
+                    const QString contents = text();
+                    emit contentChanged(contents);
+                });
+            }
         });
 
     connect(m_editor, &QPlainTextEdit::undoAvailable, this, [this](bool) { refreshActionButtonState(); });
@@ -1608,7 +1288,7 @@ void CodeEditorWidget::applyThemeStyle()
     const QList<QToolButton*> buttonList{
         m_newButton,m_openButton,m_saveButton,m_saveAsButton,m_undoButton,m_redoButton,m_cutButton,m_copyButton,m_pasteButton,
         m_findButton,m_replaceButton,m_gotoButton,m_wrapButton,m_findPrevButton,m_findNextButton,m_replaceOneButton,m_replaceAllButton,
-        m_findCloseButton,m_gotoApplyButton,m_gotoCloseButton
+        m_findCloseButton,m_gotoApplyButton,m_gotoCloseButton,m_matchCaseButton,m_wholeWordButton,m_moreButton
     };
     for (QToolButton* button : buttonList)
     {
@@ -1624,7 +1304,7 @@ void CodeEditorWidget::applyThemeStyle()
         }
     }
 
-    // 悬浮切换框不在上面那批里：它压在正文之上，用的是自带底色和边框的另一套样式。
+    // 结构/文本切换参与工具栏布局，复用同一主题下拉框样式。
     if (m_structuredCombo != nullptr)
     {
         const QString comboStyle = buildFloatingSwitchStyle();
@@ -1635,6 +1315,15 @@ void CodeEditorWidget::applyThemeStyle()
     {
         if (input->styleSheet() != inputStyle) input->setStyleSheet(inputStyle);
     }
+    m_toolbarWidget->setStyleSheet(QStringLiteral(
+        "QWidget#code_editor_toolbar { background:palette(base); border-bottom:1px solid palette(mid); }"));
+    m_statusWidget->setStyleSheet(QStringLiteral(
+        "QWidget#code_editor_footer { background:palette(alternate-base); border-top:1px solid palette(mid); }"
+        "QWidget#code_editor_footer QLabel { color:palette(text); }"));
+    m_findPanel->setStyleSheet(QStringLiteral(
+        "QWidget#code_editor_find_panel { background:palette(alternate-base); border-bottom:1px solid palette(mid); }"));
+    m_languageCombo->setStyleSheet(buildFloatingSwitchStyle());
+    updateFindHighlights();
 }
 
 void CodeEditorWidget::refreshReadOnlyUiState()
@@ -1663,6 +1352,8 @@ void CodeEditorWidget::refreshReadOnlyUiState()
 
     // 页面常在写完文本之后才置只读，这里补一次判定，避免结构视图入口被漏掉。
     updateStructuredReportView();
+    updateToolbarLayout();
+    m_formatAction->setEnabled(!m_readOnlyMode);
 }
 
 void CodeEditorWidget::refreshActionButtonState()
@@ -1703,7 +1394,7 @@ bool CodeEditorWidget::eventFilter(QObject* watchedObject, QEvent* eventObject)
         }
     }
     if (!m_destroying &&
-        watchedObject == m_viewStack &&
+        (watchedObject == m_viewStack || watchedObject == m_toolbarWidget || watchedObject == m_fileLabel) &&
         eventObject != nullptr &&
         (eventObject->type() == QEvent::Resize || eventObject->type() == QEvent::Show))
     {
@@ -1714,32 +1405,43 @@ bool CodeEditorWidget::eventFilter(QObject* watchedObject, QEvent* eventObject)
 
 void CodeEditorWidget::positionStructuredSwitch()
 {
-    if (m_destroying || m_structuredCombo == nullptr || m_viewStack == nullptr)
-    {
-        return;
-    }
+    // The switch participates in layout and never covers a report or text row.
+    updateToolbarLayout();
+}
 
-    // 右边距要避开当前页可见的垂直滚动条：压在滚动条上会让拖动条变成误点区。
-    int rightMargin = 12;
-    const QWidget* currentPage = m_viewStack->currentWidget();
-    if (currentPage == m_editor && m_editor != nullptr &&
-        m_editor->verticalScrollBar() != nullptr &&
-        m_editor->verticalScrollBar()->isVisible())
-    {
-        rightMargin += m_editor->verticalScrollBar()->width();
-    }
-    else if (currentPage == m_structuredView && m_structuredView != nullptr)
-    {
-        rightMargin += m_structuredView->verticalScrollBarWidth();
-    }
+void CodeEditorWidget::updateToolbarLayout()
+{
+    if (m_destroying || !m_toolbarWidget || !m_editor || !m_fileLabel || !m_viewStack
+        || !m_documentLabel || !m_encodingLabel || !m_replaceRow || !m_languageCombo) return;
+    const int width = m_toolbarWidget->width();
+    const bool compact = width < 620;
+    const bool tiny = width < 420;
+    for (auto* button : {m_openButton, m_saveButton, m_undoButton, m_redoButton})
+        button->setVisible(!m_readOnlyMode && !compact);
+    m_replaceButton->setVisible(!m_readOnlyMode && !tiny);
+    m_languageCombo->setVisible(!tiny && m_viewStack->currentWidget() == m_editor);
+    m_documentLabel->setVisible(!tiny);
+    m_encodingLabel->setVisible(!compact);
+    m_replaceRow->setVisible(m_replaceEnabled && !m_readOnlyMode);
+    const QString title = m_currentFilePath.isEmpty()
+        ? (m_readOnlyMode ? QStringLiteral("文本查看") : QStringLiteral("未命名"))
+        : QFileInfo(m_currentFilePath).fileName();
+    const QString dirtyTitle = title + (m_editor->document()->isModified() && !m_readOnlyMode ? QStringLiteral(" *") : QString());
+    m_fileLabel->setText(m_fileLabel->fontMetrics().elidedText(dirtyTitle, Qt::ElideMiddle, std::max(0, m_fileLabel->width())));
+    m_fileLabel->setToolTip(m_currentFilePath.isEmpty() ? title : m_currentFilePath);
+}
 
-    const QSize switchSize = m_structuredCombo->sizeHint();
-    m_structuredCombo->setGeometry(
-        m_viewStack->width() - switchSize.width() - rightMargin,
-        10,
-        switchSize.width(),
-        switchSize.height());
-    m_structuredCombo->raise();
+void CodeEditorWidget::formatDocument()
+{
+    if (m_readOnlyMode) return;
+    const QString before = m_editor->toPlainText();
+    const QString formatted = applyStructuredAutoFormatIfNeeded(before);
+    if (before == formatted) return;
+    QTextCursor cursor(m_editor->document());
+    cursor.beginEditBlock();
+    cursor.select(QTextCursor::Document);
+    cursor.insertText(formatted);
+    cursor.endEditBlock();
 }
 
 void CodeEditorWidget::updateStructuredReportView()
@@ -1754,6 +1456,14 @@ void CodeEditorWidget::updateStructuredReportView()
     }
 
     // 只有只读报告才解析：用户正在编辑的文件、原始日志和字节视图一律保持纯文本。
+    if (!m_structuredViewEnabled || !m_readOnlyMode)
+    {
+        m_structuredCombo->hide();
+        m_viewStack->setCurrentWidget(m_editor);
+        updateToolbarLayout();
+        refreshActionButtonState();
+        return;
+    }
     const QString currentText = m_editor->toPlainText();
     const bool eligible =
         m_structuredViewEnabled && m_readOnlyMode && !currentText.trimmed().isEmpty();
@@ -1784,11 +1494,13 @@ void CodeEditorWidget::openFindReplacePanel(const bool replaceEnabled)
     m_replaceEnabled = effectiveReplaceEnabled;
     m_findPanel->setVisible(true);
     m_gotoPanel->setVisible(false);
+    m_replaceRow->setVisible(effectiveReplaceEnabled);
     m_replaceEdit->setVisible(effectiveReplaceEnabled);
     m_replaceOneButton->setVisible(effectiveReplaceEnabled);
     m_replaceAllButton->setVisible(effectiveReplaceEnabled);
     m_findEdit->setFocus(Qt::ShortcutFocusReason);
     m_findEdit->selectAll();
+    updateFindHighlights();
 }
 
 void CodeEditorWidget::openGotoPanel()
@@ -1804,28 +1516,57 @@ void CodeEditorWidget::closeInlinePanels()
 {
     m_findPanel->setVisible(false);
     m_gotoPanel->setVisible(false);
+    m_editor->setExternalExtraSelections({});
+}
+
+void CodeEditorWidget::updateFindHighlights()
+{
+    if (m_destroying || !m_editor || !m_findResultLabel) return;
+    QList<QTextEdit::ExtraSelection> selections;
+    const QString key = m_findEdit->text();
+    const bool bounded = m_editor->document()->characterCount() <= 2 * 1024 * 1024;
+    if (!key.isEmpty() && m_findPanel->isVisible() && bounded)
+    {
+        QTextDocument::FindFlags flags;
+        if (m_matchCaseButton->isChecked()) flags |= QTextDocument::FindCaseSensitively;
+        if (m_wholeWordButton->isChecked()) flags |= QTextDocument::FindWholeWords;
+        QTextCursor cursor(m_editor->document());
+        for (int count = 0; count < 500; ++count)
+        {
+            cursor = m_editor->document()->find(key, cursor, flags);
+            if (cursor.isNull()) break;
+            QTextEdit::ExtraSelection selection;
+            selection.cursor = cursor;
+            const QColor background = KswordTheme::BlendColors(m_editor->palette().color(QPalette::Base),
+                m_editor->palette().color(QPalette::Highlight), 28);
+            selection.format.setBackground(background);
+            selection.format.setForeground(KswordTheme::EnsureTextContrast(
+                m_editor->palette().color(QPalette::Text), background));
+            selections.push_back(selection);
+        }
+    }
+    m_editor->setExternalExtraSelections(selections);
+    m_findResultLabel->setText(key.isEmpty() ? QString()
+        : !bounded ? QStringLiteral("按需查找")
+        : selections.size() >= 500 ? QStringLiteral("500+") : QString::number(selections.size()));
 }
 
 void CodeEditorWidget::updateStatusText()
 {
-    // 退出保护：
-    // - MainWindow 析构期间 QPlainTextEdit 可能仍发出 cursor/textChanged；
-    // - 此时 m_editor 或 m_statusLabel 已经进入 Qt 子对象析构链，继续取 cursor/setText 会触发断点异常；
-    // - 销毁期或关键子控件为空时直接跳过，正常运行期行为不变。
-    if (m_destroying || m_editor == nullptr || m_statusLabel == nullptr)
-    {
-        return;
-    }
-
+    if (m_destroying || !m_editor || !m_statusLabel) return;
     const QTextCursor cursor = m_editor->textCursor();
-    const QString fileName = m_currentFilePath.trimmed().isEmpty() ? QStringLiteral("<未命名>") : m_currentFilePath;
-    m_statusLabel->setText(QStringLiteral("行:%1 列:%2 字符:%3 文件:%4 模式:%5 编码:%6")
-        .arg(cursor.blockNumber() + 1)
-        .arg(cursor.positionInBlock() + 1)
-        .arg(m_editor->toPlainText().size())
-        .arg(fileName)
-        .arg(m_readOnlyMode ? QStringLiteral("只读") : QStringLiteral("可编辑"))
-        .arg(currentEncodingDisplayText()));
+    m_positionLabel->setText(ks::i18n::sourceText(QStringLiteral("行 %1  |  列 %2"))
+        .arg(cursor.blockNumber() + 1).arg(cursor.positionInBlock() + 1));
+    const int chars = std::max(0, m_editor->document()->characterCount() - 1);
+    m_documentLabel->setText(cursor.hasSelection()
+        ? ks::i18n::sourceText(QStringLiteral("选中 %1 / %2 字符")).arg(cursor.selectionEnd() - cursor.selectionStart()).arg(chars)
+        : ks::i18n::sourceText(QStringLiteral("%1 字符")).arg(chars));
+    m_modeLabel->setText(ks::i18n::sourceText(m_readOnlyMode ? QStringLiteral("只读") : QStringLiteral("可编辑")));
+    m_encodingLabel->setText(m_fileSessionAvailable
+        ? currentEncodingDisplayText() + QStringLiteral(" · ") + (m_fileLineEnding == QStringLiteral("\r\n") ? QStringLiteral("CRLF")
+            : m_fileLineEnding == QStringLiteral("\r") ? QStringLiteral("CR") : QStringLiteral("LF"))
+        : QStringLiteral("Unicode"));
+    updateToolbarLayout();
 }
 
 bool CodeEditorWidget::findByDirection(const bool forward)
@@ -1840,6 +1581,8 @@ bool CodeEditorWidget::findByDirection(const bool forward)
 
     QTextDocument::FindFlags flags;
     if (!forward) flags |= QTextDocument::FindBackward;
+    if (m_matchCaseButton->isChecked()) flags |= QTextDocument::FindCaseSensitively;
+    if (m_wholeWordButton->isChecked()) flags |= QTextDocument::FindWholeWords;
 
     bool found = m_editor->find(keyText, flags);
     if (!found)
@@ -1871,7 +1614,14 @@ void CodeEditorWidget::replaceCurrentSelection()
     }
 
     QTextCursor cursor = m_editor->textCursor();
-    if (!cursor.hasSelection() || cursor.selectedText() != findText)
+    QTextDocument::FindFlags flags;
+    if (m_matchCaseButton->isChecked()) flags |= QTextDocument::FindCaseSensitively;
+    if (m_wholeWordButton->isChecked()) flags |= QTextDocument::FindWholeWords;
+    QTextCursor query(m_editor->document());
+    query.setPosition(cursor.selectionStart());
+    const QTextCursor verified = m_editor->document()->find(findText, query, flags);
+    if (!cursor.hasSelection() || verified.isNull() || verified.selectionStart() != cursor.selectionStart()
+        || verified.selectionEnd() != cursor.selectionEnd())
     {
         if (!findByDirection(true))
         {
@@ -1907,7 +1657,10 @@ int CodeEditorWidget::replaceAllMatches()
 
     int hitCount = 0;
     headCursor.beginEditBlock();
-    while (m_editor->find(findText))
+    QTextDocument::FindFlags flags;
+    if (m_matchCaseButton->isChecked()) flags |= QTextDocument::FindCaseSensitively;
+    if (m_wholeWordButton->isChecked()) flags |= QTextDocument::FindWholeWords;
+    while (m_editor->find(findText, flags))
     {
         QTextCursor hitCursor = m_editor->textCursor();
         hitCursor.insertText(replaceText);
@@ -1946,13 +1699,14 @@ void CodeEditorWidget::openTextFile()
         return;
     }
 
+    const QPointer<CodeEditorWidget> self(this);
     const QString filePath = QFileDialog::getOpenFileName(
         this,
         QStringLiteral("打开文本"),
         QString(),
         QStringLiteral("Text Files (*.txt *.log *.ini *.json *.xml *.cpp *.h *.py);;All Files (*.*)"));
 
-    if (filePath.trimmed().isEmpty())
+    if (!self || m_readOnlyMode || filePath.trimmed().isEmpty())
     {
         return;
     }
@@ -1980,6 +1734,11 @@ bool CodeEditorWidget::loadLocalFile(
     }
 
     const QByteArray fileBytes = inputFile.readAll();
+    if (inputFile.error() != QFileDevice::NoError)
+    {
+        m_statusLabel->setText(QStringLiteral("打开失败：无法读取文件。"));
+        return false;
+    }
     inputFile.close();
 
     const FileDecodeResult decodeResult = forceEncoding
@@ -1992,12 +1751,13 @@ bool CodeEditorWidget::loadLocalFile(
         return false;
     }
 
-    QString detectedKind;
-    const QString displayText = applyStructuredAutoFormatIfNeeded(decodeResult.text, &detectedKind);
+    const QString displayText = decodeResult.text;
     m_localizedSourceText.clear();
     m_localizedRawSuffix.clear();
     m_localizedTextActive = false;
+    const QPointer<CodeEditorWidget> self(this);
     m_editor->setPlainText(displayText);
+    if (!self) return false;
 
     m_currentFilePath = normalizedPath;
     m_fileEncoding = decodeResult.encoding;
@@ -2005,9 +1765,9 @@ bool CodeEditorWidget::loadLocalFile(
     m_fileLineEnding = decodeResult.lineEndingText;
     m_fileSessionAvailable = true;
 
-    const QString autoFormatHint = detectedKind.isEmpty()
-        ? QString()
-        : QStringLiteral("，已自动格式化%1").arg(detectedKind);
+    const QString autoFormatHint;
+    m_editor->document()->setModified(false);
+    updateStatusText();
     m_statusLabel->setText(QStringLiteral("打开成功：%1（%2%3）")
         .arg(normalizedPath)
         .arg(currentEncodingDisplayText())
@@ -2025,11 +1785,13 @@ void CodeEditorWidget::saveTextFile(const bool forceSaveAs)
     QString targetPath = m_currentFilePath;
     if (forceSaveAs || targetPath.trimmed().isEmpty())
     {
+        const QPointer<CodeEditorWidget> self(this);
         targetPath = QFileDialog::getSaveFileName(
             this,
             QStringLiteral("保存文本"),
             targetPath.trimmed().isEmpty() ? QStringLiteral("immediate.txt") : targetPath,
             QStringLiteral("Text Files (*.txt *.log *.ini *.json *.xml *.cpp *.h *.py);;All Files (*.*)"));
+        if (!self || m_readOnlyMode) return;
     }
 
     if (targetPath.trimmed().isEmpty())
@@ -2037,8 +1799,8 @@ void CodeEditorWidget::saveTextFile(const bool forceSaveAs)
         return;
     }
 
-    QFile outputFile(targetPath);
-    if (!outputFile.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    QSaveFile outputFile(targetPath);
+    if (!outputFile.open(QIODevice::WriteOnly))
     {
         m_statusLabel->setText(QStringLiteral("保存失败：无法写入文件。"));
         return;
@@ -2058,7 +1820,12 @@ void CodeEditorWidget::saveTextFile(const bool forceSaveAs)
     outputStream.setGenerateByteOrderMark(targetHasBom);
     outputStream << normalizedText;
     outputStream.flush();
-    outputFile.close();
+    if (outputStream.status() != QTextStream::Ok || !outputFile.commit())
+    {
+        m_statusLabel->setText(QStringLiteral("保存失败：无法写入文件。"));
+        return;
+    }
+    m_editor->document()->setModified(false);
 
     m_currentFilePath = targetPath;
     m_fileEncoding = targetEncoding;

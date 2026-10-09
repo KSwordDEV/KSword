@@ -473,6 +473,11 @@ namespace ks::ui
         m_assembleOne = std::move(backend);
     }
 
+    void WorkbenchDisasmView::setOperandTargetResolver(OperandTargetResolver resolver)
+    {
+        m_operandTargetResolver = std::move(resolver);
+    }
+
     void WorkbenchDisasmView::setAddressBits(int bits)
     {
         if (!m_x64Override)
@@ -656,9 +661,12 @@ namespace ks::ui
         {
             return false;
         }
+        const auto target = m_operandTargetResolver ? m_operandTargetResolver(value)
+            : std::optional<std::uint64_t>(value);
+        if (!target) return false;
         if (addressOut != nullptr)
         {
-            *addressOut = value;
+            *addressOut = *target;
         }
         return true;
     }

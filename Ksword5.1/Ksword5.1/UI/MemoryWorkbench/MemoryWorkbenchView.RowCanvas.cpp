@@ -71,6 +71,11 @@ namespace ks::ui
             else hexPane_->canvas()->setCaretAddress(address);
         });
         const auto addDebugger = [this](QMenu* menu, quint64 address, x64dbg_navigation::View view) {
+            // 此模式承诺不创建调试附加；启动新 x64dbg 的导航入口在这里隐藏。
+            if (memoryDebugMode_)
+            {
+                return;
+            }
             if (!target_ || !menu) return;
             const auto session = target_->session();
             if (session.scope != ksword::memwb::Scope::ProcessVirtual || !session.pid

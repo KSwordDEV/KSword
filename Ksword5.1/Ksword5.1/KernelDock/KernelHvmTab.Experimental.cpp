@@ -12,6 +12,7 @@
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPointer>
+#include <QPlainTextEdit>
 #include <QStringList>
 #include <QTextEdit>
 

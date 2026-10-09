@@ -1,4 +1,5 @@
 #include "HyperVMemoryPage.h"
+#include "../UI/CodeTextEdit.h"
 #include "PhysicalPageScan.h"
 #include "MemoryAttributionChart.h"
 #include "../Internationalization/LanguageManager.h"
@@ -166,13 +167,15 @@ HyperVMemoryPage::HyperVMemoryPage(QWidget* parent) : QWidget(parent)
     m_chart = new MemoryAttributionChart(this); root->addWidget(m_chart);
     m_tabs = new QTabWidget(this);
     auto* split = new QSplitter(Qt::Vertical, m_tabs);
-    m_partitions = table(split); m_detail = new QPlainTextEdit(split); m_detail->setReadOnly(true);
+    m_partitions = table(split); m_detail = new CodeTextEdit(split);
+    static_cast<CodeTextEdit*>(m_detail)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText); m_detail->setReadOnly(true);
     split->addWidget(m_partitions); split->addWidget(m_detail); split->setStretchFactor(0, 3); split->setStretchFactor(1, 1);
     m_tabs->addTab(split, {});
     m_host = table(m_tabs); m_tabs->addTab(m_host, {});
     m_processes = table(m_tabs); m_tabs->addTab(m_processes, {});
     m_sources = table(m_tabs); m_tabs->addTab(m_sources, {});
-    m_evidence = new QPlainTextEdit(m_tabs); m_evidence->setReadOnly(true); m_tabs->addTab(m_evidence, {});
+    m_evidence = new CodeTextEdit(m_tabs);
+    static_cast<CodeTextEdit*>(m_evidence)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText); m_evidence->setReadOnly(true); m_tabs->addTab(m_evidence, {});
     root->addWidget(m_tabs, 1);
     connect(m_collect, &QPushButton::clicked, this, [this] { startCollection(); });
     connect(m_cancel, &QPushButton::clicked, this, [this] { if (m_job) { m_job->cancel.store(true); } });

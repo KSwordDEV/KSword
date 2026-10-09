@@ -97,6 +97,10 @@ namespace ks::ui
     // AssembleOneFn：把一行 Intel 汇编源码编译成机器码。
     using AssembleOneFn = std::function<WorkbenchAssembleResult(const QString& source, std::uint64_t address, bool x64)>;
 
+    // Convert an operand's semantic address (e.g. a PE VA) into the provider's
+    // coordinate (e.g. a file offset). nullopt rejects unmapped/ambiguous targets.
+    using OperandTargetResolver = std::function<std::optional<std::uint64_t>(std::uint64_t)>;
+
     // DecodeWindowResynced：核心重同步算法，见文件头"三"；纯函数，供生产代码与离屏夹具共用。
     // 传入：已确认全部有效的字节、这段字节的起始地址、单条解码回调、最多解码的行数上限、是否 x64。
     // 传出：解码行列表，真实指令与 db 占位行混排，覆盖范围之和恰好等于 bytes.size()
@@ -153,6 +157,7 @@ namespace ks::ui
         void setBytesProvider(IWorkbenchBytesProvider* provider);
         void setDecodeBackend(DecodeOneFn backend);
         void setAssembleBackend(AssembleOneFn backend);
+        void setOperandTargetResolver(OperandTargetResolver resolver);
         void setAddressBits(int bits);
         void setArchitectureOverride(bool x64);
         void clearArchitectureOverride();
@@ -210,6 +215,7 @@ namespace ks::ui
         IWorkbenchBytesProvider* m_provider = nullptr;
         DecodeOneFn m_decodeOne;
         AssembleOneFn m_assembleOne;
+        OperandTargetResolver m_operandTargetResolver;
         HexViewSegmented* m_archSegmented = nullptr;
         MemoryRowCanvas* m_canvas = nullptr;
         QLineEdit* m_inlineEditor = nullptr;

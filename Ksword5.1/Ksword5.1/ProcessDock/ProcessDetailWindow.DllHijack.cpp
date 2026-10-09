@@ -1,4 +1,5 @@
 #include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/CodeTextEdit.h"
 
 #include "../ksword/process/dll_hijack_detector.h"
 
@@ -531,7 +532,8 @@ namespace
         table->setColumnWidth(8, 360);
         layout->addWidget(table, 1);
 
-        QPlainTextEdit* const detailPane = new QPlainTextEdit(&dialog);
+        QPlainTextEdit* const detailPane = new CodeTextEdit(&dialog);
+        static_cast<CodeTextEdit*>(detailPane)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         detailPane->setReadOnly(true);
         detailPane->setMaximumHeight(180);
         if (!result.findings.isEmpty())

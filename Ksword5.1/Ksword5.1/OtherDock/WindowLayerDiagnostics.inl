@@ -1231,7 +1231,7 @@ namespace ks::window::layerdiag
             root->addWidget(m_status);
 
             auto* tabs = new QTabWidget(this);
-            m_output = new QPlainTextEdit(tabs);
+            m_output = new CodeTextEdit(tabs);
             auto* operationPage = new QWidget(tabs);
             auto* operationLayout = new QVBoxLayout(operationPage);
 
@@ -1286,22 +1286,21 @@ namespace ks::window::layerdiag
             rollbackLayout->addWidget(m_restoreButton);
             operationLayout->addWidget(rollbackGroup);
 
-            // 系统等宽字体缺少中文字形时 Windows 会回退到宋体，显式指定雅黑承接中文。
-            QFont diagnosticsFixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-            diagnosticsFixedFont.setFamilies(
-                QStringList{ diagnosticsFixedFont.family(), QStringLiteral("Microsoft YaHei UI") });
+            const QFont diagnosticsFixedFont = CodeTextEdit::editorFont();
 
-            m_operationLog = new QPlainTextEdit(operationPage);
+            m_operationLog = new CodeTextEdit(operationPage);
+            static_cast<CodeTextEdit*>(m_operationLog)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
             m_operationLog->setReadOnly(true);
             m_operationLog->setLineWrapMode(QPlainTextEdit::NoWrap);
             m_operationLog->setFont(diagnosticsFixedFont);
             operationLayout->addWidget(m_operationLog, 1);
 
-            m_relationships = new QPlainTextEdit(tabs);
-            m_diagnostics = new QPlainTextEdit(tabs);
-            m_events = new QPlainTextEdit(tabs);
+            m_relationships = new CodeTextEdit(tabs);
+            m_diagnostics = new CodeTextEdit(tabs);
+            m_events = new CodeTextEdit(tabs);
             for (QPlainTextEdit* edit : { m_output, m_relationships, m_diagnostics, m_events })
             {
+                static_cast<CodeTextEdit*>(edit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
                 edit->setReadOnly(true);
                 edit->setLineWrapMode(QPlainTextEdit::NoWrap);
                 edit->setFont(diagnosticsFixedFont);

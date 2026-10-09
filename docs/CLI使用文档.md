@@ -489,7 +489,7 @@ DDMA 借助磁盘控制器的 DMA 通道传输物理页；后端有 ATA 与 SCSI
 | `hvm_ctl --json nested-page-digest` | 返回已发布区间与源区间的内容摘要；会读取整个区间两次，适合按需核验。只给摘要，不返回任意物理内存字节。 |
 | `hvm_ctl --json resident-nested-fullsnapshot` | 与 `resident-nested-hidehv` 相同的嵌套和身份策略，但保留 CPUID 的完整诊断 VMREAD，供同一驱动二进制内的性能对照。普通模式省略无关的 qualification 和 instruction-error 字段读取。 |
 | `hvm_ctl --json nested-page-remove` | 取消发布、全核失效、回收；失败时保留 backing，不能仅凭 `active=0` 判断已经释放。 |
-| `hvm_ctl --json metrics` | 当前 metrics ABI v10 返回 Intel 的 `shadowEpt` 与 AMD 的 `svmProcessors` 等逐核证据。计数在资源重建时清零，查询是时间区间内的观察值，不是所有 CPU 的同时快照。 |
+| `hvm_ctl --json metrics` | 当前 metrics ABI v11 返回 Intel 的 `shadowEpt` 与 AMD 的 `svmProcessors` 等逐核证据。计数在资源重建时清零，查询是时间区间内的观察值，不是所有 CPU 的同时快照。 |
 
 旧 page v1/v2/v3 或旧 metrics 客户端不能搭配此驱动使用；同时更新主程序、
 `KswordCLI.exe` 和 `hvm_ctl.exe`。普通 HVM 状态查询 ABI 不变。
@@ -497,7 +497,7 @@ DDMA 借助磁盘控制器的 DMA 通道传输物理页；后端有 ATA 与 SCSI
 调用者须在这些操作前移除映射，并在控制期间保留目标页。
 
 
-### AMD SVM/NPT 实验后端（HVM v6 / metrics v10）
+### AMD SVM/NPT 实验后端（HVM v6 / metrics v11）
 
 HVM v6 在 `status.svmProbe` 增加 `rejectReason`/`rejectReasonName`、`stateValidMask`、`cpuid1Ecx`、`xsaveFeatures`、`cr4`、`xcr0`、`xss`。状态有效位 1/2/4/8/16 分别对应 CR4、CPUID.1、CPUID.D.1、XCR0、XSS；无有效位的零值不代表状态关闭。拒绝码 7 是非零 HSAVE、8 是 CR4 中未支持的状态、9 是 XSAVE/OSXSAVE 不可用、10 是扩展状态读取异常、11 是非零 XSS、12 是物理地址宽度不支持。该查询不修改寄存器、不进入 SVM；SYS、主程序与 CLI 必须同步更新，旧 v5 请求拒绝。
 
@@ -515,7 +515,7 @@ AMD 的普通模式不暴露嵌套 SVM；通用嵌套实验另有专用命令，
 新增 `prepare-svm-probe`、`self-test-svm-nested` 专用命令：前者分配每核嵌套探针资源，后者执行驱动拥有的固定内层 VMRUN→CPUID→退出反射→原生返回序列。两者只能用于 AMD；先从已释放状态准备，完成后使用 `teardown`。该准备配置禁止 `resident`，不会向正常 Windows 宣传可运行任意内层 VMM。
 
 实验性通用 AMD 路径使用独立命令 `prepare-svm-general → self-test → resident-svm-general → stop → teardown`，共享标志 `ENABLE_NESTED_SVM=0x00010000`，HVM v6 结构不变。准备与启动模式必须一致；普通 `prepare/resident` 仍隐藏 SVM，探针准备不能通过省略标志改为常驻。Intel 明确拒绝该 AMD 标志。通用模式逐核绑定当前 Windows 状态和退出协调器，采用相同全核启动/回滚和停止互锁；有虚拟 SVM 所有权、L2 执行或未完成事件时停止返回忙，不能直接卸载。嵌套实现报告 PARTIAL；这些命令是后续实验入口，**没有完整 L2 OS/内层并发通过证据**，不应在日常实体机上直接试运行。
-以下 v4～v10 是 metrics 结构的演进记录，当前请求统一使用 v10，不应逐节切换客户端。metrics v4 在每条 `svmProcessors` 中增加 `nestedProbe`：valid、sequence、status、entries、reflections、faults、64 位 exit/marker。仅 valid=1、偶数且递增 sequence、status=0、entries/reflections=1、faults>0、exit=0x72、marker=0x4B534E31 才算该核完整探针通过。此结果不等于内层操作系统启动或两小时压力通过。驱动、主程序与 CLI 必须一起更新。
+以下 v4～v11 是 metrics 结构的演进记录，当前请求统一使用共享头声明的 v11，不应逐节切换客户端。metrics v4 在每条 `svmProcessors` 中增加 `nestedProbe`：valid、sequence、status、entries、reflections、faults、64 位 exit/marker。仅 valid=1、偶数且递增 sequence、status=0、entries/reflections=1、faults>0、exit=0x72、marker=0x4B534E31 才算该核完整探针通过。此结果不等于内层操作系统启动或两小时压力通过。驱动、主程序与 CLI 必须一起更新。
 环境脚本、克隆与调试步骤见 [AMD 实验工具](../tools/hvm_lab/README.md)。硬件验收仍以该目录记录为准。
 
 AMD metrics v5 的 `svmProcessors[].general` 使用独立64位序列校验。`valid=1` 只表示整个诊断快照一致；`preparedEntries` 是软件进入准备次数，`hardwareExits` 才是该通用入口收到的物理VMEXIT次数，两者都不证明完整内层操作系统启动。`nestedProbe` 仍只记录有界探针。`phase/action/gif/pending/nmiCaptured/leaseToken/armedToken/retryToken` 用于解释停止/事件窗口；无通用绑定时 general.valid=0。旧metrics客户端必须重编译，不与v5结构混用。

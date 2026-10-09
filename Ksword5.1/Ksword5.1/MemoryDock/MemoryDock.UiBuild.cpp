@@ -436,6 +436,8 @@ void MemoryDock::initializeTabs()
     // 内存工作台页签必须在图标循环之后插入：上面的图标按下标对应原有页签顺序，
     // 先插会让后面所有页签的图标整体错位。它自己的图标与语言键在 initializeWorkbenchTab 里设置。
     initializeWorkbenchTab();
+    // 新独立页面也在旧图标循环之后插入，避免改变旧页面的下标图标映射。
+    initializeMemoryDebugTab();
 
     // 后加的四个证据页原本漏了语义键绑定，这里补齐，让它们也能跟随语言切换。
     ks::i18n::LanguageManager& languageManager = ks::i18n::LanguageManager::instance();

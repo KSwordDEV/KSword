@@ -343,6 +343,8 @@
     <ClCompile Include="MemoryDock\WorkbenchIoPorts.Kernel.cpp" />
     <ClCompile Include="MemoryDock\WorkbenchIoMapping.cpp" />
     <ClCompile Include="MemoryDock\MemoryDock.Workbench.cpp" />
+    <ClCompile Include="MemoryDock\MemoryDebugPage.cpp" />
+    <ClCompile Include="MemoryDock\MemoryDebugProcessCatalog.cpp" />
     <ClCompile Include="MemoryDock\MemoryDock.WorkbenchEntry.cpp" />
     <ClCompile Include="MemoryDock\WorkbenchServicesMapping.cpp" />
     <ClCompile Include="MemoryDock\WorkbenchServicesAudit.cpp" />
@@ -434,6 +436,8 @@
     <ClCompile Include="OtherDock\WindowControlInspectionPage.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeDock.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeAccessPage.cpp" />
+    <ClCompile Include="PrivilegeDock\PrivilegeAccessBackend.cpp" />
+    <ClCompile Include="PrivilegeDock\PrivilegeAccessReport.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeAccountPages.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeSnapshotModel.cpp" />
     <ClCompile Include="PrivilegeDock\PrivilegeSnapshotPage.cpp" />
@@ -490,6 +494,8 @@
     <ClCompile Include="StartupDock\StartupDock.Services.cpp" />
     <ClCompile Include="StartupDock\StartupDock.Tasks.cpp" />
     <ClCompile Include="UI\CodeEditorWidget.cpp" />
+    <ClCompile Include="UI\CodeTextEdit.cpp" />
+    <ClCompile Include="UI\CodeEditorFileSession.cpp" />
     <ClCompile Include="UI\EmbeddedRowDelegate.cpp" />
     <ClCompile Include="UI\DetailLayoutHost.cpp" />
     <ClCompile Include="UI\DetailLayoutRegistry.cpp" />
@@ -603,6 +609,7 @@
     <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.Ui.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.Session.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.Nav.cpp" />
+    <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.MemoryDebug.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.HexPrefs.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.SubPages.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\WorkbenchDiagnosticsHost.cpp" />
@@ -825,6 +832,8 @@
     <ClInclude Include="ksword\file\file_handle_query_worker.h" />
     <ClInclude Include="ksword\file\file_metadata_transaction.h" />
     <ClInclude Include="ksword\file\pe_analyzer.h" />
+    <ClInclude Include="MemoryDock\MemoryDebugPage.h" />
+    <ClInclude Include="MemoryDock\MemoryDebugProcessCatalog.h" />
     <ClInclude Include="ksword\scanner\atomic_file_patch.h" />
     <ClInclude Include="ksword\scanner\binary_scanner.h" />
     <ClInclude Include="ksword\scanner\scanner.h" />
@@ -868,6 +877,8 @@
     <ClInclude Include="UI\HvmWatchPanel.h" />
     <ClInclude Include="UI\HvmWatchEventDialog.h" />
     <ClInclude Include="UI\EmbeddedRowDelegate.h" />
+    <ClInclude Include="UI\CodeTextEdit.h" />
+    <ClInclude Include="UI\CodeEditorFileSession.h" />
     <ClInclude Include="UI\DetailLayoutHost.h" />
     <ClInclude Include="UI\DetailLayoutRegistry.h" />
     <ClInclude Include="UI\ReportStructuredView.h" />
@@ -1014,6 +1025,7 @@
     <ClInclude Include="..\..\shared\window\DwmZOrderProtocol.h" />
     <ClInclude Include="..\..\shared\window\DwmRemoteLoader.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeAccessPage.h" />
+    <ClInclude Include="PrivilegeDock\PrivilegeAccessBackend.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeAccessSecurity.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeAccountPages.h" />
     <ClInclude Include="PrivilegeDock\PrivilegeSnapshotModel.h" />
@@ -1433,6 +1445,7 @@
     <ClInclude Include="ArkDriverClient\ArkStorageControllerClient.h" />
     <ClCompile Include="MiscDock\DiskEditor\StorageControllerResearchDialog.cpp" />
     <ClInclude Include="MiscDock\DiskEditor\StorageControllerResearchDialog.h" />
+    <ClInclude Include="MiscDock\DiskEditor\StorageControllerResearchDialogLog.h" />
     <ClInclude Include="MiscDock\DiskEditor\StorageControllerInput.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
@@ -1491,12 +1504,53 @@
     <ClCompile Include="RegistryDock\RegistryWorkbenchAccess.cpp" />
     <ClCompile Include="RegistryDock\RegistryDocument.cpp" />
     <ClCompile Include="RegistryDock\RegistryDocumentApply.cpp" />
+    <ClCompile Include="RegistryDock\RegistryDocumentApply.Win32.cpp" />
     <ClCompile Include="RegistryDock\RegistryAdvancedDialogs.cpp" />
     <ClInclude Include="RegistryDock\RegistryValueCodec.h" />
     <QtMoc Include="RegistryDock\RegistryValueEditorWidget.h" />
     <ClInclude Include="RegistryDock\RegistryWorkbenchAccess.h" />
     <ClInclude Include="RegistryDock\RegistryDocument.h" />
     <ClInclude Include="RegistryDock\RegistryDocumentApply.h" />
+    <ClInclude Include="RegistryDock\RegistryDocumentApplyInternal.h" />
     <ClInclude Include="RegistryDock\RegistryAdvancedDialogs.h" />
   </ItemGroup>
+  <!-- Shared binary analysis and optional Ghidra runtime backend -->
+  <ItemGroup>
+    <ClCompile Include="ScannerDock\ScannerDock.Analysis.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="UI\BinaryOverviewBar.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryEditorWidget.Pseudocode.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="UI\Decompiler\GhidraDecompiler.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="PluginHost.Distribution.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="PluginHost.Upstream.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="..\..\GhidraRuntimePlugin\RuntimeProfile.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClInclude Include="UI\BinaryOverviewBar.h" />
+    <ClInclude Include="ksword\scanner\binary_layout.h" />
+    <ClInclude Include="PluginHost.Distribution.h" />
+    <ClInclude Include="PluginHost.Upstream.h" />
+    <ClInclude Include="..\..\GhidraRuntimePlugin\RuntimeProfile.h" />
+    <ClInclude Include="..\..\GhidraRuntimePlugin\RuntimeLicense.inc" />
+    <QtMoc Include="UI\Decompiler\GhidraDecompiler.h" />
+  </ItemGroup>
+  <Target Name="CopyKswordGhidraAdapterNotices" AfterTargets="Build">
+    <PropertyGroup>
+      <KswordGhidraNoticeSourceDir>$(MSBuildProjectDirectory)\..\..\third_party\ghidra_headless\</KswordGhidraNoticeSourceDir>
+      <KswordGhidraNoticeTargetDir>$(TargetDir)licenses\third_party\ghidra_headless\</KswordGhidraNoticeTargetDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(KswordGhidraNoticeTargetDir)" />
+    <Copy SourceFiles="$(KswordGhidraNoticeSourceDir)LICENSE.txt;$(KswordGhidraNoticeSourceDir)NOTICE.md;$(KswordGhidraNoticeSourceDir)UPSTREAM-NOTICE.txt" DestinationFolder="$(KswordGhidraNoticeTargetDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

@@ -28,6 +28,7 @@
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPlainTextEdit>
+#include "../UI/CodeTextEdit.h"
 #include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
@@ -651,7 +652,11 @@ void FileDock::initializeIrpBuilderPage()
     flagLayout->addStretch(1);
     optionLayout->addLayout(flagLayout, 0);
 
-    m_irpInputHexEdit = new QPlainTextEdit(optionGroup);
+    auto* inputHexEditor = new CodeTextEdit(optionGroup);
+    inputHexEditor->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    inputHexEditor->setLineNumbersVisible(false);
+    inputHexEditor->setCompactMode(true);
+    m_irpInputHexEdit = inputHexEditor;
     m_irpInputHexEdit->setStyleSheet(inputStyle);
     m_irpInputHexEdit->setPlaceholderText(
         QStringLiteral("内联输入数据，十六进制，例如 01 00 00 00；留空表示无输入。"));
@@ -696,7 +701,8 @@ void FileDock::initializeIrpBuilderPage()
     m_irpResultTable->horizontalHeader()->setStretchLastSection(true);
     m_irpResultTable->setAlternatingRowColors(true);
 
-    m_irpOutputHexEdit = new QPlainTextEdit(resultSplitter);
+    m_irpOutputHexEdit = new CodeTextEdit(resultSplitter);
+    static_cast<CodeTextEdit*>(m_irpOutputHexEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_irpOutputHexEdit->setStyleSheet(inputStyle);
     m_irpOutputHexEdit->setReadOnly(true);
     m_irpOutputHexEdit->setPlaceholderText(

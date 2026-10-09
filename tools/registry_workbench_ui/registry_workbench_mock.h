@@ -9,6 +9,8 @@ namespace registry_ui
     extern std::atomic_int reads;
     extern std::atomic_int writes;
     extern std::atomic_int blockedReads;
+    extern std::atomic_int win32KeyRenames;
+    extern std::atomic_int r0KeyRenames;
     void seed();
     void blockReads(bool block);
     RegistryValueState get(const QString& path, const QString& name, int view = 0);

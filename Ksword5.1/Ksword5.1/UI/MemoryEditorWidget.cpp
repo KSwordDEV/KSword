@@ -1,10 +1,12 @@
 #include "MemoryEditorWidget.h"
+#include "CodeTextEdit.h"
 #include "MemoryAssembly.h"
 #include "HexEditorWidget.h"
 #include "MemoryWorkbench/WorkbenchDisasmView.h"
 #include "MemoryWorkbench/WorkbenchTextView.h"
 #include "MemoryWorkbench/MemoryRowCanvas.h"
 #include "X64DbgNavigation.h"
+#include "Decompiler/GhidraDecompiler.h"
 #include "TableHeaderSortingSupport.h"
 #include "VisibleTableWidget.h"
 #include "UI_All.h"
@@ -176,6 +178,7 @@ namespace ks::ui
         comparisonLayout->addWidget(m_comparison, 1);
         m_tabs->addTab(comparisonPage, trText(QStringLiteral("对比")));
         layout->addWidget(m_tabs, 1);
+        initializePseudocodeView();
 
         connect(m_undo, &QPushButton::clicked, this, &MemoryEditorWidget::undo);
         connect(m_redo, &QPushButton::clicked, this, &MemoryEditorWidget::redo);
@@ -294,6 +297,11 @@ namespace ks::ui
                     jumpToAddress(address);
                     showAssemblyEditor();
                 });
+                auto* pseudocode = menu->addAction(trText(QStringLiteral("反编译为 C 伪代码")));
+                connect(pseudocode, &QAction::triggered, this, [this, address, revision]() {
+                    if (revision != m_snapshotRevision || !contains(address)) return;
+                    showPseudocodeAt(address);
+                });
             });
         connect(m_tabs, &QTabWidget::currentChanged, this, [this](int index) {
             if (index == 1)
@@ -310,6 +318,9 @@ namespace ks::ui
         connect(m_architecture, &QComboBox::currentIndexChanged, this, [this]() {
             // 即使之后切回原架构，也不复活切换前已经排队或打开预览的汇编请求。
             ++m_snapshotRevision;
+            const QPointer<MemoryEditorWidget> alive(this);
+            invalidatePseudocode();
+            if (!alive) return;
             synchronizeSnapshotProvider();
             m_disassembly->setArchitectureOverride(architecture() == DisassemblyArchitecture::X64);
             if (m_tabs->currentIndex() == 1) rebuildDisassembly();
@@ -346,10 +357,13 @@ namespace ks::ui
             });
         connect(m_text, &WorkbenchTextView::selectionChanged, this, synchronizeSelection);
         connect(m_text, &WorkbenchTextView::windowRequested, this, [this](quint64 address, quint64 length) {
+            if (requestCapturedWindow(address, length)) return;
             if (!contains(address)) return;
             m_text->setWindow(address, std::min<std::uint64_t>(length,
                 static_cast<std::uint64_t>(data().size()) - (address - m_base)));
         });
+        connect(m_disassembly, &WorkbenchDisasmView::windowRequested, this,
+            [this](quint64 address, quint64 length) { requestCapturedWindow(address, length); });
         connect(m_disassembly, &WorkbenchDisasmView::architectureChanged, this, [this](bool x64) {
             if (m_syncing) return;
             m_architecture->setCurrentIndex(x64 ? 1 : 0);
@@ -359,6 +373,15 @@ namespace ks::ui
                 if (valid && m_processPid != 0)
                     x64dbg_navigation::AddAction(menu, this, {m_processPid, m_processCreateTime100ns,
                         address, x64dbg_navigation::View::Disassembly});
+                if (valid)
+                {
+                    const auto revision = m_snapshotRevision;
+                    auto* pseudocode = menu->addAction(trText(QStringLiteral("反编译为 C 伪代码")));
+                    connect(pseudocode, &QAction::triggered, this, [this, address, revision]() {
+                        if (revision != m_snapshotRevision || !contains(address)) return;
+                        showPseudocodeAt(address);
+                    });
+                }
                 emit instructionContextMenuAboutToShow(menu, address, valid);
             });
         connect(m_text, &WorkbenchTextView::contextMenuAboutToShow, this,
@@ -424,6 +447,10 @@ namespace ks::ui
     void MemoryEditorWidget::setSnapshot(const QByteArray& bytes, std::uint64_t base,
         DisassemblyArchitecture arch, std::uint64_t anchor, const QString& sourceIdentity)
     {
+        const QPointer<MemoryEditorWidget> alive(this);
+        const auto previousRevision = m_snapshotRevision;
+        invalidatePseudocode(true);
+        if (!alive || previousRevision != m_snapshotRevision) return;
         // Invalid wrapping ranges are never exposed as writable snapshots.
         if (!bytes.isEmpty() && static_cast<std::uint64_t>(bytes.size() - 1)
             > std::numeric_limits<std::uint64_t>::max() - base)
@@ -477,6 +504,9 @@ namespace ks::ui
         if (m_editable != editable)
         {
             ++m_snapshotRevision;
+            const QPointer<MemoryEditorWidget> alive(this);
+            invalidatePseudocode();
+            if (!alive) return;
         }
         m_editable = editable;
         updateState();
@@ -500,6 +530,10 @@ namespace ks::ui
 
     void MemoryEditorWidget::acceptChanges()
     {
+        const QPointer<MemoryEditorWidget> alive(this);
+        const auto revision = m_snapshotRevision;
+        invalidatePseudocode();
+        if (!alive || revision != m_snapshotRevision) return;
         m_disassembly->invalidateEditContext();
         ++m_snapshotRevision;
         m_original = m_observed = data();
@@ -515,6 +549,10 @@ namespace ks::ui
     }
     void MemoryEditorWidget::discardChanges()
     {
+        const QPointer<MemoryEditorWidget> alive(this);
+        const auto revision = m_snapshotRevision;
+        invalidatePseudocode();
+        if (!alive || revision != m_snapshotRevision) return;
         const auto address = selectedAddress();
         m_disassembly->invalidateEditContext();
         ++m_snapshotRevision;
@@ -526,6 +564,10 @@ namespace ks::ui
     }
     void MemoryEditorWidget::clear()
     {
+        const QPointer<MemoryEditorWidget> alive(this);
+        const auto revision = m_snapshotRevision;
+        invalidatePseudocode(true);
+        if (!alive || revision != m_snapshotRevision) return;
         ++m_snapshotRevision;
         m_original.clear();
         m_observed.clear();
@@ -556,6 +598,9 @@ namespace ks::ui
             else m_history.reset();
             m_observed = bytes;
             ++m_snapshotRevision;
+            const QPointer<MemoryEditorWidget> alive(this);
+            invalidatePseudocode();
+            if (!alive) return;
         }
         synchronizeSnapshotProvider();
         updateHighlights();
@@ -594,6 +639,9 @@ namespace ks::ui
         const QByteArray restored(reinterpret_cast<const char*>(result->data()), static_cast<qsizetype>(result->size()));
         m_observed = restored;
         ++m_snapshotRevision;
+        const QPointer<MemoryEditorWidget> alive(this);
+        invalidatePseudocode();
+        if (!alive) return;
         m_hex->setByteArray(restored, m_base);
         jumpToAddress(address);
         refreshFromHexEditor();
@@ -616,6 +664,7 @@ namespace ks::ui
         m_assemble->setEnabled(m_editable && loaded);
         m_undo->setEnabled(m_editable && loaded && m_history.canUndo());
         m_redo->setEnabled(m_editable && loaded && m_history.canRedo());
+        updatePseudocodeState();
         const bool fileReadOnly = m_addressKind == SnapshotAddressKind::FileOffset && !m_editable;
         for (auto* button : {m_assemble, m_undo, m_redo}) button->setVisible(!fileReadOnly);
         m_status->setText(fileReadOnly
@@ -641,7 +690,7 @@ namespace ks::ui
     }
     void MemoryEditorWidget::jumpToAddress(std::uint64_t address)
     {
-        if (!contains(address)) return;
+        if (!contains(address)) { requestCapturedWindow(address, 65536); return; }
         m_syncing = true;
         m_hex->jumpToAbsoluteAddress(address);
         m_syncing = false;
@@ -653,12 +702,20 @@ namespace ks::ui
             rebuildDisassembly();
             selectInstruction(address);
         }
+        emit currentAddressChanged(address);
     }
     void MemoryEditorWidget::showDisassemblyAt(std::uint64_t address)
     {
-        if (!contains(address)) return;
+        const QPointer<MemoryEditorWidget> alive(this);
+        const auto revision = m_snapshotRevision;
+        if (!contains(address))
+        {
+            m_tabs->setCurrentIndex(1);
+            if (alive && revision == m_snapshotRevision) requestCapturedWindow(address, 4096 + 15);
+            return;
+        }
         m_tabs->setCurrentIndex(1);
-        jumpToAddress(address);
+        if (alive && revision == m_snapshotRevision) jumpToAddress(address);
     }
     void MemoryEditorWidget::openFindPanel()
     {
@@ -829,16 +886,15 @@ namespace ks::ui
         auto* hint = new QLabel(trText(QStringLiteral("每行一条 Intel 指令。数字默认十六进制，十进制用 0d 前缀；支持局部标签。覆盖长度须包含完整指令；编译不会写入真实内存。")), dialog);
         hint->setWordWrap(true);
         layout->addWidget(hint);
-        auto* source = new QPlainTextEdit(dialog);
+        auto* source = new CodeTextEdit(dialog);
         source->setObjectName(QStringLiteral("memory_assembly_source"));
-        source->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
         source->setPlainText(first.decoded ? first.mnemonic + QLatin1Char(' ') + first.operands
             : QStringLiteral("db ") + byteText(first.bytes));
         layout->addWidget(source, 1);
-        auto* preview = new QPlainTextEdit(dialog);
+        auto* preview = new CodeTextEdit(dialog);
+        static_cast<CodeTextEdit*>(preview)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         preview->setObjectName(QStringLiteral("memory_assembly_preview"));
         preview->setReadOnly(true);
-        preview->setFont(source->font());
         layout->addWidget(preview, 1);
         auto* status = new QLabel(dialog);
         status->setWordWrap(true);

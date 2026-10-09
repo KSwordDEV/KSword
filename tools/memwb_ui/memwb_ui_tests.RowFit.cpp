@@ -404,6 +404,44 @@ namespace memwb_test
                     && after_selection->first == selection->first && after_selection->last == selection->last);
             }
 
+            // 插入点落在"被截断的半行"上（相对首行恰好等于完整可见行数）：它不算完整可见，必须沿用首行锚点。
+            // 判据差一（< 写成 <=）会把它当锚点，换行宽后首行被算成"插入点新行 - 完整可见行数"，与首行锚点的结果不同。
+            for (const int bytesPerRow : { 32, 64 })
+            {
+                auto partial = MakeStaticFixture(kBase, MakePattern(kSpaceBytes), false, QSize(1500, 360));
+                HexCanvas& other = *partial->canvas;
+                other.setFirstVisibleRow(100);
+                CHECK(other.firstVisibleRow() == 100);
+                // 量出行高与表头高，算出视口里完整可见的行数；再保证末尾确实有一条被截断的半行（不够整行高度的余量）。
+                const QRect firstCell = other.cellRect(kBase + 100ULL * 16ULL, Pane::Hex);
+                CHECK(!firstCell.isNull());
+                const int rowHeight = firstCell.height();
+                const int headerHeight = firstCell.y();
+                int remainder = (other.viewport()->height() - headerHeight) % rowHeight;
+                if (remainder == 0)
+                {
+                    // 恰好整除：把画布加高半行，制造出被截断的半行。
+                    other.resize(other.width(), other.height() + rowHeight / 2);
+                    QApplication::processEvents();
+                    remainder = (other.viewport()->height() - headerHeight) % rowHeight;
+                }
+                CHECK_NOTE(remainder > 0, QStringLiteral("前置：视口末尾应有被截断的半行（余量 %1）").arg(remainder));
+                const std::uint64_t fullRows = other.visibleRowCount();
+                CHECK_NOTE(fullRows >= 4, QStringLiteral("前置：完整可见行数应不少于 4，实际 %1").arg(fullRows));
+                // 插入点放在首行之后第 fullRows 行（即被截断的那一行）。
+                const std::uint64_t truncatedRowAddress = kBase + (100ULL + fullRows) * 16ULL;
+                other.setCaretAddress(truncatedRowAddress, false, false);
+                CHECK(other.firstVisibleRow() == 100);          // 前置：没有因为设插入点而滚动
+                CHECK(other.setBytesPerRow(bytesPerRow));
+                const std::uint64_t rowBytes = static_cast<std::uint64_t>(bytesPerRow);
+                const std::uint64_t rowBase = kBase - (kBase % rowBytes);
+                const std::uint64_t expectedRow = (kBase + 100ULL * 16ULL - rowBase) / rowBytes;
+                CHECK_NOTE(
+                    other.firstVisibleRow() == expectedRow,
+                    QStringLiteral("行宽 %1：插入点在被截断的半行时应沿用首行锚点（首行 %2），实际 %3")
+                        .arg(bytesPerRow).arg(expectedRow).arg(other.firstVisibleRow()));
+            }
+
             // 插入点不可见（首行滚到 40，插入点还在地址空间起点）：沿用首行锚点，换算出的首行等于
             // 旧首行起始地址在新行宽下所在的行（与旧测试 TestBytesPerRowAndGroup 同一语义）。
             for (const int bytesPerRow : { 32, 8, 64, 48 })

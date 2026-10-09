@@ -52,6 +52,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QPlainTextEdit>
+#include "../UI/CodeTextEdit.h"
 #include <QPointer>
 #include <QPushButton>
 #include <QPainter>
@@ -5731,7 +5732,11 @@ void MonitorDock::initializeWmiTab()
     m_wmiWhereTemplateCombo->addItem(QStringLiteral("Session=0"), QStringLiteral("TargetInstance.SessionId = 0"));
     whereLayout->addWidget(m_wmiWhereTemplateCombo, 1);
 
-    m_wmiWhereEditor = new QPlainTextEdit(m_wmiSubscribePanel);
+    auto* whereEditor = new CodeTextEdit(m_wmiSubscribePanel);
+    whereEditor->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    whereEditor->setLineNumbersVisible(false);
+    whereEditor->setCompactMode(true);
+    m_wmiWhereEditor = whereEditor;
     m_wmiWhereEditor->setPlaceholderText(QStringLiteral("可选：输入WQL WHERE子句"));
     // WHERE 子句改为单行输入体验，降低右侧订阅区高度并避免多行占位。
     m_wmiWhereEditor->setMaximumBlockCount(1);

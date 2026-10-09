@@ -1,4 +1,5 @@
 #include "KernelCallbackMonitorWidget.h"
+#include "../UI/CodeTextEdit.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/TableInteractionSupport.h"
@@ -652,7 +653,8 @@ void KernelCallbackMonitorWidget::initializeUi()
     m_eventTable->setColumnWidth(CallbackColumnPath, 360);
     m_eventTable->setColumnWidth(CallbackColumnSummary, 260);
 
-    m_detailEdit = new QPlainTextEdit(this);
+    m_detailEdit = new CodeTextEdit(this);
+    static_cast<CodeTextEdit*>(m_detailEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_detailEdit->setReadOnly(true);
     m_detailEdit->setPlaceholderText(QStringLiteral("选择事件后查看完整字段详情"));
     QSplitter* resultSplitter = new QSplitter(Qt::Vertical, this);

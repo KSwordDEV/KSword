@@ -60,7 +60,6 @@ class QSortFilterProxyModel;
 class QTableWidget;
 class QTableView;
 class QTabWidget;
-class QTextEdit;
 class QTimer;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -1302,7 +1301,7 @@ private:
     // ======== 创建进程页 - 操作与输出 ========
     QPushButton* m_launchProcessButton = nullptr;
     QPushButton* m_resetCreateFormButton = nullptr;
-    QTextEdit* m_createResultOutput = nullptr;
+    QPlainTextEdit* m_createResultOutput = nullptr;
 
     // ======== 刷新调度 ========
     QTimer* m_refreshTimer = nullptr;         // 周期刷新定时器。

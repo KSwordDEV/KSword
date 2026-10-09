@@ -122,13 +122,16 @@ void MemoryDock::refreshDriverMemoryViewsFromSnapshot()
             m_driverMemoryBaseAddress,
             currentDriverMemoryArchitecture(),
             m_driverMemoryCenterAddress,
-            QStringLiteral("driver_memory_%1_%2_%3_%4").arg(static_cast<int>(m_driverMemorySnapshotBackend))
+            QStringLiteral("driver_memory_%1_%2_%3_%4_%5").arg(static_cast<int>(m_driverMemorySnapshotBackend))
                 .arg(m_driverMemorySnapshotPid).arg(m_driverMemorySnapshotIsPhysical ? 1 : 0)
-                .arg(m_driverMemorySnapshotDdmaGeneration));
+                .arg(m_driverMemorySnapshotDdmaGeneration).arg(m_driverMemorySnapshotProcessCreateTime100ns));
         const bool processVirtual = !m_driverMemorySnapshotIsPhysical
             && m_driverMemorySnapshotBackend != ksword::memory_backend::MemoryAccessBackend::Ddma
             && !ksword::memory_backend::isKernelVirtualAddress(m_driverMemoryBaseAddress);
-        m_driverMemoryEditor->setProcessContext(processVirtual ? toDwordPid(m_driverMemorySnapshotPid) : 0U);
+        // 视图刷新沿用读取时冻结的身份，不因菜单打开或重新绘制再次查询同号进程。
+        m_driverMemoryEditor->setProcessContext(
+            processVirtual ? toDwordPid(m_driverMemorySnapshotPid) : 0U,
+            processVirtual ? m_driverMemorySnapshotProcessCreateTime100ns : 0ULL);
     }
     else
     {
@@ -141,15 +144,21 @@ void MemoryDock::loadDriverMemoryEditorSnapshot()
 {
     m_driverMemorySnapshotBackend = currentDriverMemoryBackend();
     m_driverMemorySnapshotDdmaGeneration = ksword::memory_backend::ddmaSessionGeneration();
-    m_driverMemoryEditor->setSnapshot(m_driverMemoryOriginalBytes,
-        m_driverMemoryBaseAddress, currentDriverMemoryArchitecture(), m_driverMemoryCenterAddress,
-        QStringLiteral("driver_memory_%1_%2_%3_%4").arg(static_cast<int>(m_driverMemorySnapshotBackend))
-            .arg(m_driverMemorySnapshotPid).arg(m_driverMemorySnapshotIsPhysical ? 1 : 0)
-            .arg(m_driverMemorySnapshotDdmaGeneration));
     const bool processVirtual = !m_driverMemorySnapshotIsPhysical
         && m_driverMemorySnapshotBackend != ksword::memory_backend::MemoryAccessBackend::Ddma
         && !ksword::memory_backend::isKernelVirtualAddress(m_driverMemoryBaseAddress);
-    m_driverMemoryEditor->setProcessContext(processVirtual ? toDwordPid(m_driverMemorySnapshotPid) : 0U);
+    if (!processVirtual)
+    {
+        m_driverMemorySnapshotProcessCreateTime100ns = 0;
+    }
+    m_driverMemoryEditor->setSnapshot(m_driverMemoryOriginalBytes,
+        m_driverMemoryBaseAddress, currentDriverMemoryArchitecture(), m_driverMemoryCenterAddress,
+        QStringLiteral("driver_memory_%1_%2_%3_%4_%5").arg(static_cast<int>(m_driverMemorySnapshotBackend))
+            .arg(m_driverMemorySnapshotPid).arg(m_driverMemorySnapshotIsPhysical ? 1 : 0)
+            .arg(m_driverMemorySnapshotDdmaGeneration).arg(m_driverMemorySnapshotProcessCreateTime100ns));
+    m_driverMemoryEditor->setProcessContext(
+        processVirtual ? toDwordPid(m_driverMemorySnapshotPid) : 0U,
+        m_driverMemorySnapshotProcessCreateTime100ns);
     m_driverMemoryEditor->setEditable(true);
 }
 

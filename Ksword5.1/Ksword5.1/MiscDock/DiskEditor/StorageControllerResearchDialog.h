@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../ArkDriverClient/ArkStorageControllerClient.h"
+#include "StorageControllerResearchDialogLog.h"
 
 #include <QByteArray>
 #include <QWidget>
@@ -12,13 +13,14 @@
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
+class CodeEditorWidget;
 class QPushButton;
 class QTableWidget;
 class QShowEvent;
 
 namespace ks::misc
 {
-    // Retain the historical source/class name; this is now an embedded File tab page.
+    // 保留历史类名，现在作为文件 Tab 的嵌入页面使用。
     class StorageControllerResearchDialog final : public QWidget
     {
     public:
@@ -53,8 +55,8 @@ namespace ks::misc
         static QString controllerTypeText(unsigned long type);
         static QString hashText(const unsigned char* hash);
 
-        // A worker lease keeps the handle alive until its IOCTL completes. Widget
-        // destruction disconnects the watcher and never closes an active handle.
+        // 后台共享租约保留句柄直到 IOCTL 完成；页面销毁只断开 watcher，
+        // 不会关闭仍有请求执行的设备句柄。
         std::shared_ptr<ksword::ark::ArkStorageControllerClient> m_client;
         std::uint32_t m_capabilities = 0U;
         std::uint32_t m_generation = 0U;
@@ -82,7 +84,8 @@ namespace ks::misc
         QLineEdit* m_offsetEdit = nullptr;
         QLineEdit* m_lengthEdit = nullptr;
         QPlainTextEdit* m_hexEdit = nullptr;
-        QPlainTextEdit* m_logEdit = nullptr;
+        CodeEditorWidget* m_logEdit = nullptr; // 内置只读日志编辑器，跟随全局主题。
+        detail::ControllerLogBuffer m_logBuffer; // 限制最后 500 个文本块的原始日志。
         QTableWidget* m_auditTable = nullptr;
         QPushButton* m_refreshButton = nullptr;
         QPushButton* m_auditButton = nullptr;

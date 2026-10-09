@@ -17,6 +17,7 @@
 // ============================================================
 
 #include <QApplication>
+#include "../UI/CodeTextEdit.h"
 #include <QCheckBox>
 #include <QClipboard>
 #include <QColor>
@@ -1110,10 +1111,10 @@ namespace ks::window::dwmctl
 
             QGroupBox* diagnosticsGroup = makeGroup(container, "window.dwm.group.diagnostics", "合成诊断（只读）");
             QVBoxLayout* diagnosticsLayout = new QVBoxLayout(diagnosticsGroup);
-            m_diagnosticsText = new QPlainTextEdit(diagnosticsGroup);
+            m_diagnosticsText = new CodeTextEdit(diagnosticsGroup);
+            static_cast<CodeTextEdit*>(m_diagnosticsText)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
             m_diagnosticsText->setReadOnly(true);
             m_diagnosticsText->setLineWrapMode(QPlainTextEdit::NoWrap);
-            m_diagnosticsText->setFont(fixedFont);
             diagnosticsLayout->addWidget(m_diagnosticsText, 1);
             QHBoxLayout* diagnosticsActionLayout = new QHBoxLayout();
             QPushButton* refreshDiagnosticsButton =
@@ -1127,10 +1128,10 @@ namespace ks::window::dwmctl
 
             QGroupBox* logGroup = makeGroup(container, "window.dwm.group.log", "操作日志");
             QVBoxLayout* logLayout = new QVBoxLayout(logGroup);
-            m_logText = new QPlainTextEdit(logGroup);
+            m_logText = new CodeTextEdit(logGroup);
+            static_cast<CodeTextEdit*>(m_logText)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
             m_logText->setReadOnly(true);
             m_logText->setLineWrapMode(QPlainTextEdit::NoWrap);
-            m_logText->setFont(fixedFont);
             logLayout->addWidget(m_logText, 1);
             QPushButton* clearLogButton = makeButton(logGroup, "window.dwm.action.clear_log", "清空日志");
             logLayout->addWidget(clearLogButton, 0, Qt::AlignRight);

@@ -3,6 +3,7 @@
 
 #include "../../SettingsDock/AppearanceSettings.h"
 #include "../../UI/ThemeStatusRole.h"
+#include "../../UI/CodeEditorWidget.h"
 #include <QDateTime>
 #include <QFormLayout>
 #include <QFutureWatcher>
@@ -14,9 +15,11 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include "../../UI/CodeTextEdit.h"
 #include <QPushButton>
 #include <QPointer>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QShowEvent>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -36,6 +39,7 @@ namespace ks::misc
         initializeUi();
     }
 
+    // 首次显示时异步刷新，避免构造页面即访问设备。
     void StorageControllerResearchDialog::showEvent(QShowEvent* event)
     {
         QWidget::showEvent(event);
@@ -47,6 +51,7 @@ namespace ks::misc
     }
 
     template<typename Work, typename Apply>
+    // 串行执行设备 I/O；共享 client 租约和参数值副本进入后台。
     void StorageControllerResearchDialog::runOperation(Work work, Apply apply)
     {
         if (m_busy || m_confirming) return;
@@ -63,8 +68,7 @@ namespace ks::misc
                 apply(result);
                 updateActionState();
             });
-        // Only a client lease and value snapshots enter the worker; no QWidget
-        // or LanguageManager access is allowed on the pool thread.
+        // 后台只捕获 client 租约和参数快照，不访问 QWidget 或 LanguageManager。
         watcher->setFuture(QtConcurrent::run(
             [client = m_client, work = std::move(work)]() mutable
             {
@@ -78,6 +82,7 @@ namespace ks::misc
             }));
     }
 
+    // 创建参数、风险说明、审计表与内置日志编辑器。
     void StorageControllerResearchDialog::initializeUi()
     {
         setWindowTitle(QStringLiteral("KSword Controller / 存储控制器"));
@@ -137,7 +142,8 @@ namespace ks::misc
         rangeLayout->addRow(QStringLiteral("字节偏移"), m_offsetEdit);
         rangeLayout->addRow(QStringLiteral("字节长度"), m_lengthEdit);
         transferLayout->addLayout(rangeLayout);
-        m_hexEdit = new QPlainTextEdit(transferGroup);
+        m_hexEdit = new CodeTextEdit(transferGroup);
+        static_cast<CodeTextEdit*>(m_hexEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         m_hexEdit->setPlaceholderText(
             QStringLiteral("读取结果或待写入 HEX，例如：00 11 22 FF"));
         m_hexEdit->setMaximumBlockCount(8192);
@@ -171,9 +177,11 @@ namespace ks::misc
         m_auditTable->setMinimumHeight(160);
         root->addWidget(m_auditTable, 1);
 
-        m_logEdit = new QPlainTextEdit(this);
+        // 内置编辑器负责主题、复制和查找；日志缓冲单独维持 500 块上限。
+        m_logEdit = new CodeEditorWidget(this);
+        m_logEdit->setObjectName(QStringLiteral("storage_controller_log"));
         m_logEdit->setReadOnly(true);
-        m_logEdit->setMaximumBlockCount(500);
+        m_logEdit->setStructuredReportViewEnabled(false);
         m_logEdit->setMaximumHeight(120);
         root->addWidget(m_logEdit);
 
@@ -190,6 +198,7 @@ namespace ks::misc
         updateActionState();
     }
 
+    // 只查询已绑定的主 ARK 控制器，接口失效后允许下次重新连接。
     void StorageControllerResearchDialog::refreshState()
     {
         runOperation([](ksword::ark::ArkStorageControllerClient& client)
@@ -211,6 +220,7 @@ namespace ks::misc
             });
     }
 
+    // 清除用户侧原值哈希，后续写入必须重新读取。
     void StorageControllerResearchDialog::clearSnapshot()
     {
         m_snapshotHash.clear();
@@ -218,6 +228,7 @@ namespace ks::misc
         m_snapshotLength = 0U;
     }
 
+    // 查询失败后撤销会话、几何和恢复状态，禁止使用旧设备证据。
     void StorageControllerResearchDialog::invalidateQueryState()
     {
         m_queryValid = false;
@@ -234,6 +245,7 @@ namespace ks::misc
         clearSnapshot();
     }
 
+    // 验证并显示控制器回执，身份或代次变化时清除旧写入快照。
     void StorageControllerResearchDialog::applyQuery(
         const ksword::ark::StorageControllerQueryResult& result)
     {
@@ -310,6 +322,7 @@ namespace ks::misc
         updateActionState();
     }
 
+    // 确认危险范围后取得独占会话，再回读当前状态。
     void StorageControllerResearchDialog::acquireSession()
     {
         if (!m_acquireButton->isEnabled()) return;
@@ -335,6 +348,7 @@ namespace ks::misc
             });
     }
 
+    // 按会话和代次释放所有权，再回读清除后的状态。
     void StorageControllerResearchDialog::releaseSession()
     {
         if (!m_releaseButton->isEnabled()) return;
@@ -352,6 +366,7 @@ namespace ks::misc
             });
     }
 
+    // 确认后受控重置 NVMe；复位会让当前会话失效。
     void StorageControllerResearchDialog::resetController()
     {
         if (!m_resetButton->isEnabled()) return;
@@ -378,6 +393,7 @@ namespace ks::misc
             });
     }
 
+    // 解析偏移和长度，拒绝负数、越界及非扇区对齐输入。
     bool StorageControllerResearchDialog::parseRange(
         std::uint64_t& offset,
         std::uint32_t& length) const
@@ -399,6 +415,7 @@ namespace ks::misc
             offset <= m_capacity && static_cast<std::uint64_t>(length) <= m_capacity - offset;
     }
 
+    // 按当前会话读取范围并建立后续条件写的原值哈希。
     void StorageControllerResearchDialog::readRange()
     {
         if (!m_readButton->isEnabled()) return;
@@ -436,6 +453,7 @@ namespace ks::misc
             });
     }
 
+    // 写入前比较原值哈希，展示 flush 和复读验证的真实结果。
     void StorageControllerResearchDialog::writeRange()
     {
         if (!m_writeButton->isEnabled()) return;
@@ -491,8 +509,7 @@ namespace ks::misc
                 if (result.io.ok && result.response.generation == attemptedGeneration &&
                     result.response.sessionId == session)
                 {
-                    // Risk flags also mark pre-write rejections. A generation
-                    // advance is the driver's receipt that media I/O was attempted.
+                    // 风险位也可能来自写前拒绝；代次增加才是实际尝试介质 I/O 的回执。
                     m_rollbackValid = true;
                     m_rollbackOffset = offset;
                     m_rollbackLength = length;
@@ -509,6 +526,7 @@ namespace ks::misc
             });
     }
 
+    // 仅对最近一次写入的相同范围执行条件回滚并回读。
     void StorageControllerResearchDialog::rollbackRange()
     {
         if (!m_rollbackButton->isEnabled()) return;
@@ -553,6 +571,7 @@ namespace ks::misc
             });
     }
 
+    // 异步读取协议审计行并保持驱动返回顺序。
     void StorageControllerResearchDialog::refreshAudit()
     {
         if (!m_auditButton->isEnabled()) return;
@@ -597,6 +616,7 @@ namespace ks::misc
         });
     }
 
+    // 在 GUI 线程确认动作，模态窗口退出后核验页面仍然存活。
     bool StorageControllerResearchDialog::confirmDangerousOperation(
         const QString& title,
         const QString& detail)
@@ -621,14 +641,28 @@ namespace ks::misc
         return confirmed;
     }
 
+    // 追加带时间戳的原始日志，同时保留块预算和查看位置。
     void StorageControllerResearchDialog::appendLog(const QString& message)
     {
-        m_logEdit->appendPlainText(
-            QStringLiteral("[%1] %2")
-                .arg(QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss")))
-                .arg(message));
+        // 保留用户查看旧日志的位置；只有原来在末尾时才自动跟随新条目。
+        auto* textView = m_logEdit->findChild<QPlainTextEdit*>();
+        const bool followTail = textView == nullptr ||
+            textView->verticalScrollBar()->value() == textView->verticalScrollBar()->maximum();
+        const int previousScroll = textView == nullptr ? 0 : textView->verticalScrollBar()->value();
+        const QString entry = QStringLiteral("[%1] %2")
+            .arg(QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss")))
+            .arg(message);
+        const int discardedBlocks = m_logBuffer.append(entry);
+        m_logEdit->setRawText(m_logBuffer.text());
+        if (textView != nullptr)
+        {
+            textView->verticalScrollBar()->setValue(followTail
+                ? textView->verticalScrollBar()->maximum()
+                : std::max(0, previousScroll - discardedBlocks));
+        }
     }
 
+    // 只允许当前状态和能力支持的动作，执行或确认期间禁用参数修改。
     void StorageControllerResearchDialog::updateActionState()
     {
         const bool idle = !m_busy && !m_confirming;
@@ -660,6 +694,7 @@ namespace ks::misc
         m_hexEdit->setReadOnly(!idle);
     }
 
+    // 显示驱动回执的所有权类别，不推断共享控制器可操作。
     QString StorageControllerResearchDialog::ownershipText(const unsigned long ownership)
     {
         if (ownership == KSWORD_ARK_STORAGE_OWNERSHIP_EXCLUSIVE)
@@ -673,6 +708,7 @@ namespace ks::misc
         return QStringLiteral("none");
     }
 
+    // 显示驱动证明的一致性状态，未知保留 unknown。
     QString StorageControllerResearchDialog::coherencyText(const unsigned long coherency)
     {
         if (coherency == KSWORD_ARK_STORAGE_COHERENCY_EXCLUSIVE)
@@ -686,6 +722,7 @@ namespace ks::misc
         return QStringLiteral("unknown");
     }
 
+    // 逐项显示回执风险位，保留未知系统盘和挂载卷边界。
     QString StorageControllerResearchDialog::riskText(const unsigned long flags)
     {
         if (flags == 0U)
@@ -710,6 +747,7 @@ namespace ks::misc
         return rows.join(QLatin1Char('|'));
     }
 
+    // 显示控制器后端类型，未识别的值保留 Unknown。
     QString StorageControllerResearchDialog::controllerTypeText(const unsigned long type)
     {
         if (type == KSWORD_ARK_STORAGE_CONTROLLER_TYPE_AHCI) return QStringLiteral("AHCI");
@@ -718,6 +756,7 @@ namespace ks::misc
         return QStringLiteral("Unknown");
     }
 
+    // 将固定长度 SHA256 原样显示为十六进制。
     QString StorageControllerResearchDialog::hashText(const unsigned char* hash)
     {
         const QByteArray bytes(

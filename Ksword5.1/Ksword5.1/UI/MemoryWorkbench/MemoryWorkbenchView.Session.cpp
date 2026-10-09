@@ -123,6 +123,11 @@ namespace ks::ui
         {
             disasmView_->reset();
             disasmView_->setAddressBits(static_cast<int>(session.addressBits));
+            // 独立页从退出快照选择新进程后恢复编辑；空目标仍不可编辑。
+            if (memoryDebugMode_)
+            {
+                disasmView_->setEditable(hasUsableTarget);
+            }
         }
         // 文本页与对比页回到"尚未定位"，同时清三页的跟随状态（旧代码只把它们设成空窗口 (0,0)，
         // 状态行就会显示"0x0 超出已读取窗口"，而且从此没人再给它们喂过真地址）。
@@ -192,6 +197,11 @@ namespace ks::ui
     // 面板会因此重建表格）。
     void MemoryWorkbenchView::applyInt3Context(const ksword::memwb::MemoryTargetSession& session)
     {
+        // 独立页不接管共享补丁账本，避免影响同进程的另一个普通工作台。
+        if (memoryDebugMode_)
+        {
+            return;
+        }
         auto& int3 = WorkbenchShared::Instance().Int3();
         const auto& current = int3.CurrentTarget();
         if (current.pid == session.pid
@@ -227,6 +237,10 @@ namespace ks::ui
     // 路径上）。
     void MemoryWorkbenchView::onTargetAboutToDetach()
     {
+        if (memoryDebugMode_)
+        {
+            return;
+        }
         // 用户刚在离开守卫里明确选择了"保留补丁继续"：尊重这个选择，不强制还原；记号一次性，
         // 取走即清（下一次未经提示的分离才由安全网兜底）。
         const bool keptByUser = int3KeptByLeaveGuard_;
@@ -675,6 +689,13 @@ namespace ks::ui
 
     void MemoryWorkbenchView::onProviderChannelUnavailable(const ksword::memwb::GateVerdict& verdict)
     {
+        if (memoryDebugMode_ && target_ && target_->livenessState() == LivenessState::Exited)
+        {
+            // 页请求门禁不能把退出提示覆盖成“未选进程”，明确保留过期快照语义。
+            statusBar_->setReadResultText(ks::i18n::sourceText(
+                QStringLiteral("目标进程已退出，当前内容为过期快照")), true);
+            return;
+        }
         if (statusBar_ != nullptr && target_ != nullptr)
         {
             statusBar_->setReadResultText(
@@ -758,7 +779,11 @@ namespace ks::ui
         {
             return;
         }
-        const auto inputs = gateInputsProvider_ ? gateInputsProvider_() : ksword::memwb::GateInputs{};
+        auto inputs = gateInputsProvider_ ? gateInputsProvider_() : ksword::memwb::GateInputs{};
+        if (memoryDebugMode_ && target_->livenessState() == LivenessState::Exited)
+        {
+            inputs.hasProcessTarget = false;
+        }
         const auto scope = target_->session().scope;
         std::array<ksword::memwb::GateVerdict, 4> verdicts{};
         for (std::uint32_t i = 0; i < 4U; ++i)

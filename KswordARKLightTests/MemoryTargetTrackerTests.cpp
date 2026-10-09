@@ -637,6 +637,32 @@ void TestReloadAndContent(KswordTests::Suite& suite) {
 // ------------------------------------------------------------
 // 九、计数器回绕：2^64-1 之后旧快照仍判陈旧。
 // ------------------------------------------------------------
+// 独立会话关闭必须清身份、保留钉住策略，并使旧读取快照陈旧。
+void TestClearPinnedTarget(KswordTests::Suite& suite) {
+    MemoryTargetTracker tracker;
+    tracker.FollowAttach(100, 10, 1, 64);
+    tracker.Pin(200, 20, 32);
+    tracker.SetChannel(Channel::StandardDriver, 0);
+    const auto old = tracker.Revisions().Capture();
+    const auto changed = tracker.ClearPinnedTarget();
+    suite.expect(HasChange(changed, TargetChange::Process), L"clear: target identity changed");
+    suite.expect(tracker.Session().pid == 0, L"clear: pid removed");
+    suite.expect(tracker.Session().processCreateTime100ns == 0, L"clear: creation time removed");
+    suite.expect(tracker.Session().attachGeneration == 0, L"clear: attachment generation removed");
+    suite.expect(tracker.FollowMode() == Follow::Pinned, L"clear: stays independent");
+    suite.expect(!tracker.WouldChangeOnDockAttach(), L"clear: ignores Dock changes");
+    suite.expect(tracker.Session().channel == Channel::StandardDriver, L"clear: keeps channel");
+    suite.expect(tracker.Revisions().Source() == old.source + 1, L"clear: source advances once");
+    suite.expect(tracker.Revisions().Content() == old.content, L"clear: content revision unchanged");
+    suite.expect(tracker.Revisions().IsStale(old), L"clear: old snapshot stale");
+    const auto empty = tracker.Revisions().Capture();
+    suite.expect(tracker.ClearPinnedTarget() == TargetChange::None, L"clear: empty close is idempotent");
+    suite.expect(!tracker.Revisions().IsStale(empty), L"clear: repeat close keeps revision");
+    // 主动恢复普通跟随后也不得复活已经清除的旧 Dock 记录。
+    tracker.Unpin();
+    suite.expect(tracker.Session().pid == 0, L"clear: no old Dock target resurrected");
+}
+
 void TestWraparound(KswordTests::Suite& suite) {
     // 来源代次在最大值：一次 FollowAttach 让它回绕到 0，旧快照陈旧，内容代次不受影响。
     MemoryTargetTracker tracker((SessionRevisions(kMax64, kMax64)));
@@ -676,6 +702,7 @@ int RunMemwbTargetTrackerTests() {
     TestPinInOtherScopes(suite);
     TestReloadAndContent(suite);
     TestWraparound(suite);
+    TestClearPinnedTarget(suite);
     RunTrackerRandomWalk(suite);
     suite.report();
     return suite.failures();

@@ -1,4 +1,5 @@
 #include "binary_scanner.h"
+#include "binary_layout.h"
 
 #include "scanner_internal.h"
 #include "../file/pe_analyzer.h"
@@ -709,6 +710,57 @@ namespace ks::scanner
             }
             AddField(result.headers, "Image Base", Hex(pe.imageBase));
 
+            result.imageBase = pe.imageBase;
+            result.entryPointRva = pe.entryPointRva;
+            result.entryPointFileOffset = pe.entryPointFileOffset;
+            result.entryPointFileOffsetValid = pe.entryPointFileOffsetValid;
+            result.x86Compatible = pe.machine == 0x014CU || pe.machine == 0x8664U;
+            result.is64Bit = pe.isPe64;
+            const EndianReader layoutReader(std::span<const std::uint8_t>(bytes), ByteOrder::LittleEndian);
+            std::uint32_t ntOffset = 0;
+            std::uint32_t headerBytes = 0;
+            std::uint32_t resourceRva = 0;
+            if (layoutReader.readU32(0x3C, ntOffset))
+            {
+                const auto optionalOffset = static_cast<std::uint64_t>(ntOffset) + 24U;
+                if (!layoutReader.readU32(optionalOffset + 60U, headerBytes)) headerBytes = 0;
+                std::uint32_t directoryCount = 0;
+                if (layoutReader.readU32(optionalOffset + (pe.isPe64 ? 108U : 92U), directoryCount) && directoryCount > 2)
+                    if (!layoutReader.readU32(optionalOffset + (pe.isPe64 ? 112U : 96U) + 16U, resourceRva)) resourceRva = 0;
+            }
+            const auto physicalHeaderBytes = std::min<std::uint64_t>(headerBytes, bytes.size());
+            result.mappedRegions.push_back(BinaryMappedRegion{
+                "Headers", 0, physicalHeaderBytes, 0, headerBytes, 0, 0.0,
+                true, BinaryRegionKind::Headers });
+            std::uint64_t lastPhysicalByte = physicalHeaderBytes;
+            for (const auto& section : pe.sections)
+            {
+                const auto physicalSize = section.rawOffset <= bytes.size()
+                    ? std::min<std::uint64_t>(section.rawSize, bytes.size() - section.rawOffset)
+                    : 0;
+                const bool containsResources = resourceRva != 0 && resourceRva >= section.virtualAddress &&
+                    static_cast<std::uint64_t>(resourceRva) - section.virtualAddress <
+                        std::max(section.virtualSize, section.rawSize);
+                const auto kind = containsResources || section.name == ".rsrc"
+                    ? BinaryRegionKind::Resources
+                    : (section.characteristics & 0x20000000U) != 0
+                        ? BinaryRegionKind::Code : BinaryRegionKind::Data;
+                result.mappedRegions.push_back(BinaryMappedRegion{
+                    section.name, section.rawOffset, physicalSize, section.virtualAddress,
+                    section.virtualSize, section.characteristics, section.entropy, true, kind });
+                if (physicalSize != 0) lastPhysicalByte = std::max(lastPhysicalByte,
+                    static_cast<std::uint64_t>(section.rawOffset) + physicalSize);
+            }
+            if (lastPhysicalByte < bytes.size())
+            {
+                result.mappedRegions.push_back(BinaryMappedRegion{
+                    "Overlay", lastPhysicalByte, bytes.size() - lastPhysicalByte,
+                    0, 0, 0, 0.0, false, BinaryRegionKind::Overlay });
+            }
+            const auto mappedEntry = RvaToFileOffset(result, result.entryPointRva);
+            result.entryPointFileOffsetValid = mappedEntry.has_value();
+            if (mappedEntry) result.entryPointFileOffset = *mappedEntry;
+
             BinaryTable sections{
                 "sections",
                 "Sections",
@@ -861,12 +913,16 @@ namespace ks::scanner
             return result;
         }
 
-        std::vector<std::uint8_t> bytes;
+        // The retained UI snapshot and every parser share the same verified
+        // allocation. Large files are not copied into a second GUI buffer.
+        auto bytesOwner = std::make_shared<std::vector<std::uint8_t>>();
+        auto& bytes = *bytesOwner;
         if (!ReadWholeFile(filePath, options, bytes, result))
         {
             return result;
         }
         AddField(result.summary, "File Size", Decimal(result.fileSize));
+        if (options.retainInputSnapshot) result.inputSnapshot = bytesOwner;
 
         const std::span<const std::uint8_t> view(bytes);
         if (bytes.size() >= 2 && bytes[0] == 'M' && bytes[1] == 'Z')

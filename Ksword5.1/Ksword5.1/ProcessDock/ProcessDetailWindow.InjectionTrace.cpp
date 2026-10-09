@@ -1,4 +1,5 @@
 #include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/CodeTextEdit.h"
 
 #include "../ksword/process/injection_trace_collector.h"
 
@@ -1270,7 +1271,8 @@ namespace
         tree->setColumnWidth(5, 220);
         findingLayout->addWidget(tree, 1);
 
-        QPlainTextEdit* const detailPane = new QPlainTextEdit(findingPage);
+        QPlainTextEdit* const detailPane = new CodeTextEdit(findingPage);
+        static_cast<CodeTextEdit*>(detailPane)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         detailPane->setReadOnly(true);
         detailPane->setMaximumHeight(260);
         const QString emptyDetailText =
@@ -1313,7 +1315,8 @@ namespace
         // --- 查了什么、没查成什么 ---
         // 原来是 [已完成的检查] / [检查缺口] / [能力限制] 三张裸清单。清单本身没问题，
         // 问题是没人知道"缺口"和"限制"差在哪儿——所以每一块前面补一句人话解释。
-        QPlainTextEdit* const coveragePane = new QPlainTextEdit(tabs);
+        QPlainTextEdit* const coveragePane = new CodeTextEdit(tabs);
+        static_cast<CodeTextEdit*>(coveragePane)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         coveragePane->setReadOnly(true);
         {
             QStringList lines;
@@ -1391,7 +1394,8 @@ namespace
         // --- 结果怎么读 ---
         // 边界说明从顶部四行挪到这里，和"能说什么/不能说什么"合成一页：两者讲的
         // 是同一件事，分在两处反而要求用户自己拼。
-        QPlainTextEdit* const semanticsPane = new QPlainTextEdit(tabs);
+        QPlainTextEdit* const semanticsPane = new CodeTextEdit(tabs);
+        static_cast<CodeTextEdit*>(semanticsPane)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         semanticsPane->setReadOnly(true);
         {
             QStringList lines;

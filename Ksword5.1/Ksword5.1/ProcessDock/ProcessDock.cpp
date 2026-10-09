@@ -74,6 +74,7 @@
 #include <QPainterPath>
 #include <QPalette>
 #include <QPlainTextEdit>
+#include "../UI/CodeTextEdit.h"
 #include <QPointF>
 #include <QPersistentModelIndex>
 #include <QPointer>
@@ -5607,7 +5608,11 @@ void ProcessDock::initializeCreateProcessPage()
     m_commandLineEdit = new QLineEdit(basicGroup);
     m_currentDirectoryEdit = new QLineEdit(basicGroup);
     m_currentDirectoryBrowseButton = new QPushButton("浏览…", basicGroup);
-    m_environmentEditor = new QPlainTextEdit(basicGroup);
+    auto* environmentEditor = new CodeTextEdit(basicGroup);
+    environmentEditor->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    environmentEditor->setLineNumbersVisible(false);
+    environmentEditor->setCompactMode(true);
+    m_environmentEditor = environmentEditor;
     m_creationFlagsEdit = new QLineEdit("0x00000000", basicGroup);
     m_environmentEditor->setPlaceholderText("每行一个 KEY=VALUE，留空则为 null。");
     m_environmentEditor->setFixedHeight(72);
@@ -5906,7 +5911,8 @@ void ProcessDock::initializeCreateProcessPage()
     actionButtonLayout->addWidget(m_resetCreateFormButton);
     actionButtonLayout->addStretch(1);
 
-    m_createResultOutput = new QTextEdit(actionGroup);
+    m_createResultOutput = new CodeTextEdit(actionGroup);
+    static_cast<CodeTextEdit*>(m_createResultOutput)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_createResultOutput->setReadOnly(true);
     m_createResultOutput->setMinimumHeight(140);
     m_createResultOutput->setStyleSheet(inputStyle);
@@ -14378,7 +14384,7 @@ void ProcessDock::appendCreateResultLine(const QString& lineText)
 
     // 结果框混合固定提示和后端原始详情；仅转换可命中的固定提示，原始错误内容保持逐字不变。
     const QString timeText = QDateTime::currentDateTime().toString("HH:mm:ss");
-    m_createResultOutput->append(QString("[%1] %2").arg(
+    m_createResultOutput->appendPlainText(QString("[%1] %2").arg(
         timeText,
         ks::i18n::sourceText(lineText)));
 }

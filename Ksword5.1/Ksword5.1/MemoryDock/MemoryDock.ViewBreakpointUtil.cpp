@@ -117,6 +117,7 @@ void MemoryDock::reloadMemoryViewerPage()
         }
 
         m_currentViewerPageBytes = ddmaOutcome.data;
+        m_viewerSnapshotProcessCreateTime100ns = 0; // DDMA 快照不建立进程调试导航授权。
         loadMemoryViewerSnapshot(false);
         QString ddmaStatusText = QStringLiteral("DDMA 读取完成：%1 字节（只读展示）。")
             .arg(m_currentViewerPageBytes.size());
@@ -139,6 +140,18 @@ void MemoryDock::reloadMemoryViewerPage()
     // 去读，屏幕上的字节就不再对应用户选的通道，差异也就再也看不出来了。
     const ksword::memory_backend::MemoryAccessBackend selectedBackend =
         currentViewerBackend();
+    // 在实际读取前取得原句柄的创建时间；装载/重绘旧快照时不再查询当前附加对象。
+    const HANDLE navigationHandle = m_attachedProcessHandle;
+    const std::uint32_t navigationPid = m_attachedPid;
+    const std::uint64_t navigationGeneration = m_processAttachmentGeneration.load();
+    FILETIME created{}, exited{}, kernel{}, user{};
+    std::uint64_t navigationCreation = 0; // 读取前无法证明身份时只禁用导航，不阻止读字节。
+    if (!ksword::memory_backend::isKernelVirtualAddress(m_currentViewerAddress)
+        && ::GetProcessId(navigationHandle) == navigationPid
+        && ::GetProcessTimes(navigationHandle, &created, &exited, &kernel, &user) != FALSE)
+    {
+        navigationCreation = (static_cast<std::uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+    }
     const ksword::memory_backend::AccessOutcome readOutcome =
         ksword::memory_backend::readVirtual(
             selectedBackend,
@@ -235,6 +248,10 @@ void MemoryDock::reloadMemoryViewerPage()
     }
 
     m_currentViewerPageBytes = readOutcome.data;
+    // 若读取期间发生分离/重新附加，即使句柄数值或 PID 相同也不能把旧字节绑定新身份。
+    m_viewerSnapshotProcessCreateTime100ns = navigationHandle == m_attachedProcessHandle
+        && navigationPid == m_attachedPid && navigationGeneration == m_processAttachmentGeneration.load()
+            ? navigationCreation : 0;
     bytesRead = static_cast<SIZE_T>(m_currentViewerPageBytes.size());
     const bool partialRead = readOutcome.partial || (bytesRead < kHexPageBytes);
 
@@ -388,7 +405,10 @@ void MemoryDock::loadMemoryViewerSnapshot(const bool editable, const bool preser
             .arg(ksword::memory_backend::ddmaSessionGeneration()));
     const bool processVirtual = m_viewerSnapshotBackend != ksword::memory_backend::MemoryAccessBackend::Ddma
         && !ksword::memory_backend::isKernelVirtualAddress(m_currentViewerAddress);
-    m_viewerMemoryEditor->setProcessContext(processVirtual ? toDwordPid(m_viewerSnapshotPid) : 0U);
+    // 装载与写回回读沿用读取时冻结的身份，不从后来附加的同号进程补授旧字节。
+    m_viewerMemoryEditor->setProcessContext(
+        processVirtual ? toDwordPid(m_viewerSnapshotPid) : 0U,
+        processVirtual ? m_viewerSnapshotProcessCreateTime100ns : 0ULL);
     m_viewerMemoryEditor->setEditable(editable);
     updateMemoryViewerEditState();
 }
@@ -397,6 +417,7 @@ void MemoryDock::clearMemoryViewerSnapshot()
 {
     m_currentViewerPageBytes.clear();
     m_viewerSnapshotPid = 0;
+    m_viewerSnapshotProcessCreateTime100ns = 0;
     if (m_viewerMemoryEditor != nullptr)
     {
         m_viewerMemoryEditor->clear();

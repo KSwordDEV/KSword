@@ -211,7 +211,7 @@ namespace ks::ui
 
     bool WorkbenchTarget::wouldChangeOnDockAttach() const noexcept
     {
-        return tracker_.WouldChangeOnDockAttach();
+        return policy_.allowFollowDock && tracker_.WouldChangeOnDockAttach();
     }
 
     bool WorkbenchTarget::identityAnchored() const noexcept
@@ -225,12 +225,48 @@ namespace ks::ui
             && current.processCreateTime100ns != 0;
     }
 
+    bool WorkbenchTarget::clearMemoryDebugTarget()
+    {
+        if (policy_.allowFollowDock)
+        {
+            return false;
+        }
+        // 守卫可能进入模态事件循环并销毁宿主；允许之后才能清目标。
+        const QPointer<WorkbenchTarget> self(this);
+        if (!requestLeave(LeaveReason::PinChange) || !self)
+        {
+            return false;
+        }
+        ReleaseAnchorHandle(pinnedAnchorHandle_);
+        ReleaseAnchorHandle(dockAnchorHandle_);
+        pinnedAnchorHandle_ = nullptr;
+        dockAnchorHandle_ = nullptr;
+        const auto mask = tracker_.ClearPinnedTarget();
+        updateLiveness(LivenessState::Unknown);
+        if (!self)
+        {
+            return false;
+        }
+        applyMaskSideEffects(mask);
+        return true;
+    }
+
+    LivenessState WorkbenchTarget::livenessState() const noexcept
+    {
+        return lastLiveness_;
+    }
+
     // ------------------------------------------------------------
     // 三个 Dock 钩子
     // ------------------------------------------------------------
 
     void WorkbenchTarget::onDockAttached(const DockAttach& attach)
     {
+        // 独立内存调试目标由上层选择器钉住，Dock 的附加事件不能接管它。
+        if (!policy_.allowFollowDock)
+        {
+            return;
+        }
         // 存活状态通知可同步关闭宿主；通知返回后不能继续使用已销毁的目标。
         const QPointer<WorkbenchTarget> self(this);
         // 先锚定身份（复制 Dock 句柄、取创建时间/位数），再喂给 tracker；
@@ -280,6 +316,11 @@ namespace ks::ui
 
     void WorkbenchTarget::onDockDetached()
     {
+        // 独立目标的生命周期与 Dock 分离无关，不清身份或存活探测锚点。
+        if (!policy_.allowFollowDock)
+        {
+            return;
+        }
         // 与附加入口共用相同的同步通知生命周期边界。
         const QPointer<WorkbenchTarget> self(this);
         ReleaseAnchorHandle(dockAnchorHandle_);
@@ -433,6 +474,12 @@ namespace ks::ui
             lastIdentityFailure_ = NavStatus::Unavailable;
             return false;
         }
+        // pinPid=0 的公开语义是回到 Dock；独立页只能选择明确的进程实例。
+        if (!policy_.allowFollowDock && request.pinPid.has_value() && *request.pinPid == 0)
+        {
+            lastIdentityFailure_ = NavStatus::Unavailable;
+            return false;
+        }
         if (!policy_.allowKernelPhysical && request.scope
             && (*request.scope == ksword::memwb::Scope::KernelVirtual
                 || *request.scope == ksword::memwb::Scope::Physical))
@@ -452,6 +499,22 @@ namespace ks::ui
             pinAnchor = AcquireAnchorForPid(*request.pinPid);
             if (pinAnchor.targetGone)
             {
+                lastIdentityFailure_ = NavStatus::TargetGone;
+                return false;
+            }
+            // 独立内存调试不能把选择器捕获的强身份降成仅 PID；旧工作台保留弱锚规则。
+            if (!policy_.allowFollowDock
+                && (pinAnchor.handle == nullptr || pinAnchor.identityWeak || pinAnchor.createTime100ns == 0))
+            {
+                ReleaseAnchorHandle(pinAnchor.handle);
+                lastIdentityFailure_ = NavStatus::TargetMismatch;
+                return false;
+            }
+            // 已明确退出的独立目标在离开守卫前拒绝，不接入一个已失效身份。
+            if (!policy_.allowFollowDock
+                && QueryAnchorAlive(pinAnchor.handle) == std::optional<bool>(false))
+            {
+                ReleaseAnchorHandle(pinAnchor.handle);
                 lastIdentityFailure_ = NavStatus::TargetGone;
                 return false;
             }
@@ -724,6 +787,11 @@ namespace ks::ui
             return;
         }
         lastLiveness_ = state;
+        // 独立页确认退出后使所有在途读取/确认前事务变旧，但保留显示快照。
+        if (!policy_.allowFollowDock && state == LivenessState::Exited)
+        {
+            tracker_.Reload();
+        }
         emit livenessChanged(static_cast<int>(state));
     }
 }

@@ -26,6 +26,7 @@
 
 #include "WorkbenchMessages.h"
 #include "WriteModeSwitch.h"
+#include "../../Internationalization/LanguageManager.h"
 
 #include "../FlowLayout.h"
 #include "HexViewWidgets.h"
@@ -345,6 +346,14 @@ namespace ks::ui
         emit modeRequested(requestedMode);
     }
 
+    void WorkbenchSessionBar::setMemoryDebugMode(const bool enabled)
+    {
+        m_memoryDebugMode = enabled;
+        // 独立页恒为进程地址空间；保留通道、写入模式和目标选择按钮。
+        m_scopeSegmented->setVisible(!enabled);
+        refreshTargetChipDisplay();
+    }
+
     void WorkbenchSessionBar::setTargetInfo(
         const bool attached,
         const QString& processName,
@@ -382,13 +391,17 @@ namespace ks::ui
         }
         else
         {
-            text = workbench_messages::TargetChipUnattachedText();
+            text = m_memoryDebugMode
+                ? ks::i18n::sourceText(QStringLiteral("未选择进程"))
+                : workbench_messages::TargetChipUnattachedText();
             textColor = KswordTheme::ErrorColor();
         }
         m_targetChip->setText(text);
         // S-e：内核/物理范围不需要进程，tooltip 不该还暗示"点它能选进程"；按
         // ScopeNeedsProcess 传给 TargetChipTooltip 决定文案分支。
-        m_targetChip->setToolTip(workbench_messages::TargetChipTooltip(ScopeNeedsProcess(m_scope)));
+        m_targetChip->setToolTip(m_memoryDebugMode
+            ? ks::i18n::sourceText(QStringLiteral("选择进程"))
+            : workbench_messages::TargetChipTooltip(ScopeNeedsProcess(m_scope)));
         QPalette palette = m_targetChip->palette();
         palette.setColor(QPalette::ButtonText, textColor);
         m_targetChip->setPalette(palette);

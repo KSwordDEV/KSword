@@ -9,6 +9,8 @@ $fixtureRepository = Split-Path -Parent $PSScriptRoot
 $fixtureOldPath = $env:PATH
 $fixtureOldPlugins = $env:QT_PLUGIN_PATH
 $fixtureOldPlatform = $env:QT_QPA_PLATFORM
+$fixtureOldTemp = $env:TEMP
+$fixtureOldTmp = $env:TMP
 Push-Location $fixtureRepository
 try {
     $fixtureQt = (Resolve-Path -LiteralPath $QtRoot).Path
@@ -35,7 +37,8 @@ try {
         $fixtureFlags += @('-isystem', (Join-Path $fixtureQt "include/qt6/$fixtureModule"))
     }
     $fixtureSources = @('tools/memory_editor_ui_tests.cpp', "$fixtureApp/MemoryEditorWidget.cpp",
-        "$fixtureApp/MemoryEditorWidget.InlineAssembly.cpp", "$fixtureApp/HexEditorWidget.cpp",
+        "$fixtureApp/MemoryEditorWidget.InlineAssembly.cpp", "$fixtureApp/MemoryEditorWidget.Pseudocode.cpp",
+        "$fixtureApp/Decompiler/GhidraDecompiler.cpp", 'GhidraRuntimePlugin/RuntimeProfile.cpp', "$fixtureApp/HexEditorWidget.cpp",
         "$fixtureApp/MemoryEditHistory.Core.cpp", "$fixtureApp/TableHeaderSortingSupport.cpp",
         'tools/tests/memory_editor_portable_stubs.cpp', "$fixtureApp/KernelDisassemblyDialog.cpp")
     foreach ($fixtureName in @('HexCanvas', 'HexCanvas.Scroll', 'HexCanvas.Layout', 'HexCanvas.Paint',
@@ -52,7 +55,8 @@ try {
     }
     $fixtureMoc = Join-Path $fixtureQt 'share/qt6/bin/moc.exe'
     foreach ($fixtureHeader in @("$fixtureApp/MemoryEditorWidget.h", "$fixtureApp/HexEditorWidget.h",
-        "$fixtureApp/KernelDisassemblyDialog.h", "$fixtureUi/HexCanvas.h", "$fixtureUi/HexInspectorPanel.h",
+        "$fixtureApp/KernelDisassemblyDialog.h", "$fixtureApp/Decompiler/GhidraDecompiler.h",
+        "$fixtureUi/HexCanvas.h", "$fixtureUi/HexInspectorPanel.h",
         "$fixtureUi/HexInspectorRowView.h", "$fixtureUi/HexView.h", "$fixtureUi/HexFindBar.h", "$fixtureUi/HexGotoBar.h")) {
         $fixtureGenerated = Join-Path $fixtureOutput ('moc_' + [IO.Path]::GetFileNameWithoutExtension($fixtureHeader) + '.cpp')
         if ($Rebuild -or !(Test-Path -LiteralPath $fixtureGenerated) -or
@@ -97,12 +101,31 @@ try {
     & g++ @fixtureObjects '-Wl,--gc-sections' "-L$fixtureQt/lib" -lQt6Widgets -lQt6Gui -lQt6Core `
         -lQt6Test -lQt6Svg -luser32 -ladvapi32 -o $fixtureExe
     if ($LASTEXITCODE -ne 0) { throw 'Portable snapshot host link failed.' }
-    & $fixtureExe (Join-Path $fixtureOutput 'shots')
+    # Keep all fake installations and adapter temporary projects inside the
+    # explicitly writable test workspace, including sandboxed test runs.
+    $fixtureTemporary = Join-Path $fixtureOutput 'temporary'
+    New-Item -ItemType Directory -Path $fixtureTemporary -Force | Out-Null
+    $env:TEMP = $fixtureTemporary
+    $env:TMP = $fixtureTemporary
+    # A tiny executable implements only the documented headless output protocol.
+    # The tests still use the real QProcess backend, SHA checks and cancellation;
+    # this fixture neither imports code into Ghidra nor executes target bytes.
+    $fixtureLauncherSource = Join-Path $PSScriptRoot 'tests/ghidra_fake_launcher.cpp'
+    $fixtureLauncher = Join-Path $fixtureOutput 'ghidra-fake-launcher.exe'
+    if ($Rebuild -or !(Test-Path -LiteralPath $fixtureLauncher) -or
+        (Get-Item -LiteralPath $fixtureLauncherSource).LastWriteTimeUtc -gt
+        (Get-Item -LiteralPath $fixtureLauncher).LastWriteTimeUtc) {
+        & g++ @fixtureFlags $fixtureLauncherSource "-L$fixtureQt/lib" -lQt6Core -o $fixtureLauncher
+        if ($LASTEXITCODE -ne 0) { throw 'Portable headless protocol fixture compilation failed.' }
+    }
+    & $fixtureExe (Join-Path $fixtureOutput 'shots') $fixtureLauncher
     if ($LASTEXITCODE -ne 0) { throw "Portable snapshot host failed (native exit $LASTEXITCODE)." }
 }
 finally {
     $env:PATH = $fixtureOldPath
     $env:QT_PLUGIN_PATH = $fixtureOldPlugins
     $env:QT_QPA_PLATFORM = $fixtureOldPlatform
+    $env:TEMP = $fixtureOldTemp
+    $env:TMP = $fixtureOldTmp
     Pop-Location
 }

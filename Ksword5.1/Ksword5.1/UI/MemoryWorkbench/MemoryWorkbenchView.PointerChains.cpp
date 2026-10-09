@@ -16,6 +16,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include "../CodeTextEdit.h"
 #include <QStackedWidget>
 #include <QThreadPool>
 #include <QVBoxLayout>
@@ -170,7 +171,9 @@ namespace ks::ui
         layout->addWidget(hint);
         if (const auto found = pointerTraces_.find(id); found != pointerTraces_.end())
         {
-            auto* trace = new QPlainTextEdit(QString::fromUtf8(found->second.c_str()), dialog);
+            auto* trace = new CodeTextEdit(dialog);
+            trace->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+            trace->setPlainText(QString::fromUtf8(found->second.c_str()));
             trace->setReadOnly(true);
             layout->addWidget(trace);
         }
@@ -318,6 +321,12 @@ namespace ks::ui
     {
         using F = ksword::memwb::GuardResult::Failure;
         if (pointerClosing_ || !target_) { reason = "pointer-view-closed"; return false; }
+        // 写前验证覆盖立即写、暂存应用与撤销；退出的独立身份不能被重用。
+        if (memoryDebugMode_ && target_->livenessState() == LivenessState::Exited)
+        {
+            reason = T(QStringLiteral("目标进程已退出，写入已取消")).toUtf8().toStdString();
+            return false;
+        }
         const auto writeSession = session;
         const QPointer<MemoryWorkbenchView> self(this);
         const auto bindings = pointerBindings_;

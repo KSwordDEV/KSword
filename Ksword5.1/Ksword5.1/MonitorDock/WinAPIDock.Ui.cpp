@@ -1,4 +1,5 @@
 #include "WinAPIDock.h"
+#include "../UI/CodeTextEdit.h"
 #include "../UI/ThemeItemForeground.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ThemeStatusRole.h"
@@ -249,8 +250,16 @@ void WinAPIDock::initializeUi()
     QLabel* const rawConfigurationTitleLabel = new QLabel(QStringLiteral("Raw 兜底配置"), rawConfigurationFrame);
     rawConfigurationLayout->addWidget(rawConfigurationTitleLabel, 0);
 
-    m_rawModuleListEdit = new QPlainTextEdit(rawConfigurationFrame);
-    m_rawDenyListEdit = new QPlainTextEdit(rawConfigurationFrame);
+    auto* moduleListEditor = new CodeTextEdit(rawConfigurationFrame);
+    auto* denyListEditor = new CodeTextEdit(rawConfigurationFrame);
+    moduleListEditor->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    denyListEditor->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    moduleListEditor->setLineNumbersVisible(false);
+    moduleListEditor->setCompactMode(true);
+    denyListEditor->setLineNumbersVisible(false);
+    denyListEditor->setCompactMode(true);
+    m_rawModuleListEdit = moduleListEditor;
+    m_rawDenyListEdit = denyListEditor;
 
     m_hookFileCheck->setChecked(true);
     m_hookRegistryCheck->setChecked(true);

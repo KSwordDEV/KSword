@@ -22,6 +22,10 @@ namespace ksword::ark
         RegistryReadResult readRegistryValue(const std::wstring&,const std::wstring&,unsigned long) const { return {}; }
         RegistryOperationResult deleteRegistryValue(const std::wstring&,const std::wstring&) const { return {}; }
         RegistryOperationResult deleteRegistryKey(const std::wstring&) const { return {}; }
-        RegistryOperationResult renameRegistryKey(const std::wstring&,const std::wstring&) const { return {}; }
+        RegistryOperationResult renameRegistryKey(const std::wstring&,const std::wstring&) const
+        {
+            ++registry_ui::r0KeyRenames;
+            return {};
+        }
     };
 }

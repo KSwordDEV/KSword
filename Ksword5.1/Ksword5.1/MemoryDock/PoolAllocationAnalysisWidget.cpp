@@ -1,4 +1,5 @@
 #include "PoolAllocationAnalysisWidget.h"
+#include "../UI/CodeTextEdit.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/FlowLayout.h"
 #include <QAbstractTableModel>
@@ -234,9 +235,9 @@ PoolAllocationAnalysisWidget::PoolAllocationAnalysisWidget(QWidget* parent) : QW
     m_resolve = new QPushButton(detail); m_resolve->setObjectName(QStringLiteral("pool_analysis_resolve"));
     m_module = new QPushButton(detail); m_module->setObjectName(QStringLiteral("pool_analysis_module"));
     detailActions->addWidget(m_resolve); detailActions->addWidget(m_module); detailLayout->addLayout(detailActions);
-    m_frames = new QPlainTextEdit(detail); m_frames->setObjectName(QStringLiteral("pool_analysis_frames"));
+    m_frames = new CodeTextEdit(detail);
+    static_cast<CodeTextEdit*>(m_frames)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText); m_frames->setObjectName(QStringLiteral("pool_analysis_frames"));
     m_frames->setReadOnly(true); m_frames->setLineWrapMode(QPlainTextEdit::NoWrap);
-    m_frames->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     detailLayout->addWidget(m_frames, 1); split->addWidget(m_table); split->addWidget(detail);
     split->setStretchFactor(0, 2); split->setStretchFactor(1, 1); layout->addWidget(split, 1);
     connect(m_open, &QPushButton::clicked, this, [this] {

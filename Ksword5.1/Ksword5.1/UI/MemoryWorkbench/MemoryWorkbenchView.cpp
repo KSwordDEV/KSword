@@ -242,7 +242,13 @@ namespace ks::ui
             target_.get(),
             this);
         pageProvider_->setGateInputsProvider([this]() -> ksword::memwb::GateInputs {
-            return gateInputsProvider_ ? gateInputsProvider_() : ksword::memwb::GateInputs{};
+            auto inputs = gateInputsProvider_ ? gateInputsProvider_() : ksword::memwb::GateInputs{};
+            // 独立会话的已退出身份不得继续提交新读请求，缓存仍保留供查看。
+            if (memoryDebugMode_ && target_->livenessState() == LivenessState::Exited)
+            {
+                inputs.hasProcessTarget = false;
+            }
+            return inputs;
         });
 
         // 4) WorkbenchBaselineFeeder：无额外构造参数，canvas/overlay 由
@@ -366,6 +372,11 @@ namespace ks::ui
     // 钉住入口在会话条的目标 chip 展开态，这里只隐藏侧栏容器）；范围锁定为进程。
     void MemoryWorkbenchView::setEmbeddedProcessMode(bool embedded)
     {
+        // 独立调试页与内嵌跟随页互斥，避免后调用覆盖已经建立的目标策略。
+        if (embedded && memoryDebugMode_)
+        {
+            return;
+        }
         if (embedded && target_ != nullptr)
         {
             // 内嵌视图必须把真实会话切回跟随进程，不能只改策略与范围分段的显示。
@@ -385,7 +396,10 @@ namespace ks::ui
             }
         }
         embedded_ = embedded;
-        target_->setPolicy(WorkbenchTarget::Policy{/*lockToDock=*/embedded, /*allowKernelPhysical=*/!embedded});
+        target_->setPolicy(WorkbenchTarget::Policy{
+            /*lockToDock=*/embedded,
+            /*allowKernelPhysical=*/!embedded && !memoryDebugMode_,
+            /*allowFollowDock=*/!memoryDebugMode_});
         // 侧栏可见性统一交给裁决入口：内嵌恒隐藏且不给展开钮（第二轮复核 B1：旧实现
         // 直接 setVisible 绕过了展开钮同步，也用 setSizes({1}) 把分割条弄坏，退出内嵌
         // 后得到 [0,884]）。退出内嵌时按"想要可见"恢复，并重新落一次偏好宽度。
@@ -532,7 +546,7 @@ namespace ks::ui
                 LoadChannelForScope(static_cast<std::uint32_t>(ksword::memwb::Scope::Physical)));
 
             const std::uint32_t scopeValue = LoadScope();
-            const ksword::memwb::Scope scope = (!embedded_ && scopeValue <= 2U)
+            const ksword::memwb::Scope scope = (!embedded_ && !memoryDebugMode_ && scopeValue <= 2U)
                 ? static_cast<ksword::memwb::Scope>(scopeValue)
                 : ksword::memwb::Scope::ProcessVirtual;
             if (target_ != nullptr)
@@ -540,7 +554,9 @@ namespace ks::ui
                 // savedIdentity：范围与对应通道一起交给真实会话裁决，避免显示内核却仍读取进程。
                 IdentityRequest savedIdentity;
                 savedIdentity.scope = scope;
-                savedIdentity.channel = sessionBar_->rememberedChannel(scope);
+                // 独立页复用编辑偏好，不从普通工作台恢复内核范围或需要驱动的首个通道。
+                savedIdentity.channel = memoryDebugMode_
+                    ? ksword::memwb::Channel::UserMode : sessionBar_->rememberedChannel(scope);
                 const QPointer<MemoryWorkbenchView> self(this);
                 (void)target_->requestIdentity(savedIdentity, LeaveReason::ScopeChange);
                 if (!self)
@@ -613,7 +629,8 @@ namespace ks::ui
         }
         if (subTabStack_ != nullptr)
         {
-            const int subTab = LoadSubTab();
+            // 独立页首次进入反汇编，普通工作台仍恢复用户最后选择的子页。
+            const int subTab = memoryDebugMode_ ? 1 : LoadSubTab();
             if (subTab >= 0 && subTab < subTabStack_->count())
             {
                 subTabStack_->setCurrentIndex(subTab);
@@ -805,7 +822,10 @@ namespace ks::ui
 
         // int3 阶段按"账本当前目标"判断有无未还原补丁：先把它声明回本视图的目标，
         // 否则内嵌进程详情窗口改过它之后，本视图的补丁会被漏问。
-        syncInt3Context();
+        if (!memoryDebugMode_)
+        {
+            syncInt3Context();
+        }
 
         if (!self || target_ == nullptr)
         {
@@ -865,14 +885,18 @@ namespace ks::ui
         }
 
         // 暂存询问的事件循环可能让另一个视图接管共享 int3 上下文；执行前重新绑定本视图。
-        syncInt3Context();
+        if (!memoryDebugMode_)
+        {
+            syncInt3Context();
+        }
         if (!self)
         {
             return false;
         }
 
         // 阶段二：int3 账本里当前目标还有未还原补丁时弹三选一（没有则直接放行，不弹框）。
-        const bool int3Allowed = WorkbenchShared::Instance().Int3().RequestLeave(this, scenario);
+        const bool int3Allowed = memoryDebugMode_
+            || WorkbenchShared::Instance().Int3().RequestLeave(this, scenario);
         if (!self || !int3Allowed || !stillCurrent())
         {
             return false;

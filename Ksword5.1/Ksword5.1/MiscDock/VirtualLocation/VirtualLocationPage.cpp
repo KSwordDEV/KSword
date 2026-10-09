@@ -16,6 +16,7 @@
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPlainTextEdit>
+#include "../../UI/CodeTextEdit.h"
 #include <QPointer>
 #include <QPushButton>
 #include <QShowEvent>
@@ -203,7 +204,8 @@ namespace ks::misc
                 .arg(KswordTheme::TextPrimaryHex()));
         statusLayout->addWidget(m_currentLocationLabel);
 
-        m_rawValueEdit = new QPlainTextEdit(statusGroup);
+        m_rawValueEdit = new CodeTextEdit(statusGroup);
+        static_cast<CodeTextEdit*>(m_rawValueEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         m_rawValueEdit->setObjectName(QStringLiteral("ksVirtualLocationRawView"));
         m_rawValueEdit->setReadOnly(true);
         m_rawValueEdit->setMaximumHeight(96);

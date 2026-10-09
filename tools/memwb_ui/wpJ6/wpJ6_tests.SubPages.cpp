@@ -211,17 +211,21 @@ namespace wpj6_test
 
             // 第二个补丁落在另一个 16 字节分组：目标恰好是某分组的起点（0x2020）时必须选中该分组本身，
             // 而不是它的下一个——只有一个分组的用例分不出"第一个 >= 目标"与"第一个 > 目标"。
+            // 用三个分组（0x2000 / 0x2020 / 0x2040）：只有两个分组时，"第一个 > 目标"没有命中会落到"最后一行"，
+            // 恰好也是第 1 行，分不出 >= 与 > 两种判据。
             GoTab(*view, 0);
             view->hexPaneForTest()->canvas()->stageBytes(0x2024, QByteArray(1, static_cast<char>(0x92)), nullptr);
+            view->hexPaneForTest()->canvas()->stageBytes(0x2044, QByteArray(1, static_cast<char>(0x93)), nullptr);
             PumpFor(100);
             OpenAt(*view, 0x2020, 1);
             GoTab(*view, kCompareTab);
             if (compare != nullptr)
             {
-                WPJ6_CHECK_NOTE(compare->model()->rowCount() == 2,
-                    QStringLiteral("两个补丁在两个分组里，应有 2 行，实际 %1").arg(compare->model()->rowCount()));
+                WPJ6_CHECK_NOTE(compare->model()->rowCount() == 3,
+                    QStringLiteral("三个补丁在三个分组里，应有 3 行，实际 %1").arg(compare->model()->rowCount()));
                 WPJ6_CHECK_NOTE(compare->table()->currentIndex().row() == 1,
-                    QStringLiteral("目标 0x2020 恰是第二个分组的起点，应选中第 1 行，实际 %1").arg(compare->table()->currentIndex().row()));
+                    QStringLiteral("目标 0x2020 恰是第二个分组的起点，应选中第 1 行（不是第 2 行），实际 %1")
+                        .arg(compare->table()->currentIndex().row()));
             }
             view->hide();
         }

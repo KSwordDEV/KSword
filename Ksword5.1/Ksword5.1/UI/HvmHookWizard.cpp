@@ -5,6 +5,7 @@
 #endif
 
 #include "HvmHookWizard.h"
+#include "CodeTextEdit.h"
 
 #include "HvmControl.h"
 #include "ThemeStatusRole.h"
@@ -1382,7 +1383,8 @@ namespace ks::ui
         QWidget* const page = new QWidget(this);
         QVBoxLayout* const pageLayout = new QVBoxLayout(page);
 
-        m_installSummaryView = new QPlainTextEdit(page);
+        m_installSummaryView = new CodeTextEdit(page);
+        static_cast<CodeTextEdit*>(m_installSummaryView)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         m_installSummaryView->setReadOnly(true);
         makeMonospace(m_installSummaryView);
         pageLayout->addWidget(m_installSummaryView, 1);

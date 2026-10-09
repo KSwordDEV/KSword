@@ -59,6 +59,7 @@ def main() -> None:
     harness = r'''
 #include <QtCore/QtCore>
 #include <Windows.h>
+#include "GhidraRuntimePlugin/RuntimeProfile.h"
 #include <cstdlib>
 #include <iostream>
 '''
@@ -117,7 +118,22 @@ int main(int argc, char** argv) {
         check(!error.isEmpty(), "rejection provides diagnostic");
         check(bytes(root + "/x96dbg/old.txt") == "previous-installed", "rejection preserves installed plugin");
     }
-    std::cout << "PLUGIN_INSTALL_LAYOUT_PASS cases=8" << std::endl;
+    // 缺少运行载荷的 Ghidra 元数据包必须经过生产校验器拒绝，不能覆盖旧安装。
+    const QString ghidraRoot = base + "/invalid-ghidra"; // 本用例独占的插件根目录。
+    const QString ghidraStage = ghidraRoot + "/.stage"; // 仅包含规范元数据的暂存目录。
+    const MarketplacePlugin ghidraPlugin{.id="ghidra", .installDirectory="ghidra"}; // 待验证的后端插件身份。
+    put(ghidraRoot + "/ghidra/old.txt", "previous-installed");
+    check(QDir().mkpath(ghidraStage), "create Ghidra fixture stage");
+    QString ghidraError; // 保留生产校验器返回的具体失败原因。
+    check(ks::plugin_host::ghidra_runtime::writePackageMetadata(ghidraStage, &ghidraError),
+        "write canonical Ghidra metadata");
+    check(!promoteExtractedPlugin(ghidraPlugin, ghidraRoot, ghidraStage, &ghidraError),
+        "Ghidra metadata without runtime payload rejected");
+    // 具体错误码证明本用例实际进入生产载荷检查，而非假成功实现或普通清单分支。
+    check(ghidraError.startsWith("runtime_payload_missing:"), "Ghidra production validator reports missing payload");
+    check(bytes(ghidraRoot + "/ghidra/old.txt") == "previous-installed",
+        "Ghidra rejection preserves installed plugin");
+    std::cout << "PLUGIN_INSTALL_LAYOUT_PASS cases=9" << std::endl;
 }
 '''
     (generated / "PluginInstallLayoutTests.cpp").write_text(harness, encoding="utf-8")
@@ -128,13 +144,18 @@ int main(int argc, char** argv) {
 <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset><UseDebugLibraries>false</UseDebugLibraries></PropertyGroup>
 <Import Project="$(VCTargetsPath)\\Microsoft.Cpp.props" />
 <PropertyGroup><OutDir>$(ProjectDir)x64\\Release\\</OutDir><IntDir>$(ProjectDir)x64\\obj\\</IntDir></PropertyGroup>
-<ItemDefinitionGroup><ClCompile><LanguageStandard>stdcpp20</LanguageStandard><RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary><PreprocessorDefinitions>NOMINMAX;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions><AdditionalIncludeDirectories>{escape(str(qt / 'include'))};%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><AdditionalOptions>/utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions></ClCompile><Link><AdditionalLibraryDirectories>{escape(str(qt / 'lib'))};%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories><AdditionalDependencies>Qt6Core.lib;%(AdditionalDependencies)</AdditionalDependencies><SubSystem>Console</SubSystem></Link></ItemDefinitionGroup>
-<ItemGroup><ClCompile Include="PluginInstallLayoutTests.cpp" /></ItemGroup>
+<ItemDefinitionGroup><ClCompile><LanguageStandard>stdcpp20</LanguageStandard><RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary><PreprocessorDefinitions>NOMINMAX;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions><AdditionalIncludeDirectories>{escape(str(root))};{escape(str(qt / 'include'))};{escape(str(qt / 'include/QtCore'))};%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><AdditionalOptions>/utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions></ClCompile><Link><AdditionalLibraryDirectories>{escape(str(qt / 'lib'))};%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories><AdditionalDependencies>Qt6Core.lib;%(AdditionalDependencies)</AdditionalDependencies><SubSystem>Console</SubSystem></Link></ItemDefinitionGroup>
+<ItemGroup><ClCompile Include="PluginInstallLayoutTests.cpp" /><ClCompile Include="{escape(str(root / 'GhidraRuntimePlugin/RuntimeProfile.cpp'))}" /></ItemGroup>
 <Import Project="$(VCTargetsPath)\\Microsoft.Cpp.targets" />
 </Project>'''
     project_path = generated / "PluginInstallLayoutTests.vcxproj"
     project_path.write_text(project, encoding="utf-8")
-    (generated / "PluginInstallLayoutTests.vcxproj.filters").write_text('<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><ItemGroup><ClCompile Include="PluginInstallLayoutTests.cpp" /></ItemGroup></Project>\n', encoding="utf-8")
+    # 直接编译生产运行时校验模块；工程与 filters 同步引用，避免夹具丢失命名空间依赖。
+    (generated / "PluginInstallLayoutTests.vcxproj.filters").write_text(
+        '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><ItemGroup>'
+        '<ClCompile Include="PluginInstallLayoutTests.cpp" />'
+        f'<ClCompile Include="{escape(str(root / "GhidraRuntimePlugin/RuntimeProfile.cpp"))}" />'
+        '</ItemGroup></Project>\n', encoding="utf-8")
     subprocess.run([str(msbuild), str(project_path), "/t:Build", "/p:Configuration=Release", "/p:Platform=x64",
         "/p:PreferredToolArchitecture=x64", "/p:PROCESSOR_ARCHITECTURE=AMD64",
         "/p:PROCESSOR_ARCHITEW6432=AMD64", "/m:1", "/v:minimal", "/nologo"], cwd=root, check=True)

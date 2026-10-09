@@ -65,9 +65,10 @@ namespace code_editor_file_session
         }
         else
         {
-            // 无 BOM：先尝试 UTF-8，若出现替换字符则回退本地编码。
-            const QString utf8Text = QString::fromUtf8(fileBytes);
-            if (!fileBytes.isEmpty() && utf8Text.contains(QChar::ReplacementCharacter))
+            // 合法 UTF-8 可以包含 U+FFFD；只在字节解码失败时回退本地编码。
+            QStringDecoder decoder(QStringConverter::Utf8);
+            const QString utf8Text = decoder(fileBytes);
+            if (decoder.hasError())
             {
                 sessionMetadata.encoding = QStringConverter::System;
                 sessionMetadata.hasBom = false;

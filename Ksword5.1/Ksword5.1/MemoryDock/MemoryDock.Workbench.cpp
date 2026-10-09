@@ -1,5 +1,6 @@
 #include "MemoryDock.Internal.h"
 #include "MemoryDock.WorkbenchServices.h"
+#include "MemoryDebugPage.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/MemoryWorkbench/MemoryWorkbenchView.h"
@@ -26,6 +27,25 @@ namespace
 {
     // kWorkbenchTabIndex：内存工作台页签的插入位置（内存搜索之后、旧内存查看器之前）。
     constexpr int kWorkbenchTabIndex = 3;
+}
+
+// initializeMemoryDebugTab：独立页面不受旧工作台路由开关影响，也不订阅 Dock 附加。
+// 页面构造只建立选择器，生产工作台和系统枚举都延迟到首次显示。
+void MemoryDock::initializeMemoryDebugTab()
+{
+    if (m_tabWidget == nullptr || m_memoryDebugPage != nullptr)
+    {
+        return;
+    }
+    m_memoryDebugPage = new ks::ui::MemoryDebugPage(m_tabWidget);
+    // position：紧邻新工作台；整体开关关闭时仍保留此独立功能入口。
+    const int position = m_tabWorkbench != nullptr
+        ? m_tabWidget->indexOf(m_tabWorkbench) + 1 : kWorkbenchTabIndex;
+    const int index = m_tabWidget->insertTab(position, m_memoryDebugPage,
+        QStringLiteral("内存调试"));
+    m_tabWidget->setTabIcon(index, QIcon(QStringLiteral(":/Icon/memwb_tab_disasm.svg")));
+    ks::i18n::LanguageManager::instance().bindTab(m_tabWidget, m_memoryDebugPage,
+        QStringLiteral("memory.tab.debug"), QStringLiteral("内存调试"));
 }
 
 // initializeWorkbenchTab：在 initializeTabs 的图标循环之后调用一次。
@@ -251,11 +271,12 @@ bool MemoryDock::workbenchAllowsProcessChange()
 // confirmWorkbenchQuit：MainWindow::closeEvent 最前调用。
 bool MemoryDock::confirmWorkbenchQuit()
 {
-    if (m_workbenchView == nullptr)
+    if (m_workbenchView != nullptr && !m_workbenchView->confirmQuit())
     {
-        return true;
+        return false;
     }
-    return m_workbenchView->confirmQuit();
+    // 独立页可留有暂存补丁；主窗口停止驱动前必须同时通过这份会话的离开守卫。
+    return m_memoryDebugPage == nullptr || m_memoryDebugPage->confirmQuit();
 }
 
 void MemoryDock::cancelWorkbenchQuit()
@@ -263,6 +284,10 @@ void MemoryDock::cancelWorkbenchQuit()
     if (m_workbenchView != nullptr)
     {
         m_workbenchView->cancelQuitPreparation();
+    }
+    if (m_memoryDebugPage != nullptr)
+    {
+        m_memoryDebugPage->cancelQuitPreparation();
     }
 }
 

@@ -195,6 +195,10 @@ namespace ksword::memwb
         // 目标进程不同时再含身份位并 bump。
         TargetChange Unpin();
 
+        // ClearPinnedTarget：关闭独立会话，清两份进程记录但保持钉住策略。
+        // 不回到 Dock、不访问目标；身份清空时来源代次由统一出口推进一次。
+        TargetChange ClearPinnedTarget();
+
         // SetScope：换范围。不联动通道，不做任何自动回退。
         // 传入：scope 新范围。传出：范围相同返回 None；越界值返回 Rejected；否则含 Scope，
         //       pid 等随之归零/恢复时另含 Process/Bits，并 bump 来源代次一次。

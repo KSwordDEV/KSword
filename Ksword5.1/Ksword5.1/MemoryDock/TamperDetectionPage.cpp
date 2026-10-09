@@ -1,4 +1,5 @@
 #include "TamperDetectionPage.h"
+#include "../UI/CodeTextEdit.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../UI/AdaptivePageScroll.h"
@@ -476,7 +477,8 @@ namespace ksword::memory_dock
         m_resultTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
         splitter->addWidget(m_resultTable);
 
-        m_detailText = new QPlainTextEdit(splitter);
+        m_detailText = new CodeTextEdit(splitter);
+        static_cast<CodeTextEdit*>(m_detailText)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         m_detailText->setReadOnly(true);
         m_detailText->setPlaceholderText(QStringLiteral("选中上方任意一行查看该页每条路径的状态与逐对分歧。"));
         splitter->addWidget(m_detailText);

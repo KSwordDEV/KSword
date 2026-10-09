@@ -26,18 +26,20 @@ constexpr qsizetype kItemLimit = 100000;
 constexpr int kRetryLimit = 16;
 constexpr int kDepthLimit = 256;
 
+// 路径解析结果：根句柄、规范根名及保留原文的子路径，供全部通道共用。
 struct ParsedPath
 {
-    HKEY root = nullptr;
-    QString rootName;
-    QString subKey;
+    HKEY root = nullptr; // 已确认的预定义根句柄。
+    QString rootName; // 统一完整根名，保持根映射一致。
+    QString subKey; // 合法子路径，保留空格和原大小写。
 };
 
+// 预定义根的完整名、缩写及 Win32 句柄映射，禁止猜测未支持的根。
 struct RootEntry
 {
-    const char* name;
-    const char* alias;
-    HKEY root;
+    const char* name; // Win32 完整根名。
+    const char* alias; // 支持的短根名。
+    HKEY root; // 此根唯一的预定义句柄。
 };
 
 const std::array<RootEntry, 5> kRoots{{
@@ -51,29 +53,38 @@ const std::array<RootEntry, 5> kRoots{{
 class RegistryHandle final
 {
 public:
-    HKEY value = nullptr;
-    ~RegistryHandle() { if (value) ::RegCloseKey(value); }
+    HKEY value = nullptr; // 此对象独占的实际打开句柄。
+    // 独占 Win32 键句柄；退出作用域时释放，不把句柄泄漏到 UI。
+    ~RegistryHandle()
+    {
+        if (value)
+            ::RegCloseKey(value);
+    }
     RegistryHandle() = default;
     RegistryHandle(const RegistryHandle&) = delete;
     RegistryHandle& operator=(const RegistryHandle&) = delete;
 };
 
+// 输入 QString，借用其 UTF-16 缓冲区供同步 Win32 调用；不转码或裁剪。
 const wchar_t* wide(const QString& value)
 {
     return reinterpret_cast<const wchar_t*>(value.utf16());
 }
 
+// 可选 error 接收完整原因，返回 false 让调用方停止本次访问。
 bool fail(QString* error, const QString& text)
 {
     if (error) *error = text;
     return false;
 }
 
+// 输入 Win32 状态，输出保留精确错误码的诊断文本。
 QString systemError(const LONG status)
 {
     return QStringLiteral("Registry access failed (Win32=%1).").arg(status);
 }
 
+// 输入传输与协议状态，输出 Win32/NTSTATUS 和原客户端消息，避免吞掉失败来源。
 QString r0Error(const ksword::ark::IoResult& io, const quint32 status)
 {
     return QStringLiteral("R0 registry access failed (status=%1, Win32=%2, NTSTATUS=0x%3): %4")
@@ -82,6 +93,7 @@ QString r0Error(const ksword::ark::IoResult& io, const quint32 status)
         .arg(QString::fromStdString(io.message));
 }
 
+// 输入原始路径，校验根和组件预算，parsed 输出精确目标，失败写入 error。
 bool parsePath(const QString& path, ParsedPath* parsed, QString* error)
 {
     // Paths and raw value names are never trimmed: whitespace is legal registry data.
@@ -114,6 +126,7 @@ bool parsePath(const QString& path, ParsedPath* parsed, QString* error)
     return fail(error, QStringLiteral("Unsupported registry root."));
 }
 
+// 同时验证路径和所选通道；显式视图及 HKCR 不允许映射到 R0 v1 协议。
 bool validate(const QString& path, const RegistryAccessContext& context,
     ParsedPath* parsed, QString* error)
 {
@@ -128,17 +141,20 @@ bool validate(const QString& path, const RegistryAccessContext& context,
     return true;
 }
 
+// 输入原值名，返回是否满足长度和 NUL 约束；不裁剪合法空格。
 bool validateName(const QString& name, QString* error)
 {
     return name.size() <= 16383 && !name.contains(QChar(0))
         ? true : fail(error, QStringLiteral("Invalid registry value name."));
 }
 
+// 把用户视图转换为 WOW64 访问标志，所有同一请求的句柄共用。
 REGSAM viewFlag(const RegistryAccessContext& context)
 {
     return context.viewBits == 32 ? KEY_WOW64_32KEY : context.viewBits == 64 ? KEY_WOW64_64KEY : 0;
 }
 
+// 检查 R0 传输和聚合状态均成功；失败时保留客户端的结构化诊断。
 bool operationSucceeded(const ksword::ark::RegistryOperationResult& result, QString* error)
 {
     return result.io.ok && result.status == KSWORD_ARK_REGISTRY_OPERATION_STATUS_SUCCESS
@@ -150,6 +166,7 @@ QByteArray rawBytes(const std::vector<std::uint8_t>& data)
     return data.empty() ? QByteArray() : QByteArray(reinterpret_cast<const char*>(data.data()), static_cast<qsizetype>(data.size()));
 }
 
+// 使用已有键句柄完整读取值，state 输出存在/类型/原字节；有界重试增长竞争。
 bool readWin32(HKEY key, const QString& name, RegistryValueState* state, QString* error)
 {
     for (int attempt = 0; attempt < kRetryLimit; ++attempt)
@@ -177,19 +194,25 @@ bool readWin32(HKEY key, const QString& name, RegistryValueState* state, QString
     return fail(error, QStringLiteral("Registry value changed repeatedly while reading; retry the operation."));
 }
 
+// 将枚举结果标为不完整，只保留首个原因供 UI 明确展示。
 void incomplete(RegistryKeyListing* listing, const QString& warning)
 {
     listing->complete = false;
     if (listing->warning.isEmpty()) listing->warning = warning;
 }
 
+// 从当前进程令牌读取 HKCU 所属 SID；失败返回空，不能把整个 HKU 当作 HKCU。
 QString userSid()
 {
     HANDLE token = nullptr;
     if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) return {};
     DWORD bytes = 0;
     ::GetTokenInformation(token, TokenUser, nullptr, 0, &bytes);
-    if (bytes == 0) { ::CloseHandle(token); return {}; }
+    if (bytes == 0)
+    {
+        ::CloseHandle(token);
+        return {};
+    }
     std::vector<BYTE> data(bytes);
     const BOOL queried = ::GetTokenInformation(token, TokenUser, data.data(), bytes, &bytes);
     ::CloseHandle(token);
@@ -202,6 +225,7 @@ QString userSid()
     return result;
 }
 
+// 只读逐层检查精确键，任何中间 REG_LINK 都拒绝，防止递归删除跳出授权树。
 bool proveNoRegistryLinks(const ParsedPath& parsed, const RegistryAccessContext& context, QString* error)
 {
     // REG_OPTION_OPEN_LINK opens the final component itself. Walk every ancestor
@@ -226,6 +250,7 @@ bool proveNoRegistryLinks(const ParsedPath& parsed, const RegistryAccessContext&
 }
 }
 
+// 输入 Win32 根路径，输出可证明的内核路径；HKCR 合并视图无法表示，返回空。
 QString RegistryWorkbenchAccess::kernelPath(const QString& path)
 {
     ParsedPath parsed;
@@ -245,6 +270,7 @@ QString RegistryWorkbenchAccess::kernelPath(const QString& path)
     return parsed.subKey.isEmpty() ? root : root + QLatin1Char('\\') + parsed.subKey;
 }
 
+// 输入路径、名称和通道快照，state 输出完整性；失败不会换通道重试。
 bool RegistryWorkbenchAccess::read(const QString& path, const QString& name,
     const RegistryAccessContext& context, RegistryValueState* state, QString* error)
 {
@@ -278,6 +304,7 @@ bool RegistryWorkbenchAccess::read(const QString& path, const QString& name,
     return readWin32(key.value, name, state, error);
 }
 
+// 输入同一通道/视图上下文，输出有界键和值列表；缺项或增长竞争明确标为不完整。
 bool RegistryWorkbenchAccess::enumerate(const QString& path, const RegistryAccessContext& context,
     RegistryKeyListing* listing, QString* error, const bool includeSubKeys)
 {
@@ -336,7 +363,11 @@ bool RegistryWorkbenchAccess::enumerate(const QString& path, const RegistryAcces
             DWORD nameChars = static_cast<DWORD>(name.size()), dataBytes = static_cast<DWORD>(data.size()), type = 0;
             const LONG result = ::RegEnumValueW(key.value, index, name.data(), &nameChars, nullptr, &type,
                 reinterpret_cast<BYTE*>(data.data()), &dataBytes);
-            if (result == ERROR_NO_MORE_ITEMS) { completed = true; break; }
+            if (result == ERROR_NO_MORE_ITEMS)
+            {
+                completed = true;
+                break;
+            }
             if (result == ERROR_MORE_DATA)
             {
                 const std::size_t requiredName = std::max<std::size_t>(name.size() * 2U, static_cast<std::size_t>(nameChars) + 1U);
@@ -414,6 +445,7 @@ bool RegistryWorkbenchAccess::enumerate(const QString& path, const RegistryAcces
     return true;
 }
 
+// 仅提交完整且在容量范围内的原始值；参数和通道均校验后才执行写入。
 bool RegistryWorkbenchAccess::write(const QString& path, const RegistryValueState& state,
     const RegistryAccessContext& context, QString* error)
 {
@@ -438,6 +470,7 @@ bool RegistryWorkbenchAccess::write(const QString& path, const RegistryValueStat
     return result == ERROR_SUCCESS ? true : fail(error, systemError(result));
 }
 
+// 输入精确路径和值名，从指定通道删除单值；失败不进行另一通道的隐式补写。
 bool RegistryWorkbenchAccess::removeValue(const QString& path, const QString& name,
     const RegistryAccessContext& context, QString* error)
 {
@@ -456,6 +489,7 @@ bool RegistryWorkbenchAccess::removeValue(const QString& path, const QString& na
     return result == ERROR_SUCCESS ? true : fail(error, systemError(result));
 }
 
+// 输入非根目标路径与通道，在选定视图创建键，返回原 API 状态。
 bool RegistryWorkbenchAccess::createKey(const QString& path, const RegistryAccessContext& context, QString* error)
 {
     ParsedPath parsed;
@@ -473,6 +507,7 @@ bool RegistryWorkbenchAccess::createKey(const QString& path, const RegistryAcces
     return result == ERROR_SUCCESS ? true : fail(error, systemError(result));
 }
 
+// 先完整预检授权树，再按固定叶到根顺序删除；任何缺项或链接都拒绝开始。
 bool RegistryWorkbenchAccess::removeTree(const QString& path, const RegistryAccessContext& context, QString* error)
 {
     ParsedPath parsed;
@@ -482,7 +517,12 @@ bool RegistryWorkbenchAccess::removeTree(const QString& path, const RegistryAcce
     // Collect the whole tree before the first deletion. The selected backend
     // handles enumeration and deletion; Win32 OPEN_LINK is a read-only guard for
     // R0 because protocol v1 cannot prove whether ZwOpenKey followed a link.
-    struct PendingKey { QString path; int depth; };
+    // 待检查项携带原路径与深度，限定完整预检的遍历预算。
+    struct PendingKey
+    {
+        QString path; // 原始目标键路径。
+        int depth;    // 相对授权根的层数。
+    };
     QVector<PendingKey> pending{{path, 0}};
     QStringList deletionOrder;
     while (!pending.isEmpty())

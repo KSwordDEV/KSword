@@ -333,6 +333,22 @@ namespace ks::ui
         connect(sessionBar_, &WorkbenchSessionBar::applyRequested, this, &MemoryWorkbenchView::onSessionBarApplyRequested);
         connect(sessionBar_, &WorkbenchSessionBar::discardRequested, this, &MemoryWorkbenchView::onSessionBarDiscardRequested);
         connect(sessionBar_, &WorkbenchSessionBar::pickTargetRequested, this, &MemoryWorkbenchView::onSessionBarPickTargetRequested);
+        connect(target_.get(), &WorkbenchTarget::livenessChanged, this, [this](const int state) {
+            if (!memoryDebugMode_ || state != static_cast<int>(LivenessState::Exited))
+            {
+                return;
+            }
+            // 退出身份的在途回调变旧并取消，已有显示内容保留而不再触发新 I/O。
+            pageProvider_->cancelAllInFlight();
+            cancelPointerChainResolution();
+            hexPane_->setEditable(false);
+            disasmView_->setEditable(false);
+            liveRefreshTimer_->stop();
+            liveRefreshCheckBox_->setChecked(false);
+            refreshChannelGateDisplay();
+            statusBar_->setReadResultText(ks::i18n::sourceText(
+                QStringLiteral("目标进程已退出，当前内容为过期快照")), true);
+        });
 
         connect(addressBookPanel_, &AddressBookPanel::jumpRequested, this, &MemoryWorkbenchView::onAddressBookJumpRequested);
         connect(addressBookPanel_, &AddressBookPanel::pointerChainCreateRequested, this, &MemoryWorkbenchView::onPointerChainCreateRequested);

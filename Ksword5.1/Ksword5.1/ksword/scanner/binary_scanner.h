@@ -20,6 +20,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -131,6 +132,26 @@ namespace ks::scanner
         std::size_t maxRowsPerTable = 10000;
         std::size_t maxStringBytes = 4096;
         std::size_t maxContainerEntries = 65536;
+        // Interactive viewers retain the exact verified input, without a second
+        // file read or a second whole-file allocation. Other callers opt out.
+        bool retainInputSnapshot = false;
+    };
+
+    enum class BinaryRegionKind { Headers, Code, Data, Resources, Unmapped, Overlay };
+
+    // All file intervals are half-open and clipped to captured physical bytes.
+    // virtualSize also describes zero-fill, which never supplies file bytes.
+    struct BinaryMappedRegion
+    {
+        std::string name;
+        std::uint64_t fileOffset = 0;
+        std::uint64_t fileSize = 0;
+        std::uint64_t rva = 0;
+        std::uint64_t virtualSize = 0;
+        std::uint32_t characteristics = 0;
+        double entropy = 0.0;
+        bool mapped = false;
+        BinaryRegionKind kind = BinaryRegionKind::Unmapped;
     };
 
     // BinaryScanResult is the complete scanner response.
@@ -148,6 +169,14 @@ namespace ks::scanner
         std::vector<BinaryTable> tables;
         std::vector<BinaryDiagnostic> diagnostics;
         AttackPathDetection attackPath;
+        std::shared_ptr<const std::vector<std::uint8_t>> inputSnapshot;
+        std::vector<BinaryMappedRegion> mappedRegions;
+        std::uint64_t imageBase = 0;
+        std::uint64_t entryPointRva = 0;
+        std::uint64_t entryPointFileOffset = 0;
+        bool entryPointFileOffsetValid = false;
+        bool x86Compatible = false;
+        bool is64Bit = true;
     };
 
     // ScanBinaryFile loads and scans one ordinary file.

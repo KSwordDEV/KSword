@@ -8,8 +8,10 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 class QCheckBox;
+class QComboBox;
 class QEvent;
 class QLabel;
 class QLineEdit;
@@ -17,6 +19,12 @@ class QPushButton;
 class QTabWidget;
 class QTableWidget;
 struct ScannerAsyncState;
+
+namespace ks::ui
+{
+    class BinaryOverviewBar;
+    class MemoryEditorWidget;
+}
 
 namespace ks::scanner
 {
@@ -46,6 +54,13 @@ protected:
 private:
     // 以下函数分别负责构建/重译界面、选择目标，以及启动异步扫描或写入。
     void buildUi();
+    void buildAnalysisUi();
+    void retranslateAnalysisUi();
+    void renderAnalysisResult();
+    void navigateAnalysisOffset(std::uint64_t offset, bool showDisassembly = false);
+    void loadAnalysisWindow(std::uint64_t offset);
+    void updateAnalysisAddress(std::uint64_t offset);
+    void jumpAnalysisAddress();
     void retranslateUi();
     void chooseFile();
     void beginScan();
@@ -105,6 +120,26 @@ private:
     QTabWidget* m_resultTabs = nullptr; // m_resultTabs：本次扫描产生的结构化子页。
     QWidget* m_inspectionPage = nullptr; // m_inspectionPage：只读解析页容器。
     QWidget* m_editorPage = nullptr; // m_editorPage：等长字节编辑页容器。
+
+    QWidget* m_analysisPage = nullptr;
+    ks::ui::BinaryOverviewBar* m_overviewBar = nullptr;
+    ks::ui::MemoryEditorWidget* m_analysisEditor = nullptr;
+    QLabel* m_analysisLegend = nullptr;
+    QLabel* m_analysisSectionLabel = nullptr;
+    QComboBox* m_analysisSectionCombo = nullptr;
+    QComboBox* m_analysisAddressKind = nullptr;
+    QLineEdit* m_analysisAddressEdit = nullptr;
+    QPushButton* m_analysisJumpButton = nullptr;
+    QPushButton* m_analysisEntryButton = nullptr;
+    QPushButton* m_analysisPreviousButton = nullptr;
+    QPushButton* m_analysisNextButton = nullptr;
+    QPushButton* m_analysisFindButton = nullptr;
+    QLabel* m_analysisPosition = nullptr;
+    std::shared_ptr<const std::vector<std::uint8_t>> m_analysisSnapshot;
+    std::uint64_t m_currentFileOffset = 0;
+    std::uint64_t m_analysisNavigationGeneration = 0;
+    bool m_analysisArchitectureInitialized = false;
+    bool m_analysisLoading = false;
 
     QLabel* m_offsetLabel = nullptr; // m_offsetLabel：文件偏移字段标题。
     QLineEdit* m_offsetEdit = nullptr; // m_offsetEdit：十进制/十六进制文件偏移。

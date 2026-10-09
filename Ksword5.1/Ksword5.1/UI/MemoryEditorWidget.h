@@ -4,6 +4,8 @@
 #include "MemoryEditHistory.Core.h"
 #include "MemorySnapshotBytesProvider.h"
 #include <QWidget>
+#include <memory>
+#include <vector>
 
 class HexEditorWidget;
 class QComboBox;
@@ -20,6 +22,16 @@ namespace ks::ui
 {
     class WorkbenchDisasmView;
     class WorkbenchTextView;
+    class GhidraDecompiler;
+    struct FileAnalysisRegion
+    {
+        std::uint64_t fileOffset = 0;
+        std::uint64_t fileSize = 0;
+        std::uint64_t rva = 0;
+        std::uint64_t virtualSize = 0;
+        QString name;
+        bool executable = false;
+    };
     enum class SnapshotAddressKind { MemoryAddress, FileOffset };
     struct MemoryEditBlock
     {
@@ -62,9 +74,19 @@ namespace ks::ui
         void showDisassemblyAt(std::uint64_t address);
         WorkbenchDisasmView* disassemblyView() const;
         WorkbenchTextView* textView() const;
+        // Hosts supply the same captured file used for structural analysis.
+        // Unmapped gaps/overlay and virtual-only bytes have no PE address.
+        void setFileAnalysisContext(std::shared_ptr<const std::vector<std::uint8_t>> snapshot,
+            std::uint64_t imageBase, const QVector<FileAnalysisRegion>& regions,
+            bool x86Compatible = true);
+        std::optional<std::uint64_t> fileOffsetToVirtualAddress(std::uint64_t offset) const;
+        void setCapturedAddressRange(std::uint64_t base, std::uint64_t length);
+        void showPseudocodeAt(std::uint64_t address);
+        QPlainTextEdit* pseudocodeView() const;
+        GhidraDecompiler* decompiler() const;
         std::optional<DisassemblySelection> selectedInstruction() const;
-        // Only live process virtual-memory owners supply this context. Offline,
-        // physical and kernel evidence must not inherit a process navigation target.
+        // 只接受宿主读取时冻结的进程 VA 身份；缺创建时间时禁用导航，不按当前 PID 补授。
+        // 文件偏移、物理和内核证据不能继承进程导航目标，字节缓存和编辑通路不受影响。
         void setProcessContext(std::uint32_t pid, std::uint64_t createTime100ns = 0);
         void undo();
         void redo();
@@ -73,6 +95,7 @@ namespace ks::ui
         void bytesChanged();
         void currentAddressChanged(std::uint64_t address);
         void instructionContextMenuAboutToShow(QMenu* menu, std::uint64_t address, bool valid);
+        void windowRequested(quint64 address, quint64 length);
 
     protected:
         void changeEvent(QEvent* event) override;
@@ -95,6 +118,15 @@ namespace ks::ui
         std::uint64_t selectedAddress() const;
         bool contains(std::uint64_t address) const;
         DisassemblyArchitecture architecture() const;
+        void initializePseudocodeView();
+        bool setPseudocodeText(const QString& text);
+        void startDecompilation();
+        void invalidatePseudocode(bool clearContext = false);
+        void updatePseudocodeState();
+        void refreshDecompilerRuntime();
+        void locatePseudocodeLine(bool disassembly);
+        bool requestCapturedWindow(std::uint64_t address, std::uint64_t length);
+        std::optional<std::uint64_t> virtualAddressToFileOffset(std::uint64_t address) const;
 
         HexEditorWidget* m_hex = nullptr;
         QTabWidget* m_tabs = nullptr;
@@ -132,5 +164,28 @@ namespace ks::ui
         bool m_syncing = false;
         std::uint32_t m_processPid = 0;
         std::uint64_t m_processCreateTime100ns = 0;
+        GhidraDecompiler* m_decompiler = nullptr;
+        QPlainTextEdit* m_pseudocode = nullptr;
+        QLineEdit* m_ghidraDirectory = nullptr;
+        QPushButton* m_decompile = nullptr;
+        QPushButton* m_cancelDecompile = nullptr;
+        QPushButton* m_pseudocodeHex = nullptr;
+        QPushButton* m_pseudocodeDisassembly = nullptr;
+        QLabel* m_pseudocodeStatus = nullptr;
+        QLabel* m_decompilerRuntimeStatus = nullptr;
+        QPushButton* m_installGhidra = nullptr;
+        QPushButton* m_refreshGhidra = nullptr;
+        QVector<quint64> m_pseudocodeLineAddresses;
+        QVector<bool> m_pseudocodeLineValid;
+        std::shared_ptr<const std::vector<std::uint8_t>> m_fileAnalysisSnapshot;
+        QVector<FileAnalysisRegion> m_fileAnalysisRegions;
+        std::optional<std::pair<std::uint64_t, std::uint64_t>> m_capturedAddressRange;
+        std::uint64_t m_fileImageBase = 0;
+        std::uint64_t m_pseudocodeRequestRevision = 0;
+        std::uint64_t m_pseudocodeRequestAddress = 0;
+        std::uint64_t m_pseudocodeContextRevision = 0;
+        std::uint64_t m_pseudocodeEpoch = 0;
+        bool m_fileX86Compatible = true;
+        bool m_pseudocodeResultIsPe = false;
     };
 }

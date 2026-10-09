@@ -1,4 +1,4 @@
-#include "RegistryDocumentApply.h"
+#include "RegistryDocumentApplyInternal.h"
 
 #include <QFile>
 #include <QHash>
@@ -8,85 +8,14 @@
 #include <QSaveFile>
 #include <QSet>
 #include <algorithm>
-#include <cstring>
-#include <memory>
 #include <utility>
 
-#ifdef Q_OS_WIN
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
-#endif
+// 共用路径、原始值和链接规则与 Win32 后端保持一致。
+using namespace ks::registry::apply_detail;
 
 namespace
 {
-constexpr qsizetype kOperationLimit = 300000;
-constexpr qint64 kJournalLimit = 192LL * 1024 * 1024;
-constexpr qint64 kPlanDataLimit = 128LL * 1024 * 1024;
-
-bool failure(QString& error, const QString& message) { error = message; return false; }
-QString folded(const QString& text) { return text.toCaseFolded(); }
-bool inside(const QString& path, const QString& root)
-{
-    return path.compare(root, Qt::CaseInsensitive) == 0
-        || path.startsWith(root + QLatin1Char('\\'), Qt::CaseInsensitive);
-}
-
-bool pathCanonical(const QString& source, QString& path, QString& error)
-{
-    const QString original = source;
-    const QStringList roots { QStringLiteral("HKEY_CLASSES_ROOT"), QStringLiteral("HKEY_CURRENT_USER"),
-        QStringLiteral("HKEY_LOCAL_MACHINE"), QStringLiteral("HKEY_USERS"), QStringLiteral("HKEY_CURRENT_CONFIG") };
-    const QStringList aliases { QStringLiteral("HKCR"), QStringLiteral("HKCU"), QStringLiteral("HKLM"),
-        QStringLiteral("HKU"), QStringLiteral("HKCC") };
-    if (source.isEmpty() || source.size() > 32767 || !source.isValidUtf16()
-        || source.contains(QChar(0)) || source.endsWith(QLatin1Char('\\')))
-        return failure(error, QStringLiteral("Invalid registry change path."));
-    const qsizetype slash = original.indexOf(QLatin1Char('\\'));
-    const QString root = slash < 0 ? original : original.left(slash);
-    int rootIndex = -1;
-    for (int i = 0; i < roots.size(); ++i) {
-        if (root.compare(roots.at(i), Qt::CaseInsensitive) == 0
-            || root.compare(aliases.at(i), Qt::CaseInsensitive) == 0)
-            rootIndex = i;
-    }
-    if (rootIndex < 0)
-        return failure(error, QStringLiteral("Unsupported registry change root."));
-    path = roots.at(rootIndex);
-    if (slash >= 0) {
-        const QStringList components = original.mid(slash + 1).split(QLatin1Char('\\'));
-        if (components.size() > 256)
-            return failure(error, QStringLiteral("Registry change path exceeds the depth limit."));
-        for (const QString& component : components) {
-            if (component.isEmpty() || component.size() > 255)
-                return failure(error, QStringLiteral("Invalid registry change key component."));
-        }
-        path += QLatin1Char('\\') + original.mid(slash + 1);
-    }
-    return true;
-}
-
-QString parentPath(const QString& path)
-{
-    const qsizetype slash = path.lastIndexOf(QLatin1Char('\\'));
-    return slash < 0 ? QString() : path.left(slash);
-}
-
-bool sameValue(const RegistryApplyValueState& a, const RegistryApplyValueState& b)
-{
-    return a.exists == b.exists && (!a.exists || (a.type == b.type && a.data == b.data));
-}
-
-bool hasLink(const RegistryDocument& tree)
-{
-    for (const auto& value : tree.values) {
-        if (value.type == 6 && value.name.compare(QStringLiteral("SymbolicLinkValue"), Qt::CaseInsensitive) == 0)
-            return true;
-    }
-    return false;
-}
-
+// 比较完整树的键、安全描述符及原始值，拒绝丢项或竞争修改。
 bool sameTree(const RegistryDocument& expected, const RegistryDocument& actual)
 {
     if (expected.keys.size() != actual.keys.size() || expected.values.size() != actual.values.size())
@@ -113,6 +42,7 @@ bool sameTree(const RegistryDocument& expected, const RegistryDocument& actual)
     return true;
 }
 
+// 模拟键保存原路径、安全元数据和不区分大小写的值索引。
 struct SimulatedKey
 {
     QString path;
@@ -121,6 +51,7 @@ struct SimulatedKey
     QHash<QString, QString> names;
 };
 
+// 只读准备状态：模拟文档的顺序变化，保存每一步不可变的比较基线。
 struct Preparation
 {
     RegistryApplyBackend* backend = nullptr;
@@ -129,11 +60,20 @@ struct Preparation
     QStringList absentPrefixes;
     QString* error = nullptr;
 
+    // 查询模拟状态或后端，present 输出结果，错误写入共享 error。
     bool exists(const QString& path, bool& present)
     {
-        if (keys.contains(folded(path))) { present = true; return true; }
+        if (keys.contains(folded(path)))
+        {
+            present = true;
+            return true;
+        }
         for (const QString& missing : absentPrefixes) {
-            if (inside(path, missing)) { present = false; return true; }
+            if (inside(path, missing))
+            {
+                present = false;
+                return true;
+            }
         }
         if (!backend->keyExists(path, present, *error))
             return false;
@@ -144,6 +84,7 @@ struct Preparation
         return true;
     }
 
+    // 为路径和父键生成顺序创建计划；只记录计划，不实际创建。
     bool ensure(const QString& path, bool explicitSection)
     {
         bool present = false;
@@ -168,6 +109,7 @@ struct Preparation
         return true;
     }
 
+    // 输入子树根，输出当前模拟快照，供删除前比较。
     RegistryDocument subtree(const QString& root) const
     {
         RegistryDocument tree;
@@ -193,6 +135,7 @@ struct Preparation
     }
 };
 
+// 保留文件操作顺序；仅无显式顺序的快照按先键后值生成。
 QVector<RegistryDocumentOperation> sourceOrder(const RegistryDocument& document)
 {
     if (!document.operationOrder.isEmpty())
@@ -206,6 +149,7 @@ QVector<RegistryDocumentOperation> sourceOrder(const RegistryDocument& document)
 }
 } // namespace
 
+// 后端兼容的有界捕获默认实现；超预算时清空输出并失败。
 bool RegistryApplyBackend::captureTreeBounded(const QString& path, qint64 maximumDataBytes,
     RegistryDocument& tree, QString& error)
 {
@@ -223,6 +167,7 @@ bool RegistryApplyBackend::captureTreeBounded(const QString& path, qint64 maximu
     return true;
 }
 
+// 输入文档和只读后端，输出逐项计划与原始备份；失败不产生可执行计划。
 bool RegistryDocumentApplyService::prepareWithBackend(const RegistryDocument& document,
     RegistryApplyBackend& backend, RegistryApplyPlan& plan, QString& error)
 {
@@ -371,6 +316,7 @@ bool RegistryDocumentApplyService::prepareWithBackend(const RegistryDocument& do
     return true;
 }
 
+// 输入预览计划和原后端，逐项比较、执行与回读；result 记录状态及撤销边界。
 bool RegistryDocumentApplyService::applyWithBackend(const RegistryApplyPlan& plan,
     RegistryApplyBackend& backend, RegistryApplyResult& result, const std::atomic_bool* canceledToken)
 {
@@ -498,6 +444,7 @@ bool RegistryDocumentApplyService::applyWithBackend(const RegistryApplyPlan& pla
     return true;
 }
 
+// 按原提交成功回执生成逆序操作；部分撤销只保留仍待恢复的原回执。
 bool RegistryDocumentApplyService::undoWithBackend(const RegistryApplyResult& previous,
     RegistryApplyBackend& backend, RegistryApplyResult& result, const std::atomic_bool* canceledToken)
 {
@@ -550,6 +497,7 @@ bool RegistryDocumentApplyService::undoWithBackend(const RegistryApplyResult& pr
     return ok;
 }
 
+// 原子保存完整原子树和缺失键元数据到 path；不改动注册表。
 bool RegistryDocumentApplyService::saveOriginalBackup(const RegistryApplyPlan& plan,
     const QString& path, QString& error)
 {
@@ -588,6 +536,7 @@ bool RegistryDocumentApplyService::saveOriginalBackup(const RegistryApplyPlan& p
     return true;
 }
 
+// 有界读取原状态备份，输出合并恢复文档；不删除备份外新增数据。
 bool RegistryDocumentApplyService::loadOriginalBackup(const QString& path,
     RegistryDocument& mergeDocument, QString& error)
 {
@@ -664,410 +613,4 @@ bool RegistryDocumentApplyService::loadOriginalBackup(const QString& path,
         return failure(error, QStringLiteral("The original backup contains no existing data to merge-restore."));
     mergeDocument = std::move(loaded);
     return true;
-}
-
-#ifdef Q_OS_WIN
-namespace
-{
-class ApplyKey final
-{
-public:
-    ~ApplyKey() { close(); }
-    void close() { if (handle) { RegCloseKey(handle); handle = nullptr; } }
-    HKEY handle = nullptr;
-};
-
-bool apiError(QString& error, const QString& path, LSTATUS status)
-{
-    return failure(error, QStringLiteral("Registry operation failed at %1 (Win32 %2).").arg(path).arg(status));
-}
-
-class ApplyTransaction final
-{
-public:
-    ~ApplyTransaction()
-    {
-        // Closing the last uncommitted KTM handle rolls the transaction back.
-        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
-        if (m_module) FreeLibrary(m_module);
-    }
-    bool begin(const QString& path, QString& error)
-    {
-        m_module = LoadLibraryExW(L"KtmW32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-        if (!m_module) return apiError(error, path, GetLastError());
-        using Create = HANDLE (WINAPI*)(LPSECURITY_ATTRIBUTES, LPGUID, DWORD, DWORD, DWORD, DWORD, LPWSTR);
-        Create create = nullptr;
-        const FARPROC createAddress = GetProcAddress(m_module, "CreateTransaction");
-        const FARPROC commitAddress = GetProcAddress(m_module, "CommitTransaction");
-        static_assert(sizeof(create) == sizeof(createAddress));
-        static_assert(sizeof(m_commit) == sizeof(commitAddress));
-        std::memcpy(&create, &createAddress, sizeof(create));
-        std::memcpy(&m_commit, &commitAddress, sizeof(m_commit));
-        if (!create || !m_commit) return apiError(error, path, ERROR_PROC_NOT_FOUND);
-        handle = create(nullptr, nullptr, 0, 0, 0, 30000, nullptr);
-        return handle != INVALID_HANDLE_VALUE || apiError(error, path, GetLastError());
-    }
-    bool commit(const QString& path, QString& error)
-    {
-        return m_commit(handle) || apiError(error, path, GetLastError());
-    }
-    HANDLE handle = INVALID_HANDLE_VALUE;
-private:
-    HMODULE m_module = nullptr;
-    BOOL (WINAPI* m_commit)(HANDLE) = nullptr;
-};
-
-HKEY rootHandle(const QString& root)
-{
-    if (root == QStringLiteral("HKEY_CLASSES_ROOT")) return HKEY_CLASSES_ROOT;
-    if (root == QStringLiteral("HKEY_CURRENT_USER")) return HKEY_CURRENT_USER;
-    if (root == QStringLiteral("HKEY_LOCAL_MACHINE")) return HKEY_LOCAL_MACHINE;
-    if (root == QStringLiteral("HKEY_USERS")) return HKEY_USERS;
-    if (root == QStringLiteral("HKEY_CURRENT_CONFIG")) return HKEY_CURRENT_CONFIG;
-    return nullptr;
-}
-
-bool inspectLink(HKEY handle, const QString& path, QString& error)
-{
-    DWORD type = 0;
-    const LSTATUS status = RegQueryValueExW(handle, L"SymbolicLinkValue", nullptr, &type, nullptr, nullptr);
-    if (status == ERROR_SUCCESS && type == REG_LINK)
-        return failure(error, QStringLiteral("Registry operations refuse symbolic links: %1").arg(path));
-    if (status != ERROR_SUCCESS && status != ERROR_FILE_NOT_FOUND)
-        return apiError(error, path, status);
-    return true;
-}
-
-bool keyIdentity(HKEY handle, const QString& path, QString& identity, QString& error)
-{
-    using QueryKey = LONG (NTAPI*)(HANDLE, ULONG, PVOID, ULONG, PULONG);
-    QueryKey query = nullptr;
-    const FARPROC address = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryKey");
-    static_assert(sizeof(query) == sizeof(address));
-    std::memcpy(&query, &address, sizeof(query));
-    if (!query) return apiError(error, path, ERROR_PROC_NOT_FOUND);
-    ULONG required = 0;
-    // KeyNameInformation contains a byte count followed by the native UTF-16 name.
-    query(handle, 3, nullptr, 0, &required);
-    if (required < sizeof(ULONG) || required > 128 * 1024)
-        return apiError(error, path, ERROR_INVALID_DATA);
-    QByteArray buffer(static_cast<qsizetype>(required), Qt::Uninitialized);
-    ULONG returned = required;
-    if (query(handle, 3, buffer.data(), required, &returned) < 0)
-        return apiError(error, path, ERROR_INVALID_HANDLE);
-    ULONG bytes = 0;
-    std::memcpy(&bytes, buffer.constData(), sizeof(bytes));
-    if (returned < sizeof(bytes) || returned > required || !bytes || bytes > returned - sizeof(bytes) || bytes % 2)
-        return apiError(error, path, ERROR_INVALID_DATA);
-    identity = QString::fromWCharArray(reinterpret_cast<const wchar_t*>(buffer.constData() + sizeof(bytes)), bytes / 2);
-    return true;
-}
-
-class Win32ApplyBackend final : public RegistryApplyBackend
-{
-public:
-    explicit Win32ApplyBackend(int viewBits, const std::atomic_bool* canceled = nullptr) : m_bits(viewBits),
-        m_view(viewBits == 32 ? KEY_WOW64_32KEY : viewBits == 64 ? KEY_WOW64_64KEY : 0), m_canceled(canceled) {}
-
-    bool keyExists(const QString& path, bool& exists, QString& error) override
-    {
-        ApplyKey key;
-        LSTATUS status = ERROR_SUCCESS;
-        if (!open(path, KEY_QUERY_VALUE, key, status, error)) {
-            if (status == ERROR_FILE_NOT_FOUND || status == ERROR_PATH_NOT_FOUND || status == ERROR_KEY_DELETED) {
-                exists = false;
-                error.clear();
-                return true;
-            }
-            return false;
-        }
-        exists = true;
-        return true;
-    }
-
-    bool readValue(const QString& path, const QString& name, RegistryApplyValueState& value, QString& error) override
-    {
-        value = {};
-        ApplyKey key;
-        LSTATUS status = ERROR_SUCCESS;
-        if (!open(path, KEY_QUERY_VALUE, key, status, error))
-            return false;
-        return readValueHandle(key.handle, path, name, value, error);
-    }
-
-    bool readValueHandle(HKEY handle, const QString& path, const QString& name,
-        RegistryApplyValueState& value, QString& error)
-    {
-        value = {};
-        DWORD type = 0, size = 0;
-        LSTATUS status = RegQueryValueExW(handle, reinterpret_cast<LPCWSTR>(name.utf16()), nullptr, &type, nullptr, &size);
-        if (status == ERROR_FILE_NOT_FOUND)
-            return true;
-        if (status != ERROR_SUCCESS)
-            return apiError(error, path, status);
-        for (int attempt = 0; attempt < 5; ++attempt) {
-            if (size > 16 * 1024 * 1024)
-                return failure(error, QStringLiteral("Registry value exceeds the apply read budget."));
-            QByteArray data(static_cast<qsizetype>(size), Qt::Uninitialized);
-            DWORD actual = size;
-            status = RegQueryValueExW(handle, reinterpret_cast<LPCWSTR>(name.utf16()), nullptr,
-                &type, reinterpret_cast<BYTE*>(data.data()), &actual);
-            if (status == ERROR_MORE_DATA) { size = actual; continue; }
-            if (status == ERROR_FILE_NOT_FOUND)
-                return true;
-            if (status != ERROR_SUCCESS)
-                return apiError(error, path, status);
-            if (actual > static_cast<DWORD>(data.size()))
-                return failure(error, QStringLiteral("Registry apply read returned an invalid data length."));
-            data.resize(actual);
-            value = {true, type, std::move(data)};
-            return true;
-        }
-        return failure(error, QStringLiteral("Registry value kept growing during apply verification."));
-    }
-
-    bool captureTree(const QString& path, RegistryDocument& tree, QString& error) override
-    {
-        return captureTreeBounded(path, kPlanDataLimit, tree, error);
-    }
-
-    bool captureTreeBounded(const QString& path, qint64 maximumDataBytes,
-        RegistryDocument& tree, QString& error) override
-    {
-        ApplyKey key;
-        LSTATUS status = ERROR_SUCCESS;
-        if (!open(path, KEY_QUERY_VALUE, key, status, error))
-            return false;
-        return RegistryDocumentService::captureWin32(path, m_bits, tree, error, maximumDataBytes);
-    }
-
-    bool createKey(const QString& path, QString& error) override
-    {
-        const QString parent = parentPath(path);
-        if (parent.isEmpty())
-            return failure(error, QStringLiteral("A predefined registry root cannot be created."));
-        ApplyKey parentKey, created;
-        LSTATUS status = ERROR_SUCCESS;
-        if (!open(parent, KEY_CREATE_SUB_KEY | KEY_QUERY_VALUE, parentKey, status, error))
-            return false;
-        const QString name = path.mid(parent.size() + 1);
-        DWORD disposition = 0;
-        if (canceled(error))
-            return false;
-        status = RegCreateKeyExW(parentKey.handle, reinterpret_cast<LPCWSTR>(name.utf16()), 0, nullptr,
-            REG_OPTION_NON_VOLATILE, KEY_QUERY_VALUE | m_view, nullptr, &created.handle, &disposition);
-        if (status != ERROR_SUCCESS)
-            return apiError(error, path, status);
-        if (disposition != REG_CREATED_NEW_KEY)
-            return failure(error, QStringLiteral("Registry key appeared after its creation preview."));
-        return true;
-    }
-
-    bool setValue(const QString& path, const QString& name, quint32 type, const QByteArray& data, QString& error) override
-    {
-        ApplyKey key;
-        LSTATUS status = ERROR_SUCCESS;
-        if (!open(path, KEY_QUERY_VALUE | KEY_SET_VALUE, key, status, error))
-            return false;
-        if (canceled(error))
-            return false;
-        status = RegSetValueExW(key.handle, reinterpret_cast<LPCWSTR>(name.utf16()), 0, type,
-            reinterpret_cast<const BYTE*>(data.constData()), static_cast<DWORD>(data.size()));
-        return status == ERROR_SUCCESS || apiError(error, path, status);
-    }
-
-    bool deleteValue(const QString& path, const QString& name, QString& error) override
-    {
-        ApplyKey key;
-        LSTATUS status = ERROR_SUCCESS;
-        if (!open(path, KEY_QUERY_VALUE | KEY_SET_VALUE, key, status, error))
-            return false;
-        if (canceled(error))
-            return false;
-        status = RegDeleteValueW(key.handle, reinterpret_cast<LPCWSTR>(name.utf16()));
-        // Missing after the immediately preceding comparison is a conflict.
-        return status == ERROR_SUCCESS || apiError(error, path, status);
-    }
-
-    bool deleteTree(const QString& path, const RegistryDocument& expectedTree, QString& error) override
-    {
-        if (parentPath(path).isEmpty() || expectedTree.rootPath.compare(path, Qt::CaseInsensitive) != 0
-            || expectedTree.keys.isEmpty() || hasLink(expectedTree))
-            return failure(error, QStringLiteral("Deleting a predefined registry root is forbidden."));
-        QStringList paths;
-        for (const auto& key : expectedTree.keys) {
-            if (!inside(key.path, path))
-                return failure(error, QStringLiteral("Registry deletion plan contains a key outside its authorized subtree."));
-            paths.append(key.path);
-        }
-        std::sort(paths.begin(), paths.end(), [](const QString& a, const QString& b) { return a.size() > b.size(); });
-        QHash<QString, QVector<RegistryDocumentValue>> values;
-        QHash<QString, QByteArray> security;
-        for (const auto& key : expectedTree.keys) security.insert(folded(key.path), key.securityDescriptor);
-        for (const auto& value : expectedTree.values)
-            values[folded(value.keyPath)].append(value);
-        ApplyTransaction transaction;
-        if (!transaction.begin(path, error)) return false;
-        // This list is fixed before the first write. Newly discovered children
-        // never extend it. All checks and deletions share one transaction; an
-        // outside writer either conflicts or aborts our commit, retaining its data.
-        for (const auto& target : paths) {
-            if (canceled(error))
-                return false;
-            ApplyKey key, parent;
-            LSTATUS status = ERROR_SUCCESS;
-            const auto expectedSecurity = security.value(folded(target));
-            if (!openTransacted(target, KEY_QUERY_VALUE | DELETE | (expectedSecurity.isEmpty() ? 0 : READ_CONTROL),
-                transaction.handle, key, status, error))
-                return false;
-            if (!expectedSecurity.isEmpty()) {
-                constexpr SECURITY_INFORMATION parts = OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
-                DWORD bytes = 0;
-                status = RegGetKeySecurity(key.handle, parts, nullptr, &bytes);
-                if (status != ERROR_INSUFFICIENT_BUFFER || bytes > 1024 * 1024 || bytes == 0)
-                    return apiError(error, target, status == ERROR_INSUFFICIENT_BUFFER || status == ERROR_SUCCESS ? ERROR_INVALID_DATA : status);
-                QByteArray currentSecurity(static_cast<qsizetype>(bytes), Qt::Uninitialized);
-                status = RegGetKeySecurity(key.handle, parts,
-                    reinterpret_cast<PSECURITY_DESCRIPTOR>(currentSecurity.data()), &bytes);
-                if (status != ERROR_SUCCESS) return apiError(error, target, status);
-                if (bytes > static_cast<DWORD>(currentSecurity.size())) return apiError(error, target, ERROR_INVALID_DATA);
-                currentSecurity.resize(bytes);
-                if (currentSecurity != expectedSecurity) return apiError(error, target, ERROR_TRANSACTIONAL_CONFLICT);
-            }
-            DWORD childCount = 0, valueCount = 0;
-            status = RegQueryInfoKeyW(key.handle, nullptr, nullptr, nullptr, &childCount, nullptr,
-                nullptr, &valueCount, nullptr, nullptr, nullptr, nullptr);
-            if (status != ERROR_SUCCESS)
-                return apiError(error, target, status);
-            const auto expectedValues = values.value(folded(target));
-            if (childCount != 0 || valueCount != static_cast<DWORD>(expectedValues.size()))
-                return failure(error, QStringLiteral("Registry deletion stopped because the key acquired a child or changed its values."));
-            for (const auto& value : expectedValues) {
-                RegistryApplyValueState actual;
-                if (!readValueHandle(key.handle, target, value.name, actual, error))
-                    return false;
-                if (!sameValue({true, value.type, value.data}, actual))
-                    return failure(error, QStringLiteral("Registry value changed immediately before tree deletion."));
-            }
-            const QString parentName = parentPath(target);
-            if (!openTransacted(parentName, KEY_QUERY_VALUE, transaction.handle, parent, status, error))
-                return false;
-            const QString leaf = target.mid(parentName.size() + 1);
-            ApplyKey candidate;
-            status = RegOpenKeyTransactedW(parent.handle, reinterpret_cast<LPCWSTR>(leaf.utf16()), 0,
-                KEY_QUERY_VALUE | DELETE | m_view, &candidate.handle, transaction.handle, nullptr);
-            if (status != ERROR_SUCCESS) return apiError(error, target, status);
-            // Bind the name used by deletion as well as the no-follow object that
-            // was checked. A rename/replacement/link race must not redirect the
-            // parent-relative delete to a different key with unbacked values.
-            QString expectedIdentity, candidateIdentity;
-            if (!keyIdentity(key.handle, target, expectedIdentity, error)
-                || !keyIdentity(candidate.handle, target, candidateIdentity, error)) return false;
-            if (expectedIdentity.compare(candidateIdentity, Qt::CaseInsensitive) != 0)
-                return apiError(error, target, ERROR_TRANSACTIONAL_CONFLICT);
-            key.close();
-            if (canceled(error))
-                return false;
-            status = RegDeleteKeyTransactedW(parent.handle, reinterpret_cast<LPCWSTR>(leaf.utf16()),
-                m_view, 0, transaction.handle, nullptr);
-            if (status != ERROR_SUCCESS)
-                return apiError(error, target, status);
-        }
-        if (canceled(error)) return false;
-        return transaction.commit(path, error);
-    }
-
-private:
-    bool openTransacted(const QString& path, REGSAM access, HANDLE transaction,
-        ApplyKey& key, LSTATUS& status, QString& error)
-    {
-        // First obtain a no-follow handle and inspect every path component. The
-        // transacted API reserves its options parameter, so bind the transaction
-        // to this exact handle through an empty subkey instead of traversing again.
-        ApplyKey exact;
-        if (!open(path, access, exact, status, error)) return false;
-        status = RegOpenKeyTransactedW(exact.handle, L"", 0,
-            access | KEY_QUERY_VALUE | m_view, &key.handle, transaction, nullptr);
-        return status == ERROR_SUCCESS || apiError(error, path, status);
-    }
-
-    bool canceled(QString& error) const
-    {
-        if (!m_canceled || !m_canceled->load(std::memory_order_relaxed))
-            return false;
-        error = QStringLiteral("Registry operation canceled before writing.");
-        return true;
-    }
-    bool open(const QString& input, REGSAM access, ApplyKey& key, LSTATUS& status, QString& error)
-    {
-        QString path;
-        if (!pathCanonical(input, path, error)) { status = ERROR_INVALID_PARAMETER; return false; }
-        const auto parts = path.split(QLatin1Char('\\'));
-        HKEY current = rootHandle(parts.first());
-        ApplyKey owned;
-        QString currentPath = parts.first();
-        if (parts.size() == 1) {
-            status = RegOpenKeyExW(current, L"", REG_OPTION_OPEN_LINK, access | KEY_QUERY_VALUE | m_view, &key.handle);
-            return status == ERROR_SUCCESS || apiError(error, path, status);
-        }
-        for (qsizetype i = 1; i < parts.size(); ++i) {
-            HKEY child = nullptr;
-            status = RegOpenKeyExW(current, reinterpret_cast<LPCWSTR>(parts.at(i).utf16()), REG_OPTION_OPEN_LINK,
-                (i + 1 == parts.size() ? access : KEY_QUERY_VALUE) | KEY_QUERY_VALUE | m_view, &child);
-            if (status != ERROR_SUCCESS)
-                return apiError(error, path, status);
-            owned.close();
-            owned.handle = child;
-            current = child;
-            currentPath += QLatin1Char('\\') + parts.at(i);
-            if (!inspectLink(current, currentPath, error)) { status = ERROR_INVALID_PARAMETER; return false; }
-        }
-        key.handle = owned.handle;
-        owned.handle = nullptr;
-        return true;
-    }
-
-    int m_bits = 0;
-    REGSAM m_view = 0;
-    const std::atomic_bool* m_canceled = nullptr;
-};
-} // namespace
-#endif
-
-bool RegistryDocumentApplyService::prepareWin32(const RegistryDocument& document, RegistryApplyPlan& plan, QString& error)
-{
-#ifdef Q_OS_WIN
-    Win32ApplyBackend backend(document.viewBits);
-    return prepareWithBackend(document, backend, plan, error);
-#else
-    Q_UNUSED(document);
-    plan = {};
-    return failure(error, QStringLiteral("Registry apply preparation requires Windows."));
-#endif
-}
-
-bool RegistryDocumentApplyService::applyWin32(const RegistryApplyPlan& plan, RegistryApplyResult& result,
-    const std::atomic_bool* canceledToken)
-{
-#ifdef Q_OS_WIN
-    Win32ApplyBackend backend(plan.viewBits, canceledToken);
-    return applyWithBackend(plan, backend, result, canceledToken);
-#else
-    Q_UNUSED(plan); Q_UNUSED(canceledToken);
-    result = {};
-    return failure(result.error, QStringLiteral("Registry application requires Windows."));
-#endif
-}
-
-bool RegistryDocumentApplyService::undoWin32(const RegistryApplyResult& previous, RegistryApplyResult& result,
-    const std::atomic_bool* canceledToken)
-{
-#ifdef Q_OS_WIN
-    Win32ApplyBackend backend(previous.viewBits, canceledToken);
-    return undoWithBackend(previous, backend, result, canceledToken);
-#else
-    Q_UNUSED(previous); Q_UNUSED(canceledToken);
-    result = {};
-    return failure(result.error, QStringLiteral("Registry committed undo requires Windows."));
-#endif
 }

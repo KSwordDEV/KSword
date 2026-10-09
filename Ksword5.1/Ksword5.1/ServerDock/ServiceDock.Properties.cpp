@@ -1,4 +1,5 @@
 #include "ServiceDock.Internal.h"
+#include "../UI/CodeTextEdit.h"
 #include "../theme.h"
 
 #include <QFileDialog>
@@ -326,7 +327,11 @@ void ServiceDock::initializeGeneralTab()
     m_generalDisplayNameEdit = new QLineEdit(m_generalTabPage);
     m_generalBinaryPathEdit = new QLineEdit(m_generalTabPage);
     m_generalBinaryPathEdit->setReadOnly(true);
-    m_generalDescriptionEdit = new QPlainTextEdit(m_generalTabPage);
+    auto* descriptionEditor = new CodeTextEdit(m_generalTabPage);
+    descriptionEditor->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    descriptionEditor->setLineNumbersVisible(false);
+    descriptionEditor->setCompactMode(true);
+    m_generalDescriptionEdit = descriptionEditor;
     m_generalDescriptionEdit->setFixedHeight(96);
     m_generalStartTypeCombo = new QComboBox(m_generalTabPage);
     m_generalStartTypeCombo->addItem(QStringLiteral("自动"), static_cast<qulonglong>(SERVICE_AUTO_START));

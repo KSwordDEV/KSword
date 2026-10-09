@@ -147,4 +147,7 @@
         <file alias="codeeditor_wrap.svg">Resource/Icon/editor/text_area_line.svg</file>
         <file alias="codeeditor_structured.svg">Resource/Icon/design/layout_grid_line.svg</file>
     </qresource>
+    <qresource prefix="/plugin-marketplace">
+        <file alias="catalog.json">../../PluginMarketplace/catalog.json</file>
+    </qresource>
 </RCC>

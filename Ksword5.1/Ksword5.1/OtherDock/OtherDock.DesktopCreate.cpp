@@ -22,6 +22,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include "../UI/CodeTextEdit.h"
 #include <QPushButton>
 #include <QSpinBox>
 #include <QStringList>
@@ -409,7 +410,10 @@ void OtherDock::showCreateDesktopDialog()
     keepHandleCheck->setToolTip(QStringLiteral("创建后不关闭句柄，保持桌面存在；取消勾选则桌面可能在无人使用时被系统回收"));
     switchAfterCreateCheck->setToolTip(QStringLiteral("创建完成后立刻切换过去（切换后原桌面窗口会暂时看不到）"));
     customSddlCheck->setToolTip(QStringLiteral("改用下方手写的 SDDL 字符串精确指定谁能访问该桌面，而不使用上面的勾选项"));
-    QPlainTextEdit* sddlEdit = new QPlainTextEdit(securityGroup);
+    auto* sddlEdit = new CodeTextEdit(securityGroup);
+    sddlEdit->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    sddlEdit->setLineNumbersVisible(false);
+    sddlEdit->setCompactMode(true);
     privateAccessCheck->setToolTip(QStringLiteral("使用空 DACL 阻止其它进程按名称打开；当前进程使用创建返回句柄，子进程需要继承该句柄。"));
     inheritableHandleCheck->setChecked(true);
     keepHandleCheck->setChecked(true);

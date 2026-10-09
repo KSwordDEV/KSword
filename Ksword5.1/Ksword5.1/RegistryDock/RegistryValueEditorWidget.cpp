@@ -18,6 +18,7 @@
 #include <QLineEdit>
 #include <QPainter>
 #include <QPlainTextEdit>
+#include "../UI/CodeTextEdit.h"
 #include <QPixmap>
 #include <QPointer>
 #include <QPushButton>
@@ -82,9 +83,9 @@ namespace
 
     QPlainTextEdit* plainEditor(QWidget* parent, bool readOnly = false)
     {
-        auto* editor = new QPlainTextEdit(parent);
+        auto* editor = new CodeTextEdit(parent);
+        static_cast<CodeTextEdit*>(editor)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         editor->setReadOnly(readOnly);
-        editor->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
         editor->setMinimumHeight(80);
         return editor;
     }

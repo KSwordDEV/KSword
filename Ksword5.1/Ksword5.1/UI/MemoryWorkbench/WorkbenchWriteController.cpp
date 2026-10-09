@@ -26,6 +26,62 @@
 
 namespace ks::ui
 {
+    namespace
+    {
+        // TargetCheckedIoPort：仅在独立模式阻止退出/关闭后的事务读写。
+        // 事务在 UI 线程同步调用本端口；普通工作台始终保留原端口行为。
+        class TargetCheckedIoPort final : public ksword::memwb::IMemoryIoPort
+        {
+        public:
+            // inner：真实端口；target：存活检测来源，仅以弱引用保留。
+            TargetCheckedIoPort(std::unique_ptr<ksword::memwb::IMemoryIoPort> inner, WorkbenchTarget* target)
+                : inner_(std::move(inner)), target_(target)
+            {
+            }
+
+            ksword::memwb::IoLimits Limits(const ksword::memwb::MemoryTargetSession& session) const override
+            {
+                return inner_->Limits(session);
+            }
+
+            // Read：读前核验独立目标状态，失败不调用后端。
+            ksword::memwb::IoReadResult Read(const ksword::memwb::MemoryTargetSession& session,
+                const std::uint64_t address, const std::uint64_t length) override
+            {
+                if (!canAccess(session))
+                {
+                    ksword::memwb::IoReadResult result;
+                    result.status = ksword::memwb::IoReadStatus::Failed;
+                    result.failure = "目标进程已退出或内存会话已关闭";
+                    return result;
+                }
+                return inner_->Read(session, address, length);
+            }
+
+            // Write：确认框之后仍逐次核验，拒绝新写入而不触碰已退出目标。
+            ksword::memwb::IoWriteResult Write(const ksword::memwb::MemoryTargetSession& session,
+                const std::uint64_t address, const std::vector<std::uint8_t>& bytes, const bool approved) override
+            {
+                if (!canAccess(session))
+                {
+                    ksword::memwb::IoWriteResult result;
+                    result.failure = "目标进程已退出或内存会话已关闭";
+                    return result;
+                }
+                return inner_->Write(session, address, bytes, approved);
+            }
+
+        private:
+            bool canAccess(const ksword::memwb::MemoryTargetSession& session) const
+            {
+                // 模式由目标策略表达；默认 allowFollowDock=true 的旧视图不受影响。
+                return target_ && (target_->policy().allowFollowDock
+                    || (session.pid != 0U && target_->livenessState() != LivenessState::Exited));
+            }
+            std::unique_ptr<ksword::memwb::IMemoryIoPort> inner_; // 被包装端口的独占所有权。
+            QPointer<WorkbenchTarget> target_;                 // 目标销毁时自动失效。
+        };
+    }
     using ksword::memwb::CommitOutcome;
     using ksword::memwb::CommitReport;
     using ksword::memwb::DiffBlock;
@@ -216,6 +272,8 @@ namespace ks::ui
             // 工厂本身返回了空指针：同样当作"端口不可用"处理，不假装成功。
             return nullptr;
         }
+        // 包装事务端口而不是只禁按钮，覆盖暂存应用和历史回放的实际 I/O。
+        port_ = std::make_unique<TargetCheckedIoPort>(std::move(port_), target_);
         if (kernelPortFactory_ && !kernelPort_)
         {
             // 内核端口工厂是可选的；工厂调用本身返回空指针也接受——语义上等价于

@@ -1,4 +1,7 @@
-#include "PluginHost.h"
+﻿#include "PluginHost.h"
+#include "PluginHost.Upstream.h"
+#include "../../GhidraRuntimePlugin/RuntimeProfile.h"
+#include "UI/CodeTextEdit.h"
 #include "UI/VisibleTableWidget.h"
 
 #include "theme.h"
@@ -145,6 +148,8 @@ namespace
         QString sha256;
         QString licenseName;
         QUrl licenseUrl;
+        bool upstreamAssets = false; // 分发方式独立于插件运行方式。
+        ks::plugin_host::UpstreamPlan upstreamPlan; // 市场维护的完整安装事务。
     };
 
     enum class MarketplaceUpdateState
@@ -585,7 +590,9 @@ namespace
     bool isApprovedMarketplaceUrl(const QUrl& url)
     {
         return url.isValid() && url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0 &&
-            url.host().compare(QStringLiteral("raw.githubusercontent.com"), Qt::CaseInsensitive) == 0;
+            url.host().compare(QStringLiteral("raw.githubusercontent.com"), Qt::CaseInsensitive) == 0 &&
+            url.userInfo().isEmpty() && (url.port(-1) == -1 || url.port() == 443) &&
+            !url.hasQuery() && !url.hasFragment();
     }
 
     QString networkReplyErrorText(QNetworkReply* reply)
@@ -613,8 +620,6 @@ namespace
             !readRequiredString(object, "version", &plugin.version, errorOut) ||
             !readRequiredString(object, "description", &plugin.description, errorOut) ||
             !readRequiredString(object, "install_directory", &plugin.installDirectory, errorOut) ||
-            !readRequiredString(object, "archive_url", &archiveUrlText, errorOut) ||
-            !readRequiredString(object, "sha256", &plugin.sha256, errorOut) ||
             !readRequiredString(object, "license_name", &plugin.licenseName, errorOut) ||
             !readRequiredString(object, "license_url", &licenseUrlText, errorOut))
         {
@@ -625,24 +630,62 @@ namespace
             *errorOut = QStringLiteral("商城条目的 id 或 install_directory 不合法。");
             return false;
         }
-        plugin.archiveUrl = QUrl(archiveUrlText);
         plugin.licenseUrl = QUrl(licenseUrlText);
-        if (!isApprovedMarketplaceUrl(plugin.archiveUrl) || !isApprovedMarketplaceUrl(plugin.licenseUrl))
+        if (!isApprovedMarketplaceUrl(plugin.licenseUrl))
         {
             *errorOut = QStringLiteral("商城仅接受 raw.githubusercontent.com 的 HTTPS 下载地址。");
             return false;
         }
-        if (!QRegularExpression(QStringLiteral("^[0-9A-Fa-f]{64}$")).match(plugin.sha256).hasMatch())
+        // 未声明 distribution 的旧条目保持 ZIP 分发；新条目按协议解析多资源计划。
+        if (object.contains(QStringLiteral("distribution")))
         {
-            *errorOut = QStringLiteral("商城条目的 sha256 必须是 64 位十六进制值。");
-            return false;
+            plugin.upstreamAssets = true;
+            if (!ks::plugin_host::parseUpstreamDistribution(object.value(QStringLiteral("distribution")).toObject(),
+                    plugin.id, &plugin.upstreamPlan, errorOut) || plugin.installDirectory != plugin.id)
+            {
+                if (errorOut->isEmpty()) *errorOut = QStringLiteral("上游插件安装目录必须与 id 一致。");
+                return false;
+            }
+            const auto& manifest = plugin.upstreamPlan.manifest;
+            if (manifest.value(QStringLiteral("version")).toString() != plugin.version ||
+                manifest.value(QStringLiteral("name")).toString() != plugin.name ||
+                manifest.value(QStringLiteral("description")).toString() != plugin.description ||
+                manifest.value(QStringLiteral("targets")) != object.value(QStringLiteral("targets")))
+            {
+                *errorOut = QStringLiteral("上游分发清单与商城元数据不一致。");
+                return false;
+            }
+            // 许可证正文必须正是计划中的哈希固定文件，不能展示另一份文本后安装。
+            bool licenseMatches = false;
+            for (const auto& file : plugin.upstreamPlan.metadata)
+            {
+                if (file.path == manifest.value(QStringLiteral("license")).toString() && file.url == plugin.licenseUrl)
+                    licenseMatches = true;
+            }
+            if (!licenseMatches)
+            {
+                *errorOut = QStringLiteral("上游插件许可证 URL 与分发计划不一致。");
+                return false;
+            }
+        }
+        else
+        {
+            if (!readRequiredString(object, "archive_url", &archiveUrlText, errorOut) ||
+                !readRequiredString(object, "sha256", &plugin.sha256, errorOut)) return false;
+            plugin.archiveUrl = QUrl(archiveUrlText);
+            if (!isApprovedMarketplaceUrl(plugin.archiveUrl) || !ks::plugin_host::validUpstreamSha256(plugin.sha256))
+            {
+                *errorOut = QStringLiteral("商城 ZIP 下载地址或 SHA-256 不合法。");
+                return false;
+            }
         }
         const QJsonArray targetValues = object.value(QStringLiteral("targets")).toArray();
         for (const QJsonValue& value : targetValues)
         {
             const QString target = value.toString().trimmed().toLower();
             if ((target == QStringLiteral("file") || target == QStringLiteral("process") ||
-                target == QStringLiteral("network") || target == QStringLiteral("tab")) &&
+                target == QStringLiteral("network") || target == QStringLiteral("tab") ||
+                (plugin.upstreamAssets && target == QStringLiteral("decompiler"))) &&
                 !plugin.targets.contains(target))
             {
                 plugin.targets.push_back(target);
@@ -650,7 +693,7 @@ namespace
         }
         if (plugin.targets.isEmpty())
         {
-            *errorOut = QStringLiteral("商城条目的 targets 必须包含 file、process、network 和/或 tab。");
+            *errorOut = QStringLiteral("商城条目的 targets 不包含受支持的插件能力。");
             return false;
         }
         *pluginOut = plugin;
@@ -706,18 +749,38 @@ namespace
             !readRequiredString(object, "name", &descriptor.name, errorOut) ||
             !readRequiredString(object, "version", &descriptor.version, errorOut) ||
             !readRequiredString(object, "description", &descriptor.description, errorOut) ||
-            !readRequiredString(object, "runtime", &descriptor.runtime, errorOut) ||
-            !readRequiredString(object, "entrypoint", &entrypoint, errorOut) ||
-            !readRequiredString(object, "default_command", &descriptor.defaultCommand, errorOut))
+            !readRequiredString(object, "runtime", &descriptor.runtime, errorOut))
         {
             return false;
         }
         descriptor.pluginType = object.value(QStringLiteral("plugin_type")).toString(QStringLiteral("command")).trimmed().toLower();
+        if (descriptor.id == QStringLiteral("ghidra") && descriptor.pluginType != QStringLiteral("backend"))
+        {
+            *errorOut = QStringLiteral("Ghidra 插件只能声明 backend 类型。");
+            return false;
+        }
+        if (descriptor.pluginType == QStringLiteral("backend"))
+        {
+            // A managed runtime is visible to the manager but has no command,
+            // file/process/network target, native Tab, or entrypoint dispatch.
+            if (pluginId != QStringLiteral("ghidra") || descriptor.id != pluginId ||
+                !ks::plugin_host::ghidra_runtime::validateDirectory(pluginDirectory, errorOut))
+            {
+                if (errorOut->isEmpty()) *errorOut = QStringLiteral("Ghidra 后端插件清单或运行环境无效。");
+                return false;
+            }
+            descriptor.pluginDirectory = QDir(pluginDirectory).absolutePath();
+            descriptor.targets = QStringList{QStringLiteral("decompiler")};
+            *descriptorOut = descriptor;
+            return true;
+        }
+        if (!readRequiredString(object, "entrypoint", &entrypoint, errorOut) ||
+            !readRequiredString(object, "default_command", &descriptor.defaultCommand, errorOut)) return false;
         if (descriptor.pluginType != QStringLiteral("command") &&
             descriptor.pluginType != QStringLiteral("tab") &&
             descriptor.pluginType != QStringLiteral("hybrid"))
         {
-            *errorOut = QStringLiteral("plugin_type 只能是 command、tab 或 hybrid。");
+            *errorOut = QStringLiteral("plugin_type 只能是 command、tab、hybrid 或受支持的 backend。");
             return false;
         }
         if (descriptor.id != pluginId || !isValidPluginId(descriptor.id))
@@ -1183,13 +1246,15 @@ namespace
             }
             else
             {
-                m_plainOutput = new QPlainTextEdit(m_tabs);
+                m_plainOutput = new CodeTextEdit(m_tabs);
+                static_cast<CodeTextEdit*>(m_plainOutput)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
                 m_plainOutput->setReadOnly(true);
                 m_plainOutput->setMaximumBlockCount(2000);
                 m_tabs->addTab(m_plainOutput, QStringLiteral("插件输出"));
             }
 
-            m_diagnostics = new QPlainTextEdit(m_tabs);
+            m_diagnostics = new CodeTextEdit(m_tabs);
+            static_cast<CodeTextEdit*>(m_diagnostics)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
             m_diagnostics->setReadOnly(true);
             m_diagnostics->setMaximumBlockCount(2000);
             m_diagnostics->setPlaceholderText(QStringLiteral("插件错误和协议诊断会显示在这里。"));
@@ -1517,6 +1582,7 @@ namespace
 
     void launchPlugin(QWidget* owner, const PluginDescriptor& descriptor, const ks::plugin_host::InvocationContext& context)
     {
+        if (descriptor.pluginType == QStringLiteral("backend")) return;
         QString contextError;
         if (!isUsableContext(context, &contextError))
         {
@@ -1571,7 +1637,8 @@ namespace
             m_surface->installEventFilter(this);
             rootLayout->addWidget(m_surface, 1);
 
-            m_diagnostics = new QPlainTextEdit(this);
+            m_diagnostics = new CodeTextEdit(this);
+            static_cast<CodeTextEdit*>(m_diagnostics)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
             m_diagnostics->setReadOnly(true);
             m_diagnostics->setMaximumHeight(180);
             m_diagnostics->document()->setMaximumBlockCount(2000);
@@ -1994,6 +2061,17 @@ namespace
             return false;
         }
 
+        // 上游计划生成的清单必须逐字段相同；版本、能力和入口不能被载荷替换。
+        if (plugin.upstreamAssets)
+        {
+            QFile manifestFile(QDir(extractedDirectory).filePath(QStringLiteral("plugin.json")));
+            if (!manifestFile.open(QIODevice::ReadOnly) ||
+                QJsonDocument::fromJson(manifestFile.readAll()).object() != plugin.upstreamPlan.manifest)
+            {
+                *errorOut = QStringLiteral("已解压插件清单与上游分发计划不一致。");
+                return false;
+            }
+        }
         QDir rootDirectory(pluginRoot);
         const QString stagingName = QFileInfo(stagingDirectory).fileName();
         const QString stagedPluginPath = manifestAtRoot
@@ -2032,8 +2110,9 @@ namespace
     class PluginManagerDialog final : public QDialog
     {
     public:
-        explicit PluginManagerDialog(QWidget* parent)
+        explicit PluginManagerDialog(QWidget* parent, const QString& preselectedId = QString())
             : QDialog(parent)
+            , m_preselectedPluginId(preselectedId)
         {
             setAttribute(Qt::WA_DeleteOnClose, true);
             setWindowTitle(QStringLiteral("插件管理"));
@@ -2068,6 +2147,7 @@ namespace
 
             m_networkManager = new QNetworkAccessManager(this);
             auto* tabWidget = new QTabWidget(this);
+            m_mainTabs = tabWidget;
             auto* localPage = new QWidget(tabWidget);
             auto* localLayout = new QVBoxLayout(localPage);
             localLayout->setContentsMargins(6, 6, 6, 6);
@@ -2248,20 +2328,37 @@ namespace
         {
             m_marketplaceTable->setRowCount(0);
             m_marketplacePlugins.clear();
+            // 初始元数据快照使用同一公开协议；在线目录按 id 覆盖，后续版本由 plugins 维护。
+            QFile bootstrap(QStringLiteral(":/plugin-marketplace/catalog.json"));
+            if (bootstrap.open(QIODevice::ReadOnly))
+            {
+                const auto root = QJsonDocument::fromJson(bootstrap.readAll()).object();
+                for (const auto& value : root.value(QStringLiteral("plugins")).toArray())
+                {
+                    MarketplacePlugin plugin;
+                    QString error;
+                    if (value.isObject() && parseMarketplacePlugin(value.toObject(), &plugin, &error))
+                        m_marketplacePlugins.append(plugin);
+                }
+            }
+            populateMarketplaceTable();
+            selectMarketplaceEntry();
+            const auto generation = ++m_marketplaceGeneration;
             m_status->setText(QStringLiteral("正在从 KSwordDEV/Plugins 读取插件商城目录…"));
             QNetworkRequest request(QUrl(QString::fromLatin1(kMarketplaceCatalogUrl)));
             request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("KSword-PluginMarketplace/1"));
             request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferNetwork);
             QNetworkReply* reply = m_networkManager->get(request);
-            connect(reply, &QNetworkReply::finished, this, [this, reply, checkForUpdates]() {
+            connect(reply, &QNetworkReply::finished, this, [this, reply, checkForUpdates, generation]() {
                 const QByteArray payload = reply->readAll();
                 const bool networkOk = reply->error() == QNetworkReply::NoError;
                 const QString networkError = networkOk ? QString() : networkReplyErrorText(reply);
                 reply->deleteLater();
+                if (generation != m_marketplaceGeneration) return;
                 if (!networkOk)
                 {
                     m_status->setText(QStringLiteral(
-                        "商城目录读取失败；详情已写入日志。"));
+                        "在线插件商城暂不可用；已安装插件仍可使用。"));
                     kLogEvent requestEvent;
                     warn << requestEvent
                         << "[PluginHost] marketplace catalog request failed, detail="
@@ -2295,6 +2392,12 @@ namespace
                     QString errorText;
                     if (value.isObject() && parseMarketplacePlugin(value.toObject(), &plugin, &errorText))
                     {
+                        // 同 id 的在线条目替换初始快照，确保市场能独立维护版本、JDK 和文件哈希。
+                        for (qsizetype index = m_marketplacePlugins.size(); index > 0; --index)
+                        {
+                            if (m_marketplacePlugins[index - 1].id == plugin.id)
+                                m_marketplacePlugins.removeAt(index - 1);
+                        }
                         m_marketplacePlugins.push_back(plugin);
                     }
                     else
@@ -2303,7 +2406,7 @@ namespace
                     }
                 }
                 populateMarketplaceTable();
-                if (!m_marketplacePlugins.isEmpty()) m_marketplaceTable->selectRow(0);
+                selectMarketplaceEntry();
                 const QList<MarketplacePlugin> updates = availableMarketplaceUpdates();
                 QString status = QStringLiteral("插件商城已从 KSwordDEV/Plugins 刷新：%1 个可下载插件，%2 个插件可更新。")
                     .arg(m_marketplacePlugins.size())
@@ -2400,6 +2503,22 @@ namespace
             }
         }
 
+        void selectMarketplaceEntry()
+        {
+            if (!m_preselectedPluginId.isEmpty())
+            {
+                for (int row = 0; row < m_marketplacePlugins.size(); ++row)
+                {
+                    if (m_marketplacePlugins[row].id != m_preselectedPluginId) continue;
+                    m_marketplaceTable->selectRow(row);
+                    m_mainTabs->setCurrentIndex(1);
+                    m_preselectedPluginId.clear();
+                    return;
+                }
+            }
+            if (m_marketplaceTable->currentRow() < 0 && !m_marketplacePlugins.isEmpty()) m_marketplaceTable->selectRow(0);
+        }
+
         bool hasMarketplaceLicenseAcceptanceRecord(const MarketplacePlugin& plugin) const
         {
             QSettings settings;
@@ -2475,7 +2594,7 @@ namespace
                 reply,
                 &QNetworkReply::finished,
                 this,
-                [reply, completion]() {
+                [reply, plugin, completion]() {
                     const QByteArray payload = reply->readAll();
                     const bool networkOk =
                         reply->error() == QNetworkReply::NoError;
@@ -2483,6 +2602,23 @@ namespace
                         ? QStringLiteral("许可证正文为空。")
                         : networkReplyErrorText(reply);
                     reply->deleteLater();
+                    // 上游许可证与实际安装文件共用固定哈希，内容变化必须由维护者更新清单。
+                    if (plugin.upstreamAssets)
+                    {
+                        for (const auto& file : plugin.upstreamPlan.metadata)
+                        {
+                            if (file.url == plugin.licenseUrl && file.path ==
+                                plugin.upstreamPlan.manifest.value(QStringLiteral("license")).toString())
+                            {
+                                const auto digest = QString::fromLatin1(QCryptographicHash::hash(payload, QCryptographicHash::Sha256).toHex());
+                                if (payload.size() > file.maxBytes || digest.compare(file.sha256, Qt::CaseInsensitive) != 0)
+                                {
+                                    completion(false, {}, QStringLiteral("上游插件许可证 SHA-256 校验失败。"));
+                                    return;
+                                }
+                            }
+                        }
+                    }
                     completion(
                         networkOk && !payload.isEmpty(),
                         payload,
@@ -2496,7 +2632,7 @@ namespace
             int pendingLicenseConfirmation = 0;
             for (const MarketplacePlugin& plugin : updates)
             {
-                if (hasMarketplaceLicenseAcceptanceRecord(plugin))
+                if (!plugin.upstreamAssets && hasMarketplaceLicenseAcceptanceRecord(plugin))
                 {
                     m_autoUpdateQueue.push_back(plugin);
                 }
@@ -2603,6 +2739,11 @@ namespace
 
         void requestSelectedMarketplaceLicense()
         {
+            if (m_upstreamInstaller || m_licenseRequestInProgress)
+            {
+                m_status->setText(QStringLiteral("上游插件安装正在进行，请等待或关闭窗口取消。"));
+                return;
+            }
             if (m_autoUpdateInProgress)
             {
                 m_status->setText(QStringLiteral("插件自动更新正在进行，请等待当前队列完成。"));
@@ -2615,6 +2756,7 @@ namespace
                 return;
             }
             const MarketplacePlugin plugin = m_marketplacePlugins.at(row);
+            m_licenseRequestInProgress = true;
             m_status->setText(QStringLiteral("正在读取 %1 的许可证；同意前不会下载或安装插件。").arg(plugin.name));
             requestMarketplaceLicensePayload(
                 plugin,
@@ -2622,6 +2764,7 @@ namespace
                     const bool success,
                     const QByteArray licensePayload,
                     const QString& errorMessage) {
+                    m_licenseRequestInProgress = false;
                     if (!success)
                     {
                         QMessageBox::warning(
@@ -2649,28 +2792,34 @@ namespace
             const MarketplacePlugin& plugin,
             const QByteArray& licensePayload)
         {
-            QDialog licenseDialog(this);
-            licenseDialog.setWindowTitle(QStringLiteral("许可证：%1").arg(plugin.name));
-            licenseDialog.resize(780, 620);
-            auto* layout = new QVBoxLayout(&licenseDialog);
+            auto* licenseDialog = new QDialog(this);
+            const QPointer<PluginManagerDialog> self(this);
+            const QPointer<QDialog> licenseGuard(licenseDialog);
+            licenseDialog->setWindowTitle(QStringLiteral("许可证：%1").arg(plugin.name));
+            licenseDialog->resize(780, 620);
+            auto* layout = new QVBoxLayout(licenseDialog);
             auto* label = new QLabel(QStringLiteral("安装 %1 前，请阅读并同意：%2。未同意不会发起插件 ZIP 下载。")
-                .arg(plugin.name, plugin.licenseName), &licenseDialog);
+                .arg(plugin.name, plugin.licenseName), licenseDialog);
             label->setWordWrap(true);
             layout->addWidget(label);
-            auto* text = new QPlainTextEdit(&licenseDialog);
+            auto* text = new CodeTextEdit(licenseDialog);
+            static_cast<CodeTextEdit*>(text)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
             text->setReadOnly(true);
             text->setPlainText(QString::fromUtf8(licensePayload));
             layout->addWidget(text, 1);
-            auto* agree = new QCheckBox(QStringLiteral("我已阅读并同意上述插件许可证"), &licenseDialog);
+            auto* agree = new QCheckBox(QStringLiteral("我已阅读并同意上述插件许可证"), licenseDialog);
             layout->addWidget(agree);
-            auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &licenseDialog);
+            auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, licenseDialog);
             QPushButton* acceptButton = buttons->addButton(QStringLiteral("同意并一键安装"), QDialogButtonBox::AcceptRole);
             acceptButton->setEnabled(false);
             layout->addWidget(buttons);
             connect(agree, &QCheckBox::toggled, acceptButton, &QPushButton::setEnabled);
-            connect(buttons, &QDialogButtonBox::accepted, &licenseDialog, &QDialog::accept);
-            connect(buttons, &QDialogButtonBox::rejected, &licenseDialog, &QDialog::reject);
-            if (licenseDialog.exec() != QDialog::Accepted)
+            connect(buttons, &QDialogButtonBox::accepted, licenseDialog, &QDialog::accept);
+            connect(buttons, &QDialogButtonBox::rejected, licenseDialog, &QDialog::reject);
+            const auto decision = licenseDialog->exec();
+            if (licenseGuard) licenseGuard->deleteLater();
+            if (!self) return;
+            if (decision != QDialog::Accepted)
             {
                 m_status->setText(QStringLiteral("未同意许可证，未下载或安装 %1。").arg(plugin.name));
                 return;
@@ -2687,6 +2836,7 @@ namespace
             const bool success,
             const QString& message)
         {
+            const QPointer<PluginManagerDialog> self(this);
             if (!success)
             {
                 m_status->setText(QStringLiteral("插件安装失败：%1").arg(message));
@@ -2696,6 +2846,7 @@ namespace
                     QMessageBox::warning(this, QStringLiteral("插件商城"), message);
                 }
             }
+            if (!self) return;
             if (completion)
             {
                 completion(success, message);
@@ -2710,6 +2861,11 @@ namespace
             const MarketplacePlugin& plugin,
             InstallCompletion completion = {})
         {
+            if (plugin.upstreamAssets)
+            {
+                installUpstreamAssets(plugin, completion);
+                return;
+            }
             m_status->setText(QStringLiteral("正在下载 %1；将校验 SHA-256 后一键安装。").arg(plugin.name));
             updateInstallProgress(QStringLiteral("正在下载 %1").arg(plugin.name), 0);
             QNetworkRequest request(plugin.archiveUrl);
@@ -2744,6 +2900,66 @@ namespace
                 updateInstallProgress(QStringLiteral("SHA-256 校验通过"), 80);
                 installMarketplaceArchive(plugin, archiveBytes, completion);
             });
+        }
+
+        void installUpstreamAssets(const MarketplacePlugin& plugin, const InstallCompletion& completion)
+        {
+            if (m_upstreamInstaller)
+            {
+                completeMarketplaceInstall(completion, false, QStringLiteral("上游插件安装已在进行。"));
+                return;
+            }
+            auto* installer = new ks::plugin_host::UpstreamAssetInstaller(this,
+                [](const QString& source) { return ks::i18n::sourceText(source); });
+            installer->setObjectName(QStringLiteral("ksword_upstream_asset_installer"));
+            m_upstreamInstaller = installer;
+            const auto pluginRoot = resolvePluginInstallRoot();
+            // 将生产清单解析器作为结构校验入口，安装阶段不执行任何插件。
+            installer->start(pluginRoot, plugin.upstreamPlan,
+                [plugin](const QString& stage, QString* error) {
+                    PluginDescriptor descriptor;
+                    return loadPluginManifestDirectory(stage, plugin.installDirectory, &descriptor, error);
+                },
+                [this](const QString& stage, int percent) {
+                    updateInstallProgress(stage, percent);
+                    m_status->setText(stage);
+                },
+                [this, plugin, pluginRoot, completion, installer](bool success, const QString& stage, const QString& error) {
+                    m_upstreamInstaller.clear();
+                    installer->deleteLater();
+                    if (!success)
+                    {
+                        completeMarketplaceInstall(completion, false, error);
+                        return;
+                    }
+                    QString installError;
+                    const bool promoted = promoteExtractedPlugin(plugin, pluginRoot, stage, &installError);
+                    // Stage is a generated sibling below this exact plugin root;
+                    // successful root-layout promotion has already renamed it.
+                    if (QFileInfo::exists(stage))
+                    {
+                        const auto canonicalRoot = QFileInfo(pluginRoot).canonicalFilePath();
+                        const auto canonicalStage = QFileInfo(stage).canonicalFilePath();
+                        if (!canonicalRoot.isEmpty() && canonicalStage.startsWith(canonicalRoot + QLatin1Char('/'), Qt::CaseInsensitive) &&
+                            QFileInfo(stage).fileName().startsWith(QStringLiteral(".ksword-plugin-stage-%1-").arg(plugin.id)) && !QFileInfo(stage).isSymLink())
+                            QDir(canonicalStage).removeRecursively();
+                    }
+                    if (!promoted)
+                    {
+                        completeMarketplaceInstall(completion, false, installError);
+                        return;
+                    }
+                    refreshPlugins();
+                    populateMarketplaceTable();
+                    selectMarketplaceEntry();
+                    const auto message = QStringLiteral("上游插件 %1 已安装到：%2").arg(plugin.name, QDir::toNativeSeparators(QDir(pluginRoot).filePath(plugin.installDirectory)));
+                    m_status->setText(message);
+                    updateInstallProgress(QStringLiteral("上游插件安装完成"), 100);
+                    const QPointer<PluginManagerDialog> self(this);
+                    if (!completion) QMessageBox::information(this, QStringLiteral("插件商城"), message);
+                    if (!self) return;
+                    completeMarketplaceInstall(completion, true, message);
+                });
         }
 
         void installMarketplaceArchive(
@@ -2862,12 +3078,14 @@ namespace
         }
 
         QTableWidget* m_table = nullptr;
+        QTabWidget* m_mainTabs = nullptr;
         QTableWidget* m_marketplaceTable = nullptr;
         QLabel* m_status = nullptr;
         QProgressBar* m_installProgress = nullptr;
         QCheckBox* m_autoUpdateCheck = nullptr;
         QPushButton* m_openFolderButton = nullptr;
         QNetworkAccessManager* m_networkManager = nullptr;
+        QPointer<ks::plugin_host::UpstreamAssetInstaller> m_upstreamInstaller;
         QList<PluginDescriptor> m_plugins;
         QHash<QString, PluginDescriptor> m_installedPluginsById;
         QList<MarketplacePlugin> m_marketplacePlugins;
@@ -2877,6 +3095,9 @@ namespace
         int m_autoUpdateCompleted = 0;
         bool m_autoUpdateInProgress = false;
         QString m_pluginRoot;
+        QString m_preselectedPluginId;
+        quint64 m_marketplaceGeneration = 0;
+        bool m_licenseRequestInProgress = false;
     };
 }
 
@@ -2904,21 +3125,34 @@ void ks::plugin_host::populateTargetMenu(QMenu* menu, QWidget* owner, const Invo
     int addedActions = 0;
     for (const PluginDescriptor& descriptor : result.plugins)
     {
+        if (descriptor.pluginType == QStringLiteral("backend")) continue;
         if (!descriptor.targets.contains(target)) continue;
         QAction* action = menu->addAction(descriptor.name);
         action->setToolTip(QStringLiteral("%1\nID：%2\n目标：%3")
             .arg(descriptor.description, descriptor.id, descriptor.targets.join(QStringLiteral(", "))));
-        InvocationContext boundContext = context;
-        if (descriptor.id == QStringLiteral("x96dbg") && context.targetKind == TargetKind::Process
-            && boundContext.processCreateTime100ns == 0)
-            boundContext.processCreateTime100ns = ks::ui::x64dbg_navigation::ProcessCreateTime100ns(context.processId);
+        const InvocationContext boundContext = context; // 冻结菜单来源的原进程记录，避免 PID 复用重新授权。
+        const bool debuggerProcessTarget = descriptor.id == QStringLiteral("x96dbg")
+            && context.targetKind == TargetKind::Process;
+        if (debuggerProcessTarget)
+        {
+            // 原记录没有创建时间时仅禁用导航；不从当前同号进程补齐旧目标的身份。
+            action->setEnabled(ks::ui::x64dbg_navigation::HasCapturedIdentity(
+                boundContext.processId, boundContext.processCreateTime100ns));
+        }
         QObject::connect(action, &QAction::triggered, owner, [owner, descriptor, boundContext]() {
             if (descriptor.id == QStringLiteral("x96dbg") && boundContext.targetKind == TargetKind::Process)
             {
-                if (boundContext.processCreateTime100ns == 0) return;
-                ks::ui::x64dbg_navigation::Open(owner, {boundContext.processId, boundContext.processCreateTime100ns,
-                    boundContext.memoryAddress, boundContext.navigateMemoryDump
-                        ? ks::ui::x64dbg_navigation::View::Dump : ks::ui::x64dbg_navigation::View::Disassembly});
+                if (!ks::ui::x64dbg_navigation::HasCapturedIdentity(
+                        boundContext.processId, boundContext.processCreateTime100ns))
+                {
+                    return;
+                }
+                ks::ui::x64dbg_navigation::Open(owner,
+                    {boundContext.processId, boundContext.processCreateTime100ns,
+                        boundContext.memoryAddress,
+                        boundContext.navigateMemoryDump
+                            ? ks::ui::x64dbg_navigation::View::Dump
+                            : ks::ui::x64dbg_navigation::View::Disassembly});
                 return;
             }
             launchPlugin(owner, descriptor, boundContext);
@@ -3160,9 +3394,9 @@ QWidget* ks::plugin_host::createTabPluginContainer(QWidget* parent)
 
     return container;
 }
-void ks::plugin_host::showPluginManager(QWidget* owner)
+void ks::plugin_host::showPluginManager(QWidget* owner, const QString& preselectedPluginId)
 {
-    auto* dialog = new PluginManagerDialog(owner);
+    auto* dialog = new PluginManagerDialog(owner, preselectedPluginId);
     dialog->show();
     dialog->raise();
     dialog->activateWindow();

@@ -1,4 +1,5 @@
 #include "SystemMemoryAuditPage.h"
+#include "../UI/CodeTextEdit.h"
 #include "PhysicalPageAttributionPage.h"
 #include "HyperVMemoryPage.h"
 #include "MemoryAttributionChart.h"
@@ -950,7 +951,8 @@ void SystemMemoryAuditPage::initializeUi()
     ks::i18n::LanguageManager::instance().bindTab(
         m_detailTabs, bigPoolPage, QStringLiteral("memory.audit.tab.big_pool"), QStringLiteral("Big Pool 分配"));
 
-    m_detailText = new QPlainTextEdit(this);
+    m_detailText = new CodeTextEdit(this);
+    static_cast<CodeTextEdit*>(m_detailText)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_detailText->setReadOnly(true);
     m_detailText->setMinimumHeight(64);
 

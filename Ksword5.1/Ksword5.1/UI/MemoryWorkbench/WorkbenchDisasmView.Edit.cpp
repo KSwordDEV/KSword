@@ -5,6 +5,7 @@
 // 两条路径最终都只发 stageRequested 信号，本文件不直接写任何内存。
 
 #include "WorkbenchDisasmView.h"
+#include "../CodeTextEdit.h"
 #include "MemoryRowCanvas.h"
 
 #include "HexCanvasFormat.h"
@@ -248,13 +249,13 @@ namespace ks::ui
         hint->setWordWrap(true);
         layout->addWidget(hint);
 
-        auto* source = new QPlainTextEdit(dialog);
+        auto* source = new CodeTextEdit(dialog);
         source->setObjectName(QStringLiteral("ksMemwbAssemblySource"));
-        source->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
         source->setPlainText((current->mnemonic + QLatin1Char(' ') + current->operands).trimmed());
         layout->addWidget(source, 1);
 
-        auto* preview = new QPlainTextEdit(dialog);
+        auto* preview = new CodeTextEdit(dialog);
+        preview->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         preview->setObjectName(QStringLiteral("ksMemwbAssemblyPreview"));
         preview->setReadOnly(true);
         preview->setFont(source->font());

@@ -311,6 +311,8 @@ if [[ -z "$arklight_exe" ]]; then
 fi
 cp -f "$arklight_exe" "$release_root/KswordARKLight.exe"
 
+# BEGIN unified driver package: the offline regression executes this block.
+# 只使用同一次驱动构建的完整安装材料；旧模板不能替代缺失的 INF/CAT。
 declare -a driver_release_roots=()
 while IFS= read -r -d '' driver_root_sys; do
   driver_release_root="$(dirname "$driver_root_sys")"
@@ -323,17 +325,25 @@ if (( ${#driver_release_roots[@]} != 1 )); then
   exit 1
 fi
 driver_release_root="${driver_release_roots[0]}"
-for driver_file in KswordARK.sys KswordARKDriver.inf; do
-  if [[ ! -f "$driver_release_root/$driver_file" ]]; then
+readonly -a driver_package_files=(
+  'KswordARK.sys'
+  'KswordARKDriver.inf'
+  'KswordARKStorageController.inf'
+  'KswordARKStorageController.cat'
+)
+for driver_file in "${driver_package_files[@]}"; do
+  if [[ ! -s "$driver_release_root/$driver_file" ]]; then
     echo "Driver artifact is missing $driver_file." >&2
     exit 1
   fi
 done
-cp -f "$driver_release_root/KswordARK.sys" "$release_root/KswordARK.sys"
-cp -f "$driver_release_root/KswordARKDriver.inf" "$release_root/KswordARKDriver.inf"
 mkdir -p "$release_root/KswordARKDriver"
-cp -f "$driver_release_root/KswordARK.sys" "$release_root/KswordARKDriver/KswordARK.sys"
-cp -f "$driver_release_root/KswordARKDriver.inf" "$release_root/KswordARKDriver/KswordARKDriver.inf"
+for driver_file in "${driver_package_files[@]}"; do
+  # 两种发行布局同时覆盖，防止子目录留下与新版 SYS 不匹配的旧安装包。
+  cp -f "$driver_release_root/$driver_file" "$release_root/$driver_file"
+  cp -f "$driver_release_root/$driver_file" "$release_root/KswordARKDriver/$driver_file"
+done
+# END unified driver package.
 
 # Module ZIPs retain PDBs for debugging, while the manual-style aggregate is a
 # runtime package. Remove symbols only from the validated temporary Release/.
@@ -341,8 +351,8 @@ while IFS= read -r -d '' symbol_file; do
   rm -f "$symbol_file"
 done < <(find "$release_root" -type f -iname '*.pdb' -print0)
 
-# The automatic driver is unsigned, so a catalog inherited from the signed
-# manual template would be stale and misleading. Remove only those exact files.
+# 普通驱动目录沿用模板的签名目录文件会与新版 SYS 不匹配，必须清除。
+# 可选控制器 CAT 已由上面的同次构建覆盖，保留它供交互式 PnP 安装使用。
 rm -f \
   "$release_root/KswordARKDriver/kswordarkdriver.cat" \
   "$release_root/KswordARKDriver/KswordARKDriver.cat"
@@ -385,8 +395,12 @@ readonly -a required_release_paths=(
   'KswordARKLight.exe'
   'KswordARK.sys'
   'KswordARKDriver.inf'
+  'KswordARKStorageController.inf'
+  'KswordARKStorageController.cat'
   'KswordARKDriver/KswordARK.sys'
   'KswordARKDriver/KswordARKDriver.inf'
+  'KswordARKDriver/KswordARKStorageController.inf'
+  'KswordARKDriver/KswordARKStorageController.cat'
   'LICENSE'
   'COMMUNITY_COVENANT.md'
   'languages/zh-CN.json'

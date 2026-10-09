@@ -301,6 +301,17 @@ namespace ksword::memwb
         return ApplyDerivedSession(TargetChange::Policy);
     }
 
+    TargetChange MemoryTargetTracker::ClearPinnedTarget()
+    {
+        // 两份记录一起清除，避免稍后显式回到跟随时复活旧 Dock 目标。
+        dock_ = ProcessRecord();
+        pinned_ = ProcessRecord();
+        const TargetChange policyBit = follow_ == Follow::Dock
+            ? TargetChange::Policy : TargetChange::None;
+        follow_ = Follow::Pinned;
+        return ApplyDerivedSession(policyBit);
+    }
+
     // SetScope：换范围，不联动通道。
     TargetChange MemoryTargetTracker::SetScope(const Scope scope)
     {

@@ -33,7 +33,7 @@
 class QLabel;
 class QPushButton;
 class QTableWidget;
-class QTextEdit;
+class QPlainTextEdit;
 
 // 监视表的列序。
 //
@@ -137,7 +137,7 @@ private:
 
     QLabel* m_hintLabel = nullptr;
     QTableWidget* m_table = nullptr;
-    QTextEdit* m_detail = nullptr;
+    QPlainTextEdit* m_detail = nullptr;
     QLabel* m_statusLabel = nullptr;
 
     QPushButton* m_addButton = nullptr;

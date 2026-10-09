@@ -49,6 +49,12 @@
     <ClCompile Include="PrivilegeDock\PrivilegeAccessPage.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="PrivilegeDock\PrivilegeAccessBackend.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PrivilegeDock\PrivilegeAccessReport.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="PrivilegeDock\PrivilegeAccountPages.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -62,6 +68,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClInclude Include="PrivilegeDock\PrivilegeAccessPage.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PrivilegeDock\PrivilegeAccessBackend.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PrivilegeDock\PrivilegeAccessSecurity.h">
@@ -567,6 +576,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MemoryDock\MemoryDock.Workbench.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MemoryDock\MemoryDebugPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MemoryDock\MemoryDebugProcessCatalog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MemoryDock\MemoryDock.WorkbenchEntry.cpp">
@@ -1217,6 +1232,9 @@
     <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.Nav.cpp">
       <Filter>Source Files\MemoryWorkbench</Filter>
     </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.MemoryDebug.cpp">
+      <Filter>Source Files\MemoryWorkbench</Filter>
+    </ClCompile>
     <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.HexPrefs.cpp">
       <Filter>Source Files\MemoryWorkbench</Filter>
     </ClCompile>
@@ -1317,6 +1335,12 @@
       <Filter>Source Files\MemoryWorkbench\Shared</Filter>
     </ClCompile>
     <ClCompile Include="UI\CodeEditorWidget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\CodeTextEdit.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\CodeEditorFileSession.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\EmbeddedRowDelegate.cpp">
@@ -2646,6 +2670,12 @@
     <ClInclude Include="UI\EmbeddedRowDelegate.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="UI\CodeTextEdit.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\CodeEditorFileSession.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="UI\DetailLayoutRegistry.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -2929,6 +2959,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ksword\file\pe_analyzer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MemoryDock\MemoryDebugPage.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MemoryDock\MemoryDebugProcessCatalog.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ksword\scanner\atomic_file_patch.h">
@@ -3238,6 +3274,9 @@
     <ClInclude Include="MiscDock\DiskEditor\StorageControllerResearchDialog.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="MiscDock\DiskEditor\StorageControllerResearchDialogLog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="MiscDock\DiskEditor\StorageControllerInput.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -3257,12 +3296,59 @@
     <ClCompile Include="RegistryDock\RegistryWorkbenchAccess.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="RegistryDock\RegistryDocument.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="RegistryDock\RegistryDocumentApply.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="RegistryDock\RegistryDocumentApply.Win32.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="RegistryDock\RegistryAdvancedDialogs.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClInclude Include="RegistryDock\RegistryValueCodec.h"><Filter>Header Files</Filter></ClInclude>
     <QtMoc Include="RegistryDock\RegistryValueEditorWidget.h"><Filter>Header Files</Filter></QtMoc>
     <ClInclude Include="RegistryDock\RegistryWorkbenchAccess.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="RegistryDock\RegistryDocument.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="RegistryDock\RegistryDocumentApply.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="RegistryDock\RegistryDocumentApplyInternal.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="RegistryDock\RegistryAdvancedDialogs.h"><Filter>Header Files</Filter></ClInclude>
+  </ItemGroup>
+  <!-- Shared binary analysis and optional Ghidra runtime backend -->
+  <ItemGroup>
+    <ClCompile Include="ScannerDock\ScannerDock.Analysis.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\BinaryOverviewBar.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryEditorWidget.Pseudocode.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\Decompiler\GhidraDecompiler.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PluginHost.Distribution.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PluginHost.Upstream.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\GhidraRuntimePlugin\RuntimeProfile.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="UI\BinaryOverviewBar.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ksword\scanner\binary_layout.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PluginHost.Distribution.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PluginHost.Upstream.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\GhidraRuntimePlugin\RuntimeProfile.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\GhidraRuntimePlugin\RuntimeLicense.inc">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <QtMoc Include="UI\Decompiler\GhidraDecompiler.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
   </ItemGroup>
 </Project>

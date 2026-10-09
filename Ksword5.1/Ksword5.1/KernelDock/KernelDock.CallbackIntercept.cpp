@@ -1,4 +1,5 @@
 #include "KernelDock.h"
+#include "../UI/CodeTextEdit.h"
 #include "../UI/VisibleTableWidget.h"
 
 #include "KernelDock.CallbackIntercept.h"
@@ -1880,8 +1881,10 @@ private:
         createProcessProtectTab(m_ruleTabWidget);
 
         auto* logTabWidget = new QTabWidget(scrollContent);
-        m_appLogEditor = new QPlainTextEdit(logTabWidget);
-        m_eventLogEditor = new QPlainTextEdit(logTabWidget);
+        m_appLogEditor = new CodeTextEdit(logTabWidget);
+        static_cast<CodeTextEdit*>(m_appLogEditor)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+        m_eventLogEditor = new CodeTextEdit(logTabWidget);
+        static_cast<CodeTextEdit*>(m_eventLogEditor)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         m_appLogEditor->setReadOnly(true);
         m_eventLogEditor->setReadOnly(true);
         logTabWidget->addTab(m_appLogEditor, kernelText("kernel.callback.intercept.log_tab.application", QStringLiteral("应用日志")));

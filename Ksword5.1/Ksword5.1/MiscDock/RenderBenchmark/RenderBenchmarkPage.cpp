@@ -27,6 +27,7 @@
 #include <QPaintEvent>
 #include <QPixmap>
 #include <QPlainTextEdit>
+#include "../../UI/CodeTextEdit.h"
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRect>
@@ -770,7 +771,8 @@ namespace ks::misc
         reportActionLayout->addWidget(m_clearReportButton);
         rootLayout->addLayout(reportActionLayout);
 
-        m_reportEdit = new QPlainTextEdit(this);
+        m_reportEdit = new CodeTextEdit(this);
+        static_cast<CodeTextEdit*>(m_reportEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         m_reportEdit->setReadOnly(true);
         m_reportEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
         m_reportEdit->setMinimumHeight(180);

@@ -1,4 +1,5 @@
 #include "MemoryConsumerEvidencePage.h"
+#include "../UI/CodeTextEdit.h"
 #include "PoolAllocationAnalysisWidget.h"
 #include "../../../shared/evidence/GpuMemoryEvidence.h"
 #include "../../../shared/evidence/PoolTraceCapturePolicy.h"
@@ -94,7 +95,8 @@ MemoryConsumerEvidencePage::MemoryConsumerEvidencePage(QWidget* parent) : QWidge
         if (handler) { handler(path); }
     });
     m_detailTabs->addTab(m_poolAnalysis, {});
-    m_traceLog = new QPlainTextEdit(m_detailTabs); m_traceLog->setReadOnly(true);
+    m_traceLog = new CodeTextEdit(m_detailTabs);
+    static_cast<CodeTextEdit*>(m_traceLog)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText); m_traceLog->setReadOnly(true);
     m_traceLog->setMaximumBlockCount(300); m_detailTabs->addTab(m_traceLog, {});
     layout->addWidget(m_detailTabs, 1);
     m_captureTimer = new QTimer(this); m_captureTimer->setSingleShot(true);

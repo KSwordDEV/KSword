@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/CodeTextEdit.h"
 #include "../UI/UI_All.h"
 #include "../UI/VisibleTableWidget.h"
 #include "HttpsProxyService.h"
@@ -249,7 +250,8 @@ namespace
             textLayout->setContentsMargins(0, 0, 0, 0);
             textLayout->setSpacing(4);
 
-            QPlainTextEdit* textEditor = new QPlainTextEdit(textPage);
+            QPlainTextEdit* textEditor = new CodeTextEdit(textPage);
+            static_cast<CodeTextEdit*>(textEditor)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
             textEditor->setReadOnly(true);
             textEditor->setLineWrapMode(QPlainTextEdit::NoWrap);
             textEditor->setPlainText(QString::fromUtf8(parsedEntry.rawBytes));
@@ -637,7 +639,8 @@ void NetworkDock::initializeHttpsAnalyzeTab()
     m_httpsParsedTable->setColumnWidth(HttpsParsedColumnDownload, 100);
     m_httpsAnalyzeLayout->addWidget(m_httpsParsedTable, 1);
 
-    m_httpsProxyLogOutput = new QPlainTextEdit(m_httpsAnalyzePage);
+    m_httpsProxyLogOutput = new CodeTextEdit(m_httpsAnalyzePage);
+    static_cast<CodeTextEdit*>(m_httpsProxyLogOutput)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_httpsProxyLogOutput->setReadOnly(true);
     m_httpsProxyLogOutput->setMaximumBlockCount(600);
     m_httpsProxyLogOutput->setPlaceholderText(QStringLiteral("HTTPS 代理启动、证书安装和解析异常会显示在这里。"));

@@ -35,7 +35,8 @@
 #include <QPushButton>
 #include <QShowEvent>
 #include <QTableWidget>
-#include <QTextEdit>
+#include <QPlainTextEdit>
+#include "CodeTextEdit.h"
 #include <QVBoxLayout>
 
 #include <thread>
@@ -160,9 +161,10 @@ void HvmWatchPanel::buildUi()
     buttons->addWidget(m_writerPageButton, 2, 1);
     rootLayout->addLayout(buttons);
 
-    m_detail = new QTextEdit(this);
+    m_detail = new CodeTextEdit(this);
+    static_cast<CodeTextEdit*>(m_detail)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_detail->setReadOnly(true);
-    m_detail->setLineWrapMode(QTextEdit::NoWrap);
+    m_detail->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_detail->setPlaceholderText(
         text(QStringLiteral("选中一条监视查看它的完整现场与归因。")));
     rootLayout->addWidget(m_detail, 2);

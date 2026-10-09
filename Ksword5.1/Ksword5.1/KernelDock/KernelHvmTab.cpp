@@ -26,7 +26,8 @@
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTableWidgetItem>
-#include <QTextEdit>
+#include <QPlainTextEdit>
+#include "../UI/CodeTextEdit.h"
 #include <QVBoxLayout>
 #include <QVariant>
 
@@ -342,7 +343,8 @@ void KernelHvmTab::initializeUi()
         QHeaderView::ResizeToContents);
     m_cpuTable->horizontalHeader()->setStretchLastSection(true);
 
-    m_detailEdit = new QTextEdit(splitter);
+    m_detailEdit = new CodeTextEdit(splitter);
+    static_cast<CodeTextEdit*>(m_detailEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_detailEdit->setReadOnly(true);
     m_detailEdit->setPlaceholderText(
         kernelText(

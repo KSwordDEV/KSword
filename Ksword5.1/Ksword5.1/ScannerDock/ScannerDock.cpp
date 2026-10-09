@@ -168,6 +168,7 @@ void ScannerDock::buildUi()
     pathLayout->setSpacing(6);
     m_pathLabel = new QLabel(this);
     m_pathEdit = new QLineEdit(this);
+    m_pathEdit->setObjectName(QStringLiteral("scanner_target_path"));
     m_pathEdit->setClearButtonEnabled(true);
     m_browseButton = new QPushButton(this);
     m_scanButton = new QPushButton(this);
@@ -189,6 +190,7 @@ void ScannerDock::buildUi()
     m_mainTabs = new QTabWidget(this);
     m_mainTabs->setDocumentMode(true);
     rootLayout->addWidget(m_mainTabs, 1);
+    buildAnalysisUi();
 
     // inspectionLayout：只承载本次结果的动态标签集合。
     m_inspectionPage = new QWidget(m_mainTabs);
@@ -251,6 +253,7 @@ QString ScannerDock::translated(const char* key, const char* fallback) const
 
 void ScannerDock::retranslateUi()
 {
+    retranslateAnalysisUi();
     m_pathLabel->setText(translated("scanner.path.label", "文件路径"));
     m_pathEdit->setPlaceholderText(translated(
         "scanner.path.placeholder",
@@ -305,6 +308,11 @@ void ScannerDock::changeEvent(QEvent* event)
     {
         retranslateUi();
     }
+    else if (event != nullptr && (event->type() == QEvent::PaletteChange ||
+        event->type() == QEvent::ApplicationPaletteChange))
+    {
+        retranslateAnalysisUi();
+    }
 }
 
 void ScannerDock::chooseFile()
@@ -358,7 +366,11 @@ void ScannerDock::beginScan()
         [asyncState, generation, path, nativePath]()
         {
             auto result = std::make_shared<ks::scanner::BinaryScanResult>(
-                ks::scanner::ScanBinaryFile(nativePath));
+                [&nativePath]() {
+                    ks::scanner::ScanOptions options;
+                    options.retainInputSnapshot = true;
+                    return ks::scanner::ScanBinaryFile(nativePath, options);
+                }());
             std::lock_guard<std::mutex> lock(asyncState->mutex);
             ScannerDock* receiver = asyncState->owner;
             if (receiver == nullptr)
@@ -460,6 +472,7 @@ void ScannerDock::clearResultTabs()
 
 void ScannerDock::renderResult(const ks::scanner::BinaryScanResult& result)
 {
+    renderAnalysisResult();
     clearResultTabs();
 
     auto* summaryTable = createReadOnlyTable(m_resultTabs);
@@ -552,6 +565,21 @@ void ScannerDock::renderResult(const ks::scanner::BinaryScanResult& result)
             }
         }
         table->resizeColumnsToContents();
+        if (sourceTable.id == "sections" &&
+            (result.format == ks::scanner::BinaryFormat::Pe32 ||
+             result.format == ks::scanner::BinaryFormat::Pe32Plus))
+        {
+            // The rows correspond to PE sections; headers occupy region zero.
+            connect(table, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
+                if (!m_lastResult || row < 0) return;
+                const auto regionIndex = static_cast<std::size_t>(row) + 1;
+                if (regionIndex >= m_lastResult->mappedRegions.size()) return;
+                const auto& region = m_lastResult->mappedRegions[regionIndex];
+                if (region.fileSize != 0)
+                    navigateAnalysisOffset(region.fileOffset,
+                        (region.characteristics & 0x20000000U) != 0 && m_lastResult->x86Compatible);
+            });
+        }
         QString title = localizedTableTitle(sourceTable.id, sourceTable.title);
         if (sourceTable.truncated)
         {

@@ -1,4 +1,5 @@
 #include "DetailLayoutHost.h"
+#include "CodeTextEdit.h"
 
 #include "CodeEditorWidget.h"
 #include "EmbeddedRowDelegate.h"
@@ -99,7 +100,8 @@ namespace
     // createReadOnlyInlineEditor：创建方案三使用的普通只读文本框。
     QPlainTextEdit* createReadOnlyInlineEditor(QWidget* parentWidget, const QString& detailText)
     {
-        QPlainTextEdit* textEditor = new QPlainTextEdit(parentWidget);
+        QPlainTextEdit* textEditor = new CodeTextEdit(parentWidget);
+        static_cast<CodeTextEdit*>(textEditor)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         textEditor->setReadOnly(true);
         textEditor->setPlainText(detailText);
         textEditor->setLineWrapMode(QPlainTextEdit::WidgetWidth);

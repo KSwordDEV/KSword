@@ -1,4 +1,5 @@
 #include "ReportStructuredView.h"
+#include "CodeTextEdit.h"
 
 // ============================================================
 // ReportStructuredView.cpp
@@ -509,7 +510,7 @@ namespace
     // 同样按 kBlockFontScale 放大：只放大正文会让同一行里的地址显得比标签矮一截。
     QFont fixedFont()
     {
-        return scaledBlockFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+        return scaledBlockFont(CodeTextEdit::editorFont());
     }
 
     // valueLooksMonospace 作用：
@@ -1160,10 +1161,9 @@ namespace ks::ui
                 }
                 case ParsedBlock::Kind::Code:
                 {
-                    QPlainTextEdit* codeView = new QPlainTextEdit(
-                        block.lines.join(QLatin1Char('\n')), m_blockHost);
+                    auto* codeView = new CodeTextEdit(m_blockHost);
+                    codeView->setPlainText(block.lines.join(QLatin1Char('\n')));
                     codeView->setReadOnly(true);
-                    codeView->setFont(fixedFont());
                     codeView->setLineWrapMode(QPlainTextEdit::NoWrap);
                     codeView->setFrameShape(QFrame::NoFrame);
                     const int codeLineHeight = codeView->fontMetrics().height() + 2;

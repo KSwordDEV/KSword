@@ -10,7 +10,7 @@ class QLabel;
 class QPushButton;
 class QShowEvent;
 class QTableWidget;
-class QTextEdit;
+class QPlainTextEdit;
 
 // VBS/HVCI 真实姿态页。
 //
@@ -73,7 +73,7 @@ private:
     QLabel* m_downgradeLabel = nullptr;
     QPushButton* m_refreshButton = nullptr;
     QTableWidget* m_table = nullptr;
-    QTextEdit* m_detailEdit = nullptr;
+    QPlainTextEdit* m_detailEdit = nullptr;
     bool m_firstRefreshStarted = false;
     bool m_queryRunning = false;
 };

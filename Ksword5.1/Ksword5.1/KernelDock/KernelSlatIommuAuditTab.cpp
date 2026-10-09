@@ -19,7 +19,8 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTabWidget>
-#include <QTextEdit>
+#include <QPlainTextEdit>
+#include "../UI/CodeTextEdit.h"
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -203,7 +204,8 @@ void KernelSlatIommuAuditTab::initializeUi()
             "kernel.slat_iommu.iommu.tab",
             QStringLiteral("IOMMU / DMAR / IVRS")));
 
-    m_detailEdit = new QTextEdit(splitter);
+    m_detailEdit = new CodeTextEdit(splitter);
+    static_cast<CodeTextEdit*>(m_detailEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_detailEdit->setReadOnly(true);
     m_detailEdit->setPlaceholderText(
         kernelText(

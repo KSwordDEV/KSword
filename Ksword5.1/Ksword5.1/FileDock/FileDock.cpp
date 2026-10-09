@@ -20,6 +20,7 @@
 
 #include "../theme.h"
 #include "../UI/CodeEditorWidget.h"
+#include "../UI/CodeTextEdit.h"
 #include "../UI/HexEditorWidget.h"
 #include "../UI/MemoryEditorWidget.h"
 #include "../UI/ReportStructuredView.h"
@@ -10214,7 +10215,10 @@ namespace
             objectIdLayout->addWidget(objectIdEdit, 1);
             form->addRow(QStringLiteral("Object ID"), objectIdLayout);
 
-            QPlainTextEdit* hardLinksEdit = new QPlainTextEdit(page);
+            auto* hardLinksEdit = new CodeTextEdit(page);
+            hardLinksEdit->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+            hardLinksEdit->setLineNumbersVisible(false);
+            hardLinksEdit->setCompactMode(true);
             hardLinksEdit->setPlaceholderText(QStringLiteral("每行一个要创建的硬链接完整路径；仅单文件模式可用"));
             hardLinksEdit->setMaximumHeight(70);
             hardLinksEdit->setEnabled(!m_batchMode);
@@ -10432,7 +10436,7 @@ namespace
             QComboBox* formatCombo = new QComboBox(page);
             formatCombo->addItems(QStringList{ QStringLiteral("文本 UTF-8"), QStringLiteral("十六进制") });
             QCheckBox* removeCheck = new QCheckBox(QStringLiteral("删除该数据流"), page);
-            QPlainTextEdit* dataEdit = new QPlainTextEdit(page);
+            auto* dataEdit = new CodeTextEdit(page);
             dataEdit->setMaximumHeight(120);
             editorLayout->addWidget(new QLabel(QStringLiteral("流名称"), page), 0, 0);
             editorLayout->addWidget(nameEdit, 0, 1);
@@ -10570,7 +10574,7 @@ namespace
             formatCombo->addItems(QStringList{ QStringLiteral("文本 UTF-8"), QStringLiteral("十六进制") });
             QCheckBox* needEaCheck = new QCheckBox(QStringLiteral("FILE_NEED_EA"), page);
             QCheckBox* removeCheck = new QCheckBox(QStringLiteral("删除该 EA"), page);
-            QPlainTextEdit* dataEdit = new QPlainTextEdit(page);
+            auto* dataEdit = new CodeTextEdit(page);
             dataEdit->setMaximumHeight(120);
             QHBoxLayout* header = new QHBoxLayout();
             header->addWidget(nameEdit, 1);
@@ -10670,7 +10674,10 @@ namespace
                 "SDDL 会在保存事务中通过 Windows 安全 API 写入。"), page);
             hint->setWordWrap(true);
             layout->addWidget(hint);
-            QPlainTextEdit* sddlEdit = new QPlainTextEdit(page);
+            auto* sddlEdit = new CodeTextEdit(page);
+            sddlEdit->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+            sddlEdit->setLineNumbersVisible(false);
+            sddlEdit->setCompactMode(true);
             sddlEdit->setPlaceholderText(QStringLiteral("例如 O:...G:...D:...S:..."));
             layout->addWidget(sddlEdit, 1);
             QHBoxLayout* scopes = new QHBoxLayout();
@@ -10812,7 +10819,8 @@ namespace
             reparseActions->addWidget(reparseAction);
             reparseActions->addWidget(loadReparseButton);
             reparseActions->addStretch(1);
-            QPlainTextEdit* reparseEdit = new QPlainTextEdit(reparseGroup);
+            auto* reparseEdit = new CodeTextEdit(reparseGroup);
+            reparseEdit->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
             reparseEdit->setPlaceholderText(QStringLiteral("完整 REPARSE_DATA_BUFFER 十六进制，包含 Tag/Length/Reserved"));
             reparseEdit->setMaximumHeight(100);
             reparseLayout->addLayout(reparseActions);
@@ -10835,7 +10843,7 @@ namespace
             resourceFormatCombo->setCurrentIndex(1);
             QCheckBox* removeResourceCheck = new QCheckBox(QStringLiteral("删除该资源"), resourceGroup);
             QPushButton* loadResourceButton = new QPushButton(QStringLiteral("读取当前资源"), resourceGroup);
-            QPlainTextEdit* resourceDataEdit = new QPlainTextEdit(resourceGroup);
+            auto* resourceDataEdit = new CodeTextEdit(resourceGroup);
             resourceDataEdit->setMaximumHeight(110);
             resourceLayout->addWidget(resourcePreset, 0, 0);
             resourceLayout->addWidget(new QLabel(QStringLiteral("类型"), resourceGroup), 0, 1);
@@ -12124,7 +12132,8 @@ namespace
                 "内核证书表和 CI 缓存是独立证据；缺失内核信息不会改写上方 Windows 信任验证结果。")), evidenceGroup);
             boundary->setWordWrap(true);
             evidenceLayout->addWidget(boundary);
-            QPlainTextEdit* evidence = new QPlainTextEdit(evidenceGroup);
+            QPlainTextEdit* evidence = new CodeTextEdit(evidenceGroup);
+            static_cast<CodeTextEdit*>(evidence)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
             evidence->setReadOnly(true);
             evidence->setLineWrapMode(QPlainTextEdit::NoWrap);
             evidence->setMinimumHeight(180);

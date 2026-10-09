@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 
 namespace
 {
@@ -464,12 +465,24 @@ void applyRegressions(const QString& journal)
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
-    QTemporaryDir temp((argc > 1 ? QString::fromLocal8Bit(argv[1]) : QDir::tempPath())
-        + QStringLiteral("/registry-document-files-XXXXXX"));
-    require(temp.isValid(), "temporary files available");
-    const QString reg = temp.filePath(QStringLiteral("input.reg"));
-    const QString exported = temp.filePath(QStringLiteral("exported.reg"));
-    const QString backupPath = temp.filePath(QStringLiteral("raw.ksreg"));
+    // --existing-output 只复用已存在目录，适用于禁止新建临时目录的回归任务。
+    std::unique_ptr<QTemporaryDir> temp;
+    QString output;
+    if (argc == 3 && QString::fromLocal8Bit(argv[1]) == QStringLiteral("--existing-output"))
+    {
+        output = QString::fromLocal8Bit(argv[2]);
+        require(QDir(output).exists(), "existing output directory available");
+    }
+    else
+    {
+        temp = std::make_unique<QTemporaryDir>((argc > 1 ? QString::fromLocal8Bit(argv[1]) : QDir::tempPath())
+            + QStringLiteral("/registry-document-files-XXXXXX"));
+        require(temp->isValid(), "temporary files available");
+        output = temp->path();
+    }
+    const QString reg = QDir(output).filePath(QStringLiteral("registry-review-input.reg"));
+    const QString exported = QDir(output).filePath(QStringLiteral("registry-review-exported.reg"));
+    const QString backupPath = QDir(output).filePath(QStringLiteral("registry-review-raw.ksreg"));
     QString error;
     RegistryDocument parsed;
     const QString header = QStringLiteral("Windows Registry Editor Version 5.00\r\n\r\n");
@@ -671,7 +684,7 @@ int main(int argc, char** argv)
         ".reg explicitly rejects unrepresentable newline name");
     require(!RegistryDocumentService::captureWin32(backup.rootPath, 16, loaded, error)
         && loaded.keys.isEmpty(), "bad capture view rejected before system access");
-    applyRegressions(temp.filePath(QStringLiteral("originals.ksreg")));
+    applyRegressions(QDir(output).filePath(QStringLiteral("registry-review-originals.ksreg")));
     std::cout << "RegistryDocument file/codec regressions passed: " << checks << " checks.\n";
     return 0;
 }

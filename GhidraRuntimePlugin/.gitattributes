@@ -1,0 +1,6 @@
+# Preserve upstream licence bytes and their intentional trailing whitespace.
+LICENSE.txt -text whitespace=cr-at-eol,-blank-at-eol
+KSword-LICENSE.txt -text whitespace=cr-at-eol
+UPSTREAM-GHIDRA-NOTICE.txt -text whitespace=cr-at-eol
+# Generated literals embed the exact upstream licence text.
+RuntimeLicense.inc whitespace=-blank-at-eol

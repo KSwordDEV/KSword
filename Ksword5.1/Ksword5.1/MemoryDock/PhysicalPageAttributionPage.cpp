@@ -1,4 +1,5 @@
 #include "PhysicalPageAttributionPage.h"
+#include "../UI/CodeTextEdit.h"
 #include "MemoryAttributionChart.h"
 #include "MemoryConsumerEvidencePage.h"
 #include "PhysicalPageConsumers.h"
@@ -234,12 +235,14 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     pageSplit->addWidget(m_mappings);
     pageSplit->setStretchFactor(1, 2);
     pageLayout->addWidget(pageSplit, 1);
-    m_pageEvidence = new QPlainTextEdit(pages);
+    m_pageEvidence = new CodeTextEdit(pages);
+    static_cast<CodeTextEdit*>(m_pageEvidence)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_pageEvidence->setReadOnly(true);
     m_pageEvidence->setMaximumHeight(90);
     pageLayout->addWidget(m_pageEvidence);
     m_tabs->addTab(pages, {});
-    m_evidence = new QPlainTextEdit(m_tabs);
+    m_evidence = new CodeTextEdit(m_tabs);
+    static_cast<CodeTextEdit*>(m_evidence)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_evidence->setReadOnly(true);
     m_tabs->addTab(m_evidence, {});
     m_ownerCoverage = table(m_tabs); m_tabs->addTab(m_ownerCoverage, {});

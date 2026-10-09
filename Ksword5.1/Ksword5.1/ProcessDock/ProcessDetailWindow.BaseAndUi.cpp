@@ -2536,6 +2536,8 @@ void ProcessDetailWindow::initializePluginTab()
         context.targetKind = ks::plugin_host::TargetKind::Process;
         context.processId = m_baseRecord.pid;
         context.processName = QString::fromStdString(m_baseRecord.processName);
+        // 详情窗口保留原记录身份；进程退出后同一 PID 的新进程不能继承这个菜单。
+        context.processCreateTime100ns = m_baseRecord.creationTime100ns;
         context.filePath = QString::fromStdString(
             m_baseRecord.imagePath.empty() ? m_baseRecord.r0ImagePath : m_baseRecord.imagePath);
         ks::plugin_host::populateTargetMenu(m_pluginTargetMenu, this, context);

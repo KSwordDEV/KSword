@@ -1,4 +1,5 @@
 #include "DiskEditorTab.h"
+#include "../../UI/CodeTextEdit.h"
 #include "../../../../shared/evidence/NumericTextParse.h"
 #include "../../SettingsDock/AppearanceSettings.h"
 #include "../../Framework/PrivilegeElevationPrompt.h"
@@ -499,7 +500,8 @@ namespace ks::misc
         QGroupBox* logGroup = new QGroupBox(QStringLiteral("操作日志"), rightPanel);
         logGroup->setStyleSheet(buildInfoCardStyle());
         QVBoxLayout* logLayout = new QVBoxLayout(logGroup);
-        m_logEdit = new QPlainTextEdit(logGroup);
+        m_logEdit = new CodeTextEdit(logGroup);
+        static_cast<CodeTextEdit*>(m_logEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         m_logEdit->setReadOnly(true);
         m_logEdit->setStyleSheet(
             QStringLiteral("QPlainTextEdit{border:none;background:%1;color:%2;}")

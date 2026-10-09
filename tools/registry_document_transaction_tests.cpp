@@ -200,6 +200,7 @@ LSTATUS WINAPI mockRegDeleteKeyExW(HKEY, LPCWSTR, REGSAM, DWORD) { ++mock::ordin
 #define RegSetValueExW mockRegSetValueExW
 #define RegDeleteValueW mockRegDeleteValueW
 #include "../Ksword5.1/Ksword5.1/RegistryDock/RegistryDocumentApply.cpp"
+#include "../Ksword5.1/Ksword5.1/RegistryDock/RegistryDocumentApply.Win32.cpp"
 bool RegistryDocumentService::encodeBackup(const RegistryDocument&, QByteArray&, QString&) { return false; }
 bool RegistryDocumentService::decodeBackup(const QByteArray&, RegistryDocument&, QString&) { return false; }
 bool RegistryDocumentService::captureWin32(const QString& path, int view, RegistryDocument& result, QString&, qint64)

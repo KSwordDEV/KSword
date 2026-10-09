@@ -45,6 +45,10 @@ namespace ks::ui
     public:
         explicit WorkbenchSessionBar(QWidget* parent = nullptr);
 
+        // setMemoryDebugMode：独立页隐藏范围切换，并把目标提示改为进程选择。
+        // 传入 enabled：是否使用该显示模式；不改变目标或通道，不发业务请求。
+        void setMemoryDebugMode(bool enabled);
+
         // currentScope / currentChannel / currentWriteMode：当前显示的状态
         //（由 set* 系列回写，不代表用户刚点的那一次请求一定已经生效）。
         ksword::memwb::Scope currentScope() const;
@@ -180,6 +184,8 @@ namespace ks::ui
         // m_attached：目标 chip 当前是否处于"已附加"状态，供 refreshTargetChipDisplay
         // 在范围/主题变化时重新计算展示（不必重新调用一次 setTargetInfo）。
         bool m_attached = false;
+        // m_memoryDebugMode：仅控制独立内存调试页的范围控件与目标文案。
+        bool m_memoryDebugMode = false;
         // m_targetProcessName/m_targetPid/m_targetAddressBits/m_targetCanReadWrite：
         // setTargetInfo 最近一次喂入的四个参数，供 refreshTargetChipDisplay 在范围/
         // 主题变化时重新拼文字，不必要求调用方重新调一次 setTargetInfo。

@@ -1212,7 +1212,9 @@ bool RegistryDock::renameRegistryKeyAny(
     }
     newPath += QStringLiteral("\\") + newKeyName;
 
-    if (shouldUseRegistryR0())
+    // 按目标路径选择通道：HKCR 是合并视图，即使驱动在线也必须使用 Win32。
+    const RegistryAccessContext context = accessContextForPath(fullKeyPath);
+    if (context.useR0)
     {
         const QString kernelPath = buildKernelRegistryPath(fullKeyPath);
         if (kernelPath.isEmpty())

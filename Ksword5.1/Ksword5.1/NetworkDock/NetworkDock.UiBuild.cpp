@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/CodeTextEdit.h"
 #include "../UI/VisibleTableWidget.h"
 #include "NetworkFirewallPage.h"
 #include "NetworkAuditPage.h"
@@ -297,7 +298,8 @@ void NetworkDock::initializeRateLimitTab()
     m_rateLimitLayout->addWidget(m_rateLimitTable, 1);
 
     // 限速动作日志：便于查看挂起/恢复执行结果。
-    m_rateLimitLogOutput = new QPlainTextEdit(m_rateLimitPage);
+    m_rateLimitLogOutput = new CodeTextEdit(m_rateLimitPage);
+    static_cast<CodeTextEdit*>(m_rateLimitLogOutput)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_rateLimitLogOutput->setReadOnly(true);
     m_rateLimitLogOutput->setMaximumBlockCount(400);
     // 日志框使用按控件宽度自动换行，避免窄窗口出现横向滚动条。
@@ -617,7 +619,11 @@ void NetworkDock::initializeManualRequestTab()
     m_manualPayloadFormatCombo->addItem(QStringLiteral("十六进制字节"), static_cast<int>(ks::network::ManualPayloadFormat::HexBytes));
     m_manualPayloadFormatCombo->setToolTip(QStringLiteral("十六进制模式示例：48 65 6C 6C 6F"));
 
-    m_manualPayloadEditor = new QPlainTextEdit(payloadGroup);
+    auto* payloadEditor = new CodeTextEdit(payloadGroup);
+    payloadEditor->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    payloadEditor->setLineNumbersVisible(false);
+    payloadEditor->setCompactMode(true);
+    m_manualPayloadEditor = payloadEditor;
     m_manualPayloadEditor->setPlaceholderText(QStringLiteral("在此输入请求载荷。"));
     m_manualPayloadEditor->setFixedHeight(96);
     m_manualPayloadEditor->setLineWrapMode(QPlainTextEdit::WidgetWidth);
@@ -657,7 +663,8 @@ void NetworkDock::initializeManualRequestTab()
     actionButtonLayout->addWidget(m_manualResetButton);
     actionButtonLayout->addStretch(1);
 
-    m_manualResultOutput = new QPlainTextEdit(actionGroup);
+    m_manualResultOutput = new CodeTextEdit(actionGroup);
+    static_cast<CodeTextEdit*>(m_manualResultOutput)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_manualResultOutput->setReadOnly(true);
     m_manualResultOutput->setMaximumBlockCount(800);
     m_manualResultOutput->setLineWrapMode(QPlainTextEdit::WidgetWidth);

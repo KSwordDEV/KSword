@@ -1,0 +1,857 @@
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ ⚖  KSwordDEV/KSword is licensed under the                                                                                                  │
+│    KSword Community Source License v1.6                                                                                                    │
+│                                                                                                                                            │
+│    A source-available license allowing use, modification, free distribution and SaaS.                                                      │
+│    The software itself may not be sold. Modified public versions must disclose corresponding source and clearly identify themselves.       │
+│                                                                                                                                            │
+│  Permissions                              Limitations                              Conditions                                              │
+│                                                                                                                                            │
+│  ✔ Commercial use                         ✘ Software sale                          ⓘ License & copyright notice                           │
+│  ✔ Private use                            ✘ Disguised / indirect sale              ⓘ Disclose corresponding source                        │
+│  ✔ Study & research                       ✘ Trademark license                      ⓘ State significant changes                            │
+│  ✔ Modification                           ✘ Patent license                         ⓘ Mark unofficial versions                             │
+│  ✔ Free distribution                      ✘ Official branding                      ⓘ Preserve attribution & project link                  │
+│  ✔ Paid services & support                ✘ Official infrastructure                ⓘ Keep source available ≥ 3 years                      │
+│  ✔ Hosted / SaaS use                      ✘ Warranty                               ⓘ Separate plugin licenses apply                       │
+│                                           ✘ Liability*                             ⓘ Follow third-party licenses                          │
+│                                                                                                                                            │
+├────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ⓘ This summary is for convenience only. It grants no rights and imposes no restrictions or obligations.                                   │
+│    Only the full License is legally binding. The Chinese text controls.                                                                    │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+KSword Community Source License 1.6
+KSword 社区源码可见许可证 1.6
+
+生效日期：2026年8月16日
+SPDX-License-Identifier: LicenseRef-KSword-Community-Source-1.6
+
+官方项目名称：KSword
+官方维护方：KSwordDEV
+官方仓库：https://github.com/KSwordDEV/KSword
+官方网站：https://ksword.dev/
+官方联系邮箱：support@ksword.dev
+官方许可证地址：https://github.com/KSwordDEV/KSword/blob/main/LICENSE
+
+许可方：以相关文件、提交记录、发行元数据或其他有效权利声明中标明的适格著作权人为准。
+版权所有 © 2026 KSword 贡献者及各相关著作权人。
+除本许可证明确授予的权利外，其他一切权利均予保留。
+
+本许可证是一份源码可见许可证，不是经开放源代码促进会（OSI）批准的开放源代码许可证。本许可证以中华人民共和国法律为主要法律基础；为本许可证之目的，“中华人民共和国法律”不包括香港特别行政区、澳门特别行政区和台湾地区的法律，但强制适用的法律另有规定的除外。
+
+任何人行使本许可证授予且依法需要许可方授权的权利，即表示其接受并同意遵守本许可证。单纯取得或查看公开可访问的源码副本，不视为接受本许可证；但是，任何复制、修改、分发、公开提供、托管、向第三方提供功能或其他依赖本许可证授权的行为，均以接受本许可证为前提。除适用法律允许其无需取得许可即可实施的行为外，不接受本许可证者不得行使本许可证授予的任何权利。
+
+【特别提示】第13条“终止、纠正与恢复”、第14条“无担保”和第15条“责任限制”包含与接收者有重大利害关系的条款。请在行使本许可证授予的权利前特别阅读。许可方应在接收者提出合理要求时，对相关条款作出合理说明。
+
+
+快速权利与限制索引（非规范性摘要）
+
+重要说明：本节仅为方便阅读和定位正文，不构成本许可证的组成性授权条款。本节本身不授予任何权利，不设定任何义务、禁止、条件、例外、保证或责任限制。任何权利与限制均仅来源于后续许可证正文；本节与正文存在遗漏、简化、歧义或冲突时，以正文为准。
+
+主要权利：
+- 查看、运行和研究本软件：第2.1(a)款。
+- 为个人或组织内部使用复制和私有修改：第2.1(b)款、第4.1款。
+- 在满足条件时免费分发未修改版本或修改版本：第2.1(c)款、第3条、第4条。
+- 将本软件用于内部商业、教育、研究或非营利用途：第2.1(e)款、第2.2款。
+- 提供并收费运营在线服务、托管服务或 SaaS：第2.1(d)款、第6条。
+- 对安装、配置、迁移、培训、定制开发和技术支持收取真实服务费用：第7.4款、第7.5款。
+- 为修改版本采用其他主要名称：第4.7款、第8条。
+- 经有效书面授权，在特定 SaaS 中省略部分或全部项目展示信息：第6.3款。
+
+主要限制和义务：
+- 不得直接或间接将本软件本身作为商品出售：第7条。
+- 分发和 SaaS 必须保留许可证、来源信息及规定的醒目标识：第3条、第4条、第6条、第8条。
+- 对外分发修改版本或通过在线服务提供修改后的功能时，必须提供完整对应源码：第4条。
+- 修改版本必须明确标识为非官方版本并披露实质性修改：第4.7款、第4.8款。
+- 不得冒充官方、滥用 KSword 标识或官方基础设施：第8条。
+- 插件及带独立许可证的第三方材料不受本许可证授权：第9条。
+- 不得重新许可本软件或施加冲突性附加限制：第11条。
+- 本许可证不授予专利许可：第12条。
+- 违规会终止分发、托管和对外服务权，但不当然终止对合法取得源码的查看权及内部运行、研究和私有修改权：第13条。
+- 既有 GPL 或其他许可证版本不会因本许可证而被追溯变更或撤销：第16条。
+- 本软件按现状提供，并受无担保及责任限制条款约束：第14条、第15条。
+
+
+0. 官方信息与适用范围
+
+0.1 本许可证仅适用于明确标注本许可证名称或 SPDX 标识符的文件、目录、组件及发行版本。仅因某材料与本软件位于同一仓库、安装包、镜像或发行介质中，不当然使该材料受本许可证约束。
+
+0.2 本许可证顶部列明的信息构成“官方项目信息”。官方维护方可以通过官方网站、官方仓库或其他可验证的官方渠道更新项目地址、联系地址或许可证地址。地址更新不改变已经发布的软件副本所适用的许可证版本及实质性权利义务。
+
+0.3 顶部列明的“官方维护方”用于识别官方项目渠道、接收通知及管理项目。官方维护方仅能在其已经从相关许可方取得有效授权的范围内代表许可方作出书面授权、许可例外、权利恢复或其他法律行为。
+
+0.4 本许可证不证明任何人对具体文件当然拥有完整权利。任何人只能就其拥有著作权或已取得充分授权的材料适用本许可证。
+
+
+1. 定义
+
+1.1 “本软件”
+指以本许可证发布的 KSword 源代码、目标代码、可执行文件、安装包、容器镜像、界面资源、文档及其随附材料。明确附有其他许可证的第三方材料以及插件，不因与本软件一同提供而自动纳入本许可证。
+
+1.2 “源码”
+指对作品进行修改时实际优先采用的形式。仅提供经过混淆、压缩、加密、不可读转换或自动生成的形式，而隐瞒实际用于开发和修改的原始形式，不视为提供源码。
+
+1.3 “许可方”
+指有权就本软件相关部分授予本许可证的著作权人，或者经该著作权人合法授权的个人、法人或非法人组织。
+
+1.4 “官方维护方”
+指本许可证顶部列明的项目维护主体，以及由其通过可验证的官方渠道明确指定的合法继受者。官方维护方不因维护项目而当然取得第三方贡献的著作权。
+
+1.5 “接收者”
+指取得本软件副本、访问本软件源码，或者依据本许可证接受本软件功能的任何个人、法人或非法人组织。
+
+1.6 “第三方”
+指接收者以外的任何个人、法人或非法人组织。接收者为组织时，仅为该组织内部使用而接触本软件，并受有效保密义务约束的雇员及承包人员，不视为第三方；但向客户、独立合作方、关联公司以外的其他组织或公众提供副本或功能，属于向第三方提供。
+
+1.7 “修改版本”
+指对本软件进行修改、改编、翻译、重构、合并、嵌入，或者复制本软件受著作权保护的表达而形成的任何作品，包括将本软件整体或部分并入其他项目的情形。
+
+1.8 “分发”
+指向第三方出售、赠与、复制、传输、发布、提供下载、镜像、预装、捆绑、上传至应用商店或软件仓库，或者以其他方式提供本软件或修改版本的副本。
+
+1.9 “在线服务”
+指通过网络向第三方提供本软件或修改版本的全部或部分功能，包括托管服务、云服务、远程实例、API 服务及软件即服务（SaaS）。
+
+1.10 “完整对应源码”
+指生成、安装、运行并修改所分发目标代码或所部署在线服务版本所需的、适合进行实际修改的源码，包括许可方或分发者制作的修改内容、构建脚本、项目文件、接口定义、配置文件、资源文件以及生成对应二进制所必需的其他材料。
+
+完整对应源码无需包含：正常随操作系统或通用开发工具提供且未随本软件分发的标准组件；代码签名私钥、证书私钥、访问令牌、生产环境凭据、个人信息；或者分发者依法无权披露的第三方商业秘密。但不得以排除上述材料为由隐瞒实际源码、构建逻辑、必要的公开接口说明或可供接收者自行配置的示例文件。
+
+1.11 “官方项目信息”
+指本许可证顶部列明或依第0.2款有效更新的 KSword 官方项目名称、官方维护方、官方仓库地址、官方网站地址、官方联系地址及官方许可证地址。
+
+1.12 “醒目位置”
+指普通用户无需主动搜索即可合理发现的位置，并且相关文字不得被折叠、遮挡，或者以明显低于同一页面其他版权、品牌或来源信息的字号和可见性展示：
+
+(a) 图形界面程序：至少包括下载页面、安装程序以及“关于”或“法律信息”页面；
+(b) 命令行程序：至少包括主要文档以及可直接调用的许可证、版本、来源或关于信息；
+(c) 在线服务：至少包括登录页面、主要用户界面、页脚、“关于”页面或“法律信息”页面中的一处，并应保证用户能够在正常使用过程中直接发现。
+
+1.13 “书面授权”
+指由有权作出该授权的许可方或官方维护方，通过签署文件、其控制的官方电子邮件地址或其他可验证的官方渠道作出的明确授权。书面授权仅适用于其中明确列明的接收者、行为、期限和范围，不得转让，也不得推定扩张至未明确授权的事项。
+
+1.14 “实质性修改”
+指可能影响安全性、兼容性、数据处理、网络通信、更新行为、驱动行为、系统权限、核心功能、用户界面中的来源判断，或者其他可能影响用户是否安装、使用或信任该版本决定的修改。
+
+
+2. 权利授予与保留
+
+2.1 在接收者持续遵守本许可证全部条件的前提下，许可方向接收者授予一项全球范围、免许可费、非独占、不可再许可的许可，允许接收者：
+
+(a) 访问、查看、运行和研究本软件；
+(b) 为个人或组织内部使用复制和修改本软件；
+(c) 按照本许可证免费分发本软件及修改版本；
+(d) 按照本许可证向第三方提供在线服务；
+(e) 将本软件用于内部商业、教育、研究或非营利用途。
+
+2.2 本许可证允许商业使用，但不允许将本软件本身作为商品出售。符合第6条的付费在线服务，以及符合第7条的真实专业服务，不因收费本身而构成销售本软件。
+
+2.3 每一接收者的权利直接来自相关许可方，而不是来自上游分发者。任何分发者均无权代表许可方授予其他许可、保证、背书或授权。
+
+2.4 除本许可证明确授予的权利外，其他一切权利均由许可方保留。本许可证不授予任何专利许可，也不授予除第8条规定的有限来源标识以外的任何商标许可。
+
+2.5 本许可证不限制适用法律明确允许接收者无需取得许可即可实施的行为。
+
+2.6 许可方可以就其有权处分的材料另行提供其他许可证或书面授权。该行为不自动修改、撤销或扩大其他接收者依据本许可证已经取得的权利。
+
+
+3. 未修改版本的分发
+
+接收者可以免费分发本软件的未修改版本，但必须同时满足以下条件：
+
+(a) 不得直接或间接销售本软件；
+(b) 必须随副本保留本许可证全文；
+(c) 不得删除、隐藏、缩小、模糊或替换任何版权声明、作者信息、来源信息、许可证声明、权利管理信息或官方项目地址；
+(d) 分发目标代码、可执行文件或安装包时，必须在醒目位置提供官方项目地址以及与所分发版本相对应的免费源码地址；
+(e) 不得声称该副本由分发者开发、获得官方认证、得到官方背书或属于官方独家版本；
+(f) 不得对接收者施加与本许可证冲突或额外限制本许可证权利的条款；
+(g) 任何源码链接均必须能够免费访问，并指向与所分发版本相对应的源码；
+(h) 如官方未修改版本已经包含“查看源码”“源代码”“许可证”或类似入口，不得删除、禁用、隐藏、替换或将其重定向至不对应的源码或许可证。
+
+
+4. 私有修改与修改版本的对外提供
+
+4.1 修改版本可以在仅供个人或组织内部使用，且未向任何第三方分发副本或提供功能访问时保持私有。
+
+4.2 一旦向第三方分发修改版本的源码、目标代码、安装包、容器镜像或其他形式，或者通过在线服务、预装、嵌入、捆绑等方式向第三方提供修改版本的全部或部分功能，即构成修改版本的对外提供，并适用本条全部相关义务。
+
+4.3 以源码形式分发修改版本时，必须提供适合实际修改的完整源码，同时保留本许可证全文、非官方版本声明、修改记录及本条要求的其他信息。仅提供差异文件而不提供取得完整对应源码的可行方式，不视为完全履行本款。
+
+4.4 发生下列任一行为时，必须在分发副本或首次向第三方提供功能的同时，向相应第三方免费提供完整对应源码：
+
+(a) 分发修改版本的二进制、安装包、容器镜像或其他目标代码形式；
+(b) 通过在线服务向第三方提供修改版本的全部或部分功能；
+(c) 将修改版本预装、嵌入或捆绑在向第三方提供的其他产品、系统或服务中。
+
+对于在线服务，所提供源码必须与当时实际部署并向第三方提供功能的版本精确对应；部署发生实质性修改时，必须同步更新对应源码。
+
+4.5 接收者可以直接附带完整对应源码，也可以提供源码链接。源码链接必须：
+
+(a) 指向与所分发二进制或所部署服务版本精确对应的源码；
+(b) 无需付款、购买会员、提交强制捐赠或承担其他有价义务即可访问和下载；
+(c) 不得要求接受与本许可证冲突的条款；
+(d) 在相关二进制或服务持续提供期间保持有效；
+(e) 在最后一次分发该版本或最后一次向第三方提供该服务版本后，继续保持至少三年；
+(f) 在链接失效、仓库删除、账号停用或访问权限发生变化时，由分发者或服务运营者负责恢复访问，或者以其他免费方式重新提供源码。
+
+4.6 提供的完整对应源码不得以混淆、加密、仅可浏览而不可合理下载、故意拆散、缺失关键构建材料或其他实质妨碍修改的形式提供。为保护私钥、凭据、个人信息或依法不得披露的信息而作出的必要删除，不得影响接收者取得实际源码及理解构建逻辑。
+
+4.7 修改版本可以使用其他主要名称，但必须在醒目位置标明：
+
+“本产品基于 KSword 修改，并非 KSword 官方版本。”
+
+对于在线服务，应使用含义实质相同且清晰可见的表述。
+
+4.8 修改版本必须附带修改记录，至少包括：
+
+(a) 修改版本的名称和版本号；
+(b) 所基于的 KSword 原始版本、发布版本号或提交编号；
+(c) 主要修改内容；
+(d) 修改日期；
+(e) 修改者的个人名称、组织名称或可联系标识；
+(f) 修改版本的完整对应源码地址或取得方式。
+
+不要求逐行记录修改，但不得隐瞒任何实质性修改。
+
+4.9 分发修改版本的图形界面二进制时，必须在“关于”或“法律信息”页面提供可直接访问的许可证和完整对应源码入口；命令行版本必须在主要文档及可直接调用的许可证、来源或关于信息中提供相同信息。直接附带完整对应源码的，仍须提供接收者能够合理发现其位置的说明。
+
+4.10 修改版本的分发者必须随修改版本保留本许可证全文，不得重新许可本软件，也不得声明本软件、修改版本中源自本软件的部分或本软件整体受其他许可证管理。
+
+
+5. 复制、嵌入与独立实现
+
+5.1 将本软件中任何受著作权保护的源代码、目标代码、界面资源、文档或其他表达形式整体或部分复制、改编或嵌入其他项目，且该行为依法需要许可方授权的，视为制作修改版本，并适用本许可证全部相关条件。
+
+5.2 仅使用本软件所体现的思想、功能、算法原理、处理过程、操作方法、数学概念、事实信息、公开接口或协议格式，且未复制本软件受著作权保护的表达，不因此构成修改版本。
+
+5.3 仅通过公开 API、命令行、网络协议、进程间通信或其他正常接口与本软件交互，或者仅与本软件并列分发，不当然构成修改版本；是否构成修改版本仍取决于是否复制、改编或嵌入了依法受保护的表达。
+
+5.4 本条不扩大著作权法定保护范围，也不限制适用法律规定的合理使用、法定许可、反向工程例外、兼容性研究或其他无需许可即可实施的行为。
+
+
+6. 在线服务、托管服务与 SaaS
+
+6.1 允许将本软件或修改版本作为在线服务、托管服务或 SaaS 向第三方提供，也允许就该服务收取费用，但必须在醒目位置显示：
+
+(a) “基于 KSword”或含义实质相同的来源说明；
+(b) 官方项目地址；
+(c) 本许可证的完整文本或永久有效链接；
+(d) 如果服务使用修改版本，第4条要求的非官方声明、修改记录及完整对应源码入口。
+
+6.2 使用修改版本提供在线服务时，必须持续满足第4条的完整对应源码义务，并在每次实质性部署更新时同步更新所提供的源码、版本信息及修改记录。
+
+6.3 经有权主体事先书面授权，可以在该授权明确指定的在线服务、期限和范围内，不显示第6.1款规定的部分或全部项目信息。除非书面授权明确说明，省略展示信息的授权不免除源码提供、禁止销售、禁止冒充官方、第三方许可证、责任限制或其他义务。
+
+6.4 在线服务运营者自行提供的服务保证、支持承诺、隐私承诺、数据处理承诺、可用性承诺或收费安排，仅约束该运营者，不得声明或暗示由许可方、官方维护方或其他贡献者承担责任。
+
+
+7. 禁止销售与允许收费的服务
+
+7.1 禁止任何人直接或间接将本软件本身作为商品出售。
+
+7.2 “销售本软件”包括以取得本软件副本、源码访问权、下载权、本地部署权、本地使用权或软件许可为条件，直接或间接要求支付费用、购买会员、购买其他商品、接受强制捐赠、订阅服务或承担其他有价义务。
+
+7.3 自愿且不影响本软件获取、下载、功能、更新或支持资格的捐赠，不构成销售本软件。
+
+7.4 允许对真实发生的安装、配置、迁移、培训或技术支持服务收取费用，但必须：
+
+(a) 在收费前明确告知客户本软件本身可以免费取得；
+(b) 提供官方免费下载地址；
+(c) 将服务费与软件价格分开说明，不得将任何费用标为本软件售价、许可费、激活费或取得软件的对价；
+(d) 不得将强制服务费作为取得本软件副本的条件；
+(e) 不得限制客户按照本许可证直接获取、使用、修改或分发本软件的权利。
+
+7.5 允许对真实发生的定制开发劳动收取费用，但交付的修改版本仍必须受本许可证约束，并按照第4条向客户提供完整对应源码、修改记录和非官方声明。不得以定制开发合同、保密条款、技术措施或其他方式阻止客户行使本许可证授予的权利；客户另行委托开发且与本软件明确可分离的独立材料除外。
+
+7.6 符合第6条的付费在线服务不构成销售本软件，前提是收费对象确为托管、计算、存储、运维、支持或其他在线服务，而不是取得本软件副本、本地部署权或软件许可的对价。
+
+7.7 名为服务费、会员费、捐赠、硬件费、运费、激活费或其他费用，但实质上用于换取本软件副本、下载权、本地部署权或本地使用权的，仍视为销售本软件。
+
+7.8 本软件可以随收费硬件或其他独立商品一同提供，但不得因附带本软件而单独收取软件费用，不得将购买该商品设置为取得本软件的唯一现实方式，并且必须清楚说明本软件可以从官方渠道免费取得。
+
+
+8. 来源标识、项目标识与官方身份
+
+8.1 不得删除、隐藏或替换本软件中的版权声明、作者信息、来源信息、许可证声明、权利管理信息及官方项目地址。
+
+8.2 仅为履行本许可证规定的来源标识义务而使用“KSword”文字，不构成商标授权。
+
+8.3 修改版本可以采用其他主要名称，但必须按照第4.7款在醒目位置保留“基于 KSword”的来源说明。修改版本不得将“KSword”作为其主要产品名称，也不得以名称排列、字体、域名或其他展示方式使普通用户误认为其为官方版本。
+
+8.4 未经另行书面授权，不得使用或仿冒 KSword Logo、图标、官方网站外观、官方组织名称、官方域名、社交账号、发布页面或任何足以使用户误认为其获得官方认可、合作、认证、维护、授权或背书的标识。
+
+8.5 本许可证不授予任何人使用、复制、控制或仿冒许可方或官方维护方的代码签名证书、驱动签名身份、更新服务器、更新清单、发布频道、API 密钥、云服务、遥测服务、崩溃报告服务、域名、官方账号或其他官方基础设施的权利。
+
+8.6 修改版本必须使用独立的软件标识、包标识、应用标识、驱动服务名称、更新源及签名身份，不得通过官方更新渠道向用户分发，也不得覆盖、冒充、劫持或破坏官方版本的安装、更新、文件关联、服务身份或其他识别信息。
+
+8.7 本条不限制法律允许的指称性使用、事实性来源说明、评论、比较或其他无需商标权人许可的行为，但不得造成来源、关联关系或官方身份混淆。
+
+
+9. 插件与第三方材料
+
+9.1 本软件中的插件、插件资源及插件依赖项均为独立授权。本许可证不授予任何插件的使用、复制、修改、分发或再许可权利。
+
+9.2 每个插件仅受其目录内所附许可证或安装前明确展示并由使用者接受的许可证约束。安装程序可以在安装前读取并展示相应插件许可证。没有独立许可证文件或明确授权声明的插件，默认不授予任何使用、复制、修改或分发权限。
+
+9.3 本软件中由第三方提供并带有独立版权或许可证声明的组件、库、资源、字体、代码及其他材料，继续受其各自许可证约束。本许可证不取代、扩张或限制第三方许可证授予的权利。
+
+9.4 当具体文件、目录或组件中的许可证声明与本许可证不同时，该具体材料的独立许可证优先适用；本许可证仅适用于许可方有权按照本许可证授权的部分。
+
+9.5 任何分发者均应保留并履行适用于第三方材料的版权声明、NOTICE、源码提供、专利、归属及其他许可证义务。不得以本许可证的“禁止重新许可”或“不授予专利许可”条款否定第三方许可证已经有效授予的权利。
+
+
+10. 贡献
+
+10.1 “贡献”指任何人有意向官方维护方管理的官方代码仓库提交，并拟并入本软件的 Pull Request、补丁、代码、文档、资源或其他材料。本条仅适用于提交时官方仓库已经醒目展示本贡献条款或指向本许可证的贡献；此前贡献适用第16条。
+
+10.2 提交贡献即表示贡献者声明并保证：
+
+(a) 其有权提交该贡献并授予本条所述权利；
+(b) 该贡献不受其无权代表的雇主、学校、客户、合作方或其他权利人的限制；
+(c) 其已披露该贡献中适用的第三方许可证及版权声明；
+(d) 其不会在无权披露的情况下提交第三方保密信息、个人信息、商业秘密或其他受限制材料。
+
+10.3 贡献者向官方维护方、相关许可方及其各自合法继受者授予一项永久、全球、非独占、不可撤销、免许可费的著作权许可，允许其使用、复制、修改、改编、翻译、汇编、合并、公开展示、通过信息网络传播、分发、商业化、再许可，以及以任何许可证发布该贡献。
+
+10.4 贡献者保留其贡献本身的著作权，但不得以该著作权阻止第10.3款授权的合理行使。
+
+10.5 在不违反强制性法律规定的前提下，贡献者同意第10.3款的被授权人可以为行使该授权，对贡献进行必要的修改、改编、翻译、汇编、合并、节选、格式调整和技术处理。贡献者不得仅因上述经授权且未构成歪曲、篡改贡献或损害贡献者声誉的正常使用，主张署名权、修改权或保护作品完整权以不合理阻碍第10.3款授权的行使。依法不得事先放弃、限制或排除的著作人身权不受本款影响。
+
+10.6 除法律另有强制规定或双方另有书面约定外，官方维护方可以通过提交历史、贡献者名单、NOTICE 文件、项目文档或其他合理方式标明贡献者身份，不保证在每一界面、二进制、发行说明或宣传材料中逐一展示全部贡献者姓名。
+
+10.7 明确标注为“Not a Contribution”或“非贡献”的材料不适用本条。该标注必须在提交时或提交前作出，并足以使官方维护方合理识别该材料不应被合并或作为贡献使用。
+
+10.8 本条授予的是著作权许可，不授予任何专利许可。需要专利许可的贡献，必须另行取得书面授权。
+
+
+11. 禁止重新许可与附加限制
+
+11.1 不得重新许可本软件，不得声明本软件整体、修改版本中源自本软件的部分或任何未获独立授权的部分受其他许可证管理。
+
+11.2 不得要求下游接收者接受与本许可证冲突的条款，也不得通过合同、技术措施、付费墙、访问控制、数字版权管理或其他方式限制其依本许可证已经取得的权利。
+
+11.3 接收者可以为其独立创作且可与本软件明确区分的新增材料选择其他许可证，但必须清楚标明边界，不得声称该许可证覆盖本软件原有部分，也不得使新增材料的条款阻止接收者履行本许可证。
+
+11.4 本许可证全文必须保持完整。除官方维护方在获得必要权利后发布新的正式版本外，任何人不得修改本许可证文本并仍以“KSword Community Source License”名义发布。
+
+11.5 本条不妨碍接收者依第16条继续使用此前已经适用的其他许可证，也不妨碍第三方材料依其独立许可证继续授权。
+
+
+12. 专利
+
+12.1 本许可证以及第10条的贡献授权均不授予任何明示、默示或基于禁止反言的专利许可。
+
+12.2 任何人不得仅因获得本软件、修改版本或贡献的著作权许可，即推定其获得了实施任何专利权利要求的许可。
+
+12.3 本条不限制接收者依据适用法律已经享有的权利，也不影响许可方、专利权人或第三方许可证另行作出的有效专利授权。
+
+
+13. 终止、纠正与恢复
+
+13.1 第2.1(c)款和第2.1(d)款授予的对外分发及在线服务权利，以接收者持续遵守本许可证为解除条件。任何违反本许可证的行为发生时，违规者分发、公开提供、镜像、托管以及向第三方提供本软件或修改版本功能的权利自动终止。
+
+13.2 违规者必须立即停止新的分发和托管，并在其控制范围内移除公开下载、镜像、应用商店页面、服务入口及其他持续向第三方提供本软件或修改版本的渠道。
+
+13.3 违规者仍可保留并查看其此前合法取得的源码副本。源码查看权不因违反本许可证而终止，但不包括向第三方复制、分发、公开提供或再次发布源码的权利。
+
+13.4 除第13.1款明确终止的对外分发及服务权利外，违规者对其此前合法取得副本的内部访问、运行、研究和私有修改权不因该违规自动终止；但本款不限制许可方依据适用法律请求停止侵害、排除妨碍、消除影响、赔偿损失、行为保全、证据保全、财产保全或其他救济。
+
+13.5 如果违规者首次收到许可方或有权官方维护方关于违反本许可证的书面通知，并在收到通知后三十日内完全纠正全部已通知的违规行为，则第13.1款终止的权利在纠正完成时自动恢复。
+
+13.6 权利恢复后再次违反本许可证，或者未在第13.5款规定期限内完全纠正的，第13.1款所列权利永久终止，除非有权主体另行书面恢复。
+
+13.7 某一分发者的许可终止，不影响此前从其处合法取得本软件且自身持续遵守本许可证的下游接收者。
+
+13.8 本许可证中有关权利保留、第三方材料、贡献、专利、无担保、责任限制、终止后义务、既有版本、适用法律及争议解决的条款，在相关权利终止后继续有效。
+
+13.9 在权利终止期间实施的分发、托管、公开提供或对外服务行为不受本许可证授权。后续恢复不追溯授权恢复前已经实施的行为，除非有权主体另行书面确认。
+
+
+14. 无担保
+
+14.1 在适用法律允许的最大范围内，本软件按“现状”和“现有状态”提供。许可方、官方维护方及贡献者不提供任何明示、默示、法定或其他保证，包括但不限于所有权、不侵权、适销性、特定用途适用性、准确性、安全性、持续可用性、无错误、无恶意代码、数据完整性或与其他软件及硬件兼容的保证。
+
+14.2 使用者自行承担运行本软件所产生的全部风险，特别是加载驱动、执行内核操作、修改系统状态、处理重要数据、改变安全配置或使用实验性功能所产生的风险。
+
+14.3 许可方、官方维护方及贡献者没有提供维护、技术支持、安全修复、功能更新、兼容性更新或继续发布本软件的义务。
+
+
+15. 责任限制
+
+15.1 在适用法律允许的最大范围内，无论基于合同、侵权、过失、严格责任、法定义务或其他法律理论，许可方、官方维护方及贡献者均不对利润损失、收入损失、数据丢失、数据损坏、业务中断、设备或系统故障、隐私损害、替代商品或服务成本，以及任何直接、间接、附带、特殊、惩罚性、示范性或后果性损害承担责任，即使其已被告知可能发生此类损害。
+
+15.2 任何分发者、修改者、在线服务运营者或服务提供者自行作出的保证、承诺、支持、赔偿、隐私声明或其他义务，仅约束作出该承诺的人，不得使许可方、官方维护方或其他贡献者承担责任。
+
+15.3 本许可证不排除或限制依法不得排除或限制的责任，包括造成人身损害的责任、因故意或者重大过失造成对方财产损失的责任，以及其他依据中华人民共和国强制性法律规定不得免责或限责的责任。任何强制适用的消费者权益保护、产品责任、网络安全、数据保护或其他法律规定，在其不可排除的范围内优先适用。
+
+15.4 如果第15.1款的某项免责或限责因强制性法律而不能完全适用，该项免责或限责应仅在法律允许的最大范围内适用，不影响其他可执行条款。
+
+
+16. 既有版本、第三方贡献与许可证迁移
+
+16.1 本许可证仅对明确以本许可证发布的具体文件、组件和版本生效，不追溯变更任何此前已经按照 GPL-3.0-only 或其他许可证发布的副本。
+
+16.2 任何人在此前许可证下已经合法取得的权利，继续由该此前许可证管理。本许可证不撤销、缩减或改变已经有效授予的既有许可，也不阻止既有副本、分支或 fork 在其原许可证允许的范围内继续使用、修改、销售、托管或分发。
+
+16.3 未经相关著作权人有效同意，不得将其此前贡献的代码、文档、资源或其他材料从原许可证单方面变更为本许可证。官方维护方必须取得充分的重许可授权，或者移除、替换、独立重写相关材料后，方可将包含该材料的新版本以本许可证发布。
+
+16.4 本许可证不改变任何第三方依赖项、复制代码、资源或其他材料的许可证。若第三方许可证要求整个组合作品适用与本许可证不兼容的条款，则不得在未解决该冲突前以本许可证分发该组合作品。
+
+16.5 对项目实施许可证迁移时，应当保存权利人同意、代码来源审计、重写记录、第三方许可证清单、适用范围及迁移提交或发行版本等可验证记录。
+
+
+17. 通用条款
+
+17.1 可分割性
+如果本许可证的任何条款被认定为无效、违法或不可执行，该条款应仅在使其有效和可执行所必需的最小范围内缩减；其余条款继续有效。
+
+17.2 不弃权
+许可方或官方维护方未立即执行本许可证的任何条款或权利，不构成对该条款或权利的放弃。任何一次放弃不构成对以后违规行为的放弃。
+
+17.3 完整协议
+本许可证构成有关本软件授权的完整条款。许可方可以通过单独书面授权规定例外；除该书面授权明确规定的范围外，本许可证继续适用。口头陈述、非官方说明、快速权利与限制索引、README、社区公约或社区讨论不修改本许可证。
+
+17.4 无代理关系
+本许可证不在许可方、官方维护方与接收者之间建立合伙、合资、雇佣、代理、特许经营或受托关系。
+
+17.5 许可证版本
+某一副本仅受其发布时明确标注的本许可证版本约束。以后发布的新版本不会自动对既有副本增加义务，也不会自动改变既有授权。接收者不得自行选择适用其他版本，除非相关副本明确允许。
+
+17.6 控制语言
+本许可证的中文版本为唯一控制版本。英文及其他语言译本仅为方便阅读；任何译本与中文版本存在不一致、遗漏或歧义时，以中文版本为准。
+
+17.7 适用法律
+本许可证及其产生或与其有关的著作权许可关系、合同关系和其他民事关系，适用中华人民共和国法律；为本款之目的，不包括香港特别行政区、澳门特别行政区和台湾地区的法律，也不适用中华人民共和国的法律冲突规范，但是依法必须适用其他法律或法律适用规则的除外。涉及涉外民事关系时，当事人选择中华人民共和国法律的效力及适用范围，依中华人民共和国有关法律确定。
+
+17.8 争议解决与管辖
+因本许可证产生或与本许可证有关的争议，应先尽合理努力协商解决。协商不成的，任何一方可以向依《中华人民共和国民事诉讼法》及相关司法解释具有管辖权的中华人民共和国人民法院提起诉讼。双方另行签署有效书面管辖协议的，从其约定。本款不限制任何一方依法申请行为保全、证据保全、财产保全或其他临时救济。
+
+17.9 通知
+向官方维护方发出的书面通知，可以发送至本许可证顶部列明或依第0.2款有效更新的官方联系邮箱，或者通过其他可验证的官方渠道送达。涉及终止、纠正、权利恢复或许可例外的通知，应当保留能够证明内容、发送时间和送达情况的记录。
+
+17.10 标题、编号与摘要
+各条标题、编号以及快速权利与限制索引仅为阅读和定位方便，不影响正文解释，也不独立产生授权、禁止或其他法律效果。
+
+
+—— KSword 社区源码可见许可证 1.6 中文控制版本结束 ——
+
+
+==============================================================================
+ENGLISH CONVENIENCE TRANSLATION — CHINESE VERSION CONTROLS
+==============================================================================
+
+KSword Community Source License 1.6
+English Convenience Translation
+
+Effective Date: August 16, 2026
+SPDX-License-Identifier: LicenseRef-KSword-Community-Source-1.6
+
+Official Project Name: KSword
+Official Maintainer: KSwordDEV
+Official Repository: https://github.com/KSwordDEV/KSword
+Official Website: https://ksword.dev/
+Official Contact Email: support@ksword.dev
+Official License Address: https://github.com/KSwordDEV/KSword/blob/main/LICENSE
+
+Licensor: each qualified copyright holder identified in the applicable file, commit history, release metadata, or other valid rights notice.
+Copyright © 2026 KSword contributors and applicable copyright holders.
+All rights not expressly granted under this License are reserved.
+
+This is a source-available license and is not an open-source license approved by the Open Source Initiative (OSI). This License is drafted primarily under the laws of the People's Republic of China. For purposes of this License, “laws of the People's Republic of China” exclude the laws of the Hong Kong Special Administrative Region, the Macao Special Administrative Region, and Taiwan, except where mandatory law requires otherwise.
+
+Any person who exercises a right granted by this License where authorization from the Licensor is legally required accepts and agrees to comply with this License. Merely obtaining or viewing a publicly accessible copy of the Source Code does not constitute acceptance. However, any copying, modification, Distribution, public provision, hosting, provision of functionality to a Third Party, or other conduct that depends on permission under this License is conditioned on acceptance. Except for conduct permitted by applicable law without authorization, a person who does not accept this License may not exercise any right granted by it.
+
+[SPECIAL NOTICE] Section 13, “Termination, Cure, and Reinstatement,” Section 14, “Disclaimer of Warranty,” and Section 15, “Limitation of Liability,” contain terms materially affecting Recipients. Please review them carefully before exercising rights under this License. The Licensor shall provide a reasonable explanation of those terms upon a Recipient's reasonable request.
+
+
+Quick Rights and Restrictions Index (Non-Normative Summary)
+
+Important Notice: This section exists only to assist reading and navigation. It is not an operative licensing provision. It does not itself grant any right or create any obligation, prohibition, condition, exception, warranty, or limitation of liability. All rights and restrictions arise solely from the operative terms that follow. If this section contains any omission, simplification, ambiguity, or conflict with the operative terms, the operative terms control.
+
+Principal Permissions:
+- Access, view, run, and study the Software: Section 2.1(a).
+- Copy and privately modify the Software for personal or internal organizational use: Sections 2.1(b) and 4.1.
+- Distribute unmodified or Modified Versions free of charge subject to conditions: Sections 2.1(c), 3, and 4.
+- Use the Software for internal commercial, educational, research, or non-profit purposes: Sections 2.1(e) and 2.2.
+- Provide and charge for an Online Service, hosted service, or SaaS: Sections 2.1(d) and 6.
+- Charge genuine fees for installation, configuration, migration, training, custom development, and technical support: Sections 7.4 and 7.5.
+- Use a different primary name for a Modified Version: Sections 4.7 and 8.
+- Omit some or all project-display information in a specified SaaS deployment with valid Written Authorization: Section 6.3.
+
+Principal Restrictions and Obligations:
+- The Software itself may not be sold directly or indirectly: Section 7.
+- Distribution and SaaS must preserve the License, source attribution, and required prominent notices: Sections 3, 4, 6, and 8.
+- Complete Corresponding Source must be provided when a Modified Version is Distributed or its modified functionality is offered through an Online Service: Section 4.
+- A Modified Version must be clearly identified as unofficial and must disclose material modifications: Sections 4.7 and 4.8.
+- No impersonation of the official project and no misuse of KSword identifiers or official infrastructure: Section 8.
+- Plugins and separately licensed Third-Party Materials are not licensed here: Section 9.
+- The Software may not be relicensed, and conflicting additional restrictions may not be imposed: Section 11.
+- No patent license is granted: Section 12.
+- A violation terminates rights to Distribute, host, and provide services to Third Parties, but does not automatically terminate the right to view a lawfully obtained Source Code copy or internal rights to run, study, and privately modify it: Section 13.
+- Existing GPL or other licensed versions are not retroactively changed or revoked by this License: Section 16.
+- The Software is provided as-is and is subject to the warranty disclaimer and liability limitations: Sections 14 and 15.
+
+
+0. Official Information and Scope
+
+0.1 This License applies only to files, directories, components, and releases expressly marked with the name or SPDX identifier of this License. Material is not automatically governed by this License merely because it appears in the same repository, installer, image, or distribution medium as the Software.
+
+0.2 The information stated at the top of this License constitutes the “Official Project Information.” The Official Maintainer may update project addresses, contact details, or the license address through the Official Website, Official Repository, or another verifiable official channel. An address update does not change the License version or substantive rights and obligations applicable to a previously released copy.
+
+0.3 The “Official Maintainer” identified above is listed to identify official project channels, receive notices, and administer the project. The Official Maintainer may act on behalf of a Licensor to issue Written Authorization, an exception, reinstatement, or another legal act only to the extent it has valid authority from that Licensor.
+
+0.4 This License does not itself prove that any person owns all rights in a particular file. A person may apply this License only to material for which that person owns the copyright or has sufficient authorization.
+
+
+1. Definitions
+
+1.1 “Software”
+means the KSword source code, object code, executables, installers, container images, user-interface resources, documentation, and accompanying materials released under this License. Third-Party Materials and Plugins expressly accompanied by another license are not automatically included merely because they are supplied with the Software.
+
+1.2 “Source Code”
+means the form actually preferred for making modifications. Providing only an obfuscated, compressed, encrypted, unreadably transformed, or automatically generated form while withholding the original form actually used for development and modification does not constitute providing Source Code.
+
+1.3 “Licensor”
+means a copyright holder entitled to grant this License for the relevant part of the Software, or an individual, legal person, or unincorporated organization lawfully authorized by that copyright holder.
+
+1.4 “Official Maintainer”
+means the project-maintenance party identified at the top of this License and any lawful successor expressly designated through a verifiable official channel. Maintaining the project does not by itself transfer copyright in a Third Party's Contribution to the Official Maintainer.
+
+1.5 “Recipient”
+means any individual, legal person, or unincorporated organization that obtains a copy of the Software, accesses its Source Code, or receives functionality of the Software under this License.
+
+1.6 “Third Party”
+means any individual, legal person, or unincorporated organization other than the Recipient. Where the Recipient is an organization, employees and contractors who access the Software solely for that organization's internal use and are bound by enforceable confidentiality obligations are not Third Parties. Providing a copy or functionality to customers, independent partners, organizations other than its affiliates, or the public constitutes provision to a Third Party.
+
+1.7 “Modified Version”
+means any work created by modifying, adapting, translating, refactoring, merging, or embedding the Software, or by copying copyright-protected expression from the Software, including any work that incorporates all or part of the Software into another project.
+
+1.8 “Distribute” or “Distribution”
+means selling, gifting, copying, transmitting, publishing, making available for download, mirroring, pre-installing, bundling, uploading to an application store or software repository, or otherwise providing a copy of the Software or a Modified Version to a Third Party.
+
+1.9 “Online Service”
+means providing all or part of the functionality of the Software or a Modified Version to a Third Party over a network, including a hosted service, cloud service, remote instance, API service, or software as a service (SaaS).
+
+1.10 “Complete Corresponding Source”
+means the Source Code, in a form suitable for practical modification, necessary to generate, install, run, and modify the distributed object code or the version deployed as an Online Service. It includes modifications made by the Licensor or distributor, build scripts, project files, interface definitions, configuration files, resource files, and other materials necessary to generate the corresponding binaries.
+
+Complete Corresponding Source need not include standard components normally supplied with an operating system or general-purpose development tools and not distributed with the Software; code-signing private keys, certificate private keys, access tokens, production credentials, or personal information; or Third-Party trade secrets that the distributor is not legally entitled to disclose. These exclusions may not be used to withhold actual Source Code, build logic, necessary public-interface documentation, or sample files that a Recipient can configure independently.
+
+1.11 “Official Project Information”
+means the official KSword project name, Official Maintainer, Official Repository address, Official Website address, official contact details, and official license address stated at the top of this License or validly updated under Section 0.2.
+
+1.12 “Prominent Location”
+means a location reasonably discoverable by an ordinary user without active searching, where the relevant text is not collapsed, obscured, or displayed with materially less visibility or a materially smaller font than other copyright, branding, or source information on the same page:
+
+(a) for a graphical application: at minimum, the download page, installer, and an “About” or “Legal Information” page;
+(b) for a command-line program: at minimum, the primary documentation and directly accessible license, version, source, or about information;
+(c) for an Online Service: at least one of the login page, primary user interface, footer, “About” page, or “Legal Information” page, in a manner directly discoverable during normal use.
+
+1.13 “Written Authorization”
+means express authorization issued by a Licensor or the Official Maintainer having authority to issue it, through a signed document, an official email address under its control, or another verifiable official channel. Written Authorization applies only to the Recipient, conduct, duration, and scope expressly identified in it, is non-transferable, and may not be presumed to extend to matters not expressly authorized.
+
+1.14 “Material Modification”
+means a modification that may affect security, compatibility, data processing, network communication, update behavior, driver behavior, system privileges, core functionality, source identification in the user interface, or another matter likely to affect a user's decision whether to install, use, or trust that version.
+
+
+2. Grant and Reservation of Rights
+
+2.1 Subject to the Recipient's continuing compliance with all terms of this License, the Licensor grants the Recipient a worldwide, royalty-free, non-exclusive, non-sublicensable license to:
+
+(a) access, view, run, and study the Software;
+(b) copy and modify the Software for personal or internal organizational use;
+(c) Distribute the Software and Modified Versions free of charge in accordance with this License;
+(d) provide an Online Service to Third Parties in accordance with this License; and
+(e) use the Software for internal commercial, educational, research, or non-profit purposes.
+
+2.2 Commercial use is permitted, but the Software itself may not be sold as a product. A paid Online Service compliant with Section 6 and genuine professional services compliant with Section 7 do not constitute a sale of the Software merely because a fee is charged.
+
+2.3 Each Recipient's rights arise directly from the applicable Licensor, not from an upstream distributor. No distributor may grant any other license, warranty, endorsement, or authorization on behalf of the Licensor.
+
+2.4 All rights not expressly granted are reserved by the Licensor. This License grants no patent license and no trademark license except for the limited source-identifying use provided in Section 8.
+
+2.5 This License does not restrict conduct that applicable law expressly permits without authorization.
+
+2.6 A Licensor may offer other licenses or Written Authorization for material within that Licensor's control. Doing so does not automatically modify, revoke, or expand rights already granted to other Recipients under this License.
+
+
+3. Distribution of Unmodified Versions
+
+A Recipient may Distribute an unmodified version of the Software free of charge only if all of the following conditions are satisfied:
+
+(a) the Software is not sold directly or indirectly;
+(b) the complete text of this License accompanies the copy;
+(c) no copyright notice, author information, source information, license notice, rights-management information, or official project address is removed, hidden, reduced, obscured, or replaced;
+(d) when object code, an executable, or an installer is Distributed, the Official Project address and a free Source Code address corresponding to the distributed version are provided in a Prominent Location;
+(e) the distributor does not claim that the copy was developed by the distributor, officially certified, officially endorsed, or an exclusive official version;
+(f) no term conflicting with this License or further restricting rights granted under it is imposed on the Recipient;
+(g) every Source Code link is accessible without charge and points to Source Code corresponding to the distributed version; and
+(h) if the official unmodified version contains a “View Source,” “Source Code,” “License,” or similar entry, it is not removed, disabled, hidden, replaced, or redirected to non-corresponding Source Code or a different license.
+
+
+4. Private Modification and External Provision of Modified Versions
+
+4.1 A Modified Version may remain private only while it is used solely by an individual or internally within an organization and no copy or functional access is provided to a Third Party.
+
+4.2 Distribution of a Modified Version to a Third Party in Source Code, object code, installer, container image, or any other form, or provision of all or part of its functionality to a Third Party through an Online Service, pre-installation, embedding, bundling, or another method, constitutes external provision of a Modified Version and triggers all applicable obligations in this Section.
+
+4.3 When a Modified Version is Distributed in Source Code form, the complete Source Code in a form suitable for practical modification must be provided together with the complete text of this License, the unofficial-version notice, the modification record, and all other information required by this Section. Providing only a patch without a practical means to obtain the Complete Corresponding Source does not fully satisfy this subsection.
+
+4.4 Complete Corresponding Source must be provided to the applicable Third Party without charge at the same time as any of the following occurs:
+
+(a) a binary, installer, container image, or other object-code form of a Modified Version is Distributed;
+(b) all or part of the functionality of a Modified Version is provided to a Third Party through an Online Service; or
+(c) a Modified Version is pre-installed, embedded, or bundled in another product, system, or service provided to a Third Party.
+
+For an Online Service, the Source Code provided must correspond exactly to the version actually deployed and made available to Third Parties at that time. A Material Modification to the deployment requires a simultaneous update of the corresponding Source Code.
+
+4.5 A Recipient may accompany the Distribution with Complete Corresponding Source or provide a Source Code link. The link must:
+
+(a) point to Source Code corresponding exactly to the distributed binary or deployed service version;
+(b) be accessible and downloadable without payment, purchase of membership, a mandatory donation, or another obligation of economic value;
+(c) not require acceptance of terms conflicting with this License;
+(d) remain valid while the relevant binary or service remains available;
+(e) remain valid for at least three years after the last Distribution of that version or the last provision of that service version to a Third Party; and
+(f) be restored by the distributor or service operator, or replaced by another free means of access, if the link fails, the repository is deleted, the account is disabled, or access permissions change.
+
+4.6 Complete Corresponding Source may not be provided in an obfuscated, encrypted, view-only without reasonable download, intentionally fragmented, materially incomplete, or otherwise modification-obstructing form. Necessary removal of private keys, credentials, personal information, or legally non-disclosable information may not prevent the Recipient from obtaining the actual Source Code or understanding the build logic.
+
+4.7 A Modified Version may use another primary name, but it must state in a Prominent Location:
+
+“This product is based on a modified version of KSword and is not an official KSword release.”
+
+An Online Service must use a clearly visible statement with substantially the same meaning.
+
+4.8 A Modified Version must include a modification record containing at least:
+
+(a) the name and version number of the Modified Version;
+(b) the original KSword version, release number, or commit identifier on which it is based;
+(c) the principal modifications;
+(d) the modification date;
+(e) the name, organization, or contactable identifier of the modifier; and
+(f) the address or method for obtaining the Complete Corresponding Source.
+
+Line-by-line disclosure is not required, but no Material Modification may be concealed.
+
+4.9 When a graphical binary of a Modified Version is Distributed, its “About” or “Legal Information” page must contain directly accessible License and Complete Corresponding Source entries. A command-line version must provide the same information in its primary documentation and directly accessible license, source, or about information. If Complete Corresponding Source is supplied directly, the Recipient must still be told where it can reasonably be found.
+
+4.10 A distributor of a Modified Version must preserve the complete text of this License. The Software may not be relicensed, and neither the Software as a whole nor any part of the Modified Version derived from the Software may be represented as governed by another license.
+
+
+5. Copying, Embedding, and Independent Implementation
+
+5.1 Copying, adapting, or embedding all or part of any copyright-protected source code, object code, user-interface resource, documentation, or other expression from the Software into another project, where authorization is required by law, constitutes creation of a Modified Version and is subject to all applicable terms of this License.
+
+5.2 Use only of ideas, functionality, algorithmic principles, processes, methods of operation, mathematical concepts, factual information, public interfaces, or protocol formats embodied in the Software, without copying copyright-protected expression, does not by itself create a Modified Version.
+
+5.3 Merely interacting with the Software through a public API, command line, network protocol, inter-process communication, or another ordinary interface, or merely aggregating the Software alongside another work, does not automatically create a Modified Version. The determination still depends on whether legally protected expression has been copied, adapted, or embedded.
+
+5.4 This Section does not expand the statutory scope of copyright and does not restrict fair use, statutory permissions, reverse-engineering exceptions, compatibility research, or other conduct that applicable law permits without authorization.
+
+
+6. Online Services, Hosting, and SaaS
+
+6.1 The Software or a Modified Version may be provided to Third Parties as an Online Service, hosted service, or SaaS, and a fee may be charged for that service, provided that the following are displayed in a Prominent Location:
+
+(a) “Based on KSword” or a source statement with substantially the same meaning;
+(b) the Official Project address;
+(c) the complete text of this License or a permanently valid link to it; and
+(d) if the service uses a Modified Version, the unofficial-version notice, modification record, and Complete Corresponding Source entry required by Section 4.
+
+6.2 An Online Service using a Modified Version must continuously satisfy Section 4 and must update the Source Code, version information, and modification record at the same time as each Material Modification is deployed.
+
+6.3 With prior Written Authorization from an authorized party, some or all of the project information required by Section 6.1 may be omitted within the specific Online Service, duration, and scope identified in that authorization. Unless the Written Authorization expressly states otherwise, authorization to omit displayed information does not waive source-provision obligations, the prohibition on sale, the prohibition on official impersonation, Third-Party license obligations, limitations of liability, or any other obligation.
+
+6.4 Warranties, support commitments, privacy commitments, data-processing commitments, availability commitments, or pricing arrangements independently offered by an Online Service operator bind only that operator and may not be represented or implied to be obligations of the Licensor, Official Maintainer, or other contributors.
+
+
+7. Prohibition on Sale and Permitted Paid Services
+
+7.1 No person may directly or indirectly sell the Software itself as a product.
+
+7.2 “Selling the Software” includes directly or indirectly requiring payment, purchase of membership, purchase of another product, a mandatory donation, subscription to a service, or another obligation of economic value as a condition for obtaining a copy of the Software, access to Source Code, download rights, local deployment rights, local use rights, or a software license.
+
+7.3 A voluntary donation that does not affect access to, download of, functionality of, updates to, or eligibility for support of the Software is not a sale of the Software.
+
+7.4 A fee may be charged for genuine installation, configuration, migration, training, or technical-support services only if:
+
+(a) the customer is clearly informed before being charged that the Software itself is available free of charge;
+(b) the official free-download address is provided;
+(c) the service fee is stated separately from any software price, and no fee is described as the Software's purchase price, license fee, activation fee, or consideration for obtaining the Software;
+(d) no mandatory service fee is made a condition of obtaining a copy of the Software; and
+(e) the customer's right to obtain, use, modify, or Distribute the Software directly under this License is not restricted.
+
+7.5 A fee may be charged for genuine custom-development labor, but a delivered Modified Version remains governed by this License and must be accompanied by Complete Corresponding Source, a modification record, and the unofficial-version notice under Section 4. No custom-development agreement, confidentiality term, technical measure, or other method may prevent the customer from exercising rights granted by this License, except for independently commissioned material that is clearly separable from the Software.
+
+7.6 A paid Online Service compliant with Section 6 is not a sale of the Software, provided the fee is genuinely for hosting, computing, storage, operations, support, or another online service, rather than consideration for obtaining a copy of the Software, local deployment rights, or a software license.
+
+7.7 A fee described as a service fee, membership fee, donation, hardware fee, shipping fee, activation fee, or another charge is nevertheless treated as a sale of the Software if its substance is consideration for a copy of the Software, download rights, local deployment rights, or local use rights.
+
+7.8 The Software may accompany paid hardware or another independent product, but no separate software fee may be charged because the Software is included, purchase of that product may not be made the only practical means of obtaining the Software, and it must be clearly stated that the Software is available free of charge through the official channel.
+
+
+8. Source Attribution, Project Identifiers, and Official Status
+
+8.1 Copyright notices, author information, source information, license notices, rights-management information, and Official Project addresses contained in the Software may not be removed, hidden, or replaced.
+
+8.2 Use of the word “KSword” solely to satisfy source-attribution obligations under this License does not constitute a trademark license.
+
+8.3 A Modified Version may use another primary name but must retain the “Based on KSword” source statement in a Prominent Location as required by Section 4.7. A Modified Version may not use “KSword” as its primary product name or use name ordering, typography, a domain, or another presentation likely to cause an ordinary user to believe it is an official version.
+
+8.4 Without separate Written Authorization, no person may use or imitate the KSword logo, icons, official website appearance, official organization name, official domain, social-media accounts, release pages, or any identifier likely to cause users to believe that a Modified Version has official approval, cooperation, certification, maintenance, authorization, or endorsement.
+
+8.5 This License does not authorize any person to use, copy, control, or imitate the code-signing certificate, driver-signing identity, update server, update manifest, release channel, API key, cloud service, telemetry service, crash-reporting service, domain name, official account, or other official infrastructure of a Licensor or the Official Maintainer.
+
+8.6 A Modified Version must use independent software identifiers, package identifiers, application identifiers, driver service names, update sources, and signing identities. It may not be distributed through an official update channel and may not overwrite, impersonate, hijack, or damage the installation, update process, file associations, service identity, or other identifying information of an official version.
+
+8.7 This Section does not restrict nominative use, factual source attribution, commentary, comparison, or another use permitted by law without trademark authorization, provided it does not create confusion about source, affiliation, or official status.
+
+
+9. Plugins and Third-Party Materials
+
+9.1 Plugins, Plugin resources, and Plugin dependencies supplied with the Software are independently licensed. This License grants no right to use, copy, modify, Distribute, or relicense any Plugin.
+
+9.2 Each Plugin is governed only by the license contained in its own directory or clearly displayed and accepted before installation. An installer may read and display the applicable Plugin license before installation. A Plugin with no separate license file or express authorization grants no default right to use, copy, modify, or Distribute it.
+
+9.3 Components, libraries, resources, fonts, code, and other materials supplied by Third Parties with separate copyright or license notices remain governed by their respective licenses. This License does not replace, expand, or restrict rights granted by those Third-Party licenses.
+
+9.4 Where a specific file, directory, or component contains a license notice different from this License, that material's separate license controls. This License applies only to material that the Licensor is entitled to license under it.
+
+9.5 Every distributor must preserve and satisfy copyright notices, NOTICE files, source-provision terms, patent terms, attribution requirements, and other obligations applicable to Third-Party Materials. The “no relicensing” and “no patent license” provisions of this License may not be used to negate rights validly granted by a Third-Party license.
+
+
+10. Contributions
+
+10.1 “Contribution” means a Pull Request, patch, code, documentation, resource, or other material intentionally submitted to an official code repository managed by the Official Maintainer for possible incorporation into the Software. This Section applies only where the official repository prominently displayed these contribution terms or a reference to this License at the time of submission. Earlier contributions are governed by Section 16.
+
+10.2 By submitting a Contribution, the contributor represents and warrants that:
+
+(a) the contributor has the right to submit the Contribution and grant the rights stated in this Section;
+(b) the Contribution is not subject to restrictions of an employer, school, customer, partner, or other right holder whom the contributor is not authorized to represent;
+(c) all applicable Third-Party licenses and copyright notices within the Contribution have been disclosed; and
+(d) the contributor is not submitting Third-Party confidential information, personal information, trade secrets, or other restricted material without authority.
+
+10.3 The contributor grants the Official Maintainer, the applicable Licensors, and their respective lawful successors a perpetual, worldwide, non-exclusive, irrevocable, royalty-free copyright license to use, reproduce, modify, adapt, translate, compile, merge, publicly display, communicate through information networks, Distribute, commercialize, sublicense, and release the Contribution under any license.
+
+10.4 The contributor retains copyright in the Contribution but may not use that copyright to prevent reasonable exercise of the authorization in Section 10.3.
+
+10.5 To the extent not prohibited by mandatory law, the contributor agrees that the persons authorized under Section 10.3 may make modifications, adaptations, translations, compilations, combinations, excerpts, formatting changes, and technical processing reasonably necessary to exercise that authorization. The contributor may not rely solely on rights of attribution, alteration, or integrity to unreasonably obstruct an authorized ordinary use that does not distort or mutilate the Contribution or damage the contributor's reputation. Any moral or personal copyright right that may not lawfully be waived, limited, or excluded in advance remains unaffected.
+
+10.6 Unless mandatory law or a separate written agreement requires otherwise, the Official Maintainer may identify contributors through commit history, a contributor list, a NOTICE file, project documentation, or another reasonable method and does not guarantee that every interface, binary, release note, or promotional material will individually display every contributor's name.
+
+10.7 Material expressly marked “Not a Contribution” or “非贡献” is not governed by this Section. The marking must be made before or at the time of submission and must reasonably identify the material as not intended for incorporation or use as a Contribution.
+
+10.8 This Section grants a copyright license only and grants no patent license. A Contribution requiring a patent license requires separate Written Authorization.
+
+
+11. No Relicensing or Additional Restrictions
+
+11.1 The Software may not be relicensed. No person may represent that the Software as a whole, any part of a Modified Version derived from the Software, or any portion lacking separate authorization is governed by another license.
+
+11.2 A downstream Recipient may not be required to accept terms conflicting with this License, and no contract, technical measure, paywall, access control, digital-rights-management system, or other method may restrict rights already obtained under this License.
+
+11.3 A Recipient may choose a different license for independently created additions that are clearly separable from the Software, provided the boundary is clearly identified, the different license is not represented as covering the original Software, and the terms for the additions do not prevent compliance with this License.
+
+11.4 The complete text of this License must remain intact. Except for an official new version issued by the Official Maintainer after obtaining all necessary rights, no person may modify this License text and continue to publish it under the name “KSword Community Source License.”
+
+11.5 This Section does not prevent a Recipient from continuing to rely on an earlier license under Section 16 and does not interfere with the independent license applicable to Third-Party Materials.
+
+
+12. Patents
+
+12.1 Neither this License nor the Contribution grant in Section 10 grants any express, implied, or estoppel-based patent license.
+
+12.2 Receipt of a copyright license for the Software, a Modified Version, or a Contribution does not imply permission to practice any patent claim.
+
+12.3 This Section does not limit rights already available under applicable law and does not affect a valid patent authorization separately issued by a Licensor, patent holder, or Third-Party license.
+
+
+13. Termination, Cure, and Reinstatement
+
+13.1 The external Distribution and Online Service rights granted under Sections 2.1(c) and 2.1(d) are subject to a condition subsequent requiring continuing compliance with this License. Any violation automatically terminates the violator's rights to Distribute, publicly provide, mirror, host, or provide the functionality of the Software or a Modified Version to a Third Party.
+
+13.2 The violator must immediately cease new Distribution and hosting and, within the violator's control, remove public downloads, mirrors, application-store listings, service entry points, and other channels that continue to provide the Software or a Modified Version to Third Parties.
+
+13.3 The violator may retain and view a Source Code copy lawfully obtained before the violation. The right to view Source Code does not terminate because of the violation, but it does not include a right to copy, Distribute, publicly provide, or republish the Source Code to a Third Party.
+
+13.4 Except for the external Distribution and service rights expressly terminated under Section 13.1, the violator's rights to internally access, run, study, and privately modify a lawfully obtained copy do not automatically terminate because of that violation. This subsection does not limit the Licensor's right to seek cessation of infringement, removal of obstruction, elimination of effects, damages, conduct preservation, evidence preservation, property preservation, or other remedies available under applicable law.
+
+13.5 If the violator receives the first written notice of a violation from a Licensor or authorized Official Maintainer and fully cures every notified violation within thirty days after receipt, the rights terminated under Section 13.1 are automatically reinstated upon completion of the cure.
+
+13.6 If the violator violates this License again after reinstatement, or fails to complete cure within the period specified in Section 13.5, the rights listed in Section 13.1 terminate permanently unless reinstated in writing by an authorized party.
+
+13.7 Termination of one distributor's license does not affect a downstream Recipient who previously obtained the Software lawfully and continues to comply with this License.
+
+13.8 Provisions concerning reservation of rights, Third-Party Materials, Contributions, patents, warranty disclaimers, limitations of liability, post-termination obligations, existing versions, governing law, and dispute resolution survive termination of the relevant rights.
+
+13.9 Distribution, hosting, public provision, or external service conducted while rights are terminated is not authorized by this License. A later reinstatement does not retroactively authorize conduct occurring before reinstatement unless an authorized party separately confirms otherwise in writing.
+
+
+14. Disclaimer of Warranty
+
+14.1 To the maximum extent permitted by applicable law, the Software is provided “as is” and “as available.” The Licensor, Official Maintainer, and contributors provide no express, implied, statutory, or other warranty, including any warranty of title, non-infringement, merchantability, fitness for a particular purpose, accuracy, security, continuous availability, freedom from error or malicious code, data integrity, or compatibility with other software or hardware.
+
+14.2 The user assumes all risks arising from operation of the Software, particularly risks arising from loading drivers, executing kernel operations, changing system state, processing important data, changing security configurations, or using experimental functionality.
+
+14.3 The Licensor, Official Maintainer, and contributors have no obligation to provide maintenance, technical support, security fixes, feature updates, compatibility updates, or continued publication of the Software.
+
+
+15. Limitation of Liability
+
+15.1 To the maximum extent permitted by applicable law, under contract, tort, negligence, strict liability, statutory duty, or any other legal theory, the Licensor, Official Maintainer, and contributors are not liable for lost profits, lost revenue, loss or corruption of data, business interruption, device or system failure, privacy harm, cost of substitute goods or services, or any direct, indirect, incidental, special, punitive, exemplary, or consequential damage, even if advised that such damage may occur.
+
+15.2 Any warranty, commitment, support, indemnity, privacy statement, or other obligation independently offered by a distributor, modifier, Online Service operator, or service provider binds only the person making it and does not impose liability on the Licensor, Official Maintainer, or other contributors.
+
+15.3 This License does not exclude or limit liability that may not lawfully be excluded or limited, including liability for personal injury, liability for property loss caused by intentional misconduct or gross negligence, and any other liability that cannot be disclaimed or limited under mandatory law of the People's Republic of China. Mandatory consumer-protection, product-liability, cybersecurity, data-protection, or other laws control to the extent they cannot be excluded.
+
+15.4 If any disclaimer or limitation in Section 15.1 cannot fully apply because of mandatory law, it applies only to the maximum extent permitted, without affecting other enforceable provisions.
+
+
+16. Existing Versions, Third-Party Contributions, and License Migration
+
+16.1 This License applies only to specific files, components, and versions expressly released under it and does not retroactively change any copy previously released under GPL-3.0-only or another license.
+
+16.2 Rights lawfully obtained under an earlier license remain governed by that earlier license. This License does not revoke, reduce, or alter an existing permission that has already been validly granted, and it does not prevent existing copies, branches, or forks from continuing to be used, modified, sold, hosted, or Distributed to the extent allowed by their original license.
+
+16.3 No person's earlier contribution of code, documentation, resources, or other material may be unilaterally changed from its original license to this License without that copyright holder's valid consent. The Official Maintainer must obtain sufficient relicensing authority or remove, replace, or independently rewrite the affected material before releasing a new version containing that material under this License.
+
+16.4 This License does not change the license of any Third-Party dependency, copied code, resource, or other material. If a Third-Party license requires the combined work to be governed by terms incompatible with this License, the combined work may not be Distributed under this License until the conflict is resolved.
+
+16.5 A license migration must preserve verifiable records of right-holder consents, code-provenance audits, rewrites, Third-Party license inventories, the scope of the migration, and the migration commit or release version.
+
+
+17. General Terms
+
+17.1 Severability
+If any provision is held invalid, unlawful, or unenforceable, it shall be reduced only to the minimum extent necessary to make it valid and enforceable, and the remaining provisions remain effective.
+
+17.2 No Waiver
+Failure by the Licensor or Official Maintainer to enforce any provision or right immediately does not waive that provision or right. A waiver of one violation is not a waiver of a later violation.
+
+17.3 Entire Agreement
+This License constitutes the complete terms governing licensing of the Software. A Licensor may grant an exception through separate Written Authorization; except to the scope expressly stated in that authorization, this License continues to apply. Oral statements, unofficial explanations, the Quick Rights and Restrictions Index, a README, a community covenant, or community discussions do not modify this License.
+
+17.4 No Agency
+This License does not create a partnership, joint venture, employment, agency, franchise, or fiduciary relationship among the Licensor, Official Maintainer, and a Recipient.
+
+17.5 License Versions
+A copy is governed only by the version of this License expressly identified when that copy is released. A later version does not automatically impose new obligations on, or change existing permission for, an earlier copy. A Recipient may not elect another version unless the relevant copy expressly permits that election.
+
+17.6 Controlling Language
+The Chinese-language version is the sole controlling version. The English version and any other translation are provided only for convenience. If a translation contains an inconsistency, omission, or ambiguity compared with the Chinese version, the Chinese version controls.
+
+17.7 Governing Law
+This License and any copyright-licensing relationship, contractual relationship, or other civil relationship arising from or relating to it are governed by the laws of the People's Republic of China. For purposes of this subsection, those laws exclude the laws of the Hong Kong Special Administrative Region, the Macao Special Administrative Region, and Taiwan, and exclude the conflict-of-laws rules of the People's Republic of China, except where another law or choice-of-law rule must apply mandatorily. For a foreign-related civil relationship, the validity and scope of the parties' choice of the laws of the People's Republic of China are determined under applicable laws of the People's Republic of China.
+
+17.8 Dispute Resolution and Jurisdiction
+A dispute arising from or relating to this License should first be addressed through reasonable efforts to negotiate. If negotiation fails, either party may bring an action before a people's court of the People's Republic of China having jurisdiction under the Civil Procedure Law of the People's Republic of China and applicable judicial interpretations. A separate valid written jurisdiction agreement between the parties controls. This subsection does not restrict a party from applying for conduct preservation, evidence preservation, property preservation, or another interim remedy available by law.
+
+17.9 Notices
+A written notice to the Official Maintainer may be sent to the official contact email stated at the top of this License or validly updated under Section 0.2, or delivered through another verifiable official channel. Notices concerning termination, cure, reinstatement, or a license exception should be retained with evidence of content, time of sending, and delivery.
+
+17.10 Headings, Numbering, and Summary
+Section headings, numbering, and the Quick Rights and Restrictions Index exist only for reading and navigation. They do not affect interpretation and do not independently create any permission, prohibition, or other legal effect.
+
+
+— End of English Convenience Translation —

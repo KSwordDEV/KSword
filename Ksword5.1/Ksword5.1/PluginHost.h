@@ -31,7 +31,7 @@ namespace ks::plugin_host
         QString filePath;
         quint32 processId = 0;
         QString processName;
-        quint64 processCreateTime100ns = 0;
+        quint64 processCreateTime100ns = 0; // 进程记录捕获的原创建时间；零身份不能由插件菜单补授。
         quint64 memoryAddress = 0;
         bool navigateMemoryDump = false;
     };
@@ -58,5 +58,5 @@ namespace ks::plugin_host
     // showPluginManager：
     // - 打开非模态插件管理窗口；
     // - 管理本地插件，并从商城执行许可证确认、校验和一键安装。
-    void showPluginManager(QWidget* owner);
+    void showPluginManager(QWidget* owner, const QString& preselectedPluginId = QString());
 }

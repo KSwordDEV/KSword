@@ -8,11 +8,13 @@
 #include "RegistryDock/RegistryDocumentApply.h"
 #include <QMap>
 #include <QSet>
+#include <cstring>
 
 namespace registry_ui
 {
     std::atomic_bool driverEnabled{false};
     std::atomic_int reads{0}, writes{0}, blockedReads{0};
+    std::atomic_int win32KeyRenames{0}, r0KeyRenames{0};
     std::mutex modelMutex;
     std::condition_variable readGate;
     bool holdReads = false;
@@ -47,6 +49,8 @@ namespace registry_ui
     {
         { std::lock_guard<std::mutex> lock(modelMutex); models.clear(); holdReads=false; }
         reads=0; writes=0; blockedReads=0; driverEnabled=false;
+        win32KeyRenames = 0;
+        r0KeyRenames = 0;
         for (int view : {0,32,64})
         {
             set(QStringLiteral("HKEY_CURRENT_USER"),QStringLiteral("RootMarker"),REG_SZ,QByteArray("R\0\0\0",4),view);
@@ -110,7 +114,14 @@ bool RegistryWorkbenchAccess::removeValue(const QString& path,const QString& nam
 }
 bool RegistryWorkbenchAccess::createKey(const QString&,const RegistryAccessContext&,QString* error) { if(error)*error=QStringLiteral("Fixture refuses key mutation"); return false; }
 bool RegistryWorkbenchAccess::removeTree(const QString&,const RegistryAccessContext&,QString* error) { if(error)*error=QStringLiteral("Fixture refuses tree deletion"); return false; }
-QString RegistryWorkbenchAccess::kernelPath(const QString& path) { return QStringLiteral("\\REGISTRY\\USER\\MOCK")+path.mid(path.indexOf(QLatin1Char('\\'))); }
+QString RegistryWorkbenchAccess::kernelPath(const QString& path)
+{
+    // 与生产通道边界一致：HKCR 合并视图不存在可表示它的单一内核路径。
+    if (path.compare(QStringLiteral("HKEY_CLASSES_ROOT"), Qt::CaseInsensitive) == 0
+        || path.startsWith(QStringLiteral("HKEY_CLASSES_ROOT\\"), Qt::CaseInsensitive))
+        return {};
+    return QStringLiteral("\\REGISTRY\\USER\\MOCK") + path.mid(path.indexOf(QLatin1Char('\\')));
+}
 
 namespace {
     struct FakeKey { QString path; int view; };
@@ -157,7 +168,33 @@ LSTATUS WINAPI RegistryUiRegSetValueExW(HKEY key,LPCWSTR name,DWORD,DWORD type,c
     auto* handle=reinterpret_cast<FakeKey*>(key);++registry_ui::writes;
     registry_ui::set(handle->path,QString::fromWCharArray(name?name:L""),type,QByteArray(reinterpret_cast<const char*>(data),size),handle->view);return ERROR_SUCCESS;
 }
-FARPROC WINAPI RegistryUiGetProcAddress(HMODULE,LPCSTR){return nullptr;}
+LSTATUS WINAPI RegistryUiRegRenameKey(HKEY parent, LPCWSTR oldName, LPCWSTR newName)
+{
+    // 只改夹具内存中的键；不链接或调用真实注册表重命名入口。
+    auto* key = reinterpret_cast<FakeKey*>(parent);
+    const QString oldPath = key->path + QLatin1Char('\\') + QString::fromWCharArray(oldName);
+    const QString newPath = key->path + QLatin1Char('\\') + QString::fromWCharArray(newName);
+    const QString oldIdentity = registry_ui::identity(oldPath, key->view);
+    const QString newIdentity = registry_ui::identity(newPath, key->view);
+    std::lock_guard<std::mutex> lock(registry_ui::modelMutex);
+    ++registry_ui::win32KeyRenames;
+    if (!registry_ui::models.contains(oldIdentity))
+        return ERROR_FILE_NOT_FOUND;
+    if (registry_ui::models.contains(newIdentity))
+        return ERROR_ALREADY_EXISTS;
+    registry_ui::models.insert(newIdentity, registry_ui::models.take(oldIdentity));
+    return ERROR_SUCCESS;
+}
+FARPROC WINAPI RegistryUiGetProcAddress(HMODULE, LPCSTR name)
+{
+    if (std::strcmp(name, "RegRenameKey") != 0)
+        return nullptr;
+    const auto function = &RegistryUiRegRenameKey;
+    FARPROC result = nullptr;
+    static_assert(sizeof(result) == sizeof(function));
+    std::memcpy(&result, &function, sizeof(result));
+    return result;
+}
 
 ksword::ark::RegistryEnumResult ksword::ark::DriverClient::enumerateRegistryKey(const std::wstring& kernel,unsigned long) const
 {

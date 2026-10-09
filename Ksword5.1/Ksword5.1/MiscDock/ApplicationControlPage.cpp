@@ -32,6 +32,7 @@
 #include <QMessageBox>
 #include <QPointer>
 #include <QPlainTextEdit>
+#include "../UI/CodeTextEdit.h"
 #include <QMetaObject>
 #include <QMetaType>
 #include <QProcess>
@@ -1042,7 +1043,8 @@ namespace ks::misc
                     &dialog);
                 hintLabel->setWordWrap(true);
                 hintLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-                auto* editor = new QPlainTextEdit(&dialog);
+                auto* editor = new CodeTextEdit(&dialog);
+                editor->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::Xml);
                 editor->setPlainText(policyXml);
                 editor->setLineWrapMode(QPlainTextEdit::NoWrap);
                 auto* buttonBox = new QDialogButtonBox(&dialog);
@@ -1358,7 +1360,8 @@ namespace ks::misc
             &dialog);
         hintLabel->setWordWrap(true);
         hintLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        auto* editor = new QPlainTextEdit(&dialog);
+        auto* editor = new CodeTextEdit(&dialog);
+        editor->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::Xml);
         editor->setPlainText(originalXml);
         editor->setLineWrapMode(QPlainTextEdit::NoWrap);
         auto* buttonBox = new QDialogButtonBox(&dialog);

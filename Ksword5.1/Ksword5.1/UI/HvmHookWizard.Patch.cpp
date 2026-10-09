@@ -17,6 +17,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
+#include "CodeTextEdit.h"
 #include <QPointer>
 #include <QPushButton>
 #include <QSplitter>
@@ -427,9 +428,9 @@ namespace ks::ui
         pasteHint->setWordWrap(true);
         pasteLayout->addWidget(pasteHint);
 
-        QPlainTextEdit* const pasteEdit = new QPlainTextEdit(pasteBody);
+        auto* const pasteEdit = new CodeTextEdit(pasteBody);
+        pasteEdit->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         pasteEdit->setObjectName(QString::fromLatin1(kPasteEditName));
-        pasteEdit->setFont(monospaceFont());
         pasteEdit->setPlaceholderText(QStringLiteral("48 89 5C 24 08 ..."));
         pasteLayout->addWidget(pasteEdit);
 

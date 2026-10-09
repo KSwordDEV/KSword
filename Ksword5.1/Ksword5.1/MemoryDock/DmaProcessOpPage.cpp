@@ -1,4 +1,5 @@
 #include "DmaProcessOpPage.h"
+#include "../UI/CodeTextEdit.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../theme.h"
@@ -174,7 +175,8 @@ namespace ksword::memory_dock
         m_statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
         root->addWidget(m_statusLabel);
 
-        m_logText = new QPlainTextEdit(this);
+        m_logText = new CodeTextEdit(this);
+        static_cast<CodeTextEdit*>(m_logText)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         m_logText->setReadOnly(true);
         m_logText->setPlaceholderText(QStringLiteral("每一次写入的计划、备份与读回校验结果都会记在这里。备份是还原的唯一依据，别清空它。"));
         root->addWidget(m_logText, 1);

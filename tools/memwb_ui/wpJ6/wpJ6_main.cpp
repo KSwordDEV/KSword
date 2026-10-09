@@ -20,6 +20,7 @@
 #include <QSettings>
 #include <QStackedWidget>
 #include <QToolButton>
+#include <QThread>
 
 #include <cstdio>
 
@@ -51,6 +52,7 @@ namespace wpj6_test
     void RunDockFillTests();
     // 反汇编/文本/对比三个子页的自动跳转（跟随十六进制选区/起始模块）。
     void RunSubPageTests();
+    void RunMemoryDebugTests();
 
     namespace
     {
@@ -246,6 +248,12 @@ namespace wpj6_test
 
 int main(int argc, char** argv)
 {
+    // 本夹具启动的退出测试子进程不创建 GUI，不读取或写入任何其它进程。
+    if (argc > 1 && QString::fromLocal8Bit(argv[1]) == QStringLiteral("--memory-debug-worker"))
+    {
+        QThread::msleep(3000);
+        return 0;
+    }
     // WorkbenchSettings.cpp 的 QSettings 全部用默认构造（跟随
     // QCoreApplication 的 organizationName/applicationName）；不设置时两者
     // 为空串，QSettings 在某些环境下会报 status()!=NoError 导致读写全部退回
@@ -306,6 +314,7 @@ int main(int argc, char** argv)
     wpj6_test::RunRowFitTests();
     wpj6_test::RunDockFillTests();
     wpj6_test::RunSubPageTests();
+    wpj6_test::RunMemoryDebugTests();
     wpj6_test::RunVisualTests();
     // 必须排在最后：initialize("en-US") 之后进程里再也不会切回中文。
     wpj6_test::RunI18nSmokeTest();

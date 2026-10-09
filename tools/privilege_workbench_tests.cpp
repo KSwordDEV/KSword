@@ -8,6 +8,9 @@
 #include "../Ksword5.1/Ksword5.1/theme.h"
 #include "privilege_token_pages_tests.h"
 #include "privilege_access_page_tests.h"
+#include "../Ksword5.1/Ksword5.1/PrivilegeDock/PrivilegeAccessBackend.h"
+#include "../Ksword5.1/Ksword5.1/MiscDock/DiskEditor/StorageControllerResearchDialog.h"
+#include "../Ksword5.1/Ksword5.1/UI/CodeEditorWidget.h"
 
 #include <QApplication>
 #include <QElapsedTimer>
@@ -26,6 +29,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+
+// 夹具只替换设置开关；不会确认或发起任何真实控制器操作。
+namespace ks::settings
+{
+    bool dangerousActionConfirmationsSuppressed()
+    {
+        return false;
+    }
+}
 
 namespace
 {
@@ -127,6 +139,52 @@ namespace
             "unchanged real canonical evidence has no differences");
     }
 
+    // 真实编辑器与内存日志缓冲回归，不枚举账户、不调用 LSA 或设备接口。
+    void testEditorsAndControllerLog()
+    {
+        using namespace ks::privilege::access::detail;
+        Result evidence;
+        evidence.request.pid = 123;
+        evidence.request.path = QStringLiteral("C:/fixture/raw [value]: 7");
+        evidence.request.desired = READ_CONTROL;
+        evidence.descriptorSddl = QStringLiteral("D:(A;;RC;;;WD)");
+        evidence.labelError = ERROR_ACCESS_DENIED;
+        const QString report = reportText(evidence);
+        CodeEditorWidget editor;
+        editor.setReadOnly(true);
+        editor.setStructuredReportViewEnabled(false);
+        editor.setRawText(report);
+        require(editor.isReadOnly(), "actual report editor remains read-only");
+        require(editor.text() == report, "actual editor preserves generated report lines and raw SDDL");
+        require(report.contains(evidence.request.path), "report preserves dynamic object text");
+        require(report.contains(evidence.descriptorSddl), "report preserves descriptor evidence");
+
+        ks::misc::detail::ControllerLogBuffer log;
+        for (int index = 0; index < 700; ++index)
+        {
+            const QString entry = QStringLiteral("[%1] block-%2").arg(index).arg(index);
+            const int discarded = log.append(entry);
+            require(discarded == (index >= 500 ? 1 : 0), "log discards only the oldest excess block");
+            require(log.blockCount() == std::min(index + 1, 500), "log keeps the 500-block budget");
+        }
+        require(log.text().startsWith(QStringLiteral("[200] block-200")), "log retains oldest surviving block");
+        require(log.text().endsWith(QStringLiteral("[699] block-699")), "log retains latest complete block");
+        require(log.append(QStringLiteral("raw A\nraw B\nraw C")) == 3, "multiline append enforces block rather than entry budget");
+        require(log.blockCount() == 500 && log.text().endsWith(QStringLiteral("raw A\nraw B\nraw C")),
+            "multiline log remains intact within the block budget");
+        editor.setRawText(log.text());
+        require(editor.text() == log.text(), "actual built-in editor preserves raw log lines");
+
+        // 构造隐藏页面即可核验布局；不 show，因而不会触发查询接口的 showEvent。
+        ks::misc::StorageControllerResearchDialog controller;
+        auto* controllerLog = controller.findChild<CodeEditorWidget*>(QStringLiteral("storage_controller_log"));
+        require(controllerLog && controllerLog->isReadOnly(), "production controller page uses read-only built-in editor");
+        require(controllerLog->maximumHeight() == 120, "controller log retains its 120-pixel height cap");
+        std::unique_ptr<QWidget> access(ks::privilege::createAccessDiagnosticPage(nullptr));
+        auto* accessReport = access->findChild<CodeEditorWidget*>(QStringLiteral("privilege_access_report"));
+        require(accessReport && accessReport->isReadOnly(), "production access page uses read-only built-in editor");
+    }
+
     void testPages(const QString& screenshotDirectory)
     {
         using Factory = QWidget* (*)(QWidget*);
@@ -141,7 +199,7 @@ namespace
             page->resize(1000, 720); page->show(); drain(80);
             require(!page->findChildren<QTableWidget*>().isEmpty(), "production page has data presentation");
             require(!page->findChildren<QPushButton*>().isEmpty(), "production page has actions");
-            if (!screenshotDirectory.isEmpty()) require(page->grab().save(screenshotDirectory + QStringLiteral("/page-%1.png").arg(index)), "save actual page render");
+            if (!screenshotDirectory.isEmpty()) require(page->grab().save(screenshotDirectory + QStringLiteral("/privilege-review-page-%1.png").arg(index)), "save actual page render");
             // Exercise destruction with asynchronous initial queries still in flight.
             page.reset(); drain(30); ++index;
         }
@@ -149,7 +207,7 @@ namespace
             std::unique_ptr<QWidget> sessions(ks::privilege::createSessionsPage(nullptr));
             sessions->resize(1000, 720); sessions->show(); drain(80);
             require(sessions->findChildren<QTableWidget*>().size() >= 2, "sessions and linked processes have separate views");
-            if (!screenshotDirectory.isEmpty()) require(sessions->grab().save(screenshotDirectory + QStringLiteral("/sessions.png")), "render sessions");
+            if (!screenshotDirectory.isEmpty()) require(sessions->grab().save(screenshotDirectory + QStringLiteral("/privilege-review-sessions.png")), "render sessions");
         }
         drain(100);
         require(QThreadPool::globalInstance()->waitForDone(30000), "page destruction leaves workers completing within bound");
@@ -164,7 +222,15 @@ int main(int argc, char** argv)
     const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
     app.setFont(QFont(families.isEmpty() ? QStringLiteral("Microsoft YaHei UI") : families.first(), 9));
     ks::i18n::LanguageManager::instance().initialize(QStringLiteral("zh-CN"));
-    testDifferences(); testCollectors();
+    testDifferences();
+    testEditorsAndControllerLog();
+    const bool offlineOnly = argc > 2 && QString::fromLocal8Bit(argv[2]) == QStringLiteral("--offline-only");
+    if (offlineOnly)
+    {
+        std::printf("PASS: %d offline assertions (actual editors, production report and bounded log; no account/LSA/device I/O)\n", assertions);
+        return 0;
+    }
+    testCollectors();
     try
     {
         assertions += RunPrivilegeTokenPagesChecks();

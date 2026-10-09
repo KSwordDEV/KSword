@@ -1,4 +1,5 @@
 #include "OtherDock.h"
+#include "../UI/CodeTextEdit.h"
 #include "WindowCaptureProtection.h"
 #include "WindowListInteraction.h"
 #include "../Framework/PrivilegeElevationPrompt.h"

@@ -65,6 +65,7 @@ LSTATUS WINAPI testRegDeleteKeyTransactedW(HKEY parent, LPCWSTR name, REGSAM vie
 #define RegOpenKeyTransactedW testRegOpenKeyTransactedW
 #define RegDeleteKeyTransactedW testRegDeleteKeyTransactedW
 #include "../Ksword5.1/Ksword5.1/RegistryDock/RegistryDocumentApply.cpp"
+#include "../Ksword5.1/Ksword5.1/RegistryDock/RegistryDocumentApply.Win32.cpp"
 #undef LoadLibraryExW
 #undef GetProcAddress
 #undef RegOpenKeyTransactedW

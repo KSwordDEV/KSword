@@ -1,6 +1,7 @@
 #include "RegistryAdvancedDialogs.h"
 #include "RegistryValueCodec.h"
 #include "RegistryValueEditorWidget.h"
+#include "../UI/CodeEditorWidget.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/ThemeStatusRole.h"
 #include "../UI/UI_All.h"
@@ -18,7 +19,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
-#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSaveFile>
 #include <QSplitter>
@@ -160,11 +160,17 @@ namespace
             form->addRow(QStringLiteral("Group SDDL"), m_group);
             layout->addLayout(form);
             layout->addWidget(new QLabel(trText(QStringLiteral("原始 DACL SDDL")), this));
-            m_original = new QPlainTextEdit(this);
+            // 原始 DACL 是系统返回的原始数据，禁止翻译或自动切换结构视图。
+            m_original = new CodeEditorWidget(this);
+            m_original->setObjectName(QStringLiteral("registry_original_dacl"));
+            m_original->setStructuredReportViewEnabled(false);
             m_original->setReadOnly(true);
             layout->addWidget(m_original, 1);
             layout->addWidget(new QLabel(trText(QStringLiteral("新 DACL SDDL（只允许 D: 部分）")), this));
-            m_edit = new QPlainTextEdit(this);
+            // 新 DACL 使用相同内置编辑器；是否允许修改仍由 WRITE_DAC 校验决定。
+            m_edit = new CodeEditorWidget(this);
+            m_edit->setObjectName(QStringLiteral("registry_requested_dacl"));
+            m_edit->setStructuredReportViewEnabled(false);
             layout->addWidget(m_edit, 1);
             m_status = new QLabel(this);
             m_status->setTextFormat(Qt::PlainText);
@@ -225,8 +231,8 @@ namespace
             m_owner->setText(sddl(descriptor, OWNER_SECURITY_INFORMATION));
             m_group->setText(sddl(descriptor, GROUP_SECURITY_INFORMATION));
             const QString original = sddl(descriptor, DACL_SECURITY_INFORMATION);
-            m_original->setPlainText(original);
-            m_edit->setPlainText(original);
+            m_original->setRawText(original);
+            m_edit->setRawText(original);
             Key writable;
             const LSTATUS writeStatus = open(READ_CONTROL | WRITE_DAC, &writable);
             m_apply->setEnabled(writeStatus == ERROR_SUCCESS && !original.isEmpty());
@@ -238,7 +244,7 @@ namespace
         }
         void apply()
         {
-            const QString input = m_edit->toPlainText().trimmed();
+            const QString input = m_edit->text().trimmed();
             PSECURITY_DESCRIPTOR descriptor = nullptr;
             if (input.contains(QChar(0)))
             {
@@ -265,7 +271,7 @@ namespace
                 return;
             }
             const QString requested = sddl(descriptor, DACL_SECURITY_INFORMATION);
-            if (requested == m_original->toPlainText())
+            if (requested == m_original->text())
             {
                 setStatus(m_status, trText(QStringLiteral("DACL 与原值一致。")), ks::ui::StatusRole::Info);
                 return;
@@ -307,8 +313,8 @@ namespace
             m_owner->setText(sddl(reinterpret_cast<PSECURITY_DESCRIPTOR>(observed.data()), OWNER_SECURITY_INFORMATION));
             m_group->setText(sddl(reinterpret_cast<PSECURITY_DESCRIPTOR>(observed.data()), GROUP_SECURITY_INFORMATION));
             const QString actual = sddl(reinterpret_cast<PSECURITY_DESCRIPTOR>(observed.data()), DACL_SECURITY_INFORMATION);
-            m_original->setPlainText(actual);
-            m_edit->setPlainText(actual);
+            m_original->setRawText(actual);
+            m_edit->setRawText(actual);
             setStatus(m_status, actual == requested ? trText(QStringLiteral("DACL 已应用并回读一致。"))
                 : trText(QStringLiteral("DACL 已提交，但回读内容与请求不同；已显示实际结果。")),
                 actual == requested ? ks::ui::StatusRole::Success : ks::ui::StatusRole::Warning);
@@ -318,8 +324,8 @@ namespace
         QByteArray m_baseline;
         QLineEdit* m_owner = nullptr;
         QLineEdit* m_group = nullptr;
-        QPlainTextEdit* m_original = nullptr;
-        QPlainTextEdit* m_edit = nullptr;
+        CodeEditorWidget* m_original = nullptr; // 系统读取的原始 DACL，只读。
+        CodeEditorWidget* m_edit = nullptr;     // 用户待提交 DACL，受 WRITE_DAC 控制。
         QLabel* m_status = nullptr;
         QPushButton* m_apply = nullptr;
     };

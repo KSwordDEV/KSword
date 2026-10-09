@@ -158,6 +158,20 @@ namespace ks::ui
         // allowKernelPhysical=false})、隐藏侧栏与钉住输入框、范围锁定为进程。
         void setEmbeddedProcessMode(bool embedded);
 
+        // setMemoryDebugMode：在 loadSettings 后配置独立进程内存调试页。
+        // enabled=true 时恒为进程范围、初始 R3、忽略 Dock 跟随并隐藏 int3 工具。
+        // 本接口不建立 Windows 调试会话；上层通过 target().requestPin 选择进程。
+        // 返回 false：内嵌模式冲突、离开守卫拒绝或视图在守卫期间被销毁。
+        bool setMemoryDebugMode(bool enabled);
+        // isMemoryDebugMode：查询当前是否使用独立进程内存调试策略。
+        bool isMemoryDebugMode() const noexcept;
+        // clearMemoryDebugTarget：关闭独立内存会话；取消保留目标和待写补丁。
+        bool clearMemoryDebugTarget();
+
+        // showDisassemblyAt：在当前目标地址定位 HEX 基线，再显式显示同址反汇编。
+        // 传入 address：当前目标的虚拟地址；返回正式导航结果，不创建或附加调试器。
+        NavStatus showDisassemblyAt(std::uint64_t address);
+
         // openAt：统一跳转入口（N1-N4），对应
         // `bool MemoryDock::navigateWorkbench(const NavRequest&)` 的真正落地实现
         // （Dock 侧只做"确保视图存在/切页签/翻译状态"，具体导航全部在这里）。
@@ -641,6 +655,8 @@ namespace ks::ui
 
         // embedded_：是否处于内嵌进程详情模式（setEmbeddedProcessMode）。
         bool embedded_ = false;
+        // memoryDebugMode_：独立目标模式，不允许 Dock 跟随、内核范围或 int3 操作。
+        bool memoryDebugMode_ = false;
         // settingsAuthoritative_：是否权威视图（setSettingsAuthoritative）。
         bool settingsAuthoritative_ = false;
 

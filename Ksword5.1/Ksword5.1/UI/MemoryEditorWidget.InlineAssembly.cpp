@@ -2,6 +2,7 @@
 #include "MemoryAssembly.h"
 #include "HexEditorWidget.h"
 #include "X64DbgNavigation.h"
+#include "Decompiler/GhidraDecompiler.h"
 #include "MemoryWorkbench/WorkbenchTextView.h"
 #include "MemoryWorkbench/MemoryRowCanvas.h"
 
@@ -14,6 +15,8 @@ namespace ks::ui
 {
     MemoryEditorWidget::~MemoryEditorWidget()
     {
+        m_pseudocodeContextRevision = 0;
+        if (m_decompiler) m_decompiler->cancel();
         // QObject deletes the child views after C++ members. Release their
         // non-owning provider reference while that member still exists.
         m_disassembly->setBytesProvider(nullptr);
@@ -23,15 +26,56 @@ namespace ks::ui
     void MemoryEditorWidget::initializeInlineAssemblyEditing()
     {
         m_disassembly->setBytesProvider(&m_bytesProvider);
-        m_disassembly->setDecodeBackend([](const std::uint8_t* bytes, std::size_t available,
+        m_disassembly->setDecodeBackend([this](const std::uint8_t* bytes, std::size_t available,
             std::uint64_t address, bool x64) -> std::optional<DecodedRow> {
+            auto decodeAddress = address;
+            auto decodeAvailable = std::min<std::size_t>(available, 15);
+            if (m_fileAnalysisSnapshot)
+            {
+                if (!m_fileX86Compatible) return std::nullopt;
+                const auto va = fileOffsetToVirtualAddress(address);
+                if (!va) return std::nullopt;
+                decodeAddress = *va;
+                // An instruction may not consume raw alignment padding or
+                // cross a section whose virtual and file layouts diverge.
+                for (const auto& region : m_fileAnalysisRegions)
+                {
+                    if (address < region.fileOffset) continue;
+                    const auto delta = address - region.fileOffset;
+                    const auto mappedSize = std::min(region.fileSize,
+                        region.virtualSize ? region.virtualSize : region.fileSize);
+                    if (delta < mappedSize)
+                        decodeAvailable = static_cast<std::size_t>(std::min<std::uint64_t>(
+                            decodeAvailable, mappedSize - delta));
+                }
+            }
             const QByteArray input(reinterpret_cast<const char*>(bytes),
-                static_cast<qsizetype>(std::min<std::size_t>(available, 15)));
-            const auto result = InstructionDecoder::decode(input, address,
+                static_cast<qsizetype>(decodeAvailable));
+            const auto result = InstructionDecoder::decode(input, decodeAddress,
                 x64 ? DisassemblyArchitecture::X64 : DisassemblyArchitecture::X86, 1);
             if (result.rows.isEmpty() || !result.rows.first().decoded) return std::nullopt;
             const auto& row = result.rows.first();
-            return DecodedRow{row.address, row.bytes, row.mnemonic, row.operands, true};
+            if (m_fileAnalysisSnapshot)
+            {
+                // Start/end checks alone miss a short overlapping mapping in
+                // the middle of an instruction. Every consumed byte must have
+                // the same unique, contiguous VA mapping (at most 15 bytes).
+                for (qsizetype index = 1; index < row.bytes.size(); ++index)
+                {
+                    const auto delta = static_cast<std::uint64_t>(index);
+                    if (delta > UINT64_MAX - address || delta > UINT64_MAX - decodeAddress)
+                        return std::nullopt;
+                    const auto va = fileOffsetToVirtualAddress(address + delta);
+                    if (!va || *va != decodeAddress + delta) return std::nullopt;
+                }
+            }
+            // Display/selection stays in file coordinates; Zydis operands use
+            // the real virtual address for relative branches and RIP accesses.
+            return DecodedRow{address, row.bytes, row.mnemonic, row.operands, true};
+        });
+        m_disassembly->setOperandTargetResolver([this](std::uint64_t address) {
+            return m_fileAnalysisSnapshot ? virtualAddressToFileOffset(address)
+                : std::optional<std::uint64_t>(address);
         });
         m_disassembly->setAssembleBackend([](const QString& source, std::uint64_t address, bool x64) {
             const auto result = InstructionAssembler::assemble(source, address,
@@ -51,6 +95,11 @@ namespace ks::ui
         m_disassembly->setAddressRange(m_base, static_cast<std::uint64_t>(data().size()));
         m_text->setAddressBits(addressBits);
         m_text->setAddressRange(m_base, static_cast<std::uint64_t>(data().size()));
+        if (m_capturedAddressRange)
+        {
+            m_disassembly->setAddressBounds(m_capturedAddressRange->first, m_capturedAddressRange->second);
+            m_text->setAddressBounds(m_capturedAddressRange->first, m_capturedAddressRange->second);
+        }
     }
 
     void MemoryEditorWidget::stageSnapshotBytes(std::uint64_t address, const QByteArray& bytes)
@@ -86,9 +135,10 @@ namespace ks::ui
             m_processCreateTime100ns = 0;
             return;
         }
-        const auto creation = pid != 0 && createTime100ns == 0
-            ? x64dbg_navigation::ProcessCreateTime100ns(pid) : createTime100ns;
-        m_processPid = pid != 0 && creation != 0 ? pid : 0;
-        m_processCreateTime100ns = m_processPid != 0 ? creation : 0;
+        // 只接受宿主在读取阶段保留的原身份，不能把当前同号进程授权给旧字节。
+        // 文件偏移的早退保持不变；物理/内核/缺身份快照仍不拥有进程导航目标。
+        const bool identified = x64dbg_navigation::HasCapturedIdentity(pid, createTime100ns);
+        m_processPid = identified ? pid : 0;
+        m_processCreateTime100ns = identified ? createTime100ns : 0;
     }
 }

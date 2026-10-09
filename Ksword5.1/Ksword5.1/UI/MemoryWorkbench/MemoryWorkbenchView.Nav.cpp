@@ -157,7 +157,8 @@ namespace ks::ui
             identity.pinPid = request.pid;
             identity.expectCreateTime = request.createTime;
         }
-        else if (target_->followMode() == ksword::memwb::MemoryTargetTracker::Follow::Pinned)
+        else if (!memoryDebugMode_
+            && target_->followMode() == ksword::memwb::MemoryTargetTracker::Follow::Pinned)
         {
             // 请求"跟随 Dock"（pid==0）而当前钉在别的进程：回到跟随。
             identity.pinPid = 0U;
@@ -201,6 +202,12 @@ namespace ks::ui
         {
             applyNavOutcome(request, NavStatus::NeedsAttach);
             return NavStatus::NeedsAttach;
+        }
+        // 独立页保留退出快照，但不把新导航当作仍可读取的活动目标。
+        if (memoryDebugMode_ && target_->livenessState() == LivenessState::Exited)
+        {
+            applyNavOutcome(request, NavStatus::TargetGone);
+            return NavStatus::TargetGone;
         }
 
         // ---- 地址空间 containment + 建议范围（N4）----
@@ -276,7 +283,9 @@ namespace ks::ui
         switch (status)
         {
         case NavStatus::NeedsAttach:
-            statusBar_->setReadResultText(ks::i18n::sourceText(QStringLiteral("未附加目标，无法跳转")), true);
+            statusBar_->setReadResultText(memoryDebugMode_
+                ? ks::i18n::sourceText(QStringLiteral("未选择进程"))
+                : ks::i18n::sourceText(QStringLiteral("未附加目标，无法跳转")), true);
             break;
         case NavStatus::NeedsScopeSwitch:
             statusBar_->setReadResultText(
@@ -491,6 +500,11 @@ namespace ks::ui
         // 界面没有任何反馈。现按"该地址对当前目标是否已有待还原的 int3 补丁"
         // 二选一，菜单文字与悬停说明随状态变化；只查"待还原条目"（Entries()），
         // 已孤立/已还原的条目不会匹配，与 Int3Controller 的既有口径一致。
+        // 独立内存模式不安装或还原 int3；其它查看和编辑动作仍然保留。
+        if (memoryDebugMode_)
+        {
+            return;
+        }
         bool hasExistingPatch = false;
         if (target_ != nullptr)
         {
@@ -522,6 +536,11 @@ namespace ks::ui
     // 处理函数），失败/成功都会在状态条留下一句话，不再无声无息。
     void MemoryWorkbenchView::onToggleInt3AtAddress(quint64 address)
     {
+        // 快捷键与已打开菜单同样受当前模式约束，隐藏按钮不等于阻止操作。
+        if (memoryDebugMode_)
+        {
+            return;
+        }
         const QPointer<MemoryWorkbenchView> self(this);
         if (target_ == nullptr)
         {

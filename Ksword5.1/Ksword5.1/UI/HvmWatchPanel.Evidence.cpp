@@ -29,6 +29,7 @@
 #include <QLabel>
 #include <QMetaObject>
 #include <QPointer>
+#include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
 #include <QStringList>

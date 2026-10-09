@@ -4,7 +4,21 @@
 #include "Ksword5.1/Ksword5.1/UI/X64DbgNavigation.h"
 #include "Ksword5.1/Ksword5.1/UI/HvmWatchDialog.h"
 #include "Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.h"
+#include "Ksword5.1/Ksword5.1/PluginHost.h"
 #include <QMenu>
+
+namespace fixture
+{
+    QString lastManagedPlugin;
+}
+
+namespace ks::plugin_host
+{
+    void showPluginManager(QWidget*, const QString& pluginId)
+    {
+        fixture::lastManagedPlugin = pluginId;
+    }
+}
 
 namespace ks::ui
 {

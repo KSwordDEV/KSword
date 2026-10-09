@@ -1,4 +1,5 @@
 #include "DriverDock.Internal.h"
+#include "../UI/CodeTextEdit.h"
 #include "../KernelDock/KernelThreadAuditTab.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/DetailLayoutRegistry.h"
@@ -640,7 +641,8 @@ void DriverDock::initializeOperateTab()
     actionLayout->addStretch(1);
     m_operateLayout->addLayout(actionLayout);
 
-    m_operateLogOutput = new QPlainTextEdit(m_operatePage);
+    m_operateLogOutput = new CodeTextEdit(m_operatePage);
+    static_cast<CodeTextEdit*>(m_operateLogOutput)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_operateLogOutput->setReadOnly(true);
     m_operateLogOutput->setMaximumBlockCount(1200);
     m_operateLogOutput->setPlaceholderText(
@@ -703,7 +705,8 @@ void DriverDock::initializeDebugOutputTab()
     m_debugToolLayout->addWidget(m_debugCaptureStatusLabel, 1);
     m_debugOutputLayout->addLayout(m_debugToolLayout);
 
-    m_debugOutputEdit = new QPlainTextEdit(m_debugOutputPage);
+    m_debugOutputEdit = new CodeTextEdit(m_debugOutputPage);
+    static_cast<CodeTextEdit*>(m_debugOutputEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_debugOutputEdit->setReadOnly(true);
     m_debugOutputEdit->setMaximumBlockCount(2000);
     m_debugOutputEdit->setPlaceholderText(

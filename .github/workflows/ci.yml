@@ -261,6 +261,9 @@ jobs:
       - name: Test failed CI release reporting
         run: python tools/test_ci_failure_release.py
 
+      - name: Test unified driver release packaging
+        run: python tools/test_ci_driver_package.py
+
       # 这道门禁原先挂在主程序 vcxproj 的 BeforeTargets="ClCompile" 上，靠"每次
       # 编译 GUI 都会顺带跑一遍"来生效。2026-09-19 主程序对 hvm_ctl 的依赖整条
       # 摘掉，那个目标也一起删了——于是它变成一个谁都不跑的脚本。接到这里来：
@@ -292,6 +295,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw 'HVM control-arithmetic unit tests failed.'
           }
+
+      - name: Run captured navigation identity regressions
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath |
+            Select-Object -First 1
+          if (-not $vsPath) { throw 'Could not locate the x64 MSVC toolset.' }
+          $vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
+          # 只编译生产身份判断和进程句柄 mocks，不附加真实调试目标。
+          cmd /c "`"$vcvars`" >nul && python -B tools\test_x64dbg_navigation_identity.py --compiler cl --output artifacts\navigation_identity_tests.exe --negative-controls"
+          if ($LASTEXITCODE -ne 0) { throw 'Captured navigation identity regressions failed.' }
 
       - name: Run pointer-chain core, binding and Win32 identity tests
         shell: pwsh

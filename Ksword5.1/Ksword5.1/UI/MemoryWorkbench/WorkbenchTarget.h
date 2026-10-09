@@ -203,6 +203,8 @@ namespace ks::ui
         {
             bool lockToDock = false;        // true：禁止钉住/回到跟随之外的操作，恒跟随 Dock
             bool allowKernelPhysical = true; // false：禁止切换到内核/物理范围
+            // allowFollowDock：独立内存调试页为 false，忽略 Dock 事件并拒绝回到跟随。
+            bool allowFollowDock = true;
         };
 
         // 构造：services 不能为空（空指针会在构造时被替换为一个"全部调用都失败"的
@@ -261,6 +263,12 @@ namespace ks::ui
         // session().processCreateTime100ns==0 的含义，状态条想展示"身份未锚定"
         // 提示没有现成接口，这里补上。
         bool identityAnchored() const noexcept;
+
+        // clearMemoryDebugTarget：仅供独立模式关闭会话；先问离开守卫再释放锚点。
+        // 返回 false 时保留目标与代次；成功清缓存但不操作目标进程或回到 Dock。
+        bool clearMemoryDebugTarget();
+        // livenessState：返回最后一次锚点探测状态，供独立模式阻止退出后的 I/O。
+        LivenessState livenessState() const noexcept;
 
         // 三个钩子：只由 MemoryDock 在附加/分离的对应时点调用，语义见文件顶部与
         // target.md 第 2.2 节。onDockAboutToDetach 内部按直接连接同步发出

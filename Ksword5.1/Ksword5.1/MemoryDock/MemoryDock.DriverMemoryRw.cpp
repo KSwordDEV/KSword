@@ -24,6 +24,56 @@
 
 namespace
 {
+    // DriverNavigationIdentityLease：读取前持有进程对象，读取后核验同一对象仍存活。
+    // 输入 pid：本次用户态 VA 读取的原目标；缺权限只禁用导航，不阻止 R0 证据读取。
+    class DriverNavigationIdentityLease final
+    {
+    public:
+        explicit DriverNavigationIdentityLease(std::uint32_t pid) : m_pid(pid)
+        {
+            if (m_pid != 0)
+            {
+                m_process = ::OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, m_pid);
+                m_created = observeCreation();
+            }
+        }
+        ~DriverNavigationIdentityLease()
+        {
+            if (m_process != nullptr)
+            {
+                ::CloseHandle(m_process);
+            }
+        }
+        DriverNavigationIdentityLease(const DriverNavigationIdentityLease&) = delete;
+        DriverNavigationIdentityLease& operator=(const DriverNavigationIdentityLease&) = delete;
+
+        // verifiedCreation：返回跨本次读取核验的原创建时间；退出或身份变化返回零。
+        std::uint64_t verifiedCreation() const
+        {
+            const std::uint64_t current = observeCreation(); // 同一持有对象的读取后观察。
+            return m_created != 0 && current == m_created ? m_created : 0;
+        }
+
+    private:
+        // observeCreation：只查持有句柄，不按 PID 重开新对象，不补授其他进程的身份。
+        std::uint64_t observeCreation() const
+        {
+            FILETIME created{}, exited{}, kernel{}, user{}; // 进程时间字段，仅使用创建时间。
+            if (m_process == nullptr || ::GetProcessId(m_process) != m_pid
+                || ::WaitForSingleObject(m_process, 0) != WAIT_TIMEOUT
+                || !::GetProcessTimes(m_process, &created, &exited, &kernel, &user))
+            {
+                return 0;
+            }
+            return (static_cast<std::uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+        }
+
+        std::uint32_t m_pid = 0; // 读取请求指定的 PID。
+        HANDLE m_process = nullptr; // 从读取前到读取后的对象持有见证，析构时释放。
+        std::uint64_t m_created = 0; // 读取前核验的创建时间；零表示没有可靠见证。
+    };
+
     QString driverMemoryReadStatusText(const std::uint32_t readStatus)
     {
         // 输入：驱动返回的 KSWORD_ARK_MEMORY_READ_STATUS_* 枚举值。
@@ -723,6 +773,10 @@ void MemoryDock::driverReadMemoryFromUi()
 
     // R3 与 HVM 必须走用户选择的真实后端，不能静默使用标准 R0 代替。
     const auto selectedBackend = currentDriverMemoryBackend();
+    // 导航身份在读取前冻结；R0-only 目标即使无法打开句柄，也继续沿原读取通路采集。
+    const DriverNavigationIdentityLease navigationIdentity(
+        !kernelAddressRead && selectedBackend != ksword::memory_backend::MemoryAccessBackend::Ddma
+            ? targetPid : 0U);
     if (selectedBackend == ksword::memory_backend::MemoryAccessBackend::UserMode
         || selectedBackend == ksword::memory_backend::MemoryAccessBackend::Hvm)
     {
@@ -740,6 +794,7 @@ void MemoryDock::driverReadMemoryFromUi()
         m_driverMemoryOffsetBase = offsetBase;
         m_driverMemoryCenterAddress = centerAddress;
         m_driverMemorySnapshotPid = kernelAddressRead ? 0U : targetPid;
+        m_driverMemorySnapshotProcessCreateTime100ns = navigationIdentity.verifiedCreation();
         m_driverMemorySnapshotProcessName = targetProcessName;
         m_driverMemorySnapshotIsPhysical = false;
         m_driverMemoryOriginalBytes = outcome.data;
@@ -795,6 +850,7 @@ void MemoryDock::driverReadMemoryFromUi()
         m_driverMemoryOffsetBase = offsetBase;
         m_driverMemoryCenterAddress = centerAddress;
         m_driverMemorySnapshotPid = kernelAddressRead ? 0U : targetPid;
+        m_driverMemorySnapshotProcessCreateTime100ns = 0; // DDMA 字节不授权进程调试导航。
         m_driverMemorySnapshotProcessName = targetProcessName;
         m_driverMemoryOriginalBytes = ddmaOutcome.data;
         m_driverMemoryEditedBytes = m_driverMemoryOriginalBytes;
@@ -939,6 +995,7 @@ void MemoryDock::driverReadMemoryFromUi()
     m_driverMemoryOffsetBase = offsetBase;
     m_driverMemoryCenterAddress = centerAddress;
     m_driverMemorySnapshotPid = targetPid;
+    m_driverMemorySnapshotProcessCreateTime100ns = navigationIdentity.verifiedCreation();
     m_driverMemorySnapshotProcessName = targetProcessName;
     m_driverMemoryOriginalBytes = QByteArray(
         reinterpret_cast<const char*>(readResult.data.data()),
@@ -1037,9 +1094,9 @@ bool MemoryDock::verifyDriverMemoryWrittenBlocks(
     m_driverMemoryOriginalBytes = actual.data;
     m_driverMemoryEditedBytes = actual.data;
     m_driverMemoryEditor->setSnapshot(actual.data, m_driverMemoryBaseAddress, architecture, address,
-        QStringLiteral("driver_memory_%1_%2_%3_%4").arg(static_cast<int>(m_driverMemorySnapshotBackend))
+        QStringLiteral("driver_memory_%1_%2_%3_%4_%5").arg(static_cast<int>(m_driverMemorySnapshotBackend))
             .arg(m_driverMemorySnapshotPid).arg(m_driverMemorySnapshotIsPhysical ? 1 : 0)
-            .arg(m_driverMemorySnapshotDdmaGeneration));
+            .arg(m_driverMemorySnapshotDdmaGeneration).arg(m_driverMemorySnapshotProcessCreateTime100ns));
     return matches;
 }
 
@@ -1845,6 +1902,7 @@ void MemoryDock::resetDriverMemoryRwState()
     m_driverMemoryOffsetBase = 0;
     m_driverMemoryCenterAddress = 0;
     m_driverMemorySnapshotPid = 0;
+    m_driverMemorySnapshotProcessCreateTime100ns = 0;
     m_driverMemorySnapshotProcessName.clear();
     m_driverMemoryOriginalBytes.clear();
     m_driverMemoryEditedBytes.clear();

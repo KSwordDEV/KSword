@@ -14,7 +14,7 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QLineEdit>
-#include <QPlainTextEdit>
+#include "../Ksword5.1/Ksword5.1/UI/CodeEditorWidget.h"
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTemporaryFile>
@@ -72,7 +72,7 @@ inline int RunPrivilegeAccessPageChecks(const QString& fixtureDirectory = QStrin
         QLineEdit *pid = nullptr, *path = nullptr, *mask = nullptr;
         QComboBox* kind = nullptr;
         QPushButton *assess = nullptr, *probe = nullptr;
-        QPlainTextEdit* report = nullptr;
+        CodeEditorWidget* report = nullptr;
         QTableWidget* aces = nullptr;
     };
     auto controls = [](QWidget* page)
@@ -83,9 +83,10 @@ inline int RunPrivilegeAccessPageChecks(const QString& fixtureDirectory = QStrin
             page->findChild<QComboBox*>(QStringLiteral("privilege_access_kind")),
             page->findChild<QPushButton*>(QStringLiteral("privilege_access_assess")),
             page->findChild<QPushButton*>(QStringLiteral("privilege_access_probe")),
-            page->findChild<QPlainTextEdit*>(QStringLiteral("privilege_access_report")),
+            page->findChild<CodeEditorWidget*>(QStringLiteral("privilege_access_report")),
             page->findChild<QTableWidget*>(QStringLiteral("privilege_access_aces"))};
     };
+    // 使用实际内置编辑器检查报告边界，夹具不会操作真实账户或写系统对象。
     auto setRequest = [&](const Controls& c, int kind, const QString& target, DWORD mask)
     {
         c.pid->setText(QString::number(GetCurrentProcessId()));
@@ -103,7 +104,7 @@ inline int RunPrivilegeAccessPageChecks(const QString& fixtureDirectory = QStrin
         require(c.probe->isEnabled(), "Actual handle probe requires a successful descriptor anchor");
         c.probe->click();
         require(until([&]() { return c.assess->isEnabled() && c.aces->isEnabled(); }), "Actual handle probe timed out");
-        require(c.report->toPlainText().contains(probeOpened), "Actual handle probe must verify the same object identity");
+        require(c.report->text().contains(probeOpened), "Actual handle probe must verify the same object identity");
     };
     std::unique_ptr<QWidget> page(ks::privilege::createAccessDiagnosticPage(owner));
     page->show();
@@ -113,11 +114,12 @@ inline int RunPrivilegeAccessPageChecks(const QString& fixtureDirectory = QStrin
     require(c.kind->count() == 3 && c.kind->itemData(0).toInt() == 0
         && c.kind->itemData(1).toInt() == 1 && c.kind->itemData(2).toInt() == 2,
         "Object kind mapping must remain file/registry/service");
+    require(c.report->isReadOnly(), "Built-in access report editor must be read-only");
     require(!c.probe->isEnabled(), "Unassessed targets must not permit an actual probe");
     setRequest(c, 0, path, READ_CONTROL | FILE_READ_DATA);
     assess(c);
     require(c.probe->isEnabled(), "Own temporary file descriptor must be assessable");
-    const QString document = c.report->toPlainText();
+    const QString document = c.report->text();
     require(document.contains(QStringLiteral("SDDL:")) && document.contains(path), "File assessment must report descriptor and bound target");
     QString nativeLine;
     for (const auto& line : document.split(QChar('\n')))
@@ -141,17 +143,17 @@ inline int RunPrivilegeAccessPageChecks(const QString& fixtureDirectory = QStrin
 
     // A validation failure must not leave the previous allowed/probe-success report visible.
     c.pid->setText(QStringLiteral("0")); c.assess->click();
-    require(!c.probe->isEnabled() && !c.report->toPlainText().contains(probeOpened)
-        && !c.report->toPlainText().contains(allowed), "Invalid zero PID must invalidate old allowed evidence");
+    require(!c.probe->isEnabled() && !c.report->text().contains(probeOpened)
+        && !c.report->text().contains(allowed), "Invalid zero PID must invalidate old allowed evidence");
     c.pid->setText(QString::number(MAXDWORD));
     assess(c);
-    require(!c.probe->isEnabled() && !c.report->toPlainText().contains(allowed)
-        && !c.report->toPlainText().contains(probeOpened), "Nonexistent process must not be presented as allowed");
-    require(!c.report->toPlainText().trimmed().isEmpty(), "Invalid PID must have a visible diagnostic");
+    require(!c.probe->isEnabled() && !c.report->text().contains(allowed)
+        && !c.report->text().contains(probeOpened), "Nonexistent process must not be presented as allowed");
+    require(!c.report->text().trimmed().isEmpty(), "Invalid PID must have a visible diagnostic");
     setRequest(c, 0, path + QStringLiteral(".does-not-exist"), READ_CONTROL | FILE_READ_DATA);
     assess(c);
-    require(!c.probe->isEnabled() && !c.report->toPlainText().contains(allowed)
-        && !c.report->toPlainText().contains(probeOpened), "Nonexistent target path must not be presented as allowed");
+    require(!c.probe->isEnabled() && !c.report->text().contains(allowed)
+        && !c.report->text().contains(probeOpened), "Nonexistent target path must not be presented as allowed");
     require(unchanged(), "Failed probes must leave the existing fixture unchanged");
 
     QString registryTarget;
@@ -168,7 +170,7 @@ inline int RunPrivilegeAccessPageChecks(const QString& fixtureDirectory = QStrin
     require(!registryTarget.isEmpty(), "A safe existing current-user registry key must be readable");
     setRequest(c, 1, registryTarget, READ_CONTROL | KEY_QUERY_VALUE);
     assess(c);
-    require(c.probe->isEnabled() && c.report->toPlainText().contains(registryTarget), "HKCU descriptor must resolve under selected user SID");
+    require(c.probe->isEnabled() && c.report->text().contains(registryTarget), "HKCU descriptor must resolve under selected user SID");
     probe(c);
     require(unchanged(), "Registry checks must leave the file fixture unchanged");
 

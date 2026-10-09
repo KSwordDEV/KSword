@@ -2,6 +2,7 @@
 #include "../Ksword5.1/Ksword5.1/RegistryDock/RegistryValueEditorWidget.h"
 #include "../Ksword5.1/Ksword5.1/RegistryDock/RegistryAdvancedDialogs.h"
 #include "../Ksword5.1/Ksword5.1/UI/HexEditorWidget.h"
+#include "../Ksword5.1/Ksword5.1/UI/CodeEditorWidget.h"
 #include "../Ksword5.1/Ksword5.1/UI/MemoryWorkbench/HexView.h"
 #include "../Ksword5.1/Ksword5.1/theme.h"
 
@@ -297,6 +298,21 @@ namespace
             for (auto* button : dialog->findChildren<QPushButton*>())
                 if (button->text() == QStringLiteral("应用 DACL")) { foundApply = true; check(!button->isEnabled(), "invalid root cannot apply permissions"); }
             check(foundApply, "permissions exposes explicit DACL apply action");
+            auto* original = dialog->findChild<CodeEditorWidget*>(QStringLiteral("registry_original_dacl"));
+            auto* requested = dialog->findChild<CodeEditorWidget*>(QStringLiteral("registry_requested_dacl"));
+            check(original && requested, "permissions uses built-in editors for both DACL areas");
+            check(original && original->isReadOnly() && requested && requested->isReadOnly(),
+                "invalid target keeps both built-in DACL editors read-only");
+            if (original && requested)
+            {
+                // 只操作 UI 内容，目标仍是解析阶段就拒绝的根，不会调用真实注册表。
+                const QString raw = QStringLiteral("D:P(A;;KA;;;SY)(A;;KR;;;BU)");
+                original->setRawText(raw);
+                requested->setReadOnly(false);
+                requested->setRawText(raw + QStringLiteral("(A;;KR;;;AU)"));
+                check(original->text() == raw && requested->text().endsWith(QStringLiteral("(A;;KR;;;AU)")),
+                    "built-in DACL editors retain exact SDDL without generated-report translation");
+            }
             if (!shots.isEmpty()) check(dialog->grab().save(shots + QStringLiteral("/registry-permissions-invalid.png")), "permissions error screenshot saved");
             dialog->close();
         });

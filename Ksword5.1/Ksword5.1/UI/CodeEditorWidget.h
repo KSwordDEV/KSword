@@ -22,7 +22,9 @@ class QVBoxLayout;
 class QHBoxLayout;
 class QWidget;
 
-class EmbeddedCodeTextEdit;
+class CodeTextEdit;
+class QMenu;
+class QAction;
 
 namespace ks::ui
 {
@@ -134,7 +136,8 @@ public:
 
 signals:
     // contentChanged：统一通知外部详情布局当前可见文本已经变化。
-    // 调用方式：程序写入、用户编辑或语言切换重绘后自动发出。
+    // 调用方式：程序写入、用户编辑或语言切换后在下一轮事件循环合并通知最新正文；
+    // 避免观察者关闭窗口时，在 Qt 原生文档更新栈内销毁编辑器。
     // 入参 text：编辑器当前完整纯文本；返回：Qt 信号无返回值。
     void contentChanged(const QString& text);
 
@@ -142,7 +145,7 @@ protected:
     // changeEvent：语言切换时重新渲染 setLocalizedText 保存的生成报告。
     void changeEvent(QEvent* event) override;
 
-    // eventFilter：内容区换页或改尺寸时，把右上角悬浮切换按钮重新贴到角上。
+    // eventFilter：同步工具图标状态及窄窗口工具栏布局。
     bool eventFilter(QObject* watchedObject, QEvent* eventObject) override;
 
 private:
@@ -213,6 +216,9 @@ private:
 
     // 同步撤销/重做、选区、剪贴板与换行状态，避免图标可点但动作无效。
     void refreshActionButtonState();
+    void updateToolbarLayout();
+    void formatDocument();
+    void updateFindHighlights();
 
     // 查找、跳转和换行针对原始文本，执行前切到用户能看见的文本页。
     void activateTextView();
@@ -227,8 +233,7 @@ private:
     QString applyStructuredAutoFormatIfNeeded(const QString& inputText, QString* detectedKindOut = nullptr) const;
 
     // positionStructuredSwitch：
-    // - 把悬浮切换下拉框贴到内容区右上角；
-    // - 控件不进任何布局，尺寸取自身 sizeHint，右边距额外避开当前页可见的垂直滚动条。
+    // - 刷新工具栏中的结构视图切换与窄窗口布局，不覆盖正文。
     void positionStructuredSwitch();
 
     // updateStructuredReportView：
@@ -328,7 +333,7 @@ private:
     // m_gotoCloseButton：关闭跳转面板按钮。
     QToolButton* m_gotoCloseButton = nullptr;
 
-    // m_structuredCombo：结构视图 / 原始文本切换下拉框（仅只读报告可解析时可见）。
+    // m_structuredCombo：工具栏结构视图 / 原始文本切换（仅可解析只读报告可见）。
     QComboBox* m_structuredCombo = nullptr;
 
     // m_viewStack：纯文本编辑器与结构视图的切换容器。
@@ -338,7 +343,21 @@ private:
     ks::ui::ReportStructuredView* m_structuredView = nullptr;
 
     // m_editor：核心代码编辑器（行号 + 括号高亮）。
-    EmbeddedCodeTextEdit* m_editor = nullptr;
+    CodeTextEdit* m_editor = nullptr;
+    QToolButton* m_moreButton = nullptr;
+    QToolButton* m_matchCaseButton = nullptr;
+    QToolButton* m_wholeWordButton = nullptr;
+    QWidget* m_replaceRow = nullptr;
+    QLabel* m_findResultLabel = nullptr;
+    QComboBox* m_languageCombo = nullptr;
+    QWidget* m_statusWidget = nullptr;
+    QLabel* m_fileLabel = nullptr;
+    QLabel* m_positionLabel = nullptr;
+    QLabel* m_documentLabel = nullptr;
+    QLabel* m_modeLabel = nullptr;
+    QLabel* m_encodingLabel = nullptr;
+    QAction* m_whitespaceAction = nullptr;
+    QAction* m_formatAction = nullptr;
 
     // m_statusLabel：底部状态信息标签。
     QLabel* m_statusLabel = nullptr;
@@ -383,4 +402,5 @@ private:
 
     // m_themeRefreshPending：合并排队的样式更新，避免setStyleSheet引发palette事件递归。
     bool m_themeRefreshPending = false;
+    bool m_contentNotificationPending = false;
 };

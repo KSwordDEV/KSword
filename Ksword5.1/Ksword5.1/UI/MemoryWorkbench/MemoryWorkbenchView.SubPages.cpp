@@ -294,6 +294,36 @@ namespace ks::ui
         state.dirty = false;
     }
 
+    NavStatus MemoryWorkbenchView::showDisassemblyAt(const std::uint64_t address)
+    {
+        if (!target_)
+        {
+            return NavStatus::Unavailable;
+        }
+        // 公开入口沿用当前身份，不能用 pid=0 意外取消独立钉住目标。
+        const QPointer<MemoryWorkbenchView> self(this);
+        const auto current = target_->session();
+        if (!self)
+        {
+            return NavStatus::LeaveRefused;
+        }
+        NavRequest request;
+        request.scope = current.scope;
+        request.pid = current.pid;
+        request.createTime = current.processCreateTime100ns;
+        request.address = address;
+        request.focusView = false;
+        request.origin = NavOrigin::External;
+        const NavStatus result = openAt(request);
+        if (!self || result != NavStatus::Ok)
+        {
+            return result;
+        }
+        // 显式定位使用同一基线读池；数据晚到时原有跟随令牌保持这个地址。
+        showSubPageAt(kDisasmTab, address);
+        return NavStatus::Ok;
+    }
+
     // showSubPageAt：显式地址（Ctrl+D、右键"从此处反汇编"）。总是覆盖，并把令牌记成当前选区起点，
     // 之后 setCurrentIndex 触发的隐式跟随看到令牌相同就不会再覆盖。
     void MemoryWorkbenchView::showSubPageAt(const int tabIndex, const std::uint64_t address)

@@ -123,6 +123,29 @@ namespace {
         for(bool dark:{false,true})
         {
             theme(dark);
+            // 单层 queued 回调只观察当前菜单；执行实际入口后关闭菜单结束嵌套循环。
+            auto* more = button(dock, QStringLiteral("更多"));
+            check(more != nullptr, "workbench more-menu action exists");
+            if (more)
+            {
+                QTimer::singleShot(0, [&] {
+                    auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+                    check(menu && menu->styleSheet() == KswordTheme::ContextMenuStyle(),
+                        "more menu explicitly follows current light/dark theme");
+                    if (menu) menu->close();
+                });
+                more->click();
+            }
+            QTimer::singleShot(0, [&] {
+                auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+                auto* history = menu ? menu->findChild<QMenu*>(QStringLiteral("registry_workbench_history_menu")) : nullptr;
+                check(menu && menu->styleSheet() == KswordTheme::ContextMenuStyle(),
+                    "navigation menu explicitly follows current light/dark theme");
+                check(history && history->styleSheet() == KswordTheme::ContextMenuStyle(),
+                    "history submenu explicitly follows current light/dark theme");
+                if (menu) menu->close();
+            });
+            dock.showNavigationMenu();
             for(int width:{320,800,1920})
             {
                 dock.resize(width,900);QApplication::processEvents();
@@ -136,6 +159,19 @@ namespace {
         dock.m_viewCombo->setCurrentIndex(dock.m_viewCombo->findData(0));
         dock.navigateToPath(QStringLiteral("HKEY_CLASSES_ROOT"),true);
         check(dock.accessContextForPath(QStringLiteral("HKEY_CURRENT_USER\\Console")).useR0,"target HKCU source independent of current HKCR page");
+        // 实际调用生产重命名函数；当前页是 HKCU，仍必须根据目标 HKCR 路由。
+        registry_ui::set(QStringLiteral("HKEY_CLASSES_ROOT\\RenameSource"), QStringLiteral("Marker"), REG_BINARY, QByteArray("proof"));
+        dock.navigateToPath(QStringLiteral("HKEY_CURRENT_USER"), true);
+        QString renamedPath;
+        QString renameError;
+        check(dock.renameRegistryKeyAny(QStringLiteral("HKEY_CLASSES_ROOT\\RenameSource"),
+            QStringLiteral("RenameTarget"), &renamedPath, &renameError),
+            "HKCR rename executes Win32 transport while R0 is online");
+        check(registry_ui::win32KeyRenames == 1 && registry_ui::r0KeyRenames == 0,
+            "HKCR rename never enters R0 transport");
+        check(renamedPath == QStringLiteral("HKEY_CLASSES_ROOT\\RenameTarget")
+            && registry_ui::get(renamedPath, QStringLiteral("Marker")).data == QByteArray("proof"),
+            "HKCR rename returns actual mocked destination and retains data");
         registry_ui::driverEnabled=false;
         for(const QString& component:{QStringLiteral("Tail "),QStringLiteral("   "),QStringLiteral("Slash/Key")})
         {

@@ -1,4 +1,5 @@
 #include "BootEditorTab.h"
+#include "../../UI/CodeTextEdit.h"
 
 #include "../../Framework/PrivilegeElevationPrompt.h"
 #include "../../UI/VisibleTableWidget.h"
@@ -488,7 +489,8 @@ void BootEditorTab::initializeCenterPane()
     outputLayout->setContentsMargins(8, 8, 8, 8);
     outputLayout->setSpacing(4);
 
-    m_rawOutputEdit = new QPlainTextEdit(outputGroup);
+    m_rawOutputEdit = new CodeTextEdit(outputGroup);
+    static_cast<CodeTextEdit*>(m_rawOutputEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
     m_rawOutputEdit->setReadOnly(true);
     m_rawOutputEdit->setPlaceholderText(QStringLiteral("这里显示 bcdedit 原始输出与命令执行日志。"));
     m_rawOutputEdit->setMinimumHeight(180);

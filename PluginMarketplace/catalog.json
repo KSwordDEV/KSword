@@ -1,0 +1,85 @@
+{
+  "ksword_plugin_marketplace_api": "1",
+  "plugins": [
+    {
+      "id": "ghidra",
+      "name": "Ghidra C decompiler",
+      "version": "12.0.4",
+      "description": "Independent Ghidra headless decompiler runtime with its pinned Temurin JDK. Supplies C pseudocode to the shared byte editor without a separate UI tab.",
+      "targets": [
+        "decompiler"
+      ],
+      "install_directory": "ghidra",
+      "license_name": "Apache 2.0 / GPL v2 + Classpath Exception",
+      "license_url": "https://raw.githubusercontent.com/KSwordDEV/KSword/b509dba7d7e85c474684a0cc3d6cb12a91465c62/GhidraRuntimePlugin/LICENSE.txt",
+      "distribution": {
+        "type": "upstream-assets",
+        "platform": "windows-x64",
+        "manifest": {
+          "ksword_plugin_api": "1",
+          "id": "ghidra",
+          "name": "Ghidra C decompiler",
+          "version": "12.0.4",
+          "description": "Independent Ghidra headless decompiler runtime with its pinned Temurin JDK. Supplies C pseudocode to the shared byte editor without a separate UI tab.",
+          "plugin_type": "backend",
+          "runtime": "ghidra",
+          "targets": [
+            "decompiler"
+          ],
+          "runtime_root": "runtime/ghidra_12.0.4_PUBLIC",
+          "java_executable": "jdk/jdk-21.0.12.1+1/bin/java.exe",
+          "license": "LICENSE.txt",
+          "notice": "NOTICE.md",
+          "runtime_version": "12.0.4",
+          "java_version": "21.0.12.1"
+        },
+        "assets": [
+          {
+            "name": "Ghidra 12.0.4",
+            "url": "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.0.4_build/ghidra_12.0.4_PUBLIC_20260303.zip",
+            "sha256": "c3b458661d69e26e203d739c0c82d143cc8a4a29d9e571f099c2cf4bda62a120",
+            "root_directory": "ghidra_12.0.4_PUBLIC",
+            "destination_directory": "runtime",
+            "max_archive_bytes": 1073741824,
+            "repository": "NationalSecurityAgency/ghidra"
+          },
+          {
+            "name": "Eclipse Temurin 21.0.12.1+1 x64",
+            "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_windows_hotspot_21.0.12.1_1.zip",
+            "sha256": "f9d6e191ab098c0d416e7d588a24420a8621cd2f4720dab2459b8b7b2d2d8b4e",
+            "root_directory": "jdk-21.0.12.1+1",
+            "destination_directory": "jdk",
+            "max_archive_bytes": 536870912,
+            "repository": "adoptium/temurin21-binaries"
+          }
+        ],
+        "metadata": [
+          {
+            "path": "LICENSE.txt",
+            "url": "https://raw.githubusercontent.com/KSwordDEV/KSword/b509dba7d7e85c474684a0cc3d6cb12a91465c62/GhidraRuntimePlugin/LICENSE.txt",
+            "sha256": "7703ab3e54ebfa8d8e51cf5c12a1170a8d14af858364528e2f15a2e6d5490968",
+            "max_bytes": 72146
+          },
+          {
+            "path": "NOTICE.md",
+            "url": "https://raw.githubusercontent.com/KSwordDEV/KSword/b509dba7d7e85c474684a0cc3d6cb12a91465c62/GhidraRuntimePlugin/NOTICE.md",
+            "sha256": "583be307b65e203183b09cae351ed203e0e3ca4be4326fe5ef114504580bc2dd",
+            "max_bytes": 65536
+          },
+          {
+            "path": "KSword-LICENSE.txt",
+            "url": "https://raw.githubusercontent.com/KSwordDEV/KSword/b509dba7d7e85c474684a0cc3d6cb12a91465c62/GhidraRuntimePlugin/KSword-LICENSE.txt",
+            "sha256": "a5dd17c07449bd6d0dcc2cd0b396dcd532278e87b337b273ffdc00976455dabd",
+            "max_bytes": 172030
+          },
+          {
+            "path": "UPSTREAM-GHIDRA-NOTICE.txt",
+            "url": "https://raw.githubusercontent.com/KSwordDEV/KSword/b509dba7d7e85c474684a0cc3d6cb12a91465c62/GhidraRuntimePlugin/UPSTREAM-GHIDRA-NOTICE.txt",
+            "sha256": "ad4b2bb6e75e908251226180081b5afa01c7161d7710e08b603d0c340a08a23f",
+            "max_bytes": 65536
+          }
+        ]
+      }
+    }
+  ]
+}

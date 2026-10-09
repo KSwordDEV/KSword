@@ -51,11 +51,21 @@ namespace ks::ui::x64dbg_navigation
     }
     quint64 ProcessCreateTime100ns(quint32 pid) noexcept
     {
-        if (pid == 0) return 0;
-        const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-        if (process == nullptr) return 0;
+        if (pid == 0)
+        {
+            return 0;
+        }
+        const HANDLE process = OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid); // 持有当前对象直至核验结束。
+        if (process == nullptr)
+        {
+            return 0;
+        }
         FILETIME created{}, exited{}, kernel{}, user{};
-        const BOOL ok = GetProcessTimes(process, &created, &exited, &kernel, &user);
+        // 已退出进程即使仍有句柄也不能成为新的导航目标。
+        const bool ok = GetProcessId(process) == pid
+            && WaitForSingleObject(process, 0) == WAIT_TIMEOUT
+            && GetProcessTimes(process, &created, &exited, &kernel, &user) != FALSE;
         CloseHandle(process);
         return ok ? (static_cast<quint64>(created.dwHighDateTime) << 32) | created.dwLowDateTime : 0;
     }
@@ -70,10 +80,13 @@ namespace ks::ui::x64dbg_navigation
     }
     void Open(QWidget* owner, const Target& supplied)
     {
-        Target target = supplied;
-        if (target.processCreateTime100ns == 0) target.processCreateTime100ns = ProcessCreateTime100ns(target.pid);
-        if (target.pid == 0 || target.processCreateTime100ns == 0)
-        { failure(owner, errorMessage(QStringLiteral("target_unavailable"), ERROR_INVALID_STATE)); return; }
+        const Target target = supplied; // 保留原目标身份，不把当前 PID 的身份写回旧快照。
+        const IdentityStatus identity = CheckCapturedIdentity(target, ProcessCreateTime100ns);
+        if (identity != IdentityStatus::Matching)
+        {
+            failure(owner, errorMessage(QStringLiteral("target_changed"), ERROR_INVALID_STATE));
+            return;
+        }
         if (!QFileInfo::exists(launcher()))
         {
             failure(owner, text("x64dbg.navigation.launcher_missing", QStringLiteral("请先安装或更新 x96dbg 插件，导航需要新版 KswordX96dbgLauncher.exe。")));
@@ -138,17 +151,23 @@ namespace ks::ui::x64dbg_navigation
     }
     void AddAction(QMenu* menu, QWidget* owner, const Target& supplied)
     {
-        if (menu == nullptr || supplied.pid == 0) return;
-        Target target = supplied;
-        if (target.processCreateTime100ns == 0) target.processCreateTime100ns = ProcessCreateTime100ns(target.pid);
+        if (menu == nullptr || supplied.pid == 0)
+        {
+            return;
+        }
+        const Target target = supplied; // 菜单动作必须绑定原记录，不能在菜单打开时补授身份。
         QAction* action = menu->addAction(target.address == 0
             ? text("x64dbg.navigation.open_process", QStringLiteral("在 x64dbg 中打开进程"))
             : target.view == View::Dump
                 ? text("x64dbg.navigation.open_dump", QStringLiteral("在 x64dbg 中打开内存"))
                 : text("x64dbg.navigation.open_disassembly", QStringLiteral("在 x64dbg 中打开反汇编")));
-        action->setEnabled(target.processCreateTime100ns != 0);
-        QObject::connect(action, &QAction::triggered, owner, [owner, target]() { Open(owner, target); });
+        action->setEnabled(HasCapturedIdentity(target.pid, target.processCreateTime100ns));
+        QObject::connect(action, &QAction::triggered, owner, [owner, target]() {
+            Open(owner, target);
+        });
         QAction* configure = menu->addAction(text("x64dbg.navigation.settings", QStringLiteral("x64dbg 设置…")));
-        QObject::connect(configure, &QAction::triggered, owner, [owner]() { Configure(owner); });
+        QObject::connect(configure, &QAction::triggered, owner, [owner]() {
+            Configure(owner);
+        });
     }
 }

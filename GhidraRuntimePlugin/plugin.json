@@ -1,0 +1,16 @@
+{
+  "ksword_plugin_api": "1",
+  "id": "ghidra",
+  "name": "Ghidra C decompiler",
+  "version": "12.0.4",
+  "description": "Independent Ghidra headless decompiler runtime with its pinned Temurin JDK. Supplies C pseudocode to the shared byte editor without a separate UI tab.",
+  "plugin_type": "backend",
+  "runtime": "ghidra",
+  "targets": [
+    "decompiler"
+  ],
+  "runtime_root": "runtime/ghidra_12.0.4_PUBLIC",
+  "java_executable": "jdk/jdk-21.0.12.1+1/bin/java.exe",
+  "license": "LICENSE.txt",
+  "notice": "NOTICE.md"
+}

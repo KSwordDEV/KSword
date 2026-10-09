@@ -11,7 +11,7 @@ class QLabel;
 class QPushButton;
 class QShowEvent;
 class QTableWidget;
-class QTextEdit;
+class QPlainTextEdit;
 
 // Guest-visible, read-only cross-view evidence for EPT/NPT hooks and IOMMU
 // configuration. It deliberately does not claim that an opaque outer SLAT is
@@ -51,7 +51,7 @@ private:
     QCheckBox* m_includeMmioCheck = nullptr;
     QTableWidget* m_probeTable = nullptr;
     QTableWidget* m_iommuTable = nullptr;
-    QTextEdit* m_detailEdit = nullptr;
+    QPlainTextEdit* m_detailEdit = nullptr;
     bool m_firstRefreshStarted = false;
     bool m_queryRunning = false;
 };
