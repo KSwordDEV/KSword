@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/window/CaptureProtection.h"
 #include "../shared/usermode/backend/window/ClipboardCopy.h"
 #include "../shared/usermode/backend/window/Clipboard.h"
 #include "../shared/usermode/backend/window/WindowActions.h"

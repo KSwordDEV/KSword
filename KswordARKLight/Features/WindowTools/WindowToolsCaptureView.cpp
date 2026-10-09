@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/window/CaptureProtection.h"
 #include "WindowToolsCaptureView.h"
 
 #include "WindowToolsCommon.h"
@@ -24,6 +25,7 @@
 
 namespace Ksword::Features::WindowTools {
 namespace {
+using namespace ks::r3::window_tools;
 
 constexpr wchar_t kCaptureViewClass[] = L"KswordARKLight.WindowTools.CaptureView";
 
@@ -340,25 +342,7 @@ void ApplyAffinity(CaptureViewState& state) {
         return;
     }
 
-    const bool applied = ::SetWindowDisplayAffinity(info.hwnd, affinity) != FALSE;
-    const DWORD error = applied ? 0 : ::GetLastError();
-    std::wstring message;
-    if (applied) {
-        // Read the value back instead of trusting the return code: the system
-        // may downgrade an unsupported request, and only a re-query shows it.
-        DWORD current = 0;
-        if (::GetWindowDisplayAffinity(info.hwnd, &current)) {
-            message = L"已设置为 " + DisplayAffinityText(current, true) + L"。";
-        } else {
-            message = L"设置调用成功，但回读属性失败。";
-        }
-    } else {
-        message = L"设置失败（错误码 " + std::to_wstring(error) + L"）：" +
-            Ksword::Core::LastErrorMessage(error);
-        if (error == ERROR_ACCESS_DENIED) {
-            message += L" 该 API 主要用于进程保护自身窗口，跨进程设置通常被拒绝。";
-        }
-    }
+    std::wstring message = ks::r3::window_tools::ApplyDisplayAffinity(info.hwnd, affinity);
 
     BeginRefresh(state);
     state.statusText = std::move(message);
@@ -686,3 +670,7 @@ HWND CreateCaptureProtectionView(HWND parent, const RECT& bounds) {
 }
 
 } // namespace Ksword::Features::WindowTools
+
+namespace Ksword::Features::WindowTools { namespace {
+
+}}
