@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/process/ProcessToken.h"
 #include "../shared/usermode/backend/process/ModuleActions.h"
 #include "../shared/usermode/backend/process/ThreadActions.h"
 #include "../shared/usermode/backend/process/ProcessBasicInfo.h"
@@ -131,6 +132,7 @@ int RunR3NetworkBackendTests() {
     std::wstring identityError;
     const auto invalidIdentity = ks::r3::process::OpenProcessForAction(::GetCurrentProcessId(), 0, PROCESS_QUERY_LIMITED_INFORMATION, identityError);
     suite.expect(!invalidIdentity.valid() && identityError == L"process identity is unavailable; action skipped", L"native process actions reject missing creation identity");
+    suite.expect(!ks::r3::process_detail::token::QueryTokenReportSnapshotR3(GetCurrentProcessId(), 0, {}).identityMatched, L"token rejects missing identity");
     suite.report();
     return suite.failures();
 }
