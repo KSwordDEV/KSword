@@ -8,6 +8,7 @@
 #include <commctrl.h>
 
 #include "ProcessDetailPage.h"
+#include "../../../shared/usermode/backend/process/ThreadActions.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -19,6 +20,9 @@
 
 namespace Ksword::Features::ProcessDetail {
 namespace {
+using ks::r3::process_detail::thread_actions::Utf8ToWide;
+using ks::r3::process_detail::thread_actions::DecimalText;
+using ks::r3::process_detail::thread_actions::Win32ErrorText;
 
 constexpr UINT kThreadCopyCellCommand = 64101;
 constexpr UINT kThreadCopyRowCommand = 64102;
@@ -53,7 +57,7 @@ struct ThreadAffinityMenuState {
     bool readable = false;
 };
 
-std::wstring Utf8ToWide(const std::string& text);
+
 
 std::wstring ThreadAffinityProcessorText(
     const ksword::thread_affinity_r3::LogicalProcessorState& processor) {
@@ -265,9 +269,7 @@ LRESULT CALLBACK ThreadLayoutSubclassProc(
     return ::DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
-std::wstring DecimalText(std::uint64_t value) {
-    return std::to_wstring(value);
-}
+
 
 std::wstring SignedDecimalText(LONG value) {
     return std::to_wstring(static_cast<long long>(value));
@@ -282,59 +284,9 @@ std::wstring HexAddressText(std::uintptr_t value) {
     return text.str();
 }
 
-std::wstring Win32ErrorText(const wchar_t* operation, DWORD error) {
-    wchar_t* message = nullptr;
-    const DWORD length = ::FormatMessageW(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-        nullptr,
-        error,
-        0,
-        reinterpret_cast<LPWSTR>(&message),
-        0,
-        nullptr);
 
-    std::wstring result = operation ? operation : L"Win32";
-    result += L" 失败 (" + std::to_wstring(error) + L")";
-    if (length != 0 && message) {
-        std::wstring detail(message, length);
-        while (!detail.empty() &&
-               (detail.back() == L'\r' || detail.back() == L'\n' || detail.back() == L' ')) {
-            detail.pop_back();
-        }
-        if (!detail.empty()) {
-            result += L": " + detail;
-        }
-    }
-    if (message) {
-        ::LocalFree(message);
-    }
-    return result;
-}
 
-std::wstring Utf8ToWide(const std::string& text) {
-    if (text.empty()) {
-        return {};
-    }
-    const int required = ::MultiByteToWideChar(
-        CP_UTF8,
-        0,
-        text.data(),
-        static_cast<int>(text.size()),
-        nullptr,
-        0);
-    if (required <= 0) {
-        return { text.begin(), text.end() };
-    }
-    std::wstring result(static_cast<std::size_t>(required), L'\0');
-    ::MultiByteToWideChar(
-        CP_UTF8,
-        0,
-        text.data(),
-        static_cast<int>(text.size()),
-        result.data(),
-        required);
-    return result;
-}
+
 
 std::vector<Ksword::Ui::VirtualListRow> BuildThreadVirtualRows(const std::vector<ProcessThreadInfo>& threads) {
     std::vector<Ksword::Ui::VirtualListRow> rows;
@@ -424,43 +376,7 @@ bool ProcessDetailPage::OpenVerifiedProcessActionTarget(
     DWORD requestedProcessAccess,
     Ksword::Core::UniqueHandle& processOut,
     std::wstring& errorText) {
-    processOut.reset();
-    errorText.clear();
-    if (targetProcessId == 0U || expectedProcessCreationTime100ns == 0U) {
-        errorText = L"目标进程身份不可用，已取消操作。";
-        return false;
-    }
-
-    processOut.reset(::OpenProcess(
-        requestedProcessAccess | PROCESS_QUERY_LIMITED_INFORMATION,
-        FALSE,
-        targetProcessId));
-    if (!processOut.valid()) {
-        errorText = Win32ErrorText(L"OpenProcess", ::GetLastError());
-        return false;
-    }
-    FILETIME processCreationTime{};
-    FILETIME processExitTime{};
-    FILETIME processKernelTime{};
-    FILETIME processUserTime{};
-    if (!::GetProcessTimes(
-            processOut.get(),
-            &processCreationTime,
-            &processExitTime,
-            &processKernelTime,
-            &processUserTime)) {
-        errorText = Win32ErrorText(L"GetProcessTimes", ::GetLastError());
-        return false;
-    }
-    const ULONGLONG actualProcessCreationTime100ns =
-        (static_cast<ULONGLONG>(processCreationTime.dwHighDateTime) << 32U) |
-        static_cast<ULONGLONG>(processCreationTime.dwLowDateTime);
-    if (actualProcessCreationTime100ns == 0U ||
-        actualProcessCreationTime100ns != expectedProcessCreationTime100ns) {
-        errorText = L"目标进程实例已变更，已取消操作。";
-        return false;
-    }
-    return true;
+    return ks::r3::process_detail::OpenVerifiedProcessActionTarget(targetProcessId, expectedProcessCreationTime100ns, requestedProcessAccess, processOut, errorText);
 }
 
 bool ProcessDetailPage::OpenVerifiedThreadActionTarget(
@@ -472,61 +388,7 @@ bool ProcessDetailPage::OpenVerifiedThreadActionTarget(
     Ksword::Core::UniqueHandle& processOut,
     Ksword::Core::UniqueHandle& threadOut,
     std::wstring& errorText) {
-    threadOut.reset();
-    if (targetThreadId == 0U || expectedThreadCreationTime100ns == 0U) {
-        processOut.reset();
-        errorText = L"目标线程身份不可用，已取消操作。";
-        return false;
-    }
-    if (!OpenVerifiedProcessActionTarget(
-            targetProcessId,
-            expectedProcessCreationTime100ns,
-            PROCESS_QUERY_LIMITED_INFORMATION,
-            processOut,
-            errorText)) {
-        return false;
-    }
-
-    threadOut.reset(::OpenThread(
-        THREAD_QUERY_LIMITED_INFORMATION | requestedThreadAccess,
-        FALSE,
-        targetThreadId));
-    if (!threadOut.valid()) {
-        errorText = Win32ErrorText(L"OpenThread", ::GetLastError());
-        return false;
-    }
-    const DWORD actualOwnerProcessId = ::GetProcessIdOfThread(threadOut.get());
-    if (actualOwnerProcessId == 0U) {
-        errorText = Win32ErrorText(L"GetProcessIdOfThread", ::GetLastError());
-        return false;
-    }
-    if (actualOwnerProcessId != targetProcessId) {
-        errorText = L"目标线程已不属于所选进程，已取消操作。";
-        return false;
-    }
-
-    FILETIME threadCreationTime{};
-    FILETIME threadExitTime{};
-    FILETIME threadKernelTime{};
-    FILETIME threadUserTime{};
-    if (!::GetThreadTimes(
-            threadOut.get(),
-            &threadCreationTime,
-            &threadExitTime,
-            &threadKernelTime,
-            &threadUserTime)) {
-        errorText = Win32ErrorText(L"GetThreadTimes", ::GetLastError());
-        return false;
-    }
-    const ULONGLONG actualThreadCreationTime100ns =
-        (static_cast<ULONGLONG>(threadCreationTime.dwHighDateTime) << 32U) |
-        static_cast<ULONGLONG>(threadCreationTime.dwLowDateTime);
-    if (actualThreadCreationTime100ns == 0U ||
-        actualThreadCreationTime100ns != expectedThreadCreationTime100ns) {
-        errorText = L"目标线程实例已变更，已取消操作。";
-        return false;
-    }
-    return true;
+    return ks::r3::process_detail::OpenVerifiedThreadActionTarget(targetProcessId, expectedProcessCreationTime100ns, targetThreadId, expectedThreadCreationTime100ns, requestedThreadAccess, processOut, threadOut, errorText);
 }
 
 bool ProcessDetailPage::CreateThreadTab() {
@@ -809,38 +671,8 @@ bool ProcessDetailPage::HandleThreadContextMenu(POINT screenPoint) {
                 targetProcessId,
                 expectedProcessCreationTime100ns,
                 rule] {
-                ProcessDetailActionResult result{};
-                Ksword::Core::UniqueHandle verifiedProcess;
-                Ksword::Core::UniqueHandle verifiedThread;
-                std::wstring identityError;
-                if (!ProcessDetailPage::OpenVerifiedThreadActionTarget(
-                        targetProcessId,
-                        expectedProcessCreationTime100ns,
-                        threadId,
-                        expectedThreadCreationTime100ns,
-                        THREAD_SET_LIMITED_INFORMATION,
-                        verifiedProcess,
-                        verifiedThread,
-                        identityError)) {
-                    result.statusText = L"● 设置线程亲和性失败 | " + identityError;
-                    return result;
-                }
-                std::string detailText;
-                if (!ksword::thread_affinity_r3::SetThreadAffinityRule(
-                        threadId,
-                        targetProcessId,
-                        expectedThreadCreationTime100ns,
-                        rule,
-                        &detailText)) {
-                    result.statusText = L"● 设置线程亲和性失败 | " +
-                        (detailText.empty() ? L"R3 API 调用失败。" : Utf8ToWide(detailText));
-                    return result;
-                }
-                result.refreshRequired = true;
-                result.statusText = L"● 已通过 R3 更新线程 " + DecimalText(threadId) +
-                    L" 的 CPU Set 亲和性。";
-                return result;
-            });
+            return ks::r3::process_detail::SetDetailThreadAffinity(threadId, expectedThreadCreationTime100ns, targetProcessId, expectedProcessCreationTime100ns, rule);
+        });
         return true;
     }
 
@@ -888,32 +720,7 @@ void ProcessDetailPage::SuspendSelectedThread() {
         ThreadStatus,
         L"● 正在后台挂起线程 " + DecimalText(threadId) + L"…",
         [threadId, expectedThreadCreationTime100ns, targetProcessId, expectedProcessCreationTime100ns] {
-            ProcessDetailActionResult result{};
-            Ksword::Core::UniqueHandle verifiedProcess;
-            Ksword::Core::UniqueHandle verifiedThread;
-            std::wstring identityError;
-            if (!ProcessDetailPage::OpenVerifiedThreadActionTarget(
-                    targetProcessId,
-                    expectedProcessCreationTime100ns,
-                    threadId,
-                    expectedThreadCreationTime100ns,
-                    THREAD_SUSPEND_RESUME,
-                    verifiedProcess,
-                    verifiedThread,
-                    identityError)) {
-                result.statusText = L"● " + identityError;
-                return result;
-            }
-            const DWORD previousCount = ::SuspendThread(verifiedThread.get());
-            const DWORD error = previousCount == static_cast<DWORD>(-1) ? ::GetLastError() : ERROR_SUCCESS;
-            if (error != ERROR_SUCCESS) {
-                result.statusText = L"● " + Win32ErrorText(L"SuspendThread", error);
-                return result;
-            }
-            result.refreshRequired = true;
-            result.statusText = L"● 已挂起线程 " + DecimalText(threadId) +
-                L"（原挂起计数 " + DecimalText(previousCount) + L"）";
-            return result;
+            return ks::r3::process_detail::SuspendDetailThread(threadId, expectedThreadCreationTime100ns, targetProcessId, expectedProcessCreationTime100ns);
         });
 }
 
@@ -940,32 +747,7 @@ void ProcessDetailPage::ResumeSelectedThread() {
         ThreadStatus,
         L"● 正在后台恢复线程 " + DecimalText(threadId) + L"…",
         [threadId, expectedThreadCreationTime100ns, targetProcessId, expectedProcessCreationTime100ns] {
-            ProcessDetailActionResult result{};
-            Ksword::Core::UniqueHandle verifiedProcess;
-            Ksword::Core::UniqueHandle verifiedThread;
-            std::wstring identityError;
-            if (!ProcessDetailPage::OpenVerifiedThreadActionTarget(
-                    targetProcessId,
-                    expectedProcessCreationTime100ns,
-                    threadId,
-                    expectedThreadCreationTime100ns,
-                    THREAD_SUSPEND_RESUME,
-                    verifiedProcess,
-                    verifiedThread,
-                    identityError)) {
-                result.statusText = L"● " + identityError;
-                return result;
-            }
-            const DWORD previousCount = ::ResumeThread(verifiedThread.get());
-            const DWORD error = previousCount == static_cast<DWORD>(-1) ? ::GetLastError() : ERROR_SUCCESS;
-            if (error != ERROR_SUCCESS) {
-                result.statusText = L"● " + Win32ErrorText(L"ResumeThread", error);
-                return result;
-            }
-            result.refreshRequired = true;
-            result.statusText = L"● 已恢复线程 " + DecimalText(threadId) +
-                L"（原挂起计数 " + DecimalText(previousCount) + L"）";
-            return result;
+            return ks::r3::process_detail::ResumeDetailThread(threadId, expectedThreadCreationTime100ns, targetProcessId, expectedProcessCreationTime100ns);
         });
 }
 
@@ -1071,31 +853,7 @@ void ProcessDetailPage::TerminateSelectedThread() {
         ThreadStatus,
         L"● 正在后台终止线程 " + DecimalText(threadId) + L"…",
         [threadId, expectedThreadCreationTime100ns, targetProcessId, expectedProcessCreationTime100ns] {
-            ProcessDetailActionResult result{};
-            Ksword::Core::UniqueHandle verifiedProcess;
-            Ksword::Core::UniqueHandle verifiedThread;
-            std::wstring identityError;
-            if (!ProcessDetailPage::OpenVerifiedThreadActionTarget(
-                    targetProcessId,
-                    expectedProcessCreationTime100ns,
-                    threadId,
-                    expectedThreadCreationTime100ns,
-                    THREAD_TERMINATE,
-                    verifiedProcess,
-                    verifiedThread,
-                    identityError)) {
-                result.statusText = L"● " + identityError;
-                return result;
-            }
-            const BOOL terminated = ::TerminateThread(verifiedThread.get(), 1);
-            const DWORD error = terminated ? ERROR_SUCCESS : ::GetLastError();
-            if (!terminated) {
-                result.statusText = L"● " + Win32ErrorText(L"TerminateThread", error);
-                return result;
-            }
-            result.refreshRequired = true;
-            result.statusText = L"● 已请求终止线程 " + DecimalText(threadId);
-            return result;
+            return ks::r3::process_detail::TerminateDetailThread(threadId, expectedThreadCreationTime100ns, targetProcessId, expectedProcessCreationTime100ns);
         });
 }
 

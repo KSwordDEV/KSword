@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../shared/usermode/backend/process/DetailActionTypes.h"
 
 #include "ProcessDetailTypes.h"
 
@@ -227,16 +228,7 @@ private:
         HIMAGELIST imageList = nullptr;
     };
 
-    struct ProcessDetailActionResult {
-        bool refreshRequired = false;
-        bool refreshTokenReport = false;
-        bool refreshTokenSwitches = false;
-        bool refreshPebReport = false;
-        std::wstring statusText;
-        std::wstring dialogTitle;
-        std::wstring dialogText;
-        UINT dialogIcon = 0;
-    };
+    using ProcessDetailActionResult = ks::r3::process_detail::ProcessDetailActionResult;
 
     // ProcessHotkeyEntry 保存一行进程热键审计结果。r0Snapshot 仅用于保留
     // R0 枚举证据，页面不会把内核地址作为未经确认的写入句柄使用。
