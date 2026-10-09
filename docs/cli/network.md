@@ -50,3 +50,16 @@ IPv4 ICMP 跟踪，每跳一次探针。max-hops 默认 30、范围 1–64，tim
 往返毫秒数与回复 TTL。超时跳保留原始状态，耗时为 null。
 到达目标返回 0；获得部分跃点但未到达目标返回 6；解析失败或没有任何跃点回应返回 3。
 不把 TTL 过期当成到达目标，也不自动切换到 IPv6。无需驱动。
+
+## DNS（迁移项 04）
+
+```powershell
+KswordCLI.exe network dns query --name NAME [--type A|AAAA|NS|CNAME|SOA|PTR|MX|TXT|SRV|ANY] [--backend r3] [--json]
+```
+
+默认 A，通过 Windows DNS resolver 查询，保留系统缓存／hosts／DNS 配置的语义。
+输出 name、type、win32Error 和 records。记录含名称、原始类型编号、TTL、数据长度、decoded、fields 和可读 value。
+fields 按记录类型提供 address、host、exchange/preference、target/port/priority/weight、
+SOA 的服务器与各计数、TXT segments；未解码类型仍保留名称／类型／长度，并标明 decoded=false。
+DNS 系统调用成功（包括有效空结果）返回 0；系统／DNS 错误返回 3，win32Error 保留原始 DNS_STATUS。
+仅暴露已实现的记录类型选择，不添加自定义服务器、重试或超时参数；时限由系统 resolver 管理。无需驱动。

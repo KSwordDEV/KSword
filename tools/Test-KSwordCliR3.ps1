@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route')][string]$Feature, [string]$ReportPath)
+param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns')][string]$Feature, [string]$ReportPath)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\KswordCliR3TestSupport.ps1"
 switch ($Feature) {
@@ -47,6 +47,25 @@ switch ($Feature) {
         Assert ((Invoke-Cli @('network','trace-route','query','--target','127.0.0.1','--max-hops','1')).Contains('reached: true')) 'Trace text'
         $failure = (Invoke-Cli @('network','trace-route','query','--target','::1','--max-hops','1','--json') 3) | ConvertFrom-Json
         Assert (!$failure.data.reached -and $failure.data.win32Error -ne 0 -and $failure.data.attemptedHops -eq 0) 'Trace IPv6 rejection'
+    }
+    'dns' {
+        $help = Invoke-Cli @('help','network','dns','query')
+        Assert ($help.Contains('--name') -and $help.Contains('AAAA')) 'DNS help'
+        Assert ((Invoke-Cli @('network','dns','query','--help')) -eq $help) 'DNS inline help'
+        foreach ($bad in @(
+            @('network','dns','query','--json'),
+            @('network','dns','query','--name','localhost','--type','BOGUS','--json'),
+            @('network','dns','query','--name','localhost','--backend','r0','--json'),
+            @('network','dns','query','--name','localhost','--unknown','1','--json')
+        )) { Assert (((Invoke-Cli $bad 1) | ConvertFrom-Json).status -eq 'failed') 'DNS parameter JSON' }
+        $oracle = @([Net.Dns]::GetHostAddresses('localhost') | Where-Object AddressFamily -eq InterNetwork | ForEach-Object { $_.ToString() })
+        $dns = (Invoke-Cli @('network','dns','query','--name','localhost','--type','A','--json')) | ConvertFrom-Json
+        $answers = @($dns.data.records | Where-Object type -eq 1)
+        Assert ($dns.status -eq 'success' -and $dns.data.win32Error -eq 0 -and $answers.Count -gt 0) 'Local DNS A record'
+        foreach ($record in $answers) { Assert ($record.decoded -and $oracle -contains $record.fields.address) 'Independent DNS disagrees' }
+        Assert ((Invoke-Cli @('network','dns','query','--name','localhost')).Contains('records:')) 'DNS text'
+        $failure = (Invoke-Cli @('network','dns','query','--name','bad/host','--type','A','--json') 3) | ConvertFrom-Json
+        Assert ($failure.data.win32Error -ne 0 -and $failure.data.records.Count -eq 0) 'DNS invalid name failure'
     }
 }
 Save-Report

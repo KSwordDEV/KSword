@@ -45,4 +45,5 @@ std::optional<int> dispatchR3(int argc, wchar_t* argv[]);
 void registerNetworkConnections();
 void registerNetworkPing();
 void registerNetworkTraceRoute();
+void registerNetworkDns();
 }

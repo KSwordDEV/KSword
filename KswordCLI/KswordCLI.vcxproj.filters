@@ -69,4 +69,8 @@
     <ClCompile Include="R3NetworkTraceRoute.cpp" />
     <ClCompile Include="..\shared\usermode\backend\network\TraceRoute.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3NetworkDns.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\Dns.cpp" />
+  </ItemGroup>
 </Project>

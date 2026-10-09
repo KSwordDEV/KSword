@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <utility>
 namespace ks::r3::network {
 enum class DiagnosticKind {
     Ping,
@@ -31,6 +32,15 @@ struct DiagnosticResult {
     std::uint32_t win32Error = 0, sent = 0, received = 0;
     std::vector<Probe> probes;
     bool reached = false;
+    struct DnsRecord {
+        std::wstring name, value;
+        std::uint32_t type = 0, ttl = 0, dataLength = 0;
+        bool decoded = false;
+        std::vector<std::pair<std::wstring, std::wstring>> textFields;
+        std::vector<std::pair<std::wstring, std::uint32_t>> numericFields;
+        std::vector<std::wstring> textSegments;
+    };
+    std::vector<DnsRecord> records;
 };
 DiagnosticResult RunPing(const DiagnosticRequest& request);
 DiagnosticResult RunTraceRoute(const DiagnosticRequest& request);

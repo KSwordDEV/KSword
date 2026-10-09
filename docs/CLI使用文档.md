@@ -1,6 +1,6 @@
 # KswordCLI 使用文档
 
-本文档按当前命令分发器、内置 help 元数据和 `shared/driver/` 协议核对，覆盖 28 个命令族、187 条命令及别名（2026-10-05）。多数命令需要管理员权限，并要求 KswordARK 驱动设备已经加载且可打开。构建与发行目录见 [构建与发布](构建与发布.md)。
+本文档按当前命令分发器、内置 help 元数据和 `shared/driver/` 协议核对，覆盖既有 R0 命令及逐项接入的 R3 命令（2026-10-09）。R0 命令通常需要管理员权限及已加载的 KswordARK 驱动；纯 R3 命令按各项文档说明所需权限，不要求驱动。构建与发行目录见 [构建与发布](构建与发布.md)。
 
 ## Help 查询
 
@@ -28,7 +28,7 @@ KswordCLI.exe network connections help
 
 ## R3 功能与输出
 
-已接入迁移项：01 TCP/UDP 枚举与 IPv4 TCP 关闭；02 Ping；03 路由跟踪。详细语法见 [网络 R3 命令](cli/network.md)。
+已接入迁移项：01 TCP/UDP 枚举与 IPv4 TCP 关闭；02 Ping；03 路由跟踪；04 DNS 查询。详细语法见 [网络 R3 命令](cli/network.md)。
 新增纯 R3 命令默认使用 R3，支持显式 `--backend r3`，不自动切换 R0；既有命令的默认后端和输出保持兼容。
 
 默认输出可读 UTF-8 文本，`--json` 在 stdout 输出一个 JSON 文档：`schemaVersion`（1）、`command`、

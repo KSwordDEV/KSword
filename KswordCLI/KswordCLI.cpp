@@ -1450,6 +1450,7 @@ namespace
             ks::cli::registerNetworkConnections();
             ks::cli::registerNetworkPing();
             ks::cli::registerNetworkTraceRoute();
+            ks::cli::registerNetworkDns();
             #endif
             return true;
         }();
