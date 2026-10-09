@@ -12,6 +12,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 HARNESS = r'''
 #define NOMINMAX
+#define KSWORD_CLI_LEGACY_FIXTURE
 #include <WinSock2.h>
 #include <Windows.h>
 #include <cstring>
@@ -90,9 +91,7 @@ def main():
         source.write_text(harness.replace("/*EXTENDED_HELPERS*/", helpers + finish), encoding="utf-8")
         binary = directory / "regression.exe"
         subprocess.run(["cl", "/nologo", "/std:c++20", "/EHsc", "/utf-8", "/O2", str(source),
-                        str(ROOT / "KswordCLI/CommandRegistry.cpp"), str(ROOT / "KswordCLI/R3NetworkConnections.cpp"),
-                        str(ROOT / "shared/usermode/backend/network/Connections.cpp"),
-                        str(ROOT / "shared/usermode/backend/network/NetworkSupport.cpp"),
+                        str(ROOT / "KswordCLI/CommandRegistry.cpp"),
                         "/Fe:" + str(binary), "/link", "Iphlpapi.lib", "Ws2_32.lib", "Setupapi.lib"], cwd=temp, check=True)
         cases = [("log",), ("log", "--max-frames", "0"), ("log", "--max-frames", "1"),
                  ("log", "--max-frames", "2"), ("log", "--max-frames", "100")]

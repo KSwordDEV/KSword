@@ -26,3 +26,15 @@ JSON data 包含目标、`requestSucceeded`、`postcheckPresent`、`postcheckCom
 
 自动测试使用本机回环 TCP／UDP 夹具，与独立 Get-NetTCPConnection 结果核对；
 关闭后通过对端 socket 验证实际断开，不以退出码作为唯一证据。
+
+## Ping（迁移项 02）
+
+```powershell
+KswordCLI.exe network ping query --target HOST [--count N] [--timeout-ms N] [--backend r3] [--json]
+```
+
+仅探测 IPv4，默认 4 次、每次超时 2000ms。count 范围 1–32，timeout-ms 范围 1–60000。
+输出解析后的地址、发送／接收数、丢包百分比和逐次 ICMP 回执（原始状态、耗时、TTL、数据长度）。
+全部回应返回 0，部分回应返回 6，没有成功回应或解析失败返回 3。未收到回执时耗时和 TTL 为 null。
+地址解析或 ICMP 句柄创建错误保留 win32Error；每个探针独立保留系统／IP 状态。
+不会自动改用 IPv6，也不需要 KswordARK 驱动。

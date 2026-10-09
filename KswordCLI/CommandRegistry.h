@@ -43,4 +43,5 @@ bool printHelp(const std::wstring& path);
 std::wstring commandPath(int argc, wchar_t* argv[], int first);
 std::optional<int> dispatchR3(int argc, wchar_t* argv[]);
 void registerNetworkConnections();
+void registerNetworkPing();
 }

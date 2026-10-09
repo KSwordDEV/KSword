@@ -59,4 +59,10 @@
     <ClInclude Include="..\shared\usermode\backend\network\Connections.h" />
     <ClInclude Include="..\shared\usermode\backend\network\NetworkSupport.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3NetworkPing.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\Ping.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\network\Diagnostics.h" />
+    <ClInclude Include="..\shared\usermode\backend\network\IcmpSupport.h" />
+  </ItemGroup>
 </Project>

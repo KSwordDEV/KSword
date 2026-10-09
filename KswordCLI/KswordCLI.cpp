@@ -1446,7 +1446,10 @@ namespace
                 if (entry.subcommand[0]) path += L" " + std::wstring(entry.subcommand);
                 ks::cli::addCommand({path, entry.syntax, entry.summary, entry.options, entry.notes, {}});
             }
+            #ifndef KSWORD_CLI_LEGACY_FIXTURE
             ks::cli::registerNetworkConnections();
+            ks::cli::registerNetworkPing();
+            #endif
             return true;
         }();
         (void)initialized;
