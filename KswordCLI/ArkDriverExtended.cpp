@@ -372,7 +372,14 @@ namespace
     template <typename Result>
     int finishResult(const wchar_t* label, const Result& result)
     {
-        if (printResultState(label, result)) return 0;
+        if (printResultState(label, result))
+        {
+            if constexpr (HasUnsupported<Result>::value)
+            {
+                if (result.unsupported) return 5;
+            }
+            return 0;
+        }
         if (result.io.deviceOpenFailed || result.io.message.rfind("CreateFileW", 0U) == 0U) return 2;
         const auto error = result.io.win32Error;
         if (error == ERROR_INVALID_FUNCTION || error == ERROR_NOT_SUPPORTED ||
