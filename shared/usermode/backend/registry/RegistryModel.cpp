@@ -5,7 +5,7 @@
 #include <cwctype>
 #include <sstream>
 
-namespace Ksword::Features::Registry {
+namespace ks::r3::registry {
 namespace {
 
 // Trim removes leading and trailing whitespace from a path or data token. Input
@@ -280,4 +280,4 @@ bool ParseRegistryDataText(const std::uint32_t type, const std::wstring& text, s
     return true;
 }
 
-} // namespace Ksword::Features::Registry
+} // namespace ks::r3::registry

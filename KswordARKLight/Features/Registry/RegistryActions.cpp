@@ -1,4 +1,6 @@
 #include "RegistryActions.h"
+#include "../../../shared/usermode/backend/registry/RegistryBackend.h"
+#include "../../../shared/usermode/backend/registry/RegistrySupport.h"
 
 #include "../../../Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverClient.h"
 
@@ -10,29 +12,12 @@
 
 namespace Ksword::Features::Registry {
 namespace {
+using namespace ks::r3::registry::detail;
 
 // UniqueRegKey owns an HKEY returned by RegOpenKeyEx/RegCreateKeyEx. Input is a
 // raw handle; processing closes it in the destructor; get returns the borrowed
 // handle.
-class UniqueRegKey final {
-public:
-    UniqueRegKey() = default;
-    explicit UniqueRegKey(HKEY key) noexcept : key_(key) {}
-    ~UniqueRegKey() { reset(); }
-    UniqueRegKey(const UniqueRegKey&) = delete;
-    UniqueRegKey& operator=(const UniqueRegKey&) = delete;
-    HKEY get() const noexcept { return key_; }
-    bool valid() const noexcept { return key_ != nullptr; }
-    void reset(HKEY key = nullptr) noexcept {
-        if (key_) {
-            ::RegCloseKey(key_);
-        }
-        key_ = key;
-    }
 
-private:
-    HKEY key_ = nullptr;
-};
 
 // A registry name is documented as substantially smaller than this bound.  A
 // hard local ceiling prevents a malformed/racing enumeration response from
@@ -136,37 +121,15 @@ std::wstring NarrowToWide(const std::string& text) {
 
 // MakePathError converts a parse failure into a snapshot. Inputs are original
 // path, mode and parse result; output is a failed snapshot.
-RegistrySnapshot MakePathError(const std::wstring& path, const RegistryViewMode mode, const RegistryPathInfo& parsed) {
-    RegistrySnapshot snapshot;
-    snapshot.mode = mode;
-    snapshot.displayPath = path;
-    snapshot.statusText = parsed.errorText;
-    return snapshot;
-}
+
 
 // MakeOperationPathError converts a parse failure into an operation result.
 // Input is parse info; output is a failed operation status.
-RegistryOperationResult MakeOperationPathError(const RegistryPathInfo& parsed) {
-    RegistryOperationResult result;
-    result.success = false;
-    result.win32Error = ERROR_INVALID_PARAMETER;
-    result.statusText = parsed.errorText;
-    return result;
-}
+
 
 // OpenKey opens a WinAPI registry key. Inputs are parsed path and access mask;
 // output is an owning key handle.
-UniqueRegKey OpenKey(const RegistryPathInfo& path, const REGSAM access, LONG* statusOut = nullptr) {
-    HKEY raw = nullptr;
-    const LONG status = ::RegOpenKeyExW(path.root, path.subKey.c_str(), 0, access, &raw);
-    if (statusOut) {
-        *statusOut = status;
-    }
-    if (status != ERROR_SUCCESS) {
-        return UniqueRegKey();
-    }
-    return UniqueRegKey(raw);
-}
+
 
 // BuildStatusLine creates a common R0 status line. Inputs are operation name,
 // transport status, protocol status and NT status; output is shown in the UI.
@@ -182,60 +145,11 @@ std::wstring BuildR0StatusLine(const wchar_t* operation, const bool ok, const st
 
 // AppendWinApiValues enumerates values under one WinAPI key. Inputs are key and
 // snapshot; processing appends value rows; no return value.
-void AppendWinApiValues(HKEY key, RegistrySnapshot& snapshot) {
-    DWORD valueCount = 0;
-    DWORD maxValueName = 0;
-    DWORD maxData = 0;
-    if (::RegQueryInfoKeyW(key, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-            &valueCount, &maxValueName, &maxData, nullptr, nullptr) != ERROR_SUCCESS) {
-        return;
-    }
-    std::vector<wchar_t> name(static_cast<std::size_t>(maxValueName) + 2U);
-    std::vector<std::uint8_t> data(static_cast<std::size_t>(std::max<DWORD>(maxData, 1)));
-    for (DWORD index = 0; index < valueCount; ++index) {
-        DWORD nameChars = static_cast<DWORD>(name.size());
-        DWORD dataBytes = static_cast<DWORD>(data.size());
-        DWORD type = REG_NONE;
-        const LONG rc = ::RegEnumValueW(key, index, name.data(), &nameChars, nullptr, &type, data.data(), &dataBytes);
-        if (rc != ERROR_SUCCESS) {
-            continue;
-        }
-        RegistryEntry row;
-        row.kind = RegistryRowKind::Value;
-        row.name.assign(name.data(), name.data() + nameChars);
-        row.valueType = type;
-        row.typeText = RegistryTypeText(type);
-        row.data.assign(data.begin(), data.begin() + dataBytes);
-        row.dataText = FormatRegistryData(type, row.data);
-        row.detailText = L"WinAPI value; bytes=" + std::to_wstring(dataBytes);
-        snapshot.rows.push_back(std::move(row));
-    }
-}
+
 
 // AppendWinApiSubKeys enumerates direct child keys. Inputs are key and snapshot;
 // processing appends subkey rows; no return value.
-void AppendWinApiSubKeys(HKEY key, RegistrySnapshot& snapshot) {
-    DWORD subKeyCount = 0;
-    DWORD maxSubKey = 0;
-    if (::RegQueryInfoKeyW(key, nullptr, nullptr, nullptr, &subKeyCount, &maxSubKey, nullptr,
-            nullptr, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) {
-        return;
-    }
-    std::vector<wchar_t> name(static_cast<std::size_t>(maxSubKey) + 2U);
-    for (DWORD index = 0; index < subKeyCount; ++index) {
-        DWORD nameChars = static_cast<DWORD>(name.size());
-        const LONG rc = ::RegEnumKeyExW(key, index, name.data(), &nameChars, nullptr, nullptr, nullptr, nullptr);
-        if (rc != ERROR_SUCCESS) {
-            continue;
-        }
-        RegistryEntry row;
-        row.kind = RegistryRowKind::SubKey;
-        row.name.assign(name.data(), name.data() + nameChars);
-        row.typeText = L"Key";
-        row.detailText = L"WinAPI subkey";
-        snapshot.rows.push_back(std::move(row));
-    }
-}
+
 
 // KernelPathRequired verifies that R0 can address the requested path. Input is
 // parsed path; output is true for \REGISTRY\MACHINE/USER paths.
@@ -252,6 +166,12 @@ bool KernelPathRequired(const RegistryPathInfo& path, RegistryOperationResult& r
 } // namespace
 
 RegistrySnapshot EnumerateRegistryKey(const std::wstring& path, const RegistryViewMode mode) {
+    if (mode != RegistryViewMode::R0) {
+        auto result = ks::r3::registry::EnumerateRegistryKey(path);
+        result.mode = mode;
+        return result;
+    }
+
     RegistryPathInfo parsed = ParseRegistryPath(path);
     if (!parsed.valid) {
         return MakePathError(path, mode, parsed);
@@ -262,7 +182,7 @@ RegistrySnapshot EnumerateRegistryKey(const std::wstring& path, const RegistryVi
     snapshot.displayPath = parsed.displayPath;
     snapshot.kernelPath = parsed.kernelPath;
 
-    if (mode == RegistryViewMode::R0) {
+
         if (parsed.kernelPath.empty()) {
             snapshot.statusText = L"R0 registry mode supports HKLM/HKU or \\REGISTRY\\MACHINE/USER paths.";
             return snapshot;
@@ -294,20 +214,7 @@ RegistrySnapshot EnumerateRegistryKey(const std::wstring& path, const RegistryVi
         }
         snapshot.statusText = BuildR0StatusLine(L"enum", result.io.ok, result.status, result.lastStatus, result.io.message);
         return snapshot;
-    }
 
-    LONG openStatus = ERROR_SUCCESS;
-    UniqueRegKey key = OpenKey(parsed, KEY_READ, &openStatus);
-    if (!key.valid()) {
-        snapshot.success = false;
-        snapshot.statusText = L"RegOpenKeyExW failed: " + std::to_wstring(openStatus);
-        return snapshot;
-    }
-    AppendWinApiSubKeys(key.get(), snapshot);
-    AppendWinApiValues(key.get(), snapshot);
-    snapshot.success = true;
-    snapshot.statusText = L"WinAPI registry enum OK; rows=" + std::to_wstring(snapshot.rows.size());
-    return snapshot;
 }
 
 RegistrySearchSnapshot SearchRegistryWinApi(
@@ -665,6 +572,10 @@ RegistrySearchSnapshot SearchRegistryWinApi(
 }
 
 std::vector<std::wstring> EnumerateRegistrySubKeyNames(const std::wstring& path, const RegistryViewMode mode, std::wstring* statusTextOut) {
+    if (mode != RegistryViewMode::R0) {
+        return ks::r3::registry::EnumerateRegistrySubKeyNames(path, statusTextOut);
+    }
+
     // Inputs:
     // - path: one registry key in display or kernel form.
     // - mode: WinAPI or R0 transport.
@@ -684,7 +595,7 @@ std::vector<std::wstring> EnumerateRegistrySubKeyNames(const std::wstring& path,
         return childNames;
     }
 
-    if (mode == RegistryViewMode::R0) {
+
         if (parsed.kernelPath.empty()) {
             if (statusTextOut) {
                 *statusTextOut = L"R0 registry mode supports HKLM/HKU or \\REGISTRY\\MACHINE/USER paths.";
@@ -700,48 +611,20 @@ std::vector<std::wstring> EnumerateRegistrySubKeyNames(const std::wstring& path,
             childNames.push_back(subKey.name);
         }
         return childNames;
-    }
 
-    LONG openStatus = ERROR_SUCCESS;
-    UniqueRegKey key = OpenKey(parsed, KEY_READ, &openStatus);
-    if (!key.valid()) {
-        if (statusTextOut) {
-            *statusTextOut = L"RegOpenKeyExW failed: " + std::to_wstring(openStatus);
-        }
-        return childNames;
-    }
-
-    DWORD subKeyCount = 0;
-    DWORD maxSubKey = 0;
-    if (::RegQueryInfoKeyW(key.get(), nullptr, nullptr, nullptr, &subKeyCount, &maxSubKey, nullptr,
-            nullptr, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) {
-        if (statusTextOut) {
-            *statusTextOut = L"RegQueryInfoKeyW failed.";
-        }
-        return childNames;
-    }
-    std::vector<wchar_t> name(static_cast<std::size_t>(maxSubKey) + 2U);
-    for (DWORD index = 0; index < subKeyCount; ++index) {
-        DWORD nameChars = static_cast<DWORD>(name.size());
-        const LONG rc = ::RegEnumKeyExW(key.get(), index, name.data(), &nameChars, nullptr, nullptr, nullptr, nullptr);
-        if (rc != ERROR_SUCCESS) {
-            continue;
-        }
-        childNames.emplace_back(name.data(), name.data() + nameChars);
-    }
-    if (statusTextOut) {
-        *statusTextOut = L"WinAPI subkey enum OK; subkeys=" + std::to_wstring(childNames.size());
-    }
-    return childNames;
 }
 
 RegistryOperationResult ReadRegistryValue(const std::wstring& path, const std::wstring& valueName, const RegistryViewMode mode) {
+    if (mode != RegistryViewMode::R0) {
+        return ks::r3::registry::ReadRegistryValue(path, valueName);
+    }
+
     RegistryPathInfo parsed = ParseRegistryPath(path);
     if (!parsed.valid) {
         return MakeOperationPathError(parsed);
     }
     RegistryOperationResult result;
-    if (mode == RegistryViewMode::R0) {
+
         if (!KernelPathRequired(parsed, result)) {
             return result;
         }
@@ -754,36 +637,7 @@ RegistryOperationResult ReadRegistryValue(const std::wstring& path, const std::w
         result.data = read.data;
         result.statusText = BuildR0StatusLine(L"read", read.io.ok, read.status, read.lastStatus, read.io.message);
         return result;
-    }
 
-    LONG openStatus = ERROR_SUCCESS;
-    UniqueRegKey key = OpenKey(parsed, KEY_QUERY_VALUE, &openStatus);
-    if (!key.valid()) {
-        result.win32Error = static_cast<DWORD>(openStatus);
-        result.statusText = L"RegOpenKeyExW failed: " + std::to_wstring(openStatus);
-        return result;
-    }
-    DWORD type = 0;
-    DWORD bytes = 0;
-    const wchar_t* valuePtr = valueName.empty() ? nullptr : valueName.c_str();
-    LONG rc = ::RegQueryValueExW(key.get(), valuePtr, nullptr, &type, nullptr, &bytes);
-    if (rc != ERROR_SUCCESS) {
-        result.win32Error = static_cast<DWORD>(rc);
-        result.statusText = L"RegQueryValueExW(size) failed: " + std::to_wstring(rc);
-        return result;
-    }
-    result.data.resize(bytes);
-    rc = ::RegQueryValueExW(key.get(), valuePtr, nullptr, &type, result.data.data(), &bytes);
-    if (rc != ERROR_SUCCESS) {
-        result.win32Error = static_cast<DWORD>(rc);
-        result.statusText = L"RegQueryValueExW(data) failed: " + std::to_wstring(rc);
-        return result;
-    }
-    result.data.resize(bytes);
-    result.valueType = type;
-    result.success = true;
-    result.statusText = L"WinAPI read OK; type=" + RegistryTypeText(type) + L"; bytes=" + std::to_wstring(bytes);
-    return result;
 }
 
 RegistryOperationResult WriteRegistryValue(const std::wstring& path, const std::wstring& valueName, const std::uint32_t type, const std::vector<std::uint8_t>& data, const RegistryViewMode mode) {

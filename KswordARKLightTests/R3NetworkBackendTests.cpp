@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/registry/RegistryBackend.h"
 #include "../shared/usermode/backend/service/ServiceActions.h"
 #include "../shared/usermode/backend/service/ServiceEnumerator.h"
 #include "../shared/usermode/backend/network/EndpointAudit.h"
@@ -68,6 +69,8 @@ int RunR3NetworkBackendTests() {
     suite.expect(!dnsEmpty.success && !dnsEmpty.text.empty(), L"DNS empty input retains failure result");
     const auto emptyService = ks::r3::service::QuerySingleService(L"");
     suite.expect(!emptyService.success && emptyService.diagnosticText == L"服务名为空，无法查询。", L"service empty query retains failure text");
+    const auto invalidRegistry = ks::r3::registry::EnumerateRegistryKey(L"");
+    suite.expect(!invalidRegistry.success && !invalidRegistry.statusText.empty(), L"registry invalid path retains diagnostic");
     suite.report();
     return suite.failures();
 }
