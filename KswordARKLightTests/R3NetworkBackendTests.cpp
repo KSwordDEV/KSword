@@ -74,6 +74,23 @@ int RunR3NetworkBackendTests() {
     ks::r3::registry::RegistrySearchRequest searchRequest;
     const auto emptySearch = ks::r3::registry::SearchRegistryWinApi(searchRequest, {});
     suite.expect(emptySearch.stopReason == ks::r3::registry::RegistrySearchStopReason::InvalidRequest, L"registry invalid search budget and input are preserved");
+    const auto unsupportedRename = ks::r3::registry::RenameRegistryKey(L"HKCU", L"unused");
+    suite.expect(!unsupportedRename.success && unsupportedRename.win32Error == ERROR_NOT_SUPPORTED, L"WinAPI key rename remains unsupported");
+    const std::wstring testKey = L"HKCU\\Software\\KswordR3BackendTest_" + std::to_wstring(::GetCurrentProcessId()) + L"_" + std::to_wstring(::GetTickCount64());
+    const auto created = ks::r3::registry::CreateRegistryKey(testKey);
+    suite.expect(created.success, L"own temporary registry key created");
+    if (created.success) {
+        const std::vector<std::uint8_t> payload = {0x12, 0x34, 0x56, 0x78};
+        const auto written = ks::r3::registry::WriteRegistryValue(testKey, L"original", REG_DWORD, payload);
+        suite.expect(written.success, L"own DWORD written through shared backend");
+        const auto readBack = ks::r3::registry::ReadRegistryValue(testKey, L"original");
+        suite.expect(readBack.success && readBack.valueType == REG_DWORD && readBack.data == payload, L"registry read-back preserves raw bytes");
+        const auto renamed = ks::r3::registry::RenameRegistryValue(testKey, L"original", L"renamed");
+        suite.expect(renamed.success && !ks::r3::registry::ReadRegistryValue(testKey, L"original").success, L"registry value rename preserves copy/delete semantics");
+        suite.expect(ks::r3::registry::ReadRegistryValue(testKey, L"renamed").data == payload, L"renamed value payload retained");
+        suite.expect(ks::r3::registry::DeleteRegistryValue(testKey, L"renamed").success, L"own temporary value deleted");
+        suite.expect(ks::r3::registry::DeleteRegistryKey(testKey).success, L"own temporary key cleaned up");
+    }
     suite.report();
     return suite.failures();
 }

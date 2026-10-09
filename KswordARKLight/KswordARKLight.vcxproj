@@ -681,6 +681,9 @@
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearch.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistryMutations.cpp" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
   <ItemGroup>

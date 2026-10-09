@@ -222,12 +222,16 @@ RegistryOperationResult ReadRegistryValue(const std::wstring& path, const std::w
 }
 
 RegistryOperationResult WriteRegistryValue(const std::wstring& path, const std::wstring& valueName, const std::uint32_t type, const std::vector<std::uint8_t>& data, const RegistryViewMode mode) {
+    if (mode != RegistryViewMode::R0) {
+        return ks::r3::registry::WriteRegistryValue(path, valueName, type, data);
+    }
+
     RegistryPathInfo parsed = ParseRegistryPath(path);
     if (!parsed.valid) {
         return MakeOperationPathError(parsed);
     }
     RegistryOperationResult result;
-    if (mode == RegistryViewMode::R0) {
+
         if (!KernelPathRequired(parsed, result)) {
             return result;
         }
@@ -238,30 +242,20 @@ RegistryOperationResult WriteRegistryValue(const std::wstring& path, const std::
         result.ntStatus = write.lastStatus;
         result.statusText = BuildR0StatusLine(L"write", write.io.ok, write.status, write.lastStatus, write.io.message);
         return result;
-    }
 
-    LONG openStatus = ERROR_SUCCESS;
-    UniqueRegKey key = OpenKey(parsed, KEY_SET_VALUE, &openStatus);
-    if (!key.valid()) {
-        result.win32Error = static_cast<DWORD>(openStatus);
-        result.statusText = L"RegOpenKeyExW failed: " + std::to_wstring(openStatus);
-        return result;
-    }
-    const LONG rc = ::RegSetValueExW(key.get(), valueName.empty() ? nullptr : valueName.c_str(), 0, type,
-        data.empty() ? nullptr : data.data(), static_cast<DWORD>(data.size()));
-    result.success = rc == ERROR_SUCCESS;
-    result.win32Error = static_cast<DWORD>(rc);
-    result.statusText = result.success ? L"WinAPI write OK." : L"RegSetValueExW failed: " + std::to_wstring(rc);
-    return result;
 }
 
 RegistryOperationResult DeleteRegistryValue(const std::wstring& path, const std::wstring& valueName, const RegistryViewMode mode) {
+    if (mode != RegistryViewMode::R0) {
+        return ks::r3::registry::DeleteRegistryValue(path, valueName);
+    }
+
     RegistryPathInfo parsed = ParseRegistryPath(path);
     if (!parsed.valid) {
         return MakeOperationPathError(parsed);
     }
     RegistryOperationResult result;
-    if (mode == RegistryViewMode::R0) {
+
         if (!KernelPathRequired(parsed, result)) {
             return result;
         }
@@ -272,29 +266,20 @@ RegistryOperationResult DeleteRegistryValue(const std::wstring& path, const std:
         result.ntStatus = del.lastStatus;
         result.statusText = BuildR0StatusLine(L"delete value", del.io.ok, del.status, del.lastStatus, del.io.message);
         return result;
-    }
 
-    LONG openStatus = ERROR_SUCCESS;
-    UniqueRegKey key = OpenKey(parsed, KEY_SET_VALUE, &openStatus);
-    if (!key.valid()) {
-        result.win32Error = static_cast<DWORD>(openStatus);
-        result.statusText = L"RegOpenKeyExW failed: " + std::to_wstring(openStatus);
-        return result;
-    }
-    const LONG rc = ::RegDeleteValueW(key.get(), valueName.empty() ? nullptr : valueName.c_str());
-    result.success = rc == ERROR_SUCCESS;
-    result.win32Error = static_cast<DWORD>(rc);
-    result.statusText = result.success ? L"WinAPI delete value OK." : L"RegDeleteValueW failed: " + std::to_wstring(rc);
-    return result;
 }
 
 RegistryOperationResult CreateRegistryKey(const std::wstring& path, const RegistryViewMode mode) {
+    if (mode != RegistryViewMode::R0) {
+        return ks::r3::registry::CreateRegistryKey(path);
+    }
+
     RegistryPathInfo parsed = ParseRegistryPath(path);
     if (!parsed.valid) {
         return MakeOperationPathError(parsed);
     }
     RegistryOperationResult result;
-    if (mode == RegistryViewMode::R0) {
+
         if (!KernelPathRequired(parsed, result)) {
             return result;
         }
@@ -305,26 +290,20 @@ RegistryOperationResult CreateRegistryKey(const std::wstring& path, const Regist
         result.ntStatus = create.lastStatus;
         result.statusText = BuildR0StatusLine(L"create key", create.io.ok, create.status, create.lastStatus, create.io.message);
         return result;
-    }
 
-    HKEY raw = nullptr;
-    DWORD disposition = 0;
-    const LONG rc = ::RegCreateKeyExW(parsed.root, parsed.subKey.c_str(), 0, nullptr, REG_OPTION_NON_VOLATILE,
-        KEY_READ | KEY_WRITE, nullptr, &raw, &disposition);
-    UniqueRegKey key(raw);
-    result.success = rc == ERROR_SUCCESS;
-    result.win32Error = static_cast<DWORD>(rc);
-    result.statusText = result.success ? L"WinAPI create/open key OK." : L"RegCreateKeyExW failed: " + std::to_wstring(rc);
-    return result;
 }
 
 RegistryOperationResult DeleteRegistryKey(const std::wstring& path, const RegistryViewMode mode) {
+    if (mode != RegistryViewMode::R0) {
+        return ks::r3::registry::DeleteRegistryKey(path);
+    }
+
     RegistryPathInfo parsed = ParseRegistryPath(path);
     if (!parsed.valid) {
         return MakeOperationPathError(parsed);
     }
     RegistryOperationResult result;
-    if (mode == RegistryViewMode::R0) {
+
         if (!KernelPathRequired(parsed, result)) {
             return result;
         }
@@ -335,22 +314,20 @@ RegistryOperationResult DeleteRegistryKey(const std::wstring& path, const Regist
         result.ntStatus = del.lastStatus;
         result.statusText = BuildR0StatusLine(L"delete key", del.io.ok, del.status, del.lastStatus, del.io.message);
         return result;
-    }
 
-    const LONG rc = ::RegDeleteTreeW(parsed.root, parsed.subKey.c_str());
-    result.success = rc == ERROR_SUCCESS;
-    result.win32Error = static_cast<DWORD>(rc);
-    result.statusText = result.success ? L"WinAPI delete key tree OK." : L"RegDeleteTreeW failed: " + std::to_wstring(rc);
-    return result;
 }
 
 RegistryOperationResult RenameRegistryValue(const std::wstring& path, const std::wstring& oldName, const std::wstring& newName, const RegistryViewMode mode) {
+    if (mode != RegistryViewMode::R0) {
+        return ks::r3::registry::RenameRegistryValue(path, oldName, newName);
+    }
+
     RegistryOperationResult result;
     RegistryPathInfo parsed = ParseRegistryPath(path);
     if (!parsed.valid) {
         return MakeOperationPathError(parsed);
     }
-    if (mode == RegistryViewMode::R0) {
+
         if (!KernelPathRequired(parsed, result)) {
             return result;
         }
@@ -361,26 +338,20 @@ RegistryOperationResult RenameRegistryValue(const std::wstring& path, const std:
         result.ntStatus = rename.lastStatus;
         result.statusText = BuildR0StatusLine(L"rename value", rename.io.ok, rename.status, rename.lastStatus, rename.io.message);
         return result;
-    }
 
-    RegistryOperationResult read = ReadRegistryValue(path, oldName, mode);
-    if (!read.success) {
-        return read;
-    }
-    RegistryOperationResult write = WriteRegistryValue(path, newName, read.valueType, read.data, mode);
-    if (!write.success) {
-        return write;
-    }
-    return DeleteRegistryValue(path, oldName, mode);
 }
 
 RegistryOperationResult RenameRegistryKey(const std::wstring& path, const std::wstring& newName, const RegistryViewMode mode) {
+    if (mode != RegistryViewMode::R0) {
+        return ks::r3::registry::RenameRegistryKey(path, newName);
+    }
+
     RegistryOperationResult result;
     RegistryPathInfo parsed = ParseRegistryPath(path);
     if (!parsed.valid) {
         return MakeOperationPathError(parsed);
     }
-    if (mode == RegistryViewMode::R0) {
+
         if (!KernelPathRequired(parsed, result)) {
             return result;
         }
@@ -391,11 +362,7 @@ RegistryOperationResult RenameRegistryKey(const std::wstring& path, const std::w
         result.ntStatus = rename.lastStatus;
         result.statusText = BuildR0StatusLine(L"rename key", rename.io.ok, rename.status, rename.lastStatus, rename.io.message);
         return result;
-    }
-    result.success = false;
-    result.win32Error = ERROR_NOT_SUPPORTED;
-    result.statusText = L"WinAPI key rename is not exposed here; use R0 mode for rename key.";
-    return result;
+
 }
 
 bool CopyRegistryTextToClipboard(HWND owner, const std::wstring& text) {
