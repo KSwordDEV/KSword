@@ -24,4 +24,5 @@ struct DiagnosticResult {
 };
 DiagnosticResult RunPing(const DiagnosticRequest& request);
 DiagnosticResult RunTraceRoute(const DiagnosticRequest& request);
+DiagnosticResult RunDnsLookup(const DiagnosticRequest& request);
 }

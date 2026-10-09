@@ -9,3 +9,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | TCP/UDP connection enumeration and TCP close | 01-connections |
 | Ping | 02-ping |
 | route tracing | 03-trace-route |
+| DNS lookup | 04-dns |

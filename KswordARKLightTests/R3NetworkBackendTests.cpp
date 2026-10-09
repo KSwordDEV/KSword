@@ -60,6 +60,8 @@ int RunR3NetworkBackendTests() {
     suite.expect(pingEmpty.summary == L"Ping 未执行：目标解析失败。", L"ping failure summary preserved");
     const auto traceEmpty = RunTraceRoute(DiagnosticRequest{});
     suite.expect(!traceEmpty.success && traceEmpty.summary == L"路由跟踪未执行：目标解析失败。", L"trace failure semantics preserved");
+    const auto dnsEmpty = RunDnsLookup(DiagnosticRequest{});
+    suite.expect(!dnsEmpty.success && !dnsEmpty.text.empty(), L"DNS empty input retains failure result");
     suite.report();
     return suite.failures();
 }
