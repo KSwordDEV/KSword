@@ -184,7 +184,6 @@
     <ClCompile Include="Features\Process\ProcessView.cpp" />
     <ClCompile Include="Features\Registry\RegistryActions.cpp" />
     <ClCompile Include="Features\Registry\RegistryFeature.cpp" />
-    <ClCompile Include="Features\Registry\RegistrySearchModel.cpp" />
     <ClCompile Include="Features\Registry\RegistrySearchView.cpp" />
     <ClCompile Include="Features\Registry\RegistryView.cpp" />
     <ClCompile Include="Features\ProcessDetail\ProcessDetailCollector.cpp" />
@@ -672,6 +671,15 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\registry\RegistryBrowse.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\registry\RegistrySearchModel.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearchModel.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearch.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

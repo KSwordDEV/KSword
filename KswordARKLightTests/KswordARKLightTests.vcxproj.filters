@@ -116,7 +116,6 @@
     <ClCompile Include="..\KswordARKLight\Core\WorkspaceConfig.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\File\PathNavigator.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\Monitor\EtwEventModel.cpp"><Filter>Production</Filter></ClCompile>
-    <ClCompile Include="..\KswordARKLight\Features\Registry\RegistrySearchModel.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\SysTools\IoctlDecoder.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\Window\Win32kTimerEvidenceModel.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\Memory\MemorySnapshot.cpp"><Filter>Production</Filter></ClCompile>
@@ -323,6 +322,21 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\registry\RegistryBrowse.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearchModel.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\registry\RegistrySearchModel.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearch.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

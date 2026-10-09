@@ -398,9 +398,6 @@
     <ClCompile Include="Features\Registry\RegistryFeature.cpp">
       <Filter>Features\Registry</Filter>
     </ClCompile>
-    <ClCompile Include="Features\Registry\RegistrySearchModel.cpp">
-      <Filter>Features\Registry</Filter>
-    </ClCompile>
     <ClCompile Include="Features\Registry\RegistrySearchView.cpp">
       <Filter>Features\Registry</Filter>
     </ClCompile>
@@ -1538,6 +1535,21 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\registry\RegistryBrowse.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\registry\RegistrySearchModel.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearchModel.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearch.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

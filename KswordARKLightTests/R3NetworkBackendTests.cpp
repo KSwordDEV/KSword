@@ -71,6 +71,9 @@ int RunR3NetworkBackendTests() {
     suite.expect(!emptyService.success && emptyService.diagnosticText == L"服务名为空，无法查询。", L"service empty query retains failure text");
     const auto invalidRegistry = ks::r3::registry::EnumerateRegistryKey(L"");
     suite.expect(!invalidRegistry.success && !invalidRegistry.statusText.empty(), L"registry invalid path retains diagnostic");
+    ks::r3::registry::RegistrySearchRequest searchRequest;
+    const auto emptySearch = ks::r3::registry::SearchRegistryWinApi(searchRequest, {});
+    suite.expect(emptySearch.stopReason == ks::r3::registry::RegistrySearchStopReason::InvalidRequest, L"registry invalid search budget and input are preserved");
     suite.report();
     return suite.failures();
 }

@@ -4,7 +4,7 @@
 #include <cwctype>
 #include <utility>
 
-namespace Ksword::Features::Registry {
+namespace ks::r3::registry {
 namespace {
 
 std::wstring TrimCopy(std::wstring text) {
@@ -258,4 +258,4 @@ std::wstring BuildVisibleRegistrySearchTsv(
     return output;
 }
 
-} // namespace Ksword::Features::Registry
+} // namespace ks::r3::registry

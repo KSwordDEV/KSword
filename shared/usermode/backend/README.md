@@ -14,3 +14,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | network R3 endpoint audit | 06-endpoint-audit |
 | service enumeration and control | 07-service |
 | registry browsing and reads | 08-registry-browse |
+| registry search | 09-registry-search |
