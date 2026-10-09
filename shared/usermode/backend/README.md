@@ -54,3 +54,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | IOCTL decoding | 46-system-ioctl |
 | kernel object namespace overview | 47-kernel-namespace |
 | kernel recursive object directories | 48-kernel-directory |
+| kernel symbolic links | 49-kernel-symlink |
