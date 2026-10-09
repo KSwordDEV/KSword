@@ -1747,4 +1747,12 @@
       <Filter>Source Files</Filter>
     </None>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\features\storage\storage_forensics_capture.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="src\features\storage\storage_forensics_internal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
 </Project>

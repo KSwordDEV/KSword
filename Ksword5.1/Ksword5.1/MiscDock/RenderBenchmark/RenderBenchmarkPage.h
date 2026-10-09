@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // ============================================================
 // RenderBenchmarkPage.h
@@ -25,7 +25,7 @@
 
 class QComboBox;
 class QLabel;
-class QPlainTextEdit;
+class CodeEditorWidget;
 class QProgressBar;
 class QPushButton;
 class QSpinBox;
@@ -129,7 +129,7 @@ namespace ks::misc
         QComboBox* m_targetWindowCombo = nullptr;     // m_targetWindowCombo：响应探针的目标窗口。
 
         QProgressBar* m_progressBar = nullptr;        // m_progressBar：长测试的进度提示。
-        QPlainTextEdit* m_reportEdit = nullptr;       // m_reportEdit：结果报告区。
+        CodeEditorWidget* m_reportEdit = nullptr;       // m_reportEdit：结果报告区。
 
         QVector<TargetWindowEntry> m_targetWindows;   // m_targetWindows：候选目标窗口快照。
         bool m_busy = false;                          // m_busy：是否有测试正在执行。

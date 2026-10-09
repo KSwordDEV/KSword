@@ -7,8 +7,8 @@
 
 #include "Internationalization/LanguageManager.h"
 #include "MinidumpFormat.h"
-#include "UI/HexEditorWidget.h"
-#include "UI/MemoryEditorWidget.h"
+#include "UI/MemoryWorkbench/HexView.h"
+#include "UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "theme.h"
 
 #include <QApplication>
@@ -178,7 +178,7 @@ DumpMemoryView::DumpMemoryView(QWidget* parent)
         });
     rootLayout->addWidget(m_messageView);
 
-    m_memoryEditor = new ks::ui::MemoryEditorWidget(this);
+    m_memoryEditor = new ks::ui::SnapshotWorkbenchWidget(this);
     m_memoryEditor->setEditable(false);
     m_hexEditor = m_memoryEditor->hexEditor();
     rootLayout->addWidget(m_memoryEditor, 1);

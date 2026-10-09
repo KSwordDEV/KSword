@@ -11,15 +11,12 @@
 //   失败则 ROLLBACK。
 // - 本文件只翻译协议状态，不做"该不该回滚""回滚够不够"之类的判断——那些
 //   策略在 shared/evidence/memory_workbench/MemoryKernelMutation.h 里实现
-//   并测试过；本文件对应旧编排 MemoryDock.DriverMemoryRw.cpp 第 1380-1715
-//   行里"发一次 IOCTL、翻译一次结果"的那一半，不包含切片循环与回滚列表。
+//   并测试过；本文件负责发一次 IOCTL、翻译一次结果，不包含切片循环与回滚列表。
 // ============================================================
 
 namespace ksword::memwb_ports
 {
-    // BuildPrepareFailureText：Prepare 失败时的细节串，格式沿用旧编排
-    // （MemoryDock.DriverMemoryRw.cpp 第 1480-1488 行）"地址=... tx=...
-    // 状态=... NT=... 信息=..."，只是从 QString::arg 换成 std::ostringstream。
+    // BuildPrepareFailureText：保留地址、事务、协议状态、NT 状态和原始驱动信息。
     std::string WorkbenchKernelMutationPort::BuildPrepareFailureText(
         const std::uint64_t address,
         const std::uint64_t transactionId,
@@ -61,7 +58,7 @@ namespace ksword::memwb_ports
     // Prepare：对一片（调用方已按 kKernelMutationSliceBytes 切好，≤64 字节）
     // 内核虚拟地址字节发起"演练 + 校验写入前内容"请求。
     // - flags 固定 DRY_RUN|EXPECTED_BEFORE_PRESENT，targetKind 固定
-    //   KERNEL_VIRTUAL_BYTES_SMALL，与旧编排第 1449-1453 行完全一致。
+    //   KERNEL_VIRTUAL_BYTES_SMALL，遵循共享字节事务协议。
     // - 本类的 ok 只判断"这一步本身"：io.ok 且 status==PREPARED；
     //   transactionId!=0、beforeBytes 长度是否足够、以及 beforeBytes 前缀
     //   是否与 expectedBefore 相等，这三项交叉校验留给调用方

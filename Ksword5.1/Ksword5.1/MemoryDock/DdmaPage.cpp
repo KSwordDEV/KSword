@@ -3,8 +3,8 @@
 #include "../theme.h"
 #include "../UI/AdaptivePageScroll.h"
 #include "../UI/CodeEditorWidget.h"
-#include "../UI/HexEditorWidget.h"
-#include "../UI/MemoryEditorWidget.h"
+#include "../UI/MemoryWorkbench/HexView.h"
+#include "../UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "../UI/VisibleTableWidget.h"
 
 #include <QCheckBox>
@@ -331,7 +331,7 @@ QGroupBox* DdmaPage::buildAccessGroup()
     barLayout->addWidget(m_accessWriteButton);
     outerLayout->addLayout(barLayout);
 
-    m_accessMemoryEditor = new ks::ui::MemoryEditorWidget(group);
+    m_accessMemoryEditor = new ks::ui::SnapshotWorkbenchWidget(group);
     m_accessHexEditor = m_accessMemoryEditor->hexEditor();
     m_accessMemoryEditor->setEditable(false);
     outerLayout->addWidget(m_accessMemoryEditor, 1);
@@ -343,7 +343,7 @@ QGroupBox* DdmaPage::buildAccessGroup()
 
     connect(m_accessReadButton, &QPushButton::clicked, this, [this]() { readPhysicalFromUi(); });
     connect(m_accessWriteButton, &QPushButton::clicked, this, [this]() { writePhysicalFromUi(); });
-    connect(m_accessMemoryEditor, &ks::ui::MemoryEditorWidget::bytesChanged, this,
+    connect(m_accessMemoryEditor, &ks::ui::SnapshotWorkbenchWidget::bytesChanged, this,
         [this]() {
             if (m_hasSnapshot)
             {
@@ -1660,7 +1660,10 @@ void DdmaPage::writePhysicalFromUi()
     const QByteArray original = m_originalBytes;
     const QByteArray edited = m_editedBytes;
     const auto architecture = m_accessMemoryEditor->currentArchitecture();
-    const auto currentAddress = m_accessHexEditor->selectedAbsoluteAddress();
+    // 空快照保留当前逻辑基址；有数据时使用新画布的插入点。
+    const auto currentAddress = m_accessHexEditor->bufferSize() == 0
+        ? m_accessHexEditor->baseAddress()
+        : m_accessHexEditor->caretAddress();
     const auto contextMatches = [this, &snapshotSession, snapshotGeneration, snapshotAddress, &original, &edited]() {
         return m_hasSnapshot && m_snapshotAddress == snapshotAddress
             && m_snapshotSessionGeneration == snapshotGeneration

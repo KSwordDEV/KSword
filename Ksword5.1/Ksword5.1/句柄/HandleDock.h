@@ -12,6 +12,7 @@
 #include "../Framework.h"
 #include "./HandleFilterConfig.h"
 #include "HandleObjectTypeWorker.h"
+#include "../UI/AsyncOperation.h"
 #include "../../../shared/driver/KswordArkHandleIoctl.h"
 
 #include <QHash>
@@ -68,6 +69,8 @@ public:
     // 传入 parent：Qt 父对象。
     // 传出：无（通过对象状态持有 UI 与缓存）。
     explicit HandleDock(QWidget* parent = nullptr);
+    // 派生成员销毁前关闭详情异步门禁，再由成员删除 QObject 子对象。
+    ~HandleDock() override;
 
     // focusProcessId 作用：
     // - 外部调用时把 PID 过滤框切换为目标 PID；
@@ -442,7 +445,7 @@ private:
     // - 对当前选中句柄异步拉取详细信息；
     // - 详情包含通用字段与按类型分支的专用信息。
     // 调用方法：选中行切换、手动刷新详情时调用。
-    // 传入 forceRefresh：true 强制刷新；false 遇到并发时忽略。
+    // 传入 forceRefresh：true 强制刷新；选择变化请求均合并为最新行快照。
     // 传出：无。
     void requestHandleDetailRefresh(bool forceRefresh);
 
@@ -453,6 +456,9 @@ private:
     // 传入 refreshTicket：详情刷新序号；refreshResult：详情结果。
     // 传出：无。
     void applyHandleDetailRefreshResult(std::uint64_t refreshTicket, const HandleDetailRefreshResult& refreshResult);
+    // 核验代次与句柄/进程实例后提交；菜单延期重放再次走同一验证入口。
+    bool tryApplyHandleDetailRefreshResult(std::uint64_t refreshTicket,
+        const HandleRow& expectedRow, const HandleDetailRefreshResult& refreshResult);
 
     // updateHandleStatusLabel 作用：
     // - 统一更新句柄页状态标签文本与颜色；
@@ -704,7 +710,7 @@ private:
     bool m_objectTypeRefreshInProgress = false;  // m_objectTypeRefreshInProgress：对象类型刷新互斥标记。
     bool m_objectTypeRefreshPending = false;     // m_objectTypeRefreshPending：对象类型刷新待执行请求标记。
     bool m_handleDetailRefreshInProgress = false; // m_handleDetailRefreshInProgress：句柄详情刷新互斥标记。
-    bool m_handleDetailRefreshPending = false;   // m_handleDetailRefreshPending：句柄详情刷新待执行请求标记。
+    std::unique_ptr<ks::ui::AsyncOperation> m_handleDetailOperation; // 详情请求合并与一次收尾控制器。
     bool m_handleRenderDeferredUntilTypeMap = false; // m_handleRenderDeferredUntilTypeMap：句柄枚举已完成但表格渲染正等待对象类型映射。
     bool m_initialRefreshDone = false;           // m_initialRefreshDone：首轮刷新是否已完成。
     std::uint64_t m_refreshTicket = 0;           // m_refreshTicket：句柄刷新序号，防止乱序覆盖。

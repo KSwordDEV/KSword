@@ -12,7 +12,7 @@ class QLabel;
 
 namespace ks::ui
 {
-    class MemoryEditorWidget;
+    class SnapshotWorkbenchWidget;
     enum class DisassemblyArchitecture : int
     {
         X86 = 0,
@@ -100,7 +100,7 @@ namespace ks::ui
         QLabel* m_backendLabel = nullptr;
         QLabel* m_mutationRiskLabel = nullptr;
         QLabel* m_mutationStatusLabel = nullptr;
-        MemoryEditorWidget* m_editor = nullptr;
+        SnapshotWorkbenchWidget* m_editor = nullptr;
         bool m_kernelMutationEnabled = false;
     };
 }

@@ -1,4 +1,4 @@
-#include "KernelSlatIommuAuditTab.h"
+﻿#include "KernelSlatIommuAuditTab.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -19,8 +19,7 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTabWidget>
-#include <QPlainTextEdit>
-#include "../UI/CodeTextEdit.h"
+#include "../UI/CodeEditorWidget.h"
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -204,8 +203,7 @@ void KernelSlatIommuAuditTab::initializeUi()
             "kernel.slat_iommu.iommu.tab",
             QStringLiteral("IOMMU / DMAR / IVRS")));
 
-    m_detailEdit = new CodeTextEdit(splitter);
-    static_cast<CodeTextEdit*>(m_detailEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    m_detailEdit = new CodeEditorWidget(splitter);
     m_detailEdit->setReadOnly(true);
     m_detailEdit->setPlaceholderText(
         kernelText(
@@ -266,7 +264,7 @@ void KernelSlatIommuAuditTab::applyResult(
     {
         m_probeTable->setRowCount(0);
         m_iommuTable->setRowCount(0);
-        m_detailEdit->clear();
+        m_detailEdit->setReportText(QString());
         if (result.unsupported)
         {
             m_statusLabel->setText(
@@ -289,7 +287,7 @@ void KernelSlatIommuAuditTab::applyResult(
     const auto& response = result.response;
     populateProbeTable(response);
     populateIommuTable(response);
-    m_detailEdit->setPlainText(buildDetail(response));
+    m_detailEdit->setReportText(buildDetail(response));
     m_summaryLabel->setText(
         kernelText(
             "kernel.slat_iommu.summary",

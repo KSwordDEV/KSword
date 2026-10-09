@@ -1,7 +1,8 @@
-"""Build the actual registry draft editor and Hex facade with a MinGW Qt SDK.
+"""Build the actual registry draft editor and native HexView with a MinGW Qt SDK.
 
-Usage: python tools/registry_value_editor_tests.py --qt <mingw Qt SDK> --compiler <g++.exe>
-No production application or registry/driver access. Artifacts stay in .codex-tmp.
+Usage: python tools/registry_value_editor_tests.py --msvc --output .codex-build-logs
+The optional MinGW branch accepts --qt and --compiler. Only an existing output directory is used.
+No production application or registry/driver access.
 """
 from __future__ import annotations
 
@@ -16,15 +17,25 @@ import sys
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--qt", required=True, type=Path)
-    parser.add_argument("--compiler", required=True, type=Path)
+    parser.add_argument("--msvc", action="store_true", help="Reuse the latest validated production MSVC objects")
+    parser.add_argument("--qt", type=Path)
+    parser.add_argument("--compiler", type=Path)
+    parser.add_argument("--output", type=Path, default=Path(".codex-build-logs"), help="Existing output directory")
     parser.add_argument("--workers", type=int, default=3)
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
+    out = (repo / args.output).resolve()
+    if not out.is_dir():
+        raise RuntimeError("--output must point to an existing directory")
+    if args.msvc:
+        from msvc_qt_production_fixture import run_msvc_fixture
+        run_msvc_fixture(repo, repo / "tools/registry_value_editor_tests.cpp", out,
+                         "registry_value_editor_tests", qt_root=args.qt, runtime_args=(str(out),))
+        return 0
+    if args.qt is None or args.compiler is None:
+        raise RuntimeError("The MinGW branch requires --qt and --compiler")
     qt = args.qt.resolve()
     compiler = args.compiler.resolve()
-    out = repo / ".codex-tmp" / "registry-value-editor-tests"
-    out.mkdir(parents=True, exist_ok=True)
     if not compiler.is_file() or not (qt / "bin" / "moc.exe").is_file():
         raise RuntimeError("A MinGW compiler and matching Qt SDK are required.")
     env = os.environ.copy()
@@ -34,7 +45,7 @@ def main() -> int:
     app = repo / "Ksword5.1" / "Ksword5.1"
     ui = app / "UI" / "MemoryWorkbench"
     core = repo / "shared" / "evidence" / "memory_workbench"
-    # Use the existing facade fixture's production source list, avoiding a
+    # Use the existing HexView fixture's production source list, avoiding a
     # second stale copy of HexView's split-file and pure-core dependencies.
     manifest = (repo / "tools" / "memwb_ui" / "build-memwb-ui-tests.cmd").read_text(encoding="utf-8-sig")
     build_section = manifest.split("cl /nologo", 1)[1].split("/Fo", 1)[0]
@@ -56,12 +67,14 @@ def main() -> int:
                 app / "UI" / "CodeTextEdit.cpp",
                 app / "UI" / "CodeEditorFileSession.cpp",
                 app / "UI" / "ReportStructuredView.cpp",
+                app / "UI" / "FieldTreePresenter.cpp",
+                app / "UI" / "FieldTreePresenter.Copy.cpp",
                 app / "Internationalization" / "LanguageManager.cpp",
                 repo / "tools" / "registry_value_editor_tests.cpp"]
     moc_headers = [ui / name for name in (
         "HexCanvas.h", "HexInspectorPanel.h", "HexInspectorRowView.h", "HexView.h",
         "HexFindBar.h", "HexGotoBar.h", "HexViewWidgets.h")]
-    moc_headers += [app / "UI" / "HexEditorWidget.h", app / "RegistryDock" / "RegistryValueEditorWidget.h"]
+    moc_headers += [app / "RegistryDock" / "RegistryValueEditorWidget.h"]
     moc_headers += [app / "UI" / "CodeEditorWidget.h"]
     for header in moc_headers:
         generated = out / ("moc_" + header.stem + ".cpp")
@@ -108,7 +121,7 @@ def main() -> int:
     exe = out / "registry_value_editor_tests.exe"
     subprocess.run([str(compiler), *map(str, objects), "-L" + str(qt / "lib"), "-lQt6Widgets", "-lQt6Gui", "-lQt6Core", "-lQt6Svg",
                     "-ladvapi32", "-luser32", "-o", str(exe)], env=env, check=True)
-    return subprocess.run([str(exe), str(out / "shots")], env=env).returncode
+    return subprocess.run([str(exe), str(out)], env=env).returncode
 
 
 if __name__ == "__main__":

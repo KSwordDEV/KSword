@@ -18,12 +18,14 @@
 #include "../../../Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchDisasmView.h"
 #include "../../../Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchHexPane.h"
 #include "../../../Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchTextView.h"
+#include "../../../Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchPseudocodeView.h"
 #include "../../../Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchNavigation.h"
 #include "../../../Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchTarget.h"
 #include "../wpI/memwb_wpI_common.h"
 
 #include <QKeySequence>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QPlainTextEdit>
 #include <QScrollBar>
@@ -38,6 +40,7 @@
 
 namespace wpj6_test
 {
+    void RunPseudocodeNavigationTests();
     namespace
     {
         // 三个子页在 subTabStack_ 里的下标。
@@ -922,6 +925,8 @@ namespace wpj6_test
                 view->hide();
             }
         }
+
+
     }
 
     void RunSubPageTests()
@@ -939,5 +944,6 @@ namespace wpj6_test
         TestIdentityChangeResetsPages();
         TestExplicitEntries();
         TestBoundaries();
+        RunPseudocodeNavigationTests();
     }
 }

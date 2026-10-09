@@ -2026,5 +2026,7 @@ void ProcessTraceMonitorWidget::appendEventRow(const CapturedEventRow& rowValue)
     ProcessTraceTimelineEventPoint pointValue;
     pointValue.time100ns = rowValue.time100ns;
     pointValue.typeText = rowValue.typeText;
+    // Provider 是未翻译的 ETW 机器身份；类别标签换语言不会改变事件所在轨道。
+    pointValue.categoryId = ks::ui::TimelineCategoryForEtwProvider(rowValue.providerText, rowValue.eventName);
     m_timelineEventPoints.push_back(std::move(pointValue));
 }

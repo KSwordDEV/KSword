@@ -4,7 +4,10 @@
 #include <QString>
 #include <QWidget>
 
-class HexEditorWidget;
+namespace ks::ui
+{
+    class HexView;
+}
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -77,10 +80,10 @@ private:
     QLineEdit* m_decimalNumber = nullptr;
     QLabel* m_range = nullptr;
     QPushButton* m_consoleColor = nullptr;
-    HexEditorWidget* m_hex = nullptr;
+    ks::ui::HexView* m_hex = nullptr;
     QLineEdit* m_resizeSize = nullptr;
-    HexEditorWidget* m_before = nullptr;
-    HexEditorWidget* m_after = nullptr;
+    ks::ui::HexView* m_before = nullptr;
+    ks::ui::HexView* m_after = nullptr;
 
     QString m_keyPath;
     QString m_originalName;

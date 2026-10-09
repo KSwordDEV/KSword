@@ -1157,4 +1157,8 @@
       <AdditionalDependencies>WdmGuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\features\storage\storage_forensics_capture.c" />
+    <ClInclude Include="src\features\storage\storage_forensics_internal.h" />
+  </ItemGroup>
 </Project>

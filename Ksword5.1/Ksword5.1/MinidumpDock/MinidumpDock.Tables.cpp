@@ -19,7 +19,7 @@
 #include "Internationalization/LanguageManager.h"
 #include "MinidumpFormat.h"
 #include "UI/CodeEditorWidget.h"
-#include "UI/MemoryEditorWidget.h"
+#include "UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "UI/TableHeaderSortingSupport.h"
 #include "theme.h"
 
@@ -1052,7 +1052,7 @@ void MinidumpDock::renderResult(const ks::minidump::DumpParseResult& result)
                 metadata->setTextInteractionFlags(Qt::TextSelectableByMouse);
                 metadata->setWordWrap(true);
                 layout->addWidget(metadata);
-                auto* editor = new ks::ui::MemoryEditorWidget(page);
+                auto* editor = new ks::ui::SnapshotWorkbenchWidget(page);
                 editor->setEditable(false);
                 const QByteArray bytes(block.previewBytes.empty() ? nullptr
                     : reinterpret_cast<const char*>(block.previewBytes.data()),

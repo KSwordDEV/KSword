@@ -1,4 +1,4 @@
-"""离线编译生产导航身份策略和 driver 读取身份见证；不访问真实进程或调试器。
+"""离线编译生产导航身份策略和工作台锚点身份见证；不访问真实进程或调试器。
 
 QtGlobal 仅替换为标准整数 typedef；Win32 句柄查询仅用确定性 mocks。
 支持 G++/Clang++ 或已载入 vcvars64 的 MSVC cl。--output 指向既有目录。
@@ -45,59 +45,85 @@ def verify_wiring():
     detail = (UI.parent / "ProcessDock/ProcessDetailWindow.BaseAndUi.cpp").read_text(encoding="utf-8-sig")
     assert "context.processCreateTime100ns = m_baseRecord.creationTime100ns;" in detail
 
-    editor = (UI / "MemoryEditorWidget.InlineAssembly.cpp").read_text(encoding="utf-8-sig")
-    context = body(editor, "void MemoryEditorWidget::setProcessContext(")
+    editor = (UI / "MemoryWorkbench/SnapshotWorkbenchWidget.Editing.cpp").read_text(encoding="utf-8-sig")
+    context = body(editor, "void SnapshotWorkbenchWidget::setProcessContext(")
     assert "SnapshotAddressKind::FileOffset" in context
     assert "ProcessCreateTime100ns(" not in context
     assert "HasCapturedIdentity(pid, createTime100ns)" in context
-    viewer = (MEMORY / "MemoryDock.ViewBreakpointUtil.cpp").read_text(encoding="utf-8-sig")
-    reload_viewer = body(viewer, "void MemoryDock::reloadMemoryViewerPage()")
-    assert reload_viewer.index("::GetProcessTimes(navigationHandle, &created") < reload_viewer.index("readOutcome =")
-    assert "navigationGeneration == m_processAttachmentGeneration.load()" in reload_viewer
-    loaded_viewer = body(viewer, "void MemoryDock::loadMemoryViewerSnapshot(")
-    assert "GetProcessTimes(" not in loaded_viewer
-    assert "processVirtual ? m_viewerSnapshotProcessCreateTime100ns : 0ULL" in loaded_viewer
-    cleared_viewer = body(viewer, "void MemoryDock::clearMemoryViewerSnapshot()")
-    assert "m_viewerSnapshotProcessCreateTime100ns = 0;" in cleared_viewer
-
-    driver = (MEMORY / "MemoryDock.DriverMemoryRw.cpp").read_text(encoding="utf-8-sig")
-    read = body(driver, "void MemoryDock::driverReadMemoryFromUi()")
-    assert read.index("const DriverNavigationIdentityLease navigationIdentity(") < read.index("::readVirtual(")
-    assert read.count("m_driverMemorySnapshotProcessCreateTime100ns = navigationIdentity.verifiedCreation();") == 2
-    reset = body(driver, "void MemoryDock::resetDriverMemoryRwState()")
-    assert "m_driverMemorySnapshotProcessCreateTime100ns = 0;" in reset
-    views = (MEMORY / "MemoryDock.DriverMemoryView.cpp").read_text(encoding="utf-8-sig")
-    assert "processVirtual ? m_driverMemorySnapshotProcessCreateTime100ns : 0ULL" in views
-    assert "processVirtual ? toDwordPid(m_driverMemorySnapshotPid) : 0U,\n        m_driverMemorySnapshotProcessCreateTime100ns" in views
+    live = (UI / "MemoryWorkbench/MemoryWorkbenchView.RowCanvas.cpp").read_text(encoding="utf-8-sig")
+    assert "const auto session = target_->session();" in live
+    assert "!session.processCreateTime100ns" in live
+    assert "{session.pid, session.processCreateTime100ns, address, view}" in live
+    assert "ProcessCreateTime100ns(" not in live
+    target = (UI / "MemoryWorkbench/WorkbenchTarget.cpp").read_text(encoding="utf-8-sig")
+    attached = body(target, "void WorkbenchTarget::onDockAttached(")
+    assert attached.index("AcquireAnchorFromDockHandle(attach.handle)") < attached.index("tracker_.FollowAttach(")
+    assert "attach.pid, info.createTime100ns, attach.attachGeneration, info.addressBits" in attached
+    detached = body(target, "void WorkbenchTarget::onDockDetached()")
+    assert "ReleaseAnchorHandle(dockAnchorHandle_)" in detached
+    assert "tracker_.FollowDetach()" in detached
+    for retired in ("MemoryDock.DriverMemoryRw.cpp", "MemoryDock.DriverMemorySource.cpp", "MemoryDock.DriverMemoryView.cpp"):
+        assert not (MEMORY / retired).exists(), "retired page implementation must not remain as a second identity path"
 
 
 MOCKS = r'''
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <optional>
 using quint32 = std::uint32_t;
 using quint64 = std::uint64_t;
+using DWORD = std::uint32_t;
+using BOOL = int;
 struct FILETIME { std::uint32_t dwLowDateTime = 0, dwHighDateTime = 0; };
-struct FakeProcess { std::uint32_t pid; std::uint64_t created; bool alive = true; };
+struct FakeProcess {
+    std::uint32_t pid;
+    std::uint64_t created;
+    bool alive = true;
+    bool wow64 = false;
+    DWORD exitCode = 259;
+};
 using HANDLE = FakeProcess*;
-constexpr unsigned PROCESS_QUERY_LIMITED_INFORMATION = 0x1000, SYNCHRONIZE = 0x100000;
+constexpr unsigned PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 constexpr int FALSE = 0;
-constexpr unsigned WAIT_TIMEOUT = 258, WAIT_OBJECT_0 = 0;
+constexpr DWORD STILL_ACTIVE = 259, ERROR_ACCESS_DENIED = 5, ERROR_INVALID_PARAMETER = 87;
 FakeProcess* currentProcess = nullptr;
-bool mayOpen = true, mayQuery = true;
-unsigned opens = 0, closes = 0, checks = 0;
+bool mayOpen = true, mayQuery = true, mayDuplicate = true, mayQueryExit = true;
+unsigned opens = 0, closes = 0, duplicates = 0, checks = 0;
+DWORD lastError = 0;
+HANDLE GetCurrentProcess() { static FakeProcess self{1, 1}; return &self; }
 HANDLE OpenProcess(unsigned access, int, std::uint32_t pid) {
     ++opens;
-    if (access != (PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE)) std::abort();
-    return mayOpen && currentProcess && currentProcess->pid == pid ? currentProcess : nullptr;
+    if (access != PROCESS_QUERY_LIMITED_INFORMATION) std::abort();
+    if (!mayOpen) { lastError=ERROR_ACCESS_DENIED; return nullptr; }
+    if (!currentProcess || currentProcess->pid != pid) { lastError=ERROR_INVALID_PARAMETER; return nullptr; }
+    return currentProcess;
 }
+BOOL DuplicateHandle(HANDLE, HANDLE source, HANDLE, HANDLE* output, DWORD access, BOOL, DWORD) {
+    ++duplicates;
+    if (access != PROCESS_QUERY_LIMITED_INFORMATION) std::abort();
+    if (!mayDuplicate) { lastError=ERROR_ACCESS_DENIED; return FALSE; }
+    *output=source;
+    return source != nullptr;
+}
+DWORD GetLastError() { return lastError; }
 void CloseHandle(HANDLE handle) { if (handle) ++closes; }
-std::uint32_t GetProcessId(HANDLE handle) { return handle ? handle->pid : 0; }
-unsigned WaitForSingleObject(HANDLE handle, unsigned) { return handle && handle->alive ? WAIT_TIMEOUT : WAIT_OBJECT_0; }
-int GetProcessTimes(HANDLE handle, FILETIME* created, FILETIME*, FILETIME*, FILETIME*) {
-    if (!handle || !mayQuery) return 0;
-    created->dwLowDateTime = static_cast<std::uint32_t>(handle->created);
-    created->dwHighDateTime = static_cast<std::uint32_t>(handle->created >> 32);
+BOOL IsWow64Process(HANDLE handle, BOOL* wow64) {
+    if (!handle) return FALSE;
+    *wow64=handle->wow64;
+    return 1;
+}
+BOOL GetExitCodeProcess(HANDLE handle, DWORD* code) {
+    if (!handle || !mayQueryExit) return FALSE;
+    *code=handle->alive ? STILL_ACTIVE : handle->exitCode;
+    return 1;
+}
+BOOL GetProcessTimes(HANDLE handle, FILETIME* created, FILETIME* exited, FILETIME*, FILETIME*) {
+    if (!handle || !mayQuery) return FALSE;
+    created->dwLowDateTime=static_cast<std::uint32_t>(handle->created);
+    created->dwHighDateTime=static_cast<std::uint32_t>(handle->created >> 32);
+    exited->dwLowDateTime=handle->alive ? 0 : 1;
+    exited->dwHighDateTime=0;
     return 1;
 }
 void require(bool passed, const char* why) {
@@ -105,6 +131,7 @@ void require(bool passed, const char* why) {
     if (!passed) { std::cerr << "FAIL: " << why << '\n'; std::exit(1); }
 }
 '''
+
 
 TESTS = r'''
 int main() {
@@ -132,46 +159,49 @@ int main() {
     require(CheckCapturedIdentity(Target{42, 100, 0, View::Disassembly}, observe) == IdentityStatus::Matching, "current instruction navigation still requires same original identity");
     require(HasCapturedIdentity(42, 100), "complete frozen identity enables the action");
 
+    using namespace ks::ui;
     FakeProcess process{42, 0x123456789ULL}, reused{42, 0xABCDEF123ULL};
-    currentProcess = &process;
-    {
-        const DriverNavigationIdentityLease lease(42);
-        require(lease.verifiedCreation() == process.created, "same held process survives the read");
-        require(opens == 1, "verification does not reopen process by PID");
-    }
-    require(closes == 1, "successful read releases identity handle");
-    {
-        const DriverNavigationIdentityLease lease(42);
-        process.alive = false;
-        currentProcess = &reused;
-        require(lease.verifiedCreation() == 0, "exit and PID reuse during read do not authorize new process");
-        require(opens == 2, "recheck uses original handle after reuse");
-    }
-    require(closes == 2, "exited original handle is released");
-    {
-        const DriverNavigationIdentityLease lease(42);
-        ++reused.created;
-        require(lease.verifiedCreation() == 0, "creation mismatch rejects the read identity witness");
-    }
-    mayOpen = false;
-    {
-        const DriverNavigationIdentityLease lease(42);
-        require(lease.verifiedCreation() == 0, "R0-only read may retain evidence without navigation authorization");
-    }
-    mayOpen = true;
-    mayQuery = false;
-    {
-        const DriverNavigationIdentityLease lease(42);
-        mayQuery = true;
-        require(lease.verifiedCreation() == 0, "late identity query cannot replace missing pre-read witness");
-    }
-    require(closes == 4, "all acquired handles are released after rejected witnesses");
-    const auto previousOpens = opens;
-    {
-        const DriverNavigationIdentityLease lease(0);
-        require(lease.verifiedCreation() == 0, "kernel physical and DDMA targets have no process navigation identity");
-    }
-    require(opens == previousOpens, "nonprocess bytes cause no process query");
+    currentProcess=&process;
+    const auto dock = AcquireAnchorFromDockHandle(&process);
+    require(dock.handle == &process && dock.createTime100ns == process.created && !dock.identityWeak,
+        "Dock snapshot captures the exact held process creation time");
+    require(dock.addressBits == 64 && duplicates == 1 && opens == 0,
+        "Dock identity uses a limited duplicate without reopening the PID");
+    ReleaseAnchorHandle(dock.handle);
+    require(closes == 1, "copied Dock anchor is released");
+    const auto pin = AcquireAnchorForPid(42);
+    require(pin.handle == &process && pin.createTime100ns == process.created && !pin.identityWeak,
+        "pinned target captures its own exact process identity");
+    require(QueryAnchorAlive(pin.handle) == std::optional<bool>(true), "held target is alive");
+    process.alive=false; currentProcess=&reused;
+    require(pin.handle == &process && pin.createTime100ns != reused.created,
+        "PID reuse cannot replace the original held target anchor");
+    require(QueryAnchorAlive(pin.handle) == std::optional<bool>(false),
+        "exit code 259 with nonzero exit time still means the original exited");
+    ReleaseAnchorHandle(pin.handle);
+    mayQuery=false;
+    const auto weak=AcquireAnchorForPid(42);
+    require(weak.identityWeak && weak.createTime100ns == 0 && weak.handle == &reused,
+        "missing creation witness retains a releasable weak handle without navigation identity");
+    mayQuery=true; ReleaseAnchorHandle(weak.handle);
+    reused.wow64=true;
+    const auto x86=AcquireAnchorForPid(42);
+    require(x86.addressBits == 32 && x86.createTime100ns == reused.created, "WOW64 anchor keeps exact identity and 32-bit addressing");
+    ReleaseAnchorHandle(x86.handle);
+    mayOpen=false;
+    const auto denied=AcquireAnchorForPid(42);
+    require(denied.identityWeak && !denied.handle && !denied.targetGone && denied.lastError == ERROR_ACCESS_DENIED,
+        "access denial does not invent target exit or identity");
+    mayOpen=true; currentProcess=nullptr;
+    const auto gone=AcquireAnchorForPid(42);
+    require(gone.targetGone && gone.identityWeak && !gone.handle && gone.lastError == ERROR_INVALID_PARAMETER,
+        "missing process is distinguished from denied process");
+    const auto previousOpens=opens;
+    require(AcquireAnchorForPid(0).handle == nullptr && opens == previousOpens, "nonprocess evidence does not open an anchor");
+    require(QueryAnchorAlive(nullptr) == std::nullopt, "missing anchor has unknown liveness");
+    mayQueryExit=false;
+    require(QueryAnchorAlive(&reused) == std::nullopt, "failed liveness query remains unknown");
+    require(closes == 4, "all acquired strong and weak anchors are released");
     std::cout << "PASS navigation identity checks=" << checks << '\n';
 }
 '''
@@ -192,9 +222,11 @@ def main():
     verify_wiring()
     header = (UI / "X64DbgNavigation.h").read_text(encoding="utf-8-sig")
     header = header.replace("#pragma once", "").replace("#include <QtGlobal>", "")
-    driver = (MEMORY / "MemoryDock.DriverMemoryRw.cpp").read_text(encoding="utf-8-sig")
-    lease = body(driver, "class DriverNavigationIdentityLease final") + ";\n"
-    original = MOCKS + header + lease + TESTS
+    anchor_header = (UI / "MemoryWorkbench/WorkbenchTarget.h").read_text(encoding="utf-8-sig")
+    anchor = (UI / "MemoryWorkbench/WorkbenchTarget.Anchor.cpp").read_text(encoding="utf-8-sig")
+    declaration = body(anchor_header, "struct AnchorInfo") + ";\n"
+    implementation = anchor[anchor.index("namespace ks::ui"):]
+    original = MOCKS + header + "\nnamespace ks::ui {\n" + declaration + "}\n" + implementation + TESTS
 
     def run(source):
         output = args.output.resolve()
@@ -220,7 +252,7 @@ def main():
         changes = {
             "missing-original-identity": ("if (!HasCapturedIdentity(target.pid, target.processCreateTime100ns))", "if (false)"),
             "reused-pid-comparison": ("currentCreation == target.processCreateTime100ns", "currentCreation != target.processCreateTime100ns"),
-            "pre-read-witness-required": ("m_created != 0 && current == m_created ? m_created : 0", "current"),
+            "exited-with-code-259": ("return FileTimeToUint64(exitTime) == 0;", "return true;"),
         }
         for name, (before, after) in changes.items():
             assert original.count(before) == 1, name

@@ -124,7 +124,10 @@ namespace ks::ui
         // jumpTo：跳转入口（地址条回车、模块表双击等最终都落到这里）。
         // 传出：false 表示地址不在当前地址空间内（调用方应先走 setAddressSpace 或
         //       NavStatus::NeedsScopeSwitch 的处理，不会在这里静默失败后一无所知）。
-        bool jumpTo(std::uint64_t address, std::uint64_t selectLength = 1);
+        // align：显式打开范围用 Top；历史/查找等内部导航默认保留 Nearest，
+        // 不把键盘就近移动与打开模块起点的首屏政策混成同一种滚动行为。
+        bool jumpTo(std::uint64_t address, std::uint64_t selectLength = 1,
+            HexCanvas::ScrollAlign align = HexCanvas::ScrollAlign::Nearest);
 
         // openFind / closeFindBar：查找条显隐，Esc/F3 规则照抄 HexView.Panels.cpp
         // （ux.md §0 第 2 条），本类自行实现，不经由 HexView。
@@ -259,6 +262,10 @@ namespace ks::ui
         // hasAddressSpace_：当前是否已经 setAddressSpace 过（供 jumpTo/insertionAddress
         // 在无目标时给出一致的"无数据"行为）。
         bool hasAddressSpace_ = false;
+        // 空间操作与导航分别领票据：新空间使旧导航失效，但允许新空间里同步导航，
+        // 安装空间外层仍可为同一来源完成身份/基线收尾，不覆盖最新选区或视口。
+        std::uint64_t spaceRevision_ = 0;
+        std::uint64_t navigationRevision_ = 0;
 
         // sourceRevisionProvider_（支撑增量②）：setSourceRevisionProvider 注入的
         // 回调；未设置时为空，调用处一律判空后退回 0，不解引用空 std::function。

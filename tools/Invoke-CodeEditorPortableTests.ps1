@@ -84,6 +84,8 @@ try {
         'Ksword5.1/Ksword5.1/UI/CodeTextEdit.cpp',
         'Ksword5.1/Ksword5.1/UI/CodeEditorFileSession.cpp',
         'Ksword5.1/Ksword5.1/UI/ReportStructuredView.cpp',
+        'Ksword5.1/Ksword5.1/UI/FieldTreePresenter.cpp',
+        'Ksword5.1/Ksword5.1/UI/FieldTreePresenter.Copy.cpp',
         'Ksword5.1/Ksword5.1/UI/FlowLayout.cpp',
         'Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.cpp',
         'Ksword5.1/Ksword5.1/UI/ThemeControlGlyphs.cpp',

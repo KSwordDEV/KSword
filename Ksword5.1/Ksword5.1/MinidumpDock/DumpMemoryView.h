@@ -22,11 +22,14 @@ class QLabel;
 class QLineEdit;
 class QPushButton;
 class QTextBrowser;
-class HexEditorWidget;
+namespace ks::ui
+{
+    class HexView;
+}
 
 namespace ks::ui
 {
-    class MemoryEditorWidget;
+    class SnapshotWorkbenchWidget;
 }
 
 namespace ks::minidump
@@ -96,8 +99,8 @@ private:
     QPushButton* m_previousButton = nullptr;
     QPushButton* m_nextButton = nullptr;
     QTextBrowser* m_messageView = nullptr; // m_messageView：可复制的读取状态和映射说明。
-    ks::ui::MemoryEditorWidget* m_memoryEditor = nullptr; // 已捕获字节的只读多视图。
-    HexEditorWidget* m_hexEditor = nullptr; // 保留十六进制查找、复制和导出入口。
+    ks::ui::SnapshotWorkbenchWidget* m_memoryEditor = nullptr; // 已捕获字节的只读多视图。
+    ks::ui::HexView* m_hexEditor = nullptr; // 保留十六进制查找、复制和导出入口。
 
     QString m_filePath;                 // m_filePath：解析时的原始 DMP 路径。
     std::uint64_t m_expectedFileSize = 0; // m_expectedFileSize：解析时文件大小。

@@ -4,6 +4,7 @@
 #include "WorkbenchDisasmView.h"
 #include "WorkbenchHexPane.h"
 #include "WorkbenchTextView.h"
+#include "WorkbenchPseudocodeView.h"
 #include "WorkbenchTarget.h"
 #include "../X64DbgNavigation.h"
 #include <QMenu>
@@ -18,6 +19,7 @@ namespace ks::ui
         const int index = subTabStack_ ? subTabStack_->currentIndex() : 0;
         if (index == 1 && disasmView_) disasmView_->openFind();
         else if (index == 2 && textView_) textView_->openFind();
+        else if (index == 4 && pseudocodeView_) pseudocodeView_->openFindPanel();
         else if (hexPane_) hexPane_->openFind();
     }
     void MemoryWorkbenchView::requestRowCanvasWindow(int tabIndex, std::uint64_t address, std::uint64_t length)

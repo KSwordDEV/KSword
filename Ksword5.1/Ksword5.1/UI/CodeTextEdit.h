@@ -76,6 +76,8 @@ public:
 protected:
     // changeEvent：排队重算语法色和选择区，不修改正文与编辑会话。
     void changeEvent(QEvent* event) override;
+    // 应用字体改变不会覆盖显式等宽字体，统一控制器保留宿主字号倍率并排队刷新。
+    bool eventFilter(QObject* source, QEvent* event) override;
 
     // resizeEvent：
     // - 编辑区尺寸变化时同步行号区几何。
@@ -97,6 +99,7 @@ private:
     // refreshExtraSelections：
     // - 刷新当前行高亮、括号高亮与外部命中高亮。
     void refreshExtraSelections();
+    void scheduleApplicationFontRefresh();
 
 private:
     // m_lineNumberArea：行号区域控件。
@@ -106,6 +109,12 @@ private:
     QSyntaxHighlighter* m_syntaxHighlighter = nullptr;
 
     bool m_themeRefreshPending = false; // 合并多个palette通知，避免重复重高亮。
+    QFont m_applicationFont; // 上一次已应用的全局字体，用于保留宿主字号倍率。
+    QFont m_fontBeforeApplicationChange; // 排队期间允许宿主显式替换自己的字体。
+    double m_fontSizeScale = 1.0;
+    bool m_fontTrackingReady = false;
+    bool m_applicationFontRefreshPending = false;
+    bool m_updatingApplicationFont = false;
     bool m_syntaxRefreshPending = false;
     SyntaxLanguage m_syntaxLanguage = SyntaxLanguage::Auto;
     SyntaxLanguage m_effectiveSyntaxLanguage = SyntaxLanguage::PlainText;

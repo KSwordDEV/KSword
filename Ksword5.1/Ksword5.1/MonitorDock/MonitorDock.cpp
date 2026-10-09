@@ -6267,6 +6267,7 @@ void MonitorDock::initializeEtwTab()
     // - 时间轴只保存轻量时间点，实际显示/隐藏仍由 ETW 后置筛选统一执行；
     // - 默认全范围选区不产生过滤，用户拖动或滚轮缩放后才叠加时间窗口。
     m_etwTimelineWidget = new ProcessTraceTimelineWidget(m_etwPage);
+    m_etwTimelineWidget->setTracks(ks::ui::EtwTimelineTracks());
     m_etwTimelineWidget->setToolTip(QStringLiteral(
         "ETW 事件瀑布流时间轴：拖动矩形移动时间窗口；拖动左右边调整边界；滚轮向上放大窗口、向下缩小窗口。"));
     m_etwLayout->addWidget(m_etwTimelineWidget, 0);
@@ -12008,9 +12009,11 @@ void MonitorDock::replaceEtwRowsWithSnapshot(
             m_etwEventTable->setItem(tableRow, column, item);
         }
 
-        ProcessTraceTimelineEventPoint timelinePoint;
-        timelinePoint.time100ns = etwRawTimestampToTimelineTimestamp(captured.timestampValue);
-        timelinePoint.typeText = etwTimelineTypeFromCapturedRow(captured);
+        // 机器 Provider/事件名生成稳定身份，已转换的暂停会话时间完整传入。
+        ProcessTraceTimelineEventPoint timelinePoint = ks::ui::MakeEtwTimelinePoint(
+            etwRawTimestampToTimelineTimestamp(captured.timestampValue),
+            etwProviderDisplayName(captured.providerGuid, captured.providerName, captured.opcode),
+            captured.eventName, etwTimelineTypeFromCapturedRow(captured));
         m_etwTimelineEventPoints.push_back(std::move(timelinePoint));
         ++tableRow;
     }
@@ -13422,10 +13425,11 @@ void MonitorDock::flushEtwPendingRows(const bool captureFinished)
             m_etwEventTable->setItem(row, col, item);
         }
 
-        ProcessTraceTimelineEventPoint pointValue;
-        // 时间轴使用“有效运行时间”坐标，暂停区间不会占用横向宽度。
-        pointValue.time100ns = etwRawTimestampToTimelineTimestamp(captured.timestampValue);
-        pointValue.typeText = etwTimelineTypeFromCapturedRow(captured);
+        // 时间轴使用宿主转换后的有效运行时间，机器身份不借翻译后的类别词。
+        ProcessTraceTimelineEventPoint pointValue = ks::ui::MakeEtwTimelinePoint(
+            etwRawTimestampToTimelineTimestamp(captured.timestampValue),
+            etwProviderDisplayName(captured.providerGuid, captured.providerName, captured.opcode),
+            captured.eventName, etwTimelineTypeFromCapturedRow(captured));
         m_etwTimelineEventPoints.push_back(std::move(pointValue));
     }
 

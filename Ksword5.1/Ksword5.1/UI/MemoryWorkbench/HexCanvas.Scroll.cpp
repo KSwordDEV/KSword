@@ -8,6 +8,8 @@
 #include "HexCanvas.h"
 
 #include <QScrollBar>
+#include <QPointer>
+#include <QSignalBlocker>
 
 #include <algorithm>
 #include <limits>
@@ -66,6 +68,8 @@ namespace ks::ui
     // 传入：行号（夹取到最大首行）、是否同步滚动条（用户拖滑块时为假，避免取整抖动）。
     void HexCanvas::setFirstRowInternal(std::uint64_t row, bool syncBar)
     {
+        const QPointer<HexCanvas> alive(this);
+        const std::uint64_t scrollingRevision = sourceRevision();
         const std::uint64_t clamped = std::min(row, maxFirstRow());
         if (clamped == m_firstRow)
         {
@@ -75,9 +79,11 @@ namespace ks::ui
         if (syncBar)
         {
             syncScrollBars();
+            if (!alive || sourceRevision() != scrollingRevision || m_firstRow != clamped) return;
         }
         viewport()->update();
         requestVisiblePages();
+        if (!alive || sourceRevision() != scrollingRevision || m_firstRow != clamped) return;
         notifyVisibleRange();
     }
 
@@ -160,41 +166,72 @@ namespace ks::ui
     // 精确模式：滑块值 == 首行行号；比例模式：量程固定，滑块值 = 首行/最大首行 的比例。
     void HexCanvas::syncScrollBars()
     {
+        const QPointer<HexCanvas> alive(this);
+        const QPointer<QScrollBar> vertical(verticalScrollBar());
+        const QPointer<QScrollBar> horizontal(horizontalScrollBar());
+        // 冻结 setter 前的实际属性，只在原生栈返回后通知真实范围和值变化。
+        struct BarState
+        {
+            int minimum;
+            int maximum;
+            int value;
+        };
+        const BarState oldVertical {vertical->minimum(), vertical->maximum(), vertical->value()};
+        const BarState oldHorizontal {horizontal->minimum(), horizontal->maximum(), horizontal->value()};
         // 同步期间屏蔽 valueChanged 回调，避免把程序设置当成用户拖动。
         const bool previousGuard = m_updatingBars;
         m_updatingBars = true;
-
-        // 竖向滚动条。
-        const std::uint64_t limit = maxFirstRow();
-        QScrollBar* vBar = verticalScrollBar();
-        if (limit <= static_cast<std::uint64_t>(std::numeric_limits<int>::max()))
         {
-            m_proportionalScroll = false;
-            vBar->setRange(0, static_cast<int>(limit));
-            vBar->setPageStep(static_cast<int>(std::min<std::uint64_t>(fullVisibleRows(), 0x7FFFFFFFULL)));
-            vBar->setSingleStep(1);
-            vBar->setValue(static_cast<int>(std::min(m_firstRow, limit)));
+            const QSignalBlocker blockedVertical(vertical.data());
+            const QSignalBlocker blockedHorizontal(horizontal.data());
+
+            // 竖向滚动条。
+            const std::uint64_t limit = maxFirstRow();
+            QScrollBar* vBar = verticalScrollBar();
+            if (limit <= static_cast<std::uint64_t>(std::numeric_limits<int>::max()))
+            {
+                m_proportionalScroll = false;
+                vBar->setRange(0, static_cast<int>(limit));
+                vBar->setPageStep(static_cast<int>(std::min<std::uint64_t>(fullVisibleRows(), 0x7FFFFFFFULL)));
+                vBar->setSingleStep(1);
+                vBar->setValue(static_cast<int>(std::min(m_firstRow, limit)));
+            }
+            else
+            {
+                m_proportionalScroll = true;
+                vBar->setRange(0, kProportionalRange);
+                vBar->setPageStep(1);
+                vBar->setSingleStep(1);
+                vBar->setValue(sliderFromRow(m_firstRow, limit));
+            }
+
+            // 横向滚动条：像素滚动，量程 = 内容宽度 - 视口宽度。
+            const int viewWidth = viewport()->width();
+            const int maxHorizontal = std::max(0, m_layout.contentWidth - viewWidth);
+            QScrollBar* hBar = horizontalScrollBar();
+            hBar->setRange(0, maxHorizontal);
+            hBar->setPageStep(std::max(1, viewWidth));
+            hBar->setSingleStep(std::max(1, m_layout.charWidth * 3));
+            m_hOffset = std::clamp(m_hOffset, 0, maxHorizontal);
+            hBar->setValue(m_hOffset);
         }
-        else
+
+        // 观察者可关闭页面或换源。换源后只通知控件当前属性，不重放旧数值；
+        // 来源/行宽调用者在本方法返回后再核对自己的票据，停止旧目标后续操作。
+        const auto publish = [&alive](const QPointer<QScrollBar>& bar, const BarState& before) {
+            if (!alive || !bar) return false;
+            if (before.minimum != bar->minimum() || before.maximum != bar->maximum())
+                emit bar->rangeChanged(bar->minimum(), bar->maximum());
+            if (!alive || !bar) return false;
+            if (before.value != bar->value()) emit bar->valueChanged(bar->value());
+            return alive && bar;
+        };
+        if (!publish(vertical, oldVertical) || !publish(horizontal, oldHorizontal))
         {
-            m_proportionalScroll = true;
-            vBar->setRange(0, kProportionalRange);
-            vBar->setPageStep(1);
-            vBar->setSingleStep(1);
-            vBar->setValue(sliderFromRow(m_firstRow, limit));
+            if (alive) m_updatingBars = previousGuard;
+            return;
         }
-
-        // 横向滚动条：像素滚动，量程 = 内容宽度 - 视口宽度。
-        const int viewWidth = viewport()->width();
-        const int maxHorizontal = std::max(0, m_layout.contentWidth - viewWidth);
-        QScrollBar* hBar = horizontalScrollBar();
-        hBar->setRange(0, maxHorizontal);
-        hBar->setPageStep(std::max(1, viewWidth));
-        hBar->setSingleStep(std::max(1, m_layout.charWidth * 3));
-        m_hOffset = std::clamp(m_hOffset, 0, maxHorizontal);
-        hBar->setValue(m_hOffset);
-
-        m_updatingBars = previousGuard;
+        if (alive) m_updatingBars = previousGuard;
     }
 
     // 用户拖动或点击竖向滚动条。
@@ -227,23 +264,34 @@ namespace ks::ui
     // 作用：纵向按"最近"对齐，横向在插入点单元格越出视口时补偿滚动量。
     void HexCanvas::ensureCaretVisible()
     {
+        // 既有键盘路径保持 Nearest；正式打开入口显式调用 revealCaret(Top)。
+        (void)revealCaret(ScrollAlign::Nearest);
+    }
+
+    // 双轴揭示当前插入点：纵向只执行调用方指定的对齐，横向使用真实单元格几何。
+    bool HexCanvas::revealCaret(ScrollAlign align)
+    {
         if (!m_hasSpace)
         {
-            return;
+            return false;
         }
+        const QPointer<HexCanvas> alive(this);
+        const std::uint64_t scrollingRevision = sourceRevision();
+        const auto selected = m_viewport.GetSelection();
         const std::uint64_t caret = m_viewport.GetSelection().caret;
         const std::optional<std::uint64_t> top =
-            m_viewport.ScrollToAddress(caret, ScrollAlign::Nearest, m_firstRow, fullVisibleRows());
+            m_viewport.ScrollToAddress(caret, align, m_firstRow, fullVisibleRows());
         if (top.has_value())
         {
             setFirstVisibleRow(*top);
+            if (!alive || sourceRevision() != scrollingRevision || !selectionStillMatches(selected)) return false;
         }
 
         // 横向：取活动面板里插入点单元格的矩形，越出左右边界就挪动横向滚动条。
         const QRect cell = cellRect(caret, m_viewport.Pane());
         if (cell.isNull())
         {
-            return;
+            return true;
         }
         const int viewWidth = viewport()->width();
         const int margin = m_layout.charWidth;
@@ -255,6 +303,7 @@ namespace ks::ui
         {
             horizontalScrollBar()->setValue(m_hOffset + cell.right() - viewWidth + margin);
         }
+        return alive && sourceRevision() == scrollingRevision && selectionStillMatches(selected);
     }
 
     // 规划并发出页请求。
@@ -315,12 +364,12 @@ namespace ks::ui
         if (!accepted.empty()) m_provider->RequestPages(accepted, m_viewport.SourceRevision());
     }
 
-    // 可见范围变化时发 visibleRangeChanged（去重）。
-    void HexCanvas::notifyVisibleRange()
+    // 返回当前绘制区间；首尾行均按真实地址空间去掉补空位。
+    std::optional<HexCanvas::AddressRange> HexCanvas::visibleAddressRange() const
     {
         if (!m_hasSpace)
         {
-            return;
+            return std::nullopt;
         }
         // lastRow：最后一个被绘制的行（夹取到末行）。
         const std::uint64_t rowCount = m_viewport.RowCount();
@@ -329,16 +378,24 @@ namespace ks::ui
         const std::optional<AddressRange> bottomSpan = m_viewport.RowValidSpan(lastRow);
         if (!topSpan.has_value() || !bottomSpan.has_value())
         {
-            return;
+            return std::nullopt;
         }
-        if (m_notifiedOnce && topSpan->first == m_lastNotifiedFirst && bottomSpan->last == m_lastNotifiedLast)
+        return AddressRange{topSpan->first, bottomSpan->last};
+    }
+
+    // 可见范围变化时发 visibleRangeChanged（去重）；返回 HEX 也读取同一几何来源。
+    void HexCanvas::notifyVisibleRange()
+    {
+        const auto visible = visibleAddressRange();
+        if (!visible) return;
+        if (m_notifiedOnce && visible->first == m_lastNotifiedFirst && visible->last == m_lastNotifiedLast)
         {
             return;
         }
         m_notifiedOnce = true;
-        m_lastNotifiedFirst = topSpan->first;
-        m_lastNotifiedLast = bottomSpan->last;
-        emit visibleRangeChanged(topSpan->first, bottomSpan->last);
+        m_lastNotifiedFirst = visible->first;
+        m_lastNotifiedLast = visible->last;
+        emit visibleRangeChanged(visible->first, visible->last);
     }
 
 }

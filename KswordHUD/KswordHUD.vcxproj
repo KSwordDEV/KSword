@@ -119,6 +119,8 @@
     </ClCompile>
     <ClCompile Include="HudProcessListPanel.cpp" />
     <ClCompile Include="..\shared\ui\KsPainterChart.cpp" />
+    <ClCompile Include="..\shared\ui\MetricHistory.cpp" />
+    <ClCompile Include="..\shared\ui\MetricChartBinding.cpp" />
     <ClCompile Include="HudPerformancePanel.cpp" />
     <ClCompile Include="KswordHUD.cpp">
       <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">input</DynamicSource>
@@ -131,6 +133,8 @@
     <ClInclude Include="HudProcessListPanel.h" />
     <ClInclude Include="HudColors.h" />
     <ClInclude Include="..\shared\ui\KsPainterChart.h" />
+    <ClInclude Include="..\shared\ui\MetricHistory.h" />
+    <ClInclude Include="..\shared\ui\MetricChartBinding.h" />
     <ClInclude Include="HudPerformancePanel.h" />
     <ClInclude Include="hGet.h" />
     <ClInclude Include="PerformanceNavCard.h" />

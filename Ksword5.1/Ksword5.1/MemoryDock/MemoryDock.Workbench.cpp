@@ -5,7 +5,6 @@
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/MemoryWorkbench/MemoryWorkbenchView.h"
 #include "../UI/MemoryWorkbench/WorkbenchNavigation.h"
-#include "../UI/MemoryWorkbench/WorkbenchSettings.h"
 #include "../UI/MemoryWorkbench/WorkbenchShared.h"
 #include "../UI/MemoryWorkbench/WorkbenchTarget.h"
 
@@ -16,16 +15,15 @@
 //   1) 在页签栏插入"内存工作台"页签，视图懒创建（首次切到该页签才创建，不拖慢 Dock 构造）；
 //   2) 创建视图时按 MemoryDock.WorkbenchServices.h 的"接线步骤速查"注入全部生产服务；
 //   3) 把 Dock 的附加/分离转给视图的 WorkbenchTarget（三个钩子）；
-//   4) 统一的"跳到地址"分发器 jumpToAddress：routeJumps 为真（3b 起默认）交给工作台，
-//      为假（用户在设置里取消勾选）走旧内存查看器；
+//   4) 所有内存地址跳转统一交给工作台；
 //   5) 主窗口关闭前的退出守卫入口 confirmWorkbenchQuit。
 // - 3b 起内嵌进程详情窗口里的 Dock 也创建视图（内嵌模式：恒跟随 Dock、禁内核/物理、不落盘设置）；
-//   旧页签改名/后移、模块表/区域表/搜索结果/证据页的入口在 MemoryDock.WorkbenchEntry.cpp。
+//   模块表/区域表/搜索结果/证据页入口在 MemoryDock.WorkbenchEntry.cpp。
 // ============================================================
 
 namespace
 {
-    // kWorkbenchTabIndex：内存工作台页签的插入位置（内存搜索之后、旧内存查看器之前）。
+    // kWorkbenchTabIndex：内存工作台页签的插入位置（内存搜索之后）。
     constexpr int kWorkbenchTabIndex = 3;
 }
 
@@ -50,16 +48,9 @@ void MemoryDock::initializeMemoryDebugTab()
 
 // initializeWorkbenchTab：在 initializeTabs 的图标循环之后调用一次。
 // 只建一个空容器页并插入页签，视图本身懒创建；内嵌窗口里这个页签是否显示由
-// setProcessDetailMemoryScope 按 routeJumps 决定（显示时视图以内嵌模式创建）。
+// setProcessDetailMemoryScope 统一展示此页（视图以内嵌模式创建）。
 void MemoryDock::initializeWorkbenchTab()
 {
-    // 整体开关（"enabled" 键，默认开）：关掉就不插页签，也没有视图、没有分发器路由——
-    // 这是无需发版的整体回退开关。m_tabWorkbench 保持空指针，分发器据此回退旧路径。
-    if (!ks::ui::workbench_settings::LoadEnabled())
-    {
-        return;
-    }
-
     // 容器页：垂直布局、无边距，视图创建后铺满。
     m_tabWorkbench = new QWidget(m_tabWidget);
     QVBoxLayout* const containerLayout = new QVBoxLayout(m_tabWorkbench);
@@ -73,12 +64,6 @@ void MemoryDock::initializeWorkbenchTab()
     ks::i18n::LanguageManager::instance().bindTab(
         m_tabWidget, m_tabWorkbench,
         QStringLiteral("memory.tab.workbench"), QStringLiteral("内存工作台"));
-
-    // 旧入口的跳转是否交给工作台：读持久设置（3b 起默认真，用户可在"内存扫描设置"里取消勾选回退）。
-    m_workbenchRouteJumps = ks::ui::workbench_settings::LoadRouteJumps();
-
-    // 旧页签改名为"（旧）"并移到页签栏末尾（必须在工作台页签插入之后）。
-    arrangeLegacyTabs();
 
     // 首次切到该页签时创建视图；ensureWorkbenchView 幂等，后续切换不再创建。
     connect(m_tabWidget, &QTabWidget::currentChanged, this, [this](int) {
@@ -180,14 +165,14 @@ void MemoryDock::ensureWorkbenchView()
 // connectWorkbenchLiveness：复用既有一秒 tick；弱身份/非进程范围不探测，不把不可核验目标误判为退出。
 void MemoryDock::connectWorkbenchLiveness()
 {
-    if (m_workbenchView == nullptr || m_bookmarkRefreshTimer == nullptr
+    if (m_workbenchView == nullptr || m_workbenchLivenessTimer == nullptr
         || m_workbenchView->property("ksword_memwb_liveness_hooked").toBool())
     {
         return;
     }
     // view：视图弱指针，只在 UI 线程取用；所有连接以视图为 context，销毁后 Qt 自动断开。
     const QPointer<ks::ui::MemoryWorkbenchView> view(m_workbenchView);
-    connect(m_bookmarkRefreshTimer, &QTimer::timeout, view.data(), [view]() {
+    connect(m_workbenchLivenessTimer, &QTimer::timeout, view.data(), [view]() {
         if (view && view->target().identityAnchored())
         {
             // identityAnchored 已限定 Process/PID/创建时间；只查持有的进程锚点，不枚举系统进程。
@@ -305,7 +290,7 @@ void MemoryDock::shutdownWorkbench()
 // （拒绝原因已由视图状态条报告）。
 bool MemoryDock::navigateWorkbench(const ks::ui::NavRequest& request)
 {
-    // 整体开关关闭（容器页缺失）时没有工作台。
+    // 容器尚未就绪时不能跳转；正常构造始终提供统一工作台容器。
     if (m_tabWorkbench == nullptr || m_tabWidget == nullptr)
     {
         return false;
@@ -320,33 +305,16 @@ bool MemoryDock::navigateWorkbench(const ks::ui::NavRequest& request)
     return m_workbenchView->openAt(request) == ks::ui::NavStatus::Ok;
 }
 
-// workbenchRoutingActive：旧入口的跳转当前是否交给工作台。
-// 整体开关关闭（容器页缺失）或用户取消了 routeJumps 勾选时为假，调用方据此走旧路径。
-bool MemoryDock::workbenchRoutingActive() const
-{
-    return m_workbenchRouteJumps && m_tabWorkbench != nullptr;
-}
-
 // jumpToAddress：统一的"跳到地址"分发器（本 Dock 附加进程的用户态地址）。
-// - 工作台路由关闭：走旧内存查看器（行为与改动前完全相同）；
-// - 路由开启：交给工作台，范围固定为进程（这些来源的地址都是进程地址——工作台此刻停在内核/
+// - 交给工作台，范围固定为进程（这些来源的地址都是进程地址——工作台此刻停在内核/
 //   物理范围时，沿用当前范围只会得到"地址不在当前范围内"），pid 为 0 表示跟随本 Dock 的附加进程
 //   （工作台若钉在别的进程上会被带回跟随）。被拒绝时不回退旧页：原因已写在工作台状态条里。
 void MemoryDock::jumpToAddress(const std::uint64_t address)
 {
-    if (!workbenchRoutingActive())
-    {
-        jumpToAddressLegacy(address);
-        return;
-    }
-    // request：来源标为外部调用（旧入口分发器不区分具体来源页）。
+    // request：来源标为外部调用，模块/区域/搜索入口共用正式导航请求。
     ks::ui::NavRequest request;
     request.scope = ksword::memwb::Scope::ProcessVirtual;
     request.address = address;
     request.origin = ks::ui::NavOrigin::External;
-    if (!navigateWorkbench(request) && m_workbenchView == nullptr)
-    {
-        // 视图创建失败（理论上不会发生）：回退旧路径，保证用户仍能跳转。
-        jumpToAddressLegacy(address);
-    }
+    (void)navigateWorkbench(request);
 }

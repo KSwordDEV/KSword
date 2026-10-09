@@ -26,10 +26,14 @@ Environment:
 
 /* Lock the fixed read-request ABI used by both R3 and R0. */
 C_ASSERT(sizeof(KSWORD_ARK_RAW_DISK_READ_REQUEST) == 40U);
+/* 捕获读仅增加native GUID，完整固定请求为56字节。 */
+C_ASSERT(sizeof(KSWORD_ARK_RAW_DISK_CAPTURED_READ_REQUEST) == 56U);
 /* Lock the payload offset rather than the padded structure size. */
 C_ASSERT(KSWORD_ARK_RAW_DISK_READ_RESPONSE_HEADER_SIZE == 32U);
 /* Lock the variable write-request payload offset. */
 C_ASSERT(KSWORD_ARK_RAW_DISK_WRITE_REQUEST_HEADER_SIZE == 40U);
+/* 捕获写附加 native GUID 后，两个载荷的起点固定为56字节。 */
+C_ASSERT(KSWORD_ARK_RAW_DISK_CAPTURED_WRITE_HEADER_SIZE == 56U);
 
 NTSTATUS
 KswordARKStorageIoctlQueryRawDiskBackend(
@@ -158,10 +162,29 @@ Routine Description:
         return NT_SUCCESS(status) ? STATUS_INFO_LENGTH_MISMATCH : status;
     }
 
-    /* Snapshot input before METHOD_BUFFERED response initialization can erase it. */
-    KSWORD_ARK_RAW_DISK_READ_REQUEST requestSnapshot;
-    /* Preserve every fixed read field in independent stack storage. */
-    RtlCopyMemory(&requestSnapshot, inputBuffer, sizeof(requestSnapshot));
+    /* 独立栈快照最多56字节，先复制旧前缀判断请求版本。 */
+    KSWORD_ARK_RAW_DISK_CAPTURED_READ_REQUEST requestSnapshot = { 0 };
+    /* 旧40字节布局不变，先保证当前读取不会越过输入范围。 */
+    RtlCopyMemory(&requestSnapshot, inputBuffer, sizeof(KSWORD_ARK_RAW_DISK_READ_REQUEST));
+    /* 未支持的读版本明确拒绝，绝不自动退回V1。 */
+    if (requestSnapshot.version != KSWORD_ARK_STORAGE_FORENSICS_PROTOCOL_VERSION
+        && requestSnapshot.version != KSWORD_ARK_RAW_DISK_CAPTURED_READ_VERSION) {
+        /* 让调用者判断兼容性，不能误返回别的来源的数据。 */
+        return STATUS_REVISION_MISMATCH;
+    }
+    /* 捕获读必须完全复制GUID，并严检固定包长、保留字段及每次读取预算。 */
+    if (requestSnapshot.version == KSWORD_ARK_RAW_DISK_CAPTURED_READ_VERSION) {
+        /* 任何缺失GUID或附加数据都不属于V2完整结构。 */
+        if (actualInputLength != sizeof(requestSnapshot) || InputBufferLength != sizeof(requestSnapshot)
+            || requestSnapshot.size != sizeof(requestSnapshot) || requestSnapshot.reserved0 != 0U
+            || requestSnapshot.reserved1 != 0U || requestSnapshot.length == 0U
+            || requestSnapshot.length > KSWORD_ARK_RAW_DISK_MAX_TRANSFER_BYTES) {
+            /* 完整读取身份之前退出，不接触磁盘。 */
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+        /* 输出与输入可能别名，必须先保存整个捕获请求再初始化响应。 */
+        RtlCopyMemory(&requestSnapshot, inputBuffer, sizeof(requestSnapshot));
+    }
 
     /* Retrieve at least the fixed variable-response header. */
     PVOID outputBuffer = NULL;
@@ -184,7 +207,7 @@ Routine Description:
 
     /* Execute the selected bounded read backend. */
     return KswordARKStorageReadRawDisk(
-        &requestSnapshot,
+        (const KSWORD_ARK_RAW_DISK_READ_REQUEST*)&requestSnapshot,
         outputBuffer,
         actualOutputLength,
         BytesReturned);
@@ -244,33 +267,39 @@ Routine Description:
         &writeHeaderSnapshot,
         inputBuffer,
         KSWORD_ARK_RAW_DISK_WRITE_REQUEST_HEADER_SIZE);
-    /* Compute the exact header-plus-payload snapshot size after bounded validation. */
-    size_t writeRequestBytes = KSWORD_ARK_RAW_DISK_WRITE_REQUEST_HEADER_SIZE;
-
-    /* Reject an empty or protocol-oversized raw-disk write payload. */
+    /* 仅接受旧V1和捕获写V2；未知版本必须拒绝，不得改写版本回退。 */
+    BOOLEAN capturedWrite = writeHeaderSnapshot.version == KSWORD_ARK_RAW_DISK_CAPTURED_WRITE_VERSION;
+    /* 先确认版本，避免旧驱动语义误把V2的GUID当成写入字节。 */
+    if (!capturedWrite && writeHeaderSnapshot.version != KSWORD_ARK_STORAGE_FORENSICS_PROTOCOL_VERSION) {
+        /* 该请求不属于支持的任何写协议。 */
+        return STATUS_REVISION_MISMATCH;
+    }
+    /* 固定头和载荷倍数来自唯一 shared 协议，V1依然保持40字节布局。 */
+    size_t headerBytes = capturedWrite ? KSWORD_ARK_RAW_DISK_CAPTURED_WRITE_HEADER_SIZE
+        : KSWORD_ARK_RAW_DISK_WRITE_REQUEST_HEADER_SIZE;
+    /* V2原值与新值等长，V1只有一份写入值。 */
+    size_t payloadMultiplier = capturedWrite ? 2U : 1U;
+    /* 每份载荷上限256KiB，计算完整快照大小前先限长。 */
     if (writeHeaderSnapshot.length == 0U
         || writeHeaderSnapshot.length > KSWORD_ARK_RAW_DISK_MAX_TRANSFER_BYTES) {
-        /* The caller declared an invalid transfer size. */
+        /* 拒绝零长和协议超限，不触碰任何磁盘对象。 */
         return STATUS_INVALID_PARAMETER;
     }
-
-    /* Reject a payload that extends beyond either validated input extent. */
-    if ((size_t)writeHeaderSnapshot.length
-            > actualInputLength - KSWORD_ARK_RAW_DISK_WRITE_REQUEST_HEADER_SIZE
-        || (size_t)writeHeaderSnapshot.length
-            > InputBufferLength - KSWORD_ARK_RAW_DISK_WRITE_REQUEST_HEADER_SIZE) {
-        /* The variable payload cannot be copied safely. */
-        return STATUS_INFO_LENGTH_MISMATCH;
-    }
-
-    /* Add the already bounded payload length to the fixed header size. */
-    writeRequestBytes += (size_t)writeHeaderSnapshot.length;
-
-    /* Require the protocol size field to cover the complete payload. */
-    if ((size_t)writeHeaderSnapshot.size < writeRequestBytes
+    /* 两份长度已经限额，不会使 size_t 或ULONG包长相加溢出。 */
+    size_t writeRequestBytes = headerBytes + payloadMultiplier * writeHeaderSnapshot.length;
+    /* WDF实际输入和分发声明均须覆盖完整数据，不能读取缺失的GUID或尾部字节。 */
+    if (actualInputLength < writeRequestBytes || InputBufferLength < writeRequestBytes
+        || (size_t)writeHeaderSnapshot.size < writeRequestBytes
         || (size_t)writeHeaderSnapshot.size > actualInputLength
         || (size_t)writeHeaderSnapshot.size > InputBufferLength) {
-        /* The caller's advertised packet extent is inconsistent. */
+        /* 所有截短范围在分配和安全策略之前退出。 */
+        return STATUS_INFO_LENGTH_MISMATCH;
+    }
+    /* V2严格要求 header+2len，无附加数据、无保留字段，V1维持旧兼容边界。 */
+    if (capturedWrite && (writeHeaderSnapshot.size != writeRequestBytes
+        || actualInputLength != writeRequestBytes || InputBufferLength != writeRequestBytes
+        || writeHeaderSnapshot.reserved != 0U)) {
+        /* 不允许把格式不符的捕获包重新解释为普通写。 */
         return STATUS_INFO_LENGTH_MISMATCH;
     }
 

@@ -20,6 +20,8 @@ $componentSources = @(
     'Ksword5.1\Ksword5.1\UI\CodeTextEdit.cpp',
     'Ksword5.1\Ksword5.1\UI\CodeEditorFileSession.cpp',
     'Ksword5.1\Ksword5.1\UI\ReportStructuredView.cpp',
+        'Ksword5.1\Ksword5.1\UI\FieldTreePresenter.cpp',
+        'Ksword5.1\Ksword5.1\UI\FieldTreePresenter.Copy.cpp',
     'Ksword5.1\Ksword5.1\UI\GlobalUiBaseStyle.cpp',
     'Ksword5.1\Ksword5.1\UI\ThemeStatusRole.cpp',
     'Ksword5.1\Ksword5.1\UI\SvgThemeIconManager.cpp',
@@ -28,7 +30,10 @@ $componentSources = @(
     'Ksword5.1\Ksword5.1\UI\ThemedMessageBox.cpp',
     'Ksword5.1\Ksword5.1\UI\WindowChrome.cpp',
     'Ksword5.1\Ksword5.1\UI\CommandExecutionPopup.cpp',
+    'Ksword5.1\Ksword5.1\UI\ThemeBinding.cpp',
     'Ksword5.1\Ksword5.1\UI\TableInteractionSupport.cpp',
+    'Ksword5.1\Ksword5.1\UI\UiCommitCoordinator.cpp',
+    'Ksword5.1\Ksword5.1\UI\ResultTableHost.cpp',
     'Ksword5.1\Ksword5.1\UI\TableSnapshotCompare.cpp',
     'Ksword5.1\Ksword5.1\UI\TableFreezeSupport.cpp',
     'Ksword5.1\Ksword5.1\UI\TableHeaderSortingSupport.cpp',
@@ -39,6 +44,7 @@ $componentSources = @(
     'Ksword5.1\Ksword5.1\Framework\NotificationCardManager.cpp',
     'Ksword5.1\Ksword5.1\Framework\LogDockWidget.cpp',
     'Ksword5.1\Ksword5.1\Framework\Progress.cpp',
+    'Ksword5.1\Ksword5.1\Framework\TaskSnapshotFeed.cpp',
     'Ksword5.1\Ksword5.1\Internationalization\LanguageManager.cpp',
     'Ksword5.1\Ksword5.1\ksword\log\log.cpp'
 ) | ForEach-Object { Join-Path $componentRepository $_ }

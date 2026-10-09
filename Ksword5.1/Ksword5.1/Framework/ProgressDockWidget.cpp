@@ -1,4 +1,5 @@
 #include "ProgressDockWidget.h"
+#include "TaskSnapshotFeed.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../theme.h"
 
@@ -9,13 +10,14 @@
 #include <QScrollArea>   // 列表滚动容器
 #include <QTimer>        // 周期刷新
 #include <QVBoxLayout>   // 纵向布局
+#include <QSet>          // 当前快照保留的卡片 PID。
 
 ProgressDockWidget::ProgressDockWidget(QWidget* parent)
     : QWidget(parent)
 {
     // 构造时完成 UI 与定时器初始化，并先做一次首刷。
     initializeUi();
-    initializeRefreshTimer();
+    initializeSnapshotFeed();
     refreshTaskCards(true);
 }
 
@@ -102,27 +104,19 @@ void ProgressDockWidget::applyTransparentBackgroundPolicy()
         .arg(buildHighContrastTextHex()));
 }
 
-void ProgressDockWidget::initializeRefreshTimer()
+void ProgressDockWidget::initializeSnapshotFeed()
 {
-    // 刷新周期 250ms，与日志面板保持一致。
-    m_refreshTimer = new QTimer(this);
-    m_refreshTimer->setInterval(250);
-
-    // 定时器触发时尝试增量刷新，revision 未变则跳过。
-    connect(
-        m_refreshTimer,
-        &QTimer::timeout,
-        this,
-        [this]()
+    // 当前操作和角落通知订阅唯一发布器；每轮只读取一次核心快照。
+    ks::ui::TaskSnapshotFeed::instance().subscribe(this,
+        [this](const std::shared_ptr<const kProgressSnapshot>& snapshot)
         {
-            refreshTaskCards(false);
+            applyTaskSnapshot(snapshot, false);
         });
-    m_refreshTimer->start();
 }
 
 void ProgressDockWidget::refreshThemeVisuals()
 {
-    // 主题刷新时重新套透明策略，并重建所有任务卡片。
+    // 主题刷新原位重绘任务卡片；不重建 QWidget，不改变滚动条位置。
     applyTransparentBackgroundPolicy();
     if (m_emptyTipLabel != nullptr)
     {
@@ -140,6 +134,10 @@ void ProgressDockWidget::changeEvent(QEvent* event)
     {
         retranslateUi();
     }
+    else if (event != nullptr && event->type() == QEvent::ApplicationPaletteChange)
+    {
+        refreshThemeVisuals();
+    }
 }
 
 void ProgressDockWidget::retranslateUi()
@@ -155,64 +153,79 @@ void ProgressDockWidget::retranslateUi()
 
 void ProgressDockWidget::refreshTaskCards(const bool forceRefresh)
 {
-    const std::size_t currentRevision = kPro.Revision();
-    if (!forceRefresh && currentRevision == m_lastRevision)
+    ks::ui::TaskSnapshotFeed::instance().refreshNow();
+    applyTaskSnapshot(ks::ui::TaskSnapshotFeed::instance().current(), forceRefresh);
+}
+
+void ProgressDockWidget::applyTaskSnapshot(
+    const std::shared_ptr<const kProgressSnapshot>& snapshot, const bool forceRefresh)
+{
+    if (!snapshot || snapshot->revision < m_lastRevision ||
+        (!forceRefresh && snapshot->revision == m_lastRevision))
     {
         return;
     }
-    m_lastRevision = currentRevision;
+    m_lastRevision = snapshot->revision;
+    setProperty("task_snapshot_revision", static_cast<qulonglong>(snapshot->revision));
 
-    // 拉取任务快照并先清空旧卡片。
-    const std::vector<kProgressTask> taskSnapshot = kPro.Snapshot();
-    clearCardLayout();
-
-    int visibleTaskCount = 0;
-
-    // 遍历快照，跳过 hiddenInList 的完成任务。
-    for (const kProgressTask& taskItem : taskSnapshot)
+    // 先同步差量数据，再只调整现有卡片的布局顺序，保证同 PID 控件始终复用。
+    QSet<int> activeIds;
+    int visibleIndex = 0;
+    for (const kProgressTask& taskItem : snapshot->tasks)
     {
         if (taskItem.hiddenInList)
         {
             continue;
         }
 
-        QWidget* cardWidget = createTaskCardWidget(taskItem);
-        m_cardLayout->addWidget(cardWidget);
-        ++visibleTaskCount;
-    }
-
-    // 空任务时显示提示；有任务时隐藏提示。
-    m_emptyTipLabel->setVisible(visibleTaskCount == 0);
-    if (visibleTaskCount == 0)
-    {
-        m_cardLayout->addWidget(m_emptyTipLabel);
-    }
-
-    // 在最底部加弹簧，保证卡片总是顶对齐。
-    m_cardLayout->addStretch(1);
-}
-
-void ProgressDockWidget::clearCardLayout()
-{
-    // 逐项弹出并删除布局项，保证卡片完全释放。
-    while (QLayoutItem* layoutItem = m_cardLayout->takeAt(0))
-    {
-        if (QWidget* childWidget = layoutItem->widget())
+        activeIds.insert(taskItem.pid);
+        QWidget* cardWidget = m_cards.value(taskItem.pid, nullptr);
+        const bool newlyCreated = cardWidget == nullptr;
+        if (newlyCreated)
         {
-            // m_emptyTipLabel 是长期复用对象，不在这里销毁。
-            if (childWidget != m_emptyTipLabel)
-            {
-                childWidget->deleteLater();
-            }
+            cardWidget = createTaskCardWidget(taskItem);
+            m_cards.insert(taskItem.pid, cardWidget);
         }
-        delete layoutItem;
+        const kProgressTask previous = m_renderedTasks.value(taskItem.pid);
+        if (newlyCreated || forceRefresh || previous.state != taskItem.state ||
+            previous.progress != taskItem.progress || previous.taskName != taskItem.taskName ||
+            previous.stepName != taskItem.stepName || previous.generation != taskItem.generation ||
+            previous.hideProgressBarTemporarily != taskItem.hideProgressBarTemporarily)
+        {
+            updateTaskCardWidget(cardWidget, taskItem);
+            m_renderedTasks.insert(taskItem.pid, taskItem);
+        }
+        if (m_cardLayout->indexOf(cardWidget) != visibleIndex)
+        {
+            m_cardLayout->removeWidget(cardWidget);
+            m_cardLayout->insertWidget(visibleIndex, cardWidget);
+        }
+        ++visibleIndex;
     }
+    for (auto iterator = m_cards.begin(); iterator != m_cards.end();)
+    {
+        if (!activeIds.contains(iterator.key()))
+        {
+            m_cardLayout->removeWidget(iterator.value());
+            iterator.value()->hide();
+            iterator.value()->deleteLater();
+            m_renderedTasks.remove(iterator.key());
+            iterator = m_cards.erase(iterator);
+        }
+        else
+        {
+            ++iterator;
+        }
+    }
+    m_emptyTipLabel->setVisible(activeIds.isEmpty());
 }
 
 QWidget* ProgressDockWidget::createTaskCardWidget(const kProgressTask& taskItem) const
 {
     // 卡片容器：取消边框，仅保留轻量半透明底色，避免“框线感”。
     QFrame* cardFrame = new QFrame();
+    cardFrame->setObjectName(QStringLiteral("task_card"));
+    cardFrame->setProperty("task_pid", taskItem.pid);
     cardFrame->setFrameShape(QFrame::NoFrame);
     cardFrame->setStyleSheet(
         QStringLiteral(
@@ -238,6 +251,7 @@ QWidget* ProgressDockWidget::createTaskCardWidget(const kProgressTask& taskItem)
         .arg(translatedTaskName)
         .arg(taskItem.pid),
         cardFrame);
+    titleLabel->setObjectName(QStringLiteral("task_title"));
     titleLabel->setStyleSheet(
         QStringLiteral("font-weight:600; color:%1; background:transparent;")
         .arg(buildHighContrastTextHex()));
@@ -252,6 +266,7 @@ QWidget* ProgressDockWidget::createTaskCardWidget(const kProgressTask& taskItem)
             QStringLiteral("步骤：%1"))
         .arg(translatedStepName),
         cardFrame);
+    stepLabel->setObjectName(QStringLiteral("task_step"));
     stepLabel->setStyleSheet(
         QStringLiteral("color:%1; background:transparent;")
         .arg(buildHighContrastTextHex()));
@@ -259,6 +274,7 @@ QWidget* ProgressDockWidget::createTaskCardWidget(const kProgressTask& taskItem)
 
     // 进度条：保留蓝色进度块，并同步设置高对比文字与无边框底轨。
     QProgressBar* progressBar = new QProgressBar(cardFrame);
+    progressBar->setObjectName(QStringLiteral("task_progress"));
     progressBar->setRange(0, 100);
     progressBar->setValue(static_cast<int>(taskItem.progress * 100.0f + 0.5f));
     progressBar->setFormat(QStringLiteral("%p%"));
@@ -268,6 +284,31 @@ QWidget* ProgressDockWidget::createTaskCardWidget(const kProgressTask& taskItem)
     cardLayout->addWidget(progressBar);
 
     return cardFrame;
+}
+
+void ProgressDockWidget::updateTaskCardWidget(QWidget* const card, const kProgressTask& taskItem) const
+{
+    // 复用卡片只改正文、状态与主题；成员查找使用稳定 objectName，不跨事件保存内部指针。
+    auto* title = card->findChild<QLabel*>(QStringLiteral("task_title"));
+    auto* step = card->findChild<QLabel*>(QStringLiteral("task_step"));
+    auto* progress = card->findChild<QProgressBar*>(QStringLiteral("task_progress"));
+    card->setProperty("task_state", static_cast<int>(taskItem.state));
+    card->setProperty("task_generation", static_cast<qulonglong>(taskItem.generation));
+    const QString stateText = ks::ui::TaskStateText(taskItem.state);
+    title->setText(ks::i18n::contextText(QStringLiteral("progress.task.title"), QStringLiteral("%1  (PID:%2)"))
+        .arg(ks::i18n::sourceText(QString::fromUtf8(taskItem.taskName.c_str())))
+        .arg(taskItem.pid) + QStringLiteral("  ·  ") + stateText);
+    title->setStyleSheet(QStringLiteral("font-weight:600; color:%1; background:transparent;")
+        .arg(KswordTheme::ThemeColorName(KswordTheme::EnsureTextContrast(
+            ks::ui::TaskStateColor(taskItem.state), KswordTheme::SurfaceColor()))));
+    step->setText(ks::i18n::contextText(QStringLiteral("progress.task.step"), QStringLiteral("步骤：%1"))
+        .arg(ks::i18n::sourceText(QString::fromUtf8(taskItem.stepName.c_str()))));
+    step->setStyleSheet(QStringLiteral("color:%1; background:transparent;").arg(buildHighContrastTextHex()));
+    progress->setValue(static_cast<int>(taskItem.progress * 100.0f + 0.5f));
+    progress->setVisible(!taskItem.hideProgressBarTemporarily && !IsProgressTerminal(taskItem.state));
+    progress->setStyleSheet(buildProgressBarStyleSheet());
+    card->setStyleSheet(QStringLiteral("QFrame {border:none;border-radius:4px;background:%1;}")
+        .arg(buildCardBackgroundHex()));
 }
 
 QString ProgressDockWidget::buildHighContrastTextHex() const

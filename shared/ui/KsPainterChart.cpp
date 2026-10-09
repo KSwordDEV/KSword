@@ -1757,34 +1757,67 @@ void QChartView::paintEvent(QPaintEvent* event)
                 static_cast<int>(lowerPoints.size()));
             if (pointCount > 0)
             {
-                QPainterPath fillPath;
-                QPainterPath borderPath;
-                for (int pointIndex = 0; pointIndex < pointCount; ++pointIndex)
+                // 缺失采样按连续有效上下界分段填充，不能跨 gap 合成虚假面积。
+                const QList<QPointF> upperTargets = areaSeries->upperSeries()->points();
+                const QList<QPointF> lowerTargets = areaSeries->lowerSeries()
+                    ? areaSeries->lowerSeries()->points() : upperTargets;
+                const auto validPair = [&upperPoints, &lowerPoints, &upperTargets, &lowerTargets](const int index)
                 {
-                    const QPointF mappedPoint = mapChartPoint(upperPoints.at(pointIndex), plotRect, xRange, yRange);
-                    if (pointIndex == 0)
+                    const QPointF upper = upperPoints.at(index);
+                    const QPointF lower = lowerPoints.at(index);
+                    return std::isfinite(upper.x()) && std::isfinite(upper.y())
+                        && std::isfinite(lower.x()) && std::isfinite(lower.y())
+                        && index < upperTargets.size() && index < lowerTargets.size()
+                        && nearlyEqual(upperTargets.at(index).x(), lowerTargets.at(index).x());
+                };
+                int first = 0; // 当前连续有效区间的起点。
+                while (first < pointCount)
+                {
+                    while (first < pointCount && !validPair(first))
                     {
-                        fillPath.moveTo(mappedPoint);
-                        borderPath.moveTo(mappedPoint);
+                        ++first;
                     }
-                    else
+                    int last = first; // 区间结束位置，不包含该下标。
+                    while (last < pointCount && validPair(last))
                     {
-                        fillPath.lineTo(mappedPoint);
-                        borderPath.lineTo(mappedPoint);
+                        ++last;
                     }
-                }
-                for (int pointIndex = pointCount - 1; pointIndex >= 0; --pointIndex)
-                {
-                    fillPath.lineTo(mapChartPoint(lowerPoints.at(pointIndex), plotRect, xRange, yRange));
-                }
-                fillPath.closeSubpath();
-                painter.fillPath(fillPath, areaSeries->brush());
-                if (areaSeries->pen().style() != Qt::NoPen
-                    && areaSeries->pen().color().alpha() > 0)
-                {
-                    painter.setPen(areaSeries->pen());
-                    painter.setBrush(Qt::NoBrush);
-                    painter.drawPath(borderPath);
+                    if (first == last)
+                    {
+                        break;
+                    }
+                    QPainterPath fillPath;
+                    QPainterPath borderPath;
+                    for (int index = first; index < last; ++index)
+                    {
+                        const QPointF mapped = mapChartPoint(upperPoints.at(index), plotRect, xRange, yRange);
+                        if (index == first)
+                        {
+                            fillPath.moveTo(mapped);
+                            borderPath.moveTo(mapped);
+                        }
+                        else
+                        {
+                            fillPath.lineTo(mapped);
+                            borderPath.lineTo(mapped);
+                        }
+                    }
+                    // 上下界必须同一时间槽有效；反向封闭只在该连续区间内执行。
+                    for (int index = last - 1; index >= first; --index)
+                    {
+                        // 平坦下界的旧插值启发式可能独立横移；上下界以同一动画时间槽闭合。
+                        const QPointF lowerPoint(upperPoints.at(index).x(), lowerPoints.at(index).y());
+                        fillPath.lineTo(mapChartPoint(lowerPoint, plotRect, xRange, yRange));
+                    }
+                    fillPath.closeSubpath();
+                    painter.fillPath(fillPath, areaSeries->brush());
+                    if (areaSeries->pen().style() != Qt::NoPen && areaSeries->pen().color().alpha() > 0)
+                    {
+                        painter.setPen(areaSeries->pen());
+                        painter.setBrush(Qt::NoBrush);
+                        painter.drawPath(borderPath);
+                    }
+                    first = last;
                 }
             }
             continue;
@@ -1797,17 +1830,25 @@ void QChartView::paintEvent(QPaintEvent* event)
                 && lineSeries->pen().color().alpha() > 0)
             {
                 QPainterPath linePath;
+                bool continuing = false; // NaN/Inf 缺口后必须重新 moveTo。
                 for (int pointIndex = 0; pointIndex < points.size(); ++pointIndex)
                 {
-                    const QPointF mappedPoint = mapChartPoint(points.at(pointIndex), plotRect, xRange, yRange);
-                    if (pointIndex == 0)
+                    const QPointF point = points.at(pointIndex);
+                    if (!std::isfinite(point.x()) || !std::isfinite(point.y()))
                     {
-                        linePath.moveTo(mappedPoint);
+                        continuing = false;
+                        continue;
+                    }
+                    const QPointF mapped = mapChartPoint(point, plotRect, xRange, yRange);
+                    if (continuing)
+                    {
+                        linePath.lineTo(mapped);
                     }
                     else
                     {
-                        linePath.lineTo(mappedPoint);
+                        linePath.moveTo(mapped);
                     }
+                    continuing = true;
                 }
                 painter.setPen(lineSeries->pen());
                 painter.setBrush(Qt::NoBrush);

@@ -1,4 +1,5 @@
 #include "CustomTitleBar.h"
+#include "../UI/ThemeBinding.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../theme.h"
@@ -282,6 +283,8 @@ namespace ks::ui
         initializeUi();
         initializeConnections();
         updateVisualState();
+        // 标题栏样式按明确角色刷新；图标状态仍由原有更新路径和全局图标管理器处理。
+        BindWidgetTheme(this, [this]() { updateThemeStyle(); });
     }
 
     void CustomTitleBar::setPinnedState(const bool pinnedState)
@@ -755,7 +758,7 @@ namespace ks::ui
         });
     }
 
-    void CustomTitleBar::updateVisualState()
+    void CustomTitleBar::updateThemeStyle()
     {
         const QString titleBarBackgroundText = KswordTheme::MainBackgroundColorHex();
         const QString titleBarBorderText = KswordTheme::BorderColorHex();
@@ -845,6 +848,13 @@ namespace ks::ui
             .replace(QStringLiteral("__TITLE_CLOSE_HOVER__"), KswordTheme::AccentHex(KswordTheme::AccentRole::Red, 53, 27))
             .replace(QStringLiteral("__TITLE_CLOSE_PRESSED__"), KswordTheme::AccentHex(KswordTheme::AccentRole::Red, 30, 4));
         setStyleSheet(titleBarStyleSheetText);
+
+    }
+
+    // updateVisualState 保持按钮状态更新语义；单独主题刷新不重新覆盖已主题化的 SVG 图标。
+    void CustomTitleBar::updateVisualState()
+    {
+        updateThemeStyle();
 
         // 图标与按钮文案同步：
         // - 截屏屏蔽按钮根据保护状态切换眼睛/闭眼；

@@ -96,6 +96,7 @@ namespace memwb_test
 
     // 各组测试入口（定义在对应的 .cpp）。
     void RunHexViewCoreTests();
+    void RunHexViewHostTests();
     void RunHexViewCompatTests();
     void RunHexViewReferenceTests();
     void RunHexViewFindTests();

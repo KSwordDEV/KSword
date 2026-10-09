@@ -502,6 +502,12 @@ namespace ks::ui
 
         // scrollToAddress：滚动让地址可见（不改选区）。传出：false 表示地址不在空间内。
         bool scrollToAddress(std::uint64_t address, ScrollAlign align = ScrollAlign::Center);
+        // revealCaret：按明确纵向对齐揭示当前插入点，同时保证活动面板的单元格水平可见。
+        // 传出：false 表示无地址空间，或同步通知中本画布被销毁；不修改选区。
+        bool revealCaret(ScrollAlign align = ScrollAlign::Nearest);
+        // visibleAddressRange：实际正在绘制的字节闭区间，供切页后重喂当前视口，
+        // 不使用仍停在旧地址的 caret，也不使用子页临时扩展的读取窗口。
+        std::optional<AddressRange> visibleAddressRange() const;
         // Other address-backed views use the same cache/read pool without moving the HEX viewport.
         void requestAddressRange(std::uint64_t first, std::uint64_t last);
         void setViewportReadEnabled(bool enabled);
@@ -728,7 +734,7 @@ namespace ks::ui
         void ensureCaretVisible();
         void requestVisiblePages();
         void notifyVisibleRange();
-        void installSpace(std::uint64_t firstAddress, std::uint64_t lastAddress);
+        bool installSpace(std::uint64_t firstAddress, std::uint64_t lastAddress);
 
         // applyBytesPerRow：改行宽并按锚点策略（插入点可见取插入点，否则取首行）重排，不动自适应标志、不发信号。
         // 传入：已校验合法的行宽；传出：true 表示行宽真的变了并已重排，false 表示与当前相同（什么都没做）。
@@ -748,6 +754,8 @@ namespace ks::ui
 
         void setFirstRowInternal(std::uint64_t row, bool syncBar);
         void applySelectionChange(const ksword::memwb::HexViewport::Selection& before);
+        // 跨同步通知后核对实际选区；同一来源内重入导航也会使旧通知作废。
+        bool selectionStillMatches(const ksword::memwb::HexViewport::Selection& expected) const;
         void scheduleContentChanged();
         bool collectCachedRange(
             std::uint64_t firstAddress,

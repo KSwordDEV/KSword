@@ -17,6 +17,7 @@
 #include <QFontDatabase>
 #include <QFontMetrics>
 #include <QPalette>
+#include <QPointer>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QTextOption>
@@ -151,13 +152,12 @@ namespace ks::ui
         {
             return false;
         }
-        installSpace(firstAddress, lastAddress);
-        return true;
+        return installSpace(firstAddress, lastAddress);
     }
 
     // 安装新的地址空间（不检查区间、不动提供者）。
     // 作用：重建 HexViewport、换新来源代次、滚动回顶部、通知选区变化并请求可见页。
-    void HexCanvas::installSpace(std::uint64_t firstAddress, std::uint64_t lastAddress)
+    bool HexCanvas::installSpace(std::uint64_t firstAddress, std::uint64_t lastAddress)
     {
         // before：旧选区，用来决定是否发选区信号。
         const ksword::memwb::HexViewport::Selection before = m_viewport.GetSelection();
@@ -173,6 +173,13 @@ namespace ks::ui
 
         // 新代次：旧空间里还在途的异步结果回来时会被拒收。
         m_viewport.InvalidateAll(++m_revisionCounter);
+        // 安装空间会发多种同步通知，观察者可删除画布或安装另一个来源。
+        // 同一新来源里的导航允许保留，不用旧安装栈强制恢复初始选区。
+        const QPointer<HexCanvas> alive(this);
+        const std::uint64_t installedRevision = sourceRevision();
+        const auto current = [this, alive, installedRevision]() {
+            return alive && sourceRevision() == installedRevision;
+        };
         m_firstRow = 0;
         m_hOffset = 0;
         cancelNibble();
@@ -182,14 +189,20 @@ namespace ks::ui
         // （此刻首行恒为 0、插入点恒在行 0，行宽改变不需要什么锚点）。
         recomputeLayout();
         applyAutoBytesPerRow();
+        if (!current()) return false;
         syncScrollBars();
+        if (!current()) return false;
         viewport()->update();
         requestVisiblePages();
+        if (!current()) return false;
         notifyVisibleRange();
+        if (!current()) return false;
         applySelectionChange(before);
+        if (!current()) return false;
 
         // 空间换了，所有地址显示的值都可能不同；同步供页产生的多次回填会在这里合并成一个信号。
         scheduleContentChanged();
+        return true;
     }
 
     // 排队一次 contentChanged。
@@ -226,6 +239,8 @@ namespace ks::ui
             m_viewport.BytesPerRow(),
             ksword::memwb::HexViewport::kMaxCachedPages);
         m_viewport.InvalidateAll(++m_revisionCounter);
+        const QPointer<HexCanvas> alive(this);
+        const std::uint64_t clearedRevision = sourceRevision();
         m_hasSpace = false;
         m_firstRow = 0;
         m_hOffset = 0;
@@ -241,10 +256,12 @@ namespace ks::ui
 
         recomputeLayout();
         syncScrollBars();
+        if (!alive || sourceRevision() != clearedRevision) return;
         viewport()->update();
         if (hadSpace)
         {
             emit selectionChanged(false, 0, 0);
+            if (!alive || sourceRevision() != clearedRevision) return;
 
             // 原来有数据现在什么都不显示：订阅者需要知道；本来就没有数据则没有任何变化。
             scheduleContentChanged();
@@ -581,13 +598,17 @@ namespace ks::ui
         // "与当前相同"的早返回必须放在清标志之后——用户在自适应模式下手选了恰好等于当前档的值，
         // 也是一次明确的"改成手动"，之后窗口再变宽不应该再自动换档。
         const bool modeChanged = m_autoBytesPerRow;
+        const QPointer<HexCanvas> alive(this);
+        const auto revision = sourceRevision();
         m_autoBytesPerRow = false;
         const bool rowChanged = applyBytesPerRow(bytesPerRow);
+        if (!alive || sourceRevision() != revision || this->bytesPerRow() != bytesPerRow || m_autoBytesPerRow)
+            return false;
         if (rowChanged || modeChanged)
         {
             emit rowWidthModeChanged(this->bytesPerRow(), false);
         }
-        return true;
+        return alive && sourceRevision() == revision && this->bytesPerRow() == bytesPerRow && !m_autoBytesPerRow;
     }
 
     // 改行宽并重排（手动与自动共用，不动自适应标志、不发信号）。
@@ -597,6 +618,8 @@ namespace ks::ui
     // 不 refresh()、不换来源代次、不发 contentChanged：缓存按绝对地址存放，换行宽只是换了行列映射。
     bool HexCanvas::applyBytesPerRow(int bytesPerRow)
     {
+        const QPointer<HexCanvas> alive(this);
+        const auto revision = sourceRevision(); // 重排通知不允许旧来源继续请求或发出几何事件。
         if (static_cast<std::uint32_t>(bytesPerRow) == m_viewport.BytesPerRow())
         {
             return false;
@@ -635,10 +658,12 @@ namespace ks::ui
 
         recomputeLayout();
         syncScrollBars();
+        if (!alive || sourceRevision() != revision || this->bytesPerRow() != bytesPerRow) return false;
         viewport()->update();
         requestVisiblePages();
+        if (!alive || sourceRevision() != revision || this->bytesPerRow() != bytesPerRow) return false;
         notifyVisibleRange();
-        return true;
+        return alive && sourceRevision() == revision && this->bytesPerRow() == bytesPerRow;
     }
 
     // 当前每行字节数。
@@ -670,7 +695,11 @@ namespace ks::ui
 
         // 打开：立即重选。重选换了档时 applyAutoBytesPerRow 已经发过信号；
         // 没换档（或还没有地址空间/视口尚未布局）时模式变了也要通知一次。
-        if (!applyAutoBytesPerRow())
+        const QPointer<HexCanvas> alive(this);
+        const auto revision = sourceRevision();
+        const bool changed = applyAutoBytesPerRow();
+        if (!alive || sourceRevision() != revision || !m_autoBytesPerRow) return;
+        if (!changed)
         {
             emit rowWidthModeChanged(bytesPerRow(), true);
         }
@@ -691,9 +720,13 @@ namespace ks::ui
             return false;
         }
         m_groupSize = groupSize;
+        const QPointer<HexCanvas> alive(this);
+        const auto revision = sourceRevision();
         recomputeLayout();
         applyAutoBytesPerRow();
+        if (!alive || sourceRevision() != revision || m_groupSize != groupSize) return false;
         syncScrollBars();
+        if (!alive || sourceRevision() != revision || m_groupSize != groupSize) return false;
         viewport()->update();
         return true;
     }
@@ -749,10 +782,18 @@ namespace ks::ui
         }
         const ksword::memwb::HexViewport::Selection before = m_viewport.GetSelection();
         const bool exact = m_viewport.SetCaret(address, extend);
+        const auto expected = m_viewport.GetSelection();
+        const std::uint64_t selectedRevision = sourceRevision();
+        // 选区通知可同步销毁画布；原调用栈必须在滚动前停下，不能仅靠 pane 的外层守卫。
+        const QPointer<HexCanvas> alive(this);
         applySelectionChange(before);
+        if (!alive || sourceRevision() != selectedRevision || !selectionStillMatches(expected))
+        {
+            return false;
+        }
         if (ensureVisible)
         {
-            ensureCaretVisible();
+            if (!revealCaret(ScrollAlign::Nearest)) return false;
         }
         return exact;
     }
@@ -767,6 +808,13 @@ namespace ks::ui
         const ksword::memwb::HexViewport::Selection before = m_viewport.GetSelection();
         m_viewport.SelectAll();
         applySelectionChange(before);
+    }
+
+    bool HexCanvas::selectionStillMatches(const ksword::memwb::HexViewport::Selection& expected) const
+    {
+        if (!m_hasSpace) return false;
+        const auto actual = m_viewport.GetSelection();
+        return actual.anchor == expected.anchor && actual.caret == expected.caret && actual.pane == expected.pane;
     }
 
     // 选区变化后的统一收尾：取消半字节、刷新、发信号。
@@ -790,6 +838,9 @@ namespace ks::ui
         viewport()->update();
 
         // 选区端点变化发 selectionChanged；插入点变化再发 caretMoved。
+        // 两个信号之间没有异步边界，selectionChanged 的观察者允许直接删掉所属 pane。
+        const QPointer<HexCanvas> alive(this);
+        const std::uint64_t selectedRevision = sourceRevision();
         if (anchorChanged || caretChanged)
         {
             const std::optional<AddressRange> range = selectedRange();
@@ -797,6 +848,10 @@ namespace ks::ui
                 range.has_value(),
                 range.has_value() ? range->first : 0ULL,
                 range.has_value() ? range->last : 0ULL);
+            if (!alive || sourceRevision() != selectedRevision || !selectionStillMatches(now))
+            {
+                return;
+            }
         }
         if (caretChanged)
         {

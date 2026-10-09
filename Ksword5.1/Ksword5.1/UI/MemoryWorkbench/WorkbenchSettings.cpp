@@ -319,7 +319,7 @@ namespace ks::ui::workbench_settings
 
     int LoadSubTab()
     {
-        return ReadInt(QStringLiteral("memwb/workbench/subTab"), 0, 0, 3);
+        return ReadInt(QStringLiteral("memwb/workbench/subTab"), 0, 0, 4);
     }
 
     void SaveSubTab(const int subTab)
@@ -444,35 +444,4 @@ namespace ks::ui::workbench_settings
         WriteInt(QStringLiteral("memwb/workbench/text/encoding"), encoding);
     }
 
-    // —— S10：target.md §5 列出的三个键，原实现里缺失 ——
-
-    bool LoadEnabled()
-    {
-        return ReadBool(QStringLiteral("memwb/workbench/enabled"), true);
-    }
-
-    void SaveEnabled(const bool enabled)
-    {
-        WriteBool(QStringLiteral("memwb/workbench/enabled"), enabled);
-    }
-
-    bool LoadRouteJumps()
-    {
-        return ReadBool(QStringLiteral("memwb/workbench/routeJumps"), true);
-    }
-
-    void SaveRouteJumps(const bool routeJumps)
-    {
-        WriteBool(QStringLiteral("memwb/workbench/routeJumps"), routeJumps);
-    }
-
-    bool LoadShowLegacyTabs()
-    {
-        return ReadBool(QStringLiteral("memwb/workbench/showLegacyTabs"), true);
-    }
-
-    void SaveShowLegacyTabs(const bool show)
-    {
-        WriteBool(QStringLiteral("memwb/workbench/showLegacyTabs"), show);
-    }
 }

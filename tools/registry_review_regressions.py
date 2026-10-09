@@ -10,6 +10,7 @@ def main():
     parser.add_argument("--qt", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--vcvars", required=True, type=Path)
+    parser.add_argument("--ui-only", action="store_true", help="Resume only the offscreen shell gate after codec/access passed")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     app = repo / "Ksword5.1" / "Ksword5.1"
@@ -25,7 +26,9 @@ def main():
     flags.append("/I" + str(app))
 
     def cl(arguments):
-        command = subprocess.list2cmdline(["cl", *flags, *map(str, arguments)])
+        # Access 夹具显式恢复 Windows 宏时，不先定义同名宏再取消，避免 D9025 命令行提示。
+        active_flags = [flag for flag in flags if not ("/UNOMINMAX" in arguments and flag == "/DNOMINMAX")]
+        command = subprocess.list2cmdline(["cl", *active_flags, *map(str, arguments)])
         batch = output / "registry-review-command.cmd"
         batch.write_text(f'@echo off\ncall "{args.vcvars.resolve()}" >nul\n'
                          'if errorlevel 1 exit /b %errorlevel%\n' + command + '\nexit /b %errorlevel%\n',
@@ -42,20 +45,24 @@ def main():
         cl([*objects, "/Fe" + str(exe), "/link", "/LIBPATH:" + str(qt / "lib"), *libraries])
         return exe
 
-    document = build("registry-review-document", [repo / "tools" / "registry_document_tests.cpp",
+    if not args.ui_only:
+        document = build("registry-review-document", [repo / "tools" / "registry_document_tests.cpp",
         app / "RegistryDock" / "RegistryDocument.cpp", app / "RegistryDock" / "RegistryDocumentApply.cpp",
         app / "RegistryDock" / "RegistryDocumentApply.Win32.cpp"], ["Qt6Core.lib", "advapi32.lib"])
-    subprocess.run([document, "--existing-output", output], cwd=repo, env=env, check=True)
-    transaction = build("registry-review-transaction", [repo / "tools" / "registry_document_transaction_tests.cpp"], ["Qt6Core.lib"])
-    subprocess.run([transaction], cwd=repo, env=env, check=True)
-    access = build("registry-review-access", [repo / "tools" / "registry_workbench_access_tests.cpp"],
+        subprocess.run([document, "--existing-output", output], cwd=repo, env=env, check=True)
+        transaction = build("registry-review-transaction", [repo / "tools" / "registry_document_transaction_tests.cpp"], ["Qt6Core.lib"])
+        subprocess.run([transaction], cwd=repo, env=env, check=True)
+        access = build("registry-review-access", [repo / "tools" / "registry_workbench_access_tests.cpp"],
                    ["Qt6Core.lib", "advapi32.lib"], ["/UNOMINMAX"])
-    subprocess.run([access], cwd=repo, env=env, check=True)
+        subprocess.run([access], cwd=repo, env=env, check=True)
 
     # Extract the production methods verbatim; only Win32/R0 transports in the template are mocks.
     themed = (app / "RegistryDock_Themed.cpp").read_text(encoding="utf-8-sig")
     workbench = (app / "RegistryDock" / "RegistryDock.Workbench.cpp").read_text(encoding="utf-8-sig")
-    rename = themed[themed.index("bool RegistryDock::renameRegistryKeyAny("):themed.index("void RegistryDock::updateStatusBar(")]
+    mutations = (app / "RegistryDock" / "RegistryDock.Mutations.cpp").read_text(encoding="utf-8-sig")
+    assert "RegistryValueTransactions::rename" in mutations and "RegistryWorkbenchAccess::renameKey" in mutations
+    assert "renameRegistryKeyAny" not in themed and "RegSetValueExW" not in themed
+    # 实际共享键重命名与回读由 Access 夹具执行；树删除只在具备能力的正式事务入口验证。
     context = workbench[workbench.index("RegistryAccessContext RegistryDock::accessContextForPath("):workbench.index("void RegistryDock::initializeWorkbenchControls(")]
     menu_start = workbench.index("    void applyWorkbenchMenuTheme(")
     menu_end = workbench.index("\n    }", menu_start) + len("\n    }")
@@ -64,8 +71,12 @@ def main():
     assert 'QMenu menu(this);\n    applyWorkbenchMenuTheme(menu);' in navigation
     assert 'applyWorkbenchMenuTheme(*history);' in navigation
     template = (repo / "tools" / "registry_workbench_ui" / "registry_review_ui_tests.template.cpp").read_text(encoding="utf-8")
+    documents = (app / "RegistryDock" / "RegistryDock.Documents.cpp").read_text(encoding="utf-8-sig")
+    receipt_start = documents.index("                            const RegistryAccessContext currentContext = guarded->accessContext();")
+    receipt_end = documents.index("                            guarded->updateStatusBar(result->completed", receipt_start)
+    receipt_navigation = documents[receipt_start:receipt_end]
     generated = output / "registry-review-ui.cpp"
-    generated.write_text(template.replace("//@@ACCESS_CONTEXT@@", context).replace("//@@RENAME@@", rename)
+    generated.write_text(template.replace("//@@ACCESS_CONTEXT@@", context).replace("//@@RECEIPT_NAVIGATION@@", receipt_navigation)
                          .replace("//@@MENU_THEME@@", workbench[menu_start:menu_end]), encoding="utf-8")
     advanced = (app / "RegistryDock" / "RegistryAdvancedDialogs.cpp").read_text(encoding="utf-8-sig")
     assert "m_original = new CodeEditorWidget" in advanced and "m_edit = new CodeEditorWidget" in advanced
@@ -77,8 +88,10 @@ def main():
     cl(["/c", app / "RegistryDock" / "RegistryAdvancedDialogs.cpp", "/Fo" + str(output / "registry-review-advanced.obj")])
     ui = build("registry-review-ui", [generated, app / "UI" / "CodeEditorWidget.cpp",
         app / "UI" / "CodeTextEdit.cpp", app / "UI" / "CodeEditorFileSession.cpp", app / "UI" / "ReportStructuredView.cpp",
+        app / "UI" / "FieldTreePresenter.cpp", app / "UI" / "FieldTreePresenter.Copy.cpp",
         app / "Internationalization" / "LanguageManager.cpp", moc],
-        ["Qt6Core.lib", "Qt6Gui.lib", "Qt6Widgets.lib", "Qt6Svg.lib", "user32.lib", "advapi32.lib", "shell32.lib"])
+        ["Qt6Core.lib", "Qt6Gui.lib", "Qt6Widgets.lib", "Qt6Svg.lib", "user32.lib", "advapi32.lib", "shell32.lib"],
+        ["/wd4458"])  # Production editor owns QWidget::data; preserve its existing local-name policy.
     subprocess.run([ui], cwd=repo, env=env, check=True)
 
 

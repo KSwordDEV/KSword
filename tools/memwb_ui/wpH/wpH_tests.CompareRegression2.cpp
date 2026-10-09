@@ -5,7 +5,7 @@
 //   ——previous/baseline 任一边不可用时，isExternalChangeByte 的 Pending 回补分支必须放弃。
 // - T08（杀 rC11/rC12/rC22）：待写入分段的悬停明细必须恰好列出命中（已暂存）的字节，不得
 //   把未暂存的字节也列进去；状态行"N 字节变化；共 M 行"的两个数字不能互换。
-// - T17（杀 rC23）：对比页窗口同样要夹到 1 MiB 上限（Text 页已有 hM16 同款用例，对比页
+// - T17（杀 rC23）：整捕获范围必须分块覆盖 2 MiB 上限（Text 页已有 hM16 同款用例，对比页
 //   之前没有）。
 // - T25（N5 修复）：窗口贴着地址空间顶端（0xFFFFFFFFFFFFFFF0 起 15 字节）不得整数回绕死循环
 //   ——带 8 秒看门狗线程，卡死就主动打印 FAIL 并退出，不让 CI 无限挂住。
@@ -102,7 +102,7 @@ namespace wpH_test
                 QStringLiteral("状态行的'字节变化数'与'行数'不能互换，实得：%1").arg(status));
         }
 
-        // ---------------- T17（杀 rC23）：对比页窗口同样要夹到 1 MiB ----------------
+        // ---------------- T17（杀 rC23）：整捕获范围必须分块覆盖 2 MiB ----------------
         void runCompareWindowCapTests()
         {
             constexpr qsizetype kSize = 2 * 1024 * 1024; // 请求 2 MiB
@@ -115,8 +115,8 @@ namespace wpH_test
             view.setBytesProvider(&provider);
             view.setMode(WorkbenchCompareView::Mode::Pending);
             view.setWindow(base, kSize);
-            WPH_CHECK_NOTE(view.model()->rowCount() == 65536,
-                QStringLiteral("2 MiB 请求必须被夹到 1 MiB（65536 个 16 字节分组），实得 %1").arg(view.model()->rowCount()));
+            WPH_CHECK_NOTE(view.model()->rowCount() == 131072,
+                QStringLiteral("2 MiB 请求必须完整比较（131072 个 16 字节分组），实得 %1").arg(view.model()->rowCount()));
         }
 
         // ---------------- T25（N5 修复）：窗口贴着地址空间顶端不得挂死 ----------------

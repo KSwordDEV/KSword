@@ -1,5 +1,6 @@
 #include "ProcessDetailWindow.InternalCommon.h"
 #include "../UI/X64DbgNavigation.h"
+#include "../UI/TableInteractionSupport.h"
 
 using namespace process_detail_window_internal;
 
@@ -10,128 +11,119 @@ using namespace process_detail_window_internal;
 // - 聚焦“模块信息与模块相关动作”逻辑。
 // ============================================================
 
+// 显式析构第一步关闭请求门禁，随后才销毁派生页面缓存与控件成员。
+ProcessDetailWindow::~ProcessDetailWindow()
+{
+    if (m_moduleOperation)
+    {
+        m_moduleOperation->close();
+    }
+}
+
 void ProcessDetailWindow::requestAsyncModuleRefresh(const bool forceRefresh)
 {
-    // 模块刷新入口日志：记录强制刷新标记与当前刷新状态。
-    kLogEvent requestModuleRefreshEvent;
-    info << requestModuleRefreshEvent
-        << "[ProcessDetailWindow] requestAsyncModuleRefresh: forceRefresh="
-        << (forceRefresh ? "true" : "false")
-        << ", refreshing="
-        << (m_moduleRefreshing ? "true" : "false")
-        << ", pid="
-        << m_baseRecord.pid
-        << eol;
-
-    // 避免并发刷新导致结果乱序。
-    if (m_moduleRefreshing)
+    // 自动首刷不重复排队；用户强制刷新保留最新参数，取代旧请求结果。
+    if (!m_moduleOperation)
     {
-        if (!forceRefresh)
+        m_moduleOperation = std::make_unique<ks::ui::AsyncOperation>(this);
+        m_moduleOperation->setStateChangedCallback([this]()
         {
-            return;
-        }
-        // force=true 时仍不叠加任务，只记录日志并直接返回。
-        kLogEvent logEvent;
-        warn << logEvent
-            << "[ProcessDetailWindow] 忽略模块刷新请求：已有刷新任务在运行, pid="
-            << m_baseRecord.pid
-            << eol;
+            m_moduleRefreshing = m_moduleOperation->isBusy();
+            if (m_moduleRefreshing && !m_firstModuleRefreshDone && m_moduleRefreshProgressPid > 0)
+            {
+                kPro.set(m_moduleRefreshProgressPid, "开始读取模块快照...", 10, 0.10f);
+            }
+        });
+    }
+    if (!forceRefresh && m_moduleOperation->isBusy())
+    {
         return;
     }
-
-    // 任何进入模块刷新函数的真实请求都视为模块页已按需加载。
-    // 这样用户手动点击刷新后，后续切回模块页不会再触发一次自动首刷。
     m_moduleInitialRefreshStarted = true;
 
-    const std::uint32_t pidValue = m_baseRecord.pid;
-    const std::uint64_t expectedCreationTime100ns = m_baseRecord.creationTime100ns;
-    const bool includeSignatureCheck = (m_signatureCheckBox != nullptr) && m_signatureCheckBox->isChecked();
-    const bool firstRefresh = !m_firstModuleRefreshDone;
-
-    kLogEvent requestModuleRefreshConfigEvent;
-    dbg << requestModuleRefreshConfigEvent
-        << "[ProcessDetailWindow] requestAsyncModuleRefresh: includeSignatureCheck="
-        << (includeSignatureCheck ? "true" : "false")
-        << ", firstRefresh="
-        << (firstRefresh ? "true" : "false")
-        << eol;
-
-    // 首次模块刷新用进度条，满足“首次慢操作可见化”需求。
-    if (firstRefresh)
+    // 请求值只包含后端身份和选项，线程池不得读取页面成员或 QObject 守卫。
+    struct ModuleRequest
     {
-        if (m_moduleRefreshProgressPid <= 0)
-        {
-            m_moduleRefreshProgressPid = kPro.addReusable(
-                this,
-                "模块列表首次刷新",
-                "准备读取模块与线程信息...");
-        }
-        kPro.set(m_moduleRefreshProgressPid, "开始读取模块快照...", 10, 0.10f);
+        std::uint32_t processId = 0; // 本轮进程 PID。
+        std::uint64_t creationTime = 0; // 防 PID 复用的进程创建时间。
+        bool includeSignature = false; // 本轮签名检查选项快照。
+    };
+    const ModuleRequest request{ m_baseRecord.pid, m_baseRecord.creationTime100ns,
+        m_signatureCheckBox != nullptr && m_signatureCheckBox->isChecked() };
+    const bool firstRefresh = !m_firstModuleRefreshDone; // 首轮才展示全局有限进度。
+    if (firstRefresh && m_moduleRefreshProgressPid <= 0)
+    {
+        m_moduleRefreshProgressPid = kPro.addReusable(this,
+            "模块列表首次刷新", "准备读取模块与线程信息...");
     }
-
-    m_moduleRefreshing = true;
-    const std::uint64_t localTicket = ++m_moduleRefreshTicket;
+    const int progressPid = firstRefresh ? m_moduleRefreshProgressPid : 0; // 值化收尾资源。
     updateModuleStatusLabel("● 正在刷新模块列表...", true);
 
-    kLogEvent logEvent;
-    info << logEvent
-        << "[ProcessDetailWindow] 模块刷新开始, pid=" << pidValue
-        << ", includeSignature=" << (includeSignatureCheck ? "true" : "false")
-        << ", ticket=" << localTicket
-        << eol;
-
-    QPointer<ProcessDetailWindow> guard(this);
-    QRunnable* backgroundTask = QRunnable::create([guard, localTicket, pidValue, expectedCreationTime100ns, includeSignatureCheck, firstRefresh]() {
-        const auto startTime = std::chrono::steady_clock::now();
-        ModuleRefreshResult refreshResult{};
-        refreshResult.includeSignatureCheck = includeSignatureCheck;
-        refreshResult.moduleSnapshot = ks::process::EnumerateProcessModulesAndThreadsIfIdentityMatches(
-            pidValue,
-            expectedCreationTime100ns,
-            includeSignatureCheck);
-        refreshResult.elapsedMs = static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - startTime).count());
-
-        if (guard == nullptr)
+    m_moduleRefreshTicket = m_moduleOperation->submit<ModuleRequest, ModuleRefreshResult>(request,
+        [](const ModuleRequest& snapshot, const ks::ui::AsyncOperationToken& token)
         {
-            kLogEvent requestModuleRefreshGuardEvent;
-            warn << requestModuleRefreshGuardEvent
-                << "[ProcessDetailWindow] requestAsyncModuleRefresh: guard失效，后台结果丢弃, pid="
-                << pidValue
-                << eol;
-            return;
-        }
-
-        if (firstRefresh && guard->m_moduleRefreshProgressPid > 0)
+            const auto startTime = std::chrono::steady_clock::now(); // 查询耗时基准。
+            ModuleRefreshResult result{}; // 后台按值结果，不含任何页面地址。
+            result.includeSignatureCheck = snapshot.includeSignature;
+            if (!token.isCanceled())
+            {
+                result.moduleSnapshot = ks::process::EnumerateProcessModulesAndThreadsIfIdentityMatches(
+                    snapshot.processId, snapshot.creationTime, snapshot.includeSignature);
+            }
+            result.elapsedMs = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - startTime).count());
+            return result;
+        },
+        [this, request](const ModuleRefreshResult& result, const std::uint64_t ticket)
         {
-            kPro.set(guard->m_moduleRefreshProgressPid, "后台读取完成，准备更新界面...", 85, 0.85f);
+            return tryApplyModuleRefreshResult(ticket, request.processId, request.creationTime, result);
+        },
+        [this](std::exception_ptr)
+        {
+            updateModuleStatusLabel(QStringLiteral("● 模块刷新失败。"), false);
+        },
+        [progressPid](const ks::ui::AsyncOperationOutcome outcome)
+        {
+            // 成功/取消/页面关闭/丢队列共享一次收尾，不从 worker 读取页面 PID。
+            if (progressPid > 0)
+            {
+                kPro.set(progressPid, outcome == ks::ui::AsyncOperationOutcome::Applied
+                    ? "模块首次刷新完成" : "模块刷新已结束", 100, 1.0f);
+            }
+        });
+}
+
+bool ProcessDetailWindow::tryApplyModuleRefreshResult(const std::uint64_t ticket,
+    const std::uint32_t processId, const std::uint64_t creationTime,
+    const ModuleRefreshResult& refreshResult)
+{
+    // 菜单延期回调可能在新请求后重放，不能仅依赖第一次收到结果时的验证。
+    if (!m_moduleOperation || !m_moduleOperation->isCurrent(ticket)
+        || m_baseRecord.pid != processId || m_baseRecord.creationTime100ns != creationTime)
+    {
+        return true;
+    }
+    if (ks::ui::IsItemViewUiCommitBlockedByContextMenu({ m_moduleTable }))
+    {
+        const auto snapshot = std::make_shared<ModuleRefreshResult>(refreshResult); // 值结果。
+        const QPointer<ProcessDetailWindow> safeThis(this); // 只在 UI 延期回调读取。
+        if (ks::ui::DeferItemViewUiCommitIfContextMenuOpen(this,
+            QStringLiteral("process-detail-module-snapshot"), { m_moduleTable },
+            [safeThis, ticket, processId, creationTime, snapshot]()
+            {
+                if (!safeThis.isNull()
+                    && safeThis->tryApplyModuleRefreshResult(ticket, processId, creationTime, *snapshot))
+                {
+                    safeThis->m_moduleOperation->completeDeferred(ticket);
+                }
+            }))
+        {
+            return false;
         }
-
-        QMetaObject::invokeMethod(guard, [guard, localTicket, refreshResult]() {
-            if (guard == nullptr)
-            {
-                return;
-            }
-            if (localTicket < guard->m_moduleRefreshTicket)
-            {
-                kLogEvent requestModuleRefreshOutdatedEvent;
-                dbg << requestModuleRefreshOutdatedEvent
-                    << "[ProcessDetailWindow] requestAsyncModuleRefresh: 过期ticket结果丢弃, localTicket="
-                    << localTicket
-                    << ", latestTicket="
-                    << guard->m_moduleRefreshTicket
-                    << eol;
-                guard->m_moduleRefreshing = false;
-                return;
-            }
-            guard->applyModuleRefreshResult(refreshResult);
-            guard->m_moduleRefreshing = false;
-        }, Qt::QueuedConnection);
-    });
-
-    backgroundTask->setAutoDelete(true);
-    QThreadPool::globalInstance()->start(backgroundTask);
+    }
+    applyModuleRefreshResult(refreshResult);
+    return true;
 }
 
 void ProcessDetailWindow::applyModuleRefreshResult(const ModuleRefreshResult& refreshResult)
@@ -173,10 +165,6 @@ void ProcessDetailWindow::applyModuleRefreshResult(const ModuleRefreshResult& re
     if (!m_firstModuleRefreshDone)
     {
         m_firstModuleRefreshDone = true;
-        if (m_moduleRefreshProgressPid > 0)
-        {
-            kPro.set(m_moduleRefreshProgressPid, "模块首次刷新完成", 100, 1.0f);
-        }
     }
 
     kLogEvent logEvent;

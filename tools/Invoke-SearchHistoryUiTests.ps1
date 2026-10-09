@@ -16,6 +16,7 @@ $testExe = Join-Path $testOutput 'history_search_ui_tests.exe'
 $fixtureSources = @(
     'tools\history_search_ui_tests.cpp',
     'Ksword5.1\Ksword5.1\Framework\CustomTitleBar.cpp',
+    'Ksword5.1\Ksword5.1\UI\ThemeBinding.cpp',
     'Ksword5.1\Ksword5.1\UI\GlobalUiSearch.cpp',
     'Ksword5.1\Ksword5.1\UI\TableSearchSupport.cpp',
     'Ksword5.1\Ksword5.1\UI\CommandExecutionPopup.cpp',

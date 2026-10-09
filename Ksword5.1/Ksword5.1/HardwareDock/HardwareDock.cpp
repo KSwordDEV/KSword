@@ -4,6 +4,7 @@
 #include "../UI/VisibleTableWidget.h"
 #include "DiskMonitorPage.h"
 #include "MemoryCompositionHistoryWidget.h"
+#include "../../../shared/ui/MetricChartBinding.h"
 #include "HardwarePowerPage.h"
 #include "HardwareR0EvidencePage.h"
 #include "HardwareOtherDevicesPage.h"
@@ -3619,7 +3620,7 @@ namespace
                 {
                     if (from != nullptr && to != nullptr)
                     {
-                        to->replace(from->points());
+                        ks::ui::MetricChartBinding::MirrorSeries(from, to);
                         to->setPen(from->pen());
                     }
                 }
@@ -8550,7 +8551,8 @@ void HardwareDock::refreshAllViews()
     std::vector<double> coreUsageList;
     coreUsageList.reserve(m_coreChartEntries.size());
     double totalCpuUsage = 0.0;
-    if (!samplePerCoreUsage(&coreUsageList, &totalCpuUsage))
+    m_metricCpuValid = samplePerCoreUsage(&coreUsageList, &totalCpuUsage);
+    if (!m_metricCpuValid)
     {
         coreUsageList.assign(m_coreChartEntries.size(), 0.0);
         totalCpuUsage = 0.0;
@@ -8564,7 +8566,8 @@ void HardwareDock::refreshAllViews()
     double diskReadAverageBytesPerSec = 0.0;
     double diskWriteAverageBytesPerSec = 0.0;
     std::vector<DiskRateSample> diskSampleList;
-    if (sampleDiskRates(&diskSampleList))
+    m_metricDiskValid = sampleDiskRates(&diskSampleList);
+    if (m_metricDiskValid)
     {
         for (const DiskRateSample& sample : diskSampleList)
         {
@@ -8589,7 +8592,8 @@ void HardwareDock::refreshAllViews()
     double networkRxAverageBytesPerSec = 0.0;
     double networkTxAverageBytesPerSec = 0.0;
     std::vector<NetworkRateSample> networkSampleList;
-    if (sampleNetworkRates(&networkSampleList))
+    m_metricNetworkValid = sampleNetworkRates(&networkSampleList);
+    if (m_metricNetworkValid)
     {
         for (const NetworkRateSample& sample : networkSampleList)
         {
@@ -8612,7 +8616,8 @@ void HardwareDock::refreshAllViews()
     double gpuUsagePercent = 0.0;
     double gpuUsageAveragePercent = 0.0;
     std::vector<GpuUsageSample> gpuSampleList;
-    if (sampleGpuUsages(&gpuSampleList))
+    m_metricGpuValid = sampleGpuUsages(&gpuSampleList);
+    if (m_metricGpuValid)
     {
         double gpuUsageSum = 0.0;
         for (const GpuUsageSample& sample : gpuSampleList)
@@ -8637,6 +8642,7 @@ void HardwareDock::refreshAllViews()
         ? sampledCpuSpeedGhz
         : 0.0;
 
+    m_metricSampleTimeMs = QDateTime::currentMSecsSinceEpoch(); // 本帧图表共用真实采样时刻。
     ++m_sampleCounter;
     pushBoundedHistorySample(&m_cpuUsageHistoryPercent, totalCpuUsage);
     pushBoundedHistorySample(&m_memoryUsageHistoryPercent, memoryUsagePercent);
@@ -8709,10 +8715,15 @@ bool HardwareDock::samplePerCoreUsage(
     {
         return false;
     }
+    coreUsageOut->clear();
+    m_metricCoreValid.clear();
+    *totalUsageOut = 0.0; // 查询早退也不能保留上一帧的有效性或总值。
     if (m_cpuPerfQueryHandle == nullptr)
     {
         initializePerformanceCounters();
     }
+    coreUsageOut->assign(m_coreCounterHandles.size(), 0.0);
+    m_metricCoreValid.assign(m_coreCounterHandles.size(), false);
     if (m_cpuPerfQueryHandle == nullptr)
     {
         return false;
@@ -8725,16 +8736,14 @@ bool HardwareDock::samplePerCoreUsage(
         return false;
     }
 
-    coreUsageOut->clear();
-    coreUsageOut->reserve(m_coreCounterHandles.size());
     double usageSum = 0.0;
     int validCount = 0;
 
-    for (void* counterHandleVoid : m_coreCounterHandles)
+    for (std::size_t coreIndex = 0; coreIndex < m_coreCounterHandles.size(); ++coreIndex)
     {
+        void* counterHandleVoid = m_coreCounterHandles[coreIndex];
         if (counterHandleVoid == nullptr)
         {
-            coreUsageOut->push_back(0.0);
             continue;
         }
 
@@ -8744,20 +8753,23 @@ bool HardwareDock::samplePerCoreUsage(
             PDH_FMT_DOUBLE,
             nullptr,
             &formattedValue);
-        if (readStatus != ERROR_SUCCESS)
+        if (readStatus != ERROR_SUCCESS
+            || (formattedValue.CStatus != PDH_CSTATUS_VALID_DATA
+                && formattedValue.CStatus != PDH_CSTATUS_NEW_DATA)
+            || !std::isfinite(formattedValue.doubleValue))
         {
-            coreUsageOut->push_back(0.0);
             continue;
         }
 
         const double usageValue = std::clamp(formattedValue.doubleValue, 0.0, 100.0);
-        coreUsageOut->push_back(usageValue);
+        (*coreUsageOut)[coreIndex] = usageValue;
+        m_metricCoreValid[coreIndex] = true; // 部分失败核的0占位不能成为有效历史样本。
         usageSum += usageValue;
         ++validCount;
     }
 
     *totalUsageOut = validCount > 0 ? (usageSum / static_cast<double>(validCount)) : 0.0;
-    return true;
+    return validCount > 0;
 }
 
 bool HardwareDock::sampleCpuEffectiveSpeed(double* speedGhzOut) const
@@ -10021,7 +10033,9 @@ void HardwareDock::updateUtilizationView(
             QStringLiteral("CPU %1  %2%")
             .arg(indexValue, 2, 10, QLatin1Char('0'))
             .arg(usageValue, 5, 'f', 1, QLatin1Char(' ')));
-        appendCoreSeriesPoint(chartEntry, usageValue);
+        const bool coreValid = static_cast<std::size_t>(indexValue) < m_metricCoreValid.size()
+            && m_metricCoreValid[static_cast<std::size_t>(indexValue)];
+        appendCoreSeriesPoint(chartEntry, usageValue, coreValid);
     }
 
     // 内存子页：更新摘要与折线趋势。
@@ -10585,14 +10599,16 @@ void HardwareDock::updateGpuUtilizationDevice(
         device.dedicatedMemoryAxisX,
         device.dedicatedMemoryAxisY,
         sample.dedicatedUsedGiB,
-        0.0);
+        0.0,
+        sample.dedicatedUsageAvailable);
     appendFilledSeriesPoint(
         device.sharedMemoryLineSeries,
         device.sharedMemoryBaselineSeries,
         device.sharedMemoryAxisX,
         device.sharedMemoryAxisY,
         sample.sharedUsedGiB,
-        0.0);
+        0.0,
+        sample.sharedUsageAvailable);
     if (device.dedicatedMemoryAxisY != nullptr)
     {
         const double dedicatedUpperGiB = std::max(
@@ -11132,196 +11148,93 @@ void HardwareDock::updateCpuDetailTable(
     }
 }
 
-void HardwareDock::appendCoreSeriesPoint(CoreChartEntry& chartEntry, const double usagePercent)
+void HardwareDock::appendCoreSeriesPoint(CoreChartEntry& chartEntry, const double usagePercent, const bool sampleValid)
 {
-    if (chartEntry.lineSeries == nullptr
-        || chartEntry.baselineSeries == nullptr
-        || chartEntry.axisX == nullptr
-        || chartEntry.axisY == nullptr)
+    if (chartEntry.lineSeries == nullptr || chartEntry.baselineSeries == nullptr
+        || chartEntry.axisX == nullptr || chartEntry.axisY == nullptr)
     {
         return;
     }
-
-    chartEntry.lineSeries->append(m_sampleCounter, usagePercent);
-    chartEntry.baselineSeries->append(m_sampleCounter, 0.0);
-    while (chartEntry.lineSeries->count() > m_historyLength)
-    {
-        chartEntry.lineSeries->remove(0);
-    }
-    while (chartEntry.baselineSeries->count() > m_historyLength)
-    {
-        chartEntry.baselineSeries->remove(0);
-    }
-
-    const QList<QPointF> pointList = chartEntry.lineSeries->points();
-    if (!pointList.isEmpty())
-    {
-        const double firstX = pointList.first().x();
-        const double lastX = pointList.last().x();
-        if (qFuzzyCompare(firstX, lastX))
-        {
-            animateLiveValueAxisRange(chartEntry.axisX, firstX - 1.0, lastX + 1.0);
-        }
-        else
-        {
-            animateLiveValueAxisRange(chartEntry.axisX, firstX, lastX);
-        }
-    }
-    chartEntry.axisY->setRange(0.0, 100.0);
+    // 同一帧身份与时间驱动上/下界模型，失败采样保留缺口而非伪造 0%。
+    auto* binding = ks::ui::MetricChartBinding::ForSeries(chartEntry.lineSeries, m_historyLength);
+    binding->append({ static_cast<std::uint64_t>(m_sampleCounter), m_metricSampleTimeMs,
+        usagePercent, m_metricCpuValid && sampleValid });
+    ks::ui::MetricChartBinding::ForSeries(chartEntry.baselineSeries, m_historyLength)->append(
+        { static_cast<std::uint64_t>(m_sampleCounter), m_metricSampleTimeMs, 0.0, m_metricCpuValid && sampleValid });
+    const auto range = binding->range({ 0.0, 1.0, 1.15, 100.0 });
+    animateLiveValueAxisRange(chartEntry.axisX, range.minimumX, range.maximumX);
+    chartEntry.axisY->setRange(range.minimumY, range.maximumY);
 }
 
-void HardwareDock::appendGeneralSeriesPoint(
-    QLineSeries* lineSeries,
-    QValueAxis* axisX,
-    QValueAxis* axisY,
-    const double sampleValue,
-    const double minAxisYValue)
+void HardwareDock::appendGeneralSeriesPoint(QLineSeries* lineSeries, QValueAxis* axisX,
+    QValueAxis* axisY, const double sampleValue, const double minAxisYValue)
 {
     if (lineSeries == nullptr || axisX == nullptr || axisY == nullptr)
     {
         return;
     }
-
-    lineSeries->append(m_sampleCounter, sampleValue);
-    while (lineSeries->count() > m_historyLength)
-    {
-        lineSeries->remove(0);
-    }
-
-    const QList<QPointF> pointList = lineSeries->points();
-    if (pointList.isEmpty())
-    {
-        return;
-    }
-
-    const double firstX = pointList.first().x();
-    const double lastX = pointList.last().x();
-    if (qFuzzyCompare(firstX, lastX))
-    {
-        animateLiveValueAxisRange(axisX, firstX - 1.0, lastX + 1.0);
-    }
-    else
-    {
-        animateLiveValueAxisRange(axisX, firstX, lastX);
-    }
-    double maxYValue = minAxisYValue + 1.0;
-    for (const QPointF& pointValue : pointList)
-    {
-        maxYValue = std::max(maxYValue, pointValue.y());
-    }
-    axisY->setRange(minAxisYValue, maxYValue * 1.15);
+    // 保留现有系列与轴对象；有界缓存、时间和有效值范围统一交给共享模型。
+    auto* binding = ks::ui::MetricChartBinding::ForSeries(lineSeries, m_historyLength);
+    binding->append({ static_cast<std::uint64_t>(m_sampleCounter), m_metricSampleTimeMs, sampleValue, true });
+    const auto range = binding->range({ minAxisYValue, 1.0, 1.15, {} });
+    animateLiveValueAxisRange(axisX, range.minimumX, range.maximumX);
+    axisY->setRange(range.minimumY, range.maximumY);
 }
 
-void HardwareDock::appendFilledSeriesPoint(
-    QLineSeries* lineSeries,
-    QLineSeries* baselineSeries,
-    QValueAxis* axisX,
-    QValueAxis* axisY,
-    const double sampleValue,
-    const double minAxisYValue)
+void HardwareDock::appendFilledSeriesPoint(QLineSeries* lineSeries, QLineSeries* baselineSeries,
+    QValueAxis* axisX, QValueAxis* axisY, const double sampleValue, const double minAxisYValue, const bool sampleValid)
 {
-    if (lineSeries == nullptr
-        || baselineSeries == nullptr
-        || axisX == nullptr
-        || axisY == nullptr)
+    if (lineSeries == nullptr || baselineSeries == nullptr || axisX == nullptr || axisY == nullptr)
     {
         return;
     }
-
-    // lineSeries 用途：保存真实采样曲线；baselineSeries 用途：保存同一 X 坐标上的下边界。
-    lineSeries->append(m_sampleCounter, sampleValue);
-    baselineSeries->append(m_sampleCounter, minAxisYValue);
-    while (lineSeries->count() > m_historyLength)
+    // 聚合磁盘/网络沿用本帧后端有效性；其它专用指标保留自身有限值语义。
+    bool valid = sampleValid;
+    if (lineSeries == m_diskReadLineSeries || lineSeries == m_diskWriteLineSeries)
     {
-        lineSeries->remove(0);
+        valid = valid && m_metricDiskValid;
     }
-    while (baselineSeries->count() > m_historyLength)
+    else if (lineSeries == m_networkRxLineSeries || lineSeries == m_networkTxLineSeries)
     {
-        baselineSeries->remove(0);
+        valid = valid && m_metricNetworkValid;
     }
-
-    const QList<QPointF> pointList = lineSeries->points();
-    if (pointList.isEmpty())
+    else if (lineSeries == m_gpuDedicatedMemoryLineSeries)
     {
-        return;
+        valid = valid && m_metricGpuValid && m_gpuDedicatedUsageAvailable;
     }
-
-    const double firstX = pointList.first().x();
-    const double lastX = pointList.last().x();
-    if (qFuzzyCompare(firstX, lastX))
+    else if (lineSeries == m_gpuSharedMemoryLineSeries)
     {
-        animateLiveValueAxisRange(axisX, firstX - 1.0, lastX + 1.0);
+        valid = valid && m_metricGpuValid && m_gpuSharedUsageAvailable;
     }
-    else
+    for (const GpuEngineChartEntry& engine : m_gpuEngineCharts)
     {
-        animateLiveValueAxisRange(axisX, firstX, lastX);
+        if (lineSeries == engine.lineSeries)
+        {
+            valid = valid && m_metricGpuValid;
+            break;
+        }
     }
-
-    // maxYValue 用途：按单条曲线可见历史设置纵轴上限，共轴双线稍后由 updateSharedSeriesAxisRange 再统一。
-    double maxYValue = minAxisYValue + 1.0;
-    for (const QPointF& pointValue : pointList)
-    {
-        maxYValue = std::max(maxYValue, pointValue.y());
-    }
-    axisY->setRange(minAxisYValue, maxYValue * 1.15);
+    auto* binding = ks::ui::MetricChartBinding::ForSeries(lineSeries, m_historyLength);
+    binding->append({ static_cast<std::uint64_t>(m_sampleCounter), m_metricSampleTimeMs, sampleValue, valid });
+    ks::ui::MetricChartBinding::ForSeries(baselineSeries, m_historyLength)->append(
+        { static_cast<std::uint64_t>(m_sampleCounter), m_metricSampleTimeMs, minAxisYValue, valid });
+    const auto range = binding->range({ minAxisYValue, 1.0, 1.15, {} });
+    animateLiveValueAxisRange(axisX, range.minimumX, range.maximumX);
+    axisY->setRange(range.minimumY, range.maximumY);
 }
 
-void HardwareDock::updateSharedSeriesAxisRange(
-    QLineSeries* primaryLineSeries,
-    QLineSeries* secondaryLineSeries,
-    QValueAxis* axisX,
-    QValueAxis* axisY,
-    const double minAxisYValue)
+void HardwareDock::updateSharedSeriesAxisRange(QLineSeries* primaryLineSeries,
+    QLineSeries* secondaryLineSeries, QValueAxis* axisX, QValueAxis* axisY, const double minAxisYValue)
 {
     if (axisX == nullptr || axisY == nullptr)
     {
         return;
     }
-
-    const QList<QPointF> primaryPointList =
-        primaryLineSeries != nullptr ? primaryLineSeries->points() : QList<QPointF>();
-    const QList<QPointF> secondaryPointList =
-        secondaryLineSeries != nullptr ? secondaryLineSeries->points() : QList<QPointF>();
-    if (primaryPointList.isEmpty() && secondaryPointList.isEmpty())
-    {
-        return;
-    }
-
-    // firstXValue 用途：两条曲线可见区域的最左侧采样 X 值。
-    double firstXValue = std::numeric_limits<double>::max();
-    // lastXValue 用途：两条曲线可见区域的最右侧采样 X 值。
-    double lastXValue = std::numeric_limits<double>::lowest();
-    // maxYValue 用途：两条曲线当前可见历史中的共同最大值。
-    double maxYValue = minAxisYValue + 1.0;
-
-    const auto accumulatePointRange =
-        [&firstXValue, &lastXValue, &maxYValue](const QList<QPointF>& pointList)
-        {
-            if (pointList.isEmpty())
-            {
-                return;
-            }
-
-            firstXValue = std::min(firstXValue, pointList.first().x());
-            lastXValue = std::max(lastXValue, pointList.last().x());
-            for (const QPointF& pointValue : pointList)
-            {
-                maxYValue = std::max(maxYValue, pointValue.y());
-            }
-        };
-
-    accumulatePointRange(primaryPointList);
-    accumulatePointRange(secondaryPointList);
-
-    if (qFuzzyCompare(firstXValue, lastXValue))
-    {
-        animateLiveValueAxisRange(axisX, firstXValue - 1.0, lastXValue + 1.0);
-    }
-    else
-    {
-        animateLiveValueAxisRange(axisX, firstXValue, lastXValue);
-    }
-    axisY->setRange(minAxisYValue, maxYValue * 1.15);
+    // 同一轴策略读取两份模型的有效历史，不再反向扫描绘制系列的临时坐标。
+    const auto range = ks::ui::MetricChartBinding::SharedRange({ primaryLineSeries, secondaryLineSeries },
+        ks::ui::MetricXMode::StableId, { minAxisYValue, 1.0, 1.15, {} });
+    animateLiveValueAxisRange(axisX, range.minimumX, range.maximumX);
+    axisY->setRange(range.minimumY, range.maximumY);
 }
 
 void HardwareDock::rebuildDualRateNavCard(

@@ -1,6 +1,6 @@
-// Isolated production ScannerDock + MemoryEditorWidget, synthetic file only.
+// Isolated production ScannerDock + SnapshotWorkbenchWidget, synthetic file only.
 #include "../../Ksword5.1/Ksword5.1/ScannerDock/ScannerDock.h"
-#include "../../Ksword5.1/Ksword5.1/UI/MemoryEditorWidget.h"
+#include "../../Ksword5.1/Ksword5.1/UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "../../Ksword5.1/Ksword5.1/UI/BinaryOverviewBar.h"
 #include "../../Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.h"
 #include "../../Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchDisasmView.h"
@@ -122,7 +122,7 @@ int main(int argc, char** argv)
     dock.resize(1040, 680);
     dock.show();
     auto* pathEdit = dock.findChild<QLineEdit*>(QStringLiteral("scanner_target_path"));
-    auto* editor = dock.findChild<ks::ui::MemoryEditorWidget*>();
+    auto* editor = dock.findChild<ks::ui::SnapshotWorkbenchWidget*>();
     auto* sections = dock.findChild<QComboBox*>(QStringLiteral("scanner_analysis_sections"));
     auto* entry = dock.findChild<QPushButton*>(QStringLiteral("scanner_analysis_entry"));
     auto* address = dock.findChild<QLineEdit*>(QStringLiteral("scanner_analysis_address"));

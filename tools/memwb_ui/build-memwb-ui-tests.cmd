@@ -56,7 +56,7 @@ if errorlevel 1 exit /b %errorlevel%
 if errorlevel 1 exit /b %errorlevel%
 "%QT%\bin\moc.exe" "%UI%\HexViewWidgets.h" -o "%MOC%\moc_HexViewWidgets.cpp"
 if errorlevel 1 exit /b %errorlevel%
-"%QT%\bin\moc.exe" "%APP%\UI\HexEditorWidget.h" -o "%MOC%\moc_HexEditorWidget.cpp"
+"%QT%\bin\moc.exe" "%UI%\WorkbenchCompareView.h" -o "%MOC%\moc_WorkbenchCompareView.cpp"
 if errorlevel 1 exit /b %errorlevel%
 "%QT%\bin\rcc.exe" "%FIX%\memwb_ui_icons.qrc" -name memwb_ui_icons -o "%MOC%\qrc_memwb_ui_icons.cpp"
 if errorlevel 1 exit /b %errorlevel%
@@ -67,12 +67,13 @@ cl /nologo /std:c++latest /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W4 /WX 
   "%FIX%\memwb_ui_tests.cpp" "%FIX%\memwb_ui_common.cpp" "%FIX%\memwb_ui_tests.View.cpp" "%FIX%\memwb_ui_tests.Edit.cpp" "%FIX%\memwb_ui_render.cpp" "%FIX%\memwb_ui_bench.cpp" ^
   "%FIX%\memwb_ui_inspector.cpp" "%FIX%\memwb_ui_tests.Inspector.cpp" "%FIX%\memwb_ui_tests.Inspector.Edit.cpp" "%FIX%\memwb_ui_tests.Inspector.Shots.cpp" "%FIX%\memwb_ui_tests.Signals.cpp" "%FIX%\memwb_ui_tests.Signals.Stage.cpp" "%FIX%\memwb_ui_tests.Signals.View.cpp" "%FIX%\memwb_ui_tests.Signals.Inspector.cpp" ^
   "%FIX%\memwb_ui_hexview.cpp" "%FIX%\memwb_ui_tests.HexView.cpp" "%FIX%\memwb_ui_tests.HexView.Compat.cpp" "%FIX%\memwb_ui_tests.HexView.Reference.cpp" "%FIX%\memwb_ui_tests.HexView.Find.cpp" "%FIX%\memwb_ui_tests.HexView.FindLogic.cpp" "%FIX%\memwb_ui_tests.HexView.Goto.cpp" "%FIX%\memwb_ui_tests.HexView.Export.cpp" "%FIX%\memwb_ui_tests.HexView.Shots.cpp" ^
-  "%FIX%\memwb_ui_tests.Facade.cpp" "%FIX%\memwb_ui_tests.Facade.Signals.cpp" "%FIX%\memwb_ui_tests.Facade.Hosts.cpp" "%FIX%\memwb_ui_tests.Segmented.cpp" "%FIX%\memwb_ui_tests.CachedRange.cpp" "%FIX%\memwb_ui_tests.IconAliases.cpp" "%FIX%\memwb_ui_tests.RowFit.cpp" "%APP%\UI\SmoothScrollSupport.cpp" "%APP%\UI\HexEditorWidget.cpp" ^
+  "%FIX%\memwb_ui_tests.HexView.Hosts.cpp" "%FIX%\memwb_ui_tests.Segmented.cpp" "%FIX%\memwb_ui_tests.CachedRange.cpp" "%FIX%\memwb_ui_tests.IconAliases.cpp" "%FIX%\memwb_ui_tests.RowFit.cpp" "%APP%\UI\SmoothScrollSupport.cpp" ^
   "%FIX%\memwb_ui_tests.IoMapping.cpp" "%APP%\MemoryDock\WorkbenchIoMapping.cpp" ^
+  "%FIX%\memwb_ui_tests.CompareContracts.cpp" "%UI%\WorkbenchCompareView.cpp" "%APP%\Internationalization\LanguageManager.cpp" "%MOC%\moc_WorkbenchCompareView.cpp" ^
   "%UI%\HexCanvas.cpp" "%UI%\HexCanvas.Scroll.cpp" "%UI%\HexCanvas.Layout.cpp" "%UI%\HexCanvas.Paint.cpp" "%UI%\HexCanvas.Input.cpp" "%UI%\HexCanvas.Edit.cpp" "%UI%\HexCanvas.Menu.cpp" "%UI%\HexCanvasFormat.cpp" ^
   "%UI%\HexInspectorPanel.cpp" "%UI%\HexInspectorPanel.Rows.cpp" "%UI%\HexInspectorPanel.Edit.cpp" "%UI%\HexInspectorPanel.Menu.cpp" "%UI%\HexInspectorRowView.cpp" "%UI%\HexInspectorRowView.Paint.cpp" "%UI%\HexInspectorWidgets.cpp" ^
   "%UI%\HexView.cpp" "%UI%\HexView.Toolbar.cpp" "%UI%\HexView.Compat.cpp" "%UI%\HexView.Panels.cpp" "%UI%\HexViewWidgets.cpp" "%UI%\HexViewWidgets.Text.cpp" "%UI%\HexViewFormat.cpp" "%UI%\HexViewSettings.cpp" "%UI%\HexFindBar.cpp" "%UI%\HexFindSearch.cpp" "%UI%\HexGotoBar.cpp" "%UI%\HexExport.cpp" ^
-  "%MOC%\moc_HexCanvas.cpp" "%MOC%\moc_HexInspectorPanel.cpp" "%MOC%\moc_HexInspectorRowView.cpp" "%MOC%\moc_HexView.cpp" "%MOC%\moc_HexFindBar.cpp" "%MOC%\moc_HexGotoBar.cpp" "%MOC%\moc_HexViewWidgets.cpp" "%MOC%\moc_HexEditorWidget.cpp" "%MOC%\qrc_memwb_ui_icons.cpp" ^
+  "%MOC%\moc_HexCanvas.cpp" "%MOC%\moc_HexInspectorPanel.cpp" "%MOC%\moc_HexInspectorRowView.cpp" "%MOC%\moc_HexView.cpp" "%MOC%\moc_HexFindBar.cpp" "%MOC%\moc_HexGotoBar.cpp" "%MOC%\moc_HexViewWidgets.cpp" "%MOC%\qrc_memwb_ui_icons.cpp" ^
   "%CORE%\HexViewport.cpp" "%CORE%\HexViewport.Cache.cpp" "%CORE%\HexViewport.Selection.cpp" "%CORE%\MemoryDiffOverlay.cpp" "%CORE%\MemoryDiffOverlay.Patches.cpp" "%CORE%\MemoryTargetSession.cpp" "%CORE%\MemoryValueDecode.cpp" "%CORE%\MemoryAddressExpr.cpp" "%CORE%\MemoryByteSearch.cpp" ^
   /Fo"%OBJ%\\" /Fe"%OUT%\memwb_ui_tests.exe" ^
   /link /OPT:REF /LIBPATH:"%QT%\lib" Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib Qt6Test.lib user32.lib advapi32.lib

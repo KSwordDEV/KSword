@@ -7,7 +7,7 @@
 class QLabel;
 class QPushButton;
 class QSpinBox;
-class QPlainTextEdit;
+class CodeEditorWidget;
 class QTableWidget;
 class QTimer;
 class QProcess;
@@ -45,7 +45,7 @@ private:
     QLabel* m_note = nullptr;
     QLabel* m_gpuStatus = nullptr;
     QTableWidget* m_gpuTable = nullptr;
-    QPlainTextEdit* m_traceLog = nullptr;
+    CodeEditorWidget* m_traceLog = nullptr;
     QTabWidget* m_detailTabs = nullptr;
     PoolAllocationAnalysisWidget* m_poolAnalysis = nullptr;
     QTimer* m_captureTimer = nullptr;

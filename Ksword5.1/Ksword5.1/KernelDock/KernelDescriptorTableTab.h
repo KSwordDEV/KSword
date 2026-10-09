@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../ArkDriverClient/ArkDriverTypes.h"
 #include "KernelCleanImageBaseline.h"
@@ -17,7 +17,7 @@ class QPoint;
 class QPushButton;
 class QShowEvent;
 class QTableWidget;
-class QPlainTextEdit;
+class CodeEditorWidget;
 
 // KernelDescriptorTableKind：
 // - 作用：指定描述符子页仅展示 IDT 或仅展示 GDT；
@@ -108,7 +108,7 @@ private:
     QPushButton* m_restoreIdtButton = nullptr; // m_restoreIdtButton：仅 IDT 页创建的启动期基线恢复按钮。
     QLabel* m_statusLabel = nullptr;        // m_statusLabel：异步查询状态和表项数量。
     QTableWidget* m_table = nullptr;        // m_table：描述符结构化结果表。
-    QPlainTextEdit* m_detailEdit = nullptr; // m_detailEdit：当前表项的只读诊断详情。
+    CodeEditorWidget* m_detailEdit = nullptr; // m_detailEdit：当前表项的只读诊断详情。
     std::vector<ksword::ark::DriverIntegrityEvidenceEntry> m_rows; // m_rows：当前类型的 R0 快照。
     std::vector<ks::kernel::TrustedIdtBaselineResult> m_trustedIdtBaselines; // m_trustedIdtBaselines：与 IDT 行对齐的可信映像/PDB 预期 Handler 证据。
     bool m_refreshRunning = false;          // m_refreshRunning：防止重复并发查询。

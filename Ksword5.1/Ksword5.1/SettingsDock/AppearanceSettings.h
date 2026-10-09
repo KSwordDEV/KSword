@@ -84,7 +84,7 @@ namespace ks::settings
     // useWideScrollBars：是否使用宽滚动条（false=默认窄版）；
     // scrollBarAutoHideEnabled：滚动条是否启用自动隐藏/悬停展开；
     // smoothScrollingEnabled：是否对全局滚动区域启用滚轮缓动；
-    // sliderWheelAdjustEnabled：是否允许滚轮直接调整滑块值。
+    // sliderWheelAdjustEnabled：是否允许滚轮调整滑块、下拉框和数值输入框；沿用旧配置键。
     // fontFamily：应用界面字体族；空值表示沿用系统默认字体。
     // textAntialiasingEnabled：是否以应用默认字体启用文本抗锯齿。
     // dumpAutoCheckEnabled：启动后是否检查系统近期是否产生过新的崩溃转储。

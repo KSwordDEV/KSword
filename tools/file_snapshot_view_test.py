@@ -17,10 +17,12 @@ import subprocess
 
 
 HARNESS_PREFIX = r'''
-#include "Ksword5.1/Ksword5.1/UI/MemoryEditorWidget.h"
-#include "Ksword5.1/Ksword5.1/UI/HexEditorWidget.h"
+#include "Ksword5.1/Ksword5.1/UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
+#include "Ksword5.1/Ksword5.1/UI/MemoryWorkbench/HexView.h"
 #include "Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchDisasmView.h"
 #include "Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchTextView.h"
+#include "Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchCompareView.h"
+#include "Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchPseudocodeView.h"
 #include "Ksword5.1/Ksword5.1/UI/MemoryWorkbench/MemoryRowCanvas.h"
 #include "Ksword5.1/Ksword5.1/Internationalization/LanguageManager.h"
 #include <Windows.h>
@@ -39,6 +41,7 @@ HARNESS_PREFIX = r'''
 #include <QPushButton>
 #include <QRunnable>
 #include <QSemaphore>
+#include <QSettings>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTemporaryDir>
@@ -47,6 +50,7 @@ HARNESS_PREFIX = r'''
 #include <QVBoxLayout>
 #include <algorithm>
 #include <atomic>
+#include <bit>
 #include <functional>
 #include <iostream>
 #include <limits>
@@ -80,14 +84,14 @@ class FileViewerHost final : public QWidget {
 public:
     QString m_filePath;
     QTabWidget* m_tabWidget;
-    QWidget* page = nullptr;
+    QWidget* fixturePage = nullptr;
     explicit FileViewerHost(const QString& path) : m_filePath(path), m_tabWidget(new QTabWidget(this)) {
         auto* layout = new QVBoxLayout(this); layout->addWidget(m_tabWidget);
         for (int tab = 0; tab < 14; ++tab) m_tabWidget->addTab(new QWidget, QString::number(tab));
-        page = buildHexTab();
+        fixturePage = buildHexTab();
         QWidget* placeholder = m_tabWidget->widget(13);
         m_tabWidget->removeTab(13); delete placeholder;
-        m_tabWidget->insertTab(13, page, QStringLiteral("hex"));
+        m_tabWidget->insertTab(13, fixturePage, QStringLiteral("hex"));
         m_tabWidget->setCurrentIndex(13);
         resize(1000, 700); show();
     }
@@ -97,20 +101,20 @@ HARNESS_SUFFIX = r'''
 };
 #undef QFile
 namespace {
-ks::ui::MemoryEditorWidget* Editor(FileViewerHost& host) {
-    auto* editor = host.page->findChild<ks::ui::MemoryEditorWidget*>();
+ks::ui::SnapshotWorkbenchWidget* Editor(FileViewerHost& host) {
+    auto* editor = host.fixturePage->findChild<ks::ui::SnapshotWorkbenchWidget*>();
     Require(editor != nullptr, "FileDock creates the production shared editor"); return editor;
 }
 QPushButton* Button(FileViewerHost& host, const QString& text) {
-    for (auto* button : host.page->findChildren<QPushButton*>()) if (button->text() == ks::i18n::sourceText(text)) return button;
+    for (auto* button : host.fixturePage->findChildren<QPushButton*>()) if (button->text() == ks::i18n::sourceText(text)) return button;
     Require(false, "expected FileDock navigation button exists"); return nullptr;
 }
 QLineEdit* Offset(FileViewerHost& host) {
-    for (auto* input : host.page->findChildren<QLineEdit*>()) if (input->placeholderText().contains(QStringLiteral("0x"))) return input;
+    for (auto* input : host.fixturePage->findChildren<QLineEdit*>()) if (input->placeholderText().contains(QStringLiteral("0x"))) return input;
     Require(false, "external file offset input exists"); return nullptr;
 }
 bool HasStatus(FileViewerHost& host, const QString& text) {
-    for (auto* label : host.page->findChildren<QLabel*>()) if (label->text().contains(text)) return true;
+    for (auto* label : host.fixturePage->findChildren<QLabel*>()) if (label->text().contains(text)) return true;
     return false;
 }
 void Jump(FileViewerHost& host, const QString& text) {
@@ -130,7 +134,7 @@ void WriteFile(const QString& path, const QByteArray& data) {
 void RuntimeChecks(const QString& folder) {
     constexpr qint64 chunk = 65536;
     const QString path = folder + QStringLiteral("/pages.bin");
-    QByteArray bytes(chunk * 3 + 17, char(0x90));
+    QByteArray bytes(chunk * 3 + 17, std::bit_cast<char>(std::uint8_t{0x90}));
     bytes.replace(0, 6, QByteArray::fromHex("b801000000c3"));
     bytes.replace(chunk, 6, QByteArray::fromHex("b802000000c3"));
     bytes.replace(chunk * 2, 6, QByteArray::fromHex("b803000000c3"));
@@ -141,10 +145,10 @@ void RuntimeChecks(const QString& folder) {
     const QString originalIdentity = initial.sourceIdentity;
     {
         QFile edit(path); Require(edit.open(QIODevice::ReadWrite) && edit.seek(16), "same file opens for fixture mutation");
-        Require(edit.write(QByteArray(1, char(0xCC))) == 1 && edit.flush(), "same file changes one byte");
+        Require(edit.write(QByteArray(1, std::bit_cast<char>(std::uint8_t{0xCC}))) == 1 && edit.flush(), "same file changes one byte");
         Require(edit.setFileTime(QDateTime::currentDateTimeUtc().addSecs(30), QFileDevice::FileModificationTime), "fixture advances modification time");
     }
-    bytes[16] = char(0xCC); initial = FileViewerHost::readHexFileWindow(path, 0, chunk);
+    bytes[16] = std::bit_cast<char>(std::uint8_t{0xCC}); initial = FileViewerHost::readHexFileWindow(path, 0, chunk);
     Require(initial.errorText.isEmpty() && initial.sourceIdentity == originalIdentity && initial.bytes == bytes.left(chunk),
         "same file keeps comparison identity after actual content and mtime change");
     const auto clamped = FileViewerHost::readHexFileWindow(path, 4099, 1);
@@ -156,7 +160,10 @@ void RuntimeChecks(const QString& folder) {
     Require(editor->addressKind() == ks::ui::SnapshotAddressKind::FileOffset && !editor->disassemblyView()->isEditable(), "file uses explicit offset domain and read-only assembly");
     Require(editor->data() == initial.bytes, "shared HEX cache receives reader bytes unchanged");
     auto* tabs = editor->findChild<QTabWidget*>();
-    Require(tabs != nullptr && tabs->count() == 4, "file page shares HEX disassembly text and compare tabs");
+    Require(tabs != nullptr && tabs->count() == 5, "file page shares HEX disassembly text compare and C tabs");
+    auto* pseudocode = editor->findChild<ks::ui::WorkbenchPseudocodeView*>();
+    Require(pseudocode != nullptr && tabs->indexOf(pseudocode) == 4,
+        "file C tab uses the same production pseudocode component as the live workbench");
     editor->showDisassemblyAt(0); QApplication::processEvents();
     Require(editor->disassemblyView()->model()->rowAt(0).has_value()
         && editor->disassemblyView()->model()->rowAt(0)->bytes == bytes.left(5), "file byte zero decodes through production disassembly");
@@ -175,17 +182,28 @@ void RuntimeChecks(const QString& folder) {
     Require(SpinUntil([&] { return editor->data() == bytes.left(chunk)
         && !HasStatus(host, QStringLiteral("正在读取文件偏移")); }), "same file reread publishes real changed bytes");
     tabs->setCurrentIndex(3);
-    QComboBox* baseline = nullptr;
-    for (auto* combo : editor->findChildren<QComboBox*>()) if (combo->findText(ks::i18n::sourceText(QStringLiteral("上次读取"))) >= 0) baseline = combo;
-    Require(baseline != nullptr, "file comparison exposes previous actual read"); baseline->setCurrentIndex(1);
-    auto* comparison = editor->findChild<QTableWidget*>(QStringLiteral("memory_comparison_table"));
-    Require(comparison != nullptr && comparison->rowCount() == 1, "modified same-file bytes compare with previous captured range");
+    // 验证共用比较模型实际读取的地址与旧/新字节，避免只证明页面存在。
+    auto* comparison = editor->findChild<ks::ui::WorkbenchCompareView*>();
+    Require(comparison != nullptr, "file comparison uses the production virtual compare component");
+    comparison->setMode(ks::ui::WorkbenchCompareView::Mode::ExternalChange);
+    const auto* compareModel = comparison->model();
+    Require(compareModel->rowCount() == 1
+        && compareModel->data(compareModel->index(0, 0), Qt::UserRole).toULongLong() == 16
+        && compareModel->data(compareModel->index(0, 5), Qt::DisplayRole).toInt() == 1,
+        "modified same-file byte compares at its actual captured offset");
+    Require(compareModel->data(compareModel->index(0, 1), Qt::DisplayRole).toString().startsWith(QStringLiteral("CC"))
+        && compareModel->data(compareModel->index(0, 2), Qt::DisplayRole).toString().startsWith(QStringLiteral("41")),
+        "shared comparison preserves previous and current actual bytes");
     Button(host, QStringLiteral("下一范围"))->click(); AwaitBase(host, chunk, chunk);
     Require(editor->data() == bytes.mid(chunk, chunk), "next range reuses shared snapshot across current tab");
     Button(host, QStringLiteral("上一范围"))->click(); AwaitBase(host, 0, chunk);
     Button(host, QStringLiteral("文件末尾"))->click(); AwaitBase(host, chunk * 3, 17);
     Jump(host, QStringLiteral("0x10020")); AwaitBase(host, chunk, chunk);
-    Require(editor->hexEditor()->selectedAbsoluteAddress() == chunk + 32, "hex jump selects exact file byte");
+    Require(editor->hexEditor()->caretAddress() == chunk + 32, "hex jump selects exact file byte");
+    editor->showPseudocodeAt(chunk + 32); QApplication::processEvents();
+    Require(tabs->currentWidget() == pseudocode && editor->hexEditor()->caretAddress() == chunk + 32,
+        "file snapshot can activate the shared C tab while preserving its captured offset");
+    tabs->setCurrentIndex(0);
     editor->disassemblyView()->setArchitectureOverride(false);
     Button(host, QStringLiteral("文件开头"))->click(); AwaitBase(host, 0, chunk);
     Require(editor->currentArchitecture() == ks::ui::DisassemblyArchitecture::X86, "file reread preserves chosen instruction architecture");
@@ -198,7 +216,7 @@ void RuntimeChecks(const QString& folder) {
     pool->start(QRunnable::create([&] { entered.release(); release.acquire(); }));
     Require(entered.tryAcquire(1, 3000), "async fixture holds worker queue deterministically");
     std::vector<std::uint64_t> loadedBases;
-    const auto connection = QObject::connect(editor, &ks::ui::MemoryEditorWidget::bytesChanged,
+    const auto connection = QObject::connect(editor, &ks::ui::SnapshotWorkbenchWidget::bytesChanged,
         &host, [&] { loadedBases.push_back(editor->baseAddress()); });
     Jump(host, QString::number(chunk)); Jump(host, QString::number(chunk * 2));
     release.release(); Require(pool->waitForDone(3000), "both queued reads finish");
@@ -239,7 +257,7 @@ void RuntimeChecks(const QString& folder) {
     FileViewerHost high(sparsePath); AwaitBase(high, 0, chunk);
     auto* highEditor = Editor(high); highEditor->disassemblyView()->setArchitectureOverride(false);
     Jump(high, QString::number(highOffset)); AwaitBase(high, qint64{1} << 32, 0x1234 + marker.size());
-    Require(highEditor->hexEditor()->selectedAbsoluteAddress() == highOffset
+    Require(highEditor->hexEditor()->caretAddress() == highOffset
         && highEditor->data().mid(0x1234, marker.size()) == marker, "above-4-GiB byte selection retains full file offset");
     highEditor->showDisassemblyAt(highOffset); QApplication::processEvents();
     Require(highEditor->selectedInstruction().has_value() && highEditor->selectedInstruction()->address == highOffset
@@ -262,7 +280,14 @@ void RuntimeChecks(const QString& folder) {
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
     QTemporaryDir temp(QCoreApplication::applicationDirPath() + QStringLiteral("/runtime-XXXXXX"));
-    Require(temp.isValid(), "temporary file folder exists"); RuntimeChecks(temp.path());
+    Require(temp.isValid(), "temporary file folder exists");
+    // 测试偏好写入自建文件夹中的 INI，不读取或写入 Windows 注册表偏好。
+    app.setApplicationName(QStringLiteral("KSword File Snapshot Tests"));
+    app.setOrganizationName(QStringLiteral("KSword Tests"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temp.path());
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, temp.path());
+    RuntimeChecks(temp.path());
     QThreadPool::globalInstance()->waitForDone();
     std::cout << "file snapshot page: " << checks << " checks passed\n"; return 0;
 }
@@ -271,10 +296,11 @@ int main(int argc, char** argv) {
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--msvc", action="store_true", help="Reuse the latest validated production MSVC objects")
     parser.add_argument("--objects-root", default=".codex-tmp/file-snapshot-host-tests")
     parser.add_argument("--object-manifest", type=Path)
     parser.add_argument("--qt-root", help="Override the Qt root recorded in the object manifest")
-    parser.add_argument("--output", default=".codex-tmp/file-snapshot-page")
+    parser.add_argument("--output", default=".codex-build-logs", help="Existing output directory")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     source = (repo / "Ksword5.1/Ksword5.1/FileDock/FileDock.cpp").read_text(encoding="utf-8-sig")
@@ -287,7 +313,15 @@ def main() -> None:
     assert 'm_initialTabKey == QStringLiteral("hex") ? 13' in source, "HEX initial-tab key must select index 13"
     print("FileDock direct HEX routing: 2 source checks passed", flush=True)
     out = (repo / args.output).resolve()
-    out.mkdir(parents=True, exist_ok=True)
+    if not out.is_dir():
+        raise RuntimeError("--output must point to an existing directory")
+    cpp = out / "file_snapshot_page.cpp"
+    cpp.write_text(HARNESS_PREFIX + methods + HARNESS_SUFFIX, encoding="utf-8")
+    if args.msvc:
+        from msvc_qt_production_fixture import run_msvc_fixture
+        run_msvc_fixture(repo, cpp, out, "file_snapshot_page",
+                         qt_root=Path(args.qt_root) if args.qt_root else None)
+        return
     objects_root = (repo / args.objects_root).resolve()
     manifest_path = (repo / args.object_manifest).resolve() if args.object_manifest else objects_root / "link-manifest.json"
     manifest = None
@@ -304,8 +338,6 @@ def main() -> None:
     objects = [path for path in objects if path.name not in excludes and not path.name.startswith("mutant-")]
     if len(objects) < 30:
         raise RuntimeError("Build the isolated production shared editor first; fewer than 30 objects found.")
-    cpp = out / "file_snapshot_page.cpp"
-    cpp.write_text(HARNESS_PREFIX + methods + HARNESS_SUFFIX, encoding="utf-8")
     compiler = shutil.which("g++")
     if compiler is None:
         raise RuntimeError("g++ is required for the existing portable Qt fixture.")

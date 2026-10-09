@@ -12,10 +12,12 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QMenu;
+class QStackedWidget;
 
 namespace ks::ui
 {
     class MemoryRowCanvas;
+    class ReportStructuredView;
 
     // Read-only address-backed text on the same row canvas as disassembly.
     // Decode first, then lay out rows: display boundaries never split a scalar.
@@ -51,6 +53,7 @@ namespace ks::ui
         std::optional<std::pair<std::uint64_t, std::uint64_t>> selectedByteRange() const;
         QString renderedText() const;
         QString selectedDecodedText() const;
+        QString copyTextForCurrentView() const;
         std::uint64_t windowAddress() const;
         std::uint64_t windowLength() const;
         QSize minimumSizeHint() const override;
@@ -61,6 +64,7 @@ namespace ks::ui
         void contextMenuAboutToShow(QMenu* menu, quint64 address, bool hasByte);
         void requestHexLocate(quint64 address);
     protected:
+        bool event(QEvent* event) override;
         bool eventFilter(QObject* watched, QEvent* event) override;
     private:
         static constexpr std::uint64_t kMaxWindowBytes = 1024ULL * 1024ULL;
@@ -71,8 +75,13 @@ namespace ks::ui
         void findNext();
         void findMatch(bool backwards);
         void setStatus(const QString& text);
+        void updateStructuredView(bool completeDecode);
+        void activateOriginalView();
         IWorkbenchBytesProvider* m_provider = nullptr;
         QComboBox* m_encodingCombo = nullptr;
+        QComboBox* m_structureCombo = nullptr;
+        QStackedWidget* m_viewStack = nullptr;
+        ReportStructuredView* m_structuredView = nullptr;
         QCheckBox* m_bytesToggle = nullptr;
         QCheckBox* m_wrapToggle = nullptr;
         QCheckBox* m_controlToggle = nullptr;

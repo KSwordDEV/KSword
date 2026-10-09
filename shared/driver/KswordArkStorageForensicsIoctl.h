@@ -11,6 +11,9 @@
 // ============================================================
 
 #define KSWORD_ARK_STORAGE_FORENSICS_PROTOCOL_VERSION 1UL
+// 仅捕获读/写请求使用 V2；查询、普通读写请求及所有响应保持 V1。
+#define KSWORD_ARK_RAW_DISK_CAPTURED_WRITE_VERSION 2UL
+#define KSWORD_ARK_RAW_DISK_CAPTURED_READ_VERSION 2UL
 
 #define KSWORD_ARK_IOCTL_FUNCTION_QUERY_RAW_DISK_BACKEND 0x8C4UL
 #define KSWORD_ARK_IOCTL_FUNCTION_READ_RAW_DISK          0x8C5UL
@@ -68,6 +71,9 @@
 #define KSWORD_ARK_RAW_DISK_STATUS_IO_FAILED           8UL
 #define KSWORD_ARK_RAW_DISK_STATUS_BUFFER_TOO_SMALL    9UL
 #define KSWORD_ARK_RAW_DISK_STATUS_NOT_SUPPORTED       10UL
+// 捕获来源 GUID 已更换，或原始字节已改变时禁止写入。
+#define KSWORD_ARK_RAW_DISK_STATUS_SOURCE_CHANGED      11UL
+#define KSWORD_ARK_RAW_DISK_STATUS_ORIGINAL_CHANGED    12UL
 
 #define KSWORD_ARK_RAW_DISK_CONFIRMATION_TOKEN 0x4B445746UL
 #define KSWORD_ARK_RAW_DISK_DEFAULT_SECTOR_SIZE 512UL
@@ -127,6 +133,22 @@ typedef struct _KSWORD_ARK_RAW_DISK_READ_REQUEST
 } KSWORD_ARK_RAW_DISK_READ_REQUEST,
   *PKSWORD_ARK_RAW_DISK_READ_REQUEST;
 
+// 捕获读保留旧40字节前缀，只从已核验 GUID 的同一打开对象返回内容。
+typedef struct _KSWORD_ARK_RAW_DISK_CAPTURED_READ_REQUEST
+{
+    unsigned long version; // 仅捕获读请求使用 V2。
+    unsigned long size; // 固定56字节，拒绝截短/附加内容。
+    unsigned long diskNumber; // 首次打开设备号。
+    unsigned long backend; // 唯一指定的读取后端。
+    unsigned long flags; // 保留系统盘读取确认。
+    unsigned long length; // 长度上限256KiB。
+    unsigned long reserved0; // 必须为零。
+    unsigned long reserved1; // 必须为零。
+    unsigned long long offset; // 冻结设备偏移。
+    unsigned char expectedDeviceGuid[16]; // native GUID 字节，不使用文本布局。
+} KSWORD_ARK_RAW_DISK_CAPTURED_READ_REQUEST,
+  *PKSWORD_ARK_RAW_DISK_CAPTURED_READ_REQUEST;
+
 typedef struct _KSWORD_ARK_RAW_DISK_READ_RESPONSE
 {
     unsigned long version;
@@ -161,6 +183,26 @@ typedef struct _KSWORD_ARK_RAW_DISK_WRITE_REQUEST
 
 #define KSWORD_ARK_RAW_DISK_WRITE_REQUEST_HEADER_SIZE \
     ((unsigned long)FIELD_OFFSET(KSWORD_ARK_RAW_DISK_WRITE_REQUEST, data))
+
+// V2 保留 V1 的 40 字节前缀，随后是 native GUID16 和两段等长字节：原值、替换值。
+typedef struct _KSWORD_ARK_RAW_DISK_CAPTURED_WRITE_REQUEST
+{
+    unsigned long version; // 必须为捕获写专用版本 2，旧驱动不能按 V1 降级解释。
+    unsigned long size; // 必须严格等于 header + 2 * length。
+    unsigned long diskNumber; // 捕获时的设备号，只用于首次打开。
+    unsigned long backend; // 捕获时选择的读写后端。
+    unsigned long flags; // 保留既有显式确认与系统盘门禁。
+    unsigned long length; // 两段数据各自长度，范围 1..256 KiB。
+    unsigned long confirmationToken; // 保留既有写确认令牌。
+    unsigned long reserved; // 必须为零，禁止未声明的扩展。
+    unsigned long long offset; // 捕获的对齐磁盘偏移。
+    unsigned char expectedDeviceGuid[16]; // STORAGE_DEVICE_NUMBER_EX.DeviceGuid 的 native 布局。
+    unsigned char data[1]; // original[length] 后紧接 replacement[length]。
+} KSWORD_ARK_RAW_DISK_CAPTURED_WRITE_REQUEST,
+  *PKSWORD_ARK_RAW_DISK_CAPTURED_WRITE_REQUEST;
+
+#define KSWORD_ARK_RAW_DISK_CAPTURED_WRITE_HEADER_SIZE \
+    ((unsigned long)FIELD_OFFSET(KSWORD_ARK_RAW_DISK_CAPTURED_WRITE_REQUEST, data))
 
 typedef struct _KSWORD_ARK_RAW_DISK_WRITE_RESPONSE
 {

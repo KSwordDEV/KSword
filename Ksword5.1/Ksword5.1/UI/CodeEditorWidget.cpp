@@ -1,4 +1,5 @@
-#include "CodeEditorWidget.h"
+﻿#include "CodeEditorWidget.h"
+#include "FieldTreePresenter.h"
 #include "CodeTextEdit.h"
 #include "CodeEditorFileSession.h"
 
@@ -15,6 +16,7 @@
 #include "../Internationalization/LanguageManager.h"
 
 #include <QBuffer>
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
@@ -286,7 +288,13 @@ namespace
             colorPainter.end();
             icon.addPixmap(coloredPixmap, mode, state);
         };
-        const QColor surface = button ? button->palette().color(QPalette::Base) : KswordTheme::SurfaceColor();
+        // Normal 按钮透明；可见底色来自父面板，不能用 QSS 改写的按钮 Base。
+        const QWidget* parentSurface = button != nullptr ? button->parentWidget() : nullptr;
+        const QPalette::ColorRole surfaceRole = parentSurface != nullptr
+            && parentSurface->objectName() == QStringLiteral("code_editor_find_panel")
+            ? QPalette::AlternateBase : QPalette::Base;
+        const QColor surface = parentSurface != nullptr
+            ? parentSurface->palette().color(surfaceRole) : KswordTheme::SurfaceColor();
         const QColor checkedBackground = KswordTheme::PrimaryAccentColor();
         const QColor pressedBackground = KswordTheme::AccentColor(KswordTheme::AccentRole::Blue, -14, -40);
         const bool pressed = button != nullptr && button->isDown();
@@ -305,6 +313,43 @@ namespace
             addColoredPixmap(KswordTheme::ControlGlyphColor(surface, true), QIcon::Disabled, state);
         }
         return icon;
+    }
+
+    // 排队读取最终调色板：Qt 的按下/释放和 QSS polish 可能先经过瞬时背景。
+    void queueToolbarGlyphRefresh(QToolButton* button)
+    {
+        const QPointer<QToolButton> guardedButton(button); // 动态属性通知也可同步销毁按钮。
+        if (guardedButton.isNull() || guardedButton->property("ksword_editor_glyph_refresh_pending").toBool())
+        {
+            return;
+        }
+        guardedButton->setProperty("ksword_editor_glyph_refresh_pending", true);
+        if (guardedButton.isNull())
+        {
+            return;
+        }
+        QTimer::singleShot(0, guardedButton.data(), [guardedButton]()
+        {
+            if (guardedButton.isNull())
+            {
+                return;
+            }
+            guardedButton->setProperty("ksword_editor_glyph_refresh_pending", false);
+            if (guardedButton.isNull())
+            {
+                return;
+            }
+            const QString path = guardedButton->property("ksword_editor_icon_path").toString();
+            if (!path.isEmpty())
+            {
+                guardedButton->setProperty("ksword_editor_glyph_down", guardedButton->isDown());
+                if (guardedButton.isNull())
+                {
+                    return;
+                }
+                guardedButton->setIcon(buildToolbarSvgIcon(path, guardedButton.data()));
+            }
+        });
     }
 
     // FileDecodeResult：
@@ -663,6 +708,7 @@ CodeEditorWidget::~CodeEditorWidget()
 
 QString CodeEditorWidget::text() const
 {
+    if (m_readOnlyMode && m_reportTextActive) return m_reportOriginalText;
     return (m_editor == nullptr) ? QString() : m_editor->toPlainText();
 }
 
@@ -682,6 +728,8 @@ void CodeEditorWidget::setRawText(const QString& plainText)
     m_localizedSourceText.clear();
     m_localizedRawSuffix.clear();
     m_localizedTextActive = false;
+    m_reportTextActive = false;
+    m_reportOriginalText.clear();
     if (m_editor == nullptr)
     {
         return;
@@ -691,7 +739,134 @@ void CodeEditorWidget::setRawText(const QString& plainText)
     m_editor->setPlainText(plainText);
     if (!self) return;
     resetFileSessionMetadata();
+    updateStructuredReportView();
     updateStatusText();
+}
+
+void CodeEditorWidget::setReportText(const QString& reportText, const bool preserveScroll)
+{
+    m_localizedSourceText.clear();
+    m_localizedRawSuffix.clear();
+    m_localizedTextActive = false;
+    m_reportTextActive = true;
+    m_reportOriginalText = reportText;
+    if (m_editor == nullptr) return;
+    const int vertical = m_editor->verticalScrollBar()->value();
+    const int horizontal = m_editor->horizontalScrollBar()->value();
+    const QPointer<CodeEditorWidget> self(this);
+    m_editor->setPlainText(reportText);
+    if (!self) return;
+    resetFileSessionMetadata();
+    updateStructuredReportView();
+    updateStatusText();
+    if (preserveScroll)
+    {
+        m_editor->verticalScrollBar()->setValue(vertical);
+        m_editor->horizontalScrollBar()->setValue(horizontal);
+    }
+}
+
+void CodeEditorWidget::setStructuredContentWidget(QWidget* contentWidget)
+{
+    if (m_structuredContent == contentWidget || contentWidget == this ||
+        contentWidget == m_editor || contentWidget == m_structuredView ||
+        (contentWidget != nullptr && contentWidget->isAncestorOf(this))) return;
+    if (m_structuredContent != nullptr)
+    {
+        QWidget* previous = m_structuredContent.data();
+        QObject::disconnect(previous, nullptr, this, nullptr);
+        m_structuredContent.clear();
+        m_viewStack->removeWidget(previous);
+        previous->deleteLater();
+    }
+    if (contentWidget != nullptr)
+    {
+        m_viewStack->addWidget(contentWidget);
+        m_structuredContent = contentWidget;
+        connect(contentWidget, &QObject::destroyed, this, [this]() {
+            m_structuredContent.clear();
+            if (!m_destroying) updateStructuredReportView();
+        });
+    }
+    updateStructuredReportView();
+}
+
+void CodeEditorWidget::appendReportText(const QString& reportText)
+{
+    const QString previous = text();
+    m_localizedSourceText.clear();
+    m_localizedRawSuffix.clear();
+    m_localizedTextActive = false;
+    m_reportTextActive = true;
+    m_reportOriginalText = previous.isEmpty() ? reportText : previous + QLatin1Char('\n') + reportText;
+    const QPointer<CodeEditorWidget> self(this);
+    m_editor->appendPlainText(reportText);
+    if (!self) return;
+    resetFileSessionMetadata();
+    updateStructuredReportView();
+}
+
+void CodeEditorWidget::setPlaceholderText(const QString& placeholder)
+{
+    m_editor->setPlaceholderText(placeholder);
+}
+
+void CodeEditorWidget::appendRawText(const QString& rawText, const bool autoScroll)
+{
+    // 退出报告缓存后只增量追加文档，避免逐行 setPlainText 丢失选择和撤销历史。
+    m_localizedSourceText.clear();
+    m_localizedRawSuffix.clear();
+    m_localizedTextActive = false;
+    m_reportTextActive = false;
+    m_reportOriginalText.clear();
+    const int vertical = m_editor->verticalScrollBar()->value();
+    const int horizontal = m_editor->horizontalScrollBar()->value();
+    const bool atBottom = vertical >= m_editor->verticalScrollBar()->maximum();
+    const QPointer<CodeEditorWidget> guard(this);
+    m_editor->appendPlainText(rawText);
+    if (!guard) return;
+    resetFileSessionMetadata();
+    updateStructuredReportView();
+    m_editor->verticalScrollBar()->setValue(autoScroll && atBottom
+        ? m_editor->verticalScrollBar()->maximum() : vertical);
+    m_editor->horizontalScrollBar()->setValue(horizontal);
+}
+
+void CodeEditorWidget::setMaximumBlockCount(const int count)
+{
+    // 容量限制只服务原文日志，明确清除完整报告缓存，防止复制出已被裁剪的旧正文。
+    m_localizedSourceText.clear();
+    m_localizedRawSuffix.clear();
+    m_localizedTextActive = false;
+    m_reportTextActive = false;
+    m_reportOriginalText.clear();
+    m_editor->document()->setMaximumBlockCount(std::max(0, count));
+    updateStructuredReportView();
+    resetFileSessionMetadata();
+}
+
+void CodeEditorWidget::replaceRawText(const QString& rawText, const bool followTailIfAtBottom)
+{
+    // 主题/语言触发整批日志重建时只维护 viewport，不重翻译后端返回内容。
+    const int vertical = m_editor->verticalScrollBar()->value();
+    const int horizontal = m_editor->horizontalScrollBar()->value();
+    const bool atBottom = vertical >= m_editor->verticalScrollBar()->maximum();
+    const QPointer<CodeEditorWidget> guard(this);
+    setRawText(rawText);
+    if (!guard) return;
+    m_editor->verticalScrollBar()->setValue(followTailIfAtBottom && atBottom
+        ? m_editor->verticalScrollBar()->maximum() : vertical);
+    m_editor->horizontalScrollBar()->setValue(horizontal);
+}
+
+int CodeEditorWidget::maximumBlockCount() const
+{
+    return m_editor->document()->maximumBlockCount();
+}
+
+void CodeEditorWidget::clear()
+{
+    setRawText(QString());
 }
 
 void CodeEditorWidget::setLocalizedText(const QString& sourceText)
@@ -699,15 +874,18 @@ void CodeEditorWidget::setLocalizedText(const QString& sourceText)
     m_localizedSourceText = sourceText;
     m_localizedRawSuffix.clear();
     m_localizedTextActive = true;
+    m_reportTextActive = true;
     if (m_editor == nullptr)
     {
         return;
     }
 
     const QPointer<CodeEditorWidget> self(this);
-    m_editor->setPlainText(localizeGeneratedReport(m_localizedSourceText) + m_localizedRawSuffix);
+    m_reportOriginalText = localizeGeneratedReport(m_localizedSourceText) + m_localizedRawSuffix;
+    m_editor->setPlainText(m_reportOriginalText);
     if (!self) return;
     resetFileSessionMetadata();
+    updateStructuredReportView();
     updateStatusText();
 }
 
@@ -718,15 +896,18 @@ void CodeEditorWidget::setLocalizedTextWithRawSuffix(
     m_localizedSourceText = sourceText;
     m_localizedRawSuffix = rawSuffix;
     m_localizedTextActive = true;
+    m_reportTextActive = true;
     if (m_editor == nullptr)
     {
         return;
     }
 
     const QPointer<CodeEditorWidget> self(this);
-    m_editor->setPlainText(localizeGeneratedReport(m_localizedSourceText) + m_localizedRawSuffix);
+    m_reportOriginalText = localizeGeneratedReport(m_localizedSourceText) + m_localizedRawSuffix;
+    m_editor->setPlainText(m_reportOriginalText);
     if (!self) return;
     resetFileSessionMetadata();
+    updateStructuredReportView();
     updateStatusText();
 }
 
@@ -755,7 +936,8 @@ void CodeEditorWidget::changeEvent(QEvent* event)
     const int verticalScrollValue = m_editor->verticalScrollBar()->value();
     const int horizontalScrollValue = m_editor->horizontalScrollBar()->value();
     const QPointer<CodeEditorWidget> self(this);
-    m_editor->setPlainText(localizeGeneratedReport(m_localizedSourceText) + m_localizedRawSuffix);
+    m_reportOriginalText = localizeGeneratedReport(m_localizedSourceText) + m_localizedRawSuffix;
+    m_editor->setPlainText(m_reportOriginalText);
     if (!self) return;
     m_editor->verticalScrollBar()->setValue(verticalScrollValue);
     m_editor->horizontalScrollBar()->setValue(horizontalScrollValue);
@@ -781,6 +963,14 @@ void CodeEditorWidget::setReadOnly(const bool readOnly)
     }
 
     m_readOnlyMode = readOnly;
+    if (!readOnly)
+    {
+        m_reportTextActive = false;
+        m_reportOriginalText.clear();
+        m_localizedTextActive = false;
+        m_localizedSourceText.clear();
+        m_localizedRawSuffix.clear();
+    }
     refreshReadOnlyUiState();
     updateStatusText();
 }
@@ -788,6 +978,17 @@ void CodeEditorWidget::setReadOnly(const bool readOnly)
 bool CodeEditorWidget::isReadOnly() const
 {
     return m_readOnlyMode;
+}
+
+void CodeEditorWidget::setWordWrapEnabled(const bool enabled)
+{
+    m_editor->setLineWrapMode(enabled ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
+    refreshActionButtonState();
+}
+
+bool CodeEditorWidget::wordWrapEnabled() const
+{
+    return m_editor->lineWrapMode() != QPlainTextEdit::NoWrap;
 }
 
 void CodeEditorWidget::setStructuredReportViewEnabled(const bool enabled)
@@ -1078,6 +1279,7 @@ void CodeEditorWidget::initializeConnections()
             m_localizedSourceText.clear();
             m_localizedRawSuffix.clear();
             m_localizedTextActive = false;
+            m_reportTextActive = false;
             const QPointer<CodeEditorWidget> self(this);
             m_editor->clear();
             if (!self) return;
@@ -1106,10 +1308,7 @@ void CodeEditorWidget::initializeConnections()
     connect(m_cutButton, &QToolButton::clicked, m_editor, &QPlainTextEdit::cut);
     connect(m_copyButton, &QToolButton::clicked, this, [this]()
         {
-            if (m_viewStack->currentWidget() == m_structuredView)
-                m_structuredView->copySelectionOrReport();
-            else
-                m_editor->copy();
+            copyCurrentView();
         });
     connect(m_pasteButton, &QToolButton::clicked, m_editor, &QPlainTextEdit::paste);
 
@@ -1218,12 +1417,14 @@ void CodeEditorWidget::initializeConnections()
             {
                 return;
             }
-            // 索引与文件常规页那套切换框保持一致：0 = 结构视图，1 = 原始文本。
-            const bool structuredSelected = selectedIndex == 0;
+            // All report pages use 0 = structured, 1 = original text.
+            const bool structuredSelected = selectedIndex == 0 && m_readOnlyMode &&
+                m_reportTextActive && m_structuredViewEnabled &&
+                (m_structuredContent != nullptr || m_structuredView->hasStructure());
             // 选择记在进程内：这是“这次排查我想怎么看”，不是需要长期保存的偏好。
             g_preferStructuredReportView = structuredSelected;
             m_viewStack->setCurrentWidget(structuredSelected
-                ? static_cast<QWidget*>(m_structuredView)
+                ? structuredContentWidget()
                 : static_cast<QWidget*>(m_editor));
             if (structuredSelected) closeInlinePanels();
             refreshActionButtonState();
@@ -1295,12 +1496,6 @@ void CodeEditorWidget::applyThemeStyle()
         if (button != nullptr)
         {
             if (button->styleSheet() != toolStyle) button->setStyleSheet(toolStyle);
-            const QString iconPath = button->property("ksword_editor_icon_path").toString();
-            if (!iconPath.isEmpty())
-            {
-                button->setProperty("ksword_editor_glyph_down", button->isDown());
-                button->setIcon(buildToolbarSvgIcon(iconPath, button));
-            }
         }
     }
 
@@ -1323,6 +1518,21 @@ void CodeEditorWidget::applyThemeStyle()
     m_findPanel->setStyleSheet(QStringLiteral(
         "QWidget#code_editor_find_panel { background:palette(alternate-base); border-bottom:1px solid palette(mid); }"));
     m_languageCombo->setStyleSheet(buildFloatingSwitchStyle());
+    // 父/子样式全部安装后再读按钮背景，避免缓存上一阶段的对比色。
+    for (QToolButton* button : buttonList)
+    {
+        if (button == nullptr)
+        {
+            continue;
+        }
+        button->ensurePolished();
+        const QString iconPath = button->property("ksword_editor_icon_path").toString();
+        if (!iconPath.isEmpty())
+        {
+            button->setProperty("ksword_editor_glyph_down", button->isDown());
+            button->setIcon(buildToolbarSvgIcon(iconPath, button));
+        }
+    }
     updateFindHighlights();
 }
 
@@ -1364,7 +1574,7 @@ void CodeEditorWidget::refreshActionButtonState()
     m_undoButton->setEnabled(editable && m_editor->document()->isUndoAvailable());
     m_redoButton->setEnabled(editable && m_editor->document()->isRedoAvailable());
     m_cutButton->setEnabled(editable && selected);
-    m_copyButton->setEnabled(m_viewStack->currentWidget() == m_structuredView || selected);
+    m_copyButton->setEnabled(m_viewStack->currentWidget() != m_editor || selected);
     const QMimeData* clipboardData = QApplication::clipboard()->mimeData();
     m_pasteButton->setEnabled(editable && clipboardData != nullptr && clipboardData->hasText());
     m_wrapButton->setChecked(m_editor->lineWrapMode() != QPlainTextEdit::NoWrap);
@@ -1372,14 +1582,69 @@ void CodeEditorWidget::refreshActionButtonState()
 
 void CodeEditorWidget::activateTextView()
 {
-    if (m_viewStack->currentWidget() == m_structuredView)
+    if (m_viewStack->currentWidget() != m_editor)
     {
         m_structuredCombo->setCurrentIndex(1);
     }
 }
 
+QWidget* CodeEditorWidget::structuredContentWidget() const
+{
+    return m_structuredContent != nullptr ? m_structuredContent.data() : m_structuredView;
+}
+
+void CodeEditorWidget::copyCurrentView()
+{
+    QApplication::clipboard()->setText(copyTextForCurrentView());
+}
+
+QString CodeEditorWidget::copyTextForCurrentView() const
+{
+    QWidget* current = m_viewStack->currentWidget();
+    if (current == m_editor) return m_editor->textCursor().selectedText().replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+    if (current == m_structuredView) return m_structuredView->selectionOrReportText();
+    // typed 字段树和解析报告共用同一复制器；无选区时保留完整报告原文。
+    auto* view = qobject_cast<QAbstractItemView*>(current);
+    if (view == nullptr) view = current->findChild<QAbstractItemView*>();
+    return ks::ui::StructuredCopyText(view);
+}
+
 bool CodeEditorWidget::eventFilter(QObject* watchedObject, QEvent* eventObject)
 {
+    const QPointer<CodeEditorWidget> self(this); // 新的属性刷新步骤可能同步关闭宿主。
+    // 释放/失焦取消按下后即使按钮隐藏也补刷，不能只等可见控件的 Paint。
+    if (!m_destroying && eventObject != nullptr
+        && (eventObject->type() == QEvent::PaletteChange || eventObject->type() == QEvent::StyleChange
+            || eventObject->type() == QEvent::MouseButtonRelease || eventObject->type() == QEvent::FocusOut))
+    {
+        if (auto* button = qobject_cast<QToolButton*>(watchedObject))
+        {
+            if (!button->property("ksword_editor_icon_path").toString().isEmpty())
+            {
+                queueToolbarGlyphRefresh(button);
+                if (self.isNull())
+                {
+                    return true;
+                }
+            }
+        }
+        else if (watchedObject == m_toolbarWidget
+            && (eventObject->type() == QEvent::PaletteChange || eventObject->type() == QEvent::StyleChange))
+        {
+            // 透明按钮的实际父表面变化也要补刷，不能只依赖按钮自身的 Base。
+            for (QToolButton* toolbarButton : m_toolbarWidget->findChildren<QToolButton*>(QString(), Qt::FindDirectChildrenOnly))
+            {
+                if (!toolbarButton->property("ksword_editor_icon_path").toString().isEmpty())
+                {
+                    queueToolbarGlyphRefresh(toolbarButton);
+                    if (self.isNull())
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
     // setDown(false)、失焦等取消路径未必发released；绘制前只在down改变时修正Normal图标。
     if (!m_destroying && eventObject != nullptr && eventObject->type() == QEvent::Paint)
     {
@@ -1456,18 +1721,26 @@ void CodeEditorWidget::updateStructuredReportView()
     }
 
     // 只有只读报告才解析：用户正在编辑的文件、原始日志和字节视图一律保持纯文本。
-    if (!m_structuredViewEnabled || !m_readOnlyMode)
+    if (!m_structuredViewEnabled || !m_readOnlyMode || !m_reportTextActive)
     {
+        m_structuredView->setReportText(QString());
         m_structuredCombo->hide();
         m_viewStack->setCurrentWidget(m_editor);
         updateToolbarLayout();
         refreshActionButtonState();
         return;
     }
-    const QString currentText = m_editor->toPlainText();
+    const QString currentText = text();
+    if (m_structuredContent != nullptr)
+    {
+        // typed 字段只共享复制策略，原文仍由其真实采集宿主提供，不再次解析节点。
+        auto views = m_structuredContent->findChildren<QAbstractItemView*>();
+        if (auto* rootView = qobject_cast<QAbstractItemView*>(m_structuredContent.data())) views.prepend(rootView);
+        for (auto* view : views) ks::ui::SetStructuredCopyFallback(view, currentText);
+    }
     const bool eligible =
         m_structuredViewEnabled && m_readOnlyMode && !currentText.trimmed().isEmpty();
-    const bool structured = eligible && m_structuredView->setReportText(currentText);
+    const bool structured = eligible && (m_structuredContent != nullptr || m_structuredView->setReportText(currentText));
 
     m_structuredCombo->setVisible(structured);
     if (!structured)
@@ -1481,7 +1754,7 @@ void CodeEditorWidget::updateStructuredReportView()
     const QSignalBlocker switchSignalBlocker(m_structuredCombo);
     m_structuredCombo->setCurrentIndex(g_preferStructuredReportView ? 0 : 1);
     m_viewStack->setCurrentWidget(g_preferStructuredReportView
-        ? static_cast<QWidget*>(m_structuredView)
+        ? structuredContentWidget()
         : static_cast<QWidget*>(m_editor));
     positionStructuredSwitch();
     refreshActionButtonState();
@@ -1755,6 +2028,7 @@ bool CodeEditorWidget::loadLocalFile(
     m_localizedSourceText.clear();
     m_localizedRawSuffix.clear();
     m_localizedTextActive = false;
+    m_reportTextActive = false;
     const QPointer<CodeEditorWidget> self(this);
     m_editor->setPlainText(displayText);
     if (!self) return false;

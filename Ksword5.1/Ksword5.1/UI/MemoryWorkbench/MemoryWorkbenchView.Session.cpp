@@ -171,7 +171,7 @@ namespace ks::ui
         if (subTabStack_ != nullptr && hasUsableTarget)
         {
             const int currentTab = subTabStack_->currentIndex();
-            if (currentTab >= 1 && currentTab <= 3)
+            if (detail::IsFollowSubPage(currentTab))
             {
                 followSubPage(currentTab, true);
             }

@@ -1,5 +1,5 @@
-#include "SystemMemoryAuditPage.h"
-#include "../UI/CodeTextEdit.h"
+﻿#include "SystemMemoryAuditPage.h"
+#include "../UI/CodeEditorWidget.h"
 #include "PhysicalPageAttributionPage.h"
 #include "HyperVMemoryPage.h"
 #include "MemoryAttributionChart.h"
@@ -29,7 +29,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QList>
-#include <QPlainTextEdit>
 #include <QPointer>
 #include <QPushButton>
 #include <QSizePolicy>
@@ -951,8 +950,7 @@ void SystemMemoryAuditPage::initializeUi()
     ks::i18n::LanguageManager::instance().bindTab(
         m_detailTabs, bigPoolPage, QStringLiteral("memory.audit.tab.big_pool"), QStringLiteral("Big Pool 分配"));
 
-    m_detailText = new CodeTextEdit(this);
-    static_cast<CodeTextEdit*>(m_detailText)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    m_detailText = new CodeEditorWidget(this);
     m_detailText->setReadOnly(true);
     m_detailText->setMinimumHeight(64);
 
@@ -2192,7 +2190,7 @@ void SystemMemoryAuditPage::updateDetails()
     {
         text += localized("\nPool tag metadata was not found; tag bytes and usage remain valid, but source descriptions are unavailable.");
     }
-    m_detailText->setPlainText(text);
+    m_detailText->setReportText(text);
 }
 
 void SystemMemoryAuditPage::updateStatus()

@@ -13,6 +13,7 @@
 #include <QPoint>
 #include <QRectF>
 #include <QString>
+#include "EventTimelineModel.h"
 
 #include <cstdint>     // std::uint64_t：ETW FILETIME 兼容的 100ns 时间戳。
 #include <functional>  // std::function：不依赖 Qt moc signal 的轻量回调。
@@ -28,11 +29,7 @@ class QVariantAnimation;
 // - time100ns：ETW 绝对时间戳，单位为 100ns；
 // - typeText：已经归类后的事件类型，用于决定颜色与行；
 // - 控件只读取该轻量结构，不依赖表格行号或屏幕坐标。
-struct ProcessTraceTimelineEventPoint
-{
-    std::uint64_t time100ns = 0;
-    QString typeText;
-};
+using ProcessTraceTimelineEventPoint = ks::ui::EventTimelinePoint;
 
 // ProcessTraceTimelineRatePoint：
 // - time100ns：折线点对应的时间轴位置，单位仍为 100ns；
@@ -54,6 +51,15 @@ public:
     // - 控件高度固定为 40 逻辑像素，宽度由布局横向拉伸。
     explicit ProcessTraceTimelineWidget(QWidget* parent = nullptr);
 
+    // setTracks：配置稳定类别、显示标签与动态主题颜色；空/重复类别返回 false。
+    // 配置改变只重建绘制投影，不改原始事件、100ns 选区或宿主筛选。
+    bool setTracks(const std::vector<ks::ui::EventTimelineTrack>& tracks);
+    const std::vector<ks::ui::EventTimelineTrack>& tracks() const;
+    QString trackLabel(ks::ui::TimelineCategory categoryId) const; // 使用当前语言呈现轨道标签。
+    const std::vector<ks::ui::EventTimelineBucket>& eventBuckets() const; // 同一生产绘制投影供诊断读取。
+    std::size_t eventPointCount() const; // 保留的全部原始点数，不等于像素桶数。
+    int aggregationPixelBudget() const; // 当前 viewport 的物理像素列数。
+
     // setCaptureRange：
     // - start100ns：时间轴最左侧对应的绝对 100ns 时间戳；
     // - end100ns：时间轴最右侧对应的当前或最终 100ns 时间戳；
@@ -73,7 +79,8 @@ public:
     // setEventPoints：
     // - 替换用于绘制的轻量事件点缓存；
     // - 调用方负责事件生命周期与表格筛选，本控件只负责绘制。
-    void setEventPoints(const std::vector<ProcessTraceTimelineEventPoint>& eventPointList);
+    // 未声明 categoryId 的旧点返回 false 并保留现有数据；旧调用需显式 MakeLegacyTimelinePoint。
+    bool setEventPoints(const std::vector<ProcessTraceTimelineEventPoint>& eventPointList);
 
     // setRateOverlayPoints：
     // - 替换用于绘制的上传/下载速率折线缓存；
@@ -98,6 +105,8 @@ public:
     std::uint64_t selectionEnd100ns() const;
 
 protected:
+    bool event(QEvent* eventPointer) override; // 轨道密度悬停提示与热主题/语言重绘。
+    void resizeEvent(QResizeEvent* eventPointer) override; // 大小变化必须重新按像素预算聚合。
     // paintEvent：
     // - 绘制时间轴背景、事件点、持续时间标签和选区矩形；
     // - 无返回值，Qt 通过虚函数分发消费绘制事件。
@@ -174,15 +183,7 @@ private:
     // - 仅用于把鼠标输入转换为内部选区时间。
     std::uint64_t xToTime(double xValue) const;
 
-    // laneForType：
-    // - 把事件类型映射到稳定的纵向行；
-    // - 40px 高度不足以容纳所有子类型时，相近事件族共享行。
-    int laneForType(const QString& typeText) const;
-
-    // colorForType：
-    // - 返回某事件类型对应的 20% 透明度颜色；
-    // - 不同类别使用有意区分的颜色。
-    QColor colorForType(const QString& typeText) const;
+    void ensureEventBuckets() const; // 原始点/范围/轨道/viewport 改变后才更新投影缓存。
 
     // formatDurationText：
     // - 把 100ns 持续时间格式化为 mm:ss 或 hh:mm:ss；
@@ -201,6 +202,10 @@ private:
 
 private:
     std::vector<ProcessTraceTimelineEventPoint> m_eventPointList; // m_eventPointList：仅用于绘制的轻量事件缓存。
+    std::vector<ks::ui::EventTimelineTrack> m_tracks; // 两个生产宿主配置各自轨道，类别文字不参与分类。
+    mutable std::vector<ks::ui::EventTimelineBucket> m_eventBuckets; // count/min/max 绘制投影，不取代原始数据。
+    mutable bool m_eventBucketsDirty = true; // 合成事件、范围或 viewport 变化时置脏。
+    mutable int m_bucketPixelBudget = 0;     // DPR 改变即使尺寸相同也会重聚合。
     std::vector<ProcessTraceTimelineRatePoint> m_ratePointList; // m_ratePointList：上传/下载速率折线点缓存，空时不绘制。
     QVariantAnimation* m_rateAnimation = nullptr; // m_rateAnimation：最新速率点插值动画。
     ProcessTraceTimelineRatePoint m_previousRatePoint; // m_previousRatePoint：最新点动画起始值。

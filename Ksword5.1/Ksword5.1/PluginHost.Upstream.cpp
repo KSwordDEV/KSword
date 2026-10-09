@@ -1,4 +1,5 @@
-#include "PluginHost.Upstream.h"
+﻿#include "PluginHost.Upstream.h"
+#include "PluginHost.Archive.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -23,71 +24,6 @@
 
 namespace ks::plugin_host
 {
-    namespace
-    {
-        QString literal(QString value)
-        {
-            return QLatin1Char('\'') + value.replace(QLatin1Char('\''), QStringLiteral("''")) + QLatin1Char('\'');
-        }
-        // 先检查 ZIP 全部路径、大小和属性，再提取任何文件。保留官方完整树，
-        // 拒绝链接、路径穿越、Windows 别名、大小炸弹和重复项。
-        QString extractionScript(const QString& archive, const QString& destination,
-            const QString& wrapper, const qint64 budget)
-        {
-            return QStringLiteral(R"PS(
-$ErrorActionPreference='Stop'
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.AppContext]::SetSwitch('Switch.System.IO.UseLegacyPathHandling',$false)
-[System.AppContext]::SetSwitch('Switch.System.IO.BlockLongPaths',$false)
-$destination=%1
-$wrapper=%2
-function Native-Path([string]$path){
-  $path=$path.Replace('/','\')
-  if($path.StartsWith('\\?\')){return $path}
-  if($path.StartsWith('\\')){return '\\?\UNC\'+$path.Substring(2)}
-  return '\\?\'+$path
-}
-$zip=[System.IO.Compression.ZipFile]::OpenRead((Native-Path %3))
-try {
-  if($zip.Entries.Count -gt 100000){throw 'ZIP entry limit exceeded'}
-  [long]$total=0
-  $names=New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-  foreach($entry in $zip.Entries){
-    $name=$entry.FullName.Replace('\','/')
-    if(!$name -or $name.StartsWith('/') -or $name.Contains(':') -or $name -match '[\x00-\x1f]'){throw 'Unsafe ZIP entry'}
-    $parts=$name.Split('/',[System.StringSplitOptions]::RemoveEmptyEntries)
-    if(!$parts.Length -or $parts[0] -cne $wrapper){throw 'Unexpected ZIP wrapper'}
-    foreach($part in $parts){
-      if($part.Length -gt 255 -or $part -eq '.' -or $part -eq '..' -or $part.EndsWith('.') -or $part.EndsWith(' ') -or $part.IndexOfAny([char[]]'<>"|?*') -ge 0){throw 'Unsafe ZIP component'}
-      if($part -match '^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(\..*)?$'){throw 'Windows device alias in ZIP'}
-    }
-    if(!$names.Add($name.TrimEnd('/'))){throw 'Duplicate ZIP path'}
-    if((($entry.ExternalAttributes -shr 16) -band 61440) -eq 40960 -or ($entry.ExternalAttributes -band 1024)){throw 'ZIP links/reparse entries are forbidden'}
-    if($entry.Length -lt 0 -or $entry.Length -gt 1073741824){throw 'ZIP file limit exceeded'}
-    $total += $entry.Length
-    if($total -gt %4){throw 'ZIP expansion limit exceeded'}
-  }
-  # destination is already the canonical Qt-owned stage. Every relative
-  # component was preflighted above; avoid PS5's cached MAX_PATH normalizer.
-  $prefix=$destination.Replace('/','\').TrimEnd('\')+'\'
-  foreach($entry in $zip.Entries){
-    $target=$prefix+$entry.FullName.Replace('/','\')
-    if($target.Length -gt 32760 -or !$target.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)){throw 'ZIP escaped staging directory'}
-    $native=Native-Path $target
-    if($entry.FullName.EndsWith('/')){[IO.Directory]::CreateDirectory($native)|Out-Null;continue}
-    $parent=$native.Substring(0,$native.LastIndexOf('\'))
-    [IO.Directory]::CreateDirectory($parent)|Out-Null
-    $kswordEntryStream=$entry.Open()
-    try {
-      $kswordOutputStream=[IO.FileStream]::new($native,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-      try {$kswordEntryStream.CopyTo($kswordOutputStream)} finally {$kswordOutputStream.Dispose()}
-    } finally {$kswordEntryStream.Dispose()}
-  }
-} finally {$zip.Dispose()}
-)PS").arg(literal(destination), literal(wrapper), literal(archive), QString::number(budget));
-        }
-    }
-
     UpstreamAssetInstaller::UpstreamAssetInstaller(QObject* parent, Translator translator)
         : QObject(parent), m_translator(std::move(translator))
     {
@@ -352,13 +288,21 @@ try {
         const auto destination = QDir(m_stage).filePath(m_assets[m_assetIndex].destinationDirectory);
         if (!QDir().mkpath(destination)) { finish(false, text(QStringLiteral("无法创建运行环境解压目录。"))); return; }
         if (!report(text(QStringLiteral("正在安全解压 %1")).arg(m_assets[m_assetIndex].name), (m_assetIndex * 90 + 76) / m_assets.size())) return;
+        const auto command = buildArchiveExtractionScript(m_archivePath, destination,
+            ArchiveLayout{m_assets[m_assetIndex].rootDirectory, false},
+            ArchiveLimits{1024LL * 1024 * 1024,
+                std::min<qint64>(4LL * 1024 * 1024 * 1024, m_assets[m_assetIndex].maxArchiveBytes * 4), 100000, 64});
+        if (command.isEmpty())
+        {
+            finish(false, text(QStringLiteral("运行环境解压失败：%1")).arg(QStringLiteral("archive_policy_invalid")));
+            return;
+        }
         auto* process = new QProcess(this);
         m_extractor = process;
         process->setProgram(powerShell);
         process->setProcessChannelMode(QProcess::SeparateChannels);
         process->setArguments({QStringLiteral("-NoLogo"), QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
-            QStringLiteral("-Command"), extractionScript(m_archivePath, destination, m_assets[m_assetIndex].rootDirectory,
-                std::min<qint64>(4LL * 1024 * 1024 * 1024, m_assets[m_assetIndex].maxArchiveBytes * 4))});
+            QStringLiteral("-Command"), command});
 #ifdef Q_OS_WIN
         process->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) { args->flags |= CREATE_NO_WINDOW; });
 #endif

@@ -105,7 +105,7 @@ namespace
         return result;
     }
 
-    QColor bracketForeground(QPlainTextEdit* editor)
+    QColor syntaxForeground(QPlainTextEdit* editor)
     {
         const auto formats = editor->document()->firstBlock().layout()->formats();
         for (const auto& range : formats)
@@ -124,12 +124,22 @@ namespace
             && editor->horizontalScrollBar()->value() == horizontal, "theme change retains scrolling");
         require(editor->document()->isModified() == modified
             && editor->document()->isUndoAvailable() == undo, "theme change retains modified/undo session");
-        require(bracketForeground(editor) == KswordTheme::AccentColor(KswordTheme::AccentRole::Blue, 22, -4),
-            "existing bracket QTextLayout uses the current theme without editing");
+        const QColor base = editor->palette().color(QPalette::Base);
+        const QColor accent = editor->palette().color(QPalette::Highlight);
+        const QColor currentLine = KswordTheme::BlendColors(base, accent, 18);
+        const std::array<QColor, 2> backgrounds{ base, currentLine };
+        const QColor keyword = KswordTheme::EnsureTextContrastForBackgrounds(
+            KswordTheme::AccentColor(KswordTheme::AccentRole::Purple), backgrounds.data(),
+            static_cast<int>(backgrounds.size()));
+        require(syntaxForeground(editor) == keyword,
+            "existing C++ keyword QTextLayout uses the current theme without editing");
+        require(KswordTheme::ContrastRatio(keyword, base) >= 4.499
+            && KswordTheme::ContrastRatio(keyword, currentLine) >= 4.499,
+            "syntax remains readable on the document and current-line backgrounds");
         const auto selections = editor->extraSelections();
         require(!selections.isEmpty()
-            && selections.front().format.background().color() == KswordTheme::PrimaryBlueSubtleColor(),
-            "existing current-line ExtraSelection uses the current theme");
+            && selections.front().format.background().color() == currentLine,
+            "existing current-line ExtraSelection uses the current palette");
         bool foundPair = false;
         for (const auto& selection : selections)
         {
@@ -137,8 +147,10 @@ namespace
             {
                 foundPair = true;
                 const QColor background = selection.format.background().color();
-                require(selection.format.foreground().color() == KswordTheme::OnAccentColor(background),
-                    "matched bracket foreground is calibrated to its own background");
+                require(background == KswordTheme::BlendColors(base, accent, 65),
+                    "matched bracket background follows the current palette role");
+                require(KswordTheme::ContrastRatio(selection.format.foreground().color(), background) >= 4.499,
+                    "matched bracket foreground remains readable on its own background");
             }
         }
         require(foundPair, "theme refresh retains bracket matching selections");
@@ -150,17 +162,21 @@ namespace
         CodeTextEdit standalone;
         CodeEditorWidget composite;
         composite.resize(1000, 500);
-        composite.setRawText(QStringLiteral("([{}])\nunchanged"));
-        standalone.setPlainText(QStringLiteral("([{}])\nunchanged"));
+        composite.setRawText(QStringLiteral("int main() { return 1; }\nunchanged"));
+        standalone.setPlainText(QStringLiteral("int main() { return 1; }\nunchanged"));
+        standalone.setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::Cpp);
         composite.show(); standalone.show();
         auto* embedded = composite.findChild<QPlainTextEdit*>();
         require(embedded != nullptr, "real CodeEditorWidget contains its private text editor");
+        auto* embeddedCode = dynamic_cast<CodeTextEdit*>(embedded);
+        require(embeddedCode != nullptr, "composite editor uses the shared lexical editor");
+        embeddedCode->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::Cpp);
         std::array<QPlainTextEdit*, 2> editors{ &standalone, embedded };
         for (auto* editor : editors)
         {
             QTextCursor edit = editor->textCursor();
             edit.movePosition(QTextCursor::End); edit.insertText(QStringLiteral("!"));
-            edit.setPosition(1); editor->setTextCursor(edit);
+            edit.setPosition(9); editor->setTextCursor(edit);
         }
         drainEvents();
         const auto buttons = composite.findChildren<QToolButton*>();
@@ -178,6 +194,9 @@ namespace
         std::array<int, 2> cursors{ standalone.textCursor().position(), embedded->textCursor().position() };
         for (const bool dark : { false, true })
         {
+            // 主题往返比较使用相同的非悬停状态，不能把新底色与鼠标状态混为一项。
+            QTest::mouseMove(&composite, QPoint(composite.width() - 5, composite.height() - 5));
+            drainEvents();
             applyTheme(dark, QString());
             const QImage defaultNormal = probe->icon().pixmap(QSize(22, 22), QIcon::Normal).toImage();
             for (const QString& seed : { QStringLiteral("#ffffff"), QStringLiteral("#000000"),
@@ -196,10 +215,10 @@ namespace
                 for (std::size_t i = 0; i < editors.size(); ++i)
                     verifyEditorState(editors[i], texts[i], cursors[i], vertical[i], horizontal[i], modified[i], undo[i]);
                 require(probe->property("ksword_theme_icon_managed").toBool(), "editor glyph is owned by its state renderer");
-                require(KswordTheme::ContrastRatio(iconColor(probe->icon(), QIcon::Normal), KswordTheme::SurfaceColor()) >= 2.999,
+                require(KswordTheme::ContrastRatio(iconColor(probe->icon(), QIcon::Normal), probe->parentWidget()->palette().color(QPalette::Base)) >= 2.999,
                     "Normal editor glyph is readable even with white/black/gray accent");
-                require(KswordTheme::ContrastRatio(iconColor(probe->icon(), QIcon::Active), KswordTheme::PrimaryAccentColor()) >= 2.999,
-                    "hover glyph contrasts its actual solid accent surface");
+                require(KswordTheme::ContrastRatio(iconColor(probe->icon(), QIcon::Active), probe->palette().color(QPalette::AlternateBase)) >= 2.999,
+                    "hover glyph contrasts its actual palette alternate-base surface");
                 require(KswordTheme::ContrastRatio(iconColor(probe->icon(), QIcon::Normal, QIcon::On), KswordTheme::PrimaryAccentColor()) >= 2.999,
                     "checked glyph contrasts its actual checked surface");
                 const auto stable = probe->icon().pixmap(QSize(22, 22), QIcon::Disabled).toImage();
@@ -216,8 +235,9 @@ namespace
                 // 释放前取消down，避免测试触发新建业务动作。
                 probe->setDown(false);
                 QTest::mouseRelease(probe, Qt::LeftButton);
+                QTest::mouseMove(&composite, QPoint(composite.width() - 5, composite.height() - 5));
                 drainEvents();
-                require(KswordTheme::ContrastRatio(iconColor(probe->icon(), QIcon::Normal), KswordTheme::SurfaceColor()) >= 2.999,
+                require(KswordTheme::ContrastRatio(iconColor(probe->icon(), QIcon::Normal), probe->parentWidget()->palette().color(QPalette::Base)) >= 2.999,
                     "cancelled press returns Normal glyph to the actual editor surface");
                 if (seed.isEmpty())
                     require(probe->icon().pixmap(QSize(22, 22), QIcon::Normal).toImage() == defaultNormal,
@@ -225,6 +245,29 @@ namespace
                 require(textChanges == 0, "palette/highlighter changes do not emit text edits");
             }
         }
+        // 仅父工具栏改变调色板也必须补刷新；不依赖按钮自身 Base 发生变化。
+        QWidget* toolbar = probe->parentWidget();
+        const QPalette originalToolbarPalette = toolbar->palette();
+        const QImage originalToolbarGlyph = probe->icon().pixmap(QSize(22, 22), QIcon::Normal).toImage();
+        QImage previousToolbarGlyph;
+        for (const QColor& background : { QColor(Qt::white), QColor(Qt::black) })
+        {
+            QPalette localPalette = originalToolbarPalette;
+            localPalette.setColor(QPalette::Base, background);
+            toolbar->setPalette(localPalette);
+            drainEvents();
+            require(KswordTheme::ContrastRatio(iconColor(probe->icon(), QIcon::Normal), background) >= 2.999,
+                "toolbar-only palette changes recalibrate the transparent normal glyph");
+            const QImage currentGlyph = probe->icon().pixmap(QSize(22, 22), QIcon::Normal).toImage();
+            if (!previousToolbarGlyph.isNull())
+                require(currentGlyph != previousToolbarGlyph,
+                    "opposite parent surfaces produce freshly calibrated glyph pixels");
+            previousToolbarGlyph = currentGlyph;
+        }
+        toolbar->setPalette(originalToolbarPalette);
+        drainEvents();
+        require(probe->icon().pixmap(QSize(22, 22), QIcon::Normal).toImage() == originalToolbarGlyph,
+            "restoring only the toolbar palette restores its glyph pixels");
         for (auto* editor : editors)
         {
             const QString oldText = editor->toPlainText();

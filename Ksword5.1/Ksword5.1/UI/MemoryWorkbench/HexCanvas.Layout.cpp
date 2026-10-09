@@ -7,9 +7,11 @@
 
 #include <QEvent>
 #include <QFontMetrics>
+#include <QPointer>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QTextOption>
+#include <QTimer>
 #include <QTransform>
 
 #include <algorithm>
@@ -205,14 +207,31 @@ namespace ks::ui
             return false;
         }
 
+        const QPointer<HexCanvas> alive(this);
+        const auto revision = sourceRevision();
         m_inAutoFit = true;
         const bool changed = applyBytesPerRow(wanted);
+        if (!alive) return false;
+        // 活对象换源也必须解除重排锁；旧来源的模式通知则不再发送。
         m_inAutoFit = false;
+        const int currentWanted = hexcanvas_format::ChooseAutoBytesPerRow(
+            viewport()->width(), m_layout.charWidth, m_groupSize, addressDigits());
+        if (sourceRevision() != revision || (m_autoBytesPerRow && bytesPerRow() != currentWanted))
+        {
+            // 重入期间新来源/字体的自动选档被忙锁挡住；仅为仍有效的新来源补一次。
+            const auto currentRevision = sourceRevision();
+            if (m_autoBytesPerRow && m_hasSpace)
+                QTimer::singleShot(0, this, [this, currentRevision]() {
+                    if (sourceRevision() == currentRevision) applyAutoBytesPerRow();
+                });
+            return false;
+        }
+        if (!m_autoBytesPerRow || bytesPerRow() != wanted) return false;
         if (changed)
         {
             emit rowWidthModeChanged(bytesPerRow(), true);
         }
-        return changed;
+        return alive && sourceRevision() == revision && changed;
     }
 
     // 当前缩放级别。
@@ -232,7 +251,9 @@ namespace ks::ui
         m_zoomLevel = clamped;
 
         // setFont 会触发 FontChange -> changeEvent：那里重量度、夹取首行、重选自适应行宽。
+        const QPointer<HexCanvas> alive(this);
         applyZoomFont();
+        if (!alive || m_zoomLevel != clamped) return;
         emit zoomLevelChanged(m_zoomLevel);
     }
 
@@ -285,17 +306,25 @@ namespace ks::ui
     // 尺寸变化：夹取首行（可见行数变了最大首行也变）、重算滚动条并请求新露出的页。
     void HexCanvas::resizeEvent(QResizeEvent* event)
     {
+        const QPointer<HexCanvas> alive(this);
+        const auto revision = sourceRevision();
         QAbstractScrollArea::resizeEvent(event);
+        if (!alive || sourceRevision() != revision) return;
         m_firstRow = std::min(m_firstRow, maxFirstRow());
         syncScrollBars();
+        if (!alive || sourceRevision() != revision) return;
         requestVisiblePages();
+        if (!alive || sourceRevision() != revision) return;
         notifyVisibleRange();
     }
 
     // 字体/调色板变化：字体变化重算度量，其余只需要重绘（颜色在绘制时现取）。
     void HexCanvas::changeEvent(QEvent* event)
     {
+        const QPointer<HexCanvas> alive(this);
+        const auto revision = sourceRevision();
         QAbstractScrollArea::changeEvent(event);
+        if (!alive || sourceRevision() != revision) return;
         switch (event->type())
         {
         case QEvent::FontChange:
@@ -305,9 +334,13 @@ namespace ks::ui
             rebuildMetrics();
             m_firstRow = std::min(m_firstRow, maxFirstRow());
             applyAutoBytesPerRow();
+            if (!alive || sourceRevision() != revision) return;
             syncScrollBars();
+            if (!alive || sourceRevision() != revision) return;
             requestVisiblePages();
+            if (!alive || sourceRevision() != revision) return;
             notifyVisibleRange();
+            if (!alive || sourceRevision() != revision) return;
             viewport()->update();
             break;
         case QEvent::PaletteChange:

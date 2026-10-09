@@ -10,6 +10,7 @@
 
 #include "DiskAdvancedModels.h"
 #include "DiskEditorModels.h"
+#include "DiskCaptureTransaction.h"
 
 #include "../../Framework.h"
 
@@ -25,14 +26,17 @@ class QGroupBox;
 class QHBoxLayout;
 class QLabel;
 class QLineEdit;
-class QPlainTextEdit;
+class CodeEditorWidget;
 class QPushButton;
 class QSpinBox;
 class QSplitter;
 class QTabWidget;
 class QTableWidget;
 class QVBoxLayout;
-class HexEditorWidget;
+namespace ks::ui
+{
+    class HexView;
+}
 
 namespace ks::misc
 {
@@ -139,7 +143,12 @@ namespace ks::misc
         // - bytes 为读取到的数据；
         // - errorText 为空表示成功；
         // - 无返回值。
-        void applyReadResult(std::uint64_t baseOffset, const QByteArray& bytes, const QString& errorText);
+        void applyReadResult(DiskCapturedRange captured, const QString& errorText);
+
+        // invalidateCapturedRange：切源/读取失败/写入未验证时清除所有旧证据与写回资格。
+        void invalidateCapturedRange();
+        // hasWritableCapture：按钮和写回入口共用来源门禁，不把非空旧缓冲当作可写资格。
+        bool hasWritableCapture() const;
 
         // writeCurrentBuffer：
         // - 将当前 HEX 缓冲写回磁盘；
@@ -291,7 +300,7 @@ namespace ks::misc
         DiskMapWidget* m_diskMapWidget = nullptr;   // m_diskMapWidget：横向柱形分区图。
         QSplitter* m_mainSplitter = nullptr;        // m_mainSplitter：左侧布局和右侧日志详情分割器。
         QTableWidget* m_partitionTable = nullptr;   // m_partitionTable：分区列表。
-        HexEditorWidget* m_hexEditor = nullptr;     // m_hexEditor：扇区 HEX 查看/编辑器。
+        ks::ui::HexView* m_hexEditor = nullptr;     // m_hexEditor：扇区 HEX 查看/编辑器。
         QTabWidget* m_advancedTabs = nullptr;        // m_advancedTabs：高级分析与工具页集合。
         QTableWidget* m_structureTable = nullptr;    // m_structureTable：MBR/GPT/启动扇区解析表。
         QTableWidget* m_volumeTable = nullptr;       // m_volumeTable：卷与盘符映射表。
@@ -318,11 +327,14 @@ namespace ks::misc
         QSpinBox* m_scanBlockSpin = nullptr;         // m_scanBlockSpin：读扫块大小。
         QLabel* m_diskSummaryLabel = nullptr;       // m_diskSummaryLabel：磁盘摘要文本。
         QLabel* m_partitionDetailLabel = nullptr;   // m_partitionDetailLabel：当前分区详情。
-        QPlainTextEdit* m_logEdit = nullptr;        // m_logEdit：操作日志。
+        CodeEditorWidget* m_logEdit = nullptr;        // m_logEdit：操作日志。
 
         std::vector<DiskDeviceInfo> m_disks;        // m_disks：当前磁盘枚举缓存。
         DiskStructureReport m_structureReport;      // m_structureReport：高级结构/卷/健康报告。
         QByteArray m_loadedBytes;                   // m_loadedBytes：最近读取的原始缓冲。
+        std::optional<DiskCapturedRange> m_capturedRange; // m_capturedRange：唯一可用于写回的冻结来源。
+        std::uint64_t m_captureGeneration = 0;      // m_captureGeneration：来源或读取变化即递增。
+        std::uint64_t m_readGeneration = 0;         // m_readGeneration：只有所属异步读可以结束 busy 状态。
         std::uint64_t m_loadedBaseOffset = 0;       // m_loadedBaseOffset：HEX 缓冲对应磁盘偏移。
         int m_selectedPartitionIndex = -1;          // m_selectedPartitionIndex：当前分区索引。
         bool m_busy = false;                        // m_busy：后台任务互斥标志。

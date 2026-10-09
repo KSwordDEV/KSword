@@ -22,6 +22,13 @@
 
 namespace ks::ui::detail
 {
+    // IsFollowSubPage：统一判断需要跟随 HEX 地址的正式子页；导航、恢复和数据刷新共用。
+    // 传入正式堆栈页号，返回是否为反汇编、文本、比较或 C 伪代码页。
+    inline bool IsFollowSubPage(const int page)
+    {
+        return page >= 1 && page <= 4;
+    }
+
     // BuildSessionIdentityKey：overlay/基线喂入器/撤销协调器共用的"会话身份串"。
     // 固定按 base=0、len=0 求值（设计文档 §1："overlay identity=
     // IdentityKey(session,0,0)"——基线窗口本身会随视口跟随移动，身份串不应该

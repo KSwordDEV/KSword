@@ -1,5 +1,5 @@
-#include "PhysicalPageAttributionPage.h"
-#include "../UI/CodeTextEdit.h"
+﻿#include "PhysicalPageAttributionPage.h"
+#include "../UI/CodeEditorWidget.h"
 #include "MemoryAttributionChart.h"
 #include "MemoryConsumerEvidencePage.h"
 #include "PhysicalPageConsumers.h"
@@ -22,7 +22,6 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
-#include <QPlainTextEdit>
 #include <QPointer>
 #include <QProgressBar>
 #include <QPushButton>
@@ -235,14 +234,13 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     pageSplit->addWidget(m_mappings);
     pageSplit->setStretchFactor(1, 2);
     pageLayout->addWidget(pageSplit, 1);
-    m_pageEvidence = new CodeTextEdit(pages);
-    static_cast<CodeTextEdit*>(m_pageEvidence)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    m_pageEvidence = new CodeEditorWidget(pages);
     m_pageEvidence->setReadOnly(true);
-    m_pageEvidence->setMaximumHeight(90);
+    m_pageEvidence->setMinimumHeight(120);
+    m_pageEvidence->setMaximumHeight(180);
     pageLayout->addWidget(m_pageEvidence);
     m_tabs->addTab(pages, {});
-    m_evidence = new CodeTextEdit(m_tabs);
-    static_cast<CodeTextEdit*>(m_evidence)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    m_evidence = new CodeEditorWidget(m_tabs);
     m_evidence->setReadOnly(true);
     m_tabs->addTab(m_evidence, {});
     m_ownerCoverage = table(m_tabs); m_tabs->addTab(m_ownerCoverage, {});
@@ -440,7 +438,7 @@ void PhysicalPageAttributionPage::poll()
         const auto result = std::move(m_inspection);
         m_inspectButton->setEnabled(true);
         if (result->status < 0 || result->identity.frame == ~0ULL) {
-            m_pageEvidence->setPlainText(L("PFN query unavailable: %1").arg(status(result->status)));
+            m_pageEvidence->setReportText(L("PFN query unavailable: %1").arg(status(result->status)));
         } else {
             const auto use = result->use;
             QString description = L("PFN %1 | physical %2 | %3 | %4\nOwner key %5 | backing / VA %6 | sampled %7")
@@ -457,7 +455,7 @@ void PhysicalPageAttributionPage::poll()
             if (nativeUse(result->identity) == 0 && inUseState(state(result->identity)) && !result->ownerHintObserved) {
                 description += L("\nPrivate-source identity could not be validated during this inspection.");
             }
-            m_pageEvidence->setPlainText(description);
+            m_pageEvidence->setReportText(description);
         }
         showMappings(result->pfn);
     }
@@ -664,7 +662,7 @@ void PhysicalPageAttributionPage::rebuild()
         evidence << L("Mapping status %1 | driver available %2 | cancelled %3 | budget reached %4")
             .arg(status(maps.status), maps.driverAvailable ? L("Yes") : L("No"), maps.cancelled ? L("Yes") : L("No"), maps.budgetReached ? L("Yes") : L("No"));
     } else { evidence << L("Mapping resolution has not run. Large-page and per-PFN reference coverage is unavailable."); }
-    m_evidence->setPlainText(evidence.join(QLatin1Char('\n')));
+    m_evidence->setReportText(evidence.join(QLatin1Char('\n')));
 }
 
 void PhysicalPageAttributionPage::rebuildGroups()
@@ -726,7 +724,7 @@ void PhysicalPageAttributionPage::inspectPfn()
     bool ok = false;
     const auto pfn = m_pfn->text().trimmed().toULongLong(&ok, 0);
     if (!ok || !m_scan || std::none_of(m_scan->ranges.begin(), m_scan->ranges.end(), [pfn](const Range& range) { return pfn >= range.first && pfn - range.first < range.count; })) {
-        m_pageEvidence->setPlainText(L("Enter a PFN inside a collected NT RAM range. Physical address holes are not RAM."));
+        m_pageEvidence->setReportText(L("Enter a PFN inside a collected NT RAM range. Physical address holes are not RAM."));
         return;
     }
     m_inspection = std::make_shared<Inspection>();
@@ -789,7 +787,7 @@ void PhysicalPageAttributionPage::showMappings(std::uint64_t pfn)
     auto first = std::lower_bound(rows.begin(), rows.end(), pfn, [](const Mapping& row, auto value) { return row.pfn < value; });
     auto last = first;
     while (last != rows.end() && last->pfn == pfn) { ++last; }
-    m_pageEvidence->appendPlainText(L("Observed mappings for this PFN: %1 (sampled %2; first 300 shown).").arg(std::distance(first, last)).arg(m_mappingScan->sampledAt));
+    m_pageEvidence->appendReportText(L("Observed mappings for this PFN: %1 (sampled %2; first 300 shown).").arg(std::distance(first, last)).arg(m_mappingScan->sampledAt));
     for (auto entry = first; entry != last && m_mappings->rowCount() < 300; ++entry) {
         const int row = m_mappings->rowCount();
         m_mappings->insertRow(row);
@@ -833,7 +831,7 @@ void PhysicalPageAttributionPage::exportEvidence()
     const auto mapsPtr = m_mappingScan;
     const auto lastAttempt = m_lastAttempt;
     const bool latestAttemptFailed = m_latestAttemptFailed, fullMappings = m_exportMappings->isChecked();
-    const QString interpretation = m_evidence->toPlainText();
+    const QString interpretation = m_evidence->text();
     const QJsonObject consumer = m_consumerPage->evidence();
     try { std::thread([job, scanPtr, mapsPtr, lastAttempt, latestAttemptFailed, fullMappings, interpretation, consumer, path] {
         struct Done { std::shared_ptr<ExportJob> job; ~Done() { job->done.store(true); } } done{job};

@@ -1,4 +1,4 @@
-#include "DriverDock.Internal.h"
+﻿#include "DriverDock.Internal.h"
 #include "../OnlineScan/SandboxUploadActions.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -1829,6 +1829,6 @@ void DriverDock::showSelectedModuleEvidenceDetail()
             QStringLiteral("说明: 本结果仅聚合证据，不执行卸载、移除或修复。"))
         << QString()
         << evidenceBody;
-    m_moduleEvidenceDetailEditor->setRawText(
+    m_moduleEvidenceDetailEditor->setReportText(
         localizedDetailLines.join(QLatin1Char('\n')));
 }

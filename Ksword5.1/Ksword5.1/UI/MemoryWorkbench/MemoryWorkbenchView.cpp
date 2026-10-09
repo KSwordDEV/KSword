@@ -30,6 +30,7 @@
 #include "WorkbenchShared.h"
 #include "WorkbenchStatusBar.h"
 #include "WorkbenchTextView.h"
+#include "WorkbenchPseudocodeView.h"
 #include "WorkbenchWriteController.h"
 
 #include "../../../../shared/evidence/memory_workbench/SessionAddressResolver.h"
@@ -347,6 +348,8 @@ namespace ks::ui
     // target_ 先于 writeController_ 声明，即 writeController_ 先于 target_ 销毁）。
     MemoryWorkbenchView::~MemoryWorkbenchView()
     {
+        // Qt 子控件比非拥有字节适配器晚析构，先解除引用并取消分析。
+        if (pseudocodeView_ != nullptr) pseudocodeView_->setBytesProvider(nullptr);
         pointerClosing_ = true;
         cancelPointerChainResolution();
         if (hexPane_ != nullptr)

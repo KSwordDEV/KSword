@@ -1,9 +1,8 @@
 #include "../Ksword5.1/Ksword5.1/RegistryDock/RegistryValueCodec.h"
 #include "../Ksword5.1/Ksword5.1/RegistryDock/RegistryValueEditorWidget.h"
 #include "../Ksword5.1/Ksword5.1/RegistryDock/RegistryAdvancedDialogs.h"
-#include "../Ksword5.1/Ksword5.1/UI/HexEditorWidget.h"
-#include "../Ksword5.1/Ksword5.1/UI/CodeEditorWidget.h"
 #include "../Ksword5.1/Ksword5.1/UI/MemoryWorkbench/HexView.h"
+#include "../Ksword5.1/Ksword5.1/UI/CodeEditorWidget.h"
 #include "../Ksword5.1/Ksword5.1/theme.h"
 
 #include <QApplication>
@@ -20,6 +19,8 @@
 #include <QTabWidget>
 #include <QTimer>
 
+#include <bit>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -131,7 +132,7 @@ namespace
         auto* multi = editor.findChild<QPlainTextEdit*>(QStringLiteral("registry_value_multi"));
         auto* hexNumber = editor.findChild<QLineEdit*>(QStringLiteral("registry_value_hex_number"));
         auto* decimalNumber = editor.findChild<QLineEdit*>(QStringLiteral("registry_value_decimal_number"));
-        auto* raw = editor.findChild<HexEditorWidget*>(QStringLiteral("registry_value_raw_hex"));
+        auto* raw = editor.findChild<ks::ui::HexView*>(QStringLiteral("registry_value_raw_hex"));
         auto* length = editor.findChild<QLineEdit*>(QStringLiteral("registry_value_byte_length"));
         auto* color = editor.findChild<QPushButton*>(QStringLiteral("registry_value_console_color"));
         auto* expanded = editor.findChild<QPlainTextEdit*>(QStringLiteral("registry_value_expanded"));
@@ -176,7 +177,7 @@ namespace
         editor.discardChanges();
         type->setCurrentIndex(type->findData(TypeQword));
         decimalNumber->setText(QStringLiteral("18446744073709551615"));
-        check(editor.value(&draft, &error) && draft.type == TypeQword && draft.data == QByteArray(8, char(0xff)), "new QWORD maximum complete bytes");
+        check(editor.value(&draft, &error) && draft.type == TypeQword && draft.data == QByteArray(8, std::bit_cast<char>(std::uint8_t{0xff})), "new QWORD maximum complete bytes");
         check(hexNumber->text().compare(QStringLiteral("0xffffffffffffffff"), Qt::CaseInsensitive) == 0, "decimal updates hex exactly");
         decimalNumber->setText(QStringLiteral("18446744073709551616"));
         check(!editor.value(&draft, &error) && editor.isModified(), "QWORD overflow cannot submit last valid number");
@@ -186,7 +187,7 @@ namespace
         check(editor.value(&draft, &error) && decimalNumber->text() == QStringLiteral("1311768467463790320"), "hex corrects invalid input and updates decimal");
         editor.setValue(QStringLiteral("HKCU\\Test"), QStringLiteral("dword"), TypeDword, QByteArray(4, '\0'));
         hexNumber->setText(QStringLiteral("0xffffffff"));
-        check(editor.value(&draft, &error) && draft.data == QByteArray(4, char(0xff)), "DWORD maximum encoded without sign conversion");
+        check(editor.value(&draft, &error) && draft.data == QByteArray(4, std::bit_cast<char>(std::uint8_t{0xff})), "DWORD maximum encoded without sign conversion");
         hexNumber->setText(QStringLiteral("0x100000000"));
         check(!editor.value(&draft, &error), "DWORD does not truncate overflow");
         editor.discardChanges();
@@ -213,8 +214,8 @@ namespace
         QByteArray binary(8192, '\0');
         for (qsizetype i = 0; i < binary.size(); ++i) binary[i] = char(i % 256);
         editor.setValue(QStringLiteral("HKCU\\Test"), QStringLiteral("binary"), TypeBinary, binary);
-        check(raw->data() == binary && editor.value(&draft, &error) && draft.data == binary, "binary editor receives all bytes beyond 512");
-        auto* realView = raw->findChild<ks::ui::HexView*>();
+        check(raw->buffer() == binary && editor.value(&draft, &error) && draft.data == binary, "binary editor receives all bytes beyond 512");
+        auto* realView = raw;
         check(realView != nullptr, "raw editor uses production HexView");
         if (realView)
         {
@@ -348,7 +349,13 @@ int main(int argc, char** argv)
     application.setApplicationName(QStringLiteral("KSword Registry Value Editor Tests"));
     application.setOrganizationName(QStringLiteral("KSword Tests"));
     QSettings::setDefaultFormat(QSettings::IniFormat);
-    if (argc > 1) QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QString::fromLocal8Bit(argv[1]));
+    if (argc > 1)
+    {
+        // 用户与系统作用域都隔离在自建夹具输出目录，不借用生产注册表偏好。
+        const QString settingsPath = QString::fromLocal8Bit(argv[1]);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsPath);
+        QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, settingsPath);
+    }
     testCodec();
     testEditor(argc > 1 ? QString::fromLocal8Bit(argv[1]) : QString());
     testAdvancedDialogs(argc > 1 ? QString::fromLocal8Bit(argv[1]) : QString());

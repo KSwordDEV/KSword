@@ -15,15 +15,20 @@ try {
     $output = [IO.Path]::GetFullPath((Join-Path $repository $OutputDirectory))
     New-Item -ItemType Directory -Force -Path $output | Out-Null
     $sourceRoot = 'Ksword5.1/Ksword5.1'
-    $arguments = @('-std=c++17', '-O1', '-g0', '-Wall', '-Wextra', '-Werror', '-DUNICODE', '-D_UNICODE', '-DNOMINMAX',
+    $poolMoc = Join-Path $output 'moc_CodeEditorWidget.cpp'
+    & (Join-Path $qt 'share/qt6/bin/moc.exe') "$sourceRoot/UI/CodeEditorWidget.h" -o $poolMoc
+    if ($LASTEXITCODE -ne 0) { throw 'Shared report editor moc generation failed.' }
+    $arguments = @('-std=c++20', '-O1', '-g0', '-Wall', '-Wextra', '-Werror', '-DUNICODE', '-D_UNICODE', '-DNOMINMAX',
         '-isystem', $include, '-isystem', (Join-Path $include 'QtCore'),
-        '-isystem', (Join-Path $include 'QtGui'), '-isystem', (Join-Path $include 'QtWidgets'), '-isystem', (Join-Path $include 'QtTest'),
+        '-isystem', (Join-Path $include 'QtGui'), '-isystem', (Join-Path $include 'QtWidgets'), '-isystem', (Join-Path $include 'QtTest'), '-isystem', (Join-Path $include 'QtSvg'),
         'tools/pool_allocation_analysis_ui_tests.cpp',
         "$sourceRoot/MemoryDock/PoolAllocationAnalysisWidget.cpp",
         "$sourceRoot/UI/FlowLayout.cpp",
+        "$sourceRoot/UI/CodeEditorWidget.cpp", "$sourceRoot/UI/CodeTextEdit.cpp", "$sourceRoot/UI/CodeEditorFileSession.cpp", "$sourceRoot/UI/ReportStructuredView.cpp", "$sourceRoot/UI/FieldTreePresenter.cpp", "$sourceRoot/UI/FieldTreePresenter.Copy.cpp",
+        "$sourceRoot/UI/ThemeControlGlyphs.cpp", "$sourceRoot/UI/ThemeStatusRole.cpp", "$sourceRoot/UI/SmoothScrollSupport.cpp", $poolMoc,
         "$sourceRoot/Internationalization/LanguageManager.cpp",
         'shared/evidence/PoolAllocationAnalysis.cpp',
-        "-L$qt/lib", '-lQt6Widgets', '-lQt6Gui', '-lQt6Core', '-lQt6Test',
+        "-L$qt/lib", '-lQt6Widgets', '-lQt6Gui', '-lQt6Core', '-lQt6Test', '-lQt6Svg', '-luser32', '-ladvapi32',
         '-o', (Join-Path $output 'pool-analysis-ui-tests.exe'))
     & g++ @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Pool allocation Qt fixture compilation failed.' }

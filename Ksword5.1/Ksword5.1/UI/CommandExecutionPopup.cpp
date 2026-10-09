@@ -1,4 +1,5 @@
 #include "CommandExecutionPopup.h"
+#include "ThemeBinding.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../theme.h"
@@ -246,6 +247,8 @@ namespace ks::ui
 
         updateUserModeUi();
         refreshTextAndStyle();
+        // 已创建的弹层也按明确角色更新；调度器在下一轮 GUI 事件循环刷新以保护下拉弹层。
+        BindWidgetTheme(this, [this]() { refreshTextAndStyle(); });
     }
 
     void CommandExecutionPopup::refreshTextAndStyle()
@@ -570,19 +573,6 @@ namespace ks::ui
         {
             return false;
         }
-        if (watchedObject == this && (eventObject->type() == QEvent::PaletteChange
-            || eventObject->type() == QEvent::ApplicationPaletteChange)
-            && !property("ksword_command_theme_refresh_pending").toBool())
-        {
-            // 各状态前景是具体像素色；已有弹层也要重建，不能只靠QSS旧色映射。
-            setProperty("ksword_command_theme_refresh_pending", true);
-            QTimer::singleShot(0, this, [this]()
-            {
-                refreshTextAndStyle();
-                setProperty("ksword_command_theme_refresh_pending", false);
-            });
-        }
-
         const QEvent::Type eventType = eventObject->type();
         if (watchedObject == m_commandInputEdit)
         {

@@ -23,7 +23,7 @@ struct ScannerAsyncState;
 namespace ks::ui
 {
     class BinaryOverviewBar;
-    class MemoryEditorWidget;
+    class SnapshotWorkbenchWidget;
 }
 
 namespace ks::scanner
@@ -123,7 +123,7 @@ private:
 
     QWidget* m_analysisPage = nullptr;
     ks::ui::BinaryOverviewBar* m_overviewBar = nullptr;
-    ks::ui::MemoryEditorWidget* m_analysisEditor = nullptr;
+    ks::ui::SnapshotWorkbenchWidget* m_analysisEditor = nullptr;
     QLabel* m_analysisLegend = nullptr;
     QLabel* m_analysisSectionLabel = nullptr;
     QComboBox* m_analysisSectionCombo = nullptr;

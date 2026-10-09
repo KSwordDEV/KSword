@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "PoolTraceReader.h"
 #include <QWidget>
@@ -12,7 +12,7 @@
 class QComboBox;
 class QLabel;
 class QLineEdit;
-class QPlainTextEdit;
+class CodeEditorWidget;
 class QPushButton;
 class QSortFilterProxyModel;
 class QTableView;
@@ -70,7 +70,7 @@ private:
     QLabel* m_note = nullptr;
     QLabel* m_status = nullptr;
     QLabel* m_summary = nullptr;
-    QPlainTextEdit* m_frames = nullptr;
+    CodeEditorWidget* m_frames = nullptr;
     QTableView* m_table = nullptr;
     PoolAllocationTableModel* m_model = nullptr;
     PoolStackListModel* m_stackModel = nullptr;

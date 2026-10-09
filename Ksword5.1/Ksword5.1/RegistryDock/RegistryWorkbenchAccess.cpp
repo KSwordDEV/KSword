@@ -225,27 +225,33 @@ QString userSid()
     return result;
 }
 
-// 只读逐层检查精确键，任何中间 REG_LINK 都拒绝，防止递归删除跳出授权树。
-bool proveNoRegistryLinks(const ParsedPath& parsed, const RegistryAccessContext& context, QString* error)
+// 逐组件 OPEN_LINK，并通过上一层仍持有的句柄打开下一层；输出精确最终对象而不重走路径。
+bool openRegistryWithoutLinks(const ParsedPath& parsed, const RegistryAccessContext& context,
+    const REGSAM access, RegistryHandle& result, QString* error)
 {
-    // REG_OPTION_OPEN_LINK opens the final component itself. Walk every ancestor
-    // so an intermediate link cannot redirect destructive recursion either.
-    QString partial;
     const QStringList components = parsed.subKey.split(QLatin1Char('\\'));
-    for (const auto& component : components)
+    HKEY parent = parsed.root; // 首组件从预定义根开始，后续只相对已核验的持有句柄打开。
+    RegistryHandle current; // 上一层对象在下一层打开和链接检查完成前持续存活。
+    for (qsizetype index = 0; index < components.size(); ++index)
     {
-        partial = partial.isEmpty() ? component : partial + QLatin1Char('\\') + component;
-        RegistryHandle key;
-        const LONG opened = ::RegOpenKeyExW(parsed.root, wide(partial), REG_OPTION_OPEN_LINK,
-            KEY_QUERY_VALUE | viewFlag(context), &key.value);
+        RegistryHandle child; // 不将先前核验过的路径字符串重新解析为可能已替换的对象。
+        const REGSAM requested = index + 1 == components.size() ? access : KEY_QUERY_VALUE;
+        const LONG opened = ::RegOpenKeyExW(parent, wide(components.at(index)), REG_OPTION_OPEN_LINK,
+            requested | KEY_QUERY_VALUE | viewFlag(context), &child.value);
         if (opened != ERROR_SUCCESS) return fail(error, systemError(opened));
         DWORD type = 0, bytes = 0;
-        const LONG queried = ::RegQueryValueExW(key.value, L"SymbolicLinkValue", nullptr, &type, nullptr, &bytes);
+        const LONG queried = ::RegQueryValueExW(child.value, L"SymbolicLinkValue", nullptr, &type, nullptr, &bytes);
         if (queried == ERROR_SUCCESS && type == REG_LINK)
-            return fail(error, QStringLiteral("Registry tree deletion cannot traverse symbolic links."));
+            return fail(error, QStringLiteral("Registry key rename cannot traverse symbolic links."));
         if (queried != ERROR_SUCCESS && queried != ERROR_FILE_NOT_FOUND)
             return fail(error, systemError(queried));
+        if (current.value) ::RegCloseKey(current.value); // 已绑定下一层对象后才释放上一层。
+        current.value = child.value;
+        child.value = nullptr;
+        parent = current.value;
     }
+    result.value = current.value; // 将最终句柄所有权交给调用者，贯穿真正的改名系统调用。
+    current.value = nullptr;
     return true;
 }
 }
@@ -502,62 +508,77 @@ bool RegistryWorkbenchAccess::createKey(const QString& path, const RegistryAcces
         return operationSucceeded(ksword::ark::DriverClient{}.createRegistryKey(kernel.toStdWString()), error);
     }
     RegistryHandle key;
+    DWORD disposition = 0; // 区分本次新建和竞争者/原有键，禁止将打开已有键报告为创建。
     const LONG result = ::RegCreateKeyExW(parsed.root, wide(parsed.subKey), 0, nullptr, 0,
-        KEY_SET_VALUE | KEY_QUERY_VALUE | viewFlag(context), nullptr, &key.value, nullptr);
-    return result == ERROR_SUCCESS ? true : fail(error, systemError(result));
+        KEY_SET_VALUE | KEY_QUERY_VALUE | viewFlag(context), nullptr, &key.value, &disposition);
+    if (result != ERROR_SUCCESS) return fail(error, systemError(result));
+    return disposition == REG_CREATED_NEW_KEY ? true
+        : fail(error, QStringLiteral("Registry key already exists; it was not replaced."));
 }
 
-// 先完整预检授权树，再按固定叶到根顺序删除；任何缺项或链接都拒绝开始。
-bool RegistryWorkbenchAccess::removeTree(const QString& path, const RegistryAccessContext& context, QString* error)
+// 输入冻结目标，准确查询缺失/存在；传输失败不会被当作缺失或换源重试。
+bool RegistryWorkbenchAccess::keyExists(const QString& path, const RegistryAccessContext& context,
+    bool* exists, QString* error)
 {
-    ParsedPath parsed;
+    if (!exists) return fail(error, QStringLiteral("Missing registry key output."));
+    *exists = false;
+    ParsedPath parsed; // 规范根与子路径保持原始组件的空格和大小写。
     if (!validate(path, context, &parsed, error)) return false;
-    if (parsed.subKey.isEmpty()) return fail(error, QStringLiteral("Registry root keys cannot be created or deleted."));
-
-    // Collect the whole tree before the first deletion. The selected backend
-    // handles enumeration and deletion; Win32 OPEN_LINK is a read-only guard for
-    // R0 because protocol v1 cannot prove whether ZwOpenKey followed a link.
-    // 待检查项携带原路径与深度，限定完整预检的遍历预算。
-    struct PendingKey
+    if (context.useR0)
     {
-        QString path; // 原始目标键路径。
-        int depth;    // 相对授权根的层数。
-    };
-    QVector<PendingKey> pending{{path, 0}};
-    QStringList deletionOrder;
-    while (!pending.isEmpty())
-    {
-        const PendingKey item = pending.takeLast();
-        if (item.depth > kDepthLimit || deletionOrder.size() + pending.size() >= kItemLimit)
-            return fail(error, QStringLiteral("Registry tree deletion exceeds the traversal limit."));
-        ParsedPath current;
-        if (!parsePath(item.path, &current, error) || !proveNoRegistryLinks(current, context, error)) return false;
-        RegistryKeyListing listing;
-        if (!enumerate(item.path, context, &listing, error, true)) return false;
-        if (!listing.complete)
-            return fail(error, listing.warning.isEmpty() ? QStringLiteral("Registry tree enumeration is incomplete; deletion was not started.") : listing.warning);
-        deletionOrder.push_back(item.path);
-        for (const auto& child : listing.subKeys)
-            pending.push_back({item.path + QLatin1Char('\\') + child, item.depth + 1});
+        const QString kernel = kernelPath(path); // 当前来源的精确内核根映射。
+        if (kernel.isEmpty()) return fail(error, QStringLiteral("Unable to resolve the registry kernel path."));
+        const auto result = ksword::ark::DriverClient{}.enumerateRegistryKey(kernel.toStdWString(),
+            KSWORD_ARK_REGISTRY_ENUM_FLAG_INCLUDE_SUBKEYS);
+        if (!result.io.ok) return fail(error, r0Error(result.io, result.status));
+        if (result.status == KSWORD_ARK_REGISTRY_ENUM_STATUS_NOT_FOUND) return true;
+        if (result.status != KSWORD_ARK_REGISTRY_ENUM_STATUS_SUCCESS
+            && result.status != KSWORD_ARK_REGISTRY_ENUM_STATUS_PARTIAL)
+            return fail(error, r0Error(result.io, result.status));
+        *exists = true;
+        return true;
     }
+    RegistryHandle key; // 只读句柄自动释放，不向 UI 泄漏生命周期。
+    const LONG status = ::RegOpenKeyExW(parsed.root, wide(parsed.subKey), REG_OPTION_OPEN_LINK,
+        KEY_QUERY_VALUE | viewFlag(context), &key.value);
+    if (status == ERROR_FILE_NOT_FOUND || status == ERROR_PATH_NOT_FOUND) return true;
+    if (status != ERROR_SUCCESS) return fail(error, systemError(status));
+    *exists = true;
+    return true;
+}
 
-    for (auto iterator = deletionOrder.crbegin(); iterator != deletionOrder.crend(); ++iterator)
+// 仅同父键改名，原子系统 API 拒绝已存在目标；成功后同通道核验两端名称。
+bool RegistryWorkbenchAccess::renameKey(const QString& path, const QString& newName,
+    const RegistryAccessContext& context, QString* newPath, QString* error)
+{
+    if (newPath) newPath->clear();
+    ParsedPath parsed; // 验证所选视图和根，禁止根键和非法组件改名。
+    if (!validate(path, context, &parsed, error)) return false;
+    if (parsed.subKey.isEmpty() || newName.isEmpty() || newName.size() > 255
+        || newName.contains(QLatin1Char('\\')) || newName.contains(QChar(0)))
+        return fail(error, QStringLiteral("Invalid registry key component."));
+    const qsizetype slash = path.lastIndexOf(QLatin1Char('\\')); // 同父键的分隔位置。
+    const QString target = path.left(slash + 1) + newName; // 新目标仍使用原始完整根。
+    if (path.compare(target, Qt::CaseInsensitive) == 0)
     {
-        ParsedPath current;
-        if (!parsePath(*iterator, &current, error) || !proveNoRegistryLinks(current, context, error)) return false;
-        if (context.useR0)
-        {
-            const QString kernel = kernelPath(*iterator);
-            if (kernel.isEmpty()) return fail(error, QStringLiteral("Unable to resolve the registry kernel path."));
-            if (!operationSucceeded(ksword::ark::DriverClient{}.deleteRegistryKey(kernel.toStdWString()), error)) return false;
-        }
-        else
-        {
-            // Delete only this now-leaf key. RegDeleteTree on a path can recurse
-            // into new children created after the preflight and is not used.
-            const LONG result = ::RegDeleteKeyExW(current.root, wide(current.subKey), viewFlag(context), 0);
-            if (result != ERROR_SUCCESS) return fail(error, systemError(result));
-        }
+        if (newPath) *newPath = path;
+        return true;
     }
+    // R0 v1 只能按路径重新打开，无法绑定已捕获的实例；任何读写开始前明确拒绝，不换来源。
+    if (context.useR0)
+        return fail(error, QStringLiteral("R0 registry protocol cannot bind key rename to a captured instance. Select a Win32 32-bit or 64-bit view explicitly."));
+    bool targetExists = false; // 缺失必须被准确证实，权限失败禁止继续。
+    if (!keyExists(target, context, &targetExists, error)) return false;
+    if (targetExists) return fail(error, QStringLiteral("Registry key already exists; it was not replaced."));
+    RegistryHandle key; // 通过精确对象自身改名，不按父路径和旧子名进行第二次对象选择。
+    if (!openRegistryWithoutLinks(parsed, context, KEY_WRITE, key, error)) return false;
+    const LONG status = ::RegRenameKey(key.value, nullptr, wide(newName));
+    if (status != ERROR_SUCCESS) return fail(error, systemError(status));
+    bool originalExists = true; // 改名后的实际源、目标状态必须同时核验。
+    if (!keyExists(path, context, &originalExists, error)
+        || !keyExists(target, context, &targetExists, error)) return false;
+    if (originalExists || !targetExists)
+        return fail(error, QStringLiteral("Registry rename was submitted but its final state could not be verified."));
+    if (newPath) *newPath = target;
     return true;
 }

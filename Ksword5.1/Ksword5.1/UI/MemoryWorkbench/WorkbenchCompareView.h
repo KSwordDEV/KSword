@@ -80,6 +80,11 @@ namespace ks::ui
             bool isPendingMode,
             const QVector<CompareGroupSummary>& groups);
 
+        // setRange：大捕获范围只保留整数摘要，单元格显示时从仍存活的提供者取最多 16 字节。
+        // 调用方更换/销毁提供者前必须清空模型；不复制整份多 MiB 的七组数组。
+        void setRange(IWorkbenchBytesProvider* provider, std::uint64_t address, std::uint64_t length,
+            bool isPendingMode, const QVector<CompareGroupSummary>& groups);
+
         // firstRowAtOrAfter：第一个分组地址 >= address 的行号（分组按地址升序）；
         // 所有分组都在 address 之前时返回最后一行；没有任何分组返回 -1。
         int firstRowAtOrAfter(std::uint64_t address) const;
@@ -87,6 +92,7 @@ namespace ks::ui
         int rowCount(const QModelIndex& parent = QModelIndex()) const override;
         int columnCount(const QModelIndex& parent = QModelIndex()) const override;
         QVariant data(const QModelIndex& index, int role) const override;
+        void setFileOffsetCoordinates(bool fileOffsets);
         QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
 
     private:
@@ -95,6 +101,10 @@ namespace ks::ui
         static constexpr std::uint64_t kGroupBytes = 16;
 
         WorkbenchByteWindow m_window;              // 窗口快照（现值/基线/上次读取/变化种类）
+        IWorkbenchBytesProvider* m_provider = nullptr; // 虚拟范围的缓存来源，生命周期由视图负责。
+        std::uint64_t m_address = 0;               // 虚拟范围首地址，首行导航不越界。
+        std::uint64_t m_length = 0;                // 虚拟范围字节数，末行只读取实际捕获尾部。
+        bool m_fileOffsets = false;                // 文件宿主显式使用偏移坐标列名。
         bool m_isPendingMode = true;                 // 当前分段：true=待写入修改，false=两次读取之间
         QVector<CompareGroupSummary> m_groups;      // 只含命中分组，真正的行数来源
     };
@@ -136,10 +146,16 @@ namespace ks::ui
 
         // refreshView：数据源内容变化后由宿主调用，重新拉取并渲染。
         void refreshView();
+        // 文件偏移列名和真实内存地址分开，指令位数不改变坐标域。
+        void setFileOffsetCoordinates(bool fileOffsets);
 
         // table / model：供夹具与宿主做诊断查询。
         QTableView* table() const;
         WorkbenchCompareModel* model() const;
+        // 总计来自完整范围分块扫描；有效比较字节少于范围时界面明确报告不完整。
+        std::uint64_t totalChangedBytes() const { return m_totalChanged; }
+        std::uint64_t comparedBytes() const { return m_compared; }
+        std::uint64_t rangeLength() const { return m_length; }
 
         // minimumSizeHint（Wave 3 修复缺陷 1 增量，任务书明确允许的最小修改：
         // 只改这一个覆盖，不动其它任何行为）：m_table（六列对比表）默认的
@@ -148,9 +164,13 @@ namespace ks::ui
         // ——与 WorkbenchHexPane::minimumSizeHint 同一处理方式（见该函数注释）。
         QSize minimumSizeHint() const override;
 
+    signals:
+        // 正式比较页与快照宿主共用定位动作，数据源仍只由宿主读取。
+        void requestHexLocate(quint64 address);
+
     private:
-        // kMaxWindowBytes：单次对比的字节数防御上限（1 MiB）。
-        static constexpr std::uint64_t kMaxWindowBytes = 1024ULL * 1024ULL;
+        // kMaxWindowBytes：整范围预算；超限明确拒绝，绝不默默截掉尾部冒充完整比较。
+        static constexpr std::uint64_t kMaxWindowBytes = 64ULL * 1024ULL * 1024ULL;
         // kGroupBytes：分组对齐宽度，与旧代码的 16 字节分行惯例一致。
         static constexpr std::uint64_t kGroupBytes = 16;
 
@@ -164,6 +184,8 @@ namespace ks::ui
         QLabel* m_status = nullptr;                        // 状态行 / "没有上次读取"文案
         std::uint64_t m_address = 0;                       // 当前窗口起始地址
         std::uint64_t m_length = 0;                        // 当前窗口长度
+        std::uint64_t m_totalChanged = 0;                   // 整范围已确认变化字节数。
+        std::uint64_t m_compared = 0;                       // 两侧有效、实际已比较的字节数。
         bool m_hasWindow = false;                          // 是否已经设置过窗口
     };
 }

@@ -16,6 +16,13 @@ class QTableView;
 
 namespace ks::ui
 {
+    struct ResultTableCapabilities;
+
+    // 由 ResultTableHost 复用现有排序、冻结、搜索和快照条实现；页面不直接调用。
+    void ConfigureResultTableInteractions(
+        QTableView* tableView,
+        const ResultTableCapabilities& capabilities);
+
     // NumericSortRole 作用：
     // - 存放“这一格用于排序的真实数值”，与 DisplayRole 的可读文本彻底分家；
     // - 表格默认按 DisplayRole 的字符串比大小，于是 PID 排成 1/10/100/11/2、

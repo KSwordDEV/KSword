@@ -1,4 +1,4 @@
-// HvmWatchPanel.Evidence：内存监视页「命中之后往哪去」的那一半。
+﻿// HvmWatchPanel.Evidence：内存监视页「命中之后往哪去」的那一半。
 //
 // 与 HvmWatchPanel.cpp 的分界不是行数，而是两组动作回答的问题不同：那一份管
 // 表格本身（读表、铺表、装/撤/重新武装/清空），这一份管拿到一次命中之后能做
@@ -29,7 +29,7 @@
 #include <QLabel>
 #include <QMetaObject>
 #include <QPointer>
-#include <QPlainTextEdit>
+#include "CodeEditorWidget.h"
 #include <QProcess>
 #include <QPushButton>
 #include <QStringList>
@@ -118,7 +118,7 @@ void HvmWatchPanel::openWriterMemory()
                 static_cast<unsigned long long>(offset)))
             .arg(QString::fromLatin1(chunk.toHex(' ')));
     }
-    m_detail->setPlainText(lines.join(QLatin1Char('\n')));
+    m_detail->setReportText(lines.join(QLatin1Char('\n')));
     m_statusLabel->setText(text(QStringLiteral(
         "已读出写入者所在的内存。这读的是发起访问的那段代码，不是被监视的目标。")));
 }
@@ -216,7 +216,7 @@ void HvmWatchPanel::openTargetMemory()
             .arg(hex64(address + static_cast<unsigned long long>(offset)))
             .arg(QString::fromLatin1(chunk.toHex(' ')));
     }
-    m_detail->setPlainText(lines.join(QLatin1Char('\n')));
+    m_detail->setReportText(lines.join(QLatin1Char('\n')));
     m_statusLabel->setText(text(QStringLiteral(
         "已读出目标内存。这是命中之后的采样：EPT violation 发生在写指令退休之前，所以这里看到的可能已经包含那次写入，也可能还包含之后的更多次修改。")));
 }
@@ -346,7 +346,7 @@ void HvmWatchPanel::exportEvidence()
         // 另拼一份会让两者随时间漂开。
         showDetail(stored.value<ksword::hvm::HvmWatchEntry>());
         blocks << QStringLiteral("================================");
-        blocks << m_detail->toPlainText();
+        blocks << m_detail->text();
         blocks << QString();
     }
     QFile file(path);
@@ -384,7 +384,7 @@ void HvmWatchPanel::copyEvidence()
     // 直接复制详情框的原文：屏幕上看到的和粘贴出去的必须是同一份东西，
     // 另拼一份格式会让两者随时间漂开。
     showDetail(entry);
-    QApplication::clipboard()->setText(m_detail->toPlainText());
+    QApplication::clipboard()->setText(m_detail->text());
     m_statusLabel->setText(
         text(QStringLiteral("已把这条监视的完整证据复制到剪贴板。")));
 }

@@ -1,5 +1,5 @@
-#include "HyperVMemoryPage.h"
-#include "../UI/CodeTextEdit.h"
+﻿#include "HyperVMemoryPage.h"
+#include "../UI/CodeEditorWidget.h"
 #include "PhysicalPageScan.h"
 #include "MemoryAttributionChart.h"
 #include "../Internationalization/LanguageManager.h"
@@ -14,7 +14,6 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
-#include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSaveFile>
@@ -167,15 +166,15 @@ HyperVMemoryPage::HyperVMemoryPage(QWidget* parent) : QWidget(parent)
     m_chart = new MemoryAttributionChart(this); root->addWidget(m_chart);
     m_tabs = new QTabWidget(this);
     auto* split = new QSplitter(Qt::Vertical, m_tabs);
-    m_partitions = table(split); m_detail = new CodeTextEdit(split);
-    static_cast<CodeTextEdit*>(m_detail)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText); m_detail->setReadOnly(true);
+    m_partitions = table(split); m_detail = new CodeEditorWidget(split);
+    m_detail->setReadOnly(true);
     split->addWidget(m_partitions); split->addWidget(m_detail); split->setStretchFactor(0, 3); split->setStretchFactor(1, 1);
     m_tabs->addTab(split, {});
     m_host = table(m_tabs); m_tabs->addTab(m_host, {});
     m_processes = table(m_tabs); m_tabs->addTab(m_processes, {});
     m_sources = table(m_tabs); m_tabs->addTab(m_sources, {});
-    m_evidence = new CodeTextEdit(m_tabs);
-    static_cast<CodeTextEdit*>(m_evidence)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText); m_evidence->setReadOnly(true); m_tabs->addTab(m_evidence, {});
+    m_evidence = new CodeEditorWidget(m_tabs);
+    m_evidence->setReadOnly(true); m_tabs->addTab(m_evidence, {});
     root->addWidget(m_tabs, 1);
     connect(m_collect, &QPushButton::clicked, this, [this] { startCollection(); });
     connect(m_cancel, &QPushButton::clicked, this, [this] { if (m_job) { m_job->cancel.store(true); } });
@@ -259,7 +258,7 @@ void HyperVMemoryPage::retranslate()
 }
 void HyperVMemoryPage::rebuildPartitions()
 {
-    m_partitions->setSortingEnabled(false); m_partitions->setRowCount(0); m_detail->clear();
+    m_partitions->setSortingEnabled(false); m_partitions->setRowCount(0); m_detail->setReportText(QString());
     if (!m_snapshot) { return; }
     const auto filter = m_filter->text().trimmed();
     for (std::size_t index = 0; index < m_snapshot->partitions.size(); ++index) {
@@ -305,7 +304,7 @@ void HyperVMemoryPage::showPartition(int index)
         lines << QStringLiteral("%1 | %2 | %3\n%4").arg(metricLabel(sample.metric), bytes(sample.bytes), sample.sampledAt, sample.path);
     }
     if (!row.memoryEvidence.isEmpty()) { lines << QString::fromUtf8(QJsonDocument(row.memoryEvidence).toJson(QJsonDocument::Indented)); }
-    m_detail->setPlainText(lines.join(QStringLiteral("\n\n")));
+    m_detail->setReportText(lines.join(QStringLiteral("\n\n")));
 }
 void HyperVMemoryPage::rebuild()
 {
@@ -376,7 +375,7 @@ void HyperVMemoryPage::rebuild()
     if (snapshot.observedVidBytes && snapshot.vidTotalBytes && snapshot.observedVidBytes != snapshot.vidTotalBytes) {
         evidence.prepend(L("VID instances and _Total disagree. Inventory churn, missing instances or provider scope may explain the difference; the sample is not a complete partition census."));
     }
-    m_evidence->setPlainText(evidence.join(QStringLiteral("\n\n")));
+    m_evidence->setReportText(evidence.join(QStringLiteral("\n\n")));
     if (m_job) { poll(); }
 }
 void HyperVMemoryPage::exportEvidence()
@@ -385,7 +384,7 @@ void HyperVMemoryPage::exportEvidence()
     const auto path = QFileDialog::getSaveFileName(this, L("Export Hyper-V memory evidence"), QStringLiteral("hyperv-memory-evidence.json"), L("JSON files (*.json)"));
     if (path.isEmpty()) { return; }
     auto object = toJson(*m_snapshot, m_resultContext);
-    object.insert(QStringLiteral("interpretation"), m_evidence->toPlainText());
+    object.insert(QStringLiteral("interpretation"), m_evidence->text());
     if (m_previous) { object.insert(QStringLiteral("previous_sample"), toJson(*m_previous)); }
     QSaveFile file(path); const auto data = QJsonDocument(object).toJson(QJsonDocument::Indented);
     if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit()) { m_summary->setText(L("Failed to export Hyper-V evidence: %1").arg(file.errorString())); }

@@ -8,6 +8,7 @@
 #include <QAbstractItemView>
 #include <QAbstractItemModel>
 #include <QAbstractSlider>
+#include <QAbstractSpinBox>
 #include <QComboBox>
 #include <QTextEdit>
 #include <QTextStream>
@@ -103,6 +104,7 @@
 #include "UI/ThemeControlGlyphs.h"
 #include "UI/DockThemeIcons.h"
 #include "UI/SmoothScrollSupport.h"
+#include "UI/ThemeBinding.h"
 #include "UI/ThemeColorRemap.h"
 #include "UI/ThemedMessageBox.h"
 #include "theme.h"
@@ -1865,15 +1867,19 @@ namespace
         std::unordered_map<QTabBar*, QList<QIcon>> m_contrastIconsByTabBar;
     };
 
+    // GlobalSliderWheelFilter 作用：按既有设置统一保护滑块、下拉框及数值/日期输入框。
+    // 应用级安装覆盖懒加载页面、独立弹窗和表格编辑器，不依赖控件创建时逐个注册。
     class GlobalSliderWheelFilter final : public QObject
     {
     public:
+        // 构造函数：parent 是管理过滤器生命周期的应用对象，无额外初始化输出。
         explicit GlobalSliderWheelFilter(QObject* parent = nullptr)
             : QObject(parent)
         {
         }
 
     protected:
+        // eventFilter：watchedObject 为实际收件对象，eventObject 为原始事件；返回 true 跳过控件调值。
         bool eventFilter(QObject* watchedObject, QEvent* eventObject) override
         {
             if (watchedObject == nullptr || eventObject == nullptr || eventObject->type() != QEvent::Wheel)
@@ -1881,6 +1887,7 @@ namespace
                 return QObject::eventFilter(watchedObject, eventObject);
             }
 
+            // appInstance 和 sliderWheelAdjustEnabled 读取运行时设置，保留原配置键及即时切换行为。
             QApplication* appInstance = qobject_cast<QApplication*>(QCoreApplication::instance());
             const bool sliderWheelAdjustEnabled = appInstance != nullptr
                 && appInstance->property("ksword_slider_wheel_adjust_enabled").toBool();
@@ -1889,21 +1896,49 @@ namespace
                 return QObject::eventFilter(watchedObject, eventObject);
             }
 
-            // 只禁止 QSlider 这类“数值滑块”的滚轮调值，不能拦截 QScrollBar，否则页面滚动会失效。
-            if (qobject_cast<QScrollBar*>(watchedObject) != nullptr)
+            if (!isValueControlOrChild(watchedObject))
             {
                 return QObject::eventFilter(watchedObject, eventObject);
             }
 
-            if (qobject_cast<QAbstractSlider*>(watchedObject) == nullptr)
-            {
-                return QObject::eventFilter(watchedObject, eventObject);
-            }
-
+            // 焦点或修饰键不能绕过防误触；忽略原事件，使真实滚轮沿 Qt 父链继续滚动页面。
+            // 不自行重发事件，避免同一档滚轮同时走人工转发和 Qt 原生传播而滚动两次。
             eventObject->ignore();
             return true;
         }
 
+    private:
+        // isValueControlOrChild：输入事件收件对象，返回它是否属于可被滚轮误改值的控件正文。
+        // 内部 lineEdit/自定义子控件同样受保护；弹出列表、补全列表和滚动条保留正常滚动。
+        static bool isValueControlOrChild(QObject* watchedObject)
+        {
+            // currentWidget 沿事件收件控件的祖先查找，覆盖事件先落到内部编辑框的情形。
+            for (QWidget* currentWidget = qobject_cast<QWidget*>(watchedObject);
+                currentWidget != nullptr; currentWidget = currentWidget->parentWidget())
+            {
+                // 弹出列表视口的祖先是滚动视图，必须在到达其所属组合框前停止查找。
+                // QScrollBar 虽然也继承 QAbstractSlider，但承担页面滚动，不能禁止其滚轮。
+                if (qobject_cast<QScrollBar*>(currentWidget) != nullptr ||
+                    qobject_cast<QAbstractScrollArea*>(currentWidget) != nullptr)
+                {
+                    return false;
+                }
+
+                if (qobject_cast<QAbstractSlider*>(currentWidget) != nullptr ||
+                    qobject_cast<QComboBox*>(currentWidget) != nullptr ||
+                    qobject_cast<QAbstractSpinBox*>(currentWidget) != nullptr)
+                {
+                    return true;
+                }
+
+                // Qt::Popup 等独立窗口的内容不属于其 parentWidget 的正文，禁止跨窗口误判。
+                if (currentWidget->isWindow())
+                {
+                    return false;
+                }
+            }
+            return false;
+        }
     };
 
     // TableSelectionOutlineDelegate 作用：
@@ -12299,6 +12334,8 @@ void MainWindow::applyAppearanceSettings(
         // 主题色固化在自己的 styleSheet 里，而控件自身样式表优先级高于全局 QSS。
         // 这里按快照统一重写存量样式表，把它们一并拉回当前主题。
         // 必须排在各面板主动重建之后，避免刚重建好的新色又被扫描一遍做无用功。
+        // 明确登记的控件按角色重新求值；存量控件继续使用旧色值补偿，不猜测已登记样式。
+        ks::ui::RefreshWidgetThemeBindings();
         themeColorRemapResult = ks::ui::RemapStaleThemeColors(staleThemeColorSnapshot);
         if (themeColorRemapResult.rewrittenWidgetCount > 0
             || themeColorRemapResult.rewrittenPaletteWidgetCount > 0

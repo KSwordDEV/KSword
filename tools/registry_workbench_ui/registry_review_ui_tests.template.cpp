@@ -8,16 +8,15 @@
 #include <cstring>
 #include <iostream>
 #include <string>
+#include <memory>
 #include "RegistryDock/RegistryWorkbenchAccess.h"
+#include "RegistryDock/RegistryDocumentApply.h"
 #include "UI/CodeEditorWidget.h"
 #include "theme.h"
 
 namespace {
 int checks = 0;
 int failures = 0;
-int win32Renames = 0;
-int r0Renames = 0;
-int lastView = 0;
 bool driverOnline = true;
 void check(bool ok, const char* label)
 {
@@ -28,90 +27,31 @@ void check(bool ok, const char* label)
         std::cerr << "FAIL " << label << '\n';
     }
 }
-struct Key { HKEY root; int view; };
-LSTATUS WINAPI mockOpen(HKEY root, LPCWSTR, DWORD, REGSAM access, PHKEY output)
-{
-    const int view = (access & KEY_WOW64_32KEY) ? 32 : (access & KEY_WOW64_64KEY) ? 64 : 0;
-    *output = reinterpret_cast<HKEY>(new Key{root, view});
-    return ERROR_SUCCESS;
 }
-LSTATUS WINAPI mockClose(HKEY handle)
-{
-    delete reinterpret_cast<Key*>(handle);
-    return ERROR_SUCCESS;
-}
-LSTATUS WINAPI mockRename(HKEY handle, LPCWSTR before, LPCWSTR after)
-{
-    ++win32Renames;
-    const auto* key = reinterpret_cast<const Key*>(handle);
-    lastView = key->view;
-    return key->root == HKEY_CLASSES_ROOT && std::wcscmp(before, L"Before") == 0
-        && std::wcscmp(after, L"After") == 0 ? ERROR_SUCCESS : ERROR_INVALID_PARAMETER;
-}
-FARPROC WINAPI mockResolve(HMODULE, LPCSTR name)
-{
-    if (std::strcmp(name, "RegRenameKey") != 0)
-        return nullptr;
-    const auto function = &mockRename;
-    FARPROC result = nullptr;
-    static_assert(sizeof(function) == sizeof(result));
-    std::memcpy(&result, &function, sizeof(result));
-    return result;
-}
-}
-
-namespace ksword::ark {
-struct RegistryOperationResult {};
-class DriverClient final {
-public:
-    RegistryOperationResult renameRegistryKey(const std::wstring&, const std::wstring&) const
-    {
-        ++r0Renames;
-        return {};
-    }
-};
-}
-bool registryOperationSucceeded(const ksword::ark::RegistryOperationResult&) { return false; }
-QString registryOperationFailureText(const QString&, const ksword::ark::RegistryOperationResult&) { return QStringLiteral("R0 refused"); }
-QString RegistryWorkbenchAccess::kernelPath(const QString& path)
-{
-    return path.startsWith(QStringLiteral("HKEY_CLASSES_ROOT")) ? QString() : QStringLiteral("\\REGISTRY\\MOCK");
-}
-QString buildKernelRegistryPath(const QString& path) { return RegistryWorkbenchAccess::kernelPath(path); }
-QString winErrorText(LSTATUS status) { return QString::number(status); }
 
 class RegistryDock final {
 public:
     int m_viewBits = 0;
+    QString m_currentPath;
+    QString navigatedPath;
+    unsigned navigations = 0, refreshes = 0;
     bool shouldUseRegistryR0() const { return driverOnline && m_viewBits == 0; }
     RegistryAccessContext accessContextForPath(const QString& path) const;
-    bool renameRegistryKeyAny(const QString&, const QString&, QString*, QString*);
-    static bool parseRegistryPath(const QString& path, HKEY* root, QString* rest)
-    {
-        const int slash = static_cast<int>(path.indexOf(QLatin1Char('\\')));
-        if (slash < 0)
-            return false;
-        const QString name = path.left(slash);
-        *root = name == QStringLiteral("HKEY_CLASSES_ROOT") ? HKEY_CLASSES_ROOT : HKEY_CURRENT_USER;
-        *rest = path.mid(slash + 1);
-        return true;
-    }
-    static QString rootKeyToText(HKEY root)
-    {
-        return root == HKEY_CLASSES_ROOT ? QStringLiteral("HKEY_CLASSES_ROOT") : QStringLiteral("HKEY_CURRENT_USER");
-    }
+    RegistryAccessContext accessContext() const { return accessContextForPath(m_currentPath); }
+    void navigateToPath(const QString& path, bool) { navigatedPath = path; ++navigations; }
+    void refreshCurrentKey(bool) { ++refreshes; }
+
+
 };
 
 //@@ACCESS_CONTEXT@@
-#define RegOpenKeyExW mockOpen
-#define RegCloseKey mockClose
-#define GetProcAddress mockResolve
-//@@RENAME@@
-#undef RegOpenKeyExW
-#undef RegCloseKey
-#undef GetProcAddress
-
 //@@MENU_THEME@@
+
+// 原样注入生产回执刷新分支，fake 只记录导航/刷新动作，不查询真实注册表。
+void applyReceiptNavigation(RegistryDock* guarded, const std::shared_ptr<RegistryApplyResult>& result)
+{
+//@@RECEIPT_NAVIGATION@@
+}
 
 int main(int argc, char** argv)
 {
@@ -121,13 +61,43 @@ int main(int argc, char** argv)
     for (int view : {0, 32, 64})
     {
         dock.m_viewBits = view;
-        QString result, error;
-        check(dock.renameRegistryKeyAny(QStringLiteral("HKEY_CLASSES_ROOT\\Software\\Before"),
-            QStringLiteral("After"), &result, &error), "actual HKCR rename succeeds with driver online");
-        check(result == QStringLiteral("HKEY_CLASSES_ROOT\\Software\\After") && lastView == view,
-            "actual rename retains target path and native/32/64 view");
+        const auto context = dock.accessContextForPath(QStringLiteral("HKEY_CLASSES_ROOT\\Software\\Before"));
+        check(!context.useR0 && context.viewBits == view, "actual HKCR context retains merged Win32 native/32/64 view");
     }
-    check(win32Renames == 3 && r0Renames == 0, "HKCR rename executes only mocked Win32 transport");
+    driverOnline = false;
+    auto result = std::make_shared<RegistryApplyResult>();
+    result->viewBits = 32;
+    RegistryApplyReceipt receipt;
+    receipt.state = RegistryApplyReceipt::State::Success;
+    receipt.mutated = true;
+    receipt.operation.kind = RegistryApplyOperation::Kind::CreateKey;
+    receipt.operation.keyPath = QStringLiteral("HKEY_LOCAL_MACHINE\\Parent\\New");
+    result->receipts.append(receipt);
+    dock.m_viewBits = 32;
+    dock.m_currentPath = QStringLiteral("HKEY_LOCAL_MACHINE\\Parent");
+    applyReceiptNavigation(&dock, result);
+    check(dock.navigations == 1 && dock.navigatedPath == receipt.operation.keyPath && dock.refreshes == 0,
+        "successful single create navigates to the actual new key");
+    dock.navigations = dock.refreshes = 0;
+    result->receipts[0].operation.kind = RegistryApplyOperation::Kind::DeleteTree;
+    result->receipts[0].operation.keyPath = QStringLiteral("HKEY_LOCAL_MACHINE\\Parent\\Removed");
+    dock.m_currentPath = QStringLiteral("HKEY_LOCAL_MACHINE\\Parent\\Removed\\Child");
+    applyReceiptNavigation(&dock, result);
+    check(dock.navigations == 1 && dock.navigatedPath == QStringLiteral("HKEY_LOCAL_MACHINE\\Parent"),
+        "successful deletion of current subtree navigates to its parent");
+    dock.navigations = dock.refreshes = 0;
+    result->receipts[0].state = RegistryApplyReceipt::State::Failed;
+    applyReceiptNavigation(&dock, result);
+    check(dock.navigations == 0 && dock.refreshes == 1, "failed deletion only refreshes the actual tree");
+    dock.navigations = dock.refreshes = 0;
+    result->viewBits = 64;
+    applyReceiptNavigation(&dock, result);
+    check(dock.navigations == 0 && dock.refreshes == 0, "late receipt from a different registry view cannot navigate or refresh current source");
+    result->viewBits = 0;
+    dock.m_viewBits = 0;
+    driverOnline = true;
+    applyReceiptNavigation(&dock, result);
+    check(dock.navigations == 0 && dock.refreshes == 0, "late Win32 receipt cannot refresh the current R0 source");
     for (bool dark : {false, true})
     {
         KswordTheme::SetDarkModeEnabled(dark);

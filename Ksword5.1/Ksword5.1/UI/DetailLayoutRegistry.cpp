@@ -4,6 +4,7 @@
 
 #include <QList>
 #include <QPointer>
+#include <QWidget>
 
 namespace
 {
@@ -47,21 +48,27 @@ ks::ui::DetailLayoutHost* ks::ui::DetailLayoutRegistry::registerHost(
     }
 
     pruneDestroyedHosts();
-    for (const QPointer<DetailLayoutHost>& hostPointer : detailHosts())
+    const auto snapshot = detailHosts();
+    for (const QPointer<DetailLayoutHost>& hostPointer : snapshot)
     {
         if (!hostPointer.isNull() && hostPointer->detailEditor() == detailEditor)
         {
-            hostPointer->setTableView(tableView);
-            hostPointer->applyScheme(currentDetailScheme());
-            return hostPointer.data();
+            QPointer<DetailLayoutHost> host = hostPointer;
+            host->setTableView(tableView);
+            if (host.isNull())
+            {
+                return nullptr;
+            }
+            host->applyScheme(currentDetailScheme());
+            return host.data();
         }
     }
 
     // 新控制器以页面作为 QObject 父对象，页面卸载时不会留下浮动窗口或回调。
-    DetailLayoutHost* host = new DetailLayoutHost(tableView, detailEditor, ownerWidget);
-    detailHosts().append(QPointer<DetailLayoutHost>(host));
+    QPointer<DetailLayoutHost> host = new DetailLayoutHost(tableView, detailEditor, ownerWidget);
+    detailHosts().append(host);
     host->applyScheme(currentDetailScheme());
-    return host;
+    return host.data();
 }
 
 void ks::ui::DetailLayoutRegistry::applyGlobalScheme(
@@ -69,13 +76,60 @@ void ks::ui::DetailLayoutRegistry::applyGlobalScheme(
 {
     currentDetailScheme() = scheme;
     pruneDestroyedHosts();
-    for (const QPointer<DetailLayoutHost>& hostPointer : detailHosts())
+    const auto snapshot = detailHosts();
+    for (const QPointer<DetailLayoutHost>& hostPointer : snapshot)
     {
         if (!hostPointer.isNull())
         {
             hostPointer->applyScheme(scheme);
         }
     }
+}
+
+// 新页面直接声明布局，不先调用旧注册入口，避免构造期间先发生祖先推断。
+ks::ui::DetailLayoutHost* ks::ui::DetailLayoutRegistry::registerHost(
+    QAbstractItemView* tableView,
+    CodeEditorWidget* detailEditor,
+    QWidget* ownerWidget,
+    QSplitter* splitter,
+    QWidget* mainPane,
+    QWidget* detailPane)
+{
+    if (tableView == nullptr || detailEditor == nullptr || ownerWidget == nullptr
+        || splitter == nullptr || mainPane == nullptr || detailPane == nullptr || mainPane == detailPane)
+    {
+        return nullptr;
+    }
+    const DetailPaneBinding binding{splitter, mainPane, detailPane};
+    pruneDestroyedHosts();
+    const auto snapshot = detailHosts();
+    for (const QPointer<DetailLayoutHost>& candidate : snapshot)
+    {
+        QPointer<DetailLayoutHost> host = candidate;
+        if (!host.isNull() && host->detailEditor() == detailEditor)
+        {
+            if (host->parent() != ownerWidget)
+            {
+                return nullptr;
+            }
+            host->setTableView(tableView);
+            if (host.isNull())
+            {
+                return nullptr;
+            }
+            host->bindPanels(binding);
+            if (host.isNull())
+            {
+                return nullptr;
+            }
+            host->applyScheme(currentDetailScheme());
+            return host.data();
+        }
+    }
+    QPointer<DetailLayoutHost> host = new DetailLayoutHost(tableView, detailEditor, ownerWidget, binding);
+    detailHosts().append(host);
+    host->applyScheme(currentDetailScheme());
+    return host.data();
 }
 
 ks::settings::DetailDisplayScheme ks::ui::DetailLayoutRegistry::globalScheme()
@@ -92,7 +146,8 @@ ks::ui::DetailLayoutHost* ks::ui::DetailLayoutRegistry::hostFor(
     }
 
     pruneDestroyedHosts();
-    for (const QPointer<DetailLayoutHost>& hostPointer : detailHosts())
+    const auto snapshot = detailHosts();
+    for (const QPointer<DetailLayoutHost>& hostPointer : snapshot)
     {
         if (!hostPointer.isNull() && hostPointer->detailEditor() == detailEditor)
         {

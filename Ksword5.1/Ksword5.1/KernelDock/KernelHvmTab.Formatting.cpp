@@ -4,7 +4,7 @@
 #include "../UI/HvmControl.h"
 #include <QTableWidget>
 #include <QTableWidgetItem>
-#include <QPlainTextEdit>
+#include "../UI/CodeEditorWidget.h"
 #include <QTextEdit>
 
 #include <QStringList>
@@ -161,7 +161,7 @@ void KernelHvmTab::applyMetrics(ksword::ark::HvmMetricsResult result)
     if (!result.io.ok || !result.response || result.response->backend != KSWORD_ARK_HVM_BACKEND_SVM ||
         result.response->svmProcessorCount != m_snapshot.processorCount)
     {
-        m_detailEdit->appendPlainText(kernelText("kernel.hvm.amd.metrics_unavailable", QStringLiteral("AMD metrics 暂不可用；未将缺失或不兼容的快照解释为零次退出。")));
+        m_detailEdit->appendReportText(kernelText("kernel.hvm.amd.metrics_unavailable", QStringLiteral("AMD metrics 暂不可用；未将缺失或不兼容的快照解释为零次退出。")));
         return;
     }
     const auto& metrics = *result.response;
@@ -171,7 +171,7 @@ void KernelHvmTab::applyMetrics(ksword::ark::HvmMetricsResult result)
         if (row.generation != m_snapshot.generation || row.group != m_snapshot.processors[i].processorGroup ||
             row.number != m_snapshot.processors[i].processorNumber)
         {
-            m_detailEdit->appendPlainText(kernelText("kernel.hvm.amd.metrics_changed", QStringLiteral("AMD metrics 与状态的代次或处理器集合不同，请刷新；未合并两次运行的证据。")));
+            m_detailEdit->appendReportText(kernelText("kernel.hvm.amd.metrics_changed", QStringLiteral("AMD metrics 与状态的代次或处理器集合不同，请刷新；未合并两次运行的证据。")));
             return;
         }
     }
@@ -214,7 +214,7 @@ void KernelHvmTab::applyMetrics(ksword::ark::HvmMetricsResult result)
         }
     }
     // 新共享控件以纯文本追加证据，不沿用 QTextEdit 的富文本 append 接口。
-    m_detailEdit->appendPlainText(details.join(QLatin1Char('\n')));
+    m_detailEdit->appendReportText(details.join(QLatin1Char('\n')));
 }
 
 QString KernelHvmTab::featureText(const std::uint64_t flags)

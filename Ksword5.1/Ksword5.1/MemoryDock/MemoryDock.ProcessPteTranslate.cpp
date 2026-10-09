@@ -426,19 +426,34 @@ void MemoryDock::refreshProcessPteTranslateAsync()
 
     // 按钮与状态已在函数入口统一置位，此处不再重复下发，直接取采样参数。
     std::uint64_t baseAddress = 0ULL;
-    if (m_processPteTranslateAddressEdit != nullptr)
+    const QString addressText = m_processPteTranslateAddressEdit != nullptr
+        ? m_processPteTranslateAddressEdit->text().trimmed() : QString();
+    // 明确输入必须解析成功；仅空输入才借用当前工作台插入点，不回退旧页缓存或地址零。
+    const auto workbenchAddress = addressText.isEmpty()
+        ? workbenchFocusAddress() : std::optional<std::uint64_t>();
+    const bool hasAddress = addressText.isEmpty()
+        ? workbenchAddress.has_value() : parseAddressText(addressText, baseAddress);
+    if (!hasAddress)
     {
-        const QString inputText = m_processPteTranslateAddressEdit->text().trimmed();
-        if (!inputText.isEmpty())
+        // 本次没有启动采样任务，立即恢复按钮和状态；复制句柄随局部租约正常关闭。
+        m_processPteTranslateRefreshInProgress.store(false);
+        if (m_processPteTranslateRefreshButton != nullptr)
         {
-            parseAddressText(inputText, baseAddress);
+            m_processPteTranslateRefreshButton->setEnabled(true);
         }
+        if (m_processPteTranslateStatusLabel != nullptr)
+        {
+            m_processPteTranslateStatusLabel->setText(QStringLiteral(
+                "状态：请填写有效地址，或在内存工作台选择地址。"));
+            m_processPteTranslateStatusLabel->setStyleSheet(
+                QStringLiteral("color:%1; font-weight:600;")
+                    .arg(KswordTheme::ErrorColor().name(QColor::HexRgb)));
+        }
+        return;
     }
-    if (baseAddress == 0ULL)
+    if (workbenchAddress.has_value())
     {
-        // 默认地址：用户在内存工作台里正看着的位置（工作台跟随本 Dock 的附加进程时）；
-        // 工作台不可用或没有插入点时退回旧内存查看器的当前地址。
-        baseAddress = workbenchFocusAddress().value_or(m_currentViewerAddress);
+        baseAddress = *workbenchAddress;
     }
     const std::uint32_t pageCount = m_processPteTranslatePageCountSpin != nullptr
         ? static_cast<std::uint32_t>(m_processPteTranslatePageCountSpin->value())

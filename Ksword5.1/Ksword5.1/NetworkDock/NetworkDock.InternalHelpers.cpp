@@ -1,6 +1,6 @@
 #include "NetworkDock.InternalHelpers.h"
 
-#include "../UI/HexEditorWidget.h"
+#include "../UI/MemoryWorkbench/HexView.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../ksword/network/network_format_tools.h"
 #include "../theme.h"
@@ -294,7 +294,7 @@ namespace network_dock_detail
                 QTabWidget* detailTabWidget = new QTabWidget(this);
                 rootLayout->addWidget(detailTabWidget, 1);
 
-                // 十六进制页：统一复用 HexEditorWidget，功能与内存/文件模块保持一致。
+                // 十六进制页：统一复用 ks::ui::HexView，功能与内存/文件模块保持一致。
                 QWidget* hexPage = new QWidget(detailTabWidget);
                 QVBoxLayout* hexPageLayout = new QVBoxLayout(hexPage);
                 hexPageLayout->setContentsMargins(0, 0, 0, 0);
@@ -309,7 +309,7 @@ namespace network_dock_detail
                 hexHintLabel->setStyleSheet(QStringLiteral("color:%1;").arg(KswordTheme::TextSecondaryHex()));
                 hexPageLayout->addWidget(hexHintLabel);
 
-                HexEditorWidget* hexEditorWidget = new HexEditorWidget(hexPage);
+                ks::ui::HexView* hexEditorWidget = new ks::ui::HexView(hexPage);
                 hexEditorWidget->setEditable(false);
                 hexEditorWidget->setBytesPerRow(16);
                 if (!packetRecord.packetBytes.empty())
@@ -317,11 +317,11 @@ namespace network_dock_detail
                     const QByteArray packetBytes(
                         reinterpret_cast<const char*>(packetRecord.packetBytes.data()),
                         static_cast<int>(packetRecord.packetBytes.size()));
-                    hexEditorWidget->setByteArray(packetBytes, 0);
+                    hexEditorWidget->setBuffer(0, packetBytes);
                 }
                 else
                 {
-                    hexEditorWidget->clearData();
+                    hexEditorWidget->clearBuffer();
                 }
                 hexPageLayout->addWidget(hexEditorWidget, 1);
 

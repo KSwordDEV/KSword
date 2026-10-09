@@ -52,7 +52,6 @@ class QToolButton;
 class QTreeWidget;
 class QVBoxLayout;
 class CodeEditorWidget;
-class HexEditorWidget;
 class SystemMemoryAuditPage;
 class DdmaPage;
 
@@ -60,7 +59,6 @@ class DdmaPage;
 namespace ks::ui
 {
     class VisibleTableWidget;
-    class MemoryEditorWidget;
     class MemoryWorkbenchView; // 内存工作台视图：懒创建，只用指针。
     class MemoryDebugPage;     // 不附加内存调试页：独立于 Dock 的目标会话。
     struct NavRequest;         // 工作台跳转请求：navigateWorkbench 的参数类型。
@@ -101,8 +99,7 @@ public:
 
     // setProcessDetailMemoryScope：
     // - 供进程详情窗口内嵌时使用；
-    // - 仅保留进程与模块、内存区域、内存搜索、内存工作台四个页面（工作台路由被用户关闭时，
-    //   第四个页面仍是旧内存查看器）。
+    // - 仅保留进程与模块、内存区域、内存搜索、内存工作台四个页面。
     void setProcessDetailMemoryScope();
 
     // focusDdmaPage：
@@ -241,34 +238,6 @@ private:
         QString noteText;               // 备注文本（可由用户后续填充）。
     };
 
-    // BreakpointEntry：
-    // - 作用：保存软件断点信息（0xCC）。
-    struct BreakpointEntry
-    {
-        std::uint64_t address = 0;      // 断点地址。
-        std::uint8_t originalByte = 0;  // 原始字节（用于恢复）。
-        bool enabled = false;           // 当前是否启用。
-        std::uint64_t hitCount = 0;     // 命中次数（当前版本预留）。
-        QString description;            // 断点描述文本。
-    };
-
-    enum class BookmarkValueState { Pending, Ready, Failed, Partial, NoProcess };
-
-    // BookmarkEntry：
-    // - 作用：保存用户书签信息。
-    struct BookmarkEntry
-    {
-        std::uint64_t id = 0;           // 唯一标识：删除后重加同地址也不会接收旧任务结果。
-        std::uint64_t address = 0;      // 书签地址。
-        QString noteText;               // 备注文本。
-        QString addTimeText;            // 添加时间文本。
-        QByteArray lastValueBytes;      // 当前上下文中完整读回的值；失败时清空。
-        BookmarkValueState valueState = BookmarkValueState::Pending;
-        QString readDetail;             // 读取错误或后端告警。
-        QString readTimeText;           // 最近一次读取完成时间。
-        bool scratchDirty = false;      // DDMA 暂存扇区还原失败，必须可见。
-    };
-
 public:
     // ProcessMemoryEvidenceEntry：
     // - 作用：表示单个虚拟地址的 PTE / 工作集 / 风险证据。
@@ -294,39 +263,7 @@ public:
         QString detailText;                 // 详情文本。
     };
 
-public:
-    // KernelModuleEntry：
-    // - 作用：缓存一条已加载内核模块记录，供驱动读写页的目标下拉与“模块名+偏移”解析使用；
-    // - 说明：数据源是 R3 的 SystemModuleInformation 快照，与附加进程无关，因此独立于 ModuleEntry。
-    struct KernelModuleEntry
-    {
-        QString moduleName;             // 模块文件名，例如 CI.dll。
-        QString ntPath;                 // 模块 NT 路径，例如 \SystemRoot\system32\CI.dll。
-        std::uint64_t baseAddress = 0;  // 模块映像基址。
-        std::uint32_t sizeBytes = 0;    // 模块映像大小，用于偏移越界提示。
-        bool kernelImage = false;       // 是否为内核本体（ntoskrnl），用于置顶展示。
-    };
-
-    // DriverMemorySourceMode：
-    // - 作用：标识驱动读写页当前的目标来源通道；
-    // - 说明：枚举值顺序必须与来源下拉框的条目顺序一致，界面直接按索引转换。
-    enum class DriverMemorySourceMode : int
-    {
-        ProcessVirtual = 0, // 目标进程的用户态虚拟内存。
-        KernelVirtual,      // 内核虚拟地址空间。
-        Physical            // 物理内存。
-    };
-
 private:
-    // DriverDiffBlock：
-    // - 作用：保存“修改后缓存”和“读取备份”比对出的连续差异块；
-    // - R3 只把这些差异块提交给 R0，避免整页重复写入。
-    struct DriverDiffBlock
-    {
-        std::uint64_t address = 0;      // 差异块目标起始地址。
-        QByteArray bytes;               // 差异块修改后的字节数据。
-    };
-
     // ParsedSearchPattern：
     // - 作用：保存扫描输入解析结果，避免线程内重复解析字符串。
     struct ParsedSearchPattern
@@ -373,21 +310,6 @@ private:
     // - 作用：构建 Tab3（内存搜索）界面。
     // - 返回：无。
     void initializeMemorySearchTab();
-
-    // initializeMemoryViewerTab：
-    // - 作用：构建 Tab4（内存查看器）界面。
-    // - 返回：无。
-    void initializeMemoryViewerTab();
-
-    // initializeBreakpointBookmarkTab：
-    // - 作用：构建 Tab5（断点与书签）界面。
-    // - 返回：无。
-    void initializeBreakpointBookmarkTab();
-
-    // initializeDriverMemoryRwTab：
-    // - 作用：构建 Tab6（驱动内存读写）界面。
-    // - 返回：无。
-    void initializeDriverMemoryRwTab();
 
     // initializeKernelExecutableMemoryScanTab：
     // - 作用：构建 Tab7（内核可执行页扫描）界面。
@@ -444,13 +366,10 @@ private:
     //   否则用户只会看到一个灰掉的选项，不知道要去哪里补配置。
     void refreshBackendSelectors();
 
-    // currentSearchBackend / currentViewerBackend / currentBookmarkBackend / currentDriverMemoryBackend：
+    // currentSearchBackend：
     // - 作用：读取各页面当前选中的访问后端；
     // - 返回：控件缺失时一律使用 R3。
     ksword::memory_backend::MemoryAccessBackend currentSearchBackend() const;
-    ksword::memory_backend::MemoryAccessBackend currentViewerBackend() const;
-    ksword::memory_backend::MemoryAccessBackend currentBookmarkBackend() const;
-    ksword::memory_backend::MemoryAccessBackend currentDriverMemoryBackend() const;
 
     // currentDdmaSession：
     // - 作用：取 DDMA 页维护的会话配置；
@@ -467,10 +386,10 @@ private:
     // - 返回：无。
     void initializeStatusBar();
 
-    // initializeBookmarkRefreshTimer：
-    // - 作用：初始化书签刷新定时器（默认 1 秒）。
+    // initializeWorkbenchLivenessTimer：
+    // - 作用：初始化工作台目标存活核验定时器（默认 1 秒）。
     // - 返回：无。
-    void initializeBookmarkRefreshTimer();
+    void initializeWorkbenchLivenessTimer();
 
 private:
     // ========================================================
@@ -686,15 +605,9 @@ private:
     // 内存查看器（Tab4）相关函数
     // ========================================================
 
-    // jumpToAddressFromUi：
-    // - 作用：读取地址输入框并跳转到目标地址。
-    // - 返回：无。
-    void jumpToAddressFromUi();
-
     // jumpToAddress：
     // - 作用：统一的"跳到地址"分发器（实现在 MemoryDock.Workbench.cpp）：
-    //   routeJumps 为真（默认）时交给内存工作台，为假（用户在设置里取消勾选）时走
-    //   jumpToAddressLegacy（旧内存查看器）。
+    //   所有模块、区域和搜索结果地址统一交给内存工作台。
     // - 参数 address：目标地址（本 Dock 附加进程的用户态地址）。
     // - 返回：无。
     void jumpToAddress(std::uint64_t address);
@@ -704,13 +617,13 @@ private:
     //   可能不是附加的进程：预览进程与附加进程不同时，请求会带上预览进程的 pid（与创建时间）
     //   钉住它，而不是把它的模块基址当成附加进程里的地址去看；
     // - 参数 baseAddress：模块基址；
-    // - 返回：无。routeJumps 为假时与旧行为一致（走旧查看器）。
+    // - 返回：无；导航拒绝原因由工作台状态栏展示。
     void jumpToModuleBase(std::uint64_t baseAddress);
 
     // viewRegionViaDriver：
     // - 作用：区域表"R0读取此区域"的落点：强制标准驱动通道、在工作台里打开区域起点；
-    // - 参数 regionBase：区域基址；bytesToRead：旧路径一次读取的字节数（仅用于日志与旧路径）；
-    // - 返回：无。routeJumps 为假时走旧的驱动读写页。
+    // - 参数 regionBase：区域基址；bytesToRead：来源区域的请求预算（仅用于日志）；
+    // - 返回：无；导航拒绝原因由工作台状态栏展示。
     void viewRegionViaDriver(std::uint64_t regionBase, std::uint64_t bytesToRead);
 
     // addSearchResultsToAddressBook：
@@ -720,63 +633,9 @@ private:
     // - 返回：无。
     void addSearchResultsToAddressBook(const std::vector<std::uint64_t>& addresses);
 
-    // workbenchRoutingActive：旧入口的跳转当前是否交给工作台（整体开关开启且 routeJumps 为真）。
-    bool workbenchRoutingActive() const;
-
     // workbenchFocusAddress：工作台十六进制页当前的插入点（仅当工作台跟随本 Dock 的附加进程时有值），
     // 供 PTE 页等取"用户正在看哪里"作为默认地址。
     std::optional<std::uint64_t> workbenchFocusAddress() const;
-
-    // jumpToAddressLegacy：
-    // - 作用：切换到指定地址并刷新一页十六进制视图（原 jumpToAddress 的函数体，原样保留）。
-    // - 参数 address：目标地址。
-    // - 返回：无。
-    void jumpToAddressLegacy(std::uint64_t address);
-
-    // reloadMemoryViewerPage：
-    // - 作用：从当前地址重新读取并重建十六进制表格。
-    // - 返回：无。
-    void reloadMemoryViewerPage();
-
-    void applyMemoryViewerChanges();
-    void discardMemoryViewerChanges();
-    void updateMemoryViewerEditState();
-    void loadMemoryViewerSnapshot(bool editable, bool preserveArchitecture = false);
-    void clearMemoryViewerSnapshot();
-    bool confirmDiscardMemoryViewerChanges();
-    bool confirmDiscardMemoryEditsForProcessChange();
-
-private:
-    // ========================================================
-    // 驱动内存读写（Tab6）相关函数
-    // ========================================================
-
-    // driverReadMemoryFromUi：
-    // - 作用：按 UI 输入调用 R0 读取目标进程内存，并刷新 HexEditor 缓存。
-    // - 返回：无。
-    void driverReadMemoryFromUi();
-
-    // driverApplyMemoryDiffFromUi：
-    // - 作用：比较当前编辑缓存与原始备份，只把差异块提交给 R0。
-    // - 返回：无。
-    void driverApplyMemoryDiffFromUi();
-    bool verifyDriverMemoryWrittenBlocks(const std::vector<DriverDiffBlock>& blocks, QString& failureText);
-
-    // resetDriverMemoryRwState：
-    // - 作用：清空驱动读写页缓存和状态。
-    // - 返回：无。
-    void resetDriverMemoryRwState();
-
-    // prepareDriverMemoryReadAtAddress：
-    // - 作用：把已知有效区域/地址填入 Tab6，并可选择立即触发 R0 读取。
-    // - 参数 absoluteAddress：目标进程虚拟地址。
-    // - 参数 preferredBytes：期望读取长度，0 表示保留当前前后范围。
-    // - 参数 triggerRead：true=填充后立即点击 R0 读取；false=只切页填充。
-    // - 返回：无。
-    void prepareDriverMemoryReadAtAddress(
-        std::uint64_t absoluteAddress,
-        std::uint64_t preferredBytes,
-        bool triggerRead);
 
     // refreshKernelExecutableMemoryScanAsync：
     // - 作用：异步刷新内核可执行页扫描结果。
@@ -840,196 +699,6 @@ private:
     // - 作用：把当前选中证据记录展开到详情编辑器。
     // - 返回：无。
     void showProcessMemoryEvidenceDetailByCurrentRow();
-
-    // updateDriverMemoryBaseComboFromProcessCache：
-    // - 作用：用当前进程缓存重建 Tab6 的“偏移基址/目标进程”下拉框。
-    // - 处理逻辑：保留用户已输入的 0x 基址或进程筛选文本，避免刷新进程列表时丢失查询条件。
-    // - 返回：无。
-    void updateDriverMemoryBaseComboFromProcessCache();
-
-    // resolveDriverMemoryRequestFromUi：
-    // - 作用：解析 Tab6 的目标进程、偏移基址和中心地址，输出最终 R0 读取地址。
-    // - 参数 targetPidOut：输出 R0 读写使用的目标 PID。
-    // - 参数 targetNameOut：输出匹配到的进程名，可能为空。
-    // - 参数 offsetBaseOut：输出可选偏移基址，默认 0。
-    // - 参数 centerAddressOut：输出“中心地址”输入框解析后的原始值。
-    // - 参数 effectiveCenterAddressOut：输出 offsetBase + centerAddress 的最终中心地址。
-    // - 参数 errorTextOut：失败时输出可展示给用户的错误文本。
-    // - 返回：true 解析成功；false 解析失败。
-    bool resolveDriverMemoryRequestFromUi(
-        std::uint32_t& targetPidOut,
-        QString& targetNameOut,
-        std::uint64_t& offsetBaseOut,
-        std::uint64_t& centerAddressOut,
-        std::uint64_t& effectiveCenterAddressOut,
-        QString& errorTextOut);
-
-    // findDriverMemoryProcessComboMatch：
-    // - 作用：按用户输入在 Tab6 进程下拉项中查找匹配项。
-    // - 参数 filterText：用户输入的进程名片段、PID 或完整下拉文本。
-    // - 参数 comboIndexOut：输出匹配到的下拉索引。
-    // - 返回：true 找到匹配；false 未找到。
-    bool findDriverMemoryProcessComboMatch(
-        const QString& filterText,
-        int& comboIndexOut) const;
-
-    // resolveDriverMemoryModuleExpression：
-    // - 作用：把“模块名+十六进制偏移”解析为当前附加进程中的绝对地址。
-    // - 参数 expressionText：模块偏移表达式，例如 client.dll+C125D9。
-    // - 参数 resolvedBaseOut：输出模块基址与偏移相加后的绝对地址。
-    // - 参数 errorTextOut：失败时输出可展示给用户的精确原因。
-    // - 返回：true 解析并命中唯一模块；false 表示格式、进程或模块匹配失败。
-    bool resolveDriverMemoryModuleExpression(
-        const QString& expressionText,
-        std::uint64_t& resolvedBaseOut,
-        QString& errorTextOut) const;
-
-    // collectDriverMemoryDiffBlocks：
-    // - 作用：生成连续差异块列表，供一次或多次 R0 写入请求使用。
-    // - 参数 diffBlocksOut：输出差异块集合。
-    // - 返回：无。
-    void collectDriverMemoryDiffBlocks(std::vector<DriverDiffBlock>& diffBlocksOut) const;
-
-    // confirmForceDriverMemoryWrite：
-    // - 作用：当 R0 对普通写入返回 force-required 时，向用户弹出强制写入确认。
-    // - 参数 blockAddress：当前差异块起始地址。
-    // - 参数 requestedBytes：当前差异块请求字节数。
-    // - 参数 failureText：R0 返回的拒绝说明。
-    // - 返回：true 表示用户选择强制继续；false 表示停止应用。
-    bool confirmForceDriverMemoryWrite(
-        std::uint64_t blockAddress,
-        std::uint32_t requestedBytes,
-        const QString& failureText,
-        std::uint32_t targetPid);
-
-private:
-    // ========================================================
-    // 驱动内存读写（Tab6）目标来源扩展：内核模块与物理内存
-    // ========================================================
-
-    // driverMemoryKernelModuleBaseRole：
-    // - 作用：返回下拉项里保存内核模块基址所用的 Qt 自定义数据角色。
-    // - 说明：进程项占用 Qt::UserRole 存 PID，内核模块另开角色以免语义混淆。
-    // - 返回：可直接传给 QComboBox::itemData 的角色值。
-    static int driverMemoryKernelModuleBaseRole();
-
-    // currentDriverMemorySourceMode：
-    // - 作用：读取来源下拉框当前选中的目标通道。
-    // - 返回：进程虚拟内存 / 内核虚拟内存 / 物理内存三者之一；控件未建立时返回进程虚拟内存。
-    DriverMemorySourceMode currentDriverMemorySourceMode() const;
-
-    // refreshKernelModuleCacheAsync：
-    // - 作用：异步枚举系统已加载内核模块并刷新目标下拉框。
-    // - 处理：线程池执行 SystemModuleInformation 快照，票据机制丢弃过期结果，回主线程提交。
-    // - 返回：无；已有一轮在跑时直接忽略本次请求。
-    void refreshKernelModuleCacheAsync();
-
-    // resolveDriverMemoryKernelModuleExpression：
-    // - 作用：把“内核模块名+偏移”解析成绝对内核虚拟地址。
-    // - 参数 moduleToken：模块名或含路径的模块标识，例如 CI.dll。
-    // - 参数 moduleOffset：已按十六进制解析出的偏移量。
-    // - 参数 resolvedBaseOut：输出模块基址与偏移相加后的绝对地址。
-    // - 参数 errorTextOut：失败时输出可展示给用户的精确原因。
-    // - 返回：true 命中唯一内核模块；false 表示缓存为空、未命中或命中多项。
-    bool resolveDriverMemoryKernelModuleExpression(
-        const QString& moduleToken,
-        std::uint64_t moduleOffset,
-        std::uint64_t& resolvedBaseOut,
-        QString& errorTextOut) const;
-
-    // driverReadPhysicalMemoryFromUi：
-    // - 作用：按界面参数通过 R0 读取物理内存并填充本页快照。
-    // - 处理：本地校验 52 位物理地址上限与 64KB 单次上限后调用物理读 IOCTL。
-    // - 返回：无；失败时清空快照并弹出诊断信息。
-    void driverReadPhysicalMemoryFromUi();
-
-    // applyDriverMemoryPhysicalDiff：
-    // - 作用：把差异块按 4KB 上限切片写回物理内存。
-    // - 参数 diffBlocks：待写入的连续差异块集合。
-    // - 参数 failureTextOut：失败时输出包含地址、状态码与已写入量的说明。
-    // - 返回：true 表示全部块写入成功；false 表示中途失败且不会自动回滚。
-    bool applyDriverMemoryPhysicalDiff(
-        const std::vector<DriverDiffBlock>& diffBlocks,
-        QString& failureTextOut);
-
-    // ========================================================
-    // 驱动内存读写（Tab6）多视图呈现与便捷操作
-    // ========================================================
-
-    // currentDriverMemoryArchitecture：
-    // - 作用：判断当前快照应当按哪种指令集反汇编。
-    // - 处理：内核与物理快照固定 x64，用户态快照按目标进程是否 WOW64 决定。
-    // - 返回：x86 或 x64 架构枚举；查询失败时保守返回 x64。
-    ks::ui::DisassemblyArchitecture currentDriverMemoryArchitecture() const;
-
-    // refreshDriverMemoryViewsFromSnapshot：
-    // - 作用：快照或编辑缓存变化后刷新当前可见的派生视图。
-    // - 返回：无；停留在十六进制视图时只清空另外两个视图的陈旧内容。
-    void refreshDriverMemoryViewsFromSnapshot();
-    void loadDriverMemoryEditorSnapshot();
-
-    // dumpDriverMemorySnapshotToFile：
-    // - 作用：把当前编辑缓存转存到磁盘文件。
-    // - 处理：按用户选择的扩展名决定写原始二进制还是可读的十六进制转储。
-    // - 返回：无。
-    void dumpDriverMemorySnapshotToFile();
-
-    // writeStringIntoDriverMemoryBuffer：
-    // - 作用：弹出对话框，把一段字符串按指定编码填入编辑缓存。
-    // - 处理：越界一律拒绝；只改本地缓存，真正写回仍走“应用差异”。
-    // - 返回：无。
-    void writeStringIntoDriverMemoryBuffer();
-
-private:
-    // ========================================================
-    // 断点与书签（Tab5）相关函数
-    // ========================================================
-
-    // addBreakpointByAddress：
-    // - 作用：在指定地址写入 0xCC 并记录原字节。
-    // - 参数 address：断点地址。
-    // - 参数 description：断点描述文本。
-    // - 参数 errorTextOut：失败信息输出。
-    // - 返回：true 成功；false 失败。
-    bool addBreakpointByAddress(
-        std::uint64_t address,
-        const QString& description,
-        QString& errorTextOut);
-
-    // removeBreakpointByRow：
-    // - 作用：删除断点并恢复原字节。
-    // - 参数 row：断点表中的行索引。
-    // - 返回：true 成功；false 失败。
-    bool removeBreakpointByRow(int row);
-
-    // setBreakpointEnabledByRow：
-    // - 作用：启用或禁用断点。
-    // - 参数 row：断点表行索引。
-    // - 参数 enabled：目标状态（true=启用，false=禁用）。
-    // - 返回：true 成功；false 失败。
-    bool setBreakpointEnabledByRow(int row, bool enabled);
-
-    // rebuildBreakpointTable：
-    // - 作用：重建断点表格显示。
-    // - 返回：无。
-    void rebuildBreakpointTable();
-
-    // addBookmarkByAddress：
-    // - 作用：添加书签记录。
-    // - 参数 address：书签地址。
-    // - 参数 noteText：备注文本。
-    // - 返回：无。
-    void addBookmarkByAddress(std::uint64_t address, const QString& noteText);
-
-    // rebuildBookmarkTable：
-    // - 作用：重建书签表格显示。
-    // - 返回：无。
-    void rebuildBookmarkTable();
-
-    // refreshBookmarkValues：
-    // - 作用：刷新书签当前值列，便于监控变量变化。
-    // - 返回：无。
-    void refreshBookmarkValues();
 
 private:
     // ========================================================
@@ -1176,58 +845,6 @@ private:
     QLabel* m_scanStatusLabel = nullptr;         // 扫描状态文本。
 
     // ========================================================
-    // Tab4：内存查看器
-    // ========================================================
-
-    QWidget* m_tabViewer = nullptr;           // Tab4 页面容器。
-    QLineEdit* m_viewAddressEdit = nullptr;   // 地址导航输入框。
-    QPushButton* m_viewJumpButton = nullptr;  // 跳转按钮。
-    QLabel* m_viewProtectLabel = nullptr;     // 当前地址保护属性标签。
-    HexEditorWidget* m_hexEditorWidget = nullptr; // 统一十六进制编辑器组件。
-    ks::ui::MemoryEditorWidget* m_viewerMemoryEditor = nullptr;
-    QPushButton* m_viewerApplyButton = nullptr;
-    QPushButton* m_viewerDiscardButton = nullptr;
-    QLabel* m_viewerStatusLabel = nullptr;    // 查看器状态文本。
-
-    // ========================================================
-    // Tab5：断点与书签
-    // ========================================================
-
-    QWidget* m_tabBpBookmark = nullptr;       // Tab5 页面容器。
-    QTableWidget* m_breakpointTable = nullptr;// 断点表格。
-    QPushButton* m_addBreakpointButton = nullptr;    // 添加断点按钮。
-    QPushButton* m_removeBreakpointButton = nullptr; // 删除断点按钮。
-    QPushButton* m_toggleBreakpointButton = nullptr; // 启用/禁用断点按钮。
-    QTableWidget* m_bookmarkTable = nullptr;  // 书签表格。
-    QPushButton* m_addBookmarkButton = nullptr;      // 添加书签按钮。
-    QPushButton* m_removeBookmarkButton = nullptr;   // 删除书签按钮。
-    QPushButton* m_refreshBookmarkButton = nullptr;  // 刷新书签值按钮。
-    QPushButton* m_jumpBookmarkButton = nullptr;     // 跳转书签按钮。
-
-    // ========================================================
-    // Tab6：驱动内存读写
-    // ========================================================
-
-    QWidget* m_tabDriverMemoryRw = nullptr;   // Tab6 页面容器。
-    QComboBox* m_driverMemoryBaseCombo = nullptr; // 可选偏移基址或 R0 目标进程选择框。
-    bool m_driverMemoryBaseComboPopupLifecycleActive = false; // 目标框弹层/动画生命周期。
-    bool m_driverMemoryBaseComboRefreshPending = false; // 弹层收起后待补一次模型重建。
-    QLineEdit* m_driverMemoryAddressEdit = nullptr; // 驱动读写目标中心地址。
-    QSpinBox* m_driverMemoryBeforeSpin = nullptr;   // 向前读取字节数。
-    QSpinBox* m_driverMemoryAfterSpin = nullptr;    // 向后读取字节数。
-    QPushButton* m_driverMemoryReadButton = nullptr; // R0 读取按钮。
-    QPushButton* m_driverMemoryApplyButton = nullptr; // 应用差异按钮。
-    QPushButton* m_driverMemoryResetButton = nullptr; // 清空按钮。
-    QLabel* m_driverMemoryRangeLabel = nullptr;       // 当前缓存范围标签。
-    QLabel* m_driverMemoryStatusLabel = nullptr;      // R0 读写状态标签。
-    HexEditorWidget* m_driverMemoryHexEditor = nullptr; // 可编辑缓存视图。
-    ks::ui::MemoryEditorWidget* m_driverMemoryEditor = nullptr;
-
-    QComboBox* m_driverMemorySourceCombo = nullptr;   // 目标来源下拉：进程 / 内核 / 物理内存。
-    QPushButton* m_driverMemoryKernelModuleRefreshButton = nullptr; // 刷新已加载内核模块列表。
-    QPushButton* m_driverMemoryDumpButton = nullptr;  // 把当前快照转存到文件。
-    QPushButton* m_driverMemoryWriteStringButton = nullptr; // 打开字符串写入对话框。
-    // ========================================================
     // Tab7：内核可执行页扫描
     // ========================================================
 
@@ -1297,16 +914,9 @@ private:
     DdmaPage* m_ddmaPage = nullptr;           // DDMA 通道配置与自检页面。
     ksword::memory_dock::TamperDetectionPage* m_tamperDetectionPage = nullptr; // 多路径交叉篡改检测页。
 
-    // 搜索、查看器、书签与驱动读写页分别选择访问后端。
-    // 它们共享 m_ddmaPage 里的同一份会话配置，切换互不影响。
+    // 内存搜索选择自己的访问后端，统一工作台由私有目标会话管理通道。
     QComboBox* m_searchBackendCombo = nullptr;        // Tab3 访问后端。
-    QComboBox* m_viewerBackendCombo = nullptr;        // Tab4 访问后端。
-    QComboBox* m_bookmarkBackendCombo = nullptr;      // Tab5 书签访问后端。
-    QComboBox* m_driverMemoryBackendCombo = nullptr;  // Tab6 访问后端。
     QLabel* m_searchBackendHintLabel = nullptr;       // Tab3 后端状态提示。
-    QLabel* m_viewerBackendHintLabel = nullptr;       // Tab4 后端状态提示。
-    QLabel* m_bookmarkBackendHintLabel = nullptr;     // Tab5 后端状态提示。
-    QLabel* m_driverMemoryBackendHintLabel = nullptr; // Tab6 后端状态提示。
 
 private:
     // ========================================================
@@ -1346,33 +956,6 @@ private:
     std::uint32_t m_scanThreadCount = 4;               // 扫描线程数（设置可调）。
     std::uint32_t m_scanChunkSizeKB = 1024;            // 单次读取块大小（KB，设置可调）。
 
-    std::uint64_t m_currentViewerAddress = 0;          // Tab4 当前起始地址。
-    QByteArray m_currentViewerPageBytes;               // Tab4 当前页原始字节缓存。
-    std::uint32_t m_viewerSnapshotPid = 0;
-    std::uint64_t m_viewerSnapshotProcessCreateTime100ns = 0; // Tab4 读取前冻结的原进程导航身份。
-    std::uint64_t m_viewerSnapshotAttachmentGeneration = 0;
-    ksword::memory_backend::MemoryAccessBackend m_viewerSnapshotBackend =
-        ksword::memory_backend::MemoryAccessBackend::UserMode;
-    ksword::memory_backend::DdmaSession m_viewerSnapshotDdmaSession;
-    ksword::memory_backend::MemoryAccessBackend m_driverMemorySnapshotBackend =
-        ksword::memory_backend::MemoryAccessBackend::StandardDriver;
-    std::uint64_t m_driverMemorySnapshotDdmaGeneration = 0;
-
-    std::uint64_t m_driverMemoryBaseAddress = 0;       // Tab6 当前缓存基址。
-    std::uint64_t m_driverMemoryOffsetBase = 0;        // Tab6 本次读取使用的可选偏移基址。
-    std::uint64_t m_driverMemoryCenterAddress = 0;     // Tab6 本次读取解析出的最终中心地址。
-    std::uint32_t m_driverMemorySnapshotPid = 0;       // Tab6 快照对应的目标 PID，写回时固定使用。
-    std::uint64_t m_driverMemorySnapshotProcessCreateTime100ns = 0; // Tab6 读取时冻结的进程导航身份。
-    QString m_driverMemorySnapshotProcessName;         // Tab6 快照对应的进程名，仅用于展示和确认。
-    QByteArray m_driverMemoryOriginalBytes;            // Tab6 读取备份。
-    QByteArray m_driverMemoryEditedBytes;              // Tab6 当前编辑缓存。
-    bool m_driverMemoryHasSnapshot = false;            // Tab6 是否存在可写快照。
-    bool m_driverMemorySnapshotIsPhysical = false;     // Tab6 当前快照是否来自物理内存通道。
-
-    std::vector<KernelModuleEntry> m_kernelModuleCache;  // 已加载内核模块缓存（Tab6 目标下拉与表达式解析）。
-    std::atomic<bool> m_kernelModuleRefreshInProgress{ false }; // 内核模块列表是否正在刷新。
-    std::atomic<std::uint64_t> m_kernelModuleRefreshTicket{ 0 }; // 内核模块刷新票据。
-
     std::vector<ksword::ark::KernelExecutableMemoryPageEntry> m_kernelExecutableCache; // Tab7 扫描缓存。
     std::atomic<bool> m_kernelExecutableRefreshInProgress{ false }; // Tab7 是否正在刷新。
     std::atomic<std::uint64_t> m_kernelExecutableRefreshTicket{ 0 }; // Tab7 刷新票据。
@@ -1393,21 +976,6 @@ private:
     std::atomic<std::uint64_t> m_processMemoryEvidenceRefreshTicket{ 0 }; // Tab10 刷新票据。
     std::size_t m_processMemoryEvidenceVisibleCount = 0; // Tab10 当前可见行数。
 
-    std::vector<BreakpointEntry> m_breakpointCache;    // 断点缓存（Tab5）。
-    std::vector<BookmarkEntry> m_bookmarkCache;        // 书签缓存（Tab5）。
-    QTimer* m_bookmarkRefreshTimer = nullptr;          // 书签刷新定时器。
-    std::uint64_t m_nextBookmarkId = 0;               // 仅在 UI 线程分配书签 ID。
-    bool m_bookmarkRefreshInProgress = false;         // 单任务在途，防止定时器堆积读取。
-    bool m_bookmarkRefreshPending = false;            // 在途期间的上下文变化或新增书签需补刷新。
-    std::uint64_t m_bookmarkContextTicket = 0;         // 后端切走再切回也拒绝旧任务。
-    std::uint64_t m_bookmarkContextGeneration = 0;
-    std::uint32_t m_bookmarkContextPid = 0;
-    ksword::memory_backend::MemoryAccessBackend m_bookmarkContextBackend =
-        ksword::memory_backend::MemoryAccessBackend::UserMode;
-    std::uint64_t m_bookmarkContextDdmaGeneration = 0;
-    bool m_bookmarkDdmaReadBlocked = false;           // 暂存还原失败后停止该 DDMA 会话的书签读取。
-    std::uint64_t m_bookmarkDdmaFaultGeneration = 0;
-
 private:
     // ========================================================
     // 内存工作台页签（实现在 MemoryDock.Workbench.cpp）
@@ -1420,7 +988,7 @@ private:
     void initializeMemoryDebugTab();
     // ensureWorkbenchView：幂等地创建视图并完成全部接线；内嵌窗口里恒为空操作。
     void ensureWorkbenchView();
-    // connectWorkbenchLiveness：视图与既有书签计时器都就绪后幂等接线，锚定目标退出时孤立 int3 记录。
+    // connectWorkbenchLiveness：视图与目标存活计时器就绪后幂等接线，目标退出时孤立 int3 记录。
     // 调用方式：任一对象创建后调用；无传入/传出，不新增计时器或枚举任务。
     void connectWorkbenchLiveness();
     // 三个附加/分离钩子：转给视图的 WorkbenchTarget；视图尚未创建时是空操作。
@@ -1434,17 +1002,14 @@ private:
     bool workbenchAllowsProcessChange();
     // shutdownWorkbench：析构路径上先于子对象销毁调用：权威视图把设置落盘，并断开对视图的引用。
     void shutdownWorkbench();
-    // arrangeLegacyTabs：把旧的内存查看器、断点与书签、驱动内存读写三个页签改名为"（旧）"并移到
-    // 页签栏末尾（实现在 MemoryDock.WorkbenchEntry.cpp）；设置里关闭"显示旧页签"时一并隐藏。
-    void arrangeLegacyTabs();
     // applyProcessDetailTabVisibility：按"内嵌进程详情窗口"的规则重新设置各页签的显隐
-    // （进程与模块/内存区域/内存搜索 + 内存工作台或旧内存查看器）；路由设置变化后需再调用一次。
+    // （进程与模块/内存区域/内存搜索 + 内存工作台）。
     void applyProcessDetailTabVisibility();
 
     QWidget* m_tabWorkbench = nullptr;                   // 工作台页签的容器页。
     ks::ui::MemoryDebugPage* m_memoryDebugPage = nullptr; // 独立进程内存会话，不跟随 Dock 附加。
     ks::ui::MemoryWorkbenchView* m_workbenchView = nullptr; // 工作台视图（懒创建，容器页的子对象）。
-    bool m_workbenchRouteJumps = true;                    // 旧入口的跳转是否交给工作台（3b 起默认真）。
+    QTimer* m_workbenchLivenessTimer = nullptr; // 每秒核验工作台锚定目标。
     bool m_workbenchEmbedded = false;                     // 是否是进程详情窗口里的内嵌实例（视图以内嵌模式创建）。
 
     // 模块表当前缓存对应的进程：模块表可以预览一个并未附加的进程，双击模块基址时必须按

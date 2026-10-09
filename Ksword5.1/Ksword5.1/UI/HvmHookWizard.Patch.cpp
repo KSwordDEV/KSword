@@ -1,8 +1,8 @@
 #include "HvmHookWizard.h"
 #include "../../../shared/evidence/MemoryAddressInput.h"
 
-#include "HexEditorWidget.h"
-#include "MemoryEditorWidget.h"
+#include "MemoryWorkbench/HexView.h"
+#include "MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "HvmControl.h"
 #include "ThemeStatusRole.h"
 #include "../Internationalization/LanguageManager.h"
@@ -38,8 +38,8 @@
 // 这一整个文件存在的理由只有一句：HOOK 的影子页是**被执行的那一份**（驱动侧翻转态
 // secondary 叶 = 影子页 | EXECUTE，hvm_ept_view.c:186-190）。所以影子页的默认状态必须
 // 与目标页逐字节相同——用户什么都不做也不能把一段内核代码变成 0x00。为此这里把
-// 统一 MemoryEditorWidget 的缓冲区当作唯一真值：读取后装入基线整页，成品页永远是
-// 「编辑器现值」，补丁永远是「编辑器现值与基线的现算差异」。HexEditorWidget 只保留
+// 统一 SnapshotWorkbenchWidget 的缓冲区当作唯一真值：读取后装入基线整页，成品页永远是
+// 「编辑器现值」，补丁永远是「编辑器现值与基线的现算差异」。ks::ui::HexView 只保留
 // 给既有模板代码的缓冲区别名，批量修改后必须刷新统一编辑器的历史和各个视图。
 // 已知 VA 时显示和汇编编码使用虚拟页基址；物理页地址仅用于计划和驱动 IOCTL。
 //
@@ -317,7 +317,7 @@ namespace ks::ui
         QSplitter* const splitter = new QSplitter(Qt::Horizontal, page);
 
         // 共用快照编辑器；别名只保留给现有补丁几何与模板代码。
-        m_patchEditor = new MemoryEditorWidget(splitter);
+        m_patchEditor = new SnapshotWorkbenchWidget(splitter);
         m_patchEditor->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
         m_shadowEditor = m_patchEditor->hexEditor();
         m_shadowEditor->setObjectName(QStringLiteral("HvmHookWizardShadowEditor"));
@@ -449,14 +449,14 @@ namespace ks::ui
 
         // ---- 连线 ----
         connect(
-            m_patchEditor, &MemoryEditorWidget::bytesChanged, this, [this]() {
+            m_patchEditor, &SnapshotWorkbenchWidget::bytesChanged, this, [this]() {
                 recomputePatchFromEditor();
                 updatePatchSummary();
                 updatePatchEnabledState();
             });
         connect(
             m_patchEditor,
-            &MemoryEditorWidget::currentAddressChanged,
+            &SnapshotWorkbenchWidget::currentAddressChanged,
             this,
             [this, jumpOffsetEdit](const std::uint64_t absoluteAddress) {
                 // 选中的那个字节就是写入点：让用户在编辑器里点一下即可，不必心算偏移。
@@ -551,7 +551,7 @@ namespace ks::ui
                     ApplyStatusRole(m_patchStatusLabel, StatusRole::Error);
                     return;
                 }
-                m_shadowEditor->setByteArray(pasted, m_patchEditor->baseAddress());
+                m_shadowEditor->setBuffer(m_patchEditor->baseAddress(), pasted);
                 m_patchEditor->setEditable(!m_busy);
                 recomputePatchFromEditor();
                 updatePatchSummary();
@@ -679,7 +679,7 @@ namespace ks::ui
             displayBase + (m_plan.fullPhysicalAddress & 0xFFFULL), sourceIdentity);
         m_patchEditor->setEditable(true);
         // 用户关心的是那几个字节，不是页首。
-        m_shadowEditor->jumpToAbsoluteAddress(
+        m_shadowEditor->jumpToAddress(
             displayBase + m_plan.pageOffset);
 
         recomputePatchFromEditor();
@@ -712,7 +712,7 @@ namespace ks::ui
 
         // 补丁永远是「编辑器现值与基线页的现算差异」。不维护平行的 diff 列表：
         // 整页粘贴、模板回写、单字节编辑三条路径都改缓冲区，平行列表必然分叉。
-        const QByteArray current = m_shadowEditor->data();
+        const QByteArray current = m_shadowEditor->buffer();
         const QByteArray& baseline = m_plan.baselinePage;
 
         // 没有差异时把补丁起点退回第 1 步解析出来的那个页内偏移：
@@ -765,7 +765,7 @@ namespace ks::ui
             modifiedTable->setRowCount(0);
             if (m_shadowEditor != nullptr && m_plan.baselineIsComplete())
             {
-                const QByteArray current = m_shadowEditor->data();
+                const QByteArray current = m_shadowEditor->buffer();
                 if (current.size() == m_plan.baselinePage.size())
                 {
                     int row = 0;
@@ -965,12 +965,14 @@ namespace ks::ui
         {
             const quint64 address =
                 m_patchEditor->baseAddress() + writeOffset + static_cast<quint64>(index);
-            // setByteAtAbsoluteAddress 不发 byteEdited（HexEditorWidget.cpp:377 起），
-            // 所以下面必须自己重算一次补丁。
-            m_shadowEditor->setByteAtAbsoluteAddress(
-                address,
-                static_cast<std::uint8_t>(encoded.at(index)),
-                index == encoded.size() - 1);
+            // 静默修改仅更新当前缓存；最后一个字节完成后移动插入点，
+            // 随后由快照宿主统一重算历史与补丁，不触发真实写入。
+            const bool updated = m_shadowEditor->setByteQuiet(
+                address, static_cast<std::uint8_t>(encoded.at(index)));
+            if (updated && index == encoded.size() - 1)
+            {
+                m_shadowEditor->canvas()->setCaretAddress(address, false, true);
+            }
         }
 
         recomputePatchFromEditor();
@@ -1022,7 +1024,7 @@ namespace ks::ui
         m_patchEditor->setEditable(!m_busy);
         m_plan.patchBytes.clear();
         m_plan.pageOffset = static_cast<quint32>(m_plan.fullPhysicalAddress & 0xFFFULL);
-        m_shadowEditor->jumpToAbsoluteAddress(
+        m_shadowEditor->jumpToAddress(
             displayBase + m_plan.pageOffset);
 
         recomputePatchFromEditor();

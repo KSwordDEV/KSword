@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // ============================================================
 // ReportStructuredView.h
@@ -11,13 +11,15 @@
 //     · hex dump / 反汇编 / 连续缩进块 → 等宽只读代码块；
 //     · 整句说明 → 跨列说明行或独立段落；
 // - 只做展示层解析，绝不改写报告原文，也不参与取证逻辑。
+// - 同时呈现完整 JSON/XML 树；长度、节点数和深度超限时返回原始文本。
 //
 // 使用方式：
 // - CodeEditorWidget 在只读报告模式下内置本视图并提供切换入口；
 // - 其它需要“同一份报告换个结构化视图”的场景可直接复用。
+// - 字节文本窗口由 WorkbenchTextView 确认完整有效解码后显式选择本视图。
 // ============================================================
 
-#include <QFont>
+#include "FieldTreePresenter.h"
 #include <QString>
 #include <QWidget>
 
@@ -26,15 +28,6 @@ class QScrollArea;
 
 namespace ks::ui
 {
-    // ScaledReportFont 作用：
-    // - 输入 baseFont：界面默认字体；
-    // - 处理：按结构化报告统一的放大倍数放大，优先用 pointSizeF，磅值不可用时退回像素值；
-    // - 返回：报告结构化呈现应当使用的字体。
-    // 用途：详情报告要逐条读地址、哈希和路径，界面默认那一档字号看着吃力。
-    //       页面自建的属性树（例如文件常规页那棵从 R0 结构体搭出来的树）也必须调用它，
-    //       否则同一个窗口里两种结构化视图会出现两种字号。
-    QFont ScaledReportFont(const QFont& baseFont);
-
     // ReportStructuredView：报告结构化视图控件。
     // 生命周期由 Qt 父子机制管理；控件不持有任何业务数据副本以外的资源。
     class ReportStructuredView final : public QWidget
@@ -68,6 +61,8 @@ namespace ks::ui
 
         // 复制当前结构控件的选区；没有选区时复制完整报告，避免复制隐藏文本框的旧选区。
         void copySelectionOrReport() const;
+        // 检查准确复制内容，供无系统剪贴板写入的回归使用。
+        QString selectionOrReportText() const;
 
     protected:
         // changeEvent：主题调色板变化时按新前景色重建块，保证状态色跟随主题。
@@ -75,6 +70,7 @@ namespace ks::ui
 
         // showEvent：首次显示或缓存失效时才真正构建子控件，避免频繁选行造成无谓开销。
         void showEvent(QShowEvent* event) override;
+        bool eventFilter(QObject* watchedObject, QEvent* event) override;
 
     private:
         // rebuildBlocks：按当前缓存的块模型重建全部子控件。

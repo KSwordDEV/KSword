@@ -1,4 +1,5 @@
 #include "RegistryDocumentApplyInternal.h"
+#include "RegistryValueTransactions.h"
 
 // Win32 适配层；纯文档状态机保留在 RegistryDocumentApply.cpp。
 #include <QHash>
@@ -50,7 +51,7 @@ class ApplyTransaction final
 public:
     ~ApplyTransaction()
     {
-        // Closing the last uncommitted KTM handle rolls the transaction back.
+        // 关闭最后一个尚未提交的 KTM 句柄，由系统回滚整个事务的暂存变更。
         if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
         if (m_module) FreeLibrary(m_module);
     }
@@ -76,10 +77,10 @@ public:
     {
         return m_commit(handle) || apiError(error, path, GetLastError());
     }
-    HANDLE handle = INVALID_HANDLE_VALUE;
+    HANDLE handle = INVALID_HANDLE_VALUE; // 当前事务的唯一所有权句柄，未提交时关闭会回滚。
 private:
-    HMODULE m_module = nullptr;
-    BOOL (WINAPI* m_commit)(HANDLE) = nullptr;
+    HMODULE m_module = nullptr; // 仅从系统目录加载的 KTM 模块，析构时释放。
+    BOOL (WINAPI* m_commit)(HANDLE) = nullptr; // 已验证的提交入口，失败不能转入普通写入。
 };
 
 // 输入规范化根名，返回 Win32 预定义句柄；未知根返回空。
@@ -115,7 +116,7 @@ bool keyIdentity(HKEY handle, const QString& path, QString& identity, QString& e
     std::memcpy(&query, &address, sizeof(query));
     if (!query) return apiError(error, path, ERROR_PROC_NOT_FOUND);
     ULONG required = 0;
-    // KeyNameInformation contains a byte count followed by the native UTF-16 name.
+    // KeyNameInformation 由名字字节数及原生 UTF-16 名字组成；先验证长度再解码。
     query(handle, 3, nullptr, 0, &required);
     if (required < sizeof(ULONG) || required > 128 * 1024)
         return apiError(error, path, ERROR_INVALID_DATA);
@@ -137,6 +138,97 @@ class Win32ApplyBackend final : public RegistryApplyBackend
 public:
     explicit Win32ApplyBackend(int viewBits, const std::atomic_bool* canceled = nullptr) : m_bits(viewBits),
         m_view(viewBits == 32 ? KEY_WOW64_32KEY : viewBits == 64 ? KEY_WOW64_64KEY : 0), m_canceled(canceled) {}
+
+    bool supportsAtomicValueMove() const override { return true; }
+
+    // 下方 deleteTree 在同一 KTM 事务内复核原树并提交，明确提供安全树删除能力。
+    bool supportsAtomicTreeDeletion() const override { return true; }
+
+    // 原值、目的缺失、写新值、删原值全部绑定同一个事务；不调用普通后端逐步提交。
+    bool moveValueAtomic(const QString& sourcePath, const QString& oldName,
+        const QString& destinationPath, const QString& newName, const RegistryApplyValueState& expected,
+        RegistryValueRenameResult& result, QString& error) override
+    {
+        result = {};
+        QString source;
+        QString destination;
+        if ((m_bits != 0 && m_bits != 32 && m_bits != 64)
+            || !pathCanonical(sourcePath, source, error)
+            || !pathCanonical(destinationPath, destination, error)) return false;
+        bool committed = false; // 只有 CommitTransaction 成功才表示永久变更。
+        bool stagedWrite = false; // 失败时区分尚未开始与已由 KTM 回滚的变更。
+        {
+            ApplyTransaction transaction; // 比键先构造，使键先析构，最后关闭未提交事务回滚。
+            ApplyKey sourceKey;
+            ApplyKey destinationKey;
+            auto execute = [&]() {
+                if (!transaction.begin(source, error)) return false;
+                LSTATUS status = ERROR_SUCCESS;
+                if (!openTransacted(source, KEY_QUERY_VALUE | KEY_SET_VALUE,
+                    transaction.handle, sourceKey, status, error)) return false;
+                RegistryApplyValueState original; // 原始值在事务内与模态前基线比较。
+                if (!readValueHandle(sourceKey.handle, source, oldName, original, error)) return false;
+                if (!sameValue(original, expected))
+                    return failure(error, QStringLiteral("Original registry value changed; rename was not started."));
+                if (source.compare(destination, Qt::CaseInsensitive) == 0)
+                {
+                    // 同键改名直接复用已核验的事务对象，不再次通过普通句柄访问该键。
+                    status = RegOpenKeyTransactedW(sourceKey.handle, L"", 0,
+                        KEY_QUERY_VALUE | KEY_SET_VALUE | m_view, &destinationKey.handle, transaction.handle, nullptr);
+                    if (status != ERROR_SUCCESS) return apiError(error, destination, status);
+                }
+                else if (!openMoveDestination(destination, transaction.handle, destinationKey, error)) return false;
+                RegistryApplyValueState target; // 目的存在检查在同一事务内，不留 read->set 竞争窗口。
+                if (!readValueHandle(destinationKey.handle, destination, newName, target, error)) return false;
+                if (target.exists)
+                    return failure(error, QStringLiteral("Registry destination value already exists; it was not replaced."));
+                stagedWrite = true;
+                status = RegSetValueExW(destinationKey.handle, reinterpret_cast<LPCWSTR>(newName.utf16()), 0,
+                    expected.type, reinterpret_cast<const BYTE*>(expected.data.constData()),
+                    static_cast<DWORD>(expected.data.size()));
+                if (status != ERROR_SUCCESS) return apiError(error, destination, status);
+                status = RegDeleteValueW(sourceKey.handle, reinterpret_cast<LPCWSTR>(oldName.utf16()));
+                if (status != ERROR_SUCCESS) return apiError(error, source, status);
+                // 事务内先确认逻辑结果；提交若遇外部写者会冲突并回滚所有暂存。
+                if (!readValueHandle(sourceKey.handle, source, oldName, original, error)
+                    || !readValueHandle(destinationKey.handle, destination, newName, target, error)) return false;
+                if (original.exists || !sameValue(target, expected))
+                    return failure(error, QStringLiteral("Registry transaction staging did not match the requested value move."));
+                return transaction.commit(source, error);
+            };
+            committed = execute();
+        }
+        result.committed = committed;
+        // 事务句柄已关闭，失败已回滚；两端实际回读不能拿事务内缓存冒充永久状态。
+        QString originalError;
+        QString destinationError;
+        result.originalVerified = readValue(source, oldName, result.actualOriginal, originalError);
+        bool destinationExists = false;
+        result.destinationVerified = keyExists(destination, destinationExists, destinationError);
+        if (result.destinationVerified && destinationExists)
+            result.destinationVerified = readValue(destination, newName, result.actualDestination, destinationError);
+        if (committed && result.originalVerified && result.destinationVerified
+            && !result.actualOriginal.exists && sameValue(result.actualDestination, expected))
+        {
+            result.state = RegistryValueRenameResult::State::Renamed;
+            error.clear();
+            return true;
+        }
+        result.state = !result.originalVerified || !result.destinationVerified || committed
+            ? RegistryValueRenameResult::State::Unverified
+            : stagedWrite && sameValue(result.actualOriginal, expected) && !result.actualDestination.exists
+            ? RegistryValueRenameResult::State::Restored
+            : stagedWrite || !sameValue(result.actualOriginal, expected)
+            ? RegistryValueRenameResult::State::Conflict : RegistryValueRenameResult::State::Rejected;
+        if (committed)
+            error = QStringLiteral("Registry value move committed but its permanent state could not be verified; inspect both names.");
+        else if (result.state == RegistryValueRenameResult::State::Restored)
+            error += QLatin1Char('\n') + QStringLiteral("Registry value move failed; the transaction rolled back and the original value was preserved.");
+        else if (error.isEmpty()) error = QStringLiteral("Registry rename was not verified; inspect both names before retrying.");
+        if (!originalError.isEmpty()) error += QLatin1Char('\n') + originalError;
+        if (!destinationError.isEmpty()) error += QLatin1Char('\n') + destinationError;
+        return false;
+    }
 
     // 输入键路径，输出存在状态；已删除或缺失作为不存在，其它错误仍失败。
     bool keyExists(const QString& path, bool& exists, QString& error) override
@@ -266,7 +358,7 @@ public:
         if (canceled(error))
             return false;
         status = RegDeleteValueW(key.handle, reinterpret_cast<LPCWSTR>(name.utf16()));
-        // Missing after the immediately preceding comparison is a conflict.
+        // 写前刚确认存在、实际删除时却缺失，属于外部竞争冲突而不是本次成功。
         return status == ERROR_SUCCESS || apiError(error, path, status);
     }
 
@@ -293,9 +385,8 @@ public:
             values[folded(value.keyPath)].append(value);
         ApplyTransaction transaction;
         if (!transaction.begin(path, error)) return false;
-        // This list is fixed before the first write. Newly discovered children
-        // never extend it. All checks and deletions share one transaction; an
-        // outside writer either conflicts or aborts our commit, retaining its data.
+        // 写入前冻结删除清单，禁止把外部新出现的子键扩入授权范围。
+        // 原值核验与所有删除共用一个事务；外部写者导致冲突/回滚，保留其数据。
         for (const auto& target : paths) {
             if (canceled(error))
                 return false;
@@ -342,9 +433,8 @@ public:
             status = RegOpenKeyTransactedW(parent.handle, reinterpret_cast<LPCWSTR>(leaf.utf16()), 0,
                 KEY_QUERY_VALUE | DELETE | m_view, &candidate.handle, transaction.handle, nullptr);
             if (status != ERROR_SUCCESS) return apiError(error, target, status);
-            // Bind the name used by deletion as well as the no-follow object that
-            // was checked. A rename/replacement/link race must not redirect the
-            // parent-relative delete to a different key with unbacked values.
+            // 同时绑定实际删除名字与无链接核验过的对象，比较原生身份。
+            // 重命名、替换或链接竞争不得把相对父键删除重定向到未备份的键。
             QString expectedIdentity, candidateIdentity;
             if (!keyIdentity(key.handle, target, expectedIdentity, error)
                 || !keyIdentity(candidate.handle, target, candidateIdentity, error)) return false;
@@ -363,13 +453,37 @@ public:
     }
 
 private:
+    // 固定同一事务创建缺失目的键及父链；预存在键仍按无链接句柄绑定。
+    bool openMoveDestination(const QString& path, HANDLE transaction, ApplyKey& key, QString& error,
+        const REGSAM access = KEY_QUERY_VALUE | KEY_SET_VALUE)
+    {
+        LSTATUS status = ERROR_SUCCESS;
+        if (openTransacted(path, access,
+            transaction, key, status, error)) return true;
+        if (status != ERROR_FILE_NOT_FOUND && status != ERROR_PATH_NOT_FOUND) return false;
+        error.clear();
+        const QString parent = parentPath(path); // 缺失的预定义根不能自行创造。
+        if (parent.isEmpty()) return apiError(error, path, status);
+        ApplyKey parentKey;
+        if (!openMoveDestination(parent, transaction, parentKey, error,
+            KEY_QUERY_VALUE | KEY_CREATE_SUB_KEY)) return false;
+        DWORD disposition = 0; // 若外部写者已经创建此键，不将它收养为本次新对象。
+        const QString leaf = path.mid(parent.size() + 1);
+        status = RegCreateKeyTransactedW(parentKey.handle, reinterpret_cast<LPCWSTR>(leaf.utf16()),
+            0, nullptr, REG_OPTION_NON_VOLATILE,
+            access | KEY_QUERY_VALUE | m_view,
+            nullptr, &key.handle, &disposition, transaction, nullptr);
+        if (status != ERROR_SUCCESS) return apiError(error, path, status);
+        return disposition == REG_CREATED_NEW_KEY
+            || apiError(error, path, ERROR_TRANSACTIONAL_CONFLICT);
+    }
+
     // 输入精确路径与事务，key 输出绑定同一对象的新事务句柄。
     bool openTransacted(const QString& path, REGSAM access, HANDLE transaction,
         ApplyKey& key, LSTATUS& status, QString& error)
     {
-        // First obtain a no-follow handle and inspect every path component. The
-        // transacted API reserves its options parameter, so bind the transaction
-        // to this exact handle through an empty subkey instead of traversing again.
+        // 先逐组件无链接打开并检查；事务 API 的 options 是保留参数，不能传 OPEN_LINK。
+        // 通过精确句柄的空子键绑定事务，避免重新按路径遍历而跟随外部替换的链接。
         ApplyKey exact;
         if (!open(path, access, exact, status, error)) return false;
         status = RegOpenKeyTransactedW(exact.handle, L"", 0,
@@ -470,5 +584,37 @@ bool RegistryDocumentApplyService::undoWin32(const RegistryApplyResult& previous
     Q_UNUSED(canceledToken);
     result = {};
     return failure(result.error, QStringLiteral("Registry committed undo requires Windows."));
+#endif
+}
+
+// 原子值移动唯一 Win32 入口；上下文只来自调用者捕获的视图，任何 KTM 失败都拒绝普通写入。
+bool RegistryDocumentApplyService::moveValueWin32(const QString& sourcePath, const QString& oldName,
+    const QString& destinationPath, const QString& newName, const RegistryApplyValueState& expected,
+    const int viewBits, RegistryValueRenameResult& result)
+{
+    result = {};
+#ifdef Q_OS_WIN
+    if ((viewBits != 0 && viewBits != 32 && viewBits != 64) || !expected.exists
+        || expected.data.size() > 16 * 1024 * 1024 || oldName.size() > 16383 || newName.size() > 16383
+        || oldName.contains(QChar(0)) || newName.contains(QChar(0))
+        || !oldName.isValidUtf16() || !newName.isValidUtf16())
+    {
+        result.error = QStringLiteral("Invalid registry value rename request.");
+        return false;
+    }
+    Win32ApplyBackend backend(viewBits);
+    QString error;
+    const bool ok = backend.moveValueAtomic(sourcePath, oldName, destinationPath, newName, expected, result, error);
+    result.error = error;
+    return ok;
+#else
+    Q_UNUSED(sourcePath);
+    Q_UNUSED(oldName);
+    Q_UNUSED(destinationPath);
+    Q_UNUSED(newName);
+    Q_UNUSED(expected);
+    Q_UNUSED(viewBits);
+    result.error = QStringLiteral("Atomic registry value moves require Windows KTM.");
+    return false;
 #endif
 }

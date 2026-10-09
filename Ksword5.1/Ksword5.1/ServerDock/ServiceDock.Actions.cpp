@@ -318,7 +318,7 @@ void ServiceDock::refreshSelectedService()
 
                     if (!querySucceeded)
                     {
-                        kPro.set(progressPid, "刷新失败", 0, 100.0f);
+                        kPro.finish(progressPid, kProgressState::Failure, "刷新失败");
                         err << refreshEvent
                             << "[ServiceDock] 刷新单服务详情失败, service="
                             << serviceNameText.toStdString()
@@ -334,7 +334,7 @@ void ServiceDock::refreshSelectedService()
 
                     guardedSelf->applyServiceUpdateToCache(updatedEntry);
                     guardedSelf->rebuildServiceTable();
-                    kPro.set(progressPid, "刷新完成", 0, 100.0f);
+                    kPro.finish(progressPid, kProgressState::Success, "刷新完成");
                 },
                 Qt::QueuedConnection);
         });
@@ -551,7 +551,7 @@ bool ServiceDock::controlSelectedService(
                             << ", detail="
                             << errorText
                             << eol;
-                        kPro.set(progressPid, "执行失败", 0, 100.0f);
+                        kPro.finish(progressPid, kProgressState::Failure, "执行失败");
                         guardedSelf->syncToolbarStateWithSelection();
                         if (!privilegePromptHandled)
                         {
@@ -589,7 +589,7 @@ bool ServiceDock::controlSelectedService(
                     kPro.set(progressPid, "刷新列表", 0, 92.0f);
                     guardedSelf->syncToolbarStateWithSelection();
                     guardedSelf->requestAsyncRefresh(true);
-                    kPro.set(progressPid, "执行完成", 0, 100.0f);
+                    kPro.finish(progressPid, kProgressState::Success, "执行完成");
                 },
                 Qt::QueuedConnection);
         });
@@ -674,7 +674,7 @@ void ServiceDock::applySelectedStartType()
             << ", detail="
             << errorText
             << eol;
-        kPro.set(progressPid, "执行失败", 0, 100.0f);
+        kPro.finish(progressPid, kProgressState::Failure, "执行失败");
         if (!privilegePromptHandled)
         {
             QMessageBox::warning(
@@ -708,7 +708,7 @@ void ServiceDock::applySelectedStartType()
 
     kPro.set(progressPid, "刷新列表", 0, 90.0f);
     requestAsyncRefresh(true);
-    kPro.set(progressPid, "修改完成", 0, 100.0f);
+    kPro.finish(progressPid, kProgressState::Success, "修改完成");
 }
 
 

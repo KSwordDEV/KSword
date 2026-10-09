@@ -1,7 +1,9 @@
 ﻿#include "PluginHost.h"
 #include "PluginHost.Upstream.h"
+#include "PluginHost.Archive.h"
 #include "../../GhidraRuntimePlugin/RuntimeProfile.h"
 #include "UI/CodeTextEdit.h"
+#include "UI/CodeEditorWidget.h"
 #include "UI/VisibleTableWidget.h"
 
 #include "theme.h"
@@ -301,12 +303,7 @@ namespace
         return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("plugin"));
     }
 
-    QString quotePowerShellLiteral(const QString& value)
-    {
-        QString escaped = value;
-        escaped.replace(QChar('\''), QStringLiteral("''"));
-        return QChar('\'') + escaped + QChar('\'');
-    }
+
 
     bool readRequiredString(const QJsonObject& object, const char* key, QString* valueOut, QString* errorOut)
     {
@@ -2802,10 +2799,9 @@ namespace
                 .arg(plugin.name, plugin.licenseName), licenseDialog);
             label->setWordWrap(true);
             layout->addWidget(label);
-            auto* text = new CodeTextEdit(licenseDialog);
-            static_cast<CodeTextEdit*>(text)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+            auto* text = new CodeEditorWidget(licenseDialog);
             text->setReadOnly(true);
-            text->setPlainText(QString::fromUtf8(licensePayload));
+            text->setRawText(QString::fromUtf8(licensePayload));
             layout->addWidget(text, 1);
             auto* agree = new QCheckBox(QStringLiteral("我已阅读并同意上述插件许可证"), licenseDialog);
             layout->addWidget(agree);
@@ -3019,10 +3015,23 @@ namespace
                 return;
             }
 
+            // 普通 ZIP 与官方资产采用同一预检/有界提取；promotion 仍验证真实清单。
+            const ks::plugin_host::ArchiveLayout layout{plugin.installDirectory, true};
+            const QString command = ks::plugin_host::buildArchiveExtractionScript(archivePath, stagingPath, layout);
+            if (command.isEmpty())
+            {
+                QDir(stagingPath).removeRecursively();
+                QFile::remove(archivePath);
+                completeMarketplaceInstall(completion, false,
+                    QStringLiteral("插件包已验证，但安装被拒绝：%1").arg(QStringLiteral("archive_policy_invalid")));
+                return;
+            }
             auto* extractor = new QProcess(this);
             extractor->setProcessChannelMode(QProcess::SeparateChannels);
-            const QString command = QStringLiteral("$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath %1 -DestinationPath %2 -Force")
-                .arg(quotePowerShellLiteral(archivePath), quotePowerShellLiteral(stagingPath));
+            extractor->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* arguments)
+            {
+                arguments->flags |= CREATE_NO_WINDOW;
+            });
             extractor->setProgram(powerShell);
             extractor->setArguments(QStringList{
                 QStringLiteral("-NoLogo"), QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),

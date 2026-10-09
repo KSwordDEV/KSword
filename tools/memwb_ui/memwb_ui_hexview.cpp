@@ -175,6 +175,7 @@ namespace memwb_test
         ApplyTheme(false);
 
         RunHexViewCoreTests();
+        RunHexViewHostTests();
         RunHexViewCompatTests();
         RunHexViewReferenceTests();
         RunHexViewFindTests();

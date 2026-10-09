@@ -1,8 +1,8 @@
 #include "HvmViewDialog.h"
 
 #include "HvmControl.h"
-#include "MemoryEditorWidget.h"
-#include "HexEditorWidget.h"
+#include "MemoryWorkbench/SnapshotWorkbenchWidget.h"
+#include "MemoryWorkbench/HexView.h"
 #include "UI_All.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../../../shared/evidence/HookPatchCompose.h"
@@ -151,7 +151,7 @@ void HvmViewDialog::buildUi()
     shadowTools->addWidget(m_discardShadowButton);
     shadowTools->addStretch(1);
     rootLayout->addLayout(shadowTools);
-    m_shadowEditor = new ks::ui::MemoryEditorWidget(this);
+    m_shadowEditor = new ks::ui::SnapshotWorkbenchWidget(this);
     m_shadowEditor->setEditable(false);
     m_shadowEditor->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
     rootLayout->addWidget(m_shadowEditor, 2);
@@ -230,7 +230,7 @@ void HvmViewDialog::buildUi()
         updateShadowPreview();
         updateEnabledState();
     });
-    connect(m_shadowEditor, &ks::ui::MemoryEditorWidget::bytesChanged,
+    connect(m_shadowEditor, &ks::ui::SnapshotWorkbenchWidget::bytesChanged,
         this, [this]() { updateEnabledState(); });
     updateTargetHint();
 }
@@ -447,8 +447,8 @@ void HvmViewDialog::updateShadowPreview()
     if (m_seedBox->currentData().toInt() ==
         static_cast<int>(ksword::hvm::HvmViewShadowSeed::Zero))
     {
-        m_shadowEditor->hexEditor()->setByteArray(
-            QByteArray(kShadowPageBytes, '\0'), m_shadowEditor->baseAddress());
+        m_shadowEditor->hexEditor()->setBuffer(
+            m_shadowEditor->baseAddress(), QByteArray(kShadowPageBytes, '\0'));
         m_shadowEditor->refreshFromHexEditor();
     }
 }

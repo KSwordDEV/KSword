@@ -18,34 +18,16 @@ Environment:
 --*/
 
 #include "ark/ark_driver.h"
+#include "storage_forensics_internal.h"
 #include "../../platform/pool_compat.h"
 
 #include <ntdddisk.h>
-#include <ntddscsi.h>
 #include <ntstrsafe.h>
 
 #define KSW_STORAGE_FORENSICS_POOL_TAG 'frSK'
 #define KSW_STORAGE_FORENSICS_DESCRIPTOR_BYTES 1024UL
 #define KSW_STORAGE_FORENSICS_MAX_STACK_DEPTH 32UL
 
-typedef struct _KSW_STORAGE_DISK_CONTEXT
-{
-    HANDLE Handle;
-    PFILE_OBJECT FileObject;
-    PDEVICE_OBJECT NamedDevice;
-    PDEVICE_OBJECT TopDevice;
-    PDEVICE_OBJECT PortDevice;
-    PDEVICE_OBJECT ControllerDevice;
-    ULONG LogicalSectorSize;
-    ULONG PhysicalSectorSize;
-    ULONGLONG DiskSizeBytes;
-    ULONG BusType;
-    ULONG CapabilityFlags;
-    SCSI_ADDRESS ScsiAddress;
-    WCHAR Path[KSWORD_ARK_RAW_DISK_PATH_CHARS];
-    WCHAR Model[KSWORD_ARK_RAW_DISK_MODEL_CHARS];
-    WCHAR Serial[KSWORD_ARK_RAW_DISK_SERIAL_CHARS];
-} KSW_STORAGE_DISK_CONTEXT, *PKSW_STORAGE_DISK_CONTEXT;
 
 /*
  * These documented kernel exports are declared by ntifs.h rather than the
@@ -117,9 +99,9 @@ Routine Description:
         Context->TopDevice = NULL;
     }
 
-    /* IoGetDeviceObjectPointer returned a referenced file object. */
+    /* 文件对象引用来自已打开句柄，不再进行第二次路径解析。 */
     if (Context->FileObject != NULL) {
-        /* Releasing the file object also releases its named device reference. */
+        /* 释放同一句柄引用的文件对象及其所持有的命名设备关联。 */
         ObDereferenceObject(Context->FileObject);
         /* Clear both borrowed fields after the reference is gone. */
         Context->FileObject = NULL;
@@ -136,7 +118,7 @@ Routine Description:
     }
 }
 
-static NTSTATUS
+NTSTATUS
 KswordStorageSendHandleIoctl(
     _In_ HANDLE Handle,
     _In_ ULONG IoctlCode,
@@ -426,10 +408,28 @@ Routine Description:
     }
 }
 
+/* 只为显式请求FUA的可写句柄传递写透选项；查询、读取及普通写保持原行为。 */
+static ULONG
+KswordStorageOpenOptions(
+    ACCESS_MASK DesiredAccess,
+    BOOLEAN ForceUnitAccess)
+{
+    /* 所有磁盘句柄保持同步非警报I/O及非目录语义。 */
+    ULONG options = FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT;
+    /* 请求FUA只影响写操作；写透请求不构成硬件掉电持久化保证。 */
+    if ((DesiredAccess & FILE_WRITE_DATA) != 0U && ForceUnitAccess) {
+        /* Windows堆栈后端通过ZwWriteFile使用同一写透句柄。 */
+        options |= FILE_WRITE_THROUGH;
+    }
+    /* 下层后端仍由原有SL_WRITE_THROUGH标志传递请求。 */
+    return options;
+}
+
 static NTSTATUS
 KswordStorageOpenContext(
     _In_ ULONG DiskNumber,
     _In_ ACCESS_MASK DesiredAccess,
+    _In_ BOOLEAN ForceUnitAccess,
     _Out_ KSW_STORAGE_DISK_CONTEXT* Context
     )
 /*++
@@ -482,7 +482,7 @@ Routine Description:
         FILE_ATTRIBUTE_NORMAL,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         FILE_OPEN,
-        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+        KswordStorageOpenOptions(DesiredAccess, ForceUnitAccess),
         NULL,
         0U);
 
@@ -494,12 +494,14 @@ Routine Description:
         return status;
     }
 
-    /* Get the named disk device and a referenced file object for stack walking. */
-    status = IoGetDeviceObjectPointer(
-        &diskPath,
-        FILE_READ_ATTRIBUTES,
-        &Context->FileObject,
-        &Context->NamedDevice);
+    /* 从已打开句柄引用同一个文件对象，不能再按可复用的磁盘号重新解析路径。 */
+    status = ObReferenceObjectByHandle(
+        Context->Handle,
+        0U,
+        *IoFileObjectType,
+        KernelMode,
+        (PVOID*)&Context->FileObject,
+        NULL);
 
     /* Stack bypass modes require a named device object. */
     if (!NT_SUCCESS(status)) {
@@ -508,6 +510,9 @@ Routine Description:
         /* Propagate the object lookup result. */
         return status;
     }
+
+    /* 同句柄的文件对象决定命名设备，后续所有下层对象也只从这里派生。 */
+    Context->NamedDevice = IoGetRelatedDeviceObject(Context->FileObject);
 
     /* Acquire an independent reference to the current top of the disk stack. */
     Context->TopDevice = IoGetAttachedDeviceReference(Context->NamedDevice);
@@ -771,7 +776,7 @@ Routine Description:
     return STATUS_SUCCESS;
 }
 
-static PDEVICE_OBJECT
+PDEVICE_OBJECT
 KswordStorageSelectBackendDevice(
     _In_ const KSW_STORAGE_DISK_CONTEXT* Context,
     _In_ ULONG Backend
@@ -800,7 +805,7 @@ Routine Description:
     return NULL;
 }
 
-static NTSTATUS
+NTSTATUS
 KswordStorageSendDeviceReadWrite(
     _In_ PDEVICE_OBJECT DeviceObject,
     _In_ UCHAR MajorFunction,
@@ -909,10 +914,13 @@ Routine Description:
         }
     }
 
-    /* Preserve the completed transfer size within the protocol ULONG limit. */
-    if (NT_SUCCESS(status)) {
-        /* The request length is already bounded to ULONG. */
-        *BytesTransferredOut = (ULONG)min(ioStatus.Information, (ULONG_PTR)Length);
+    /* 完成量只能是实际请求范围内的字节数，失败时的部分完成同样如实保留。 */
+    if (ioStatus.Information <= (ULONG_PTR)Length) {
+        /* 请求长度已限额到ULONG，不把真实短完成补成整个请求长度。 */
+        *BytesTransferredOut = (ULONG)ioStatus.Information;
+    } else if (NT_SUCCESS(status)) {
+        /* 成功却报告超量属于无效回执，不能截断后冒充完整读取或写入。 */
+        status = STATUS_DEVICE_DATA_ERROR;
     }
 
     /* Propagate the selected device object's completion status. */
@@ -1062,6 +1070,7 @@ Routine Description:
     NTSTATUS status = KswordStorageOpenContext(
         Request->diskNumber,
         FILE_READ_DATA | FILE_READ_ATTRIBUTES,
+        FALSE,
         &context);
 
     /* Return a fully initialized failure response when the disk cannot open. */
@@ -1219,8 +1228,17 @@ Routine Description:
     /* Echo the selected backend. */
     response->backendUsed = Request->backend;
 
+    /* 捕获读只升级请求版本，响应头仍是V1的32字节。 */
+    BOOLEAN capturedRead = Request->version == KSWORD_ARK_RAW_DISK_CAPTURED_READ_VERSION;
+    /* 仅适配器已经完整复制V2固定结构后才能把旧前缀解释为扩展请求。 */
+    const KSWORD_ARK_RAW_DISK_CAPTURED_READ_REQUEST* capturedRequest =
+        (const KSWORD_ARK_RAW_DISK_CAPTURED_READ_REQUEST*)Request;
+
     /* Validate the fixed request and backend identifier. */
-    if (Request->version != KSWORD_ARK_STORAGE_FORENSICS_PROTOCOL_VERSION
+    if ((!capturedRead && Request->version != KSWORD_ARK_STORAGE_FORENSICS_PROTOCOL_VERSION)
+        || (capturedRead && (Request->size != sizeof(*capturedRequest) || Request->reserved0 != 0U
+            || Request->reserved1 != 0U || Request->length == 0U
+            || Request->length > KSWORD_ARK_RAW_DISK_MAX_TRANSFER_BYTES))
         || Request->size < sizeof(*Request)
         || Request->backend < KSWORD_ARK_RAW_DISK_BACKEND_WINDOWS_STACK
         || Request->backend > KSWORD_ARK_RAW_DISK_BACKEND_CONTROLLER) {
@@ -1252,6 +1270,7 @@ Routine Description:
     NTSTATUS status = KswordStorageOpenContext(
         Request->diskNumber,
         FILE_READ_DATA | FILE_READ_ATTRIBUTES,
+        FALSE,
         &context);
 
     /* Stop before allocating transfer memory when the disk cannot open. */
@@ -1319,6 +1338,28 @@ Routine Description:
         return status;
     }
 
+    /* 强身份只在上面已打开且持续持有的同一对象上验证，阻止A→B→A夹读误归源。 */
+    if (capturedRead) {
+        /* 协议状态将设备改变与不支持分开，前者不能兼容回退。 */
+        ULONG protocolStatus = KSWORD_ARK_RAW_DISK_STATUS_IO_FAILED;
+        /* GUID校验和最终读取共享同句柄/设备引用，不按DiskNumber重新打开。 */
+        status = KswordStorageValidateCapturedIdentity(&context, Request->diskNumber,
+            capturedRequest->expectedDeviceGuid, &protocolStatus);
+        /* 身份失败不提供任何可贴错误来源的字节。 */
+        if (!NT_SUCCESS(status)) {
+            /* 返回稳定来源/能力状态供界面处理。 */
+            response->status = protocolStatus;
+            /* 保存原始NTSTATUS。 */
+            response->lastStatus = status;
+            /* 仅返回已初始化的固定响应头。 */
+            *BytesWrittenOut = KSWORD_ARK_RAW_DISK_READ_RESPONSE_HEADER_SIZE;
+            /* 释放这一打开对象，不尝试第二个设备。 */
+            KswordStorageReleaseContext(&context);
+            /* 此出口没有读取数据或写入动作。 */
+            return status;
+        }
+    }
+
     /* Allocate an aligned nonpaged buffer for every disk backend. */
     PVOID allocation = NULL;
     /* The aligned view is copied into the buffered IOCTL response after I/O. */
@@ -1367,10 +1408,13 @@ Routine Description:
             &byteOffset,
             NULL);
 
-        /* Preserve the completed byte count when the request succeeded. */
-        if (NT_SUCCESS(status)) {
-            /* The requested length bounds the completion count. */
-            transferred = (ULONG)min(ioStatus.Information, (ULONG_PTR)Request->length);
+        /* 只保留请求范围内的实际完成量，包括失败时后端报告的部分完成。 */
+        if (ioStatus.Information <= (ULONG_PTR)Request->length) {
+            /* 真实短读仍由完整捕获客户端拒绝，不补零或扩大已读取范围。 */
+            transferred = (ULONG)ioStatus.Information;
+        } else if (NT_SUCCESS(status)) {
+            /* 超量成功回执无法证明内容完整，禁止截断后发布捕获证据。 */
+            status = STATUS_DEVICE_DATA_ERROR;
         }
     } else {
         /* Select the independently referenced lower target. */
@@ -1449,8 +1493,27 @@ Routine Description:
     /* Echo the selected backend. */
     Response->backendUsed = Request->backend;
 
+    /* V2 捕获写保留旧前缀，但变量载荷是 GUID 之后的两段等长字节。 */
+    BOOLEAN capturedWrite = Request->version == KSWORD_ARK_RAW_DISK_CAPTURED_WRITE_VERSION;
+    /* 只在完整 V2 固定头通过后访问 GUID 与捕获字节。 */
+    const KSWORD_ARK_RAW_DISK_CAPTURED_WRITE_REQUEST* capturedRequest =
+        (const KSWORD_ARK_RAW_DISK_CAPTURED_WRITE_REQUEST*)Request;
+    /* 所有长度先限制，保证 header + 2 * length 计算没有溢出。 */
+    if (capturedWrite && (Request->length == 0U
+        || Request->length > KSWORD_ARK_RAW_DISK_MAX_TRANSFER_BYTES
+        || Request->reserved != 0U
+        || InputBufferLength != (size_t)KSWORD_ARK_RAW_DISK_CAPTURED_WRITE_HEADER_SIZE + 2U * Request->length
+        || Request->size != InputBufferLength)) {
+        /* 捕获包必须精确匹配结构和两个载荷，不能截短或附加未声明数据。 */
+        Response->status = KSWORD_ARK_RAW_DISK_STATUS_INVALID_REQUEST;
+        /* 拒绝在验证和任何磁盘打开之前完成。 */
+        Response->lastStatus = STATUS_INVALID_PARAMETER;
+        /* 不尝试把 V2 改成 V1。 */
+        return STATUS_INVALID_PARAMETER;
+    }
+
     /* Validate fixed fields and the variable input length. */
-    if (Request->version != KSWORD_ARK_STORAGE_FORENSICS_PROTOCOL_VERSION
+    if ((!capturedWrite && Request->version != KSWORD_ARK_STORAGE_FORENSICS_PROTOCOL_VERSION)
         || Request->size < KSWORD_ARK_RAW_DISK_WRITE_REQUEST_HEADER_SIZE
         || Request->backend < KSWORD_ARK_RAW_DISK_BACKEND_WINDOWS_STACK
         || Request->backend > KSWORD_ARK_RAW_DISK_BACKEND_CONTROLLER
@@ -1473,6 +1536,7 @@ Routine Description:
     NTSTATUS status = KswordStorageOpenContext(
         Request->diskNumber,
         FILE_READ_DATA | FILE_WRITE_DATA | FILE_READ_ATTRIBUTES,
+        (Request->flags & KSWORD_ARK_RAW_DISK_FLAG_FUA) != 0U,
         &context);
 
     /* Return a stable failure when write access cannot be obtained. */
@@ -1555,8 +1619,30 @@ Routine Description:
         return status;
     }
 
-    /* Copy caller bytes out of the METHOD_BUFFERED system buffer. */
-    RtlCopyMemory(transferBuffer, Request->data, Request->length);
+    /* 复制新载荷之前在当前句柄及设备对象上检查身份和原字节。 */
+    if (capturedWrite) {
+        /* 稳定协议状态由只读捕获验证器提供。 */
+        ULONG protocolStatus = KSWORD_ARK_RAW_DISK_STATUS_IO_FAILED;
+        /* 全过程使用上面一次打开且保持引用的同一 context。 */
+        status = KswordStorageValidateCapturedWrite(&context, capturedRequest, transferBuffer, &protocolStatus);
+        /* 任何身份、原值或读取失败都不能触发写入。 */
+        if (!NT_SUCCESS(status)) {
+            /* 将拒绝原因返回给 UI，而不是把它伪装成完整写入。 */
+            Response->status = protocolStatus;
+            /* 保存底层 NTSTATUS 供诊断。 */
+            Response->lastStatus = status;
+            /* 释放唯一对齐传输分配。 */
+            ExFreePoolWithTag(allocation, KSW_STORAGE_FORENSICS_POOL_TAG);
+            /* 释放同一已打开上下文，绝不按设备号重开。 */
+            KswordStorageReleaseContext(&context);
+            /* 此出口没有任何 IRP_MJ_WRITE 或 ZwWriteFile。 */
+            return status;
+        }
+    }
+    /* V2 使用第二段新值；V1 使用原有40字节头之后的载荷。 */
+    const UCHAR* replacement = capturedWrite ? capturedRequest->data + Request->length : Request->data;
+    /* 将已验证范围的新值复制到同一个对齐写缓冲。 */
+    RtlCopyMemory(transferBuffer, replacement, Request->length);
     /* Start with no transferred bytes. */
     ULONG transferred = 0U;
 
@@ -1580,10 +1666,13 @@ Routine Description:
             &byteOffset,
             NULL);
 
-        /* Preserve the completed byte count when the write succeeded. */
-        if (NT_SUCCESS(status)) {
-            /* The requested length bounds the completion count. */
-            transferred = (ULONG)min(ioStatus.Information, (ULONG_PTR)Request->length);
+        /* 短写或失败的部分写入必须保留真实完成量，不能隐藏可能生效的字节。 */
+        if (ioStatus.Information <= (ULONG_PTR)Request->length) {
+            /* 整体状态仍由后端和后续捕获完整性检查共同决定。 */
+            transferred = (ULONG)ioStatus.Information;
+        } else if (NT_SUCCESS(status)) {
+            /* 超量成功不属于合法写回回执，禁止截断后标成完整成功。 */
+            status = STATUS_DEVICE_DATA_ERROR;
         }
     } else {
         /* Select the independently referenced lower target. */
@@ -1599,6 +1688,12 @@ Routine Description:
             Request->length,
             (Request->flags & KSWORD_ARK_RAW_DISK_FLAG_FUA) != 0U,
             &transferred);
+    }
+
+    /* V2 成功必须完整覆盖捕获范围，短写不可返回完整成功。 */
+    if (capturedWrite && NT_SUCCESS(status) && transferred != Request->length) {
+        /* 保留实际 transferred 字节数，但将事务回执标成失败。 */
+        status = STATUS_DEVICE_DATA_ERROR;
     }
 
     /* Publish the completed write result. */

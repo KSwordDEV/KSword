@@ -17,6 +17,9 @@
 #include <unordered_map> // std::unordered_map：用于关联任务 PID 与 owner。
 #include <unordered_set> // std::unordered_set：用于确保每个 owner 只注册一次清理回调。
 #include <vector>     // std::vector：用于日志管理器内部存储。
+#include <memory>     // std::shared_ptr：两种任务视图共享不可变快照。
+#include <cstdint>    // std::uint64_t：任务轮次与终态展示期限。
+#include <QMetaObject> // owner 析构连接在管理器销毁时统一解除。
 #include <QString>    // QString：用于 Qt 字符串日志输出重载。
 
 // Windows 平台下使用 GUID 作为事件唯一标识。
@@ -34,6 +37,23 @@ class QObject;
 // GuidToString, LogLevelToString, FormatTimeToString and eol remain
 // available through that reusable ksword module.
 
+// 任务状态：LegacyCompleted 只表示旧调用已经结束，绝不猜测成功或失败。
+enum class kProgressState
+{
+    Running,
+    Waiting,
+    LegacyCompleted,
+    Success,
+    Failure,
+    Canceled
+};
+
+// IsProgressTerminal：判断已结束状态，供核心和两个视图使用同一规则。
+inline bool IsProgressTerminal(const kProgressState state)
+{
+    return state != kProgressState::Running && state != kProgressState::Waiting;
+}
+
 // kProgressTask：单个进度任务的可视快照数据。
 // 该结构用于 UI 渲染“当前操作”卡片列表。
 struct kProgressTask
@@ -46,6 +66,17 @@ struct kProgressTask
     bool hiddenInList = false;               // true 表示该任务卡片应从列表隐藏（如完成）。
     bool hideProgressBarTemporarily = false; // true 表示临时隐藏进度条（UI 选项弹窗期间）。
     bool retainedForReuse = false;           // true 表示终态后保留，供同一 owner 的周期任务再次使用。
+    kProgressState state = kProgressState::Running; // 明确终态与等待状态，不从步骤文案推断。
+    std::uint64_t generation = 1;            // 同一可复用任务的请求轮次。
+    bool generationGuarded = false;          // 显式 beginCycle 后只接受携带轮次的更新。
+    std::uint64_t visibleUntilMs = 0;        // 显式终态短暂展示期限，使用单调时钟。
+};
+
+// 两种显示端共享同一修订下的不可变任务集合，避免 revision 与数据分开读取。
+struct kProgressSnapshot
+{
+    std::size_t revision = 0;                // 和 tasks 在同一把锁下读取的修订号。
+    std::vector<kProgressTask> tasks;         // 已复制且不会再修改的任务记录。
 };
 
 // kProgress：进度条管理器。
@@ -59,6 +90,7 @@ public:
     // 构造函数作用：
     // - 初始化 PID 自增计数与容器。
     kProgress();
+    ~kProgress(); // 解除 owner 连接；局部管理器不能留下引用自身的回调。
 
     // add 作用：
     // - 新增一条任务记录并显示到任务卡片列表；
@@ -71,6 +103,7 @@ public:
     // add（owner 绑定版本）作用：
     // - 创建一次性任务，并在 owner 析构时自动移除；
     // - 适合异步 UI 操作，防止页面关闭后留下僵尸任务。
+    // - 必须在 owner 所在线程登记；后台更新/finish 使用返回的任务 ID。
     int add(QObject* owner, const std::string& taskName, const std::string& stepName);
 
     // addReusable 作用：
@@ -88,6 +121,21 @@ public:
     // - 支持 [0,1] 比例值（如 0.7）；
     // - 也支持 [0,100] 百分值（如 70.0f，会自动转换到 0.7）。
     void set(int pid, const std::string& stepName, int stepCode, float progressValue);
+
+    // finish：显式提交 Success/Failure/Canceled；未知任务、重复终态或非终态返回 false。
+    bool finish(int pid, kProgressState state, const std::string& stepName, int stepCode = 0);
+
+    // beginCycle：显式开启新轮次；返回令牌，后续必须调用携带 generation 的 set/finish。
+    // 一次性任务不允许重启；旧可复用调用仍兼容，但无法识别无令牌的迟到结果。
+    std::uint64_t beginCycle(int pid, const std::string& stepName);
+    void set(int pid, std::uint64_t generation, const std::string& stepName, int stepCode, float progressValue);
+    bool finish(int pid, std::uint64_t generation, kProgressState state,
+        const std::string& stepName, int stepCode = 0);
+
+    // SnapshotWithRevision：返回可跨视图共享的只读快照；相同修订复用同一 shared_ptr。
+    std::shared_ptr<const kProgressSnapshot> SnapshotWithRevision() const;
+    // expireVisibleTerminals：由 UI feed 调用，到期仅隐藏显式终态，历史仍保留。
+    void expireVisibleTerminals();
 
     // UI（vector 版本）作用：
     // - 阻塞弹出选项对话框；
@@ -149,15 +197,22 @@ private:
     // - 在 UI 弹窗前后切换“临时隐藏进度条”状态。
     // 参数 pid：目标任务 PID。
     // 参数 hidden：true 隐藏，false 恢复。
-    void setProgressBarHiddenForUi(int pid, bool hidden);
+    void setProgressBarHiddenForUi(int pid, bool hidden, std::uint64_t generation);
+    // setInternal/finishInternal：锁内验证轮次，阻止迟到更新覆盖新轮或已完成状态。
+    void setInternal(int pid, std::uint64_t generation, bool guarded,
+        const std::string& stepName, int stepCode, float progressValue);
+    bool finishInternal(int pid, std::uint64_t generation, bool guarded,
+        kProgressState state, const std::string& stepName, int stepCode);
 
 private:
     mutable std::mutex m_mutex;             // 保护任务容器与修订号的线程锁。
     std::vector<kProgressTask> m_tasks;     // 进度任务容器。
     std::unordered_map<int, QObject*> m_taskOwners; // 记录 owner 绑定，任务删除时同步清理。
     std::unordered_set<QObject*> m_boundOwners;     // 每个存活 owner 最多保留一个 destroyed 回调。
+    std::unordered_map<QObject*, QMetaObject::Connection> m_ownerConnections; // 销毁时解除绑定。
     int m_nextPid = 1;                      // 下一个可分配 PID（自增）。
     std::size_t m_revision = 0;             // 任务数据修订号。
+    mutable std::shared_ptr<const kProgressSnapshot> m_sharedSnapshot; // 当前修订的共享快照缓存。
 };
 
 // Global progress manager for UI and business code.

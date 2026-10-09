@@ -10,6 +10,7 @@
 
 #include <QString>
 #include <QStringConverter>
+#include <QPointer>
 #include <QWidget>
 
 class QComboBox;
@@ -58,7 +59,7 @@ public:
     ~CodeEditorWidget() override;
 
     // text：
-    // - 返回当前编辑器文本内容。
+    // - 只读报告返回保存的完整原文（包括 CRLF）；编辑会话返回当前文档。
     QString text() const;
 
     // setText：
@@ -73,10 +74,38 @@ public:
     // - 用于用户文件、原始日志、API JSON 与字节 ASCII 视图。
     void setRawText(const QString& plainText);
 
+    // 已本地化的生成报告：保留完整字符与 CRLF，显式允许统一结构呈现。
+    // preserveScroll=true 时回填后恢复文本滚动位置；不会再次翻译输入。
+    void setReportText(const QString& reportText, bool preserveScroll = false);
+    void appendReportText(const QString& reportText);
+    bool isReportText() const { return m_reportTextActive; }
+
+    // typed 证据可提供原生字段树，由外壳收养，仍保留业务来源与节点含义。
+    // 调用方用 FieldTreePresenter 统一呈现；nullptr 移除该树并恢复报告解析器。
+    void setStructuredContentWidget(QWidget* contentWidget);
+
+    // 提示文字在外壳维护，报告页无需访问内部文本核心。
+    void setPlaceholderText(const QString& placeholder);
+
+    // 原文流式追加：语义与 appendPlainText 相同，不翻译且不进入结构模式。
+    // autoScroll=true 仅在原来位于尾部时继续跟随；否则保留阅读位置。
+    // false 始终保留当前滚动位置，容量裁剪时钳制到有效区间。
+    // contentChanged 仍合并到下一轮事件循环；文档保留 Qt 本身的撤销策略。
+    void appendRawText(const QString& rawText, bool autoScroll = true);
+    // 完整原文日志重建：保持原有水平/垂直阅读位置及最大块数；原来位于尾部时可继续跟随。
+    // followTailIfAtBottom=false 时始终恢复旧位置；追加循环应使用 appendRawText。
+    void replaceRawText(const QString& rawText, bool followTailIfAtBottom = true);
+    // 设置日志最多保留的文本块；0 为不限。正数按 Qt 文档规则禁用撤销。
+    // 用于原文日志流；退出报告模式，以免保存的完整报告与被裁剪文档不一致。
+    void setMaximumBlockCount(int count);
+    int maximumBlockCount() const;
+    // 清空内容并退出报告/本地化模式；保留容量限制和只读状态。
+    void clear();
+
     // setLocalizedText：
     // - 用于应用生成的只读报告，而不是用户文件原文；
     // - 保存中文规范源文本，并在 LanguageChange 时按当前语言重新渲染；
-    // - 普通 setText 会退出该模式，避免误翻译用户打开的源码或日志原文。
+    // - setRawText / setReportText 会退出该模式，避免重复翻译原文。
     void setLocalizedText(const QString& sourceText);
 
     // setLocalizedTextWithRawSuffix：
@@ -103,11 +132,13 @@ public:
     // isReadOnly：
     // - 返回当前是否只读。
     bool isReadOnly() const;
+    QString copyTextForCurrentView() const;
+    void setWordWrapEnabled(bool enabled);
+    bool wordWrapEnabled() const;
 
     // setStructuredReportViewEnabled：
-    // - 关闭内置的“结构视图 / 原始文本”切换入口；
-    // - 只用于页面已经自备结构化视图的场合（例如从 R0 结构体逐字段搭出来的属性树），
-    //   否则同一页会出现两套结构视图，用户还得分辨哪套更准；
+    // - 关闭内置的“结构视图 / 原始文本”切换入口，适用于纯原文页；
+    // - typed 字段树应使用 setStructuredContentWidget 接入统一入口，不再自建切换框；
     // - 默认开启，普通只读报告框不需要调用。
     void setStructuredReportViewEnabled(bool enabled);
 
@@ -222,6 +253,8 @@ private:
 
     // 查找、跳转和换行针对原始文本，执行前切到用户能看见的文本页。
     void activateTextView();
+    QWidget* structuredContentWidget() const;
+    void copyCurrentView();
 
     // resetFileSessionMetadata：
     // - 重置当前文件会话元数据（编码/BOM/换行）。
@@ -341,6 +374,7 @@ private:
 
     // m_structuredView：当前内容的结构化呈现。
     ks::ui::ReportStructuredView* m_structuredView = nullptr;
+    QPointer<QWidget> m_structuredContent;
 
     // m_editor：核心代码编辑器（行号 + 括号高亮）。
     CodeTextEdit* m_editor = nullptr;
@@ -373,6 +407,10 @@ private:
 
     // m_localizedTextActive：true 时 LanguageChange 会重新渲染生成报告正文。
     bool m_localizedTextActive = false;
+    // Interpretation is explicit; raw data never inherits a previous report mode.
+    bool m_reportTextActive = false;
+    // QPlainTextEdit normalizes paragraph separators; copy/export keeps source.
+    QString m_reportOriginalText;
 
     // m_fileEncoding：当前文件编码（仅在文件加载后有效）。
     QStringConverter::Encoding m_fileEncoding = QStringConverter::Utf8;

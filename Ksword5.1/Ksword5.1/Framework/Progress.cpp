@@ -18,11 +18,20 @@
 #include <QWindow>
 
 #include <atomic>
+#include <chrono> // 终态展示使用单调时钟，系统时间调整不会延长卡片寿命。
 
 namespace
 {
     std::atomic_uint g_nonModalOptionDialogSequence{ 0 };
     constexpr std::size_t kMaximumTerminalTaskHistory = 256U;
+    constexpr std::uint64_t kTerminalPresentationDurationMs = 4000U;
+
+    // steadyMilliseconds：单调时钟毫秒，仅用于比较终态卡片展示期限。
+    std::uint64_t steadyMilliseconds()
+    {
+        return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+    }
 
     // findTaskByPidMutable 作用：
     // - 在可写任务容器中按 PID 查找任务迭代器。
@@ -170,6 +179,15 @@ kProgress kPro;
 
 kProgress::kProgress() = default;
 
+kProgress::~kProgress()
+{
+    // 管理器可能是离屏夹具或嵌入宿主的局部对象，不能留下悬空 this 回调。
+    for (const auto& ownerConnection : m_ownerConnections)
+    {
+        QObject::disconnect(ownerConnection.second);
+    }
+}
+
 int kProgress::add(const std::string& taskName, const std::string& stepName)
 {
     return addInternal(nullptr, taskName, stepName, false);
@@ -200,8 +218,28 @@ int kProgress::addInternal(
     int newPid = 0;
     bool shouldBindOwner = false;
 
+    // owner 必须在自身线程仍存活时登记，避免 connect 与析构在两个线程竞态借用 QObject。
+    if (owner != nullptr && owner->thread() != QThread::currentThread())
+    {
+        return 0;
+    }
+
     {
         std::lock_guard<std::mutex> lockGuard(m_mutex);
+
+        // 同一 owner 的同名可复用任务只有一个槽；再次登记不清空在途状态。
+        if (retainedForReuse && owner != nullptr)
+        {
+            for (const kProgressTask& existing : m_tasks)
+            {
+                const auto ownerIterator = m_taskOwners.find(existing.pid);
+                if (existing.retainedForReuse && existing.taskName == taskName &&
+                    ownerIterator != m_taskOwners.end() && ownerIterator->second == owner)
+                {
+                    return existing.pid;
+                }
+            }
+        }
 
         // 分配 PID，并创建初始任务对象。
         newPid = m_nextPid++;
@@ -231,14 +269,19 @@ int kProgress::addInternal(
         const QMetaObject::Connection ownerDestroyedConnection = QObject::connect(
             owner,
             &QObject::destroyed,
-            [owner](QObject*)
+            [this, owner](QObject*)
             {
-                kPro.removeTasksOwnedBy(owner);
+                removeTasksOwnedBy(owner);
             });
         if (!ownerDestroyedConnection)
         {
             // owner 已无法建立生命周期绑定时，不保留无法自动回收的任务。
             removeTasksOwnedBy(owner);
+        }
+        else
+        {
+            std::lock_guard<std::mutex> lockGuard(m_mutex);
+            m_ownerConnections.emplace(owner, ownerDestroyedConnection);
         }
     }
 
@@ -246,6 +289,18 @@ int kProgress::addInternal(
 }
 
 void kProgress::set(const int pid, const std::string& stepName, const int stepCode, const float progressValue)
+{
+    setInternal(pid, 0, false, stepName, stepCode, progressValue);
+}
+
+void kProgress::set(const int pid, const std::uint64_t generation,
+    const std::string& stepName, const int stepCode, const float progressValue)
+{
+    setInternal(pid, generation, true, stepName, stepCode, progressValue);
+}
+
+void kProgress::setInternal(const int pid, const std::uint64_t generation, const bool guarded,
+    const std::string& stepName, const int stepCode, const float progressValue)
 {
     std::lock_guard<std::mutex> lockGuard(m_mutex);
 
@@ -256,10 +311,38 @@ void kProgress::set(const int pid, const std::string& stepName, const int stepCo
         return;
     }
 
+    // 新接口必须匹配轮次；显式开启的任务拒绝无轮次旧结果。
+    if ((guarded && generation != taskIterator->generation) ||
+        (!guarded && taskIterator->generationGuarded))
+    {
+        return;
+    }
+    const float normalized = normalizeProgress(progressValue);
+    if (IsProgressTerminal(taskIterator->state))
+    {
+        // 一次任务与带令牌更新不会复活终态；旧复用周期保留原有 set(<100%) 行为。
+        if (guarded || !taskIterator->retainedForReuse || normalized >= 1.0f ||
+            taskIterator->state != kProgressState::LegacyCompleted)
+        {
+            return;
+        }
+        ++taskIterator->generation;
+    }
+    if (taskIterator->stepName == stepName && taskIterator->stepCode == stepCode &&
+        taskIterator->progress == normalized && !IsProgressTerminal(taskIterator->state))
+    {
+        return;
+    }
+
     // 更新步骤文本、业务状态码与进度值。
     taskIterator->stepName = stepName;
     taskIterator->stepCode = stepCode;
-    taskIterator->progress = normalizeProgress(progressValue);
+    taskIterator->progress = normalized;
+    // 等待选项时后台仍可更新已完成比例；Waiting 只由本轮对话框关闭或终态解除。
+    const bool wasWaiting = taskIterator->state == kProgressState::Waiting;
+    taskIterator->state = normalized >= 1.0f ? kProgressState::LegacyCompleted
+        : (wasWaiting ? kProgressState::Waiting : kProgressState::Running);
+    taskIterator->visibleUntilMs = 0;
 
     // 当进度到 1.0 时隐藏卡片（满足“完成后隐藏”需求）。
     taskIterator->hiddenInList = (taskIterator->progress >= 1.0f);
@@ -279,17 +362,118 @@ void kProgress::set(const int pid, const std::string& stepName, const int stepCo
     }
 }
 
+bool kProgress::finish(const int pid, const kProgressState state,
+    const std::string& stepName, const int stepCode)
+{
+    return finishInternal(pid, 0, false, state, stepName, stepCode);
+}
+
+bool kProgress::finish(const int pid, const std::uint64_t generation, const kProgressState state,
+    const std::string& stepName, const int stepCode)
+{
+    return finishInternal(pid, generation, true, state, stepName, stepCode);
+}
+
+bool kProgress::finishInternal(const int pid, const std::uint64_t generation, const bool guarded,
+    const kProgressState state, const std::string& stepName, const int stepCode)
+{
+    // 只有明确结果可以使用 finish；LegacyCompleted 专供兼容旧百分比调用。
+    if (state != kProgressState::Success && state != kProgressState::Failure &&
+        state != kProgressState::Canceled)
+    {
+        return false;
+    }
+    std::lock_guard<std::mutex> lockGuard(m_mutex);
+    const auto task = findTaskByPidMutable(m_tasks, pid);
+    if (task == m_tasks.end() || IsProgressTerminal(task->state) ||
+        (guarded && generation != task->generation) || (!guarded && task->generationGuarded))
+    {
+        return false;
+    }
+    // 失败和取消不伪装成 100% 成功；状态决定终态，进度只表示实际执行比例。
+    task->state = state;
+    task->stepName = stepName;
+    task->stepCode = stepCode;
+    if (state == kProgressState::Success)
+    {
+        task->progress = 1.0f;
+    }
+    task->hiddenInList = false;
+    task->hideProgressBarTemporarily = true;
+    task->visibleUntilMs = steadyMilliseconds() + kTerminalPresentationDurationMs;
+    ++m_revision;
+    pruneTerminalHistoryLocked();
+    return true;
+}
+
+std::uint64_t kProgress::beginCycle(const int pid, const std::string& stepName)
+{
+    std::lock_guard<std::mutex> lockGuard(m_mutex);
+    const auto task = findTaskByPidMutable(m_tasks, pid);
+    if (task == m_tasks.end() || !task->retainedForReuse)
+    {
+        return 0;
+    }
+    // 调用方保存本次令牌；上一轮 set/finish、选项恢复均无法覆盖此轮。
+    ++task->generation;
+    task->generationGuarded = true;
+    task->state = kProgressState::Running;
+    task->stepName = stepName;
+    task->stepCode = 0;
+    task->progress = 0;
+    task->hiddenInList = false;
+    task->hideProgressBarTemporarily = false;
+    task->visibleUntilMs = 0;
+    ++m_revision;
+    return task->generation;
+}
+
+void kProgress::expireVisibleTerminals()
+{
+    const std::uint64_t now = steadyMilliseconds(); // 当前单调时间，不借用 QWidget。
+    std::lock_guard<std::mutex> lockGuard(m_mutex);
+    bool changed = false;
+    for (kProgressTask& task : m_tasks)
+    {
+        if (!task.hiddenInList && IsProgressTerminal(task.state) &&
+            task.visibleUntilMs != 0 && task.visibleUntilMs <= now)
+        {
+            task.hiddenInList = true;
+            changed = true;
+        }
+    }
+    if (changed)
+    {
+        ++m_revision;
+    }
+}
+
 int kProgress::UI(const int pid, const std::string& prompt, const std::vector<std::string>& options)
 {
+    // 选项等待和恢复绑定本轮令牌；嵌套事件循环里重启的任务不会被旧选择覆盖。
+    std::uint64_t generation = 0;
+    const auto snapshot = SnapshotWithRevision();
+    for (const kProgressTask& task : snapshot->tasks)
+    {
+        if (task.pid == pid && !IsProgressTerminal(task.state))
+        {
+            generation = task.generation;
+            break;
+        }
+    }
+    if (generation == 0)
+    {
+        return 0;
+    }
     // 弹框前先临时隐藏目标任务进度条。
-    setProgressBarHiddenForUi(pid, true);
+    setProgressBarHiddenForUi(pid, true, generation);
 
     // 通过 Qt 应用对象拿到 UI 线程上下文。
     QApplication* appInstance = qobject_cast<QApplication*>(QCoreApplication::instance());
     if (appInstance == nullptr)
     {
         // 无 QApplication 时无法弹窗，恢复进度条并返回 0。
-        setProgressBarHiddenForUi(pid, false);
+        setProgressBarHiddenForUi(pid, false, generation);
         return 0;
     }
 
@@ -312,14 +496,27 @@ int kProgress::UI(const int pid, const std::string& prompt, const std::vector<st
     }
 
     // 弹框结束后恢复进度条显示状态。
-    setProgressBarHiddenForUi(pid, false);
+    setProgressBarHiddenForUi(pid, false, generation);
     return selectedIndex;
 }
 
 std::vector<kProgressTask> kProgress::Snapshot() const
 {
+    return SnapshotWithRevision()->tasks;
+}
+
+std::shared_ptr<const kProgressSnapshot> kProgress::SnapshotWithRevision() const
+{
     std::lock_guard<std::mutex> lockGuard(m_mutex);
-    return m_tasks;
+    // 相同 revision 返回同一不可变副本；不会出现先读取修订号、再拿到另一版 tasks。
+    if (!m_sharedSnapshot || m_sharedSnapshot->revision != m_revision)
+    {
+        auto snapshot = std::make_shared<kProgressSnapshot>();
+        snapshot->revision = m_revision;
+        snapshot->tasks = m_tasks;
+        m_sharedSnapshot = std::move(snapshot);
+    }
+    return m_sharedSnapshot;
 }
 
 std::size_t kProgress::Revision() const
@@ -364,7 +561,7 @@ void kProgress::pruneTerminalHistoryLocked()
         m_tasks.cend(),
         [](const kProgressTask& taskItem)
         {
-            return taskItem.hiddenInList && !taskItem.retainedForReuse;
+            return IsProgressTerminal(taskItem.state) && !taskItem.retainedForReuse;
         }));
     if (terminalTaskCount <= kMaximumTerminalTaskHistory)
     {
@@ -379,7 +576,7 @@ void kProgress::pruneTerminalHistoryLocked()
             [this, &tasksToRemove](const kProgressTask& taskItem)
             {
                 if (tasksToRemove == 0U ||
-                    !taskItem.hiddenInList ||
+                    !IsProgressTerminal(taskItem.state) ||
                     taskItem.retainedForReuse)
                 {
                     return false;
@@ -416,6 +613,7 @@ void kProgress::removeTasksOwnedBy(QObject* const owner)
             }),
         m_tasks.end());
     m_boundOwners.erase(owner);
+    m_ownerConnections.erase(owner);
 
     if (m_tasks.size() != previousTaskCount)
     {
@@ -423,13 +621,14 @@ void kProgress::removeTasksOwnedBy(QObject* const owner)
     }
 }
 
-void kProgress::setProgressBarHiddenForUi(const int pid, const bool hidden)
+void kProgress::setProgressBarHiddenForUi(const int pid, const bool hidden, const std::uint64_t generation)
 {
     std::lock_guard<std::mutex> lockGuard(m_mutex);
 
     // 查找 PID 对应任务，若不存在则直接返回。
     const auto taskIterator = findTaskByPidMutable(m_tasks, pid);
-    if (taskIterator == m_tasks.end())
+    if (taskIterator == m_tasks.end() || taskIterator->generation != generation ||
+        IsProgressTerminal(taskIterator->state))
     {
         return;
     }
@@ -444,6 +643,7 @@ void kProgress::setProgressBarHiddenForUi(const int pid, const bool hidden)
     if (taskIterator->hideProgressBarTemporarily != hidden)
     {
         taskIterator->hideProgressBarTemporarily = hidden;
+        taskIterator->state = hidden ? kProgressState::Waiting : kProgressState::Running;
         ++m_revision;
     }
 }

@@ -179,6 +179,7 @@ void NetworkDock::initializeTrafficMonitorTab()
     // - 用户可拖动矩形整体移动时间窗口，也可拖动左右边缘调整边界；
     // - 控件只负责时间选择，实际报文显示仍由 NetworkDock 的过滤链统一重建。
     m_packetTimelineWidget = new ProcessTraceTimelineWidget(m_trafficMonitorPage);
+    m_packetTimelineWidget->setTracks(ks::ui::PacketTimelineTracks());
     m_packetTimelineWidget->setToolTip(QStringLiteral(
         "流量时间轴：横轴只统计监控开启时长，停机间隔不计入；绿色折线为上传速率，蓝色折线为下载速率；拖动矩形移动时间窗口，拖动左右边调整边界，滚轮向上放大窗口、向下缩小窗口。清空报文会重置时间轴。"));
     m_trafficMonitorLayout->addWidget(m_packetTimelineWidget, 0);

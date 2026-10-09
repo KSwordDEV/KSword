@@ -1,4 +1,5 @@
 #include "KernelKnowledgeTab.h"
+#include "../UI/CodeEditorWidget.h"
 
 #include "KernelKnowledgeCatalog.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -738,17 +739,12 @@ void KernelKnowledgeTab::collectCurrentEvidence()
                 auto* layout = new QVBoxLayout(dialog);
                 layout->setContentsMargins(10, 10, 10, 10);
                 layout->setSpacing(8);
-                auto* editor = new QTextEdit(dialog);
+                // 静态证据使用统一外壳，保留原文并让字体/复制/查找跟随应用。
+                dialog->setStyleSheet(QStringLiteral("QDialog{background:%1;color:%2;}")
+                    .arg(KswordTheme::SurfaceHex(), KswordTheme::TextPrimaryHex()));
+                auto* editor = new CodeEditorWidget(dialog);
                 editor->setReadOnly(true);
-                editor->setLineWrapMode(QTextEdit::NoWrap);
-                editor->setFont(QFont(QStringLiteral("Consolas"), 10));
-                editor->setStyleSheet(QStringLiteral(
-                    "QTextEdit{background:%1;color:%2;border:1px solid %3;"
-                    "border-radius:4px;padding:6px;}")
-                    .arg(
-                        KswordTheme::SurfaceHex(),
-                        KswordTheme::TextPrimaryHex(),
-                        KswordTheme::BorderHex()));
+                editor->setWordWrapEnabled(false);
                 layout->addWidget(editor, 1);
 
                 auto* buttons = new QDialogButtonBox(
@@ -821,7 +817,7 @@ void KernelKnowledgeTab::collectCurrentEvidence()
                     report += uiText("evidence.boundary");
                 }
 
-                editor->setPlainText(report);
+                editor->setRawText(report);
                 dialog->show();
             },
             Qt::QueuedConnection);

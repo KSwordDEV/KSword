@@ -507,7 +507,8 @@ private:
         const std::vector<CpuPowerSnapshot>& powerInfoList);
     void appendCoreSeriesPoint(
         CoreChartEntry& chartEntry,
-        double usagePercent);
+        double usagePercent,
+        bool sampleValid); // 逐核查询失败与真实0%分别进入历史模型。
     void appendGeneralSeriesPoint(
         QLineSeries* lineSeries,
         QValueAxis* axisX,
@@ -523,7 +524,8 @@ private:
         QValueAxis* axisX,
         QValueAxis* axisY,
         double sampleValue,
-        double minAxisYValue = 0.0);
+        double minAxisYValue = 0.0,
+        bool sampleValid = true); // 专用设备查询也可明确记录缺失帧。
     // updateSharedSeriesAxisRange 作用：
     // - 给共用同一坐标轴的两条折线统一计算 X/Y 可见范围；
     // - 用两条曲线的可见历史峰值同步刷新纵向比例。
@@ -798,6 +800,12 @@ private:
     CodeEditorWidget* m_pnpAcpiPciEditor = nullptr; // m_pnpAcpiPciEditor：PnP/ACPI/PCI 文本。
 
     // 运行状态缓存。
+    qint64 m_metricSampleTimeMs = 0; // 本帧共同采样时间，毫秒。
+    bool m_metricDiskValid = true; // 磁盘采样有效性，失败保留断点。
+    bool m_metricNetworkValid = true; // 网络采样有效性，失败保留断点。
+    bool m_metricCpuValid = true; // 本帧至少一个CPU核有效。
+    std::vector<bool> m_metricCoreValid; // 与计数器/核心图索引一致的逐核查询有效位。
+    bool m_metricGpuValid = true; // 本帧GPU采样有效位。
     int m_historyLength = 60;                 // m_historyLength：曲线保留点数。
     int m_sampleCounter = 60;                 // m_sampleCounter：采样序号（从历史长度起步避免首段无图）。
     QString m_cachedSensorText;               // m_cachedSensorText：CPU 温度/电压缓存。

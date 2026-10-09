@@ -4,6 +4,7 @@
 #include "ArkDriverTypes.h"
 
 #include <functional>
+#include <array>
 
 namespace ksword::ark
 {
@@ -957,11 +958,24 @@ namespace ksword::ark
             std::uint64_t offset,
             unsigned long length,
             unsigned long flags = 0UL) const;
+        // 捕获读不自行回退旧版本；GUID改变必须报告来源改变，不能冒充同源数据。
+        RawDiskReadResult readCapturedRawDisk(unsigned long diskNumber, unsigned long backend,
+            std::uint64_t offset, unsigned long length, const std::array<std::uint8_t, 16>& nativeGuid,
+            unsigned long flags = 0UL) const;
         RawDiskWriteResult writeRawDisk(
             unsigned long diskNumber,
             unsigned long backend,
             std::uint64_t offset,
             const std::vector<std::uint8_t>& bytes,
+            unsigned long flags) const;
+        // 捕获写：设备 GUID 与原字节由驱动在同一已打开对象上复核，失败绝不降级 V1。
+        RawDiskWriteResult writeCapturedRawDisk(
+            unsigned long diskNumber,
+            unsigned long backend,
+            std::uint64_t offset,
+            const std::vector<std::uint8_t>& original,
+            const std::vector<std::uint8_t>& bytes,
+            const std::array<std::uint8_t, 16>& nativeGuid,
             unsigned long flags) const;
         // Security audit wrappers：
         // - 输入：只读 flags 或行预算；

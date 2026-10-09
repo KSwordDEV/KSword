@@ -145,7 +145,7 @@ namespace
             const QString className =
                 QString::fromLatin1(currentObject->metaObject()->className());
             if (className.contains(QStringLiteral("CodeEditorWidget"))
-                || className.contains(QStringLiteral("HexEditorWidget"))
+                || className.contains(QStringLiteral("HexView"))
                 || className.contains(QStringLiteral("CodeTextEdit")))
             {
                 return true;

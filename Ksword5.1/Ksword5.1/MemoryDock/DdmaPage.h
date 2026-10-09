@@ -44,13 +44,16 @@ class QLineEdit;
 class QPushButton;
 class QSpinBox;
 class QTableWidget;
-class HexEditorWidget;
+namespace ks::ui
+{
+    class HexView;
+}
 class CodeEditorWidget;
 
 namespace ks::ui
 {
     class VisibleTableWidget;
-    class MemoryEditorWidget;
+    class SnapshotWorkbenchWidget;
 }
 
 class DdmaPage final : public QWidget
@@ -264,8 +267,8 @@ private:
     QSpinBox* m_accessLengthSpin = nullptr;         // 读取长度。
     QPushButton* m_accessReadButton = nullptr;      // DDMA 读取按钮。
     QPushButton* m_accessWriteButton = nullptr;     // DDMA 写回按钮。
-    ks::ui::MemoryEditorWidget* m_accessMemoryEditor = nullptr; // 多视图暂存编辑器。
-    HexEditorWidget* m_accessHexEditor = nullptr;   // 十六进制视图别名。
+    ks::ui::SnapshotWorkbenchWidget* m_accessMemoryEditor = nullptr; // 多视图暂存编辑器。
+    ks::ui::HexView* m_accessHexEditor = nullptr;   // 十六进制视图别名。
     QLabel* m_accessStatusLabel = nullptr;          // 读写状态文本。
 
     QLineEdit* m_compareAddressEdit = nullptr;      // 复核物理地址输入。

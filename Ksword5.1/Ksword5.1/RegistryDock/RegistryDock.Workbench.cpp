@@ -1,4 +1,4 @@
-#include "../Internationalization/LanguageManager.h"
+﻿#include "../Internationalization/LanguageManager.h"
 #include "../UI/AdaptivePageScroll.h"
 #include <QResizeEvent>
 #include <QStyle>
@@ -7,6 +7,7 @@
 #include "RegistryWorkbenchAccess.h"
 #include "RegistryDocument.h"
 #include "RegistryDocumentApply.h"
+#include "RegistryValueTransactions.h"
 #include "../UI/FlowLayout.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/TableInteractionSupport.h"
@@ -57,13 +58,6 @@ namespace
             : viewBits == 32 ? ks::i18n::sourceText(QStringLiteral("Win32 / 32 位视图"))
             : viewBits == 64 ? ks::i18n::sourceText(QStringLiteral("Win32 / 64 位视图"))
             : ks::i18n::sourceText(QStringLiteral("Win32 / 本机视图"));
-    }
-
-    bool sameValue(const RegistryValueState& value, const bool exists,
-        const DWORD type, const QByteArray& data)
-    {
-        return value.complete && value.exists == exists
-            && (!exists || (value.type == type && value.data == data));
     }
 
     // 输入待显示的菜单，设置当前主题的背景、文字、选中态与禁用态。
@@ -540,38 +534,31 @@ void RegistryDock::applyPendingChanges()
         QVector<PendingValueChange> applied;
         QVector<PendingValueChange> recoverable;
         QVector<PendingValueChange> remaining;
-        for (auto change : changes)
+        for (qsizetype index = 0; index < changes.size(); ++index)
         {
-            if (closed->load()) break;
+            auto change = changes.at(index); // 每项草稿保留各自的原始目标、视图和通道。
+            if (closed->load())
+            {
+                for (; index < changes.size(); ++index) remaining.push_back(changes.at(index));
+                break; // 取消不丢弃还没执行的草稿。
+            }
             const RegistryAccessContext context{change.viewBits, change.useR0};
-            RegistryValueState current;
-            QString error;
-            bool ok = RegistryWorkbenchAccess::read(change.keyPath, change.name, context, &current, &error);
-            if (ok && !sameValue(current, change.beforeExists, change.beforeType, change.beforeData))
-            { ok = false; error = QStringLiteral("原值已变化，未写入"); }
-            bool written = false;
-            if (ok && closed->load()) break;
+            const RegistryApplyValueState before{change.beforeExists, change.beforeType, change.beforeData};
+            const RegistryApplyValueState after{!change.deleteValue, change.afterType, change.afterData};
+            RegistryApplyResult result; // 共用状态机检查原值、处理取消并记录真实回读。
+            const bool ok = RegistryValueTransactions::apply(change.keyPath, change.name,
+                before, after, context, result, closed.get());
             if (ok)
             {
-                if (change.deleteValue) ok = RegistryWorkbenchAccess::removeValue(change.keyPath, change.name, context, &error);
-                else
-                {
-                    RegistryValueState target;
-                    target.name = change.name; target.type = change.afterType; target.data = change.afterData; target.exists = true;
-                    target.requiredBytes = static_cast<quint32>(target.data.size());
-                    ok = RegistryWorkbenchAccess::write(change.keyPath, target, context, &error);
-                }
-                written = ok;
+                change.result = QStringLiteral("已应用并回读验证");
+                applied.push_back(change);
+                recoverable.push_back(change);
             }
-            RegistryValueState verified;
-            if (ok) ok = RegistryWorkbenchAccess::read(change.keyPath, change.name, context, &verified, &error)
-                && sameValue(verified, !change.deleteValue, change.afterType, change.afterData);
-            if (ok) { change.result = QStringLiteral("已应用并回读验证"); applied.push_back(change); recoverable.push_back(change); }
             else
             {
-                change.result = written ? QStringLiteral("已写入，回读未验证：%1").arg(error)
-                    : error.isEmpty() ? QStringLiteral("回读不一致，请重新读取后核对") : error;
-                if (written) recoverable.push_back(change);
+                change.result = result.error.isEmpty()
+                    ? QStringLiteral("回读不一致，请重新读取后核对") : result.error;
+                // 只有成功且实际回读过的回执才能用于自动恢复，失败的未知写入保留诊断。
                 remaining.push_back(change);
             }
         }
@@ -613,7 +600,7 @@ void RegistryDock::restoreLastChanges()
         const auto dispatcher = m_uiDispatcher;
         QThreadPool::globalInstance()->start([guarded, dispatcher, cancel, previous]() {
             auto result = std::make_shared<RegistryApplyResult>();
-            RegistryDocumentApplyService::undoWin32(*previous, *result, cancel.get());
+            RegistryDocumentApplyService::undoAccess(*previous, *result, cancel.get());
             dispatcher->post([guarded, result]() {
                 if (!guarded) return;
                 guarded->m_applyingChanges = false;
@@ -687,10 +674,10 @@ void RegistryDock::appendValueRows(const std::shared_ptr<const RegistryKeyListin
             m_valueTable->setItem(row, 1, new QTableWidgetItem(valueTypeToText(value.type)));
             QString preview = formatValueData(value.type, value.data);
             if (!value.complete) preview += ks::i18n::sourceText(QStringLiteral(" <摘要 %1/%2 字节>")).arg(value.data.size()).arg(value.requiredBytes);
-            auto* data = new QTableWidgetItem(preview);
-            data->setToolTip(ks::i18n::sourceText(QStringLiteral("完整长度：%1 字节；选择后按实际通道读取完整数据。"))
+            auto* dataItem = new QTableWidgetItem(preview); // 值预览单元格，不与 QWidget::data 混名。
+            dataItem->setToolTip(ks::i18n::sourceText(QStringLiteral("完整长度：%1 字节；选择后按实际通道读取完整数据。"))
                 .arg(value.requiredBytes));
-            m_valueTable->setItem(row, 2, data);
+            m_valueTable->setItem(row, 2, dataItem);
         }
         m_valueTable->setUpdatesEnabled(true);
     }

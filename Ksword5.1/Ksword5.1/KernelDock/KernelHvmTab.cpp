@@ -26,8 +26,7 @@
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTableWidgetItem>
-#include <QPlainTextEdit>
-#include "../UI/CodeTextEdit.h"
+#include "../UI/CodeEditorWidget.h"
 #include <QVBoxLayout>
 #include <QVariant>
 
@@ -343,8 +342,7 @@ void KernelHvmTab::initializeUi()
         QHeaderView::ResizeToContents);
     m_cpuTable->horizontalHeader()->setStretchLastSection(true);
 
-    m_detailEdit = new CodeTextEdit(splitter);
-    static_cast<CodeTextEdit*>(m_detailEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    m_detailEdit = new CodeEditorWidget(splitter);
     m_detailEdit->setReadOnly(true);
     m_detailEdit->setPlaceholderText(
         kernelText(
@@ -443,7 +441,7 @@ void KernelHvmTab::applyStatus(ksword::ark::HvmStatusResult result)
                       "kernel.hvm.status.failed",
                       QStringLiteral("HVM 状态读取失败：%1"))
                       .arg(QString::fromStdString(result.io.message)));
-        m_detailEdit->clear();
+        m_detailEdit->setReportText(QString());
         m_statusLabel->setText(
             kernelText("kernel.hvm.status.failed_short", QStringLiteral("状态：读取失败")));
         updateButtons();
@@ -670,7 +668,7 @@ void KernelHvmTab::applyStatus(ksword::ark::HvmStatusResult result)
             CpuColumnNtStatus,
             readOnlyItem(ntStatusText(cpu.lastStatus)));
     }
-    m_detailEdit->setPlainText(buildDetail(m_snapshot));
+    m_detailEdit->setReportText(buildDetail(m_snapshot));
     m_statusLabel->setText(
         kernelText("kernel.hvm.status.ready", QStringLiteral("状态：已刷新")));
     updateButtons();

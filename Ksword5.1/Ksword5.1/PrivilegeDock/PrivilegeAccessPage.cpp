@@ -1,4 +1,4 @@
-#include "PrivilegeAccessPage.h"
+﻿#include "PrivilegeAccessPage.h"
 #include "PrivilegeAccessBackend.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../Internationalization/LanguageManager.h"
@@ -162,8 +162,7 @@ namespace
             m_report->setObjectName(QStringLiteral("privilege_access_report"));
             m_report->setReadOnly(true);
             // 报告行已在 Report 模块本地化；保留原始行形态和 SDDL，不再次翻译。
-            m_report->setStructuredReportViewEnabled(false);
-            m_report->setRawText(text("privilege.workbench.access.initial_report",
+            m_report->setReportText(text("privilege.workbench.access.initial_report",
                 "先评估描述符；实际打开测试需要当前评估快照，输入变化后必须重新评估。"));
             split->setStretchFactor(0, 3);
             split->setStretchFactor(1, 2);
@@ -243,7 +242,7 @@ namespace
             m_table->setEnabled(false);
             m_table->clearContents();
             m_table->setRowCount(0);
-            m_report->setRawText(text("privilege.workbench.access.stale_report", "输入已变化；旧评估和打开结果已作废。请重新评估当前主体、对象和请求权限。"));
+            m_report->setReportText(text("privilege.workbench.access.stale_report", "输入已变化；旧评估和打开结果已作废。请重新评估当前主体、对象和请求权限。"));
             m_status->setText(text("privilege.workbench.access.changed", "输入已变化；请重新评估"));
             ks::ui::ApplyStatusRole(m_status, ks::ui::StatusRole::Idle);
         }
@@ -300,7 +299,7 @@ namespace
                 const bool success = result.stage == Stage::None && result.anchor != nullptr;
                 m_result = success ? std::make_shared<Result>(result) : nullptr;
                 m_probe->setEnabled(success);
-                m_report->setRawText(reportText(result));
+                m_report->setReportText(reportText(result));
                 m_status->setText(success ? (result.probe
                     ? text("privilege.workbench.access.probe_done", "实际打开测试完成；详见证据报告")
                     : text("privilege.workbench.access.done", "描述符评估完成；实际打开尚未测试"))

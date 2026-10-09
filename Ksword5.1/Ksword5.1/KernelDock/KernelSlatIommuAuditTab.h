@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../ArkDriverClient/ArkDriverTypes.h"
 
@@ -11,7 +11,7 @@ class QLabel;
 class QPushButton;
 class QShowEvent;
 class QTableWidget;
-class QPlainTextEdit;
+class CodeEditorWidget;
 
 // Guest-visible, read-only cross-view evidence for EPT/NPT hooks and IOMMU
 // configuration. It deliberately does not claim that an opaque outer SLAT is
@@ -51,7 +51,7 @@ private:
     QCheckBox* m_includeMmioCheck = nullptr;
     QTableWidget* m_probeTable = nullptr;
     QTableWidget* m_iommuTable = nullptr;
-    QPlainTextEdit* m_detailEdit = nullptr;
+    CodeEditorWidget* m_detailEdit = nullptr;
     bool m_firstRefreshStarted = false;
     bool m_queryRunning = false;
 };

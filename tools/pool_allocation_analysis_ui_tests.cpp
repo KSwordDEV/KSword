@@ -1,6 +1,7 @@
-// Actual Qt model/view and worker-lifetime fixtures. No capture session, driver,
+﻿// Actual Qt model/view and worker-lifetime fixtures. No capture session, driver,
 // live symbols, clipboard or external process is used by this test executable.
 #include "../Ksword5.1/Ksword5.1/MemoryDock/PoolAllocationAnalysisWidget.h"
+#include "../Ksword5.1/Ksword5.1/UI/CodeEditorWidget.h"
 #include "../Ksword5.1/Ksword5.1/Internationalization/LanguageManager.h"
 #include <QApplication>
 #include <QComboBox>
@@ -101,7 +102,7 @@ void exerciseModel(const TraceReadResult& trace) {
     auto* table = child<QTableView>(widget, "pool_analysis_table");
     auto* grouping = child<QComboBox>(widget, "pool_analysis_grouping");
     auto* stacks = child<QComboBox>(widget, "pool_analysis_stacks");
-    auto* frames = child<QPlainTextEdit>(widget, "pool_analysis_frames");
+    auto* frames = child<CodeEditorWidget>(widget, "pool_analysis_frames");
     auto* filter = child<QLineEdit>(widget, "pool_analysis_filter");
     auto* module = child<QPushButton>(widget, "pool_analysis_module");
     require(table->model()->rowCount() == 3, "tag grouping separates ordinary and session pool");
@@ -110,14 +111,14 @@ void exerciseModel(const TraceReadResult& trace) {
     require(stacks->count() == 2, "tag aggregation retains both complete source stacks");
     require(raw(table, 1, 1) == 300 && raw(table, 1, 3) == 210, "tag counters sum allocation and paired release independently");
     stacks->setCurrentIndex(1); QApplication::processEvents();
-    require(stacks->currentData().toULongLong() == 10 && frames->toPlainText().contains(QStringLiteral("0x1008")), "group identity selects original second stack");
-    require(frames->toPlainText().contains(QStringLiteral("0x8004")) && frames->toPlainText().contains(QStringLiteral("[image 1]")), "detail preserves kernel helper and historical image offsets");
+    require(stacks->currentData().toULongLong() == 10 && frames->text().contains(QStringLiteral("0x1008")), "group identity selects original second stack");
+    require(frames->text().contains(QStringLiteral("0x8004")) && frames->text().contains(QStringLiteral("[image 1]")), "detail preserves kernel helper and historical image offsets");
     QString opened; widget.setOpenModuleDetails([&opened](const QString& path) { opened = path; });
     require(module->isEnabled(), "non-kernel historical source with a real local path enables navigation");
     module->click(); require(opened == QFileInfo(QString::fromStdWString(trace.images[1].path)).absoluteFilePath(), "navigation picks non-kernel source instead of ntoskrnl helper");
     table->sortByColumn(1, Qt::DescendingOrder); QApplication::processEvents();
     table->selectRow(0); QApplication::processEvents();
-    require(stacks->currentData().toULongLong() == 70 && frames->toPlainText().contains(QStringLiteral("0x3008")), "sorting follows stable group IDs instead of old row indexes");
+    require(stacks->currentData().toULongLong() == 70 && frames->text().contains(QStringLiteral("0x3008")), "sorting follows stable group IDs instead of old row indexes");
     filter->setText(QStringLiteral("BBBB")); QApplication::processEvents();
     require(table->model()->rowCount() == 1, "filter applies to underlying group tags");
     table->selectRow(0); QApplication::processEvents();
@@ -137,7 +138,7 @@ void exerciseResolution(const TraceReadResult& trace) {
     auto* table = child<QTableView>(widget, "pool_analysis_table");
     auto* stacks = child<QComboBox>(widget, "pool_analysis_stacks");
     auto* resolve = child<QPushButton>(widget, "pool_analysis_resolve");
-    auto* frames = child<QPlainTextEdit>(widget, "pool_analysis_frames");
+    auto* frames = child<CodeEditorWidget>(widget, "pool_analysis_frames");
     auto gate = std::make_shared<Gate>();
     widget.setProvidersForTesting({}, [gate](const TraceReadResult&, const Group& group, const std::atomic_bool& cancel) {
         gated(gate, cancel); return std::vector<std::wstring>(group.stack.size(), L"STALE_LOCAL_SYMBOL");
@@ -148,12 +149,12 @@ void exerciseResolution(const TraceReadResult& trace) {
     require(until([&] { return gate->cancelled.load(); }), "changing selected stack cancels its old resolution");
     gate->release.store(true);
     require(until([&] { return resolve->isEnabled(); }), "cancelled symbol worker finishes without blocking UI");
-    require(!frames->toPlainText().contains(QStringLiteral("STALE_LOCAL_SYMBOL")), "old symbols cannot publish into new selected group");
+    require(!frames->text().contains(QStringLiteral("STALE_LOCAL_SYMBOL")), "old symbols cannot publish into new selected group");
     widget.setProvidersForTesting({}, [](const TraceReadResult&, const Group& group, const std::atomic_bool&) {
         return std::vector<std::wstring>(group.stack.size(), L"LOCAL_SYMBOL_OK");
     });
     resolve->click();
-    require(until([&] { return frames->toPlainText().contains(QStringLiteral("LOCAL_SYMBOL_OK")); }), "completed selected stack symbols appear alongside raw frames");
+    require(until([&] { return frames->text().contains(QStringLiteral("LOCAL_SYMBOL_OK")); }), "completed selected stack symbols appear alongside raw frames");
 }
 void exerciseReaderLifetime(const TraceReadResult& trace) {
     auto gate = std::make_shared<Gate>();

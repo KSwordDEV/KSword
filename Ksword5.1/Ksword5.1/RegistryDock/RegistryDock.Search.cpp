@@ -121,6 +121,8 @@ void RegistryDock::searchRegistryPath(const QString& start, bool useR0, const QS
         if (options.searchKeyName && options.valueType < 0 && matches(keyName))
         {
             PendingSearchRow row;
+            row.viewBits = context.viewBits;
+            row.useR0 = context.useR0;
             row.keyPathText = location.path; row.valueNameText = QStringLiteral("<Key>");
             row.valueTypeText = QStringLiteral("<Key>"); row.hitSourceText = QStringLiteral("KeyName");
             row.isKeyResult = true; enqueuePendingSearchRow(std::move(row)); ++*hits;
@@ -158,6 +160,8 @@ void RegistryDock::searchRegistryPath(const QString& start, bool useR0, const QS
             }
             if (!matched) continue;
             PendingSearchRow row;
+            row.viewBits = context.viewBits;
+            row.useR0 = context.useR0;
             row.keyPathText = location.path; row.rawValueName = value.name;
             row.valueNameText = value.name.isEmpty() ? QStringLiteral("(默认)") : value.name;
             row.valueTypeText = valueTypeToText(value.type);

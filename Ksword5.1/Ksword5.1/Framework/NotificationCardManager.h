@@ -49,7 +49,8 @@ namespace ks::ui
     private:
         void refreshFromManagers();
         void refreshLogCards();
-        void refreshProgressCards();
+        // 同一应用快照驱动两种视图；force 只重绘已有卡片，设置/语言切换不会换 QWidget。
+        void refreshProgressCards(const std::shared_ptr<const kProgressSnapshot>& snapshot, bool force = false);
         void removeExpiredLogCards();
         void reflowCards(bool animate);
         void trimLogCardsToMaximum(bool animate);

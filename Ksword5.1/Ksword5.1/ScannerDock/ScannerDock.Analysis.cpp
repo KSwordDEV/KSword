@@ -1,6 +1,6 @@
 #include "ScannerDock.h"
 #include "../UI/BinaryOverviewBar.h"
-#include "../UI/MemoryEditorWidget.h"
+#include "../UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "../ksword/scanner/binary_layout.h"
 #include "../theme.h"
 #include <QComboBox>
@@ -87,7 +87,7 @@ void ScannerDock::buildAnalysisUi()
     m_analysisPosition->setWordWrap(true);
     layout->addWidget(m_analysisPosition);
 
-    m_analysisEditor = new ks::ui::MemoryEditorWidget(m_analysisPage);
+    m_analysisEditor = new ks::ui::SnapshotWorkbenchWidget(m_analysisPage);
     m_analysisEditor->setAddressKind(ks::ui::SnapshotAddressKind::FileOffset);
     m_analysisEditor->setEditable(false);
     layout->addWidget(m_analysisEditor, 1);
@@ -126,12 +126,12 @@ void ScannerDock::buildAnalysisUi()
         navigateAnalysisOffset(m_analysisEditor->baseAddress() +
             static_cast<std::uint64_t>(m_analysisEditor->data().size()));
     });
-    connect(m_analysisFindButton, &QPushButton::clicked, m_analysisEditor, &ks::ui::MemoryEditorWidget::openFindPanel);
-    connect(m_analysisEditor, &ks::ui::MemoryEditorWidget::currentAddressChanged, this,
+    connect(m_analysisFindButton, &QPushButton::clicked, m_analysisEditor, &ks::ui::SnapshotWorkbenchWidget::openFindPanel);
+    connect(m_analysisEditor, &ks::ui::SnapshotWorkbenchWidget::currentAddressChanged, this,
         [this](const std::uint64_t address) {
             if (!m_analysisLoading) updateAnalysisAddress(address);
         });
-    connect(m_analysisEditor, &ks::ui::MemoryEditorWidget::windowRequested, this,
+    connect(m_analysisEditor, &ks::ui::SnapshotWorkbenchWidget::windowRequested, this,
         [this](quint64 address, quint64) {
             if (m_analysisLoading || !m_analysisSnapshot || address >= m_analysisSnapshot->size()) return;
             // The view finishes its current paint/fetch before its bounded

@@ -1,4 +1,5 @@
 #include "ThemeColorRemap.h"
+#include "ThemeBinding.h"
 
 #include "../theme.h"
 
@@ -490,7 +491,7 @@ namespace ks::ui
         for (const QPointer<QWidget>& guardedWidget : guardedWidgets)
         {
             QWidget* const widget = guardedWidget.data();
-            if (widget == nullptr)
+            if (widget == nullptr || HasWidgetThemeBinding(widget))
             {
                 continue;
             }

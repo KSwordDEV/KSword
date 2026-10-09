@@ -7,17 +7,14 @@
 #include "../UI/MemoryWorkbench/MemoryWorkbenchView.h"
 #include "../UI/MemoryWorkbench/WorkbenchBookIntake.h"
 #include "../UI/MemoryWorkbench/WorkbenchNavigation.h"
-#include "../UI/MemoryWorkbench/WorkbenchSettings.h"
 #include "../UI/MemoryWorkbench/WorkbenchShared.h"
 #include "../UI/MemoryWorkbench/WorkbenchTarget.h"
 
-#include <QTabBar>
 
 // ============================================================
 // MemoryDock.WorkbenchEntry.cpp
 // 作用：
 // - 3b"入口切换"里属于 MemoryDock 的那一半：把旧页面的入口接到内存工作台上。
-//   1) arrangeLegacyTabs：旧的三个页签改名"（旧）"并后移到页签栏末尾；
 //   2) jumpToModuleBase / viewRegionViaDriver：模块表、区域表的两个专用入口；
 //   3) openAddressInWorkbench / canOpenInWorkbench / addOpenInWorkbenchAction：证据页右键"在内存工作台打开"；
 //   4) addSearchResultsToAddressBook：搜索结果"加入地址簿"（用户明确触发，绝不自动灌入）；
@@ -27,14 +24,6 @@
 
 namespace
 {
-    // LegacyTabSpec：一个要改名并后移的旧页签。
-    struct LegacyTabSpec
-    {
-        QWidget* page;          // 页签对应的页面控件（可能为空，空则跳过）。
-        const char* key;        // "（旧）"版本的语言键（context_translations）。
-        const char* fallback;   // 键缺失时的回退文字（中文原文）。
-    };
-
     // parseHexAddress：解析证据表地址列的 "0x0000..." 文本。
     // 传入：text 单元格文本；address 解析结果。传出：是否为合法十六进制（带不带 0x 前缀都收）。
     bool parseHexAddress(QString text, std::uint64_t& address)
@@ -69,59 +58,7 @@ namespace
 
 }
 
-// arrangeLegacyTabs：见头文件。在工作台页签插入之后调用一次（initializeWorkbenchTab）。
-// 改名走语言键（"（旧）"版本），后移用页签栏的 moveTab（QTabWidget 会同步页面栈），
-// 页签图标随页签一起移动；设置里关闭"显示旧页签"时把三页隐藏。
-void MemoryDock::arrangeLegacyTabs()
-{
-    if (m_tabWidget == nullptr)
-    {
-        return;
-    }
-    // tabBar：QTabWidget::tabBar() 是 protected，只能从子控件里找。
-    QTabBar* const tabBar = m_tabWidget->findChild<QTabBar*>(QString(), Qt::FindDirectChildrenOnly);
-    const bool showLegacyTabs = ks::ui::workbench_settings::LoadShowLegacyTabs();
-
-    const LegacyTabSpec legacyTabs[] = {
-        { m_tabViewer, "memory.tab.viewer_legacy", "内存查看器（旧）" },
-        { m_tabBpBookmark, "memory.tab.breakpoints_bookmarks_legacy", "断点与书签（旧）" },
-        { m_tabDriverMemoryRw, "memory.tab.driver_memory_rw_legacy", "驱动内存读写（旧）" },
-    };
-    for (const LegacyTabSpec& legacy : legacyTabs)
-    {
-        if (legacy.page == nullptr)
-        {
-            continue;
-        }
-        ks::i18n::LanguageManager::instance().bindTab(
-            m_tabWidget, legacy.page,
-            QString::fromUtf8(legacy.key), QString::fromUtf8(legacy.fallback));
-
-        // 后移到末尾：依次移动，三页保持原有的相对顺序。
-        const int currentIndex = m_tabWidget->indexOf(legacy.page);
-        if (tabBar != nullptr && currentIndex >= 0 && currentIndex != m_tabWidget->count() - 1)
-        {
-            tabBar->moveTab(currentIndex, m_tabWidget->count() - 1);
-        }
-        if (!showLegacyTabs)
-        {
-            const int movedIndex = m_tabWidget->indexOf(legacy.page);
-            if (movedIndex >= 0)
-            {
-                m_tabWidget->setTabVisible(movedIndex, false);
-            }
-        }
-    }
-
-    kLogEvent arrangeEvent;
-    info << arrangeEvent
-        << "[MemoryDock] 旧页签已改名并后移, showLegacyTabs="
-        << (showLegacyTabs ? "true" : "false")
-        << eol;
-}
-
-// canOpenInWorkbench：整体开关开启（页签容器存在）即可用，与 routeJumps 无关——
-// 右键"在内存工作台打开"是显式动作，不依赖"旧入口跳转是否交给工作台"。
+// canOpenInWorkbench：统一工作台容器就绪后提供显式地址打开入口。
 bool MemoryDock::canOpenInWorkbench() const
 {
     return m_tabWorkbench != nullptr;
@@ -151,11 +88,6 @@ bool MemoryDock::openAddressInWorkbench(const std::uint64_t address, const bool 
 // （原因写在状态条里），不会静默去看错误的进程。
 void MemoryDock::jumpToModuleBase(const std::uint64_t baseAddress)
 {
-    if (!workbenchRoutingActive())
-    {
-        jumpToAddressLegacy(baseAddress);
-        return;
-    }
     ks::ui::NavRequest request;
     request.scope = ksword::memwb::Scope::ProcessVirtual;
     request.address = baseAddress;
@@ -174,21 +106,13 @@ void MemoryDock::jumpToModuleBase(const std::uint64_t baseAddress)
         << ", pin="
         << (request.pid != 0U ? "true" : "false")
         << eol;
-    if (!navigateWorkbench(request) && m_workbenchView == nullptr)
-    {
-        jumpToAddressLegacy(baseAddress);
-    }
+    (void)navigateWorkbench(request);
 }
 
-// viewRegionViaDriver：区域表"R0读取此区域"。路由开启时在工作台里用标准驱动通道打开区域起点
-// （显式指定通道，不沿用会话当前通道——菜单项的名字就是"用 R0 读"）；关闭时走旧的驱动读写页。
+// viewRegionViaDriver：区域表"R0读取此区域"统一在工作台用标准驱动通道打开区域起点。
+// 显式指定通道，不沿用会话当前通道；读取范围由工作台的真实地址空间和窗口管理。
 void MemoryDock::viewRegionViaDriver(const std::uint64_t regionBase, const std::uint64_t bytesToRead)
 {
-    if (!workbenchRoutingActive())
-    {
-        prepareDriverMemoryReadAtAddress(regionBase, bytesToRead, true);
-        return;
-    }
     ks::ui::NavRequest request;
     request.scope = ksword::memwb::Scope::ProcessVirtual;
     request.address = regionBase;
@@ -202,17 +126,14 @@ void MemoryDock::viewRegionViaDriver(const std::uint64_t regionBase, const std::
         << ", legacyBytes="
         << bytesToRead
         << eol;
-    if (!navigateWorkbench(request) && m_workbenchView == nullptr)
-    {
-        prepareDriverMemoryReadAtAddress(regionBase, bytesToRead, true);
-    }
+    (void)navigateWorkbench(request);
 }
 
-// workbenchFocusAddress：见头文件。工作台路由关闭（用户回到旧查看器）、工作台没有创建、
+// workbenchFocusAddress：见头文件。工作台没有创建、
 // 钉在别的进程/内核/物理范围、或画布没有插入点时返回空，调用方回退到自己的默认值。
 std::optional<std::uint64_t> MemoryDock::workbenchFocusAddress() const
 {
-    if (!workbenchRoutingActive() || m_workbenchView == nullptr || m_attachedPid == 0U)
+    if (m_workbenchView == nullptr || m_attachedPid == 0U)
     {
         return std::nullopt;
     }

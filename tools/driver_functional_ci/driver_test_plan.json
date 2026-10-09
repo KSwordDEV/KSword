@@ -3254,7 +3254,7 @@
     {
       "ioctl": "WRITE_RAW_DISK",
       "reason": "destroys-host-storage",
-      "detail": "裸盘写入会破坏 CI 机器的卷结构。"
+      "detail": "裸盘写入会破坏 CI 机器的卷结构；同IOCTL的V1与捕获写V2均排除实机执行，V2设备GUID/原值/别名/长度门禁由离线mock验证。"
     },
     {
       "ioctl": "CLOSE_HANDLE",

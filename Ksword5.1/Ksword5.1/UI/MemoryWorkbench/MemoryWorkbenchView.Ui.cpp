@@ -44,6 +44,7 @@
 #include "WorkbenchStatusBar.h"
 #include "WorkbenchStringWriteDialog.h"
 #include "WorkbenchTextView.h"
+#include "WorkbenchPseudocodeView.h"
 #include "WorkbenchWriteController.h"
 #include "WriteModeSwitch.h"
 
@@ -160,7 +161,7 @@ namespace ks::ui
         root->addLayout(addressRow);
 
         // ---- 子页签 ----
-        // 四个段名经 ks::i18n::sourceText 翻译：HexViewSegmented 在 paintEvent 里
+        // 五个段名经 ks::i18n::sourceText 翻译：HexViewSegmented 在 paintEvent 里
         // 自己用 QPainter 画文字（自绘控件），运行期整树扫描够不到它的私有
         // QStringList 成员，必须在源头就翻译好（AGENTS.md i18n 规则）。
         subTabSegmented_ = new HexViewSegmented(
@@ -168,7 +169,8 @@ namespace ks::ui
                 ks::i18n::sourceText(QStringLiteral("十六进制")),
                 ks::i18n::sourceText(QStringLiteral("反汇编")),
                 ks::i18n::sourceText(QStringLiteral("文本")),
-                ks::i18n::sourceText(QStringLiteral("对比"))},
+                ks::i18n::sourceText(QStringLiteral("对比")),
+                ks::i18n::sourceText(QStringLiteral("C 伪代码"))},
             this);
 
         // 子页签那一行：左边分段钮，右边"视图"菜单钮（行宽/分组/字号，只在十六进制子页显示，
@@ -208,12 +210,15 @@ namespace ks::ui
         textView_->setBytesProvider(currentBytesProvider());
         compareView_ = new WorkbenchCompareView(this);
         compareView_->setBytesProvider(currentBytesProvider());
+        pseudocodeView_ = new WorkbenchPseudocodeView(this);
+        pseudocodeView_->setBytesProvider(currentBytesProvider());
 
         subTabStack_ = new QStackedWidget(this);
         subTabStack_->addWidget(hexPane_);
         subTabStack_->addWidget(disasmView_);
         subTabStack_->addWidget(textView_);
         subTabStack_->addWidget(compareView_);
+        subTabStack_->addWidget(pseudocodeView_);
 
         // ---- 侧栏：地址簿面板 + int3 补丁面板（绑定 WorkbenchShared 的共享对象） ----
         auto& shared = WorkbenchShared::Instance();
@@ -398,11 +403,18 @@ namespace ks::ui
 
         connect(disasmView_, &WorkbenchDisasmView::stageRequested, this, &MemoryWorkbenchView::onDisasmStageRequested);
         connect(disasmView_, &WorkbenchDisasmView::requestHexLocate, this, &MemoryWorkbenchView::onDisasmRequestHexLocate);
+        // 对比页与其它共享页一样只请求同一来源地址，越界时不切走当前页面。
+        connect(compareView_, &WorkbenchCompareView::requestHexLocate, this, [this](quint64 address) {
+            const QPointer<MemoryWorkbenchView> self(this);
+            if (!hexPane_ || !hexPane_->jumpTo(address) || !self) return;
+            if (subTabStack_) subTabStack_->setCurrentIndex(0);
+        });
 
         connect(subTabSegmented_, &HexViewSegmented::currentIndexChanged, subTabStack_, &QStackedWidget::setCurrentIndex);
         connect(subTabStack_, &QStackedWidget::currentChanged, subTabSegmented_, &HexViewSegmented::setCurrentIndex);
         connectHexViewMenu();
         connectRowCanvasSignals();
+        connectPseudocodeSignals();
 
         connect(addressEdit_, &QLineEdit::returnPressed, this, &MemoryWorkbenchView::onAddressBarReturnPressed);
         connect(backButton_, &QToolButton::clicked, this, &MemoryWorkbenchView::onGoBackRequested);

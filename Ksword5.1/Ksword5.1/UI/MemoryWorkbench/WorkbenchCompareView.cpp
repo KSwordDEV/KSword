@@ -6,6 +6,12 @@
 // 文本一次性格式化好，真正的虚拟列表交给 WorkbenchCompareModel::data() 按需现算（D8）。
 
 #include "WorkbenchCompareView.h"
+#include "../../theme.h"
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QMenu>
+#include <QPointer>
+#include <QPersistentModelIndex>
 
 #include "HexCanvasFormat.h"
 #include "HexViewWidgets.h"
@@ -45,13 +51,6 @@ namespace ks::ui
             case 5: return ks::i18n::displayText(QStringLiteral("变化数"));
             default: return QString();
             }
-        }
-
-        // formatHexDigitsUpper：D4——只把数字部分转大写，不带 "0x" 前缀，不对整条模板字符串
-        // 调用 toUpper()。每个 .cpp 各自一份，原因与 WorkbenchTextView.cpp 里同名函数一致。
-        QString formatHexDigitsUpper(const quint64 value, const int width)
-        {
-            return QString::number(value, 16).rightJustified(width, QChar('0')).toUpper();
         }
 
         // byteHexToken：单字节的十六进制记号，不可用时用 "??"（与 HexCanvas 的不可读写法一致）。
@@ -117,7 +116,8 @@ namespace ks::ui
             }
             if (isPendingMode)
             {
-                if (index < window.baselineValidMask.size() && window.baselineValidMask[index] != 0)
+                if (index < window.baselineValidMask.size() && window.baselineValidMask[index] == 1
+                    && index < window.baselineBytes.size())
                 {
                     *oldValid = true;
                     *oldByte = window.baselineBytes[index];
@@ -130,12 +130,14 @@ namespace ks::ui
             }
             else
             {
-                if (index < window.previousValidMask.size() && window.previousValidMask[index] != 0)
+                if (index < window.previousValidMask.size() && window.previousValidMask[index] == 1
+                    && index < window.previousBytes.size())
                 {
                     *oldValid = true;
                     *oldByte = window.previousBytes[index];
                 }
-                if (index < window.baselineValidMask.size() && window.baselineValidMask[index] != 0)
+                if (index < window.baselineValidMask.size() && window.baselineValidMask[index] == 1
+                    && index < window.baselineBytes.size())
                 {
                     *newValid = true;
                     *newByte = window.baselineBytes[index];
@@ -151,26 +153,14 @@ namespace ks::ui
         // Pending 分支额外用 previous/baseline 的原始值回补一次比较。
         bool isExternalChangeByte(const WorkbenchByteWindow& window, const std::size_t index)
         {
-            if (index >= window.changeKinds.size())
+            if (index < window.changeKinds.size() && window.changeKinds[index] == Kind::SelfWritten)
             {
                 return false;
             }
-            const Kind kind = window.changeKinds[index];
-            if (kind == Kind::SelfWritten)
-            {
-                return false;
-            }
-            if (kind == Kind::ExternalChange)
-            {
-                return true;
-            }
-            if (kind != Kind::Pending)
-            {
-                return false; // Unreadable / Unchanged 都不算。
-            }
-            const bool previousValid = index < window.previousValidMask.size() && window.previousValidMask[index] != 0;
-            const bool baselineValid = index < window.baselineValidMask.size() && window.baselineValidMask[index] != 0;
-            if (!previousValid || !baselineValid)
+            // 无论着色是否开启，只有两侧确实捕获且字节不同才存在两次读取差异。
+            const bool previousValid = index < window.previousValidMask.size() && window.previousValidMask[index] == 1;
+            const bool baselineValid = index < window.baselineValidMask.size() && window.baselineValidMask[index] == 1;
+            if (!previousValid || !baselineValid || index >= window.previousBytes.size() || index >= window.baselineBytes.size())
             {
                 return false; // 任一边不可用，谈不上"变了"。
             }
@@ -188,7 +178,10 @@ namespace ks::ui
             }
             if (isPendingMode)
             {
-                return index < window.changeKinds.size() && window.changeKinds[index] == Kind::Pending;
+                // 证据差异不能依赖宿主是否打开着色：明确有效的现值与基线直接比较。
+                return index < window.validMask.size() && window.validMask[index] == 1 &&
+                    index < window.baselineValidMask.size() && window.baselineValidMask[index] == 1 &&
+                    index < window.baselineBytes.size() && window.bytes[index] != window.baselineBytes[index];
             }
             return isExternalChangeByte(window, index);
         }
@@ -203,8 +196,29 @@ namespace ks::ui
     void WorkbenchCompareModel::setWindow(
         const WorkbenchByteWindow& window, const bool isPendingMode, const QVector<CompareGroupSummary>& groups)
     {
+        const QPointer<WorkbenchCompareModel> alive(this);
         beginResetModel();
+        if (!alive) return;
+        m_provider = nullptr;
         m_window = window;
+        m_address = window.address;
+        m_length = static_cast<std::uint64_t>(window.bytes.size());
+        m_isPendingMode = isPendingMode;
+        m_groups = groups;
+        endResetModel();
+    }
+
+    // setRange：保存缓存提供者和完整范围，文字/字节只在表格实际请求一行时读取。
+    void WorkbenchCompareModel::setRange(IWorkbenchBytesProvider* provider, std::uint64_t address,
+        std::uint64_t length, bool isPendingMode, const QVector<CompareGroupSummary>& groups)
+    {
+        const QPointer<WorkbenchCompareModel> alive(this);
+        beginResetModel();
+        if (!alive) return;
+        m_window = {};
+        m_provider = provider;
+        m_address = address;
+        m_length = length;
         m_isPendingMode = isPendingMode;
         m_groups = groups;
         endResetModel();
@@ -247,6 +261,11 @@ namespace ks::ui
             return QVariant();
         }
         const CompareGroupSummary& group = m_groups.at(index.row());
+        if (role == Qt::UserRole)
+        {
+            // 首组可能从窗口之前的 16 字节边界开始；导航只能落在真实窗口内。
+            return QVariant::fromValue<qulonglong>(std::max(group.groupAddress, m_address));
+        }
         if (role == Qt::BackgroundRole && index.column() >= 1 && index.column() <= 4 && group.changedCount > 0)
         {
             // D12：现取，不缓存——主题切换后下一次重绘就跟得上。
@@ -268,6 +287,21 @@ namespace ks::ui
         }
         if ((role == Qt::DisplayRole && (index.column() >= 1 && index.column() <= 4)) || role == Qt::ToolTipRole)
         {
+            // 首尾分组都夹在请求范围中；提供者单次上限不影响大范围的行数据。
+            WorkbenchByteWindow fetched;
+            const WorkbenchByteWindow* window = &m_window;
+            if (m_provider && m_length)
+            {
+                const auto first = std::max(group.groupAddress, m_address);
+                const auto offset = first - m_address;
+                if (offset < m_length)
+                {
+                    const auto count = std::min(kGroupBytes - (first - group.groupAddress), m_length - offset);
+                    fetched = m_provider->FetchWindow(first, count);
+                    if (fetched.ok && fetched.address == first && fetched.bytes.size() <= count)
+                        window = &fetched;
+                }
+            }
             // D8：十六进制/ASCII/悬停明细都在这里按需现算，不在 rebuildRows 时预先格式化。
             QString oldHex;
             QString newHex;
@@ -276,12 +310,13 @@ namespace ks::ui
             QString detail;
             for (std::uint64_t i = 0; i < kGroupBytes; ++i)
             {
+                if (i > UINT64_MAX - group.groupAddress) break;
                 const std::uint64_t address = group.groupAddress + i;
                 std::uint8_t oldByte = 0;
                 std::uint8_t newByte = 0;
                 bool oldValid = false;
                 bool newValid = false;
-                resolveCompareByte(m_window, m_isPendingMode, address, &oldByte, &oldValid, &newByte, &newValid);
+                resolveCompareByte(*window, m_isPendingMode, address, &oldByte, &oldValid, &newByte, &newValid);
                 if (i != 0)
                 {
                     oldHex += QLatin1Char(' ');
@@ -291,15 +326,15 @@ namespace ks::ui
                 newHex += byteHexToken(newByte, newValid);
                 oldAscii += byteAsciiToken(oldByte, oldValid);
                 newAscii += byteAsciiToken(newByte, newValid);
-                if (role == Qt::ToolTipRole && matchesMode(m_window, m_isPendingMode, address))
+                if (role == Qt::ToolTipRole && matchesMode(*window, m_isPendingMode, address))
                 {
                     detail += hexcanvas_format::FormatAddress(address, 16) + QStringLiteral("  ")
                         + byteHexToken(oldByte, oldValid) + QStringLiteral(" → ") + byteHexToken(newByte, newValid);
                     // 可疑点 7：在"两次读取之间"视图里，这个字节如果同时还挂着一笔暂存补丁，
                     // 额外标注一下——它既是外部变了，也即将被我们的写入覆盖掉。
                     std::size_t rawIndex = 0;
-                    if (!m_isPendingMode && resolveWindowIndex(m_window, address, &rawIndex)
-                        && rawIndex < m_window.changeKinds.size() && m_window.changeKinds[rawIndex] == Kind::Pending)
+                    if (!m_isPendingMode && resolveWindowIndex(*window, address, &rawIndex)
+                        && rawIndex < window->changeKinds.size() && window->changeKinds[rawIndex] == Kind::Pending)
                     {
                         // N6（第二轮审核）：这段文案走的是模型 ToolTipRole，不会被
                         // LanguageManager 的通用小部件扫描自动翻译（那只对 setToolTip 的
@@ -330,9 +365,22 @@ namespace ks::ui
     {
         if (orientation == Qt::Horizontal && role == Qt::DisplayRole)
         {
-            return columnTitle(section);
+            return section == 0 && m_fileOffsets
+                ? ks::i18n::sourceText(QStringLiteral("文件偏移")) : columnTitle(section);
         }
         return QAbstractTableModel::headerData(section, orientation, role);
+    }
+
+    void WorkbenchCompareModel::setFileOffsetCoordinates(bool fileOffsets)
+    {
+        if (m_fileOffsets == fileOffsets) return;
+        m_fileOffsets = fileOffsets;
+        emit headerDataChanged(Qt::Horizontal, 0, 0);
+    }
+
+    void WorkbenchCompareView::setFileOffsetCoordinates(bool fileOffsets)
+    {
+        m_model->setFileOffsetCoordinates(fileOffsets);
     }
 
     // ---------------- WorkbenchCompareView ----------------
@@ -365,6 +413,37 @@ namespace ks::ui
         m_table->horizontalHeader()->setStretchLastSection(true);
         m_table->setAlternatingRowColors(true);
         layout->addWidget(m_table, 1);
+        // 相同模型提供导航和原始字节复制，避免静态宿主再维护一张旧比较表。
+        connect(m_table, &QTableView::doubleClicked, this, [this](const QModelIndex& index) {
+            if (index.isValid()) emit requestHexLocate(index.data(Qt::UserRole).toULongLong());
+        });
+        m_table->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_table, &QTableView::customContextMenuRequested, this, [this](const QPoint& point) {
+            const QPersistentModelIndex index(m_table->indexAt(point));
+            if (!index.isValid()) return;
+            const auto address = index.data(Qt::UserRole).toULongLong();
+            const auto before = m_model->index(index.row(), 1).data().toString();
+            const auto after = m_model->index(index.row(), 2).data().toString();
+            const QPointer<WorkbenchCompareView> alive(this);
+            QPointer<QMenu> menu = new QMenu(this);
+            menu->setStyleSheet(KswordTheme::ContextMenuStyle());
+            auto* copyAddress = menu->addAction(ks::i18n::sourceText(QStringLiteral("复制地址")));
+            auto* copyBefore = menu->addAction(ks::i18n::sourceText(QStringLiteral("复制基线字节")));
+            auto* copyAfter = menu->addAction(ks::i18n::sourceText(QStringLiteral("复制当前字节")));
+            auto* locate = menu->addAction(ks::i18n::sourceText(QStringLiteral("在十六进制视图中定位")));
+            const auto* action = menu->exec(m_table->viewport()->mapToGlobal(point));
+            if (!alive || !menu) return;
+            const bool addressChosen = action == copyAddress;
+            const bool beforeChosen = action == copyBefore;
+            const bool afterChosen = action == copyAfter;
+            const bool locateChosen = action == locate;
+            delete menu.data();
+            if (addressChosen) QGuiApplication::clipboard()->setText(hexcanvas_format::FormatAddress(address, 16));
+            if (beforeChosen) QGuiApplication::clipboard()->setText(before);
+            if (afterChosen) QGuiApplication::clipboard()->setText(after);
+            // 模型在模态菜单期间被刷新时旧索引失效，不能拿旧地址跳转新目标。
+            if (alive && locateChosen && index.isValid()) emit requestHexLocate(address);
+        });
 
         m_status = new QLabel(this);
         m_status->setObjectName(QStringLiteral("ksMemwbCompareStatus"));
@@ -382,7 +461,7 @@ namespace ks::ui
     void WorkbenchCompareView::setWindow(const std::uint64_t address, const std::uint64_t length)
     {
         m_address = address;
-        m_length = std::min<std::uint64_t>(length, kMaxWindowBytes);
+        m_length = length;
         m_hasWindow = true;
         rebuildRows();
     }
@@ -455,11 +534,15 @@ namespace ks::ui
     // 全部建好，只建命中分组的摘要（地址+计数两个整数）。
     void WorkbenchCompareView::rebuildRows()
     {
+        const QPointer<WorkbenchCompareView> alive(this); // 模型 reset 通知可以关闭所属宿主。
         const Mode activeMode = mode();
         const bool isPendingMode = activeMode == Mode::Pending;
+        m_totalChanged = 0;
+        m_compared = 0;
         if (m_provider == nullptr || !m_hasWindow)
         {
             m_model->setWindow(WorkbenchByteWindow(), isPendingMode, {});
+            if (!alive) return;
             m_status->setText(m_provider == nullptr
                 ? QStringLiteral("尚未接入数据源。")
                 : QStringLiteral("尚未定位；跟随十六进制页的当前窗口。"));
@@ -469,57 +552,66 @@ namespace ks::ui
         {
             // 沿用旧文案（MemoryEditorWidget.cpp:746），一字不改。
             m_model->setWindow(WorkbenchByteWindow(), isPendingMode, {});
+            if (!alive) return;
             m_status->setText(QStringLiteral("没有上次相同目标和范围的读取可供对比。"));
             return;
         }
-        const WorkbenchByteWindow window = m_provider->FetchWindow(m_address, m_length);
-        if (!window.ok || window.bytes.empty())
+        // 范围预算与单次读取预算分别检查；超限不能退化成只比较前一部分。
+        if (m_length > kMaxWindowBytes || (m_length && m_length - 1 > UINT64_MAX - m_address))
         {
             m_model->setWindow(WorkbenchByteWindow(), isPendingMode, {});
-            m_status->setText(QStringLiteral("0x%1 超出已读取窗口。").arg(formatHexDigitsUpper(m_address, 16)));
+            if (!alive) return;
+            m_status->setText(ks::i18n::sourceText(QStringLiteral("比较范围无效或超过 64 MiB；未执行比较，请缩小捕获范围。")));
             return;
         }
-
-        // 可疑点 6：分组按绝对地址 16 字节对齐，从覆盖窗口起点的那个对齐边界开始，到覆盖
-        // 窗口终点的对齐边界结束；窗口起点/终点本身非 16 的倍数时，首尾分组只是"虚拟的
-        // 16 字节槛"，其中落在窗口外的那部分字节用 resolveCompareByte 的"不可用"路径
-        // 处理，不是真的去访问窗口外的地址。
-        const std::uint64_t windowEnd = window.address + static_cast<std::uint64_t>(window.bytes.size());
-        const std::uint64_t firstGroupAddress = (window.address / kGroupBytes) * kGroupBytes;
         QVector<CompareGroupSummary> groups;
-        std::uint64_t totalChanged = 0;
-        for (std::uint64_t groupAddress = firstGroupAddress; groupAddress < windowEnd; groupAddress += kGroupBytes)
+        constexpr std::uint64_t chunkLimit = 64ULL * 1024ULL; // 兼容实时 64 KiB 与快照 1 MiB 提供者。
+        std::uint64_t offset = 0; // 全范围已处理前缀，不以提供者返回长度冒充总范围。
+        while (offset < m_length)
         {
-            int changedCount = 0;
-            for (std::uint64_t i = 0; i < kGroupBytes; ++i)
+            const auto address = m_address + offset;
+            const auto requested = std::min(chunkLimit, m_length - offset);
+            const WorkbenchByteWindow window = m_provider->FetchWindow(address, requested);
+            const bool shapeValid = window.ok && window.address == address && window.bytes.size() <= requested;
+            const auto available = shapeValid ? static_cast<std::uint64_t>(window.bytes.size()) : 0;
+            for (std::uint64_t i = 0; i < available; ++i)
             {
-                if (matchesMode(window, isPendingMode, groupAddress + i))
+                const auto at = static_cast<std::size_t>(i);
+                // 不可用/加载中/掩码不完整都不计入已比较数，也不被补零当成无变化。
+                const bool baselineValid = at < window.baselineBytes.size()
+                    && at < window.baselineValidMask.size() && window.baselineValidMask[at] == 1;
+                const bool otherValid = isPendingMode
+                    ? at < window.validMask.size() && window.validMask[at] == 1
+                    : at < window.previousBytes.size() && at < window.previousValidMask.size()
+                        && window.previousValidMask[at] == 1 && at < window.validMask.size();
+                if (!baselineValid || !otherValid) continue;
+                ++m_compared;
+                const auto byteAddress = address + i;
+                if (!matchesMode(window, isPendingMode, byteAddress)) continue;
+                const auto groupAddress = byteAddress - byteAddress % kGroupBytes;
+                // 跨块边界的同一分组必须合并；非 16 对齐起点不会产生重复行。
+                if (!groups.isEmpty() && groups.last().groupAddress == groupAddress)
                 {
-                    ++changedCount;
+                    ++groups.last().changedCount;
                 }
+                else groups.push_back({groupAddress, 1});
+                ++m_totalChanged;
             }
-            if (changedCount > 0)
-            {
-                CompareGroupSummary summary;
-                summary.groupAddress = groupAddress;
-                summary.changedCount = changedCount;
-                groups.push_back(summary);
-                totalChanged += static_cast<std::uint64_t>(changedCount);
-            }
-            // N5（第二轮审核）：窗口贴着地址空间顶端时，groupAddress += kGroupBytes 会在
-            // 到达 2^64-1 附近时整数回绕到 0，for 循环的终止条件 groupAddress < windowEnd
-            // 从此再也不会为真（回绕之后 groupAddress 永远比 windowEnd 小），变成死循环
-            // 转满整个地址空间（约 2^60 次迭代，UI 线程卡死）。RangeRepresentable 允许
-            // end==2^64-1 这种合法窗口，宿主把窗口长度夹到 UINT64_MAX-address 时会真的
-            // 命中——这里在自增前判断一次，快要回绕时主动结束循环（这一组已经在上面计数
-            // 过了，不会漏掉最后一组）。
-            if (groupAddress > std::numeric_limits<std::uint64_t>::max() - kGroupBytes)
-            {
-                break;
-            }
+            // 提供者有更小的单 call 预算时顺序续取，不跳过被截短的真实尾部。
+            // 完全失败则跳过本次请求块，并在最终总计注明这部分没有完成比较。
+            offset += available ? available : requested;
         }
-        m_model->setWindow(window, isPendingMode, groups);
-        m_status->setText(QStringLiteral("%1 字节变化；共 %2 行；悬停可查看逐字节明细。")
-            .arg(totalChanged).arg(groups.size()));
+        m_model->setRange(m_provider, m_address, m_length, isPendingMode, groups);
+        if (!alive) return;
+        if (m_compared < m_length)
+        {
+            m_status->setText(ks::i18n::sourceText(QStringLiteral("比较未完成：已比较 %1/%2 字节；已确认 %3 字节变化，共 %4 行。"))
+                .arg(m_compared).arg(m_length).arg(m_totalChanged).arg(groups.size()));
+        }
+        else
+        {
+            m_status->setText(ks::i18n::sourceText(QStringLiteral("完整比较 %1 字节；%2 字节变化；共 %3 行；悬停可查看逐字节明细。"))
+                .arg(m_length).arg(m_totalChanged).arg(groups.size()));
+        }
     }
 }

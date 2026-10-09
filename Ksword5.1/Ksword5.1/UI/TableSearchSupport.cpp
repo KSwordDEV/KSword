@@ -259,6 +259,9 @@ namespace
 
         void clearResultFilter()
         {
+            // 清空后重新启用过滤也属于新轮次，旧 queued 回投不能重建新基线。
+            ++m_filterGeneration;
+            m_filterRefreshPending = false;
             const bool stateChanged = m_resultFilterActive;
             if (m_resultFilterActive)
             {
@@ -276,6 +279,35 @@ namespace
             }
         }
 
+
+        // 模型切换前恢复原先隐藏状态；过滤词留给新模型换绑后继续使用。
+        void prepareModelChange()
+        {
+            if (m_resultFilterActive)
+            {
+                restoreBaselineHiddenRows();
+            }
+        }
+
+        // 旧模型继续更新时不能影响新表；observeFilterModel 会断开全部旧信号。
+        void refreshModelBinding()
+        {
+            QAbstractItemModel* const model = m_tableView.isNull() ? nullptr : m_tableView->model();
+            if (m_filterModel == model)
+            {
+                return;
+            }
+            // 断开 signal 不能取消已排队 singleShot，因此另外隔离模型轮次。
+            ++m_filterGeneration;
+            m_filterRefreshPending = false;
+            const QString query = m_resultFilterQuery;
+            const bool wasActive = m_resultFilterActive;
+            observeFilterModel(model);
+            if (wasActive && model != nullptr && !query.isEmpty())
+            {
+                applyResultFilter(query);
+            }
+        }
 
         void refreshPresentation()
         {
@@ -413,7 +445,12 @@ namespace
                 return;
             }
             m_filterRefreshPending = true;
-            QTimer::singleShot(0, this, [this, recaptureBaseline]() {
+            const quint64 generation = m_filterGeneration;
+            QTimer::singleShot(0, this, [this, recaptureBaseline, generation]() {
+                if (generation != m_filterGeneration)
+                {
+                    return;
+                }
                 m_filterRefreshPending = false;
                 if (!m_resultFilterActive || m_tableView.isNull())
                 {
@@ -641,6 +678,7 @@ namespace
         bool m_keepSearchAccessVisible = false; // m_keepSearchAccessVisible：过滤前入口是否满足超页显示条件。
         bool m_modelMutationPrepared = false; // m_modelMutationPrepared：结构变更前是否已恢复基线。
         bool m_filterRefreshPending = false; // m_filterRefreshPending：合并模型变化触发的过滤刷新。
+        quint64 m_filterGeneration = 0;      // 隔离换模型/清空过滤前排队的旧回投。
         bool m_refreshPending = false;       // m_refreshPending：合并同一事件循环内的刷新请求。
     };
 
@@ -685,6 +723,23 @@ namespace ks::ui
         if (TableSearchAccessWidget* searchSupport = searchSupportForTable(tableView))
         {
             searchSupport->refreshPresentation();
+        }
+    }
+
+    // 两个入口只委托存量搜索控制器，不另外维护过滤状态或隐藏快照。
+    void PrepareTableSearchModelChange(QTableView* tableView)
+    {
+        if (TableSearchAccessWidget* searchSupport = searchSupportForTable(tableView))
+        {
+            searchSupport->prepareModelChange();
+        }
+    }
+
+    void RefreshTableSearchModelBinding(QTableView* tableView)
+    {
+        if (TableSearchAccessWidget* searchSupport = searchSupportForTable(tableView))
+        {
+            searchSupport->refreshModelBinding();
         }
     }
 

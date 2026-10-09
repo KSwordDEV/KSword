@@ -1,5 +1,5 @@
-#include "PoolAllocationAnalysisWidget.h"
-#include "../UI/CodeTextEdit.h"
+﻿#include "PoolAllocationAnalysisWidget.h"
+#include "../UI/CodeEditorWidget.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/FlowLayout.h"
 #include <QAbstractTableModel>
@@ -14,7 +14,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
-#include <QPlainTextEdit>
 #include <QPointer>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -235,10 +234,9 @@ PoolAllocationAnalysisWidget::PoolAllocationAnalysisWidget(QWidget* parent) : QW
     m_resolve = new QPushButton(detail); m_resolve->setObjectName(QStringLiteral("pool_analysis_resolve"));
     m_module = new QPushButton(detail); m_module->setObjectName(QStringLiteral("pool_analysis_module"));
     detailActions->addWidget(m_resolve); detailActions->addWidget(m_module); detailLayout->addLayout(detailActions);
-    m_frames = new CodeTextEdit(detail);
-    static_cast<CodeTextEdit*>(m_frames)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText); m_frames->setObjectName(QStringLiteral("pool_analysis_frames"));
-    m_frames->setReadOnly(true); m_frames->setLineWrapMode(QPlainTextEdit::NoWrap);
-    detailLayout->addWidget(m_frames, 1); split->addWidget(m_table); split->addWidget(detail);
+    m_frames = new CodeEditorWidget(detail);
+    m_frames->setObjectName(QStringLiteral("pool_analysis_frames"));
+    m_frames->setReadOnly(true); detailLayout->addWidget(m_frames, 1); split->addWidget(m_table); split->addWidget(detail);
     split->setStretchFactor(0, 2); split->setStretchFactor(1, 1); layout->addWidget(split, 1);
     connect(m_open, &QPushButton::clicked, this, [this] {
         QPointer<PoolAllocationAnalysisWidget> guard(this);
@@ -414,7 +412,7 @@ void PoolAllocationAnalysisWidget::selectStack() {
 void PoolAllocationAnalysisWidget::showStack() {
     m_modulePath.clear();
     const auto* group = selectedGroup();
-    if (!group) { m_frames->clear(); return; }
+    if (!group) { m_frames->setReportText(QString()); return; }
     QStringList lines;
     lines << groupLabel(m_images, m_kernelImages, *group);
     lines << L("Observed %1 bytes / %2 allocations; paired release %3 bytes / %4; no observed free %5 bytes / %6; uncertain %7 bytes / %8.")
@@ -442,7 +440,7 @@ void PoolAllocationAnalysisWidget::showStack() {
             line += QStringLiteral("  ") + QString::fromStdWString(m_symbols[frame]);
         lines << line;
     }
-    m_frames->setPlainText(lines.join(QChar('\n')));
+    m_frames->setReportText(lines.join(QChar('\n')));
 }
 void PoolAllocationAnalysisWidget::resolveStack() {
     const auto* group = selectedGroup();

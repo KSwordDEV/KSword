@@ -226,21 +226,21 @@ namespace
             hexLayout->setContentsMargins(0, 0, 0, 0);
             hexLayout->setSpacing(4);
 
-            QLabel* hintLabel = new QLabel(QStringLiteral("下方使用项目内现有 HexEditorWidget 展示 HTTPS 事件原始字节。"), hexPage);
+            QLabel* hintLabel = new QLabel(QStringLiteral("下方展示 HTTPS 事件原始字节。"), hexPage);
             hintLabel->setWordWrap(true);
             hintLabel->setStyleSheet(QStringLiteral("color:%1;").arg(KswordTheme::TextSecondaryHex()));
             hexLayout->addWidget(hintLabel);
 
-            HexEditorWidget* hexEditorWidget = new HexEditorWidget(hexPage);
+            ks::ui::HexView* hexEditorWidget = new ks::ui::HexView(hexPage);
             hexEditorWidget->setEditable(false);
             hexEditorWidget->setBytesPerRow(16);
             if (!parsedEntry.rawBytes.isEmpty())
             {
-                hexEditorWidget->setByteArray(parsedEntry.rawBytes, 0);
+                hexEditorWidget->setBuffer(0, parsedEntry.rawBytes);
             }
             else
             {
-                hexEditorWidget->clearData();
+                hexEditorWidget->clearBuffer();
             }
             hexLayout->addWidget(hexEditorWidget, 1);
             tabWidget->addTab(hexPage, QStringLiteral("十六进制"));

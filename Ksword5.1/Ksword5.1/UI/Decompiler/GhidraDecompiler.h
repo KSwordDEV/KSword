@@ -10,6 +10,16 @@ namespace ks::ui
 {
     enum class DecompilerInputKind { RawMemory, PortableExecutable };
 
+    // 真实阶段来自宿主或本次隔离脚本；没有工作量时保持不定进度。
+    enum class DecompilerStage { PreparingSnapshot, StartingRuntime, Importing, Analyzing,
+        LocatingFunction, Decompiling, Rendering };
+    struct DecompilerProgress
+    {
+        DecompilerStage stage = DecompilerStage::PreparingSnapshot;
+        qint64 completedUnits = -1;    // 仅在脚本知道实际工作量时填写。
+        qint64 totalUnits = -1;        // 当前阶段总量，未知时为 -1。
+    };
+
     struct DecompilerRequest
     {
         // Always the current captured/staged bytes, never an original file path.
@@ -59,6 +69,7 @@ namespace ks::ui
     signals:
         void finished(const ks::ui::DecompilerResult& result);
         void runningChanged(bool running);
+        void progressChanged(const ks::ui::DecompilerProgress& progress);
 
     private:
         struct State;
@@ -67,7 +78,9 @@ namespace ks::ui
         void complete(const QString& error = QString());
         void stopProcess(const QString& reason);
         void collectOutput();
+        bool publishProgress(DecompilerStage stage, qint64 completed = -1, qint64 total = -1);
     };
 }
 
 Q_DECLARE_METATYPE(ks::ui::DecompilerResult)
+Q_DECLARE_METATYPE(ks::ui::DecompilerProgress)

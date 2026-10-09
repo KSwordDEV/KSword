@@ -1,4 +1,4 @@
-#include "RenderBenchmarkPage.h"
+﻿#include "RenderBenchmarkPage.h"
 
 // ============================================================
 // RenderBenchmarkPage.cpp
@@ -26,8 +26,7 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPixmap>
-#include <QPlainTextEdit>
-#include "../../UI/CodeTextEdit.h"
+#include "../../UI/CodeEditorWidget.h"
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRect>
@@ -771,10 +770,8 @@ namespace ks::misc
         reportActionLayout->addWidget(m_clearReportButton);
         rootLayout->addLayout(reportActionLayout);
 
-        m_reportEdit = new CodeTextEdit(this);
-        static_cast<CodeTextEdit*>(m_reportEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+        m_reportEdit = new CodeEditorWidget(this);
         m_reportEdit->setReadOnly(true);
-        m_reportEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
         m_reportEdit->setMinimumHeight(180);
         rootLayout->addWidget(m_reportEdit, 1);
     }
@@ -789,14 +786,14 @@ namespace ks::misc
         connect(m_refreshTargetsButton, &QPushButton::clicked, this, [this]() { refreshTargetWindowList(); });
         connect(m_copyReportButton, &QPushButton::clicked, this, [this]() { copyReportToClipboard(); });
         connect(m_saveReportButton, &QPushButton::clicked, this, [this]() { saveReportToFile(); });
-        connect(m_clearReportButton, &QPushButton::clicked, this, [this]() { m_reportEdit->clear(); });
+        connect(m_clearReportButton, &QPushButton::clicked, this, [this]() { m_reportEdit->setReportText(QString()); });
     }
 
     void RenderBenchmarkPage::appendReportLine(const QString& lineText)
     {
         if (m_reportEdit != nullptr)
         {
-            m_reportEdit->appendPlainText(lineText);
+            m_reportEdit->appendReportText(lineText);
         }
     }
 
@@ -1371,7 +1368,7 @@ namespace ks::misc
         QClipboard* const clipboard = QApplication::clipboard();
         if (clipboard != nullptr && m_reportEdit != nullptr)
         {
-            clipboard->setText(m_reportEdit->toPlainText());
+            clipboard->setText(m_reportEdit->text());
             m_statusLabel->setText(QStringLiteral("报告已复制到剪贴板。"));
         }
     }
@@ -1398,7 +1395,7 @@ namespace ks::misc
             return;
         }
         QTextStream reportStream(&reportFile);
-        reportStream << m_reportEdit->toPlainText();
+        reportStream << m_reportEdit->text();
         reportFile.close();
         m_statusLabel->setText(QStringLiteral("报告已导出。"));
     }

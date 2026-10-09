@@ -44,7 +44,11 @@ public:
     static bool removeValue(const QString& path, const QString& name,
         const RegistryAccessContext& context, QString* error);
     static bool createKey(const QString& path, const RegistryAccessContext& context, QString* error);
-    static bool removeTree(const QString& path, const RegistryAccessContext& context, QString* error);
+    // 查询键存在性与同父键重命名都显式传递冻结视图/通道，不根据 UI 再决策。
+    static bool keyExists(const QString& path, const RegistryAccessContext& context,
+        bool* exists, QString* error);
+    static bool renameKey(const QString& path, const QString& newName,
+        const RegistryAccessContext& context, QString* newPath, QString* error);
     // HKCR is a merged Win32 view and intentionally has no R0 approximation.
     static QString kernelPath(const QString& path);
 };

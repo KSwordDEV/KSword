@@ -9,6 +9,7 @@
 #include "../Framework.h"
 
 #include <QString>
+#include <QHash> // PID 到卡片与上一版数据的映射，刷新不销毁已有控件。
 #include <QWidget>
 
 class QLabel;
@@ -27,7 +28,7 @@ public:
 
     // refreshThemeVisuals 作用：
     // - 主题切换后重新套用当前操作面板背景和文字样式；
-    // - 强制重建卡片，避免旧 QLabel 保留旧主题颜色。
+    // - 原位更新卡片，保留滚动位置与 QWidget 身份。
     void refreshThemeVisuals();
 
 private:
@@ -43,7 +44,7 @@ private:
     // initializeRefreshTimer 作用：
     // - 创建定时器；
     // - 通过 Revision 判断是否刷新。
-    void initializeRefreshTimer();
+    void initializeSnapshotFeed();
 
     // refreshTaskCards 作用：
     // - 从 kPro 拉取快照并重建卡片视图；
@@ -53,15 +54,15 @@ private:
     // - false revision 不变时跳过刷新。
     void refreshTaskCards(bool forceRefresh);
 
-    // clearCardLayout 作用：
-    // - 删除旧卡片，避免内存泄漏并清空视图。
-    void clearCardLayout();
+    // applyTaskSnapshot：按 PID 新建、更新、移除差量；force 只重绘主题/语言。
+    void applyTaskSnapshot(const std::shared_ptr<const kProgressSnapshot>& snapshot, bool forceRefresh);
 
     // createTaskCardWidget 作用：
     // - 根据单个任务数据创建卡片控件。
     // 参数 taskItem：任务快照数据。
     // 返回值：新建的卡片 QWidget 指针（父对象由布局接管）。
     QWidget* createTaskCardWidget(const kProgressTask& taskItem) const;
+    void updateTaskCardWidget(QWidget* card, const kProgressTask& taskItem) const; // 原位重译与上色。
 
     // buildHighContrastTextHex 作用：
     // - 根据深浅主题返回高对比黑/白文字颜色；
@@ -93,6 +94,7 @@ private:
     QWidget* m_scrollContent = nullptr;         // 滚动内容根控件。
     QVBoxLayout* m_cardLayout = nullptr;        // 卡片垂直布局。
     QLabel* m_emptyTipLabel = nullptr;          // “暂无任务”提示标签。
-    QTimer* m_refreshTimer = nullptr;           // 定时刷新器。
     std::size_t m_lastRevision = 0;             // 上次刷新时 revision。
+    QHash<int, QWidget*> m_cards;               // 当前可见卡片，以任务 PID 唯一定位。
+    QHash<int, kProgressTask> m_renderedTasks;   // 上一版可见数据，跳过其他任务变化造成的无效重绘。
 };

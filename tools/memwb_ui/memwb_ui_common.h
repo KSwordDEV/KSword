@@ -113,6 +113,7 @@ namespace memwb_test
 
     // 各组测试入口（定义在对应的 .cpp）。
     void RunViewTests();
+    void RunCompareContractTests();
     void RunEditTests();
     void RunRenderTests(const QString& shotsDir);
     void RunBenchmarks(const QString& benchFile);

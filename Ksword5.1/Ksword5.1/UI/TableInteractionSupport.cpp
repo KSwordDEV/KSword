@@ -7,6 +7,8 @@
 #include "TableSnapshotCompare.h"
 #include "TableSearchSupport.h"
 #include "VisibleTableWidget.h"
+#include "ResultTableHost.h"
+#include "UiCommitCoordinator.h"
 
 #include <QAbstractItemModel>
 #include <QAbstractItemView>
@@ -52,11 +54,6 @@
 #include <algorithm>
 #include <utility>
 
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
-
 namespace
 {
     using ks::ui::TableComparisonModel;
@@ -77,7 +74,6 @@ namespace
     constexpr char kStandardContextMenuProperty[] = "KSWORD_TABLE_INTERACTION_STANDARD_CONTEXT_MENU";
     constexpr char kContextActionsInstalledProperty[] = "KSWORD_TABLE_INTERACTION_CONTEXT_ACTIONS_INSTALLED";
     constexpr char kComparisonActiveProperty[] = "KSWORD_TABLE_INTERACTION_COMPARISON_ACTIVE";
-    constexpr char kContextMenuDepthProperty[] = "KSWORD_TABLE_CONTEXT_MENU_DEPTH";
     constexpr int kActionBarHeight = 32;
     constexpr quint64 kBytesPerMiB = 1024ULL * 1024ULL;
     constexpr TableSnapshotCaptureLimits kSnapshotCaptureLimits{};
@@ -125,247 +121,21 @@ namespace
         applyToHeader(tableView->verticalHeader());
     }
 
-    // DeferredTableUiCommit：
-    // - 保存右键菜单打开期间被覆盖合并的 UI 提交；
-    // - owner/key 共同标识一类刷新，itemViewList 决定何时可以安全回投。
-    struct DeferredTableUiCommit
-    {
-        QPointer<QObject> owner;                         // owner：接收延迟回调的生命周期对象。
-        QString commitKey;                              // commitKey：同一所有者内的刷新去重键。
-        QList<QPointer<QAbstractItemView>> itemViewList; // itemViewList：本次提交可能重建的表格或树。
-        std::function<void()> commitAction;              // commitAction：菜单关闭后执行的最新 UI 提交。
-    };
-
-    // deferredTableUiCommits 作用：
-    // - 返回 GUI 线程内共享的待提交队列；
-    // - 队列只由全局表格事件过滤器和刷新入口访问，不跨线程调用。
-    QVector<DeferredTableUiCommit>& deferredTableUiCommits()
-    {
-        static QVector<DeferredTableUiCommit> commitList;
-        return commitList;
-    }
-
-    // isComboBoxPopupOpen 作用：
-    // - 返回当前是否有 QComboBox 弹层正展开；
-    // - 弹层是抓着鼠标键盘的独立顶层窗口，此时后台回填清空并重填下拉框，
-    //   会让弹层继续抓着输入但内容已失效，界面表现为“点了下拉框之后点不动”；
-    // - 判据取 activePopupWidget 的父控件：QComboBox 弹层容器的父对象就是组合框本身，
-    //   右键菜单的父对象不是，因此不会和菜单判据互相误伤。
-    bool isComboBoxPopupOpen()
-    {
-        QWidget* const activePopupWidget = QApplication::activePopupWidget();
-        if (activePopupWidget == nullptr)
-        {
-            return false;
-        }
-        return qobject_cast<QComboBox*>(activePopupWidget->parentWidget()) != nullptr;
-    }
-
-    // isLeftCtrlHeldForMultiSelect 作用：
-    // - 返回左 Ctrl 键当前是否处于物理按下状态（Issue #149）；
-    // - 用户按住左 Ctrl 跨行多选时，任意表格刷新都应像右键菜单打开时一样进入缓存刷新，
-    //   否则周期刷新重建模型会清空多选、打断操作；
-    // - 只查询左 Ctrl，与需求“检测一次左Ctrl是否按下”保持一致，不拦截右 Ctrl。
-    bool isLeftCtrlHeldForMultiSelect()
-    {
-        return (::GetAsyncKeyState(VK_LCONTROL) & 0x8000) != 0;
-    }
-
-    // isDeferredTableUiCommitBlocked 作用：
-    // - 返回一次延迟提交是否仍需继续缓存：任一表格/树处于菜单生命周期内，或左 Ctrl 仍按住；
-    // - 每次真正执行前重新检查，覆盖 flush 过程中同步打开新菜单或用户仍在多选的重入场景。
-    bool isDeferredTableUiCommitBlocked(const DeferredTableUiCommit& pendingCommit)
-    {
-        if (isLeftCtrlHeldForMultiSelect() || isComboBoxPopupOpen())
-        {
-            return true;
-        }
-        return std::any_of(
-            pendingCommit.itemViewList.cbegin(),
-            pendingCommit.itemViewList.cend(),
-            [](const QPointer<QAbstractItemView>& guardedItemView)
-            {
-                return !guardedItemView.isNull() &&
-                    guardedItemView->property(kContextMenuDepthProperty).toInt() > 0;
-            });
-    }
-
-    // isItemViewContextMenuOpen 作用：
-    // - 根据全局事件过滤器维护的深度属性判断表格/树右键菜单是否仍在嵌套事件循环中；
-    // - 空视图与深度为零均返回 false。
-    bool isItemViewContextMenuOpen(const QAbstractItemView* itemView)
-    {
-        return itemView != nullptr &&
-            itemView->property(kContextMenuDepthProperty).toInt() > 0;
-    }
-
-    // beginItemViewContextMenu 作用：
-    // - 在业务菜单进入 exec/popup 后增加表格/树菜单深度；
-    // - 多层菜单或连续弹出时使用计数而不是简单布尔值。
+    // 菜单来源仍由表格过滤器识别，状态和异步提交队列统一交给协调器。
     void beginItemViewContextMenu(QAbstractItemView* itemView)
     {
-        if (itemView == nullptr)
+        if (auto* const coordinator = ks::ui::UiCommitCoordinator::forApplication())
         {
-            return;
-        }
-
-        const int currentDepth = itemView->property(kContextMenuDepthProperty).toInt();
-        itemView->setProperty(kContextMenuDepthProperty, currentDepth + 1);
-    }
-
-    // flushDeferredTableUiCommits 作用：
-    // - 菜单关闭后扫描待提交队列；
-    // - 只有相关表格全部退出菜单状态时才执行最新提交；
-    // - 执行前逐项复查菜单状态，避免 flush 与二次投递之间重新打开菜单。
-    void flushDeferredTableUiCommits()
-    {
-        QVector<DeferredTableUiCommit>& commitList = deferredTableUiCommits();
-        for (int commitIndex = 0; commitIndex < commitList.size();)
-        {
-            DeferredTableUiCommit& pendingCommit = commitList[commitIndex];
-            if (pendingCommit.owner.isNull())
-            {
-                commitList.removeAt(commitIndex);
-                continue;
-            }
-
-            if (isDeferredTableUiCommitBlocked(pendingCommit))
-            {
-                ++commitIndex;
-                continue;
-            }
-
-            // 先移出当前提交，再执行用户回调；回调即使重入并修改队列也不会悬空引用。
-            const QPointer<QObject> owner = pendingCommit.owner;
-            std::function<void()> commitAction = std::move(pendingCommit.commitAction);
-            commitList.removeAt(commitIndex);
-            if (!owner.isNull() && commitAction)
-            {
-                commitAction();
-            }
-
-            // commitAction 允许进入嵌套事件循环并改变队列；从头复查避免跳过被移动的项。
-            commitIndex = 0;
+            coordinator->beginContextMenu(itemView);
         }
     }
 
-    // scheduleDeferredTableUiCommitFlush 作用：
-    // - 把一次 flush 排到外层事件循环，供左 Ctrl 松开后回投被合并的表格刷新；
-    // - 同一路径可能被连续触发，但 flush 后队列清空，重复调度自然收敛为空操作；
-    // - flush 内部逐项复查 isDeferredTableUiCommitBlocked，左 Ctrl 仍按住时不会误提交。
-    void scheduleDeferredTableUiCommitFlush()
-    {
-        if (qApp == nullptr)
-        {
-            flushDeferredTableUiCommits();
-            return;
-        }
-        QTimer::singleShot(0, qApp, []()
-            {
-                flushDeferredTableUiCommits();
-            });
-    }
-
-    // scheduleItemViewContextMenuEnd 作用：
-    // - 菜单 Hide 事件发生在 QMenu::exec 返回之前；
-    // - 把减深度和回投一起排到外层事件循环，确保业务槽先完成旧行/节点动作；
-    // - Hide 到回投之间的新刷新仍能看到正深度，因此也会进入延迟队列。
-    void scheduleItemViewContextMenuEnd(QAbstractItemView* itemView)
-    {
-        const QPointer<QAbstractItemView> guardedItemView(itemView);
-        const auto finishContextMenu = [guardedItemView]()
-            {
-                if (!guardedItemView.isNull())
-                {
-                    const int currentDepth =
-                        guardedItemView->property(kContextMenuDepthProperty).toInt();
-                    guardedItemView->setProperty(
-                        kContextMenuDepthProperty,
-                        std::max(0, currentDepth - 1));
-                }
-                flushDeferredTableUiCommits();
-            };
-        if (qApp == nullptr)
-        {
-            finishContextMenu();
-            return;
-        }
-        QTimer::singleShot(0, qApp, finishContextMenu);
-    }
-
-    // endItemViewContextMenu 作用：
-    // - 菜单隐藏或销毁时安排在业务 action handler 完成后减少深度；
-    // - 最后一层菜单完成退出后回投被合并的表格/树刷新。
     void endItemViewContextMenu(QAbstractItemView* itemView)
     {
-        scheduleItemViewContextMenuEnd(itemView);
-    }
-
-    // deferItemViewUiCommitIfNeeded 作用：
-    // - 任一目标表格/树菜单打开，或用户仍按住左 Ctrl 多选时（Issue #149），
-    //   按 owner/key 覆盖旧提交，防止高频刷新积压并清空多选；
-    // - 两者都不成立时返回 false，调用方继续当前 UI 提交流程。
-    bool deferItemViewUiCommitIfNeeded(
-        QObject* owner,
-        const QString& commitKey,
-        const QList<QAbstractItemView*>& itemViewList,
-        std::function<void()> commitAction)
-    {
-        if (owner == nullptr || commitKey.isEmpty() || !commitAction)
+        if (auto* const coordinator = ks::ui::UiCommitCoordinator::forApplication())
         {
-            return false;
+            coordinator->endContextMenu(itemView);
         }
-
-        bool contextMenuOpen = false;
-        QList<QPointer<QAbstractItemView>> guardedItemViewList;
-        guardedItemViewList.reserve(itemViewList.size());
-        for (QAbstractItemView* itemView : itemViewList)
-        {
-            if (itemView == nullptr)
-            {
-                continue;
-            }
-            guardedItemViewList.push_back(QPointer<QAbstractItemView>(itemView));
-            contextMenuOpen =
-                contextMenuOpen || isItemViewContextMenuOpen(itemView);
-        }
-        // 右键菜单打开、用户仍按住左 Ctrl 多选（Issue #149）、下拉框弹层展开时都缓存刷新。
-        if (!contextMenuOpen && !isLeftCtrlHeldForMultiSelect() && !isComboBoxPopupOpen())
-        {
-            // 无需缓存：若队列仍有左 Ctrl 期间积压的提交（如松开事件因失焦丢失），
-            // 借本次刷新兜底安排一次 flush，避免旧提交长期滞留。
-            if (!deferredTableUiCommits().isEmpty())
-            {
-                scheduleDeferredTableUiCommitFlush();
-            }
-            return false;
-        }
-
-        QVector<DeferredTableUiCommit>& commitList = deferredTableUiCommits();
-        for (int commitIndex = 0; commitIndex < commitList.size(); ++commitIndex)
-        {
-            DeferredTableUiCommit& pendingCommit = commitList[commitIndex];
-            if (pendingCommit.owner.data() == owner && pendingCommit.commitKey == commitKey)
-            {
-                // 同键更新移动到队尾，确保 flush 以后按最后到达时间提交。
-                DeferredTableUiCommit updatedCommit;
-                updatedCommit.owner = owner;
-                updatedCommit.commitKey = commitKey;
-                updatedCommit.itemViewList = std::move(guardedItemViewList);
-                updatedCommit.commitAction = std::move(commitAction);
-                commitList.removeAt(commitIndex);
-                commitList.push_back(std::move(updatedCommit));
-                return true;
-            }
-        }
-
-        DeferredTableUiCommit pendingCommit;
-        pendingCommit.owner = owner;
-        pendingCommit.commitKey = commitKey;
-        pendingCommit.itemViewList = std::move(guardedItemViewList);
-        pendingCommit.commitAction = std::move(commitAction);
-        commitList.push_back(std::move(pendingCommit));
-        return true;
     }
 
     QString localizedSourceText(const char* sourceText)
@@ -2605,19 +2375,13 @@ namespace
             QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
     }
 
+    // 全局发现只是兼容适配层；实际模型、列能力由每张表的宿主维护。
     void configureTable(QTableView* tableView)
     {
-        if (tableView == nullptr || tableView->model() == nullptr)
+        if (auto* const host = ks::ui::ResultTableHost::ensure(tableView))
         {
-            return;
+            host->refresh();
         }
-
-        applyStandardTableHeaderStyle(tableView);
-        ks::ui::InstallTableHeaderClickSorting(
-            qobject_cast<QTableWidget*>(tableView));
-        installActionBar(tableView);
-        ks::ui::InstallTableSearchSupport(tableView);
-        ks::ui::RefreshTableSearchSupport(tableView);
     }
 
     class GlobalTableInteractionSupportFilter final : public QObject
@@ -2634,17 +2398,6 @@ namespace
             if (eventObject == nullptr)
             {
                 return QObject::eventFilter(watchedObject, eventObject);
-            }
-
-            if (eventObject->type() == QEvent::KeyRelease)
-            {
-                // 多选结束标志：Ctrl 松开后安排回投被缓存的表格刷新（Issue #149）。
-                // 排到外层事件循环再由 flush 复查左 Ctrl 物理状态，右 Ctrl 单独松开不会误提交。
-                auto* keyEvent = static_cast<QKeyEvent*>(eventObject);
-                if (keyEvent->key() == Qt::Key_Control && !keyEvent->isAutoRepeat())
-                {
-                    scheduleDeferredTableUiCommitFlush();
-                }
             }
 
             if (eventObject->type() == QEvent::Show)
@@ -2691,16 +2444,6 @@ namespace
             }
             else if (eventObject->type() == QEvent::Hide)
             {
-                // 下拉框弹层收起是解除 isComboBoxPopupOpen 屏障的唯一时机；
-                // 弹层容器的父对象就是组合框本身，据此识别并回投被缓存的刷新。
-                if (QWidget* const hiddenWidget = qobject_cast<QWidget*>(watchedObject))
-                {
-                    if (qobject_cast<QComboBox*>(hiddenWidget->parentWidget()) != nullptr)
-                    {
-                        scheduleDeferredTableUiCommitFlush();
-                    }
-                }
-
                 // hiddenMenu 用途：业务菜单退出嵌套事件循环后释放对应表格的 UI 提交屏障。
                 QMenu* hiddenMenu = qobject_cast<QMenu*>(watchedObject);
                 if (hiddenMenu != nullptr)
@@ -2837,6 +2580,34 @@ namespace
 
 namespace ks::ui
 {
+    // 宿主复用原有功能实现，避免迁移时丢失冻结、暂停、快照比较或搜索能力。
+    void ConfigureResultTableInteractions(
+        QTableView* tableView,
+        const ResultTableCapabilities& capabilities)
+    {
+        if (tableView == nullptr || tableView->model() == nullptr)
+        {
+            return;
+        }
+        if (capabilities.normalizeHeader)
+        {
+            applyStandardTableHeaderStyle(tableView);
+        }
+        auto* const tableWidget = qobject_cast<QTableWidget*>(tableView);
+        if (capabilities.headerClickSorting.has_value())
+        {
+            SetTableHeaderClickSortingEnabled(tableWidget, *capabilities.headerClickSorting);
+        }
+        InstallTableHeaderClickSorting(tableWidget);
+        if (capabilities.actionBar.has_value())
+        {
+            SetTableActionBarMode(tableView, *capabilities.actionBar);
+        }
+        installActionBar(tableView);
+        InstallTableSearchSupport(tableView);
+        RefreshTableSearchSupport(tableView);
+    }
+
     void OpenProcessDetailByPid(const quint32 pid)
     {
         if (pid == 0U)
@@ -2891,6 +2662,7 @@ namespace ks::ui
             return;
         }
 
+        ks::ui::UiCommitCoordinator::forApplication(appInstance);
         auto* filter = new GlobalTableInteractionSupportFilter(appInstance);
         appInstance->installEventFilter(filter);
         appInstance->setProperty(kInstalledProperty, true);
@@ -2913,11 +2685,9 @@ namespace ks::ui
         {
             itemViewList.push_back(tableView);
         }
-        return deferItemViewUiCommitIfNeeded(
-            owner,
-            commitKey,
-            itemViewList,
-            std::move(commitAction));
+        UiCommitCoordinator* const coordinator = UiCommitCoordinator::forApplication();
+        return coordinator != nullptr && coordinator->deferIfBlocked(
+            owner, commitKey, itemViewList, std::move(commitAction));
     }
 
     bool IsTableUiCommitBlockedByContextMenu(
@@ -2938,11 +2708,9 @@ namespace ks::ui
         const QList<QAbstractItemView*>& itemViewList,
         std::function<void()> commitAction)
     {
-        return deferItemViewUiCommitIfNeeded(
-            owner,
-            commitKey,
-            itemViewList,
-            std::move(commitAction));
+        UiCommitCoordinator* const coordinator = UiCommitCoordinator::forApplication();
+        return coordinator != nullptr && coordinator->deferIfBlocked(
+            owner, commitKey, itemViewList, std::move(commitAction));
     }
 
     bool DeferUiCommitIfComboBoxPopupOpen(
@@ -2951,27 +2719,15 @@ namespace ks::ui
         std::function<void()> commitAction)
     {
         // 视图集合留空：该入口不重建表格，屏障只由下拉框弹层和左 Ctrl 决定。
-        return deferItemViewUiCommitIfNeeded(
-            owner,
-            commitKey,
-            {},
-            std::move(commitAction));
+        UiCommitCoordinator* const coordinator = UiCommitCoordinator::forApplication();
+        return coordinator != nullptr && coordinator->deferIfBlocked(
+            owner, commitKey, {}, std::move(commitAction));
     }
 
     bool IsItemViewUiCommitBlockedByContextMenu(
         const QList<QAbstractItemView*>& itemViewList)
     {
-        // 左 Ctrl 多选期间、下拉框弹层展开期间对所有表格生效，无关具体视图（Issue #149）。
-        if (isLeftCtrlHeldForMultiSelect() || isComboBoxPopupOpen())
-        {
-            return true;
-        }
-        return std::any_of(
-            itemViewList.cbegin(),
-            itemViewList.cend(),
-            [](const QAbstractItemView* itemView)
-            {
-                return isItemViewContextMenuOpen(itemView);
-            });
+        UiCommitCoordinator* const coordinator = UiCommitCoordinator::forApplication();
+        return coordinator != nullptr && coordinator->isBlocked(itemViewList);
     }
 }

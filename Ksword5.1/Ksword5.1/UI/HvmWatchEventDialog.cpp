@@ -1,4 +1,4 @@
-#include "HvmWatchEventDialog.h"
+﻿#include "HvmWatchEventDialog.h"
 
 #include "CodeEditorWidget.h"
 #include "HvmControl.h"
@@ -269,7 +269,7 @@ namespace ks::ui
         // 文本详情统一用项目内置编辑器，而不是裸 QTextEdit。
         auto* const editor = new CodeEditorWidget(&dialog);
         editor->setReadOnly(true);
-        editor->setRawText(formatWatchHitEvent(entry, hit, label));
+        editor->setReportText(formatWatchHitEvent(entry, hit, label));
         layout->addWidget(editor, 1);
 
         auto* const buttonBox =

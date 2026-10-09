@@ -55,25 +55,14 @@ namespace wpg_test
             WPG_CHECK(ws::LoadChannelForScope(0) == 0U && ws::LoadChannelForScope(1) == 1U && ws::LoadChannelForScope(2) == 1U);
             WPG_CHECK(ws::LoadSidebarWidth() == 300 && ws::LoadBytesPerRow() == 16 && ws::LoadLiveIntervalMs() == 1000);
             WPG_CHECK(ws::LoadAddrBookKind() == -1);
-            WPG_CHECK(ws::LoadEnabled());                             // S10：三个新键的默认值
-            WPG_CHECK(ws::LoadRouteJumps());                          // 3b：routeJumps 默认真
-            WPG_CHECK(ws::LoadShowLegacyTabs());
-            ws::SaveSubTab(3);                                        // 上界合法
-            WPG_CHECK(ws::LoadSubTab() == 3);
-            ws::SaveSubTab(4);                                        // 越界退回默认
+            ws::SaveSubTab(4);                                        // C 伪代码页是新的合法上界。
+            WPG_CHECK(ws::LoadSubTab() == 4);
+            ws::SaveSubTab(5);                                        // 越界退回默认。
             WPG_CHECK(ws::LoadSubTab() == 0);
             ws::SaveLiveIntervalMs(200);
             WPG_CHECK(ws::LoadLiveIntervalMs() == 200);
             ws::SaveLiveIntervalMs(199);
             WPG_CHECK(ws::LoadLiveIntervalMs() == 1000);
-            ws::SaveEnabled(false);                                   // S10 三个新键的读写往返
-            WPG_CHECK(!ws::LoadEnabled());
-            ws::SaveRouteJumps(false);                                // 默认已是真：往返必须用假才有区分力
-            WPG_CHECK(!ws::LoadRouteJumps());
-            ws::SaveRouteJumps(true);
-            WPG_CHECK(ws::LoadRouteJumps());
-            ws::SaveShowLegacyTabs(false);
-            WPG_CHECK(!ws::LoadShowLegacyTabs());
             {
                 QSettings settings;                                   // 布尔："true"/"1" 为真，其余为假
                 settings.setValue(QStringLiteral("memwb/workbench/liveRefresh"), QStringLiteral("1"));

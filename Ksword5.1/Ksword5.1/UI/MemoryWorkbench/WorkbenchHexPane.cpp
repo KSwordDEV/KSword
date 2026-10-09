@@ -234,13 +234,24 @@ namespace ks::ui
             return;
         }
 
+        const QPointer<WorkbenchHexPane> alive(this);
+        const std::uint64_t spaceTicket = ++spaceRevision_;
+        ++navigationRevision_;
+        const auto current = [this, alive, spaceTicket]() {
+            return alive && spaceRevision_ == spaceTicket;
+        };
+
         if (pageProvider_)
         {
             pageProvider_->resetScratchLatch();
+            if (!current()) return;
             pageProvider_->cancelAllInFlight();
+            if (!current()) return;
         }
 
-        if (!canvas_->setAddressSpace(firstAddress, lastAddress))
+        const bool installed = canvas_->setAddressSpace(firstAddress, lastAddress);
+        if (!current()) return;
+        if (!installed)
         {
             // 非法区间（first > last）：画布保持原状，本函数不再继续——
             // overlay_/baselineFeeder_ 都还没被这次调用改动过。
@@ -303,6 +314,7 @@ namespace ks::ui
             if (baselineFeeder_)
             {
                 const std::uint64_t sourceRevision = sourceRevisionProvider_ ? sourceRevisionProvider_() : 0ULL;
+                if (!current()) return;
                 const bool inFlight = pageProvider_ ? pageProvider_->hasInFlightRequests() : false;
                 baselineFeeder_->noteDirty(lastAnchor_, sourceRevision, inFlight);
             }
@@ -313,6 +325,12 @@ namespace ks::ui
     // canvas_/overlay_/三条管线的相关状态，但不要求地址空间参数（没有新目标）。
     void WorkbenchHexPane::clearAddressSpace()
     {
+        const QPointer<WorkbenchHexPane> alive(this);
+        const std::uint64_t spaceTicket = ++spaceRevision_;
+        ++navigationRevision_;
+        const auto current = [this, alive, spaceTicket]() {
+            return alive && spaceRevision_ == spaceTicket;
+        };
         // 与 setAddressSpace 同一个顺序理由（见该函数的注释）：先作废旧的
         // 在途页请求，再改画布状态——clearAddressSpace 本身不会让画布提交
         // 新请求，这里不是同一个 bug 会实际触发的场景，但保持同一顺序避免
@@ -320,12 +338,15 @@ namespace ks::ui
         if (pageProvider_)
         {
             pageProvider_->resetScratchLatch();
+            if (!current()) return;
             pageProvider_->cancelAllInFlight();
+            if (!current()) return;
         }
 
         if (canvas_ != nullptr)
         {
             canvas_->clearAddressSpace();
+            if (!current() || canvas_->addressSpaceRange().has_value()) return;
         }
 
         // 身份串清空、窗口清空：与 setAddressSpace 同一个 LoadBaseline 调用，
@@ -383,11 +404,16 @@ namespace ks::ui
         if (externalBrowseMode_ == enabled) return;
         externalBrowseMode_ = enabled;
         if (!canvas_) return;
+        // 重新启用视口读取和滚动都可能同步通知宿主，宿主可以销毁本页。
+        const QPointer<WorkbenchHexPane> alive(this);
         canvas_->setViewportReadEnabled(!enabled);
+        if (!alive) return;
         if (!enabled)
         {
-            canvas_->scrollToAddress(canvas_->caretAddress(), HexCanvas::ScrollAlign::Center);
-            onCanvasCaretMoved(canvas_->caretAddress());
+            // 用户纯滚动不会移动 caret；切页返回只恢复当前真实视口及其基线，
+            // 不能为了揭示旧 caret 把浏览位置拉回。显式跨页定位已由 jumpTo 处理。
+            const auto visible = canvas_->visibleAddressRange();
+            if (visible) onCanvasVisibleRangeChanged(visible->first, visible->last);
         }
     }
 
@@ -408,10 +434,10 @@ namespace ks::ui
     // 地址本身合法之后，用与 HexFindBar::onFindMatch 相同的两段式手法选中
     // [address, endAddress]：先把锚点移到选区末端（extend=false），再把插入点
     // 移回起点（extend=true，锚点不动），结果是"选区覆盖整段、插入点停在起点"。
-    // 如果选区末端因为 selectLength 过大而越过地址空间尾部，第一步会失败——
-    // 这时退而只选中起点这一个字节（不让"选区长度要求过大"这个次要问题拖累
-    // "跳转本身"失败，起点已经确认在地址空间内）。
-    bool WorkbenchHexPane::jumpTo(std::uint64_t address, std::uint64_t selectLength)
+    // 如果选区末端越过地址空间尾部，在发通知前退为起点单字节；有效地址的
+    // setCaretAddress 若返回 false，表示同步换源/重入，不能再恢复旧请求。
+    bool WorkbenchHexPane::jumpTo(std::uint64_t address, std::uint64_t selectLength,
+        HexCanvas::ScrollAlign align)
     {
         if (!hasAddressSpace_ || canvas_ == nullptr)
         {
@@ -430,18 +456,30 @@ namespace ks::ui
             constexpr std::uint64_t kMaxAddress = (std::numeric_limits<std::uint64_t>::max)();
             endAddress = (span > kMaxAddress - address) ? kMaxAddress : (address + span);
         }
+        if (!canvas_->cellStateAt(endAddress).inSpace) endAddress = address;
 
-        if (!canvas_->setCaretAddress(endAddress, false, false))
+        // 选区通知允许同步销毁页面；冻结对齐参数后，在下一次触碰画布前探活。
+        const QPointer<WorkbenchHexPane> alive(this);
+        const std::uint64_t navigationTicket = ++navigationRevision_;
+        const std::uint64_t sourceTicket = canvas_->sourceRevision();
+        const auto current = [this, alive, navigationTicket, sourceTicket]() {
+            return alive && navigationRevision_ == navigationTicket && canvas_->sourceRevision() == sourceTicket;
+        };
+        const bool endAccepted = canvas_->setCaretAddress(endAddress, false, false);
+        if (!current() || !endAccepted)
         {
-            // 选区末端越界：退回只选中起点这一个字节，起点本身已经确认合法。
-            endAddress = address;
-            canvas_->setCaretAddress(endAddress, false, false);
+            return false;
         }
         // extend=true 保留上一步设下的锚点（在 endAddress），把插入点移回起点，
-        // ensureVisible=true 让起点滚动到可见——跳转操作应该让用户看到跳转的
-        // 目标地址本身，不是选区的末端。
-        canvas_->setCaretAddress(address, true, true);
-        return true;
+        // 先完成选区，再按调用方的明确政策滚动；避免 setCaretAddress 自带的
+        // Nearest 把远处地址压到末行，造成模块/区域起点之前全是未知字节。
+        const bool startAccepted = canvas_->setCaretAddress(address, true, false);
+        if (!current() || !startAccepted)
+        {
+            return false;
+        }
+        const bool revealed = canvas_->revealCaret(align);
+        return current() && revealed;
     }
 
     // rereadWindow：见头文件增量③的声明处注释。计算"基线窗口"（overlay_ 当前
@@ -543,6 +581,14 @@ namespace ks::ui
     void WorkbenchHexPane::onCanvasVisibleRangeChanged(quint64 first, quint64 last)
     {
         if (externalBrowseMode_) return;
+        const QPointer<WorkbenchHexPane> alive(this);
+        const std::uint64_t navigationTicket = navigationRevision_;
+        const std::uint64_t sourceTicket = canvas_->sourceRevision();
+        const auto current = [this, alive, navigationTicket, sourceTicket, first, last]() {
+            if (!alive || navigationRevision_ != navigationTicket || canvas_->sourceRevision() != sourceTicket) return false;
+            const auto actual = canvas_->visibleAddressRange();
+            return actual && actual->first == first && actual->last == last;
+        };
         lastVisibleFirst_ = first;
         lastVisibleLast_ = last;
         hasVisibleRange_ = true;
@@ -551,6 +597,7 @@ namespace ks::ui
         {
             // 查找条的可见高亮按当前可见范围重算，见 HexFindBar::setVisibleRange。
             findBar_->setVisibleRange(first, last);
+            if (!current()) return;
         }
 
         // 视口中心：first + (last-first)/2，二者都是无符号数，first<=last 由
@@ -563,6 +610,7 @@ namespace ks::ui
         if (baselineFeeder_)
         {
             const std::uint64_t sourceRevision = sourceRevisionProvider_ ? sourceRevisionProvider_() : 0ULL;
+            if (!current()) return;
             const bool inFlight = pageProvider_ ? pageProvider_->hasInFlightRequests() : false;
             baselineFeeder_->noteDirty(anchor, sourceRevision, inFlight);
         }
@@ -573,7 +621,15 @@ namespace ks::ui
     // baselineFeeder_->noteDirty（"锚点"的另一种取值：插入点）。
     void WorkbenchHexPane::onCanvasCaretMoved(quint64 address)
     {
+        const QPointer<WorkbenchHexPane> alive(this);
+        const std::uint64_t navigationTicket = navigationRevision_;
+        const std::uint64_t sourceTicket = canvas_->sourceRevision();
+        const auto current = [this, alive, navigationTicket, sourceTicket, address]() {
+            return alive && navigationRevision_ == navigationTicket && canvas_->sourceRevision() == sourceTicket
+                && canvas_->caretAddress() == address;
+        };
         emit insertionPointChanged(address);
+        if (!current()) return;
         if (externalBrowseMode_) return;
 
         // 同上：lastAnchor_ 无条件更新，不依赖 baselineFeeder_ 是否已注入。
@@ -582,6 +638,7 @@ namespace ks::ui
         if (baselineFeeder_)
         {
             const std::uint64_t sourceRevision = sourceRevisionProvider_ ? sourceRevisionProvider_() : 0ULL;
+            if (!current()) return;
             const bool inFlight = pageProvider_ ? pageProvider_->hasInFlightRequests() : false;
             baselineFeeder_->noteDirty(address, sourceRevision, inFlight);
         }

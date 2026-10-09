@@ -1,7 +1,7 @@
 #include "HvmMemoryDialog.h"
 
 #include "HvmControl.h"
-#include "MemoryEditorWidget.h"
+#include "MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "UI_All.h"
 #include "../Framework/DestructiveActionConfirmation.h"
 #include "../Internationalization/LanguageManager.h"
@@ -169,7 +169,7 @@ void HvmMemoryDialog::buildUi()
         ks::i18n::sourceText(QStringLiteral("读取长度（字节）")), m_lengthBox);
     rootLayout->addLayout(formLayout);
 
-    m_editor = new ks::ui::MemoryEditorWidget(this);
+    m_editor = new ks::ui::SnapshotWorkbenchWidget(this);
     m_editor->setEditable(false);
     m_editor->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
     rootLayout->addWidget(m_editor, 1);
@@ -203,7 +203,7 @@ void HvmMemoryDialog::buildUi()
         this, [this](const QString&) { invalidateSnapshot(); });
     connect(m_lengthBox, &QSpinBox::valueChanged,
         this, [this](int) { invalidateSnapshot(); });
-    connect(m_editor, &ks::ui::MemoryEditorWidget::bytesChanged,
+    connect(m_editor, &ks::ui::SnapshotWorkbenchWidget::bytesChanged,
         this, [this]() { updateEnabledState(); });
     connect(m_readButton, &QPushButton::clicked,
         this, [this]() { startRead(); });

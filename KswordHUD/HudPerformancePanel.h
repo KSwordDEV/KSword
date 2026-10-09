@@ -79,6 +79,8 @@ private:
 
     struct LiveSampleResult
     {
+        qint64 sampleTimeMs = 0; // 后台采样完成时刻，UI排队延迟不能改写。
+        bool gpuMemoryOk = false; // DXGI显存查询有效性，与引擎计数器gpuOk分开。
         bool perCoreOk = false;
         std::vector<double> coreUsageList;
         double totalCpuUsage = 0.0;
@@ -254,6 +256,13 @@ private:
     int m_cpuCoreGridColumnCount = 1;
     int m_cpuCoreGridRowCount = 1;
 
+    qint64 m_metricSampleTimeMs = 0; // 本帧共同采样时间，毫秒。
+    bool m_metricDiskValid = true; // 磁盘采样有效性，失败保留断点。
+    bool m_metricNetworkValid = true; // 网络采样有效性，失败保留断点。
+    bool m_metricMemoryValid = true; // 内存查询有效位。
+    bool m_metricGpuValid = true; // GPU引擎计数器有效位。
+    bool m_gpuMetricMemoryValid = false; // 当前后台DXGI显存查询是否成功。
+    bool m_metricGpuMemoryValid = true; // 当前UI帧携带的显存有效位。
     int m_historyLength = 60;
     int m_sampleCounter = 60;
     QString m_cachedSensorText;

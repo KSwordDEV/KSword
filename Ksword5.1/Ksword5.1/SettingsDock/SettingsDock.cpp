@@ -698,10 +698,10 @@ void SettingsDock::initializeAppearanceTab()
     interactionLayout->setSpacing(8);
 
     QLabel* interactionHintLabel = new QLabel(
-        QStringLiteral("调整全局滚动，以及滚轮是否直接调整滑块。"),
+        QStringLiteral("调整全局滚动，以及滚轮是否直接调整滑块、下拉框和数值输入框。"),
         interactionGroupBox);
     interactionHintLabel->setWordWrap(true);
-    languageManager.bindText(interactionHintLabel, QStringLiteral("settings.interaction.hint"), QStringLiteral("调整全局滚动，以及滚轮是否直接调整滑块。"));
+    languageManager.bindText(interactionHintLabel, QStringLiteral("settings.interaction.hint"), QStringLiteral("调整全局滚动，以及滚轮是否直接调整滑块、下拉框和数值输入框。"));
     interactionLayout->addWidget(interactionHintLabel);
 
     QHBoxLayout* scrollBarWidthLayout = new QHBoxLayout();
@@ -738,10 +738,10 @@ void SettingsDock::initializeAppearanceTab()
         QStringLiteral("对表格、列表、文本区和滚动页的鼠标滚轮滚动使用缓动动画"));
     interactionLayout->addWidget(m_smoothScrollingCheckBox);
 
-    m_sliderWheelAdjustCheckBox = new QCheckBox(QStringLiteral("允许滚轮直接调整滑块"), interactionGroupBox);
-    languageManager.bindText(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel"), QStringLiteral("允许滚轮直接调整滑块"));
-    m_sliderWheelAdjustCheckBox->setToolTip(QStringLiteral("关闭后，鼠标滚轮经过滑块时优先滚动页面，不再误改滑块值"));
-    languageManager.bindToolTip(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel.tooltip"), QStringLiteral("关闭后，鼠标滚轮经过滑块时优先滚动页面，不再误改滑块值"));
+    m_sliderWheelAdjustCheckBox = new QCheckBox(QStringLiteral("允许滚轮直接调整滑块、下拉框和数值输入框"), interactionGroupBox);
+    languageManager.bindText(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel"), QStringLiteral("允许滚轮直接调整滑块、下拉框和数值输入框"));
+    m_sliderWheelAdjustCheckBox->setToolTip(QStringLiteral("关闭后，滚轮经过滑块、下拉框和数值输入框时只滚动页面；展开的下拉列表仍可滚动"));
+    languageManager.bindToolTip(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel.tooltip"), QStringLiteral("关闭后，滚轮经过滑块、下拉框和数值输入框时只滚动页面；展开的下拉列表仍可滚动"));
     interactionLayout->addWidget(m_sliderWheelAdjustCheckBox);
 
     appearanceRootLayout->addWidget(interactionGroupBox);

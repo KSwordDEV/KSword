@@ -11,19 +11,21 @@
 #include "../SettingsDock/AppearanceSettings.h"
 
 #include <QList>
+#include <QMetaObject>
 #include <QObject>
 #include <QPersistentModelIndex>
 #include <QPointer>
 #include <QString>
 #include <QVariant>
 #include <QtGlobal>
+#include <functional>
 
 class CodeEditorWidget;
 class QAbstractItemView;
 class QAbstractItemDelegate;
+class QAbstractItemModel;
 class QDialog;
 class QEvent;
-class QPlainTextEdit;
 class QSplitter;
 class QToolButton;
 class QTreeWidgetItem;
@@ -33,23 +35,45 @@ namespace ks::ui
 {
     class EmbeddedRowDelegate;
 
+    // 页面明确给出三个布局对象，宿主不猜测祖先、不替换业务主面板。
+    struct DetailPaneBinding
+    {
+        QSplitter* splitter = nullptr; // 页面拥有的分隔器，可在构造末尾挂载面板。
+        QWidget* mainPane = nullptr;   // 直接承载数据视图的完整主面板。
+        QWidget* detailPane = nullptr; // 直接承载原详情编辑器的完整详情槽。
+    };
+
     // DetailLayoutHost：单个页面的详情布局控制器。
     // 调用方式：页面完成表格和 CodeEditorWidget 创建后交给 DetailLayoutRegistry 注册。
     class DetailLayoutHost final : public QObject
     {
     public:
-        // 构造函数：记录视图、详情编辑器和页面宿主，并立即建立统一分隔器。
+        // 构造函数：记录视图、详情编辑器和页面宿主，在页面构造结束后延迟建立统一分隔器。
         // 入参 tableView/detailEditor/ownerWidget：数据视图、原详情控件和页面宿主。
         DetailLayoutHost(
             QAbstractItemView* tableView,
             CodeEditorWidget* detailEditor,
             QWidget* ownerWidget);
+        // 新页面使用显式布局入口；暂未加入 splitter 的面板延迟到构造结束后绑定。
+        DetailLayoutHost(
+            QAbstractItemView* tableView,
+            CodeEditorWidget* detailEditor,
+            QWidget* ownerWidget,
+            const DetailPaneBinding& binding);
         ~DetailLayoutHost() override;
 
         // setTableView / setDetailEditor：供注册表或页面在延迟创建控件后重新绑定。
         // 入参为目标控件；无业务返回值。
         void setTableView(QAbstractItemView* tableView);
         void setDetailEditor(CodeEditorWidget* detailEditor);
+        bool bindPanels(const DetailPaneBinding& binding);
+        bool bindModel(QAbstractItemModel* model);
+        bool hasExplicitBinding() const;
+        bool isBound() const;
+        // 通用表视图支持逻辑行高；普通树视图回退到可见右侧槽，不改业务模型 sizeHint。
+        bool supportsInlineDetails() const;
+        ks::settings::DetailDisplayScheme requestedScheme() const;
+        ks::settings::DetailDisplayScheme effectiveScheme() const;
 
         // applyScheme：切换当前页面布局；会清理旧模式的临时行内视图/窗口状态。
         void applyScheme(ks::settings::DetailDisplayScheme scheme);
@@ -57,7 +81,7 @@ namespace ks::ui
         // clearEmbeddedDetails：移除所有行内详情并恢复源行图标。
         void clearEmbeddedDetails();
 
-        // prepareDataRebuild：页面重建表格数据前调用；当前等价于清理行内详情。
+        // prepareDataRebuild：页面重建表格数据前调用；取消旧排队点击并清理行内详情。
         void prepareDataRebuild();
 
         // detailEditor：返回当前页面原始 CodeEditorWidget，供注册表去重。
@@ -72,7 +96,7 @@ namespace ks::ui
         struct EmbeddedEntry
         {
             QPersistentModelIndex sourceIndex;
-            QPointer<QPlainTextEdit> textEditor;
+            QPointer<CodeEditorWidget> textEditor;
             QTreeWidgetItem* treeSourceItem = nullptr;
             int originalRowHeight = -1;
             int detailHeight = 128;
@@ -87,6 +111,15 @@ namespace ks::ui
 
         // ensureManagedSplitter：复用既有分隔器或把直接布局中的表格/详情包装进新分隔器。
         void ensureManagedSplitter();
+        // 旧 registerHost 唯一允许推断父布局的兼容适配层。
+        void resolveCompatiblePanels();
+        void observeModel();
+        void disconnectViewBindings();
+        void applyRightStrategy(bool changed);
+        void applyInlineStrategy(bool changed);
+        void applyFloatingStrategy(bool changed);
+        void applyBottomStrategy(bool changed);
+        bool applyLayoutStep(std::function<void()> step);
 
         // updateBottomExpanded：更新下方详情显隐、箭头方向和默认分隔比例。
         void updateBottomExpanded(bool expanded);
@@ -98,7 +131,7 @@ namespace ks::ui
         // handleDetailChanged：同步原详情文本到当前行内视图或独立窗口。
         void handleDetailChanged(const QString& detailText);
 
-        // toggleEmbeddedDetail：为当前源行显示或移除视图层只读 QPlainTextEdit 详情。
+        // toggleEmbeddedDetail：为当前源行显示或移除统一只读报告详情。
         void toggleEmbeddedDetail(const QPersistentModelIndex& sourceIndex);
 
         // insertTableEmbeddedDetail / insertTreeEmbeddedDetail：
@@ -138,6 +171,14 @@ namespace ks::ui
         QPointer<QSplitter> m_splitter;                // m_splitter：统一承载表格和原详情区。
         QPointer<QWidget> m_tablePane;                 // m_tablePane：分隔器中承载业务表格的完整面板。
         QPointer<QWidget> m_detailPane;                // m_detailPane：分隔器中的完整详情面板。
+        QPointer<QSplitter> m_requestedSplitter;       // 显式布局构造期间的分隔器。
+        QPointer<QWidget> m_requestedMainPane;         // 显式主面板，禁止退回祖先推断。
+        QPointer<QWidget> m_requestedDetailPane;       // 显式详情槽，禁止接管整个页面。
+        QPointer<QAbstractItemModel> m_observedModel;  // 当前 signal 所属模型。
+        QList<QMetaObject::Connection> m_viewConnections; // 点击、滚动等视图连接句柄。
+        QList<QMetaObject::Connection> m_modelConnections; // 换模型时明确断开的连接句柄。
+        QMetaObject::Connection m_editorConnection;    // 原详情文本镜像连接。
+        QMetaObject::Connection m_toggleConnection;    // 箭头连接，不用动态属性去重。
         QPointer<QWidget> m_toggleBar;                  // m_toggleBar：占满页面宽度的箭头承载条，避免固定宽按钮压窄分隔器。
         QPointer<QToolButton> m_toggleButton;           // m_toggleButton：下方折叠方案的箭头按钮。
         QPointer<QDialog> m_floatingWindow;             // m_floatingWindow：当前页面唯一详情窗口。
@@ -145,9 +186,15 @@ namespace ks::ui
         QPointer<QAbstractItemDelegate> m_embeddedSourceDelegate; // m_embeddedSourceDelegate：行内展开前页面正在使用的 delegate。
         QPointer<EmbeddedRowDelegate> m_embeddedRowDelegate; // m_embeddedRowDelegate：限制展开行源单元格绘制区域的包装 delegate。
         QList<EmbeddedEntry> m_embeddedEntries;         // m_embeddedEntries：当前已展开的多行详情。
+        QList<EmbeddedEntry> m_layoutRestorations;       // 排序后再按重映射索引还原逻辑行高。
         ks::settings::DetailDisplayScheme m_scheme =
             ks::settings::DetailDisplayScheme::BottomCollapsed;
+        ks::settings::DetailDisplayScheme m_requestedScheme =
+            ks::settings::DetailDisplayScheme::BottomCollapsed; // 保留全局请求，能力回退不改设置。
+        bool m_constructing = true;                     // 构造期间只排队，避免 Show 回调销毁半构造宿主。
         bool m_bottomExpanded = false;                  // m_bottomExpanded：下方详情是否展开。
+        bool m_explicitBinding = false;                 // 是否启用页面显式布局契约。
+        quint64 m_bindingGeneration = 0;                // 取消换布局/模型前 queued 点击。
         bool m_hostUiInitializationScheduled = false;   // m_hostUiInitializationScheduled：页面构造结束后的延迟初始化是否已排队。
         bool m_indicatorBatchScheduled = false;         // m_indicatorBatchScheduled：节点图标分片任务是否已排队。
         bool m_indicatorRefreshScheduled = false;       // m_indicatorRefreshScheduled：批量数据更新后的图标刷新是否已合并。

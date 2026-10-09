@@ -1,5 +1,5 @@
 #include "KernelDisassemblyDialog.h"
-#include "MemoryEditorWidget.h"
+#include "MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "MemoryWorkbench/WorkbenchDisasmView.h"
 #include "UI_All.h"
 
@@ -723,7 +723,7 @@ namespace ks::ui
             Qt::TextSelectableByMouse);
         m_mutationStatusLabel->hide();
         layout->addWidget(m_mutationStatusLabel);
-        m_editor = new MemoryEditorWidget(this);
+        m_editor = new SnapshotWorkbenchWidget(this);
         m_editor->setEditable(false);
         layout->addWidget(m_editor, 1);
         auto* buttons = new QDialogButtonBox(
@@ -755,7 +755,7 @@ namespace ks::ui
                 ++m_snapshotRevision;
                 m_architecture = x64 ? DisassemblyArchitecture::X64 : DisassemblyArchitecture::X86;
             });
-        connect(m_editor, &MemoryEditorWidget::instructionContextMenuAboutToShow,
+        connect(m_editor, &SnapshotWorkbenchWidget::instructionContextMenuAboutToShow,
             this, [this](QMenu* menu, std::uint64_t, bool valid) {
                 const auto selection = valid ? selectedByteRange() : std::nullopt;
                 if (!selection) return;
@@ -996,7 +996,7 @@ namespace ks::ui
         const auto evidenceBase = m_baseAddress;
         const auto evidenceArchitecture = m_editor->currentArchitecture();
         const auto evidenceRevision = m_snapshotRevision;
-        auto* input = new MemoryEditorWidget(editor);
+        auto* input = new SnapshotWorkbenchWidget(editor);
         input->setSnapshot(originalBytes, address, evidenceArchitecture, address);
         input->setEditable(true);
         input->showDisassemblyAt(address);

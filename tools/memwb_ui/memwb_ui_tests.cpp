@@ -18,11 +18,10 @@
 //   memwb_ui_tests.Segmented.cpp / .CachedRange.cpp / .IconAliases.cpp  Phase 3 WP-0：分段按钮禁用段、
 //                           HexCanvas::copyCachedRange、memwb_* 图标别名（见 memwb_ui_common.h 末尾）
 //   memwb_ui_hexview.* / memwb_ui_tests.HexView*.cpp  HexView 复合控件（见 memwb_ui_hexview.h）
-//   memwb_ui_facade.h / memwb_ui_tests.Facade*.cpp    HexEditorWidget 门面（见 memwb_ui_facade.h）
+//   memwb_ui_tests.HexView.Hosts.cpp                原生缓冲宿主的窗口边界和生命周期。
 //   memwb_ui_tests.IoMapping.*  M-1：WorkbenchIoMapping 三个纯映射函数（真实端口的结果翻译）的分支覆盖
 
 #include "memwb_ui_common.h"
-#include "memwb_ui_facade.h"
 #include "memwb_ui_hexview.h"
 #include "memwb_ui_tests.IoMapping.h"
 
@@ -93,6 +92,7 @@ int main(int argc, char** argv)
         memwb_test::RunBenchmarks(benchFile);
     }
     memwb_test::RunViewTests();
+    memwb_test::RunCompareContractTests();
     memwb_test::RunEditTests();
     memwb_test::RunRenderTests(shotsDir);
     memwb_test::RunInspectorTests(shotsDir);
@@ -105,8 +105,6 @@ int main(int argc, char** argv)
     memwb_test::RunRowFitTests();
     // HexView 复合控件（工具栏 / 查找 / 跳转 / 导出 / 兼容层）：截图单独放在 shots-hexview 子目录。
     memwb_test::RunHexViewTests(QDir(shotsDir).filePath(QStringLiteral("../shots-hexview")));
-    // HexEditorWidget 门面（HexView 之上的薄转发层，保持旧控件的公开 API 与语义）：宿主使用形态回放与信号/选区语义。
-    memwb_test::RunFacadeTests();
     // M-1：WorkbenchIoMapping 三个纯映射函数的分支覆盖（见 memwb_ui_tests.IoMapping.cpp）。
     memwb_test::RunIoMappingTests();
 

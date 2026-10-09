@@ -6,10 +6,10 @@ loading a driver or performing DMA. Requires G++ or Clang++, not Qt/MSBuild.
 """
 
 from pathlib import Path
+import argparse
 import os
 import shutil
 import subprocess
-import uuid
 
 from test_memory_transfer import extract_function
 
@@ -71,12 +71,11 @@ struct QLabel { QString value; void setText(const QString& text) { value = text;
 struct QPushButton { bool enabled=false; void setEnabled(bool value) { enabled=value; } };
 struct QLineEdit { QString text() const { return QString("1000"); } };
 struct QSpinBox { int value() const { return 4; } };
-struct HexEditorWidget { std::uint64_t selectedAbsoluteAddress() const { return 0x1000; } };
 namespace ks::ui {
 enum class DisassemblyArchitecture { X86, X64 };
-struct MemoryEditorWidget {
+struct SnapshotWorkbenchWidget {
     QByteArray original, bytes;
-    std::uint64_t base=0x1000;
+    std::uint64_t base=0x1000, anchor=0x1000;
     bool editable=false;
     void setEditable(bool value) { editable=value; }
     QByteArray data() const { return bytes; }
@@ -85,8 +84,15 @@ struct MemoryEditorWidget {
     bool hasChanges() const { return original != bytes; }
     DisassemblyArchitecture currentArchitecture() const { return DisassemblyArchitecture::X64; }
     void setSnapshot(const QByteArray& value, std::uint64_t address, DisassemblyArchitecture,
-                     std::uint64_t, const QString&) { original=value; bytes=value; base=address; }
+                     std::uint64_t selected, const QString&) { original=value; bytes=value; base=address; anchor=selected; }
     void clear() { original.clear(); bytes.clear(); }
+};
+// 原生 HEX 视图读取同一个快照模型，长度/基址/插入点不会与快照缓存分叉。
+struct HexView {
+    const SnapshotWorkbenchWidget* snapshot;
+    std::uint64_t bufferSize() const { return static_cast<std::uint64_t>(snapshot->data().size()); }
+    std::uint64_t baseAddress() const { return snapshot->baseAddress(); }
+    std::uint64_t caretAddress() const { return bufferSize() == 0 ? 0 : snapshot->anchor; }
 };
 }
 struct QMessageBox {
@@ -120,7 +126,7 @@ namespace ksword::memory_backend {
 const DdmaSession& currentDdmaSession() { return fake::session; }
 std::uint64_t ddmaSessionGeneration() { return fake::generation; }
 bool isDdmaUsable(const DdmaSession& value, QString*) { return value.configured && value.scratchAcknowledged; }
-AccessOutcome readPhysical(MemoryAccessBackend, const DdmaSession&, std::uint64_t, std::uint64_t) {
+AccessOutcome readPhysical(MemoryAccessBackend, const DdmaSession&, std::uint64_t, std::uint64_t, bool) {
     ++fake::reads;
     return fake::scriptedRead ? fake::scriptedRead(fake::reads) : fake::successRead();
 }
@@ -143,10 +149,10 @@ public:
     std::uint64_t m_snapshotSessionGeneration=1, m_snapshotAddress=0x1000;
     QByteArray m_originalBytes, m_editedBytes;
     bool m_hasSnapshot=true;
-    ks::ui::MemoryEditorWidget editor;
-    ks::ui::MemoryEditorWidget* m_accessMemoryEditor=&editor;
-    HexEditorWidget hex;
-    HexEditorWidget* m_accessHexEditor=&hex;
+    ks::ui::SnapshotWorkbenchWidget editor;
+    ks::ui::SnapshotWorkbenchWidget* m_accessMemoryEditor=&editor;
+    ks::ui::HexView hex{&editor};
+    ks::ui::HexView* m_accessHexEditor=&hex;
     QLabel status;
     QLabel* m_accessStatusLabel=&status;
     QPushButton button;
@@ -224,13 +230,20 @@ int main() {
           QMessageBox::afterAnswer=[]() { QMessageBox::afterAnswer=[]() { ++fake::generation; }; };
           page.writePhysicalFromUi(); check(fake::writes==1 && fake::reads==1,
               "global session change during force confirmation must never retry"); }
-        std::cout << "DDMA editor production workflow: 13 cases passed\n";
+        { DdmaPage page; setup(page); page.editor.anchor=0x1002; page.writePhysicalFromUi();
+          check(fake::writes==1 && page.editor.anchor==0x1002,
+              "verified readback preserves the native HexView caret address"); }
+        std::cout << "DDMA editor production workflow: 14 cases passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
 '''
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, default=ROOT / ".out" / "ddma-editor-tests",
+                        help="Existing output directory; no temporary build directories are created")
+    args = parser.parse_args()
     compiler = os.environ.get("CXX") or shutil.which("g++") or shutil.which("clang++")
     if not compiler:
         raise RuntimeError("G++ or Clang++ is required")
@@ -239,10 +252,9 @@ def main():
     names += ["DdmaPage::" + name for name in (
         "resetAccessSnapshot", "refreshAccessEditorState", "readPhysicalFromUi", "writePhysicalFromUi")]
     production = "\n".join(extract_function(source, name) for name in names)
-    output_root = ROOT / ".out" / "ddma-editor-tests"
-    output_root.mkdir(parents=True, exist_ok=True)
-    path = output_root / ("workflow-" + uuid.uuid4().hex)
-    path.mkdir()
+    path = args.output.resolve()
+    if not path.is_dir():
+        raise RuntimeError("--output must point to an existing directory")
     (path / "qt_shim.h").write_text(QT, encoding="utf-8")
     for name in ("QString", "QByteArray"):
         (path / name).write_text('#include "qt_shim.h"\n', encoding="utf-8")

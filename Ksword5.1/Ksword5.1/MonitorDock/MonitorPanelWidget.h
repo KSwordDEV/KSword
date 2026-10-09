@@ -175,6 +175,10 @@ private:
     QValueAxis* m_networkAxisY = nullptr;     // m_networkAxisY：网络图 Y 轴。
 
     // 历史采样状态。
+    qint64 m_metricSampleTimeMs = 0; // 本帧共同采样时间，毫秒。
+    bool m_metricDiskValid = true; // 磁盘采样有效性，失败保留断点。
+    bool m_metricNetworkValid = true; // 网络采样有效性，失败保留断点。
+    bool m_metricMemoryValid = true; // 内存组成查询有效位。
     int m_historyLength = 60;        // m_historyLength：折线图保留点数。
     int m_sampleCounter = 0;         // m_sampleCounter：当前采样序号。
     QString m_lastCompactSummaryText; // m_lastCompactSummaryText：最近一次采样摘要文本。

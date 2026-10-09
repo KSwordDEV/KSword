@@ -1,4 +1,4 @@
-#include "KernelVbsPostureTab.h"
+﻿#include "KernelVbsPostureTab.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -18,8 +18,7 @@
 #include <QStringList>
 #include <QTableWidget>
 #include <QTableWidgetItem>
-#include <QPlainTextEdit>
-#include "../UI/CodeTextEdit.h"
+#include "../UI/CodeEditorWidget.h"
 #include <QVBoxLayout>
 
 #include <thread>
@@ -144,8 +143,7 @@ void KernelVbsPostureTab::initializeUi()
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setStretchLastSection(true);
 
-    m_detailEdit = new CodeTextEdit(splitter);
-    static_cast<CodeTextEdit*>(m_detailEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    m_detailEdit = new CodeEditorWidget(splitter);
     m_detailEdit->setReadOnly(true);
     m_detailEdit->setPlaceholderText(
         kernelText(
@@ -204,7 +202,7 @@ void KernelVbsPostureTab::applySnapshot(Snapshot snapshot)
     if (!snapshot.security.io.ok)
     {
         m_table->setRowCount(0);
-        m_detailEdit->clear();
+        m_detailEdit->setReportText(QString());
         m_downgradeLabel->clear();
         const QString failureText = snapshot.security.unsupported
             ? kernelText(
@@ -225,7 +223,7 @@ void KernelVbsPostureTab::applySnapshot(Snapshot snapshot)
     const QList<PostureRow> rows = buildRows(snapshot);
     populateTable(rows);
     applyVerdictBanner(snapshot, rows);
-    m_detailEdit->setPlainText(buildDetail(snapshot));
+    m_detailEdit->setReportText(buildDetail(snapshot));
     m_statusLabel->setText(
         snapshot.security.response.queryStatus < 0
             ? kernelText(

@@ -46,11 +46,11 @@ namespace ks::ui
         return (editor_ != nullptr) ? editor_->text() : QString();
     }
 
-    // SetWrapEnabled：见文件头——CodeEditorWidget 没有公开的换行开关，这里如实
-    // 记录请求值但什么都不做，不去挖它的私有实现细节。
+    // Display policy uses the shared editor API and never rewrites diagnostics.
     void WorkbenchDiagnosticsHost::SetWrapEnabled(bool wrap)
     {
         lastWrapRequest_ = wrap;
+        if (editor_ != nullptr) editor_->setWordWrapEnabled(wrap);
     }
 
     CodeEditorWidget* WorkbenchDiagnosticsHost::editorForTest() const noexcept

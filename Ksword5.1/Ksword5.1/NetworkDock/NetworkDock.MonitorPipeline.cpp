@@ -326,6 +326,8 @@ void NetworkDock::onPacketCaptured(const ks::network::PacketRecord& packetRecord
     ProcessTraceTimelineEventPoint timelinePoint;
     timelinePoint.time100ns = timelineTime100ns;
     timelinePoint.typeText = packetTimelineTypeText(packetRecord);
+    // 协议与收发方向由后端枚举决定，展示文案只保留兼容用途。
+    timelinePoint.categoryId = ks::ui::TimelineCategoryForPacket(packetRecord.protocol, packetRecord.direction);
     m_packetTimelineEventPoints.push_back(std::move(timelinePoint));
     addPacketTimelineRateSample(packetRecord, timelineTime100ns);
     processNidsPacket(packetRecord);

@@ -88,6 +88,8 @@ bool sameOperations(const RegistryDocument& a, const RegistryDocument& b)
 class MockRegistry final : public RegistryApplyBackend
 {
 public:
+    // 该单线程内存夹具没有外部写者，树比较与删除作为一次原子后端调用执行。
+    bool supportsAtomicTreeDeletion() const override { return true; }
     RegistryDocument data;
     int writes = 0;
     int failWrite = -1;
@@ -216,26 +218,29 @@ public:
             return false;
         if (addUnexpectedChildOnDelete)
             data.keys.append({path + QStringLiteral("\\UnexpectedAfterVerify"), false, {}});
+        // 删除在独立内存快照上暂存，后续冲突时保留外部新增项并回滚全部本次删除。
+        RegistryDocument staged = data;
         QVector<QString> paths;
         for (const auto& key : expectedTree.keys)
             paths.append(key.path);
         std::sort(paths.begin(), paths.end(), [](const QString& a, const QString& b) { return a.size() > b.size(); });
         for (const auto& authorized : paths) {
-            for (const auto& key : data.keys) {
+            for (const auto& key : staged.keys) {
                 if (key.path.compare(authorized, Qt::CaseInsensitive) != 0 && insidePath(key.path, authorized)) {
                     error = QStringLiteral("Mock newly added child prevents parent deletion.");
                     return false;
                 }
             }
-            for (qsizetype i = data.keys.size(); i > 0; --i) {
-                if (data.keys.at(i - 1).path.compare(authorized, Qt::CaseInsensitive) == 0)
-                    data.keys.removeAt(i - 1);
+            for (qsizetype i = staged.keys.size(); i > 0; --i) {
+                if (staged.keys.at(i - 1).path.compare(authorized, Qt::CaseInsensitive) == 0)
+                    staged.keys.removeAt(i - 1);
             }
-            for (qsizetype i = data.values.size(); i > 0; --i) {
-                if (data.values.at(i - 1).keyPath.compare(authorized, Qt::CaseInsensitive) == 0)
-                    data.values.removeAt(i - 1);
+            for (qsizetype i = staged.values.size(); i > 0; --i) {
+                if (staged.values.at(i - 1).keyPath.compare(authorized, Qt::CaseInsensitive) == 0)
+                    staged.values.removeAt(i - 1);
             }
         }
+        data = std::move(staged); // 所有条件复核都通过时才一次发布原子删除结果。
         return true;
     }
 };
@@ -425,10 +430,13 @@ void applyRegressions(const QString& journal)
     backend = initial();
     require(RegistryDocumentApplyService::prepareWithBackend(deleteRoot, backend, plan, error), "fixed scope delete prepare");
     backend.addUnexpectedChildOnDelete = true;
+    RegistryDocument afterConflict = backend.data; // 外部新增项保留，但授权原键和值不得因失败而部分删除。
+    afterConflict.keys.append({root + QStringLiteral("\\UnexpectedAfterVerify"), false, {}});
     require(!RegistryDocumentApplyService::applyWithBackend(plan, backend, result), "new child after final comparison stops fixed-list deletion");
     backend.keyExists(root + QStringLiteral("\\UnexpectedAfterVerify"), present, error);
     require(present && result.receipts.first().state == RegistryApplyReceipt::State::Failed && !result.canUndo,
         "newly introduced child is never added to the authorized deletion list");
+    require(sameOperations(backend.data, afterConflict), "atomic mock tree conflict rolls back every staged deletion");
     backend = initial();
     backend.data.values.append({root, QStringLiteral("SymbolicLinkValue"), 6, QByteArray::fromHex("41000000"), false});
     require(!RegistryDocumentApplyService::prepareWithBackend(deleteRoot, backend, plan, error)

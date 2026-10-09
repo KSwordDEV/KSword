@@ -38,7 +38,7 @@ def main() -> None:
     files += [source / name for name in ('Internationalization/LanguageManager.cpp',
         'UI/ThemeStatusRole.cpp', 'UI/ThemeControlGlyphs.cpp', 'UI/CodeEditorWidget.cpp',
         'UI/CodeTextEdit.cpp', 'UI/CodeEditorFileSession.cpp',
-        'UI/ReportStructuredView.cpp', 'ksword/process/process_run_as.cpp',
+        'UI/ReportStructuredView.cpp', 'UI/FieldTreePresenter.cpp', 'UI/FieldTreePresenter.Copy.cpp', 'ksword/process/process_run_as.cpp',
         'MiscDock/DiskEditor/StorageControllerResearchDialog.cpp',
         'ArkDriverClient/ArkStorageControllerClient.cpp')]
     generated = output / 'privilege-review-moc_CodeEditorWidget.cpp'
@@ -76,7 +76,7 @@ def main() -> None:
     headers += list((source / 'MiscDock/DiskEditor').glob('StorageControllerResearchDialog*.h'))
     headers += [root / 'tools/privilege_access_page_tests.h',
         root / 'tools/privilege_token_pages_tests.h', source / 'UI/CodeEditorWidget.h',
-        source / 'UI/CodeTextEdit.h', source / 'UI/CodeEditorFileSession.h']
+        source / 'UI/CodeTextEdit.h', source / 'UI/CodeEditorFileSession.h', source / 'UI/FieldTreePresenter.h']
     latest_header = max(header.stat().st_mtime for header in headers)
     objects = []
     for file in files:

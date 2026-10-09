@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // ============================================================
 // TamperDetectionPage.h
@@ -41,7 +41,7 @@ class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
-class QPlainTextEdit;
+class CodeEditorWidget;
 class QPushButton;
 class QSpinBox;
 class QTableWidget;
@@ -142,6 +142,6 @@ namespace ksword::memory_dock
         QLabel* m_statusLabel = nullptr;
         QLabel* m_channelHintLabel = nullptr;
         ks::ui::VisibleTableWidget* m_resultTable = nullptr;
-        QPlainTextEdit* m_detailText = nullptr;
+        CodeEditorWidget* m_detailText = nullptr;
     };
 }

@@ -188,6 +188,8 @@
     <ClCompile Include="句柄\HandleFilterConfig.cpp" />
     <ClCompile Include="句柄\HandleObjectTypeWorker.cpp" />
     <ClCompile Include="..\..\shared\ui\KsPainterChart.cpp" />
+    <ClCompile Include="..\..\shared\ui\MetricHistory.cpp" />
+    <ClCompile Include="..\..\shared\ui\MetricChartBinding.cpp" />
     <ClCompile Include="HardwareDock\HardwareDock.cpp" />
     <ClCompile Include="HardwareDock\DiskMonitorPage.cpp" />
     <ClCompile Include="HardwareDock\DiskMonitorStorageLeaseCoordinator.cpp" />
@@ -204,6 +206,7 @@
     <ClCompile Include="Framework\NotificationCardManager.cpp" />
     <ClCompile Include="Framework\DestructiveActionConfirmation.cpp" />
     <ClCompile Include="Framework\Progress.cpp" />
+    <ClCompile Include="Framework\TaskSnapshotFeed.cpp" />
     <ClCompile Include="Framework\ProgressDockWidget.cpp" />
     <ClCompile Include="Framework\CustomTitleBar.cpp" />
     <ClCompile Include="Framework\StartupSplash.cpp" />
@@ -311,9 +314,6 @@
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.BackupFile.cpp" />
     <ClCompile Include="MiscDock\ContextMenuCleaner\ContextMenuCleanerTab.Latency.cpp" />
     <ClCompile Include="MemoryDock\MemoryDock.cpp" />
-    <ClCompile Include="MemoryDock\MemoryDock.DriverMemoryRw.cpp" />
-    <ClCompile Include="MemoryDock\MemoryDock.DriverMemorySource.cpp" />
-    <ClCompile Include="MemoryDock\MemoryDock.DriverMemoryView.cpp" />
     <ClCompile Include="MemoryDock\MemoryDock.KernelExecutableMemory.cpp" />
     <ClCompile Include="MemoryDock\MemoryDock.KernelMemoryEvidence.cpp" />
     <ClCompile Include="MemoryDock\MemoryDock.ProcessMemoryEvidence.cpp" />
@@ -394,6 +394,8 @@
     <ClCompile Include="MonitorDock\ProcessTraceMonitorWidget.Export.cpp" />
     <ClCompile Include="MonitorDock\ProcessTraceMonitorWidget.Runtime.cpp" />
     <ClCompile Include="MonitorDock\ProcessTraceTimelineWidget.cpp" />
+    <ClCompile Include="MonitorDock\ProcessTraceTimelineWidget.Render.cpp" />
+    <ClCompile Include="MonitorDock\EventTimelineModel.cpp" />
     <ClCompile Include="MonitorDock\MonitorDock.ArkRiskCenter.cpp" />
     <ClCompile Include="NetworkDock\NetworkDock.cpp" />
     <ClCompile Include="NetworkDock\NetworkDock.UiBuild.cpp" />
@@ -498,14 +500,14 @@
     <ClCompile Include="UI\CodeEditorFileSession.cpp" />
     <ClCompile Include="UI\EmbeddedRowDelegate.cpp" />
     <ClCompile Include="UI\DetailLayoutHost.cpp" />
+    <ClCompile Include="UI\DetailLayoutHost.Binding.cpp" />
+    <ClCompile Include="UI\DetailLayoutHost.Compatibility.cpp" />
     <ClCompile Include="UI\DetailLayoutRegistry.cpp" />
     <ClCompile Include="UI\ReportStructuredView.cpp" />
     <ClCompile Include="UI\KernelDisassemblyDialog.cpp" />
     <ClCompile Include="UI\MemoryAssembly.cpp" />
     <ClCompile Include="UI\MemoryAssembly.Core.cpp" />
     <ClCompile Include="UI\MemoryEditHistory.Core.cpp" />
-    <ClCompile Include="UI\MemoryEditorWidget.cpp" />
-    <ClCompile Include="UI\MemoryEditorWidget.InlineAssembly.cpp" />
     <ClCompile Include="UI\GlobalDialogTheme.cpp" />
     <ClCompile Include="UI\GlobalUiBaseStyle.cpp" />
     <ClCompile Include="UI\GlobalRefreshShortcut.cpp" />
@@ -537,7 +539,6 @@
     <ClCompile Include="UI\WindowChrome.cpp" />
     <ClCompile Include="UI\RescueDesktopSession.cpp" />
     <ClCompile Include="..\..\shared\rescue\RescueDesktopWin32.cpp" />
-    <ClCompile Include="UI\HexEditorWidget.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\HexCanvas.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\HexCanvas.Edit.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\HexCanvas.Input.cpp" />
@@ -660,6 +661,10 @@
     <ClCompile Include="UI\TableHeaderSortingSupport.cpp" />
     <ClCompile Include="UI\IntegrityRiskPresentation.cpp" />
     <ClCompile Include="UI\TableInteractionSupport.cpp" />
+    <ClCompile Include="UI\ThemeBinding.cpp" />
+    <ClCompile Include="UI\ResultTableHost.cpp" />
+    <ClCompile Include="UI\UiCommitCoordinator.cpp" />
+    <ClCompile Include="UI\AsyncOperation.cpp" />
     <ClCompile Include="UI\WindowPickerButton.cpp" />
     <ClCompile Include="UI\TableSearchSupport.cpp" />
     <ClCompile Include="UI\TextSearchReplaceSupport.cpp" />
@@ -789,6 +794,7 @@
     <ClInclude Include="Framework\DestructiveActionConfirmation.h" />
     <ClInclude Include="Framework\PrivilegeElevationPrompt.h" />
     <ClInclude Include="Framework\ProgressDockWidget.h" />
+    <ClInclude Include="Framework\TaskSnapshotFeed.h" />
     <ClInclude Include="Framework\StartupSplash.h" />
     <ClInclude Include="KernelDock\KernelDockAtomWorker.h" />
     <ClInclude Include="KernelDock\KernelKnowledgeCatalog.h" />
@@ -864,6 +870,7 @@
     <ClInclude Include="ksword\string\string.h" />
     <ClInclude Include="theme.h" />
     <ClInclude Include="UI\AsyncUiDispatcher.h" />
+    <ClInclude Include="UI\AsyncOperation.h" />
     <ClInclude Include="UI\FlatTableModel.h" />
     <ClInclude Include="UI\DockTabInteraction.h" />
     <ClInclude Include="UI\FlowLayout.h" />
@@ -888,6 +895,9 @@
     <ClInclude Include="UI\TableHeaderSortingSupport.h" />
     <ClInclude Include="UI\IntegrityRiskPresentation.h" />
     <ClInclude Include="UI\TableInteractionSupport.h" />
+    <ClInclude Include="UI\ThemeBinding.h" />
+    <ClInclude Include="UI\ResultTableHost.h" />
+    <ClInclude Include="UI\UiCommitCoordinator.h" />
     <ClInclude Include="UI\TableSearchSupport.h" />
     <ClInclude Include="UI\TextSearchReplaceSupport.h" />
     <ClInclude Include="UI\TableSnapshotCompare.h" />
@@ -996,10 +1006,13 @@
     <ClInclude Include="MonitorDock\DirectKernelCallMonitorWidget.h" />
     <ClInclude Include="MonitorDock\KernelCallbackMonitorWidget.h" />
     <ClInclude Include="..\..\shared\ui\KsPainterChart.h" />
+    <ClInclude Include="..\..\shared\ui\MetricHistory.h" />
+    <ClInclude Include="..\..\shared\ui\MetricChartBinding.h" />
     <ClInclude Include="MonitorDock\MonitorPanelWidget.h" />
     <ClInclude Include="MonitorDock\MonitorTextViewer.h" />
     <ClInclude Include="MonitorDock\ProcessTraceMonitorWidget.h" />
     <ClInclude Include="MonitorDock\ProcessTraceTimelineWidget.h" />
+    <ClInclude Include="MonitorDock\EventTimelineModel.h" />
     <QtMoc Include="NetworkDock\NetworkDock.h" />
     <ClInclude Include="NetworkDock\NetworkDock.InternalCommon.h" />
     <ClInclude Include="NetworkDock\NetworkDock.InternalHelpers.h" />
@@ -1060,7 +1073,6 @@
     <ClInclude Include="UI\MemoryAssembly.h" />
     <ClInclude Include="UI\MemoryAssembly.Core.h" />
     <ClInclude Include="UI\MemoryEditHistory.Core.h" />
-    <QtMoc Include="UI\MemoryEditorWidget.h" />
     <ClInclude Include="UI\GlobalDialogTheme.h" />
     <ClInclude Include="UI\GlobalUiBaseStyle.h" />
     <ClInclude Include="UI\GlobalRefreshShortcut.h" />
@@ -1078,7 +1090,6 @@
     <ClInclude Include="UI\WindowChrome.h" />
     <ClInclude Include="UI\RescueDesktopSession.h" />
     <ClInclude Include="..\..\shared\rescue\RescueDesktopWin32.h" />
-    <QtMoc Include="UI\HexEditorWidget.h" />
     <QtMoc Include="UI\MemoryWorkbench\HexCanvas.h" />
     <ClInclude Include="UI\MemoryWorkbench\HexCanvasFormat.h" />
     <ClInclude Include="UI\MemoryWorkbench\HexExport.h" />
@@ -1522,9 +1533,6 @@
     <ClCompile Include="UI\BinaryOverviewBar.cpp">
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="UI\MemoryEditorWidget.Pseudocode.cpp">
-      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
-    </ClCompile>
     <ClCompile Include="UI\Decompiler\GhidraDecompiler.cpp">
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -1553,4 +1561,53 @@
     <MakeDir Directories="$(KswordGhidraNoticeTargetDir)" />
     <Copy SourceFiles="$(KswordGhidraNoticeSourceDir)LICENSE.txt;$(KswordGhidraNoticeSourceDir)NOTICE.md;$(KswordGhidraNoticeSourceDir)UPSTREAM-NOTICE.txt" DestinationFolder="$(KswordGhidraNoticeTargetDir)" SkipUnchangedFiles="true" />
   </Target>
+  <ItemGroup>
+    <ClCompile Include="UI\MemoryWorkbench\SnapshotWorkbenchWidget.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\SnapshotWorkbenchWidget.Editing.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\SnapshotWorkbenchWidget.Context.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\WorkbenchPseudocodeView.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\WorkbenchPseudocodeView.Ui.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.Pseudocode.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <QtMoc Include="UI\MemoryWorkbench\SnapshotWorkbenchWidget.h" />
+    <QtMoc Include="UI\MemoryWorkbench\WorkbenchPseudocodeView.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="UI\FieldTreePresenter.cpp" />
+    <ClCompile Include="UI\FieldTreePresenter.Copy.cpp" />
+    <ClCompile Include="UI\MemoryWorkbench\AssemblyPreviewDialog.cpp" />
+    <ClCompile Include="MiscDock\DiskEditor\DiskCaptureTransaction.cpp" />
+    <ClCompile Include="MiscDock\DiskEditor\DiskEditorBackend.Identity.cpp" />
+    <ClCompile Include="MiscDock\DiskEditor\DiskEditorTab.IO.cpp" />
+    <ClCompile Include="RegistryDock\RegistryDock.Mutations.cpp" />
+    <ClCompile Include="RegistryDock\RegistryDocumentApply.Access.cpp" />
+    <ClCompile Include="RegistryDock\RegistryValueTransactions.cpp" />
+    <ClCompile Include="RegistryDock\RegistryOptimizationTransactions.cpp" />
+    <ClCompile Include="PluginHost.Archive.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="UI\FieldTreePresenter.h" />
+    <ClInclude Include="UI\MemoryWorkbench\AssemblyPreviewDialog.h" />
+    <ClInclude Include="MiscDock\DiskEditor\DiskCaptureTransaction.h" />
+    <ClInclude Include="MiscDock\DiskEditor\DiskEditorFormat.h" />
+    <ClInclude Include="RegistryDock\RegistryAccessApplyBackend.h" />
+    <ClInclude Include="RegistryDock\RegistryValueTransactions.h" />
+    <ClInclude Include="RegistryDock\RegistryOptimizationTransactions.h" />
+    <ClInclude Include="PluginHost.Archive.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="ArkDriverClient\ArkDriverStorageCapturedRead.cpp" />
+    <ClCompile Include="ArkDriverClient\ArkDriverStorageCapturedWrite.cpp" />
+  </ItemGroup>
 </Project>

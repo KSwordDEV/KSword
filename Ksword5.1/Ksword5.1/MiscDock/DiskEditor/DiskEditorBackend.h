@@ -19,6 +19,7 @@
 
 namespace ks::misc
 {
+    struct DiskCapturedRange;
     // DiskEditorBackend 说明：
     // - 输入：物理磁盘路径、偏移、长度和字节缓冲；
     // - 处理逻辑：使用 Win32 API 读取布局与指定范围；
@@ -26,6 +27,16 @@ namespace ks::misc
     class DiskEditorBackend final
     {
     public:
+        // queryCaptureIdentity：冻结路径必须仍对应系统设备 GUID；缺失身份不能写回旧缓存。
+        static bool queryCaptureIdentity(const DiskDeviceInfo& source, QString& identity, QString& error);
+        // 捕获写回使用 V2 驱动请求：在实际打开的同一设备实例验证 GUID 与原字节。
+        // 旧驱动或后端不支持时拒绝，绝不回退到按磁盘号直接写入的 V1 请求。
+        static bool writeCapturedBytesWithBackend(const DiskCapturedRange& captured,
+            const QByteArray& replacement, unsigned long callerFlags, QString& error);
+        // 捕获读取在实际设备实例验证同一 GUID；unsupported 只供显式只读兼容决策。
+        static bool readCapturedBytesWithBackend(const DiskCapturedRange& captured,
+            std::uint32_t length, QByteArray& bytes, bool& unsupported, QString& error);
+
         // enumerateDisks：
         // - 枚举 PhysicalDrive0..N 并补充分区布局；
         // - disksOut 接收磁盘快照；

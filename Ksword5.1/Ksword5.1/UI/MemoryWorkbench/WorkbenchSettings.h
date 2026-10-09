@@ -57,7 +57,7 @@ namespace ks::ui::workbench_settings
     int LoadSidebarWidth();
     void SaveSidebarWidth(int width);
 
-    // LoadSubTab / SaveSubTab："subTab" 键（十六进制/反汇编/文本/对比，0-3），默认 0。
+    // LoadSubTab / SaveSubTab："subTab" 键（十六进制/反汇编/文本/对比/C 伪代码，0-4），默认 0。
     int LoadSubTab();
     void SaveSubTab(int subTab);
 
@@ -112,19 +112,4 @@ namespace ks::ui::workbench_settings
     int LoadTextEncoding();
     void SaveTextEncoding(int encoding);
 
-    // —— S10（规格遗漏补齐，target.md §5）——
-    // LoadEnabled / SaveEnabled："enabled" 键，工作台整体开关，默认 true。
-    bool LoadEnabled();
-    void SaveEnabled(bool enabled);
-
-    // LoadRouteJumps / SaveRouteJumps："routeJumps" 键，默认 true——3b 入口切换：
-    // 模块表/区域表/搜索结果等旧入口的跳转默认交给工作台；用户在"内存扫描设置"里
-    // 取消勾选即可回退到旧内存查看器（无需发版）。
-    bool LoadRouteJumps();
-    void SaveRouteJumps(bool routeJumps);
-
-    // LoadShowLegacyTabs / SaveShowLegacyTabs："showLegacyTabs" 键，默认 true——
-    // 迁移期间旧页签仍显示，等各功能对齐后再由装配层改默认值。
-    bool LoadShowLegacyTabs();
-    void SaveShowLegacyTabs(bool show);
 }

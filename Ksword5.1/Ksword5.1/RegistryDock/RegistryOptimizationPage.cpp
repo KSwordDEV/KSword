@@ -1,4 +1,5 @@
-#include "RegistryOptimizationPage.h"
+﻿#include "RegistryOptimizationPage.h"
+#include "RegistryOptimizationTransactions.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/CodeEditorWidget.h"
@@ -177,17 +178,6 @@ namespace
         return scopeText.isEmpty() ? QStringLiteral("未指定") : scopeText;
     }
 
-    // trimDefaultValueName:
-    // - Input valueName: UI/JSON value name;
-    // - Processing: maps empty and "(默认)" to WinAPI default-value nullptr;
-    // - Return: normalized registry value name.
-    QString trimDefaultValueName(const QString& valueName)
-    {
-        const QString trimmed = valueName.trimmed();
-        if (trimmed.isEmpty() || trimmed == QStringLiteral("(默认)")) return QString();
-        return trimmed;
-    }
-
     // winErrorText:
     // - Input errorCode: Win32 LSTATUS/GetLastError value;
     // - Processing: formats system error text through FormatMessageW;
@@ -211,51 +201,6 @@ namespace
         }
         if (buffer != nullptr) ::LocalFree(buffer);
         return text;
-    }
-
-    // parseRegistryPath:
-    // - Input pathText: HKEY_* or HK* registry path;
-    // - Processing: normalizes separators and resolves the root HKEY;
-    // - Return: true with root/subpath on valid input, false otherwise.
-    bool parseRegistryPath(const QString& pathText, HKEY* rootKeyOut, QString* subPathOut)
-    {
-        if (rootKeyOut == nullptr || subPathOut == nullptr) return false;
-
-        QString text = pathText.trimmed();
-        text.replace('/', '\\');
-        while (text.contains(QStringLiteral("\\\\"))) text.replace(QStringLiteral("\\\\"), QStringLiteral("\\"));
-        if (text.endsWith('\\')) text.chop(1);
-        if (text.isEmpty()) return false;
-
-        const int splitIndex = text.indexOf('\\');
-        const QString rootText = splitIndex < 0 ? text : text.left(splitIndex);
-        const QString subPath = splitIndex < 0 ? QString() : text.mid(splitIndex + 1);
-
-        struct RootName
-        {
-            const wchar_t* fullName;
-            const wchar_t* shortName;
-            HKEY root;
-        };
-        static const std::array<RootName, 5> kRootNames{ {
-            { L"HKEY_CLASSES_ROOT", L"HKCR", HKEY_CLASSES_ROOT },
-            { L"HKEY_CURRENT_USER", L"HKCU", HKEY_CURRENT_USER },
-            { L"HKEY_LOCAL_MACHINE", L"HKLM", HKEY_LOCAL_MACHINE },
-            { L"HKEY_USERS", L"HKU", HKEY_USERS },
-            { L"HKEY_CURRENT_CONFIG", L"HKCC", HKEY_CURRENT_CONFIG },
-        } };
-
-        for (const RootName& entry : kRootNames)
-        {
-            if (rootText.compare(QString::fromWCharArray(entry.fullName), Qt::CaseInsensitive) == 0 ||
-                rootText.compare(QString::fromWCharArray(entry.shortName), Qt::CaseInsensitive) == 0)
-            {
-                *rootKeyOut = entry.root;
-                *subPathOut = subPath;
-                return true;
-            }
-        }
-        return false;
     }
 
     // actionRegistryViewFlags:
@@ -552,185 +497,17 @@ namespace
     // - Input keyPath/valueName/accessFlags: registry key, value, and view flags;
     // - Processing: opens the key and queries the raw value;
     // - Return: true with type/data when the value exists and can be read.
-    bool readRegistryValue(
-        const QString& keyPath,
-        const QString& valueName,
-        const REGSAM accessFlags,
-        DWORD* typeOut,
-        QByteArray* dataOut,
-        QString* errorTextOut)
+    bool readRegistryValue(const QString& keyPath, const QString& valueName,
+        const REGSAM accessFlags, DWORD* typeOut, QByteArray* dataOut, QString* errorTextOut)
     {
-        if (typeOut == nullptr || dataOut == nullptr) return false;
-        if (errorTextOut != nullptr) errorTextOut->clear();
-
-        HKEY root = nullptr;
-        QString subPath;
-        if (!parseRegistryPath(keyPath, &root, &subPath))
-        {
-            if (errorTextOut != nullptr) *errorTextOut = QStringLiteral("注册表路径无效：%1").arg(keyPath);
-            return false;
-        }
-
-        HKEY key = nullptr;
-        const LONG openResult = ::RegOpenKeyExW(
-            root,
-            subPath.isEmpty() ? nullptr : reinterpret_cast<const wchar_t*>(subPath.utf16()),
-            0,
-            KEY_QUERY_VALUE | accessFlags,
-            &key);
-        if (openResult != ERROR_SUCCESS)
-        {
-            if (errorTextOut != nullptr) *errorTextOut = winErrorText(openResult);
-            return false;
-        }
-
-        const QString realValueName = trimDefaultValueName(valueName);
-        const wchar_t* valueNamePtr = realValueName.isEmpty() ? nullptr : reinterpret_cast<const wchar_t*>(realValueName.utf16());
-        DWORD type = REG_NONE;
-        DWORD dataBytes = 0;
-        LONG queryResult = ::RegQueryValueExW(key, valueNamePtr, nullptr, &type, nullptr, &dataBytes);
-        if (queryResult != ERROR_SUCCESS)
-        {
-            ::RegCloseKey(key);
-            if (errorTextOut != nullptr) *errorTextOut = winErrorText(queryResult);
-            return false;
-        }
-
-        QByteArray rawData(static_cast<int>(dataBytes), 0);
-        queryResult = ::RegQueryValueExW(
-            key,
-            valueNamePtr,
-            nullptr,
-            &type,
-            reinterpret_cast<LPBYTE>(rawData.data()),
-            &dataBytes);
-        ::RegCloseKey(key);
-        if (queryResult != ERROR_SUCCESS)
-        {
-            if (errorTextOut != nullptr) *errorTextOut = winErrorText(queryResult);
-            return false;
-        }
-
-        rawData.resize(static_cast<int>(dataBytes));
-        *typeOut = type;
-        *dataOut = rawData;
-        return true;
-    }
-
-    // writeRegistryValue:
-    // - Input key/value/type/data/accessFlags: target registry value and raw bytes;
-    // - Processing: creates the key if needed, then writes value data;
-    // - Return: true when RegSetValueExW succeeds.
-    bool writeRegistryValue(
-        const QString& keyPath,
-        const QString& valueName,
-        const DWORD type,
-        const QByteArray& rawData,
-        const REGSAM accessFlags,
-        QString* errorTextOut)
-    {
-        if (errorTextOut != nullptr) errorTextOut->clear();
-        HKEY root = nullptr;
-        QString subPath;
-        if (!parseRegistryPath(keyPath, &root, &subPath))
-        {
-            if (errorTextOut != nullptr) *errorTextOut = QStringLiteral("注册表路径无效：%1").arg(keyPath);
-            return false;
-        }
-
-        HKEY key = nullptr;
-        const LONG createResult = ::RegCreateKeyExW(
-            root,
-            subPath.isEmpty() ? L"" : reinterpret_cast<const wchar_t*>(subPath.utf16()),
-            0,
-            nullptr,
-            REG_OPTION_NON_VOLATILE,
-            KEY_SET_VALUE | KEY_CREATE_SUB_KEY | accessFlags,
-            nullptr,
-            &key,
-            nullptr);
-        if (createResult != ERROR_SUCCESS)
-        {
-            if (errorTextOut != nullptr) *errorTextOut = winErrorText(createResult);
-            return false;
-        }
-
-        const QString realValueName = trimDefaultValueName(valueName);
-        const wchar_t* valueNamePtr = realValueName.isEmpty() ? nullptr : reinterpret_cast<const wchar_t*>(realValueName.utf16());
-        const LONG setResult = ::RegSetValueExW(
-            key,
-            valueNamePtr,
-            0,
-            type,
-            reinterpret_cast<const BYTE*>(rawData.constData()),
-            static_cast<DWORD>(rawData.size()));
-        ::RegCloseKey(key);
-        if (setResult != ERROR_SUCCESS)
-        {
-            if (errorTextOut != nullptr) *errorTextOut = winErrorText(setResult);
-            return false;
-        }
-        return true;
-    }
-
-    // deleteRegistryValueOrKey:
-    // - Input keyPath/valueName/accessFlags: target key or value;
-    // - Processing: deletes a value when valueName is present, otherwise deletes the key tree;
-    // - Return: true when the delete operation succeeds.
-    bool deleteRegistryValueOrKey(
-        const QString& keyPath,
-        const QString& valueName,
-        const bool hasValueName,
-        const REGSAM accessFlags,
-        QString* errorTextOut)
-    {
-        if (errorTextOut != nullptr) errorTextOut->clear();
-        HKEY root = nullptr;
-        QString subPath;
-        if (!parseRegistryPath(keyPath, &root, &subPath))
-        {
-            if (errorTextOut != nullptr) *errorTextOut = QStringLiteral("注册表路径无效：%1").arg(keyPath);
-            return false;
-        }
-
-        if (hasValueName)
-        {
-            HKEY key = nullptr;
-            const LONG openResult = ::RegOpenKeyExW(
-                root,
-                subPath.isEmpty() ? nullptr : reinterpret_cast<const wchar_t*>(subPath.utf16()),
-                0,
-                KEY_SET_VALUE | accessFlags,
-                &key);
-            if (openResult != ERROR_SUCCESS)
-            {
-                if (errorTextOut != nullptr) *errorTextOut = winErrorText(openResult);
-                return false;
-            }
-            const QString realValueName = trimDefaultValueName(valueName);
-            const wchar_t* valueNamePtr = realValueName.isEmpty() ? nullptr : reinterpret_cast<const wchar_t*>(realValueName.utf16());
-            const LONG deleteResult = ::RegDeleteValueW(key, valueNamePtr);
-            ::RegCloseKey(key);
-            if (deleteResult != ERROR_SUCCESS)
-            {
-                if (errorTextOut != nullptr) *errorTextOut = winErrorText(deleteResult);
-                return false;
-            }
-            return true;
-        }
-
-        if (subPath.isEmpty())
-        {
-            if (errorTextOut != nullptr) *errorTextOut = QStringLiteral("拒绝删除注册表根键。");
-            return false;
-        }
-
-        const LONG deleteResult = ::RegDeleteTreeW(root, reinterpret_cast<const wchar_t*>(subPath.utf16()));
-        if (deleteResult != ERROR_SUCCESS)
-        {
-            if (errorTextOut != nullptr) *errorTextOut = winErrorText(deleteResult);
-            return false;
-        }
+        if (!typeOut || !dataOut) return false;
+        const RegistryAccessContext context{(accessFlags & KEY_WOW64_32KEY) ? 32
+            : (accessFlags & KEY_WOW64_64KEY) ? 64 : 0, false}; // 配置明确 Win32 视图。
+        RegistryValueState value; // 直接读取共享访问层，不裁剪值名或原始字节。
+        if (!RegistryWorkbenchAccess::read(keyPath, valueName, context, &value, errorTextOut)
+            || !value.exists || !value.complete) return false;
+        *typeOut = value.type;
+        *dataOut = value.data;
         return true;
     }
 
@@ -807,91 +584,6 @@ namespace
         return candidates;
     }
 
-    // splitRegistryParent:
-    // - Input keyPath: normalized HKEY path;
-    // - Processing: separates parent key and leaf key name;
-    // - Return: true when keyPath has a parent segment.
-    bool splitRegistryParent(const QString& keyPath, QString* parentPathOut, QString* leafNameOut)
-    {
-        if (parentPathOut == nullptr || leafNameOut == nullptr) return false;
-        QString normalized = keyPath.trimmed();
-        normalized.replace('/', '\\');
-        if (normalized.endsWith('\\')) normalized.chop(1);
-        const int splitIndex = normalized.lastIndexOf('\\');
-        if (splitIndex <= 0) return false;
-        *parentPathOut = normalized.left(splitIndex);
-        *leafNameOut = normalized.mid(splitIndex + 1);
-        return !parentPathOut->isEmpty() && !leafNameOut->isEmpty();
-    }
-
-    // renameRegistryKeySameParent:
-    // - Input oldKeyPath/newKeyPath/accessFlags: source and target key path;
-    // - Processing: calls RegRenameKey when both keys share the same parent;
-    // - Return: true on successful key rename.
-    bool renameRegistryKeySameParent(
-        const QString& oldKeyPath,
-        const QString& newKeyPath,
-        const REGSAM accessFlags,
-        QString* errorTextOut)
-    {
-        QString oldParent;
-        QString oldLeaf;
-        QString newParent;
-        QString newLeaf;
-        if (!splitRegistryParent(oldKeyPath, &oldParent, &oldLeaf) ||
-            !splitRegistryParent(newKeyPath, &newParent, &newLeaf) ||
-            oldParent.compare(newParent, Qt::CaseInsensitive) != 0)
-        {
-            if (errorTextOut != nullptr) *errorTextOut = QStringLiteral("仅支持同父注册表键重命名：%1 -> %2").arg(oldKeyPath, newKeyPath);
-            return false;
-        }
-
-        HKEY parentRoot = nullptr;
-        QString parentSubPath;
-        if (!parseRegistryPath(oldParent, &parentRoot, &parentSubPath))
-        {
-            if (errorTextOut != nullptr) *errorTextOut = QStringLiteral("父注册表路径无效：%1").arg(oldParent);
-            return false;
-        }
-
-        HKEY parentKey = nullptr;
-        const LONG openResult = ::RegOpenKeyExW(
-            parentRoot,
-            parentSubPath.isEmpty() ? nullptr : reinterpret_cast<const wchar_t*>(parentSubPath.utf16()),
-            0,
-            KEY_WRITE | accessFlags,
-            &parentKey);
-        if (openResult != ERROR_SUCCESS)
-        {
-            if (errorTextOut != nullptr) *errorTextOut = winErrorText(openResult);
-            return false;
-        }
-
-        using RegRenameKeyFunc = LSTATUS(WINAPI*)(HKEY, LPCWSTR, LPCWSTR);
-        const HMODULE advapiModule = ::GetModuleHandleW(L"Advapi32.dll");
-        const auto renameKey = advapiModule != nullptr
-            ? reinterpret_cast<RegRenameKeyFunc>(::GetProcAddress(advapiModule, "RegRenameKey"))
-            : nullptr;
-        if (renameKey == nullptr)
-        {
-            ::RegCloseKey(parentKey);
-            if (errorTextOut != nullptr) *errorTextOut = QStringLiteral("当前系统不支持 RegRenameKey。");
-            return false;
-        }
-
-        const LONG renameResult = renameKey(
-            parentKey,
-            reinterpret_cast<const wchar_t*>(oldLeaf.utf16()),
-            reinterpret_cast<const wchar_t*>(newLeaf.utf16()));
-        ::RegCloseKey(parentKey);
-        if (renameResult != ERROR_SUCCESS)
-        {
-            if (errorTextOut != nullptr) *errorTextOut = winErrorText(renameResult);
-            return false;
-        }
-        return true;
-    }
-
     // parseFunctionParameters:
     // - Input text: semicolon-delimited Dism++ function argument body;
     // - Processing: splits Key=Value pairs and keeps case-insensitive keys in lower case;
@@ -943,10 +635,6 @@ namespace
         const QString valueName = parameters.value(QStringLiteral("value"));
         if (keyPath.isEmpty()) return false;
 
-        HKEY root = nullptr;
-        QString subPath;
-        if (!parseRegistryPath(keyPath, &root, &subPath)) return false;
-
         const REGSAM viewFlags =
             parameters.value(QStringLiteral("wow64")).compare(QStringLiteral("True"), Qt::CaseInsensitive) == 0
             ? KEY_WOW64_32KEY
@@ -954,15 +642,9 @@ namespace
 
         if (!parameters.contains(QStringLiteral("value")))
         {
-            HKEY key = nullptr;
-            const LONG openResult = ::RegOpenKeyExW(
-                root,
-                subPath.isEmpty() ? nullptr : reinterpret_cast<const wchar_t*>(subPath.utf16()),
-                0,
-                KEY_QUERY_VALUE | viewFlags,
-                &key);
-            if (openResult == ERROR_SUCCESS) ::RegCloseKey(key);
-            return openResult == ERROR_SUCCESS;
+            const RegistryAccessContext context{viewFlags == KEY_WOW64_32KEY ? 32 : 0, false};
+            bool exists = false; // 条件检查不将访问失败当作存在。
+            return RegistryWorkbenchAccess::keyExists(keyPath, context, &exists, nullptr) && exists;
         }
 
         DWORD actualType = REG_NONE;
@@ -2448,6 +2130,10 @@ bool RegistryOptimizationPage::executeRegistryWriteAction(const QJsonObject& act
     QString dataText = jsonString(actionObject, QStringLiteral("Data"));
     const QString operatorText = jsonString(actionObject, QStringLiteral("Operator"));
     const REGSAM viewFlags = actionRegistryViewFlags(actionObject);
+    const RegistryAccessContext context{viewFlags == KEY_WOW64_32KEY ? 32 : 0, false}; // 固定配置来源。
+    RegistryValueState original; // 模态/运算前的完整原始值，用于提交前冲突检查。
+    if (!RegistryWorkbenchAccess::read(keyPath, valueName, context, &original, errorTextOut)
+        || !original.complete) return false;
 
     if (keyPath.isEmpty())
     {
@@ -2487,9 +2173,12 @@ bool RegistryOptimizationPage::executeRegistryWriteAction(const QJsonObject& act
 
     if (!operatorText.isEmpty())
     {
-        DWORD currentType = valueType;
-        QByteArray currentData;
-        readRegistryValue(keyPath, valueName, viewFlags, &currentType, &currentData, nullptr);
+        if (original.exists && original.type != valueType)
+        {
+            if (errorTextOut) *errorTextOut = QStringLiteral("Registry optimization operator requires the original value type to match.");
+            return false;
+        }
+        QByteArray currentData = original.exists ? original.data : QByteArray(); // 缺失值才采用配置的零初值。
         if (valueType == REG_DWORD)
         {
             const quint64 currentValue = currentData.size() >= 4 ? readUnsignedLittleEndian(currentData, 4) : 0;
@@ -2533,7 +2222,7 @@ bool RegistryOptimizationPage::executeRegistryWriteAction(const QJsonObject& act
         }
     }
 
-    return writeRegistryValue(keyPath, valueName, valueType, newData, viewFlags, errorTextOut);
+    return ks::registry::optimization::write(keyPath, valueName, valueType, newData, original, context, errorTextOut);
 }
 
 bool RegistryOptimizationPage::executeRegistryDeleteAction(const QJsonObject& actionObject, QString* errorTextOut)
@@ -2546,7 +2235,8 @@ bool RegistryOptimizationPage::executeRegistryDeleteAction(const QJsonObject& ac
         return false;
     }
     const bool hasValueName = actionObject.contains(QStringLiteral("Value"));
-    return deleteRegistryValueOrKey(keyPath, valueName, hasValueName, actionRegistryViewFlags(actionObject), errorTextOut);
+    const RegistryAccessContext context{actionRegistryViewFlags(actionObject) == KEY_WOW64_32KEY ? 32 : 0, false};
+    return ks::registry::optimization::remove(keyPath, valueName, hasValueName, context, errorTextOut);
 }
 
 bool RegistryOptimizationPage::executeRegistryMoveAction(const QJsonObject& actionObject, QString* errorTextOut)
@@ -2557,22 +2247,11 @@ bool RegistryOptimizationPage::executeRegistryMoveAction(const QJsonObject& acti
     const QString newValueName = jsonString(actionObject, QStringLiteral("NewValue"));
     const REGSAM viewFlags = actionRegistryViewFlags(actionObject);
 
-    if (!valueName.isEmpty() || !newValueName.isEmpty())
-    {
-        DWORD type = REG_NONE;
-        QByteArray data;
-        if (!readRegistryValue(keyPath, valueName, viewFlags, &type, &data, errorTextOut)) return false;
-        const QString targetKey = newKeyPath.isEmpty() ? keyPath : newKeyPath;
-        if (!writeRegistryValue(targetKey, newValueName, type, data, viewFlags, errorTextOut)) return false;
-        return deleteRegistryValueOrKey(keyPath, valueName, true, viewFlags, errorTextOut);
-    }
+    const RegistryAccessContext context{viewFlags == KEY_WOW64_32KEY ? 32 : 0, false}; // 配置的准确来源。
+    const bool isValue = actionObject.contains(QStringLiteral("Value")) || actionObject.contains(QStringLiteral("NewValue"));
+    const QString target = newKeyPath.isEmpty() && isValue ? keyPath : newKeyPath;
+    return ks::registry::optimization::move(keyPath, valueName, target, newValueName, isValue, context, errorTextOut);
 
-    if (keyPath.isEmpty() || newKeyPath.isEmpty())
-    {
-        if (errorTextOut != nullptr) *errorTextOut = QStringLiteral("RegMove 缺少 Key 或 NewKey。");
-        return false;
-    }
-    return renameRegistryKeySameParent(keyPath, newKeyPath, viewFlags, errorTextOut);
 }
 
 bool RegistryOptimizationPage::executeServiceStartAction(const QJsonObject& actionObject, QString* errorTextOut)

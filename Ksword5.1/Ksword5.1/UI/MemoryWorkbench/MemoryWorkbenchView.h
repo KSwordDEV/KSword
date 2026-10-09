@@ -99,6 +99,7 @@ namespace ks::ui
     class WorkbenchSessionBar;
     class WorkbenchStatusBar;
     class WorkbenchTextView;
+    class WorkbenchPseudocodeView;
     class WorkbenchWriteController;
 
     // AttachedProcessDisplayInfo：实现期发现的接口缺口（本任务书未点名，按§8.0同类
@@ -171,6 +172,9 @@ namespace ks::ui
         // showDisassemblyAt：在当前目标地址定位 HEX 基线，再显式显示同址反汇编。
         // 传入 address：当前目标的虚拟地址；返回正式导航结果，不创建或附加调试器。
         NavStatus showDisassemblyAt(std::uint64_t address);
+
+        // showPseudocodeAt：统一 C 页定位并显式分析当前地址，沿用当前目标身份。
+        NavStatus showPseudocodeAt(std::uint64_t address);
 
         // openAt：统一跳转入口（N1-N4），对应
         // `bool MemoryDock::navigateWorkbench(const NavRequest&)` 的真正落地实现
@@ -593,6 +597,9 @@ namespace ks::ui
         void connectRowCanvasSignals();
         void openActiveFind();
         void requestRowCanvasWindow(int tabIndex, std::uint64_t address, std::uint64_t length);
+        // 伪代码与 HEX 共用缓存与读取管线；上下文只允许本目标当前分析范围。
+        void connectPseudocodeSignals();
+        void updatePseudocodeContext(std::uint64_t address);
         // hexViewMenuButton_：子页签那一行右侧的"视图"菜单钮（自绘图标钮，徽标显示"自动"或当前行宽）。
         HexViewGlyphButton* hexViewMenuButton_ = nullptr;
 
@@ -623,15 +630,16 @@ namespace ks::ui
         // 声明位置无关。
         WorkbenchHexPane* hexPane_ = nullptr;
 
-        // ---- 三个只读子页（反汇编/文本/对比），均拥有（child widget）----
+        // ---- 四个只读子页（反汇编/文本/对比/C 伪代码），均拥有（child widget）----
         class DisasmBytesProviderAdapter;
         std::unique_ptr<DisasmBytesProviderAdapter> bytesProviderAdapter_;
         WorkbenchDisasmView* disasmView_ = nullptr;
         WorkbenchTextView* textView_ = nullptr;
         WorkbenchCompareView* compareView_ = nullptr;
+        WorkbenchPseudocodeView* pseudocodeView_ = nullptr;
 
-        // subPageFollow_：三个子页（下标 0=反汇编、1=文本、2=对比）的跟随状态，见 SubPageFollowState。
-        std::array<SubPageFollowState, 3> subPageFollow_{};
+        // subPageFollow_：四个子页（0=反汇编、1=文本、2=对比、3=C 伪代码）的跟随状态。
+        std::array<SubPageFollowState, 4> subPageFollow_{};
         // subPageFollowBusy_：跟随过程中的防重入标志（跟随时会让十六进制跳转/滚动，它们的信号不能再触发跟随）。
         bool subPageFollowBusy_ = false;
         // subPageFollowPending_：模块目录还在加载时挂起的跟随请求，等 modulesChanged/modulesFailed 再重试。
@@ -666,7 +674,7 @@ namespace ks::ui
         QSplitter* mainSplitter_ = nullptr;
         // sidebarContainer_：地址簿面板 + int3 补丁面板的垂直容器；内嵌模式下整体隐藏。
         QWidget* sidebarContainer_ = nullptr;
-        // subTabSegmented_：十六进制｜反汇编｜文本｜对比 四段分段按钮，驱动 subTabStack_。
+        // subTabSegmented_：十六进制｜反汇编｜文本｜对比｜C 伪代码，驱动共同页面栈。
         HexViewSegmented* subTabSegmented_ = nullptr;
         // backButton_ / forwardButton_：地址条 Alt+←/→ 对应的工具钮。
         QToolButton* backButton_ = nullptr;

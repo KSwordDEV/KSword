@@ -32,28 +32,11 @@
 //     —— 无成员状态；每次调用各自构造 DriverClient，不持有驱动句柄。
 //
 // ============================================================
-// 尚未编译验证清单（本工作包不构建主程序，下一步统一构建时需核对以下几点）
+// 协议与验证边界
 // ============================================================
-// 1. ksword::ark::DriverClient::readVirtualMemory / writeVirtualMemory /
-//    prepareMutation / commitMutation / rollbackMutation 的签名与默认参数——
-//    已对照 ArkDriverClient.h 第 211-222、863-870 行逐项核实（见本文件 .cpp
-//    内每个调用点旁的行号注释）。
-// 2. ksword::ark::VirtualMemoryReadResult / MutationResponseResult /
-//    MutationPrepareResult(本文件对应 MutationPrepareInput) 的字段名——
-//    已对照 ArkDriverTypes.h 第 1126-1142、2091-2126 行核实。
-// 3. ksword::memory_backend 门面的 readPhysical/writePhysical/readVirtual/
-//    writeVirtual/isDdmaUsable/currentDdmaSession 签名——已对照
-//    MemoryAccessBackend.h 全文核实；AccessOutcome 字段名已对照同文件
-//    84-100 行核实。
-// 4. ksword::memwb::IMemoryIoPort/IKernelMutationPort 的纯虚函数签名与
-//    IoReadResult/IoWriteResult/MutationPrepareResult/MutationStepResult
-//    字段名——已对照 MemoryIoPort.h 全文核实。
-// 5. KSWORD_ARK_MUTATION_STATUS_ROLLED_BACK / _ALREADY_AT_BEFORE 的回滚成功
-//    判据——已对照 MemoryDock.DriverMemoryRw.cpp 第 1686-1699 行旧编排核实
-//    （本文件 .Kernel.cpp 的 Rollback 复刻同一判据）。
-// 6. 以上各处尚未经过 g++/MSVC 实际编译器校验，首次构建主程序时若出现签名
-//    不匹配，应优先怀疑本清单遗漏的重载或默认参数，而不是改动已验证过的
-//    Qt-free 逻辑层。
+// DriverClient 与共享协议头是函数签名和状态值的唯一来源。
+// 本端口只翻译单次调用回执；事务切片、原值核对和实际恢复由逻辑层负责。
+// 当前组件验证入口见 docs/内存编辑器组件清单.md；编译不等同于真实目标写入验收。
 // ============================================================
 
 #include "MemoryAccessBackend.h"
@@ -171,7 +154,7 @@ namespace ksword::memwb_ports
     //   ksword::memwb::WriteKernelBytes 负责，本类的 Prepare 只判断 R0 是否
     //   把这一步本身的状态回报为 PREPARED。
     // - 回滚成功判据（DryRunCommit/ForceCommit 同理，只是比对各自的状态值）
-    //   复刻自旧编排 MemoryDock.DriverMemoryRw.cpp 第 1686-1699 行：
+    //   按共享协议回执判定：
     //   io.ok 且 status 为 ROLLED_BACK 或 ALREADY_AT_BEFORE 才算 Rollback
     //   成功；是否真的恢复仍由调用方（MemoryKernelMutation）用 ReadBack 复核，
     //   本类不代为判断"恢复没恢复"。

@@ -1,10 +1,11 @@
 // WorkbenchDisasmView.Edit.cpp
 // 作用：行内编辑委托（双击/F2/Enter 进入，Enter 编译提交，失败不关编辑框）与右键
-// "汇编编辑"预览对话框（内核流程参考旧 MemoryEditorWidget.cpp:821-937，本页用自己的类重写，
-// 不依赖旧控件；覆盖长度/NOP 填充/边界校验三条规则原样保留，即不变式 10）。
+// "汇编编辑"共用 AssemblyPreviewDialog 的覆盖长度、NOP 填充和边界校验，
+// 本宿主提供自己的覆盖预算与提交信号。
 // 两条路径最终都只发 stageRequested 信号，本文件不直接写任何内存。
 
 #include "WorkbenchDisasmView.h"
+#include "AssemblyPreviewDialog.h"
 #include "../CodeTextEdit.h"
 #include "MemoryRowCanvas.h"
 
@@ -36,21 +37,6 @@
 
 namespace ks::ui
 {
-    namespace
-    {
-        void sizeDialogResponsively(QDialog* dialog, const QSize& preferred, const QSize& minimum, QWidget* anchor)
-        {
-            const QScreen* screen = (anchor != nullptr && anchor->screen() != nullptr) ? anchor->screen() : QGuiApplication::primaryScreen();
-            const QRect available = screen != nullptr ? screen->availableGeometry() : QRect(0, 0, 1280, 800);
-            const QSize bounded(
-                std::min(preferred.width(), std::max(minimum.width(), available.width() - 80)),
-                std::min(preferred.height(), std::max(minimum.height(), available.height() - 80)));
-            dialog->setMinimumSize(minimum);
-            dialog->resize(bounded);
-        }
-
-    }
-
     void WorkbenchDisasmView::beginSelectedInstructionEdit() { beginRowEdit(m_canvas->selectedRow()); }
     void WorkbenchDisasmView::beginRowEdit(int index)
     {
@@ -207,6 +193,7 @@ namespace ks::ui
 
         // 拉一段足够长的窗口用于边界扫描（右键编辑很少需要覆盖超过这个范围）。
         const WorkbenchByteWindow window = m_provider->FetchWindow(address, 4096);
+        if (!window.ok || window.address != address) return;
         // 可疑点 4：防御性 min 夹取，避免 validMask 与 bytes 长度不一致时越界读。
         const std::size_t effectiveLength = std::min(window.bytes.size(), window.validMask.size());
         std::size_t validLength = 0;
@@ -220,156 +207,23 @@ namespace ks::ui
         }
         const QByteArray snapshot(reinterpret_cast<const char*>(window.bytes.data()), static_cast<qsizetype>(validLength));
 
-        // 可疑点 9：堆分配 + WA_DeleteOnClose，不再用栈上 QDialog——如果 exec() 的嵌套事件
-        // 循环期间 this（父窗口）被销毁，Qt 会先同步销毁子对象（包括这个对话框），exec()
-        // 据此退出；用 QPointer<WorkbenchDisasmView> 自guard，退出后先判空再访问 this 的
-        // 任何成员，不解引用悬空指针。
-        auto* dialog = new QDialog(this);
-        dialog->setAttribute(Qt::WA_DeleteOnClose);
-        dialog->setObjectName(QStringLiteral("ksMemwbAssemblyDialog"));
-        // 显式设置不透明背景样式：父容器若用了透明/特殊样式，弹窗默认样式可能继承出黑底黑字。
-        dialog->setStyleSheet(KswordTheme::OpaqueDialogStyle(dialog->objectName()));
-        dialog->setWindowTitle(QStringLiteral("汇编编辑"));
-        auto* layout = new QVBoxLayout(dialog);
-        auto* form = new QFormLayout;
-        form->addRow(QStringLiteral("起始地址"), new QLabel(hexcanvas_format::FormatAddress(address, 16), dialog));
-        form->addRow(QStringLiteral("指令架构"), new QLabel(x64 ? QStringLiteral("x64") : QStringLiteral("x86"), dialog));
-        auto* span = new QSpinBox(dialog);
-        span->setRange(1, static_cast<int>(std::min<qsizetype>(snapshot.size(), 256)));
-        span->setValue(static_cast<int>(std::max<qsizetype>(1, current->bytes.size())));
-        form->addRow(QStringLiteral("覆盖长度（字节）"), span);
-        auto* pad = new QCheckBox(QStringLiteral("用 NOP 填充剩余覆盖空间"), dialog);
-        pad->setChecked(true);
-        form->addRow(pad);
-        layout->addLayout(form);
-
-        auto* hint = new QLabel(QStringLiteral(
-            "每行一条 Intel 指令。数字默认十六进制，十进制用 0d 前缀；覆盖长度须包含完整指令；"
-            "编译只生成预览，确认无误后点“填入暂存”，由外层写事务统一写入。"), dialog);
-        hint->setWordWrap(true);
-        layout->addWidget(hint);
-
-        auto* source = new CodeTextEdit(dialog);
-        source->setObjectName(QStringLiteral("ksMemwbAssemblySource"));
-        source->setPlainText((current->mnemonic + QLatin1Char(' ') + current->operands).trimmed());
-        layout->addWidget(source, 1);
-
-        auto* preview = new CodeTextEdit(dialog);
-        preview->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
-        preview->setObjectName(QStringLiteral("ksMemwbAssemblyPreview"));
-        preview->setReadOnly(true);
-        preview->setFont(source->font());
-        layout->addWidget(preview, 1);
-
-        auto* status = new QLabel(dialog);
-        status->setWordWrap(true);
-        layout->addWidget(status);
-
-        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, dialog);
-        auto* compile = buttons->addButton(QStringLiteral("编译并预览"), QDialogButtonBox::ActionRole);
-        auto* stage = buttons->addButton(QStringLiteral("填入暂存"), QDialogButtonBox::AcceptRole);
-        stage->setEnabled(false);
-        layout->addWidget(buttons);
-
-        // payload 仍然是本函数的局部变量、按引用捕获进 lambda——dialog->exec() 同步阻塞，
-        // 函数返回前 payload 一直在作用域内有效；WA_DeleteOnClose 只在 exec() 返回、dialog
-        // 隐藏之后才触发 deleteLater，不会在 exec() 运行期间提前把 dialog 连带它的信号
-        // 连接一起销毁，所以这里的按引用捕获跟堆分配与否无关，仍然安全。
-        QByteArray payload;
-        const auto invalidate = [=, &payload]() {
-            payload.clear();
-            stage->setEnabled(false);
-            preview->clear();
-            status->clear();
-        };
-        connect(source, &QPlainTextEdit::textChanged, dialog, invalidate);
-        connect(span, &QSpinBox::valueChanged, dialog, invalidate);
-        connect(pad, &QCheckBox::toggled, dialog, invalidate);
-
-        connect(compile, &QPushButton::clicked, dialog, [=, &payload, this]() {
-            invalidate();
-            const WorkbenchAssembleResult result = m_assembleOne(source->toPlainText(), address, x64);
-            if (!result.success)
-            {
-                // D6：用后端给出的真实出错行号，不再恒为"第 1 行"（行内编辑路径仍然是单行
-                // 源码，不走这里，不受影响）；errorLine<=0（旧后端/夹具假后端没给）时按
-                // 第 1 行显示，不展示"第 0 行"这种没有意义的数字。
-                status->setText(QStringLiteral("第 %1 行：%2").arg(result.errorLine > 0 ? result.errorLine : 1).arg(result.error));
-                return;
-            }
-            if (result.bytes.isEmpty() || result.bytes.size() > span->value())
-            {
-                status->setText(QStringLiteral("机器码为 %1 字节，超出覆盖长度 %2；请明确扩大覆盖范围后重新预览。")
-                    .arg(result.bytes.size()).arg(span->value()));
-                return;
-            }
-            // 边界校验（不变式 10）：覆盖长度必须恰好落在完整旧指令边界上，不能截断。
-            const std::vector<std::uint8_t> boundaryBytes(
-                reinterpret_cast<const std::uint8_t*>(snapshot.constData()),
-                reinterpret_cast<const std::uint8_t*>(snapshot.constData()) + std::min<qsizetype>(snapshot.size(), span->value() + 15));
-            const QVector<DecodedRow> oldRows = DecodeWindowResynced(boundaryBytes, address, m_decodeOne, 65536, x64);
-            qsizetype boundary = 0;
-            bool boundaryOk = false;
-            for (const DecodedRow& decodedRow : oldRows)
-            {
-                if (!decodedRow.decoded)
-                {
-                    status->setText(QStringLiteral("覆盖范围包含无法解码的字节；请调整范围或使用十六进制编辑。"));
-                    return;
-                }
-                boundary += decodedRow.bytes.size();
-                if (boundary >= span->value())
-                {
-                    boundaryOk = boundary == span->value();
-                    break;
-                }
-            }
-            if (!boundaryOk)
-            {
-                status->setText(QStringLiteral("覆盖长度截断了原指令，请选择完整指令边界（下一边界为 %1 字节）。").arg(boundary));
-                return;
-            }
-            if (!pad->isChecked() && result.bytes.size() != span->value())
-            {
-                status->setText(QStringLiteral("关闭 NOP 填充时，机器码长度必须等于覆盖长度。"));
-                return;
-            }
-            payload = result.bytes;
-            payload.append(QByteArray(span->value() - payload.size(), static_cast<char>(0x90)));
-            QString text = QStringLiteral("原始：%1\n替换：%2\n")
-                .arg(hexcanvas_format::FormatHexText(snapshot.left(span->value()))).arg(hexcanvas_format::FormatHexText(payload));
-            const std::vector<std::uint8_t> payloadBytes(
-                reinterpret_cast<const std::uint8_t*>(payload.constData()),
-                reinterpret_cast<const std::uint8_t*>(payload.constData()) + payload.size());
-            const QVector<DecodedRow> newRows = DecodeWindowResynced(payloadBytes, address, m_decodeOne, 65536, x64);
-            for (const DecodedRow& decodedRow : newRows)
-            {
-                text += hexcanvas_format::FormatAddress(decodedRow.address, 16) + QStringLiteral("  ")
-                    + hexcanvas_format::FormatHexText(decodedRow.bytes) + QStringLiteral("  ")
-                    + decodedRow.mnemonic + QLatin1Char(' ') + decodedRow.operands + QLatin1Char('\n');
-            }
-            preview->setPlainText(text);
-            status->setText(QStringLiteral("预览完成：%1 字节；点“填入暂存”交给外层写事务。").arg(payload.size()));
-            stage->setEnabled(true);
-        });
-        connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
-        connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
-
-        sizeDialogResponsively(dialog, QSize(760, 620), QSize(480, 360), this);
+        // 实时宿主保留 256 字节覆盖限额和事务暂存语义，所有预览组件与边界规则共用。
+        AssemblyPreviewInput input;
+        input.address = address;
+        input.x64 = x64;
+        input.snapshot = snapshot;
+        input.initialSource = (current->mnemonic + QLatin1Char(' ') + current->operands).trimmed();
+        input.initialSpan = static_cast<int>(current->bytes.size());
+        input.maximumSpan = 256;
+        input.dialogName = QStringLiteral("ksMemwbAssemblyDialog");
+        input.sourceName = QStringLiteral("ksMemwbAssemblySource");
+        input.previewName = QStringLiteral("ksMemwbAssemblyPreview");
+        input.stageCaption = QStringLiteral("填入暂存");
+        input.hint = QStringLiteral("每行一条 Intel 指令。数字默认十六进制，十进制用 0d 前缀；覆盖长度须包含完整指令；编译只生成预览，确认无误后点“填入暂存”，由外层写事务统一写入。");
+        input.completion = QStringLiteral("预览完成：%1 字节；点“填入暂存”交给外层写事务。");
         const QPointer<WorkbenchDisasmView> self(this);
-        const QPointer<QDialog> dialogGuard(dialog);
-        const int result = dialog->exec();
-        if (dialogGuard) delete dialogGuard.data();
-        if (!self)
-        {
-            // this 已经在 exec() 期间被销毁：dialog 作为它的子对象也已经/正在被销毁，
-            // 不能再访问 m_status、不能再 emit 本对象的信号。
-            return;
-        }
-        if (result != QDialog::Accepted || payload.isEmpty())
-        {
-            return;
-        }
+        const QByteArray payload = RunAssemblyPreviewDialog(this, input, m_assembleOne, m_decodeOne);
+        if (!self || payload.isEmpty()) return;
         // exec 允许自动附加/分离、改通道与实时重读；QPointer 只能证明对象仍活着，
         // 不能证明旧预览仍属于当前目标。先检查身份/架构/权限，再复核整个覆盖范围。
         bool snapshotMatches = m_editable && m_provider != nullptr

@@ -1,4 +1,4 @@
-#include "../Internationalization/LanguageManager.h"
+﻿#include "../Internationalization/LanguageManager.h"
 #include "RegistryDock.h"
 #include "RegistryDocument.h"
 #include "RegistryDocumentApply.h"
@@ -45,9 +45,9 @@ namespace
         return QString();
     }
 
-    QString documentViewLabel(const int view)
+    QString documentViewLabel(const int view, const bool useR0 = false)
     {
-        return view == 32 ? ks::i18n::sourceText(QStringLiteral("Win32 / 32 位视图"))
+        return useR0 ? ks::i18n::sourceText(QStringLiteral("R0 / 本机视图")) : view == 32 ? ks::i18n::sourceText(QStringLiteral("Win32 / 32 位视图"))
             : view == 64 ? ks::i18n::sourceText(QStringLiteral("Win32 / 64 位视图")) : ks::i18n::sourceText(QStringLiteral("Win32 / 本机视图"));
     }
 }
@@ -108,19 +108,20 @@ void RegistryDock::exportCurrentKeyAsync()
 void RegistryDock::importRegFileAsync()
 {
     if (m_applyingChanges || !preserveEditorDraft()) return;
+    const RegistryAccessContext context = accessContext(); // 文件选择前冻结真实通道和视图。
     const QString input = QFileDialog::getOpenFileName(this, QStringLiteral("导入并预览 .reg"), QString(), QStringLiteral("REG 文件 (*.reg)"));
     if (input.isEmpty()) return;
-    const int view = m_viewBits;
+    const int view = context.viewBits;
     const QPointer<RegistryDock> guarded(this);
     const auto dispatcher = m_uiDispatcher;
-    QThreadPool::globalInstance()->start([guarded, dispatcher, input, view]() {
+    QThreadPool::globalInstance()->start([guarded, dispatcher, input, view, context]() {
         RegistryDocument document;
         QString error;
         const bool ok = RegistryDocumentService::parseRegFile(input, document, error);
         document.viewBits = view;
-        dispatcher->post([guarded, ok, document, error]() {
+        dispatcher->post([guarded, ok, document, error, context]() {
             if (!guarded) return;
-            if (ok) guarded->previewRegistryDocument(document, QStringLiteral("导入预览"));
+            if (ok) guarded->previewRegistryDocument(document, QStringLiteral("导入预览"), context.useR0);
             else QMessageBox::warning(guarded, QStringLiteral("导入失败"), ks::i18n::packedSourceText(error));
         });
     });
@@ -129,25 +130,26 @@ void RegistryDock::importRegFileAsync()
 void RegistryDock::restoreBackup()
 {
     if (m_applyingChanges || !preserveEditorDraft()) return;
+    const RegistryAccessContext context = accessContext(); // 恢复入口不能在文件选择后隐式换源。
     const QString input = QFileDialog::getOpenFileName(this, QStringLiteral("恢复原始备份（合并）"), QString(),
         QStringLiteral("注册表原始备份 (*.ksreg *.json)"));
     if (input.isEmpty()) return;
     const QPointer<RegistryDock> guarded(this);
     const auto dispatcher = m_uiDispatcher;
-    QThreadPool::globalInstance()->start([guarded, dispatcher, input]() {
+    QThreadPool::globalInstance()->start([guarded, dispatcher, input, context]() {
         RegistryDocument document;
         QString error;
         bool ok = RegistryDocumentService::loadBackup(input, document, error);
         if (!ok) ok = RegistryDocumentApplyService::loadOriginalBackup(input, document, error);
-        dispatcher->post([guarded, ok, document, error]() {
+        dispatcher->post([guarded, ok, document, error, context]() {
             if (!guarded) return;
-            if (ok) guarded->previewRegistryDocument(document, QStringLiteral("合并恢复预览"));
+            if (ok) guarded->previewRegistryDocument(document, QStringLiteral("合并恢复预览"), context.useR0);
             else QMessageBox::warning(guarded, QStringLiteral("恢复失败"), ks::i18n::packedSourceText(error));
         });
     });
 }
 
-void RegistryDock::previewRegistryDocument(const RegistryDocument& document, const QString& title)
+void RegistryDock::previewRegistryDocument(const RegistryDocument& document, const QString& title, const bool useR0)
 {
     if (m_applyingChanges || !preserveEditorDraft()) return;
     m_applyingChanges = true;
@@ -158,10 +160,10 @@ void RegistryDock::previewRegistryDocument(const RegistryDocument& document, con
     const auto dispatcher = m_uiDispatcher;
     const auto closed = m_operationsClosed;
     updateStatusBar(QStringLiteral("正在读取修改前的完整状态…"));
-    QThreadPool::globalInstance()->start([guarded, dispatcher, closed, document, title]() {
+    QThreadPool::globalInstance()->start([guarded, dispatcher, closed, document, title, useR0]() {
         auto plan = std::make_shared<RegistryApplyPlan>();
         QString error;
-        const bool ok = RegistryDocumentApplyService::prepareWin32(document, *plan, error);
+        const bool ok = RegistryDocumentApplyService::prepareAccess(document, useR0, *plan, error);
         if (closed->load()) return;
         dispatcher->post([guarded, dispatcher, plan, title, error, ok]() {
             if (!guarded) return;
@@ -178,7 +180,7 @@ void RegistryDock::previewRegistryDocument(const RegistryDocument& document, con
             dialog.setWindowTitle(title);
             auto* layout = new QVBoxLayout(&dialog);
             auto* source = new QLabel(QStringLiteral("%1 · %2 项操作。恢复采用合并方式，保留备份外新增数据；ACL 仅作备份元数据。")
-                .arg(documentViewLabel(plan->viewBits)).arg(plan->operations.size()), &dialog);
+                .arg(documentViewLabel(plan->viewBits, plan->useR0)).arg(plan->operations.size()), &dialog);
             source->setWordWrap(true);
             source->setTextFormat(Qt::PlainText);
             layout->addWidget(source);
@@ -262,10 +264,12 @@ void RegistryDock::previewRegistryDocument(const RegistryDocument& document, con
                     QThreadPool::globalInstance()->start([guarded, dispatcher, plan, result, completed, cancel,
                         guardedDialog, backupDirectory, backupPath, render, backupLabel]() {
                         auto workerResult = std::make_shared<RegistryApplyResult>();
+                        workerResult->viewBits = plan->viewBits; // 备份失败也保留计划的准确来源。
+                        workerResult->useR0 = plan->useR0;
                         QString failure;
                         bool saved = !cancel->load() && QDir().mkpath(backupDirectory)
                             && RegistryDocumentApplyService::saveOriginalBackup(*plan, backupPath, failure);
-                        if (saved) RegistryDocumentApplyService::applyWin32(*plan, *workerResult, cancel.get());
+                        if (saved) RegistryDocumentApplyService::applyAccess(*plan, *workerResult, cancel.get());
                         else workerResult->error = failure.isEmpty() ? QStringLiteral("备份未保存，未应用任何操作。") : failure;
                         dispatcher->post([guarded, guardedDialog, workerResult, result, completed, backupPath, render, backupLabel]() {
                             if (!guarded) return;
@@ -278,7 +282,31 @@ void RegistryDock::previewRegistryDocument(const RegistryDocument& document, con
                             guarded->m_editorReady = false;
                             guarded->m_valueEditor->hide();
                             guarded->updatePendingChanges();
-                            guarded->refreshValueTable();
+                            // 完成回执只能刷新同一真实视图/通道；用户已换来源时保留当前页面。
+                            const RegistryAccessContext currentContext = guarded->accessContext();
+                            if (currentContext.viewBits == result->viewBits && currentContext.useR0 == result->useR0)
+                            {
+                                QString navigation; // 只根据已实际核验成功的键回执调整导航。
+                                for (const auto& receipt : result->receipts)
+                                {
+                                    if (receipt.state != RegistryApplyReceipt::State::Success || !receipt.mutated) continue;
+                                    const auto& operation = receipt.operation;
+                                    const qsizetype separator = operation.keyPath.lastIndexOf(QLatin1Char('\\'));
+                                    const QString parent = separator < 0 ? QString() : operation.keyPath.left(separator);
+                                    if (operation.kind == RegistryApplyOperation::Kind::DeleteTree
+                                        && (guarded->m_currentPath.compare(operation.keyPath, Qt::CaseInsensitive) == 0
+                                            || guarded->m_currentPath.startsWith(operation.keyPath + QLatin1Char('\\'), Qt::CaseInsensitive)))
+                                    {
+                                        navigation = parent;
+                                        break; // 当前键已不存在，先回到被删除子树的父键。
+                                    }
+                                    if (result->receipts.size() == 1 && operation.kind == RegistryApplyOperation::Kind::CreateKey
+                                        && parent.compare(guarded->m_currentPath, Qt::CaseInsensitive) == 0)
+                                        navigation = operation.keyPath; // 恢复新建键后进入新键的原有行为。
+                                }
+                                if (!navigation.isEmpty()) guarded->navigateToPath(navigation, true);
+                                else guarded->refreshCurrentKey(true); // 刷新树和完整值列表，不遗留已加载子节点。
+                            }
                             guarded->updateStatusBar(result->completed ? QStringLiteral("导入 / 恢复已完成并回读验证。")
                                 : QStringLiteral("未全部完成：%1；修改前备份：%2").arg(result->error, backupPath));
                             if (guardedDialog)

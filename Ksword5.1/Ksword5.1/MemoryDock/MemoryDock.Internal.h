@@ -13,8 +13,6 @@
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../UI/CodeEditorWidget.h"
-#include "../UI/HexEditorWidget.h"
-#include "../UI/MemoryEditorWidget.h"
 #include "../UI/VisibleTableWidget.h" // ks::ui::VisibleTableWidget：反汇编表等长表格的统一基类。
 
 #include <QAbstractItemView>
@@ -104,11 +102,6 @@ namespace ksword::memory_dock_internal
     QString buildBlueButtonStyle();
     QString buildBlueComboStyle();
     QString buildBlueInputStyle();
-
-    // 十六进制查看器分页常量：每页固定 16 * 32 = 512 字节。
-    extern const int kHexBytesPerRow;
-    extern const int kHexRowCount;
-    extern const std::uint64_t kHexPageBytes;
 
     // ModuleTreeColumn：进程模块树列定义，与 ProcessDetailWindow 模块页对齐。
     enum class ModuleTreeColumn : int

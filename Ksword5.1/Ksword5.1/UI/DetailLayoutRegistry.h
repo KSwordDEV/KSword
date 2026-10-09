@@ -13,6 +13,7 @@
 class CodeEditorWidget;
 class QAbstractItemView;
 class QWidget;
+class QSplitter;
 
 namespace ks::ui
 {
@@ -26,6 +27,15 @@ namespace ks::ui
             QAbstractItemView* tableView,
             CodeEditorWidget* detailEditor,
             QWidget* ownerWidget);
+
+        // 显式注册：splitter 的两个直接面板由页面指定，不推断现有控件层级。
+        static DetailLayoutHost* registerHost(
+            QAbstractItemView* tableView,
+            CodeEditorWidget* detailEditor,
+            QWidget* ownerWidget,
+            QSplitter* splitter,
+            QWidget* mainPane,
+            QWidget* detailPane);
 
         // applyGlobalScheme：更新全局方案并立即重排全部仍存活页面。
         static void applyGlobalScheme(ks::settings::DetailDisplayScheme scheme);

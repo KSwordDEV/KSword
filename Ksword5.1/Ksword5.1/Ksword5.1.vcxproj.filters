@@ -488,15 +488,6 @@
     <ClCompile Include="MemoryDock\MemoryDock.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="MemoryDock\MemoryDock.DriverMemoryRw.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="MemoryDock\MemoryDock.DriverMemorySource.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="MemoryDock\MemoryDock.DriverMemoryView.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="MemoryDock\MemoryDock.KernelExecutableMemory.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -638,6 +629,12 @@
     <ClCompile Include="..\..\shared\ui\KsPainterChart.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\shared\ui\MetricHistory.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\shared\ui\MetricChartBinding.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MonitorDock\MonitorPanelWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -663,6 +660,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MonitorDock\ProcessTraceTimelineWidget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MonitorDock\ProcessTraceTimelineWidget.Render.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MonitorDock\EventTimelineModel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MonitorDock\MonitorDock.ArkRiskCenter.cpp">
@@ -1016,9 +1019,6 @@
     <ClCompile Include="UI\UIBaseFunction.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="UI\HexEditorWidget.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="UI\MemoryWorkbench\HexCanvas.cpp">
       <Filter>Source Files\MemoryWorkbench</Filter>
     </ClCompile>
@@ -1349,6 +1349,12 @@
     <ClCompile Include="UI\DetailLayoutHost.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UI\DetailLayoutHost.Binding.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\DetailLayoutHost.Compatibility.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="UI\DetailLayoutRegistry.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1365,12 +1371,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\MemoryEditHistory.Core.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="UI\MemoryEditorWidget.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="UI\MemoryEditorWidget.InlineAssembly.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\GlobalDialogTheme.cpp">
@@ -1517,6 +1517,18 @@
     <ClCompile Include="UI\TableInteractionSupport.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UI\ThemeBinding.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\ResultTableHost.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\UiCommitCoordinator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\AsyncOperation.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="UI\WindowPickerButton.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1545,6 +1557,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Framework\Progress.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Framework\TaskSnapshotFeed.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Framework\ProgressDockWidget.cpp">
@@ -2305,9 +2320,6 @@
     <QtMoc Include="StartupDock\StartupDock.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <QtMoc Include="UI\HexEditorWidget.h">
-      <Filter>Header Files</Filter>
-    </QtMoc>
     <QtMoc Include="UI\MemoryWorkbench\HexCanvas.h">
       <Filter>Header Files\MemoryWorkbench</Filter>
     </QtMoc>
@@ -2578,9 +2590,6 @@
     <ClInclude Include="UI\MemoryEditHistory.Core.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <QtMoc Include="UI\MemoryEditorWidget.h">
-      <Filter>Header Files</Filter>
-    </QtMoc>
     <QtMoc Include="WelcomeDock\WelcomeDock.h">
       <Filter>Header Files</Filter>
     </QtMoc>
@@ -2661,6 +2670,9 @@
     <ClInclude Include="UI\AsyncUiDispatcher.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="UI\AsyncOperation.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="UI\FlatTableModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -2700,6 +2712,15 @@
     <ClInclude Include="UI\TableInteractionSupport.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="UI\ThemeBinding.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\ResultTableHost.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\UiCommitCoordinator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="UI\TableSearchSupport.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -2728,6 +2749,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Framework\ProgressDockWidget.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Framework\TaskSnapshotFeed.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Framework\StartupSplash.h">
@@ -3015,6 +3039,12 @@
     <ClInclude Include="..\..\shared\ui\KsPainterChart.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\shared\ui\MetricHistory.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\shared\ui\MetricChartBinding.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="MonitorDock\MonitorPanelWidget.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -3025,6 +3055,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MonitorDock\ProcessTraceTimelineWidget.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MonitorDock\EventTimelineModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MonitorDock\WinAPIDock.h">
@@ -3314,9 +3347,6 @@
     <ClCompile Include="UI\BinaryOverviewBar.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="UI\MemoryEditorWidget.Pseudocode.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="UI\Decompiler\GhidraDecompiler.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -3350,5 +3380,100 @@
     <QtMoc Include="UI\Decompiler\GhidraDecompiler.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="UI\MemoryWorkbench\SnapshotWorkbenchWidget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\SnapshotWorkbenchWidget.Editing.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\SnapshotWorkbenchWidget.Context.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\WorkbenchPseudocodeView.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\WorkbenchPseudocodeView.Ui.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.Pseudocode.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <QtMoc Include="UI\MemoryWorkbench\SnapshotWorkbenchWidget.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="UI\MemoryWorkbench\WorkbenchPseudocodeView.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="UI\FieldTreePresenter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\FieldTreePresenter.Copy.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\AssemblyPreviewDialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MiscDock\DiskEditor\DiskCaptureTransaction.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MiscDock\DiskEditor\DiskEditorBackend.Identity.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MiscDock\DiskEditor\DiskEditorTab.IO.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RegistryDock\RegistryDock.Mutations.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RegistryDock\RegistryDocumentApply.Access.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RegistryDock\RegistryValueTransactions.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RegistryDock\RegistryOptimizationTransactions.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PluginHost.Archive.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="UI\FieldTreePresenter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\MemoryWorkbench\AssemblyPreviewDialog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MiscDock\DiskEditor\DiskCaptureTransaction.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MiscDock\DiskEditor\DiskEditorFormat.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RegistryDock\RegistryAccessApplyBackend.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RegistryDock\RegistryValueTransactions.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RegistryDock\RegistryOptimizationTransactions.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PluginHost.Archive.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="ArkDriverClient\ArkDriverStorageCapturedRead.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ArkDriverClient\ArkDriverStorageCapturedWrite.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

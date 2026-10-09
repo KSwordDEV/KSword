@@ -1011,8 +1011,9 @@ void HardwareDeviceManagerPage::initializeUi()
     m_detailEditor->setLocalizedText(QStringLiteral("选择一个设备查看详细属性。"));
     m_splitter->addWidget(m_detailEditor);
 
+    // 已有 splitter 的两个直接面板由页面明确声明，避免误接管外层布局。
     ks::ui::DetailLayoutRegistry::registerHost(
-        m_deviceTree, m_detailEditor, this);
+        m_deviceTree, m_detailEditor, this, m_splitter, m_deviceTree, m_detailEditor);
     m_splitter->setStretchFactor(0, 4);
     m_splitter->setStretchFactor(1, 1);
 }

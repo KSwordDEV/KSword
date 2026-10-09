@@ -24,8 +24,8 @@ try {
         [IO.Path]::GetFullPath($OutputDirectory)
     } else { [IO.Path]::GetFullPath((Join-Path $pluginRepository $OutputDirectory)) }
     New-Item -ItemType Directory -Path $pluginOutput -Force | Out-Null
-    $pluginTemporary = Join-Path $pluginOutput 'temporary'
-    New-Item -ItemType Directory -Path $pluginTemporary -Force | Out-Null
+    # 编译临时文件复用既有输出目录，不额外创建临时构建目录。
+    $pluginTemporary = $pluginOutput
     $env:PATH = (Join-Path $pluginQt 'bin') + ';' + $pluginOldPath
     $env:TEMP = $pluginTemporary
     $env:TMP = $pluginTemporary
@@ -46,7 +46,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Inert x64 runtime fixture compilation failed.' }
         & cl.exe @pluginFlags tools/tests/ghidra_plugin_install_tests.cpp `
             GhidraRuntimePlugin/RuntimeProfile.cpp Ksword5.1/Ksword5.1/PluginHost.Upstream.cpp `
-            Ksword5.1/Ksword5.1/PluginHost.Distribution.cpp "/Fe$pluginExecutable" `
+            Ksword5.1/Ksword5.1/PluginHost.Distribution.cpp Ksword5.1/Ksword5.1/PluginHost.Archive.cpp "/Fe$pluginExecutable" `
             /link "/LIBPATH:$pluginQt/lib" Qt6Network.lib Qt6Core.lib
         if ($LASTEXITCODE -ne 0) { throw 'MSVC upstream plugin test compilation failed.' }
     } else {
@@ -58,16 +58,18 @@ try {
     & g++ @pluginFlags tools/tests/ghidra_fake_launcher.cpp "-L$pluginQt/lib" -lQt6Core -o $pluginInertExecutable
     if ($LASTEXITCODE -ne 0) { throw 'Inert x64 runtime fixture compilation failed.' }
     & g++ @pluginFlags tools/tests/ghidra_plugin_install_tests.cpp `
-        GhidraRuntimePlugin/RuntimeProfile.cpp Ksword5.1/Ksword5.1/PluginHost.Upstream.cpp Ksword5.1/Ksword5.1/PluginHost.Distribution.cpp `
+        GhidraRuntimePlugin/RuntimeProfile.cpp Ksword5.1/Ksword5.1/PluginHost.Upstream.cpp Ksword5.1/Ksword5.1/PluginHost.Distribution.cpp Ksword5.1/Ksword5.1/PluginHost.Archive.cpp `
         "-L$pluginQt/lib" -lQt6Network -lQt6Core -o $pluginExecutable
     if ($LASTEXITCODE -ne 0) { throw 'Portable Ghidra plugin test compilation failed.' }
     }
-    if ($ForceWindowsPowerShell -and !$UseMsvc) {
+    if ($ForceWindowsPowerShell) {
+        if (!$UseMsvc) {
         $pluginCompilerDirectory = Split-Path -Parent (Get-Command g++ -ErrorAction Stop).Source
         foreach ($pluginRuntimeName in @('libstdc++-6.dll', 'libgcc_s_seh-1.dll', 'libwinpthread-1.dll')) {
             $pluginRuntimeInput = Join-Path $pluginCompilerDirectory $pluginRuntimeName
             if (!(Test-Path -LiteralPath $pluginRuntimeInput)) { throw "Compiler runtime unavailable: $pluginRuntimeName" }
             Copy-Item -LiteralPath $pluginRuntimeInput -Destination (Join-Path $pluginOutput $pluginRuntimeName) -Force
+        }
         }
         $env:PATH = (Join-Path $pluginQt 'bin') + ';' + (Join-Path $env:SystemRoot 'System32') + ';' +
             (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0')

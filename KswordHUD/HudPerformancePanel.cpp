@@ -1,5 +1,6 @@
 #include "HudPerformancePanel.h"
 #include "../shared/ui/KsPainterChart.h"
+#include "../shared/ui/MetricChartBinding.h"
 
 #include "PerformanceNavCard.h"
 #include "HudColors.h"
@@ -1496,7 +1497,9 @@ HudPerformancePanel::LiveSampleResult HudPerformancePanel::collectLiveSampleResu
         result.networkTxBytesPerSec = 0.0;
     }
 
+    m_gpuMetricMemoryValid = false; // 未进行本帧DXGI查询时不能沿用上帧成功状态。
     result.gpuOk = sampleGpuUsage(&result.gpuUsagePercent);
+    result.gpuMemoryOk = m_gpuMetricMemoryValid;
     if (!result.gpuOk)
     {
         result.gpuUsagePercent = 0.0;
@@ -1518,6 +1521,7 @@ HudPerformancePanel::LiveSampleResult HudPerformancePanel::collectLiveSampleResu
     result.systemVolumeText = m_systemVolumeText;
     result.systemVolumeTotalBytes = m_systemVolumeTotalBytes;
     result.systemVolumeFreeBytes = m_systemVolumeFreeBytes;
+    result.sampleTimeMs = QDateTime::currentMSecsSinceEpoch(); // 在后台读取结束时记录真实采样帧。
     return result;
 }
 
@@ -1542,6 +1546,12 @@ void HudPerformancePanel::applyLiveSampleResult(const LiveSampleResult& liveSamp
         m_lastAvailPhysBytes = liveSampleResult.availPhysBytes;
     }
 
+    m_metricSampleTimeMs = liveSampleResult.sampleTimeMs; // 保留后台采样时刻，绝不换成UI送达时刻。
+    m_metricMemoryValid = liveSampleResult.memoryOk;
+    m_metricDiskValid = liveSampleResult.diskOk;
+    m_metricNetworkValid = liveSampleResult.networkOk;
+    m_metricGpuValid = liveSampleResult.gpuOk;
+    m_metricGpuMemoryValid = liveSampleResult.gpuMemoryOk;
     ++m_sampleCounter;
     updateView(
         liveSampleResult.coreUsageList,
@@ -1581,6 +1591,8 @@ bool HudPerformancePanel::samplePerCoreUsage(
     {
         return false;
     }
+    coreUsageOut->clear();
+    *totalUsageOut = 0.0; // 采集早退也不能保留上次聚合值。
     if (m_cpuPerfQueryHandle == nullptr)
     {
         initializePerformanceCounters();
@@ -1615,7 +1627,10 @@ bool HudPerformancePanel::samplePerCoreUsage(
             PDH_FMT_DOUBLE,
             nullptr,
             &formattedValue);
-        if (readStatus != ERROR_SUCCESS)
+        if (readStatus != ERROR_SUCCESS
+            || (formattedValue.CStatus != PDH_CSTATUS_VALID_DATA
+                && formattedValue.CStatus != PDH_CSTATUS_NEW_DATA)
+            || !std::isfinite(formattedValue.doubleValue))
         {
             coreUsageOut->push_back(0.0);
             continue;
@@ -1628,7 +1643,7 @@ bool HudPerformancePanel::samplePerCoreUsage(
     }
 
     *totalUsageOut = validCount > 0 ? (usageSum / static_cast<double>(validCount)) : 0.0;
-    return true;
+    return validCount > 0;
 }
 
 bool HudPerformancePanel::sampleCpuPowerInfo(std::vector<CpuPowerSnapshot>* powerInfoOut)
@@ -1974,6 +1989,7 @@ bool HudPerformancePanel::sampleGpuUsage(double* gpuUsagePercentOut)
 
 bool HudPerformancePanel::sampleGpuMemoryInfoByDxgi()
 {
+    m_gpuMetricMemoryValid = false; // 所有早退路径都明确失效，避免旧显存数据进入新历史帧。
     IDXGIFactory6* factoryPointer = nullptr;
     const HRESULT createFactoryStatus = ::CreateDXGIFactory1(IID_PPV_ARGS(&factoryPointer));
     if (FAILED(createFactoryStatus) || factoryPointer == nullptr)
@@ -2054,6 +2070,7 @@ bool HudPerformancePanel::sampleGpuMemoryInfoByDxgi()
     }
 
     factoryPointer->Release();
+    m_gpuMetricMemoryValid = querySuccess;
     return querySuccess;
 }
 
@@ -2161,6 +2178,12 @@ void HudPerformancePanel::updateView(
     }
     appendGeneralSeriesPoint(m_diskReadLineSeries, m_diskAxisX, m_diskAxisY, diskReadBytesPerSec, 0.0);
     appendGeneralSeriesPoint(m_diskWriteLineSeries, m_diskAxisX, m_diskAxisY, diskWriteBytesPerSec, 0.0);
+    const auto diskRange = ks::ui::MetricChartBinding::SharedRange({ m_diskReadLineSeries, m_diskWriteLineSeries },
+        ks::ui::MetricXMode::StableId, { 0.0, 1.0, 1.15, {} });
+    if (m_diskAxisY != nullptr)
+    {
+        m_diskAxisY->setRange(diskRange.minimumY, diskRange.maximumY);
+    }
 
     if (m_networkSummaryLabel != nullptr)
     {
@@ -2171,6 +2194,12 @@ void HudPerformancePanel::updateView(
     }
     appendGeneralSeriesPoint(m_networkRxLineSeries, m_networkAxisX, m_networkAxisY, networkRxBytesPerSec, 0.0);
     appendGeneralSeriesPoint(m_networkTxLineSeries, m_networkAxisX, m_networkAxisY, networkTxBytesPerSec, 0.0);
+    const auto networkRange = ks::ui::MetricChartBinding::SharedRange({ m_networkRxLineSeries, m_networkTxLineSeries },
+        ks::ui::MetricXMode::StableId, { 0.0, 1.0, 1.15, {} });
+    if (m_networkAxisY != nullptr)
+    {
+        m_networkAxisY->setRange(networkRange.minimumY, networkRange.maximumY);
+    }
 
     if (m_gpuSummaryLabel != nullptr)
     {
@@ -2572,47 +2601,49 @@ void HudPerformancePanel::appendCoreSeriesPoint(CoreChartEntry& chartEntry, cons
     sparklineWidget->appendSample(usagePercent, m_historyLength);
 }
 
-void HudPerformancePanel::appendGeneralSeriesPoint(
-    QLineSeries* lineSeries,
-    QValueAxis* axisX,
-    QValueAxis* axisY,
-    const double sampleValue,
-    const double minAxisYValue)
+void HudPerformancePanel::appendGeneralSeriesPoint(QLineSeries* lineSeries, QValueAxis* axisX,
+    QValueAxis* axisY, const double sampleValue, const double minAxisYValue)
 {
     if (lineSeries == nullptr || axisX == nullptr || axisY == nullptr)
     {
         return;
     }
-
-    lineSeries->append(m_sampleCounter, sampleValue);
-    while (lineSeries->count() > m_historyLength)
+    // HUD 拥有独立进程模型，复用相同采样身份、有效性和轴策略算法。
+    bool valid = true;
+    if (lineSeries == m_memoryLineSeries)
     {
-        lineSeries->remove(0);
+        valid = m_metricMemoryValid;
     }
-
-    const QList<QPointF> pointList = lineSeries->points();
-    if (pointList.isEmpty())
+    else if (lineSeries == m_diskReadLineSeries || lineSeries == m_diskWriteLineSeries)
     {
-        return;
+        valid = m_metricDiskValid;
     }
-
-    const double firstX = pointList.first().x();
-    const double lastX = pointList.last().x();
-    if (qFuzzyCompare(firstX, lastX))
+    else if (lineSeries == m_networkRxLineSeries || lineSeries == m_networkTxLineSeries)
     {
-        axisX->setRange(firstX - 1.0, lastX + 1.0);
+        valid = m_metricNetworkValid;
     }
-    else
+    else if (lineSeries == m_gpuDedicatedMemoryLineSeries || lineSeries == m_gpuSharedMemoryLineSeries)
     {
-        axisX->setRange(firstX, lastX);
+        valid = m_metricGpuMemoryValid;
     }
-
-    double maxYValue = minAxisYValue + 1.0;
-    for (const QPointF& pointValue : pointList)
+    for (const GpuEngineChartEntry& engine : m_gpuEngineCharts)
     {
-        maxYValue = std::max(maxYValue, pointValue.y());
+        if (lineSeries == engine.lineSeries)
+        {
+            valid = m_metricGpuValid;
+            break;
+        }
     }
-    axisY->setRange(minAxisYValue, maxYValue * 1.15);
+    auto* binding = ks::ui::MetricChartBinding::ForSeries(lineSeries, m_historyLength);
+    binding->append({ static_cast<std::uint64_t>(m_sampleCounter), m_metricSampleTimeMs, sampleValue, valid });
+    ks::ui::MetricAxisPolicy policy{ minAxisYValue, 1.0, 1.15, {} };
+    if (lineSeries == m_memoryLineSeries)
+    {
+        policy.fixedMaximumY = 100.0;
+    }
+    const auto range = binding->range(policy);
+    axisX->setRange(range.minimumX, range.maximumX);
+    axisY->setRange(range.minimumY, range.maximumY);
 }
 
 QString HudPerformancePanel::formatRateText(const double bytesPerSecondValue) const

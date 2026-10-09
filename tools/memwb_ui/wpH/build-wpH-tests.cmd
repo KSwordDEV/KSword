@@ -71,7 +71,7 @@ if errorlevel 1 exit /b %errorlevel%
 rem ---- 第二遍：CodeEditorWidget 依赖链，/W3 不开 /WX（别人代码，别人的既有警告不该挡住本包） ----
 cl /nologo /std:c++latest /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W3 /O2 /DWIN32_LEAN_AND_MEAN /external:W0 /DNOMINMAX /DUNICODE /D_UNICODE /DZYDIS_STATIC_BUILD /DQT_CORE_LIB /DQT_GUI_LIB /DQT_WIDGETS_LIB ^
   /I"%ZYDIS%" /external:I"%QT%\include" /external:I"%QT%\include\QtCore" /external:I"%QT%\include\QtGui" /external:I"%QT%\include\QtWidgets" /external:I"%QT%\include\QtSvg" ^
-  /c "%APP%\UI\CodeEditorWidget.cpp" "%APP%\UI\CodeTextEdit.cpp" "%APP%\UI\CodeEditorFileSession.cpp" "%APP%\UI\ReportStructuredView.cpp" "%APP%\Internationalization\LanguageManager.cpp" "%APP%\UI\MemoryAssembly.cpp" "%APP%\UI\MemoryAssembly.Core.cpp" "%APP%\UI\ThemeStatusRole.cpp" "%MOC%\moc_CodeEditorWidget.cpp" ^
+  /c "%APP%\UI\CodeEditorWidget.cpp" "%APP%\UI\CodeTextEdit.cpp" "%APP%\UI\CodeEditorFileSession.cpp" "%APP%\UI\ReportStructuredView.cpp" "%APP%\UI\FieldTreePresenter.cpp" "%APP%\UI\FieldTreePresenter.Copy.cpp" "%APP%\Internationalization\LanguageManager.cpp" "%APP%\UI\MemoryAssembly.cpp" "%APP%\UI\MemoryAssembly.Core.cpp" "%APP%\UI\ThemeStatusRole.cpp" "%MOC%\moc_CodeEditorWidget.cpp" ^
   /Fo"%OBJ2%\\"
 if errorlevel 1 exit /b %errorlevel%
 
@@ -81,13 +81,13 @@ cl /nologo /std:c++latest /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W4 /WX 
   "%FIX%\wpH_main.cpp" "%FIX%\wpH_common.cpp" "%FIX%\wpH_tests.Disasm.cpp" "%FIX%\wpH_tests.Text.cpp" "%FIX%\wpH_tests.Compare.cpp" ^
   "%FIX%\wpH_tests.DisasmRegression.cpp" "%FIX%\wpH_tests.TextRegression.cpp" "%FIX%\wpH_tests.CompareRegression.cpp" ^
   "%FIX%\wpH_tests.DisasmRegression2.cpp" "%FIX%\wpH_tests.DisasmRegression3.cpp" "%FIX%\wpH_tests.TextRegression2.cpp" "%FIX%\wpH_tests.CompareRegression2.cpp" "%FIX%\wpH_tests.SExtra.cpp" ^
-  "%UI%\WorkbenchDisasmView.cpp" "%UI%\WorkbenchDisasmView.Edit.cpp" "%UI%\WorkbenchDisasmView.Canvas.cpp" "%UI%\MemoryRowCanvas.cpp" "%UI%\WorkbenchTextView.cpp" "%UI%\WorkbenchCompareView.cpp" ^
+  "%UI%\WorkbenchDisasmView.cpp" "%UI%\WorkbenchDisasmView.Edit.cpp" "%UI%\AssemblyPreviewDialog.cpp" "%UI%\WorkbenchDisasmView.Canvas.cpp" "%UI%\MemoryRowCanvas.cpp" "%UI%\WorkbenchTextView.cpp" "%UI%\WorkbenchCompareView.cpp" ^
   "%APP%\UI\FlowLayout.cpp" "%UI%\HexCanvasFormat.cpp" "%UI%\HexViewWidgets.cpp" "%UI%\HexViewWidgets.Text.cpp" "%UI%\HexViewFormat.cpp" ^
   "%CORE%\MemoryTextDecode.cpp" "%CORE%\MemoryDiffOverlay.cpp" "%CORE%\MemoryDiffOverlay.Patches.cpp" ^
   "%MOC%\moc_MemoryRowCanvas.cpp" "%MOC%\moc_WorkbenchDisasmView.cpp" "%MOC%\moc_WorkbenchTextView.cpp" "%MOC%\moc_WorkbenchCompareView.cpp" "%MOC%\moc_HexViewWidgets.cpp" "%MOC%\qrc_memwb_ui_icons.cpp" ^
   /Fo"%OBJ%\\" /Fe"%OUT%\wpH_tests.exe" ^
   /link /OPT:REF /LIBPATH:"%QT%\lib" Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib Qt6Test.lib Qt6Svg.lib user32.lib advapi32.lib ^
-  "%OBJ2%\CodeEditorWidget.obj" "%OBJ2%\CodeTextEdit.obj" "%OBJ2%\CodeEditorFileSession.obj" "%OBJ2%\ReportStructuredView.obj" "%OBJ2%\LanguageManager.obj" "%OBJ2%\MemoryAssembly.obj" "%OBJ2%\MemoryAssembly.Core.obj" "%OBJ2%\ThemeStatusRole.obj" "%OBJ2%\moc_CodeEditorWidget.obj" "%OBJ2%\Zydis.obj"
+  "%OBJ2%\CodeEditorWidget.obj" "%OBJ2%\CodeTextEdit.obj" "%OBJ2%\CodeEditorFileSession.obj" "%OBJ2%\ReportStructuredView.obj" "%OBJ2%\FieldTreePresenter.obj" "%OBJ2%\FieldTreePresenter.Copy.obj" "%OBJ2%\LanguageManager.obj" "%OBJ2%\MemoryAssembly.obj" "%OBJ2%\MemoryAssembly.Core.obj" "%OBJ2%\ThemeStatusRole.obj" "%OBJ2%\moc_CodeEditorWidget.obj" "%OBJ2%\Zydis.obj"
 if errorlevel 1 exit /b %errorlevel%
 
 rem ---- 部署 DLL 与插件（离屏平台、SVG 图标引擎与图片格式） ----

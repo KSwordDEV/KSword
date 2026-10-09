@@ -1,4 +1,5 @@
 #include "NotificationCardManager.h"
+#include "TaskSnapshotFeed.h"
 
 #include "../Framework.h"
 #include "../Internationalization/LanguageManager.h"
@@ -292,11 +293,19 @@ namespace ks::ui
 
         void setProgressTask(const kProgressTask& taskItem)
         {
-            m_titleLabel->setText(localizedBackendText(taskItem.taskName));
+            // 保存源记录用于原位语言/主题刷新；任务身份不随展示文案改变。
+            m_progressTask = taskItem;
+            setObjectName(QStringLiteral("task_notification"));
+            setProperty("task_pid", taskItem.pid);
+            setProperty("task_state", static_cast<int>(taskItem.state));
+            setProperty("task_generation", static_cast<qulonglong>(taskItem.generation));
+            m_titleLabel->setText(localizedBackendText(taskItem.taskName)
+                + QStringLiteral("  ·  ") + TaskStateText(taskItem.state));
             m_bodyLabel->setText(localizedBackendText(taskItem.stepName));
             if (m_progressBar != nullptr)
             {
                 m_progressBar->setValue(std::clamp(static_cast<int>(std::lround(taskItem.progress * 100.0f)), 0, 100));
+                m_progressBar->setVisible(!taskItem.hideProgressBarTemporarily && !IsProgressTerminal(taskItem.state));
             }
             m_copyText = progressCopyText(taskItem);
             refreshVisuals();
@@ -310,7 +319,7 @@ namespace ks::ui
             // 保存通知语义而不是创建时的像素色，连续切主题也从当前种子求色。
             const QColor accent = m_kind == Kind::Log
                 ? levelColor(m_logLevel)
-                : KswordTheme::PrimaryAccentColor();
+                : TaskStateColor(m_progressTask.state);
             const QColor hoverBackground = KswordTheme::BlendColors(KswordTheme::SurfaceColor(), accent, 36);
             const QString accentText = KswordTheme::ThemeColorName(
                 KswordTheme::EnsureTextContrast(accent, KswordTheme::SurfaceColor()));
@@ -393,6 +402,17 @@ namespace ks::ui
         }
 
     protected:
+        void changeEvent(QEvent* event) override
+        {
+            QWidget::changeEvent(event);
+            // 语言变化必须从保留的源记录重新生成正文，不能依赖翻译合成标题。
+            if (m_kind == Kind::Progress && m_titleLabel != nullptr && event != nullptr &&
+                event->type() == QEvent::LanguageChange)
+            {
+                setProgressTask(m_progressTask);
+            }
+        }
+
         bool eventFilter(QObject* watched, QEvent* event) override
         {
             if ((watched == m_copySlot || watched == m_expandSlot)
@@ -507,6 +527,7 @@ namespace ks::ui
         QToolButton* m_copyButton = nullptr;
         QToolButton* m_expandButton = nullptr;
         kLogLevel m_logLevel = kLogLevel::Info;
+        kProgressTask m_progressTask; // 原始任务状态，主题/语言更新保持同一张卡片。
         QString m_copyText;
         std::function<void()> m_layoutChangedCallback;
         bool m_logHeightLimitEnabled = true;
@@ -519,6 +540,7 @@ namespace ks::ui
         NotificationCard::Kind kind = NotificationCard::Kind::Log;
         QPointer<NotificationCard> card;
         int progressPid = 0;
+        kProgressTask task; // 上次已呈现数据，只刷新发生变化的任务卡片。
         qint64 expiresAtMs = 0;
     };
 
@@ -533,12 +555,18 @@ namespace ks::ui
         g_notificationCardManager = this;
         m_lastLogRevision = KswordARKEventEntry.Revision();
         m_knownLogCount = KswordARKEventEntry.Snapshot().size();
-        m_lastProgressRevision = kPro.Revision();
+        m_lastProgressRevision = 0;
 
         m_refreshTimer = new QTimer(this);
         m_refreshTimer->setInterval(100);
         connect(m_refreshTimer, &QTimer::timeout, this, [this]() { refreshFromManagers(); });
         m_refreshTimer->start();
+        // 任务读取集中到 feed，通知计时器只处理日志过期和原有溢出布局。
+        TaskSnapshotFeed::instance().subscribe(this,
+            [this](const std::shared_ptr<const kProgressSnapshot>& snapshot)
+            {
+                refreshProgressCards(snapshot);
+            });
     }
 
     NotificationCardManager::~NotificationCardManager()
@@ -575,6 +603,7 @@ namespace ks::ui
             }
         }
         trimLogCardsToMaximum(true);
+        refreshProgressCards(TaskSnapshotFeed::instance().current(), true);
         reflowCards(true);
     }
 
@@ -626,7 +655,6 @@ namespace ks::ui
             return;
         }
         refreshLogCards();
-        refreshProgressCards();
         removeExpiredLogCards();
         reflowCards(true);
     }
@@ -657,17 +685,17 @@ namespace ks::ui
         m_lastLogRevision = revision;
     }
 
-    void NotificationCardManager::refreshProgressCards()
+    void NotificationCardManager::refreshProgressCards(
+        const std::shared_ptr<const kProgressSnapshot>& snapshot, const bool force)
     {
-        const std::size_t revision = kPro.Revision();
-        if (revision == m_lastProgressRevision)
+        if (!m_settings.notificationCardsEnabled || !snapshot || snapshot->revision < m_lastProgressRevision ||
+            (!force && snapshot->revision == m_lastProgressRevision))
         {
             return;
         }
-        const std::vector<kProgressTask> snapshot = kPro.Snapshot();
         std::vector<int> activeTaskIds;
-        activeTaskIds.reserve(snapshot.size());
-        for (const kProgressTask& taskItem : snapshot)
+        activeTaskIds.reserve(snapshot->tasks.size());
+        for (const kProgressTask& taskItem : snapshot->tasks)
         {
             if (taskItem.hiddenInList)
             {
@@ -688,7 +716,16 @@ namespace ks::ui
             }
             else if ((*existingIterator)->card != nullptr)
             {
-                (*existingIterator)->card->setProgressTask(taskItem);
+                // 其他任务更新不会重复刷新这张卡片；强制主题/语言刷新仍复用旧控件。
+                const kProgressTask& previous = (*existingIterator)->task;
+                if (force || previous.state != taskItem.state || previous.progress != taskItem.progress ||
+                    previous.taskName != taskItem.taskName || previous.stepName != taskItem.stepName ||
+                    previous.generation != taskItem.generation ||
+                    previous.hideProgressBarTemporarily != taskItem.hideProgressBarTemporarily)
+                {
+                    (*existingIterator)->card->setProgressTask(taskItem);
+                    (*existingIterator)->task = taskItem;
+                }
             }
         }
 
@@ -704,7 +741,9 @@ namespace ks::ui
             }
             ++index;
         }
-        m_lastProgressRevision = revision;
+        m_lastProgressRevision = snapshot->revision;
+        setProperty("task_snapshot_revision", static_cast<qulonglong>(snapshot->revision));
+        reflowCards(true);
     }
 
     void NotificationCardManager::removeExpiredLogCards()
@@ -754,6 +793,7 @@ namespace ks::ui
         auto record = std::make_unique<NotificationCardRecord>();
         record->kind = NotificationCard::Kind::Progress;
         record->progressPid = taskItem.pid;
+        record->task = taskItem;
         record->card = new NotificationCard(NotificationCard::Kind::Progress);
         record->card->setProgressTask(taskItem);
         m_cards.push_back(std::move(record));

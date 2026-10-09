@@ -34,7 +34,6 @@ class QEvent;
 class QHBoxLayout;
 class QLabel;
 class QLineEdit;
-class QPlainTextEdit;
 class QPushButton;
 class QRadioButton;
 class QShowEvent;
@@ -641,7 +640,7 @@ private:
     QPushButton* m_unloadDriverButton = nullptr;      // 卸载按钮。
     QPushButton* m_deleteServiceButton = nullptr;     // 删除服务按钮。
     QPushButton* m_refreshStateButton = nullptr;      // 刷新状态按钮。
-    QPlainTextEdit* m_operateLogOutput = nullptr;     // 操作日志输出框。
+    CodeEditorWidget* m_operateLogOutput = nullptr;     // 操作日志输出框。
 
     // ========================= 页签3：调试输出 =========================
     QWidget* m_debugOutputPage = nullptr;             // 调试输出页容器。
@@ -652,7 +651,7 @@ private:
     QPushButton* m_clearDebugOutputButton = nullptr;  // 清空输出按钮。
     QPushButton* m_copyDebugOutputButton = nullptr;   // 复制输出按钮。
     QLabel* m_debugCaptureStatusLabel = nullptr;      // 捕获状态标签。
-    QPlainTextEdit* m_debugOutputEdit = nullptr;      // 调试输出文本框。
+    CodeEditorWidget* m_debugOutputEdit = nullptr;      // 调试输出文本框。
     std::vector<DebugOutputLineRecord> m_debugOutputLines; // 调试输出原始记录，最多保留 2000 行。
 
     // ========================= 页签4：对象信息 =========================

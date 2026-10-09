@@ -15,6 +15,7 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QUuid>
 #include <QtEndian>
 #include <algorithm>
 #include <limits>
@@ -50,6 +51,14 @@ import java.util.*;
 
 public class GhidraPseudocode extends GhidraScript {
     private static final int MAX_CODE_BYTES = 1024 * 1024;
+    private String progressToken;
+    // Only fixed stages with this request's random token are protocol messages.
+    private void progress(String stage) {
+        progress(stage, -1, -1);
+    }
+    private void progress(String stage, long completed, long total) {
+        println("KSWORD_PROGRESS:" + progressToken + ":" + stage + ":" + completed + ":" + total);
+    }
     private static String quote(String text) {
         if (text == null) text = "";
         StringBuilder result = new StringBuilder("\"");
@@ -96,10 +105,11 @@ public class GhidraPseudocode extends GhidraScript {
     }
     @Override public void run() throws Exception {
         String[] args = getScriptArgs();
-        if (args.length < 3) throw new IllegalArgumentException("invalid_arguments");
+        if (args.length < 4) throw new IllegalArgumentException("invalid_arguments");
         Address selected = currentProgram.getAddressFactory().getDefaultAddressSpace()
             .getAddress(Long.parseUnsignedLong(args[1], 16));
         if (args[0].equals("prepare")) {
+            progressToken = args[3];
             // Avoid following a sample's PDB/debug path or fetching symbols.
             Map<String,String> options = getCurrentAnalysisOptionsAndValues(currentProgram);
             for (String key : options.keySet()) {
@@ -109,12 +119,14 @@ public class GhidraPseudocode extends GhidraScript {
             }
             if (args[2].equals("raw") && currentProgram.getMemory().contains(selected)) {
                 disassemble(selected);
-                createFunction(selected, null);
             }
+            progress("analyzing");
             return;
         }
-        if (!args[0].equals("decompile") || args.length != 8)
+        if (!args[0].equals("decompile") || args.length != 9)
             throw new IllegalArgumentException("invalid_arguments");
+        progressToken = args[8];
+        progress("locating_function");
         int seconds = Integer.parseInt(args[2]);
         Path output = Paths.get(args[3]);
         String sha = hash(args[4]);
@@ -130,6 +142,21 @@ public class GhidraPseudocode extends GhidraScript {
             if (!currentProgram.getMemory().contains(selected))
                 throw new IllegalArgumentException("invalid_address");
             Function function = currentProgram.getFunctionManager().getFunctionContaining(selected);
+            boolean inferred = raw;
+            // Preserve any containing function identified by analysis. Infer an
+            // entry only for unknown RAW code, after automatic analysis finishes.
+            if (function == null && raw) {
+                monitor.checkCancelled();
+                ghidra.program.model.listing.Instruction containing =
+                    currentProgram.getListing().getInstructionContaining(selected);
+                if (containing != null && !containing.getAddress().equals(selected))
+                    throw new IllegalArgumentException("invalid_instruction_data");
+                if (currentProgram.getListing().getInstructionAt(selected) == null) disassemble(selected);
+                if (currentProgram.getListing().getInstructionAt(selected) == null)
+                    throw new IllegalArgumentException("invalid_instruction_data");
+                function = createFunction(selected, null);
+                inferred = function != null;
+            }
             if (function == null) throw new IllegalArgumentException("no_function_at_address");
             DecompileOptions options = new DecompileOptions();
             options.setMaxPayloadMBytes(8);
@@ -138,15 +165,19 @@ public class GhidraPseudocode extends GhidraScript {
             decompiler.toggleSyntaxTree(true);
             if (!decompiler.openProgram(currentProgram))
                 throw new IllegalStateException("decompilation_failed");
+            progress("decompiling");
             DecompileResults result = decompiler.decompileFunction(function, seconds, monitor);
             if (!result.decompileCompleted() || result.getCCodeMarkup() == null) {
                 String failure = result.isTimedOut() ? "timeout" : "decompilation_failed";
                 throw new IllegalStateException(failure);
             }
             PrettyPrinter printer = new PrettyPrinter(function, result.getCCodeMarkup(), null);
+            progress("rendering", 0, printer.getLines().size());
             StringBuilder code = new StringBuilder();
             StringBuilder addresses = new StringBuilder("[");
             boolean first = true;
+            boolean badInstructions = false;
+            int rendered = 0;
             for (ClangLine line : printer.getLines()) {
                 monitor.checkCancelled();
                 if (!first) addresses.append(',');
@@ -155,25 +186,36 @@ public class GhidraPseudocode extends GhidraScript {
                 if (code.length() > MAX_CODE_BYTES) throw new IllegalStateException("output_limit");
                 Address minimum = null;
                 for (ClangToken token : line.getAllTokens()) {
+                    // Inspect generated warning comments, not a sample's string literals.
+                    if (token instanceof ClangCommentToken &&
+                        (token.getText().contains("Control flow encountered bad instruction data") ||
+                         token.getText().contains("Bad instruction - Truncating control flow")))
+                        badInstructions = true;
                     Address address = statementAddress(token, function);
                     if (address != null && (minimum == null || address.compareTo(minimum) < 0))
                         minimum = address;
                 }
                 addresses.append(minimum == null ? "null" : quote(hex(minimum)));
+                ++rendered;
+                if ((rendered % 16) == 0 || rendered == printer.getLines().size())
+                    progress("rendering", rendered, printer.getLines().size());
             }
             if (code.toString().getBytes(StandardCharsets.UTF_8).length > MAX_CODE_BYTES)
                 throw new IllegalStateException("output_limit");
             addresses.append(']');
+            // Processing can finish while emitting only bad-instruction placeholders.
+            if (badInstructions)
+                throw new IllegalStateException("invalid_instruction_data");
             String json = prefix + ",\"success\":true,\"code\":" + quote(code.toString()) +
                 ",\"functionName\":" + quote(function.getName()) + ",\"functionAddress\":" +
-                quote(hex(function.getEntryPoint())) + ",\"boundaryInferred\":" + raw +
+                quote(hex(function.getEntryPoint())) + ",\"boundaryInferred\":" + inferred +
                 ",\"lineAddresses\":" + addresses + "}";
             Files.writeString(output, json, StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
         } catch (Exception failure) {
             String message = failure.getMessage();
             Set<String> known = Set.of("unsupported_architecture", "invalid_address",
-                "no_function_at_address", "timeout", "output_limit", "decompilation_failed");
+                "no_function_at_address", "timeout", "output_limit", "decompilation_failed", "invalid_instruction_data");
             String error = known.contains(message) ? message : "decompilation_failed";
             String json = prefix + ",\"success\":false,\"error\":" + quote(error) + "}";
             Files.writeString(output, json, StandardCharsets.UTF_8,
@@ -193,6 +235,44 @@ public class GhidraPseudocode extends GhidraScript {
         return true;
     }
 
+    // RAW 捕获可能从模块头开始。只有完整、相互一致的 PE 头才提供数据/执行区证据。
+    // 不把两个 MZ 字节或常见指令前缀当作文件，也不把 RAW 重新按磁盘布局导入。
+    bool rawAddressIsKnownData(const ks::ui::DecompilerRequest& request)
+    {
+        const QByteArray& bytes = request.bytes;
+        quint16 mz = 0, machine = 0, sections = 0, optionalSize = 0, magic = 0;
+        quint32 pe = 0, signature = 0, imageSize = 0, headerSize = 0;
+        if (!readLe(bytes, 0, mz) || mz != 0x5a4d || !readLe(bytes, 0x3c, pe) || pe < 0x40 ||
+            !readLe(bytes, pe, signature) || signature != 0x4550 ||
+            !readLe(bytes, quint64(pe) + 4, machine) ||
+            !readLe(bytes, quint64(pe) + 6, sections) || sections == 0 || sections > 96 ||
+            !readLe(bytes, quint64(pe) + 20, optionalSize)) return false;
+        const bool pe64 = machine == 0x8664;
+        const quint64 optional = quint64(pe) + 24;
+        if ((machine != 0x14c && !pe64) || !readLe(bytes, optional, magic) ||
+            magic != (pe64 ? 0x20b : 0x10b) || optionalSize < (pe64 ? 112 : 96) ||
+            !readLe(bytes, optional + 56, imageSize) || !readLe(bytes, optional + 60, headerSize)) return false;
+        const quint64 table = optional + optionalSize;
+        const quint64 tableEnd = table + quint64(sections) * 40;
+        if (imageSize == 0 || headerSize < tableEnd || headerSize > imageSize ||
+            tableEnd > quint64(bytes.size())) return false;
+        const quint64 selectedRva = request.selectedAddress - request.baseAddress;
+        bool nonExecutable = false;
+        bool executable = false;
+        for (quint16 index = 0; index < sections; ++index) {
+            quint32 rva = 0, rawSize = 0, virtualSize = 0, characteristics = 0;
+            const quint64 section = table + quint64(index) * 40;
+            if (!readLe(bytes, section + 8, virtualSize) || !readLe(bytes, section + 12, rva) ||
+                !readLe(bytes, section + 16, rawSize) || !readLe(bytes, section + 36, characteristics) ||
+                rva < headerSize || quint64(rva) + std::max(virtualSize, rawSize) > imageSize) return false;
+            if (selectedRva >= rva && selectedRva - rva < std::max(virtualSize, rawSize)) {
+                if ((characteristics & 0x20000000u) != 0) executable = true;
+                else nonExecutable = true;
+            }
+        }
+        return selectedRva < headerSize || (nonExecutable && !executable);
+    }
+
     QString validateRequest(const ks::ui::DecompilerRequest& request)
     {
         using ks::ui::DecompilerInputKind;
@@ -209,6 +289,7 @@ public class GhidraPseudocode extends GhidraScript {
             if (request.baseAddress > addressLimit || size - 1 > addressLimit - request.baseAddress ||
                 request.selectedAddress < request.baseAddress ||
                 request.selectedAddress - request.baseAddress >= size) return QStringLiteral("invalid_address");
+            if (rawAddressIsKnownData(request)) return QStringLiteral("non_code_address");
             return {};
         }
         quint16 mz = 0, machine = 0, sections = 0, optionalSize = 0, magic = 0;
@@ -242,17 +323,23 @@ public class GhidraPseudocode extends GhidraScript {
             return QStringLiteral("invalid_pe");
         const quint64 selectedRva = request.selectedAddress - imageBase;
         int matches = 0;
+        bool selectedExecutable = false;
         for (quint16 index = 0; index < sections; ++index) {
-            quint32 rva = 0, rawSize = 0, rawOffset = 0, virtualSize = 0;
+            quint32 rva = 0, rawSize = 0, rawOffset = 0, virtualSize = 0, characteristics = 0;
             const quint64 section = table + quint64(index) * 40;
             if (!readLe(bytes, section + 8, virtualSize) || !readLe(bytes, section + 12, rva) ||
                 !readLe(bytes, section + 16, rawSize) || !readLe(bytes, section + 20, rawOffset) ||
+                !readLe(bytes, section + 36, characteristics) ||
                 rawOffset > quint64(bytes.size()) || rawSize > quint64(bytes.size()) - rawOffset ||
                 quint64(rva) + std::max(virtualSize, rawSize) > imageSize) return QStringLiteral("invalid_pe");
             const quint32 backedSize = std::min(rawSize, virtualSize ? virtualSize : rawSize);
-            if (selectedRva >= rva && selectedRva - rva < backedSize) ++matches;
+            if (selectedRva >= rva && selectedRva - rva < backedSize) {
+                ++matches;
+                selectedExecutable = (characteristics & 0x20000000u) != 0;
+            }
         }
-        return matches == 1 ? QString() : QStringLiteral("unmapped_pe_address");
+        if (matches != 1) return QStringLiteral("unmapped_pe_address");
+        return selectedExecutable ? QString() : QStringLiteral("non_code_address");
     }
 
     bool validDirectory(const QString& directory)
@@ -336,6 +423,18 @@ public class GhidraPseudocode extends GhidraScript {
         address = text.toULongLong(&ok, 16);
         return ok;
     }
+
+    // 兼容响应的最终防线只识别诊断注释，不把程序中的同名字符串当作坏指令。
+    bool containsBadInstructionDiagnostic(const QString& code)
+    {
+        for (const QString& line : code.split(u'\n')) {
+            const QString trimmed = line.trimmed();
+            if (trimmed.startsWith(QStringLiteral("/* WARNING:")) &&
+                (trimmed.contains(QStringLiteral("Control flow encountered bad instruction data")) ||
+                 trimmed.contains(QStringLiteral("Bad instruction - Truncating control flow")))) return true;
+        }
+        return false;
+    }
 }
 
 namespace ks::ui
@@ -352,6 +451,9 @@ namespace ks::ui
         QString scriptLogPath;
         QString stopReason;
         QByteArray diagnosticBytes;
+        QByteArray progressBytes;             // 尚未完整收到的一行阶段协议。
+        QByteArray progressToken;             // 每次请求随机令牌，拒绝旧日志或不可信日志。
+        DecompilerProgress progress;           // 当前真实阶段及可选工作量。
         qint64 receivedBytes = 0;
         QByteArray hash;
         quint64 selectedAddress = 0;
@@ -366,6 +468,7 @@ namespace ks::ui
     GhidraDecompiler::GhidraDecompiler(QObject* parent) : QObject(parent), m_state(std::make_unique<State>())
     {
         qRegisterMetaType<DecompilerResult>();
+        qRegisterMetaType<DecompilerProgress>();
         m_state->deadline = new QTimer(this);
         m_state->deadline->setSingleShot(true);
         connect(m_state->deadline, &QTimer::timeout, this, [this] { stopProcess(QStringLiteral("timeout")); });
@@ -423,6 +526,9 @@ namespace ks::ui
         m_state->running = true;
         m_state->stopReason.clear();
         m_state->diagnosticBytes.clear();
+        m_state->progressBytes.clear();
+        m_state->progressToken = QUuid::createUuid().toString(QUuid::WithoutBraces).toLatin1();
+        m_state->progress = {};
         m_state->receivedBytes = 0;
         m_state->hash.clear();
         m_state->selectedAddress = request.selectedAddress;
@@ -440,6 +546,7 @@ namespace ks::ui
 
     void GhidraDecompiler::launch(const DecompilerRequest& request)
     {
+        if (!publishProgress(DecompilerStage::PreparingSnapshot)) return;
         const QString validation = validateRequest(request);
         if (!validation.isEmpty()) { complete(validation); return; }
         const QString directory = ghidraDirectory();
@@ -515,10 +622,11 @@ namespace ks::ui
             arguments << QStringLiteral("-loader") << QStringLiteral("PeLoader");
         }
         arguments << QStringLiteral("-preScript") << QStringLiteral("GhidraPseudocode.java")
-            << QStringLiteral("prepare") << selected << kind
+            << QStringLiteral("prepare") << selected << kind << QString::fromLatin1(m_state->progressToken)
             << QStringLiteral("-postScript") << QStringLiteral("GhidraPseudocode.java")
             << QStringLiteral("decompile") << selected << QString::number(seconds) << m_state->resultPath << input
-            << (request.x64 ? QStringLiteral("64") : QStringLiteral("32")) << kind << QStringLiteral("1");
+            << (request.x64 ? QStringLiteral("64") : QStringLiteral("32")) << kind << QStringLiteral("1")
+            << QString::fromLatin1(m_state->progressToken);
         auto* process = new QProcess(this);
         m_state->process = process;
         process->setWorkingDirectory(temporary.path());
@@ -550,14 +658,34 @@ namespace ks::ui
         });
         connect(process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             [this](int exitCode, QProcess::ExitStatus status) {
+                const QPointer<GhidraDecompiler> guard(this);
+                const quint64 revision = m_state->revision;
                 collectOutput();
+                if (!guard || revision != m_state->revision || !m_state->running) return;
                 if (!m_state->stopReason.isEmpty()) complete(m_state->stopReason);
                 else if (status != QProcess::NormalExit || exitCode != 0) complete(QStringLiteral("process_exit_failed"));
                 else complete();
             });
         m_state->deadline->start(seconds * 1000);
         m_state->outputCheck->start();
+        if (!publishProgress(DecompilerStage::StartingRuntime)) return;
         process->start(java, arguments);
+    }
+
+    bool GhidraDecompiler::publishProgress(DecompilerStage stage, qint64 completed, qint64 total)
+    {
+        // 阶段观察者可以取消、销毁后端；后续调用必须同时检查生命周期与本次代次。
+        if (!m_state->running || !m_state->stopReason.isEmpty() ||
+            static_cast<int>(stage) < static_cast<int>(m_state->progress.stage)) return false;
+        if ((completed < 0 || total <= 0 || completed > total) && (completed != -1 || total != -1)) return true;
+        if (stage == m_state->progress.stage && completed >= 0 &&
+            m_state->progress.completedUnits >= 0 && completed < m_state->progress.completedUnits) return true;
+        m_state->progress = { stage, completed, total };
+        const DecompilerProgress progress = m_state->progress;
+        const quint64 revision = m_state->revision;
+        const QPointer<GhidraDecompiler> guard(this);
+        emit progressChanged(progress);
+        return guard && revision == m_state->revision && m_state->running && m_state->stopReason.isEmpty();
     }
 
     void GhidraDecompiler::collectOutput()
@@ -568,7 +696,37 @@ namespace ks::ui
         m_state->diagnosticBytes.append(chunk.right(RetainedDiagnosticBytes));
         if (m_state->diagnosticBytes.size() > RetainedDiagnosticBytes)
             m_state->diagnosticBytes.remove(0, m_state->diagnosticBytes.size() - RetainedDiagnosticBytes);
-        if (m_state->receivedBytes > MaximumLogBytes) stopProcess(QStringLiteral("output_limit"));
+        if (m_state->receivedBytes > MaximumLogBytes) { stopProcess(QStringLiteral("output_limit")); return; }
+        // 逐行解析隔离脚本令牌。限制尾缓冲和阶段集合，不依赖 Ghidra 日志版本/语言。
+        m_state->progressBytes.append(chunk);
+        const QByteArray marker = QByteArray("KSWORD_PROGRESS:") + m_state->progressToken + ':';
+        while (true) {
+            const qsizetype end = m_state->progressBytes.indexOf('\n');
+            if (end < 0) break;
+            const QByteArray line = m_state->progressBytes.left(end);
+            m_state->progressBytes.remove(0, end + 1);
+            // JVM 启动不等于导入已开始；只在当前进程确实报告固定快照导入时晋级。
+            if (m_state->progress.stage == DecompilerStage::StartingRuntime && line.contains("IMPORTING: file:") &&
+                (line.contains("snapshot.bin") || line.contains("snapshot.exe"))) {
+                if (!publishProgress(DecompilerStage::Importing)) return;
+            }
+            const qsizetype begin = line.indexOf(marker);
+            if (begin < 0) continue;
+            const auto fields = line.mid(begin + marker.size()).trimmed().split(' ').first().split(':');
+            if (fields.size() != 3) continue;
+            const auto stage = fields[0] == "importing" ? DecompilerStage::Importing
+                : fields[0] == "analyzing" ? DecompilerStage::Analyzing
+                : fields[0] == "locating_function" ? DecompilerStage::LocatingFunction
+                : fields[0] == "decompiling" ? DecompilerStage::Decompiling
+                : fields[0] == "rendering" ? DecompilerStage::Rendering : DecompilerStage::PreparingSnapshot;
+            bool completedOk = false, totalOk = false;
+            const qint64 completed = fields[1].toLongLong(&completedOk);
+            const qint64 total = fields[2].toLongLong(&totalOk);
+            if (!completedOk || !totalOk || stage == DecompilerStage::PreparingSnapshot ||
+                static_cast<int>(stage) < static_cast<int>(m_state->progress.stage)) continue;
+            if (!publishProgress(stage, completed, total)) return;
+        }
+        if (m_state->progressBytes.size() > 4096) m_state->progressBytes = m_state->progressBytes.right(4096);
     }
 
     void GhidraDecompiler::cancel() { if (m_state->running) stopProcess(QStringLiteral("cancelled")); }
@@ -620,7 +778,8 @@ namespace ks::ui
                 } else if (!object.value(QStringLiteral("success")).toBool()) {
                     const QString backendError = object.value(QStringLiteral("error")).toString();
                     const QStringList allowed { QStringLiteral("unsupported_architecture"), QStringLiteral("invalid_address"),
-                        QStringLiteral("no_function_at_address"), QStringLiteral("timeout"), QStringLiteral("output_limit"), QStringLiteral("decompilation_failed") };
+                        QStringLiteral("no_function_at_address"), QStringLiteral("timeout"), QStringLiteral("output_limit"),
+                        QStringLiteral("decompilation_failed"), QStringLiteral("invalid_instruction_data") };
                     result.error = allowed.contains(backendError) ? backendError : QStringLiteral("decompilation_failed");
                 } else {
                     result.code = object.value(QStringLiteral("code")).toString();
@@ -644,7 +803,11 @@ namespace ks::ui
                         result.lineAddressValid.append(mapped);
                     }
                     result.boundaryInferred = object.value(QStringLiteral("boundaryInferred")).toBool();
-                    if (valid) result.success = true;
+                    if (valid && containsBadInstructionDiagnostic(result.code)) {
+                        result.code.clear(); result.lineAddresses.clear(); result.lineAddressValid.clear();
+                        result.error = QStringLiteral("invalid_instruction_data");
+                    }
+                    else if (valid) result.success = true;
                     else { result.code.clear(); result.lineAddresses.clear(); result.lineAddressValid.clear(); result.error = QStringLiteral("invalid_result"); }
                 }
             }

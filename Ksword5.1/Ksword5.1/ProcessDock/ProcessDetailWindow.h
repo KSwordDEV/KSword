@@ -10,6 +10,7 @@
 
 #include "../Framework.h"
 #include "ProcessAffinityModel.h"
+#include "../UI/AsyncOperation.h"
 
 #include <QHash>
 #include <QIcon>
@@ -71,6 +72,8 @@ public:
     // - 初始化所有 UI 与交互连接；
     // - 启动模块页首次异步刷新。
     explicit ProcessDetailWindow(const ks::process::ProcessRecord& baseRecord, QWidget* parent = nullptr);
+    // 派生成员销毁前关闭模块刷新门禁，阻止后台完成回调借用页面。
+    ~ProcessDetailWindow() override;
 
     // updateBaseRecord 作用：
     // - 用外部最新进程快照更新窗口展示；
@@ -605,6 +608,9 @@ private:
     // ======== 模块页刷新 ========
     void requestAsyncModuleRefresh(bool forceRefresh);
     void applyModuleRefreshResult(const ModuleRefreshResult& refreshResult);
+    // 回填及菜单延期重放前重新核验代次和进程实例；false 表示仍在等待屏障。
+    bool tryApplyModuleRefreshResult(std::uint64_t ticket, std::uint32_t processId,
+        std::uint64_t creationTime, const ModuleRefreshResult& refreshResult);
     void rebuildModuleTable();
     // filterModuleTable 作用：按搜索框内容隐藏不匹配的模块表行。
     void filterModuleTable(const QString& filterText);
@@ -938,6 +944,7 @@ private:
     OtherDock* m_embeddedWindowDock = nullptr;
 
     bool m_moduleRefreshing = false;           // 模块刷新进行中标记。
+    std::unique_ptr<ks::ui::AsyncOperation> m_moduleOperation; // 单执行/最新 pending 的模块刷新控制器。
     bool m_moduleInitialRefreshStarted = false; // 模块页首次刷新是否已经按需启动。
     bool m_firstModuleRefreshDone = false;     // 首轮模块刷新是否已完成。
     std::uint64_t m_moduleRefreshTicket = 0;   // 模块刷新序号（防乱序）。

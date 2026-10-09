@@ -23,11 +23,16 @@
 #include <QWheelEvent>
 #include <QEasingCurve>
 #include <QVariantAnimation>
+#include <QResizeEvent>
+#include <QHelpEvent>
+#include <QToolTip>
+#include <QSet>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <utility>
+#include <limits>
 
 namespace
 {
@@ -61,20 +66,12 @@ namespace
     // - 1 秒默认跨度能让初始坐标计算保持稳定。
     constexpr std::uint64_t kDefaultRange100ns = 1ULL * 1000ULL * 1000ULL * 10ULL;
 
-    // kLaneCount：
-    // - 为当前 ETW 类型下拉中的主要类别预留独立行；
-    // - 40px 高度较窄，因此点半径会相应减小。
-    constexpr int kLaneCount = 13;
-
-    // themeColorFromText：
-    // - 将主题返回的调色板字符串安全转换为 QColor；
-    // - 当主题文本不是具体 #RRGGBB 时，使用 fallbackColor 保持绘制稳定。
-    QColor themeColorFromText(const QString& colorText, const QColor& fallbackColor)
+    // saturatingAdd：100ns 边界逼近 UINT64_MAX 时不回绕到另一绝对时间会话。
+    std::uint64_t saturatingAdd(const std::uint64_t base, const std::uint64_t duration)
     {
-        QColor colorValue(colorText);
-        return colorValue.isValid() ? colorValue : fallbackColor;
+        return duration > std::numeric_limits<std::uint64_t>::max() - base
+            ? std::numeric_limits<std::uint64_t>::max() : base + duration;
     }
-
     // effectiveWheelDelta：
     // - 从 Qt 滚轮事件中读取最可靠的滚动方向；
     // - 正数表示向上滚动，负数表示向下滚动。
@@ -131,7 +128,7 @@ namespace
 }
 
 ProcessTraceTimelineWidget::ProcessTraceTimelineWidget(QWidget* parent)
-    : QWidget(parent)
+    : QWidget(parent), m_tracks(ks::ui::EtwTimelineTracks())
 {
     // 本控件是窄条时间轴，应该占用父布局提供的全部横向空间。
     setFixedHeight(kTimelineHeight);
@@ -149,6 +146,118 @@ ProcessTraceTimelineWidget::ProcessTraceTimelineWidget(QWidget* parent)
     });
 }
 
+bool ProcessTraceTimelineWidget::setTracks(const std::vector<ks::ui::EventTimelineTrack>& tracks)
+{
+    if (tracks.empty())
+    {
+        return false;
+    }
+    QSet<std::uint32_t> categories; // 配置一次完整校验，失败不改变当前轨道集合。
+    for (const auto& track : tracks)
+    {
+        const auto category = static_cast<std::uint32_t>(track.categoryId);
+        if (track.categoryId == ks::ui::TimelineCategory::Unspecified || categories.contains(category))
+        {
+            return false;
+        }
+        categories.insert(category);
+    }
+    m_tracks = tracks;
+    m_eventBucketsDirty = true;
+    update();
+    return true;
+}
+
+const std::vector<ks::ui::EventTimelineTrack>& ProcessTraceTimelineWidget::tracks() const
+{
+    return m_tracks;
+}
+
+QString ProcessTraceTimelineWidget::trackLabel(const ks::ui::TimelineCategory categoryId) const
+{
+    for (const auto& track : m_tracks)
+    {
+        if (track.categoryId == categoryId)
+        {
+            return ks::i18n::sourceText(track.label);
+        }
+    }
+    return QString();
+}
+
+int ProcessTraceTimelineWidget::aggregationPixelBudget() const
+{
+    return std::max(1, static_cast<int>(std::ceil(timelineRect().width() * devicePixelRatioF())));
+}
+
+void ProcessTraceTimelineWidget::ensureEventBuckets() const
+{
+    const int pixelBudget = aggregationPixelBudget(); // DPR 热变化也会改变绘制预算。
+    if (m_eventBucketsDirty || pixelBudget != m_bucketPixelBudget)
+    {
+        m_eventBuckets = ks::ui::AggregateTimelineEvents(m_eventPointList, m_tracks,
+            m_rangeStart100ns, m_rangeEnd100ns, pixelBudget);
+        m_eventBucketsDirty = false;
+        m_bucketPixelBudget = pixelBudget;
+    }
+}
+
+const std::vector<ks::ui::EventTimelineBucket>& ProcessTraceTimelineWidget::eventBuckets() const
+{
+    ensureEventBuckets();
+    return m_eventBuckets;
+}
+
+std::size_t ProcessTraceTimelineWidget::eventPointCount() const
+{
+    return m_eventPointList.size();
+}
+
+void ProcessTraceTimelineWidget::resizeEvent(QResizeEvent* eventPointer)
+{
+    QWidget::resizeEvent(eventPointer);
+    m_eventBucketsDirty = true;
+    update();
+}
+
+bool ProcessTraceTimelineWidget::event(QEvent* eventPointer)
+{
+    if (eventPointer != nullptr && eventPointer->type() == QEvent::ToolTip)
+    {
+        // 悬停展示当前轨道的真实桶计数和 100ns 边界，不改选区或宿主过滤结果。
+        const auto* help = static_cast<QHelpEvent*>(eventPointer);
+        const QRectF axis = timelineRect();
+        if (axis.contains(help->pos()))
+        {
+            const int lane = std::min(static_cast<int>(m_tracks.size()) - 1,
+                static_cast<int>((help->pos().y() - axis.top()) * m_tracks.size() / axis.height()));
+            const int column = std::min(aggregationPixelBudget() - 1,
+                static_cast<int>((help->pos().x() - axis.left()) * devicePixelRatioF()));
+            QString summary = trackLabel(m_tracks[static_cast<std::size_t>(lane)].categoryId);
+            for (const auto& bucket : eventBuckets())
+            {
+                if (bucket.laneIndex == lane && bucket.pixelColumn == column)
+                {
+                    summary = ks::i18n::contextText(QStringLiteral("timeline.bucket.summary"),
+                        QStringLiteral("%1 · %2 个事件 · %3–%4 (100ns)"))
+                        .arg(summary).arg(static_cast<qulonglong>(bucket.count))
+                        .arg(static_cast<qulonglong>(bucket.minTime100ns))
+                        .arg(static_cast<qulonglong>(bucket.maxTime100ns));
+                    break;
+                }
+            }
+            QToolTip::showText(help->globalPos(), summary + QStringLiteral("\n") + toolTip(), this);
+            return true;
+        }
+    }
+    if (eventPointer != nullptr && (eventPointer->type() == QEvent::LanguageChange ||
+        eventPointer->type() == QEvent::ApplicationPaletteChange))
+    {
+        update(); // 重译/换主题不重新分桶，不重置绝对时间选区。
+    }
+    return QWidget::event(eventPointer);
+}
+
 void ProcessTraceTimelineWidget::setCaptureRange(
     const std::uint64_t start100ns,
     const std::uint64_t end100ns)
@@ -156,7 +265,7 @@ void ProcessTraceTimelineWidget::setCaptureRange(
     // normalizedEnd100ns 用途：即使采集刚开始或调用方传入相同起止值，也保证时间轴范围非零。
     const std::uint64_t normalizedEnd100ns = end100ns > start100ns
         ? end100ns
-        : start100ns + kDefaultRange100ns;
+        : saturatingAdd(start100ns, kDefaultRange100ns);
 
     const bool hadRange = m_rangeEnd100ns > m_rangeStart100ns;
     if (hadRange)
@@ -173,6 +282,7 @@ void ProcessTraceTimelineWidget::setCaptureRange(
     }
     m_rangeStart100ns = start100ns;
     m_rangeEnd100ns = normalizedEnd100ns;
+    m_eventBucketsDirty = true; // 新范围不能继续使用旧范围的像素桶。
 
     // 用户未手动调整选区前，选区持续覆盖完整捕获范围，避免默认产生隐式时间过滤。
     if (!hadRange || !m_userAdjustedSelection)
@@ -191,12 +301,13 @@ void ProcessTraceTimelineWidget::setCaptureRange(
 void ProcessTraceTimelineWidget::resetTimeline(const std::uint64_t start100ns)
 {
     m_eventPointList.clear();
+    m_eventBucketsDirty = true;
     m_rateAnimation->stop();
     m_rateAnimationProgress = 1.0;
     m_hasPreviousRatePoint = false;
     m_ratePointList.clear();
     m_rangeStart100ns = start100ns;
-    m_rangeEnd100ns = start100ns + kDefaultRange100ns;
+    m_rangeEnd100ns = saturatingAdd(start100ns, kDefaultRange100ns);
     m_previousRateRangeStart100ns = m_rangeStart100ns;
     m_previousRateRangeEnd100ns = m_rangeEnd100ns;
     m_hasPreviousRateRange = false;
@@ -222,58 +333,19 @@ void ProcessTraceTimelineWidget::resetSelectionToFullRange()
     update();
 }
 
-void ProcessTraceTimelineWidget::setEventPoints(
+bool ProcessTraceTimelineWidget::setEventPoints(
     const std::vector<ProcessTraceTimelineEventPoint>& eventPointList)
 {
-    // 时间轴高度固定且横向分辨率有限，几千个同像素事件点不会提供更多视觉信息，
-    // 却会让每次重绘执行成千上万次 drawEllipse。表格仍保存完整事件；这里仅对绘制投影做分桶。
-    constexpr int kMaxBucketsPerLane = 96;
-    constexpr int kMaximumDrawablePoints = kLaneCount * kMaxBucketsPerLane;
-
-    if (eventPointList.size() <= static_cast<std::size_t>(kMaximumDrawablePoints)
-        || m_rangeEnd100ns <= m_rangeStart100ns)
+    if (std::any_of(eventPointList.begin(), eventPointList.end(), [](const auto& point)
+        { return point.categoryId == ks::ui::TimelineCategory::Unspecified; }))
     {
-        m_eventPointList = eventPointList;
-        update();
-        return;
+        return false; // 外部旧两字段初始化必须明确适配，不能悄悄改变其原泳道。
     }
-
-    std::vector<int> bucketIndexList(static_cast<std::size_t>(kMaximumDrawablePoints), -1);
-    std::vector<ProcessTraceTimelineEventPoint> compactPointList;
-    compactPointList.reserve(static_cast<std::size_t>(kMaximumDrawablePoints));
-    const std::uint64_t rangeDuration100ns = m_rangeEnd100ns - m_rangeStart100ns;
-
-    for (const ProcessTraceTimelineEventPoint& pointValue : eventPointList)
-    {
-        if (pointValue.time100ns < m_rangeStart100ns || pointValue.time100ns > m_rangeEnd100ns)
-        {
-            continue;
-        }
-
-        const int laneIndex = laneForType(pointValue.typeText);
-        const std::uint64_t elapsed100ns = pointValue.time100ns - m_rangeStart100ns;
-        const double bucketPosition = static_cast<double>(elapsed100ns)
-            * static_cast<double>(kMaxBucketsPerLane)
-            / static_cast<double>(rangeDuration100ns);
-        const int bucketIndex = std::min(
-            kMaxBucketsPerLane - 1,
-            static_cast<int>(bucketPosition));
-        const int combinedIndex = laneIndex * kMaxBucketsPerLane + bucketIndex;
-        int& compactIndex = bucketIndexList[static_cast<std::size_t>(combinedIndex)];
-        if (compactIndex < 0)
-        {
-            compactIndex = static_cast<int>(compactPointList.size());
-            compactPointList.push_back(pointValue);
-        }
-        else
-        {
-            // 同一格保留最新事件，使正在发生的活动在时间轴上更容易被观察到。
-            compactPointList[static_cast<std::size_t>(compactIndex)] = pointValue;
-        }
-    }
-
-    m_eventPointList = std::move(compactPointList);
+    // 原始点完整保留；范围或 viewport 改变后能重新聚合，绝不只保留每格最新事件。
+    m_eventPointList = eventPointList;
+    m_eventBucketsDirty = true;
     update();
+    return true;
 }
 
 void ProcessTraceTimelineWidget::setRateOverlayPoints(
@@ -301,57 +373,6 @@ void ProcessTraceTimelineWidget::setRateOverlayPoints(
     m_rateAnimation->start();
 }
 
-ProcessTraceTimelineRatePoint ProcessTraceTimelineWidget::animatedRatePointAt(
-    const std::size_t pointIndex) const
-{
-    const ProcessTraceTimelineRatePoint targetPoint = m_ratePointList[pointIndex];
-    if (!m_hasPreviousRatePoint || pointIndex + 1U != m_ratePointList.size() || m_rateAnimationProgress >= 1.0)
-    {
-        return targetPoint;
-    }
-    ProcessTraceTimelineRatePoint result = targetPoint;
-    if (targetPoint.time100ns >= m_previousRatePoint.time100ns)
-    {
-        result.time100ns = m_previousRatePoint.time100ns + static_cast<std::uint64_t>(
-            static_cast<long double>(targetPoint.time100ns - m_previousRatePoint.time100ns)
-            * m_rateAnimationProgress);
-    }
-    else
-    {
-        result.time100ns = targetPoint.time100ns;
-    }
-    result.uploadBytesPerSecond = m_previousRatePoint.uploadBytesPerSecond
-        + (targetPoint.uploadBytesPerSecond - m_previousRatePoint.uploadBytesPerSecond) * m_rateAnimationProgress;
-    result.downloadBytesPerSecond = m_previousRatePoint.downloadBytesPerSecond
-        + (targetPoint.downloadBytesPerSecond - m_previousRatePoint.downloadBytesPerSecond) * m_rateAnimationProgress;
-    return result;
-}
-
-double ProcessTraceTimelineWidget::animatedRateTimeToX(const std::uint64_t time100ns) const
-{
-    long double rangeStart = static_cast<long double>(m_rangeStart100ns);
-    long double rangeEnd = static_cast<long double>(m_rangeEnd100ns);
-    if (m_hasPreviousRateRange && m_rateAnimationProgress < 1.0)
-    {
-        const long double progress = m_rateAnimationProgress;
-        rangeStart = static_cast<long double>(m_previousRateRangeStart100ns)
-            + (rangeStart - static_cast<long double>(m_previousRateRangeStart100ns)) * progress;
-        rangeEnd = static_cast<long double>(m_previousRateRangeEnd100ns)
-            + (rangeEnd - static_cast<long double>(m_previousRateRangeEnd100ns)) * progress;
-    }
-
-    const QRectF axisRect = timelineRect();
-    if (rangeEnd <= rangeStart)
-    {
-        return axisRect.left();
-    }
-    const long double ratio = std::clamp(
-        (static_cast<long double>(time100ns) - rangeStart) / (rangeEnd - rangeStart),
-        0.0L,
-        1.0L);
-    return axisRect.left() + axisRect.width() * static_cast<double>(ratio);
-}
-
 void ProcessTraceTimelineWidget::setSelectionChangedCallback(
     std::function<void(std::uint64_t, std::uint64_t)> callbackValue)
 {
@@ -366,190 +387,6 @@ std::uint64_t ProcessTraceTimelineWidget::selectionStart100ns() const
 std::uint64_t ProcessTraceTimelineWidget::selectionEnd100ns() const
 {
     return m_selectionEnd100ns;
-}
-
-void ProcessTraceTimelineWidget::paintEvent(QPaintEvent* eventPointer)
-{
-    (void)eventPointer;
-
-    QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-
-    const QRectF axisRect = timelineRect();
-    // themeColorFromText 用途：KswordTheme 可能返回 palette(mid) 这类样式表文本，
-    // 绘图 API 需要真实 QColor，因此这里统一提供深浅色兜底。
-    const QColor borderColor = themeColorFromText(
-        KswordTheme::BorderColorHex(),
-        KswordTheme::BorderColor());
-    const QColor surfaceColor = themeColorFromText(
-        KswordTheme::SurfaceColorHex(),
-        KswordTheme::SurfaceColor());
-    const QColor textColor = themeColorFromText(
-        KswordTheme::TextSecondaryColorHex(),
-        KswordTheme::TextSecondaryColor());
-
-    // 背景与边框：
-    // - 这个矩形本身代表完整时间范围；
-    // - 即使没有事件，也要保留清晰边界。
-    painter.setPen(QPen(borderColor, 1.0));
-    painter.setBrush(surfaceColor);
-    painter.drawRect(axisRect);
-
-    // 行分隔线只做弱提示，主要类别信息由事件点颜色表达。
-    painter.setPen(QPen(borderColor, 0.5));
-    for (int laneIndex = 1; laneIndex < kLaneCount; ++laneIndex)
-    {
-        const double yValue = axisRect.top()
-            + axisRect.height() * static_cast<double>(laneIndex)
-            / static_cast<double>(kLaneCount);
-        painter.drawLine(QPointF(axisRect.left(), yValue), QPointF(axisRect.right(), yValue));
-    }
-
-    // 分类绘制事件点：
-    // - 每类事件落在稳定纵向行；
-    // - 点透明度为 20%，高密度事件会自然叠加强度。
-    for (const ProcessTraceTimelineEventPoint& pointValue : m_eventPointList)
-    {
-        if (pointValue.time100ns < m_rangeStart100ns || pointValue.time100ns > m_rangeEnd100ns)
-        {
-            continue;
-        }
-
-        const int laneIndex = laneForType(pointValue.typeText);
-        const double laneHeight = axisRect.height() / static_cast<double>(kLaneCount);
-        const double yValue = axisRect.top() + laneHeight * (static_cast<double>(laneIndex) + 0.5);
-        const double xValue = timeToX(pointValue.time100ns);
-
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(colorForType(pointValue.typeText));
-        painter.drawEllipse(QPointF(xValue, yValue), 1.7, 1.7);
-    }
-
-    // 速率折线叠加：
-    // - 折线使用同一条 X 轴，Y 轴按当前可见范围内的峰值自适应；
-    // - 绿色表示上传/出站，蓝色表示下载/入站；
-    // - 折线绘制在选区框之前，保证框选区域仍然位于最上层。
-    if (!m_ratePointList.empty() && m_rangeEnd100ns > m_rangeStart100ns)
-    {
-        double maxVisibleRate = 0.0;
-        for (const ProcessTraceTimelineRatePoint& ratePoint : m_ratePointList)
-        {
-            if (ratePoint.time100ns < m_rangeStart100ns || ratePoint.time100ns > m_rangeEnd100ns)
-            {
-                continue;
-            }
-            maxVisibleRate = std::max(maxVisibleRate, ratePoint.uploadBytesPerSecond);
-            maxVisibleRate = std::max(maxVisibleRate, ratePoint.downloadBytesPerSecond);
-        }
-
-        if (maxVisibleRate > 0.0)
-        {
-            QPolygonF uploadPolygon;
-            QPolygonF downloadPolygon;
-            const QRectF rateRect = axisRect.adjusted(0.0, 3.0, 0.0, -4.0);
-
-            // appendRatePoint 用途：把“某秒 B/s”映射成折线坐标点。
-            const auto appendRatePoint = [this, &rateRect, maxVisibleRate](
-                QPolygonF& polygon,
-                const std::uint64_t time100ns,
-                const double bytesPerSecond)
-                {
-                    const double clampedRate = std::clamp(bytesPerSecond, 0.0, maxVisibleRate);
-                    const double ratio = maxVisibleRate <= 0.0 ? 0.0 : clampedRate / maxVisibleRate;
-                    const double xValue = animatedRateTimeToX(time100ns);
-                    const double yValue = rateRect.bottom() - rateRect.height() * ratio;
-                    polygon << QPointF(xValue, yValue);
-                };
-
-            for (std::size_t rateIndex = 0; rateIndex < m_ratePointList.size(); ++rateIndex)
-            {
-                const ProcessTraceTimelineRatePoint ratePoint = animatedRatePointAt(rateIndex);
-                if (ratePoint.time100ns < m_rangeStart100ns || ratePoint.time100ns > m_rangeEnd100ns)
-                {
-                    continue;
-                }
-                appendRatePoint(uploadPolygon, ratePoint.time100ns, ratePoint.uploadBytesPerSecond);
-                appendRatePoint(downloadPolygon, ratePoint.time100ns, ratePoint.downloadBytesPerSecond);
-            }
-
-            // 上行/下行沿用绿蓝语义色，但改由 KswordTheme 取值，保证跟随主题与自定义强调色。
-            const QColor uploadLineColor = KswordTheme::WithAlpha(KswordTheme::SuccessColor(), 220);
-            const QColor downloadLineColor = KswordTheme::WithAlpha(KswordTheme::InfoColor(), 220);
-            painter.setBrush(Qt::NoBrush);
-
-            // drawPolyline 需要至少两个点；单秒只有一个采样时退化成圆点，避免折线不可见。
-            painter.setPen(QPen(downloadLineColor, 1.5));
-            if (downloadPolygon.size() > 1)
-            {
-                painter.drawPolyline(downloadPolygon);
-            }
-            else if (downloadPolygon.size() == 1)
-            {
-                painter.setBrush(downloadLineColor);
-                painter.drawEllipse(downloadPolygon.first(), 2.0, 2.0);
-                painter.setBrush(Qt::NoBrush);
-            }
-
-            painter.setPen(QPen(uploadLineColor, 1.5));
-            if (uploadPolygon.size() > 1)
-            {
-                painter.drawPolyline(uploadPolygon);
-            }
-            else if (uploadPolygon.size() == 1)
-            {
-                painter.setBrush(uploadLineColor);
-                painter.drawEllipse(uploadPolygon.first(), 2.0, 2.0);
-                painter.setBrush(Qt::NoBrush);
-            }
-
-            // 简短图例直接绘制在轴内，避免新增控件占用网络 Dock 垂直空间。
-            const QFont originalFont = painter.font();
-            QFont legendFont = originalFont;
-            legendFont.setPointSizeF(std::max(7.0, originalFont.pointSizeF() - 1.0));
-            painter.setFont(legendFont);
-            painter.setPen(uploadLineColor);
-            painter.drawText(
-                axisRect.adjusted(54.0, 1.0, -54.0, 0.0),
-                Qt::AlignTop | Qt::AlignHCenter,
-                ks::i18n::contextText(QStringLiteral("network.timeline.upload"), QStringLiteral("上行")));
-            painter.setPen(downloadLineColor);
-            painter.drawText(
-                axisRect.adjusted(96.0, 1.0, -12.0, 0.0),
-                Qt::AlignTop | Qt::AlignLeft,
-                ks::i18n::contextText(QStringLiteral("network.timeline.download"), QStringLiteral("下行")));
-            painter.setFont(originalFont);
-        }
-    }
-
-    // 选区框放在事件点之后绘制，保证拖拽框始终可见。
-    const QRectF selectedRect = selectionRect();
-    if (!selectedRect.isEmpty())
-    {
-        QColor fillColor(KswordTheme::PrimaryBlueColor);
-        fillColor.setAlpha(36);
-        QColor edgeColor(KswordTheme::PrimaryBlueColor);
-        edgeColor.setAlpha(220);
-
-        painter.setBrush(fillColor);
-        painter.setPen(QPen(edgeColor, 1.5));
-        painter.drawRect(selectedRect);
-
-        // 左右把手是两条竖线，不额外创建子控件。
-        painter.setPen(QPen(edgeColor, 2.0));
-        painter.drawLine(selectedRect.topLeft(), selectedRect.bottomLeft());
-        painter.drawLine(selectedRect.topRight(), selectedRect.bottomRight());
-    }
-
-    // 标签最后绘制：
-    // - 左侧固定相对时间 00:00；
-    // - 右侧显示当前或停止后的总耗时。
-    painter.setPen(textColor);
-    const QString leftText = QStringLiteral("00:00");
-    const QString rightText = formatDurationText(m_rangeEnd100ns > m_rangeStart100ns
-        ? (m_rangeEnd100ns - m_rangeStart100ns)
-        : 0);
-    painter.drawText(axisRect.adjusted(5, 0, -5, 0), Qt::AlignLeft | Qt::AlignVCenter, leftText);
-    painter.drawText(axisRect.adjusted(5, 0, -5, 0), Qt::AlignRight | Qt::AlignVCenter, rightText);
 }
 
 void ProcessTraceTimelineWidget::mousePressEvent(QMouseEvent* eventPointer)
@@ -606,26 +443,21 @@ void ProcessTraceTimelineWidget::mouseMoveEvent(QMouseEvent* eventPointer)
     if (m_dragMode == DragMode::Move)
     {
         // 整体移动时保持原选区宽度，只改变左右边界的绝对时间。
-        const qint64 delta100ns = static_cast<qint64>(currentTime100ns)
-            - static_cast<qint64>(m_dragPressTime100ns);
-        qint64 newStart100ns = static_cast<qint64>(m_dragOriginalStart100ns) + delta100ns;
-        qint64 newEnd100ns = static_cast<qint64>(m_dragOriginalEnd100ns) + delta100ns;
-
-        if (newStart100ns < static_cast<qint64>(m_rangeStart100ns))
+        // 全程使用无符号相对差值，高位绝对 FILETIME 不经过有符号 64 位转换。
+        std::uint64_t newStart100ns = m_dragOriginalStart100ns;
+        if (currentTime100ns >= m_dragPressTime100ns)
         {
-            // 左侧越界时贴住时间轴起点，并保持原始宽度。
-            newStart100ns = static_cast<qint64>(m_rangeStart100ns);
-            newEnd100ns = newStart100ns + static_cast<qint64>(originalWidth100ns);
+            newStart100ns = std::min(m_rangeEnd100ns - originalWidth100ns,
+                saturatingAdd(m_dragOriginalStart100ns, currentTime100ns - m_dragPressTime100ns));
         }
-        if (newEnd100ns > static_cast<qint64>(m_rangeEnd100ns))
+        else
         {
-            // 右侧越界时贴住时间轴终点，并保持原始宽度。
-            newEnd100ns = static_cast<qint64>(m_rangeEnd100ns);
-            newStart100ns = newEnd100ns - static_cast<qint64>(originalWidth100ns);
+            const std::uint64_t offset = m_dragPressTime100ns - currentTime100ns;
+            newStart100ns = std::max(m_rangeStart100ns,
+                m_dragOriginalStart100ns > offset ? m_dragOriginalStart100ns - offset : 0);
         }
-
-        m_selectionStart100ns = static_cast<std::uint64_t>(std::max<qint64>(newStart100ns, 0));
-        m_selectionEnd100ns = static_cast<std::uint64_t>(std::max<qint64>(newEnd100ns, 0));
+        m_selectionStart100ns = newStart100ns;
+        m_selectionEnd100ns = newStart100ns + originalWidth100ns;
     }
     else if (m_dragMode == DragMode::ResizeLeft)
     {
@@ -644,8 +476,8 @@ void ProcessTraceTimelineWidget::mouseMoveEvent(QMouseEvent* eventPointer)
     m_userAdjustedSelection = true;
     clampSelectionToRange();
     update();
-    notifySelectionChanged();
     eventPointer->accept();
+    notifySelectionChanged(); // 回调可销毁本控件，之后不再访问this或事件对象。
 }
 
 void ProcessTraceTimelineWidget::mouseReleaseEvent(QMouseEvent* eventPointer)
@@ -700,38 +532,28 @@ void ProcessTraceTimelineWidget::wheelEvent(QWheelEvent* eventPointer)
     // 滚轮方向规则：
     // - 向上扩大选区；
     // - 向下缩小选区。
-    const double scaleFactor = wheelDelta > 0 ? 1.20 : 0.80;
-    std::uint64_t newWidth100ns = static_cast<std::uint64_t>(
-        std::max<double>(
-            static_cast<double>(kMinimumSelection100ns),
-            static_cast<double>(selectionWidth100ns) * scaleFactor));
-    newWidth100ns = std::min(newWidth100ns, rangeWidth100ns);
+    const std::uint64_t scaledWidth = ks::ui::ScaleTimelineDuration(selectionWidth100ns,
+        wheelDelta > 0 ? 6U : 4U, 5U, rangeWidth100ns);
+    const std::uint64_t newWidth100ns = std::min(rangeWidth100ns,
+        std::max(kMinimumSelection100ns, scaledWidth));
 
     // 缩放以鼠标所在时间点为锚点；鼠标不在选区内时比例会被夹到边界。
     const std::uint64_t anchorTime100ns = xToTime(currentWheelPosition(eventPointer).x());
-    const double anchorRatio = selectionWidth100ns == 0
-        ? 0.5
-        : std::clamp(
-            static_cast<double>(anchorTime100ns > m_selectionStart100ns
-                ? anchorTime100ns - m_selectionStart100ns
-                : 0)
-            / static_cast<double>(selectionWidth100ns),
-            0.0,
-            1.0);
-
-    const std::uint64_t leftPart100ns = static_cast<std::uint64_t>(
-        static_cast<double>(newWidth100ns) * anchorRatio);
+    const std::uint64_t anchorOffset = anchorTime100ns > m_selectionStart100ns
+        ? anchorTime100ns - m_selectionStart100ns : 0;
+    const std::uint64_t leftPart100ns = ks::ui::TimelineProportionalOffset(
+        std::min(anchorOffset, selectionWidth100ns), selectionWidth100ns, newWidth100ns);
     m_selectionStart100ns = anchorTime100ns > leftPart100ns
         ? anchorTime100ns - leftPart100ns
         : m_rangeStart100ns;
-    m_selectionEnd100ns = m_selectionStart100ns + newWidth100ns;
+    m_selectionEnd100ns = saturatingAdd(m_selectionStart100ns, newWidth100ns);
 
     // 滚轮缩放同样是用户主动选择时间窗口，需要立即叠加到事件表。
     m_userAdjustedSelection = true;
     clampSelectionToRange();
     update();
-    notifySelectionChanged();
     eventPointer->accept();
+    notifySelectionChanged(); // 接管事件后才回调，允许宿主同步关闭时间轴窗口。
 }
 
 QRectF ProcessTraceTimelineWidget::timelineRect() const
@@ -840,105 +662,13 @@ std::uint64_t ProcessTraceTimelineWidget::xToTime(const double xValue) const
         (xValue - axisRect.left()) / axisRect.width(),
         0.0,
         1.0);
+    if (ratio >= 1.0)
+    {
+        return m_rangeEnd100ns; // 浮点四舍五入不能让最大端点转换或相加溢出。
+    }
     // offset100ns 是相对起点的时间偏移。
     const double offset100ns = static_cast<double>(m_rangeEnd100ns - m_rangeStart100ns) * ratio;
     return m_rangeStart100ns + static_cast<std::uint64_t>(offset100ns);
-}
-
-int ProcessTraceTimelineWidget::laneForType(const QString& typeText) const
-{
-    // 行号与事件类型固定绑定，保证同类事件在不同刷新周期中不会跳行。
-    const QString normalizedText = typeText.trimmed();
-    if (normalizedText == QStringLiteral("进程"))
-    {
-        return 0;
-    }
-    if (normalizedText == QStringLiteral("线程") || normalizedText == QStringLiteral("镜像"))
-    {
-        return normalizedText == QStringLiteral("线程") ? 1 : 2;
-    }
-    if (normalizedText == QStringLiteral("文件"))
-    {
-        return 3;
-    }
-    if (normalizedText == QStringLiteral("注册表"))
-    {
-        return 4;
-    }
-    if (normalizedText == QStringLiteral("网络") || normalizedText == QStringLiteral("DNS"))
-    {
-        return normalizedText == QStringLiteral("网络") ? 5 : 6;
-    }
-    if (normalizedText == QStringLiteral("PowerShell") || normalizedText == QStringLiteral("WMI"))
-    {
-        return normalizedText == QStringLiteral("PowerShell") ? 7 : 8;
-    }
-    if (normalizedText == QStringLiteral("计划任务") || normalizedText == QStringLiteral("安全审计"))
-    {
-        return normalizedText == QStringLiteral("计划任务") ? 9 : 10;
-    }
-    if (normalizedText == QStringLiteral("Defender"))
-    {
-        return 11;
-    }
-    return 12;
-}
-
-QColor ProcessTraceTimelineWidget::colorForType(const QString& typeText) const
-{
-    // 颜色只编码事件大类；透明度统一在函数末尾设置为 20%。
-    QColor colorValue;
-    const QString normalizedText = typeText.trimmed();
-    if (normalizedText == QStringLiteral("进程"))
-    {
-        colorValue = KswordTheme::TimelineColor(KswordTheme::TimelineRole::Process);
-    }
-    else if (normalizedText == QStringLiteral("线程"))
-    {
-        colorValue = KswordTheme::TimelineColor(KswordTheme::TimelineRole::Thread);
-    }
-    else if (normalizedText == QStringLiteral("镜像"))
-    {
-        colorValue = KswordTheme::TimelineColor(KswordTheme::TimelineRole::Image);
-    }
-    else if (normalizedText == QStringLiteral("文件"))
-    {
-        colorValue = KswordTheme::TimelineColor(KswordTheme::TimelineRole::File);
-    }
-    else if (normalizedText == QStringLiteral("注册表"))
-    {
-        colorValue = KswordTheme::TimelineColor(KswordTheme::TimelineRole::Registry);
-    }
-    else if (normalizedText == QStringLiteral("网络"))
-    {
-        colorValue = KswordTheme::TimelineColor(KswordTheme::TimelineRole::Network);
-    }
-    else if (normalizedText == QStringLiteral("DNS"))
-    {
-        colorValue = KswordTheme::TimelineColor(KswordTheme::TimelineRole::Dns);
-    }
-    else if (normalizedText == QStringLiteral("PowerShell"))
-    {
-        colorValue = KswordTheme::TimelineColor(KswordTheme::TimelineRole::PowerShell);
-    }
-    else if (normalizedText == QStringLiteral("WMI"))
-    {
-        colorValue = KswordTheme::TimelineColor(KswordTheme::TimelineRole::Wmi);
-    }
-    else if (normalizedText == QStringLiteral("安全审计"))
-    {
-        colorValue = KswordTheme::TimelineColor(KswordTheme::TimelineRole::Security);
-    }
-    else if (normalizedText == QStringLiteral("Defender"))
-    {
-        colorValue = KswordTheme::TimelineColor(KswordTheme::TimelineRole::Storage);
-    }
-    else
-    {
-        colorValue = KswordTheme::TimelineColor(KswordTheme::TimelineRole::Kernel);
-    }
-
-    return KswordTheme::WithAlpha(colorValue, 51);
 }
 
 QString ProcessTraceTimelineWidget::formatDurationText(const std::uint64_t duration100ns) const
@@ -1010,6 +740,7 @@ void ProcessTraceTimelineWidget::clampSelectionToRange()
     else
     {
         // 其他场景优先保持左边缘不动并扩展右边缘。
+        m_selectionStart100ns = std::min(m_selectionStart100ns, m_rangeEnd100ns - minimumWidth100ns);
         m_selectionEnd100ns = m_selectionStart100ns + minimumWidth100ns;
     }
 
@@ -1026,8 +757,11 @@ void ProcessTraceTimelineWidget::clampSelectionToRange()
 void ProcessTraceTimelineWidget::notifySelectionChanged()
 {
     // 回调为空时只更新自身绘制状态；宿主可选择不绑定筛选逻辑。
-    if (m_selectionChangedCallback)
+    const auto callback = m_selectionChangedCallback; // 自替换不释放正在执行的callable。
+    const std::uint64_t start = m_selectionStart100ns;
+    const std::uint64_t end = m_selectionEnd100ns;
+    if (callback)
     {
-        m_selectionChangedCallback(m_selectionStart100ns, m_selectionEnd100ns);
+        callback(start, end);
     }
 }

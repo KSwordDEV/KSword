@@ -907,7 +907,10 @@ void HandleDock::initializeConnections()
             {
                 ++m_handleDetailRefreshTicket;
                 m_handleDetailRefreshInProgress = false;
-                m_handleDetailRefreshPending = false;
+                if (m_handleDetailOperation)
+                {
+                    m_handleDetailOperation->cancel();
+                }
                 showHandleDetailPlaceholder(QStringLiteral("请选择一个句柄查看详情。"));
                 return;
             }

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // ============================================================
 // RegistryDock.h
@@ -117,6 +117,8 @@ private:
         QString valueDataPreviewText;   // 值数据预览。
         QString hitSourceText;          // 命中来源（KeyName/ValueName/ValueData）。
         bool isKeyResult = false;       // 是否为键命中；false 时为值命中。
+        int viewBits = 0;               // 搜索启动时真实 WOW64 视图。
+        bool useR0 = false;              // 此行实际来源，HKCR 保留 Win32 合并语义。
     };
 
 private:
@@ -141,7 +143,8 @@ private:
     void addLocationTab(const QString& path);
     void backupCurrentKey();
     void restoreBackup();
-    void previewRegistryDocument(const RegistryDocument& document, const QString& title);
+    // 预览与提交保留调用方冻结通道；文档已携带明确的 WOW64 视图。
+    void previewRegistryDocument(const RegistryDocument& document, const QString& title, bool useR0 = false);
     void showKeyPermissions();
     void openOfflineHive();
     void openRelatedItem();
@@ -163,12 +166,14 @@ private:
     void deleteSelectedObject();
     // deleteSearchResultValue：
     // - 作用：按搜索行保存的完整键路径与原始值名删除一个注册表值。
-    // - 说明：不依赖当前树选择；驱动可用时由 deleteRegistryValueAny 优先走 R0。
-    void deleteSearchResultValue(const QString& keyPath, const QString& rawValueName);
+    // - 说明：捕获目标和视图/通道，暂存后由共享事务提交。
+    void deleteSearchResultValue(const QString& keyPath, const QString& rawValueName,
+        const RegistryAccessContext* capturedContext = nullptr);
     // deleteSearchResultKey：
     // - 作用：按搜索行保存的完整键路径递归删除一个非根注册表键。
     // - 说明：当前浏览位置落在目标子树内时，删除后回退到目标父键。
-    void deleteSearchResultKey(const QString& keyPath);
+    void deleteSearchResultKey(const QString& keyPath,
+        const RegistryAccessContext* capturedContext = nullptr);
     void editSelectedValue();
     void copyCurrentPathToClipboard();
     // copyCurrentKernelPathToClipboard：
@@ -192,54 +197,6 @@ private:
     // shouldUseRegistryR0：
     // - 作用：判断当前注册表页是否应优先使用驱动读写。
     bool shouldUseRegistryR0() const;
-    // readRegistryValueAny：
-    // - 作用：R0 在线时走驱动，否则退回 Win32 读取指定值。
-    bool readRegistryValueAny(
-        const QString& keyPath,
-        const QString& valueName,
-        DWORD* typeOut,
-        QByteArray* dataOut,
-        QString* errorTextOut);
-    // writeRegistryValueAny：
-    // - 作用：R0 在线时走驱动，否则退回 Win32 写入指定值。
-    bool writeRegistryValueAny(
-        const QString& keyPath,
-        const QString& valueName,
-        DWORD valueType,
-        const QByteArray& rawData,
-        QString* errorTextOut);
-    // createRegistryKeyAny：
-    // - 作用：R0 在线时走驱动，否则退回 Win32 创建键。
-    bool createRegistryKeyAny(const QString& fullKeyPath, QString* errorTextOut);
-    // deleteRegistryKeyAny：
-    // - 作用：R0 在线时通过驱动递归删除，否则退回 Win32 删除树。
-    bool deleteRegistryKeyAny(const QString& fullKeyPath, QString* errorTextOut);
-    // deleteRegistryValueAny：
-    // - 作用：R0 在线时走驱动，否则退回 Win32 删除值。
-    bool deleteRegistryValueAny(
-        const QString& keyPath,
-        const QString& valueName,
-        QString* errorTextOut);
-    // renameRegistryValueAny：
-    // - 作用：R0 在线时走驱动，否则用 Win32 读写删除完成值重命名。
-    bool renameRegistryValueAny(
-        const QString& keyPath,
-        const QString& oldValueName,
-        const QString& newValueName,
-        QString* errorTextOut);
-    // renameRegistryKeyAny：
-    // - 作用：R0 在线时走驱动，否则调用系统 RegRenameKey。
-    bool renameRegistryKeyAny(
-        const QString& fullKeyPath,
-        const QString& newKeyName,
-        QString* newFullKeyPathOut,
-        QString* errorTextOut);
-    // deleteRegistryKeyByR0Recursive：
-    // - 作用：仅使用驱动枚举与删除，递归删除非空注册表键。
-    bool deleteRegistryKeyByR0Recursive(
-        const QString& kernelKeyPath,
-        QString* errorTextOut) const;
-
     // ===================== 导入导出 =====================
     void exportCurrentKeyAsync();
     void importRegFileAsync();
@@ -274,20 +231,6 @@ private:
     static QString rootKeyToText(HKEY rootKey);
     static QString valueTypeToText(DWORD valueType);
     static QString formatValueData(DWORD valueType, const QByteArray& valueData);
-    static bool writeRegistryValue(
-        HKEY rootKey,
-        const QString& subPath,
-        const QString& valueName,
-        DWORD valueType,
-        const QByteArray& rawData,
-        QString* errorTextOut);
-    static bool readRegistryValueRaw(
-        HKEY rootKey,
-        const QString& subPath,
-        const QString& valueName,
-        DWORD* valueTypeOut,
-        QByteArray* rawDataOut,
-        QString* errorTextOut);
     static QString winErrorText(LONG errorCode);
 
 private:
@@ -391,4 +334,3 @@ private:
     std::shared_ptr<RegistryApplyResult> m_lastDocumentResult;
     std::shared_ptr<std::atomic_bool> m_documentCancel;
 };
-

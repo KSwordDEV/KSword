@@ -1,6 +1,7 @@
 #include "MonitorPanelWidget.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../../../shared/ui/KsPainterChart.h"
+#include "../../../shared/ui/MetricChartBinding.h"
 
 // ============================================================
 // MonitorPanelWidget.cpp
@@ -775,7 +776,8 @@ void MonitorPanelWidget::refreshMetrics()
 
     // 采样并更新内存合并图：折线表示总占用，面积颜色表示当前时刻组成比例。
     MemoryCompositionSample memorySample{};
-    if (!sampleMemoryUsage(&memorySample))
+    m_metricMemoryValid = sampleMemoryUsage(&memorySample);
+    if (!m_metricMemoryValid)
     {
         memorySample = MemoryCompositionSample{};
     }
@@ -802,7 +804,8 @@ void MonitorPanelWidget::refreshMetrics()
     // 采样并更新磁盘/网络折线图。
     double diskReadBytesPerSec = 0.0;
     double diskWriteBytesPerSec = 0.0;
-    if (!sampleDiskRate(&diskReadBytesPerSec, &diskWriteBytesPerSec))
+    m_metricDiskValid = sampleDiskRate(&diskReadBytesPerSec, &diskWriteBytesPerSec);
+    if (!m_metricDiskValid)
     {
         diskReadBytesPerSec = 0.0;
         diskWriteBytesPerSec = 0.0;
@@ -810,12 +813,14 @@ void MonitorPanelWidget::refreshMetrics()
 
     double networkRxBytesPerSec = 0.0;
     double networkTxBytesPerSec = 0.0;
-    if (!sampleNetworkRate(&networkRxBytesPerSec, &networkTxBytesPerSec))
+    m_metricNetworkValid = sampleNetworkRate(&networkRxBytesPerSec, &networkTxBytesPerSec);
+    if (!m_metricNetworkValid)
     {
         networkRxBytesPerSec = 0.0;
         networkTxBytesPerSec = 0.0;
     }
 
+    m_metricSampleTimeMs = QDateTime::currentMSecsSinceEpoch(); // 本帧各指标时间一致。
     ++m_sampleCounter;
     appendLineSample(m_memoryUsedSeries, m_memoryTrendAxisX, m_memoryTrendAxisY, memoryUsedTopPercent);
     appendLineSample(m_memoryStandbyTopSeries, m_memoryTrendAxisX, m_memoryTrendAxisY, memoryStandbyTopPercent);
@@ -842,18 +847,9 @@ void MonitorPanelWidget::refreshMetrics()
             return;
         }
 
-        double maxYValue = 1.0;
-        const QList<QPointF> firstPointList = firstSeries->points();
-        const QList<QPointF> secondPointList = secondSeries->points();
-        for (const QPointF& pointValue : firstPointList)
-        {
-            maxYValue = std::max(maxYValue, pointValue.y());
-        }
-        for (const QPointF& pointValue : secondPointList)
-        {
-            maxYValue = std::max(maxYValue, pointValue.y());
-        }
-        axisY->setRange(0.0, maxYValue * 1.2);
+        const auto range = ks::ui::MetricChartBinding::SharedRange({ firstSeries, secondSeries },
+            ks::ui::MetricXMode::RelativeSlot, { 0.0, 1.0, 1.2, {} });
+        axisY->setRange(range.minimumY, range.maximumY);
     };
     updateAxisRangeByPair(m_diskReadSeries, m_diskWriteSeries, m_diskAxisY);
     updateAxisRangeByPair(m_networkRxSeries, m_networkTxSeries, m_networkAxisY);
@@ -1114,49 +1110,28 @@ bool MonitorPanelWidget::sampleNetworkRate(
     return true;
 }
 
-void MonitorPanelWidget::appendLineSample(
-    QLineSeries* series,
-    QValueAxis* axisX,
-    QValueAxis* axisY,
-    const double value)
+void MonitorPanelWidget::appendLineSample(QLineSeries* series, QValueAxis* axisX,
+    QValueAxis* axisY, const double value)
 {
     if (series == nullptr || axisX == nullptr || axisY == nullptr)
     {
         return;
     }
-
-    // 折线图使用固定 X 坐标窗口：
-    // 1) 新点从右侧进入；
-    // 2) 旧点整体左移，形成平移感；
-    // 3) 避免 QChart 每次把整条曲线从起点重新动画播放。
-    QList<QPointF> pointList = series->points();
-    pointList.push_back(QPointF(static_cast<double>(pointList.size()), value));
-    while (pointList.size() > m_historyLength)
+    bool valid = m_metricMemoryValid; // 内存组成边界默认沿用同一有效位。
+    if (series == m_diskReadSeries || series == m_diskWriteSeries)
     {
-        pointList.removeFirst();
+        valid = m_metricDiskValid;
     }
-    for (int pointIndex = 0; pointIndex < pointList.size(); ++pointIndex)
+    else if (series == m_networkRxSeries || series == m_networkTxSeries)
     {
-        pointList[pointIndex].setX(static_cast<double>(pointIndex));
+        valid = m_metricNetworkValid;
     }
-    series->replace(pointList);
-
-
-    if (pointList.isEmpty())
-    {
-        return;
-    }
-
-    const double minX = pointList.first().x();
-    const double maxX = pointList.last().x();
-    axisX->setRange(minX, std::max(maxX, minX + 1.0));
-
-    double maxYValue = 1.0;
-    for (const QPointF& pointValue : pointList)
-    {
-        maxYValue = std::max(maxYValue, pointValue.y());
-    }
-    axisY->setRange(0.0, maxYValue * 1.2);
+    auto* binding = ks::ui::MetricChartBinding::ForSeries(series, m_historyLength);
+    binding->setXMode(ks::ui::MetricXMode::RelativeSlot); // 保留固定槽位左移的监视面板动画。
+    binding->append({ static_cast<std::uint64_t>(m_sampleCounter), m_metricSampleTimeMs, value, valid });
+    const auto range = binding->range({ 0.0, 1.0, 1.2, {} });
+    axisX->setRange(range.minimumX, range.maximumX);
+    axisY->setRange(range.minimumY, range.maximumY);
 }
 
 void MonitorPanelWidget::applyChartTextTheme()

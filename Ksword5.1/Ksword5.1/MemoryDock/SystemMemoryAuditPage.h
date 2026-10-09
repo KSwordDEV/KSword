@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // ============================================================
 // SystemMemoryAuditPage.h
@@ -28,7 +28,7 @@ class QComboBox;
 class QEvent;
 class QLabel;
 class QLineEdit;
-class QPlainTextEdit;
+class CodeEditorWidget;
 class QPushButton;
 class QSpinBox;
 class QTableWidget;
@@ -274,7 +274,7 @@ private:
     QTableWidget* m_processTable = nullptr;
     QTableWidget* m_poolTagTable = nullptr;
     QTableWidget* m_bigPoolTable = nullptr;
-    QPlainTextEdit* m_detailText = nullptr;
+    CodeEditorWidget* m_detailText = nullptr;
     QLabel* m_statusLabel = nullptr;
     QTimer* m_autoRefreshTimer = nullptr;
 

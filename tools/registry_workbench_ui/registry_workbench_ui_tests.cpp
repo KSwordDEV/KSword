@@ -164,8 +164,8 @@ namespace {
         dock.navigateToPath(QStringLiteral("HKEY_CURRENT_USER"), true);
         QString renamedPath;
         QString renameError;
-        check(dock.renameRegistryKeyAny(QStringLiteral("HKEY_CLASSES_ROOT\\RenameSource"),
-            QStringLiteral("RenameTarget"), &renamedPath, &renameError),
+        check(RegistryWorkbenchAccess::renameKey(QStringLiteral("HKEY_CLASSES_ROOT\\RenameSource"),
+            QStringLiteral("RenameTarget"), dock.accessContextForPath(QStringLiteral("HKEY_CLASSES_ROOT\\RenameSource")), &renamedPath, &renameError),
             "HKCR rename executes Win32 transport while R0 is online");
         check(registry_ui::win32KeyRenames == 1 && registry_ui::r0KeyRenames == 0,
             "HKCR rename never enters R0 transport");

@@ -1,16 +1,16 @@
-// NOMINMAX 必须排在任何一个 include 之前：下面几个项目头会级联引入 Windows.h，
+﻿// NOMINMAX 必须排在任何一个 include 之前：下面几个项目头会级联引入 Windows.h，
 // 等到那时候再定义就晚了，min/max 宏一旦进来就会把 std:: 里的同名模板打断。
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 
 #include "HvmHookWizard.h"
-#include "CodeTextEdit.h"
+#include "CodeEditorWidget.h"
 
 #include "HvmControl.h"
 #include "ThemeStatusRole.h"
 #include "UI_All.h"
-#include "MemoryEditorWidget.h"
+#include "MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "../Framework/DestructiveActionConfirmation.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../KernelDock/KernelThreadAuditTab.h"
@@ -24,7 +24,6 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
-#include <QPlainTextEdit>
 #include <QPointer>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -351,7 +350,7 @@ namespace ks::ui
         case Step::Install:
             if (m_installSummaryView != nullptr)
             {
-                m_installSummaryView->setPlainText(buildInstallSummaryText());
+                m_installSummaryView->setReportText(buildInstallSummaryText());
             }
             break;
         case Step::Verify:
@@ -1383,8 +1382,7 @@ namespace ks::ui
         QWidget* const page = new QWidget(this);
         QVBoxLayout* const pageLayout = new QVBoxLayout(page);
 
-        m_installSummaryView = new CodeTextEdit(page);
-        static_cast<CodeTextEdit*>(m_installSummaryView)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+        m_installSummaryView = new CodeEditorWidget(page);
         m_installSummaryView->setReadOnly(true);
         makeMonospace(m_installSummaryView);
         pageLayout->addWidget(m_installSummaryView, 1);
@@ -1660,7 +1658,7 @@ namespace ks::ui
             }
             if (m_installSummaryView != nullptr)
             {
-                m_installSummaryView->setPlainText(
+                m_installSummaryView->setReportText(
                     ks::i18n::sourceText(
                         QStringLiteral("目标页在抓基线之后被改过，已中止安装。变化的页内偏移："))
                     + QStringLiteral("\n")

@@ -1,4 +1,4 @@
-#include "FileDock.h"
+﻿#include "FileDock.h"
 #include "../Framework/DestructiveActionConfirmation.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/VisibleTableWidget.h"
@@ -21,8 +21,9 @@
 #include "../theme.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../UI/CodeTextEdit.h"
-#include "../UI/HexEditorWidget.h"
-#include "../UI/MemoryEditorWidget.h"
+#include "../UI/FieldTreePresenter.h"
+#include "../UI/MemoryWorkbench/HexView.h"
+#include "../UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "../UI/ReportStructuredView.h"
 #include "../UI/ThemeStatusRole.h"
 #include "../UI/TableColumnAutoFit.h"
@@ -4579,241 +4580,25 @@ namespace
         });
     }
 
-    // propertyTreeToPlainText 作用：
-    // - 把“名称/值”两列属性树整棵导出为缩进文本；
-    // - 属性页从纯文本块改成属性树后，这里替代原来的“全选文本框再复制”。
-    // 入参 treeWidget：目标属性树；为空时返回空串。
-    // 返回：分组用方括号成行、属性行为“名称: 值”的多行文本。
-    QString propertyTreeToPlainText(const QTreeWidget* treeWidget)
+    // typed 文件属性直接共享呈现器；所有 R0 字段、属性位和诊断仍由原采集代码生成。
+    QString propertyTreeToPlainText(const QTreeWidget* tree)
     {
-        if (treeWidget == nullptr)
-        {
-            return {};
-        }
-
-        QString exportedText;
-        for (int groupIndex = 0; groupIndex < treeWidget->topLevelItemCount(); ++groupIndex)
-        {
-            const QTreeWidgetItem* groupItem = treeWidget->topLevelItem(groupIndex);
-            if (groupItem == nullptr)
-            {
-                continue;
-            }
-
-            exportedText += groupItem->text(1).isEmpty()
-                ? QStringLiteral("[%1]\n").arg(groupItem->text(0))
-                : QStringLiteral("[%1] %2\n").arg(groupItem->text(0), groupItem->text(1));
-            for (int rowIndex = 0; rowIndex < groupItem->childCount(); ++rowIndex)
-            {
-                const QTreeWidgetItem* rowItem = groupItem->child(rowIndex);
-                if (rowItem == nullptr)
-                {
-                    continue;
-                }
-                exportedText += QStringLiteral("  %1: %2\n").arg(rowItem->text(0), rowItem->text(1));
-            }
-            exportedText += QStringLiteral("\n");
-        }
-        return exportedText;
+        return ks::ui::FieldTreeToPlainText(tree);
     }
 
-    // installPropertyTreeCopyMenu 作用：
-    // - 给“名称/值”两列属性树装上右键复制菜单；
-    // - 提供“只复制值 / 复制整行 / 复制全部”三种粒度：只读文本框时代想取一条路径
-    //   得先手工划选，属性树把每条属性变成独立行后应当直接可取。
-    // 入参 treeWidget：目标属性树；为空时忽略。
-    // 返回：无。
-    void installPropertyTreeCopyMenu(QTreeWidget* treeWidget)
+    QTreeWidgetItem* appendPropertyGroup(QTreeWidget* tree, const QString& title)
     {
-        if (treeWidget == nullptr)
-        {
-            return;
-        }
-
-        treeWidget->setContextMenuPolicy(Qt::CustomContextMenu);
-        QObject::connect(
-            treeWidget,
-            &QTreeWidget::customContextMenuRequested,
-            treeWidget,
-            [treeWidget](const QPoint& localPosition)
-            {
-                QTreeWidgetItem* clickedItem = treeWidget->itemAt(localPosition);
-                if (clickedItem != nullptr)
-                {
-                    treeWidget->setCurrentItem(clickedItem);
-                }
-
-                QMenu menu(treeWidget);
-                menu.setStyleSheet(buildContextMenuStyle());
-                QAction* copyValueAction = menu.addAction(
-                    QIcon(QStringLiteral(":/Icon/process_copy_cell.svg")),
-                    QStringLiteral("复制值"));
-                QAction* copyRowAction = menu.addAction(
-                    QIcon(QStringLiteral(":/Icon/process_copy_row.svg")),
-                    QStringLiteral("复制当前行"));
-                QAction* copyAllAction = menu.addAction(
-                    QIcon(QStringLiteral(":/Icon/process_copy_row.svg")),
-                    QStringLiteral("复制全部"));
-                copyValueAction->setEnabled(clickedItem != nullptr && !clickedItem->text(1).isEmpty());
-                copyRowAction->setEnabled(clickedItem != nullptr);
-
-                QAction* selectedAction = menu.exec(treeWidget->viewport()->mapToGlobal(localPosition));
-                if (selectedAction == nullptr)
-                {
-                    return;
-                }
-
-                QString clipboardText;
-                if (selectedAction == copyValueAction && clickedItem != nullptr)
-                {
-                    clipboardText = clickedItem->text(1);
-                }
-                else if (selectedAction == copyRowAction && clickedItem != nullptr)
-                {
-                    clipboardText = clickedItem->text(1).isEmpty()
-                        ? clickedItem->text(0)
-                        : QStringLiteral("%1: %2").arg(clickedItem->text(0), clickedItem->text(1));
-                }
-                else if (selectedAction == copyAllAction)
-                {
-                    clipboardText = propertyTreeToPlainText(treeWidget);
-                }
-
-                QClipboard* clipboardObject = QApplication::clipboard();
-                if (clipboardObject != nullptr && !clipboardText.isEmpty())
-                {
-                    clipboardObject->setText(clipboardText);
-                }
-            });
+        return ks::ui::AppendFieldGroup(tree, title);
     }
 
-    // appendPropertyGroup 作用：
-    // - 在属性树里新建一个默认展开的顶层分组；
-    // - 分组行加粗且不可选中，避免被当成一条属性复制走。
-    // 入参 tree：目标属性树；titleText：已翻译的分组标题。
-    // 返回：新建分组节点，生命周期由树接管。
-    QTreeWidgetItem* appendPropertyGroup(QTreeWidget* tree, const QString& titleText)
+    QTreeWidgetItem* appendPropertyRow(QTreeWidgetItem* group, const QString& name, const QString& value)
     {
-        QTreeWidgetItem* groupItem = new QTreeWidgetItem(tree);
-        groupItem->setText(0, titleText);
-        QFont groupFont = groupItem->font(0);
-        groupFont.setBold(true);
-        groupItem->setFont(0, groupFont);
-        groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsSelectable);
-        groupItem->setExpanded(true);
-        return groupItem;
+        return group == nullptr ? nullptr : ks::ui::AppendFieldRow(group->treeWidget(), group, name, value);
     }
 
-    // appendPropertyRow 作用：
-    // - 往分组下追加一行“属性名 + 值”；
-    // - 值同时写入 ToolTip，超长路径被列宽截断时悬停仍可看全。
-    // 入参 groupItem：所属分组；nameText/valueText：已翻译的名称与值。
-    // 返回：新建行节点，生命周期由树接管。
-    QTreeWidgetItem* appendPropertyRow(
-        QTreeWidgetItem* groupItem,
-        const QString& nameText,
-        const QString& valueText)
+    void configurePropertyTree(QTreeWidget* tree)
     {
-        QTreeWidgetItem* rowItem = new QTreeWidgetItem(groupItem);
-        rowItem->setText(0, nameText);
-        rowItem->setText(1, valueText);
-        rowItem->setToolTip(1, valueText);
-        return rowItem;
-    }
-
-    // configurePropertyTree 作用：
-    // - 统一属性树的外观与交互：两列、可折叠、不可编辑、不排序、带复制菜单；
-    // - 常规页和各审计页共用，避免同一个窗口里出现两套表现不一致的属性视图。
-    // 入参 treeWidget：目标属性树；为空时忽略。
-    // 返回：无。
-    void configurePropertyTree(QTreeWidget* treeWidget)
-    {
-        if (treeWidget == nullptr)
-        {
-            return;
-        }
-
-        treeWidget->setColumnCount(2);
-        // 字号与统一报告控件里的结构视图同一档：同一个窗口里两种结构化视图不能有两种字号。
-        // 同时标记字体自管：MainWindow 在外观设置变更后会把所有 item view 刷成应用字体，
-        // 不打这个标记的话，用户一改字体设置这里就被刷回默认档。
-        treeWidget->setProperty("ksword_preserve_custom_font", true);
-        treeWidget->setFont(ks::ui::ScaledReportFont(treeWidget->font()));
-        treeWidget->setRootIsDecorated(true);
-        treeWidget->setAlternatingRowColors(true);
-        treeWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
-        treeWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        treeWidget->setUniformRowHeights(true);
-        // 行的先后顺序本身有含义（报告是按采集顺序写的），因此不开排序。
-        treeWidget->setSortingEnabled(false);
-        if (treeWidget->header() != nullptr)
-        {
-            treeWidget->header()->setStretchLastSection(true);
-        }
-        installPropertyTreeCopyMenu(treeWidget);
-    }
-
-    // g_preferPlainTextReportView 作用：
-    // - 记住用户最近一次选择的视图，之后新打开的页面沿用同一选择；
-    // - 只在进程内有效、不落盘：这是“这次排查我想怎么看”，不是需要长期保存的偏好。
-    bool g_preferPlainTextReportView = false;
-
-    // buildSwitchableView 作用：
-    // - 输入 parent、已填好的属性树和同一份内容的只读文本视图；
-    // - 处理：两者叠进 QStackedWidget，右上角放一个视图切换下拉框；
-    //   结构视图按字段分行，适合逐条查看和复制；原始文本保留完整报告，
-    //   适合 Ctrl+F 全文检索和整段贴进工单。两者各有不可替代的场合，
-    //   所以不替用户二选一，而是当场可切；
-    // - 返回：可直接放进页面布局的容器控件。
-    QWidget* buildSwitchableView(
-        QWidget* parent,
-        QTreeWidget* propertyTree,
-        CodeEditorWidget* textEditor)
-    {
-        QWidget* container = new QWidget(parent);
-        QVBoxLayout* containerLayout = new QVBoxLayout(container);
-        containerLayout->setContentsMargins(0, 0, 0, 0);
-        containerLayout->setSpacing(4);
-
-        auto& languageManager = ks::i18n::LanguageManager::instance();
-        QComboBox* viewModeCombo = new QComboBox(container);
-        viewModeCombo->addItem(QStringLiteral("结构视图"));
-        viewModeCombo->addItem(QStringLiteral("原始文本"));
-        languageManager.bindComboBoxItem(
-            viewModeCombo, 0, QStringLiteral("file.detail.view.structured"), QStringLiteral("结构视图"));
-        languageManager.bindComboBoxItem(
-            viewModeCombo, 1, QStringLiteral("file.detail.view.plain_text"), QStringLiteral("原始文本"));
-        viewModeCombo->setToolTip(
-            QStringLiteral("结构视图按字段分行，便于逐条查看和复制；原始文本保留完整报告，便于全文检索和整段复制"));
-        languageManager.bindToolTip(
-            viewModeCombo,
-            QStringLiteral("file.detail.view.tooltip"),
-            QStringLiteral("结构视图按字段分行，便于逐条查看和复制；原始文本保留完整报告，便于全文检索和整段复制"));
-
-        QHBoxLayout* headerLayout = new QHBoxLayout();
-        headerLayout->setContentsMargins(0, 0, 0, 0);
-        headerLayout->addStretch(1);
-        headerLayout->addWidget(viewModeCombo, 0);
-        containerLayout->addLayout(headerLayout, 0);
-
-        QStackedWidget* viewStack = new QStackedWidget(container);
-        viewStack->addWidget(propertyTree);
-        viewStack->addWidget(textEditor);
-        containerLayout->addWidget(viewStack, 1);
-
-        const int initialViewIndex = g_preferPlainTextReportView ? 1 : 0;
-        viewModeCombo->setCurrentIndex(initialViewIndex);
-        viewStack->setCurrentIndex(initialViewIndex);
-        QObject::connect(
-            viewModeCombo,
-            QOverload<int>::of(&QComboBox::currentIndexChanged),
-            viewStack,
-            [viewStack](const int viewIndex)
-            {
-                viewStack->setCurrentIndex(viewIndex);
-                g_preferPlainTextReportView = viewIndex == 1;
-            });
-        return container;
+        ks::ui::ConfigureFieldTree(tree, true);
     }
 
     // buildReportView 作用：
@@ -7275,8 +7060,9 @@ namespace
                 return;
             }
 
-            // 树内容已经过翻译，这里必须用 setRawText，避免再翻一次。
-            m_generalTextEditor->setRawText(propertyTreeToPlainText(m_generalPropertyTree));
+            // 树内容已经本地化，setReportText 原样接入共享切换器，不再次翻译。
+            ks::ui::RefreshFieldTree(m_generalPropertyTree);
+            m_generalTextEditor->setReportText(propertyTreeToPlainText(m_generalPropertyTree));
         }
 
         void startHashCalculation(
@@ -8593,13 +8379,13 @@ namespace
         }
 
         void startSignatureLoad(QWidget* page, QLabel* stateLabel, QLabel* hintLabel,
-            const QVector<QPointer<QLabel>>& values, QPlainTextEdit* evidenceEditor)
+            const QVector<QPointer<QLabel>>& values, CodeEditorWidget* evidenceEditor)
         {
             const QString filePathSnapshot = m_filePath;
             const QString ntPathSnapshot = buildDriverNtPath(filePathSnapshot);
             const QPointer<QWidget> pageGuard(page);
             const QPointer<QLabel> stateGuard(stateLabel), hintGuard(hintLabel);
-            const QPointer<QPlainTextEdit> evidenceGuard(evidenceEditor);
+            const QPointer<CodeEditorWidget> evidenceGuard(evidenceEditor);
             auto* task = QRunnable::create([pageGuard, stateGuard, hintGuard, values, evidenceGuard,
                 filePathSnapshot, ntPathSnapshot]()
                 {
@@ -8644,7 +8430,7 @@ namespace
                     if (pageGuard == nullptr) return;
                     QMetaObject::invokeMethod(pageGuard.data(), [evidenceGuard, evidence]()
                         {
-                            if (evidenceGuard != nullptr) evidenceGuard->setPlainText(evidence);
+                            if (evidenceGuard != nullptr) evidenceGuard->setRawText(evidence);
                         }, Qt::QueuedConnection);
                 });
             task->setAutoDelete(true);
@@ -10007,10 +9793,8 @@ namespace
             configurePropertyTree(m_generalPropertyTree);
             m_generalTextEditor = new CodeEditorWidget(page);
             m_generalTextEditor->setReadOnly(true);
-            // 常规页的属性树是从 R0 返回的结构体逐字段搭出来的：带分组、十六进制格式化和
-            // 属性位展开，比解析纯文本得到的结果更准。所以这页保留自己的切换框，
-            // 关掉文本控件内置的那套结构视图，避免同一页出现两个入口、两种解析口径。
-            m_generalTextEditor->setStructuredReportViewEnabled(false);
+            // Keep typed R0 fields while sharing report switching, copy and search.
+            m_generalTextEditor->setStructuredContentWidget(m_generalPropertyTree);
 
             const QFileInfo info(m_filePath);
             m_generalNtPathText = buildDriverNtPath(info.absoluteFilePath());
@@ -10018,8 +9802,7 @@ namespace
             m_generalR0Info = {};
             refreshGeneralTab();
 
-            layout->addWidget(
-                buildSwitchableView(page, m_generalPropertyTree, m_generalTextEditor), 1);
+            layout->addWidget(m_generalTextEditor, 1);
             startR0FileInfoLoad(info, m_generalNtPathText);
             return page;
         }
@@ -12132,12 +11915,11 @@ namespace
                 "内核证书表和 CI 缓存是独立证据；缺失内核信息不会改写上方 Windows 信任验证结果。")), evidenceGroup);
             boundary->setWordWrap(true);
             evidenceLayout->addWidget(boundary);
-            QPlainTextEdit* evidence = new CodeTextEdit(evidenceGroup);
-            static_cast<CodeTextEdit*>(evidence)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+            CodeEditorWidget* evidence = new CodeEditorWidget(evidenceGroup);
             evidence->setReadOnly(true);
-            evidence->setLineWrapMode(QPlainTextEdit::NoWrap);
+            evidence->setWordWrapEnabled(false);
             evidence->setMinimumHeight(180);
-            evidence->setPlainText(ks::i18n::sourceText(QStringLiteral("正在读取内核证据...")));
+            evidence->setRawText(ks::i18n::sourceText(QStringLiteral("正在读取内核证据...")));
             evidenceLayout->addWidget(evidence);
             detailsLayout->addWidget(evidenceGroup);
             contentLayout->addWidget(details);
@@ -12528,7 +12310,7 @@ namespace
             status->setTextFormat(Qt::PlainText);
             status->setWordWrap(true);
             layout->addWidget(status);
-            auto* editor = new ks::ui::MemoryEditorWidget(page);
+            auto* editor = new ks::ui::SnapshotWorkbenchWidget(page);
             editor->setAddressKind(ks::ui::SnapshotAddressKind::FileOffset);
             editor->setEditable(false);
             editor->hexEditor()->setBytesPerRow(16);
@@ -12541,7 +12323,7 @@ namespace
             const auto control = std::make_shared<Control>();
             const QString path = m_filePath;
             const QPointer<QWidget> pageGuard(page);
-            const QPointer<ks::ui::MemoryEditorWidget> editorGuard(editor);
+            const QPointer<ks::ui::SnapshotWorkbenchWidget> editorGuard(editor);
             const QPointer<QLabel> statusGuard(status);
             const QPointer<QPushButton> previousGuard(previous), nextGuard(next), lastGuard(last), findGuard(find);
             const auto launch = [path, control, pageGuard, editorGuard, statusGuard, previousGuard, nextGuard,
@@ -12628,7 +12410,7 @@ namespace
                 { launch(std::max<qint64>(0, control->base - windowSize->currentData().toLongLong())); });
             connect(next, &QPushButton::clicked, page, [control, launch]() { launch(control->base + control->loaded); });
             connect(last, &QPushButton::clicked, page, [control, launch]() { launch(std::max<qint64>(0, control->total - 1)); });
-            connect(find, &QPushButton::clicked, editor, &ks::ui::MemoryEditorWidget::openFindPanel);
+            connect(find, &QPushButton::clicked, editor, &ks::ui::SnapshotWorkbenchWidget::openFindPanel);
             connect(windowSize, &QComboBox::currentIndexChanged, page, [control, launch](int) { launch(control->requestedOffset); });
             const QPointer<QTabWidget> tabs(m_tabWidget);
             const auto takePending = [tabs, launch]()

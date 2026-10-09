@@ -2,6 +2,7 @@
 #include "MemoryRowCanvas.h"
 #include "WorkbenchTextCodePages.h"
 #include "../FlowLayout.h"
+#include "../ReportStructuredView.h"
 #include "../../Internationalization/LanguageManager.h"
 #include "../../theme.h"
 #include <QApplication>
@@ -15,6 +16,7 @@
 #include <QMenu>
 #include <QPointer>
 #include <QSignalBlocker>
+#include <QStackedWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -113,6 +115,11 @@ namespace ks::ui
             m_encodingCombo->addItem(EncodingName(static_cast<Encoding>(value)), value);
         m_encodingCombo->setToolTip(QStringLiteral("手动选择优先；自动模式识别窗口起点的 BOM，否则使用 UTF-8。编码切换不修改原始字节。"));
         flow->addWidget(m_encodingCombo);
+        m_structureCombo = new QComboBox(bar);
+        m_structureCombo->setObjectName(QStringLiteral("ksMemwbTextStructureCombo"));
+        m_structureCombo->addItems({QStringLiteral("原始文本"), QStringLiteral("结构视图")});
+        m_structureCombo->setToolTip(QStringLiteral("结构视图仅呈现当前已读取窗口的字段、JSON 或 XML；不修改原始字节。"));
+        flow->addWidget(m_structureCombo);
         m_bytesToggle = new QCheckBox(QStringLiteral("显示字节"), bar);
         m_bytesToggle->setChecked(true);
         m_bytesToggle->setToolTip(QStringLiteral("收起左侧字节列，为右侧文本留出更多空间"));
@@ -140,7 +147,16 @@ namespace ks::ui
         m_canvas->setContentTitle(QStringLiteral("文本"));
         m_canvas->installEventFilter(this);
         m_findEdit->installEventFilter(this);
-        layout->addWidget(m_canvas, 1);
+        m_viewStack = new QStackedWidget(this);
+        m_viewStack->addWidget(m_canvas);
+        m_structuredView = new ReportStructuredView(m_viewStack);
+        m_structuredView->setObjectName(QStringLiteral("ksMemwbTextStructuredView"));
+        m_viewStack->addWidget(m_structuredView);
+        layout->addWidget(m_viewStack, 1);
+        connect(m_structureCombo, &QComboBox::currentIndexChanged, this, [this](const int index) {
+            m_viewStack->setCurrentWidget(index == 1 && m_structuredView->hasStructure()
+                ? static_cast<QWidget*>(m_structuredView) : static_cast<QWidget*>(m_canvas));
+        });
         connect(m_controlToggle, &QCheckBox::toggled, this, [this] { rebuildText(); });
         m_status = new QLabel(this);
         m_status->setObjectName(QStringLiteral("ksMemwbTextStatus"));
@@ -250,6 +266,11 @@ namespace ks::ui
                 text += m_flatText.mid(span.start, span.length);
         return text;
     }
+    QString WorkbenchTextView::copyTextForCurrentView() const
+    {
+        return m_viewStack->currentWidget() == m_structuredView
+            ? m_structuredView->selectionOrReportText() : selectedDecodedText();
+    }
     std::uint64_t WorkbenchTextView::windowAddress() const { return m_address; }
     std::uint64_t WorkbenchTextView::windowLength() const { return m_length; }
     QSize WorkbenchTextView::minimumSizeHint() const { return QSize(1, 1); }
@@ -260,6 +281,7 @@ namespace ks::ui
         if (m_provider == nullptr || !m_hasWindow)
         {
             m_renderedText.clear(); m_flatText.clear(); m_searchSpans.clear(); m_canvas->setRows({}, false);
+            updateStructuredView(false);
             setStatus(m_provider == nullptr ? QStringLiteral("尚未接入数据源。") : QStringLiteral("尚未定位；跟随十六进制页的当前窗口。"));
             return;
         }
@@ -280,6 +302,7 @@ namespace ks::ui
             m_requestOutstanding = false;
             m_requestedAddress.reset();
             m_renderedText.clear(); m_flatText.clear(); m_searchSpans.clear(); m_canvas->setRows({}, true);
+            updateStructuredView(false);
             setStatus(ks::i18n::sourceText(QStringLiteral("0x%1 超出已读取窗口。"))
                 .arg(QString::number(m_address, 16).toUpper().rightJustified(16, QLatin1Char('0'))));
             return;
@@ -306,6 +329,11 @@ namespace ks::ui
         std::vector<SearchSpan> searchSpans;
         const std::size_t displayStart = static_cast<std::size_t>(back);
         const std::size_t displayLength = std::min<std::size_t>(available, static_cast<std::size_t>(m_length + back));
+        std::uint64_t expectedLength = m_length;
+        if (m_addressBounds && m_address >= m_addressBounds->first && m_address <= m_addressBounds->second &&
+            expectedLength > 0 && expectedLength - 1 > m_addressBounds->second - m_address)
+            expectedLength = m_addressBounds->second - m_address + 1;
+        bool completeDecode = available >= displayStart + expectedLength;
         MemoryDisplayRow row;
         std::size_t rowStart = 0;
         std::size_t rowEnd = 0;
@@ -328,6 +356,8 @@ namespace ks::ui
         {
             if (glyph.offset + glyph.byteLength <= displayStart) continue;
             if (glyph.offset >= displayLength) break;
+            if (glyph.kind != TextGlyphKind::Character && glyph.kind != TextGlyphKind::Bom)
+                completeDecode = false;
             if (rows.isEmpty() && row.tokens.isEmpty()) { rowStart = glyph.offset; rowEnd = rowStart; }
             if (rowEnd > rowStart)
             {
@@ -350,9 +380,31 @@ namespace ks::ui
         m_flatText = std::move(flat);
         m_searchSpans = std::move(searchSpans);
         m_canvas->setRows(std::move(rows), preserve);
+        updateStructuredView(completeDecode);
         setStatus(ks::i18n::sourceText(QStringLiteral("0x%1 起 %2 字节（%3）；字符选择对应完整原始字节。"))
             .arg(QString::number(m_address, 16).toUpper().rightJustified(16, QLatin1Char('0')))
             .arg(displayLength >= displayStart ? displayLength - displayStart : 0).arg(EncodingName(m_effectiveEncoding)));
+    }
+
+    void WorkbenchTextView::updateStructuredView(const bool completeDecode)
+    {
+        const bool structured = completeDecode && m_structuredView->setReportText(m_flatText);
+        if (!structured)
+        {
+            m_structuredView->setReportText(QString());
+            activateOriginalView();
+        }
+        m_structureCombo->setEnabled(structured);
+        m_structureCombo->setToolTip(ks::i18n::sourceText(structured
+            ? QStringLiteral("结构视图仅呈现当前已读取窗口的字段、JSON 或 XML；不修改原始字节。")
+            : completeDecode ? QStringLiteral("当前文本没有可解析结构，或超过结构视图限制。")
+                : QStringLiteral("当前窗口存在未读取、无效或不完整字符，结构视图不可用。")));
+    }
+
+    void WorkbenchTextView::activateOriginalView()
+    {
+        m_structureCombo->setCurrentIndex(0);
+        m_viewStack->setCurrentWidget(m_canvas);
     }
 
     void WorkbenchTextView::browseMore(const int direction, const int lines)
@@ -400,11 +452,12 @@ namespace ks::ui
         emit windowRequested(next, m_length);
         if (self) rebuildText();
     }
-    void WorkbenchTextView::openFind() { m_findEdit->setFocus(); m_findEdit->selectAll(); }
+    void WorkbenchTextView::openFind() { activateOriginalView(); m_findEdit->setFocus(); m_findEdit->selectAll(); }
     void WorkbenchTextView::findNext() { findMatch(false); }
     void WorkbenchTextView::findPrevious() { findMatch(true); }
     void WorkbenchTextView::findMatch(bool backwards)
     {
+        activateOriginalView();
         const QString needle = m_findEdit->text();
         if (needle.isEmpty()) return;
         const auto from = m_findOffset > 0 ? m_findOffset - needle.size() - 1 : -1;
@@ -444,6 +497,28 @@ namespace ks::ui
             { QApplication::clipboard()->setText(selectedDecodedText()); return true; }
         }
         return QWidget::eventFilter(watched, event);
+    }
+    bool WorkbenchTextView::event(QEvent* event)
+    {
+        if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)
+        {
+            const auto* key = static_cast<QKeyEvent*>(event);
+            const bool find = key->key() == Qt::Key_F && key->modifiers() == Qt::ControlModifier;
+            const bool next = key->key() == Qt::Key_F3;
+            const bool copy = key->key() == Qt::Key_C && key->modifiers() == Qt::ControlModifier;
+            if (find || next || copy)
+            {
+                event->accept();
+                if (event->type() == QEvent::KeyPress)
+                {
+                    if (find) openFind();
+                    else if (next) { if (key->modifiers() & Qt::ShiftModifier) findPrevious(); else findNext(); }
+                    else QApplication::clipboard()->setText(copyTextForCurrentView());
+                }
+                return true;
+            }
+        }
+        return QWidget::event(event);
     }
     void WorkbenchTextView::showContextMenu(const QPoint& point)
     {

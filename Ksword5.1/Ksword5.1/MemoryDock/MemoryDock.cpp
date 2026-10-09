@@ -26,11 +26,6 @@ namespace ksword::memory_dock_internal
         return QString();
     }
 
-    // 十六进制查看器常量：每行 16 字节，共 32 行，每页 512 字节。
-    const int kHexBytesPerRow = 16;
-    const int kHexRowCount = 32;
-    const std::uint64_t kHexPageBytes = static_cast<std::uint64_t>(kHexBytesPerRow * kHexRowCount);
-
     // 模块表头文本：直接对齐进程详细信息模块页体验。
     const QStringList ModuleTreeHeaders{
         "模块路径",

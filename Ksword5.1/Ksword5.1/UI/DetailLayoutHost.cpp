@@ -1,5 +1,4 @@
 #include "DetailLayoutHost.h"
-#include "CodeTextEdit.h"
 
 #include "CodeEditorWidget.h"
 #include "EmbeddedRowDelegate.h"
@@ -15,10 +14,10 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QIcon>
-#include <QPlainTextEdit>
 #include <QScreen>
 #include <QSplitter>
 #include <QTableWidget>
+#include <QTableView>
 #include <QTableWidgetItem>
 #include <QTimer>
 #include <QToolButton>
@@ -42,73 +41,27 @@ namespace
             : QStringLiteral(":/Icon/detail_node_collapsed.svg"));
     }
 
-    // directChildUnder：返回 widget 在 ancestor 下的第一层子控件，用于识别分隔器面板。
-    QWidget* directChildUnder(QWidget* widget, QWidget* ancestor)
+    // 保留现有迁移语义：报告镜像沿用报告外壳，原始字节/日志继续用原文模式。
+    void setMirrorText(CodeEditorWidget* target, CodeEditorWidget* source, const QString& text)
     {
-        QWidget* childWidget = widget;
-        while (childWidget != nullptr && childWidget->parentWidget() != ancestor)
+        if (source != nullptr && source->isReportText())
         {
-            childWidget = childWidget->parentWidget();
+            target->setReportText(text);
         }
-        return childWidget != nullptr && childWidget->parentWidget() == ancestor
-            ? childWidget
-            : nullptr;
+        else
+        {
+            target->setRawText(text);
+        }
     }
 
-    // findSharedSplitter：从表格祖先向上查找同时包含详情编辑器的分隔器。
-    QSplitter* findSharedSplitter(QAbstractItemView* tableView, CodeEditorWidget* detailEditor)
+    CodeEditorWidget* createReadOnlyInlineEditor(
+        QWidget* parentWidget, CodeEditorWidget* source, const QString& detailText)
     {
-        QWidget* ancestorWidget = tableView;
-        while (ancestorWidget != nullptr)
-        {
-            QSplitter* splitter = qobject_cast<QSplitter*>(ancestorWidget);
-            if (splitter != nullptr && splitter->isAncestorOf(detailEditor))
-            {
-                // 只有表格和详情处于 splitter 的不同直接面板时才接管它。
-                // 页面常见的外层 splitter 可能同时包住整个表格页，误认它会在折叠时
-                // 把承载表格的整块面板一起隐藏，最终只剩一个箭头。
-                QWidget* tablePane = directChildUnder(tableView, splitter);
-                QWidget* detailPane = directChildUnder(detailEditor, splitter);
-                if (tablePane != nullptr && detailPane != nullptr && tablePane != detailPane)
-                {
-                    return splitter;
-                }
-            }
-            ancestorWidget = ancestorWidget->parentWidget();
-        }
-        return nullptr;
-    }
-
-    // findCommonParent：找到两个控件最近的共同 QWidget 祖先。
-    QWidget* findCommonParent(QWidget* firstWidget, QWidget* secondWidget)
-    {
-        for (QWidget* firstParent = firstWidget; firstParent != nullptr;
-            firstParent = firstParent->parentWidget())
-        {
-            for (QWidget* secondParent = secondWidget; secondParent != nullptr;
-                secondParent = secondParent->parentWidget())
-            {
-                if (firstParent == secondParent)
-                {
-                    return firstParent;
-                }
-            }
-        }
-        return nullptr;
-    }
-
-    // createReadOnlyInlineEditor：创建方案三使用的普通只读文本框。
-    QPlainTextEdit* createReadOnlyInlineEditor(QWidget* parentWidget, const QString& detailText)
-    {
-        QPlainTextEdit* textEditor = new CodeTextEdit(parentWidget);
-        static_cast<CodeTextEdit*>(textEditor)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+        auto* textEditor = new CodeEditorWidget(parentWidget);
         textEditor->setReadOnly(true);
-        textEditor->setPlainText(detailText);
-        textEditor->setLineWrapMode(QPlainTextEdit::WidgetWidth);
-        // 编辑器直接覆盖在视图 viewport 中，由源行高度决定几何，不能把自身最小高度
-        // 传播给整张表格或树。
+        setMirrorText(textEditor, source, detailText);
+        // 源行控制几何，报告内容的最小尺寸不传播回整个结果视图。
         textEditor->setMinimumSize(0, 0);
-        textEditor->setContextMenuPolicy(Qt::DefaultContextMenu);
         return textEditor;
     }
 
@@ -123,9 +76,26 @@ ks::ui::DetailLayoutHost::DetailLayoutHost(
       m_detailEditor(detailEditor),
       m_ownerWidget(ownerWidget)
 {
-    initializeHostUi();
     initializeConnections();
     scheduleHostUiInitialization();
+    m_constructing = false;
+}
+
+ks::ui::DetailLayoutHost::DetailLayoutHost(
+    QAbstractItemView* tableView,
+    CodeEditorWidget* detailEditor,
+    QWidget* ownerWidget,
+    const DetailPaneBinding& binding)
+    : QObject(ownerWidget),
+      m_tableView(tableView),
+      m_detailEditor(detailEditor),
+      m_ownerWidget(ownerWidget)
+{
+    m_explicitBinding = true;
+    bindPanels(binding);
+    initializeConnections();
+    scheduleHostUiInitialization();
+    m_constructing = false;
 }
 
 ks::ui::DetailLayoutHost::~DetailLayoutHost()
@@ -135,37 +105,10 @@ ks::ui::DetailLayoutHost::~DetailLayoutHost()
     destroyFloatingWindow();
 }
 
-void ks::ui::DetailLayoutHost::setTableView(QAbstractItemView* tableView)
-{
-    if (tableView == nullptr || m_tableView == tableView)
-    {
-        return;
-    }
-    m_tableView = tableView;
-    initializeConnections();
-    scheduleHostUiInitialization();
-}
-
-void ks::ui::DetailLayoutHost::setDetailEditor(CodeEditorWidget* detailEditor)
-{
-    if (detailEditor == nullptr || m_detailEditor == detailEditor)
-    {
-        return;
-    }
-    m_detailEditor = detailEditor;
-    initializeConnections();
-    scheduleHostUiInitialization();
-}
-
-CodeEditorWidget* ks::ui::DetailLayoutHost::detailEditor() const
-{
-    return m_detailEditor.data();
-}
-
 void ks::ui::DetailLayoutHost::initializeHostUi()
 {
     ensureManagedSplitter();
-    if (m_splitter.isNull())
+    if (!isBound())
     {
         return;
     }
@@ -173,11 +116,6 @@ void ks::ui::DetailLayoutHost::initializeHostUi()
     if (!m_toggleBar.isNull())
     {
         return;
-    }
-
-    if (!m_detailPane.isNull() && m_tablePane.isNull())
-    {
-        m_tablePane = directChildUnder(m_tableView.data(), m_splitter.data());
     }
 
     // 固定宽度按钮不能直接成为纵向 QSplitter 子项，否则它的 maximumWidth 会把整个
@@ -195,7 +133,7 @@ void ks::ui::DetailLayoutHost::initializeHostUi()
 
     m_toggleButton = new QToolButton(m_toggleBar.data());
     m_toggleButton->setAutoRaise(true);
-    m_toggleButton->setArrowType(Qt::UpArrow);
+    m_toggleButton->setArrowType(m_bottomExpanded ? Qt::DownArrow : Qt::UpArrow);
     m_toggleButton->setFocusPolicy(Qt::NoFocus);
     m_toggleButton->setFixedSize(44, 18);
     m_toggleButton->setToolTip(ks::i18n::text(
@@ -218,279 +156,67 @@ void ks::ui::DetailLayoutHost::scheduleHostUiInitialization()
     QTimer::singleShot(0, this,
         [this]()
         {
+            const QPointer<DetailLayoutHost> self(this);
             m_hostUiInitializationScheduled = false;
             if (m_splitter.isNull() || m_detailPane.isNull())
             {
                 initializeHostUi();
             }
+            if (self.isNull())
+            {
+                return;
+            }
             if (!m_splitter.isNull() && !m_detailPane.isNull())
             {
-                applyScheme(m_scheme);
+                initializeConnections();
+                if (self.isNull())
+                {
+                    return;
+                }
+                applyScheme(m_requestedScheme);
+                if (self.isNull())
+                {
+                    return;
+                }
                 updateEmbeddedEditorGeometries();
             }
         });
 }
 
+// 显式契约只接受完整的两个直接面板；构造期间尚未挂载时留给 queued 重试。
 void ks::ui::DetailLayoutHost::ensureManagedSplitter()
 {
-    if (m_tableView.isNull() || m_detailEditor.isNull())
+    if (!m_explicitBinding)
+    {
+        resolveCompatiblePanels();
+        return;
+    }
+    if (m_requestedSplitter.isNull() || m_requestedMainPane.isNull()
+        || m_requestedDetailPane.isNull() || m_tableView.isNull() || m_detailEditor.isNull())
     {
         return;
     }
-
-    QSplitter* sharedSplitter = findSharedSplitter(m_tableView.data(), m_detailEditor.data());
-    if (sharedSplitter != nullptr)
-    {
-        m_splitter = sharedSplitter;
-        m_tablePane = directChildUnder(m_tableView.data(), sharedSplitter);
-        m_detailPane = directChildUnder(m_detailEditor.data(), sharedSplitter);
-        if (m_tablePane == nullptr || m_detailPane == nullptr || m_tablePane == m_detailPane)
-        {
-            m_splitter.clear();
-            m_tablePane.clear();
-            m_detailPane.clear();
-            return;
-        }
-        m_detailEditor->setMinimumHeight(0);
-        m_detailEditor->setMaximumHeight(QWIDGETSIZE_MAX);
-        return;
-    }
-
-    // 直接布局页面没有既有 QSplitter：保留原控件对象，仅把两者包装进统一分隔器。
-    QWidget* commonParent = findCommonParent(m_tableView.data(), m_detailEditor.data());
-    QBoxLayout* commonLayout = commonParent != nullptr
-        ? qobject_cast<QBoxLayout*>(commonParent->layout())
-        : nullptr;
-    if (commonParent == nullptr || commonLayout == nullptr)
+    QSplitter* const splitter = m_requestedSplitter.data();
+    QWidget* const mainPane = m_requestedMainPane.data();
+    QWidget* const detailPane = m_requestedDetailPane.data();
+    if (mainPane == detailPane || mainPane->parentWidget() != splitter
+        || detailPane->parentWidget() != splitter || splitter->indexOf(mainPane) != 0
+        || (splitter->indexOf(detailPane) != 1 && splitter->indexOf(detailPane) != 2)
+        || (mainPane != m_tableView && !mainPane->isAncestorOf(m_tableView.data()))
+        || (detailPane != m_detailEditor && !detailPane->isAncestorOf(m_detailEditor.data())))
     {
         return;
     }
-
-    QWidget* tablePane = directChildUnder(m_tableView.data(), commonParent);
-    QWidget* detailPane = directChildUnder(m_detailEditor.data(), commonParent);
-    if (tablePane == nullptr || detailPane == nullptr || tablePane == detailPane)
+    const int expectedCount = m_toggleBar.isNull() ? 2 : 3;
+    if (splitter->count() != expectedCount)
     {
         return;
     }
-
-    const int tableIndex = commonLayout->indexOf(tablePane);
-    const int detailIndex = commonLayout->indexOf(detailPane);
-    const int insertionIndex = std::max(0, std::min(tableIndex, detailIndex));
-    commonLayout->removeWidget(tablePane);
-    commonLayout->removeWidget(detailPane);
-
-    QSplitter* splitter = new QSplitter(Qt::Vertical, commonParent);
-    tablePane->setParent(splitter);
-    detailPane->setParent(splitter);
-    splitter->addWidget(tablePane);
-    splitter->addWidget(detailPane);
-    splitter->setStretchFactor(0, 3);
-    splitter->setStretchFactor(1, 1);
-    commonLayout->insertWidget(insertionIndex, splitter, 1);
-
     m_splitter = splitter;
-    m_tablePane = tablePane;
+    m_tablePane = mainPane;
     m_detailPane = detailPane;
     m_detailEditor->setMinimumHeight(0);
     m_detailEditor->setMaximumHeight(QWIDGETSIZE_MAX);
-}
-
-void ks::ui::DetailLayoutHost::initializeConnections()
-{
-    if (!m_tableView.isNull())
-    {
-        // UniqueConnection 与成员 lambda 不兼容，因此用动态属性保证每个视图只绑定一次。
-        if (!m_tableView->property("kswordDetailLayoutConnected").toBool())
-        {
-            m_tableView->setProperty("kswordDetailLayoutConnected", true);
-            if (m_tableView->viewport() != nullptr)
-            {
-                m_tableView->viewport()->installEventFilter(this);
-            }
-            connect(m_tableView.data(), &QAbstractItemView::clicked, this,
-                [this](const QModelIndex& modelIndex)
-                {
-                    handleViewClicked(QPersistentModelIndex(modelIndex));
-                });
-
-            if (m_tableView->model() != nullptr)
-            {
-                connect(m_tableView->model(), &QAbstractItemModel::rowsInserted, this,
-                    [this](const QModelIndex&, int, int)
-                    {
-                        if (m_scheme != ks::settings::DetailDisplayScheme::Embedded)
-                        {
-                            return;
-                        }
-                        scheduleEmbeddedIndicatorRefresh();
-                    });
-                connect(m_tableView->model(), &QAbstractItemModel::modelAboutToBeReset, this,
-                    [this]()
-                    {
-                        clearEmbeddedDetails();
-                    });
-                connect(m_tableView->model(), &QAbstractItemModel::layoutAboutToBeChanged, this,
-                    [this]()
-                    {
-                        // QPersistentModelIndex 会在排序布局完成后跟随数据项移动，但
-                        // QHeaderView 的行高仍绑定排序前的逻辑行。必须在索引重映射前
-                        // 恢复原行高并移除覆盖编辑器，避免旧行残留空白、新行详情被裁剪。
-                        clearEmbeddedDetails();
-                    });
-            }
-        }
-    }
-
-    if (!m_detailEditor.isNull() &&
-        !m_detailEditor->property("kswordDetailLayoutConnected").toBool())
-    {
-        m_detailEditor->setProperty("kswordDetailLayoutConnected", true);
-        connect(m_detailEditor.data(), &CodeEditorWidget::contentChanged, this,
-            [this](const QString& detailText) { handleDetailChanged(detailText); });
-    }
-
-    if (!m_toggleButton.isNull())
-    {
-        connect(m_toggleButton.data(), &QToolButton::clicked, this,
-            [this]() { updateBottomExpanded(!m_bottomExpanded); });
-    }
-}
-
-void ks::ui::DetailLayoutHost::applyScheme(
-    const ks::settings::DetailDisplayScheme scheme)
-{
-    if (m_splitter.isNull() || m_detailPane.isNull())
-    {
-        m_scheme = scheme;
-        scheduleHostUiInitialization();
-        return;
-    }
-
-    if (m_scheme == ks::settings::DetailDisplayScheme::Embedded &&
-        scheme != ks::settings::DetailDisplayScheme::Embedded)
-    {
-        clearEmbeddedDetails();
-    }
-    if (m_scheme == ks::settings::DetailDisplayScheme::Floating &&
-        scheme != ks::settings::DetailDisplayScheme::Floating)
-    {
-        destroyFloatingWindow();
-    }
-
-    const bool schemeChanged = m_scheme != scheme;
-    m_scheme = scheme;
-    if (!m_toggleBar.isNull())
-    {
-        m_toggleBar->setVisible(scheme == ks::settings::DetailDisplayScheme::BottomCollapsed);
-    }
-    if (!m_tablePane.isNull())
-    {
-        m_tablePane->setVisible(true);
-        m_tablePane->setMinimumSize(0, 0);
-        m_tablePane->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-    }
-    switch (scheme)
-    {
-    case ks::settings::DetailDisplayScheme::Right:
-        m_splitter->setOrientation(Qt::Horizontal);
-        m_detailPane->setMinimumSize(0, 0);
-        m_detailPane->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-        m_detailPane->setVisible(true);
-        if (schemeChanged)
-        {
-            // 右侧详情默认约占 18%，保留拖动手柄供当前页面继续调整。
-            setManagedSplitterSizes(820, 0, 180);
-        }
-        break;
-    case ks::settings::DetailDisplayScheme::Embedded:
-        m_splitter->setOrientation(Qt::Vertical);
-        m_detailPane->setVisible(false);
-        m_detailPane->setMinimumHeight(0);
-        m_detailPane->setMaximumHeight(0);
-        if (schemeChanged)
-        {
-            setManagedSplitterSizes(1000, 0, 0);
-        }
-        refreshEmbeddedIndicators();
-        break;
-    case ks::settings::DetailDisplayScheme::Floating:
-        m_splitter->setOrientation(Qt::Vertical);
-        m_detailPane->setVisible(false);
-        m_detailPane->setMinimumHeight(0);
-        m_detailPane->setMaximumHeight(0);
-        if (schemeChanged)
-        {
-            setManagedSplitterSizes(1000, 0, 0);
-        }
-        break;
-    case ks::settings::DetailDisplayScheme::BottomCollapsed:
-    default:
-        m_splitter->setOrientation(Qt::Vertical);
-        if (schemeChanged || (!m_bottomExpanded && m_detailPane->isVisible()))
-        {
-            m_bottomExpanded = false;
-            updateBottomExpanded(false);
-        }
-        break;
-    }
-    updateEmbeddedEditorGeometries();
-}
-
-void ks::ui::DetailLayoutHost::setManagedSplitterSizes(
-    const int tableSize,
-    const int toggleSize,
-    const int detailSize)
-{
-    if (m_splitter.isNull())
-    {
-        return;
-    }
-    // QSplitter 会把 setSizes 的相对值按当前可用空间归一化。使用非零表格尺寸，
-    // 即使页面尚未 show 或窗口刚切换 tab，也不会把业务面板压成 0。
-    const int safeTable = std::max(1, tableSize);
-    const int safeToggle = std::max(0, toggleSize);
-    const int safeDetail = std::max(0, detailSize);
-    m_splitter->setSizes({ safeTable, safeToggle, safeDetail });
-}
-
-void ks::ui::DetailLayoutHost::updateBottomExpanded(const bool expanded)
-{
-    if (m_scheme != ks::settings::DetailDisplayScheme::BottomCollapsed ||
-        m_detailPane.isNull())
-    {
-        return;
-    }
-    m_bottomExpanded = expanded;
-    m_detailPane->setMinimumHeight(0);
-    if (expanded)
-    {
-        m_detailPane->setMaximumHeight(QWIDGETSIZE_MAX);
-        m_detailPane->setVisible(true);
-    }
-    else
-    {
-        m_detailPane->setVisible(false);
-        m_detailPane->setMaximumHeight(0);
-    }
-    if (!m_toggleButton.isNull())
-    {
-        m_toggleButton->setArrowType(expanded ? Qt::DownArrow : Qt::UpArrow);
-        m_toggleButton->setToolTip(ks::i18n::text(
-            expanded
-                ? QStringLiteral("detail.layout.collapse.tooltip")
-                : QStringLiteral("detail.layout.expand.tooltip"),
-            expanded
-                ? QStringLiteral("收起当前行详情")
-                : QStringLiteral("展开当前行详情")));
-    }
-    if (expanded && !m_splitter.isNull())
-    {
-        setManagedSplitterSizes(720, 18, 240);
-    }
-    else if (!m_splitter.isNull())
-    {
-        setManagedSplitterSizes(1000, 18, 0);
-    }
 }
 
 void ks::ui::DetailLayoutHost::handleViewClicked(
@@ -501,20 +227,32 @@ void ks::ui::DetailLayoutHost::handleViewClicked(
         return;
     }
 
+    observeModel();
+    const quint64 generation = m_bindingGeneration;
     switch (m_scheme)
     {
     case ks::settings::DetailDisplayScheme::Embedded:
         // 原页面的选择回调先更新 CodeEditorWidget，本处再把最新文本镜像到行内视图。
-        QTimer::singleShot(0, this, [this, sourceIndex]()
+        QTimer::singleShot(0, this, [this, sourceIndex, generation]()
             {
-                if (sourceIndex.isValid())
+                if (generation == m_bindingGeneration
+                    && m_scheme == ks::settings::DetailDisplayScheme::Embedded
+                    && sourceIndex.isValid() && !m_tableView.isNull()
+                    && sourceIndex.model() == m_tableView->model())
                 {
                     toggleEmbeddedDetail(sourceIndex.sibling(sourceIndex.row(), 0));
                 }
             });
         break;
     case ks::settings::DetailDisplayScheme::Floating:
-        QTimer::singleShot(0, this, [this]() { showFloatingWindow(); });
+        QTimer::singleShot(0, this, [this, sourceIndex, generation]()
+        {
+            if (generation == m_bindingGeneration && sourceIndex.isValid()
+                && m_scheme == ks::settings::DetailDisplayScheme::Floating)
+            {
+                showFloatingWindow();
+            }
+        });
         break;
     case ks::settings::DetailDisplayScheme::BottomCollapsed:
         updateBottomExpanded(true);
@@ -529,7 +267,7 @@ void ks::ui::DetailLayoutHost::handleDetailChanged(const QString& detailText)
 {
     if (m_scheme == ks::settings::DetailDisplayScheme::Floating && !m_floatingEditor.isNull())
     {
-        m_floatingEditor->setRawText(detailText);
+        setMirrorText(m_floatingEditor.data(), m_detailEditor.data(), detailText);
     }
 
     if (m_scheme != ks::settings::DetailDisplayScheme::Embedded || m_tableView.isNull())
@@ -547,7 +285,7 @@ void ks::ui::DetailLayoutHost::handleDetailChanged(const QString& detailText)
         if (!entry.textEditor.isNull() && entry.sourceIndex.isValid() &&
             currentIndex.isValid() && entry.sourceIndex == currentIndex)
         {
-            entry.textEditor->setPlainText(detailText);
+            setMirrorText(entry.textEditor.data(), m_detailEditor.data(), detailText);
         }
     }
 }
@@ -565,7 +303,7 @@ void ks::ui::DetailLayoutHost::toggleEmbeddedDetail(
         return;
     }
 
-    if (qobject_cast<QTableWidget*>(m_tableView.data()) != nullptr)
+    if (qobject_cast<QTableView*>(m_tableView.data()) != nullptr)
     {
         insertTableEmbeddedDetail(sourceIndex, m_detailEditor->text());
     }
@@ -579,7 +317,7 @@ void ks::ui::DetailLayoutHost::insertTableEmbeddedDetail(
     const QPersistentModelIndex& sourceIndex,
     const QString& detailText)
 {
-    QTableWidget* tableWidget = qobject_cast<QTableWidget*>(m_tableView.data());
+    QTableView* tableWidget = qobject_cast<QTableView*>(m_tableView.data());
     if (tableWidget == nullptr || sourceIndex.row() < 0)
     {
         return;
@@ -589,12 +327,13 @@ void ks::ui::DetailLayoutHost::insertTableEmbeddedDetail(
     // 以展开前实际可视矩形作为基准。rowHeight() 取的是表头 section 状态，
     // 在排序/异步填充后的布局更新窗口内可能与 viewport 中的行高不同，
     // 会让详情编辑器下移一整行并留下空白。
-    const int originalHeight = std::max(1, tableWidget->visualRect(sourceIndex).height());
+    // visualRect 不包含网格线，反复还原它会让源行每次减少 1px；保存逻辑行高。
+    const int originalHeight = std::max(1, tableWidget->rowHeight(sourceRow));
     constexpr int inlineDetailHeight = 128;
 
     // 先安装包装 delegate 并登记原始高度，再增大行高，避免一次重绘中把源文本画入详情区。
     installEmbeddedRowDelegate();
-    QPlainTextEdit* textEditor = createReadOnlyInlineEditor(tableWidget->viewport(), detailText);
+    CodeEditorWidget* textEditor = createReadOnlyInlineEditor(tableWidget->viewport(), m_detailEditor.data(), detailText);
     EmbeddedEntry entry;
     entry.sourceIndex = sourceIndex;
     entry.textEditor = textEditor;
@@ -627,7 +366,7 @@ void ks::ui::DetailLayoutHost::insertTreeEmbeddedDetail(
 
     // 树节点同样先登记裁剪高度，再改变 size hint，保证首次重绘也使用原始行高。
     installEmbeddedRowDelegate();
-    QPlainTextEdit* textEditor = createReadOnlyInlineEditor(treeWidget->viewport(), detailText);
+    CodeEditorWidget* textEditor = createReadOnlyInlineEditor(treeWidget->viewport(), m_detailEditor.data(), detailText);
     EmbeddedEntry entry;
     entry.sourceIndex = sourceIndex;
     entry.textEditor = textEditor;
@@ -672,6 +411,7 @@ bool ks::ui::DetailLayoutHost::removeEmbeddedEntry(
 
 void ks::ui::DetailLayoutHost::clearEmbeddedDetails()
 {
+    const QPointer<DetailLayoutHost> self(this);
     if (m_tableView.isNull())
     {
         m_embeddedEntries.clear();
@@ -680,24 +420,46 @@ void ks::ui::DetailLayoutHost::clearEmbeddedDetails()
     }
 
     m_indicatorRefreshScheduled = false;
-    for (const EmbeddedEntry& entry : std::as_const(m_embeddedEntries))
+    // 先分离本轮记录，行高/编辑器清理同步触发的回调不能重复遍历同一容器。
+    const auto entries = std::move(m_embeddedEntries);
+    m_embeddedEntries.clear();
+    for (const EmbeddedEntry& entry : entries)
     {
         restoreEmbeddedEntryLayout(entry);
+        if (self.isNull())
+        {
+            return;
+        }
         if (!entry.textEditor.isNull())
         {
             delete entry.textEditor.data();
         }
+        if (self.isNull())
+        {
+            return;
+        }
     }
     m_embeddedEntries.clear();
     restoreEmbeddedRowDelegate();
+    if (self.isNull())
+    {
+        return;
+    }
     m_pendingIndicatorIndexes.clear();
     ++m_indicatorGeneration;
     restoreEmbeddedIndicators();
+    if (self.isNull())
+    {
+        return;
+    }
     updateEmbeddedEditorGeometries();
 }
 
 void ks::ui::DetailLayoutHost::prepareDataRebuild()
 {
+    // 原地 setData 不会发 reset/layout signal，因此业务重建入口必须显式取消旧点击。
+    ++m_bindingGeneration;
+    m_layoutRestorations.clear();
     clearEmbeddedDetails();
 }
 
@@ -735,12 +497,17 @@ void ks::ui::DetailLayoutHost::installEmbeddedRowDelegate()
 
 void ks::ui::DetailLayoutHost::restoreEmbeddedRowDelegate()
 {
+    const QPointer<DetailLayoutHost> self(this);
     if (!m_tableView.isNull() && !m_embeddedRowDelegate.isNull() &&
         m_tableView->itemDelegate() == m_embeddedRowDelegate.data() &&
         !m_embeddedSourceDelegate.isNull())
     {
         // 只在当前 delegate 仍是本包装器时恢复，避免覆盖页面运行期替换的 delegate。
         m_tableView->setItemDelegate(m_embeddedSourceDelegate.data());
+        if (self.isNull())
+        {
+            return;
+        }
         if (m_tableView->viewport() != nullptr)
         {
             m_tableView->viewport()->update();
@@ -777,11 +544,12 @@ int ks::ui::DetailLayoutHost::embeddedOriginalRowHeight(const QModelIndex& model
 
 void ks::ui::DetailLayoutHost::restoreEmbeddedEntryLayout(const EmbeddedEntry& entry)
 {
-    if (!m_tableView.isNull())
+    if (!m_tableView.isNull() && entry.sourceIndex.isValid()
+        && entry.sourceIndex.model() == m_tableView->model())
     {
-        if (QTableWidget* tableWidget = qobject_cast<QTableWidget*>(m_tableView.data()))
+        if (QTableView* tableWidget = qobject_cast<QTableView*>(m_tableView.data()))
         {
-            if (entry.sourceIndex.isValid() && entry.originalRowHeight > 0)
+            if (entry.originalRowHeight > 0)
             {
                 tableWidget->setRowHeight(entry.sourceIndex.row(), entry.originalRowHeight);
             }
@@ -799,12 +567,20 @@ void ks::ui::DetailLayoutHost::updateEmbeddedEditorGeometries()
     {
         return;
     }
-    QWidget* viewport = m_tableView->viewport();
-    if (viewport == nullptr)
+    const QPointer<DetailLayoutHost> self(this);
+    const quint64 generation = m_bindingGeneration;
+    const QPointer<QWidget> viewport(m_tableView->viewport());
+    if (viewport.isNull())
     {
         return;
     }
-    for (const EmbeddedEntry& entry : std::as_const(m_embeddedEntries))
+    // Move/Resize/Show 回调可同步切模式并清空 live 列表，只遍历本轮弱引用快照。
+    const auto entries = m_embeddedEntries;
+    const auto current = [&]()
+    {
+        return !self.isNull() && self->m_bindingGeneration == generation && !viewport.isNull();
+    };
+    for (const EmbeddedEntry& entry : entries)
     {
         if (entry.textEditor.isNull() || !entry.sourceIndex.isValid())
         {
@@ -814,6 +590,10 @@ void ks::ui::DetailLayoutHost::updateEmbeddedEditorGeometries()
         if (!itemRect.isValid() || itemRect.height() <= 0 || !viewport->rect().intersects(itemRect))
         {
             entry.textEditor->setVisible(false);
+            if (!current())
+            {
+                return;
+            }
             continue;
         }
         const int topPadding = qMax(0, entry.originalRowHeight);
@@ -826,11 +606,35 @@ void ks::ui::DetailLayoutHost::updateEmbeddedEditorGeometries()
         if (editorRect.height() <= 0)
         {
             entry.textEditor->setVisible(false);
+            if (!current())
+            {
+                return;
+            }
             continue;
         }
         entry.textEditor->setGeometry(editorRect);
+        if (!current())
+        {
+            return;
+        }
+        if (entry.textEditor.isNull())
+        {
+            continue;
+        }
         entry.textEditor->setVisible(true);
+        if (!current())
+        {
+            return;
+        }
+        if (entry.textEditor.isNull())
+        {
+            continue;
+        }
         entry.textEditor->raise();
+        if (!current())
+        {
+            return;
+        }
     }
 }
 
@@ -1029,6 +833,8 @@ void ks::ui::DetailLayoutHost::showFloatingWindow()
     {
         return;
     }
+    const QPointer<DetailLayoutHost> self(this);
+    const quint64 generation = m_bindingGeneration;
     const bool windowWasVisible = !m_floatingWindow.isNull() && m_floatingWindow->isVisible();
     if (m_floatingWindow.isNull())
     {
@@ -1047,7 +853,7 @@ void ks::ui::DetailLayoutHost::showFloatingWindow()
         windowLayout->setContentsMargins(8, 8, 8, 8);
         CodeEditorWidget* floatingEditor = new CodeEditorWidget(detailWindow);
         floatingEditor->setReadOnly(true);
-        floatingEditor->setRawText(m_detailEditor->text());
+        setMirrorText(floatingEditor, m_detailEditor.data(), m_detailEditor->text());
         windowLayout->addWidget(floatingEditor, 1);
 
         QScreen* targetScreen = m_ownerWidget->screen();
@@ -1073,34 +879,82 @@ void ks::ui::DetailLayoutHost::showFloatingWindow()
     }
     else if (!m_floatingEditor.isNull())
     {
-        m_floatingEditor->setRawText(m_detailEditor->text());
+        setMirrorText(m_floatingEditor.data(), m_detailEditor.data(), m_detailEditor->text());
     }
 
     // 窗口已显示时只刷新文本，不能因表格选择变化再次抢走焦点。
     // 首次创建或用户关闭后重新唤出时，才执行显示和激活。
-    if (!windowWasVisible)
+    if (!self.isNull() && generation == m_bindingGeneration && !windowWasVisible)
     {
-        m_floatingWindow->setWindowOpacity(1.0);
-        m_floatingWindow->show();
-        m_floatingWindow->raise();
-        m_floatingWindow->activateWindow();
+        const QPointer<QDialog> window = m_floatingWindow;
+        const auto current = [&]()
+        {
+            return !self.isNull() && self->m_bindingGeneration == generation
+                && !window.isNull() && self->m_floatingWindow == window;
+        };
+        if (!current())
+        {
+            return;
+        }
+        window->setWindowOpacity(1.0);
+        if (!current())
+        {
+            return;
+        }
+        window->show();
+        // Show 同步回调可能已经切回嵌入槽并清空成员，旧窗口不得继续激活。
+        if (!current())
+        {
+            return;
+        }
+        window->raise();
+        if (current())
+        {
+            window->activateWindow();
+        }
     }
 }
 
 void ks::ui::DetailLayoutHost::destroyFloatingWindow()
 {
-    if (!m_floatingWindow.isNull())
-    {
-        m_floatingWindow->removeEventFilter(this);
-        m_floatingWindow->close();
-        m_floatingWindow->deleteLater();
-    }
+    // 先解除成员关联，close 的同步回调即使删除宿主也不再访问成员。
+    const QPointer<QDialog> window = m_floatingWindow;
     m_floatingEditor.clear();
     m_floatingWindow.clear();
+    if (!window.isNull())
+    {
+        window->removeEventFilter(this);
+        window->close();
+        if (!window.isNull())
+        {
+            window->deleteLater();
+        }
+    }
 }
 
 bool ks::ui::DetailLayoutHost::eventFilter(QObject* watchedObject, QEvent* eventObject)
 {
+    const QPointer<DetailLayoutHost> self(this);
+    if (eventObject != nullptr)
+    {
+        if (watchedObject == m_tableView.data())
+        {
+            if (eventObject->type() == QEvent::Show || eventObject->type() == QEvent::LayoutRequest)
+            {
+                observeModel();
+                if (self.isNull())
+                {
+                    return true;
+                }
+            }
+        }
+        if ((watchedObject == m_requestedSplitter.data() || watchedObject == m_ownerWidget.data())
+            && (eventObject->type() == QEvent::ChildAdded || eventObject->type() == QEvent::LayoutRequest
+                || eventObject->type() == QEvent::Show) && !isBound())
+        {
+            scheduleHostUiInitialization();
+        }
+    }
     if (!m_tableView.isNull() && watchedObject == m_tableView->viewport() && eventObject != nullptr)
     {
         switch (eventObject->type())
@@ -1109,6 +963,10 @@ bool ks::ui::DetailLayoutHost::eventFilter(QObject* watchedObject, QEvent* event
         case QEvent::Scroll:
         case QEvent::LayoutRequest:
             updateEmbeddedEditorGeometries();
+            if (self.isNull())
+            {
+                return true;
+            }
             break;
         default:
             break;
@@ -1125,5 +983,5 @@ bool ks::ui::DetailLayoutHost::eventFilter(QObject* watchedObject, QEvent* event
             m_floatingWindow->setWindowOpacity(0.30);
         }
     }
-    return QObject::eventFilter(watchedObject, eventObject);
+    return self.isNull() || QObject::eventFilter(watchedObject, eventObject);
 }

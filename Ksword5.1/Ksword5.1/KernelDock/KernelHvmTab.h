@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../ArkDriverClient/ArkDriverTypes.h"
 
@@ -11,7 +11,7 @@ class QLabel;
 class QPushButton;
 class QShowEvent;
 class QTableWidget;
-class QPlainTextEdit;
+class CodeEditorWidget;
 
 // KernelHvmTab presents VT-x/EPT capability, reversible resource preparation,
 // per-CPU VMX validation, a one-shot VMCALL guest, VM-exit evidence, and teardown.
@@ -104,7 +104,7 @@ private:
     QPushButton* m_stopResidentButton = nullptr;
     QPushButton* m_featureActionButton = nullptr;
     QTableWidget* m_cpuTable = nullptr;
-    QPlainTextEdit* m_detailEdit = nullptr;
+    CodeEditorWidget* m_detailEdit = nullptr;
     FeatureArea m_featureArea = FeatureArea::Ept;
     KSWORD_ARK_QUERY_HVM_RESPONSE m_snapshot{};
     bool m_firstRefreshStarted = false;

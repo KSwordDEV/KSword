@@ -1,5 +1,5 @@
-#include "ProcessDetailWindow.InternalCommon.h"
-#include "../UI/CodeTextEdit.h"
+﻿#include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/CodeEditorWidget.h"
 
 #include "../ksword/process/dll_hijack_detector.h"
 
@@ -532,17 +532,16 @@ namespace
         table->setColumnWidth(8, 360);
         layout->addWidget(table, 1);
 
-        QPlainTextEdit* const detailPane = new CodeTextEdit(&dialog);
-        static_cast<CodeTextEdit*>(detailPane)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+        CodeEditorWidget* const detailPane = new CodeEditorWidget(&dialog);
         detailPane->setReadOnly(true);
         detailPane->setMaximumHeight(180);
         if (!result.findings.isEmpty())
         {
-            detailPane->setPlainText(findingDetailText(result.findings.first()));
+            detailPane->setReportText(findingDetailText(result.findings.first()));
         }
         else
         {
-            detailPane->setPlainText(failure.isEmpty()
+            detailPane->setReportText(failure.isEmpty()
                 ? dllHijackText(
                     "process.detail.dll_hijack.dialog.no_candidates",
                     QStringLiteral("未发现可与签名系统 DLL 建立基线的程序目录同名候选。"))
@@ -558,7 +557,7 @@ namespace
             {
                 if (currentRow >= 0 && currentRow < result.findings.size())
                 {
-                    detailPane->setPlainText(
+                    detailPane->setReportText(
                         findingDetailText(result.findings.at(currentRow)));
                 }
             });

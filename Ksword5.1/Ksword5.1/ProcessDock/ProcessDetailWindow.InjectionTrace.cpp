@@ -1,5 +1,5 @@
-#include "ProcessDetailWindow.InternalCommon.h"
-#include "../UI/CodeTextEdit.h"
+﻿#include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/CodeEditorWidget.h"
 
 #include "../ksword/process/injection_trace_collector.h"
 
@@ -1271,8 +1271,7 @@ namespace
         tree->setColumnWidth(5, 220);
         findingLayout->addWidget(tree, 1);
 
-        QPlainTextEdit* const detailPane = new CodeTextEdit(findingPage);
-        static_cast<CodeTextEdit*>(detailPane)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+        CodeEditorWidget* const detailPane = new CodeEditorWidget(findingPage);
         detailPane->setReadOnly(true);
         detailPane->setMaximumHeight(260);
         const QString emptyDetailText =
@@ -1280,7 +1279,7 @@ namespace
                 ? injectionText("process.detail.injection.dialog.no_finding",
                                 QStringLiteral("这次没有找出需要解释的东西。这不等于「没有被注入过」——只说明在「查了什么」页列出的范围内没发现。选中上面任意一条可以在这里看它的完整信息。"))
                 : failure;
-        detailPane->setPlainText(
+        detailPane->setReportText(
             report.findings.empty() ? emptyDetailText
                                     : readableFindingDetailText(report.findings.front()));
         findingLayout->addWidget(detailPane);
@@ -1297,13 +1296,13 @@ namespace
                 {
                     // 选中的是分组标题：这时给这一类的整体说明，而不是留着上一条不动。
                     const QString meaning = current->toolTip(0);
-                    detailPane->setPlainText(meaning.isEmpty() ? emptyDetailText : meaning);
+                    detailPane->setReportText(meaning.isEmpty() ? emptyDetailText : meaning);
                     return;
                 }
                 const std::size_t index = static_cast<std::size_t>(stored.toULongLong());
                 if (index < report.findings.size())
                 {
-                    detailPane->setPlainText(
+                    detailPane->setReportText(
                         readableFindingDetailText(report.findings[index]));
                 }
             });
@@ -1315,8 +1314,7 @@ namespace
         // --- 查了什么、没查成什么 ---
         // 原来是 [已完成的检查] / [检查缺口] / [能力限制] 三张裸清单。清单本身没问题，
         // 问题是没人知道"缺口"和"限制"差在哪儿——所以每一块前面补一句人话解释。
-        QPlainTextEdit* const coveragePane = new CodeTextEdit(tabs);
-        static_cast<CodeTextEdit*>(coveragePane)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+        CodeEditorWidget* const coveragePane = new CodeEditorWidget(tabs);
         coveragePane->setReadOnly(true);
         {
             QStringList lines;
@@ -1384,7 +1382,7 @@ namespace
             {
                 lines << QStringLiteral("    · ") + limitText(key);
             }
-            coveragePane->setPlainText(lines.join(QChar('\n')));
+            coveragePane->setReportText(lines.join(QChar('\n')));
         }
         tabs->addTab(coveragePane,
                      injectionText("process.detail.injection.tab.coverage",
@@ -1394,8 +1392,7 @@ namespace
         // --- 结果怎么读 ---
         // 边界说明从顶部四行挪到这里，和"能说什么/不能说什么"合成一页：两者讲的
         // 是同一件事，分在两处反而要求用户自己拼。
-        QPlainTextEdit* const semanticsPane = new CodeTextEdit(tabs);
-        static_cast<CodeTextEdit*>(semanticsPane)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+        CodeEditorWidget* const semanticsPane = new CodeEditorWidget(tabs);
         semanticsPane->setReadOnly(true);
         {
             QStringList lines;
@@ -1424,7 +1421,7 @@ namespace
                 lines << QStringLiteral("    · ") + observationText(observation);
                 lines << QString();
             }
-            semanticsPane->setPlainText(lines.join(QChar('\n')));
+            semanticsPane->setReportText(lines.join(QChar('\n')));
         }
         tabs->addTab(semanticsPane,
                      injectionText("process.detail.injection.tab.semantics",

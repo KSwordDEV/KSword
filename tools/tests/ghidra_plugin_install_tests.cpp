@@ -1,10 +1,11 @@
-// The parser/promotion definitions below are copied verbatim from the source
+﻿// The parser/promotion definitions below are copied verbatim from the source
 // tree under test. Runtime profile and native ZIP installer are linked normally.
 // ZIPs contain inert dummy runtime files; no Java/Ghidra/sample is executed.
 #include <QtCore/QtCore>
 #include <Windows.h>
 #include "GhidraRuntimePlugin/RuntimeProfile.h"
 #include "Ksword5.1/Ksword5.1/PluginHost.Upstream.h"
+#include "Ksword5.1/Ksword5.1/PluginHost.Archive.h"
 #include "production_plugin_helpers.inc"
 #include <cstdio>
 #include <cstdlib>
@@ -156,6 +157,82 @@ namespace
             && get(root + QStringLiteral("/ghidra/old-marker.txt")) == "unchanged existing plugin",
             "invalid backend package cannot replace an installed plugin");
         std::puts("Plugin promotion checks completed");
+    }
+
+    // 同一生产解包器覆盖普通根包、单 wrapper 和官方 wrapper，夹具只有无害文本。
+    void sharedArchiveGate()
+    {
+        using namespace ks::plugin_host;
+        const auto archiveRoot = caseRoot + QStringLiteral("/shared-archive");
+        check(QDir().mkpath(archiveRoot), "create owned archive fixture directory");
+        const auto python = qEnvironmentVariable("KSWORD_PLUGIN_TEST_PYTHON");
+        const QString generator = QDir::current().filePath(QStringLiteral("tools/tests/create_plugin_archive_fixtures.py"));
+        const auto powerShell = QStandardPaths::findExecutable(QStringLiteral("powershell.exe"));
+        check(!powerShell.isEmpty(), "shared gate tests use actual Windows PowerShell 5");
+        int caseIndex = 0;
+        // 每次解包独占空目录；失败前任何预检写入都会使下面的空目录断言失败。
+        const auto run = [&](const QString& mode, const bool wrapped, const bool upstream,
+            const bool accepted, const ArchiveLimits& limits = ArchiveLimits{})
+        {
+            const auto name = QString::number(caseIndex++);
+            const auto zip = archiveRoot + u'/' + name + QStringLiteral(".zip");
+            const auto stage = archiveRoot + u'/' + name + QStringLiteral("-stage");
+            check(QDir().mkpath(stage), "create empty archive stage");
+            QProcess fixtures;
+            QStringList arguments{generator, QStringLiteral("--output"), zip, QStringLiteral("--mode"), mode};
+            if (wrapped) arguments.append(QStringLiteral("--wrapped"));
+            fixtures.start(python.isEmpty() ? QStandardPaths::findExecutable(QStringLiteral("python")) : python, arguments);
+            check(fixtures.waitForFinished(10000) && fixtures.exitCode() == 0, "generate inert ZIP entries");
+            const QString command = buildArchiveExtractionScript(zip, stage, ArchiveLayout{QStringLiteral("fixture"), !upstream}, limits);
+            check(!command.isEmpty(), "shared archive command accepts valid owned paths and budgets");
+            QProcess extractor;
+            extractor.start(powerShell, {QStringLiteral("-NoLogo"), QStringLiteral("-NoProfile"),
+                QStringLiteral("-NonInteractive"), QStringLiteral("-Command"), command});
+            const bool finished = extractor.waitForFinished(20000);
+            const bool succeeded = finished && extractor.exitStatus() == QProcess::NormalExit && extractor.exitCode() == 0;
+            if (succeeded != accepted)
+                std::fprintf(stderr, "Shared ZIP gate mode=%s wrapped=%d upstream=%d error=%s\n", mode.toUtf8().constData(),
+                    wrapped, upstream, extractor.readAllStandardError().constData());
+            check(succeeded == accepted, "same archive gate enforces layouts and preflight budgets");
+            if (accepted)
+                check(get(stage + (wrapped ? QStringLiteral("/fixture") : QString()) + QStringLiteral("/payload.txt")) == "abcdefgh",
+                    "accepted root and wrapped archives retain the real payload");
+            else if (mode == QStringLiteral("forged-length"))
+                check(QFileInfo(stage + (wrapped ? QStringLiteral("/fixture") : QString()) + QStringLiteral("/forged.txt")).size() == 0,
+                    "actual decompression cannot write beyond the declared length budget");
+            else
+                check(QDir(stage).entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty(),
+                    "invalid archive preflight writes no files or directories");
+        };
+        run(QStringLiteral("valid"), false, false, true);
+        run(QStringLiteral("valid"), true, false, true);
+        run(QStringLiteral("valid"), true, true, true);
+        run(QStringLiteral("valid"), false, true, false);
+        for (const auto& fault : {QStringLiteral("traversal"), QStringLiteral("absolute"), QStringLiteral("ads"),
+            QStringLiteral("device"), QStringLiteral("superscript-device"), QStringLiteral("dot-alias"),
+            QStringLiteral("empty-component"), QStringLiteral("duplicate"), QStringLiteral("case-duplicate"),
+            QStringLiteral("slash-duplicate"), QStringLiteral("collision"), QStringLiteral("link"),
+            QStringLiteral("reparse"), QStringLiteral("special"), QStringLiteral("wrong-wrapper")})
+        {
+            run(fault, true, false, false);
+            run(fault, true, true, false);
+        }
+        run(QStringLiteral("ambiguous"), false, false, false);
+        run(QStringLiteral("valid"), false, false, false, ArchiveLimits{4, 1024, 100, 64});
+        run(QStringLiteral("valid"), true, true, false, ArchiveLimits{4, 1024, 100, 64});
+        run(QStringLiteral("valid"), false, false, false, ArchiveLimits{1024, 10, 100, 64});
+        run(QStringLiteral("valid"), true, true, false, ArchiveLimits{1024, 10, 100, 64});
+        run(QStringLiteral("valid"), false, false, false, ArchiveLimits{1024, 1024, 2, 64});
+        run(QStringLiteral("valid"), true, true, false, ArchiveLimits{1024, 1024, 2, 64});
+        run(QStringLiteral("depth"), false, false, false, ArchiveLimits{1024, 1024, 100, 3});
+        run(QStringLiteral("depth"), true, true, false, ArchiveLimits{1024, 1024, 100, 3});
+        run(QStringLiteral("forged-length"), false, false, false);
+        run(QStringLiteral("forged-length"), true, true, false);
+        check(buildArchiveExtractionScript(QStringLiteral("relative.zip"), archiveRoot,
+            ArchiveLayout{QStringLiteral("fixture"), true}).isEmpty(), "relative archive path cannot generate extraction code");
+        check(buildArchiveExtractionScript(archiveRoot + QStringLiteral("/fixture.zip"), archiveRoot,
+            ArchiveLayout{QStringLiteral("fixture"), true}, ArchiveLimits{1024, 0, 100, 64}).isEmpty(), "invalid archive budget cannot bypass the common gate");
+        std::puts("Shared archive gate checks completed");
     }
 
     // 从实际发布元数据解析计划，测试不另写一套协议定义。
@@ -331,12 +408,13 @@ namespace
         put(root + QStringLiteral("/ghidra/preserved-marker.txt"), "keep after rejected update");
         for (const auto& fault : {QStringLiteral("checksum"), QStringLiteral("download-size"), QStringLiteral("traversal"),
             QStringLiteral("device"), QStringLiteral("link"), QStringLiteral("duplicate"),
-            QStringLiteral("wrong-wrapper"), QStringLiteral("missing-source"), QStringLiteral("metadata-checksum")}) {
+            QStringLiteral("wrong-wrapper"), QStringLiteral("missing-source"), QStringLiteral("metadata-checksum"), QStringLiteral("invalid-policy")}) {
             auto bad = fault == QStringLiteral("checksum") || fault == QStringLiteral("download-size")
-                || fault == QStringLiteral("metadata-checksum") ? assets : localAssets(source, caseRoot + u'/' + fault, fault);
+                || fault == QStringLiteral("metadata-checksum") || fault == QStringLiteral("invalid-policy") ? assets : localAssets(source, caseRoot + u'/' + fault, fault);
             if (fault == QStringLiteral("checksum")) bad.assets[0].sha256 = QString(64, QLatin1Char('0'));
             if (fault == QStringLiteral("download-size")) bad.assets[0].maxArchiveBytes = 1;
             if (fault == QStringLiteral("metadata-checksum")) bad.metadata.last().sha256 = QString(64, QLatin1Char('0'));
+            if (fault == QStringLiteral("invalid-policy")) bad.assets[0].rootDirectory = QStringLiteral("../invalid");
             const auto result = install(root, bad);
             check(!result.success && result.stage.isEmpty() && !result.error.isEmpty() && noStages(root),
                 "invalid hash size archive path or legal/source payload leaves no usable partial plugin");
@@ -503,6 +581,7 @@ int main(int argc, char** argv)
     QTemporaryDir temporary(QString::fromLocal8Bit(argv[1]) + QStringLiteral("/cases-XXXXXX"));
     if (!temporary.isValid()) return 2;
     caseRoot = temporary.path();
+    sharedArchiveGate();
     distributionProtocol();
     metadataAndParser();
     promotion();

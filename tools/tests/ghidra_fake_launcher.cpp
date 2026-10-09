@@ -29,7 +29,21 @@ int main(int argc, char** argv)
     const auto snapshotPath = arguments.at(scriptIndex + 6);
     const auto mode = qEnvironmentVariable("KSWORD_GHIDRA_FIXTURE_MODE");
     const auto delay = qEnvironmentVariableIntValue("KSWORD_GHIDRA_FIXTURE_DELAY");
+    const auto token = arguments.value(scriptIndex + 10).toUtf8();
+    // 夹具只发送当前令牌的协议，模拟真实脚本阶段而不声称具有反编译能力。
+    const auto progress = [&token](const char* stage, int completed = -1, int total = -1) {
+        std::printf("KSWORD_PROGRESS:%s:%s:%d:%d\n", token.constData(), stage, completed, total);
+        std::fflush(stdout);
+    };
+    if (mode == QStringLiteral("progress-spoof")) {
+        std::fputs("KSWORD_PROGRESS:stale-request:rendering:4:4\n", stdout);
+        progress("unknown", 999, 999);
+        progress("rendering", 9, 4);
+    }
+    progress("importing");
+    progress("analyzing");
     if (delay > 0) QThread::msleep(static_cast<unsigned long>(delay));
+    progress("locating_function");
     QFile snapshot(snapshotPath);
     if (!snapshot.open(QIODevice::ReadOnly)) return 3;
     auto digest = QCryptographicHash::hash(snapshot.readAll(), QCryptographicHash::Sha256).toHex();
@@ -39,7 +53,13 @@ int main(int argc, char** argv)
             + QStringLiteral("    fixture_value++;\n").repeated(120) + QStringLiteral("    return 42;\n}\n")
         : mode == QStringLiteral("long-code")
         ? QString(1024 * 1024 + 1, QLatin1Char('x'))
+        : mode == QStringLiteral("bad-instruction")
+        ? QStringLiteral("/* WARNING: Control flow encountered bad instruction data */ void fixture_function(void)\n{\n    halt_baddata();\n}\n")
+        : mode == QStringLiteral("warning-string")
+        ? QStringLiteral("char *fixture_function(void)\n{\n    return \"Control flow encountered bad instruction data\";\n}\n")
         : QStringLiteral("int fixture_function(void)\n{\n    return 42;\n}\n");
+    progress("decompiling");
+    progress("rendering", 0, int(code.count(u'\n')));
     QJsonArray lineAddresses;
     lineAddresses.append(selected);
     lineAddresses.append(QJsonValue::Null);
@@ -65,6 +85,8 @@ int main(int argc, char** argv)
     output.write(mode == QStringLiteral("malformed") ? QByteArray("{malformed")
         : QJsonDocument(result).toJson(QJsonDocument::Compact));
     output.close();
+    progress("rendering", int(code.count(u'\n')), int(code.count(u'\n')));
+    if (mode == QStringLiteral("progress-spoof")) progress("analyzing");
     std::fputs("fixture launcher only; no Ghidra execution\n", stderr);
     return mode == QStringLiteral("nonzero") ? 9 : 0;
 }

@@ -1,4 +1,4 @@
-#include "KernelDescriptorTableTab.h"
+﻿#include "KernelDescriptorTableTab.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -29,8 +29,7 @@
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTableWidgetItem>
-#include <QPlainTextEdit>
-#include "../UI/CodeTextEdit.h"
+#include "../UI/CodeEditorWidget.h"
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -204,8 +203,7 @@ void KernelDescriptorTableTab::initializeUi()
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->verticalHeader()->setVisible(false);
 
-    m_detailEdit = new CodeTextEdit(splitter);
-    static_cast<CodeTextEdit*>(m_detailEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    m_detailEdit = new CodeEditorWidget(splitter);
     m_detailEdit->setReadOnly(true);
     m_detailEdit->setPlaceholderText(kernelText(
         idtOnly
@@ -815,17 +813,17 @@ void KernelDescriptorTableTab::showCurrentDetail()
 {
     if (m_table->currentRow() < 0)
     {
-        m_detailEdit->clear();
+        m_detailEdit->setReportText(QString());
         return;
     }
     const QTableWidgetItem* item = m_table->item(m_table->currentRow(), ColumnTable);
     if (item == nullptr)
     {
-        m_detailEdit->clear();
+        m_detailEdit->setReportText(QString());
         return;
     }
     const std::size_t sourceIndex = static_cast<std::size_t>(item->data(Qt::UserRole).toULongLong());
-    m_detailEdit->setPlainText(
+    m_detailEdit->setReportText(
         sourceIndex < m_rows.size()
             ? detailText(m_rows[sourceIndex], sourceIndex)
             : QString());

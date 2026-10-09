@@ -42,11 +42,13 @@ if not exist "%MOC%" mkdir "%MOC%"
 if not exist "%OUT%\shots" mkdir "%OUT%\shots"
 
 rem ---- moc：全部 Q_OBJECT 头 ----
-for %%H in (MemoryRowCanvas HexCanvas HexInspectorPanel HexInspectorRowView HexFindBar HexViewWidgets WorkbenchTarget WorkbenchPageProvider WorkbenchBaselineFeeder WorkbenchWriteController WorkbenchHexPane WorkbenchDisasmView WorkbenchTextView WorkbenchCompareView WorkbenchSessionBar WriteModeSwitch WorkbenchStatusBar WorkbenchStringWriteDialog AddressBookStore AddressBookModel AddressBookPanel Int3Controller Int3PatchPanel WorkbenchShared MemoryWorkbenchView WorkbenchDiagnosticsHost) do (
+for %%H in (MemoryRowCanvas HexCanvas HexInspectorPanel HexInspectorRowView HexFindBar HexViewWidgets WorkbenchTarget WorkbenchPageProvider WorkbenchBaselineFeeder WorkbenchWriteController WorkbenchHexPane WorkbenchDisasmView WorkbenchTextView WorkbenchCompareView WorkbenchPseudocodeView WorkbenchSessionBar WriteModeSwitch WorkbenchStatusBar WorkbenchStringWriteDialog AddressBookStore AddressBookModel AddressBookPanel Int3Controller Int3PatchPanel WorkbenchShared MemoryWorkbenchView WorkbenchDiagnosticsHost) do (
   "%QT%\bin\moc.exe" "%UI%\%%H.h" -o "%MOC%\moc_%%H.cpp"
   if errorlevel 1 exit /b %errorlevel%
 )
 "%QT%\bin\moc.exe" "%APP%\UI\CodeEditorWidget.h" -o "%MOC%\moc_CodeEditorWidget.cpp"
+if errorlevel 1 exit /b %errorlevel%
+"%QT%\bin\moc.exe" "%APP%\UI\Decompiler\GhidraDecompiler.h" -o "%MOC%\moc_GhidraDecompiler.cpp"
 if errorlevel 1 exit /b %errorlevel%
 
 rem ---- rcc：本包精简图标资源 ----
@@ -61,7 +63,7 @@ rem ---- 第二遍：CodeEditorWidget 依赖链，/W3 不开 /WX（别人代码�
 rem      警告不该挡住本包自己代码的强校验，仿 wpH/wpE/wpJ1 的做法）----
 cl /nologo /std:c++latest /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W3 /O2 /DWIN32_LEAN_AND_MEAN /external:W0 /DNOMINMAX /DUNICODE /D_UNICODE /DZYDIS_STATIC_BUILD /DQT_CORE_LIB /DQT_GUI_LIB /DQT_WIDGETS_LIB ^
   /I"%ZYDIS%" /external:I"%QT%\include" /external:I"%QT%\include\QtCore" /external:I"%QT%\include\QtGui" /external:I"%QT%\include\QtWidgets" /external:I"%QT%\include\QtSvg" ^
-  /c "%APP%\UI\CodeEditorWidget.cpp" "%APP%\UI\CodeTextEdit.cpp" "%APP%\UI\CodeEditorFileSession.cpp" "%APP%\UI\ReportStructuredView.cpp" "%APP%\Internationalization\LanguageManager.cpp" "%APP%\UI\MemoryAssembly.cpp" "%APP%\UI\MemoryAssembly.Core.cpp" "%MOC%\moc_CodeEditorWidget.cpp" ^
+  /c "%APP%\UI\CodeEditorWidget.cpp" "%APP%\UI\CodeTextEdit.cpp" "%APP%\UI\CodeEditorFileSession.cpp" "%APP%\UI\ReportStructuredView.cpp" "%APP%\UI\FieldTreePresenter.cpp" "%APP%\UI\FieldTreePresenter.Copy.cpp" "%APP%\Internationalization\LanguageManager.cpp" "%APP%\UI\MemoryAssembly.cpp" "%APP%\UI\MemoryAssembly.Core.cpp" "%MOC%\moc_CodeEditorWidget.cpp" ^
   /Fo"%OBJ2%\\"
 if errorlevel 1 exit /b %errorlevel%
 
@@ -84,9 +86,16 @@ rem 单独 link"，每批独立一条 cl 命令，单条长度远低于上限。
 set "CLFLAGS=/nologo /std:c++latest /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W4 /WX /O2 /Gy /c /external:W0 /DUNICODE /D_UNICODE /DZYDIS_STATIC_BUILD /DQT_CORE_LIB /DQT_GUI_LIB /DQT_WIDGETS_LIB /DQT_TESTLIB_LIB /I"%ZYDIS%" /external:I"%QT%\include" /external:I"%QT%\include\QtCore" /external:I"%QT%\include\QtGui" /external:I"%QT%\include\QtWidgets" /external:I"%QT%\include\QtTest" /external:I"%QT%\include\QtSvg""
 
 cl %CLFLAGS% ^
+  "%UI%\MemoryWorkbenchView.Pseudocode.cpp" "%UI%\WorkbenchPseudocodeView.cpp" "%UI%\WorkbenchPseudocodeView.Ui.cpp" ^
+  "%APP%\UI\Decompiler\GhidraDecompiler.cpp" "GhidraRuntimePlugin\RuntimeProfile.cpp" "%FIX%\wpJ6_plugin_stubs.cpp" ^
+  "%MOC%\moc_WorkbenchPseudocodeView.cpp" "%MOC%\moc_GhidraDecompiler.cpp" ^
+  /Fo"%OBJ%\\"
+if errorlevel 1 exit /b %errorlevel%
+
+cl %CLFLAGS% ^
   "%FIX%\wpJ6_main.cpp" "%FIX%\wpJ6_common.cpp" ^
   "%FIX%\wpJ6_tests.Identity.cpp" "%FIX%\wpJ6_tests.Embedded.cpp" "%FIX%\wpJ6_tests.Actions.cpp" "%FIX%\wpJ6_tests.Gate.cpp" "%FIX%\wpJ6_tests.Write.cpp" "%FIX%\wpJ6_tests.Nav.cpp" "%FIX%\wpJ6_tests.Visual.cpp" ^
-  "%FIX%\wpJ6_tests.Review2A.cpp" "%FIX%\wpJ6_tests.Review2B.cpp" "%FIX%\wpJ6_tests.Review2C.cpp" "%FIX%\wpJ6_tests.Review2Fixes.cpp" "%FIX%\wpJ6_tests.Quit.cpp" "%FIX%\wpJ6_tests.Entry3b.cpp" "%FIX%\wpJ6_tests.Narrow.cpp" "%FIX%\wpJ6_tests.DarkLabels.cpp" "%FIX%\wpJ6_tests.Chrome.cpp" "%FIX%\wpJ6_tests.RowFit.cpp" "%FIX%\wpJ6_tests.DockFill.cpp" "%FIX%\wpJ6_tests.SubPages.cpp" ^
+  "%FIX%\wpJ6_tests.Review2A.cpp" "%FIX%\wpJ6_tests.Review2B.cpp" "%FIX%\wpJ6_tests.Review2C.cpp" "%FIX%\wpJ6_tests.Review2Fixes.cpp" "%FIX%\wpJ6_tests.Quit.cpp" "%FIX%\wpJ6_tests.Entry3b.cpp" "%FIX%\wpJ6_tests.Narrow.cpp" "%FIX%\wpJ6_tests.DarkLabels.cpp" "%FIX%\wpJ6_tests.Chrome.cpp" "%FIX%\wpJ6_tests.RowFit.cpp" "%FIX%\wpJ6_tests.DockFill.cpp" "%FIX%\wpJ6_tests.SubPages.cpp" "%FIX%\wpJ6_tests.Pseudocode.cpp" ^
   "%WPI%\memwb_wpI_common.cpp" ^
   "%UI%\MemoryWorkbenchView.cpp" "%UI%\MemoryWorkbenchView.MemoryDebug.cpp" "%UI%\MemoryWorkbenchView.Ui.cpp" "%UI%\MemoryWorkbenchView.Session.cpp" "%UI%\MemoryWorkbenchView.Nav.cpp" "%UI%\MemoryWorkbenchView.HexPrefs.cpp" "%UI%\MemoryWorkbenchView.SubPages.cpp" "%UI%\MemoryWorkbenchView.RowCanvas.cpp" "%UI%\WorkbenchDiagnosticsHost.cpp" ^
   "%FIX%\wpJ6_tests.MemoryDebug.cpp" ^
@@ -104,7 +113,7 @@ if errorlevel 1 exit /b %errorlevel%
 cl %CLFLAGS% ^
   "%UI%\HexInspectorPanel.cpp" "%UI%\HexInspectorPanel.Rows.cpp" "%UI%\HexInspectorPanel.Edit.cpp" "%UI%\HexInspectorPanel.Menu.cpp" "%UI%\HexInspectorRowView.cpp" "%UI%\HexInspectorRowView.Paint.cpp" "%UI%\HexInspectorWidgets.cpp" ^
   "%UI%\HexFindBar.cpp" "%UI%\HexFindSearch.cpp" "%UI%\HexViewWidgets.cpp" "%UI%\HexViewWidgets.Text.cpp" "%UI%\HexViewFormat.cpp" ^
-  "%UI%\WorkbenchDisasmView.cpp" "%UI%\WorkbenchDisasmView.Edit.cpp" "%UI%\WorkbenchDisasmView.Canvas.cpp" "%UI%\WorkbenchTextView.cpp" "%UI%\WorkbenchCompareView.cpp" ^
+  "%UI%\WorkbenchDisasmView.cpp" "%UI%\WorkbenchDisasmView.Edit.cpp" "%UI%\AssemblyPreviewDialog.cpp" "%UI%\WorkbenchDisasmView.Canvas.cpp" "%UI%\WorkbenchTextView.cpp" "%UI%\WorkbenchCompareView.cpp" ^
   "%UI%\WorkbenchSessionBar.cpp" "%UI%\WriteModeSwitch.cpp" "%UI%\WorkbenchStatusBar.cpp" "%UI%\WorkbenchConfirmations.cpp" "%UI%\WorkbenchStringWriteDialog.cpp" ^
   "%UI%\WorkbenchMessages.cpp" "%UI%\WorkbenchSettings.cpp" "%UI%\WorkbenchActions.cpp" ^
   "%UI%\AddressBookStore.cpp" "%UI%\AddressBookModel.cpp" "%UI%\AddressBookModel.StoreSync.cpp" "%UI%\AddressBookPanel.cpp" "%UI%\AddressBookPanel.RowActions.cpp" "%UI%\AddressBookPanel.Menu.cpp" ^
@@ -145,7 +154,7 @@ rem ---- 最终链接：用 /link 把两批 .obj 目录通配 + CodeEditorWidget
 rem      .obj 一次性链起来，避免再拼一条列出全部 .obj 文件名的长命令行。----
 cl /nologo /Fe"%OUT%\wpJ6_tests.exe" "%OBJ%\*.obj" ^
   /link /OPT:REF /LIBPATH:"%QT%\lib" Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib Qt6Test.lib Qt6Svg.lib user32.lib advapi32.lib ^
-  "%OBJ2%\CodeEditorWidget.obj" "%OBJ2%\CodeTextEdit.obj" "%OBJ2%\CodeEditorFileSession.obj" "%OBJ2%\ReportStructuredView.obj" "%OBJ2%\LanguageManager.obj" "%OBJ2%\MemoryAssembly.obj" "%OBJ2%\MemoryAssembly.Core.obj" "%OBJ2%\moc_CodeEditorWidget.obj" "%OBJ2%\Zydis.obj"
+  "%OBJ2%\CodeEditorWidget.obj" "%OBJ2%\CodeTextEdit.obj" "%OBJ2%\CodeEditorFileSession.obj" "%OBJ2%\ReportStructuredView.obj" "%OBJ2%\FieldTreePresenter.obj" "%OBJ2%\FieldTreePresenter.Copy.obj" "%OBJ2%\LanguageManager.obj" "%OBJ2%\MemoryAssembly.obj" "%OBJ2%\MemoryAssembly.Core.obj" "%OBJ2%\moc_CodeEditorWidget.obj" "%OBJ2%\Zydis.obj"
 if errorlevel 1 exit /b %errorlevel%
 
 rem ---- 部署 DLL 与插件（离屏平台、SVG 图标引擎与图片格式） ----

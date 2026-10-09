@@ -208,6 +208,8 @@ namespace ks::ui
         // - 作用：刷新图标、文本与样式（含主题和置顶状态）；
         // - 调用：状态变化时统一调用。
         void updateVisualState();
+        // updateThemeStyle 仅按当前主题角色更新局部 QSS，不重置按钮图标或交互状态。
+        void updateThemeStyle();
 
         // updateCommandLineWidth：
         // - 作用：把中间输入组宽度调整为标题栏可用宽度的 1/3。

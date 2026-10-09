@@ -642,15 +642,11 @@ bool MemoryDock::isComboPopupVisible(QComboBox* const comboBox) const
     {
         return false;
     }
-    // 两个会被异步结果整体重建的组合框都从 showPopup() 进入前置位，
+    // 进程组合框从 showPopup() 进入前置位，
     // 所以 qScrollEffect 暂时隐藏 QComboBoxPrivateContainer 时也不会误放行。
     if (comboBox == m_processCombo)
     {
         return m_processComboPopupLifecycleActive;
-    }
-    if (comboBox == m_driverMemoryBaseCombo)
-    {
-        return m_driverMemoryBaseComboPopupLifecycleActive;
     }
 
     // 为非受保护子类保留无副作用兜底；不要调用 view()，它会惰性创建私有弹层。
@@ -661,9 +657,8 @@ bool MemoryDock::isComboPopupVisible(QComboBox* const comboBox) const
 
 bool MemoryDock::isProcessComboPopupOpen()
 {
-    // 一次进程缓存回填会同时重建这两个下拉框，任一展开都不能提交。
-    return isComboPopupVisible(m_processCombo) ||
-        isComboPopupVisible(m_driverMemoryBaseCombo);
+    // 进程缓存回填不能在进程选择器弹层仍展开时提交。
+    return isComboPopupVisible(m_processCombo);
 }
 
 bool MemoryDock::deferCommitWhileProcessComboPopupOpen(std::function<void()> commitAction)
@@ -695,15 +690,8 @@ void MemoryDock::flushProcessComboDeferredCommit()
         return;
     }
 
-    const bool driverBaseRefreshPending = m_driverMemoryBaseComboRefreshPending;
-    m_driverMemoryBaseComboRefreshPending = false;
-
     if (!m_processComboDeferredCommit)
     {
-        if (driverBaseRefreshPending)
-        {
-            updateDriverMemoryBaseComboFromProcessCache();
-        }
         return;
     }
 
@@ -714,7 +702,7 @@ void MemoryDock::flushProcessComboDeferredCommit()
     info << flushCommitEvent
         << "[MemoryDock] 进程下拉框已收起，回投被推迟的进程列表提交。"
         << eol;
-    // 完整进程快照提交本身会重建驱动目标下拉框，因此也覆盖待补的单框刷新。
+    // 完整进程快照提交一次完成列表与当前选择的回填。
     commitAction();
 }
 
@@ -1143,8 +1131,6 @@ void MemoryDock::updateProcessComboFromCache()
         m_processCombo->setCurrentIndex(0);
     }
 
-    // Tab6 的 R0 读写页也复用进程缓存；顶部下拉重建完成后同步刷新目标选择。
-    updateDriverMemoryBaseComboFromProcessCache();
 }
 
 void MemoryDock::rebuildModuleTableFromCache()
@@ -1497,7 +1483,8 @@ bool MemoryDock::attachToProcess(
         << (showMessage ? "true" : "false")
         << eol;
 
-    if (!confirmDiscardMemoryEditsForProcessChange())
+    // 暂存补丁与 int3 的目标变更确认统一交给工作台离开守卫。
+    if (!workbenchAllowsProcessChange())
     {
         return false;
     }
@@ -1565,7 +1552,6 @@ bool MemoryDock::attachToProcess(
     m_attachedProcessHandle = processHandle;
     m_attachedPid = pid;
     m_attachedProcessName = processName;
-    refreshBookmarkValues();
     updateStatusBarText();
     syncTamperDetectionTargets();
 
@@ -1678,13 +1664,11 @@ void MemoryDock::setProcessDetailMemoryScope()
 
 void MemoryDock::applyProcessDetailTabVisibility()
 {
-    // 内嵌实例的可见页签集：进程与模块、内存区域、内存搜索，加上"看内存"的那一页——
-    // 工作台路由开启时是内存工作台（旧查看器隐藏），关闭时仍是旧内存查看器。
+    // 内嵌实例固定提供进程与模块、内存区域、内存搜索和统一工作台。
     if (m_tabWidget == nullptr)
     {
         return;
     }
-    const bool useWorkbench = workbenchRoutingActive();
     for (int tabIndex = 0; tabIndex < m_tabWidget->count(); ++tabIndex)
     {
         QWidget* const tabPage = m_tabWidget->widget(tabIndex);
@@ -1692,7 +1676,7 @@ void MemoryDock::applyProcessDetailTabVisibility()
             tabPage == m_tabProcessModule ||
             tabPage == m_tabRegions ||
             tabPage == m_tabSearch ||
-            (useWorkbench ? (tabPage == m_tabWorkbench) : (tabPage == m_tabViewer));
+            tabPage == m_tabWorkbench;
         m_tabWidget->setTabVisible(tabIndex, visibleInProcessDetail);
     }
 }
@@ -1755,7 +1739,6 @@ void MemoryDock::detachProcess()
     m_attachedPid = 0;
     m_attachedProcessName.clear();
     m_canReadWriteMemory = false;
-    refreshBookmarkValues();
 
     // 分离时清理依赖上下文的数据缓存。
     m_moduleCache.clear();
@@ -1796,9 +1779,6 @@ void MemoryDock::detachProcess()
     {
         m_processMemoryEvidenceStatusLabel->setText(QStringLiteral("状态：请先附加进程。"));
     }
-    clearMemoryViewerSnapshot();
-    resetDriverMemoryRwState();
-    m_viewerStatusLabel->setText("未附加进程。");
 
     updateStatusBarText();
 

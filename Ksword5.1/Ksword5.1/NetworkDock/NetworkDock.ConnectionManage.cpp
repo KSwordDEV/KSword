@@ -1,6 +1,7 @@
 #include "NetworkDock.InternalCommon.h"
 #include "NetworkAuditPage.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
+#include "../UI/ResultTableHost.h"
 
 using namespace network_dock_detail;
 
@@ -113,173 +114,180 @@ void NetworkDock::applyConnectionSnapshot(
         return;
     }
 
-    const QList<QTableView*> connectionTables = {
-        m_tcpConnectionTable,
-        m_udpEndpointTable
-    };
-    if (ks::ui::IsTableUiCommitBlockedByContextMenu(connectionTables))
+    // TCP/UDP 共享一份后台快照；稳定列身份与整组提交由结果表宿主管理。
+    ks::ui::ResultTableHost* const tcpHost = ks::ui::ResultTableHost::ensure(m_tcpConnectionTable);
+    ks::ui::ResultTableHost* const udpHost = ks::ui::ResultTableHost::ensure(m_udpEndpointTable);
+    if (tcpHost != nullptr && !tcpHost->hasExplicitColumns())
     {
-        // TCP/UDP 共用同一份后台快照，必须作为一个原子提交延迟，
-        // 防止菜单打开期间任一表重排导致已捕获行失效。
-        const QPointer<NetworkDock> safeThis(this);
-        ks::ui::DeferTableUiCommitIfContextMenuOpen(
-            this,
-            QStringLiteral("network-connection-snapshot"),
-            connectionTables,
-            [safeThis,
-                tcpSnapshot = std::move(tcpSnapshot),
-                udpSnapshot = std::move(udpSnapshot),
-                tcpOk,
-                udpOk,
-                tcpErrorText = std::move(tcpErrorText),
-                udpErrorText = std::move(udpErrorText)]() mutable
+        tcpHost->bindModel(m_tcpConnectionTable->model(), {
+            {toTcpConnectionColumn(TcpConnectionTableColumn::State), QStringLiteral("tcp_state")},
+            {toTcpConnectionColumn(TcpConnectionTableColumn::Pid), QStringLiteral("process_id")},
+            {toTcpConnectionColumn(TcpConnectionTableColumn::ProcessName), QStringLiteral("process_name")},
+            {toTcpConnectionColumn(TcpConnectionTableColumn::LocalEndpoint), QStringLiteral("local_endpoint")},
+            {toTcpConnectionColumn(TcpConnectionTableColumn::RemoteEndpoint), QStringLiteral("remote_endpoint")}
+        });
+    }
+    if (udpHost != nullptr && !udpHost->hasExplicitColumns())
+    {
+        udpHost->bindModel(m_udpEndpointTable->model(), {
+            {toUdpEndpointColumn(UdpEndpointTableColumn::Pid), QStringLiteral("process_id")},
+            {toUdpEndpointColumn(UdpEndpointTableColumn::ProcessName), QStringLiteral("process_name")},
+            {toUdpEndpointColumn(UdpEndpointTableColumn::LocalEndpoint), QStringLiteral("local_endpoint")}
+        });
+    }
+    const QPointer<NetworkDock> safeThis(this); // 页面关闭后自动丢弃整份快照。
+    ks::ui::ResultTableHost::submitGroup(
+        this,
+        QStringLiteral("network-connection-snapshot"),
+        {tcpHost, udpHost},
+        [this, safeThis,
+            tcpSnapshot = std::move(tcpSnapshot),
+            udpSnapshot = std::move(udpSnapshot),
+            tcpOk,
+            udpOk,
+            tcpErrorText = std::move(tcpErrorText),
+            udpErrorText = std::move(udpErrorText)]() mutable
+        {
+            // 延迟回投时重新确认页面仍存在且仍显示连接页，保持原有隐藏页边界。
+            if (safeThis.isNull() || (m_sideTabWidget != nullptr
+                && m_connectionManagePage != nullptr
+                && m_sideTabWidget->currentWidget() != m_connectionManagePage))
             {
-                if (!safeThis.isNull())
-                {
-                    safeThis->applyConnectionSnapshot(
-                        std::move(tcpSnapshot),
-                        std::move(udpSnapshot),
-                        tcpOk,
-                        udpOk,
-                        std::move(tcpErrorText),
-                        std::move(udpErrorText));
-                }
-            });
-        return;
-    }
-
-    if (!tcpOk || !udpOk)
-    {
-        if (m_connectionStatusLabel != nullptr)
-        {
-            m_connectionStatusLabel->setText(
-                tcpOk ? QStringLiteral("状态：UDP 刷新失败") : QStringLiteral("状态：TCP 刷新失败"));
-        }
-
-        kLogEvent refreshFailEvent;
-        if (!tcpOk)
-        {
-            warn << refreshFailEvent
-                << "[NetworkDock] 枚举 TCP 连接失败, detail=" << tcpErrorText
-                << eol;
-        }
-        if (!udpOk)
-        {
-            warn << refreshFailEvent
-                << "[NetworkDock] 枚举 UDP 端点失败, detail=" << udpErrorText
-                << eol;
-        }
-        return;
-    }
-
-    if (!m_connectionPidFilterSet.isEmpty())
-    {
-        const auto pidMatches = [this](const std::uint32_t processId)
-            {
-                return m_connectionPidFilterSet.contains(static_cast<quint32>(processId));
-            };
-        tcpSnapshot.erase(
-            std::remove_if(tcpSnapshot.begin(), tcpSnapshot.end(),
-                [&pidMatches](const ks::network::TcpConnectionRecord& record)
-                {
-                    return !pidMatches(record.processId);
-                }),
-            tcpSnapshot.end());
-        udpSnapshot.erase(
-            std::remove_if(udpSnapshot.begin(), udpSnapshot.end(),
-                [&pidMatches](const ks::network::UdpEndpointRecord& record)
-                {
-                    return !pidMatches(record.processId);
-                }),
-            udpSnapshot.end());
-    }
-
-    m_tcpConnectionCache = std::move(tcpSnapshot);
-    m_udpEndpointCache = std::move(udpSnapshot);
-
-    if (m_tcpConnectionTable != nullptr)
-    {
-        const bool updatesEnabled = m_tcpConnectionTable->updatesEnabled();
-        m_tcpConnectionTable->setUpdatesEnabled(false);
-        m_tcpConnectionTable->setRowCount(static_cast<int>(m_tcpConnectionCache.size()));
-        for (int rowIndex = 0; rowIndex < static_cast<int>(m_tcpConnectionCache.size()); ++rowIndex)
-        {
-            const ks::network::TcpConnectionRecord& connectionRecord = m_tcpConnectionCache[static_cast<std::size_t>(rowIndex)];
-            QTableWidgetItem* stateItem = createPacketCell(toQString(connectionRecord.tcpStateText));
-            stateItem->setData(Qt::UserRole, rowIndex);
-            m_tcpConnectionTable->setItem(rowIndex, toTcpConnectionColumn(TcpConnectionTableColumn::State), stateItem);
-            m_tcpConnectionTable->setItem(rowIndex, toTcpConnectionColumn(TcpConnectionTableColumn::Pid), createPacketCell(QString::number(connectionRecord.processId)));
-            QTableWidgetItem* processItem = createPacketCell(toQString(connectionRecord.processName));
-            processItem->setIcon(resolveProcessIconByPid(connectionRecord.processId, connectionRecord.processName));
-            m_tcpConnectionTable->setItem(rowIndex, toTcpConnectionColumn(TcpConnectionTableColumn::ProcessName), processItem);
-            m_tcpConnectionTable->setItem(rowIndex, toTcpConnectionColumn(TcpConnectionTableColumn::LocalEndpoint), createPacketCell(formatEndpointText(connectionRecord.localAddressText, connectionRecord.localPort)));
-            m_tcpConnectionTable->setItem(rowIndex, toTcpConnectionColumn(TcpConnectionTableColumn::RemoteEndpoint), createPacketCell(formatEndpointText(connectionRecord.remoteAddressText, connectionRecord.remotePort)));
-        }
-        m_tcpConnectionTable->setUpdatesEnabled(updatesEnabled);
-        if (updatesEnabled && m_tcpConnectionTable->viewport() != nullptr)
-        {
-            m_tcpConnectionTable->viewport()->update();
-        }
-    }
-
-    if (m_udpEndpointTable != nullptr)
-    {
-        const bool updatesEnabled = m_udpEndpointTable->updatesEnabled();
-        m_udpEndpointTable->setUpdatesEnabled(false);
-        m_udpEndpointTable->setRowCount(static_cast<int>(m_udpEndpointCache.size()));
-        for (int rowIndex = 0; rowIndex < static_cast<int>(m_udpEndpointCache.size()); ++rowIndex)
-        {
-            const ks::network::UdpEndpointRecord& endpointRecord = m_udpEndpointCache[static_cast<std::size_t>(rowIndex)];
-            m_udpEndpointTable->setItem(rowIndex, toUdpEndpointColumn(UdpEndpointTableColumn::Pid), createPacketCell(QString::number(endpointRecord.processId)));
-            QTableWidgetItem* processItem = createPacketCell(toQString(endpointRecord.processName));
-            processItem->setIcon(resolveProcessIconByPid(endpointRecord.processId, endpointRecord.processName));
-            m_udpEndpointTable->setItem(rowIndex, toUdpEndpointColumn(UdpEndpointTableColumn::ProcessName), processItem);
-            m_udpEndpointTable->setItem(rowIndex, toUdpEndpointColumn(UdpEndpointTableColumn::LocalEndpoint), createPacketCell(formatEndpointText(endpointRecord.localAddressText, endpointRecord.localPort)));
-        }
-        m_udpEndpointTable->setUpdatesEnabled(updatesEnabled);
-        if (updatesEnabled && m_udpEndpointTable->viewport() != nullptr)
-        {
-            m_udpEndpointTable->viewport()->update();
-        }
-    }
-
-    if (m_connectionStatusLabel != nullptr)
-    {
-        const QString nowText = QDateTime::currentDateTime().toString("HH:mm:ss");
-        QString filterText;
-        if (!m_connectionPidFilterSet.isEmpty())
-        {
-            QStringList pidTextList;
-            for (const quint32 processId : std::as_const(m_connectionPidFilterSet))
-            {
-                pidTextList.push_back(QString::number(processId));
+                return;
             }
-            std::sort(pidTextList.begin(), pidTextList.end(), [](const QString& left, const QString& right) {
-                return left.toULongLong() < right.toULongLong();
-            });
-            filterText = QStringLiteral("，PID筛选=%1 个进程")
-                .arg(m_connectionPidFilterSet.size());
-            m_connectionStatusLabel->setToolTip(
-                QStringLiteral("PID：%1").arg(pidTextList.join(',')));
-        }
-        else
-        {
-            m_connectionStatusLabel->setToolTip(QString());
-        }
-        m_connectionStatusLabel->setText(
-            QStringLiteral("状态：TCP=%1 条, UDP=%2 条%3, 刷新于 %4")
-            .arg(static_cast<int>(m_tcpConnectionCache.size()))
-            .arg(static_cast<int>(m_udpEndpointCache.size()))
-            .arg(filterText)
-            .arg(nowText));
-    }
+            if (!tcpOk || !udpOk)
+            {
+                if (m_connectionStatusLabel != nullptr)
+                {
+                    m_connectionStatusLabel->setText(
+                        tcpOk ? QStringLiteral("状态：UDP 刷新失败") : QStringLiteral("状态：TCP 刷新失败"));
+                }
 
-    // 刷新频率较高，这里使用 dbg 级别避免 info 日志过于密集。
-    kLogEvent refreshEvent;
-    dbg << refreshEvent
-        << "[NetworkDock] 刷新连接快照完成, tcpCount=" << m_tcpConnectionCache.size()
-        << ", udpCount=" << m_udpEndpointCache.size()
-        << eol;
+                kLogEvent refreshFailEvent;
+                if (!tcpOk)
+                {
+                    warn << refreshFailEvent
+                        << "[NetworkDock] 枚举 TCP 连接失败, detail=" << tcpErrorText
+                        << eol;
+                }
+                if (!udpOk)
+                {
+                    warn << refreshFailEvent
+                        << "[NetworkDock] 枚举 UDP 端点失败, detail=" << udpErrorText
+                        << eol;
+                }
+                return;
+            }
+
+            if (!m_connectionPidFilterSet.isEmpty())
+            {
+                const auto pidMatches = [this](const std::uint32_t processId)
+                    {
+                        return m_connectionPidFilterSet.contains(static_cast<quint32>(processId));
+                    };
+                tcpSnapshot.erase(
+                    std::remove_if(tcpSnapshot.begin(), tcpSnapshot.end(),
+                        [&pidMatches](const ks::network::TcpConnectionRecord& record)
+                        {
+                            return !pidMatches(record.processId);
+                        }),
+                    tcpSnapshot.end());
+                udpSnapshot.erase(
+                    std::remove_if(udpSnapshot.begin(), udpSnapshot.end(),
+                        [&pidMatches](const ks::network::UdpEndpointRecord& record)
+                        {
+                            return !pidMatches(record.processId);
+                        }),
+                    udpSnapshot.end());
+            }
+
+            m_tcpConnectionCache = std::move(tcpSnapshot);
+            m_udpEndpointCache = std::move(udpSnapshot);
+
+            if (m_tcpConnectionTable != nullptr)
+            {
+                const bool updatesEnabled = m_tcpConnectionTable->updatesEnabled();
+                m_tcpConnectionTable->setUpdatesEnabled(false);
+                m_tcpConnectionTable->setRowCount(static_cast<int>(m_tcpConnectionCache.size()));
+                for (int rowIndex = 0; rowIndex < static_cast<int>(m_tcpConnectionCache.size()); ++rowIndex)
+                {
+                    const ks::network::TcpConnectionRecord& connectionRecord = m_tcpConnectionCache[static_cast<std::size_t>(rowIndex)];
+                    QTableWidgetItem* stateItem = createPacketCell(toQString(connectionRecord.tcpStateText));
+                    stateItem->setData(Qt::UserRole, rowIndex);
+                    m_tcpConnectionTable->setItem(rowIndex, toTcpConnectionColumn(TcpConnectionTableColumn::State), stateItem);
+                    m_tcpConnectionTable->setItem(rowIndex, toTcpConnectionColumn(TcpConnectionTableColumn::Pid), createPacketCell(QString::number(connectionRecord.processId)));
+                    QTableWidgetItem* processItem = createPacketCell(toQString(connectionRecord.processName));
+                    processItem->setIcon(resolveProcessIconByPid(connectionRecord.processId, connectionRecord.processName));
+                    m_tcpConnectionTable->setItem(rowIndex, toTcpConnectionColumn(TcpConnectionTableColumn::ProcessName), processItem);
+                    m_tcpConnectionTable->setItem(rowIndex, toTcpConnectionColumn(TcpConnectionTableColumn::LocalEndpoint), createPacketCell(formatEndpointText(connectionRecord.localAddressText, connectionRecord.localPort)));
+                    m_tcpConnectionTable->setItem(rowIndex, toTcpConnectionColumn(TcpConnectionTableColumn::RemoteEndpoint), createPacketCell(formatEndpointText(connectionRecord.remoteAddressText, connectionRecord.remotePort)));
+                }
+                m_tcpConnectionTable->setUpdatesEnabled(updatesEnabled);
+                if (updatesEnabled && m_tcpConnectionTable->viewport() != nullptr)
+                {
+                    m_tcpConnectionTable->viewport()->update();
+                }
+            }
+
+            if (m_udpEndpointTable != nullptr)
+            {
+                const bool updatesEnabled = m_udpEndpointTable->updatesEnabled();
+                m_udpEndpointTable->setUpdatesEnabled(false);
+                m_udpEndpointTable->setRowCount(static_cast<int>(m_udpEndpointCache.size()));
+                for (int rowIndex = 0; rowIndex < static_cast<int>(m_udpEndpointCache.size()); ++rowIndex)
+                {
+                    const ks::network::UdpEndpointRecord& endpointRecord = m_udpEndpointCache[static_cast<std::size_t>(rowIndex)];
+                    m_udpEndpointTable->setItem(rowIndex, toUdpEndpointColumn(UdpEndpointTableColumn::Pid), createPacketCell(QString::number(endpointRecord.processId)));
+                    QTableWidgetItem* processItem = createPacketCell(toQString(endpointRecord.processName));
+                    processItem->setIcon(resolveProcessIconByPid(endpointRecord.processId, endpointRecord.processName));
+                    m_udpEndpointTable->setItem(rowIndex, toUdpEndpointColumn(UdpEndpointTableColumn::ProcessName), processItem);
+                    m_udpEndpointTable->setItem(rowIndex, toUdpEndpointColumn(UdpEndpointTableColumn::LocalEndpoint), createPacketCell(formatEndpointText(endpointRecord.localAddressText, endpointRecord.localPort)));
+                }
+                m_udpEndpointTable->setUpdatesEnabled(updatesEnabled);
+                if (updatesEnabled && m_udpEndpointTable->viewport() != nullptr)
+                {
+                    m_udpEndpointTable->viewport()->update();
+                }
+            }
+
+            if (m_connectionStatusLabel != nullptr)
+            {
+                const QString nowText = QDateTime::currentDateTime().toString("HH:mm:ss");
+                QString filterText;
+                if (!m_connectionPidFilterSet.isEmpty())
+                {
+                    QStringList pidTextList;
+                    for (const quint32 processId : std::as_const(m_connectionPidFilterSet))
+                    {
+                        pidTextList.push_back(QString::number(processId));
+                    }
+                    std::sort(pidTextList.begin(), pidTextList.end(), [](const QString& left, const QString& right) {
+                        return left.toULongLong() < right.toULongLong();
+                    });
+                    filterText = QStringLiteral("，PID筛选=%1 个进程")
+                        .arg(m_connectionPidFilterSet.size());
+                    m_connectionStatusLabel->setToolTip(
+                        QStringLiteral("PID：%1").arg(pidTextList.join(',')));
+                }
+                else
+                {
+                    m_connectionStatusLabel->setToolTip(QString());
+                }
+                m_connectionStatusLabel->setText(
+                    QStringLiteral("状态：TCP=%1 条, UDP=%2 条%3, 刷新于 %4")
+                    .arg(static_cast<int>(m_tcpConnectionCache.size()))
+                    .arg(static_cast<int>(m_udpEndpointCache.size()))
+                    .arg(filterText)
+                    .arg(nowText));
+            }
+
+            // 刷新频率较高，这里使用 dbg 级别避免 info 日志过于密集。
+            kLogEvent refreshEvent;
+            dbg << refreshEvent
+                << "[NetworkDock] 刷新连接快照完成, tcpCount=" << m_tcpConnectionCache.size()
+                << ", udpCount=" << m_udpEndpointCache.size()
+                << eol;
+        });
 }
 
 void NetworkDock::refreshTcpConnectionTable()

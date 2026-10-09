@@ -4,6 +4,7 @@
 #include <QEvent>
 #include <QApplication>
 #include <QFontDatabase>
+#include <QFontInfo>
 #include <QFrame>
 #include <QKeyEvent>
 #include <QPaintEvent>
@@ -11,6 +12,7 @@
 #include <QPointer>
 #include <QRegularExpression>
 #include <QResizeEvent>
+#include <QScrollBar>
 #include <QSignalBlocker>
 #include <QSyntaxHighlighter>
 #include <QTextBlock>
@@ -27,6 +29,17 @@ namespace
     constexpr int kDetectionCharacters = 16 * 1024;
     constexpr int kHighlightCharactersPerBlock = 64 * 1024;
     constexpr int kBracketScanCharacters = 128 * 1024;
+
+    // 点/像素单位一致时保留准确倍率，宿主混用单位时按同一屏幕的实际像素换算。
+    double fontSizeScale(const QFont& current, const QFont& application)
+    {
+        if (current.pointSizeF() > 0 && application.pointSizeF() > 0)
+            return current.pointSizeF() / application.pointSizeF();
+        if (current.pixelSize() > 0 && application.pixelSize() > 0)
+            return static_cast<double>(current.pixelSize()) / application.pixelSize();
+        const int basePixels = QFontInfo(application).pixelSize();
+        return basePixels > 0 ? static_cast<double>(QFontInfo(current).pixelSize()) / basePixels : 1.0;
+    }
 
     bool isOpenBracket(QChar ch)
     {
@@ -277,6 +290,7 @@ private:
 
 CodeTextEdit::CodeTextEdit(QWidget* parent) : QPlainTextEdit(parent)
 {
+    m_applicationFont = QApplication::font();
     setProperty("ksword_preserve_custom_font", true);
     const QFont fixedFont = editorFont();
     setFont(fixedFont);
@@ -308,6 +322,9 @@ CodeTextEdit::CodeTextEdit(QWidget* parent) : QPlainTextEdit(parent)
     });
     updateGutterGeometry();
     refreshThemeColors();
+    m_fontSizeScale = fontSizeScale(font(), m_applicationFont);
+    m_fontTrackingReady = true;
+    qApp->installEventFilter(this);
     // No real content exists yet. Discard only decoration setup history here;
     // subsequent language/theme/compact changes never clear user undo history.
     document()->clearUndoRedoStacks();
@@ -498,9 +515,16 @@ void CodeTextEdit::changeEvent(QEvent* event)
     if (!event) return;
     if (event->type() == QEvent::FontChange)
     {
+        // 外部 setFont 是宿主明确的字体/缩放政策；全局字体正在变化时不把旧字号当新倍率。
+        if (m_fontTrackingReady && !m_updatingApplicationFont)
+        {
+            if (QApplication::font() == m_applicationFont) m_fontSizeScale = fontSizeScale(font(), m_applicationFont);
+            else scheduleApplicationFontRefresh();
+        }
         setTabStopDistance(QFontMetricsF(font()).horizontalAdvance(QLatin1Char(' ')) * kIndentWidth);
         updateGutterGeometry();
     }
+    if (event->type() == QEvent::ApplicationFontChange) scheduleApplicationFontRefresh();
     if ((event->type() == QEvent::PaletteChange || event->type() == QEvent::ApplicationPaletteChange) && !m_themeRefreshPending)
     {
         m_themeRefreshPending = true;
@@ -508,6 +532,44 @@ void CodeTextEdit::changeEvent(QEvent* event)
             if (m_themeRefreshPending) refreshThemeColors();
         });
     }
+}
+
+bool CodeTextEdit::eventFilter(QObject* source, QEvent* event)
+{
+    if (source == qApp && event != nullptr &&
+        (event->type() == QEvent::ApplicationFontChange || event->type() == QEvent::FontChange))
+        scheduleApplicationFontRefresh();
+    return QPlainTextEdit::eventFilter(source, event);
+}
+
+void CodeTextEdit::scheduleApplicationFontRefresh()
+{
+    if (!m_fontTrackingReady || m_applicationFontRefreshPending) return;
+    m_fontBeforeApplicationChange = font();
+    m_applicationFontRefreshPending = true;
+    QTimer::singleShot(0, this, [this]()
+    {
+        m_applicationFontRefreshPending = false;
+        const QFont application = QApplication::font();
+        QFont updated = font();
+        // 合并全局通知期间的显式宿主调整，字体族/粗细/斜体始终沿用当前正式字体。
+        if (updated != m_fontBeforeApplicationChange)
+            m_fontSizeScale = fontSizeScale(updated, application);
+        m_applicationFont = application;
+        if (application.pointSizeF() > 0) updated.setPointSizeF(application.pointSizeF() * m_fontSizeScale);
+        else if (application.pixelSize() > 0)
+            updated.setPixelSize(std::max(1, qRound(application.pixelSize() * m_fontSizeScale)));
+        if (updated == font()) return;
+        const int vertical = verticalScrollBar()->value();
+        const int horizontal = horizontalScrollBar()->value();
+        m_updatingApplicationFont = true;
+        const QPointer<CodeTextEdit> guard(this);
+        setFont(updated);
+        if (!guard) return;
+        m_updatingApplicationFont = false;
+        verticalScrollBar()->setValue(vertical);
+        horizontalScrollBar()->setValue(horizontal);
+    });
 }
 
 void CodeTextEdit::scheduleRefreshExtraSelections()

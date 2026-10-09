@@ -236,7 +236,15 @@ namespace ks::ui
         // ---- 跳转（同目标内跳转只 scrollToAddress+setCaretAddress）----
         if (hexPane_ != nullptr)
         {
-            if (!hexPane_->jumpTo(request.address, request.selectLength))
+            // 打开请求从目标所在行开始显示；前一段地址可能根本未映射，不能用
+            // 就近可见把模块/区域基址放在末行。内部历史/查找仍走原有对齐政策。
+            const bool jumped = hexPane_->jumpTo(
+                request.address, request.selectLength, HexCanvas::ScrollAlign::Top);
+            if (!self)
+            {
+                return NavStatus::LeaveRefused;
+            }
+            if (!jumped)
             {
                 applyNavOutcome(request, NavStatus::Unavailable);
                 return NavStatus::Unavailable;
@@ -442,7 +450,7 @@ namespace ks::ui
         if (subTabStack_ != nullptr && !subPageFollowBusy_)
         {
             const int currentTab = subTabStack_->currentIndex();
-            if (currentTab >= 1 && currentTab <= 3)
+            if (detail::IsFollowSubPage(currentTab))
             {
                 followSubPage(currentTab, false);
             }

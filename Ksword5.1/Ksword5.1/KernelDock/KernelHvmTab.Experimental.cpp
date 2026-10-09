@@ -12,7 +12,7 @@
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPointer>
-#include <QPlainTextEdit>
+#include "../UI/CodeEditorWidget.h"
 #include <QStringList>
 #include <QTextEdit>
 
@@ -742,7 +742,7 @@ void KernelHvmTab::applyEvents(
             .arg(row.ruleId)
             .arg(ntStatusText(row.status)));
     }
-    m_detailEdit->setPlainText(lines.join(QLatin1Char('\n')));
+    m_detailEdit->setReportText(lines.join(QLatin1Char('\n')));
     m_statusLabel->setText(
         kernelText(
             "kernel.hvm.status.events_ready",

@@ -1,5 +1,5 @@
 #include "MemoryConsumerEvidencePage.h"
-#include "../UI/CodeTextEdit.h"
+#include "../UI/CodeEditorWidget.h"
 #include "PoolAllocationAnalysisWidget.h"
 #include "../../../shared/evidence/GpuMemoryEvidence.h"
 #include "../../../shared/evidence/PoolTraceCapturePolicy.h"
@@ -95,8 +95,9 @@ MemoryConsumerEvidencePage::MemoryConsumerEvidencePage(QWidget* parent) : QWidge
         if (handler) { handler(path); }
     });
     m_detailTabs->addTab(m_poolAnalysis, {});
-    m_traceLog = new CodeTextEdit(m_detailTabs);
-    static_cast<CodeTextEdit*>(m_traceLog)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText); m_traceLog->setReadOnly(true);
+    m_traceLog = new CodeEditorWidget(m_detailTabs);
+    // 命令输出按原文追加，容量控制由统一外壳负责。
+    m_traceLog->setReadOnly(true);
     m_traceLog->setMaximumBlockCount(300); m_detailTabs->addTab(m_traceLog, {});
     layout->addWidget(m_detailTabs, 1);
     m_captureTimer = new QTimer(this); m_captureTimer->setSingleShot(true);
@@ -183,7 +184,7 @@ void MemoryConsumerEvidencePage::startGpu()
             try { ksword::gpu_memory::collect(job->snapshot, job->cancel); } catch (...) { job->failed = true; }
             job->done.store(true);
         }).detach();
-    } catch (...) { m_gpuJob.reset(); m_gpuButton->setEnabled(true); m_traceLog->appendPlainText(L("Unable to start the scan worker.")); }
+    } catch (...) { m_gpuJob.reset(); m_gpuButton->setEnabled(true); m_traceLog->appendRawText(L("Unable to start the scan worker.")); }
 }
 void MemoryConsumerEvidencePage::pollGpu()
 {
@@ -213,7 +214,7 @@ void MemoryConsumerEvidencePage::rebuildGpu()
     }
     m_gpuTable->setSortingEnabled(true); m_gpuTable->resizeColumnsToContents();
     if (m_gpuResult->failed || snapshot.queryStatus || snapshot.truncated || snapshot.cancelled || known < snapshot.counters.size() || snapshot.counters.empty()) {
-        m_traceLog->appendPlainText(L("GPU consumer collection is incomplete; unobserved values remain unavailable."));
+        m_traceLog->appendRawText(L("GPU consumer collection is incomplete; unobserved values remain unavailable."));
     }
 }
 void MemoryConsumerEvidencePage::startTrace()
@@ -225,16 +226,16 @@ void MemoryConsumerEvidencePage::startTrace()
     if (!guardedPage || output.isEmpty() || !m_capture.canStart()) { return; }
     m_output = output;
     wchar_t system[MAX_PATH]{}; const UINT size = GetSystemDirectoryW(system, MAX_PATH);
-    if (!size || size >= MAX_PATH) { m_traceLog->appendPlainText(L("Windows Performance Recorder is unavailable.")); return; }
+    if (!size || size >= MAX_PATH) { m_traceLog->appendRawText(L("Windows Performance Recorder is unavailable.")); return; }
     m_wpr = QString::fromWCharArray(system) + QStringLiteral("/wpr.exe");
-    if (!QFileInfo::exists(m_wpr)) { m_traceLog->appendPlainText(L("Windows Performance Recorder is unavailable.")); return; }
+    if (!QFileInfo::exists(m_wpr)) { m_traceLog->appendRawText(L("Windows Performance Recorder is unavailable.")); return; }
     m_profileDirectory = std::make_unique<QTemporaryDir>();
-    if (!m_profileDirectory->isValid()) { m_traceLog->appendPlainText(L("The bounded pool profile could not be created.")); return; }
+    if (!m_profileDirectory->isValid()) { m_traceLog->appendRawText(L("The bounded pool profile could not be created.")); return; }
     const QString profilePath = m_profileDirectory->filePath(QStringLiteral("ksword-pool.wprp"));
     QFile profile(profilePath);
     const QByteArray xml(profileXml());
     if (!profile.open(QIODevice::WriteOnly) || profile.write(xml) != xml.size()) {
-        m_traceLog->appendPlainText(L("The bounded pool profile could not be created.")); return;
+        m_traceLog->appendRawText(L("The bounded pool profile could not be created.")); return;
     }
     profile.close();
     m_profileSpec = profilePath + QStringLiteral("!KSwordPool");
@@ -244,7 +245,7 @@ void MemoryConsumerEvidencePage::startTrace()
     QFile reservation(m_metadataOutput);
     if (!reservation.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
         m_metadataOutput.clear();
-        m_traceLog->appendPlainText(L("Trace metadata could not be saved; the recording state is not inferred from a missing file."));
+        m_traceLog->appendRawText(L("Trace metadata could not be saved; the recording state is not inferred from a missing file."));
         return;
     }
     reservation.close();
@@ -330,7 +331,7 @@ void MemoryConsumerEvidencePage::traceFinished(int exitCode, bool normal)
         entry.insert(QStringLiteral("output"), m_commandOutput); commands.append(entry);
     } else { m_traceEvidence.insert(QStringLiteral("commandRetentionTruncated"), true); }
     m_traceEvidence.insert(QStringLiteral("commands"), commands);
-    m_traceLog->appendPlainText(m_commandOutput);
+    m_traceLog->appendRawText(m_commandOutput);
     if (action == Command::Help && success && !m_commandOutputTruncated && m_commandOutput.contains(QStringLiteral("-instancename"))) {
         runTrace({QStringLiteral("-profiles"), m_profileDirectory->filePath(QStringLiteral("ksword-pool.wprp"))}, Command::Profiles); return;
     }
@@ -341,14 +342,14 @@ void MemoryConsumerEvidencePage::traceFinished(int exitCode, bool normal)
         && m_commandOutput.contains(QStringLiteral("KSwordPool.Verbose.Memory"))
         && m_commandOutput.contains(QStringLiteral("PoolAllocation")) && m_commandOutput.contains(QStringLiteral("PoolFree"))) {
         m_traceEvidence.insert(QStringLiteral("profileDetails"), m_commandOutput);
-        m_traceLog->appendPlainText(L("Pool tracing requests 32 MiB of buffers. Actual ETW overhead and event loss are not inferred from this requested budget."));
+        m_traceLog->appendRawText(L("Pool tracing requests 32 MiB of buffers. Actual ETW overhead and event loss are not inferred from this requested budget."));
         runTrace(traceArguments(Action::Start, m_instance, m_output, m_profileSpec), Command::Start); return;
     }
     if (action == Command::Start && success) {
         m_traceEvidence.insert(QStringLiteral("startSucceeded"), true);
         m_traceEvidence.insert(QStringLiteral("started"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
         m_captureTimer->start(m_captureDuration * 1000);
-        m_traceLog->appendPlainText(L("Pool trace started. Only allocations observed during this interval can provide historical evidence."));
+        m_traceLog->appendRawText(L("Pool trace started. Only allocations observed during this interval can provide historical evidence."));
     } else if (action == Command::Status) {
         m_traceEvidence.insert(QStringLiteral("collectorStatusKnown"), success && !m_commandOutputTruncated);
         m_traceEvidence.insert(QStringLiteral("collectorStatus"), m_commandOutput);
@@ -358,17 +359,17 @@ void MemoryConsumerEvidencePage::traceFinished(int exitCode, bool normal)
         m_traceEvidence.insert(QStringLiteral("finished"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
         if (m_capture.saved) {
             m_traceEvidence.insert(QStringLiteral("bytes"), QString::number(output.size()));
-            m_traceLog->appendPlainText(L("Allocation trace saved. Pool analysis shows observed allocations and capture gaps separately from the PFN ledger."));
-        } else { m_traceLog->appendPlainText(L("The recorder stopped, but a new nonempty ETL was not verified. The capture is not reported as saved.")); }
+            m_traceLog->appendRawText(L("Allocation trace saved. Pool analysis shows observed allocations and capture gaps separately from the PFN ledger."));
+        } else { m_traceLog->appendRawText(L("The recorder stopped, but a new nonempty ETL was not verified. The capture is not reported as saved.")); }
     } else if (action == Command::Stop && m_capture.mayOwnSession) {
-        m_traceLog->appendPlainText(L("Stopping or saving failed; releasing only this recording instance."));
+        m_traceLog->appendRawText(L("Stopping or saving failed; releasing only this recording instance."));
         runTrace(traceArguments(Action::Cancel, m_instance, m_output), Command::Cancel); return;
     } else if (action == Command::Start || action == Command::Help || action == Command::Profiles || action == Command::ProfileDetails) {
         m_traceEvidence.insert(QStringLiteral("startSucceeded"), false);
-        m_traceLog->appendPlainText(L("Pool trace could not start. Check profile support, administrator access and the captured command status."));
+        m_traceLog->appendRawText(L("Pool trace could not start. Check profile support, administrator access and the captured command status."));
         if (m_capture.mayOwnSession) { runTrace(traceArguments(Action::Cancel, m_instance, m_output), Command::Cancel); return; }
     }
-    if (action == Command::Cancel && m_capture.mayOwnSession) { m_traceLog->appendPlainText(L("Instance cleanup is unverified. Retry instance cleanup to release only this recording.")); }
+    if (action == Command::Cancel && m_capture.mayOwnSession) { m_traceLog->appendRawText(L("Instance cleanup is unverified. Retry instance cleanup to release only this recording.")); }
     updateTraceControls();
     persistTrace();
     if (action == Command::Stop && m_capture.saved) {
@@ -385,9 +386,9 @@ void MemoryConsumerEvidencePage::persistTrace()
     m_traceEvidence.insert(QStringLiteral("stoppedKnown"), m_capture.stoppedKnown);
     m_traceEvidence.insert(QStringLiteral("saved"), m_capture.saved);
     QSaveFile file(m_metadataOutput);
-    const auto data = QJsonDocument(m_traceEvidence).toJson(QJsonDocument::Indented);
-    if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit()) {
-        m_traceLog->appendPlainText(L("Trace metadata could not be saved; the recording state is not inferred from a missing file."));
+    const auto metadataBytes = QJsonDocument(m_traceEvidence).toJson(QJsonDocument::Indented);
+    if (!file.open(QIODevice::WriteOnly) || file.write(metadataBytes) != metadataBytes.size() || !file.commit()) {
+        m_traceLog->appendRawText(L("Trace metadata could not be saved; the recording state is not inferred from a missing file."));
     }
 }
 QJsonObject MemoryConsumerEvidencePage::evidence() const

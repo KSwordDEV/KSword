@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // HvmHookWizard：装一条 HOOK 视图的五步向导。
 //
@@ -73,19 +73,22 @@ class QComboBox;
 class QGroupBox;
 class QLabel;
 class QLineEdit;
-class QPlainTextEdit;
+class CodeEditorWidget;
 class QPushButton;
 class QStackedWidget;
 class QTableWidget;
 class QTimer;
 class QWidget;
 
-// HexEditorWidget 在全局命名空间（见 UI/HexEditorWidget.h），不在 ks::ui 里。
-class HexEditorWidget;
+// HexView 负责影子页字节编辑；快照宿主统一协调反汇编、文本与历史。
+namespace ks::ui
+{
+    class HexView;
+}
 
 namespace ks::ui
 {
-    class MemoryEditorWidget;
+    class SnapshotWorkbenchWidget;
     // readTargetPage：把 pageBasePhysical 那一页 4096 字节读回来。            [P]
     //
     // R-1 通道单次上限 1024 字节，所以固定切成 4 片顺序读。任何一片失败都返回空
@@ -311,7 +314,7 @@ namespace ks::ui
         // =============================================================
 
         // buildPatchPage：建第 2 步的控件树，返回页容器。                      [P]
-        // 中间是统一 MemoryEditorWidget；已知 VA 时以虚拟页基址显示和编码，
+        // 中间是统一 SnapshotWorkbenchWidget；已知 VA 时以虚拟页基址显示和编码，
         // 否则显示物理页。计划和 IOCTL 仍使用 pageBasePhysical。
         QWidget* buildPatchPage();
 
@@ -615,8 +618,8 @@ namespace ks::ui
         QLabel* m_targetStatusLabel = nullptr;
 
         // ---- 第 2 步（[P] 创建）----
-        MemoryEditorWidget* m_patchEditor = nullptr;
-        HexEditorWidget* m_shadowEditor = nullptr;
+        SnapshotWorkbenchWidget* m_patchEditor = nullptr;
+        ks::ui::HexView* m_shadowEditor = nullptr;
         QPushButton* m_recaptureBaselineButton = nullptr;
         QPushButton* m_revertPatchButton = nullptr;
         QComboBox* m_jumpTemplateBox = nullptr;
@@ -631,7 +634,7 @@ namespace ks::ui
         QLabel* m_preflightStatusLabel = nullptr;
 
         // ---- 第 4 步（[W] 创建）----
-        QPlainTextEdit* m_installSummaryView = nullptr;
+        CodeEditorWidget* m_installSummaryView = nullptr;
         QPushButton* m_installButton = nullptr;
         QLabel* m_installStatusLabel = nullptr;
 

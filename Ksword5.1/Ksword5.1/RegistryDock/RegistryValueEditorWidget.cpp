@@ -1,6 +1,6 @@
 #include "RegistryValueEditorWidget.h"
 #include "RegistryValueCodec.h"
-#include "../UI/HexEditorWidget.h"
+#include "../UI/MemoryWorkbench/HexView.h"
 #include "../UI/ThemeStatusRole.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../theme.h"
@@ -212,7 +212,7 @@ RegistryValueEditorWidget::RegistryValueEditorWidget(QWidget* parent) : QWidget(
     lengthTools->addWidget(m_resizeSize, 1);
     lengthTools->addWidget(resizeButton);
     rawLayout->addLayout(lengthTools);
-    m_hex = new HexEditorWidget(rawPage);
+    m_hex = new ks::ui::HexView(rawPage);
     m_hex->setObjectName(QStringLiteral("registry_value_raw_hex"));
     m_hex->setEditable(true);
     rawLayout->addWidget(m_hex, 1);
@@ -227,15 +227,15 @@ RegistryValueEditorWidget::RegistryValueEditorWidget(QWidget* parent) : QWidget(
     auto* beforeLayout = new QVBoxLayout(beforePage);
     beforeLayout->setContentsMargins(0, 0, 0, 0);
     beforeLayout->addWidget(new QLabel(trText(QStringLiteral("原值（读取基线）")), beforePage));
-    m_before = new HexEditorWidget(beforePage);
-    m_before->setHexOnlyView(true);
+    m_before = new ks::ui::HexView(beforePage);
+    m_before->setStatusBarVisible(false);
     beforeLayout->addWidget(m_before, 1);
     auto* afterPage = new QWidget(compareSplit);
     auto* afterLayout = new QVBoxLayout(afterPage);
     afterLayout->setContentsMargins(0, 0, 0, 0);
     afterLayout->addWidget(new QLabel(trText(QStringLiteral("新值（尚未提交）")), afterPage));
-    m_after = new HexEditorWidget(afterPage);
-    m_after->setHexOnlyView(true);
+    m_after = new ks::ui::HexView(afterPage);
+    m_after->setStatusBarVisible(false);
     afterLayout->addWidget(m_after, 1);
     compareLayout->addWidget(compareSplit, 1);
     m_tabs->addTab(comparePage, trText(QStringLiteral("修改对照")));
@@ -260,9 +260,9 @@ RegistryValueEditorWidget::RegistryValueEditorWidget(QWidget* parent) : QWidget(
     connect(m_multi, &QPlainTextEdit::textChanged, this, &RegistryValueEditorWidget::editText);
     connect(m_hexNumber, &QLineEdit::textChanged, this, [this] { editNumber(true); });
     connect(m_decimalNumber, &QLineEdit::textChanged, this, [this] { editNumber(false); });
-    connect(m_hex, &HexEditorWidget::byteEdited, this, [this] {
+    connect(m_hex, &ks::ui::HexView::byteEdited, this, [this] {
         if (m_syncing) return;
-        m_working = m_hex->data();
+        m_working = m_hex->buffer();
         m_dataError.clear();
         m_operationError.clear();
         m_typedNeedsRefresh = true;
@@ -440,17 +440,17 @@ void RegistryValueEditorWidget::loadHexEditor()
     const bool previousSync = m_syncing;
     m_syncing = true;
     m_hexNeedsRefresh = false;
-    m_hex->setByteArray(m_working, 0);
-    m_hex->setChangeReferences(m_original);
+    m_hex->setBuffer(0, m_working);
+    m_hex->setReference(m_original);
     m_resizeSize->setText(QString::number(m_working.size()));
     m_syncing = previousSync;
 }
 
 void RegistryValueEditorWidget::updateComparison()
 {
-    m_before->setByteArray(m_original, 0);
-    m_after->setByteArray(m_working, 0);
-    m_after->setChangeReferences(m_original);
+    m_before->setBuffer(0, m_original);
+    m_after->setBuffer(0, m_working);
+    m_after->setReference(m_original);
 }
 
 void RegistryValueEditorWidget::stageBytes(const QByteArray& bytes)

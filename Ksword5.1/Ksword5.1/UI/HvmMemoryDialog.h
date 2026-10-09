@@ -20,7 +20,7 @@ class QSpinBox;
 
 namespace ks::ui
 {
-    class MemoryEditorWidget;
+    class SnapshotWorkbenchWidget;
 }
 
 class HvmMemoryDialog final : public QDialog
@@ -62,7 +62,7 @@ private:
     QLineEdit* m_processIdEdit = nullptr;
     QLineEdit* m_directoryBaseEdit = nullptr;
     QSpinBox* m_lengthBox = nullptr;
-    ks::ui::MemoryEditorWidget* m_editor = nullptr;
+    ks::ui::SnapshotWorkbenchWidget* m_editor = nullptr;
     QPushButton* m_readButton = nullptr;
     QPushButton* m_writeButton = nullptr;
     QPushButton* m_discardButton = nullptr;

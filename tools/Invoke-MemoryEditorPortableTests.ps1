@@ -36,9 +36,12 @@ try {
     foreach ($fixtureModule in @('', 'QtCore', 'QtGui', 'QtWidgets', 'QtTest', 'QtSvg')) {
         $fixtureFlags += @('-isystem', (Join-Path $fixtureQt "include/qt6/$fixtureModule"))
     }
-    $fixtureSources = @('tools/memory_editor_ui_tests.cpp', "$fixtureApp/MemoryEditorWidget.cpp",
-        "$fixtureApp/MemoryEditorWidget.InlineAssembly.cpp", "$fixtureApp/MemoryEditorWidget.Pseudocode.cpp",
-        "$fixtureApp/Decompiler/GhidraDecompiler.cpp", 'GhidraRuntimePlugin/RuntimeProfile.cpp', "$fixtureApp/HexEditorWidget.cpp",
+    $fixtureSources = @('tools/memory_editor_ui_tests.cpp', "$fixtureUi/SnapshotWorkbenchWidget.cpp",
+        "$fixtureUi/SnapshotWorkbenchWidget.Editing.cpp", "$fixtureUi/SnapshotWorkbenchWidget.Context.cpp",
+        "$fixtureUi/WorkbenchPseudocodeView.cpp", "$fixtureUi/WorkbenchPseudocodeView.Ui.cpp",
+        "$fixtureUi/WorkbenchCompareView.cpp",
+        "tools/workbench_pseudocode_contract_tests.cpp", "tools/workbench_integration_regression_tests.cpp",
+        "$fixtureApp/Decompiler/GhidraDecompiler.cpp", 'GhidraRuntimePlugin/RuntimeProfile.cpp',
         "$fixtureApp/MemoryEditHistory.Core.cpp", "$fixtureApp/TableHeaderSortingSupport.cpp",
         'tools/tests/memory_editor_portable_stubs.cpp', "$fixtureApp/KernelDisassemblyDialog.cpp")
     foreach ($fixtureName in @('HexCanvas', 'HexCanvas.Scroll', 'HexCanvas.Layout', 'HexCanvas.Paint',
@@ -53,8 +56,10 @@ try {
         'MemoryTargetSession', 'MemoryValueDecode', 'MemoryAddressExpr', 'MemoryByteSearch')) {
         $fixtureSources += "$fixtureCore/$fixtureName.cpp"
     }
+    # 正式文本外壳与 ReportStructuredView 已由共有预览所需的 row-objects 提供，避免重复符号。
     $fixtureMoc = Join-Path $fixtureQt 'share/qt6/bin/moc.exe'
-    foreach ($fixtureHeader in @("$fixtureApp/MemoryEditorWidget.h", "$fixtureApp/HexEditorWidget.h",
+    foreach ($fixtureHeader in @("$fixtureUi/SnapshotWorkbenchWidget.h", "$fixtureUi/WorkbenchPseudocodeView.h",
+        "$fixtureUi/WorkbenchCompareView.h",
         "$fixtureApp/KernelDisassemblyDialog.h", "$fixtureApp/Decompiler/GhidraDecompiler.h",
         "$fixtureUi/HexCanvas.h", "$fixtureUi/HexInspectorPanel.h",
         "$fixtureUi/HexInspectorRowView.h", "$fixtureUi/HexView.h", "$fixtureUi/HexFindBar.h", "$fixtureUi/HexGotoBar.h")) {

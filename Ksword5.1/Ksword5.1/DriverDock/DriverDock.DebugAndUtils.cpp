@@ -1,3 +1,4 @@
+#include "../UI/CodeEditorWidget.h"
 #include "DriverDock.Internal.h"
 
 #include <QScrollBar>
@@ -248,7 +249,7 @@ void DriverDock::appendOperateLogLine(const QString& logText)
     }
 
     const QString timePrefix = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
-    m_operateLogOutput->appendPlainText(QStringLiteral("[%1] %2").arg(timePrefix, logText));
+    m_operateLogOutput->appendRawText(QStringLiteral("[%1] %2").arg(timePrefix, logText));
 }
 
 void DriverDock::appendDebugOutputLine(
@@ -273,7 +274,7 @@ void DriverDock::appendDebugOutputLine(
     record.translateSourceText = false;
     m_debugOutputLines.push_back(record);
 
-    m_debugOutputEdit->appendPlainText(QStringLiteral("[%1] %2%3")
+    m_debugOutputEdit->appendRawText(QStringLiteral("[%1] %2%3")
         .arg(record.timePrefix, record.sourceText, ks::i18n::displayText(record.localizedSuffixSource)));
 }
 
@@ -295,7 +296,7 @@ void DriverDock::appendLocalizedDebugOutputLine(const QString& sourceText)
     record.sourceText = sourceText;
     record.translateSourceText = true;
     m_debugOutputLines.push_back(record);
-    m_debugOutputEdit->appendPlainText(QStringLiteral("[%1] %2")
+    m_debugOutputEdit->appendRawText(QStringLiteral("[%1] %2")
         .arg(record.timePrefix, ks::i18n::displayText(record.sourceText)));
 }
 
@@ -306,9 +307,6 @@ void DriverDock::refreshDebugOutputLines()
         return;
     }
 
-    const QScrollBar* const verticalScrollBar = m_debugOutputEdit->verticalScrollBar();
-    const bool keepAtBottom = verticalScrollBar != nullptr &&
-        verticalScrollBar->value() >= verticalScrollBar->maximum();
     QStringList renderedLines;
     renderedLines.reserve(static_cast<int>(m_debugOutputLines.size()));
     for (const DebugOutputLineRecord& record : m_debugOutputLines)
@@ -322,12 +320,8 @@ void DriverDock::refreshDebugOutputLines()
                 lineText,
                 ks::i18n::displayText(record.localizedSuffixSource)));
     }
-    m_debugOutputEdit->setPlainText(renderedLines.join(QLatin1Char('\n')));
-    if (keepAtBottom && m_debugOutputEdit->verticalScrollBar() != nullptr)
-    {
-        m_debugOutputEdit->verticalScrollBar()->setValue(
-            m_debugOutputEdit->verticalScrollBar()->maximum());
-    }
+    // 重建本地化提示时保留阅读位置，原来跟随尾部才继续跟随。
+    m_debugOutputEdit->replaceRawText(renderedLines.join(QLatin1Char('\n')));
 }
 
 void DriverDock::clearDebugOutputLines()

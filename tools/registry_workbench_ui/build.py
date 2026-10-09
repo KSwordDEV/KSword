@@ -40,7 +40,9 @@ def main():
     driver.parent.mkdir(parents=True,exist_ok=True)
     protocol=(repo/"shared"/"driver"/"KswordArkRegistryIoctl.h").as_posix()
     driver.write_text('#include "'+protocol+'"\n'+(fixture/"Driver.mock.h").read_text(encoding="utf-8"),encoding="utf-8")
-    candidates=[app/"RegistryDock_Themed.cpp",app/"RegistryDock"/"RegistryDock.Workbench.cpp",app/"RegistryDock"/"RegistryDock.Search.cpp",app/"RegistryDock"/"RegistryDock.Documents.cpp"]
+    candidates=[app/"RegistryDock_Themed.cpp",app/"RegistryDock"/"RegistryDock.Workbench.cpp",app/"RegistryDock"/"RegistryDock.Search.cpp",app/"RegistryDock"/"RegistryDock.Documents.cpp",
+        app/"RegistryDock"/"RegistryDock.Mutations.cpp",app/"RegistryDock"/"RegistryDocumentApply.cpp",
+        app/"RegistryDock"/"RegistryDocumentApply.Access.cpp",app/"RegistryDock"/"RegistryValueTransactions.cpp"]
     sources=[]
     for source in candidates:
         if source.exists():

@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // WindowDwmControl.cpp
 // 作用说明：
 // 1) 给“窗口属性”详情对话框追加一个 DWM 合成控制页；
@@ -17,6 +17,7 @@
 // ============================================================
 
 #include <QApplication>
+#include "../UI/CodeEditorWidget.h"
 #include "../UI/CodeTextEdit.h"
 #include <QCheckBox>
 #include <QClipboard>
@@ -1111,10 +1112,8 @@ namespace ks::window::dwmctl
 
             QGroupBox* diagnosticsGroup = makeGroup(container, "window.dwm.group.diagnostics", "合成诊断（只读）");
             QVBoxLayout* diagnosticsLayout = new QVBoxLayout(diagnosticsGroup);
-            m_diagnosticsText = new CodeTextEdit(diagnosticsGroup);
-            static_cast<CodeTextEdit*>(m_diagnosticsText)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+            m_diagnosticsText = new CodeEditorWidget(diagnosticsGroup);
             m_diagnosticsText->setReadOnly(true);
-            m_diagnosticsText->setLineWrapMode(QPlainTextEdit::NoWrap);
             diagnosticsLayout->addWidget(m_diagnosticsText, 1);
             QHBoxLayout* diagnosticsActionLayout = new QHBoxLayout();
             QPushButton* refreshDiagnosticsButton =
@@ -1653,14 +1652,7 @@ namespace ks::window::dwmctl
             {
                 return;
             }
-            const int scrollValue = m_diagnosticsText->verticalScrollBar() != nullptr
-                ? m_diagnosticsText->verticalScrollBar()->value()
-                : 0;
-            m_diagnosticsText->setPlainText(buildDiagnosticsText());
-            if (m_diagnosticsText->verticalScrollBar() != nullptr)
-            {
-                m_diagnosticsText->verticalScrollBar()->setValue(scrollValue);
-            }
+            m_diagnosticsText->setReportText(buildDiagnosticsText(), true);
         }
 
         // buildDiagnosticsText：
@@ -2085,7 +2077,7 @@ namespace ks::window::dwmctl
         HTHUMBNAIL m_thumbnail = nullptr;              // DWM 缩略图句柄。
         HWND m_thumbnailDestination = nullptr;         // 注册时使用的宿主窗口句柄。
 
-        QPlainTextEdit* m_diagnosticsText = nullptr;   // 只读诊断输出。
+        CodeEditorWidget* m_diagnosticsText = nullptr;   // 只读诊断输出。
         QPlainTextEdit* m_logText = nullptr;           // 操作日志输出。
     };
 

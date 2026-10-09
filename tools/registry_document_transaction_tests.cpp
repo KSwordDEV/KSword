@@ -18,6 +18,10 @@ int injectAt = 0, failAt = 0, invalidBindings = 0, transactionReads = 0;
 LSTATUS absentStatus = ERROR_FILE_NOT_FOUND;
 bool lateChild = false, unavailable = false, unsupported = false, rejectCommit = false, redirectCandidate = false;
 bool changeAclOnBind = false;
+bool lateDestinationValue = false, failValueDelete = false;
+bool failMoveFinalRead = false;
+int valueWrites = 0, valueDeletes = 0, ordinaryValueWrites = 0;
+QVector<REGSAM> moveViews;
 QByteArray acl;
 std::atomic_bool* cancel = nullptr;
 const QString root = QStringLiteral("HKEY_CURRENT_USER\\Fixture");
@@ -39,6 +43,9 @@ void reset()
     absentStatus = ERROR_FILE_NOT_FOUND;
     lateChild = unavailable = unsupported = rejectCommit = redirectCandidate = false; cancel = nullptr;
     changeAclOnBind = false; acl = QByteArray::fromHex("0100008000000000000000000000000000000000");
+    lateDestinationValue = failValueDelete = failMoveFinalRead = false;
+    valueWrites = valueDeletes = ordinaryValueWrites = 0;
+    moveViews.clear();
 }
 HANDLE WINAPI create(LPSECURITY_ATTRIBUTES, LPGUID, DWORD options, DWORD isolation, DWORD flags, DWORD timeout, LPWSTR)
 {
@@ -96,8 +103,9 @@ LSTATUS WINAPI mockRegCloseKey(HKEY handle)
     if (handle != HKEY_CURRENT_USER) delete reinterpret_cast<mock::Key*>(handle);
     return ERROR_SUCCESS;
 }
-LSTATUS WINAPI mockRegOpenKeyExW(HKEY parent, LPCWSTR name, DWORD options, REGSAM, PHKEY result)
+LSTATUS WINAPI mockRegOpenKeyExW(HKEY parent, LPCWSTR name, DWORD options, REGSAM access, PHKEY result)
 {
+    mock::moveViews.push_back(access & (KEY_WOW64_32KEY | KEY_WOW64_64KEY));
     if (options != REG_OPTION_OPEN_LINK) ++mock::invalidBindings;
     QString path = mock::path(parent);
     if (name && *name) path += QLatin1Char('\\') + QString::fromWCharArray(name);
@@ -105,8 +113,9 @@ LSTATUS WINAPI mockRegOpenKeyExW(HKEY parent, LPCWSTR name, DWORD options, REGSA
     *result = reinterpret_cast<HKEY>(new mock::Key {path, nullptr}); return ERROR_SUCCESS;
 }
 LSTATUS WINAPI mockRegOpenKeyTransactedW(HKEY parent, LPCWSTR name, DWORD options,
-    REGSAM, PHKEY result, HANDLE handle, PVOID extra)
+    REGSAM access, PHKEY result, HANDLE handle, PVOID extra)
 {
+    mock::moveViews.push_back(access & (KEY_WOW64_32KEY | KEY_WOW64_64KEY));
     if (options || extra) ++mock::invalidBindings;
     if (mock::unsupported) return ERROR_RM_NOT_ACTIVE;
     if (mock::changeAclOnBind) {
@@ -125,6 +134,7 @@ LSTATUS WINAPI mockRegOpenKeyTransactedW(HKEY parent, LPCWSTR name, DWORD option
 }
 LSTATUS WINAPI mockRegQueryValueExW(HKEY key, LPCWSTR name, LPDWORD, LPDWORD type, LPBYTE bytes, LPDWORD size)
 {
+    if (mock::failMoveFinalRead && mock::commits > 0) return ERROR_ACCESS_DENIED;
     const auto& tree = mock::tree(key);
     const auto keyIt = tree.constFind(mock::path(key));
     if (keyIt == tree.cend()) return ERROR_FILE_NOT_FOUND;
@@ -181,8 +191,47 @@ LSTATUS WINAPI mockRegDeleteKeyTransactedW(HKEY parent, LPCWSTR name, REGSAM, DW
 }
 LSTATUS WINAPI mockRegCreateKeyExW(HKEY, LPCWSTR, DWORD, LPWSTR, DWORD, REGSAM,
     const LPSECURITY_ATTRIBUTES, PHKEY, LPDWORD) { return ERROR_ACCESS_DENIED; }
-LSTATUS WINAPI mockRegSetValueExW(HKEY, LPCWSTR, DWORD, DWORD, const BYTE*, DWORD) { return ERROR_ACCESS_DENIED; }
-LSTATUS WINAPI mockRegDeleteValueW(HKEY, LPCWSTR) { return ERROR_ACCESS_DENIED; }
+LSTATUS WINAPI mockRegCreateKeyTransactedW(HKEY parent, LPCWSTR name, DWORD, LPWSTR, DWORD,
+    REGSAM access, const LPSECURITY_ATTRIBUTES, PHKEY output, LPDWORD disposition, HANDLE handle, PVOID extra)
+{
+    mock::moveViews.push_back(access & (KEY_WOW64_32KEY | KEY_WOW64_64KEY));
+    if (extra || reinterpret_cast<mock::Key*>(parent)->transaction != handle) ++mock::invalidBindings;
+    auto* transaction = reinterpret_cast<mock::Transaction*>(handle);
+    const QString path = mock::path(parent) + QLatin1Char('\\') + QString::fromWCharArray(name);
+    *disposition = transaction->staged.contains(path) ? REG_OPENED_EXISTING_KEY : REG_CREATED_NEW_KEY;
+    transaction->staged[path];
+    *output = reinterpret_cast<HKEY>(new mock::Key {path, transaction});
+    return ERROR_SUCCESS;
+}
+LSTATUS WINAPI mockRegSetValueExW(HKEY handle, LPCWSTR name, DWORD, DWORD type, const BYTE* bytes, DWORD size)
+{
+    auto* key = reinterpret_cast<mock::Key*>(handle);
+    if (!key->transaction) { ++mock::ordinaryValueWrites; return ERROR_ACCESS_DENIED; }
+    ++mock::valueWrites;
+    key->transaction->staged[key->path][QString::fromWCharArray(name)] = {type, QByteArray(reinterpret_cast<const char*>(bytes), size)};
+    // 外部写者在目的缺失最后检查后插入 B；事务提交必须冲突且保留它。
+    if (mock::lateDestinationValue)
+    {
+        QString parent = key->path; // 外部进程实际创建叶键时父链同样存在，不能制造不可能的树。
+        while (!parent.isEmpty())
+        {
+            mock::live[parent];
+            const qsizetype separator = parent.lastIndexOf(QLatin1Char('\\'));
+            parent = separator < 0 ? QString() : parent.left(separator);
+        }
+        mock::live[key->path][QString::fromWCharArray(name)] = {REG_BINARY, QByteArray("external-B")};
+        ++mock::version;
+    }
+    return ERROR_SUCCESS;
+}
+LSTATUS WINAPI mockRegDeleteValueW(HKEY handle, LPCWSTR name)
+{
+    auto* key = reinterpret_cast<mock::Key*>(handle);
+    if (!key->transaction) { ++mock::ordinaryValueWrites; return ERROR_ACCESS_DENIED; }
+    ++mock::valueDeletes;
+    if (mock::failValueDelete) return ERROR_ACCESS_DENIED;
+    return key->transaction->staged[key->path].remove(QString::fromWCharArray(name)) ? ERROR_SUCCESS : ERROR_FILE_NOT_FOUND;
+}
 LSTATUS WINAPI mockRegDeleteKeyExW(HKEY, LPCWSTR, REGSAM, DWORD) { ++mock::ordinaryDeletes; return ERROR_ACCESS_DENIED; }
 #define LoadLibraryExW mockLoadLibraryExW
 #define GetProcAddress mockGetProcAddress
@@ -197,6 +246,7 @@ LSTATUS WINAPI mockRegDeleteKeyExW(HKEY, LPCWSTR, REGSAM, DWORD) { ++mock::ordin
 #define RegDeleteKeyTransactedW mockRegDeleteKeyTransactedW
 #define RegDeleteKeyExW mockRegDeleteKeyExW
 #define RegCreateKeyExW mockRegCreateKeyExW
+#define RegCreateKeyTransactedW mockRegCreateKeyTransactedW
 #define RegSetValueExW mockRegSetValueExW
 #define RegDeleteValueW mockRegDeleteValueW
 #include "../Ksword5.1/Ksword5.1/RegistryDock/RegistryDocumentApply.cpp"

@@ -1,4 +1,5 @@
-#include "ReportStructuredView.h"
+﻿#include "ReportStructuredView.h"
+#include "FieldTreePresenter.h"
 #include "CodeTextEdit.h"
 
 // ============================================================
@@ -8,9 +9,10 @@
 // - 按块形态分别渲染属性表、分组树、数据表格和等宽代码块。
 //
 // 取舍说明：
-// - 这里解析的是本程序自己拼出来的报告文本，格式由上游生成代码保证，不是外部输入；
+// - 报告由上游生成；JSON/XML 也可来自外部，但只有宿主显式请求且满足完整性预算才解析；
 // - 更彻底的做法是让每个采集页直接产出结构化数据，但那要改动几十处取证逻辑；
 //   在展示层解析可以让所有详情页立刻摆脱纯文本框，且不冒改坏取证结果的风险；
+// - typed 字段树直接复用 FieldTreePresenter，不经文本导出再解析，保留真实证据来源；
 // - 判定不成立时一律回退纯文本，宁可不结构化，也不把日志和原始数据硬拆成表格。
 // ============================================================
 
@@ -28,6 +30,11 @@
 #include <QFrame>
 #include <QHeaderView>
 #include <QLabel>
+#include <QJsonDocument>
+#include <QJsonParseError>
+#include <QJsonValue>
+#include <QKeyEvent>
+#include <QPointer>
 #include <QLayoutItem>
 #include <QMenu>
 #include <QPalette>
@@ -36,12 +43,16 @@
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSet>
 #include <QShowEvent>
 #include <QTableWidget>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+#include <QXmlStreamReader>
 
 #include <algorithm>
+#include <functional>
+#include <utility>
 
 namespace
 {
@@ -55,6 +66,216 @@ namespace
 
     // kMaxCodeBlockHeight：等宽代码块的最大像素高度，超出部分块内自行滚动。
     constexpr int kMaxCodeBlockHeight = 320;
+    constexpr qsizetype kMaxStructuredTextLength = 2 * 1024 * 1024;
+    constexpr int kMaxStructuredNodes = 4096;
+    constexpr int kMaxStructuredDepth = 64;
+
+    struct DataNode
+    {
+        QString name;
+        QString value;
+        QList<DataNode> children;
+    };
+
+    struct DataDocument
+    {
+        bool recognized = false;
+        bool valid = false;
+        QList<DataNode> roots;
+    };
+
+    // Qt 先完成严格 JSON 校验；展示读取只保留源词法，不把整数/小数/指数转成 double。
+    // 字符串由 Qt 解码，节点和递归预算与 XML 共用；重复键有歧义时保持完整原文。
+    class JsonPresentationReader final
+    {
+    public:
+        // 传入已校验且存活至 read 返回的原文；读取位置和节点预算由本实例管理。
+        explicit JsonPresentationReader(const QString& text) : m_text(text) {}
+        // 调用方传入空根节点；成功输出完整有界树，失败不得使用部分结果。
+        bool read(DataNode& root)
+        {
+            if (!readValue(QStringLiteral("JSON"), root, 0)) return false;
+            skipWhitespace();
+            return m_at == m_text.size();
+        }
+    private:
+        // 跳过已由严格 JSON 校验确认的空白，不改变字段或数值词法。
+        void skipWhitespace()
+        {
+            while (m_at < m_text.size() && m_text.at(m_at).isSpace()) ++m_at;
+        }
+        // 消费预期分隔符；返回 false 表示词法与已校验结构不一致。
+        bool consume(QChar expected)
+        {
+            skipWhitespace();
+            if (m_at >= m_text.size() || m_text.at(m_at) != expected) return false;
+            ++m_at;
+            return true;
+        }
+        // 消费一个完整字符串 token，value 输出 Qt 解码后的精确字符串。
+        bool readString(QString& value)
+        {
+            skipWhitespace();
+            if (m_at >= m_text.size() || m_text.at(m_at) != QLatin1Char('"')) return false;
+            const qsizetype beginning = m_at++; // 字符串起点，用于仅截取当前 token。
+            bool escaped = false; // 已消费转义前缀，下一个字符不能结束字符串。
+            while (m_at < m_text.size())
+            {
+                const QChar character = m_text.at(m_at++); // 当前源字符，单次扫描不回溯。
+                if (escaped) escaped = false;
+                else if (character == QLatin1Char('\\')) escaped = true;
+                else if (character == QLatin1Char('"'))
+                {
+                    QJsonParseError error; // 单 token 解码错误不能伪装成有效字段。
+                    const QJsonValue decoded = QJsonValue::fromJson(m_text.mid(beginning, m_at - beginning).toUtf8(), &error);
+                    if (error.error != QJsonParseError::NoError || !decoded.isString()) return false;
+                    value = decoded.toString();
+                    return true;
+                }
+            }
+            return false;
+        }
+        // name 为已解码字段名，depth 为当前层级；成功向 node 输出完整值或容器。
+        bool readValue(const QString& name, DataNode& node, int depth)
+        {
+            skipWhitespace();
+            if (++m_nodes > kMaxStructuredNodes || depth > kMaxStructuredDepth || m_at >= m_text.size()) return false;
+            node.name = name;
+            const QChar beginning = m_text.at(m_at); // 值起始字符决定字符串、容器或原始标量。
+            if (beginning == QLatin1Char('"')) return readString(node.value);
+            if (beginning == QLatin1Char('{') || beginning == QLatin1Char('['))
+            {
+                const bool object = beginning == QLatin1Char('{'); // 对象字段有名称，数组使用源序号。
+                const QChar closing = object ? QLatin1Char('}') : QLatin1Char(']'); // 对应容器结束符。
+                ++m_at;
+                skipWhitespace();
+                QSet<QString> names; // 已解码对象键，拒绝普通或转义形式的重复键歧义。
+                if (m_at >= m_text.size()) return false;
+                if (m_text.at(m_at) != closing)
+                {
+                    while (true)
+                    {
+                        QString childName; // 对象源字段名或当前数组索引。
+                        if (object)
+                        {
+                            if (!readString(childName) || names.contains(childName) || !consume(QLatin1Char(':'))) return false;
+                            names.insert(childName);
+                        }
+                        else childName = QStringLiteral("[%1]").arg(node.children.size());
+                        DataNode child; // 子节点完整成功后才加入父容器。
+                        if (!readValue(childName, child, depth + 1)) return false;
+                        node.children.push_back(std::move(child));
+                        skipWhitespace();
+                        if (m_at >= m_text.size()) return false;
+                        if (m_text.at(m_at) == closing) break;
+                        if (!consume(QLatin1Char(','))) return false;
+                    }
+                }
+                if (!consume(closing)) return false;
+                node.value = object ? QStringLiteral("{%1}").arg(node.children.size())
+                    : QStringLiteral("[%1]").arg(node.children.size());
+                return true;
+            }
+            // 输入已由严格解析器确认语法；此处数字和 true/false/null 都原样保留词法载荷。
+            const qsizetype start = m_at; // 保留数字及布尔/null 的完整源 token。
+            while (m_at < m_text.size())
+            {
+                const QChar character = m_text.at(m_at); // 标量遇源分隔符即结束，不做数值转换。
+                if (character.isSpace() || character == QLatin1Char(',') || character == QLatin1Char('}') || character == QLatin1Char(']')) break;
+                ++m_at;
+            }
+            if (m_at == start) return false;
+            node.value = m_text.mid(start, m_at - start);
+            return true;
+        }
+        const QString& m_text; // 调用方持有的已校验原文，读取器不重写它。
+        qsizetype m_at = 0; // 下一源字符位置。
+        int m_nodes = 0; // 包含容器在内的已读取节点数。
+    };
+
+    // Parsing is a bounded presentation only; the input remains the copy/search
+    // authority. Invalid, oversized or excessive-depth data has no tree view.
+    DataDocument parseDataDocument(const QString& text)
+    {
+        DataDocument result;
+        QString trimmed = text.trimmed();
+        if (trimmed.startsWith(QChar(0xFEFF))) trimmed = trimmed.mid(1).trimmed();
+        if (trimmed.isEmpty()) return result;
+        const QChar first = trimmed.front();
+        result.recognized = first == QLatin1Char('{') || first == QLatin1Char('[') || first == QLatin1Char('<');
+        if (!result.recognized || text.size() > kMaxStructuredTextLength) return result;
+        int nodeCount = 0;
+        if (first == QLatin1Char('{') || first == QLatin1Char('['))
+        {
+            QJsonParseError error;
+            const QJsonDocument document = QJsonDocument::fromJson(text.toUtf8(), &error);
+            if (error.error != QJsonParseError::NoError || document.isNull())
+            {
+                // Bracketed headings are an established report format, not JSON.
+                const qsizetype lineEnd = trimmed.indexOf(QLatin1Char('\n'));
+                const QString heading = trimmed.left(lineEnd).trimmed();
+                if (first == QLatin1Char('[') && lineEnd > 0 && heading.endsWith(QLatin1Char(']')) &&
+                    heading.size() <= 80 && !heading.contains(QLatin1Char(',')) && !heading.contains(QLatin1Char('"')))
+                    result.recognized = false;
+                return result;
+            }
+            DataNode root;
+            JsonPresentationReader reader(trimmed);
+            if (!reader.read(root)) return result;
+            result.roots.push_back(std::move(root));
+            result.valid = true;
+            return result;
+        }
+
+        QXmlStreamReader reader(text);
+        QList<DataNode*> parents;
+        int tokenCount = 0;
+        while (!reader.atEnd())
+        {
+            const auto token = reader.readNext();
+            if (++tokenCount > kMaxStructuredNodes * 4 || token == QXmlStreamReader::DTD ||
+                token == QXmlStreamReader::EntityReference) return result;
+            if (token == QXmlStreamReader::StartElement)
+            {
+                if (++nodeCount > kMaxStructuredNodes || parents.size() >= kMaxStructuredDepth) return result;
+                DataNode node;
+                node.name = reader.qualifiedName().toString();
+                for (const auto& attribute : reader.attributes())
+                {
+                    if (++nodeCount > kMaxStructuredNodes) return result;
+                    node.children.push_back({QLatin1Char('@') + attribute.qualifiedName().toString(), attribute.value().toString(), {}});
+                }
+                for (const auto& declaration : reader.namespaceDeclarations())
+                {
+                    if (++nodeCount > kMaxStructuredNodes) return result;
+                    const QString prefix = declaration.prefix().toString();
+                    node.children.push_back({prefix.isEmpty() ? QStringLiteral("@xmlns") : QStringLiteral("@xmlns:") + prefix,
+                        declaration.namespaceUri().toString(), {}});
+                }
+                QList<DataNode>& children = parents.isEmpty() ? result.roots : parents.back()->children;
+                children.push_back(std::move(node));
+                parents.push_back(&children.back());
+            }
+            else if (token == QXmlStreamReader::EndElement)
+            {
+                if (parents.isEmpty()) return result;
+                parents.pop_back();
+            }
+            else if ((token == QXmlStreamReader::Characters && !reader.isWhitespace()) ||
+                token == QXmlStreamReader::Comment || token == QXmlStreamReader::ProcessingInstruction)
+            {
+                if (++nodeCount > kMaxStructuredNodes) return result;
+                const QString name = token == QXmlStreamReader::Characters ? QStringLiteral("#text") :
+                    token == QXmlStreamReader::Comment ? QStringLiteral("#comment") : reader.processingInstructionTarget().toString();
+                const QString value = token == QXmlStreamReader::ProcessingInstruction
+                    ? reader.processingInstructionData().toString() : reader.text().toString();
+                QList<DataNode>& children = parents.isEmpty() ? result.roots : parents.back()->children;
+                children.push_back({name, value, {}});
+            }
+        }
+        result.valid = !reader.hasError() && parents.isEmpty() && !result.roots.isEmpty();
+        return result;
+    }
 
     // scaledBlockFont 作用：转调对外公开的统一放大规则，保证本文件内外只有一处倍数定义。
     QFont scaledBlockFont(const QFont& baseFont)
@@ -513,281 +734,10 @@ namespace
         return scaledBlockFont(CodeTextEdit::editorFont());
     }
 
-    // valueLooksMonospace 作用：
-    // - 输入 valueText：属性值；
-    // - 返回：true 表示该值是地址、哈希或纯十六进制，适合等宽显示。
-    bool valueLooksMonospace(const QString& valueText)
-    {
-        if (valueText.size() < 6)
-        {
-            return false;
-        }
-        if (valueText.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
-        {
-            return true;
-        }
-        for (const QChar valueChar : valueText)
-        {
-            const bool hexDigit =
-                (valueChar >= QLatin1Char('0') && valueChar <= QLatin1Char('9')) ||
-                (valueChar >= QLatin1Char('a') && valueChar <= QLatin1Char('f')) ||
-                (valueChar >= QLatin1Char('A') && valueChar <= QLatin1Char('F'));
-            if (!hexDigit && valueChar != QLatin1Char(' '))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    // valueStatusColor 作用：
-    // - 输入 valueText：属性值；colorOut：命中的语义色出参；
-    // - 处理：按中英双语关键词判定“正常 / 警示 / 风险”，只认整体语义明确的词；
-    // - 返回：true 表示该值有语义色。
-    bool valueStatusColor(const QString& valueText, QColor* colorOut)
-    {
-        if (valueText.isEmpty() || valueText.size() > 64)
-        {
-            return false;
-        }
-
-        static const QStringList errorKeywords = {
-            QStringLiteral("失败"), QStringLiteral("无效"), QStringLiteral("异常"),
-            QStringLiteral("篡改"), QStringLiteral("风险"), QStringLiteral("错误"),
-            QStringLiteral("拒绝"), QStringLiteral("命中"), QStringLiteral("未签名"),
-            QStringLiteral("failed"), QStringLiteral("invalid"), QStringLiteral("error"),
-            QStringLiteral("denied"), QStringLiteral("tampered"), QStringLiteral("unsigned")
-        };
-        static const QStringList warningKeywords = {
-            QStringLiteral("未知"), QStringLiteral("不可用"), QStringLiteral("降级"),
-            QStringLiteral("未验证"), QStringLiteral("警告"), QStringLiteral("跳过"),
-            QStringLiteral("unknown"), QStringLiteral("unavailable"), QStringLiteral("degraded"),
-            QStringLiteral("warning"), QStringLiteral("skipped"), QStringLiteral("false")
-        };
-        static const QStringList successKeywords = {
-            QStringLiteral("有效"), QStringLiteral("正常"), QStringLiteral("通过"),
-            QStringLiteral("成功"), QStringLiteral("已验证"), QStringLiteral("已启用"),
-            QStringLiteral("valid"), QStringLiteral("normal"), QStringLiteral("passed"),
-            QStringLiteral("success"), QStringLiteral("verified"), QStringLiteral("enabled"),
-            QStringLiteral("true")
-        };
-
-        // 先判风险再判警示，最后判正常：同一句里同时出现时以更高风险等级为准。
-        for (const QString& keyword : errorKeywords)
-        {
-            if (valueText.contains(keyword, Qt::CaseInsensitive))
-            {
-                *colorOut = KswordTheme::ErrorColor();
-                return true;
-            }
-        }
-        for (const QString& keyword : warningKeywords)
-        {
-            if (valueText.contains(keyword, Qt::CaseInsensitive))
-            {
-                *colorOut = KswordTheme::WarningColor();
-                return true;
-            }
-        }
-        for (const QString& keyword : successKeywords)
-        {
-            if (valueText.contains(keyword, Qt::CaseInsensitive))
-            {
-                *colorOut = KswordTheme::SuccessColor();
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // installCopyMenu 作用：
-    // - 为属性表/数据表装上右键复制菜单：复制单元格、复制整行、复制全部；
-    // - 结构视图不能比纯文本更难取证，复制能力必须补齐。
-    void installCopyMenu(QAbstractItemView* itemView)
-    {
-        if (itemView == nullptr)
-        {
-            return;
-        }
-
-        itemView->setContextMenuPolicy(Qt::CustomContextMenu);
-        QObject::connect(
-            itemView,
-            &QAbstractItemView::customContextMenuRequested,
-            itemView,
-            [itemView](const QPoint& menuPosition)
-            {
-                QAbstractItemModel* itemModel = itemView->model();
-                if (itemModel == nullptr)
-                {
-                    return;
-                }
-
-                const QModelIndex clickedIndex = itemView->indexAt(menuPosition);
-                QMenu contextMenu(itemView);
-                QAction* copyCellAction = contextMenu.addAction(
-                    ks::i18n::displayText(QStringLiteral("复制该值")));
-                QAction* copyRowAction = contextMenu.addAction(
-                    ks::i18n::displayText(QStringLiteral("复制该行")));
-                QAction* copyAllAction = contextMenu.addAction(
-                    ks::i18n::displayText(QStringLiteral("复制全部")));
-                copyCellAction->setEnabled(clickedIndex.isValid());
-                copyRowAction->setEnabled(clickedIndex.isValid());
-
-                // rowTextAt：把一行所有非空列拼成 “A: B” 或制表符分隔文本。
-                auto rowTextAt = [itemModel](const QModelIndex& rowIndex) -> QString
-                    {
-                        QStringList columnTexts;
-                        const int columnCount = itemModel->columnCount(rowIndex.parent());
-                        for (int columnIndex = 0; columnIndex < columnCount; ++columnIndex)
-                        {
-                            const QString cellText =
-                                itemModel->index(rowIndex.row(), columnIndex, rowIndex.parent())
-                                    .data(Qt::DisplayRole).toString();
-                            if (!cellText.isEmpty())
-                            {
-                                columnTexts << cellText;
-                            }
-                        }
-                        return columnCount == 2 && columnTexts.size() == 2
-                            ? QStringLiteral("%1: %2").arg(columnTexts.at(0), columnTexts.at(1))
-                            : columnTexts.join(QLatin1Char('\t'));
-                    };
-
-                const QAction* selectedAction =
-                    contextMenu.exec(itemView->viewport()->mapToGlobal(menuPosition));
-                if (selectedAction == nullptr)
-                {
-                    return;
-                }
-
-                QString clipboardText;
-                if (selectedAction == copyCellAction && clickedIndex.isValid())
-                {
-                    clipboardText = clickedIndex.data(Qt::DisplayRole).toString();
-                }
-                else if (selectedAction == copyRowAction && clickedIndex.isValid())
-                {
-                    clipboardText = rowTextAt(clickedIndex);
-                }
-                else if (selectedAction == copyAllAction)
-                {
-                    QStringList allRowTexts;
-                    // 属性表最多两层，逐层取文本即可覆盖分组树与平表两种形态。
-                    for (int rowIndex = 0; rowIndex < itemModel->rowCount(); ++rowIndex)
-                    {
-                        const QModelIndex topIndex = itemModel->index(rowIndex, 0);
-                        allRowTexts << rowTextAt(topIndex);
-                        for (int childIndex = 0; childIndex < itemModel->rowCount(topIndex); ++childIndex)
-                        {
-                            allRowTexts << rowTextAt(itemModel->index(childIndex, 0, topIndex));
-                        }
-                    }
-                    clipboardText = allRowTexts.join(QLatin1Char('\n'));
-                }
-
-                QClipboard* clipboardObject = QApplication::clipboard();
-                if (clipboardObject != nullptr && !clipboardText.isEmpty())
-                {
-                    clipboardObject->setText(clipboardText);
-                }
-            });
-    }
-
-    // kPreserveCustomFontProperty：标记本控件字体由自己维护。
-    // MainWindow 在外观设置变更后会遍历所有 QAbstractItemView 强制刷成应用字体，
-    // 不打这个标记的话，用户一改字体设置，报告视图的放大字号就被刷回默认档。
+    // 表格块也复用字段值外观；树的字体/复制/列宽由共享 presenter 管理。
+    bool valueLooksMonospace(const QString& value) { return ks::ui::FieldValueLooksMonospace(value); }
+    bool valueStatusColor(const QString& value, QColor* color) { return ks::ui::FieldValueStatusColor(value, color); }
     constexpr const char* kPreserveCustomFontProperty = "ksword_preserve_custom_font";
-
-    // applyNameColumnWidth 作用：
-    // - 按真实属性名算名称列宽度，并夹到可用区间；
-    // - 不能用 resizeColumnToContents：它会把跨列说明行的整句长度也算进第 0 列，
-    //   一条长说明就能把名称列撑到上千像素，值列被挤出屏幕（GPU 页的 WMI 段就是这样）。
-    void applyNameColumnWidth(QTreeWidget* treeWidget)
-    {
-        constexpr int kMinNameColumnWidth = 140;
-        constexpr int kMaxNameColumnWidth = 360;
-
-        const QFontMetrics nameMetrics(treeWidget->font());
-        int widestNameWidth = 0;
-
-        // 报告树最多两层（分组 + 属性行），逐层遍历即可覆盖平表与分组树两种形态。
-        for (int topIndex = 0; topIndex < treeWidget->topLevelItemCount(); ++topIndex)
-        {
-            QTreeWidgetItem* topItem = treeWidget->topLevelItem(topIndex);
-            if (!topItem->isFirstColumnSpanned())
-            {
-                widestNameWidth = std::max(widestNameWidth, nameMetrics.horizontalAdvance(topItem->text(0)));
-            }
-            for (int childIndex = 0; childIndex < topItem->childCount(); ++childIndex)
-            {
-                QTreeWidgetItem* childItem = topItem->child(childIndex);
-                if (childItem->isFirstColumnSpanned())
-                {
-                    continue;
-                }
-                widestNameWidth = std::max(
-                    widestNameWidth,
-                    nameMetrics.horizontalAdvance(childItem->text(0)) + treeWidget->indentation());
-            }
-        }
-
-        // 额外留出展开箭头和左右内边距；超长字段名交给 ToolTip。
-        const int paddedWidth = widestNameWidth + treeWidget->indentation() + 16;
-        treeWidget->setColumnWidth(
-            0, std::clamp(paddedWidth, kMinNameColumnWidth, kMaxNameColumnWidth));
-    }
-
-    // configurePropertyView 作用：
-    // - 统一属性视图外观：两列、不可编辑、不排序、带复制菜单；
-    // - 报告行的先后顺序本身有含义（按采集顺序写的），因此一律不开排序。
-    void configurePropertyView(QTreeWidget* treeWidget, const bool showTreeBranches)
-    {
-        treeWidget->setProperty(kPreserveCustomFontProperty, true);
-        treeWidget->setColumnCount(2);
-        treeWidget->setHeaderLabels(QStringList{
-            ks::i18n::displayText(QStringLiteral("属性")),
-            ks::i18n::displayText(QStringLiteral("值"))
-            });
-        treeWidget->setRootIsDecorated(showTreeBranches);
-        treeWidget->setAlternatingRowColors(true);
-        treeWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
-        treeWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        treeWidget->setUniformRowHeights(true);
-        treeWidget->setSortingEnabled(false);
-        treeWidget->setFrameShape(QFrame::NoFrame);
-        if (treeWidget->header() != nullptr)
-        {
-            treeWidget->header()->setStretchLastSection(true);
-        }
-        installCopyMenu(treeWidget);
-    }
-
-    // applyFieldItemStyle 作用：
-    // - 说明行跨两列并使用次要文字色；
-    // - 属性值按语义着色，地址/哈希改等宽字体；
-    // - 值同时写入 ToolTip，列宽截断时悬停仍可看全。
-    void applyFieldItemStyle(QTreeWidgetItem* rowItem, const ParsedField& field)
-    {
-        if (field.isNote)
-        {
-            rowItem->setFirstColumnSpanned(true);
-            rowItem->setForeground(0, KswordTheme::TextSecondaryColor());
-            rowItem->setToolTip(0, field.name);
-            return;
-        }
-
-        rowItem->setToolTip(1, field.value);
-        QColor statusColor;
-        if (valueStatusColor(field.value, &statusColor))
-        {
-            rowItem->setForeground(1, statusColor);
-        }
-        if (valueLooksMonospace(field.value))
-        {
-            rowItem->setFont(1, fixedFont());
-        }
-    }
 
     // appendFieldRows 作用：把一个 Fields 块的所有行追加到属性视图指定父节点下。
     void appendFieldRows(
@@ -805,7 +755,7 @@ namespace
             {
                 rowItem->setText(1, field.value);
             }
-            applyFieldItemStyle(rowItem, field);
+            ks::ui::SetFieldItemPresentation(rowItem, false, field.isNote, true);
         }
     }
 
@@ -823,26 +773,6 @@ namespace
 
 namespace ks::ui
 {
-    QFont ScaledReportFont(const QFont& baseFont)
-    {
-        // kReportFontScale：结构化报告相对界面默认字号的放大倍数。
-        // 报告是要逐条读地址、哈希和路径的，沿用工具栏那一档小字号看着太吃力。
-        // 全项目只有这一处定义：页面自建的属性树也走这里，字号才不会两套。
-        constexpr double kReportFontScale = 1.6;
-
-        QFont scaledFont = baseFont;
-        if (scaledFont.pointSizeF() > 0.0)
-        {
-            scaledFont.setPointSizeF(scaledFont.pointSizeF() * kReportFontScale);
-            return scaledFont;
-        }
-        if (scaledFont.pixelSize() > 0)
-        {
-            scaledFont.setPixelSize(static_cast<int>(scaledFont.pixelSize() * kReportFontScale));
-        }
-        return scaledFont;
-    }
-
     ReportStructuredView::ReportStructuredView(QWidget* parent)
         : QWidget(parent)
     {
@@ -874,7 +804,7 @@ namespace ks::ui
     bool ReportStructuredView::setReportText(const QString& localizedReportText)
     {
         m_reportText = localizedReportText;
-        m_hasStructure = parseReport(localizedReportText).structured;
+        m_hasStructure = canStructure(localizedReportText);
         m_blocksDirty = true;
         if (isVisible())
         {
@@ -885,7 +815,10 @@ namespace ks::ui
 
     bool ReportStructuredView::canStructure(const QString& localizedReportText)
     {
-        return parseReport(localizedReportText).structured;
+        if (localizedReportText.size() > kMaxStructuredTextLength) return false;
+        const DataDocument data = parseDataDocument(localizedReportText);
+        return data.recognized ? data.valid : localizedReportText.count(QLatin1Char('\n')) < kMaxStructuredNodes &&
+            parseReport(localizedReportText).structured;
     }
 
     bool ReportStructuredView::hasStructure() const
@@ -893,7 +826,7 @@ namespace ks::ui
         return m_hasStructure;
     }
 
-    void ReportStructuredView::copySelectionOrReport() const
+    QString ReportStructuredView::selectionOrReportText() const
     {
         QString copiedText;
         QWidget* focusedWidget = QApplication::focusWidget();
@@ -903,8 +836,7 @@ namespace ks::ui
             {
                 if (codeView->textCursor().hasSelection())
                 {
-                    codeView->copy();
-                    return;
+                    return codeView->textCursor().selectedText().replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
                 }
             }
             else if (QLabel* label = qobject_cast<QLabel*>(focusedWidget))
@@ -920,29 +852,31 @@ namespace ks::ui
                 }
                 if (itemView != nullptr && itemView->selectionModel() != nullptr)
                 {
-                    QStringList copiedRows;
-                    const QModelIndexList selectedRows = itemView->selectionModel()->selectedRows();
-                    for (const QModelIndex& row : selectedRows)
-                    {
-                        QStringList columns;
-                        const int columnCount = itemView->model()->columnCount(row.parent());
-                        for (int column = 0; column < columnCount; ++column)
-                        {
-                            const QString value = row.siblingAtColumn(column).data().toString();
-                            if (!value.isEmpty()) columns.append(value);
-                        }
-                        copiedRows.append(columnCount == 2 && columns.size() == 2
-                            ? QStringLiteral("%1: %2").arg(columns.at(0), columns.at(1))
-                            : columns.join(QLatin1Char('\t')));
-                    }
-                    copiedText = copiedRows.join(QLatin1Char('\n'));
+                    copiedText = ks::ui::StructuredCopyText(itemView);
                 }
             }
         }
-        if (QClipboard* clipboard = QApplication::clipboard())
+        return copiedText.isEmpty() ? m_reportText : copiedText;
+    }
+
+    void ReportStructuredView::copySelectionOrReport() const
+    {
+        if (QClipboard* clipboard = QApplication::clipboard()) clipboard->setText(selectionOrReportText());
+    }
+
+    bool ReportStructuredView::eventFilter(QObject* watchedObject, QEvent* event)
+    {
+        if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)
         {
-            clipboard->setText(copiedText.isEmpty() ? m_reportText : copiedText);
+            const auto* key = static_cast<QKeyEvent*>(event);
+            if (key->key() == Qt::Key_C && key->modifiers() == Qt::ControlModifier)
+            {
+                event->accept();
+                if (event->type() == QEvent::KeyPress) copySelectionOrReport();
+                return true;
+            }
         }
+        return QWidget::eventFilter(watchedObject, event);
     }
 
     int ReportStructuredView::verticalScrollBarWidth() const
@@ -1006,10 +940,35 @@ namespace ks::ui
     {
         m_blocksDirty = false;
         clearBlocks();
+        if (!m_hasStructure) return;
 
         // 每次重建都按当前继承字体重算：构造时全局样式可能还没落到控件上，
         // 而 m_blockHost 一旦显式 setFont 就不再跟随父链，只能在这里刷新。
         m_blockHost->setFont(scaledBlockFont(font()));
+
+        const DataDocument parsedData = parseDataDocument(m_reportText);
+        if (parsedData.recognized)
+        {
+            if (!parsedData.valid) return;
+            auto* tree = new QTreeWidget(m_blockHost);
+            tree->setObjectName(QStringLiteral("report_structured_data"));
+            ks::ui::ConfigureFieldTree(tree, true);
+            ks::ui::SetStructuredCopyFallback(tree, m_reportText);
+            std::function<void(const DataNode&, QTreeWidgetItem*)> addNode;
+            addNode = [&](const DataNode& node, QTreeWidgetItem* parent) {
+                auto* item = parent != nullptr ? new QTreeWidgetItem(parent) : new QTreeWidgetItem(tree);
+                item->setText(0, node.name);
+                item->setText(1, node.value);
+                // 数据树保留 JSON/XML 原值，不按“成功/失败”字面内容推断业务语义。
+                ks::ui::SetFieldItemPresentation(item, false, false, false);
+                for (const DataNode& child : node.children) addNode(child, item);
+            };
+            for (const DataNode& node : parsedData.roots) addNode(node, nullptr);
+            tree->expandToDepth(1);
+            ks::ui::RefreshFieldTree(tree);
+            m_blockLayout->addWidget(tree, 1);
+            return;
+        }
 
         const ParsedDocument document = parseReport(m_reportText);
         if (!document.structured)
@@ -1020,6 +979,7 @@ namespace ks::ui
         if (!document.title.isEmpty())
         {
             QLabel* titleLabel = new QLabel(document.title, m_blockHost);
+            titleLabel->setTextFormat(Qt::PlainText);
             titleLabel->setWordWrap(true);
             QFont titleFont = titleLabel->font();
             titleFont.setBold(true);
@@ -1033,21 +993,15 @@ namespace ks::ui
         if (!document.hasNonFieldBlock)
         {
             QTreeWidget* propertyView = new QTreeWidget(m_blockHost);
-            configurePropertyView(propertyView, document.namedSectionCount > 0);
+            ks::ui::ConfigureFieldTree(propertyView, document.namedSectionCount > 0);
+            ks::ui::SetStructuredCopyFallback(propertyView, m_reportText);
 
             for (const ParsedSection& section : document.sections)
             {
                 QTreeWidgetItem* groupItem = nullptr;
                 if (!section.title.isEmpty())
                 {
-                    groupItem = new QTreeWidgetItem(propertyView);
-                    groupItem->setText(0, section.title);
-                    QFont groupFont = groupItem->font(0);
-                    groupFont.setBold(true);
-                    groupItem->setFont(0, groupFont);
-                    // 分组行不可选中：避免被当成一条属性复制走。
-                    groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsSelectable);
-                    groupItem->setExpanded(true);
+                    groupItem = ks::ui::AppendFieldGroup(propertyView, section.title);
                 }
 
                 for (const ParsedBlock& block : section.blocks)
@@ -1069,7 +1023,7 @@ namespace ks::ui
             }
 
             propertyView->expandAll();
-            applyNameColumnWidth(propertyView);
+            ks::ui::RefreshFieldTree(propertyView);
             m_blockLayout->addWidget(propertyView, 1);
             return;
         }
@@ -1081,6 +1035,7 @@ namespace ks::ui
             if (!section.title.isEmpty())
             {
                 QLabel* sectionLabel = new QLabel(section.title, m_blockHost);
+                sectionLabel->setTextFormat(Qt::PlainText);
                 QFont sectionFont = sectionLabel->font();
                 sectionFont.setBold(true);
                 sectionLabel->setFont(sectionFont);
@@ -1095,9 +1050,10 @@ namespace ks::ui
                 case ParsedBlock::Kind::Fields:
                 {
                     QTreeWidget* propertyView = new QTreeWidget(m_blockHost);
-                    configurePropertyView(propertyView, false);
+                    ks::ui::ConfigureFieldTree(propertyView, false);
+                    ks::ui::SetStructuredCopyFallback(propertyView, m_reportText);
                     appendFieldRows(propertyView, nullptr, block.fields);
-                    applyNameColumnWidth(propertyView);
+                    ks::ui::RefreshFieldTree(propertyView);
                     propertyView->setFixedHeight(
                         propertyViewHeightFor(propertyView, static_cast<int>(block.fields.size())));
                     m_blockLayout->addWidget(propertyView);
@@ -1112,6 +1068,7 @@ namespace ks::ui
 
                     QTableWidget* tableView = new QTableWidget(dataRowCount, columnCount, m_blockHost);
                     tableView->setProperty(kPreserveCustomFontProperty, true);
+                    ks::ui::SetStructuredCopyFallback(tableView, m_reportText);
                     tableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
                     tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
                     tableView->setAlternatingRowColors(true);
@@ -1155,7 +1112,7 @@ namespace ks::ui
                         : 0;
                     tableView->setFixedHeight(
                         tableHeaderHeight + std::max(dataRowCount, 1) * tableRowHeight + 6);
-                    installCopyMenu(tableView);
+                    ks::ui::InstallStructuredCopyMenu(tableView);
                     m_blockLayout->addWidget(tableView);
                     break;
                 }
@@ -1164,6 +1121,7 @@ namespace ks::ui
                     auto* codeView = new CodeTextEdit(m_blockHost);
                     codeView->setPlainText(block.lines.join(QLatin1Char('\n')));
                     codeView->setReadOnly(true);
+                    codeView->installEventFilter(this);
                     codeView->setLineWrapMode(QPlainTextEdit::NoWrap);
                     codeView->setFrameShape(QFrame::NoFrame);
                     const int codeLineHeight = codeView->fontMetrics().height() + 2;
@@ -1178,6 +1136,8 @@ namespace ks::ui
                     QLabel* noteLabel = new QLabel(
                         block.lines.join(QLatin1Char('\n')), m_blockHost);
                     noteLabel->setWordWrap(true);
+                    noteLabel->setTextFormat(Qt::PlainText);
+                    noteLabel->installEventFilter(this);
                     noteLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
                     noteLabel->setForegroundRole(QPalette::PlaceholderText);
                     m_blockLayout->addWidget(noteLabel);

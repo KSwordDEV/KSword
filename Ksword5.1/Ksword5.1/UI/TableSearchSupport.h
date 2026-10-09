@@ -35,6 +35,12 @@ namespace ks::ui
     // RefreshTableSearchSupport：重新判断滚动状态、专属搜索框和可用空间。
     void RefreshTableSearchSupport(QTableView* tableView);
 
+    // 显式换模型前还原旧模型对应的行隐藏基线，保留用户已输入的过滤词。
+    void PrepareTableSearchModelChange(QTableView* tableView);
+
+    // 模型换绑后断开旧模型信号、记录新基线并重新应用原搜索词。
+    void RefreshTableSearchModelBinding(QTableView* tableView);
+
     // IsGenericTableSearchEligible：仅允许没有遗留外部搜索框的表格使用通用过滤。
     bool IsGenericTableSearchEligible(QTableView* tableView);
 

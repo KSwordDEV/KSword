@@ -19,7 +19,7 @@ class QTableWidget;
 
 namespace ks::ui
 {
-    class MemoryEditorWidget;
+    class SnapshotWorkbenchWidget;
 }
 
 class HvmViewDialog final : public QDialog
@@ -56,7 +56,7 @@ private:
     QLineEdit* m_addressEdit = nullptr;
     QLineEdit* m_processIdEdit = nullptr;
     QLineEdit* m_cr3Edit = nullptr;
-    ks::ui::MemoryEditorWidget* m_shadowEditor = nullptr;
+    ks::ui::SnapshotWorkbenchWidget* m_shadowEditor = nullptr;
     QPushButton* m_readShadowButton = nullptr;
     QPushButton* m_discardShadowButton = nullptr;
     QTableWidget* m_viewTable = nullptr;

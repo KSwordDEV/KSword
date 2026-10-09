@@ -1,5 +1,5 @@
-#include "KernelCallbackMonitorWidget.h"
-#include "../UI/CodeTextEdit.h"
+﻿#include "KernelCallbackMonitorWidget.h"
+#include "../UI/CodeEditorWidget.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/TableInteractionSupport.h"
@@ -19,7 +19,6 @@
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
-#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSaveFile>
@@ -653,8 +652,7 @@ void KernelCallbackMonitorWidget::initializeUi()
     m_eventTable->setColumnWidth(CallbackColumnPath, 360);
     m_eventTable->setColumnWidth(CallbackColumnSummary, 260);
 
-    m_detailEdit = new CodeTextEdit(this);
-    static_cast<CodeTextEdit*>(m_detailEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    m_detailEdit = new CodeEditorWidget(this);
     m_detailEdit->setReadOnly(true);
     m_detailEdit->setPlaceholderText(QStringLiteral("选择事件后查看完整字段详情"));
     QSplitter* resultSplitter = new QSplitter(Qt::Vertical, this);
@@ -849,7 +847,7 @@ void KernelCallbackMonitorWidget::clearLocalEvents()
     m_eventModel->clearRows();
     m_cursorLostCount.store(0ULL);
     m_r3DroppedCount.store(0ULL);
-    m_detailEdit->clear();
+    m_detailEdit->setReportText(QString());
     applyFilters();
     updateStatusLabel();
     m_workerWake.notify_all();
@@ -1077,14 +1075,14 @@ void KernelCallbackMonitorWidget::updateDetailPanel()
     const QModelIndex currentIndex = m_eventTable->currentIndex();
     if (!currentIndex.isValid())
     {
-        m_detailEdit->clear();
+        m_detailEdit->setReportText(QString());
         return;
     }
     const QModelIndex sourceIndex = m_filterModel->mapToSource(currentIndex);
     const auto* row = m_eventModel->rowAt(sourceIndex.row());
     if (row == nullptr)
     {
-        m_detailEdit->clear();
+        m_detailEdit->setReportText(QString());
         return;
     }
 
@@ -1108,7 +1106,7 @@ void KernelCallbackMonitorWidget::updateDetailPanel()
         .arg(QString::fromStdWString(row->processName))
         .arg(QString::fromStdWString(row->path))
         .arg(row->flags, 8, 16, QLatin1Char('0'));
-    m_detailEdit->setPlainText(detailText);
+    m_detailEdit->setReportText(detailText);
 }
 
 void KernelCallbackMonitorWidget::exportVisibleRows()

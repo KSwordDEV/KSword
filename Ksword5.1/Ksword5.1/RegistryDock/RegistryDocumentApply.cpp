@@ -322,6 +322,7 @@ bool RegistryDocumentApplyService::applyWithBackend(const RegistryApplyPlan& pla
 {
     result = {};
     result.viewBits = plan.viewBits;
+    result.useR0 = plan.useR0;
     if ((plan.viewBits != 0 && plan.viewBits != 32 && plan.viewBits != 64)
         || plan.operations.isEmpty() || plan.operations.size() > kOperationLimit)
         return failure(result.error, QStringLiteral("Invalid registry apply plan."));
@@ -345,6 +346,21 @@ bool RegistryDocumentApplyService::applyWithBackend(const RegistryApplyPlan& pla
         RegistryApplyReceipt receipt;
         receipt.operation = operation;
         result.receipts.append(std::move(receipt));
+    }
+    // 必须先检查整个混合计划的能力，防止前面的普通写入成功后才拒绝不安全树删除。
+    // 这里尚未调用后端读写；R0 不自动换成 Win32，回执保持未执行且无可撤销变更。
+    if (!backend.supportsAtomicTreeDeletion())
+    {
+        for (auto& receipt : result.receipts)
+        {
+            if (receipt.operation.kind != RegistryApplyOperation::Kind::DeleteTree) continue;
+            receipt.state = RegistryApplyReceipt::State::Failed;
+            receipt.error = plan.useR0
+                ? QStringLiteral("R0 registry protocol cannot safely delete registry trees. Select a Win32 32-bit or 64-bit view explicitly.")
+                : QStringLiteral("This registry backend does not support atomic tree deletion.");
+            result.error = receipt.error;
+            return false;
+        }
     }
     bool mutated = false, treeDeletion = false;
     for (auto& receipt : result.receipts) {
@@ -453,6 +469,7 @@ bool RegistryDocumentApplyService::undoWithBackend(const RegistryApplyResult& pr
         return failure(result.error, QStringLiteral("This committed change requires restoration from its original backup."));
     RegistryApplyPlan undo;
     undo.viewBits = previous.viewBits;
+    undo.useR0 = previous.useR0;
     const auto& originals = previous.undoAttempt ? previous.pendingUndoReceipts : previous.receipts;
     QVector<qsizetype> originalIndices;
     for (qsizetype i = originals.size(); i > 0; --i) {

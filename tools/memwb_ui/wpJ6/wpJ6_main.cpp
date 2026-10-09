@@ -32,6 +32,7 @@ namespace wpj6_test
     void RunGateTests();
     void RunWriteTests();
     void RunNavTests();
+    void RunHexViewportReviewTests(const QString& mode);
     void RunVisualTests();
     // 第二轮独立复核补测（wpJ6_tests.Review2*.cpp）。
     void RunReview2TestsA();
@@ -295,6 +296,14 @@ int main(int argc, char** argv)
     }
 
     wpj6_test::ConfigureSharedOnce();
+
+    // 三个 HEX 审查探针各自可运行，负对照中的同步销毁崩溃不影响其它证据。
+    if (argc > 1 && QString::fromLocal8Bit(argv[1]).startsWith(QStringLiteral("--hex-review-")))
+    {
+        wpj6_test::RunHexViewportReviewTests(QString::fromLocal8Bit(argv[1]));
+        std::printf("hex_viewport_review: %d checks, %d failures\n", wpj6_test::g_checks, wpj6_test::g_failures);
+        return wpj6_test::g_failures == 0 ? 0 : 1;
+    }
 
     wpj6_test::RunIdentityTests();
     wpj6_test::RunEmbeddedTests();

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // ============================================================
 // KernelCallbackMonitorWidget.h
@@ -24,7 +24,7 @@ class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
-class QPlainTextEdit;
+class CodeEditorWidget;
 class QPushButton;
 class QSortFilterProxyModel;
 class QSpinBox;
@@ -86,7 +86,7 @@ private:
     QLabel* m_filterStatusLabel = nullptr;
     QLabel* m_statusLabel = nullptr;
     ks::ui::TableActionTableView* m_eventTable = nullptr;
-    QPlainTextEdit* m_detailEdit = nullptr;
+    CodeEditorWidget* m_detailEdit = nullptr;
     KernelCallbackEventModel* m_eventModel = nullptr;
     KernelCallbackFilterModel* m_filterModel = nullptr;
     QTimer* m_uiTimer = nullptr;

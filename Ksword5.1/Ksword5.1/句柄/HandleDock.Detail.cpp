@@ -23,61 +23,111 @@
 
 #include <memory>
 
+// 析构先关闭详情投递门禁，再让派生成员和子控件开始销毁。
+HandleDock::~HandleDock()
+{
+    if (m_handleDetailOperation)
+    {
+        m_handleDetailOperation->close();
+    }
+}
+
 void HandleDock::requestHandleDetailRefresh(const bool forceRefresh)
 {
-    if (m_handleDetailRefreshInProgress)
+    (void)forceRefresh; // 选择变化与手动请求都保留最新行快照，最多一个待执行请求。
+    if (!m_handleDetailOperation)
     {
-        if (forceRefresh)
+        m_handleDetailOperation = std::make_unique<ks::ui::AsyncOperation>(this);
+        m_handleDetailOperation->setStateChangedCallback([this]()
         {
-            m_handleDetailRefreshPending = true;
-        }
-        return;
+            m_handleDetailRefreshInProgress = m_handleDetailOperation->isBusy();
+            if (m_handleDetailRefreshInProgress && m_handleDetailRefreshProgressPid > 0)
+            {
+                kPro.set(m_handleDetailRefreshProgressPid, "后台查询句柄详情", 0, 20.0f);
+            }
+        });
     }
-
-    HandleRow* row = selectedHandleRow();
+    const HandleRow* const row = selectedHandleRow(); // 只在 UI 线程取得当前行。
     if (row == nullptr)
     {
+        m_handleDetailOperation->cancel();
+        m_handleDetailRefreshTicket = m_handleDetailOperation->generation();
         showHandleDetailPlaceholder(QStringLiteral("请选择一个句柄查看详情。"));
         return;
     }
-
-    const HandleRow rowSnapshot = *row;
-    const std::uint64_t currentTicket = ++m_handleDetailRefreshTicket;
-    m_handleDetailRefreshInProgress = true;
+    const HandleRow rowSnapshot = *row; // 后台查询和延期重放共用不可变身份快照。
     if (m_handleDetailStatusLabel != nullptr)
     {
         m_handleDetailStatusLabel->setText(QStringLiteral("● 正在刷新句柄详情..."));
     }
-
     if (m_handleDetailRefreshProgressPid <= 0)
     {
         m_handleDetailRefreshProgressPid = kPro.addReusable(this, "句柄详情", "准备读取句柄详情");
     }
-    kPro.set(m_handleDetailRefreshProgressPid, "后台查询句柄详情", 0, 20.0f);
-
-    QPointer<HandleDock> guardThis(this);
-    auto* refreshTask = QRunnable::create([guardThis, currentTicket, rowSnapshot]()
+    const int progressPid = m_handleDetailRefreshProgressPid; // 收尾不得借用页面成员。
+    m_handleDetailRefreshTicket = m_handleDetailOperation->submit<HandleRow, HandleDetailRefreshResult>(
+        rowSnapshot,
+        [](const HandleRow& snapshot, const ks::ui::AsyncOperationToken& token)
         {
-            const HandleDetailRefreshResult refreshResult =
-                buildHandleDetailRefreshResult(rowSnapshot);
-            if (guardThis == nullptr)
+            if (token.isCanceled())
             {
-                return;
+                return HandleDetailRefreshResult{};
             }
-            QMetaObject::invokeMethod(
-                guardThis,
-                [guardThis, currentTicket, refreshResult]()
-                {
-                    if (guardThis == nullptr)
-                    {
-                        return;
-                    }
-                    guardThis->applyHandleDetailRefreshResult(currentTicket, refreshResult);
-                },
-                Qt::QueuedConnection);
+            return buildHandleDetailRefreshResult(snapshot);
+        },
+        [this, rowSnapshot](const HandleDetailRefreshResult& result, const std::uint64_t ticket)
+        {
+            return tryApplyHandleDetailRefreshResult(ticket, rowSnapshot, result);
+        },
+        [this](std::exception_ptr)
+        {
+            if (m_handleDetailStatusLabel != nullptr)
+            {
+                m_handleDetailStatusLabel->setText(QStringLiteral("● 句柄详情刷新失败。"));
+            }
+        },
+        [progressPid](const ks::ui::AsyncOperationOutcome outcome)
+        {
+            kPro.set(progressPid, outcome == ks::ui::AsyncOperationOutcome::Applied
+                ? "句柄详情刷新完成" : "句柄详情查询已结束", 0, 100.0f);
         });
-    refreshTask->setAutoDelete(true);
-    QThreadPool::globalInstance()->start(refreshTask);
+}
+
+bool HandleDock::tryApplyHandleDetailRefreshResult(const std::uint64_t refreshTicket,
+    const HandleRow& expectedRow, const HandleDetailRefreshResult& refreshResult)
+{
+    // 代次和当前选择身份都必须匹配；对象地址和进程创建时间避免复用旧句柄行。
+    const HandleRow* const selected = selectedHandleRow(); // 仅主线程读取当前缓存。
+    if (!m_handleDetailOperation || !m_handleDetailOperation->isCurrent(refreshTicket)
+        || refreshTicket != m_handleDetailRefreshTicket || selected == nullptr
+        || selected->processId != expectedRow.processId
+        || selected->processCreationTime != expectedRow.processCreationTime
+        || selected->handleValue != expectedRow.handleValue
+        || selected->objectAddress != expectedRow.objectAddress
+        || selected->typeIndex != expectedRow.typeIndex)
+    {
+        return true;
+    }
+    if (ks::ui::IsItemViewUiCommitBlockedByContextMenu({ m_handleDetailTable }))
+    {
+        const auto snapshot = std::make_shared<HandleDetailRefreshResult>(refreshResult); // 值结果。
+        const QPointer<HandleDock> safeThis(this); // 仅主线程延期回调使用的生命周期守卫。
+        if (ks::ui::DeferItemViewUiCommitIfContextMenuOpen(this,
+            QStringLiteral("handle-dock-detail-snapshot"), { m_handleDetailTable },
+            [safeThis, refreshTicket, expectedRow, snapshot]()
+            {
+                if (!safeThis.isNull()
+                    && safeThis->tryApplyHandleDetailRefreshResult(refreshTicket, expectedRow, *snapshot))
+                {
+                    safeThis->m_handleDetailOperation->completeDeferred(refreshTicket);
+                }
+            }))
+        {
+            return false;
+        }
+    }
+    applyHandleDetailRefreshResult(refreshTicket, refreshResult);
+    return true;
 }
 
 void HandleDock::applyHandleDetailRefreshResult(
@@ -88,29 +138,6 @@ void HandleDock::applyHandleDetailRefreshResult(
     {
         return;
     }
-
-    if (ks::ui::IsItemViewUiCommitBlockedByContextMenu({ m_handleDetailTable }))
-    {
-        const auto refreshSnapshot = std::make_shared<HandleDetailRefreshResult>(refreshResult);
-        const QPointer<HandleDock> safeThis(this);
-        if (ks::ui::DeferItemViewUiCommitIfContextMenuOpen(
-            this,
-            QStringLiteral("handle-dock-detail-snapshot"),
-            { m_handleDetailTable },
-            [safeThis, refreshTicket, refreshSnapshot]()
-            {
-                if (!safeThis.isNull())
-                {
-                    safeThis->applyHandleDetailRefreshResult(refreshTicket, *refreshSnapshot);
-                }
-            }))
-        {
-            return;
-        }
-    }
-
-    m_handleDetailRefreshInProgress = false;
-    kPro.set(m_handleDetailRefreshProgressPid, "句柄详情刷新完成", 0, 100.0f);
 
     if (m_handleDetailTable == nullptr)
     {
@@ -142,14 +169,7 @@ void HandleDock::applyHandleDetailRefreshResult(
         m_handleDetailStatusLabel->setText(statusText);
     }
 
-    if (m_handleDetailRefreshPending)
-    {
-        m_handleDetailRefreshPending = false;
-        QMetaObject::invokeMethod(this, [this]()
-            {
-                requestHandleDetailRefresh(true);
-            }, Qt::QueuedConnection);
-    }
+
 }
 
 void HandleDock::showHandleHeaderContextMenu(const QPoint& localPosition)

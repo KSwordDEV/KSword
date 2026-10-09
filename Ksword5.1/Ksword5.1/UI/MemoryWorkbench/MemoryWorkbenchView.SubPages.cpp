@@ -1,6 +1,6 @@
 // ============================================================
 // MemoryWorkbenchView.SubPages.cpp
-// 作用：反汇编 / 文本 / 对比三个只读子页的"自动跳转（跟随十六进制）"。
+// 作用：反汇编 / 文本 / 对比四个只读子页的"自动跳转（跟随十六进制）"。
 //
 // 真机反馈：三个子页切过去不会自动跳转——文本页与对比页从来没人喂过真地址（会话重置时只被设成
 // 空窗口），反汇编页只有 Ctrl+D 会跳。根因有四层，只补"切页签时调一下 jumpTo"解决不了：
@@ -25,6 +25,7 @@
 // ============================================================
 
 #include "MemoryWorkbenchView.h"
+#include "MemoryWorkbenchView.Internal.h"
 
 #include "HexCanvas.h"
 #include "WorkbenchCompareView.h"
@@ -32,12 +33,13 @@
 #include "WorkbenchHexPane.h"
 #include "WorkbenchTarget.h"
 #include "WorkbenchTextView.h"
+#include "WorkbenchPseudocodeView.h"
 
 #include "../../../../shared/evidence/memory_workbench/MemoryDiffOverlay.h"
 #include "../../../../shared/evidence/memory_workbench/SessionAddressResolver.h"
 
 #include <QPointer>
-#include <QScopedValueRollback>
+#include <QScopeGuard>
 #include <QScrollBar>
 #include <QStackedWidget>
 #include <QTableView>
@@ -49,16 +51,11 @@ namespace ks::ui
 {
     namespace
     {
-        // kDisasmTab / kTextTab / kCompareTab：三个只读子页在 subTabStack_ 里的下标。
+        // kDisasmTab / kTextTab / kCompareTab：四个只读子页在 subTabStack_ 里的下标。
         constexpr int kDisasmTab = 1;
         constexpr int kTextTab = 2;
         constexpr int kCompareTab = 3;
-
-        // IsFollowTab：下标是否是需要跟随的只读子页（十六进制页自己就是被跟随的对象）。
-        bool IsFollowTab(const int tabIndex)
-        {
-            return tabIndex >= kDisasmTab && tabIndex <= kCompareTab;
-        }
+        constexpr int kPseudocodeTab = 4;
 
         // AddressInWindow：address 是否落在 [base, base+size) 里；size 为 0 恒为假，不会因加法回绕误判。
         bool AddressInWindow(const std::uint64_t base, const std::uint64_t size, const std::uint64_t address)
@@ -71,8 +68,11 @@ namespace ks::ui
     // （反汇编页的 reset 由 handleIdentityChange 自己做，这里不重复。）
     void MemoryWorkbenchView::resetSubPageFollow()
     {
+        const QPointer<MemoryWorkbenchView> self(this);
         subPageFollow_.fill(SubPageFollowState{});
         subPageFollowPending_ = false;
+        if (pseudocodeView_ != nullptr) pseudocodeView_->setContext({});
+        if (!self) return;
         if (textView_ != nullptr)
         {
             textView_->reset();
@@ -117,7 +117,7 @@ namespace ks::ui
     // 对比：窗口取基线窗口（上限 kCompareFollowBytes，目标前面留四分之一做上下文），再滚到目标所在分组。
     void MemoryWorkbenchView::positionSubPage(const int tabIndex, const std::uint64_t address, const bool scrollToTarget)
     {
-        if (!IsFollowTab(tabIndex) || hexPane_ == nullptr || hexPane_->canvas() == nullptr)
+        if (!detail::IsFollowSubPage(tabIndex) || hexPane_ == nullptr || hexPane_->canvas() == nullptr)
         {
             return;
         }
@@ -163,6 +163,12 @@ namespace ks::ui
             return;
         }
 
+        if (tabIndex == kPseudocodeTab)
+        {
+            updatePseudocodeContext(address);
+            return;
+        }
+
         if (compareView_ == nullptr)
         {
             return;
@@ -188,7 +194,8 @@ namespace ks::ui
     // 必须按上次定位的地址重新算窗口。
     void MemoryWorkbenchView::refreshSubPage(const int tabIndex)
     {
-        if (!IsFollowTab(tabIndex))
+        const QPointer<MemoryWorkbenchView> self(this);
+        if (!detail::IsFollowSubPage(tabIndex))
         {
             return;
         }
@@ -213,19 +220,25 @@ namespace ks::ui
             positionSubPage(tabIndex, state.anchor, false);
             bar->setValue(previousScrollValue);
         }
+        else if (tabIndex == kPseudocodeTab)
+        {
+            updatePseudocodeContext(state.anchor);
+            if (!self) return;
+            if (pseudocodeView_) pseudocodeView_->refreshView();
+        }
         else
         {
             // 文本页：窗口依赖基线窗口，按上次定位的地址重算；编辑器文本没变时 applyEditorText 不会重写，滚动位置保留。
             textView_->refreshView();
         }
-        state.dirty = false;
+        if (self) state.dirty = false;
     }
 
     // followSubPage：隐式跟随的核心——见文件头的规则。
-    // 传入：tabIndex 要跟随的子页（1~3）；force 为真时无视令牌强制重新定位（身份变化后、模块列表就绪后）。
+    // 传入：tabIndex 要跟随的子页（1~4）；force 为真时无视令牌强制重新定位（身份变化后、模块列表就绪后）。
     void MemoryWorkbenchView::followSubPage(const int tabIndex, const bool force)
     {
-        if (!IsFollowTab(tabIndex) || subPageFollowBusy_ || target_ == nullptr || hexPane_ == nullptr)
+        if (!detail::IsFollowSubPage(tabIndex) || subPageFollowBusy_ || target_ == nullptr || hexPane_ == nullptr)
         {
             return;
         }
@@ -237,7 +250,11 @@ namespace ks::ui
         {
             return;
         }
-        QScopedValueRollback<bool> busyGuard(subPageFollowBusy_, true);
+        const bool wasBusy = subPageFollowBusy_;
+        subPageFollowBusy_ = true;
+        const auto busyGuard = qScopeGuard([self, wasBusy]() {
+            if (self) self->subPageFollowBusy_ = wasBusy;
+        });
         subPageFollowPending_ = false;
 
         // 没有可用目标：保持"尚未定位"占位文案，不把 0x0 当成"用户在看地址 0"。
@@ -275,8 +292,12 @@ namespace ks::ui
             }
             if (module.state == WorkbenchTarget::PrimaryModuleState::Ready)
             {
-                // 十六进制也落到模块基址：让三个子页与十六进制在同一位置，数据才读得到。
-                if (hexPane_->jumpTo(module.record.base))
+                // 尚未导航时首次挑模块也采用首行打开政策；先开文本/C 再回 HEX
+                // 不应继承从地址 0 就近跳转造成的“模块起点在末行”。
+                const bool jumped = hexPane_->jumpTo(
+                    module.record.base, 1, HexCanvas::ScrollAlign::Top);
+                if (!self) return;
+                if (jumped)
                 {
                     raw = module.record.base;
                     address = module.record.base;
@@ -288,6 +309,7 @@ namespace ks::ui
         // positionSubPage 里的反汇编分支靠 state.positioned 判断"是不是同一地址的重复跳转"，
         // 它反映的是"之前"有没有定位过，所以必须先定位、后置位。
         positionSubPage(tabIndex, address);
+        if (!self) return;
         state.positioned = true;
         state.syncedSelectionStart = raw;
         state.anchor = address;
@@ -328,15 +350,22 @@ namespace ks::ui
     // 之后 setCurrentIndex 触发的隐式跟随看到令牌相同就不会再覆盖。
     void MemoryWorkbenchView::showSubPageAt(const int tabIndex, const std::uint64_t address)
     {
-        if (!IsFollowTab(tabIndex) || target_ == nullptr || hexPane_ == nullptr || subTabStack_ == nullptr)
+        if (!detail::IsFollowSubPage(tabIndex) || target_ == nullptr || hexPane_ == nullptr || subTabStack_ == nullptr)
         {
             return;
         }
         {
             // busy 期间 positionSubPage/ensureWindowCovers 引发的插入点/内容信号不会再触发跟随。
-            QScopedValueRollback<bool> busyGuard(subPageFollowBusy_, true);
+            const QPointer<MemoryWorkbenchView> self(this);
+            const bool wasBusy = subPageFollowBusy_;
+            subPageFollowBusy_ = true;
+            const auto busyGuard = qScopeGuard([self, wasBusy]() {
+                if (self) self->subPageFollowBusy_ = wasBusy;
+            });
             ensureWindowCovers(address);
+            if (!self) return;
             positionSubPage(tabIndex, address);
+            if (!self) return;
             SubPageFollowState& state = subPageFollow_[static_cast<std::size_t>(tabIndex - 1)];
             state.positioned = true;
             state.syncedSelectionStart = hexPane_->selectionStart();
@@ -349,8 +378,8 @@ namespace ks::ui
     // onSubTabChanged：子页签切换（分段按钮、快捷键、loadSettings 恢复上次子页都经 currentChanged）。
     void MemoryWorkbenchView::onSubTabChanged(const int tabIndex)
     {
-        if (hexPane_) hexPane_->setExternalBrowseMode(tabIndex == 1 || tabIndex == 2);
-        if (IsFollowTab(tabIndex))
+        if (hexPane_) hexPane_->setExternalBrowseMode(tabIndex == 1 || tabIndex == 2 || tabIndex == 4);
+        if (detail::IsFollowSubPage(tabIndex))
         {
             followSubPage(tabIndex, false);
         }
@@ -360,6 +389,10 @@ namespace ks::ui
     // 三页都标脏；只处理当前可见的那一页，其余切过去时再刷。
     void MemoryWorkbenchView::onSubPageDataChanged()
     {
+        const QPointer<MemoryWorkbenchView> self(this);
+        // 隐藏的 C 页也必须撤销被重读/编辑改变的输入票据，不能回切后看到旧结果。
+        if (pseudocodeView_) pseudocodeView_->refreshView();
+        if (!self) return;
         for (SubPageFollowState& state : subPageFollow_)
         {
             state.dirty = true;
@@ -369,7 +402,7 @@ namespace ks::ui
             return;
         }
         const int current = subTabStack_->currentIndex();
-        if (IsFollowTab(current))
+        if (detail::IsFollowSubPage(current))
         {
             followSubPage(current, false);
         }
@@ -384,7 +417,7 @@ namespace ks::ui
             return;
         }
         const int current = subTabStack_->currentIndex();
-        if (IsFollowTab(current))
+        if (detail::IsFollowSubPage(current))
         {
             followSubPage(current, false);
         }

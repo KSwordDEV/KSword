@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // HvmWatchPanel：R-1 内存监视（首次访问归因）页。
 //
@@ -33,7 +33,7 @@
 class QLabel;
 class QPushButton;
 class QTableWidget;
-class QPlainTextEdit;
+class CodeEditorWidget;
 
 // 监视表的列序。
 //
@@ -137,7 +137,7 @@ private:
 
     QLabel* m_hintLabel = nullptr;
     QTableWidget* m_table = nullptr;
-    QPlainTextEdit* m_detail = nullptr;
+    CodeEditorWidget* m_detail = nullptr;
     QLabel* m_statusLabel = nullptr;
 
     QPushButton* m_addButton = nullptr;

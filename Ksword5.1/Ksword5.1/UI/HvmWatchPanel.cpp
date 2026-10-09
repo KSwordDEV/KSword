@@ -1,4 +1,4 @@
-#include "HvmWatchPanel.h"
+﻿#include "HvmWatchPanel.h"
 
 #include "KernelDisassemblyDialog.h"
 #include "HvmControl.h"
@@ -35,8 +35,7 @@
 #include <QPushButton>
 #include <QShowEvent>
 #include <QTableWidget>
-#include <QPlainTextEdit>
-#include "CodeTextEdit.h"
+#include "CodeEditorWidget.h"
 #include <QVBoxLayout>
 
 #include <thread>
@@ -161,10 +160,8 @@ void HvmWatchPanel::buildUi()
     buttons->addWidget(m_writerPageButton, 2, 1);
     rootLayout->addLayout(buttons);
 
-    m_detail = new CodeTextEdit(this);
-    static_cast<CodeTextEdit*>(m_detail)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    m_detail = new CodeEditorWidget(this);
     m_detail->setReadOnly(true);
-    m_detail->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_detail->setPlaceholderText(
         text(QStringLiteral("选中一条监视查看它的完整现场与归因。")));
     rootLayout->addWidget(m_detail, 2);
@@ -704,7 +701,7 @@ void HvmWatchPanel::showDetail(const ksword::hvm::HvmWatchEntry& entry)
     {
         lines << text(QStringLiteral("  现场归属        这条监视已经重新武装过；上面那份命中现场属于**之前**某一轮，不是当前这一轮（当前这一轮还没有命中）。"));
     }
-    m_detail->setPlainText(lines.join(QLatin1Char('\n')));
+    m_detail->setReportText(lines.join(QLatin1Char('\n')));
 }
 
 void HvmWatchPanel::startAdd()

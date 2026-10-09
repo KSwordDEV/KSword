@@ -1,5 +1,5 @@
-#include "TamperDetectionPage.h"
-#include "../UI/CodeTextEdit.h"
+﻿#include "TamperDetectionPage.h"
+#include "../UI/CodeEditorWidget.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../UI/AdaptivePageScroll.h"
@@ -17,7 +17,6 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
-#include <QPlainTextEdit>
 #include <QPointer>
 #include <QPushButton>
 #include <QRunnable>
@@ -477,8 +476,7 @@ namespace ksword::memory_dock
         m_resultTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
         splitter->addWidget(m_resultTable);
 
-        m_detailText = new CodeTextEdit(splitter);
-        static_cast<CodeTextEdit*>(m_detailText)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+        m_detailText = new CodeEditorWidget(splitter);
         m_detailText->setReadOnly(true);
         m_detailText->setPlaceholderText(QStringLiteral("选中上方任意一行查看该页每条路径的状态与逐对分歧。"));
         splitter->addWidget(m_detailText);
@@ -825,7 +823,7 @@ namespace ksword::memory_dock
         const int row = m_resultTable->currentRow();
         if (row < 0 || row >= static_cast<int>(m_results.size()))
         {
-            m_detailText->clear();
+            m_detailText->setReportText(QString());
             return;
         }
         const TamperPageResult& pageResult = m_results[static_cast<std::size_t>(row)];
@@ -878,6 +876,6 @@ namespace ksword::memory_dock
                     .arg(disagreement.differingByteCount);
             }
         }
-        m_detailText->setPlainText(lines.join(QLatin1Char('\n')));
+        m_detailText->setReportText(lines.join(QLatin1Char('\n')));
     }
 }

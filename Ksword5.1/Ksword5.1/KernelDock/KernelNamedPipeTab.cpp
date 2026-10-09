@@ -21,6 +21,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QHeaderView>
+#include <QSplitter>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
@@ -198,10 +199,14 @@ void KernelNamedPipeTab::initializeUi()
             "说明：命名管道属于 NPFS 文件系统目录枚举，本页使用 NtOpenFile + NtQueryDirectoryFile 读取 \\Device\\NamedPipe。"
             "\n这不是 NtQueryDirectoryObject 下钻，也不是系统句柄表枚举。")));
 
-    m_rootLayout->addWidget(m_resultTable, 1);
-    m_rootLayout->addWidget(m_detailEdit, 0);
-
-    ks::ui::DetailLayoutRegistry::registerHost(m_resultTable, m_detailEdit, this);
+    // 页面显式拥有两面板的布局，详情宿主不再从 m_rootLayout 推断并重挂载。
+    auto* const detailSplitter = new QSplitter(Qt::Vertical, this);
+    detailSplitter->setChildrenCollapsible(false);
+    detailSplitter->addWidget(m_resultTable);
+    detailSplitter->addWidget(m_detailEdit);
+    m_rootLayout->addWidget(detailSplitter, 1);
+    ks::ui::DetailLayoutRegistry::registerHost(
+        m_resultTable, m_detailEdit, this, detailSplitter, m_resultTable, m_detailEdit);
     applyAdaptiveColumnWidths();
 }
 

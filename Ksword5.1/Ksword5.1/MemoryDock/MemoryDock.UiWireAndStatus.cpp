@@ -1,7 +1,8 @@
 #include "MemoryDock.Internal.h"
 #include "SystemMemoryAuditPage.h"
 #include "../UI/X64DbgNavigation.h"
-#include "../UI/MemoryWorkbench/WorkbenchSettings.h" // LoadRouteJumps/SaveRouteJumps：设置对话框里的"工作台接管跳转"开关。
+#include "../UI/MemoryWorkbench/MemoryWorkbenchView.h"
+#include "../UI/MemoryWorkbench/WorkbenchTarget.h"
 
 // 说明：由原聚合式实现迁移为独立 .cpp，成员函数实现保持原样。
 using namespace ksword::memory_dock_internal;
@@ -131,22 +132,14 @@ void MemoryDock::initializeConnections()
             refreshMemoryRegionList(true);
             return;
         }
-        // 内存查看器页：重读当前查看的内存。
-        if (currentPage == m_tabViewer)
+        // 唯一内存工作台：软重读保留当前目标、暂存补丁与撤销历史。
+        if (currentPage == m_tabWorkbench)
         {
-            reloadMemoryViewerPage();
-            return;
-        }
-        // 断点与书签页：刷新书签的当前值。
-        if (currentPage == m_tabBpBookmark)
-        {
-            refreshBookmarkValues();
-            return;
-        }
-        // 驱动内存读写页：执行一次驱动内存读取。
-        if (currentPage == m_tabDriverMemoryRw)
-        {
-            driverReadMemoryFromUi();
+            ensureWorkbenchView();
+            if (m_workbenchView != nullptr)
+            {
+                m_workbenchView->target().requestReload();
+            }
             return;
         }
         // 内核可执行页：异步重新扫描。
@@ -326,7 +319,7 @@ void MemoryDock::initializeConnections()
         });
 
     connect(m_detachButton, &QPushButton::clicked, this, [this]() {
-        if (!confirmDiscardMemoryEditsForProcessChange())
+        if (!workbenchAllowsProcessChange())
         {
             return;
         }
@@ -370,16 +363,8 @@ void MemoryDock::initializeConnections()
         buttonLayout->addWidget(okButton);
         buttonLayout->addWidget(cancelButton);
 
-        // 工作台接管跳转：这是 3b 入口切换的回退开关。取消勾选后，模块表/区域表/搜索结果等旧入口
-        // 的跳转回到旧内存查看器（无需发版）；工作台整体开关关闭（页签不存在）时该项置灰。
-        QCheckBox* routeJumpsCheck = new QCheckBox("由内存工作台接管跳转", &dialog);
-        routeJumpsCheck->setChecked(m_workbenchRouteJumps);
-        routeJumpsCheck->setEnabled(m_tabWorkbench != nullptr);
-        routeJumpsCheck->setToolTip("勾选：双击模块/区域/搜索结果等入口时，在内存工作台里打开地址；取消勾选：回到旧内存查看器。设置会保存，下次启动仍然有效。");
-
         formLayout->addRow("扫描线程数", threadSpin);
         formLayout->addRow("读取块大小", chunkSpin);
-        formLayout->addRow(routeJumpsCheck);
         formLayout->addRow(buttonLayout);
 
         connect(okButton, &QPushButton::clicked, &dialog, &QDialog::accept);
@@ -389,21 +374,6 @@ void MemoryDock::initializeConnections()
         {
             m_scanThreadCount = static_cast<std::uint32_t>(threadSpin->value());
             m_scanChunkSizeKB = static_cast<std::uint32_t>(chunkSpin->value());
-            if (m_tabWorkbench != nullptr && routeJumpsCheck->isChecked() != m_workbenchRouteJumps)
-            {
-                // 路由开关变化：立即生效并持久化；内嵌实例还要重新决定"看内存"那一页显示哪个。
-                m_workbenchRouteJumps = routeJumpsCheck->isChecked();
-                ks::ui::workbench_settings::SaveRouteJumps(m_workbenchRouteJumps);
-                if (m_workbenchEmbedded)
-                {
-                    applyProcessDetailTabVisibility();
-                }
-                kLogEvent routeJumpsEvent;
-                info << routeJumpsEvent
-                    << "[MemoryDock] 工作台接管跳转开关已更新, routeJumps="
-                    << (m_workbenchRouteJumps ? "true" : "false")
-                    << eol;
-            }
             m_scanStatusLabel->setText(
                 QString("设置已更新：线程=%1, 块=%2KB")
                 .arg(m_scanThreadCount)
@@ -980,7 +950,6 @@ void MemoryDock::initializeConnections()
         QMenu menu(this);
         menu.setStyleSheet(KswordTheme::ContextMenuStyle());
         QAction* viewAction = menu.addAction("查看此地址");
-        QAction* addBookmarkAction = menu.addAction("添加到书签");
         // 地址簿入口：只有用户在这里明确点了才会加入，搜索结果从不自动灌入地址簿。
         QAction* addAddressBookAction = menu.addAction("加入地址簿");
         addAddressBookAction->setToolTip("把这一行的地址加入内存工作台的地址簿（种类：搜索结果，地址簿总数上限 10000）");
@@ -1033,11 +1002,6 @@ void MemoryDock::initializeConnections()
             {
                 QApplication::clipboard()->setText(formatAddress(rowAddress));
             }
-            else if (selectedAction == addBookmarkAction)
-            {
-                addBookmarkByAddress(rowAddress, "来自内存搜索结果");
-                rebuildBookmarkTable();
-            }
             else if (selectedAction == copyRowAction)
             {
                 copyMemoryTableRow(m_searchResultTable, row);
@@ -1053,17 +1017,6 @@ void MemoryDock::initializeConnections()
                 << formatAddress(entry.address).toStdString()
                 << eol;
             jumpToAddress(entry.address);
-            return;
-        }
-        if (selectedAction == addBookmarkAction)
-        {
-            kLogEvent resultBookmarkActionEvent;
-            info << resultBookmarkActionEvent
-                << "[MemoryDock] 搜索结果右键添加书签, address="
-                << formatAddress(entry.address).toStdString()
-                << eol;
-            addBookmarkByAddress(entry.address, "来自内存搜索结果");
-            rebuildBookmarkTable();
             return;
         }
         if (selectedAction == copyAddressAction)
@@ -1096,436 +1049,6 @@ void MemoryDock::initializeConnections()
                 << row
                 << eol;
         }
-        });
-
-    // ========================================================
-    // Tab4：查看器
-    // ========================================================
-
-    connect(m_viewJumpButton, &QPushButton::clicked, this, [this]() {
-        kLogEvent viewerJumpClickEvent;
-        info << viewerJumpClickEvent
-            << "[MemoryDock] 查看器点击跳转按钮, text="
-            << m_viewAddressEdit->text().trimmed().toStdString()
-            << eol;
-        jumpToAddressFromUi();
-        });
-    connect(m_viewAddressEdit, &QLineEdit::returnPressed, this, [this]() {
-        kLogEvent viewerEnterJumpEvent;
-        info << viewerEnterJumpEvent
-            << "[MemoryDock] 查看器地址框回车跳转, text="
-            << m_viewAddressEdit->text().trimmed().toStdString()
-            << eol;
-        jumpToAddressFromUi();
-        });
-
-    connect(m_viewerMemoryEditor, &ks::ui::MemoryEditorWidget::bytesChanged,
-        this, &MemoryDock::updateMemoryViewerEditState);
-    connect(m_viewerApplyButton, &QPushButton::clicked,
-        this, &MemoryDock::applyMemoryViewerChanges);
-    connect(m_viewerDiscardButton, &QPushButton::clicked,
-        this, &MemoryDock::discardMemoryViewerChanges);
-
-    connect(m_hexEditorWidget, &HexEditorWidget::aboutToShowContextMenu, this,
-        [this](QMenu* menu, const std::uint64_t absoluteAddress, const bool hasByte) {
-            if (menu == nullptr || !hasByte)
-            {
-                return;
-            }
-
-            menu->setStyleSheet(KswordTheme::ContextMenuStyle());
-            menu->addSeparator();
-            QAction* addBookmarkAction = menu->addAction("添加书签");
-            QAction* addBreakpointAction = menu->addAction("添加断点");
-
-            connect(addBookmarkAction, &QAction::triggered, this, [this, absoluteAddress]() {
-                kLogEvent hexAddBookmarkEvent;
-                info << hexAddBookmarkEvent
-                    << "[MemoryDock] 查看器右键添加书签, address="
-                    << formatAddress(absoluteAddress).toStdString()
-                    << eol;
-                addBookmarkByAddress(absoluteAddress, "来自内存查看器");
-                rebuildBookmarkTable();
-                });
-
-            connect(addBreakpointAction, &QAction::triggered, this, [this, absoluteAddress]() {
-                QString errorText;
-                if (!addBreakpointByAddress(absoluteAddress, "来自内存查看器", errorText))
-                {
-                    kLogEvent hexAddBreakpointFailEvent;
-                    err << hexAddBreakpointFailEvent
-                        << "[MemoryDock] 查看器右键添加断点失败, address="
-                        << formatAddress(absoluteAddress).toStdString()
-                        << ", error="
-                        << errorText.toStdString()
-                        << eol;
-                    // privilegePromptHandled：合并已知无写权限与错误文本两条恢复路径。
-                    bool privilegePromptHandled = false;
-                    if (m_attachedProcessHandle != nullptr &&
-                        !m_canReadWriteMemory &&
-                        !ks::ui::isCurrentProcessElevated())
-                    {
-                        (void)ks::ui::requestAdministratorRestartForFeature(
-                            this,
-                            QStringLiteral("设置进程断点"));
-                        privilegePromptHandled = true;
-                    }
-                    if (!privilegePromptHandled)
-                    {
-                        privilegePromptHandled = ks::ui::promptForPrivilegeFailure(
-                            this,
-                            QStringLiteral("设置进程断点"),
-                            errorText);
-                    }
-                    if (!privilegePromptHandled)
-                    {
-                        QMessageBox::warning(this, "添加断点", errorText);
-                    }
-                }
-                else
-                {
-                    kLogEvent hexAddBreakpointSuccessEvent;
-                    info << hexAddBreakpointSuccessEvent
-                        << "[MemoryDock] 查看器右键添加断点成功, address="
-                        << formatAddress(absoluteAddress).toStdString()
-                        << eol;
-                }
-                rebuildBreakpointTable();
-                });
-        });
-
-    // ========================================================
-    // Tab5：断点与书签
-    // ========================================================
-
-    connect(m_addBreakpointButton, &QPushButton::clicked, this, [this]() {
-        bool inputOk = false;
-        const QString addressText = QInputDialog::getText(
-            this,
-            "添加断点",
-            "输入断点地址",
-            QLineEdit::Normal,
-            "0x0",
-            &inputOk);
-        if (!inputOk)
-        {
-            kLogEvent addBreakpointCancelEvent;
-            dbg << addBreakpointCancelEvent
-                << "[MemoryDock] 添加断点操作已取消。"
-                << eol;
-            return;
-        }
-
-        std::uint64_t address = 0;
-        if (!parseAddressText(addressText, address))
-        {
-            kLogEvent addBreakpointParseFailEvent;
-            warn << addBreakpointParseFailEvent
-                << "[MemoryDock] 添加断点地址解析失败, text="
-                << addressText.toStdString()
-                << eol;
-            QMessageBox::warning(this, "添加断点", "地址格式无效。");
-            return;
-        }
-
-        QString errorText;
-        if (!addBreakpointByAddress(address, "手动添加", errorText))
-        {
-            kLogEvent addBreakpointFailEvent;
-            err << addBreakpointFailEvent
-                << "[MemoryDock] 添加断点失败, address="
-                << formatAddress(address).toStdString()
-                << ", error="
-                << errorText.toStdString()
-                << eol;
-            // privilegePromptHandled：合并已知无写权限与错误文本两条恢复路径。
-            bool privilegePromptHandled = false;
-            if (m_attachedProcessHandle != nullptr &&
-                !m_canReadWriteMemory &&
-                !ks::ui::isCurrentProcessElevated())
-            {
-                (void)ks::ui::requestAdministratorRestartForFeature(
-                    this,
-                    QStringLiteral("设置进程断点"));
-                privilegePromptHandled = true;
-            }
-            if (!privilegePromptHandled)
-            {
-                privilegePromptHandled = ks::ui::promptForPrivilegeFailure(
-                    this,
-                    QStringLiteral("设置进程断点"),
-                    errorText);
-            }
-            if (!privilegePromptHandled)
-            {
-                QMessageBox::warning(this, "添加断点", errorText);
-            }
-            return;
-        }
-        kLogEvent addBreakpointSuccessEvent;
-        info << addBreakpointSuccessEvent
-            << "[MemoryDock] 添加断点成功, address="
-            << formatAddress(address).toStdString()
-            << eol;
-        rebuildBreakpointTable();
-        });
-
-    connect(m_removeBreakpointButton, &QPushButton::clicked, this, [this]() {
-        const int row = m_breakpointTable->currentRow();
-        if (row < 0)
-        {
-            return;
-        }
-        kLogEvent removeBreakpointEvent;
-        info << removeBreakpointEvent
-            << "[MemoryDock] 删除断点, row="
-            << row
-            << eol;
-        removeBreakpointByRow(row);
-        rebuildBreakpointTable();
-        });
-
-    connect(m_toggleBreakpointButton, &QPushButton::clicked, this, [this]() {
-        const int row = m_breakpointTable->currentRow();
-        if (row < 0 || row >= static_cast<int>(m_breakpointCache.size()))
-        {
-            return;
-        }
-        const bool nextState = !m_breakpointCache[static_cast<std::size_t>(row)].enabled;
-        if (!setBreakpointEnabledByRow(row, nextState))
-        {
-            kLogEvent toggleBreakpointFailEvent;
-            warn << toggleBreakpointFailEvent
-                << "[MemoryDock] 断点状态切换失败, row="
-                << row
-                << ", targetEnabled="
-                << (nextState ? "true" : "false")
-                << eol;
-            if (m_attachedProcessHandle != nullptr && !m_canReadWriteMemory)
-            {
-                (void)ks::ui::requestAdministratorRestartForFeature(
-                    this,
-                    QStringLiteral("切换进程断点状态"));
-            }
-            QMessageBox::warning(this, "断点切换", "切换失败，请检查权限或进程状态。");
-        }
-        else
-        {
-            kLogEvent toggleBreakpointSuccessEvent;
-            info << toggleBreakpointSuccessEvent
-                << "[MemoryDock] 断点状态切换成功, row="
-                << row
-                << ", targetEnabled="
-                << (nextState ? "true" : "false")
-                << eol;
-        }
-        rebuildBreakpointTable();
-        });
-
-    connect(m_addBookmarkButton, &QPushButton::clicked, this, [this]() {
-        bool inputOk = false;
-        const QString addressText = QInputDialog::getText(
-            this,
-            "添加书签",
-            "输入书签地址",
-            QLineEdit::Normal,
-            "0x0",
-            &inputOk);
-        if (!inputOk)
-        {
-            kLogEvent addBookmarkCancelEvent;
-            dbg << addBookmarkCancelEvent
-                << "[MemoryDock] 添加书签操作已取消。"
-                << eol;
-            return;
-        }
-        std::uint64_t address = 0;
-        if (!parseAddressText(addressText, address))
-        {
-            kLogEvent addBookmarkParseFailEvent;
-            warn << addBookmarkParseFailEvent
-                << "[MemoryDock] 添加书签地址解析失败, text="
-                << addressText.toStdString()
-                << eol;
-            QMessageBox::warning(this, "添加书签", "地址格式无效。");
-            return;
-        }
-        kLogEvent addBookmarkEvent;
-        info << addBookmarkEvent
-            << "[MemoryDock] 添加书签, address="
-            << formatAddress(address).toStdString()
-            << eol;
-        addBookmarkByAddress(address, "手动添加");
-        rebuildBookmarkTable();
-        });
-
-    connect(m_removeBookmarkButton, &QPushButton::clicked, this, [this]() {
-        const int row = m_bookmarkTable->currentRow();
-        const QTableWidgetItem* const addressItem =
-            row >= 0 ? m_bookmarkTable->item(row, 0) : nullptr;
-        if (addressItem == nullptr)
-        {
-            return;
-        }
-        bool converted = false;
-        const std::uint64_t bookmarkId = addressItem->data(Qt::UserRole).toULongLong(&converted);
-        if (!converted || bookmarkId == 0) return;
-        const auto found = std::find_if(m_bookmarkCache.begin(), m_bookmarkCache.end(),
-            [bookmarkId](const BookmarkEntry& bookmark) { return bookmark.id == bookmarkId; });
-        if (found == m_bookmarkCache.end()) return;
-        kLogEvent removeBookmarkEvent;
-        info << removeBookmarkEvent
-            << "[MemoryDock] 删除书签, row="
-            << row
-            << ", address="
-            << formatAddress(found->address).toStdString()
-            << eol;
-        m_bookmarkCache.erase(found);
-        rebuildBookmarkTable();
-        });
-
-    connect(m_refreshBookmarkButton, &QPushButton::clicked, this, [this]() {
-        kLogEvent refreshBookmarkClickEvent;
-        dbg << refreshBookmarkClickEvent
-            << "[MemoryDock] 点击手动刷新书签值。"
-            << eol;
-        refreshBookmarkValues();
-        });
-
-    connect(m_jumpBookmarkButton, &QPushButton::clicked, this, [this]() {
-        const int row = m_bookmarkTable->currentRow();
-        const QTableWidgetItem* const addressItem =
-            row >= 0 ? m_bookmarkTable->item(row, 0) : nullptr;
-        if (addressItem == nullptr)
-        {
-            return;
-        }
-        bool converted = false;
-        const std::uint64_t bookmarkId = addressItem->data(Qt::UserRole).toULongLong(&converted);
-        if (!converted || bookmarkId == 0) return;
-        const auto found = std::find_if(m_bookmarkCache.begin(), m_bookmarkCache.end(),
-            [bookmarkId](const BookmarkEntry& bookmark) { return bookmark.id == bookmarkId; });
-        if (found == m_bookmarkCache.end()) return;
-        const std::uint64_t address = found->address;
-        kLogEvent jumpBookmarkEvent;
-        info << jumpBookmarkEvent
-            << "[MemoryDock] 跳转书签, row="
-            << row
-            << ", address="
-            << formatAddress(address).toStdString()
-            << eol;
-        jumpToAddress(address);
-        });
-
-    // ========================================================
-    // Tab6：驱动内存读写
-    // ========================================================
-
-    connect(m_driverMemoryReadButton, &QPushButton::clicked, this, [this]() {
-        kLogEvent driverReadClickEvent;
-        info << driverReadClickEvent
-            << "[MemoryDock] 驱动内存读写页点击 R0读取。"
-            << eol;
-        driverReadMemoryFromUi();
-        });
-
-    connect(m_driverMemoryAddressEdit, &QLineEdit::returnPressed, this, [this]() {
-        kLogEvent driverReadEnterEvent;
-        info << driverReadEnterEvent
-            << "[MemoryDock] 驱动内存读写页地址框回车读取。"
-            << eol;
-        driverReadMemoryFromUi();
-        });
-
-    if (m_driverMemoryBaseCombo != nullptr && m_driverMemoryBaseCombo->lineEdit() != nullptr)
-    {
-        connect(m_driverMemoryBaseCombo->lineEdit(), &QLineEdit::returnPressed, this, [this]() {
-            kLogEvent driverBaseEnterEvent;
-            info << driverBaseEnterEvent
-                << "[MemoryDock] 驱动内存读写页偏移基址/进程框回车读取。"
-                << eol;
-            driverReadMemoryFromUi();
-            });
-    }
-
-    connect(m_driverMemoryApplyButton, &QPushButton::clicked, this, [this]() {
-        kLogEvent driverApplyClickEvent;
-        info << driverApplyClickEvent
-            << "[MemoryDock] 驱动内存读写页点击应用差异。"
-            << eol;
-        driverApplyMemoryDiffFromUi();
-        });
-
-    connect(m_driverMemoryResetButton, &QPushButton::clicked, this, [this]() {
-        kLogEvent driverResetClickEvent;
-        info << driverResetClickEvent
-            << "[MemoryDock] 驱动内存读写页点击清空缓存。"
-            << eol;
-        resetDriverMemoryRwState();
-        });
-
-    connect(m_driverMemoryEditor, &ks::ui::MemoryEditorWidget::bytesChanged, this,
-        [this]() {
-            if (!m_driverMemoryHasSnapshot)
-            {
-                return;
-            }
-            m_driverMemoryEditedBytes = m_driverMemoryEditor->data();
-            std::vector<DriverDiffBlock> diffBlocks;
-            collectDriverMemoryDiffBlocks(diffBlocks);
-            m_driverMemoryApplyButton->setEnabled(!diffBlocks.empty());
-            if (m_driverMemoryStatusLabel != nullptr)
-            {
-                m_driverMemoryStatusLabel->setText(
-                    QString("缓存已修改：差异块=%1，点击“应用差异到真实内存”后才会写入。")
-                    .arg(diffBlocks.size()));
-            }
-        });
-
-    // 来源切换要同步调整可用控件：物理内存通道没有目标进程与模块的概念。
-    connect(m_driverMemorySourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [this](int) {
-            const DriverMemorySourceMode sourceMode = currentDriverMemorySourceMode();
-            const bool physicalMode = (sourceMode == DriverMemorySourceMode::Physical);
-            if (m_driverMemoryBaseCombo != nullptr)
-            {
-                m_driverMemoryBaseCombo->setEnabled(!physicalMode);
-            }
-            if (m_driverMemoryKernelModuleRefreshButton != nullptr)
-            {
-                m_driverMemoryKernelModuleRefreshButton->setEnabled(!physicalMode);
-            }
-            if (m_driverMemoryAddressEdit != nullptr)
-            {
-                m_driverMemoryAddressEdit->setPlaceholderText(physicalMode
-                    ? QStringLiteral("物理地址，例如 0x1000；单次读上限 64 KB")
-                    : QStringLiteral("用户态有效地址/偏移，或 0xFFFF... 内核虚拟地址，或物理地址"));
-            }
-            if (m_driverMemoryStatusLabel != nullptr)
-            {
-                m_driverMemoryStatusLabel->setText(physicalMode
-                    ? QStringLiteral("已切换到物理内存通道：读上限 64 KB，写上限每块 4 KB 且没有回滚。")
-                    : (sourceMode == DriverMemorySourceMode::KernelVirtual
-                        ? QStringLiteral("已切换到内核虚拟内存通道：可用“模块名+偏移”定位内核模块。")
-                        : QStringLiteral("已切换到进程虚拟内存通道。")));
-            }
-        });
-
-    // 内核模块列表按需加载，避免每次打开页面都付出全量枚举成本。
-    connect(m_driverMemoryKernelModuleRefreshButton, &QPushButton::clicked, this, [this]() {
-        kLogEvent kernelModuleRefreshClickEvent;
-        info << kernelModuleRefreshClickEvent
-            << "[MemoryDock] 驱动内存读写页点击刷新内核模块。"
-            << eol;
-        refreshKernelModuleCacheAsync();
-        });
-
-    connect(m_driverMemoryDumpButton, &QPushButton::clicked, this, [this]() {
-        dumpDriverMemorySnapshotToFile();
-        });
-
-    connect(m_driverMemoryWriteStringButton, &QPushButton::clicked, this, [this]() {
-        writeStringIntoDriverMemoryBuffer();
         });
 
     // ========================================================
@@ -1688,26 +1211,12 @@ void MemoryDock::initializeStatusBar()
     m_rootLayout->addWidget(m_statusBar);
 }
 
-void MemoryDock::initializeBookmarkRefreshTimer()
+void MemoryDock::initializeWorkbenchLivenessTimer()
 {
-    // 初始化书签刷新定时器时输出日志，便于定位自动刷新触发源。
-    kLogEvent timerInitEvent;
-    info << timerInitEvent
-        << "[MemoryDock] initializeBookmarkRefreshTimer: 启动 1 秒周期刷新。"
-        << eol;
-
-    // 书签值默认每秒刷新一次，便于观察变量变化。
-    m_bookmarkRefreshTimer = new QTimer(this);
-    m_bookmarkRefreshTimer->setInterval(1000);
-    connect(m_bookmarkRefreshTimer, &QTimer::timeout, this, [this]() {
-        // 定时器日志使用 Debug 级别，避免影响 Info 流可读性。
-        kLogEvent timerTickEvent;
-        dbg << timerTickEvent
-            << "[MemoryDock] 书签刷新定时器触发。"
-            << eol;
-        refreshBookmarkValues();
-        });
-    m_bookmarkRefreshTimer->start();
-    // 视图若早于计时器创建，在此补接退出探测；否则由懒创建视图端完成，始终只接一次。
+    // 本定时器只驱动工作台目标存活核验，地址簿值读取由统一组件管理。
+    m_workbenchLivenessTimer = new QTimer(this);
+    m_workbenchLivenessTimer->setInterval(1000);
+    m_workbenchLivenessTimer->start();
+    // 视图与定时器创建顺序不固定，两处均通过幂等方法完成接线。
     connectWorkbenchLiveness();
 }

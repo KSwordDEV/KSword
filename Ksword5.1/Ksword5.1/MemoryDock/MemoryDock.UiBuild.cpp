@@ -1,4 +1,4 @@
-#include "MemoryDock.Internal.h"
+﻿#include "MemoryDock.Internal.h"
 #include "SystemMemoryAuditPage.h"
 #include "DdmaPage.h"
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll / IsolateMinimumSize：页内滚动壳与最小尺寸隔离。
@@ -85,67 +85,6 @@ namespace
         quint64 m_popupGeneration = 0ULL;
     };
 
-    // copyMemoryUtilityCurrentRow 作用：
-    // - 复制 MemoryDock 辅助表格当前行；
-    // - 输入 table：断点表、书签表等 QTableWidget；
-    // - 处理：逐列读取可见文本并按 TSV 写入剪贴板；
-    // - 返回：无；无选中行或剪贴板不可用时直接返回。
-    void copyMemoryUtilityCurrentRow(QTableWidget* table)
-    {
-        if (table == nullptr || QApplication::clipboard() == nullptr)
-        {
-            return;
-        }
-
-        const int rowIndex = table->currentRow();
-        if (rowIndex < 0 || rowIndex >= table->rowCount())
-        {
-            return;
-        }
-
-        QStringList fields;
-        fields.reserve(table->columnCount());
-        for (int columnIndex = 0; columnIndex < table->columnCount(); ++columnIndex)
-        {
-            const QTableWidgetItem* item = table->item(rowIndex, columnIndex);
-            fields.push_back(item != nullptr ? item->text() : QString());
-        }
-        QApplication::clipboard()->setText(fields.join(QLatin1Char('\t')));
-    }
-
-    // installMemoryUtilityCopyMenu 作用：
-    // - 给断点/书签等辅助表格安装只读复制菜单；
-    // - 输入 table：需要复制行能力的表格；
-    // - 处理：点击行时同步当前行，弹出显式不透明 QMenu；
-    // - 返回：无，不改变断点/书签状态。
-    void installMemoryUtilityCopyMenu(QTableWidget* table)
-    {
-        if (table == nullptr)
-        {
-            return;
-        }
-
-        table->setContextMenuPolicy(Qt::CustomContextMenu);
-        QObject::connect(table, &QTableWidget::customContextMenuRequested, table, [table](const QPoint& localPosition)
-            {
-                const QModelIndex clickedIndex = table->indexAt(localPosition);
-                if (clickedIndex.isValid())
-                {
-                    table->setCurrentCell(clickedIndex.row(), clickedIndex.column());
-                }
-
-                QMenu menu(table);
-                menu.setStyleSheet(KswordTheme::ContextMenuStyle());
-                QAction* copyRowAction = menu.addAction(
-                    QIcon(QStringLiteral(":/Icon/process_copy_row.svg")),
-                    QStringLiteral("复制当前行"));
-                copyRowAction->setEnabled(table->currentRow() >= 0);
-                if (menu.exec(table->viewport()->mapToGlobal(localPosition)) == copyRowAction)
-                {
-                    copyMemoryUtilityCurrentRow(table);
-                }
-            });
-    }
 }
 
 MemoryDock::MemoryDock(QWidget* parent)
@@ -160,7 +99,7 @@ MemoryDock::MemoryDock(QWidget* parent)
     // 构造阶段按固定顺序执行，确保 UI 控件先创建再绑定信号。
     initializeUi();
     initializeConnections();
-    initializeBookmarkRefreshTimer();
+    initializeWorkbenchLivenessTimer();
     refreshProcessList(false);
     updateStatusBarText();
 
@@ -230,17 +169,6 @@ void MemoryDock::initializeUi()
 
 void MemoryDock::applyMemoryDockSemanticStyles()
 {
-    // 高危写回按钮用错误语义色描边，和普通按钮区分开。
-    if (m_driverMemoryApplyButton != nullptr)
-    {
-        m_driverMemoryApplyButton->setStyleSheet(
-            QStringLiteral(
-                "QPushButton{border:1px solid %1;border-radius:3px;color:%1;padding:4px 10px;}"
-                "QPushButton:disabled{border:1px solid %2;color:%2;}")
-                .arg(KswordTheme::ErrorHex())
-                .arg(KswordTheme::TextSecondaryHex()));
-    }
-
     // 底部状态栏：已附加用成功色，未附加保持次要色，读写不可用用警告色。
     const bool attached = (m_attachedPid != 0U);
     if (m_statusProcessLabel != nullptr)
@@ -400,9 +328,6 @@ void MemoryDock::initializeTabs()
     initializeProcessModuleTab();
     initializeMemoryRegionTab();
     initializeMemorySearchTab();
-    initializeMemoryViewerTab();
-    initializeBreakpointBookmarkTab();
-    initializeDriverMemoryRwTab();
     initializeKernelExecutableMemoryScanTab();
     initializeKernelMemoryEvidenceTab();
     initializeProcessPteTranslateTab();
@@ -417,9 +342,6 @@ void MemoryDock::initializeTabs()
         ":/Icon/process_list.svg",        // 进程与模块
         ":/Icon/disk_storage.svg",        // 内存区域
         ":/Icon/codeeditor_find.svg",     // 内存搜索
-        ":/Icon/process_details.svg",     // 内存查看器
-        ":/Icon/process_pause.svg",       // 断点与书签
-        ":/Icon/disk_save.svg",           // 驱动内存读写
         ":/Icon/log_track.svg",           // 内核可执行页
         ":/Icon/file_find.svg",           // 内核内存证据
         ":/Icon/process_tree.svg",        // PTE / VA 翻译
@@ -618,15 +540,6 @@ void MemoryDock::refreshBackendSelectors()
         };
 
     syncOne(m_searchBackendCombo, m_searchBackendHintLabel);
-    syncOne(m_viewerBackendCombo, m_viewerBackendHintLabel);
-    syncOne(m_bookmarkBackendCombo, m_bookmarkBackendHintLabel);
-    syncOne(m_driverMemoryBackendCombo, m_driverMemoryBackendHintLabel);
-
-    // 包括 QSignalBlocker 下的 DDMA 自动回退和会话变化，立即失效旧书签值。
-    if (m_bookmarkTable != nullptr && !m_bookmarkCache.empty())
-    {
-        refreshBookmarkValues();
-    }
 
     // 系统内存审计页没有后端下拉，只有一个"DDMA 复核"按钮，但它同样要跟着
     // 会话可用性开关，否则会留下一个点下去必然失败的按钮。
@@ -681,21 +594,6 @@ namespace
 ksword::memory_backend::MemoryAccessBackend MemoryDock::currentSearchBackend() const
 {
     return backendFromComboIndex(m_searchBackendCombo);
-}
-
-ksword::memory_backend::MemoryAccessBackend MemoryDock::currentViewerBackend() const
-{
-    return backendFromComboIndex(m_viewerBackendCombo);
-}
-
-ksword::memory_backend::MemoryAccessBackend MemoryDock::currentBookmarkBackend() const
-{
-    return backendFromComboIndex(m_bookmarkBackendCombo);
-}
-
-ksword::memory_backend::MemoryAccessBackend MemoryDock::currentDriverMemoryBackend() const
-{
-    return backendFromComboIndex(m_driverMemoryBackendCombo);
 }
 
 void MemoryDock::initializeProcessModuleTab()
@@ -1066,338 +964,4 @@ void MemoryDock::initializeMemorySearchTab()
     m_tabWidget->addTab(m_tabSearch, "内存搜索");
     ks::i18n::LanguageManager::instance().bindTab(
         m_tabWidget, m_tabSearch, QStringLiteral("memory.tab.search"), QStringLiteral("内存搜索"));
-}
-
-void MemoryDock::initializeMemoryViewerTab()
-{
-    // Tab4 初始化日志：标记十六进制查看器控件创建。
-    kLogEvent tab4InitEvent;
-    info << tab4InitEvent
-        << "[MemoryDock] initializeMemoryViewerTab: 构建内存查看器页面。"
-        << eol;
-
-    // Tab4：内存查看器。
-    m_tabViewer = new QWidget(m_tabWidget);
-    // 页面自带内部滚动壳：内容放不下时在页内滚动，不把 Dock 撑高。页面指针身份不变。
-    QWidget* const tabContent = ks::ui::EnablePageInnerScroll(m_tabViewer);
-    QVBoxLayout* tabLayout = new QVBoxLayout(tabContent);
-    tabLayout->setContentsMargins(6, 6, 6, 6);
-    tabLayout->setSpacing(6);
-
-    QHBoxLayout* navLayout = new QHBoxLayout();
-    navLayout->setContentsMargins(0, 0, 0, 0);
-    navLayout->setSpacing(8);
-    navLayout->addWidget(new QLabel("地址:", m_tabViewer));
-    m_viewAddressEdit = new QLineEdit(m_tabViewer);
-    m_viewAddressEdit->setPlaceholderText("输入地址后跳转，默认十六进制");
-    m_viewAddressEdit->setStyleSheet(buildBlueInputStyle());
-    m_viewJumpButton = new QPushButton(QIcon(":/Icon/codeeditor_goto.svg"), "跳转", m_tabViewer);
-    m_viewJumpButton->setStyleSheet(buildBlueButtonStyle());
-    m_viewJumpButton->setToolTip("跳转到左侧输入的内存地址并显示该处内容。地址无前缀时按十六进制解释。");
-    m_viewProtectLabel = new QLabel("保护属性: -", m_tabViewer);
-    navLayout->addWidget(m_viewAddressEdit, 1);
-    navLayout->addWidget(m_viewJumpButton);
-    navLayout->addWidget(m_viewProtectLabel);
-    tabLayout->addLayout(navLayout);
-
-    // 访问后端选择条：查看器翻页时按这里选中的通道取数据。
-    tabLayout->addWidget(
-        createBackendSelector(m_tabViewer, m_viewerBackendCombo, m_viewerBackendHintLabel));
-
-    // 统一十六进制编辑器组件：
-    // - 后续内存/文件/网络全部复用该控件；
-    // - Tab4 在这里配置成 16 字节每行，默认只读。
-    QHBoxLayout* editActions = new QHBoxLayout();
-    m_viewerApplyButton = new QPushButton(QStringLiteral("应用差异到真实内存"), m_tabViewer);
-    m_viewerDiscardButton = new QPushButton(QStringLiteral("丢弃改动"), m_tabViewer);
-    m_viewerApplyButton->setEnabled(false);
-    m_viewerDiscardButton->setEnabled(false);
-    editActions->addWidget(m_viewerApplyButton);
-    editActions->addWidget(m_viewerDiscardButton);
-    editActions->addStretch(1);
-    tabLayout->addLayout(editActions);
-
-    m_viewerMemoryEditor = new ks::ui::MemoryEditorWidget(m_tabViewer);
-    m_hexEditorWidget = m_viewerMemoryEditor->hexEditor();
-    m_viewerMemoryEditor->setEditable(false);
-    tabLayout->addWidget(m_viewerMemoryEditor, 1);
-
-    m_viewerStatusLabel = new QLabel("未附加进程。", m_tabViewer);
-    tabLayout->addWidget(m_viewerStatusLabel);
-
-    m_tabWidget->addTab(m_tabViewer, "内存查看器");
-    ks::i18n::LanguageManager::instance().bindTab(
-        m_tabWidget, m_tabViewer, QStringLiteral("memory.tab.viewer"), QStringLiteral("内存查看器"));
-}
-
-void MemoryDock::initializeBreakpointBookmarkTab()
-{
-    // Tab5 初始化日志：记录断点与书签页开始构建。
-    kLogEvent tab5InitEvent;
-    info << tab5InitEvent
-        << "[MemoryDock] initializeBreakpointBookmarkTab: 构建断点与书签页面。"
-        << eol;
-
-    // Tab5：断点与书签。
-    m_tabBpBookmark = new QWidget(m_tabWidget);
-    // 页面自带内部滚动壳：内容放不下时在页内滚动，不把 Dock 撑高。页面指针身份不变。
-    QWidget* const tabContent = ks::ui::EnablePageInnerScroll(m_tabBpBookmark);
-    QVBoxLayout* tabLayout = new QVBoxLayout(tabContent);
-    tabLayout->setContentsMargins(6, 6, 6, 6);
-    tabLayout->setSpacing(6);
-
-    QSplitter* splitter = new QSplitter(Qt::Vertical, m_tabBpBookmark);
-    const QString buttonStyle = buildBlueButtonStyle();
-
-    QWidget* breakpointPanel = new QWidget(splitter);
-    QVBoxLayout* breakpointLayout = new QVBoxLayout(breakpointPanel);
-    breakpointLayout->setContentsMargins(0, 0, 0, 0);
-    breakpointLayout->setSpacing(4);
-
-    QHBoxLayout* bpButtonLayout = new QHBoxLayout();
-    bpButtonLayout->setContentsMargins(0, 0, 0, 0);
-    bpButtonLayout->setSpacing(6);
-    m_addBreakpointButton = new QPushButton(QIcon(":/Icon/plus.svg"), "添加断点", breakpointPanel);
-    m_removeBreakpointButton = new QPushButton(QIcon(":/Icon/log_clear.svg"), "删除断点", breakpointPanel);
-    m_toggleBreakpointButton = new QPushButton(QIcon(":/Icon/process_pause.svg"), "启用/禁用", breakpointPanel);
-    m_addBreakpointButton->setToolTip("在指定地址下断点，目标进程执行到该处时会中断");
-    m_removeBreakpointButton->setToolTip("删除选中的断点并恢复该处的原始字节");
-    m_toggleBreakpointButton->setToolTip("临时启用或停用选中的断点，不删除该条记录");
-    m_addBreakpointButton->setStyleSheet(buttonStyle);
-    m_removeBreakpointButton->setStyleSheet(buttonStyle);
-    m_toggleBreakpointButton->setStyleSheet(buttonStyle);
-    bpButtonLayout->addWidget(m_addBreakpointButton);
-    bpButtonLayout->addWidget(m_removeBreakpointButton);
-    bpButtonLayout->addWidget(m_toggleBreakpointButton);
-    bpButtonLayout->addStretch(1);
-    breakpointLayout->addLayout(bpButtonLayout);
-
-    m_breakpointTable = new ks::ui::VisibleTableWidget(breakpointPanel);
-    m_breakpointTable->setColumnCount(5);
-    m_breakpointTable->setHorizontalHeaderLabels(QStringList{ "地址", "原字节", "状态", "命中次数", "描述" });
-    m_breakpointTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_breakpointTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_breakpointTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_breakpointTable->setAlternatingRowColors(true);
-    m_breakpointTable->verticalHeader()->setVisible(false);
-    m_breakpointTable->horizontalHeader()->setStretchLastSection(true);
-    installMemoryUtilityCopyMenu(m_breakpointTable);
-    breakpointLayout->addWidget(m_breakpointTable, 1);
-
-    QWidget* bookmarkPanel = new QWidget(splitter);
-    QVBoxLayout* bookmarkLayout = new QVBoxLayout(bookmarkPanel);
-    bookmarkLayout->setContentsMargins(0, 0, 0, 0);
-    bookmarkLayout->setSpacing(4);
-
-    bookmarkLayout->addWidget(createBackendSelector(
-        bookmarkPanel, m_bookmarkBackendCombo, m_bookmarkBackendHintLabel));
-
-    QHBoxLayout* bmButtonLayout = new QHBoxLayout();
-    bmButtonLayout->setContentsMargins(0, 0, 0, 0);
-    bmButtonLayout->setSpacing(6);
-    m_addBookmarkButton = new QPushButton(QIcon(":/Icon/plus.svg"), "添加书签", bookmarkPanel);
-    m_removeBookmarkButton = new QPushButton(QIcon(":/Icon/log_clear.svg"), "删除书签", bookmarkPanel);
-    m_refreshBookmarkButton = new QPushButton(QIcon(":/Icon/process_refresh.svg"), "刷新值", bookmarkPanel);
-    m_jumpBookmarkButton = new QPushButton(QIcon(":/Icon/codeeditor_goto.svg"), "跳转", bookmarkPanel);
-    m_addBookmarkButton->setToolTip("把当前地址收藏为书签，便于之后快速回到该位置");
-    m_removeBookmarkButton->setToolTip("删除选中的书签");
-    m_refreshBookmarkButton->setToolTip("使用所选后端在后台读取每个书签的 8 字节当前值；失败或读取不完整时显示状态。");
-    m_jumpBookmarkButton->setToolTip("在内存查看器中跳转到选中书签的地址");
-    m_addBookmarkButton->setStyleSheet(buttonStyle);
-    m_removeBookmarkButton->setStyleSheet(buttonStyle);
-    m_refreshBookmarkButton->setStyleSheet(buttonStyle);
-    m_jumpBookmarkButton->setStyleSheet(buttonStyle);
-    bmButtonLayout->addWidget(m_addBookmarkButton);
-    bmButtonLayout->addWidget(m_removeBookmarkButton);
-    bmButtonLayout->addWidget(m_refreshBookmarkButton);
-    bmButtonLayout->addWidget(m_jumpBookmarkButton);
-    bmButtonLayout->addStretch(1);
-    bookmarkLayout->addLayout(bmButtonLayout);
-
-    m_bookmarkTable = new ks::ui::VisibleTableWidget(bookmarkPanel);
-    m_bookmarkTable->setColumnCount(4);
-    m_bookmarkTable->setHorizontalHeaderLabels(QStringList{ "地址", "当前值", "备注", "添加时间" });
-    m_bookmarkTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_bookmarkTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_bookmarkTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_bookmarkTable->setAlternatingRowColors(true);
-    m_bookmarkTable->verticalHeader()->setVisible(false);
-    m_bookmarkTable->horizontalHeader()->setStretchLastSection(true);
-    installMemoryUtilityCopyMenu(m_bookmarkTable);
-    bookmarkLayout->addWidget(m_bookmarkTable, 1);
-
-    splitter->addWidget(breakpointPanel);
-    splitter->addWidget(bookmarkPanel);
-    splitter->setStretchFactor(0, 4);
-    splitter->setStretchFactor(1, 5);
-    tabLayout->addWidget(splitter, 1);
-
-    m_tabWidget->addTab(m_tabBpBookmark, "断点与书签");
-    ks::i18n::LanguageManager::instance().bindTab(
-        m_tabWidget, m_tabBpBookmark, QStringLiteral("memory.tab.breakpoints_bookmarks"), QStringLiteral("断点与书签"));
-}
-
-void MemoryDock::initializeDriverMemoryRwTab()
-{
-    // Tab6 初始化日志：记录驱动读写页开始构建。
-    kLogEvent tab6InitEvent;
-    info << tab6InitEvent
-        << "[MemoryDock] initializeDriverMemoryRwTab: 构建驱动内存读写页面。"
-        << eol;
-
-    // Tab6：驱动内存读写，和原 Win32 查看器分离，避免编辑即写入真实内存。
-    m_tabDriverMemoryRw = new QWidget(m_tabWidget);
-    // 页面自带内部滚动壳：内容放不下时在页内滚动，不把 Dock 撑高。页面指针身份不变。
-    QWidget* const tabContent = ks::ui::EnablePageInnerScroll(m_tabDriverMemoryRw);
-    QVBoxLayout* tabLayout = new QVBoxLayout(tabContent);
-    tabLayout->setContentsMargins(6, 6, 6, 6);
-    tabLayout->setSpacing(6);
-
-    // ========================================================
-    // 目标分组：来源通道、目标对象、地址与读取预算
-    // ========================================================
-
-    QGroupBox* requestGroup = new QGroupBox("读取目标", m_tabDriverMemoryRw);
-    QGridLayout* requestLayout = new QGridLayout(requestGroup);
-    requestLayout->setHorizontalSpacing(8);
-    requestLayout->setVerticalSpacing(6);
-
-    // 来源下拉决定后续走哪条 R0 通道，条目顺序必须与 DriverMemorySourceMode 一致。
-    m_driverMemorySourceCombo = new QComboBox(requestGroup);
-    m_driverMemorySourceCombo->addItem("进程虚拟内存");
-    m_driverMemorySourceCombo->addItem("内核虚拟内存");
-    m_driverMemorySourceCombo->addItem("物理内存");
-    m_driverMemorySourceCombo->setToolTip(
-        "选择读写通道：进程虚拟内存按 PID 定位；内核虚拟内存直接使用内核地址；"
-        "物理内存绕过页表，单次读上限 64 KB、写上限 4 KB。");
-
-    m_driverMemoryBaseCombo = new PopupLifecycleGuardedComboBox(
-        requestGroup,
-        [this](const bool active) {
-            m_driverMemoryBaseComboPopupLifecycleActive = active;
-            if (!active)
-            {
-                flushProcessComboDeferredCommit();
-            }
-            });
-    m_driverMemoryBaseCombo->setEditable(true);
-    m_driverMemoryBaseCombo->setMinimumWidth(260);
-    m_driverMemoryBaseCombo->setToolTip(
-        "可输入 0、0x... 数值基址，或“模块名+十六进制偏移”（例如 client.dll+C125D9 或 CI.dll+1A2B）；"
-        "其它非 0x 文本按进程名/PID 从下拉列表筛选目标进程。用户态模块取自当前附加进程，"
-        "内核模块取自“刷新内核模块”得到的列表。中心地址为 0xFFFF... 高半区时自动按内核虚拟地址读取。");
-    m_driverMemoryBaseCombo->addItem("0", QVariant::fromValue(static_cast<uint>(0U)));
-    m_driverMemoryBaseCombo->setItemData(0, QString(), Qt::UserRole + 1);
-
-    if (m_driverMemoryBaseCombo->lineEdit() != nullptr)
-    {
-        m_driverMemoryBaseCombo->lineEdit()->setPlaceholderText("0 / 0x基址 / 模块+偏移 / 进程名或PID");
-    }
-
-    // 内核模块列表按需加载：不点这个按钮就不会付出枚举全部内核模块的成本。
-    m_driverMemoryKernelModuleRefreshButton = new QPushButton(
-        QIcon(QStringLiteral(":/Icon/process_refresh.svg")), "刷新内核模块", requestGroup);
-    m_driverMemoryKernelModuleRefreshButton->setToolTip(
-        "枚举系统已加载的内核模块，之后即可用“CI.dll+偏移”这类表达式直接定位内核地址。");
-
-    m_driverMemoryAddressEdit = new QLineEdit(requestGroup);
-    m_driverMemoryAddressEdit->setPlaceholderText("用户态有效地址/偏移，或 0xFFFF... 内核虚拟地址，或物理地址");
-    m_driverMemoryAddressEdit->setClearButtonEnabled(true);
-
-    m_driverMemoryBeforeSpin = new QSpinBox(requestGroup);
-    m_driverMemoryBeforeSpin->setRange(0, static_cast<int>(KSWORD_ARK_MEMORY_READ_MAX_BYTES / 2UL));
-    m_driverMemoryBeforeSpin->setValue(1024);
-    m_driverMemoryBeforeSpin->setSuffix(" B");
-    m_driverMemoryBeforeSpin->setToolTip("从中心地址往前额外读取的字节数");
-
-    m_driverMemoryAfterSpin = new QSpinBox(requestGroup);
-    m_driverMemoryAfterSpin->setRange(1, static_cast<int>(KSWORD_ARK_MEMORY_READ_MAX_BYTES / 2UL));
-    m_driverMemoryAfterSpin->setValue(1024);
-    m_driverMemoryAfterSpin->setSuffix(" B");
-    m_driverMemoryAfterSpin->setToolTip("从中心地址往后额外读取的字节数");
-
-    m_driverMemoryReadButton = new QPushButton(
-        QIcon(QStringLiteral(":/Icon/process_details.svg")), "R0 读取", requestGroup);
-    m_driverMemoryReadButton->setToolTip(
-        "通过驱动以内核权限读取上述范围的内存，可读取普通方式无法访问的地址");
-
-    requestLayout->addWidget(new QLabel("来源", requestGroup), 0, 0);
-    requestLayout->addWidget(m_driverMemorySourceCombo, 0, 1);
-    requestLayout->addWidget(new QLabel("目标", requestGroup), 0, 2);
-    requestLayout->addWidget(m_driverMemoryBaseCombo, 0, 3, 1, 2);
-    requestLayout->addWidget(m_driverMemoryKernelModuleRefreshButton, 0, 5);
-    requestLayout->addWidget(new QLabel("中心地址", requestGroup), 1, 0);
-    requestLayout->addWidget(m_driverMemoryAddressEdit, 1, 1, 1, 4);
-    requestLayout->addWidget(m_driverMemoryReadButton, 1, 5);
-    requestLayout->addWidget(new QLabel("向前", requestGroup), 2, 0);
-    requestLayout->addWidget(m_driverMemoryBeforeSpin, 2, 1);
-    requestLayout->addWidget(new QLabel("向后", requestGroup), 2, 2);
-    requestLayout->addWidget(m_driverMemoryAfterSpin, 2, 3);
-    // 让下拉框与地址框吃掉多余宽度，按钮列保持自身尺寸。
-    requestLayout->setColumnStretch(1, 1);
-    requestLayout->setColumnStretch(3, 2);
-    requestLayout->setColumnStretch(4, 1);
-    tabLayout->addWidget(requestGroup);
-
-    // 访问后端选择条：本页的 R0 读取与差异写回都会走这里选中的通道。
-    // 它与上方的"来源"下拉是两个正交的维度——来源决定"读哪块地址空间"，
-    // 后端决定"用哪条通路去读"，不要把两者合并成一个下拉。
-    tabLayout->addWidget(createBackendSelector(
-        m_tabDriverMemoryRw, m_driverMemoryBackendCombo, m_driverMemoryBackendHintLabel));
-
-    // ========================================================
-    // 操作按钮条：写回、清空、转存、字符串写入
-    // ========================================================
-
-    QHBoxLayout* actionLayout = new QHBoxLayout();
-    actionLayout->setContentsMargins(0, 0, 0, 0);
-    actionLayout->setSpacing(6);
-
-    m_driverMemoryApplyButton = new QPushButton(
-        QIcon(QStringLiteral(":/Icon/disk_save.svg")), "应用差异到真实内存", m_tabDriverMemoryRw);
-    m_driverMemoryApplyButton->setToolTip(
-        "把下方编辑器中改动过的字节写回目标内存。这会真实修改进程或内核数据，"
-        "内核路径带事务与失败回滚，用户态与物理内存路径没有回滚。");
-    m_driverMemoryApplyButton->setEnabled(false);
-
-    m_driverMemoryResetButton = new QPushButton(
-        QIcon(QStringLiteral(":/Icon/log_clear.svg")), "清空缓存", m_tabDriverMemoryRw);
-    m_driverMemoryResetButton->setToolTip("丢弃已读取的缓存与未应用的改动");
-
-    m_driverMemoryDumpButton = new QPushButton(
-        QIcon(QStringLiteral(":/Icon/log_export.svg")), "转存到文件", m_tabDriverMemoryRw);
-    m_driverMemoryDumpButton->setToolTip(
-        "把当前快照写入磁盘。保存为 .txt 时输出带地址与 ASCII 的十六进制转储，其余扩展名写原始字节。");
-
-    m_driverMemoryWriteStringButton = new QPushButton(
-        QIcon(QStringLiteral(":/Icon/codeeditor_paste.svg")), "字符串写入", m_tabDriverMemoryRw);
-    m_driverMemoryWriteStringButton->setToolTip(
-        "按 ANSI 或 UTF-16LE 把一段字符串填入编辑缓存，确认后再用“应用差异到真实内存”写回。");
-
-    actionLayout->addWidget(m_driverMemoryApplyButton);
-    actionLayout->addWidget(m_driverMemoryResetButton);
-    actionLayout->addWidget(m_driverMemoryDumpButton);
-    actionLayout->addWidget(m_driverMemoryWriteStringButton);
-    actionLayout->addStretch(1);
-    tabLayout->addLayout(actionLayout);
-
-    m_driverMemoryRangeLabel = new QLabel("范围: 未读取", m_tabDriverMemoryRw);
-    m_driverMemoryRangeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    tabLayout->addWidget(m_driverMemoryRangeLabel);
-    m_driverMemoryEditor = new ks::ui::MemoryEditorWidget(m_tabDriverMemoryRw);
-    m_driverMemoryHexEditor = m_driverMemoryEditor->hexEditor();
-    m_driverMemoryEditor->setEditable(false);
-    tabLayout->addWidget(m_driverMemoryEditor, 1);
-
-    m_driverMemoryStatusLabel = new QLabel("等待读取。", m_tabDriverMemoryRw);
-    m_driverMemoryStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_driverMemoryStatusLabel->setWordWrap(true);
-    tabLayout->addWidget(m_driverMemoryStatusLabel);
-
-    // 危险按钮与状态标签使用语义色，构造期与主题切换走同一条下发路径。
-    applyMemoryDockSemanticStyles();
-
-    m_tabWidget->addTab(m_tabDriverMemoryRw, "驱动内存读写");
-    ks::i18n::LanguageManager::instance().bindTab(
-        m_tabWidget, m_tabDriverMemoryRw, QStringLiteral("memory.tab.driver_memory_rw"), QStringLiteral("驱动内存读写"));
 }

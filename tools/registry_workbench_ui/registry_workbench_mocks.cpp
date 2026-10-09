@@ -6,6 +6,8 @@
 #include "RegistryDock/RegistryAdvancedDialogs.h"
 #include "RegistryDock/RegistryDocument.h"
 #include "RegistryDock/RegistryDocumentApply.h"
+#include "RegistryDock/RegistryAccessApplyBackend.h"
+#include "RegistryDock/RegistryValueTransactions.h"
 #include <QMap>
 #include <QSet>
 #include <cstring>
@@ -113,7 +115,31 @@ bool RegistryWorkbenchAccess::removeValue(const QString& path,const QString& nam
     if(error)error->clear(); return true;
 }
 bool RegistryWorkbenchAccess::createKey(const QString&,const RegistryAccessContext&,QString* error) { if(error)*error=QStringLiteral("Fixture refuses key mutation"); return false; }
-bool RegistryWorkbenchAccess::removeTree(const QString&,const RegistryAccessContext&,QString* error) { if(error)*error=QStringLiteral("Fixture refuses tree deletion"); return false; }
+// 完整 Dock 夹具也只模拟共享访问边界，不再测试已经删除的私有 rename helper。
+bool RegistryWorkbenchAccess::keyExists(const QString& path,const RegistryAccessContext& context,bool* exists,QString* error)
+{
+    std::lock_guard<std::mutex> lock(registry_ui::modelMutex);
+    if (exists) *exists=registry_ui::models.contains(registry_ui::identity(path,context.viewBits));
+    if (error) error->clear();
+    return true;
+}
+bool RegistryWorkbenchAccess::renameKey(const QString& path,const QString& name,const RegistryAccessContext& context,QString* output,QString* error)
+{
+    std::lock_guard<std::mutex> lock(registry_ui::modelMutex);
+    const QString target=path.left(path.lastIndexOf(QLatin1Char('\\'))+1)+name;
+    const QString sourceIdentity=registry_ui::identity(path,context.viewBits);
+    const QString targetIdentity=registry_ui::identity(target,context.viewBits);
+    if (!registry_ui::models.contains(sourceIdentity)||registry_ui::models.contains(targetIdentity))
+    {
+        if(error)*error=QStringLiteral("Mock source missing or destination exists");
+        return false;
+    }
+    if(context.useR0)++registry_ui::r0KeyRenames;else ++registry_ui::win32KeyRenames;
+    registry_ui::models[targetIdentity]=registry_ui::models.take(sourceIdentity);
+    if(output)*output=target;
+    if(error)error->clear();
+    return true;
+}
 QString RegistryWorkbenchAccess::kernelPath(const QString& path)
 {
     // 与生产通道边界一致：HKCR 合并视图不存在可表示它的单一内核路径。
@@ -219,11 +245,48 @@ bool RegistryDocumentService::saveBackup(const QString&,const RegistryDocument&,
 bool RegistryDocumentService::saveRegFile(const QString&,const RegistryDocument&,QString& error){return refuseDocument(error);}
 bool RegistryDocumentService::parseRegFile(const QString&,RegistryDocument&,QString& error){return refuseDocument(error);}
 bool RegistryDocumentService::loadBackup(const QString&,RegistryDocument&,QString& error){return refuseDocument(error);}
-bool RegistryDocumentApplyService::loadOriginalBackup(const QString&,RegistryDocument&,QString& error){return refuseDocument(error);}
+bool RegistryDocumentService::encodeBackup(const RegistryDocument&,QByteArray&,QString& error){return refuseDocument(error);}
+bool RegistryDocumentService::decodeBackup(const QByteArray&,RegistryDocument&,QString& error){return refuseDocument(error);}
 bool RegistryDocumentApplyService::prepareWin32(const RegistryDocument&,RegistryApplyPlan&,QString& error){return refuseDocument(error);}
-bool RegistryDocumentApplyService::saveOriginalBackup(const RegistryApplyPlan&,const QString&,QString& error){return refuseDocument(error);}
-bool RegistryDocumentApplyService::applyWin32(const RegistryApplyPlan&,RegistryApplyResult& result,const std::atomic_bool*){return refuseDocument(result.error);}
-bool RegistryDocumentApplyService::undoWin32(const RegistryApplyResult&,RegistryApplyResult& result,const std::atomic_bool*){return refuseDocument(result.error);}
+bool RegistryDocumentApplyService::applyWin32(const RegistryApplyPlan& plan,RegistryApplyResult& result,const std::atomic_bool* canceled)
+{
+    RegistryAccessApplyBackend backend({plan.viewBits,false}); // 单值实际执行共享状态机，底层只有内存 map。
+    return applyWithBackend(plan,backend,result,canceled);
+}
+bool RegistryDocumentApplyService::undoWin32(const RegistryApplyResult& previous,RegistryApplyResult& result,const std::atomic_bool* canceled)
+{
+    RegistryAccessApplyBackend backend({previous.viewBits,false});
+    return undoWithBackend(previous,backend,result,canceled);
+}
+// 只替换 KTM 传输边界，整个值移动持有模型锁，模拟一次真实提交；没有普通逐步补写。
+bool RegistryDocumentApplyService::moveValueWin32(const QString& source,const QString& name,
+    const QString& destination,const QString& newName,const RegistryApplyValueState& expected,
+    const int view,RegistryValueRenameResult& result)
+{
+    std::lock_guard<std::mutex> lock(registry_ui::modelMutex);
+    result={};
+    const QString sourceIdentity=registry_ui::identity(source,view);
+    const QString destinationIdentity=registry_ui::identity(destination,view);
+    const auto before=registry_ui::models.value(sourceIdentity).value(name.toCaseFolded());
+    const auto target=registry_ui::models.value(destinationIdentity).value(newName.toCaseFolded());
+    result.actualOriginal={before.exists,before.type,before.data};
+    result.actualDestination={target.exists,target.type,target.data};
+    result.originalVerified=result.destinationVerified=true;
+    if(!before.exists||before.type!=expected.type||before.data!=expected.data||target.exists)
+    {
+        result.error=QStringLiteral("Mock atomic value move conflict");
+        return false;
+    }
+    RegistryValueState moved{newName,expected.type,expected.data,true,true,static_cast<quint32>(expected.data.size())};
+    registry_ui::models[destinationIdentity][newName.toCaseFolded()]=moved;
+    registry_ui::models[sourceIdentity].remove(name.toCaseFolded());
+    registry_ui::writes+=2;
+    result.committed=true;
+    result.state=RegistryValueRenameResult::State::Renamed;
+    result.actualOriginal={};
+    result.actualDestination=expected;
+    return true;
+}
 
 namespace ks::ui {
     bool DeferTableUiCommitIfContextMenuOpen(QObject*,const QString&,const QList<QTableView*>&,std::function<void()>){return false;}
