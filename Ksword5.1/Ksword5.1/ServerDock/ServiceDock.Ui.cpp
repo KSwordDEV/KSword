@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "ServiceDock.Internal.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../theme.h"
@@ -41,23 +42,7 @@ namespace
     }
 
     // createReadOnlyEditorPage 作用：创建“只读文本编辑器页签”。
-    QWidget* createReadOnlyEditorPage(CodeEditorWidget** editorOut, QWidget* parentWidget)
-    {
-        QWidget* pageWidget = new QWidget(parentWidget);
-        QVBoxLayout* pageLayout = new QVBoxLayout(pageWidget);
-        pageLayout->setContentsMargins(4, 4, 4, 4);
-        pageLayout->setSpacing(4);
 
-        CodeEditorWidget* editorWidget = new CodeEditorWidget(pageWidget);
-        editorWidget->setReadOnly(true);
-        pageLayout->addWidget(editorWidget, 1);
-
-        if (editorOut != nullptr)
-        {
-            *editorOut = editorWidget;
-        }
-        return pageWidget;
-    }
 
     // makeVerticalSeparator 作用：生成工具栏纵向分隔线，提升视觉层次。
     QWidget* makeVerticalSeparator(QWidget* parentWidget)
@@ -71,10 +56,7 @@ namespace
     }
 
     // buildDetailSectionText 作用：用统一标题包裹一段详情文本，便于合并多个主题块。
-    QString buildDetailSectionText(const QString& titleText, const QString& bodyText)
-    {
-        return QStringLiteral("[%1]\n%2").arg(titleText).arg(bodyText.trimmed());
-    }
+
 }
 
 int ServiceDock::toServiceColumn(const ServiceColumn column)
@@ -765,21 +747,25 @@ void ServiceDock::onServiceSelectionChanged()
     syncToolbarStateWithSelection();
 }
 
-QString ServiceDock::buildAuditTabText(const ServiceEntry& entry) const
+ks::ui::FieldDocument ServiceDock::buildAuditTabText(const ServiceEntry& entry) const
 {
-    const QString sourceDetailText = QStringLiteral("交叉比对：%1\nSCM 枚举：%2\n注册表键：%3")
-        .arg(entry.sourceStatusText)
-        .arg(entry.scmRecordPresent ? QStringLiteral("存在") : QStringLiteral("未发现"))
-        .arg(entry.registryKeyPresent ? QStringLiteral("存在") : QStringLiteral("未发现"));
-    return buildDetailSectionText(QStringLiteral("独立来源"), sourceDetailText)
-        + QStringLiteral("\n\n")
-        + buildDetailSectionText(QStringLiteral("触发器"), buildTriggerDetailText(entry))
-        + QStringLiteral("\n\n")
-        + buildDetailSectionText(QStringLiteral("安全"), buildSecurityDetailText(entry))
-        + QStringLiteral("\n\n")
-        + buildDetailSectionText(QStringLiteral("风险"), buildRiskDetailText(entry))
-        + QStringLiteral("\n\n")
-        + buildDetailSectionText(QStringLiteral("导出"), buildExportDetailText(entry));
+    ks::ui::FieldDocument document;
+    document.section(QStringLiteral("独立来源"));
+    document.field(QStringLiteral("交叉比对"), entry.sourceStatusText, true);
+    document.field(QStringLiteral("SCM 枚举"), entry.scmRecordPresent ? QStringLiteral("存在") : QStringLiteral("未发现"), true);
+    document.field(QStringLiteral("注册表键"), entry.registryKeyPresent ? QStringLiteral("存在") : QStringLiteral("未发现"), true);
+    const auto appendSection = [&document](const QString& title, const ks::ui::FieldDocument& content) {
+        ks::ui::FieldNode section;
+        section.kind = ks::ui::FieldNode::Kind::Section;
+        section.name = title;
+        section.children = content.nodes;
+        document.nodes.append(std::move(section));
+    };
+    appendSection(QStringLiteral("触发器"), buildTriggerDetailText(entry));
+    appendSection(QStringLiteral("安全"), buildSecurityDetailText(entry));
+    appendSection(QStringLiteral("风险"), buildRiskDetailText(entry));
+    appendSection(QStringLiteral("导出"), buildExportDetailText(entry));
+    return document;
 }
 
 QString ServiceDock::buildBasicInfoText(const ServiceEntry& entry) const

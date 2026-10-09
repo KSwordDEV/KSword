@@ -1,7 +1,7 @@
 #include "ContextMenuCleanerTab.h"
 #include "../../Framework/PrivilegeElevationPrompt.h"
 #include "../../UI/VisibleTableWidget.h"
-#include "../../UI/CodeEditorWidget.h"
+#include "../../UI/StructuredFieldView.h"
 #include "../../UI/DetailLayoutRegistry.h"
 
 #include "ContextMenuCleanerTab.Internal.h"
@@ -259,15 +259,14 @@ void ContextMenuCleanerTab::createAreaPage(const MenuArea area)
 
     // 详情编辑器：只读，承载当前选中行的完整信息。
     // 这里只用既有字段拼文本，不新增表格列，也不改枚举逻辑。
-    areaWidgets->detailEditor = new CodeEditorWidget(splitter);
-    areaWidgets->detailEditor->setReadOnly(true);
+    areaWidgets->detailEditor = new ks::ui::StructuredFieldView(splitter);
     splitter->setStretchFactor(0, 4);
     splitter->setStretchFactor(1, 2);
     areaWidgets->layout->addWidget(splitter, 1);
 
     // 注册进详情布局系统：四种布局（下方折叠 / 行内展开 / 独立窗口 / 右侧）由全局设置决定，
     // 本页只负责把选中行的文本写进 detailEditor，其余布局与展开状态全部由宿主维护。
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         areaWidgets->table,
         areaWidgets->detailEditor,
         areaWidgets->page);
@@ -364,7 +363,7 @@ void ContextMenuCleanerTab::rebuildAreaTable(const MenuArea area)
                 entry.deleteKind == DeleteKind::RegistryValue,
                 entry.valueName),
             entry.statusText,
-            entry.detailText,
+            entry.details.toPlainText(),
             entry.clsidText }.join('\n').toLower();
         if (!filterText.isEmpty() && !searchableText.contains(filterText))
         {
@@ -396,7 +395,7 @@ void ContextMenuCleanerTab::rebuildAreaTable(const MenuArea area)
                 entry.deleteKind == DeleteKind::RegistryValue,
                 entry.valueName)));
         areaWidgets->table->setItem(row, kColumnStatus, makeItem(entry.statusText));
-        areaWidgets->table->setItem(row, kColumnDetail, makeItem(entry.detailText));
+        areaWidgets->table->setItem(row, kColumnDetail, makeItem(entry.details.toPlainText()));
     }
 
     areaWidgets->table->setSortingEnabled(true);
@@ -817,7 +816,7 @@ void ContextMenuCleanerTab::updateAreaDetail(const MenuArea area)
 
     // setText 在只读模式下按“程序生成的报告”处理：随语言切换重绘，也不会被误当成用户文件原文。
     // 详情文本一变，DetailLayoutHost 就会按当前布局方案把它镜像到下方折叠区 / 行内 / 独立窗口。
-    areaWidgets->detailEditor->setText(buildEntryDetailText(areaWidgets->entries.at(entryIndex)));
+    areaWidgets->detailEditor->setDocument(buildEntryDetailDocument(areaWidgets->entries.at(entryIndex)));
 }
 
 void ContextMenuCleanerTab::applyAreaDetailPlaceholder(const MenuArea area)
@@ -830,65 +829,65 @@ void ContextMenuCleanerTab::applyAreaDetailPlaceholder(const MenuArea area)
 
     // 未刷新或未选中任何行时的引导文本：说明这一页能给出哪些信息，避免详情区一片空白。
     // 整段写成一个字面量（不跨行拼接），这样 i18n 审计只需要登记一条源串。
-    areaWidgets->detailEditor->setText(QStringLiteral("【%1 详情】\n\n在上方表格中选择一行，这里显示该条 Shell 关联的完整信息：注册表根键与精确位置、命令或 CLSID 处理器、状态标记与删除粒度。\n\n详情显示方式可在设置中切换：下方折叠（默认）、行内展开、独立窗口、右侧面板。").arg(areaTitle(area)));
+    areaWidgets->detailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("【%1 详情】\n\n在上方表格中选择一行，这里显示该条 Shell 关联的完整信息：注册表根键与精确位置、命令或 CLSID 处理器、状态标记与删除粒度。\n\n详情显示方式可在设置中切换：下方折叠（默认）、行内展开、独立窗口、右侧面板。").arg(areaTitle(area))));
 }
 
-QString ContextMenuCleanerTab::buildEntryDetailText(const ContextMenuEntry& entry) const
+ks::ui::FieldDocument ContextMenuCleanerTab::buildEntryDetailDocument(const ContextMenuEntry& entry) const
 {
     // 只用枚举阶段已经采集到的字段拼装文本，不新增数据来源，也不改表格列；
     // CLSID 友好名与服务器路径复用 Internal.h 里既有的 HKCR 查询 helper。
-    QStringList lines;
-    lines.push_back(QStringLiteral("【%1】").arg(
+    ks::ui::FieldDocument lines;
+    lines.note(QStringLiteral("【%1】").arg(
         entry.displayName.isEmpty() ? entry.itemName : entry.displayName));
-    lines.push_back(QString());
-    lines.push_back(QStringLiteral("分类        ：%1").arg(areaTitle(entry.area)));
-    lines.push_back(QStringLiteral("名称        ：%1").arg(entry.itemName));
-    lines.push_back(QStringLiteral("显示名      ：%1").arg(entry.displayName));
-    lines.push_back(QStringLiteral("类型        ：%1").arg(entry.entryKind));
-    lines.push_back(QStringLiteral("来源        ：%1").arg(entry.sourceGroup));
-    lines.push_back(QStringLiteral("根键        ：%1").arg(entry.rootLabel));
-    lines.push_back(QStringLiteral("注册表位置  ：%1").arg(registryTargetPathText(
+
+    lines.field(QStringLiteral("分类"), QStringLiteral("%1").arg(areaTitle(entry.area)));
+    lines.field(QStringLiteral("名称"), QStringLiteral("%1").arg(entry.itemName));
+    lines.field(QStringLiteral("显示名"), QStringLiteral("%1").arg(entry.displayName));
+    lines.field(QStringLiteral("类型"), QStringLiteral("%1").arg(entry.entryKind));
+    lines.field(QStringLiteral("来源"), QStringLiteral("%1").arg(entry.sourceGroup));
+    lines.field(QStringLiteral("根键"), QStringLiteral("%1").arg(entry.rootLabel));
+    lines.field(QStringLiteral("注册表位置"), QStringLiteral("%1").arg(registryTargetPathText(
         entry.rootLabel,
         entry.subKeyPath,
         entry.deleteKind == DeleteKind::RegistryValue,
         entry.valueName)));
-    lines.push_back(QStringLiteral("命令/处理器 ：%1").arg(entry.commandOrHandler));
-    lines.push_back(QStringLiteral("状态        ：%1").arg(entry.statusText));
+    lines.field(QStringLiteral("命令/处理器"), QStringLiteral("%1").arg(entry.commandOrHandler));
+    lines.field(QStringLiteral("状态"), QStringLiteral("%1").arg(entry.statusText));
 
     if (!entry.clsidText.isEmpty())
     {
-        lines.push_back(QString());
-        lines.push_back(QStringLiteral("CLSID       ：%1").arg(entry.clsidText));
+
+        lines.field(QStringLiteral("CLSID"), QStringLiteral("%1").arg(entry.clsidText));
         const QString friendlyName = queryClsidFriendlyName(entry.clsidText);
         if (!friendlyName.isEmpty())
         {
-            lines.push_back(QStringLiteral("CLSID 名称  ：%1").arg(friendlyName));
+            lines.field(QStringLiteral("CLSID 名称"), QStringLiteral("%1").arg(friendlyName));
         }
         const QString serverPath = queryClsidServerPath(entry.clsidText);
         if (!serverPath.isEmpty())
         {
-            lines.push_back(QStringLiteral("服务器      ：%1").arg(serverPath));
+            lines.field(QStringLiteral("服务器"), QStringLiteral("%1").arg(serverPath));
         }
     }
 
-    if (!entry.detailText.isEmpty())
+    if (!entry.details.isEmpty())
     {
-        lines.push_back(QString());
-        lines.push_back(QStringLiteral("补充详情："));
-        lines.push_back(entry.detailText);
+
+        lines.field(QStringLiteral("补充详情"), QStringLiteral(""));
+        for (const auto& node : entry.details.nodes) lines.nodes.push_back(node);
     }
 
-    lines.push_back(QString());
-    lines.push_back(QStringLiteral("删除粒度    ：%1").arg(
+
+    lines.field(QStringLiteral("删除粒度"), QStringLiteral("%1").arg(
         entry.deleteKind == DeleteKind::RegistryValue
             ? QStringLiteral("仅删除注册表值 %1").arg(entry.valueName)
             : QStringLiteral("删除整棵子键树")));
-    lines.push_back(QStringLiteral("本页可删除  ：%1").arg(
+    lines.field(QStringLiteral("本页可删除"), QStringLiteral("%1").arg(
         entry.canDelete
             ? QStringLiteral("是")
             : QStringLiteral("否（系统保护项或受策略限制）")));
 
-    return lines.join('\n');
+    return lines;
 }
 
 } // namespace ks::misc

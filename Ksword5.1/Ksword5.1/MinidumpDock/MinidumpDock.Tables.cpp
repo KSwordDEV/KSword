@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 // ============================================================
 // MinidumpDock.Tables.cpp
 // 作用：
@@ -1027,31 +1028,22 @@ void MinidumpDock::renderResult(const ks::minidump::DumpParseResult& result)
                 ? block.capturedBytes - previewBytes : 0;
             const QString blockTitle = QStringLiteral("%1 %2")
                 .arg(translated("minidump.raw.block", "数据块")).arg(index + 1);
-            QString rawText = QStringLiteral("[%1]\n%2: %3\n%4: %5\n%6: %7\n%8: %9 %10\n%11: %12 %13\n")
-                .arg(blockTitle)
-                .arg(translated("minidump.raw.source", "来源"))
-                .arg(ks::i18n::sourceText(block.source))
-                .arg(translated("minidump.raw.address", "虚拟地址"))
-                .arg(block.hasVirtualAddress ? hexText(block.address)
-                    : translated("minidump.raw.not_applicable", "不适用"))
-                .arg(translated("minidump.raw.file_offset", "文件偏移"))
-                .arg(hexText(block.fileOffset))
-                .arg(translated("minidump.raw.captured_size", "完整捕获大小"))
-                .arg(block.capturedBytes)
-                .arg(translated("minidump.raw.bytes", "字节"))
-                .arg(translated("minidump.raw.preview_size", "预览大小"))
-                .arg(previewBytes)
-                .arg(translated("minidump.raw.bytes", "字节"));
+            ks::ui::FieldDocument metadataDocument;
+            metadataDocument.title = blockTitle;
+            metadataDocument.field(QStringLiteral("来源"), block.source, true);
+            metadataDocument.field(QStringLiteral("虚拟地址"), block.hasVirtualAddress ? hexText(block.address) : QStringLiteral("不适用"));
+            metadataDocument.field(QStringLiteral("文件偏移"), hexText(block.fileOffset));
+            metadataDocument.field(QStringLiteral("完整捕获大小（字节）"), QString::number(block.capturedBytes));
+            metadataDocument.field(QStringLiteral("预览大小（字节）"), QString::number(previewBytes));
+            auto* page = new QWidget(m_rawMemoryTabs);
+            auto* layout = new QVBoxLayout(page);
+            layout->setContentsMargins(0, 0, 0, 0);
+            auto* metadata = new ks::ui::StructuredFieldView(page);
+            metadata->setMaximumHeight(145);
+            metadata->setDocument(metadataDocument);
+            layout->addWidget(metadata);
             if (block.hasVirtualAddress)
             {
-                auto* page = new QWidget(m_rawMemoryTabs);
-                auto* layout = new QVBoxLayout(page);
-                layout->setContentsMargins(0, 0, 0, 0);
-                auto* metadata = new QLabel(rawText, page);
-                metadata->setTextFormat(Qt::PlainText);
-                metadata->setTextInteractionFlags(Qt::TextSelectableByMouse);
-                metadata->setWordWrap(true);
-                layout->addWidget(metadata);
                 auto* editor = new ks::ui::SnapshotWorkbenchWidget(page);
                 editor->setEditable(false);
                 const QByteArray bytes(block.previewBytes.empty() ? nullptr
@@ -1067,19 +1059,18 @@ void MinidumpDock::renderResult(const ks::minidump::DumpParseResult& result)
                         .arg(result.filePath).arg(result.fileSize)
                         .arg(result.fileLastModifiedUtcMs).arg(block.fileOffset));
                 layout->addWidget(editor, 1);
-                m_rawMemoryTabs->addTab(page, blockTitle);
             }
             else
             {
-                rawText += QLatin1Char('\n');
-                rawText += ks::minidump::FormatDumpBytes(block.fileOffset,
+                const QString rawText = ks::minidump::FormatDumpBytes(block.fileOffset,
                     block.previewBytes.empty() ? nullptr : block.previewBytes.data(),
                     previewBytes, omittedBytes);
-                auto* report = new CodeEditorWidget(m_rawMemoryTabs);
+                auto* report = new CodeEditorWidget(page);
                 report->setReadOnly(true);
                 report->setRawText(rawText);
-                m_rawMemoryTabs->addTab(report, blockTitle);
+                layout->addWidget(report, 1);
             }
+            m_rawMemoryTabs->addTab(page, blockTitle);
         }
         m_resultTabs->addTab(m_rawMemoryTabs,
             translated("minidump.tab.raw_memory", "原始内存"));
@@ -1161,274 +1152,128 @@ void MinidumpDock::renderResult(const ks::minidump::DumpParseResult& result)
     if (result.success)
     {
         // 报告用中文规范文本生成，只读编辑器按当前语言即时渲染。
-        m_reportEditor->setLocalizedText(buildReportText(result));
+        m_reportEditor->setDocument(buildReportText(result));
         m_resultTabs->addTab(m_reportEditor, translated("minidump.tab.report", "报告"));
     }
 }
 
-QString MinidumpDock::buildReportText(const ks::minidump::DumpParseResult& result) const
+ks::ui::FieldDocument MinidumpDock::buildReportText(const ks::minidump::DumpParseResult& result) const
 {
-    // lines：逐行拼接的中文规范报告；导出与只读页共用同一份文本。
-    QStringList lines;
-    lines.append(QStringLiteral("KSword 转储解析报告"));
-    lines.append(QStringLiteral("文件: %1").arg(result.filePath));
-    lines.append(QStringLiteral("================================================"));
-
-    // 诊断结论放在报告最前：读报告的人第一眼要看到的是结论而不是原始字段。
-    const ks::minidump::DumpAnalysis& analysis = result.analysis;
-    if (!analysis.headline.isEmpty())
-    {
-        lines.append(QStringLiteral("[诊断结论]"));
-        lines.append(QStringLiteral("结论: %1").arg(analysis.headline));
-        lines.append(QStringLiteral("可信度: %1")
-            .arg(ks::minidump::AnalysisConfidenceText(analysis.confidence)));
-        if (!analysis.category.isEmpty())
-        {
-            lines.append(QStringLiteral("故障归类: %1").arg(analysis.category));
-        }
-        for (const QString& finding : analysis.findings)
-        {
-            lines.append(QStringLiteral("发现: %1").arg(finding));
-        }
-        for (const QString& suggestion : analysis.suggestions)
-        {
-            lines.append(QStringLiteral("建议: %1").arg(suggestion));
-        }
-        lines.append(QString());
+    ks::ui::FieldDocument document;
+    document.title = QStringLiteral("KSword 转储解析报告");
+    document.field(QStringLiteral("文件"), result.filePath);
+    const auto appendProperties = [&document](const QString& title, const auto& properties) {
+        document.section(title);
+        for (const auto& property : properties) document.field(property.name, property.value);
+    };
+    const auto& analysis = result.analysis;
+    if (!analysis.headline.isEmpty()) {
+        document.section(QStringLiteral("诊断结论"));
+        document.field(QStringLiteral("结论"), analysis.headline, true);
+        document.field(QStringLiteral("可信度"), ks::minidump::AnalysisConfidenceText(analysis.confidence), true);
+        if (!analysis.category.isEmpty()) document.field(QStringLiteral("故障归类"), analysis.category, true);
+        for (const auto& finding : analysis.findings) document.field(QStringLiteral("发现"), finding, true);
+        for (const auto& suggestion : analysis.suggestions) document.field(QStringLiteral("建议"), suggestion, true);
     }
-
-    if (!analysis.blame.empty())
-    {
-        lines.append(QStringLiteral("[肇事模块候选] 按证据权重降序"));
-        for (const ks::minidump::BlameEntry& blame : analysis.blame)
-        {
-            QString blameLine = QStringLiteral("%1\t权重 %2\t命中 %3 (+%4)")
-                .arg(blame.moduleName)
-                .arg(blame.weight)
-                .arg(hexText(blame.address))
-                .arg(hexText(blame.offset));
-            if (blame.unloadedModule)
-            {
-                blameLine += QStringLiteral("\t[已卸载模块]");
-            }
-            lines.append(blameLine);
-            for (const QString& evidence : blame.evidence)
-            {
-                lines.append(QStringLiteral("    证据: %1").arg(evidence));
-            }
-        }
-        lines.append(QString());
-    }
-
-    // 概览属性逐行输出，格式统一为“属性: 值”。
-    lines.append(QStringLiteral("[概览]"));
-    for (const ks::minidump::DumpProperty& property : result.overview)
-    {
-        lines.append(QStringLiteral("%1: %2").arg(property.name, property.value));
-    }
-    lines.append(QString());
-
-    if (!result.exceptionInfo.empty())
-    {
-        lines.append(QStringLiteral("[异常信息]"));
-        for (const ks::minidump::DumpProperty& property : result.exceptionInfo)
-        {
-            lines.append(QStringLiteral("%1: %2").arg(property.name, property.value));
-        }
-        lines.append(QString());
-    }
-
-    if (!result.executionContext.empty())
-    {
-        lines.append(QStringLiteral("[崩溃现场]"));
-        for (const ks::minidump::DumpProperty& property : result.executionContext)
-        {
-            lines.append(QStringLiteral("%1: %2")
-                .arg(property.name, property.value));
-        }
-        lines.append(QString());
-    }
-
-    if (!result.registers.empty())
-    {
-        lines.append(QStringLiteral("[崩溃点寄存器]"));
-        for (const ks::minidump::RegisterEntry& registerEntry : result.registers)
-        {
-            QString registerLine = QStringLiteral("%1 = %2")
-                .arg(registerEntry.name, hexText(registerEntry.value));
-            if (!registerEntry.note.isEmpty())
-            {
-                registerLine += QStringLiteral("\t%1").arg(registerEntry.note);
-            }
-            lines.append(registerLine);
-        }
-        lines.append(QString());
-    }
-
-    if (!result.stackFrames.empty())
-    {
-        // 报告里必须重复一次这条限制说明：脱离界面单独传阅时同样要看到。
-        lines.append(QStringLiteral(
-            "[疑似调用栈] 由栈内存扫描重建，无符号；顺序为近似值，可能含残留帧"));
-        // lastThreadId：线程切换时插一行分隔，多线程栈才读得下去。
-        std::uint32_t lastThreadId = 0xFFFFFFFFu;
-        for (const ks::minidump::StackFrameEntry& frame : result.stackFrames)
-        {
-            if (frame.threadId != lastThreadId)
-            {
-                lines.append(QStringLiteral("-- 线程 %1 --").arg(frame.threadId));
-                lastThreadId = frame.threadId;
-            }
-            lines.append(QStringLiteral("%1\t%2\t%3\t%4")
-                .arg(frame.index, 2)
-                .arg(hexText(frame.address))
-                .arg(frame.symbolText)
-                .arg(frame.fromContext
-                    ? QStringLiteral("上下文")
-                    : QStringLiteral("栈扫描")));
-        }
-        lines.append(QString());
-    }
-
-    if (!result.streams.empty())
-    {
-        lines.append(QStringLiteral("[数据流]"));
-        for (const ks::minidump::StreamEntry& stream : result.streams)
-        {
-            lines.append(QStringLiteral("%1\t%2\t偏移 %3\t大小 %4")
-                .arg(stream.type)
-                .arg(stream.typeName)
-                .arg(hexText(stream.rva))
-                .arg(stream.size));
-        }
-        lines.append(QString());
-    }
-
-    if (!result.modules.empty())
-    {
-        lines.append(QStringLiteral("[模块] 共 %1 个").arg(result.modules.size()));
-        for (const ks::minidump::ModuleEntry& module : result.modules)
-        {
-            // moduleLine：单行模块摘要；可选字段仅在存在时追加。
-            QString moduleLine = QStringLiteral("%1\t基址 %2\t大小 %3")
-                .arg(module.name)
-                .arg(hexText(module.base))
-                .arg(hexText(module.size));
-            if (!module.version.isEmpty())
-            {
-                moduleLine += QStringLiteral("\t版本 %1").arg(module.version);
-            }
-            if (!module.timestampText.isEmpty())
-            {
-                moduleLine += QStringLiteral("\t时间戳 %1").arg(module.timestampText);
-            }
-            if (!module.pdbName.isEmpty())
-            {
-                moduleLine += QStringLiteral("\tPDB %1").arg(module.pdbName);
-            }
-            lines.append(moduleLine);
-        }
-        lines.append(QString());
-    }
-
-    if (!result.threads.empty())
-    {
-        lines.append(QStringLiteral("[线程] 共 %1 个").arg(result.threads.size()));
-        for (const ks::minidump::ThreadEntry& thread : result.threads)
-        {
-            QString threadLine = QStringLiteral("TID %1").arg(thread.threadId);
-            if (thread.faulting)
-            {
-                threadLine += QStringLiteral("\t[崩溃线程]");
-            }
-            if (!thread.name.isEmpty())
-            {
-                threadLine += QStringLiteral("\t名称 %1").arg(thread.name);
-            }
-            if (thread.instructionPointer != 0)
-            {
-                threadLine += QStringLiteral("\tIP %1").arg(hexText(thread.instructionPointer));
-            }
-            threadLine += QStringLiteral("\tTEB %1\t栈 %2 (%3 字节)")
-                .arg(hexText(thread.teb))
-                .arg(hexText(thread.stackBase))
-                .arg(thread.stackSize);
-            lines.append(threadLine);
-        }
-        lines.append(QString());
-    }
-
-    if (!result.memoryRegions.empty())
-    {
-        lines.append(QStringLiteral("[内存区域] 共 %1 条").arg(result.memoryRegionTotal));
-        // reportRows：报告里的内存行数上限，避免报告文本过大。
-        const std::size_t reportRows =
-            std::min(result.memoryRegions.size(), kReportMemoryRowLimit);
-        for (std::size_t index = 0; index < reportRows; ++index)
-        {
-            const ks::minidump::MemoryRegionEntry& region = result.memoryRegions[index];
-            QString regionLine = QStringLiteral("%1\t大小 %2")
-                .arg(hexText(region.base))
-                .arg(hexText(region.size));
-            if (!region.state.isEmpty())
-            {
-                regionLine += QStringLiteral("\t%1").arg(region.state);
-            }
-            if (!region.protect.isEmpty())
-            {
-                regionLine += QStringLiteral("\t%1").arg(region.protect);
-            }
-            if (!region.type.isEmpty())
-            {
-                regionLine += QStringLiteral("\t%1").arg(region.type);
-            }
-            lines.append(regionLine);
-        }
-        if (result.memoryRegions.size() > reportRows)
-        {
-            lines.append(QStringLiteral("(其余 %1 条内存区域未列入报告)")
-                .arg(result.memoryRegions.size() - reportRows));
-        }
-        lines.append(QString());
-    }
-
-    if (!result.handles.empty())
-    {
-        lines.append(QStringLiteral("[句柄] 共 %1 个").arg(result.handles.size()));
-        for (const ks::minidump::HandleEntry& handle : result.handles)
-        {
-            QString handleLine = QStringLiteral("%1\t%2")
-                .arg(hexText(handle.handleValue))
-                .arg(handle.typeName);
-            if (!handle.objectName.isEmpty())
-            {
-                handleLine += QStringLiteral("\t%1").arg(handle.objectName);
-            }
-            lines.append(handleLine);
-        }
-        lines.append(QString());
-    }
-
-    if (!result.unloadedModules.empty())
-    {
-        lines.append(QStringLiteral("[已卸载模块] 共 %1 个").arg(result.unloadedModules.size()));
-        for (const ks::minidump::UnloadedModuleEntry& module : result.unloadedModules)
-        {
-            lines.append(QStringLiteral("%1\t基址 %2\t大小 %3")
-                .arg(module.name)
-                .arg(hexText(module.base))
-                .arg(hexText(module.size)));
-        }
-        lines.append(QString());
-    }
-
-    if (!result.diagnostics.isEmpty())
-    {
-        lines.append(QStringLiteral("[解析告警]"));
-        for (const QString& diagnostic : result.diagnostics)
-        {
-            lines.append(diagnostic);
+    if (!analysis.blame.empty()) {
+        document.section(QStringLiteral("肇事模块候选"));
+        document.note(QStringLiteral("按证据权重降序"));
+        for (const auto& blame : analysis.blame) {
+            document.section(blame.moduleName);
+            document.field(QStringLiteral("权重"), QString::number(blame.weight));
+            document.field(QStringLiteral("命中"), hexText(blame.address));
+            document.field(QStringLiteral("偏移"), hexText(blame.offset));
+            document.field(QStringLiteral("已卸载模块"), blame.unloadedModule ? QStringLiteral("是") : QStringLiteral("否"), true);
+            for (const auto& evidence : blame.evidence) document.field(QStringLiteral("证据"), evidence, true);
         }
     }
-    return lines.join(QStringLiteral("\n"));
+    appendProperties(QStringLiteral("概览"), result.overview);
+    if (!result.exceptionInfo.empty()) appendProperties(QStringLiteral("异常信息"), result.exceptionInfo);
+    if (!result.executionContext.empty()) appendProperties(QStringLiteral("崩溃现场"), result.executionContext);
+    if (!result.registers.empty()) {
+        document.section(QStringLiteral("崩溃点寄存器"));
+        for (const auto& entry : result.registers) {
+            document.field(entry.name, hexText(entry.value));
+            if (!entry.note.isEmpty()) document.note(entry.note);
+        }
+    }
+    if (!result.stackFrames.empty()) {
+        document.section(QStringLiteral("疑似调用栈"));
+        document.note(QStringLiteral("由栈内存扫描重建，无符号；顺序为近似值，可能含残留帧"));
+        for (const auto& frame : result.stackFrames) {
+            document.section(QStringLiteral("TID %1 / #%2").arg(frame.threadId).arg(frame.index));
+            document.field(QStringLiteral("地址"), hexText(frame.address));
+            document.field(QStringLiteral("符号"), frame.symbolText);
+            document.field(QStringLiteral("来源"), frame.fromContext ? QStringLiteral("上下文") : QStringLiteral("栈扫描"), true);
+        }
+    }
+    if (!result.streams.empty()) {
+        document.section(QStringLiteral("数据流"));
+        for (const auto& stream : result.streams) {
+            document.section(stream.typeName);
+            document.field(QStringLiteral("类型"), QString::number(stream.type));
+            document.field(QStringLiteral("偏移"), hexText(stream.rva));
+            document.field(QStringLiteral("大小"), QString::number(stream.size));
+        }
+    }
+    if (!result.modules.empty()) {
+        document.section(QStringLiteral("模块"));
+        document.field(QStringLiteral("数量"), QString::number(result.modules.size()));
+        for (const auto& module : result.modules) {
+            document.section(module.name);
+            document.field(QStringLiteral("基址"), hexText(module.base));
+            document.field(QStringLiteral("大小"), hexText(module.size));
+            if (!module.version.isEmpty()) document.field(QStringLiteral("版本"), module.version);
+            if (!module.timestampText.isEmpty()) document.field(QStringLiteral("时间戳"), module.timestampText);
+            if (!module.pdbName.isEmpty()) document.field(QStringLiteral("PDB"), module.pdbName);
+        }
+    }
+    if (!result.threads.empty()) {
+        document.section(QStringLiteral("线程"));
+        document.field(QStringLiteral("数量"), QString::number(result.threads.size()));
+        for (const auto& thread : result.threads) {
+            document.section(QStringLiteral("TID %1").arg(thread.threadId));
+            document.field(QStringLiteral("崩溃线程"), thread.faulting ? QStringLiteral("是") : QStringLiteral("否"), true);
+            if (!thread.name.isEmpty()) document.field(QStringLiteral("名称"), thread.name);
+            if (thread.instructionPointer != 0) document.field(QStringLiteral("IP"), hexText(thread.instructionPointer));
+            document.field(QStringLiteral("TEB"), hexText(thread.teb));
+            document.field(QStringLiteral("栈"), hexText(thread.stackBase));
+            document.field(QStringLiteral("栈大小"), QString::number(thread.stackSize));
+        }
+    }
+    if (!result.memoryRegions.empty()) {
+        document.section(QStringLiteral("内存区域"));
+        document.field(QStringLiteral("总数"), QString::number(result.memoryRegionTotal));
+        const std::size_t reportRows = std::min(result.memoryRegions.size(), kReportMemoryRowLimit);
+        for (std::size_t index = 0; index < reportRows; ++index) {
+            const auto& region = result.memoryRegions[index];
+            document.section(hexText(region.base));
+            document.field(QStringLiteral("大小"), hexText(region.size));
+            if (!region.state.isEmpty()) document.field(QStringLiteral("状态"), region.state, true);
+            if (!region.protect.isEmpty()) document.field(QStringLiteral("保护"), region.protect, true);
+            if (!region.type.isEmpty()) document.field(QStringLiteral("类型"), region.type, true);
+        }
+        if (result.memoryRegions.size() > reportRows) document.note(QStringLiteral("(其余 %1 条内存区域未列入报告)").arg(result.memoryRegions.size() - reportRows));
+    }
+    if (!result.handles.empty()) {
+        document.section(QStringLiteral("句柄"));
+        for (const auto& handle : result.handles) {
+            document.section(hexText(handle.handleValue));
+            document.field(QStringLiteral("类型"), handle.typeName);
+            if (!handle.objectName.isEmpty()) document.field(QStringLiteral("对象名称"), handle.objectName);
+        }
+    }
+    if (!result.unloadedModules.empty()) {
+        document.section(QStringLiteral("已卸载模块"));
+        for (const auto& module : result.unloadedModules) {
+            document.section(module.name);
+            document.field(QStringLiteral("基址"), hexText(module.base));
+            document.field(QStringLiteral("大小"), hexText(module.size));
+        }
+    }
+    if (!result.diagnostics.isEmpty()) {
+        document.section(QStringLiteral("解析告警"));
+        for (const auto& diagnostic : result.diagnostics) document.note(diagnostic);
+    }
+    return document;
 }

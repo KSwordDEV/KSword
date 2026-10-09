@@ -26,10 +26,13 @@ try {
     foreach ($propertyModule in @('', 'QtCore', 'QtGui', 'QtWidgets', 'QtTest')) {
         $propertyFlags += @('-isystem', (Join-Path $propertyQt "include/qt6/$propertyModule"))
     }
+    $propertyMoc = Join-Path $propertyOutput 'moc_StructuredFieldView.cpp'
+    & (Join-Path $propertyQt 'share/qt6/bin/moc.exe') 'Ksword5.1/Ksword5.1/UI/StructuredFieldView.h' -o $propertyMoc
+    if ($LASTEXITCODE -ne 0) { throw 'Structured field moc failed.' }
     $propertyObjects = @()
     foreach ($propertySource in @('tools/file_property_view_ui_tests.cpp',
-        'Ksword5.1/Ksword5.1/FileDock/FilePropertyView.cpp',
-        'Ksword5.1/Ksword5.1/Internationalization/LanguageManager.cpp')) {
+        'Ksword5.1/Ksword5.1/UI/StructuredFieldView.cpp',
+        'Ksword5.1/Ksword5.1/Internationalization/LanguageManager.cpp', $propertyMoc)) {
         $propertyObject = Join-Path $propertyOutput (([IO.Path]::GetFileNameWithoutExtension($propertySource)) + '.o')
         Write-Output "Compiling $propertySource"
         & $Compiler @propertyFlags -c $propertySource -o $propertyObject

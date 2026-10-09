@@ -405,9 +405,6 @@ private:
     // m_uninstallTaskmgrHijackButton 作用：调用当前目录 TaskmgrHijack.ps1 移除 taskmgr.exe IFEO 映像劫持。
     QPushButton* m_uninstallTaskmgrHijackButton = nullptr;
 
-    // m_scrollBarWidthCombo 作用：设置全局滚动条宽度（窄/宽）。
-    QComboBox* m_scrollBarWidthCombo = nullptr;
-
     // 右上角权限按钮排的显示开关，逐个按钮一个复选框。
     // 顺序与按钮排本身一致（UIAccess / Admin / Debug / System / R0 / 虚拟化），
     // 这样设置页读起来和界面上看到的是同一个次序。
@@ -421,13 +418,10 @@ private:
     // m_hvmDisplayNameCombo 作用：选择硬件虚拟化按钮上显示 HVM / R-1。
     QComboBox* m_hvmDisplayNameCombo = nullptr;
 
-    // m_scrollBarAutoHideCheckBox 作用：设置滚动条是否弱显示/悬停显示。
-    QCheckBox* m_scrollBarAutoHideCheckBox = nullptr;
-
     // m_smoothScrollingCheckBox 作用：设置全局滚动区域是否启用滚轮缓动。
     QCheckBox* m_smoothScrollingCheckBox = nullptr;
 
-    // m_sliderWheelAdjustCheckBox 作用：设置滚轮是否可直接调整滑块、下拉框和数值输入框。
+    // m_sliderWheelAdjustCheckBox 作用：设置滚轮是否可直接调值和切换标签页；默认只滚动。
     QCheckBox* m_sliderWheelAdjustCheckBox = nullptr;
 
     // m_startupWindowScaleSpin 作用：设置下次启动主窗口的缩放百分比（50~200，重启生效）。

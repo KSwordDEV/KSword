@@ -1,4 +1,5 @@
 #include "DockTabInteraction.h"
+#include "SmoothScrollSupport.h"
 
 #include "../include/ads/DockAreaTabBar.h"
 #include "../include/ads/DockAreaTitleBar.h"
@@ -77,6 +78,7 @@ namespace ks::ui
                 connect(m_tabBar.data(), &ads::CDockAreaTabBar::tabMoved, this, [this]() { scheduleButtons(); });
                 connect(m_tabBar.data(), &ads::CDockAreaTabBar::currentChanged, this, [this]()
                     {
+                        StopTabStripScrolling(m_tabBar);
                         m_revealCurrent = true;
                         scheduleButtons();
                     });
@@ -116,6 +118,7 @@ namespace ks::ui
                     switch (event->type())
                     {
                     case QEvent::Resize:
+                        StopTabStripScrolling(m_tabBar);
                         m_revealCurrent = m_revealCurrent || watched == m_viewport;
                         scheduleButtons();
                         break;
@@ -144,7 +147,14 @@ namespace ks::ui
                 }
 
                 auto* const wheel = static_cast<QWheelEvent*>(event);
-                if (wheel->phase() == Qt::ScrollBegin || wheel->phase() == Qt::ScrollEnd)
+                if (!IsTabWheelSwitchingEnabled())
+                {
+                    m_remainder = 0;
+                    ScrollTabStripWithWheel(m_tabBar, wheel);
+                    return true;
+                }
+                StopTabStripScrolling(m_tabBar);
+                if (wheel->phase() == Qt::ScrollBegin)
                 {
                     m_remainder = 0;
                 }
@@ -155,27 +165,37 @@ namespace ks::ui
                 const int axisDelta = delta.x() != 0 ? delta.x() : delta.y();
                 if (axisDelta == 0)
                 {
+                    if (wheel->phase() == Qt::ScrollEnd)
+                        m_remainder = 0;
                     // 触控板开始/结束事件可能没有位移，不再交给 ADS 二次转发。
                     wheel->accept();
                     return true;
                 }
-                const qreal distance = pixels ? qreal(axisDelta)
-                    : qreal(axisDelta) * kWheelStepPixels / 120.0;
-                // 累计高分辨率滚轮的亚像素余量，换向时清除上一方向的余量。
+                const qreal distance = qreal(axisDelta) * (wheel->inverted() ? -1 : 1) /
+                    (pixels ? qreal(kWheelStepPixels) : 120.0);
+                // 只有用户启用既有滚轮调值选项后才允许切页；高分辨率输入累计整档。
                 if (distance * m_remainder < 0)
                 {
                     m_remainder = 0;
                 }
                 m_remainder += distance;
-                const int wholePixels = static_cast<int>(std::trunc(m_remainder));
-                m_remainder -= wholePixels;
-                QScrollBar* const bar = m_tabBar->horizontalScrollBar();
-                bar->setValue(bar->value() - wholePixels);
-                if ((distance > 0 && bar->value() == bar->minimum())
-                    || (distance < 0 && bar->value() == bar->maximum()))
+                const int steps = static_cast<int>(std::trunc(m_remainder));
+                m_remainder -= steps;
+                for (int step = 0; step < std::abs(steps); ++step)
                 {
-                    m_remainder = 0;
+                    const int direction = steps > 0 ? -1 : 1;
+                    for (int index = m_tabBar->currentIndex() + direction;
+                        index >= 0 && index < m_tabBar->count(); index += direction)
+                    {
+                        if (m_tabBar->isTabOpen(index) && m_tabBar->tab(index)->isEnabled())
+                        {
+                            m_tabBar->setCurrentIndex(index);
+                            break;
+                        }
+                    }
                 }
+                if (wheel->phase() == Qt::ScrollEnd)
+                    m_remainder = 0;
                 // 到边界仍归标签栏处理，防止 ADS 改为切页或滚动下方内容。
                 wheel->accept();
                 return true;
@@ -188,9 +208,9 @@ namespace ks::ui
                 {
                     return;
                 }
-                QScrollBar* const bar = m_tabBar->horizontalScrollBar();
                 m_remainder = 0;
-                bar->setValue(bar->value() + direction * qMax(kWheelStepPixels, m_viewport->width() / 2));
+                ScrollTabStripByPixels(m_tabBar,
+                    direction * qMax(kWheelStepPixels, m_viewport->width() / 2));
             }
 
             void updateButtons()
@@ -206,6 +226,11 @@ namespace ks::ui
                     return;
                 }
 
+                // ADS 默认可把文字标签压到最小宽度；保留完整自然宽度，溢出才有真实滚动范围。
+                const int contentWidth = tabsLayout->sizeHint().width();
+                if (m_tabsContainer->minimumWidth() != contentWidth)
+                    m_tabsContainer->setMinimumWidth(contentWidth);
+
                 // 使用完整标签的自然宽度，不用可能滞后的滚动条 range 推算内容宽度。
                 // 加回已显示箭头及其布局间距，以“不放箭头时能否容纳全部标签”为判据。
                 const int spacing = qMax(0, titleLayout->spacing());
@@ -218,7 +243,7 @@ namespace ks::ui
                     }
                 }
                 const bool overflowing = m_tabBar->isVisible() && availableWidth > 0 &&
-                    tabsLayout->sizeHint().width() > availableWidth;
+                    contentWidth > availableWidth;
                 const bool visibilityChanged = m_left->isHidden() == overflowing ||
                     m_right->isHidden() == overflowing;
                 if (visibilityChanged)
@@ -234,6 +259,7 @@ namespace ks::ui
                 if (!overflowing)
                 {
                     m_remainder = 0;
+                    StopTabStripScrolling(m_tabBar);
                     bar->setValue(bar->minimum());
                 }
                 if (m_revealCurrent && m_tabBar->isVisible())

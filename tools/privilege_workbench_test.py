@@ -28,6 +28,11 @@ def main() -> None:
         output.mkdir(parents=True, exist_ok=True)
     qt = arguments.qt_dir.resolve()
     source = root / 'Ksword5.1/Ksword5.1'
+    include_root = qt / ('include/qt6' if (qt / 'include/qt6').is_dir() else 'include')
+    moc = qt / ('share/qt6/bin/moc.exe' if (qt / 'share/qt6/bin/moc.exe').is_file() else 'bin/moc.exe')
+    plugin_root = qt / ('share/qt6/plugins' if (qt / 'share/qt6/plugins').is_dir() else 'plugins')
+    moc_environment = dict(os.environ)
+    moc_environment['PATH'] = str(qt / 'bin') + os.pathsep + moc_environment.get('PATH', '')
 
     # 拆出的后台与报告必须实际参与链接，编辑器也使用生产实现和真实 moc。
     files = [root / 'tools/privilege_workbench_tests.cpp']
@@ -38,18 +43,22 @@ def main() -> None:
     files += [source / name for name in ('Internationalization/LanguageManager.cpp',
         'UI/ThemeStatusRole.cpp', 'UI/ThemeControlGlyphs.cpp', 'UI/CodeEditorWidget.cpp',
         'UI/CodeTextEdit.cpp', 'UI/CodeEditorFileSession.cpp',
-        'UI/ReportStructuredView.cpp', 'UI/FieldTreePresenter.cpp', 'UI/FieldTreePresenter.Copy.cpp', 'ksword/process/process_run_as.cpp',
+        'UI/StructuredFieldView.cpp', 'UI/TypedSyntaxDocument.cpp', 'ksword/process/process_run_as.cpp',
         'MiscDock/DiskEditor/StorageControllerResearchDialog.cpp',
         'ArkDriverClient/ArkStorageControllerClient.cpp')]
     generated = output / 'privilege-review-moc_CodeEditorWidget.cpp'
-    subprocess.run([str(qt / 'bin/moc.exe'), str(source / 'UI/CodeEditorWidget.h'),
-        '-o', str(generated)], check=True, timeout=60)
+    subprocess.run([str(moc), str(source / 'UI/CodeEditorWidget.h'),
+        '-o', str(generated)], check=True, timeout=60, env=moc_environment)
     files.append(generated)
+    native_moc = output / 'privilege-review-moc_StructuredFieldView.cpp'
+    subprocess.run([str(moc), str(source / 'UI/StructuredFieldView.h'),
+        '-o', str(native_moc)], check=True, timeout=60, env=moc_environment)
+    files.append(native_moc)
+
 
     compiler = shutil.which(arguments.compiler) or arguments.compiler
     msvc = Path(compiler).stem.lower() == 'cl'
-    includes = [qt / part for part in
-        ('include', 'include/QtCore', 'include/QtGui', 'include/QtWidgets', 'include/QtSvg')]
+    includes = [include_root / part for part in ('', 'QtCore', 'QtGui', 'QtWidgets', 'QtSvg')]
     if msvc:
         # 仅接受明确的 HostX64/x64 编译器和三项宿主架构设置。
         host_path = str(Path(compiler).resolve()).replace('\\', '/').lower()
@@ -76,7 +85,7 @@ def main() -> None:
     headers += list((source / 'MiscDock/DiskEditor').glob('StorageControllerResearchDialog*.h'))
     headers += [root / 'tools/privilege_access_page_tests.h',
         root / 'tools/privilege_token_pages_tests.h', source / 'UI/CodeEditorWidget.h',
-        source / 'UI/CodeTextEdit.h', source / 'UI/CodeEditorFileSession.h', source / 'UI/FieldTreePresenter.h']
+        source / 'UI/CodeTextEdit.h', source / 'UI/CodeEditorFileSession.h', source / 'UI/StructuredFieldView.h', source / 'UI/TypedSyntaxDocument.h']
     latest_header = max(header.stat().st_mtime for header in headers)
     objects = []
     for file in files:
@@ -84,7 +93,7 @@ def main() -> None:
         if (not arguments.incremental or file.name in arguments.force_source
                 or not obj.exists() or obj.stat().st_mtime < max(file.stat().st_mtime, latest_header)):
             compile_flags = list(flags)
-            if msvc and file.name in ('CodeEditorWidget.cpp', 'CodeTextEdit.cpp', 'CodeEditorFileSession.cpp', 'ReportStructuredView.cpp',
+            if msvc and file.name in ('CodeEditorWidget.cpp', 'CodeTextEdit.cpp', 'CodeEditorFileSession.cpp', 'StructuredFieldView.cpp', 'TypedSyntaxDocument.cpp',
                                       'LanguageManager.cpp', 'ThemeControlGlyphs.cpp', 'PrivilegeSnapshotPage.cpp'):
                 # 既有公共组件沿用生产 /W3；本次拆分与页面保持 /W4 /WX。
                 compile_flags = [flag for flag in compile_flags if flag not in ('/W4', '/WX')]
@@ -114,7 +123,7 @@ def main() -> None:
             shutil.copy2(source / 'languages' / (language + '.json'), language_dir)
         screenshots = output / 'screenshots'
         screenshots.mkdir(exist_ok=True)
-    environment = dict(os.environ, QT_QPA_PLATFORM='offscreen', QT_PLUGIN_PATH=str(qt / 'plugins'))
+    environment = dict(os.environ, QT_QPA_PLATFORM='offscreen', QT_PLUGIN_PATH=str(plugin_root))
     environment['PATH'] = str(qt / 'bin') + os.pathsep + environment['PATH']
     command = [str(executable), str(screenshots)]
     if arguments.offline_only:

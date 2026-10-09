@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "HyperVMemoryEvidence.h"
 #include <QWidget>
 class QLabel;
@@ -6,7 +6,7 @@ class QPushButton;
 class QLineEdit;
 class QProgressBar;
 class QTableWidget;
-class CodeEditorWidget;
+#include "../UI/StructuredFieldView.h"
 class QTabWidget;
 class MemoryAttributionChart;
 namespace ksword::pfn { struct Scan; }
@@ -39,8 +39,8 @@ private:
     QTableWidget* m_host = nullptr;
     QTableWidget* m_processes = nullptr;
     QTableWidget* m_sources = nullptr;
-    CodeEditorWidget* m_detail = nullptr;
-    CodeEditorWidget* m_evidence = nullptr;
+    ks::ui::StructuredFieldView* m_detail = nullptr;
+    ks::ui::StructuredFieldView* m_evidence = nullptr;
     ksword::hyperv::Context m_latestContext, m_jobContext, m_resultContext;
     std::shared_ptr<ksword::hyperv::Job> m_job;
     std::shared_ptr<ksword::hyperv::Snapshot> m_snapshot, m_previous;

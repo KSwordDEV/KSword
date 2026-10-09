@@ -876,7 +876,7 @@ namespace
     // - 处理：按符号组提取少量 public symbol 示例，避免详情页只剩统计摘要；
     // - 返回：无，直接追加人读文本。
     void appendWin32kPublicSymbolExamples(
-        QStringList& lines,
+        ks::ui::FieldDocument& lines,
         const QJsonObject& moduleObject,
         const QString& groupName,
         const int maxExamples)
@@ -902,9 +902,8 @@ namespace
 
         if (!examples.isEmpty())
         {
-            lines << QStringLiteral("    publicSymbols[%1]: %2")
-                .arg(groupName)
-                .arg(examples.join(QStringLiteral(" | ")));
+            lines.field(QStringLiteral("publicSymbols[%1]").arg(groupName),
+                examples.join(QStringLiteral(" | ")));
         }
     }
 
@@ -913,7 +912,7 @@ namespace
     // - 处理：从 publicSymbolExamples 中按 group 取少量代表符号；
     // - 返回：无，直接追加到详情文本，避免窗口详情只停留在 readiness 摘要。
     void appendWin32kRuntimeDomainExamples(
-        QStringList& lines,
+        ks::ui::FieldDocument& lines,
         const QJsonObject& domainObject,
         const QString& groupName,
         const int maxExamples)
@@ -943,9 +942,8 @@ namespace
 
         if (!examples.isEmpty())
         {
-            lines << QStringLiteral("      examples[%1]: %2")
-                .arg(groupName)
-                .arg(examples.join(QStringLiteral(" | ")));
+            lines.field(QStringLiteral("examples[%1]").arg(groupName),
+                examples.join(QStringLiteral(" | ")));
         }
     }
 
@@ -954,25 +952,25 @@ namespace
     // - 处理：展示 window/gui-thread/hotkey/hook/desktop 五个 runtime 域的结构化 readiness；
     // - 返回：无。该函数只读 JSON，不触发驱动调用。
     void appendWin32kRuntimeCatalogPreview(
-        QStringList& lines,
+        ks::ui::FieldDocument& lines,
         const QJsonObject& rootObject)
     {
         const QJsonObject catalogObject =
             rootObject.value(QStringLiteral("runtimeDetailCatalog")).toObject();
         if (catalogObject.isEmpty())
         {
-            lines << QStringLiteral("RuntimeDetailCatalog: <缺失，旧版 win32k public deep JSON>");
+            lines.field(QStringLiteral("RuntimeDetailCatalog"), QStringLiteral("<缺失，旧版 win32k public deep JSON>"));
             return;
         }
 
-        lines << QStringLiteral("[Win32K Runtime Detail Catalog]");
-        lines << QStringLiteral("ReadyDomains/BlockedDomains: %1 / %2")
+        lines.section(QStringLiteral("Win32K Runtime Detail Catalog"));
+        lines.field(QStringLiteral("ReadyDomains/BlockedDomains"), QStringLiteral("%1 / %2")
             .arg(win32kJsonInt(catalogObject, QStringLiteral("readyDomainCount"), 0))
-            .arg(win32kJsonInt(catalogObject, QStringLiteral("blockedDomainCount"), 0));
-        lines << QStringLiteral("CatalogReady: %1")
+            .arg(win32kJsonInt(catalogObject, QStringLiteral("blockedDomainCount"), 0)));
+        lines.field(QStringLiteral("CatalogReady"), QStringLiteral("%1")
             .arg(catalogObject.value(QStringLiteral("ready")).toBool(false)
                 ? QStringLiteral("是")
-                : QStringLiteral("否"));
+                : QStringLiteral("否")));
 
         const QJsonObject domainsObject =
             catalogObject.value(QStringLiteral("domains")).toObject();
@@ -1001,30 +999,30 @@ namespace
                     .arg(groupIterator.value().toInt(0)));
             }
 
-            lines << QStringLiteral("  Domain[%1] %2").arg(domainId, displayName);
-            lines << QStringLiteral("    ready=%1; concreteFields=%2; publicEvidence=%3")
+            lines.note(QStringLiteral("  Domain[%1] %2").arg(domainId, displayName));
+            lines.note(QStringLiteral("    ready=%1; concreteFields=%2; publicEvidence=%3")
                 .arg(domainObject.value(QStringLiteral("ready")).toBool(false)
                     ? QStringLiteral("是")
                     : QStringLiteral("否"))
                 .arg(win32kJsonInt(domainObject, QStringLiteral("concreteFieldCount"), 0))
                 .arg(domainObject.value(QStringLiteral("publicEvidenceAvailable")).toBool(false)
                     ? QStringLiteral("是")
-                    : QStringLiteral("否"));
-            lines << QStringLiteral("    missingPrivateTypes: %1")
+                    : QStringLiteral("否")));
+            lines.field(QStringLiteral("missingPrivateTypes"), QStringLiteral("%1")
                 .arg(missingTypes.isEmpty()
                     ? QStringLiteral("<none>")
-                    : missingTypes.join(QStringLiteral(", ")));
-            lines << QStringLiteral("    publicSymbolGroups: %1")
+                    : missingTypes.join(QStringLiteral(", "))));
+            lines.field(QStringLiteral("publicSymbolGroups"), QStringLiteral("%1")
                 .arg(groupParts.isEmpty()
                     ? QStringLiteral("<none>")
-                    : groupParts.join(QStringLiteral("; ")));
-            lines << QStringLiteral("    intendedUse: %1")
-                .arg(win32kJsonString(domainObject, QStringLiteral("intendedUse"), QStringLiteral("<none>")));
+                    : groupParts.join(QStringLiteral("; "))));
+            lines.field(QStringLiteral("intendedUse"), QStringLiteral("%1")
+                .arg(win32kJsonString(domainObject, QStringLiteral("intendedUse"), QStringLiteral("<none>"))));
             const QString blockedBy =
                 win32kJsonString(domainObject, QStringLiteral("blockedBy"), QString());
             if (!blockedBy.isEmpty())
             {
-                lines << QStringLiteral("    blockedBy: %1").arg(blockedBy);
+                lines.field(QStringLiteral("blockedBy"), QStringLiteral("%1").arg(blockedBy));
             }
 
             for (auto groupIterator = groupCounts.constBegin(); groupIterator != groupCounts.constEnd(); ++groupIterator)
@@ -1038,10 +1036,10 @@ namespace
     // - 读取随程序发布的 win32k public PDB deep JSON；
     // - 展示 public symbol/公开类型统计、私有 GUI layout 缺口和代表符号；
     // - 返回：适合单 HWND 详情区展示的多行文本，不触发 R0 调用。
-    QString win32kPublicPdbCatalogPreview()
+    ks::ui::FieldDocument win32kPublicPdbCatalogPreview()
     {
         static QMutex cacheMutex;
-        static QString cachedText;
+        static ks::ui::FieldDocument cachedText;
         {
             QMutexLocker locker(&cacheMutex);
             if (!cachedText.isEmpty())
@@ -1050,7 +1048,7 @@ namespace
             }
         }
 
-        const auto storeAndReturn = [](const QString& text) -> QString
+        const auto storeAndReturn = [](const ks::ui::FieldDocument& text) -> ks::ui::FieldDocument
         {
             QMutexLocker locker(&cacheMutex);
             cachedText = text;
@@ -1060,10 +1058,10 @@ namespace
         const QString jsonPath = findWin32kPublicDeepJsonPath();
         if (jsonPath.isEmpty())
         {
-            return storeAndReturn(QStringLiteral(
+            return storeAndReturn(ks::ui::FieldDocument{}.note(QStringLiteral(
                 "[Win32K Public PDB Catalog]\n"
                 "未找到 profiles/pdb_deep_offsets/win32k_gui_public_*_deep_offsets.json；"
-                "窗口详情只能显示 R0 readiness，无法展示 public symbol 事实库。"));
+                "窗口详情只能显示 R0 readiness，无法展示 public symbol 事实库。")));
         }
 
         QJsonParseError parseError{};
@@ -1071,24 +1069,24 @@ namespace
         const QJsonDocument document = ks::profile::readProfileJsonDocument(jsonPath, &parseError, &readErrorText);
         if (parseError.error != QJsonParseError::NoError || !document.isObject())
         {
-            return storeAndReturn(QStringLiteral(
+            return storeAndReturn(ks::ui::FieldDocument{}.note(QStringLiteral(
                 "[Win32K Public PDB Catalog]\n"
                 "win32k public deep JSON 解析失败：%1；文件=%2")
                 .arg(readErrorText.isEmpty() ? parseError.errorString() : readErrorText)
-                .arg(jsonPath));
+                .arg(jsonPath)));
         }
 
         const QJsonObject rootObject = document.object();
         const QJsonObject statsObject = rootObject.value(QStringLiteral("stats")).toObject();
-        QStringList lines;
-        lines << QStringLiteral("[Win32K Public PDB Catalog]");
-        lines << QStringLiteral("Source: %1").arg(jsonPath);
-        lines << QStringLiteral("Modules/PublicSymbols/PublicFields: %1 / %2 / %3")
+        ks::ui::FieldDocument lines;
+        lines.section(QStringLiteral("Win32K Public PDB Catalog"));
+        lines.field(QStringLiteral("Source"), QStringLiteral("%1").arg(jsonPath));
+        lines.field(QStringLiteral("Modules/PublicSymbols/PublicFields"), QStringLiteral("%1 / %2 / %3")
             .arg(win32kJsonInt(statsObject, QStringLiteral("moduleCount"), 0))
             .arg(win32kJsonInt(statsObject, QStringLiteral("publicSymbolCount"), 0))
-            .arg(win32kJsonInt(statsObject, QStringLiteral("fieldCount"), 0));
-        lines << QStringLiteral("PrivateGuiLayoutReady: %1")
-            .arg(statsObject.value(QStringLiteral("privateTypeReady")).toBool(false) ? QStringLiteral("是") : QStringLiteral("否"));
+            .arg(win32kJsonInt(statsObject, QStringLiteral("fieldCount"), 0)));
+        lines.field(QStringLiteral("PrivateGuiLayoutReady"), QStringLiteral("%1")
+            .arg(statsObject.value(QStringLiteral("privateTypeReady")).toBool(false) ? QStringLiteral("是") : QStringLiteral("否")));
 
         // runtimeDetailCatalog 是生成器新写入的结构化能力目录：
         // - 它把窗口、GUI 线程、热键、Hook、Desktop/Session 拆成独立域；
@@ -1109,12 +1107,11 @@ namespace
                     missingTypes.push_back(missingValue.toString());
                 }
             }
-            lines << QStringLiteral("MissingPrivateTypes[%1]: %2")
-                .arg(iterator.key())
-                .arg(missingTypes.isEmpty() ? QStringLiteral("<none>") : missingTypes.join(QStringLiteral(", ")));
+            lines.field(QStringLiteral("MissingPrivateTypes[%1]").arg(iterator.key()),
+                missingTypes.isEmpty() ? QStringLiteral("<none>") : missingTypes.join(QStringLiteral(", ")));
         }
 
-        lines << QStringLiteral("说明: publicSymbols 可用于函数/模块归因；tagWND/tagTHREADINFO/tagQ/tagHOOK/tagHOTKEY 字段读取仍需要 private PDB 或经验证 profile。");
+        lines.field(QStringLiteral("说明"), QStringLiteral("publicSymbols 可用于函数/模块归因；tagWND/tagTHREADINFO/tagQ/tagHOOK/tagHOTKEY 字段读取仍需要 private PDB 或经验证 profile。"));
 
         const QJsonArray moduleArray = rootObject.value(QStringLiteral("modules")).toArray();
         for (const QJsonValue& moduleValue : moduleArray)
@@ -1122,12 +1119,12 @@ namespace
             const QJsonObject moduleObject = moduleValue.toObject();
             const QJsonObject sourceObject = moduleObject.value(QStringLiteral("source")).toObject();
             const QJsonObject moduleStatsObject = moduleObject.value(QStringLiteral("stats")).toObject();
-            lines << QStringLiteral("Module: %1 PDB=%2 Age=%3 PublicSymbols=%4 Fields=%5")
+            lines.field(QStringLiteral("Module"), QStringLiteral("%1 PDB=%2 Age=%3 PublicSymbols=%4 Fields=%5")
                 .arg(win32kJsonString(moduleObject, QStringLiteral("moduleName"), QStringLiteral("<module>")))
                 .arg(win32kJsonString(sourceObject, QStringLiteral("pdbGuid"), QStringLiteral("<guid>")))
                 .arg(win32kJsonInt(sourceObject, QStringLiteral("pdbAge"), 0))
                 .arg(win32kJsonInt(moduleStatsObject, QStringLiteral("publicSymbolCount"), 0))
-                .arg(win32kJsonInt(moduleStatsObject, QStringLiteral("fieldCount"), 0));
+                .arg(win32kJsonInt(moduleStatsObject, QStringLiteral("fieldCount"), 0)));
             appendWin32kPublicSymbolExamples(lines, moduleObject, QStringLiteral("window_object"), 3);
             appendWin32kPublicSymbolExamples(lines, moduleObject, QStringLiteral("gui_thread_queue"), 3);
             appendWin32kPublicSymbolExamples(lines, moduleObject, QStringLiteral("hotkey_hook"), 3);
@@ -1139,11 +1136,11 @@ namespace
         {
             if (noteValue.isString())
             {
-                lines << QStringLiteral("Note: %1").arg(noteValue.toString());
+                lines.field(QStringLiteral("Note"), QStringLiteral("%1").arg(noteValue.toString()));
             }
         }
 
-        return storeAndReturn(lines.join(QChar('\n')));
+        return storeAndReturn(lines);
     }
 
     // win32kPrivateLayoutLimitationText 作用：
@@ -1558,7 +1555,7 @@ namespace
     // - 调用 ArkDriverClient 单 HWND detail wrapper 并生成可读摘要；
     // - 输入 hwnd/processId/threadId：窗口快照行中的身份字段；
     // - 返回：只读诊断文本，不安装 hook、不读取消息 payload。
-    QString win32kWindowRuntimeDetailText(
+    ks::ui::FieldDocument win32kWindowRuntimeDocument(
         const std::uint64_t hwnd,
         const std::uint32_t processId,
         const std::uint32_t threadId)
@@ -1571,34 +1568,33 @@ namespace
                 QString::fromStdString(detailResult.io.message).trimmed();
             if (detailResult.unsupported)
             {
-                return QStringLiteral("单窗口详情：当前驱动未提供该 IOCTL。");
+                return ks::ui::FieldDocument{}.note(QStringLiteral("单窗口详情：当前驱动未提供该 IOCTL。"));
             }
             if (rawMessage.contains(QStringLiteral("DeviceIoControl"), Qt::CaseInsensitive))
             {
-                return QStringLiteral("单窗口详情：驱动调用失败或版本不匹配。");
+                return ks::ui::FieldDocument{}.note(QStringLiteral("单窗口详情：驱动调用失败或版本不匹配。"));
             }
-            return QStringLiteral("单窗口详情：%1")
-                .arg(rawMessage.isEmpty() ? QStringLiteral("暂不可用。") : rawMessage);
+            return ks::ui::FieldDocument{}.note(QStringLiteral("单窗口详情：%1")
+                .arg(rawMessage.isEmpty() ? QStringLiteral("暂不可用。") : rawMessage));
         }
 
         const KSWORD_ARK_WIN32K_WINDOW_DETAIL_RESPONSE& response = detailResult.response;
-        return QStringLiteral(
-            "单窗口详情：%1；HWND=%2；PID/TID=%3/%4；tagWND=%5；threadInfo=%6；"
-            "queue=%7；desktop=%8；capability=%9；missing=%10；fieldFlags=%11；说明=%12")
-            .arg(win32kRuntimeStatusText(response.status))
-            .arg(formatUInt64Hex(response.hwnd))
-            .arg(response.processId)
-            .arg(response.threadId)
-            .arg(formatUInt64Hex(response.tagWnd))
-            .arg(formatUInt64Hex(response.threadInfo))
-            .arg(formatUInt64Hex(response.queueObject))
-            .arg(formatUInt64Hex(response.desktopObject))
-            .arg(formatUInt64Hex(response.capabilityMask))
-            .arg(formatUInt64Hex(response.missingCapabilityMask))
-            .arg(formatUInt64Hex(response.fieldFlags))
-            .arg(readableDriverDetailText(
-                wideArrayToQString(response.detail, KSWORD_ARK_RUNTIME_DETAIL_TEXT_CHARS),
-                QStringLiteral("单窗口详情未提供额外驱动说明")));
+        ks::ui::FieldDocument detail;
+        detail.section(QStringLiteral("Win32K Window Runtime Detail"));
+        detail.field(QStringLiteral("状态"), win32kRuntimeStatusText(response.status));
+        detail.field(QStringLiteral("HWND"), formatUInt64Hex(response.hwnd));
+        detail.field(QStringLiteral("PID"), QString::number(response.processId));
+        detail.field(QStringLiteral("TID"), QString::number(response.threadId));
+        detail.field(QStringLiteral("tagWND"), formatUInt64Hex(response.tagWnd));
+        detail.field(QStringLiteral("threadInfo"), formatUInt64Hex(response.threadInfo));
+        detail.field(QStringLiteral("queue"), formatUInt64Hex(response.queueObject));
+        detail.field(QStringLiteral("desktop"), formatUInt64Hex(response.desktopObject));
+        detail.field(QStringLiteral("capability"), formatUInt64Hex(response.capabilityMask));
+        detail.field(QStringLiteral("missing"), formatUInt64Hex(response.missingCapabilityMask));
+        detail.field(QStringLiteral("fieldFlags"), formatUInt64Hex(response.fieldFlags));
+        detail.note(readableDriverDetailText(wideArrayToQString(response.detail,
+            KSWORD_ARK_RUNTIME_DETAIL_TEXT_CHARS), QStringLiteral("单窗口详情未提供额外驱动说明")));
+        return detail;
     }
 
     // tableCopyMenuStyle 作用：
@@ -2088,19 +2084,19 @@ namespace
     // - 输入 text：输出文本，name：wrapper 名称，result：R0 wrapper 结果；
     // - 返回：无，直接追加到 text。
     template <typename TResult>
-    void appendIoSummary(QString& text, const QString& name, const TResult& result)
+    void appendIoSummary(ks::ui::FieldDocument& text, const QString& name, const TResult& result)
     {
-        text += QStringLiteral("%1:\n").arg(name);
-        text += QStringLiteral("  io.ok: %1\n").arg(boolText(result.io.ok));
-        text += QStringLiteral("  unsupported: %1\n").arg(boolText(result.unsupported));
-        text += QStringLiteral("  status: %1\n").arg(result.status);
-        text += QStringLiteral("  lastStatus: %1\n").arg(result.lastStatus);
-        text += QStringLiteral("  returnedCount/totalCount: %1 / %2\n")
+        text.section(name);
+        text.field(QStringLiteral("io.ok"), QStringLiteral("%1").arg(boolText(result.io.ok)));
+        text.field(QStringLiteral("unsupported"), QStringLiteral("%1").arg(boolText(result.unsupported)));
+        text.field(QStringLiteral("status"), QStringLiteral("%1").arg(result.status));
+        text.field(QStringLiteral("lastStatus"), QStringLiteral("%1").arg(result.lastStatus));
+        text.field(QStringLiteral("returnedCount/totalCount"), QStringLiteral("%1 / %2")
             .arg(result.returnedCount)
-            .arg(result.totalCount);
-        text += QStringLiteral("  entrySize: %1\n").arg(result.entrySize);
-        text += QStringLiteral("  说明: %1\n")
-            .arg(auditMessageText(name, result));
+            .arg(result.totalCount));
+        text.field(QStringLiteral("entrySize"), QStringLiteral("%1").arg(result.entrySize));
+        text.field(QStringLiteral("说明"), QStringLiteral("%1")
+            .arg(auditMessageText(name, result)));
     }
 
     // appendKeyboardIoSummary 作用：
@@ -2108,39 +2104,38 @@ namespace
     // - 输入 text：输出文本，name：wrapper 名称，result：Keyboard 枚举结果；
     // - 返回：无，直接追加到 text。
     template <typename TResult>
-    void appendKeyboardIoSummary(QString& text, const QString& name, const TResult& result)
+    void appendKeyboardIoSummary(ks::ui::FieldDocument& text, const QString& name, const TResult& result)
     {
-        text += QStringLiteral("%1:\n").arg(name);
-        text += QStringLiteral("  io.ok: %1\n").arg(boolText(result.io.ok));
-        text += QStringLiteral("  status: %1\n").arg(result.status);
-        text += QStringLiteral("  lastStatus: %1\n").arg(result.lastStatus);
-        text += QStringLiteral("  returnedCount/totalCount: %1 / %2\n")
+        text.section(name);
+        text.field(QStringLiteral("io.ok"), QStringLiteral("%1").arg(boolText(result.io.ok)));
+        text.field(QStringLiteral("status"), QStringLiteral("%1").arg(result.status));
+        text.field(QStringLiteral("lastStatus"), QStringLiteral("%1").arg(result.lastStatus));
+        text.field(QStringLiteral("returnedCount/totalCount"), QStringLiteral("%1 / %2")
             .arg(result.returnedCount)
-            .arg(result.totalCount);
-        text += QStringLiteral("  说明: %1\n")
-            .arg(keyboardMessageText(name, result));
+            .arg(result.totalCount));
+        text.field(QStringLiteral("说明"), QStringLiteral("%1")
+            .arg(keyboardMessageText(name, result)));
     }
 
     // appendWin32kProfileHeader 作用：
     // - 展示 win32k profile / module / capability readiness（不含逐行 session，session 行交给表格）；
     // - 输入 text：输出文本，result：queryWin32kProfileStatus 返回；
     // - 返回：无。
-    void appendWin32kProfileHeader(QString& text, const ksword::ark::Win32kProfileStatusResult& result)
+    void appendWin32kProfileHeader(ks::ui::FieldDocument& text, const ksword::ark::Win32kProfileStatusResult& result)
     {
         appendIoSummary(text, QStringLiteral("queryWin32kProfileStatus"), result);
-        text += QStringLiteral("  capabilityMask: %1\n").arg(formatUInt64Hex(result.capabilityMask));
-        text += QStringLiteral("  missingCapabilityMask: %1\n").arg(formatUInt64Hex(result.missingCapabilityMask));
-        text += QStringLiteral("  userGetSiloGlobals: %1\n").arg(formatUInt64Hex(result.userGetSiloGlobals));
+        text.field(QStringLiteral("capabilityMask"), QStringLiteral("%1").arg(formatUInt64Hex(result.capabilityMask)));
+        text.field(QStringLiteral("missingCapabilityMask"), QStringLiteral("%1").arg(formatUInt64Hex(result.missingCapabilityMask)));
+        text.field(QStringLiteral("userGetSiloGlobals"), QStringLiteral("%1").arg(formatUInt64Hex(result.userGetSiloGlobals)));
 
         const auto appendModule = [&text](const QString& title, const KSWORD_ARK_WIN32K_MODULE_STATE& moduleState)
         {
-            text += QStringLiteral("  %1.loaded/profile/base/size/name: %2 / %3 / %4 / %5 / %6\n")
-                .arg(title)
-                .arg(moduleState.loaded)
-                .arg(moduleState.profileState)
-                .arg(formatUInt64Hex(moduleState.imageBase))
-                .arg(moduleState.imageSize)
-                .arg(wideArrayToQString(moduleState.moduleName, KSWORD_ARK_WIN32K_MODULE_NAME_CHARS));
+            text.section(title);
+            text.field(QStringLiteral("loaded"), QString::number(moduleState.loaded));
+            text.field(QStringLiteral("profileState"), QString::number(moduleState.profileState));
+            text.field(QStringLiteral("imageBase"), formatUInt64Hex(moduleState.imageBase));
+            text.field(QStringLiteral("imageSize"), QString::number(moduleState.imageSize));
+            text.field(QStringLiteral("moduleName"), wideArrayToQString(moduleState.moduleName, KSWORD_ARK_WIN32K_MODULE_NAME_CHARS));
         };
         appendModule(QStringLiteral("win32k"), result.win32k);
         appendModule(QStringLiteral("win32kbase"), result.win32kbase);
@@ -2919,9 +2914,9 @@ WindowDock::WindowDock(QWidget* parent)
     // - 这样热键、Hook、GPU 等重型审计不会在切换窗口页时反复触发。
     const QString manualRefreshText =
         QStringLiteral("审计页默认不自动刷新；窗口列表保留原有刷新行为；点击顶部“刷新审计”后采集本页 R0/R3 审计数据。");
-    m_cachedSessionSummary = QStringLiteral("[win32k GUI/session]\n%1\n").arg(manualRefreshText);
-    m_cachedHotkeyHookSummary = QStringLiteral("[Hotkey / Hook]\n%1\n").arg(manualRefreshText);
-    m_cachedDisplaySummary = QStringLiteral("[GPU / Display / Watchdog]\n%1\n").arg(manualRefreshText);
+    m_cachedSessionSummary = ks::ui::FieldDocument{}.note(QStringLiteral("[win32k GUI/session]\n%1\n").arg(manualRefreshText));
+    m_cachedHotkeyHookSummary = ks::ui::FieldDocument{}.note(QStringLiteral("[Hotkey / Hook]\n%1\n").arg(manualRefreshText));
+    m_cachedDisplaySummary = ks::ui::FieldDocument{}.note(QStringLiteral("[GPU / Display / Watchdog]\n%1\n").arg(manualRefreshText));
     m_cachedWindowsRows = buildPendingRows(m_windowsTable, QStringLiteral("<等待刷新>"), manualRefreshText);
     m_cachedGuiThreadRows = buildPendingRows(m_guiThreadsTable, QStringLiteral("<等待刷新>"), manualRefreshText);
     if (m_windowsTable != nullptr)
@@ -3158,10 +3153,9 @@ void WindowDock::initializeUi()
 
     // 只读摘要编辑器：仅承载非表格的上下文说明。
     // 现在摘要与表格会被放入内层页签，不再限制最大高度，避免文本框被压扁。
-    const auto makeSummaryEditor = [this](QWidget* parentWidget) -> CodeEditorWidget*
+    const auto makeSummaryEditor = [this](QWidget* parentWidget) -> ks::ui::StructuredFieldView*
     {
-        CodeEditorWidget* editor = new CodeEditorWidget(parentWidget);
-        editor->setReadOnly(true);
+        ks::ui::StructuredFieldView* editor = new ks::ui::StructuredFieldView(parentWidget);
         editor->setMinimumHeight(180);
         return editor;
     };
@@ -3194,14 +3188,14 @@ void WindowDock::initializeUi()
     // - 处理：创建只承载一个文本编辑器的页，保证文本详情不与表格争抢高度；
     // - 返回：文本页 QWidget，editorOut 返回创建出的编辑器指针。
     const auto makeEditorTabPage =
-        [this, &makeSummaryEditor](QTabWidget* innerTabWidget, CodeEditorWidget** editorOut) -> QWidget*
+        [this, &makeSummaryEditor](QTabWidget* innerTabWidget, ks::ui::StructuredFieldView** editorOut) -> QWidget*
     {
         QWidget* editorPage = new QWidget(innerTabWidget);
         QVBoxLayout* editorLayout = new QVBoxLayout(editorPage);
         editorLayout->setContentsMargins(4, 4, 4, 4);
         editorLayout->setSpacing(4);
 
-        CodeEditorWidget* editor = makeSummaryEditor(editorPage);
+        ks::ui::StructuredFieldView* editor = makeSummaryEditor(editorPage);
         editorLayout->addWidget(editor, 1);
         if (editorOut != nullptr)
         {
@@ -3320,9 +3314,8 @@ void WindowDock::initializeUi()
         detailToolLayout->addWidget(detailHintLabel, 1);
         detailPageLayout->addLayout(detailToolLayout);
 
-        m_windowDetailEditor = new CodeEditorWidget(detailPage);
-        m_windowDetailEditor->setReadOnly(true);
-        m_windowDetailEditor->setText(QStringLiteral("请选择 Win32K 窗口行查看快照；需要更深诊断时点击“查询选中窗口详情”。"));
+        m_windowDetailEditor = new ks::ui::StructuredFieldView(detailPage);
+        m_windowDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择 Win32K 窗口行查看快照；需要更深诊断时点击“查询选中窗口详情”。")));
         detailPageLayout->addWidget(m_windowDetailEditor, 1);
         innerTabWidget->addTab(detailPage, QStringLiteral("窗口详情"));
     }
@@ -3499,11 +3492,11 @@ void WindowDock::setRefreshingPlaceholderRows()
     pendingHookResult.io.message = "R0 hook snapshot is still refreshing; no pure R3 global hook chain is available.";
 
     m_cachedSessionSummary =
-        QStringLiteral("[win32k GUI/session]\n正在刷新结构化窗口、GUI线程和Session审计行...\n");
+        ks::ui::FieldDocument{}.note(QStringLiteral("[win32k GUI/session]\n正在刷新结构化窗口、GUI线程和Session审计行...\n"));
     m_cachedHotkeyHookSummary =
-        QStringLiteral("[Hotkey / Hook]\n正在刷新热键与Hook只读审计行...\n");
+        ks::ui::FieldDocument{}.note(QStringLiteral("[Hotkey / Hook]\n正在刷新热键与Hook只读审计行...\n"));
     m_cachedDisplaySummary =
-        QStringLiteral("[GPU / Display / Watchdog]\n正在刷新显示设备只读审计行...\n");
+        ks::ui::FieldDocument{}.note(QStringLiteral("[GPU / Display / Watchdog]\n正在刷新显示设备只读审计行...\n"));
 
     m_cachedWindowsRows = buildWindowsRows(localWindowsResult);
     m_cachedGuiThreadRows = buildGuiThreadRows(localGuiThreadsResult);
@@ -3605,10 +3598,10 @@ void WindowDock::requestAsyncRefresh()
                         return;
                     }
 
-                    const QString summaryText = QStringLiteral(
+                    const ks::ui::FieldDocument summaryText = ks::ui::FieldDocument{}.note(QStringLiteral(
                         "[Window audit refresh]\n"
                         "后台刷新异常，已保留/写入诊断行，用户可再次点击刷新。\n"
-                        "原因: %1\n").arg(failureText);
+                        "原因: %1\n").arg(failureText));
 
                     safeThis->m_cachedSessionSummary = summaryText;
                     safeThis->m_cachedHotkeyHookSummary = summaryText;
@@ -3720,63 +3713,63 @@ void WindowDock::requestAsyncRefresh()
                 arkDriverClient.queryGpuDisplayWatchdogAudit();
 
             // 会话页摘要：本地 session/窗口站/桌面 + R0 profile/module 概要（逐行 session 交给表格）。
-            QString sessionSummary;
+            ks::ui::FieldDocument sessionSummary;
             {
                 GUITHREADINFO guiThreadInfo{};
                 guiThreadInfo.cbSize = sizeof(guiThreadInfo);
                 const bool guiInfoReady = ::GetGUIThreadInfo(::GetCurrentThreadId(), &guiThreadInfo) != FALSE;
 
-                sessionSummary += QStringLiteral("[win32k GUI/session]\n");
+                sessionSummary.section(QStringLiteral("win32k GUI/session"));
                 DWORD sessionId = 0;
                 ::ProcessIdToSessionId(::GetCurrentProcessId(), &sessionId);
-                sessionSummary += QStringLiteral("SessionId: %1\n").arg(sessionId);
-                sessionSummary += QStringLiteral("LogicalProcessorCount: %1\n").arg(::GetActiveProcessorCount(ALL_PROCESSOR_GROUPS));
-                sessionSummary += QStringLiteral("ForegroundWindow: %1\n").arg(formatHwndText(::GetForegroundWindow()));
-                sessionSummary += QStringLiteral("ActiveWindow: %1\n").arg(formatHwndText(::GetActiveWindow()));
-                sessionSummary += QStringLiteral("DesktopWindow: %1\n").arg(formatHwndText(::GetDesktopWindow()));
-                sessionSummary += QStringLiteral("TopLevelWindowCount: %1\n").arg(countTopLevelWindows());
-                sessionSummary += QStringLiteral("CurrentProcessTopLevelWindowCount: %1\n").arg(countCurrentProcessTopLevelWindows());
-                sessionSummary += QStringLiteral("GUIThreadInfoReady: %1\n").arg(boolText(guiInfoReady));
+                sessionSummary.field(QStringLiteral("SessionId"), QStringLiteral("%1").arg(sessionId));
+                sessionSummary.field(QStringLiteral("LogicalProcessorCount"), QStringLiteral("%1").arg(::GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)));
+                sessionSummary.field(QStringLiteral("ForegroundWindow"), QStringLiteral("%1").arg(formatHwndText(::GetForegroundWindow())));
+                sessionSummary.field(QStringLiteral("ActiveWindow"), QStringLiteral("%1").arg(formatHwndText(::GetActiveWindow())));
+                sessionSummary.field(QStringLiteral("DesktopWindow"), QStringLiteral("%1").arg(formatHwndText(::GetDesktopWindow())));
+                sessionSummary.field(QStringLiteral("TopLevelWindowCount"), QStringLiteral("%1").arg(countTopLevelWindows()));
+                sessionSummary.field(QStringLiteral("CurrentProcessTopLevelWindowCount"), QStringLiteral("%1").arg(countCurrentProcessTopLevelWindows()));
+                sessionSummary.field(QStringLiteral("GUIThreadInfoReady"), QStringLiteral("%1").arg(boolText(guiInfoReady)));
                 if (guiInfoReady)
                 {
-                    sessionSummary += QStringLiteral("Focus: %1\n").arg(formatHwndText(guiThreadInfo.hwndFocus));
-                    sessionSummary += QStringLiteral("Capture: %1\n").arg(formatHwndText(guiThreadInfo.hwndCapture));
-                    sessionSummary += QStringLiteral("Caret: %1\n").arg(formatHwndText(guiThreadInfo.hwndCaret));
-                    sessionSummary += QStringLiteral("MenuOwner: %1\n").arg(formatHwndText(guiThreadInfo.hwndMenuOwner));
+                    sessionSummary.field(QStringLiteral("Focus"), QStringLiteral("%1").arg(formatHwndText(guiThreadInfo.hwndFocus)));
+                    sessionSummary.field(QStringLiteral("Capture"), QStringLiteral("%1").arg(formatHwndText(guiThreadInfo.hwndCapture)));
+                    sessionSummary.field(QStringLiteral("Caret"), QStringLiteral("%1").arg(formatHwndText(guiThreadInfo.hwndCaret)));
+                    sessionSummary.field(QStringLiteral("MenuOwner"), QStringLiteral("%1").arg(formatHwndText(guiThreadInfo.hwndMenuOwner)));
                 }
 
-                sessionSummary += QStringLiteral("\n[窗口站/桌面]\n");
-                sessionSummary += QStringLiteral("当前窗口站: %1\n").arg(queryUserObjectName(::GetProcessWindowStation()));
-                sessionSummary += QStringLiteral("当前桌面: %1\n").arg(queryUserObjectName(::GetThreadDesktop(::GetCurrentThreadId())));
-                sessionSummary += QStringLiteral("说明: 详细窗口列表与桌面切换见“窗口管理”页；本页仅做只读审计，不做消息截获、不做输入抓取。\n");
-                sessionSummary += QStringLiteral("Win32K private layout: %1\n")
-                    .arg(win32kPrivateLayoutLimitationText());
+                sessionSummary.note(QStringLiteral("\n[窗口站/桌面]\n"));
+                sessionSummary.field(QStringLiteral("当前窗口站"), QStringLiteral("%1").arg(queryUserObjectName(::GetProcessWindowStation())));
+                sessionSummary.field(QStringLiteral("当前桌面"), QStringLiteral("%1").arg(queryUserObjectName(::GetThreadDesktop(::GetCurrentThreadId()))));
+                sessionSummary.field(QStringLiteral("说明"), QStringLiteral("详细窗口列表与桌面切换见“窗口管理”页；本页仅做只读审计，不做消息截获、不做输入抓取。"));
+                sessionSummary.field(QStringLiteral("Win32K private layout"), QStringLiteral("%1")
+                    .arg(win32kPrivateLayoutLimitationText()));
 
-                sessionSummary += QStringLiteral("\n[R0 Win32K PDB profile 概要]\n");
+                sessionSummary.note(QStringLiteral("\n[R0 Win32K PDB profile 概要]\n"));
                 appendWin32kProfileHeader(sessionSummary, win32kProfileResult);
-                sessionSummary += QStringLiteral("\n");
+
                 appendIoSummary(sessionSummary, QStringLiteral("queryWin32kWindows"), win32kWindowsResult);
-                sessionSummary += QStringLiteral("\n");
+
                 appendIoSummary(sessionSummary, QStringLiteral("queryWin32kGuiThreads"), win32kGuiThreadsResult);
             }
 
             // 热键/钩子页摘要。
-            QString hotkeyHookSummary =
+            ks::ui::FieldDocument hotkeyHookSummary = ks::ui::FieldDocument{}.note(
                 QStringLiteral("[Hotkey / Hook]\n")
                 + QStringLiteral("系统级 Hook 链表：无官方通用枚举接口，R0 PDB 路径仅做只读链表快照。\n")
                 + QStringLiteral("Hotkey: 只读审计，不删除热键；Hook: 只读审计，不 remove/unlink hook 链。\n")
-                + QStringLiteral("风险标记: 不执行安装/卸载/截获。\n\n");
+                + QStringLiteral("风险标记: 不执行安装/卸载/截获。\n\n"));
             appendIoSummary(hotkeyHookSummary, QStringLiteral("queryWin32kHotkeysPdb"), win32kHotkeysResult);
             if (keyboardHotkeysFallbackQueried)
             {
-                hotkeyHookSummary += QStringLiteral("\n");
+
                 appendKeyboardIoSummary(hotkeyHookSummary, QStringLiteral("enumerateKeyboardHotkeys fallback"), keyboardHotkeysFallbackResult);
             }
-            hotkeyHookSummary += QStringLiteral("\n");
+
             appendIoSummary(hotkeyHookSummary, QStringLiteral("queryWin32kHooksPdb"), win32kHooksResult);
             if (keyboardHooksFallbackQueried)
             {
-                hotkeyHookSummary += QStringLiteral("\n");
+
                 appendKeyboardIoSummary(hotkeyHookSummary, QStringLiteral("enumerateKeyboardHooks fallback"), keyboardHooksFallbackResult);
             }
 
@@ -3787,20 +3780,20 @@ void WindowDock::requestAsyncRefresh()
             const QVector<QStringList> clipboardRows = clipboardSnapshot;
 
             // 显示页摘要。
-            QString displaySummary;
+            ks::ui::FieldDocument displaySummary;
             {
-                displaySummary += QStringLiteral("[GPU / Display / Watchdog]\n");
-                displaySummary += QStringLiteral("PrimaryScreen: %1\n").arg(primaryScreenName);
-                displaySummary += QStringLiteral("ScreenGeometry: [%1,%2,%3,%4]\n")
+                displaySummary.section(QStringLiteral("GPU / Display / Watchdog"));
+                displaySummary.field(QStringLiteral("PrimaryScreen"), QStringLiteral("%1").arg(primaryScreenName));
+                displaySummary.field(QStringLiteral("ScreenGeometry"), QStringLiteral("[%1,%2,%3,%4]")
                     .arg(primaryScreenGeometry.left()).arg(primaryScreenGeometry.top())
-                    .arg(primaryScreenGeometry.width()).arg(primaryScreenGeometry.height());
-                displaySummary += QStringLiteral("DPI: %1\n").arg(primaryScreenDpi);
-                displaySummary += QStringLiteral("Watchdog: 仅记录显示状态，不做输入抓取。\n\n");
+                    .arg(primaryScreenGeometry.width()).arg(primaryScreenGeometry.height()));
+                displaySummary.field(QStringLiteral("DPI"), QStringLiteral("%1").arg(primaryScreenDpi));
+                displaySummary.field(QStringLiteral("Watchdog"), QStringLiteral("仅记录显示状态，不做输入抓取。\n"));
                 appendIoSummary(displaySummary, QStringLiteral("queryGpuDisplayWatchdogAudit"), gpuAuditResult);
-                displaySummary += QStringLiteral("  profileFlags: %1\n").arg(formatUInt64Hex(gpuAuditResult.profileFlags));
-                displaySummary += QStringLiteral("  responseFlags: %1\n").arg(formatUInt64Hex(gpuAuditResult.responseFlags));
-                displaySummary += QStringLiteral("  target/driver/device count: %1 / %2 / %3\n")
-                    .arg(gpuAuditResult.targetCount).arg(gpuAuditResult.driverCount).arg(gpuAuditResult.deviceCount);
+                displaySummary.field(QStringLiteral("profileFlags"), QStringLiteral("%1").arg(formatUInt64Hex(gpuAuditResult.profileFlags)));
+                displaySummary.field(QStringLiteral("responseFlags"), QStringLiteral("%1").arg(formatUInt64Hex(gpuAuditResult.responseFlags)));
+                displaySummary.field(QStringLiteral("target/driver/device count"), QStringLiteral("%1 / %2 / %3")
+                    .arg(gpuAuditResult.targetCount).arg(gpuAuditResult.driverCount).arg(gpuAuditResult.deviceCount));
             }
 
             // 表格行模型在后台线程构造（纯数据，不触碰控件）。
@@ -3947,15 +3940,15 @@ void WindowDock::applyAuditViews()
 
     if (m_sessionSummaryEditor != nullptr && !m_cachedSessionSummary.isEmpty())
     {
-        m_sessionSummaryEditor->setText(m_cachedSessionSummary);
+        m_sessionSummaryEditor->setDocument(m_cachedSessionSummary);
     }
     if (m_hotkeyHookSummaryEditor != nullptr && !m_cachedHotkeyHookSummary.isEmpty())
     {
-        m_hotkeyHookSummaryEditor->setText(m_cachedHotkeyHookSummary);
+        m_hotkeyHookSummaryEditor->setDocument(m_cachedHotkeyHookSummary);
     }
     if (m_displaySummaryEditor != nullptr && !m_cachedDisplaySummary.isEmpty())
     {
-        m_displaySummaryEditor->setText(m_cachedDisplaySummary);
+        m_displaySummaryEditor->setDocument(m_cachedDisplaySummary);
     }
 
     populateTable(m_windowsTable, m_cachedWindowsRows);
@@ -3985,7 +3978,7 @@ void WindowDock::updateSelectedWindowSnapshotDetail(const int currentRow)
     }
     if (m_windowsTable == nullptr || currentRow < 0 || currentRow >= m_windowsTable->rowCount())
     {
-        m_windowDetailEditor->setText(QStringLiteral("请选择 Win32K 窗口行查看快照；需要更深诊断时点击“查询选中窗口详情”。"));
+        m_windowDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择 Win32K 窗口行查看快照；需要更深诊断时点击“查询选中窗口详情”。")));
         if (m_queryWindowDetailButton != nullptr)
         {
             m_queryWindowDetailButton->setEnabled(false);
@@ -4003,29 +3996,16 @@ void WindowDock::updateSelectedWindowSnapshotDetail(const int currentRow)
     const QString processIdText = cellText(1);
     const QString threadIdText = cellText(2);
     const std::uint64_t hwndValue = parseUInt64Text(hwndText, 0U);
-    QStringList lines;
-    lines << QStringLiteral("[Win32K Window Snapshot]");
-    lines << QStringLiteral("HWND / PID / TID / Session: %1 / %2 / %3 / %4")
-        .arg(hwndText)
-        .arg(processIdText)
-        .arg(threadIdText)
-        .arg(cellText(3));
-    lines << QStringLiteral("Title / Class: %1 / %2")
-        .arg(cellText(4).trimmed().isEmpty() ? QStringLiteral("<无标题>") : cellText(4))
-        .arg(cellText(5).trimmed().isEmpty() ? QStringLiteral("<无类名>") : cellText(5));
-    lines << QStringLiteral("Style / ExStyle: %1 / %2")
-        .arg(cellText(6))
-        .arg(cellText(7));
-    lines << QStringLiteral("Status / LastStatus: %1 / %2")
-        .arg(cellText(8))
-        .arg(cellText(9));
-    lines << QStringLiteral("Parent / Owner: %1 / %2")
-        .arg(cellText(10))
-        .arg(cellText(11));
-    lines << QStringLiteral("SnapshotDetail: GUI/Session 窗口表仅保留可见字段；tagWND/profile/capability 详情请使用下方按需查询。");
-    lines << QString();
-    lines << QStringLiteral("提示：批量刷新不会逐 HWND 查询 detail；如需查看 tagWND readiness/能力缺口，请点击“查询选中窗口详情”。");
-    m_windowDetailEditor->setText(lines.join(QChar('\n')));
+    ks::ui::FieldDocument snapshot;
+    snapshot.section(QStringLiteral("Win32K Window Snapshot"));
+    for (int column = 0; column < m_windowsTable->columnCount(); ++column)
+    {
+        const auto* header = m_windowsTable->horizontalHeaderItem(column);
+        snapshot.field(header ? header->text() : QString::number(column), cellText(column));
+    }
+    snapshot.note(QStringLiteral("SnapshotDetail: GUI/Session 窗口表仅保留可见字段；tagWND/profile/capability 详情请使用下方按需查询。"));
+    snapshot.note(QStringLiteral("提示：批量刷新不会逐 HWND 查询 detail；如需查看 tagWND readiness/能力缺口，请点击“查询选中窗口详情”。"));
+    m_windowDetailEditor->setDocument(snapshot);
 
     if (m_queryWindowDetailButton != nullptr)
     {
@@ -4047,7 +4027,7 @@ void WindowDock::requestSelectedWindowRuntimeDetail()
     const int currentRow = m_windowsTable->currentRow();
     if (currentRow < 0 || currentRow >= m_windowsTable->rowCount())
     {
-        m_windowDetailEditor->setText(QStringLiteral("请先选择一条 Win32K 窗口行。"));
+        m_windowDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请先选择一条 Win32K 窗口行。")));
         return;
     }
 
@@ -4062,33 +4042,36 @@ void WindowDock::requestSelectedWindowRuntimeDetail()
     const std::uint32_t threadId = parseUInt32Text(cellText(2), 0U);
     if (hwndValue == 0U)
     {
-        m_windowDetailEditor->setText(QStringLiteral("当前行没有有效 HWND，不能执行单窗口 detail 查询。"));
+        m_windowDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前行没有有效 HWND，不能执行单窗口 detail 查询。")));
         return;
     }
 
     bool expectedRefreshing = false;
     if (!m_windowDetailRefreshing.compare_exchange_strong(expectedRefreshing, true))
     {
-        m_windowDetailEditor->setText(QStringLiteral("当前已有单窗口 detail 查询正在进行，请稍候。"));
+        m_windowDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前已有单窗口 detail 查询正在进行，请稍候。")));
         return;
     }
 
     updateSelectedWindowSnapshotDetail(currentRow);
-    const QString snapshotText = m_windowDetailEditor->text();
+    const ks::ui::FieldDocument snapshot = m_windowDetailEditor->document();
     if (m_queryWindowDetailButton != nullptr)
     {
         m_queryWindowDetailButton->setEnabled(false);
     }
-    m_windowDetailEditor->setText(QStringLiteral("%1\n\n[Win32K Window Runtime Detail]\n正在后台按需查询 HWND=%2 ...")
-        .arg(snapshotText)
-        .arg(formatUInt64Hex(hwndValue)));
+    auto pending = snapshot;
+    pending.section(QStringLiteral("Win32K Window Runtime Detail"));
+    pending.note(QStringLiteral("正在后台按需查询 HWND=%1 ...").arg(formatUInt64Hex(hwndValue)));
+    m_windowDetailEditor->setDocument(pending);
 
     QPointer<WindowDock> safeThis(this);
-    std::thread([safeThis, hwndValue, processId, threadId, snapshotText]()
+    std::thread([safeThis, hwndValue, processId, threadId, snapshot]()
     {
-        const QString runtimeDetailText = QStringLiteral("%1\n\n%2")
-            .arg(win32kWindowRuntimeDetailText(hwndValue, processId, threadId))
-            .arg(win32kPublicPdbCatalogPreview());
+        auto detail = snapshot;
+        const auto runtime = win32kWindowRuntimeDocument(hwndValue, processId, threadId);
+        const auto catalog = win32kPublicPdbCatalogPreview();
+        detail.nodes += runtime.nodes;
+        detail.nodes += catalog.nodes;
         if (safeThis.isNull())
         {
             return;
@@ -4096,7 +4079,7 @@ void WindowDock::requestSelectedWindowRuntimeDetail()
 
         const bool invokeOk = QMetaObject::invokeMethod(
             safeThis.data(),
-            [safeThis, snapshotText, runtimeDetailText]()
+            [safeThis, hwndValue, detail]()
             {
                 if (safeThis.isNull())
                 {
@@ -4109,9 +4092,10 @@ void WindowDock::requestSelectedWindowRuntimeDetail()
                 }
                 if (safeThis->m_windowDetailEditor != nullptr)
                 {
-                    safeThis->m_windowDetailEditor->setText(QStringLiteral("%1\n\n[Win32K Window Runtime Detail]\n%2")
-                        .arg(snapshotText)
-                        .arg(runtimeDetailText));
+                    const int row = safeThis->m_windowsTable->currentRow();
+                    const auto* item = row >= 0 ? safeThis->m_windowsTable->item(row, 0) : nullptr;
+                    if (item && parseUInt64Text(item->text(), 0U) == hwndValue)
+                        safeThis->m_windowDetailEditor->setDocument(detail);
                 }
             },
             Qt::QueuedConnection);

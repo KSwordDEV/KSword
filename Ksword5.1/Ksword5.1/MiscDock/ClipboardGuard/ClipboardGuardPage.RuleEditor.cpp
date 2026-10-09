@@ -1,6 +1,8 @@
 #include "ClipboardGuardPage.h"
+#include "../../UI/DetailDialogChrome.h"
 #include "../../theme.h"
 #include "../../UI/CodeEditorWidget.h"
+#include "../../UI/StructuredFieldView.h"
 #include "../../MonitorDock/WinApiMonitorProtocol.h"
 
 #include <QAction>
@@ -15,6 +17,7 @@
 #include <QRadioButton>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTabWidget>
 #include <QVBoxLayout>
 
 #ifndef NOMINMAX
@@ -29,7 +32,7 @@
 // 作用：
 // 1) 事件表右键菜单：拦截读/写/全部、记录、显示内容、显示调用栈、添加进程规则；
 // 2) "添加进程规则"对话框：按映像名/完整路径新增持久规则；
-// 3) 两个详情弹窗（剪贴板内容 / 调用栈），复用项目内置 CodeEditorWidget，
+// 3) 剪贴板格式使用原生属性模型；正文和捕获的调用栈日志保留原始数据，
 //    按 AGENTS.md 要求显式设置不透明背景。
 // ============================================================
 
@@ -67,6 +70,7 @@ namespace ks::misc
             {
                 *editorOut = editorValue;
             }
+            ks::ui::ApplyDetailDialogChrome(dialogValue);
             return dialogValue;
         }
 
@@ -322,15 +326,12 @@ namespace ks::misc
 
     void ClipboardGuardPage::showClipboardContentsForSelectedRow()
     {
-        // 现取当前剪贴板内容，不依赖历史日志——按用户方案的建议，默认不长期落盘正文，
-        // 这里是"点了才看一眼"的即时查询，且只展示格式/大小信息，文本类格式才展开正文。
-        CodeEditorWidget* editorPointer = nullptr;
-        QDialog* const dialogValue = buildDetailDialog(this, QStringLiteral("剪贴板内容"), QStringLiteral("ClipboardGuardContentsDialog"), &editorPointer);
-
-        QString reportText;
+        ks::ui::FieldDocument metadata;
+        metadata.section(QStringLiteral("剪贴板内容"));
+        QString rawText;
         if (::OpenClipboard(nullptr) == FALSE)
         {
-            reportText = QStringLiteral("无法打开剪贴板（可能被其它进程占用），请稍后重试。");
+            metadata.note(QStringLiteral("无法打开剪贴板（可能被其它进程占用），请稍后重试。"));
         }
         else
         {
@@ -339,38 +340,58 @@ namespace ks::misc
             while ((formatValue = ::EnumClipboardFormats(formatValue)) != 0)
             {
                 ++formatCount;
-                reportText += QStringLiteral("格式：%1\n").arg(standardClipboardFormatName(formatValue));
+                metadata.field(QStringLiteral("格式"), standardClipboardFormatName(formatValue));
             }
+            metadata.field(QStringLiteral("格式数量"), QString::number(formatCount));
             if (formatCount == 0)
             {
-                reportText = QStringLiteral("当前剪贴板为空。");
+                metadata.note(QStringLiteral("当前剪贴板为空。"));
             }
             else
             {
-                reportText += QStringLiteral("\n");
                 const HANDLE textHandle = ::GetClipboardData(CF_UNICODETEXT);
                 if (textHandle != nullptr)
                 {
                     const SIZE_T byteSize = ::GlobalSize(textHandle);
-                    const void* const lockedPointer = ::GlobalLock(textHandle);
+                    const auto* const lockedPointer = static_cast<const wchar_t*>(::GlobalLock(textHandle));
                     if (lockedPointer != nullptr)
                     {
-                        reportText += QStringLiteral("CF_UNICODETEXT 正文（%1 字节）：\n").arg(byteSize);
-                        reportText += QString::fromWCharArray(static_cast<const wchar_t*>(lockedPointer));
+                        metadata.field(QStringLiteral("CF_UNICODETEXT 字节数"), QString::number(byteSize));
+                        const SIZE_T characterCount = byteSize / sizeof(wchar_t);
+                        const wchar_t* const end = std::find(lockedPointer, lockedPointer + characterCount, L'\0');
+                        rawText = QString::fromWCharArray(lockedPointer, static_cast<qsizetype>(end - lockedPointer));
                         ::GlobalUnlock(textHandle);
                     }
                 }
                 else
                 {
-                    reportText += QStringLiteral("（当前格式不含 CF_UNICODETEXT 文本，仅展示格式列表；位图/文件等二进制格式不在此展开。）");
+                    metadata.note(QStringLiteral("（当前格式不含 CF_UNICODETEXT 文本，仅展示格式列表；位图/文件等二进制格式不在此展开。）"));
                 }
             }
             ::CloseClipboard();
         }
 
-        editorPointer->setRawText(reportText);
-        dialogValue->exec();
-        dialogValue->deleteLater();
+        auto* dialog = new QDialog(this);
+        dialog->setObjectName(QStringLiteral("ClipboardGuardContentsDialog"));
+        dialog->setWindowTitle(QStringLiteral("剪贴板内容"));
+        dialog->setStyleSheet(buildOpaqueDialogStyle(dialog->objectName()));
+        dialog->resize(720, 480);
+        auto* layout = new QVBoxLayout(dialog);
+        auto* tabs = new QTabWidget(dialog);
+        auto* fields = new ks::ui::StructuredFieldView(tabs);
+        fields->setDocument(metadata);
+        tabs->addTab(fields, QStringLiteral("属性"));
+        auto* raw = new CodeEditorWidget(tabs);
+        raw->setReadOnly(true);
+        raw->setRawText(rawText);
+        tabs->addTab(raw, QStringLiteral("正文"));
+        layout->addWidget(ks::ui::CreateDetailTabShell(tabs, dialog), 1);
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+        QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+        layout->addWidget(buttons);
+        ks::ui::ApplyDetailDialogChrome(dialog);
+        dialog->exec();
+        dialog->deleteLater();
     }
 
     void ClipboardGuardPage::showCallStackForSelectedRow()

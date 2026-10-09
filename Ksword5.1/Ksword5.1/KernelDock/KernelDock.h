@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -96,7 +97,7 @@ struct KernelNtQueryResultEntry
     long statusCode = 0;      // statusCode：NTSTATUS 原始码。
     QString statusText;       // statusText：可读状态文本。
     QString summaryText;      // summaryText：表格摘要文本。
-    QString detailText;       // detailText：详情面板完整文本。
+    ks::ui::FieldDocument detailDocument; // Typed query payload and diagnostics.
 };
 
 // ============================================================
@@ -116,7 +117,7 @@ struct KernelObjectNamespaceEntry
     QString enumApiText;             // enumApiText：本条记录使用的枚举 API。
     QString symbolicLinkTargetText;  // symbolicLinkTargetText：符号链接目标（非链接可为空）。
     QString statusText;              // statusText：状态文本（成功/失败 + 码）。
-    QString detailText;              // detailText：详情面板展示文本。
+    ks::ui::FieldDocument detailDocument; // Additional typed diagnostics.
     long statusCode = 0;             // statusCode：原始 NTSTATUS。
     bool querySucceeded = false;     // querySucceeded：枚举是否成功。
     bool isDirectory = false;        // isDirectory：该对象是否目录类型。
@@ -135,7 +136,7 @@ struct KernelAtomEntry
     QString atomNameText;        // atomNameText：Atom 名称。
     QString sourceText;          // sourceText：来源（GlobalAtom/ClipboardFormat 等）。
     QString statusText;          // statusText：状态文本。
-    QString detailText;          // detailText：详情文本。
+    ks::ui::FieldDocument detailDocument; // Typed source names and diagnostics.
     bool querySucceeded = false; // querySucceeded：该条目是否有效。
 };
 
@@ -163,7 +164,7 @@ struct KernelSsdtEntry
     QString serviceNameText;             // serviceNameText：服务名称（Zw*）。
     QString moduleNameText;              // moduleNameText：模块名。
     QString statusText;                  // statusText：状态文本（索引解析/表项解析等）。
-    QString detailText;                  // detailText：详情文本。
+    ks::ui::FieldDocument detailDocument;                  // detailText：详情文本。
     bool indexResolved = false;          // indexResolved：是否成功从桩码提取服务索引。
     bool cleanBaselineAvailable = false; // cleanBaselineAvailable：是否获得身份匹配的磁盘槽位。
     bool cleanBaselineDiffers = false;   // cleanBaselineDiffers：当前槽位是否与基线不同。
@@ -197,7 +198,7 @@ struct KernelInlineHookEntry
     QString currentBytesText;               // currentBytesText：当前字节十六进制文本。
     QString observedBytesText;              // observedBytesText：R0 观察基线十六进制文本，不代表磁盘原始字节。
     QString diskBytesText;                  // diskBytesText：R3 从磁盘同 RVA 读取的基线字节文本。
-    QString detailText;                     // detailText：详情文本。
+    ks::ui::FieldDocument detailDocument;                     // detailText：详情文本。
     std::vector<std::uint8_t> currentBytes; // currentBytes：当前字节缓存。
     std::vector<std::uint8_t> observedBytes; // observedBytes：R0 返回的观察基线字节缓存。
     std::vector<std::uint8_t> diskBytes;    // diskBytes：R3 磁盘基线字节缓存。
@@ -229,7 +230,7 @@ struct KernelIatEatHookEntry
     QString importModuleNameText;         // importModuleNameText：IAT 声明导入模块。
     QString functionNameText;             // functionNameText：函数名/占位符。
     QString targetModuleNameText;         // targetModuleNameText：当前目标模块名。
-    QString detailText;                   // detailText：详情文本。
+    ks::ui::FieldDocument detailDocument;                   // detailText：详情文本。
 };
 
 // KernelTimerDpcEntry：TimerTable 页的一条已归属模块的展示记录。
@@ -248,7 +249,7 @@ struct KernelTimerDpcEntry
     std::uint64_t deferredContext = 0;
     QString moduleNameText;
     QString statusText;
-    QString detailText;
+    ks::ui::FieldDocument detailDocument;
 };
 
 
@@ -389,7 +390,7 @@ struct KernelDynDataFieldEntry
     QString sourceNameText;              // sourceNameText：来源名。
     QString featureNameText;             // featureNameText：所属功能名。
     QString statusText;                  // statusText：可用/缺失状态。
-    QString detailText;                  // detailText：详情面板文本。
+    ks::ui::FieldDocument detailDocument;                  // detailText：详情面板文本。
 };
 
 // ============================================================
@@ -410,7 +411,7 @@ struct KernelDynDataV4ItemEntry
     QString kindText;                     // kindText：itemKind 的人类可读文本。
     QString flagsText;                    // flagsText：flags 的人类可读文本。
     QString auxText;                      // auxText：aux0..aux3 辅助字段摘要。
-    QString detailText;                   // detailText：完整明细文本。
+    ks::ui::FieldDocument detailDocument;                   // detailText：完整明细文本。
 };
 
 // ============================================================
@@ -506,7 +507,7 @@ struct KernelDriverCapabilityEntry
     QString stateNameText;                   // stateNameText：功能状态名。
     QString dependencyText;                  // dependencyText：依赖字段说明。
     QString reasonText;                      // reasonText：不可用/降级原因。
-    QString detailText;                      // detailText：详情面板文本。
+    ks::ui::FieldDocument detailDocument;                      // detailText：详情面板文本。
 };
 
 // ============================================================
@@ -1061,7 +1062,7 @@ private:
     QLabel* m_objectNamespaceStatusLabel = nullptr;            // m_objectNamespaceStatusLabel：对象命名空间状态文本。
     QTreeWidget* m_objectNamespaceTree = nullptr;              // m_objectNamespaceTree：对象命名空间树（文件管理器式结构）。
     QTableWidget* m_objectNamespacePropertyTable = nullptr;    // m_objectNamespacePropertyTable：对象属性项/值表。
-    CodeEditorWidget* m_objectNamespaceDetailEditor = nullptr; // m_objectNamespaceDetailEditor：对象命名空间详情编辑器（只读）。
+    ks::ui::StructuredFieldView* m_objectNamespaceDetailEditor = nullptr; // m_objectNamespaceDetailEditor：对象命名空间详情编辑器（只读）。
 
     // ==================== 原子表页 ====================
     QWidget* m_atomPage = nullptr;                  // m_atomPage：原子表页容器。
@@ -1071,7 +1072,7 @@ private:
     QLineEdit* m_atomFilterEdit = nullptr;          // m_atomFilterEdit：原子关键词过滤输入框。
     QLabel* m_atomStatusLabel = nullptr;            // m_atomStatusLabel：原子表状态文本。
     QTableWidget* m_atomTable = nullptr;            // m_atomTable：原子结果表。
-    CodeEditorWidget* m_atomDetailEditor = nullptr; // m_atomDetailEditor：原子详情编辑器（只读）。
+    ks::ui::StructuredFieldView* m_atomDetailEditor = nullptr; // m_atomDetailEditor：原子详情编辑器（只读）。
 
     // ==================== 历史 NtQuery 页 ====================
     QWidget* m_miscPage = nullptr;                    // m_miscPage：内核杂项聚合页容器（不是杂项 Dock）。
@@ -1083,7 +1084,7 @@ private:
     QPushButton* m_refreshNtQueryButton = nullptr;     // m_refreshNtQueryButton：历史 NtQuery 刷新按钮。
     QLabel* m_ntQueryStatusLabel = nullptr;            // m_ntQueryStatusLabel：历史 NtQuery 状态文本。
     QTableWidget* m_ntQueryTable = nullptr;            // m_ntQueryTable：历史 NtQuery 结果表。
-    CodeEditorWidget* m_ntQueryDetailEditor = nullptr; // m_ntQueryDetailEditor：历史 NtQuery 详情编辑器（只读）。
+    ks::ui::StructuredFieldView* m_ntQueryDetailEditor = nullptr; // m_ntQueryDetailEditor：历史 NtQuery 详情编辑器（只读）。
 
     // ==================== I/O 管理聚合页 ====================
     QWidget* m_ioManagementPage = nullptr;              // m_ioManagementPage：I/O 管理顶层页容器。
@@ -1109,7 +1110,7 @@ private:
     QLineEdit* m_ssdtFilterEdit = nullptr;             // m_ssdtFilterEdit：SSDT 筛选输入框。
     QLabel* m_ssdtStatusLabel = nullptr;               // m_ssdtStatusLabel：SSDT 状态文本。
     QTableWidget* m_ssdtTable = nullptr;               // m_ssdtTable：SSDT 结果表。
-    CodeEditorWidget* m_ssdtDetailEditor = nullptr;    // m_ssdtDetailEditor：SSDT 详情编辑器（只读）。
+    ks::ui::StructuredFieldView* m_ssdtDetailEditor = nullptr;    // m_ssdtDetailEditor：SSDT 详情编辑器（只读）。
 
     // ==================== ShadowSSDT 子页 ====================
     QWidget* m_shadowSsdtPage = nullptr;               // m_shadowSsdtPage：SSSDT 页容器。
@@ -1119,7 +1120,7 @@ private:
     QLineEdit* m_shadowSsdtFilterEdit = nullptr;       // m_shadowSsdtFilterEdit：SSSDT 筛选框。
     QLabel* m_shadowSsdtStatusLabel = nullptr;         // m_shadowSsdtStatusLabel：SSSDT 状态文本。
     QTableWidget* m_shadowSsdtTable = nullptr;         // m_shadowSsdtTable：SSSDT 表格。
-    CodeEditorWidget* m_shadowSsdtDetailEditor = nullptr; // m_shadowSsdtDetailEditor：SSSDT 详情文本框。
+    ks::ui::StructuredFieldView* m_shadowSsdtDetailEditor = nullptr; // m_shadowSsdtDetailEditor：SSSDT 详情文本框。
 
     // ==================== Inline Hook 页 ====================
     QWidget* m_inlineHookPage = nullptr;                    // m_inlineHookPage：Inline Hook 页容器。
@@ -1132,7 +1133,7 @@ private:
     QComboBox* m_inlineHookIncludeCombo = nullptr;          // m_inlineHookIncludeCombo：扫描范围选项。
     QLabel* m_inlineHookStatusLabel = nullptr;              // m_inlineHookStatusLabel：状态文本。
     QTableWidget* m_inlineHookTable = nullptr;              // m_inlineHookTable：Inline Hook 表格。
-    CodeEditorWidget* m_inlineHookDetailEditor = nullptr;   // m_inlineHookDetailEditor：详情文本框。
+    ks::ui::StructuredFieldView* m_inlineHookDetailEditor = nullptr;   // m_inlineHookDetailEditor：详情文本框。
 
     // ==================== IAT/EAT Hook 页 ====================
     QWidget* m_iatEatHookPage = nullptr;                    // m_iatEatHookPage：IAT/EAT 页容器。
@@ -1147,7 +1148,7 @@ private:
     QComboBox* m_iatEatHookIncludeCombo = nullptr;          // m_iatEatHookIncludeCombo：IAT/EAT 范围选项。
     QLabel* m_iatEatHookStatusLabel = nullptr;              // m_iatEatHookStatusLabel：状态文本。
     QTableWidget* m_iatEatHookTable = nullptr;              // m_iatEatHookTable：IAT/EAT 表格。
-    CodeEditorWidget* m_iatEatHookDetailEditor = nullptr;   // m_iatEatHookDetailEditor：详情文本框。
+    ks::ui::StructuredFieldView* m_iatEatHookDetailEditor = nullptr;   // m_iatEatHookDetailEditor：详情文本框。
 
     // ==================== KTIMER/DPC 页 ====================
     QVBoxLayout* m_timerDpcLayout = nullptr;
@@ -1156,7 +1157,7 @@ private:
     QLineEdit* m_timerDpcFilterEdit = nullptr;
     QLabel* m_timerDpcStatusLabel = nullptr;
     QTableWidget* m_timerDpcTable = nullptr;
-    CodeEditorWidget* m_timerDpcDetailEditor = nullptr;
+    ks::ui::StructuredFieldView* m_timerDpcDetailEditor = nullptr;
 
     // ==================== 动态偏移页 ====================
     QHBoxLayout* m_dynDataToolLayout = nullptr;        // m_dynDataToolLayout：动态偏移工具栏布局。
@@ -1166,7 +1167,7 @@ private:
     QLabel* m_dynDataStatusLabel = nullptr;            // m_dynDataStatusLabel：动态偏移状态文本。
     QTableWidget* m_dynDataSummaryTable = nullptr;     // m_dynDataSummaryTable：动态偏移摘要表。
     QTableWidget* m_dynDataFieldTable = nullptr;       // m_dynDataFieldTable：动态偏移字段表。
-    CodeEditorWidget* m_dynDataDetailEditor = nullptr; // m_dynDataDetailEditor：动态偏移详情编辑器（只读）。
+    ks::ui::StructuredFieldView* m_dynDataDetailEditor = nullptr; // m_dynDataDetailEditor：动态偏移详情编辑器（只读）。
     QWidget* m_dynDataOverviewPage = nullptr;          // m_dynDataOverviewPage：动态偏移总览页。
     QVBoxLayout* m_dynDataOverviewLayout = nullptr;    // m_dynDataOverviewLayout：动态偏移总览页布局。
     QWidget* m_dynDataProfilePage = nullptr;           // m_dynDataProfilePage：PDB profile 状态页。
@@ -1174,7 +1175,7 @@ private:
     QLabel* m_dynDataProfileStatusLabel = nullptr;     // m_dynDataProfileStatusLabel：PDB profile 状态标签。
     QTableWidget* m_dynDataProfileSummaryTable = nullptr; // m_dynDataProfileSummaryTable：PDB profile 摘要表。
     QTableWidget* m_dynDataV4ItemTable = nullptr; // m_dynDataV4ItemTable：PDB profile v4 accepted item 明细表。
-    CodeEditorWidget* m_dynDataProfileDetailEditor = nullptr; // m_dynDataProfileDetailEditor：PDB profile 详情编辑器。
+    ks::ui::StructuredFieldView* m_dynDataProfileDetailEditor = nullptr; // m_dynDataProfileDetailEditor：PDB profile 详情编辑器。
 
     // ==================== 驱动状态页 ====================
     QWidget* m_driverStatusPage = nullptr;                  // m_driverStatusPage：驱动状态页容器。
@@ -1186,7 +1187,7 @@ private:
     QLabel* m_driverStatusLabel = nullptr;                  // m_driverStatusLabel：整体状态文本。
     QTableWidget* m_driverStatusSummaryTable = nullptr;     // m_driverStatusSummaryTable：驱动状态摘要表。
     QTableWidget* m_driverCapabilityTable = nullptr;        // m_driverCapabilityTable：能力矩阵表。
-    CodeEditorWidget* m_driverCapabilityDetailEditor = nullptr; // m_driverCapabilityDetailEditor：能力详情编辑器。
+    ks::ui::StructuredFieldView* m_driverCapabilityDetailEditor = nullptr; // m_driverCapabilityDetailEditor：能力详情编辑器。
 
     // ==================== 驱动回调页 ====================
     QWidget* m_callbackInterceptPage = nullptr;                     // m_callbackInterceptPage：驱动回调页容器。
@@ -1199,7 +1200,7 @@ private:
     QLabel* m_callbackEnumStatusLabel = nullptr;                    // m_callbackEnumStatusLabel：回调遍历状态文本。
     QTableWidget* m_callbackEnumTable = nullptr;                    // m_callbackEnumTable：回调遍历表。
     QTreeWidget* m_minifilterCallbackTree = nullptr;                // m_minifilterCallbackTree：Filter -> Pre/Post 回调树。
-    CodeEditorWidget* m_callbackEnumDetailEditor = nullptr;         // m_callbackEnumDetailEditor：回调遍历详情文本框。
+    ks::ui::StructuredFieldView* m_callbackEnumDetailEditor = nullptr;         // m_callbackEnumDetailEditor：回调遍历详情文本框。
     QWidget* m_callbackRemoveContentWidget = nullptr;               // m_callbackRemoveContentWidget：嵌入在回调遍历页底部的移除面板容器。
     QVBoxLayout* m_callbackRemoveLayout = nullptr;                  // m_callbackRemoveLayout：回调移除面板内部布局。
     QHBoxLayout* m_callbackRemoveToolLayout = nullptr;              // m_callbackRemoveToolLayout：回调移除工具栏布局。

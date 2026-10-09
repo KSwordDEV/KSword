@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -109,7 +110,7 @@ public:
         QString callAddressText;
         QString eventName;
         QString detailText;
-        QString detailAllText;
+        ks::ui::FieldDocument detailDocument;
         QString globalSearchText;
     };
 

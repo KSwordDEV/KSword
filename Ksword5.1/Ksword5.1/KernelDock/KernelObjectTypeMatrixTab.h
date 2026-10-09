@@ -21,7 +21,7 @@ class QPushButton;
 class QPoint;
 class QTableWidget;
 class QTableWidgetItem;
-class CodeEditorWidget;
+#include "../UI/StructuredFieldView.h"
 
 class KernelObjectTypeMatrixTab final : public QWidget
 {
@@ -59,19 +59,19 @@ private:
     void showContextMenu(const QPoint& localPosition);
     void copyCurrentRow() const;
     void updateDetailForRow(int tableRow);
-    QString buildDetailText(const KernelObjectTypeEntry& entry) const;
+    ks::ui::FieldDocument buildDetailText(const KernelObjectTypeEntry& entry) const;
 
     // buildDiagnosticDetailText：
     // - 输入：刷新失败、无数据或筛选无结果的原因；
     // - 处理：展开当前筛选、数据来源和下一步排查方向；
     // - 返回：可直接写入详情编辑器的只读文本。
-    QString buildDiagnosticDetailText(const QString& reasonText) const;
+    ks::ui::FieldDocument buildDiagnosticDetailText(const QString& reasonText) const;
 
     // insertDiagnosticRow：
     // - 输入：诊断行标题和详情文本；
     // - 处理：向表格写入一行可复制的占位记录；
     // - 返回：无返回值，详情文本保存在 UserRole + 2。
-    void insertDiagnosticRow(const QString& titleText, const QString& detailText);
+    void insertDiagnosticRow(const QString& titleText, const ks::ui::FieldDocument& detailText);
 
     bool rowMatchesFilter(const KernelObjectTypeEntry& entry) const;
     std::size_t sourceIndexForTableRow(int tableRow) const;
@@ -82,10 +82,11 @@ private:
     QLineEdit* m_filterEdit = nullptr;
     QLabel* m_statusLabel = nullptr;
     QTableWidget* m_table = nullptr;
-    CodeEditorWidget* m_detailEditor = nullptr;
+    ks::ui::StructuredFieldView* m_detailEditor = nullptr;
 
     std::atomic_bool m_refreshing{ false };
     bool m_initialRefreshRequested = false;
     std::vector<KernelObjectTypeEntry> m_rows;
     R0SnapshotState m_r0State;
+    ks::ui::FieldDocument m_diagnosticDocument;
 };

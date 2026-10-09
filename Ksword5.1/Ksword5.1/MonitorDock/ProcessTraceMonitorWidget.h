@@ -12,6 +12,7 @@
 #include "ProcessTraceTimelineWidget.h"
 #include "../Framework.h"
 #include "../UI/AsyncUiDispatcher.h"
+#include "../UI/StructuredFieldView.h"
 
 #include <QWidget>
 
@@ -179,7 +180,7 @@ public:
     // - processText：关联进程文本；
     // - rootPidText：归属根 PID 文本；
     // - relationText：根进程/子进程/属性关联等说明；
-    // - detailText：属性与元信息摘要；
+    // - detailDocument：属性与元信息的唯一结构化快照；
     // - activityIdText：ActivityId 文本。
     struct CapturedEventRow
     {
@@ -193,7 +194,7 @@ public:
         QString processText;
         QString rootPidText;
         QString relationText;
-        QString detailText;
+        ks::ui::FieldDocument detailDocument;
         QString activityIdText;
     };
 
@@ -287,6 +288,7 @@ private:
     bool isTimelineFilterActive() const;
     void flushPendingRows();
     void appendEventRow(const CapturedEventRow& rowValue);
+    ks::ui::FieldDocument eventDocumentForRow(int row) const;
     void openEventDetailViewerForRow(int row) const;
     void showEventContextMenu(const QPoint& position);
     void exportVisibleRowsToTsv();
@@ -313,7 +315,7 @@ private:
     bool extractEventProperties(
         const struct _EVENT_RECORD* eventRecordPtr,
         std::vector<EtwPropertyValue>* propertyListOut) const;
-    QString buildEventDetailText(
+    ks::ui::FieldDocument buildEventDetailDocument(
         const QString& providerGuidText,
         const struct _EVENT_RECORD* eventRecordPtr,
         const std::vector<EtwPropertyValue>& propertyList) const;

@@ -392,7 +392,7 @@ namespace
         entry.statusCode = statusCode;
         entry.statusText = statusText;
         entry.summaryText = summaryText;
-        entry.detailText = detailText;
+        entry.detailDocument.field(QStringLiteral("详细输出"), detailText);
         resultList.push_back(std::move(entry));
     }
 }
@@ -612,7 +612,7 @@ bool runNtQuerySnapshotTask(std::vector<KernelNtQueryResultEntry>& rowsOut, QStr
                 ? QStringLiteral("返回 %1 字节").arg(buffer.size())
                 : QStringLiteral("调用失败");
             const QString detailText = NT_SUCCESS(statusCode)
-                ? QStringLiteral("十六进制预览: %1").arg(bytesPreview(buffer))
+                ? bytesPreview(buffer)
                 : statusText;
             appendResult(rowsOut, categoryText, functionText, itemText, statusCode, statusText, summaryText, detailText);
 

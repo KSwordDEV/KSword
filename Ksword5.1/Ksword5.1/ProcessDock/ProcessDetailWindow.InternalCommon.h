@@ -17,7 +17,8 @@
 #include "../Framework/DestructiveActionConfirmation.h"
 #include "../OnlineScan/SandboxUploadActions.h"
 #include "../theme.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
+#include <type_traits>
 #include "../UI/UI_All.h"
 #include "../../../shared/driver/KswordArkDynDataIoctl.h"
 #include "../../../shared/ProcessTerminateMethods.h"
@@ -117,6 +118,24 @@
 
 namespace process_detail_window_internal
 {
+    inline QString fieldText(const QString& value) { return value; }
+    inline QString fieldText(const std::wstring& value) { return QString::fromStdWString(value); }
+    inline QString fieldText(const wchar_t* value) { return QString::fromWCharArray(value); }
+    template<class Number, std::enable_if_t<std::is_integral_v<Number>, int> = 0>
+    QString fieldText(Number value)
+    {
+        if constexpr (std::is_signed_v<Number>) return QString::number(static_cast<qlonglong>(value));
+        return QString::number(static_cast<qulonglong>(value));
+    }
+    template<class Number, std::enable_if_t<std::is_floating_point_v<Number>, int> = 0>
+    QString fieldText(Number value) { return QString::number(value, 'g', 12); }
+    inline ks::ui::FieldDocument fieldNotice(const QString& text)
+    {
+        ks::ui::FieldDocument document; document.note(text); return document;
+    }
+    inline void appendFields(ks::ui::FieldDocument& into, const ks::ui::FieldDocument& from)
+    { into.nodes += from.nodes; }
+
     // ThreadRowColumn 作用：
     // - 统一线程细节表格列顺序；
     // - 供 UI 初始化和结果回填两端共享。
@@ -215,7 +234,7 @@ namespace process_detail_window_internal
     // - 输入 domainName 为 runtimeDetailCatalog 域名，例如 process_detail/thread_detail；
     // - 处理时只读 Release/source profiles\pdb_deep_offsets 中的 ntkrnlmp deep JSON；
     // - 返回一段面向详情页展示的偏移目录预览，找不到 JSON 时返回明确诊断文本。
-    QString buildPdbRuntimeCatalogPreview(const QString& domainName, int maxTypes, int maxFieldsPerType);
+    ks::ui::FieldDocument buildPdbRuntimeCatalogPreview(const QString& domainName, int maxTypes, int maxFieldsPerType);
 
     // pdbRuntimeCatalogMatchesKernelIdentity 作用：
     // - 输入当前 R0 DynData 报告的 ntoskrnl TimeDateStamp/SizeOfImage；
@@ -224,7 +243,7 @@ namespace process_detail_window_internal
     bool pdbRuntimeCatalogMatchesKernelIdentity(
         std::uint32_t timeDateStamp,
         std::uint32_t sizeOfImage,
-        QString* detailTextOut);
+        ks::ui::FieldDocument* detailDocumentOut);
 
     // buildPdbRuntimeSampleItems 作用：
     // - 输入 domainName 为 process_detail/thread_detail，maxItems 为最多采样字段数；

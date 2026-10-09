@@ -165,3 +165,62 @@ void ks::ui::DetailLayoutRegistry::prepareDataRebuild(CodeEditorWidget* detailEd
         host->prepareDataRebuild();
     }
 }
+
+ks::ui::DetailLayoutHost* ks::ui::DetailLayoutRegistry::registerStructuredHost(
+    QAbstractItemView* view, StructuredFieldView* fields, QWidget* owner)
+{
+    if (!view || !fields || !owner) return nullptr;
+    pruneDestroyedHosts();
+    const auto snapshot = detailHosts();
+    for (const auto& candidate : snapshot)
+        if (!candidate.isNull() && candidate->structuredView() == fields)
+        {
+            QPointer<DetailLayoutHost> host(candidate);
+            host->setTableView(view);
+            if (host) host->applyScheme(currentDetailScheme());
+            return host.data();
+        }
+    QPointer<DetailLayoutHost> host = new DetailLayoutHost(view, fields, owner);
+    detailHosts().append(host);
+    host->applyScheme(currentDetailScheme());
+    return host.data();
+}
+
+ks::ui::DetailLayoutHost* ks::ui::DetailLayoutRegistry::registerStructuredHost(
+    QAbstractItemView* view, StructuredFieldView* fields, QWidget* owner,
+    QSplitter* splitter, QWidget* mainPane, QWidget* detailPane)
+{
+    if (!view || !fields || !owner || !splitter || !mainPane || !detailPane || mainPane == detailPane) return nullptr;
+    const DetailPaneBinding binding{splitter, mainPane, detailPane};
+    pruneDestroyedHosts();
+    const auto snapshot = detailHosts();
+    for (const auto& candidate : snapshot)
+        if (!candidate.isNull() && candidate->structuredView() == fields)
+        {
+            QPointer<DetailLayoutHost> host(candidate);
+            if (host->parent() != owner) return nullptr;
+            host->setTableView(view);
+            if (!host) return nullptr;
+            host->bindPanels(binding);
+            if (host) host->applyScheme(currentDetailScheme());
+            return host.data();
+        }
+    QPointer<DetailLayoutHost> host = new DetailLayoutHost(view, fields, owner, binding);
+    detailHosts().append(host);
+    host->applyScheme(currentDetailScheme());
+    return host.data();
+}
+
+ks::ui::DetailLayoutHost* ks::ui::DetailLayoutRegistry::hostFor(StructuredFieldView* fields)
+{
+    if (!fields) return nullptr;
+    pruneDestroyedHosts();
+    for (const auto& host : detailHosts())
+        if (!host.isNull() && host->structuredView() == fields) return host.data();
+    return nullptr;
+}
+
+void ks::ui::DetailLayoutRegistry::prepareDataRebuild(StructuredFieldView* fields)
+{
+    if (auto* host = hostFor(fields)) host->prepareDataRebuild();
+}

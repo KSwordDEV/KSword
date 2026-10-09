@@ -198,47 +198,29 @@ bool runSsdtSnapshotTask(std::vector<KernelSsdtEntry>& rowsOut, QString& errorTe
             : QStringLiteral("磁盘基线不可用"));
         row.statusText = statusParts.join(QStringLiteral(" | "));
 
-        row.detailText = QStringLiteral(
-            "协议版本: %1\n"
-            "总条目: %2\n"
-            "返回条目: %3\n"
-            "服务名称: %4\n"
-            "模块名称: %5\n"
-            "服务索引: %6\n"
-            "Zw导出地址: %7\n"
-            "服务表基址: %8\n"
-            "表项服务地址: %9\n"
-            "表项槽位地址: %10\n"
-            "当前编码槽值: 0x%11\n"
-            "磁盘基线槽值: 0x%12\n"
-            "当前槽字节: %13\n"
-            "基线槽字节: %14\n"
-            "槽位宽度: %15\n"
-            "基线状态: %16\n"
-            "基线映像: %17\n"
-            "驱动标志: 0x%18")
-            .arg(enumResult.version)
-            .arg(enumResult.totalCount)
-            .arg(enumResult.returnedCount)
-            .arg(row.serviceNameText.isEmpty() ? QStringLiteral("<空>") : row.serviceNameText)
-            .arg(row.moduleNameText.isEmpty() ? QStringLiteral("<空>") : row.moduleNameText)
-            .arg(row.indexResolved ? QString::number(row.serviceIndex) : QStringLiteral("<未知>"))
-            .arg(formatAddressHex(row.zwRoutineAddress))
-            .arg(formatAddressHex(row.serviceTableBase))
-            .arg(formatAddressHex(row.serviceRoutineAddress))
-            .arg(formatAddressHex(row.tableEntryAddress))
-            .arg(static_cast<qulonglong>(row.currentTableValue),
+        row.detailDocument = {};
+        row.detailDocument.field(QStringLiteral("协议版本"), QStringLiteral("%1").arg(enumResult.version));
+        row.detailDocument.field(QStringLiteral("总条目"), QStringLiteral("%1").arg(enumResult.totalCount));
+        row.detailDocument.field(QStringLiteral("返回条目"), QStringLiteral("%1").arg(enumResult.returnedCount));
+        row.detailDocument.field(QStringLiteral("服务名称"), QStringLiteral("%1").arg(row.serviceNameText.isEmpty() ? QStringLiteral("<空>") : row.serviceNameText));
+        row.detailDocument.field(QStringLiteral("模块名称"), QStringLiteral("%1").arg(row.moduleNameText.isEmpty() ? QStringLiteral("<空>") : row.moduleNameText));
+        row.detailDocument.field(QStringLiteral("服务索引"), QStringLiteral("%1").arg(row.indexResolved ? QString::number(row.serviceIndex) : QStringLiteral("<未知>")));
+        row.detailDocument.field(QStringLiteral("Zw导出地址"), QStringLiteral("%1").arg(formatAddressHex(row.zwRoutineAddress)));
+        row.detailDocument.field(QStringLiteral("服务表基址"), QStringLiteral("%1").arg(formatAddressHex(row.serviceTableBase)));
+        row.detailDocument.field(QStringLiteral("表项服务地址"), QStringLiteral("%1").arg(formatAddressHex(row.serviceRoutineAddress)));
+        row.detailDocument.field(QStringLiteral("表项槽位地址"), QStringLiteral("%1").arg(formatAddressHex(row.tableEntryAddress)));
+        row.detailDocument.field(QStringLiteral("当前编码槽值"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(row.currentTableValue),
                 0,
-                16)
-            .arg(static_cast<qulonglong>(row.cleanTableValue),
+                16)));
+        row.detailDocument.field(QStringLiteral("磁盘基线槽值"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(row.cleanTableValue),
                 0,
-                16)
-            .arg(byteText(row.currentTableBytes))
-            .arg(byteText(row.cleanTableBytes))
-            .arg(row.tableEntrySize)
-            .arg(row.cleanBaselineStatus)
-            .arg(row.cleanBaselinePath)
-            .arg(static_cast<unsigned int>(row.flags), 8, 16, QChar('0'));
+                16)));
+        row.detailDocument.field(QStringLiteral("当前槽字节"), QStringLiteral("%1").arg(byteText(row.currentTableBytes)));
+        row.detailDocument.field(QStringLiteral("基线槽字节"), QStringLiteral("%1").arg(byteText(row.cleanTableBytes)));
+        row.detailDocument.field(QStringLiteral("槽位宽度"), QStringLiteral("%1").arg(row.tableEntrySize));
+        row.detailDocument.field(QStringLiteral("基线状态"), QStringLiteral("%1").arg(row.cleanBaselineStatus));
+        row.detailDocument.field(QStringLiteral("基线映像"), QStringLiteral("%1").arg(row.cleanBaselinePath));
+        row.detailDocument.field(QStringLiteral("驱动标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<unsigned int>(row.flags), 8, 16, QChar('0'))));
 
         rowsOut.push_back(std::move(row));
     }

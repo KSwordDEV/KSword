@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // 访问诊断内部协议：UI、采集后端和报告格式共享同一值类型。
@@ -217,5 +218,5 @@ namespace ks::privilege::access::detail
     QString maskText(ObjectKind kind, DWORD mask);
     QString aceFlags(const AceView& ace);
     QString matchesText(const AceEvidence& row, const Result& result);
-    QString reportText(const Result& result);
+    ks::ui::FieldDocument buildAccessDocument(const Result& result);
 }

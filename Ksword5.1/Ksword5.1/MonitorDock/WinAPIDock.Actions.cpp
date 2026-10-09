@@ -1,3 +1,5 @@
+#include "../UI/StructuredFieldView.h"
+#include "../UI/DetailDialogChrome.h"
 #include "WinAPIDock.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
@@ -1200,19 +1202,13 @@ void WinAPIDock::showEventDetailDialog(const int rowValue)
         return itemPointer != nullptr ? itemPointer->text() : QString();
     };
 
-    const QString detailText = QStringLiteral(
-        "时间(100ns): %1\n"
-        "分类: %2\n"
-        "API: %3\n"
-        "结果: %4\n"
-        "PID/TID: %5\n\n"
-        "详情:\n%6")
-        .arg(columnText(EventColumnTime100ns),
-            columnText(EventColumnCategory),
-            columnText(EventColumnApi),
-            columnText(EventColumnResult),
-            columnText(EventColumnPidTid),
-            columnText(EventColumnDetail));
+    ks::ui::FieldDocument detailText;
+    detailText.field(QStringLiteral("时间(100ns)"), QStringLiteral("%1").arg(columnText(EventColumnTime100ns)));
+    detailText.field(QStringLiteral("分类"), QStringLiteral("%1").arg(columnText(EventColumnCategory)));
+    detailText.field(QStringLiteral("API"), QStringLiteral("%1").arg(columnText(EventColumnApi)));
+    detailText.field(QStringLiteral("结果"), QStringLiteral("%1").arg(columnText(EventColumnResult)));
+    detailText.field(QStringLiteral("PID/TID"), QStringLiteral("%1").arg(columnText(EventColumnPidTid)));
+    detailText.field(QStringLiteral("详情"), QStringLiteral("%1").arg(columnText(EventColumnDetail)));
 
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("WinAPI 事件详情"));
@@ -1223,9 +1219,9 @@ void WinAPIDock::showEventDetailDialog(const int rowValue)
     layout->setSpacing(8);
 
     // 事件详情由本页拼装，使用统一编辑器以便英语模式即时重绘固定字段名。
-    CodeEditorWidget* const detailEdit = new CodeEditorWidget(&dialog);
-    detailEdit->setReadOnly(true);
-    detailEdit->setLocalizedText(detailText);
+    ks::ui::StructuredFieldView* const detailEdit = new ks::ui::StructuredFieldView(&dialog);
+
+    detailEdit->setDocument(detailText);
     layout->addWidget(detailEdit, 1);
 
     QDialogButtonBox* const buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok, &dialog);
@@ -1233,6 +1229,7 @@ void WinAPIDock::showEventDetailDialog(const int rowValue)
     connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     layout->addWidget(buttonBox, 0);
 
+    ks::ui::ApplyDetailDialogChrome(&dialog);
     dialog.exec();
 }
 

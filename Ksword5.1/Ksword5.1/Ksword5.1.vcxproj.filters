@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
   <ItemGroup>
     <Filter Include="Source Files">
@@ -308,7 +308,10 @@
     <ClCompile Include="FileDock\FilePropertyPeAnalyzer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="FileDock\FilePropertyView.cpp">
+    <ClCompile Include="HardwareDock\HardwareFieldDocuments.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\StructuredFieldView.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="FileDock\FilePropertyPeAnalyzer.Directories.cpp">
@@ -1361,7 +1364,10 @@
     <ClCompile Include="UI\DetailLayoutRegistry.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="UI\ReportStructuredView.cpp">
+    <ClCompile Include="UI\TablePresentation.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UI\TypedSyntaxDocument.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UI\KernelDisassemblyDialog.cpp">
@@ -2578,6 +2584,9 @@
     <ClInclude Include="UI\HvmWatchEventDialog.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <QtMoc Include="UI\StructuredFieldView.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
     <QtMoc Include="UI\CodeEditorWidget.h">
       <Filter>Header Files</Filter>
     </QtMoc>
@@ -2694,7 +2703,16 @@
     <ClInclude Include="UI\DetailLayoutRegistry.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="UI\ReportStructuredView.h">
+    <ClInclude Include="UI\TablePresentation.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\DetailDialogChrome.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="HardwareDock\HardwareFieldDocuments.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\TypedSyntaxDocument.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="UI\SmoothScrollSupport.h">
@@ -2968,9 +2986,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="FileDock\FilePropertyPeAnalyzer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="FileDock\FilePropertyView.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="FileDock\FilePropertyPeAnalyzer.Internal.h">
@@ -3414,12 +3429,6 @@
     </QtMoc>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="UI\FieldTreePresenter.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="UI\FieldTreePresenter.Copy.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="UI\MemoryWorkbench\AssemblyPreviewDialog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -3449,9 +3458,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="UI\FieldTreePresenter.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="UI\MemoryWorkbench\AssemblyPreviewDialog.h">
       <Filter>Header Files</Filter>
     </ClInclude>

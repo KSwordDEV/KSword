@@ -9,10 +9,8 @@
 //     暂存扇区脏（scratchAreaDirty）—— 一旦任意一次写入报告过为真，chip 就
 //     常驻显示，哪怕后面成功也不消失，**只能点 × 显式确认**才消（不变式 14）；
 //     读-改-写窗口（readModifyWriteWindow）—— 只反映"最近这一次"的状态，不常驻。
-// - 诊断抽屉的文本控件不是 CodeEditorWidget 本身，而是经 IWorkbenchDiagnosticsHost
-//   接口注入：生产环境下应由装配层（WP-J/Z）提供一个包着 CodeEditorWidget 的实现
-//   并在创建 WorkbenchStatusBar 之后注入；原因见 .cpp 开头的说明。离屏夹具注入一个
-//   等价的只读 QPlainTextEdit 替身即可验证全部行为。
+// - 诊断抽屉经 IWorkbenchDiagnosticsHost 注入：结构报告走正式字段模型接口；
+//   通道失败信息和原始日志走文本接口。复制仅在触发时从当前数据源生成。
 // ============================================================
 
 #include <QString>
@@ -29,20 +27,22 @@ class QWidget;
 
 namespace ks::ui
 {
+    struct FieldDocument;
     // IWorkbenchDiagnosticsHost：诊断抽屉的最小接口，把"只读、可选换行、可复制"的
-    // 文本展示与具体控件实现解耦。
+    // 字段模型或原始文本与具体控件实现解耦。
     class IWorkbenchDiagnosticsHost
     {
     public:
         virtual ~IWorkbenchDiagnosticsHost() = default;
 
-        // HostWidget：嵌入状态条抽屉布局的宿主控件（生产实现里是包了 CodeEditorWidget
-        // 的容器；夹具里是等价的只读文本控件）。返回的指针生命周期由实现自身管理，
-        // WorkbenchStatusBar 只把它加入布局，不负责销毁。
+        // HostWidget：嵌入抽屉布局的控件；状态条通过接口持有宿主对象的所有权。
         virtual QWidget* HostWidget() = 0;
 
-        // SetDiagnosticsText / DiagnosticsText：设置与读取抽屉里的完整诊断文本。
+        // SetDiagnosticsText：设置一条原始失败信息或真实日志。
         virtual void SetDiagnosticsText(const QString& text) = 0;
+        // 结构报告必须由实现直接显示模型，不允许导出全文后回落到文本控件。
+        virtual void SetDiagnosticsDocument(const FieldDocument& document) = 0;
+        // 文本为原文；结构模式按需导出当前模型，供复制动作使用。
         virtual QString DiagnosticsText() const = 0;
 
         // SetWrapEnabled：切换自动换行（ux.md 要求"自动换行可选"）。
@@ -55,8 +55,8 @@ namespace ks::ui
         Q_OBJECT
 
     public:
-        // 构造：diagnosticsHost 必须非空，由调用方决定生产用 CodeEditorWidget 还是
-        // 测试用替身；本控件取得其所有权（存进 unique_ptr）。
+        // 构造：diagnosticsHost 必须非空；生产双模式控件或测试替身均实现正式接口。
+        // 本控件取得宿主对象的所有权（存进 unique_ptr）。
         explicit WorkbenchStatusBar(std::unique_ptr<IWorkbenchDiagnosticsHost> diagnosticsHost, QWidget* parent = nullptr);
         ~WorkbenchStatusBar() override;
 
@@ -96,6 +96,7 @@ namespace ks::ui
         // setDiagnosticsText：写入诊断抽屉的完整文本；autoExpand 为真时强制展开抽屉
         //（ux.md："错误时自动展开"）。
         void setDiagnosticsText(const QString& text, bool autoExpand);
+        void setDiagnosticsDocument(const FieldDocument& document, bool autoExpand);
         QString diagnosticsText() const;
 
         // setDrawerExpanded / isDrawerExpanded：展开/收起诊断抽屉。

@@ -2174,9 +2174,15 @@ namespace
 
             if (!tableView->property(kKswordTableSelectionOutlineStylePropertyName).toBool())
             {
-                auto* selectionOutlineStyle = new TableSelectionOutlineProxyStyle();
-                selectionOutlineStyle->setParent(tableView);
-                tableView->setStyle(selectionOutlineStyle);
+                // QWidgetAction 在菜单析构时会重新继承样式；样式不能先随表格子对象
+                // 释放。代理不保存表格状态，由应用持有并共享，覆盖整个控件销毁过程。
+                static QPointer<TableSelectionOutlineProxyStyle> selectionOutlineStyle;
+                if (selectionOutlineStyle.isNull())
+                {
+                    selectionOutlineStyle = new TableSelectionOutlineProxyStyle();
+                    selectionOutlineStyle->setParent(QCoreApplication::instance());
+                }
+                tableView->setStyle(selectionOutlineStyle.data());
                 tableView->setProperty(kKswordTableSelectionOutlineStylePropertyName, true);
             }
 
@@ -12033,10 +12039,6 @@ void MainWindow::applyAppearanceSettings(
         isInitialAppearanceApply
         || previousSettings.fontFamily.compare(settings.fontFamily, Qt::CaseInsensitive) != 0
         || previousSettings.textAntialiasingEnabled != settings.textAntialiasingEnabled;
-    const bool scrollBarStyleChanged =
-        isInitialAppearanceApply
-        || previousSettings.useWideScrollBars != settings.useWideScrollBars
-        || previousSettings.scrollBarAutoHideEnabled != settings.scrollBarAutoHideEnabled;
     const bool sliderWheelChanged =
         isInitialAppearanceApply
         || previousSettings.sliderWheelAdjustEnabled != settings.sliderWheelAdjustEnabled;
@@ -12081,7 +12083,7 @@ void MainWindow::applyAppearanceSettings(
             8,
             QStringLiteral("main.runtime_appearance.progress.background"),
             QStringLiteral("正在应用界面设置..."));
-        // 只有路径首次加载或真实变化时才异步验证；主题与滚动条变化不会进入文件系统。
+        // 只有路径首次加载或真实变化时才异步验证；主题变化不会进入文件系统。
         queueBackgroundImageValidation(settings.backgroundImagePath);
     }
     // windowTranslucencyActive 用途：窗口是否在启动时声明了 per-pixel 透明。
@@ -12098,8 +12100,7 @@ void MainWindow::applyAppearanceSettings(
         || (previousBackgroundImageReady || windowTranslucencyActive) != enableDockContentTransparency;
     const bool mainStyleRefreshRequired =
         themeVisualRefreshRequired
-        || dockTransparencyChanged
-        || scrollBarStyleChanged;
+        || dockTransparencyChanged;
     const bool backgroundRefreshRequired =
         isInitialAppearanceApply
         || effectiveThemeChanged
@@ -12848,16 +12849,13 @@ void MainWindow::applyFloatingDockContainerAppearance(ads::CFloatingDockContaine
 }
 
 QString MainWindow::buildAppearanceOverlayStyleSheet(
-    const ks::settings::AppearanceSettings& settings,
+    const ks::settings::AppearanceSettings&,
     const bool darkModeEnabled,
     const bool enableDockContentTransparency) const
 {
     // tooltipStyle 作用：
     // - 强制全局提示框采用主题化背景和文字；
     // - 修复深色模式下 Tooltip 仍为白底的问题。
-    const int scrollBarHoverExtentPx = settings.useWideScrollBars ? 12 : 7;
-    const int scrollBarExtentPx = settings.scrollBarAutoHideEnabled ? 3 : scrollBarHoverExtentPx;
-    const int scrollBarRadiusPx = 0;
     const QString windowBackgroundText = KswordTheme::MainBackgroundColorHex();
     const QString windowTextColor = KswordTheme::MainBackgroundTextColorHex();
     const QString surfaceBackgroundText = KswordTheme::SurfaceColorHex();
@@ -12874,17 +12872,6 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
     const QString controlAccentTextColor = KswordTheme::ThemeColorName(
         KswordTheme::MaximumContrastMonochromeColor(KswordTheme::ControlAccentColor()));
     const QString subtleThemeColor = KswordTheme::PrimaryBlueSubtleHex();
-    const QColor scrollBarBaseColor = settings.scrollBarAutoHideEnabled
-        ? KswordTheme::EnsureTextContrast(
-            KswordTheme::BlendColors(
-                KswordTheme::SurfaceColor(),
-                KswordTheme::ControlAccentColor(),
-                160),
-            KswordTheme::SurfaceColor(),
-            3.0)
-        : KswordTheme::ControlAccentColor();
-    const QString scrollBarHandleColor = KswordTheme::ThemeColorName(scrollBarBaseColor);
-    const QString scrollBarHandleHoverColor = KswordTheme::ControlAccentHoverHex();
     const QString panelBackgroundColor = KswordTheme::RgbaColorName(
         KswordTheme::SurfaceColor(),
         darkModeEnabled ? 240 : 242);
@@ -13001,59 +12988,12 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
         "  top:0px;"
         "}"
         "QHeaderView::section{"
-        "  font-weight:600;"
-        "  min-height:24px;"
+        "  font-weight:400;"
+        "  border:none;"
         "}")
         .arg(panelBorderColor)
         .arg(panelBackgroundColor)
         .arg(primaryTextColor);
-
-    // scrollBarOverlayStyle 作用：
-    // - 全局改为透明轨道，减少遮挡；
-    // - 根据设置切换窄/宽滚动条，并支持默认弱显示、悬停增强。
-    const QString scrollBarOverlayStyle = QStringLiteral(
-        "QScrollBar:vertical{"
-        "  background:transparent !important;"
-        "  border:none !important;"
-        "  width:%1px !important;"
-        "  margin:0px;"
-        "}"
-        "QScrollBar:horizontal{"
-        "  background:transparent !important;"
-        "  border:none !important;"
-        "  height:%1px !important;"
-        "  margin:0px;"
-        "}"
-        "QScrollBar:vertical:hover{"
-        "  width:%5px !important;"
-        "}"
-        "QScrollBar:horizontal:hover{"
-        "  height:%5px !important;"
-        "}"
-        "QScrollBar::handle:vertical{"
-        "  background-color:%3 !important;"
-        "  min-height:24px;"
-        "  border-radius:%2px;"
-        "}"
-        "QScrollBar::handle:horizontal{"
-        "  background-color:%3 !important;"
-        "  min-width:24px;"
-        "  border-radius:%2px;"
-        "}"
-        "QScrollBar::handle:vertical:hover,QScrollBar::handle:horizontal:hover{"
-        "  background-color:%4 !important;"
-        "}"
-        "QScrollBar::add-line,QScrollBar::sub-line,QScrollBar::add-page,QScrollBar::sub-page{"
-        "  background:transparent !important;"
-        "  border:none !important;"
-        "  width:0px;"
-        "  height:0px;"
-        "}")
-        .arg(scrollBarExtentPx)
-        .arg(scrollBarRadiusPx)
-        .arg(scrollBarHandleColor)
-        .arg(scrollBarHandleHoverColor)
-        .arg(scrollBarHoverExtentPx);
 
     // sharedOverlayStyle 作用：
     // - 统一 hover/pressed 与 Tab 高亮；
@@ -13113,7 +13053,6 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
         .arg(normalTabHoverColor);
 
     const QString sharedOverlayStyle = depthOverlayStyle
-        + scrollBarOverlayStyle
         + buttonInteractionStyle
         + tabStyle;    // dockContentTransparentStyle 作用：
     // - 背景图可用时，把 Dock 内容区域常见容器背景全部改为透明；
@@ -13338,7 +13277,7 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
                 "  color:%3 !important;"
                 "  border:1px solid %4;"
                 "}"
-                "QTextEdit,QPlainTextEdit,QTableWidget,QTreeWidget,QListWidget{"
+                "QTextEdit,QPlainTextEdit{"
                 "  background-color:%1 !important;"
                 "  color:%3 !important;"
                 "  border:1px solid %4;"
@@ -13352,7 +13291,8 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
                 "  background:%1 !important;"
                 "  alternate-background-color:%6 !important;"
                 "  color:%3 !important;"
-                "  gridline-color:%4;"
+                "  border:none;"
+            "  gridline-color:transparent;"
                 "}"
                 "QTreeView::item:selected,QTreeWidget::item:selected{"
                 "  background:%7 !important;"
@@ -13368,10 +13308,6 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
                 "  background:transparent !important;"
                 "  background-color:transparent !important;"
                 "  border:none !important;"
-                "}"
-                "QScrollBar:vertical,QScrollBar:horizontal{"
-                "  background:%9 !important;"
-                "  border:none !important;"
                 "}")
                 .arg(surfaceBackgroundText)
                 .arg(subtleThemeColor)
@@ -13381,7 +13317,6 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
                 .arg(surfaceAltBackgroundText)
                 .arg(activeThemeColor)
                 .arg(selectedTextColor)
-                .arg(windowBackgroundText)
                 .replace(QStringLiteral("__WINDOW_BACKGROUND__"), windowBackgroundText)
                 .replace(QStringLiteral("__WINDOW_TEXT__"), windowTextColor)
                 .replace(QStringLiteral("__LIGHT_MENUBAR_PRESSED__"), surfaceMutedBackgroundText)
@@ -13408,7 +13343,7 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
             "  color:%3 !important;"
             "  border:1px solid %4;"
             "}"
-            "QTextEdit,QPlainTextEdit,QTableWidget,QTreeWidget,QListWidget{"
+            "QTextEdit,QPlainTextEdit{"
             "  background-color:%2 !important;"
             "  color:%3 !important;"
             "  border:1px solid %4;"
@@ -13422,7 +13357,8 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
             "  background:%2 !important;"
             "  alternate-background-color:%6 !important;"
             "  color:%3 !important;"
-            "  gridline-color:%4;"
+            "  border:none;"
+            "  gridline-color:transparent;"
             "}"
             "QTreeView::item:selected,QTreeWidget::item:selected{"
             "  background:%7 !important;"
@@ -13432,15 +13368,13 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
             "  background:transparent !important;"
             "  background-color:transparent !important;"
             "  color:%3 !important;"
-            "  border:1px solid %4;"
+            "  border:none;"
+            "  border-bottom:1px solid %4;"
+            "  font-weight:400;"
             "}"
             "QTableCornerButton::section{"
             "  background:transparent !important;"
             "  background-color:transparent !important;"
-            "  border:none !important;"
-            "}"
-            "QScrollBar:vertical,QScrollBar:horizontal{"
-            "  background:%1 !important;"
             "  border:none !important;"
             "}")
             .arg(windowBackgroundText)

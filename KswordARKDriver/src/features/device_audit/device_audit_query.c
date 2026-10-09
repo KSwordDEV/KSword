@@ -105,15 +105,13 @@ Return Value:
     Entry->status = rowStatus;
     Entry->riskFlags = riskFlags;
     Entry->lastStatus = IntegrityResponse->lastStatus;
-    (VOID)RtlStringCchPrintfW(
-        Entry->detail,
-        RTL_NUMBER_OF(Entry->detail),
-        L"Driver integrity status=%lu rows=%lu/%lu modules=%lu statusFlags=0x%08lX.",
-        IntegrityResponse->queryStatus,
-        IntegrityResponse->returnedCount,
-        IntegrityResponse->totalCount,
-        IntegrityResponse->moduleCount,
-        IntegrityResponse->statusFlags);
+    Entry->fieldFlags |= KSWORD_ARK_DEVICE_AUDIT_FIELD_INTEGRITY_SUMMARY_PRESENT;
+    Entry->integrityStatus = IntegrityResponse->queryStatus;
+    Entry->integrityReturnedCount = IntegrityResponse->returnedCount;
+    Entry->integrityTotalCount = IntegrityResponse->totalCount;
+    Entry->integrityModuleCount = IntegrityResponse->moduleCount;
+    Entry->integrityStatusFlags = IntegrityResponse->statusFlags;
+    KswDeviceAuditCopyWide(Entry->detail, RTL_NUMBER_OF(Entry->detail), L"Driver integrity summary is available as typed fields.");
 }
 
 static VOID
@@ -166,6 +164,10 @@ Return Value:
     Entry->deviceObjectAddress = Evidence->deviceObjectAddress;
     Entry->attachedDeviceAddress = Evidence->attachedDeviceObjectAddress;
     Entry->nextDeviceObjectAddress = Evidence->nextDeviceObjectAddress;
+    if ((Evidence->fieldMask & KSWORD_ARK_DRIVER_INTEGRITY_FIELD_DEVICE_OBJECT) != 0UL) {
+        Entry->ownerDriverObjectAddress = Evidence->deviceDriverObjectAddress;
+        Entry->fieldFlags |= KSWORD_ARK_DEVICE_AUDIT_FIELD_OWNER_DRIVER_PRESENT;
+    }
     KswDeviceAuditCopyWide(Entry->driverName, RTL_NUMBER_OF(Entry->driverName), DriverName);
     KswDeviceAuditCopyServiceName(Entry->serviceName, RTL_NUMBER_OF(Entry->serviceName), DriverName);
     KswDeviceAuditCopyWide(Entry->detail, RTL_NUMBER_OF(Entry->detail), Evidence->detail);
@@ -491,9 +493,11 @@ Return Value:
 
     if (UserRequest != NULL) {
         RtlCopyMemory(&Context->Request, UserRequest, sizeof(Context->Request));
-        if (Context->Request.size < sizeof(Context->Request) ||
-            Context->Request.version > KSWORD_ARK_DEVICE_AUDIT_PROTOCOL_VERSION) {
+        if (Context->Request.size < sizeof(Context->Request)) {
             return STATUS_INVALID_PARAMETER;
+        }
+        if (Context->Request.version != KSWORD_ARK_DEVICE_AUDIT_PROTOCOL_VERSION) {
+            return STATUS_REVISION_MISMATCH;
         }
         Context->EffectiveProfile = KswDeviceAuditKnownProfileForHandler(HandlerProfile, Context->Request.profileFlags);
         if (Context->EffectiveProfile == 0UL) {

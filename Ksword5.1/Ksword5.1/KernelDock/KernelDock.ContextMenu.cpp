@@ -12,7 +12,7 @@
 #include "KernelDockAtomWorker.h"
 #include "KernelHvmTab.h"
 #include "KernelDockObjectNamespaceWorker.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include "../theme.h"
 
 #include <QApplication>
@@ -378,13 +378,11 @@ void KernelDock::showObjectNamespaceContextMenu(const QPoint& localPosition)
         QString statusText;
         const bool resolveOk = queryObjectNamespaceSymbolicLinkTarget(entry->fullPathText, targetText, statusText);
 
-        QString resultText = kernelText("kernel.context.object.resolve_detail", QStringLiteral(
-            "符号链接路径: %1\n"
-            "解析状态: %2\n"
-            "目标路径: %3"))
-            .arg(entry->fullPathText)
-            .arg(statusText)
-            .arg(resolveOk ? targetText : kernelText("kernel.context.placeholder.resolve_failed", QStringLiteral("<解析失败>")));
+        ks::ui::FieldDocument resultDocument;
+        resultDocument.section(QStringLiteral("符号链接解析"));
+        resultDocument.field(QStringLiteral("符号链接路径"), entry->fullPathText);
+        resultDocument.field(QStringLiteral("解析状态"), statusText, true);
+        resultDocument.field(QStringLiteral("目标路径"), resolveOk ? targetText : kernelText("kernel.context.placeholder.resolve_failed", QStringLiteral("<解析失败>")));
 
         std::size_t sourceIndex = 0;
         if (resolveOk && currentObjectNamespaceSourceIndex(sourceIndex))
@@ -398,7 +396,7 @@ void KernelDock::showObjectNamespaceContextMenu(const QPoint& localPosition)
         }
 
         showObjectNamespaceDetailByCurrentRow();
-        m_objectNamespaceDetailEditor->setText(resultText);
+        m_objectNamespaceDetailEditor->setDocument(resultDocument);
         return;
     }
     if (selectedAction == mapDosPathAction)
@@ -414,25 +412,17 @@ void KernelDock::showObjectNamespaceContextMenu(const QPoint& localPosition)
         }
 
         const std::vector<QString> candidateList = queryDosPathCandidatesByNtPath(sourcePathText);
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("DOS 路径映射"));
+        document.field(QStringLiteral("路径"), sourcePathText);
         if (candidateList.empty())
-        {
-            m_objectNamespaceDetailEditor->setText(
-                kernelText("kernel.context.object.dos_mapping.none", QStringLiteral("路径: %1\n未找到可用 DOS 路径映射。"))
-                .arg(sourcePathText));
-            return;
-        }
-
+        { document.note(QStringLiteral("未找到可用 DOS 路径映射。")); m_objectNamespaceDetailEditor->setDocument(document); return; }
         QStringList candidateTextList;
-        for (const QString& candidateText : candidateList)
-        {
-            candidateTextList.push_back(candidateText);
-        }
-
-        const QString joinedText = candidateTextList.join('\n');
-        copyTextToClipboard(joinedText);
-        m_objectNamespaceDetailEditor->setText(
-            kernelText("kernel.context.object.dos_mapping.found", QStringLiteral("路径: %1\n已找到 DOS 路径映射（并已复制）：\n%2"))
-            .arg(sourcePathText, joinedText));
+        for (const QString& candidate : candidateList)
+        { candidateTextList.push_back(candidate); document.field(QStringLiteral("DOS 路径"), candidate); }
+        copyTextToClipboard(candidateTextList.join('\n'));
+        document.note(QStringLiteral("已找到 DOS 路径映射（并已复制）。"));
+        m_objectNamespaceDetailEditor->setDocument(document);
         return;
     }
 }
@@ -557,8 +547,8 @@ void KernelDock::showAtomContextMenu(const QPoint& localPosition)
     if (selectedAction == verifyByNameAction)
     {
         std::uint16_t foundAtomValue = 0;
-        QString verifyDetailText;
-        const bool verifyOk = verifyGlobalAtomByName(entry->atomNameText, foundAtomValue, verifyDetailText);
+        ks::ui::FieldDocument verifyDocument;
+        const bool verifyOk = verifyGlobalAtomByName(entry->atomNameText, foundAtomValue, verifyDocument);
 
         if (verifyOk)
         {
@@ -578,7 +568,7 @@ void KernelDock::showAtomContextMenu(const QPoint& localPosition)
             }
         }
 
-        m_atomDetailEditor->setText(verifyDetailText);
+        m_atomDetailEditor->setDocument(verifyDocument);
         return;
     }
     if (selectedAction == copySnippetAction)
@@ -591,9 +581,7 @@ void KernelDock::showAtomContextMenu(const QPoint& localPosition)
             .arg(escapedNameText);
 
         copyTextToClipboard(snippetText);
-        m_atomDetailEditor->setText(
-            kernelText("kernel.context.atom.snippet_copied", QStringLiteral("已复制调用代码片段：\n%1"))
-            .arg(snippetText));
+        m_atomDetailEditor->setDocument(ks::ui::FieldDocument{}.section(QStringLiteral("调用代码片段")).field(QStringLiteral("代码"), snippetText));
         return;
     }
 }

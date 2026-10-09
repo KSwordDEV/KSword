@@ -1,4 +1,5 @@
-﻿#include "KernelCallbackMonitorWidget.h"
+#include "../UI/StructuredFieldView.h"
+#include "KernelCallbackMonitorWidget.h"
 #include "../UI/CodeEditorWidget.h"
 
 #include "../Internationalization/LanguageManager.h"
@@ -652,9 +653,9 @@ void KernelCallbackMonitorWidget::initializeUi()
     m_eventTable->setColumnWidth(CallbackColumnPath, 360);
     m_eventTable->setColumnWidth(CallbackColumnSummary, 260);
 
-    m_detailEdit = new CodeEditorWidget(this);
-    m_detailEdit->setReadOnly(true);
-    m_detailEdit->setPlaceholderText(QStringLiteral("选择事件后查看完整字段详情"));
+    m_detailEdit = new ks::ui::StructuredFieldView(this);
+
+    m_detailEdit->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("选择事件后查看完整字段详情")));
     QSplitter* resultSplitter = new QSplitter(Qt::Vertical, this);
     resultSplitter->addWidget(m_eventTable);
     resultSplitter->addWidget(m_detailEdit);
@@ -847,7 +848,7 @@ void KernelCallbackMonitorWidget::clearLocalEvents()
     m_eventModel->clearRows();
     m_cursorLostCount.store(0ULL);
     m_r3DroppedCount.store(0ULL);
-    m_detailEdit->setReportText(QString());
+    m_detailEdit->setDocument({});
     applyFilters();
     updateStatusLabel();
     m_workerWake.notify_all();
@@ -1075,38 +1076,35 @@ void KernelCallbackMonitorWidget::updateDetailPanel()
     const QModelIndex currentIndex = m_eventTable->currentIndex();
     if (!currentIndex.isValid())
     {
-        m_detailEdit->setReportText(QString());
+        m_detailEdit->setDocument({});
         return;
     }
     const QModelIndex sourceIndex = m_filterModel->mapToSource(currentIndex);
     const auto* row = m_eventModel->rowAt(sourceIndex.row());
     if (row == nullptr)
     {
-        m_detailEdit->setReportText(QString());
+        m_detailEdit->setDocument({});
         return;
     }
 
-    const QString detailText = ks::i18n::sourceText(QStringLiteral(
-        "序号：%1\n时间：%2\n类别：%3\n操作：%4\n来源 PID/TID：%5\n目标 PID/TID：%6\n父 PID：%7\nSession：%8\n结果：%9\n原始/最终访问：0x%10 / 0x%11\n对象类型：%12\nDetailCode：0x%13\n地址/大小：0x%14 / 0x%15\n进程：%16\n路径：%17\n事件标志：0x%18"))
-        .arg(row->sequence)
-        .arg(callbackTimeText(row->timeUtc100ns))
-        .arg(ks::i18n::sourceText(callbackCategoryText(row->category)))
-        .arg(ks::i18n::sourceText(callbackOperationText(*row)))
-        .arg(callbackPidTidText(*row))
-        .arg(callbackTargetText(*row))
-        .arg(row->parentProcessId)
-        .arg(row->sessionId)
-        .arg(callbackResultText(*row))
-        .arg(row->originalAccess, 8, 16, QLatin1Char('0'))
-        .arg(row->desiredAccess, 8, 16, QLatin1Char('0'))
-        .arg(row->objectType)
-        .arg(row->detailCode, 8, 16, QLatin1Char('0'))
-        .arg(row->address, 0, 16)
-        .arg(row->regionSize, 0, 16)
-        .arg(QString::fromStdWString(row->processName))
-        .arg(QString::fromStdWString(row->path))
-        .arg(row->flags, 8, 16, QLatin1Char('0'));
-    m_detailEdit->setReportText(detailText);
+    ks::ui::FieldDocument detailText;
+    detailText.field(QStringLiteral("序号"), QStringLiteral("%1").arg(row->sequence));
+    detailText.field(QStringLiteral("时间"), QStringLiteral("%1").arg(callbackTimeText(row->timeUtc100ns)));
+    detailText.field(QStringLiteral("类别"), QStringLiteral("%1").arg(ks::i18n::sourceText(callbackCategoryText(row->category))));
+    detailText.field(QStringLiteral("操作"), QStringLiteral("%1").arg(ks::i18n::sourceText(callbackOperationText(*row))));
+    detailText.field(QStringLiteral("来源 PID/TID"), QStringLiteral("%1").arg(callbackPidTidText(*row)));
+    detailText.field(QStringLiteral("目标 PID/TID"), QStringLiteral("%1").arg(callbackTargetText(*row)));
+    detailText.field(QStringLiteral("父 PID"), QStringLiteral("%1").arg(row->parentProcessId));
+    detailText.field(QStringLiteral("Session"), QStringLiteral("%1").arg(row->sessionId));
+    detailText.field(QStringLiteral("结果"), QStringLiteral("%1").arg(callbackResultText(*row)));
+    detailText.field(QStringLiteral("原始/最终访问"), QStringLiteral("0x%1 / 0x%2").arg(QStringLiteral("%1").arg(row->originalAccess, 8, 16, QLatin1Char('0'))).arg(QStringLiteral("%1").arg(row->desiredAccess, 8, 16, QLatin1Char('0'))));
+    detailText.field(QStringLiteral("对象类型"), QStringLiteral("%1").arg(row->objectType));
+    detailText.field(QStringLiteral("DetailCode"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(row->detailCode, 8, 16, QLatin1Char('0'))));
+    detailText.field(QStringLiteral("地址/大小"), QStringLiteral("0x%1 / 0x%2").arg(QStringLiteral("%1").arg(row->address, 0, 16)).arg(QStringLiteral("%1").arg(row->regionSize, 0, 16)));
+    detailText.field(QStringLiteral("进程"), QStringLiteral("%1").arg(QString::fromStdWString(row->processName)));
+    detailText.field(QStringLiteral("路径"), QStringLiteral("%1").arg(QString::fromStdWString(row->path)));
+    detailText.field(QStringLiteral("事件标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(row->flags, 8, 16, QLatin1Char('0'))));
+    m_detailEdit->setDocument(detailText);
 }
 
 void KernelCallbackMonitorWidget::exportVisibleRows()

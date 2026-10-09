@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -493,7 +494,7 @@ public:
         QString activityId;
         QString pidTidText;
         QString detailSummary;
-        QString detailJson;
+        QJsonObject detailObject;
         QString detailVisibleText;
         QString detailAllText;
 
@@ -680,11 +681,18 @@ private:
     void startWmiSubscription();
     void stopWmiSubscription();
     void setWmiSubscriptionPaused(bool paused);
+    struct WmiEventSnapshot {
+        QString timestamp;
+        QString provider;
+        QString className;
+        QString pidAndName;
+        ks::ui::FieldDocument document;
+    };
     void enqueueWmiEventRow(
         const QString& providerName,
         const QString& className,
         const QString& pidAndName,
-        const QString& detailText);
+        const ks::ui::FieldDocument& document);
     void applyWmiEventFilter();
     void clearWmiEventFilter();
     void flushWmiPendingRows();
@@ -692,7 +700,7 @@ private:
         const QString& providerName,
         const QString& className,
         const QString& pidAndName,
-        const QString& detailText);
+        const ks::ui::FieldDocument& document);
     void exportWmiRowsToTsv();
     void openWmiEventDetailViewerForRow(int row) const;
     void showWmiEventContextMenu(const QPoint& position);
@@ -773,14 +781,6 @@ private:
     void updateEtwCollapseHeight();
     static void WINAPI etwEventRecordCallback(struct _EVENT_RECORD* eventRecordPtr);
     void enqueueEtwEventFromRecord(const struct _EVENT_RECORD* eventRecordPtr);
-    void appendEtwEventRow(
-        const QString& providerName,
-        int eventId,
-        const QString& eventName,
-        std::uint32_t pidValue,
-        std::uint32_t tidValue,
-        const QString& detailJson,
-        const QString& activityIdText);
     void exportEtwRowsToTsv(bool visibleOnly = true);
     void openEtwEventDetailViewerForRow(int row) const;
     void showEtwEventContextMenu(const QPoint& position);
@@ -890,7 +890,7 @@ private:
     QCheckBox* m_arkRiskHighOnlyCheck = nullptr; // 仅显示高风险记录。
     QLabel* m_arkRiskStatusLabel = nullptr; // 风险中心状态标签。
     QTableWidget* m_arkRiskTable = nullptr; // 风险中心结果表。
-    CodeEditorWidget* m_arkRiskDetailEdit = nullptr; // 风险中心详情文本，使用统一只读代码编辑器。
+    ks::ui::StructuredFieldView* m_arkRiskDetailEdit = nullptr; // 风险中心详情文本，使用统一只读代码编辑器。
 
     QChartView* m_cpuChartView = nullptr;      // CPU 条形图视图。
     QChartView* m_memoryChartView = nullptr;   // 内存条形图视图。
@@ -969,7 +969,7 @@ private:
     std::unique_ptr<std::thread> m_wmiSubscribeThread; // WMI 后台订阅线程。
     int m_wmiProviderRefreshProgressPid = 0;          // WMI Provider 刷新进度 PID。
     int m_wmiSubscribeProgressPid = 0;                // WMI 订阅进度 PID。
-    std::vector<QStringList> m_wmiPendingRows;        // WMI 待刷入 UI 的事件缓存。
+    std::vector<WmiEventSnapshot> m_wmiPendingRows;        // WMI 待刷入 UI 的事件缓存。
     std::mutex m_wmiPendingMutex;                     // WMI 事件缓存互斥锁。
     QTimer* m_wmiUiUpdateTimer = nullptr;             // WMI UI 节流刷新定时器。
 

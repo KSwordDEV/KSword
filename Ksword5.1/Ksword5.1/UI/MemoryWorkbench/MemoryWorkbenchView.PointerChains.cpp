@@ -16,7 +16,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
-#include "../CodeTextEdit.h"
+#include "../StructuredFieldView.h"
 #include <QStackedWidget>
 #include <QThreadPool>
 #include <QVBoxLayout>
@@ -56,19 +56,22 @@ namespace ks::ui
             return {};
         }
 
-        QString Trace(const ksword::memwb_pointer_access::Resolution& resolved)
+        FieldDocument BuildPointerTrace(const ksword::memwb_pointer_access::Resolution& resolved)
         {
-            QStringList lines;
+            FieldDocument document;
             for (std::size_t i = 0; i < resolved.result.steps.size(); ++i)
             {
                 const auto& step = resolved.result.steps[i];
-                lines << T(QStringLiteral("第 %1 级：读取 0x%2 → 指针 0x%3；偏移 %4 → 0x%5"))
-                    .arg(static_cast<qulonglong>(i + 1)).arg(QString::number(step.readAddress, 16))
-                    .arg(QString::number(step.pointerValue, 16)).arg(Offset(step.offset))
-                    .arg(QString::number(step.resolvedAddress, 16));
+                document.section(QStringLiteral("第 %1 级").arg(static_cast<qulonglong>(i + 1)));
+                document.field(QStringLiteral("读取地址"), QStringLiteral("0x%1").arg(QString::number(step.readAddress, 16)));
+                document.field(QStringLiteral("指针值"), QStringLiteral("0x%1").arg(QString::number(step.pointerValue, 16)));
+                document.field(QStringLiteral("偏移"), Offset(step.offset));
+                document.field(QStringLiteral("解析地址"), QStringLiteral("0x%1").arg(QString::number(step.resolvedAddress, 16)));
             }
+            document.section(QStringLiteral("解析结果"));
+            document.field(QStringLiteral("状态码"), QString::number(static_cast<int>(resolved.result.status)));
             if (resolved.result.ok())
-                lines << T(QStringLiteral("解析完成：0x%1")).arg(QString::number(resolved.result.address, 16));
+                document.field(QStringLiteral("目标地址"), QStringLiteral("0x%1").arg(QString::number(resolved.result.address, 16)));
             else
             {
                 using S = ksword::pointer_chain::Status;
@@ -76,11 +79,11 @@ namespace ks::ui
                 if (resolved.result.status == S::NullPointer) detail = T(QStringLiteral("遇到空指针。"));
                 if (resolved.result.status == S::CycleDetected) detail = T(QStringLiteral("指针链重复访问同一地址。"));
                 if (resolved.result.status == S::AddressOverflow) detail = T(QStringLiteral("指针地址或偏移越界。"));
-                lines << T(QStringLiteral("第 %1 级失败：%2"))
-                    .arg(static_cast<qulonglong>(resolved.result.failedLevel + 1)).arg(detail);
+                document.field(QStringLiteral("失败级别"), QString::number(resolved.result.failedLevel + 1));
+                document.field(QStringLiteral("原因"), detail);
             }
-            if (!resolved.annotation.empty()) lines << QString::fromUtf8(resolved.annotation.c_str());
-            return lines.join(QStringLiteral("\n"));
+            if (!resolved.annotation.empty()) document.note(QString::fromUtf8(resolved.annotation.c_str()));
+            return document;
         }
 
         bool SameDefinition(const ksword::memwb::AddressEntry& a, const ksword::memwb::AddressEntry& b)
@@ -171,10 +174,8 @@ namespace ks::ui
         layout->addWidget(hint);
         if (const auto found = pointerTraces_.find(id); found != pointerTraces_.end())
         {
-            auto* trace = new CodeTextEdit(dialog);
-            trace->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
-            trace->setPlainText(QString::fromUtf8(found->second.c_str()));
-            trace->setReadOnly(true);
+            auto* trace = new StructuredFieldView(dialog);
+            trace->setDocument(found->second);
             layout->addWidget(trace);
         }
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, dialog);
@@ -285,10 +286,10 @@ namespace ks::ui
                 if (ticket != self->pointerTicket_ || !self->target_ || self->target_->isStale(captured.rev)
                     || !current || !SameDefinition(entry, *current)) return;
                 if (!self) return;
-                const auto trace = Trace(resolved);
+                const auto trace = BuildPointerTrace(resolved);
                 if (self->pointerTraces_.size() >= 256) self->pointerTraces_.erase(self->pointerTraces_.begin());
-                self->pointerTraces_[entry.id] = trace.toUtf8().toStdString();
-                if (self->statusBar_) self->statusBar_->setDiagnosticsText(trace, true);
+                self->pointerTraces_[entry.id] = trace;
+                if (self->statusBar_) self->statusBar_->setDiagnosticsDocument(trace, true);
                 if (!navigate || !resolved.result.ok()) return;
                 NavRequest request;
                 request.scope = captured.session.scope;

@@ -1,11 +1,11 @@
-﻿// NOMINMAX 必须排在任何一个 include 之前：下面几个项目头会级联引入 Windows.h，
+// NOMINMAX 必须排在任何一个 include 之前：下面几个项目头会级联引入 Windows.h，
 // 等到那时候再定义就晚了，min/max 宏一旦进来就会把 std:: 里的同名模板打断。
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 
 #include "HvmHookWizard.h"
-#include "CodeEditorWidget.h"
+#include "StructuredFieldView.h"
 
 #include "HvmControl.h"
 #include "ThemeStatusRole.h"
@@ -350,7 +350,7 @@ namespace ks::ui
         case Step::Install:
             if (m_installSummaryView != nullptr)
             {
-                m_installSummaryView->setReportText(buildInstallSummaryText());
+                m_installSummaryView->setDocument(buildInstallSummaryDocument());
             }
             break;
         case Step::Verify:
@@ -1382,9 +1382,7 @@ namespace ks::ui
         QWidget* const page = new QWidget(this);
         QVBoxLayout* const pageLayout = new QVBoxLayout(page);
 
-        m_installSummaryView = new CodeEditorWidget(page);
-        m_installSummaryView->setReadOnly(true);
-        makeMonospace(m_installSummaryView);
+        m_installSummaryView = new StructuredFieldView(page);
         pageLayout->addWidget(m_installSummaryView, 1);
 
         QLabel* const riskLabel = new QLabel(
@@ -1416,54 +1414,39 @@ namespace ks::ui
         return page;
     }
 
-    QString HvmHookWizard::buildInstallSummaryText() const
+    FieldDocument HvmHookWizard::buildInstallSummaryDocument() const
     {
-        QStringList lines;
-        lines << ks::i18n::sourceText(
-            QStringLiteral("视图类型：HOOK（协议值 2）—— 读写走真实页，执行走影子页。"));
-        lines << ks::i18n::sourceText(QStringLiteral("目标入口：%1"))
-            .arg(describeHookTargetSource(m_plan.targetSource));
+        FieldDocument document;
+        document.section(QStringLiteral("目标"));
+        document.field(QStringLiteral("视图类型"), QStringLiteral("HOOK（协议值 2）"));
+        document.note(QStringLiteral("视图类型：HOOK（协议值 2）—— 读写走真实页，执行走影子页。"));
+        document.field(QStringLiteral("目标入口"), describeHookTargetSource(m_plan.targetSource));
         if (m_plan.targetSource == HvmHookTargetSource::ModuleOffset)
         {
-            lines << ks::i18n::sourceText(
-                QStringLiteral("模块：%1，基址 %2，映像大小 %3，模块内偏移 %4"))
-                .arg(m_plan.moduleName)
-                .arg(hexText(m_plan.moduleBase))
-                .arg(hexText(m_plan.imageSize))
-                .arg(hexText(m_plan.offset));
+            document.field(QStringLiteral("模块"), m_plan.moduleName);
+            document.field(QStringLiteral("模块基址"), hexText(m_plan.moduleBase));
+            document.field(QStringLiteral("映像大小"), hexText(m_plan.imageSize));
+            document.field(QStringLiteral("模块内偏移"), hexText(m_plan.offset));
         }
-        lines << ks::i18n::sourceText(QStringLiteral("虚拟地址：%1"))
-            .arg(m_plan.targetSource == HvmHookTargetSource::RawPa
-                ? ks::i18n::sourceText(QStringLiteral("本入口没有虚拟地址"))
-                : hexText(m_plan.virtualAddress));
-        lines << ks::i18n::sourceText(
-            QStringLiteral("完整物理地址（含页内偏移）：%1"))
-            .arg(hexText(m_plan.fullPhysicalAddress));
-        lines << ks::i18n::sourceText(QStringLiteral("目标物理页（安装用的就是它）：%1"))
-            .arg(hexText(m_plan.pageBasePhysical));
-        lines << ks::i18n::sourceText(QStringLiteral("页内偏移：%1"))
-            .arg(hexText(m_plan.pageOffset));
-        lines << ks::i18n::sourceText(
-            QStringLiteral("影子来源：调用方提供的整页内容（Explicit，恰好 %1 字节）"))
-            .arg(kPageBytes);
-        lines << ks::i18n::sourceText(
-            QStringLiteral("补丁：从页内偏移 %1 起，共 %2 字节，止于偏移 %3"))
-            .arg(hexText(m_plan.pageOffset))
-            .arg(m_plan.patchLength())
-            .arg(hexText(m_plan.patchEndOffset()));
-        lines << ks::i18n::sourceText(
-            QStringLiteral("稳态叶权限：真页 | 读 | 写，不给执行 —— 所以稳态下对这一页的读写不产生任何 violation。"));
-        lines << ks::i18n::sourceText(
-            QStringLiteral("翻转态叶权限：影子页 | 执行；处理器缺 execute-only 能力时驱动会静默补上读权限。"));
-        lines << ks::i18n::sourceText(
-            QStringLiteral("补丁几何：%1"))
-            .arg(m_plan.classifyPatchGeometry()
-                    == Ksword::Evidence::CrossPageClassification::InPage
-                ? ks::i18n::sourceText(QStringLiteral("完全落在这一页内"))
-                : ks::i18n::sourceText(QStringLiteral("越过了页尾，必须拒绝")));
-        lines << ks::i18n::sourceText(
-            QStringLiteral("HOOK 不是安全边界，失败即放行：翻转窗口里指令长度为 0 时处理器会重执行并读到真页。"));
-        return lines.join(QStringLiteral("\n"));
+        document.field(QStringLiteral("虚拟地址"), m_plan.targetSource == HvmHookTargetSource::RawPa
+            ? ks::i18n::sourceText(QStringLiteral("本入口没有虚拟地址")) : hexText(m_plan.virtualAddress));
+        document.field(QStringLiteral("完整物理地址（含页内偏移）"), hexText(m_plan.fullPhysicalAddress));
+        document.field(QStringLiteral("目标物理页（安装用的就是它）"), hexText(m_plan.pageBasePhysical));
+        document.field(QStringLiteral("页内偏移"), hexText(m_plan.pageOffset));
+        document.section(QStringLiteral("补丁"));
+        document.field(QStringLiteral("影子来源"), ks::i18n::sourceText(
+            QStringLiteral("影子来源：调用方提供的整页内容（Explicit，恰好 %1 字节）")).arg(kPageBytes));
+        document.field(QStringLiteral("补丁起点"), hexText(m_plan.pageOffset));
+        document.field(QStringLiteral("补丁长度"), QString::number(m_plan.patchLength()));
+        document.field(QStringLiteral("补丁终点"), hexText(m_plan.patchEndOffset()));
+        document.field(QStringLiteral("补丁几何"), m_plan.classifyPatchGeometry()
+            == Ksword::Evidence::CrossPageClassification::InPage
+            ? QStringLiteral("完全落在这一页内") : QStringLiteral("越过了页尾，必须拒绝"), true);
+        document.section(QStringLiteral("执行语义"));
+        document.note(QStringLiteral("稳态叶权限：真页 | 读 | 写，不给执行 —— 所以稳态下对这一页的读写不产生任何 violation。"));
+        document.note(QStringLiteral("翻转态叶权限：影子页 | 执行；处理器缺 execute-only 能力时驱动会静默补上读权限。"));
+        document.note(QStringLiteral("HOOK 不是安全边界，失败即放行：翻转窗口里指令长度为 0 时处理器会重执行并读到真页。"));
+        return document;
     }
 
     void HvmHookWizard::startInstall()
@@ -1658,11 +1641,11 @@ namespace ks::ui
             }
             if (m_installSummaryView != nullptr)
             {
-                m_installSummaryView->setReportText(
+                m_installSummaryView->setDocument(FieldDocument{}.note(
                     ks::i18n::sourceText(
                         QStringLiteral("目标页在抓基线之后被改过，已中止安装。变化的页内偏移："))
                     + QStringLiteral("\n")
-                    + changed.join(QStringLiteral("\n")));
+                    + changed.join(QStringLiteral("\n"))));
             }
             // 拿重读回来的这一页当新基线，用户回第 2 步重编补丁即可，
             // 不必从第 1 步重来，也不用再读一遍。

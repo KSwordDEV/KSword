@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 // ============================================================
 // MinidumpDock.cpp
 // 作用：
@@ -236,8 +237,8 @@ void MinidumpDock::buildUi()
     m_rawMemoryTabs = new QTabWidget(m_resultTabs);
     m_rawMemoryTabs->setDocumentMode(true);
     m_memoryView = new DumpMemoryView(m_resultTabs);
-    m_reportEditor = new CodeEditorWidget(m_resultTabs);
-    m_reportEditor->setReadOnly(true);
+    m_reportEditor = new ks::ui::StructuredFieldView(m_resultTabs);
+
 
     // 预创建的页全部以 m_resultTabs 为父，但此刻一个都还没 addTab。
     // 有父而未进 tab 栈的控件会作为 QTabWidget 的普通子控件浮在客户区上，
@@ -648,7 +649,7 @@ void MinidumpDock::exportReport()
     }
     // 报告按当前界面语言渲染后写出 UTF-8 文本。
     const QString localizedReport =
-        ks::ui::LocalizeGeneratedReport(buildReportText(*m_lastResult));
+        buildReportText(*m_lastResult).toPlainText(true);
     reportFile.write(localizedReport.toUtf8());
     reportFile.close();
     setStatus(

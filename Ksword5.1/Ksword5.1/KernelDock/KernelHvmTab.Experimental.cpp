@@ -1,4 +1,5 @@
-﻿#include "KernelHvmTab.h"
+#include "../UI/StructuredFieldView.h"
+#include "KernelHvmTab.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -709,16 +710,8 @@ void KernelHvmTab::applyEvents(
         return;
     }
 
-    QStringList lines;
-    lines.push_back(kernelText(
-        "kernel.hvm.events.summary",
-        QStringLiteral(
-            "返回 %1 / 分配序号范围内可用 %2，覆盖或本快照不可用 %3，"
-            "最新序号 %4"))
-        .arg(result.response.returnedRows)
-        .arg(result.response.availableRows)
-        .arg(result.response.droppedRows)
-        .arg(result.response.newestSequence));
+    ks::ui::FieldDocument lines;
+    lines.field(QStringLiteral("返回"), QStringLiteral("返回 %1 / 分配序号范围内可用 %2，覆盖或本快照不可用 %3，最新序号 %4").arg(QStringLiteral("%1").arg(result.response.returnedRows)).arg(QStringLiteral("%1").arg(result.response.availableRows)).arg(QStringLiteral("%1").arg(result.response.droppedRows)).arg(QStringLiteral("%1").arg(result.response.newestSequence)));
     const unsigned long rowCount = (std::min)(
         result.response.returnedRows,
         static_cast<unsigned long>(
@@ -726,23 +719,17 @@ void KernelHvmTab::applyEvents(
     for (unsigned long index = 0; index < rowCount; ++index)
     {
         const auto& row = result.response.rows[index];
-        lines.push_back(QStringLiteral(
-            "#%1  CPU %2:%3  %4  reason=%5  RIP=0x%6  "
-            "GPA=0x%7  access=0x%8  rule=%9  status=%10")
-            .arg(row.sequence)
-            .arg(row.processorGroup)
-            .arg(row.processorNumber)
-            .arg(eventTypeText(row.type))
-            .arg(row.exitReason)
-            .arg(QString::number(row.guestRip, 16).toUpper())
-            .arg(QString::number(
+        lines.field(QStringLiteral("#"), QStringLiteral("#%1  CPU %2:%3  %4").arg(QStringLiteral("%1").arg(row.sequence)).arg(QStringLiteral("%1").arg(row.processorGroup)).arg(QStringLiteral("%1").arg(row.processorNumber)).arg(QStringLiteral("%1").arg(eventTypeText(row.type))));
+        lines.field(QStringLiteral("reason"), QStringLiteral("%1").arg(row.exitReason));
+        lines.field(QStringLiteral("RIP"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(row.guestRip, 16).toUpper())));
+        lines.field(QStringLiteral("GPA"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(
                 row.guestPhysicalAddress,
-                16).toUpper())
-            .arg(QString::number(row.access, 16).toUpper())
-            .arg(row.ruleId)
-            .arg(ntStatusText(row.status)));
+                16).toUpper())));
+        lines.field(QStringLiteral("access"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(row.access, 16).toUpper())));
+        lines.field(QStringLiteral("rule"), QStringLiteral("%1").arg(row.ruleId));
+        lines.field(QStringLiteral("status"), QStringLiteral("%1").arg(ntStatusText(row.status)));
     }
-    m_detailEdit->setReportText(lines.join(QLatin1Char('\n')));
+    m_detailEdit->setDocument(lines);
     m_statusLabel->setText(
         kernelText(
             "kernel.hvm.status.events_ready",

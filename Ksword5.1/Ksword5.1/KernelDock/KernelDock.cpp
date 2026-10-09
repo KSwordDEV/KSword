@@ -12,7 +12,7 @@
 // 3) 具体底层枚举逻辑放在 Worker 文件，当前文件仅做界面和交互编排。
 // ============================================================
 
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include "../UI/DetailLayoutRegistry.h"
 #include "KernelBaseNamedObjectsTab.h"
 #include "KernelDockCidTab.h"
@@ -92,14 +92,6 @@ namespace
 
     // headerStyle：
     // - 作用：统一表头样式，强化列标题可读性。
-    QString headerStyle()
-    {
-        return QStringLiteral(
-            "QHeaderView::section{color:%1;background:transparent;/* %2 */border:1px solid %3;font-weight:600;}")
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::SurfaceHex())
-            .arg(KswordTheme::BorderHex());
-    }
 
     // itemSelectionStyle：
     // - 作用：统一表格/树控件选中高亮为主题蓝，避免系统默认配色差异。
@@ -1033,7 +1025,7 @@ void KernelDock::initializeObjectNamespaceTab()
     m_objectNamespaceTree->setStyleSheet(itemSelectionStyle());
     m_objectNamespaceTree->setUniformRowHeights(true);
     m_objectNamespaceTree->setRootIsDecorated(true);
-    m_objectNamespaceTree->header()->setStyleSheet(headerStyle());
+
     // 列宽策略：
     // - 初始布局仍交给全局 TableColumnAutoFit 压入可见宽度；
     // - 不强制隐藏横向滚动条，用户拖宽列后允许 Qt 按需显示。
@@ -1057,10 +1049,9 @@ void KernelDock::initializeObjectNamespaceTab()
     m_objectNamespacePropertyTable->setColumnWidth(0, 220);
     m_objectNamespacePropertyTable->setToolTip(kernelText("kernel.main.object_namespace.property.tooltip", QStringLiteral("当前选中节点的字段详情（字段名 + 字段值）")));
 
-    m_objectNamespaceDetailEditor = new CodeEditorWidget(verticalSplitter);
+    m_objectNamespaceDetailEditor = new ks::ui::StructuredFieldView(verticalSplitter);
     m_objectNamespaceDetailEditor->setObjectName(QStringLiteral("ks_object_namespace_detail_editor"));
-    m_objectNamespaceDetailEditor->setReadOnly(true);
-    m_objectNamespaceDetailEditor->setText(kernelText("kernel.main.object_namespace.detail.initial", QStringLiteral("请选择对象命名空间节点查看详情。")));
+    m_objectNamespaceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.main.object_namespace.detail.initial", QStringLiteral("请选择对象命名空间节点查看详情。"))));
 
     horizontalSplitter->setStretchFactor(0, 3);
     horizontalSplitter->setStretchFactor(1, 2);
@@ -1139,7 +1130,7 @@ void KernelDock::initializeAtomTableTab()
     m_atomTable->setStyleSheet(itemSelectionStyle());
     m_atomTable->setCornerButtonEnabled(false);
     m_atomTable->verticalHeader()->setVisible(false);
-    m_atomTable->horizontalHeader()->setStyleSheet(headerStyle());
+
     m_atomTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_atomTable->horizontalHeader()->setSectionResizeMode(static_cast<int>(AtomColumn::Name), QHeaderView::Stretch);
     m_atomTable->setColumnWidth(static_cast<int>(AtomColumn::Value), 110);
@@ -1147,14 +1138,13 @@ void KernelDock::initializeAtomTableTab()
     m_atomTable->setColumnWidth(static_cast<int>(AtomColumn::Source), 220);
     m_atomTable->setColumnWidth(static_cast<int>(AtomColumn::Status), 160);
 
-    m_atomDetailEditor = new CodeEditorWidget(splitter);
-    m_atomDetailEditor->setReadOnly(true);
-    m_atomDetailEditor->setText(kernelText("kernel.main.atom.detail.initial", QStringLiteral("请选择一条原子记录查看详情。")));
+    m_atomDetailEditor = new ks::ui::StructuredFieldView(splitter);
+    m_atomDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.main.atom.detail.initial", QStringLiteral("请选择一条原子记录查看详情。"))));
 
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_atomTable, m_atomDetailEditor, m_atomPage);
 
     // 原子表页连接：刷新、筛选、详情联动、右键菜单。
@@ -1219,18 +1209,17 @@ void KernelDock::initializeNtQueryTab()
     m_ntQueryTable->setStyleSheet(itemSelectionStyle());
     m_ntQueryTable->setCornerButtonEnabled(false);
     m_ntQueryTable->verticalHeader()->setVisible(false);
-    m_ntQueryTable->horizontalHeader()->setStyleSheet(headerStyle());
+
     m_ntQueryTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_ntQueryTable->horizontalHeader()->setSectionResizeMode(static_cast<int>(NtQueryColumn::Summary), QHeaderView::Stretch);
 
-    m_ntQueryDetailEditor = new CodeEditorWidget(splitter);
-    m_ntQueryDetailEditor->setReadOnly(true);
-    m_ntQueryDetailEditor->setText(kernelText("kernel.main.nt_query.detail.initial", QStringLiteral("请选择一条 NtQuery 结果查看详情。")));
+    m_ntQueryDetailEditor = new ks::ui::StructuredFieldView(splitter);
+    m_ntQueryDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.main.nt_query.detail.initial", QStringLiteral("请选择一条 NtQuery 结果查看详情。"))));
 
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_ntQueryTable, m_ntQueryDetailEditor, m_ntQueryPage);
 
     // 历史 NtQuery 页连接：刷新与详情联动。

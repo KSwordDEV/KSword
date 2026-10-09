@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -92,7 +93,7 @@ private:
     // - 输入：无；
     // - 处理：把当前 UI 配置转换为可复制的执行计划；
     // - 返回：计划文本。
-    QString buildPlanText() const;
+    ks::ui::FieldDocument buildPlanText() const;
 
     // updatePlanPreview：
     // - 输入：无；
@@ -137,6 +138,6 @@ private:
     QPushButton* m_disableButton = nullptr;   // m_disableButton：卸载 Dispatch 按钮。
     QPushButton* m_copyPlanButton = nullptr;  // m_copyPlanButton：复制计划按钮。
     QTableWidget* m_statusTable = nullptr;    // m_statusTable：目标驱动状态表。
-    CodeEditorWidget* m_planEditor = nullptr; // m_planEditor：只读计划/日志文本。
+    ks::ui::StructuredFieldView* m_planEditor = nullptr; // m_planEditor：只读计划/日志文本。
     bool m_warningShown = false;              // m_warningShown：首次进入弹窗状态。
 };

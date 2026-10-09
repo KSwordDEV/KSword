@@ -1,4 +1,5 @@
 #include "MemoryDock.Internal.h"
+#include "../UI/StructuredFieldView.h"
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll：页内滚动壳。
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -200,29 +201,29 @@ namespace
     // 页面本地那份把数值塞进 Qt::UserRole 的私有 NumericItem 已删除，避免与
     // 其它页面的 UserRole 约定互相踩踏，也不必再各自维护一份 operator<。
 
-    // 生成用于详情窗的多行文本。
-    QString buildPteDetailText(const MemoryDock::ProcessMemoryEvidenceEntry& entry)
+    // 生成用于详情窗的结构字段。
+    ks::ui::FieldDocument buildPteDetailDocument(const MemoryDock::ProcessMemoryEvidenceEntry& entry)
     {
-        QString text;
-        text += QStringLiteral("PTE / VA 翻译详情\n");
-        text += QStringLiteral("VirtualAddress: %1\n").arg(hex64(entry.virtualAddress));
-        text += QStringLiteral("RegionBaseAddress: %1\n").arg(hex64(entry.regionBaseAddress));
-        text += QStringLiteral("RegionSize: %1\n").arg(hex64(entry.regionSize));
-        text += QStringLiteral("Protect: 0x%1\n").arg(entry.protect, 8, 16, QChar('0'));
-        text += QStringLiteral("State: 0x%1\n").arg(entry.state, 8, 16, QChar('0'));
-        text += QStringLiteral("Type: 0x%1\n").arg(entry.type, 8, 16, QChar('0'));
-        text += QStringLiteral("Win32Protection: 0x%1\n").arg(entry.win32Protection, 8, 16, QChar('0'));
-        text += QStringLiteral("ShareCount: %1\n").arg(entry.shareCount);
-        text += QStringLiteral("Node: %1\n").arg(entry.node);
-        text += QStringLiteral("Valid: %1\n").arg(entry.valid ? QStringLiteral("true") : QStringLiteral("false"));
-        text += QStringLiteral("Shared: %1\n").arg(entry.shared ? QStringLiteral("true") : QStringLiteral("false"));
-        text += QStringLiteral("Locked: %1\n").arg(entry.locked ? QStringLiteral("true") : QStringLiteral("false"));
-        text += QStringLiteral("LargePage: %1\n").arg(entry.largePage ? QStringLiteral("true") : QStringLiteral("false"));
-        text += QStringLiteral("Bad: %1\n").arg(entry.bad ? QStringLiteral("true") : QStringLiteral("false"));
-        text += QStringLiteral("MappedFile: %1\n").arg(entry.mappedFilePath.isEmpty() ? QStringLiteral("—") : entry.mappedFilePath);
-        text += QStringLiteral("Risk: %1\n").arg(entry.riskText);
-        text += QStringLiteral("Detail: %1\n").arg(entry.detailText.isEmpty() ? QStringLiteral("—") : entry.detailText);
-        return text;
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("PTE / VA 翻译详情"));
+        document.field(QStringLiteral("VirtualAddress"), QStringLiteral("%1").arg(hex64(entry.virtualAddress)));
+        document.field(QStringLiteral("RegionBaseAddress"), QStringLiteral("%1").arg(hex64(entry.regionBaseAddress)));
+        document.field(QStringLiteral("RegionSize"), QStringLiteral("%1").arg(hex64(entry.regionSize)));
+        document.field(QStringLiteral("Protect"), QStringLiteral("0x%1").arg(entry.protect, 8, 16, QChar('0')), true);
+        document.field(QStringLiteral("State"), QStringLiteral("0x%1").arg(entry.state, 8, 16, QChar('0')), true);
+        document.field(QStringLiteral("Type"), QStringLiteral("0x%1").arg(entry.type, 8, 16, QChar('0')), true);
+        document.field(QStringLiteral("Win32Protection"), QStringLiteral("0x%1").arg(entry.win32Protection, 8, 16, QChar('0')));
+        document.field(QStringLiteral("ShareCount"), QStringLiteral("%1").arg(entry.shareCount));
+        document.field(QStringLiteral("Node"), QStringLiteral("%1").arg(entry.node));
+        document.field(QStringLiteral("Valid"), QStringLiteral("%1").arg(entry.valid ? QStringLiteral("true") : QStringLiteral("false")), true);
+        document.field(QStringLiteral("Shared"), QStringLiteral("%1").arg(entry.shared ? QStringLiteral("true") : QStringLiteral("false")), true);
+        document.field(QStringLiteral("Locked"), QStringLiteral("%1").arg(entry.locked ? QStringLiteral("true") : QStringLiteral("false")), true);
+        document.field(QStringLiteral("LargePage"), QStringLiteral("%1").arg(entry.largePage ? QStringLiteral("true") : QStringLiteral("false")), true);
+        document.field(QStringLiteral("Bad"), QStringLiteral("%1").arg(entry.bad ? QStringLiteral("true") : QStringLiteral("false")), true);
+        document.field(QStringLiteral("MappedFile"), QStringLiteral("%1").arg(entry.mappedFilePath.isEmpty() ? QStringLiteral("—") : entry.mappedFilePath));
+        document.field(QStringLiteral("Risk"), QStringLiteral("%1").arg(entry.riskText), true);
+        document.field(QStringLiteral("Detail"), QStringLiteral("%1").arg(entry.detailText.isEmpty() ? QStringLiteral("—") : entry.detailText));
+        return document;
     }
 }
 
@@ -343,12 +344,11 @@ void MemoryDock::initializeProcessPteTranslateTab()
     installPteCopyMenu(m_processPteTranslateTable);
     splitter->addWidget(m_processPteTranslateTable);
 
-    m_processPteTranslateDetailEditor = new CodeEditorWidget(splitter);
-    m_processPteTranslateDetailEditor->setReadOnly(true);
-    m_processPteTranslateDetailEditor->setText(QStringLiteral("请选择一条 PTE / VA 翻译记录查看详情。"));
+    m_processPteTranslateDetailEditor = new ks::ui::StructuredFieldView(splitter);
+    m_processPteTranslateDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条 PTE / VA 翻译记录查看详情。")));
     splitter->addWidget(m_processPteTranslateDetailEditor);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_processPteTranslateTable,
         m_processPteTranslateDetailEditor,
         m_tabProcessPteTranslate);
@@ -540,8 +540,9 @@ void MemoryDock::refreshProcessPteTranslateAsync()
         }
 
         QMetaObject::invokeMethod(
-            guardThis.data(),
+            qApp,
             [guardThis, ticket, attachmentGeneration, entries = std::move(entries)]() mutable {
+                if (guardThis == nullptr) return;
                 auto entriesSnapshot =
                     std::make_shared<std::vector<ProcessMemoryEvidenceEntry>>(std::move(entries));
                 auto commitSnapshot = [guardThis, ticket, attachmentGeneration, entriesSnapshot]() mutable
@@ -662,7 +663,7 @@ void MemoryDock::rebuildProcessPteTranslateTable()
 void MemoryDock::showProcessPteTranslateDetailByCurrentRow()
 {
     // 输入：无，读取当前表格选中行。
-    // 处理：从缓存中展开当前记录到 CodeEditorWidget。
+    // 处理：从缓存中展开当前记录到 StructuredFieldView。
     // 返回：无。
     if (m_processPteTranslateDetailEditor == nullptr || m_processPteTranslateTable == nullptr)
     {
@@ -672,19 +673,20 @@ void MemoryDock::showProcessPteTranslateDetailByCurrentRow()
     const int row = m_processPteTranslateTable->currentRow();
     if (row < 0 || row >= m_processPteTranslateTable->rowCount())
     {
-        m_processPteTranslateDetailEditor->setText(QStringLiteral("请选择一条 PTE / VA 翻译记录查看详情。"));
+        m_processPteTranslateDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条 PTE / VA 翻译记录查看详情。")));
         return;
     }
 
     const QTableWidgetItem* addressItem = m_processPteTranslateTable->item(row, pteTranslateColumnIndex(PteTranslateColumn::VirtualAddress));
     if (addressItem == nullptr)
     {
+        m_processPteTranslateDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前记录的缓存已失效，请刷新后重试。")));
         return;
     }
     const QString diagnosticText = addressItem->data(Qt::UserRole + 2).toString();
     if (!diagnosticText.isEmpty())
     {
-        m_processPteTranslateDetailEditor->setText(QStringLiteral("PTE / VA 翻译诊断\n%1").arg(diagnosticText));
+        m_processPteTranslateDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("PTE / VA 翻译诊断\n%1").arg(diagnosticText)));
         return;
     }
 
@@ -694,6 +696,7 @@ void MemoryDock::showProcessPteTranslateDetailByCurrentRow()
     const qulonglong addressValue = addressItem->data(ks::ui::NumericSortRole).toULongLong(&ok);
     if (!ok)
     {
+        m_processPteTranslateDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前记录的缓存已失效，请刷新后重试。")));
         return;
     }
 
@@ -701,8 +704,9 @@ void MemoryDock::showProcessPteTranslateDetailByCurrentRow()
     {
         if (entry.virtualAddress == static_cast<std::uint64_t>(addressValue))
         {
-            m_processPteTranslateDetailEditor->setText(buildPteDetailText(entry));
+            m_processPteTranslateDetailEditor->setDocument(buildPteDetailDocument(entry));
             return;
         }
     }
+    m_processPteTranslateDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前记录的缓存已失效，请刷新后重试。")));
 }

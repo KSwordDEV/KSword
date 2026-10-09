@@ -4,16 +4,7 @@
 // WorkbenchStatusBar.cpp
 // 作用：见头文件。
 //
-// 关于 IWorkbenchDiagnosticsHost 为什么不在本文件里默认构造一个基于
-// CodeEditorWidget 的实现：
-// - CodeEditorWidget.cpp 直接 #include 了 "../Internationalization/LanguageManager.h"，
-//   该模块牵连主程序的语言包加载与一大批 Framework.h 下的全局单例；在 wpG 的
-//   独立离屏夹具（tools/memwb_ui/wpG/）里把它链接进来需要连带拉起整条主程序
-//   依赖链，与"夹具隔离、仅链接所需源文件"的要求冲突。
-// - 因此本文件只定义接口，不在内部创建任何具体实现；调用方（生产环境下是
-//   MemoryWorkbenchView 所在的装配层，WP-J/Z）必须在构造本控件时传入一个具体
-//   实现——生产用包着 CodeEditorWidget 的实现，夹具用等价的只读文本替身。
-//   这个"生产实现仍用 CodeEditorWidget"的缺口已经在任务结束时的 problems 里声明。
+// 宿主由装配层注入；字段模型和原始日志各有正式接口，状态条仅负责抽屉与复制动作。
 // ============================================================
 
 #include "WorkbenchMessages.h"
@@ -234,6 +225,7 @@ namespace ks::ui
         drawerToolRow->addWidget(m_wrapCheckBox);
         drawerToolRow->addStretch(1);
         m_copyDiagnosticsButton = new QToolButton(m_drawerContainer);
+        m_copyDiagnosticsButton->setObjectName(QStringLiteral("workbench_copy_diagnostics"));
         m_copyDiagnosticsButton->setIcon(QIcon(QStringLiteral(":/Icon/log_copy.svg")));
         m_copyDiagnosticsButton->setToolTip(workbench_messages::CopyDiagnosticsButtonTooltip());
         KswordTheme::ApplyCompactIconButtonMetrics(m_copyDiagnosticsButton);
@@ -347,6 +339,12 @@ namespace ks::ui
         {
             setDrawerExpanded(true);
         }
+    }
+
+    void WorkbenchStatusBar::setDiagnosticsDocument(const FieldDocument& document, const bool autoExpand)
+    {
+        m_diagnosticsHost->SetDiagnosticsDocument(document);
+        if (autoExpand) setDrawerExpanded(true);
     }
 
     QString WorkbenchStatusBar::diagnosticsText() const

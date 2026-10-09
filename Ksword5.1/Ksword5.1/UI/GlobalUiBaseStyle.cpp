@@ -158,18 +158,24 @@ namespace ks::ui
             "  font-weight:600;"
             "}"
 
-            // ---------- 表头基线 ----------
-            // 统一各页面表格/树的表头为“中性次级表面 + 底部分隔线”。
+            // ---------- 表格/树基线 ----------
+            // 只保留表头下方的分隔；逐格网格和外框由 TablePresentation 关闭。
+            // 间距、密度和专业视图例外都在控件层处理，全局块不增加几何属性。
+            "QTableView,QTableWidget,QTreeView,QTreeWidget{"
+            "  border:none;"
+            "  color:__TEXT__;"
+            "  selection-background-color:__ACCENT__;"
+            "  selection-color:__ON_ACCENT__;"
+            "}"
             "QHeaderView{"
             "  background-color:transparent;"
             "  border:none;"
             "}"
             "QHeaderView::section{"
-            "  background-color:__SURFACE_ALT__;"
+            "  background-color:__SURFACE__;"
             "  color:__TEXT__;"
             "  border:none;"
-            "  border-right:1px solid __BORDER__;"
-            "  border-bottom:1px solid __BORDER_STRONG__;"
+            "  border-bottom:1px solid __BORDER__;"
             "}"
             "QHeaderView::section:hover{"
             "  background-color:__SURFACE_MUTED__;"

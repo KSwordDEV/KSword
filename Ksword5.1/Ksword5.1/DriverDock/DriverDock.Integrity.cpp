@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "DriverDock.Internal.h"
 #include "../UI/IntegrityRiskPresentation.h"
 #include "../UI/TableInteractionSupport.h"
@@ -235,40 +236,30 @@ namespace
         return ok;
     }
 
-    QString detailText(const ksword::ark::DriverIntegrityEvidenceEntry& row)
+    ks::ui::FieldDocument detailText(const ksword::ark::DriverIntegrityEvidenceEntry& row)
     {
         // 输入：完整性证据行。
         // 处理：展开所有关键字段。
         // 返回：详情文本。
-        QString text;
-        text += driverText("driver.integrity.detail.title", QStringLiteral("驱动完整性证据详情\n"));
-        text += QStringLiteral("Class: %1 (%2)\n").arg(classText(row.evidenceClass)).arg(row.evidenceClass);
-        text += QStringLiteral("RiskFlags: %1 (0x%2)\n").arg(riskText(row.riskFlags)).arg(row.riskFlags, 8, 16, QChar('0'));
-        text += QStringLiteral("SourceMask: 0x%1\n").arg(row.sourceMask, 8, 16, QChar('0'));
-        text += QStringLiteral("EntryStatus: %1\n").arg(row.entryStatus);
-        text += QStringLiteral("StatusFlags: 0x%1\n").arg(row.statusFlags, 8, 16, QChar('0'));
-        text += QStringLiteral("FieldMask: 0x%1\n").arg(row.fieldMask, 8, 16, QChar('0'));
-        text += QStringLiteral("RiskScore: %1\n").arg(row.riskScore);
-        text += QStringLiteral("Confidence: %1\n").arg(row.confidence);
-        text += QStringLiteral("ObjectAddress: %1\n").arg(hex64(row.objectAddress));
-        text += QStringLiteral("TargetAddress: %1\n").arg(hex64(row.targetAddress));
-        text += QStringLiteral("OwnerModule: %1\n").arg(QString::fromStdWString(row.ownerModule));
-        text += QStringLiteral("OwnerModuleBase: %1\n").arg(hex64(row.ownerModuleBase));
-        text += QStringLiteral("OwnerModuleSize: %1\n").arg(row.ownerModuleSize);
-        text += QStringLiteral("DriverObject: %1 DriverStart: %2 DriverSize: %3\n")
-            .arg(hex64(row.driverObjectAddress))
-            .arg(hex64(row.driverStart))
-            .arg(hex64(row.driverSize));
-        text += QStringLiteral("KLDR: entry=%1 listHead=%2 dllBase=%3 size=0x%4\n")
-            .arg(hex64(row.kldrEntryAddress))
-            .arg(hex64(row.kldrListHeadAddress))
-            .arg(hex64(row.kldrDllBase))
-            .arg(row.kldrSizeOfImage, 8, 16, QChar('0'));
-        text += QStringLiteral("CPU: group=%1 cpu=%2 vector=%3\n")
-            .arg(row.processorGroup)
-            .arg(row.processorNumber)
-            .arg(row.vector);
-        text += QStringLiteral("Detail: %1\n").arg(QString::fromStdWString(row.detail));
+        ks::ui::FieldDocument text;
+        text.note(QStringLiteral("驱动完整性证据详情"));
+        text.field(QStringLiteral("Class"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(classText(row.evidenceClass))).arg(QStringLiteral("%1").arg(row.evidenceClass)));
+        text.field(QStringLiteral("RiskFlags"), QStringLiteral("%1 (0x%2)").arg(QStringLiteral("%1").arg(riskText(row.riskFlags))).arg(QStringLiteral("%1").arg(row.riskFlags, 8, 16, QChar('0'))));
+        text.field(QStringLiteral("SourceMask"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(row.sourceMask, 8, 16, QChar('0'))));
+        text.field(QStringLiteral("EntryStatus"), QStringLiteral("%1").arg(row.entryStatus));
+        text.field(QStringLiteral("StatusFlags"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(row.statusFlags, 8, 16, QChar('0'))));
+        text.field(QStringLiteral("FieldMask"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(row.fieldMask, 8, 16, QChar('0'))));
+        text.field(QStringLiteral("RiskScore"), QStringLiteral("%1").arg(row.riskScore));
+        text.field(QStringLiteral("Confidence"), QStringLiteral("%1").arg(row.confidence));
+        text.field(QStringLiteral("ObjectAddress"), QStringLiteral("%1").arg(hex64(row.objectAddress)));
+        text.field(QStringLiteral("TargetAddress"), QStringLiteral("%1").arg(hex64(row.targetAddress)));
+        text.field(QStringLiteral("OwnerModule"), QStringLiteral("%1").arg(QString::fromStdWString(row.ownerModule)));
+        text.field(QStringLiteral("OwnerModuleBase"), QStringLiteral("%1").arg(hex64(row.ownerModuleBase)));
+        text.field(QStringLiteral("OwnerModuleSize"), QStringLiteral("%1").arg(row.ownerModuleSize));
+        text.field(QStringLiteral("DriverObject"), QStringLiteral("%1 DriverStart: %2 DriverSize: %3").arg(QStringLiteral("%1").arg(hex64(row.driverObjectAddress))).arg(QStringLiteral("%1").arg(hex64(row.driverStart))).arg(QStringLiteral("%1").arg(hex64(row.driverSize))));
+        text.field(QStringLiteral("KLDR"), QStringLiteral("entry=%1 listHead=%2 dllBase=%3 size=0x%4").arg(QStringLiteral("%1").arg(hex64(row.kldrEntryAddress))).arg(QStringLiteral("%1").arg(hex64(row.kldrListHeadAddress))).arg(QStringLiteral("%1").arg(hex64(row.kldrDllBase))).arg(QStringLiteral("%1").arg(row.kldrSizeOfImage, 8, 16, QChar('0'))));
+        text.field(QStringLiteral("CPU"), QStringLiteral("group=%1 cpu=%2 vector=%3").arg(QStringLiteral("%1").arg(row.processorGroup)).arg(QStringLiteral("%1").arg(row.processorNumber)).arg(QStringLiteral("%1").arg(row.vector)));
+        text.field(QStringLiteral("Detail"), QStringLiteral("%1").arg(QString::fromStdWString(row.detail)));
         return text;
     }
 
@@ -402,16 +393,16 @@ void DriverDock::initializeIntegrityTab()
     splitter->addWidget(m_integrityTable);
 
     // 完整性详情区使用项目统一 CodeEditorWidget，方便复制、查找和查看多行 R0 证据。
-    m_integrityDetailEdit = new CodeEditorWidget(splitter);
-    m_integrityDetailEdit->setReadOnly(true);
-    m_integrityDetailEdit->setText(driverText(
+    m_integrityDetailEdit = new ks::ui::StructuredFieldView(splitter);
+
+    m_integrityDetailEdit->setDocument(ks::ui::FieldDocument{}.note(driverText(
         "driver.integrity.detail.initial",
-        QStringLiteral("选择一条完整性证据查看 DriverObject / MajorFunction / FastIo / LDR / CPU entry 详情。")));
+        QStringLiteral("选择一条完整性证据查看 DriverObject / MajorFunction / FastIo / LDR / CPU entry 详情。"))));
     splitter->addWidget(m_integrityDetailEdit);
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_integrityTable, m_integrityDetailEdit, m_integrityPage);
 
     m_tabWidget->addTab(
@@ -839,8 +830,7 @@ void DriverDock::showSelectedDriverIntegrityDetail()
     const int currentRow = m_integrityTable->currentRow();
     if (currentRow < 0)
     {
-        m_integrityDetailEdit->setText(
-            driverText("driver.integrity.detail.select_row", QStringLiteral("请选择一条驱动完整性证据。")));
+        m_integrityDetailEdit->setDocument(ks::ui::FieldDocument{}.note(driverText("driver.integrity.detail.select_row", QStringLiteral("请选择一条驱动完整性证据。"))));
         return;
     }
     const QTableWidgetItem* classItem = m_integrityTable->item(currentRow, integrityColumnIndex(IntegrityColumn::Class));
@@ -850,5 +840,5 @@ void DriverDock::showSelectedDriverIntegrityDetail()
     {
         return;
     }
-    m_integrityDetailEdit->setText(detailText(m_driverIntegrityCache[static_cast<std::size_t>(cacheIndex)]));
+    m_integrityDetailEdit->setDocument(detailText(m_driverIntegrityCache[static_cast<std::size_t>(cacheIndex)]));
 }

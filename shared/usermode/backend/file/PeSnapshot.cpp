@@ -284,9 +284,9 @@ PeStaticSummaryResult BuildPeStaticSummary(const std::wstring& path) {
 
     const ks::file::PeAnalysisResult analysis = ks::file::AnalyzePeBytes(fileBytes);
     if (!analysis.success) {
-        const std::wstring diagnostic = analysis.reportText.empty()
+        const std::wstring diagnostic = analysis.errorText.empty()
             ? L"共享 PE 解析器未返回可用结果。"
-            : SingleLinePreview(analysis.reportText, kLitePeStaticMaxDisplayChars);
+            : SingleLinePreview(analysis.errorText, kLitePeStaticMaxDisplayChars);
         return BuildPeHeaderFallback(path, L"深度解析失败：" + diagnostic);
     }
 

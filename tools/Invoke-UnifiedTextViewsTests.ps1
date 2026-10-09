@@ -31,8 +31,7 @@ $textApp = 'Ksword5.1/Ksword5.1'
 $textSources = @(
     'tools/tests/unified_text_views_tests.cpp',
     "$textApp/UI/CodeEditorWidget.cpp", "$textApp/UI/CodeTextEdit.cpp", "$textApp/UI/CodeEditorFileSession.cpp",
-    "$textApp/UI/ReportStructuredView.cpp", "$textApp/UI/FieldTreePresenter.cpp", "$textApp/UI/FieldTreePresenter.Copy.cpp",
-    "$textApp/UI/DetailLayoutHost.cpp", "$textApp/UI/DetailLayoutHost.Binding.cpp",
+    "$textApp/UI/StructuredFieldView.cpp", "$textApp/UI/TypedSyntaxDocument.cpp", "$textApp/UI/DetailLayoutHost.cpp", "$textApp/UI/DetailLayoutHost.Binding.cpp",
     "$textApp/UI/DetailLayoutHost.Compatibility.cpp", "$textApp/UI/EmbeddedRowDelegate.cpp",
     "$textApp/UI/MemoryWorkbench/MemoryRowCanvas.cpp", "$textApp/UI/MemoryWorkbench/WorkbenchTextView.cpp", "$textApp/UI/MemoryWorkbench/HexCanvasFormat.cpp",
     "$textApp/UI/FlowLayout.cpp", "$textApp/UI/ThemeStatusRole.cpp", "$textApp/UI/ThemeControlGlyphs.cpp", "$textApp/UI/SmoothScrollSupport.cpp",
@@ -44,7 +43,7 @@ $textPreviousPlugins = $env:QT_PLUGIN_PATH
 Push-Location $textRepository
 try {
     $env:PATH = (Join-Path $textQt 'bin') + ';' + (Join-Path $textSdk ('bin/' + $textSdkVersion + '/x64')) + ';' + $textPreviousPath
-    foreach ($textHeader in @("$textApp/UI/CodeEditorWidget.h", "$textApp/UI/MemoryWorkbench/MemoryRowCanvas.h", "$textApp/UI/MemoryWorkbench/WorkbenchTextView.h")) {
+    foreach ($textHeader in @("$textApp/UI/CodeEditorWidget.h", "$textApp/UI/StructuredFieldView.h", "$textApp/UI/MemoryWorkbench/MemoryRowCanvas.h", "$textApp/UI/MemoryWorkbench/WorkbenchTextView.h")) {
         $textMoc = Join-Path $textOutput ('unified_moc_' + [IO.Path]::GetFileNameWithoutExtension($textHeader) + '.cpp')
         & (Join-Path $textQt 'bin/moc.exe') $textHeader -o $textMoc
         if ($LASTEXITCODE -ne 0) { throw "moc failed: $textHeader" }
@@ -55,7 +54,7 @@ try {
         $textObject = Join-Path $textOutput ('unified_' + [IO.Path]::GetFileNameWithoutExtension($textSource) + '.obj')
         # 本次字段呈现、外壳及回归源码按 /W4 /WX 检查，其他旧依赖保持原门槛。
         $textWarningArgs = @('/W3')
-        if ($textSource -match '(FieldTreePresenter|ReportStructuredView|CodeEditorWidget|CodeTextEdit|unified_text_views_tests)') { $textWarningArgs = @('/W4', '/WX') }
+        if ($textSource -match '(TypedSyntaxDocument|CodeEditorWidget|CodeTextEdit|unified_text_views_tests)') { $textWarningArgs = @('/W4', '/WX') }
         # CodeTextEdit 既有语法器的局部 data 名称沿用主工程 C4458 排除；其余警告继续为错误。
         if ($textSource -match 'CodeTextEdit\.cpp$') { $textWarningArgs += '/wd4458' }
         & $textCompiler /nologo /std:c++20 /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD @textWarningArgs /external:W0 /O1 /Gy /bigobj `

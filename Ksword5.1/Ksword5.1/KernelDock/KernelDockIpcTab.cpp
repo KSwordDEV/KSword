@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "KernelDockIpcTab.h"
 #include "KernelDock.h"
 #include "../UI/VisibleTableWidget.h"
@@ -222,31 +223,21 @@ namespace
         return QString::fromWCharArray(buffer, length);
     }
 
-    QString buildPortDetail(const QString& roleText, const ksword::ark::AlpcPortInfo& portInfo)
+    ks::ui::FieldDocument buildPortDetail(const QString& roleText, const ksword::ark::AlpcPortInfo& portInfo)
     {
-        return QStringLiteral(
-            "Role: %1\n"
-            "Relation: %2\n"
-            "OwnerProcessId: %3\n"
-            "Flags: 0x%4\n"
-            "State: %5\n"
-            "SequenceNo: %6\n"
-            "BasicStatus: 0x%7\n"
-            "NameStatus: 0x%8\n"
-            "ObjectAddress: 0x%9\n"
-            "PortContext: 0x%10\n"
-            "PortName: %11")
-            .arg(roleText)
-            .arg(formatRelationText(portInfo.relation))
-            .arg(portInfo.ownerProcessId)
-            .arg(QStringLiteral("%1").arg(portInfo.flags, 8, 16, QChar('0')).toUpper())
-            .arg(portInfo.state)
-            .arg(portInfo.sequenceNo)
-            .arg(QStringLiteral("%1").arg(static_cast<qulonglong>(portInfo.basicStatus), 8, 16, QChar('0')).toUpper())
-            .arg(QStringLiteral("%1").arg(static_cast<qulonglong>(portInfo.nameStatus), 8, 16, QChar('0')).toUpper())
-            .arg(QStringLiteral("%1").arg(static_cast<qulonglong>(portInfo.objectAddress), 16, 16, QChar('0')).toUpper())
-            .arg(QStringLiteral("%1").arg(static_cast<qulonglong>(portInfo.portContext), 16, 16, QChar('0')).toUpper())
-            .arg(safeText(QString::fromWCharArray(portInfo.portName.c_str(), static_cast<int>(portInfo.portName.size()))));
+        { ks::ui::FieldDocument document;
+        document.field(QStringLiteral("Role"), QStringLiteral("%1").arg(roleText));
+        document.field(QStringLiteral("Relation"), QStringLiteral("%1").arg(formatRelationText(portInfo.relation)));
+        document.field(QStringLiteral("OwnerProcessId"), QStringLiteral("%1").arg(portInfo.ownerProcessId));
+        document.field(QStringLiteral("Flags"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(portInfo.flags, 8, 16, QChar('0')).toUpper()));
+        document.field(QStringLiteral("State"), QStringLiteral("%1").arg(portInfo.state));
+        document.field(QStringLiteral("SequenceNo"), QStringLiteral("%1").arg(portInfo.sequenceNo));
+        document.field(QStringLiteral("BasicStatus"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(portInfo.basicStatus), 8, 16, QChar('0')).toUpper()));
+        document.field(QStringLiteral("NameStatus"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(portInfo.nameStatus), 8, 16, QChar('0')).toUpper()));
+        document.field(QStringLiteral("ObjectAddress"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(portInfo.objectAddress), 16, 16, QChar('0')).toUpper()));
+        document.field(QStringLiteral("PortContext"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(portInfo.portContext), 16, 16, QChar('0')).toUpper()));
+        document.field(QStringLiteral("PortName"), QStringLiteral("%1").arg(safeText(QString::fromWCharArray(portInfo.portName.c_str(), static_cast<int>(portInfo.portName.size())))));
+        return document; }
     }
 }
 
@@ -407,9 +398,9 @@ void KernelDockIpcTab::initializeAlpcPage()
     m_alpcTable->horizontalHeader()->setSectionResizeMode(static_cast<int>(AlpcColumn::Status), QHeaderView::Stretch);
     layout->addWidget(m_alpcTable, 1);
 
-    m_alpcDetailEditor = new CodeEditorWidget(m_alpcPage);
-    m_alpcDetailEditor->setReadOnly(true);
-    m_alpcDetailEditor->setText(kernelText("kernel.ipc.detail.initial", QStringLiteral("输入 PID + ALPC 句柄后查询，或刷新后查看结果。")));
+    m_alpcDetailEditor = new ks::ui::StructuredFieldView(m_alpcPage);
+
+    m_alpcDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.ipc.detail.initial", QStringLiteral("输入 PID + ALPC 句柄后查询，或刷新后查看结果。"))));
     layout->addWidget(m_alpcDetailEditor, 1);
 
     connect(m_alpcTable, &QTableWidget::currentCellChanged, this, [this](const int currentRow, int, int, int) {
@@ -769,7 +760,7 @@ void KernelDockIpcTab::applyAlpcQueryResult()
         }
         else
         {
-            m_alpcDetailEditor->setText(kernelText("kernel.ipc.alpc.detail.query_failed", QStringLiteral("ALPC 查询失败。\n%1")).arg(readableAlpcMessage));
+            m_alpcDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.ipc.alpc.detail.query_failed", QStringLiteral("ALPC 查询失败。\n%1")).arg(readableAlpcMessage)));
         }
         return;
     }
@@ -846,7 +837,7 @@ void KernelDockIpcTab::applyAlpcQueryResult()
     updateAlpcDetailForRow(m_alpcTable->currentRow());
 }
 
-QString KernelDockIpcTab::buildAlpcDetail(const int rowIndex) const
+ks::ui::FieldDocument KernelDockIpcTab::buildAlpcDetail(const int rowIndex) const
 {
     // buildAlpcDetail：
     // - 作用：把 ALPC 查询结果转换为详情区文本；
@@ -854,12 +845,11 @@ QString KernelDockIpcTab::buildAlpcDetail(const int rowIndex) const
     // - 返回：QString，多行说明当前行端口、状态和动态偏移。
     if (!m_lastAlpcResult.io.ok)
     {
-        return kernelText("kernel.ipc.alpc.detail.unavailable", QStringLiteral("ALPC 查询暂不可用。\n%1"))
-            .arg(friendlyIpcIoMessage(stdStringToQString(m_lastAlpcResult.io.message)));
+        return ks::ui::FieldDocument{}.note(kernelText("kernel.ipc.alpc.detail.unavailable", QStringLiteral("ALPC 查询暂不可用。\n%1")).arg(friendlyIpcIoMessage(stdStringToQString(m_lastAlpcResult.io.message))));
     }
 
     QString selectedRoleText = kernelText("kernel.ipc.placeholder.unselected", QStringLiteral("<未选择>"));
-    QString selectedPortDetailText = kernelText("kernel.ipc.alpc.detail.select_row", QStringLiteral("请在 ALPC 表中选择一行查看端口详情。"));
+    ks::ui::FieldDocument selectedPortDetailText = ks::ui::FieldDocument{}.note(kernelText("kernel.ipc.alpc.detail.select_row", QStringLiteral("请在 ALPC 表中选择一行查看端口详情。")));
     if (m_alpcTable != nullptr && rowIndex >= 0 && rowIndex < m_alpcTable->rowCount())
     {
         // 当前行解析：
@@ -886,51 +876,30 @@ QString KernelDockIpcTab::buildAlpcDetail(const int rowIndex) const
         }
     }
 
-    // 详情文本：
-    // - 输入：端口快照、状态码和 DynData offset；
-    // - 处理：按“当前行 + 汇总状态 + 全量端口”组织，避免只给摘要；
-    // - 返回：给 CodeEditorWidget 展示的稳定文本。
-    return kernelText("kernel.ipc.alpc.detail.full", QStringLiteral(
-        "ALPC Port Detail\n"
-        "当前角色: %1\n\n"
-        "[Selected]\n%2\n\n"
-        "[Status]\n"
-        "QueryStatus: %3\n"
-        "ObjectReferenceStatus: %4\n"
-        "TypeStatus: %5\n"
-        "BasicStatus: %6\n"
-        "CommunicationStatus: %7\n"
-        "NameStatus: %8\n"
-        "DynDataCapabilityMask: %9\n"
-        "Offsets: CommunicationInfo=%10 OwnerProcess=%11 ConnectionPort=%12 ServerCommunicationPort=%13 ClientCommunicationPort=%14 HandleTable=%15 HandleTableLock=%16 Attributes=%17 AttributesFlags=%18 PortContext=%19 PortObjectLock=%20 SequenceNo=%21 State=%22\n\n"
-        "[All Ports]\n"
-        "[Query]\n%23\n\n[Connection]\n%24\n\n[Server]\n%25\n\n[Client]\n%26"))
-        .arg(selectedRoleText)
-        .arg(selectedPortDetailText)
-        .arg(statusText(m_lastAlpcResult.queryStatus))
-        .arg(statusText(m_lastAlpcResult.objectReferenceStatus))
-        .arg(statusText(m_lastAlpcResult.typeStatus))
-        .arg(statusText(m_lastAlpcResult.basicStatus))
-        .arg(statusText(m_lastAlpcResult.communicationStatus))
-        .arg(statusText(m_lastAlpcResult.nameStatus))
-        .arg(formatHex64(m_lastAlpcResult.dynDataCapabilityMask))
-        .arg(m_lastAlpcResult.alpcCommunicationInfoOffset)
-        .arg(m_lastAlpcResult.alpcOwnerProcessOffset)
-        .arg(m_lastAlpcResult.alpcConnectionPortOffset)
-        .arg(m_lastAlpcResult.alpcServerCommunicationPortOffset)
-        .arg(m_lastAlpcResult.alpcClientCommunicationPortOffset)
-        .arg(m_lastAlpcResult.alpcHandleTableOffset)
-        .arg(m_lastAlpcResult.alpcHandleTableLockOffset)
-        .arg(m_lastAlpcResult.alpcAttributesOffset)
-        .arg(m_lastAlpcResult.alpcAttributesFlagsOffset)
-        .arg(m_lastAlpcResult.alpcPortContextOffset)
-        .arg(m_lastAlpcResult.alpcPortObjectLockOffset)
-        .arg(m_lastAlpcResult.alpcSequenceNoOffset)
-        .arg(m_lastAlpcResult.alpcStateOffset)
-        .arg(buildPortDetail(QStringLiteral("Query"), m_lastAlpcResult.queryPort))
-        .arg(buildPortDetail(QStringLiteral("Connection"), m_lastAlpcResult.connectionPort))
-        .arg(buildPortDetail(QStringLiteral("Server"), m_lastAlpcResult.serverPort))
-        .arg(buildPortDetail(QStringLiteral("Client"), m_lastAlpcResult.clientPort));
+    ks::ui::FieldDocument document;
+    document.note(QStringLiteral("ALPC Port Detail"));
+    document.field(QStringLiteral("当前角色"), QStringLiteral("%1").arg(selectedRoleText));
+    document.section(QStringLiteral("Selected"));
+    document.nodes += selectedPortDetailText.nodes;
+    document.section(QStringLiteral("Status"));
+    document.field(QStringLiteral("QueryStatus"), QStringLiteral("%1").arg(statusText(m_lastAlpcResult.queryStatus)));
+    document.field(QStringLiteral("ObjectReferenceStatus"), QStringLiteral("%1").arg(statusText(m_lastAlpcResult.objectReferenceStatus)));
+    document.field(QStringLiteral("TypeStatus"), QStringLiteral("%1").arg(statusText(m_lastAlpcResult.typeStatus)));
+    document.field(QStringLiteral("BasicStatus"), QStringLiteral("%1").arg(statusText(m_lastAlpcResult.basicStatus)));
+    document.field(QStringLiteral("CommunicationStatus"), QStringLiteral("%1").arg(statusText(m_lastAlpcResult.communicationStatus)));
+    document.field(QStringLiteral("NameStatus"), QStringLiteral("%1").arg(statusText(m_lastAlpcResult.nameStatus)));
+    document.field(QStringLiteral("DynDataCapabilityMask"), QStringLiteral("%1").arg(formatHex64(m_lastAlpcResult.dynDataCapabilityMask)));
+    document.field(QStringLiteral("Offsets"), QStringLiteral("CommunicationInfo=%1 OwnerProcess=%2 ConnectionPort=%3 ServerCommunicationPort=%4 ClientCommunicationPort=%5 HandleTable=%6 HandleTableLock=%7 Attributes=%8 AttributesFlags=%9 PortContext=%10 PortObjectLock=%11 SequenceNo=%12 State=%13").arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcCommunicationInfoOffset)).arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcOwnerProcessOffset)).arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcConnectionPortOffset)).arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcServerCommunicationPortOffset)).arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcClientCommunicationPortOffset)).arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcHandleTableOffset)).arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcHandleTableLockOffset)).arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcAttributesOffset)).arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcAttributesFlagsOffset)).arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcPortContextOffset)).arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcPortObjectLockOffset)).arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcSequenceNoOffset)).arg(QStringLiteral("%1").arg(m_lastAlpcResult.alpcStateOffset)));
+    document.section(QStringLiteral("All Ports"));
+    document.section(QStringLiteral("Query"));
+    document.nodes += buildPortDetail(QStringLiteral("Query"), m_lastAlpcResult.queryPort).nodes;
+    document.section(QStringLiteral("Connection"));
+    document.nodes += buildPortDetail(QStringLiteral("Connection"), m_lastAlpcResult.connectionPort).nodes;
+    document.section(QStringLiteral("Server"));
+    document.nodes += buildPortDetail(QStringLiteral("Server"), m_lastAlpcResult.serverPort).nodes;
+    document.section(QStringLiteral("Client"));
+    document.nodes += buildPortDetail(QStringLiteral("Client"), m_lastAlpcResult.clientPort).nodes;
+    return document;
 }
 
 void KernelDockIpcTab::updateAlpcDetailForRow(const int rowIndex)
@@ -944,10 +913,10 @@ void KernelDockIpcTab::updateAlpcDetailForRow(const int rowIndex)
         return;
     }
 
-    m_alpcDetailEditor->setText(buildAlpcDetail(rowIndex));
+    m_alpcDetailEditor->setDocument(buildAlpcDetail(rowIndex));
 }
 
-QString KernelDockIpcTab::buildIpcSummaryDetail(const int rowIndex) const
+ks::ui::FieldDocument KernelDockIpcTab::buildIpcSummaryDetail(const int rowIndex) const
 {
     // buildIpcSummaryDetail：
     // - 作用：把固定 IPC summary 响应和表格当前行组合成详情区文本；
@@ -985,30 +954,21 @@ QString KernelDockIpcTab::buildIpcSummaryDetail(const int rowIndex) const
         // - 输入：ArkDriverClient 的 IO 结果；
         // - 处理：转换为用户可读状态，不直接展示底层 DeviceIoControl 噪声；
         // - 返回：包含 Win32/字节数/unsupported 的诊断文本。
-        return kernelText("kernel.ipc.summary.detail.failure", QStringLiteral(
-            "IPC Summary Detail\n"
-            "当前行: %1\n"
-            "行状态: %2\n"
-            "行计数: %3\n"
-            "来源: %4\n"
-            "行详情: %5\n\n"
-            "查询结果: %6\n"
-            "Unsupported: %7\n"
-            "Win32Error: %8\n"
-            "BytesReturned: %9\n"
-            "说明: %10"))
-            .arg(categoryText)
-            .arg(statusTextValue)
-            .arg(countText)
-            .arg(sourceText)
-            .arg(rowDetailText)
-            .arg(m_lastIpcSummaryResult.io.ok ? QStringLiteral("OK") : QStringLiteral("Unavailable"))
-            .arg(m_lastIpcSummaryResult.unsupported
+        { ks::ui::FieldDocument document;
+        document.note(QStringLiteral("IPC Summary Detail"));
+        document.field(QStringLiteral("当前行"), QStringLiteral("%1").arg(categoryText));
+        document.field(QStringLiteral("行状态"), QStringLiteral("%1").arg(statusTextValue));
+        document.field(QStringLiteral("行计数"), QStringLiteral("%1").arg(countText));
+        document.field(QStringLiteral("来源"), QStringLiteral("%1").arg(sourceText));
+        document.field(QStringLiteral("行详情"), QStringLiteral("%1").arg(rowDetailText));
+        document.field(QStringLiteral("查询结果"), QStringLiteral("%1").arg(m_lastIpcSummaryResult.io.ok ? QStringLiteral("OK") : QStringLiteral("Unavailable")));
+        document.field(QStringLiteral("Unsupported"), QStringLiteral("%1").arg(m_lastIpcSummaryResult.unsupported
                 ? kernelText("kernel.ipc.value.yes", QStringLiteral("是"))
-                : kernelText("kernel.ipc.value.no", QStringLiteral("否")))
-            .arg(m_lastIpcSummaryResult.io.win32Error)
-            .arg(m_lastIpcSummaryResult.io.bytesReturned)
-            .arg(readableIoMessage);
+                : kernelText("kernel.ipc.value.no", QStringLiteral("否"))));
+        document.field(QStringLiteral("Win32Error"), QStringLiteral("%1").arg(m_lastIpcSummaryResult.io.win32Error));
+        document.field(QStringLiteral("BytesReturned"), QStringLiteral("%1").arg(m_lastIpcSummaryResult.io.bytesReturned));
+        document.field(QStringLiteral("说明"), QStringLiteral("%1").arg(readableIoMessage));
+        return document; }
     }
 
     const auto& response = m_lastIpcSummaryResult.response;
@@ -1023,49 +983,31 @@ QString KernelDockIpcTab::buildIpcSummaryDetail(const int rowIndex) const
     // - 输入：R0 固定 summary 响应、当前表格行和友好化 IO 文本；
     // - 处理：把摘要行扩展为 response/status/identity/dyndata 四组信息；
     // - 返回：详情区文本，避免用户只能看到一行摘要。
-    return kernelText("kernel.ipc.summary.detail.success", QStringLiteral(
-        "IPC Summary Detail\n"
-        "当前行: %1\n"
-        "行状态: %2\n"
-        "行计数: %3\n"
-        "来源: %4\n"
-        "行详情: %5\n\n"
-        "[Response]\n"
-        "SummaryStatus: %6\n"
-        "ALPCStatus: %7\n"
-        "NamedPipeStatus: %8\n"
-        "MailslotStatus: %9\n"
-        "FieldFlags: %10\n"
-        "LastStatus: %11\n"
-        "BytesReturned: %12\n"
-        "说明: %13\n\n"
-        "[Target]\n"
-        "ProcessId: %14\n"
-        "HandleValue: %15\n"
-        "AlpcObjectAddress: %16\n"
-        "AlpcTypeName: %17\n"
-        "DynDataCapabilityMask: %18\n\n"
-        "[ObjectDetail]\n"
-        "%19"))
-        .arg(categoryText)
-        .arg(statusTextValue)
-        .arg(countText)
-        .arg(sourceText)
-        .arg(rowDetailText)
-        .arg(ipcSummaryStatusText(response.status))
-        .arg(ipcSummaryStatusText(response.alpcStatus))
-        .arg(ipcSummaryStatusText(response.namedPipeStatus))
-        .arg(ipcSummaryStatusText(response.mailslotStatus))
-        .arg(formatHex32(response.fieldFlags))
-        .arg(statusText(response.lastStatus))
-        .arg(m_lastIpcSummaryResult.io.bytesReturned)
-        .arg(readableIoMessage)
-        .arg(response.processId)
-        .arg(formatHex64(response.handleValue))
-        .arg(formatHex64(response.alpcObjectAddress))
-        .arg(alpcTypeText)
-        .arg(formatHex64(response.dynDataCapabilityMask))
-        .arg(objectDetailText);
+    { ks::ui::FieldDocument document;
+        document.note(QStringLiteral("IPC Summary Detail"));
+        document.field(QStringLiteral("当前行"), QStringLiteral("%1").arg(categoryText));
+        document.field(QStringLiteral("行状态"), QStringLiteral("%1").arg(statusTextValue));
+        document.field(QStringLiteral("行计数"), QStringLiteral("%1").arg(countText));
+        document.field(QStringLiteral("来源"), QStringLiteral("%1").arg(sourceText));
+        document.field(QStringLiteral("行详情"), QStringLiteral("%1").arg(rowDetailText));
+        document.section(QStringLiteral("Response"));
+        document.field(QStringLiteral("SummaryStatus"), QStringLiteral("%1").arg(ipcSummaryStatusText(response.status)));
+        document.field(QStringLiteral("ALPCStatus"), QStringLiteral("%1").arg(ipcSummaryStatusText(response.alpcStatus)));
+        document.field(QStringLiteral("NamedPipeStatus"), QStringLiteral("%1").arg(ipcSummaryStatusText(response.namedPipeStatus)));
+        document.field(QStringLiteral("MailslotStatus"), QStringLiteral("%1").arg(ipcSummaryStatusText(response.mailslotStatus)));
+        document.field(QStringLiteral("FieldFlags"), QStringLiteral("%1").arg(formatHex32(response.fieldFlags)));
+        document.field(QStringLiteral("LastStatus"), QStringLiteral("%1").arg(statusText(response.lastStatus)));
+        document.field(QStringLiteral("BytesReturned"), QStringLiteral("%1").arg(m_lastIpcSummaryResult.io.bytesReturned));
+        document.field(QStringLiteral("说明"), QStringLiteral("%1").arg(readableIoMessage));
+        document.section(QStringLiteral("Target"));
+        document.field(QStringLiteral("ProcessId"), QStringLiteral("%1").arg(response.processId));
+        document.field(QStringLiteral("HandleValue"), QStringLiteral("%1").arg(formatHex64(response.handleValue)));
+        document.field(QStringLiteral("AlpcObjectAddress"), QStringLiteral("%1").arg(formatHex64(response.alpcObjectAddress)));
+        document.field(QStringLiteral("AlpcTypeName"), QStringLiteral("%1").arg(alpcTypeText));
+        document.field(QStringLiteral("DynDataCapabilityMask"), QStringLiteral("%1").arg(formatHex64(response.dynDataCapabilityMask)));
+        document.section(QStringLiteral("ObjectDetail"));
+        document.note(QStringLiteral("%1").arg(objectDetailText));
+        return document; }
 }
 
 void KernelDockIpcTab::updateIpcSummaryDetailForRow(const int rowIndex)
@@ -1079,7 +1021,7 @@ void KernelDockIpcTab::updateIpcSummaryDetailForRow(const int rowIndex)
         return;
     }
 
-    m_alpcDetailEditor->setText(buildIpcSummaryDetail(rowIndex));
+    m_alpcDetailEditor->setDocument(buildIpcSummaryDetail(rowIndex));
 }
 
 void KernelDockIpcTab::copyAlpcCurrentRow() const

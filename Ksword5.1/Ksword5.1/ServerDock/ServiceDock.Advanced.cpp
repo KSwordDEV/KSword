@@ -198,62 +198,11 @@ bool ServiceDock::isServiceFilePresent(const QString& filePathText) const
     return fileInfo.exists() && fileInfo.isFile();
 }
 
-QString ServiceDock::buildProcessLinkDetailText(const ServiceEntry& entry) const
-{
-    QStringList detailLineList;
-    detailLineList.push_back(QStringLiteral("服务名：%1").arg(entry.serviceNameText));
-    detailLineList.push_back(QStringLiteral("PID：%1").arg(entry.processId == 0 ? QStringLiteral("-") : QString::number(entry.processId)));
-    detailLineList.push_back(QStringLiteral("状态：%1").arg(entry.stateText));
 
-    if (entry.processId != 0)
-    {
-        const std::string processPathText = ks::process::QueryProcessPathByPid(entry.processId);
-        const QString hostProcessPathText = QString::fromStdString(processPathText);
-        detailLineList.push_back(QStringLiteral("宿主进程路径：%1").arg(hostProcessPathText));
-        detailLineList.push_back(QStringLiteral("宿主类型：%1").arg(
-            hostProcessPathText.contains(QStringLiteral("svchost.exe"), Qt::CaseInsensitive)
-            ? QStringLiteral("svchost 共享宿主")
-            : QStringLiteral("独立宿主")));
 
-        QStringList sameHostServiceList;
-        for (const ServiceEntry& loopEntry : m_serviceList)
-        {
-            if (loopEntry.processId == entry.processId && loopEntry.currentState == SERVICE_RUNNING)
-            {
-                sameHostServiceList.push_back(loopEntry.serviceNameText);
-            }
-        }
-        sameHostServiceList.removeDuplicates();
-        detailLineList.push_back(QStringLiteral("同宿主服务数量：%1").arg(sameHostServiceList.size()));
-        if (!sameHostServiceList.isEmpty())
-        {
-            detailLineList.push_back(QStringLiteral("同宿主服务：%1").arg(sameHostServiceList.join(QStringLiteral(", "))));
-        }
-    }
-    else
-    {
-        detailLineList.push_back(QStringLiteral("运行关联：无"));
-    }
 
-    return detailLineList.join(QStringLiteral("\n"));
-}
 
-QString ServiceDock::buildRegistryFileDetailText(const ServiceEntry& entry) const
-{
-    const QString registryPathText = QStringLiteral("HKLM\\SYSTEM\\CurrentControlSet\\Services\\%1").arg(entry.serviceNameText);
-    QStringList detailLineList;
-    detailLineList.push_back(QStringLiteral("注册表路径：%1").arg(registryPathText));
-    detailLineList.push_back(QStringLiteral("BinaryPath：%1").arg(entry.commandLineText));
-    detailLineList.push_back(QStringLiteral("BinaryPath存在：%1").arg(isServiceFilePresent(entry.imagePathText) ? QStringLiteral("是") : QStringLiteral("否")));
-    detailLineList.push_back(QStringLiteral("ServiceDll：%1").arg(entry.serviceDllPathText.isEmpty() ? QStringLiteral("未配置") : entry.serviceDllPathText));
-    if (!entry.serviceDllPathText.isEmpty())
-    {
-        detailLineList.push_back(QStringLiteral("ServiceDll存在：%1").arg(isServiceFilePresent(entry.serviceDllPathText) ? QStringLiteral("是") : QStringLiteral("否")));
-    }
-    return detailLineList.join(QStringLiteral("\n"));
-}
-
-QString ServiceDock::buildDependencyDetailText(const ServiceEntry& entry) const
+ks::ui::FieldDocument ServiceDock::buildDependencyDetailText(const ServiceEntry& entry) const
 {
     QStringList forwardServiceList;
     QStringList forwardGroupList;
@@ -289,12 +238,12 @@ QString ServiceDock::buildDependencyDetailText(const ServiceEntry& entry) const
         }
     }
 
-    QStringList detailLineList;
-    detailLineList.push_back(QStringLiteral("依赖树（文本）"));
-    detailLineList.push_back(QStringLiteral("├─ 当前服务：%1").arg(entry.serviceNameText));
+    ks::ui::FieldDocument detailLineList;
+    detailLineList.section(QStringLiteral("依存关系"));
+    detailLineList.field(QStringLiteral("当前服务"), QStringLiteral("%1").arg(entry.serviceNameText));
     if (forwardServiceList.isEmpty() && forwardGroupList.isEmpty())
     {
-        detailLineList.push_back(QStringLiteral("├─ 正向依赖：无"));
+        detailLineList.field(QStringLiteral("正向依赖"), QStringLiteral("无"), true);
     }
     else
     {
@@ -305,105 +254,56 @@ QString ServiceDock::buildDependencyDetailText(const ServiceEntry& entry) const
                 (targetIndex >= 0 && m_serviceList[static_cast<std::size_t>(targetIndex)].currentState == SERVICE_RUNNING)
                 ? QStringLiteral("运行中")
                 : QStringLiteral("未运行/缺失");
-            detailLineList.push_back(QStringLiteral("├─ 依赖服务：%1 [%2]").arg(serviceDependencyText).arg(runningMarkText));
+            detailLineList.field(QStringLiteral("依赖服务"), QStringLiteral("%1 [%2]").arg(QStringLiteral("%1").arg(serviceDependencyText)).arg(QStringLiteral("%1").arg(runningMarkText)));
         }
         for (const QString& groupDependencyText : forwardGroupList)
         {
-            detailLineList.push_back(QStringLiteral("├─ 依赖组：%1").arg(groupDependencyText));
+            detailLineList.field(QStringLiteral("依赖组"), QStringLiteral("%1").arg(groupDependencyText));
         }
     }
     if (reverseServiceList.isEmpty())
     {
-        detailLineList.push_back(QStringLiteral("└─ 反向依赖：无"));
+        detailLineList.field(QStringLiteral("反向依赖"), QStringLiteral("无"), true);
     }
     else
     {
         for (const QString& reverseServiceText : reverseServiceList)
         {
-            detailLineList.push_back(QStringLiteral("└─ 被依赖：%1").arg(reverseServiceText));
+            detailLineList.field(QStringLiteral("被依赖"), QStringLiteral("%1").arg(reverseServiceText));
         }
     }
-    detailLineList.push_back(QStringLiteral("正向依赖数量：%1").arg(forwardServiceList.size() + forwardGroupList.size()));
-    detailLineList.push_back(QStringLiteral("反向依赖数量：%1").arg(reverseServiceList.size()));
-    return detailLineList.join(QStringLiteral("\n"));
+    detailLineList.field(QStringLiteral("正向依赖数量"), QStringLiteral("%1").arg(forwardServiceList.size() + forwardGroupList.size()));
+    detailLineList.field(QStringLiteral("反向依赖数量"), QStringLiteral("%1").arg(reverseServiceList.size()));
+    return detailLineList;
 }
 
 
-QString ServiceDock::buildFailureActionDetailText(const ServiceEntry& entry) const
+
+
+
+ks::ui::FieldDocument ServiceDock::buildTriggerDetailText(const ServiceEntry& entry) const
 {
-    QStringList detailLineList;
-    std::vector<std::uint8_t> failureBuffer;
-    if (queryConfig2BufferByName(entry.serviceNameText, SERVICE_CONFIG_FAILURE_ACTIONS, &failureBuffer))
-    {
-        const SERVICE_FAILURE_ACTIONSW* failurePointer =
-            reinterpret_cast<const SERVICE_FAILURE_ACTIONSW*>(failureBuffer.data());
-        detailLineList.push_back(QStringLiteral("ResetPeriod：%1 秒").arg(failurePointer->dwResetPeriod));
-        detailLineList.push_back(QStringLiteral("RebootMessage：%1").arg(
-            (failurePointer->lpRebootMsg != nullptr && wcslen(failurePointer->lpRebootMsg) > 0)
-            ? QString::fromWCharArray(failurePointer->lpRebootMsg)
-            : QStringLiteral("未配置")));
-        detailLineList.push_back(QStringLiteral("Command：%1").arg(
-            (failurePointer->lpCommand != nullptr && wcslen(failurePointer->lpCommand) > 0)
-            ? QString::fromWCharArray(failurePointer->lpCommand)
-            : QStringLiteral("未配置")));
-
-        for (DWORD actionIndex = 0; actionIndex < failurePointer->cActions; ++actionIndex)
-        {
-            const SC_ACTION& actionItem = failurePointer->lpsaActions[actionIndex];
-            const QString actionNameText =
-                (actionIndex == 0) ? QStringLiteral("第1次失败")
-                : ((actionIndex == 1) ? QStringLiteral("第2次失败") : QStringLiteral("后续失败"));
-            detailLineList.push_back(
-                QStringLiteral("%1：%2，延迟 %3 ms")
-                .arg(actionNameText)
-                .arg(scActionTypeToText(actionItem.Type))
-                .arg(actionItem.Delay));
-        }
-    }
-    else
-    {
-        detailLineList.push_back(QStringLiteral("FailureActions：未配置或读取失败"));
-    }
-
-    std::vector<std::uint8_t> failureFlagBuffer;
-    if (queryConfig2BufferByName(entry.serviceNameText, SERVICE_CONFIG_FAILURE_ACTIONS_FLAG, &failureFlagBuffer))
-    {
-        const SERVICE_FAILURE_ACTIONS_FLAG* flagPointer =
-            reinterpret_cast<const SERVICE_FAILURE_ACTIONS_FLAG*>(failureFlagBuffer.data());
-        detailLineList.push_back(QStringLiteral("FailureActionsFlag：%1").arg(flagPointer->fFailureActionsOnNonCrashFailures ? QStringLiteral("启用") : QStringLiteral("禁用")));
-    }
-
-    return detailLineList.join(QStringLiteral("\n"));
-}
-
-
-QString ServiceDock::buildTriggerDetailText(const ServiceEntry& entry) const
-{
-    QStringList detailLineList;
+    ks::ui::FieldDocument detailLineList;
     std::vector<std::uint8_t> triggerBuffer;
     if (!queryConfig2BufferByName(entry.serviceNameText, SERVICE_CONFIG_TRIGGER_INFO, &triggerBuffer))
     {
-        return QStringLiteral("触发器：未配置或当前系统不支持读取");
+        return ks::ui::FieldDocument{}.note(QStringLiteral("触发器：未配置或当前系统不支持读取"));
     }
 
     const SERVICE_TRIGGER_INFO* triggerInfoPointer =
         reinterpret_cast<const SERVICE_TRIGGER_INFO*>(triggerBuffer.data());
-    detailLineList.push_back(QStringLiteral("触发器数量：%1").arg(triggerInfoPointer->cTriggers));
+    detailLineList.field(QStringLiteral("触发器数量"), QStringLiteral("%1").arg(triggerInfoPointer->cTriggers));
     for (DWORD triggerIndex = 0; triggerIndex < triggerInfoPointer->cTriggers; ++triggerIndex)
     {
         const SERVICE_TRIGGER& triggerItem = triggerInfoPointer->pTriggers[triggerIndex];
-        detailLineList.push_back(QStringLiteral("---- Trigger #%1 ----").arg(triggerIndex + 1));
-        detailLineList.push_back(QStringLiteral("类型：%1 (%2)")
-            .arg(triggerTypeToText(triggerItem.dwTriggerType))
-            .arg(triggerItem.dwTriggerType));
-        detailLineList.push_back(QStringLiteral("动作：%1 (%2)")
-            .arg(triggerActionToText(triggerItem.dwAction))
-            .arg(triggerItem.dwAction));
-        detailLineList.push_back(QStringLiteral("子类型GUID：%1")
-            .arg((triggerItem.pTriggerSubtype != nullptr)
+        detailLineList.section(QStringLiteral("Trigger"));
+        detailLineList.field(QStringLiteral("Index"), QString::number(triggerIndex + 1));
+        detailLineList.field(QStringLiteral("类型"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(triggerTypeToText(triggerItem.dwTriggerType))).arg(QStringLiteral("%1").arg(triggerItem.dwTriggerType)));
+        detailLineList.field(QStringLiteral("动作"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(triggerActionToText(triggerItem.dwAction))).arg(QStringLiteral("%1").arg(triggerItem.dwAction)));
+        detailLineList.field(QStringLiteral("子类型GUID"), QStringLiteral("%1").arg((triggerItem.pTriggerSubtype != nullptr)
                 ? guidToText(*triggerItem.pTriggerSubtype)
                 : QStringLiteral("未提供")));
-        detailLineList.push_back(QStringLiteral("数据项数量：%1").arg(triggerItem.cDataItems));
+        detailLineList.field(QStringLiteral("数据项数量"), QStringLiteral("%1").arg(triggerItem.cDataItems));
 
         for (DWORD dataIndex = 0; dataIndex < triggerItem.cDataItems; ++dataIndex)
         {
@@ -425,28 +325,27 @@ QString ServiceDock::buildTriggerDetailText(const ServiceEntry& entry) const
                 QByteArray rawBytes(reinterpret_cast<const char*>(dataItem.pData), static_cast<int>(dataItem.cbData));
                 dataPreviewText = QString::fromLatin1(rawBytes.toHex(' '));
             }
-
-            detailLineList.push_back(QStringLiteral("  数据项[%1] type=%2 size=%3 value=%4")
-                .arg(dataIndex)
-                .arg(dataItem.dwDataType)
-                .arg(dataItem.cbData)
-                .arg(dataPreviewText));
+            detailLineList.section(QStringLiteral("Data item"));
+            detailLineList.field(QStringLiteral("Index"), QString::number(dataIndex));
+            detailLineList.field(QStringLiteral("Type"), QString::number(dataItem.dwDataType));
+            detailLineList.field(QStringLiteral("Size"), QString::number(dataItem.cbData));
+            detailLineList.field(QStringLiteral("Value"), dataPreviewText);
         }
     }
 
-    return detailLineList.join(QStringLiteral("\n"));
+    return detailLineList;
 }
 
 
-QString ServiceDock::buildSecurityDetailText(const ServiceEntry& entry) const
+ks::ui::FieldDocument ServiceDock::buildSecurityDetailText(const ServiceEntry& entry) const
 {
-    QStringList detailLineList;
+    ks::ui::FieldDocument detailLineList;
 
     std::vector<std::uint8_t> sidTypeBuffer;
     if (queryConfig2BufferByName(entry.serviceNameText, SERVICE_CONFIG_SERVICE_SID_INFO, &sidTypeBuffer))
     {
         const SERVICE_SID_INFO* sidInfoPointer = reinterpret_cast<const SERVICE_SID_INFO*>(sidTypeBuffer.data());
-        detailLineList.push_back(QStringLiteral("ServiceSidType：%1").arg(sidInfoPointer->dwServiceSidType));
+        detailLineList.field(QStringLiteral("ServiceSidType"), QStringLiteral("%1").arg(sidInfoPointer->dwServiceSidType));
     }
 
     std::vector<std::uint8_t> privilegeBuffer;
@@ -455,8 +354,8 @@ QString ServiceDock::buildSecurityDetailText(const ServiceEntry& entry) const
         const SERVICE_REQUIRED_PRIVILEGES_INFOW* privilegeInfoPointer =
             reinterpret_cast<const SERVICE_REQUIRED_PRIVILEGES_INFOW*>(privilegeBuffer.data());
         const QStringList privilegeList = parseMultiSzText(privilegeInfoPointer->pmszRequiredPrivileges);
-        detailLineList.push_back(QStringLiteral("RequiredPrivileges：%1").arg(
-            privilegeList.isEmpty() ? QStringLiteral("未声明") : privilegeList.join(QStringLiteral(", "))));
+        detailLineList.field(QStringLiteral("RequiredPrivileges"), privilegeList.isEmpty()
+            ? QStringLiteral("未声明") : privilegeList.join(QStringLiteral(", ")), privilegeList.isEmpty());
     }
 
     std::vector<std::uint8_t> launchProtectedBuffer;
@@ -464,7 +363,7 @@ QString ServiceDock::buildSecurityDetailText(const ServiceEntry& entry) const
     {
         const SERVICE_LAUNCH_PROTECTED_INFO* launchProtectedPointer =
             reinterpret_cast<const SERVICE_LAUNCH_PROTECTED_INFO*>(launchProtectedBuffer.data());
-        detailLineList.push_back(QStringLiteral("LaunchProtected：%1").arg(launchProtectedPointer->dwLaunchProtected));
+        detailLineList.field(QStringLiteral("LaunchProtected"), QStringLiteral("%1").arg(launchProtectedPointer->dwLaunchProtected));
     }
 
     std::wstring sddlText;
@@ -473,43 +372,43 @@ QString ServiceDock::buildSecurityDetailText(const ServiceEntry& entry) const
         DACL_SECURITY_INFORMATION,
         &sddlText))
     {
-        detailLineList.push_back(QStringLiteral("SDDL：%1").arg(QString::fromStdWString(sddlText)));
+        detailLineList.field(QStringLiteral("SDDL"), QStringLiteral("%1").arg(QString::fromStdWString(sddlText)));
     }
 
-    detailLineList.push_back(QStringLiteral("权限可见化："));
-    detailLineList.push_back(QStringLiteral("  Start：%1").arg(queryServicePermissionVisible(entry.serviceNameText, SERVICE_START) ? QStringLiteral("可用") : QStringLiteral("不可用")));
-    detailLineList.push_back(QStringLiteral("  Stop：%1").arg(queryServicePermissionVisible(entry.serviceNameText, SERVICE_STOP) ? QStringLiteral("可用") : QStringLiteral("不可用")));
-    detailLineList.push_back(QStringLiteral("  ChangeConfig：%1").arg(queryServicePermissionVisible(entry.serviceNameText, SERVICE_CHANGE_CONFIG) ? QStringLiteral("可用") : QStringLiteral("不可用")));
-    detailLineList.push_back(QStringLiteral("  Delete：%1").arg(queryServicePermissionVisible(entry.serviceNameText, DELETE) ? QStringLiteral("可用") : QStringLiteral("不可用")));
-    return detailLineList.join(QStringLiteral("\n"));
+    detailLineList.section(QStringLiteral("权限可见化"));
+    detailLineList.field(QStringLiteral("Start"), queryServicePermissionVisible(entry.serviceNameText, SERVICE_START) ? QStringLiteral("可用") : QStringLiteral("不可用"), true);
+    detailLineList.field(QStringLiteral("Stop"), queryServicePermissionVisible(entry.serviceNameText, SERVICE_STOP) ? QStringLiteral("可用") : QStringLiteral("不可用"), true);
+    detailLineList.field(QStringLiteral("ChangeConfig"), queryServicePermissionVisible(entry.serviceNameText, SERVICE_CHANGE_CONFIG) ? QStringLiteral("可用") : QStringLiteral("不可用"), true);
+    detailLineList.field(QStringLiteral("Delete"), queryServicePermissionVisible(entry.serviceNameText, DELETE) ? QStringLiteral("可用") : QStringLiteral("不可用"), true);
+    return detailLineList;
 }
 
 
-QString ServiceDock::buildRiskDetailText(const ServiceEntry& entry) const
+ks::ui::FieldDocument ServiceDock::buildRiskDetailText(const ServiceEntry& entry) const
 {
-    QStringList detailLineList;
-    detailLineList.push_back(QStringLiteral("风险摘要：%1").arg(entry.riskSummaryText));
+    ks::ui::FieldDocument detailLineList;
+    detailLineList.field(QStringLiteral("风险摘要"), QStringLiteral("%1").arg(entry.riskSummaryText));
     if (entry.riskTagList.isEmpty())
     {
-        detailLineList.push_back(QStringLiteral("未命中风险标签。"));
+        detailLineList.note(QStringLiteral("未命中风险标签。"));
     }
     else
     {
         for (const QString& riskTagText : entry.riskTagList)
         {
-            detailLineList.push_back(QStringLiteral(" - %1").arg(riskTagText));
+            detailLineList.note(QStringLiteral("- %1").arg(QStringLiteral("%1").arg(riskTagText)));
         }
     }
-    return detailLineList.join(QStringLiteral("\n"));
+    return detailLineList;
 }
 
-QString ServiceDock::buildExportDetailText(const ServiceEntry& entry) const
+ks::ui::FieldDocument ServiceDock::buildExportDetailText(const ServiceEntry& entry) const
 {
-    QStringList detailLineList;
-    detailLineList.push_back(QStringLiteral("当前服务：%1").arg(entry.serviceNameText));
-    detailLineList.push_back(QStringLiteral("当前可见服务数：%1").arg(m_serviceTable == nullptr ? 0 : m_serviceTable->rowCount()));
-    detailLineList.push_back(QStringLiteral("导出列表：支持 TSV（当前筛选结果）"));
-    detailLineList.push_back(QStringLiteral("导出单服务：支持 JSON（完整配置快照）"));
-    detailLineList.push_back(QStringLiteral("刷新策略：支持“刷新当前服务”与“刷新全部服务”分层更新"));
-    return detailLineList.join(QStringLiteral("\n"));
+    ks::ui::FieldDocument detailLineList;
+    detailLineList.field(QStringLiteral("当前服务"), QStringLiteral("%1").arg(entry.serviceNameText));
+    detailLineList.field(QStringLiteral("当前可见服务数"), QStringLiteral("%1").arg(m_serviceTable == nullptr ? 0 : m_serviceTable->rowCount()));
+    detailLineList.field(QStringLiteral("导出列表"), QStringLiteral("支持 TSV（当前筛选结果）"), true);
+    detailLineList.field(QStringLiteral("导出单服务"), QStringLiteral("支持 JSON（完整配置快照）"), true);
+    detailLineList.field(QStringLiteral("刷新策略"), QStringLiteral("支持“刷新当前服务”与“刷新全部服务”分层更新"), true);
+    return detailLineList;
 }

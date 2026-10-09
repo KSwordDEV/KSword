@@ -25,6 +25,7 @@
 #include <QThread>
 #include <QThreadPool>
 #include <QTimer>
+#include <QTreeWidget>
 
 #include <cstdio>
 #include <cstdlib>
@@ -149,13 +150,12 @@ namespace
         evidence.request.desired = READ_CONTROL;
         evidence.descriptorSddl = QStringLiteral("D:(A;;RC;;;WD)");
         evidence.labelError = ERROR_ACCESS_DENIED;
-        const QString report = reportText(evidence);
-        CodeEditorWidget editor;
-        editor.setReadOnly(true);
-        editor.setStructuredReportViewEnabled(false);
-        editor.setRawText(report);
-        require(editor.isReadOnly(), "actual report editor remains read-only");
-        require(editor.text() == report, "actual editor preserves generated report lines and raw SDDL");
+        const auto document = buildAccessDocument(evidence);
+        const QString report = document.toPlainText(true);
+        ks::ui::StructuredFieldView editor;
+        editor.setDocument(document);
+        require(!(editor.tree()->model()->flags(editor.tree()->model()->index(0, 0)) & Qt::ItemIsEditable), "native report fields remain read-only");
+        require(editor.plainText() == report, "native editor exports the only report model without a text mirror");
         require(report.contains(evidence.request.path), "report preserves dynamic object text");
         require(report.contains(evidence.descriptorSddl), "report preserves descriptor evidence");
 
@@ -172,8 +172,10 @@ namespace
         require(log.append(QStringLiteral("raw A\nraw B\nraw C")) == 3, "multiline append enforces block rather than entry budget");
         require(log.blockCount() == 500 && log.text().endsWith(QStringLiteral("raw A\nraw B\nraw C")),
             "multiline log remains intact within the block budget");
-        editor.setRawText(log.text());
-        require(editor.text() == log.text(), "actual built-in editor preserves raw log lines");
+        CodeEditorWidget rawEditor;
+        rawEditor.setReadOnly(true);
+        rawEditor.setRawText(log.text());
+        require(rawEditor.text() == log.text(), "actual built-in editor preserves raw log lines");
 
         // 构造隐藏页面即可核验布局；不 show，因而不会触发查询接口的 showEvent。
         ks::misc::StorageControllerResearchDialog controller;
@@ -181,8 +183,9 @@ namespace
         require(controllerLog && controllerLog->isReadOnly(), "production controller page uses read-only built-in editor");
         require(controllerLog->maximumHeight() == 120, "controller log retains its 120-pixel height cap");
         std::unique_ptr<QWidget> access(ks::privilege::createAccessDiagnosticPage(nullptr));
-        auto* accessReport = access->findChild<CodeEditorWidget*>(QStringLiteral("privilege_access_report"));
-        require(accessReport && accessReport->isReadOnly(), "production access page uses read-only built-in editor");
+        auto* accessReport = access->findChild<ks::ui::StructuredFieldView*>(QStringLiteral("privilege_access_report"));
+        require(accessReport && accessReport->tree()->editTriggers() == QAbstractItemView::NoEditTriggers,
+            "production access page uses read-only native report fields");
     }
 
     void testPages(const QString& screenshotDirectory)

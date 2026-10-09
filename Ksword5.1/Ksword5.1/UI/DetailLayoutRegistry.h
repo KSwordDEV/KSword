@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // ============================================================
 // DetailLayoutRegistry.h
@@ -18,6 +18,7 @@ class QSplitter;
 namespace ks::ui
 {
     class DetailLayoutHost;
+    class StructuredFieldView;
 
     class DetailLayoutRegistry final
     {
@@ -36,6 +37,14 @@ namespace ks::ui
             QSplitter* splitter,
             QWidget* mainPane,
             QWidget* detailPane);
+
+        static DetailLayoutHost* registerStructuredHost(QAbstractItemView* tableView,
+            StructuredFieldView* fields, QWidget* ownerWidget);
+        static DetailLayoutHost* registerStructuredHost(QAbstractItemView* tableView,
+            StructuredFieldView* fields, QWidget* ownerWidget, QSplitter* splitter,
+            QWidget* mainPane, QWidget* detailPane);
+        static DetailLayoutHost* hostFor(StructuredFieldView* fields);
+        static void prepareDataRebuild(StructuredFieldView* fields);
 
         // applyGlobalScheme：更新全局方案并立即重排全部仍存活页面。
         static void applyGlobalScheme(ks::settings::DetailDisplayScheme scheme);

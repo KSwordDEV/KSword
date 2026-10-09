@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -1336,7 +1337,7 @@ namespace
         return result;
     }
 
-    QString buildInlineHookDetailText(const KernelInlineHookEntry& row)
+    ks::ui::FieldDocument buildInlineHookDetailText(const KernelInlineHookEntry& row)
     {
         // 输入：已转换并可能已补充磁盘基线的 Inline Hook 行。
         // 处理：统一生成 CodeEditorWidget 详情文本，明确区分内存字节、R0 观察基线和 R3 磁盘基线。
@@ -1358,52 +1359,26 @@ namespace
         // 字节，未应用重定位"——那是旧读取路径的描述，现在已经不成立。该词条的
         // 译文由 languages/*.json 承载，本轮不改它，改用一段独立的补充说明纠正，
         // 避免同一个词条在中英两侧说法不一致。
-        return kernelText("kernel.hooks.inline.detail", QStringLiteral(
-            "Inline Hook 检测详情\n"
-            "模块: %1\n"
-            "函数: %2\n"
-            "函数地址: %3\n"
-            "Hook类型: %4\n"
-            "目标地址: %5\n"
-            "目标模块: %6\n"
-            "状态: %7\n"
-            "模块基址: %8\n"
-            "目标模块基址: %9\n"
-            "当前内存字节(%10): %11\n"
-            "R0 观察基线(%12): %13\n"
-            "磁盘基线字节(%14): %15\n"
-            "差异状态: %16\n"
-            "磁盘路径: %17\n"
-            "RVA: %18\n"
-            "标志: 0x%19\n\n"
-            "说明: 当前协议字段 expectedBytes 在 R0 中来自内存观察，通常是 currentBytes 的同源快照，不代表磁盘原始字节。"
-            "本页额外由 R3 按模块基址和 RVA 从磁盘模块文件读取基线字节并与当前内存字节比较；"
-            "如果磁盘基线不可用，请只把 R0 观察基线当作诊断快照，不要把它理解为干净基线。"
-            "磁盘基线由统一 PE 映射核按模块的实际加载基址归一化，已应用 .reloc 基址重定位；"
-            "落在零填充区、区段对齐间隙、畸形区段或 PE 动态重定位位点（import optimization / retpoline，由加载器在启动期写入）"
-            "上的 RVA 会被单独标为\"不可比较\"，而不是拿磁盘原值硬比 —— 那样会把加载器写入的字节报成 Hook。"
-            "热补丁与厂商运行时改写仍未校正，差异仍需结合 Hook 类型和目标地址判断。"
-            "摘除操作保持原有 NOP 流程，不新增自动修复能力。"))
-            .arg(kernelHookSafeText(row.moduleNameText))
-            .arg(kernelHookSafeText(row.functionNameText))
-            .arg(kernelHookFormatAddress(row.functionAddress))
-            .arg(row.hookTypeText)
-            .arg(kernelHookFormatAddress(row.targetAddress))
-            .arg(kernelHookSafeText(row.targetModuleNameText, kernelText("kernel.hooks.placeholder.not_resolved", QStringLiteral("<未解析>"))))
-            .arg(row.statusText)
-            .arg(kernelHookFormatAddress(row.moduleBase))
-            .arg(kernelHookFormatAddress(row.targetModuleBase))
-            .arg(row.currentByteCount)
-            .arg(row.currentBytesText)
-            .arg(row.originalByteCount)
-            .arg(row.observedBytesText)
-            .arg(diskByteCountText)
-            .arg(diskBytesText)
-            .arg(row.diskBaselineStatusText)
-            .arg(diskPathText)
-            .arg(rvaText)
-            .arg(static_cast<qulonglong>(row.flags), 8, 16, QChar('0'))
-            ;
+        { ks::ui::FieldDocument document;
+        document.note(QStringLiteral("Inline Hook 检测详情"));
+        document.field(QStringLiteral("模块"), QStringLiteral("%1").arg(kernelHookSafeText(row.moduleNameText)));
+        document.field(QStringLiteral("函数"), QStringLiteral("%1").arg(kernelHookSafeText(row.functionNameText)));
+        document.field(QStringLiteral("函数地址"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.functionAddress)));
+        document.field(QStringLiteral("Hook类型"), QStringLiteral("%1").arg(row.hookTypeText));
+        document.field(QStringLiteral("目标地址"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.targetAddress)));
+        document.field(QStringLiteral("目标模块"), QStringLiteral("%1").arg(kernelHookSafeText(row.targetModuleNameText, kernelText("kernel.hooks.placeholder.not_resolved", QStringLiteral("<未解析>")))));
+        document.field(QStringLiteral("状态"), QStringLiteral("%1").arg(row.statusText));
+        document.field(QStringLiteral("模块基址"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.moduleBase)));
+        document.field(QStringLiteral("目标模块基址"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.targetModuleBase)));
+        document.field(QStringLiteral("当前内存字节("), QStringLiteral("当前内存字节(%1): %2").arg(QStringLiteral("%1").arg(row.currentByteCount)).arg(QStringLiteral("%1").arg(row.currentBytesText)));
+        document.field(QStringLiteral("R0 观察基线("), QStringLiteral("R0 观察基线(%1): %2").arg(QStringLiteral("%1").arg(row.originalByteCount)).arg(QStringLiteral("%1").arg(row.observedBytesText)));
+        document.field(QStringLiteral("磁盘基线字节("), QStringLiteral("磁盘基线字节(%1): %2").arg(QStringLiteral("%1").arg(diskByteCountText)).arg(QStringLiteral("%1").arg(diskBytesText)));
+        document.field(QStringLiteral("差异状态"), QStringLiteral("%1").arg(row.diskBaselineStatusText));
+        document.field(QStringLiteral("磁盘路径"), QStringLiteral("%1").arg(diskPathText));
+        document.field(QStringLiteral("RVA"), QStringLiteral("%1").arg(rvaText));
+        document.field(QStringLiteral("标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(row.flags), 8, 16, QChar('0'))));
+        document.field(QStringLiteral("说明"), QStringLiteral("当前协议字段 expectedBytes 在 R0 中来自内存观察，通常是 currentBytes 的同源快照，不代表磁盘原始字节。本页额外由 R3 按模块基址和 RVA 从磁盘模块文件读取基线字节并与当前内存字节比较；如果磁盘基线不可用，请只把 R0 观察基线当作诊断快照，不要把它理解为干净基线。磁盘基线由统一 PE 映射核按模块的实际加载基址归一化，已应用 .reloc 基址重定位；落在零填充区、区段对齐间隙、畸形区段或 PE 动态重定位位点（import optimization / retpoline，由加载器在启动期写入）上的 RVA 会被单独标为\"不可比较\"，而不是拿磁盘原值硬比 —— 那样会把加载器写入的字节报成 Hook。热补丁与厂商运行时改写仍未校正，差异仍需结合 Hook 类型和目标地址判断。摘除操作保持原有 NOP 流程，不新增自动修复能力。"), true);
+        return document; }
     }
 
     void applyDiskBaselineToInlineHookEntry(
@@ -1438,7 +1413,7 @@ namespace
             : (baselineResult.notComparable
                 ? kernelText("kernel.hooks.placeholder.not_comparable", QStringLiteral("<不可比较>"))
                 : kernelText("kernel.hooks.placeholder.unavailable", QStringLiteral("<不可用>")));
-        row->detailText = buildInlineHookDetailText(*row);
+        row->detailDocument = buildInlineHookDetailText(*row);
     }
 
     std::vector<std::uint8_t> shadowTableValueBytes(
@@ -1551,47 +1526,30 @@ namespace
                 "kernel.hooks.shadow.baseline.unavailable",
                 QStringLiteral("磁盘基线不可用")));
         row.statusText = statusParts.join(QStringLiteral(" | "));
-        row.detailText = kernelText("kernel.hooks.shadow.detail", QStringLiteral(
-            "SSSDT/Shadow SSDT 解析\n"
-            "协议版本: %1\n"
-            "总条目: %2\n"
-            "返回条目: %3\n"
-            "服务名: %4\n"
-            "模块: %5\n"
-            "服务索引: %6\n"
-            "Stub地址: %7\n"
-            "Shadow服务表基址: %8\n"
-            "服务例程地址: %9\n"
-            "槽位地址: %10\n"
-            "当前编码槽值: 0x%11\n"
-            "磁盘基线槽值: 0x%12\n"
-            "当前槽字节: %13\n"
-            "基线槽字节: %14\n"
-            "基线状态: %15\n"
-            "基线映像: %16\n"
-            "驱动标志: 0x%17\n\n"
-            "说明: 服务例程地址为 0 表示当前资料不足或该表项暂不可读。"))
-            .arg(enumResult.version)
-            .arg(enumResult.totalCount)
-            .arg(enumResult.returnedCount)
-            .arg(kernelHookSafeText(row.serviceNameText))
-            .arg(kernelHookSafeText(row.moduleNameText))
-            .arg(row.indexResolved ? QString::number(row.serviceIndex) : kernelText("kernel.hooks.placeholder.unknown", QStringLiteral("<未知>")))
-            .arg(kernelHookFormatAddress(row.zwRoutineAddress))
-            .arg(kernelHookFormatAddress(row.serviceTableBase))
-            .arg(kernelHookFormatAddress(row.serviceRoutineAddress))
-            .arg(kernelHookFormatAddress(row.tableEntryAddress))
-            .arg(static_cast<qulonglong>(row.currentTableValue), 0, 16)
-            .arg(static_cast<qulonglong>(row.cleanTableValue), 0, 16)
-            .arg(kernelHookBytesToText(
+        row.detailDocument = {};
+        row.detailDocument.note(QStringLiteral("SSSDT/Shadow SSDT 解析"));
+        row.detailDocument.field(QStringLiteral("协议版本"), QStringLiteral("%1").arg(enumResult.version));
+        row.detailDocument.field(QStringLiteral("总条目"), QStringLiteral("%1").arg(enumResult.totalCount));
+        row.detailDocument.field(QStringLiteral("返回条目"), QStringLiteral("%1").arg(enumResult.returnedCount));
+        row.detailDocument.field(QStringLiteral("服务名"), QStringLiteral("%1").arg(kernelHookSafeText(row.serviceNameText)));
+        row.detailDocument.field(QStringLiteral("模块"), QStringLiteral("%1").arg(kernelHookSafeText(row.moduleNameText)));
+        row.detailDocument.field(QStringLiteral("服务索引"), QStringLiteral("%1").arg(row.indexResolved ? QString::number(row.serviceIndex) : kernelText("kernel.hooks.placeholder.unknown", QStringLiteral("<未知>"))));
+        row.detailDocument.field(QStringLiteral("Stub地址"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.zwRoutineAddress)));
+        row.detailDocument.field(QStringLiteral("Shadow服务表基址"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.serviceTableBase)));
+        row.detailDocument.field(QStringLiteral("服务例程地址"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.serviceRoutineAddress)));
+        row.detailDocument.field(QStringLiteral("槽位地址"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.tableEntryAddress)));
+        row.detailDocument.field(QStringLiteral("当前编码槽值"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(row.currentTableValue), 0, 16)));
+        row.detailDocument.field(QStringLiteral("磁盘基线槽值"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(row.cleanTableValue), 0, 16)));
+        row.detailDocument.field(QStringLiteral("当前槽字节"), QStringLiteral("%1").arg(kernelHookBytesToText(
                 row.currentTableBytes,
-                row.tableEntrySize))
-            .arg(kernelHookBytesToText(
+                row.tableEntrySize)));
+        row.detailDocument.field(QStringLiteral("基线槽字节"), QStringLiteral("%1").arg(kernelHookBytesToText(
                 row.cleanTableBytes,
-                row.tableEntrySize))
-            .arg(row.cleanBaselineStatus)
-            .arg(row.cleanBaselinePath)
-            .arg(static_cast<qulonglong>(row.flags), 8, 16, QChar('0'));
+                row.tableEntrySize)));
+        row.detailDocument.field(QStringLiteral("基线状态"), QStringLiteral("%1").arg(row.cleanBaselineStatus));
+        row.detailDocument.field(QStringLiteral("基线映像"), QStringLiteral("%1").arg(row.cleanBaselinePath));
+        row.detailDocument.field(QStringLiteral("驱动标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(row.flags), 8, 16, QChar('0'))));
+        row.detailDocument.field(QStringLiteral("说明"), QStringLiteral("服务例程地址为 0 表示当前资料不足或该表项暂不可读。"), true);
         return row;
     }
 
@@ -1622,7 +1580,7 @@ namespace
         row.diskBaselineStatusText = kernelText("kernel.hooks.baseline.not_comparable", QStringLiteral("不可比较"));
         row.diskBaselinePathText = kernelText("kernel.hooks.placeholder.not_resolved", QStringLiteral("<未解析>"));
         row.diskBytesText = kernelText("kernel.hooks.placeholder.not_fetched", QStringLiteral("<未获取>"));
-        row.detailText = buildInlineHookDetailText(row);
+        row.detailDocument = buildInlineHookDetailText(row);
         return row;
     }
 
@@ -1644,34 +1602,21 @@ namespace
         row.importModuleNameText = QString::fromStdWString(source.importModuleName);
         row.functionNameText = QString::fromLocal8Bit(source.functionName.data(), static_cast<int>(source.functionName.size()));
         row.targetModuleNameText = QString::fromStdWString(source.targetModuleName);
-        row.detailText = kernelText("kernel.hooks.iat.detail", QStringLiteral(
-            "IAT/EAT Hook 检测详情\n"
-            "类别: %1\n"
-            "模块: %2\n"
-            "导入模块: %3\n"
-            "函数/序号: %4 / #%5\n"
-            "Thunk/EAT项: %6\n"
-            "当前目标: %7\n"
-            "期望目标: %8\n"
-            "目标模块: %9\n"
-            "所属模块基址: %10\n"
-            "目标模块基址: %11\n"
-            "状态: %12\n"
-            "标志: 0x%13\n\n"
-            "说明: IAT 检测比较 thunk 当前目标是否仍落在声明导入模块内；EAT 检测导出 RVA 是否落在自身映像或转发导出区域内。"))
-            .arg(row.classText)
-            .arg(kernelHookSafeText(row.moduleNameText))
-            .arg(kernelHookSafeText(row.importModuleNameText, kernelText("kernel.hooks.placeholder.not_applicable", QStringLiteral("<不适用>"))))
-            .arg(kernelHookSafeText(row.functionNameText))
-            .arg(row.ordinal)
-            .arg(kernelHookFormatAddress(row.thunkAddress))
-            .arg(kernelHookFormatAddress(row.currentTarget))
-            .arg(kernelHookFormatAddress(row.expectedTarget))
-            .arg(kernelHookSafeText(row.targetModuleNameText, kernelText("kernel.hooks.placeholder.not_resolved", QStringLiteral("<未解析>"))))
-            .arg(kernelHookFormatAddress(row.moduleBase))
-            .arg(kernelHookFormatAddress(row.targetModuleBase))
-            .arg(row.statusText)
-            .arg(static_cast<qulonglong>(row.flags), 8, 16, QChar('0'));
+        row.detailDocument = {};
+        row.detailDocument.note(QStringLiteral("IAT/EAT Hook 检测详情"));
+        row.detailDocument.field(QStringLiteral("类别"), QStringLiteral("%1").arg(row.classText));
+        row.detailDocument.field(QStringLiteral("模块"), QStringLiteral("%1").arg(kernelHookSafeText(row.moduleNameText)));
+        row.detailDocument.field(QStringLiteral("导入模块"), QStringLiteral("%1").arg(kernelHookSafeText(row.importModuleNameText, kernelText("kernel.hooks.placeholder.not_applicable", QStringLiteral("<不适用>")))));
+        row.detailDocument.field(QStringLiteral("函数/序号"), QStringLiteral("%1 / #%2").arg(QStringLiteral("%1").arg(kernelHookSafeText(row.functionNameText))).arg(QStringLiteral("%1").arg(row.ordinal)));
+        row.detailDocument.field(QStringLiteral("Thunk/EAT项"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.thunkAddress)));
+        row.detailDocument.field(QStringLiteral("当前目标"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.currentTarget)));
+        row.detailDocument.field(QStringLiteral("期望目标"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.expectedTarget)));
+        row.detailDocument.field(QStringLiteral("目标模块"), QStringLiteral("%1").arg(kernelHookSafeText(row.targetModuleNameText, kernelText("kernel.hooks.placeholder.not_resolved", QStringLiteral("<未解析>")))));
+        row.detailDocument.field(QStringLiteral("所属模块基址"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.moduleBase)));
+        row.detailDocument.field(QStringLiteral("目标模块基址"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.targetModuleBase)));
+        row.detailDocument.field(QStringLiteral("状态"), QStringLiteral("%1").arg(row.statusText));
+        row.detailDocument.field(QStringLiteral("标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(row.flags), 8, 16, QChar('0'))));
+        row.detailDocument.field(QStringLiteral("说明"), QStringLiteral("IAT 检测比较 thunk 当前目标是否仍落在声明导入模块内；EAT 检测导出 RVA 是否落在自身映像或转发导出区域内。"), true);
         return row;
     }
 
@@ -1738,14 +1683,14 @@ void KernelDock::initializeShadowSsdtTab()
     prepareTable(m_shadowSsdtTable);
     m_shadowSsdtTable->horizontalHeader()->setSectionResizeMode(static_cast<int>(ShadowSsdtColumn::ServiceName), QHeaderView::Stretch);
 
-    m_shadowSsdtDetailEditor = new CodeEditorWidget(splitter);
-    m_shadowSsdtDetailEditor->setReadOnly(true);
-    m_shadowSsdtDetailEditor->setText(kernelText("kernel.hooks.shadow.detail.initial", QStringLiteral("请选择一条 SSSDT 记录查看详情。")));
+    m_shadowSsdtDetailEditor = new ks::ui::StructuredFieldView(splitter);
+
+    m_shadowSsdtDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.hooks.shadow.detail.initial", QStringLiteral("请选择一条 SSSDT 记录查看详情。"))));
 
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_shadowSsdtTable, m_shadowSsdtDetailEditor, m_shadowSsdtPage);
 
     connect(m_refreshShadowSsdtButton, &QPushButton::clicked, this, [this]() {
@@ -1833,14 +1778,14 @@ void KernelDock::initializeInlineHookTab()
     prepareTable(m_inlineHookTable);
     m_inlineHookTable->horizontalHeader()->setSectionResizeMode(static_cast<int>(InlineHookColumn::Function), QHeaderView::Stretch);
 
-    m_inlineHookDetailEditor = new CodeEditorWidget(splitter);
-    m_inlineHookDetailEditor->setReadOnly(true);
-    m_inlineHookDetailEditor->setText(kernelText("kernel.hooks.inline.detail.initial", QStringLiteral("请选择一条 Inline Hook 记录查看详情。")));
+    m_inlineHookDetailEditor = new ks::ui::StructuredFieldView(splitter);
+
+    m_inlineHookDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.hooks.inline.detail.initial", QStringLiteral("请选择一条 Inline Hook 记录查看详情。"))));
 
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_inlineHookTable, m_inlineHookDetailEditor, m_inlineHookPage);
 
     connect(m_refreshInlineHookButton, &QPushButton::clicked, this, [this]() {
@@ -1926,14 +1871,14 @@ void KernelDock::initializeIatEatHookTab()
     prepareTable(m_iatEatHookTable);
     m_iatEatHookTable->horizontalHeader()->setSectionResizeMode(static_cast<int>(IatEatHookColumn::Function), QHeaderView::Stretch);
 
-    m_iatEatHookDetailEditor = new CodeEditorWidget(splitter);
-    m_iatEatHookDetailEditor->setReadOnly(true);
-    m_iatEatHookDetailEditor->setText(kernelText("kernel.hooks.iat.detail.initial", QStringLiteral("请选择一条 IAT/EAT 记录查看详情。")));
+    m_iatEatHookDetailEditor = new ks::ui::StructuredFieldView(splitter);
+
+    m_iatEatHookDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.hooks.iat.detail.initial", QStringLiteral("请选择一条 IAT/EAT 记录查看详情。"))));
 
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_iatEatHookTable, m_iatEatHookDetailEditor, m_iatEatHookPage);
 
     connect(m_refreshIatEatHookButton, &QPushButton::clicked, this, [this]() {
@@ -1995,13 +1940,13 @@ void KernelDock::initializeTimerDpcTab()
     prepareTable(m_timerDpcTable);
     m_timerDpcTable->horizontalHeader()->setSectionResizeMode(static_cast<int>(TimerDpcColumn::Module), QHeaderView::Stretch);
 
-    m_timerDpcDetailEditor = new CodeEditorWidget(splitter);
-    m_timerDpcDetailEditor->setReadOnly(true);
-    m_timerDpcDetailEditor->setText(kernelText("kernel.timer_dpc.detail.initial", QStringLiteral("请选择一条 KTIMER/DPC 记录查看详情。")));
+    m_timerDpcDetailEditor = new ks::ui::StructuredFieldView(splitter);
+
+    m_timerDpcDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.timer_dpc.detail.initial", QStringLiteral("请选择一条 KTIMER/DPC 记录查看详情。"))));
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_timerDpcTable, m_timerDpcDetailEditor, m_timerDpcPage);
 
     connect(m_refreshTimerDpcButton, &QPushButton::clicked, this, [this]() { refreshTimerDpcAfterDynDataAsync(); });
@@ -2115,7 +2060,7 @@ void KernelDock::refreshShadowSsdtAsync()
             {
                 guardThis->m_shadowSsdtStatusLabel->setText(kernelText("kernel.hooks.shadow.status.failed", QStringLiteral("状态：解析失败")));
                 guardThis->m_shadowSsdtStatusLabel->setStyleSheet(kernelHookStatusLabelStyle(KswordTheme::ErrorHex()));
-                guardThis->m_shadowSsdtDetailEditor->setText(errorText);
+                guardThis->m_shadowSsdtDetailEditor->setDocument(ks::ui::FieldDocument{}.note(errorText));
                 return;
             }
 
@@ -2134,7 +2079,7 @@ void KernelDock::refreshShadowSsdtAsync()
             }
             else
             {
-                guardThis->m_shadowSsdtDetailEditor->setText(kernelText("kernel.hooks.shadow.empty", QStringLiteral("当前环境未返回 SSSDT stub 解析结果。")));
+                guardThis->m_shadowSsdtDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.hooks.shadow.empty", QStringLiteral("当前环境未返回 SSSDT stub 解析结果。"))));
             }
             };
 
@@ -2237,7 +2182,7 @@ void KernelDock::refreshInlineHooksAsync()
             {
                 guardThis->m_inlineHookStatusLabel->setText(kernelText("kernel.hooks.inline.status.failed", QStringLiteral("状态：扫描失败")));
                 guardThis->m_inlineHookStatusLabel->setStyleSheet(kernelHookStatusLabelStyle(KswordTheme::ErrorHex()));
-                guardThis->m_inlineHookDetailEditor->setText(errorText);
+                guardThis->m_inlineHookDetailEditor->setDocument(ks::ui::FieldDocument{}.note(errorText));
                 return;
             }
 
@@ -2274,7 +2219,7 @@ void KernelDock::refreshInlineHooksAsync()
             }
             else
             {
-                guardThis->m_inlineHookDetailEditor->setText(kernelText("kernel.hooks.inline.empty", QStringLiteral("当前过滤条件下未返回 Inline Hook 记录。")));
+                guardThis->m_inlineHookDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.hooks.inline.empty", QStringLiteral("当前过滤条件下未返回 Inline Hook 记录。"))));
             }
             };
 
@@ -2373,7 +2318,7 @@ void KernelDock::refreshIatEatHooksAsync()
             {
                 guardThis->m_iatEatHookStatusLabel->setText(kernelText("kernel.hooks.iat.status.failed", QStringLiteral("状态：扫描失败")));
                 guardThis->m_iatEatHookStatusLabel->setStyleSheet(kernelHookStatusLabelStyle(KswordTheme::ErrorHex()));
-                guardThis->m_iatEatHookDetailEditor->setText(errorText);
+                guardThis->m_iatEatHookDetailEditor->setDocument(ks::ui::FieldDocument{}.note(errorText));
                 return;
             }
 
@@ -2404,7 +2349,7 @@ void KernelDock::refreshIatEatHooksAsync()
             }
             else
             {
-                guardThis->m_iatEatHookDetailEditor->setText(kernelText("kernel.hooks.iat.empty", QStringLiteral("当前过滤条件下未返回 IAT/EAT 记录。")));
+                guardThis->m_iatEatHookDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.hooks.iat.empty", QStringLiteral("当前过滤条件下未返回 IAT/EAT 记录。"))));
             }
             };
 
@@ -2466,35 +2411,21 @@ void KernelDock::refreshTimerDpcAsync()
                 row.deferredContext = source.deferredContext;
                 row.moduleNameText = kernelHookResolveModuleForAddress(modulePathMap, row.deferredRoutine);
                 row.statusText = timerDpcEntryStatusText(row.flags, row.moduleNameText);
-                row.detailText = kernelText("kernel.timer_dpc.detail", QStringLiteral(
-                    "KTIMER / KDPC 详情\n"
-                    "CPU: %1:%2\n"
-                    "Bucket: %3\n"
-                    "Timer: %4\n"
-                    "DueTime: %5\n"
-                    "Period: %6\n"
-                    "类型: %7\n"
-                    "DPC: %8\n"
-                    "DeferredRoutine: %9\n"
-                    "DeferredContext: %10\n"
-                    "模块: %11\n"
-                    "状态: %12\n"
-                    "标志: 0x%13\n\n"
-                    "说明: 数据由 R0 使用精确 DynData v4 布局只读遍历当前活动 TimerTable 获得；"
-                    "未获取私有 bucket lock，刷新期间并发增删可能导致 partial/corrupt 诊断。"))
-                    .arg(row.processorGroup)
-                    .arg(row.processorNumber)
-                    .arg(row.bucketIndex)
-                    .arg(kernelHookFormatAddress(row.timerAddress))
-                    .arg(row.dueTime)
-                    .arg(row.period)
-                    .arg(timerDpcTypeText(row.timerType))
-                    .arg(row.dpcAddress == 0U ? kernelText("kernel.timer_dpc.placeholder.none", QStringLiteral("<无>")) : kernelHookFormatAddress(row.dpcAddress))
-                    .arg(row.deferredRoutine == 0U ? kernelText("kernel.timer_dpc.placeholder.none", QStringLiteral("<无>")) : kernelHookFormatAddress(row.deferredRoutine))
-                    .arg(row.deferredContext == 0U ? kernelText("kernel.timer_dpc.placeholder.none", QStringLiteral("<无>")) : kernelHookFormatAddress(row.deferredContext))
-                    .arg(kernelHookSafeText(row.moduleNameText, kernelText("kernel.hooks.placeholder.not_resolved", QStringLiteral("<未解析>"))))
-                    .arg(row.statusText)
-                    .arg(static_cast<qulonglong>(row.flags), 8, 16, QChar('0'));
+                row.detailDocument = {};
+                row.detailDocument.note(QStringLiteral("KTIMER / KDPC 详情"));
+                row.detailDocument.field(QStringLiteral("CPU"), QStringLiteral("%1:%2").arg(QStringLiteral("%1").arg(row.processorGroup)).arg(QStringLiteral("%1").arg(row.processorNumber)));
+                row.detailDocument.field(QStringLiteral("Bucket"), QStringLiteral("%1").arg(row.bucketIndex));
+                row.detailDocument.field(QStringLiteral("Timer"), QStringLiteral("%1").arg(kernelHookFormatAddress(row.timerAddress)));
+                row.detailDocument.field(QStringLiteral("DueTime"), QStringLiteral("%1").arg(row.dueTime));
+                row.detailDocument.field(QStringLiteral("Period"), QStringLiteral("%1").arg(row.period));
+                row.detailDocument.field(QStringLiteral("类型"), QStringLiteral("%1").arg(timerDpcTypeText(row.timerType)));
+                row.detailDocument.field(QStringLiteral("DPC"), QStringLiteral("%1").arg(row.dpcAddress == 0U ? kernelText("kernel.timer_dpc.placeholder.none", QStringLiteral("<无>")) : kernelHookFormatAddress(row.dpcAddress)));
+                row.detailDocument.field(QStringLiteral("DeferredRoutine"), QStringLiteral("%1").arg(row.deferredRoutine == 0U ? kernelText("kernel.timer_dpc.placeholder.none", QStringLiteral("<无>")) : kernelHookFormatAddress(row.deferredRoutine)));
+                row.detailDocument.field(QStringLiteral("DeferredContext"), QStringLiteral("%1").arg(row.deferredContext == 0U ? kernelText("kernel.timer_dpc.placeholder.none", QStringLiteral("<无>")) : kernelHookFormatAddress(row.deferredContext)));
+                row.detailDocument.field(QStringLiteral("模块"), QStringLiteral("%1").arg(kernelHookSafeText(row.moduleNameText, kernelText("kernel.hooks.placeholder.not_resolved", QStringLiteral("<未解析>")))));
+                row.detailDocument.field(QStringLiteral("状态"), QStringLiteral("%1").arg(row.statusText));
+                row.detailDocument.field(QStringLiteral("标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(row.flags), 8, 16, QChar('0'))));
+                row.detailDocument.field(QStringLiteral("说明"), QStringLiteral("数据由 R0 使用精确 DynData v4 布局只读遍历当前活动 TimerTable 获得；未获取私有 bucket lock，刷新期间并发增删可能导致 partial/corrupt 诊断。"), true);
                 resultRows.push_back(std::move(row));
             }
         }
@@ -2518,9 +2449,9 @@ void KernelDock::refreshTimerDpcAsync()
             {
                 guardThis->m_timerDpcStatusLabel->setText(kernelText("kernel.timer_dpc.status.failed", QStringLiteral("状态：枚举失败")));
                 guardThis->m_timerDpcStatusLabel->setStyleSheet(kernelHookStatusLabelStyle(KswordTheme::ErrorHex()));
-                guardThis->m_timerDpcDetailEditor->setText(kernelText("kernel.timer_dpc.error.io", QStringLiteral("KTIMER/DPC 驱动接口调用失败。\nWin32=%1\n详情=%2"))
+                guardThis->m_timerDpcDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.timer_dpc.error.io", QStringLiteral("KTIMER/DPC 驱动接口调用失败。\nWin32=%1\n详情=%2"))
                     .arg(enumResult.io.win32Error)
-                    .arg(friendlyKernelHookIoMessage(enumResult.io.message)));
+                    .arg(friendlyKernelHookIoMessage(enumResult.io.message))));
                 return;
             }
 
@@ -2545,11 +2476,11 @@ void KernelDock::refreshTimerDpcAsync()
 
             if (enumResult.queryStatus == KSWORD_ARK_TIMER_DPC_QUERY_STATUS_DYNDATA_MISSING)
             {
-                guardThis->m_timerDpcDetailEditor->setText(kernelText("kernel.timer_dpc.error.dyndata", QStringLiteral("当前 ntoskrnl 的 DynData v4 Timer/DPC 布局不可用。请确认偏移包已匹配并下发到驱动。")));
+                guardThis->m_timerDpcDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.timer_dpc.error.dyndata", QStringLiteral("当前 ntoskrnl 的 DynData v4 Timer/DPC 布局不可用。请确认偏移包已匹配并下发到驱动。"))));
             }
             else if (enumResult.queryStatus == KSWORD_ARK_TIMER_DPC_QUERY_STATUS_INVALID_LAYOUT)
             {
-                guardThis->m_timerDpcDetailEditor->setText(kernelText("kernel.timer_dpc.error.layout", QStringLiteral("驱动拒绝了当前 Timer/DPC 布局，未读取 TimerTable。")));
+                guardThis->m_timerDpcDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.timer_dpc.error.layout", QStringLiteral("驱动拒绝了当前 Timer/DPC 布局，未读取 TimerTable。"))));
             }
             else if (guardThis->m_timerDpcTable->rowCount() > 0)
             {
@@ -2557,7 +2488,7 @@ void KernelDock::refreshTimerDpcAsync()
             }
             else
             {
-                guardThis->m_timerDpcDetailEditor->setText(kernelText("kernel.timer_dpc.empty", QStringLiteral("当前快照未返回活动 KTIMER 记录。")));
+                guardThis->m_timerDpcDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.timer_dpc.empty", QStringLiteral("当前快照未返回活动 KTIMER 记录。"))));
             }
             };
 
@@ -2613,7 +2544,7 @@ void KernelDock::rebuildShadowSsdtTable(const QString& filterKeyword)
         {
             matchFields.push_back(shadowSsdtColumnText(entry, static_cast<ShadowSsdtColumn>(column)));
         }
-        const bool matched = filterKeyword.isEmpty() || matchFields.join(' ').contains(filterKeyword, Qt::CaseInsensitive) || entry.detailText.contains(filterKeyword, Qt::CaseInsensitive);
+        const bool matched = filterKeyword.isEmpty() || matchFields.join(' ').contains(filterKeyword, Qt::CaseInsensitive) || entry.detailDocument.toPlainText(true).contains(filterKeyword, Qt::CaseInsensitive);
         if (!matched)
         {
             continue;
@@ -2655,7 +2586,7 @@ void KernelDock::rebuildInlineHookTable(const QString& filterKeyword)
         {
             matchFields.push_back(inlineHookColumnText(entry, static_cast<InlineHookColumn>(column)));
         }
-        const bool matched = filterKeyword.isEmpty() || matchFields.join(' ').contains(filterKeyword, Qt::CaseInsensitive) || entry.detailText.contains(filterKeyword, Qt::CaseInsensitive);
+        const bool matched = filterKeyword.isEmpty() || matchFields.join(' ').contains(filterKeyword, Qt::CaseInsensitive) || entry.detailDocument.toPlainText(true).contains(filterKeyword, Qt::CaseInsensitive);
         if (!matched)
         {
             continue;
@@ -2714,7 +2645,7 @@ void KernelDock::rebuildIatEatHookTable(const QString& filterKeyword)
         {
             matchFields.push_back(iatEatColumnText(entry, static_cast<IatEatHookColumn>(column)));
         }
-        const bool matched = filterKeyword.isEmpty() || matchFields.join(' ').contains(filterKeyword, Qt::CaseInsensitive) || entry.detailText.contains(filterKeyword, Qt::CaseInsensitive);
+        const bool matched = filterKeyword.isEmpty() || matchFields.join(' ').contains(filterKeyword, Qt::CaseInsensitive) || entry.detailDocument.toPlainText(true).contains(filterKeyword, Qt::CaseInsensitive);
         if (!matched)
         {
             continue;
@@ -2759,7 +2690,7 @@ void KernelDock::rebuildTimerDpcTable(const QString& filterKeyword)
         }
         if (!filterKeyword.isEmpty() &&
             !fields.join(' ').contains(filterKeyword, Qt::CaseInsensitive) &&
-            !entry.detailText.contains(filterKeyword, Qt::CaseInsensitive))
+            !entry.detailDocument.toPlainText(true).contains(filterKeyword, Qt::CaseInsensitive))
         {
             continue;
         }
@@ -2868,7 +2799,7 @@ void KernelDock::showShadowSsdtDetailByCurrentRow()
         return;
     }
     const KernelSsdtEntry* entry = currentShadowSsdtEntry();
-    m_shadowSsdtDetailEditor->setText(entry != nullptr ? entry->detailText : kernelText("kernel.hooks.shadow.detail.initial", QStringLiteral("请选择一条 SSSDT 记录查看详情。")));
+    m_shadowSsdtDetailEditor->setDocument(entry != nullptr ? entry->detailDocument : ks::ui::FieldDocument{}.note(kernelText("kernel.hooks.shadow.detail.initial", QStringLiteral("请选择一条 SSSDT 记录查看详情。"))));
 }
 
 void KernelDock::restoreSelectedShadowSsdtBaseline()
@@ -3023,7 +2954,7 @@ void KernelDock::showInlineHookDetailByCurrentRow()
         return;
     }
     const KernelInlineHookEntry* entry = currentInlineHookEntry();
-    m_inlineHookDetailEditor->setText(entry != nullptr ? entry->detailText : kernelText("kernel.hooks.inline.detail.initial", QStringLiteral("请选择一条 Inline Hook 记录查看详情。")));
+    m_inlineHookDetailEditor->setDocument(entry != nullptr ? entry->detailDocument : ks::ui::FieldDocument{}.note(kernelText("kernel.hooks.inline.detail.initial", QStringLiteral("请选择一条 Inline Hook 记录查看详情。"))));
 }
 
 void KernelDock::showIatEatHookDetailByCurrentRow()
@@ -3033,7 +2964,7 @@ void KernelDock::showIatEatHookDetailByCurrentRow()
         return;
     }
     const KernelIatEatHookEntry* entry = currentIatEatHookEntry();
-    m_iatEatHookDetailEditor->setText(entry != nullptr ? entry->detailText : kernelText("kernel.hooks.iat.detail.initial", QStringLiteral("请选择一条 IAT/EAT 记录查看详情。")));
+    m_iatEatHookDetailEditor->setDocument(entry != nullptr ? entry->detailDocument : ks::ui::FieldDocument{}.note(kernelText("kernel.hooks.iat.detail.initial", QStringLiteral("请选择一条 IAT/EAT 记录查看详情。"))));
 }
 
 void KernelDock::showTimerDpcDetailByCurrentRow()
@@ -3050,7 +2981,7 @@ void KernelDock::showTimerDpcDetailByCurrentRow()
     const std::size_t sourceIndex = static_cast<std::size_t>(item->data(Qt::UserRole).toULongLong());
     if (sourceIndex < m_timerDpcRows.size())
     {
-        m_timerDpcDetailEditor->setText(m_timerDpcRows[sourceIndex].detailText);
+        m_timerDpcDetailEditor->setDocument(m_timerDpcRows[sourceIndex].detailDocument);
     }
 }
 
@@ -3100,7 +3031,7 @@ void KernelDock::showTimerDpcContextMenu(const QPoint& localPosition)
         QStringList details;
         for (const std::size_t sourceIndex : selectedIndices)
         {
-            details.push_back(m_timerDpcRows[sourceIndex].detailText);
+            details.push_back(m_timerDpcRows[sourceIndex].detailDocument.toPlainText(true));
         }
         kernelHookCopyTextToClipboard(details.join(QStringLiteral("\n\n---\n\n")));
     }
@@ -3256,7 +3187,7 @@ void KernelDock::showShadowSsdtContextMenu(const QPoint& localPosition)
         QStringList details;
         for (const std::size_t sourceIndex : selectedIndices)
         {
-            details.push_back(m_shadowSsdtRows[sourceIndex].detailText);
+            details.push_back(m_shadowSsdtRows[sourceIndex].detailDocument.toPlainText(true));
         }
         kernelHookCopyTextToClipboard(details.join(QStringLiteral("\n\n---\n\n")));
         return;
@@ -3412,7 +3343,7 @@ void KernelDock::showInlineHookContextMenu(const QPoint& localPosition)
         QStringList details;
         for (const std::size_t sourceIndex : selectedIndices)
         {
-            details.push_back(m_inlineHookRows[sourceIndex].detailText);
+            details.push_back(m_inlineHookRows[sourceIndex].detailDocument.toPlainText(true));
         }
         kernelHookCopyTextToClipboard(details.join(QStringLiteral("\n\n---\n\n")));
         return;
@@ -3524,7 +3455,7 @@ void KernelDock::showIatEatHookContextMenu(const QPoint& localPosition)
         QStringList details;
         for (const std::size_t sourceIndex : selectedIndices)
         {
-            details.push_back(m_iatEatHookRows[sourceIndex].detailText);
+            details.push_back(m_iatEatHookRows[sourceIndex].detailDocument.toPlainText(true));
         }
         kernelHookCopyTextToClipboard(details.join(QStringLiteral("\n\n---\n\n")));
         return;
@@ -3645,7 +3576,7 @@ void KernelDock::patchSelectedInlineHookWithNop()
 
     if (m_inlineHookDetailEditor != nullptr)
     {
-        m_inlineHookDetailEditor->setText(resultText);
+        m_inlineHookDetailEditor->setDocument(ks::ui::FieldDocument{}.note(resultText));
     }
     if (m_inlineHookStatusLabel != nullptr)
     {

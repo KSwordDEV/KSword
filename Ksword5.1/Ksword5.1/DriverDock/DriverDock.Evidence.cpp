@@ -1,4 +1,5 @@
-﻿#include "DriverDock.Internal.h"
+#include "../UI/StructuredFieldView.h"
+#include "DriverDock.Internal.h"
 #include "../OnlineScan/SandboxUploadActions.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -193,17 +194,16 @@ namespace
     // evidenceAppendIoSummary：统一记录 ArkDriverClient 调用摘要。
     // 输入：标题、IoResult、输出列表；处理：追加一行可复制诊断；返回：无。
     void evidenceAppendIoSummary(
-        QStringList& detailLines,
+        ks::ui::FieldDocument& document,
         const QString& titleText,
         const ksword::ark::IoResult& ioResult)
     {
-        detailLines << QStringLiteral("[%1]").arg(titleText);
-        detailLines << driverText("driver.evidence.io_summary", QStringLiteral("ok=%1 win32=%2 nt=%3 bytes=%4 说明=%5"))
-            .arg(ioResult.ok ? QStringLiteral("true") : QStringLiteral("false"))
-            .arg(ioResult.win32Error)
-            .arg(formatNtStatusText(ioResult.ntStatus))
-            .arg(ioResult.bytesReturned)
-            .arg(describeDriverCollection(ioResult));
+        document.section(titleText);
+        document.field(QStringLiteral("ok"), ioResult.ok ? QStringLiteral("true") : QStringLiteral("false"));
+        document.field(QStringLiteral("win32"), QString::number(ioResult.win32Error));
+        document.field(QStringLiteral("nt"), formatNtStatusText(ioResult.ntStatus));
+        document.field(QStringLiteral("bytes"), QString::number(ioResult.bytesReturned));
+        document.field(QStringLiteral("说明"), describeDriverCollection(ioResult), true);
     }
 
     // evidenceModuleNameMatches：判断 R0 返回模块名是否对应目标模块。
@@ -636,9 +636,8 @@ DriverDock::LoadedModuleEvidenceRecord DriverDock::buildPendingModuleEvidenceRec
     evidence.iatEatStatusText = pendingScanText;
     evidence.inlineHookStatusText = pendingScanText;
     evidence.callbackStatusText = pendingScanText;
-    evidence.detailText = QStringLiteral(
-        "模块 %1 尚未执行证据聚合。\n点击工具栏证据刷新按钮后，后台线程会只读查询 DriverObject / Hook / Callback。")
-        .arg(moduleRecord.moduleName);
+    evidence.detailDocument.field(QStringLiteral("模块"), QStringLiteral("模块 %1 尚未执行证据聚合。").arg(QStringLiteral("%1").arg(moduleRecord.moduleName)));
+    evidence.detailDocument.note(QStringLiteral("点击工具栏证据刷新按钮后，后台线程会只读查询 DriverObject / Hook / Callback。"));
     return evidence;
 }
 
@@ -709,7 +708,7 @@ QString DriverDock::moduleSignatureStatusText(
         QStringLiteral("有效（签名者未知）"));
 }
 
-QString DriverDock::moduleSignatureDetailText(
+ks::ui::FieldDocument DriverDock::moduleSignatureDetailText(
     const LoadedModuleEvidenceRecord& evidence)
 {
     const LoadedModuleSignatureEvidence& signature =
@@ -736,36 +735,34 @@ QString DriverDock::moduleSignatureDetailText(
     switch (signature.state)
     {
     case LoadedModuleSignatureState::Pending:
-        return driverText(
-            "driver.signature.pending.detail",
-            QStringLiteral("数字签名信任链等待后台验证。"));
+        { ks::ui::FieldDocument document;
+        document.note(QStringLiteral("数字签名信任链等待后台验证。"));
+        return document; }
     case LoadedModuleSignatureState::PathUnavailable:
-        return driverText(
-            "driver.signature.path_unavailable",
-            QStringLiteral("签名无效：模块映像路径不可访问。\n路径：%1"))
-            .arg(verificationPath);
+        { ks::ui::FieldDocument document;
+        document.field(QStringLiteral("签名无效"), QStringLiteral("模块映像路径不可访问。"), true);
+        document.field(QStringLiteral("路径"), QStringLiteral("%1").arg(verificationPath));
+        return document; }
     case LoadedModuleSignatureState::TrustedEmbedded:
-        return driverText(
-            "driver.signature.valid.embedded.detail",
-            QStringLiteral(
-                "数字签名有效：Windows 已验证嵌入式 Authenticode 完整信任链。\n"
-                "签名者：%1\n路径：%2\n验证方式：嵌入签名"))
-            .arg(signerCertificateName)
-            .arg(verificationPath);
+        { ks::ui::FieldDocument document;
+        document.field(QStringLiteral("数字签名有效"), QStringLiteral("Windows 已验证嵌入式 Authenticode 完整信任链。"), true);
+        document.field(QStringLiteral("签名者"), QStringLiteral("%1").arg(signerCertificateName));
+        document.field(QStringLiteral("路径"), QStringLiteral("%1").arg(verificationPath));
+        document.field(QStringLiteral("验证方式"), QStringLiteral("嵌入签名"), true);
+        return document; }
     case LoadedModuleSignatureState::TrustedCatalog:
-        return driverText(
-            "driver.signature.valid.catalog.detail",
-            QStringLiteral(
-                "数字签名有效：Windows 已通过系统目录验证完整信任链。\n"
-                "签名者：%1\n路径：%2\n验证方式：目录签名\n文件标识：%3\n目录：%4"))
-            .arg(signerCertificateName)
-            .arg(verificationPath)
-            .arg(signature.fileIdentifier.isEmpty()
+        { ks::ui::FieldDocument document;
+        document.field(QStringLiteral("数字签名有效"), QStringLiteral("Windows 已通过系统目录验证完整信任链。"), true);
+        document.field(QStringLiteral("签名者"), QStringLiteral("%1").arg(signerCertificateName));
+        document.field(QStringLiteral("路径"), QStringLiteral("%1").arg(verificationPath));
+        document.field(QStringLiteral("验证方式"), QStringLiteral("目录签名"), true);
+        document.field(QStringLiteral("文件标识"), QStringLiteral("%1").arg(signature.fileIdentifier.isEmpty()
                 ? unavailableText
-                : signature.fileIdentifier)
-            .arg(signature.catalogPath.isEmpty()
+                : signature.fileIdentifier));
+        document.field(QStringLiteral("目录"), QStringLiteral("%1").arg(signature.catalogPath.isEmpty()
                 ? unavailableText
-                : signature.catalogPath);
+                : signature.catalogPath));
+        return document; }
     case LoadedModuleSignatureState::InvalidTrust:
     default:
         break;
@@ -784,36 +781,22 @@ QString DriverDock::moduleSignatureDetailText(
             QString::number(signature.catalogLookupError, 16)
                 .rightJustified(8, QLatin1Char('0'))
                 .toUpper());
-    return driverText(
-        "driver.signature.invalid.strict.detail",
-        QStringLiteral(
-            "数字签名无效或完整信任链无法验证。\n"
-            "路径：%1\n"
-            "嵌入式 WinVerifyTrust：0x%2\n"
-            "目录 WinVerifyTrust：%3\n"
-            "目录查询错误：%4\n"
-            "文件标识：%5\n"
-            "说明：吊销状态离线、未知或链不完整均按无效处理。"))
-        .arg(verificationPath)
-        .arg(trustStatusHex(signature.embeddedTrustStatus))
-        .arg(catalogTrustText)
-        .arg(catalogLookupText)
-        .arg(signature.fileIdentifier.isEmpty()
+    { ks::ui::FieldDocument document;
+        document.note(QStringLiteral("数字签名无效或完整信任链无法验证。"));
+        document.field(QStringLiteral("路径"), QStringLiteral("%1").arg(verificationPath));
+        document.field(QStringLiteral("嵌入式 WinVerifyTrust"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(trustStatusHex(signature.embeddedTrustStatus))));
+        document.field(QStringLiteral("目录 WinVerifyTrust"), QStringLiteral("%1").arg(catalogTrustText));
+        document.field(QStringLiteral("目录查询错误"), QStringLiteral("%1").arg(catalogLookupText));
+        document.field(QStringLiteral("文件标识"), QStringLiteral("%1").arg(signature.fileIdentifier.isEmpty()
             ? unavailableText
-            : signature.fileIdentifier);
+            : signature.fileIdentifier));
+        document.field(QStringLiteral("说明"), QStringLiteral("吊销状态离线、未知或链不完整均按无效处理。"), true);
+        return document; }
 }
 
 QString DriverDock::localizedModuleEvidenceText(const QString& sourceText)
 {
-    QStringList localizedLines;
-    const QStringList sourceLines =
-        sourceText.split(QLatin1Char('\n'), Qt::KeepEmptyParts);
-    localizedLines.reserve(sourceLines.size());
-    for (const QString& sourceLine : sourceLines)
-    {
-        localizedLines.push_back(ks::i18n::displayText(sourceLine));
-    }
-    return localizedLines.join(QLatin1Char('\n'));
+    return ks::i18n::displayText(sourceText);
 }
 
 bool DriverDock::queryDriverObjectForModuleEvidence(
@@ -900,7 +883,7 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
         evidence.signatureEvidence =
             verifyLoadedModuleSignature(moduleRecord.imagePath);
 
-        QStringList detailLines;
+        ks::ui::FieldDocument detailLines;
 
         ksword::ark::DriverObjectQueryResult objectResult;
         QString attemptedNamesText;
@@ -912,15 +895,14 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
             detailLines,
             driverText("driver.evidence.detail.driver_object_query", QStringLiteral("DriverObject 查询")),
             objectResult.io);
-        detailLines << driverText("driver.evidence.detail.candidate_names", QStringLiteral("候选名称: %1"))
-            .arg(attemptedNamesText);
-        detailLines << QStringLiteral("QueryStatus: %1").arg(driverObjectQueryStatusText(objectResult.queryStatus));
-        detailLines << QStringLiteral("DriverName: %1").arg(QString::fromStdWString(objectResult.driverName));
-        detailLines << QStringLiteral("DriverObject: %1").arg(formatCompactAddress(objectResult.driverObjectAddress));
-        detailLines << QStringLiteral("DriverStart: %1").arg(formatCompactAddress(objectResult.driverStart));
-        detailLines << QStringLiteral("DriverSize: 0x%1").arg(static_cast<qulonglong>(objectResult.driverSize), 8, 16, QChar('0')).toUpper();
-        detailLines << QStringLiteral("ImagePath: %1").arg(QString::fromStdWString(objectResult.imagePath));
-        detailLines << QString();
+        detailLines.field(QStringLiteral("候选名称"), QStringLiteral("%1").arg(attemptedNamesText));
+        detailLines.field(QStringLiteral("QueryStatus"), QStringLiteral("%1").arg(driverObjectQueryStatusText(objectResult.queryStatus)));
+        detailLines.field(QStringLiteral("DriverName"), QStringLiteral("%1").arg(QString::fromStdWString(objectResult.driverName)));
+        detailLines.field(QStringLiteral("DriverObject"), QStringLiteral("%1").arg(formatCompactAddress(objectResult.driverObjectAddress)));
+        detailLines.field(QStringLiteral("DriverStart"), QStringLiteral("%1").arg(formatCompactAddress(objectResult.driverStart)));
+        detailLines.field(QStringLiteral("DriverSize"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(objectResult.driverSize), 8, 16, QChar('0')).toUpper()));
+        detailLines.field(QStringLiteral("ImagePath"), QStringLiteral("%1").arg(QString::fromStdWString(objectResult.imagePath)));
+
 
         evidence.driverObjectName = QString::fromStdWString(objectResult.driverName);
         evidence.driverObjectAddress = objectResult.driverObjectAddress;
@@ -947,9 +929,7 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
             evidence.driverStartMatchesBase &&
             evidence.driverObjectAddress != 0U &&
             !evidence.driverObjectName.trimmed().isEmpty();
-        detailLines << driverText(
-            "driver.evidence.communication.title",
-            QStringLiteral("[IRP 通信控制]"));
+        detailLines.section(QStringLiteral("IRP 通信控制"));
         if (communicationQueryEligible)
         {
             communicationResult = driverClient.queryDriverCommunication(
@@ -995,60 +975,33 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
                     communicationResult.state ==
                         KSWORD_ARK_DRIVER_COMMUNICATION_STATE_CONFLICT);
 
-            detailLines << driverText(
-                "driver.evidence.communication.io",
-                QStringLiteral("查询: ok=%1 Last=%2 说明=%3"))
-                .arg(communicationResult.io.ok
+            detailLines.field(QStringLiteral("查询"), QStringLiteral("ok=%1 Last=%2 说明=%3").arg(QStringLiteral("%1").arg(communicationResult.io.ok
                     ? QStringLiteral("true")
-                    : QStringLiteral("false"))
-                .arg(communicationResult.io.ok
+                    : QStringLiteral("false"))).arg(QStringLiteral("%1").arg(communicationResult.io.ok
                     ? formatNtStatusText(communicationResult.lastStatus)
-                    : QStringLiteral("<不可用>"))
-                .arg(describeDriverCollection(communicationResult.io));
-            detailLines << driverText(
-                "driver.evidence.communication.state",
-                QStringLiteral(
-                    "状态: known=%1 state=%2 active=%3 owned=%4 conflict=%5 generation=%6"))
-                .arg(evidence.communicationStateKnown
+                    : QStringLiteral("<不可用>"))).arg(QStringLiteral("%1").arg(describeDriverCollection(communicationResult.io))));
+            detailLines.field(QStringLiteral("状态"), QStringLiteral("known=%1 state=%2 active=%3 owned=%4 conflict=%5 generation=%6").arg(QStringLiteral("%1").arg(evidence.communicationStateKnown
                     ? QStringLiteral("true")
-                    : QStringLiteral("false"))
-                .arg(communicationResult.state)
-                .arg(formatHex32(communicationResult.activeMask))
-                .arg(formatHex32(communicationResult.ownedMask))
-                .arg(formatHex32(communicationResult.conflictMask))
-                .arg(communicationResult.generation);
-            detailLines << driverText(
-                "driver.evidence.communication.identity",
-                QStringLiteral("身份: DriverObject=%1 DriverStart=%2 Reject=%3"))
-                .arg(formatCompactAddress(
-                    communicationResult.driverObjectAddress))
-                .arg(formatCompactAddress(communicationResult.driverStart))
-                .arg(formatCompactAddress(
-                    communicationResult.rejectDispatchAddress));
+                    : QStringLiteral("false"))).arg(QStringLiteral("%1").arg(communicationResult.state)).arg(QStringLiteral("%1").arg(formatHex32(communicationResult.activeMask))).arg(QStringLiteral("%1").arg(formatHex32(communicationResult.ownedMask))).arg(QStringLiteral("%1").arg(formatHex32(communicationResult.conflictMask))).arg(QStringLiteral("%1").arg(communicationResult.generation)));
+            detailLines.field(QStringLiteral("身份"), QStringLiteral("DriverObject=%1 DriverStart=%2 Reject=%3").arg(QStringLiteral("%1").arg(formatCompactAddress(
+                    communicationResult.driverObjectAddress))).arg(QStringLiteral("%1").arg(formatCompactAddress(communicationResult.driverStart))).arg(QStringLiteral("%1").arg(formatCompactAddress(
+                    communicationResult.rejectDispatchAddress))));
             if (operationSucceeded && !responseIdentityMatches)
             {
                 evidence.hasScanError = true;
-                detailLines << driverText(
-                    "driver.evidence.communication.identity_mismatch",
-                    QStringLiteral(
-                        "通信控制记录与当前 DriverObject 证据不一致，已拒绝把该记录视为可信状态。"));
+                detailLines.note(QStringLiteral("通信控制记录与当前 DriverObject 证据不一致，已拒绝把该记录视为可信状态。"));
             }
         }
         else
         {
-            detailLines << driverText(
-                "driver.evidence.communication.not_eligible",
-                QStringLiteral(
-                    "未查询：需要已解析的 canonical DriverObject、对象地址及匹配的 DriverStart。"));
+            detailLines.field(QStringLiteral("未查询"), QStringLiteral("需要已解析的 canonical DriverObject、对象地址及匹配的 DriverStart。"), true);
         }
-        detailLines << QString();
 
-        detailLines << QStringLiteral("[MajorFunction]");
+
+        detailLines.section(QStringLiteral("MajorFunction"));
         if (objectResult.majorFunctions.empty())
         {
-            detailLines << driverText(
-                "driver.evidence.detail.major_function_missing",
-                QStringLiteral("未返回 MajorFunction 表。")) << QString();
+            detailLines.note(QStringLiteral("未返回 MajorFunction 表。"));
         }
         else
         {
@@ -1069,78 +1022,54 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
                 if (intentionalCommunicationBlind)
                 {
                     ++evidence.majorFunctionIntentionalBlindCount;
-                    detailLines << driverText(
-                        "driver.evidence.detail.major_function_intentional_blind",
-                        QStringLiteral(
-                            "主动致盲: %1 dispatch=%2 系统拒绝入口，由 Issue #47 通信控制持有"))
-                        .arg(driverMajorFunctionName(entry.majorFunction))
-                        .arg(formatCompactAddress(entry.dispatchAddress));
+                    detailLines.field(QStringLiteral("主动致盲"), QStringLiteral("%1 dispatch=%2 系统拒绝入口，由 Issue #47 通信控制持有").arg(QStringLiteral("%1").arg(driverMajorFunctionName(entry.majorFunction))).arg(QStringLiteral("%1").arg(formatCompactAddress(entry.dispatchAddress))));
                 }
                 else if (outsideOwnImage)
                 {
                     ++evidence.majorFunctionExternalCount;
-                    detailLines << driverText(
-                        "driver.evidence.detail.major_function_external",
-                        QStringLiteral("外跳: %1 dispatch=%2 module=%3 moduleBase=%4 location=%5"))
-                        .arg(driverMajorFunctionName(entry.majorFunction))
-                        .arg(formatCompactAddress(entry.dispatchAddress))
-                        .arg(QString::fromStdWString(entry.moduleName))
-                        .arg(formatCompactAddress(entry.moduleBase))
-                        .arg(driverDispatchLocationText(entry.flags));
+                    detailLines.field(QStringLiteral("外跳"), QStringLiteral("%1 dispatch=%2 module=%3 moduleBase=%4 location=%5").arg(QStringLiteral("%1").arg(driverMajorFunctionName(entry.majorFunction))).arg(QStringLiteral("%1").arg(formatCompactAddress(entry.dispatchAddress))).arg(QStringLiteral("%1").arg(QString::fromStdWString(entry.moduleName))).arg(QStringLiteral("%1").arg(formatCompactAddress(entry.moduleBase))).arg(QStringLiteral("%1").arg(driverDispatchLocationText(entry.flags))));
                 }
             }
             if (evidence.majorFunctionExternalCount == 0U &&
                 evidence.majorFunctionIntentionalBlindCount == 0U)
             {
-                detailLines << driverText(
-                    "driver.evidence.detail.major_function_clean",
-                    QStringLiteral("未发现 MajorFunction 外跳。")) << QString();
+                detailLines.note(QStringLiteral("未发现 MajorFunction 外跳。"));
             }
             else
             {
-                detailLines << QString();
+
             }
         }
         evidence.hasMajorFunctionExternalJump = evidence.majorFunctionExternalCount != 0U;
 
         // DriverStartIo 与 dispatch 表分开陈述：空值是常态（多数驱动不排队 IRP），
         // 只有非空且落在自身镜像外才算外跳线索；旧驱动协议不返回该字段时直说未查询。
-        detailLines << QStringLiteral("[DriverStartIo]");
+        detailLines.section(QStringLiteral("DriverStartIo"));
         switch (objectResult.startIo.state)
         {
         case KSWORD_ARK_DRIVER_START_IO_STATE_NULL:
-            detailLines << driverText(
-                "driver.evidence.detail.start_io_null",
-                QStringLiteral("DriverStartIo 为空值，该驱动未安装 StartIo 例程。"));
+            detailLines.note(QStringLiteral("DriverStartIo 为空值，该驱动未安装 StartIo 例程。"));
             break;
         case KSWORD_ARK_DRIVER_START_IO_STATE_READ_FAILED:
             evidence.hasScanError = true;
-            detailLines << driverText(
-                "driver.evidence.detail.start_io_read_failed",
-                QStringLiteral("DriverStartIo 读取失败，未取得该字段证据。"));
+            detailLines.note(QStringLiteral("DriverStartIo 读取失败，未取得该字段证据。"));
             break;
         case KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT:
-            detailLines << driverText(
-                "driver.evidence.detail.start_io_present",
-                QStringLiteral("DriverStartIo=%1 module=%2 moduleBase=%3 location=%4"))
-                .arg(formatCompactAddress(objectResult.startIo.address))
-                .arg(QString::fromStdWString(objectResult.startIo.moduleName).isEmpty()
+            detailLines.field(QStringLiteral("DriverStartIo"), QStringLiteral("%1 module=%2 moduleBase=%3 location=%4").arg(QStringLiteral("%1").arg(formatCompactAddress(objectResult.startIo.address))).arg(QStringLiteral("%1").arg(QString::fromStdWString(objectResult.startIo.moduleName).isEmpty()
                     ? QStringLiteral("-")
-                    : QString::fromStdWString(objectResult.startIo.moduleName))
-                .arg(formatCompactAddress(objectResult.startIo.moduleBase))
-                .arg(driverDispatchLocationText(objectResult.startIo.flags));
+                    : QString::fromStdWString(objectResult.startIo.moduleName))).arg(QStringLiteral("%1").arg(formatCompactAddress(objectResult.startIo.moduleBase))).arg(QStringLiteral("%1").arg(driverDispatchLocationText(objectResult.startIo.flags))));
             break;
         default:
-            detailLines << (objectResult.io.ok
+            detailLines.note((objectResult.io.ok
                 ? driverText(
                     "driver.evidence.detail.start_io_not_queried",
                     QStringLiteral("DriverStartIo 未查询：当前驱动协议版本不返回该字段。"))
                 : driverText(
                     "driver.evidence.detail.start_io_query_failed",
-                    QStringLiteral("DriverStartIo 未查询：DriverObject 查询未成功。")));
+                    QStringLiteral("DriverStartIo 未查询：DriverObject 查询未成功。"))));
             break;
         }
-        detailLines << QString();
+
 
         const std::uint32_t communicationConflictCount =
             evidenceCommunicationMaskCount(evidence.communicationConflictMask);
@@ -1176,12 +1105,11 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
                 : driverText("driver.evidence.status.no_external", QStringLiteral("未见外跳"));
         }
 
-        detailLines << QStringLiteral("[IAT/EAT]");
+        detailLines.section(QStringLiteral("IAT/EAT"));
         if (!iatEatResult.io.ok)
         {
             evidence.hasScanError = true;
-            detailLines << driverText("driver.evidence.detail.scan_failed", QStringLiteral("扫描失败: %1"))
-                .arg(describeDriverCollection(iatEatResult.io));
+            detailLines.field(QStringLiteral("扫描失败"), QStringLiteral("%1").arg(describeDriverCollection(iatEatResult.io)));
         }
         else
         {
@@ -1194,28 +1122,15 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
                     continue;
                 }
                 ++evidence.iatEatSuspiciousCount;
-                detailLines << driverText(
-                    "driver.evidence.detail.iat_eat_suspicious",
-                    QStringLiteral("可疑: %1 module=%2 import=%3 func=%4 thunk=%5 current=%6 expected=%7 targetModule=%8 status=%9"))
-                    .arg(evidenceIatEatClassText(entry.hookClass))
-                    .arg(QString::fromStdWString(entry.moduleName))
-                    .arg(QString::fromStdWString(entry.importModuleName))
-                    .arg(QString::fromLocal8Bit(entry.functionName.data(), static_cast<int>(entry.functionName.size())))
-                    .arg(formatCompactAddress(entry.thunkAddress))
-                    .arg(formatCompactAddress(entry.currentTarget))
-                    .arg(formatCompactAddress(entry.expectedTarget))
-                    .arg(QString::fromStdWString(entry.targetModuleName))
-                    .arg(evidenceHookStatusText(entry.status));
+                detailLines.field(QStringLiteral("可疑"), QStringLiteral("%1 module=%2 import=%3 func=%4 thunk=%5 current=%6 expected=%7 targetModule=%8 status=%9").arg(QStringLiteral("%1").arg(evidenceIatEatClassText(entry.hookClass))).arg(QStringLiteral("%1").arg(QString::fromStdWString(entry.moduleName))).arg(QStringLiteral("%1").arg(QString::fromStdWString(entry.importModuleName))).arg(QStringLiteral("%1").arg(QString::fromLocal8Bit(entry.functionName.data(), static_cast<int>(entry.functionName.size())))).arg(QStringLiteral("%1").arg(formatCompactAddress(entry.thunkAddress))).arg(QStringLiteral("%1").arg(formatCompactAddress(entry.currentTarget))).arg(QStringLiteral("%1").arg(formatCompactAddress(entry.expectedTarget))).arg(QStringLiteral("%1").arg(QString::fromStdWString(entry.targetModuleName))).arg(QStringLiteral("%1").arg(evidenceHookStatusText(entry.status))));
             }
             if (evidence.iatEatSuspiciousCount == 0U)
             {
-                detailLines << driverText(
-                    "driver.evidence.detail.iat_eat_clean",
-                    QStringLiteral("未发现该模块 IAT/EAT 可疑项。")) << QString();
+                detailLines.note(QStringLiteral("未发现该模块 IAT/EAT 可疑项。"));
             }
             else
             {
-                detailLines << QString();
+
             }
         }
         evidence.hasIatEatSuspicious = evidence.iatEatSuspiciousCount != 0U;
@@ -1226,12 +1141,11 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
                 ? driverText("driver.evidence.status.no_suspicious", QStringLiteral("未见可疑"))
                 : driverText("driver.evidence.status.scan_failed", QStringLiteral("扫描失败")));
 
-        detailLines << QStringLiteral("[Inline Hook]");
+        detailLines.section(QStringLiteral("Inline Hook"));
         if (!inlineResult.io.ok)
         {
             evidence.hasScanError = true;
-            detailLines << driverText("driver.evidence.detail.scan_failed", QStringLiteral("扫描失败: %1"))
-                .arg(describeDriverCollection(inlineResult.io));
+            detailLines.field(QStringLiteral("扫描失败"), QStringLiteral("%1").arg(describeDriverCollection(inlineResult.io)));
         }
         else
         {
@@ -1244,26 +1158,15 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
                     continue;
                 }
                 ++evidence.inlineHookSuspiciousCount;
-                detailLines << driverText(
-                    "driver.evidence.detail.inline_suspicious",
-                    QStringLiteral("可疑: module=%1 function=%2 address=%3 type=%4 target=%5 targetModule=%6 status=%7"))
-                    .arg(QString::fromStdWString(entry.moduleName))
-                    .arg(QString::fromLocal8Bit(entry.functionName.data(), static_cast<int>(entry.functionName.size())))
-                    .arg(formatCompactAddress(entry.functionAddress))
-                    .arg(evidenceInlineHookTypeText(entry.hookType))
-                    .arg(formatCompactAddress(entry.targetAddress))
-                    .arg(QString::fromStdWString(entry.targetModuleName))
-                    .arg(evidenceHookStatusText(entry.status));
+                detailLines.field(QStringLiteral("可疑"), QStringLiteral("module=%1 function=%2 address=%3 type=%4 target=%5 targetModule=%6 status=%7").arg(QStringLiteral("%1").arg(QString::fromStdWString(entry.moduleName))).arg(QStringLiteral("%1").arg(QString::fromLocal8Bit(entry.functionName.data(), static_cast<int>(entry.functionName.size())))).arg(QStringLiteral("%1").arg(formatCompactAddress(entry.functionAddress))).arg(QStringLiteral("%1").arg(evidenceInlineHookTypeText(entry.hookType))).arg(QStringLiteral("%1").arg(formatCompactAddress(entry.targetAddress))).arg(QStringLiteral("%1").arg(QString::fromStdWString(entry.targetModuleName))).arg(QStringLiteral("%1").arg(evidenceHookStatusText(entry.status))));
             }
             if (evidence.inlineHookSuspiciousCount == 0U)
             {
-                detailLines << driverText(
-                    "driver.evidence.detail.inline_clean",
-                    QStringLiteral("未发现该模块 Inline Hook 可疑项。")) << QString();
+                detailLines.note(QStringLiteral("未发现该模块 Inline Hook 可疑项。"));
             }
             else
             {
-                detailLines << QString();
+
             }
         }
         evidence.hasInlineHookSuspicious = evidence.inlineHookSuspiciousCount != 0U;
@@ -1274,12 +1177,11 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
                 ? driverText("driver.evidence.status.no_suspicious", QStringLiteral("未见可疑"))
                 : driverText("driver.evidence.status.scan_failed", QStringLiteral("扫描失败")));
 
-        detailLines << QStringLiteral("[Callback]");
+        detailLines.section(QStringLiteral("Callback"));
         if (!callbackResult.io.ok)
         {
             evidence.hasScanError = true;
-            detailLines << driverText("driver.evidence.detail.enumeration_failed", QStringLiteral("枚举失败: %1"))
-                .arg(describeDriverCollection(callbackResult.io));
+            detailLines.field(QStringLiteral("枚举失败"), QStringLiteral("%1").arg(describeDriverCollection(callbackResult.io)));
         }
         else
         {
@@ -1294,29 +1196,15 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
                     continue;
                 }
                 ++evidence.callbackReferenceCount;
-                detailLines << driverText(
-                    "driver.evidence.detail.callback_reference",
-                    QStringLiteral("引用: class=%1 status=%2 callback=%3 context=%4 registration=%5 moduleBase=%6 modulePath=%7 name=%8 altitude=%9 detail=%10"))
-                    .arg(evidenceCallbackClassText(entry.callbackClass))
-                    .arg(evidenceCallbackStatusText(entry.status, entry.lastStatus))
-                    .arg(formatCompactAddress(entry.callbackAddress))
-                    .arg(formatCompactAddress(entry.contextAddress))
-                    .arg(formatCompactAddress(entry.registrationAddress))
-                    .arg(formatCompactAddress(entry.moduleBase))
-                    .arg(QString::fromStdWString(entry.modulePath))
-                    .arg(QString::fromStdWString(entry.name))
-                    .arg(QString::fromStdWString(entry.altitude))
-                    .arg(QString::fromStdWString(entry.detail));
+                detailLines.field(QStringLiteral("引用"), QStringLiteral("class=%1 status=%2 callback=%3 context=%4 registration=%5 moduleBase=%6 modulePath=%7 name=%8 altitude=%9 detail=%10").arg(QStringLiteral("%1").arg(evidenceCallbackClassText(entry.callbackClass))).arg(QStringLiteral("%1").arg(evidenceCallbackStatusText(entry.status, entry.lastStatus))).arg(QStringLiteral("%1").arg(formatCompactAddress(entry.callbackAddress))).arg(QStringLiteral("%1").arg(formatCompactAddress(entry.contextAddress))).arg(QStringLiteral("%1").arg(formatCompactAddress(entry.registrationAddress))).arg(QStringLiteral("%1").arg(formatCompactAddress(entry.moduleBase))).arg(QStringLiteral("%1").arg(QString::fromStdWString(entry.modulePath))).arg(QStringLiteral("%1").arg(QString::fromStdWString(entry.name))).arg(QStringLiteral("%1").arg(QString::fromStdWString(entry.altitude))).arg(QStringLiteral("%1").arg(QString::fromStdWString(entry.detail))));
             }
             if (evidence.callbackReferenceCount == 0U)
             {
-                detailLines << driverText(
-                    "driver.evidence.detail.callback_clean",
-                    QStringLiteral("未发现 Callback 引用该模块。")) << QString();
+                detailLines.note(QStringLiteral("未发现 Callback 引用该模块。"));
             }
             else
             {
-                detailLines << QString();
+
             }
         }
         evidence.hasCallbackReference = evidence.callbackReferenceCount != 0U;
@@ -1327,32 +1215,15 @@ std::vector<DriverDock::LoadedModuleEvidenceRecord> DriverDock::collectEvidenceF
                 ? driverText("driver.evidence.status.no_reference", QStringLiteral("未见引用"))
                 : driverText("driver.evidence.status.enumeration_failed", QStringLiteral("枚举失败")));
 
-        detailLines << driverText("driver.evidence.detail.global_summary", QStringLiteral("[全局扫描摘要]"));
+        detailLines.section(QStringLiteral("全局扫描摘要"));
         evidenceAppendIoSummary(detailLines, QStringLiteral("Inline Hook"), inlineResult.io);
-        detailLines << driverText(
-            "driver.evidence.detail.inline_summary",
-            QStringLiteral("Inline returned=%1 total=%2 modules=%3 last=%4"))
-            .arg(inlineResult.entries.size())
-            .arg(inlineResult.totalCount)
-            .arg(inlineResult.moduleCount)
-            .arg(formatNtStatusText(inlineResult.lastStatus));
+        detailLines.field(QStringLiteral("Inline returned"), QStringLiteral("%1 total=%2 modules=%3 last=%4").arg(QStringLiteral("%1").arg(inlineResult.entries.size())).arg(QStringLiteral("%1").arg(inlineResult.totalCount)).arg(QStringLiteral("%1").arg(inlineResult.moduleCount)).arg(QStringLiteral("%1").arg(formatNtStatusText(inlineResult.lastStatus))));
         evidenceAppendIoSummary(detailLines, QStringLiteral("IAT/EAT"), iatEatResult.io);
-        detailLines << driverText(
-            "driver.evidence.detail.iat_eat_summary",
-            QStringLiteral("IAT/EAT returned=%1 total=%2 modules=%3 last=%4"))
-            .arg(iatEatResult.entries.size())
-            .arg(iatEatResult.totalCount)
-            .arg(iatEatResult.moduleCount)
-            .arg(formatNtStatusText(iatEatResult.lastStatus));
+        detailLines.field(QStringLiteral("IAT/EAT returned"), QStringLiteral("%1 total=%2 modules=%3 last=%4").arg(QStringLiteral("%1").arg(iatEatResult.entries.size())).arg(QStringLiteral("%1").arg(iatEatResult.totalCount)).arg(QStringLiteral("%1").arg(iatEatResult.moduleCount)).arg(QStringLiteral("%1").arg(formatNtStatusText(iatEatResult.lastStatus))));
         evidenceAppendIoSummary(detailLines, QStringLiteral("Callback"), callbackResult.io);
-        detailLines << driverText(
-            "driver.evidence.detail.callback_summary",
-            QStringLiteral("Callback returned=%1 total=%2 last=%3"))
-            .arg(callbackResult.entries.size())
-            .arg(callbackResult.totalCount)
-            .arg(formatNtStatusText(callbackResult.lastStatus));
+        detailLines.field(QStringLiteral("Callback returned"), QStringLiteral("%1 total=%2 last=%3").arg(QStringLiteral("%1").arg(callbackResult.entries.size())).arg(QStringLiteral("%1").arg(callbackResult.totalCount)).arg(QStringLiteral("%1").arg(formatNtStatusText(callbackResult.lastStatus))));
 
-        evidence.detailText = detailLines.join('\n');
+        evidence.detailDocument = detailLines;
         evidenceRecords.push_back(std::move(evidence));
     }
 
@@ -1592,7 +1463,7 @@ void DriverDock::rebuildLoadedModuleEvidenceViews()
         const QString signatureStatusText =
             moduleSignatureStatusText(evidence);
         const QString signatureDetailText =
-            moduleSignatureDetailText(evidence);
+            moduleSignatureDetailText(evidence).toPlainText(true);
         if (signatureItem == nullptr)
         {
             signatureItem = createReadOnlyItem(signatureStatusText);
@@ -1742,17 +1613,16 @@ void DriverDock::showSelectedModuleEvidenceDetail()
     }
     if (m_moduleTable == nullptr || m_moduleTable->selectionModel() == nullptr)
     {
-        m_moduleEvidenceDetailEditor->setLocalizedText(
-            driverText("driver.evidence.detail.table_unavailable", QStringLiteral("模块表不可用。")));
+        m_moduleEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(driverText("driver.evidence.detail.table_unavailable", QStringLiteral("模块表不可用。"))));
         return;
     }
 
     const QModelIndexList selectedRows = m_moduleTable->selectionModel()->selectedRows(0);
     if (selectedRows.isEmpty())
     {
-        m_moduleEvidenceDetailEditor->setLocalizedText(driverText(
+        m_moduleEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(driverText(
             "driver.evidence.detail.select_module",
-            QStringLiteral("请选择一条已加载模块查看聚合证据。")));
+            QStringLiteral("请选择一条已加载模块查看聚合证据。"))));
         return;
     }
 
@@ -1760,8 +1630,7 @@ void DriverDock::showSelectedModuleEvidenceDetail()
     QTableWidgetItem* moduleItem = m_moduleTable->item(rowIndex, 0);
     if (moduleItem == nullptr)
     {
-        m_moduleEvidenceDetailEditor->setLocalizedText(
-            driverText("driver.evidence.detail.module_name_missing", QStringLiteral("当前行没有模块名。")));
+        m_moduleEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(driverText("driver.evidence.detail.module_name_missing", QStringLiteral("当前行没有模块名。"))));
         return;
     }
 
@@ -1769,9 +1638,8 @@ void DriverDock::showSelectedModuleEvidenceDetail()
         moduleItem->data(ModuleRecordIndexRole).toULongLong());
     if (sourceIndex >= m_loadedModuleEvidenceCache.size())
     {
-        m_moduleEvidenceDetailEditor->setLocalizedText(
-            driverText("driver.evidence.detail.not_generated", QStringLiteral("模块 %1 尚未生成证据详情。"))
-            .arg(moduleItem->text()));
+        m_moduleEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(driverText("driver.evidence.detail.not_generated", QStringLiteral("模块 %1 尚未生成证据详情。"))
+            .arg(moduleItem->text())));
         return;
     }
 
@@ -1781,54 +1649,16 @@ void DriverDock::showSelectedModuleEvidenceDetail()
         sourceIndex < m_loadedModuleCache.size()
         ? &m_loadedModuleCache[sourceIndex]
         : nullptr;
-    const QString signatureSummary = driverText(
-        "driver.evidence.detail.signature",
-        QStringLiteral("数字签名: %1"))
-        .arg(moduleSignatureStatusText(evidence));
-    QString evidenceBody;
-    if (!evidence.queryAttempted)
-    {
-        evidenceBody = driverText(
-            "driver.evidence.pending.detail",
-            QStringLiteral(
-                "模块 %1 尚未执行证据聚合。\n"
-                "点击工具栏证据刷新按钮后，后台线程会只读查询 DriverObject / Hook / Callback。"))
-            .arg(evidence.moduleName);
+    ks::ui::FieldDocument document;
+    document.section(QStringLiteral("模块证据聚合"));
+    document.field(QStringLiteral("模块"), evidence.moduleName);
+    if (moduleRecord != nullptr) {
+        document.field(QStringLiteral("基址"), formatCompactAddress(moduleRecord->baseAddress));
+        document.field(QStringLiteral("映像路径"), moduleRecord->imagePath);
     }
-    else
-    {
-        evidenceBody = localizedModuleEvidenceText(evidence.detailText);
-    }
-
-    QStringList localizedDetailLines;
-    localizedDetailLines
-        << driverText(
-            "driver.evidence.detail.title",
-            QStringLiteral("模块证据聚合"))
-        << driverText(
-            "driver.evidence.detail.module",
-            QStringLiteral("模块: %1"))
-            .arg(evidence.moduleName);
-    if (moduleRecord != nullptr)
-    {
-        localizedDetailLines
-            << driverText(
-                "driver.evidence.detail.base",
-                QStringLiteral("基址: %1"))
-                .arg(formatCompactAddress(moduleRecord->baseAddress))
-            << driverText(
-                "driver.evidence.detail.image_path",
-                QStringLiteral("映像路径: %1"))
-                .arg(moduleRecord->imagePath);
-    }
-    localizedDetailLines
-        << signatureSummary
-        << moduleSignatureDetailText(evidence)
-        << driverText(
-            "driver.evidence.detail.read_only_note",
-            QStringLiteral("说明: 本结果仅聚合证据，不执行卸载、移除或修复。"))
-        << QString()
-        << evidenceBody;
-    m_moduleEvidenceDetailEditor->setReportText(
-        localizedDetailLines.join(QLatin1Char('\n')));
+    document.field(QStringLiteral("数字签名"), moduleSignatureStatusText(evidence));
+    document.nodes += moduleSignatureDetailText(evidence).nodes;
+    document.note(QStringLiteral("说明: 本结果仅聚合证据，不执行卸载、移除或修复。"));
+    document.nodes += evidence.detailDocument.nodes;
+    m_moduleEvidenceDetailEditor->setDocument(document);
 }

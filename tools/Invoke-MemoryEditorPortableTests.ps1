@@ -56,7 +56,7 @@ try {
         'MemoryTargetSession', 'MemoryValueDecode', 'MemoryAddressExpr', 'MemoryByteSearch')) {
         $fixtureSources += "$fixtureCore/$fixtureName.cpp"
     }
-    # 正式文本外壳与 ReportStructuredView 已由共有预览所需的 row-objects 提供，避免重复符号。
+    # 正式文本外壳与 原生字段与真实 JSON/XML adapter 已由共有预览所需的 row-objects 提供，避免重复符号。
     $fixtureMoc = Join-Path $fixtureQt 'share/qt6/bin/moc.exe'
     foreach ($fixtureHeader in @("$fixtureUi/SnapshotWorkbenchWidget.h", "$fixtureUi/WorkbenchPseudocodeView.h",
         "$fixtureUi/WorkbenchCompareView.h",

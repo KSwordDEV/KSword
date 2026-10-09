@@ -84,12 +84,14 @@ def main():
     assert "#include <QPlainTextEdit>" not in advanced
     moc = output / "registry-review-moc-CodeEditorWidget.cpp"
     subprocess.run([qt / "bin" / "moc.exe", app / "UI" / "CodeEditorWidget.h", "-o", moc], env=env, check=True)
+    native_moc = output / "registry-review-moc-StructuredFieldView.cpp"
+    subprocess.run([qt / "bin" / "moc.exe", app / "UI" / "StructuredFieldView.h", "-o", native_moc], env=env, check=True)
     # Compile the actual advanced dialogs, too, to check their use of the production editor API.
     cl(["/c", app / "RegistryDock" / "RegistryAdvancedDialogs.cpp", "/Fo" + str(output / "registry-review-advanced.obj")])
     ui = build("registry-review-ui", [generated, app / "UI" / "CodeEditorWidget.cpp",
-        app / "UI" / "CodeTextEdit.cpp", app / "UI" / "CodeEditorFileSession.cpp", app / "UI" / "ReportStructuredView.cpp",
-        app / "UI" / "FieldTreePresenter.cpp", app / "UI" / "FieldTreePresenter.Copy.cpp",
-        app / "Internationalization" / "LanguageManager.cpp", moc],
+        app / "UI" / "CodeTextEdit.cpp", app / "UI" / "CodeEditorFileSession.cpp",
+        app / "UI" / "StructuredFieldView.cpp", app / "UI" / "TypedSyntaxDocument.cpp", app / "UI" / "TablePresentation.cpp",
+        app / "Internationalization" / "LanguageManager.cpp", moc, native_moc],
         ["Qt6Core.lib", "Qt6Gui.lib", "Qt6Widgets.lib", "Qt6Svg.lib", "user32.lib", "advapi32.lib", "shell32.lib"],
         ["/wd4458"])  # Production editor owns QWidget::data; preserve its existing local-name policy.
     subprocess.run([ui], cwd=repo, env=env, check=True)

@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "ServiceDock.Internal.h"
 #include "../UI/CodeTextEdit.h"
 #include "../theme.h"
@@ -523,9 +524,9 @@ void ServiceDock::initializeDependencyTab()
     rootLayout->setContentsMargins(4, 4, 4, 4);
     rootLayout->setSpacing(4);
 
-    m_dependencyEditor = new CodeEditorWidget(m_dependencyTabPage);
-    m_dependencyEditor->setReadOnly(true);
-    m_dependencyEditor->setLocalizedText(QStringLiteral("未选择服务"));
+    m_dependencyEditor = new ks::ui::StructuredFieldView(m_dependencyTabPage);
+
+    m_dependencyEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("未选择服务")));
     rootLayout->addWidget(m_dependencyEditor, 1);
 }
 
@@ -535,9 +536,9 @@ void ServiceDock::initializeAuditTab()
     rootLayout->setContentsMargins(4, 4, 4, 4);
     rootLayout->setSpacing(4);
 
-    m_auditEditor = new CodeEditorWidget(m_auditTabPage);
-    m_auditEditor->setReadOnly(true);
-    m_auditEditor->setLocalizedText(QStringLiteral("未选择服务"));
+    m_auditEditor = new ks::ui::StructuredFieldView(m_auditTabPage);
+
+    m_auditEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("未选择服务")));
     rootLayout->addWidget(m_auditEditor, 1);
 }
 
@@ -701,7 +702,7 @@ void ServiceDock::populateDependencyTab(const ServiceEntry& entry)
 {
     if (m_dependencyEditor != nullptr)
     {
-        m_dependencyEditor->setLocalizedText(buildDependencyDetailText(entry));
+        m_dependencyEditor->setDocument(buildDependencyDetailText(entry));
     }
     markDetailPageRendered(m_dependencyTabPage, entry.serviceNameText);
 }
@@ -710,7 +711,7 @@ void ServiceDock::populateAuditTab(const ServiceEntry& entry)
 {
     if (m_auditEditor != nullptr)
     {
-        m_auditEditor->setLocalizedText(buildAuditTabText(entry));
+        m_auditEditor->setDocument(buildAuditTabText(entry));
     }
     markDetailPageRendered(m_auditTabPage, entry.serviceNameText);
 }
@@ -751,8 +752,8 @@ void ServiceDock::updateDetailViewsFromSelection()
         m_recoveryArgumentsEdit->clear();
         m_recoveryAppendFailCountCheck->setChecked(false);
 
-        if (m_dependencyEditor != nullptr) { m_dependencyEditor->setLocalizedText(QStringLiteral("未选择服务")); }
-        if (m_auditEditor != nullptr) { m_auditEditor->setLocalizedText(QStringLiteral("未选择服务")); }
+        if (m_dependencyEditor != nullptr) { m_dependencyEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("未选择服务"))); }
+        if (m_auditEditor != nullptr) { m_auditEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("未选择服务"))); }
 
         // 没有选中项时清空渲染标记并撤销待执行的延迟渲染。
         markDetailPageRendered(m_recoveryTabPage, QString());

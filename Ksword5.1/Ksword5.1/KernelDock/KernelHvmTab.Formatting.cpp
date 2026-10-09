@@ -1,4 +1,5 @@
-﻿#include "KernelHvmTab.h"
+#include "../UI/StructuredFieldView.h"
+#include "KernelHvmTab.h"
 
 #include "KernelDock.h"
 #include "../UI/HvmControl.h"
@@ -13,113 +14,78 @@
 
 using ksword::kernel_dock_internal::kernelText;
 
-QString KernelHvmTab::buildDetail(
+ks::ui::FieldDocument KernelHvmTab::buildDetail(
     const KSWORD_ARK_QUERY_HVM_RESPONSE& response) const
 {
     if (response.backend == KSWORD_ARK_HVM_BACKEND_SVM)
     {
-        QString detail = kernelText("kernel.hvm.amd.detail", QStringLiteral("实验性 AMD SVM / VMCB / NPT\n协议：%1　代次：%2\nCPU 准备 / 自检 / 常驻：%3 / %4 / %5\nNPT 就绪：%6\n状态：%7\n最近 NTSTATUS：%8\n嵌套 SVM 已接入；内层操作系统启动尚未验收，Intel EPT 扩展不适用。"))
-            .arg(response.version).arg(response.generation).arg(response.preparedProcessorCount)
-            .arg(response.selfTestPassedProcessorCount).arg(response.residentProcessorCount)
-            .arg(response.slatReady).arg(stateText(response.stateFlags)).arg(ntStatusText(response.backendStatus));
+        ks::ui::FieldDocument detail;
+        detail.note(QStringLiteral("实验性 AMD SVM / VMCB / NPT"));
+        detail.field(QStringLiteral("协议"), QStringLiteral("%1　代次：%2").arg(QStringLiteral("%1").arg(response.version)).arg(QStringLiteral("%1").arg(response.generation)));
+        detail.field(QStringLiteral("CPU 准备 / 自检 / 常驻"), QStringLiteral("%1 / %2 / %3").arg(QStringLiteral("%1").arg(response.preparedProcessorCount)).arg(QStringLiteral("%1").arg(response.selfTestPassedProcessorCount)).arg(QStringLiteral("%1").arg(response.residentProcessorCount)));
+        detail.field(QStringLiteral("NPT 就绪"), QStringLiteral("%1").arg(response.slatReady));
+        detail.field(QStringLiteral("状态"), QStringLiteral("%1").arg(stateText(response.stateFlags)));
+        detail.field(QStringLiteral("最近 NTSTATUS"), QStringLiteral("%1").arg(ntStatusText(response.backendStatus)));
+        detail.note(QStringLiteral("嵌套 SVM 已接入；内层操作系统启动尚未验收，Intel EPT 扩展不适用。"));
         const QString unavailable = kernelText("kernel.hvm.amd.unavailable", QStringLiteral("暂不可用"));
         const auto raw = [&unavailable](unsigned long mask, unsigned long bit, unsigned long long value) {
             return (mask & bit) ? QStringLiteral("0x%1").arg(value, 0, 16) : unavailable;
         };
         const auto& caps = response.svmCapabilities;
-        detail += kernelText("kernel.hvm.amd.capabilities", QStringLiteral("\nSVM / NPT / NRIP：%1 / %2 / %3；ASID：%4；物理地址宽度：%5\n准入拒绝代码：%6；MSR 有效掩码：0x%7；状态有效掩码：0x%8\nVM_CR / EFER / HSAVE：%9 / %10 / %11\nCR4 / XCR0 / XSS：%12 / %13 / %14"))
-            .arg((response.featureFlags & KSWORD_ARK_HVM_FEATURE_SVM) != 0)
-            .arg((response.featureFlags & KSWORD_ARK_HVM_FEATURE_NPT) != 0)
-            .arg((response.featureFlags & KSWORD_ARK_HVM_FEATURE_SVM_NRIP) != 0)
-            .arg(response.svmCapabilities.asidCount).arg(response.svmCapabilities.physicalBits)
-            .arg(response.svmCapabilities.rejectReason)
-            .arg(response.svmCapabilities.msrValidMask, 0, 16).arg(response.svmCapabilities.stateValidMask, 0, 16)
-            .arg(raw(caps.msrValidMask, 1UL, caps.vmCr)).arg(raw(caps.msrValidMask, 2UL, caps.efer))
-            .arg(raw(caps.msrValidMask, 4UL, caps.hsave)).arg(raw(caps.stateValidMask, KSWORD_ARK_SVM_VALID_CR4, caps.cr4))
-            .arg(raw(caps.stateValidMask, KSWORD_ARK_SVM_VALID_XCR0, caps.xcr0)).arg(raw(caps.stateValidMask, KSWORD_ARK_SVM_VALID_XSS, caps.xss));
+        detail.field(QStringLiteral("SVM / NPT / NRIP"), QStringLiteral("%1 / %2 / %3").arg(QStringLiteral("%1").arg((response.featureFlags & KSWORD_ARK_HVM_FEATURE_SVM) != 0)).arg(QStringLiteral("%1").arg((response.featureFlags & KSWORD_ARK_HVM_FEATURE_NPT) != 0)).arg(QStringLiteral("%1").arg((response.featureFlags & KSWORD_ARK_HVM_FEATURE_SVM_NRIP) != 0)));
+        detail.field(QStringLiteral("ASID"), QStringLiteral("%1").arg(response.svmCapabilities.asidCount));
+        detail.field(QStringLiteral("物理地址宽度"), QStringLiteral("%1").arg(response.svmCapabilities.physicalBits));
+        detail.field(QStringLiteral("准入拒绝代码"), QStringLiteral("%1").arg(response.svmCapabilities.rejectReason));
+        detail.field(QStringLiteral("MSR 有效掩码"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(response.svmCapabilities.msrValidMask, 0, 16)));
+        detail.field(QStringLiteral("状态有效掩码"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(response.svmCapabilities.stateValidMask, 0, 16)));
+        detail.field(QStringLiteral("VM_CR / EFER / HSAVE"), QStringLiteral("%1 / %2 / %3").arg(QStringLiteral("%1").arg(raw(caps.msrValidMask, 1UL, caps.vmCr))).arg(QStringLiteral("%1").arg(raw(caps.msrValidMask, 2UL, caps.efer))).arg(QStringLiteral("%1").arg(raw(caps.msrValidMask, 4UL, caps.hsave))));
+        detail.field(QStringLiteral("CR4 / XCR0 / XSS"), QStringLiteral("%1 / %2 / %3").arg(QStringLiteral("%1").arg(raw(caps.stateValidMask, KSWORD_ARK_SVM_VALID_CR4, caps.cr4))).arg(QStringLiteral("%1").arg(raw(caps.stateValidMask, KSWORD_ARK_SVM_VALID_XCR0, caps.xcr0))).arg(QStringLiteral("%1").arg(raw(caps.stateValidMask, KSWORD_ARK_SVM_VALID_XSS, caps.xss))));
         ksword::ark::HvmStatusResult result{};
         result.io.ok = true;
         result.response = response;
         const auto state = ksword::hvm::stateFromStatus(result);
-        detail += QLatin1Char('\n') + state.detail;
+        detail.note(state.detail);
         return detail;
     }
-    QString detail = kernelText(
-        "kernel.hvm.detail",
-        QStringLiteral(
-            "协议版本：%1\n"
-            "查询状态：%2\n"
-            "生命周期：%3\n"
-            "代次：%4\n"
-            "CPU 能力：%5\n"
-            "IA32_FEATURE_CONTROL：0x%6\n"
-            "IA32_VMX_BASIC：0x%7\n"
-            "IA32_VMX_EPT_VPID_CAP：0x%8\n"
-            "CR0 fixed0/fixed1：0x%9 / 0x%10\n"
-            "CR4 fixed0/fixed1：0x%11 / 0x%12\n"
-            "EPTP：0x%13\n"
-            "EPT PML4 项 / PDPT 项 / 2MiB 叶：%14 / %15 / %16\n"
-            "映射 RAM：%17 bytes\n"
-            "最高映射物理地址：0x%18\n"
-            "最近 NTSTATUS：%19\n"
-            "VM-exit 次数：%20\n"
-            "最近退出原因：%21\n"
-            "退出 qualification：0x%22\n"
-            "来宾 RIP / RSP：0x%23 / 0x%24\n"
-            "退出指令长度：%25\n"
-            "VM-instruction error：%26\n"
-            "最近启动 CPU：%27\n"
-            "最近启动使用嵌套 VMX：%28\n\n"
-            "边界：一次性来宾仍会在 VMCALL 后 VMCLEAR/VMXOFF。驻留 VMM 仅在 GenuineIntel、完整 VT-x/EPT/INVEPT、无现有 Hypervisor、全 CPU 自检以及电源/处理器拓扑/驱动卸载保护全部通过后开放；离开 S0 前会同步全核 VMXOFF，驻留期间 DriverUnload 被临时移除。AMD 与其它非 Intel CPU 会在驱动端拒绝；"
-            "未知退出、EPT misconfiguration 和未实现强制退出会 fail-closed 去虚拟化。"
-            "EPT 恒等映射覆盖 [0, min(CPUID MAXPHYADDR, 本驱动窗口))；实际覆盖到哪里看上面的「最高映射物理地址」，窗口随驱动版本变，这里不写死数字。含已装 RAM 的 1 GiB 窗口按 MTRR 定型并保持 2 MiB 粒度（规则、视图与内存监视都从 2 MiB 叶往下拆）；不含 RAM 的窗口是固件/PCI/ReBAR 一类，统一 UC 并用单个 1 GiB 叶发布——所以「2MiB 叶」这个数不覆盖整个窗口，别拿它乘 2 MiB 对账。MAXPHYADDR 超出窗口时标记 EPT 截断并禁止驻留，报的是「映射窗口不够」而不是「处理器不支持」。"
-            "严格 EPT 规则只是取证 tripwire：命中后记录并去虚拟化，不注入异常，"
-            "原访问可能从同一 RIP 在原生模式重试并成功。"))
-        .arg(response.version)
-        .arg(response.queryStatus)
-        .arg(stateText(response.stateFlags))
-        .arg(response.generation)
-        .arg(featureText(response.featureFlags))
-        .arg(QString::number(response.featureControl, 16).toUpper())
-        .arg(QString::number(response.vmxBasic, 16).toUpper())
-        .arg(QString::number(response.vmxEptVpidCapabilities, 16).toUpper())
-        .arg(QString::number(response.cr0Fixed0, 16).toUpper())
-        .arg(QString::number(response.cr0Fixed1, 16).toUpper())
-        .arg(QString::number(response.cr4Fixed0, 16).toUpper())
-        .arg(QString::number(response.cr4Fixed1, 16).toUpper())
-        .arg(QString::number(response.eptPointer, 16).toUpper())
-        .arg(response.eptPml4Entries)
-        .arg(response.eptPdptEntries)
-        .arg(response.eptLargePageEntries)
-        .arg(response.mappedRamBytes)
-        .arg(QString::number(
+    ks::ui::FieldDocument detail;
+    detail.field(QStringLiteral("协议版本"), QStringLiteral("%1").arg(response.version));
+    detail.field(QStringLiteral("查询状态"), QStringLiteral("%1").arg(response.queryStatus));
+    detail.field(QStringLiteral("生命周期"), QStringLiteral("%1").arg(stateText(response.stateFlags)));
+    detail.field(QStringLiteral("代次"), QStringLiteral("%1").arg(response.generation));
+    detail.field(QStringLiteral("CPU 能力"), QStringLiteral("%1").arg(featureText(response.featureFlags)));
+    detail.field(QStringLiteral("IA32_FEATURE_CONTROL"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(response.featureControl, 16).toUpper())));
+    detail.field(QStringLiteral("IA32_VMX_BASIC"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(response.vmxBasic, 16).toUpper())));
+    detail.field(QStringLiteral("IA32_VMX_EPT_VPID_CAP"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(response.vmxEptVpidCapabilities, 16).toUpper())));
+    detail.field(QStringLiteral("CR0 fixed0/fixed1"), QStringLiteral("0x%1 / 0x%2").arg(QStringLiteral("%1").arg(QString::number(response.cr0Fixed0, 16).toUpper())).arg(QStringLiteral("%1").arg(QString::number(response.cr0Fixed1, 16).toUpper())));
+    detail.field(QStringLiteral("CR4 fixed0/fixed1"), QStringLiteral("0x%1 / 0x%2").arg(QStringLiteral("%1").arg(QString::number(response.cr4Fixed0, 16).toUpper())).arg(QStringLiteral("%1").arg(QString::number(response.cr4Fixed1, 16).toUpper())));
+    detail.field(QStringLiteral("EPTP"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(response.eptPointer, 16).toUpper())));
+    detail.field(QStringLiteral("EPT PML4 项 / PDPT 项 / 2MiB 叶"), QStringLiteral("%1 / %2 / %3").arg(QStringLiteral("%1").arg(response.eptPml4Entries)).arg(QStringLiteral("%1").arg(response.eptPdptEntries)).arg(QStringLiteral("%1").arg(response.eptLargePageEntries)));
+    detail.field(QStringLiteral("映射 RAM"), QStringLiteral("%1 bytes").arg(QStringLiteral("%1").arg(response.mappedRamBytes)));
+    detail.field(QStringLiteral("最高映射物理地址"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(
             response.highestMappedPhysicalAddress,
-            16).toUpper())
-        .arg(ntStatusText(response.lastStatus))
-        .arg(response.vmExitCount)
-        .arg(
-            response.lastExitReason ==
+            16).toUpper())));
+    detail.field(QStringLiteral("最近 NTSTATUS"), QStringLiteral("%1").arg(ntStatusText(response.lastStatus)));
+    detail.field(QStringLiteral("VM-exit 次数"), QStringLiteral("%1").arg(response.vmExitCount));
+    detail.field(QStringLiteral("最近退出原因"), QStringLiteral("%1").arg(response.lastExitReason ==
                     KSWORD_ARK_HVM_EXIT_REASON_NONE
                 ? QStringLiteral("-")
-                : QString::number(response.lastExitReason))
-        .arg(QString::number(
+                : QString::number(response.lastExitReason)));
+    detail.field(QStringLiteral("退出 qualification"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(
             response.lastExitQualification,
-            16).toUpper())
-        .arg(QString::number(response.lastGuestRip, 16).toUpper())
-        .arg(QString::number(response.lastGuestRsp, 16).toUpper())
-        .arg(response.lastExitInstructionLength)
-        .arg(response.lastVmInstructionError)
-        .arg(
-            response.lastLaunchProcessorGroup == 0xFFFFU
+            16).toUpper())));
+    detail.field(QStringLiteral("来宾 RIP / RSP"), QStringLiteral("0x%1 / 0x%2").arg(QStringLiteral("%1").arg(QString::number(response.lastGuestRip, 16).toUpper())).arg(QStringLiteral("%1").arg(QString::number(response.lastGuestRsp, 16).toUpper())));
+    detail.field(QStringLiteral("退出指令长度"), QStringLiteral("%1").arg(response.lastExitInstructionLength));
+    detail.field(QStringLiteral("VM-instruction error"), QStringLiteral("%1").arg(response.lastVmInstructionError));
+    detail.field(QStringLiteral("最近启动 CPU"), QStringLiteral("%1").arg(response.lastLaunchProcessorGroup == 0xFFFFU
                 ? QStringLiteral("-")
                 : QStringLiteral("%1:%2")
                       .arg(response.lastLaunchProcessorGroup)
-                      .arg(response.lastLaunchProcessorNumber))
-        .arg(
-            response.lastLaunchWasNested != 0U
+                      .arg(response.lastLaunchProcessorNumber)));
+    detail.field(QStringLiteral("最近启动使用嵌套 VMX"), QStringLiteral("%1").arg(response.lastLaunchWasNested != 0U
                 ? kernelText("kernel.hvm.yes.simple", QStringLiteral("是"))
-                : kernelText("kernel.hvm.no.simple", QStringLiteral("否")));
-    detail += kernelText(
+                : kernelText("kernel.hvm.no.simple", QStringLiteral("否"))));
+    detail.field(QStringLiteral("边界"), QStringLiteral("一次性来宾仍会在 VMCALL 后 VMCLEAR/VMXOFF。驻留 VMM 仅在 GenuineIntel、完整 VT-x/EPT/INVEPT、无现有 Hypervisor、全 CPU 自检以及电源/处理器拓扑/驱动卸载保护全部通过后开放；离开 S0 前会同步全核 VMXOFF，驻留期间 DriverUnload 被临时移除。AMD 与其它非 Intel CPU 会在驱动端拒绝；未知退出、EPT misconfiguration 和未实现强制退出会 fail-closed 去虚拟化。EPT 恒等映射覆盖 [0, min(CPUID MAXPHYADDR, 本驱动窗口))；实际覆盖到哪里看上面的「最高映射物理地址」，窗口随驱动版本变，这里不写死数字。含已装 RAM 的 1 GiB 窗口按 MTRR 定型并保持 2 MiB 粒度（规则、视图与内存监视都从 2 MiB 叶往下拆）；不含 RAM 的窗口是固件/PCI/ReBAR 一类，统一 UC 并用单个 1 GiB 叶发布——所以「2MiB 叶」这个数不覆盖整个窗口，别拿它乘 2 MiB 对账。MAXPHYADDR 超出窗口时标记 EPT 截断并禁止驻留，报的是「映射窗口不够」而不是「处理器不支持」。严格 EPT 规则只是取证 tripwire：命中后记录并去虚拟化，不注入异常，原访问可能从同一 RIP 在原生模式重试并成功。"), true);
+    detail.note(kernelText(
         "kernel.hvm.detail.experimental",
         QStringLiteral(
             "\n\nResident 实现：%1（CPU %2）"
@@ -150,7 +116,7 @@ QString KernelHvmTab::buildDetail(
         // 环回与累计排在最后：QString::arg 按占位符编号消费，与文本位置无关，
         // 插在中间会逼着后面十个占位符全部重编号。
         .arg(response.overwrittenEventCount)
-        .arg(response.publishedEventCount);
+        .arg(response.publishedEventCount));
     return detail;
 }
 
@@ -161,7 +127,7 @@ void KernelHvmTab::applyMetrics(ksword::ark::HvmMetricsResult result)
     if (!result.io.ok || !result.response || result.response->backend != KSWORD_ARK_HVM_BACKEND_SVM ||
         result.response->svmProcessorCount != m_snapshot.processorCount)
     {
-        m_detailEdit->appendReportText(kernelText("kernel.hvm.amd.metrics_unavailable", QStringLiteral("AMD metrics 暂不可用；未将缺失或不兼容的快照解释为零次退出。")));
+        { auto document = m_detailEdit->document(); document.note(kernelText("kernel.hvm.amd.metrics_unavailable", QStringLiteral("AMD metrics 暂不可用；未将缺失或不兼容的快照解释为零次退出。"))); m_detailEdit->setDocument(document); };
         return;
     }
     const auto& metrics = *result.response;
@@ -171,7 +137,7 @@ void KernelHvmTab::applyMetrics(ksword::ark::HvmMetricsResult result)
         if (row.generation != m_snapshot.generation || row.group != m_snapshot.processors[i].processorGroup ||
             row.number != m_snapshot.processors[i].processorNumber)
         {
-            m_detailEdit->appendReportText(kernelText("kernel.hvm.amd.metrics_changed", QStringLiteral("AMD metrics 与状态的代次或处理器集合不同，请刷新；未合并两次运行的证据。")));
+            { auto document = m_detailEdit->document(); document.note(kernelText("kernel.hvm.amd.metrics_changed", QStringLiteral("AMD metrics 与状态的代次或处理器集合不同，请刷新；未合并两次运行的证据。"))); m_detailEdit->setDocument(document); };
             return;
         }
     }
@@ -184,7 +150,7 @@ void KernelHvmTab::applyMetrics(ksword::ark::HvmMetricsResult result)
         kernelText("kernel.hvm.amd.general", QStringLiteral("嵌套实际启用")),
         kernelText("kernel.hvm.amd.l2_exits", QStringLiteral("L2 硬件退出")),
         kernelText("kernel.hvm.amd.npf", QStringLiteral("NPF / 影子页")) });
-    QStringList details;
+    ks::ui::FieldDocument details;
     for (unsigned long i = 0; i < metrics.svmProcessorCount; ++i)
     {
         const auto& cpu = metrics.svmProcessors[i];
@@ -206,15 +172,17 @@ void KernelHvmTab::applyMetrics(ksword::ark::HvmMetricsResult result)
         }
         if (generalValid)
         {
-            details << kernelText("kernel.hvm.amd.cache", QStringLiteral("CPU %1:%2：嵌套 phase/action/GIF：%3/%4/%5；L2 退出：%6；NPF：%7；影子页：%8\nNPT 缓存查找 / 命中 / 重置 / 失败：%9 / %10 / %11 / %12；INVLPGA：%13；epoch：%14"))
-                .arg(cpu.group).arg(cpu.number).arg(general.phase).arg(general.action).arg(general.gif)
-                .arg(general.hardwareExits).arg(npf).arg(general.shadowPages)
-                .arg(general.nptCache.lookups).arg(general.nptCache.hits).arg(general.nptCache.resets)
-                .arg(general.nptCache.resetFailures).arg(general.invlpgaCount).arg(general.shadowEpoch);
+            details.field(QStringLiteral("CPU"), QStringLiteral("CPU %1:%2：嵌套 phase/action/GIF：%3/%4/%5").arg(QStringLiteral("%1").arg(cpu.group)).arg(QStringLiteral("%1").arg(cpu.number)).arg(QStringLiteral("%1").arg(general.phase)).arg(QStringLiteral("%1").arg(general.action)).arg(QStringLiteral("%1").arg(general.gif)));
+            details.field(QStringLiteral("L2 退出"), QStringLiteral("%1").arg(general.hardwareExits));
+            details.field(QStringLiteral("NPF"), QStringLiteral("%1").arg(npf));
+            details.field(QStringLiteral("影子页"), QStringLiteral("%1").arg(general.shadowPages));
+            details.field(QStringLiteral("NPT 缓存查找 / 命中 / 重置 / 失败"), QStringLiteral("%1 / %2 / %3 / %4").arg(QStringLiteral("%1").arg(general.nptCache.lookups)).arg(QStringLiteral("%1").arg(general.nptCache.hits)).arg(QStringLiteral("%1").arg(general.nptCache.resets)).arg(QStringLiteral("%1").arg(general.nptCache.resetFailures)));
+            details.field(QStringLiteral("INVLPGA"), QStringLiteral("%1").arg(general.invlpgaCount));
+            details.field(QStringLiteral("epoch"), QStringLiteral("%1").arg(general.shadowEpoch));
         }
     }
     // 新共享控件以纯文本追加证据，不沿用 QTextEdit 的富文本 append 接口。
-    m_detailEdit->appendReportText(details.join(QLatin1Char('\n')));
+    { auto document = m_detailEdit->document(); document.nodes += details.nodes; m_detailEdit->setDocument(document); };
 }
 
 QString KernelHvmTab::featureText(const std::uint64_t flags)

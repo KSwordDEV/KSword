@@ -698,30 +698,11 @@ void SettingsDock::initializeAppearanceTab()
     interactionLayout->setSpacing(8);
 
     QLabel* interactionHintLabel = new QLabel(
-        QStringLiteral("调整全局滚动，以及滚轮是否直接调整滑块、下拉框和数值输入框。"),
+        QStringLiteral("调整全局滚动，以及滚轮是否直接调整控件值和切换标签页。"),
         interactionGroupBox);
     interactionHintLabel->setWordWrap(true);
-    languageManager.bindText(interactionHintLabel, QStringLiteral("settings.interaction.hint"), QStringLiteral("调整全局滚动，以及滚轮是否直接调整滑块、下拉框和数值输入框。"));
+    languageManager.bindText(interactionHintLabel, QStringLiteral("settings.interaction.hint"), QStringLiteral("调整全局滚动，以及滚轮是否直接调整控件值和切换标签页。"));
     interactionLayout->addWidget(interactionHintLabel);
-
-    QHBoxLayout* scrollBarWidthLayout = new QHBoxLayout();
-    scrollBarWidthLayout->setSpacing(6);
-    QLabel* scrollBarWidthLabel = new QLabel(QStringLiteral("滚动条宽度"), interactionGroupBox);
-    languageManager.bindText(scrollBarWidthLabel, QStringLiteral("settings.scrollbar.width"), QStringLiteral("滚动条宽度"));
-    scrollBarWidthLayout->addWidget(scrollBarWidthLabel, 0);
-    m_scrollBarWidthCombo = new QComboBox(interactionGroupBox);
-    m_scrollBarWidthCombo->addItem(QStringLiteral("窄版（默认，遮挡更少）"), false);
-    m_scrollBarWidthCombo->addItem(QStringLiteral("宽版（旧版大小）"), true);
-    languageManager.bindComboBoxItem(m_scrollBarWidthCombo, 0, QStringLiteral("settings.scrollbar.narrow"), QStringLiteral("窄版（默认，遮挡更少）"));
-    languageManager.bindComboBoxItem(m_scrollBarWidthCombo, 1, QStringLiteral("settings.scrollbar.wide"), QStringLiteral("宽版（旧版大小）"));
-    scrollBarWidthLayout->addWidget(m_scrollBarWidthCombo, 1);
-    interactionLayout->addLayout(scrollBarWidthLayout);
-
-    m_scrollBarAutoHideCheckBox = new QCheckBox(QStringLiteral("滚动条自动隐藏（悬停时展开）"), interactionGroupBox);
-    languageManager.bindText(m_scrollBarAutoHideCheckBox, QStringLiteral("settings.scrollbar.auto_hide"), QStringLiteral("滚动条自动隐藏（悬停时展开）"));
-    m_scrollBarAutoHideCheckBox->setToolTip(QStringLiteral("启用后滚动条默认缩到很窄，鼠标悬停时展开到当前宽度档位"));
-    languageManager.bindToolTip(m_scrollBarAutoHideCheckBox, QStringLiteral("settings.scrollbar.auto_hide.tooltip"), QStringLiteral("启用后滚动条默认缩到很窄，鼠标悬停时展开到当前宽度档位"));
-    interactionLayout->addWidget(m_scrollBarAutoHideCheckBox);
 
     m_smoothScrollingCheckBox = new QCheckBox(
         QStringLiteral("启用全局平滑滚动"),
@@ -731,17 +712,17 @@ void SettingsDock::initializeAppearanceTab()
         QStringLiteral("settings.scroll.smooth"),
         QStringLiteral("启用全局平滑滚动"));
     m_smoothScrollingCheckBox->setToolTip(
-        QStringLiteral("对表格、列表、文本区和滚动页的鼠标滚轮滚动使用缓动动画"));
+        QStringLiteral("对标签栏、表格、列表、文本区和滚动页的鼠标滚轮滚动使用缓动动画"));
     languageManager.bindToolTip(
         m_smoothScrollingCheckBox,
         QStringLiteral("settings.scroll.smooth.tooltip"),
-        QStringLiteral("对表格、列表、文本区和滚动页的鼠标滚轮滚动使用缓动动画"));
+        QStringLiteral("对标签栏、表格、列表、文本区和滚动页的鼠标滚轮滚动使用缓动动画"));
     interactionLayout->addWidget(m_smoothScrollingCheckBox);
 
-    m_sliderWheelAdjustCheckBox = new QCheckBox(QStringLiteral("允许滚轮直接调整滑块、下拉框和数值输入框"), interactionGroupBox);
-    languageManager.bindText(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel"), QStringLiteral("允许滚轮直接调整滑块、下拉框和数值输入框"));
-    m_sliderWheelAdjustCheckBox->setToolTip(QStringLiteral("关闭后，滚轮经过滑块、下拉框和数值输入框时只滚动页面；展开的下拉列表仍可滚动"));
-    languageManager.bindToolTip(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel.tooltip"), QStringLiteral("关闭后，滚轮经过滑块、下拉框和数值输入框时只滚动页面；展开的下拉列表仍可滚动"));
+    m_sliderWheelAdjustCheckBox = new QCheckBox(QStringLiteral("允许滚轮调整控件值和切换标签页"), interactionGroupBox);
+    languageManager.bindText(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel"), QStringLiteral("允许滚轮调整控件值和切换标签页"));
+    m_sliderWheelAdjustCheckBox->setToolTip(QStringLiteral("默认关闭：滚轮在标签栏上只滚动标签，不切换页面；在滑块、下拉框和数值输入框上只滚动页面。启用后允许滚轮调值和切换标签页；展开的下拉列表仍可滚动"));
+    languageManager.bindToolTip(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel.tooltip"), QStringLiteral("默认关闭：滚轮在标签栏上只滚动标签，不切换页面；在滑块、下拉框和数值输入框上只滚动页面。启用后允许滚轮调值和切换标签页；展开的下拉列表仍可滚动"));
     interactionLayout->addWidget(m_sliderWheelAdjustCheckBox);
 
     appearanceRootLayout->addWidget(interactionGroupBox);
@@ -1410,20 +1391,12 @@ void SettingsDock::bindAppearanceSignals()
         launchTaskmgrHijackScript(false);
         });
 
-    connect(m_scrollBarWidthCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
-        markPendingChanges(QStringLiteral("滚动条宽度切换"));
-        });
-
-    connect(m_scrollBarAutoHideCheckBox, &QCheckBox::toggled, this, [this](const bool /*checkedState*/) {
-        markPendingChanges(QStringLiteral("滚动条自动隐藏开关切换"));
-        });
-
     connect(m_smoothScrollingCheckBox, &QCheckBox::toggled, this, [this](const bool /*checkedState*/) {
         markPendingChanges(QStringLiteral("全局平滑滚动开关切换"));
         });
 
     connect(m_sliderWheelAdjustCheckBox, &QCheckBox::toggled, this, [this](const bool /*checkedState*/) {
-        markPendingChanges(QStringLiteral("滑块滚轮调节开关切换"));
+        markPendingChanges(QStringLiteral("控件与标签页滚轮操作开关切换"));
         });
 
     connect(m_detailSchemeButtonGroup, &QButtonGroup::idClicked, this, [this](const int) {
@@ -1642,15 +1615,6 @@ void SettingsDock::applySettingsToUi(const ks::settings::AppearanceSettings& set
         m_dumpAutoCheckCheckBox->setChecked(settings.dumpAutoCheckEnabled);
     }
 
-    if (m_scrollBarWidthCombo != nullptr)
-    {
-        const int scrollBarWidthIndex = m_scrollBarWidthCombo->findData(settings.useWideScrollBars);
-        m_scrollBarWidthCombo->setCurrentIndex(scrollBarWidthIndex >= 0 ? scrollBarWidthIndex : 0);
-    }
-    if (m_scrollBarAutoHideCheckBox != nullptr)
-    {
-        m_scrollBarAutoHideCheckBox->setChecked(settings.scrollBarAutoHideEnabled);
-    }
     if (m_smoothScrollingCheckBox != nullptr)
     {
         m_smoothScrollingCheckBox->setChecked(settings.smoothScrollingEnabled);
@@ -1837,10 +1801,6 @@ ks::settings::AppearanceSettings SettingsDock::collectSettingsFromUi() const
         m_currentAppearanceSettings.dumpAutoCheckPromptedPath;
     collectedSettings.dumpAutoCheckPromptedTimeMsec =
         m_currentAppearanceSettings.dumpAutoCheckPromptedTimeMsec;
-    collectedSettings.useWideScrollBars =
-        (m_scrollBarWidthCombo != nullptr) && m_scrollBarWidthCombo->currentData().toBool();
-    collectedSettings.scrollBarAutoHideEnabled =
-        (m_scrollBarAutoHideCheckBox != nullptr) && m_scrollBarAutoHideCheckBox->isChecked();
     collectedSettings.smoothScrollingEnabled =
         (m_smoothScrollingCheckBox != nullptr) && m_smoothScrollingCheckBox->isChecked();
     collectedSettings.sliderWheelAdjustEnabled =
@@ -2205,8 +2165,6 @@ void SettingsDock::saveAndEmitFromUi(const QString& triggerReason)
         && nextSettings.startupScaleRecommendPromptDisabled == m_currentAppearanceSettings.startupScaleRecommendPromptDisabled
         && nextSettings.unlockerShellContextMenuEnabled == m_currentAppearanceSettings.unlockerShellContextMenuEnabled
         && nextSettings.suppressR0FeaturePrompts == m_currentAppearanceSettings.suppressR0FeaturePrompts
-        && nextSettings.useWideScrollBars == m_currentAppearanceSettings.useWideScrollBars
-        && nextSettings.scrollBarAutoHideEnabled == m_currentAppearanceSettings.scrollBarAutoHideEnabled
         && nextSettings.smoothScrollingEnabled == m_currentAppearanceSettings.smoothScrollingEnabled
         && nextSettings.sliderWheelAdjustEnabled == m_currentAppearanceSettings.sliderWheelAdjustEnabled
         && nextSettings.detailDisplayScheme == m_currentAppearanceSettings.detailDisplayScheme
@@ -2348,10 +2306,6 @@ void SettingsDock::saveAndEmitFromUi(const QString& triggerReason)
         << (m_currentAppearanceSettings.startupScaleRecommendPromptDisabled ? "true" : "false")
         << "，系统右键文件解锁器菜单="
         << (m_currentAppearanceSettings.unlockerShellContextMenuEnabled ? "true" : "false")
-        << "，宽滚动条="
-        << (m_currentAppearanceSettings.useWideScrollBars ? "true" : "false")
-        << "，滚动条自动隐藏="
-        << (m_currentAppearanceSettings.scrollBarAutoHideEnabled ? "true" : "false")
         << "，全局平滑滚动="
         << (m_currentAppearanceSettings.smoothScrollingEnabled ? "true" : "false")
         << "，滚轮调整滑块="

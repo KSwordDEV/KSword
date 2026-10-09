@@ -29,6 +29,7 @@
 
 #include <QByteArray>
 #include <QString>
+#include "../UI/StructuredFieldView.h"
 #include <QWidget>
 
 #include <atomic>
@@ -48,7 +49,7 @@ namespace ks::ui
 {
     class HexView;
 }
-class CodeEditorWidget;
+class CodeTextEdit;
 
 namespace ks::ui
 {
@@ -126,7 +127,6 @@ private:
         std::uint64_t suggestedLba = 0; // 建议填入的 LBA。
         QString sourceText;             // 候选来源：专属暂存文件 / 未分配间隙。
         QString summaryText;            // 面向用户的结论与证据。
-        QString contextText;            // 扇区上下文：归属、偏移、内容预览。
         QString scratchFilePath;        // 走文件路线时的暂存文件路径，否则为空。
         bool contentAllZero = false;    // 建议区间当前是否全零。
     };
@@ -161,13 +161,18 @@ private:
         std::uint32_t driveIndex,
         const ksword::ark::DdmaDiskEntry& entry);
 
-    // buildScratchContextText：
-    // - 作用：为一个候选起始 LBA 生成"这块扇区现在是什么"的上下文文本；
+    // buildScratchContext：
+    // - 作用：为一个候选起始 LBA 生成"这块扇区现在是什么"的结构上下文；
     // - 内容：目标磁盘、覆盖范围、磁盘字节偏移、**落在哪个分区里还是分区之外**、
     //   当前内容是否全零、以及前 128 字节的十六进制预览；
     // - 说明：一律现读现算，不复用侦测过程里的中间值——这段是给用户"再确认一次"
     //   用的，必须反映点下按钮那一刻磁盘上的真实状态。
-    QString buildScratchContextText(
+    struct ScratchContext
+    {
+        ks::ui::FieldDocument fields;
+        QString bytePreview; // Literal hex/ASCII view of disk bytes, not a property report.
+    };
+    ScratchContext buildScratchContext(
         std::uint32_t driveIndex,
         std::uint64_t startLba,
         std::uint32_t sectorSize,
@@ -255,7 +260,8 @@ private:
     QPushButton* m_detectScratchButton = nullptr;   // 侦测候选暂存扇区按钮。
     QLabel* m_scratchDetectLabel = nullptr;         // 侦测结论与证据。
     // 扇区上下文：候选定下来之后，把"这块扇区现在是什么"摊开给用户再确认一次。
-    CodeEditorWidget* m_scratchContextView = nullptr;
+    ks::ui::StructuredFieldView* m_scratchContextView = nullptr;
+    CodeTextEdit* m_scratchBytesView = nullptr;
     QString m_scratchFilePath;                      // 当前专属暂存文件路径，可为空。
     QPushButton* m_activateButton = nullptr;        // 启用为通道按钮。
     QPushButton* m_clearButton = nullptr;           // 清除会话按钮。

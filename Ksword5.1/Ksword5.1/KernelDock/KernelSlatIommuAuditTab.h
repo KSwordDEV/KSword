@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "../ArkDriverClient/ArkDriverTypes.h"
 
@@ -11,7 +11,7 @@ class QLabel;
 class QPushButton;
 class QShowEvent;
 class QTableWidget;
-class CodeEditorWidget;
+#include "../UI/StructuredFieldView.h"
 
 // Guest-visible, read-only cross-view evidence for EPT/NPT hooks and IOMMU
 // configuration. It deliberately does not claim that an opaque outer SLAT is
@@ -33,7 +33,7 @@ private:
         const KSWORD_ARK_QUERY_SLAT_IOMMU_AUDIT_RESPONSE& response);
     void populateIommuTable(
         const KSWORD_ARK_QUERY_SLAT_IOMMU_AUDIT_RESPONSE& response);
-    QString buildDetail(
+    ks::ui::FieldDocument buildDetail(
         const KSWORD_ARK_QUERY_SLAT_IOMMU_AUDIT_RESPONSE& response) const;
     static QString featureText(std::uint64_t flags);
     static QString riskText(std::uint32_t flags);
@@ -51,7 +51,7 @@ private:
     QCheckBox* m_includeMmioCheck = nullptr;
     QTableWidget* m_probeTable = nullptr;
     QTableWidget* m_iommuTable = nullptr;
-    CodeEditorWidget* m_detailEdit = nullptr;
+    ks::ui::StructuredFieldView* m_detailEdit = nullptr;
     bool m_firstRefreshStarted = false;
     bool m_queryRunning = false;
 };

@@ -1,4 +1,4 @@
-#include "DetailLayoutHost.h"
+﻿#include "DetailLayoutHost.h"
 #include "CodeEditorWidget.h"
 
 #include <QAbstractItemView>
@@ -25,7 +25,7 @@ namespace
     }
 
     // findSharedSplitter：从表格祖先向上查找同时包含详情编辑器的分隔器。
-    QSplitter* findSharedSplitter(QAbstractItemView* tableView, CodeEditorWidget* detailEditor)
+    QSplitter* findSharedSplitter(QAbstractItemView* tableView, QWidget* detailEditor)
     {
         QWidget* ancestorWidget = tableView;
         while (ancestorWidget != nullptr)
@@ -70,17 +70,17 @@ namespace
 
 void ks::ui::DetailLayoutHost::resolveCompatiblePanels()
 {
-    if (m_tableView.isNull() || m_detailEditor.isNull())
+    if (m_tableView.isNull() || (detailWidget() == nullptr))
     {
         return;
     }
 
-    QSplitter* sharedSplitter = findSharedSplitter(m_tableView.data(), m_detailEditor.data());
+    QSplitter* sharedSplitter = findSharedSplitter(m_tableView.data(), detailWidget());
     if (sharedSplitter != nullptr)
     {
         m_splitter = sharedSplitter;
         m_tablePane = directChildUnder(m_tableView.data(), sharedSplitter);
-        m_detailPane = directChildUnder(m_detailEditor.data(), sharedSplitter);
+        m_detailPane = directChildUnder(detailWidget(), sharedSplitter);
         if (m_tablePane == nullptr || m_detailPane == nullptr || m_tablePane == m_detailPane)
         {
             m_splitter.clear();
@@ -88,13 +88,13 @@ void ks::ui::DetailLayoutHost::resolveCompatiblePanels()
             m_detailPane.clear();
             return;
         }
-        m_detailEditor->setMinimumHeight(0);
-        m_detailEditor->setMaximumHeight(QWIDGETSIZE_MAX);
+        detailWidget()->setMinimumHeight(0);
+        detailWidget()->setMaximumHeight(QWIDGETSIZE_MAX);
         return;
     }
 
     // 直接布局页面没有既有 QSplitter：保留原控件对象，仅把两者包装进统一分隔器。
-    QWidget* commonParent = findCommonParent(m_tableView.data(), m_detailEditor.data());
+    QWidget* commonParent = findCommonParent(m_tableView.data(), detailWidget());
     QBoxLayout* commonLayout = commonParent != nullptr
         ? qobject_cast<QBoxLayout*>(commonParent->layout())
         : nullptr;
@@ -104,7 +104,7 @@ void ks::ui::DetailLayoutHost::resolveCompatiblePanels()
     }
 
     QWidget* tablePane = directChildUnder(m_tableView.data(), commonParent);
-    QWidget* detailPane = directChildUnder(m_detailEditor.data(), commonParent);
+    QWidget* detailPane = directChildUnder(detailWidget(), commonParent);
     if (tablePane == nullptr || detailPane == nullptr || tablePane == detailPane)
     {
         return;
@@ -128,6 +128,6 @@ void ks::ui::DetailLayoutHost::resolveCompatiblePanels()
     m_splitter = splitter;
     m_tablePane = tablePane;
     m_detailPane = detailPane;
-    m_detailEditor->setMinimumHeight(0);
-    m_detailEditor->setMaximumHeight(QWIDGETSIZE_MAX);
+    detailWidget()->setMinimumHeight(0);
+    detailWidget()->setMaximumHeight(QWIDGETSIZE_MAX);
 }

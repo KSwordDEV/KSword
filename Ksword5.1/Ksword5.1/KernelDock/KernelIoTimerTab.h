@@ -15,7 +15,7 @@
 #include <cstdint> // std::uintXX_t：固定宽度地址与计数。
 #include <vector>  // std::vector：后台快照与 UI 行缓存。
 
-class CodeEditorWidget;
+#include "../UI/StructuredFieldView.h"
 class QEvent;
 class QLabel;
 class QLineEdit;
@@ -97,7 +97,7 @@ private:
     QLineEdit* m_filterEdit = nullptr;
     QLabel* m_statusLabel = nullptr;
     QTableWidget* m_table = nullptr;
-    CodeEditorWidget* m_detailEditor = nullptr;
+    ks::ui::StructuredFieldView* m_detailEditor = nullptr;
 
     std::vector<IoTimerRow> m_rows;
     Snapshot m_lastSnapshot;

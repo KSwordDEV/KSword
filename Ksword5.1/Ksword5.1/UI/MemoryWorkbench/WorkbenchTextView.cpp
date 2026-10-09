@@ -2,7 +2,8 @@
 #include "MemoryRowCanvas.h"
 #include "WorkbenchTextCodePages.h"
 #include "../FlowLayout.h"
-#include "../ReportStructuredView.h"
+#include "../StructuredFieldView.h"
+#include "../TypedSyntaxDocument.h"
 #include "../../Internationalization/LanguageManager.h"
 #include "../../theme.h"
 #include <QApplication>
@@ -118,7 +119,7 @@ namespace ks::ui
         m_structureCombo = new QComboBox(bar);
         m_structureCombo->setObjectName(QStringLiteral("ksMemwbTextStructureCombo"));
         m_structureCombo->addItems({QStringLiteral("原始文本"), QStringLiteral("结构视图")});
-        m_structureCombo->setToolTip(QStringLiteral("结构视图仅呈现当前已读取窗口的字段、JSON 或 XML；不修改原始字节。"));
+        m_structureCombo->setToolTip(QStringLiteral("结构视图仅解析当前已完整读取窗口中的 JSON 或 XML；不修改原始字节。"));
         flow->addWidget(m_structureCombo);
         m_bytesToggle = new QCheckBox(QStringLiteral("显示字节"), bar);
         m_bytesToggle->setChecked(true);
@@ -149,12 +150,15 @@ namespace ks::ui
         m_findEdit->installEventFilter(this);
         m_viewStack = new QStackedWidget(this);
         m_viewStack->addWidget(m_canvas);
-        m_structuredView = new ReportStructuredView(m_viewStack);
+        m_structuredView = new StructuredFieldView(m_viewStack);
+        m_structuredView->setPresentation(StructuredFieldView::Presentation::Tree);
         m_structuredView->setObjectName(QStringLiteral("ksMemwbTextStructuredView"));
         m_viewStack->addWidget(m_structuredView);
+        m_structuredView->installEventFilter(this);
+        for (QWidget* child : m_structuredView->findChildren<QWidget*>()) child->installEventFilter(this);
         layout->addWidget(m_viewStack, 1);
         connect(m_structureCombo, &QComboBox::currentIndexChanged, this, [this](const int index) {
-            m_viewStack->setCurrentWidget(index == 1 && m_structuredView->hasStructure()
+            m_viewStack->setCurrentWidget(index == 1 && !m_structuredView->document().isEmpty()
                 ? static_cast<QWidget*>(m_structuredView) : static_cast<QWidget*>(m_canvas));
         });
         connect(m_controlToggle, &QCheckBox::toggled, this, [this] { rebuildText(); });
@@ -268,8 +272,9 @@ namespace ks::ui
     }
     QString WorkbenchTextView::copyTextForCurrentView() const
     {
-        return m_viewStack->currentWidget() == m_structuredView
-            ? m_structuredView->selectionOrReportText() : selectedDecodedText();
+        if (m_viewStack->currentWidget() != m_structuredView) return selectedDecodedText();
+        const QString selected = m_structuredView->selectedText();
+        return selected.isEmpty() ? m_flatText : selected;
     }
     std::uint64_t WorkbenchTextView::windowAddress() const { return m_address; }
     std::uint64_t WorkbenchTextView::windowLength() const { return m_length; }
@@ -388,15 +393,16 @@ namespace ks::ui
 
     void WorkbenchTextView::updateStructuredView(const bool completeDecode)
     {
-        const bool structured = completeDecode && m_structuredView->setReportText(m_flatText);
+        const auto parsed = completeDecode ? ParseTypedSyntaxDocument(m_flatText) : std::nullopt;
+        const bool structured = parsed.has_value();
+        m_structuredView->setDocument(structured ? parsed->fields : FieldDocument{});
         if (!structured)
         {
-            m_structuredView->setReportText(QString());
             activateOriginalView();
         }
         m_structureCombo->setEnabled(structured);
         m_structureCombo->setToolTip(ks::i18n::sourceText(structured
-            ? QStringLiteral("结构视图仅呈现当前已读取窗口的字段、JSON 或 XML；不修改原始字节。")
+            ? QStringLiteral("结构视图仅解析当前已完整读取窗口中的 JSON 或 XML；不修改原始字节。")
             : completeDecode ? QStringLiteral("当前文本没有可解析结构，或超过结构视图限制。")
                 : QStringLiteral("当前窗口存在未读取、无效或不完整字符，结构视图不可用。")));
     }
@@ -480,14 +486,17 @@ namespace ks::ui
     }
     bool WorkbenchTextView::eventFilter(QObject* watched, QEvent* event)
     {
-        if ((watched == m_canvas || watched == m_findEdit) && event->type() == QEvent::ShortcutOverride)
+        const auto* widget = qobject_cast<QWidget*>(watched);
+        const bool structuredChild = widget != nullptr && m_structuredView != nullptr
+            && (widget == m_structuredView || m_structuredView->isAncestorOf(widget));
+        if ((watched == m_canvas || watched == m_findEdit || structuredChild) && event->type() == QEvent::ShortcutOverride)
         {
             const auto* key = static_cast<QKeyEvent*>(event);
             if ((key->key() == Qt::Key_F && key->modifiers() == Qt::ControlModifier) || key->key() == Qt::Key_F3
-                || (watched == m_canvas && key->key() == Qt::Key_C && (key->modifiers() & Qt::ControlModifier)))
+                || ((watched == m_canvas || structuredChild) && key->key() == Qt::Key_C && (key->modifiers() & Qt::ControlModifier)))
             { event->accept(); return true; }
         }
-        if ((watched == m_canvas || watched == m_findEdit) && event->type() == QEvent::KeyPress)
+        if ((watched == m_canvas || watched == m_findEdit || structuredChild) && event->type() == QEvent::KeyPress)
         {
             const auto* key = static_cast<QKeyEvent*>(event);
             if (key->key() == Qt::Key_F && key->modifiers() == Qt::ControlModifier)
@@ -495,6 +504,8 @@ namespace ks::ui
             if (key->key() == Qt::Key_F3) { if (key->modifiers() & Qt::ShiftModifier) findPrevious(); else findNext(); return true; }
             if (watched == m_canvas && key->key() == Qt::Key_C && key->modifiers() == Qt::ControlModifier)
             { QApplication::clipboard()->setText(selectedDecodedText()); return true; }
+            if (structuredChild && key->key() == Qt::Key_C && key->modifiers() == Qt::ControlModifier)
+            { QApplication::clipboard()->setText(copyTextForCurrentView()); return true; }
         }
         return QWidget::eventFilter(watched, event);
     }

@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -61,12 +62,12 @@ private:
     // - 在工作线程中构建完整硬件设备清单文本；
     // - 不访问任何 QWidget；
     // - 返回设备清单或错误诊断文本。
-    static QString buildDeviceInventoryTextSnapshot();
+    static ks::ui::FieldDocument buildDeviceInventoryTextSnapshot();
 
 private:
     QVBoxLayout* m_rootLayout = nullptr;      // m_rootLayout：页内根布局。
     QLabel* m_statusLabel = nullptr;          // m_statusLabel：显示刷新状态与时间。
     QPushButton* m_refreshButton = nullptr;   // m_refreshButton：手动刷新按钮。
-    CodeEditorWidget* m_inventoryEditor = nullptr; // m_inventoryEditor：只读设备清单文本区。
+    ks::ui::StructuredFieldView* m_inventoryEditor = nullptr; // m_inventoryEditor：只读设备清单文本区。
     std::atomic_bool m_refreshing{ false };   // m_refreshing：异步刷新互斥标志。
 };

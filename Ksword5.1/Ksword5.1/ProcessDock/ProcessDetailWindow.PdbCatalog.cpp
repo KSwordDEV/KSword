@@ -188,40 +188,12 @@ namespace process_detail_window_internal
         // - 输入 fieldObject 为 deep catalog 的单个字段描述；
         // - 处理：提取 qualifiedName/offset/type/bitfield/alias；
         // - 返回：一行可读偏移目录文本。
-        QString formatCatalogFieldLine(const QJsonObject& fieldObject)
-        {
-            const QString qualifiedName = jsonString(
-                fieldObject,
-                QStringLiteral("qualifiedName"),
-                jsonString(fieldObject, QStringLiteral("fieldName"), QStringLiteral("<unknown field>")));
-            const QString offsetText = jsonString(fieldObject, QStringLiteral("offsetHex"), QStringLiteral("<no offset>"));
-            const QString typeText = jsonString(fieldObject, QStringLiteral("fieldType"), QStringLiteral("<unknown type>"));
-            const QString aliasText = jsonString(fieldObject, QStringLiteral("kswordItemName"), QString());
-            QString lineText = QStringLiteral("    - %1 @ %2 : %3")
-                .arg(qualifiedName)
-                .arg(offsetText)
-                .arg(typeText);
 
-            const QJsonObject bitFieldObject = fieldObject.value(QStringLiteral("bitField")).toObject();
-            if (!bitFieldObject.isEmpty())
-            {
-                lineText += QStringLiteral(" [bit=%1:%2]")
-                    .arg(jsonInt(bitFieldObject, QStringLiteral("bitOffset"), -1))
-                    .arg(jsonInt(bitFieldObject, QStringLiteral("bitSize"), -1));
-            }
-
-            if (!aliasText.trimmed().isEmpty())
-            {
-                lineText += QStringLiteral(" [DynData=%1]").arg(aliasText.trimmed());
-            }
-
-            return lineText;
-        }
 
         // formatCatalogDomain 作用：
         // - 输入 domainObject/maxTypes/maxFieldsPerType；
         // - 处理：把目标 domain 下的类型和字段裁剪成预览；
-        // - 返回：适合 CodeEditorWidget 展示的多行文本。
+        // - 返回：适合 StructuredFieldView 展示的多行文本。
         // jsonHexUInt32 作用：
         // - 输入 object/name/fallback；
         // - 处理：优先解析 0x 前缀字符串，其次读取 JSON number；
@@ -459,292 +431,144 @@ namespace process_detail_window_internal
             return priority;
         }
 
-        QString formatCatalogDomain(
-            const QJsonObject& domainObject,
-            const int maxTypes,
-            const int maxFieldsPerType)
-        {
-            QStringList lines;
-            const QString domainName = jsonString(domainObject, QStringLiteral("domain"), QStringLiteral("<unknown domain>"));
-            const int typeCount = jsonInt(domainObject, QStringLiteral("typeCount"), 0);
-            const int fieldCount = jsonInt(domainObject, QStringLiteral("fieldCount"), 0);
-            const int aliasCount = jsonInt(domainObject, QStringLiteral("kswordAliasFieldCount"), 0);
 
-            lines << QStringLiteral("Domain: %1").arg(domainName);
-            lines << QStringLiteral("Types=%1, Fields=%2, DynDataAliasFields=%3")
-                .arg(typeCount)
-                .arg(fieldCount)
-                .arg(aliasCount);
-
-            const QJsonArray typeArray = domainObject.value(QStringLiteral("types")).toArray();
-            int emittedTypeCount = 0;
-            for (const QJsonValue& typeValue : typeArray)
-            {
-                if (emittedTypeCount >= maxTypes)
-                {
-                    break;
-                }
-
-                const QJsonObject typeObject = typeValue.toObject();
-                if (typeObject.isEmpty())
-                {
-                    continue;
-                }
-
-                const QString typeName = jsonString(typeObject, QStringLiteral("typeName"), QStringLiteral("<unknown type>"));
-                const int typeSize = jsonInt(typeObject, QStringLiteral("typeSize"), -1);
-                const int typeFieldCount = jsonInt(typeObject, QStringLiteral("fieldCount"), 0);
-                lines << QStringLiteral("  * %1 size=%2 fields=%3")
-                    .arg(typeName)
-                    .arg(typeSize)
-                    .arg(typeFieldCount);
-
-                const QJsonArray fieldArray = typeObject.value(QStringLiteral("fields")).toArray();
-                int emittedFieldCount = 0;
-                for (const QJsonValue& fieldValue : fieldArray)
-                {
-                    if (emittedFieldCount >= maxFieldsPerType)
-                    {
-                        break;
-                    }
-
-                    const QJsonObject fieldObject = fieldValue.toObject();
-                    if (!fieldObject.isEmpty())
-                    {
-                        lines << formatCatalogFieldLine(fieldObject);
-                        ++emittedFieldCount;
-                    }
-                }
-
-                if (fieldArray.size() > emittedFieldCount)
-                {
-                    lines << QStringLiteral("    ... 还有 %1 个字段在 deep offset JSON 中备用")
-                        .arg(fieldArray.size() - emittedFieldCount);
-                }
-
-                ++emittedTypeCount;
-            }
-
-            if (typeArray.size() > emittedTypeCount)
-            {
-                lines << QStringLiteral("  ... 还有 %1 个类型在 deep offset JSON 中备用")
-                    .arg(typeArray.size() - emittedTypeCount);
-            }
-
-            return lines.join(QChar('\n'));
-        }
 
         // formatCatalogGlobalSymbolLine 作用：
         // - 输入 symbolObject 为 deep catalog 的一个全局符号描述；
         // - 处理：提取符号名、RVA、section、runtime item id 和 DynData 别名；
         // - 返回：一行适合详情页展示的只读全局 RVA 目录文本。
-        QString formatCatalogGlobalSymbolLine(const QJsonObject& symbolObject)
-        {
-            const QString symbolName = jsonString(
-                symbolObject,
-                QStringLiteral("symbolName"),
-                QStringLiteral("<unknown symbol>"));
-            const QString kindText = jsonString(
-                symbolObject,
-                QStringLiteral("kind"),
-                QStringLiteral("GlobalRva"));
-            const QString rvaText = jsonString(
-                symbolObject,
-                QStringLiteral("rvaHex"),
-                QStringLiteral("<no rva>"));
-            const QString sectionName = jsonString(
-                symbolObject,
-                QStringLiteral("sectionName"),
-                QStringLiteral("<unknown section>"));
-            const QString sectionOffsetText = jsonString(
-                symbolObject,
-                QStringLiteral("sectionOffsetHex"),
-                QStringLiteral("<no section offset>"));
-            const QString runtimeItemIdText = jsonString(
-                symbolObject,
-                QStringLiteral("runtimeItemIdHex"),
-                QStringLiteral("<no runtime id>"));
-            const QString aliasText = jsonString(
-                symbolObject,
-                QStringLiteral("kswordItemName"),
-                QString());
 
-            QString lineText = QStringLiteral("    - %1 rva=%2 kind=%3 section=%4+%5 runtimeItemId=%6")
-                .arg(symbolName)
-                .arg(rvaText)
-                .arg(kindText)
-                .arg(sectionName)
-                .arg(sectionOffsetText)
-                .arg(runtimeItemIdText);
-            if (!aliasText.trimmed().isEmpty())
-            {
-                lineText += QStringLiteral(" [DynData=%1]").arg(aliasText.trimmed());
-            }
-
-            return lineText;
-        }
 
         // formatCatalogGlobalDomain 作用：
         // - 输入 globalDomainObject/maxSymbols；
         // - 处理：把 kernel_global_detail 等全局 RVA domain 裁剪成可读预览；
         // - 返回：只读目录文本；没有副作用，也不触发 R0 查询。
-        QString formatCatalogGlobalDomain(
-            const QJsonObject& globalDomainObject,
-            const int maxSymbols)
-        {
-            QStringList lines;
-            const QString domainName = jsonString(
-                globalDomainObject,
-                QStringLiteral("domain"),
-                QStringLiteral("<unknown global domain>"));
-            const QString kindText = jsonString(
-                globalDomainObject,
-                QStringLiteral("kind"),
-                QStringLiteral("global"));
-            const int symbolCount = jsonInt(
-                globalDomainObject,
-                QStringLiteral("symbolCount"),
-                0);
 
-            lines << QStringLiteral("Domain: %1").arg(domainName);
-            lines << QStringLiteral("Kind=%1, Symbols=%2")
-                .arg(kindText)
-                .arg(symbolCount);
-
-            const QJsonArray symbolArray = globalDomainObject.value(QStringLiteral("symbols")).toArray();
-            int emittedSymbolCount = 0;
-            for (const QJsonValue& symbolValue : symbolArray)
-            {
-                if (emittedSymbolCount >= maxSymbols)
-                {
-                    break;
-                }
-
-                const QJsonObject symbolObject = symbolValue.toObject();
-                if (!symbolObject.isEmpty())
-                {
-                    lines << formatCatalogGlobalSymbolLine(symbolObject);
-                    ++emittedSymbolCount;
-                }
-            }
-
-            if (symbolArray.size() > emittedSymbolCount)
-            {
-                lines << QStringLiteral("    ... 还有 %1 个全局符号在 deep offset JSON 中备用")
-                    .arg(symbolArray.size() - emittedSymbolCount);
-            }
-
-            return lines.join(QChar('\n'));
-        }
     }
 
-    QString buildPdbRuntimeCatalogPreview(
-        const QString& domainName,
-        const int maxTypes,
-        const int maxFieldsPerType)
+    ks::ui::FieldDocument buildPdbRuntimeCatalogPreview(
+        const QString& domainName, const int maxTypes, const int maxFieldsPerType)
     {
-        // 函数用途：
-        // - 只读读取 ntkrnlmp deep offset JSON；
-        // - 按 domainName 返回进程/线程/句柄等运行时详情可用的备用字段目录；
-        // - 返回文本给详情页展示，不修改任何缓存或驱动状态。
         static QMutex cacheMutex;
-        static QHash<QString, QString> previewCache;
-
-        const QString cacheKey = QStringLiteral("%1|%2|%3")
-            .arg(domainName)
-            .arg(maxTypes)
-            .arg(maxFieldsPerType);
-        {
-            QMutexLocker cacheLocker(&cacheMutex);
-            const auto cachedIterator = previewCache.constFind(cacheKey);
-            if (cachedIterator != previewCache.constEnd())
-            {
-                return cachedIterator.value();
-            }
-        }
-
-        const auto storeAndReturn =
-            [&cacheKey](const QString& text) -> QString
-            {
-                QMutexLocker cacheLocker(&cacheMutex);
-                previewCache.insert(cacheKey, text);
-                return text;
-            };
-
+        static QHash<QString, ks::ui::FieldDocument> previewCache;
+        const QString cacheKey = QStringLiteral("%1|%2|%3").arg(domainName).arg(maxTypes).arg(maxFieldsPerType);
+        { QMutexLocker lock(&cacheMutex); const auto found = previewCache.constFind(cacheKey);
+          if (found != previewCache.constEnd()) return found.value(); }
+        ks::ui::FieldDocument preview;
+        preview.section(QStringLiteral("PDB Deep Runtime Catalog - %1").arg(domainName));
+        const auto finish = [&]() { QMutexLocker lock(&cacheMutex); previewCache.insert(cacheKey, preview); return preview; };
         const QString jsonPath = findNtosDeepOffsetJsonPath();
         if (jsonPath.isEmpty())
-        {
-            return storeAndReturn(QStringLiteral("PDB deep offset JSON 未找到；请确认 profiles/pdb_deep_offsets 已随构建复制到程序目录。"));
-        }
-
+        { preview.note(QStringLiteral("PDB deep offset JSON 未找到；请确认 profiles/pdb_deep_offsets 已随构建复制到程序目录。")); return finish(); }
+        preview.field(QStringLiteral("Source"), jsonPath);
         QJsonParseError parseError{};
-        QString readErrorText;
-        const QJsonDocument document = ks::profile::readProfileJsonDocument(jsonPath, &parseError, &readErrorText);
-        if (parseError.error != QJsonParseError::NoError || !document.isObject())
+        QString readError;
+        const QJsonDocument json = ks::profile::readProfileJsonDocument(jsonPath, &parseError, &readError);
+        if (parseError.error != QJsonParseError::NoError || !json.isObject())
+        { preview.note(QStringLiteral("PDB deep offset JSON 解析失败：%1；文件=%2").arg(readError.isEmpty() ? parseError.errorString() : readError).arg(jsonPath)); return finish(); }
+        const QJsonObject catalog = json.object().value(QStringLiteral("runtimeDetailCatalog")).toObject();
+        // The hierarchy is read directly from JSON objects. No generated lines
+        // or indentation are retained or interpreted as fields.
+        for (const QJsonValue& value : catalog.value(QStringLiteral("domains")).toArray())
         {
-            return storeAndReturn(QStringLiteral("PDB deep offset JSON 解析失败：%1；文件=%2")
-                .arg(readErrorText.isEmpty() ? parseError.errorString() : readErrorText)
-                .arg(jsonPath));
-        }
-
-        const QJsonObject rootObject = document.object();
-        const QJsonObject catalogObject = rootObject.value(QStringLiteral("runtimeDetailCatalog")).toObject();
-        const QJsonArray domainArray = catalogObject.value(QStringLiteral("domains")).toArray();
-        for (const QJsonValue& domainValue : domainArray)
-        {
-            const QJsonObject domainObject = domainValue.toObject();
-            if (jsonString(domainObject, QStringLiteral("domain"), QString()) == domainName)
+            const QJsonObject domain = value.toObject();
+            if (jsonString(domain, QStringLiteral("domain"), QString()) != domainName) continue;
+            preview.field(QStringLiteral("Types"), QString::number(jsonInt(domain, QStringLiteral("typeCount"), 0)));
+            preview.field(QStringLiteral("Fields"), QString::number(jsonInt(domain, QStringLiteral("fieldCount"), 0)));
+            preview.field(QStringLiteral("DynDataAliasFields"), QString::number(jsonInt(domain, QStringLiteral("kswordAliasFieldCount"), 0)));
+            const QJsonArray types = domain.value(QStringLiteral("types")).toArray();
+            int emittedTypes = 0;
+            for (const QJsonValue& typeValue : types)
             {
-                return storeAndReturn(QStringLiteral("Source: %1\n%2")
-                    .arg(jsonPath)
-                    .arg(formatCatalogDomain(
-                        domainObject,
-                        qMax(1, maxTypes),
-                        qMax(1, maxFieldsPerType))));
+                if (emittedTypes >= qMax(1, maxTypes)) break;
+                const QJsonObject type = typeValue.toObject();
+                if (type.isEmpty()) continue;
+                ks::ui::FieldDocument typeDocument;
+                typeDocument.section(jsonString(type, QStringLiteral("typeName"), QStringLiteral("<unknown type>")));
+                typeDocument.nodes.last().initiallyExpanded = false;
+                typeDocument.field(QStringLiteral("Size"), QString::number(jsonInt(type, QStringLiteral("typeSize"), -1)));
+                typeDocument.field(QStringLiteral("Fields"), QString::number(jsonInt(type, QStringLiteral("fieldCount"), 0)));
+                const QJsonArray fields = type.value(QStringLiteral("fields")).toArray();
+                int emittedFields = 0;
+                for (const QJsonValue& fieldValue : fields)
+                {
+                    if (emittedFields >= qMax(1, maxFieldsPerType)) break;
+                    const QJsonObject field = fieldValue.toObject();
+                    if (field.isEmpty()) continue;
+                    ks::ui::FieldDocument fieldDocument;
+                    fieldDocument.section(jsonString(field, QStringLiteral("qualifiedName"), jsonString(field, QStringLiteral("fieldName"), QStringLiteral("<unknown field>"))));
+                    fieldDocument.field(QStringLiteral("Offset"), jsonString(field, QStringLiteral("offsetHex"), QStringLiteral("<no offset>")));
+                    fieldDocument.field(QStringLiteral("Type"), jsonString(field, QStringLiteral("fieldType"), QStringLiteral("<unknown type>")));
+                    const QJsonObject bits = field.value(QStringLiteral("bitField")).toObject();
+                    if (!bits.isEmpty())
+                    { fieldDocument.field(QStringLiteral("Bit offset"), QString::number(jsonInt(bits, QStringLiteral("bitOffset"), -1)));
+                      fieldDocument.field(QStringLiteral("Bit size"), QString::number(jsonInt(bits, QStringLiteral("bitSize"), -1))); }
+                    const QString alias = jsonString(field, QStringLiteral("kswordItemName"), QString());
+                    if (!alias.trimmed().isEmpty()) fieldDocument.field(QStringLiteral("DynData"), alias);
+                    typeDocument.nodes.last().children += fieldDocument.nodes;
+                    ++emittedFields;
+                }
+                if (fields.size() > emittedFields) typeDocument.note(QStringLiteral("    ... 还有 %1 个字段在 deep offset JSON 中备用").arg(fields.size() - emittedFields));
+                preview.nodes.first().children += typeDocument.nodes;
+                ++emittedTypes;
             }
+            if (types.size() > emittedTypes) preview.note(QStringLiteral("  ... 还有 %1 个类型在 deep offset JSON 中备用").arg(types.size() - emittedTypes));
+            return finish();
         }
-
-        const QJsonArray globalDomainArray = catalogObject.value(QStringLiteral("globalDomains")).toArray();
-        for (const QJsonValue& globalDomainValue : globalDomainArray)
+        for (const QJsonValue& value : catalog.value(QStringLiteral("globalDomains")).toArray())
         {
-            const QJsonObject globalDomainObject = globalDomainValue.toObject();
-            if (jsonString(globalDomainObject, QStringLiteral("domain"), QString()) == domainName)
+            const QJsonObject domain = value.toObject();
+            if (jsonString(domain, QStringLiteral("domain"), QString()) != domainName) continue;
+            preview.field(QStringLiteral("Kind"), jsonString(domain, QStringLiteral("kind"), QStringLiteral("global")), true);
+            preview.field(QStringLiteral("Symbols"), QString::number(jsonInt(domain, QStringLiteral("symbolCount"), 0)));
+            const QJsonArray symbols = domain.value(QStringLiteral("symbols")).toArray();
+            int emitted = 0;
+            for (const QJsonValue& symbolValue : symbols)
             {
-                return storeAndReturn(QStringLiteral("Source: %1\n%2")
-                    .arg(jsonPath)
-                    .arg(formatCatalogGlobalDomain(
-                        globalDomainObject,
-                        qMax(1, maxFieldsPerType))));
+                if (emitted >= qMax(1, maxFieldsPerType)) break;
+                const QJsonObject symbol = symbolValue.toObject();
+                if (symbol.isEmpty()) continue;
+                ks::ui::FieldDocument node;
+                node.section(jsonString(symbol, QStringLiteral("symbolName"), QStringLiteral("<unknown symbol>")));
+                for (const auto& names : {qMakePair(QStringLiteral("RVA"), QStringLiteral("rvaHex")),
+                     qMakePair(QStringLiteral("Kind"), QStringLiteral("kind")),
+                     qMakePair(QStringLiteral("Section"), QStringLiteral("sectionName")),
+                     qMakePair(QStringLiteral("Section offset"), QStringLiteral("sectionOffsetHex")),
+                     qMakePair(QStringLiteral("Runtime item ID"), QStringLiteral("runtimeItemIdHex")),
+                     qMakePair(QStringLiteral("DynData"), QStringLiteral("kswordItemName"))})
+                    node.field(names.first, jsonString(symbol, names.second, QString()));
+                preview.nodes.first().children += node.nodes;
+                ++emitted;
             }
+            if (symbols.size() > emitted) preview.note(QStringLiteral("    ... 还有 %1 个全局符号在 deep offset JSON 中备用").arg(symbols.size() - emitted));
+            return finish();
         }
-
-        return storeAndReturn(QStringLiteral("PDB deep offset JSON 中未找到 domain=%1；文件=%2")
-            .arg(domainName)
-            .arg(jsonPath));
+        preview.note(QStringLiteral("PDB deep offset JSON 中未找到 domain=%1；文件=%2").arg(domainName).arg(jsonPath));
+        return finish();
     }
 
     bool pdbRuntimeCatalogMatchesKernelIdentity(
         const std::uint32_t timeDateStamp,
         const std::uint32_t sizeOfImage,
-        QString* detailTextOut)
+        ks::ui::FieldDocument* detailDocumentOut)
     {
         // 函数用途：
         // - 在 R3 侧给 deep PDB runtime sampler 加一层 identity 保险；
         // - deep JSON 本身只知道 PDB GUID/Age，v4 pack 知道同一 PDB 对应的 PE TimeDateStamp/SizeOfImage；
         // - 只有当前 R0 DynData 报告的 ntoskrnl identity 与 pack profile 完全一致时才允许采样。
-        QStringList detailLines;
-        detailLines << QStringLiteral("[PDB Deep Runtime Identity Guard]");
-        detailLines << QStringLiteral("当前 ntoskrnl TimeDateStamp/SizeOfImage: 0x%1 / 0x%2")
+        ks::ui::FieldDocument detailDocument;
+        detailDocument.section(QStringLiteral("PDB Deep Runtime Identity Guard"));
+        detailDocument.field(QStringLiteral("当前 ntoskrnl TimeDateStamp/SizeOfImage"), QStringLiteral("0x%1 / 0x%2")
             .arg(static_cast<qulonglong>(timeDateStamp), 8, 16, QChar('0')).toUpper()
-            .arg(static_cast<qulonglong>(sizeOfImage), 8, 16, QChar('0')).toUpper();
+            .arg(static_cast<qulonglong>(sizeOfImage), 8, 16, QChar('0')).toUpper());
 
-        const auto finishWithDetail = [&detailLines, detailTextOut](const bool matchValue, const QString& reasonText) -> bool
+        const auto finishWithDetail = [&detailDocument, detailDocumentOut](const bool matchValue, const QString& reasonText) -> bool
         {
-            detailLines << QStringLiteral("结论: %1").arg(matchValue ? QStringLiteral("匹配，可执行只读采样") : QStringLiteral("不匹配，跳过只读采样"));
-            detailLines << QStringLiteral("原因: %1").arg(reasonText);
-            if (detailTextOut != nullptr)
+            detailDocument.field(QStringLiteral("结论"), QStringLiteral("%1").arg(matchValue ? QStringLiteral("匹配，可执行只读采样") : QStringLiteral("不匹配，跳过只读采样")));
+            detailDocument.field(QStringLiteral("原因"), QStringLiteral("%1").arg(reasonText));
+            if (detailDocumentOut != nullptr)
             {
-                *detailTextOut = detailLines.join(QChar('\n'));
+                *detailDocumentOut = detailDocument;
             }
             return matchValue;
         };
@@ -770,8 +594,8 @@ namespace process_detail_window_internal
         const QJsonObject sourceObject = deepRootObject.value(QStringLiteral("source")).toObject();
         const QString deepGuidText = normalizeGuidText(jsonString(sourceObject, QStringLiteral("pdbGuid"), QString()));
         const std::uint32_t deepAge = jsonHexUInt32(sourceObject, QStringLiteral("pdbAge"), 0U);
-        detailLines << QStringLiteral("Deep JSON: %1").arg(deepJsonPath);
-        detailLines << QStringLiteral("Deep PDB GUID/Age: %1 / %2").arg(deepGuidText).arg(deepAge);
+        detailDocument.field(QStringLiteral("Deep JSON"), QStringLiteral("%1").arg(deepJsonPath));
+        detailDocument.field(QStringLiteral("Deep PDB GUID/Age"), QStringLiteral("%1 / %2").arg(deepGuidText).arg(deepAge));
         if (deepGuidText.isEmpty() || deepAge == 0U)
         {
             return finishWithDetail(false, QStringLiteral("deep JSON source 中缺少 PDB GUID/Age。"));
@@ -789,9 +613,9 @@ namespace process_detail_window_internal
             return finishWithDetail(false, parseDetail);
         }
 
-        detailLines << QStringLiteral("Pack JSON: %1").arg(packJsonPath);
+        detailDocument.field(QStringLiteral("Pack JSON"), QStringLiteral("%1").arg(packJsonPath));
         const QJsonArray profileArray = packRootObject.value(QStringLiteral("profiles")).toArray();
-        QStringList candidateProfileLines;
+        ks::ui::FieldDocument candidateProfiles;
         for (const QJsonValue& profileValue : profileArray)
         {
             const QJsonObject profileObject = profileValue.toObject();
@@ -808,25 +632,23 @@ namespace process_detail_window_internal
                 jsonHexUInt32(profileObject, QStringLiteral("sizeOfImage"), 0U);
             const QString profileName =
                 jsonString(profileObject, QStringLiteral("profileName"), QStringLiteral("<unnamed profile>"));
-            candidateProfileLines << QStringLiteral("%1: TimeDateStamp=0x%2 SizeOfImage=0x%3")
-                .arg(profileName)
-                .arg(static_cast<qulonglong>(profileTimeDateStamp), 8, 16, QChar('0')).toUpper()
-                .arg(static_cast<qulonglong>(profileSizeOfImage), 8, 16, QChar('0')).toUpper();
+            candidateProfiles.field(profileName, QStringLiteral("TimeDateStamp=%1 SizeOfImage=%2")
+                .arg(uint64ToHex(profileTimeDateStamp), uint64ToHex(profileSizeOfImage)));
 
             if (profileTimeDateStamp == timeDateStamp && profileSizeOfImage == sizeOfImage)
             {
-                detailLines << QStringLiteral("匹配 profile: %1").arg(profileName);
+                detailDocument.field(QStringLiteral("匹配 profile"), QStringLiteral("%1").arg(profileName));
                 return finishWithDetail(true, QStringLiteral("deep JSON 的 PDB identity 与当前 ntoskrnl PE identity 经 v4 pack 校验一致。"));
             }
         }
 
-        if (candidateProfileLines.isEmpty())
+        if (candidateProfiles.isEmpty())
         {
             return finishWithDetail(false, QStringLiteral("v4 pack 中没有与 deep JSON PDB GUID/Age 对应的 profile。"));
         }
 
-        detailLines << QStringLiteral("同 PDB GUID/Age 的 pack profile 候选:");
-        detailLines.append(candidateProfileLines);
+        detailDocument.note(QStringLiteral("同 PDB GUID/Age 的 pack profile 候选:"));
+        appendFields(detailDocument, candidateProfiles);
         return finishWithDetail(false, QStringLiteral("当前 ntoskrnl PE identity 与 deep JSON 对应 profile 不一致，避免发送错误 offset。"));
     }
 

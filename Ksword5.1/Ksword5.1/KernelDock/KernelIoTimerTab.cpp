@@ -3,7 +3,7 @@
 #include "KernelDeviceDriverObjectsWorker.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../Internationalization/LanguageManager.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include "../UI/DetailLayoutRegistry.h"
 #include "../theme.h"
 
@@ -182,13 +182,13 @@ void KernelIoTimerTab::initializeUi()
         static_cast<int>(Column::NamespacePath),
         QHeaderView::Stretch);
 
-    m_detailEditor = new CodeEditorWidget(splitter);
-    m_detailEditor->setReadOnly(true);
+    m_detailEditor = new ks::ui::StructuredFieldView(splitter);
+
     splitter->setStretchFactor(0, 4);
     splitter->setStretchFactor(1, 2);
     rootLayout->addWidget(splitter, 1);
 
-    ks::ui::DetailLayoutRegistry::registerHost(m_table, m_detailEditor, this);
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(m_table, m_detailEditor, this);
 
     connect(m_refreshButton, &QPushButton::clicked, this, [this]() {
         m_initialRefreshRequested = true;
@@ -248,10 +248,9 @@ void KernelIoTimerTab::applyTranslatedText()
     {
         m_statusLabel->setText(
             ioTimerText("kernel.iotimer.status.waiting", QStringLiteral("状态：切换到本页后开始查询")));
-        m_detailEditor->setText(
-            ioTimerText(
+        m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(ioTimerText(
                 "kernel.iotimer.detail.initial",
-                QStringLiteral("本页展示 DEVICE_OBJECT.Timer，并提供经三重身份重验的启动/停止。请选择一行查看完整证据。")));
+                QStringLiteral("本页展示 DEVICE_OBJECT.Timer，并提供经三重身份重验的启动/停止。请选择一行查看完整证据。"))));
     }
     updateControlActions();
 }
@@ -466,8 +465,7 @@ void KernelIoTimerTab::rebuildTable()
     }
     else
     {
-        m_detailEditor->setText(
-            ioTimerText("kernel.iotimer.detail.empty", QStringLiteral("当前筛选条件下没有 IoTimer 记录。")));
+        m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(ioTimerText("kernel.iotimer.detail.empty", QStringLiteral("当前筛选条件下没有 IoTimer 记录。"))));
     }
     updateControlActions();
 }
@@ -487,37 +485,22 @@ void KernelIoTimerTab::updateDetail()
     }
 
     const IoTimerRow& row = m_rows[sourceIndex];
-    const QString detailText = ioTimerText(
-        "kernel.iotimer.detail.template",
-        QStringLiteral(
-            "IoTimer 地址：%1\n"
-            "DeviceObject：%2\n"
-            "DriverObject：%3\n"
-            "驱动名：%4\n"
-            "设备名：%5\n"
-            "对象路径：%6\n"
-            "映像路径：%7\n"
-            "协议版本：%8\n"
-            "字段标志：0x%9\n"
-            "查询状态：%10\n\n"
-            "安全边界：地址来自 WDK 公开 DEVICE_OBJECT.Timer 字段。启动/停止时，"
-            "R0 会按对象名重新引用 DriverObject，通过带引用设备快照核对 DeviceObject，"
-            "并比较 PIO_TIMER；只调用 IoStartTimer/IoStopTimer，不解引用或写入私有 IO_TIMER。\n\n"
-            "限制：WDM API 返回 VOID，Windows 没有公开查询 IoTimer 当前启停状态的接口；"
-            "成功仅表示公开控制 API 已被调用。"))
-        .arg(pointerText(row.timerAddress))
-        .arg(pointerText(row.deviceObjectAddress))
-        .arg(pointerText(row.driverObjectAddress))
-        .arg(row.driverName)
-        .arg(row.deviceName.isEmpty()
+    ks::ui::FieldDocument detailText;
+    detailText.field(QStringLiteral("IoTimer 地址"), QStringLiteral("%1").arg(pointerText(row.timerAddress)));
+    detailText.field(QStringLiteral("DeviceObject"), QStringLiteral("%1").arg(pointerText(row.deviceObjectAddress)));
+    detailText.field(QStringLiteral("DriverObject"), QStringLiteral("%1").arg(pointerText(row.driverObjectAddress)));
+    detailText.field(QStringLiteral("驱动名"), QStringLiteral("%1").arg(row.driverName));
+    detailText.field(QStringLiteral("设备名"), QStringLiteral("%1").arg(row.deviceName.isEmpty()
             ? ioTimerText("kernel.iotimer.value.unnamed", QStringLiteral("<未命名设备>"))
-            : row.deviceName)
-        .arg(row.namespacePath)
-        .arg(row.imagePath.isEmpty() ? QStringLiteral("<empty>") : row.imagePath)
-        .arg(row.queryProtocolVersion)
-        .arg(row.queryFieldFlags, 8, 16, QChar('0'))
-        .arg(row.queryStatus);
-    m_detailEditor->setText(detailText);
+            : row.deviceName));
+    detailText.field(QStringLiteral("对象路径"), QStringLiteral("%1").arg(row.namespacePath));
+    detailText.field(QStringLiteral("映像路径"), QStringLiteral("%1").arg(row.imagePath.isEmpty() ? QStringLiteral("<empty>") : row.imagePath));
+    detailText.field(QStringLiteral("协议版本"), QStringLiteral("%1").arg(row.queryProtocolVersion));
+    detailText.field(QStringLiteral("字段标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(row.queryFieldFlags, 8, 16, QChar('0'))));
+    detailText.field(QStringLiteral("查询状态"), QStringLiteral("%1").arg(row.queryStatus));
+    detailText.field(QStringLiteral("安全边界"), QStringLiteral("地址来自 WDK 公开 DEVICE_OBJECT.Timer 字段。启动/停止时，R0 会按对象名重新引用 DriverObject，通过带引用设备快照核对 DeviceObject，并比较 PIO_TIMER；只调用 IoStartTimer/IoStopTimer，不解引用或写入私有 IO_TIMER。"), true);
+    detailText.field(QStringLiteral("限制"), QStringLiteral("WDM API 返回 VOID，Windows 没有公开查询 IoTimer 当前启停状态的接口；成功仅表示公开控制 API 已被调用。"), true);
+    m_detailEditor->setDocument(detailText);
 }
 
 const KernelIoTimerTab::IoTimerRow* KernelIoTimerTab::selectedRow() const

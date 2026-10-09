@@ -1,6 +1,7 @@
 #include "StartupDock.Internal.h"
+#include "../UI/DetailDialogChrome.h"
 
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 
 using namespace startup_dock_detail;
 
@@ -39,58 +40,37 @@ namespace
     // - 作用：把一条 StartupEntry 展开成详细信息文本；
     // - 调用：查看启动项详细信息时使用；
     // - 传入 entry：当前选中的启动项记录；
-    // - 传出：返回可直接塞给 CodeEditorWidget 的纯文本。
-    QString buildEntryDetailText(const StartupDock::StartupEntry& entry)
+    // - 传出：返回可直接塞给 ks::ui::StructuredFieldView 的纯文本。
+    ks::ui::FieldDocument buildEntryDetailText(const StartupDock::StartupEntry& entry)
     {
-        QString detailText;
-        detailText += startupText("startup.detail.name", QStringLiteral("名称：%1\n")).arg(entry.itemNameText);
-        detailText += startupText("startup.detail.category", QStringLiteral("分类：%1\n"))
-            .arg(ks::i18n::sourceText(entry.categoryText));
-        detailText += startupText("startup.detail.publisher", QStringLiteral("发布者：%1\n"))
-            .arg(entry.publisherText.isEmpty() ? emptyValueText() : entry.publisherText);
-        detailText += startupText("startup.detail.image_path", QStringLiteral("镜像路径：%1\n"))
-            .arg(entry.imagePathText.isEmpty() ? emptyValueText() : entry.imagePathText);
-        detailText += startupText("startup.detail.command", QStringLiteral("命令：%1\n"))
-            .arg(entry.commandText.isEmpty() ? emptyValueText() : entry.commandText);
-        detailText += startupText("startup.detail.location", QStringLiteral("来源位置：%1\n"))
-            .arg(entry.locationText.isEmpty() ? emptyValueText() : entry.locationText);
-        detailText += startupText("startup.detail.group_location", QStringLiteral("分组位置：%1\n"))
-            .arg(entry.locationGroupText.isEmpty() ? emptyValueText() : entry.locationGroupText);
-        detailText += startupText("startup.detail.registry_value", QStringLiteral("注册表值名：%1\n"))
-            .arg(entry.registryValueNameText.isEmpty() ? emptyValueText() : entry.registryValueNameText);
-        detailText += startupText("startup.detail.user_context", QStringLiteral("用户/上下文：%1\n"))
-            .arg(entry.userText.isEmpty() ? emptyValueText() : ks::i18n::sourceText(entry.userText));
-        detailText += startupText("startup.detail.type", QStringLiteral("类型：%1\n"))
-            .arg(entry.sourceTypeText.isEmpty() ? emptyValueText() : ks::i18n::sourceText(entry.sourceTypeText));
-        detailText += startupText("startup.detail.status", QStringLiteral("状态：%1\n"))
-            .arg(buildStatusText(entry.backendEntry));
-        detailText += startupText("startup.detail.can_enable", QStringLiteral("可启用：%1\n"))
-            .arg(boolText(entry.backendEntry.canEnable));
-        detailText += startupText("startup.detail.can_disable", QStringLiteral("可禁用：%1\n"))
-            .arg(boolText(entry.backendEntry.canDisable));
+        ks::ui::FieldDocument detailText;
+        detailText.field(QStringLiteral("名称"), QStringLiteral("%1").arg(entry.itemNameText));
+        detailText.field(QStringLiteral("分类"), QStringLiteral("%1").arg(ks::i18n::sourceText(entry.categoryText)));
+        detailText.field(QStringLiteral("发布者"), QStringLiteral("%1").arg(entry.publisherText.isEmpty() ? emptyValueText() : entry.publisherText));
+        detailText.field(QStringLiteral("镜像路径"), QStringLiteral("%1").arg(entry.imagePathText.isEmpty() ? emptyValueText() : entry.imagePathText));
+        detailText.field(QStringLiteral("命令"), QStringLiteral("%1").arg(entry.commandText.isEmpty() ? emptyValueText() : entry.commandText));
+        detailText.field(QStringLiteral("来源位置"), QStringLiteral("%1").arg(entry.locationText.isEmpty() ? emptyValueText() : entry.locationText));
+        detailText.field(QStringLiteral("分组位置"), QStringLiteral("%1").arg(entry.locationGroupText.isEmpty() ? emptyValueText() : entry.locationGroupText));
+        detailText.field(QStringLiteral("注册表值名"), QStringLiteral("%1").arg(entry.registryValueNameText.isEmpty() ? emptyValueText() : entry.registryValueNameText));
+        detailText.field(QStringLiteral("用户/上下文"), QStringLiteral("%1").arg(entry.userText.isEmpty() ? emptyValueText() : ks::i18n::sourceText(entry.userText)));
+        detailText.field(QStringLiteral("类型"), QStringLiteral("%1").arg(entry.sourceTypeText.isEmpty() ? emptyValueText() : ks::i18n::sourceText(entry.sourceTypeText)));
+        detailText.field(QStringLiteral("状态"), QStringLiteral("%1").arg(buildStatusText(entry.backendEntry)));
+        detailText.field(QStringLiteral("可启用"), QStringLiteral("%1").arg(boolText(entry.backendEntry.canEnable)));
+        detailText.field(QStringLiteral("可禁用"), QStringLiteral("%1").arg(boolText(entry.backendEntry.canDisable)));
         const bool actionAvailable = entry.backendEntry.canEnable
             || entry.backendEntry.canDisable
             || entry.canDelete;
-        detailText += startupText("startup.detail.modification_policy", QStringLiteral("修改策略：%1\n"))
-            .arg(actionAvailable
+        detailText.field(QStringLiteral("修改策略"), QStringLiteral("%1").arg(actionAvailable
                 ? startupText("startup.value.warning_gated", QStringLiteral("警告后允许"))
-                : startupText("startup.value.action_unavailable", QStringLiteral("没有可执行的来源定位器")));
-        detailText += startupText("startup.detail.risk_warning", QStringLiteral("风险提示：%1\n"))
-            .arg(startupRiskReasonText(entry.backendEntry));
-        detailText += startupText("startup.detail.risk_level", QStringLiteral("风险等级：%1\n"))
-            .arg(startupRiskLevelText(entry.backendEntry.riskLevel));
-        detailText += startupText("startup.detail.description", QStringLiteral("补充说明：%1\n"))
-            .arg(entry.detailText.isEmpty() ? emptyValueText() : startupLocalizedDetailText(entry.detailText));
-        detailText += startupText("startup.detail.file_location", QStringLiteral("可打开文件位置：%1\n"))
-            .arg(boolText(entry.canOpenFileLocation));
-        detailText += startupText("startup.detail.registry_location", QStringLiteral("可打开注册表位置：%1\n"))
-            .arg(boolText(entry.canOpenRegistryLocation));
-        detailText += startupText("startup.detail.deletable", QStringLiteral("可删除：%1\n"))
-            .arg(boolText(entry.canDelete));
-        detailText += startupText("startup.detail.delete_registry_tree", QStringLiteral("删除整棵注册表子键：%1\n"))
-            .arg(boolText(entry.deleteRegistryTree));
-        detailText += startupText("startup.detail.unique_id", QStringLiteral("唯一标识：%1\n"))
-            .arg(entry.uniqueIdText.isEmpty() ? QStringLiteral("<空>") : entry.uniqueIdText);
+                : startupText("startup.value.action_unavailable", QStringLiteral("没有可执行的来源定位器"))));
+        detailText.field(QStringLiteral("风险提示"), QStringLiteral("%1").arg(startupRiskReasonText(entry.backendEntry)));
+        detailText.field(QStringLiteral("风险等级"), QStringLiteral("%1").arg(startupRiskLevelText(entry.backendEntry.riskLevel)));
+        detailText.field(QStringLiteral("补充说明"), QStringLiteral("%1").arg(entry.detailText.isEmpty() ? emptyValueText() : startupLocalizedDetailText(entry.detailText)));
+        detailText.field(QStringLiteral("可打开文件位置"), QStringLiteral("%1").arg(boolText(entry.canOpenFileLocation)));
+        detailText.field(QStringLiteral("可打开注册表位置"), QStringLiteral("%1").arg(boolText(entry.canOpenRegistryLocation)));
+        detailText.field(QStringLiteral("可删除"), QStringLiteral("%1").arg(boolText(entry.canDelete)));
+        detailText.field(QStringLiteral("删除整棵注册表子键"), QStringLiteral("%1").arg(boolText(entry.deleteRegistryTree)));
+        detailText.field(QStringLiteral("唯一标识"), QStringLiteral("%1").arg(entry.uniqueIdText.isEmpty() ? QStringLiteral("<空>") : entry.uniqueIdText));
         return detailText;
     }
 
@@ -99,11 +79,11 @@ namespace
     // - 调用：用户右键查看注册表位置节点详细信息时使用；
     // - 传入 treeItem：当前选中的树节点；
     // - 传出：返回可直接展示的文本内容。
-    QString buildRegistryNodeDetailText(const QTreeWidgetItem* treeItem)
+    ks::ui::FieldDocument buildRegistryNodeDetailText(const QTreeWidgetItem* treeItem)
     {
         if (treeItem == nullptr)
         {
-            return startupText("startup.detail.node.empty", QStringLiteral("<空节点>"));
+            return ks::ui::FieldDocument{}.note(startupText("startup.detail.node.empty", QStringLiteral("<空节点>")));
         }
 
         const StartupTreeNodeKind nodeKind = static_cast<StartupTreeNodeKind>(
@@ -115,16 +95,12 @@ namespace
                 ? startupText("startup.detail.node.placeholder", QStringLiteral("占位节点"))
                 : startupText("startup.detail.node.entry", QStringLiteral("条目节点")));
 
-        QString detailText;
-        detailText += startupText("startup.detail.node.type", QStringLiteral("节点类型：%1\n")).arg(kindText);
-        detailText += startupText("startup.detail.node.display_text", QStringLiteral("显示文本：%1\n"))
-            .arg(treeItem->text(StartupDock::toStartupColumn(StartupDock::StartupColumn::Name)));
-        detailText += startupText("startup.detail.node.registry_location", QStringLiteral("注册表位置：%1\n"))
-            .arg(treeItem->data(0, kStartupTreeLocationRole).toString());
-        detailText += startupText("startup.detail.node.detail_column", QStringLiteral("详情列：%1\n"))
-            .arg(treeItem->text(StartupDock::toStartupColumn(StartupDock::StartupColumn::Detail)));
-        detailText += startupText("startup.detail.node.children_count", QStringLiteral("子节点数量：%1\n"))
-            .arg(treeItem->childCount());
+        ks::ui::FieldDocument detailText;
+        detailText.field(QStringLiteral("节点类型"), QStringLiteral("%1").arg(kindText));
+        detailText.field(QStringLiteral("显示文本"), QStringLiteral("%1").arg(treeItem->text(StartupDock::toStartupColumn(StartupDock::StartupColumn::Name))));
+        detailText.field(QStringLiteral("注册表位置"), QStringLiteral("%1").arg(treeItem->data(0, kStartupTreeLocationRole).toString()));
+        detailText.field(QStringLiteral("详情列"), QStringLiteral("%1").arg(treeItem->text(StartupDock::toStartupColumn(StartupDock::StartupColumn::Detail))));
+        detailText.field(QStringLiteral("子节点数量"), QStringLiteral("%1").arg(treeItem->childCount()));
         return detailText;
     }
 
@@ -133,7 +109,7 @@ namespace
     // - 调用：右键菜单“查看启动项详细信息”动作触发；
     // - 传入 titleText/detailText：窗口标题与正文；
     // - 传出：无，直接模态显示。
-    void showStartupDetailDialog(QWidget* parentWidget, const QString& titleText, const QString& detailText)
+    void showStartupDetailDialog(QWidget* parentWidget, const QString& titleText, const ks::ui::FieldDocument& detailText)
     {
         QDialog detailDialog(parentWidget);
         detailDialog.setObjectName(QStringLiteral("StartupDockDetailDialog"));
@@ -143,9 +119,9 @@ namespace
         detailDialog.setStyleSheet(KswordTheme::OpaqueDialogStyle(detailDialog.objectName()));
 
         QVBoxLayout* layout = new QVBoxLayout(&detailDialog);
-        CodeEditorWidget* detailEditor = new CodeEditorWidget(&detailDialog);
-        detailEditor->setReadOnly(true);
-        detailEditor->setLocalizedText(detailText);
+        ks::ui::StructuredFieldView* detailEditor = new ks::ui::StructuredFieldView(&detailDialog);
+
+        detailEditor->setDocument(detailText);
 
         QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, &detailDialog);
         QObject::connect(buttonBox, &QDialogButtonBox::rejected, &detailDialog, &QDialog::reject);
@@ -153,6 +129,7 @@ namespace
 
         layout->addWidget(detailEditor, 1);
         layout->addWidget(buttonBox, 0);
+        ks::ui::ApplyDetailDialogChrome(&detailDialog);
         detailDialog.exec();
     }
 

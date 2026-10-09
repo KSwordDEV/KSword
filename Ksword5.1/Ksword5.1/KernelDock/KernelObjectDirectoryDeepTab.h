@@ -15,7 +15,7 @@
 #include <atomic>
 #include <vector>
 
-class CodeEditorWidget;
+#include "../UI/StructuredFieldView.h"
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -63,8 +63,8 @@ private:
     // formatEntryDetail：
     // - 作用：把单条枚举记录格式化为详情文本。
     // - 参数 entry：Worker 返回的一条对象记录。
-    // - 返回：可直接显示在 CodeEditorWidget 的多行文本。
-    static QString formatEntryDetail(const KernelObjectDirectoryDeepEntry& entry);
+    // - 返回：可直接显示在 ks::ui::StructuredFieldView 的多行文本。
+    static ks::ui::FieldDocument formatEntryDetail(const KernelObjectDirectoryDeepEntry& entry);
 
 private:
     QLineEdit* m_rootPathEdit = nullptr;       // m_rootPathEdit：Object Manager 根路径输入框。
@@ -72,7 +72,7 @@ private:
     QSpinBox* m_maxDepthSpinBox = nullptr;     // m_maxDepthSpinBox：最大递归深度输入。
     QLabel* m_statusLabel = nullptr;           // m_statusLabel：刷新状态摘要。
     QTreeWidget* m_resultTree = nullptr;       // m_resultTree：递归结果树。
-    CodeEditorWidget* m_detailEditor = nullptr; // m_detailEditor：当前节点详情。
+    ks::ui::StructuredFieldView* m_detailEditor = nullptr; // m_detailEditor：当前节点详情。
 
     std::atomic_bool m_refreshRunning{ false }; // m_refreshRunning：防止重复刷新。
     std::vector<KernelObjectDirectoryDeepEntry> m_rows; // m_rows：最近一次 Worker 结果。

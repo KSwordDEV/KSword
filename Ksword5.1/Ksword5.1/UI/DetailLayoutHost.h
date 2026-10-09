@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // ============================================================
 // DetailLayoutHost.h
@@ -9,6 +9,7 @@
 // ============================================================
 
 #include "../SettingsDock/AppearanceSettings.h"
+#include "StructuredFieldView.h"
 
 #include <QList>
 #include <QMetaObject>
@@ -60,6 +61,9 @@ namespace ks::ui
             CodeEditorWidget* detailEditor,
             QWidget* ownerWidget,
             const DetailPaneBinding& binding);
+        DetailLayoutHost(QAbstractItemView* view, StructuredFieldView* fields, QWidget* owner);
+        DetailLayoutHost(QAbstractItemView* view, StructuredFieldView* fields, QWidget* owner,
+            const DetailPaneBinding& binding);
         ~DetailLayoutHost() override;
 
         // setTableView / setDetailEditor：供注册表或页面在延迟创建控件后重新绑定。
@@ -86,6 +90,8 @@ namespace ks::ui
 
         // detailEditor：返回当前页面原始 CodeEditorWidget，供注册表去重。
         CodeEditorWidget* detailEditor() const;
+        StructuredFieldView* structuredView() const;
+        QWidget* detailWidget() const;
 
     protected:
         // eventFilter：监听独立窗口激活状态，按要求切换 100%/30% 不透明度。
@@ -97,6 +103,8 @@ namespace ks::ui
         {
             QPersistentModelIndex sourceIndex;
             QPointer<CodeEditorWidget> textEditor;
+            QPointer<StructuredFieldView> fieldView;
+            QPointer<QWidget> editorWidget;
             QTreeWidgetItem* treeSourceItem = nullptr;
             int originalRowHeight = -1;
             int detailHeight = 128;
@@ -130,6 +138,7 @@ namespace ks::ui
 
         // handleDetailChanged：同步原详情文本到当前行内视图或独立窗口。
         void handleDetailChanged(const QString& detailText);
+        void handleFieldDocumentChanged();
 
         // toggleEmbeddedDetail：为当前源行显示或移除统一只读报告详情。
         void toggleEmbeddedDetail(const QPersistentModelIndex& sourceIndex);
@@ -167,6 +176,7 @@ namespace ks::ui
 
         QPointer<QAbstractItemView> m_tableView;       // m_tableView：页面原始表格或树。
         QPointer<CodeEditorWidget> m_detailEditor;     // m_detailEditor：页面原始详情编辑器。
+        QPointer<StructuredFieldView> m_structuredView;
         QPointer<QWidget> m_ownerWidget;               // m_ownerWidget：生命周期宿主。
         QPointer<QSplitter> m_splitter;                // m_splitter：统一承载表格和原详情区。
         QPointer<QWidget> m_tablePane;                 // m_tablePane：分隔器中承载业务表格的完整面板。
@@ -182,6 +192,7 @@ namespace ks::ui
         QPointer<QWidget> m_toggleBar;                  // m_toggleBar：占满页面宽度的箭头承载条，避免固定宽按钮压窄分隔器。
         QPointer<QToolButton> m_toggleButton;           // m_toggleButton：下方折叠方案的箭头按钮。
         QPointer<QDialog> m_floatingWindow;             // m_floatingWindow：当前页面唯一详情窗口。
+        QPointer<StructuredFieldView> m_floatingFields;
         QPointer<CodeEditorWidget> m_floatingEditor;    // m_floatingEditor：独立窗口中的只读镜像编辑器。
         QPointer<QAbstractItemDelegate> m_embeddedSourceDelegate; // m_embeddedSourceDelegate：行内展开前页面正在使用的 delegate。
         QPointer<EmbeddedRowDelegate> m_embeddedRowDelegate; // m_embeddedRowDelegate：限制展开行源单元格绘制区域的包装 delegate。

@@ -1,4 +1,4 @@
-#include "ProcessDetailWindow.InternalCommon.h"
+﻿#include "ProcessDetailWindow.InternalCommon.h"
 #include "ProcessAffinityUtils.h"
 #include "ProcessAffinityPersistence.h"
 #include "ThreadAffinityMenu.h"
@@ -8,8 +8,11 @@
 #include "../OtherDock/OtherDock.h"
 #include "../MiscDock/SoundSource/SoundSourcePage.h"
 #include "../UI/VisibleTableWidget.h"
+#include <QSignalBlocker>
+#include <QSaveFile>
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/DetailLayoutRegistry.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../PluginHost.h"
 
 #include <QTimer>
@@ -31,6 +34,278 @@ using namespace process_detail_window_internal;
 
 namespace
 {
+    bool generalSignatureStateUndecided(const QString& state)
+    {
+        return state.isEmpty() || state == QStringLiteral("Unknown") || state == QStringLiteral("Unavailable")
+            || state == QStringLiteral("Pending") || state == QStringLiteral("No Access")
+            || state == QStringLiteral("KernelOnly(Hidden?)") || state == QStringLiteral("CIDTable(可能为误报)")
+            || state == QStringLiteral("历史快照");
+    }
+
+    // This is a native compact projection of the canonical field model. It
+    // never reads values back from labels or keeps a parallel report/cache.
+    class ProcessGeneralOverview final : public QWidget
+    {
+    public:
+        explicit ProcessGeneralOverview(ks::ui::StructuredFieldView*& fields, QWidget* parent, QHBoxLayout* controls)
+            : QWidget(parent)
+        {
+            auto* layout = new QVBoxLayout(this);
+            layout->setContentsMargins(0, 0, 0, 0);
+            layout->setSpacing(6);
+            auto* style = new QComboBox(this);
+            style->setObjectName(QStringLiteral("ProcessGeneralPresentation"));
+            style->addItem(ks::i18n::sourceText(QStringLiteral("紧凑双列")));
+            style->addItem(ks::i18n::sourceText(QStringLiteral("分区")));
+            style->addItem(ks::i18n::sourceText(QStringLiteral("树状")));
+            style->setMinimumHeight(30);
+            controls->addWidget(style);
+            auto* copy = new QPushButton(QIcon(QStringLiteral(":/Icon/process_copy_row.svg")),
+                ks::i18n::sourceText(QStringLiteral("复制全部信息")), this);
+            auto* exportButton = new QPushButton(ks::i18n::sourceText(QStringLiteral("导出")), this);
+            exportButton->setObjectName(QStringLiteral("ProcessGeneralExport"));
+            for (auto* button : { copy, exportButton })
+            {
+                button->setStyleSheet(KswordTheme::ThemedButtonStyle());
+                button->setMinimumHeight(30);
+                button->setIconSize(QSize(16, 16));
+            }
+            controls->addWidget(copy);
+            controls->addWidget(exportButton);
+            m_dense = new QWidget(this);
+            m_dense->setObjectName(QStringLiteral("ProcessGeneralDenseProjection"));
+            layout->addWidget(m_dense);
+            fields = new ks::ui::StructuredFieldView(this);
+            m_fields = fields;
+            m_fields->setMinimumHeight(480);
+            m_fields->hide();
+            layout->addWidget(m_fields);
+            QObject::connect(m_fields, &ks::ui::StructuredFieldView::documentChanged,
+                this, [this]() { rebuild(); });
+            QObject::connect(copy, &QPushButton::clicked, this, [this]() {
+                if (QApplication::clipboard()) QApplication::clipboard()->setText(m_fields->plainText());
+            });
+            QObject::connect(exportButton, &QPushButton::clicked, this, [this]() {
+                const ks::ui::FieldDocument snapshot = m_fields->document();
+                const QPointer<ProcessGeneralOverview> safe(this);
+                const QString path = QFileDialog::getSaveFileName(this, ks::i18n::sourceText(QStringLiteral("导出属性")),
+                    QStringLiteral("process-properties.txt"), QStringLiteral("Text (*.txt);;All files (*)"));
+                if (!safe || path.isEmpty()) return;
+                QSaveFile file(path);
+                const QByteArray bytes = snapshot.toPlainText(true).toUtf8();
+                if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit())
+                    QMessageBox::warning(safe.data(), ks::i18n::sourceText(QStringLiteral("导出失败")), file.errorString());
+            });
+            QObject::connect(style, &QComboBox::currentIndexChanged, this, [this](int index) {
+                m_dense->setVisible(index == 0);
+                m_fields->setVisible(index != 0);
+                if (index != 0) m_fields->setPresentation(index == 1
+                    ? ks::ui::StructuredFieldView::Presentation::Sections
+                    : ks::ui::StructuredFieldView::Presentation::Tree);
+            });
+        }
+
+    protected:
+        void changeEvent(QEvent* event) override
+        {
+            QWidget::changeEvent(event);
+            if (event && m_fields && (event->type() == QEvent::LanguageChange
+                || event->type() == QEvent::ApplicationPaletteChange || event->type() == QEvent::PaletteChange))
+            {
+                const QPointer<ProcessGeneralOverview> safe(this);
+                QTimer::singleShot(0, this, [safe]() { if (safe) safe->rebuild(); });
+            }
+        }
+
+    private:
+        const ks::ui::FieldNode* field(const QString& name) const
+        {
+            for (const auto& section : m_fields->document().nodes)
+                for (const auto& node : section.children)
+                    if (node.kind == ks::ui::FieldNode::Kind::Field && node.name == name) return &node;
+            return nullptr;
+        }
+
+        void addRow(QFormLayout* form, QWidget* parent, const ks::ui::FieldNode& node)
+        {
+            auto* caption = new QLabel(ks::i18n::sourceText(node.name), parent);
+            caption->setObjectName(QStringLiteral("ProcessGeneralProjectedCaption"));
+            caption->setProperty("ks_general_field_name", node.name);
+            caption->setTextFormat(Qt::PlainText);
+            caption->setStyleSheet(QStringLiteral("color:%1;font-weight:400;").arg(KswordTheme::TextSecondaryHex()));
+            auto* value = new QLabel(node.translateValue ? ks::i18n::sourceText(node.value) : node.value, parent);
+            value->setTextFormat(Qt::PlainText);
+            value->setProperty("ks_i18n_preserve_data_text", true);
+            value->setProperty("ks_general_field_name", node.name);
+            value->setObjectName(QStringLiteral("ProcessGeneralProjectedValue"));
+            value->setWordWrap(false);
+            value->setMinimumWidth(0);
+            value->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            updateValueLabel(value, node);
+            value->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+            value->setContextMenuPolicy(Qt::CustomContextMenu);
+            const QString name = node.name;
+            QObject::connect(value, &QWidget::customContextMenuRequested, this, [this, value, name](const QPoint& point) {
+                // Capture the model value before opening a reentrant menu.
+                const auto* node = field(name);
+                const QString copied = node ? (node->translateValue ? ks::i18n::sourceText(node->value) : node->value) : QString();
+                const QPoint position = value->mapToGlobal(point);
+                QMenu menu;
+                QAction* action = menu.addAction(ks::i18n::sourceText(QStringLiteral("复制")));
+                if (menu.exec(position) == action && QApplication::clipboard()) QApplication::clipboard()->setText(copied);
+            });
+            form->addRow(caption, value);
+        }
+
+        void updateValueLabel(QLabel* label, const ks::ui::FieldNode& node)
+        {
+            QString display = node.translateValue ? ks::i18n::sourceText(node.value) : node.value;
+            QColor color = KswordTheme::TextPrimaryColor();
+            int weight = node.name == QStringLiteral("CPU 占用") || node.name == QStringLiteral("工作集")
+                || node.name == QStringLiteral("私有提交") ? 600 : 400;
+            QString role = QStringLiteral("default");
+            const bool enabled = node.translateValue && (node.value == QStringLiteral("Enabled") || node.value == QStringLiteral("Enabled (permanent)")
+                || (node.name == QStringLiteral("管理员") && node.value == QStringLiteral("是")));
+            const bool disabled = node.translateValue && (node.value == QStringLiteral("Disabled")
+                || (node.name == QStringLiteral("管理员") && node.value == QStringLiteral("否")));
+            const bool undecided = node.translateValue && (node.name == QStringLiteral("数字签名")
+                ? generalSignatureStateUndecided(node.value)
+                : node.value.isEmpty() || node.value == QStringLiteral("Unknown")
+                    || node.value == QStringLiteral("Unavailable") || node.value == QStringLiteral("Pending"));
+            if (enabled || disabled)
+            {
+                color = enabled ? signatureTrustedColor() : signatureUntrustedColor();
+                weight = 700;
+                role = enabled ? QStringLiteral("success") : QStringLiteral("error");
+                display.prepend(QStringLiteral("■ "));
+            }
+            else if (node.name == QStringLiteral("数字签名"))
+            {
+                bool trusted = false;
+                for (const auto& status : node.children)
+                    if (status.name == QStringLiteral("受信任的发布者")) trusted = status.value == QStringLiteral("是");
+                color = undecided ? statusSecondaryColor() : trusted ? signatureTrustedColor() : signatureUntrustedColor();
+                weight = undecided ? 600 : 700;
+                role = undecided ? QStringLiteral("pending") : trusted ? QStringLiteral("success") : QStringLiteral("error");
+                display.prepend(QStringLiteral("■ "));
+            }
+            else if (undecided)
+            {
+                color = statusSecondaryColor();
+                role = QStringLiteral("pending");
+            }
+            label->setProperty("ks_general_semantic_role", role);
+            label->setText(display);
+            label->setToolTip(node.translateValue ? ks::i18n::sourceText(node.value) : node.value);
+            label->setStyleSheet(buildStateLabelStyle(color, weight));
+        }
+
+        QFormLayout* form(QGridLayout* grid, int column)
+        {
+            auto* rows = new QFormLayout;
+            rows->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            rows->setHorizontalSpacing(18);
+            rows->setVerticalSpacing(6);
+            rows->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+            grid->addLayout(rows, 0, column, Qt::AlignTop);
+            grid->setColumnStretch(column, 1);
+            return rows;
+        }
+
+        void rebuild()
+        {
+            if (!m_fields) return;
+            // A model update normally changes values only. Reuse projected
+            // widgets so text selection and scrolling survive live refreshes.
+            const bool hasDiagnostic = std::any_of(m_fields->document().nodes.cbegin(), m_fields->document().nodes.cend(),
+                [](const ks::ui::FieldNode& node) { return node.name == QStringLiteral("诊断"); });
+            const auto values = m_dense->findChildren<QLabel*>(QStringLiteral("ProcessGeneralProjectedValue"));
+            if (!values.isEmpty() && m_dense->property("ks_has_diagnostic").toBool() == hasDiagnostic)
+            {
+                for (auto* value : values)
+                    if (const auto* node = field(value->property("ks_general_field_name").toString()))
+                        updateValueLabel(value, *node);
+                for (auto* note : m_dense->findChildren<QLabel*>(QStringLiteral("ProcessGeneralProjectedNote")))
+                    for (const auto& section : m_fields->document().nodes)
+                        if (section.name == note->property("ks_general_note_section").toString())
+                        {
+                            int index = 0;
+                            for (const auto& node : section.children)
+                                if (node.kind == ks::ui::FieldNode::Kind::Note && index++ == note->property("ks_general_note_index").toInt())
+                                { note->setText(ks::i18n::sourceText(node.value)); break; }
+                        }
+                return;
+            }
+            if (auto* previous = m_dense->layout())
+            {
+                while (auto* item = previous->takeAt(0)) { delete item->widget(); delete item; }
+                delete previous;
+            }
+            m_dense->setProperty("ks_has_diagnostic", hasDiagnostic);
+            auto* layout = new QVBoxLayout(m_dense);
+            layout->setContentsMargins(0, 0, 0, 0);
+            layout->setSpacing(8);
+            auto* overview = new QGroupBox(ks::i18n::sourceText(QStringLiteral("概览与资源")), m_dense);
+            QFont overviewTitleFont = overview->font();
+            overviewTitleFont.setBold(true);
+            overview->setFont(overviewTitleFont);
+            overview->setStyleSheet(QStringLiteral("QGroupBox::title{font-weight:700;}"));
+            auto* overviewGrid = new QGridLayout(overview);
+            overviewGrid->setContentsMargins(8, 12, 8, 8);
+            overviewGrid->setHorizontalSpacing(28);
+            auto* left = form(overviewGrid, 0);
+            auto* right = form(overviewGrid, 1);
+            const QStringList leftNames{QStringLiteral("PID"),QStringLiteral("父 PID"),QStringLiteral("启动时间"),QStringLiteral("运行时长"),QStringLiteral("用户"),QStringLiteral("管理员"),QStringLiteral("完整性级别"),QStringLiteral("提升类型"),QStringLiteral("架构"),QStringLiteral("Session ID")};
+            const QStringList rightNames{QStringLiteral("优先级"),QStringLiteral("CPU 占用"),QStringLiteral("CPU 单核等效"),QStringLiteral("GPU 占用"),QStringLiteral("DISK 吞吐"),QStringLiteral("网络下行"),QStringLiteral("网络上行"),QStringLiteral("线程数量"),QStringLiteral("句柄数量"),QStringLiteral("工作集"),QStringLiteral("私有提交"),QStringLiteral("峰值工作集"),QStringLiteral("页错误"),QStringLiteral("数字签名")};
+            QSet<QString> displayed;
+            for (const auto& name : leftNames) if (const auto* node = field(name)) { addRow(left, overview, *node); displayed.insert(name); }
+            for (const auto& name : rightNames) if (const auto* node = field(name)) { addRow(right, overview, *node); displayed.insert(name); }
+            layout->addWidget(overview);
+            for (const auto& section : m_fields->document().nodes)
+            {
+                QVector<const ks::ui::FieldNode*> remaining;
+                QVector<const ks::ui::FieldNode*> notes;
+                for (const auto& node : section.children)
+                {
+                    if (node.kind == ks::ui::FieldNode::Kind::Field && !displayed.contains(node.name)) remaining.push_back(&node);
+                    if (node.kind == ks::ui::FieldNode::Kind::Note) notes.push_back(&node);
+                }
+                if (remaining.isEmpty() && notes.isEmpty()) continue;
+                auto* group = new QGroupBox(ks::i18n::sourceText(section.name), m_dense);
+                QFont groupTitleFont = group->font();
+                groupTitleFont.setBold(true);
+                group->setFont(groupTitleFont);
+                group->setStyleSheet(QStringLiteral("QGroupBox::title{font-weight:700;}"));
+                if (!section.initiallyExpanded) { group->setCheckable(true); group->setChecked(false); }
+                auto* grid = new QGridLayout(group);
+                grid->setContentsMargins(8, 12, 8, 8);
+                grid->setHorizontalSpacing(28);
+                auto* a = form(grid, 0);
+                auto* b = form(grid, 1);
+                const int midpoint = (remaining.size() + 1) / 2;
+                for (int i = 0; i < remaining.size(); ++i) addRow(i < midpoint ? a : b, group, *remaining.at(i));
+                int row = 1;
+                for (const auto* note : notes)
+                {
+                    auto* label = new QLabel(ks::i18n::sourceText(note->value), group);
+                    label->setObjectName(QStringLiteral("ProcessGeneralProjectedNote"));
+                    label->setProperty("ks_general_note_section", section.name);
+                    label->setProperty("ks_general_note_index", row - 1);
+                    label->setTextFormat(Qt::PlainText);
+                    label->setStyleSheet(QStringLiteral("color:%1;font-weight:400;").arg(KswordTheme::TextSecondaryHex()));
+                    label->setWordWrap(true);
+                    label->setProperty("ks_i18n_preserve_data_text", true);
+                    label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+                    grid->addWidget(label, row++, 0, 1, 2);
+                }
+                layout->addWidget(group);
+            }
+        }
+
+        ks::ui::StructuredFieldView* m_fields = nullptr;
+        QWidget* m_dense = nullptr;
+    };
+
     constexpr int kInitialDetailDataRefreshDelayMs = 350;
     constexpr int kAffinityMatrixColumnCount = 6;
 
@@ -2136,11 +2411,12 @@ void ProcessDetailWindow::applyThemeStyle()
     // - Win11 下必须手动强制窗口背景，避免被系统自动接管为亮色。
     const bool darkModeEnabled = KswordTheme::IsDarkModeEnabled();
     QPalette themedPalette = (qApp != nullptr) ? qApp->palette() : palette();
-    themedPalette.setColor(QPalette::Window, KswordTheme::WindowColor());
+    themedPalette.setColor(QPalette::Window, KswordTheme::SurfaceColor());
     themedPalette.setColor(QPalette::WindowText, KswordTheme::TextPrimaryColor());
     themedPalette.setColor(QPalette::Base, KswordTheme::SurfaceColor());
     themedPalette.setColor(QPalette::AlternateBase, KswordTheme::SurfaceAltColor());
     themedPalette.setColor(QPalette::Text, KswordTheme::TextPrimaryColor());
+    themedPalette.setColor(QPalette::PlaceholderText, KswordTheme::TextSecondaryColor());
     themedPalette.setColor(QPalette::Mid, KswordTheme::BorderColor());
     themedPalette.setColor(QPalette::Highlight, KswordTheme::AccentColor(KswordTheme::AccentRole::Blue));
     themedPalette.setColor(QPalette::HighlightedText, KswordTheme::OnAccentColor());
@@ -2150,7 +2426,7 @@ void ProcessDetailWindow::applyThemeStyle()
     setAttribute(Qt::WA_StyledBackground, true);
     setStyleSheet(buildProcessDetailRootStyle());
 
-    // 子页面也强制设置背景，避免 tab 内容区域出现白底。
+    // 内容页与滚动 viewport 共用主 Surface；导航用 AlternateBase 分层。
     const std::vector<QWidget*> tabPageList{
         m_detailTab,
         m_performanceTab,
@@ -2177,39 +2453,6 @@ void ProcessDetailWindow::applyThemeStyle()
         tabPage->setAttribute(Qt::WA_StyledBackground, true);
     }
 
-    // 表头统一用主题文本色，杜绝深色模式下黑字问题。
-    const QString headerStyle = QStringLiteral(
-        "QHeaderView::section {"
-        "  color:%1;"
-        "  background:transparent; /* %2 */"
-        "  border:1px solid %3;"
-        "  padding:4px;"
-        "  font-weight:600;"
-        "}")
-        .arg(KswordTheme::TextPrimaryHex())
-        .arg(KswordTheme::SurfaceHex())
-        .arg(KswordTheme::BorderHex());
-
-    if (m_threadInspectTable != nullptr && m_threadInspectTable->horizontalHeader() != nullptr)
-    {
-        m_threadInspectTable->horizontalHeader()->setStyleSheet(headerStyle);
-    }
-    if (m_moduleTable != nullptr && m_moduleTable->header() != nullptr)
-    {
-        m_moduleTable->header()->setStyleSheet(headerStyle);
-    }
-    if (m_hotkeyTable != nullptr && m_hotkeyTable->horizontalHeader() != nullptr)
-    {
-        m_hotkeyTable->horizontalHeader()->setStyleSheet(headerStyle);
-    }
-    if (m_keyboardHotkeyTable != nullptr && m_keyboardHotkeyTable->horizontalHeader() != nullptr)
-    {
-        m_keyboardHotkeyTable->horizontalHeader()->setStyleSheet(headerStyle);
-    }
-    if (m_keyboardHookTable != nullptr && m_keyboardHookTable->horizontalHeader() != nullptr)
-    {
-        m_keyboardHookTable->horizontalHeader()->setStyleSheet(headerStyle);
-    }
     if (m_processCpuCoreGrid != nullptr)
     {
         m_processCpuCoreGrid->update();
@@ -2278,16 +2521,15 @@ void ProcessDetailWindow::initializeUi()
     // 页面区保留 QTabWidget，避免影响现有页面跳转、currentChanged 与惰性刷新逻辑。
     // 原生 QTabBar 隐藏后，以左侧单列导航提供全部页面入口。
     m_rootLayout = new QHBoxLayout(this);
-    m_rootLayout->setContentsMargins(8, 8, 8, 8);
-    m_rootLayout->setSpacing(6);
+    ks::ui::ConfigureDetailDialogRoot(this);
 
     m_tabNavigation = new QWidget(this);
     m_tabNavigation->setObjectName(QStringLiteral("ProcessDetailTabNavigation"));
-    m_tabNavigation->setFixedWidth(210);
+
     m_tabNavigation->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     auto* tabNavigationLayout = new QVBoxLayout(m_tabNavigation);
-    tabNavigationLayout->setContentsMargins(5, 5, 5, 5);
-    tabNavigationLayout->setSpacing(4);
+    tabNavigationLayout->setContentsMargins(10, 16, 10, 16);
+    tabNavigationLayout->setSpacing(5);
 
     m_tabWidget = new QTabWidget(this);
     // QTabWidget 会取所有已构造页面中最大的 minimumSizeHint。详情页采用懒加载，
@@ -2297,7 +2539,14 @@ void ProcessDetailWindow::initializeUi()
     m_tabWidget->tabBar()->hide();
     m_tabNavigationButtonGroup = new QButtonGroup(this);
     m_tabNavigationButtonGroup->setExclusive(true);
-    m_rootLayout->addWidget(m_tabNavigation);
+    auto* navigationScroll = new QScrollArea(this);
+    navigationScroll->setObjectName(QStringLiteral("ProcessDetailNavigationScroll"));
+    navigationScroll->setWidgetResizable(true);
+    navigationScroll->setFrameShape(QFrame::NoFrame);
+    navigationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    navigationScroll->setWidget(m_tabNavigation);
+    ks::ui::ConfigureDetailNavigation(navigationScroll, m_tabNavigation);
+    m_rootLayout->addWidget(navigationScroll);
     m_rootLayout->addWidget(m_tabWidget, 1);
 
     // 先创建轻量页面容器，实际控件树在用户首次进入时构造。
@@ -2383,7 +2632,7 @@ void ProcessDetailWindow::initializeUi()
         navigationButton->setIconSize(QSize(18, 18));
         navigationButton->setText(m_tabWidget->tabText(tabIndex));
         navigationButton->setToolTip(m_tabWidget->tabText(tabIndex));
-        navigationButton->setMinimumHeight(30);
+        navigationButton->setMinimumHeight(38);
         navigationButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         m_tabNavigationButtonGroup->addButton(navigationButton, tabIndex);
         tabNavigationLayout->addWidget(navigationButton);
@@ -3014,7 +3263,7 @@ void ProcessDetailWindow::requestAsyncStaticDetailRefresh(const bool includeSign
             {
                 // PID 已经复用：丢弃本轮结果，避免把新进程信息写回旧窗口。
                 QMetaObject::invokeMethod(
-                    guardThis,
+            qApp,
                     [guardThis, ticketValue, identityKeyValue]()
                     {
                         if (guardThis == nullptr || guardThis->m_staticDetailRefreshTicket != ticketValue)
@@ -3056,7 +3305,7 @@ void ProcessDetailWindow::requestAsyncStaticDetailRefresh(const bool includeSign
                     std::chrono::steady_clock::now() - beginTime).count());
 
             QMetaObject::invokeMethod(
-                guardThis,
+            qApp,
                 [guardThis, ticketValue, identityKeyValue, includeSignatureCheck, refreshResult]()
                 {
                     if (guardThis == nullptr || guardThis->m_staticDetailRefreshTicket != ticketValue)
@@ -3425,7 +3674,7 @@ void ProcessDetailWindow::requestAsyncDetailOverviewRefresh()
             std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - beginTime).count());
         QMetaObject::invokeMethod(
-            guardThis,
+            qApp,
             [guardThis, refreshResult, ticketValue]() {
                 if (guardThis == nullptr || guardThis->m_detailOverviewRefreshTicket != ticketValue)
                 {
@@ -3472,90 +3721,30 @@ void ProcessDetailWindow::applyDetailOverviewRefreshResult(const DetailOverviewR
 
 void ProcessDetailWindow::initializeDetailTab()
 {
-    // 详情页初始化日志：确认详细信息面板构建开始。
-    kLogEvent initDetailTabEvent;
-    info << initDetailTabEvent
-        << "[ProcessDetailWindow] initializeDetailTab: 构建详细信息页面。"
-        << eol;
-
     auto& languageManager = ks::i18n::LanguageManager::instance();
-    auto configureCopyableLabel = [&languageManager](QLabel* label) {
-        if (label == nullptr)
-        {
-            return;
-        }
-        label->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        label->setContextMenuPolicy(Qt::CustomContextMenu);
-        QObject::connect(label, &QWidget::customContextMenuRequested, label,
-            [label, &languageManager](const QPoint& localPosition) {
-                QMenu menu(label);
-                QAction* copyAction = menu.addAction(languageManager.text(
-                    QStringLiteral("process.detail.action.copy"),
-                    QStringLiteral("复制")));
-                if (menu.exec(label->mapToGlobal(localPosition)) == copyAction &&
-                    QApplication::clipboard() != nullptr)
-                {
-                    QApplication::clipboard()->setText(label->text());
-                }
-            });
+    const auto configureCopyableLabel = [](QLabel* label) {
+        label->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+        label->setWordWrap(true);
+        label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     };
-    auto createValueLabel = [&configureCopyableLabel](QWidget* parent) {
-        auto* valueLabel = new QLabel(QStringLiteral("-"), parent);
-        valueLabel->setWordWrap(true);
-        valueLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        configureCopyableLabel(valueLabel);
-        return valueLabel;
-    };
-    auto configureFormLayout = [](QFormLayout* formLayout) {
-        formLayout->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        formLayout->setHorizontalSpacing(18);
-        formLayout->setVerticalSpacing(6);
-        formLayout->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-    };
-    auto addFixedRow = [&languageManager, &configureCopyableLabel](
-        QFormLayout* formLayout,
-        QWidget* parent,
-        const QString& translationKey,
-        const QString& fallbackText,
-        QLabel* valueLabel) {
-            auto* nameLabel = new QLabel(parent);
-            configureCopyableLabel(nameLabel);
-            languageManager.bindText(nameLabel, translationKey, fallbackText);
-            formLayout->addRow(nameLabel, valueLabel);
-        };
-    auto addExtraRow = [this, &languageManager, &configureCopyableLabel, &createValueLabel](
-        QFormLayout* formLayout,
-        QWidget* parent,
-        const QString& valueKey,
-        const QString& translationKey,
-        const QString& fallbackText) {
-            auto* nameLabel = new QLabel(parent);
-            configureCopyableLabel(nameLabel);
-            languageManager.bindText(nameLabel, translationKey, fallbackText);
-            QLabel* valueLabel = createValueLabel(parent);
-            m_detailExtraValues.insert(valueKey, valueLabel);
-            formLayout->addRow(nameLabel, valueLabel);
-        };
-
-    // 详细页字段较多，改为纵向可滚动内容区；窗口尺寸受限时不会挤压左侧导航。
     auto* outerLayout = new QVBoxLayout(m_detailTab);
     outerLayout->setContentsMargins(0, 0, 0, 0);
-    auto* detailScrollArea = new QScrollArea(m_detailTab);
-    detailScrollArea->setWidgetResizable(true);
-    detailScrollArea->setFrameShape(QFrame::NoFrame);
-    auto* detailContent = new QWidget(detailScrollArea);
-    detailScrollArea->setWidget(detailContent);
-    outerLayout->addWidget(detailScrollArea);
-
+    auto* detailScroll = new QScrollArea(m_detailTab);
+    detailScroll->setObjectName(QStringLiteral("ProcessGeneralPageScroll"));
+    detailScroll->setWidgetResizable(true);
+    detailScroll->setFrameShape(QFrame::NoFrame);
+    auto* detailContent = new QWidget(detailScroll);
+    detailContent->setMinimumWidth(660);
+    detailScroll->setWidget(detailContent);
+    outerLayout->addWidget(detailScroll);
     m_detailLayout = new QVBoxLayout(detailContent);
     m_detailLayout->setContentsMargins(8, 8, 8, 8);
     m_detailLayout->setSpacing(8);
-
     // 顶部：40px 图标 + 进程名与 PID。
     QHBoxLayout* titleLayout = new QHBoxLayout();
-    m_processIconLabel = new QLabel(detailContent);
+    m_processIconLabel = new QLabel(m_detailTab);
     m_processIconLabel->setFixedSize(40, 40);
-    m_processTitleLabel = new QLabel(detailContent);
+    m_processTitleLabel = new QLabel(m_detailTab);
     m_processTitleLabel->setStyleSheet(
         QStringLiteral("font-size:18px; font-weight:700; color:%1;")
         .arg(KswordTheme::TextPrimaryHex()));
@@ -3567,19 +3756,23 @@ void ProcessDetailWindow::initializeDetailTab()
 
     // 路径行：只读输入框 + 复制 + 打开文件夹 + 现有文件详情窗口入口。
     QHBoxLayout* pathLayout = new QHBoxLayout();
-    auto* pathLabel = new QLabel(detailContent);
+    auto* pathLabel = new QLabel(m_detailTab);
     languageManager.bindText(pathLabel, QStringLiteral("process.detail.label.image_path"), QStringLiteral("程序路径:"));
     configureCopyableLabel(pathLabel);
+    pathLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     pathLayout->addWidget(pathLabel);
-    m_pathLineEdit = new QLineEdit(detailContent);
+    m_pathLineEdit = new QLineEdit(m_detailTab);
     m_pathLineEdit->setReadOnly(true);
-    m_copyPathButton = new QPushButton(QIcon(":/Icon/process_copy_cell.svg"), QString(), detailContent);
-    m_openPathFolderButton = new QPushButton(QIcon(":/Icon/process_open_folder.svg"), QString(), detailContent);
-    m_openFileDetailButton = new QPushButton(QIcon(":/Icon/process_details.svg"), QString(), detailContent);
+    m_copyPathButton = new QPushButton(QIcon(":/Icon/process_copy_cell.svg"), QString(), m_detailTab);
+    m_openPathFolderButton = new QPushButton(QIcon(":/Icon/process_open_folder.svg"), QString(), m_detailTab);
+    m_openFileDetailButton = new QPushButton(QIcon(":/Icon/process_details.svg"), QString(), m_detailTab);
     languageManager.bindText(m_copyPathButton, QStringLiteral("process.detail.action.copy"), QStringLiteral("复制"));
     languageManager.bindText(m_openPathFolderButton, QStringLiteral("process.detail.action.open_folder"), QStringLiteral("打开文件夹"));
     languageManager.bindText(m_openFileDetailButton, QStringLiteral("process.detail.action.open_file_detail"), QStringLiteral("转到文件详细信息"));
     pathLayout->addWidget(m_pathLineEdit, 1);
+
+    m_pathLineEdit->setMinimumWidth(0);
+    m_pathLineEdit->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     pathLayout->addWidget(m_copyPathButton);
     pathLayout->addWidget(m_openPathFolderButton);
     pathLayout->addWidget(m_openFileDetailButton);
@@ -3587,13 +3780,16 @@ void ProcessDetailWindow::initializeDetailTab()
 
     // 命令行行：只读输入框 + 复制。
     QHBoxLayout* commandLayout = new QHBoxLayout();
-    auto* commandLabel = new QLabel(detailContent);
+    auto* commandLabel = new QLabel(m_detailTab);
     languageManager.bindText(commandLabel, QStringLiteral("process.detail.label.command_line"), QStringLiteral("启动命令行:"));
     configureCopyableLabel(commandLabel);
+    commandLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     commandLayout->addWidget(commandLabel);
-    m_commandLineEdit = new QLineEdit(detailContent);
+    m_commandLineEdit = new QLineEdit(m_detailTab);
     m_commandLineEdit->setReadOnly(true);
-    m_copyCommandButton = new QPushButton(QIcon(":/Icon/process_copy_cell.svg"), QString(), detailContent);
+    m_commandLineEdit->setMinimumWidth(0);
+    m_commandLineEdit->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    m_copyCommandButton = new QPushButton(QIcon(":/Icon/process_copy_cell.svg"), QString(), m_detailTab);
     languageManager.bindText(m_copyCommandButton, QStringLiteral("process.detail.action.copy"), QStringLiteral("复制"));
     commandLayout->addWidget(m_commandLineEdit, 1);
     commandLayout->addWidget(m_copyCommandButton);
@@ -3601,20 +3797,20 @@ void ProcessDetailWindow::initializeDetailTab()
 
     // 父进程行：20px 图标 + 名称 PID + 转到父进程按钮（存在时显示）。
     QHBoxLayout* parentLayout = new QHBoxLayout();
-    auto* parentLabel = new QLabel(detailContent);
+    auto* parentLabel = new QLabel(m_detailTab);
     languageManager.bindText(parentLabel, QStringLiteral("process.detail.label.parent_process"), QStringLiteral("父进程:"));
     configureCopyableLabel(parentLabel);
-    m_parentIconLabel = new QLabel(detailContent);
+    parentLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    m_parentIconLabel = new QLabel(m_detailTab);
     m_parentIconLabel->setFixedSize(20, 20);
-    m_parentInfoLabel = new QLabel(detailContent);
+    m_parentInfoLabel = new QLabel(m_detailTab);
     m_parentInfoLabel->setStyleSheet(
         QStringLiteral("color:%1; font-weight:600;")
         .arg(KswordTheme::TextSecondaryHex()));
     configureCopyableLabel(m_parentInfoLabel);
-    m_detailOpenHandleDockButton = new QPushButton(QIcon(":/Icon/process_list.svg"), QString(), detailContent);
+    m_detailOpenHandleDockButton = new QPushButton(QIcon(":/Icon/process_list.svg"), ks::i18n::sourceText(QStringLiteral("查看句柄")), m_detailTab);
     m_detailOpenHandleDockButton->setToolTip(QStringLiteral("跳转到句柄 Dock，并按当前 PID 过滤"));
-    KswordTheme::ApplyCompactIconButtonMetrics(m_detailOpenHandleDockButton);
-    m_gotoParentButton = new QPushButton(QIcon(":/Icon/process_details.svg"), QString(), detailContent);
+    m_gotoParentButton = new QPushButton(QIcon(":/Icon/process_details.svg"), QString(), m_detailTab);
     languageManager.bindText(m_gotoParentButton, QStringLiteral("process.detail.action.goto_parent"), QStringLiteral("转到父进程"));
     m_gotoParentButton->setVisible(false);
     parentLayout->addWidget(parentLabel);
@@ -3625,147 +3821,26 @@ void ProcessDetailWindow::initializeDetailTab()
     m_detailLayout->addLayout(parentLayout);
 
     QHBoxLayout* detailActionLayout = new QHBoxLayout();
-    m_refreshDetailOverviewButton = new QPushButton(QIcon(":/Icon/process_refresh.svg"), QString(), detailContent);
+    m_refreshDetailOverviewButton = new QPushButton(QIcon(":/Icon/process_refresh.svg"), QString(), m_detailTab);
     languageManager.bindText(m_refreshDetailOverviewButton, QStringLiteral("process.detail.action.refresh"), QStringLiteral("刷新运行时详细数据"));
-    m_detailOverviewStatusLabel = new QLabel(detailContent);
+    m_detailOverviewStatusLabel = new QLabel(m_detailTab);
     languageManager.bindText(m_detailOverviewStatusLabel, QStringLiteral("process.detail.status.waiting"), QStringLiteral("● 等待读取运行时详细数据"));
     configureCopyableLabel(m_detailOverviewStatusLabel);
     detailActionLayout->addWidget(m_refreshDetailOverviewButton);
     detailActionLayout->addWidget(m_detailOverviewStatusLabel, 1);
     m_detailLayout->addLayout(detailActionLayout);
 
-    // 概览与资源：基础快照和高频性能指标集中在同一块，便于常规排查。
-    auto* overviewGroup = new QGroupBox(detailContent);
-    languageManager.bindText(overviewGroup, QStringLiteral("process.detail.group.overview_resource"), QStringLiteral("概览与资源"));
-    auto* overviewGrid = new QGridLayout(overviewGroup);
-    auto* overviewLeftForm = new QFormLayout();
-    auto* overviewRightForm = new QFormLayout();
-    configureFormLayout(overviewLeftForm);
-    configureFormLayout(overviewRightForm);
-    overviewGrid->addLayout(overviewLeftForm, 0, 0);
-    overviewGrid->addLayout(overviewRightForm, 0, 1);
-    overviewGrid->setColumnStretch(0, 1);
-    overviewGrid->setColumnStretch(1, 1);
-
-    m_detailStartTimeValue = createValueLabel(overviewGroup);
-    m_detailUserValue = createValueLabel(overviewGroup);
-    m_detailAdminValue = createValueLabel(overviewGroup);
-    m_detailArchitectureValue = createValueLabel(overviewGroup);
-    m_detailPriorityValue = createValueLabel(overviewGroup);
-    m_detailSessionValue = createValueLabel(overviewGroup);
-    m_detailThreadCountValue = createValueLabel(overviewGroup);
-    m_detailHandleCountValue = createValueLabel(overviewGroup);
-    m_detailCpuValue = createValueLabel(overviewGroup);
-    m_detailCpuCoreValue = createValueLabel(overviewGroup);
-    m_detailRamValue = createValueLabel(overviewGroup);
-    m_detailDiskValue = createValueLabel(overviewGroup);
-    m_detailSignatureValue = createValueLabel(overviewGroup);
-
-    addExtraRow(overviewLeftForm, overviewGroup, QStringLiteral("pid"), QStringLiteral("process.detail.field.pid"), QStringLiteral("PID"));
-    addExtraRow(overviewLeftForm, overviewGroup, QStringLiteral("parent_pid"), QStringLiteral("process.detail.field.parent_pid"), QStringLiteral("父 PID"));
-    addFixedRow(overviewLeftForm, overviewGroup, QStringLiteral("process.detail.field.start_time"), QStringLiteral("启动时间"), m_detailStartTimeValue);
-    addExtraRow(overviewLeftForm, overviewGroup, QStringLiteral("uptime"), QStringLiteral("process.detail.field.uptime"), QStringLiteral("运行时长"));
-    addFixedRow(overviewLeftForm, overviewGroup, QStringLiteral("process.detail.field.user"), QStringLiteral("用户"), m_detailUserValue);
-    addFixedRow(overviewLeftForm, overviewGroup, QStringLiteral("process.detail.field.admin"), QStringLiteral("管理员"), m_detailAdminValue);
-    addExtraRow(overviewLeftForm, overviewGroup, QStringLiteral("integrity_level"), QStringLiteral("process.detail.field.integrity"), QStringLiteral("完整性级别"));
-    addExtraRow(overviewLeftForm, overviewGroup, QStringLiteral("elevation_type"), QStringLiteral("process.detail.field.elevation_type"), QStringLiteral("提升类型"));
-    addFixedRow(overviewLeftForm, overviewGroup, QStringLiteral("process.detail.field.architecture"), QStringLiteral("架构"), m_detailArchitectureValue);
-    addFixedRow(overviewLeftForm, overviewGroup, QStringLiteral("process.detail.field.session_id"), QStringLiteral("Session ID"), m_detailSessionValue);
-
-    addFixedRow(overviewRightForm, overviewGroup, QStringLiteral("process.detail.field.priority"), QStringLiteral("优先级"), m_detailPriorityValue);
-    addFixedRow(overviewRightForm, overviewGroup, QStringLiteral("process.detail.field.cpu"), QStringLiteral("CPU 占用"), m_detailCpuValue);
-    addFixedRow(overviewRightForm, overviewGroup, QStringLiteral("process.detail.field.cpu_core"), QStringLiteral("CPU 单核等效"), m_detailCpuCoreValue);
-    addExtraRow(overviewRightForm, overviewGroup, QStringLiteral("gpu"), QStringLiteral("process.detail.field.gpu"), QStringLiteral("GPU 占用"));
-    addFixedRow(overviewRightForm, overviewGroup, QStringLiteral("process.detail.field.disk"), QStringLiteral("DISK 吞吐"), m_detailDiskValue);
-    addExtraRow(overviewRightForm, overviewGroup, QStringLiteral("network_rx"), QStringLiteral("process.detail.field.network_rx"), QStringLiteral("网络下行"));
-    addExtraRow(overviewRightForm, overviewGroup, QStringLiteral("network_tx"), QStringLiteral("process.detail.field.network_tx"), QStringLiteral("网络上行"));
-    addFixedRow(overviewRightForm, overviewGroup, QStringLiteral("process.detail.field.thread_count"), QStringLiteral("线程数量"), m_detailThreadCountValue);
-    addFixedRow(overviewRightForm, overviewGroup, QStringLiteral("process.detail.field.handle_count"), QStringLiteral("句柄数量"), m_detailHandleCountValue);
-    addExtraRow(overviewRightForm, overviewGroup, QStringLiteral("working_set"), QStringLiteral("process.detail.field.working_set"), QStringLiteral("工作集"));
-    addExtraRow(overviewRightForm, overviewGroup, QStringLiteral("private_commit"), QStringLiteral("process.detail.field.private_commit"), QStringLiteral("私有提交"));
-    addExtraRow(overviewRightForm, overviewGroup, QStringLiteral("peak_working_set"), QStringLiteral("process.detail.field.peak_working_set"), QStringLiteral("峰值工作集"));
-    addExtraRow(overviewRightForm, overviewGroup, QStringLiteral("page_faults"), QStringLiteral("process.detail.field.page_faults"), QStringLiteral("页错误"));
-    addFixedRow(overviewRightForm, overviewGroup, QStringLiteral("process.detail.field.signature"), QStringLiteral("数字签名"), m_detailSignatureValue);
-    m_detailLayout->addWidget(overviewGroup);
-
-    // I/O 与 GUI 资源：保留累计计数和对象使用量，利于发现异常资源泄漏。
-    auto* ioGroup = new QGroupBox(detailContent);
-    languageManager.bindText(ioGroup, QStringLiteral("process.detail.group.io_gui"), QStringLiteral("I/O 与 GUI 资源"));
-    auto* ioGrid = new QGridLayout(ioGroup);
-    auto* ioLeftForm = new QFormLayout();
-    auto* ioRightForm = new QFormLayout();
-    configureFormLayout(ioLeftForm);
-    configureFormLayout(ioRightForm);
-    ioGrid->addLayout(ioLeftForm, 0, 0);
-    ioGrid->addLayout(ioRightForm, 0, 1);
-    ioGrid->setColumnStretch(0, 1);
-    ioGrid->setColumnStretch(1, 1);
-    addExtraRow(ioLeftForm, ioGroup, QStringLiteral("io_read_ops"), QStringLiteral("process.detail.field.io_read_ops"), QStringLiteral("读取操作"));
-    addExtraRow(ioLeftForm, ioGroup, QStringLiteral("io_write_ops"), QStringLiteral("process.detail.field.io_write_ops"), QStringLiteral("写入操作"));
-    addExtraRow(ioLeftForm, ioGroup, QStringLiteral("io_other_ops"), QStringLiteral("process.detail.field.io_other_ops"), QStringLiteral("其他 I/O 操作"));
-    addExtraRow(ioLeftForm, ioGroup, QStringLiteral("io_read_bytes"), QStringLiteral("process.detail.field.io_read_bytes"), QStringLiteral("读取字节"));
-    addExtraRow(ioLeftForm, ioGroup, QStringLiteral("io_write_bytes"), QStringLiteral("process.detail.field.io_write_bytes"), QStringLiteral("写入字节"));
-    addExtraRow(ioLeftForm, ioGroup, QStringLiteral("io_other_bytes"), QStringLiteral("process.detail.field.io_other_bytes"), QStringLiteral("其他 I/O 字节"));
-    addExtraRow(ioLeftForm, ioGroup, QStringLiteral("kernel_cpu_time"), QStringLiteral("process.detail.field.kernel_cpu_time"), QStringLiteral("内核 CPU 时间"));
-    addExtraRow(ioLeftForm, ioGroup, QStringLiteral("user_cpu_time"), QStringLiteral("process.detail.field.user_cpu_time"), QStringLiteral("用户 CPU 时间"));
-    addExtraRow(ioRightForm, ioGroup, QStringLiteral("gdi_objects"), QStringLiteral("process.detail.field.gdi_objects"), QStringLiteral("GDI 对象"));
-    addExtraRow(ioRightForm, ioGroup, QStringLiteral("user_objects"), QStringLiteral("process.detail.field.user_objects"), QStringLiteral("USER 对象"));
-    addExtraRow(ioRightForm, ioGroup, QStringLiteral("gui_top_level_windows"), QStringLiteral("process.detail.field.top_level_windows"), QStringLiteral("顶层窗口"));
-    addExtraRow(ioRightForm, ioGroup, QStringLiteral("job_object"), QStringLiteral("process.detail.field.job_object"), QStringLiteral("Job 对象"));
-    m_detailLayout->addWidget(ioGroup);
-
-    // 运行环境：CPU 调度、子系统与 GUI 会话环境。
-    auto* environmentGroup = new QGroupBox(detailContent);
-    languageManager.bindText(environmentGroup, QStringLiteral("process.detail.group.runtime_environment"), QStringLiteral("运行环境"));
-    auto* environmentForm = new QFormLayout(environmentGroup);
-    configureFormLayout(environmentForm);
-    addExtraRow(environmentForm, environmentGroup, QStringLiteral("cpu_affinity"), QStringLiteral("process.detail.field.cpu_affinity"), QStringLiteral("CPU 亲和性"));
-    addExtraRow(environmentForm, environmentGroup, QStringLiteral("efficiency_mode"), QStringLiteral("process.detail.field.efficiency_mode"), QStringLiteral("效率模式"));
-    addExtraRow(environmentForm, environmentGroup, QStringLiteral("subsystem"), QStringLiteral("process.detail.field.subsystem"), QStringLiteral("子系统"));
-    addExtraRow(environmentForm, environmentGroup, QStringLiteral("thread_desktop"), QStringLiteral("process.detail.field.thread_desktop"), QStringLiteral("线程桌面"));
-    addExtraRow(environmentForm, environmentGroup, QStringLiteral("window_station"), QStringLiteral("process.detail.field.window_station"), QStringLiteral("窗口站"));
-    m_detailLayout->addWidget(environmentGroup);
-
-    // 安全状态：令牌、PPL、调试状态与公开的进程缓解策略分别展现。
-    auto* securityGroup = new QGroupBox(detailContent);
-    languageManager.bindText(securityGroup, QStringLiteral("process.detail.group.security"), QStringLiteral("安全状态与缓解策略"));
-    auto* securityGrid = new QGridLayout(securityGroup);
-    auto* securityLeftForm = new QFormLayout();
-    auto* securityRightForm = new QFormLayout();
-    configureFormLayout(securityLeftForm);
-    configureFormLayout(securityRightForm);
-    securityGrid->addLayout(securityLeftForm, 0, 0);
-    securityGrid->addLayout(securityRightForm, 0, 1);
-    securityGrid->setColumnStretch(0, 1);
-    securityGrid->setColumnStretch(1, 1);
-    addExtraRow(securityLeftForm, securityGroup, QStringLiteral("ppl_protection"), QStringLiteral("process.detail.field.ppl"), QStringLiteral("PPL 保护级别"));
-    addExtraRow(securityLeftForm, securityGroup, QStringLiteral("critical_process"), QStringLiteral("process.detail.field.critical"), QStringLiteral("关键进程"));
-    addExtraRow(securityLeftForm, securityGroup, QStringLiteral("debug_port"), QStringLiteral("process.detail.field.debug_port"), QStringLiteral("调试端口"));
-    addExtraRow(securityLeftForm, securityGroup, QStringLiteral("app_container"), QStringLiteral("process.detail.field.app_container"), QStringLiteral("AppContainer"));
-    addExtraRow(securityLeftForm, securityGroup, QStringLiteral("token_virtualization"), QStringLiteral("process.detail.field.token_virtualization"), QStringLiteral("令牌虚拟化"));
-    addExtraRow(securityLeftForm, securityGroup, QStringLiteral("mitigation_dep"), QStringLiteral("process.detail.field.mitigation_dep"), QStringLiteral("DEP"));
-    addExtraRow(securityLeftForm, securityGroup, QStringLiteral("mitigation_aslr"), QStringLiteral("process.detail.field.mitigation_aslr"), QStringLiteral("ASLR"));
-    addExtraRow(securityLeftForm, securityGroup, QStringLiteral("mitigation_cfg"), QStringLiteral("process.detail.field.mitigation_cfg"), QStringLiteral("CFG / XFG"));
-    addExtraRow(securityLeftForm, securityGroup, QStringLiteral("mitigation_dynamic_code"), QStringLiteral("process.detail.field.mitigation_dynamic_code"), QStringLiteral("动态代码限制"));
-    addExtraRow(securityLeftForm, securityGroup, QStringLiteral("mitigation_extension_points"), QStringLiteral("process.detail.field.mitigation_extension_points"), QStringLiteral("扩展点禁用"));
-    addExtraRow(securityRightForm, securityGroup, QStringLiteral("mitigation_image_load"), QStringLiteral("process.detail.field.mitigation_image_load"), QStringLiteral("映像加载限制"));
-    addExtraRow(securityRightForm, securityGroup, QStringLiteral("mitigation_strict_handles"), QStringLiteral("process.detail.field.mitigation_strict_handles"), QStringLiteral("严格句柄检查"));
-    addExtraRow(securityRightForm, securityGroup, QStringLiteral("mitigation_win32k"), QStringLiteral("process.detail.field.mitigation_win32k"), QStringLiteral("Win32k 调用禁用"));
-    addExtraRow(securityRightForm, securityGroup, QStringLiteral("mitigation_child_process"), QStringLiteral("process.detail.field.mitigation_child_process"), QStringLiteral("子进程创建限制"));
-    addExtraRow(securityRightForm, securityGroup, QStringLiteral("mitigation_shadow_stack"), QStringLiteral("process.detail.field.mitigation_shadow_stack"), QStringLiteral("用户影子栈 (CET)"));
-    m_detailLayout->addWidget(securityGroup);
-
+    for (auto* button : {m_copyPathButton, m_openPathFolderButton, m_openFileDetailButton,
+        m_copyCommandButton, m_detailOpenHandleDockButton, m_gotoParentButton, m_refreshDetailOverviewButton})
+    {
+        button->setStyleSheet(KswordTheme::ThemedButtonStyle());
+        button->setMinimumHeight(30);
+        button->setIconSize(QSize(16, 16));
+    }
+    m_detailLayout->addWidget(new ProcessGeneralOverview(m_generalFields, detailContent, detailActionLayout));
     m_detailLayout->addStretch(1);
-
-    const QString buttonStyle = buildBlueButtonStyle();
-    m_copyPathButton->setStyleSheet(buttonStyle);
-    m_openPathFolderButton->setStyleSheet(buttonStyle);
-    m_openFileDetailButton->setStyleSheet(buttonStyle);
-    m_copyCommandButton->setStyleSheet(buttonStyle);
-    m_detailOpenHandleDockButton->setStyleSheet(buildBlueButtonStyle());
-    m_gotoParentButton->setStyleSheet(buttonStyle);
-    m_refreshDetailOverviewButton->setStyleSheet(buttonStyle);
 }
+
 
 void ProcessDetailWindow::initializePerformanceTab()
 {
@@ -4232,15 +4307,14 @@ void ProcessDetailWindow::initializeThreadTab()
     // 当前线程 deep PDB 采样详情：
     // - 默认只显示选中行的可读 runtime detail；
     // - 点击“采样PDB字段”后后台调用 thread runtime field sampler；
-    // - 使用 CodeEditorWidget，方便复制/搜索长字段列表。
-    m_threadRuntimeSampleOutput = new CodeEditorWidget(threadGroup);
-    m_threadRuntimeSampleOutput->setReadOnly(true);
+    // - 原生结构字段保留复制/搜索和四种详情布局。
+    m_threadRuntimeSampleOutput = new ks::ui::StructuredFieldView(threadGroup);
     m_threadRuntimeSampleOutput->setMaximumHeight(220);
-    m_threadRuntimeSampleOutput->setText(QStringLiteral(
-        "选择线程行后可查看 R0 runtime detail；点击“采样PDB字段”可按需读取 thread_detail deep JSON 小字段。"));
+    m_threadRuntimeSampleOutput->setDocument(fieldNotice(QStringLiteral(
+        "选择线程行后可查看 R0 runtime detail；点击“采样PDB字段”可按需读取 thread_detail deep JSON 小字段。")));
     threadGroupLayout->addWidget(m_threadRuntimeSampleOutput, 0);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_threadInspectTable, m_threadRuntimeSampleOutput, threadGroup);
 
     m_threadLayout->addWidget(threadGroup, 1);
@@ -4266,7 +4340,7 @@ void ProcessDetailWindow::initializeThreadTab()
         }
         if (m_threadInspectTable == nullptr || currentRow < 0)
         {
-            m_threadRuntimeSampleOutput->setText(QStringLiteral("请选择一条线程记录查看 runtime detail。"));
+            m_threadRuntimeSampleOutput->setDocument(fieldNotice(QStringLiteral("请选择一条线程记录查看 runtime detail。")));
             return;
         }
         const QTableWidgetItem* threadIdItem =
@@ -4276,7 +4350,7 @@ void ProcessDetailWindow::initializeThreadTab()
             : static_cast<std::size_t>(m_threadInspectRows.size());
         if (cacheIndex >= m_threadInspectRows.size())
         {
-            m_threadRuntimeSampleOutput->setText(QStringLiteral("当前线程行缺少缓存详情，请刷新线程页。"));
+            m_threadRuntimeSampleOutput->setDocument(fieldNotice(QStringLiteral("当前线程行缺少缓存详情，请刷新线程页。")));
             return;
         }
 
@@ -4307,36 +4381,36 @@ void ProcessDetailWindow::initializeThreadTab()
                 .arg(static_cast<quint32>(statusValue), 8, 16, QChar('0'))
                 .toUpper();
         };
-        QStringList detailLines;
-        detailLines << QStringLiteral("[Thread Runtime Detail]");
-        detailLines << QStringLiteral("TID/PID: %1/%2").arg(rowItem.threadId).arg(rowItem.processId);
-        detailLines << QStringLiteral("Start/Win32Start: %1 / %2")
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("Thread Runtime Detail"));
+        document.field(QStringLiteral("TID/PID"), QStringLiteral("%1/%2").arg(rowItem.threadId).arg(rowItem.processId));
+        document.field(QStringLiteral("Start/Win32Start"), QStringLiteral("%1 / %2")
             .arg(uint64ToHex(rowItem.startAddress))
-            .arg(uint64ToHex(rowItem.win32StartAddress));
-        detailLines << QStringLiteral("TEB: %1").arg(uint64ToHex(rowItem.tebAddress));
-        detailLines << QStringLiteral("R0 stack: Kernel=%1 Limit=%2 Base=%3 Initial=%4")
+            .arg(uint64ToHex(rowItem.win32StartAddress)));
+        document.field(QStringLiteral("TEB"), QStringLiteral("%1").arg(uint64ToHex(rowItem.tebAddress)));
+        document.field(QStringLiteral("R0 stack"), QStringLiteral("Kernel=%1 Limit=%2 Base=%3 Initial=%4")
             .arg(uint64ToHex(rowItem.r0KernelStack))
             .arg(uint64ToHex(rowItem.r0StackLimit))
             .arg(uint64ToHex(rowItem.r0StackBase))
-            .arg(uint64ToHex(rowItem.r0InitialStack));
-        detailLines << QStringLiteral("I/O ops: R/W/O=%1/%2/%3")
+            .arg(uint64ToHex(rowItem.r0InitialStack)));
+        document.field(QStringLiteral("I/O ops"), QStringLiteral("R/W/O=%1/%2/%3")
             .arg(static_cast<qulonglong>(rowItem.r0ReadOperationCount))
             .arg(static_cast<qulonglong>(rowItem.r0WriteOperationCount))
-            .arg(static_cast<qulonglong>(rowItem.r0OtherOperationCount));
-        detailLines << QStringLiteral("I/O bytes: R/W/O=%1/%2/%3")
+            .arg(static_cast<qulonglong>(rowItem.r0OtherOperationCount)));
+        document.field(QStringLiteral("I/O bytes"), QStringLiteral("R/W/O=%1/%2/%3")
             .arg(static_cast<qulonglong>(rowItem.r0ReadTransferCount))
             .arg(static_cast<qulonglong>(rowItem.r0WriteTransferCount))
-            .arg(static_cast<qulonglong>(rowItem.r0OtherTransferCount));
-        detailLines << QStringLiteral("DetailStatus: %1").arg(threadDetailStatusName(rowItem.r0DetailStatus));
-        detailLines << QStringLiteral("MissingCapability: %1")
-            .arg(uint64ToHex(rowItem.r0MissingCapabilityMask));
-        detailLines << QStringLiteral("LastStatus: %1").arg(threadStatusHexText(rowItem.r0DetailLastStatus));
-        detailLines << QStringLiteral("说明: %1").arg(
+            .arg(static_cast<qulonglong>(rowItem.r0OtherTransferCount)));
+        document.field(QStringLiteral("DetailStatus"), QStringLiteral("%1").arg(threadDetailStatusName(rowItem.r0DetailStatus)));
+        document.field(QStringLiteral("MissingCapability"), QStringLiteral("%1")
+            .arg(uint64ToHex(rowItem.r0MissingCapabilityMask)));
+        document.field(QStringLiteral("LastStatus"), QStringLiteral("%1").arg(threadStatusHexText(rowItem.r0DetailLastStatus)));
+        document.field(QStringLiteral("说明"), QStringLiteral("%1").arg(
             rowItem.r0RuntimeDetailText.trimmed().isEmpty()
             ? QStringLiteral("线程 runtime detail 暂不可用。")
-            : rowItem.r0RuntimeDetailText);
-        detailLines << QStringLiteral("\n点击“采样PDB字段”可对当前 TID 按需读取 thread_detail deep offset 小字段。");
-        m_threadRuntimeSampleOutput->setText(detailLines.join(QChar('\n')));
+            : rowItem.r0RuntimeDetailText));
+        document.note(QStringLiteral("\n点击“采样PDB字段”可对当前 TID 按需读取 thread_detail deep offset 小字段。"));
+        m_threadRuntimeSampleOutput->setDocument(document);
         });
     connect(m_threadInspectTable, &QTableWidget::cellDoubleClicked, this, [this](int, int) {
         openSelectedThreadStackWindow();
@@ -5252,17 +5326,6 @@ void ProcessDetailWindow::initializeModuleTab()
     m_moduleTable->setColumnWidth(toModuleColumnIndex(ModuleColumn::ThreadId), 180);
 
     // 表头蓝色主题。
-    m_moduleTable->header()->setStyleSheet(QStringLiteral(
-        "QHeaderView::section {"
-        "  color:%1;"
-        "  background:transparent; /* %2 */"
-        "  border:1px solid %3;"
-        "  padding:4px;"
-        "  font-weight:600;"
-        "}")
-        .arg(KswordTheme::PrimaryBlueHex)
-        .arg(KswordTheme::SurfaceHex())
-        .arg(KswordTheme::BorderHex()));
 
     m_refreshModuleButton->setStyleSheet(buildBlueButtonStyle());
     m_dllHijackScanButton->setStyleSheet(buildBlueButtonStyle());
@@ -5293,9 +5356,8 @@ void ProcessDetailWindow::initializeTokenTab()
     tokenTopBarLayout->addWidget(m_tokenStatusLabel, 1);
     m_tokenLayout->addLayout(tokenTopBarLayout);
 
-    m_tokenDetailOutput = new CodeEditorWidget(m_tokenTab);
-    m_tokenDetailOutput->setReadOnly(true);
-    m_tokenDetailOutput->setText(QStringLiteral("令牌详细信息将在此处显示。"));
+    m_tokenDetailOutput = new ks::ui::StructuredFieldView(m_tokenTab);
+    m_tokenDetailOutput->setDocument(fieldNotice(QStringLiteral("令牌详细信息将在此处显示。")));
     m_tokenLayout->addWidget(m_tokenDetailOutput, 1);
 
     const QString buttonStyle = buildBlueButtonStyle();
@@ -5508,9 +5570,8 @@ void ProcessDetailWindow::initializeKernelObjectTab()
     sectionTopBarLayout->addWidget(m_sectionInfoStatusLabel, 1);
     sectionGroupLayout->addLayout(sectionTopBarLayout);
 
-    m_sectionInfoOutput = new CodeEditorWidget(sectionGroup);
-    m_sectionInfoOutput->setReadOnly(true);
-    m_sectionInfoOutput->setText(QStringLiteral("Section/ControlArea 查询结果将在此处显示。"));
+    m_sectionInfoOutput = new ks::ui::StructuredFieldView(sectionGroup);
+    m_sectionInfoOutput->setDocument(fieldNotice(QStringLiteral("Section/ControlArea 查询结果将在此处显示。")));
     sectionGroupLayout->addWidget(m_sectionInfoOutput, 1);
     m_kernelObjectLayout->addWidget(sectionGroup, 1);
 
@@ -5836,25 +5897,42 @@ void ProcessDetailWindow::initializePebTab()
     editableGrid->addWidget(m_pebAffinityMaskEdit, 5, 3);
     editableGrid->addWidget(new QLabel(QStringLiteral("PriorityClass"), editableGroup), 6, 0);
     editableGrid->addWidget(m_pebPriorityClassCombo, 6, 1);
-    m_pebLayout->addWidget(editableGroup, 0);
+    auto* editableScroll = new QScrollArea(m_pebTab);
+    editableScroll->setWidgetResizable(true);
+    editableScroll->setFrameShape(QFrame::NoFrame);
+    editableScroll->setMinimumSize(0, 0);
+    editableScroll->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    editableScroll->setMaximumHeight(280);
+    editableScroll->setWidget(editableGroup);
+    m_pebLayout->addWidget(editableScroll, 1);
 
-    m_pebDetailOutput = new CodeEditorWidget(m_pebTab);
-    m_pebDetailOutput->setReadOnly(true);
-    m_pebDetailOutput->setText(QStringLiteral("PEB 与地址空间摘要将在此处显示。"));
-    m_pebLayout->addWidget(m_pebDetailOutput, 1);
+    m_pebDetailOutput = new ks::ui::StructuredFieldView(m_pebTab);
+    m_pebDetailOutput->setDocument(fieldNotice(QStringLiteral("PEB 与地址空间摘要将在此处显示。")));
+    m_pebLayout->addWidget(m_pebDetailOutput, 2);
 
     // 只读字段说明属于程序生成的详情文本，使用统一编辑器以便英语模式即时重绘。
-    m_pebReadonlyReasonOutput = new CodeEditorWidget(m_pebTab);
-    m_pebReadonlyReasonOutput->setReadOnly(true);
+    m_pebReadonlyReasonOutput = new ks::ui::StructuredFieldView(m_pebTab);
     m_pebReadonlyReasonOutput->setMaximumHeight(220);
-    m_pebReadonlyReasonOutput->setLocalizedText(QStringLiteral(
-        "不可直接修改/不建议直接修改：\n"
-        "- KernelCpuMs/UserCpuMs/WorkingSet/PrivateUsage/IO计数/PageFaultCount：系统统计计数，只能由内核/调度器/内存管理器更新。\n"
-        "- VirtualAddressRegionPreview：地址空间枚举结果；应通过 VirtualAllocEx/VirtualProtectEx/Unmap/Map 等专门操作改变。\n"
-        "- RegionCount/CommitBytes/MappedBytes/ImageBytes/PrivateBytes：统计结果，不是单一字段。\n"
-        "- HeapCount/HeapBlock：需要堆管理器一致性，不在 PEB 页直接写。\n"
-        "- ProcessParameters 指针/Environment 指针：本页会按需更新字符串字段/环境项，不建议手工乱改指针。"));
-    m_pebLayout->addWidget(m_pebReadonlyReasonOutput, 0);
+    ks::ui::FieldDocument readonlyFields;
+    readonlyFields.section(QStringLiteral("不可直接修改/不建议直接修改"));
+    readonlyFields.field(QStringLiteral("KernelCpuMs/UserCpuMs/WorkingSet/PrivateUsage/IO计数/PageFaultCount"), QStringLiteral("系统统计计数，只能由内核/调度器/内存管理器更新。"), true);
+    readonlyFields.field(QStringLiteral("VirtualAddressRegionPreview"), QStringLiteral("地址空间枚举结果；应通过 VirtualAllocEx/VirtualProtectEx/Unmap/Map 等专门操作改变。"), true);
+    readonlyFields.field(QStringLiteral("RegionCount/CommitBytes/MappedBytes/ImageBytes/PrivateBytes"), QStringLiteral("统计结果，不是单一字段。"), true);
+    readonlyFields.field(QStringLiteral("HeapCount/HeapBlock"), QStringLiteral("需要堆管理器一致性，不在 PEB 页直接写。"), true);
+    readonlyFields.field(QStringLiteral("ProcessParameters/Environment"), QStringLiteral("本页会按需更新字符串字段/环境项，不建议手工乱改指针。"), true);
+    m_pebReadonlyReasonOutput->setDocument(readonlyFields);
+    m_pebReadonlyReasonOutput->hide();
+    auto* readonlyReasonButton = new QToolButton(m_pebTab);
+    readonlyReasonButton->setText(QStringLiteral("不可直接修改/不建议直接修改"));
+    readonlyReasonButton->setCheckable(true);
+    readonlyReasonButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    readonlyReasonButton->setArrowType(Qt::RightArrow);
+    connect(readonlyReasonButton, &QToolButton::toggled, m_pebTab, [this, readonlyReasonButton](bool open) {
+        readonlyReasonButton->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
+        m_pebReadonlyReasonOutput->setVisible(open);
+    });
+    m_pebLayout->addWidget(readonlyReasonButton, 0);
+    m_pebLayout->addWidget(m_pebReadonlyReasonOutput, 1);
 
     const QString buttonStyle = buildBlueButtonStyle();
     m_refreshPebButton->setStyleSheet(buttonStyle);
@@ -6165,7 +6243,7 @@ void ProcessDetailWindow::initializeConnections()
     connect(m_pebTargetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
         if (m_pebDetailOutput != nullptr)
         {
-            populatePebEditableFieldsFromText(m_pebDetailOutput->text());
+            populatePebEditableFieldsFromSnapshot();
         }
     });
 
@@ -6476,166 +6554,118 @@ void ProcessDetailWindow::initializeConnections()
 
 void ProcessDetailWindow::refreshDetailTabTexts()
 {
-    // 详情刷新入口日志：记录当前 PID 与进程名。
-    kLogEvent refreshDetailEvent;
-    dbg << refreshDetailEvent
-        << "[ProcessDetailWindow] refreshDetailTabTexts: pid="
-        << m_baseRecord.pid
-        << ", processName="
-        << m_baseRecord.processName
-        << eol;
-
-    // 顶部标题与图标。
-    m_processTitleLabel->setText(
-        QString("%1  (PID: %2)")
-        .arg(QString::fromStdString(m_baseRecord.processName.empty() ? "Unknown" : m_baseRecord.processName))
-        .arg(m_baseRecord.pid));
+    if (m_generalFields == nullptr) return;
     m_processIconLabel->setPixmap(resolveProcessIcon(m_baseRecord.imagePath, 40).pixmap(40, 40));
-
-    // 路径与命令行。
-    QString processPathText = QString::fromStdString(m_baseRecord.imagePath);
-    if (processPathText.trimmed().isEmpty() && m_baseRecord.pid != 0)
-    {
-        // 兜底再查一次路径，避免 UI 出现“路径始终为空”。
-        processPathText = QString::fromStdString(ks::process::QueryProcessPathByPid(m_baseRecord.pid));
-        if (!processPathText.trimmed().isEmpty())
-        {
-            m_baseRecord.imagePath = processPathText.toStdString();
-        }
-    }
-    m_pathLineEdit->setText(processPathText.trimmed().isEmpty() ? "-" : processPathText);
-    m_commandLineEdit->setText(QString::fromStdString(m_baseRecord.commandLine.empty() ? "-" : m_baseRecord.commandLine));
-    if (m_detailOpenHandleDockButton != nullptr)
-    {
-        m_detailOpenHandleDockButton->setVisible(m_baseRecord.pid != 0);
-    }
-    if (m_openFileDetailButton != nullptr)
-    {
-        const QFileInfo processFileInfo(processPathText);
-        m_openFileDetailButton->setEnabled(processFileInfo.exists() && processFileInfo.isFile());
-    }
-
-    // 详细字段赋值。
-    m_detailStartTimeValue->setText(QString::fromStdString(m_baseRecord.startTimeText.empty() ? "-" : m_baseRecord.startTimeText));
-    m_detailUserValue->setText(QString::fromStdString(m_baseRecord.userName.empty() ? "-" : m_baseRecord.userName));
-    m_detailAdminValue->setText(m_baseRecord.isAdmin ? "■ 是" : "■ 否");
-    m_detailAdminValue->setStyleSheet(
-        m_baseRecord.isAdmin
-        ? buildStateLabelStyle(signatureTrustedColor(), 700)
-        : buildStateLabelStyle(signatureUntrustedColor(), 700));
-    m_detailArchitectureValue->setText(QString::fromStdString(m_baseRecord.architectureText.empty() ? "Unknown" : m_baseRecord.architectureText));
-    m_detailPriorityValue->setText(QString::fromStdString(m_baseRecord.priorityText.empty() ? "Unknown" : m_baseRecord.priorityText));
-    m_detailSessionValue->setText(QString::number(m_baseRecord.sessionId));
-    m_detailThreadCountValue->setText(QString::number(m_baseRecord.threadCount));
-    m_detailHandleCountValue->setText(QString::number(m_baseRecord.handleCount));
-    m_detailCpuValue->setText(formatDoubleText(m_baseRecord.cpuPercent, 2) + "%");
-    m_detailCpuCoreValue->setText(formatDoubleText(m_baseRecord.cpuCorePercent, 2) + "%");
-    m_detailRamValue->setText(formatDoubleText(m_baseRecord.ramMB, 1) + " MB");
-    m_detailDiskValue->setText(formatDoubleText(m_baseRecord.diskMBps, 2) + " MB/s");
-    m_detailSignatureValue->setText(QString::fromStdString(m_baseRecord.signatureState.empty() ? "Unknown" : m_baseRecord.signatureState));
-
-    // 当前进程快照中的高频字段优先直接回填；其余字段由异步运行时快照覆盖。
-    const auto setExtraValue = [this](const QString& key, const QString& valueText) {
-        QLabel* const valueLabel = m_detailExtraValues.value(key, nullptr);
-        if (valueLabel != nullptr)
-        {
-            const QString displayText = valueText.trimmed().isEmpty() ? detailUnavailableText() : valueText;
-            const bool enabledState =
-                displayText == QStringLiteral("Enabled") ||
-                displayText == QStringLiteral("Enabled (permanent)");
-            const bool disabledState = displayText == QStringLiteral("Disabled");
-            if (enabledState || disabledState)
-            {
-                valueLabel->setText(QString(QChar(0x25A0)) + QLatin1Char(' ') + displayText);
-                valueLabel->setStyleSheet(buildStateLabelStyle(
-                    enabledState ? signatureTrustedColor() : signatureUntrustedColor(),
-                    700));
-            }
-            else
-            {
-                valueLabel->setText(displayText);
-                valueLabel->setStyleSheet(QString());
-            }
-        }
+    m_processTitleLabel->setText(QStringLiteral("%1  ·  PID %2")
+        .arg(QString::fromStdString(m_baseRecord.processName)).arg(m_baseRecord.pid));
+    const QString path = QString::fromStdString(m_baseRecord.imagePath);
+    m_pathLineEdit->setText(path);
+    m_commandLineEdit->setText(QString::fromStdString(m_baseRecord.commandLine));
+    m_detailOpenHandleDockButton->setVisible(m_baseRecord.pid != 0);
+    const QFileInfo imageInfo(path);
+    m_openFileDetailButton->setEnabled(imageInfo.exists() && imageInfo.isFile());
+    QHash<QString, QString> values = m_detailOverviewResult.values;
+    values.insert(QStringLiteral("pid"), QString::number(m_baseRecord.pid));
+    values.insert(QStringLiteral("parent_pid"), m_baseRecord.parentPid ? QString::number(m_baseRecord.parentPid) : detailUnavailableText());
+    values.insert(QStringLiteral("uptime"), detailUptimeText(m_baseRecord.creationTime100ns));
+    values.insert(QStringLiteral("gpu"), formatDoubleText(m_baseRecord.gpuPercent, 2) + QStringLiteral("%"));
+    values.insert(QStringLiteral("network_rx"), formatDoubleText(m_baseRecord.netRxKBps, 2) + QStringLiteral(" KB/s"));
+    values.insert(QStringLiteral("network_tx"), formatDoubleText(m_baseRecord.netTxKBps, 2) + QStringLiteral(" KB/s"));
+    values.insert(QStringLiteral("working_set"), m_baseRecord.dynamicCountersReady ? detailBytesText(m_baseRecord.rawWorkingSetBytes) : detailUnavailableText());
+    values.insert(QStringLiteral("private_commit"), m_baseRecord.dynamicCountersReady ? detailBytesText(m_baseRecord.rawPrivateBytes) : detailUnavailableText());
+    values.insert(QStringLiteral("efficiency_mode"), m_baseRecord.efficiencyModeSupported ? detailBoolText(m_baseRecord.efficiencyModeEnabled) : detailUnavailableText());
+    if (m_baseRecord.protectionLevelKnown && !m_baseRecord.protectionLevelText.empty())
+        values.insert(QStringLiteral("ppl_protection"), QString::fromStdString(m_baseRecord.protectionLevelText));
+    const auto value = [&values](const QString& key) {
+        const QString result = values.value(key); return result.trimmed().isEmpty() ? detailUnavailableText() : result;
     };
-    setExtraValue(QStringLiteral("pid"), QString::number(m_baseRecord.pid));
-    setExtraValue(QStringLiteral("parent_pid"),
-        m_baseRecord.parentPid != 0U ? QString::number(m_baseRecord.parentPid) : detailUnavailableText());
-    setExtraValue(QStringLiteral("uptime"), detailUptimeText(m_baseRecord.creationTime100ns));
-    setExtraValue(QStringLiteral("gpu"), formatDoubleText(m_baseRecord.gpuPercent, 2) + "%");
-    setExtraValue(QStringLiteral("network_rx"), formatDoubleText(m_baseRecord.netRxKBps, 2) + " KB/s");
-    setExtraValue(QStringLiteral("network_tx"), formatDoubleText(m_baseRecord.netTxKBps, 2) + " KB/s");
-    if (m_baseRecord.dynamicCountersReady)
-    {
-        setExtraValue(QStringLiteral("working_set"), detailBytesText(m_baseRecord.rawWorkingSetBytes));
-        setExtraValue(QStringLiteral("private_commit"), detailBytesText(m_baseRecord.rawPrivateBytes));
-    }
-    else
-    {
-        setExtraValue(QStringLiteral("working_set"), detailUnavailableText());
-        setExtraValue(QStringLiteral("private_commit"), detailUnavailableText());
-    }
-    setExtraValue(
-        QStringLiteral("efficiency_mode"),
-        m_baseRecord.efficiencyModeSupported
-            ? detailBoolText(m_baseRecord.efficiencyModeEnabled)
-            : detailUnavailableText());
-
-    // 两个开关的勾选态跟着同一份读数刷新。不同步的话它只停在窗口打开那一刻的
-    // 值，而挂起可能是别处（右键菜单、别的工具）做的，界面就会一直说反话。
-    //
-    // 状态未知时按未勾显示：processStateKnown 只有缓冲区越界那种病态情况才是
-    // 假，正常进程都判得出来，所以这不是在拿默认值冒充读数。
+    ks::ui::FieldDocument document;
+    document.section(QStringLiteral("概览与资源"));
+    document.field(QStringLiteral("PID"), value(QStringLiteral("pid")), true);
+    document.field(QStringLiteral("CPU 占用"), formatDoubleText(m_baseRecord.cpuPercent, 2) + QStringLiteral("%"), true);
+    document.field(QStringLiteral("工作集"), value(QStringLiteral("working_set")), true);
+    document.field(QStringLiteral("GPU 占用"), value(QStringLiteral("gpu")), true);
+    document.field(QStringLiteral("线程数量"), QString::number(m_baseRecord.threadCount), true);
+    document.field(QStringLiteral("句柄数量"), QString::number(m_baseRecord.handleCount), true);
+    document.field(QStringLiteral("架构"), QString::fromStdString(m_baseRecord.architectureText), true);
+    document.field(QStringLiteral("用户"), QString::fromStdString(m_baseRecord.userName));
+    document.field(QStringLiteral("数字签名"), QString::fromStdString(m_baseRecord.signatureState), true);
+    ks::ui::FieldNode publisherTrust;
+    publisherTrust.name = QStringLiteral("受信任的发布者");
+    const bool signaturePending = generalSignatureStateUndecided(QString::fromStdString(m_baseRecord.signatureState));
+    publisherTrust.value = signaturePending ? QStringLiteral("Unknown")
+        : m_baseRecord.signatureTrusted ? QStringLiteral("是") : QStringLiteral("否");
+    publisherTrust.translateValue = true;
+    document.nodes.last().children.last().children.push_back(publisherTrust);
+    document.section(QStringLiteral("身份与资源详情"));
+    document.field(QStringLiteral("父 PID"), value(QStringLiteral("parent_pid")), true);
+    document.field(QStringLiteral("启动时间"), QString::fromStdString(m_baseRecord.startTimeText), true);
+    document.field(QStringLiteral("运行时长"), value(QStringLiteral("uptime")), true);
+    document.field(QStringLiteral("管理员"), m_baseRecord.isAdmin ? QStringLiteral("是") : QStringLiteral("否"), true);
+    document.field(QStringLiteral("完整性级别"), value(QStringLiteral("integrity_level")), true);
+    document.field(QStringLiteral("提升类型"), value(QStringLiteral("elevation_type")), true);
+    document.field(QStringLiteral("Session ID"), QString::number(m_baseRecord.sessionId), true);
+    document.field(QStringLiteral("优先级"), QString::fromStdString(m_baseRecord.priorityText), true);
+    document.field(QStringLiteral("CPU 单核等效"), formatDoubleText(m_baseRecord.cpuCorePercent, 2) + QStringLiteral("%"), true);
+    document.field(QStringLiteral("DISK 吞吐"), formatDoubleText(m_baseRecord.diskMBps, 2) + QStringLiteral(" MB/s"), true);
+    document.field(QStringLiteral("网络下行"), value(QStringLiteral("network_rx")), true);
+    document.field(QStringLiteral("网络上行"), value(QStringLiteral("network_tx")), true);
+    document.field(QStringLiteral("私有提交"), value(QStringLiteral("private_commit")), true);
+    document.field(QStringLiteral("峰值工作集"), value(QStringLiteral("peak_working_set")), true);
+    document.field(QStringLiteral("页错误"), value(QStringLiteral("page_faults")), true);
+    document.section(QStringLiteral("I/O 与 GUI 资源"));
+    document.field(QStringLiteral("读取操作"), value(QStringLiteral("io_read_ops")), true);
+    document.field(QStringLiteral("写入操作"), value(QStringLiteral("io_write_ops")), true);
+    document.field(QStringLiteral("其他 I/O 操作"), value(QStringLiteral("io_other_ops")), true);
+    document.field(QStringLiteral("读取字节"), value(QStringLiteral("io_read_bytes")), true);
+    document.field(QStringLiteral("写入字节"), value(QStringLiteral("io_write_bytes")), true);
+    document.field(QStringLiteral("其他 I/O 字节"), value(QStringLiteral("io_other_bytes")), true);
+    document.field(QStringLiteral("内核 CPU 时间"), value(QStringLiteral("kernel_cpu_time")), true);
+    document.field(QStringLiteral("用户 CPU 时间"), value(QStringLiteral("user_cpu_time")), true);
+    document.field(QStringLiteral("GDI 对象"), value(QStringLiteral("gdi_objects")), true);
+    document.field(QStringLiteral("USER 对象"), value(QStringLiteral("user_objects")), true);
+    document.field(QStringLiteral("顶层窗口"), value(QStringLiteral("gui_top_level_windows")), true);
+    document.field(QStringLiteral("Job 对象"), value(QStringLiteral("job_object")), true);
+    document.section(QStringLiteral("运行环境"));
+    document.field(QStringLiteral("CPU 亲和性"), value(QStringLiteral("cpu_affinity")), true);
+    document.field(QStringLiteral("效率模式"), value(QStringLiteral("efficiency_mode")), true);
+    document.field(QStringLiteral("子系统"), value(QStringLiteral("subsystem")), true);
+    const QString threadDesktop = value(QStringLiteral("thread_desktop"));
+    const QString windowStation = value(QStringLiteral("window_station"));
+    document.field(QStringLiteral("线程桌面"), threadDesktop, threadDesktop == detailUnavailableText());
+    document.field(QStringLiteral("窗口站"), windowStation, windowStation == detailUnavailableText());
+    document.section(QStringLiteral("安全状态与缓解策略"));
+    document.field(QStringLiteral("PPL 保护级别"), value(QStringLiteral("ppl_protection")), true);
+    document.field(QStringLiteral("关键进程"), value(QStringLiteral("critical_process")), true);
+    document.field(QStringLiteral("调试端口"), value(QStringLiteral("debug_port")), true);
+    document.field(QStringLiteral("AppContainer"), value(QStringLiteral("app_container")), true);
+    document.field(QStringLiteral("令牌虚拟化"), value(QStringLiteral("token_virtualization")), true);
+    document.field(QStringLiteral("DEP"), value(QStringLiteral("mitigation_dep")), true);
+    document.field(QStringLiteral("ASLR"), value(QStringLiteral("mitigation_aslr")), true);
+    document.field(QStringLiteral("CFG / XFG"), value(QStringLiteral("mitigation_cfg")), true);
+    document.field(QStringLiteral("动态代码限制"), value(QStringLiteral("mitigation_dynamic_code")), true);
+    document.field(QStringLiteral("扩展点禁用"), value(QStringLiteral("mitigation_extension_points")), true);
+    document.field(QStringLiteral("映像加载限制"), value(QStringLiteral("mitigation_image_load")), true);
+    document.field(QStringLiteral("严格句柄检查"), value(QStringLiteral("mitigation_strict_handles")), true);
+    document.field(QStringLiteral("Win32k 调用禁用"), value(QStringLiteral("mitigation_win32k")), true);
+    document.field(QStringLiteral("子进程创建限制"), value(QStringLiteral("mitigation_child_process")), true);
+    document.field(QStringLiteral("用户影子栈 (CET)"), value(QStringLiteral("mitigation_shadow_stack")), true);
+    if (!m_detailOverviewResult.diagnosticText.trimmed().isEmpty())
+    { document.section(QStringLiteral("诊断")); document.nodes.last().initiallyExpanded = false; document.note(m_detailOverviewResult.diagnosticText); }
+    m_generalFields->setDocument(document);
     if (m_suspendProcessCheck != nullptr)
     {
-        m_suspendProcessCheck->setChecked(
-            m_baseRecord.processStateKnown && m_baseRecord.processSuspended);
+        const QSignalBlocker blocker(m_suspendProcessCheck);
+        m_suspendProcessCheck->setChecked(m_baseRecord.processStateKnown && m_baseRecord.processSuspended);
     }
     if (m_efficiencyModeCheck != nullptr)
     {
-        m_efficiencyModeCheck->setChecked(
-            m_baseRecord.efficiencyModeSupported && m_baseRecord.efficiencyModeEnabled);
+        const QSignalBlocker blocker(m_efficiencyModeCheck);
+        m_efficiencyModeCheck->setChecked(m_baseRecord.efficiencyModeSupported && m_baseRecord.efficiencyModeEnabled);
     }
-    if (m_baseRecord.protectionLevelKnown && !m_baseRecord.protectionLevelText.empty())
-    {
-        setExtraValue(QStringLiteral("ppl_protection"), QString::fromStdString(m_baseRecord.protectionLevelText));
-    }
-    for (auto resultIt = m_detailOverviewResult.values.cbegin();
-         resultIt != m_detailOverviewResult.values.cend();
-         ++resultIt)
-    {
-        setExtraValue(resultIt.key(), resultIt.value());
-    }
-
-    if (!m_baseRecord.signatureTrusted && m_baseRecord.signatureState != "Pending")
-    {
-        m_detailSignatureValue->setStyleSheet(
-            buildStateLabelStyle(signatureUntrustedColor(), 700));
-    }
-    else if (m_baseRecord.signatureTrusted)
-    {
-        m_detailSignatureValue->setStyleSheet(
-            buildStateLabelStyle(signatureTrustedColor(), 700));
-    }
-    else
-    {
-        m_detailSignatureValue->setStyleSheet(
-            buildStateLabelStyle(statusSecondaryColor(), 600));
-    }
-
-    // 刷新父进程信息区。
     refreshParentProcessSection();
     refreshKernelObjectTabTexts();
     updateWindowTitle();
-
-    // 详情刷新完成日志：确认核心字段已落到 UI。
-    kLogEvent refreshDetailFinishEvent;
-    dbg << refreshDetailFinishEvent
-        << "[ProcessDetailWindow] refreshDetailTabTexts: 完成, signatureState="
-        << m_baseRecord.signatureState
-        << ", user="
-        << m_baseRecord.userName
-        << eol;
 }
 
 void ProcessDetailWindow::refreshKernelObjectTabTexts()

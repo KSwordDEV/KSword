@@ -161,42 +161,7 @@ void ProcessTraceMonitorWidget::showEventContextMenu(const QPoint& position)
 
     if (selectedAction == copyDetailAction)
     {
-        const QString detailText = [this, row]() -> QString {
-            const auto itemTextAt = [this, row](const int currentColumn) -> QString {
-                QTableWidgetItem* itemPointer = m_eventTable->item(row, currentColumn);
-                return itemPointer != nullptr ? itemPointer->text() : QString();
-            };
-
-            QString detailBodyText = itemTextAt(EventColumnDetail);
-            QString normalizedDetailText = detailBodyText;
-            QJsonParseError parseError;
-            const QJsonDocument jsonDocument = QJsonDocument::fromJson(detailBodyText.toUtf8(), &parseError);
-            if (!jsonDocument.isNull())
-            {
-                normalizedDetailText = QString::fromUtf8(jsonDocument.toJson(QJsonDocument::Indented));
-            }
-            else
-            {
-                normalizedDetailText.replace(QStringLiteral(" ; "), QStringLiteral("\n"));
-            }
-
-            QString contentText;
-            contentText += QStringLiteral("时间(100ns)：%1\n").arg(itemTextAt(EventColumnTime100ns));
-            contentText += QStringLiteral("类型：%1\n").arg(itemTextAt(EventColumnType));
-            contentText += QStringLiteral("Provider：%1\n").arg(itemTextAt(EventColumnProvider));
-            contentText += QStringLiteral("事件ID：%1\n").arg(itemTextAt(EventColumnEventId));
-            contentText += QStringLiteral("事件名：%1\n").arg(itemTextAt(EventColumnEventName));
-            contentText += QStringLiteral("PID / TID：%1\n").arg(itemTextAt(EventColumnPidTid));
-            contentText += QStringLiteral("进程：%1\n").arg(itemTextAt(EventColumnProcess));
-            contentText += QStringLiteral("根PID：%1\n").arg(itemTextAt(EventColumnRootPid));
-            contentText += QStringLiteral("关系：%1\n").arg(itemTextAt(EventColumnRelation));
-            contentText += QStringLiteral("ActivityId：%1\n").arg(itemTextAt(EventColumnActivityId));
-            contentText += QStringLiteral("\n========== 返回详情 ==========\n");
-            contentText += normalizedDetailText.trimmed().isEmpty() ? QStringLiteral("<空>") : normalizedDetailText;
-            return contentText;
-        }();
-
-        QApplication::clipboard()->setText(detailText);
+        QApplication::clipboard()->setText(eventDocumentForRow(row).toPlainText(true));
         return;
     }
 
@@ -235,50 +200,38 @@ void ProcessTraceMonitorWidget::showEventContextMenu(const QPoint& position)
     }
 }
 
+ks::ui::FieldDocument ProcessTraceMonitorWidget::eventDocumentForRow(const int row) const
+{
+    if (m_eventTable == nullptr || row < 0 || row >= m_eventTable->rowCount()) return {};
+    const auto itemTextAt = [this, row](const int column) -> QString {
+        const QTableWidgetItem* item = m_eventTable->item(row, column);
+        return item != nullptr ? item->text() : QString();
+    };
+    ks::ui::FieldDocument document;
+    document.section(QStringLiteral("事件"));
+    document.field(QStringLiteral("时间(100ns)"), itemTextAt(EventColumnTime100ns));
+    document.field(QStringLiteral("类型"), itemTextAt(EventColumnType));
+    document.field(QStringLiteral("Provider"), itemTextAt(EventColumnProvider));
+    document.field(QStringLiteral("事件ID"), itemTextAt(EventColumnEventId));
+    document.field(QStringLiteral("事件名"), itemTextAt(EventColumnEventName));
+    document.field(QStringLiteral("PID / TID"), itemTextAt(EventColumnPidTid));
+    document.field(QStringLiteral("进程"), itemTextAt(EventColumnProcess));
+    document.field(QStringLiteral("根PID"), itemTextAt(EventColumnRootPid));
+    document.field(QStringLiteral("关系"), itemTextAt(EventColumnRelation));
+    document.field(QStringLiteral("ActivityId"), itemTextAt(EventColumnActivityId));
+    if (const QTableWidgetItem* item = m_eventTable->item(row, EventColumnTime100ns))
+        document.nodes += item->data(Qt::UserRole + 4).value<ks::ui::FieldDocument>().nodes;
+    return document;
+}
+
 void ProcessTraceMonitorWidget::openEventDetailViewerForRow(const int row) const
 {
-    if (m_eventTable == nullptr || row < 0 || row >= m_eventTable->rowCount())
-    {
-        return;
-    }
-
-    const auto itemTextAt = [this, row](const int column) -> QString {
-        QTableWidgetItem* itemPointer = m_eventTable->item(row, column);
-        return itemPointer != nullptr ? itemPointer->text() : QString();
-    };
-
-    QString detailText = itemTextAt(EventColumnDetail);
-    QString normalizedDetailText = detailText;
-    const QByteArray detailBytes = detailText.toUtf8();
-    QJsonParseError parseError;
-    const QJsonDocument jsonDocument = QJsonDocument::fromJson(detailBytes, &parseError);
-    if (!jsonDocument.isNull())
-    {
-        normalizedDetailText = QString::fromUtf8(jsonDocument.toJson(QJsonDocument::Indented));
-    }
-    else
-    {
-        normalizedDetailText.replace(QStringLiteral(" ; "), QStringLiteral("\n"));
-    }
-
-    QString contentText;
-    contentText += QStringLiteral("时间(100ns)：%1\n").arg(itemTextAt(EventColumnTime100ns));
-    contentText += QStringLiteral("类型：%1\n").arg(itemTextAt(EventColumnType));
-    contentText += QStringLiteral("Provider：%1\n").arg(itemTextAt(EventColumnProvider));
-    contentText += QStringLiteral("事件ID：%1\n").arg(itemTextAt(EventColumnEventId));
-    contentText += QStringLiteral("事件名：%1\n").arg(itemTextAt(EventColumnEventName));
-    contentText += QStringLiteral("PID / TID：%1\n").arg(itemTextAt(EventColumnPidTid));
-    contentText += QStringLiteral("进程：%1\n").arg(itemTextAt(EventColumnProcess));
-    contentText += QStringLiteral("根PID：%1\n").arg(itemTextAt(EventColumnRootPid));
-    contentText += QStringLiteral("关系：%1\n").arg(itemTextAt(EventColumnRelation));
-    contentText += QStringLiteral("ActivityId：%1\n").arg(itemTextAt(EventColumnActivityId));
-    contentText += QStringLiteral("\n========== 返回详情 ==========\n");
-    contentText += normalizedDetailText.trimmed().isEmpty() ? QStringLiteral("<空>") : normalizedDetailText;
-
-    monitor_text_viewer::showReadOnlyTextWindow(
+    if (m_eventTable == nullptr || row < 0 || row >= m_eventTable->rowCount()) return;
+    const QTableWidgetItem* event = m_eventTable->item(row, EventColumnEventName);
+    monitor_text_viewer::showReadOnlyDocumentWindow(
         const_cast<ProcessTraceMonitorWidget*>(this),
-        QStringLiteral("进程定向监控详情 - %1").arg(itemTextAt(EventColumnEventName)),
-        contentText,
+        QStringLiteral("进程定向监控详情 - %1").arg(event ? event->text() : QString()),
+        eventDocumentForRow(row),
         QStringLiteral("monitor://process-trace/row-%1.txt").arg(row + 1));
 }
 

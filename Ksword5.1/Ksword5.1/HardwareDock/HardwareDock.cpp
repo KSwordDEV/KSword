@@ -19,12 +19,13 @@
 // 作用：
 // 1) 提供利用率优先的硬件监控视图与硬件总览；
 // 2) 利用 PDH + Power API 周期采样 CPU/内存/每核频率；
-// 3) 显卡与内存模块信息通过 PowerShell/WMI 文本化展示。
+// 3) 显卡与内存模块通过 CIM 结构数据与 DXGI/WDDM 快照展示。
 // ============================================================
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../theme.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
+#include "HardwareFieldDocuments.h"
 #include "../UI/PerformanceNavCard.h"
 
 #include <QAbstractScrollArea>
@@ -127,22 +128,6 @@
 
 namespace
 {
-    void applyUtilizationScrollBarStyle(QAbstractScrollArea* list, const double scale)
-    {
-        if (list == nullptr || list->verticalScrollBar() == nullptr) return;
-        const int width = std::clamp(qRound(10.0 * scale), 6, 24);
-        const int radius = std::max(2, width / 2 - 1);
-        const int minimumLength = std::max(16, qRound(28.0 * scale));
-        list->verticalScrollBar()->setStyleSheet(QStringLiteral(
-            "QScrollBar:vertical{border:none;background:transparent;width:%1px;margin:2px 1px;}"
-            "QScrollBar::handle:vertical{background:palette(midlight);border:none;"
-            "border-radius:%2px;min-height:%3px;}"
-            "QScrollBar::handle:vertical:hover{background:palette(highlight);}"
-            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0px;border:none;}"
-            "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:transparent;}"
-        ).arg(width).arg(radius).arg(minimumLength));
-    }
-
     // hardwareR0QueryMutex 用途：
     // - 串行化 HardwareDock 内的健康快照与设备审计 IOCTL；
     // - 避免自动刷新和快速切页同时向同一驱动设备提交大体积查询。
@@ -153,15 +138,15 @@ namespace
     // - 实际定义位于同命名空间后半段。
     QString queryPowerShellTextSync(const QString& scriptText, int timeoutMs);
 
-    // createReadOnlyTextPage 作用：
+    // createReadOnlyFieldPage 作用：
     // - 输入父控件、标题与提示文本；
-    // - 处理：创建“标题 + 说明 + CodeEditorWidget”标准只读页面；
+    // - 处理：创建“标题 + 说明 + StructuredFieldView”标准只读页面；
     // - 返回：已初始化的页面控件。
-    QWidget* createReadOnlyTextPage(
+    QWidget* createReadOnlyFieldPage(
         QWidget* parentWidget,
         const QString& titleText,
         const QString& hintText,
-        CodeEditorWidget** editorOut)
+        ks::ui::StructuredFieldView** editorOut)
     {
         QWidget* pageWidget = new QWidget(parentWidget);
         QVBoxLayout* pageLayout = new QVBoxLayout(pageWidget);
@@ -176,8 +161,8 @@ namespace
             .arg(KswordTheme::TextPrimaryHex()));
         pageLayout->addWidget(titleLabel, 0);
 
-        CodeEditorWidget* editor = new CodeEditorWidget(pageWidget);
-        editor->setReadOnly(true);
+        auto* editor = new ks::ui::StructuredFieldView(pageWidget);
+        editor->setPresentation(ks::ui::StructuredFieldView::Presentation::Tree);
         pageLayout->addWidget(editor, 1);
 
         if (editorOut != nullptr)
@@ -647,16 +632,16 @@ namespace
 
     // createDeviceAuditPage 作用：
     // - 输入：父控件、标题、提示、输出编辑器和输出表格指针；
-    // - 处理：创建“摘要文本 + 完整 R0 行表格”的标准页；
+    // - 处理：创建“属性摘要 + 完整 R0 行表格”的标准页；
     // - 返回：已初始化页面控件。
     QWidget* createDeviceAuditPage(
         QWidget* parentWidget,
         const QString& titleText,
         const QString& hintText,
-        CodeEditorWidget** editorOut,
+        ks::ui::StructuredFieldView** editorOut,
         QTableWidget** tableOut)
     {
-        QWidget* pageWidget = createReadOnlyTextPage(parentWidget, titleText, hintText, editorOut);
+        QWidget* pageWidget = createReadOnlyFieldPage(parentWidget, titleText, hintText, editorOut);
         QVBoxLayout* pageLayout = qobject_cast<QVBoxLayout*>(pageWidget->layout());
         if (pageLayout != nullptr)
         {
@@ -1025,70 +1010,11 @@ namespace
         }
     }
 
-    // DeviceAuditParsedDetail 作用：
-    // - 输入：由 parseDeviceAuditDetailFromR0 生成；
-    // - 处理：把驱动当前 detail 文本中的稳定键值拆分为 UI 列；
-    // - 返回：纯数据结构，无成员函数返回值。
-    struct DeviceAuditParsedDetail
-    {
-        QString ownerDriver;      // ownerDriver：AttachedDevice 行 detail 中的 OwnerDriver=0x...。
-        QString integrityStatus;  // integrityStatus：DriverSummary detail 中的 Driver integrity status。
-        QString integrityRows;    // integrityRows：DriverSummary detail 中的 rows=returned/total。
-        QString modules;          // modules：DriverSummary detail 中的 modules=...。
-        QString integrityFlags;   // integrityFlags：DriverSummary detail 中的 statusFlags=0x...。
-    };
-
-    // deviceAuditDetailValue 作用：
-    // - 输入：R0 detail 原文和稳定键名，例如 OwnerDriver/statusFlags；
-    // - 处理：按 “key=value” 形式提取到分号、句号或空白前为止；
-    // - 返回：匹配到的值；不存在时返回空字符串。
-    QString deviceAuditDetailValue(const QString& detailText, const QString& keyText)
-    {
-        const QRegularExpression expression(
-            QStringLiteral("(?:^|[;\\s])%1\\s*=\\s*([^;\\s.]+)")
-                .arg(QRegularExpression::escape(keyText)),
-            QRegularExpression::CaseInsensitiveOption);
-        const QRegularExpressionMatch match = expression.match(detailText);
-        if (!match.hasMatch())
-        {
-            return QString();
-        }
-        return match.captured(1).trimmed().toUpper();
-    }
-
-    // parseDeviceAuditDetailFromR0 作用：
-    // - 输入：KSWORD_ARK_DEVICE_AUDIT_ENTRY.detail 原文；
-    // - 处理：只解析驱动源码中稳定生成的键值，避免把整句英文诊断塞到表格主列；
-    // - 返回：可直接映射到结构化列的字段集合。
-    DeviceAuditParsedDetail parseDeviceAuditDetailFromR0(const QString& detailText)
-    {
-        DeviceAuditParsedDetail parsed;
-        parsed.ownerDriver = deviceAuditDetailValue(detailText, QStringLiteral("OwnerDriver"));
-        parsed.integrityStatus = deviceAuditDetailValue(detailText, QStringLiteral("status"));
-        parsed.integrityRows = deviceAuditDetailValue(detailText, QStringLiteral("rows"));
-        parsed.modules = deviceAuditDetailValue(detailText, QStringLiteral("modules"));
-        parsed.integrityFlags = deviceAuditDetailValue(detailText, QStringLiteral("statusFlags"));
-        return parsed;
-    }
-
-    // isStructuredDeviceAuditDetail 作用：
-    // - 输入：R0 detail 原文；
-    // - 处理：识别已经被表格列拆分的稳定格式；
-    // - 返回：true 表示不再把原文重复放到“备注”列。
-    bool isStructuredDeviceAuditDetail(const QString& detailText)
-    {
-        const QString rawText = detailText.trimmed();
-        return rawText.contains(QStringLiteral("Driver integrity status="), Qt::CaseInsensitive) ||
-            rawText.contains(QStringLiteral("DeviceObject="), Qt::CaseInsensitive) ||
-            rawText.contains(QStringLiteral("AttachedDevice="), Qt::CaseInsensitive) ||
-            rawText.contains(QStringLiteral("OwnerDriver="), Qt::CaseInsensitive);
-    }
-
-    // appendDeviceAuditSummaryText 作用：
+    // appendDeviceAuditSummaryFields 作用：
     // - 输入：页面标题、wrapper 返回值和请求深度；
     // - 处理：汇总 returnedCount/totalCount、maxDepth/truncated、IO 状态和风险行；
-    // - 返回：可追加到设备栈/输入链/USB 拓扑 CodeEditorWidget 的只读文本。
-    QString appendDeviceAuditSummaryText(
+    // - 返回：直接呈现的设备栈/输入链/USB 拓扑字段快照。
+    ks::ui::FieldDocument appendDeviceAuditSummaryFields(
         const QString& titleText,
         const ksword::ark::DeviceAuditResult& auditResult,
         const std::uint32_t requestedMaxDepth)
@@ -1099,88 +1025,59 @@ namespace
         {
             maxObservedDepth = std::max(maxObservedDepth, static_cast<std::uint32_t>(entry.relationDepth));
             maxObservedDepth = std::max(maxObservedDepth, static_cast<std::uint32_t>(entry.attachedDepth));
-            if (entry.riskFlags != KSWORD_ARK_DEVICE_AUDIT_RISK_NONE)
-            {
-                ++riskRowCount;
-            }
+            if (entry.riskFlags != KSWORD_ARK_DEVICE_AUDIT_RISK_NONE) ++riskRowCount;
         }
-
-        const bool truncatedFlag =
-            (auditResult.responseFlags & KSWORD_ARK_DEVICE_AUDIT_RESPONSE_FLAG_TRUNCATED) != 0U
+        const bool truncated = (auditResult.responseFlags & KSWORD_ARK_DEVICE_AUDIT_RESPONSE_FLAG_TRUNCATED) != 0U
             || auditResult.returnedCount < auditResult.totalCount;
-
-        QString text;
-        text += QStringLiteral("\n\n[%1]\n").arg(titleText);
-        text += QStringLiteral("以下内容为只读设备证据，不会修改设备状态。\n");
-        text += QStringLiteral("调用状态: %1；兼容性: %2；Win32=%3；NTSTATUS=%4；返回字节=%5\n")
-            .arg(hardwareIoOkText(auditResult.io.ok))
-            .arg(auditResult.unsupported ? QStringLiteral("驱动不支持") : QStringLiteral("接口可用"))
-            .arg(auditResult.io.win32Error)
-            .arg(formatHardwareAuditHex32(static_cast<std::uint32_t>(auditResult.io.ntStatus)))
-            .arg(auditResult.io.bytesReturned);
-        text += QStringLiteral("驱动说明: %1\n")
-            .arg(friendlyHardwareIoMessage(auditResult.io.message, auditResult.unsupported));
-        text += QStringLiteral("协议状态: version=%1；queryStatus=%2；lastStatus=%3；entrySize=%4\n")
-            .arg(auditResult.version)
-            .arg(deviceAuditStatusText(auditResult.status))
-            .arg(formatHardwareAuditHex32(static_cast<std::uint32_t>(auditResult.lastStatus)))
-            .arg(auditResult.entrySize);
-        text += QStringLiteral("对象计数: returned=%1；total=%2；已解析=%3；目标=%4；驱动=%5；设备=%6\n")
-            .arg(auditResult.returnedCount)
-            .arg(auditResult.totalCount)
-            .arg(auditResult.entries.size())
-            .arg(auditResult.targetCount)
-            .arg(auditResult.driverCount)
-            .arg(auditResult.deviceCount);
-        text += QStringLiteral("链路深度: 观察最大=%1；请求上限=%2；是否截断=%3；响应标志=%4（%5）\n")
-            .arg(maxObservedDepth)
-            .arg(requestedMaxDepth)
-            .arg(truncatedFlag ? QStringLiteral("是") : QStringLiteral("否"))
-            .arg(formatHardwareAuditHex32(auditResult.responseFlags))
-            .arg(deviceAuditResponseFlagText(auditResult.responseFlags));
-        text += QStringLiteral("风险摘要: 风险行=%1；profileFlags=%2；处理建议=%3\n")
-            .arg(riskRowCount)
-            .arg(formatHardwareAuditHex32(auditResult.profileFlags))
-            .arg(riskRowCount == 0U ? QStringLiteral("未发现 R0 风险行") : QStringLiteral("请查看表格中非 Clean 的风险行"));
-
+        ks::ui::FieldDocument document;
+        document.section(titleText).note(QStringLiteral("以下内容为只读设备证据，不会修改设备状态。"))
+            .field(QStringLiteral("调用状态"), hardwareIoOkText(auditResult.io.ok), true)
+            .field(QStringLiteral("兼容性"), auditResult.unsupported ? QStringLiteral("驱动不支持") : QStringLiteral("接口可用"), true)
+            .field(QStringLiteral("Win32"), QString::number(auditResult.io.win32Error))
+            .field(QStringLiteral("NTSTATUS"), formatHardwareAuditHex32(static_cast<std::uint32_t>(auditResult.io.ntStatus)))
+            .field(QStringLiteral("返回字节"), QString::number(auditResult.io.bytesReturned))
+            .field(QStringLiteral("驱动说明"), friendlyHardwareIoMessage(auditResult.io.message, auditResult.unsupported))
+            .field(QStringLiteral("协议版本"), QString::number(auditResult.version))
+            .field(QStringLiteral("queryStatus"), deviceAuditStatusText(auditResult.status), true)
+            .field(QStringLiteral("lastStatus"), formatHardwareAuditHex32(static_cast<std::uint32_t>(auditResult.lastStatus)))
+            .field(QStringLiteral("entrySize"), QString::number(auditResult.entrySize))
+            .field(QStringLiteral("returned"), QString::number(auditResult.returnedCount))
+            .field(QStringLiteral("total"), QString::number(auditResult.totalCount))
+            .field(QStringLiteral("已解析"), QString::number(auditResult.entries.size()))
+            .field(QStringLiteral("目标"), QString::number(auditResult.targetCount))
+            .field(QStringLiteral("驱动"), QString::number(auditResult.driverCount))
+            .field(QStringLiteral("设备"), QString::number(auditResult.deviceCount))
+            .field(QStringLiteral("观察最大深度"), QString::number(maxObservedDepth))
+            .field(QStringLiteral("请求深度上限"), QString::number(requestedMaxDepth))
+            .field(QStringLiteral("是否截断"), truncated ? QStringLiteral("是") : QStringLiteral("否"), true)
+            .field(QStringLiteral("响应标志"), formatHardwareAuditHex32(auditResult.responseFlags))
+            .field(QStringLiteral("响应标志说明"), deviceAuditResponseFlagText(auditResult.responseFlags), true)
+            .field(QStringLiteral("风险行"), QString::number(riskRowCount))
+            .field(QStringLiteral("profileFlags"), formatHardwareAuditHex32(auditResult.profileFlags))
+            .field(QStringLiteral("处理建议"), riskRowCount == 0U ? QStringLiteral("未发现 R0 风险行") : QStringLiteral("请查看表格中非 Clean 的风险行"), true);
         int shownRows = 0;
         for (const KSWORD_ARK_DEVICE_AUDIT_ENTRY& entry : auditResult.entries)
         {
-            if (entry.riskFlags == KSWORD_ARK_DEVICE_AUDIT_RISK_NONE && shownRows >= 8)
-            {
-                continue;
-            }
-
-            const QString driverNameText = QString::fromWCharArray(entry.driverName).trimmed();
-            const QString deviceNameText = QString::fromWCharArray(entry.deviceName).trimmed();
-            const QString detailText = QString::fromWCharArray(entry.detail).trimmed();
-            const QString readableEntryDetailText = friendlyDeviceAuditEntryDetail(detailText);
-            text += QStringLiteral("行[%1]: 角色=%2；状态=%3；风险=%4（%5）；置信度=%6；深度=%7/%8；驱动=%9；设备=%10；DriverObject=%11；DeviceObject=%12；说明=%13\n")
-                .arg(shownRows)
-                .arg(deviceAuditRoleText(entry.roleHint))
-                .arg(deviceAuditStatusText(entry.status))
-                .arg(deviceAuditRiskText(entry.riskFlags))
-                .arg(formatHardwareAuditHex32(entry.riskFlags))
-                .arg(entry.confidence)
-                .arg(entry.relationDepth)
-                .arg(entry.attachedDepth)
-                .arg(driverNameText.isEmpty() ? QStringLiteral("<unnamed>") : driverNameText)
-                .arg(deviceNameText.isEmpty() ? QStringLiteral("<unnamed>") : deviceNameText)
-                .arg(formatHardwareAuditHex64(entry.driverObjectAddress))
-                .arg(formatHardwareAuditHex64(entry.deviceObjectAddress))
-                .arg(readableEntryDetailText);
-            ++shownRows;
-            if (shownRows >= 12)
-            {
-                break;
-            }
+            if (entry.riskFlags == KSWORD_ARK_DEVICE_AUDIT_RISK_NONE && shownRows >= 8) continue;
+            const QString driverName = QString::fromWCharArray(entry.driverName).trimmed();
+            const QString deviceName = QString::fromWCharArray(entry.deviceName).trimmed();
+            document.section(QStringLiteral("行[%1]").arg(shownRows))
+                .field(QStringLiteral("角色"), deviceAuditRoleText(entry.roleHint), true)
+                .field(QStringLiteral("状态"), deviceAuditStatusText(entry.status), true)
+                .field(QStringLiteral("风险"), deviceAuditRiskText(entry.riskFlags), true)
+                .field(QStringLiteral("风险标志"), formatHardwareAuditHex32(entry.riskFlags))
+                .field(QStringLiteral("置信度"), QString::number(entry.confidence))
+                .field(QStringLiteral("链路深度"), QString::number(entry.relationDepth))
+                .field(QStringLiteral("附加深度"), QString::number(entry.attachedDepth))
+                .field(QStringLiteral("驱动"), driverName.isEmpty() ? QStringLiteral("<unnamed>") : driverName)
+                .field(QStringLiteral("设备"), deviceName.isEmpty() ? QStringLiteral("<unnamed>") : deviceName)
+                .field(QStringLiteral("DriverObject"), formatHardwareAuditHex64(entry.driverObjectAddress))
+                .field(QStringLiteral("DeviceObject"), formatHardwareAuditHex64(entry.deviceObjectAddress))
+                .field(QStringLiteral("说明"), friendlyDeviceAuditEntryDetail(QString::fromWCharArray(entry.detail).trimmed()));
+            if (++shownRows >= 12) break;
         }
-
-        if (auditResult.entries.empty())
-        {
-            text += QStringLiteral("明细行: <无返回行>\n");
-        }
-        return text;
+        if (auditResult.entries.empty()) document.note(QStringLiteral("明细行: <无返回行>"));
+        return document;
     }
 
     // buildDeviceAuditRows 作用：
@@ -1246,9 +1143,9 @@ namespace
             const QString imagePathText = QString::fromWCharArray(entry.imagePath).trimmed();
             const QString detailText = QString::fromWCharArray(entry.detail).trimmed();
             const QString readableEntryDetailText = friendlyDeviceAuditEntryDetail(detailText);
-            const DeviceAuditParsedDetail parsedDetail = parseDeviceAuditDetailFromR0(detailText);
+            const auto typedColumns = hardware_field_documents::FromDeviceAuditEntry(entry);
             QStringList noteParts;
-            if (!detailText.isEmpty() && !isStructuredDeviceAuditDetail(detailText))
+            if (!detailText.isEmpty())
             {
                 noteParts << readableEntryDetailText;
             }
@@ -1285,21 +1182,17 @@ namespace
                 formatHardwareAuditHex64(entry.deviceObjectAddress),
                 formatHardwareAuditHex64(entry.attachedDeviceAddress),
                 formatHardwareAuditHex64(entry.nextDeviceObjectAddress),
-                parsedDetail.ownerDriver.isEmpty()
-                    ? QStringLiteral("<none>")
-                    : parsedDetail.ownerDriver,
+                typedColumns.ownerDriver,
                 formatHardwareAuditHex32(entry.deviceType),
                 formatHardwareAuditHex32(entry.characteristics),
                 QString::number(entry.stackSize),
                 QString::number(entry.alignmentRequirement),
                 formatHardwareAuditHex32(entry.fieldFlags),
                 formatHardwareAuditHex32(static_cast<std::uint32_t>(entry.lastStatus)),
-                parsedDetail.integrityStatus.isEmpty()
-                    ? QString()
-                    : parsedDetail.integrityStatus,
-                parsedDetail.integrityRows,
-                parsedDetail.modules,
-                parsedDetail.integrityFlags,
+                typedColumns.integrityStatus,
+                typedColumns.integrityRows,
+                typedColumns.modules,
+                typedColumns.integrityFlags,
                 noteParts.join(QStringLiteral("；"))
             });
         }
@@ -2162,57 +2055,29 @@ namespace
         return snapshot;
     }
 
-    // formatGpuHardwareSummaryText 作用：
+    // buildGpuHardwareSummaryFields 作用：
     // - 在 UI 线程把 DXGI/WDDM 快照格式化到“显卡”信息页；
     // - WMI 仅补充驱动与显示模式，不再承担显存容量识别。
-    QString formatGpuHardwareSummaryText(
+    ks::ui::FieldDocument buildGpuHardwareSummaryFields(
         const GpuHardwareSummarySnapshot& snapshot,
-        const QString& wmiText)
+        const ks::ui::FieldDocument& wmiFields)
     {
-        QStringList adapterBlockList;
+        ks::ui::FieldDocument document;
         for (const GpuHardwareSummarySnapshot::AdapterSnapshot& adapter : snapshot.adapterList)
         {
-            const QString dedicatedMemoryText = adapter.dedicatedMemoryGiB > 0.0
-                ? QString::number(adapter.dedicatedMemoryGiB, 'f', 2)
-                : QStringLiteral("N/A");
-            const QString sharedMemoryText = adapter.sharedMemoryGiB > 0.0
-                ? QString::number(adapter.sharedMemoryGiB, 'f', 2)
-                : QStringLiteral("N/A");
-            adapterBlockList.push_back(
-                ks::i18n::contextText(
-                    QStringLiteral("hardware.gpu.static.telemetry.adapter"),
-                    QStringLiteral("[GPU %1 - DXGI/WDDM]\n名称: %2\n专用显存: %3 GiB\n共享 GPU 内存: %4 GiB\n核心频率: %5 MHz（最大 %6 MHz）\n显存频率: %7 MHz（最大 %8 MHz）"))
-                .arg(adapter.adapterIndex)
-                .arg(adapter.adapterNameText)
-                .arg(dedicatedMemoryText)
-                .arg(sharedMemoryText)
-                .arg(formatGpuClockMhzText(adapter.currentCoreClockMhz))
-                .arg(formatGpuClockMhzText(adapter.maxCoreClockMhz))
-                .arg(formatGpuClockMhzText(adapter.currentMemoryClockMhz))
-                .arg(formatGpuClockMhzText(adapter.maxMemoryClockMhz)));
+            document.section(QStringLiteral("GPU %1 - DXGI/WDDM").arg(adapter.adapterIndex))
+                .field(QStringLiteral("名称"), adapter.adapterNameText)
+                .field(QStringLiteral("专用显存"), adapter.dedicatedMemoryGiB > 0.0 ? QStringLiteral("%1 GiB").arg(adapter.dedicatedMemoryGiB, 0, 'f', 2) : QStringLiteral("N/A"))
+                .field(QStringLiteral("共享 GPU 内存"), adapter.sharedMemoryGiB > 0.0 ? QStringLiteral("%1 GiB").arg(adapter.sharedMemoryGiB, 0, 'f', 2) : QStringLiteral("N/A"))
+                .field(QStringLiteral("核心频率"), QStringLiteral("%1 MHz").arg(formatGpuClockMhzText(adapter.currentCoreClockMhz)))
+                .field(QStringLiteral("最大核心频率"), QStringLiteral("%1 MHz").arg(formatGpuClockMhzText(adapter.maxCoreClockMhz)))
+                .field(QStringLiteral("显存频率"), QStringLiteral("%1 MHz").arg(formatGpuClockMhzText(adapter.currentMemoryClockMhz)))
+                .field(QStringLiteral("最大显存频率"), QStringLiteral("%1 MHz").arg(formatGpuClockMhzText(adapter.maxMemoryClockMhz)));
         }
-
-        if (adapterBlockList.isEmpty())
-        {
-            adapterBlockList.push_back(
-                ks::i18n::contextText(
-                    QStringLiteral("hardware.gpu.static.telemetry.unavailable"),
-                    QStringLiteral("未从 DXGI/WDDM 读取到 GPU 显存与频率信息。")));
-        }
-
-        const QString telemetryHeading = ks::i18n::contextText(
-            QStringLiteral("hardware.gpu.static.telemetry.heading"),
-            QStringLiteral("[实时 GPU 硬件信息]"));
-        const QString wmiHeading = ks::i18n::contextText(
-            QStringLiteral("hardware.gpu.static.wmi.heading"),
-            QStringLiteral("[WMI 驱动与显示信息]"));
-        return telemetryHeading
-            + QStringLiteral("\n")
-            + adapterBlockList.join(QStringLiteral("\n\n"))
-            + QStringLiteral("\n\n")
-            + wmiHeading
-            + QStringLiteral("\n")
-            + wmiText.trimmed();
+        if (snapshot.adapterList.isEmpty())
+            document.section(QStringLiteral("实时 GPU 硬件信息")).note(QStringLiteral("未从 DXGI/WDDM 读取到 GPU 显存与频率信息。"));
+        document.nodes += wmiFields.nodes;
+        return document;
     }
 
     // createNoFrameChartView 作用：
@@ -2511,112 +2376,95 @@ namespace
         return standardOutputText;
     }
 
-    // buildOverviewStaticTextSnapshot 作用：
-    // - 构建“概览”页静态文本快照；
+    // CIM uses actual ordered JSON records. Only the complete typed snapshot is cached.
+    ks::ui::FieldDocument queryPowerShellFieldsSync(const QString& scriptText, const int timeoutMs)
+    {
+        const QString payload = queryPowerShellTextSync(scriptText, timeoutMs);
+        auto document = hardware_field_documents::FromCimJson(payload);
+        if (document) return std::move(*document);
+        ks::ui::FieldDocument failure;
+        failure.section(QStringLiteral("采集状态"))
+            .field(QStringLiteral("状态"), QStringLiteral("失败"), true)
+            .note(payload);
+        return failure;
+    }
+
+    // buildOverviewFieldsSnapshot 作用：
+    // - 构建“概览”页系统字段快照；
     // - 仅做轻量 Win32/Qt 系统信息读取，不依赖 UI 对象。
-    QString buildOverviewStaticTextSnapshot()
+    ks::ui::FieldDocument buildOverviewFieldsSnapshot()
     {
         SYSTEM_INFO systemInfo{};
         ::GetSystemInfo(&systemInfo);
-
         MEMORYSTATUSEX memoryStatus{};
         memoryStatus.dwLength = sizeof(memoryStatus);
         ::GlobalMemoryStatusEx(&memoryStatus);
-
-        QString text;
-        text += QStringLiteral("系统名称: %1\n").arg(QSysInfo::prettyProductName());
-        text += QStringLiteral("CPU架构: %1\n").arg(QSysInfo::currentCpuArchitecture());
-        text += QStringLiteral("内核类型: %1\n").arg(QSysInfo::kernelType());
-        text += QStringLiteral("内核版本: %1\n").arg(QSysInfo::kernelVersion());
-        text += QStringLiteral("逻辑处理器数量: %1\n").arg(::GetActiveProcessorCount(ALL_PROCESSOR_GROUPS));
-        text += QStringLiteral("处理器组掩码(十六进制): 0x%1\n")
-            .arg(QString::number(static_cast<qulonglong>(systemInfo.dwActiveProcessorMask), 16).toUpper());
-        text += QStringLiteral("页面大小: %1 字节\n").arg(systemInfo.dwPageSize);
-        text += QStringLiteral("物理内存总量: %1\n").arg(bytesToGiBText(memoryStatus.ullTotalPhys));
-        text += QStringLiteral("当前可用内存: %1\n").arg(bytesToGiBText(memoryStatus.ullAvailPhys));
-        text += QStringLiteral("虚拟内存总量: %1\n").arg(bytesToGiBText(memoryStatus.ullTotalVirtual));
-        text += QStringLiteral("当前可用虚拟内存: %1\n").arg(bytesToGiBText(memoryStatus.ullAvailVirtual));
-        text += QStringLiteral("系统启动时间: %1\n")
-            .arg(QDateTime::fromMSecsSinceEpoch(
-                QDateTime::currentMSecsSinceEpoch() - static_cast<qint64>(::GetTickCount64()))
-                .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
-        return text;
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("系统信息"))
+            .field(QStringLiteral("系统名称"), QSysInfo::prettyProductName())
+            .field(QStringLiteral("CPU架构"), QSysInfo::currentCpuArchitecture())
+            .field(QStringLiteral("内核类型"), QSysInfo::kernelType())
+            .field(QStringLiteral("内核版本"), QSysInfo::kernelVersion())
+            .field(QStringLiteral("逻辑处理器数量"), QString::number(::GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)))
+            .field(QStringLiteral("处理器组掩码(十六进制)"), QStringLiteral("0x%1").arg(QString::number(static_cast<qulonglong>(systemInfo.dwActiveProcessorMask), 16).toUpper()))
+            .field(QStringLiteral("页面大小"), QStringLiteral("%1 字节").arg(systemInfo.dwPageSize))
+            .field(QStringLiteral("物理内存总量"), bytesToGiBText(memoryStatus.ullTotalPhys))
+            .field(QStringLiteral("当前可用内存"), bytesToGiBText(memoryStatus.ullAvailPhys))
+            .field(QStringLiteral("虚拟内存总量"), bytesToGiBText(memoryStatus.ullTotalVirtual))
+            .field(QStringLiteral("当前可用虚拟内存"), bytesToGiBText(memoryStatus.ullAvailVirtual))
+            .field(QStringLiteral("系统启动时间"), QDateTime::fromMSecsSinceEpoch(
+                QDateTime::currentMSecsSinceEpoch() - static_cast<qint64>(::GetTickCount64())).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+        return document;
     }
 
-    // buildOverviewPeripheralTextSnapshot 作用：
-    // - 采集“概览”页的外设与硬件设备总览文本；
+    // buildOverviewPeripheralFieldsSnapshot 作用：
+    // - 采集“概览”页的外设与硬件设备字段；
     // - 覆盖用户要求的声卡/网卡/摄像头，并补充主板/BIOS/磁盘等信息。
     // 说明：
     // - 该函数会执行 PowerShell + CIM 查询；
     // - 必须在后台线程调用，避免阻塞 UI 线程。
-    QString buildOverviewPeripheralTextSnapshot(const bool includeHardwareDetails = true)
+    ks::ui::FieldDocument buildOverviewPeripheralFieldsSnapshot(const bool includeHardwareDetails = true)
     {
         const QString scriptText = QStringLiteral(
-            "$includeHardwareDetails = %1; "
-            "$ErrorActionPreference='SilentlyContinue'; "
-            "function Write-Section([string]$title,[object]$rows){ "
-            "  if($null -eq $rows){return \"[$title]`n<未检测到>`n`n\"}; "
-            "  $count = ($rows | Measure-Object).Count; "
-            "  if($count -eq 0){return \"[$title]`n<未检测到>`n`n\"}; "
-            "  $table = ($rows | Format-Table -AutoSize | Out-String); "
-            "  return \"[$title]`n$table`n\"; "
-            "}; "
-            "$text = ''; "
-            "$baseBoardRows = Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer,Product,Version,SerialNumber; "
-            "$biosRows = Get-CimInstance Win32_BIOS | Select-Object Manufacturer,SMBIOSBIOSVersion,ReleaseDate,SerialNumber; "
-            "$cpuRows = Get-CimInstance Win32_Processor | Select-Object Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed; "
-            "if($includeHardwareDetails){ $diskRows = Get-CimInstance Win32_DiskDrive | Select-Object Model,InterfaceType,MediaType,Size,SerialNumber }; "
-            "$gpuRows = Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM,DriverVersion,VideoProcessor; "
-            "if($includeHardwareDetails){ $soundRows = Get-CimInstance Win32_SoundDevice | Select-Object Name,Manufacturer,Status }; "
-            "$networkRows = Get-CimInstance Win32_NetworkAdapter | Where-Object { $_.PhysicalAdapter -eq $true } | "
-            "  Select-Object Name,AdapterType,Speed,MACAddress,NetConnectionStatus,Manufacturer; "
-            "if($includeHardwareDetails){ $cameraRows = Get-CimInstance Win32_PnPEntity | "
-            "  Where-Object { $_.PNPClass -eq 'Image' -or $_.Service -like '*usbvideo*' } | "
-            "  Select-Object Name,Manufacturer,Status,Service,PNPDeviceID }; "
-            "$monitorRows = Get-CimInstance Win32_DesktopMonitor | Select-Object Name,MonitorType,ScreenWidth,ScreenHeight,Status; "
-            "if($includeHardwareDetails){ $printerRows = Get-CimInstance Win32_Printer | Select-Object Name,DriverName,PortName,WorkOffline,Default }; "
-            "if($includeHardwareDetails){ $usbRows = Get-CimInstance Win32_USBControllerDevice | Select-Object Dependent -First 30 }; "
-            "$text += Write-Section '主板' $baseBoardRows; "
-            "$text += Write-Section 'BIOS' $biosRows; "
-            "$text += Write-Section '处理器' $cpuRows; "
-            "if($includeHardwareDetails){ $text += Write-Section '磁盘设备' $diskRows }; "
-            "$text += Write-Section '显卡设备' $gpuRows; "
-            "if($includeHardwareDetails){ $text += Write-Section '声卡设备' $soundRows }; "
-            "$text += Write-Section '网卡设备(物理)' $networkRows; "
-            "if($includeHardwareDetails){ $text += Write-Section '摄像头设备' $cameraRows }; "
-            "$text += Write-Section '显示器设备' $monitorRows; "
-            "if($includeHardwareDetails){ $text += Write-Section '打印机设备' $printerRows }; "
-            "if($includeHardwareDetails){ $text += Write-Section 'USB控制器映射(前30条)' $usbRows }; "
-            "$text").arg(includeHardwareDetails ? QStringLiteral("$true") : QStringLiteral("$false"));
-        return queryPowerShellTextSync(scriptText, 9000);
+            "$includeHardwareDetails = %1; $ErrorActionPreference='SilentlyContinue'; $doc=[ordered]@{}; "
+            "$doc['主板']=@(Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer,Product,Version,SerialNumber); "
+            "$doc['BIOS']=@(Get-CimInstance Win32_BIOS | Select-Object Manufacturer,SMBIOSBIOSVersion,ReleaseDate,SerialNumber); "
+            "$doc['处理器']=@(Get-CimInstance Win32_Processor | Select-Object Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed); "
+            "if($includeHardwareDetails){$doc['磁盘设备']=@(Get-CimInstance Win32_DiskDrive | Select-Object Model,InterfaceType,MediaType,Size,SerialNumber)}; "
+            "$doc['显卡设备']=@(Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM,DriverVersion,VideoProcessor); "
+            "if($includeHardwareDetails){$doc['声卡设备']=@(Get-CimInstance Win32_SoundDevice | Select-Object Name,Manufacturer,Status)}; "
+            "$doc['网卡设备(物理)']=@(Get-CimInstance Win32_NetworkAdapter | Where-Object {$_.PhysicalAdapter -eq $true} | Select-Object Name,AdapterType,Speed,MACAddress,NetConnectionStatus,Manufacturer); "
+            "if($includeHardwareDetails){$doc['摄像头设备']=@(Get-CimInstance Win32_PnPEntity | Where-Object {$_.PNPClass -eq 'Image' -or $_.Service -like '*usbvideo*'} | Select-Object Name,Manufacturer,Status,Service,PNPDeviceID)}; "
+            "$doc['显示器设备']=@(Get-CimInstance Win32_DesktopMonitor | Select-Object Name,MonitorType,ScreenWidth,ScreenHeight,Status); "
+            "if($includeHardwareDetails){$doc['打印机设备']=@(Get-CimInstance Win32_Printer | Select-Object Name,DriverName,PortName,WorkOffline,Default); "
+            "$doc['USB控制器映射(前30条)']=@(Get-CimInstance Win32_USBControllerDevice | Select-Object Dependent -First 30)}; "
+            "$doc | ConvertTo-Json -Depth 8 -Compress").arg(includeHardwareDetails ? QStringLiteral("$true") : QStringLiteral("$false"));
+        return queryPowerShellFieldsSync(scriptText, 9000);
     }
 
-    // buildGpuStaticTextSnapshot 作用：
-    // - 通过 WMI 采集显卡信息文本；
+    // buildGpuFieldsSnapshot 作用：
+    // - 通过 WMI 采集显卡信息字段；
     // - 该函数会调用 PowerShell，必须放在后台线程执行。
-    QString buildGpuStaticTextSnapshot()
+    ks::ui::FieldDocument buildGpuFieldsSnapshot()
     {
         const QString scriptText = QStringLiteral(
-            "$list=Get-CimInstance Win32_VideoController | "
-            "Select-Object Name,DriverVersion,VideoProcessor,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentRefreshRate,PNPDeviceID; "
-            "if($null -eq $list){'未读取到显卡信息'} else {$list | Format-Table -AutoSize | Out-String}");
-        return queryPowerShellTextSync(scriptText, 5000);
+            "$ErrorActionPreference='SilentlyContinue'; $doc=[ordered]@{}; "
+            "$doc['WMI 驱动与显示信息']=@(Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion,VideoProcessor,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentRefreshRate,PNPDeviceID); "
+            "$doc | ConvertTo-Json -Depth 8 -Compress");
+        return queryPowerShellFieldsSync(scriptText, 5000);
     }
 
-    // buildMemoryStaticTextSnapshot 作用：
-    // - 通过 WMI 采集内存条与系统内存信息文本；
+    // buildMemoryFieldsSnapshot 作用：
+    // - 通过 WMI 采集内存条与系统内存字段；
     // - 该函数会调用 PowerShell，必须放在后台线程执行。
-    QString buildMemoryStaticTextSnapshot()
+    ks::ui::FieldDocument buildMemoryFieldsSnapshot()
     {
         const QString scriptText = QStringLiteral(
-            "$phy=Get-CimInstance Win32_PhysicalMemory | "
-            "Select-Object BankLabel,Manufacturer,PartNumber,ConfiguredClockSpeed,Capacity,SMBIOSMemoryType; "
-            "$os=Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory; "
-            "'[物理内存条]';"
-            "$phy | Format-Table -AutoSize | Out-String; "
-            "'[操作系统内存]';"
-            "$os | Format-List | Out-String");
-        return queryPowerShellTextSync(scriptText, 6000);
+            "$ErrorActionPreference='SilentlyContinue'; $doc=[ordered]@{}; "
+            "$doc['物理内存条']=@(Get-CimInstance Win32_PhysicalMemory | Select-Object BankLabel,Manufacturer,PartNumber,ConfiguredClockSpeed,Capacity,SMBIOSMemoryType); "
+            "$doc['操作系统内存']=@(Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory); "
+            "$doc | ConvertTo-Json -Depth 8 -Compress");
+        return queryPowerShellFieldsSync(scriptText, 6000);
     }
 
     // SensorProbeResult 作用：
@@ -3795,7 +3643,6 @@ namespace
                 copy->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
                 copy->setSpacing(2);
                 copy->setMinimumWidth(140);
-                applyUtilizationScrollBarStyle(copy, 1.0);
                 m_sidebarSource = list;
                 m_sidebarCopy = copy;
                 connect(copy, &QListWidget::currentRowChanged, copy,
@@ -4072,9 +3919,9 @@ HardwareDock::HardwareDock(QWidget* parent)
         this, &HardwareDock::synchronizeUtilizationFollow);
 
     // 启动阶段先填充占位文本，避免首帧等待 PowerShell 导致窗口卡住。
-    m_cachedOverviewStaticText = QStringLiteral("硬件概览加载中，请稍候...");
-    m_cachedGpuStaticText = QStringLiteral("显卡信息加载中，请稍候...");
-    m_cachedMemoryStaticText = QStringLiteral("内存信息加载中，请稍候...");
+    m_cachedOverviewFields.note(QStringLiteral("硬件概览加载中，请稍候..."));
+    m_cachedGpuFields.note(QStringLiteral("显卡信息加载中，请稍候..."));
+    m_cachedMemoryFields.note(QStringLiteral("内存信息加载中，请稍候..."));
     m_cachedSensorText = QStringLiteral("N/A|N/A");
     if (m_cpuModelLabel != nullptr && !m_cpuModelText.isEmpty())
     {
@@ -4695,8 +4542,8 @@ void HardwareDock::initializeOverviewTab()
         QStringLiteral("color:%1;font-weight:600;").arg(KswordTheme::TextSecondaryHex()));
     m_overviewLayout->addWidget(m_overviewSummaryLabel, 0);
 
-    m_overviewEditor = new CodeEditorWidget(m_overviewPage);
-    m_overviewEditor->setReadOnly(true);
+    m_overviewEditor = new ks::ui::StructuredFieldView(m_overviewPage);
+    m_overviewEditor->setPresentation(ks::ui::StructuredFieldView::Presentation::Tree);
     m_overviewLayout->addWidget(m_overviewEditor, 1);
 
     const int tabIndex = m_sideTabWidget->addTab(m_overviewPage, QStringLiteral("硬件概览"));
@@ -4746,7 +4593,6 @@ void HardwareDock::initializeUtilizationTab()
             "QListWidget::item{border:none;padding:0px;margin:0px;}"
             "QListWidget::item:selected{background:transparent;}"));
     appendTransparentBackgroundStyle(m_utilizationSidebarList);
-    applyUtilizationScrollBarStyle(m_utilizationSidebarList, 1.0);
     m_utilizationBodySplitter->addWidget(m_utilizationSidebarList);
 
     m_utilizationDetailStack = new QStackedWidget(m_utilizationBodySplitter);
@@ -5842,14 +5688,12 @@ void HardwareDock::applyUtilizationFloatingContentScale(const bool forceRestyle)
         && m_utilizationSidebarList != nullptr)
     {
         m_utilizationSidebarList->setMinimumWidth(std::max(1, scaledPx(140)));
-        applyUtilizationScrollBarStyle(m_utilizationSidebarList, scale);
         syncUtilizationSidebarCardWidths();
     }
     else
     {
         if (page == m_virtualNetworkPage)
         {
-            applyUtilizationScrollBarStyle(m_virtualNetworkScrollArea, scale);
             relayoutVirtualNetworkTiles();
         }
         adjustUtilizationChartHeights();
@@ -5927,11 +5771,6 @@ void HardwareDock::restoreUtilizationFloatingContentScale()
         && m_utilizationSidebarList != nullptr)
     {
         m_utilizationSidebarList->setMinimumWidth(140);
-        applyUtilizationScrollBarStyle(m_utilizationSidebarList, 1.0);
-    }
-    if (page == m_virtualNetworkPage)
-    {
-        applyUtilizationScrollBarStyle(m_virtualNetworkScrollArea, 1.0);
     }
     m_utilizationFloatingWidgetStyles.clear();
     m_utilizationFloatingLayoutStyles.clear();
@@ -7253,8 +7092,8 @@ void HardwareDock::initializeGpuTab()
     m_gpuLayout->setContentsMargins(4, 4, 4, 4);
     m_gpuLayout->setSpacing(6);
 
-    m_gpuEditor = new CodeEditorWidget(m_gpuPage);
-    m_gpuEditor->setReadOnly(true);
+    m_gpuEditor = new ks::ui::StructuredFieldView(m_gpuPage);
+    m_gpuEditor->setPresentation(ks::ui::StructuredFieldView::Presentation::Tree);
     m_gpuLayout->addWidget(m_gpuEditor, 1);
 
     const int tabIndex = m_sideTabWidget->addTab(m_gpuPage, QStringLiteral("显卡"));
@@ -7272,8 +7111,8 @@ void HardwareDock::initializeMemoryTab()
     m_memoryLayout->setContentsMargins(4, 4, 4, 4);
     m_memoryLayout->setSpacing(6);
 
-    m_memoryEditor = new CodeEditorWidget(m_memoryPage);
-    m_memoryEditor->setReadOnly(true);
+    m_memoryEditor = new ks::ui::StructuredFieldView(m_memoryPage);
+    m_memoryEditor->setPresentation(ks::ui::StructuredFieldView::Presentation::Tree);
     m_memoryLayout->addWidget(m_memoryEditor, 1);
 
     const int tabIndex = m_sideTabWidget->addTab(m_memoryPage, QStringLiteral("内存"));
@@ -7427,7 +7266,7 @@ void HardwareDock::initializeUsbTopologyTab()
 
 void HardwareDock::initializePnpAcpiPciTab()
 {
-    m_pnpAcpiPciPage = createReadOnlyTextPage(
+    m_pnpAcpiPciPage = createReadOnlyFieldPage(
         m_sideTabWidget,
         QStringLiteral("即插即用与系统总线"),
         QStringLiteral("只读审计：PnP、ACPI、PCI、DevNode 状态与 cross-view 风险标记。"),
@@ -7798,7 +7637,6 @@ void HardwareDock::ensureVirtualNetworkPage()
     m_virtualNetworkScrollArea->setWidgetResizable(true);
     m_virtualNetworkScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_virtualNetworkScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    applyUtilizationScrollBarStyle(m_virtualNetworkScrollArea, 1.0);
     configureCompressibleWidget(m_virtualNetworkScrollArea, QSizePolicy::Ignored, QSizePolicy::Expanding);
     appendTransparentBackgroundStyle(m_virtualNetworkScrollArea);
     pageLayout->addWidget(m_virtualNetworkScrollArea, 1);
@@ -11813,36 +11651,36 @@ void HardwareDock::refreshStaticHardwareTexts(const bool forceRefresh)
         }
     }
 
-    if (m_overviewEditor != nullptr && !m_cachedOverviewStaticText.isEmpty())
+    if (m_overviewEditor != nullptr && !m_cachedOverviewFields.isEmpty())
     {
-        m_overviewEditor->setText(m_cachedOverviewStaticText);
+        m_overviewEditor->setDocument(m_cachedOverviewFields);
     }
-    if (m_gpuEditor != nullptr && !m_cachedGpuStaticText.isEmpty())
+    if (m_gpuEditor != nullptr && !m_cachedGpuFields.isEmpty())
     {
-        m_gpuEditor->setText(m_cachedGpuStaticText);
+        m_gpuEditor->setDocument(m_cachedGpuFields);
     }
-    if (m_memoryEditor != nullptr && !m_cachedMemoryStaticText.isEmpty())
+    if (m_memoryEditor != nullptr && !m_cachedMemoryFields.isEmpty())
     {
-        m_memoryEditor->setText(m_cachedMemoryStaticText);
+        m_memoryEditor->setDocument(m_cachedMemoryFields);
     }
-    if (m_deviceStackEditor != nullptr && !m_cachedDeviceStackStaticText.isEmpty())
+    if (m_deviceStackEditor != nullptr && !m_cachedDeviceStackFields.isEmpty())
     {
-        m_deviceStackEditor->setText(m_cachedDeviceStackStaticText);
+        m_deviceStackEditor->setDocument(m_cachedDeviceStackFields);
     }
     populateDeviceAuditTable(m_deviceStackTable, m_cachedDeviceStackRows);
-    if (m_keyboardMouseHidEditor != nullptr && !m_cachedKeyboardMouseHidStaticText.isEmpty())
+    if (m_keyboardMouseHidEditor != nullptr && !m_cachedKeyboardMouseHidFields.isEmpty())
     {
-        m_keyboardMouseHidEditor->setText(m_cachedKeyboardMouseHidStaticText);
+        m_keyboardMouseHidEditor->setDocument(m_cachedKeyboardMouseHidFields);
     }
     populateDeviceAuditTable(m_keyboardMouseHidTable, m_cachedKeyboardMouseHidRows);
-    if (m_usbTopologyEditor != nullptr && !m_cachedUsbTopologyStaticText.isEmpty())
+    if (m_usbTopologyEditor != nullptr && !m_cachedUsbTopologyFields.isEmpty())
     {
-        m_usbTopologyEditor->setText(m_cachedUsbTopologyStaticText);
+        m_usbTopologyEditor->setDocument(m_cachedUsbTopologyFields);
     }
     populateDeviceAuditTable(m_usbTopologyTable, m_cachedUsbTopologyRows);
-    if (m_pnpAcpiPciEditor != nullptr && !m_cachedPnpAcpiPciStaticText.isEmpty())
+    if (m_pnpAcpiPciEditor != nullptr && !m_cachedPnpAcpiPciFields.isEmpty())
     {
-        m_pnpAcpiPciEditor->setText(m_cachedPnpAcpiPciStaticText);
+        m_pnpAcpiPciEditor->setDocument(m_cachedPnpAcpiPciFields);
     }
 }
 
@@ -11865,14 +11703,12 @@ void HardwareDock::requestAsyncStaticInfoRefresh()
     const bool includeHardwareDetails = m_hardwareDetailsSamplingEnabled;
     const QPointer<HardwareDock> safeThis(this);
     QThreadPool::globalInstance()->start([applicationContext, safeThis, includeHardwareDetails]() {
-        const QString overviewBaseText = buildOverviewStaticTextSnapshot();
-        const QString peripheralOverviewText = buildOverviewPeripheralTextSnapshot(includeHardwareDetails);
-        const QString overviewText = overviewBaseText
-            + QStringLiteral("\n[硬件设备总览]\n")
-            + peripheralOverviewText;
-        // 首页只消费 overviewText；额外的显卡/内存详情查询留给实际打开的硬件页。
-        const QString gpuWmiText = includeHardwareDetails ? buildGpuStaticTextSnapshot() : QString();
-        const QString memoryText = includeHardwareDetails ? buildMemoryStaticTextSnapshot() : QString();
+        ks::ui::FieldDocument overviewFields = buildOverviewFieldsSnapshot();
+        const ks::ui::FieldDocument peripheralOverviewFields = buildOverviewPeripheralFieldsSnapshot(includeHardwareDetails);
+        overviewFields.nodes += peripheralOverviewFields.nodes;
+        // 首页只消费 overviewFields；额外的显卡/内存详情查询留给实际打开的硬件页。
+        const ks::ui::FieldDocument gpuWmiFields = includeHardwareDetails ? buildGpuFieldsSnapshot() : ks::ui::FieldDocument{};
+        const ks::ui::FieldDocument memoryFields = includeHardwareDetails ? buildMemoryFieldsSnapshot() : ks::ui::FieldDocument{};
         const MemoryHardwareSummarySnapshot memorySummary = includeHardwareDetails
             ? queryMemoryHardwareSummarySnapshot() : MemoryHardwareSummarySnapshot{};
         const GpuHardwareSummarySnapshot gpuSummary = includeHardwareDetails
@@ -11881,18 +11717,18 @@ void HardwareDock::requestAsyncStaticInfoRefresh()
         // 线程池由 QCoreApplication 析构等待，应用接收器比后台任务活得更久。
         QMetaObject::invokeMethod(
             applicationContext,
-            [safeThis, includeHardwareDetails, overviewText, gpuWmiText, memoryText, memorySummary, gpuSummary]()
+            [safeThis, includeHardwareDetails, overviewFields, gpuWmiFields, memoryFields, memorySummary, gpuSummary]()
             {
                 if (safeThis.isNull())
                 {
                     return;
                 }
 
-                safeThis->m_cachedOverviewStaticText = overviewText;
+                safeThis->m_cachedOverviewFields = overviewFields;
                 if (includeHardwareDetails)
                 {
-                    safeThis->m_cachedGpuStaticText = formatGpuHardwareSummaryText(gpuSummary, gpuWmiText);
-                    safeThis->m_cachedMemoryStaticText = memoryText;
+                    safeThis->m_cachedGpuFields = buildGpuHardwareSummaryFields(gpuSummary, gpuWmiFields);
+                    safeThis->m_cachedMemoryFields = memoryFields;
                     safeThis->m_memorySpeedMhz = memorySummary.speedMhz;
                     safeThis->m_memorySlotUsed = memorySummary.usedSlots;
                     safeThis->m_memorySlotTotal = memorySummary.totalSlots;
@@ -11910,7 +11746,7 @@ void HardwareDock::requestAsyncStaticInfoRefresh()
                         safeThis->m_gpuDedicatedMemoryGiB = gpuSummary.dedicatedMemoryGiB;
                     }
                 }
-                emit safeThis->staticOverviewChanged(safeThis->m_cachedOverviewStaticText);
+                emit safeThis->staticOverviewFieldsChanged(safeThis->m_cachedOverviewFields);
                 // 同步信号接收者可能销毁 Dock，不能继续访问已失效的页面。
                 if (safeThis.isNull())
                 {
@@ -11965,7 +11801,7 @@ void HardwareDock::requestAsyncDeviceAuditRefresh(const std::uint32_t refreshMas
         DeviceAuditViewSnapshot deviceStackSnapshot;
         DeviceAuditViewSnapshot inputStackSnapshot;
         DeviceAuditViewSnapshot usbTopologySnapshot;
-        QString pnpAcpiPciText;
+        ks::ui::FieldDocument pnpAcpiPciFields;
 
         // 三类 R0 审计共享串行锁，并且只查询当前真正打开过的页面。
         // PnP/ACPI/PCI 是 R3 文本采集，不占用驱动通道。
@@ -11986,7 +11822,7 @@ void HardwareDock::requestAsyncDeviceAuditRefresh(const std::uint32_t refreshMas
         }
         if ((requestedMask & PnpAcpiPciRefresh) != 0U)
         {
-            pnpAcpiPciText = HardwareDock::buildPnpAcpiPciStaticText();
+            pnpAcpiPciFields = HardwareDock::buildPnpAcpiPciFields();
         }
 
         // applicationContext 与事件循环同寿命；工作线程不读取页面 QPointer，更不解引用页面成员。
@@ -11997,7 +11833,7 @@ void HardwareDock::requestAsyncDeviceAuditRefresh(const std::uint32_t refreshMas
                 deviceStackSnapshot = std::move(deviceStackSnapshot),
                 inputStackSnapshot = std::move(inputStackSnapshot),
                 usbTopologySnapshot = std::move(usbTopologySnapshot),
-                pnpAcpiPciText = std::move(pnpAcpiPciText)]() mutable
+                pnpAcpiPciFields = std::move(pnpAcpiPciFields)]() mutable
             {
                 if (safeThis.isNull())
                 {
@@ -12009,7 +11845,7 @@ void HardwareDock::requestAsyncDeviceAuditRefresh(const std::uint32_t refreshMas
                     std::move(deviceStackSnapshot),
                     std::move(inputStackSnapshot),
                     std::move(usbTopologySnapshot),
-                    std::move(pnpAcpiPciText));
+                    std::move(pnpAcpiPciFields));
             },
             Qt::QueuedConnection);
     });
@@ -12022,7 +11858,7 @@ void HardwareDock::applyDeviceAuditRefreshResult(
     DeviceAuditViewSnapshot deviceStackSnapshot,
     DeviceAuditViewSnapshot inputStackSnapshot,
     DeviceAuditViewSnapshot usbTopologySnapshot,
-    QString pnpAcpiPciText)
+    ks::ui::FieldDocument pnpAcpiPciFields)
 {
     const QList<QTableView*> deviceAuditTables = {
         m_deviceStackTable,
@@ -12041,7 +11877,7 @@ void HardwareDock::applyDeviceAuditRefreshResult(
                 deviceStackSnapshot = std::move(deviceStackSnapshot),
                 inputStackSnapshot = std::move(inputStackSnapshot),
                 usbTopologySnapshot = std::move(usbTopologySnapshot),
-                pnpAcpiPciText = std::move(pnpAcpiPciText)]() mutable
+                pnpAcpiPciFields = std::move(pnpAcpiPciFields)]() mutable
             {
                 if (!safeThis.isNull())
                 {
@@ -12050,7 +11886,7 @@ void HardwareDock::applyDeviceAuditRefreshResult(
                         std::move(deviceStackSnapshot),
                         std::move(inputStackSnapshot),
                         std::move(usbTopologySnapshot),
-                        std::move(pnpAcpiPciText));
+                        std::move(pnpAcpiPciFields));
                 }
             });
         return;
@@ -12058,22 +11894,22 @@ void HardwareDock::applyDeviceAuditRefreshResult(
 
     if ((requestedMask & DeviceStackAuditRefresh) != 0U)
     {
-        m_cachedDeviceStackStaticText = std::move(deviceStackSnapshot.summaryText);
+        m_cachedDeviceStackFields = std::move(deviceStackSnapshot.summaryFields);
         m_cachedDeviceStackRows = std::move(deviceStackSnapshot.rows);
     }
     if ((requestedMask & InputStackAuditRefresh) != 0U)
     {
-        m_cachedKeyboardMouseHidStaticText = std::move(inputStackSnapshot.summaryText);
+        m_cachedKeyboardMouseHidFields = std::move(inputStackSnapshot.summaryFields);
         m_cachedKeyboardMouseHidRows = std::move(inputStackSnapshot.rows);
     }
     if ((requestedMask & UsbTopologyAuditRefresh) != 0U)
     {
-        m_cachedUsbTopologyStaticText = std::move(usbTopologySnapshot.summaryText);
+        m_cachedUsbTopologyFields = std::move(usbTopologySnapshot.summaryFields);
         m_cachedUsbTopologyRows = std::move(usbTopologySnapshot.rows);
     }
     if ((requestedMask & PnpAcpiPciRefresh) != 0U)
     {
-        m_cachedPnpAcpiPciStaticText = std::move(pnpAcpiPciText);
+        m_cachedPnpAcpiPciFields = std::move(pnpAcpiPciFields);
     }
 
     refreshStaticHardwareTexts(false);
@@ -12197,19 +12033,19 @@ void HardwareDock::requestAsyncSensorRefresh()
     });
 }
 
-QString HardwareDock::buildOverviewStaticText() const
+ks::ui::FieldDocument HardwareDock::buildOverviewFields() const
 {
-    return buildOverviewStaticTextSnapshot();
+    return buildOverviewFieldsSnapshot();
 }
 
-QString HardwareDock::buildGpuStaticText() const
+ks::ui::FieldDocument HardwareDock::buildGpuFields() const
 {
-    return buildGpuStaticTextSnapshot();
+    return buildGpuFieldsSnapshot();
 }
 
-QString HardwareDock::buildMemoryStaticText() const
+ks::ui::FieldDocument HardwareDock::buildMemoryFields() const
 {
-    return buildMemoryStaticTextSnapshot();
+    return buildMemoryFieldsSnapshot();
 }
 
 QString HardwareDock::buildCpuSensorText(const bool forceRefresh)
@@ -12227,113 +12063,81 @@ QString HardwareDock::buildCpuSensorText(const bool forceRefresh)
     return QStringLiteral("N/A|N/A");
 }
 
-QString HardwareDock::buildDeviceStackStaticText() const
+ks::ui::FieldDocument HardwareDock::buildDeviceStackFields() const
 {
-    return buildDeviceStackAuditViewSnapshot().summaryText;
+    return buildDeviceStackAuditViewSnapshot().summaryFields;
 }
 
 HardwareDock::DeviceAuditViewSnapshot HardwareDock::buildDeviceStackAuditViewSnapshot()
 {
-    // scriptText 用途：保留原有 Win32_PnPEntity / PnP cross-view 输出；
-    // r0AuditResult 用途：通过 ArkDriverClient 追加 R0 设备栈审计摘要和结构化行。
     const QString scriptText = QStringLiteral(
-        "$ErrorActionPreference='SilentlyContinue'; "
-        "$rows=Get-CimInstance Win32_PnPEntity | Select-Object Name,PNPClass,Service,Status,PNPDeviceID,ConfigManagerErrorCode -First 120; "
-        "$text='[DevNode / Device Stack]\\n'; "
-        "$text += '说明：上方为 WMI/DevNode 视角；下方结构化表展示 R0 DeviceStack 行、attached/next 关系、风险标记和 PDB/DynData readiness。`n'; "
-        "$text += ($rows | Format-Table -AutoSize | Out-String); "
-        "$text += \"`n风险标记: 不执行卸载/删除/patch。\"; "
-        "Write-Output $text");
-    QString text = queryPowerShellTextSync(scriptText, 8000);
-    const ksword::ark::DriverClient client;
-    const ksword::ark::DeviceAuditResult r0AuditResult = client.queryDeviceStackAudit();
-    text += appendDeviceAuditSummaryText(
-        QStringLiteral("R0 Device Stack Audit Summary"),
-        r0AuditResult,
-        KSWORD_ARK_DEVICE_AUDIT_DEFAULT_MAX_ATTACHED_DEPTH);
-
+        "$ErrorActionPreference='SilentlyContinue'; $doc=[ordered]@{}; "
+        "$doc['DevNode / Device Stack']=@(Get-CimInstance Win32_PnPEntity | Select-Object Name,PNPClass,Service,Status,PNPDeviceID,ConfigManagerErrorCode -First 120); "
+        "$doc | ConvertTo-Json -Depth 8 -Compress");
     DeviceAuditViewSnapshot snapshot;
-    snapshot.summaryText = text;
-    snapshot.rows = buildDeviceAuditRows(QStringLiteral("DeviceStack"), r0AuditResult);
+    snapshot.summaryFields = queryPowerShellFieldsSync(scriptText, 8000);
+    snapshot.summaryFields.note(QStringLiteral("说明：上方为 WMI/DevNode 视角；下方结构化表展示 R0 DeviceStack 行、attached/next 关系、风险标记和 PDB/DynData readiness。"))
+        .note(QStringLiteral("风险标记: 不执行卸载/删除/patch。"));
+    const ksword::ark::DriverClient client;
+    const ksword::ark::DeviceAuditResult audit = client.queryDeviceStackAudit();
+    snapshot.summaryFields.nodes += appendDeviceAuditSummaryFields(
+        QStringLiteral("R0 Device Stack Audit Summary"), audit, KSWORD_ARK_DEVICE_AUDIT_DEFAULT_MAX_ATTACHED_DEPTH).nodes;
+    snapshot.rows = buildDeviceAuditRows(QStringLiteral("DeviceStack"), audit);
     return snapshot;
 }
 
-QString HardwareDock::buildKeyboardMouseHidStaticText() const
+ks::ui::FieldDocument HardwareDock::buildKeyboardMouseHidFields() const
 {
-    return buildKeyboardMouseHidAuditViewSnapshot().summaryText;
+    return buildKeyboardMouseHidAuditViewSnapshot().summaryFields;
 }
 
 HardwareDock::DeviceAuditViewSnapshot HardwareDock::buildKeyboardMouseHidAuditViewSnapshot()
 {
-    // scriptText 用途：保留原有 Keyboard/Mouse/HIDClass 的 WMI/PnP 输出；
-    // r0AuditResult 用途：追加 R0 输入设备链只读审计摘要和结构化行。
     const QString scriptText = QStringLiteral(
-        "$ErrorActionPreference='SilentlyContinue'; "
-        "$rows=Get-CimInstance Win32_PnPEntity | Where-Object { $_.PNPClass -in @('Keyboard','Mouse','HIDClass') -or $_.Service -match 'kbdhid|mouhid|hidusb' } | "
-        "Select-Object Name,PNPClass,Service,Status,PNPDeviceID -First 160; "
-        "$text='[Keyboard / Mouse / HID]\\n'; "
-        "$text += '说明：默认不做消息截获、不做输入抓取。`n'; "
-        "$text += ($rows | Format-Table -AutoSize | Out-String); "
-        "Write-Output $text");
-    QString text = queryPowerShellTextSync(scriptText, 8000);
-    const ksword::ark::DriverClient client;
-    const ksword::ark::DeviceAuditResult r0AuditResult = client.queryInputStackAudit();
-    text += appendDeviceAuditSummaryText(
-        QStringLiteral("R0 Input Stack Audit Summary"),
-        r0AuditResult,
-        KSWORD_ARK_DEVICE_AUDIT_DEFAULT_MAX_ATTACHED_DEPTH);
-
+        "$ErrorActionPreference='SilentlyContinue'; $doc=[ordered]@{}; "
+        "$doc['Keyboard / Mouse / HID']=@(Get-CimInstance Win32_PnPEntity | Where-Object {$_.PNPClass -in @('Keyboard','Mouse','HIDClass') -or $_.Service -match 'kbdhid|mouhid|hidusb'} | Select-Object Name,PNPClass,Service,Status,PNPDeviceID -First 160); "
+        "$doc | ConvertTo-Json -Depth 8 -Compress");
     DeviceAuditViewSnapshot snapshot;
-    snapshot.summaryText = text;
-    snapshot.rows = buildDeviceAuditRows(QStringLiteral("InputStack"), r0AuditResult);
+    snapshot.summaryFields = queryPowerShellFieldsSync(scriptText, 8000);
+    snapshot.summaryFields.note(QStringLiteral("说明：默认不做消息截获、不做输入抓取。"));
+    const ksword::ark::DriverClient client;
+    const ksword::ark::DeviceAuditResult audit = client.queryInputStackAudit();
+    snapshot.summaryFields.nodes += appendDeviceAuditSummaryFields(
+        QStringLiteral("R0 Input Stack Audit Summary"), audit, KSWORD_ARK_DEVICE_AUDIT_DEFAULT_MAX_ATTACHED_DEPTH).nodes;
+    snapshot.rows = buildDeviceAuditRows(QStringLiteral("InputStack"), audit);
     return snapshot;
 }
 
-QString HardwareDock::buildUsbTopologyStaticText() const
+ks::ui::FieldDocument HardwareDock::buildUsbTopologyFields() const
 {
-    return buildUsbTopologyAuditViewSnapshot().summaryText;
+    return buildUsbTopologyAuditViewSnapshot().summaryFields;
 }
 
 HardwareDock::DeviceAuditViewSnapshot HardwareDock::buildUsbTopologyAuditViewSnapshot()
 {
-    // scriptText 用途：保留 USB controller/hub/link 的 WMI 拓扑输出；
-    // r0AuditResult 用途：追加 R0 USB 拓扑只读审计摘要和结构化行。
     const QString scriptText = QStringLiteral(
-        "$ErrorActionPreference='SilentlyContinue'; "
-        "$controllers=Get-CimInstance Win32_USBController | Select-Object Name,Manufacturer,DeviceID,PNPDeviceID,Status; "
-        "$hubs=Get-CimInstance Win32_USBHub | Select-Object Name,DeviceID,PNPDeviceID,Status; "
-        "$links=Get-CimInstance Win32_USBControllerDevice | Select-Object Antecedent,Dependent -First 80; "
-        "$text='[USB Topology]\\n'; "
-        "$text += \"[USB控制器]\\n\" + ($controllers | Format-Table -AutoSize | Out-String); "
-        "$text += \"`n[USB Hub]\\n\" + ($hubs | Format-Table -AutoSize | Out-String); "
-        "$text += \"`n[USB连接]\\n\" + ($links | Format-Table -AutoSize | Out-String); "
-        "Write-Output $text");
-    QString text = queryPowerShellTextSync(scriptText, 10000);
-    const ksword::ark::DriverClient client;
-    const ksword::ark::DeviceAuditResult r0AuditResult = client.queryUsbTopologyAudit();
-    text += appendDeviceAuditSummaryText(
-        QStringLiteral("R0 USB Topology Audit Summary"),
-        r0AuditResult,
-        KSWORD_ARK_DEVICE_AUDIT_DEFAULT_MAX_ATTACHED_DEPTH);
-
+        "$ErrorActionPreference='SilentlyContinue'; $doc=[ordered]@{}; "
+        "$doc['USB控制器']=@(Get-CimInstance Win32_USBController | Select-Object Name,Manufacturer,DeviceID,PNPDeviceID,Status); $doc['USB Hub']=@(Get-CimInstance Win32_USBHub | Select-Object Name,DeviceID,PNPDeviceID,Status); $doc['USB连接']=@(Get-CimInstance Win32_USBControllerDevice | Select-Object Antecedent,Dependent -First 80); "
+        "$doc | ConvertTo-Json -Depth 8 -Compress");
     DeviceAuditViewSnapshot snapshot;
-    snapshot.summaryText = text;
-    snapshot.rows = buildDeviceAuditRows(QStringLiteral("UsbTopology"), r0AuditResult);
+    snapshot.summaryFields = queryPowerShellFieldsSync(scriptText, 10000);
+    const ksword::ark::DriverClient client;
+    const ksword::ark::DeviceAuditResult audit = client.queryUsbTopologyAudit();
+    snapshot.summaryFields.nodes += appendDeviceAuditSummaryFields(
+        QStringLiteral("R0 USB Topology Audit Summary"), audit, KSWORD_ARK_DEVICE_AUDIT_DEFAULT_MAX_ATTACHED_DEPTH).nodes;
+    snapshot.rows = buildDeviceAuditRows(QStringLiteral("UsbTopology"), audit);
     return snapshot;
 }
 
-QString HardwareDock::buildPnpAcpiPciStaticText()
+ks::ui::FieldDocument HardwareDock::buildPnpAcpiPciFields()
 {
     const QString scriptText = QStringLiteral(
-        "$ErrorActionPreference='SilentlyContinue'; "
-        "$pnp=Get-CimInstance Win32_PnPEntity | Where-Object { $_.PNPDeviceID -like 'ACPI*' -or $_.PNPDeviceID -like 'PCI*' } | "
-        "Select-Object Name,PNPClass,Service,Status,PNPDeviceID,ConfigManagerErrorCode -First 180; "
-        "$board=Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer,Product,Version,SerialNumber; "
-        "$bios=Get-CimInstance Win32_BIOS | Select-Object Manufacturer,SMBIOSBIOSVersion,ReleaseDate,SerialNumber; "
-        "$text='[PnP / ACPI / PCI]\\n'; "
-        "$text += \"[主板/BIOS]\\n\" + ($board | Format-Table -AutoSize | Out-String) + \"`n\" + ($bios | Format-Table -AutoSize | Out-String); "
-        "$text += \"`n[PnP节点]\\n\" + ($pnp | Format-Table -AutoSize | Out-String); "
-        "$text += \"`n风险标记: 保持只读，不做 patch/remove/disable。\"; "
-        "Write-Output $text");
-    return queryPowerShellTextSync(scriptText, 10000);
+        "$ErrorActionPreference='SilentlyContinue'; $doc=[ordered]@{}; "
+        "$doc['主板']=@(Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer,Product,Version,SerialNumber); "
+        "$doc['BIOS']=@(Get-CimInstance Win32_BIOS | Select-Object Manufacturer,SMBIOSBIOSVersion,ReleaseDate,SerialNumber); "
+        "$doc['PnP节点']=@(Get-CimInstance Win32_PnPEntity | Where-Object {$_.PNPDeviceID -like 'ACPI*' -or $_.PNPDeviceID -like 'PCI*'} | Select-Object Name,PNPClass,Service,Status,PNPDeviceID,ConfigManagerErrorCode -First 180); "
+        "$doc | ConvertTo-Json -Depth 8 -Compress");
+    auto document = queryPowerShellFieldsSync(scriptText, 10000);
+    document.note(QStringLiteral("风险标记: 保持只读，不做 patch/remove/disable。"));
+    return document;
 }

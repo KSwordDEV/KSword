@@ -1,4 +1,5 @@
-﻿#include "TamperDetectionPage.h"
+#include "../UI/StructuredFieldView.h"
+#include "TamperDetectionPage.h"
 #include "../UI/CodeEditorWidget.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -476,9 +477,9 @@ namespace ksword::memory_dock
         m_resultTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
         splitter->addWidget(m_resultTable);
 
-        m_detailText = new CodeEditorWidget(splitter);
-        m_detailText->setReadOnly(true);
-        m_detailText->setPlaceholderText(QStringLiteral("选中上方任意一行查看该页每条路径的状态与逐对分歧。"));
+        m_detailText = new ks::ui::StructuredFieldView(splitter);
+
+        m_detailText->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("选中上方任意一行查看该页每条路径的状态与逐对分歧。")));
         splitter->addWidget(m_detailText);
 
         splitter->setStretchFactor(0, 3);
@@ -823,59 +824,30 @@ namespace ksword::memory_dock
         const int row = m_resultTable->currentRow();
         if (row < 0 || row >= static_cast<int>(m_results.size()))
         {
-            m_detailText->setReportText(QString());
+            m_detailText->setDocument({});
             return;
         }
         const TamperPageResult& pageResult = m_results[static_cast<std::size_t>(row)];
         const TamperFinding& finding = pageResult.finding;
 
-        QStringList lines;
-        lines << QStringLiteral("虚拟地址 0x%1")
-                     .arg(pageResult.virtualAddress, 16, 16, QChar('0')).toUpper();
-        lines << QStringLiteral("结论：%1").arg(QString::fromUtf8(TamperVerdictName(finding.verdict)));
-        lines << QStringLiteral("可比对轮数：%1").arg(finding.comparableRoundCount);
-        if (!finding.inconclusiveReason.empty())
-        {
-            lines << QStringLiteral("未能判定的原因：%1")
-                         .arg(QString::fromStdString(finding.inconclusiveReason));
+        ks::ui::FieldDocument lines;
+        lines.field(QStringLiteral("虚拟地址"), QStringLiteral("0x%1").arg(pageResult.virtualAddress, 16, 16, QChar('0')).toUpper());
+        lines.field(QStringLiteral("结论"), QString::fromUtf8(TamperVerdictName(finding.verdict)), true);
+        lines.field(QStringLiteral("可比对轮数"), QString::number(finding.comparableRoundCount));
+        if (!finding.inconclusiveReason.empty()) lines.field(QStringLiteral("未能判定的原因"), QString::fromStdString(finding.inconclusiveReason), true);
+        lines.section(QStringLiteral("各路径最后一轮的状态"));
+        for (const TamperViewSample& sample : finding.lastRoundStatus) {
+            lines.field(QString::fromUtf8(TamperReadPathName(sample.path)), QString::fromUtf8(TamperSampleStatusName(sample.status)), true);
+            if (!sample.failureText.empty()) lines.note(QString::fromStdString(sample.failureText));
         }
-
-        lines << QString();
-        lines << QStringLiteral("各路径最后一轮的状态：");
-        for (const TamperViewSample& sample : finding.lastRoundStatus)
-        {
-            QString line = QStringLiteral("  %1 —— %2")
-                .arg(QString::fromUtf8(TamperReadPathName(sample.path)))
-                .arg(QString::fromUtf8(TamperSampleStatusName(sample.status)));
-            if (!sample.failureText.empty())
-            {
-                line += QStringLiteral("（%1）").arg(QString::fromStdString(sample.failureText));
-            }
-            lines << line;
+        if (finding.disagreements.empty()) lines.note(QStringLiteral("未观察到任何一对路径之间的字节差异。"));
+        else for (const TamperDisagreement& disagreement : finding.disagreements) {
+            lines.section(QStringLiteral("%1 ↔ %2").arg(QString::fromUtf8(TamperReadPathName(disagreement.left)), QString::fromUtf8(TamperReadPathName(disagreement.right))));
+            lines.field(QStringLiteral("不一致轮数 / 可比对轮数"), QStringLiteral("%1 / %2").arg(disagreement.disagreeingRounds).arg(disagreement.comparableRounds));
+            lines.field(QStringLiteral("首个不同的页内偏移"), QStringLiteral("0x%1").arg(disagreement.firstDifferingOffset, 0, 16).toUpper());
+            lines.field(QStringLiteral("两侧字节"), QStringLiteral("%1 / %2").arg(disagreement.leftByte, 2, 16, QChar('0')).arg(disagreement.rightByte, 2, 16, QChar('0')).toUpper());
+            lines.field(QStringLiteral("不同字节数量"), QString::number(disagreement.differingByteCount));
         }
-
-        if (finding.disagreements.empty())
-        {
-            lines << QString();
-            lines << QStringLiteral("未观察到任何一对路径之间的字节差异。");
-        }
-        else
-        {
-            lines << QString();
-            lines << QStringLiteral("逐对分歧：");
-            for (const TamperDisagreement& disagreement : finding.disagreements)
-            {
-                lines << QStringLiteral("  %1 ↔ %2：%3 / %4 轮不一致，首个不同在页内偏移 0x%5，两侧字节 %6 / %7，共 %8 字节不同")
-                    .arg(QString::fromUtf8(TamperReadPathName(disagreement.left)))
-                    .arg(QString::fromUtf8(TamperReadPathName(disagreement.right)))
-                    .arg(disagreement.disagreeingRounds)
-                    .arg(disagreement.comparableRounds)
-                    .arg(QString::number(disagreement.firstDifferingOffset, 16).toUpper())
-                    .arg(QStringLiteral("%1").arg(disagreement.leftByte, 2, 16, QChar('0')).toUpper())
-                    .arg(QStringLiteral("%1").arg(disagreement.rightByte, 2, 16, QChar('0')).toUpper())
-                    .arg(disagreement.differingByteCount);
-            }
-        }
-        m_detailText->setReportText(lines.join(QLatin1Char('\n')));
+        m_detailText->setDocument(lines);
     }
 }

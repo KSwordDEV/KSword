@@ -1987,6 +1987,7 @@ void ProcessTraceMonitorWidget::appendEventRow(const CapturedEventRow& rowValue)
     m_eventTable->insertRow(row);
 
     QTableWidgetItem* timeItem = createReadOnlyItem(rowValue.time100nsText);
+    timeItem->setData(Qt::UserRole + 4, QVariant::fromValue(rowValue.detailDocument));
     timeItem->setData(kEventRoleTime100nsValue, QVariant::fromValue<qulonglong>(
         static_cast<qulonglong>(rowValue.time100ns)));
     timeItem->setData(
@@ -2008,7 +2009,7 @@ void ProcessTraceMonitorWidget::appendEventRow(const CapturedEventRow& rowValue)
             rowValue.processText,
             rowValue.rootPidText,
             rowValue.relationText,
-            rowValue.detailText,
+            rowValue.detailDocument.toPlainText(true).simplified().left(6000),
             rowValue.activityIdText));
 
     m_eventTable->setItem(row, EventColumnTime100ns, timeItem);
@@ -2020,7 +2021,7 @@ void ProcessTraceMonitorWidget::appendEventRow(const CapturedEventRow& rowValue)
     m_eventTable->setItem(row, EventColumnProcess, createReadOnlyItem(rowValue.processText));
     m_eventTable->setItem(row, EventColumnRootPid, createReadOnlyItem(rowValue.rootPidText));
     m_eventTable->setItem(row, EventColumnRelation, createReadOnlyItem(rowValue.relationText));
-    m_eventTable->setItem(row, EventColumnDetail, createReadOnlyItem(rowValue.detailText));
+    m_eventTable->setItem(row, EventColumnDetail, createReadOnlyItem(rowValue.detailDocument.toPlainText(true).simplified().left(6000)));
     m_eventTable->setItem(row, EventColumnActivityId, createReadOnlyItem(rowValue.activityIdText));
 
     ProcessTraceTimelineEventPoint pointValue;

@@ -9,6 +9,7 @@
 #include "VisibleTableWidget.h"
 #include "ResultTableHost.h"
 #include "UiCommitCoordinator.h"
+#include "TablePresentation.h"
 
 #include <QAbstractItemModel>
 #include <QAbstractItemView>
@@ -23,6 +24,7 @@
 #include <QFileInfo>
 #include <QFrame>
 #include <QHash>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QTreeView>
@@ -30,17 +32,20 @@
 #include <QItemSelectionModel>
 #include <QKeyEvent>
 #include <QKeySequence>
+#include <QLabel>
 #include <QComboBox>
 #include <QMenu>
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPalette>
 #include <QPointer>
+#include <QPushButton>
 #include <QSaveFile>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSignalBlocker>
 #include <QSizePolicy>
+#include <QSpinBox>
 #include <QStringConverter>
 #include <QTableView>
 #include <QTextStream>
@@ -50,6 +55,7 @@
 #include <QVector>
 #include <QWheelEvent>
 #include <QWidget>
+#include <QWidgetAction>
 
 #include <algorithm>
 #include <utility>
@@ -79,47 +85,6 @@ namespace
     constexpr TableSnapshotCaptureLimits kSnapshotCaptureLimits{};
     constexpr TableSnapshotComparisonLimits kSnapshotComparisonLimits{};
     constexpr TableSnapshotRetentionLimits kSnapshotRetentionLimits{};
-
-    const QString& standardTableHeaderStyle()
-    {
-        static const QString style = QStringLiteral(
-            "QHeaderView{"
-            "  background-color:transparent;"
-            "  border:none;"
-            "}"
-            "QHeaderView::section{"
-            "  background-color:palette(alternate-base);"
-            "  color:palette(text);"
-            "  border:none;"
-            "  border-right:1px solid palette(mid);"
-            "  border-bottom:1px solid palette(midlight);"
-            "  padding:3px 6px;"
-            "  font-weight:400;"
-            "}"
-            "QHeaderView::section:hover{"
-            "  background-color:palette(button);"
-            "}");
-        return style;
-    }
-
-    void applyStandardTableHeaderStyle(QTableView* tableView)
-    {
-        if (tableView == nullptr || ks::ui::PreservesCustomTableHeaderStyle(tableView))
-        {
-            return;
-        }
-
-        const QString& style = standardTableHeaderStyle();
-        const auto applyToHeader = [&style](QHeaderView* header)
-        {
-            if (header != nullptr && header->styleSheet() != style)
-            {
-                header->setStyleSheet(style);
-            }
-        };
-        applyToHeader(tableView->horizontalHeader());
-        applyToHeader(tableView->verticalHeader());
-    }
 
     // 菜单来源仍由表格过滤器识别，状态和异步提交队列统一交给协调器。
     void beginItemViewContextMenu(QAbstractItemView* itemView)
@@ -625,7 +590,6 @@ namespace
                 "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR{"
                 "  background-color:palette(base);"
                 "  border:none;"
-                "  border-bottom:1px solid palette(mid);"
                 "}"
                 "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QToolButton{"
                 "  min-height:20px;"
@@ -638,7 +602,7 @@ namespace
                 "}"
                 "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QToolButton:hover{"
                 "  background-color:palette(alternate-base) !important;"
-                "  border-color:palette(highlight) !important;"
+                "  border-color:transparent !important;"
                 "}"
                 "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QToolButton:pressed,"
                 "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QToolButton:checked{"
@@ -667,7 +631,9 @@ namespace
 
             m_copyAllButton = createButton("复制全表", QStringLiteral(":/Icon/log_copy.svg"));
             m_exportButton = createButton("导出", QStringLiteral(":/Icon/log_export.svg"));
-            m_freezePaneButton = createButton("冻结行列");
+            m_freezePaneButton = createButton("冻结");
+            m_freezePaneButton->setObjectName(QStringLiteral("ksword_table_freeze_button"));
+            m_freezePaneButton->setMinimumSize(68, 28);
             m_freezePaneButton->setToolTip(localizedSourceText(
                 "冻结选中的行或列：行会钉在列标题正下方，列会固定在行表头右侧；支持一次冻结多选行"));
             m_pauseRefreshButton = createButton("冻结视图");
@@ -682,6 +648,37 @@ namespace
 
             m_freezePaneMenu = new QMenu(m_freezePaneButton);
             m_freezePaneMenu->setStyleSheet(KswordTheme::ContextMenuStyle());
+            auto* freezeCountsWidget = new QWidget(m_freezePaneMenu);
+            auto* freezeCountsLayout = new QGridLayout(freezeCountsWidget);
+            freezeCountsLayout->setContentsMargins(10, 8, 10, 8);
+            freezeCountsLayout->setHorizontalSpacing(10);
+            freezeCountsLayout->setVerticalSpacing(6);
+            m_freezeRowsLabel = new QLabel(localizedSourceText("前面的行"), freezeCountsWidget);
+            m_freezeColumnsLabel = new QLabel(localizedSourceText("前面的列"), freezeCountsWidget);
+            m_freezeRowsSpin = new QSpinBox(freezeCountsWidget);
+            m_freezeColumnsSpin = new QSpinBox(freezeCountsWidget);
+            m_freezeRowsSpin->setObjectName(QStringLiteral("ksword_table_freeze_row_count"));
+            m_freezeColumnsSpin->setObjectName(QStringLiteral("ksword_table_freeze_column_count"));
+            for (QSpinBox* spin : {m_freezeRowsSpin, m_freezeColumnsSpin})
+            {
+                spin->setRange(0, 0);
+                spin->setMinimumSize(72, 28);
+                spin->setToolTip(localizedSourceText("数量按照当前可见顺序；冻结区域最多占用视口的一半。"));
+            }
+            m_freezeRowsLabel->setBuddy(m_freezeRowsSpin);
+            m_freezeColumnsLabel->setBuddy(m_freezeColumnsSpin);
+            m_applyFreezeCountsButton = new QPushButton(localizedSourceText("应用冻结"), freezeCountsWidget);
+            m_applyFreezeCountsButton->setObjectName(QStringLiteral("ksword_table_apply_freeze_counts"));
+            m_applyFreezeCountsButton->setMinimumHeight(28);
+            freezeCountsLayout->addWidget(m_freezeRowsLabel, 0, 0);
+            freezeCountsLayout->addWidget(m_freezeRowsSpin, 0, 1);
+            freezeCountsLayout->addWidget(m_freezeColumnsLabel, 1, 0);
+            freezeCountsLayout->addWidget(m_freezeColumnsSpin, 1, 1);
+            freezeCountsLayout->addWidget(m_applyFreezeCountsButton, 2, 0, 1, 2);
+            auto* freezeCountsAction = new QWidgetAction(m_freezePaneMenu);
+            freezeCountsAction->setDefaultWidget(freezeCountsWidget);
+            m_freezePaneMenu->addAction(freezeCountsAction);
+            m_freezePaneMenu->addSeparator();
             m_freezeCurrentRowAction = m_freezePaneMenu->addAction(
                 localizedSourceText("冻结选中行"));
             m_freezeCurrentColumnAction = m_freezePaneMenu->addAction(
@@ -712,6 +709,8 @@ namespace
             m_snapshotLayout->setSpacing(2);
             m_snapshotScrollArea->setWidget(m_snapshotContent);
             layout->addWidget(m_snapshotScrollArea, 1);
+            connect(m_snapshotScrollArea->horizontalScrollBar(), &QScrollBar::rangeChanged,
+                this, [this]() { scheduleSnapshotLayout(); });
 
             m_addSnapshotButton = createButton("增加快照");
             m_cleanupButton = createButton("清理");
@@ -747,7 +746,26 @@ namespace
                 });
             connect(m_freezePaneMenu, &QMenu::aboutToShow, this, [this]()
                 {
+                    // ContextMenuStyle includes sampled theme colors. Refresh before
+                    // native Show begins, never from a Show/Resize event filter.
+                    const QString menuStyle = KswordTheme::ContextMenuStyle();
+                    if (m_freezePaneMenu->styleSheet() != menuStyle) m_freezePaneMenu->setStyleSheet(menuStyle);
+                    if (!m_freezeMenuBarrierActive)
+                    {
+                        m_freezeMenuBarrierActive = true;
+                        m_freezeMenuSource = m_table;
+                        beginItemViewContextMenu(m_freezeMenuSource.data());
+                    }
                     updateFreezePaneMenu();
+                });
+            connect(m_freezePaneMenu, &QMenu::aboutToHide, this, [this]()
+                {
+                    closeFreezeMenuBarrier();
+                });
+            connect(m_applyFreezeCountsButton, &QPushButton::clicked, this, [this]()
+                {
+                    applyFreezeCounts();
+                    m_freezePaneMenu->hide();
                 });
             connect(m_freezeCurrentRowAction, &QAction::triggered, this, [this]()
                 {
@@ -823,14 +841,32 @@ namespace
                     showComparisonView();
                 });
 
+            m_table->installEventFilter(this);
             rebuildSnapshotControls();
             updateControls();
         }
 
+        ~TableActionBar() override
+        {
+            closeFreezeMenuBarrier();
+        }
+
     protected:
+        bool eventFilter(QObject* source, QEvent* event) override
+        {
+            // Frozen sections are already published by the controller after model
+            // resets/inserts/removes. Observe that state without polling or repolishing.
+            if (source == m_table && event != nullptr && event->type() == QEvent::DynamicPropertyChange)
+                updateFreezeButton();
+            return QFrame::eventFilter(source, event);
+        }
+
         void changeEvent(QEvent* eventObject) override
         {
             QFrame::changeEvent(eventObject);
+            if (eventObject != nullptr && m_snapshotScrollArea != nullptr
+                && (eventObject->type() == QEvent::FontChange || eventObject->type() == QEvent::StyleChange))
+                scheduleSnapshotLayout();
             if (eventObject == nullptr || eventObject->type() != QEvent::LanguageChange)
             {
                 return;
@@ -838,7 +874,11 @@ namespace
 
             m_copyAllButton->setText(localizedSourceText("复制全表"));
             m_exportButton->setText(localizedSourceText("导出"));
-            m_freezePaneButton->setText(localizedSourceText("冻结行列"));
+            m_freezeRowsLabel->setText(localizedSourceText("前面的行"));
+            m_freezeColumnsLabel->setText(localizedSourceText("前面的列"));
+            m_applyFreezeCountsButton->setText(localizedSourceText("应用冻结"));
+            for (QSpinBox* spin : {m_freezeRowsSpin, m_freezeColumnsSpin})
+                spin->setToolTip(localizedSourceText("数量按照当前可见顺序；冻结区域最多占用视口的一半。"));
             m_freezePaneButton->setToolTip(localizedSourceText(
                 "冻结选中的行或列：行会钉在列标题正下方，列会固定在行表头右侧；支持一次冻结多选行"));
             m_freezeCurrentRowAction->setText(localizedSourceText("冻结选中行"));
@@ -879,15 +919,17 @@ namespace
                 return;
             }
 
+            updateSnapshotContentSize();
+            const bool actionBarVisible = m_mode != TableActionBarMode::None;
+            auto* host = ks::ui::TableActionBarHostFor(m_table.data());
+            if (host != nullptr) host->setTopActionBarHeight(actionBarVisible ? height() : 0);
             // 冻结窗格会改变视口边距，操作条位置依赖那个结果，所以必须先刷新冻结窗格。
             if (m_frozenPaneController != nullptr)
             {
                 m_frozenPaneController->refreshGeometry();
             }
-            if (ks::ui::TableActionBarHost* host = ks::ui::TableActionBarHostFor(m_table.data()))
+            if (host != nullptr)
             {
-                const bool actionBarVisible = m_mode != TableActionBarMode::None;
-                host->setTopActionBarHeight(actionBarVisible ? kActionBarHeight : 0);
                 setVisible(actionBarVisible);
                 if (actionBarVisible)
                 {
@@ -978,6 +1020,20 @@ namespace
                 m_frozenPaneController->canFreeze() &&
                 currentIndex.isValid();
 
+            const bool countsAvailable = !m_inComparison && !m_pauseCaptureInProgress
+                && !m_snapshotCaptureInProgress && !m_comparisonInProgress
+                && tableView != nullptr && tableView->model() != nullptr
+                && m_frozenPaneController->canFreeze();
+            const QSignalBlocker rowsBlocker(m_freezeRowsSpin);
+            const QSignalBlocker columnsBlocker(m_freezeColumnsSpin);
+            m_freezeRowsSpin->setRange(0, countsAvailable ? tableView->model()->rowCount() : 0);
+            m_freezeColumnsSpin->setRange(0, countsAvailable ? tableView->model()->columnCount() : 0);
+            m_freezeRowsSpin->setValue(m_frozenPaneController->frozenRowCount());
+            m_freezeColumnsSpin->setValue(m_frozenPaneController->frozenColumnCount());
+            m_freezeRowsSpin->setEnabled(countsAvailable);
+            m_freezeColumnsSpin->setEnabled(countsAvailable);
+            m_applyFreezeCountsButton->setEnabled(countsAvailable);
+
             m_freezeCurrentRowAction->setEnabled(currentAvailable);
             m_freezeCurrentColumnAction->setEnabled(currentAvailable);
             m_freezeCurrentCellAction->setEnabled(currentAvailable);
@@ -986,6 +1042,58 @@ namespace
             m_unfreezeAllAction->setEnabled(
                 m_frozenPaneController->frozenRowCount() > 0 ||
                 m_frozenPaneController->frozenColumnCount() > 0);
+            updateFreezeButton();
+        }
+
+        void closeFreezeMenuBarrier()
+        {
+            if (!m_freezeMenuBarrierActive) return;
+            m_freezeMenuBarrierActive = false;
+            endItemViewContextMenu(m_freezeMenuSource.data());
+            m_freezeMenuSource.clear();
+        }
+
+        void updateFreezeButton()
+        {
+            if (m_freezePaneButton == nullptr || m_frozenPaneController == nullptr) return;
+            const int rows = m_frozenPaneController->frozenRowCount();
+            const int columns = m_frozenPaneController->frozenColumnCount();
+            m_freezePaneButton->setText(rows == 0 && columns == 0
+                ? localizedSourceText("冻结")
+                : localizedSourceText("冻结（%1 行 / %2 列）").arg(rows).arg(columns));
+            m_freezePaneButton->setProperty("ksword_frozen_rows", rows);
+            m_freezePaneButton->setProperty("ksword_frozen_columns", columns);
+        }
+
+        void applyFreezeCounts()
+        {
+            QTableView* tableView = activeTableView();
+            if (m_inComparison || m_pauseCaptureInProgress || m_snapshotCaptureInProgress || m_comparisonInProgress
+                || tableView == nullptr || tableView->model() == nullptr) return;
+            if (m_frozenPaneController->targetTable() != tableView)
+                m_frozenPaneController->setTargetTable(tableView);
+            if (!m_frozenPaneController->canFreeze()) return;
+            // Keep business-hidden sections hidden. Existing frozen sections remain
+            // eligible when changing the counts; visual order follows the current headers.
+            QList<int> rows;
+            QList<int> columns;
+            const int requestedRows = m_freezeRowsSpin->value();
+            const int requestedColumns = m_freezeColumnsSpin->value();
+            for (int visual = 0; visual < tableView->verticalHeader()->count() && rows.size() < requestedRows; ++visual)
+            {
+                const int logical = tableView->verticalHeader()->logicalIndex(visual);
+                if (logical >= 0 && !isRowHiddenByFilter(tableView, logical)) rows.append(logical);
+            }
+            for (int visual = 0; visual < tableView->horizontalHeader()->count() && columns.size() < requestedColumns; ++visual)
+            {
+                const int logical = tableView->horizontalHeader()->logicalIndex(visual);
+                if (logical >= 0 && !isColumnHiddenByFilter(tableView, logical)) columns.append(logical);
+            }
+            m_frozenPaneController->clearFrozenPanes();
+            m_frozenPaneController->freezeRows(rows);
+            m_frozenPaneController->freezeColumns(columns);
+            updatePosition();
+            updateControls();
         }
 
         // freezeToCurrentIndex 作用：
@@ -1073,6 +1181,7 @@ namespace
             pausedView->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
             pausedView->horizontalHeader()->setStretchLastSection(
                 sourceTable->horizontalHeader()->stretchLastSection());
+            ks::ui::CopyTablePresentation(sourceTable, pausedView);
 
             for (int columnIndex = 0; columnIndex < snapshot.visibleColumns.size(); ++columnIndex)
             {
@@ -1521,9 +1630,17 @@ namespace
             }
             m_snapshotLayout->addStretch(1);
             updateSnapshotContentSize();
+            scheduleSnapshotLayout();
+        }
+
+        void scheduleSnapshotLayout()
+        {
+            if (m_snapshotLayoutPending) return;
+            m_snapshotLayoutPending = true;
             QTimer::singleShot(0, this, [this]()
                 {
-                    updateSnapshotContentSize();
+                    m_snapshotLayoutPending = false;
+                    updatePosition();
                 });
         }
 
@@ -1540,12 +1657,24 @@ namespace
             QSize desiredSize = m_snapshotLayout->sizeHint().expandedTo(
                 m_snapshotLayout->minimumSize());
             desiredSize.setWidth(std::max(1, desiredSize.width()));
+            const bool needsHorizontalBar = m_mode == TableActionBarMode::Full
+                && !m_snapshotButtons.isEmpty()
+                && desiredSize.width() > m_snapshotScrollArea->viewport()->width();
+            const int horizontalBarHeight = needsHorizontalBar
+                ? std::max(0, m_snapshotScrollArea->horizontalScrollBar()->sizeHint().height()) : 0;
+            const int frameHeight = m_snapshotScrollArea->frameWidth() * 2;
+            const int stripHeight = std::max(kActionBarHeight - 4,
+                desiredSize.height() + horizontalBarHeight + frameHeight);
+            if (m_snapshotScrollArea->height() != stripHeight) m_snapshotScrollArea->setFixedHeight(stripHeight);
+            const QMargins margins = layout()->contentsMargins();
+            const int barHeight = m_mode == TableActionBarMode::Full
+                ? std::max(kActionBarHeight, stripHeight + margins.top() + margins.bottom()) : kActionBarHeight;
+            if (height() != barHeight) setFixedHeight(barHeight);
             desiredSize.setHeight(std::max(
                 desiredSize.height(),
-                m_snapshotScrollArea->viewport()->height()));
-            m_snapshotContent->setMinimumSize(desiredSize);
-            m_snapshotContent->resize(desiredSize);
-            m_snapshotContent->updateGeometry();
+                stripHeight - horizontalBarHeight - frameHeight));
+            if (m_snapshotContent->minimumSize() != desiredSize) m_snapshotContent->setMinimumSize(desiredSize);
+            if (m_snapshotContent->size() != desiredSize) m_snapshotContent->resize(desiredSize);
         }
 
         void selectSnapshot(const quint64 sequence, const bool checked)
@@ -1723,6 +1852,7 @@ namespace
             comparisonView->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
             comparisonView->horizontalHeader()->setStretchLastSection(
                 sourceTable->horizontalHeader()->stretchLastSection());
+            ks::ui::CopyTablePresentation(sourceTable, comparisonView);
 
             comparisonView->setColumnWidth(0, 56);
             for (int columnIndex = 0; columnIndex < comparison.columns.size(); ++columnIndex)
@@ -2114,6 +2244,7 @@ namespace
                 !m_inComparison &&
                 activeTable != nullptr &&
                 activeTable->model() != nullptr);
+            updateFreezeButton();
             m_pauseRefreshButton->setText(localizedSourceText(
                 m_pauseCaptureInProgress
                     ? "正在冻结…"
@@ -2202,12 +2333,20 @@ namespace
         bool m_snapshotCaptureInProgress = false;
         bool m_comparisonInProgress = false;
         bool m_pauseCaptureInProgress = false;
+        bool m_snapshotLayoutPending = false;
         TableActionBarMode m_mode = TableActionBarMode::Full;
         QToolButton* m_copyAllButton = nullptr;
         QToolButton* m_exportButton = nullptr;
         QToolButton* m_freezePaneButton = nullptr;
         QToolButton* m_pauseRefreshButton = nullptr;
         QMenu* m_freezePaneMenu = nullptr;
+        QPointer<QAbstractItemView> m_freezeMenuSource;
+        bool m_freezeMenuBarrierActive = false;
+        QLabel* m_freezeRowsLabel = nullptr;
+        QLabel* m_freezeColumnsLabel = nullptr;
+        QSpinBox* m_freezeRowsSpin = nullptr;
+        QSpinBox* m_freezeColumnsSpin = nullptr;
+        QPushButton* m_applyFreezeCountsButton = nullptr;
         QAction* m_freezeCurrentRowAction = nullptr;
         QAction* m_freezeCurrentColumnAction = nullptr;
         QAction* m_freezeCurrentCellAction = nullptr;
@@ -2384,6 +2523,21 @@ namespace
         }
     }
 
+    // Coalesce discovery and resize work outside QWidget's Show/repolish recursion.
+    void scheduleTableConfiguration(QTableView* tableView)
+    {
+        constexpr char pending[] = "ksword_table_interaction_configuration_pending";
+        if (tableView == nullptr || tableView->property(pending).toBool()) return;
+        tableView->setProperty(pending, true);
+        const QPointer<QTableView> guardedTable(tableView);
+        QTimer::singleShot(0, tableView, [guardedTable]()
+        {
+            if (guardedTable.isNull()) return;
+            guardedTable->setProperty("ksword_table_interaction_configuration_pending", false);
+            configureTable(guardedTable.data());
+        });
+    }
+
     class GlobalTableInteractionSupportFilter final : public QObject
     {
     public:
@@ -2526,7 +2680,7 @@ namespace
                 eventType == QEvent::StyleChange ||
                 eventType == QEvent::Resize)
             {
-                configureTable(tableView);
+                scheduleTableConfiguration(tableView);
             }
             else if (eventType == QEvent::KeyPress)
             {
@@ -2589,10 +2743,7 @@ namespace ks::ui
         {
             return;
         }
-        if (capabilities.normalizeHeader)
-        {
-            applyStandardTableHeaderStyle(tableView);
-        }
+        ApplyTablePresentation(tableView, capabilities.normalizeHeader);
         auto* const tableWidget = qobject_cast<QTableWidget*>(tableView);
         if (capabilities.headerClickSorting.has_value())
         {
@@ -2663,13 +2814,14 @@ namespace ks::ui
         }
 
         ks::ui::UiCommitCoordinator::forApplication(appInstance);
+        InstallGlobalTablePresentation(appInstance);
         auto* filter = new GlobalTableInteractionSupportFilter(appInstance);
         appInstance->installEventFilter(filter);
         appInstance->setProperty(kInstalledProperty, true);
 
         for (QWidget* widget : appInstance->allWidgets())
         {
-            configureTable(qobject_cast<QTableView*>(widget));
+            scheduleTableConfiguration(qobject_cast<QTableView*>(widget));
         }
     }
 

@@ -118,8 +118,6 @@ int main(int argc, char** argv)
             "actual menu paints opaque light/dark surface");
         menu.close();
         CodeEditorWidget original, requested;
-        original.setStructuredReportViewEnabled(false);
-        requested.setStructuredReportViewEnabled(false);
         original.setReadOnly(true);
         const QString sddl = QStringLiteral("D:P(A;;KA;;;SY)(A;;KR;;;BU)");
         original.setRawText(sddl);

@@ -6,7 +6,7 @@
 // 作用：
 // - 提供不依赖 Qt 的 PE 基础解析能力；
 // - 解析 PE 头、节表、导入/导出、数据目录和常用目录摘要；
-// - 返回不依赖报告文本的原生字段模型，同时保留可读报告导出。
+// - 返回不依赖报告文本的原生字段模型，可按需导出可读文本。
 // ============================================================
 
 #include <cstdint>
@@ -50,6 +50,8 @@ namespace ks::file
         std::uint16_t hint = 0;          // hint：IMAGE_IMPORT_BY_NAME.Hint；按序号导入时为 0。
         std::uint16_t ordinal = 0;       // ordinal：按序号导入时的 ordinal；按名称导入时为 0。
         std::uint32_t thunkRva = 0;      // thunkRva：当前 thunk/IAT 项的 RVA，便于定位。
+        std::uint64_t nameRva = 0;
+        bool nameRvaMapped = false;
         bool importByOrdinal = false;    // importByOrdinal：true=Ordinal 导入；false=名称导入。
     };
 
@@ -60,13 +62,18 @@ namespace ks::file
     {
         std::string dllName;                         // dllName：导入描述符指向的 DLL 名称。
         std::uint32_t descriptorIndex = 0;           // descriptorIndex：导入描述符序号。
+        std::uint32_t originalFirstThunk = 0;
+        std::uint32_t firstThunk = 0;
+        bool descriptorValid = false;
         std::vector<PeImportFunctionSummary> imports; // imports：该 DLL 下解析出的导入函数。
         std::string diagnosticText;                  // diagnosticText：局部解析失败或截断说明。
     };
 
     // PeAnalysisResult 作用：
-    // - 聚合原生字段、节表与导入摘要，并保留兼容报告导出；
+    // - 聚合原生字段、节表与导入摘要，支持按需从字段模型导出文本；
     // - success=false 时 errorText 与 Note 保存可读失败原因。
+    enum class PeAnalysisError { None, NotPe, InvalidLayout, ReadFailure };
+
     struct PeAnalysisResult
     {
         bool success = false;
@@ -81,23 +88,16 @@ namespace ks::file
         std::vector<PeImportModuleSummary> importModules;
         std::vector<PeReportEntry> entries;
         std::wstring errorText;
-        std::wstring reportText;
+        PeAnalysisError error = PeAnalysisError::None;
     };
 
-    // AnalyzePeFile 作用：读取文件并解析 PE 结构，返回结构化结果与报告文本。
+    // AnalyzePeFile 作用：读取文件并解析 PE 结构，返回结构化结果。
     PeAnalysisResult AnalyzePeFile(const std::wstring& filePath);
 
     // AnalyzePeBytes 作用：直接解析来自原始磁盘、内存快照或其它证据源的 PE 字节。
     PeAnalysisResult AnalyzePeBytes(
         const std::vector<std::uint8_t>& fileBytes);
 
-    // BuildPeAnalysisText 作用：兼容属性窗口现有“直接拿文本显示”的调用方式。
-    std::wstring BuildPeAnalysisText(const std::wstring& filePath);
-
-    // BuildPeAnalysisText 作用：返回内存 PE 字节的可读分析报告。
-    std::wstring BuildPeAnalysisText(
-        const std::vector<std::uint8_t>& fileBytes);
-
-    // BuildPeAnalysisTextUtf8 作用：便于非 Qt 调用者传入 UTF-8 文件路径并获得 UTF-8 报告。
-    std::string BuildPeAnalysisTextUtf8(const std::string& filePathUtf8);
+    // Serialize the already-decoded entries only when an export is requested.
+    std::wstring ExportPeAnalysisText(const PeAnalysisResult& analysis);
 }

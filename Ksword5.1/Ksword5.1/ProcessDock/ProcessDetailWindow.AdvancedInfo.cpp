@@ -2629,56 +2629,56 @@ namespace
     // runtimeFieldSampleResultText：
     // - 输入 ArkDriverClient sampler 结果和标题；
     // - 处理：展开 response header 与每个字段的 offset/value/status；
-    // - 返回：可直接写入 CodeEditorWidget 的人读文本。
-    QString runtimeFieldSampleResultText(
+    // - 返回：直接来自采样结果的结构字段。
+    ks::ui::FieldDocument runtimeFieldSampleResultDocument(
         const ksword::ark::RuntimeFieldSampleResult& result,
         const QString& titleText)
     {
-        QStringList lines;
-        lines << QStringLiteral("[%1]").arg(titleText);
+        ks::ui::FieldDocument document;
+        document.section(titleText);
         if (!result.io.ok)
         {
-            lines << readableRuntimeIoMessage(
+            document.note(readableRuntimeIoMessage(
                 QString::fromStdString(result.io.message),
                 titleText,
                 QStringLiteral("PDB deep runtime sampler 暂不可用。"),
-                result.unsupported);
-            return lines.join(QChar('\n'));
+                result.unsupported));
+            return document;
         }
 
-        lines << QStringLiteral("Status: %1").arg(runtimeFieldSampleStatusText(result.status));
-        lines << QStringLiteral("Object: %1").arg(uint64ToHex(result.objectAddress));
-        lines << QStringLiteral("Returned/Total: %1/%2").arg(result.returnedCount).arg(result.totalCount);
-        lines << QStringLiteral("DynDataCapability: %1").arg(uint64ToHex(result.dynDataCapabilityMask));
-        lines << QStringLiteral("LastStatus: %1").arg(ntStatusHexText(result.lastStatus));
+        document.field(QStringLiteral("Status"), QStringLiteral("%1").arg(runtimeFieldSampleStatusText(result.status)));
+        document.field(QStringLiteral("Object"), QStringLiteral("%1").arg(uint64ToHex(result.objectAddress)));
+        document.field(QStringLiteral("Returned/Total"), QStringLiteral("%1/%2").arg(result.returnedCount).arg(result.totalCount));
+        document.field(QStringLiteral("DynDataCapability"), QStringLiteral("%1").arg(uint64ToHex(result.dynDataCapabilityMask)));
+        document.field(QStringLiteral("LastStatus"), QStringLiteral("%1").arg(ntStatusHexText(result.lastStatus)));
         if (result.entries.empty())
         {
-            lines << QStringLiteral("  <没有返回字段行>");
-            return lines.join(QChar('\n'));
+            document.note(QStringLiteral("  <没有返回字段行>"));
+            return document;
         }
 
         for (const ksword::ark::RuntimeFieldSampleEntry& entry : result.entries)
         {
             const QString nameText = runtimeFieldSampleNameOrId(entry);
             const QString typeText = runtimeFieldSampleTypeOrUnknown(entry);
-            lines << QStringLiteral("  - %1").arg(nameText);
-            lines << QStringLiteral("      Type: %1").arg(typeText);
-            lines << QStringLiteral("      Offset/Size: %1 / %2 bytes, BytesRead=%3")
+            document.section(QStringLiteral("%1").arg(nameText));
+            document.field(QStringLiteral("Type"), QStringLiteral("%1").arg(typeText));
+            document.field(QStringLiteral("Offset/Size"), QStringLiteral("%1 / %2 bytes, BytesRead=%3")
                 .arg(uint64ToHex(entry.offset))
                 .arg(entry.size)
-                .arg(entry.bytesRead);
-            lines << QStringLiteral("      Status: %1, LastStatus=%2")
+                .arg(entry.bytesRead));
+            document.field(QStringLiteral("Status"), QStringLiteral("%1, LastStatus=%2")
                 .arg(runtimeFieldSampleRowStatusText(entry.status))
-                .arg(ntStatusHexText(entry.lastStatus));
-            lines << QStringLiteral("      Value: %1")
-                .arg(runtimeFieldSampleInterpretedValue(entry, nameText, typeText));
-            lines << QStringLiteral("      Raw: valueU64=%1, bytes=[%2], runtimeItemId=%3, flags=%4")
+                .arg(ntStatusHexText(entry.lastStatus)));
+            document.field(QStringLiteral("Value"), QStringLiteral("%1")
+                .arg(runtimeFieldSampleInterpretedValue(entry, nameText, typeText)));
+            document.field(QStringLiteral("Raw"), QStringLiteral("valueU64=%1, bytes=[%2], runtimeItemId=%3, flags=%4")
                 .arg(uint64ToHex(entry.valueU64))
                 .arg(runtimeFieldSampleBytesText(entry.sampleBytes))
                 .arg(uint64ToHex(entry.runtimeItemId))
-                .arg(uint64ToHex(entry.flags));
+                .arg(uint64ToHex(entry.flags)));
         }
-        return lines.join(QChar('\n'));
+        return document;
     }
 
     // readThreadUserStackFromTeb：
@@ -3326,7 +3326,7 @@ void ProcessDetailWindow::requestAsyncThreadInspectRefresh()
                     std::chrono::steady_clock::now() - beginTime).count());
 
             QMetaObject::invokeMethod(
-                guardThis,
+                qApp,
                 [guardThis, refreshResult, ticketValue]()
                 {
                     if (guardThis == nullptr || guardThis->m_threadInspectRefreshTicket != ticketValue)
@@ -3463,7 +3463,7 @@ void ProcessDetailWindow::requestAsyncSelectedThreadRuntimeSample()
     // 当前线程 PDB deep runtime 采样：
     // - 输入来自线程表当前选中 TID 与窗口 PID；
     // - 后台只传 TID/PID/runtimeItemId/offset/size，不传 ETHREAD 地址；
-    // - 返回文本写入 CodeEditorWidget，便于审计人员复制和比对字段。
+    // - 返回结构字段，复制按需从模型生成。
     if (m_threadRuntimeSampleRefreshing)
     {
         if (m_threadInspectStatusLabel != nullptr)
@@ -3480,7 +3480,7 @@ void ProcessDetailWindow::requestAsyncSelectedThreadRuntimeSample()
     const int currentRow = m_threadInspectTable->currentRow();
     if (currentRow < 0)
     {
-        m_threadRuntimeSampleOutput->setText(QStringLiteral("请先在线程表中选择一条线程记录。"));
+        m_threadRuntimeSampleOutput->setDocument(fieldNotice(QStringLiteral("请先在线程表中选择一条线程记录。")));
         return;
     }
 
@@ -3494,7 +3494,7 @@ void ProcessDetailWindow::requestAsyncSelectedThreadRuntimeSample()
         : static_cast<std::size_t>(m_threadInspectRows.size());
     if (threadId == 0U || cacheIndex >= m_threadInspectRows.size())
     {
-        m_threadRuntimeSampleOutput->setText(QStringLiteral("当前线程行缺少 TID 或缓存索引，请先刷新线程页。"));
+        m_threadRuntimeSampleOutput->setDocument(fieldNotice(QStringLiteral("当前线程行缺少 TID 或缓存索引，请先刷新线程页。")));
         return;
     }
 
@@ -3504,7 +3504,7 @@ void ProcessDetailWindow::requestAsyncSelectedThreadRuntimeSample()
         : m_baseRecord.pid;
     if (processId == 0U)
     {
-        m_threadRuntimeSampleOutput->setText(QStringLiteral("当前进程 PID 不可用，无法执行线程 PDB 字段采样。"));
+        m_threadRuntimeSampleOutput->setDocument(fieldNotice(QStringLiteral("当前进程 PID 不可用，无法执行线程 PDB 字段采样。")));
         return;
     }
 
@@ -3519,39 +3519,39 @@ void ProcessDetailWindow::requestAsyncSelectedThreadRuntimeSample()
         m_threadInspectStatusLabel->setText(QStringLiteral("● 正在采样 TID=%1 的 PDB deep 字段...").arg(threadId));
         m_threadInspectStatusLabel->setStyleSheet(buildStateLabelStyle(KswordTheme::PrimaryBlueColor, 700));
     }
-    m_threadRuntimeSampleOutput->setText(QStringLiteral(
+    m_threadRuntimeSampleOutput->setDocument(fieldNotice(QStringLiteral(
         "正在后台执行 thread_detail PDB deep runtime 字段采样...\n"
-        "请求只包含 TID/PID/offset/size，不提交 ETHREAD 地址。"));
+        "请求只包含 TID/PID/offset/size，不提交 ETHREAD 地址。")));
 
     QPointer<ProcessDetailWindow> guardThis(this);
     auto* sampleTask = QRunnable::create(
         [guardThis, ticketValue, processId, threadId, selectedRow]()
         {
             const auto beginTime = std::chrono::steady_clock::now();
-            QStringList lines;
-            lines << QStringLiteral("[Selected Thread Runtime Context]");
-            lines << QStringLiteral("TID/PID: %1/%2").arg(threadId).arg(processId);
-            lines << QStringLiteral("Start/Win32Start: %1 / %2")
+            ks::ui::FieldDocument document;
+            document.section(QStringLiteral("Selected Thread Runtime Context"));
+            document.field(QStringLiteral("TID/PID"), QStringLiteral("%1/%2").arg(threadId).arg(processId));
+            document.field(QStringLiteral("Start/Win32Start"), QStringLiteral("%1 / %2")
                 .arg(uint64ToHex(selectedRow.startAddress))
-                .arg(uint64ToHex(selectedRow.win32StartAddress));
-            lines << QStringLiteral("TEB: %1").arg(uint64ToHex(selectedRow.tebAddress));
-            lines << QStringLiteral("R0 fixed detail: %1")
+                .arg(uint64ToHex(selectedRow.win32StartAddress)));
+            document.field(QStringLiteral("TEB"), QStringLiteral("%1").arg(uint64ToHex(selectedRow.tebAddress)));
+            document.field(QStringLiteral("R0 fixed detail"), QStringLiteral("%1")
                 .arg(selectedRow.r0RuntimeDetailText.trimmed().isEmpty()
                     ? QStringLiteral("线程 runtime detail 暂不可用。")
-                    : selectedRow.r0RuntimeDetailText);
-            lines << QString();
+                    : selectedRow.r0RuntimeDetailText));
+
 
             const ksword::ark::DriverClient driverClient;
             const ksword::ark::DynDataStatusResult dynDataStatusResult =
                 driverClient.queryDynDataStatus();
-            QString deepIdentityGuardText;
+            ks::ui::FieldDocument deepIdentityGuard;
             bool deepIdentityMatched = false;
             if (dynDataStatusResult.io.ok)
             {
                 deepIdentityMatched = pdbRuntimeCatalogMatchesKernelIdentity(
                     dynDataStatusResult.ntoskrnl.timeDateStamp,
                     dynDataStatusResult.ntoskrnl.sizeOfImage,
-                    &deepIdentityGuardText);
+                    &deepIdentityGuard);
             }
             else
             {
@@ -3560,52 +3560,48 @@ void ProcessDetailWindow::requestAsyncSelectedThreadRuntimeSample()
                     QStringLiteral("DynData状态"),
                     QStringLiteral("DynData status 查询没有返回额外说明。"),
                     false);
-                deepIdentityGuardText = QStringLiteral(
-                    "[PDB Deep Runtime Identity Guard]\n"
-                    "结论: 不匹配，跳过只读采样\n"
-                    "原因: DynData status 查询不可用，无法校验 deep offset 与当前内核 identity。%1")
-                    .arg(readableDynDataMessage);
+                deepIdentityGuard.section(QStringLiteral("PDB Deep Runtime Identity Guard"));
+                deepIdentityGuard.field(QStringLiteral("结论"), QStringLiteral("不匹配，跳过只读采样"), true);
+                deepIdentityGuard.field(QStringLiteral("原因"), QStringLiteral("DynData status 查询不可用，无法校验 deep offset 与当前内核 identity。%1").arg(readableDynDataMessage), true);
             }
 
-            lines << deepIdentityGuardText;
-            lines << QString();
+            appendFields(document, deepIdentityGuard);
+
             const std::vector<ksword::ark::RuntimeFieldSampleRequestItem> sampleItems =
                 deepIdentityMatched
                 ? buildPdbRuntimeSampleItems(QStringLiteral("thread_detail"), 64)
                 : std::vector<ksword::ark::RuntimeFieldSampleRequestItem>{};
             if (!deepIdentityMatched)
             {
-                lines << QStringLiteral("[PDB Deep Runtime Sample - thread_detail]");
-                lines << QStringLiteral("deep catalog identity 未与当前 ntoskrnl 匹配，已跳过 R0 字段采样，避免错误偏移。");
+                document.section(QStringLiteral("PDB Deep Runtime Sample - thread_detail"));
+                document.note(QStringLiteral("deep catalog identity 未与当前 ntoskrnl 匹配，已跳过 R0 字段采样，避免错误偏移。"));
             }
             else if (sampleItems.empty())
             {
-                lines << QStringLiteral("[PDB Deep Runtime Sample - thread_detail]");
-                lines << QStringLiteral("profiles/pdb_deep_offsets 中没有找到可安全采样的 thread_detail 小字段。");
+                document.section(QStringLiteral("PDB Deep Runtime Sample - thread_detail"));
+                document.note(QStringLiteral("profiles/pdb_deep_offsets 中没有找到可安全采样的 thread_detail 小字段。"));
             }
             else
             {
                 const ksword::ark::RuntimeFieldSampleResult sampleResult =
                     driverClient.queryThreadRuntimeFieldSamples(threadId, processId, sampleItems);
-                lines << runtimeFieldSampleResultText(
-                    sampleResult,
-                    QStringLiteral("线程 PDB deep 字段采样"));
+                appendFields(document, runtimeFieldSampleResultDocument(sampleResult, QStringLiteral("线程 PDB deep 字段采样")));
             }
 
-            lines << QString();
-            lines << QStringLiteral("[PDB Deep Runtime Catalog - thread_detail preview]");
-            lines << buildPdbRuntimeCatalogPreview(QStringLiteral("thread_detail"), 16, 64);
+
+            document.section(QStringLiteral("PDB Deep Runtime Catalog - thread_detail preview"));
+            appendFields(document, buildPdbRuntimeCatalogPreview(QStringLiteral("thread_detail"), 16, 64));
 
             const std::uint64_t elapsedMs = static_cast<std::uint64_t>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - beginTime).count());
-            lines << QString();
-            lines << QStringLiteral("ElapsedMs: %1").arg(elapsedMs);
-            const QString outputText = lines.join(QChar('\n'));
+
+            document.field(QStringLiteral("ElapsedMs"), QStringLiteral("%1").arg(elapsedMs));
+            const ks::ui::FieldDocument outputDocument = std::move(document);
 
             QMetaObject::invokeMethod(
-                guardThis,
-                [guardThis, ticketValue, threadId, outputText, elapsedMs]()
+                qApp,
+                [guardThis, ticketValue, threadId, selectedRow, outputDocument, elapsedMs]()
                 {
                     if (guardThis == nullptr || guardThis->m_threadRuntimeSampleTicket != ticketValue)
                     {
@@ -3617,10 +3613,22 @@ void ProcessDetailWindow::requestAsyncSelectedThreadRuntimeSample()
                     {
                         guardThis->m_sampleThreadRuntimeButton->setEnabled(true);
                     }
-                    if (guardThis->m_threadRuntimeSampleOutput != nullptr)
+                    bool sameThreadSelection = false;
+                    if (guardThis->m_threadInspectTable != nullptr)
                     {
-                        guardThis->m_threadRuntimeSampleOutput->setText(outputText);
+                        const int currentRow = guardThis->m_threadInspectTable->currentRow();
+                        const auto* item = guardThis->m_threadInspectTable->item(currentRow, toThreadColumnIndex(ThreadRowColumn::ThreadId));
+                        const std::size_t cacheIndex = item != nullptr
+                            ? static_cast<std::size_t>(item->data(Qt::UserRole).toULongLong()) : guardThis->m_threadInspectRows.size();
+                        if (cacheIndex < guardThis->m_threadInspectRows.size())
+                        {
+                            const ThreadInspectItem& current = guardThis->m_threadInspectRows[cacheIndex];
+                            sameThreadSelection = current.threadId == threadId && current.processId == selectedRow.processId
+                                && current.createTime100ns == selectedRow.createTime100ns;
+                        }
                     }
+                    if (sameThreadSelection && guardThis->m_threadRuntimeSampleOutput != nullptr)
+                        guardThis->m_threadRuntimeSampleOutput->setDocument(outputDocument);
                     if (guardThis->m_threadInspectStatusLabel != nullptr)
                     {
                         guardThis->m_threadInspectStatusLabel->setText(
@@ -3671,11 +3679,11 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
     QPointer<ProcessDetailWindow> guardThis(this);
     auto* refreshTask = QRunnable::create([guardThis, pidValue, ticketValue]()
         {
-            TextRefreshResult refreshResult{};
+            FieldRefreshResult refreshResult{};
             const auto beginTime = std::chrono::steady_clock::now();
-            std::wostringstream textBuilder;
-            textBuilder << L"[Token / Security Information]\n";
-            textBuilder << L"PID: " << pidValue << L"\n";
+            ks::ui::FieldDocument document;
+            document.section(QStringLiteral("Token / Security Information"));
+            document.field(QStringLiteral("PID"), fieldText(pidValue));
 
             // 打开进程句柄：
             // - 令牌信息需要 PROCESS_QUERY_LIMITED_INFORMATION；
@@ -3713,7 +3721,7 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
                     if (queryTokenInfoBuffer(tokenHandle, TokenUser, tokenBuffer))
                     {
                         const auto* tokenUserInfo = reinterpret_cast<const TOKEN_USER*>(tokenBuffer.data());
-                        textBuilder << L"User: " << convertSidToText(tokenUserInfo->User.Sid).toStdWString() << L"\n";
+                        document.field(QStringLiteral("User"), fieldText(convertSidToText(tokenUserInfo->User.Sid)));
                     }
 
                     // TokenIntegrityLevel：输出完整性级别。
@@ -3728,7 +3736,7 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
                                 mandatoryLabel->Label.Sid,
                                 *GetSidSubAuthorityCount(mandatoryLabel->Label.Sid) - 1);
                         }
-                        textBuilder << L"Integrity: " << describeIntegrityLevel(integrityRid).toStdWString() << L"\n";
+                        document.field(QStringLiteral("Integrity"), fieldText(describeIntegrityLevel(integrityRid)));
                     }
 
                     // TokenElevationType：输出提升类型（Default/Full/Limited）。
@@ -3747,14 +3755,14 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
                     {
                         elevationTypeText = L"Limited";
                     }
-                    textBuilder << L"ElevationType: " << elevationTypeText << L"\n";
+                    document.field(QStringLiteral("ElevationType"), fieldText(elevationTypeText));
 
                     // TokenElevation：输出是否已提升。
                     if (queryTokenInfoBuffer(tokenHandle, TokenElevation, tokenBuffer) &&
                         tokenBuffer.size() >= sizeof(TOKEN_ELEVATION))
                     {
                         const auto* elevation = reinterpret_cast<const TOKEN_ELEVATION*>(tokenBuffer.data());
-                        textBuilder << L"IsElevated: " << (elevation->TokenIsElevated != 0 ? L"true" : L"false") << L"\n";
+                        document.field(QStringLiteral("IsElevated"), fieldText((elevation->TokenIsElevated != 0 ? L"true" : L"false")));
                     }
 
                     // TokenLinkedToken：输出链接令牌是否存在（管理员拆分令牌场景）。
@@ -3765,7 +3773,7 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
                         const bool hasLinkedToken =
                             linkedTokenInfo->LinkedToken != nullptr &&
                             linkedTokenInfo->LinkedToken != INVALID_HANDLE_VALUE;
-                        textBuilder << L"LinkedToken: " << (hasLinkedToken ? L"Present" : L"None") << L"\n";
+                        document.field(QStringLiteral("LinkedToken"), fieldText((hasLinkedToken ? L"Present" : L"None")));
                         if (hasLinkedToken)
                         {
                             CloseHandle(linkedTokenInfo->LinkedToken);
@@ -3773,31 +3781,29 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
                     }
                     else
                     {
-                        textBuilder << L"LinkedToken: Unavailable\n";
+                        document.field(QStringLiteral("LinkedToken"), QStringLiteral("Unavailable"), true);
                     }
 
                     // TokenRestrictedSids：输出限制 SID 数量。
                     if (queryTokenInfoBuffer(tokenHandle, TokenRestrictedSids, tokenBuffer))
                     {
                         const auto* restrictedSids = reinterpret_cast<const TOKEN_GROUPS*>(tokenBuffer.data());
-                        textBuilder << L"RestrictedSidCount: " << restrictedSids->GroupCount << L"\n";
+                        document.field(QStringLiteral("RestrictedSidCount"), fieldText(restrictedSids->GroupCount));
                     }
                     else
                     {
-                        textBuilder << L"RestrictedSidCount: 0\n";
+                        document.field(QStringLiteral("RestrictedSidCount"), QStringLiteral("0"), true);
                     }
 
                     // TokenGroups：输出组数量与预览。
                     if (queryTokenInfoBuffer(tokenHandle, TokenGroups, tokenBuffer))
                     {
                         const auto* groupsInfo = reinterpret_cast<const TOKEN_GROUPS*>(tokenBuffer.data());
-                        textBuilder << L"GroupCount: " << groupsInfo->GroupCount << L"\n";
+                        document.field(QStringLiteral("GroupCount"), fieldText(groupsInfo->GroupCount));
                         const DWORD previewCount = std::min<DWORD>(groupsInfo->GroupCount, 16);
                         for (DWORD index = 0; index < previewCount; ++index)
                         {
-                            textBuilder << L"  - "
-                                << convertSidToText(groupsInfo->Groups[index].Sid).toStdWString()
-                                << L"\n";
+                            document.field(QStringLiteral("Group %1").arg(index + 1), convertSidToText(groupsInfo->Groups[index].Sid));
                         }
                     }
 
@@ -3806,7 +3812,7 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
                     {
                         const auto* privilegesInfo =
                             reinterpret_cast<const TOKEN_PRIVILEGES*>(tokenBuffer.data());
-                        textBuilder << L"PrivilegeCount: " << privilegesInfo->PrivilegeCount << L"\n";
+                        document.field(QStringLiteral("PrivilegeCount"), fieldText(privilegesInfo->PrivilegeCount));
                         const DWORD previewCount = std::min<DWORD>(privilegesInfo->PrivilegeCount, 24);
                         for (DWORD index = 0; index < previewCount; ++index)
                         {
@@ -3818,17 +3824,15 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
                                 const_cast<LUID*>(&privilegeEntry.Luid),
                                 privilegeName,
                                 &nameLength);
-                            textBuilder << L"  - "
-                                << (nameOk != FALSE ? std::wstring(privilegeName) : L"<Unknown>")
-                                << ((privilegeEntry.Attributes & SE_PRIVILEGE_ENABLED) != 0 ? L" [Enabled]" : L" [Disabled]")
-                                << L"\n";
+                            document.field(nameOk != FALSE ? QString::fromWCharArray(privilegeName) : QStringLiteral("<Unknown>"), (privilegeEntry.Attributes & SE_PRIVILEGE_ENABLED) != 0 ? QStringLiteral("Enabled") : QStringLiteral("Disabled"), true);
                         }
                     }
 
                     // 全信息类快照：
                     // - 枚举 TokenInformationClass 1..80；
                     // - 对每个类输出是否可读、字节长度与原始预览，避免遗漏关键字段。
-                    textBuilder << L"\n[All TokenInformationClass Snapshot]\n";
+                    document.section(QStringLiteral("All TokenInformationClass Snapshot"));
+                    document.nodes.last().initiallyExpanded = false;
                     for (ULONG classId = 1; classId <= 80; ++classId)
                     {
                         std::vector<std::uint8_t> classRawBuffer;
@@ -3836,32 +3840,19 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
                         const bool queryOk = queryTokenInfoBuffer(tokenHandle, infoClass, classRawBuffer);
                         if (queryOk)
                         {
-                            textBuilder << L"  ["
-                                << classId
-                                << L"] "
-                                << tokenInfoClassNameById(classId).toStdWString()
-                                << L": size="
-                                << classRawBuffer.size()
-                                << L", raw="
-                                << formatTokenRawPreview(classRawBuffer, 24).toStdWString()
-                                << L"\n";
+                            document.field(QStringLiteral("[%1] %2").arg(classId).arg(tokenInfoClassNameById(classId)), QStringLiteral("size=%1, raw=%2").arg(classRawBuffer.size()).arg(formatTokenRawPreview(classRawBuffer, 24)));
                         }
                         else
                         {
                             const DWORD queryError = GetLastError();
-                            textBuilder << L"  ["
-                                << classId
-                                << L"] "
-                                << tokenInfoClassNameById(classId).toStdWString()
-                                << L": queryFailed("
-                                << queryError
-                                << L")\n";
+                            document.field(QStringLiteral("[%1] %2").arg(classId).arg(tokenInfoClassNameById(classId)), QStringLiteral("queryFailed(%1)").arg(queryError), true);
                         }
                     }
 
                     CloseHandle(tokenHandle);
                 }
 
+                document.section(QStringLiteral("进程安全与资源"));
                 // 原生进程安全字段：
                 // - DebugPort / DEP / Critical / Protection / Subsystem。
                 if (ntQueryProcess != nullptr)
@@ -3869,61 +3860,55 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
                     ULONG_PTR debugPort = 0;
                     if (queryNtProcessInfoFixed(ntQueryProcess, processHandle, kProcessInfoClassDebugPort, debugPort))
                     {
-                        textBuilder << L"DebugPort: " << uint64ToHex(debugPort).toStdWString() << L"\n";
+                        document.field(QStringLiteral("DebugPort"), fieldText(uint64ToHex(debugPort)));
                     }
 
                     ULONG executeFlags = 0;
                     if (queryNtProcessInfoFixed(ntQueryProcess, processHandle, kProcessInfoClassExecuteFlags, executeFlags))
                     {
-                        textBuilder << L"DEPFlags: 0x"
-                            << QString::number(executeFlags, 16).toUpper().toStdWString()
-                            << L"\n";
+                        document.field(QStringLiteral("DEPFlags"), QStringLiteral("0x") + fieldText(QString::number(executeFlags, 16).toUpper()));
                     }
 
                     ULONG breakOnTermination = 0;
                     if (queryNtProcessInfoFixed(ntQueryProcess, processHandle, kProcessInfoClassBreakOnTermination, breakOnTermination))
                     {
-                        textBuilder << L"ProcessCriticalFlag(BreakOnTermination): "
-                            << (breakOnTermination != 0 ? L"true" : L"false")
-                            << L"\n";
+                        document.field(QStringLiteral("ProcessCriticalFlag(BreakOnTermination)"), fieldText((breakOnTermination != 0 ? L"true" : L"false")));
                     }
 
                     std::uint8_t protectionLevel = 0;
                     if (queryNtProcessInfoFixed(ntQueryProcess, processHandle, kProcessInfoClassProtection, protectionLevel))
                     {
-                        textBuilder << L"Protection: "
-                            << protectionLevelToText(protectionLevel).toStdWString()
-                            << L"\n";
+                        document.field(QStringLiteral("Protection"), fieldText(protectionLevelToText(protectionLevel)));
                     }
 
                     ULONG subsystemType = 0;
                     if (queryNtProcessInfoFixed(ntQueryProcess, processHandle, kProcessInfoClassSubsystem, subsystemType))
                     {
-                        textBuilder << L"SubsystemType: " << subsystemType << L"\n";
+                        document.field(QStringLiteral("SubsystemType"), fieldText(subsystemType));
                     }
                 }
 
                 // GUI 资源统计：GDI / USER 对象计数。
                 const DWORD gdiObjectCount = GetGuiResources(processHandle, GR_GDIOBJECTS);
                 const DWORD userObjectCount = GetGuiResources(processHandle, GR_USEROBJECTS);
-                textBuilder << L"GDIObjectCount: " << gdiObjectCount << L"\n";
-                textBuilder << L"USERObjectCount: " << userObjectCount << L"\n";
+                document.field(QStringLiteral("GDIObjectCount"), fieldText(gdiObjectCount));
+                document.field(QStringLiteral("USERObjectCount"), fieldText(userObjectCount));
 
                 // IO 计数器：读写次数与字节数。
                 IO_COUNTERS ioCounters{};
                 if (GetProcessIoCounters(processHandle, &ioCounters) != FALSE)
                 {
-                    textBuilder << L"IoReadOps: " << ioCounters.ReadOperationCount << L"\n";
-                    textBuilder << L"IoWriteOps: " << ioCounters.WriteOperationCount << L"\n";
-                    textBuilder << L"IoReadBytes: " << ioCounters.ReadTransferCount << L"\n";
-                    textBuilder << L"IoWriteBytes: " << ioCounters.WriteTransferCount << L"\n";
+                    document.field(QStringLiteral("IoReadOps"), fieldText(ioCounters.ReadOperationCount));
+                    document.field(QStringLiteral("IoWriteOps"), fieldText(ioCounters.WriteOperationCount));
+                    document.field(QStringLiteral("IoReadBytes"), fieldText(ioCounters.ReadTransferCount));
+                    document.field(QStringLiteral("IoWriteBytes"), fieldText(ioCounters.WriteTransferCount));
                 }
 
                 // Job 关联信息：是否在 Job 对象中。
                 BOOL inJobObject = FALSE;
                 if (IsProcessInJob(processHandle, nullptr, &inJobObject) != FALSE)
                 {
-                    textBuilder << L"InJobObject: " << (inJobObject != FALSE ? L"true" : L"false") << L"\n";
+                    document.field(QStringLiteral("InJobObject"), fieldText((inJobObject != FALSE ? L"true" : L"false")));
                 }
 
                 // 节能状态：动态查询 GetProcessInformation(ProcessPowerThrottling=4)。
@@ -3941,23 +3926,19 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
                         static_cast<DWORD>(sizeof(powerState)));
                     if (powerOk != FALSE)
                     {
-                        textBuilder << L"PowerThrottlingControlMask: 0x"
-                            << QString::number(powerState.controlMask, 16).toUpper().toStdWString()
-                            << L"\n";
-                        textBuilder << L"PowerThrottlingStateMask: 0x"
-                            << QString::number(powerState.stateMask, 16).toUpper().toStdWString()
-                            << L"\n";
+                        document.field(QStringLiteral("PowerThrottlingControlMask"), QStringLiteral("0x") + fieldText(QString::number(powerState.controlMask, 16).toUpper()));
+                        document.field(QStringLiteral("PowerThrottlingStateMask"), QStringLiteral("0x") + fieldText(QString::number(powerState.stateMask, 16).toUpper()));
                     }
                 }
 
                 // 窗口相关信息：窗口数量 + 线程桌面名称 + 当前窗口站名称。
                 const std::uint32_t windowCount = countTopLevelWindowsByPid(pidValue);
-                textBuilder << L"TopLevelWindowCount: " << windowCount << L"\n";
+                document.field(QStringLiteral("TopLevelWindowCount"), fieldText(windowCount));
 
                 const QString desktopName = queryDesktopNameByProcessThreads(pidValue);
                 if (!desktopName.trimmed().isEmpty())
                 {
-                    textBuilder << L"ThreadDesktop: " << desktopName.toStdWString() << L"\n";
+                    document.field(QStringLiteral("ThreadDesktop"), fieldText(desktopName));
                 }
 
                 HWINSTA processWindowStation = GetProcessWindowStation();
@@ -3973,7 +3954,7 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
                         &stationNameBytes);
                     if (stationOk != FALSE)
                     {
-                        textBuilder << L"ProcessWindowStation: " << stationNameBuffer << L"\n";
+                        document.field(QStringLiteral("ProcessWindowStation"), fieldText(stationNameBuffer));
                     }
                 }
 
@@ -3981,24 +3962,24 @@ void ProcessDetailWindow::requestAsyncTokenRefresh()
                 DWORD sessionId = 0;
                 if (ProcessIdToSessionId(pidValue, &sessionId) != FALSE)
                 {
-                    textBuilder << L"SessionId: " << sessionId << L"\n";
+                    document.field(QStringLiteral("SessionId"), fieldText(sessionId));
                 }
                 DWORD handleCount = 0;
                 if (GetProcessHandleCount(processHandle, &handleCount) != FALSE)
                 {
-                    textBuilder << L"HandleCount: " << handleCount << L"\n";
+                    document.field(QStringLiteral("HandleCount"), fieldText(handleCount));
                 }
 
                 CloseHandle(processHandle);
             }
 
-            refreshResult.detailText = QString::fromStdWString(textBuilder.str());
+            refreshResult.document = std::move(document);
             refreshResult.elapsedMs = static_cast<std::uint64_t>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - beginTime).count());
 
             QMetaObject::invokeMethod(
-                guardThis,
+                qApp,
                 [guardThis, refreshResult, ticketValue]()
                 {
                     if (guardThis == nullptr || guardThis->m_tokenRefreshTicket != ticketValue)
@@ -4812,7 +4793,7 @@ void ProcessDetailWindow::requestAsyncKernelCallbackRefresh()
                         std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now() - beginTime).count());
                     QMetaObject::invokeMethod(
-                        guardThis,
+                qApp,
                         [guardThis, ticketValue, refreshResult]()
                         {
                             if (guardThis == nullptr ||
@@ -5304,12 +5285,12 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
     QPointer<ProcessDetailWindow> guardThis(this);
     auto* refreshTask = QRunnable::create([guardThis, pidValue, ticketValue]()
         {
-            TextRefreshResult refreshResult{};
+            FieldRefreshResult refreshResult{};
             const auto beginTime = std::chrono::steady_clock::now();
             const auto progressDispatcher = [guardThis, ticketValue](const QString& stepText, const float progressValue)
                 {
                     QMetaObject::invokeMethod(
-                        guardThis,
+                qApp,
                         [guardThis, ticketValue, stepText, progressValue]()
                         {
                             if (guardThis == nullptr || guardThis->m_pebRefreshTicket != ticketValue)
@@ -5329,9 +5310,9 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                 };
 
             progressDispatcher(QStringLiteral("打开目标进程"), 28.0f);
-            std::wostringstream textBuilder;
-            textBuilder << L"[PEB / Process Summary]\n";
-            textBuilder << L"PID: " << pidValue << L"\n";
+            ks::ui::FieldDocument document;
+            document.section(QStringLiteral("PEB / Process Summary"));
+            document.field(QStringLiteral("PID"), fieldText(pidValue));
 
             HANDLE processHandle = OpenProcess(
                 PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
@@ -5344,7 +5325,7 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
             if (processHandle == nullptr)
             {
                 refreshResult.diagnosticText = QString("OpenProcess失败(%1)").arg(GetLastError());
-                textBuilder << L"OpenProcess: <failed>\n";
+                document.field(QStringLiteral("OpenProcess"), QStringLiteral("<failed>"), true);
                 progressDispatcher(QStringLiteral("打开进程失败"), 100.0f);
             }
             else
@@ -5364,9 +5345,7 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                         nullptr);
                     if (NT_SUCCESS(basicStatus))
                     {
-                        textBuilder << L"PEB Address: "
-                            << uint64ToHex(reinterpret_cast<std::uint64_t>(basicInfo.PebBaseAddress)).toStdWString()
-                            << L"\n";
+                        document.field(QStringLiteral("PEB Address"), fieldText(uint64ToHex(reinterpret_cast<std::uint64_t>(basicInfo.PebBaseAddress))));
                     }
                 }
 
@@ -5374,11 +5353,9 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                 // - 优先使用 ProcessCommandLineInformation；
                 // - 失败时回退到已缓存的 m_baseRecord.commandLine。
                 const QString commandLineText = queryCommandLineTextByNt(ntQueryProcess, processHandle);
-                textBuilder << L"CommandLine: "
-                    << (commandLineText.trimmed().isEmpty()
+                document.field(QStringLiteral("CommandLine"), fieldText((commandLineText.trimmed().isEmpty()
                         ? L"-"
-                        : commandLineText.toStdWString())
-                    << L"\n";
+                        : commandLineText.toStdWString())));
 
                 // 当前目录：
                 // - Nt 层当前目录在不同系统结构布局不稳定；
@@ -5389,17 +5366,16 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                 {
                     currentDirectoryText = QFileInfo(imagePathText).absolutePath();
                 }
-                textBuilder << L"CurrentDirectory(approx): "
-                    << (currentDirectoryText.trimmed().isEmpty()
+                document.field(QStringLiteral("CurrentDirectory(approx)"), fieldText((currentDirectoryText.trimmed().isEmpty()
                         ? L"-"
-                        : currentDirectoryText.toStdWString())
-                    << L"\n";
+                        : currentDirectoryText.toStdWString())));
 
                 ULONG_PTR processAffinityMask = 0;
                 ULONG_PTR systemAffinityMask = 0;
                 if (GetProcessAffinityMask(processHandle, &processAffinityMask, &systemAffinityMask) != FALSE)
                 {
-                    textBuilder << L"ProcessAffinity: " << uint64ToHex(processAffinityMask).toStdWString() << L"\n";
+                    document.field(QStringLiteral("ProcessAffinity"), uint64ToHex(processAffinityMask));
+                    refreshResult.pebSummary.insert(QStringLiteral("affinity"), uint64ToHex(processAffinityMask));
                     std::wostringstream coreTextBuilder;
                     bool firstCore = true;
                     for (int bitIndex = 0; bitIndex < static_cast<int>(sizeof(ULONG_PTR) * 8); ++bitIndex)
@@ -5416,11 +5392,12 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                         coreTextBuilder << bitIndex;
                         firstCore = false;
                     }
-                    textBuilder << L"CpuCoreAffinity: " << coreTextBuilder.str() << L"\n";
+                    document.field(QStringLiteral("CpuCoreAffinity"), fieldText(coreTextBuilder.str()));
                 }
 
                 const DWORD priorityClass = GetPriorityClass(processHandle);
-                textBuilder << L"PriorityClass: " << describePriorityClass(priorityClass).toStdWString() << L"\n";
+                document.field(QStringLiteral("PriorityClass"), describePriorityClass(priorityClass), true);
+                refreshResult.pebSummary.insert(QStringLiteral("priority"), describePriorityClass(priorityClass));
 
                 // Wow64 状态：
                 // - 输出当前进程机器架构与 Wow64 来宾架构。
@@ -5428,12 +5405,8 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                 USHORT nativeMachine = IMAGE_FILE_MACHINE_UNKNOWN;
                 if (IsWow64Process2(processHandle, &processMachine, &nativeMachine) != FALSE)
                 {
-                    textBuilder << L"Wow64ProcessMachine: 0x"
-                        << QString::number(processMachine, 16).toUpper().toStdWString()
-                        << L"\n";
-                    textBuilder << L"Wow64NativeMachine: 0x"
-                        << QString::number(nativeMachine, 16).toUpper().toStdWString()
-                        << L"\n";
+                    document.field(QStringLiteral("Wow64ProcessMachine"), QStringLiteral("0x") + fieldText(QString::number(processMachine, 16).toUpper()));
+                    document.field(QStringLiteral("Wow64NativeMachine"), QStringLiteral("0x") + fieldText(QString::number(nativeMachine, 16).toUpper()));
                 }
 
                 // 启动时间与 CPU 时间（内核 + 用户）。
@@ -5456,8 +5429,8 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                     userValue.HighPart = userTime.dwHighDateTime;
                     const double kernelMs = static_cast<double>(kernelValue.QuadPart) / 10000.0;
                     const double userMs = static_cast<double>(userValue.QuadPart) / 10000.0;
-                    textBuilder << L"KernelCpuMs: " << kernelMs << L"\n";
-                    textBuilder << L"UserCpuMs: " << userMs << L"\n";
+                    document.field(QStringLiteral("KernelCpuMs"), fieldText(kernelMs));
+                    document.field(QStringLiteral("UserCpuMs"), fieldText(userMs));
                 }
 
                 PROCESS_MEMORY_COUNTERS_EX memoryCounters{};
@@ -5466,21 +5439,21 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                     reinterpret_cast<PPROCESS_MEMORY_COUNTERS>(&memoryCounters),
                     sizeof(memoryCounters)) != FALSE)
                 {
-                    textBuilder << L"WorkingSet: " << memoryCounters.WorkingSetSize << L" bytes\n";
-                    textBuilder << L"PrivateUsage: " << memoryCounters.PrivateUsage << L" bytes\n";
-                    textBuilder << L"PeakWorkingSet: " << memoryCounters.PeakWorkingSetSize << L" bytes\n";
-                    textBuilder << L"QuotaPagedPool: " << memoryCounters.QuotaPagedPoolUsage << L" bytes\n";
-                    textBuilder << L"QuotaNonPagedPool: " << memoryCounters.QuotaNonPagedPoolUsage << L" bytes\n";
-                    textBuilder << L"PageFaultCount: " << memoryCounters.PageFaultCount << L"\n";
+                    document.field(QStringLiteral("WorkingSet"), fieldText(memoryCounters.WorkingSetSize) + QStringLiteral(" bytes"));
+                    document.field(QStringLiteral("PrivateUsage"), fieldText(memoryCounters.PrivateUsage) + QStringLiteral(" bytes"));
+                    document.field(QStringLiteral("PeakWorkingSet"), fieldText(memoryCounters.PeakWorkingSetSize) + QStringLiteral(" bytes"));
+                    document.field(QStringLiteral("QuotaPagedPool"), fieldText(memoryCounters.QuotaPagedPoolUsage) + QStringLiteral(" bytes"));
+                    document.field(QStringLiteral("QuotaNonPagedPool"), fieldText(memoryCounters.QuotaNonPagedPoolUsage) + QStringLiteral(" bytes"));
+                    document.field(QStringLiteral("PageFaultCount"), fieldText(memoryCounters.PageFaultCount));
                 }
 
                 IO_COUNTERS ioCounters{};
                 if (GetProcessIoCounters(processHandle, &ioCounters) != FALSE)
                 {
-                    textBuilder << L"ReadOps: " << ioCounters.ReadOperationCount << L"\n";
-                    textBuilder << L"WriteOps: " << ioCounters.WriteOperationCount << L"\n";
-                    textBuilder << L"ReadBytes: " << ioCounters.ReadTransferCount << L"\n";
-                    textBuilder << L"WriteBytes: " << ioCounters.WriteTransferCount << L"\n";
+                    document.field(QStringLiteral("ReadOps"), fieldText(ioCounters.ReadOperationCount));
+                    document.field(QStringLiteral("WriteOps"), fieldText(ioCounters.WriteOperationCount));
+                    document.field(QStringLiteral("ReadBytes"), fieldText(ioCounters.ReadTransferCount));
+                    document.field(QStringLiteral("WriteBytes"), fieldText(ioCounters.WriteTransferCount));
                 }
 
                 progressDispatcher(QStringLiteral("解析PEB参数块"), 55.0f);
@@ -5495,7 +5468,7 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                         kProcessInfoClassSubsystem,
                         subsystemInfo))
                     {
-                        textBuilder << L"SubsystemInformation: " << subsystemInfo << L"\n";
+                        document.field(QStringLiteral("SubsystemInformation"), fieldText(subsystemInfo));
                     }
                 }
 
@@ -5545,47 +5518,30 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                         continue;
                     }
 
-                    textBuilder << L"["
-                        << pebRead.labelText.toStdWString()
-                        << L"]\n";
-                    textBuilder << L"  PebAddress: "
-                        << uint64ToHex(pebRead.pebAddress).toStdWString()
-                        << L"\n";
-                    textBuilder << L"  ProcessParameters: "
-                        << uint64ToHex(pebRead.processParametersAddress).toStdWString()
-                        << L"\n";
-                    textBuilder << L"  ImageBaseAddress: "
-                        << uint64ToHex(pebRead.imageBaseAddress).toStdWString()
-                        << L"\n";
-                    textBuilder << L"  Environment: "
-                        << uint64ToHex(pebRead.environmentAddress).toStdWString()
-                        << L"\n";
+                    document.section(pebRead.labelText);
+                    refreshResult.pebTargets.insert(pebRead.labelText, {
+                        {QStringLiteral("command_line"), pebRead.commandLineText},
+                        {QStringLiteral("image_path"), pebRead.imagePathText},
+                        {QStringLiteral("current_directory"), pebRead.currentDirectoryText},
+                        {QStringLiteral("image_base"), uint64ToHex(pebRead.imageBaseAddress)}});
+                    document.field(QStringLiteral("PebAddress"), fieldText(uint64ToHex(pebRead.pebAddress)));
+                    document.field(QStringLiteral("ProcessParameters"), fieldText(uint64ToHex(pebRead.processParametersAddress)));
+                    document.field(QStringLiteral("ImageBaseAddress"), fieldText(uint64ToHex(pebRead.imageBaseAddress)));
+                    document.field(QStringLiteral("Environment"), fieldText(uint64ToHex(pebRead.environmentAddress)));
 
                     if (!pebRead.commandLineText.trimmed().isEmpty())
                     {
-                        textBuilder << L"CommandLine("
-                            << pebRead.labelText.toStdWString()
-                            << L"): "
-                            << pebRead.commandLineText.toStdWString()
-                            << L"\n";
+                        document.field(QStringLiteral("CommandLine"), pebRead.commandLineText);
                     }
                     if (!pebRead.imagePathText.trimmed().isEmpty())
                     {
                         imagePathText = pebRead.imagePathText;
-                        textBuilder << L"ImagePath("
-                            << pebRead.labelText.toStdWString()
-                            << L"): "
-                            << pebRead.imagePathText.toStdWString()
-                            << L"\n";
+                        document.field(QStringLiteral("ImagePath"), pebRead.imagePathText);
                     }
                     if (!pebRead.currentDirectoryText.trimmed().isEmpty())
                     {
                         currentDirectoryText = pebRead.currentDirectoryText;
-                        textBuilder << L"CurrentDirectory("
-                            << pebRead.labelText.toStdWString()
-                            << L"): "
-                            << pebRead.currentDirectoryText.toStdWString()
-                            << L"\n";
+                        document.field(QStringLiteral("CurrentDirectory"), pebRead.currentDirectoryText);
                     }
                     if (imageBaseAddress == 0 && pebRead.imageBaseAddress != 0)
                     {
@@ -5604,9 +5560,8 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                 progressDispatcher(QStringLiteral("解析映像入口点"), 60.0f);
                 if (imageBaseAddress != 0)
                 {
-                    textBuilder << L"ImageBaseAddress: "
-                        << uint64ToHex(imageBaseAddress).toStdWString()
-                        << L"\n";
+                    document.field(QStringLiteral("ImageBaseAddress"), uint64ToHex(imageBaseAddress));
+                    refreshResult.pebSummary.insert(QStringLiteral("image_base"), uint64ToHex(imageBaseAddress));
                     IMAGE_DOS_HEADER dosHeader{};
                     SIZE_T bytesRead = 0;
                     if (ReadProcessMemory(
@@ -5637,12 +5592,8 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                                 optionalMagic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
                             {
                                 const std::uint32_t entryRva = ntHeader64.OptionalHeader.AddressOfEntryPoint;
-                                textBuilder << L"EntryPointRva: 0x"
-                                    << QString::number(entryRva, 16).toUpper().toStdWString()
-                                    << L"\n";
-                                textBuilder << L"EntryPointAddress: "
-                                    << uint64ToHex(imageBaseAddress + entryRva).toStdWString()
-                                    << L"\n";
+                                document.field(QStringLiteral("EntryPointRva"), QStringLiteral("0x") + fieldText(QString::number(entryRva, 16).toUpper()));
+                                document.field(QStringLiteral("EntryPointAddress"), fieldText(uint64ToHex(imageBaseAddress + entryRva)));
                             }
                         }
                     }
@@ -5679,19 +5630,19 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                     }
 
                     environmentPreviewOk = true;
-                    textBuilder << L"[EnvironmentPreview:"
-                        << pebRead.labelText.toStdWString()
-                        << L"]\n";
+                    document.section(QStringLiteral("EnvironmentPreview: %1").arg(pebRead.labelText));
                     for (const QString& lineText : environmentLines)
                     {
-                        textBuilder << L"  " << lineText.toStdWString() << L"\n";
+                        const int separator = lineText.indexOf(QLatin1Char('='), lineText.startsWith(QLatin1Char('=')) ? 1 : 0);
+                        if (separator >= 0) document.field(lineText.left(separator), lineText.mid(separator + 1));
+                        else document.note(lineText);
                     }
                     break;
                 }
                 if (!environmentPreviewOk)
                 {
-                    textBuilder << L"[EnvironmentPreview]\n";
-                    textBuilder << L"  <unavailable>\n";
+                    document.section(QStringLiteral("EnvironmentPreview"));
+                    document.note(QStringLiteral("<unavailable>"));
                 }
 
                 SYSTEM_INFO systemInfo{};
@@ -5714,7 +5665,7 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                 const auto regionScanDeadline = beginTime + std::chrono::seconds(8);
 
                 progressDispatcher(QStringLiteral("扫描虚拟地址空间"), 68.0f);
-                textBuilder << L"[VirtualAddressRegionPreview]\n";
+                document.section(QStringLiteral("VirtualAddressRegionPreview"));
                 while (cursorAddress < maxAddress)
                 {
                     if (std::chrono::steady_clock::now() > regionScanDeadline)
@@ -5789,21 +5740,15 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
 
                         const std::uint64_t baseAddress = reinterpret_cast<std::uint64_t>(memoryInfo.BaseAddress);
                         const std::uint64_t endAddress = baseAddress + static_cast<std::uint64_t>(memoryInfo.RegionSize);
-                        textBuilder << L"  "
-                            << uint64ToHex(baseAddress).toStdWString()
-                            << L"-"
-                            << uint64ToHex(endAddress).toStdWString()
-                            << L" | "
-                            << memoryStateToText(memoryInfo.State).toStdWString()
-                            << L" | "
-                            << memoryProtectToText(memoryInfo.Protect).toStdWString()
-                            << L" | "
-                            << memoryTypeToText(memoryInfo.Type).toStdWString();
+                        document.section(QStringLiteral("%1 - %2").arg(uint64ToHex(baseAddress), uint64ToHex(endAddress)));
+                        document.field(QStringLiteral("State"), memoryStateToText(memoryInfo.State), true);
+                        document.field(QStringLiteral("Protection"), memoryProtectToText(memoryInfo.Protect));
+                        document.field(QStringLiteral("Type"), memoryTypeToText(memoryInfo.Type), true);
                         if (!mappedPathText.trimmed().isEmpty())
                         {
-                            textBuilder << L" | " << mappedPathText.toStdWString();
+                            document.field(QStringLiteral("Mapped path"), mappedPathText);
                         }
-                        textBuilder << L"\n";
+
                         ++previewRegionCount;
                     }
 
@@ -5831,20 +5776,20 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
                         refreshResult.diagnosticText,
                         QStringLiteral("虚拟内存枚举超过8秒，已返回部分结果。"));
                 }
-                textBuilder << L"RegionCount: " << regionCount << L"\n";
-                textBuilder << L"CommitBytes: " << commitBytes << L"\n";
-                textBuilder << L"MappedBytes: " << mappedBytes << L"\n";
-                textBuilder << L"ImageBytes: " << imageBytes << L"\n";
-                textBuilder << L"PrivateBytes: " << privateBytes << L"\n";
+                document.field(QStringLiteral("RegionCount"), fieldText(regionCount));
+                document.field(QStringLiteral("CommitBytes"), fieldText(commitBytes));
+                document.field(QStringLiteral("MappedBytes"), fieldText(mappedBytes));
+                document.field(QStringLiteral("ImageBytes"), fieldText(imageBytes));
+                document.field(QStringLiteral("PrivateBytes"), fieldText(privateBytes));
 
                 // 堆信息：只统计 HeapList 数量。
                 // - 旧实现继续调用 Heap32First/Heap32Next 遍历全部堆块；
                 // - 这些 API 在大进程、受保护进程或堆损坏场景下可能在内部长时间阻塞；
                 // - PEB 页首要目标是 ProcessParameters/环境块解析，因此这里主动跳过堆块全量枚举。
                 progressDispatcher(QStringLiteral("跳过堆块枚举"), 90.0f);
-                textBuilder << L"HeapCount: <skipped>\n";
-                textBuilder << L"HeapBlockCount: <skipped>\n";
-                textBuilder << L"HeapBlockEnumeration: <skipped to keep PEB refresh bounded>\n";
+                document.field(QStringLiteral("HeapCount"), QStringLiteral("<skipped>"), true);
+                document.field(QStringLiteral("HeapBlockCount"), QStringLiteral("<skipped>"), true);
+                document.field(QStringLiteral("HeapBlockEnumeration"), QStringLiteral("<skipped to keep PEB refresh bounded>"), true);
 
                 progressDispatcher(QStringLiteral("汇总PEB结果"), 95.0f);
 
@@ -5853,17 +5798,17 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
 
             if (!refreshResult.diagnosticText.trimmed().isEmpty())
             {
-                textBuilder << L"[Diagnostic]\n";
-                textBuilder << L"  " << refreshResult.diagnosticText.toStdWString() << L"\n";
+                document.section(QStringLiteral("Diagnostic"));
+                document.note(refreshResult.diagnosticText);
             }
 
-            refreshResult.detailText = QString::fromStdWString(textBuilder.str());
+            refreshResult.document = std::move(document);
             refreshResult.elapsedMs = static_cast<std::uint64_t>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - beginTime).count());
 
             QMetaObject::invokeMethod(
-                guardThis,
+                qApp,
                 [guardThis, refreshResult, ticketValue]()
                 {
                     if (guardThis == nullptr || guardThis->m_pebRefreshTicket != ticketValue)
@@ -5877,7 +5822,7 @@ void ProcessDetailWindow::requestAsyncPebRefresh()
     QThreadPool::globalInstance()->start(refreshTask);
 }
 
-void ProcessDetailWindow::applyTokenRefreshResult(const TextRefreshResult& refreshResult)
+void ProcessDetailWindow::applyTokenRefreshResult(const FieldRefreshResult& refreshResult)
 {
     m_tokenRefreshing = false;
     if (m_refreshTokenButton != nullptr)
@@ -5886,7 +5831,7 @@ void ProcessDetailWindow::applyTokenRefreshResult(const TextRefreshResult& refre
     }
     if (m_tokenDetailOutput != nullptr)
     {
-        m_tokenDetailOutput->setText(refreshResult.detailText);
+        m_tokenDetailOutput->setDocument(refreshResult.document);
     }
     if (m_tokenStatusLabel != nullptr)
     {
@@ -5896,7 +5841,7 @@ void ProcessDetailWindow::applyTokenRefreshResult(const TextRefreshResult& refre
     kPro.set(m_tokenRefreshProgressPid, "令牌信息刷新完成", 0, 100.0f);
 }
 
-void ProcessDetailWindow::applyPebRefreshResult(const TextRefreshResult& refreshResult)
+void ProcessDetailWindow::applyPebRefreshResult(const FieldRefreshResult& refreshResult)
 {
     m_pebRefreshing = false;
     if (m_refreshPebButton != nullptr)
@@ -5905,9 +5850,10 @@ void ProcessDetailWindow::applyPebRefreshResult(const TextRefreshResult& refresh
     }
     if (m_pebDetailOutput != nullptr)
     {
-        m_pebDetailOutput->setText(refreshResult.detailText);
+        m_pebDetailOutput->setDocument(refreshResult.document);
     }
-    populatePebEditableFieldsFromText(refreshResult.detailText);
+    m_pebSnapshot = refreshResult;
+    populatePebEditableFieldsFromSnapshot();
     if (m_pebStatusLabel != nullptr)
     {
         QString statusText = QString("● 刷新完成 %1 ms").arg(refreshResult.elapsedMs);
@@ -6282,77 +6228,25 @@ void ProcessDetailWindow::applyPebEditableFields()
     requestAsyncPebRefresh();
 }
 
-void ProcessDetailWindow::populatePebEditableFieldsFromText(const QString& detailText)
+void ProcessDetailWindow::populatePebEditableFieldsFromSnapshot()
 {
-    // PEB编辑区自动填充：
-    // - 从刷新文本中抽取当前选中 PEB 的字符串字段；
-    // - 数值类字段优先取全局 ProcessAffinity/PriorityClass/ImageBaseAddress；
-    // - 只更新编辑框内容，不触发任何远程写入。
-    if (detailText.trimmed().isEmpty())
-    {
-        return;
-    }
-
-    const QString targetName = (m_pebTargetCombo != nullptr)
-        ? m_pebTargetCombo->currentData().toString()
-        : QStringLiteral("NativePEB");
-    const QString escapedTarget = QRegularExpression::escape(targetName);
-
-    const auto captureSingleLine = [&detailText](const QString& patternText) -> QString
-        {
-            const QRegularExpression pattern(
-                patternText,
-                QRegularExpression::MultilineOption);
-            const QRegularExpressionMatch match = pattern.match(detailText);
-            if (!match.hasMatch())
-            {
-                return QString();
-            }
-            return match.captured(1).trimmed();
-        };
-
-    const QString commandLineText = captureSingleLine(
-        QStringLiteral("^CommandLine\\(%1\\):\\s*(.*)$").arg(escapedTarget));
-    const QString imagePathText = captureSingleLine(
-        QStringLiteral("^ImagePath\\(%1\\):\\s*(.*)$").arg(escapedTarget));
-    const QString currentDirectoryText = captureSingleLine(
-        QStringLiteral("^CurrentDirectory\\(%1\\):\\s*(.*)$").arg(escapedTarget));
-    const QString imageBaseText = captureSingleLine(
-        QStringLiteral("^\\s*ImageBaseAddress:\\s*(0[xX][0-9A-Fa-f]+|[0-9]+)\\s*$"));
-    const QString affinityText = captureSingleLine(
-        QStringLiteral("^ProcessAffinity:\\s*(0[xX][0-9A-Fa-f]+|[0-9]+)\\s*$"));
-    const QString priorityText = captureSingleLine(QStringLiteral("^PriorityClass:\\s*([^\\r\\n]+)\\s*$"));
-
-    if (m_pebCommandLineEdit != nullptr)
-    {
-        m_pebCommandLineEdit->setText(commandLineText);
-    }
-    if (m_pebImagePathEdit != nullptr)
-    {
-        m_pebImagePathEdit->setText(imagePathText);
-    }
-    if (m_pebCurrentDirectoryEdit != nullptr)
-    {
-        m_pebCurrentDirectoryEdit->setText(currentDirectoryText);
-    }
-    if (m_pebImageBaseEdit != nullptr && !imageBaseText.isEmpty())
-    {
-        m_pebImageBaseEdit->setText(imageBaseText);
-    }
-    if (m_pebAffinityMaskEdit != nullptr && !affinityText.isEmpty())
-    {
-        m_pebAffinityMaskEdit->setText(affinityText);
-    }
+    const QString targetName = m_pebTargetCombo != nullptr
+        ? m_pebTargetCombo->currentData().toString() : QStringLiteral("NativePEB");
+    const QHash<QString, QString> target = m_pebSnapshot.pebTargets.value(targetName);
+    // Empty or failed target snapshots deliberately clear string fields. This
+    // prevents a NativePEB value from being written into a newly selected Wow64PEB.
+    if (m_pebCommandLineEdit != nullptr) m_pebCommandLineEdit->setText(target.value(QStringLiteral("command_line")));
+    if (m_pebImagePathEdit != nullptr) m_pebImagePathEdit->setText(target.value(QStringLiteral("image_path")));
+    if (m_pebCurrentDirectoryEdit != nullptr) m_pebCurrentDirectoryEdit->setText(target.value(QStringLiteral("current_directory")));
+    if (m_pebImageBaseEdit != nullptr) m_pebImageBaseEdit->setText(target.value(QStringLiteral("image_base")));
+    if (m_pebAffinityMaskEdit != nullptr) m_pebAffinityMaskEdit->setText(m_pebSnapshot.pebSummary.value(QStringLiteral("affinity")));
+    const QString priorityText = m_pebSnapshot.pebSummary.value(QStringLiteral("priority")).section('(', 0, 0).trimmed();
     if (m_pebPriorityClassCombo != nullptr && !priorityText.isEmpty())
     {
-        const QString normalizedPriority = priorityText.section('(', 0, 0).trimmed();
         for (int index = 0; index < m_pebPriorityClassCombo->count(); ++index)
         {
-            if (m_pebPriorityClassCombo->itemText(index).compare(normalizedPriority, Qt::CaseInsensitive) == 0)
-            {
-                m_pebPriorityClassCombo->setCurrentIndex(index);
-                break;
-            }
+            if (m_pebPriorityClassCombo->itemText(index).compare(priorityText, Qt::CaseInsensitive) == 0)
+            { m_pebPriorityClassCombo->setCurrentIndex(index); break; }
         }
     }
 }
@@ -6403,21 +6297,21 @@ void ProcessDetailWindow::requestAsyncSectionRefresh()
         {
             const auto beginTime = std::chrono::steady_clock::now();
             SectionRefreshResult refreshResult{};
-            std::wstringstream textBuilder;
+            ks::ui::FieldDocument document;
             const ksword::ark::DriverClient driverClient;
 
             const ksword::ark::ProcessRuntimeDetailResult processDetailResult =
                 driverClient.queryProcessRuntimeDetail(processId);
             const ksword::ark::DynDataStatusResult dynDataStatusResult =
                 driverClient.queryDynDataStatus();
-            QString deepIdentityGuardText;
+            ks::ui::FieldDocument deepIdentityGuard;
             bool deepIdentityMatched = false;
             if (dynDataStatusResult.io.ok)
             {
                 deepIdentityMatched = pdbRuntimeCatalogMatchesKernelIdentity(
                     dynDataStatusResult.ntoskrnl.timeDateStamp,
                     dynDataStatusResult.ntoskrnl.sizeOfImage,
-                    &deepIdentityGuardText);
+                    &deepIdentityGuard);
             }
             else
             {
@@ -6426,11 +6320,9 @@ void ProcessDetailWindow::requestAsyncSectionRefresh()
                     QStringLiteral("DynData状态"),
                     QStringLiteral("DynData status 查询没有返回额外说明。"),
                     false);
-                deepIdentityGuardText = QStringLiteral(
-                    "[PDB Deep Runtime Identity Guard]\n"
-                    "结论: 不匹配，跳过只读采样\n"
-                    "原因: DynData status 查询不可用，无法校验 deep offset 与当前内核 identity。%1")
-                    .arg(readableDynDataMessage);
+                deepIdentityGuard.section(QStringLiteral("PDB Deep Runtime Identity Guard"));
+                deepIdentityGuard.field(QStringLiteral("结论"), QStringLiteral("不匹配，跳过只读采样"), true);
+                deepIdentityGuard.field(QStringLiteral("原因"), QStringLiteral("DynData status 查询不可用，无法校验 deep offset 与当前内核 identity。%1").arg(readableDynDataMessage), true);
             }
             const std::vector<ksword::ark::RuntimeFieldSampleRequestItem> processSampleItems =
                 deepIdentityMatched
@@ -6491,99 +6383,39 @@ void ProcessDetailWindow::requestAsyncSectionRefresh()
                     }
                 };
 
-            textBuilder << L"[R0 Process Runtime Detail]\n";
+            document.section(QStringLiteral("R0 Process Runtime Detail"));
             if (processDetailResult.io.ok)
             {
                 const KSWORD_ARK_PROCESS_DETAIL_RESPONSE& processDetail =
                     processDetailResult.response;
-                textBuilder << L"Status: "
-                    << runtimeDetailStatusText(processDetail.status).toStdWString()
-                    << L"\n";
-                textBuilder << L"PID/Image: "
-                    << processDetail.processId
-                    << L" / "
-                    << fixedRuntimeImageName(
+                document.field(QStringLiteral("Status"), fieldText(runtimeDetailStatusText(processDetail.status)));
+                document.field(QStringLiteral("PID/Image"), fieldText(processDetail.processId) + QStringLiteral(" / ") + fieldText(fixedRuntimeImageName(
                         processDetail.imageName,
-                        KSWORD_ARK_RUNTIME_IMAGE_NAME_CHARS).toStdWString()
-                    << L"\n";
-                textBuilder << L"Object/UniqueProcessId: "
-                    << uint64ToHex(processDetail.processObjectAddress).toStdWString()
-                    << L" / "
-                    << uint64ToHex(processDetail.uniqueProcessIdValue).toStdWString()
-                    << L"\n";
-                textBuilder << L"ActiveProcessLinks: Flink="
-                    << uint64ToHex(processDetail.activeProcessLinksFlink).toStdWString()
-                    << L", Blink="
-                    << uint64ToHex(processDetail.activeProcessLinksBlink).toStdWString()
-                    << L"\n";
-                textBuilder << L"ThreadListHead: Flink="
-                    << uint64ToHex(processDetail.threadListHeadFlink).toStdWString()
-                    << L", Blink="
-                    << uint64ToHex(processDetail.threadListHeadBlink).toStdWString()
-                    << L"\n";
-                textBuilder << L"ObjectTable/SectionObject: "
-                    << uint64ToHex(processDetail.objectTableAddress).toStdWString()
-                    << L" / "
-                    << uint64ToHex(processDetail.sectionObjectAddress).toStdWString()
-                    << L"\n";
-                textBuilder << L"TokenFastRef/TokenObject: "
-                    << uint64ToHex(processDetail.tokenFastRef).toStdWString()
-                    << L" / "
-                    << uint64ToHex(processDetail.tokenObjectAddress).toStdWString()
-                    << L"\n";
-                textBuilder << L"Protection/Signature/SectionSignature: 0x"
-                    << QStringLiteral("%1")
+                        KSWORD_ARK_RUNTIME_IMAGE_NAME_CHARS)));
+                document.field(QStringLiteral("Object/UniqueProcessId"), fieldText(uint64ToHex(processDetail.processObjectAddress)) + QStringLiteral(" / ") + fieldText(uint64ToHex(processDetail.uniqueProcessIdValue)));
+                document.field(QStringLiteral("ActiveProcessLinks"), QStringLiteral("Flink=") + fieldText(uint64ToHex(processDetail.activeProcessLinksFlink)) + QStringLiteral(", Blink=") + fieldText(uint64ToHex(processDetail.activeProcessLinksBlink)));
+                document.field(QStringLiteral("ThreadListHead"), QStringLiteral("Flink=") + fieldText(uint64ToHex(processDetail.threadListHeadFlink)) + QStringLiteral(", Blink=") + fieldText(uint64ToHex(processDetail.threadListHeadBlink)));
+                document.field(QStringLiteral("ObjectTable/SectionObject"), fieldText(uint64ToHex(processDetail.objectTableAddress)) + QStringLiteral(" / ") + fieldText(uint64ToHex(processDetail.sectionObjectAddress)));
+                document.field(QStringLiteral("TokenFastRef/TokenObject"), fieldText(uint64ToHex(processDetail.tokenFastRef)) + QStringLiteral(" / ") + fieldText(uint64ToHex(processDetail.tokenObjectAddress)));
+                document.field(QStringLiteral("Protection/Signature/SectionSignature"), QStringLiteral("0x") + fieldText(QStringLiteral("%1")
                         .arg(static_cast<unsigned int>(processDetail.protection), 2, 16, QChar('0'))
-                        .toUpper().toStdWString()
-                    << L" / 0x"
-                    << QStringLiteral("%1")
+                        .toUpper()) + QStringLiteral(" / 0x") + fieldText(QStringLiteral("%1")
                         .arg(static_cast<unsigned int>(processDetail.signatureLevel), 2, 16, QChar('0'))
-                        .toUpper().toStdWString()
-                    << L" / 0x"
-                    << QStringLiteral("%1")
+                        .toUpper()) + QStringLiteral(" / 0x") + fieldText(QStringLiteral("%1")
                         .arg(static_cast<unsigned int>(processDetail.sectionSignatureLevel), 2, 16, QChar('0'))
-                        .toUpper().toStdWString()
-                    << L"\n";
-                textBuilder << L"已采集字段: "
-                    << processRuntimeFieldListText(processDetail.fieldFlags).toStdWString()
-                    << L"\n";
-                textBuilder << L"Offsets: UniquePid="
-                    << uint64ToHex(processDetail.offsets.epUniqueProcessId).toStdWString()
-                    << L", ActiveLinks="
-                    << uint64ToHex(processDetail.offsets.epActiveProcessLinks).toStdWString()
-                    << L", ThreadList="
-                    << uint64ToHex(processDetail.offsets.epThreadListHead).toStdWString()
-                    << L", ImageFileName="
-                    << uint64ToHex(processDetail.offsets.epImageFileName).toStdWString()
-                    << L", Token="
-                    << uint64ToHex(processDetail.offsets.epToken).toStdWString()
-                    << L", ObjectTable="
-                    << uint64ToHex(processDetail.offsets.epObjectTable).toStdWString()
-                    << L", SectionObject="
-                    << uint64ToHex(processDetail.offsets.epSectionObject).toStdWString()
-                    << L"\n";
-                textBuilder << L"OffsetSources: "
-                    << processRuntimeOffsetSourceText(processDetail).toStdWString()
-                    << L"\n";
-                textBuilder << L"KernelGlobals: "
-                    << runtimeKernelGlobalsText(processDetail.kernelGlobals).toStdWString()
-                    << L"\n";
-                textBuilder << L"DynData已具备能力: "
-                    << runtimeCapabilityMaskText(processDetail.dynDataCapabilityMask, false).toStdWString()
-                    << L"\n";
-                textBuilder << L"DynData缺失能力: "
-                    << runtimeCapabilityMaskText(processDetail.missingCapabilityMask, true).toStdWString()
-                    << L"\n";
-                textBuilder << L"LastStatus: "
-                    << ntStatusHexText(processDetail.lastStatus).toStdWString()
-                    << L"\n";
-                textBuilder << L"说明: "
-                    << runtimeSamplingSummaryText(
+                        .toUpper()));
+                document.field(QStringLiteral("已采集字段"), fieldText(processRuntimeFieldListText(processDetail.fieldFlags)));
+                document.field(QStringLiteral("Offsets"), QStringLiteral("UniquePid=") + fieldText(uint64ToHex(processDetail.offsets.epUniqueProcessId)) + QStringLiteral(", ActiveLinks=") + fieldText(uint64ToHex(processDetail.offsets.epActiveProcessLinks)) + QStringLiteral(", ThreadList=") + fieldText(uint64ToHex(processDetail.offsets.epThreadListHead)) + QStringLiteral(", ImageFileName=") + fieldText(uint64ToHex(processDetail.offsets.epImageFileName)) + QStringLiteral(", Token=") + fieldText(uint64ToHex(processDetail.offsets.epToken)) + QStringLiteral(", ObjectTable=") + fieldText(uint64ToHex(processDetail.offsets.epObjectTable)) + QStringLiteral(", SectionObject=") + fieldText(uint64ToHex(processDetail.offsets.epSectionObject)));
+                document.field(QStringLiteral("OffsetSources"), fieldText(processRuntimeOffsetSourceText(processDetail)));
+                document.field(QStringLiteral("KernelGlobals"), fieldText(runtimeKernelGlobalsText(processDetail.kernelGlobals)));
+                document.field(QStringLiteral("DynData已具备能力"), fieldText(runtimeCapabilityMaskText(processDetail.dynDataCapabilityMask, false)));
+                document.field(QStringLiteral("DynData缺失能力"), fieldText(runtimeCapabilityMaskText(processDetail.missingCapabilityMask, true)));
+                document.field(QStringLiteral("LastStatus"), fieldText(ntStatusHexText(processDetail.lastStatus)));
+                document.field(QStringLiteral("说明"), fieldText(runtimeSamplingSummaryText(
                         fixedRuntimeWideText(
                             processDetail.detail,
                             KSWORD_ARK_RUNTIME_DETAIL_TEXT_CHARS),
-                        QStringLiteral("进程")).toStdWString()
-                    << L"\n\n";
+                        QStringLiteral("进程"))));
             }
             else
             {
@@ -6594,47 +6426,36 @@ void ProcessDetailWindow::requestAsyncSectionRefresh()
                     QStringLiteral("进程详情"),
                     QStringLiteral("进程 runtime detail 暂不可用。"),
                     processDetailResult.unsupported);
-                textBuilder << L"Status: unavailable\n";
-                textBuilder << L"说明: " << readableMessage.toStdWString() << L"\n\n";
+                document.field(QStringLiteral("Status"), QStringLiteral("unavailable"), true);
+                document.field(QStringLiteral("说明"), fieldText(readableMessage));
             }
 
-            textBuilder << L"[PDB Deep Runtime Sample - process_detail]\n";
-            textBuilder << deepIdentityGuardText.toStdWString() << L"\n";
+            document.section(QStringLiteral("PDB Deep Runtime Sample - process_detail"));
+            appendFields(document, deepIdentityGuard);
             if (!deepIdentityMatched)
             {
-                textBuilder << L"deep catalog identity 未与当前 ntoskrnl 匹配，已跳过 R0 字段采样，避免错误偏移。\n\n";
+                document.note(QStringLiteral("deep catalog identity 未与当前 ntoskrnl 匹配，已跳过 R0 字段采样，避免错误偏移。"));
             }
             else if (processSampleItems.empty())
             {
-                textBuilder << L"PDB deep offset JSON 未提供可安全采样的小字段，或 profiles\\pdb_deep_offsets 未找到。\n\n";
+                document.note(QStringLiteral("PDB deep offset JSON 未提供可安全采样的小字段，或 profiles\\pdb_deep_offsets 未找到。"));
             }
             else
             {
-                textBuilder << runtimeFieldSampleResultText(
-                    processSampleResult,
-                    QStringLiteral("进程 PDB deep 字段采样")).toStdWString()
-                    << L"\n\n";
+                appendFields(document, runtimeFieldSampleResultDocument(processSampleResult, QStringLiteral("进程 PDB deep 字段采样")));
             }
 
-            textBuilder << L"[PDB Deep Runtime Catalog - process_detail]\n"
-                << buildPdbRuntimeCatalogPreview(QStringLiteral("process_detail"), 64, 1024).toStdWString()
-                << L"\n\n";
-            textBuilder << L"[PDB Deep Runtime Catalog - thread_detail]\n"
-                << buildPdbRuntimeCatalogPreview(QStringLiteral("thread_detail"), 64, 1024).toStdWString()
-                << L"\n\n";
+            appendFields(document, buildPdbRuntimeCatalogPreview(QStringLiteral("process_detail"), 64, 1024));
+            appendFields(document, buildPdbRuntimeCatalogPreview(QStringLiteral("thread_detail"), 64, 1024));
 
             // 追加更广的 PDB deep offset domain：
             // - 输入：ntkrnlmp deep JSON 中已批量生成的 handle/module/memory/ipc/callback/common domain；
             // - 处理：只展示目录预览，不发起额外 R0 调用，不扩大当前查询的权限面；
-            // - 返回：写入 CodeEditorWidget 文本，让进程详情页能直接看到备用偏移库不只是摘要。
+            // - 返回：原生结构目录，不执行新采样。
             const auto appendDeepCatalogPreviewDomain =
-                [&textBuilder](const QString& domainName, const QString& titleText)
+                [&document](const QString& domainName, const QString& titleText)
             {
-                textBuilder << L"[PDB Deep Runtime Catalog - "
-                    << titleText.toStdWString()
-                    << L"]\n"
-                    << buildPdbRuntimeCatalogPreview(domainName, 32, 256).toStdWString()
-                    << L"\n\n";
+                appendFields(document, buildPdbRuntimeCatalogPreview(domainName, 32, 256));
             };
             appendDeepCatalogPreviewDomain(QStringLiteral("handle_object_detail"), QStringLiteral("handle_object_detail"));
             appendDeepCatalogPreviewDomain(QStringLiteral("memory_section_detail"), QStringLiteral("memory_section_detail"));
@@ -6652,65 +6473,58 @@ void ProcessDetailWindow::requestAsyncSectionRefresh()
                 QStringLiteral("无额外驱动消息。"),
                 false);
 
-            textBuilder << L"[R0 Section Query]\n";
-            textBuilder << L"IO说明: " << readableSectionIoMessage.toStdWString() << L"\n";
+            document.section(QStringLiteral("R0 Section Query"));
+            document.field(QStringLiteral("IO说明"), fieldText(readableSectionIoMessage));
             if (!sectionResult.io.ok)
             {
                 refreshResult.diagnosticText = readableSectionIoMessage;
             }
             else
             {
-                textBuilder << L"Status: " << sectionStatusText(sectionResult.queryStatus).toStdWString() << L"\n";
-                textBuilder << L"LastStatus: " << statusHex(sectionResult.lastStatus).toStdWString() << L"\n";
-                textBuilder << L"FieldFlags: " << uint64ToHex(sectionResult.fieldFlags).toStdWString() << L"\n";
-                textBuilder << L"DynDataCapability: " << uint64ToHex(sectionResult.dynDataCapabilityMask).toStdWString() << L"\n";
-                textBuilder << L"SectionObject: " << uint64ToHex(sectionResult.sectionObjectAddress).toStdWString() << L"\n";
-                textBuilder << L"ControlArea: " << uint64ToHex(sectionResult.controlAreaAddress).toStdWString() << L"\n";
-                textBuilder << L"EpSectionObjectOffset: " << uint64ToHex(sectionResult.epSectionObjectOffset).toStdWString() << L"\n";
-                textBuilder << L"MmSectionControlAreaOffset: " << uint64ToHex(sectionResult.mmSectionControlAreaOffset).toStdWString() << L"\n";
-                textBuilder << L"MmControlAreaListHeadOffset: " << uint64ToHex(sectionResult.mmControlAreaListHeadOffset).toStdWString() << L"\n";
-                textBuilder << L"MmControlAreaLockOffset: " << uint64ToHex(sectionResult.mmControlAreaLockOffset).toStdWString() << L"\n";
-                textBuilder << L"Mappings: total=" << sectionResult.totalCount
-                    << L", returned=" << sectionResult.returnedCount
-                    << L", parsed=" << sectionResult.mappings.size() << L"\n";
+                document.field(QStringLiteral("Status"), fieldText(sectionStatusText(sectionResult.queryStatus)));
+                document.field(QStringLiteral("LastStatus"), fieldText(statusHex(sectionResult.lastStatus)));
+                document.field(QStringLiteral("FieldFlags"), fieldText(uint64ToHex(sectionResult.fieldFlags)));
+                document.field(QStringLiteral("DynDataCapability"), fieldText(uint64ToHex(sectionResult.dynDataCapabilityMask)));
+                document.field(QStringLiteral("SectionObject"), fieldText(uint64ToHex(sectionResult.sectionObjectAddress)));
+                document.field(QStringLiteral("ControlArea"), fieldText(uint64ToHex(sectionResult.controlAreaAddress)));
+                document.field(QStringLiteral("EpSectionObjectOffset"), fieldText(uint64ToHex(sectionResult.epSectionObjectOffset)));
+                document.field(QStringLiteral("MmSectionControlAreaOffset"), fieldText(uint64ToHex(sectionResult.mmSectionControlAreaOffset)));
+                document.field(QStringLiteral("MmControlAreaListHeadOffset"), fieldText(uint64ToHex(sectionResult.mmControlAreaListHeadOffset)));
+                document.field(QStringLiteral("MmControlAreaLockOffset"), fieldText(uint64ToHex(sectionResult.mmControlAreaLockOffset)));
+                document.field(QStringLiteral("Mappings"), QStringLiteral("total=") + fieldText(sectionResult.totalCount) + QStringLiteral(", returned=") + fieldText(sectionResult.returnedCount) + QStringLiteral(", parsed=") + fieldText(sectionResult.mappings.size()));
 
                 if ((sectionResult.fieldFlags & KSWORD_ARK_SECTION_FIELD_REMOTE_MAPPING_UNSUPPORTED) != 0U)
                 {
-                    textBuilder << L"RemoteMapping: unsupported by current ControlArea marker\n";
+                    document.field(QStringLiteral("RemoteMapping"), QStringLiteral("unsupported by current ControlArea marker"), true);
                 }
                 if ((sectionResult.fieldFlags & KSWORD_ARK_SECTION_FIELD_MAPPING_TRUNCATED) != 0U)
                 {
-                    textBuilder << L"MappingList: truncated\n";
+                    document.field(QStringLiteral("MappingList"), QStringLiteral("truncated"), true);
                 }
 
-                textBuilder << L"[Mappings]\n";
+                document.section(QStringLiteral("Mappings"));
                 if (sectionResult.mappings.empty())
                 {
-                    textBuilder << L"  <empty or unavailable>\n";
+                    document.note(QStringLiteral("<empty or unavailable>"));
                 }
                 else
                 {
                     for (const auto& mappingEntry : sectionResult.mappings)
                     {
-                        textBuilder << L"  "
-                            << mappingTypeText(mappingEntry.viewMapType).toStdWString()
-                            << L" | PID=" << mappingEntry.processId
-                            << L" | "
-                            << uint64ToHex(mappingEntry.startVa).toStdWString()
-                            << L"-"
-                            << uint64ToHex(mappingEntry.endVa).toStdWString()
-                            << L"\n";
+                        document.section(QStringLiteral("%1 | PID=%2").arg(mappingTypeText(mappingEntry.viewMapType)).arg(mappingEntry.processId));
+                        document.field(QStringLiteral("Start VA"), uint64ToHex(mappingEntry.startVa));
+                        document.field(QStringLiteral("End VA"), uint64ToHex(mappingEntry.endVa));
                     }
                 }
             }
 
-            refreshResult.detailText = QString::fromStdWString(textBuilder.str());
+            refreshResult.document = std::move(document);
             refreshResult.elapsedMs = static_cast<std::uint64_t>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - beginTime).count());
 
             QMetaObject::invokeMethod(
-                guardThis,
+                qApp,
                 [guardThis, refreshResult, ticketValue]()
                 {
                     if (guardThis == nullptr || guardThis->m_sectionInfoRefreshTicket != ticketValue)
@@ -6733,7 +6547,7 @@ void ProcessDetailWindow::applySectionRefreshResult(const SectionRefreshResult& 
     }
     if (m_sectionInfoOutput != nullptr)
     {
-        m_sectionInfoOutput->setText(refreshResult.detailText);
+        m_sectionInfoOutput->setDocument(refreshResult.document);
     }
     if (m_sectionInfoStatusLabel != nullptr)
     {

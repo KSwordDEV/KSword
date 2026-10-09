@@ -45,6 +45,12 @@ namespace wpg_test
         statusBar.setDiagnosticsText(QStringLiteral("示例诊断文本：地址越界"), true);
         WPG_CHECK(statusBar.isDrawerExpanded());
         WPG_CHECK(statusBar.diagnosticsText() == QStringLiteral("示例诊断文本：地址越界"));
+        ks::ui::FieldDocument document;
+        document.field(QStringLiteral("地址"), QStringLiteral("raw_%2:[x]\nvalue"));
+        statusBar.setDiagnosticsDocument(document, true);
+        WPG_CHECK(statusBar.diagnosticsText() == document.toPlainText(true));
+        statusBar.setDiagnosticsText(QStringLiteral("后续原始诊断"), false);
+        WPG_CHECK(statusBar.diagnosticsText() == QStringLiteral("后续原始诊断"));
         statusBar.setDrawerExpanded(false);
         WPG_CHECK(!statusBar.isDrawerExpanded());
 

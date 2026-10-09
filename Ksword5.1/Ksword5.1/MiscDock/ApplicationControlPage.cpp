@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "ApplicationControlPage.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -550,9 +551,9 @@ namespace ks::misc
         layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(6);
 
-        m_appLockerSummary = new CodeEditorWidget(page);
-        m_appLockerSummary->setReadOnly(true);
-        m_appLockerSummary->setText(QStringLiteral("AppLocker 摘要会在后台刷新后显示。"));
+        m_appLockerSummary = new ks::ui::StructuredFieldView(page);
+
+        m_appLockerSummary->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("AppLocker 摘要会在后台刷新后显示。")));
         m_appLockerSummary->setMaximumHeight(160);
 
         auto* actionRow = new QWidget(page);
@@ -585,9 +586,9 @@ namespace ks::misc
         layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(6);
 
-        m_wdacSummary = new CodeEditorWidget(page);
-        m_wdacSummary->setReadOnly(true);
-        m_wdacSummary->setText(QStringLiteral("WDAC / Code Integrity 摘要会在后台刷新后显示。"));
+        m_wdacSummary = new ks::ui::StructuredFieldView(page);
+
+        m_wdacSummary->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("WDAC / Code Integrity 摘要会在后台刷新后显示。")));
         m_wdacSummary->setMaximumHeight(160);
 
         auto* actionRow = new QWidget(page);
@@ -623,9 +624,9 @@ namespace ks::misc
         layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(6);
 
-        m_defenderSummary = new CodeEditorWidget(page);
-        m_defenderSummary->setReadOnly(true);
-        m_defenderSummary->setText(QStringLiteral("Defender 状态会在后台刷新后显示。"));
+        m_defenderSummary = new ks::ui::StructuredFieldView(page);
+
+        m_defenderSummary->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("Defender 状态会在后台刷新后显示。")));
         m_defenderSummary->setMaximumHeight(160);
 
         auto* actionRow = new QWidget(page);
@@ -657,9 +658,9 @@ namespace ks::misc
         layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(6);
 
-        m_platformSummary = new CodeEditorWidget(page);
-        m_platformSummary->setReadOnly(true);
-        m_platformSummary->setText(QStringLiteral("CI / VBS / Hyper-V / Driver Trust / BAM 摘要会在后台刷新后显示。"));
+        m_platformSummary = new ks::ui::StructuredFieldView(page);
+
+        m_platformSummary->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("CI / VBS / Hyper-V / Driver Trust / BAM 摘要会在后台刷新后显示。")));
         m_platformSummary->setMaximumHeight(160);
 
         m_platformTable = new ks::ui::VisibleTableWidget(page);
@@ -709,9 +710,10 @@ namespace ks::misc
         filterLayout->addWidget(m_eventLimitCombo, 0);
         filterLayout->addStretch(1);
 
-        m_eventSummary = new CodeEditorWidget(page);
-        m_eventSummary->setReadOnly(true);
-        m_eventSummary->setText(QStringLiteral("Code Integrity 事件摘要会在后台刷新后显示。"));
+        m_eventSummary = new ks::ui::StructuredFieldView(page);
+
+        m_eventSummaryDocument = ks::ui::FieldDocument{}.note(QStringLiteral("等待 Code Integrity 事件采集。"));
+        m_eventSummary->setDocument(m_eventSummaryDocument);
         m_eventSummary->setMaximumHeight(150);
 
         m_eventTable = new ks::ui::VisibleTableWidget(page);
@@ -753,9 +755,9 @@ namespace ks::misc
         inputLayout->addWidget(m_fileBrowseButton);
         inputLayout->addWidget(m_fileDiagnoseButton);
 
-        m_fileDiagnosisSummary = new CodeEditorWidget(page);
-        m_fileDiagnosisSummary->setReadOnly(true);
-        m_fileDiagnosisSummary->setText(QStringLiteral("文件诊断结果会在运行后显示。"));
+        m_fileDiagnosisSummary = new ks::ui::StructuredFieldView(page);
+
+        m_fileDiagnosisSummary->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("文件诊断结果会在运行后显示。")));
         m_fileDiagnosisSummary->setMaximumHeight(180);
 
         m_fileDiagnosisTable = new ks::ui::VisibleTableWidget(page);
@@ -2004,13 +2006,13 @@ namespace ks::misc
         return stdOutText;
     }
 
-    std::pair<QVector<ApplicationControlPage::AppLockerRuleRecord>, QString> ApplicationControlPage::parseAppLockerPolicyXml(
+    std::pair<QVector<ApplicationControlPage::AppLockerRuleRecord>, ks::ui::FieldDocument> ApplicationControlPage::parseAppLockerPolicyXml(
         const QString& xmlText)
     {
         QVector<AppLockerRuleRecord> records;
         if (xmlText.trimmed().isEmpty())
         {
-            return { records, QStringLiteral("AppLocker: 未配置") };
+            return { records, ks::ui::FieldDocument{}.note(QStringLiteral("AppLocker: 未配置")) };
         }
 
         QXmlStreamReader reader(xmlText);
@@ -2141,40 +2143,39 @@ namespace ks::misc
 
         if (reader.hasError())
         {
-            return { records, QStringLiteral("AppLocker XML 解析失败：%1").arg(reader.errorString()) };
+            return { records, ks::ui::FieldDocument{}.note(QStringLiteral("AppLocker XML 解析失败：%1").arg(reader.errorString())) };
         }
 
         if (records.isEmpty())
         {
-            return { records, QStringLiteral("AppLocker: 未配置") };
+            return { records, ks::ui::FieldDocument{}.note(QStringLiteral("AppLocker: 未配置")) };
         }
 
-        QString summaryText = QStringLiteral("AppLocker 规则集共 %1 个，规则共 %2 条。")
-            .arg(collectionCount)
-            .arg(records.size());
+        ks::ui::FieldDocument summaryText;
+        summaryText.field(QStringLiteral("AppLocker 规则集共"), QStringLiteral("AppLocker 规则集共 %1 个，规则共 %2 条。").arg(QStringLiteral("%1").arg(collectionCount)).arg(QStringLiteral("%1").arg(records.size())));
         if (!summaryParts.isEmpty())
         {
-            summaryText += QStringLiteral("\n");
-            summaryText += summaryParts.join(QStringLiteral("\n"));
+
+            for (const auto& part : summaryParts) summaryText.note(part);
         }
         return { records, summaryText };
     }
 
-    std::pair<QVector<ApplicationControlPage::EventRecord>, QString> ApplicationControlPage::parseEventsJson(
+    std::pair<QVector<ApplicationControlPage::EventRecord>, ks::ui::FieldDocument> ApplicationControlPage::parseEventsJson(
         const QString& jsonText)
     {
         QVector<EventRecord> records;
         const QString trimmedText = jsonText.trimmed();
         if (trimmedText.isEmpty())
         {
-            return { records, QStringLiteral("未获取到 Code Integrity 事件。") };
+            return { records, ks::ui::FieldDocument{}.note(QStringLiteral("未获取到 Code Integrity 事件。")) };
         }
 
         QJsonParseError parseError{};
         const QJsonDocument document = QJsonDocument::fromJson(trimmedText.toUtf8(), &parseError);
         if (parseError.error != QJsonParseError::NoError)
         {
-            return { records, QStringLiteral("事件 JSON 解析失败：%1").arg(parseError.errorString()) };
+            return { records, ks::ui::FieldDocument{}.note(QStringLiteral("事件 JSON 解析失败：%1").arg(parseError.errorString())) };
         }
 
         QJsonArray array;
@@ -2278,33 +2279,30 @@ namespace ks::misc
                 && onlyRecord.idText == QStringLiteral("—")
                 && onlyRecord.messageText.contains(QStringLiteral("error"), Qt::CaseInsensitive))
             {
-                return { records, QStringLiteral("Code Integrity 事件读取失败：%1").arg(onlyRecord.messageText) };
+                return { records, ks::ui::FieldDocument{}.note(QStringLiteral("Code Integrity 事件读取失败：%1").arg(onlyRecord.messageText)) };
             }
         }
 
-        QString summaryText = QStringLiteral("最近 %1 条事件：允许 %2，阻止 %3，审计 %4。")
-            .arg(records.size())
-            .arg(allowCount)
-            .arg(blockCount)
-            .arg(auditCount);
+        ks::ui::FieldDocument summaryText;
+        summaryText.field(QStringLiteral("最近"), QStringLiteral("最近 %1 条事件：允许 %2，阻止 %3，审计 %4。").arg(QStringLiteral("%1").arg(records.size())).arg(QStringLiteral("%1").arg(allowCount)).arg(QStringLiteral("%1").arg(blockCount)).arg(QStringLiteral("%1").arg(auditCount)));
         return { records, summaryText };
     }
 
-    std::pair<QVector<ApplicationControlPage::KeyValueRecord>, QString> ApplicationControlPage::parseDefenderJson(
+    std::pair<QVector<ApplicationControlPage::KeyValueRecord>, ks::ui::FieldDocument> ApplicationControlPage::parseDefenderJson(
         const QString& jsonText)
     {
         QVector<KeyValueRecord> records;
         const QString trimmedText = jsonText.trimmed();
         if (trimmedText.isEmpty())
         {
-            return { records, QStringLiteral("未获取到 Defender 数据。") };
+            return { records, ks::ui::FieldDocument{}.note(QStringLiteral("未获取到 Defender 数据。")) };
         }
 
         QJsonParseError parseError{};
         const QJsonDocument document = QJsonDocument::fromJson(trimmedText.toUtf8(), &parseError);
         if (parseError.error != QJsonParseError::NoError)
         {
-            return { records, QStringLiteral("Defender JSON 解析失败：%1").arg(parseError.errorString()) };
+            return { records, ks::ui::FieldDocument{}.note(QStringLiteral("Defender JSON 解析失败：%1").arg(parseError.errorString())) };
         }
 
         QJsonArray array;
@@ -2374,10 +2372,13 @@ namespace ks::misc
         }
         if (!queryFailureSummaries.isEmpty())
         {
-            return { records, queryFailureSummaries.join(QStringLiteral("\n")) };
+            ks::ui::FieldDocument diagnostics;
+            for (const auto& failure : queryFailureSummaries) diagnostics.note(failure);
+            return { records, diagnostics };
         }
 
-        const QString summaryText = QStringLiteral("Defender 状态共 %1 条。").arg(records.size());
+        ks::ui::FieldDocument summaryText;
+        summaryText.field(QStringLiteral("Defender 状态共"), QStringLiteral("Defender 状态共 %1 条。").arg(QStringLiteral("%1").arg(records.size())));
         return { records, summaryText };
     }
 
@@ -2399,11 +2400,12 @@ namespace ks::misc
         {
             m_statusLabel->setText(QStringLiteral("状态: 正在刷新…"));
         }
-        if (m_appLockerSummary != nullptr) m_appLockerSummary->setText(QStringLiteral("正在采集 AppLocker…"));
-        if (m_wdacSummary != nullptr) m_wdacSummary->setText(QStringLiteral("正在采集 WDAC / Code Integrity…"));
-        if (m_defenderSummary != nullptr) m_defenderSummary->setText(QStringLiteral("正在采集 Defender…"));
-        if (m_platformSummary != nullptr) m_platformSummary->setText(QStringLiteral("正在采集平台安全…"));
-        if (m_eventSummary != nullptr) m_eventSummary->setText(QStringLiteral("正在采集事件日志…"));
+        if (m_appLockerSummary != nullptr) m_appLockerSummary->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("正在采集 AppLocker…")));
+        if (m_wdacSummary != nullptr) m_wdacSummary->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("正在采集 WDAC / Code Integrity…")));
+        if (m_defenderSummary != nullptr) m_defenderSummary->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("正在采集 Defender…")));
+        if (m_platformSummary != nullptr) m_platformSummary->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("正在采集平台安全…")));
+        m_eventSummaryDocument = ks::ui::FieldDocument{}.note(QStringLiteral("正在采集 Code Integrity 事件…"));
+        if (m_eventSummary != nullptr) m_eventSummary->setDocument(m_eventSummaryDocument);
 
         const std::uint64_t refreshGeneration = ++m_refreshGeneration;
         const int requestedEventLimit = selectedEventLimit();
@@ -2414,19 +2416,24 @@ namespace ks::misc
             QVector<EventRecord> events;
             QVector<KeyValueRecord> defenderRows;
             QVector<KeyValueRecord> platformRows;
-            QString appLockerSummary = QStringLiteral("AppLocker: 未配置");
-            QString wdacSummary = QStringLiteral("WDAC / Code Integrity: 未发现常见策略文件。");
-            QString defenderSummary = QStringLiteral("Defender: 未获取到状态。");
-            QString platformSummary = QStringLiteral("平台安全: 未获取到状态。");
-            QString eventSummary = QStringLiteral("未获取到 Code Integrity 事件。");
+            bool appLockerModuleAvailable = true;
+            ks::ui::FieldDocument appLockerSummary;
+            appLockerSummary.field(QStringLiteral("AppLocker"), QStringLiteral("未配置"), true);
+            ks::ui::FieldDocument wdacSummary;
+            wdacSummary.field(QStringLiteral("WDAC / Code Integrity"), QStringLiteral("未发现常见策略文件。"), true);
+            ks::ui::FieldDocument defenderSummary;
+            defenderSummary.field(QStringLiteral("Defender"), QStringLiteral("未获取到状态。"), true);
+            ks::ui::FieldDocument platformSummary;
+            platformSummary.field(QStringLiteral("平台安全"), QStringLiteral("未获取到状态。"), true);
+            ks::ui::FieldDocument eventSummary;
+            eventSummary.note(QStringLiteral("未获取到 Code Integrity 事件。"));
             QString statusText = QStringLiteral("刷新完成");
-            QStringList r0PlatformSummaryParts;
 
             // appendPlatformRow：
             // - 输入：平台安全表格的一行名称、值和说明；
             // - 处理：追加到后台线程本地 platformRows 缓存；
             // - 返回：无返回值，最终由 UI 线程统一刷新表格。
-            const auto appendPlatformRow = [&platformRows](
+            const auto appendPlatformRow = [&platformRows, &platformSummary](
                 const QString& nameText,
                 const QString& valueText,
                 const QString& detailText) {
@@ -2435,6 +2442,8 @@ namespace ks::misc
                 record.valueText = valueText;
                 record.detailText = detailText;
                 platformRows.push_back(record);
+                platformSummary.field(nameText, valueText);
+                if (!detailText.isEmpty()) platformSummary.note(detailText);
             };
 
             // 1) WDAC / Code Integrity 文件扫描由 C++ 直接完成，避免额外脚本依赖。
@@ -2484,13 +2493,10 @@ namespace ks::misc
             }
 
             const int policyFileCount = (sipolicyFile.exists() ? 1 : 0) + activeCount;
-            wdacSummary = QStringLiteral(
-                "WDAC / Code Integrity 常见策略文件数: %1\n"
-                "- SIPolicy.p7b: %2\n"
-                "- Active/*.cip: %3")
-                .arg(policyFileCount)
-                .arg(sipolicyFile.exists() ? QStringLiteral("存在") : QStringLiteral("未找到"))
-                .arg(activeCount);
+            wdacSummary = {};
+            wdacSummary.field(QStringLiteral("WDAC / Code Integrity 常见策略文件数"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(policyFileCount)));
+            wdacSummary.field(QStringLiteral("- SIPolicy.p7b"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(sipolicyFile.exists() ? QStringLiteral("存在") : QStringLiteral("未找到"))));
+            wdacSummary.field(QStringLiteral("- Active/*.cip"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(activeCount)));
 
             // 2) AppLocker：先探测模块。Windows 家庭版等不提供该模块时，不把能力缺失误报为权限或服务故障。
             const QString appLockerScript = QStringLiteral(
@@ -2517,34 +2523,39 @@ namespace ks::misc
             }
             else if (appLockerOutput.contains(QStringLiteral("__APPLOCKER_MODULE_UNAVAILABLE__")))
             {
-                appLockerSummary = QStringLiteral(
-                    "AppLocker 模块不可用。\n"
-                    "当前 Windows 未提供 AppLocker PowerShell 管理组件，无法读取、创建或修改 AppLocker 策略。\n"
-                    "Windows 家庭版通常不支持 AppLocker。\n"
-                    "WDAC、Defender、平台安全、事件日志和文件诊断仍可使用。");
+                appLockerModuleAvailable = false;
+                appLockerSummary = {};
+                appLockerSummary.note(QStringLiteral("AppLocker 模块不可用。"));
+                appLockerSummary.note(QStringLiteral("当前 Windows 未提供 AppLocker PowerShell 管理组件，无法读取、创建或修改 AppLocker 策略。"));
+                appLockerSummary.note(QStringLiteral("Windows 家庭版通常不支持 AppLocker。"));
+                appLockerSummary.note(QStringLiteral("WDAC、Defender、平台安全、事件日志和文件诊断仍可使用。"));
             }
             else if (appLockerOutput.contains(QStringLiteral("__NO_POLICY__")))
             {
-                appLockerSummary = QStringLiteral("AppLocker: 未配置");
+                appLockerSummary = {};
+                appLockerSummary.field(QStringLiteral("AppLocker"), QStringLiteral("未配置"), true);
             }
             else
             {
                 const QString parseHint = appLockerErrorText.isEmpty() ? appLockerOutput : appLockerErrorText;
-                appLockerSummary = QStringLiteral("AppLocker 读取失败。\n建议：以管理员身份运行，并确认 Application Identity (AppIDSvc) 服务可用。\n%1")
-                    .arg(parseHint.isEmpty() ? QStringLiteral("未返回额外错误信息。") : parseHint);
+                appLockerSummary = {};
+                appLockerSummary.note(QStringLiteral("AppLocker 读取失败。"));
+                appLockerSummary.field(QStringLiteral("建议"), QStringLiteral("以管理员身份运行，并确认 Application Identity (AppIDSvc) 服务可用。"), true);
+                appLockerSummary.note(QStringLiteral("%1").arg(QStringLiteral("%1").arg(parseHint.isEmpty() ? QStringLiteral("未返回额外错误信息。") : parseHint)));
             }
 
             if (!appLockerXmlText.trimmed().isEmpty())
             {
                 const auto parsedAppLocker = parseAppLockerPolicyXml(appLockerXmlText);
                 appLockerRules = parsedAppLocker.first;
-                if (!parsedAppLocker.second.trimmed().isEmpty())
+                if (!parsedAppLocker.second.isEmpty())
                 {
                     appLockerSummary = parsedAppLocker.second;
                 }
                 if (appLockerRules.isEmpty())
                 {
-                    appLockerSummary = QStringLiteral("AppLocker: 未配置");
+                    appLockerSummary = {};
+                    appLockerSummary.field(QStringLiteral("AppLocker"), QStringLiteral("未配置"), true);
                 }
             }
 
@@ -2597,12 +2608,13 @@ namespace ks::misc
                 defenderSummary = parsedDefender.second;
                 if (!defenderErrorText.trimmed().isEmpty())
                 {
-                    defenderSummary += QStringLiteral("\n%1").arg(defenderErrorText);
+                    defenderSummary.note(QStringLiteral("%1").arg(QStringLiteral("%1").arg(defenderErrorText)));
                 }
             }
             else if (!defenderErrorText.trimmed().isEmpty())
             {
-                defenderSummary = QStringLiteral("Defender 模块不可用或读取失败：%1").arg(defenderErrorText);
+                defenderSummary = {};
+                defenderSummary.field(QStringLiteral("Defender 模块不可用或读取失败"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(defenderErrorText)));
             }
 
             // 4) 平台安全 / CI / VBS / Hyper-V / Driver Trust / BAM 全部只读采集。
@@ -2637,12 +2649,13 @@ namespace ks::misc
                 platformSummary = parsedPlatform.second;
                 if (!platformErrorText.trimmed().isEmpty())
                 {
-                    platformSummary += QStringLiteral("\n%1").arg(platformErrorText);
+                    platformSummary.note(QStringLiteral("%1").arg(QStringLiteral("%1").arg(platformErrorText)));
                 }
             }
             else if (!platformErrorText.trimmed().isEmpty())
             {
-                platformSummary = QStringLiteral("平台安全读取失败：%1").arg(platformErrorText);
+                platformSummary = {};
+                platformSummary.field(QStringLiteral("平台安全读取失败"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(platformErrorText)));
             }
 
 
@@ -2775,22 +2788,19 @@ namespace ks::misc
                     r0IoMessageText(driverTrust.io.message),
                     ioSummaryText(driverTrust.io));
 
-                r0PlatformSummaryParts << QStringLiteral("SecurityStatus=%1/%2")
-                    .arg(securityStatus.io.ok ? QStringLiteral("OK") : QStringLiteral("Fail"))
-                    .arg(ntStatusText(securityStatus.io.ntStatus));
-                r0PlatformSummaryParts << QStringLiteral("DriverTrust returned=%1 total=%2 truncated=%3")
-                    .arg(driverTrust.returnedCount)
-                    .arg(driverTrust.totalCount)
-                    .arg(driverTrust.truncated);
-                r0PlatformSummaryParts << QStringLiteral("HyperV present=%1 vendor=%2 flags=%3")
-                    .arg(boolFlagText(hyperVResponse.hypervisorPresent))
-                    .arg(fixedWideText(hyperVResponse.hypervisorVendor, KSWORD_ARK_SECURITY_AUDIT_VENDOR_CHARS))
-                    .arg(hexMaskText(hyperVResponse.fieldFlags));
-                r0PlatformSummaryParts << QStringLiteral("AppControl AppID=%1 AppLocker=%2 mssecflt=%3 BAM=%4")
-                    .arg(auditStateText(appControlResponse.appidStatus))
-                    .arg(auditStateText(appControlResponse.appLockerFilterStatus))
-                    .arg(auditStateText(appControlResponse.mssecfltStatus))
-                    .arg(auditStateText(appControlResponse.bamStatus));
+                platformSummary.section(QStringLiteral("R0 安全态势"));
+                platformSummary.field(QStringLiteral("SecurityStatus"), securityStatus.io.ok ? QStringLiteral("OK") : QStringLiteral("Fail"));
+                platformSummary.field(QStringLiteral("SecurityStatus NTSTATUS"), ntStatusText(securityStatus.io.ntStatus));
+                platformSummary.field(QStringLiteral("DriverTrust returned"), QString::number(driverTrust.returnedCount));
+                platformSummary.field(QStringLiteral("DriverTrust total"), QString::number(driverTrust.totalCount));
+                platformSummary.field(QStringLiteral("DriverTrust truncated"), QString::number(driverTrust.truncated));
+                platformSummary.field(QStringLiteral("HyperV present"), boolFlagText(hyperVResponse.hypervisorPresent));
+                platformSummary.field(QStringLiteral("HyperV vendor"), fixedWideText(hyperVResponse.hypervisorVendor, KSWORD_ARK_SECURITY_AUDIT_VENDOR_CHARS));
+                platformSummary.field(QStringLiteral("HyperV flags"), hexMaskText(hyperVResponse.fieldFlags));
+                platformSummary.field(QStringLiteral("AppControl AppID"), auditStateText(appControlResponse.appidStatus));
+                platformSummary.field(QStringLiteral("AppControl AppLocker"), auditStateText(appControlResponse.appLockerFilterStatus));
+                platformSummary.field(QStringLiteral("AppControl mssecflt"), auditStateText(appControlResponse.mssecfltStatus));
+                platformSummary.field(QStringLiteral("AppControl BAM"), auditStateText(appControlResponse.bamStatus));
             }
             catch (const std::exception& exception)
             {
@@ -2798,7 +2808,7 @@ namespace ks::misc
                     QStringLiteral("内核安全审计"),
                     QStringLiteral("Exception"),
                     QString::fromLocal8Bit(exception.what()));
-                r0PlatformSummaryParts << QStringLiteral("R0 安全态势读取异常: %1").arg(QString::fromLocal8Bit(exception.what()));
+                platformSummary.field(QStringLiteral("R0 安全态势读取异常"), QString::fromLocal8Bit(exception.what()));
             }
             catch (...)
             {
@@ -2806,12 +2816,7 @@ namespace ks::misc
                     QStringLiteral("内核安全审计"),
                     QStringLiteral("Exception"),
                     QStringLiteral("未知异常"));
-                r0PlatformSummaryParts << QStringLiteral("R0 安全态势读取异常: 未知异常");
-            }
-
-            if (!r0PlatformSummaryParts.isEmpty())
-            {
-                platformSummary += QStringLiteral("\nR0 安全态势：%1").arg(r0PlatformSummaryParts.join(QStringLiteral(" | ")));
+                platformSummary.field(QStringLiteral("R0 安全态势读取异常"), QStringLiteral("未知异常"), true);
             }
 
             // 5) Code Integrity 事件同样通过 PowerShell 输出为 JSON 数组。
@@ -2838,17 +2843,19 @@ namespace ks::misc
                 eventSummary = parsedEvents.second;
                 if (!eventErrorText.trimmed().isEmpty())
                 {
-                    eventSummary += QStringLiteral("\n%1").arg(eventErrorText);
+                    eventSummary.note(QStringLiteral("%1").arg(QStringLiteral("%1").arg(eventErrorText)));
                 }
             }
             else if (!eventErrorText.trimmed().isEmpty())
             {
-                eventSummary = QStringLiteral("Code Integrity 事件读取失败：%1").arg(eventErrorText);
+                eventSummary = {};
+                eventSummary.field(QStringLiteral("Code Integrity 事件读取失败"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(eventErrorText)));
             }
 
             if (appLockerSummary.isEmpty())
             {
-                appLockerSummary = QStringLiteral("AppLocker: 未配置");
+                appLockerSummary = {};
+                appLockerSummary.field(QStringLiteral("AppLocker"), QStringLiteral("未配置"), true);
             }
 
             if (guardThis == nullptr)
@@ -2864,6 +2871,7 @@ namespace ks::misc
                                               defenderSummary,
                                               platformSummary,
                                               eventSummary,
+                                              appLockerModuleAvailable,
                                               appLockerRules = std::move(appLockerRules),
                                               policyFiles = std::move(policyFiles),
                                               events = std::move(events),
@@ -2881,6 +2889,7 @@ namespace ks::misc
                     defenderSummary,
                     platformSummary,
                     eventSummary,
+                    appLockerModuleAvailable,
                     std::move(appLockerRules),
                     std::move(policyFiles),
                     std::move(events),
@@ -2893,11 +2902,12 @@ namespace ks::misc
     void ApplicationControlPage::applyRefreshResult(
         const std::uint64_t refreshGeneration,
         QString statusText,
-        QString appLockerSummary,
-        QString wdacSummary,
-        QString defenderSummary,
-        QString platformSummary,
-        QString eventSummary,
+        ks::ui::FieldDocument appLockerSummary,
+        ks::ui::FieldDocument wdacSummary,
+        ks::ui::FieldDocument defenderSummary,
+        ks::ui::FieldDocument platformSummary,
+        ks::ui::FieldDocument eventSummary,
+        bool appLockerModuleAvailable,
         QVector<AppLockerRuleRecord> appLockerRules,
         QVector<PolicyFileRecord> policyFiles,
         QVector<EventRecord> events,
@@ -2933,6 +2943,7 @@ namespace ks::misc
                     defenderSummary = std::move(defenderSummary),
                     platformSummary = std::move(platformSummary),
                     eventSummary = std::move(eventSummary),
+                    appLockerModuleAvailable,
                     appLockerRules = std::move(appLockerRules),
                     policyFiles = std::move(policyFiles),
                     events = std::move(events),
@@ -2949,6 +2960,7 @@ namespace ks::misc
                             std::move(defenderSummary),
                             std::move(platformSummary),
                             std::move(eventSummary),
+                            appLockerModuleAvailable,
                             std::move(appLockerRules),
                             std::move(policyFiles),
                             std::move(events),
@@ -2960,7 +2972,7 @@ namespace ks::misc
         }
 
         m_appLockerRules = std::move(appLockerRules);
-        m_appLockerModuleAvailable = !appLockerSummary.startsWith(QStringLiteral("AppLocker 模块不可用"));
+        m_appLockerModuleAvailable = appLockerModuleAvailable;
 
         if (m_statusLabel != nullptr)
         {
@@ -2969,7 +2981,7 @@ namespace ks::misc
 
         if (m_appLockerSummary != nullptr)
         {
-            m_appLockerSummary->setText(appLockerSummary);
+            m_appLockerSummary->setDocument(appLockerSummary);
         }
         if (m_appLockerEditButton != nullptr)
         {
@@ -2977,20 +2989,20 @@ namespace ks::misc
         }
         if (m_wdacSummary != nullptr)
         {
-            m_wdacSummary->setText(wdacSummary);
+            m_wdacSummary->setDocument(wdacSummary);
         }
         if (m_defenderSummary != nullptr)
         {
-            m_defenderSummary->setText(defenderSummary);
+            m_defenderSummary->setDocument(defenderSummary);
         }
         if (m_platformSummary != nullptr)
         {
-            m_platformSummary->setText(platformSummary);
+            m_platformSummary->setDocument(platformSummary);
         }
         if (m_eventSummary != nullptr)
         {
-            m_eventSummary->setProperty("ks_event_base_summary", eventSummary);
-            m_eventSummary->setText(eventSummary);
+            m_eventSummaryDocument = eventSummary;
+            m_eventSummary->setDocument(eventSummary);
         }
 
         QVector<QStringList> appLockerRows;
@@ -3195,20 +3207,16 @@ namespace ks::misc
 
         if (m_eventSummary != nullptr)
         {
-            const QString baseSummary = m_eventSummary->property("ks_event_base_summary").toString().trimmed().isEmpty()
-                ? m_eventSummary->text().section(QStringLiteral("\n筛选："), 0, 0)
-                : m_eventSummary->property("ks_event_base_summary").toString();
+            auto baseSummary = m_eventSummaryDocument;
             if (selectedVerdictText == QStringLiteral("全部分类"))
             {
-                m_eventSummary->setText(baseSummary);
+                m_eventSummary->setDocument(baseSummary);
             }
             else
             {
-                m_eventSummary->setText(QStringLiteral("%1\n筛选：%2，显示 %3 / %4。")
-                    .arg(baseSummary)
-                    .arg(selectedVerdictText)
-                    .arg(visibleRows.size())
-                    .arg(m_eventRows.size()));
+                baseSummary.field(QStringLiteral("筛选"), selectedVerdictText);
+                baseSummary.field(QStringLiteral("显示 / 总数"), QStringLiteral("%1 / %2").arg(visibleRows.size()).arg(m_eventRows.size()));
+                m_eventSummary->setDocument(baseSummary);
             }
         }
     }
@@ -3283,7 +3291,7 @@ namespace ks::misc
         }
         if (m_fileDiagnosisSummary != nullptr)
         {
-            m_fileDiagnosisSummary->setText(QStringLiteral("正在诊断：%1").arg(filePath));
+            m_fileDiagnosisSummary->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("正在诊断：%1").arg(filePath)));
         }
 
         // 在 UI 线程取得隐式共享快照，后台线程不再读取 QWidget 所属缓存。
@@ -3293,7 +3301,7 @@ namespace ks::misc
                      filePath,
                      appLockerRulesSnapshot = std::move(appLockerRulesSnapshot)]() {
             QVector<KeyValueRecord> rows;
-            QString summaryText;
+            ks::ui::FieldDocument summaryText;
 
             const QFileInfo fileInfo(filePath);
             const bool exists = fileInfo.exists() && fileInfo.isFile();
@@ -3386,12 +3394,11 @@ namespace ks::misc
                 }
             }
 
-            summaryText = QStringLiteral(
-                "文件：%1\n存在：%2\n发布者：%3\n路径命中：%4")
-                .arg(normalizedPath)
-                .arg(exists ? QStringLiteral("Yes") : QStringLiteral("No"))
-                .arg(publisherText.isEmpty() ? QStringLiteral("未获取到") : publisherText)
-                .arg(pathMatchHint);
+            summaryText = {};
+            summaryText.field(QStringLiteral("文件"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(normalizedPath)));
+            summaryText.field(QStringLiteral("存在"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(exists ? QStringLiteral("Yes") : QStringLiteral("No"))));
+            summaryText.field(QStringLiteral("发布者"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(publisherText.isEmpty() ? QStringLiteral("未获取到") : publisherText)));
+            summaryText.field(QStringLiteral("路径命中"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(pathMatchHint)));
 
             if (guardThis == nullptr)
             {
@@ -3408,7 +3415,7 @@ namespace ks::misc
         }).detach();
     }
 
-    void ApplicationControlPage::applyFileDiagnosisResult(QString summaryText, QVector<KeyValueRecord> rows)
+    void ApplicationControlPage::applyFileDiagnosisResult(ks::ui::FieldDocument summaryText, QVector<KeyValueRecord> rows)
     {
         if (ks::ui::IsTableUiCommitBlockedByContextMenu({m_fileDiagnosisTable}))
         {
@@ -3433,7 +3440,7 @@ namespace ks::misc
 
         if (m_fileDiagnosisSummary != nullptr)
         {
-            m_fileDiagnosisSummary->setText(summaryText);
+            m_fileDiagnosisSummary->setDocument(summaryText);
         }
 
         QVector<QStringList> tableRows;

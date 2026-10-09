@@ -1,4 +1,4 @@
-﻿#include "RenderBenchmarkPage.h"
+#include "RenderBenchmarkPage.h"
 
 // ============================================================
 // RenderBenchmarkPage.cpp
@@ -786,14 +786,14 @@ namespace ks::misc
         connect(m_refreshTargetsButton, &QPushButton::clicked, this, [this]() { refreshTargetWindowList(); });
         connect(m_copyReportButton, &QPushButton::clicked, this, [this]() { copyReportToClipboard(); });
         connect(m_saveReportButton, &QPushButton::clicked, this, [this]() { saveReportToFile(); });
-        connect(m_clearReportButton, &QPushButton::clicked, this, [this]() { m_reportEdit->setReportText(QString()); });
+        connect(m_clearReportButton, &QPushButton::clicked, this, [this]() { m_reportEdit->setRawText(QString()); });
     }
 
     void RenderBenchmarkPage::appendReportLine(const QString& lineText)
     {
         if (m_reportEdit != nullptr)
         {
-            m_reportEdit->appendReportText(lineText);
+            m_reportEdit->appendRawText(lineText);
         }
     }
 

@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../UI/CodeTextEdit.h"
 #include "../UI/UI_All.h"
 #include "../UI/VisibleTableWidget.h"
@@ -132,12 +133,6 @@ namespace
             "  height:1px;"
             "  background:%4;"
             "  margin:2px 6px;"
-            "}"
-            "QScrollBar:vertical,QScrollBar:horizontal{"
-            "  background:%3;"
-            "}"
-            "QScrollBar::handle:vertical,QScrollBar::handle:horizontal{"
-            "  background:%7;"
             "}")
             .arg(windowBackground)
             .arg(textColor)
@@ -189,8 +184,7 @@ namespace
             metaLabel->setTextFormat(Qt::RichText);
             metaLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
             metaLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
-            metaLabel->setStyleSheet(QStringLiteral("padding:6px 8px;border:1px solid %1;border-radius:4px;")
-                .arg(KswordTheme::BorderHex()));
+            metaLabel->setStyleSheet(QStringLiteral("padding:8px 10px;border:0;"));
             metaLabel->setText(QStringLiteral(
                 "时间: %1<br/>客户端: %2<br/>进程: %3<br/>目标: %4:%5<br/>事件: %6<br/>方法: %7<br/>路径: %8<br/>状态码: %9<br/>内容类型: %10<br/>内容长度: %11<br/>耗时: %12 ms<br/>上行/下行: %13 / %14 字节<br/>TLS: %15<br/>ALPN: %16<br/>密码套件: %17<br/>SNI: %18<br/>证书主体: %19<br/>证书签发者: %20<br/>证书到期: %21<br/>证书 SHA-256: %22<br/>详情: %23")
                 .arg(QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(parsedEntry.timestampMs)).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")))
@@ -219,7 +213,6 @@ namespace
             rootLayout->addWidget(metaLabel);
 
             QTabWidget* tabWidget = new QTabWidget(this);
-            rootLayout->addWidget(tabWidget, 1);
 
             QWidget* hexPage = new QWidget(tabWidget);
             QVBoxLayout* hexLayout = new QVBoxLayout(hexPage);
@@ -257,6 +250,8 @@ namespace
             textEditor->setPlainText(QString::fromUtf8(parsedEntry.rawBytes));
             textLayout->addWidget(textEditor, 1);
             tabWidget->addTab(textPage, QStringLiteral("文本"));
+            rootLayout->addWidget(ks::ui::CreateDetailTabShell(tabWidget, this), 1);
+            ks::ui::ApplyDetailDialogChrome(this);
         }
     };
 

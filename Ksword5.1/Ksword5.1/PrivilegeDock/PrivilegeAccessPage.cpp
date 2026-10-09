@@ -1,4 +1,5 @@
-﻿#include "PrivilegeAccessPage.h"
+#include "../UI/StructuredFieldView.h"
+#include "PrivilegeAccessPage.h"
 #include "PrivilegeAccessBackend.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../Internationalization/LanguageManager.h"
@@ -158,12 +159,12 @@ namespace
             m_table->setAlternatingRowColors(true);
             m_table->horizontalHeader()->setStretchLastSection(true);
             m_table->setContextMenuPolicy(Qt::CustomContextMenu);
-            m_report = new CodeEditorWidget(split);
+            m_report = new ks::ui::StructuredFieldView(split);
             m_report->setObjectName(QStringLiteral("privilege_access_report"));
-            m_report->setReadOnly(true);
-            // 报告行已在 Report 模块本地化；保留原始行形态和 SDDL，不再次翻译。
-            m_report->setReportText(text("privilege.workbench.access.initial_report",
-                "先评估描述符；实际打开测试需要当前评估快照，输入变化后必须重新评估。"));
+
+            // 标签由原生视图本地化，路径、SID 和 SDDL 保持原始证据值。
+            m_report->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral(
+                "先评估描述符；实际打开测试需要当前评估快照，输入变化后必须重新评估。")));
             split->setStretchFactor(0, 3);
             split->setStretchFactor(1, 2);
             layout->addWidget(split, 1);
@@ -242,7 +243,7 @@ namespace
             m_table->setEnabled(false);
             m_table->clearContents();
             m_table->setRowCount(0);
-            m_report->setReportText(text("privilege.workbench.access.stale_report", "输入已变化；旧评估和打开结果已作废。请重新评估当前主体、对象和请求权限。"));
+            m_report->setDocument(ks::ui::FieldDocument{}.note(text("privilege.workbench.access.stale_report", "输入已变化；旧评估和打开结果已作废。请重新评估当前主体、对象和请求权限。")));
             m_status->setText(text("privilege.workbench.access.changed", "输入已变化；请重新评估"));
             ks::ui::ApplyStatusRole(m_status, ks::ui::StatusRole::Idle);
         }
@@ -299,7 +300,7 @@ namespace
                 const bool success = result.stage == Stage::None && result.anchor != nullptr;
                 m_result = success ? std::make_shared<Result>(result) : nullptr;
                 m_probe->setEnabled(success);
-                m_report->setReportText(reportText(result));
+                m_report->setDocument(buildAccessDocument(result));
                 m_status->setText(success ? (result.probe
                     ? text("privilege.workbench.access.probe_done", "实际打开测试完成；详见证据报告")
                     : text("privilege.workbench.access.done", "描述符评估完成；实际打开尚未测试"))
@@ -411,7 +412,7 @@ namespace
         QPushButton* m_cancel = nullptr; // 当前后台任务取消入口。
         QLabel* m_status = nullptr; // 本轮查询状态。
         ks::ui::VisibleTableWidget* m_table = nullptr; // 按原始顺序分批展示的 ACE 表。
-        CodeEditorWidget* m_report = nullptr; // 内置只读原文报告编辑器。
+        ks::ui::StructuredFieldView* m_report = nullptr; // 内置只读原文报告编辑器。
         quint64 m_generation = 0; // 输入及任务代次，用于丢弃旧回执。
         std::shared_ptr<std::atomic_bool> m_cancellation; // 后台共用的可取消标记。
         std::shared_ptr<Result> m_result; // 当前仍可复核的诊断证据锚点。

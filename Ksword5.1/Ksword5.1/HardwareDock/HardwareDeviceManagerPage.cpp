@@ -1,4 +1,5 @@
 #include "HardwareDeviceManagerPage.h"
+#include "../UI/DetailDialogChrome.h"
 
 // ============================================================
 // HardwareDeviceManagerPage.cpp
@@ -10,7 +11,7 @@
 
 #include "../theme.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/DetailLayoutRegistry.h"
 
@@ -682,126 +683,94 @@ namespace
     // buildDevicePropertiesText 作用：
     // - 输入：设备快照；
     // - 处理：整理成设备属性页正文；
-    // - 返回：适合 CodeEditorWidget 展示的只读文本。
-    QString buildDevicePropertiesText(const HardwareDeviceManagerPage::DeviceEntry& entry)
+    // - 返回：适合 ks::ui::StructuredFieldView 展示的只读文本。
+    ks::ui::FieldDocument buildDevicePropertiesText(const HardwareDeviceManagerPage::DeviceEntry& entry)
     {
-        return QStringLiteral(
-            "[常规]\n"
-            "名称: %1\n"
-            "制造商: %2\n"
-            "设备类: %3\n"
-            "Class GUID: %4\n"
-            "枚举器: %5\n"
-            "位置: %6\n"
-            "已安装: %7\n"
-            "当前存在: %8\n"
-            "存在问题: %9\n"
-            "问题: %10\n"
-            "状态: %11\n\n"
-            "[标识]\n"
-            "实例 ID:\n%12\n\n"
-            "父实例 ID:\n%13\n\n"
-            "硬件 ID:\n%14\n\n"
-            "兼容 ID:\n%15\n\n"
-            "[驱动绑定]\n"
-            "服务: %16\n"
-            "驱动键: %17\n"
-            "驱动注册表路径: %18\n"
-            "驱动 INF: %19\n"
-            "提供商: %20\n"
-            "版本: %21\n"
-            "日期: %22\n"
-            "服务 ImagePath: %23\n")
-            .arg(safeDisplayText(entry.nameText))
-            .arg(safeDisplayText(entry.manufacturerText))
-            .arg(safeDisplayText(entry.classText))
-            .arg(safeDisplayText(entry.classGuidText))
-            .arg(safeDisplayText(entry.enumeratorText))
-            .arg(safeDisplayText(entry.locationText))
-            .arg(safeDisplayText(entry.installedText))
-            .arg(entry.isPresent ? QStringLiteral("Yes") : QStringLiteral("No"))
-            .arg(entry.hasProblem ? QStringLiteral("Yes") : QStringLiteral("No"))
-            .arg(safeDisplayText(entry.problemText))
-            .arg(safeDisplayText(entry.statusText))
-            .arg(safeDisplayText(entry.instanceIdText))
-            .arg(safeDisplayText(entry.parentInstanceIdText))
-            .arg(safeDisplayText(entry.hardwareIdsText))
-            .arg(safeDisplayText(entry.compatibleIdsText))
-            .arg(safeDisplayText(entry.serviceText))
-            .arg(safeDisplayText(entry.driverText))
-            .arg(safeDisplayText(entry.driverRegistryPathText))
-            .arg(safeDisplayText(entry.driverInfPathText))
-            .arg(safeDisplayText(entry.driverProviderText))
-            .arg(safeDisplayText(entry.driverVersionText))
-            .arg(safeDisplayText(entry.driverDateText))
-            .arg(safeDisplayText(entry.serviceImagePathText));
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("常规"));
+        document.field(QStringLiteral("名称"), QStringLiteral("%1").arg(safeDisplayText(entry.nameText)));
+        document.field(QStringLiteral("制造商"), QStringLiteral("%1").arg(safeDisplayText(entry.manufacturerText)));
+        document.field(QStringLiteral("设备类"), QStringLiteral("%1").arg(safeDisplayText(entry.classText)));
+        document.field(QStringLiteral("Class GUID"), QStringLiteral("%1").arg(safeDisplayText(entry.classGuidText)));
+        document.field(QStringLiteral("枚举器"), QStringLiteral("%1").arg(safeDisplayText(entry.enumeratorText)));
+        document.field(QStringLiteral("位置"), QStringLiteral("%1").arg(safeDisplayText(entry.locationText)));
+        document.field(QStringLiteral("已安装"), QStringLiteral("%1").arg(safeDisplayText(entry.installedText)));
+        document.field(QStringLiteral("当前存在"), QStringLiteral("%1").arg(entry.isPresent ? QStringLiteral("Yes") : QStringLiteral("No")));
+        document.field(QStringLiteral("存在问题"), QStringLiteral("%1").arg(entry.hasProblem ? QStringLiteral("Yes") : QStringLiteral("No")));
+        document.field(QStringLiteral("问题"), QStringLiteral("%1").arg(safeDisplayText(entry.problemText)));
+        document.field(QStringLiteral("状态"), QStringLiteral("%1").arg(safeDisplayText(entry.statusText)));
+        document.section(QStringLiteral("标识"));
+        document.field(QStringLiteral("实例 ID"), QStringLiteral("%1").arg(safeDisplayText(entry.instanceIdText)));
+        document.field(QStringLiteral("父实例 ID"), QStringLiteral("%1").arg(safeDisplayText(entry.parentInstanceIdText)));
+        document.field(QStringLiteral("硬件 ID"), QStringLiteral("%1").arg(safeDisplayText(entry.hardwareIdsText)));
+        document.field(QStringLiteral("兼容 ID"), QStringLiteral("%1").arg(safeDisplayText(entry.compatibleIdsText)));
+        document.section(QStringLiteral("驱动绑定"));
+        document.field(QStringLiteral("服务"), QStringLiteral("%1").arg(safeDisplayText(entry.serviceText)));
+        document.field(QStringLiteral("驱动键"), QStringLiteral("%1").arg(safeDisplayText(entry.driverText)));
+        document.field(QStringLiteral("驱动注册表路径"), QStringLiteral("%1").arg(safeDisplayText(entry.driverRegistryPathText)));
+        document.field(QStringLiteral("驱动 INF"), QStringLiteral("%1").arg(safeDisplayText(entry.driverInfPathText)));
+        document.field(QStringLiteral("提供商"), QStringLiteral("%1").arg(safeDisplayText(entry.driverProviderText)));
+        document.field(QStringLiteral("版本"), QStringLiteral("%1").arg(safeDisplayText(entry.driverVersionText)));
+        document.field(QStringLiteral("日期"), QStringLiteral("%1").arg(safeDisplayText(entry.driverDateText)));
+        document.field(QStringLiteral("服务 ImagePath"), QStringLiteral("%1").arg(safeDisplayText(entry.serviceImagePathText)));
+        return document;
     }
 
     // buildDriverDetailsText 作用：
     // - 输入：设备快照；
     // - 处理：整理成“驱动程序详细信息”正文；
     // - 返回：INF、Provider、Version、服务镜像路径等驱动排障信息。
-    QString buildDriverDetailsText(const HardwareDeviceManagerPage::DeviceEntry& entry)
+    ks::ui::FieldDocument buildDriverDetailsText(const HardwareDeviceManagerPage::DeviceEntry& entry)
     {
-        return QStringLiteral(
-            "[驱动]\n"
-            "设备: %1\n"
-            "实例 ID:\n%2\n\n"
-            "服务: %3\n"
-            "服务 ImagePath: %4\n"
-            "驱动键: %5\n"
-            "驱动注册表路径: %6\n"
-            "驱动 INF: %7\n"
-            "提供商: %8\n"
-            "版本: %9\n"
-            "日期: %10\n"
-            "设备类: %11\n"
-            "Class GUID: %12\n\n"
-            "[匹配 ID]\n"
-            "硬件 ID:\n%13\n\n"
-            "兼容 ID:\n%14\n\n"
-            "[说明]\n"
-            "- 卸载设备会移除当前 DevNode，可能要求重启或重新扫描硬件。\n"
-            "- 删除驱动包只支持 oem*.inf；系统内置 INF 或正在使用的驱动包通常会失败。\n")
-            .arg(safeDisplayText(entry.nameText))
-            .arg(safeDisplayText(entry.instanceIdText))
-            .arg(safeDisplayText(entry.serviceText))
-            .arg(safeDisplayText(entry.serviceImagePathText))
-            .arg(safeDisplayText(entry.driverText))
-            .arg(safeDisplayText(entry.driverRegistryPathText))
-            .arg(safeDisplayText(entry.driverInfPathText))
-            .arg(safeDisplayText(entry.driverProviderText))
-            .arg(safeDisplayText(entry.driverVersionText))
-            .arg(safeDisplayText(entry.driverDateText))
-            .arg(safeDisplayText(entry.classText))
-            .arg(safeDisplayText(entry.classGuidText))
-            .arg(safeDisplayText(entry.hardwareIdsText))
-            .arg(safeDisplayText(entry.compatibleIdsText));
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("驱动"));
+        document.field(QStringLiteral("设备"), QStringLiteral("%1").arg(safeDisplayText(entry.nameText)));
+        document.field(QStringLiteral("实例 ID"), QStringLiteral("%1").arg(safeDisplayText(entry.instanceIdText)));
+        document.field(QStringLiteral("服务"), QStringLiteral("%1").arg(safeDisplayText(entry.serviceText)));
+        document.field(QStringLiteral("服务 ImagePath"), QStringLiteral("%1").arg(safeDisplayText(entry.serviceImagePathText)));
+        document.field(QStringLiteral("驱动键"), QStringLiteral("%1").arg(safeDisplayText(entry.driverText)));
+        document.field(QStringLiteral("驱动注册表路径"), QStringLiteral("%1").arg(safeDisplayText(entry.driverRegistryPathText)));
+        document.field(QStringLiteral("驱动 INF"), QStringLiteral("%1").arg(safeDisplayText(entry.driverInfPathText)));
+        document.field(QStringLiteral("提供商"), QStringLiteral("%1").arg(safeDisplayText(entry.driverProviderText)));
+        document.field(QStringLiteral("版本"), QStringLiteral("%1").arg(safeDisplayText(entry.driverVersionText)));
+        document.field(QStringLiteral("日期"), QStringLiteral("%1").arg(safeDisplayText(entry.driverDateText)));
+        document.field(QStringLiteral("设备类"), QStringLiteral("%1").arg(safeDisplayText(entry.classText)));
+        document.field(QStringLiteral("Class GUID"), QStringLiteral("%1").arg(safeDisplayText(entry.classGuidText)));
+        document.section(QStringLiteral("匹配 ID"));
+        document.field(QStringLiteral("硬件 ID"), QStringLiteral("%1").arg(safeDisplayText(entry.hardwareIdsText)));
+        document.field(QStringLiteral("兼容 ID"), QStringLiteral("%1").arg(safeDisplayText(entry.compatibleIdsText)));
+        document.section(QStringLiteral("说明"));
+        document.note(QStringLiteral("- 卸载设备会移除当前 DevNode，可能要求重启或重新扫描硬件。"));
+        document.note(QStringLiteral("- 删除驱动包只支持 oem*.inf"));
+        document.note(QStringLiteral("系统内置 INF 或正在使用的驱动包通常会失败。"));
+        return document;
     }
 
     // showTextDialog 作用：
     // - 输入：父窗口、标题、正文；
-    // - 处理：使用项目 CodeEditorWidget 弹出只读文本窗口；
+    // - 处理：使用项目 ks::ui::StructuredFieldView 弹出只读文本窗口；
     // - 返回值：无。
-    void showTextDialog(QWidget* const parentWidget, const QString& titleText, const QString& bodyText)
+    void showTextDialog(QWidget* const parentWidget, const QString& titleText, const ks::ui::FieldDocument& bodyText)
     {
         QDialog dialog(parentWidget);
         dialog.setWindowTitle(titleText);
         dialog.resize(820, 620);
 
         QVBoxLayout* layout = new QVBoxLayout(&dialog);
-        CodeEditorWidget* editor = new CodeEditorWidget(&dialog);
-        editor->setReadOnly(true);
-        editor->setLocalizedText(bodyText);
+        ks::ui::StructuredFieldView* editor = new ks::ui::StructuredFieldView(&dialog);
+
+        editor->setDocument(bodyText);
         layout->addWidget(editor, 1);
 
         QPushButton* closeButton = new QPushButton(QStringLiteral("关闭"), &dialog);
         QObject::connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
         QHBoxLayout* buttonLayout = new QHBoxLayout();
+        buttonLayout->setContentsMargins(8, 6, 8, 6);
         buttonLayout->addStretch(1);
         buttonLayout->addWidget(closeButton);
         layout->addLayout(buttonLayout);
 
+        ks::ui::ApplyDetailDialogChrome(&dialog);
         dialog.exec();
     }
 
@@ -1006,13 +975,13 @@ void HardwareDeviceManagerPage::initializeUi()
     m_deviceTree->setColumnWidth(ColumnManufacturer, 190);
     m_splitter->addWidget(m_deviceTree);
 
-    m_detailEditor = new CodeEditorWidget(m_splitter);
-    m_detailEditor->setReadOnly(true);
-    m_detailEditor->setLocalizedText(QStringLiteral("选择一个设备查看详细属性。"));
+    m_detailEditor = new ks::ui::StructuredFieldView(m_splitter);
+
+    m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("选择一个设备查看详细属性。")));
     m_splitter->addWidget(m_detailEditor);
 
     // 已有 splitter 的两个直接面板由页面明确声明，避免误接管外层布局。
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_deviceTree, m_detailEditor, this, m_splitter, m_deviceTree, m_detailEditor);
     m_splitter->setStretchFactor(0, 4);
     m_splitter->setStretchFactor(1, 1);
@@ -1223,7 +1192,7 @@ void HardwareDeviceManagerPage::rebuildDeviceTree(const std::vector<DeviceEntry>
     {
         if (m_detailEditor != nullptr)
         {
-            m_detailEditor->setLocalizedText(QStringLiteral("未枚举到设备。"));
+            m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("未枚举到设备。")));
         }
         return;
     }
@@ -1360,7 +1329,7 @@ void HardwareDeviceManagerPage::updateDetailForItem(QTreeWidgetItem* itemPointer
     }
     if (itemPointer == nullptr)
     {
-        m_detailEditor->setLocalizedText(QStringLiteral("选择一个设备查看详细属性。"));
+        m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("选择一个设备查看详细属性。")));
         return;
     }
 
@@ -1368,12 +1337,12 @@ void HardwareDeviceManagerPage::updateDetailForItem(QTreeWidgetItem* itemPointer
     const DeviceEntry* entryPointer = reinterpret_cast<const DeviceEntry*>(rawPointer);
     if (entryPointer == nullptr)
     {
-        m_detailEditor->setLocalizedText(QStringLiteral("当前设备节点没有详情。"));
+        m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前设备节点没有详情。")));
         return;
     }
 
     const DeviceEntry& entry = *entryPointer;
-    m_detailEditor->setLocalizedText(buildDevicePropertiesText(entry));
+    m_detailEditor->setDocument(buildDevicePropertiesText(entry));
 }
 
 const HardwareDeviceManagerPage::DeviceEntry* HardwareDeviceManagerPage::selectedDeviceEntry() const

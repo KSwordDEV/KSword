@@ -10,7 +10,7 @@
 // ============================================================
 
 #include "../Framework.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 
 #include <QWidget>
 #include <QStringList>
@@ -117,10 +117,10 @@ private:
     QWidget* m_displayPage = nullptr;       // m_displayPage：GPU/显示/watchdog 页。
 
     // 摘要文本编辑器（只读，仅承载非表格的上下文说明）。
-    CodeEditorWidget* m_sessionSummaryEditor = nullptr;    // m_sessionSummaryEditor：会话/窗口站上下文摘要。
-    CodeEditorWidget* m_hotkeyHookSummaryEditor = nullptr; // m_hotkeyHookSummaryEditor：热键/钩子上下文摘要。
-    CodeEditorWidget* m_displaySummaryEditor = nullptr;    // m_displaySummaryEditor：GPU/显示上下文摘要。
-    CodeEditorWidget* m_windowDetailEditor = nullptr;      // m_windowDetailEditor：当前选中 HWND 的快照/按需详情。
+    ks::ui::StructuredFieldView* m_sessionSummaryEditor = nullptr;    // m_sessionSummaryEditor：会话/窗口站上下文摘要。
+    ks::ui::StructuredFieldView* m_hotkeyHookSummaryEditor = nullptr; // m_hotkeyHookSummaryEditor：热键/钩子上下文摘要。
+    ks::ui::StructuredFieldView* m_displaySummaryEditor = nullptr;    // m_displaySummaryEditor：GPU/显示上下文摘要。
+    ks::ui::StructuredFieldView* m_windowDetailEditor = nullptr;      // m_windowDetailEditor：当前选中 HWND 的快照/按需详情。
 
     // 结构化审计表格（可排序，展示全部行）。
     QTableWidget* m_windowsTable = nullptr;     // m_windowsTable：Win32K 窗口表。
@@ -137,9 +137,9 @@ private:
     QPushButton* m_queryWindowDetailButton = nullptr; // m_queryWindowDetailButton：按需查询选中 HWND detail。
 
     // 缓存：摘要文本。
-    QString m_cachedSessionSummary;             // m_cachedSessionSummary：会话摘要缓存。
-    QString m_cachedHotkeyHookSummary;          // m_cachedHotkeyHookSummary：热键/钩子摘要缓存。
-    QString m_cachedDisplaySummary;             // m_cachedDisplaySummary：显示摘要缓存。
+    ks::ui::FieldDocument m_cachedSessionSummary;             // m_cachedSessionSummary：会话摘要缓存。
+    ks::ui::FieldDocument m_cachedHotkeyHookSummary;          // m_cachedHotkeyHookSummary：热键/钩子摘要缓存。
+    ks::ui::FieldDocument m_cachedDisplaySummary;             // m_cachedDisplaySummary：显示摘要缓存。
 
     // 缓存：表格行模型（每行一组列文本，便于在 UI 线程直接填充）。
     QVector<QStringList> m_cachedWindowsRows;    // m_cachedWindowsRows：窗口表行。

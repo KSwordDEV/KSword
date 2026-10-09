@@ -1,10 +1,11 @@
-﻿#include "FileDock.h"
+#include "FileDock.h"
 #include "../Framework/DestructiveActionConfirmation.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/UI_All.h"
 #include "FilePropertyPeAnalyzer.h"
-#include "FilePropertyView.h"
+#include "../UI/StructuredFieldView.h"
+#include "../UI/DetailDialogChrome.h"
 #include "DriverFileSystemParser.h"
 #include "IrpFileSystemParser.h"
 #include "FileHandleUsageScanner.h"
@@ -4612,6 +4613,7 @@ namespace
         palette.setColor(QPalette::Base, KswordTheme::SurfaceColor());
         palette.setColor(QPalette::AlternateBase, KswordTheme::SurfaceAltColor());
         palette.setColor(QPalette::Text, KswordTheme::TextPrimaryColor());
+        palette.setColor(QPalette::PlaceholderText, KswordTheme::TextSecondaryColor());
         palette.setColor(QPalette::Button, KswordTheme::SurfaceColor());
         palette.setColor(QPalette::ButtonText, KswordTheme::TextPrimaryColor());
         palette.setColor(QPalette::Mid, KswordTheme::BorderColor());
@@ -4681,8 +4683,8 @@ namespace
             "  background:%4;"
             "  alternate-background-color:%6;"
             "  color:%2;"
-            "  border:1px solid %3;"
-            "  gridline-color:%3;"
+            "  border:none;"
+            "  gridline-color:transparent;"
             "}"
             "QDialog#FileDetailDialogRoot QAbstractScrollArea::viewport{"
             "  background:%4;"
@@ -4692,16 +4694,16 @@ namespace
             "QDialog#FileDetailDialogRoot QHeaderView::section{"
             "  background:%4;"
             "  color:%2;"
-            "  border:1px solid %3;"
+            "  border:none;border-bottom:1px solid %3;"
             "  padding:4px;"
-            "  font-weight:600;"
+            "  font-weight:400;"
             "}"
             "QDialog#FileDetailDialogRoot QTabWidget::pane{"
             "  border:none;"
             "  background:%4;"
             "}"
             "QWidget#FileDetailTabNavigation{"
-            "  background:%4;"
+            "  background:%6;"
             "  border:none;"
             "}"
             "QWidget#FileDetailTabNavigation QToolButton{"
@@ -4721,7 +4723,8 @@ namespace
             "}"
             "QFrame#FileDetailIdentity{background:%4;border-bottom:1px solid %3;}"
             "QFrame#FileMetadataSaveBar{background:%4;border-top:1px solid %3;}"
-            "QScrollArea#FileDetailNavigationScroll{background:%4;border:none;border-right:1px solid %3;}"
+            "QScrollArea#FileDetailNavigationScroll{background:%6;border:none;}"
+            "QScrollArea#FileDetailNavigationScroll QWidget#qt_scrollarea_viewport{background:%6;}"
             "QDialog#FileDetailDialogRoot QPushButton{"
             "  background:%4;"
             "  color:%2;"
@@ -4753,34 +4756,6 @@ namespace
             "QDialog#FileDetailDialogRoot QProgressBar::chunk{"
             "  background:%5;"
             "  border-radius:2px;"
-            "}"
-            "QDialog#FileDetailDialogRoot QScrollBar:vertical{"
-            "  background:%4;"
-            "  width:12px;"
-            "  margin:0;"
-            "}"
-            "QDialog#FileDetailDialogRoot QScrollBar:horizontal{"
-            "  background:%4;"
-            "  height:12px;"
-            "  margin:0;"
-            "}"
-            "QDialog#FileDetailDialogRoot QScrollBar::handle:vertical,"
-            "QDialog#FileDetailDialogRoot QScrollBar::handle:horizontal{"
-            "  background:%5;"
-            "  min-height:20px;"
-            "  min-width:20px;"
-            "  border-radius:4px;"
-            "}"
-            "QDialog#FileDetailDialogRoot QScrollBar::handle:vertical:hover,"
-            "QDialog#FileDetailDialogRoot QScrollBar::handle:horizontal:hover{"
-            "  background:%1;"
-            "}"
-            "QDialog#FileDetailDialogRoot QScrollBar::add-line,"
-            "QDialog#FileDetailDialogRoot QScrollBar::sub-line,"
-            "QDialog#FileDetailDialogRoot QScrollBar::add-page,"
-            "QDialog#FileDetailDialogRoot QScrollBar::sub-page{"
-            "  background:%4;"
-            "  border:none;"
             "}")
             .arg(KswordTheme::MainBackgroundHex())
             .arg(KswordTheme::TextPrimaryHex())
@@ -4791,7 +4766,8 @@ namespace
             .arg(KswordTheme::OnAccentDynamicHex())
             .arg(navigationSelection.name())
             .arg(KswordTheme::EnsureTextContrast(KswordTheme::TextPrimaryColor(), navigationSelection).name())
-            .arg(KswordTheme::TextDisabledColor().name());
+            .arg(KswordTheme::TextDisabledColor().name())
+            + ks::ui::BuildDetailDialogChromeStyle(QStringLiteral("FileDetailDialogRoot"));
     }
 
     // buildLogPreviewText 作用：
@@ -5312,7 +5288,7 @@ namespace
         QString ownerAccountText;         // ownerAccountText：Owner 账户文本。
         QString groupSidText;             // groupSidText：Primary Group SID 字符串。
         QString groupAccountText;         // groupAccountText：Primary Group 账户文本。
-        file_dock_detail::PropertyDocument details; // 安全描述符的字段快照。
+        ks::ui::FieldDocument details; // 安全描述符的字段快照。
         std::vector<FileSecurityAceRow> aceRows; // aceRows：表格化 ACE 列表。
     };
 
@@ -5446,7 +5422,7 @@ namespace
     // appendAclText 作用：
     // - 解析 ACL 中每一条 ACE，输出类型、标志、掩码、SID 与账户名；
     // - titleText 用于区分 DACL 与 SACL 段落。
-    void appendAclDocument(const QString& titleText, PACL aclValue, file_dock_detail::PropertyDocument& contentOut)
+    void appendAclDocument(const QString& titleText, PACL aclValue, ks::ui::FieldDocument& contentOut)
     {
         contentOut.section(titleText);
         if (aclValue == nullptr)
@@ -5607,8 +5583,6 @@ namespace
 
             m_tabNavigation = new QWidget(this);
             m_tabNavigation->setObjectName(QStringLiteral("FileDetailTabNavigation"));
-            m_tabNavigation->setFixedWidth(224);
-            m_tabNavigation->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
             QVBoxLayout* navigationLayout = new QVBoxLayout(m_tabNavigation);
             navigationLayout->setContentsMargins(10, 16, 10, 16);
             navigationLayout->setSpacing(5);
@@ -5620,6 +5594,7 @@ namespace
             navigationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
             navigationScroll->setFixedWidth(240);
             navigationScroll->setWidget(m_tabNavigation);
+            ks::ui::ConfigureDetailNavigation(navigationScroll, m_tabNavigation);
 
             m_tabWidget = new QTabWidget(this);
             m_tabWidget->setMinimumSize(0, 0);
@@ -5801,6 +5776,7 @@ namespace
             {
                 m_tabNavigationButtons.front()->setChecked(true);
             }
+            ks::ui::ConfigureDetailDialogRoot(this);
             applyThemeStyle();
         }
 
@@ -5893,7 +5869,9 @@ namespace
             applyFileDetailSurfacePalette(this, dialogPalette);
             setStyleSheet(buildFileDetailDialogStyle());
 
-            applyFileDetailSurfacePalette(m_tabNavigation, surfacePalette);
+            QPalette navigationPalette = surfacePalette;
+            navigationPalette.setColor(QPalette::Window, KswordTheme::SurfaceAltColor());
+            applyFileDetailSurfacePalette(m_tabNavigation, navigationPalette);
             applyFileDetailSurfacePalette(m_tabWidget, surfacePalette);
             if (m_tabWidget != nullptr)
             {
@@ -6535,17 +6513,9 @@ namespace
         void refreshGeneralTab()
         {
             if (m_generalPropertyView == nullptr) return;
-            using file_dock_detail::PropertyDocument;
+            using ks::ui::FieldDocument;
             const QFileInfo info(m_filePath);
-            PropertyDocument doc;
-            doc.section(QStringLiteral("路径"));
-            doc.field(QStringLiteral("Win32 路径"), QDir::toNativeSeparators(info.absoluteFilePath()));
-            doc.field(QStringLiteral("NT 路径"), m_generalNtPathText.isEmpty()
-                ? QStringLiteral("<转换失败>") : m_generalNtPathText, m_generalNtPathText.isEmpty());
-            doc.field(QStringLiteral("查询来源"), !m_generalR0Loaded
-                ? QStringLiteral("R3 QFileInfo（R0 信息正在后台加载）")
-                : (m_generalR0Info.io.ok ? QStringLiteral("R3 QFileInfo + R0 KswordARK")
-                    : QStringLiteral("R3 QFileInfo（R0 不可用）")), true);
+            FieldDocument doc;
             doc.section(QStringLiteral("基本信息"));
             doc.field(QStringLiteral("文件名"), info.fileName());
             doc.field(QStringLiteral("扩展名"), info.suffix());
@@ -6559,6 +6529,14 @@ namespace
             doc.field(QStringLiteral("可写"), info.isWritable() ? QStringLiteral("是") : QStringLiteral("否"), true);
             doc.field(QStringLiteral("重解析点"), isPathReparsePoint(info.absoluteFilePath())
                 ? QStringLiteral("是（首屏只判断属性位，不追踪链接目标）") : QStringLiteral("否"), true);
+            doc.section(QStringLiteral("路径"));
+            doc.field(QStringLiteral("Win32 路径"), QDir::toNativeSeparators(info.absoluteFilePath()));
+            doc.field(QStringLiteral("NT 路径"), m_generalNtPathText.isEmpty()
+                ? QStringLiteral("<转换失败>") : m_generalNtPathText, m_generalNtPathText.isEmpty());
+            doc.field(QStringLiteral("查询来源"), !m_generalR0Loaded
+                ? QStringLiteral("R3 QFileInfo（R0 信息正在后台加载）")
+                : (m_generalR0Info.io.ok ? QStringLiteral("R3 QFileInfo + R0 KswordARK")
+                    : QStringLiteral("R3 QFileInfo（R0 不可用）")), true);
             doc.section(QStringLiteral("内核视图（R0）"));
             if (!m_generalR0Loaded)
                 doc.field(QStringLiteral("状态"), QStringLiteral("正在后台查询，属性窗口不会等待驱动返回"), true);
@@ -6598,11 +6576,13 @@ namespace
                 doc.field(QStringLiteral("DataSectionObject"), formatHex64(r0.dataSectionObjectAddress));
                 doc.field(QStringLiteral("ImageSectionObject"), formatHex64(r0.imageSectionObjectAddress));
             }
+            for (auto& section : doc.nodes)
+                if (section.name == QStringLiteral("驱动诊断")) section.initiallyExpanded = false;
             m_generalPropertyView->setDocument(doc);
         }
 
         void startHashCalculation(
-            file_dock_detail::FilePropertyView* textEditorWidget,
+            ks::ui::StructuredFieldView* textEditorWidget,
             QProgressBar* progressBar,
             QPushButton* startButton,
             QPushButton* cancelButton)
@@ -6626,7 +6606,7 @@ namespace
             cancelButton->setEnabled(true);
             cancelButton->setText(QStringLiteral("取消"));
             progressBar->setValue(0);
-            file_dock_detail::PropertyDocument loading;
+            ks::ui::FieldDocument loading;
             loading.note(QStringLiteral("正在计算常用哈希，请等待..."));
             loading.field(QStringLiteral("目标"), QDir::toNativeSeparators(m_filePath));
             textEditorWidget->setDocument(loading);
@@ -6634,7 +6614,7 @@ namespace
             const QString filePathSnapshot = m_filePath;
             const auto cancelFlag = m_hashCancelRequested;
             QPointer<FileDetailDialog> guardThis(this);
-            QPointer<file_dock_detail::FilePropertyView> editorGuard(textEditorWidget);
+            QPointer<ks::ui::StructuredFieldView> editorGuard(textEditorWidget);
             QPointer<QProgressBar> progressGuard(progressBar);
             QPointer<QPushButton> startGuard(startButton);
             QPointer<QPushButton> cancelGuard(cancelButton);
@@ -6732,7 +6712,7 @@ namespace
                             const double elapsedSeconds = std::max(0.001, static_cast<double>(result.elapsedMs) / 1000.0);
                             const double speedMiB = (static_cast<double>(result.readBytes) / (1024.0 * 1024.0)) / elapsedSeconds;
 
-                            file_dock_detail::PropertyDocument doc;
+                            ks::ui::FieldDocument doc;
                             doc.section(QStringLiteral("哈希与完整性"));
                             doc.field(QStringLiteral("算法"), commonHashNames().join(QStringLiteral(", ")));
                             doc.field(QStringLiteral("来源"), QStringLiteral("用户态流式读取(QCryptographicHash)"), true);
@@ -7242,7 +7222,7 @@ namespace
             // 处理：同步调用 Windows 安全 API，同时保留旧文本明细和新表格行。
             // 返回：FileSecuritySnapshot；读取失败时 detailText 包含错误码，aceRows 可为空。
             FileSecuritySnapshot snapshot;
-            file_dock_detail::PropertyDocument content;
+            ks::ui::FieldDocument content;
             std::wstring nativePathBuffer = nativePath.toStdWString();
 
             PSID ownerSid = nullptr;
@@ -7321,9 +7301,9 @@ namespace
 
         void populateSecurityWidgets(
             QTableWidget* aceTable,
-            file_dock_detail::FilePropertyView* detailEditor,
+            ks::ui::StructuredFieldView* detailEditor,
             QLabel* statusLabel,
-            const file_dock_detail::PropertyDocument& baseContent,
+            const ks::ui::FieldDocument& baseContent,
             const FileSecuritySnapshot& snapshot,
             const std::uint64_t generation)
         {
@@ -7338,7 +7318,7 @@ namespace
                 const auto snapshotGuard = std::make_shared<FileSecuritySnapshot>(snapshot);
                 const QPointer<FileDetailDialog> safeThis(this);
                 const QPointer<QTableWidget> tableGuard(aceTable);
-                const QPointer<file_dock_detail::FilePropertyView> editorGuard(detailEditor);
+                const QPointer<ks::ui::StructuredFieldView> editorGuard(detailEditor);
                 const QPointer<QLabel> statusGuard(statusLabel);
                 if (ks::ui::DeferTableUiCommitIfContextMenuOpen(
                     this,
@@ -7421,9 +7401,9 @@ namespace
 
         void startSecurityDeepLoad(
             QTableWidget* aceTable,
-            file_dock_detail::FilePropertyView* detailEditor,
+            ks::ui::StructuredFieldView* detailEditor,
             QLabel* statusLabel,
-            const file_dock_detail::PropertyDocument& baseContent,
+            const ks::ui::FieldDocument& baseContent,
             const QString& nativePath)
         {
             // 用途：后台执行深层 ACL/SACL 解析并刷新权限页字段。
@@ -7437,7 +7417,7 @@ namespace
 
             QPointer<FileDetailDialog> guardThis(this);
             QPointer<QTableWidget> tableGuard(aceTable);
-            QPointer<file_dock_detail::FilePropertyView> editorGuard(detailEditor);
+            QPointer<ks::ui::StructuredFieldView> editorGuard(detailEditor);
             QPointer<QLabel> statusGuard(statusLabel);
             const auto generation = ++m_securityLoadGeneration;
             auto* task = QRunnable::create([guardThis, tableGuard, editorGuard, statusGuard, baseContent, nativePath, generation]()
@@ -7877,10 +7857,10 @@ namespace
             }
         }
 
-        static file_dock_detail::PropertyDocument signatureEvidenceDocument(
+        static ks::ui::FieldDocument signatureEvidenceDocument(
             const ksword::ark::ImageSignatureQueryResult& result)
         {
-            file_dock_detail::PropertyDocument doc;
+            ks::ui::FieldDocument doc;
             doc.section(QStringLiteral("R0 内核原始证据"));
             doc.field(QStringLiteral("source"), QStringLiteral("R0 direct PE Security Directory (WinTrust not used)"));
             doc.field(QStringLiteral("communication.ok"), result.io.ok ? QStringLiteral("true") : QStringLiteral("false"));
@@ -7969,14 +7949,14 @@ namespace
         }
 
         void startSignatureLoad(QWidget* page, QLabel* stateLabel, QLabel* hintLabel,
-            const QVector<QPointer<QLabel>>& values, file_dock_detail::FilePropertyView* evidenceEditor)
+            const QVector<QPointer<QLabel>>& values, ks::ui::StructuredFieldView* evidenceEditor)
         {
             const QString filePathSnapshot = m_filePath;
             const QString ntPathSnapshot = buildDriverNtPath(filePathSnapshot);
             const QPointer<QWidget> pageGuard(page);
             const QPointer<FileDetailDialog> dialogGuard(this);
             const QPointer<QLabel> stateGuard(stateLabel), hintGuard(hintLabel);
-            const QPointer<file_dock_detail::FilePropertyView> evidenceGuard(evidenceEditor);
+            const QPointer<ks::ui::StructuredFieldView> evidenceGuard(evidenceEditor);
             auto* task = QRunnable::create([pageGuard, dialogGuard, stateGuard, hintGuard, values, evidenceGuard,
                 filePathSnapshot, ntPathSnapshot]()
                 {
@@ -8018,7 +7998,7 @@ namespace
                         }, Qt::QueuedConnection);
 
                     // R3 结果先回填，内核查询慢或不可用时不阻挡签名摘要。
-                    file_dock_detail::PropertyDocument evidence;
+                    ks::ui::FieldDocument evidence;
                     if (ntPathSnapshot.isEmpty())
                         evidence.note(QStringLiteral("无法生成供内核使用的 NT 路径。"));
                     else
@@ -8034,7 +8014,7 @@ namespace
             QThreadPool::globalInstance()->start(task);
         }
 
-        void startPeAnalysisLoad(file_dock_detail::FilePropertyView* textEditorWidget)
+        void startPeAnalysisLoad(ks::ui::StructuredFieldView* textEditorWidget)
         {
             // 用途：后台执行 PE 深度解析，返回分组字段快照。
             // 输入：textEditorWidget 为 PE 信息页显示目标。
@@ -8045,13 +8025,13 @@ namespace
                 return;
             }
 
-            file_dock_detail::PropertyDocument loading;
+            ks::ui::FieldDocument loading;
             loading.note(QStringLiteral("PE 信息加载中..."));
             loading.field(QStringLiteral("目标"), QDir::toNativeSeparators(m_filePath));
             textEditorWidget->setDocument(loading);
             const QString filePathSnapshot = m_filePath;
             QPointer<FileDetailDialog> guardThis(this);
-            QPointer<file_dock_detail::FilePropertyView> editorGuard(textEditorWidget);
+            QPointer<ks::ui::StructuredFieldView> editorGuard(textEditorWidget);
             auto* task = QRunnable::create([guardThis, editorGuard, filePathSnapshot]()
                 {
                     const auto peDocument = file_dock_detail::buildPeAnalysisDocument(filePathSnapshot);
@@ -8307,7 +8287,7 @@ namespace
             statusLabel->setText(statusText);
         }
 
-        void startDependencyLoad(QTableWidget* table, QLabel* statusLabel, file_dock_detail::FilePropertyView* detailEditor)
+        void startDependencyLoad(QTableWidget* table, QLabel* statusLabel, ks::ui::StructuredFieldView* detailEditor)
         {
             // 用途：后台读取 EXE/DLL Import Directory 并展示依赖 DLL。
             // 输入：table/statusLabel/detailEditor 为依赖页 UI 控件。
@@ -8319,7 +8299,7 @@ namespace
             }
 
             statusLabel->setText(QStringLiteral("● 正在后台读取 Import Directory..."));
-            file_dock_detail::PropertyDocument loading;
+            ks::ui::FieldDocument loading;
             loading.note(QStringLiteral("依赖 DLL 加载中..."));
             loading.field(QStringLiteral("目标"), QDir::toNativeSeparators(m_filePath));
             detailEditor->setDocument(loading);
@@ -8328,7 +8308,7 @@ namespace
             QPointer<FileDetailDialog> guardThis(this);
             QPointer<QTableWidget> tableGuard(table);
             QPointer<QLabel> statusGuard(statusLabel);
-            QPointer<file_dock_detail::FilePropertyView> detailGuard(detailEditor);
+            QPointer<ks::ui::StructuredFieldView> detailGuard(detailEditor);
             auto* task = QRunnable::create([guardThis, tableGuard, statusGuard, detailGuard, filePathSnapshot]()
                 {
                     const auto beginTime = std::chrono::steady_clock::now();
@@ -8364,7 +8344,7 @@ namespace
                                     statusGuard,
                                     *resultSnapshot,
                                     elapsedMs);
-                                file_dock_detail::PropertyDocument doc;
+                                ks::ui::FieldDocument doc;
                                 doc.field(QStringLiteral("目标"), QDir::toNativeSeparators(guardThis->m_filePath));
                                 if (!resultSnapshot->errorText.trimmed().isEmpty())
                                     doc.note(resultSnapshot->errorText.trimmed());
@@ -9384,13 +9364,14 @@ namespace
             QFrame* header = new QFrame(page);
             header->setObjectName(QStringLiteral("FileDetailIdentity"));
             QHBoxLayout* headerLayout = new QHBoxLayout(header);
-            headerLayout->setContentsMargins(12, 12, 12, 12);
+            headerLayout->setContentsMargins(16, 16, 16, 16);
             QLabel* icon = new QLabel(header);
             QFileIconProvider iconProvider;
-            icon->setPixmap(iconProvider.icon(QFileInfo(m_filePath)).pixmap(48, 48));
+            icon->setPixmap(iconProvider.icon(QFileInfo(m_filePath)).pixmap(56, 56));
             headerLayout->addWidget(icon);
             QVBoxLayout* identityLayout = new QVBoxLayout();
             QLabel* name = new QLabel(QFileInfo(m_filePath).fileName(), header);
+            name->setProperty("ks_i18n_preserve_data_text", true);
             name->setTextFormat(Qt::PlainText);
             name->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
             name->setWordWrap(true);
@@ -9401,6 +9382,7 @@ namespace
             nameFont.setPointSizeF(nameFont.pointSizeF() > 0 ? nameFont.pointSizeF() + 2 : 12);
             name->setFont(nameFont);
             QLabel* path = new QLabel(QDir::toNativeSeparators(m_filePath), header);
+            path->setProperty("ks_i18n_preserve_data_text", true);
             path->setTextFormat(Qt::PlainText);
             path->setWordWrap(true);
             path->setMinimumWidth(0);
@@ -9421,7 +9403,7 @@ namespace
                 { if (auto* clipboard = QApplication::clipboard()) clipboard->setText(QDir::toNativeSeparators(m_filePath)); });
             layout->addWidget(header);
 
-            m_generalPropertyView = new file_dock_detail::FilePropertyView(page);
+            m_generalPropertyView = new ks::ui::StructuredFieldView(page);
             const QFileInfo info(m_filePath);
             m_generalNtPathText = buildDriverNtPath(info.absoluteFilePath());
             m_generalR0Loaded = false;
@@ -10545,12 +10527,12 @@ namespace
         {
             QWidget* page = new QWidget(this);
             QVBoxLayout* layout = new QVBoxLayout(page);
-            auto* view = new file_dock_detail::FilePropertyView(page);
+            auto* view = new ks::ui::StructuredFieldView(page);
             layout->addWidget(view, 1);
             const QString pathSnapshot = m_filePath;
             startNativePropertyLoad(view, [pathSnapshot]()
                 {
-                    file_dock_detail::PropertyDocument document;
+                    ks::ui::FieldDocument document;
                     document.section(QStringLiteral("重解析点 / 符号链接"))
                         .field(QStringLiteral("目标路径"), QDir::toNativeSeparators(pathSnapshot));
                     if (!isPathReparsePoint(pathSnapshot))
@@ -10595,7 +10577,7 @@ namespace
             QVBoxLayout* layout = new QVBoxLayout(page);
 
             const QString nativePath = QDir::toNativeSeparators(m_filePath);
-            file_dock_detail::PropertyDocument baseContent;
+            ks::ui::FieldDocument baseContent;
             baseContent.field(QStringLiteral("目标路径"), nativePath);
             baseContent.section(QStringLiteral("快速权限摘要"));
             QFileInfo info(m_filePath);
@@ -10712,7 +10694,7 @@ namespace
             }
             installFileTableCopyMenu(aceTable);
 
-            auto* detailEditor = new file_dock_detail::FilePropertyView(splitter);
+            auto* detailEditor = new ks::ui::StructuredFieldView(splitter);
             auto loading = baseContent;
             loading.note(QStringLiteral("深层 Owner/Group/DACL/SACL 正在后台加载..."));
             detailEditor->setDocument(loading);
@@ -11031,10 +11013,10 @@ namespace
             progressBar->setValue(0);
             layout->addWidget(progressBar, 0);
 
-            auto* textEditorWidget = new file_dock_detail::FilePropertyView(page);
+            auto* textEditorWidget = new ks::ui::StructuredFieldView(page);
             layout->addWidget(textEditorWidget, 1);
 
-            file_dock_detail::PropertyDocument explanation;
+            ks::ui::FieldDocument explanation;
             explanation.note(QStringLiteral(
                 "常用哈希算法：MD5、SHA-1、SHA-224、SHA-256、SHA-384、SHA-512、SHA3-256、BLAKE2b-512。\n"
                 "所有算法共享一次流式读取；取消或读取失败时不展示未完成的摘要。\n"
@@ -11243,19 +11225,19 @@ namespace
         }
 
         // Native documents are collected off the UI thread; no report parser is involved.
-        void startNativePropertyLoad(file_dock_detail::FilePropertyView* view,
-            const std::function<file_dock_detail::PropertyDocument()>& collect)
+        void startNativePropertyLoad(ks::ui::StructuredFieldView* view,
+            const std::function<ks::ui::FieldDocument()>& collect)
         {
             if (view == nullptr) return;
-            file_dock_detail::PropertyDocument loading;
+            ks::ui::FieldDocument loading;
             loading.field(QStringLiteral("目标路径"), QDir::toNativeSeparators(m_filePath))
                 .note(QStringLiteral("正在加载..."));
             view->setDocument(loading);
-            const QPointer<file_dock_detail::FilePropertyView> viewGuard(view);
+            const QPointer<ks::ui::StructuredFieldView> viewGuard(view);
             const QPointer<FileDetailDialog> dialogGuard(this);
             auto* task = QRunnable::create([viewGuard, dialogGuard, collect]()
                 {
-                    const file_dock_detail::PropertyDocument document = collect();
+                    const ks::ui::FieldDocument document = collect();
                     QMetaObject::invokeMethod(qApp, [dialogGuard, viewGuard, document]()
                         {
                             if (dialogGuard != nullptr && viewGuard != nullptr) viewGuard->setDocument(document);
@@ -11266,7 +11248,7 @@ namespace
         }
 
         template <typename AuditResult>
-        static void appendNativeAuditHeader(file_dock_detail::PropertyDocument& document,
+        static void appendNativeAuditHeader(ks::ui::FieldDocument& document,
             const QString& title, const AuditResult& result, const std::uint32_t responseFlags,
             const bool explicitTruncated = false)
         {
@@ -11287,7 +11269,7 @@ namespace
                 .field(QStringLiteral("说明"), friendlyFileIoMessage(result.io.message), true);
         }
 
-        static void appendNativeFileInfo(file_dock_detail::PropertyDocument& document,
+        static void appendNativeFileInfo(ks::ui::FieldDocument& document,
             const ksword::ark::FileInfoQueryResult& result)
         {
             document.section(QStringLiteral("FileObject / Section / ControlArea"))
@@ -11322,12 +11304,12 @@ namespace
         {
             QWidget* page = new QWidget(this);
             QVBoxLayout* layout = new QVBoxLayout(page);
-            auto* view = new file_dock_detail::FilePropertyView(page);
+            auto* view = new ks::ui::StructuredFieldView(page);
             layout->addWidget(view, 1);
             const QString pathSnapshot = m_filePath;
             startNativePropertyLoad(view, [pathSnapshot]()
                 {
-                    file_dock_detail::PropertyDocument document;
+                    ks::ui::FieldDocument document;
                     document.section(QStringLiteral("FileStandardInfo"))
                         .field(QStringLiteral("目标路径"), QDir::toNativeSeparators(pathSnapshot))
                         .note(QStringLiteral("这里只做只读对象/句柄视图，不提供解锁、删除或绕过动作。"));
@@ -11396,7 +11378,7 @@ namespace
         {
             QWidget* page = new QWidget(this);
             QVBoxLayout* layout = new QVBoxLayout(page);
-            auto* view = new file_dock_detail::FilePropertyView(page);
+            auto* view = new ks::ui::StructuredFieldView(page);
             layout->addWidget(view, 1);
             const QString pathSnapshot = m_filePath;
             startNativePropertyLoad(view, [pathSnapshot]()
@@ -11404,9 +11386,9 @@ namespace
             return page;
         }
 
-        static file_dock_detail::PropertyDocument buildStorageAuditDocument(const QString& filePathText)
+        static ks::ui::FieldDocument buildStorageAuditDocument(const QString& filePathText)
         {
-            file_dock_detail::PropertyDocument document;
+            ks::ui::FieldDocument document;
             const QString volumeRoot = volumePathFromAnyPath(filePathText);
             document.section(QStringLiteral("Storage / MountMgr / FVE"))
                 .field(QStringLiteral("目标路径"), QDir::toNativeSeparators(filePathText))
@@ -11619,7 +11601,7 @@ namespace
         using NativeFilterClose = std::function<void(HANDLE)>;
         using NativeFilterRecord = std::function<void(const void*, std::size_t)>;
 
-        static void enumerateNativeFilterRecords(file_dock_detail::PropertyDocument& document,
+        static void enumerateNativeFilterRecords(ks::ui::FieldDocument& document,
             const NativeFilterFirst& first, const NativeFilterNext& next,
             const NativeFilterClose& close, const NativeFilterRecord& append)
         {
@@ -11686,7 +11668,7 @@ namespace
                 document.field(QStringLiteral("继续枚举状态"), formatHexValue(static_cast<std::uint32_t>(status), 8));
         }
 
-        static void appendNativeInstance(file_dock_detail::PropertyDocument& document,
+        static void appendNativeInstance(ks::ui::FieldDocument& document,
             const void* buffer, const std::size_t bytesReturned, const QString& title)
         {
             document.section(title);
@@ -11722,9 +11704,9 @@ namespace
                     .field(QStringLiteral("VolumeFileSystemType"), filterFilesystemTypeToText(record->Type.MiniFilter.VolumeFileSystemType));
         }
 
-        static file_dock_detail::PropertyDocument buildFilterTopologyDocument(const QString& pathSnapshot)
+        static ks::ui::FieldDocument buildFilterTopologyDocument(const QString& pathSnapshot)
         {
-            file_dock_detail::PropertyDocument document;
+            ks::ui::FieldDocument document;
             document.section(QStringLiteral("Minifilter / Instance / Volume"))
                 .field(QStringLiteral("目标路径"), QDir::toNativeSeparators(pathSnapshot))
                 .note(QStringLiteral("本页只展示 FilterManager 公开枚举接口与字段定义，不做卸载、绕过或拦截修改。"))
@@ -11851,7 +11833,7 @@ namespace
         {
             QWidget* page = new QWidget(this);
             QVBoxLayout* layout = new QVBoxLayout(page);
-            auto* view = new file_dock_detail::FilePropertyView(page);
+            auto* view = new ks::ui::StructuredFieldView(page);
             layout->addWidget(view, 1);
             const QString pathSnapshot = m_filePath;
             startNativePropertyLoad(view, [pathSnapshot]()
@@ -11934,9 +11916,9 @@ namespace
                 "内核证书表和 CI 缓存是独立证据；缺失内核信息不会改写上方 Windows 信任验证结果。")), evidenceGroup);
             boundary->setWordWrap(true);
             evidenceLayout->addWidget(boundary);
-            auto* evidence = new file_dock_detail::FilePropertyView(evidenceGroup);
+            auto* evidence = new ks::ui::StructuredFieldView(evidenceGroup);
             evidence->setMinimumHeight(180);
-            file_dock_detail::PropertyDocument loading;
+            ks::ui::FieldDocument loading;
             loading.note(QStringLiteral("正在读取内核证据..."));
             evidence->setDocument(loading);
             evidenceLayout->addWidget(evidence);
@@ -11959,7 +11941,7 @@ namespace
         {
             QWidget* page = new QWidget(this);
             QVBoxLayout* layout = new QVBoxLayout(page);
-            auto* view = new file_dock_detail::FilePropertyView(page);
+            auto* view = new ks::ui::StructuredFieldView(page);
             layout->addWidget(view, 1);
             startPeAnalysisLoad(view);
             return page;
@@ -12013,7 +11995,7 @@ namespace
             QWidget* detailPane = new QWidget(splitter);
             QVBoxLayout* detailLayout = new QVBoxLayout(detailPane);
             detailLayout->setContentsMargins(0, 0, 0, 0);
-            auto* detailEditor = new file_dock_detail::FilePropertyView(detailPane);
+            auto* detailEditor = new ks::ui::StructuredFieldView(detailPane);
             detailEditor->setMinimumHeight(0);
             detailEditor->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
             detailLayout->addWidget(detailEditor);
@@ -12454,7 +12436,7 @@ namespace
         QTabWidget* m_tabWidget = nullptr; // 继续承载现有的页面与懒加载机制。
         QButtonGroup* m_tabNavigationButtonGroup = nullptr; // 保证左侧导航单选。
         QVector<QToolButton*> m_tabNavigationButtons; // 与 Tab 索引一一对应，供切页时同步选中态。
-        file_dock_detail::FilePropertyView* m_generalPropertyView = nullptr; // 直接呈现字段快照，不依赖文本编辑器。
+        ks::ui::StructuredFieldView* m_generalPropertyView = nullptr; // 直接呈现字段快照，不依赖文本编辑器。
         std::function<void()> m_signatureLanguageRefresh; // UI 快照重译不重新验证文件。
         QString m_generalNtPathText; // 常规页复用的 NT 路径，避免切换语言时重复查询。
         bool m_generalR0Loaded = false; // R0 文件信息是否已完成后台读取。
@@ -15583,6 +15565,7 @@ void FileDock::showDeletedFilePropertiesDialog(const int rowIndex)
         QStringLiteral("以上为扫描时刻的 MFT 快照；恢复前会按记录号和序列号重新校验，不依赖此处的旧数据。"),
         &dialog);
     noteLabel->setWordWrap(true);
+    noteLabel->setContentsMargins(8, 6, 8, 6);
     rootLayout->addWidget(noteLabel, 0);
 
     QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
@@ -15590,6 +15573,7 @@ void FileDock::showDeletedFilePropertiesDialog(const int rowIndex)
     connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     rootLayout->addWidget(buttonBox, 0);
 
+    ks::ui::ApplyDetailDialogChrome(&dialog);
     dialog.exec();
 }
 

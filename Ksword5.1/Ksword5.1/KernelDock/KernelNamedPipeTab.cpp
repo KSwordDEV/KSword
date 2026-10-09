@@ -13,7 +13,7 @@
 // ============================================================
 
 #include "../theme.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include "../UI/DetailLayoutRegistry.h"
 
 #include <QAbstractItemView>
@@ -67,40 +67,39 @@ namespace
         }
     }
 
-    QString buildDirectoryStatusText(const KernelNamedPipeSnapshot& snapshot)
+    ks::ui::FieldDocument buildDirectoryStatusText(const KernelNamedPipeSnapshot& snapshot)
     {
-        QStringList lines;
-        lines << kernelText("kernel.named_pipe.detail.directory_status_heading", QStringLiteral("[路径候选状态]"));
+        ks::ui::FieldDocument lines;
+        lines.section(QStringLiteral("路径候选状态"));
         for (const KernelNamedPipeDirectoryStatus& status : snapshot.directories)
         {
-            lines << QStringLiteral("- %1 | open=%2 | query=%3 | rows=%4 | status=%5")
-                .arg(status.candidatePath)
-                .arg(status.openSucceeded ? QStringLiteral("yes") : QStringLiteral("no"))
-                .arg(status.querySucceeded ? QStringLiteral("yes") : QStringLiteral("no"))
-                .arg(static_cast<qulonglong>(status.returnedRows))
-                .arg(status.statusText);
+            lines.field(QStringLiteral(""), QStringLiteral("- %1").arg(QStringLiteral("%1").arg(status.candidatePath)));
+            lines.field(QStringLiteral("open"), QStringLiteral("%1").arg(status.openSucceeded ? QStringLiteral("yes") : QStringLiteral("no")));
+            lines.field(QStringLiteral("query"), QStringLiteral("%1").arg(status.querySucceeded ? QStringLiteral("yes") : QStringLiteral("no")));
+            lines.field(QStringLiteral("rows"), QStringLiteral("%1").arg(static_cast<qulonglong>(status.returnedRows)));
+            lines.field(QStringLiteral("status"), QStringLiteral("%1").arg(status.statusText));
         }
-        return lines.join('\n');
+        return lines;
     }
 
-    QString buildSelectedRowDetailText(const KernelNamedPipeEntry* row)
+    ks::ui::FieldDocument buildSelectedRowDetailText(const KernelNamedPipeEntry* row)
     {
         if (row == nullptr)
         {
-            return kernelText("kernel.named_pipe.detail.no_selection", QStringLiteral("[当前行]\n<未选择>"));
+            return ks::ui::FieldDocument{}.section(QStringLiteral("当前行")).note(QStringLiteral("<未选择>"));
         }
 
-        QStringList lines;
-        lines << kernelText("kernel.named_pipe.detail.current_row_heading", QStringLiteral("[当前行]"));
-        lines << QStringLiteral("Pipe Name: %1").arg(row->pipeName);
-        lines << QStringLiteral("NT Path: %1").arg(row->ntPath);
-        lines << QStringLiteral("Source Directory: %1").arg(row->sourceDirectory);
-        lines << QStringLiteral("Query Succeeded: %1").arg(row->querySucceeded ? QStringLiteral("true") : QStringLiteral("false"));
-        lines << QStringLiteral("Attributes: %1").arg(row->attributesText);
-        lines << QStringLiteral("LastWriteTime: %1").arg(row->lastWriteTimeText);
-        lines << QStringLiteral("LastWriteTimeRaw: %1").arg(static_cast<qlonglong>(row->lastWriteTime));
-        lines << QStringLiteral("Status: %1").arg(row->statusText);
-        return lines.join('\n');
+        ks::ui::FieldDocument lines;
+        lines.section(QStringLiteral("当前行"));
+        lines.field(QStringLiteral("Pipe Name"), QStringLiteral("%1").arg(row->pipeName));
+        lines.field(QStringLiteral("NT Path"), QStringLiteral("%1").arg(row->ntPath));
+        lines.field(QStringLiteral("Source Directory"), QStringLiteral("%1").arg(row->sourceDirectory));
+        lines.field(QStringLiteral("Query Succeeded"), QStringLiteral("%1").arg(row->querySucceeded ? QStringLiteral("true") : QStringLiteral("false")));
+        lines.field(QStringLiteral("Attributes"), QStringLiteral("%1").arg(row->attributesText));
+        lines.field(QStringLiteral("LastWriteTime"), QStringLiteral("%1").arg(row->lastWriteTimeText));
+        lines.field(QStringLiteral("LastWriteTimeRaw"), QStringLiteral("%1").arg(static_cast<qlonglong>(row->lastWriteTime)));
+        lines.field(QStringLiteral("Status"), QStringLiteral("%1").arg(row->statusText));
+        return lines;
     }
 }
 
@@ -186,18 +185,18 @@ void KernelNamedPipeTab::initializeUi()
         m_resultTable->header()->setStretchLastSection(false);
     }
 
-    // m_detailEdit 使用项目内置 CodeEditorWidget：
+    // m_detailEdit 使用项目内置 ks::ui::StructuredFieldView：
     // - 输入：NPFS 枚举说明、候选路径状态和当前行详情；
     // - 处理：以只读代码/日志视图展示多行文本；
     // - 返回：无，控件由 Qt 父子关系释放。
-    m_detailEdit = new CodeEditorWidget(this);
-    m_detailEdit->setReadOnly(true);
-    m_detailEdit->setMinimumHeight(150);
-    m_detailEdit->setText(kernelText(
+    m_detailEdit = new ks::ui::StructuredFieldView(this);
+
+
+    m_detailEdit->setDocument(ks::ui::FieldDocument{}.note(kernelText(
         "kernel.named_pipe.detail.intro",
         QStringLiteral(
             "说明：命名管道属于 NPFS 文件系统目录枚举，本页使用 NtOpenFile + NtQueryDirectoryFile 读取 \\Device\\NamedPipe。"
-            "\n这不是 NtQueryDirectoryObject 下钻，也不是系统句柄表枚举。")));
+            "\n这不是 NtQueryDirectoryObject 下钻，也不是系统句柄表枚举。"))));
 
     // 页面显式拥有两面板的布局，详情宿主不再从 m_rootLayout 推断并重挂载。
     auto* const detailSplitter = new QSplitter(Qt::Vertical, this);
@@ -205,7 +204,7 @@ void KernelNamedPipeTab::initializeUi()
     detailSplitter->addWidget(m_resultTable);
     detailSplitter->addWidget(m_detailEdit);
     m_rootLayout->addWidget(detailSplitter, 1);
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_resultTable, m_detailEdit, this, detailSplitter, m_resultTable, m_detailEdit);
     applyAdaptiveColumnWidths();
 }
@@ -408,15 +407,16 @@ void KernelNamedPipeTab::updateDetailPanel()
         return;
     }
 
-    QStringList detailLines;
-    detailLines << kernelText("kernel.named_pipe.detail.explanation_heading", QStringLiteral("[说明]"));
-    detailLines << kernelText("kernel.named_pipe.detail.explanation.enumeration", QStringLiteral("命名管道属于 NPFS 文件系统目录枚举，本页使用 NtOpenFile + NtQueryDirectoryFile 读取 \\Device\\NamedPipe 或等价路径。"));
-    detailLines << kernelText("kernel.named_pipe.detail.explanation.scope", QStringLiteral("这不是 NtQueryDirectoryObject 下钻，也不是系统句柄表枚举；因此不会列出持有管道句柄的进程。"));
-    detailLines << QString();
-    detailLines << buildDirectoryStatusText(m_lastSnapshot);
-    detailLines << QString();
-    detailLines << buildSelectedRowDetailText(selectedRow());
-    m_detailEdit->setText(detailLines.join('\n'));
+    ks::ui::FieldDocument detailLines;
+    detailLines.section(QStringLiteral("说明"));
+    detailLines.note(QStringLiteral("命名管道属于 NPFS 文件系统目录枚举，本页使用 NtOpenFile + NtQueryDirectoryFile 读取 \\Device\\NamedPipe 或等价路径。"));
+    detailLines.note(QStringLiteral("这不是 NtQueryDirectoryObject 下钻，也不是系统句柄表枚举"));
+    detailLines.note(QStringLiteral("因此不会列出持有管道句柄的进程。"));
+
+    detailLines.nodes += buildDirectoryStatusText(m_lastSnapshot).nodes;
+
+    detailLines.nodes += buildSelectedRowDetailText(selectedRow()).nodes;
+    m_detailEdit->setDocument(detailLines);
 }
 
 void KernelNamedPipeTab::copyCurrentRow()

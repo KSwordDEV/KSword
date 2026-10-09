@@ -1,4 +1,5 @@
 #include "MemoryDock.Internal.h"
+#include "../UI/StructuredFieldView.h"
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll：页内滚动壳。
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -119,28 +120,28 @@ namespace
         return parts.isEmpty() ? QStringLiteral("正常") : parts.join(QStringLiteral(" | "));
     }
 
-    QString buildDetailText(const MemoryDock::ProcessMemoryEvidenceEntry& entry)
+    ks::ui::FieldDocument buildDetailDocument(const MemoryDock::ProcessMemoryEvidenceEntry& entry)
     {
-        QString text;
-        text += QStringLiteral("进程内存证据详情\n");
-        text += QStringLiteral("VA: %1\n").arg(hex64(entry.virtualAddress));
-        text += QStringLiteral("RegionBase: %1\n").arg(hex64(entry.regionBaseAddress));
-        text += QStringLiteral("RegionSize: %1\n").arg(hex64(entry.regionSize));
-        text += QStringLiteral("Protect: %1\n").arg(protectText(entry.protect));
-        text += QStringLiteral("State: %1\n").arg(stateText(entry.state));
-        text += QStringLiteral("Type: %1\n").arg(typeText(entry.type));
-        text += QStringLiteral("Win32Protection: 0x%1\n").arg(entry.win32Protection, 8, 16, QChar('0'));
-        text += QStringLiteral("ShareCount: %1\n").arg(entry.shareCount);
-        text += QStringLiteral("Node: %1\n").arg(entry.node);
-        text += QStringLiteral("Valid: %1\n").arg(entry.valid ? QStringLiteral("true") : QStringLiteral("false"));
-        text += QStringLiteral("Shared: %1\n").arg(entry.shared ? QStringLiteral("true") : QStringLiteral("false"));
-        text += QStringLiteral("Locked: %1\n").arg(entry.locked ? QStringLiteral("true") : QStringLiteral("false"));
-        text += QStringLiteral("LargePage: %1\n").arg(entry.largePage ? QStringLiteral("true") : QStringLiteral("false"));
-        text += QStringLiteral("Bad: %1\n").arg(entry.bad ? QStringLiteral("true") : QStringLiteral("false"));
-        text += QStringLiteral("MappedFile: %1\n").arg(entry.mappedFilePath.isEmpty() ? QStringLiteral("—") : entry.mappedFilePath);
-        text += QStringLiteral("Risk: %1\n").arg(entry.riskText);
-        text += QStringLiteral("Detail: %1\n").arg(entry.detailText.isEmpty() ? QStringLiteral("—") : entry.detailText);
-        return text;
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("进程内存证据详情"));
+        document.field(QStringLiteral("VA"), QStringLiteral("%1").arg(hex64(entry.virtualAddress)));
+        document.field(QStringLiteral("RegionBase"), QStringLiteral("%1").arg(hex64(entry.regionBaseAddress)));
+        document.field(QStringLiteral("RegionSize"), QStringLiteral("%1").arg(hex64(entry.regionSize)));
+        document.field(QStringLiteral("Protect"), QStringLiteral("%1").arg(protectText(entry.protect)), true);
+        document.field(QStringLiteral("State"), QStringLiteral("%1").arg(stateText(entry.state)), true);
+        document.field(QStringLiteral("Type"), QStringLiteral("%1").arg(typeText(entry.type)), true);
+        document.field(QStringLiteral("Win32Protection"), QStringLiteral("0x%1").arg(entry.win32Protection, 8, 16, QChar('0')));
+        document.field(QStringLiteral("ShareCount"), QStringLiteral("%1").arg(entry.shareCount));
+        document.field(QStringLiteral("Node"), QStringLiteral("%1").arg(entry.node));
+        document.field(QStringLiteral("Valid"), QStringLiteral("%1").arg(entry.valid ? QStringLiteral("true") : QStringLiteral("false")), true);
+        document.field(QStringLiteral("Shared"), QStringLiteral("%1").arg(entry.shared ? QStringLiteral("true") : QStringLiteral("false")), true);
+        document.field(QStringLiteral("Locked"), QStringLiteral("%1").arg(entry.locked ? QStringLiteral("true") : QStringLiteral("false")), true);
+        document.field(QStringLiteral("LargePage"), QStringLiteral("%1").arg(entry.largePage ? QStringLiteral("true") : QStringLiteral("false")), true);
+        document.field(QStringLiteral("Bad"), QStringLiteral("%1").arg(entry.bad ? QStringLiteral("true") : QStringLiteral("false")), true);
+        document.field(QStringLiteral("MappedFile"), QStringLiteral("%1").arg(entry.mappedFilePath.isEmpty() ? QStringLiteral("—") : entry.mappedFilePath));
+        document.field(QStringLiteral("Risk"), QStringLiteral("%1").arg(entry.riskText), true);
+        document.field(QStringLiteral("Detail"), QStringLiteral("%1").arg(entry.detailText.isEmpty() ? QStringLiteral("—") : entry.detailText));
+        return document;
     }
 
     QTableWidgetItem* makeItem(const QString& text)
@@ -496,12 +497,11 @@ void MemoryDock::initializeProcessMemoryEvidenceTab()
     installEvidenceColumnMenu(m_processMemoryEvidenceTable);
     splitter->addWidget(m_processMemoryEvidenceTable);
 
-    m_processMemoryEvidenceDetailEditor = new CodeEditorWidget(splitter);
-    m_processMemoryEvidenceDetailEditor->setReadOnly(true);
-    m_processMemoryEvidenceDetailEditor->setText(QStringLiteral("请选择一条进程内存证据记录查看详情。"));
+    m_processMemoryEvidenceDetailEditor = new ks::ui::StructuredFieldView(splitter);
+    m_processMemoryEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条进程内存证据记录查看详情。")));
     splitter->addWidget(m_processMemoryEvidenceDetailEditor);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_processMemoryEvidenceTable,
         m_processMemoryEvidenceDetailEditor,
         m_tabProcessMemoryEvidence);
@@ -692,8 +692,9 @@ void MemoryDock::refreshProcessMemoryEvidenceAsync()
         }
 
         QMetaObject::invokeMethod(
-            guardThis.data(),
+            qApp,
             [guardThis, ticket, attachmentGeneration, entries = std::move(entries)]() mutable {
+                if (guardThis == nullptr || ticket != guardThis->m_processMemoryEvidenceRefreshTicket.load() || attachmentGeneration != guardThis->m_processAttachmentGeneration.load()) return;
                 auto entriesSnapshot =
                     std::make_shared<std::vector<ProcessMemoryEvidenceEntry>>(std::move(entries));
                 auto commitSnapshot = [guardThis, ticket, attachmentGeneration, entriesSnapshot]() mutable
@@ -833,19 +834,20 @@ void MemoryDock::showProcessMemoryEvidenceDetailByCurrentRow()
     const int row = m_processMemoryEvidenceTable->currentRow();
     if (row < 0 || row >= m_processMemoryEvidenceTable->rowCount())
     {
-        m_processMemoryEvidenceDetailEditor->setText(QStringLiteral("请选择一条进程内存证据记录查看详情。"));
+        m_processMemoryEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条进程内存证据记录查看详情。")));
         return;
     }
 
     const QTableWidgetItem* addressItem = m_processMemoryEvidenceTable->item(row, evidenceColumnIndex(ProcessMemoryEvidenceColumn::VirtualAddress));
     if (addressItem == nullptr)
     {
+        m_processMemoryEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前记录的缓存已失效，请刷新后重试。")));
         return;
     }
     const QString diagnosticText = addressItem->data(Qt::UserRole + 2).toString();
     if (!diagnosticText.isEmpty())
     {
-        m_processMemoryEvidenceDetailEditor->setText(QStringLiteral("进程内存证据诊断\n%1").arg(diagnosticText));
+        m_processMemoryEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("进程内存证据诊断\n%1").arg(diagnosticText)));
         return;
     }
 
@@ -853,6 +855,7 @@ void MemoryDock::showProcessMemoryEvidenceDetailByCurrentRow()
     const qulonglong addressValue = addressItem->data(Qt::UserRole).toULongLong(&ok);
     if (!ok)
     {
+        m_processMemoryEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前记录的缓存已失效，请刷新后重试。")));
         return;
     }
 
@@ -860,8 +863,9 @@ void MemoryDock::showProcessMemoryEvidenceDetailByCurrentRow()
     {
         if (entry.virtualAddress == static_cast<std::uint64_t>(addressValue))
         {
-            m_processMemoryEvidenceDetailEditor->setText(buildDetailText(entry));
+            m_processMemoryEvidenceDetailEditor->setDocument(buildDetailDocument(entry));
             return;
         }
     }
+    m_processMemoryEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前记录的缓存已失效，请刷新后重试。")));
 }

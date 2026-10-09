@@ -11,6 +11,7 @@
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../UI/UI_All.h"
 #include "../UI/TableInteractionSupport.h"
+#include "../UI/DetailDialogChrome.h"
 #include "../ksword/log/log.h"
 #include "../theme.h"
 
@@ -269,6 +270,7 @@ FileMappedProcessWindow::FileMappedProcessWindow(const std::vector<QString>& tar
     , m_targetPaths(targetPaths)
 {
     initializeUi();
+    ks::ui::ApplyDetailDialogChrome(this);
     initializeConnections();
     requestRefresh(true);
 }

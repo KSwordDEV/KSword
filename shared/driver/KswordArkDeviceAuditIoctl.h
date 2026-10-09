@@ -1,6 +1,7 @@
 #pragma once
 
 #include "KswordArkKernelIoctl.h"
+#include <stddef.h>
 
 // ============================================================
 // KswordArkDeviceAuditIoctl.h
@@ -10,7 +11,9 @@
 // - 协议不代表任何写入、卸载、解绑、禁用或 hook 动作。
 // ============================================================
 
-#define KSWORD_ARK_DEVICE_AUDIT_PROTOCOL_VERSION 1UL
+#define KSWORD_ARK_DEVICE_AUDIT_PROTOCOL_VERSION_V1 1UL
+#define KSWORD_ARK_DEVICE_AUDIT_PROTOCOL_VERSION_V2 2UL
+#define KSWORD_ARK_DEVICE_AUDIT_PROTOCOL_VERSION KSWORD_ARK_DEVICE_AUDIT_PROTOCOL_VERSION_V2
 
 #define KSWORD_ARK_IOCTL_FUNCTION_QUERY_DEVICE_STACK_AUDIT           0x8E0UL
 #define KSWORD_ARK_IOCTL_FUNCTION_QUERY_INPUT_STACK_AUDIT            0x8E1UL
@@ -87,6 +90,8 @@
 #define KSWORD_ARK_DEVICE_AUDIT_FIELD_DETAIL_PRESENT           0x00000010UL
 #define KSWORD_ARK_DEVICE_AUDIT_FIELD_ATTACHED_PRESENT         0x00000020UL
 #define KSWORD_ARK_DEVICE_AUDIT_FIELD_NEXT_PRESENT             0x00000040UL
+#define KSWORD_ARK_DEVICE_AUDIT_FIELD_OWNER_DRIVER_PRESENT     0x00000080UL
+#define KSWORD_ARK_DEVICE_AUDIT_FIELD_INTEGRITY_SUMMARY_PRESENT 0x00000100UL
 
 #define KSWORD_ARK_DEVICE_AUDIT_RESPONSE_FLAG_TRUNCATED        0x00000001UL
 #define KSWORD_ARK_DEVICE_AUDIT_RESPONSE_FLAG_PARTIAL          0x00000002UL
@@ -161,7 +166,19 @@ typedef struct _KSWORD_ARK_DEVICE_AUDIT_ENTRY
     wchar_t deviceName[KSWORD_ARK_DEVICE_AUDIT_DEVICE_NAME_CHARS];
     wchar_t imagePath[KSWORD_ARK_DEVICE_AUDIT_IMAGE_PATH_CHARS];
     wchar_t detail[KSWORD_ARK_DEVICE_AUDIT_DETAIL_CHARS];
+    // v2: actual metadata from the existing integrity snapshot. detail[] is diagnostic only.
+    // The v1 prefix stays byte-for-byte stable; new R3 requires the complete v2 row.
+    unsigned long long ownerDriverObjectAddress;
+    unsigned long integrityStatus;
+    unsigned long integrityReturnedCount;
+    unsigned long integrityTotalCount;
+    unsigned long integrityModuleCount;
+    unsigned long integrityStatusFlags;
+    unsigned long reserved1;
 } KSWORD_ARK_DEVICE_AUDIT_ENTRY;
+
+#define KSWORD_ARK_DEVICE_AUDIT_V1_ENTRY_SIZE \
+    ((unsigned long)offsetof(KSWORD_ARK_DEVICE_AUDIT_ENTRY, ownerDriverObjectAddress))
 
 typedef struct _KSWORD_ARK_QUERY_DEVICE_AUDIT_RESPONSE
 {

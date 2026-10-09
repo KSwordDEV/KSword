@@ -1,4 +1,5 @@
-﻿// ============================================================
+#include "../UI/StructuredFieldView.h"
+// ============================================================
 // WindowDwmControl.cpp
 // 作用说明：
 // 1) 给“窗口属性”详情对话框追加一个 DWM 合成控制页；
@@ -644,7 +645,7 @@ namespace ks::window::dwmctl
                 restoreSystemDefaults();
             });
             connect(copyButton, &QPushButton::clicked, this, [this]() {
-                QApplication::clipboard()->setText(buildReportText());
+                QApplication::clipboard()->setText(buildReportText().toPlainText(true));
                 appendLog(uiText("window.dwm.log.report_copied", "报告已复制到剪贴板。"));
             });
             connect(exportButton, &QPushButton::clicked, this, [this]() {
@@ -1112,8 +1113,8 @@ namespace ks::window::dwmctl
 
             QGroupBox* diagnosticsGroup = makeGroup(container, "window.dwm.group.diagnostics", "合成诊断（只读）");
             QVBoxLayout* diagnosticsLayout = new QVBoxLayout(diagnosticsGroup);
-            m_diagnosticsText = new CodeEditorWidget(diagnosticsGroup);
-            m_diagnosticsText->setReadOnly(true);
+            m_diagnosticsText = new ks::ui::StructuredFieldView(diagnosticsGroup);
+
             diagnosticsLayout->addWidget(m_diagnosticsText, 1);
             QHBoxLayout* diagnosticsActionLayout = new QHBoxLayout();
             QPushButton* refreshDiagnosticsButton =
@@ -1652,38 +1653,36 @@ namespace ks::window::dwmctl
             {
                 return;
             }
-            m_diagnosticsText->setReportText(buildDiagnosticsText(), true);
+            m_diagnosticsText->setDocument(buildDiagnosticsText());
         }
 
         // buildDiagnosticsText：
         // - 作用：汇总系统级合成状态与目标窗口的只读 DWM 属性；
         // - 传出：多行诊断文本。
-        QString buildDiagnosticsText() const
+        ks::ui::FieldDocument buildDiagnosticsText() const
         {
-            QStringList lines;
+            ks::ui::FieldDocument lines;
 
-            lines << uiText("window.dwm.diag.section_system", "[系统合成状态]");
+            lines.section(QStringLiteral("系统合成状态"));
             BOOL compositionEnabled = FALSE;
             const HRESULT compositionResult = ::DwmIsCompositionEnabled(&compositionEnabled);
-            lines << QStringLiteral("DwmIsCompositionEnabled: %1")
-                .arg(SUCCEEDED(compositionResult)
+            lines.field(QStringLiteral("DwmIsCompositionEnabled"), QStringLiteral("%1").arg(SUCCEEDED(compositionResult)
                     ? (compositionEnabled != FALSE
                         ? uiText("window.dwm.value.yes", "是")
                         : uiText("window.dwm.value.no", "否"))
-                    : hresultText(compositionResult));
+                    : hresultText(compositionResult)));
 
             DWORD colorization = 0;
             BOOL opaqueBlend = FALSE;
             const HRESULT colorizationResult = ::DwmGetColorizationColor(&colorization, &opaqueBlend);
-            lines << QStringLiteral("DwmGetColorizationColor: %1")
-                .arg(SUCCEEDED(colorizationResult)
+            lines.field(QStringLiteral("DwmGetColorizationColor"), QStringLiteral("%1").arg(SUCCEEDED(colorizationResult)
                     ? QStringLiteral("%1 (%2 %3)")
                         .arg(hexText(colorization))
                         .arg(uiText("window.dwm.diag.opaque_blend", "不透明混合"))
                         .arg(opaqueBlend != FALSE
                             ? uiText("window.dwm.value.yes", "是")
                             : uiText("window.dwm.value.no", "否"))
-                    : hresultText(colorizationResult));
+                    : hresultText(colorizationResult)));
 
             DWM_TIMING_INFO timingInfo{};
             timingInfo.cbSize = sizeof(timingInfo);
@@ -1698,67 +1697,54 @@ namespace ks::window::dwmctl
                     ? static_cast<double>(timingInfo.rateCompose.uiNumerator)
                         / static_cast<double>(timingInfo.rateCompose.uiDenominator)
                     : 0.0;
-                lines << QStringLiteral("MonitorRefreshRate: %1 Hz").arg(refreshRate, 0, 'f', 3);
-                lines << QStringLiteral("CompositionRate: %1 Hz").arg(composeRate, 0, 'f', 3);
-                lines << QStringLiteral("cRefresh / cFrame: %1 / %2")
-                    .arg(static_cast<qulonglong>(timingInfo.cRefresh))
-                    .arg(static_cast<qulonglong>(timingInfo.cFrame));
-                lines << QStringLiteral("cFramesLate / cFramesDropped: %1 / %2")
-                    .arg(static_cast<qulonglong>(timingInfo.cFramesLate))
-                    .arg(static_cast<qulonglong>(timingInfo.cFramesDropped));
+                lines.field(QStringLiteral("MonitorRefreshRate"), QStringLiteral("%1 Hz").arg(QStringLiteral("%1").arg(refreshRate, 0, 'f', 3)));
+                lines.field(QStringLiteral("CompositionRate"), QStringLiteral("%1 Hz").arg(QStringLiteral("%1").arg(composeRate, 0, 'f', 3)));
+                lines.field(QStringLiteral("cRefresh / cFrame"), QStringLiteral("%1 / %2").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(timingInfo.cRefresh))).arg(QStringLiteral("%1").arg(static_cast<qulonglong>(timingInfo.cFrame))));
+                lines.field(QStringLiteral("cFramesLate / cFramesDropped"), QStringLiteral("%1 / %2").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(timingInfo.cFramesLate))).arg(QStringLiteral("%1").arg(static_cast<qulonglong>(timingInfo.cFramesDropped))));
             }
             else
             {
-                lines << QStringLiteral("DwmGetCompositionTimingInfo: %1").arg(hresultText(timingResult));
+                lines.field(QStringLiteral("DwmGetCompositionTimingInfo"), QStringLiteral("%1").arg(hresultText(timingResult)));
             }
 
-            lines << QString() << uiText("window.dwm.diag.section_window", "[目标窗口只读属性]");
+            lines.section(QStringLiteral("目标窗口只读属性"));
             if (::IsWindow(m_target) == FALSE)
             {
-                lines << uiText("window.dwm.status.invalid_target", "目标窗口已失效");
-                return lines.join(QChar::LineFeed);
+                lines.note(QStringLiteral("目标窗口已失效"));
+                return lines;
             }
 
             const DwordResult ncRendering = readDwordAttribute(m_target, kAttrNcRenderingEnabled);
-            lines << QStringLiteral("DWMWA_NCRENDERING_ENABLED (1): %1")
-                .arg(ncRendering.ok
+            lines.field(QStringLiteral("DWMWA_NCRENDERING_ENABLED (1)"), QStringLiteral("%1").arg(ncRendering.ok
                     ? (ncRendering.value != 0
                         ? uiText("window.dwm.value.yes", "是")
                         : uiText("window.dwm.value.no", "否"))
-                    : hresultText(ncRendering.hr));
+                    : hresultText(ncRendering.hr)));
 
             const DwordResult cloaked = readDwordAttribute(m_target, kAttrCloaked);
-            lines << QStringLiteral("DWMWA_CLOAKED (14): %1")
-                .arg(cloaked.ok ? describeCloaked(cloaked.value) : hresultText(cloaked.hr));
+            lines.field(QStringLiteral("DWMWA_CLOAKED (14)"), QStringLiteral("%1").arg(cloaked.ok ? describeCloaked(cloaked.value) : hresultText(cloaked.hr)));
 
             const DwordResult borderThickness = readDwordAttribute(m_target, kAttrVisibleFrameBorderThickness);
-            lines << QStringLiteral("DWMWA_VISIBLE_FRAME_BORDER_THICKNESS (37): %1")
-                .arg(borderThickness.ok ? QString::number(borderThickness.value) : hresultText(borderThickness.hr));
+            lines.field(QStringLiteral("DWMWA_VISIBLE_FRAME_BORDER_THICKNESS (37)"), QStringLiteral("%1").arg(borderThickness.ok ? QString::number(borderThickness.value) : hresultText(borderThickness.hr)));
 
             const RectResult extendedFrame = readRectAttribute(m_target, kAttrExtendedFrameBounds);
-            lines << QStringLiteral("DWMWA_EXTENDED_FRAME_BOUNDS (9): %1")
-                .arg(extendedFrame.ok ? rectText(extendedFrame.value) : hresultText(extendedFrame.hr));
+            lines.field(QStringLiteral("DWMWA_EXTENDED_FRAME_BOUNDS (9)"), QStringLiteral("%1").arg(extendedFrame.ok ? rectText(extendedFrame.value) : hresultText(extendedFrame.hr)));
 
             const RectResult captionButtons = readRectAttribute(m_target, kAttrCaptionButtonBounds);
-            lines << QStringLiteral("DWMWA_CAPTION_BUTTON_BOUNDS (5): %1")
-                .arg(captionButtons.ok ? rectText(captionButtons.value) : hresultText(captionButtons.hr));
+            lines.field(QStringLiteral("DWMWA_CAPTION_BUTTON_BOUNDS (5)"), QStringLiteral("%1").arg(captionButtons.ok ? rectText(captionButtons.value) : hresultText(captionButtons.hr)));
 
             RECT windowRect{};
             if (::GetWindowRect(m_target, &windowRect) != FALSE)
             {
-                lines << QStringLiteral("GetWindowRect: %1").arg(rectText(windowRect));
+                lines.field(QStringLiteral("GetWindowRect"), QStringLiteral("%1").arg(rectText(windowRect)));
                 if (extendedFrame.ok)
                 {
                     // 两个矩形之差就是 DWM 预留的不可见阴影边距，排版类问题常卡在这里。
-                    lines << uiText("window.dwm.diag.shadow_inset", "阴影内缩(左/上/右/下): %1 / %2 / %3 / %4")
-                        .arg(extendedFrame.value.left - windowRect.left)
-                        .arg(extendedFrame.value.top - windowRect.top)
-                        .arg(windowRect.right - extendedFrame.value.right)
-                        .arg(windowRect.bottom - extendedFrame.value.bottom);
+                    lines.field(QStringLiteral("阴影内缩(左/上/右/下)"), QStringLiteral("%1 / %2 / %3 / %4").arg(QStringLiteral("%1").arg(extendedFrame.value.left - windowRect.left)).arg(QStringLiteral("%1").arg(extendedFrame.value.top - windowRect.top)).arg(QStringLiteral("%1").arg(windowRect.right - extendedFrame.value.right)).arg(QStringLiteral("%1").arg(windowRect.bottom - extendedFrame.value.bottom)));
                 }
             }
 
-            return lines.join(QChar::LineFeed);
+            return lines;
         }
 
         // describeCloaked：
@@ -1793,25 +1779,24 @@ namespace ks::window::dwmctl
         // buildReportText：
         // - 作用：把诊断信息与全部属性行的当前状态汇总成一份可归档文本；
         // - 传出：完整报告。
-        QString buildReportText() const
+        ks::ui::FieldDocument buildReportText() const
         {
-            QStringList lines;
-            lines << uiText("window.dwm.report.title", "KSword DWM 合成报告");
-            lines << uiText("window.dwm.report.time", "生成时间: %1")
-                .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
-            lines << uiText("window.dwm.report.target", "目标 HWND: %1").arg(hwndText(m_target));
-            lines << uiText("window.dwm.report.build", "系统构建号: %1").arg(windowsBuild());
-            lines << QString();
-            lines << buildDiagnosticsText();
-            lines << QString() << uiText("window.dwm.report.section_rows", "[可控属性当前状态]");
+            ks::ui::FieldDocument lines;
+            lines.note(QStringLiteral("KSword DWM 合成报告"));
+            lines.field(QStringLiteral("生成时间"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")))));
+            lines.field(QStringLiteral("目标 HWND"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(hwndText(m_target))));
+            lines.field(QStringLiteral("系统构建号"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(windowsBuild())));
+
+            lines.nodes += buildDiagnosticsText().nodes;
+            lines.section(QStringLiteral("可控属性当前状态"));
             for (const AttributeRow& row : m_rows)
             {
-                lines << QStringLiteral("%1 (%2): %3")
-                    .arg(QString::fromLatin1(row.spec.apiName))
-                    .arg(effectiveAttribute(row.spec))
-                    .arg(row.statusLabel != nullptr ? row.statusLabel->text() : QString());
+                lines.section(QStringLiteral("Attribute"));
+                lines.field(QStringLiteral("API"), QString::fromLatin1(row.spec.apiName));
+                lines.field(QStringLiteral("ID"), QString::number(effectiveAttribute(row.spec)));
+                lines.field(QStringLiteral("状态"), row.statusLabel != nullptr ? row.statusLabel->text() : QString());
             }
-            return lines.join(QChar::LineFeed);
+            return lines;
         }
 
         // exportReport：
@@ -1840,7 +1825,7 @@ namespace ks::window::dwmctl
                 return;
             }
             QTextStream stream(&file);
-            stream << buildReportText();
+            stream << buildReportText().toPlainText(true);
             file.close();
             appendLog(uiText("window.dwm.log.exported", "报告已导出到 %1").arg(filePath));
         }
@@ -2077,7 +2062,7 @@ namespace ks::window::dwmctl
         HTHUMBNAIL m_thumbnail = nullptr;              // DWM 缩略图句柄。
         HWND m_thumbnailDestination = nullptr;         // 注册时使用的宿主窗口句柄。
 
-        CodeEditorWidget* m_diagnosticsText = nullptr;   // 只读诊断输出。
+        ks::ui::StructuredFieldView* m_diagnosticsText = nullptr;   // 只读诊断输出。
         QPlainTextEdit* m_logText = nullptr;           // 操作日志输出。
     };
 
@@ -2106,6 +2091,10 @@ namespace ks::window::dwmctl
         int bestScore = -1;
         for (QTabWidget* tabs : dialog->findChildren<QTabWidget*>())
         {
+            if (tabs->property("ksword_detail_tabs").toBool())
+            {
+                return tabs;
+            }
             const int score = tabs->count() + (tabs->parentWidget() == dialog ? 1000 : 0);
             if (score > bestScore)
             {

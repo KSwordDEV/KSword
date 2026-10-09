@@ -1,6 +1,7 @@
 #include "TableFreezeSupport.h"
 
 #include "VisibleTableWidget.h"
+#include "TablePresentation.h"
 
 #include <QAbstractItemDelegate>
 #include <QAbstractItemView>
@@ -795,6 +796,7 @@ namespace ks::ui
         pane->viewport()->setPalette(sourceTable->viewport()->palette());
         pane->setCornerButtonEnabled(
             showHorizontalHeader && showVerticalHeader && sourceTable->isCornerButtonEnabled());
+        CopyTablePresentation(sourceTable, pane);
 
         QHeaderView* sourceHorizontalHeader = sourceTable->horizontalHeader();
         QHeaderView* paneHorizontalHeader = pane->horizontalHeader();

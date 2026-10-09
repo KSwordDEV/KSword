@@ -233,12 +233,19 @@ namespace wpg_test
 
     void FakeDiagnosticsHost::SetDiagnosticsText(const QString& text)
     {
+        m_documentActive = false;
         m_edit->setPlainText(text);
+    }
+
+    void FakeDiagnosticsHost::SetDiagnosticsDocument(const ks::ui::FieldDocument& document)
+    {
+        m_document = document;
+        m_documentActive = true;
     }
 
     QString FakeDiagnosticsHost::DiagnosticsText() const
     {
-        return m_edit->toPlainText();
+        return m_documentActive ? m_document.toPlainText(true) : m_edit->toPlainText();
     }
 
     void FakeDiagnosticsHost::SetWrapEnabled(const bool wrap)

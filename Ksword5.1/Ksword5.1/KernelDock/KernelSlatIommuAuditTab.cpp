@@ -1,4 +1,4 @@
-﻿#include "KernelSlatIommuAuditTab.h"
+#include "KernelSlatIommuAuditTab.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -19,7 +19,7 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTabWidget>
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -203,12 +203,12 @@ void KernelSlatIommuAuditTab::initializeUi()
             "kernel.slat_iommu.iommu.tab",
             QStringLiteral("IOMMU / DMAR / IVRS")));
 
-    m_detailEdit = new CodeEditorWidget(splitter);
-    m_detailEdit->setReadOnly(true);
-    m_detailEdit->setPlaceholderText(
+    m_detailEdit = new ks::ui::StructuredFieldView(splitter);
+
+    m_detailEdit->setDocument(ks::ui::FieldDocument{}.note(
         kernelText(
             "kernel.slat_iommu.detail.placeholder",
-            QStringLiteral("刷新后显示 CPU、Hypervisor、SLAT 与 IOMMU 原始证据")));
+            QStringLiteral("刷新后显示 CPU、Hypervisor、SLAT 与 IOMMU 原始证据"))));
     splitter->addWidget(evidenceTabs);
     splitter->addWidget(m_detailEdit);
     splitter->setStretchFactor(0, 3);
@@ -264,7 +264,7 @@ void KernelSlatIommuAuditTab::applyResult(
     {
         m_probeTable->setRowCount(0);
         m_iommuTable->setRowCount(0);
-        m_detailEdit->setReportText(QString());
+        m_detailEdit->setDocument({});
         if (result.unsupported)
         {
             m_statusLabel->setText(
@@ -287,7 +287,7 @@ void KernelSlatIommuAuditTab::applyResult(
     const auto& response = result.response;
     populateProbeTable(response);
     populateIommuTable(response);
-    m_detailEdit->setReportText(buildDetail(response));
+    m_detailEdit->setDocument(buildDetail(response));
     m_summaryLabel->setText(
         kernelText(
             "kernel.slat_iommu.summary",
@@ -429,37 +429,28 @@ void KernelSlatIommuAuditTab::populateIommuTable(
     }
 }
 
-QString KernelSlatIommuAuditTab::buildDetail(
+ks::ui::FieldDocument KernelSlatIommuAuditTab::buildDetail(
     const KSWORD_ARK_QUERY_SLAT_IOMMU_AUDIT_RESPONSE& response) const
 {
-    return kernelText(
-        "kernel.slat_iommu.detail.template",
-        QStringLiteral("CPU 厂商：%1\nHypervisor 厂商：%2\n特性：%3\n来宾可见风险：%4\n原始字段/风险/特性：0x%5 / 0x%6 / 0x%7\nCPUID 最大叶：basic=0x%8 extended=0x%9 hypervisor=0x%10\nCPUID 周期 min/median/max：%11 / %12 / %13\nIA32_FEATURE_CONTROL：%14\nIA32_VMX_EPT_VPID_CAP：%15\nAMD VM_CR：%16\nAMD EFER：%17\nDMAR/IVRS：%18 / %19\nIOMMU Interface/Ex：%20(v%21) / %22(v%23)\n查询标志：0x%24\n证据边界：虚拟/物理视图一致只能排除当前来宾可观察到的分离；不能读取外层 EPT/NPT 表，也不能证明不存在 execute-only 或按访问类型切换的 Hook。"))
-        .arg(fixedAscii(response.cpuVendor, sizeof(response.cpuVendor)))
-        .arg(fixedAscii(response.hypervisorVendor, sizeof(response.hypervisorVendor)))
-        .arg(featureText(response.featureFlags))
-        .arg(riskText(response.riskFlags))
-        .arg(response.fieldFlags, 8, 16, QLatin1Char('0'))
-        .arg(response.riskFlags, 8, 16, QLatin1Char('0'))
-        .arg(response.featureFlags, 16, 16, QLatin1Char('0'))
-        .arg(response.cpuidMaxBasic, 0, 16)
-        .arg(response.cpuidMaxExtended, 0, 16)
-        .arg(response.cpuidMaxHypervisor, 0, 16)
-        .arg(response.cpuidCyclesMinimum)
-        .arg(response.cpuidCyclesMedian)
-        .arg(response.cpuidCyclesMaximum)
-        .arg(hex64(response.vmxFeatureControl))
-        .arg(hex64(response.vmxEptVpidCapabilities))
-        .arg(hex64(response.amdVmCr))
-        .arg(hex64(response.amdEfer))
-        .arg(ntStatusText(response.dmarStatus))
-        .arg(ntStatusText(response.ivrsStatus))
-        .arg(ntStatusText(response.iommuInterfaceStatus))
-        .arg(response.iommuInterfaceVersion)
-        .arg(ntStatusText(response.iommuInterfaceExStatus))
-        .arg(response.iommuInterfaceExVersion)
-        .arg(response.queryFlags, 8, 16, QLatin1Char('0'));
-}
+        ks::ui::FieldDocument document;
+        document.field(QStringLiteral("CPU 厂商"), QStringLiteral("%1").arg(fixedAscii(response.cpuVendor, sizeof(response.cpuVendor))));
+        document.field(QStringLiteral("Hypervisor 厂商"), QStringLiteral("%1").arg(fixedAscii(response.hypervisorVendor, sizeof(response.hypervisorVendor))));
+        document.field(QStringLiteral("特性"), QStringLiteral("%1").arg(featureText(response.featureFlags)));
+        document.field(QStringLiteral("来宾可见风险"), QStringLiteral("%1").arg(riskText(response.riskFlags)));
+        document.field(QStringLiteral("原始字段/风险/特性"), QStringLiteral("0x%1 / 0x%2 / 0x%3").arg(QStringLiteral("%1").arg(response.fieldFlags, 8, 16, QLatin1Char('0'))).arg(QStringLiteral("%1").arg(response.riskFlags, 8, 16, QLatin1Char('0'))).arg(QStringLiteral("%1").arg(response.featureFlags, 16, 16, QLatin1Char('0'))));
+        document.field(QStringLiteral("CPUID 最大叶"), QStringLiteral("basic=0x%1 extended=0x%2 hypervisor=0x%3").arg(QStringLiteral("%1").arg(response.cpuidMaxBasic, 0, 16)).arg(QStringLiteral("%1").arg(response.cpuidMaxExtended, 0, 16)).arg(QStringLiteral("%1").arg(response.cpuidMaxHypervisor, 0, 16)));
+        document.field(QStringLiteral("CPUID 周期 min/median/max"), QStringLiteral("%1 / %2 / %3").arg(QStringLiteral("%1").arg(response.cpuidCyclesMinimum)).arg(QStringLiteral("%1").arg(response.cpuidCyclesMedian)).arg(QStringLiteral("%1").arg(response.cpuidCyclesMaximum)));
+        document.field(QStringLiteral("IA32_FEATURE_CONTROL"), QStringLiteral("%1").arg(hex64(response.vmxFeatureControl)));
+        document.field(QStringLiteral("IA32_VMX_EPT_VPID_CAP"), QStringLiteral("%1").arg(hex64(response.vmxEptVpidCapabilities)));
+        document.field(QStringLiteral("AMD VM_CR"), QStringLiteral("%1").arg(hex64(response.amdVmCr)));
+        document.field(QStringLiteral("AMD EFER"), QStringLiteral("%1").arg(hex64(response.amdEfer)));
+        document.field(QStringLiteral("DMAR/IVRS"), QStringLiteral("%1 / %2").arg(QStringLiteral("%1").arg(ntStatusText(response.dmarStatus))).arg(QStringLiteral("%1").arg(ntStatusText(response.ivrsStatus))));
+        document.field(QStringLiteral("IOMMU Interface/Ex"), QStringLiteral("%1(v%2) / %3(v%4)").arg(QStringLiteral("%1").arg(ntStatusText(response.iommuInterfaceStatus))).arg(QStringLiteral("%1").arg(response.iommuInterfaceVersion)).arg(QStringLiteral("%1").arg(ntStatusText(response.iommuInterfaceExStatus))).arg(QStringLiteral("%1").arg(response.iommuInterfaceExVersion)));
+        document.field(QStringLiteral("查询标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(response.queryFlags, 8, 16, QLatin1Char('0'))));
+        document.field(QStringLiteral("证据边界"), QStringLiteral("虚拟/物理视图一致只能排除当前来宾可观察到的分离"), true);
+        document.note(QStringLiteral("不能读取外层 EPT/NPT 表，也不能证明不存在 execute-only 或按访问类型切换的 Hook。"));
+        return document;
+    }
 
 QString KernelSlatIommuAuditTab::featureText(const std::uint64_t flags)
 {

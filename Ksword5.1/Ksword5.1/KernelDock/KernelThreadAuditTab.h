@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <vector>
 
-class CodeEditorWidget;
+#include "../UI/StructuredFieldView.h"
 class QEvent;
 class QLabel;
 class QLineEdit;
@@ -220,7 +220,7 @@ private:
     QPushButton* m_evidenceButton = nullptr;
     QLabel* m_statusLabel = nullptr;
     QTableWidget* m_table = nullptr;
-    CodeEditorWidget* m_detailEditor = nullptr;
+    ks::ui::StructuredFieldView* m_detailEditor = nullptr;
     std::vector<ThreadRow> m_rows;
     bool m_refreshRunning = false;
     std::uint64_t m_refreshTicket = 0;

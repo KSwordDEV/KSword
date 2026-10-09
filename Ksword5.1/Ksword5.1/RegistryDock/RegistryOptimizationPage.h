@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -134,7 +135,7 @@ private:
     static bool actionRequiresExternalProcess(const QJsonObject& actionObject);
     bool executeAction(
         const QJsonObject& actionObject,
-        QStringList* detailLinesOut,
+        ks::ui::FieldDocument* detailLinesOut,
         bool* restartExplorerOut);
 
     bool executeRegistryWriteAction(const QJsonObject& actionObject, QString* errorTextOut);
@@ -156,7 +157,7 @@ private:
     QSplitter* m_splitter = nullptr;             // Left groups, right item list/details.
     QTreeWidget* m_groupTree = nullptr;          // Dynamic group tree from JSON group_name.
     QTableWidget* m_itemTable = nullptr;         // Dynamic option rows and per-row controls.
-    CodeEditorWidget* m_detailText = nullptr;    // 选中项目/动作的只读详情，支持语言切换重绘。
+    ks::ui::StructuredFieldView* m_detailText = nullptr;    // 选中项目/动作的只读详情，支持语言切换重绘。
     QLabel* m_statusLabel = nullptr;             // Profile load/apply status.
 
     QString m_loadedProfilePath;                 // Actual JSON path selected from candidates.
@@ -173,7 +174,7 @@ private:
     QVector<QJsonObject> m_stateApplyActions;    // 保持原 JSON 顺序的待执行动作。
     int m_stateApplyNextActionIndex = 0;         // 下一项待执行动作索引。
     QJsonObject m_stateApplyActiveAction;        // 当前异步外部动作。
-    QStringList m_stateApplyDetailLines;         // 当前动作序列的诊断信息。
+    ks::ui::FieldDocument m_stateApplyDetailLines;         // 当前动作序列的诊断信息。
     bool m_stateApplyAllOk = true;               // 所有已完成动作是否成功。
     bool m_stateApplyRestartExplorer = false;    // 是否需要提示 Explorer 重启。
     QProcess* m_stateApplyProcess = nullptr;     // 仅承载当前非阻塞 cmd/tar 子进程。

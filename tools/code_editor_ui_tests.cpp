@@ -139,7 +139,7 @@ namespace
         return bytes;
     }
 
-    void checkRawAndLocalizedText()
+    void checkRawText()
     {
         CodeEditorWidget owner;
         auto* core = textCore(owner);
@@ -171,16 +171,28 @@ namespace
         QString error;
         require(languages.initialize(QStringLiteral("zh-CN"), &error), "real language packs initialize for report tests");
         const auto suffix = QStringLiteral("{\"成功\":\"成功\",\"literal\":[1,2]}");
-        owner.setLocalizedTextWithRawSuffix(QStringLiteral("成功\n"), suffix);
-        require(owner.text() == QStringLiteral("成功\n") + suffix, "localized Chinese prefix preserves the raw JSON suffix");
-        require(languages.setLanguage(QStringLiteral("en-US"), &error), "real English pack loads for report tests");
+        owner.setText(QStringLiteral("成功\n") + suffix);
+        require(owner.text() == QStringLiteral("成功\n") + suffix, "plain alias preserves all raw text");
+        require(languages.setLanguage(QStringLiteral("en-US"), &error), "real English pack loads");
         flushEvents();
-        require(owner.text() == QStringLiteral("Success\n") + suffix,
-            "live language changes translate the generated prefix while preserving the literal suffix");
+        require(owner.text() == QStringLiteral("成功\n") + suffix,
+            "language changes never regenerate or translate raw editor content");
         owner.setRawText(xml);
-        require(languages.setLanguage(QStringLiteral("zh-CN"), &error), "report tests restore Chinese");
+        require(languages.setLanguage(QStringLiteral("zh-CN"), &error), "raw tests restore Chinese");
         flushEvents();
-        require(owner.text() == xml, "raw setter retires the generated report translation cache");
+        require(owner.text() == xml, "raw setter retains the literal XML");
+
+        const QString original = QStringLiteral("first\r\nsecond\rthird\nlast");
+        owner.setRawText(original);
+        core->selectAll();
+        require(owner.text() == original && owner.copyTextForCurrentView() == original,
+            "untouched raw text and whole selection retain mixed original line endings");
+        QTextCursor rawSelection(core->document());
+        rawSelection.setPosition(3);
+        rawSelection.setPosition(9, QTextCursor::KeepAnchor);
+        core->setTextCursor(rawSelection);
+        require(owner.copyTextForCurrentView() == QStringLiteral("st\r\nsec"),
+            "partial raw selection maps Qt paragraph positions back to original CRLF source");
 
         owner.setReadOnly(false);
         owner.setRawText(json);
@@ -298,7 +310,6 @@ namespace
             "a fresh empty editor starts with accurate history and selection action states");
         require(tool(owner, QStringLiteral("wrap"))->isChecked() && core->lineWrapMode() == QPlainTextEdit::WidgetWidth,
             "the initial wrap tool matches the real text core wrap mode");
-        owner.setStructuredReportViewEnabled(false);
         owner.setRawText(QStringLiteral("state fixture"));
         core->selectAll();
         owner.setReadOnly(true);
@@ -429,7 +440,7 @@ namespace
             CodeEditorWidget owner;
             show(owner, QSize(800, 450));
             owner.setReadOnly(true);
-            owner.setLocalizedText(QStringLiteral("成功\n"));
+            owner.setRawText(QStringLiteral("成功\n"));
             owner.setReadOnly(false);
             require(owner.openLocalFile(path) && owner.text() == sample.text,
                 "opening an owned file preserves raw content and clears earlier report text");
@@ -506,8 +517,8 @@ namespace
             QObject::connect(owner, &CodeEditorWidget::contentChanged, owner,
                 [owner](const QString&) { delete owner.data(); });
             if (setter == 0) owner->setRawText(QStringLiteral("literal"));
-            if (setter == 1) owner->setLocalizedText(QStringLiteral("成功\n"));
-            if (setter == 2) owner->setLocalizedTextWithRawSuffix(QStringLiteral("成功\n"), QStringLiteral("{\"literal\":1}"));
+            if (setter == 1) owner->setText(QStringLiteral("成功\n"));
+            if (setter == 2) owner->replaceRawText(QStringLiteral("成功\n{\"literal\":1}"));
             require(owner != nullptr, "text setter returns before the external content observer retires its owner");
             flushEvents();
             require(owner.isNull(), "deferred content notification safely permits the observer to retire its owner");
@@ -557,22 +568,15 @@ namespace
         savePreview(owner, QStringLiteral("code-dark-narrow-find"), QSize(360, 460));
 
         owner.setReadOnly(true);
-        owner.setLocalizedText(QStringLiteral("进程信息\n状态: 成功\n路径: C:\\fixture\\program.exe\nPID: 1234\n\n模块\n名称: example.dll\n地址: 0x0000000012345000\n"));
+        owner.setRawText(QStringLiteral("进程信息\n状态: 成功\n路径: C:\\fixture\\program.exe\nPID: 1234\n\n模块\n名称: example.dll\n地址: 0x0000000012345000\n"));
         show(owner, QSize(800, 540));
-        QComboBox* structured = nullptr;
-        for (auto* combo : owner.findChildren<QComboBox*>())
-            if (combo->count() == 2 && combo->itemText(1).contains(QStringLiteral("原始文本"))) structured = combo;
-        require(structured != nullptr && structured->isVisible(), "readonly generated reports retain their structure switch");
-        require(toolbar->isAncestorOf(structured), "report structure switch is in the toolbar instead of overlaying report text");
-        savePreview(owner, QStringLiteral("report-dark-wide"), QSize(800, 540));
-        structured->setCurrentIndex(1);
-        flushEvents();
-        const auto topOfText = core->mapTo(&owner, QPoint()).y();
-        const auto switchBottom = structured->mapTo(&owner, QPoint()).y() + structured->height();
-        require(core->isVisible() && switchBottom <= topOfText, "structure switch does not cover the first text line");
+        require(owner.findChild<QComboBox*>(QStringLiteral("code_editor_structure")) == nullptr
+            && owner.findChild<QStackedWidget*>() == nullptr, "plain editor has no report or structure frontend");
+        require(core->isVisible(), "readonly text core remains visible");
+        savePreview(owner, QStringLiteral("raw-text-dark-wide"), QSize(800, 540));
         tool(owner, QStringLiteral("find"))->click();
         named<QLineEdit>(owner, "code_editor_find")->setText(QStringLiteral("fixture"));
-        savePreview(owner, QStringLiteral("report-dark-narrow-find"), QSize(360, 460));
+        savePreview(owner, QStringLiteral("raw-text-dark-narrow-find"), QSize(360, 460));
         owner.setRawText(QStringLiteral("2026-10-08 09:12:00 [INFO] 用户原始日志\n2026-10-08 09:12:01 [WARN] retry=1 path=C:\\fixture\\data.json\n2026-10-08 09:12:02 [INFO] ready\n"));
         core->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         applyTheme(false);
@@ -590,7 +594,7 @@ int main(int argc, char** argv)
     require(QDir().mkpath(outputDirectory), "editor preview output directory is available");
     applyTheme(false);
     std::cerr << "Raw/localized text checks\n";
-    checkRawAndLocalizedText();
+    checkRawText();
     std::cerr << "Editing/readonly checks\n";
     checkEditingAndReadOnly();
     checkInitialAndStructureDisabledActions();

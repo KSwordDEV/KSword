@@ -17,7 +17,7 @@ class QStackedWidget;
 namespace ks::ui
 {
     class MemoryRowCanvas;
-    class ReportStructuredView;
+    class StructuredFieldView;
 
     // Read-only address-backed text on the same row canvas as disassembly.
     // Decode first, then lay out rows: display boundaries never split a scalar.
@@ -81,7 +81,7 @@ namespace ks::ui
         QComboBox* m_encodingCombo = nullptr;
         QComboBox* m_structureCombo = nullptr;
         QStackedWidget* m_viewStack = nullptr;
-        ReportStructuredView* m_structuredView = nullptr;
+        StructuredFieldView* m_structuredView = nullptr;
         QCheckBox* m_bytesToggle = nullptr;
         QCheckBox* m_wrapToggle = nullptr;
         QCheckBox* m_controlToggle = nullptr;

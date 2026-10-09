@@ -47,6 +47,8 @@ for %%H in (MemoryRowCanvas HexCanvas HexInspectorPanel HexInspectorRowView HexF
   if errorlevel 1 exit /b %errorlevel%
 )
 "%QT%\bin\moc.exe" "%APP%\UI\CodeEditorWidget.h" -o "%MOC%\moc_CodeEditorWidget.cpp"
+if errorlevel 1 exit /b 1
+"%QT%\bin\moc.exe" "%APP%\UI\StructuredFieldView.h" -o "%MOC%\moc_StructuredFieldView.cpp"
 if errorlevel 1 exit /b %errorlevel%
 "%QT%\bin\moc.exe" "%APP%\UI\Decompiler\GhidraDecompiler.h" -o "%MOC%\moc_GhidraDecompiler.cpp"
 if errorlevel 1 exit /b %errorlevel%
@@ -63,7 +65,7 @@ rem ---- 第二遍：CodeEditorWidget 依赖链，/W3 不开 /WX（别人代码�
 rem      警告不该挡住本包自己代码的强校验，仿 wpH/wpE/wpJ1 的做法）----
 cl /nologo /std:c++latest /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W3 /O2 /DWIN32_LEAN_AND_MEAN /external:W0 /DNOMINMAX /DUNICODE /D_UNICODE /DZYDIS_STATIC_BUILD /DQT_CORE_LIB /DQT_GUI_LIB /DQT_WIDGETS_LIB ^
   /I"%ZYDIS%" /external:I"%QT%\include" /external:I"%QT%\include\QtCore" /external:I"%QT%\include\QtGui" /external:I"%QT%\include\QtWidgets" /external:I"%QT%\include\QtSvg" ^
-  /c "%APP%\UI\CodeEditorWidget.cpp" "%APP%\UI\CodeTextEdit.cpp" "%APP%\UI\CodeEditorFileSession.cpp" "%APP%\UI\ReportStructuredView.cpp" "%APP%\UI\FieldTreePresenter.cpp" "%APP%\UI\FieldTreePresenter.Copy.cpp" "%APP%\Internationalization\LanguageManager.cpp" "%APP%\UI\MemoryAssembly.cpp" "%APP%\UI\MemoryAssembly.Core.cpp" "%MOC%\moc_CodeEditorWidget.cpp" ^
+  /c "%APP%\UI\CodeEditorWidget.cpp" "%APP%\UI\CodeTextEdit.cpp" "%APP%\UI\CodeEditorFileSession.cpp" "%APP%\UI\StructuredFieldView.cpp" "%APP%\UI\TypedSyntaxDocument.cpp" "%APP%\Internationalization\LanguageManager.cpp" "%APP%\UI\MemoryAssembly.cpp" "%APP%\UI\MemoryAssembly.Core.cpp" "%MOC%\moc_CodeEditorWidget.cpp" "%MOC%\moc_StructuredFieldView.cpp" ^
   /Fo"%OBJ2%\\"
 if errorlevel 1 exit /b %errorlevel%
 
@@ -154,7 +156,7 @@ rem ---- 最终链接：用 /link 把两批 .obj 目录通配 + CodeEditorWidget
 rem      .obj 一次性链起来，避免再拼一条列出全部 .obj 文件名的长命令行。----
 cl /nologo /Fe"%OUT%\wpJ6_tests.exe" "%OBJ%\*.obj" ^
   /link /OPT:REF /LIBPATH:"%QT%\lib" Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib Qt6Test.lib Qt6Svg.lib user32.lib advapi32.lib ^
-  "%OBJ2%\CodeEditorWidget.obj" "%OBJ2%\CodeTextEdit.obj" "%OBJ2%\CodeEditorFileSession.obj" "%OBJ2%\ReportStructuredView.obj" "%OBJ2%\FieldTreePresenter.obj" "%OBJ2%\FieldTreePresenter.Copy.obj" "%OBJ2%\LanguageManager.obj" "%OBJ2%\MemoryAssembly.obj" "%OBJ2%\MemoryAssembly.Core.obj" "%OBJ2%\moc_CodeEditorWidget.obj" "%OBJ2%\Zydis.obj"
+  "%OBJ2%\CodeEditorWidget.obj" "%OBJ2%\CodeTextEdit.obj" "%OBJ2%\CodeEditorFileSession.obj" "%OBJ2%\StructuredFieldView.obj" "%OBJ2%\TypedSyntaxDocument.obj" "%OBJ2%\LanguageManager.obj" "%OBJ2%\MemoryAssembly.obj" "%OBJ2%\MemoryAssembly.Core.obj" "%OBJ2%\moc_CodeEditorWidget.obj" "%OBJ2%\moc_StructuredFieldView.obj" "%OBJ2%\Zydis.obj"
 if errorlevel 1 exit /b %errorlevel%
 
 rem ---- 部署 DLL 与插件（离屏平台、SVG 图标引擎与图片格式） ----

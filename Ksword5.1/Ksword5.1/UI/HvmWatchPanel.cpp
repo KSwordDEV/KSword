@@ -1,4 +1,4 @@
-﻿#include "HvmWatchPanel.h"
+#include "HvmWatchPanel.h"
 
 #include "KernelDisassemblyDialog.h"
 #include "HvmControl.h"
@@ -35,7 +35,7 @@
 #include <QPushButton>
 #include <QShowEvent>
 #include <QTableWidget>
-#include "CodeEditorWidget.h"
+#include "StructuredFieldView.h"
 #include <QVBoxLayout>
 
 #include <thread>
@@ -160,10 +160,9 @@ void HvmWatchPanel::buildUi()
     buttons->addWidget(m_writerPageButton, 2, 1);
     rootLayout->addLayout(buttons);
 
-    m_detail = new CodeEditorWidget(this);
-    m_detail->setReadOnly(true);
-    m_detail->setPlaceholderText(
-        text(QStringLiteral("选中一条监视查看它的完整现场与归因。")));
+    m_detail = new ks::ui::StructuredFieldView(this);
+    m_detail->setDocument(ks::ui::FieldDocument{}.note(
+        text(QStringLiteral("选中一条监视查看它的完整现场与归因。"))));
     rootLayout->addWidget(m_detail, 2);
 
     m_statusLabel = new QLabel(QString(), this);
@@ -507,21 +506,21 @@ void HvmWatchPanel::applyWatches(
 
 void HvmWatchPanel::showDetail(const ksword::hvm::HvmWatchEntry& entry)
 {
-    QStringList lines;
-    lines << text(QStringLiteral("目标"));
+    ks::ui::FieldDocument document;
+    document.section(QStringLiteral("目标"));
     // 标签存在 R3 这一侧（协议里没有这个字段），从别的页面右键进来时带上。
     // 没有标签时明说原因，不留一行空白让人以为是读失败了。
     const QString label = ksword::hvm::watchLabel(entry);
-    lines << text(QStringLiteral("  标签            %1"))
+    document.field(QStringLiteral("标签"), QStringLiteral("%1")
         .arg(label.isEmpty()
             ? text(QStringLiteral("（未命名，在这一页直接添加的监视没有标签）"))
-            : label);
-    lines << text(QStringLiteral("  请求地址        %1"))
-        .arg(hex64(entry.requestedAddress));
-    lines << text(QStringLiteral("  请求长度        %1 字节"))
-        .arg(entry.requestedLength);
-    lines << text(QStringLiteral("  实际监视页      %1，4096 字节"))
-        .arg(hex64(entry.physicalPage));
+            : label));
+    document.field(QStringLiteral("请求地址"), QStringLiteral("%1")
+        .arg(hex64(entry.requestedAddress)));
+    document.field(QStringLiteral("请求长度"), QStringLiteral("%1 字节")
+        .arg(entry.requestedLength));
+    document.field(QStringLiteral("实际监视页"), QStringLiteral("%1，4096 字节")
+        .arg(hex64(entry.physicalPage)));
     /*
      * 页内偏移单独列一行。
      *
@@ -529,14 +528,14 @@ void HvmWatchPanel::showDetail(const ksword::hvm::HvmWatchEntry& entry)
      * 摆在一起看着像同一回事；列出来，用户一眼能看出硬件实际盯的范围比自己
      * 选的宽了多少，以及自己关心的那几个字节坐落在哪。
      */
-    lines << text(QStringLiteral("  页内偏移        +0x%1"))
-        .arg(entry.requestedAddress & 0xFFFULL, 0, 16);
-    lines << text(QStringLiteral("  请求访问        %1"))
-        .arg(ksword::hvm::describeWatchAccess(entry.requestedAccess));
-    lines << text(QStringLiteral("  实际访问        %1"))
-        .arg(ksword::hvm::describeWatchAccess(entry.effectiveAccess));
-    lines << text(QStringLiteral("  模式            首次访问"));
-    lines << QString();
+    document.field(QStringLiteral("页内偏移"), QStringLiteral("+0x%1")
+        .arg(entry.requestedAddress & 0xFFFULL, 0, 16));
+    document.field(QStringLiteral("请求访问"), QStringLiteral("%1")
+        .arg(ksword::hvm::describeWatchAccess(entry.requestedAccess)));
+    document.field(QStringLiteral("实际访问"), QStringLiteral("%1")
+        .arg(ksword::hvm::describeWatchAccess(entry.effectiveAccess)));
+    document.field(QStringLiteral("模式"), QStringLiteral("首次访问"));
+
 
     // 虚拟地址重映射检测。
     //
@@ -552,48 +551,48 @@ void HvmWatchPanel::showDetail(const ksword::hvm::HvmWatchEntry& entry)
         {
             const unsigned long long currentPage =
                 current.physicalAddress & ~0xFFFULL;
-            lines << (currentPage == entry.physicalPage
+            document.note((currentPage == entry.physicalPage
                 ? text(QStringLiteral("映射核对        当前虚拟地址仍然落在被监视的那一页上。"))
                 : text(QStringLiteral("映射核对        **当前虚拟地址已经指向 %1，与武装时的 %2 不是同一页。这条监视仍然盯着武装时那一页，不再对应该虚拟地址。**"))
                     .arg(hex64(currentPage))
-                    .arg(hex64(entry.physicalPage)));
+                    .arg(hex64(entry.physicalPage))));
         }
         else
         {
-            lines << text(QStringLiteral("映射核对        当前翻译不出物理页，无法核对该虚拟地址是否还指向被监视的那一页。"));
+            document.field(QStringLiteral("映射核对"), QStringLiteral("当前翻译不出物理页，无法核对该虚拟地址是否还指向被监视的那一页。"));
         }
-        lines << QString();
+
     }
 
-    lines << text(QStringLiteral("命中"));
+    document.section(QStringLiteral("命中"));
     if (entry.hitCount == 0UL)
     {
-        lines << text(QStringLiteral("  尚未命中。"));
+        document.field(QStringLiteral(""), QStringLiteral("尚未命中。"));
     }
     else
     {
-        lines << text(QStringLiteral("  累计命中        %1 次"))
-            .arg(entry.hitCount);
+        document.field(QStringLiteral("累计命中"), QStringLiteral("%1 次")
+            .arg(entry.hitCount));
         // 命中时刻。驱动记的是性能计数，不是墙钟——换算出来的时间必须带上
         // "这是换算来的"，否则等于声称记下了一件没有记过的事。
-        lines << text(QStringLiteral("  命中时间        %1"))
-            .arg(ksword::hvm::describeWatchHitTime(entry.lastHitTimestamp));
-        lines << text(QStringLiteral("  事件序号        %1"))
-            .arg(entry.lastHitSequence);
-        lines << text(QStringLiteral("  证据状态        %1"))
+        document.field(QStringLiteral("命中时间"), QStringLiteral("%1")
+            .arg(ksword::hvm::describeWatchHitTime(entry.lastHitTimestamp)));
+        document.field(QStringLiteral("事件序号"), QStringLiteral("%1")
+            .arg(entry.lastHitSequence));
+        document.field(QStringLiteral("证据状态"), QStringLiteral("%1")
             .arg(entry.lastHitStatus ==
                     KSWORD_ARK_HVM_EPT_WATCH_HIT_PUBLISHED
                 ? text(QStringLiteral("事件已发布"))
-                : text(QStringLiteral("已命中，但事件环没接住这条证据")));
-        lines << text(QStringLiteral("  处理器          %1:%2"))
+                : text(QStringLiteral("已命中，但事件环没接住这条证据"))));
+        document.field(QStringLiteral("处理器"), QStringLiteral("%1:%2")
             .arg(entry.lastHitProcessorGroup)
-            .arg(entry.lastHitProcessorNumber);
-        lines << text(QStringLiteral("  客户物理地址    %1"))
-            .arg(hex64(entry.lastHitGuestPhysicalAddress));
-        lines << text(QStringLiteral("  客户线性地址    %1"))
+            .arg(entry.lastHitProcessorNumber));
+        document.field(QStringLiteral("客户物理地址"), QStringLiteral("%1")
+            .arg(hex64(entry.lastHitGuestPhysicalAddress)));
+        document.field(QStringLiteral("客户线性地址"), QStringLiteral("%1")
             .arg(entry.lastHitGuestLinearValid
                 ? hex64(entry.lastHitGuestLinearAddress)
-                : text(QStringLiteral("处理器未报告")));
+                : text(QStringLiteral("处理器未报告"))));
         /*
          * 范围命中有两种"答不了"，都不能默认成"不在范围内"：
          *
@@ -602,43 +601,43 @@ void HvmWatchPanel::showDetail(const ksword::hvm::HvmWatchEntry& entry)
          *   时拿来比的是客户线性地址——两个地址空间不可比，比出来的结果无论
          *   是真是假都没有意义。说成"否"等于给了一个看起来是结论的假答案。
          */
-        lines << text(QStringLiteral("  落在请求范围内  %1"))
+        document.field(QStringLiteral("落在请求范围内"), QStringLiteral("%1")
             .arg(!entry.lastHitGuestLinearValid
                 ? text(QStringLiteral("无法判断（没有有效的客户线性地址）"))
                 : entry.addressKind != KSWORD_ARK_HVM_WATCH_ADDRESS_VIRTUAL
                     ? text(QStringLiteral("无法判断（这条监视按物理地址建立，而处理器报告的是线性地址，两者不在同一个地址空间）"))
                     : entry.lastHitRangeMatch
                         ? text(QStringLiteral("是"))
-                        : text(QStringLiteral("否，落在同一页的其它偏移上")));
-        lines << text(QStringLiteral("  RIP             %1"))
-            .arg(hex64(entry.lastHitRip));
-        lines << text(QStringLiteral("  RSP             %1"))
-            .arg(hex64(entry.lastHitRsp));
-        lines << text(QStringLiteral("  CR3             %1"))
+                        : text(QStringLiteral("否，落在同一页的其它偏移上"))));
+        document.field(QStringLiteral("RIP"), QStringLiteral("%1")
+            .arg(hex64(entry.lastHitRip)));
+        document.field(QStringLiteral("RSP"), QStringLiteral("%1")
+            .arg(hex64(entry.lastHitRsp)));
+        document.field(QStringLiteral("CR3"), QStringLiteral("%1")
             .arg(entry.lastHitCr3 != 0ULL
                 ? hex64(entry.lastHitCr3)
-                : text(QStringLiteral("未采集")));
-        lines << QString();
-        lines << text(QStringLiteral("归因"));
+                : text(QStringLiteral("未采集"))));
+
+        document.section(QStringLiteral("归因"));
         const ksword::hvm::HvmWatchAttribution attribution =
             ksword::hvm::attributeKernelAddress(entry.lastHitRip);
         if (attribution.resolved)
         {
-            lines << text(QStringLiteral("  模块            %1"))
-                .arg(attribution.moduleName);
-            lines << text(QStringLiteral("  模块路径        %1"))
-                .arg(attribution.modulePath);
-            lines << text(QStringLiteral("  模块内偏移      +0x%1"))
-                .arg(attribution.relativeAddress, 0, 16);
+            document.field(QStringLiteral("模块"), QStringLiteral("%1")
+                .arg(attribution.moduleName));
+            document.field(QStringLiteral("模块路径"), QStringLiteral("%1")
+                .arg(attribution.modulePath));
+            document.field(QStringLiteral("模块内偏移"), QStringLiteral("+0x%1")
+                .arg(attribution.relativeAddress, 0, 16));
             // 符号只来自导出表：它答不出静态函数，所以"没有符号"不等于"这个
             // 地址不在函数里"，只等于"它前面没有导出符号"。这句差别要说出来，
             // 否则空符号会被当成异常信号。
-            lines << (attribution.symbolName.isEmpty()
+            document.note((attribution.symbolName.isEmpty()
                 ? text(QStringLiteral("  符号            该地址之前没有导出符号（只解析导出表，不解析 PDB；静态函数本就不在其中）。"))
                 : text(QStringLiteral("  符号            %1!%2+0x%3"))
                     .arg(attribution.moduleName)
                     .arg(attribution.symbolName)
-                    .arg(attribution.symbolOffset, 0, 16));
+                    .arg(attribution.symbolOffset, 0, 16)));
         }
         else if (attribution.kind ==
             ksword::hvm::HvmWatchAttributionKind::Failed)
@@ -650,14 +649,14 @@ void HvmWatchPanel::showDetail(const ksword::hvm::HvmWatchEntry& entry)
              * 结论。两者在界面上只差一句话，但会把人送去查两个相反的方向：
              * 一个说"这段代码来历不明，接着查它"，一个说"这次没问出来，再试一次"。
              */
-            lines << text(QStringLiteral("  模块            这次模块归因没有跑起来（读不到系统模块表），所以答不出这个 RIP 属不属于已加载模块。这不是“未知可执行区域”。"));
-            lines << text(QStringLiteral("                  刷新后重试；仍然失败时用“查看写入者反汇编”直接看那一段代码。"));
+            document.field(QStringLiteral("模块"), QStringLiteral("这次模块归因没有跑起来（读不到系统模块表），所以答不出这个 RIP 属不属于已加载模块。这不是“未知可执行区域”。"));
+            document.field(QStringLiteral(""), QStringLiteral("刷新后重试；仍然失败时用“查看写入者反汇编”直接看那一段代码。"));
         }
         else
         {
             // 归不到模块是一条结论而不是失败：它本身就是可疑的读数。
-            lines << text(QStringLiteral("  模块            未知可执行区域 —— 这个 RIP 不落在任何已加载内核模块的映像范围内。"));
-            lines << text(QStringLiteral("                  用“查看写入者反汇编”“查看写入者内存”“查看 RIP 所在页”直接看那一段代码。"));
+            document.field(QStringLiteral("模块"), QStringLiteral("未知可执行区域 —— 这个 RIP 不落在任何已加载内核模块的映像范围内。"));
+            document.field(QStringLiteral(""), QStringLiteral("用“查看写入者反汇编”“查看写入者内存”“查看 RIP 所在页”直接看那一段代码。"));
         }
         /*
          * 进程归因是后处理，而且是显式的一步。
@@ -667,23 +666,23 @@ void HvmWatchPanel::showDetail(const ksword::hvm::HvmWatchEntry& entry)
          */
         if (entry.lastHitCr3 == 0ULL)
         {
-            lines << text(QStringLiteral("  进程            命中现场没有记下地址空间，无从归因。"));
+            document.field(QStringLiteral("进程"), QStringLiteral("命中现场没有记下地址空间，无从归因。"));
         }
         else
         {
             const auto cached = m_processAttribution.constFind(entry.lastHitCr3);
-            lines << (cached != m_processAttribution.constEnd()
+            document.note((cached != m_processAttribution.constEnd()
                 ? text(QStringLiteral("  进程            %1"))
                     .arg(ksword::hvm::describeProcessAttribution(*cached))
-                : text(QStringLiteral("  进程            尚未解析。点“解析命中进程”按 CR3 反查——这一步要逐个进程读页目录基址，所以不随选中行自动跑。")));
+                : text(QStringLiteral("  进程            尚未解析。点“解析命中进程”按 CR3 反查——这一步要逐个进程读页目录基址，所以不随选中行自动跑。"))));
         }
     }
-    lines << QString();
-    lines << text(QStringLiteral("HVM"));
-    lines << text(QStringLiteral("  监视状态        %1"))
-        .arg(describeWatchStateHere(entry.state));
-    lines << text(QStringLiteral("  武装代次        %1"))
-        .arg(entry.armedGeneration);
+
+    document.section(QStringLiteral("HVM"));
+    document.field(QStringLiteral("监视状态"), QStringLiteral("%1")
+        .arg(describeWatchStateHere(entry.state)));
+    document.field(QStringLiteral("武装代次"), QStringLiteral("%1")
+        .arg(entry.armedGeneration));
     /*
      * 常驻没跑时，"未命中"这三个字不成立。
      *
@@ -693,15 +692,15 @@ void HvmWatchPanel::showDetail(const ksword::hvm::HvmWatchEntry& entry)
      */
     if (!m_residentActive)
     {
-        lines << text(QStringLiteral("  是否在观察      否 —— 常驻没有在运行。这条监视此刻不会产生任何命中，上面的命中计数只覆盖它武装过且常驻在跑的那些时间段。"));
+        document.field(QStringLiteral("是否在观察"), QStringLiteral("否 —— 常驻没有在运行。这条监视此刻不会产生任何命中，上面的命中计数只覆盖它武装过且常驻在跑的那些时间段。"));
     }
     // REARM 保留累计命中与上一轮的现场，所以现场可能属于更早的某一轮。
     if (entry.hitCount != 0UL &&
         entry.state == KSWORD_ARK_HVM_EPT_WATCH_STATE_ARMED)
     {
-        lines << text(QStringLiteral("  现场归属        这条监视已经重新武装过；上面那份命中现场属于**之前**某一轮，不是当前这一轮（当前这一轮还没有命中）。"));
+        document.field(QStringLiteral("现场归属"), QStringLiteral("这条监视已经重新武装过；上面那份命中现场属于**之前**某一轮，不是当前这一轮（当前这一轮还没有命中）。"));
     }
-    m_detail->setReportText(lines.join(QLatin1Char('\n')));
+    m_detail->setDocument(document);
 }
 
 void HvmWatchPanel::startAdd()

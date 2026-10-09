@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "PhysicalPageScan.h"
 #include "PhysicalPageMappings.h"
 #include <QWidget>
@@ -9,7 +9,7 @@ class QLineEdit;
 class QProgressBar;
 class QSpinBox;
 class QTableWidget;
-class CodeEditorWidget;
+#include "../UI/StructuredFieldView.h"
 class QTabWidget;
 class MemoryAttributionChart;
 class QCheckBox;
@@ -50,8 +50,8 @@ private:
     QProgressBar* m_progress = nullptr;
     QLineEdit* m_filter = nullptr;
     QLineEdit* m_pfn = nullptr;
-    CodeEditorWidget* m_evidence = nullptr;
-    CodeEditorWidget* m_pageEvidence = nullptr;
+    ks::ui::StructuredFieldView* m_evidence = nullptr;
+    ks::ui::StructuredFieldView* m_pageEvidence = nullptr;
     QTableWidget* m_categories = nullptr;
     QTableWidget* m_ownerCoverage = nullptr;
     QTableWidget* m_objects = nullptr;

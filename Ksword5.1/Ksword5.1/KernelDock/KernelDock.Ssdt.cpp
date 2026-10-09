@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -217,14 +218,14 @@ void KernelDock::initializeSsdtTab()
     m_ssdtTable->setColumnWidth(static_cast<int>(SsdtColumn::SlotAddress), 180);
     m_ssdtTable->setColumnWidth(static_cast<int>(SsdtColumn::Module), 150);
 
-    m_ssdtDetailEditor = new CodeEditorWidget(splitter);
-    m_ssdtDetailEditor->setReadOnly(true);
-    m_ssdtDetailEditor->setText(kernelText("kernel.ssdt.detail.initial", QStringLiteral("请选择一条 SSDT 记录查看详情。")));
+    m_ssdtDetailEditor = new ks::ui::StructuredFieldView(splitter);
+
+    m_ssdtDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.ssdt.detail.initial", QStringLiteral("请选择一条 SSDT 记录查看详情。"))));
 
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_ssdtTable, m_ssdtDetailEditor, m_ssdtPage);
 
     connect(m_refreshSsdtButton, &QPushButton::clicked, this, [this]() {
@@ -384,7 +385,7 @@ void KernelDock::refreshSsdtAsync()
             {
                 guardThis->m_ssdtStatusLabel->setText(kernelText("kernel.ssdt.status.failed", QStringLiteral("状态：刷新失败")));
                 guardThis->m_ssdtStatusLabel->setStyleSheet(statusLabelStyle(KswordTheme::ErrorHex()));
-                guardThis->m_ssdtDetailEditor->setText(errorText);
+                guardThis->m_ssdtDetailEditor->setDocument(ks::ui::FieldDocument{}.note(errorText));
                 return;
             }
 
@@ -413,7 +414,7 @@ void KernelDock::refreshSsdtAsync()
             }
             else
             {
-                guardThis->m_ssdtDetailEditor->setText(kernelText("kernel.ssdt.empty", QStringLiteral("当前环境未返回可见 SSDT 条目。")));
+                guardThis->m_ssdtDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.ssdt.empty", QStringLiteral("当前环境未返回可见 SSDT 条目。"))));
             }
             };
 
@@ -686,37 +687,25 @@ void KernelDock::showSsdtDetailByCurrentRow()
     const KernelSsdtEntry* entry = currentSsdtEntry();
     if (entry == nullptr)
     {
-        m_ssdtDetailEditor->setText(kernelText("kernel.ssdt.detail.initial", QStringLiteral("请选择一条 SSDT 记录查看详情。")));
+        m_ssdtDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.ssdt.detail.initial", QStringLiteral("请选择一条 SSDT 记录查看详情。"))));
         return;
     }
 
-    const QString detailText = kernelText("kernel.ssdt.detail.full", QStringLiteral(
-        "服务索引: %1\n"
-        "服务名: %2\n"
-        "模块: %3\n"
-        "Zw导出地址: %4\n"
-        "服务表基址: %5\n"
-        "表项服务地址: %6\n"
-        "槽位地址: %7\n"
-        "当前编码值: 0x%8\n"
-        "磁盘基线值: 0x%9\n"
-        "基线状态: %10\n"
-        "状态: %11\n"
-        "标志: 0x%12\n\n"
-        "Worker详情:\n%13"))
-        .arg(entry->indexResolved ? QString::number(entry->serviceIndex) : kernelText("kernel.ssdt.placeholder.unknown", QStringLiteral("<未知>")))
-        .arg(safeText(entry->serviceNameText))
-        .arg(safeText(entry->moduleNameText))
-        .arg(formatAddressHex(entry->zwRoutineAddress))
-        .arg(formatAddressHex(entry->serviceTableBase))
-        .arg(formatAddressHex(entry->serviceRoutineAddress))
-        .arg(formatAddressHex(entry->tableEntryAddress))
-        .arg(static_cast<qulonglong>(entry->currentTableValue), 0, 16)
-        .arg(static_cast<qulonglong>(entry->cleanTableValue), 0, 16)
-        .arg(safeText(entry->cleanBaselineStatus))
-        .arg(safeText(entry->statusText))
-        .arg(static_cast<unsigned int>(entry->flags), 8, 16, QChar('0'))
-        .arg(safeText(entry->detailText));
+    ks::ui::FieldDocument detailText;
+    detailText.field(QStringLiteral("服务索引"), QStringLiteral("%1").arg(entry->indexResolved ? QString::number(entry->serviceIndex) : kernelText("kernel.ssdt.placeholder.unknown", QStringLiteral("<未知>"))));
+    detailText.field(QStringLiteral("服务名"), QStringLiteral("%1").arg(safeText(entry->serviceNameText)));
+    detailText.field(QStringLiteral("模块"), QStringLiteral("%1").arg(safeText(entry->moduleNameText)));
+    detailText.field(QStringLiteral("Zw导出地址"), QStringLiteral("%1").arg(formatAddressHex(entry->zwRoutineAddress)));
+    detailText.field(QStringLiteral("服务表基址"), QStringLiteral("%1").arg(formatAddressHex(entry->serviceTableBase)));
+    detailText.field(QStringLiteral("表项服务地址"), QStringLiteral("%1").arg(formatAddressHex(entry->serviceRoutineAddress)));
+    detailText.field(QStringLiteral("槽位地址"), QStringLiteral("%1").arg(formatAddressHex(entry->tableEntryAddress)));
+    detailText.field(QStringLiteral("当前编码值"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(entry->currentTableValue), 0, 16)));
+    detailText.field(QStringLiteral("磁盘基线值"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(entry->cleanTableValue), 0, 16)));
+    detailText.field(QStringLiteral("基线状态"), QStringLiteral("%1").arg(safeText(entry->cleanBaselineStatus)));
+    detailText.field(QStringLiteral("状态"), QStringLiteral("%1").arg(safeText(entry->statusText)));
+    detailText.field(QStringLiteral("标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<unsigned int>(entry->flags), 8, 16, QChar('0'))));
+    detailText.section(QStringLiteral("Worker详情"));
+    detailText.nodes.last().children = entry->detailDocument.nodes;
 
-    m_ssdtDetailEditor->setText(detailText);
+    m_ssdtDetailEditor->setDocument(detailText);
 }

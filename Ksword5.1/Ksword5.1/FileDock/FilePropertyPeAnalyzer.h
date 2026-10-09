@@ -4,7 +4,7 @@
 // FilePropertyPeAnalyzer.h
 // 作用：
 // 1) 为文件属性窗口提供 PE 原生结构字段模型；
-// 2) 保留导入表、导出表、目录与区段概览及文本导出兼容；
+// 2) 保留导入表、导出表、目录与区段概览及按需文本导出；
 // 3) 与 FileDock UI 解耦，便于后续继续扩展资源表/重定位表。
 // ============================================================
 
@@ -12,7 +12,8 @@
 #include <QStringList>
 #include <QVector>
 
-#include "FilePropertyView.h"
+#include "../UI/StructuredFieldView.h"
+#include "../ksword/file/pe_analyzer.h"
 
 namespace file_dock_detail
 {
@@ -42,16 +43,10 @@ namespace file_dock_detail
         QVector<PeDependencyRow> rows; // rows：函数级导入项。
     };
 
-    // buildPeAnalysisText 作用：
-    // - 读取并解析指定文件的 PE 结构；
-    // - 返回可直接显示到 CodeEditorWidget 的文本。
-    // 参数 filePath：目标文件完整路径。
-    // 返回：解析结果文本；若失败则返回可读错误说明。
-    QString buildPeAnalysisText(const QString& filePath);
-
     // Build the property model directly from PE decoder entries, preserving
     // directory/item nesting without treating an exported report as data.
-    PropertyDocument buildPeAnalysisDocument(const QString& filePath);
+    ks::ui::FieldDocument buildPeAnalysisDocument(const QString& filePath);
+    ks::ui::FieldDocument buildPeAnalysisDocument(const ks::file::PeAnalysisResult& result);
 
     // analyzePeDependencies 作用：
     // - 读取 PE Import Directory 并转换为依赖 DLL / 导入函数表；

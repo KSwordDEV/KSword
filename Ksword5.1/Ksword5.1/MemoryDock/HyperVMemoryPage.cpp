@@ -1,5 +1,5 @@
-﻿#include "HyperVMemoryPage.h"
-#include "../UI/CodeEditorWidget.h"
+#include "HyperVMemoryPage.h"
+#include "../UI/StructuredFieldView.h"
 #include "PhysicalPageScan.h"
 #include "MemoryAttributionChart.h"
 #include "../Internationalization/LanguageManager.h"
@@ -166,15 +166,15 @@ HyperVMemoryPage::HyperVMemoryPage(QWidget* parent) : QWidget(parent)
     m_chart = new MemoryAttributionChart(this); root->addWidget(m_chart);
     m_tabs = new QTabWidget(this);
     auto* split = new QSplitter(Qt::Vertical, m_tabs);
-    m_partitions = table(split); m_detail = new CodeEditorWidget(split);
-    m_detail->setReadOnly(true);
+    m_partitions = table(split); m_detail = new ks::ui::StructuredFieldView(split);
+
     split->addWidget(m_partitions); split->addWidget(m_detail); split->setStretchFactor(0, 3); split->setStretchFactor(1, 1);
     m_tabs->addTab(split, {});
     m_host = table(m_tabs); m_tabs->addTab(m_host, {});
     m_processes = table(m_tabs); m_tabs->addTab(m_processes, {});
     m_sources = table(m_tabs); m_tabs->addTab(m_sources, {});
-    m_evidence = new CodeEditorWidget(m_tabs);
-    m_evidence->setReadOnly(true); m_tabs->addTab(m_evidence, {});
+    m_evidence = new ks::ui::StructuredFieldView(m_tabs);
+     m_tabs->addTab(m_evidence, {});
     root->addWidget(m_tabs, 1);
     connect(m_collect, &QPushButton::clicked, this, [this] { startCollection(); });
     connect(m_cancel, &QPushButton::clicked, this, [this] { if (m_job) { m_job->cancel.store(true); } });
@@ -258,7 +258,7 @@ void HyperVMemoryPage::retranslate()
 }
 void HyperVMemoryPage::rebuildPartitions()
 {
-    m_partitions->setSortingEnabled(false); m_partitions->setRowCount(0); m_detail->setReportText(QString());
+    m_partitions->setSortingEnabled(false); m_partitions->setRowCount(0); m_detail->setDocument({});
     if (!m_snapshot) { return; }
     const auto filter = m_filter->text().trimmed();
     for (std::size_t index = 0; index < m_snapshot->partitions.size(); ++index) {
@@ -290,21 +290,50 @@ void HyperVMemoryPage::showPartition(int index)
 {
     if (!m_snapshot || index < 0 || static_cast<std::size_t>(index) >= m_snapshot->partitions.size()) { return; }
     const auto& row = m_snapshot->partitions[index];
-    QStringList lines{L("Partition: %1\nID: %2\nRuntime ID: %3\nOwner: %4\nIdentity evidence: %5")
-        .arg(label(row), row.id, row.runtimeId, row.owner, identity(row))};
-    if (row.hcs && !row.wmi && wmiComplete(*m_snapshot)) { lines << L("This HCS compute system is absent from the ordinary Hyper-V WMI VM inventory."); }
+    ks::ui::FieldDocument lines;
+    lines.field(QStringLiteral("Partition"), QStringLiteral("%1").arg(label(row)));
+    lines.field(QStringLiteral("ID"), QStringLiteral("%1").arg(row.id));
+    lines.field(QStringLiteral("Runtime ID"), QStringLiteral("%1").arg(row.runtimeId));
+    lines.field(QStringLiteral("Owner"), QStringLiteral("%1").arg(row.owner));
+    lines.field(QStringLiteral("Identity evidence"), QStringLiteral("%1").arg(identity(row)));
+    if (row.hcs && !row.wmi && wmiComplete(*m_snapshot)) { lines.note(QStringLiteral("This HCS compute system is absent from the ordinary Hyper-V WMI VM inventory.")); }
     if (row.vidBytes && row.hcsNodeBytes && !row.conflictingVid) {
-        lines << (*row.vidBytes == *row.hcsNodeBytes ? L("VID and HCS node memory agree: %1. Two observations of the same allocation; counted once.").arg(bytes(row.vidBytes))
-            : L("VID reports %1; HCS reports %2. Sampling time or provider scope differs; do not add them.").arg(bytes(row.vidBytes), bytes(row.hcsNodeBytes)));
+        lines.note((*row.vidBytes == *row.hcsNodeBytes ? L("VID and HCS node memory agree: %1. Two observations of the same allocation; counted once.").arg(bytes(row.vidBytes))
+            : L("VID reports %1; HCS reports %2. Sampling time or provider scope differs; do not add them.").arg(bytes(row.vidBytes), bytes(row.hcsNodeBytes))));
     }
-    if (!row.hostingSystemId.isEmpty()) { lines << L("Hosting compute system: %1. Container memory may overlap its host VM.").arg(row.hostingSystemId); }
-    lines << L("WMI capacity: %1; HCS private working set: %2; HCS commit: %3.").arg(bytes(row.wmiCapacity), bytes(row.hcsPrivateWs), bytes(row.hcsCommit));
+    if (!row.hostingSystemId.isEmpty()) { lines.field(QStringLiteral("Hosting compute system"), QStringLiteral("%1. Container memory may overlap its host VM.").arg(QStringLiteral("%1").arg(row.hostingSystemId))); }
+    lines.field(QStringLiteral("WMI capacity"), QStringLiteral("%1").arg(bytes(row.wmiCapacity)));
+    lines.field(QStringLiteral("HCS private working set"), QStringLiteral("%1").arg(bytes(row.hcsPrivateWs)));
+    lines.field(QStringLiteral("HCS commit"), QStringLiteral("%1.").arg(QStringLiteral("%1").arg(bytes(row.hcsCommit))));
     for (const auto counterIndex : row.counterIndices) {
         const auto& sample = m_snapshot->counters[counterIndex];
-        lines << QStringLiteral("%1 | %2 | %3\n%4").arg(metricLabel(sample.metric), bytes(sample.bytes), sample.sampledAt, sample.path);
+        lines.section(QStringLiteral("Counter"));
+        lines.field(QStringLiteral("Metric"), metricLabel(sample.metric));
+        lines.field(QStringLiteral("Bytes"), bytes(sample.bytes));
+        lines.field(QStringLiteral("SampledAt"), sample.sampledAt);
+        lines.field(QStringLiteral("Path"), sample.path);
     }
-    if (!row.memoryEvidence.isEmpty()) { lines << QString::fromUtf8(QJsonDocument(row.memoryEvidence).toJson(QJsonDocument::Indented)); }
-    m_detail->setReportText(lines.join(QStringLiteral("\n\n")));
+    if (!row.memoryEvidence.isEmpty()) { lines.section(QStringLiteral("Memory evidence"));
+        const auto buildNode = [](const auto& self, const QString& name, const QJsonValue& value) -> ks::ui::FieldNode {
+            ks::ui::FieldNode node;
+            node.name = name;
+            if (value.isObject()) {
+                node.kind = ks::ui::FieldNode::Kind::Section;
+                const auto object = value.toObject();
+                for (auto it = object.constBegin(); it != object.constEnd(); ++it) node.children.append(self(self, it.key(), it.value()));
+            } else if (value.isArray()) {
+                node.kind = ks::ui::FieldNode::Kind::Section;
+                const auto array = value.toArray();
+                for (qsizetype i = 0; i < array.size(); ++i) node.children.append(self(self, QString::number(i), array[i]));
+            } else if (value.isBool()) node.value = value.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+            else if (value.isDouble()) node.value = QString::number(value.toDouble(), 'g', 17);
+            else if (value.isString()) node.value = value.toString();
+            else node.value = QStringLiteral("null");
+            return node;
+        };
+        auto& section = lines.nodes.last();
+        for (auto it = row.memoryEvidence.constBegin(); it != row.memoryEvidence.constEnd(); ++it) section.children.append(buildNode(buildNode, it.key(), it.value())); }
+    m_detail->setDocument(lines);
 }
 void HyperVMemoryPage::rebuild()
 {
@@ -354,28 +383,33 @@ void HyperVMemoryPage::rebuild()
         text(m_sources, row, 2, QString::number(source.rows)); text(m_sources, row, 3, status(source.status));
     }
     m_sources->resizeColumnsToContents();
-    QStringList evidence{L("VID allocation, HCS node memory, Dynamic Memory, process working sets and PFN Driver Locked can describe overlapping physical pages. Only VID instances are aggregated in this view; no amount is deducted from the PFN Unknown category."),
-        L("No counter instance or access denied means unavailable, not zero. Registered VM inventory alone can omit WSL and container utility VMs. A large VM allocation does not prove a leak or identify the guest process using it."),
-        L("Collection interval: %1 to %2 (%3 ms). Providers are sampled sequentially, not atomically.").arg(snapshot.started, snapshot.finished).arg(snapshot.elapsedMs),
-        L("VID instance sum: %1; provider _Total: %2. _Total is a cross-check and is never added again.").arg(bytes(snapshot.observedVidBytes), bytes(snapshot.vidTotalBytes)),
-        L("Hypervisor: %1; VBS status: %2. VBS status does not supply a VTL1/Secure Kernel byte count.").arg(snapshot.hypervisorPresent ? snapshot.hypervisorVendor : L("Not detected"), vbsState(snapshot)),
-        L("Host physical memory: %1; available before / after: %2 / %3; installed RAM: %4.")
-            .arg(bytes(snapshot.total ? Bytes(snapshot.total) : Bytes{}), bytes(snapshot.total ? Bytes(snapshot.available) : Bytes{}),
-                bytes(snapshot.totalAfter ? Bytes(snapshot.availableAfter) : Bytes{}), bytes(snapshot.installed ? Bytes(snapshot.installed) : Bytes{})),
-        L("Fast snapshot at %1: remainder %2. PFN snapshot at %3: Driver Locked %4; Unknown %5; unreadable / unscanned %6. Context only; different sample times and scopes.")
-            .arg(m_resultContext.snapshotTime, bytes(m_resultContext.snapshotRemainder), m_resultContext.pfnTime, bytes(m_resultContext.pfnDriverLocked), bytes(m_resultContext.pfnUnknown), bytes(m_resultContext.pfnUnscanned)),
-        L("Repeat collection after a workload changes to compare VID allocation for the same partition identity. KSword does not stop VMs, trim memory, or change virtualization settings.")};
+    ks::ui::FieldDocument evidence;
+    evidence.note(QStringLiteral("VID allocation, HCS node memory, Dynamic Memory, process working sets and PFN Driver Locked can describe overlapping physical pages. Only VID instances are aggregated in this view; no amount is deducted from the PFN Unknown category."));
+    evidence.note(QStringLiteral("No counter instance or access denied means unavailable, not zero. Registered VM inventory alone can omit WSL and container utility VMs. A large VM allocation does not prove a leak or identify the guest process using it."));
+    evidence.field(QStringLiteral("Collection interval"), QStringLiteral("%1 to %2 (%3 ms). Providers are sampled sequentially, not atomically.").arg(QStringLiteral("%1").arg(snapshot.started)).arg(QStringLiteral("%1").arg(snapshot.finished)).arg(QStringLiteral("%1").arg(snapshot.elapsedMs)));
+    evidence.field(QStringLiteral("VID instance sum"), QStringLiteral("%1").arg(bytes(snapshot.observedVidBytes)));
+    evidence.field(QStringLiteral("provider _Total"), QStringLiteral("%1. _Total is a cross-check and is never added again.").arg(QStringLiteral("%1").arg(bytes(snapshot.vidTotalBytes))));
+    evidence.field(QStringLiteral("Hypervisor"), QStringLiteral("%1").arg(snapshot.hypervisorPresent ? snapshot.hypervisorVendor : L("Not detected")));
+    evidence.field(QStringLiteral("VBS status"), QStringLiteral("%1. VBS status does not supply a VTL1/Secure Kernel byte count.").arg(QStringLiteral("%1").arg(vbsState(snapshot))));
+    evidence.field(QStringLiteral("Host physical memory"), QStringLiteral("%1").arg(bytes(snapshot.total ? Bytes(snapshot.total) : Bytes{})));
+    evidence.field(QStringLiteral("available before / after"), QStringLiteral("%1 / %2").arg(QStringLiteral("%1").arg(bytes(snapshot.total ? Bytes(snapshot.available) : Bytes{}))).arg(QStringLiteral("%1").arg(bytes(snapshot.totalAfter ? Bytes(snapshot.availableAfter) : Bytes{}))));
+    evidence.field(QStringLiteral("installed RAM"), QStringLiteral("%1.").arg(QStringLiteral("%1").arg(bytes(snapshot.installed ? Bytes(snapshot.installed) : Bytes{}))));
+    evidence.field(QStringLiteral("Fast snapshot at"), QStringLiteral("Fast snapshot at %1: remainder %2. PFN snapshot at %3: Driver Locked %4").arg(QStringLiteral("%1").arg(m_resultContext.snapshotTime)).arg(QStringLiteral("%1").arg(bytes(m_resultContext.snapshotRemainder))).arg(QStringLiteral("%1").arg(m_resultContext.pfnTime)).arg(QStringLiteral("%1").arg(bytes(m_resultContext.pfnDriverLocked))));
+    evidence.field(QStringLiteral("Unknown"), QStringLiteral("Unknown %1").arg(QStringLiteral("%1").arg(bytes(m_resultContext.pfnUnknown))));
+    evidence.field(QStringLiteral("unreadable / unscanned"), QStringLiteral("unreadable / unscanned %1. Context only").arg(QStringLiteral("%1").arg(bytes(m_resultContext.pfnUnscanned))));
+    evidence.note(QStringLiteral("different sample times and scopes."));
+    evidence.note(QStringLiteral("Repeat collection after a workload changes to compare VID allocation for the same partition identity. KSword does not stop VMs, trim memory, or change virtualization settings."));
     std::uint64_t wsl = 0, processWs = 0; bool haveWsl = false, haveProcess = false;
     for (const auto& entry : snapshot.partitions) { if (entry.owner.compare(QStringLiteral("WSL"), Qt::CaseInsensitive) == 0 && entry.vidBytes && !entry.conflictingVid) { wsl += *entry.vidBytes; haveWsl = true; } }
     for (const auto& entry : snapshot.processes) { if (entry.name.compare(QStringLiteral("vmmemWSL"), Qt::CaseInsensitive) == 0 && entry.workingSet) { processWs += *entry.workingSet; haveProcess = true; } }
     if (haveWsl && haveProcess && !snapshot.vidConflict) {
         const auto comparison = L("WSL-owned VID allocation: %1; vmmemWSL process working set: %2. The process view does not represent the entire VM allocation. This is a scope comparison, not a per-PID ownership join.").arg(bytes(wsl), bytes(processWs));
-        evidence.prepend(comparison); m_summary->setText(m_summary->text() + QLatin1Char('\n') + comparison);
+        evidence.note(comparison); m_summary->setText(m_summary->text() + QLatin1Char('\n') + comparison);
     }
     if (snapshot.observedVidBytes && snapshot.vidTotalBytes && snapshot.observedVidBytes != snapshot.vidTotalBytes) {
-        evidence.prepend(L("VID instances and _Total disagree. Inventory churn, missing instances or provider scope may explain the difference; the sample is not a complete partition census."));
+        evidence.note(L("VID instances and _Total disagree. Inventory churn, missing instances or provider scope may explain the difference; the sample is not a complete partition census."));
     }
-    m_evidence->setReportText(evidence.join(QStringLiteral("\n\n")));
+    m_evidence->setDocument(evidence);
     if (m_job) { poll(); }
 }
 void HyperVMemoryPage::exportEvidence()
@@ -384,7 +418,7 @@ void HyperVMemoryPage::exportEvidence()
     const auto path = QFileDialog::getSaveFileName(this, L("Export Hyper-V memory evidence"), QStringLiteral("hyperv-memory-evidence.json"), L("JSON files (*.json)"));
     if (path.isEmpty()) { return; }
     auto object = toJson(*m_snapshot, m_resultContext);
-    object.insert(QStringLiteral("interpretation"), m_evidence->text());
+    object.insert(QStringLiteral("interpretation"), m_evidence->plainText());
     if (m_previous) { object.insert(QStringLiteral("previous_sample"), toJson(*m_previous)); }
     QSaveFile file(path); const auto data = QJsonDocument(object).toJson(QJsonDocument::Indented);
     if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit()) { m_summary->setText(L("Failed to export Hyper-V evidence: %1").arg(file.errorString())); }

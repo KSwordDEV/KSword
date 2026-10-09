@@ -85,52 +85,24 @@ bool runAtomTableSnapshotTask(std::vector<KernelAtomEntry>& rowsOut, QString& er
         if (!globalNameText.isEmpty() && !clipboardNameText.isEmpty())
         {
             entry.sourceText = QStringLiteral("GlobalGetAtomNameW + GetClipboardFormatNameW");
-            if (QString::compare(globalNameText, clipboardNameText, Qt::CaseInsensitive) == 0)
-            {
-                entry.detailText = QStringLiteral(
-                    "Atom值: %1 (%2)\n"
-                    "名称: %3\n"
-                    "来源: Global + ClipboardFormat（同名）")
-                    .arg(entry.atomValue)
-                    .arg(formatAtomHexText(entry.atomValue))
-                    .arg(entry.atomNameText);
-            }
-            else
-            {
-                entry.detailText = QStringLiteral(
-                    "Atom值: %1 (%2)\n"
-                    "Global名称: %3\n"
-                    "ClipboardFormat名称: %4\n"
-                    "来源: Global + ClipboardFormat（名称不同）")
-                    .arg(entry.atomValue)
-                    .arg(formatAtomHexText(entry.atomValue))
-                    .arg(globalNameText)
-                    .arg(clipboardNameText);
-            }
+
         }
         else if (!globalNameText.isEmpty())
         {
             entry.sourceText = QStringLiteral("GlobalGetAtomNameW");
-            entry.detailText = QStringLiteral(
-                "Atom值: %1 (%2)\n"
-                "名称: %3\n"
-                "来源: GlobalGetAtomNameW")
-                .arg(entry.atomValue)
-                .arg(formatAtomHexText(entry.atomValue))
-                .arg(entry.atomNameText);
+
         }
         else
         {
             entry.sourceText = QStringLiteral("GetClipboardFormatNameW");
-            entry.detailText = QStringLiteral(
-                "Atom值: %1 (%2)\n"
-                "名称: %3\n"
-                "来源: GetClipboardFormatNameW")
-                .arg(entry.atomValue)
-                .arg(formatAtomHexText(entry.atomValue))
-                .arg(entry.atomNameText);
+
         }
 
+        entry.detailDocument.section(QStringLiteral("原子来源"));
+        if (!globalNameText.isEmpty()) entry.detailDocument.field(QStringLiteral("Global名称"), globalNameText);
+        if (!clipboardNameText.isEmpty()) entry.detailDocument.field(QStringLiteral("ClipboardFormat名称"), clipboardNameText);
+        if (!globalNameText.isEmpty() && !clipboardNameText.isEmpty())
+            entry.detailDocument.field(QStringLiteral("名称一致"), QString::compare(globalNameText, clipboardNameText, Qt::CaseInsensitive) == 0 ? QStringLiteral("是") : QStringLiteral("否"), true);
         resultRows.push_back(std::move(entry));
     }
 
@@ -152,37 +124,19 @@ bool runAtomTableSnapshotTask(std::vector<KernelAtomEntry>& rowsOut, QString& er
 }
 
 bool verifyGlobalAtomByName(
-    const QString& atomNameText,
-    std::uint16_t& atomValueOut,
-    QString& detailTextOut)
+    const QString& atomNameText, std::uint16_t& atomValueOut, ks::ui::FieldDocument& document)
 {
     atomValueOut = 0;
-    detailTextOut.clear();
-
-    const QString trimmedAtomNameText = atomNameText.trimmed();
-    if (trimmedAtomNameText.isEmpty())
-    {
-        detailTextOut = QStringLiteral("校验失败：原子名称为空。");
-        return false;
-    }
-
-    const ATOM foundAtomValue = ::GlobalFindAtomW(reinterpret_cast<LPCWSTR>(trimmedAtomNameText.utf16()));
-    if (foundAtomValue == 0)
-    {
-        detailTextOut = QStringLiteral(
-            "GlobalFindAtomW 未命中。\n"
-            "名称: %1")
-            .arg(trimmedAtomNameText);
-        return false;
-    }
-
-    atomValueOut = static_cast<std::uint16_t>(foundAtomValue);
-    detailTextOut = QStringLiteral(
-        "GlobalFindAtomW 命中。\n"
-        "名称: %1\n"
-        "Atom值: %2 (%3)")
-        .arg(trimmedAtomNameText)
-        .arg(atomValueOut)
-        .arg(formatAtomHexText(atomValueOut));
+    document = ks::ui::FieldDocument{};
+    document.section(QStringLiteral("原子名称校验"));
+    const QString name = atomNameText.trimmed();
+    document.field(QStringLiteral("名称"), name);
+    if (name.isEmpty()) { document.note(QStringLiteral("校验失败：原子名称为空。")); return false; }
+    const ATOM found = ::GlobalFindAtomW(reinterpret_cast<LPCWSTR>(name.utf16()));
+    if (found == 0) { document.note(QStringLiteral("GlobalFindAtomW 未命中。")); return false; }
+    atomValueOut = static_cast<std::uint16_t>(found);
+    document.note(QStringLiteral("GlobalFindAtomW 命中。"));
+    document.field(QStringLiteral("Atom值"), QString::number(atomValueOut));
+    document.field(QStringLiteral("十六进制"), formatAtomHexText(atomValueOut));
     return true;
 }

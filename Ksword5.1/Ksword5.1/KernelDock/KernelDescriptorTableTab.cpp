@@ -1,4 +1,4 @@
-﻿#include "KernelDescriptorTableTab.h"
+#include "KernelDescriptorTableTab.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -29,7 +29,7 @@
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTableWidgetItem>
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -203,15 +203,15 @@ void KernelDescriptorTableTab::initializeUi()
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->verticalHeader()->setVisible(false);
 
-    m_detailEdit = new CodeEditorWidget(splitter);
-    m_detailEdit->setReadOnly(true);
-    m_detailEdit->setPlaceholderText(kernelText(
+    m_detailEdit = new ks::ui::StructuredFieldView(splitter);
+
+    m_detailEdit->setDocument(ks::ui::FieldDocument{}.note(kernelText(
         idtOnly
             ? "kernel.descriptor.detail.idt.placeholder"
             : "kernel.descriptor.detail.gdt.placeholder",
         idtOnly
             ? QStringLiteral("选择 IDT 表项查看 Handler、位域和 R0 诊断详情")
-            : QStringLiteral("选择 GDT 表项查看段描述符、位域和 R0 诊断详情")));
+            : QStringLiteral("选择 GDT 表项查看段描述符、位域和 R0 诊断详情"))));
     splitter->addWidget(m_table);
     splitter->addWidget(m_detailEdit);
     splitter->setStretchFactor(0, 4);
@@ -741,30 +741,24 @@ QString KernelDescriptorTableTab::columnText(
     }
 }
 
-QString KernelDescriptorTableTab::detailText(
+ks::ui::FieldDocument KernelDescriptorTableTab::detailText(
     const ksword::ark::DriverIntegrityEvidenceEntry& row,
     const std::size_t sourceIndex) const
 {
-    QStringList lines;
-    lines << kernelText("kernel.descriptor.detail.table", QStringLiteral("表: %1")).arg(tableName(row));
-    lines << kernelText("kernel.descriptor.detail.cpu", QStringLiteral("CPU: %1:%2")).arg(row.processorGroup).arg(row.processorNumber);
-    lines << kernelText("kernel.descriptor.detail.table_range", QStringLiteral("表基址: %1  Limit: %2")).arg(hex64(row.descriptorTableBase), hex32(row.descriptorTableLimit));
-    lines << kernelText("kernel.descriptor.detail.entry", QStringLiteral("表项: %1  大小: %2")).arg(hex64(row.objectAddress)).arg(row.descriptorSize);
-    lines << kernelText("kernel.descriptor.detail.decoded", QStringLiteral("选择子: %1  类型: %2  DPL: %3  基址/Handler: %4  Limit: %5"))
-        .arg(hex32(row.descriptorSelector), descriptorTypeText(row))
-        .arg(row.descriptorDpl)
-        .arg(hex64(row.descriptorBase), hex64(row.descriptorLimit));
-    lines << kernelText("kernel.descriptor.detail.flags", QStringLiteral("Flags: %1  风险: %2")).arg(hex32(row.descriptorFlags), ks::ui::integrity::riskText(row.riskFlags));
-    lines << kernelText("kernel.descriptor.detail.raw", QStringLiteral("Raw: %1 / %2")).arg(hex64(row.descriptorRawLow), hex64(row.descriptorRawHigh));
+    ks::ui::FieldDocument lines;
+    lines.field(QStringLiteral("表"), QStringLiteral("%1").arg(tableName(row)));
+    lines.field(QStringLiteral("CPU"), QStringLiteral("%1:%2").arg(QStringLiteral("%1").arg(row.processorGroup)).arg(QStringLiteral("%1").arg(row.processorNumber)));
+    lines.field(QStringLiteral("表基址"), QStringLiteral("%1").arg(hex64(row.descriptorTableBase)));
+    lines.field(QStringLiteral("Limit"), QStringLiteral("%1").arg(hex32(row.descriptorTableLimit)));
+    lines.field(QStringLiteral("表项"), QStringLiteral("%1  大小: %2").arg(QStringLiteral("%1").arg(hex64(row.objectAddress))).arg(QStringLiteral("%1").arg(row.descriptorSize)));
+    lines.field(QStringLiteral("选择子"), QStringLiteral("%1  类型: %2").arg(QStringLiteral("%1").arg(hex32(row.descriptorSelector))).arg(QStringLiteral("%1").arg(descriptorTypeText(row))));
+    lines.field(QStringLiteral("DPL"), QStringLiteral("%1  基址/Handler: %2").arg(QStringLiteral("%1").arg(row.descriptorDpl)).arg(QStringLiteral("%1").arg(hex64(row.descriptorBase))));
+    lines.field(QStringLiteral("Limit"), QStringLiteral("%1").arg(hex64(row.descriptorLimit)));
+    lines.field(QStringLiteral("Flags"), QStringLiteral("%1  风险: %2").arg(QStringLiteral("%1").arg(hex32(row.descriptorFlags))).arg(QStringLiteral("%1").arg(ks::ui::integrity::riskText(row.riskFlags))));
+    lines.field(QStringLiteral("Raw"), QStringLiteral("%1 / %2").arg(QStringLiteral("%1").arg(hex64(row.descriptorRawLow))).arg(QStringLiteral("%1").arg(hex64(row.descriptorRawHigh))));
     if ((row.descriptorBaselineFlags & KSWORD_ARK_DESCRIPTOR_BASELINE_FLAG_AVAILABLE) != 0U)
     {
-        lines << kernelText(
-            "kernel.descriptor.detail.baseline",
-            QStringLiteral("启动期基线 #%1: Handler %2  Raw %3 / %4"))
-            .arg(row.descriptorBaselineGeneration)
-            .arg(hex64(row.descriptorBaselineHandler))
-            .arg(hex64(row.descriptorBaselineRawLow))
-            .arg(hex64(row.descriptorBaselineRawHigh));
+        lines.field(QStringLiteral("启动期基线 #"), QStringLiteral("启动期基线 #%1: Handler %2  Raw %3 / %4").arg(QStringLiteral("%1").arg(row.descriptorBaselineGeneration)).arg(QStringLiteral("%1").arg(hex64(row.descriptorBaselineHandler))).arg(QStringLiteral("%1").arg(hex64(row.descriptorBaselineRawLow))).arg(QStringLiteral("%1").arg(hex64(row.descriptorBaselineRawHigh))));
     }
     if (row.evidenceClass
             == KSWORD_ARK_DRIVER_INTEGRITY_CLASS_IDT_HANDLER
@@ -772,61 +766,55 @@ QString KernelDescriptorTableTab::detailText(
     {
         const ks::kernel::TrustedIdtBaselineResult& trusted =
             m_trustedIdtBaselines[sourceIndex];
-        lines << kernelText(
-            "kernel.descriptor.detail.trusted_baseline",
-            QStringLiteral(
-                "可信映像基线: %1\n主预期 Handler: %2\nPDB 候选数: %3\n观察 Handler: %4\n"
-                "映像: %5\nSHA256: %6\nProfile: %7\n来源符号: %8\n状态: %9"))
-            .arg(trusted.available
+        lines.field(QStringLiteral("可信映像基线"), QStringLiteral("%1").arg(trusted.available
                 ? QStringLiteral("AVAILABLE")
-                : QStringLiteral("UNSUPPORTED"))
-            .arg(hex64(trusted.expectedHandler))
-            .arg(trusted.expectedCandidateCount)
-            .arg(hex64(trusted.observedHandler))
-            .arg(trusted.imagePath.isEmpty()
+                : QStringLiteral("UNSUPPORTED")));
+        lines.field(QStringLiteral("主预期 Handler"), QStringLiteral("%1").arg(hex64(trusted.expectedHandler)));
+        lines.field(QStringLiteral("PDB 候选数"), QStringLiteral("%1").arg(trusted.expectedCandidateCount));
+        lines.field(QStringLiteral("观察 Handler"), QStringLiteral("%1").arg(hex64(trusted.observedHandler)));
+        lines.field(QStringLiteral("映像"), QStringLiteral("%1").arg(trusted.imagePath.isEmpty()
                 ? QStringLiteral("<unavailable>")
-                : trusted.imagePath)
-            .arg(trusted.imageSha256.isEmpty()
+                : trusted.imagePath));
+        lines.field(QStringLiteral("SHA256"), QStringLiteral("%1").arg(trusted.imageSha256.isEmpty()
                 ? QStringLiteral("<unavailable>")
-                : trusted.imageSha256)
-            .arg(trusted.profilePath.isEmpty()
+                : trusted.imageSha256));
+        lines.field(QStringLiteral("Profile"), QStringLiteral("%1").arg(trusted.profilePath.isEmpty()
                 ? QStringLiteral("<unavailable>")
-                : trusted.profilePath)
-            .arg(trusted.sourceSymbol.isEmpty()
+                : trusted.profilePath));
+        lines.field(QStringLiteral("来源符号"), QStringLiteral("%1").arg(trusted.sourceSymbol.isEmpty()
                 ? QStringLiteral("<unavailable>")
-                : trusted.sourceSymbol)
-            .arg(trusted.statusText);
+                : trusted.sourceSymbol));
+        lines.field(QStringLiteral("状态"), QStringLiteral("%1").arg(trusted.statusText));
     }
     if (!row.ownerModule.empty())
     {
-        lines << kernelText("kernel.descriptor.detail.owner", QStringLiteral("归属模块: %1 [%2 +%3]"))
-            .arg(QString::fromStdWString(row.ownerModule), hex64(row.ownerModuleBase), hex32(row.ownerModuleSize));
+        lines.field(QStringLiteral("归属模块"), QStringLiteral("%1 [%2 +%3]").arg(QStringLiteral("%1").arg(QString::fromStdWString(row.ownerModule))).arg(QStringLiteral("%1").arg(hex64(row.ownerModuleBase))).arg(QStringLiteral("%1").arg(hex32(row.ownerModuleSize))));
     }
     if (!row.detail.empty())
     {
-        lines << QString() << QString::fromStdWString(row.detail);
+
+        lines.note(QString::fromStdWString(row.detail));
     }
-    return lines.join(QLatin1Char('\n'));
+    return lines;
 }
 
 void KernelDescriptorTableTab::showCurrentDetail()
 {
     if (m_table->currentRow() < 0)
     {
-        m_detailEdit->setReportText(QString());
+        m_detailEdit->setDocument({});
         return;
     }
     const QTableWidgetItem* item = m_table->item(m_table->currentRow(), ColumnTable);
     if (item == nullptr)
     {
-        m_detailEdit->setReportText(QString());
+        m_detailEdit->setDocument({});
         return;
     }
     const std::size_t sourceIndex = static_cast<std::size_t>(item->data(Qt::UserRole).toULongLong());
-    m_detailEdit->setReportText(
-        sourceIndex < m_rows.size()
+    m_detailEdit->setDocument(sourceIndex < m_rows.size()
             ? detailText(m_rows[sourceIndex], sourceIndex)
-            : QString());
+            : ks::ui::FieldDocument{});
 }
 
 void KernelDescriptorTableTab::restoreSelectedIdtBaseline()

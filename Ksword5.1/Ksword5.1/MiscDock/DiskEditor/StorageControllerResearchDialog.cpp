@@ -181,7 +181,6 @@ namespace ks::misc
         m_logEdit = new CodeEditorWidget(this);
         m_logEdit->setObjectName(QStringLiteral("storage_controller_log"));
         m_logEdit->setReadOnly(true);
-        m_logEdit->setStructuredReportViewEnabled(false);
         m_logEdit->setMaximumHeight(120);
         root->addWidget(m_logEdit);
 

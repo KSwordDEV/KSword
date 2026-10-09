@@ -1,4 +1,5 @@
 #include "MemoryDock.Internal.h"
+#include "../UI/StructuredFieldView.h"
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll：页内滚动壳。
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -423,40 +424,40 @@ namespace
         return wideToQString(entry.modulePath).contains(moduleFilter, Qt::CaseInsensitive);
     }
 
-    QString buildKernelExecutableDetailText(
+    ks::ui::FieldDocument buildKernelExecutableDetailDocument(
         const ksword::ark::KernelExecutableMemoryPageEntry& entry)
     {
         // 输入：当前选中的内核可执行页扫描行。
-        // 处理：生成适合 CodeEditorWidget 展示的多行诊断文本。
+        // 处理：生成适合 StructuredFieldView 展示的多行诊断文本。
         // 返回：详情文本，调用方直接 setText。
-        QString detailText;
-        detailText += QStringLiteral("内核可执行页扫描详情\n");
-        detailText += QStringLiteral("VA: %1\n").arg(hexValue(entry.virtualAddress));
-        detailText += QStringLiteral("RegionSize: %1\n").arg(hexValue(entry.regionSize));
-        detailText += QStringLiteral("PageCount: %1\n").arg(entry.pageCount);
-        detailText += QStringLiteral("PageSize: %1\n").arg(entry.pageSize);
-        detailText += QStringLiteral("Permissions: %1 (0x%2)\n")
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("内核可执行页扫描详情"));
+        document.field(QStringLiteral("VA"), QStringLiteral("%1").arg(hexValue(entry.virtualAddress)));
+        document.field(QStringLiteral("RegionSize"), QStringLiteral("%1").arg(hexValue(entry.regionSize)));
+        document.field(QStringLiteral("PageCount"), QStringLiteral("%1").arg(entry.pageCount));
+        document.field(QStringLiteral("PageSize"), QStringLiteral("%1").arg(entry.pageSize));
+        document.field(QStringLiteral("Permissions"), QStringLiteral("%1 (0x%2)")
             .arg(permissionText(entry.permissionFlags))
-            .arg(entry.permissionFlags, 8, 16, QChar('0'));
-        detailText += QStringLiteral("RiskFlags: %1 (0x%2)\n")
+            .arg(entry.permissionFlags, 8, 16, QChar('0')), true);
+        document.field(QStringLiteral("RiskFlags"), QStringLiteral("%1 (0x%2)")
             .arg(riskFlagsText(entry.riskFlags))
-            .arg(entry.riskFlags, 8, 16, QChar('0'));
-        detailText += QStringLiteral("Status: %1\n").arg(entry.status);
-        detailText += QStringLiteral("LastStatus: 0x%1\n")
-            .arg(static_cast<qulonglong>(static_cast<unsigned long>(entry.lastStatus)), 8, 16, QChar('0'));
-        detailText += QStringLiteral("OwnerKind: %1\n").arg(entry.ownerKind);
-        detailText += QStringLiteral("Owner: %1\n").arg(ownerKindText(entry.ownerKind));
-        detailText += QStringLiteral("OwnerAddress: %1\n").arg(hexValue(entry.ownerAddress));
-        detailText += QStringLiteral("ModuleBase: %1\n").arg(hexValue(entry.moduleBase));
-        detailText += QStringLiteral("ModuleSize: %1\n").arg(hexValue(entry.moduleSize));
-        detailText += QStringLiteral("ModulePath: %1\n").arg(wideToQString(entry.modulePath));
+            .arg(entry.riskFlags, 8, 16, QChar('0')), true);
+        document.field(QStringLiteral("Status"), QStringLiteral("%1").arg(entry.status));
+        document.field(QStringLiteral("LastStatus"), QStringLiteral("0x%1")
+            .arg(static_cast<qulonglong>(static_cast<unsigned long>(entry.lastStatus)), 8, 16, QChar('0')));
+        document.field(QStringLiteral("OwnerKind"), QStringLiteral("%1").arg(entry.ownerKind), true);
+        document.field(QStringLiteral("Owner"), QStringLiteral("%1").arg(ownerKindText(entry.ownerKind)), true);
+        document.field(QStringLiteral("OwnerAddress"), QStringLiteral("%1").arg(hexValue(entry.ownerAddress)));
+        document.field(QStringLiteral("ModuleBase"), QStringLiteral("%1").arg(hexValue(entry.moduleBase)));
+        document.field(QStringLiteral("ModuleSize"), QStringLiteral("%1").arg(hexValue(entry.moduleSize)));
+        document.field(QStringLiteral("ModulePath"), QStringLiteral("%1").arg(wideToQString(entry.modulePath)));
 
         const QString r0Detail = wideToQString(entry.detail).trimmed();
         if (!r0Detail.isEmpty())
         {
-            detailText += QStringLiteral("\nR0 Detail:\n%1\n").arg(r0Detail);
+            document.field(QStringLiteral("R0 Detail"), r0Detail);
         }
-        return detailText;
+        return document;
     }
 
     QString kernelExecutableStatusStyle(const QString& colorText)
@@ -565,13 +566,12 @@ void MemoryDock::initializeKernelExecutableMemoryScanTab()
     detailLayout->setContentsMargins(0, 0, 0, 0);
     detailLayout->setSpacing(8);
 
-    m_kernelExecutableDetailEditor = new CodeEditorWidget(detailPanel);
-    m_kernelExecutableDetailEditor->setReadOnly(true);
-    m_kernelExecutableDetailEditor->setText(QStringLiteral("请选择一条内核可执行页记录查看详情。"));
+    m_kernelExecutableDetailEditor = new ks::ui::StructuredFieldView(detailPanel);
+    m_kernelExecutableDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条内核可执行页记录查看详情。")));
     detailLayout->addWidget(m_kernelExecutableDetailEditor, 1);
     splitter->addWidget(detailPanel);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_kernelExecutableTable,
         m_kernelExecutableDetailEditor,
         m_tabKernelExecutableMemory);
@@ -628,8 +628,9 @@ void MemoryDock::refreshKernelExecutableMemoryScanAsync()
             std::wstring());
 
         QMetaObject::invokeMethod(
-            guardThis.data(),
+            qApp,
             [guardThis, ticket, scanResult = std::move(scanResult)]() mutable {
+                if (guardThis == nullptr || ticket != guardThis->m_kernelExecutableRefreshTicket.load()) return;
                 auto resultSnapshot =
                     std::make_shared<ksword::ark::KernelExecutableMemoryScanResult>(
                         std::move(scanResult));
@@ -679,12 +680,16 @@ void MemoryDock::refreshKernelExecutableMemoryScanAsync()
                         }
                         if (guardThis->m_kernelExecutableDetailEditor != nullptr)
                         {
-                            guardThis->m_kernelExecutableDetailEditor->setText(
-                                snapshot.unsupported
-                                ? QStringLiteral("当前驱动不支持内核可执行内存扫描，请更新为匹配版本。")
-                                : QStringLiteral("内核可执行页扫描失败。\n\nWin32: %1\n详情: %2")
-                                    .arg(snapshot.io.win32Error)
-                                    .arg(kernelExecutableIoMessageText(snapshot.io.message)));
+                            ks::ui::FieldDocument diagnostic;
+                            diagnostic.section(QStringLiteral("内核可执行页诊断"));
+                            if (snapshot.unsupported)
+                                diagnostic.note(QStringLiteral("当前驱动不支持内核可执行内存扫描，请更新为匹配版本。"));
+                            else
+                            {
+                                diagnostic.field(QStringLiteral("Win32"), QString::number(snapshot.io.win32Error));
+                                diagnostic.field(QStringLiteral("详情"), kernelExecutableIoMessageText(snapshot.io.message));
+                            }
+                            guardThis->m_kernelExecutableDetailEditor->setDocument(diagnostic);
                         }
                         return;
                     }
@@ -817,7 +822,7 @@ void MemoryDock::rebuildKernelExecutableMemoryScanTable()
 void MemoryDock::showKernelExecutableMemoryDetailByCurrentRow()
 {
     // 输入：无，依赖当前表格选中行。
-    // 处理：把当前行对应的 R3 记录展开到 CodeEditorWidget。
+    // 处理：把当前行对应的 R3 记录展开到 StructuredFieldView。
     // 返回：无。
     if (m_kernelExecutableDetailEditor == nullptr || m_kernelExecutableTable == nullptr)
     {
@@ -827,19 +832,20 @@ void MemoryDock::showKernelExecutableMemoryDetailByCurrentRow()
     const int currentRow = m_kernelExecutableTable->currentRow();
     if (currentRow < 0 || currentRow >= m_kernelExecutableTable->rowCount())
     {
-        m_kernelExecutableDetailEditor->setText(QStringLiteral("请选择一条内核可执行页记录查看详情。"));
+        m_kernelExecutableDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条内核可执行页记录查看详情。")));
         return;
     }
 
     const QTableWidgetItem* vaItem = m_kernelExecutableTable->item(currentRow, kernelExecutableColumnIndex(KernelExecutableColumn::Va));
     if (vaItem == nullptr)
     {
+        m_kernelExecutableDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前记录的缓存已失效，请刷新后重试。")));
         return;
     }
     const QString diagnosticText = vaItem->data(Qt::UserRole + 2).toString();
     if (!diagnosticText.isEmpty())
     {
-        m_kernelExecutableDetailEditor->setText(QStringLiteral("内核可执行页诊断\n%1").arg(diagnosticText));
+        m_kernelExecutableDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("内核可执行页诊断\n%1").arg(diagnosticText)));
         return;
     }
 
@@ -847,6 +853,7 @@ void MemoryDock::showKernelExecutableMemoryDetailByCurrentRow()
     const qulonglong va = vaItem->data(Qt::UserRole).toULongLong(&ok);
     if (!ok)
     {
+        m_kernelExecutableDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前记录的缓存已失效，请刷新后重试。")));
         return;
     }
 
@@ -854,8 +861,9 @@ void MemoryDock::showKernelExecutableMemoryDetailByCurrentRow()
     {
         if (entry.virtualAddress == va)
         {
-            m_kernelExecutableDetailEditor->setText(buildKernelExecutableDetailText(entry));
+            m_kernelExecutableDetailEditor->setDocument(buildKernelExecutableDetailDocument(entry));
             return;
         }
     }
+    m_kernelExecutableDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前记录的缓存已失效，请刷新后重试。")));
 }

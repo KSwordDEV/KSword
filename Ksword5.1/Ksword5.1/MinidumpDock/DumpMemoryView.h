@@ -13,6 +13,7 @@
 // ============================================================
 
 #include <QWidget>
+#include "../UI/StructuredFieldView.h"
 
 #include <cstdint>
 #include <vector>
@@ -21,7 +22,6 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
-class QTextBrowser;
 namespace ks::ui
 {
     class HexView;
@@ -84,8 +84,8 @@ private:
     // selectedReadBytes 作用：读取用户选择的单次读取长度，限制到 64 KiB。
     std::uint64_t selectedReadBytes() const;
 
-    // setMessage 作用：更新可复制的状态文本。
-    void setMessage(const QString& text);
+    // setDiagnostic：把一条读取诊断投影成模型说明。
+    void setDiagnostic(const QString& text);
 
     // formatHex 作用：统一渲染地址/文件偏移为 0x 大写十六进制。
     static QString formatHex(std::uint64_t value);
@@ -98,7 +98,7 @@ private:
     QPushButton* m_readButton = nullptr;
     QPushButton* m_previousButton = nullptr;
     QPushButton* m_nextButton = nullptr;
-    QTextBrowser* m_messageView = nullptr; // m_messageView：可复制的读取状态和映射说明。
+    ks::ui::StructuredFieldView* m_messageView = nullptr; // m_messageView：可复制的读取状态和映射说明。
     ks::ui::SnapshotWorkbenchWidget* m_memoryEditor = nullptr; // 已捕获字节的只读多视图。
     ks::ui::HexView* m_hexEditor = nullptr; // 保留十六进制查找、复制和导出入口。
 

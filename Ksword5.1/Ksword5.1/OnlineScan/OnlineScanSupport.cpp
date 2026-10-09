@@ -1,4 +1,5 @@
 #include "OnlineScanSupport.h"
+#include "../UI/DetailDialogChrome.h"
 
 #include "../UI/CodeEditorWidget.h"
 #include "../theme.h"
@@ -238,6 +239,7 @@ void ks::online_scan::showResultDialog(
 
     QLabel* summaryLabel = new QLabel(summaryText, &resultDialog);
     summaryLabel->setWordWrap(true);
+    summaryLabel->setContentsMargins(10, 8, 10, 8);
     dialogLayout->addWidget(summaryLabel, 0);
 
     CodeEditorWidget* resultEditor = new CodeEditorWidget(&resultDialog);
@@ -257,5 +259,6 @@ void ks::online_scan::showResultDialog(
     QObject::connect(buttonBox, &QDialogButtonBox::rejected, &resultDialog, &QDialog::reject);
     dialogLayout->addWidget(buttonBox, 0);
 
+    ks::ui::ApplyDetailDialogChrome(&resultDialog);
     resultDialog.exec();
 }

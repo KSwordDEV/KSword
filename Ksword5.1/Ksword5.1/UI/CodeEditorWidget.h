@@ -17,7 +17,6 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QEvent;
-class QStackedWidget;
 class QToolButton;
 class QVBoxLayout;
 class QHBoxLayout;
@@ -26,21 +25,6 @@ class QWidget;
 class CodeTextEdit;
 class QMenu;
 class QAction;
-
-namespace ks::ui
-{
-    class ReportStructuredView;
-
-    // LocalizeGeneratedReport 作用：
-    // - 按行翻译“本程序自己生成的审计报告文本”，规则与 CodeEditorWidget 只读页完全一致：
-    //   整行命中语言包时直接替换，未命中时再尝试翻译“标签: 值”里冒号后的状态值；
-    // - 路径、哈希、地址等动态内容不会被改写。
-    // 用途：报告除了塞进只读文本框，也可能被解析成属性树等结构化视图；
-    //       两条路径必须共用同一套翻译逻辑，否则同一份数据换个视图就变回英文。
-    // 入参 sourceText：未翻译的报告原文。
-    // 返回：逐行翻译后的报告文本。
-    QString LocalizeGeneratedReport(const QString& sourceText);
-}
 
 // CodeEditorWidget：
 // - 统一的文本编辑器外壳；
@@ -59,13 +43,12 @@ public:
     ~CodeEditorWidget() override;
 
     // text：
-    // - 只读报告返回保存的完整原文（包括 CRLF）；编辑会话返回当前文档。
+    // - 未编辑的原文保留完整字符与 CRLF；编辑后返回当前文档。
     QString text() const;
 
     // setText：
     // - 覆盖设置编辑器文本内容；
-    // - 只读模式默认视为应用生成报告并支持即时语言切换；
-    // - 原始日志、JSON、文件/字节内容必须显式调用 setRawText。
+    // - 与 setRawText 相同，始终保留原文，不根据只读状态猜测报告语义。
     // 入参 plainText：目标文本。
     void setText(const QString& plainText);
 
@@ -73,16 +56,6 @@ public:
     // - 无条件按原文覆盖内容，不翻译，也不在 LanguageChange 时重绘；
     // - 用于用户文件、原始日志、API JSON 与字节 ASCII 视图。
     void setRawText(const QString& plainText);
-
-    // 已本地化的生成报告：保留完整字符与 CRLF，显式允许统一结构呈现。
-    // preserveScroll=true 时回填后恢复文本滚动位置；不会再次翻译输入。
-    void setReportText(const QString& reportText, bool preserveScroll = false);
-    void appendReportText(const QString& reportText);
-    bool isReportText() const { return m_reportTextActive; }
-
-    // typed 证据可提供原生字段树，由外壳收养，仍保留业务来源与节点含义。
-    // 调用方用 FieldTreePresenter 统一呈现；nullptr 移除该树并恢复报告解析器。
-    void setStructuredContentWidget(QWidget* contentWidget);
 
     // 提示文字在外壳维护，报告页无需访问内部文本核心。
     void setPlaceholderText(const QString& placeholder);
@@ -96,23 +69,11 @@ public:
     // followTailIfAtBottom=false 时始终恢复旧位置；追加循环应使用 appendRawText。
     void replaceRawText(const QString& rawText, bool followTailIfAtBottom = true);
     // 设置日志最多保留的文本块；0 为不限。正数按 Qt 文档规则禁用撤销。
-    // 用于原文日志流；退出报告模式，以免保存的完整报告与被裁剪文档不一致。
+    // 用于原文日志流；容量裁剪后复制仅包含实际保留的正文。
     void setMaximumBlockCount(int count);
     int maximumBlockCount() const;
-    // 清空内容并退出报告/本地化模式；保留容量限制和只读状态。
+    // 清空内容；保留容量限制和只读状态。
     void clear();
-
-    // setLocalizedText：
-    // - 用于应用生成的只读报告，而不是用户文件原文；
-    // - 保存中文规范源文本，并在 LanguageChange 时按当前语言重新渲染；
-    // - setRawText / setReportText 会退出该模式，避免重复翻译原文。
-    void setLocalizedText(const QString& sourceText);
-
-    // setLocalizedTextWithRawSuffix：
-    // - sourceText 为应用生成、需要随语言切换重绘的报告前缀；
-    // - rawSuffix 为文件或系统返回的原始内容，始终逐字保留，不参与翻译；
-    // - 适用于“程序提示 + 原始字符串/日志”混合展示。
-    void setLocalizedTextWithRawSuffix(const QString& sourceText, const QString& rawSuffix);
 
     // currentFilePath：
     // - 返回当前文件路径（未保存时为空）。
@@ -135,12 +96,6 @@ public:
     QString copyTextForCurrentView() const;
     void setWordWrapEnabled(bool enabled);
     bool wordWrapEnabled() const;
-
-    // setStructuredReportViewEnabled：
-    // - 关闭内置的“结构视图 / 原始文本”切换入口，适用于纯原文页；
-    // - typed 字段树应使用 setStructuredContentWidget 接入统一入口，不再自建切换框；
-    // - 默认开启，普通只读报告框不需要调用。
-    void setStructuredReportViewEnabled(bool enabled);
 
     // currentEncodingDisplayText：
     // - 返回当前文件编码展示文本（如 "UTF-8 BOM"）；
@@ -173,7 +128,7 @@ signals:
     void contentChanged(const QString& text);
 
 protected:
-    // changeEvent：语言切换时重新渲染 setLocalizedText 保存的生成报告。
+    // changeEvent：更新界面主题与状态文字，正文始终保持原文。
     void changeEvent(QEvent* event) override;
 
     // eventFilter：同步工具图标状态及窄窗口工具栏布局。
@@ -251,9 +206,6 @@ private:
     void formatDocument();
     void updateFindHighlights();
 
-    // 查找、跳转和换行针对原始文本，执行前切到用户能看见的文本页。
-    void activateTextView();
-    QWidget* structuredContentWidget() const;
     void copyCurrentView();
 
     // resetFileSessionMetadata：
@@ -265,15 +217,6 @@ private:
     // - 返回格式化后的文本，无法识别或解析失败时原样返回。
     QString applyStructuredAutoFormatIfNeeded(const QString& inputText, QString* detectedKindOut = nullptr) const;
 
-    // positionStructuredSwitch：
-    // - 刷新工具栏中的结构视图切换与窄窗口布局，不覆盖正文。
-    void positionStructuredSwitch();
-
-    // updateStructuredReportView：
-    // - 当前内容为只读报告且能解析出结构时，显示结构视图切换按钮并按用户上次选择切页；
-    // - 内容没有结构（日志、原始数据、用户文件）时隐藏入口并强制回到纯文本；
-    // - 由文本变化统一驱动，覆盖 setText / setRawText / setLocalizedText 与语言切换重绘。
-    void updateStructuredReportView();
 
 private:
     // m_rootLayout：根布局。
@@ -366,16 +309,6 @@ private:
     // m_gotoCloseButton：关闭跳转面板按钮。
     QToolButton* m_gotoCloseButton = nullptr;
 
-    // m_structuredCombo：工具栏结构视图 / 原始文本切换（仅可解析只读报告可见）。
-    QComboBox* m_structuredCombo = nullptr;
-
-    // m_viewStack：纯文本编辑器与结构视图的切换容器。
-    QStackedWidget* m_viewStack = nullptr;
-
-    // m_structuredView：当前内容的结构化呈现。
-    ks::ui::ReportStructuredView* m_structuredView = nullptr;
-    QPointer<QWidget> m_structuredContent;
-
     // m_editor：核心代码编辑器（行号 + 括号高亮）。
     CodeTextEdit* m_editor = nullptr;
     QToolButton* m_moreButton = nullptr;
@@ -399,18 +332,10 @@ private:
     // m_currentFilePath：当前文件路径（用于保存覆盖）。
     QString m_currentFilePath;
 
-    // m_localizedSourceText：setLocalizedText 保存的中文规范源报告。
-    QString m_localizedSourceText;
-
-    // m_localizedRawSuffix：混合报告中必须逐字保留、不得翻译的原始后缀。
-    QString m_localizedRawSuffix;
-
-    // m_localizedTextActive：true 时 LanguageChange 会重新渲染生成报告正文。
-    bool m_localizedTextActive = false;
-    // Interpretation is explicit; raw data never inherits a previous report mode.
-    bool m_reportTextActive = false;
-    // QPlainTextEdit normalizes paragraph separators; copy/export keeps source.
-    QString m_reportOriginalText;
+    // Cache only an untouched raw input to preserve CRLF when copied. Editing invalidates it.
+    QString m_originalRawText;
+    bool m_originalRawTextActive = false;
+    bool m_settingRawText = false;
 
     // m_fileEncoding：当前文件编码（仅在文件加载后有效）。
     QStringConverter::Encoding m_fileEncoding = QStringConverter::Utf8;
@@ -429,9 +354,6 @@ private:
 
     // m_readOnlyMode：标记当前是否只读模式。
     bool m_readOnlyMode = false;
-
-    // m_structuredViewEnabled：是否允许出现内置结构视图切换入口。
-    bool m_structuredViewEnabled = true;
 
     // m_destroying：标记组件正在析构。
     // - 输入/处理：析构函数置 true，所有延迟信号回调在刷新 UI 前检查；
