@@ -202,7 +202,6 @@
     <ClCompile Include="Features\SysTools\ContextMenuView.cpp" />
     <ClCompile Include="Features\SysTools\EventLogReader.cpp" />
     <ClCompile Include="Features\SysTools\EventLogView.cpp" />
-    <ClCompile Include="Features\SysTools\FileHolderScanner.cpp" />
     <ClCompile Include="Features\SysTools\FileHolderView.cpp" />
     <ClCompile Include="Features\SysTools\IoctlDecoder.cpp" />
     <ClCompile Include="Features\SysTools\IoctlDecoderView.cpp" />
@@ -1012,6 +1011,18 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\monitor\EtwSessionController.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\system\ModulePath.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\system\ModulePath.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\system\FileHolderScanner.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\system\FileHolderScanner.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

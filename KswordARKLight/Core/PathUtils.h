@@ -1,4 +1,5 @@
 #pragma once
+#include "../../shared/usermode/backend/system/ModulePath.h"
 
 #include <string>
 
@@ -6,7 +7,7 @@ namespace Ksword::Core {
 
 // ModulePath returns the current executable path. There is no input; processing
 // expands a Win32 path buffer; output is empty only when GetModuleFileNameW fails.
-std::wstring ModulePath();
+using ks::r3::common::ModulePath;
 
 // ModuleDirectory returns the directory containing this executable. There is no
 // input; processing trims ModulePath at the final separator; output is empty on

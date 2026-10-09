@@ -1,7 +1,7 @@
 #include "FileHolderScanner.h"
 
-#include "../../Core/NtApi.h"
-#include "../../Core/PathUtils.h"
+#include "../NtApi.h"
+#include "ModulePath.h"
 
 #include <winternl.h>
 #include <tlhelp32.h>
@@ -20,7 +20,7 @@
 #include <utility>
 #include <vector>
 
-namespace Ksword::Features::SysTools {
+namespace ks::r3::system_tools {
 namespace {
 
 constexpr LONG kStatusSuccess = 0x00000000L;
@@ -560,7 +560,7 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
         // Falling back to this module's own image keeps the File type index
         // discoverable even when the target itself cannot be opened at all.
         probeHandle = ::CreateFileW(
-            Ksword::Core::ModulePath().c_str(),
+            ks::r3::common::ModulePath().c_str(),
             FILE_READ_ATTRIBUTES,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             nullptr,
@@ -569,8 +569,8 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
             nullptr);
     }
 
-    const std::vector<std::byte> raw = Ksword::Core::QueryRawSystemInformation(
-        static_cast<Ksword::Core::SystemInformationClass>(kSystemExtendedHandleInformation));
+    const std::vector<std::byte> raw = ks::r3::common::QueryRawSystemInformation(
+        static_cast<ks::r3::common::SystemInformationClass>(kSystemExtendedHandleInformation));
     if (raw.size() < sizeof(SysToolsHandleInformationEx)) {
         if (probeHandle != INVALID_HANDLE_VALUE) {
             ::CloseHandle(probeHandle);
@@ -688,4 +688,4 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
     return result;
 }
 
-} // namespace Ksword::Features::SysTools
+} // namespace ks::r3::system_tools

@@ -1,3 +1,4 @@
+#include "../../shared/usermode/backend/system/ModulePath.h"
 #include "PathUtils.h"
 
 #include "Win32Lean.h"
@@ -5,20 +6,7 @@
 
 namespace Ksword::Core {
 
-std::wstring ModulePath() {
-    std::vector<wchar_t> buffer(1024, L'\0');
-    while (buffer.size() < 32768) {
-        const DWORD written = ::GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-        if (written == 0) {
-            return {};
-        }
-        if (written < buffer.size()) {
-            return std::wstring(buffer.data(), written);
-        }
-        buffer.resize(buffer.size() * 2, L'\0');
-    }
-    return {};
-}
+
 
 std::wstring ModuleDirectory() {
     const std::wstring path = ModulePath();
