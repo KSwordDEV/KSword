@@ -10,3 +10,15 @@
 - 本次 Win10 20H2 来宾原 CLI 真实复现日志乱码及 1/2/100 帧 fastfail；仅替换 CLI 的候选版本全部正常。当前同目录原 SYS 下进程/SSDT/回调/能力等查询可返回，PiDDB/卸载驱动全局证据仍可如实 unavailable。服务最初未安装，验收创建正常 SCM 测试服务，保留用于复用。
 - 来宾 Administrator 无密码，VIX 返回 3033 时由用户设置 `LimitBlankPasswordUse=0`；用户明确要求保持此测试环境设置，不再恢复。来宾通道不需要网络 WinRM/SSH。
 - 用户原有七个未提交 UI/语言包/记忆改动应保留；CLI 提交不得顺带提交它们。
+
+## 2026-10-09 动作修复（仅构建）
+
+- CLI 固定/变长响应的主要 NTSTATUS 失败现在传递到进程退出码：操作失败/等待超时为 3，不支持为 5；扩展客户端显式 unsupported 也为 5，传输成功不再掩盖响应失败。
+- mutation 的所有者仍为创建事务的进程对象。新增 `mutation session` 在一个 CLI 进程内 prepare，并通过标准输入接收 commit/rollback/quit，失败 commit 后仍保留 rollback 的会话入口。独立 CLI 进程不能接管事务；help 和 CLI 文档已同步。
+- 注入后端在没有 ZwCreateThreadEx 导出时解析真实内核 RtlCreateUserThread，保留 R0 分配/写入；本机内核导出与包装器反汇编证实 RTL 路径，参数对照 phnt 声明。不改 IOCTL ABI；短写与正值 STATUS_TIMEOUT 都不当作成功。
+- 网络 WFP 最小 ABI 原来在 FWPS_INCOMING_VALUE0 前多放一个 fieldId，破坏了数组步长。正式 WDK 项仅包含 FWP_VALUE0；已删字段并加大小/偏移断言，协议、端口保留正确的类型及主机序。
+- 文件重定向发布启用规则前启动共享 minifilter；失败保留旧规则。DOS 盘符规则解析成设备路径；pre-create 按 FltMgr opened 全名/卷内后缀匹配，目标名字替换后完成 STATUS_REPARSE/IO_REPARSE，命中后改写失败完成真实错误，不能继续写入源文件。注册表规则的后端未改。
+- APC 控制不再依赖未导出的 PsGetNextProcessThread，复用有界真实 TID 快照并以对象引用复核进程归属。原位掩码错误，ApcQueueable 是 KTHREAD.MiscFlags bit 14；仅在本机 KeInsertQueueApc 的线程字段测试指令校准通过后清位，未知代码形态返回不支持。
+- 强卸载预检缺线程私有偏移/非导出枚举器时，改用 System TID 快照、精确线程对象句柄和 ZwQueryInformationThread 查询入口。仍保留占用、核心模块、loader、回调和未完成证据约束，真实 DEVICE_BUSY 不是应绕过的参数错误。
+- 对象回调真实句柄校准见 ksword-object-callback-remove.md。本次 VMware 日志没有证明来宾崩溃具体原因。
+- CLI、驱动、Qt 主程序、Light 的 Release/x64 构建通过；驱动 ApiValidator 与 Inf2Cat 通过。主程序构建脚本明确 BUILD_RESULT=SUCCESS、EXIT_CODE=0，i18n/主题门禁通过。Light 复用相同 ABI 并嵌入当前驱动，原有编译警告仍存在；其自动 variant 签名工具卡住后停止该单独子进程，原脚本回退测试签名，信任校验仍失败，不声明可加载/发行签名通过。未运行 CLI 动作、GUI/Light 或加载驱动，也未做 VMware 实测。

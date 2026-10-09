@@ -398,6 +398,8 @@ Prepare, commit, rollback, and audit bounded mutation transactions.
 | `mutation rollback` | `KswordCLI.exe mutation rollback --transaction-id ID [--flags 0xN]` | Rollback a prepared mutation transaction. | Required: --transaction-id. Optional: --flags. |  |
 | `mutation query-audit` | `KswordCLI.exe mutation query-audit [--flags 0xN] [--max-entries N] [--start-sequence N] [--limit N] [--hexdump]` | Query mutation audit ring entries. | Optional: --flags, --max-entries, --start-sequence, --limit, --hexdump. |  |
 
+完整流程使用 `mutation session`：收到 `session_ready=true` 后，在同一进程的标准输入写入一行 `commit`；需要还原时再写入一行 `rollback`。成功 rollback 会结束会话；`quit` 或输入 EOF 只结束会话，不自动还原已提交的改动。commit 失败后会话继续等待，仍可请求 rollback，最终退出码保留本次会话的失败。`--flags` 同时用于 prepare、commit 和 rollback，实际写入仍须满足驱动原有 FORCE、确认及安全策略约束。不要分别启动 prepare、commit、rollback 三个 CLI 进程：事务绑定创建它的进程对象，后续进程的事务 ID 不能改变归属。
+
 ### `capability`
 
 Unified driver feature capability query.
