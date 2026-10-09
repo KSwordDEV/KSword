@@ -8,11 +8,16 @@
 #include <QHash>
 #include <QPlainTextEdit>
 #include <QPointer>
+#include <QPointingDevice>
 #include <QPropertyAnimation>
 #include <QScrollBar>
+#include <QScopedValueRollback>
+#include <QSignalBlocker>
+#include <QTabBar>
 #include <QTextBlock>
 #include <QTextLayout>
 #include <QVariant>
+#include <QVariantAnimation>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -31,6 +36,141 @@ namespace
         "KSWORD_TABLE_INTERACTION_FROZEN_PANE_AUXILIARY";
     constexpr int kWheelAnimationDurationMs = 180;
     constexpr int kPixelAnimationDurationMs = 100;
+    constexpr int kTabWheelStepPixels = 48;
+    thread_local const QEvent* g_tabScrollFrame = nullptr;
+
+    // 保留原 QTabBar 和连接，借助 Qt 的像素滚动路径移动标签，避免切页触发懒加载。
+    class TabStripAnimator final : public QObject
+    {
+    public:
+        explicit TabStripAnimator(QTabBar* tabBar)
+            : QObject(tabBar), m_tabBar(tabBar), m_animation(this),
+              m_pixelDevice(QStringLiteral("KSWORD_TAB_SCROLL_DEVICE"), 0,
+                  QInputDevice::DeviceType::TouchPad, QPointingDevice::PointerType::Finger,
+                  QInputDevice::Capability::Position | QInputDevice::Capability::PixelScroll, 1, 0)
+        {
+            connect(&m_animation, &QVariantAnimation::valueChanged, this, [this](const QVariant& value)
+                {
+                    const int position = value.toInt();
+                    movePixels(position - m_delivered);
+                    m_delivered = position;
+                });
+            connect(tabBar, &QTabBar::currentChanged, this, [this]() { stop(); });
+            connect(tabBar, &QTabBar::tabMoved, this, [this]() { stop(); });
+        }
+
+        bool forwarding() const { return m_forwarding; }
+
+        void stop()
+        {
+            m_animation.stop();
+            m_remainder = 0;
+        }
+
+        void wheel(QWheelEvent* event, bool smooth)
+        {
+            const QPoint delta = event->pixelDelta().isNull() ? event->angleDelta() : event->pixelDelta();
+            const int axis = std::abs(delta.x()) > std::abs(delta.y()) ? delta.x() : delta.y();
+            const bool pixels = !event->pixelDelta().isNull();
+            const qreal distance = -qreal(axis) * (event->inverted() ? -1 : 1) *
+                (pixels ? 1.0 : kTabWheelStepPixels / 120.0);
+            if (event->phase() == Qt::ScrollBegin || distance * m_remainder < 0)
+                m_remainder = 0;
+            m_remainder += distance;
+            const int wholePixels = static_cast<int>(std::trunc(m_remainder + std::copysign(1e-9, m_remainder)));
+            m_remainder -= wholePixels;
+            if (ks::ui::IsTabWheelSwitchingEnabled())
+            {
+                m_animation.stop();
+                m_switchRemainder += distance;
+                if (distance * (m_switchRemainder - distance) < 0)
+                    m_switchRemainder = distance;
+                const int steps = static_cast<int>(m_switchRemainder / kTabWheelStepPixels);
+                m_switchRemainder -= steps * kTabWheelStepPixels;
+                for (int step = 0; step < std::abs(steps); ++step)
+                {
+                    const int direction = steps > 0 ? 1 : -1;
+                    for (int index = m_tabBar->currentIndex() + direction;
+                        index >= 0 && index < m_tabBar->count(); index += direction)
+                    {
+                        if (m_tabBar->isTabEnabled(index) && m_tabBar->isTabVisible(index))
+                        {
+                            m_tabBar->setCurrentIndex(index);
+                            break;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                m_switchRemainder = 0;
+                scroll(wholePixels, smooth, pixels ? kPixelAnimationDurationMs : kWheelAnimationDurationMs);
+            }
+            if (event->phase() == Qt::ScrollEnd)
+                m_remainder = m_switchRemainder = 0;
+            // 无溢出、修饰键和边界事件也归标签栏处理，禁止向内容区传播或回退到切页。
+            event->accept();
+        }
+
+    private:
+        bool vertical() const
+        {
+            return m_tabBar->shape() == QTabBar::RoundedWest || m_tabBar->shape() == QTabBar::RoundedEast ||
+                m_tabBar->shape() == QTabBar::TriangularWest || m_tabBar->shape() == QTabBar::TriangularEast;
+        }
+
+        void movePixels(int distance)
+        {
+            if (!distance || !m_tabBar->isVisible())
+                return;
+            const QPoint local = m_tabBar->rect().center();
+            const int delta = m_tabBar->isRightToLeft() ? distance : -distance;
+            const QPoint pixels = vertical() ? QPoint(0, delta) : QPoint(delta, 0);
+            QWheelEvent frame(local, m_tabBar->mapToGlobal(local), pixels, pixels,
+                Qt::NoButton, Qt::NoModifier, Qt::ScrollUpdate, false,
+                Qt::MouseEventSynthesizedByApplication, &m_pixelDevice);
+            m_forwarding = true;
+            const QScopedValueRollback<const QEvent*> frameGuard(g_tabScrollFrame, &frame);
+            QCoreApplication::sendEvent(m_tabBar, &frame);
+            m_forwarding = false;
+        }
+
+        void scroll(int distance, bool smooth, int duration)
+        {
+            if (!distance)
+                return;
+            const int extent = vertical() ? m_tabBar->height() : m_tabBar->width();
+            const int pending = m_animation.state() == QAbstractAnimation::Running
+                ? m_animation.endValue().toInt() - m_delivered : 0;
+            const int target = std::clamp(distance + (distance * qint64(pending) > 0 ? pending : 0),
+                -std::max(1, extent), std::max(1, extent));
+            m_animation.stop();
+            m_delivered = 0;
+            if (!smooth)
+            {
+                movePixels(target);
+                return;
+            }
+            {
+                // 重设已结束的动画时，Qt 可能按旧 currentTime 发出 valueChanged；这不是滚动帧。
+                const QSignalBlocker blocker(&m_animation);
+                m_animation.setDuration(duration);
+                m_animation.setStartValue(0);
+                m_animation.setEndValue(target);
+                m_animation.setCurrentTime(0);
+                m_animation.setEasingCurve(QEasingCurve::OutCubic);
+            }
+            m_animation.start();
+        }
+
+        QTabBar* m_tabBar;
+        QVariantAnimation m_animation;
+        QPointingDevice m_pixelDevice;
+        qreal m_remainder = 0;
+        qreal m_switchRemainder = 0;
+        int m_delivered = 0;
+        bool m_forwarding = false;
+    };
 
     class GlobalSmoothScrollFilter;
     QPointer<GlobalSmoothScrollFilter> g_installedFilter;
@@ -70,7 +210,46 @@ namespace
             if (!enabled)
             {
                 stopAllAnimations();
+                for (TabStripAnimator* animator : std::as_const(m_tabAnimators))
+                    animator->stop();
             }
+        }
+
+        void scrollTabStripByPixels(QAbstractScrollArea* area, int distance, int duration = kWheelAnimationDurationMs)
+        {
+            if (!area)
+                return;
+            QScrollBar* bar = area->horizontalScrollBar();
+            const int maximumDistance = std::max(1, area->viewport()->width());
+            QPropertyAnimation* animation = animationForScrollBar(bar);
+            const qint64 current = bar->value();
+            const qint64 pending = animation->state() == QAbstractAnimation::Running
+                ? animation->endValue().toInt() : current;
+            const int target = static_cast<int>(std::clamp(
+                (distance * (pending - current) > 0 ? pending : current) + distance,
+                std::max<qint64>(bar->minimum(), current - maximumDistance),
+                std::min<qint64>(bar->maximum(), current + maximumDistance)));
+            animation->stop();
+            if (!enabled())
+                bar->setValue(target);
+            else if (target != current)
+            {
+                // QPropertyAnimation 的 setter 可按旧 currentTime 立即写属性；配置期间解除目标。
+                animation->setTargetObject(nullptr);
+                animation->setStartValue(static_cast<int>(current));
+                animation->setEndValue(target);
+                animation->setDuration(duration);
+                animation->setCurrentTime(0);
+                animation->setEasingCurve(QEasingCurve::OutCubic);
+                animation->setTargetObject(bar);
+                animation->start();
+            }
+        }
+
+        void stopTabStripScrolling(QAbstractScrollArea* area)
+        {
+            if (area)
+                stopAnimation(area->horizontalScrollBar());
         }
 
     protected:
@@ -81,14 +260,49 @@ namespace
                 return QObject::eventFilter(watchedObject, eventObject);
             }
 
+            if (eventObject == g_tabScrollFrame && !qobject_cast<QTabBar*>(watchedObject))
+            {
+                // Qt 像素滚动到边界会 ignore；内部动画帧不能再传给外层页面。
+                eventObject->accept();
+                return true;
+            }
+
             if (eventObject->type() == QEvent::Show ||
                 eventObject->type() == QEvent::Polish)
             {
+                if (auto* tabBar = qobject_cast<QTabBar*>(watchedObject))
+                    configureTabBar(tabBar);
                 if (QAbstractScrollArea* scrollArea =
                     qobject_cast<QAbstractScrollArea*>(watchedObject))
                 {
                     configureScrollArea(scrollArea,
                         enabled() && !isSmoothScrollDisabled(scrollArea));
+                }
+            }
+
+            const bool tabStructureEvent = eventObject->type() == QEvent::Resize ||
+                eventObject->type() == QEvent::Hide || eventObject->type() == QEvent::StyleChange ||
+                eventObject->type() == QEvent::LayoutRequest || eventObject->type() == QEvent::FontChange;
+            if (eventObject->type() == QEvent::Wheel || tabStructureEvent ||
+                eventObject->type() == QEvent::MouseButtonPress)
+            {
+                if (QTabBar* tabBar = tabBarForEventObject(watchedObject))
+                {
+                    TabStripAnimator* animator = tabAnimator(tabBar);
+                    if (eventObject->type() == QEvent::Wheel)
+                    {
+                        if (animator->forwarding())
+                            return false;
+                        if (tabBar->isEnabled() && tabBar->isVisible())
+                        {
+                            configureTabBar(tabBar);
+                            animator->wheel(static_cast<QWheelEvent*>(eventObject), enabled());
+                            return true;
+                        }
+                    }
+                    else if ((watchedObject == tabBar && tabStructureEvent) ||
+                        eventObject->type() == QEvent::MouseButtonPress)
+                        animator->stop();
                 }
             }
 
@@ -241,6 +455,37 @@ namespace
         }
 
     private:
+        static void configureTabBar(QTabBar* bar)
+        {
+            if (!bar->usesScrollButtons())
+                bar->setUsesScrollButtons(true);
+            // setElideMode 即使写相同值也会重排并定位当前标签，不能每档滚轮都调用。
+            if (bar->elideMode() != Qt::ElideNone)
+                bar->setElideMode(Qt::ElideNone);
+        }
+
+        static QTabBar* tabBarForEventObject(QObject* object)
+        {
+            for (QWidget* widget = qobject_cast<QWidget*>(object); widget; widget = widget->parentWidget())
+            {
+                if (auto* bar = qobject_cast<QTabBar*>(widget))
+                    return bar;
+                if (widget->isWindow() || qobject_cast<QAbstractScrollArea*>(widget))
+                    break;
+            }
+            return nullptr;
+        }
+
+        TabStripAnimator* tabAnimator(QTabBar* bar)
+        {
+            if (auto* animator = m_tabAnimators.value(bar, nullptr))
+                return animator;
+            auto* animator = new TabStripAnimator(bar);
+            m_tabAnimators.insert(bar, animator);
+            connect(bar, &QObject::destroyed, this, [this, bar]() { m_tabAnimators.remove(bar); });
+            return animator;
+        }
+
         bool scrollClippedPlainText(QPlainTextEdit* edit, const QRect& visibleRect,
             QWheelEvent* event)
         {
@@ -436,6 +681,7 @@ namespace
         }
 
         QHash<QScrollBar*, QPropertyAnimation*> m_animations;
+        QHash<QTabBar*, TabStripAnimator*> m_tabAnimators;
     };
 
     GlobalSmoothScrollFilter* installedFilter()
@@ -481,4 +727,44 @@ bool ks::ui::IsGlobalSmoothScrollingEnabled()
         qobject_cast<QApplication*>(QCoreApplication::instance());
     return appInstance != nullptr &&
         appInstance->property(kEnabledProperty).toBool();
+}
+
+bool ks::ui::IsTabWheelSwitchingEnabled()
+{
+    return qApp && qApp->property("ksword_slider_wheel_adjust_enabled").toBool();
+}
+
+void ks::ui::ScrollTabStripWithWheel(QAbstractScrollArea* area, QWheelEvent* event)
+{
+    if (!area || !event)
+        return;
+    const bool pixels = !event->pixelDelta().isNull();
+    const QPoint delta = pixels ? event->pixelDelta() : event->angleDelta();
+    const int axis = std::abs(delta.x()) > std::abs(delta.y()) ? delta.x() : delta.y();
+    qreal remainder = area->property("ksword_tab_scroll_remainder").toDouble();
+    const qreal distance = -qreal(axis) * (event->inverted() ? -1 : 1) *
+        (pixels ? 1.0 : kTabWheelStepPixels / 120.0);
+    if (event->phase() == Qt::ScrollBegin || remainder * distance < 0)
+        remainder = 0;
+    remainder += distance;
+    const int whole = static_cast<int>(std::trunc(remainder + std::copysign(1e-9, remainder)));
+    area->setProperty("ksword_tab_scroll_remainder", event->phase() == Qt::ScrollEnd ? 0.0 : remainder - whole);
+    if (whole && installedFilter())
+        installedFilter()->scrollTabStripByPixels(area, whole,
+            pixels ? kPixelAnimationDurationMs : kWheelAnimationDurationMs);
+    event->accept();
+}
+
+void ks::ui::ScrollTabStripByPixels(QAbstractScrollArea* area, int distance)
+{
+    if (installedFilter())
+        installedFilter()->scrollTabStripByPixels(area, distance);
+}
+
+void ks::ui::StopTabStripScrolling(QAbstractScrollArea* area)
+{
+    if (installedFilter())
+        installedFilter()->stopTabStripScrolling(area);
+    if (area)
+        area->setProperty("ksword_tab_scroll_remainder", 0.0);
 }

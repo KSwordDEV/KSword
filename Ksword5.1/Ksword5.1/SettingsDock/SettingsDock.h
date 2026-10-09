@@ -427,7 +427,7 @@ private:
     // m_smoothScrollingCheckBox 作用：设置全局滚动区域是否启用滚轮缓动。
     QCheckBox* m_smoothScrollingCheckBox = nullptr;
 
-    // m_sliderWheelAdjustCheckBox 作用：设置滚轮是否可直接调整滑块、下拉框和数值输入框。
+    // m_sliderWheelAdjustCheckBox 作用：设置滚轮是否可直接调值和切换标签页；默认只滚动。
     QCheckBox* m_sliderWheelAdjustCheckBox = nullptr;
 
     // m_startupWindowScaleSpin 作用：设置下次启动主窗口的缩放百分比（50~200，重启生效）。

@@ -698,10 +698,10 @@ void SettingsDock::initializeAppearanceTab()
     interactionLayout->setSpacing(8);
 
     QLabel* interactionHintLabel = new QLabel(
-        QStringLiteral("调整全局滚动，以及滚轮是否直接调整滑块、下拉框和数值输入框。"),
+        QStringLiteral("调整全局滚动，以及滚轮是否直接调整控件值和切换标签页。"),
         interactionGroupBox);
     interactionHintLabel->setWordWrap(true);
-    languageManager.bindText(interactionHintLabel, QStringLiteral("settings.interaction.hint"), QStringLiteral("调整全局滚动，以及滚轮是否直接调整滑块、下拉框和数值输入框。"));
+    languageManager.bindText(interactionHintLabel, QStringLiteral("settings.interaction.hint"), QStringLiteral("调整全局滚动，以及滚轮是否直接调整控件值和切换标签页。"));
     interactionLayout->addWidget(interactionHintLabel);
 
     QHBoxLayout* scrollBarWidthLayout = new QHBoxLayout();
@@ -731,17 +731,17 @@ void SettingsDock::initializeAppearanceTab()
         QStringLiteral("settings.scroll.smooth"),
         QStringLiteral("启用全局平滑滚动"));
     m_smoothScrollingCheckBox->setToolTip(
-        QStringLiteral("对表格、列表、文本区和滚动页的鼠标滚轮滚动使用缓动动画"));
+        QStringLiteral("对标签栏、表格、列表、文本区和滚动页的鼠标滚轮滚动使用缓动动画"));
     languageManager.bindToolTip(
         m_smoothScrollingCheckBox,
         QStringLiteral("settings.scroll.smooth.tooltip"),
-        QStringLiteral("对表格、列表、文本区和滚动页的鼠标滚轮滚动使用缓动动画"));
+        QStringLiteral("对标签栏、表格、列表、文本区和滚动页的鼠标滚轮滚动使用缓动动画"));
     interactionLayout->addWidget(m_smoothScrollingCheckBox);
 
-    m_sliderWheelAdjustCheckBox = new QCheckBox(QStringLiteral("允许滚轮直接调整滑块、下拉框和数值输入框"), interactionGroupBox);
-    languageManager.bindText(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel"), QStringLiteral("允许滚轮直接调整滑块、下拉框和数值输入框"));
-    m_sliderWheelAdjustCheckBox->setToolTip(QStringLiteral("关闭后，滚轮经过滑块、下拉框和数值输入框时只滚动页面；展开的下拉列表仍可滚动"));
-    languageManager.bindToolTip(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel.tooltip"), QStringLiteral("关闭后，滚轮经过滑块、下拉框和数值输入框时只滚动页面；展开的下拉列表仍可滚动"));
+    m_sliderWheelAdjustCheckBox = new QCheckBox(QStringLiteral("允许滚轮调整控件值和切换标签页"), interactionGroupBox);
+    languageManager.bindText(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel"), QStringLiteral("允许滚轮调整控件值和切换标签页"));
+    m_sliderWheelAdjustCheckBox->setToolTip(QStringLiteral("默认关闭：滚轮在标签栏上只滚动标签，不切换页面；在滑块、下拉框和数值输入框上只滚动页面。启用后允许滚轮调值和切换标签页；展开的下拉列表仍可滚动"));
+    languageManager.bindToolTip(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel.tooltip"), QStringLiteral("默认关闭：滚轮在标签栏上只滚动标签，不切换页面；在滑块、下拉框和数值输入框上只滚动页面。启用后允许滚轮调值和切换标签页；展开的下拉列表仍可滚动"));
     interactionLayout->addWidget(m_sliderWheelAdjustCheckBox);
 
     appearanceRootLayout->addWidget(interactionGroupBox);
@@ -1423,7 +1423,7 @@ void SettingsDock::bindAppearanceSignals()
         });
 
     connect(m_sliderWheelAdjustCheckBox, &QCheckBox::toggled, this, [this](const bool /*checkedState*/) {
-        markPendingChanges(QStringLiteral("滑块滚轮调节开关切换"));
+        markPendingChanges(QStringLiteral("控件与标签页滚轮操作开关切换"));
         });
 
     connect(m_detailSchemeButtonGroup, &QButtonGroup::idClicked, this, [this](const int) {
