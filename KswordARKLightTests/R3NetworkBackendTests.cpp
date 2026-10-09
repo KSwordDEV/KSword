@@ -1,3 +1,5 @@
+#include "../shared/usermode/backend/hardware/HardwareEnumerator.h"
+#include "../shared/usermode/backend/hardware/HardwareFormatting.h"
 #include "../shared/usermode/backend/driver/DriverQueries.h"
 #include "../shared/usermode/backend/driver/DriverFormatting.h"
 #include "../shared/usermode/backend/process/ProcessHotkeys.h"

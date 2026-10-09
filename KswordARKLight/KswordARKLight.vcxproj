@@ -115,7 +115,6 @@
     <ClCompile Include="Features\File\FileFeature.cpp" />
     <ClCompile Include="Features\File\FileSystemEnumerator.cpp" />
     <ClCompile Include="Features\File\FileView.cpp" />
-    <ClCompile Include="Features\Hardware\HardwareEnumerator.cpp" />
     <ClCompile Include="Features\Hardware\HardwareFeature.cpp" />
     <ClCompile Include="Features\Hardware\HardwareHwidDispatchView.cpp" />
     <ClCompile Include="Features\Hardware\HardwareModel.cpp" />
@@ -885,6 +884,21 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\driver\DriverQueries.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareFormatting.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareFormatting.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareEnumerator.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareEnumerator.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

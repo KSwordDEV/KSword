@@ -1,6 +1,6 @@
 #include "HardwareEnumerator.h"
 
-#include "../../Core/Common.h"
+#include "../Common.h"
 
 #include <algorithm>
 #include <cfgmgr32.h>
@@ -14,7 +14,7 @@
 #define DN_PHANTOM 0x00004000
 #endif
 
-namespace Ksword::Features::Hardware {
+namespace ks::r3::hardware {
 namespace {
 
 // DevInfoSet owns a SetupAPI HDEVINFO handle. Inputs are handles from
@@ -339,7 +339,7 @@ HardwareEnumerationResult EnumerateDeviceManagerTree() {
     DevInfoSet set(::SetupDiGetClassDevsW(nullptr, nullptr, nullptr, DIGCF_ALLCLASSES));
     if (!set.valid()) {
         result.success = false;
-        result.diagnosticText = L"SetupDiGetClassDevsW failed: " + Ksword::Core::LastErrorMessage();
+        result.diagnosticText = L"SetupDiGetClassDevsW failed: " + ks::r3::common::LastErrorMessage();
         return result;
     }
 
@@ -352,7 +352,7 @@ HardwareEnumerationResult EnumerateDeviceManagerTree() {
                 break;
             }
             result.success = false;
-            result.diagnosticText = L"SetupDiEnumDeviceInfo failed: " + Ksword::Core::LastErrorMessage(error);
+            result.diagnosticText = L"SetupDiEnumDeviceInfo failed: " + ks::r3::common::LastErrorMessage(error);
             return result;
         }
         result.devices.push_back(PopulateNodeFromDevInfo(set.get(), info, static_cast<int>(result.devices.size())));
@@ -418,4 +418,4 @@ HardwareDeviceDetail QueryDeviceManagerDetails(const std::wstring& instanceId) {
     return detail;
 }
 
-} // namespace Ksword::Features::Hardware
+} // namespace ks::r3::hardware
