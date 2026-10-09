@@ -15,7 +15,6 @@
     <ClCompile Include="CallbackEnumerationTests.cpp"><Filter>Tests</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\Kernel\CallbackEnumeration.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\Kernel\KernelPageLayout.cpp"><Filter>Production</Filter></ClCompile>
-    <ClCompile Include="..\KswordARKLight\Features\Process\ProcessTelemetry.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\network\network_process_etw_monitor.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\Process\ProcessColumns.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="EvidenceContractTests.cpp"><Filter>Tests</Filter></ClCompile>
@@ -423,6 +422,21 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\process\ProcessDetails.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessTelemetry.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessCounters.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessCounters.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

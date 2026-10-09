@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/process/ProcessCounters.h"
 #include "../shared/usermode/backend/file/PeSnapshot.h"
 #include "../shared/usermode/backend/file/FileAnalysis.h"
 #include "../shared/usermode/backend/file/Ownership.h"
@@ -116,6 +117,13 @@ int RunR3NetworkBackendTests() {
     }
     suite.expect(ks::r3::file::TakeOwnershipPath(L"") == L"路径为空，无法取得所有权。", L"empty ownership target does not modify token");
     suite.expect(ks::r3::file::QueryFileLockers(L"") == L"路径为空，无法扫描占用进程。", L"empty Restart Manager target is rejected");
+    ks::r3::process::ProcessSnapshotRow counterRow;
+    counterRow.kernelTime100ns = 10000;
+    const ULONGLONG previousCpu = 0;
+    ks::r3::process::UpdateCpuCounterDelta(counterRow, &previousCpu, 1, 1);
+    suite.expect(counterRow.cpuUsagePercent == 100.0, L"process CPU delta retains original capacity formula");
+    ks::r3::process::UpdateCpuCounterDelta(counterRow, nullptr, 1, 1);
+    suite.expect(counterRow.cpuUsagePercent == 0.0, L"missing identity baseline resets CPU sample");
     suite.report();
     return suite.failures();
 }

@@ -26,3 +26,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | file hex and PE snapshot analysis | 18-file-pe |
 | process base enumeration | 19-process-enumeration |
 | process extended field collection | 20-process-details |
+| process dynamic and network telemetry | 21-process-telemetry |

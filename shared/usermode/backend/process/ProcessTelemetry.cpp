@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <unordered_set>
 
-namespace Ksword::Features::Process {
+namespace ks::r3::process {
 namespace {
 std::wstring RateText(double bytesPerSecond) {
     const wchar_t* units[] = { L"B/s", L"KiB/s", L"MiB/s", L"GiB/s" };
@@ -16,8 +16,8 @@ std::wstring RateText(double bytesPerSecond) {
 } // namespace
 
 void ProcessTelemetry::Sample(std::vector<ProcessSnapshotRow>& rows,
-    const std::vector<ProcessColumnId>& columns, ULONGLONG tickMs) {
-    const bool wantNetwork = std::find(columns.begin(), columns.end(), ProcessColumnId::Net) != columns.end();
+    const std::vector<ProcessFieldId>& columns, ULONGLONG tickMs) {
+    const bool wantNetwork = std::find(columns.begin(), columns.end(), ProcessFieldId::Net) != columns.end();
     if (!wantNetwork) {
         network_.Stop();
         networkRetryTick_ = 0;
@@ -63,7 +63,7 @@ void ProcessTelemetry::Sample(std::vector<ProcessSnapshotRow>& rows,
             } else {
                 text = L"采样中";
             }
-            row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::Net)] = std::move(text);
+            row.detailTexts[static_cast<std::uint8_t>(ProcessFieldId::Net)] = std::move(text);
         }
         baselines_[row.processId] = { row.creationTime100ns, tickMs, row.ioReadBytes, row.ioWriteBytes,
             rx, tx, networkKnown };
@@ -72,4 +72,4 @@ void ProcessTelemetry::Sample(std::vector<ProcessSnapshotRow>& rows,
     network_.PruneCounters(livePids);
 }
 
-} // namespace Ksword::Features::Process
+} // namespace ks::r3::process

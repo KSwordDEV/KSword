@@ -5,6 +5,7 @@
 #include "ProcessColumns.h"
 #include "ProcessDetails.h"
 #include "ProcessTelemetry.h"
+#include "../../../shared/usermode/backend/process/ProcessCounters.h"
 #include "ProcessExtraQueries.h"
 #include "ProcessEnumerator.h"
 #include "ProcessModel.h"
@@ -1890,7 +1891,7 @@ void ApplyProcessRefresh(ProcessViewState& state, ProcessRefreshSnapshot snapsho
     std::vector<ProcessSnapshotRow> rows = std::move(snapshot.enumeration.rows);
     const ULONGLONG nowMs = ::GetTickCount64();
     const ULONGLONG elapsedMs = state.previousSampleTickMs == 0 ? 0 : nowMs - state.previousSampleTickMs;
-    const DWORD processorCount = std::max<DWORD>(1, ::GetActiveProcessorCount(ALL_PROCESSOR_GROUPS));
+    const DWORD processorCount = ks::r3::process::ProcessProcessorCount();
     std::unordered_map<std::wstring, ULONGLONG> newCpuTimes;
     std::unordered_map<std::wstring, ProcessSnapshotRow> activeRowsByIdentity;
     newCpuTimes.reserve(rows.size());
@@ -1903,25 +1904,15 @@ void ApplyProcessRefresh(ProcessViewState& state, ProcessRefreshSnapshot snapsho
         const ULONGLONG total100ns = row.kernelTime100ns + row.userTime100ns;
         // 相邻快照差值只在同一 PID+创建时间实例间计算，避免 PID 回收造成错误增量。
         const auto previousRow = state.lastActiveRowsByIdentity.find(identityKey);
-        if (previousRow != state.lastActiveRowsByIdentity.end()) {
-            row.workingSetDeltaBytes = static_cast<LONGLONG>(row.workingSetBytes) - static_cast<LONGLONG>(previousRow->second.workingSetBytes);
-            row.pageFaultDelta = static_cast<LONGLONG>(row.pageFaultCount) - static_cast<LONGLONG>(previousRow->second.pageFaultCount);
-        }
+        ks::r3::process::UpdateMemoryCounterDeltas(row, previousRow != state.lastActiveRowsByIdentity.end() ? &previousRow->second : nullptr);
         newCpuTimes[identityKey] = total100ns;
         activeRowsByIdentity[identityKey] = row;
         if (state.hasLastActiveSnapshot &&
             state.lastActiveRowsByIdentity.find(identityKey) == state.lastActiveRowsByIdentity.end()) {
             state.visualStateByIdentity[identityKey] = ProcessRowVisualState::Added;
         }
-        row.cpuUsagePercent = 0.0;
         const auto previous = state.previousCpuTime100ns.find(identityKey);
-        if (elapsedMs > 0 && previous != state.previousCpuTime100ns.end() && total100ns >= previous->second) {
-            const ULONGLONG delta100ns = total100ns - previous->second;
-            const double capacity100ns = static_cast<double>(elapsedMs) * 10000.0 * static_cast<double>(processorCount);
-            if (capacity100ns > 0.0) {
-                row.cpuUsagePercent = std::clamp((static_cast<double>(delta100ns) * 100.0) / capacity100ns, 0.0, 999.9);
-            }
-        }
+        ks::r3::process::UpdateCpuCounterDelta(row, previous != state.previousCpuTime100ns.end() ? &previous->second : nullptr, elapsedMs, processorCount);
     }
     if (state.hasLastActiveSnapshot) {
         for (const auto& oldRow : state.lastActiveRowsByIdentity) {

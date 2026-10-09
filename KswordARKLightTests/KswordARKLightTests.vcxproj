@@ -56,7 +56,6 @@
     <ClCompile Include="CallbackEnumerationTests.cpp" />
     <ClCompile Include="..\KswordARKLight\Features\Kernel\CallbackEnumeration.cpp" />
     <ClCompile Include="..\KswordARKLight\Features\Kernel\KernelPageLayout.cpp" />
-    <ClCompile Include="..\KswordARKLight\Features\Process\ProcessTelemetry.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\network\network_process_etw_monitor.cpp" />
     <ClCompile Include="..\KswordARKLight\Features\Process\ProcessColumns.cpp" />
     <ClCompile Include="EvidenceContractTests.cpp" />
@@ -378,6 +377,15 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\process\ProcessDetails.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessTelemetry.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessCounters.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessCounters.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
