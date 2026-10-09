@@ -436,6 +436,7 @@ jobs:
           '@ | Set-Content -LiteralPath (Join-Path $ciProfiles 'ark_dyndata_pack_v3.json') -Encoding utf8
           @'
           {
+            "schemaVersion": 1,
             "packVersion": 4,
             "profiles": []
           }
@@ -450,6 +451,8 @@ jobs:
             '/p:PROCESSOR_ARCHITEW6432=AMD64',
             "/p:QtMsBuild=$env:KSWORD_QT_MSBUILD",
             '/p:KswordArkSkipAutoTestSign=true',
+            # 空包只供 Launcher 编译；运行时规范化必须使用私有正式语料，CI 不发布占位档案。
+            '/p:KswordSkipDynDataProfilePack=true',
             '/m:1',
             '/v:minimal'
           )
@@ -584,6 +587,7 @@ jobs:
           '@ | Set-Content -LiteralPath (Join-Path $ciProfiles 'ark_dyndata_pack_v3.json') -Encoding utf8
           @'
           {
+            "schemaVersion": 1,
             "packVersion": 4,
             "profiles": []
           }
@@ -599,6 +603,8 @@ jobs:
             "/p:SolutionDir=$((Resolve-Path 'Ksword5.1').Path)\",
             "/p:QtMsBuild=$env:KSWORD_QT_MSBUILD",
             '/p:KswordArkSkipAutoTestSign=true',
+            # 与普通 user-mode job 一致：不将空的编译占位包作为运行时档案打包。
+            '/p:KswordSkipDynDataProfilePack=true',
             '/m:1',
             '/v:minimal'
           )

@@ -4,6 +4,7 @@
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/UI_All.h"
 #include "FilePropertyPeAnalyzer.h"
+#include "FilePropertyView.h"
 #include "DriverFileSystemParser.h"
 #include "IrpFileSystemParser.h"
 #include "FileHandleUsageScanner.h"
@@ -19,12 +20,9 @@
 // ============================================================
 
 #include "../theme.h"
-#include "../UI/CodeEditorWidget.h"
 #include "../UI/CodeTextEdit.h"
-#include "../UI/FieldTreePresenter.h"
 #include "../UI/MemoryWorkbench/HexView.h"
 #include "../UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
-#include "../UI/ReportStructuredView.h"
 #include "../UI/ThemeStatusRole.h"
 #include "../UI/TableColumnAutoFit.h"
 #include "../UI/TableInteractionSupport.h"
@@ -107,6 +105,7 @@
 #include <QSortFilterProxyModel>
 #include <QSpinBox>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStandardItemModel>
 #include <QStatusBar>
 #include <QStorageInfo>
@@ -144,8 +143,10 @@
 #include <array>
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <cctype>
 #include <cmath>
 #include <functional>
@@ -1283,19 +1284,7 @@ namespace
         return true;
     }
 
-    // createReadOnlyAuditTextPage：创建一个只读文本页，统一文本可选与布局风格。
-    // 输入：parent 为页面父对象，content 为页面文本。
-    // 返回：承载 CodeEditorWidget 的 QWidget 页面；没有返回值以外副作用。
-    QWidget* createReadOnlyAuditTextPage(QWidget* parent, const QString& content)
-    {
-        QWidget* page = new QWidget(parent);
-        QVBoxLayout* layout = new QVBoxLayout(page);
-        CodeEditorWidget* editor = new CodeEditorWidget(page);
-        editor->setReadOnly(true);
-        editor->setLocalizedText(content);
-        layout->addWidget(editor, 1);
-        return page;
-    }
+
 
     // readUtf16FieldAtOffset：从返回缓冲中读取 UTF-16 偏移字段，供 FltLib 枚举结构解析。
     // 输入：buffer/bytesReturned 指向完整返回缓冲；fieldOffset/fieldLength 为字节级字段位置。
@@ -4580,43 +4569,6 @@ namespace
         });
     }
 
-    // typed 文件属性直接共享呈现器；所有 R0 字段、属性位和诊断仍由原采集代码生成。
-    QString propertyTreeToPlainText(const QTreeWidget* tree)
-    {
-        return ks::ui::FieldTreeToPlainText(tree);
-    }
-
-    QTreeWidgetItem* appendPropertyGroup(QTreeWidget* tree, const QString& title)
-    {
-        return ks::ui::AppendFieldGroup(tree, title);
-    }
-
-    QTreeWidgetItem* appendPropertyRow(QTreeWidgetItem* group, const QString& name, const QString& value)
-    {
-        return group == nullptr ? nullptr : ks::ui::AppendFieldRow(group->treeWidget(), group, name, value);
-    }
-
-    void configurePropertyTree(QTreeWidget* tree)
-    {
-        ks::ui::ConfigureFieldTree(tree, true);
-    }
-
-    // buildReportView 作用：
-    // - 输入 parent 和审计页生成的报告原文；
-    // - 处理：交给统一的只读报告控件，由它按内容形态自行决定结构化呈现，
-    //   并在工具栏给出“结构视图 / 原始文本”切换按钮；
-    // - 取舍说明：本文件原先自带一套“只认 [分组] 的属性树 + 下拉切换框”的解析实现。
-    //   全局报告控件上线后两套并存会让同一页出现两个入口、两种解析口径，
-    //   而且本地那套只解析得出属性树，解析不出对齐表格和机器码块，因此整体换成统一控件；
-    // - 返回：可直接放进页面布局的控件。
-    QWidget* buildReportView(QWidget* parent, const QString& reportText)
-    {
-        CodeEditorWidget* textEditor = new CodeEditorWidget(parent);
-        textEditor->setReadOnly(true);
-        textEditor->setLocalizedText(reportText);
-        return textEditor;
-    }
-
     // buildOpaqueStandaloneDialogStyle 作用：
     // - 为“独立弹窗”覆盖父级 Dock 透明样式，防止浅色主题下出现黑底；
     // - 强制编辑区/表格区使用 palette(base) 作为不透明背景。
@@ -4692,6 +4644,8 @@ namespace
     // - 所有可读文本容器、表头和滚动区域均显式使用 Surface，避免同窗内文字底色不一致。
     QString buildFileDetailDialogStyle()
     {
+        const QColor navigationSelection = KswordTheme::BlendColors(
+            KswordTheme::SurfaceColor(), KswordTheme::ControlAccentColor(), 44);
         return QStringLiteral(
             "QDialog#FileDetailDialogRoot{"
             "  background:%1;"
@@ -4743,29 +4697,31 @@ namespace
             "  font-weight:600;"
             "}"
             "QDialog#FileDetailDialogRoot QTabWidget::pane{"
-            "  border:1px solid %3;"
+            "  border:none;"
             "  background:%4;"
             "}"
             "QWidget#FileDetailTabNavigation{"
             "  background:%4;"
-            "  border:1px solid %3;"
-            "  border-radius:4px;"
+            "  border:none;"
             "}"
             "QWidget#FileDetailTabNavigation QToolButton{"
-            "  background:%4;"
+            "  background:transparent;"
             "  color:%2;"
-            "  border:1px solid %3;"
-            "  border-radius:3px;"
-            "  padding:5px 8px;"
+            "  border:none;"
+            "  border-radius:7px;"
+            "  padding:8px;"
+            "  text-align:left;"
             "}"
             "QWidget#FileDetailTabNavigation QToolButton:checked{"
-            "  background:%5;"
-            "  color:%7;"
-            "  border-color:%5;"
+            "  background:%8;"
+            "  color:%9;"
             "}"
             "QWidget#FileDetailTabNavigation QToolButton:hover:!checked{"
             "  background:%6;"
             "}"
+            "QFrame#FileDetailIdentity{background:%4;border-bottom:1px solid %3;}"
+            "QFrame#FileMetadataSaveBar{background:%4;border-top:1px solid %3;}"
+            "QScrollArea#FileDetailNavigationScroll{background:%4;border:none;border-right:1px solid %3;}"
             "QDialog#FileDetailDialogRoot QPushButton{"
             "  background:%4;"
             "  color:%2;"
@@ -4781,6 +4737,11 @@ namespace
             "  background:%5;"
             "  color:%7;"
             "  border-color:%5;"
+            "}"
+            "QWidget#FileDetailTabNavigation QToolButton:disabled,"
+            "QDialog#FileDetailDialogRoot QPushButton:disabled{"
+            "  color:%10;"
+            "  background:%4;"
             "}"
             "QDialog#FileDetailDialogRoot QProgressBar{"
             "  background:%6;"
@@ -4827,7 +4788,10 @@ namespace
             .arg(KswordTheme::SurfaceHex())
             .arg(KswordTheme::ControlAccentHex())
             .arg(KswordTheme::SurfaceAltHex())
-            .arg(KswordTheme::OnAccentDynamicHex());
+            .arg(KswordTheme::OnAccentDynamicHex())
+            .arg(navigationSelection.name())
+            .arg(KswordTheme::EnsureTextContrast(KswordTheme::TextPrimaryColor(), navigationSelection).name())
+            .arg(KswordTheme::TextDisabledColor().name());
     }
 
     // buildLogPreviewText 作用：
@@ -5348,7 +5312,7 @@ namespace
         QString ownerAccountText;         // ownerAccountText：Owner 账户文本。
         QString groupSidText;             // groupSidText：Primary Group SID 字符串。
         QString groupAccountText;         // groupAccountText：Primary Group 账户文本。
-        QString detailText;               // detailText：兼容旧版本的完整文本明细，读取失败也会保留错误。
+        file_dock_detail::PropertyDocument details; // 安全描述符的字段快照。
         std::vector<FileSecurityAceRow> aceRows; // aceRows：表格化 ACE 列表。
     };
 
@@ -5482,12 +5446,12 @@ namespace
     // appendAclText 作用：
     // - 解析 ACL 中每一条 ACE，输出类型、标志、掩码、SID 与账户名；
     // - titleText 用于区分 DACL 与 SACL 段落。
-    void appendAclText(const QString& titleText, PACL aclValue, QString& contentOut)
+    void appendAclDocument(const QString& titleText, PACL aclValue, file_dock_detail::PropertyDocument& contentOut)
     {
-        contentOut += QStringLiteral("\n[%1]\n").arg(titleText);
+        contentOut.section(titleText);
         if (aclValue == nullptr)
         {
-            contentOut += QStringLiteral("ACL: <null>\n");
+            contentOut.field(QStringLiteral("ACL"), QStringLiteral("<null>"));
             return;
         }
 
@@ -5498,17 +5462,17 @@ namespace
             static_cast<DWORD>(sizeof(aclSizeInfo)),
             AclSizeInformation) == FALSE)
         {
-            contentOut += QStringLiteral("读取 ACL 信息失败, code=%1\n").arg(::GetLastError());
+            contentOut.field(QStringLiteral("读取 ACL 信息失败"), QString::number(::GetLastError()));
             return;
         }
 
-        contentOut += QStringLiteral("ACE数量: %1\n").arg(aclSizeInfo.AceCount);
+        contentOut.field(QStringLiteral("ACE数量"), QString::number(aclSizeInfo.AceCount));
         for (DWORD aceIndex = 0; aceIndex < aclSizeInfo.AceCount; ++aceIndex)
         {
             LPVOID acePointer = nullptr;
             if (::GetAce(aclValue, aceIndex, &acePointer) == FALSE || acePointer == nullptr)
             {
-                contentOut += QStringLiteral("  - ACE[%1] 读取失败, code=%2\n").arg(aceIndex).arg(::GetLastError());
+                contentOut.field(QStringLiteral("ACE[%1]").arg(aceIndex), QString::number(::GetLastError()));
                 continue;
             }
 
@@ -5571,13 +5535,13 @@ namespace
                 break;
             }
 
-            contentOut += QStringLiteral("  - ACE[%1]\n").arg(aceIndex);
-            contentOut += QStringLiteral("    类型: %1\n").arg(aceTypeToText(aceHeader->AceType));
-            contentOut += QStringLiteral("    标志: %1\n").arg(aceFlagsToText(aceHeader->AceFlags));
-            contentOut += QStringLiteral("    Mask: 0x%1\n").arg(accessMask, 8, 16, QLatin1Char('0'));
-            contentOut += QStringLiteral("    权限: %1\n").arg(accessMaskToText(accessMask));
-            contentOut += QStringLiteral("    SID: %1\n").arg(sidToStringText(aceSid));
-            contentOut += QStringLiteral("    账户: %1\n").arg(sidToAccountText(aceSid));
+            contentOut.section(QStringLiteral("%1 / ACE[%2]").arg(titleText).arg(aceIndex));
+            contentOut.field(QStringLiteral("类型"), aceTypeToText(aceHeader->AceType));
+            contentOut.field(QStringLiteral("标志"), aceFlagsToText(aceHeader->AceFlags));
+            contentOut.field(QStringLiteral("Mask"), formatAccessMaskHex(accessMask));
+            contentOut.field(QStringLiteral("权限"), accessMaskToText(accessMask));
+            contentOut.field(QStringLiteral("SID"), sidToStringText(aceSid));
+            contentOut.field(QStringLiteral("账户"), sidToAccountText(aceSid));
         }
     }
 
@@ -5629,38 +5593,46 @@ namespace
             setWindowTitle(m_batchMode
                 ? ks::i18n::sourceText(QStringLiteral("批量文件属性 - %1 项")).arg(m_filePaths.size())
                 : QStringLiteral("文件属性 - %1").arg(QFileInfo(m_filePath).fileName()));
-            // 文件属性窗内容可能包含超长路径、证书链和 PE 字段：
-            // - 最大宽度按父窗口客户区 75% 限制；
-            // - 初始宽度同步裁剪，防止窗口被长文本撑出屏幕。
-            applyFileStandaloneWindowWidthLimit(
-                this,
-                resolveVisibleDialogParent(parent),
-                QSize(1160, 760),
-                0.75);
+            ks::ui::applyResponsiveWindowGeometry(this, parent, QSize(1160, 800), QSize(640, 480));
 
             // 采用与进程属性相同的左侧导航结构：QTabWidget 继续承载现有懒加载逻辑，
             // 仅隐藏原生顶栏并改由可翻译的垂直导航按钮驱动。
             QVBoxLayout* dialogLayout = new QVBoxLayout(this);
-            dialogLayout->setContentsMargins(8, 8, 8, 8);
-            dialogLayout->setSpacing(6);
+            dialogLayout->setContentsMargins(0, 0, 0, 0);
+            dialogLayout->setSpacing(0);
             QHBoxLayout* rootLayout = new QHBoxLayout();
             rootLayout->setContentsMargins(0, 0, 0, 0);
-            rootLayout->setSpacing(6);
+            rootLayout->setSpacing(0);
             dialogLayout->addLayout(rootLayout, 1);
 
             m_tabNavigation = new QWidget(this);
             m_tabNavigation->setObjectName(QStringLiteral("FileDetailTabNavigation"));
-            m_tabNavigation->setFixedWidth(210);
+            m_tabNavigation->setFixedWidth(224);
             m_tabNavigation->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
             QVBoxLayout* navigationLayout = new QVBoxLayout(m_tabNavigation);
-            navigationLayout->setContentsMargins(5, 5, 5, 5);
-            navigationLayout->setSpacing(4);
+            navigationLayout->setContentsMargins(10, 16, 10, 16);
+            navigationLayout->setSpacing(5);
+
+            QScrollArea* navigationScroll = new QScrollArea(this);
+            navigationScroll->setObjectName(QStringLiteral("FileDetailNavigationScroll"));
+            navigationScroll->setWidgetResizable(true);
+            navigationScroll->setFrameShape(QFrame::NoFrame);
+            navigationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+            navigationScroll->setFixedWidth(240);
+            navigationScroll->setWidget(m_tabNavigation);
 
             m_tabWidget = new QTabWidget(this);
+            m_tabWidget->setMinimumSize(0, 0);
+            m_tabWidget->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+            if (auto* pageStack = m_tabWidget->findChild<QStackedWidget*>())
+            {
+                pageStack->setMinimumSize(0, 0);
+                pageStack->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+            }
             m_tabWidget->tabBar()->hide();
             m_tabNavigationButtonGroup = new QButtonGroup(this);
             m_tabNavigationButtonGroup->setExclusive(true);
-            rootLayout->addWidget(m_tabNavigation);
+            rootLayout->addWidget(navigationScroll);
             rootLayout->addWidget(m_tabWidget, 1);
 
             m_tabWidget->addTab(buildGeneralTab(), QStringLiteral("常规信息"));
@@ -5730,7 +5702,7 @@ namespace
                 navigationButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
                 navigationButton->setIcon(QIcon(navigationIconPathList.value(tabIndex)));
                 navigationButton->setIconSize(QSize(18, 18));
-                navigationButton->setMinimumHeight(30);
+                navigationButton->setMinimumHeight(38);
                 navigationButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
                 ks::i18n::LanguageManager::instance().bindText(
                     navigationButton,
@@ -5797,6 +5769,9 @@ namespace
             saveLayout->addWidget(m_pendingChangesLabel, 1);
             saveLayout->addWidget(m_discardPendingButton);
             saveLayout->addWidget(m_saveAllButton);
+            QPushButton* closeButton = new QPushButton(ks::i18n::sourceText(QStringLiteral("关闭")), saveBar);
+            saveLayout->addWidget(closeButton);
+            connect(closeButton, &QPushButton::clicked, this, &QWidget::close);
             dialogLayout->addWidget(saveBar, 0);
             connect(m_discardPendingButton, &QPushButton::clicked, this,
                 [this]() { discardPendingChanges(); });
@@ -5892,6 +5867,7 @@ namespace
                     : ks::i18n::displayText(QStringLiteral("文件属性 - %1"))
                         .arg(QFileInfo(m_filePath).fileName()));
                 refreshGeneralTab();
+                if (m_signatureLanguageRefresh) m_signatureLanguageRefresh();
                 return;
             }
             if (event->type() == QEvent::ApplicationPaletteChange ||
@@ -6391,265 +6367,6 @@ namespace
             return fixedWideAuditText(textBuffer, CharCount);
         }
 
-        template <typename AuditResult>
-        static QString formatAuditResultHeader(
-            const QString& titleText,
-            const AuditResult& result,
-            const std::uint32_t responseFlags,
-            const bool explicitTruncated)
-        {
-            // 用途：生成所有 R0 文件/存储审计 wrapper 的统一摘要头。
-            // 输入：titleText 为审计块标题，result 为 ArkDriverClient 返回结构。
-            // 返回：包含 IO、total/returned、truncated 和可读说明的多行文本。
-            const bool countTruncated = result.returnedCount < result.totalCount;
-            const bool truncated = explicitTruncated || countTruncated;
-            QString content;
-            content += QStringLiteral("[%1]\n").arg(titleText);
-            content += QStringLiteral("IO状态: %1\n").arg(result.io.ok ? QStringLiteral("OK") : QStringLiteral("FAIL"));
-            content += QStringLiteral("unsupported: %1\n").arg(formatAuditBool(result.unsupported));
-            content += QStringLiteral("version: %1\n").arg(result.version);
-            content += QStringLiteral("status: %1\n").arg(result.status);
-            content += QStringLiteral("totalCount: %1\n").arg(result.totalCount);
-            content += QStringLiteral("returnedCount: %1\n").arg(result.returnedCount);
-            content += QStringLiteral("truncated: %1\n").arg(formatAuditBool(truncated));
-            content += QStringLiteral("entrySize/rowSize: %1\n").arg(result.entrySize);
-            content += QStringLiteral("responseFlags: 0x%1\n").arg(responseFlags, 8, 16, QChar('0')).toUpper();
-            content += QStringLiteral("lastStatus: %1\n").arg(formatNtStatus(result.lastStatus));
-            content += QStringLiteral("win32Error: %1\n").arg(result.io.win32Error);
-            content += QStringLiteral("bytesReturned: %1\n").arg(result.io.bytesReturned);
-            content += QStringLiteral("说明: %1\n").arg(friendlyFileIoMessage(result.io.message));
-            return content;
-        }
-
-        static QString formatMinifilterInventoryRows(const ksword::ark::MinifilterInventoryResult& result)
-        {
-            // 用途：展开 R0 Minifilter inventory 的前若干真实行。
-            // 处理：只显示名称、Altitude、Volume、Frame、对象地址和 owner hint。
-            // 返回：可追加到 Filter topology 页的只读文本。
-            QString content;
-            const std::size_t rowLimit = std::min<std::size_t>(result.entries.size(), 16U);
-            for (std::size_t index = 0U; index < rowLimit; ++index)
-            {
-                const KSWORD_ARK_MINIFILTER_INVENTORY_ENTRY& row = result.entries[index];
-                content += QStringLiteral("  #%1 Filter=%2 Altitude=%3 Volume=%4 Instance=%5 VolumeBindings=%6 Frame=%7\n")
-                    .arg(static_cast<qulonglong>(index))
-                    .arg(fixedWideAuditText(row.filterName))
-                    .arg(fixedWideAuditText(row.altitude))
-                    .arg(fixedWideAuditText(row.volumeName))
-                    .arg(row.instanceCount)
-                    .arg(row.volumeBindingInstanceCount)
-                    .arg(row.frameId);
-                content += QStringLiteral("     FilterObject=%1 VolumeObject=%2 CallbackOwner=%3 OwnerStatus=%4 FieldFlags=0x%5 SourceFlags=0x%6 Status=%7\n")
-                    .arg(formatHex64(row.filterObject))
-                    .arg(formatHex64(row.volumeObject))
-                    .arg(fixedWideAuditText(row.callbackOwnerModule))
-                    .arg(formatNtStatus(row.callbackOwnerStatus))
-                    .arg(row.fieldFlags, 8, 16, QChar('0'))
-                    .arg(row.sourceFlags, 8, 16, QChar('0'))
-                    .arg(row.status)
-                    .toUpper();
-            }
-            if (result.entries.size() > rowLimit)
-            {
-                content += QStringLiteral("  ... 已省略 %1 行，完整数量见 returnedCount。\n")
-                    .arg(static_cast<qulonglong>(result.entries.size() - rowLimit));
-            }
-            return content;
-        }
-
-        static QString formatVolumeStackAuditRows(const ksword::ark::StorageVolumeStackAuditResult& result)
-        {
-            // 用途：展开 R0 VolumeStack 审计结果的前若干设备栈行。
-            // 输入：queryVolumeStackAudit 的返回值。
-            // 返回：包含 DeviceObject/DriverObject/风险/置信度的只读文本。
-            QString content;
-            content += QStringLiteral("fvevolPresent: %1\n").arg(result.fvevolPresent);
-            content += QStringLiteral("fvevolPosition: %1\n").arg(result.fvevolPosition);
-            content += QStringLiteral("fieldFlags: 0x%1\n")
-                .arg(result.fieldFlags, 8, 16, QChar('0'))
-                .toUpper();
-            const std::size_t rowLimit = std::min<std::size_t>(result.rows.size(), 12U);
-            for (std::size_t index = 0U; index < rowLimit; ++index)
-            {
-                const KSWORD_ARK_VOLUME_STACK_ROW& row = result.rows[index];
-                content += QStringLiteral("  #%1 StackIndex=%2 Driver=%3 Volume=%4 Confidence=%5 Risk=0x%6\n")
-                    .arg(static_cast<qulonglong>(index))
-                    .arg(row.stackIndex)
-                    .arg(fixedWideAuditText(row.driverName))
-                    .arg(fixedWideAuditText(row.volumeDeviceName))
-                    .arg(row.confidence)
-                    .arg(row.riskFlags, 8, 16, QChar('0'))
-                    .toUpper();
-                content += QStringLiteral("     DeviceObject=%1 DriverObject=%2 Attached=%3 Lower=%4 Type=0x%5 Characteristics=0x%6 Status=%7 Detail=%8\n")
-                    .arg(formatHex64(row.deviceObjectAddress))
-                    .arg(formatHex64(row.driverObjectAddress))
-                    .arg(formatHex64(row.attachedDeviceAddress))
-                    .arg(formatHex64(row.lowerDeviceAddress))
-                    .arg(row.deviceType, 8, 16, QChar('0'))
-                    .arg(row.deviceCharacteristics, 8, 16, QChar('0'))
-                    .arg(formatNtStatus(row.lastStatus))
-                    .arg(fixedWideAuditText(row.detail))
-                    .toUpper();
-            }
-            if (result.rows.size() > rowLimit)
-            {
-                content += QStringLiteral("  ... 已省略 %1 行，完整数量见 returnedCount。\n")
-                    .arg(static_cast<qulonglong>(result.rows.size() - rowLimit));
-            }
-            return content;
-        }
-
-        static QString formatBitlockerFveAuditRows(const ksword::ark::StorageBitlockerFveAuditResult& result)
-        {
-            // 用途：展开 BitLocker/FVE 安全状态摘要，明确不展示密钥材料。
-            // 输入：queryBitlockerFveAudit 的返回值。
-            // 返回：保护/转换/锁定状态、protector 类型计数和风险文本。
-            QString content;
-            content += QStringLiteral("fieldFlags: 0x%1\n")
-                .arg(result.fieldFlags, 8, 16, QChar('0'))
-                .toUpper();
-            const std::size_t rowLimit = std::min<std::size_t>(result.rows.size(), 8U);
-            for (std::size_t index = 0U; index < rowLimit; ++index)
-            {
-                const KSWORD_ARK_BITLOCKER_FVE_ROW& row = result.rows[index];
-                content += QStringLiteral("  #%1 Volume=%2 FvePresent=%3 FvePosition=%4 Protection=%5 Conversion=%6 Lock=%7 Confidence=%8 Risk=0x%9\n")
-                    .arg(static_cast<qulonglong>(index))
-                    .arg(fixedWideAuditText(row.volumeDeviceName))
-                    .arg(row.fvevolPresent)
-                    .arg(row.fvevolStackPosition)
-                    .arg(row.protectionStatus)
-                    .arg(row.conversionStatus)
-                    .arg(row.lockStatus)
-                    .arg(row.confidence)
-                    .arg(row.riskFlags, 8, 16, QChar('0'))
-                    .toUpper();
-                content += QStringLiteral("     ProtectorCounts: TPM=%1 TPM+PIN=%2 RecoveryPassword=%3 RecoveryKey=%4 StartupKey=%5 ClearOrSuspended=%6 Status=%7 Detail=%8\n")
-                    .arg(row.keyProtectorTypeCountTpm)
-                    .arg(row.keyProtectorTypeCountTpmPin)
-                    .arg(row.keyProtectorTypeCountRecoveryPassword)
-                    .arg(row.keyProtectorTypeCountRecoveryKey)
-                    .arg(row.keyProtectorTypeCountStartupKey)
-                    .arg(row.keyProtectorTypeCountClearOrSuspended)
-                    .arg(formatNtStatus(row.lastStatus))
-                    .arg(fixedWideAuditText(row.detail));
-            }
-            return content;
-        }
-
-        static QString formatMountMgrMappingAuditRows(const ksword::ark::StorageMountMgrMappingAuditResult& result)
-        {
-            // 用途：展开 MountMgr 盘符/GUID/NT 设备路径映射审计。
-            // 输入：queryMountMgrMappingAudit 的返回值。
-            // 返回：映射名称、风险、置信度和 detail 文本。
-            QString content;
-            content += QStringLiteral("fieldFlags: 0x%1\n")
-                .arg(result.fieldFlags, 8, 16, QChar('0'))
-                .toUpper();
-            const std::size_t rowLimit = std::min<std::size_t>(result.rows.size(), 16U);
-            for (std::size_t index = 0U; index < rowLimit; ++index)
-            {
-                const KSWORD_ARK_MOUNTMGR_MAPPING_ROW& row = result.rows[index];
-                content += QStringLiteral("  #%1 Drive=%2 Guid=%3 NtPath=%4 Confidence=%5 Risk=0x%6 Status=%7 Detail=%8\n")
-                    .arg(static_cast<qulonglong>(index))
-                    .arg(fixedWideAuditText(row.driveLetter))
-                    .arg(fixedWideAuditText(row.volumeGuid))
-                    .arg(fixedWideAuditText(row.ntDevicePath))
-                    .arg(row.confidence)
-                    .arg(row.riskFlags, 8, 16, QChar('0'))
-                    .arg(formatNtStatus(row.lastStatus))
-                    .arg(fixedWideAuditText(row.detail))
-                    .toUpper();
-            }
-            if (result.rows.size() > rowLimit)
-            {
-                content += QStringLiteral("  ... 已省略 %1 行，完整数量见 returnedCount。\n")
-                    .arg(static_cast<qulonglong>(result.rows.size() - rowLimit));
-            }
-            return content;
-        }
-
-        static QString formatFilesystemIntegrityAuditRows(const ksword::ark::StorageFilesystemIntegrityAuditResult& result)
-        {
-            // 用途：展开文件系统 DriverObject/FastIo/Dispatch 完整性审计行。
-            // 输入：queryFilesystemIntegrityAudit 的返回值。
-            // 返回：slot、目标地址、owner 模块、风险和置信度文本。
-            QString content;
-            content += QStringLiteral("fieldFlags: 0x%1\n")
-                .arg(result.fieldFlags, 8, 16, QChar('0'))
-                .toUpper();
-            const auto byteText = [](const std::vector<std::uint8_t>& bytes) {
-                QString text;
-                for (const std::uint8_t byte : bytes)
-                {
-                    if (!text.isEmpty())
-                    {
-                        text += QLatin1Char(' ');
-                    }
-                    text += QStringLiteral("%1").arg(byte, 2, 16, QLatin1Char('0')).toUpper();
-                }
-                return text;
-            };
-            const std::size_t rowLimit = result.rows.size();
-            std::map<std::uint64_t, ks::kernel::CleanImageBaselineResult> baselineCache;
-            for (std::size_t index = 0U; index < rowLimit; ++index)
-            {
-                const KSWORD_ARK_FILESYSTEM_INTEGRITY_ROW& row = result.rows[index];
-                if (row.targetAddress != 0U &&
-                    baselineCache.find(row.targetAddress) == baselineCache.end())
-                {
-                    baselineCache.emplace(
-                        row.targetAddress,
-                        ks::kernel::KernelCleanImageBaseline::compareAddress(
-                            row.targetAddress,
-                            16U));
-                }
-                const ks::kernel::CleanImageBaselineResult baseline =
-                    row.targetAddress == 0U
-                    ? ks::kernel::CleanImageBaselineResult{}
-                    : baselineCache.at(row.targetAddress);
-                content += QStringLiteral("  #%1 FsKind=%2 SlotType=%3 SlotIndex=%4 Driver=%5 Owner=%6 Confidence=%7 Risk=0x%8\n")
-                    .arg(static_cast<qulonglong>(index))
-                    .arg(row.fileSystemKind)
-                    .arg(row.slotType)
-                    .arg(row.slotIndex)
-                    .arg(fixedWideAuditText(row.driverName))
-                    .arg(fixedWideAuditText(row.ownerModuleName))
-                    .arg(row.confidence)
-                    .arg(row.riskFlags, 8, 16, QChar('0'))
-                    .toUpper();
-                content += QStringLiteral("     DriverObject=%1 DriverStart=%2 DriverSize=0x%3 SlotAddress=%4 Target=%5 OwnerBase=%6 OwnerSize=0x%7 Status=%8 Detail=%9\n")
-                    .arg(formatHex64(row.driverObjectAddress))
-                    .arg(formatHex64(row.driverStart))
-                    .arg(row.driverSize, 8, 16, QChar('0'))
-                    .arg(formatHex64(row.slotAddress))
-                    .arg(formatHex64(row.targetAddress))
-                    .arg(formatHex64(row.ownerModuleBase))
-                    .arg(row.ownerModuleSize, 8, 16, QChar('0'))
-                    .arg(formatNtStatus(row.lastStatus))
-                    .arg(fixedWideAuditText(row.detail))
-                    .toUpper();
-                content += QStringLiteral("     BaselineScope=TARGET_PROLOGUE_ONLY CleanImageBaseline=%1 IdentityMatched=%2 CodeIntegrityTrusted=%3 SigningLevel=%4 Relocated=%5 Differs=%6 Image=%7 RVA=0x%8\n")
-                    .arg(baseline.available ? QStringLiteral("AVAILABLE") : QStringLiteral("UNAVAILABLE"))
-                    .arg(baseline.identityMatched ? QStringLiteral("YES") : QStringLiteral("NO"))
-                    .arg(baseline.codeIntegrityTrusted ? QStringLiteral("YES") : QStringLiteral("NO"))
-                    .arg(baseline.signingLevel)
-                    .arg(baseline.relocationApplied ? QStringLiteral("YES") : QStringLiteral("NO"))
-                    .arg(baseline.available
-                        ? (baseline.differs ? QStringLiteral("YES") : QStringLiteral("NO"))
-                        : QStringLiteral("UNKNOWN"))
-                    .arg(baseline.imagePath.isEmpty() ? QStringLiteral("<unavailable>") : baseline.imagePath)
-                    .arg(baseline.relativeVirtualAddress, 8, 16, QChar('0'))
-                    .toUpper();
-                content += QStringLiteral("     SHA256=%1\n     SigningThumbprint=%2\n     ObservedBytes=%3\n     CleanBytes=%4\n     BaselineDetail=%5\n")
-                    .arg(baseline.imageSha256.isEmpty() ? QStringLiteral("<unavailable>") : baseline.imageSha256)
-                    .arg(baseline.signingThumbprint.isEmpty() ? QStringLiteral("<unavailable>") : baseline.signingThumbprint)
-                    .arg(byteText(baseline.observedBytes))
-                    .arg(byteText(baseline.cleanBytes))
-                    .arg(baseline.statusText);
-            }
-            return content;
-        }
-
         static QString fileTimeToText(const std::int64_t fileTimeValue)
         {
             // 用途：把 Windows FILETIME 语义的 100ns 时间戳转为本地时间文本。
@@ -6751,42 +6468,6 @@ namespace
             return driverClient.queryFileInfo(ntPathText.toStdWString(), flags);
         }
 
-        QString formatR0FileInfoText(const ksword::ark::FileInfoQueryResult& result) const
-        {
-            // 用途：生成 R0 文件信息页文本。
-            // 返回：包含状态、大小、时间戳、对象诊断地址和失败原因的多行文本。
-            QString content;
-            if (!result.io.ok)
-            {
-                content += QStringLiteral("状态: Unavailable\n");
-                content += QStringLiteral("原因: %1\n").arg(friendlyFileIoMessage(result.io.message));
-                content += QStringLiteral("Win32错误: %1\n").arg(result.io.win32Error);
-                return content;
-            }
-
-            content += QStringLiteral("协议版本: %1\n").arg(result.version);
-            content += QStringLiteral("查询状态: %1 (%2)\n").arg(fileInfoStatusText(result.queryStatus)).arg(result.queryStatus);
-            content += QStringLiteral("字段标志: 0x%1\n").arg(result.fieldFlags, 8, 16, QChar('0')).toUpper();
-            content += QStringLiteral("OpenStatus: %1\n").arg(formatNtStatus(result.openStatus));
-            content += QStringLiteral("BasicStatus: %1\n").arg(formatNtStatus(result.basicStatus));
-            content += QStringLiteral("StandardStatus: %1\n").arg(formatNtStatus(result.standardStatus));
-            content += QStringLiteral("ObjectStatus: %1\n").arg(formatNtStatus(result.objectStatus));
-            content += QStringLiteral("NameStatus: %1\n").arg(formatNtStatus(result.nameStatus));
-            content += QStringLiteral("大小(EndOfFile): %1 字节\n").arg(static_cast<qlonglong>(result.endOfFile));
-            content += QStringLiteral("分配大小: %1 字节\n").arg(static_cast<qlonglong>(result.allocationSize));
-            content += QStringLiteral("属性: %1\n").arg(fileAttributesToText(result.fileAttributes));
-            content += QStringLiteral("创建时间: %1\n").arg(fileTimeToText(result.creationTime));
-            content += QStringLiteral("最后访问: %1\n").arg(fileTimeToText(result.lastAccessTime));
-            content += QStringLiteral("最后写入: %1\n").arg(fileTimeToText(result.lastWriteTime));
-            content += QStringLiteral("ChangeTime: %1\n").arg(fileTimeToText(result.changeTime));
-            content += QStringLiteral("FileObject: %1\n").arg(formatHex64(result.fileObjectAddress));
-            content += QStringLiteral("SectionObjectPointers: %1\n").arg(formatHex64(result.sectionObjectPointersAddress));
-            content += QStringLiteral("DataSectionObject: %1\n").arg(formatHex64(result.dataSectionObjectAddress));
-            content += QStringLiteral("ImageSectionObject: %1\n").arg(formatHex64(result.imageSectionObjectAddress));
-            content += QStringLiteral("R0说明: %1\n").arg(friendlyFileIoMessage(result.io.message));
-            return content;
-        }
-
         // formatFileSizeText 作用：
         // - 文件大小同时给出易读单位和精确字节数，避免只有一串数字要用户自己数位数；
         // - 不足 1KB 时没有换算价值，只给字节数。
@@ -6853,220 +6534,75 @@ namespace
 
         void refreshGeneralTab()
         {
-            // 用途：按当前语言和已加载的 R0 数据重建常规页属性树。
-            // 处理：整棵清空后重建，语言切换与 R0 异步返回走同一条路径。
-            // 返回：无。
-            if (m_generalPropertyTree == nullptr)
-            {
-                return;
-            }
-
-            const auto translated = [](const QString& sourceText)
-                {
-                    return ks::i18n::displayText(sourceText);
-                };
-            auto& languageManager = ks::i18n::LanguageManager::instance();
+            if (m_generalPropertyView == nullptr) return;
+            using file_dock_detail::PropertyDocument;
             const QFileInfo info(m_filePath);
-            const QString nativePath = QDir::toNativeSeparators(info.absoluteFilePath());
-            const QString ntPathText = m_generalNtPathText.isEmpty()
-                ? translated(QStringLiteral("<转换失败>"))
-                : m_generalNtPathText;
-            const QString yesText = languageManager.contextText(
-                QStringLiteral("file.detail.value.yes"), QStringLiteral("是"));
-            const QString noText = languageManager.contextText(
-                QStringLiteral("file.detail.value.no"), QStringLiteral("否"));
+            PropertyDocument doc;
+            doc.section(QStringLiteral("路径"));
+            doc.field(QStringLiteral("Win32 路径"), QDir::toNativeSeparators(info.absoluteFilePath()));
+            doc.field(QStringLiteral("NT 路径"), m_generalNtPathText.isEmpty()
+                ? QStringLiteral("<转换失败>") : m_generalNtPathText, m_generalNtPathText.isEmpty());
+            doc.field(QStringLiteral("查询来源"), !m_generalR0Loaded
+                ? QStringLiteral("R3 QFileInfo（R0 信息正在后台加载）")
+                : (m_generalR0Info.io.ok ? QStringLiteral("R3 QFileInfo + R0 KswordARK")
+                    : QStringLiteral("R3 QFileInfo（R0 不可用）")), true);
+            doc.section(QStringLiteral("基本信息"));
+            doc.field(QStringLiteral("文件名"), info.fileName());
+            doc.field(QStringLiteral("扩展名"), info.suffix());
+            doc.field(QStringLiteral("大小"), formatFileSizeText(static_cast<qulonglong>(std::max<qint64>(0, info.size()))));
             const QString timeFormat = QStringLiteral("yyyy-MM-dd HH:mm:ss");
-
-            m_generalPropertyTree->clear();
-            m_generalPropertyTree->setHeaderLabels(QStringList{
-                translated(QStringLiteral("属性")),
-                translated(QStringLiteral("值"))
-                });
-
-            QTreeWidgetItem* pathGroup = appendPropertyGroup(
-                m_generalPropertyTree, translated(QStringLiteral("路径")));
-            appendPropertyRow(pathGroup, translated(QStringLiteral("Win32 路径")), nativePath);
-            appendPropertyRow(pathGroup, translated(QStringLiteral("NT 路径")), ntPathText);
-            appendPropertyRow(
-                pathGroup,
-                translated(QStringLiteral("查询来源")),
-                !m_generalR0Loaded
-                    ? translated(QStringLiteral("R3 QFileInfo（R0 信息正在后台加载）"))
-                    : (m_generalR0Info.io.ok
-                        ? translated(QStringLiteral("R3 QFileInfo + R0 KswordARK"))
-                        : translated(QStringLiteral("R3 QFileInfo（R0 不可用）"))));
-
-            QTreeWidgetItem* basicGroup = appendPropertyGroup(
-                m_generalPropertyTree, translated(QStringLiteral("基本信息")));
-            appendPropertyRow(basicGroup, translated(QStringLiteral("文件名")), info.fileName());
-            appendPropertyRow(basicGroup, translated(QStringLiteral("扩展名")), info.suffix());
-            appendPropertyRow(
-                basicGroup,
-                translated(QStringLiteral("大小")),
-                formatFileSizeText(static_cast<qulonglong>(std::max<qint64>(0, info.size()))));
-            appendPropertyRow(
-                basicGroup,
-                translated(QStringLiteral("创建时间")),
-                info.birthTime().toString(timeFormat));
-            appendPropertyRow(
-                basicGroup,
-                translated(QStringLiteral("修改时间")),
-                info.lastModified().toString(timeFormat));
-            appendPropertyRow(
-                basicGroup,
-                translated(QStringLiteral("访问时间")),
-                info.lastRead().toString(timeFormat));
-            appendPropertyRow(
-                basicGroup,
-                translated(QStringLiteral("可执行")),
-                info.isExecutable() ? yesText : noText);
-            appendPropertyRow(
-                basicGroup,
-                translated(QStringLiteral("隐藏")),
-                info.isHidden() ? yesText : noText);
-            appendPropertyRow(
-                basicGroup,
-                translated(QStringLiteral("可写")),
-                info.isWritable() ? yesText : noText);
-            appendPropertyRow(
-                basicGroup,
-                translated(QStringLiteral("重解析点")),
-                isPathReparsePoint(info.absoluteFilePath())
-                    ? translated(QStringLiteral("是（首屏只判断属性位，不追踪链接目标）"))
-                    : noText);
-
-            QTreeWidgetItem* kernelGroup = appendPropertyGroup(
-                m_generalPropertyTree, translated(QStringLiteral("内核视图（R0）")));
+            doc.field(QStringLiteral("创建时间"), info.birthTime().toString(timeFormat));
+            doc.field(QStringLiteral("修改时间"), info.lastModified().toString(timeFormat));
+            doc.field(QStringLiteral("访问时间"), info.lastRead().toString(timeFormat));
+            doc.field(QStringLiteral("可执行"), info.isExecutable() ? QStringLiteral("是") : QStringLiteral("否"), true);
+            doc.field(QStringLiteral("隐藏"), info.isHidden() ? QStringLiteral("是") : QStringLiteral("否"), true);
+            doc.field(QStringLiteral("可写"), info.isWritable() ? QStringLiteral("是") : QStringLiteral("否"), true);
+            doc.field(QStringLiteral("重解析点"), isPathReparsePoint(info.absoluteFilePath())
+                ? QStringLiteral("是（首屏只判断属性位，不追踪链接目标）") : QStringLiteral("否"), true);
+            doc.section(QStringLiteral("内核视图（R0）"));
             if (!m_generalR0Loaded)
+                doc.field(QStringLiteral("状态"), QStringLiteral("正在后台查询，属性窗口不会等待驱动返回"), true);
+            else if (!m_generalR0Info.io.ok)
             {
-                appendPropertyRow(
-                    kernelGroup,
-                    translated(QStringLiteral("状态")),
-                    translated(QStringLiteral("正在后台查询，属性窗口不会等待驱动返回")));
-                syncGeneralTextView();
-                return;
+                doc.field(QStringLiteral("状态"), QStringLiteral("不可用"), true);
+                doc.field(QStringLiteral("原因"), friendlyFileIoMessage(m_generalR0Info.io.message), true);
+                doc.field(QStringLiteral("Win32 错误码"), QString::number(m_generalR0Info.io.win32Error));
             }
-            if (!m_generalR0Info.io.ok)
+            else
             {
-                appendPropertyRow(
-                    kernelGroup,
-                    translated(QStringLiteral("状态")),
-                    translated(QStringLiteral("不可用")));
-                appendPropertyRow(
-                    kernelGroup,
-                    translated(QStringLiteral("原因")),
-                    translated(friendlyFileIoMessage(m_generalR0Info.io.message)));
-                appendPropertyRow(
-                    kernelGroup,
-                    translated(QStringLiteral("Win32 错误码")),
-                    QString::number(m_generalR0Info.io.win32Error));
-                syncGeneralTextView();
-                return;
+                const auto& r0 = m_generalR0Info;
+                if (!r0.objectName.empty()) doc.field(QStringLiteral("R0 对象名"), QString::fromStdWString(r0.objectName));
+                doc.field(QStringLiteral("大小（EndOfFile）"), formatFileSizeText(r0.endOfFile));
+                doc.field(QStringLiteral("磁盘占用（分配大小）"), formatFileSizeText(r0.allocationSize));
+                doc.field(QStringLiteral("创建时间"), fileTimeToText(r0.creationTime));
+                doc.field(QStringLiteral("最后访问"), fileTimeToText(r0.lastAccessTime));
+                doc.field(QStringLiteral("最后写入"), fileTimeToText(r0.lastWriteTime));
+                doc.field(QStringLiteral("元数据变更（ChangeTime）"), fileTimeToText(r0.changeTime));
+                doc.field(QStringLiteral("R0 说明"), friendlyFileIoMessage(r0.io.message), true);
+                doc.section(QStringLiteral("文件属性位"));
+                doc.field(QStringLiteral("属性"), formatHexValue(r0.fileAttributes, 8));
+                const auto flags = fileAttributeFlagRows(r0.fileAttributes);
+                if (flags.isEmpty()) doc.note(QStringLiteral("无置位属性"));
+                for (const auto& flag : flags) doc.field(flag.first, flag.second, true);
+                doc.section(QStringLiteral("驱动诊断"));
+                doc.field(QStringLiteral("协议版本"), QString::number(r0.version));
+                doc.field(QStringLiteral("查询状态"), QStringLiteral("%1 (%2)").arg(fileInfoStatusText(r0.queryStatus)).arg(r0.queryStatus));
+                doc.field(QStringLiteral("字段标志"), formatHexValue(r0.fieldFlags, 8));
+                doc.field(QStringLiteral("OpenStatus"), formatNtStatus(r0.openStatus));
+                doc.field(QStringLiteral("BasicStatus"), formatNtStatus(r0.basicStatus));
+                doc.field(QStringLiteral("StandardStatus"), formatNtStatus(r0.standardStatus));
+                doc.field(QStringLiteral("ObjectStatus"), formatNtStatus(r0.objectStatus));
+                doc.field(QStringLiteral("NameStatus"), formatNtStatus(r0.nameStatus));
+                doc.field(QStringLiteral("FileObject"), formatHex64(r0.fileObjectAddress));
+                doc.field(QStringLiteral("SectionObjectPointers"), formatHex64(r0.sectionObjectPointersAddress));
+                doc.field(QStringLiteral("DataSectionObject"), formatHex64(r0.dataSectionObjectAddress));
+                doc.field(QStringLiteral("ImageSectionObject"), formatHex64(r0.imageSectionObjectAddress));
             }
-
-            if (!m_generalR0Info.objectName.empty())
-            {
-                appendPropertyRow(
-                    kernelGroup,
-                    translated(QStringLiteral("R0 对象名")),
-                    QString::fromStdWString(m_generalR0Info.objectName));
-            }
-            appendPropertyRow(
-                kernelGroup,
-                translated(QStringLiteral("大小（EndOfFile）")),
-                formatFileSizeText(static_cast<qulonglong>(m_generalR0Info.endOfFile)));
-            appendPropertyRow(
-                kernelGroup,
-                translated(QStringLiteral("磁盘占用（分配大小）")),
-                formatFileSizeText(static_cast<qulonglong>(m_generalR0Info.allocationSize)));
-            appendPropertyRow(
-                kernelGroup,
-                translated(QStringLiteral("创建时间")),
-                fileTimeToText(m_generalR0Info.creationTime));
-            appendPropertyRow(
-                kernelGroup,
-                translated(QStringLiteral("最后访问")),
-                fileTimeToText(m_generalR0Info.lastAccessTime));
-            appendPropertyRow(
-                kernelGroup,
-                translated(QStringLiteral("最后写入")),
-                fileTimeToText(m_generalR0Info.lastWriteTime));
-            appendPropertyRow(
-                kernelGroup,
-                translated(QStringLiteral("元数据变更（ChangeTime）")),
-                fileTimeToText(m_generalR0Info.changeTime));
-            appendPropertyRow(
-                kernelGroup,
-                translated(QStringLiteral("R0 说明")),
-                translated(friendlyFileIoMessage(m_generalR0Info.io.message)));
-
-            QTreeWidgetItem* attributeGroup = appendPropertyGroup(
-                m_generalPropertyTree, translated(QStringLiteral("文件属性位")));
-            attributeGroup->setText(1, formatHexValue(m_generalR0Info.fileAttributes, 8));
-            const QList<QPair<QString, QString>> attributeRows =
-                fileAttributeFlagRows(m_generalR0Info.fileAttributes);
-            if (attributeRows.isEmpty())
-            {
-                appendPropertyRow(
-                    attributeGroup,
-                    translated(QStringLiteral("无置位属性")),
-                    QString());
-            }
-            for (const QPair<QString, QString>& attributeRow : attributeRows)
-            {
-                appendPropertyRow(attributeGroup, attributeRow.first, translated(attributeRow.second));
-            }
-
-            // 驱动诊断地址对普通用户没有意义，默认折叠，需要时再展开。
-            QTreeWidgetItem* diagnosticGroup = appendPropertyGroup(
-                m_generalPropertyTree, translated(QStringLiteral("驱动诊断")));
-            diagnosticGroup->setExpanded(false);
-            appendPropertyRow(
-                diagnosticGroup,
-                translated(QStringLiteral("协议版本")),
-                QString::number(m_generalR0Info.version));
-            appendPropertyRow(
-                diagnosticGroup,
-                translated(QStringLiteral("查询状态")),
-                QStringLiteral("%1 (%2)")
-                    .arg(fileInfoStatusText(m_generalR0Info.queryStatus))
-                    .arg(m_generalR0Info.queryStatus));
-            appendPropertyRow(
-                diagnosticGroup,
-                translated(QStringLiteral("字段标志")),
-                formatHexValue(m_generalR0Info.fieldFlags, 8));
-            appendPropertyRow(diagnosticGroup, QStringLiteral("OpenStatus"), formatNtStatus(m_generalR0Info.openStatus));
-            appendPropertyRow(diagnosticGroup, QStringLiteral("BasicStatus"), formatNtStatus(m_generalR0Info.basicStatus));
-            appendPropertyRow(diagnosticGroup, QStringLiteral("StandardStatus"), formatNtStatus(m_generalR0Info.standardStatus));
-            appendPropertyRow(diagnosticGroup, QStringLiteral("ObjectStatus"), formatNtStatus(m_generalR0Info.objectStatus));
-            appendPropertyRow(diagnosticGroup, QStringLiteral("NameStatus"), formatNtStatus(m_generalR0Info.nameStatus));
-            appendPropertyRow(diagnosticGroup, QStringLiteral("FileObject"), formatHex64(m_generalR0Info.fileObjectAddress));
-            appendPropertyRow(diagnosticGroup, QStringLiteral("SectionObjectPointers"), formatHex64(m_generalR0Info.sectionObjectPointersAddress));
-            appendPropertyRow(diagnosticGroup, QStringLiteral("DataSectionObject"), formatHex64(m_generalR0Info.dataSectionObjectAddress));
-            appendPropertyRow(diagnosticGroup, QStringLiteral("ImageSectionObject"), formatHex64(m_generalR0Info.imageSectionObjectAddress));
-
-            syncGeneralTextView();
-        }
-
-        // syncGeneralTextView 作用：
-        // - 把当前属性树导出成缩进文本，回填到常规页的文本视图；
-        // - 文本视图不再单独拼一份内容：两种视图共用同一份已翻译数据，
-        //   语言切换或 R0 结果到达后不会出现“树更新了、文本还是旧的”。
-        // 返回：无。
-        void syncGeneralTextView()
-        {
-            if (m_generalTextEditor == nullptr)
-            {
-                return;
-            }
-
-            // 树内容已经本地化，setReportText 原样接入共享切换器，不再次翻译。
-            ks::ui::RefreshFieldTree(m_generalPropertyTree);
-            m_generalTextEditor->setReportText(propertyTreeToPlainText(m_generalPropertyTree));
+            m_generalPropertyView->setDocument(doc);
         }
 
         void startHashCalculation(
-            CodeEditorWidget* textEditorWidget,
+            file_dock_detail::FilePropertyView* textEditorWidget,
             QProgressBar* progressBar,
             QPushButton* startButton,
             QPushButton* cancelButton)
@@ -7090,13 +6626,15 @@ namespace
             cancelButton->setEnabled(true);
             cancelButton->setText(QStringLiteral("取消"));
             progressBar->setValue(0);
-            textEditorWidget->setLocalizedText(QStringLiteral("正在计算常用哈希，请等待...\n目标: %1")
-                .arg(QDir::toNativeSeparators(m_filePath)));
+            file_dock_detail::PropertyDocument loading;
+            loading.note(QStringLiteral("正在计算常用哈希，请等待..."));
+            loading.field(QStringLiteral("目标"), QDir::toNativeSeparators(m_filePath));
+            textEditorWidget->setDocument(loading);
 
             const QString filePathSnapshot = m_filePath;
             const auto cancelFlag = m_hashCancelRequested;
             QPointer<FileDetailDialog> guardThis(this);
-            QPointer<CodeEditorWidget> editorGuard(textEditorWidget);
+            QPointer<file_dock_detail::FilePropertyView> editorGuard(textEditorWidget);
             QPointer<QProgressBar> progressGuard(progressBar);
             QPointer<QPushButton> startGuard(startButton);
             QPointer<QPushButton> cancelGuard(cancelButton);
@@ -7143,22 +6681,17 @@ namespace
                             const auto nowTime = std::chrono::steady_clock::now();
                             const bool shouldReport =
                                 std::chrono::duration_cast<std::chrono::milliseconds>(nowTime - lastProgressTime).count() >= 100;
-                            if (shouldReport && guardThis != nullptr && progressGuard != nullptr)
+                            if (shouldReport)
                             {
                                 lastProgressTime = nowTime;
                                 const int progressValue = result.totalBytes > 0
                                     ? static_cast<int>((result.readBytes * 1000LL) / result.totalBytes)
                                     : 1000;
-                                FileDetailDialog* targetDialog = guardThis.data();
-                                if (targetDialog == nullptr)
-                                {
-                                    continue;
-                                }
                                 QMetaObject::invokeMethod(
-                                    targetDialog,
-                                    [progressGuard, progressValue]()
+                                    qApp,
+                                    [guardThis, progressGuard, progressValue]()
                                     {
-                                        if (progressGuard != nullptr)
+                                        if (guardThis != nullptr && progressGuard != nullptr)
                                         {
                                             progressGuard->setValue(std::min(progressValue, 1000));
                                         }
@@ -7178,14 +6711,8 @@ namespace
                         std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now() - beginTime).count());
 
-                    FileDetailDialog* targetDialog = guardThis.data();
-                    if (targetDialog == nullptr)
-                    {
-                        return;
-                    }
-
                     QMetaObject::invokeMethod(
-                        targetDialog,
+                        qApp,
                         [guardThis, editorGuard, progressGuard, startGuard, cancelGuard, result]()
                         {
                             if (guardThis == nullptr || editorGuard == nullptr ||
@@ -7205,25 +6732,23 @@ namespace
                             const double elapsedSeconds = std::max(0.001, static_cast<double>(result.elapsedMs) / 1000.0);
                             const double speedMiB = (static_cast<double>(result.readBytes) / (1024.0 * 1024.0)) / elapsedSeconds;
 
-                            QString content;
-                            content += ks::i18n::sourceText(QStringLiteral("算法: %1\n")).arg(commonHashNames().join(QStringLiteral(", ")));
-                            content += QStringLiteral("来源: 用户态流式读取(QCryptographicHash)\n");
-                            content += QStringLiteral("文件: %1\n").arg(QDir::toNativeSeparators(guardThis->m_filePath));
-                            content += QStringLiteral("总大小: %1 字节\n").arg(result.totalBytes);
-                            content += QStringLiteral("已读取: %1 字节\n").arg(result.readBytes);
-                            content += QStringLiteral("耗时: %1 ms\n").arg(result.elapsedMs);
-                            content += QStringLiteral("速度: %1 MiB/s\n").arg(QString::number(speedMiB, 'f', 2));
-                            content += QStringLiteral("是否取消: %1\n").arg(result.cancelled ? QStringLiteral("是") : QStringLiteral("否"));
+                            file_dock_detail::PropertyDocument doc;
+                            doc.section(QStringLiteral("哈希与完整性"));
+                            doc.field(QStringLiteral("算法"), commonHashNames().join(QStringLiteral(", ")));
+                            doc.field(QStringLiteral("来源"), QStringLiteral("用户态流式读取(QCryptographicHash)"), true);
+                            doc.field(QStringLiteral("文件"), QDir::toNativeSeparators(guardThis->m_filePath));
+                            doc.field(QStringLiteral("总大小"), formatFileSizeText(static_cast<qulonglong>(std::max<qint64>(0, result.totalBytes))));
+                            doc.field(QStringLiteral("已读取"), formatFileSizeText(static_cast<qulonglong>(std::max<qint64>(0, result.readBytes))));
+                            doc.field(QStringLiteral("耗时"), QStringLiteral("%1 ms").arg(result.elapsedMs));
+                            doc.field(QStringLiteral("速度"), QStringLiteral("%1 MiB/s").arg(QString::number(speedMiB, 'f', 2)));
+                            doc.field(QStringLiteral("是否取消"), result.cancelled ? QStringLiteral("是") : QStringLiteral("否"), true);
                             if (result.fileError != QFileDevice::NoError)
-                            {
-                                content += QStringLiteral("QFile错误码: %1\n")
-                                    .arg(static_cast<int>(result.fileError));
-                            }
-                            const QStringList names = commonHashNames();
+                                doc.field(QStringLiteral("QFile错误码"), QString::number(static_cast<int>(result.fileError)));
+                            doc.section(QStringLiteral("摘要"));
+                            const auto names = commonHashNames();
                             for (qsizetype index = 0; index < result.hashValues.size(); ++index)
-                                content += names.at(index) + QStringLiteral(": ")
-                                    + result.hashValues.at(index) + QLatin1Char('\n');
-                            editorGuard->setLocalizedText(content);
+                                doc.field(names.at(index), result.hashValues.at(index));
+                            editorGuard->setDocument(doc);
                         },
                         Qt::QueuedConnection);
                 });
@@ -7674,7 +7199,7 @@ namespace
             // 输入：info/ntPathText 为查询目标；界面数据由成员保存，便于语言切换时完整重绘。
             // 处理：工作线程调用 ArkDriverClient；UI 线程保存结果并按当前语言重建正文。
             // 返回：无；对话框关闭或控件释放后自动丢弃结果。
-            if (m_generalPropertyTree == nullptr)
+            if (m_generalPropertyView == nullptr)
             {
                 return;
             }
@@ -7683,22 +7208,15 @@ namespace
             QPointer<FileDetailDialog> guardThis(this);
             auto* task = QRunnable::create([guardThis, info, ntPathText, loadGeneration]()
                 {
-                    FileDetailDialog* targetDialog = guardThis.data();
-                    if (targetDialog == nullptr)
+                    if (guardThis == nullptr)
                     {
                         return;
                     }
 
                     const ksword::ark::FileInfoQueryResult r0Info =
                         FileDetailDialog::queryR0FileInfo(info, ntPathText);
-                    targetDialog = guardThis.data();
-                    if (targetDialog == nullptr)
-                    {
-                        return;
-                    }
-
                     QMetaObject::invokeMethod(
-                        targetDialog,
+                        qApp,
                         [guardThis, r0Info, loadGeneration]()
                         {
                             if (guardThis == nullptr ||
@@ -7724,7 +7242,7 @@ namespace
             // 处理：同步调用 Windows 安全 API，同时保留旧文本明细和新表格行。
             // 返回：FileSecuritySnapshot；读取失败时 detailText 包含错误码，aceRows 可为空。
             FileSecuritySnapshot snapshot;
-            QString content;
+            file_dock_detail::PropertyDocument content;
             std::wstring nativePathBuffer = nativePath.toStdWString();
 
             PSID ownerSid = nullptr;
@@ -7746,7 +7264,7 @@ namespace
             snapshot.descriptorError = queryResult;
             if (queryResult != ERROR_SUCCESS)
             {
-                content += QStringLiteral("\n深层安全描述符读取失败, code=%1\n").arg(queryResult);
+                content.field(QStringLiteral("深层安全描述符读取失败"), QString::number(queryResult));
             }
             else
             {
@@ -7756,15 +7274,15 @@ namespace
                 snapshot.groupSidText = sidToStringText(groupSid);
                 snapshot.groupAccountText = sidToAccountText(groupSid);
 
-                content += QStringLiteral("\n[Owner]\n");
-                content += QStringLiteral("SID: %1\n").arg(snapshot.ownerSidText);
-                content += QStringLiteral("账户: %1\n").arg(snapshot.ownerAccountText);
+                content.section(QStringLiteral("Owner"));
+                content.field(QStringLiteral("SID"), snapshot.ownerSidText);
+                content.field(QStringLiteral("账户"), snapshot.ownerAccountText);
 
-                content += QStringLiteral("\n[Primary Group]\n");
-                content += QStringLiteral("SID: %1\n").arg(snapshot.groupSidText);
-                content += QStringLiteral("账户: %1\n").arg(snapshot.groupAccountText);
+                content.section(QStringLiteral("Primary Group"));
+                content.field(QStringLiteral("SID"), snapshot.groupSidText);
+                content.field(QStringLiteral("账户"), snapshot.groupAccountText);
 
-                appendAclText(QStringLiteral("DACL"), dacl, content);
+                appendAclDocument(QStringLiteral("DACL"), dacl, content);
                 appendAclRows(QStringLiteral("DACL"), dacl, snapshot.aceRows);
                 ::LocalFree(securityDescriptor);
             }
@@ -7786,54 +7304,47 @@ namespace
             if (saclResult == ERROR_SUCCESS)
             {
                 snapshot.saclOk = true;
-                appendAclText(QStringLiteral("SACL"), sacl, content);
+                appendAclDocument(QStringLiteral("SACL"), sacl, content);
                 appendAclRows(QStringLiteral("SACL"), sacl, snapshot.aceRows);
                 ::LocalFree(saclDescriptor);
             }
             else
             {
-                content += QStringLiteral("\n[SACL]\n");
-                content += QStringLiteral("读取失败（通常需要 SeSecurityPrivilege）, code=%1\n").arg(saclResult);
+                content.section(QStringLiteral("SACL"));
+                content.field(QStringLiteral("读取失败（通常需要 SeSecurityPrivilege）"), QString::number(saclResult));
             }
 
-            content += QStringLiteral("\n说明：Mask 显示为十六进制，权限列为常见位标志拆解。");
-            snapshot.detailText = content;
+            content.note(QStringLiteral("说明：Mask 显示为十六进制，权限列为常见位标志拆解。"));
+            snapshot.details = content;
             return snapshot;
-        }
-
-        static QString buildSecurityDeepText(const QString& nativePath)
-        {
-            // 用途：兼容旧调用点，生成纯文本安全描述符明细。
-            // 输入：nativePath 为 Windows 本机路径。
-            // 处理：委托 loadFileSecuritySnapshot，避免维护两套 ACL 解析逻辑。
-            // 返回：可展示文本；失败时包含错误码。
-            return loadFileSecuritySnapshot(nativePath).detailText;
         }
 
         void populateSecurityWidgets(
             QTableWidget* aceTable,
-            CodeEditorWidget* detailEditor,
+            file_dock_detail::FilePropertyView* detailEditor,
             QLabel* statusLabel,
-            const QString& baseContent,
-            const FileSecuritySnapshot& snapshot)
+            const file_dock_detail::PropertyDocument& baseContent,
+            const FileSecuritySnapshot& snapshot,
+            const std::uint64_t generation)
         {
             // 用途：把后台读取的权限快照回填到权限页 UI。
             // 输入：aceTable/detailEditor/statusLabel 为目标控件，snapshot 为读取结果。
-            // 处理：表格展示可编辑 DACL ACE，详情框保留完整文本和错误码。
+            // 处理：表格展示可编辑 DACL ACE，字段视图保留完整描述符和错误码。
             // 返回：无；控件为空时跳过对应更新。
+            if (generation != m_securityLoadGeneration) return;
             if (aceTable != nullptr &&
                 ks::ui::IsTableUiCommitBlockedByContextMenu({ aceTable }))
             {
                 const auto snapshotGuard = std::make_shared<FileSecuritySnapshot>(snapshot);
                 const QPointer<FileDetailDialog> safeThis(this);
                 const QPointer<QTableWidget> tableGuard(aceTable);
-                const QPointer<CodeEditorWidget> editorGuard(detailEditor);
+                const QPointer<file_dock_detail::FilePropertyView> editorGuard(detailEditor);
                 const QPointer<QLabel> statusGuard(statusLabel);
                 if (ks::ui::DeferTableUiCommitIfContextMenuOpen(
                     this,
                     QStringLiteral("file-detail-security-snapshot"),
                     { aceTable },
-                    [safeThis, tableGuard, editorGuard, statusGuard, baseContent, snapshotGuard]()
+                    [safeThis, tableGuard, editorGuard, statusGuard, baseContent, snapshotGuard, generation]()
                     {
                         if (!safeThis.isNull())
                         {
@@ -7842,7 +7353,8 @@ namespace
                                 editorGuard,
                                 statusGuard,
                                 baseContent,
-                                *snapshotGuard);
+                                *snapshotGuard,
+                                generation);
                         }
                     }))
                 {
@@ -7887,17 +7399,9 @@ namespace
 
             if (detailEditor != nullptr)
             {
-                QString detailText = baseContent;
-                if (snapshot.descriptorOk)
-                {
-                    detailText += QStringLiteral("\n[摘要]\nOwner: %1 | %2\nPrimary Group: %3 | %4\n")
-                        .arg(snapshot.ownerAccountText)
-                        .arg(snapshot.ownerSidText)
-                        .arg(snapshot.groupAccountText)
-                        .arg(snapshot.groupSidText);
-                }
-                detailText += snapshot.detailText;
-                detailEditor->setLocalizedText(detailText);
+                auto doc = baseContent;
+                doc.nodes += snapshot.details.nodes;
+                detailEditor->setDocument(doc);
             }
 
             if (statusLabel != nullptr)
@@ -7917,14 +7421,14 @@ namespace
 
         void startSecurityDeepLoad(
             QTableWidget* aceTable,
-            CodeEditorWidget* detailEditor,
+            file_dock_detail::FilePropertyView* detailEditor,
             QLabel* statusLabel,
-            const QString& baseContent,
+            const file_dock_detail::PropertyDocument& baseContent,
             const QString& nativePath)
         {
-            // 用途：后台执行深层 ACL/SACL 解析并刷新权限页 UI。
+            // 用途：后台执行深层 ACL/SACL 解析并刷新权限页字段。
             // 输入：baseContent 为快速权限摘要，nativePath 为目标路径。
-            // 处理：工作线程读取安全描述符，UI 线程更新表格、状态和详情文本。
+            // 处理：工作线程读取安全描述符，UI 线程更新表格、状态和字段快照。
             // 返回：无；控件失效时丢弃结果。
             if (aceTable == nullptr || detailEditor == nullptr || statusLabel == nullptr)
             {
@@ -7933,25 +7437,19 @@ namespace
 
             QPointer<FileDetailDialog> guardThis(this);
             QPointer<QTableWidget> tableGuard(aceTable);
-            QPointer<CodeEditorWidget> editorGuard(detailEditor);
+            QPointer<file_dock_detail::FilePropertyView> editorGuard(detailEditor);
             QPointer<QLabel> statusGuard(statusLabel);
-            auto* task = QRunnable::create([guardThis, tableGuard, editorGuard, statusGuard, baseContent, nativePath]()
+            const auto generation = ++m_securityLoadGeneration;
+            auto* task = QRunnable::create([guardThis, tableGuard, editorGuard, statusGuard, baseContent, nativePath, generation]()
                 {
-                    FileDetailDialog* targetDialog = guardThis.data();
-                    if (targetDialog == nullptr)
+                    if (guardThis == nullptr)
                     {
                         return;
                     }
                     const FileSecuritySnapshot snapshot = FileDetailDialog::loadFileSecuritySnapshot(nativePath);
-                    targetDialog = guardThis.data();
-                    if (targetDialog == nullptr)
-                    {
-                        return;
-                    }
-
                     QMetaObject::invokeMethod(
-                        targetDialog,
-                        [guardThis, tableGuard, editorGuard, statusGuard, baseContent, snapshot]()
+                        qApp,
+                        [guardThis, tableGuard, editorGuard, statusGuard, baseContent, snapshot, generation]()
                         {
                             if (guardThis != nullptr)
                             {
@@ -7960,7 +7458,8 @@ namespace
                                     editorGuard,
                                     statusGuard,
                                     baseContent,
-                                    snapshot);
+                                    snapshot,
+                                    generation);
                             }
                         },
                         Qt::QueuedConnection);
@@ -8378,22 +7877,118 @@ namespace
             }
         }
 
+        static file_dock_detail::PropertyDocument signatureEvidenceDocument(
+            const ksword::ark::ImageSignatureQueryResult& result)
+        {
+            file_dock_detail::PropertyDocument doc;
+            doc.section(QStringLiteral("R0 内核原始证据"));
+            doc.field(QStringLiteral("source"), QStringLiteral("R0 direct PE Security Directory (WinTrust not used)"));
+            doc.field(QStringLiteral("communication.ok"), result.io.ok ? QStringLiteral("true") : QStringLiteral("false"));
+            doc.field(QStringLiteral("communication.win32_error"), QString::number(result.io.win32Error));
+            doc.field(QStringLiteral("communication.bytes_returned"), QString::number(result.io.bytesReturned));
+            doc.field(QStringLiteral("communication.unsupported"), result.unsupported ? QStringLiteral("true") : QStringLiteral("false"));
+            doc.field(QStringLiteral("communication.detail"), QString::fromStdString(result.io.message));
+            if (!result.io.ok) return doc;
+            const auto& r = result.response;
+            doc.field(QStringLiteral("protocol.version"), QString::number(r.version));
+            doc.field(QStringLiteral("protocol.size"), QString::number(r.size));
+            doc.field(QStringLiteral("query.status"), QString::number(r.queryStatus));
+            doc.field(QStringLiteral("file.size"), QString::number(r.fileSize));
+            doc.field(QStringLiteral("certificate_table.count"), QString::number(r.certificateCount));
+            doc.field(QStringLiteral("certificate_table.returned_count"), QString::number(r.returnedCertificateCount));
+            doc.field(QStringLiteral("certificate_table.pkcs7_count"), QString::number(r.pkcs7CertificateCount));
+            doc.field(QStringLiteral("certificate_table.nested_signature_oid_count"), QString::number(r.nestedSignatureCount));
+            doc.field(QStringLiteral("certificate_table.bytes_scanned"), QString::number(r.certificateBytesScanned));
+            doc.field(QStringLiteral("ci.cached_signing_level"), QString::number(r.signingLevel));
+            doc.field(QStringLiteral("query.flags"), formatHex64(static_cast<std::uint64_t>(r.requestFlags)));
+            doc.field(QStringLiteral("query.field_flags"), formatHex64(static_cast<std::uint64_t>(r.fieldFlags)));
+            doc.field(QStringLiteral("pe.structural_flags"), formatHex64(static_cast<std::uint64_t>(r.structuralFlags)));
+            doc.field(QStringLiteral("status.open"), formatNtStatus(r.openStatus));
+            doc.field(QStringLiteral("status.file_size"), formatNtStatus(r.fileSizeStatus));
+            doc.field(QStringLiteral("status.file_object"), formatNtStatus(r.objectStatus));
+            doc.field(QStringLiteral("status.pe_parse"), formatNtStatus(r.parseStatus));
+            doc.field(QStringLiteral("status.certificate_table"), formatNtStatus(r.certificateStatus));
+            doc.field(QStringLiteral("status.cached_signing_level"), formatNtStatus(r.signingLevelStatus));
+            doc.field(QStringLiteral("status.loaded_module_match"), formatNtStatus(r.loadedModuleStatus));
+            doc.field(QStringLiteral("pe.header_offset"), formatHex64(static_cast<std::uint64_t>(r.peHeaderOffset)));
+            doc.field(QStringLiteral("pe.machine"), formatHex64(static_cast<std::uint64_t>(r.peMachine)));
+            doc.field(QStringLiteral("pe.optional_magic"), formatHex64(static_cast<std::uint64_t>(r.optionalHeaderMagic)));
+            doc.field(QStringLiteral("pe.size_of_headers"), formatHex64(static_cast<std::uint64_t>(r.sizeOfHeaders)));
+            doc.field(QStringLiteral("certificate_table.file_offset"), formatHex64(static_cast<std::uint64_t>(r.certificateTableOffset)));
+            doc.field(QStringLiteral("certificate_table.size"), formatHex64(static_cast<std::uint64_t>(r.certificateTableSize)));
+            doc.field(QStringLiteral("loaded.expected_base"), formatHex64(static_cast<std::uint64_t>(r.expectedModuleBase)));
+            doc.field(QStringLiteral("loaded.matched_base"), formatHex64(static_cast<std::uint64_t>(r.matchedModuleBase)));
+            doc.field(QStringLiteral("loaded.matched_size"), formatHex64(static_cast<std::uint64_t>(r.matchedModuleSize)));
+            doc.field(QStringLiteral("ci.cached_signing_flags"), formatHex64(static_cast<std::uint64_t>(r.signingLevelFlags)));
+            doc.field(QStringLiteral("ci.thumbprint_algorithm"), formatHex64(static_cast<std::uint64_t>(r.thumbprintAlgorithm)));
+            doc.field(QStringLiteral("pe.certificate_table_present"), (r.fieldFlags & KSWORD_ARK_IMAGE_SIGNATURE_FIELD_CERTIFICATE_TABLE) != 0UL ? QStringLiteral("true") : QStringLiteral("false"));
+            doc.field(QStringLiteral("pe.nested_signature_oid_present"), (r.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_NESTED_SIGNATURE_PRESENT) != 0UL ? QStringLiteral("true") : QStringLiteral("false"));
+            doc.field(QStringLiteral("loaded.module_base_match"), (r.fieldFlags & KSWORD_ARK_IMAGE_SIGNATURE_FIELD_LOADED_MODULE) != 0UL ? QStringLiteral("true") : QStringLiteral("false"));
+            doc.field(QStringLiteral("loaded.module_name_match"), (r.fieldFlags & KSWORD_ARK_IMAGE_SIGNATURE_FIELD_LOADED_MODULE_NAME_MATCH) != 0UL ? QStringLiteral("true") : QStringLiteral("false"));
+            doc.field(QStringLiteral("ci.cached_signing_level_present"), (r.fieldFlags & KSWORD_ARK_IMAGE_SIGNATURE_FIELD_SIGNING_LEVEL) != 0UL ? QStringLiteral("true") : QStringLiteral("false"));
+            QStringList findings;
+            const auto appendFinding = [&findings, &r](unsigned long flag, const QString& name)
+                { if ((r.structuralFlags & flag) != 0UL) findings.append(name); };
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_CERT_TABLE_UNALIGNED, QStringLiteral("cert_table_unaligned"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_CERT_TABLE_OUT_OF_RANGE, QStringLiteral("cert_table_out_of_range"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_ENTRY_HEADER_TRUNCATED, QStringLiteral("entry_header_truncated"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_ENTRY_LENGTH_INVALID, QStringLiteral("entry_length_invalid"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_ENTRY_RANGE_INVALID, QStringLiteral("entry_range_invalid"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_UNKNOWN_REVISION, QStringLiteral("unknown_revision"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_UNKNOWN_TYPE, QStringLiteral("unknown_certificate_type"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_ENTRY_OUTPUT_TRUNCATED, QStringLiteral("entry_output_truncated"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_TRAILING_BYTES, QStringLiteral("trailing_bytes"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_CERT_PADDING_NONZERO, QStringLiteral("certificate_padding_nonzero"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_SCAN_LIMIT_REACHED, QStringLiteral("scan_limit_reached"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_NESTED_SIGNATURE_PRESENT, QStringLiteral("nested_signature_oid_present"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_MULTIPLE_PKCS7_ENTRIES, QStringLiteral("multiple_pkcs7_entries"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_CERTIFICATE_READ_FAILED, QStringLiteral("certificate_read_failed"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_LOADED_NAME_MISMATCH, QStringLiteral("loaded_name_mismatch"));
+            appendFinding(KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_CERT_TABLE_OVERLAPS_HEADERS, QStringLiteral("cert_table_overlaps_headers"));
+            doc.field(QStringLiteral("pe.structural_findings"), findings.isEmpty() ? QStringLiteral("none") : findings.join(QLatin1Char(',')));
+            const auto thumbprintSize = std::min<std::size_t>(r.thumbprintSize, sizeof(r.thumbprint));
+            const QByteArray thumbprint(reinterpret_cast<const char*>(r.thumbprint), static_cast<qsizetype>(thumbprintSize));
+            doc.field(QStringLiteral("ci.thumbprint"), thumbprint.isEmpty() ? QStringLiteral("<unavailable>") : QString::fromLatin1(thumbprint.toHex()));
+            const auto entryCount = std::min<std::size_t>(r.returnedCertificateCount, KSWORD_ARK_IMAGE_SIGNATURE_MAX_ENTRIES);
+            for (std::size_t index = 0; index < entryCount; ++index)
+            {
+                const auto& entry = r.certificates[index];
+                doc.section(QStringLiteral("certificate[%1]").arg(index));
+                doc.field(QStringLiteral("file_offset"), formatHex64(static_cast<std::uint64_t>(entry.fileOffset)));
+                doc.field(QStringLiteral("length"), formatHex64(static_cast<std::uint64_t>(entry.length)));
+                doc.field(QStringLiteral("aligned_length"), formatHex64(static_cast<std::uint64_t>(entry.alignedLength)));
+                doc.field(QStringLiteral("revision"), formatHex64(static_cast<std::uint64_t>(entry.revision)));
+                doc.field(QStringLiteral("type"), formatHex64(static_cast<std::uint64_t>(entry.certificateType)));
+                doc.field(QStringLiteral("flags"), formatHex64(static_cast<std::uint64_t>(entry.flags)));
+                doc.field(QStringLiteral("content_fnv1a64_noncrypto"), formatHex64(static_cast<std::uint64_t>(entry.contentHashFnv1a64)));
+                doc.field(QStringLiteral("read_status"), formatNtStatus(entry.readStatus));
+                doc.field(QStringLiteral("nested_signature_oid_count"), QString::number(entry.nestedSignatureCount));
+                doc.field(QStringLiteral("content_bytes_scanned"), QString::number(entry.contentBytesScanned));
+            }
+            return doc;
+        }
+
         void startSignatureLoad(QWidget* page, QLabel* stateLabel, QLabel* hintLabel,
-            const QVector<QPointer<QLabel>>& values, CodeEditorWidget* evidenceEditor)
+            const QVector<QPointer<QLabel>>& values, file_dock_detail::FilePropertyView* evidenceEditor)
         {
             const QString filePathSnapshot = m_filePath;
             const QString ntPathSnapshot = buildDriverNtPath(filePathSnapshot);
             const QPointer<QWidget> pageGuard(page);
+            const QPointer<FileDetailDialog> dialogGuard(this);
             const QPointer<QLabel> stateGuard(stateLabel), hintGuard(hintLabel);
-            const QPointer<CodeEditorWidget> evidenceGuard(evidenceEditor);
-            auto* task = QRunnable::create([pageGuard, stateGuard, hintGuard, values, evidenceGuard,
+            const QPointer<file_dock_detail::FilePropertyView> evidenceGuard(evidenceEditor);
+            auto* task = QRunnable::create([pageGuard, dialogGuard, stateGuard, hintGuard, values, evidenceGuard,
                 filePathSnapshot, ntPathSnapshot]()
                 {
                     const auto signature = ks::file::metadata::inspectSignature(filePathSnapshot);
                     if (pageGuard == nullptr) return;
-                    QMetaObject::invokeMethod(pageGuard.data(), [pageGuard, stateGuard, hintGuard, values, signature]()
+                    QMetaObject::invokeMethod(qApp, [pageGuard, dialogGuard, stateGuard, hintGuard, values, signature]()
                         {
                             if (pageGuard == nullptr || stateGuard == nullptr || hintGuard == nullptr) return;
+                            if (dialogGuard == nullptr) return;
+                            dialogGuard->m_signatureLanguageRefresh = [stateGuard, hintGuard, values, signature]()
+                            {
+                                if (stateGuard == nullptr || hintGuard == nullptr) return;
                             const auto presentation = signatureTrustPresentation(signature);
                             stateGuard->setText(ks::i18n::sourceText(presentation.first));
                             hintGuard->setText(ks::i18n::sourceText(presentation.second));
@@ -8418,28 +8013,30 @@ namespace
                                 signature.chainStatus.isEmpty() ? unavailable : signature.chainStatus};
                             for (qsizetype index = 0; index < values.size(); ++index)
                                 if (values.at(index) != nullptr) values.at(index)->setText(texts.at(index));
+                            };
+                            dialogGuard->m_signatureLanguageRefresh();
                         }, Qt::QueuedConnection);
 
                     // R3 结果先回填，内核查询慢或不可用时不阻挡签名摘要。
-                    QString evidence;
+                    file_dock_detail::PropertyDocument evidence;
                     if (ntPathSnapshot.isEmpty())
-                        evidence = ks::i18n::sourceText(QStringLiteral("无法生成供内核使用的 NT 路径。"));
+                        evidence.note(QStringLiteral("无法生成供内核使用的 NT 路径。"));
                     else
-                        evidence = QString::fromStdString(ksword::ark::formatImageSignatureEvidence(
-                            ksword::ark::DriverClient().queryImageSignature(ntPathSnapshot.toStdWString())));
+                        evidence = signatureEvidenceDocument(ksword::ark::DriverClient().queryImageSignature(ntPathSnapshot.toStdWString()));
                     if (pageGuard == nullptr) return;
-                    QMetaObject::invokeMethod(pageGuard.data(), [evidenceGuard, evidence]()
+                    QMetaObject::invokeMethod(qApp, [pageGuard, dialogGuard, evidenceGuard, evidence]()
                         {
-                            if (evidenceGuard != nullptr) evidenceGuard->setRawText(evidence);
+                            if (pageGuard != nullptr && dialogGuard != nullptr && evidenceGuard != nullptr)
+                                evidenceGuard->setDocument(evidence);
                         }, Qt::QueuedConnection);
                 });
             task->setAutoDelete(true);
             QThreadPool::globalInstance()->start(task);
         }
 
-        void startPeAnalysisLoad(CodeEditorWidget* textEditorWidget)
+        void startPeAnalysisLoad(file_dock_detail::FilePropertyView* textEditorWidget)
         {
-            // 用途：后台执行 PE 深度解析文本生成。
+            // 用途：后台执行 PE 深度解析，返回分组字段快照。
             // 输入：textEditorWidget 为 PE 信息页显示目标。
             // 处理：调用 FilePropertyPeAnalyzer，避免 Import/Export/Directory 解析卡住 UI。
             // 返回：无。
@@ -8448,26 +8045,23 @@ namespace
                 return;
             }
 
-            textEditorWidget->setLocalizedText(QStringLiteral("PE 信息加载中...\n目标: %1")
-                .arg(QDir::toNativeSeparators(m_filePath)));
+            file_dock_detail::PropertyDocument loading;
+            loading.note(QStringLiteral("PE 信息加载中..."));
+            loading.field(QStringLiteral("目标"), QDir::toNativeSeparators(m_filePath));
+            textEditorWidget->setDocument(loading);
             const QString filePathSnapshot = m_filePath;
             QPointer<FileDetailDialog> guardThis(this);
-            QPointer<CodeEditorWidget> editorGuard(textEditorWidget);
+            QPointer<file_dock_detail::FilePropertyView> editorGuard(textEditorWidget);
             auto* task = QRunnable::create([guardThis, editorGuard, filePathSnapshot]()
                 {
-                    const QString peText = file_dock_detail::buildPeAnalysisText(filePathSnapshot);
-                    FileDetailDialog* targetDialog = guardThis.data();
-                    if (targetDialog == nullptr)
-                    {
-                        return;
-                    }
+                    const auto peDocument = file_dock_detail::buildPeAnalysisDocument(filePathSnapshot);
                     QMetaObject::invokeMethod(
-                        targetDialog,
-                        [editorGuard, peText]()
+                        qApp,
+                        [guardThis, editorGuard, peDocument]()
                         {
-                            if (editorGuard != nullptr)
+                            if (guardThis != nullptr && editorGuard != nullptr)
                             {
-                                editorGuard->setLocalizedText(peText);
+                                editorGuard->setDocument(peDocument);
                             }
                         },
                         Qt::QueuedConnection);
@@ -8713,7 +8307,7 @@ namespace
             statusLabel->setText(statusText);
         }
 
-        void startDependencyLoad(QTableWidget* table, QLabel* statusLabel, CodeEditorWidget* detailEditor)
+        void startDependencyLoad(QTableWidget* table, QLabel* statusLabel, file_dock_detail::FilePropertyView* detailEditor)
         {
             // 用途：后台读取 EXE/DLL Import Directory 并展示依赖 DLL。
             // 输入：table/statusLabel/detailEditor 为依赖页 UI 控件。
@@ -8725,14 +8319,16 @@ namespace
             }
 
             statusLabel->setText(QStringLiteral("● 正在后台读取 Import Directory..."));
-            detailEditor->setLocalizedText(QStringLiteral("依赖 DLL 加载中...\n目标: %1")
-                .arg(QDir::toNativeSeparators(m_filePath)));
+            file_dock_detail::PropertyDocument loading;
+            loading.note(QStringLiteral("依赖 DLL 加载中..."));
+            loading.field(QStringLiteral("目标"), QDir::toNativeSeparators(m_filePath));
+            detailEditor->setDocument(loading);
 
             const QString filePathSnapshot = m_filePath;
             QPointer<FileDetailDialog> guardThis(this);
             QPointer<QTableWidget> tableGuard(table);
             QPointer<QLabel> statusGuard(statusLabel);
-            QPointer<CodeEditorWidget> detailGuard(detailEditor);
+            QPointer<file_dock_detail::FilePropertyView> detailGuard(detailEditor);
             auto* task = QRunnable::create([guardThis, tableGuard, statusGuard, detailGuard, filePathSnapshot]()
                 {
                     const auto beginTime = std::chrono::steady_clock::now();
@@ -8742,13 +8338,8 @@ namespace
                         std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now() - beginTime).count());
 
-                    FileDetailDialog* targetDialog = guardThis.data();
-                    if (targetDialog == nullptr)
-                    {
-                        return;
-                    }
                     QMetaObject::invokeMethod(
-                        targetDialog,
+                        qApp,
                         [guardThis, tableGuard, statusGuard, detailGuard, result, elapsedMs]()
                         {
                             if (guardThis == nullptr || tableGuard == nullptr ||
@@ -8773,24 +8364,14 @@ namespace
                                     statusGuard,
                                     *resultSnapshot,
                                     elapsedMs);
-                                QString detailText;
-                                detailText += QStringLiteral("目标: %1\n")
-                                    .arg(QDir::toNativeSeparators(guardThis->m_filePath));
-                                if (!resultSnapshot->success ||
-                                    !resultSnapshot->errorText.trimmed().isEmpty())
-                                {
-                                    detailText += QStringLiteral("%1\n")
-                                        .arg(resultSnapshot->errorText.trimmed());
-                                }
-                                else
-                                {
-                                    detailText += QStringLiteral("依赖 DLL 名称:\n");
-                                    for (const QString& dllName : resultSnapshot->dllNames)
-                                    {
-                                        detailText += QStringLiteral("  - %1\n").arg(dllName);
-                                    }
-                                }
-                                detailGuard->setLocalizedText(detailText);
+                                file_dock_detail::PropertyDocument doc;
+                                doc.field(QStringLiteral("目标"), QDir::toNativeSeparators(guardThis->m_filePath));
+                                if (!resultSnapshot->errorText.trimmed().isEmpty())
+                                    doc.note(resultSnapshot->errorText.trimmed());
+                                doc.section(QStringLiteral("依赖 DLL 名称"));
+                                for (qsizetype index = 0; index < resultSnapshot->dllNames.size(); ++index)
+                                    doc.field(QString::number(index + 1), resultSnapshot->dllNames.at(index));
+                                detailGuard->setDocument(doc);
                             };
 
                             if (ks::ui::DeferTableUiCommitIfContextMenuOpen(
@@ -9696,9 +9277,24 @@ namespace
                     }
 
                     const QString titleText = tabGuard->tabText(tabIndex);
+                    if (lazyKey == QStringLiteral("metadata") || lazyKey == QStringLiteral("security"))
+                    {
+                        // Form controls retain their natural minimum width inside a
+                        // scroll area, so every editing action remains reachable on
+                        // small screens without enlarging the independent window.
+                        auto* formScroll = new QScrollArea(tabGuard.data());
+                        formScroll->setFrameShape(QFrame::NoFrame);
+                        formScroll->setWidgetResizable(true);
+                        realPage->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+                        formScroll->setWidget(realPage);
+                        realPage = formScroll;
+                    }
                     tabGuard->removeTab(tabIndex);
                     tabGuard->insertTab(tabIndex, realPage, titleText);
                     // 新建的懒加载页也必须立即拿到 Surface 调色板，不能回退到系统 Base。
+                    realPage->setMinimumSize(0, 0);
+                    realPage->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+                    tabGuard->tabBar()->hide();
                     applyThemeStyle();
                     tabGuard->setCurrentIndex(tabIndex);
                     placeholderGuard->deleteLater();
@@ -9785,24 +9381,53 @@ namespace
             QWidget* page = new QWidget(this);
             QVBoxLayout* layout = new QVBoxLayout(page);
 
-            // 常规页原本是一整块只读文本：属性名和值靠冒号对齐，取一条路径要手工划选，
-            // 超长值只能左右找，属性位还被压成一个 A|B|C 串。改成两列属性树后，
-            // 每条属性是独立一行，可单独复制，分组可折叠，值列还能悬停看全。
-            // 文本视图并未废弃，只是移到右上角切换框后面：整段复制和全文检索仍然需要它。
-            m_generalPropertyTree = new QTreeWidget(page);
-            configurePropertyTree(m_generalPropertyTree);
-            m_generalTextEditor = new CodeEditorWidget(page);
-            m_generalTextEditor->setReadOnly(true);
-            // Keep typed R0 fields while sharing report switching, copy and search.
-            m_generalTextEditor->setStructuredContentWidget(m_generalPropertyTree);
+            QFrame* header = new QFrame(page);
+            header->setObjectName(QStringLiteral("FileDetailIdentity"));
+            QHBoxLayout* headerLayout = new QHBoxLayout(header);
+            headerLayout->setContentsMargins(12, 12, 12, 12);
+            QLabel* icon = new QLabel(header);
+            QFileIconProvider iconProvider;
+            icon->setPixmap(iconProvider.icon(QFileInfo(m_filePath)).pixmap(48, 48));
+            headerLayout->addWidget(icon);
+            QVBoxLayout* identityLayout = new QVBoxLayout();
+            QLabel* name = new QLabel(QFileInfo(m_filePath).fileName(), header);
+            name->setTextFormat(Qt::PlainText);
+            name->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+            name->setWordWrap(true);
+            name->setMinimumWidth(0);
+            name->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            QFont nameFont = name->font();
+            nameFont.setBold(true);
+            nameFont.setPointSizeF(nameFont.pointSizeF() > 0 ? nameFont.pointSizeF() + 2 : 12);
+            name->setFont(nameFont);
+            QLabel* path = new QLabel(QDir::toNativeSeparators(m_filePath), header);
+            path->setTextFormat(Qt::PlainText);
+            path->setWordWrap(true);
+            path->setMinimumWidth(0);
+            path->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+            path->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            identityLayout->addWidget(name);
+            identityLayout->addWidget(path);
+            headerLayout->addLayout(identityLayout, 1);
+            QVBoxLayout* actions = new QVBoxLayout();
+            QPushButton* location = new QPushButton(ks::i18n::sourceText(QStringLiteral("打开所在位置")), header);
+            QPushButton* copyPath = new QPushButton(ks::i18n::sourceText(QStringLiteral("复制路径")), header);
+            actions->addWidget(location);
+            actions->addWidget(copyPath);
+            headerLayout->addLayout(actions);
+            connect(location, &QPushButton::clicked, this, [this]()
+                { QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(m_filePath).absolutePath())); });
+            connect(copyPath, &QPushButton::clicked, this, [this]()
+                { if (auto* clipboard = QApplication::clipboard()) clipboard->setText(QDir::toNativeSeparators(m_filePath)); });
+            layout->addWidget(header);
 
+            m_generalPropertyView = new file_dock_detail::FilePropertyView(page);
             const QFileInfo info(m_filePath);
             m_generalNtPathText = buildDriverNtPath(info.absoluteFilePath());
             m_generalR0Loaded = false;
             m_generalR0Info = {};
             refreshGeneralTab();
-
-            layout->addWidget(m_generalTextEditor, 1);
+            layout->addWidget(m_generalPropertyView, 1);
             startR0FileInfoLoad(info, m_generalNtPathText);
             return page;
         }
@@ -10920,18 +10545,47 @@ namespace
         {
             QWidget* page = new QWidget(this);
             QVBoxLayout* layout = new QVBoxLayout(page);
-            QString content;
-            if (!isPathReparsePoint(m_filePath))
-            {
-                content += QStringLiteral("目标路径: %1\n").arg(QDir::toNativeSeparators(m_filePath));
-                content += QStringLiteral("状态: 当前目标不是 FILE_ATTRIBUTE_REPARSE_POINT。\n");
-            }
-            else
-            {
-                content += formatReparsePointText(m_filePath);
-            }
-
-            layout->addWidget(buildReportView(page, content), 1);
+            auto* view = new file_dock_detail::FilePropertyView(page);
+            layout->addWidget(view, 1);
+            const QString pathSnapshot = m_filePath;
+            startNativePropertyLoad(view, [pathSnapshot]()
+                {
+                    file_dock_detail::PropertyDocument document;
+                    document.section(QStringLiteral("重解析点 / 符号链接"))
+                        .field(QStringLiteral("目标路径"), QDir::toNativeSeparators(pathSnapshot));
+                    if (!isPathReparsePoint(pathSnapshot))
+                    {
+                        document.field(QStringLiteral("状态"),
+                            QStringLiteral("当前目标不是 FILE_ATTRIBUTE_REPARSE_POINT。"), true);
+                        return document;
+                    }
+                    const ks::file::ReparsePointQueryResult result = queryReparsePointForUi(pathSnapshot);
+                    document.field(QStringLiteral("状态"), !result.pathOpened
+                        ? QStringLiteral("无法打开目标（使用 FILE_FLAG_OPEN_REPARSE_POINT）")
+                        : (!result.querySucceeded ? QStringLiteral("FSCTL_GET_REPARSE_POINT 查询失败")
+                            : QStringLiteral("OK")), true);
+                    document.field(QStringLiteral("是否重解析点"), formatAuditBool(result.isReparsePoint), true);
+                    if (!result.pathOpened || !result.querySucceeded)
+                    {
+                        document.field(QStringLiteral("Win32错误"), formatWin32ErrorText(result.win32Error));
+                        document.field(QStringLiteral("原因"), QString::fromStdWString(result.errorText));
+                        return document;
+                    }
+                    document.field(QStringLiteral("Reparse Tag"), formatReparseTagText(result.tag))
+                        .field(QStringLiteral("Tag名称"), QString::fromStdWString(result.tagName))
+                        .field(QStringLiteral("类型标记"), QString::fromStdWString(result.kindName))
+                        .field(QStringLiteral("Microsoft Tag"), formatAuditBool(result.isMicrosoftTag), true)
+                        .field(QStringLiteral("Name Surrogate"), formatAuditBool(result.isNameSurrogate), true)
+                        .field(QStringLiteral("是否相对链接"), formatAuditBool(result.isRelative), true)
+                        .field(QStringLiteral("Substitute Name"), QString::fromStdWString(result.substituteName))
+                        .field(QStringLiteral("Print Name"), QString::fromStdWString(result.printName))
+                        .field(QStringLiteral("解析目标路径"), reparseTargetFromResult(result))
+                        .field(QStringLiteral("原始信息"), QString::fromStdWString(result.rawPayloadText))
+                        .field(QStringLiteral("Raw Hex Preview"), QString::fromStdWString(result.rawHexPreview));
+                    if (!result.errorText.empty())
+                        document.field(QStringLiteral("解析提示"), QString::fromStdWString(result.errorText));
+                    return document;
+                });
             return page;
         }
 
@@ -10941,15 +10595,17 @@ namespace
             QVBoxLayout* layout = new QVBoxLayout(page);
 
             const QString nativePath = QDir::toNativeSeparators(m_filePath);
-            QString baseContent;
-            baseContent += QStringLiteral("目标路径: %1\n").arg(nativePath);
-
-            // 先给出 Qt 维度的快速权限摘要，便于与 ACL 细节对照。
+            file_dock_detail::PropertyDocument baseContent;
+            baseContent.field(QStringLiteral("目标路径"), nativePath);
+            baseContent.section(QStringLiteral("快速权限摘要"));
             QFileInfo info(m_filePath);
-            baseContent += QStringLiteral("快速权限摘要:\n");
-            baseContent += QStringLiteral("Read: %1\n").arg(info.isReadable() ? QStringLiteral("允许") : QStringLiteral("拒绝"));
-            baseContent += QStringLiteral("Write: %1\n").arg(info.isWritable() ? QStringLiteral("允许") : QStringLiteral("拒绝"));
-            baseContent += QStringLiteral("Execute: %1\n").arg(info.isExecutable() ? QStringLiteral("允许") : QStringLiteral("拒绝"));
+            baseContent.field(QStringLiteral("Read"), info.isReadable() ? QStringLiteral("允许") : QStringLiteral("拒绝"), true);
+            baseContent.field(QStringLiteral("Write"), info.isWritable() ? QStringLiteral("允许") : QStringLiteral("拒绝"), true);
+            baseContent.field(QStringLiteral("Execute"), info.isExecutable() ? QStringLiteral("允许") : QStringLiteral("拒绝"), true);
+            baseContent.section(QStringLiteral("操作说明"));
+            baseContent.note(QStringLiteral("上方表格用于结构化展示 ACE；继承 ACE、SACL、对象 ACE 默认只读展示。"));
+            baseContent.note(QStringLiteral("应用 ACE 使用 Windows 安全 API 写 DACL，失败会保留错误码。"));
+            baseContent.note(QStringLiteral("删除选中 ACE 只删除非继承 DACL 中精确匹配的当前 ACE。"));
 
             QGroupBox* operationGroup = new QGroupBox(QStringLiteral("权限编辑"), page);
             QGridLayout* operationLayout = new QGridLayout(operationGroup);
@@ -11056,14 +10712,10 @@ namespace
             }
             installFileTableCopyMenu(aceTable);
 
-            CodeEditorWidget* detailEditor = new CodeEditorWidget(splitter);
-            detailEditor->setReadOnly(true);
-            detailEditor->setLocalizedText(baseContent + QStringLiteral(
-                "\n深层 Owner/Group/DACL/SACL 正在后台加载...\n"
-                "\n操作说明：\n"
-                "- 上方表格用于结构化展示 ACE；继承 ACE、SACL、对象 ACE 默认只读展示。\n"
-                "- 应用 ACE 使用 Windows 安全 API 写 DACL，失败会保留错误码。\n"
-                "- 删除选中 ACE 只删除非继承 DACL 中精确匹配的当前 ACE。\n"));
+            auto* detailEditor = new file_dock_detail::FilePropertyView(splitter);
+            auto loading = baseContent;
+            loading.note(QStringLiteral("深层 Owner/Group/DACL/SACL 正在后台加载..."));
+            detailEditor->setDocument(loading);
 
             splitter->addWidget(aceTable);
             splitter->addWidget(detailEditor);
@@ -11099,7 +10751,9 @@ namespace
                     }
                     if (detailEditor != nullptr)
                     {
-                        detailEditor->setLocalizedText(baseContent + QStringLiteral("\n深层 Owner/Group/DACL/SACL 正在后台加载...\n"));
+                        auto loading = baseContent;
+                        loading.note(QStringLiteral("深层 Owner/Group/DACL/SACL 正在后台加载..."));
+                        detailEditor->setDocument(loading);
                     }
                     startSecurityDeepLoad(aceTable, detailEditor, statusLabel, baseContent, nativePath);
                 };
@@ -11377,14 +11031,15 @@ namespace
             progressBar->setValue(0);
             layout->addWidget(progressBar, 0);
 
-            CodeEditorWidget* textEditorWidget = new CodeEditorWidget(page);
-            textEditorWidget->setReadOnly(true);
+            auto* textEditorWidget = new file_dock_detail::FilePropertyView(page);
             layout->addWidget(textEditorWidget, 1);
 
-            textEditorWidget->setLocalizedText(QStringLiteral(
+            file_dock_detail::PropertyDocument explanation;
+            explanation.note(QStringLiteral(
                 "常用哈希算法：MD5、SHA-1、SHA-224、SHA-256、SHA-384、SHA-512、SHA3-256、BLAKE2b-512。\n"
                 "所有算法共享一次流式读取；取消或读取失败时不展示未完成的摘要。\n"
                 "可用 PowerShell Get-FileHash 对比 MD5、SHA1、SHA256、SHA384、SHA512。\n"));
+            textEditorWidget->setDocument(explanation);
 
             connect(startButton, &QPushButton::clicked, this, [this, textEditorWidget, progressBar, startButton, cancelButton]()
                 {
@@ -11587,71 +11242,153 @@ namespace
             return page;
         }
 
+        // Native documents are collected off the UI thread; no report parser is involved.
+        void startNativePropertyLoad(file_dock_detail::FilePropertyView* view,
+            const std::function<file_dock_detail::PropertyDocument()>& collect)
+        {
+            if (view == nullptr) return;
+            file_dock_detail::PropertyDocument loading;
+            loading.field(QStringLiteral("目标路径"), QDir::toNativeSeparators(m_filePath))
+                .note(QStringLiteral("正在加载..."));
+            view->setDocument(loading);
+            const QPointer<file_dock_detail::FilePropertyView> viewGuard(view);
+            const QPointer<FileDetailDialog> dialogGuard(this);
+            auto* task = QRunnable::create([viewGuard, dialogGuard, collect]()
+                {
+                    const file_dock_detail::PropertyDocument document = collect();
+                    QMetaObject::invokeMethod(qApp, [dialogGuard, viewGuard, document]()
+                        {
+                            if (dialogGuard != nullptr && viewGuard != nullptr) viewGuard->setDocument(document);
+                        }, Qt::QueuedConnection);
+                });
+            task->setAutoDelete(true);
+            QThreadPool::globalInstance()->start(task);
+        }
+
+        template <typename AuditResult>
+        static void appendNativeAuditHeader(file_dock_detail::PropertyDocument& document,
+            const QString& title, const AuditResult& result, const std::uint32_t responseFlags,
+            const bool explicitTruncated = false)
+        {
+            document.section(title)
+                .field(QStringLiteral("IO状态"), result.io.ok ? QStringLiteral("OK") : QStringLiteral("FAIL"), true)
+                .field(QStringLiteral("unsupported"), formatAuditBool(result.unsupported), true)
+                .field(QStringLiteral("version"), QString::number(result.version))
+                .field(QStringLiteral("status"), QString::number(result.status))
+                .field(QStringLiteral("totalCount"), QString::number(result.totalCount))
+                .field(QStringLiteral("returnedCount"), QString::number(result.returnedCount))
+                .field(QStringLiteral("truncated"), formatAuditBool(explicitTruncated ||
+                    result.returnedCount < result.totalCount), true)
+                .field(QStringLiteral("entrySize/rowSize"), QString::number(result.entrySize))
+                .field(QStringLiteral("responseFlags"), formatHexValue(responseFlags, 8))
+                .field(QStringLiteral("lastStatus"), formatNtStatus(result.lastStatus))
+                .field(QStringLiteral("win32Error"), QString::number(result.io.win32Error))
+                .field(QStringLiteral("bytesReturned"), QString::number(result.io.bytesReturned))
+                .field(QStringLiteral("说明"), friendlyFileIoMessage(result.io.message), true);
+        }
+
+        static void appendNativeFileInfo(file_dock_detail::PropertyDocument& document,
+            const ksword::ark::FileInfoQueryResult& result)
+        {
+            document.section(QStringLiteral("FileObject / Section / ControlArea"))
+                .field(QStringLiteral("IO状态"), result.io.ok ? QStringLiteral("OK") : QStringLiteral("FAIL"), true)
+                .field(QStringLiteral("协议版本"), QString::number(result.version))
+                .field(QStringLiteral("查询状态"), fileInfoStatusText(result.queryStatus), true)
+                .field(QStringLiteral("查询状态码"), QString::number(result.queryStatus))
+                .field(QStringLiteral("字段标志"), formatHexValue(result.fieldFlags, 8))
+                .field(QStringLiteral("原因"), friendlyFileIoMessage(result.io.message), true)
+                .field(QStringLiteral("Win32错误"), QString::number(result.io.win32Error))
+                .field(QStringLiteral("OpenStatus"), formatNtStatus(result.openStatus))
+                .field(QStringLiteral("BasicStatus"), formatNtStatus(result.basicStatus))
+                .field(QStringLiteral("StandardStatus"), formatNtStatus(result.standardStatus))
+                .field(QStringLiteral("ObjectStatus"), formatNtStatus(result.objectStatus))
+                .field(QStringLiteral("NameStatus"), formatNtStatus(result.nameStatus));
+            if (!result.io.ok) return;
+            document.field(QStringLiteral("R0 对象名"), QString::fromStdWString(result.objectName))
+                .field(QStringLiteral("文件属性"), fileAttributesToText(result.fileAttributes))
+                .field(QStringLiteral("AllocationSize"), QString::number(result.allocationSize))
+                .field(QStringLiteral("EndOfFile"), QString::number(result.endOfFile))
+                .field(QStringLiteral("创建时间"), fileTimeToText(result.creationTime))
+                .field(QStringLiteral("最后访问"), fileTimeToText(result.lastAccessTime))
+                .field(QStringLiteral("最后写入"), fileTimeToText(result.lastWriteTime))
+                .field(QStringLiteral("元数据变更（ChangeTime）"), fileTimeToText(result.changeTime))
+                .field(QStringLiteral("FileObject"), formatHex64(result.fileObjectAddress))
+                .field(QStringLiteral("SectionObjectPointers"), formatHex64(result.sectionObjectPointersAddress))
+                .field(QStringLiteral("DataSectionObject"), formatHex64(result.dataSectionObjectAddress))
+                .field(QStringLiteral("ImageSectionObject"), formatHex64(result.imageSectionObjectAddress));
+        }
+
         QWidget* buildFileObjectTab()
         {
             QWidget* page = new QWidget(this);
             QVBoxLayout* layout = new QVBoxLayout(page);
-            // 文件对象详情是“分组 + 名称: 值”的审计输出：
-            // - 用属性树展示，字段可逐条复制，说明性整句跨列成行；
-            // - 只读展示，不提供关闭句柄、解锁、删除等动作。
-
-            const QString nativePath = QDir::toNativeSeparators(m_filePath);
-            QString content;
-            content += QStringLiteral("目标路径: %1\n").arg(nativePath);
-            content += QStringLiteral("说明: 这里只做只读对象/句柄视图，不提供解锁、删除或绕过动作。\n\n");
-
-            const QFileInfo info(m_filePath);
-            const bool directoryHint = info.isDir();
-            HANDLE fileHandle = openReadOnlyFileHandle(m_filePath, directoryHint);
-            if (fileHandle == INVALID_HANDLE_VALUE)
-            {
-                content += QStringLiteral("打开失败: %1\n").arg(::GetLastError());
-                layout->addWidget(buildReportView(page, content), 1);
-                return page;
-            }
-
-            QString standardInfoText;
-            QString standardStatusText;
-            const bool standardOk = queryFileStandardInfoText(fileHandle, standardInfoText, standardStatusText);
-            content += QStringLiteral("[FileStandardInfo]\n");
-            content += standardOk ? standardInfoText : QStringLiteral("读取失败: %1\n").arg(standardStatusText);
-            content += QStringLiteral("\n[FileObject / Section / ControlArea]\n");
-            const QString ntPathText = buildDriverNtPath(m_filePath);
-            const ksword::ark::FileInfoQueryResult r0Info = queryR0FileInfo(info, ntPathText);
-            content += formatR0FileInfoText(r0Info);
-            const ksword::ark::FileSectionMappingsQueryResult sectionView =
-                ksword::ark::DriverClient().queryFileSectionMappings(
-                    ntPathText.toStdWString(),
-                    KSWORD_ARK_FILE_SECTION_QUERY_FLAG_INCLUDE_ALL,
-                    KSWORD_ARK_SECTION_MAPPING_LIMIT_DEFAULT);
-            content += QStringLiteral("\n[ControlArea Cross-View]\n");
-            if (sectionView.io.ok)
-            {
-                content += QStringLiteral("查询状态: %1\n").arg(sectionView.queryStatus);
-                content += QStringLiteral("查询说明: %1\n").arg(friendlyFileIoMessage(sectionView.io.message));
-                content += QStringLiteral("FileObject: %1\n").arg(formatHex64(sectionView.fileObjectAddress));
-                content += QStringLiteral("SectionObjectPointers: %1\n").arg(formatHex64(sectionView.sectionObjectPointersAddress));
-                content += QStringLiteral("DataControlArea: %1\n").arg(formatHex64(sectionView.dataControlAreaAddress));
-                content += QStringLiteral("ImageControlArea: %1\n").arg(formatHex64(sectionView.imageControlAreaAddress));
-                content += QStringLiteral("映射数量: %1 / %2\n")
-                    .arg(sectionView.returnedCount)
-                    .arg(sectionView.totalCount);
-                content += QStringLiteral("跨视图：R3 文件标准信息给出 DeletePending；R0 侧给出 FileObject / SectionObjectPointers / ControlArea。\n");
-            }
-            else
-            {
-                content += QStringLiteral("查询失败: %1\n").arg(friendlyFileIoMessage(sectionView.io.message));
-                content += QStringLiteral("跨视图：当前仅保留 R0 FileInfo 结果，ControlArea 查询降级。\n");
-            }
-            content += QStringLiteral("\n[Cross-View]\n");
-            content += QStringLiteral("R0 FileObject: %1\n").arg(formatHex64(r0Info.fileObjectAddress));
-            content += QStringLiteral("R0 SectionObjectPointers: %1\n").arg(formatHex64(r0Info.sectionObjectPointersAddress));
-            content += QStringLiteral("R0 DataSectionObject: %1\n").arg(formatHex64(r0Info.dataSectionObjectAddress));
-            content += QStringLiteral("R0 ImageSectionObject: %1\n").arg(formatHex64(r0Info.imageSectionObjectAddress));
-            content += QStringLiteral("R3 DeletePending/Share: 通过 FileStandardInfo 和共享只读打开侧写。\n");
-            content += QStringLiteral("R3 Shared flags: 采集句柄使用 READ|WRITE|DELETE 共享，仅用于只读探测。\n");
-            ::CloseHandle(fileHandle);
-            layout->addWidget(buildReportView(page, content), 1);
+            auto* view = new file_dock_detail::FilePropertyView(page);
+            layout->addWidget(view, 1);
+            const QString pathSnapshot = m_filePath;
+            startNativePropertyLoad(view, [pathSnapshot]()
+                {
+                    file_dock_detail::PropertyDocument document;
+                    document.section(QStringLiteral("FileStandardInfo"))
+                        .field(QStringLiteral("目标路径"), QDir::toNativeSeparators(pathSnapshot))
+                        .note(QStringLiteral("这里只做只读对象/句柄视图，不提供解锁、删除或绕过动作。"));
+                    const QFileInfo info(pathSnapshot);
+                    HANDLE fileHandle = openReadOnlyFileHandle(pathSnapshot, info.isDir());
+                    if (fileHandle == INVALID_HANDLE_VALUE)
+                    {
+                        document.field(QStringLiteral("打开失败"), QString::number(::GetLastError()));
+                        return document;
+                    }
+                    FILE_STANDARD_INFO standardInfo{};
+                    if (::GetFileInformationByHandleEx(fileHandle, FileStandardInfo, &standardInfo,
+                        static_cast<DWORD>(sizeof(standardInfo))) == FALSE)
+                    {
+                        document.field(QStringLiteral("读取失败"), QString::number(::GetLastError()));
+                    }
+                    else
+                    {
+                        document.field(QStringLiteral("DeletePending"), formatAuditBool(standardInfo.DeletePending), true)
+                            .field(QStringLiteral("Directory"), formatAuditBool(standardInfo.Directory), true)
+                            .field(QStringLiteral("AllocationSize"), QString::number(standardInfo.AllocationSize.QuadPart))
+                            .field(QStringLiteral("EndOfFile"), QString::number(standardInfo.EndOfFile.QuadPart))
+                            .field(QStringLiteral("NumberOfLinks"), QString::number(standardInfo.NumberOfLinks))
+                            .field(QStringLiteral("采集句柄 ShareAccess"), QStringLiteral("READ|WRITE|DELETE"));
+                    }
+                    ::CloseHandle(fileHandle);
+                    const QString ntPathText = buildDriverNtPath(pathSnapshot);
+                    const ksword::ark::FileInfoQueryResult r0Info = queryR0FileInfo(info, ntPathText);
+                    appendNativeFileInfo(document, r0Info);
+                    const ksword::ark::FileSectionMappingsQueryResult sectionView =
+                        ksword::ark::DriverClient().queryFileSectionMappings(ntPathText.toStdWString(),
+                            KSWORD_ARK_FILE_SECTION_QUERY_FLAG_INCLUDE_ALL,
+                            KSWORD_ARK_SECTION_MAPPING_LIMIT_DEFAULT);
+                    document.section(QStringLiteral("ControlArea Cross-View"))
+                        .field(QStringLiteral("IO状态"), sectionView.io.ok ? QStringLiteral("OK") : QStringLiteral("FAIL"), true)
+                        .field(QStringLiteral("查询状态"), QString::number(sectionView.queryStatus))
+                        .field(QStringLiteral("查询说明"), friendlyFileIoMessage(sectionView.io.message), true)
+                        .field(QStringLiteral("Win32错误"), QString::number(sectionView.io.win32Error));
+                    if (sectionView.io.ok)
+                    {
+                        document.field(QStringLiteral("FileObject"), formatHex64(sectionView.fileObjectAddress))
+                            .field(QStringLiteral("SectionObjectPointers"), formatHex64(sectionView.sectionObjectPointersAddress))
+                            .field(QStringLiteral("DataControlArea"), formatHex64(sectionView.dataControlAreaAddress))
+                            .field(QStringLiteral("ImageControlArea"), formatHex64(sectionView.imageControlAreaAddress))
+                            .field(QStringLiteral("returnedCount"), QString::number(sectionView.returnedCount))
+                            .field(QStringLiteral("totalCount"), QString::number(sectionView.totalCount))
+                            .note(QStringLiteral("跨视图：R3 文件标准信息给出 DeletePending；R0 侧给出 FileObject / SectionObjectPointers / ControlArea。"));
+                    }
+                    else
+                    {
+                        document.note(QStringLiteral("跨视图：当前仅保留 R0 FileInfo 结果，ControlArea 查询降级。"));
+                    }
+                    document.section(QStringLiteral("Cross-View"))
+                        .field(QStringLiteral("R0 FileObject"), formatHex64(r0Info.fileObjectAddress))
+                        .field(QStringLiteral("R0 SectionObjectPointers"), formatHex64(r0Info.sectionObjectPointersAddress))
+                        .field(QStringLiteral("R0 DataSectionObject"), formatHex64(r0Info.dataSectionObjectAddress))
+                        .field(QStringLiteral("R0 ImageSectionObject"), formatHex64(r0Info.imageSectionObjectAddress))
+                        .note(QStringLiteral("R3 DeletePending/Share: 通过 FileStandardInfo 和共享只读打开侧写。"))
+                        .note(QStringLiteral("R3 Shared flags: 采集句柄使用 READ|WRITE|DELETE 共享，仅用于只读探测。"));
+                    return document;
+                });
             return page;
         }
 
@@ -11659,184 +11396,466 @@ namespace
         {
             QWidget* page = new QWidget(this);
             QVBoxLayout* layout = new QVBoxLayout(page);
-            // 存储/BitLocker 审计输出同样是“分组 + 名称: 值”：
-            // - 用属性树展示，卷栈、挂载点、BitLocker 状态各占一行，可单独复制；
-            // - 页面仍只读，不提供卸载、解锁、绕过等动作。
-            // 首屏只放占位报告：卷 IOCTL 与 4 个 R0 审计都在后台采集，切页不再等待。
-
-            QString placeholderText;
-            placeholderText += QStringLiteral("目标路径: %1\n").arg(QDir::toNativeSeparators(m_filePath));
-            placeholderText += QStringLiteral("正在加载...\n");
-            QWidget* placeholderReportView = buildReportView(page, placeholderText);
-            layout->addWidget(placeholderReportView, 1);
-            startStorageAuditLoad(page, placeholderReportView);
+            auto* view = new file_dock_detail::FilePropertyView(page);
+            layout->addWidget(view, 1);
+            const QString pathSnapshot = m_filePath;
+            startNativePropertyLoad(view, [pathSnapshot]()
+                { return buildStorageAuditDocument(pathSnapshot); });
             return page;
         }
 
-        void startStorageAuditLoad(QWidget* storagePage, QWidget* placeholderReportView)
+        static file_dock_detail::PropertyDocument buildStorageAuditDocument(const QString& filePathText)
         {
-            // 用途：把 Storage / MountMgr / FVE 页的采集整体挪到后台线程。
-            // 输入：storagePage 为该页根控件；placeholderReportView 为首屏占位报告视图。
-            // 返回：无；采集完成后在 UI 线程用真实报告视图替换占位视图。
-            // 原因：卷 IOCTL（IOCTL_STORAGE_QUERY_PROPERTY 可能唤旋休眠盘）与 4 个
-            // ArkDriverClient 审计 IOCTL（每次都要 CreateFileW 打开设备再同步下发）
-            // 串起来单次切页要 0.3-3 秒，留在 QTabWidget::currentChanged 里就是整窗卡死。
-            if (storagePage == nullptr)
+            file_dock_detail::PropertyDocument document;
+            const QString volumeRoot = volumePathFromAnyPath(filePathText);
+            document.section(QStringLiteral("Storage / MountMgr / FVE"))
+                .field(QStringLiteral("目标路径"), QDir::toNativeSeparators(filePathText))
+                .field(QStringLiteral("卷根"), volumeRoot)
+                .note(QStringLiteral("本页只展示可见状态，不做解锁、卸载、绕过或密钥导出。"))
+                .note(QStringLiteral("DeviceObject 在此页以卷设备路径做只读侧写，不触碰内核对象本身。"));
+            std::array<wchar_t, MAX_PATH + 1U> volumeName{};
+            const bool volumeNameOk = !volumeRoot.isEmpty() &&
+                ::GetVolumeNameForVolumeMountPointW(volumeRoot.toStdWString().c_str(),
+                    volumeName.data(), static_cast<DWORD>(volumeName.size())) != FALSE;
+            const DWORD volumeNameError = volumeNameOk ? ERROR_SUCCESS :
+                (volumeRoot.isEmpty() ? ERROR_PATH_NOT_FOUND : ::GetLastError());
+            const QString volumeGuid = volumeNameOk ? QString::fromWCharArray(volumeName.data()) : QString();
+            QString deviceName = volumeGuid;
+            if (deviceName.startsWith(QStringLiteral("\\\\?\\"))) deviceName.remove(0, 4);
+            if (deviceName.endsWith(QLatin1Char('\\'))) deviceName.chop(1);
+            if (deviceName.isEmpty()) deviceName = volumeRoot.left(2);
+            std::array<wchar_t, 32768U> deviceBuffer{};
+            const bool devicePathOk = !deviceName.isEmpty() &&
+                ::QueryDosDeviceW(deviceName.toStdWString().c_str(), deviceBuffer.data(),
+                    static_cast<DWORD>(deviceBuffer.size())) != 0;
+            const DWORD devicePathError = devicePathOk ? ERROR_SUCCESS :
+                (deviceName.isEmpty() ? ERROR_PATH_NOT_FOUND : ::GetLastError());
+            const QString devicePath = devicePathOk ? QString::fromWCharArray(deviceBuffer.data()) : QString();
+            const QString mountPoints = buildMountPointsText(volumeGuid);
+            document.field(QStringLiteral("Volume GUID"), volumeGuid)
+                .field(QStringLiteral("挂载点"), mountPoints)
+                .field(QStringLiteral("设备路径"), devicePath)
+                .field(QStringLiteral("GetVolumeNameForVolumeMountPointW"), QString::number(volumeNameError))
+                .field(QStringLiteral("QueryDosDeviceW"), QString::number(devicePathError));
+            std::array<wchar_t, MAX_PATH + 1U> labelBuffer{}, fsBuffer{};
+            DWORD serialNumber = 0, maxComponentLength = 0, fsFlags = 0;
+            const bool volumeInfoOk = !volumeRoot.isEmpty() &&
+                ::GetVolumeInformationW(volumeRoot.toStdWString().c_str(), labelBuffer.data(),
+                    static_cast<DWORD>(labelBuffer.size()), &serialNumber, &maxComponentLength, &fsFlags,
+                    fsBuffer.data(), static_cast<DWORD>(fsBuffer.size())) != FALSE;
+            const DWORD volumeInfoError = volumeInfoOk ? ERROR_SUCCESS :
+                (volumeRoot.isEmpty() ? ERROR_PATH_NOT_FOUND : ::GetLastError());
+            const QString fsName = volumeInfoOk ? QString::fromWCharArray(fsBuffer.data()) : QString();
+            document.field(QStringLiteral("卷栈"), buildVolumeStackText(volumeRoot, devicePath, fsName, mountPoints))
+                .section(QStringLiteral("卷信息"))
+                .field(QStringLiteral("GetVolumeInformationW"), QString::number(volumeInfoError));
+            if (volumeInfoOk)
+                document.field(QStringLiteral("卷标"), QString::fromWCharArray(labelBuffer.data()))
+                    .field(QStringLiteral("文件系统"), fsName)
+                    .field(QStringLiteral("Serial"), formatHexValue(serialNumber, 8))
+                    .field(QStringLiteral("Flags"), formatHexValue(fsFlags, 8))
+                    .field(QStringLiteral("MaximumComponentLength"), QString::number(maxComponentLength));
+            document.section(QStringLiteral("存储描述"));
+            QString volumeOpenPath = volumeGuid;
+            if (volumeOpenPath.endsWith(QLatin1Char('\\'))) volumeOpenPath.chop(1);
+            if (volumeOpenPath.isEmpty() && volumeRoot.size() >= 2)
+                volumeOpenPath = QStringLiteral("\\\\.\\") + volumeRoot.left(2);
+            HANDLE storageHandle = volumeOpenPath.isEmpty() ? INVALID_HANDLE_VALUE :
+                ::CreateFileW(volumeOpenPath.toStdWString().c_str(), FILE_READ_ATTRIBUTES,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (storageHandle == INVALID_HANDLE_VALUE)
             {
-                return;
+                document.field(QStringLiteral("CreateFile"), QString::number(
+                    volumeOpenPath.isEmpty() ? ERROR_PATH_NOT_FOUND : ::GetLastError()));
             }
-
-            const QString filePathSnapshot = m_filePath;
-            QPointer<FileDetailDialog> guardThis(this);
-            QPointer<QWidget> pageGuard(storagePage);
-            QPointer<QWidget> placeholderGuard(placeholderReportView);
-            auto* task = QRunnable::create(
-                [guardThis, pageGuard, placeholderGuard, filePathSnapshot]()
+            else
+            {
+                STORAGE_PROPERTY_QUERY query{};
+                query.PropertyId = StorageDeviceProperty;
+                query.QueryType = PropertyStandardQuery;
+                std::array<std::uint8_t, 1024U> descriptorBytes{};
+                DWORD returnedBytes = 0;
+                const BOOL queried = ::DeviceIoControl(storageHandle, IOCTL_STORAGE_QUERY_PROPERTY,
+                    &query, static_cast<DWORD>(sizeof(query)), descriptorBytes.data(),
+                    static_cast<DWORD>(descriptorBytes.size()), &returnedBytes, nullptr);
+                const DWORD descriptorError = queried ? ERROR_SUCCESS : ::GetLastError();
+                document.field(QStringLiteral("IOCTL_STORAGE_QUERY_PROPERTY"), QString::number(descriptorError))
+                    .field(QStringLiteral("RawSize"), QString::number(returnedBytes));
+                if (queried && returnedBytes >= sizeof(STORAGE_DEVICE_DESCRIPTOR))
                 {
-                    // 后台只产出报告文本这一个值类型，不碰任何 QWidget。
-                    const QString reportText = buildStorageAuditReportText(filePathSnapshot);
-
-                    FileDetailDialog* const targetDialog = guardThis.data();
-                    if (targetDialog == nullptr)
-                    {
-                        return;
-                    }
-
-                    QMetaObject::invokeMethod(
-                        targetDialog,
-                        [guardThis, pageGuard, placeholderGuard, reportText]()
-                        {
-                            if (guardThis.isNull() || pageGuard.isNull())
-                            {
-                                return;
-                            }
-
-                            QWidget* const page = pageGuard.data();
-                            QVBoxLayout* const pageLayout = qobject_cast<QVBoxLayout*>(page->layout());
-                            if (pageLayout == nullptr)
-                            {
-                                return;
-                            }
-
-                            if (!placeholderGuard.isNull())
-                            {
-                                pageLayout->removeWidget(placeholderGuard.data());
-                                placeholderGuard->hide();
-                                placeholderGuard->deleteLater();
-                            }
-                            pageLayout->addWidget(buildReportView(page, reportText), 1);
-                            // 采集回来后才建的视图同样要拿到 Surface 调色板，不能回退到系统 Base。
-                            guardThis->applyThemeStyle();
-                        },
-                        Qt::QueuedConnection);
-                });
-            task->setAutoDelete(true);
-            QThreadPool::globalInstance()->start(task);
+                    const auto* descriptor = reinterpret_cast<const STORAGE_DEVICE_DESCRIPTOR*>(descriptorBytes.data());
+                    document.field(QStringLiteral("BusType"), QString::number(static_cast<unsigned long>(descriptor->BusType)))
+                        .field(QStringLiteral("Removable"), formatAuditBool(descriptor->RemovableMedia), true);
+                }
+                ::CloseHandle(storageHandle);
+            }
+            document.section(QStringLiteral("BitLocker"))
+                .field(QStringLiteral("BitLocker WMI"),
+                    QStringLiteral("查询语句已准备，当前版本保留降级文本展示。"), true);
+            const std::wstring volumeAuditPath = (devicePath.isEmpty() ? volumeRoot : devicePath).toStdWString();
+            const ksword::ark::DriverClient driverClient;
+            const auto volumeStack = driverClient.queryVolumeStackAudit(volumeAuditPath);
+            appendNativeAuditHeader(document, QStringLiteral("R0 审计补充 / VolumeStack"),
+                volumeStack, volumeStack.responseFlags);
+            document.field(QStringLiteral("fvevolPresent"), QString::number(volumeStack.fvevolPresent))
+                .field(QStringLiteral("fvevolPosition"), QString::number(volumeStack.fvevolPosition))
+                .field(QStringLiteral("fieldFlags"), formatHexValue(volumeStack.fieldFlags, 8));
+            for (std::size_t index = 0; index < volumeStack.rows.size(); ++index)
+            {
+                const auto& row = volumeStack.rows[index];
+                document.section(QStringLiteral("VolumeStack #%1").arg(index))
+                    .field(QStringLiteral("StackIndex"), QString::number(row.stackIndex))
+                    .field(QStringLiteral("Driver"), fixedWideAuditText(row.driverName))
+                    .field(QStringLiteral("Volume"), fixedWideAuditText(row.volumeDeviceName))
+                    .field(QStringLiteral("Confidence"), QString::number(row.confidence))
+                    .field(QStringLiteral("Risk"), formatHexValue(row.riskFlags, 8))
+                    .field(QStringLiteral("DeviceObject"), formatHex64(row.deviceObjectAddress))
+                    .field(QStringLiteral("DriverObject"), formatHex64(row.driverObjectAddress))
+                    .field(QStringLiteral("Attached"), formatHex64(row.attachedDeviceAddress))
+                    .field(QStringLiteral("Lower"), formatHex64(row.lowerDeviceAddress))
+                    .field(QStringLiteral("Type"), formatHexValue(row.deviceType, 8))
+                    .field(QStringLiteral("Characteristics"), formatHexValue(row.deviceCharacteristics, 8))
+                    .field(QStringLiteral("Status"), formatNtStatus(row.lastStatus))
+                    .field(QStringLiteral("Detail"), fixedWideAuditText(row.detail));
+            }
+            const auto mountMgr = driverClient.queryMountMgrMappingAudit(volumeAuditPath);
+            appendNativeAuditHeader(document, QStringLiteral("R0 审计补充 / MountMgr"),
+                mountMgr, mountMgr.responseFlags);
+            document.field(QStringLiteral("fieldFlags"), formatHexValue(mountMgr.fieldFlags, 8));
+            for (std::size_t index = 0; index < mountMgr.rows.size(); ++index)
+            {
+                const auto& row = mountMgr.rows[index];
+                document.section(QStringLiteral("MountMgr #%1").arg(index))
+                    .field(QStringLiteral("Drive"), fixedWideAuditText(row.driveLetter))
+                    .field(QStringLiteral("Guid"), fixedWideAuditText(row.volumeGuid))
+                    .field(QStringLiteral("NtPath"), fixedWideAuditText(row.ntDevicePath))
+                    .field(QStringLiteral("Confidence"), QString::number(row.confidence))
+                    .field(QStringLiteral("Risk"), formatHexValue(row.riskFlags, 8))
+                    .field(QStringLiteral("Status"), formatNtStatus(row.lastStatus))
+                    .field(QStringLiteral("Detail"), fixedWideAuditText(row.detail));
+            }
+            const auto filesystem = driverClient.queryFilesystemIntegrityAudit(volumeAuditPath);
+            appendNativeAuditHeader(document, QStringLiteral("R0 审计补充 / FilesystemIntegrity"),
+                filesystem, filesystem.responseFlags);
+            document.field(QStringLiteral("fieldFlags"), formatHexValue(filesystem.fieldFlags, 8));
+            std::map<std::uint64_t, ks::kernel::CleanImageBaselineResult> baselineCache;
+            const auto byteText = [](const std::vector<std::uint8_t>& bytes)
+                {
+                    return bytes.empty() ? QString() : QString::fromLatin1(
+                        QByteArray(reinterpret_cast<const char*>(bytes.data()),
+                            static_cast<qsizetype>(bytes.size())).toHex(' ').toUpper());
+                };
+            for (std::size_t index = 0; index < filesystem.rows.size(); ++index)
+            {
+                const auto& row = filesystem.rows[index];
+                if (row.targetAddress != 0 && baselineCache.find(row.targetAddress) == baselineCache.end())
+                    baselineCache.emplace(row.targetAddress,
+                        ks::kernel::KernelCleanImageBaseline::compareAddress(row.targetAddress, 16U));
+                const auto baseline = row.targetAddress == 0 ? ks::kernel::CleanImageBaselineResult{} :
+                    baselineCache.at(row.targetAddress);
+                document.section(QStringLiteral("FilesystemIntegrity #%1").arg(index))
+                    .field(QStringLiteral("FsKind"), QString::number(row.fileSystemKind))
+                    .field(QStringLiteral("SlotType"), QString::number(row.slotType))
+                    .field(QStringLiteral("SlotIndex"), QString::number(row.slotIndex))
+                    .field(QStringLiteral("Driver"), fixedWideAuditText(row.driverName))
+                    .field(QStringLiteral("Owner"), fixedWideAuditText(row.ownerModuleName))
+                    .field(QStringLiteral("Confidence"), QString::number(row.confidence))
+                    .field(QStringLiteral("Risk"), formatHexValue(row.riskFlags, 8))
+                    .field(QStringLiteral("DriverObject"), formatHex64(row.driverObjectAddress))
+                    .field(QStringLiteral("DriverStart"), formatHex64(row.driverStart))
+                    .field(QStringLiteral("DriverSize"), formatHexValue(row.driverSize, 8))
+                    .field(QStringLiteral("SlotAddress"), formatHex64(row.slotAddress))
+                    .field(QStringLiteral("Target"), formatHex64(row.targetAddress))
+                    .field(QStringLiteral("OwnerBase"), formatHex64(row.ownerModuleBase))
+                    .field(QStringLiteral("OwnerSize"), formatHexValue(row.ownerModuleSize, 8))
+                    .field(QStringLiteral("Status"), formatNtStatus(row.lastStatus))
+                    .field(QStringLiteral("Detail"), fixedWideAuditText(row.detail))
+                    .field(QStringLiteral("BaselineScope"), QStringLiteral("TARGET_PROLOGUE_ONLY"))
+                    .field(QStringLiteral("CleanImageBaseline"), baseline.available ? QStringLiteral("AVAILABLE") : QStringLiteral("UNAVAILABLE"), true)
+                    .field(QStringLiteral("IdentityMatched"), formatAuditBool(baseline.identityMatched), true)
+                    .field(QStringLiteral("CodeIntegrityTrusted"), formatAuditBool(baseline.codeIntegrityTrusted), true)
+                    .field(QStringLiteral("SigningLevel"), QString::number(baseline.signingLevel))
+                    .field(QStringLiteral("Relocated"), formatAuditBool(baseline.relocationApplied), true)
+                    .field(QStringLiteral("Differs"), baseline.available ? formatAuditBool(baseline.differs) : QStringLiteral("UNKNOWN"), true)
+                    .field(QStringLiteral("Image"), baseline.imagePath)
+                    .field(QStringLiteral("RVA"), formatHexValue(baseline.relativeVirtualAddress, 8))
+                    .field(QStringLiteral("SHA256"), baseline.imageSha256)
+                    .field(QStringLiteral("SigningThumbprint"), baseline.signingThumbprint)
+                    .field(QStringLiteral("ObservedBytes"), byteText(baseline.observedBytes))
+                    .field(QStringLiteral("CleanBytes"), byteText(baseline.cleanBytes))
+                    .field(QStringLiteral("BaselineDetail"), baseline.statusText, true);
+            }
+            const auto bitlocker = driverClient.queryBitlockerFveAudit(volumeAuditPath);
+            appendNativeAuditHeader(document, QStringLiteral("R0 审计补充 / BitLocker FVE"),
+                bitlocker, bitlocker.responseFlags);
+            document.field(QStringLiteral("fieldFlags"), formatHexValue(bitlocker.fieldFlags, 8));
+            for (std::size_t index = 0; index < bitlocker.rows.size(); ++index)
+            {
+                const auto& row = bitlocker.rows[index];
+                document.section(QStringLiteral("BitLocker FVE #%1").arg(index))
+                    .field(QStringLiteral("Volume"), fixedWideAuditText(row.volumeDeviceName))
+                    .field(QStringLiteral("FvePresent"), QString::number(row.fvevolPresent))
+                    .field(QStringLiteral("FvePosition"), QString::number(row.fvevolStackPosition))
+                    .field(QStringLiteral("Protection"), QString::number(row.protectionStatus))
+                    .field(QStringLiteral("Conversion"), QString::number(row.conversionStatus))
+                    .field(QStringLiteral("Lock"), QString::number(row.lockStatus))
+                    .field(QStringLiteral("Confidence"), QString::number(row.confidence))
+                    .field(QStringLiteral("Risk"), formatHexValue(row.riskFlags, 8))
+                    .field(QStringLiteral("TPM"), QString::number(row.keyProtectorTypeCountTpm))
+                    .field(QStringLiteral("TPM+PIN"), QString::number(row.keyProtectorTypeCountTpmPin))
+                    .field(QStringLiteral("RecoveryPassword"), QString::number(row.keyProtectorTypeCountRecoveryPassword))
+                    .field(QStringLiteral("RecoveryKey"), QString::number(row.keyProtectorTypeCountRecoveryKey))
+                    .field(QStringLiteral("StartupKey"), QString::number(row.keyProtectorTypeCountStartupKey))
+                    .field(QStringLiteral("ClearOrSuspended"), QString::number(row.keyProtectorTypeCountClearOrSuspended))
+                    .field(QStringLiteral("Status"), formatNtStatus(row.lastStatus))
+                    .field(QStringLiteral("Detail"), fixedWideAuditText(row.detail));
+            }
+            return document;
         }
 
-        static QString buildStorageAuditReportText(const QString& filePathText)
+        using NativeFilterFirst = std::function<HRESULT(void*, DWORD, DWORD*, HANDLE*)>;
+        using NativeFilterNext = std::function<HRESULT(HANDLE, void*, DWORD, DWORD*)>;
+        using NativeFilterClose = std::function<void(HANDLE)>;
+        using NativeFilterRecord = std::function<void(const void*, std::size_t)>;
+
+        static void enumerateNativeFilterRecords(file_dock_detail::PropertyDocument& document,
+            const NativeFilterFirst& first, const NativeFilterNext& next,
+            const NativeFilterClose& close, const NativeFilterRecord& append)
         {
-            // 用途：生成 Storage / MountMgr / FVE 页的完整只读报告文本。
-            // 输入：filePathText 为目标文件路径。
-            // 返回：可直接交给 buildReportView 的报告原文。
-            // 约束：本函数只做数据采集与字符串拼接，必须在后台线程调用。
-            const FileVolumeAuditSnapshot snapshot = queryFileVolumeAuditSnapshot(filePathText);
-            QString content;
-            content += QStringLiteral("目标路径: %1\n").arg(QDir::toNativeSeparators(filePathText));
-            content += QStringLiteral("卷根: %1\n").arg(snapshot.volumeRoot.isEmpty() ? QStringLiteral("<unknown>") : snapshot.volumeRoot);
-            content += QStringLiteral("卷栈: %1\n").arg(snapshot.volumeStackText.isEmpty() ? QStringLiteral("<unknown>") : snapshot.volumeStackText);
-            content += QStringLiteral("挂载点: %1\n").arg(snapshot.mountPointsText.isEmpty() ? QStringLiteral("<unknown>") : snapshot.mountPointsText);
-            content += QStringLiteral("设备路径: %1\n").arg(snapshot.devicePathText.isEmpty() ? QStringLiteral("<unknown>") : snapshot.devicePathText);
-            content += QStringLiteral("文件系统: %1\n").arg(snapshot.fsNameText.isEmpty() ? QStringLiteral("<unknown>") : snapshot.fsNameText);
-            content += QStringLiteral("卷标: %1\n").arg(snapshot.labelText.isEmpty() ? QStringLiteral("<unknown>") : snapshot.labelText);
-            content += QStringLiteral("存储描述: %1\n").arg(snapshot.storageText.isEmpty() ? QStringLiteral("<unknown>") : snapshot.storageText);
-            content += QStringLiteral("BitLocker: %1\n").arg(snapshot.bitLockerText.isEmpty() ? QStringLiteral("<unknown>") : snapshot.bitLockerText);
-            content += QStringLiteral("\n说明：本页只展示可见状态，不做解锁、卸载、绕过或密钥导出。\n");
-            content += QStringLiteral("说明：DeviceObject 在此页以卷设备路径做只读侧写，不触碰内核对象本身。\n");
+            std::vector<std::uint8_t> buffer(16U * 1024U);
+            DWORD returnedBytes = 0;
+            HANDLE handle = nullptr;
+            const auto grow = [&buffer]()
+                {
+                    constexpr std::size_t maximumRecordBytes = 16U * 1024U * 1024U;
+                    if (buffer.size() >= maximumRecordBytes) return false;
+                    buffer.resize(buffer.size() * 2U);
+                    return true;
+                };
+            HRESULT status = E_FAIL;
+            for (;;)
+            {
+                status = first(buffer.data(), static_cast<DWORD>(buffer.size()), &returnedBytes, &handle);
+                if (SUCCEEDED(status)) break;
+                if ((status == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) ||
+                    status == HRESULT_FROM_WIN32(ERROR_MORE_DATA)) && grow()) continue;
+                if (handle != nullptr) close(handle);
+                document.field(QStringLiteral("枚举状态"), formatHexValue(static_cast<std::uint32_t>(status), 8));
+                return;
+            }
+            for (;;)
+            {
+                if (returnedBytes <= buffer.size())
+                {
+                    std::size_t offset = 0;
+                    while (offset < returnedBytes)
+                    {
+                        const std::size_t remaining = returnedBytes - offset;
+                        if (remaining < sizeof(ULONG))
+                        {
+                            document.note(QStringLiteral("枚举记录链长度不足，已拒绝读取该记录。"));
+                            break;
+                        }
+                        ULONG nextOffset = 0;
+                        std::memcpy(&nextOffset, buffer.data() + offset, sizeof(nextOffset));
+                        if (nextOffset != 0 && (nextOffset < sizeof(ULONG) ||
+                            nextOffset % 8U != 0 || nextOffset >= remaining))
+                        {
+                            document.note(QStringLiteral("枚举记录链偏移无效，已拒绝读取该记录。"));
+                            break;
+                        }
+                        append(buffer.data() + offset, nextOffset == 0 ? remaining : nextOffset);
+                        if (nextOffset == 0) break;
+                        offset += nextOffset;
+                    }
+                }
+                else document.note(QStringLiteral("枚举返回长度超过缓冲区，已拒绝读取该记录。"));
+                for (;;)
+                {
+                    returnedBytes = 0;
+                    status = next(handle, buffer.data(), static_cast<DWORD>(buffer.size()), &returnedBytes);
+                    if ((status == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) ||
+                        status == HRESULT_FROM_WIN32(ERROR_MORE_DATA)) && grow()) continue;
+                    break;
+                }
+                if (FAILED(status)) break;
+            }
+            if (handle != nullptr) close(handle);
+            if (status != HRESULT_FROM_WIN32(ERROR_NO_MORE_ITEMS))
+                document.field(QStringLiteral("继续枚举状态"), formatHexValue(static_cast<std::uint32_t>(status), 8));
+        }
 
-            // R0 审计补充：
-            // - 只通过 ArkDriverClient 调用只读 wrapper；
-            // - volumeAuditPath 优先使用 NT 设备路径，缺失时退回卷根；
-            // - 每个 wrapper 均输出 IO、计数、截断和 message，便于和 R3 侧结果交叉核对。
-            const QString volumeAuditPath = snapshot.devicePathText.isEmpty()
-                ? snapshot.volumeRoot
-                : snapshot.devicePathText;
-            const std::wstring volumeAuditPathWide = volumeAuditPath.toStdWString();
-            const ksword::ark::DriverClient driverClient;
+        static void appendNativeInstance(file_dock_detail::PropertyDocument& document,
+            const void* buffer, const std::size_t bytesReturned, const QString& title)
+        {
+            document.section(title);
+            if (buffer == nullptr || bytesReturned < sizeof(INSTANCE_AGGREGATE_STANDARD_INFORMATION))
+            {
+                document.note(QStringLiteral("实例枚举记录长度不足。"));
+                return;
+            }
+            const auto* record = reinterpret_cast<const INSTANCE_AGGREGATE_STANDARD_INFORMATION*>(buffer);
+            const bool mini = (record->Flags & FLTFL_IASI_IS_MINIFILTER) != 0;
+            const QString name = mini ? readUtf16FieldAtOffset(buffer, bytesReturned,
+                record->Type.MiniFilter.InstanceNameBufferOffset, record->Type.MiniFilter.InstanceNameLength) : QString();
+            const QString altitude = mini ? readUtf16FieldAtOffset(buffer, bytesReturned,
+                record->Type.MiniFilter.AltitudeBufferOffset, record->Type.MiniFilter.AltitudeLength) :
+                readUtf16FieldAtOffset(buffer, bytesReturned,
+                    record->Type.LegacyFilter.AltitudeBufferOffset, record->Type.LegacyFilter.AltitudeLength);
+            const QString volume = mini ? readUtf16FieldAtOffset(buffer, bytesReturned,
+                record->Type.MiniFilter.VolumeNameBufferOffset, record->Type.MiniFilter.VolumeNameLength) :
+                readUtf16FieldAtOffset(buffer, bytesReturned,
+                    record->Type.LegacyFilter.VolumeNameBufferOffset, record->Type.LegacyFilter.VolumeNameLength);
+            const QString filter = mini ? readUtf16FieldAtOffset(buffer, bytesReturned,
+                record->Type.MiniFilter.FilterNameBufferOffset, record->Type.MiniFilter.FilterNameLength) :
+                readUtf16FieldAtOffset(buffer, bytesReturned,
+                    record->Type.LegacyFilter.FilterNameBufferOffset, record->Type.LegacyFilter.FilterNameLength);
+            document.field(QStringLiteral("实例名"), name)
+                .field(QStringLiteral("类型"), mini ? QStringLiteral("Minifilter") : QStringLiteral("LegacyFilter"))
+                .field(QStringLiteral("Flags"), formatHexValue(record->Flags, 8))
+                .field(QStringLiteral("Altitude"), altitude)
+                .field(QStringLiteral("VolumeName"), volume)
+                .field(QStringLiteral("FilterName"), filter);
+            if (mini)
+                document.field(QStringLiteral("FrameID"), QString::number(record->Type.MiniFilter.FrameID))
+                    .field(QStringLiteral("VolumeFileSystemType"), filterFilesystemTypeToText(record->Type.MiniFilter.VolumeFileSystemType));
+        }
 
-            const ksword::ark::StorageVolumeStackAuditResult volumeStackAudit =
-                driverClient.queryVolumeStackAudit(volumeAuditPathWide);
-            content += QStringLiteral("\n");
-            content += formatAuditResultHeader(
-                QStringLiteral("R0 审计补充 / VolumeStack"),
-                volumeStackAudit,
-                volumeStackAudit.responseFlags,
-                false);
-            content += formatVolumeStackAuditRows(volumeStackAudit);
-
-            const ksword::ark::StorageMountMgrMappingAuditResult mountMgrAudit =
-                driverClient.queryMountMgrMappingAudit(volumeAuditPathWide);
-            content += QStringLiteral("\n");
-            content += formatAuditResultHeader(
-                QStringLiteral("R0 审计补充 / MountMgr"),
-                mountMgrAudit,
-                mountMgrAudit.responseFlags,
-                false);
-            content += formatMountMgrMappingAuditRows(mountMgrAudit);
-
-            const ksword::ark::StorageFilesystemIntegrityAuditResult filesystemAudit =
-                driverClient.queryFilesystemIntegrityAudit(volumeAuditPathWide);
-            content += QStringLiteral("\n");
-            content += formatAuditResultHeader(
-                QStringLiteral("R0 审计补充 / FilesystemIntegrity"),
-                filesystemAudit,
-                filesystemAudit.responseFlags,
-                false);
-            content += formatFilesystemIntegrityAuditRows(filesystemAudit);
-
-            const ksword::ark::StorageBitlockerFveAuditResult bitlockerAudit =
-                driverClient.queryBitlockerFveAudit(volumeAuditPathWide);
-            content += QStringLiteral("\n");
-            content += formatAuditResultHeader(
-                QStringLiteral("R0 审计补充 / BitLocker FVE"),
-                bitlockerAudit,
-                bitlockerAudit.responseFlags,
-                false);
-            content += formatBitlockerFveAuditRows(bitlockerAudit);
-            return content;
+        static file_dock_detail::PropertyDocument buildFilterTopologyDocument(const QString& pathSnapshot)
+        {
+            file_dock_detail::PropertyDocument document;
+            document.section(QStringLiteral("Minifilter / Instance / Volume"))
+                .field(QStringLiteral("目标路径"), QDir::toNativeSeparators(pathSnapshot))
+                .note(QStringLiteral("本页只展示 FilterManager 公开枚举接口与字段定义，不做卸载、绕过或拦截修改。"))
+                .field(QStringLiteral("枚举来源"), QStringLiteral("FilterFindFirst / FilterFindNext"));
+            QStringList filterNames;
+            std::size_t filterIndex = 0;
+            enumerateNativeFilterRecords(document,
+                [](void* buffer, DWORD size, DWORD* bytes, HANDLE* handle)
+                    { return ::FilterFindFirst(FilterAggregateStandardInformation, buffer, size, bytes, handle); },
+                [](HANDLE handle, void* buffer, DWORD size, DWORD* bytes)
+                    { return ::FilterFindNext(handle, FilterAggregateStandardInformation, buffer, size, bytes); },
+                [](HANDLE handle) { ::FilterFindClose(handle); },
+                [&document, &filterNames, &filterIndex](const void* buffer, std::size_t bytes)
+                {
+                    document.section(QStringLiteral("Minifilter #%1").arg(filterIndex++));
+                    if (bytes < sizeof(FILTER_AGGREGATE_STANDARD_INFORMATION))
+                    {
+                        document.note(QStringLiteral("过滤器枚举记录长度不足。"));
+                        return;
+                    }
+                    const auto* record = reinterpret_cast<const FILTER_AGGREGATE_STANDARD_INFORMATION*>(buffer);
+                    const bool mini = (record->Flags & FLTFL_ASI_IS_MINIFILTER) != 0;
+                    const QString name = mini ? readUtf16FieldAtOffset(buffer, bytes,
+                        record->Type.MiniFilter.FilterNameBufferOffset, record->Type.MiniFilter.FilterNameLength) :
+                        readUtf16FieldAtOffset(buffer, bytes,
+                            record->Type.LegacyFilter.FilterNameBufferOffset, record->Type.LegacyFilter.FilterNameLength);
+                    const QString altitude = mini ? readUtf16FieldAtOffset(buffer, bytes,
+                        record->Type.MiniFilter.FilterAltitudeBufferOffset, record->Type.MiniFilter.FilterAltitudeLength) :
+                        readUtf16FieldAtOffset(buffer, bytes,
+                            record->Type.LegacyFilter.FilterAltitudeBufferOffset, record->Type.LegacyFilter.FilterAltitudeLength);
+                    if (!name.isEmpty()) appendUniqueText(filterNames, name);
+                    document.field(QStringLiteral("名称"), name)
+                        .field(QStringLiteral("类型"), mini ? QStringLiteral("Minifilter") : QStringLiteral("LegacyFilter"))
+                        .field(QStringLiteral("Flags"), formatHexValue(record->Flags, 8))
+                        .field(QStringLiteral("Altitude"), altitude);
+                    if (mini)
+                        document.field(QStringLiteral("FrameID"), QString::number(record->Type.MiniFilter.FrameID))
+                            .field(QStringLiteral("NumberOfInstances"), QString::number(record->Type.MiniFilter.NumberOfInstances));
+                });
+            for (const QString& filterName : filterNames)
+            {
+                document.section(QStringLiteral("Instance")).field(QStringLiteral("FilterName"), filterName)
+                    .field(QStringLiteral("枚举来源"), QStringLiteral("FilterInstanceFindFirst / FilterInstanceFindNext"));
+                std::size_t instanceIndex = 0;
+                enumerateNativeFilterRecords(document,
+                    [&filterName](void* buffer, DWORD size, DWORD* bytes, HANDLE* handle)
+                        { return ::FilterInstanceFindFirst(filterName.toStdWString().c_str(),
+                            InstanceAggregateStandardInformation, buffer, size, bytes, handle); },
+                    [](HANDLE handle, void* buffer, DWORD size, DWORD* bytes)
+                        { return ::FilterInstanceFindNext(handle, InstanceAggregateStandardInformation, buffer, size, bytes); },
+                    [](HANDLE handle) { ::FilterInstanceFindClose(handle); },
+                    [&document, &instanceIndex, &filterName](const void* buffer, std::size_t bytes)
+                        { appendNativeInstance(document, buffer, bytes,
+                            QStringLiteral("Instance #%1 / %2").arg(instanceIndex++).arg(filterName)); });
+            }
+            document.section(QStringLiteral("Volume"))
+                .field(QStringLiteral("枚举来源"), QStringLiteral("FilterVolumeFindFirst / FilterVolumeFindNext"));
+            QStringList volumeNames;
+            std::size_t volumeIndex = 0;
+            enumerateNativeFilterRecords(document,
+                [](void* buffer, DWORD size, DWORD* bytes, HANDLE* handle)
+                    { return ::FilterVolumeFindFirst(FilterVolumeStandardInformation, buffer, size, bytes, handle); },
+                [](HANDLE handle, void* buffer, DWORD size, DWORD* bytes)
+                    { return ::FilterVolumeFindNext(handle, FilterVolumeStandardInformation, buffer, size, bytes); },
+                [](HANDLE handle) { ::FilterVolumeFindClose(handle); },
+                [&document, &volumeIndex, &volumeNames](const void* buffer, std::size_t bytes)
+                {
+                    document.section(QStringLiteral("Volume #%1").arg(volumeIndex++));
+                    if (bytes < sizeof(FILTER_VOLUME_STANDARD_INFORMATION))
+                    {
+                        document.note(QStringLiteral("卷枚举记录长度不足。"));
+                        return;
+                    }
+                    const auto* record = reinterpret_cast<const FILTER_VOLUME_STANDARD_INFORMATION*>(buffer);
+                    const QString name = readUtf16FieldAtOffset(buffer, bytes,
+                        offsetof(FILTER_VOLUME_STANDARD_INFORMATION, FilterVolumeName), record->FilterVolumeNameLength);
+                    if (!name.isEmpty()) appendUniqueText(volumeNames, name);
+                    document.field(QStringLiteral("卷名"), name)
+                        .field(QStringLiteral("Flags"), formatHexValue(record->Flags, 8))
+                        .field(QStringLiteral("FrameID"), QString::number(record->FrameID))
+                        .field(QStringLiteral("FileSystemType"), filterFilesystemTypeToText(record->FileSystemType));
+                });
+            for (const QString& volumeName : volumeNames)
+            {
+                document.section(QStringLiteral("AttachedInstances")).field(QStringLiteral("VolumeName"), volumeName);
+                std::size_t instanceIndex = 0;
+                enumerateNativeFilterRecords(document,
+                    [&volumeName](void* buffer, DWORD size, DWORD* bytes, HANDLE* handle)
+                        { return ::FilterVolumeInstanceFindFirst(volumeName.toStdWString().c_str(),
+                            InstanceAggregateStandardInformation, buffer, size, bytes, handle); },
+                    [](HANDLE handle, void* buffer, DWORD size, DWORD* bytes)
+                        { return ::FilterVolumeInstanceFindNext(handle, InstanceAggregateStandardInformation, buffer, size, bytes); },
+                    [](HANDLE handle) { ::FilterVolumeInstanceFindClose(handle); },
+                    [&document, &instanceIndex, &volumeName](const void* buffer, std::size_t bytes)
+                        { appendNativeInstance(document, buffer, bytes,
+                            QStringLiteral("AttachedInstances #%1 / %2").arg(instanceIndex++).arg(volumeName)); });
+            }
+            const auto inventory = ksword::ark::DriverClient().queryMinifilterInventory();
+            appendNativeAuditHeader(document, QStringLiteral("R0 审计补充 / MinifilterInventory"),
+                inventory, inventory.responseFlags,
+                (inventory.responseFlags & KSWORD_ARK_MINIFILTER_INVENTORY_RESPONSE_FLAG_TRUNCATED) != 0U);
+            for (std::size_t index = 0; index < inventory.entries.size(); ++index)
+            {
+                const auto& row = inventory.entries[index];
+                document.section(QStringLiteral("MinifilterInventory #%1").arg(index))
+                    .field(QStringLiteral("Filter"), fixedWideAuditText(row.filterName))
+                    .field(QStringLiteral("Altitude"), fixedWideAuditText(row.altitude))
+                    .field(QStringLiteral("Volume"), fixedWideAuditText(row.volumeName))
+                    .field(QStringLiteral("Instance"), QString::number(row.instanceCount))
+                    .field(QStringLiteral("VolumeBindings"), QString::number(row.volumeBindingInstanceCount))
+                    .field(QStringLiteral("Frame"), QString::number(row.frameId))
+                    .field(QStringLiteral("FilterObject"), formatHex64(row.filterObject))
+                    .field(QStringLiteral("VolumeObject"), formatHex64(row.volumeObject))
+                    .field(QStringLiteral("CallbackOwner"), fixedWideAuditText(row.callbackOwnerModule))
+                    .field(QStringLiteral("OwnerStatus"), formatNtStatus(row.callbackOwnerStatus))
+                    .field(QStringLiteral("FieldFlags"), formatHexValue(row.fieldFlags, 8))
+                    .field(QStringLiteral("SourceFlags"), formatHexValue(row.sourceFlags, 8))
+                    .field(QStringLiteral("Status"), QString::number(row.status));
+            }
+            return document;
         }
 
         QWidget* buildFilterTopologyTab()
         {
             QWidget* page = new QWidget(this);
             QVBoxLayout* layout = new QVBoxLayout(page);
-            // Minifilter 拓扑同样是“分组 + 名称: 值”的审计明细：
-            // - 用属性树展示，每个过滤器/实例/卷的字段可逐条复制；
-            // - 页面只展示枚举和 R0 inventory，不提供 detach/bypass/remove。
-
-            QString content;
-            content += QStringLiteral("目标路径: %1\n").arg(QDir::toNativeSeparators(m_filePath));
-            content += QStringLiteral("说明: 本页只展示 FilterManager 公开枚举接口与字段定义，不做卸载、绕过或拦截修改。\n\n");
-            content += enumerateMinifilterText();
-            content += QStringLiteral("\n");
-            content += enumerateInstanceText();
-            content += QStringLiteral("\n");
-            content += enumerateVolumeText();
-
-            // R0 审计补充：
-            // - queryMinifilterInventory 通过 ArkDriverClient 统一访问驱动；
-            // - 结果追加在 FilterManager 公开枚举之后，保留原有 R3 逻辑；
-            // - 不提供卸载、detach、bypass、callback 修改等动作。
-            const ksword::ark::MinifilterInventoryResult minifilterAudit =
-                ksword::ark::DriverClient().queryMinifilterInventory();
-            content += QStringLiteral("\n");
-            content += formatAuditResultHeader(
-                QStringLiteral("R0 审计补充 / MinifilterInventory"),
-                minifilterAudit,
-                minifilterAudit.responseFlags,
-                (minifilterAudit.responseFlags & KSWORD_ARK_MINIFILTER_INVENTORY_RESPONSE_FLAG_TRUNCATED) != 0U);
-            content += formatMinifilterInventoryRows(minifilterAudit);
-            layout->addWidget(buildReportView(page, content), 1);
+            auto* view = new file_dock_detail::FilePropertyView(page);
+            layout->addWidget(view, 1);
+            const QString pathSnapshot = m_filePath;
+            startNativePropertyLoad(view, [pathSnapshot]()
+                { return buildFilterTopologyDocument(pathSnapshot); });
             return page;
         }
 
@@ -11915,11 +11934,11 @@ namespace
                 "内核证书表和 CI 缓存是独立证据；缺失内核信息不会改写上方 Windows 信任验证结果。")), evidenceGroup);
             boundary->setWordWrap(true);
             evidenceLayout->addWidget(boundary);
-            CodeEditorWidget* evidence = new CodeEditorWidget(evidenceGroup);
-            evidence->setReadOnly(true);
-            evidence->setWordWrapEnabled(false);
+            auto* evidence = new file_dock_detail::FilePropertyView(evidenceGroup);
             evidence->setMinimumHeight(180);
-            evidence->setRawText(ks::i18n::sourceText(QStringLiteral("正在读取内核证据...")));
+            file_dock_detail::PropertyDocument loading;
+            loading.note(QStringLiteral("正在读取内核证据..."));
+            evidence->setDocument(loading);
             evidenceLayout->addWidget(evidence);
             detailsLayout->addWidget(evidenceGroup);
             contentLayout->addWidget(details);
@@ -11940,11 +11959,9 @@ namespace
         {
             QWidget* page = new QWidget(this);
             QVBoxLayout* layout = new QVBoxLayout(page);
-            CodeEditorWidget* textEditorWidget = new CodeEditorWidget(page);
-            textEditorWidget->setReadOnly(true);
-
-            layout->addWidget(textEditorWidget, 1);
-            startPeAnalysisLoad(textEditorWidget);
+            auto* view = new file_dock_detail::FilePropertyView(page);
+            layout->addWidget(view, 1);
+            startPeAnalysisLoad(view);
             return page;
         }
 
@@ -11996,8 +12013,7 @@ namespace
             QWidget* detailPane = new QWidget(splitter);
             QVBoxLayout* detailLayout = new QVBoxLayout(detailPane);
             detailLayout->setContentsMargins(0, 0, 0, 0);
-            CodeEditorWidget* detailEditor = new CodeEditorWidget(detailPane);
-            detailEditor->setReadOnly(true);
+            auto* detailEditor = new file_dock_detail::FilePropertyView(detailPane);
             detailEditor->setMinimumHeight(0);
             detailEditor->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
             detailLayout->addWidget(detailEditor);
@@ -12438,12 +12454,13 @@ namespace
         QTabWidget* m_tabWidget = nullptr; // 继续承载现有的页面与懒加载机制。
         QButtonGroup* m_tabNavigationButtonGroup = nullptr; // 保证左侧导航单选。
         QVector<QToolButton*> m_tabNavigationButtons; // 与 Tab 索引一一对应，供切页时同步选中态。
-        QTreeWidget* m_generalPropertyTree = nullptr; // 常规页属性树，语言切换或 R0 返回时整棵重建。
-        CodeEditorWidget* m_generalTextEditor = nullptr; // 常规页文本视图，内容由属性树导出，随树同步刷新。
+        file_dock_detail::FilePropertyView* m_generalPropertyView = nullptr; // 直接呈现字段快照，不依赖文本编辑器。
+        std::function<void()> m_signatureLanguageRefresh; // UI 快照重译不重新验证文件。
         QString m_generalNtPathText; // 常规页复用的 NT 路径，避免切换语言时重复查询。
         bool m_generalR0Loaded = false; // R0 文件信息是否已完成后台读取。
         ksword::ark::FileInfoQueryResult m_generalR0Info{}; // 保留原始 R0 数据供双语重绘。
         std::uint64_t m_generalR0LoadGeneration = 0U; // 淘汰元数据写入前发起的旧 R0 查询。
+        std::uint64_t m_securityLoadGeneration = 0U; // 权限刷新不能被较早请求或菜单延迟提交覆盖。
         std::array<QCheckBox*, 4> m_metadataTimeChecks{}; // 四个时间字段的逐项写入开关。
         std::array<QDateTimeEdit*, 4> m_metadataTimeEdits{}; // 四个本地时间编辑器。
         std::array<QCheckBox*, 6> m_metadataAttributeChecks{}; // 六个可直接切换的属性位。

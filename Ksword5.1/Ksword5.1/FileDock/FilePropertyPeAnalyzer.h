@@ -3,14 +3,16 @@
 // ============================================================
 // FilePropertyPeAnalyzer.h
 // 作用：
-// 1) 为文件属性窗口提供 PE 头解析文本；
-// 2) 输出导入表、导出表与区段概览；
+// 1) 为文件属性窗口提供 PE 原生结构字段模型；
+// 2) 保留导入表、导出表、目录与区段概览及文本导出兼容；
 // 3) 与 FileDock UI 解耦，便于后续继续扩展资源表/重定位表。
 // ============================================================
 
 #include <QString>
 #include <QStringList>
 #include <QVector>
+
+#include "FilePropertyView.h"
 
 namespace file_dock_detail
 {
@@ -46,6 +48,10 @@ namespace file_dock_detail
     // 参数 filePath：目标文件完整路径。
     // 返回：解析结果文本；若失败则返回可读错误说明。
     QString buildPeAnalysisText(const QString& filePath);
+
+    // Build the property model directly from PE decoder entries, preserving
+    // directory/item nesting without treating an exported report as data.
+    PropertyDocument buildPeAnalysisDocument(const QString& filePath);
 
     // analyzePeDependencies 作用：
     // - 读取 PE Import Directory 并转换为依赖 DLL / 导入函数表；

@@ -60,6 +60,8 @@ def main() -> None:
 #include <QtCore/QtCore>
 #include <Windows.h>
 #include "GhidraRuntimePlugin/RuntimeProfile.h"
+// 抽取的 MarketplacePlugin 持有 UpstreamPlan；包含其真实声明，不能让夹具依赖传递包含。
+#include "Ksword5.1/Ksword5.1/PluginHost.Distribution.h"
 #include <cstdlib>
 #include <iostream>
 '''

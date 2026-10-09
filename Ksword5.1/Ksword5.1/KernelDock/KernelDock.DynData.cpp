@@ -2900,6 +2900,10 @@ namespace
             const bool v4ProfileAlreadyActive = v4ModuleProfileAlreadyActive;
             if (pdbProfileAlreadyActive && callbackProfileAlreadyActive && v3ProfileAlreadyActive && v4ProfileAlreadyActive)
             {
+                // 此处是驱动已接受档案，而非本轮 apply 失败；状态页不能显示“已应用：否”。
+                // 不伪造本轮应用计数，后续 V4 accepted items 查询继续提供真实缓存内容。
+                pdbProfileFound = true;
+                pdbProfileApplied = true;
                 pdbProfileMessageText = kernelText("kernel.dyndata.profile.apply.already_active", QStringLiteral("R0 已经启用 v4 DynData profile，本次刷新跳过重复 apply。"));
             }
             else
@@ -3116,6 +3120,35 @@ namespace
             client.queryDynDataV4MissingItems();
         const ksword::ark::DynDataV4ItemsResult v4ItemsResult =
             client.queryDynDataV4Items();
+
+        // 以最终驱动回读补齐缓存状态：部分能力已接受或本轮跳过/失败，不等于缓存被撤销。
+        // 仅接受当前 NTOS 精确身份的 V4 条目，避免其它模块的档案冒充内核档案。
+        const auto acceptedNtosModule = std::find_if(
+            v4ModulesResult.entries.begin(),
+            v4ModulesResult.entries.end(),
+            [&statusResult](const KSW_DYN_V4_MODULE_STATUS_ENTRY& entry) {
+                return statusResult.io.ok && statusResult.ntoskrnl.present && entry.module.image.present != 0UL &&
+                    entry.module.image.classId == statusResult.ntoskrnl.classId &&
+                    entry.module.image.machine == statusResult.ntoskrnl.machine &&
+                    entry.module.image.timeDateStamp == statusResult.ntoskrnl.timeDateStamp &&
+                    entry.module.image.sizeOfImage == statusResult.ntoskrnl.sizeOfImage &&
+                    (entry.statusFlags & KSW_DYN_V4_STATUS_FLAG_PROFILE_APPLIED) != 0U;
+            });
+        const bool cachedNtosProfileAccepted = v4ModulesResult.io.ok &&
+            acceptedNtosModule != v4ModulesResult.entries.end();
+        const bool cachedPdbProfileAccepted = statusResult.io.ok &&
+            statusFlagEnabled(statusResult.statusFlags, KSW_DYN_STATUS_FLAG_PDB_PROFILE_ACTIVE);
+        pdbProfileApplied = pdbProfileApplied || cachedNtosProfileAccepted || cachedPdbProfileAccepted;
+        pdbProfileFound = pdbProfileFound || cachedNtosProfileAccepted || cachedPdbProfileAccepted;
+        if (cachedNtosProfileAccepted && pdbProfileNameText.isEmpty())
+        {
+            // 回执是定长数组；按数组边界找终止符，不依赖驱动返回字符串必定以 NUL 结尾。
+            const auto& profileName = acceptedNtosModule->module.profileName;
+            const auto nameEnd = std::find(std::begin(profileName), std::end(profileName), '\0');
+            pdbProfileNameText = QString::fromUtf8(
+                profileName,
+                static_cast<qsizetype>(std::distance(std::begin(profileName), nameEnd)));
+        }
 
         summaryOut = KernelDynDataSummary{};
         rowsOut.clear();

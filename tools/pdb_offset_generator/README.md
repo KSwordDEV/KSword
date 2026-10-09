@@ -145,6 +145,16 @@ R3/Light loaders look up v4 only. Core v4 items are projected in memory to the
 existing EX apply request so process, thread, callback, module, and token
 consumers retain their behavior without duplicate offsets on disk.
 
+The main-program build compresses an existing compact source pack with
+`compress_qt_profile_json.py --normalize-dyndata-v4`. This offline step verifies
+the original item/group counts, removes legacy mirrors and the retired timer
+IDs 1004/1006, and omits incomplete special groups using the release generator's
+existing contract. It preserves every retained offset and module identity and
+does not read or download PDBs. Unknown items and malformed inputs fail the
+build instead of publishing a silently repaired profile. Runtime loaders still
+require canonical v4 and exact PE identity; normalization cannot fill a missing
+kernel profile.
+
 Use:
 
 ```powershell
