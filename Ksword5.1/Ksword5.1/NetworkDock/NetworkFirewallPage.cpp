@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "NetworkFirewallPage.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../UI/TableInteractionSupport.h"
@@ -2773,9 +2774,9 @@ void NetworkFirewallPage::initializeRuleManagerUi()
     m_ruleTable->setContextMenuPolicy(Qt::CustomContextMenu);
 
     // 完整详情固定放在规则表下方，默认约占页面高度四分之一。
-    m_ruleDetailEditor = new CodeEditorWidget(m_ruleSplitter);
-    m_ruleDetailEditor->setReadOnly(true);
-    m_ruleDetailEditor->setLocalizedText(QStringLiteral("请选择一条防火墙规则查看完整详情。"));
+    m_ruleDetailEditor = new ks::ui::StructuredFieldView(m_ruleSplitter);
+
+    m_ruleDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条防火墙规则查看完整详情。")));
     m_ruleSplitter->addWidget(m_ruleTable);
     m_ruleSplitter->addWidget(m_ruleDetailEditor);
     m_ruleSplitter->setStretchFactor(0, 3);
@@ -2783,7 +2784,7 @@ void NetworkFirewallPage::initializeRuleManagerUi()
     m_ruleSplitter->setSizes({ 720, 240 });
     pageLayout->addWidget(m_ruleSplitter, 1);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_ruleTable, m_ruleDetailEditor, m_ruleManagerPage);
 
     if (m_innerTabWidget != nullptr)
@@ -3743,43 +3744,27 @@ void NetworkFirewallPage::updateRuleDetailEditor()
     FirewallRuleEntry ruleEntry;
     if (!selectedRuleEntry(&ruleEntry))
     {
-        m_ruleDetailEditor->setLocalizedText(
-            QStringLiteral("请选择一条防火墙规则查看完整详情。"));
+        m_ruleDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条防火墙规则查看完整详情。")));
         return;
     }
 
-    const QString detailText = QStringLiteral(
-        "名称：%1\n"
-        "启用：%2\n"
-        "动作：%3\n"
-        "方向：%4\n"
-        "配置文件：%5\n"
-        "协议：%6\n"
-        "本地端口：%7\n"
-        "远端端口：%8\n"
-        "本地地址：%9\n"
-        "远端地址：%10\n"
-        "应用程序：%11\n"
-        "服务：%12\n"
-        "分组：%13\n"
-        "描述：%14\n"
-        "规则指纹：%15")
-        .arg(safeText(ruleEntry.nameText))
-        .arg(ruleEntry.enabled ? QStringLiteral("是") : QStringLiteral("否"))
-        .arg(safeText(ruleEntry.actionText))
-        .arg(safeText(ruleEntry.directionText))
-        .arg(safeText(ruleEntry.profilesText))
-        .arg(safeText(ruleEntry.protocolText))
-        .arg(safeText(ruleEntry.localPortsText))
-        .arg(safeText(ruleEntry.remotePortsText))
-        .arg(safeText(ruleEntry.localAddressesText))
-        .arg(safeText(ruleEntry.remoteAddressesText))
-        .arg(safeText(ruleEntry.applicationText))
-        .arg(safeText(ruleEntry.serviceText))
-        .arg(safeText(ruleEntry.groupingText))
-        .arg(safeText(ruleEntry.descriptionText))
-        .arg(safeText(ruleEntry.fingerprintText));
-    m_ruleDetailEditor->setLocalizedText(detailText);
+    ks::ui::FieldDocument detailText;
+    detailText.field(QStringLiteral("名称"), QStringLiteral("%1").arg(safeText(ruleEntry.nameText)));
+    detailText.field(QStringLiteral("启用"), QStringLiteral("%1").arg(ruleEntry.enabled ? QStringLiteral("是") : QStringLiteral("否")));
+    detailText.field(QStringLiteral("动作"), QStringLiteral("%1").arg(safeText(ruleEntry.actionText)));
+    detailText.field(QStringLiteral("方向"), QStringLiteral("%1").arg(safeText(ruleEntry.directionText)));
+    detailText.field(QStringLiteral("配置文件"), QStringLiteral("%1").arg(safeText(ruleEntry.profilesText)));
+    detailText.field(QStringLiteral("协议"), QStringLiteral("%1").arg(safeText(ruleEntry.protocolText)));
+    detailText.field(QStringLiteral("本地端口"), QStringLiteral("%1").arg(safeText(ruleEntry.localPortsText)));
+    detailText.field(QStringLiteral("远端端口"), QStringLiteral("%1").arg(safeText(ruleEntry.remotePortsText)));
+    detailText.field(QStringLiteral("本地地址"), QStringLiteral("%1").arg(safeText(ruleEntry.localAddressesText)));
+    detailText.field(QStringLiteral("远端地址"), QStringLiteral("%1").arg(safeText(ruleEntry.remoteAddressesText)));
+    detailText.field(QStringLiteral("应用程序"), QStringLiteral("%1").arg(safeText(ruleEntry.applicationText)));
+    detailText.field(QStringLiteral("服务"), QStringLiteral("%1").arg(safeText(ruleEntry.serviceText)));
+    detailText.field(QStringLiteral("分组"), QStringLiteral("%1").arg(safeText(ruleEntry.groupingText)));
+    detailText.field(QStringLiteral("描述"), QStringLiteral("%1").arg(safeText(ruleEntry.descriptionText)));
+    detailText.field(QStringLiteral("规则指纹"), QStringLiteral("%1").arg(safeText(ruleEntry.fingerprintText)));
+    m_ruleDetailEditor->setDocument(detailText);
 }
 
 void NetworkFirewallPage::showRuleContextMenu(const QPoint& localPosition)

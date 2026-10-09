@@ -60,6 +60,8 @@ class CppStringToken:
 
 def is_extractable_literal(text: str) -> bool:
     """Keep UI-like source text while excluding paths, styles, and code tokens."""
+    if text.lstrip().startswith(("$sections.Add((New-Section", "$ErrorActionPreference=", "$doc[", "$includeHardwareDetails =", "if($includeHardwareDetails)")):
+        return False
     if HAN_RE.search(text):
         return True
     value = text.strip()
@@ -389,6 +391,16 @@ def extract_ui_strings(source_text: str) -> Iterable[tuple[str, int]]:
             yield text, source_text.count("\n", 0, match.start()) + 1
 
 
+def extract_collector_section_labels(tokens: Iterable[CppStringToken]) -> Iterable[tuple[str, int]]:
+    """Collector-owned section labels are UI text; executable PowerShell is not."""
+    label_re = re.compile(r"(?:\$doc\['([^']+)'\]\s*=|New-Section\s+'([^']+)')")
+    for token in tokens:
+        for match in label_re.finditer(token.text):
+            label = match.group(1) or match.group(2)
+            if is_extractable_literal(label):
+                yield label, token.line
+
+
 def extract_source_strings(
     source_root: Path,
     semantic_references_out: dict[str, list[Occurrence]] | None = None,
@@ -412,6 +424,7 @@ def extract_source_strings(
             iterator = itertools.chain(
                 extract_cpp_literals(source_text, cpp_tokens),
                 extract_cpp_concatenated_literals(source_text, cpp_tokens),
+                extract_collector_section_labels(cpp_tokens),
             )
         source_lines = source_text.splitlines()
         relative_path = source_path.relative_to(source_root).as_posix()

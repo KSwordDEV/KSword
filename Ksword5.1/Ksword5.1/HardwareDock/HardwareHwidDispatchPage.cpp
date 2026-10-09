@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "HardwareHwidDispatchPage.h"
 #include "../UI/VisibleTableWidget.h"
 
@@ -274,8 +275,8 @@ void HardwareHwidDispatchPage::initializeUi()
     QHBoxLayout* editorLayout = new QHBoxLayout(editorPanel);
     editorLayout->setContentsMargins(0, 0, 0, 0);
     editorLayout->setSpacing(8);
-    m_planEditor = new CodeEditorWidget(editorPanel);
-    m_planEditor->setReadOnly(true);
+    m_planEditor = new ks::ui::StructuredFieldView(editorPanel);
+
     editorLayout->addWidget(m_planEditor, 1);
     m_rootLayout->addWidget(editorPanel, 1);
 }
@@ -318,7 +319,7 @@ void HardwareHwidDispatchPage::initializeConnections()
     connect(m_copyPlanButton, &QPushButton::clicked, this, [this]() {
         if (QGuiApplication::clipboard() != nullptr)
         {
-            QGuiApplication::clipboard()->setText(buildPlanText());
+            QGuiApplication::clipboard()->setText(buildPlanText().toPlainText(true));
         }
     });
 }
@@ -406,44 +407,44 @@ unsigned long HardwareHwidDispatchPage::selectedTargetFlags() const
     return flags;
 }
 
-QString HardwareHwidDispatchPage::buildPlanText() const
+ks::ui::FieldDocument HardwareHwidDispatchPage::buildPlanText() const
 {
-    QStringList lines;
-    lines << QStringLiteral("HWID Dispatch 派遣函数接入计划");
-    lines << QStringLiteral("来源: https://github.com/FiYHer/EASY-HWID-SPOOFER");
-    lines << QStringLiteral("保留原理: 修改驱动程序的派遣函数(兼容性强)");
-    lines << QStringLiteral("排除原理: 定位物理内存直接修改硬件数据(兼容性弱)");
-    lines << QStringLiteral("网络范围: 仅 NSI/ARP 查询输出清理；NDIS 私有块 MAC 改写不接入。");
-    lines << QStringLiteral("");
-    lines << QStringLiteral("目标 flags: 0x%1").arg(selectedTargetFlags(), 8, 16, QChar('0')).toUpper();
-    lines << QStringLiteral("- \\Driver\\Disk: %1").arg(m_diskCheck->isChecked() ? QStringLiteral("启用") : QStringLiteral("跳过"));
-    lines << QStringLiteral("- \\Driver\\partmgr: %1").arg(m_partMgrCheck->isChecked() ? QStringLiteral("启用") : QStringLiteral("跳过"));
-    lines << QStringLiteral("- \\Driver\\mountmgr: %1").arg(m_mountMgrCheck->isChecked() ? QStringLiteral("启用") : QStringLiteral("跳过"));
-    lines << QStringLiteral("- \\Driver\\nvlddmkm: %1").arg(m_nvidiaCheck->isChecked() ? QStringLiteral("启用") : QStringLiteral("跳过"));
-    lines << QStringLiteral("- \\Driver\\nsiproxy: %1").arg(m_nsiProxyCheck->isChecked() ? QStringLiteral("启用") : QStringLiteral("跳过"));
-    lines << QStringLiteral("");
-    lines << QStringLiteral("磁盘模式: %1").arg(m_diskModeCombo->currentText());
-    lines << QStringLiteral("磁盘序列号: %1").arg(m_diskSerialEdit->text().trimmed());
-    lines << QStringLiteral("磁盘产品名: %1").arg(m_diskProductEdit->text().trimmed());
-    lines << QStringLiteral("磁盘固件值: %1").arg(m_diskRevisionEdit->text().trimmed());
-    lines << QStringLiteral("GPU 序列号: %1").arg(m_gpuSerialEdit->text().trimmed());
-    lines << QStringLiteral("MAC 模式: %1").arg(m_macModeCombo->currentText());
-    lines << QStringLiteral("永久 MAC: %1").arg(m_permanentMacEdit->text().trimmed());
-    lines << QStringLiteral("当前 MAC: %1").arg(m_currentMacEdit->text().trimmed());
-    lines << QStringLiteral("MAC 字段说明: 当前仅随协议下发并作为预留，不触发 NDIS 私有链表扫描。");
-    lines << QStringLiteral("GPT GUID 随机化: %1").arg(m_diskGuidCheck->isChecked() ? QStringLiteral("是") : QStringLiteral("否"));
-    lines << QStringLiteral("卷唯一标识清理: %1").arg(m_volumeCleanCheck->isChecked() ? QStringLiteral("是") : QStringLiteral("否"));
-    lines << QStringLiteral("ARP Table 清理: %1").arg(m_arpCleanCheck->isChecked() ? QStringLiteral("是") : QStringLiteral("否"));
-    lines << QStringLiteral("");
-    lines << QStringLiteral("风险: 启用/卸载 Dispatch hook 可能蓝屏；页面真实操作前仍需二次确认。");
-    return lines.join(QStringLiteral("\n"));
+    ks::ui::FieldDocument lines;
+    lines.note(QStringLiteral("HWID Dispatch 派遣函数接入计划"));
+    lines.field(QStringLiteral("来源"), QStringLiteral("https://github.com/FiYHer/EASY-HWID-SPOOFER"), true);
+    lines.field(QStringLiteral("保留原理"), QStringLiteral("修改驱动程序的派遣函数(兼容性强)"), true);
+    lines.field(QStringLiteral("排除原理"), QStringLiteral("定位物理内存直接修改硬件数据(兼容性弱)"), true);
+    lines.field(QStringLiteral("网络范围"), QStringLiteral("仅 NSI/ARP 查询输出清理；NDIS 私有块 MAC 改写不接入。"), true);
+
+    lines.field(QStringLiteral("目标 flags"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(selectedTargetFlags(), 8, 16, QChar('0')).toUpper()));
+    lines.field(QStringLiteral("- \\Driver\\Disk"), QStringLiteral("%1").arg(m_diskCheck->isChecked() ? QStringLiteral("启用") : QStringLiteral("跳过")));
+    lines.field(QStringLiteral("- \\Driver\\partmgr"), QStringLiteral("%1").arg(m_partMgrCheck->isChecked() ? QStringLiteral("启用") : QStringLiteral("跳过")));
+    lines.field(QStringLiteral("- \\Driver\\mountmgr"), QStringLiteral("%1").arg(m_mountMgrCheck->isChecked() ? QStringLiteral("启用") : QStringLiteral("跳过")));
+    lines.field(QStringLiteral("- \\Driver\\nvlddmkm"), QStringLiteral("%1").arg(m_nvidiaCheck->isChecked() ? QStringLiteral("启用") : QStringLiteral("跳过")));
+    lines.field(QStringLiteral("- \\Driver\\nsiproxy"), QStringLiteral("%1").arg(m_nsiProxyCheck->isChecked() ? QStringLiteral("启用") : QStringLiteral("跳过")));
+
+    lines.field(QStringLiteral("磁盘模式"), QStringLiteral("%1").arg(m_diskModeCombo->currentText()));
+    lines.field(QStringLiteral("磁盘序列号"), QStringLiteral("%1").arg(m_diskSerialEdit->text().trimmed()));
+    lines.field(QStringLiteral("磁盘产品名"), QStringLiteral("%1").arg(m_diskProductEdit->text().trimmed()));
+    lines.field(QStringLiteral("磁盘固件值"), QStringLiteral("%1").arg(m_diskRevisionEdit->text().trimmed()));
+    lines.field(QStringLiteral("GPU 序列号"), QStringLiteral("%1").arg(m_gpuSerialEdit->text().trimmed()));
+    lines.field(QStringLiteral("MAC 模式"), QStringLiteral("%1").arg(m_macModeCombo->currentText()));
+    lines.field(QStringLiteral("永久 MAC"), QStringLiteral("%1").arg(m_permanentMacEdit->text().trimmed()));
+    lines.field(QStringLiteral("当前 MAC"), QStringLiteral("%1").arg(m_currentMacEdit->text().trimmed()));
+    lines.field(QStringLiteral("MAC 字段说明"), QStringLiteral("当前仅随协议下发并作为预留，不触发 NDIS 私有链表扫描。"), true);
+    lines.field(QStringLiteral("GPT GUID 随机化"), QStringLiteral("%1").arg(m_diskGuidCheck->isChecked() ? QStringLiteral("是") : QStringLiteral("否")));
+    lines.field(QStringLiteral("卷唯一标识清理"), QStringLiteral("%1").arg(m_volumeCleanCheck->isChecked() ? QStringLiteral("是") : QStringLiteral("否")));
+    lines.field(QStringLiteral("ARP Table 清理"), QStringLiteral("%1").arg(m_arpCleanCheck->isChecked() ? QStringLiteral("是") : QStringLiteral("否")));
+
+    lines.field(QStringLiteral("风险"), QStringLiteral("启用/卸载 Dispatch hook 可能蓝屏；页面真实操作前仍需二次确认。"), true);
+    return lines;
 }
 
 void HardwareHwidDispatchPage::updatePlanPreview()
 {
     if (m_planEditor != nullptr)
     {
-        m_planEditor->setText(buildPlanText());
+        m_planEditor->setDocument(buildPlanText());
     }
 }
 
@@ -484,14 +485,9 @@ void HardwareHwidDispatchPage::applyResponseToUi(const ksword::ark::HwidDispatch
 
 void HardwareHwidDispatchPage::appendLogLine(const QString& lineText)
 {
-    if (m_planEditor == nullptr)
-    {
-        return;
-    }
-
-    const QString currentText = m_planEditor->text();
-    const QString nextText = currentText.contains(QStringLiteral("\n\n--- 日志 ---\n"))
-        ? currentText + QStringLiteral("\n") + lineText
-        : buildPlanText() + QStringLiteral("\n\n--- 日志 ---\n") + lineText;
-    m_planEditor->setText(nextText);
+    if (m_planEditor == nullptr) return;
+    auto document = m_planEditor->document();
+    if (document.isEmpty()) document = buildPlanText();
+    document.note(lineText);
+    m_planEditor->setDocument(document);
 }

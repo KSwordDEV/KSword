@@ -1,4 +1,5 @@
 #include "MemoryDock.Internal.h"
+#include "../UI/StructuredFieldView.h"
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll：页内滚动壳。
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -375,40 +376,40 @@ namespace
         return false;
     }
 
-    QString detailText(const ksword::ark::KernelMemoryEvidenceEntry& entry)
+    ks::ui::FieldDocument detailDocument(const ksword::ark::KernelMemoryEvidenceEntry& entry)
     {
         // 输入：当前内核内存证据行。
         // 处理：展开全部关键诊断字段，供详情编辑器复制。
-        // 返回：多行详情文本。
-        QString text;
-        text += QStringLiteral("内核内存证据详情\n");
-        text += QStringLiteral("Address: %1\n").arg(hex64(entry.virtualAddress));
-        text += QStringLiteral("RegionSize: %1 (%2)\n").arg(hex64(entry.regionSize), sizeText(entry.regionSize));
-        text += QStringLiteral("EvidenceKind: %1\n").arg(evidenceKindText(entry.evidenceKind));
-        text += QStringLiteral("OwnerKind: %1\n").arg(ownerKindText(entry.ownerKind));
-        text += QStringLiteral("OwnerName: %1\n").arg(wideToQString(entry.ownerName));
-        text += QStringLiteral("OwnerAddress: %1\n").arg(hex64(entry.ownerAddress));
-        text += QStringLiteral("ModuleBase: %1\n").arg(hex64(entry.moduleBase));
-        text += QStringLiteral("ModuleSize: %1\n").arg(sizeText(entry.moduleSize));
-        text += QStringLiteral("PermissionFlags: %1 (0x%2)\n").arg(permissionText(entry.permissionFlags)).arg(entry.permissionFlags, 8, 16, QChar('0'));
-        text += QStringLiteral("RiskFlags: %1 (0x%2)\n").arg(riskText(entry.riskFlags)).arg(entry.riskFlags, 8, 16, QChar('0'));
-        text += QStringLiteral("BigPoolTag: 0x%1\n").arg(entry.bigPoolTag, 8, 16, QChar('0'));
-        text += QStringLiteral("BigPoolFlags: 0x%1\n").arg(entry.bigPoolFlags, 8, 16, QChar('0'));
-        text += QStringLiteral("Section: %1 RVA=0x%2 Size=%3\n")
+        // 返回：结构详情。
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("内核内存证据详情"));
+        document.field(QStringLiteral("Address"), QStringLiteral("%1").arg(hex64(entry.virtualAddress)));
+        document.field(QStringLiteral("RegionSize"), QStringLiteral("%1 (%2)").arg(hex64(entry.regionSize), sizeText(entry.regionSize)));
+        document.field(QStringLiteral("EvidenceKind"), QStringLiteral("%1").arg(evidenceKindText(entry.evidenceKind)), true);
+        document.field(QStringLiteral("OwnerKind"), QStringLiteral("%1").arg(ownerKindText(entry.ownerKind)), true);
+        document.field(QStringLiteral("OwnerName"), QStringLiteral("%1").arg(wideToQString(entry.ownerName)));
+        document.field(QStringLiteral("OwnerAddress"), QStringLiteral("%1").arg(hex64(entry.ownerAddress)));
+        document.field(QStringLiteral("ModuleBase"), QStringLiteral("%1").arg(hex64(entry.moduleBase)));
+        document.field(QStringLiteral("ModuleSize"), QStringLiteral("%1").arg(sizeText(entry.moduleSize)));
+        document.field(QStringLiteral("PermissionFlags"), QStringLiteral("%1 (0x%2)").arg(permissionText(entry.permissionFlags)).arg(entry.permissionFlags, 8, 16, QChar('0')), true);
+        document.field(QStringLiteral("RiskFlags"), QStringLiteral("%1 (0x%2)").arg(riskText(entry.riskFlags)).arg(entry.riskFlags, 8, 16, QChar('0')), true);
+        document.field(QStringLiteral("BigPoolTag"), QStringLiteral("0x%1").arg(entry.bigPoolTag, 8, 16, QChar('0')));
+        document.field(QStringLiteral("BigPoolFlags"), QStringLiteral("0x%1").arg(entry.bigPoolFlags, 8, 16, QChar('0')));
+        document.field(QStringLiteral("Section"), QStringLiteral("%1 RVA=0x%2 Size=%3")
             .arg(QString::fromStdString(entry.sectionName).trimmed())
             .arg(entry.sectionRva, 8, 16, QChar('0'))
-            .arg(sizeText(entry.sectionSize));
-        text += QStringLiteral("Hash: %1\n").arg(hashText(entry));
-        text += QStringLiteral("SampleSize: %1\n").arg(entry.sampleSize);
+            .arg(sizeText(entry.sectionSize)));
+        document.field(QStringLiteral("Hash"), QStringLiteral("%1").arg(hashText(entry)));
+        document.field(QStringLiteral("SampleSize"), QStringLiteral("%1").arg(entry.sampleSize));
         if (!entry.sample.empty())
         {
-            text += QStringLiteral("Sample: %1\n").arg(bytesToHex(entry.sample));
+            document.field(QStringLiteral("Sample"), QStringLiteral("%1").arg(bytesToHex(entry.sample)));
         }
-        text += QStringLiteral("Confidence: %1\n").arg(entry.confidence);
-        text += QStringLiteral("LastStatus: 0x%1\n")
-            .arg(static_cast<qulonglong>(static_cast<unsigned long>(entry.lastStatus)), 8, 16, QChar('0'));
-        text += QStringLiteral("Detail: %1\n").arg(wideToQString(entry.detail));
-        return text;
+        document.field(QStringLiteral("Confidence"), QStringLiteral("%1").arg(entry.confidence), true);
+        document.field(QStringLiteral("LastStatus"), QStringLiteral("0x%1")
+            .arg(static_cast<qulonglong>(static_cast<unsigned long>(entry.lastStatus)), 8, 16, QChar('0')));
+        document.field(QStringLiteral("Detail"), QStringLiteral("%1").arg(wideToQString(entry.detail)));
+        return document;
     }
 
     QString statusStyle(const QString& color)
@@ -531,14 +532,13 @@ void MemoryDock::initializeKernelMemoryEvidenceTab()
     installEvidenceCopyMenu(m_kernelMemoryEvidenceTable);
     splitter->addWidget(m_kernelMemoryEvidenceTable);
 
-    m_kernelMemoryEvidenceDetailEditor = new CodeEditorWidget(splitter);
-    m_kernelMemoryEvidenceDetailEditor->setReadOnly(true);
-    m_kernelMemoryEvidenceDetailEditor->setText(QStringLiteral(
+    m_kernelMemoryEvidenceDetailEditor = new ks::ui::StructuredFieldView(splitter);
+    m_kernelMemoryEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral(
         "请选择一条内核内存证据记录查看详情。\n"
-        "说明：text diff 的磁盘对比由 R3 后续阶段完成，本页当前展示 R0 内存 hash/sample 状态。"));
+        "说明：text diff 的磁盘对比由 R3 后续阶段完成，本页当前展示 R0 内存 hash/sample 状态。")));
     splitter->addWidget(m_kernelMemoryEvidenceDetailEditor);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_kernelMemoryEvidenceTable,
         m_kernelMemoryEvidenceDetailEditor,
         m_tabKernelMemoryEvidence);
@@ -623,8 +623,9 @@ void MemoryDock::refreshKernelMemoryEvidenceAsync()
             KSWORD_ARK_MEMORY_EVIDENCE_DEFAULT_SAMPLE_BYTES);
 
         QMetaObject::invokeMethod(
-            guardThis.data(),
+            qApp,
             [guardThis, ticket, result = std::move(result)]() mutable {
+                if (guardThis == nullptr || ticket != guardThis->m_kernelMemoryEvidenceRefreshTicket.load()) return;
                 auto resultSnapshot =
                     std::make_shared<ksword::ark::KernelMemoryEvidenceResult>(std::move(result));
                 auto commitSnapshot = [guardThis, ticket, resultSnapshot]()
@@ -663,7 +664,7 @@ void MemoryDock::refreshKernelMemoryEvidenceAsync()
                         }
                         if (guardThis->m_kernelMemoryEvidenceDetailEditor != nullptr)
                         {
-                            guardThis->m_kernelMemoryEvidenceDetailEditor->setText(message);
+                            guardThis->m_kernelMemoryEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(message));
                         }
                         return;
                     }
@@ -784,18 +785,19 @@ void MemoryDock::showKernelMemoryEvidenceDetailByCurrentRow()
     const int row = m_kernelMemoryEvidenceTable->currentRow();
     if (row < 0)
     {
-        m_kernelMemoryEvidenceDetailEditor->setText(QStringLiteral("请选择一条内核内存证据记录查看详情。"));
+        m_kernelMemoryEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条内核内存证据记录查看详情。")));
         return;
     }
     const QTableWidgetItem* addressItem = m_kernelMemoryEvidenceTable->item(row, evidenceColumnIndex(EvidenceColumn::Address));
     if (addressItem == nullptr)
     {
+        m_kernelMemoryEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前记录的缓存已失效，请刷新后重试。")));
         return;
     }
     const QString diagnosticText = addressItem->data(Qt::UserRole + 2).toString();
     if (!diagnosticText.isEmpty())
     {
-        m_kernelMemoryEvidenceDetailEditor->setText(QStringLiteral("内核内存证据诊断\n%1").arg(diagnosticText));
+        m_kernelMemoryEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("内核内存证据诊断\n%1").arg(diagnosticText)));
         return;
     }
 
@@ -803,7 +805,8 @@ void MemoryDock::showKernelMemoryEvidenceDetailByCurrentRow()
     const qulonglong cacheIndex = addressItem->data(Qt::UserRole + 1).toULongLong(&ok);
     if (!ok || cacheIndex >= static_cast<qulonglong>(m_kernelMemoryEvidenceCache.size()))
     {
+        m_kernelMemoryEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前记录的缓存已失效，请刷新后重试。")));
         return;
     }
-    m_kernelMemoryEvidenceDetailEditor->setText(detailText(m_kernelMemoryEvidenceCache[static_cast<std::size_t>(cacheIndex)]));
+    m_kernelMemoryEvidenceDetailEditor->setDocument(detailDocument(m_kernelMemoryEvidenceCache[static_cast<std::size_t>(cacheIndex)]));
 }

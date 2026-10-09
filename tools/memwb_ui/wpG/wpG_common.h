@@ -10,6 +10,7 @@
 
 #include "../../../Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchConfirmations.h"
 #include "../../../Ksword5.1/Ksword5.1/UI/MemoryWorkbench/WorkbenchStatusBar.h"
+#include "../../../Ksword5.1/Ksword5.1/UI/StructuredFieldView.h"
 
 #include "../../../shared/evidence/memory_workbench/MemoryWriteTransaction.h"
 
@@ -155,6 +156,7 @@ namespace wpg_test
         explicit FakeDiagnosticsHost(QWidget* parent = nullptr);
         QWidget* HostWidget() override;
         void SetDiagnosticsText(const QString& text) override;
+        void SetDiagnosticsDocument(const ks::ui::FieldDocument& document) override;
         QString DiagnosticsText() const override;
         void SetWrapEnabled(bool wrap) override;
 
@@ -164,6 +166,8 @@ namespace wpg_test
 
     private:
         QPlainTextEdit* m_edit = nullptr;
+        ks::ui::FieldDocument m_document;
+        bool m_documentActive = false;
     };
 
     // 各组测试入口，定义在对应的 wpG_tests.*.cpp，main() 依次调用。

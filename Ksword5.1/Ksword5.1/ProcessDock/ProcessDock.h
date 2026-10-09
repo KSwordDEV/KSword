@@ -87,6 +87,7 @@ namespace ks::network
 
 namespace ks::ui
 {
+    class StructuredFieldView;
     template<typename RowT>
     class FlatTableModel;
 }
@@ -1230,7 +1231,7 @@ private:
     QLabel* m_crossViewStatusLabel = nullptr; // Cross-View 查询状态。
     QTableWidget* m_processCrossViewTable = nullptr; // 进程来源矩阵表。
     QTableWidget* m_threadCrossViewTable = nullptr; // 线程来源矩阵表。
-    CodeEditorWidget* m_crossViewDetailEdit = nullptr; // Cross-View 详情文本编辑器，只读。
+    ks::ui::StructuredFieldView* m_crossViewDetailEdit = nullptr; // Cross-View 原生结构详情，只读。
 
     // ======== 创建进程页 - 通用参数 ========
     QComboBox* m_createMethodCombo = nullptr; // CreateProcessW / Token 路径。

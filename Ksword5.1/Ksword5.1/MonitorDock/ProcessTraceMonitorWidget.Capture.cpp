@@ -743,43 +743,31 @@ bool ProcessTraceMonitorWidget::extractEventProperties(
     return !propertyListOut->empty();
 }
 
-QString ProcessTraceMonitorWidget::buildEventDetailText(
+ks::ui::FieldDocument ProcessTraceMonitorWidget::buildEventDetailDocument(
     const QString& providerGuidText,
     const struct _EVENT_RECORD* eventRecordPtr,
     const std::vector<EtwPropertyValue>& propertyList) const
 {
     const EVENT_RECORD* eventRecord = reinterpret_cast<const EVENT_RECORD*>(eventRecordPtr);
-    if (eventRecord == nullptr)
-    {
-        return QString();
-    }
-
-    QStringList detailPartList;
-    detailPartList << QStringLiteral("providerGuid=%1").arg(providerGuidText);
-    detailPartList << QStringLiteral("level=%1").arg(static_cast<int>(eventRecord->EventHeader.EventDescriptor.Level));
-    detailPartList << QStringLiteral("task=%1").arg(static_cast<int>(eventRecord->EventHeader.EventDescriptor.Task));
-    detailPartList << QStringLiteral("opcode=%1").arg(static_cast<int>(eventRecord->EventHeader.EventDescriptor.Opcode));
-    detailPartList << QStringLiteral("keyword=0x%1").arg(
-        QString::number(
-            static_cast<qulonglong>(eventRecord->EventHeader.EventDescriptor.Keyword),
-            16).toUpper());
-
+    if (eventRecord == nullptr) return {};
+    ks::ui::FieldDocument document;
+    document.section(QStringLiteral("ETW"));
+    document.field(QStringLiteral("ProviderGuid"), providerGuidText);
+    document.field(QStringLiteral("Level"), QString::number(eventRecord->EventHeader.EventDescriptor.Level));
+    document.field(QStringLiteral("Task"), QString::number(eventRecord->EventHeader.EventDescriptor.Task));
+    document.field(QStringLiteral("Opcode"), QString::number(eventRecord->EventHeader.EventDescriptor.Opcode));
+    document.field(QStringLiteral("Keyword"), QStringLiteral("0x%1")
+        .arg(static_cast<qulonglong>(eventRecord->EventHeader.EventDescriptor.Keyword), 0, 16).toUpper());
+    document.section(QStringLiteral("Properties"));
     for (const EtwPropertyValue& property : propertyList)
     {
-        QString valueText = property.valueText;
-        if (valueText.size() > 256)
-        {
-            valueText = valueText.left(256) + QStringLiteral(" ...");
-        }
-        detailPartList << QStringLiteral("%1=%2").arg(property.nameText, valueText);
+        ks::ui::FieldNode field;
+        field.name = property.nameText;
+        field.value = property.valueText;
+        field.translateName = false;
+        document.nodes.last().children.push_back(std::move(field));
     }
-
-    QString detailText = detailPartList.join(QStringLiteral(" ; "));
-    if (detailText.size() > 6000)
-    {
-        detailText = detailText.left(6000) + QStringLiteral(" ...");
-    }
-    return detailText;
+    return document;
 }
 
 bool ProcessTraceMonitorWidget::buildRelevantEventRow(
@@ -1068,7 +1056,7 @@ bool ProcessTraceMonitorWidget::buildRelevantEventRow(
     rowOut->relationText = relationText.trimmed().isEmpty()
         ? QStringLiteral("命中")
         : relationText;
-    rowOut->detailText = buildEventDetailText(providerGuidText, eventRecordPtr, propertyList);
+    rowOut->detailDocument = buildEventDetailDocument(providerGuidText, eventRecordPtr, propertyList);
     rowOut->activityIdText = guidToText(eventRecord->EventHeader.ActivityId);
 
     // UI 同步：

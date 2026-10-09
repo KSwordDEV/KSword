@@ -12,8 +12,10 @@
 // 本文件只做数据与系统访问，不含任何 QWidget 依赖；UI 在 VirtualLocationPage 中。
 // ============================================================
 
+#include <QByteArray>
 #include <QString>
 #include <QStringList>
+#include <QVector>
 
 namespace ks::misc::virtual_location
 {
@@ -47,6 +49,18 @@ namespace ks::misc::virtual_location
         double altitudeAccuracyMeters = 0.0; // altitudeAccuracyMeters：垂直误差，单位米。
     };
 
+    // 原始字节是注册表属性的唯一数据源；可读预览由消费者按需生成。
+    struct DefaultLocationValue
+    {
+        QString name;
+        quint32 type = 0;
+        QByteArray bytes;
+        RegistryBackend backend = RegistryBackend::None;
+    };
+
+    QString registryValueTypeText(quint32 type);
+    QString registryValuePreview(const DefaultLocationValue& value);
+
     // DefaultLocationSnapshot：
     // - 作用：一次“默认位置”注册表读取的完整结果，含原始值清单以便用户核对。
     struct DefaultLocationSnapshot
@@ -55,7 +69,7 @@ namespace ks::misc::virtual_location
         bool present = false;           // present：键里是否已经写着可用的经纬度。
         RegistryBackend backend = RegistryBackend::None; // backend：本次读取走通的通道。
         GeoCoordinate coordinate;       // coordinate：解析出的坐标，present 为 false 时无意义。
-        QStringList rawValueLines;      // rawValueLines：每个值一行的“名称 (类型) = 文本”原样清单。
+        QVector<DefaultLocationValue> values; // 保留各值名、类型、完整字节和实际读取通道。
         QString failureText;            // failureText：readable 为 false 时的失败原因。
     };
 

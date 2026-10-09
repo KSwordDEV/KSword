@@ -5,7 +5,7 @@
 // 作用：
 // - 保留 FileDock 属性窗口的 QString API；
 // - 将 PE 读取、头部、节表、导入/导出/目录解析委托给 ks::file；
-// - 属性页使用后端原生字段模型，文本 API 仅用于兼容导出。
+// - 属性页使用后端原生字段模型，字段模型是属性展示与复制导出的共同来源。
 // ============================================================
 
 #include "../ksword/file/pe_analyzer.h"
@@ -31,19 +31,14 @@ namespace file_dock_detail
         }
     }
 
-    QString buildPeAnalysisText(const QString& filePath)
+    ks::ui::FieldDocument buildPeAnalysisDocument(const QString& filePath)
     {
-        // 输入 filePath 来自 Qt UI；转换为 std::wstring 后交给非 UI 后端。
-        // 返回值仍为 QString，以保持 FileDock 属性窗口调用点不变。
-        const std::wstring reportText = ks::file::BuildPeAnalysisText(filePath.toStdWString());
-        return QString::fromStdWString(reportText);
+        return buildPeAnalysisDocument(ks::file::AnalyzePeFile(filePath.toStdWString()));
     }
 
-    PropertyDocument buildPeAnalysisDocument(const QString& filePath)
+    ks::ui::FieldDocument buildPeAnalysisDocument(const ks::file::PeAnalysisResult& result)
     {
-        const ks::file::PeAnalysisResult result =
-            ks::file::AnalyzePeFile(filePath.toStdWString());
-        PropertyDocument document;
+        ks::ui::FieldDocument document;
         document.title = QStringLiteral("PE解析");
         int sectionIndex = -1;
         QVector<int> ancestors;
@@ -61,15 +56,15 @@ namespace file_dock_detail
             // no pointer to an earlier node survives across entries.
             const int depth = std::min<int>(static_cast<int>(entry.depth),
                 static_cast<int>(ancestors.size()));
-            QVector<PropertyNode>* destination = sectionIndex >= 0
+            QVector<ks::ui::FieldNode>* destination = sectionIndex >= 0
                 ? &document.nodes[sectionIndex].children : &document.nodes;
             for (int level = 0; level < depth; ++level)
             {
                 destination = &(*destination)[ancestors[level]].children;
             }
-            PropertyNode node;
+            ks::ui::FieldNode node;
             node.kind = entry.kind == ks::file::PeReportEntry::Kind::Note
-                ? PropertyNode::Kind::Note : PropertyNode::Kind::Field;
+                ? ks::ui::FieldNode::Kind::Note : ks::ui::FieldNode::Kind::Field;
             node.name = QString::fromStdWString(entry.name);
             node.value = QString::fromStdWString(entry.value);
             destination->push_back(std::move(node));
@@ -94,14 +89,12 @@ namespace file_dock_detail
         dependencyResult.isPe = analysisResult.success;
         if (!analysisResult.success)
         {
-            const QString reportText = QString::fromStdWString(analysisResult.errorText).trimmed();
-            const bool clearlyNotPe =
-                reportText.contains(QStringLiteral("不是有效的 MZ 文件")) ||
-                reportText.contains(QStringLiteral("文件过小"));
+            const QString errorText = QString::fromStdWString(analysisResult.errorText).trimmed();
+            const bool clearlyNotPe = analysisResult.error == ks::file::PeAnalysisError::NotPe;
             dependencyResult.isPe = !clearlyNotPe;
             dependencyResult.errorText = clearlyNotPe
-                ? QStringLiteral("不适用：目标不是 EXE/DLL PE 文件。\n%1").arg(reportText)
-                : QStringLiteral("PE 解析失败：Import Directory 无法读取。\n%1").arg(reportText);
+                ? QStringLiteral("不适用：目标不是 EXE/DLL PE 文件。\n%1").arg(errorText)
+                : QStringLiteral("PE 解析失败：Import Directory 无法读取。\n%1").arg(errorText);
             return dependencyResult;
         }
 

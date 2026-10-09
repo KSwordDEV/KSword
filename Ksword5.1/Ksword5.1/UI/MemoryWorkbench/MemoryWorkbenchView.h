@@ -43,6 +43,7 @@
 #include "WorkbenchTarget.h"
 
 #include "../ThemeStatusRole.h"
+#include "../StructuredFieldView.h"
 
 #include "../../../../shared/evidence/memory_workbench/MemoryAddressBook.h"
 #include "../../../../shared/evidence/memory_workbench/MemoryChannelGate.h"
@@ -622,7 +623,7 @@ namespace ks::ui
         bool pointerNavigation_ = false;
         bool pointerClearAfterPending_ = false;
         bool pointerClosing_ = false;
-        std::map<std::uint64_t, std::string> pointerTraces_;
+        std::map<std::uint64_t, FieldDocument> pointerTraces_;
         // hexPane_：十六进制子页，持有 overlay 唯一一份；用 QWidget 的 parent 机制
         // 管理（本类作为父对象，构造时用 new 创建，不需要 unique_ptr）。它比上面
         // 三个 unique_ptr 成员活得更久的原因见文件头"创建/销毁顺序"——这是 Qt

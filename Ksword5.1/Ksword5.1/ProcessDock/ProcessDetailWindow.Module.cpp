@@ -416,7 +416,7 @@ void ProcessDetailWindow::showCurrentModuleDetailDialog()
 {
     // showCurrentModuleDetailDialog 作用：
     // - 将模块表当前行映射回 ProcessModuleRecord；
-    // - 构造只读详情文本并放入项目内置 CodeEditorWidget；
+    // - 构造只读详情文本并放入项目内置 StructuredFieldView；
     // - 返回：无，用户可复制全部或打开模块所在目录。
     ks::process::ProcessModuleRecord* moduleRecord = selectedModuleRecord();
     if (moduleRecord == nullptr)
@@ -425,19 +425,19 @@ void ProcessDetailWindow::showCurrentModuleDetailDialog()
     }
 
     const QString modulePathText = QString::fromStdString(moduleRecord->modulePath);
-    const QString detailText = QStringList({
-        QStringLiteral("进程 ID: %1").arg(m_baseRecord.pid),
-        QStringLiteral("进程名: %1").arg(QString::fromStdString(m_baseRecord.processName)),
-        QStringLiteral("模块路径: %1").arg(modulePathText),
-        QStringLiteral("模块基址: %1").arg(formatHexText(moduleRecord->moduleBaseAddress)),
-        QStringLiteral("模块大小: %1").arg(formatModuleSizeText(moduleRecord->moduleSizeBytes)),
-        QStringLiteral("入口点 RVA: %1").arg(formatHexText(moduleRecord->entryPointRva)),
-        QStringLiteral("签名状态: %1").arg(QString::fromStdString(moduleRecord->signatureState)),
-        QStringLiteral("签名可信: %1").arg(moduleRecord->signatureTrusted ? QStringLiteral("true") : QStringLiteral("false")),
-        QStringLiteral("运行状态: %1").arg(QString::fromStdString(moduleRecord->runningState)),
-        QStringLiteral("代表线程 ID: %1").arg(moduleRecord->representativeThreadId),
-        QStringLiteral("线程 ID 文本: %1").arg(QString::fromStdString(moduleRecord->threadIdText))
-    }).join(QChar('\n'));
+    ks::ui::FieldDocument document;
+    document.section(QStringLiteral("模块详情"));
+    document.field(QStringLiteral("进程 ID"), QString::number(m_baseRecord.pid));
+    document.field(QStringLiteral("进程名"), QString::fromStdString(m_baseRecord.processName));
+    document.field(QStringLiteral("模块路径"), modulePathText);
+    document.field(QStringLiteral("模块基址"), formatHexText(moduleRecord->moduleBaseAddress));
+    document.field(QStringLiteral("模块大小"), formatModuleSizeText(moduleRecord->moduleSizeBytes));
+    document.field(QStringLiteral("入口点 RVA"), formatHexText(moduleRecord->entryPointRva));
+    document.field(QStringLiteral("签名状态"), QString::fromStdString(moduleRecord->signatureState), true);
+    document.field(QStringLiteral("签名可信"), moduleRecord->signatureTrusted ? QStringLiteral("true") : QStringLiteral("false"), true);
+    document.field(QStringLiteral("运行状态"), QString::fromStdString(moduleRecord->runningState), true);
+    document.field(QStringLiteral("代表线程 ID"), QString::number(moduleRecord->representativeThreadId));
+    document.field(QStringLiteral("线程 ID 文本"), QString::fromStdString(moduleRecord->threadIdText));
 
     QDialog detailDialog(this);
     detailDialog.setWindowTitle(QStringLiteral("模块详情 - %1").arg(QFileInfo(modulePathText).fileName()));
@@ -465,9 +465,8 @@ void ProcessDetailWindow::showCurrentModuleDetailDialog()
     summaryLabel->setWordWrap(true);
     dialogLayout->addWidget(summaryLabel);
 
-    CodeEditorWidget* detailEditor = new CodeEditorWidget(&detailDialog);
-    detailEditor->setReadOnly(true);
-    detailEditor->setLocalizedText(detailText);
+    auto* detailEditor = new ks::ui::StructuredFieldView(&detailDialog);
+    detailEditor->setDocument(document);
     dialogLayout->addWidget(detailEditor, 1);
 
     QHBoxLayout* buttonLayout = new QHBoxLayout();
@@ -488,7 +487,7 @@ void ProcessDetailWindow::showCurrentModuleDetailDialog()
 
     connect(copyButton, &QPushButton::clicked, &detailDialog, [detailEditor]()
     {
-        QApplication::clipboard()->setText(detailEditor->text());
+        QApplication::clipboard()->setText(detailEditor->plainText());
     });
     connect(openFolderButton, &QPushButton::clicked, &detailDialog, [modulePathText]()
     {

@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -166,17 +167,14 @@ private:
     void syncToolbarStateWithSelection();
     void onServiceSelectionChanged();
     void updateDetailViewsFromSelection();
-    QString buildAuditTabText(const ServiceEntry& entry) const;
+    ks::ui::FieldDocument buildAuditTabText(const ServiceEntry& entry) const;
     QString buildBasicInfoText(const ServiceEntry& entry) const;
     QString buildConfigInfoText(const ServiceEntry& entry) const;
-    QString buildProcessLinkDetailText(const ServiceEntry& entry) const;
-    QString buildRegistryFileDetailText(const ServiceEntry& entry) const;
-    QString buildDependencyDetailText(const ServiceEntry& entry) const;
-    QString buildFailureActionDetailText(const ServiceEntry& entry) const;
-    QString buildTriggerDetailText(const ServiceEntry& entry) const;
-    QString buildSecurityDetailText(const ServiceEntry& entry) const;
-    QString buildRiskDetailText(const ServiceEntry& entry) const;
-    QString buildExportDetailText(const ServiceEntry& entry) const;
+    ks::ui::FieldDocument buildDependencyDetailText(const ServiceEntry& entry) const;
+    ks::ui::FieldDocument buildTriggerDetailText(const ServiceEntry& entry) const;
+    ks::ui::FieldDocument buildSecurityDetailText(const ServiceEntry& entry) const;
+    ks::ui::FieldDocument buildRiskDetailText(const ServiceEntry& entry) const;
+    ks::ui::FieldDocument buildExportDetailText(const ServiceEntry& entry) const;
     void initializeGeneralTab();
     void initializeLogonTab();
     void initializeRecoveryTab();
@@ -328,8 +326,8 @@ private:
     // 依存关系 / 审计页控件：
     // - 非可写数据继续走文本编辑器展示；
     // - 满足“可操作项不放在文本编辑器里”的要求。
-    CodeEditorWidget* m_dependencyEditor = nullptr;   // m_dependencyEditor：依存关系文本编辑器（只读）。
-    CodeEditorWidget* m_auditEditor = nullptr;        // m_auditEditor：审计文本编辑器（只读）。
+    ks::ui::StructuredFieldView* m_dependencyEditor = nullptr;   // m_dependencyEditor：依存关系文本编辑器（只读）。
+    ks::ui::StructuredFieldView* m_auditEditor = nullptr;        // m_auditEditor：审计文本编辑器（只读）。
 
     // ===================== 数据与状态 =====================
     std::vector<ServiceEntry> m_serviceList;          // m_serviceList：服务缓存列表。

@@ -19,10 +19,8 @@ $componentSources = @(
     'Ksword5.1\Ksword5.1\UI\CodeEditorWidget.cpp',
     'Ksword5.1\Ksword5.1\UI\CodeTextEdit.cpp',
     'Ksword5.1\Ksword5.1\UI\CodeEditorFileSession.cpp',
-    'Ksword5.1\Ksword5.1\UI\ReportStructuredView.cpp',
-        'Ksword5.1\Ksword5.1\UI\FieldTreePresenter.cpp',
-        'Ksword5.1\Ksword5.1\UI\FieldTreePresenter.Copy.cpp',
-    'Ksword5.1\Ksword5.1\UI\GlobalUiBaseStyle.cpp',
+    'Ksword5.1\Ksword5.1\UI\StructuredFieldView.cpp', 'Ksword5.1\Ksword5.1\UI\TypedSyntaxDocument.cpp',
+        'Ksword5.1\Ksword5.1\UI\GlobalUiBaseStyle.cpp',
     'Ksword5.1\Ksword5.1\UI\ThemeStatusRole.cpp',
     'Ksword5.1\Ksword5.1\UI\SvgThemeIconManager.cpp',
     'Ksword5.1\Ksword5.1\UI\ThemeControlGlyphs.cpp',
@@ -32,6 +30,7 @@ $componentSources = @(
     'Ksword5.1\Ksword5.1\UI\CommandExecutionPopup.cpp',
     'Ksword5.1\Ksword5.1\UI\ThemeBinding.cpp',
     'Ksword5.1\Ksword5.1\UI\TableInteractionSupport.cpp',
+    'Ksword5.1\Ksword5.1\UI\TablePresentation.cpp',
     'Ksword5.1\Ksword5.1\UI\UiCommitCoordinator.cpp',
     'Ksword5.1\Ksword5.1\UI\ResultTableHost.cpp',
     'Ksword5.1\Ksword5.1\UI\TableSnapshotCompare.cpp',
@@ -50,6 +49,7 @@ $componentSources = @(
 ) | ForEach-Object { Join-Path $componentRepository $_ }
 $componentHeaders = @(
     'Ksword5.1\Ksword5.1\UI\CodeEditorWidget.h',
+    'Ksword5.1\Ksword5.1\UI\StructuredFieldView.h',
     'Ksword5.1\Ksword5.1\UI\CommandExecutionPopup.h',
     'Ksword5.1\Ksword5.1\UI\GlobalUiSearch.h',
     'Ksword5.1\Ksword5.1\Framework\CustomTitleBar.h'

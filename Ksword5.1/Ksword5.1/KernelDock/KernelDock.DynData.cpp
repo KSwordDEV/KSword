@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -167,47 +168,7 @@ namespace
             .arg(safeText(messageText));
     }
 
-    // appendV4ProfileSummaryLines：
-    // - 输入 lines/summary：详情文本缓冲和 DynData 摘要快照；
-    // - 处理：追加 v4 modules、capability groups、missing items、accepted items 四组只读查询状态；
-    // - 返回：无，lines 通过引用被追加。
-    void appendV4ProfileSummaryLines(QStringList& lines, const KernelDynDataSummary& summary)
-    {
-        lines << QStringLiteral("");
-        lines << QStringLiteral("DynData V4 profile query status:");
-        appendV4StatusLine(
-            lines,
-            QStringLiteral("modules"),
-            summary.dynDataV4ModulesQueryOk,
-            summary.dynDataV4ModulesUnsupported,
-            summary.dynDataV4ModulesReturnedCount,
-            summary.dynDataV4ModulesTotalCount,
-            summary.dynDataV4ModulesIoMessageText);
-        appendV4StatusLine(
-            lines,
-            QStringLiteral("capability groups"),
-            summary.dynDataV4CapabilityGroupsQueryOk,
-            summary.dynDataV4CapabilityGroupsUnsupported,
-            summary.dynDataV4CapabilityGroupsReturnedCount,
-            summary.dynDataV4CapabilityGroupsTotalCount,
-            summary.dynDataV4CapabilityGroupsIoMessageText);
-        appendV4StatusLine(
-            lines,
-            QStringLiteral("missing items"),
-            summary.dynDataV4MissingItemsQueryOk,
-            summary.dynDataV4MissingItemsUnsupported,
-            summary.dynDataV4MissingItemsReturnedCount,
-            summary.dynDataV4MissingItemsTotalCount,
-            summary.dynDataV4MissingItemsIoMessageText);
-        appendV4StatusLine(
-            lines,
-            QStringLiteral("accepted items"),
-            summary.dynDataV4ItemsQueryOk,
-            summary.dynDataV4ItemsUnsupported,
-            summary.dynDataV4ItemsReturnedCount,
-            summary.dynDataV4ItemsTotalCount,
-            summary.dynDataV4ItemsIoMessageText);
-    }
+
 
     // v4ItemKindText：
     // - 输入 itemKind：R0 返回的 KSW_DYN_V4_ITEM_KIND_* 数值；
@@ -306,79 +267,9 @@ namespace
         return haystack.contains(filterKeyword, Qt::CaseInsensitive);
     }
 
-    // profileSummaryText：
-    // - 输入 summary：DynData 当前摘要；
-    // - 处理：拼装用于 profile 状态页的紧凑说明；
-    // - 返回：多行文本。
-    QString profileSummaryText(const KernelDynDataSummary& summary)
-    {
-        QStringList lines;
-        lines << QStringLiteral("ntoskrnl: %1").arg(safeText(summary.ntoskrnl.moduleNameText));
-        lines << QStringLiteral("classId: %1").arg(moduleClassText(summary.ntoskrnl.classId));
-        lines << QStringLiteral("machine: %1").arg(formatHex32(summary.ntoskrnl.machine));
-        lines << QStringLiteral("timeDateStamp: %1").arg(formatHex32(summary.ntoskrnl.timeDateStamp));
-        lines << QStringLiteral("sizeOfImage: %1").arg(formatHex32(summary.ntoskrnl.sizeOfImage));
-        lines << QStringLiteral("imageBase: %1").arg(formatHex64(summary.ntoskrnl.imageBase));
-        lines << QStringLiteral("PDB profile active: %1")
-            .arg(boolText(statusFlagEnabled(summary.statusFlags, KSW_DYN_STATUS_FLAG_PDB_PROFILE_ACTIVE)));
-        lines << QStringLiteral("PDB profile scan attempted: %1").arg(boolText(summary.pdbProfileScanAttempted));
-        lines << QStringLiteral("PDB profile found: %1").arg(boolText(summary.pdbProfileFound));
-        lines << QStringLiteral("PDB profile applied: %1").arg(boolText(summary.pdbProfileApplied));
-        lines << QStringLiteral("PDB profile source: %1").arg(safeText(summary.pdbProfileSourceText));
-        lines << QStringLiteral("PDB profile name: %1").arg(safeText(summary.pdbProfileNameText));
-        lines << QStringLiteral("PDB profile path: %1").arg(safeText(summary.pdbProfilePathText));
-        lines << QStringLiteral("PDB profile status: %1").arg(formatNtStatus(summary.pdbProfileStatus));
-        lines << QStringLiteral("PDB profile fields: applied=%1 rejected=%2 unknown=%3 ignoredJson=%4")
-            .arg(summary.pdbProfileAppliedFields)
-            .arg(summary.pdbProfileRejectedFields)
-            .arg(summary.pdbProfileUnknownFields)
-            .arg(summary.pdbProfileIgnoredJsonFields);
-        lines << QStringLiteral("message: %1").arg(safeText(summary.pdbProfileMessageText));
-        lines << QStringLiteral("io: %1").arg(safeText(summary.pdbProfileIoMessageText));
-        appendV4ProfileSummaryLines(lines, summary);
-        return lines.join(QStringLiteral("\n"));
-    }
 
-    // buildProfileReport：
-    // - 输入 summary/rows：当前 DynData 摘要和字段列表；
-    // - 处理：把 profile 激活信息和字段状态压成纯文本，供复制和详情显示；
-    // - 返回：报告文本。
-    QString buildProfileReport(const KernelDynDataSummary& summary, const std::vector<KernelDynDataFieldEntry>& rows)
-    {
-        QStringList lines;
-        lines << QStringLiteral("Ksword DynData PDB Profile Report");
-        lines << QStringLiteral("StatusFlags: %1").arg(formatHex32(summary.statusFlags));
-        lines << QStringLiteral("CapabilityMask: %1").arg(formatHex64(summary.capabilityMask));
-        lines << QStringLiteral("PdbProfileActive: %1").arg(boolText(statusFlagEnabled(summary.statusFlags, KSW_DYN_STATUS_FLAG_PDB_PROFILE_ACTIVE)));
-        lines << QStringLiteral("PdbProfileScanAttempted: %1").arg(boolText(summary.pdbProfileScanAttempted));
-        lines << QStringLiteral("PdbProfileFound: %1").arg(boolText(summary.pdbProfileFound));
-        lines << QStringLiteral("PdbProfileApplied: %1").arg(boolText(summary.pdbProfileApplied));
-        lines << QStringLiteral("PdbProfileStatus: %1").arg(formatNtStatus(summary.pdbProfileStatus));
-        lines << QStringLiteral("PdbProfileAppliedFields: %1").arg(summary.pdbProfileAppliedFields);
-        lines << QStringLiteral("PdbProfileRejectedFields: %1").arg(summary.pdbProfileRejectedFields);
-        lines << QStringLiteral("PdbProfileUnknownFields: %1").arg(summary.pdbProfileUnknownFields);
-        lines << QStringLiteral("PdbProfileIgnoredJsonFields: %1").arg(summary.pdbProfileIgnoredJsonFields);
-        lines << QStringLiteral("PdbProfileSource: %1").arg(safeText(summary.pdbProfileSourceText));
-        lines << QStringLiteral("PdbProfileName: %1").arg(safeText(summary.pdbProfileNameText));
-        lines << QStringLiteral("PdbProfilePath: %1").arg(safeText(summary.pdbProfilePathText));
-        lines << QStringLiteral("PdbProfileMessage: %1").arg(safeText(summary.pdbProfileMessageText));
-        lines << QStringLiteral("PdbProfileIo: %1").arg(safeText(summary.pdbProfileIoMessageText));
-        lines << QStringLiteral("");
-        lines << profileSummaryText(summary);
-        lines << QStringLiteral("");
-        lines << QStringLiteral("Fields:");
-        for (const KernelDynDataFieldEntry& entry : rows)
-        {
-            lines << QStringLiteral("%1\t%2\t%3\t%4\t%5\t%6")
-                .arg(safeText(entry.fieldNameText))
-                .arg(formatOffset(entry.offset))
-                .arg(safeText(entry.statusText))
-                .arg(safeText(entry.sourceNameText))
-                .arg(safeText(entry.featureNameText))
-                .arg(formatHex64(entry.capabilityMask));
-        }
-        return lines.join(QStringLiteral("\n"));
-    }
+
+
 
     // kCapabilities：
     // - 作用：枚举 Phase 0 暴露的全部 capability；
@@ -2485,18 +2376,18 @@ namespace
     // - 输入 mask：能力位图；
     // - 处理：逐项列出启用/禁用；
     // - 返回：多行报告文本。
-    QString capabilityReport(const std::uint64_t mask)
+    ks::ui::FieldDocument capabilityReport(const std::uint64_t mask)
     {
-        QStringList lines;
+        ks::ui::FieldDocument lines;
         for (const CapabilityDisplay& capability : kCapabilities)
         {
             const bool enabled = (mask & capability.mask) == capability.mask;
-            lines << QStringLiteral("%1 [%2] %3")
-                .arg(enabled ? QStringLiteral("[ON]") : QStringLiteral("[OFF]"))
-                .arg(QString::fromLatin1(capability.name))
-                .arg(kernelText(capability.contextKey, QString::fromWCharArray(capability.title)));
+            lines.section(QStringLiteral("Capability"));
+            lines.field(QStringLiteral("Name"), QString::fromLatin1(capability.name));
+            lines.field(QStringLiteral("Enabled"), enabled ? QStringLiteral("[ON]") : QStringLiteral("[OFF]"));
+            lines.field(QStringLiteral("说明"), kernelText(capability.contextKey, QString::fromWCharArray(capability.title)));
         }
-        return lines.join(QStringLiteral("\n"));
+        return lines;
     }
 
     // disabledCapabilitySummary：
@@ -2567,29 +2458,25 @@ namespace
     // - 输入 title/source：模块标题和身份结构；
     // - 处理：格式化模块 identity；
     // - 返回：多行诊断文本。
-    QString moduleDetailText(const QString& title, const KernelDynDataModuleIdentity& source)
+    ks::ui::FieldDocument moduleDetailText(const QString& title, const KernelDynDataModuleIdentity& source)
     {
         if (!source.present)
         {
-            return kernelText("kernel.dyndata.module.unavailable", QStringLiteral("%1: <未加载或未识别>")).arg(title);
+            { ks::ui::FieldDocument document;
+        document.section(title);
+        document.note(QStringLiteral("<未加载或未识别>"));
+        return document; }
         }
 
-        return QStringLiteral(
-            "%1:\n"
-            "  ModuleName: %2\n"
-            "  Class: %3 (%4)\n"
-            "  Machine: %5\n"
-            "  TimeDateStamp: %6\n"
-            "  SizeOfImage: %7\n"
-            "  ImageBase: %8")
-            .arg(title)
-            .arg(safeText(source.moduleNameText))
-            .arg(moduleClassText(source.classId))
-            .arg(source.classId)
-            .arg(formatHex32(source.machine))
-            .arg(formatHex32(source.timeDateStamp))
-            .arg(formatHex32(source.sizeOfImage))
-            .arg(formatHex64(source.imageBase));
+        { ks::ui::FieldDocument document;
+        document.section(title);
+        document.field(QStringLiteral("ModuleName"), QStringLiteral("%1").arg(safeText(source.moduleNameText)));
+        document.field(QStringLiteral("Class"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(moduleClassText(source.classId))).arg(QStringLiteral("%1").arg(source.classId)));
+        document.field(QStringLiteral("Machine"), QStringLiteral("%1").arg(formatHex32(source.machine)));
+        document.field(QStringLiteral("TimeDateStamp"), QStringLiteral("%1").arg(formatHex32(source.timeDateStamp)));
+        document.field(QStringLiteral("SizeOfImage"), QStringLiteral("%1").arg(formatHex32(source.sizeOfImage)));
+        document.field(QStringLiteral("ImageBase"), QStringLiteral("%1").arg(formatHex64(source.imageBase)));
+        return document; }
     }
 
     // appendSummaryRow：
@@ -2635,86 +2522,75 @@ namespace
     // - 输入 entry/summary：字段行和当前摘要；
     // - 处理：生成详情面板文本，包含能力依赖和全局状态；
     // - 返回：多行详情文本。
-    QString buildFieldDetail(const KernelDynDataFieldEntry& entry, const KernelDynDataSummary& summary)
+    ks::ui::FieldDocument buildFieldDetail(const KernelDynDataFieldEntry& entry, const KernelDynDataSummary& summary)
     {
-        return kernelText("kernel.dyndata.detail.field", QStringLiteral(
-            "字段名: %1\n"
-            "字段ID: %2\n"
-            "偏移: %3\n"
-            "状态: %4\n"
-            "来源: %5\n"
-            "功能: %6\n"
-            "字段标志: %7\n"
-            "字段能力位: %8\n"
-            "字段能力名: %9\n\n"
-            "当前全局能力位: %10\n"
-            "当前未启用能力: %11\n\n"
-            "R0不可用原因: %12")
-            .arg(safeText(entry.fieldNameText))
-            .arg(entry.fieldId)
-            .arg(formatOffset(entry.offset))
-            .arg(safeText(entry.statusText))
-            .arg(safeText(entry.sourceNameText))
-            .arg(safeText(entry.featureNameText))
-            .arg(formatHex32(entry.flags))
-            .arg(formatHex64(entry.capabilityMask))
-            .arg(capabilityNames(entry.capabilityMask))
-            .arg(formatHex64(summary.capabilityMask))
-            .arg(disabledCapabilitySummary(summary.capabilityMask))
-            .arg(safeText(summary.unavailableReasonText)));
+        { ks::ui::FieldDocument document;
+        document.field(QStringLiteral("字段名"), QStringLiteral("%1").arg(safeText(entry.fieldNameText)));
+        document.field(QStringLiteral("字段ID"), QStringLiteral("%1").arg(entry.fieldId));
+        document.field(QStringLiteral("偏移"), QStringLiteral("%1").arg(formatOffset(entry.offset)));
+        document.field(QStringLiteral("状态"), QStringLiteral("%1").arg(safeText(entry.statusText)));
+        document.field(QStringLiteral("来源"), QStringLiteral("%1").arg(safeText(entry.sourceNameText)));
+        document.field(QStringLiteral("功能"), QStringLiteral("%1").arg(safeText(entry.featureNameText)));
+        document.field(QStringLiteral("字段标志"), QStringLiteral("%1").arg(formatHex32(entry.flags)));
+        document.field(QStringLiteral("字段能力位"), QStringLiteral("%1").arg(formatHex64(entry.capabilityMask)));
+        document.field(QStringLiteral("字段能力名"), QStringLiteral("%1").arg(capabilityNames(entry.capabilityMask)));
+        document.field(QStringLiteral("当前全局能力位"), QStringLiteral("%1").arg(formatHex64(summary.capabilityMask)));
+        document.field(QStringLiteral("当前未启用能力"), QStringLiteral("%1").arg(disabledCapabilitySummary(summary.capabilityMask)));
+        document.field(QStringLiteral("R0不可用原因"), QStringLiteral("%1").arg(safeText(summary.unavailableReasonText)));
+        return document; }
     }
 
     // buildDynDataReport：
     // - 输入 summary/rows：摘要和字段行；
     // - 处理：拼出可复制的完整诊断报告；
     // - 返回：多行报告文本。
-    QString buildDynDataReport(const KernelDynDataSummary& summary, const std::vector<KernelDynDataFieldEntry>& rows)
+    ks::ui::FieldDocument buildDynDataReport(const KernelDynDataSummary& summary, const std::vector<KernelDynDataFieldEntry>& rows)
     {
-        QStringList lines;
-        lines << QStringLiteral("Ksword DynData Diagnostic Report");
-        lines << QStringLiteral("StatusQueryOk: %1").arg(boolText(summary.statusQueryOk));
-        lines << QStringLiteral("FieldsQueryOk: %1").arg(boolText(summary.fieldsQueryOk));
-        lines << QStringLiteral("StatusFlags: %1").arg(formatHex32(summary.statusFlags));
-        lines << QStringLiteral("CapabilityMask: %1").arg(formatHex64(summary.capabilityMask));
-        lines << QStringLiteral("SystemInformerDataVersion: %1").arg(summary.systemInformerDataVersion);
-        lines << QStringLiteral("SystemInformerDataLength: %1").arg(summary.systemInformerDataLength);
-        lines << QStringLiteral("LastStatus: %1").arg(formatNtStatus(summary.lastStatus));
-        lines << QStringLiteral("MatchedProfileClass: %1").arg(moduleClassText(summary.matchedProfileClass));
-        lines << QStringLiteral("MatchedProfileOffset: %1").arg(formatHex32(summary.matchedProfileOffset));
-        lines << QStringLiteral("MatchedFieldsId: %1").arg(summary.matchedFieldsId);
-        lines << QStringLiteral("UnavailableReason: %1").arg(safeText(summary.unavailableReasonText));
-        lines << QStringLiteral("PdbProfileActive: %1").arg(boolText(statusFlagEnabled(summary.statusFlags, KSW_DYN_STATUS_FLAG_PDB_PROFILE_ACTIVE)));
-        lines << QStringLiteral("PdbProfileScanAttempted: %1").arg(boolText(summary.pdbProfileScanAttempted));
-        lines << QStringLiteral("PdbProfileFound: %1").arg(boolText(summary.pdbProfileFound));
-        lines << QStringLiteral("PdbProfileAppliedThisRefresh: %1").arg(boolText(summary.pdbProfileApplied));
-        lines << QStringLiteral("PdbProfileSource: %1").arg(safeText(summary.pdbProfileSourceText));
-        lines << QStringLiteral("PdbProfileName: %1").arg(safeText(summary.pdbProfileNameText));
-        lines << QStringLiteral("PdbProfilePath: %1").arg(safeText(summary.pdbProfilePathText));
-        lines << QStringLiteral("PdbProfileStatus: %1").arg(formatNtStatus(summary.pdbProfileStatus));
-        lines << QStringLiteral("PdbProfileAppliedFields: %1").arg(summary.pdbProfileAppliedFields);
-        lines << QStringLiteral("PdbProfileRejectedFields: %1").arg(summary.pdbProfileRejectedFields);
-        lines << QStringLiteral("PdbProfileUnknownFields: %1").arg(summary.pdbProfileUnknownFields);
-        lines << QStringLiteral("PdbProfileIgnoredJsonFields: %1").arg(summary.pdbProfileIgnoredJsonFields);
-        lines << QStringLiteral("PdbProfileMessage: %1").arg(safeText(summary.pdbProfileMessageText));
-        lines << QStringLiteral("PdbProfileIo: %1").arg(safeText(summary.pdbProfileIoMessageText));
-        lines << moduleDetailText(QStringLiteral("ntoskrnl"), summary.ntoskrnl);
-        lines << moduleDetailText(QStringLiteral("lxcore"), summary.lxcore);
-        lines << QStringLiteral("");
-        lines << QStringLiteral("Capabilities:");
-        lines << capabilityReport(summary.capabilityMask);
-        lines << QStringLiteral("");
-        lines << QStringLiteral("Fields:");
+        ks::ui::FieldDocument lines;
+        lines.note(QStringLiteral("Ksword DynData Diagnostic Report"));
+        lines.field(QStringLiteral("StatusQueryOk"), QStringLiteral("%1").arg(boolText(summary.statusQueryOk)));
+        lines.field(QStringLiteral("FieldsQueryOk"), QStringLiteral("%1").arg(boolText(summary.fieldsQueryOk)));
+        lines.field(QStringLiteral("StatusFlags"), QStringLiteral("%1").arg(formatHex32(summary.statusFlags)));
+        lines.field(QStringLiteral("CapabilityMask"), QStringLiteral("%1").arg(formatHex64(summary.capabilityMask)));
+        lines.field(QStringLiteral("SystemInformerDataVersion"), QStringLiteral("%1").arg(summary.systemInformerDataVersion));
+        lines.field(QStringLiteral("SystemInformerDataLength"), QStringLiteral("%1").arg(summary.systemInformerDataLength));
+        lines.field(QStringLiteral("LastStatus"), QStringLiteral("%1").arg(formatNtStatus(summary.lastStatus)));
+        lines.field(QStringLiteral("MatchedProfileClass"), QStringLiteral("%1").arg(moduleClassText(summary.matchedProfileClass)));
+        lines.field(QStringLiteral("MatchedProfileOffset"), QStringLiteral("%1").arg(formatHex32(summary.matchedProfileOffset)));
+        lines.field(QStringLiteral("MatchedFieldsId"), QStringLiteral("%1").arg(summary.matchedFieldsId));
+        lines.field(QStringLiteral("UnavailableReason"), QStringLiteral("%1").arg(safeText(summary.unavailableReasonText)));
+        lines.field(QStringLiteral("PdbProfileActive"), QStringLiteral("%1").arg(boolText(statusFlagEnabled(summary.statusFlags, KSW_DYN_STATUS_FLAG_PDB_PROFILE_ACTIVE))));
+        lines.field(QStringLiteral("PdbProfileScanAttempted"), QStringLiteral("%1").arg(boolText(summary.pdbProfileScanAttempted)));
+        lines.field(QStringLiteral("PdbProfileFound"), QStringLiteral("%1").arg(boolText(summary.pdbProfileFound)));
+        lines.field(QStringLiteral("PdbProfileAppliedThisRefresh"), QStringLiteral("%1").arg(boolText(summary.pdbProfileApplied)));
+        lines.field(QStringLiteral("PdbProfileSource"), QStringLiteral("%1").arg(safeText(summary.pdbProfileSourceText)));
+        lines.field(QStringLiteral("PdbProfileName"), QStringLiteral("%1").arg(safeText(summary.pdbProfileNameText)));
+        lines.field(QStringLiteral("PdbProfilePath"), QStringLiteral("%1").arg(safeText(summary.pdbProfilePathText)));
+        lines.field(QStringLiteral("PdbProfileStatus"), QStringLiteral("%1").arg(formatNtStatus(summary.pdbProfileStatus)));
+        lines.field(QStringLiteral("PdbProfileAppliedFields"), QStringLiteral("%1").arg(summary.pdbProfileAppliedFields));
+        lines.field(QStringLiteral("PdbProfileRejectedFields"), QStringLiteral("%1").arg(summary.pdbProfileRejectedFields));
+        lines.field(QStringLiteral("PdbProfileUnknownFields"), QStringLiteral("%1").arg(summary.pdbProfileUnknownFields));
+        lines.field(QStringLiteral("PdbProfileIgnoredJsonFields"), QStringLiteral("%1").arg(summary.pdbProfileIgnoredJsonFields));
+        lines.field(QStringLiteral("PdbProfileMessage"), QStringLiteral("%1").arg(safeText(summary.pdbProfileMessageText)));
+        lines.field(QStringLiteral("PdbProfileIo"), QStringLiteral("%1").arg(safeText(summary.pdbProfileIoMessageText)));
+        lines.nodes += moduleDetailText(QStringLiteral("ntoskrnl"), summary.ntoskrnl).nodes;
+        lines.nodes += moduleDetailText(QStringLiteral("lxcore"), summary.lxcore).nodes;
+
+        lines.section(QStringLiteral("Capabilities"));
+        lines.nodes += capabilityReport(summary.capabilityMask).nodes;
+
+        lines.section(QStringLiteral("Fields"));
         for (const KernelDynDataFieldEntry& entry : rows)
         {
-            lines << QStringLiteral("%1\t%2\t%3\t%4\t%5\t%6")
-                .arg(safeText(entry.fieldNameText))
-                .arg(formatOffset(entry.offset))
-                .arg(safeText(entry.statusText))
-                .arg(safeText(entry.sourceNameText))
-                .arg(safeText(entry.featureNameText))
-                .arg(formatHex64(entry.capabilityMask));
+            lines.section(QStringLiteral("Field"));
+            lines.field(QStringLiteral("Name"), safeText(entry.fieldNameText));
+            lines.field(QStringLiteral("Offset"), formatOffset(entry.offset));
+            lines.field(QStringLiteral("Status"), safeText(entry.statusText));
+            lines.field(QStringLiteral("Source"), safeText(entry.sourceNameText));
+            lines.field(QStringLiteral("Feature"), safeText(entry.featureNameText));
+            lines.field(QStringLiteral("CapabilityMask"), formatHex64(entry.capabilityMask));
         }
-        return lines.join(QStringLiteral("\n"));
+        return lines;
     }
 
     // populateSummaryTable：
@@ -2763,8 +2639,8 @@ namespace
         appendSummaryRow(table, kernelText("kernel.dyndata.summary.unavailable_reason", QStringLiteral("不可用原因")), safeText(summary.unavailableReasonText));
         appendSummaryRow(table, QStringLiteral("Status IO"), safeText(summary.statusIoMessageText));
         appendSummaryRow(table, QStringLiteral("Fields IO"), safeText(summary.fieldsIoMessageText));
-        appendSummaryRow(table, QStringLiteral("ntoskrnl"), moduleDetailText(QStringLiteral("ntoskrnl"), summary.ntoskrnl).replace(QStringLiteral("\n"), QStringLiteral("; ")));
-        appendSummaryRow(table, QStringLiteral("lxcore"), moduleDetailText(QStringLiteral("lxcore"), summary.lxcore).replace(QStringLiteral("\n"), QStringLiteral("; ")));
+        appendSummaryRow(table, QStringLiteral("ntoskrnl"), moduleDetailText(QStringLiteral("ntoskrnl"), summary.ntoskrnl).toPlainText(true).replace(QStringLiteral("\n"), QStringLiteral("; ")));
+        appendSummaryRow(table, QStringLiteral("lxcore"), moduleDetailText(QStringLiteral("lxcore"), summary.lxcore).toPlainText(true).replace(QStringLiteral("\n"), QStringLiteral("; ")));
         table->setSortingEnabled(false);
     }
 
@@ -3213,25 +3089,15 @@ namespace
                 .arg(formatHex32(sourceItem.aux1))
                 .arg(formatHex32(sourceItem.aux2))
                 .arg(formatHex32(sourceItem.aux3));
-            row.detailText = QStringLiteral(
-                "module=%1 (%2)\n"
-                "itemIndex=%3\n"
-                "itemId=%4\n"
-                "kind=%5 (%6)\n"
-                "flags=%7\n"
-                "capabilityGroupId=%8\n"
-                "value=%9\n"
-                "%10")
-                .arg(moduleClassText(row.moduleClassId))
-                .arg(row.moduleClassId)
-                .arg(row.itemIndex)
-                .arg(row.itemId)
-                .arg(row.kindText)
-                .arg(row.itemKind)
-                .arg(row.flagsText)
-                .arg(row.capabilityGroupId)
-                .arg(v4ItemValueText(sourceItem))
-                .arg(row.auxText);
+            row.detailDocument = {};
+            row.detailDocument.field(QStringLiteral("module"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(moduleClassText(row.moduleClassId))).arg(QStringLiteral("%1").arg(row.moduleClassId)));
+            row.detailDocument.field(QStringLiteral("itemIndex"), QStringLiteral("%1").arg(row.itemIndex));
+            row.detailDocument.field(QStringLiteral("itemId"), QStringLiteral("%1").arg(row.itemId));
+            row.detailDocument.field(QStringLiteral("kind"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(row.kindText)).arg(QStringLiteral("%1").arg(row.itemKind)));
+            row.detailDocument.field(QStringLiteral("flags"), QStringLiteral("%1").arg(row.flagsText));
+            row.detailDocument.field(QStringLiteral("capabilityGroupId"), QStringLiteral("%1").arg(row.capabilityGroupId));
+            row.detailDocument.field(QStringLiteral("value"), QStringLiteral("%1").arg(v4ItemValueText(sourceItem)));
+            row.detailDocument.note(QStringLiteral("%1").arg(row.auxText));
             v4ItemRowsOut.push_back(row);
         }
 
@@ -3278,7 +3144,7 @@ namespace
                     : (row.flags & KSW_DYN_FIELD_FLAG_REQUIRED) != 0U
                         ? kernelText("kernel.dyndata.field.status.required_missing", QStringLiteral("缺失(必需)"))
                         : kernelText("kernel.dyndata.field.status.optional_missing", QStringLiteral("缺失(可选)"));
-                row.detailText = buildFieldDetail(row, summaryOut);
+                row.detailDocument = buildFieldDetail(row, summaryOut);
                 rowsOut.push_back(row);
             }
         }
@@ -3380,9 +3246,9 @@ void KernelDock::initializeDynDataTab()
     m_dynDataFieldTable->setColumnWidth(static_cast<int>(DynDataColumn::Capability), 180);
     installDynDataCopyMenu(m_dynDataFieldTable);
 
-    m_dynDataDetailEditor = new CodeEditorWidget(lowerSplitter);
-    m_dynDataDetailEditor->setReadOnly(true);
-    m_dynDataDetailEditor->setText(kernelText("kernel.dyndata.detail.initial", QStringLiteral("请选择一条动态偏移字段查看详情。")));
+    m_dynDataDetailEditor = new ks::ui::StructuredFieldView(lowerSplitter);
+
+    m_dynDataDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.dyndata.detail.initial", QStringLiteral("请选择一条动态偏移字段查看详情。"))));
 
     verticalSplitter->setStretchFactor(0, 2);
     verticalSplitter->setStretchFactor(1, 5);
@@ -3453,9 +3319,9 @@ void KernelDock::initializeDynDataTab()
     m_dynDataV4ItemTable->setToolTip(kernelText("kernel.dyndata.v4.tooltip", QStringLiteral("R0 已接受并缓存的 DynData v4 PDB item 清单，只读展示，不触发业务消费。")));
     installDynDataCopyMenu(m_dynDataV4ItemTable);
 
-    m_dynDataProfileDetailEditor = new CodeEditorWidget(profileSplitter);
-    m_dynDataProfileDetailEditor->setReadOnly(true);
-    m_dynDataProfileDetailEditor->setText(kernelText("kernel.dyndata.profile_status.detail.initial", QStringLiteral("请先刷新动态偏移，再查看 PDB profile 管理状态。")));
+    m_dynDataProfileDetailEditor = new ks::ui::StructuredFieldView(profileSplitter);
+
+    m_dynDataProfileDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.dyndata.profile_status.detail.initial", QStringLiteral("请先刷新动态偏移，再查看 PDB profile 管理状态。"))));
 
     profileSplitter->setStretchFactor(0, 2);
     profileSplitter->setStretchFactor(1, 3);
@@ -3474,7 +3340,7 @@ void KernelDock::initializeDynDataTab()
         QClipboard* clipboard = QApplication::clipboard();
         if (clipboard != nullptr)
         {
-            clipboard->setText(buildDynDataReport(m_dynDataSummary, m_dynDataRows));
+            clipboard->setText(buildDynDataReport(m_dynDataSummary, m_dynDataRows).toPlainText(true));
             m_dynDataStatusLabel->setText(kernelText("kernel.dyndata.status.report_copied", QStringLiteral("状态：诊断报告已复制")));
         }
     });
@@ -3566,7 +3432,7 @@ void KernelDock::refreshDynDataAsync()
             {
                 guardThis->m_dynDataStatusLabel->setText(kernelText("kernel.dyndata.status.refresh_failed", QStringLiteral("状态：刷新失败")));
                 guardThis->m_dynDataStatusLabel->setStyleSheet(statusLabelStyle(KswordTheme::ErrorHex()));
-                guardThis->m_dynDataDetailEditor->setText(buildDynDataReport(guardThis->m_dynDataSummary, guardThis->m_dynDataRows));
+                guardThis->m_dynDataDetailEditor->setDocument(buildDynDataReport(guardThis->m_dynDataSummary, guardThis->m_dynDataRows));
                 populateProfileStatusTable(guardThis->m_dynDataProfileSummaryTable, guardThis->m_dynDataSummary);
                 if (guardThis->m_dynDataProfileStatusLabel != nullptr)
                 {
@@ -3575,9 +3441,7 @@ void KernelDock::refreshDynDataAsync()
                 }
                 if (guardThis->m_dynDataProfileDetailEditor != nullptr)
                 {
-                    guardThis->m_dynDataProfileDetailEditor->setText(
-                        profileSummaryText(guardThis->m_dynDataSummary) + QStringLiteral("\n\n") +
-                        buildDynDataReport(guardThis->m_dynDataSummary, guardThis->m_dynDataRows));
+                    guardThis->m_dynDataProfileDetailEditor->setDocument(buildDynDataReport(guardThis->m_dynDataSummary, guardThis->m_dynDataRows));
                 }
             }
             else
@@ -3599,7 +3463,7 @@ void KernelDock::refreshDynDataAsync()
                 }
                 else
                 {
-                    guardThis->m_dynDataDetailEditor->setText(kernelText("kernel.dyndata.empty.filtered", QStringLiteral("当前筛选条件下没有动态偏移字段。")));
+                    guardThis->m_dynDataDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.dyndata.empty.filtered", QStringLiteral("当前筛选条件下没有动态偏移字段。"))));
                 }
 
                 populateProfileStatusTable(guardThis->m_dynDataProfileSummaryTable, guardThis->m_dynDataSummary);
@@ -3614,9 +3478,7 @@ void KernelDock::refreshDynDataAsync()
                 }
                 if (guardThis->m_dynDataProfileDetailEditor != nullptr)
                 {
-                    guardThis->m_dynDataProfileDetailEditor->setText(
-                        profileSummaryText(guardThis->m_dynDataSummary) + QStringLiteral("\n\n") +
-                        buildDynDataReport(guardThis->m_dynDataSummary, guardThis->m_dynDataRows));
+                    guardThis->m_dynDataProfileDetailEditor->setDocument(buildDynDataReport(guardThis->m_dynDataSummary, guardThis->m_dynDataRows));
                 }
             }
 
@@ -3747,7 +3609,7 @@ void KernelDock::rebuildDynDataV4ItemTable(const QString& filterKeyword)
         insertReadonlyCell(rowIndex, 5, entry.flagsText);
         insertReadonlyCell(rowIndex, 6, formatHex64(entry.value));
         insertReadonlyCell(rowIndex, 7, entry.auxText);
-        insertReadonlyCell(rowIndex, 8, QString(entry.detailText).replace(QStringLiteral("\n"), QStringLiteral("; ")));
+        insertReadonlyCell(rowIndex, 8, entry.detailDocument.toPlainText(true).replace(QStringLiteral("\n"), QStringLiteral("; ")));
     }
 
     if (m_dynDataV4ItemTable->rowCount() == 0)
@@ -3819,19 +3681,13 @@ void KernelDock::showDynDataDetailByCurrentRow()
     const KernelDynDataFieldEntry* entry = currentDynDataFieldEntry();
     if (entry == nullptr)
     {
-        m_dynDataDetailEditor->setText(buildDynDataReport(m_dynDataSummary, m_dynDataRows));
+        m_dynDataDetailEditor->setDocument(buildDynDataReport(m_dynDataSummary, m_dynDataRows));
         return;
     }
 
-    m_dynDataDetailEditor->setText(QStringLiteral(
-        "%1\n\n"
-        "模块身份:\n"
-        "%2\n\n"
-        "%3\n\n"
-        "Capability 状态:\n"
-        "%4")
-        .arg(entry->detailText)
-        .arg(moduleDetailText(QStringLiteral("ntoskrnl"), m_dynDataSummary.ntoskrnl))
-        .arg(moduleDetailText(QStringLiteral("lxcore"), m_dynDataSummary.lxcore))
-        .arg(capabilityReport(m_dynDataSummary.capabilityMask)));
+    auto document = entry->detailDocument;
+    document.nodes += moduleDetailText(QStringLiteral("ntoskrnl"), m_dynDataSummary.ntoskrnl).nodes;
+    document.nodes += moduleDetailText(QStringLiteral("lxcore"), m_dynDataSummary.lxcore).nodes;
+    document.nodes += capabilityReport(m_dynDataSummary.capabilityMask).nodes;
+    m_dynDataDetailEditor->setDocument(document);
 }

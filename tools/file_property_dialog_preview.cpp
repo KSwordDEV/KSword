@@ -1,7 +1,7 @@
 // Production dialog constructor, general-page UI and theme functions are
 // extracted at build time. Only data providers/actions are replaced with
 // inert typed samples. No target file, process, driver or clipboard is used.
-#include "../Ksword5.1/Ksword5.1/FileDock/FilePropertyView.h"
+#include "../Ksword5.1/Ksword5.1/UI/StructuredFieldView.h"
 #include "../Ksword5.1/Ksword5.1/Internationalization/LanguageManager.h"
 #include "../Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.h"
 #include "../Ksword5.1/Ksword5.1/UI/UI_All.h"
@@ -39,8 +39,8 @@
 #include <iostream>
 #include <memory>
 
-using file_dock_detail::FilePropertyView;
-using file_dock_detail::PropertyDocument;
+using ks::ui::StructuredFieldView;
+using ks::ui::FieldDocument;
 
 namespace
 {
@@ -56,13 +56,9 @@ namespace
         QTest::qWait(20);
         QCoreApplication::processEvents();
     }
-    PropertyDocument sampleProperties()
+    FieldDocument sampleProperties()
     {
-        PropertyDocument document;
-        document.section(QStringLiteral("路径"))
-            .field(QStringLiteral("Win32 路径"), QStringLiteral("C:\\Tools\\KSword\\KSword.exe"))
-            .field(QStringLiteral("NT 路径"), QStringLiteral("\\Device\\HarddiskVolume3\\Tools\\KSword\\KSword.exe"))
-            .field(QStringLiteral("查询来源"), QStringLiteral("R3 QFileInfo + R0 KswordARK"), true);
+        FieldDocument document;
         document.section(QStringLiteral("基本信息"))
             .field(QStringLiteral("文件名"), QStringLiteral("KSword.exe"))
             .field(QStringLiteral("扩展名"), QStringLiteral("exe"))
@@ -74,6 +70,10 @@ namespace
             .field(QStringLiteral("隐藏"), QStringLiteral("否"), true)
             .field(QStringLiteral("可写"), QStringLiteral("是"), true)
             .field(QStringLiteral("重解析点"), QStringLiteral("否"), true);
+        document.section(QStringLiteral("路径"))
+            .field(QStringLiteral("Win32 路径"), QStringLiteral("C:\\Tools\\KSword\\KSword.exe"))
+            .field(QStringLiteral("NT 路径"), QStringLiteral("\\Device\\HarddiskVolume3\\Tools\\KSword\\KSword.exe"))
+            .field(QStringLiteral("查询来源"), QStringLiteral("R3 QFileInfo + R0 KswordARK"), true);
         document.section(QStringLiteral("内核视图（R0）"))
             .field(QStringLiteral("大小（EndOfFile）"), QStringLiteral("12.40 MB"))
             .field(QStringLiteral("磁盘占用（分配大小）"), QStringLiteral("12.41 MB"))
@@ -90,7 +90,7 @@ namespace
     {
     public:
 #include "native-dialog-members.inc"
-        FilePropertyView* propertyView() const { return m_generalPropertyView; }
+        StructuredFieldView* propertyView() const { return m_generalPropertyView; }
         void restyle() { applyThemeStyle(); }
         QTabWidget* tabs() const { return m_tabWidget; }
     private:
@@ -120,7 +120,7 @@ namespace
         QPushButton* m_discardPendingButton = nullptr;
         QPushButton* m_saveAllButton = nullptr;
         bool m_themeStyleApplying = false;
-        FilePropertyView* m_generalPropertyView = nullptr;
+        StructuredFieldView* m_generalPropertyView = nullptr;
     };
 }
 
@@ -140,7 +140,7 @@ int main(int argc, char** argv)
         application.setStyleSheet(ks::ui::BuildGlobalBaseControlStyleBlock());
         FileDetailDialogFixture dialog(QStringList{QStringLiteral("C:\\Tools\\KSword\\KSword.exe")});
         dialog.setAttribute(Qt::WA_DeleteOnClose, false);
-        dialog.propertyView()->setPresentation(FilePropertyView::Presentation::Sections);
+        dialog.propertyView()->setPresentation(StructuredFieldView::Presentation::Sections);
         dialog.show();
         flush();
         require(dialog.tabs()->count() == 14, "actual constructor preserves all 14 tabs");
@@ -163,12 +163,12 @@ int main(int argc, char** argv)
             require(dialog.grab().save(QDir(output).filePath(name)), "actual shell preview saved");
         }
         dialog.resize(800, 640);
-        dialog.propertyView()->setPresentation(FilePropertyView::Presentation::Tree);
+        dialog.propertyView()->setPresentation(StructuredFieldView::Presentation::Tree);
         flush();
         require(dialog.grab().save(QDir(output).filePath(dark ? QStringLiteral("file-properties-dark-tree.png") :
             QStringLiteral("file-properties-light-tree.png"))), "actual tree style shell saved");
         auto longDocument = sampleProperties();
-        longDocument.nodes[0].children[0].value = QStringLiteral("C:\\") + QString(600, QLatin1Char('A')) + QStringLiteral("\\KSword.exe");
+        longDocument.nodes[1].children[0].value = QStringLiteral("C:\\") + QString(600, QLatin1Char('A')) + QStringLiteral("\\KSword.exe");
         dialog.propertyView()->setDocument(longDocument);
         dialog.resize(640, 480);
         flush();

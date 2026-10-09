@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -145,7 +146,7 @@ private:
         QString iatEatStatusText;      // iatEatStatusText：IAT/EAT 可疑项摘要。
         QString inlineHookStatusText;  // inlineHookStatusText：Inline Hook 可疑项摘要。
         QString callbackStatusText;    // callbackStatusText：Callback 引用摘要。
-        QString detailText;            // detailText：详情区可复制的证据明细。
+        ks::ui::FieldDocument detailDocument; // Native evidence fields; text is exported on demand.
         std::uint64_t driverObjectAddress = 0; // driverObjectAddress：只读证据查询返回的精确对象地址。
         std::uint64_t communicationRejectDispatchAddress = 0; // communicationRejectDispatchAddress：R0 系统拒绝入口。
         bool queryAttempted = false;   // queryAttempted：是否已经尝试聚合。
@@ -472,7 +473,7 @@ private:
         const LoadedModuleEvidenceRecord& evidence);
     static QString moduleSignatureStatusText(
         const LoadedModuleEvidenceRecord& evidence);
-    static QString moduleSignatureDetailText(
+    static ks::ui::FieldDocument moduleSignatureDetailText(
         const LoadedModuleEvidenceRecord& evidence);
     static QString localizedModuleEvidenceText(const QString& sourceText);
 
@@ -618,10 +619,11 @@ private:
     QPushButton* m_refreshModuleEvidenceButton = nullptr; // 刷新模块证据按钮。
     QLineEdit* m_moduleFilterEdit = nullptr;         // 内核模块列表过滤输入框。
     QTableWidget* m_moduleTable = nullptr;            // 已加载模块表格。
-    CodeEditorWidget* m_moduleEvidenceDetailEditor = nullptr; // 模块证据详情编辑器。
+    ks::ui::StructuredFieldView* m_moduleEvidenceDetailEditor = nullptr; // 模块证据详情编辑器。
     QLabel* m_moduleEvidenceStatusLabel = nullptr;   // 模块证据聚合状态标签。
     bool m_moduleEvidenceQuerying = false;           // 模块证据后台查询中标记。
     std::uint64_t m_moduleEvidenceQueryTicket = 0;   // 模块证据查询序号。
+    std::uint64_t m_moduleSignatureQueryTicket = 0;  // 签名详情查询序号，拒绝过期回填。
     bool m_moduleDumpRunning = false;                // 模块 R0 Dump 后台任务运行标记。
     bool m_scCleanupRunning = false;                 // SCM 卸载并清理文件/服务注册后台任务标记。
 
@@ -663,14 +665,14 @@ private:
     QPushButton* m_queryObjectInfoButton = nullptr;   // R0 查询按钮。
     QPushButton* m_objectEvidenceRefreshButton = nullptr; // 刷新 Driver/Integrity 证据按钮。
     QLabel* m_objectInfoStatusLabel = nullptr;        // 查询状态标签。
-    CodeEditorWidget* m_objectInfoSummaryEdit = nullptr;// DriverObject 摘要。
+    ks::ui::StructuredFieldView* m_objectInfoSummaryEdit = nullptr;// DriverObject 摘要。
     QTabWidget* m_objectDetailTabWidget = nullptr;    // DriverObject 细分页签容器。
     QWidget* m_driverObjectPage = nullptr;            // DriverObject 诊断页。
     QWidget* m_deviceObjectPage = nullptr;            // DeviceObject 诊断页。
     QWidget* m_driverExtensionPage = nullptr;         // DriverExtension 诊断页。
     QWidget* m_majorFunctionPage = nullptr;           // MajorFunction 诊断页。
     QWidget* m_fastIoPage = nullptr;                  // FastIo 诊断页。
-    CodeEditorWidget* m_driverObjectPageSummaryEdit = nullptr; // DriverObject 页摘要。
+    ks::ui::StructuredFieldView* m_driverObjectPageSummaryEdit = nullptr; // DriverObject 页摘要。
     QTableWidget* m_driverObjectEvidenceTable = nullptr;      // DriverObject / DriverSection 证据表。
     QTableWidget* m_majorFunctionTable = nullptr;     // MajorFunction 表。
     QTableWidget* m_deviceObjectTable = nullptr;      // DeviceObject/AttachedDevice 表。
@@ -702,7 +704,7 @@ private:
     QSpinBox* m_integrityMaxRowsSpin = nullptr;       // 最大返回行数。
     QLabel* m_integrityStatusLabel = nullptr;         // 查询状态标签。
     QTableWidget* m_integrityTable = nullptr;         // 完整性证据表。
-    CodeEditorWidget* m_integrityDetailEdit = nullptr; // 完整性详情编辑器，只读展示原始 R0 明细。
+    ks::ui::StructuredFieldView* m_integrityDetailEdit = nullptr; // 完整性详情编辑器，只读展示原始 R0 明细。
     bool m_integrityQuerying = false;                 // 完整性查询中标记。
     std::uint64_t m_integrityQueryTicket = 0;         // 完整性查询序号。
 

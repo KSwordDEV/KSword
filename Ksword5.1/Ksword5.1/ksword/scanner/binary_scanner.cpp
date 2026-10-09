@@ -682,7 +682,7 @@ namespace ks::scanner
                     result,
                     DiagnosticSeverity::Error,
                     "pe.analysis_failed",
-                    WideToUtf8(pe.reportText));
+                    WideToUtf8(pe.errorText));
                 return false;
             }
 

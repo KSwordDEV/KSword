@@ -3,7 +3,9 @@
 #include "../UI/VisibleTableWidget.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
+#include "../UI/DetailLayoutRegistry.h"
+#include "../UI/DetailLayoutHost.h"
 #include "../UI/TableColumnAutoFit.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../theme.h"
@@ -392,20 +394,21 @@ namespace
         return false;
     }
 
-    QString offsetsText(const ksword::ark::CrossViewFieldOffsets& offsets)
+    ks::ui::FieldDocument offsetsDocument(const ksword::ark::CrossViewFieldOffsets& offsets)
     {
         // 输入：R0 返回的 DynData offset 快照。
-        // 处理：展开为多行诊断文本。
+        // 处理：直接生成偏移结构字段。
         // 返回：可复制的偏移说明。
-        QString text;
-        text += QStringLiteral("EPROCESS.UniqueProcessId: 0x%1\n").arg(offsets.epUniqueProcessId, 8, 16, QChar('0'));
-        text += QStringLiteral("EPROCESS.ActiveProcessLinks: 0x%1\n").arg(offsets.epActiveProcessLinks, 8, 16, QChar('0'));
-        text += QStringLiteral("EPROCESS.ThreadListHead: 0x%1\n").arg(offsets.epThreadListHead, 8, 16, QChar('0'));
-        text += QStringLiteral("EPROCESS.ImageFileName: 0x%1\n").arg(offsets.epImageFileName, 8, 16, QChar('0'));
-        text += QStringLiteral("ETHREAD.ThreadListEntry: 0x%1\n").arg(offsets.etThreadListEntry, 8, 16, QChar('0'));
-        text += QStringLiteral("ETHREAD.StartAddress: 0x%1\n").arg(offsets.etStartAddress, 8, 16, QChar('0'));
-        text += QStringLiteral("KTHREAD.Process: 0x%1\n").arg(offsets.ktProcess, 8, 16, QChar('0'));
-        return text;
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("DynData Offsets"));
+        document.field(QStringLiteral("EPROCESS.UniqueProcessId"), QStringLiteral("0x%1").arg(offsets.epUniqueProcessId, 8, 16, QChar('0')));
+        document.field(QStringLiteral("EPROCESS.ActiveProcessLinks"), QStringLiteral("0x%1").arg(offsets.epActiveProcessLinks, 8, 16, QChar('0')));
+        document.field(QStringLiteral("EPROCESS.ThreadListHead"), QStringLiteral("0x%1").arg(offsets.epThreadListHead, 8, 16, QChar('0')));
+        document.field(QStringLiteral("EPROCESS.ImageFileName"), QStringLiteral("0x%1").arg(offsets.epImageFileName, 8, 16, QChar('0')));
+        document.field(QStringLiteral("ETHREAD.ThreadListEntry"), QStringLiteral("0x%1").arg(offsets.etThreadListEntry, 8, 16, QChar('0')));
+        document.field(QStringLiteral("ETHREAD.StartAddress"), QStringLiteral("0x%1").arg(offsets.etStartAddress, 8, 16, QChar('0')));
+        document.field(QStringLiteral("KTHREAD.Process"), QStringLiteral("0x%1").arg(offsets.ktProcess, 8, 16, QChar('0')));
+        return document;
     }
 }
 
@@ -518,11 +521,18 @@ void ProcessDock::initializeCrossViewPage()
         QStringLiteral("Thread Cross-View"));
     splitter->addWidget(innerTabs);
 
-    // Cross-View 详情区使用项目统一 CodeEditorWidget，保留查找/复制能力并避免普通文本框样式漂移。
-    m_crossViewDetailEdit = new CodeEditorWidget(splitter);
-    m_crossViewDetailEdit->setReadOnly(true);
-    m_crossViewDetailEdit->setText(QStringLiteral("选择一条记录查看进程来源、异常标记和内核详情。"));
+    // Cross-View 详情区直接接受结构字段，保留查找、复制与全部详情布局。
+    m_crossViewDetailEdit = new ks::ui::StructuredFieldView(splitter);
+    m_crossViewDetailEdit->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("选择一条记录查看进程来源、异常标记和内核详情。")));
     splitter->addWidget(m_crossViewDetailEdit);
+    auto* detailHost = ks::ui::DetailLayoutRegistry::registerStructuredHost(
+        m_processCrossViewTable, m_crossViewDetailEdit, m_crossViewPage, splitter, innerTabs, m_crossViewDetailEdit);
+    const QPointer<ks::ui::DetailLayoutHost> hostGuard(detailHost);
+    connect(innerTabs, &QTabWidget::currentChanged, m_crossViewPage, [this, hostGuard](int index) {
+        m_crossViewDetailEdit->setProperty("ks_cross_view_thread_selected", index == 1);
+        if (!hostGuard.isNull()) hostGuard->setTableView(index == 1 ? m_threadCrossViewTable : m_processCrossViewTable);
+        showCrossViewDetailForCurrentRow(index == 1);
+    });
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
 
@@ -583,17 +593,7 @@ void ProcessDock::refreshCrossViewAsync()
         ksword::ark::ProcessCrossViewResult processResult = client.queryProcessCrossView();
         ksword::ark::ThreadCrossViewResult threadResult = client.queryThreadCrossView();
 
-        ProcessDock* const contextObject = guardThis.data();
-        if (contextObject == nullptr)
-        {
-            // 后台查询完成时页面可能已经销毁：
-            // - 输入：QPointer 转出的上下文对象；
-            // - 处理：为空时不投递 queued lambda，避免 invokeMethod 使用空 QObject；
-            // - 返回：直接结束后台任务，不再触碰 UI 状态。
-            return;
-        }
-
-        QMetaObject::invokeMethod(contextObject, [guardThis, ticket, processResult = std::move(processResult), threadResult = std::move(threadResult)]() mutable {
+        QMetaObject::invokeMethod(qApp, [guardThis, ticket, processResult = std::move(processResult), threadResult = std::move(threadResult)]() mutable {
             if (guardThis == nullptr || guardThis->m_crossViewRefreshTicket != ticket)
             {
                 return;
@@ -655,7 +655,8 @@ void ProcessDock::refreshCrossViewAsync()
                             .arg(KswordTheme::SuccessColor().name(QColor::HexRgb)));
                 }
                 guardThis->m_crossViewStatusLabel->setText(statusText);
-                guardThis->showCrossViewDetailForCurrentRow(false);
+                guardThis->showCrossViewDetailForCurrentRow(guardThis->m_crossViewDetailEdit != nullptr
+                    && guardThis->m_crossViewDetailEdit->property("ks_cross_view_thread_selected").toBool());
             };
 
             if (ks::ui::DeferTableUiCommitIfContextMenuOpen(
@@ -675,6 +676,7 @@ void ProcessDock::refreshCrossViewAsync()
 
 void ProcessDock::rebuildCrossViewTables()
 {
+    ks::ui::DetailLayoutRegistry::prepareDataRebuild(m_crossViewDetailEdit);
     const QPointer<ProcessDock> safeThis(this);
     if (ks::ui::DeferTableUiCommitIfContextMenuOpen(
         this,
@@ -853,7 +855,7 @@ void ProcessDock::showCrossViewDetailForCurrentRow(const bool preferThreadTable)
             : QString();
         if (!diagnosticText.isEmpty())
         {
-            m_crossViewDetailEdit->setText(QStringLiteral("线程 Cross-View 诊断\n%1").arg(diagnosticText));
+            m_crossViewDetailEdit->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("线程 Cross-View 诊断\n%1").arg(diagnosticText)));
             return;
         }
 
@@ -864,27 +866,30 @@ void ProcessDock::showCrossViewDetailForCurrentRow(const bool preferThreadTable)
             const auto& row = m_threadCrossViewCache[static_cast<std::size_t>(cacheIndex)];
             const QString rawDetailText = narrowToQString(row.detail);
             const QString readableDetailText = friendlyDriverDetail(rawDetailText);
-            QString text;
-            text += QStringLiteral("线程 Cross-View 详情\n");
-            text += QStringLiteral("TID: %1 PID: %2 Image: %3\n").arg(row.threadId).arg(row.processId).arg(narrowToQString(row.imageName));
-            text += QStringLiteral("ThreadObject: %1\nProcessObject: %2\nStartAddress: %3\n")
-                .arg(hex64(row.objectAddress), hex64(row.processObjectAddress), hex64(row.startAddress));
-            text += QStringLiteral("SourceMask: 0x%1\nAnomalyFlags: %2 (0x%3)\n")
-                .arg(row.sourceMask, 8, 16, QChar('0'))
-                .arg(anomalyText(row.anomalyFlags))
-                .arg(row.anomalyFlags, 8, 16, QChar('0'));
-            text += QStringLiteral("DynDataCapabilityMask: %1\n").arg(hex64(row.dynDataCapabilityMask));
-            text += offsetsText(row.fieldOffsets);
-            text += QStringLiteral("LastStatus: 0x%1\nConfidence: %2\n驱动说明: %3\n驱动原始说明: %4\n")
-                .arg(static_cast<qulonglong>(static_cast<unsigned long>(row.lastStatus)), 8, 16, QChar('0'))
-                .arg(row.confidence)
-                .arg(readableDetailText)
-                .arg(rawDetailText);
-            m_crossViewDetailEdit->setText(text);
+            ks::ui::FieldDocument document;
+            document.section(QStringLiteral("线程 Cross-View 详情"));
+            document.field(QStringLiteral("TID"), QString::number(row.threadId));
+            document.field(QStringLiteral("PID"), QString::number(row.processId));
+            document.field(QStringLiteral("Image"), narrowToQString(row.imageName));
+            document.field(QStringLiteral("ThreadObject"), hex64(row.objectAddress));
+            document.field(QStringLiteral("ProcessObject"), hex64(row.processObjectAddress));
+            document.field(QStringLiteral("StartAddress"), hex64(row.startAddress));
+            document.field(QStringLiteral("SourceMask"), QStringLiteral("0x%1").arg(row.sourceMask, 8, 16, QChar('0')));
+            document.field(QStringLiteral("AnomalyFlags"), QStringLiteral("%1 (0x%2)").arg(anomalyText(row.anomalyFlags)).arg(row.anomalyFlags, 8, 16, QChar('0')), true);
+            document.field(QStringLiteral("DynDataCapabilityMask"), hex64(row.dynDataCapabilityMask));
+            document.nodes += offsetsDocument(row.fieldOffsets).nodes;
+            document.section(QStringLiteral("诊断"));
+            document.field(QStringLiteral("LastStatus"), QStringLiteral("0x%1").arg(static_cast<qulonglong>(static_cast<unsigned long>(row.lastStatus)), 8, 16, QChar('0')));
+            document.field(QStringLiteral("Confidence"), QString::number(row.confidence));
+            document.field(QStringLiteral("驱动说明"), readableDetailText, true);
+            document.field(QStringLiteral("驱动原始说明"), rawDetailText);
+            m_crossViewDetailEdit->setDocument(document);
             return;
         }
     }
 
+    if (preferThreadTable)
+    { m_crossViewDetailEdit->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条 Cross-View 记录查看详情。"))); return; }
     if (m_processCrossViewTable != nullptr && m_processCrossViewTable->currentRow() >= 0)
     {
         const QTableWidgetItem* item = m_processCrossViewTable->item(m_processCrossViewTable->currentRow(), columnIndex(CrossViewColumn::Id));
@@ -893,7 +898,7 @@ void ProcessDock::showCrossViewDetailForCurrentRow(const bool preferThreadTable)
             : QString();
         if (!diagnosticText.isEmpty())
         {
-            m_crossViewDetailEdit->setText(QStringLiteral("进程 Cross-View 诊断\n%1").arg(diagnosticText));
+            m_crossViewDetailEdit->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("进程 Cross-View 诊断\n%1").arg(diagnosticText)));
             return;
         }
 
@@ -904,26 +909,26 @@ void ProcessDock::showCrossViewDetailForCurrentRow(const bool preferThreadTable)
             const auto& row = m_processCrossViewCache[static_cast<std::size_t>(cacheIndex)];
             const QString rawDetailText = narrowToQString(row.detail);
             const QString readableDetailText = friendlyDriverDetail(rawDetailText);
-            QString text;
-            text += QStringLiteral("进程 Cross-View 详情\n");
-            text += QStringLiteral("PID: %1 PPID: %2 Image: %3\n").arg(row.processId).arg(row.parentProcessId).arg(narrowToQString(row.imageName));
-            text += QStringLiteral("ProcessObject: %1\nStartAddress: %2\n")
-                .arg(hex64(row.objectAddress), hex64(row.startAddress));
-            text += QStringLiteral("SourceMask: 0x%1\nAnomalyFlags: %2 (0x%3)\n")
-                .arg(row.sourceMask, 8, 16, QChar('0'))
-                .arg(anomalyText(row.anomalyFlags))
-                .arg(row.anomalyFlags, 8, 16, QChar('0'));
-            text += QStringLiteral("DynDataCapabilityMask: %1\n").arg(hex64(row.dynDataCapabilityMask));
-            text += offsetsText(row.fieldOffsets);
-            text += QStringLiteral("LastStatus: 0x%1\nConfidence: %2\n驱动说明: %3\n驱动原始说明: %4\n")
-                .arg(static_cast<qulonglong>(static_cast<unsigned long>(row.lastStatus)), 8, 16, QChar('0'))
-                .arg(row.confidence)
-                .arg(readableDetailText)
-                .arg(rawDetailText);
-            m_crossViewDetailEdit->setText(text);
+            ks::ui::FieldDocument document;
+            document.section(QStringLiteral("进程 Cross-View 详情"));
+            document.field(QStringLiteral("PID"), QString::number(row.processId));
+            document.field(QStringLiteral("PPID"), QString::number(row.parentProcessId));
+            document.field(QStringLiteral("Image"), narrowToQString(row.imageName));
+            document.field(QStringLiteral("ProcessObject"), hex64(row.objectAddress));
+            document.field(QStringLiteral("StartAddress"), hex64(row.startAddress));
+            document.field(QStringLiteral("SourceMask"), QStringLiteral("0x%1").arg(row.sourceMask, 8, 16, QChar('0')));
+            document.field(QStringLiteral("AnomalyFlags"), QStringLiteral("%1 (0x%2)").arg(anomalyText(row.anomalyFlags)).arg(row.anomalyFlags, 8, 16, QChar('0')), true);
+            document.field(QStringLiteral("DynDataCapabilityMask"), hex64(row.dynDataCapabilityMask));
+            document.nodes += offsetsDocument(row.fieldOffsets).nodes;
+            document.section(QStringLiteral("诊断"));
+            document.field(QStringLiteral("LastStatus"), QStringLiteral("0x%1").arg(static_cast<qulonglong>(static_cast<unsigned long>(row.lastStatus)), 8, 16, QChar('0')));
+            document.field(QStringLiteral("Confidence"), QString::number(row.confidence));
+            document.field(QStringLiteral("驱动说明"), readableDetailText, true);
+            document.field(QStringLiteral("驱动原始说明"), rawDetailText);
+            m_crossViewDetailEdit->setDocument(document);
             return;
         }
     }
 
-    m_crossViewDetailEdit->setText(QStringLiteral("请选择一条 Cross-View 记录查看详情。"));
+    m_crossViewDetailEdit->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条 Cross-View 记录查看详情。")));
 }

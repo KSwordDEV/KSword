@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -139,7 +140,7 @@ private:
     // buildDetailText：
     // - 生成当前行详情文本；
     // - 只做纯格式化，不含任何驱动 IOCTL；[KernelObjectSummary] 段由后台任务补齐。
-    QString buildDetailText(const CidEvidenceRow* row) const;
+    ks::ui::FieldDocument buildDetailText(const CidEvidenceRow* row) const;
 
     // scheduleDetailRefresh：
     // - 输入：无，直接读取当前选中行；
@@ -157,19 +158,19 @@ private:
     // - 输入 summaryText：后台线程格式化好的 [KernelObjectSummary] 段；
     // - 处理：拼接在本地详情文本之后写入详情面板；
     // - 返回：无返回值。
-    void appendKernelObjectSummaryText(const QString& summaryText);
+    void appendKernelObjectSummaryText(const ks::ui::FieldDocument& summaryText);
 
     // buildDiagnosticDetailText：
     // - 输入：当前空表/筛选空命中的诊断原因；
     // - 处理：把 CID 表摘要、筛选关键字和驱动消息展开为详情文本；
     // - 返回：可直接显示在 CodeEditorWidget 的只读说明。
-    QString buildDiagnosticDetailText(const QString& reasonText) const;
+    ks::ui::FieldDocument buildDiagnosticDetailText(const QString& reasonText) const;
 
     // insertDiagnosticRow：
     // - 输入：表格短标题、状态列文本和详情文本；
     // - 处理：向当前表格写入一行可复制的诊断占位；
     // - 返回：无返回值，诊断详情保存在 UserRole，供详情区读取。
-    void insertDiagnosticRow(const QString& titleText, const QString& statusText, const QString& detailText);
+    void insertDiagnosticRow(const QString& titleText, const QString& statusText, const ks::ui::FieldDocument& detailText);
 
     // rowMatchesFilter：
     // - 按文本关键字筛选；
@@ -197,7 +198,7 @@ private:
     // - 输入 summary：queryKernelObjectSummary 返回的纯值类型结果；
     // - 处理：只做字符串格式化，可安全地在后台线程执行；
     // - 返回：详情面板追加段文本。
-    static QString formatKernelObjectSummaryText(const ksword::ark::KernelObjectSummaryAuditResult& summary);
+    static ks::ui::FieldDocument formatKernelObjectSummaryText(const ksword::ark::KernelObjectSummaryAuditResult& summary);
 
 private:
     QHBoxLayout* m_toolbarLayout = nullptr;
@@ -205,12 +206,13 @@ private:
     QLineEdit* m_filterEdit = nullptr;
     QLabel* m_statusLabel = nullptr;
     QTableWidget* m_table = nullptr;
-    CodeEditorWidget* m_detailEditor = nullptr;
+    ks::ui::StructuredFieldView* m_detailEditor = nullptr;
     QTimer* m_detailRequestTimer = nullptr;     // detailRequestTimer：R0 对象摘要请求的去抖定时器。
 
     std::atomic_bool m_refreshing{ false };
     CidTableSummary m_cidSummary;
     std::vector<CidEvidenceRow> m_rows;
-    QString m_detailBaseText;                   // detailBaseText：当前行的本地详情文本，回投时在其后追加摘要。
+    ks::ui::FieldDocument m_detailBaseText;
+    ks::ui::FieldDocument m_diagnosticDocument;                   // detailBaseText：当前行的本地详情文本，回投时在其后追加摘要。
     std::uint64_t m_detailGeneration = 0;       // detailGeneration：淘汰被新选中行取代的旧摘要回投。
 };

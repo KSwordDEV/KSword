@@ -1,4 +1,4 @@
-﻿
+
 #include "MonitorDock.h"
 #include "../../../shared/ui/KsPainterChart.h"
 #include <MonitorDock/EtwArchiveCompression.h>
@@ -217,7 +217,7 @@ namespace
 
     QByteArray serializeEtwArchiveRow(const MonitorDock::EtwCapturedEventRow& row)
     {
-        const QByteArray detailJsonUtf8 = row.detailJson.toUtf8();
+        const QByteArray detailJsonUtf8 = QJsonDocument(row.detailObject).toJson(QJsonDocument::Compact);
         QByteArray payload;
         payload.reserve(detailJsonUtf8.size() + 4096);
         QDataStream stream(&payload, QIODevice::WriteOnly);
@@ -362,7 +362,13 @@ namespace
         row.destinationPort = static_cast<std::uint16_t>(destinationPort);
         row.securityPid = static_cast<std::uint32_t>(securityPid);
         row.securityTid = static_cast<std::uint32_t>(securityTid);
-        row.detailJson = QString::fromUtf8(detailJsonUtf8);
+        if (!detailJsonUtf8.trimmed().isEmpty())
+        {
+            QJsonParseError parseError;
+            const QJsonDocument payloadDocument = QJsonDocument::fromJson(detailJsonUtf8, &parseError);
+            if (parseError.error != QJsonParseError::NoError || !payloadDocument.isObject()) return false;
+            row.detailObject = payloadDocument.object();
+        }
         etwUpdateRelatedIdentity(&row);
         row.detailVisibleText = QStringLiteral("%1 %2 %3 %4 %5 %6 %7")
             .arg(row.timestampText)
@@ -382,7 +388,7 @@ namespace
             .arg(row.filePathText)
             .arg(row.registryKeyPathText)
             .arg(row.scriptKeywordText)
-            .arg(row.detailJson);
+            .arg(QString::fromUtf8(QJsonDocument(row.detailObject).toJson(QJsonDocument::Compact)));
         row.detailAllText.replace(QChar(u'\r'), QChar(u' '));
         row.detailAllText.replace(QChar(u'\n'), QChar(u' '));
         row.detailAllText = row.detailAllText.simplified();
@@ -4113,53 +4119,12 @@ namespace
         return appendEtwStatusSummary(summaryText, statusText);
     }
 
-    // buildEtwSummaryFromDetailJson：
-    // - 作用：从详情 JSON 回推单行摘要（兜底路径，保证旧调用也可显示摘要）。
-    QString buildEtwSummaryFromDetailJson(
-        const QString& detailJsonText,
-        const QString& providerNameText,
-        const QString& eventNameText,
-        const std::uint32_t pidValue,
-        const std::uint32_t tidValue)
-    {
-        QJsonParseError parseError;
-        const QJsonDocument jsonDocument = QJsonDocument::fromJson(detailJsonText.toUtf8(), &parseError);
-        if (jsonDocument.isNull() || !jsonDocument.isObject())
-        {
-            const QString normalizedEventName = etwToSingleLine(eventNameText).isEmpty()
-                ? QStringLiteral("事件")
-                : etwToSingleLine(eventNameText);
-            return QStringLiteral("%1 | PID=%2 TID=%3")
-                .arg(normalizedEventName)
-                .arg(pidValue)
-                .arg(tidValue);
-        }
 
-        const QJsonObject rootObject = jsonDocument.object();
-        const QJsonObject semanticObject = rootObject.value(QStringLiteral("semantic")).toObject();
-        const QJsonObject metaObject = rootObject.value(QStringLiteral("meta")).toObject();
-
-        EtwSemanticSummary semanticSummary;
-        semanticSummary.resourceTypeText = semanticObject.value(QStringLiteral("resourceType")).toString();
-        semanticSummary.actionText = semanticObject.value(QStringLiteral("action")).toString();
-        semanticSummary.targetText = semanticObject.value(QStringLiteral("target")).toString();
-        semanticSummary.statusText = semanticObject.value(QStringLiteral("status")).toString();
-
-        const QString opcodeNameText = metaObject.value(QStringLiteral("opcodeName")).toString();
-        return buildEtwSummaryText(
-            providerNameText,
-            eventNameText,
-            opcodeNameText,
-            pidValue,
-            tidValue,
-            semanticSummary,
-            std::vector<EtwDecodedPropertyEntry>{});
-    }
 
     // buildEtwDetailJson：
     // - 作用：把元信息、语义摘要、属性列表、尾部十六进制兜底打包成 JSON；
     // - 调用：enqueueEtwEventFromRecord 构造“查看返回详情”所需的原始数据。
-    QString buildEtwDetailJson(
+    QJsonObject buildEtwDetailObject(
         const EVENT_RECORD* eventRecord,
         const QString& providerGuidText,
         const QString& providerNameText,
@@ -4247,7 +4212,7 @@ namespace
             rootObject.insert(QStringLiteral("rawFallback"), rawFallbackObject);
         }
 
-        return QString::fromUtf8(QJsonDocument(rootObject).toJson(QJsonDocument::Compact));
+        return rootObject;
     }
 
     QString etwPropertySingleLineValue(const EtwDecodedPropertyEntry* propertyPointer)
@@ -4611,85 +4576,64 @@ namespace
         return QString::number(static_cast<qulonglong>(eventRecord->EventHeader.TimeStamp.QuadPart));
     }
 
+    ks::ui::FieldNode monitorJsonNode(const QString& name, const QJsonValue& value)
+    {
+        ks::ui::FieldNode node;
+        node.name = name;
+        node.translateName = false;
+        if (value.isObject())
+        {
+            node.kind = ks::ui::FieldNode::Kind::Section;
+            const QJsonObject object = value.toObject();
+            for (auto it = object.begin(); it != object.end(); ++it)
+                node.children.push_back(monitorJsonNode(it.key(), it.value()));
+        }
+        else if (value.isArray())
+        {
+            node.kind = ks::ui::FieldNode::Kind::Section;
+            const QJsonArray array = value.toArray();
+            for (qsizetype i = 0; i < array.size(); ++i)
+                node.children.push_back(monitorJsonNode(QString::number(i), array.at(i)));
+        }
+        else node.value = value.isNull() || value.isUndefined() ? QStringLiteral("null") : value.toVariant().toString();
+        return node;
+    }
+
     // buildEtwRowDetailText：
     // - 作用：把 ETW 事件表某一行格式化为可读详情文本；
     // - 调用：右键“查看返回详情”和双击事件行时复用。
-    QString buildEtwRowDetailText(QTableWidget* eventTable, const int row)
+    monitor_text_viewer::MonitorDocument buildEtwRowDetailText(QTableWidget* eventTable, const int row)
     {
-        if (eventTable == nullptr || row < 0 || row >= eventTable->rowCount())
-        {
-            return QString();
-        }
-
+        if (eventTable == nullptr || row < 0 || row >= eventTable->rowCount()) return {};
         const auto itemTextAt = [eventTable, row](const int column) -> QString {
-            QTableWidgetItem* itemPointer = eventTable->item(row, column);
-            return itemPointer != nullptr ? itemPointer->text() : QString();
+            const QTableWidgetItem* item = eventTable->item(row, column);
+            return item ? item->text() : QString();
         };
-
-        QString detailJsonText;
-        QTableWidgetItem* detailItem = eventTable->item(row, 5);
-        if (detailItem != nullptr)
-        {
-            const QString detailFromRole = detailItem->data(Qt::UserRole).toString();
-            detailJsonText = detailFromRole.trimmed().isEmpty() ? detailItem->text() : detailFromRole;
-        }
-        QString normalizedDetailText = detailJsonText;
-        QString semanticResourceText;
-        QString semanticActionText;
-        QString semanticTargetText;
-        QString semanticStatusText;
-        if (!detailJsonText.trimmed().isEmpty())
-        {
-            QJsonParseError parseError;
-            const QJsonDocument jsonDocument = QJsonDocument::fromJson(detailJsonText.toUtf8(), &parseError);
-            if (!jsonDocument.isNull() && jsonDocument.isObject())
-            {
-                normalizedDetailText = QString::fromUtf8(jsonDocument.toJson(QJsonDocument::Indented));
-
-                const QJsonObject rootObject = jsonDocument.object();
-                const QJsonObject semanticObject = rootObject.value(QStringLiteral("semantic")).toObject();
-                semanticResourceText = semanticObject.value(QStringLiteral("resourceType")).toString();
-                semanticActionText = semanticObject.value(QStringLiteral("action")).toString();
-                semanticTargetText = semanticObject.value(QStringLiteral("target")).toString();
-                semanticStatusText = semanticObject.value(QStringLiteral("status")).toString();
-            }
-        }
-
-        QString contentText;
-        contentText += QStringLiteral("时间(100ns)：%1\n").arg(itemTextAt(0));
-        contentText += QStringLiteral("Provider：%1\n").arg(itemTextAt(1));
-        contentText += QStringLiteral("事件ID：%1\n").arg(itemTextAt(2));
-        contentText += QStringLiteral("事件名：%1\n").arg(itemTextAt(3));
-        contentText += QStringLiteral("PID / TID：%1\n").arg(itemTextAt(4));
-        contentText += QStringLiteral("ActivityId：%1\n").arg(itemTextAt(6));
-        if (!semanticResourceText.trimmed().isEmpty()
-            || !semanticActionText.trimmed().isEmpty()
-            || !semanticTargetText.trimmed().isEmpty()
-            || !semanticStatusText.trimmed().isEmpty())
-        {
-            contentText += QStringLiteral("\n========== 语义摘要 ==========\n");
-            contentText += QStringLiteral("资源类型：%1\n").arg(
-                semanticResourceText.trimmed().isEmpty() ? QStringLiteral("<未知>") : semanticResourceText);
-            contentText += QStringLiteral("动作：%1\n").arg(
-                semanticActionText.trimmed().isEmpty() ? QStringLiteral("<未知>") : semanticActionText);
-            contentText += QStringLiteral("目标：%1\n").arg(
-                semanticTargetText.trimmed().isEmpty() ? QStringLiteral("<未知>") : semanticTargetText);
-            contentText += QStringLiteral("状态：%1\n").arg(
-                semanticStatusText.trimmed().isEmpty() ? QStringLiteral("<未知>") : semanticStatusText);
-        }
-        contentText += QStringLiteral("\n========== 返回详情 ==========\n");
-        contentText += normalizedDetailText.trimmed().isEmpty() ? QStringLiteral("<空>") : normalizedDetailText;
-        return contentText;
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("事件"));
+        document.field(QStringLiteral("时间(100ns)"), itemTextAt(0));
+        document.field(QStringLiteral("Provider"), itemTextAt(1));
+        document.field(QStringLiteral("事件ID"), itemTextAt(2));
+        document.field(QStringLiteral("事件名"), itemTextAt(3));
+        document.field(QStringLiteral("PID / TID"), itemTextAt(4));
+        document.field(QStringLiteral("ActivityId"), itemTextAt(6));
+        QJsonObject snapshot;
+        if (const QTableWidgetItem* detail = eventTable->item(row, 5))
+            snapshot = detail->data(Qt::UserRole).value<QJsonObject>();
+        document.nodes.push_back(monitorJsonNode(QStringLiteral("ETW"), snapshot));
+        const QJsonValue raw = snapshot.value(QStringLiteral("rawFallback"));
+        const QString rawPayload = raw.isString() ? raw.toString() : raw.toObject().value(QStringLiteral("hexDump")).toString();
+        return {document, rawPayload};
     }
 
     // buildWmiRowDetailText：
     // - 作用：把 WMI 结果表某一行格式化为可读详情文本；
     // - 调用：右键“查看返回详情”、双击事件行和文本查看窗口复用。
-    QString buildWmiRowDetailText(QTableWidget* eventTable, const int row)
+    monitor_text_viewer::MonitorDocument buildWmiRowDetailText(QTableWidget* eventTable, const int row)
     {
         if (eventTable == nullptr || row < 0 || row >= eventTable->rowCount())
         {
-            return QString();
+            return {};
         }
 
         const auto itemTextAt = [eventTable, row](const int column) -> QString {
@@ -4697,14 +4641,16 @@ namespace
             return itemPointer != nullptr ? itemPointer->text() : QString();
         };
 
-        QString contentText;
-        contentText += QStringLiteral("时间戳：%1\n").arg(itemTextAt(0));
-        contentText += QStringLiteral("事件来源：%1\n").arg(itemTextAt(1));
-        contentText += QStringLiteral("事件类：%1\n").arg(itemTextAt(2));
-        contentText += QStringLiteral("PID / 进程：%1\n").arg(itemTextAt(3));
-        contentText += QStringLiteral("\n========== 返回详情 ==========\n");
-        contentText += itemTextAt(4).trimmed().isEmpty() ? QStringLiteral("<空>") : itemTextAt(4);
-        return contentText;
+        ks::ui::FieldDocument contentText;
+        contentText.field(QStringLiteral("时间戳"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(itemTextAt(0))));
+        contentText.field(QStringLiteral("事件来源"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(itemTextAt(1))));
+        contentText.field(QStringLiteral("事件类"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(itemTextAt(2))));
+        contentText.field(QStringLiteral("PID / 进程"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(itemTextAt(3))));
+        contentText.section(QStringLiteral("返回详情"));
+
+        if (const QTableWidgetItem* detail = eventTable->item(row, 4))
+            contentText.nodes += detail->data(Qt::UserRole).value<ks::ui::FieldDocument>().nodes;
+        return {contentText, {}};
     }
 }
 
@@ -10087,7 +10033,8 @@ void MonitorDock::startWmiSubscription()
                 ++eventCount;
 
                 QString pidText = QStringLiteral("-");
-                QString detailText;
+                ks::ui::FieldDocument detailDocument;
+                detailDocument.section(QStringLiteral("Properties"));
 
                 VARIANT targetValue;
                 ::VariantInit(&targetValue);
@@ -10138,11 +10085,11 @@ void MonitorDock::startWmiSubscription()
 
                     if (SUCCEEDED(nextProperty) && propertyName != nullptr)
                     {
-                        if (!detailText.isEmpty())
-                        {
-                            detailText += QStringLiteral("; ");
-                        }
-                        detailText += QString::fromWCharArray(propertyName) + QStringLiteral("=") + variantToText(propertyValue);
+                        ks::ui::FieldNode property;
+                        property.name = QString::fromWCharArray(propertyName);
+                        property.value = variantToText(propertyValue);
+                        property.translateName = false;
+                        detailDocument.nodes.last().children.push_back(std::move(property));
                         ++propertyCount;
                     }
 
@@ -10154,15 +10101,12 @@ void MonitorDock::startWmiSubscription()
                 }
                 eventObject->EndEnumeration();
 
-                if (detailText.isEmpty())
-                {
-                    detailText = QStringLiteral("<无详情>");
-                }
+                if (propertyCount == 0) detailDocument.note(QStringLiteral("<无详情>"));
 
                 if (guardThis != nullptr)
                 {
                     // 高频事件先入队，交由 UI 节流器批量刷新，避免每条事件都触发表格重排。
-                    guardThis->enqueueWmiEventRow(classEnum.className, classEnum.className, pidText, detailText);
+                    guardThis->enqueueWmiEventRow(classEnum.className, classEnum.className, pidText, detailDocument);
                 }
             }
 
@@ -10319,19 +10263,18 @@ void MonitorDock::enqueueWmiEventRow(
     const QString& providerName,
     const QString& className,
     const QString& pidAndName,
-    const QString& detailText)
+    const ks::ui::FieldDocument& document)
 {
     // 后台线程仅负责写入待处理队列，避免直接触发表格重绘造成主线程抖动。
-    QStringList rowValues;
-    rowValues.reserve(5);
-    rowValues << QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
-        << providerName
-        << className
-        << pidAndName
-        << detailText;
+    WmiEventSnapshot snapshot;
+    snapshot.timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
+    snapshot.provider = providerName;
+    snapshot.className = className;
+    snapshot.pidAndName = pidAndName;
+    snapshot.document = document;
 
     std::lock_guard<std::mutex> lock(m_wmiPendingMutex);
-    m_wmiPendingRows.push_back(std::move(rowValues));
+    m_wmiPendingRows.push_back(std::move(snapshot));
 }
 
 void MonitorDock::flushWmiPendingRows()
@@ -10355,7 +10298,7 @@ void MonitorDock::flushWmiPendingRows()
     }
 
     // 主线程批量刷入：每个周期限制条数，防止一次性插入过多行阻塞 UI。
-    std::vector<QStringList> rowsToFlush;
+    std::vector<WmiEventSnapshot> rowsToFlush;
     {
         std::lock_guard<std::mutex> lock(m_wmiPendingMutex);
         if (m_wmiPendingRows.empty())
@@ -10370,25 +10313,19 @@ void MonitorDock::flushWmiPendingRows()
         {
             rowsToFlush.push_back(std::move(m_wmiPendingRows[rowIndex]));
         }
-        using DiffType = std::vector<QStringList>::difference_type;
+        using DiffType = std::vector<WmiEventSnapshot>::difference_type;
         m_wmiPendingRows.erase(
             m_wmiPendingRows.begin(),
             m_wmiPendingRows.begin() + static_cast<DiffType>(flushCount));
     }
 
-    for (const QStringList& rowValues : rowsToFlush)
+    for (const WmiEventSnapshot& snapshot : rowsToFlush)
     {
-        if (rowValues.size() < 5)
+        appendWmiEventRow(snapshot.provider, snapshot.className, snapshot.pidAndName, snapshot.document);
+        if (QTableWidgetItem* timestamp = m_wmiEventTable->item(m_wmiEventTable->rowCount() - 1, 0))
         {
-            continue;
-        }
-        appendWmiEventRow(rowValues[1], rowValues[2], rowValues[3], rowValues[4]);
-
-        QTableWidgetItem* tsItem = m_wmiEventTable->item(m_wmiEventTable->rowCount() - 1, 0);
-        if (tsItem != nullptr)
-        {
-            tsItem->setText(rowValues[0]);
-            tsItem->setToolTip(rowValues[0]);
+            timestamp->setText(snapshot.timestamp);
+            timestamp->setToolTip(snapshot.timestamp);
         }
     }
 
@@ -10408,7 +10345,7 @@ void MonitorDock::appendWmiEventRow(
     const QString& providerName,
     const QString& className,
     const QString& pidAndName,
-    const QString& detailText)
+    const ks::ui::FieldDocument& document)
 {
     const int row = m_wmiEventTable->rowCount();
     m_wmiEventTable->insertRow(row);
@@ -10419,13 +10356,15 @@ void MonitorDock::appendWmiEventRow(
     QTableWidgetItem* providerItem = new QTableWidgetItem(providerName);
     QTableWidgetItem* classItem = new QTableWidgetItem(className);
     QTableWidgetItem* pidItem = new QTableWidgetItem(pidAndName);
-    QTableWidgetItem* detailItem = new QTableWidgetItem(detailText);
+    const QString summary = document.toPlainText(true).simplified();
+    QTableWidgetItem* detailItem = new QTableWidgetItem(summary);
+    detailItem->setData(Qt::UserRole, QVariant::fromValue(document));
 
     tsItem->setToolTip(ts);
     providerItem->setToolTip(providerName);
     classItem->setToolTip(className);
     pidItem->setToolTip(pidAndName);
-    detailItem->setToolTip(detailText);
+    detailItem->setToolTip(summary);
 
     m_wmiEventTable->setItem(row, 0, tsItem);
     m_wmiEventTable->setItem(row, 1, providerItem);
@@ -10539,8 +10478,8 @@ void MonitorDock::exportWmiRowsToTsv()
 
 void MonitorDock::openWmiEventDetailViewerForRow(const int row) const
 {
-    const QString detailText = buildWmiRowDetailText(m_wmiEventTable, row);
-    if (detailText.trimmed().isEmpty())
+    const auto detailText = buildWmiRowDetailText(m_wmiEventTable, row);
+    if (detailText.isEmpty())
     {
         return;
     }
@@ -10555,7 +10494,7 @@ void MonitorDock::openWmiEventDetailViewerForRow(const int row) const
         }
     }
 
-    monitor_text_viewer::showReadOnlyTextWindow(
+    monitor_text_viewer::showReadOnlyDocumentWindow(
         const_cast<MonitorDock*>(this),
         QStringLiteral("WMI 返回详情 - %1").arg(classText.isEmpty() ? QStringLiteral("事件") : classText),
         detailText,
@@ -10643,8 +10582,8 @@ void MonitorDock::showWmiEventContextMenu(const QPoint& position)
 
     if (action == copyDetailAction)
     {
-        const QString detailText = buildWmiRowDetailText(m_wmiEventTable, row);
-        QApplication::clipboard()->setText(detailText);
+        const auto detailText = buildWmiRowDetailText(m_wmiEventTable, row);
+        QApplication::clipboard()->setText(detailText.toPlainText());
         kLogEvent event;
         dbg << event
             << "[MonitorDock] WMI事件右键操作：复制返回详情文本, row="
@@ -12004,7 +11943,7 @@ void MonitorDock::replaceEtwRowsWithSnapshot(
             item->setToolTip(rowTextList.at(column));
             if (column == 5)
             {
-                item->setData(Qt::UserRole, captured.detailJson);
+                item->setData(Qt::UserRole, QVariant::fromValue(captured.detailObject));
             }
             m_etwEventTable->setItem(tableRow, column, item);
         }
@@ -12151,7 +12090,7 @@ void MonitorDock::enqueueEtwEventFromRecord(const struct _EVENT_RECORD* eventRec
                 rowData.opcodeName,
                 decodedPropertyList,
                 rowData.opcode);
-            rowData.detailJson = buildEtwDetailJson(
+            rowData.detailObject = buildEtwDetailObject(
                 eventRecord,
                 providerGuidText,
                 providerNameText,
@@ -12213,7 +12152,7 @@ void MonitorDock::enqueueEtwEventFromRecord(const struct _EVENT_RECORD* eventRec
             {
                 fallbackRoot.insert(QStringLiteral("rawFallback"), unparsedTailHexText);
             }
-            rowData.detailJson = QString::fromUtf8(QJsonDocument(fallbackRoot).toJson(QJsonDocument::Compact));
+            rowData.detailObject = fallbackRoot;
             rowData.resourceTypeText = fallbackSemantic.value(QStringLiteral("resourceType")).toString();
             rowData.actionText = fallbackSemantic.value(QStringLiteral("action")).toString();
             rowData.targetText.clear();
@@ -12256,7 +12195,7 @@ void MonitorDock::enqueueEtwEventFromRecord(const struct _EVENT_RECORD* eventRec
             .arg(rowData.filePathText)
             .arg(rowData.registryKeyPathText)
             .arg(rowData.scriptKeywordText)
-            .arg(rowData.detailJson);
+            .arg(QString::fromUtf8(QJsonDocument(rowData.detailObject).toJson(QJsonDocument::Compact)));
         rowData.detailAllText = etwSingleLineOrEmpty(rowData.detailAllText);
 
         rowData.decodedReady = true;
@@ -13420,7 +13359,7 @@ void MonitorDock::flushEtwPendingRows(const bool captureFinished)
             if (col == 5)
             {
                 // Detail 列的 UserRole 保存完整 JSON，表格文本只显示摘要。
-                item->setData(Qt::UserRole, captured.detailJson);
+                item->setData(Qt::UserRole, QVariant::fromValue(captured.detailObject));
             }
             m_etwEventTable->setItem(row, col, item);
         }
@@ -13613,46 +13552,7 @@ bool MonitorDock::isEtwTimelineFilterActive() const
         || m_etwTimelineSelectionEnd100ns < effectiveEnd100ns;
 }
 
-void MonitorDock::appendEtwEventRow(
-    const QString& providerName,
-    int eventId,
-    const QString& eventName,
-    std::uint32_t pidValue,
-    std::uint32_t tidValue,
-    const QString& detailJson,
-    const QString& activityIdText)
-{
-    const int row = m_etwEventTable->rowCount();
-    m_etwEventTable->insertRow(row);
 
-    const QString detailSummaryText = buildEtwSummaryFromDetailJson(
-        detailJson,
-        providerName,
-        eventName,
-        pidValue,
-        tidValue);
-
-    const QStringList values{
-        now100nsText(),
-        providerName,
-        QString::number(eventId),
-        eventName,
-        QStringLiteral("%1 / %2").arg(pidValue).arg(tidValue),
-        detailSummaryText,
-        activityIdText
-    };
-
-    for (int i = 0; i < values.size(); ++i)
-    {
-        QTableWidgetItem* item = new QTableWidgetItem(values.at(i));
-        item->setToolTip(values.at(i));
-        if (i == 5)
-        {
-            item->setData(Qt::UserRole, detailJson);
-        }
-        m_etwEventTable->setItem(row, i, item);
-    }
-}
 
 void MonitorDock::exportEtwRowsToTsv(const bool visibleOnly)
 {
@@ -14036,8 +13936,8 @@ void MonitorDock::exportEtwRowsToTsv(const bool visibleOnly)
 
 void MonitorDock::openEtwEventDetailViewerForRow(const int row) const
 {
-    const QString detailText = buildEtwRowDetailText(m_etwEventTable, row);
-    if (detailText.trimmed().isEmpty())
+    const auto detailText = buildEtwRowDetailText(m_etwEventTable, row);
+    if (detailText.isEmpty())
     {
         return;
     }
@@ -14052,7 +13952,7 @@ void MonitorDock::openEtwEventDetailViewerForRow(const int row) const
         }
     }
 
-    monitor_text_viewer::showReadOnlyTextWindow(
+    monitor_text_viewer::showReadOnlyDocumentWindow(
         const_cast<MonitorDock*>(this),
         QStringLiteral("ETW 返回详情 - %1").arg(eventNameText.isEmpty() ? QStringLiteral("事件") : eventNameText),
         detailText,
@@ -14145,8 +14045,8 @@ void MonitorDock::showEtwEventContextMenu(const QPoint& position)
 
     if (action == copyDetailAction)
     {
-        const QString detailText = buildEtwRowDetailText(m_etwEventTable, row);
-        QApplication::clipboard()->setText(detailText);
+        const auto detailText = buildEtwRowDetailText(m_etwEventTable, row);
+        QApplication::clipboard()->setText(detailText.toPlainText());
         kLogEvent event;
         dbg << event
             << "[MonitorDock] ETW事件右键操作：复制返回详情文本, row="

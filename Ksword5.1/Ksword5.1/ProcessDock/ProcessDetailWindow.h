@@ -11,6 +11,7 @@
 #include "../Framework.h"
 #include "ProcessAffinityModel.h"
 #include "../UI/AsyncOperation.h"
+#include "../UI/StructuredFieldView.h"
 
 #include <QHash>
 #include <QIcon>
@@ -56,7 +57,6 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QVBoxLayout;
 class QPoint;
-class CodeEditorWidget;
 class HandleDock;
 class MemoryDock;
 class NetworkDock;
@@ -226,10 +226,12 @@ private:
         std::uint64_t elapsedMs = 0;         // 刷新耗时（毫秒）。
     };
 
-    // TextRefreshResult：令牌页/PEB 页文本刷新结果。
-    struct TextRefreshResult
+    // FieldRefreshResult：令牌页/PEB 页结构快照。
+    struct FieldRefreshResult
     {
-        QString detailText;               // 展示文本内容。
+        ks::ui::FieldDocument document;   // 唯一结构数据源。
+        QHash<QString, QHash<QString, QString>> pebTargets; // 原始 PEB 参数；编辑区直接按目标回填。
+        QHash<QString, QString> pebSummary; // 亲和性/优先级/映像基址。
         QString diagnosticText;           // 诊断文本。
         std::uint64_t elapsedMs = 0;      // 刷新耗时（毫秒）。
     };
@@ -262,7 +264,7 @@ private:
     // SectionRefreshResult：进程 SectionObject / ControlArea 异步查询结果。
     struct SectionRefreshResult
     {
-        QString detailText;              // 展示文本内容。
+        ks::ui::FieldDocument document;  // 直接来自驱动字段与 PDB 目录。
         QString diagnosticText;          // 诊断文本。
         std::uint64_t elapsedMs = 0;     // 刷新耗时（毫秒）。
     };
@@ -534,8 +536,8 @@ private:
     // ======== 令牌页/PEB页刷新 ========
     void requestAsyncTokenRefresh();
     void requestAsyncPebRefresh();
-    void applyTokenRefreshResult(const TextRefreshResult& refreshResult);
-    void applyPebRefreshResult(const TextRefreshResult& refreshResult);
+    void applyTokenRefreshResult(const FieldRefreshResult& refreshResult);
+    void applyPebRefreshResult(const FieldRefreshResult& refreshResult);
     // requestAsyncKernelCallbackRefresh 作用：后台读取 Native/Wow64 PEB 的 KernelCallbackTable。
     void requestAsyncKernelCallbackRefresh();
     // applyKernelCallbackRefreshResult 作用：在 UI 线程回填内核回调表审计结果。
@@ -755,6 +757,7 @@ private:
 
 private:
     // ======== 当前绑定进程基础数据 ========
+    FieldRefreshResult m_pebSnapshot;
     ks::process::ProcessRecord m_baseRecord;   // 当前窗口绑定进程快照。
     std::string m_identityKey;                 // PID+CreateTime 组成的 identity 字符串。
 
@@ -792,6 +795,7 @@ private:
     // ======== 详细信息页控件 ========
     QVBoxLayout* m_detailLayout = nullptr;     // 详细页总布局。
     QLabel* m_processIconLabel = nullptr;      // 顶部进程图标（40px）。
+    ks::ui::StructuredFieldView* m_generalFields = nullptr;
     QLabel* m_processTitleLabel = nullptr;     // 顶部标题（进程名 + PID）。
     QLineEdit* m_pathLineEdit = nullptr;       // 程序路径（只读）。
     QPushButton* m_copyPathButton = nullptr;   // 复制路径按钮。
@@ -810,20 +814,6 @@ private:
     QPushButton* m_openWindowDockButton = nullptr; // 跳转到窗口 Dock。
     QPushButton* m_gotoParentButton = nullptr; // 转到父进程按钮。
 
-    QLabel* m_detailStartTimeValue = nullptr;  // 启动时间值。
-    QLabel* m_detailUserValue = nullptr;       // 用户值。
-    QLabel* m_detailAdminValue = nullptr;      // 是否管理员值。
-    QLabel* m_detailArchitectureValue = nullptr; // 架构值。
-    QLabel* m_detailPriorityValue = nullptr;   // 优先级值。
-    QLabel* m_detailSessionValue = nullptr;    // 会话 ID 值。
-    QLabel* m_detailThreadCountValue = nullptr; // 线程数值。
-    QLabel* m_detailHandleCountValue = nullptr; // 句柄数值。
-    QLabel* m_detailCpuValue = nullptr;        // CPU 当前占用值。
-    QLabel* m_detailCpuCoreValue = nullptr;    // CPU 单核等效占用值。
-    QLabel* m_detailRamValue = nullptr;        // RAM 当前占用值。
-    QLabel* m_detailDiskValue = nullptr;       // DISK 当前占用值。
-    QLabel* m_detailSignatureValue = nullptr;  // 数字签名状态值。
-    QHash<QString, QLabel*> m_detailExtraValues; // 详细页扩展字段的值控件映射。
     DetailOverviewRefreshResult m_detailOverviewResult; // 最近一次运行时扩展字段快照。
     bool m_detailOverviewRefreshing = false;   // 扩展字段后台查询是否进行中。
     std::uint64_t m_detailOverviewRefreshTicket = 0; // 防止异步回填乱序。
@@ -854,7 +844,7 @@ private:
     QPushButton* m_sampleThreadRuntimeButton = nullptr; // 当前线程 PDB 字段采样按钮。
     QLabel* m_threadInspectStatusLabel = nullptr; // 线程细节刷新状态。
     QTableWidget* m_threadInspectTable = nullptr; // 线程细节表格。
-    CodeEditorWidget* m_threadRuntimeSampleOutput = nullptr; // 当前线程 PDB deep 采样详情。
+    ks::ui::StructuredFieldView* m_threadRuntimeSampleOutput = nullptr; // 当前线程 PDB deep 采样详情。
 
     // ======== 操作页控件 ========
     QVBoxLayout* m_actionLayout = nullptr;     // 操作页总布局。
@@ -995,7 +985,7 @@ private:
     QPushButton* m_watchProcessPteButton = nullptr;         // 谁改了 EPROCESS 那一页的映射。
     QLabel* m_watchStatusLabel = nullptr;                   // 地址换算结果与失败原因。
     QLabel* m_sectionInfoStatusLabel = nullptr; // Section/ControlArea 查询状态。
-    CodeEditorWidget* m_sectionInfoOutput = nullptr; // Section/ControlArea 详情文本输出。
+    ks::ui::StructuredFieldView* m_sectionInfoOutput = nullptr; // Section/ControlArea 详情文本输出。
     bool m_sectionInfoRefreshing = false; // Section 查询是否进行中。
     bool m_sectionInfoInitialRefreshStarted = false; // Section 页首次查询是否已经按需启动。
     std::uint64_t m_sectionInfoRefreshTicket = 0; // Section 查询序号。
@@ -1032,7 +1022,7 @@ private:
     QVBoxLayout* m_tokenLayout = nullptr;          // 令牌页布局。
     QPushButton* m_refreshTokenButton = nullptr;   // 刷新令牌信息按钮。
     QLabel* m_tokenStatusLabel = nullptr;          // 令牌页状态文本。
-    CodeEditorWidget* m_tokenDetailOutput = nullptr; // 令牌信息输出框（统一文本编辑器组件，只读）。
+    ks::ui::StructuredFieldView* m_tokenDetailOutput = nullptr; // 令牌信息输出框（统一文本编辑器组件，只读）。
     bool m_tokenRefreshing = false;                // 令牌页刷新状态。
     bool m_tokenInitialRefreshStarted = false;     // 令牌页首次刷新是否已经按需启动。
     std::uint64_t m_tokenRefreshTicket = 0;        // 令牌页刷新序号。
@@ -1076,8 +1066,8 @@ private:
     QComboBox* m_pebPriorityClassCombo = nullptr;   // 可编辑优先级。
     QLineEdit* m_pebEnvironmentNameEdit = nullptr;  // 环境变量名。
     QLineEdit* m_pebEnvironmentValueEdit = nullptr; // 环境变量值。
-    CodeEditorWidget* m_pebReadonlyReasonOutput = nullptr; // 不可直接修改字段说明，支持语言切换重绘。
-    CodeEditorWidget* m_pebDetailOutput = nullptr;   // PEB 信息输出框（统一文本编辑器组件，只读）。
+    ks::ui::StructuredFieldView* m_pebReadonlyReasonOutput = nullptr; // 不可直接修改字段说明，支持语言切换重绘。
+    ks::ui::StructuredFieldView* m_pebDetailOutput = nullptr;   // PEB 信息输出框（统一文本编辑器组件，只读）。
     bool m_pebRefreshing = false;                  // PEB 页刷新状态。
     bool m_pebInitialRefreshStarted = false;       // PEB 页首次刷新是否已经按需启动。
     std::uint64_t m_pebRefreshTicket = 0;          // PEB 页刷新序号。
@@ -1100,11 +1090,11 @@ private:
     // - 尽量写回远程 PEB/ProcessParameters 与进程基础运行属性；
     // - 成功/失败通过状态栏和消息框反馈。
     void applyPebEditableFields();
-    // populatePebEditableFieldsFromText：
+    // populatePebEditableFieldsFromSnapshot：
     // - 从 PEB 刷新文本中提取当前目标 PEB 的可写字段；
     // - 自动填充编辑框，避免用户手工复制长命令行或路径；
     // - 仅更新 UI 控件，无返回值。
-    void populatePebEditableFieldsFromText(const QString& detailText);
+    void populatePebEditableFieldsFromSnapshot();
     bool m_staticDetailRefreshing = false;         // 静态详情后台补齐是否进行中。
     bool m_staticDetailRefreshAttempted = false;   // 静态详情是否已经尝试后台补齐，避免周期刷新重复排队。
     std::uint64_t m_staticDetailRefreshTicket = 0; // 静态详情刷新序号。

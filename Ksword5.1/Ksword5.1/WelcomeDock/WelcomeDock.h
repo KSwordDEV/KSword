@@ -1,4 +1,6 @@
 #pragma once
+
+#include "../UI/StructuredFieldView.h"
 #include <QWidget>
 #include <QLabel>
 #include <QPushButton>
@@ -43,7 +45,6 @@ public:
 
     // 欢迎页专用布局控件。所有尺寸都允许压缩，避免 ADS 在 Dock 层级创建滚动条。
     QHBoxLayout* m_performanceLayout = nullptr;
-    QLabel* m_systemInfo = nullptr;
     QWidget* m_systemInfoPanel = nullptr;
     QGridLayout* m_systemInfoLayout = nullptr;
     QToolButton* m_contributorsCollapse = nullptr;
@@ -85,7 +86,7 @@ private:
         double networkRxBytesPerSec,
         double networkTxBytesPerSec,
         double gpuUsagePercent);
-    void updateSystemInfoFromHardwareText(const QString& overviewText);
+    void updateSystemInfoFromHardwareFields(const ks::ui::FieldDocument& overviewFields);
 
 public:
     // setHardwareDock 作用：把 WelcomeDock 接到主窗口已创建的 HardwareDock 采样源。

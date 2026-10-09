@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "MonitorDock.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../Internationalization/LanguageManager.h"
@@ -70,6 +71,25 @@ namespace evidence = Ksword::Evidence;
 
 namespace
 {
+    ks::ui::FieldNode nativeJsonNode(const QString& name, const QJsonValue& value)
+    {
+        ks::ui::FieldNode node;
+        node.name = name;
+        if (value.isObject()) {
+            node.kind = ks::ui::FieldNode::Kind::Section;
+            const auto object = value.toObject();
+            for (auto it = object.constBegin(); it != object.constEnd(); ++it) node.children.append(nativeJsonNode(it.key(), it.value()));
+        } else if (value.isArray()) {
+            node.kind = ks::ui::FieldNode::Kind::Section;
+            const auto array = value.toArray();
+            for (qsizetype i = 0; i < array.size(); ++i) node.children.append(nativeJsonNode(QString::number(i), array[i]));
+        } else if (value.isBool()) node.value = value.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+        else if (value.isDouble()) node.value = QString::number(value.toDouble(), 'g', 17);
+        else if (value.isString()) node.value = value.toString();
+        else node.value = QStringLiteral("null");
+        return node;
+    }
+
     enum class RiskColumn : int { Score = 0, Source, Category, Title, Detail, Count };
 
     constexpr int kRiskEntryIndexRole = Qt::UserRole + 1;
@@ -1186,14 +1206,14 @@ void MonitorDock::initializeArkRiskCenterTab()
     installArkRiskTableCopyMenu(this, m_arkRiskTable);
     splitter->addWidget(m_arkRiskTable);
 
-    m_arkRiskDetailEdit = new CodeEditorWidget(splitter);
-    m_arkRiskDetailEdit->setReadOnly(true);
-    m_arkRiskDetailEdit->setText(QStringLiteral("ARK 风险中心为只读聚合页。\n不提供任意写、修复、提交 mutation 或驱动卸载按钮；Mutation 仅展示 dry-run/audit/rollback 状态。"));
+    m_arkRiskDetailEdit = new ks::ui::StructuredFieldView(splitter);
+
+    m_arkRiskDetailEdit->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("ARK 风险中心为只读聚合页。\n不提供任意写、修复、提交 mutation 或驱动卸载按钮；Mutation 仅展示 dry-run/audit/rollback 状态。")));
     splitter->addWidget(m_arkRiskDetailEdit);
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_arkRiskTable, m_arkRiskDetailEdit, m_arkRiskCenterPage);
 
     connect(m_arkRiskRefreshButton, &QPushButton::clicked, this, [this]() { refreshArkRiskCenterAsync(); });
@@ -1416,7 +1436,7 @@ void MonitorDock::showArkRiskCenterDetailForCurrentRow() const
     const int row = m_arkRiskTable->currentRow();
     if (row < 0)
     {
-        m_arkRiskDetailEdit->setText(QStringLiteral("请选择一条风险记录。"));
+        m_arkRiskDetailEdit->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条风险记录。")));
         return;
     }
     const QTableWidgetItem* scoreItem = m_arkRiskTable->item(row, riskColumnIndex(RiskColumn::Score));
@@ -1424,16 +1444,19 @@ void MonitorDock::showArkRiskCenterDetailForCurrentRow() const
     const qulonglong cacheIndex = scoreItem != nullptr ? scoreItem->data(kRiskEntryIndexRole).toULongLong(&ok) : 0ULL;
     if (!ok || cacheIndex >= static_cast<qulonglong>(m_arkRiskCenterEntries.size()))
     {
-        m_arkRiskDetailEdit->setText(QStringLiteral("当前行缓存索引无效。"));
+        m_arkRiskDetailEdit->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前行缓存索引无效。")));
         return;
     }
     const auto& entry = m_arkRiskCenterEntries[static_cast<std::size_t>(cacheIndex)];
-    QString detail;
-    detail += QStringLiteral("ARK 风险详情\n");
-    detail += QStringLiteral("riskScore: %1\nsource: %2\ncategory: %3\ntitle: %4\ndetail: %5\n\n")
-        .arg(entry.riskScoreText, entry.sourceName, entry.category, entry.title, entry.detail);
-    detail += QString::fromUtf8(QJsonDocument(entry.payload).toJson(QJsonDocument::Indented));
-    m_arkRiskDetailEdit->setText(detail);
+    ks::ui::FieldDocument detail;
+    detail.section(QStringLiteral("ARK 风险详情"));
+    detail.field(QStringLiteral("riskScore"), entry.riskScoreText);
+    detail.field(QStringLiteral("source"), entry.sourceName);
+    detail.field(QStringLiteral("category"), entry.category);
+    detail.field(QStringLiteral("title"), entry.title);
+    detail.field(QStringLiteral("detail"), entry.detail);
+    detail.nodes.append(nativeJsonNode(QStringLiteral("Evidence"), entry.payload));
+    m_arkRiskDetailEdit->setDocument(detail);
 }
 
 void MonitorDock::navigateToProcessDetailFromArkRiskRow(const int tableRow)

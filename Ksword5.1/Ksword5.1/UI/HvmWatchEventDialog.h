@@ -19,6 +19,7 @@
 // 绝不把它们压成一个"无事件"。
 
 #include <QString>
+#include "StructuredFieldView.h"
 
 namespace ksword::hvm
 {
@@ -48,11 +49,11 @@ namespace ks::ui
         const ksword::hvm::HvmWatchHitEvent& hit,
         const QString& label);
 
-    // formatWatchHitEvent：把上面那份现场拼成纯文本。
+    // buildWatchHitDocument：从事件快照构建唯一字段模型。
     //
     // 单独暴露是因为"复制证据"与"导出全部证据"要的就是同一段文字：另拼一份
     // 会让窗口里看到的与复制出去的随时间漂开，而证据最不能有的就是两个版本。
-    QString formatWatchHitEvent(
+    FieldDocument buildWatchHitDocument(
         const ksword::hvm::HvmWatchEntry& entry,
         const ksword::hvm::HvmWatchHitEvent& hit,
         const QString& label);

@@ -1,5 +1,5 @@
 #include "KernelKnowledgeTab.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 
 #include "KernelKnowledgeCatalog.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -719,7 +719,7 @@ void KernelKnowledgeTab::collectCurrentEvidence()
             return;
         }
         QMetaObject::invokeMethod(
-            guard.data(),
+            qApp,
             [guard, generation, topicId, topicTitle, result = std::move(result)]() mutable
             {
                 if (guard.isNull() || guard->m_evidenceGeneration != generation)
@@ -739,12 +739,10 @@ void KernelKnowledgeTab::collectCurrentEvidence()
                 auto* layout = new QVBoxLayout(dialog);
                 layout->setContentsMargins(10, 10, 10, 10);
                 layout->setSpacing(8);
-                // 静态证据使用统一外壳，保留原文并让字体/复制/查找跟随应用。
+                // 原生字段直接投影证据快照，保留每项值和边界说明。
                 dialog->setStyleSheet(QStringLiteral("QDialog{background:%1;color:%2;}")
                     .arg(KswordTheme::SurfaceHex(), KswordTheme::TextPrimaryHex()));
-                auto* editor = new CodeEditorWidget(dialog);
-                editor->setReadOnly(true);
-                editor->setWordWrapEnabled(false);
+                auto* editor = new ks::ui::StructuredFieldView(dialog);
                 layout->addWidget(editor, 1);
 
                 auto* buttons = new QDialogButtonBox(
@@ -757,67 +755,55 @@ void KernelKnowledgeTab::collectCurrentEvidence()
                     &QDialog::reject);
                 layout->addWidget(buttons, 0);
 
-                QString report;
+                ks::ui::FieldDocument document;
+                document.section(QStringLiteral("Research Evidence"));
+                document.field(QStringLiteral("Topic"), QString::number(topicId));
                 if (!result.io.ok)
                 {
-                    report = uiText("evidence.unavailable")
-                        .arg(topicId)
-                        .arg(result.io.win32Error)
-                        .arg(QString::fromStdString(result.io.message));
+                    document.field(QStringLiteral("状态"), QStringLiteral("无法采集"), true);
+                    document.field(QStringLiteral("Win32Error"), QString::number(result.io.win32Error));
+                    document.field(QStringLiteral("说明"), QString::fromStdString(result.io.message));
                 }
                 else
                 {
                     const auto& response = result.response;
-                    report += uiText("evidence.summary")
-                        .arg(topicId)
-                        .arg(response.queryStatus)
-                        .arg(QString::number(response.responseFlags, 16).toUpper())
-                        .arg(response.returnedCount)
-                        .arg(response.totalCount)
-                        .arg(response.registeredIoctlCount)
-                        .arg(response.duplicateIoctlCount);
-                    report += QLatin1Char('\n');
-                    report += uiText("evidence.context")
-                        .arg(response.requestorProcessId)
-                        .arg(response.requestorThreadId)
-                        .arg(response.currentIrql)
-                        .arg(response.processorGroup)
-                        .arg(response.processorNumber)
-                        .arg(response.activeGroupCount)
-                        .arg(response.activeProcessorCount)
-                        .arg(QString::number(response.systemTime100ns))
-                        .arg(QString::number(response.performanceCounter));
-                    report += QStringLiteral("\n\n");
-
+                    document.field(QStringLiteral("QueryStatus"), QString::number(response.queryStatus));
+                    document.field(QStringLiteral("ResponseFlags"), QStringLiteral("0x%1").arg(response.responseFlags, 0, 16).toUpper());
+                    document.field(QStringLiteral("ReturnedCount"), QString::number(response.returnedCount));
+                    document.field(QStringLiteral("TotalCount"), QString::number(response.totalCount));
+                    document.field(QStringLiteral("RegisteredIoctlCount"), QString::number(response.registeredIoctlCount));
+                    document.field(QStringLiteral("DuplicateIoctlCount"), QString::number(response.duplicateIoctlCount));
+                    document.section(QStringLiteral("Request Context"));
+                    document.field(QStringLiteral("RequestorProcessId"), QString::number(response.requestorProcessId));
+                    document.field(QStringLiteral("RequestorThreadId"), QString::number(response.requestorThreadId));
+                    document.field(QStringLiteral("CurrentIrql"), QString::number(response.currentIrql));
+                    document.field(QStringLiteral("ProcessorGroup"), QString::number(response.processorGroup));
+                    document.field(QStringLiteral("ProcessorNumber"), QString::number(response.processorNumber));
+                    document.field(QStringLiteral("ActiveGroupCount"), QString::number(response.activeGroupCount));
+                    document.field(QStringLiteral("ActiveProcessorCount"), QString::number(response.activeProcessorCount));
+                    document.field(QStringLiteral("SystemTime100ns"), QString::number(response.systemTime100ns));
+                    document.field(QStringLiteral("PerformanceCounter"), QString::number(response.performanceCounter));
                     for (std::size_t index = 0U; index < result.entries.size(); ++index)
                     {
                         const auto& row = result.entries[index];
-                        const QString state = row.state ==
-                                KSWORD_ARK_RESEARCH_EVIDENCE_AVAILABLE
-                            ? uiText("evidence.state.available")
-                            : uiText("evidence.state.unavailable");
-                        report += uiText("evidence.row")
-                            .arg(static_cast<qulonglong>(index + 1U))
-                            .arg(QString::fromLatin1(row.name))
-                            .arg(row.kind)
-                            .arg(state)
-                            .arg(row.confidence)
-                            .arg(QString::number(row.sourceMask, 16).toUpper())
-                            .arg(QString::number(row.ioControlCode, 16).toUpper())
-                            .arg(QString::number(
-                                static_cast<unsigned long>(row.lastStatus),
-                                16).toUpper())
-                            .arg(QString::number(row.value0, 16).toUpper())
-                            .arg(QString::number(row.value1, 16).toUpper())
-                            .arg(QString::number(row.value2, 16).toUpper())
-                            .arg(QString::number(row.value3, 16).toUpper());
-                        report += QLatin1Char('\n');
+                        document.section(QStringLiteral("Evidence"));
+                        document.field(QStringLiteral("Index"), QString::number(index + 1U));
+                        document.field(QStringLiteral("Name"), QString::fromLatin1(row.name));
+                        document.field(QStringLiteral("Kind"), QString::number(row.kind));
+                        document.field(QStringLiteral("State"), row.state == KSWORD_ARK_RESEARCH_EVIDENCE_AVAILABLE
+                            ? QStringLiteral("可用") : QStringLiteral("不可用"), true);
+                        document.field(QStringLiteral("Confidence"), QString::number(row.confidence));
+                        document.field(QStringLiteral("SourceMask"), QStringLiteral("0x%1").arg(row.sourceMask, 0, 16).toUpper());
+                        document.field(QStringLiteral("IoControlCode"), QStringLiteral("0x%1").arg(row.ioControlCode, 0, 16).toUpper());
+                        document.field(QStringLiteral("LastStatus"), QStringLiteral("0x%1").arg(static_cast<unsigned long>(row.lastStatus), 0, 16).toUpper());
+                        document.field(QStringLiteral("Value0"), QStringLiteral("0x%1").arg(row.value0, 0, 16).toUpper());
+                        document.field(QStringLiteral("Value1"), QStringLiteral("0x%1").arg(row.value1, 0, 16).toUpper());
+                        document.field(QStringLiteral("Value2"), QStringLiteral("0x%1").arg(row.value2, 0, 16).toUpper());
+                        document.field(QStringLiteral("Value3"), QStringLiteral("0x%1").arg(row.value3, 0, 16).toUpper());
                     }
-                    report += QStringLiteral("\n");
-                    report += uiText("evidence.boundary");
+                    document.note(QStringLiteral("边界：此快照证明当前 R3→WDF→WDM 请求上下文与 R0 业务来源注册状态；业务扫描的当前数据、DynData 降级与 partial 状态必须在「打开相关功能」页中单独采集。"));
                 }
-
-                editor->setRawText(report);
+                editor->setDocument(document);
                 dialog->show();
             },
             Qt::QueuedConnection);

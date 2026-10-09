@@ -1589,20 +1589,71 @@ namespace ksword::ark
         request.maxRows = maxRows;
         request.maxAttachedDepth = maxAttachedDepth;
         copyAuditWideToFixed(request.targetName, KSWORD_ARK_DRIVER_OBJECT_NAME_CHARS, targetName);
-        std::vector<std::uint8_t> responseBuffer(kDefaultAuditBufferBytes, 0U);
+        // Preserve the previous physical row capacity after appending the v2 metadata tail.
+        constexpr std::size_t tailBytes = sizeof(KSWORD_ARK_DEVICE_AUDIT_ENTRY) - KSWORD_ARK_DEVICE_AUDIT_V1_ENTRY_SIZE;
+        std::vector<std::uint8_t> responseBuffer(kDefaultAuditBufferBytes + KSWORD_ARK_DEVICE_AUDIT_HARD_MAX_ROWS * tailBytes, 0U);
         result.io = client.deviceIoControl(ioctlCode, &request, sizeof(request), responseBuffer.data(), static_cast<unsigned long>(responseBuffer.size()));
         if (!result.io.ok)
         {
             markUnsupportedIfNeeded(result, operationName);
+            if (result.io.win32Error == ERROR_REVISION_MISMATCH) result.unsupported = true;
             return result;
         }
 
         constexpr std::size_t headerSize = sizeof(KSWORD_ARK_QUERY_DEVICE_AUDIT_RESPONSE) - sizeof(KSWORD_ARK_DEVICE_AUDIT_ENTRY);
         const auto* response = reinterpret_cast<const KSWORD_ARK_QUERY_DEVICE_AUDIT_RESPONSE*>(responseBuffer.data());
+        if (result.io.bytesReturned > responseBuffer.size())
+        {
+            result.io.ok = false;
+            result.io.win32Error = ERROR_INVALID_DATA;
+            result.io.message = std::string(operationName) + " response byte count exceeds buffer";
+            return result;
+        }
+        if (result.io.bytesReturned < headerSize)
+        {
+            result.io.ok = false;
+            result.io.win32Error = ERROR_INSUFFICIENT_BUFFER;
+            result.io.message = std::string(operationName) + " response header is incomplete";
+            return result;
+        }
+        if (response->version != KSWORD_ARK_DEVICE_AUDIT_PROTOCOL_VERSION || response->entrySize != sizeof(KSWORD_ARK_DEVICE_AUDIT_ENTRY))
+        {
+            result.io.ok = false;
+            result.io.win32Error = ERROR_REVISION_MISMATCH;
+            result.unsupported = true;
+            result.io.message = std::string(operationName) + " requires DeviceAudit v2 typed metadata";
+            return result;
+        }
+        const std::uint32_t requestedRows = std::min<std::uint32_t>(
+            maxRows == 0U ? KSWORD_ARK_DEVICE_AUDIT_DEFAULT_MAX_ROWS : maxRows,
+            KSWORD_ARK_DEVICE_AUDIT_HARD_MAX_ROWS);
+        if (response->profileFlags != request.profileFlags
+            || response->returnedCount > requestedRows || response->returnedCount > response->totalCount
+            || response->returnedCount > (result.io.bytesReturned - headerSize) / response->entrySize
+            || response->size != sizeof(KSWORD_ARK_QUERY_DEVICE_AUDIT_RESPONSE)
+            || result.io.bytesReturned != headerSize + static_cast<std::size_t>(response->returnedCount) * response->entrySize)
+        {
+            result.io.ok = false;
+            result.io.win32Error = ERROR_INVALID_DATA;
+            result.io.message = std::string(operationName) + " response row count is inconsistent";
+            return result;
+        }
         const std::size_t parsedCount = validateAuditRows(result.io, headerSize, response->entrySize, sizeof(KSWORD_ARK_DEVICE_AUDIT_ENTRY), response->returnedCount, operationName);
         if (!result.io.ok)
         {
             return result;
+        }
+
+        auto entries = parseVariableRows<KSWORD_ARK_DEVICE_AUDIT_ENTRY>(responseBuffer, headerSize, response->entrySize, parsedCount);
+        for (const auto& entry : entries)
+        {
+            if (entry.size != sizeof(KSWORD_ARK_DEVICE_AUDIT_ENTRY))
+            {
+                result.io.ok = false;
+                result.io.win32Error = ERROR_INVALID_DATA;
+                result.io.message = std::string(operationName) + " response entry size is inconsistent";
+                return result;
+            }
         }
 
         result.version = response->version;
@@ -1617,7 +1668,7 @@ namespace ksword::ark
         result.deviceCount = response->deviceCount;
         result.lastStatus = response->lastStatus;
         result.io.ntStatus = response->lastStatus;
-        result.entries = parseVariableRows<KSWORD_ARK_DEVICE_AUDIT_ENTRY>(responseBuffer, headerSize, response->entrySize, parsedCount);
+        result.entries = std::move(entries);
         result.io.message = appendAuditSummary(operationName, result.totalCount, result.returnedCount, result.entries.size(), result.io.bytesReturned);
         return result;
     }

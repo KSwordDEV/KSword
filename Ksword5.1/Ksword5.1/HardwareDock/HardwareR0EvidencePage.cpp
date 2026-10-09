@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "HardwareR0EvidencePage.h"
 #include "../UI/IntegrityRiskPresentation.h"
 #include "../UI/TableInteractionSupport.h"
@@ -474,36 +475,36 @@ namespace
         return parts.join(QStringLiteral(" | "));
     }
 
-    QString capabilityText(const ksword::ark::DriverCapabilitiesQueryResult& result)
+    ks::ui::FieldDocument capabilityText(const ksword::ark::DriverCapabilitiesQueryResult& result)
     {
         // 输入：ArkDriverClient 驱动能力查询结果。
         // 处理：提取 protocol、feature、DynData 和错误摘要，用于状态栏和详情区。
         // 返回：单行可读文本。
         if (!result.io.ok)
         {
-            return QStringLiteral("DriverCapabilities: 不可用");
+            { ks::ui::FieldDocument document;
+        document.field(QStringLiteral("DriverCapabilities"), QStringLiteral("不可用"), true);
+        return document; }
         }
-        return QStringLiteral("DriverCapabilities: version=%1 features=%2/%3 dynData=0x%4")
-            .arg(result.driverProtocolVersion)
-            .arg(result.returnedFeatureCount)
-            .arg(result.totalFeatureCount)
-            .arg(static_cast<qulonglong>(result.dynDataCapabilityMask), 0, 16)
-            .toUpper();
+        { ks::ui::FieldDocument document;
+        document.field(QStringLiteral("DriverCapabilities"), QStringLiteral("version=%1 features=%2/%3 dynData=0x%4").arg(QStringLiteral("%1").arg(result.driverProtocolVersion).toUpper()).arg(QStringLiteral("%1").arg(result.returnedFeatureCount).toUpper()).arg(QStringLiteral("%1").arg(result.totalFeatureCount).toUpper()).arg(QStringLiteral("%1").arg(static_cast<qulonglong>(result.dynDataCapabilityMask), 0, 16).toUpper()));
+        return document; }
     }
 
-    QString dynDataText(const ksword::ark::DynDataCapabilitiesResult& result)
+    ks::ui::FieldDocument dynDataText(const ksword::ark::DynDataCapabilitiesResult& result)
     {
         // 输入：ArkDriverClient DynData capability 查询结果。
         // 处理：提取 statusFlags 与 capabilityMask。
         // 返回：单行可读文本。
         if (!result.io.ok)
         {
-            return QStringLiteral("DynDataCapabilities: 不可用");
+            { ks::ui::FieldDocument document;
+        document.field(QStringLiteral("DynDataCapabilities"), QStringLiteral("不可用"), true);
+        return document; }
         }
-        return QStringLiteral("DynDataCapabilities: status=0x%1 capability=0x%2")
-            .arg(result.statusFlags, 8, 16, QChar('0'))
-            .arg(static_cast<qulonglong>(result.capabilityMask), 0, 16)
-            .toUpper();
+        { ks::ui::FieldDocument document;
+        document.field(QStringLiteral("DynDataCapabilities"), QStringLiteral("status=0x%1 capability=0x%2").arg(QStringLiteral("%1").arg(result.statusFlags, 8, 16, QChar('0')).toUpper()).arg(QStringLiteral("%1").arg(static_cast<qulonglong>(result.capabilityMask), 0, 16).toUpper()));
+        return document; }
     }
 
     QString queryStatusText(const std::uint32_t statusValue)
@@ -743,39 +744,30 @@ namespace
         return false;
     }
 
-    QString detailText(const ksword::ark::DriverIntegrityEvidenceEntry& row)
+    ks::ui::FieldDocument detailText(const ksword::ark::DriverIntegrityEvidenceEntry& row)
     {
         // 输入：当前 R0 evidence 行。
         // 处理：展开所有关键协议字段，便于复制到调试记录。
         // 返回：多行详情文本。
-        QString text;
-        text += QStringLiteral("R0 硬件 / CPU 入口证据详情\n");
-        text += QStringLiteral("Class: %1 (%2)\n").arg(classText(row.evidenceClass)).arg(row.evidenceClass);
-        text += QStringLiteral("CPU: Group=%1 Processor=%2 Vector=%3\n")
-            .arg(row.processorGroup)
-            .arg(row.processorNumber)
-            .arg(row.vector);
-        text += QStringLiteral("ObjectAddress: %1\n").arg(hex64(row.objectAddress));
-        text += QStringLiteral("TargetAddress: %1\n").arg(hex64(row.targetAddress));
-        text += QStringLiteral("OwnerModule: %1\n").arg(wideToQString(row.ownerModule));
-        text += QStringLiteral("OwnerModuleBase: %1\n").arg(hex64(row.ownerModuleBase));
-        text += QStringLiteral("OwnerModuleSize: %1 (%2)\n")
-            .arg(hex32(row.ownerModuleSize))
-            .arg(row.ownerModuleSize);
-        text += QStringLiteral("SourceMask: %1 (%2)\n").arg(sourceMaskText(row.sourceMask), hex32(row.sourceMask));
-        text += QStringLiteral("RiskFlags: %1 (%2)\n").arg(riskText(row.riskFlags), hex32(row.riskFlags));
-        text += QStringLiteral("Confidence: %1\n").arg(row.confidence);
-        text += QStringLiteral("EntryStatus: %1 (%2)\n")
-            .arg(queryStatusText(row.entryStatus))
-            .arg(row.entryStatus);
-        text += QStringLiteral("StatusFlags: %1 (%2)\n")
-            .arg(integrityStatusFlagText(row.statusFlags))
-            .arg(hex32(row.statusFlags));
-        text += QStringLiteral("FieldMask: %1\n").arg(hex32(row.fieldMask));
-        text += QStringLiteral("RiskScore: %1\n").arg(row.riskScore);
-        text += QStringLiteral("RangeState: %1\n").arg(row.rangeState);
-        text += QStringLiteral("Ordinal: %1\n").arg(row.ordinal);
-        text += QStringLiteral("Detail: %1\n").arg(wideToQString(row.detail));
+        ks::ui::FieldDocument text;
+        text.note(QStringLiteral("R0 硬件 / CPU 入口证据详情"));
+        text.field(QStringLiteral("Class"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(classText(row.evidenceClass))).arg(QStringLiteral("%1").arg(row.evidenceClass)));
+        text.field(QStringLiteral("CPU"), QStringLiteral("Group=%1 Processor=%2 Vector=%3").arg(QStringLiteral("%1").arg(row.processorGroup)).arg(QStringLiteral("%1").arg(row.processorNumber)).arg(QStringLiteral("%1").arg(row.vector)));
+        text.field(QStringLiteral("ObjectAddress"), QStringLiteral("%1").arg(hex64(row.objectAddress)));
+        text.field(QStringLiteral("TargetAddress"), QStringLiteral("%1").arg(hex64(row.targetAddress)));
+        text.field(QStringLiteral("OwnerModule"), QStringLiteral("%1").arg(wideToQString(row.ownerModule)));
+        text.field(QStringLiteral("OwnerModuleBase"), QStringLiteral("%1").arg(hex64(row.ownerModuleBase)));
+        text.field(QStringLiteral("OwnerModuleSize"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(hex32(row.ownerModuleSize))).arg(QStringLiteral("%1").arg(row.ownerModuleSize)));
+        text.field(QStringLiteral("SourceMask"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(sourceMaskText(row.sourceMask))).arg(QStringLiteral("%1").arg(hex32(row.sourceMask))));
+        text.field(QStringLiteral("RiskFlags"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(riskText(row.riskFlags))).arg(QStringLiteral("%1").arg(hex32(row.riskFlags))));
+        text.field(QStringLiteral("Confidence"), QStringLiteral("%1").arg(row.confidence));
+        text.field(QStringLiteral("EntryStatus"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(queryStatusText(row.entryStatus))).arg(QStringLiteral("%1").arg(row.entryStatus)));
+        text.field(QStringLiteral("StatusFlags"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(integrityStatusFlagText(row.statusFlags))).arg(QStringLiteral("%1").arg(hex32(row.statusFlags))));
+        text.field(QStringLiteral("FieldMask"), QStringLiteral("%1").arg(hex32(row.fieldMask)));
+        text.field(QStringLiteral("RiskScore"), QStringLiteral("%1").arg(row.riskScore));
+        text.field(QStringLiteral("RangeState"), QStringLiteral("%1").arg(row.rangeState));
+        text.field(QStringLiteral("Ordinal"), QStringLiteral("%1").arg(row.ordinal));
+        text.field(QStringLiteral("Detail"), QStringLiteral("%1").arg(wideToQString(row.detail)));
         return text;
     }
 
@@ -1048,12 +1040,12 @@ void HardwareR0EvidencePage::initializeUi()
     detailLayout->setContentsMargins(0, 0, 0, 0);
     detailLayout->setSpacing(8);
 
-    m_detailEditor = new CodeEditorWidget(detailPanel);
-    m_detailEditor->setReadOnly(true);
-    m_detailEditor->setText(QStringLiteral("请选择一条 R0 CPU/MSR/IDT/GDT 证据查看详情。"));
+    m_detailEditor = new ks::ui::StructuredFieldView(detailPanel);
+
+    m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择一条 R0 CPU/MSR/IDT/GDT 证据查看详情。")));
     detailLayout->addWidget(m_detailEditor, 1);
 
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_evidenceTable, m_detailEditor, this);
     splitter->addWidget(detailPanel);
 
@@ -1344,11 +1336,11 @@ void HardwareR0EvidencePage::showSelectedEvidenceDetail()
     {
         if (m_evidenceCache.empty())
         {
-            m_detailEditor->setText(QStringLiteral("尚未返回 R0 CPU/MSR/IDT/GDT 证据。"));
+            m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("尚未返回 R0 CPU/MSR/IDT/GDT 证据。")));
         }
         else
         {
-            m_detailEditor->setText(QStringLiteral("当前过滤条件下没有可见证据。"));
+            m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前过滤条件下没有可见证据。")));
         }
         return;
     }
@@ -1356,7 +1348,7 @@ void HardwareR0EvidencePage::showSelectedEvidenceDetail()
     QTableWidgetItem* classItem = m_evidenceTable->item(rowIndex, columnIndex(R0EvidenceColumn::Class));
     if (classItem == nullptr)
     {
-        m_detailEditor->setText(QStringLiteral("当前行缺少缓存索引。"));
+        m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前行缺少缓存索引。")));
         return;
     }
 
@@ -1364,32 +1356,27 @@ void HardwareR0EvidencePage::showSelectedEvidenceDetail()
     const qulonglong cacheIndex = classItem->data(Qt::UserRole + 1).toULongLong(&ok);
     if (!ok || cacheIndex >= static_cast<qulonglong>(m_evidenceCache.size()))
     {
-        m_detailEditor->setText(QStringLiteral("当前行缓存索引无效。"));
+        m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("当前行缓存索引无效。")));
         return;
     }
 
-    QString text;
-    text += QStringLiteral("R0 查询摘要\n");
-    text += capabilityText(m_lastCapabilityResult) + QStringLiteral("\n");
-    text += dynDataText(m_lastDynDataResult) + QStringLiteral("\n");
-    text += QStringLiteral("ProtocolVersion: %1\n").arg(m_lastIntegrityResult.version);
-    text += QStringLiteral("QueryStatus: %1 (%2)\n").arg(queryStatusText(m_lastIntegrityResult.queryStatus)).arg(m_lastIntegrityResult.queryStatus);
-    text += QStringLiteral("Flags: %1\n").arg(hex32(m_lastIntegrityResult.flags));
-    text += QStringLiteral("SourceMask: %1 (%2)\n").arg(sourceMaskText(m_lastIntegrityResult.sourceMask), hex32(m_lastIntegrityResult.sourceMask));
-    text += QStringLiteral("ResponseFieldFlags: %1\n").arg(hex32(m_lastIntegrityResult.fieldFlags));
-    text += QStringLiteral("ResponseStatusFlags: %1 (%2)\n")
-        .arg(integrityStatusFlagText(m_lastIntegrityResult.statusFlags))
-        .arg(hex32(m_lastIntegrityResult.statusFlags));
-    text += QStringLiteral("Total/Returned/Parsed: %1/%2/%3\n")
-        .arg(m_lastIntegrityResult.totalCount)
-        .arg(m_lastIntegrityResult.returnedCount)
-        .arg(m_evidenceCache.size());
-    text += QStringLiteral("CpuCount: %1\n").arg(m_lastIntegrityResult.cpuCount);
-    text += QStringLiteral("ModuleCount: %1\n").arg(m_lastIntegrityResult.moduleCount);
-    text += QStringLiteral("LastStatus: %1\n").arg(ntStatusText(m_lastIntegrityResult.lastStatus));
-    text += QStringLiteral("驱动返回说明: %1\n\n").arg(friendlyHardwareIoMessage(m_lastIntegrityResult.io.message));
-    text += detailText(m_evidenceCache[static_cast<std::size_t>(cacheIndex)]);
-    m_detailEditor->setText(text);
+    ks::ui::FieldDocument text;
+    text.note(QStringLiteral("R0 查询摘要"));
+    text.nodes += capabilityText(m_lastCapabilityResult).nodes;
+    text.nodes += dynDataText(m_lastDynDataResult).nodes;
+    text.field(QStringLiteral("ProtocolVersion"), QStringLiteral("%1").arg(m_lastIntegrityResult.version));
+    text.field(QStringLiteral("QueryStatus"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(queryStatusText(m_lastIntegrityResult.queryStatus))).arg(QStringLiteral("%1").arg(m_lastIntegrityResult.queryStatus)));
+    text.field(QStringLiteral("Flags"), QStringLiteral("%1").arg(hex32(m_lastIntegrityResult.flags)));
+    text.field(QStringLiteral("SourceMask"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(sourceMaskText(m_lastIntegrityResult.sourceMask))).arg(QStringLiteral("%1").arg(hex32(m_lastIntegrityResult.sourceMask))));
+    text.field(QStringLiteral("ResponseFieldFlags"), QStringLiteral("%1").arg(hex32(m_lastIntegrityResult.fieldFlags)));
+    text.field(QStringLiteral("ResponseStatusFlags"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(integrityStatusFlagText(m_lastIntegrityResult.statusFlags))).arg(QStringLiteral("%1").arg(hex32(m_lastIntegrityResult.statusFlags))));
+    text.field(QStringLiteral("Total/Returned/Parsed"), QStringLiteral("%1/%2/%3").arg(QStringLiteral("%1").arg(m_lastIntegrityResult.totalCount)).arg(QStringLiteral("%1").arg(m_lastIntegrityResult.returnedCount)).arg(QStringLiteral("%1").arg(m_evidenceCache.size())));
+    text.field(QStringLiteral("CpuCount"), QStringLiteral("%1").arg(m_lastIntegrityResult.cpuCount));
+    text.field(QStringLiteral("ModuleCount"), QStringLiteral("%1").arg(m_lastIntegrityResult.moduleCount));
+    text.field(QStringLiteral("LastStatus"), QStringLiteral("%1").arg(ntStatusText(m_lastIntegrityResult.lastStatus)));
+    text.field(QStringLiteral("驱动返回说明"), QStringLiteral("%1").arg(friendlyHardwareIoMessage(m_lastIntegrityResult.io.message)));
+    text.nodes += detailText(m_evidenceCache[static_cast<std::size_t>(cacheIndex)]).nodes;
+    m_detailEditor->setDocument(text);
 }
 
 void HardwareR0EvidencePage::setStatusText(const QString& text, const QString& colorText)

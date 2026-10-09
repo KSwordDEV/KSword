@@ -1,9 +1,11 @@
 // Exercises the production native property view, without accessing a target
 // file, a driver or the system clipboard. Payload snapshots are pure strings.
-#include "../Ksword5.1/Ksword5.1/FileDock/FilePropertyView.h"
+#include "../Ksword5.1/Ksword5.1/UI/StructuredFieldView.h"
 #include "../Ksword5.1/Ksword5.1/Internationalization/LanguageManager.h"
 
 #include <QApplication>
+#include <QTemporaryDir>
+#include <QFile>
 #include <QDir>
 #include <QEvent>
 #include <QFontDatabase>
@@ -18,7 +20,7 @@
 #include <cstdlib>
 #include <iostream>
 
-using namespace file_dock_detail;
+using namespace ks::ui;
 
 namespace
 {
@@ -34,9 +36,9 @@ namespace
         QTest::qWait(10);
         QCoreApplication::processEvents();
     }
-    PropertyDocument fixture()
+    FieldDocument fixture()
     {
-        PropertyDocument document;
+        FieldDocument document;
         document.title = QStringLiteral("文件属性");
         document.field(QStringLiteral("文件名"), QStringLiteral("KSword.exe"));
         document.section(QStringLiteral("常规"))
@@ -44,10 +46,10 @@ namespace
             .field(QStringLiteral("文件属性"), QStringLiteral("正常"), true)
             .field(QStringLiteral("Long value"), QString(420, QLatin1Char('X')))
             .note(QStringLiteral("<a href=\"file:///untrusted\">plain note</a>\nsecond line"));
-        PropertyNode parent;
+        FieldNode parent;
         parent.name = QStringLiteral("Nested parent");
         parent.value = QStringLiteral("root value");
-        PropertyNode child;
+        FieldNode child;
         child.name = QStringLiteral("Hidden child");
         child.value = QStringLiteral("needle in nested value");
         parent.children.append(child);
@@ -100,13 +102,13 @@ int main(int argc, char** argv)
     require(document.nodes[1].children.size() == 5, "section owns values and explicit note nodes");
     require(document.toPlainText().contains(QStringLiteral("<b>KSword</b>")), "export preserves HTML-like raw value");
     require(document.toPlainText().contains(QStringLiteral("Hidden child: needle")), "export includes nested typed child");
-    FilePropertyView view;
+    StructuredFieldView view;
     view.resize(760, 330);
     view.setDocument(document);
     view.show();
     flush();
     auto* tree = view.tree();
-    require(view.presentation() == FilePropertyView::Presentation::Sections, "default partition presentation");
+    require(view.presentation() == StructuredFieldView::Presentation::Sections, "default partition presentation");
     require(tree->columnCount() == 2 && !tree->rootIsDecorated(), "native partition fields with two columns");
     require(view.findChildren<QTextEdit*>().isEmpty() && view.findChildren<QPlainTextEdit*>().isEmpty(),
         "no text editor or report text substrate exists");
@@ -121,6 +123,8 @@ int main(int argc, char** argv)
     const auto baselineText = view.plainText();
     const auto shortHeight = tree->visualItemRect(general->child(0)).height();
     const auto longHeight = tree->visualItemRect(general->child(2)).height();
+    require(tree->visualItemRect(general).height() <= shortHeight + QFontMetrics(tree->font()).height() / 2,
+        "single-line section has no extra blank line from its empty value column");
     require(longHeight > shortHeight && longHeight > 2 * QFontMetrics(tree->font()).height() + 14,
         "long unbroken values wrap to more than two native visual lines");
     require(tree->verticalScrollBar()->maximum() > 0, "native scrolling reaches long content");
@@ -162,12 +166,12 @@ int main(int argc, char** argv)
     require(copied.value == QStringLiteral("second") && copied.all == baselineText, "frozen copy payload survives refresh");
     view.setSearchText(QString());
     require(!tree->topLevelItem(2)->isExpanded(), "refresh while searching retains pre-search expansion");
-    view.setPresentation(FilePropertyView::Presentation::Tree);
-    require(tree->rootIsDecorated() && view.presentation() == FilePropertyView::Presentation::Tree,
+    view.setPresentation(StructuredFieldView::Presentation::Tree);
+    require(tree->rootIsDecorated() && view.presentation() == StructuredFieldView::Presentation::Tree,
         "tree style shows native branches");
     require(view.selectedText() == QStringLiteral("Duplicate: second refreshed"), "style changes preserve selection");
-    FilePropertyView laterView;
-    require(laterView.presentation() == FilePropertyView::Presentation::Tree, "new view remembers last style in this session");
+    StructuredFieldView laterView;
+    require(laterView.presentation() == StructuredFieldView::Presentation::Tree, "new view remembers last style in this session");
     require(view.plainText().contains(QStringLiteral("second refreshed")), "style changes retain values");
     const auto shortcuts = tree->findChildren<QShortcut*>();
     require(shortcuts.size() == 1 && shortcuts.front()->key() == QKeySequence::Copy &&
@@ -198,7 +202,7 @@ int main(int argc, char** argv)
     for (const bool dark : {false, true})
     {
         setTheme(dark);
-        for (const auto mode : {FilePropertyView::Presentation::Sections, FilePropertyView::Presentation::Tree})
+        for (const auto mode : {StructuredFieldView::Presentation::Sections, StructuredFieldView::Presentation::Tree})
         {
             view.setPresentation(mode);
             tree->topLevelItem(1)->setExpanded(true);
@@ -216,14 +220,14 @@ int main(int argc, char** argv)
                 {
                     const QString name = QStringLiteral("property-%1-%2-%3.png")
                         .arg(dark ? QStringLiteral("dark") : QStringLiteral("light"))
-                        .arg(mode == FilePropertyView::Presentation::Tree ? QStringLiteral("tree") : QStringLiteral("sections"))
+                        .arg(mode == StructuredFieldView::Presentation::Tree ? QStringLiteral("tree") : QStringLiteral("sections"))
                         .arg(width);
                     require(view.grab().save(QDir(shots).filePath(name)), "save actual production view QA preview");
                 }
             }
         }
     }
-    PropertyDocument large;
+    FieldDocument large;
     large.section(QStringLiteral("Large result"));
     for (int i = 0; i < 1200; ++i)
         large.field(QStringLiteral("Field %1").arg(i), QString::number(i));
@@ -237,7 +241,32 @@ int main(int argc, char** argv)
     require(!tree->topLevelItem(0)->child(1199)->isHidden(), "search reaches final result beyond screen");
     require(tree->topLevelItem(0)->child(0)->isHidden(), "large search hides unrelated field");
     require(view.plainText().contains(QStringLiteral("Field 0: 0")), "all export retains filtered large result data");
-    view.setDocument(PropertyDocument());
+    QTemporaryDir exportDirectory(QDir(shots.isEmpty() ? QDir::currentPath() : shots).filePath(QStringLiteral("export-XXXXXX")));
+    require(exportDirectory.isValid(), "native export fixture stays in writable output");
+    const QString exportPath = exportDirectory.filePath(QStringLiteral("native-export.txt"));
+    QString exportError;
+    require(view.exportText(exportPath, &exportError), "export writes model on demand");
+    QFile exportFile(exportPath);
+    require(exportFile.open(QIODevice::ReadOnly), "native model export readable");
+    require(QString::fromUtf8(exportFile.readAll()) == view.plainText(), "export matches full model despite active search");
+    require(!view.exportText(exportDirectory.path(), &exportError) && !exportError.isEmpty(), "export failure returns readable error");
+    FieldDocument literalNames;
+    literalNames.field(QStringLiteral("成功"), QStringLiteral("<raw>"));
+    literalNames.nodes.last().translateName = false;
+    view.setDocument(literalNames);
+    require(ks::i18n::LanguageManager::instance().setLanguage(QStringLiteral("en-US"), &languageError), "literal key English mode");
+    flush();
+    require(tree->topLevelItem(0)->text(0) == QStringLiteral("成功") &&
+        view.plainText().startsWith(QStringLiteral("成功: ")), "external keys stay literal in view and export");
+    require(ks::i18n::LanguageManager::instance().setLanguage(QStringLiteral("zh-CN"), &languageError), "restore language after literal key");
+    FieldDocument collapsed;
+    collapsed.section(QStringLiteral("Diagnostics"));
+    collapsed.field(QStringLiteral("Status"), QStringLiteral("retained"));
+    collapsed.nodes.last().initiallyExpanded = false;
+    view.setDocument(collapsed);
+    require(!tree->topLevelItem(0)->isExpanded() && view.plainText().contains(QStringLiteral("retained")),
+        "collapsed diagnostic retains model and export");
+    view.setDocument(FieldDocument());
     require(tree->topLevelItemCount() == 0 && view.plainText().isEmpty(), "empty async update clears old property values");
     std::cout << "PASS: " << checks << " native property view checks; no clipboard writes\n";
     return 0;

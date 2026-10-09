@@ -1,5 +1,5 @@
-﻿#include "PoolAllocationAnalysisWidget.h"
-#include "../UI/CodeEditorWidget.h"
+#include "PoolAllocationAnalysisWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/FlowLayout.h"
 #include <QAbstractTableModel>
@@ -234,9 +234,9 @@ PoolAllocationAnalysisWidget::PoolAllocationAnalysisWidget(QWidget* parent) : QW
     m_resolve = new QPushButton(detail); m_resolve->setObjectName(QStringLiteral("pool_analysis_resolve"));
     m_module = new QPushButton(detail); m_module->setObjectName(QStringLiteral("pool_analysis_module"));
     detailActions->addWidget(m_resolve); detailActions->addWidget(m_module); detailLayout->addLayout(detailActions);
-    m_frames = new CodeEditorWidget(detail);
+    m_frames = new ks::ui::StructuredFieldView(detail);
     m_frames->setObjectName(QStringLiteral("pool_analysis_frames"));
-    m_frames->setReadOnly(true); detailLayout->addWidget(m_frames, 1); split->addWidget(m_table); split->addWidget(detail);
+     detailLayout->addWidget(m_frames, 1); split->addWidget(m_table); split->addWidget(detail);
     split->setStretchFactor(0, 2); split->setStretchFactor(1, 1); layout->addWidget(split, 1);
     connect(m_open, &QPushButton::clicked, this, [this] {
         QPointer<PoolAllocationAnalysisWidget> guard(this);
@@ -412,15 +412,16 @@ void PoolAllocationAnalysisWidget::selectStack() {
 void PoolAllocationAnalysisWidget::showStack() {
     m_modulePath.clear();
     const auto* group = selectedGroup();
-    if (!group) { m_frames->setReportText(QString()); return; }
-    QStringList lines;
-    lines << groupLabel(m_images, m_kernelImages, *group);
-    lines << L("Observed %1 bytes / %2 allocations; paired release %3 bytes / %4; no observed free %5 bytes / %6; uncertain %7 bytes / %8.")
-        .arg(N(group->allocatedBytes), N(group->allocatedCount), N(group->pairedFreedBytes), N(group->pairedFreedCount),
-            N(group->outstandingBytes), N(group->outstandingCount), N(group->uncertainBytes), N(group->uncertainCount));
-    lines << L("Historical timestamp %1; event PID %2; event TID %3.")
-        .arg(N(group->representativeTimestamp), N(group->representativePid), N(group->representativeTid));
-    if (group->stack.empty()) lines << L("No allocation stack was recorded for this group.");
+    if (!group) { m_frames->setDocument({}); return; }
+    ks::ui::FieldDocument lines;
+    lines.section(groupLabel(m_images, m_kernelImages, *group));
+    lines.field(QStringLiteral("Observed bytes / allocations"), QStringLiteral("%1 / %2").arg(N(group->allocatedBytes), N(group->allocatedCount)));
+    lines.field(QStringLiteral("Paired release bytes / allocations"), QStringLiteral("%1 / %2").arg(N(group->pairedFreedBytes), N(group->pairedFreedCount)));
+    lines.field(QStringLiteral("No observed free bytes / allocations"), QStringLiteral("%1 / %2").arg(N(group->outstandingBytes), N(group->outstandingCount)));
+    lines.field(QStringLiteral("Uncertain bytes / allocations"), QStringLiteral("%1 / %2").arg(N(group->uncertainBytes), N(group->uncertainCount)));
+    lines.field(QStringLiteral("Historical timestamp"), N(group->representativeTimestamp));
+    lines.field(QStringLiteral("Event PID / TID"), QStringLiteral("%1 / %2").arg(N(group->representativePid), N(group->representativeTid)));
+    if (group->stack.empty()) lines.note(L("No allocation stack was recorded for this group."));
     if (const auto* source = sourceImage(m_images, m_kernelImages, *group)) {
         const auto path = QString::fromStdWString(source->path);
         if (isLocalFixedPath(path)) {
@@ -435,12 +436,13 @@ void PoolAllocationAnalysisWidget::showStack() {
         if (image && address >= image->base && address - image->base < image->size) {
             origin = L("%1 + %2 [image %3]").arg(QString::fromStdWString(image->path), H(address - image->base), N(image->id));
         }
-        QString line = QStringLiteral("%1  %2  %3").arg(N(frame), H(address), origin);
+        lines.section(QStringLiteral("#%1").arg(N(frame)));
+        lines.field(QStringLiteral("Address"), H(address));
+        lines.field(QStringLiteral("Historical module"), origin);
         if (m_symbolGroupId == group->groupId && frame < m_symbols.size() && !m_symbols[frame].empty())
-            line += QStringLiteral("  ") + QString::fromStdWString(m_symbols[frame]);
-        lines << line;
+            lines.field(QStringLiteral("Symbol"), QString::fromStdWString(m_symbols[frame]));
     }
-    m_frames->setReportText(lines.join(QChar('\n')));
+    m_frames->setDocument(lines);
 }
 void PoolAllocationAnalysisWidget::resolveStack() {
     const auto* group = selectedGroup();

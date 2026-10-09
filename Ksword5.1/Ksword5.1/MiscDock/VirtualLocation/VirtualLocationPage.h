@@ -19,9 +19,9 @@ class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
-class QPlainTextEdit;
 class QPushButton;
 class QShowEvent;
+namespace ks::ui { class StructuredFieldView; }
 
 namespace ks::misc
 {
@@ -95,7 +95,7 @@ namespace ks::misc
         QLabel* m_conversionLabel = nullptr;       // m_conversionLabel：三套坐标系换算预览。
         QLabel* m_liveFixLabel = nullptr;          // m_liveFixLabel：最近一次实况定位结果。
         QLabel* m_resultLabel = nullptr;           // m_resultLabel：最近一次操作结论。
-        QPlainTextEdit* m_rawValueEdit = nullptr;  // m_rawValueEdit：默认位置键下的原始值清单。
+        ks::ui::StructuredFieldView* m_rawValueView = nullptr; // 默认位置键下的结构化注册表属性。
         QComboBox* m_coordinateSystemCombo = nullptr; // m_coordinateSystemCombo：输入坐标所属坐标系。
         QComboBox* m_presetCombo = nullptr;        // m_presetCombo：内置预设坐标点。
         QDoubleSpinBox* m_latitudeSpin = nullptr;  // m_latitudeSpin：纬度输入。

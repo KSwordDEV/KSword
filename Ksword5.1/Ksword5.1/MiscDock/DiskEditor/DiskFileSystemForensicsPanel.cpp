@@ -1,7 +1,8 @@
 #include "DiskFileSystemForensicsPanel.h"
 
 #include "../../ArkDriverClient/ArkDriverTypes.h"
-#include "../../UI/CodeEditorWidget.h"
+#include "../../UI/StructuredFieldView.h"
+#include "../../FileDock/FilePropertyPeAnalyzer.h"
 #include "../../UI/KernelDisassemblyDialog.h"
 #include "../../ksword/file/pe_analyzer.h"
 #include "../../theme.h"
@@ -1000,11 +1001,8 @@ namespace ks::misc
                         dialog.resize(980, 700);
                         auto* layout = new QVBoxLayout(&dialog);
                         auto* editor =
-                            new CodeEditorWidget(&dialog);
-                        editor->setReadOnly(true);
-                        editor->setLocalizedText(
-                            QString::fromStdWString(
-                                analysis.reportText));
+                            new ks::ui::StructuredFieldView(&dialog);
+                        editor->setDocument(file_dock_detail::buildPeAnalysisDocument(analysis));
                         layout->addWidget(editor, 1);
                         auto* buttons = new QDialogButtonBox(
                             QDialogButtonBox::Close,

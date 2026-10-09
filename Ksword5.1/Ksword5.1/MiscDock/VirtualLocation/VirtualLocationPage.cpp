@@ -15,8 +15,7 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QMetaObject>
-#include <QPlainTextEdit>
-#include "../../UI/CodeTextEdit.h"
+#include "../../UI/StructuredFieldView.h"
 #include <QPointer>
 #include <QPushButton>
 #include <QShowEvent>
@@ -52,6 +51,31 @@ namespace
             break;
         }
         return QStringLiteral("无可用通道");
+    }
+
+    ks::ui::FieldDocument defaultLocationDocument(
+        const ks::misc::virtual_location::DefaultLocationSnapshot& snapshot)
+    {
+        namespace location = ks::misc::virtual_location;
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("默认位置注册表"));
+        document.field(QStringLiteral("注册表键"), location::defaultLocationKeyPath());
+        document.field(QStringLiteral("读取成功"), snapshot.readable ? QStringLiteral("是") : QStringLiteral("否"), true);
+        document.field(QStringLiteral("已设置默认位置"), snapshot.present ? QStringLiteral("是") : QStringLiteral("否"), true);
+        if (!snapshot.failureText.isEmpty()) document.note(snapshot.failureText);
+        if (snapshot.values.isEmpty()) document.note(QStringLiteral("（该键下没有默认位置相关的值）"));
+        for (const auto& value : snapshot.values)
+        {
+            document.section(value.name);
+            document.nodes.last().translateName = false;
+            document.field(QStringLiteral("类型"), location::registryValueTypeText(value.type));
+            document.field(QStringLiteral("值"), location::registryValuePreview(value));
+            document.field(QStringLiteral("字节数"), QString::number(value.bytes.size()));
+            document.field(QStringLiteral("原始字节"), QString::fromLatin1(value.bytes.toHex(' ').toUpper()));
+            document.field(QStringLiteral("读取通道"), value.backend == RegistryBackend::Driver
+                ? QStringLiteral("R0") : value.backend == RegistryBackend::Win32 ? QStringLiteral("R3") : QStringLiteral("无可用通道"), true);
+        }
+        return document;
     }
 
     // formatCoordinate：
@@ -204,17 +228,16 @@ namespace ks::misc
                 .arg(KswordTheme::TextPrimaryHex()));
         statusLayout->addWidget(m_currentLocationLabel);
 
-        m_rawValueEdit = new CodeTextEdit(statusGroup);
-        static_cast<CodeTextEdit*>(m_rawValueEdit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
-        m_rawValueEdit->setObjectName(QStringLiteral("ksVirtualLocationRawView"));
-        m_rawValueEdit->setReadOnly(true);
-        m_rawValueEdit->setMaximumHeight(96);
-        m_rawValueEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
+        m_rawValueView = new ks::ui::StructuredFieldView(statusGroup);
+        m_rawValueView->setObjectName(QStringLiteral("ksVirtualLocationRawView"));
+        m_rawValueView->setMinimumHeight(160);
+        m_rawValueView->setMaximumHeight(240);
+        m_rawValueView->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("默认位置注册表属性将在刷新后显示。")));
         language.bindToolTip(
-            m_rawValueEdit,
+            m_rawValueView,
             QStringLiteral("misc.virtual_location.raw.tooltip"),
-            QStringLiteral("默认位置键下读到的原始值，方括号里标着这一条是 R3 还是 R0 读出来的。"));
-        statusLayout->addWidget(m_rawValueEdit);
+            QStringLiteral("默认位置键下读到的值、类型、完整原始字节和 R3 / R0 读取通道。"));
+        statusLayout->addWidget(m_rawValueView);
 
         m_liveFixLabel = new QLabel(statusGroup);
         m_liveFixLabel->setWordWrap(true);
@@ -622,13 +645,7 @@ namespace ks::misc
                     .arg(KswordTheme::SuccessHex()));
         }
 
-        m_rawValueEdit->setPlainText(
-            locationSnapshot.rawValueLines.isEmpty()
-                ? QStringLiteral("%1\n（该键下没有默认位置相关的值）")
-                      .arg(virtual_location::defaultLocationKeyPath())
-                : QStringLiteral("%1\n%2")
-                      .arg(virtual_location::defaultLocationKeyPath())
-                      .arg(locationSnapshot.rawValueLines.join(QStringLiteral("\n"))));
+        m_rawValueView->setDocument(defaultLocationDocument(locationSnapshot));
 
         setBusy(false);
     }
@@ -783,9 +800,6 @@ namespace ks::misc
         std::thread([guardThis, fillInputs]() {
             const virtual_location::LiveFixResult fixResult =
                 virtual_location::queryLiveFix(kLiveFixTimeoutMilliseconds);
-            if (guardThis == nullptr) {
-                return;
-            }
             QMetaObject::invokeMethod(
                 qApp,
                 [guardThis, fillInputs, fixResult]() {
@@ -793,7 +807,7 @@ namespace ks::misc
                         return;
                     }
                     guardThis->applyLiveFixResult(fixResult, fillInputs);
-                });
+                }, Qt::QueuedConnection);
         }).detach();
     }
 

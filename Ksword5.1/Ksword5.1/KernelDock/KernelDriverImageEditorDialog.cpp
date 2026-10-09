@@ -2,7 +2,7 @@
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include "../theme.h"
 
 #include <QAbstractItemView>
@@ -269,8 +269,7 @@ void KernelDriverImageEditorDialog::initializeUi()
         this);
     detailLabel->setStyleSheet(QStringLiteral("font-weight:600;"));
     rootLayout->addWidget(detailLabel);
-    m_detailEditor = new CodeEditorWidget(this);
-    m_detailEditor->setReadOnly(true);
+    m_detailEditor = new ks::ui::StructuredFieldView(this);
     m_detailEditor->setMinimumHeight(210);
     rootLayout->addWidget(m_detailEditor, 1);
 
@@ -750,53 +749,40 @@ void KernelDriverImageEditorDialog::updateDetails(
             QStringLiteral("可见/双向一致"));
     }
 
-    QString detail;
-    detail += kernelText(
-        "kernel.driver_image.detail.status",
-        QStringLiteral("Protocol=%1  Action=%2  State=%3  Generation=%4\nLastStatus=%5  LoaderStatus=%6\n"))
-        .arg(result.version)
-        .arg(result.action)
-        .arg(result.state)
-        .arg(result.generation)
-        .arg(ntStatusText(result.lastStatus))
-        .arg(ntStatusText(result.loaderStatus));
-    detail += kernelText(
-        "kernel.driver_image.detail.identity",
-        QStringLiteral("DriverName=%1\nTargetModuleBase=%2  DriverObject=%3  SelfDriverObject=%4\n"))
-        .arg(
-            m_canonicalDriverName,
-            pointerText(result.targetModuleBase),
-            pointerText(result.driverObjectAddress),
-            pointerText(result.selfDriverObjectAddress));
-    detail += kernelText(
-        "kernel.driver_image.detail.masks",
-        QStringLiteral("Managed=%1  Owned=%2  Conflict=%3  Changed=%4\nResponseFlags=%5  LayoutFlags=%6\n"))
-        .arg(maskText(result.managedFieldMask))
-        .arg(maskText(result.ownedFieldMask))
-        .arg(maskText(result.conflictFieldMask))
-        .arg(maskText(result.changedFieldMask))
-        .arg(maskText(result.responseFlags))
-        .arg(maskText(result.layoutFlags));
-    detail += kernelText(
-        "kernel.driver_image.detail.loader",
-        QStringLiteral("LoaderEntry=%1  LoaderLink=%2\nPsLoadedModuleList=%3  PsLoadedModuleResource=%4\n"))
-        .arg(
-            pointerText(result.loaderEntryAddress),
-            pointerText(result.loaderLinkAddress),
-            pointerText(result.listHeadAddress),
-            pointerText(result.listResourceAddress));
-    detail += kernelText(
-        "kernel.driver_image.detail.links",
-        QStringLiteral("LinkState=%1\nCurrent.Flink=%2  Current.Blink=%3\nOriginal.Flink=%4  Original.Blink=%5\n"))
-        .arg(linkState)
-        .arg(pointerText(result.currentLinkFlink))
-        .arg(pointerText(result.currentLinkBlink))
-        .arg(pointerText(result.originalLinkFlink))
-        .arg(pointerText(result.originalLinkBlink));
-    detail += kernelText(
-        "kernel.driver_image.detail.policy",
-        QStringLiteral("Policy=warn-only; no target-class or requested-value restrictions.\nRestore uses ownership checks; competing values are reported and preserved."));
-    m_detailEditor->setText(detail);
+    ks::ui::FieldDocument detail;
+    detail.section(QStringLiteral("事务状态"));
+    detail.field(QStringLiteral("Protocol"), QString::number(result.version));
+    detail.field(QStringLiteral("Action"), QString::number(result.action));
+    detail.field(QStringLiteral("State"), QString::number(result.state));
+    detail.field(QStringLiteral("Generation"), QString::number(result.generation));
+    detail.field(QStringLiteral("LastStatus"), ntStatusText(result.lastStatus));
+    detail.field(QStringLiteral("LoaderStatus"), ntStatusText(result.loaderStatus));
+    detail.section(QStringLiteral("身份"));
+    detail.field(QStringLiteral("DriverName"), m_canonicalDriverName);
+    detail.field(QStringLiteral("TargetModuleBase"), pointerText(result.targetModuleBase));
+    detail.field(QStringLiteral("DriverObject"), pointerText(result.driverObjectAddress));
+    detail.field(QStringLiteral("SelfDriverObject"), pointerText(result.selfDriverObjectAddress));
+    detail.section(QStringLiteral("掩码"));
+    detail.field(QStringLiteral("Managed"), maskText(result.managedFieldMask));
+    detail.field(QStringLiteral("Owned"), maskText(result.ownedFieldMask));
+    detail.field(QStringLiteral("Conflict"), maskText(result.conflictFieldMask));
+    detail.field(QStringLiteral("Changed"), maskText(result.changedFieldMask));
+    detail.field(QStringLiteral("ResponseFlags"), maskText(result.responseFlags));
+    detail.field(QStringLiteral("LayoutFlags"), maskText(result.layoutFlags));
+    detail.section(QStringLiteral("加载器资源"));
+    detail.field(QStringLiteral("LoaderEntry"), pointerText(result.loaderEntryAddress));
+    detail.field(QStringLiteral("LoaderLink"), pointerText(result.loaderLinkAddress));
+    detail.field(QStringLiteral("PsLoadedModuleList"), pointerText(result.listHeadAddress));
+    detail.field(QStringLiteral("PsLoadedModuleResource"), pointerText(result.listResourceAddress));
+    detail.section(QStringLiteral("链"));
+    detail.field(QStringLiteral("LinkState"), linkState);
+    detail.field(QStringLiteral("Current.Flink"), pointerText(result.currentLinkFlink));
+    detail.field(QStringLiteral("Current.Blink"), pointerText(result.currentLinkBlink));
+    detail.field(QStringLiteral("Original.Flink"), pointerText(result.originalLinkFlink));
+    detail.field(QStringLiteral("Original.Blink"), pointerText(result.originalLinkBlink));
+    detail.note(kernelText("kernel.driver_image.detail.policy",
+        QStringLiteral("Policy=warn-only; no target-class or requested-value restrictions.\nRestore uses ownership checks; competing values are reported and preserved.")));
+    m_detailEditor->setDocument(detail);
 }
 
 // 按响应能力启用按钮；这只是防止无身份/无记录请求，不按目标种类限制。

@@ -163,14 +163,12 @@ namespace
             // 原始 DACL 是系统返回的原始数据，禁止翻译或自动切换结构视图。
             m_original = new CodeEditorWidget(this);
             m_original->setObjectName(QStringLiteral("registry_original_dacl"));
-            m_original->setStructuredReportViewEnabled(false);
             m_original->setReadOnly(true);
             layout->addWidget(m_original, 1);
             layout->addWidget(new QLabel(trText(QStringLiteral("新 DACL SDDL（只允许 D: 部分）")), this));
             // 新 DACL 使用相同内置编辑器；是否允许修改仍由 WRITE_DAC 校验决定。
             m_edit = new CodeEditorWidget(this);
             m_edit->setObjectName(QStringLiteral("registry_requested_dacl"));
-            m_edit->setStructuredReportViewEnabled(false);
             layout->addWidget(m_edit, 1);
             m_status = new QLabel(this);
             m_status->setTextFormat(Qt::PlainText);

@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -46,6 +47,7 @@ namespace ks::misc
         ~ApplicationControlPage() override = default;
 
     private:
+        ks::ui::FieldDocument m_eventSummaryDocument;
         // AppLockerRuleRecord：AppLocker 规则行的只读展示模型。
         struct AppLockerRuleRecord
         {
@@ -180,11 +182,12 @@ namespace ks::misc
         void applyRefreshResult(
             std::uint64_t refreshGeneration,
             QString statusText,
-            QString appLockerSummary,
-            QString wdacSummary,
-            QString defenderSummary,
-            QString platformSummary,
-            QString eventSummary,
+            ks::ui::FieldDocument appLockerSummary,
+            ks::ui::FieldDocument wdacSummary,
+            ks::ui::FieldDocument defenderSummary,
+            ks::ui::FieldDocument platformSummary,
+            ks::ui::FieldDocument eventSummary,
+            bool appLockerModuleAvailable,
             QVector<AppLockerRuleRecord> appLockerRules,
             QVector<PolicyFileRecord> policyFiles,
             QVector<EventRecord> events,
@@ -199,7 +202,7 @@ namespace ks::misc
         // applyFileDiagnosisResult：
         // - 在 UI 线程应用文件诊断结果；
         // - 无返回值。
-        void applyFileDiagnosisResult(QString summaryText, QVector<KeyValueRecord> rows);
+        void applyFileDiagnosisResult(ks::ui::FieldDocument summaryText, QVector<KeyValueRecord> rows);
 
         // exportCurrentTableTsv：
         // - 导出当前激活页的主表格为 TSV；
@@ -229,7 +232,7 @@ namespace ks::misc
         // - 从 Get-AppLockerPolicy -Effective -Xml 输出中解析规则；
         // - xmlText 为 XML 文本；
         // - 返回解析结果和摘要文本。
-        static std::pair<QVector<AppLockerRuleRecord>, QString> parseAppLockerPolicyXml(const QString& xmlText);
+        static std::pair<QVector<AppLockerRuleRecord>, ks::ui::FieldDocument> parseAppLockerPolicyXml(const QString& xmlText);
 
         // buildAppLockerRiskText：
         // - 根据 AppLocker 规则生成风险标记；
@@ -244,13 +247,13 @@ namespace ks::misc
         // - 将 PowerShell JSON 输出转换为事件表行；
         // - jsonText 为原始 JSON；
         // - 返回事件行和摘要文本。
-        static std::pair<QVector<EventRecord>, QString> parseEventsJson(const QString& jsonText);
+        static std::pair<QVector<EventRecord>, ks::ui::FieldDocument> parseEventsJson(const QString& jsonText);
 
         // parseDefenderJson：
         // - 将 Defender PowerShell JSON 输出转换为键值表行；
         // - jsonText 为原始 JSON；
         // - 返回键值表行和摘要文本。
-        static std::pair<QVector<KeyValueRecord>, QString> parseDefenderJson(const QString& jsonText);
+        static std::pair<QVector<KeyValueRecord>, ks::ui::FieldDocument> parseDefenderJson(const QString& jsonText);
 
         // rebuildEventTable：
         // - 输入：读取当前缓存事件与事件分类筛选控件；
@@ -289,24 +292,24 @@ namespace ks::misc
         QWidget* m_eventPage = nullptr;             // m_eventPage：事件日志页面。
         QWidget* m_fileDiagnosisPage = nullptr;      // m_fileDiagnosisPage：文件诊断页面。
 
-        CodeEditorWidget* m_appLockerSummary = nullptr;   // m_appLockerSummary：AppLocker 说明文本。
+        ks::ui::StructuredFieldView* m_appLockerSummary = nullptr;   // m_appLockerSummary：AppLocker 说明文本。
         QTableWidget* m_appLockerTable = nullptr;       // m_appLockerTable：AppLocker 规则表。
-        CodeEditorWidget* m_wdacSummary = nullptr;        // m_wdacSummary：WDAC 说明文本。
+        ks::ui::StructuredFieldView* m_wdacSummary = nullptr;        // m_wdacSummary：WDAC 说明文本。
         QTableWidget* m_policyFileTable = nullptr;      // m_policyFileTable：WDAC 策略文件表。
         QTableWidget* m_codeIntegrityEventTable = nullptr; // m_codeIntegrityEventTable：Code Integrity 事件表。
-        CodeEditorWidget* m_defenderSummary = nullptr;    // m_defenderSummary：Defender 状态文本。
+        ks::ui::StructuredFieldView* m_defenderSummary = nullptr;    // m_defenderSummary：Defender 状态文本。
         QTableWidget* m_defenderTable = nullptr;        // m_defenderTable：Defender 键值表。
         QWidget* m_platformPage = nullptr;              // m_platformPage：平台安全页面。
-        CodeEditorWidget* m_platformSummary = nullptr;    // m_platformSummary：平台安全状态文本。
+        ks::ui::StructuredFieldView* m_platformSummary = nullptr;    // m_platformSummary：平台安全状态文本。
         QTableWidget* m_platformTable = nullptr;        // m_platformTable：平台安全键值表。
-        CodeEditorWidget* m_eventSummary = nullptr;       // m_eventSummary：事件日志文本。
+        ks::ui::StructuredFieldView* m_eventSummary = nullptr;       // m_eventSummary：事件日志文本。
         QTableWidget* m_eventTable = nullptr;           // m_eventTable：事件表。
         QComboBox* m_eventVerdictFilterCombo = nullptr; // m_eventVerdictFilterCombo：事件分类筛选器。
         QComboBox* m_eventLimitCombo = nullptr;         // m_eventLimitCombo：事件读取数量选择。
         QLineEdit* m_filePathEdit = nullptr;            // m_filePathEdit：文件诊断输入框。
         QPushButton* m_fileBrowseButton = nullptr;      // m_fileBrowseButton：浏览按钮。
         QPushButton* m_fileDiagnoseButton = nullptr;    // m_fileDiagnoseButton：诊断按钮。
-        CodeEditorWidget* m_fileDiagnosisSummary = nullptr; // m_fileDiagnosisSummary：文件诊断说明文本。
+        ks::ui::StructuredFieldView* m_fileDiagnosisSummary = nullptr; // m_fileDiagnosisSummary：文件诊断说明文本。
         QTableWidget* m_fileDiagnosisTable = nullptr;   // m_fileDiagnosisTable：文件诊断结果表。
 
         QVector<AppLockerRuleRecord> m_appLockerRules;  // m_appLockerRules：最近一次 AppLocker 规则快照。

@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "DriverDock.Internal.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../KernelDock/KernelThreadAuditTab.h"
@@ -496,12 +497,12 @@ void DriverDock::initializeKernelModuleTab()
     m_moduleTable->horizontalHeader()->setSectionResizeMode(ModuleImagePathColumn, QHeaderView::Stretch);
     m_kernelModuleLayout->addWidget(m_moduleTable, 3);
 
-    m_moduleEvidenceDetailEditor = new CodeEditorWidget(m_kernelModulePage);
-    m_moduleEvidenceDetailEditor->setReadOnly(true);
-    m_moduleEvidenceDetailEditor->setText(driverText(
-        "driver.overview.evidence.detail.initial", QStringLiteral("请选择一条已加载模块，或点击证据刷新按钮。")));
+    m_moduleEvidenceDetailEditor = new ks::ui::StructuredFieldView(m_kernelModulePage);
+
+    m_moduleEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(driverText(
+        "driver.overview.evidence.detail.initial", QStringLiteral("请选择一条已加载模块，或点击证据刷新按钮。"))));
     m_kernelModuleLayout->addWidget(m_moduleEvidenceDetailEditor, 2);
-    ks::ui::DetailLayoutRegistry::registerHost(
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(
         m_moduleTable, m_moduleEvidenceDetailEditor, m_kernelModulePage);
     m_tabWidget->addTab(m_kernelModulePage, QIcon(":/Icon/process_list.svg"), driverText(
         "driver.tab.kernel_modules", QStringLiteral("内核模块")));
@@ -774,14 +775,11 @@ void DriverDock::initializeObjectInfoTab()
     queryLayout->addWidget(m_objectInfoStatusLabel, 1);
     m_objectInfoLayout->addLayout(queryLayout);
 
-    // DriverObject 顶部摘要属于 R0 只读诊断文本：
-    // - 使用项目统一 CodeEditorWidget，保证深浅色与复制/查找体验一致；
-    // - 摘要下方仍有结构化表格承载具体字段，不做 summary-only 展示。
-    m_objectInfoSummaryEdit = new CodeEditorWidget(m_objectInfoPage);
-    m_objectInfoSummaryEdit->setReadOnly(true);
+    // 摘要直接投影 DriverObject 快照字段，详细证据仍由下方表格承载。
+    m_objectInfoSummaryEdit = new ks::ui::StructuredFieldView(m_objectInfoPage);
     m_objectInfoSummaryEdit->setMaximumHeight(145);
-    m_objectInfoSummaryEdit->setText(
-        driverText("driver.object.summary.initial", QStringLiteral("DriverObject 摘要显示在这里。")));
+    m_objectInfoSummaryEdit->setDocument(ks::ui::FieldDocument{}.note(
+        QStringLiteral("DriverObject 摘要显示在这里。")));
     m_objectInfoLayout->addWidget(m_objectInfoSummaryEdit);
 
     m_objectDetailTabWidget = new QTabWidget(m_objectInfoPage);
@@ -808,16 +806,11 @@ void DriverDock::initializeObjectInfoTab()
     QVBoxLayout* driverObjectLayout = new QVBoxLayout(m_driverObjectPage);
     driverObjectLayout->setContentsMargins(0, 0, 0, 0);
     driverObjectLayout->setSpacing(4);
-    // DriverObject 子页摘要：
-    // - 只显示当前 DriverObject 的核心字段；
-    // - 详细证据继续由下方表格展示，文本控件统一为 CodeEditorWidget。
-    m_driverObjectPageSummaryEdit = new CodeEditorWidget(m_driverObjectPage);
-    m_driverObjectPageSummaryEdit->setReadOnly(true);
+    // 子页摘要直接使用原生字段模型。
+    m_driverObjectPageSummaryEdit = new ks::ui::StructuredFieldView(m_driverObjectPage);
     m_driverObjectPageSummaryEdit->setMaximumHeight(130);
-    m_driverObjectPageSummaryEdit->setText(
-        driverText(
-            "driver.object.page_summary.initial",
-            QStringLiteral("DriverObject 页摘要显示在这里。")));
+    m_driverObjectPageSummaryEdit->setDocument(ks::ui::FieldDocument{}.note(
+        QStringLiteral("DriverObject 页摘要显示在这里。")));
     driverObjectLayout->addWidget(m_driverObjectPageSummaryEdit);
 
     m_driverObjectEvidenceTable = new ks::ui::VisibleTableWidget(m_driverObjectPage);

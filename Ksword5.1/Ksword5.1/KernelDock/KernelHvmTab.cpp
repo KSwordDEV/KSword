@@ -1,4 +1,5 @@
-﻿#include "KernelHvmTab.h"
+#include "../UI/StructuredFieldView.h"
+#include "KernelHvmTab.h"
 #include "../MainWindow.h"
 
 #include "KernelDock.h"
@@ -342,12 +343,12 @@ void KernelHvmTab::initializeUi()
         QHeaderView::ResizeToContents);
     m_cpuTable->horizontalHeader()->setStretchLastSection(true);
 
-    m_detailEdit = new CodeEditorWidget(splitter);
-    m_detailEdit->setReadOnly(true);
-    m_detailEdit->setPlaceholderText(
+    m_detailEdit = new ks::ui::StructuredFieldView(splitter);
+
+    m_detailEdit->setDocument(ks::ui::FieldDocument{}.note(
         kernelText(
             "kernel.hvm.detail.placeholder",
-            QStringLiteral("刷新后显示后端能力、页表与生命周期证据")));
+            QStringLiteral("刷新后显示后端能力、页表与生命周期证据"))));
     splitter->addWidget(m_cpuTable);
     splitter->addWidget(m_detailEdit);
     splitter->setStretchFactor(0, 2);
@@ -441,7 +442,7 @@ void KernelHvmTab::applyStatus(ksword::ark::HvmStatusResult result)
                       "kernel.hvm.status.failed",
                       QStringLiteral("HVM 状态读取失败：%1"))
                       .arg(QString::fromStdString(result.io.message)));
-        m_detailEdit->setReportText(QString());
+        m_detailEdit->setDocument({});
         m_statusLabel->setText(
             kernelText("kernel.hvm.status.failed_short", QStringLiteral("状态：读取失败")));
         updateButtons();
@@ -668,7 +669,7 @@ void KernelHvmTab::applyStatus(ksword::ark::HvmStatusResult result)
             CpuColumnNtStatus,
             readOnlyItem(ntStatusText(cpu.lastStatus)));
     }
-    m_detailEdit->setReportText(buildDetail(m_snapshot));
+    m_detailEdit->setDocument(buildDetail(m_snapshot));
     m_statusLabel->setText(
         kernelText("kernel.hvm.status.ready", QStringLiteral("状态：已刷新")));
     updateButtons();

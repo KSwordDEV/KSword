@@ -573,13 +573,13 @@ namespace ks::misc::context_menu_cleaner_detail
     // - 输入 detailList/name/value：详情列表、字段名、字段值；
     // - 处理：仅当 value 非空时追加 name=value；
     // - 返回：无。
-    void appendOptionalDetail(QStringList* detailList, const QString& name, const QString& value)
+    void appendOptionalDetail(ks::ui::FieldDocument* detailList, const QString& name, const QString& value)
     {
         if (detailList == nullptr || value.trimmed().isEmpty())
         {
             return;
         }
-        detailList->push_back(QStringLiteral("%1=%2").arg(name, value.trimmed()));
+        detailList->field(name, value.trimmed());
     }
 
     // deleteRegistryTreeWithView：

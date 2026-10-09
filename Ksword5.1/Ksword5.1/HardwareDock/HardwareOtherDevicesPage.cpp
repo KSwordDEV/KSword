@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "HardwareOtherDevicesPage.h"
 
 // ============================================================
@@ -12,6 +13,10 @@
 #include "../UI/CodeEditorWidget.h"
 
 #include <QDateTime>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QJsonDocument>
+#include <QJsonParseError>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMetaObject>
@@ -59,8 +64,8 @@ namespace
                 .arg(timeoutMs);
         }
 
-        const QString standardOutputText = QString::fromLocal8Bit(process.readAllStandardOutput()).trimmed();
-        const QString standardErrorText = QString::fromLocal8Bit(process.readAllStandardError()).trimmed();
+        const QString standardOutputText = QString::fromUtf8(process.readAllStandardOutput()).trimmed();
+        const QString standardErrorText = QString::fromUtf8(process.readAllStandardError()).trimmed();
         if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0)
         {
             return QStringLiteral("PowerShell执行失败。\nExitCode=%1\nError=%2")
@@ -107,9 +112,9 @@ void HardwareOtherDevicesPage::initializeUi()
     headerLayout->addWidget(m_refreshButton, 0);
     m_rootLayout->addLayout(headerLayout, 0);
 
-    m_inventoryEditor = new CodeEditorWidget(this);
-    m_inventoryEditor->setReadOnly(true);
-    m_inventoryEditor->setText(QStringLiteral("设备清单加载中，请稍候..."));
+    m_inventoryEditor = new ks::ui::StructuredFieldView(this);
+
+    m_inventoryEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("设备清单加载中，请稍候...")));
     m_rootLayout->addWidget(m_inventoryEditor, 1);
 }
 
@@ -157,14 +162,14 @@ void HardwareOtherDevicesPage::refreshDeviceInventoryAsync(const bool forceRefre
     QPointer<HardwareOtherDevicesPage> safeThis(this);
     std::thread([safeThis]()
     {
-        const QString inventoryText = HardwareOtherDevicesPage::buildDeviceInventoryTextSnapshot();
+        const ks::ui::FieldDocument inventoryText = HardwareOtherDevicesPage::buildDeviceInventoryTextSnapshot();
         if (safeThis.isNull())
         {
             return;
         }
 
         const bool invokeOk = QMetaObject::invokeMethod(
-            safeThis.data(),
+            QCoreApplication::instance(),
             [safeThis, inventoryText]()
             {
                 if (safeThis.isNull())
@@ -174,7 +179,7 @@ void HardwareOtherDevicesPage::refreshDeviceInventoryAsync(const bool forceRefre
 
                 if (safeThis->m_inventoryEditor != nullptr)
                 {
-                    safeThis->m_inventoryEditor->setText(inventoryText);
+                    safeThis->m_inventoryEditor->setDocument(inventoryText);
                 }
                 if (safeThis->m_statusLabel != nullptr)
                 {
@@ -190,17 +195,14 @@ void HardwareOtherDevicesPage::refreshDeviceInventoryAsync(const bool forceRefre
             },
             Qt::QueuedConnection);
 
-        if (!invokeOk && !safeThis.isNull())
-        {
-            safeThis->m_refreshing.store(false);
-        }
+        Q_UNUSED(invokeOk);
     }).detach();
 }
 
-QString HardwareOtherDevicesPage::buildDeviceInventoryTextSnapshot()
+ks::ui::FieldDocument HardwareOtherDevicesPage::buildDeviceInventoryTextSnapshot()
 {
     const QString scriptText = QStringLiteral(
-        "$ErrorActionPreference='SilentlyContinue'; "
+        "$ErrorActionPreference='SilentlyContinue'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); "
         "function Format-Size([object]$bytes){ "
         "  if($null -eq $bytes){ return $null }; "
         "  $value=[double]$bytes; "
@@ -217,15 +219,11 @@ QString HardwareOtherDevicesPage::buildDeviceInventoryTextSnapshot()
         "  if($value -ge 1000){ return ('{0:N2} Kbps' -f ($value/1000)) }; "
         "  return ([string]$bits + ' bps'); "
         "}; "
-        "function Write-Section([string]$title,[object]$rows){ "
-        "  $text=\"`r`n========== $title ==========`r`n\"; "
-        "  if($null -eq $rows){ return $text + '<未检测到>' + \"`r`n\" }; "
-        "  $array=@($rows); "
-        "  if($array.Count -le 0){ return $text + '<未检测到>' + \"`r`n\" }; "
-        "  return $text + (($array | Format-List * | Out-String -Width 4096).Trim()) + \"`r`n\"; "
+        "function New-Section([string]$title,[object]$rows){ "
+        "  [pscustomobject]@{ name=$title; rows=@($rows) }; "
         "}; "
-        "$text=''; "
-        "$text += '采集时间: ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + \"`r`n\"; "
+        "$sections=[System.Collections.Generic.List[object]]::new(); "
+        "$collectedAt=Get-Date -Format 'yyyy-MM-dd HH:mm:ss'; "
         "$cs=Get-CimInstance Win32_ComputerSystem | Select-Object Manufacturer,Model,SystemType,PCSystemType,Domain,Workgroup,UserName,TotalPhysicalMemory,NumberOfProcessors,NumberOfLogicalProcessors; "
         "$board=Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer,Product,Version,SerialNumber,Tag; "
         "$bios=Get-CimInstance Win32_BIOS | Select-Object Manufacturer,Name,SMBIOSBIOSVersion,Version,ReleaseDate,SerialNumber,SMBIOSMajorVersion,SMBIOSMinorVersion; "
@@ -252,32 +250,63 @@ QString HardwareOtherDevicesPage::buildDeviceInventoryTextSnapshot()
         "$pci=Get-CimInstance Win32_PnPEntity | Where-Object { $_.PNPDeviceID -like 'PCI*' } | Select-Object Name,Manufacturer,Service,PNPClass,DeviceID,PNPDeviceID,Status -First 180; "
         "$problem=Get-CimInstance Win32_PnPEntity | Where-Object { $_.ConfigManagerErrorCode -ne 0 } | Select-Object Name,PNPClass,ConfigManagerErrorCode,Manufacturer,DeviceID,PNPDeviceID,Status; "
         "$drivers=Get-CimInstance Win32_PnPSignedDriver | Select-Object DeviceName,DeviceClass,Manufacturer,DriverProviderName,DriverVersion,DriverDate,InfName,DeviceID -First 220; "
-        "$text += Write-Section '整机/机箱' $cs; "
-        "$text += Write-Section '主板' $board; "
-        "$text += Write-Section 'BIOS/UEFI' $bios; "
-        "$text += Write-Section '机箱/资产标识' $enclosure; "
-        "$text += Write-Section '处理器扩展信息' $processor; "
-        "$text += Write-Section '内存阵列' $memoryArray; "
-        "$text += Write-Section '内存条详细信息' $memoryDevices; "
-        "$text += Write-Section '磁盘驱动器' $disks; "
-        "$text += Write-Section '逻辑卷' $volumes; "
-        "$text += Write-Section '存储控制器' $controllers; "
-        "$text += Write-Section '显示适配器' $gpu; "
-        "$text += Write-Section '显示器' $monitors; "
-        "$text += Write-Section '物理/USB网卡' $network; "
-        "$text += Write-Section '网络配置' $netConfig; "
-        "$text += Write-Section '音频设备' $audio; "
-        "$text += Write-Section '摄像头/图像设备' $cameras; "
-        "$text += Write-Section 'USB控制器' $usbControllers; "
-        "$text += Write-Section 'USB设备(前120项)' $usbDevices; "
-        "$text += Write-Section '键鼠/HID/蓝牙/媒体设备(前160项)' $hid; "
-        "$text += Write-Section '电池/UPS' $battery; "
-        "$text += Write-Section 'TPM' $tpm; "
-        "$text += Write-Section '串口/通信端口' $ports; "
-        "$text += Write-Section '打印机' $printers; "
-        "$text += Write-Section 'PCI/板载设备(前180项)' $pci; "
-        "$text += Write-Section '异常PNP设备' $problem; "
-        "$text += Write-Section 'PNP签名驱动(前220项)' $drivers; "
-        "$text");
-    return runInventoryPowerShellTextSync(scriptText, 18000);
+        "$sections.Add((New-Section '整机/机箱' $cs)); "
+        "$sections.Add((New-Section '主板' $board)); "
+        "$sections.Add((New-Section 'BIOS/UEFI' $bios)); "
+        "$sections.Add((New-Section '机箱/资产标识' $enclosure)); "
+        "$sections.Add((New-Section '处理器扩展信息' $processor)); "
+        "$sections.Add((New-Section '内存阵列' $memoryArray)); "
+        "$sections.Add((New-Section '内存条详细信息' $memoryDevices)); "
+        "$sections.Add((New-Section '磁盘驱动器' $disks)); "
+        "$sections.Add((New-Section '逻辑卷' $volumes)); "
+        "$sections.Add((New-Section '存储控制器' $controllers)); "
+        "$sections.Add((New-Section '显示适配器' $gpu)); "
+        "$sections.Add((New-Section '显示器' $monitors)); "
+        "$sections.Add((New-Section '物理/USB网卡' $network)); "
+        "$sections.Add((New-Section '网络配置' $netConfig)); "
+        "$sections.Add((New-Section '音频设备' $audio)); "
+        "$sections.Add((New-Section '摄像头/图像设备' $cameras)); "
+        "$sections.Add((New-Section 'USB控制器' $usbControllers)); "
+        "$sections.Add((New-Section 'USB设备(前120项)' $usbDevices)); "
+        "$sections.Add((New-Section '键鼠/HID/蓝牙/媒体设备(前160项)' $hid)); "
+        "$sections.Add((New-Section '电池/UPS' $battery)); "
+        "$sections.Add((New-Section 'TPM' $tpm)); "
+        "$sections.Add((New-Section '串口/通信端口' $ports)); "
+        "$sections.Add((New-Section '打印机' $printers)); "
+        "$sections.Add((New-Section 'PCI/板载设备(前180项)' $pci)); "
+        "$sections.Add((New-Section '异常PNP设备' $problem)); "
+        "$sections.Add((New-Section 'PNP签名驱动(前220项)' $drivers)); "
+        "@{ collectedAt=$collectedAt; sections=$sections.ToArray() } | ConvertTo-Json -Depth 12 -Compress");
+    const QString providerOutput = runInventoryPowerShellTextSync(scriptText, 18000);
+    QJsonParseError parseError;
+    const auto payload = QJsonDocument::fromJson(providerOutput.toUtf8(), &parseError);
+    ks::ui::FieldDocument document;
+    if (parseError.error != QJsonParseError::NoError || !payload.isObject()) {
+        document.field(QStringLiteral("采集诊断"), providerOutput, true);
+        return document;
+    }
+    const auto root = payload.object();
+    document.field(QStringLiteral("采集时间"), root.value(QStringLiteral("collectedAt")).toString());
+    const auto buildNode = [](const auto& self, const QString& name, const QJsonValue& value) -> ks::ui::FieldNode {
+        ks::ui::FieldNode node;
+        node.name = name;
+        if (value.isObject()) {
+            node.kind = ks::ui::FieldNode::Kind::Section;
+            const auto object = value.toObject();
+            for (auto it = object.constBegin(); it != object.constEnd(); ++it) node.children.append(self(self, it.key(), it.value()));
+        } else if (value.isArray()) {
+            node.kind = ks::ui::FieldNode::Kind::Section;
+            const auto array = value.toArray();
+            for (qsizetype i = 0; i < array.size(); ++i) node.children.append(self(self, QString::number(i + 1), array[i]));
+        } else if (value.isBool()) node.value = value.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+        else if (value.isDouble()) node.value = QString::number(value.toDouble(), 'g', 17);
+        else if (value.isString()) node.value = value.toString();
+        else node.value = QStringLiteral("<未检测到>");
+        return node;
+    };
+    for (const auto& sectionValue : root.value(QStringLiteral("sections")).toArray()) {
+        const auto section = sectionValue.toObject();
+        document.nodes.append(buildNode(buildNode, section.value(QStringLiteral("name")).toString(), section.value(QStringLiteral("rows"))));
+    }
+    return document;
 }

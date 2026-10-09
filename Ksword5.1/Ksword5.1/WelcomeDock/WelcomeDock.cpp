@@ -113,58 +113,34 @@ namespace
             static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0), 0, 'f', 1);
     }
 
-    QStringList overviewSectionValues(const QString& overviewText, const QString& sectionName)
+    QStringList overviewSectionValues(const ks::ui::FieldDocument& overview, const QString& sectionName)
     {
         QStringList values;
-        const QStringList lines = overviewText.split(QChar('\n'));
-        const QString sectionMarker = QStringLiteral("[%1]").arg(sectionName);
-        bool inSection = false;
-        for (const QString& rawLine : lines)
+        for (const auto& section : overview.nodes)
         {
-            // PowerShell Format-Table 使用制表符和连续空格作为列间距。欢迎页不是表格，
-            // 保留这些空白会把一行硬件名称拉成数个不对齐的“假列”。
-            const QString line = rawLine.simplified();
-            if (line == sectionMarker)
+            if (section.kind != ks::ui::FieldNode::Kind::Section || section.name != sectionName) continue;
+            for (const auto& record : section.children)
             {
-                inSection = true;
-                continue;
+                if (record.kind != ks::ui::FieldNode::Kind::Section) continue;
+                QStringList fields;
+                for (const auto& field : record.children)
+                    if (field.kind == ks::ui::FieldNode::Kind::Field && !field.value.isEmpty()
+                        && field.value != QStringLiteral("null")) fields.append(field.value);
+                if (!fields.isEmpty()) values.append(fields.join(QLatin1Char(' ')));
             }
-            if (inSection && line.startsWith(QChar('[')))
-            {
-                break;
-            }
-            if (!inSection || line.isEmpty() || line.startsWith(QChar('<')))
-            {
-                continue;
-            }
-            // Format-Table 输出的字段名和分隔线不是硬件值；截图中的 BIOS/主板/GPU
-            // 正是因为旧逻辑取到了这一行才显示成 Manufacturer/Name 等表头。
-            if (line.startsWith(QStringLiteral("---")) ||
-                line.contains(QStringLiteral("Manufacturer"), Qt::CaseInsensitive) ||
-                line.contains(QStringLiteral("SMBIOSBIOSVersion"), Qt::CaseInsensitive) ||
-                line.contains(QStringLiteral("AdapterRAM"), Qt::CaseInsensitive) ||
-                line.contains(QStringLiteral("VideoProcessor"), Qt::CaseInsensitive) ||
-                line.contains(QStringLiteral("DriverVersion"), Qt::CaseInsensitive) ||
-                (sectionName == QStringLiteral("网卡设备(物理)") &&
-                    line.startsWith(QStringLiteral("Name"), Qt::CaseInsensitive) &&
-                    line.contains(QStringLiteral("AdapterType"), Qt::CaseInsensitive)))
-            {
-                continue;
-            }
-            values.push_back(line);
         }
         return values;
     }
 
-    QString firstOverviewValue(const QString& overviewText, const QString& sectionName)
+    QString firstOverviewValue(const ks::ui::FieldDocument& overview, const QString& sectionName)
     {
-        const QStringList values = overviewSectionValues(overviewText, sectionName);
+        const auto values = overviewSectionValues(overview, sectionName);
         return values.isEmpty() ? QStringLiteral("N/A") : values.front();
     }
 
-    QString secondOverviewValue(const QString& overviewText, const QString& sectionName)
+    QString secondOverviewValue(const ks::ui::FieldDocument& overview, const QString& sectionName)
     {
-        const QStringList values = overviewSectionValues(overviewText, sectionName);
+        const auto values = overviewSectionValues(overview, sectionName);
         return values.size() > 1 ? values.at(1) : QStringLiteral("N/A");
     }
 
@@ -304,8 +280,6 @@ WelcomeDock::WelcomeDock(QWidget* parent)
     lowerLayout->setSpacing(18);
 
     // 兼容旧字段但不再用一段换行文本排版；系统摘要改为项目名/内容两列网格。
-    m_systemInfo = new QLabel(this);
-    m_systemInfo->setVisible(false);
     m_systemInfoPanel = new QWidget(this);
     m_systemInfoPanel->setAttribute(Qt::WA_TranslucentBackground, true);
     m_systemInfoPanel->setStyleSheet(QStringLiteral("background:transparent;"));
@@ -356,7 +330,7 @@ WelcomeDock::WelcomeDock(QWidget* parent)
     updateCollapseState(true);
     // 首屏只依赖 Win32/Qt 可立即取得的信息；硬件 Dock 的异步静态采样完成后会补全
     // BIOS、主板、GPU 和物理网卡，避免欢迎页数秒内空白。
-    updateSystemInfoFromHardwareText(QString());
+    updateSystemInfoFromHardwareFields(ks::ui::FieldDocument{});
 }
 
 void WelcomeDock::initializePerformanceCards()
@@ -551,8 +525,8 @@ void WelcomeDock::setHardwareDock(HardwareDock* hardwareDock)
     }
     connect(m_hardwareDock, &HardwareDock::performanceSnapshotChanged,
         this, &WelcomeDock::updatePerformanceSnapshot);
-    connect(m_hardwareDock, &HardwareDock::staticOverviewChanged,
-        this, &WelcomeDock::updateSystemInfoFromHardwareText);
+    connect(m_hardwareDock, &HardwareDock::staticOverviewFieldsChanged,
+        this, &WelcomeDock::updateSystemInfoFromHardwareFields);
     // 首页性能卡片不需要 GPU 节点时钟、CPU 传感器或 R0 健康探测。
     m_hardwareDock->startPerformanceSampling(HardwareDock::SamplingScope::WelcomeOverview);
 }
@@ -599,7 +573,7 @@ void WelcomeDock::updatePerformanceSnapshot(
     m_performanceCards[4]->appendSample(std::clamp(networkTotal / m_networkDisplayScale * 100.0, 0.0, 100.0));
 }
 
-void WelcomeDock::updateSystemInfoFromHardwareText(const QString& overviewText)
+void WelcomeDock::updateSystemInfoFromHardwareFields(const ks::ui::FieldDocument& overviewFields)
 {
     MEMORYSTATUSEX memoryStatus{};
     memoryStatus.dwLength = sizeof(memoryStatus);
@@ -611,12 +585,12 @@ void WelcomeDock::updateSystemInfoFromHardwareText(const QString& overviewText)
             .arg(QGuiApplication::primaryScreen()->size().width())
             .arg(QGuiApplication::primaryScreen()->size().height())
         : QStringLiteral("N/A");
-    const QString cpuText = firstOverviewValue(overviewText, QStringLiteral("处理器"));
-    const QString boardText = firstOverviewValue(overviewText, QStringLiteral("主板"));
-    const QString biosText = firstOverviewValue(overviewText, QStringLiteral("BIOS"));
-    const QString gpuText = firstOverviewValue(overviewText, QStringLiteral("显卡设备"));
-    const QString secondGpuText = secondOverviewValue(overviewText, QStringLiteral("显卡设备"));
-    const QString networkText = firstOverviewValue(overviewText, QStringLiteral("网卡设备(物理)"));
+    const QString cpuText = firstOverviewValue(overviewFields, QStringLiteral("处理器"));
+    const QString boardText = firstOverviewValue(overviewFields, QStringLiteral("主板"));
+    const QString biosText = firstOverviewValue(overviewFields, QStringLiteral("BIOS"));
+    const QString gpuText = firstOverviewValue(overviewFields, QStringLiteral("显卡设备"));
+    const QString secondGpuText = secondOverviewValue(overviewFields, QStringLiteral("显卡设备"));
+    const QString networkText = firstOverviewValue(overviewFields, QStringLiteral("网卡设备(物理)"));
     const QString logicalProcessorText = QString::number(::GetActiveProcessorCount(ALL_PROCESSOR_GROUPS));
     const QString bootTimeText = QDateTime::fromMSecsSinceEpoch(
         QDateTime::currentMSecsSinceEpoch() - static_cast<qint64>(::GetTickCount64()))
@@ -651,16 +625,6 @@ void WelcomeDock::updateSystemInfoFromHardwareText(const QString& overviewText)
         {translatedLabel(QStringLiteral("welcome.hardware.field.system_boot"), QStringLiteral("系统启动：")), bootTimeText},
         {translatedLabel(QStringLiteral("welcome.hardware.field.qt_version"), QStringLiteral("Qt版本：")), QStringLiteral(QT_VERSION_STR)},
     }};
-    if (m_systemInfo != nullptr)
-    {
-        QStringList compatibilityLines;
-        compatibilityLines.reserve(static_cast<qsizetype>(rows.size()));
-        for (const SystemInfoRow& row : rows)
-        {
-            compatibilityLines.append(QStringLiteral("%1 %2").arg(row.label, row.value));
-        }
-        m_systemInfo->setText(compatibilityLines.join(QChar('\n')));
-    }
     if (m_systemInfoLayout != nullptr)
     {
         while (QLayoutItem* item = m_systemInfoLayout->takeAt(0))

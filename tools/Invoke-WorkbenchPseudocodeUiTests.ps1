@@ -40,8 +40,7 @@ $cPageSources = @(
     "$cPageApp/UI/MemoryWorkbench/WorkbenchPseudocodeView.cpp", "$cPageApp/UI/MemoryWorkbench/WorkbenchPseudocodeView.Ui.cpp",
     "$cPageApp/UI/Decompiler/GhidraDecompiler.cpp", 'GhidraRuntimePlugin/RuntimeProfile.cpp',
     "$cPageApp/UI/CodeEditorWidget.cpp", "$cPageApp/UI/CodeTextEdit.cpp", "$cPageApp/UI/CodeEditorFileSession.cpp",
-    "$cPageApp/UI/ReportStructuredView.cpp", "$cPageApp/UI/FieldTreePresenter.cpp", "$cPageApp/UI/FieldTreePresenter.Copy.cpp",
-    "$cPageApp/UI/DetailLayoutHost.cpp", "$cPageApp/UI/DetailLayoutHost.Binding.cpp",
+    "$cPageApp/UI/StructuredFieldView.cpp", "$cPageApp/UI/TypedSyntaxDocument.cpp", "$cPageApp/UI/DetailLayoutHost.cpp", "$cPageApp/UI/DetailLayoutHost.Binding.cpp",
     "$cPageApp/UI/DetailLayoutHost.Compatibility.cpp", "$cPageApp/UI/EmbeddedRowDelegate.cpp",
     "$cPageApp/UI/FlowLayout.cpp", "$cPageApp/UI/ThemeStatusRole.cpp", "$cPageApp/UI/ThemeControlGlyphs.cpp",
     "$cPageApp/UI/SmoothScrollSupport.cpp", "$cPageApp/Internationalization/LanguageManager.cpp"
@@ -54,7 +53,7 @@ Push-Location $cPageRepository
 try {
     $env:PATH = (Join-Path $cPageQt 'bin') + ';' + (Join-Path $cPageSdk ('bin/' + $cPageSdkVersion + '/x64')) + ';' + $cPageOldPath
     if (!$RunOnly) {
-        foreach ($cPageHeader in @("$cPageApp/UI/CodeEditorWidget.h", "$cPageApp/UI/MemoryWorkbench/WorkbenchPseudocodeView.h", "$cPageApp/UI/Decompiler/GhidraDecompiler.h")) {
+        foreach ($cPageHeader in @("$cPageApp/UI/CodeEditorWidget.h", "$cPageApp/UI/StructuredFieldView.h", "$cPageApp/UI/MemoryWorkbench/WorkbenchPseudocodeView.h", "$cPageApp/UI/Decompiler/GhidraDecompiler.h")) {
             $cPageMoc = Join-Path $cPageOutput ('c_progress_moc_' + [IO.Path]::GetFileNameWithoutExtension($cPageHeader) + '.cpp')
             & (Join-Path $cPageQt 'bin/moc.exe') $cPageHeader -o $cPageMoc
             if ($LASTEXITCODE -ne 0) { throw "moc failed: $cPageHeader" }
@@ -64,7 +63,7 @@ try {
         foreach ($cPageSource in $cPageSources) {
             $cPageObject = Join-Path $cPageOutput ('c_progress_' + [IO.Path]::GetFileNameWithoutExtension($cPageSource) + '.obj')
             $cPageWarnings = @('/W3')
-            if ($cPageSource -match '(workbench_pseudocode|WorkbenchPseudocode|GhidraDecompiler|FieldTreePresenter|CodeEditorWidget|CodeTextEdit)') {
+            if ($cPageSource -match '(workbench_pseudocode|WorkbenchPseudocode|GhidraDecompiler|CodeEditorWidget|CodeTextEdit)') {
                 $cPageWarnings = @('/W4', '/WX')
             }
             # 原主工程明确排除的旧语法器 data 局部名称警告；不屏蔽本轮新增警告。

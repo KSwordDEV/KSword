@@ -25,7 +25,7 @@ class QSplitter;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QVBoxLayout;
-class CodeEditorWidget;
+#include "../UI/StructuredFieldView.h"
 
 // HardwareDeviceManagerPage 说明：
 // - 输入：Qt 父控件；
@@ -180,7 +180,7 @@ private:
     QLineEdit* m_searchEdit = nullptr;        // m_searchEdit：树过滤输入框。
     QSplitter* m_splitter = nullptr;          // m_splitter：设备树/详情分割器。
     QTreeWidget* m_deviceTree = nullptr;      // m_deviceTree：System Informer 风格设备树。
-    CodeEditorWidget* m_detailEditor = nullptr; // m_detailEditor：选中设备详情。
+    ks::ui::StructuredFieldView* m_detailEditor = nullptr; // m_detailEditor：选中设备详情。
     std::vector<DeviceEntry> m_deviceList;    // m_deviceList：最近一次完整快照。
     std::atomic_bool m_refreshing{ false };   // m_refreshing：刷新互斥标记。
 };

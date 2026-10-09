@@ -29,4 +29,4 @@ bool runAtomTableSnapshotTask(std::vector<KernelAtomEntry>& rowsOut, QString& er
 bool verifyGlobalAtomByName(
     const QString& atomNameText,
     std::uint16_t& atomValueOut,
-    QString& detailTextOut);
+    ks::ui::FieldDocument& detailDocumentOut);

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 // HvmHookWizard：装一条 HOOK 视图的五步向导。
 //
@@ -73,7 +73,7 @@ class QComboBox;
 class QGroupBox;
 class QLabel;
 class QLineEdit;
-class CodeEditorWidget;
+#include "StructuredFieldView.h"
 class QPushButton;
 class QStackedWidget;
 class QTableWidget;
@@ -421,7 +421,7 @@ namespace ks::ui
         // fullPhysicalAddress、pageBasePhysical、pageOffset、补丁起止与长度、
         // 影子页种子（Explicit，整页 4096）、当前后端（默认 / EPTP 切换）、
         // 以及一句「HOOK 不是安全边界、失败即放行」。
-        QString buildInstallSummaryText() const;
+        ks::ui::FieldDocument buildInstallSummaryDocument() const;
 
         // startInstall：走完确认 -> 重读 -> 比对 -> addView -> 回读。            [W]
         //
@@ -634,7 +634,7 @@ namespace ks::ui
         QLabel* m_preflightStatusLabel = nullptr;
 
         // ---- 第 4 步（[W] 创建）----
-        CodeEditorWidget* m_installSummaryView = nullptr;
+        ks::ui::StructuredFieldView* m_installSummaryView = nullptr;
         QPushButton* m_installButton = nullptr;
         QLabel* m_installStatusLabel = nullptr;
 

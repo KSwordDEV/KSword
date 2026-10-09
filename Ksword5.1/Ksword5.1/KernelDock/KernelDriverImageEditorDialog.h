@@ -6,7 +6,7 @@
 #include <array>
 #include <cstdint>
 
-class CodeEditorWidget;
+namespace ks::ui { class StructuredFieldView; }
 class QLabel;
 class QPushButton;
 class QCheckBox;
@@ -49,7 +49,7 @@ private:
     void applyResultToView(
         const ksword::ark::DriverImageControlResult& result,
         bool resetDesiredValues);
-    // updateDetails：使用 CodeEditorWidget 展示地址、链、掩码、代次和状态位。
+    // updateDetails：使用原生字段模型展示地址、链、掩码、代次和状态位。
     void updateDetails(
         const ksword::ark::DriverImageControlResult& result);
     // setActionsEnabled：统一控制事务按钮，避免身份尚未建立时发请求。
@@ -88,7 +88,7 @@ private:
     QLabel* m_identityLabel = nullptr;          // DriverObject/模块身份摘要。
     QLabel* m_statusLabel = nullptr;            // 当前动作与 NTSTATUS。
     QTableWidget* m_table = nullptr;            // 五字段当前/目标/事务明细表。
-    CodeEditorWidget* m_detailEditor = nullptr; // 完整链和事务证据，只读。
+    ks::ui::StructuredFieldView* m_detailEditor = nullptr; // 完整链和事务证据，只读。
     QCheckBox* m_restoreLinkCheckBox = nullptr; // 恢复时是否同时重插加载链。
     QPushButton* m_refreshButton = nullptr;     // 刷新身份和事务快照。
     QPushButton* m_applyButton = nullptr;       // 原子应用勾选字段。

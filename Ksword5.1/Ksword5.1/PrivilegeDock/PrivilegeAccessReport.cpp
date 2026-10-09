@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "PrivilegeAccessBackend.h"
 #include "../Internationalization/LanguageManager.h"
 #include <QStringList>
@@ -164,94 +165,109 @@ namespace ks::privilege::access::detail
     }
 
     // 按既有顺序输出主体、描述符、限制提示与探针结论，保留 SDDL 原文。
-    QString reportText(const Result& result)
+    ks::ui::FieldDocument buildAccessDocument(const Result& result)
     {
-        QStringList lines;
+        ks::ui::FieldDocument lines;
         if (result.stage != Stage::None)
         {
-            lines << text("privilege.workbench.access.report.failure", "阶段：%1\n错误：%2")
-                .arg(stageText(result.stage), errorText(result.error));
+            lines.field(QStringLiteral("阶段"), QStringLiteral("%1").arg(stageText(result.stage)));
+            lines.field(QStringLiteral("错误"), QStringLiteral("%1").arg(errorText(result.error)));
             if (result.error == ERROR_RETRY)
-                lines << text("privilege.workbench.access.report.stale", "进程、令牌、对象或描述符已变化，请重新评估。");
-            if (!result.probe) return lines.join(QLatin1Char('\n'));
+                lines.note(QStringLiteral("进程、令牌、对象或描述符已变化，请重新评估。"));
+            if (!result.probe) return lines;
         }
-        lines << text("privilege.workbench.access.report.subject", "主体：PID %1；%2\n用户：%3；%4")
-            .arg(result.request.pid).arg(result.processPath, result.user, result.userSid);
+        lines.field(QStringLiteral("主体"), QStringLiteral("PID %1").arg(QStringLiteral("%1").arg(result.request.pid)));
+        lines.field(QStringLiteral("进程路径"), result.processPath);
+        lines.field(QStringLiteral("用户"), QStringLiteral("%1").arg(result.user));
+        lines.field(QStringLiteral("用户 SID"), result.userSid);
         if (result.anchor != nullptr)
-            lines << text("privilege.workbench.access.report.identity", "进程创建时间：%1；令牌 ID：%2:%3；修改序列：%4:%5")
-                .arg(result.anchor->creation).arg(result.anchor->statistics.TokenId.HighPart)
-                .arg(result.anchor->statistics.TokenId.LowPart)
-                .arg(result.anchor->statistics.ModifiedId.HighPart)
-                .arg(result.anchor->statistics.ModifiedId.LowPart);
-        lines << text("privilege.workbench.access.report.groups", "常规组：%1；仅拒绝组：%2；限制 SID：%3")
-            .arg(result.groups).arg(result.denyOnlyGroups).arg(result.restrictedGroups);
+        {
+            lines.field(QStringLiteral("进程创建时间"), QStringLiteral("%1").arg(result.anchor->creation));
+            lines.field(QStringLiteral("令牌 ID"), QStringLiteral("%1:%2").arg(QStringLiteral("%1").arg(result.anchor->statistics.TokenId.HighPart)).arg(QStringLiteral("%1").arg(result.anchor->statistics.TokenId.LowPart)));
+            lines.field(QStringLiteral("修改序列"), QStringLiteral("%1:%2").arg(QStringLiteral("%1").arg(result.anchor->statistics.ModifiedId.HighPart)).arg(QStringLiteral("%1").arg(result.anchor->statistics.ModifiedId.LowPart)));
+        }
+        lines.field(QStringLiteral("常规组"), QStringLiteral("%1").arg(result.groups));
+        lines.field(QStringLiteral("仅拒绝组"), QStringLiteral("%1").arg(result.denyOnlyGroups));
+        lines.field(QStringLiteral("限制 SID"), QStringLiteral("%1").arg(result.restrictedGroups));
         if (!result.sidEvidenceComplete)
-            lines << text("privilege.workbench.access.report.sids_incomplete", "部分 SID 证据读取失败；组计数及 ACE 匹配仅反映成功读取的部分，不能把未匹配解释为不属于令牌。");
-        lines << text("privilege.workbench.access.report.target", "对象：%1\n规范路径：%2\n所有者：%3；%4\n主要组 SID：%5")
-            .arg(result.request.path, result.canonicalPath, result.owner, result.ownerSid, result.groupSid);
-        lines << text("privilege.workbench.access.report.request", "请求：%1 → %2\n具体权限：%3")
-            .arg(hex(result.request.desired), hex(mappedAccess(result.request.kind, result.request.desired)),
-                maskText(result.request.kind, mappedAccess(result.request.kind, result.request.desired)));
+            lines.note(QStringLiteral("部分 SID 证据读取失败；组计数及 ACE 匹配仅反映成功读取的部分，不能把未匹配解释为不属于令牌。"));
+        lines.field(QStringLiteral("对象"), QStringLiteral("%1").arg(result.request.path));
+        lines.field(QStringLiteral("规范路径"), QStringLiteral("%1").arg(result.canonicalPath));
+        lines.field(QStringLiteral("所有者"), QStringLiteral("%1").arg(result.owner));
+        lines.field(QStringLiteral("所有者 SID"), result.ownerSid);
+        lines.field(QStringLiteral("主要组 SID"), QStringLiteral("%1").arg(result.groupSid));
+        lines.field(QStringLiteral("请求"), QStringLiteral("%1 → %2").arg(QStringLiteral("%1").arg(hex(result.request.desired))).arg(QStringLiteral("%1").arg(hex(mappedAccess(result.request.kind, result.request.desired)))));
+        lines.field(QStringLiteral("具体权限"), QStringLiteral("%1").arg(maskText(result.request.kind, mappedAccess(result.request.kind, result.request.desired))));
         if (result.nullDacl)
-            lines << text("privilege.workbench.access.report.null_dacl", "DACL 未设置或为 NULL：不以 DACL 限制访问；仍受令牌限制、完整性及对象机制影响。");
+            lines.field(QStringLiteral("DACL 未设置或为 NULL"), QStringLiteral("不以 DACL 限制访问；仍受令牌限制、完整性及对象机制影响。"), true);
         else if (result.aces.empty())
-            lines << text("privilege.workbench.access.report.empty_dacl", "空 DACL：没有允许 ACE；所有者隐含权利或已启用特权仍可能影响特定请求。");
+            lines.field(QStringLiteral("空 DACL"), QStringLiteral("没有允许 ACE；所有者隐含权利或已启用特权仍可能影响特定请求。"), true);
         else
-            lines << text("privilege.workbench.access.report.dacl", "DACL：%1 条 ACE；保护继承：%2；格式：%3")
-                .arg(result.aces.size()).arg(result.daclProtected ? QStringLiteral("1") : QStringLiteral("0"),
-                    result.aclValid ? text("privilege.workbench.access.valid", "有效") : text("privilege.workbench.access.invalid", "无效"));
-        lines << text("privilege.workbench.access.report.native", "AccessCheck：%1；授予掩码 %2；状态 %3")
-            .arg(verdict(result.native), hex(result.native.granted), errorText(result.native.error));
-        lines << text("privilege.workbench.access.report.authz", "AuthzAccessCheck：%1；授予掩码 %2；状态 %3")
-            .arg(verdict(result.authz), hex(result.authz.granted), errorText(result.authz.error));
+{
+            lines.field(QStringLiteral("DACL"), QStringLiteral("%1 条 ACE").arg(QStringLiteral("%1").arg(result.aces.size())));
+            lines.field(QStringLiteral("保护继承"), QStringLiteral("%1").arg(result.daclProtected ? QStringLiteral("1") : QStringLiteral("0")));
+            lines.field(QStringLiteral("格式"), QStringLiteral("%1").arg(result.aclValid ? text("privilege.workbench.access.valid", "有效") : text("privilege.workbench.access.invalid", "无效")));
+            }
+        lines.field(QStringLiteral("AccessCheck"), QStringLiteral("%1").arg(verdict(result.native)));
+        lines.field(QStringLiteral("授予掩码"), QStringLiteral("授予掩码 %1").arg(QStringLiteral("%1").arg(hex(result.native.granted))));
+        lines.field(QStringLiteral("状态"), QStringLiteral("状态 %1").arg(QStringLiteral("%1").arg(errorText(result.native.error))));
+        lines.field(QStringLiteral("AuthzAccessCheck"), QStringLiteral("%1").arg(verdict(result.authz)));
+        lines.field(QStringLiteral("授予掩码"), QStringLiteral("授予掩码 %1").arg(QStringLiteral("%1").arg(hex(result.authz.granted))));
+        lines.field(QStringLiteral("状态"), QStringLiteral("状态 %1").arg(QStringLiteral("%1").arg(errorText(result.authz.error))));
         if (result.native.succeeded && result.authz.succeeded && result.native.allowed != result.authz.allowed)
-            lines << text("privilege.workbench.access.report.disagreement", "两种描述符评估结果不同：特权、受限令牌或条件上下文覆盖可能不同，不能合并为实际操作结论。");
+            lines.field(QStringLiteral("两种描述符评估结果不同"), QStringLiteral("特权、受限令牌或条件上下文覆盖可能不同，不能合并为实际操作结论。"), true);
         if (!result.usedPrivilegeNames.empty())
         {
             QStringList names;
             for (const auto& name : result.usedPrivilegeNames) names << name;
-            lines << text("privilege.workbench.access.report.privileges", "AccessCheck 使用的令牌特权：%1").arg(names.join(QStringLiteral(", ")));
+            lines.field(QStringLiteral("AccessCheck 使用的令牌特权"), QStringLiteral("%1").arg(names.join(QStringLiteral(", "))));
         }
         if (result.tokenIntegrityKnown)
-            lines << text("privilege.workbench.access.report.token_integrity", "主体完整性 RID：%1；令牌强制策略：%2")
-                .arg(hex(result.tokenRid), result.tokenPolicyKnown ? hex(result.tokenPolicy)
-                    : text("privilege.workbench.access.unknown", "未知"));
-        else lines << text("privilege.workbench.access.report.token_integrity_unknown", "主体完整性：未成功读取。");
+{
+            lines.field(QStringLiteral("主体完整性 RID"), QStringLiteral("%1").arg(hex(result.tokenRid)));
+            lines.field(QStringLiteral("令牌强制策略"), QStringLiteral("%1").arg(result.tokenPolicyKnown ? hex(result.tokenPolicy)
+                    : text("privilege.workbench.access.unknown", "未知")));
+            }
+        else lines.field(QStringLiteral("主体完整性"), QStringLiteral("未成功读取。"), true);
         if (result.labelKnown)
         {
-            lines << text("privilege.workbench.access.report.label", "对象完整性 RID：%1；标签策略：%2；来源：%3")
-                .arg(hex(result.labelRid), hex(result.labelPolicy), result.labelExplicit
+            lines.field(QStringLiteral("对象完整性 RID"), QStringLiteral("%1").arg(hex(result.labelRid)));
+            lines.field(QStringLiteral("标签策略"), QStringLiteral("%1").arg(hex(result.labelPolicy)));
+            lines.field(QStringLiteral("来源"), QStringLiteral("%1").arg(result.labelExplicit
                     ? text("privilege.workbench.access.label.explicit", "显式强制标签")
-                    : text("privilege.workbench.access.label.default", "未设置标签，按 Windows 默认中完整性解释"));
+                    : text("privilege.workbench.access.label.default", "未设置标签，按 Windows 默认中完整性解释")));
             if (result.tokenIntegrityKnown && result.tokenPolicyKnown)
             {
                 const DWORD hint = integrityHintMask(result.request.kind, result.request.desired,
                     result.tokenRid, result.labelRid, result.labelPolicy, result.tokenPolicy);
-                lines << (hint != 0
+                lines.note((hint != 0
                     ? text("privilege.workbench.access.report.mic_hint", "完整性约束提示：请求与可能受向上访问限制的权限交集为 %1；这是按通用映射形成的证据提示，需实际打开验证。").arg(hex(hint))
-                    : text("privilege.workbench.access.report.mic_no_hint", "完整性约束提示：已知标签和通用映射未发现向上访问交集；这不能证明实际操作成功。"));
+                    : text("privilege.workbench.access.report.mic_no_hint", "完整性约束提示：已知标签和通用映射未发现向上访问交集；这不能证明实际操作成功。")));
             }
         }
-        else lines << text("privilege.workbench.access.report.label_unknown", "对象完整性标签未知：%1；不能把读取失败解释为没有限制。").arg(errorText(result.labelError));
+        else{
+ lines.field(QStringLiteral("对象完整性标签未知"), QStringLiteral("%1").arg(errorText(result.labelError)));
+ lines.note(QStringLiteral("不能把读取失败解释为没有限制。"));
+ }
         if (result.complex)
-            lines << text("privilege.workbench.access.report.complex", "包含对象、回调或其他复杂 ACE；未提供对象层级、资源属性或自定义回调，相关评估覆盖有限。");
+            lines.note(QStringLiteral("包含对象、回调或其他复杂 ACE；未提供对象层级、资源属性或自定义回调，相关评估覆盖有限。"));
         if (!result.appContainerKnown || result.appContainer != 0)
-            lines << text("privilege.workbench.access.report.appcontainer", "AppContainer、能力 SID 和资源声明可能引入额外约束；常规 SID 匹配列仅用于解释证据。");
-        lines << text("privilege.workbench.access.report.explanation", "ACE 表按原始顺序显示。SID 匹配和请求交集仅标注候选相关 ACE，不等同于完整决策轨迹；所有者、特权、仅拒绝组及限制 SID 由 Windows 评估接口处理。");
-        lines << text("privilege.workbench.access.report.coverage", "描述符由 KSword 当前身份按固定对象句柄读取；主体是选定进程的主令牌，不包含该进程线程临时模拟身份。描述符评估不覆盖路径遍历、共享锁、文件系统过滤器、中央访问策略或后续操作条件。");
+            lines.note(QStringLiteral("AppContainer、能力 SID 和资源声明可能引入额外约束；常规 SID 匹配列仅用于解释证据。"));
+        lines.note(QStringLiteral("ACE 表按原始顺序显示。SID 匹配和请求交集仅标注候选相关 ACE，不等同于完整决策轨迹；所有者、特权、仅拒绝组及限制 SID 由 Windows 评估接口处理。"));
+        lines.note(QStringLiteral("描述符由 KSword 当前身份按固定对象句柄读取；主体是选定进程的主令牌，不包含该进程线程临时模拟身份。描述符评估不覆盖路径遍历、共享锁、文件系统过滤器、中央访问策略或后续操作条件。"));
         if (!result.probe)
-            lines << text("privilege.workbench.access.report.probe_not_run", "实际打开：尚未测试。可点击“测试实际打开”模拟主令牌，申请所选访问权并立即关闭句柄。");
+            lines.field(QStringLiteral("实际打开"), QStringLiteral("尚未测试。可点击“测试实际打开”模拟主令牌，申请所选访问权并立即关闭句柄。"), true);
         else if (result.stage != Stage::None)
-            lines << text("privilege.workbench.access.report.probe_inconclusive", "实际打开测试未形成可确认的同一对象结论；请根据阶段错误重新评估。");
+            lines.note(QStringLiteral("实际打开测试未形成可确认的同一对象结论；请根据阶段错误重新评估。"));
         else if (!result.probeOpened)
-            lines << text("privilege.workbench.access.report.probe_failed", "实际打开：失败，%1。失败可来自对象权限、路径、共享模式、SCM 连接或其他系统约束。").arg(errorText(result.probeError));
+            lines.field(QStringLiteral("实际打开"), QStringLiteral("失败，%1。失败可来自对象权限、路径、共享模式、SCM 连接或其他系统约束。").arg(QStringLiteral("%1").arg(errorText(result.probeError))));
         else if (!result.probeIdentityVerified)
-            lines << text("privilege.workbench.access.report.probe_identity_unknown", "句柄打开成功，但对象身份无法核验或已变化；不能视为所评估对象的访问证明。");
-        else lines << text("privilege.workbench.access.report.probe_opened", "实际打开：所选主令牌已获准打开同一对象并关闭句柄；这仅证明该时刻的句柄申请成功。");
-        lines << text("privilege.workbench.access.report.no_mutation", "测试不执行写入、删除、修改 ACL 或服务控制；即使请求这些权限，也只申请并关闭句柄。未验证具体操作成功，并发变更仍可能发生。");
-        lines << QStringLiteral("\nSDDL:\n") + result.descriptorSddl;
-        if (!result.labelSddl.isEmpty()) lines << QStringLiteral("\nLABEL SDDL:\n") + result.labelSddl;
-        return lines.join(QLatin1Char('\n'));
+            lines.note(QStringLiteral("句柄打开成功，但对象身份无法核验或已变化；不能视为所评估对象的访问证明。"));
+        else lines.field(QStringLiteral("实际打开"), QStringLiteral("所选主令牌已获准打开同一对象并关闭句柄；这仅证明该时刻的句柄申请成功。"), true);
+        lines.note(QStringLiteral("测试不执行写入、删除、修改 ACL 或服务控制；即使请求这些权限，也只申请并关闭句柄。未验证具体操作成功，并发变更仍可能发生。"));
+        lines.field(QStringLiteral("SDDL"), result.descriptorSddl);
+        if (!result.labelSddl.isEmpty()) lines.field(QStringLiteral("LABEL SDDL"), result.labelSddl);
+        return lines;
     }
 
 }

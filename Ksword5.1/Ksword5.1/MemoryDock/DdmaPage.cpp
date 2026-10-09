@@ -2,7 +2,8 @@
 
 #include "../theme.h"
 #include "../UI/AdaptivePageScroll.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
+#include "../UI/CodeTextEdit.h"
 #include "../UI/MemoryWorkbench/HexView.h"
 #include "../UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "../UI/VisibleTableWidget.h"
@@ -199,15 +200,11 @@ QGroupBox* DdmaPage::buildChannelGroup()
     m_scratchDetectLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
 
     // 扇区上下文：候选定下来之后把"这块扇区现在是什么"摊开，供再确认一次。
-    // 用 setRawText 写入，磁盘上的字节不参与语言包翻译。
-    m_scratchContextView = new CodeEditorWidget(group);
-    m_scratchContextView->setReadOnly(true);
-    // 关掉内置的"结构视图"切换：这段内容是定宽对齐的十六进制转储，
-    // 被解析成属性/值表格之后行内的字节列会被拆散，反而看不出扇区里是什么。
-    m_scratchContextView->setStructuredReportViewEnabled(false);
+    // 上下文直接接受结构字段；原始磁盘字节在独立字节预览中保留。
+    m_scratchContextView = new ks::ui::StructuredFieldView(group);
     m_scratchContextView->setMinimumHeight(150);
-    m_scratchContextView->setRawText(
-        QStringLiteral("尚未侦测。选中一块磁盘后点击“侦测候选扇区”。"));
+    m_scratchContextView->setDocument(ks::ui::FieldDocument{}.note(
+        QStringLiteral("尚未侦测。选中一块磁盘后点击“侦测候选扇区”。")));
 
     m_activateButton = new QPushButton(
         QIcon(QStringLiteral(":/Icon/disk_save.svg")), "启用选中磁盘为 DDMA 通道", group);
@@ -226,8 +223,18 @@ QGroupBox* DdmaPage::buildChannelGroup()
     formLayout->addWidget(m_probeButton, 0, 3);
     formLayout->addWidget(m_scratchDetectLabel, 1, 0, 1, 4);
     formLayout->addWidget(m_scratchContextView, 2, 0, 1, 4);
-    formLayout->addWidget(m_scratchImpactLabel, 3, 0, 1, 4);
-    formLayout->addWidget(m_scratchAckCheck, 4, 0, 1, 4);
+    m_scratchBytesView = new CodeTextEdit(group);
+    m_scratchBytesView->setReadOnly(true);
+    m_scratchBytesView->setToolTip(QStringLiteral("前 128 字节十六进制预览："));
+    m_scratchBytesView->setCompactMode(true);
+    m_scratchBytesView->setLineNumbersVisible(false);
+    m_scratchBytesView->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
+    m_scratchBytesView->setMinimumHeight(100);
+    m_scratchBytesView->setMaximumHeight(180);
+    m_scratchBytesView->hide();
+    formLayout->addWidget(m_scratchBytesView, 3, 0, 1, 4);
+    formLayout->addWidget(m_scratchImpactLabel, 4, 0, 1, 4);
+    formLayout->addWidget(m_scratchAckCheck, 5, 0, 1, 4);
     formLayout->setColumnStretch(1, 1);
     outerLayout->addLayout(formLayout);
 
@@ -908,6 +915,7 @@ DdmaPage::ScratchDetection DdmaPage::detectScratchCandidatesForSelectedDisk()
         // 失败原因要带到下一条路线的结论里，否则用户只会看到"用了间隙"，
         // 不知道更安全的那条为什么没走成。
         m_scratchFilePath.clear();
+    if (m_scratchBytesView != nullptr) { m_scratchBytesView->clear(); m_scratchBytesView->hide(); }
         const QString ownedFailure = owned.summaryText;
         ScratchDetection fallback = detectScratchCandidatesByGap(driveIndex, entry);
         fallback.summaryText = QStringLiteral("未能使用专属暂存文件（%1）改用未分配间隙：%2")
@@ -1112,14 +1120,16 @@ DdmaPage::ScratchDetection DdmaPage::detectScratchCandidatesByGap(
     return detection;
 }
 
-QString DdmaPage::buildScratchContextText(
+DdmaPage::ScratchContext DdmaPage::buildScratchContext(
     const std::uint32_t driveIndex,
     const std::uint64_t startLba,
     const std::uint32_t sectorSize,
     bool& allZeroOut)
 {
     allZeroOut = false;
-    QStringList lines;
+    ScratchContext context;
+    ks::ui::FieldDocument& document = context.fields;
+    document.section(QStringLiteral("扇区上下文"));
 
     const std::uint32_t transferBytes = ksword::memory_backend::ddmaTransferBytes();
     const std::uint32_t sectorCount =
@@ -1127,18 +1137,18 @@ QString DdmaPage::buildScratchContextText(
     const std::uint64_t byteOffset =
         startLba * static_cast<std::uint64_t>(sectorSize);
 
-    lines << QStringLiteral("目标磁盘      : \\\\.\\PhysicalDrive%1").arg(driveIndex);
-    lines << QStringLiteral("扇区大小      : %1 字节").arg(sectorSize);
-    lines << QStringLiteral("起始 LBA      : %1  (0x%2)")
+    document.field(QStringLiteral("目标磁盘"), QStringLiteral("\\\\.\\PhysicalDrive%1").arg(driveIndex));
+    document.field(QStringLiteral("扇区大小"), QStringLiteral("%1 字节").arg(sectorSize));
+    document.field(QStringLiteral("起始 LBA"), QStringLiteral("%1  (0x%2)")
                  .arg(startLba)
-                 .arg(startLba, 0, 16);
-    lines << QStringLiteral("覆盖范围      : LBA %1 - %2，共 %3 个扇区")
+                 .arg(startLba, 0, 16));
+    document.field(QStringLiteral("覆盖范围"), QStringLiteral("LBA %1 - %2，共 %3 个扇区")
                  .arg(startLba)
                  .arg(startLba + sectorCount - 1ULL)
-                 .arg(sectorCount);
-    lines << QStringLiteral("磁盘字节偏移  : %1  (0x%2)")
+                 .arg(sectorCount));
+    document.field(QStringLiteral("磁盘字节偏移"), QStringLiteral("%1  (0x%2)")
                  .arg(byteOffset)
-                 .arg(byteOffset, 0, 16);
+                 .arg(byteOffset, 0, 16));
 
     // 归属：这段偏移落在哪个分区里，还是落在分区之外。这一条最能让人一眼看出
     // "我是不是要去覆盖一个正在用的分区"。
@@ -1153,9 +1163,9 @@ QString DdmaPage::buildScratchContextText(
         nullptr);
     if (diskHandle == INVALID_HANDLE_VALUE)
     {
-        lines << QStringLiteral("归属          : 打不开磁盘，无法核对（Win32 %1）")
-                     .arg(::GetLastError());
-        return lines.join(QLatin1Char('\n'));
+        document.field(QStringLiteral("归属"), QStringLiteral("打不开磁盘，无法核对（Win32 %1）")
+                     .arg(::GetLastError()));
+        return context;
     }
 
     {
@@ -1196,7 +1206,7 @@ QString DdmaPage::buildScratchContextText(
                 }
             }
         }
-        lines << QStringLiteral("归属          : %1").arg(ownerText);
+        document.field(QStringLiteral("归属"), QStringLiteral("%1").arg(ownerText));
     }
 
     // 内容预览：真读一遍。分区表说"未分配"只是没人登记，读回来才知道是不是空的。
@@ -1222,19 +1232,20 @@ QString DdmaPage::buildScratchContextText(
 
     if (!contentRead)
     {
-        lines << QStringLiteral("当前内容      : 读取失败，无法复核");
-        return lines.join(QLatin1Char('\n'));
+        document.field(QStringLiteral("当前内容"), QStringLiteral("读取失败，无法复核"));
+        return context;
     }
 
     allZeroOut = std::all_of(
         sample.begin(), sample.end(), [](const std::uint8_t value) { return value == 0U; });
-    lines << QStringLiteral("当前内容      : %1")
+    document.field(QStringLiteral("当前内容"), QStringLiteral("%1")
                  .arg(allZeroOut
                           ? QStringLiteral("全部为 0，没有观察到使用痕迹")
-                          : QStringLiteral("非全零 —— 那里确实有数据，用之前请弄清是什么"));
-    lines << QString();
-    lines << QStringLiteral("前 128 字节十六进制预览：");
+                          : QStringLiteral("非全零 —— 那里确实有数据，用之前请弄清是什么")));
 
+
+
+    QStringList byteLines;
     // 逐行 16 字节，带偏移与 ASCII 侧栏。
     const std::size_t previewBytes = std::min<std::size_t>(sample.size(), 128U);
     for (std::size_t base = 0U; base < previewBytes; base += 16U)
@@ -1254,13 +1265,14 @@ QString DdmaPage::buildScratchContextText(
                 ? QChar(static_cast<char16_t>(value))
                 : QChar(QLatin1Char('.'));
         }
-        lines << QStringLiteral("  +%1  %2 |%3|")
+        byteLines << QStringLiteral("  +%1  %2 |%3|")
                      .arg(base, 4, 16, QChar('0'))
                      .arg(hexPart)
                      .arg(asciiPart);
     }
 
-    return lines.join(QLatin1Char('\n'));
+    context.bytePreview = byteLines.join(QLatin1Char('\n'));
+    return context;
 }
 
 void DdmaPage::detectScratchFromUi()
@@ -1282,7 +1294,8 @@ void DdmaPage::detectScratchFromUi()
         }
         if (m_scratchContextView != nullptr)
         {
-            m_scratchContextView->setRawText(QStringLiteral("侦测未得出候选。"));
+            m_scratchContextView->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("侦测未得出候选。")));
+            if (m_scratchBytesView != nullptr) { m_scratchBytesView->clear(); m_scratchBytesView->hide(); }
         }
         return;
     }
@@ -1306,22 +1319,25 @@ void DdmaPage::detectScratchFromUi()
     }
 
     bool allZero = false;
-    QString contextText =
-        buildScratchContextText(driveIndex, detection.suggestedLba, sectorSize, allZero);
-    if (!detection.scratchFilePath.isEmpty())
-    {
-        contextText = QStringLiteral("来源          : 专属暂存文件 %1\n")
-                          .arg(detection.scratchFilePath) + contextText;
-    }
-    else
-    {
-        contextText = QStringLiteral("来源          : %1\n").arg(detection.sourceText) + contextText;
-    }
+    ScratchContext context =
+        buildScratchContext(driveIndex, detection.suggestedLba, sectorSize, allZero);
+    ks::ui::FieldNode sourceField;
+    sourceField.kind = ks::ui::FieldNode::Kind::Field;
+    sourceField.name = QStringLiteral("来源");
+    sourceField.value = !detection.scratchFilePath.isEmpty()
+        ? QStringLiteral("专属暂存文件 %1").arg(detection.scratchFilePath) : detection.sourceText;
+    sourceField.translateValue = true;
+    context.fields.nodes.first().children.prepend(sourceField);
 
+    if (m_scratchBytesView != nullptr)
+    {
+        m_scratchBytesView->setPlainText(context.bytePreview);
+        m_scratchBytesView->setVisible(!context.bytePreview.isEmpty());
+    }
     m_scratchFilePath = detection.scratchFilePath;
     if (m_scratchContextView != nullptr)
     {
-        m_scratchContextView->setRawText(contextText);
+        m_scratchContextView->setDocument(context.fields);
     }
     if (m_scratchDetectLabel != nullptr)
     {
@@ -1433,10 +1449,11 @@ void DdmaPage::clearSession()
         }
     }
     m_scratchFilePath.clear();
+    if (m_scratchBytesView != nullptr) { m_scratchBytesView->clear(); m_scratchBytesView->hide(); }
     if (m_scratchContextView != nullptr)
     {
-        m_scratchContextView->setRawText(
-            QStringLiteral("尚未侦测。选中一块磁盘后点击“侦测候选扇区”。"));
+        m_scratchContextView->setDocument(ks::ui::FieldDocument{}.note(
+            QStringLiteral("尚未侦测。选中一块磁盘后点击“侦测候选扇区”。")));
     }
 
     m_session = ksword::memory_backend::DdmaSession{};

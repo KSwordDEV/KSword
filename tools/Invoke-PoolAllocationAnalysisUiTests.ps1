@@ -18,14 +18,16 @@ try {
     $poolMoc = Join-Path $output 'moc_CodeEditorWidget.cpp'
     & (Join-Path $qt 'share/qt6/bin/moc.exe') "$sourceRoot/UI/CodeEditorWidget.h" -o $poolMoc
     if ($LASTEXITCODE -ne 0) { throw 'Shared report editor moc generation failed.' }
+    $poolFieldMoc = Join-Path $output 'moc_StructuredFieldView.cpp'
+    & (Join-Path $qt 'share/qt6/bin/moc.exe') "$sourceRoot/UI/StructuredFieldView.h" -o $poolFieldMoc
+    if ($LASTEXITCODE -ne 0) { throw 'Structured field moc generation failed.' }
     $arguments = @('-std=c++20', '-O1', '-g0', '-Wall', '-Wextra', '-Werror', '-DUNICODE', '-D_UNICODE', '-DNOMINMAX',
         '-isystem', $include, '-isystem', (Join-Path $include 'QtCore'),
         '-isystem', (Join-Path $include 'QtGui'), '-isystem', (Join-Path $include 'QtWidgets'), '-isystem', (Join-Path $include 'QtTest'), '-isystem', (Join-Path $include 'QtSvg'),
         'tools/pool_allocation_analysis_ui_tests.cpp',
         "$sourceRoot/MemoryDock/PoolAllocationAnalysisWidget.cpp",
         "$sourceRoot/UI/FlowLayout.cpp",
-        "$sourceRoot/UI/CodeEditorWidget.cpp", "$sourceRoot/UI/CodeTextEdit.cpp", "$sourceRoot/UI/CodeEditorFileSession.cpp", "$sourceRoot/UI/ReportStructuredView.cpp", "$sourceRoot/UI/FieldTreePresenter.cpp", "$sourceRoot/UI/FieldTreePresenter.Copy.cpp",
-        "$sourceRoot/UI/ThemeControlGlyphs.cpp", "$sourceRoot/UI/ThemeStatusRole.cpp", "$sourceRoot/UI/SmoothScrollSupport.cpp", $poolMoc,
+        "$sourceRoot/UI/CodeEditorWidget.cpp", "$sourceRoot/UI/CodeTextEdit.cpp", "$sourceRoot/UI/CodeEditorFileSession.cpp", "$sourceRoot/UI/StructuredFieldView.cpp", "$sourceRoot/UI/TypedSyntaxDocument.cpp", "$sourceRoot/UI/ThemeControlGlyphs.cpp", "$sourceRoot/UI/ThemeStatusRole.cpp", "$sourceRoot/UI/SmoothScrollSupport.cpp", $poolMoc, $poolFieldMoc,
         "$sourceRoot/Internationalization/LanguageManager.cpp",
         'shared/evidence/PoolAllocationAnalysis.cpp',
         "-L$qt/lib", '-lQt6Widgets', '-lQt6Gui', '-lQt6Core', '-lQt6Test', '-lQt6Svg', '-luser32', '-ladvapi32',

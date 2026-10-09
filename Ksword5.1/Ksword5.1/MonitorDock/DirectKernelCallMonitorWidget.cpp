@@ -77,7 +77,7 @@ namespace
     constexpr int kRoleGlobalSearchText = Qt::UserRole;
     constexpr int kRoleProcessSearchText = Qt::UserRole + 1;
     constexpr int kRoleServiceSearchText = Qt::UserRole + 2;
-    constexpr int kRoleDetailText = Qt::UserRole + 3;
+    constexpr int kRoleDetailDocument = Qt::UserRole + 3;
     constexpr int kRoleProcessCreationTime100ns = Qt::UserRole + 4;
 
     constexpr GUID kPerfInfoGuid =
@@ -1351,8 +1351,9 @@ DirectKernelCallMonitorWidget::CapturedEventRow DirectKernelCallMonitorWidget::b
     {
         row.eventName = QStringLiteral("SysCallEnter");
         std::memcpy(&row.kernelServiceAddress, eventRecord->UserData, row.pointerSize);
-        row.detailAllText = QStringLiteral("内核服务地址：%1\n原始 QPC：%2\n")
-            .arg(formatAddress(row.kernelServiceAddress)).arg(static_cast<qulonglong>(rawQpc));
+        row.detailDocument = {};
+        row.detailDocument.field(QStringLiteral("内核服务地址"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(formatAddress(row.kernelServiceAddress))));
+        row.detailDocument.field(QStringLiteral("原始 QPC"), QStringLiteral("%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(rawQpc))));
     }
     else
     {
@@ -1361,7 +1362,7 @@ DirectKernelCallMonitorWidget::CapturedEventRow DirectKernelCallMonitorWidget::b
         std::memcpy(&status, eventRecord->UserData, sizeof(status));
         row.verdictText = QStringLiteral("系统调用退出（不含调用号）");
         row.detailText = QStringLiteral("NTSTATUS=0x%1").arg(status, 8, 16, QChar(u'0'));
-        row.detailAllText = row.detailText;
+        row.detailDocument.field(QStringLiteral("NTSTATUS"), QStringLiteral("0x%1").arg(status, 8, 16, QChar(u'0')));
         row.globalSearchText = QStringLiteral("%1 | %2 | %3").arg(row.pidTidText, row.eventName, row.detailText);
     }
     return row;
@@ -1414,10 +1415,18 @@ void DirectKernelCallMonitorWidget::publishCorrelatedRows(
             row.verdictText = QStringLiteral("证据不足：调用栈关联冲突");
         }
         row.detailText = QStringLiteral("%1 | %2 | %3").arg(row.verdictText, row.callAddressText, row.serviceName);
-        row.detailAllText += QStringLiteral("%1\n%2\n调用栈启用状态：%3\n")
-            .arg(row.pidTidText, row.detailText).arg(m_stackEnableStatus.load());
+        row.detailDocument.section(QStringLiteral("事件"));
+        row.detailDocument.field(QStringLiteral("时间（100 ns）"), row.time100nsText);
+        row.detailDocument.field(QStringLiteral("进程"), row.processText);
+        row.detailDocument.field(QStringLiteral("PID / TID"), row.pidTidText);
+        row.detailDocument.field(QStringLiteral("事件"), row.eventName);
+        row.detailDocument.field(QStringLiteral("判定"), row.verdictText);
+        row.detailDocument.field(QStringLiteral("调用地址"), row.callAddressText);
+        row.detailDocument.field(QStringLiteral("服务名称"), row.serviceName);
+        row.detailDocument.field(QStringLiteral("调用号"), row.syscallNumberText);
+        row.detailDocument.field(QStringLiteral("调用栈启用状态"), QString::number(m_stackEnableStatus.load()));
         row.globalSearchText = QStringLiteral("%1 | %2 | %3 | %4 | %5")
-            .arg(row.time100nsText, row.processText, row.pidTidText, row.eventName, row.detailAllText);
+            .arg(row.time100nsText, row.processText, row.pidTidText, row.eventName, row.detailDocument.toPlainText(false));
         enqueueRow(std::move(row));
     }
 }
@@ -1426,16 +1435,17 @@ void DirectKernelCallMonitorWidget::analyzeUserStack(CapturedEventRow& row, cons
 {
     using namespace ks::evidence::syscall;
     std::vector<std::uint64_t> userFrames;
-    QStringList stackText;
+    row.detailDocument.section(QStringLiteral("ETW 调用栈"));
+    std::size_t frameIndex = 0;
     for (const auto address : frames)
     {
-        stackText << formatAddress(address);
+        row.detailDocument.field(QStringLiteral("Frame"), QStringLiteral("%1: %2")
+            .arg(frameIndex++).arg(formatAddress(address)));
         if (IsUserAddress(address, row.pointerSize))
         {
             userFrames.push_back(address);
         }
     }
-    row.detailAllText += QStringLiteral("ETW 调用栈：\n%1\n").arg(stackText.join(QChar(u'\n')));
     if (userFrames.empty())
     {
         return;
@@ -1619,8 +1629,11 @@ void DirectKernelCallMonitorWidget::analyzeUserStack(CapturedEventRow& row, cons
         }
         unreadable |= !inspection.readable;
         evidence.push_back(inspection.evidence);
-        row.detailAllText += QStringLiteral("用户帧 %1：%2 (%3)\n")
-            .arg(i).arg(formatAddress(pc), inspection.moduleText.isEmpty() ? QStringLiteral("<未解析>") : inspection.moduleText);
+        row.detailDocument.section(QStringLiteral("用户帧"));
+        row.detailDocument.field(QStringLiteral("Index"), QString::number(i));
+        row.detailDocument.field(QStringLiteral("Address"), formatAddress(pc));
+        row.detailDocument.field(QStringLiteral("Module"), inspection.moduleText.isEmpty()
+            ? QStringLiteral("<未解析>") : inspection.moduleText);
     }
     if (unsupportedArchitecture)
     {
@@ -1649,9 +1662,9 @@ void DirectKernelCallMonitorWidget::analyzeUserStack(CapturedEventRow& row, cons
         row.syscallNumber = evidence.front().code.systemCallNumber;
         row.syscallNumberText = QStringLiteral("%1 / 0x%2").arg(row.syscallNumber).arg(row.syscallNumber, 4, 16, QChar(u'0'));
         row.serviceName = serviceNameForNumber(row.syscallNumber);
-        row.detailAllText += QStringLiteral("显示的调用号来自桩内静态立即数；未采集执行时的 EAX。\n");
+        row.detailDocument.note(QStringLiteral("显示的调用号来自桩内静态立即数；未采集执行时的 EAX。"));
     }
-    row.detailAllText += QStringLiteral("判定基于事件关联和采集后的内存样本；动态代码也可能来自 JIT、运行时或安全软件。兼容形态不能确定工具、版本或恶意性。\n");
+    row.detailDocument.note(QStringLiteral("判定基于事件关联和采集后的内存样本；动态代码也可能来自 JIT、运行时或安全软件。兼容形态不能确定工具、版本或恶意性。"));
 }
 
 QString DirectKernelCallMonitorWidget::serviceNameForNumber(std::uint32_t syscallNumber) const
@@ -1989,7 +2002,7 @@ void DirectKernelCallMonitorWidget::appendEventRow(const CapturedEventRow& rowVa
     timeItem->setData(kRoleProcessSearchText, QStringLiteral("%1 | %2").arg(rowValue.pidTidText, rowValue.processText));
     timeItem->setData(kRoleServiceSearchText, QStringLiteral("%1 | %2").arg(rowValue.syscallNumberText, rowValue.serviceName));
     timeItem->setData(kRoleGlobalSearchText, rowValue.globalSearchText);
-    timeItem->setData(kRoleDetailText, rowValue.detailAllText);
+    timeItem->setData(kRoleDetailDocument, QVariant::fromValue(rowValue.detailDocument));
     timeItem->setData(
         kRoleProcessCreationTime100ns,
         QVariant::fromValue<qulonglong>(rowValue.processCreationTime100ns));
@@ -2287,15 +2300,15 @@ void DirectKernelCallMonitorWidget::showEventContextMenu(const QPoint& position)
         return;
     }
 
-    QString detailText;
+    ks::ui::FieldDocument detailText;
     QTableWidgetItem* timeItem = m_eventTable->item(row, EventColumnTime100ns);
     if (timeItem != nullptr)
     {
-        detailText = timeItem->data(kRoleDetailText).toString();
+        detailText = timeItem->data(kRoleDetailDocument).value<ks::ui::FieldDocument>();
     }
     if (selectedAction == copyDetailAction)
     {
-        QApplication::clipboard()->setText(detailText);
+        QApplication::clipboard()->setText(detailText.toPlainText(true));
         return;
     }
 
@@ -2321,8 +2334,8 @@ void DirectKernelCallMonitorWidget::openEventDetailViewerForRow(int rowIndex)
     {
         return;
     }
-    const QString detailText = timeItem->data(kRoleDetailText).toString();
-    monitor_text_viewer::showReadOnlyTextWindow(
+    const ks::ui::FieldDocument detailText = timeItem->data(kRoleDetailDocument).value<ks::ui::FieldDocument>();
+    monitor_text_viewer::showReadOnlyDocumentWindow(
         this,
         QStringLiteral("直接内核调用详情"),
         detailText,

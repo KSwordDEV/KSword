@@ -318,12 +318,12 @@ QVector<ContextMenuCleanerTab::ContextMenuEntry> ContextMenuCleanerTab::enumerat
             entry.statusText = location.userScope
                 ? QStringLiteral("当前用户第三方项")
                 : QStringLiteral("全局第三方项");
-            QStringList details;
+            ks::ui::FieldDocument details;
             appendOptionalDetail(&details, QStringLiteral("注册名"), defaultName);
             appendOptionalDetail(&details, QStringLiteral("CLSID"), clsidText);
             appendOptionalDetail(&details, QStringLiteral("Server"), serverPath);
             appendOptionalDetail(&details, QStringLiteral("Target"), targetPath);
-            entry.detailText = details.join(QStringLiteral("；"));
+            entry.details = details;
             entry.canDelete = true;
             entries.push_back(entry);
         }

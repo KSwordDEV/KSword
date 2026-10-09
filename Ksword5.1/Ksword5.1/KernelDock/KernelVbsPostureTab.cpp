@@ -1,4 +1,4 @@
-﻿#include "KernelVbsPostureTab.h"
+#include "KernelVbsPostureTab.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -18,7 +18,7 @@
 #include <QStringList>
 #include <QTableWidget>
 #include <QTableWidgetItem>
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include <QVBoxLayout>
 
 #include <thread>
@@ -143,12 +143,12 @@ void KernelVbsPostureTab::initializeUi()
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setStretchLastSection(true);
 
-    m_detailEdit = new CodeEditorWidget(splitter);
-    m_detailEdit->setReadOnly(true);
-    m_detailEdit->setPlaceholderText(
+    m_detailEdit = new ks::ui::StructuredFieldView(splitter);
+
+    m_detailEdit->setDocument(ks::ui::FieldDocument{}.note(
         kernelText(
             "kernel.vbs_posture.detail.placeholder",
-            QStringLiteral("刷新后显示 CodeIntegrity 选项掩码、Hyper-V 模块状态与原始 NTSTATUS")));
+            QStringLiteral("刷新后显示 CodeIntegrity 选项掩码、Hyper-V 模块状态与原始 NTSTATUS"))));
 
     splitter->addWidget(m_table);
     splitter->addWidget(m_detailEdit);
@@ -202,7 +202,7 @@ void KernelVbsPostureTab::applySnapshot(Snapshot snapshot)
     if (!snapshot.security.io.ok)
     {
         m_table->setRowCount(0);
-        m_detailEdit->setReportText(QString());
+        m_detailEdit->setDocument({});
         m_downgradeLabel->clear();
         const QString failureText = snapshot.security.unsupported
             ? kernelText(
@@ -223,7 +223,7 @@ void KernelVbsPostureTab::applySnapshot(Snapshot snapshot)
     const QList<PostureRow> rows = buildRows(snapshot);
     populateTable(rows);
     applyVerdictBanner(snapshot, rows);
-    m_detailEdit->setReportText(buildDetail(snapshot));
+    m_detailEdit->setDocument(buildDetail(snapshot));
     m_statusLabel->setText(
         snapshot.security.response.queryStatus < 0
             ? kernelText(
@@ -534,58 +534,50 @@ void KernelVbsPostureTab::applyVerdictBanner(
                 .arg(downgrades.join(QStringLiteral("、"))));
 }
 
-QString KernelVbsPostureTab::buildDetail(const Snapshot& snapshot)
+ks::ui::FieldDocument KernelVbsPostureTab::buildDetail(const Snapshot& snapshot)
 {
     const auto& security = snapshot.security.response;
-    QStringList lines;
+    ks::ui::FieldDocument lines;
 
-    lines << QStringLiteral("=== SystemCodeIntegrityInformation ===");
-    lines << QStringLiteral("codeIntegrityOptions = %1").arg(hex32(security.codeIntegrityOptions));
-    lines << QStringLiteral("  %1").arg(codeIntegrityOptionText(security.codeIntegrityOptions));
-    lines << QStringLiteral("fieldFlags = %1  sourceMask = %2")
-        .arg(hex32(security.fieldFlags))
-        .arg(hex32(security.sourceMask));
-    lines << QStringLiteral("queryStatus = %1  codeIntegrityStatus = %2")
-        .arg(ntStatusText(security.queryStatus))
-        .arg(ntStatusText(security.codeIntegrityStatus));
-    lines << QStringLiteral("secureBootStatus = %1  moduleQueryStatus = %2  debuggerStatus = %3")
-        .arg(ntStatusText(security.secureBootStatus))
-        .arg(ntStatusText(security.moduleQueryStatus))
-        .arg(ntStatusText(security.debuggerStatus));
-    lines << QStringLiteral("kernelDebuggerEnabled = %1  kernelDebuggerNotPresent = %2")
-        .arg(security.kernelDebuggerEnabled)
-        .arg(security.kernelDebuggerNotPresent);
-    lines << QString();
+    lines.section(QStringLiteral("SystemCodeIntegrityInformation"));
+    lines.field(QStringLiteral("codeIntegrityOptions"), QStringLiteral("%1").arg(hex32(security.codeIntegrityOptions)));
+    lines.note(QStringLiteral("%1").arg(codeIntegrityOptionText(security.codeIntegrityOptions)));
+    lines.field(QStringLiteral("fieldFlags"), QStringLiteral("%1").arg(hex32(security.fieldFlags)));
+    lines.field(QStringLiteral("sourceMask"), QStringLiteral("%1").arg(hex32(security.sourceMask)));
+    lines.field(QStringLiteral("queryStatus"), QStringLiteral("%1").arg(ntStatusText(security.queryStatus)));
+    lines.field(QStringLiteral("codeIntegrityStatus"), QStringLiteral("%1").arg(ntStatusText(security.codeIntegrityStatus)));
+    lines.field(QStringLiteral("secureBootStatus"), QStringLiteral("%1").arg(ntStatusText(security.secureBootStatus)));
+    lines.field(QStringLiteral("moduleQueryStatus"), QStringLiteral("%1").arg(ntStatusText(security.moduleQueryStatus)));
+    lines.field(QStringLiteral("debuggerStatus"), QStringLiteral("%1").arg(ntStatusText(security.debuggerStatus)));
+    lines.field(QStringLiteral("kernelDebuggerEnabled"), QStringLiteral("%1").arg(security.kernelDebuggerEnabled));
+    lines.field(QStringLiteral("kernelDebuggerNotPresent"), QStringLiteral("%1").arg(security.kernelDebuggerNotPresent));
 
-    lines << QStringLiteral("=== Hyper-V summary ===");
+
+    lines.section(QStringLiteral("Hyper-V summary"));
     if (!snapshot.hyperV.io.ok)
     {
-        lines << (snapshot.hyperV.unsupported
+        lines.note((snapshot.hyperV.unsupported
             ? QStringLiteral("unsupported by current driver")
             : QStringLiteral("query failed: %1")
-                .arg(QString::fromStdString(snapshot.hyperV.io.message)));
+                .arg(QString::fromStdString(snapshot.hyperV.io.message))));
     }
     else
     {
         const auto& hyperV = snapshot.hyperV.response;
-        lines << QStringLiteral("hypervisorPresent = %1  vendor = %2")
-            .arg(moduleStateText(hyperV.hypervisorPresent))
-            .arg(fixedWide(hyperV.hypervisorVendor, sizeof(hyperV.hypervisorVendor) / sizeof(wchar_t)));
-        lines << QStringLiteral("winhv.sys = %1  winhvr.sys = %2  hvloader.sys = %3")
-            .arg(moduleStateText(hyperV.winHvStatus))
-            .arg(moduleStateText(hyperV.winHvRuntimeStatus))
-            .arg(moduleStateText(hyperV.hvLoaderStatus));
-        lines << QStringLiteral("vmbus = %1  vmswitch = %2  vpci = %3  hvsocket = %4")
-            .arg(moduleStateText(hyperV.vmbusStatus))
-            .arg(moduleStateText(hyperV.vSwitchStatus))
-            .arg(moduleStateText(hyperV.vPciStatus))
-            .arg(moduleStateText(hyperV.hvSocketStatus));
-        lines << QStringLiteral("rootPartitionStatus = %1  moduleQueryStatus = %2")
-            .arg(moduleStateText(hyperV.rootPartitionStatus))
-            .arg(ntStatusText(hyperV.moduleQueryStatus));
+        lines.field(QStringLiteral("hypervisorPresent"), QStringLiteral("%1").arg(moduleStateText(hyperV.hypervisorPresent)));
+        lines.field(QStringLiteral("vendor"), QStringLiteral("%1").arg(fixedWide(hyperV.hypervisorVendor, sizeof(hyperV.hypervisorVendor) / sizeof(wchar_t))));
+        lines.field(QStringLiteral("winhv.sys"), QStringLiteral("%1").arg(moduleStateText(hyperV.winHvStatus)));
+        lines.field(QStringLiteral("winhvr.sys"), QStringLiteral("%1").arg(moduleStateText(hyperV.winHvRuntimeStatus)));
+        lines.field(QStringLiteral("hvloader.sys"), QStringLiteral("%1").arg(moduleStateText(hyperV.hvLoaderStatus)));
+        lines.field(QStringLiteral("vmbus"), QStringLiteral("%1").arg(moduleStateText(hyperV.vmbusStatus)));
+        lines.field(QStringLiteral("vmswitch"), QStringLiteral("%1").arg(moduleStateText(hyperV.vSwitchStatus)));
+        lines.field(QStringLiteral("vpci"), QStringLiteral("%1").arg(moduleStateText(hyperV.vPciStatus)));
+        lines.field(QStringLiteral("hvsocket"), QStringLiteral("%1").arg(moduleStateText(hyperV.hvSocketStatus)));
+        lines.field(QStringLiteral("rootPartitionStatus"), QStringLiteral("%1").arg(moduleStateText(hyperV.rootPartitionStatus)));
+        lines.field(QStringLiteral("moduleQueryStatus"), QStringLiteral("%1").arg(ntStatusText(hyperV.moduleQueryStatus)));
     }
 
-    return lines.join(QLatin1Char('\n'));
+    return lines;
 }
 
 QString KernelVbsPostureTab::codeIntegrityOptionText(const std::uint32_t options)

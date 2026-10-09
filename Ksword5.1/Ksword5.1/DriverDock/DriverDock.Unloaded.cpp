@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "DriverDock.Internal.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -864,43 +865,27 @@ void DriverDock::showSelectedUnloadedPiddbDetailDialog()
     const ksword::ark::UnloadedDriverEntry& row =
         m_unloadedDriverCache[static_cast<std::size_t>(cacheIndex)];
     const auto cells = displayCells(row);
-    QString detail;
-    detail += driverText(
-        "driver.unloaded.detail.title",
-        QStringLiteral("已卸载驱动只读详情\n"));
-    detail += QStringLiteral("Source: %1 (%2)\n")
-        .arg(sourceName(row.source))
-        .arg(row.source);
-    detail += QStringLiteral("EntryAddress: %1\n")
-        .arg(fixedHex64(row.entryAddress));
-    detail += QStringLiteral("Flags: %1\n")
-        .arg(fixedHex32(row.flags));
-    detail += QStringLiteral("Name: %1\n")
-        .arg(cells[columnIndex(UnloadedColumn::Name)]);
-    detail += QStringLiteral("BaseAddress: %1\n")
-        .arg(cells[columnIndex(UnloadedColumn::Base)]);
-    detail += QStringLiteral("ImageSize: %1\n")
-        .arg(cells[columnIndex(UnloadedColumn::Size)]);
-    detail += QStringLiteral("TimeDateStamp: %1\n")
-        .arg(cells[columnIndex(UnloadedColumn::TimeDateStamp)]);
-    detail += QStringLiteral("LoadStatus: %1\n")
-        .arg(cells[columnIndex(UnloadedColumn::LoadStatus)]);
-    detail += QStringLiteral("UnloadTime: %1\n")
-        .arg(cells[columnIndex(UnloadedColumn::UnloadTime)]);
+    ks::ui::FieldDocument detail;
+    detail.note(QStringLiteral("已卸载驱动只读详情"));
+    detail.field(QStringLiteral("Source"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(sourceName(row.source))).arg(QStringLiteral("%1").arg(row.source)));
+    detail.field(QStringLiteral("EntryAddress"), QStringLiteral("%1").arg(fixedHex64(row.entryAddress)));
+    detail.field(QStringLiteral("Flags"), QStringLiteral("%1").arg(fixedHex32(row.flags)));
+    detail.field(QStringLiteral("Name"), QStringLiteral("%1").arg(cells[columnIndex(UnloadedColumn::Name)]));
+    detail.field(QStringLiteral("BaseAddress"), QStringLiteral("%1").arg(cells[columnIndex(UnloadedColumn::Base)]));
+    detail.field(QStringLiteral("ImageSize"), QStringLiteral("%1").arg(cells[columnIndex(UnloadedColumn::Size)]));
+    detail.field(QStringLiteral("TimeDateStamp"), QStringLiteral("%1").arg(cells[columnIndex(UnloadedColumn::TimeDateStamp)]));
+    detail.field(QStringLiteral("LoadStatus"), QStringLiteral("%1").arg(cells[columnIndex(UnloadedColumn::LoadStatus)]));
+    detail.field(QStringLiteral("UnloadTime"), QStringLiteral("%1").arg(cells[columnIndex(UnloadedColumn::UnloadTime)]));
     if ((row.flags &
             KSWORD_ARK_UNLOADED_DRIVER_ROW_FLAG_HAS_UNLOAD_TIME) != 0U)
     {
-        detail += QStringLiteral("UnloadTimeRaw: %1\n")
-            .arg(fixedHex64(row.unloadTime));
+        detail.field(QStringLiteral("UnloadTimeRaw"), QStringLiteral("%1").arg(fixedHex64(row.unloadTime)));
     }
-    detail += QStringLiteral("QueryStatus: %1\n")
-        .arg(m_lastUnloadedDriverResult.queryStatus);
-    detail += QStringLiteral("ResponseFlags: %1\n")
-        .arg(fixedHex32(m_lastUnloadedDriverResult.responseFlags));
-    detail += QStringLiteral("LastStatus: %1\n")
-        .arg(fixedHex32(
+    detail.field(QStringLiteral("QueryStatus"), QStringLiteral("%1").arg(m_lastUnloadedDriverResult.queryStatus));
+    detail.field(QStringLiteral("ResponseFlags"), QStringLiteral("%1").arg(fixedHex32(m_lastUnloadedDriverResult.responseFlags)));
+    detail.field(QStringLiteral("LastStatus"), QStringLiteral("%1").arg(fixedHex32(
             static_cast<std::uint32_t>(
-                m_lastUnloadedDriverResult.lastStatus)));
+                m_lastUnloadedDriverResult.lastStatus))));
 
     QDialog dialog(this);
     dialog.setObjectName(
@@ -916,9 +901,9 @@ void DriverDock::showSelectedUnloadedPiddbDetailDialog()
     layout->setContentsMargins(10, 10, 10, 10);
     layout->setSpacing(8);
 
-    CodeEditorWidget* editor = new CodeEditorWidget(&dialog);
-    editor->setReadOnly(true);
-    editor->setText(detail);
+    ks::ui::StructuredFieldView* editor = new ks::ui::StructuredFieldView(&dialog);
+
+    editor->setDocument(detail);
     layout->addWidget(editor, 1);
 
     QDialogButtonBox* buttonBox =
@@ -931,7 +916,7 @@ void DriverDock::showSelectedUnloadedPiddbDetailDialog()
     connect(copyButton, &QPushButton::clicked, &dialog, [editor]() {
         if (editor != nullptr && QGuiApplication::clipboard() != nullptr)
         {
-            QGuiApplication::clipboard()->setText(editor->text());
+            QGuiApplication::clipboard()->setText(editor->plainText());
         }
     });
     connect(

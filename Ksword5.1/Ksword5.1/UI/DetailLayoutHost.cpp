@@ -41,17 +41,10 @@ namespace
             : QStringLiteral(":/Icon/detail_node_collapsed.svg"));
     }
 
-    // 保留现有迁移语义：报告镜像沿用报告外壳，原始字节/日志继续用原文模式。
-    void setMirrorText(CodeEditorWidget* target, CodeEditorWidget* source, const QString& text)
+    // This branch serves actual text documents and logs only.
+    void setMirrorText(CodeEditorWidget* target, CodeEditorWidget*, const QString& text)
     {
-        if (source != nullptr && source->isReportText())
-        {
-            target->setReportText(text);
-        }
-        else
-        {
-            target->setRawText(text);
-        }
+        target->setRawText(text);
     }
 
     CodeEditorWidget* createReadOnlyInlineEditor(
@@ -90,6 +83,27 @@ ks::ui::DetailLayoutHost::DetailLayoutHost(
       m_tableView(tableView),
       m_detailEditor(detailEditor),
       m_ownerWidget(ownerWidget)
+{
+    m_explicitBinding = true;
+    bindPanels(binding);
+    initializeConnections();
+    scheduleHostUiInitialization();
+    m_constructing = false;
+}
+
+ks::ui::DetailLayoutHost::DetailLayoutHost(
+    QAbstractItemView* view, StructuredFieldView* fields, QWidget* owner)
+    : QObject(owner), m_tableView(view), m_structuredView(fields), m_ownerWidget(owner)
+{
+    initializeConnections();
+    scheduleHostUiInitialization();
+    m_constructing = false;
+}
+
+ks::ui::DetailLayoutHost::DetailLayoutHost(
+    QAbstractItemView* view, StructuredFieldView* fields, QWidget* owner,
+    const DetailPaneBinding& binding)
+    : QObject(owner), m_tableView(view), m_structuredView(fields), m_ownerWidget(owner)
 {
     m_explicitBinding = true;
     bindPanels(binding);
@@ -192,7 +206,7 @@ void ks::ui::DetailLayoutHost::ensureManagedSplitter()
         return;
     }
     if (m_requestedSplitter.isNull() || m_requestedMainPane.isNull()
-        || m_requestedDetailPane.isNull() || m_tableView.isNull() || m_detailEditor.isNull())
+        || m_requestedDetailPane.isNull() || m_tableView.isNull() || (detailWidget() == nullptr))
     {
         return;
     }
@@ -203,7 +217,7 @@ void ks::ui::DetailLayoutHost::ensureManagedSplitter()
         || detailPane->parentWidget() != splitter || splitter->indexOf(mainPane) != 0
         || (splitter->indexOf(detailPane) != 1 && splitter->indexOf(detailPane) != 2)
         || (mainPane != m_tableView && !mainPane->isAncestorOf(m_tableView.data()))
-        || (detailPane != m_detailEditor && !detailPane->isAncestorOf(m_detailEditor.data())))
+        || (detailPane != detailWidget() && !detailPane->isAncestorOf(detailWidget())))
     {
         return;
     }
@@ -215,8 +229,8 @@ void ks::ui::DetailLayoutHost::ensureManagedSplitter()
     m_splitter = splitter;
     m_tablePane = mainPane;
     m_detailPane = detailPane;
-    m_detailEditor->setMinimumHeight(0);
-    m_detailEditor->setMaximumHeight(QWIDGETSIZE_MAX);
+    detailWidget()->setMinimumHeight(0);
+    detailWidget()->setMaximumHeight(QWIDGETSIZE_MAX);
 }
 
 void ks::ui::DetailLayoutHost::handleViewClicked(
@@ -290,10 +304,23 @@ void ks::ui::DetailLayoutHost::handleDetailChanged(const QString& detailText)
     }
 }
 
+void ks::ui::DetailLayoutHost::handleFieldDocumentChanged()
+{
+    if (m_structuredView.isNull()) return;
+    const auto document = m_structuredView->document();
+    if (!m_floatingFields.isNull()) m_floatingFields->setDocument(document);
+    if (m_scheme != ks::settings::DetailDisplayScheme::Embedded || m_tableView.isNull()) return;
+    const QModelIndex current = m_tableView->currentIndex();
+    const QPersistentModelIndex row(current.isValid() ? current.sibling(current.row(), 0) : QModelIndex());
+    for (auto& entry : m_embeddedEntries)
+        if (!entry.fieldView.isNull() && entry.sourceIndex.isValid() && entry.sourceIndex == row)
+            entry.fieldView->setDocument(document);
+}
+
 void ks::ui::DetailLayoutHost::toggleEmbeddedDetail(
     const QPersistentModelIndex& sourceIndex)
 {
-    if (!sourceIndex.isValid() || m_detailEditor.isNull())
+    if (!sourceIndex.isValid() || (detailWidget() == nullptr))
     {
         return;
     }
@@ -305,11 +332,11 @@ void ks::ui::DetailLayoutHost::toggleEmbeddedDetail(
 
     if (qobject_cast<QTableView*>(m_tableView.data()) != nullptr)
     {
-        insertTableEmbeddedDetail(sourceIndex, m_detailEditor->text());
+        insertTableEmbeddedDetail(sourceIndex, m_detailEditor.isNull() ? QString() : m_detailEditor->text());
     }
     else if (qobject_cast<QTreeWidget*>(m_tableView.data()) != nullptr)
     {
-        insertTreeEmbeddedDetail(sourceIndex, m_detailEditor->text());
+        insertTreeEmbeddedDetail(sourceIndex, m_detailEditor.isNull() ? QString() : m_detailEditor->text());
     }
 }
 
@@ -333,10 +360,24 @@ void ks::ui::DetailLayoutHost::insertTableEmbeddedDetail(
 
     // 先安装包装 delegate 并登记原始高度，再增大行高，避免一次重绘中把源文本画入详情区。
     installEmbeddedRowDelegate();
-    CodeEditorWidget* textEditor = createReadOnlyInlineEditor(tableWidget->viewport(), m_detailEditor.data(), detailText);
     EmbeddedEntry entry;
+    QWidget* textEditor = nullptr;
+    if (!m_structuredView.isNull())
+    {
+        auto* fields = new StructuredFieldView(tableWidget->viewport());
+        fields->setPresentation(m_structuredView->presentation());
+        fields->setDocument(m_structuredView->document());
+        entry.fieldView = fields;
+        textEditor = fields;
+    }
+    else
+    {
+        auto* editor = createReadOnlyInlineEditor(tableWidget->viewport(), m_detailEditor.data(), detailText);
+        entry.textEditor = editor;
+        textEditor = editor;
+    }
     entry.sourceIndex = sourceIndex;
-    entry.textEditor = textEditor;
+    entry.editorWidget = textEditor;
     entry.originalRowHeight = originalHeight;
     entry.detailHeight = inlineDetailHeight;
     m_embeddedEntries.append(entry);
@@ -366,10 +407,24 @@ void ks::ui::DetailLayoutHost::insertTreeEmbeddedDetail(
 
     // 树节点同样先登记裁剪高度，再改变 size hint，保证首次重绘也使用原始行高。
     installEmbeddedRowDelegate();
-    CodeEditorWidget* textEditor = createReadOnlyInlineEditor(treeWidget->viewport(), m_detailEditor.data(), detailText);
     EmbeddedEntry entry;
+    QWidget* textEditor = nullptr;
+    if (!m_structuredView.isNull())
+    {
+        auto* fields = new StructuredFieldView(treeWidget->viewport());
+        fields->setPresentation(m_structuredView->presentation());
+        fields->setDocument(m_structuredView->document());
+        entry.fieldView = fields;
+        textEditor = fields;
+    }
+    else
+    {
+        auto* editor = createReadOnlyInlineEditor(treeWidget->viewport(), m_detailEditor.data(), detailText);
+        entry.textEditor = editor;
+        textEditor = editor;
+    }
     entry.sourceIndex = sourceIndex;
-    entry.textEditor = textEditor;
+    entry.editorWidget = textEditor;
     entry.treeSourceItem = sourceItem;
     entry.originalRowHeight = originalHeight;
     entry.detailHeight = inlineDetailHeight;
@@ -394,9 +449,9 @@ bool ks::ui::DetailLayoutHost::removeEmbeddedEntry(
         }
 
         restoreEmbeddedEntryLayout(entry);
-        if (!entry.textEditor.isNull())
+        if (!entry.editorWidget.isNull())
         {
-            delete entry.textEditor.data();
+            delete entry.editorWidget.data();
         }
         m_embeddedEntries.removeAt(entryIndex);
         if (m_embeddedEntries.isEmpty())
@@ -430,9 +485,9 @@ void ks::ui::DetailLayoutHost::clearEmbeddedDetails()
         {
             return;
         }
-        if (!entry.textEditor.isNull())
+        if (!entry.editorWidget.isNull())
         {
-            delete entry.textEditor.data();
+            delete entry.editorWidget.data();
         }
         if (self.isNull())
         {
@@ -582,14 +637,14 @@ void ks::ui::DetailLayoutHost::updateEmbeddedEditorGeometries()
     };
     for (const EmbeddedEntry& entry : entries)
     {
-        if (entry.textEditor.isNull() || !entry.sourceIndex.isValid())
+        if (entry.editorWidget.isNull() || !entry.sourceIndex.isValid())
         {
             continue;
         }
         QRect itemRect = m_tableView->visualRect(entry.sourceIndex);
         if (!itemRect.isValid() || itemRect.height() <= 0 || !viewport->rect().intersects(itemRect))
         {
-            entry.textEditor->setVisible(false);
+            entry.editorWidget->setVisible(false);
             if (!current())
             {
                 return;
@@ -605,32 +660,32 @@ void ks::ui::DetailLayoutHost::updateEmbeddedEditorGeometries()
         editorRect.setBottom(qMin(itemRect.bottom(), editorRect.top() + detailHeight - 1));
         if (editorRect.height() <= 0)
         {
-            entry.textEditor->setVisible(false);
+            entry.editorWidget->setVisible(false);
             if (!current())
             {
                 return;
             }
             continue;
         }
-        entry.textEditor->setGeometry(editorRect);
+        entry.editorWidget->setGeometry(editorRect);
         if (!current())
         {
             return;
         }
-        if (entry.textEditor.isNull())
+        if (entry.editorWidget.isNull())
         {
             continue;
         }
-        entry.textEditor->setVisible(true);
+        entry.editorWidget->setVisible(true);
         if (!current())
         {
             return;
         }
-        if (entry.textEditor.isNull())
+        if (entry.editorWidget.isNull())
         {
             continue;
         }
-        entry.textEditor->raise();
+        entry.editorWidget->raise();
         if (!current())
         {
             return;
@@ -829,7 +884,7 @@ void ks::ui::DetailLayoutHost::setSourceExpandedIndicator(
 
 void ks::ui::DetailLayoutHost::showFloatingWindow()
 {
-    if (m_detailEditor.isNull() || m_ownerWidget.isNull())
+    if ((detailWidget() == nullptr) || m_ownerWidget.isNull())
     {
         return;
     }
@@ -851,9 +906,23 @@ void ks::ui::DetailLayoutHost::showFloatingWindow()
 
         QVBoxLayout* windowLayout = new QVBoxLayout(detailWindow);
         windowLayout->setContentsMargins(8, 8, 8, 8);
-        CodeEditorWidget* floatingEditor = new CodeEditorWidget(detailWindow);
-        floatingEditor->setReadOnly(true);
-        setMirrorText(floatingEditor, m_detailEditor.data(), m_detailEditor->text());
+        QWidget* floatingEditor = nullptr;
+        if (!m_structuredView.isNull())
+        {
+            auto* fields = new StructuredFieldView(detailWindow);
+            fields->setPresentation(m_structuredView->presentation());
+            fields->setDocument(m_structuredView->document());
+            m_floatingFields = fields;
+            floatingEditor = fields;
+        }
+        else
+        {
+            auto* editor = new CodeEditorWidget(detailWindow);
+            editor->setReadOnly(true);
+            setMirrorText(editor, m_detailEditor.data(), m_detailEditor->text());
+            m_floatingEditor = editor;
+            floatingEditor = editor;
+        }
         windowLayout->addWidget(floatingEditor, 1);
 
         QScreen* targetScreen = m_ownerWidget->screen();
@@ -875,7 +944,11 @@ void ks::ui::DetailLayoutHost::showFloatingWindow()
 
         detailWindow->installEventFilter(this);
         m_floatingWindow = detailWindow;
-        m_floatingEditor = floatingEditor;
+
+    }
+    else if (!m_floatingFields.isNull() && !m_structuredView.isNull())
+    {
+        m_floatingFields->setDocument(m_structuredView->document());
     }
     else if (!m_floatingEditor.isNull())
     {
@@ -919,6 +992,7 @@ void ks::ui::DetailLayoutHost::destroyFloatingWindow()
 {
     // 先解除成员关联，close 的同步回调即使删除宿主也不再访问成员。
     const QPointer<QDialog> window = m_floatingWindow;
+    m_floatingFields.clear();
     m_floatingEditor.clear();
     m_floatingWindow.clear();
     if (!window.isNull())

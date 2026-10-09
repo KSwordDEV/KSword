@@ -3,28 +3,28 @@
 // ============================================================
 // MonitorTextViewer.h
 // 作用：
-// 1) 提供监控模块统一的只读文本查看窗口；
-// 2) 复用 CodeEditorWidget，展示 ETW/WMI/进程定向监控等文本详情；
-// 3) 避免每个 Dock 各自重复实现“文本详情弹窗”。
+// 1) 提供监控模块统一的原生属性查看窗口；
+// 2) 字段模型承载生成的事件属性，原始数据使用独立只读页；
+// 3) 避免每个 Dock 各自重复实现“属性详情弹窗”。
 // ============================================================
 
 #include <QString>
+#include "../UI/StructuredFieldView.h"
 
 class QWidget;
 
 namespace monitor_text_viewer
 {
-    // showReadOnlyTextWindow：
-    // - 作用：弹出非模态的只读文本编辑器窗口；
-    // - 调用：监控模块查看 ETW 详情、事件原始文本、导出前预览等场景复用；
-    // - 传入 parentWidget：父窗口；
-    // - 传入 titleText：窗口标题；
-    // - 传入 contentText：正文内容；
-    // - 传入 virtualPathText：虚拟路径/来源标签，可为空；
-    // - 传出：无，直接显示窗口。
-    void showReadOnlyTextWindow(
-        QWidget* parentWidget,
-        const QString& titleText,
-        const QString& contentText,
-        const QString& virtualPathText = QString());
+    // Native metadata and a genuine provider payload are separate parts of one snapshot.
+    struct MonitorDocument {
+        ks::ui::FieldDocument fields;
+        QString rawPayload;
+        QString toPlainText(bool localize = true) const;
+        bool isEmpty() const { return fields.isEmpty() && rawPayload.isEmpty(); }
+    };
+    void showReadOnlyDocumentWindow(QWidget* parentWidget, const QString& titleText,
+        const MonitorDocument& document, const QString& virtualPathText = QString());
+    void showReadOnlyDocumentWindow(QWidget* parentWidget, const QString& titleText,
+        const ks::ui::FieldDocument& document, const QString& virtualPathText = QString());
+
 }

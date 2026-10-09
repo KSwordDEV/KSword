@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "DriverDock.Internal.h"
 #include "DriverDock.ModuleDumpFile.h"
 #include "../MemoryDock/MemoryAccessBackend.h"
@@ -16,6 +17,92 @@ using namespace ksword::driver_dock_internal;
 
 namespace
 {
+    ks::ui::FieldDocument imageSignatureDocument(const ksword::ark::ImageSignatureQueryResult& result)
+    {
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("R0 direct PE Security Directory"));
+        document.note(QStringLiteral("WinTrust not used"));
+        document.field(QStringLiteral("communication.ok"), result.io.ok ? QStringLiteral("true") : QStringLiteral("false"));
+        document.field(QStringLiteral("communication.win32_error"), QString::number(result.io.win32Error));
+        document.field(QStringLiteral("communication.bytes_returned"), QString::number(result.io.bytesReturned));
+        document.field(QStringLiteral("communication.unsupported"), result.unsupported ? QStringLiteral("true") : QStringLiteral("false"));
+        document.field(QStringLiteral("communication.detail"), QString::fromStdString(result.io.message));
+        if (!result.io.ok) return document;
+        const auto& response = result.response;
+        document.field(QStringLiteral("protocol.version"), QString::number(response.version));
+        document.field(QStringLiteral("protocol.size"), QString::number(response.size));
+        document.field(QStringLiteral("query.status"), QString::number(response.queryStatus));
+        document.field(QStringLiteral("query.flags"), QStringLiteral("0x%1").arg(response.requestFlags, 0, 16));
+        document.field(QStringLiteral("query.field_flags"), QStringLiteral("0x%1").arg(response.fieldFlags, 0, 16));
+        document.field(QStringLiteral("pe.structural_flags"), QStringLiteral("0x%1").arg(response.structuralFlags, 0, 16));
+        document.field(QStringLiteral("file.size"), QString::number(response.fileSize));
+        document.field(QStringLiteral("pe.header_offset"), QStringLiteral("0x%1").arg(response.peHeaderOffset, 0, 16));
+        document.field(QStringLiteral("pe.machine"), QStringLiteral("0x%1").arg(response.peMachine, 0, 16));
+        document.field(QStringLiteral("pe.optional_magic"), QStringLiteral("0x%1").arg(response.optionalHeaderMagic, 0, 16));
+        document.field(QStringLiteral("pe.size_of_headers"), QStringLiteral("0x%1").arg(response.sizeOfHeaders, 0, 16));
+        document.field(QStringLiteral("certificate_table.file_offset"), QStringLiteral("0x%1").arg(response.certificateTableOffset, 0, 16));
+        document.field(QStringLiteral("certificate_table.size"), QStringLiteral("0x%1").arg(response.certificateTableSize, 0, 16));
+        document.field(QStringLiteral("certificate_table.count"), QString::number(response.certificateCount));
+        document.field(QStringLiteral("certificate_table.returned_count"), QString::number(response.returnedCertificateCount));
+        document.field(QStringLiteral("certificate_table.pkcs7_count"), QString::number(response.pkcs7CertificateCount));
+        document.field(QStringLiteral("certificate_table.nested_signature_oid_count"), QString::number(response.nestedSignatureCount));
+        document.field(QStringLiteral("certificate_table.bytes_scanned"), QString::number(response.certificateBytesScanned));
+        document.field(QStringLiteral("loaded.expected_base"), QStringLiteral("0x%1").arg(response.expectedModuleBase, 0, 16));
+        document.field(QStringLiteral("loaded.matched_base"), QStringLiteral("0x%1").arg(response.matchedModuleBase, 0, 16));
+        document.field(QStringLiteral("loaded.matched_size"), QStringLiteral("0x%1").arg(response.matchedModuleSize, 0, 16));
+        document.field(QStringLiteral("ci.cached_signing_level"), QString::number(response.signingLevel));
+        document.field(QStringLiteral("ci.cached_signing_flags"), QStringLiteral("0x%1").arg(response.signingLevelFlags, 0, 16));
+        document.field(QStringLiteral("ci.thumbprint_algorithm"), QStringLiteral("0x%1").arg(response.thumbprintAlgorithm, 0, 16));
+        document.field(QStringLiteral("status.open"), QStringLiteral("0x%1").arg(static_cast<unsigned long>(response.openStatus), 8, 16, QLatin1Char('0')));
+        document.field(QStringLiteral("status.file_size"), QStringLiteral("0x%1").arg(static_cast<unsigned long>(response.fileSizeStatus), 8, 16, QLatin1Char('0')));
+        document.field(QStringLiteral("status.file_object"), QStringLiteral("0x%1").arg(static_cast<unsigned long>(response.objectStatus), 8, 16, QLatin1Char('0')));
+        document.field(QStringLiteral("status.pe_parse"), QStringLiteral("0x%1").arg(static_cast<unsigned long>(response.parseStatus), 8, 16, QLatin1Char('0')));
+        document.field(QStringLiteral("status.certificate_table"), QStringLiteral("0x%1").arg(static_cast<unsigned long>(response.certificateStatus), 8, 16, QLatin1Char('0')));
+        document.field(QStringLiteral("status.cached_signing_level"), QStringLiteral("0x%1").arg(static_cast<unsigned long>(response.signingLevelStatus), 8, 16, QLatin1Char('0')));
+        document.field(QStringLiteral("status.loaded_module_match"), QStringLiteral("0x%1").arg(static_cast<unsigned long>(response.loadedModuleStatus), 8, 16, QLatin1Char('0')));
+        document.field(QStringLiteral("pe.certificate_table_present"), (response.fieldFlags & KSWORD_ARK_IMAGE_SIGNATURE_FIELD_CERTIFICATE_TABLE) != 0 ? QStringLiteral("true") : QStringLiteral("false"));
+        document.field(QStringLiteral("pe.nested_signature_oid_present"), (response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_NESTED_SIGNATURE_PRESENT) != 0 ? QStringLiteral("true") : QStringLiteral("false"));
+        document.field(QStringLiteral("loaded.module_base_match"), (response.fieldFlags & KSWORD_ARK_IMAGE_SIGNATURE_FIELD_LOADED_MODULE) != 0 ? QStringLiteral("true") : QStringLiteral("false"));
+        document.field(QStringLiteral("loaded.module_name_match"), (response.fieldFlags & KSWORD_ARK_IMAGE_SIGNATURE_FIELD_LOADED_MODULE_NAME_MATCH) != 0 ? QStringLiteral("true") : QStringLiteral("false"));
+        document.field(QStringLiteral("ci.cached_signing_level_present"), (response.fieldFlags & KSWORD_ARK_IMAGE_SIGNATURE_FIELD_SIGNING_LEVEL) != 0 ? QStringLiteral("true") : QStringLiteral("false"));
+        document.section(QStringLiteral("pe.structural_findings"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_CERT_TABLE_UNALIGNED) != 0) document.note(QStringLiteral("cert_table_unaligned"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_CERT_TABLE_OUT_OF_RANGE) != 0) document.note(QStringLiteral("cert_table_out_of_range"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_ENTRY_HEADER_TRUNCATED) != 0) document.note(QStringLiteral("entry_header_truncated"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_ENTRY_LENGTH_INVALID) != 0) document.note(QStringLiteral("entry_length_invalid"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_ENTRY_RANGE_INVALID) != 0) document.note(QStringLiteral("entry_range_invalid"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_UNKNOWN_REVISION) != 0) document.note(QStringLiteral("unknown_revision"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_UNKNOWN_TYPE) != 0) document.note(QStringLiteral("unknown_certificate_type"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_ENTRY_OUTPUT_TRUNCATED) != 0) document.note(QStringLiteral("entry_output_truncated"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_TRAILING_BYTES) != 0) document.note(QStringLiteral("trailing_bytes"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_CERT_PADDING_NONZERO) != 0) document.note(QStringLiteral("certificate_padding_nonzero"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_SCAN_LIMIT_REACHED) != 0) document.note(QStringLiteral("scan_limit_reached"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_NESTED_SIGNATURE_PRESENT) != 0) document.note(QStringLiteral("nested_signature_oid_present"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_MULTIPLE_PKCS7_ENTRIES) != 0) document.note(QStringLiteral("multiple_pkcs7_entries"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_CERTIFICATE_READ_FAILED) != 0) document.note(QStringLiteral("certificate_read_failed"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_LOADED_NAME_MISMATCH) != 0) document.note(QStringLiteral("loaded_name_mismatch"));
+        if ((response.structuralFlags & KSWORD_ARK_IMAGE_SIGNATURE_STRUCT_CERT_TABLE_OVERLAPS_HEADERS) != 0) document.note(QStringLiteral("cert_table_overlaps_headers"));
+        if (document.nodes.last().children.isEmpty()) document.note(QStringLiteral("none"));
+        const auto thumbprintSize = std::min<std::size_t>(response.thumbprintSize, sizeof(response.thumbprint));
+        document.field(QStringLiteral("ci.thumbprint"), thumbprintSize ? QString::fromLatin1(QByteArray(reinterpret_cast<const char*>(response.thumbprint), static_cast<int>(thumbprintSize)).toHex()) : QStringLiteral("<unavailable>"));
+        const auto count = std::min<std::size_t>(response.returnedCertificateCount, KSWORD_ARK_IMAGE_SIGNATURE_MAX_ENTRIES);
+        for (std::size_t index = 0; index < count; ++index) {
+            const auto& entry = response.certificates[index];
+            document.section(QStringLiteral("certificate[%1]").arg(index));
+            document.field(QStringLiteral("file_offset"), QStringLiteral("0x%1").arg(static_cast<qulonglong>(entry.fileOffset), 0, 16));
+            document.field(QStringLiteral("length"), QStringLiteral("0x%1").arg(static_cast<qulonglong>(entry.length), 0, 16));
+            document.field(QStringLiteral("aligned_length"), QStringLiteral("0x%1").arg(static_cast<qulonglong>(entry.alignedLength), 0, 16));
+            document.field(QStringLiteral("revision"), QStringLiteral("0x%1").arg(static_cast<qulonglong>(entry.revision), 0, 16));
+            document.field(QStringLiteral("type"), QStringLiteral("0x%1").arg(static_cast<qulonglong>(entry.certificateType), 0, 16));
+            document.field(QStringLiteral("flags"), QStringLiteral("0x%1").arg(static_cast<qulonglong>(entry.flags), 0, 16));
+            document.field(QStringLiteral("content_fnv1a64_noncrypto"), QStringLiteral("0x%1").arg(static_cast<qulonglong>(entry.contentHashFnv1a64), 0, 16));
+            document.field(QStringLiteral("nested_signature_oid_count"), QString::number(entry.nestedSignatureCount));
+            document.field(QStringLiteral("content_bytes_scanned"), QString::number(entry.contentBytesScanned));
+            document.field(QStringLiteral("read_status"), QStringLiteral("0x%1").arg(static_cast<unsigned long>(entry.readStatus), 8, 16, QLatin1Char('0')));
+        }
+        return document;
+    }
+
     bool openDriverBingSearch(
         const QString& driverName,
         const QString& driverImagePath)
@@ -2861,7 +2948,7 @@ void DriverDock::showModuleTableContextMenu(const QPoint& localPosition)
         showSelectedModuleEvidenceDetail();
         if (m_moduleEvidenceDetailEditor != nullptr && QGuiApplication::clipboard() != nullptr)
         {
-            QGuiApplication::clipboard()->setText(m_moduleEvidenceDetailEditor->text());
+            QGuiApplication::clipboard()->setText(m_moduleEvidenceDetailEditor->plainText());
         }
         return;
     }
@@ -3242,41 +3329,46 @@ void DriverDock::querySelectedModuleKernelSignature()
     }
     if (m_moduleEvidenceDetailEditor != nullptr)
     {
-        m_moduleEvidenceDetailEditor->setLocalizedText(
-            QStringLiteral("R0 签名证据查询中..."));
+        m_moduleEvidenceDetailEditor->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("R0 签名证据查询中...")));
     }
 
+    const std::uint64_t signatureTicket = ++m_moduleSignatureQueryTicket;
+    const std::uint64_t evidenceTicket = m_moduleEvidenceQueryTicket;
     QPointer<DriverDock> guardThis(this);
-    auto* queryTask = QRunnable::create([guardThis, moduleName, rawPath, ntPath, moduleBase]()
+    auto* queryTask = QRunnable::create([guardThis, moduleName, rawPath, ntPath, moduleBase, signatureTicket, evidenceTicket]()
         {
             const ksword::ark::ImageSignatureQueryResult signatureResult =
                 ksword::ark::DriverClient().queryImageSignature(ntPath.toStdWString(), moduleBase);
-            DriverDock* targetDock = guardThis.data();
-            if (targetDock == nullptr)
-            {
-                return;
-            }
-
             QMetaObject::invokeMethod(
-                targetDock,
-                [guardThis, moduleName, rawPath, ntPath, moduleBase, signatureResult]()
+                qApp,
+                [guardThis, moduleName, rawPath, ntPath, moduleBase, signatureTicket, evidenceTicket, signatureResult]()
                 {
-                    if (guardThis == nullptr)
+                    if (guardThis.isNull() || guardThis->m_moduleSignatureQueryTicket != signatureTicket
+                        || guardThis->m_moduleEvidenceQueryTicket != evidenceTicket)
                     {
                         return;
                     }
-                    QString report;
-                    report += QStringLiteral("[R0 内核签名证据]\n");
-                    report += QStringLiteral("模块: %1\n").arg(moduleName);
-                    report += QStringLiteral("原始路径: %1\n").arg(rawPath);
-                    report += QStringLiteral("NT 路径: %1\n").arg(ntPath);
-                    report += QStringLiteral("模块基址: %1\n\n").arg(formatCompactAddress(moduleBase));
-                    report += QString::fromStdString(ksword::ark::formatImageSignatureEvidence(signatureResult));
-                    report += QStringLiteral("\n");
-                    report += QStringLiteral("结论边界：PE 证书表结构不等于证书链可信；CI cached signing level 是独立的内核缓存结果。此查询未调用 WinTrust。已加载模块绑定仅核对枚举基址和文件名；证书表仍来自当前磁盘文件。");
+                    const int selectedRow = guardThis->m_moduleTable != nullptr ? guardThis->m_moduleTable->currentRow() : -1;
+                    const QTableWidgetItem* selectedBase = selectedRow >= 0 ? guardThis->m_moduleTable->item(selectedRow, 1) : nullptr;
+                    const QTableWidgetItem* selectedPath = selectedRow >= 0 ? guardThis->m_moduleTable->item(selectedRow, ModuleImagePathColumn) : nullptr;
+                    if (selectedBase == nullptr || selectedPath == nullptr
+                        || selectedBase->data(Qt::UserRole).toULongLong() != moduleBase
+                        || selectedPath->text().trimmed() != rawPath)
+                    {
+                        return;
+                    }
+                    ks::ui::FieldDocument report;
+                    report.section(QStringLiteral("R0 内核签名证据"));
+                    report.field(QStringLiteral("模块"), QStringLiteral("%1").arg(moduleName));
+                    report.field(QStringLiteral("原始路径"), QStringLiteral("%1").arg(rawPath));
+                    report.field(QStringLiteral("NT 路径"), QStringLiteral("%1").arg(ntPath));
+                    report.field(QStringLiteral("模块基址"), QStringLiteral("%1").arg(formatCompactAddress(moduleBase)));
+                    report.nodes += imageSignatureDocument(signatureResult).nodes;
+
+                    report.field(QStringLiteral("结论边界"), QStringLiteral("PE 证书表结构不等于证书链可信；CI cached signing level 是独立的内核缓存结果。此查询未调用 WinTrust。已加载模块绑定仅核对枚举基址和文件名；证书表仍来自当前磁盘文件。"), true);
                     if (guardThis->m_moduleEvidenceDetailEditor != nullptr)
                     {
-                        guardThis->m_moduleEvidenceDetailEditor->setLocalizedText(report);
+                        guardThis->m_moduleEvidenceDetailEditor->setDocument(report);
                     }
                     if (guardThis->m_moduleEvidenceStatusLabel != nullptr)
                     {
@@ -3535,34 +3627,28 @@ void DriverDock::applyDriverObjectQueryResult(const ksword::ark::DriverObjectQue
     if (m_objectInfoSummaryEdit != nullptr)
     {
         const QString readableIoText = describeDriverCollection(result.io);
-        QStringList summaryLines;
-        summaryLines << QStringLiteral("[DriverObject]");
-        summaryLines << driverText("driver.object.summary.io_note", QStringLiteral("IO说明: %1"))
-            .arg(readableIoText);
-        summaryLines << QStringLiteral("QueryStatus: %1").arg(driverObjectQueryStatusText(result.queryStatus));
-        summaryLines << QStringLiteral("LastStatus: %1").arg(formatNtStatusText(result.lastStatus));
-        summaryLines << QStringLiteral("DriverName: %1").arg(QString::fromStdWString(result.driverName));
-        summaryLines << QStringLiteral("ServiceKey: %1").arg(QString::fromStdWString(result.serviceKeyName));
-        summaryLines << QStringLiteral("ImagePath: %1").arg(QString::fromStdWString(result.imagePath));
-        summaryLines << QStringLiteral("DriverObject: %1").arg(formatCompactAddress(result.driverObjectAddress));
-        summaryLines << QStringLiteral("DriverStart: %1 Size=%2")
-            .arg(formatCompactAddress(result.driverStart))
-            .arg(formatHex32(result.driverSize));
-        summaryLines << QStringLiteral("DriverSection: %1").arg(formatCompactAddress(result.driverSection));
-        summaryLines << QStringLiteral("DriverUnload: %1").arg(formatCompactAddress(result.driverUnload));
-        summaryLines << QStringLiteral("Flags: %1 FieldFlags=%2")
-            .arg(formatHex32(result.driverFlags))
-            .arg(formatHex32(result.fieldFlags));
-        summaryLines << QStringLiteral("DriverStartIo: %1 (%2)")
-            .arg(result.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT
-                ? formatCompactAddress(result.startIo.address)
-                : QStringLiteral("-"))
-            .arg(driverStartIoStateText(result.startIo, result.io.ok));
-        summaryLines << QStringLiteral("MajorFunctions: %1 DeviceObjects: %2/%3")
-            .arg(result.majorFunctions.size())
-            .arg(result.devices.size())
-            .arg(result.totalDeviceCount);
-        m_objectInfoSummaryEdit->setText(summaryLines.join('\n'));
+        ks::ui::FieldDocument summary;
+        summary.section(QStringLiteral("DriverObject"));
+        summary.field(QStringLiteral("IO说明"), readableIoText);
+        summary.field(QStringLiteral("QueryStatus"), driverObjectQueryStatusText(result.queryStatus));
+        summary.field(QStringLiteral("LastStatus"), formatNtStatusText(result.lastStatus));
+        summary.field(QStringLiteral("DriverName"), QString::fromStdWString(result.driverName));
+        summary.field(QStringLiteral("ServiceKey"), QString::fromStdWString(result.serviceKeyName));
+        summary.field(QStringLiteral("ImagePath"), QString::fromStdWString(result.imagePath));
+        summary.field(QStringLiteral("DriverObject"), formatCompactAddress(result.driverObjectAddress));
+        summary.field(QStringLiteral("DriverStart"), formatCompactAddress(result.driverStart));
+        summary.field(QStringLiteral("DriverSize"), formatHex32(result.driverSize));
+        summary.field(QStringLiteral("DriverSection"), formatCompactAddress(result.driverSection));
+        summary.field(QStringLiteral("DriverUnload"), formatCompactAddress(result.driverUnload));
+        summary.field(QStringLiteral("DriverFlags"), formatHex32(result.driverFlags));
+        summary.field(QStringLiteral("FieldFlags"), formatHex32(result.fieldFlags));
+        summary.field(QStringLiteral("DriverStartIo"), result.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT
+            ? formatCompactAddress(result.startIo.address) : QStringLiteral("-"));
+        summary.field(QStringLiteral("StartIoState"), driverStartIoStateText(result.startIo, result.io.ok));
+        summary.field(QStringLiteral("MajorFunctions"), QString::number(result.majorFunctions.size()));
+        summary.field(QStringLiteral("DeviceObjects"), QString::number(result.devices.size()));
+        summary.field(QStringLiteral("TotalDeviceObjects"), QString::number(result.totalDeviceCount));
+        m_objectInfoSummaryEdit->setDocument(summary);
     }
     rebuildDriverObjectEvidenceViews();
 }
@@ -3576,8 +3662,8 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
     {
         if (m_driverObjectPageSummaryEdit != nullptr)
         {
-            m_driverObjectPageSummaryEdit->setText(
-                driverText("driver.object.page_summary.query_first", QStringLiteral("请先执行 DriverObject 查询。")));
+            m_driverObjectPageSummaryEdit->setDocument(ks::ui::FieldDocument{}.note(
+                QStringLiteral("请先执行 DriverObject 查询。")));
         }
         if (m_driverExtensionStatusLabel != nullptr)
         {
@@ -3599,21 +3685,20 @@ void DriverDock::rebuildDriverObjectEvidenceViews()
     const ksword::ark::DriverObjectQueryResult& result = m_lastDriverObjectQueryResult;
     if (m_driverObjectPageSummaryEdit != nullptr)
     {
-        QStringList lines;
-        lines << QStringLiteral("DriverObject: %1").arg(formatCompactAddress(result.driverObjectAddress));
-        lines << QStringLiteral("DriverStart: %1").arg(formatCompactAddress(result.driverStart));
-        lines << QStringLiteral("DriverSection: %1").arg(formatCompactAddress(result.driverSection));
-        lines << QStringLiteral("DriverUnload: %1").arg(formatCompactAddress(result.driverUnload));
-        lines << QStringLiteral("DriverStartIo: %1 (%2)")
-            .arg(result.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT
-                ? formatCompactAddress(result.startIo.address)
-                : QStringLiteral("-"))
-            .arg(driverStartIoStateText(result.startIo, result.io.ok));
-        lines << QStringLiteral("DriverSize: %1").arg(formatHex32(result.driverSize));
-        lines << QStringLiteral("DriverFlags: %1").arg(formatHex32(result.driverFlags));
-        lines << QStringLiteral("MajorFunctions: %1").arg(result.majorFunctions.size());
-        lines << QStringLiteral("DeviceObjects: %1/%2").arg(result.devices.size()).arg(result.totalDeviceCount);
-        m_driverObjectPageSummaryEdit->setText(lines.join('\n'));
+        ks::ui::FieldDocument summary;
+        summary.field(QStringLiteral("DriverObject"), formatCompactAddress(result.driverObjectAddress));
+        summary.field(QStringLiteral("DriverStart"), formatCompactAddress(result.driverStart));
+        summary.field(QStringLiteral("DriverSection"), formatCompactAddress(result.driverSection));
+        summary.field(QStringLiteral("DriverUnload"), formatCompactAddress(result.driverUnload));
+        summary.field(QStringLiteral("DriverStartIo"), result.startIo.state == KSWORD_ARK_DRIVER_START_IO_STATE_PRESENT
+            ? formatCompactAddress(result.startIo.address) : QStringLiteral("-"));
+        summary.field(QStringLiteral("StartIoState"), driverStartIoStateText(result.startIo, result.io.ok));
+        summary.field(QStringLiteral("DriverSize"), formatHex32(result.driverSize));
+        summary.field(QStringLiteral("DriverFlags"), formatHex32(result.driverFlags));
+        summary.field(QStringLiteral("MajorFunctions"), QString::number(result.majorFunctions.size()));
+        summary.field(QStringLiteral("DeviceObjects"), QString::number(result.devices.size()));
+        summary.field(QStringLiteral("TotalDeviceObjects"), QString::number(result.totalDeviceCount));
+        m_driverObjectPageSummaryEdit->setDocument(summary);
     }
 
     if (m_driverObjectEvidenceTable != nullptr)

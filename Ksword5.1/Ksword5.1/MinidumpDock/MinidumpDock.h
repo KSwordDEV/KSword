@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -97,7 +98,7 @@ private:
 
     // buildReportText 作用：把解析结果拼成全文报告（中文规范文本）。
     // 参数 result：解析结果；返回值：报告文本。实现位于 MinidumpDock.Tables.cpp。
-    QString buildReportText(const ks::minidump::DumpParseResult& result) const;
+    ks::ui::FieldDocument buildReportText(const ks::minidump::DumpParseResult& result) const;
 
     // 以下辅助函数统一处理本地化与状态栏。
     QString translated(const char* key, const char* fallback) const;
@@ -142,7 +143,7 @@ private:
     QWidget* m_handlePage = nullptr;    // m_handlePage：句柄表的 A/B/C 包装页。
     QTabWidget* m_rawMemoryTabs = nullptr; // 已验证 TRIAGE 字节块的只读分页预览。
     DumpMemoryView* m_memoryView = nullptr; // m_memoryView：按虚拟地址重开 DMP 的只读内存查看器。
-    CodeEditorWidget* m_reportEditor = nullptr; // m_reportEditor：全文报告只读编辑器。
+    ks::ui::StructuredFieldView* m_reportEditor = nullptr; // m_reportEditor：全文报告只读编辑器。
 
     std::shared_ptr<ks::minidump::DumpParseResult> m_lastResult; // m_lastResult：语言切换时重绘的最近结果。
     QString m_statusKey;        // m_statusKey：当前状态对应的语言包键。

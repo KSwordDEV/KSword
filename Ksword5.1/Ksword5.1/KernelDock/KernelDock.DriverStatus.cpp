@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -907,91 +908,85 @@ namespace
         table->setItem(row, static_cast<int>(column), item);
     }
 
-    QString buildCapabilityDetail(const KernelDriverCapabilityEntry& entry, const KernelDriverStatusSummary& summary)
+    ks::ui::FieldDocument buildCapabilityDetail(const KernelDriverCapabilityEntry& entry, const KernelDriverStatusSummary& summary)
     {
-        QStringList lines;
-        lines << kernelText("kernel.driver_status.detail.feature", QStringLiteral("功能: %1")).arg(safeText(entry.featureNameText));
-        lines << QStringLiteral("FeatureId: %1").arg(entry.featureId);
-        lines << kernelText("kernel.driver_status.detail.state", QStringLiteral("状态: %1")).arg(stateText(entry.state, entry.stateNameText));
-        lines << kernelText("kernel.driver_status.detail.feature_flags", QStringLiteral("功能标志: %1 (%2)")).arg(formatHex32(entry.flags), featureFlagText(entry.flags));
-        lines << QStringLiteral("");
-        lines << kernelText("kernel.driver_status.detail.dependencies", QStringLiteral("依赖字段: %1")).arg(safeText(entry.dependencyText, QStringLiteral("None")));
-        lines << kernelText("kernel.driver_status.detail.reason", QStringLiteral("状态原因: %1")).arg(safeText(entry.reasonText, QStringLiteral("Feature is available.")));
-        lines << QStringLiteral("");
-        lines << kernelText("kernel.driver_status.detail.required_policy", QStringLiteral("所需安全策略: %1 (%2)")).arg(formatHex32(entry.requiredPolicyFlags), policyNames(entry.requiredPolicyFlags));
-        lines << kernelText("kernel.driver_status.detail.denied_policy", QStringLiteral("被拒绝策略位: %1 (%2)")).arg(formatHex32(entry.deniedPolicyFlags), policyNames(entry.deniedPolicyFlags));
-        lines << kernelText("kernel.driver_status.detail.required_capability", QStringLiteral("所需 DynData capability: %1 (%2)")).arg(formatHex64(entry.requiredDynDataMask), capabilityNames(entry.requiredDynDataMask));
-        lines << kernelText("kernel.driver_status.detail.present_capability", QStringLiteral("已满足 DynData capability: %1 (%2)")).arg(formatHex64(entry.presentDynDataMask), capabilityNames(entry.presentDynDataMask));
-        lines << kernelText("kernel.driver_status.detail.global_capability", QStringLiteral("全局 DynData capability: %1 (%2)")).arg(formatHex64(summary.dynDataCapabilityMask), capabilityNames(summary.dynDataCapabilityMask));
-        lines << QStringLiteral("");
-        lines << kernelText("kernel.driver_status.detail.current_kernel", QStringLiteral("当前内核: %1")).arg(kernelIdentityText(summary));
-        lines << kernelText("kernel.driver_status.detail.recognized_version", QStringLiteral("识别版本: %1")).arg(kernelVersionText(summary));
-        lines << kernelText("kernel.driver_status.detail.local_pdb", QStringLiteral("本地 PDB profile: %1")).arg(localPdbProfileText(summary));
-        lines << kernelText("kernel.driver_status.detail.active_process_links", QStringLiteral("ActiveProcessLinks 偏移: %1")).arg(activeProcessLinksOffsetText(summary));
-        lines << kernelText("kernel.driver_status.detail.trusted_offsets", QStringLiteral("可信偏移: %1")).arg(trustedOffsetText(summary));
-        lines << kernelText("kernel.driver_status.detail.field_coverage", QStringLiteral("字段覆盖: %1")).arg(fieldCoverageText(summary));
-        lines << kernelText("kernel.driver_status.detail.field_sources", QStringLiteral("字段来源: %1")).arg(fieldSourceSummaryText(summary));
-        lines << QStringLiteral("");
-        lines << kernelText("kernel.driver_status.detail.driver_status", QStringLiteral("驱动状态: %1")).arg(statusBadges(summary));
-        lines << kernelText("kernel.driver_status.detail.last_r0_error", QStringLiteral("最近 R0 错误: %1 / %2 / %3"))
-            .arg(formatNtStatus(summary.lastErrorStatus))
-            .arg(safeText(summary.lastErrorSourceText, QStringLiteral("None")))
-            .arg(safeText(summary.lastErrorSummaryText, QStringLiteral("None")));
-        return lines.join(QStringLiteral("\n"));
+        ks::ui::FieldDocument lines;
+        lines.field(QStringLiteral("功能"), QStringLiteral("%1").arg(safeText(entry.featureNameText)));
+        lines.field(QStringLiteral("FeatureId"), QStringLiteral("%1").arg(entry.featureId));
+        lines.field(QStringLiteral("状态"), QStringLiteral("%1").arg(stateText(entry.state, entry.stateNameText)));
+        lines.field(QStringLiteral("功能标志"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(formatHex32(entry.flags))).arg(QStringLiteral("%1").arg(featureFlagText(entry.flags))));
+
+        lines.field(QStringLiteral("依赖字段"), QStringLiteral("%1").arg(safeText(entry.dependencyText, QStringLiteral("None"))));
+        lines.field(QStringLiteral("状态原因"), QStringLiteral("%1").arg(safeText(entry.reasonText, QStringLiteral("Feature is available."))));
+
+        lines.field(QStringLiteral("所需安全策略"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(formatHex32(entry.requiredPolicyFlags))).arg(QStringLiteral("%1").arg(policyNames(entry.requiredPolicyFlags))));
+        lines.field(QStringLiteral("被拒绝策略位"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(formatHex32(entry.deniedPolicyFlags))).arg(QStringLiteral("%1").arg(policyNames(entry.deniedPolicyFlags))));
+        lines.field(QStringLiteral("所需 DynData capability"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(formatHex64(entry.requiredDynDataMask))).arg(QStringLiteral("%1").arg(capabilityNames(entry.requiredDynDataMask))));
+        lines.field(QStringLiteral("已满足 DynData capability"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(formatHex64(entry.presentDynDataMask))).arg(QStringLiteral("%1").arg(capabilityNames(entry.presentDynDataMask))));
+        lines.field(QStringLiteral("全局 DynData capability"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(formatHex64(summary.dynDataCapabilityMask))).arg(QStringLiteral("%1").arg(capabilityNames(summary.dynDataCapabilityMask))));
+
+        lines.field(QStringLiteral("当前内核"), QStringLiteral("%1").arg(kernelIdentityText(summary)));
+        lines.field(QStringLiteral("识别版本"), QStringLiteral("%1").arg(kernelVersionText(summary)));
+        lines.field(QStringLiteral("本地 PDB profile"), QStringLiteral("%1").arg(localPdbProfileText(summary)));
+        lines.field(QStringLiteral("ActiveProcessLinks 偏移"), QStringLiteral("%1").arg(activeProcessLinksOffsetText(summary)));
+        lines.field(QStringLiteral("可信偏移"), QStringLiteral("%1").arg(trustedOffsetText(summary)));
+        lines.field(QStringLiteral("字段覆盖"), QStringLiteral("%1").arg(fieldCoverageText(summary)));
+        lines.field(QStringLiteral("字段来源"), QStringLiteral("%1").arg(fieldSourceSummaryText(summary)));
+
+        lines.field(QStringLiteral("驱动状态"), QStringLiteral("%1").arg(statusBadges(summary)));
+        lines.field(QStringLiteral("最近 R0 错误"), QStringLiteral("%1 / %2 / %3").arg(QStringLiteral("%1").arg(formatNtStatus(summary.lastErrorStatus))).arg(QStringLiteral("%1").arg(safeText(summary.lastErrorSourceText, QStringLiteral("None")))).arg(QStringLiteral("%1").arg(safeText(summary.lastErrorSummaryText, QStringLiteral("None")))));
+        return lines;
     }
 
-    QString buildDriverStatusReport(const KernelDriverStatusSummary& summary, const std::vector<KernelDriverCapabilityEntry>& rows)
+    ks::ui::FieldDocument buildDriverStatusReport(const KernelDriverStatusSummary& summary, const std::vector<KernelDriverCapabilityEntry>& rows)
     {
-        QStringList lines;
-        lines << QStringLiteral("Ksword Driver Capability Diagnostic Report");
-        lines << QStringLiteral("Status: %1").arg(statusBadges(summary));
-        lines << QStringLiteral("QueryOk: %1").arg(boolText(summary.queryOk));
-        lines << QStringLiteral("IoMessage: %1").arg(safeText(summary.ioMessageText));
-        lines << QStringLiteral("CapabilityProtocolVersion: %1").arg(summary.version);
-        lines << QStringLiteral("DriverProtocolVersion: %1").arg(formatHex32(summary.driverProtocolVersion));
-        lines << QStringLiteral("ExpectedDriverProtocolVersion: %1").arg(formatHex32(KSWORD_ARK_DRIVER_PROTOCOL_VERSION));
-        lines << QStringLiteral("StatusFlags: %1").arg(formatHex32(summary.statusFlags));
-        lines << QStringLiteral("SecurityPolicyFlags: %1 (%2)").arg(formatHex32(summary.securityPolicyFlags)).arg(policyNames(summary.securityPolicyFlags));
-        lines << QStringLiteral("DynDataStatusFlags: %1 (%2)").arg(formatHex32(summary.dynDataStatusFlags)).arg(dynDataStatusText(summary.dynDataStatusFlags));
-        lines << QStringLiteral("DynDataCapabilityMask: %1 (%2)").arg(formatHex64(summary.dynDataCapabilityMask)).arg(capabilityNames(summary.dynDataCapabilityMask));
-        lines << QStringLiteral("DynDataStatusQueryOk: %1").arg(boolText(summary.dynDataStatusQueryOk));
-        lines << QStringLiteral("DynDataFieldsQueryOk: %1").arg(boolText(summary.dynDataFieldsQueryOk));
-        lines << QStringLiteral("CurrentKernel: %1").arg(kernelIdentityText(summary));
-        lines << QStringLiteral("RecognizedVersion: %1").arg(kernelVersionText(summary));
-        lines << QStringLiteral("LocalPdbProfileMatched: %1").arg(boolText(summary.localPdbProfileMatched));
-        lines << QStringLiteral("LocalPdbProfileName: %1").arg(safeText(summary.localPdbProfileNameText, QStringLiteral("None")));
-        lines << QStringLiteral("LocalPdbProfilePath: %1").arg(safeText(summary.localPdbProfilePathText, QStringLiteral("None")));
-        lines << QStringLiteral("LocalPdbProfileMessage: %1").arg(safeText(summary.localPdbProfileMessageText, QStringLiteral("None")));
-        lines << QStringLiteral("ActiveProcessLinksOffset: %1").arg(activeProcessLinksOffsetText(summary));
-        lines << QStringLiteral("CallbackProfileCoverage: %1").arg(callbackProfileCoverageText(summary));
-        lines << QStringLiteral("PdbProfileActive: %1").arg(boolText(summary.pdbProfileActive));
-        lines << QStringLiteral("CallbackProfileActive: %1").arg(boolText(summary.callbackProfileActive));
-        lines << QStringLiteral("TrustedPdbOffsetsActive: %1").arg(boolText(summary.trustedPdbOffsetsActive));
-        lines << QStringLiteral("TrustedOffsetSummary: %1").arg(trustedOffsetText(summary));
-        lines << QStringLiteral("FieldCoverage: %1").arg(fieldCoverageText(summary));
-        lines << QStringLiteral("FieldSources: %1").arg(fieldSourceSummaryText(summary));
-        lines << QStringLiteral("SystemInformerData: version=%1 length=%2")
-            .arg(summary.dynDataSystemInformerDataVersion)
-            .arg(summary.dynDataSystemInformerDataLength);
-        lines << QStringLiteral("MatchedProfile: class=%1 (%2) offset=%3 fieldsId=%4")
-            .arg(moduleClassText(summary.dynDataMatchedProfileClass))
-            .arg(summary.dynDataMatchedProfileClass)
-            .arg(formatHex32(summary.dynDataMatchedProfileOffset))
-            .arg(summary.dynDataMatchedFieldsId);
-        lines << QStringLiteral("DynDataUnavailableReason: %1").arg(safeText(summary.dynDataUnavailableReasonText, QStringLiteral("None")));
-        lines << QStringLiteral("DynDataIo: %1").arg(dynDataIoText(summary));
-        lines << QStringLiteral("LastError: %1 / %2 / %3").arg(formatNtStatus(summary.lastErrorStatus)).arg(safeText(summary.lastErrorSourceText, QStringLiteral("None"))).arg(safeText(summary.lastErrorSummaryText, QStringLiteral("None")));
-        lines << QStringLiteral("FeatureCount: returned=%1 total=%2").arg(summary.returnedFeatureCount).arg(summary.totalFeatureCount);
-        lines << QStringLiteral("\nFeatures:");
+        ks::ui::FieldDocument lines;
+        lines.note(QStringLiteral("Ksword Driver Capability Diagnostic Report"));
+        lines.field(QStringLiteral("Status"), QStringLiteral("%1").arg(statusBadges(summary)));
+        lines.field(QStringLiteral("QueryOk"), QStringLiteral("%1").arg(boolText(summary.queryOk)));
+        lines.field(QStringLiteral("IoMessage"), QStringLiteral("%1").arg(safeText(summary.ioMessageText)));
+        lines.field(QStringLiteral("CapabilityProtocolVersion"), QStringLiteral("%1").arg(summary.version));
+        lines.field(QStringLiteral("DriverProtocolVersion"), QStringLiteral("%1").arg(formatHex32(summary.driverProtocolVersion)));
+        lines.field(QStringLiteral("ExpectedDriverProtocolVersion"), QStringLiteral("%1").arg(formatHex32(KSWORD_ARK_DRIVER_PROTOCOL_VERSION)));
+        lines.field(QStringLiteral("StatusFlags"), QStringLiteral("%1").arg(formatHex32(summary.statusFlags)));
+        lines.field(QStringLiteral("SecurityPolicyFlags"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(formatHex32(summary.securityPolicyFlags))).arg(QStringLiteral("%1").arg(policyNames(summary.securityPolicyFlags))));
+        lines.field(QStringLiteral("DynDataStatusFlags"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(formatHex32(summary.dynDataStatusFlags))).arg(QStringLiteral("%1").arg(dynDataStatusText(summary.dynDataStatusFlags))));
+        lines.field(QStringLiteral("DynDataCapabilityMask"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(formatHex64(summary.dynDataCapabilityMask))).arg(QStringLiteral("%1").arg(capabilityNames(summary.dynDataCapabilityMask))));
+        lines.field(QStringLiteral("DynDataStatusQueryOk"), QStringLiteral("%1").arg(boolText(summary.dynDataStatusQueryOk)));
+        lines.field(QStringLiteral("DynDataFieldsQueryOk"), QStringLiteral("%1").arg(boolText(summary.dynDataFieldsQueryOk)));
+        lines.field(QStringLiteral("CurrentKernel"), QStringLiteral("%1").arg(kernelIdentityText(summary)));
+        lines.field(QStringLiteral("RecognizedVersion"), QStringLiteral("%1").arg(kernelVersionText(summary)));
+        lines.field(QStringLiteral("LocalPdbProfileMatched"), QStringLiteral("%1").arg(boolText(summary.localPdbProfileMatched)));
+        lines.field(QStringLiteral("LocalPdbProfileName"), QStringLiteral("%1").arg(safeText(summary.localPdbProfileNameText, QStringLiteral("None"))));
+        lines.field(QStringLiteral("LocalPdbProfilePath"), QStringLiteral("%1").arg(safeText(summary.localPdbProfilePathText, QStringLiteral("None"))));
+        lines.field(QStringLiteral("LocalPdbProfileMessage"), QStringLiteral("%1").arg(safeText(summary.localPdbProfileMessageText, QStringLiteral("None"))));
+        lines.field(QStringLiteral("ActiveProcessLinksOffset"), QStringLiteral("%1").arg(activeProcessLinksOffsetText(summary)));
+        lines.field(QStringLiteral("CallbackProfileCoverage"), QStringLiteral("%1").arg(callbackProfileCoverageText(summary)));
+        lines.field(QStringLiteral("PdbProfileActive"), QStringLiteral("%1").arg(boolText(summary.pdbProfileActive)));
+        lines.field(QStringLiteral("CallbackProfileActive"), QStringLiteral("%1").arg(boolText(summary.callbackProfileActive)));
+        lines.field(QStringLiteral("TrustedPdbOffsetsActive"), QStringLiteral("%1").arg(boolText(summary.trustedPdbOffsetsActive)));
+        lines.field(QStringLiteral("TrustedOffsetSummary"), QStringLiteral("%1").arg(trustedOffsetText(summary)));
+        lines.field(QStringLiteral("FieldCoverage"), QStringLiteral("%1").arg(fieldCoverageText(summary)));
+        lines.field(QStringLiteral("FieldSources"), QStringLiteral("%1").arg(fieldSourceSummaryText(summary)));
+        lines.field(QStringLiteral("SystemInformerData"), QStringLiteral("version=%1 length=%2").arg(QStringLiteral("%1").arg(summary.dynDataSystemInformerDataVersion)).arg(QStringLiteral("%1").arg(summary.dynDataSystemInformerDataLength)));
+        lines.field(QStringLiteral("MatchedProfile"), QStringLiteral("class=%1 (%2) offset=%3 fieldsId=%4").arg(QStringLiteral("%1").arg(moduleClassText(summary.dynDataMatchedProfileClass))).arg(QStringLiteral("%1").arg(summary.dynDataMatchedProfileClass)).arg(QStringLiteral("%1").arg(formatHex32(summary.dynDataMatchedProfileOffset))).arg(QStringLiteral("%1").arg(summary.dynDataMatchedFieldsId)));
+        lines.field(QStringLiteral("DynDataUnavailableReason"), QStringLiteral("%1").arg(safeText(summary.dynDataUnavailableReasonText, QStringLiteral("None"))));
+        lines.field(QStringLiteral("DynDataIo"), QStringLiteral("%1").arg(dynDataIoText(summary)));
+        lines.field(QStringLiteral("LastError"), QStringLiteral("%1 / %2 / %3").arg(QStringLiteral("%1").arg(formatNtStatus(summary.lastErrorStatus))).arg(QStringLiteral("%1").arg(safeText(summary.lastErrorSourceText, QStringLiteral("None")))).arg(QStringLiteral("%1").arg(safeText(summary.lastErrorSummaryText, QStringLiteral("None")))));
+        lines.field(QStringLiteral("FeatureCount"), QStringLiteral("returned=%1 total=%2").arg(QStringLiteral("%1").arg(summary.returnedFeatureCount)).arg(QStringLiteral("%1").arg(summary.totalFeatureCount)));
+        lines.section(QStringLiteral("Features"));
         for (const KernelDriverCapabilityEntry& entry : rows)
         {
-            lines << QStringLiteral("%1\t%2\tpolicy=%3\tdynRequired=%4\tdynPresent=%5\t%6\t%7")
-                .arg(safeText(entry.featureNameText)).arg(stateText(entry.state, entry.stateNameText))
-                .arg(formatHex32(entry.requiredPolicyFlags)).arg(formatHex64(entry.requiredDynDataMask))
-                .arg(formatHex64(entry.presentDynDataMask)).arg(safeText(entry.dependencyText, QStringLiteral("None")))
-                .arg(safeText(entry.reasonText, QStringLiteral("None")));
+            lines.section(QStringLiteral("Capability"));
+            lines.field(QStringLiteral("Feature"), safeText(entry.featureNameText));
+            lines.field(QStringLiteral("State"), stateText(entry.state, entry.stateNameText));
+            lines.field(QStringLiteral("PolicyFlags"), formatHex32(entry.requiredPolicyFlags));
+            lines.field(QStringLiteral("RequiredDynDataMask"), formatHex64(entry.requiredDynDataMask));
+            lines.field(QStringLiteral("PresentDynDataMask"), formatHex64(entry.presentDynDataMask));
+            lines.field(QStringLiteral("Dependency"), safeText(entry.dependencyText, QStringLiteral("None")));
+            lines.field(QStringLiteral("Reason"), safeText(entry.reasonText, QStringLiteral("None")));
         }
-        return lines.join(QStringLiteral("\n"));
+        return lines;
     }
 
     void populateSummaryTable(QTableWidget* table, const KernelDriverStatusSummary& summary, const std::size_t visibleRows)
@@ -1236,7 +1231,7 @@ namespace
             row.stateNameText = stateText(sourceEntry.state, stringToQString(sourceEntry.stateName));
             row.dependencyText = stringToQString(sourceEntry.dependencyText);
             row.reasonText = stringToQString(sourceEntry.reasonText);
-            row.detailText = buildCapabilityDetail(row, summaryOut);
+            row.detailDocument = buildCapabilityDetail(row, summaryOut);
             rowsOut.push_back(std::move(row));
         }
 
@@ -1327,9 +1322,9 @@ void KernelDock::initializeDriverStatusTab()
     m_driverCapabilityTable->setColumnWidth(static_cast<int>(DriverCapabilityColumn::Dependency), 280);
     installDriverStatusCopyMenu(m_driverCapabilityTable);
 
-    m_driverCapabilityDetailEditor = new CodeEditorWidget(lowerSplitter);
-    m_driverCapabilityDetailEditor->setReadOnly(true);
-    m_driverCapabilityDetailEditor->setText(kernelText("kernel.driver_status.detail.initial", QStringLiteral("请选择一条驱动功能能力查看依赖字段和诊断详情。")));
+    m_driverCapabilityDetailEditor = new ks::ui::StructuredFieldView(lowerSplitter);
+
+    m_driverCapabilityDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.driver_status.detail.initial", QStringLiteral("请选择一条驱动功能能力查看依赖字段和诊断详情。"))));
 
     verticalSplitter->setStretchFactor(0, 2);
     verticalSplitter->setStretchFactor(1, 5);
@@ -1341,7 +1336,7 @@ void KernelDock::initializeDriverStatusTab()
         QClipboard* clipboard = QApplication::clipboard();
         if (clipboard != nullptr)
         {
-            clipboard->setText(buildDriverStatusReport(m_driverStatusSummary, m_driverCapabilityRows));
+            clipboard->setText(buildDriverStatusReport(m_driverStatusSummary, m_driverCapabilityRows).toPlainText(true));
             m_driverStatusLabel->setText(kernelText("kernel.driver_status.status.report_copied", QStringLiteral("状态：诊断报告已复制")));
         }
     });
@@ -1396,7 +1391,7 @@ void KernelDock::refreshDriverStatusAsync()
                     guardThis->m_driverStatusSummary,
                     guardThis->m_driverCapabilityRows.size()));
                 guardThis->m_driverStatusLabel->setStyleSheet(statusLabelStyle(KswordTheme::ErrorHex()));
-                guardThis->m_driverCapabilityDetailEditor->setText(buildDriverStatusReport(guardThis->m_driverStatusSummary, guardThis->m_driverCapabilityRows));
+                guardThis->m_driverCapabilityDetailEditor->setDocument(buildDriverStatusReport(guardThis->m_driverStatusSummary, guardThis->m_driverCapabilityRows));
                 return;
             }
 
@@ -1418,7 +1413,7 @@ void KernelDock::refreshDriverStatusAsync()
             }
             else
             {
-                guardThis->m_driverCapabilityDetailEditor->setText(kernelText("kernel.driver_status.empty.filtered", QStringLiteral("当前筛选条件下没有驱动能力记录。")));
+                guardThis->m_driverCapabilityDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.driver_status.empty.filtered", QStringLiteral("当前筛选条件下没有驱动能力记录。"))));
             }
             };
 
@@ -1510,31 +1505,9 @@ void KernelDock::showDriverCapabilityDetailByCurrentRow()
     const KernelDriverCapabilityEntry* entry = currentDriverCapabilityEntry();
     if (entry == nullptr)
     {
-        m_driverCapabilityDetailEditor->setText(buildDriverStatusReport(m_driverStatusSummary, m_driverCapabilityRows));
+        m_driverCapabilityDetailEditor->setDocument(buildDriverStatusReport(m_driverStatusSummary, m_driverCapabilityRows));
         return;
     }
 
-    m_driverCapabilityDetailEditor->setText(kernelText("kernel.driver_status.detail.report", QStringLiteral(
-        "%1\n\n当前状态摘要:\n"
-        "  %2\n"
-        "  当前内核: %3\n"
-        "  识别版本: %4\n"
-        "  本地 PDB profile: %5\n"
-        "  可信偏移: %6\n"
-        "  字段覆盖: %7\n"
-        "  字段来源: %8\n"
-        "  SecurityPolicy: %9 (%10)\n"
-        "  DynDataStatus: %11 (%12)\n"
-        "  DynDataCapability: %13 (%14)")
-        .arg(entry->detailText)
-        .arg(statusBadges(m_driverStatusSummary))
-        .arg(kernelIdentityText(m_driverStatusSummary))
-        .arg(kernelVersionText(m_driverStatusSummary))
-        .arg(localPdbProfileText(m_driverStatusSummary))
-        .arg(trustedOffsetText(m_driverStatusSummary))
-        .arg(fieldCoverageText(m_driverStatusSummary))
-        .arg(fieldSourceSummaryText(m_driverStatusSummary))
-        .arg(formatHex32(m_driverStatusSummary.securityPolicyFlags)).arg(policyNames(m_driverStatusSummary.securityPolicyFlags))
-        .arg(formatHex32(m_driverStatusSummary.dynDataStatusFlags)).arg(dynDataStatusText(m_driverStatusSummary.dynDataStatusFlags))
-        .arg(formatHex64(m_driverStatusSummary.dynDataCapabilityMask)).arg(capabilityNames(m_driverStatusSummary.dynDataCapabilityMask))));
+    m_driverCapabilityDetailEditor->setDocument(entry->detailDocument);
 }

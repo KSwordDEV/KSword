@@ -26,7 +26,7 @@ $detailSources = @(
     'tools/detail_pane_tests.cpp', "$detailApp/UI/DetailLayoutHost.cpp", "$detailApp/UI/DetailLayoutHost.Binding.cpp",
     "$detailApp/UI/DetailLayoutHost.Compatibility.cpp", "$detailApp/UI/DetailLayoutRegistry.cpp", "$detailApp/UI/EmbeddedRowDelegate.cpp",
     "$detailApp/UI/CodeEditorWidget.cpp", "$detailApp/UI/CodeTextEdit.cpp", "$detailApp/UI/CodeEditorFileSession.cpp",
-    "$detailApp/UI/ReportStructuredView.cpp", "$detailApp/UI/FieldTreePresenter.cpp", "$detailApp/UI/FieldTreePresenter.Copy.cpp",
+    "$detailApp/UI/StructuredFieldView.cpp",
     "$detailApp/UI/FlowLayout.cpp", "$detailApp/UI/ThemeStatusRole.cpp", "$detailApp/UI/ThemeControlGlyphs.cpp",
     "$detailApp/UI/SmoothScrollSupport.cpp", "$detailApp/Internationalization/LanguageManager.cpp"
 )
@@ -34,9 +34,13 @@ $detailMoc = Join-Path $detailOutput 'detail_pane_moc_CodeEditorWidget.cpp'
 & (Join-Path $detailQt 'bin/moc.exe') (Join-Path $detailRepository "$detailApp/UI/CodeEditorWidget.h") -o $detailMoc
 if ($LASTEXITCODE -ne 0) { throw 'Detail pane editor moc failed.' }
 $detailSources += $detailMoc
+$detailFieldMoc = Join-Path $detailOutput 'detail_pane_moc_StructuredFieldView.cpp'
+& (Join-Path $detailQt 'bin/moc.exe') (Join-Path $detailRepository "$detailApp/UI/StructuredFieldView.h") -o $detailFieldMoc
+if ($LASTEXITCODE -ne 0) { throw 'Detail pane structured view moc failed.' }
+$detailSources += $detailFieldMoc
 $detailObjects = @()
 $detailHeaders = @('UI/DetailLayoutHost.h', 'UI/DetailLayoutRegistry.h', 'UI/CodeEditorWidget.h',
-    'UI/CodeTextEdit.h', 'UI/ReportStructuredView.h', 'UI/FieldTreePresenter.h', 'theme.h', 'SettingsDock/AppearanceSettings.h')
+    'UI/CodeTextEdit.h', 'UI/StructuredFieldView.h', 'theme.h', 'SettingsDock/AppearanceSettings.h')
 $detailHeaderTime = ($detailHeaders | ForEach-Object {
     (Get-Item -LiteralPath (Join-Path $detailRepository ($detailApp + '/' + $_))).LastWriteTimeUtc
 } | Sort-Object -Descending | Select-Object -First 1)

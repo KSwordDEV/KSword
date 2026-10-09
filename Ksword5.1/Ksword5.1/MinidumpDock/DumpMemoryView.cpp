@@ -4,6 +4,7 @@
 // ============================================================
 
 #include "DumpMemoryView.h"
+#include "../UI/StructuredFieldView.h"
 
 #include "Internationalization/LanguageManager.h"
 #include "MinidumpFormat.h"
@@ -133,49 +134,9 @@ DumpMemoryView::DumpMemoryView(QWidget* parent)
     toolbarLayout->addWidget(m_nextButton);
     rootLayout->addLayout(toolbarLayout);
 
-    // 状态说明是结构化映射证据，使用文本浏览器以便换行、选中和右键复制。
-    m_messageView = new QTextBrowser(this);
-    m_messageView->setOpenExternalLinks(false);
-    m_messageView->setOpenLinks(false);
+    // 映射说明直接使用原生字段模型；复制与导出由模型按需生成。
+    m_messageView = new ks::ui::StructuredFieldView(this);
     m_messageView->setMaximumHeight(145);
-    m_messageView->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_messageView->setStyleSheet(QStringLiteral(
-        "QTextBrowser{background:%1;color:%2;border:1px solid %3;border-radius:4px;padding:5px;}")
-        .arg(KswordTheme::SurfaceAltHex())
-        .arg(KswordTheme::TextPrimaryHex())
-        .arg(KswordTheme::BorderHex()));
-    m_messageView->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(
-        m_messageView,
-        &QTextBrowser::customContextMenuRequested,
-        this,
-        [this](const QPoint& point)
-        {
-            QMenu menu(m_messageView);
-            menu.setStyleSheet(QStringLiteral(
-                "QMenu{background:%1;color:%2;border:1px solid %3;}"
-                "QMenu::item{padding:5px 20px;}"
-                "QMenu::item:selected{background:%4;color:%5;}")
-                .arg(
-                    KswordTheme::SurfaceHex(),
-                    KswordTheme::TextPrimaryHex(),
-                    KswordTheme::BorderHex(),
-                    KswordTheme::AccentHex(KswordTheme::AccentRole::Blue),
-                    KswordTheme::OnAccentDynamicHex()));
-            QAction* const copyAction = menu.addAction(
-                ks::i18n::text(
-                    QStringLiteral("minidump.memory_view.action.copy_details"),
-                    QStringLiteral("复制说明")));
-            copyAction->setEnabled(!m_messageView->toPlainText().isEmpty());
-            connect(copyAction, &QAction::triggered, &menu, [this]()
-                {
-                    if (QClipboard* const clipboard = QApplication::clipboard())
-                    {
-                        clipboard->setText(m_messageView->toPlainText());
-                    }
-                });
-            menu.exec(m_messageView->mapToGlobal(point));
-        });
     rootLayout->addWidget(m_messageView);
 
     m_memoryEditor = new ks::ui::SnapshotWorkbenchWidget(this);
@@ -217,7 +178,7 @@ void DumpMemoryView::setDumpData(const ks::minidump::DumpParseResult& result)
     if (m_ranges.empty())
     {
         m_memoryEditor->clear();
-        setMessage(ks::i18n::text(
+        setDiagnostic(ks::i18n::text(
             QStringLiteral("minidump.memory_view.status.no_ranges"),
             QStringLiteral("转储中没有可直接读取的虚拟内存范围。")));
         return;
@@ -254,7 +215,7 @@ void DumpMemoryView::clearData()
     {
         m_addressEdit->clear();
     }
-    setMessage(ks::i18n::text(
+    setDiagnostic(ks::i18n::text(
         QStringLiteral("minidump.memory_view.status.idle"),
         QStringLiteral("请选择一个已捕获的虚拟地址。")));
 }
@@ -414,7 +375,7 @@ void DumpMemoryView::loadCurrentInput()
     if (!readAddressText(m_addressEdit->text(), &address))
     {
         m_memoryEditor->clear();
-        setMessage(ks::i18n::text(
+        setDiagnostic(ks::i18n::text(
             QStringLiteral("minidump.memory_view.status.invalid_address"),
             QStringLiteral("请输入有效的虚拟地址，或“模块名+偏移”。")));
         return;
@@ -428,7 +389,7 @@ bool DumpMemoryView::loadAddress(const std::uint64_t address)
     if (rangeIndex < 0)
     {
         m_memoryEditor->clear();
-        setMessage(ks::i18n::text(
+        setDiagnostic(ks::i18n::text(
             QStringLiteral("minidump.memory_view.status.not_captured"),
             QStringLiteral("地址 %1 不在当前转储捕获的虚拟内存范围内。"))
             .arg(formatHex(address)));
@@ -437,7 +398,7 @@ bool DumpMemoryView::loadAddress(const std::uint64_t address)
     if (m_filePath.isEmpty())
     {
         m_memoryEditor->clear();
-        setMessage(ks::i18n::text(
+        setDiagnostic(ks::i18n::text(
             QStringLiteral("minidump.memory_view.status.no_file"),
             QStringLiteral("没有与当前内存范围关联的转储文件。")));
         return false;
@@ -452,7 +413,7 @@ bool DumpMemoryView::loadAddress(const std::uint64_t address)
     if (changed)
     {
         m_memoryEditor->clear();
-        setMessage(ks::i18n::text(
+        setDiagnostic(ks::i18n::text(
             QStringLiteral("minidump.memory_view.status.file_changed"),
             QStringLiteral("转储文件已变更，请重新解析后再读取内存。")));
         return false;
@@ -466,7 +427,7 @@ bool DumpMemoryView::loadAddress(const std::uint64_t address)
     if (requestedBytes == 0 || range.fileOffset > std::numeric_limits<std::uint64_t>::max() - offsetInRange)
     {
         m_memoryEditor->clear();
-        setMessage(ks::i18n::text(
+        setDiagnostic(ks::i18n::text(
             QStringLiteral("minidump.memory_view.status.offset_invalid"),
             QStringLiteral("文件偏移超出可读取范围。")));
         return false;
@@ -477,7 +438,7 @@ bool DumpMemoryView::loadAddress(const std::uint64_t address)
         fileOffset > m_expectedFileSize || requestedBytes > m_expectedFileSize - fileOffset)
     {
         m_memoryEditor->clear();
-        setMessage(ks::i18n::text(
+        setDiagnostic(ks::i18n::text(
             QStringLiteral("minidump.memory_view.status.offset_invalid"),
             QStringLiteral("文件偏移超出可读取范围。")));
         return false;
@@ -487,7 +448,7 @@ bool DumpMemoryView::loadAddress(const std::uint64_t address)
     if (!dumpFile.open(QIODevice::ReadOnly))
     {
         m_memoryEditor->clear();
-        setMessage(ks::i18n::text(
+        setDiagnostic(ks::i18n::text(
             QStringLiteral("minidump.memory_view.status.open_failed"),
             QStringLiteral("无法打开转储文件：%1"))
             .arg(dumpFile.errorString()));
@@ -496,7 +457,7 @@ bool DumpMemoryView::loadAddress(const std::uint64_t address)
     if (!dumpFile.seek(static_cast<qint64>(fileOffset)))
     {
         m_memoryEditor->clear();
-        setMessage(ks::i18n::text(
+        setDiagnostic(ks::i18n::text(
             QStringLiteral("minidump.memory_view.status.read_failed"),
             QStringLiteral("读取失败或文件内容不足。")));
         return false;
@@ -505,7 +466,7 @@ bool DumpMemoryView::loadAddress(const std::uint64_t address)
     if (bytes.size() != static_cast<qsizetype>(requestedBytes))
     {
         m_memoryEditor->clear();
-        setMessage(ks::i18n::text(
+        setDiagnostic(ks::i18n::text(
             QStringLiteral("minidump.memory_view.status.read_failed"),
             QStringLiteral("读取失败或文件内容不足。")));
         return false;
@@ -525,58 +486,35 @@ bool DumpMemoryView::loadAddress(const std::uint64_t address)
     m_memoryEditor->setEditable(false);
     m_architectureInitialized = true;
 
-    QStringList details;
-    details.append(ks::i18n::text(
-        QStringLiteral("minidump.memory_view.detail.address"),
-        QStringLiteral("虚拟地址：%1")).arg(formatHex(address)));
+    ks::ui::FieldDocument details;
+    details.section(QStringLiteral("转储映射"));
+    details.field(QStringLiteral("虚拟地址"), formatHex(address));
     const std::uint64_t rangeEnd = range.bytes <= std::numeric_limits<std::uint64_t>::max() - range.virtualAddress
-        ? range.virtualAddress + range.bytes - 1
-        : std::numeric_limits<std::uint64_t>::max();
-    details.append(ks::i18n::text(
-        QStringLiteral("minidump.memory_view.detail.range"),
-        QStringLiteral("捕获范围：%1 - %2（%3 字节）"))
-        .arg(formatHex(range.virtualAddress))
-        .arg(formatHex(rangeEnd))
-        .arg(range.bytes));
-    details.append(ks::i18n::text(
-        QStringLiteral("minidump.memory_view.detail.file_offset"),
-        QStringLiteral("文件偏移：%1")).arg(formatHex(fileOffset)));
-    details.append(ks::i18n::text(
-        QStringLiteral("minidump.memory_view.detail.source"),
-        QStringLiteral("来源：%1")).arg(ks::i18n::sourceText(range.source)));
+        ? range.virtualAddress + range.bytes - 1 : std::numeric_limits<std::uint64_t>::max();
+    details.field(QStringLiteral("捕获范围起点"), formatHex(range.virtualAddress));
+    details.field(QStringLiteral("捕获范围终点"), formatHex(rangeEnd));
+    details.field(QStringLiteral("捕获大小（字节）"), QString::number(range.bytes));
+    details.field(QStringLiteral("文件偏移"), formatHex(fileOffset));
+    details.field(QStringLiteral("来源"), range.source, true);
     for (const ks::minidump::ModuleEntry& module : m_modules)
     {
-        if (module.size == 0 || address < module.base || address - module.base >= module.size)
-        {
-            continue;
-        }
-        details.append(ks::i18n::text(
-            QStringLiteral("minidump.memory_view.detail.module"),
-            QStringLiteral("所属模块：%1+0x%2"))
-            .arg(module.name)
-            .arg(QString::number(address - module.base, 16).toUpper()));
+        if (module.size == 0 || address < module.base || address - module.base >= module.size) continue;
+        details.field(QStringLiteral("所属模块"), module.name);
+        details.field(QStringLiteral("模块偏移"), formatHex(address - module.base));
         break;
     }
     for (const ks::minidump::MemoryRegionEntry& region : m_memoryRegions)
     {
-        if (region.size == 0 || address < region.base || address - region.base >= region.size)
-        {
-            continue;
-        }
-        details.append(ks::i18n::text(
-            QStringLiteral("minidump.memory_view.detail.memory_region"),
-            QStringLiteral("内存区域：%1（%2，%3，%4）"))
-            .arg(formatHex(region.base))
-            .arg(ks::i18n::sourceText(region.state))
-            .arg(ks::i18n::sourceText(region.protect))
-            .arg(ks::i18n::sourceText(region.type)));
+        if (region.size == 0 || address < region.base || address - region.base >= region.size) continue;
+        details.section(QStringLiteral("内存区域"));
+        details.field(QStringLiteral("基址"), formatHex(region.base));
+        details.field(QStringLiteral("状态"), region.state, true);
+        details.field(QStringLiteral("保护"), region.protect, true);
+        details.field(QStringLiteral("类型"), region.type, true);
         break;
     }
-    details.append(ks::i18n::text(
-        QStringLiteral("minidump.memory_view.detail.read_size"),
-        QStringLiteral("本次读取：%1 字节"))
-        .arg(requestedBytes));
-    setMessage(details.join(QLatin1Char('\n')));
+    details.field(QStringLiteral("本次读取（字节）"), QString::number(requestedBytes));
+    m_messageView->setDocument(details);
     return true;
 }
 
@@ -649,11 +587,11 @@ std::uint64_t DumpMemoryView::selectedReadBytes() const
     return ok ? std::clamp<std::uint64_t>(selected, 1, kMaximumReadBytes) : 4ull * 1024ull;
 }
 
-void DumpMemoryView::setMessage(const QString& text)
+void DumpMemoryView::setDiagnostic(const QString& text)
 {
     if (m_messageView != nullptr)
     {
-        m_messageView->setPlainText(text);
+        m_messageView->setDocument(ks::ui::FieldDocument{}.note(text));
     }
 }
 

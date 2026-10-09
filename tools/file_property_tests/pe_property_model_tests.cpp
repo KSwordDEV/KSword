@@ -213,17 +213,19 @@ int main()
         Check(Has(result, Kind::Field, L"条目估算", L"2"), "relocation entry count");
         Check(Has(result, Kind::Field, L"PDB", L"native.pdb", 1), "debug PDB path");
         Check(Has(result, Kind::Field, L"[3] EXCEPTION"), "exception directory overview");
-        Check(!result.reportText.empty(), "legacy text export retained");
-        auto cleared = result;
-        cleared.reportText.clear();
-        Check(Has(cleared, Kind::Field, L"#0", L"NativeImport", 1), "typed model independent of report");
+        const auto exported = ks::file::ExportPeAnalysisText(result);
+        Check(exported.find(L"NativeImport") != std::wstring::npos, "export includes model fields");
+        auto changed = result;
+        changed.entries.clear();
+        changed.entries.push_back({ Kind::Field, L"Synthetic", L"model-only", 0 });
+        Check(ks::file::ExportPeAnalysisText(changed) == L"Synthetic: model-only\n", "export derives solely from model");
     }
     const auto absent = ks::file::AnalyzePeBytes(Fixture(true, false));
     Check(absent.success, "empty directories remain valid");
     Check(Has(absent, Kind::Note, L"", L"无导入表。"), "empty import explanation");
     Check(Has(absent, Kind::Note, L"", L"无安全目录。"), "empty security explanation");
     const auto invalid = ks::file::AnalyzePeBytes({ 0x00 });
-    Check(!invalid.success && !invalid.errorText.empty(), "invalid file has native error");
+    Check(!invalid.success && invalid.error == ks::file::PeAnalysisError::NotPe && !invalid.errorText.empty(), "invalid file has native error");
     Check(invalid.entries.size() == 1 && invalid.entries[0].kind == Kind::Note,
         "invalid file has typed diagnostic");
     auto bytes = Fixture(true);

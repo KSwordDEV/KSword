@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "OtherDock.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../theme.h"
@@ -430,8 +431,8 @@ void OtherDock::showCreateDesktopDialog()
     rootLayout->addWidget(securityGroup);
 
     // 参数摘要由本页按控件状态生成，使用统一编辑器以支持英语模式下的即时重绘。
-    CodeEditorWidget* summaryEdit = new CodeEditorWidget(&dialog);
-    summaryEdit->setReadOnly(true);
+    ks::ui::StructuredFieldView* summaryEdit = new ks::ui::StructuredFieldView(&dialog);
+
     summaryEdit->setFixedHeight(164);
     rootLayout->addWidget(summaryEdit);
 
@@ -444,19 +445,18 @@ void OtherDock::showCreateDesktopDialog()
     std::function<void()> updateSummary = [&]() {
         const ACCESS_MASK desiredAccess = collectDesiredAccess(accessControls);
         const DWORD flags = allowOtherAccountHookCheck->isChecked() ? DF_ALLOWOTHERACCOUNTHOOK : 0;
-        QStringList lines;
-        lines << QStringLiteral("桌面：%1\\%2").arg(windowStationEdit->text(), desktopNameEdit->text().trimmed());
-        lines << QStringLiteral("堆大小：%1").arg(heapSizeSpin->value() == 0 ? QStringLiteral("系统默认") : heapSizeSpin->text());
-        lines << QStringLiteral("创建标志：0x%1").arg(static_cast<qulonglong>(flags), 8, 16, QChar('0')).toUpper();
-        lines << QStringLiteral("访问掩码：%1").arg(accessMaskToText(desiredAccess, accessControls));
-        lines << QStringLiteral("安全模式：%1").arg(privateAccessCheck->isChecked()
+        ks::ui::FieldDocument lines;
+        lines.field(QStringLiteral("桌面"), QStringLiteral("%1\\%2").arg(QStringLiteral("%1").arg(windowStationEdit->text())).arg(QStringLiteral("%1").arg(desktopNameEdit->text().trimmed())));
+        lines.field(QStringLiteral("堆大小"), QStringLiteral("%1").arg(heapSizeSpin->value() == 0 ? QStringLiteral("系统默认") : heapSizeSpin->text()));
+        lines.field(QStringLiteral("创建标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(flags), 8, 16, QChar('0')).toUpper()));
+        lines.field(QStringLiteral("访问掩码"), QStringLiteral("%1").arg(accessMaskToText(desiredAccess, accessControls)));
+        lines.field(QStringLiteral("安全模式"), QStringLiteral("%1").arg(privateAccessCheck->isChecked()
             ? QStringLiteral("私有空 DACL，外部进程不能按名称 OpenDesktopW")
-            : (customSddlCheck->isChecked() ? QStringLiteral("自定义 SDDL") : QStringLiteral("默认 Token DACL")));
-        lines << QStringLiteral("句柄策略：继承=%1；保留=%2；创建后切换=%3")
-            .arg(inheritableHandleCheck->isChecked() ? QStringLiteral("是") : QStringLiteral("否"))
-            .arg(keepHandleCheck->isChecked() ? QStringLiteral("是") : QStringLiteral("否"))
-            .arg(switchAfterCreateCheck->isChecked() ? QStringLiteral("是") : QStringLiteral("否"));
-        summaryEdit->setLocalizedText(lines.join('\n'));
+            : (customSddlCheck->isChecked() ? QStringLiteral("自定义 SDDL") : QStringLiteral("默认 Token DACL"))));
+        lines.field(QStringLiteral("句柄策略"), QStringLiteral("继承=%1").arg(QStringLiteral("%1").arg(inheritableHandleCheck->isChecked() ? QStringLiteral("是") : QStringLiteral("否"))));
+        lines.field(QStringLiteral("保留"), QStringLiteral("%1").arg(keepHandleCheck->isChecked() ? QStringLiteral("是") : QStringLiteral("否")));
+        lines.field(QStringLiteral("创建后切换"), QStringLiteral("%1").arg(switchAfterCreateCheck->isChecked() ? QStringLiteral("是") : QStringLiteral("否")));
+        summaryEdit->setDocument(lines);
     };
 
     auto syncSecurityOptions = [&]() {

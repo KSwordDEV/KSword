@@ -10,6 +10,7 @@
 
 #include "../Framework.h"
 #include "../UI/ThemeColorRemap.h"
+#include "../UI/StructuredFieldView.h"
 
 #include <QStringList>
 #include <QPointer>
@@ -26,7 +27,6 @@
 #include <utility>
 #include <vector>   // std::vector：保存每核图表与采样数据。
 
-class CodeEditorWidget;
 class DiskMonitorPage;
 class MemoryCompositionHistoryWidget;
 class HardwarePowerPage;
@@ -92,8 +92,8 @@ signals:
         double networkTxBytesPerSec,
         double gpuUsagePercent);
 
-    // staticOverviewChanged 作用：发布硬件 Dock 已经异步采集的静态硬件摘要文本。
-    void staticOverviewChanged(const QString& overviewText);
+    // staticOverviewFieldsChanged：发布硬件 Dock 已异步采集的唯一结构模型。
+    void staticOverviewFieldsChanged(const ks::ui::FieldDocument& overviewFields);
 
 protected:
     // eventFilter 作用：仅在性能页分割线释放后同步卡片宽度，拖动过程不重排内容。
@@ -187,7 +187,7 @@ private:
     // - 返回行为：结构体本身无函数返回值，字段由 refreshStaticHardwareTexts 消费。
     struct DeviceAuditViewSnapshot
     {
-        QString summaryText;          // summaryText：CodeEditorWidget 中的人类可读摘要。
+        ks::ui::FieldDocument summaryFields; // 设备审计字段模型，与完整 R0 行快照一起提交。
         QVector<QStringList> rows;    // rows：QTableWidget 展示的全部 R0 设备审计行。
     };
 
@@ -568,24 +568,24 @@ private:
         DeviceAuditViewSnapshot deviceStackSnapshot,
         DeviceAuditViewSnapshot inputStackSnapshot,
         DeviceAuditViewSnapshot usbTopologySnapshot,
-        QString pnpAcpiPciText);
+        ks::ui::FieldDocument pnpAcpiPciFields);
     void requestAsyncSensorRefresh();
     void requestAsyncR0HardwareHealthRefresh();
     void refreshCpuTopologyStaticInfo();
     void refreshSystemVolumeInfo();
 
     // ===================== 文本采集 =====================
-    QString buildOverviewStaticText() const;
-    QString buildGpuStaticText() const;
-    QString buildMemoryStaticText() const;
+    ks::ui::FieldDocument buildOverviewFields() const;
+    ks::ui::FieldDocument buildGpuFields() const;
+    ks::ui::FieldDocument buildMemoryFields() const;
     QString buildCpuSensorText(bool forceRefresh);
-    QString buildDeviceStackStaticText() const;
-    QString buildKeyboardMouseHidStaticText() const;
-    QString buildUsbTopologyStaticText() const;
+    ks::ui::FieldDocument buildDeviceStackFields() const;
+    ks::ui::FieldDocument buildKeyboardMouseHidFields() const;
+    ks::ui::FieldDocument buildUsbTopologyFields() const;
     static DeviceAuditViewSnapshot buildDeviceStackAuditViewSnapshot();
     static DeviceAuditViewSnapshot buildKeyboardMouseHidAuditViewSnapshot();
     static DeviceAuditViewSnapshot buildUsbTopologyAuditViewSnapshot();
-    static QString buildPnpAcpiPciStaticText();
+    static ks::ui::FieldDocument buildPnpAcpiPciFields();
 
 private:
     // DeviceAuditRefreshFlag：静态诊断页按需刷新位，供快速切页时合并请求。
@@ -610,7 +610,7 @@ private:
     QWidget* m_overviewPage = nullptr;           // m_overviewPage：概览 Tab。
     QVBoxLayout* m_overviewLayout = nullptr;     // m_overviewLayout：概览布局。
     QLabel* m_overviewSummaryLabel = nullptr;    // m_overviewSummaryLabel：实时摘要标签。
-    CodeEditorWidget* m_overviewEditor = nullptr; // m_overviewEditor：静态硬件清单文本。
+    ks::ui::StructuredFieldView* m_overviewEditor = nullptr; // m_overviewEditor：静态硬件清单文本。
 
     // 利用率页（任务管理器风格）。
     QWidget* m_utilizationPage = nullptr;          // m_utilizationPage：利用率 Tab。
@@ -776,10 +776,10 @@ private:
     // 显卡与内存页（原有文本页）。
     QWidget* m_gpuPage = nullptr;               // m_gpuPage：显卡 Tab。
     QVBoxLayout* m_gpuLayout = nullptr;         // m_gpuLayout：显卡布局。
-    CodeEditorWidget* m_gpuEditor = nullptr;    // m_gpuEditor：显卡详情文本。
+    ks::ui::StructuredFieldView* m_gpuEditor = nullptr;    // m_gpuEditor：显卡详情文本。
     QWidget* m_memoryPage = nullptr;            // m_memoryPage：内存 Tab。
     QVBoxLayout* m_memoryLayout = nullptr;      // m_memoryLayout：内存布局。
-    CodeEditorWidget* m_memoryEditor = nullptr; // m_memoryEditor：内存详情文本。
+    ks::ui::StructuredFieldView* m_memoryEditor = nullptr; // m_memoryEditor：内存详情文本。
     QWidget* m_diskMonitorHostPage = nullptr;      // m_diskMonitorHostPage：硬盘监控延迟加载宿主页。
     HardwareDeviceManagerPage* m_deviceManagerPage = nullptr; // m_deviceManagerPage：SetupAPI/CfgMgr 设备管理页。
     HardwareHwidDispatchPage* m_hwidDispatchPage = nullptr; // m_hwidDispatchPage：HWID Dispatch 派遣函数页。
@@ -787,17 +787,17 @@ private:
     DiskMonitorPage* m_diskMonitorPage = nullptr;  // m_diskMonitorPage：硬盘监控真实页面，首次进入子 Tab 后创建。
     HardwareOtherDevicesPage* m_otherDevicesPage = nullptr; // m_otherDevicesPage：其他硬件设备真实页面，首次进入子 Tab 后创建。
     QWidget* m_deviceStackPage = nullptr;          // m_deviceStackPage：DevNode/设备栈只读页。
-    CodeEditorWidget* m_deviceStackEditor = nullptr; // m_deviceStackEditor：DevNode/设备栈文本。
+    ks::ui::StructuredFieldView* m_deviceStackEditor = nullptr; // m_deviceStackEditor：DevNode/设备栈文本。
     QTableWidget* m_deviceStackTable = nullptr;     // m_deviceStackTable：DevNode/设备栈 R0 明细表。
     QWidget* m_keyboardMouseHidPage = nullptr;     // m_keyboardMouseHidPage：键鼠/HID 只读页。
-    CodeEditorWidget* m_keyboardMouseHidEditor = nullptr; // m_keyboardMouseHidEditor：键鼠/HID 文本。
+    ks::ui::StructuredFieldView* m_keyboardMouseHidEditor = nullptr; // m_keyboardMouseHidEditor：键鼠/HID 文本。
     QTableWidget* m_keyboardMouseHidTable = nullptr; // m_keyboardMouseHidTable：输入设备 R0 明细表。
     HardwareI8042AuditPage* m_i8042AuditPage = nullptr; // m_i8042AuditPage：i8042prt/键鼠类驱动组合审计页。
     QWidget* m_usbTopologyPage = nullptr;          // m_usbTopologyPage：USB 拓扑只读页。
-    CodeEditorWidget* m_usbTopologyEditor = nullptr; // m_usbTopologyEditor：USB 拓扑文本。
+    ks::ui::StructuredFieldView* m_usbTopologyEditor = nullptr; // m_usbTopologyEditor：USB 拓扑文本。
     QTableWidget* m_usbTopologyTable = nullptr;     // m_usbTopologyTable：USB 拓扑 R0 明细表。
     QWidget* m_pnpAcpiPciPage = nullptr;           // m_pnpAcpiPciPage：PnP/ACPI/PCI 只读页。
-    CodeEditorWidget* m_pnpAcpiPciEditor = nullptr; // m_pnpAcpiPciEditor：PnP/ACPI/PCI 文本。
+    ks::ui::StructuredFieldView* m_pnpAcpiPciEditor = nullptr; // m_pnpAcpiPciEditor：PnP/ACPI/PCI 文本。
 
     // 运行状态缓存。
     qint64 m_metricSampleTimeMs = 0; // 本帧共同采样时间，毫秒。
@@ -810,16 +810,16 @@ private:
     int m_sampleCounter = 60;                 // m_sampleCounter：采样序号（从历史长度起步避免首段无图）。
     QString m_cachedSensorText;               // m_cachedSensorText：CPU 温度/电压缓存。
     QString m_lastSensorLogSignatureText;     // m_lastSensorLogSignatureText：最近一次传感器日志去重签名。
-    QString m_cachedOverviewStaticText;       // m_cachedOverviewStaticText：概览静态文本缓存。
-    QString m_cachedGpuStaticText;            // m_cachedGpuStaticText：显卡静态文本缓存。
-    QString m_cachedMemoryStaticText;         // m_cachedMemoryStaticText：内存静态文本缓存。
-    QString m_cachedDeviceStackStaticText;     // m_cachedDeviceStackStaticText：DevNode/设备栈缓存。
-    QString m_cachedKeyboardMouseHidStaticText; // m_cachedKeyboardMouseHidStaticText：键鼠/HID 缓存。
-    QString m_cachedUsbTopologyStaticText;     // m_cachedUsbTopologyStaticText：USB 拓扑缓存。
+    ks::ui::FieldDocument m_cachedOverviewFields;       // 概览字段快照。
+    ks::ui::FieldDocument m_cachedGpuFields;            // 显卡字段快照。
+    ks::ui::FieldDocument m_cachedMemoryFields;         // 内存字段快照。
+    ks::ui::FieldDocument m_cachedDeviceStackFields;     // m_cachedDeviceStackFields：DevNode/设备栈缓存。
+    ks::ui::FieldDocument m_cachedKeyboardMouseHidFields; // m_cachedKeyboardMouseHidFields：键鼠/HID 缓存。
+    ks::ui::FieldDocument m_cachedUsbTopologyFields;     // m_cachedUsbTopologyFields：USB 拓扑缓存。
     QVector<QStringList> m_cachedDeviceStackRows; // m_cachedDeviceStackRows：DevNode/设备栈表格行缓存。
     QVector<QStringList> m_cachedKeyboardMouseHidRows; // m_cachedKeyboardMouseHidRows：键鼠/HID 表格行缓存。
     QVector<QStringList> m_cachedUsbTopologyRows; // m_cachedUsbTopologyRows：USB 拓扑表格行缓存。
-    QString m_cachedPnpAcpiPciStaticText;      // m_cachedPnpAcpiPciStaticText：PnP/ACPI/PCI 缓存。
+    ks::ui::FieldDocument m_cachedPnpAcpiPciFields;      // m_cachedPnpAcpiPciFields：PnP/ACPI/PCI 缓存。
     std::atomic_bool m_staticInfoRefreshing{ false }; // m_staticInfoRefreshing：静态信息异步刷新锁。
     std::atomic_bool m_deviceAuditRefreshing{ false }; // m_deviceAuditRefreshing：设备审计异步刷新锁。
     std::atomic<std::uint32_t> m_pendingDeviceAuditRefreshMask{ 0U }; // m_pendingDeviceAuditRefreshMask：重入时合并的页面刷新位。

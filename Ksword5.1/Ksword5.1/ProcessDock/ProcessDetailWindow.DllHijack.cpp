@@ -1,5 +1,5 @@
-﻿#include "ProcessDetailWindow.InternalCommon.h"
-#include "../UI/CodeEditorWidget.h"
+#include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/StructuredFieldView.h"
 
 #include "../ksword/process/dll_hijack_detector.h"
 
@@ -215,70 +215,26 @@ namespace
             QStringLiteral("；")));
     }
 
-    QString findingDetailText(const ks::process::DllHijackFinding& finding)
+    ks::ui::FieldDocument findingDocument(const ks::process::DllHijackFinding& finding)
     {
-        const auto valueOrDash = [](const QString& value)
-        {
-            return value.trimmed().isEmpty() ? QStringLiteral("-") : value;
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("DLL 劫持检测"));
+        document.field(QStringLiteral("风险"), riskText(finding.risk), true);
+        document.field(QStringLiteral("加载状态"), presenceText(finding.presence), true);
+        document.field(QStringLiteral("差异证据"), differenceText(finding), true);
+        const auto appendFile = [&](const QString& title, const ks::process::DllFileEvidence& file) {
+            document.section(title);
+            document.field(QStringLiteral("路径"), file.path);
+            document.field(QStringLiteral("签名"), trustText(file), true);
+            document.field(QStringLiteral("SHA-256"), file.sha256);
+            document.field(QStringLiteral("版本"), file.fileVersion);
+            document.field(QStringLiteral("公司"), file.companyName);
+            document.field(QStringLiteral("原始文件名"), file.originalFilename);
+            document.field(QStringLiteral("机器"), machineText(file.machine), true);
         };
-
-        QStringList lines;
-        lines
-            << dllHijackText(
-                "process.detail.dll_hijack.detail.risk",
-                QStringLiteral("风险：%1"))
-                .arg(riskText(finding.risk))
-            << dllHijackText(
-                "process.detail.dll_hijack.detail.presence",
-                QStringLiteral("加载状态：%1"))
-                .arg(presenceText(finding.presence))
-            << dllHijackText(
-                "process.detail.dll_hijack.detail.evidence",
-                QStringLiteral("差异证据：%1"))
-                .arg(differenceText(finding))
-            << QString()
-            << dllHijackText(
-                "process.detail.dll_hijack.detail.local_path",
-                QStringLiteral("程序目录 DLL：%1"))
-                .arg(finding.localFile.path)
-            << dllHijackText(
-                "process.detail.dll_hijack.detail.local_trust",
-                QStringLiteral("本地签名：%1"))
-                .arg(trustText(finding.localFile))
-            << dllHijackText(
-                "process.detail.dll_hijack.detail.local_sha256",
-                QStringLiteral("本地 SHA-256：%1"))
-                .arg(valueOrDash(finding.localFile.sha256))
-            << dllHijackText(
-                "process.detail.dll_hijack.detail.local_version",
-                QStringLiteral("本地版本：%1 | 公司：%2 | 原始文件名：%3 | 机器：%4"))
-                .arg(
-                    valueOrDash(finding.localFile.fileVersion),
-                    valueOrDash(finding.localFile.companyName),
-                    valueOrDash(finding.localFile.originalFilename),
-                    machineText(finding.localFile.machine))
-            << QString()
-            << dllHijackText(
-                "process.detail.dll_hijack.detail.system_path",
-                QStringLiteral("系统签名基线：%1"))
-                .arg(finding.systemFile.path)
-            << dllHijackText(
-                "process.detail.dll_hijack.detail.system_trust",
-                QStringLiteral("系统签名：%1"))
-                .arg(trustText(finding.systemFile))
-            << dllHijackText(
-                "process.detail.dll_hijack.detail.system_sha256",
-                QStringLiteral("系统 SHA-256：%1"))
-                .arg(valueOrDash(finding.systemFile.sha256))
-            << dllHijackText(
-                "process.detail.dll_hijack.detail.system_version",
-                QStringLiteral("系统版本：%1 | 公司：%2 | 原始文件名：%3 | 机器：%4"))
-                .arg(
-                    valueOrDash(finding.systemFile.fileVersion),
-                    valueOrDash(finding.systemFile.companyName),
-                    valueOrDash(finding.systemFile.originalFilename),
-                    machineText(finding.systemFile.machine));
-        return lines.join(QChar('\n'));
+        appendFile(QStringLiteral("程序目录 DLL"), finding.localFile);
+        appendFile(QStringLiteral("系统签名基线"), finding.systemFile);
+        return document;
     }
 
     QString scanFailureText(const ks::process::DllHijackScanResult& result)
@@ -311,64 +267,26 @@ namespace
         }
     }
 
-    QString buildScanReport(
-        const ks::process::DllHijackScanResult& result,
-        const QString& processName,
-        const std::uint32_t pid)
+    ks::ui::FieldDocument buildScanDocument(
+        const ks::process::DllHijackScanResult& result, const QString& processName, const std::uint32_t pid)
     {
-        QStringList report;
-        report
-            << dllHijackText(
-                "process.detail.dll_hijack.report.title",
-                QStringLiteral("KSword DLL 劫持检测报告"))
-            << dllHijackText(
-                "process.detail.dll_hijack.report.process",
-                QStringLiteral("进程：%1 (PID %2)"))
-                .arg(processName)
-                .arg(pid)
-            << dllHijackText(
-                "process.detail.dll_hijack.report.image",
-                QStringLiteral("映像：%1"))
-                .arg(result.processImagePath)
-            << dllHijackText(
-                "process.detail.dll_hijack.report.application_directory",
-                QStringLiteral("程序目录：%1"))
-                .arg(result.applicationDirectory)
-            << dllHijackText(
-                "process.detail.dll_hijack.report.system_directory",
-                QStringLiteral("系统基线目录：%1"))
-                .arg(result.systemDirectory)
-            << dllHijackText(
-                "process.detail.dll_hijack.report.boundary",
-                QStringLiteral("结论边界：同名本身不是恶意结论；风险由实际加载状态、Windows 信任链、SHA-256、版本身份和路径证据共同决定。检测全程不会加载待检 DLL。"))
-            << QString();
-
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("KSword DLL 劫持检测报告"));
+        document.field(QStringLiteral("进程"), processName);
+        document.field(QStringLiteral("PID"), QString::number(pid));
+        document.field(QStringLiteral("映像"), result.processImagePath);
+        document.field(QStringLiteral("程序目录"), result.applicationDirectory);
+        document.field(QStringLiteral("系统基线目录"), result.systemDirectory);
+        document.note(dllHijackText("process.detail.dll_hijack.report.boundary", QStringLiteral("结论边界：同名本身不是恶意结论；风险由实际加载状态、Windows 信任链、SHA-256、版本身份和路径证据共同决定。检测全程不会加载待检 DLL。")));
         const QString failure = scanFailureText(result);
         if (!failure.isEmpty())
-        {
-            report << failure;
-            if (!result.diagnosticText.isEmpty())
-            {
-                report << dllHijackText(
-                    "process.detail.dll_hijack.report.diagnostic",
-                    QStringLiteral("技术信息：%1"))
-                    .arg(result.diagnosticText);
-            }
-            return report.join(QChar('\n'));
-        }
-
-        report << dllHijackText(
-            "process.detail.dll_hijack.report.counts",
-            QStringLiteral("程序目录 DLL：%1 | 系统同名：%2 | 签名基线：%3 | 结果：%4"))
-            .arg(result.scannedApplicationDllCount)
-            .arg(result.systemNameCollisionCount)
-            .arg(result.signedSystemBaselineCount)
-            .arg(result.findings.size());
-        for (const ks::process::DllHijackFinding& finding : result.findings)
-        {
-            report << QString() << findingDetailText(finding);
-        }
-        return report.join(QChar('\n'));
+        { document.note(failure); if (!result.diagnosticText.isEmpty()) document.field(QStringLiteral("技术信息"), result.diagnosticText); return document; }
+        document.field(QStringLiteral("程序目录 DLL"), QString::number(result.scannedApplicationDllCount));
+        document.field(QStringLiteral("系统同名"), QString::number(result.systemNameCollisionCount));
+        document.field(QStringLiteral("签名基线"), QString::number(result.signedSystemBaselineCount));
+        document.field(QStringLiteral("结果"), QString::number(result.findings.size()));
+        for (const auto& finding : result.findings) appendFields(document, findingDocument(finding));
+        return document;
     }
 
     void showDllHijackResultDialog(
@@ -507,7 +425,7 @@ namespace
                 finding.localFile.path,
                 finding.systemFile.path
             };
-            const QString detail = findingDetailText(finding);
+            const QString detail = findingDocument(finding).toPlainText(true);
             for (int column = 0; column < cells.size(); ++column)
             {
                 QTableWidgetItem* const item = new QTableWidgetItem(cells.at(column));
@@ -532,20 +450,19 @@ namespace
         table->setColumnWidth(8, 360);
         layout->addWidget(table, 1);
 
-        CodeEditorWidget* const detailPane = new CodeEditorWidget(&dialog);
-        detailPane->setReadOnly(true);
+        auto* const detailPane = new ks::ui::StructuredFieldView(&dialog);
         detailPane->setMaximumHeight(180);
         if (!result.findings.isEmpty())
         {
-            detailPane->setReportText(findingDetailText(result.findings.first()));
+            detailPane->setDocument(findingDocument(result.findings.first()));
         }
         else
         {
-            detailPane->setReportText(failure.isEmpty()
+            detailPane->setDocument(fieldNotice(failure.isEmpty()
                 ? dllHijackText(
                     "process.detail.dll_hijack.dialog.no_candidates",
                     QStringLiteral("未发现可与签名系统 DLL 建立基线的程序目录同名候选。"))
-                : failure);
+                : failure));
         }
         layout->addWidget(detailPane);
 
@@ -557,8 +474,7 @@ namespace
             {
                 if (currentRow >= 0 && currentRow < result.findings.size())
                 {
-                    detailPane->setReportText(
-                        findingDetailText(result.findings.at(currentRow)));
+                    detailPane->setDocument(findingDocument(result.findings.at(currentRow)));
                 }
             });
 
@@ -591,10 +507,10 @@ namespace
         buttonLayout->addWidget(closeButton);
         layout->addLayout(buttonLayout);
 
-        const QString reportText = buildScanReport(result, processName, pid);
-        QObject::connect(copyButton, &QPushButton::clicked, &dialog, [reportText]()
+        const ks::ui::FieldDocument reportDocument = buildScanDocument(result, processName, pid);
+        QObject::connect(copyButton, &QPushButton::clicked, &dialog, [reportDocument]()
         {
-            QApplication::clipboard()->setText(reportText);
+            QApplication::clipboard()->setText(reportDocument.toPlainText(true));
         });
         QObject::connect(
             openDirectoryButton,
@@ -669,7 +585,7 @@ void ProcessDetailWindow::requestAsyncDllHijackScan()
         }
 
         QMetaObject::invokeMethod(
-            guard,
+            qApp,
             [guard, localTicket, pid, processName, result]()
             {
                 if (guard == nullptr ||

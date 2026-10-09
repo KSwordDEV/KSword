@@ -75,7 +75,7 @@ QVector<ContextMenuCleanerTab::ContextMenuEntry> ContextMenuCleanerTab::enumerat
             entry.itemName = subKeyName;
             entry.canDelete = true;
 
-            QStringList detailList;
+            ks::ui::FieldDocument detailList;
             if (location.ieMenuExt)
             {
                 const QString defaultCommand = queryRegistryValueText(location.rootKey, fullSubKey, QString(), location.viewFlag).value_or(QString());
@@ -144,7 +144,7 @@ QVector<ContextMenuCleanerTab::ContextMenuEntry> ContextMenuCleanerTab::enumerat
                 appendOptionalDetail(&detailList, QStringLiteral("Server"), serverPath);
             }
 
-            entry.detailText = detailList.join(QStringLiteral("；"));
+            entry.details = detailList;
             entries.push_back(entry);
         }
     }

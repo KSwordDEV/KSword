@@ -19,7 +19,7 @@
 
 #include "../../ksword/window/context_menu_probe.h"
 #include "../../theme.h"
-#include "../../UI/CodeEditorWidget.h"
+#include "../../UI/StructuredFieldView.h"
 #include "../../UI/VisibleTableWidget.h"
 
 #include <QBrush>
@@ -437,14 +437,14 @@ void ContextMenuCleanerTab::startLatencyMeasurement()
         {
             // ---- 后台线程：只做测量与数据拼装，不碰任何 Qt 控件 ----
             // 报告刻意保持简短：逐条明细在表格的「耗时」列里，这里只给结论和关键数字。
-            QStringList report;
-            report.push_back(QStringLiteral("右键菜单耗时测量报告（%1，%2）")
+            ks::ui::FieldDocument report;
+            report.note(QStringLiteral("右键菜单耗时测量报告（%1，%2）")
                 .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")),
                      area == ContextMenuCleanerTab::MenuArea::Desktop
                          ? QStringLiteral("桌面右键菜单") : QStringLiteral("其它分类")));
             if (!backupPath.isEmpty())
             {
-                report.push_back(QStringLiteral("已先备份整份菜单：%1").arg(backupPath));
+                report.field(QStringLiteral("已先备份整份菜单"), QStringLiteral("%1").arg(backupPath));
             }
 
             // 基准：菜单完整弹出耗时（含显示阶段）+ 进程 CPU 归因。
@@ -460,26 +460,26 @@ void ContextMenuCleanerTab::startLatencyMeasurement()
             const double noiseSpreadMs = std::max(0.0, baseline.maxMs - baseline.minMs);
             const double thresholdMs = std::max(kLatencyShortThresholdMs, noiseSpreadMs);
 
-            report.push_back(QStringLiteral("基准：最短 %1 / 中位 %2 / 最长 %3（弹出 %4 次）")
+            report.field(QStringLiteral("基准"), QStringLiteral("最短 %1 / 中位 %2 / 最长 %3（弹出 %4 次）")
                 .arg(formatMilliseconds(baseline.minMs))
                 .arg(formatMilliseconds(baseline.medianMs))
                 .arg(formatMilliseconds(baseline.maxMs))
                 .arg(baseline.samples.size()));
             if (baseline.processCpuMeasured)
             {
-                report.push_back(QStringLiteral("判定：%1（explorer CPU 占挂钟 %2%）")
+                report.field(QStringLiteral("判定"), QStringLiteral("%1（explorer CPU 占挂钟 %2%）")
                     .arg(verdictText(baseline.verdict))
                     .arg(baseline.cpuRatio * 100.0, 0, 'f', 1));
             }
             else
             {
-                report.push_back(QStringLiteral("判定：%1").arg(verdictText(baseline.verdict)));
+                report.field(QStringLiteral("判定"), QStringLiteral("%1").arg(verdictText(baseline.verdict)));
             }
-            report.push_back(QStringLiteral("门限：%1（低于它的条目在表格里显示为「很短」）")
+            report.field(QStringLiteral("门限"), QStringLiteral("%1（低于它的条目在表格里显示为「很短」）")
                 .arg(formatMilliseconds(thresholdMs)));
             if (!baseline.diagnostic.empty())
             {
-                report.push_back(QStringLiteral("注意：%1")
+                report.field(QStringLiteral("注意"), QStringLiteral("%1")
                     .arg(QString::fromStdString(baseline.diagnostic)));
             }
 
@@ -675,47 +675,47 @@ void ContextMenuCleanerTab::startLatencyMeasurement()
             const int notPlannedCount = total - plannedItems;
 
             // 报告只留结论与关键数字；逐条明细在表格「耗时」列里（很短 = 无可测贡献）。
-            report.push_back(QStringLiteral("逐条：共测 %1 项，其中 %2 项有显著贡献，%3 项因状态不稳定跳过，合计 %4")
+            report.field(QStringLiteral("逐条"), QStringLiteral("共测 %1 项，其中 %2 项有显著贡献，%3 项因状态不稳定跳过，合计 %4")
                 .arg(plannedItems).arg(significantCount).arg(unstableCount)
                 .arg(formatMilliseconds(attributableMs)));
-            report.push_back(QStringLiteral("残差：%1（基准里无法归因到单条扩展的部分）")
+            report.field(QStringLiteral("残差"), QStringLiteral("%1（基准里无法归因到单条扩展的部分）")
                 .arg(formatMilliseconds(residualMs)));
-            report.push_back(QString());
-            report.push_back(QStringLiteral("结论：%1").arg(
+
+            report.field(QStringLiteral("结论"), QStringLiteral("%1").arg(
                 residualMs > attributableMs
                     ? QStringLiteral("主要不是某一条菜单扩展的问题，优先按上面的判定方向排查；表格里显示「很短」的条目可以直接排除。")
                     : QStringLiteral("耗时主要落在标红的条目上，可优先禁用它们后再测一次。")));
             if (notPlannedCount > 0)
             {
-                report.push_back(QStringLiteral("未测：%1 项（超出本次时间预算）").arg(notPlannedCount));
+                report.field(QStringLiteral("未测"), QStringLiteral("%1 项（超出本次时间预算）").arg(notPlannedCount));
             }
             if (aliasGroupCount > 0)
             {
-                report.push_back(QStringLiteral("已按 CLSID 归组：%1 条与其它位置共用同一扩展，禁用时一并处理。")
+                report.field(QStringLiteral("已按 CLSID 归组"), QStringLiteral("%1 条与其它位置共用同一扩展，禁用时一并处理。")
                     .arg(aliasGroupCount));
             }
             if (truncatedCount > 0)
             {
-                report.push_back(QStringLiteral("未测：另有 %1 项（超出单次测量上限）").arg(truncatedCount));
+                report.field(QStringLiteral("未测"), QStringLiteral("另有 %1 项（超出单次测量上限）").arg(truncatedCount));
             }
             if (!unreverted.isEmpty())
             {
-                report.push_back(QStringLiteral("警告：%1 项未能还原，请用「恢复备份」兜底")
+                report.field(QStringLiteral("警告"), QStringLiteral("%1 项未能还原，请用「恢复备份」兜底")
                     .arg(unreverted.size()));
             }
-            report.push_back(QString());
-            report.push_back(QStringLiteral("明细见表格「耗时」列。"));
+
+            report.note(QStringLiteral("明细见表格「耗时」列。"));
 
             // ---- 回主线程应用结果 ----
-            const QString reportText = report.join(QLatin1Char('\n'));
+            const ks::ui::FieldDocument reportSnapshot = report;
             if (!guardThis.isNull())
             {
                 QMetaObject::invokeMethod(guardThis, [guardThis, area, baselineMs,
-                    contributions, reportText]()
+                    contributions, reportSnapshot]()
                     {
                         if (!guardThis.isNull())
                         {
-                            guardThis->applyLatencyResults(area, baselineMs, contributions, reportText);
+                            guardThis->applyLatencyResults(area, baselineMs, contributions, reportSnapshot);
                         }
                     }, Qt::QueuedConnection);
             }
@@ -738,7 +738,7 @@ void ContextMenuCleanerTab::applyLatencyResults(
     const MenuArea area,
     const double baselineMs,
     const QVector<double>& perEntryMs,
-    const QString& report)
+    const ks::ui::FieldDocument& report)
 {
     AreaWidgets* areaWidgets = widgetsForArea(area);
     if (areaWidgets != nullptr && areaWidgets->table != nullptr)
@@ -768,7 +768,7 @@ void ContextMenuCleanerTab::applyLatencyResults(
     // 报告写进详情编辑器：复用上一轮接好的详情布局系统（四种布局都生效）。
     if (areaWidgets != nullptr && areaWidgets->detailEditor != nullptr)
     {
-        areaWidgets->detailEditor->setText(report);
+        areaWidgets->detailEditor->setDocument(report);
     }
     if (m_latencyStatusLabel != nullptr)
     {

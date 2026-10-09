@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #include "OtherDock.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../Framework/DestructiveActionConfirmation.h"
@@ -127,7 +128,7 @@ namespace
     QString blueHeaderStyle()
     {
         return QStringLiteral(
-            "QHeaderView::section{color:%1;background:transparent;/* %2 */border:1px solid %3;font-weight:600;}")
+            "QHeaderView::section{color:%1;background:transparent;/* %2 */border:0;border-bottom:1px solid %3;font-weight:400;}")
             .arg(KswordTheme::PrimaryBlueHex)
             .arg(KswordTheme::SurfaceHex())
             .arg(KswordTheme::BorderHex());
@@ -145,7 +146,7 @@ namespace
             "}"
             "QDialog#%1 QTabWidget::pane{"
             "  background-color:palette(window) !important;"
-            "  border:1px solid palette(mid) !important;"
+            "  border:none;"
             "}"
             "QDialog#%1 QPlainTextEdit,"
             "QDialog#%1 QTextEdit,"
@@ -788,8 +789,8 @@ namespace
             .arg(remainMs);
     }
 
-    // buildModuleSummaryText：按 PID 枚举模块并生成摘要文本，避免在 UI 中展示过长列表。
-    QString buildModuleSummaryText(const std::uint32_t processId, const int maxRenderCount, int* moduleCountOut)
+    // 按 PID 采集模块预览，每个模块保留独立身份、地址和大小字段。
+    ks::ui::FieldDocument buildModuleSummaryDocument(const std::uint32_t processId, const int maxRenderCount, int* moduleCountOut)
     {
         if (moduleCountOut != nullptr)
         {
@@ -797,18 +798,18 @@ namespace
         }
         if (processId == 0)
         {
-            return QStringLiteral("<System PID>");
+            return ks::ui::FieldDocument{}.note(QStringLiteral("<System PID>"));
         }
 
         HANDLE snapshotHandle = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, processId);
         if (snapshotHandle == INVALID_HANDLE_VALUE)
         {
-            return QStringLiteral("<模块枚举失败或无权限>");
+            return ks::ui::FieldDocument{}.note(QStringLiteral("<模块枚举失败或无权限>"));
         }
 
         MODULEENTRY32W moduleEntry{};
         moduleEntry.dwSize = sizeof(moduleEntry);
-        QStringList lineList;
+        ks::ui::FieldDocument document;
         int moduleCount = 0;
 
         if (::Module32FirstW(snapshotHandle, &moduleEntry) != FALSE)
@@ -818,11 +819,12 @@ namespace
                 ++moduleCount;
                 if (moduleCount <= maxRenderCount)
                 {
-                    lineList << QStringLiteral("[%1] %2 | Base=0x%3 | Size=%4")
-                        .arg(moduleCount)
-                        .arg(QString::fromWCharArray(moduleEntry.szModule))
-                        .arg(static_cast<qulonglong>(reinterpret_cast<quintptr>(moduleEntry.modBaseAddr)), 0, 16)
-                        .arg(moduleEntry.modBaseSize);
+                    document.section(QStringLiteral("Module"));
+                    document.field(QStringLiteral("Index"), QString::number(moduleCount));
+                    document.field(QStringLiteral("Name"), QString::fromWCharArray(moduleEntry.szModule));
+                    document.field(QStringLiteral("Base"), QStringLiteral("0x%1")
+                        .arg(static_cast<qulonglong>(reinterpret_cast<quintptr>(moduleEntry.modBaseAddr)), 0, 16));
+                    document.field(QStringLiteral("Size"), QString::number(moduleEntry.modBaseSize));
                 }
 
                 moduleEntry.dwSize = sizeof(moduleEntry);
@@ -836,11 +838,11 @@ namespace
             *moduleCountOut = moduleCount;
         }
 
-        if (lineList.isEmpty())
+        if (document.isEmpty())
         {
-            return QStringLiteral("<未读取到模块>");
+            return ks::ui::FieldDocument{}.note(QStringLiteral("<未读取到模块>"));
         }
-        return lineList.join(QChar::LineFeed);
+        return document;
     }
 
     // 窗口缩略图抓取：优先按句柄抓图，失败时返回占位图。
@@ -1412,25 +1414,23 @@ private:
     // - 调用：refreshRuntimeInfo 刷新样式文本区时调用；
     // - 传入 styleValue/exStyleValue：实时样式值；
     // - 传出：返回可直接写入 m_styleText 的说明文本。
-    QString buildStyleSummaryText(const quint64 styleValue, const quint64 exStyleValue) const
+    ks::ui::FieldDocument buildStyleSummaryText(const quint64 styleValue, const quint64 exStyleValue) const
     {
-        QString styleText;
-        styleText += QStringLiteral("Style: 0x%1\n").arg(styleValue, 0, 16);
-        styleText += QStringLiteral("ExStyle: 0x%1\n").arg(exStyleValue, 0, 16);
-        styleText += QStringLiteral("\n[窗口样式 WS_*]\n");
+        ks::ui::FieldDocument styleText;
+        styleText.field(QStringLiteral("Style"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(styleValue, 0, 16)));
+        styleText.field(QStringLiteral("ExStyle"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(exStyleValue, 0, 16)));
+        styleText.section(QStringLiteral("窗口样式 WS_*"));
         for (const StyleCheckBinding& binding : m_styleCheckBindingList)
         {
             const bool enabled = (styleValue & binding.styleMaskValue) != 0;
-            styleText += QStringLiteral("%1: %2\n")
-                .arg(binding.styleNameText, boolText(enabled));
+            styleText.field(binding.styleNameText, boolText(enabled));
         }
 
-        styleText += QStringLiteral("\n[扩展样式 WS_EX_*]\n");
+        styleText.section(QStringLiteral("扩展样式 WS_EX_*"));
         for (const StyleCheckBinding& binding : m_exStyleCheckBindingList)
         {
             const bool enabled = (exStyleValue & binding.styleMaskValue) != 0;
-            styleText += QStringLiteral("%1: %2\n")
-                .arg(binding.styleNameText, boolText(enabled));
+            styleText.field(binding.styleNameText, boolText(enabled));
         }
         return styleText;
     }
@@ -1757,8 +1757,8 @@ private:
         ks::i18n::LanguageManager::instance().bindTab(styleTabs, extendedStylePage.first,
             QStringLiteral("window.detail.style.extended"), QStringLiteral("扩展样式"));
 
-        m_styleText = new CodeEditorWidget(styleTabs);
-        m_styleText->setReadOnly(true);
+        m_styleText = new ks::ui::StructuredFieldView(styleTabs);
+
         m_styleText->setToolTip(QStringLiteral("显示实时样式值与每个位的解释状态。"));
         ks::ui::IsolateMinimumSize(m_styleText);
         styleTabs->addTab(m_styleText, QStringLiteral("样式明细"));
@@ -1798,8 +1798,8 @@ private:
         // ==================== 2. 进程线程 Tab ====================
         QWidget* processPage = new QWidget(m_tabWidget);
         QVBoxLayout* processLayout = new QVBoxLayout(processPage);
-        m_processThreadText = new CodeEditorWidget(processPage);
-        m_processThreadText->setReadOnly(true);
+        m_processThreadText = new ks::ui::StructuredFieldView(processPage);
+
         processLayout->addWidget(m_processThreadText, 1);
         m_tabWidget->addTab(processPage, QStringLiteral("进程与线程"));
         ks::i18n::LanguageManager::instance().bindTab(
@@ -1808,8 +1808,8 @@ private:
         // ==================== 3. 类信息 Tab ====================
         QWidget* classPage = new QWidget(m_tabWidget);
         QVBoxLayout* classLayout = new QVBoxLayout(classPage);
-        m_classText = new CodeEditorWidget(classPage);
-        m_classText->setReadOnly(true);
+        m_classText = new ks::ui::StructuredFieldView(classPage);
+
         classLayout->addWidget(m_classText, 1);
         m_tabWidget->addTab(classPage, QStringLiteral("类信息"));
         ks::i18n::LanguageManager::instance().bindTab(
@@ -1826,8 +1826,8 @@ private:
         QVBoxLayout* hookLayout = new QVBoxLayout(hookPage);
 
         // 概览文本：保留原有消息队列状态、焦点等摘要，便于快速判断窗口活性。
-        m_hookText = new CodeEditorWidget(hookPage);
-        m_hookText->setReadOnly(true);
+        m_hookText = new ks::ui::StructuredFieldView(hookPage);
+
         m_hookText->setMaximumHeight(260);
         hookLayout->addWidget(m_hookText, 0);
 
@@ -1943,8 +1943,8 @@ private:
         // ==================== 5. 高级属性 Tab ====================
         QWidget* advancedPage = new QWidget(m_tabWidget);
         QVBoxLayout* advancedLayout = new QVBoxLayout(advancedPage);
-        m_advancedText = new CodeEditorWidget(advancedPage);
-        m_advancedText->setReadOnly(true);
+        m_advancedText = new ks::ui::StructuredFieldView(advancedPage);
+
         advancedLayout->addWidget(m_advancedText, 1);
         m_tabWidget->addTab(advancedPage, QStringLiteral("高级属性"));
         ks::i18n::LanguageManager::instance().bindTab(
@@ -2036,7 +2036,7 @@ private:
         const quint64 styleValue = static_cast<quint64>(::GetWindowLongPtrW(windowHandle, GWL_STYLE));
         const quint64 exStyleValue = static_cast<quint64>(::GetWindowLongPtrW(windowHandle, GWL_EXSTYLE));
         syncStyleCheckBoxes(styleValue, exStyleValue);
-        m_styleText->setText(buildStyleSummaryText(styleValue, exStyleValue));
+        m_styleText->setDocument(buildStyleSummaryText(styleValue, exStyleValue));
 
         // 窗口位置与尺寸写回编辑控件。
         RECT rect{};
@@ -2084,18 +2084,17 @@ private:
         m_styleApplyButton->setEnabled(false);
 
         // 进程线程信息：补齐路径、优先级、句柄计数、启动时间和模块摘要，便于排障和行为审计。
-        QString processText;
-        processText += QStringLiteral("PID: %1\n").arg(m_info.processId);
-        processText += QStringLiteral("ProcessName: %1\n").arg(m_info.processNameText);
-        processText += QStringLiteral("TID: %1\n").arg(m_info.threadId);
+        ks::ui::FieldDocument processText;
+        processText.field(QStringLiteral("PID"), QStringLiteral("%1").arg(m_info.processId));
+        processText.field(QStringLiteral("ProcessName"), QStringLiteral("%1").arg(m_info.processNameText));
+        processText.field(QStringLiteral("TID"), QStringLiteral("%1").arg(m_info.threadId));
         if (windowRectReady)
         {
-            processText += QStringLiteral("WindowRect: [%1,%2,%3,%4]\n")
-                .arg(rect.left).arg(rect.top).arg(rect.right).arg(rect.bottom);
+            processText.field(QStringLiteral("WindowRect"), QStringLiteral("[%1,%2,%3,%4]").arg(QStringLiteral("%1").arg(rect.left)).arg(QStringLiteral("%1").arg(rect.top)).arg(QStringLiteral("%1").arg(rect.right)).arg(QStringLiteral("%1").arg(rect.bottom)));
         }
         else
         {
-            processText += QStringLiteral("WindowRect: <N/A>\n");
+            processText.field(QStringLiteral("WindowRect"), QStringLiteral("<N/A>"), true);
         }
 
         HANDLE processHandle = ::OpenProcess(
@@ -2108,18 +2107,16 @@ private:
             DWORD processPathLength = static_cast<DWORD>(std::size(processPathBuffer));
             if (::QueryFullProcessImageNameW(processHandle, 0, processPathBuffer, &processPathLength) != FALSE)
             {
-                processText += QStringLiteral("ProcessPath: %1\n")
-                    .arg(QString::fromWCharArray(processPathBuffer, static_cast<int>(processPathLength)));
+                processText.field(QStringLiteral("ProcessPath"), QStringLiteral("%1").arg(QString::fromWCharArray(processPathBuffer, static_cast<int>(processPathLength))));
             }
 
             const DWORD processPriority = ::GetPriorityClass(processHandle);
-            processText += QStringLiteral("ProcessPriorityClass: 0x%1\n")
-                .arg(static_cast<qulonglong>(processPriority), 0, 16);
+            processText.field(QStringLiteral("ProcessPriorityClass"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(processPriority), 0, 16)));
 
             DWORD handleCount = 0;
             if (::GetProcessHandleCount(processHandle, &handleCount) != FALSE)
             {
-                processText += QStringLiteral("ProcessHandleCount: %1\n").arg(handleCount);
+                processText.field(QStringLiteral("ProcessHandleCount"), QStringLiteral("%1").arg(handleCount));
             }
 
             FILETIME createTime{};
@@ -2128,9 +2125,9 @@ private:
             FILETIME userTime{};
             if (::GetProcessTimes(processHandle, &createTime, &exitTime, &kernelTime, &userTime) != FALSE)
             {
-                processText += QStringLiteral("StartTime: %1\n").arg(fileTimeToLocalText(createTime));
+                processText.field(QStringLiteral("StartTime"), QStringLiteral("%1").arg(fileTimeToLocalText(createTime)));
                 const qulonglong cpuTotal = fileTimeToUInt64(kernelTime) + fileTimeToUInt64(userTime);
-                processText += QStringLiteral("CPUTime(Kernel+User): %1\n").arg(formatDurationFrom100ns(cpuTotal));
+                processText.field(QStringLiteral("CPUTime(Kernel+User)"), QStringLiteral("%1").arg(formatDurationFrom100ns(cpuTotal)));
 
                 FILETIME nowFileTime{};
                 ::GetSystemTimeAsFileTime(&nowFileTime);
@@ -2138,7 +2135,7 @@ private:
                 const qulonglong startTick = fileTimeToUInt64(createTime);
                 if (nowTick > startTick)
                 {
-                    processText += QStringLiteral("RunTime: %1\n").arg(formatDurationFrom100ns(nowTick - startTick));
+                    processText.field(QStringLiteral("RunTime"), QStringLiteral("%1").arg(formatDurationFrom100ns(nowTick - startTick)));
                 }
             }
 
@@ -2146,58 +2143,51 @@ private:
         }
         else
         {
-            processText += QStringLiteral("ProcessOpen: 失败（权限不足或进程已退出）\n");
+            processText.field(QStringLiteral("ProcessOpen"), QStringLiteral("失败（权限不足或进程已退出）"), true);
         }
 
         int moduleCount = 0;
-        const QString moduleSummaryText = buildModuleSummaryText(m_info.processId, 8, &moduleCount);
-        processText += QStringLiteral("ModuleCount: %1\n").arg(moduleCount);
-        processText += QStringLiteral("ModulePreview:\n%1\n").arg(moduleSummaryText);
+        const ks::ui::FieldDocument moduleSummary = buildModuleSummaryDocument(m_info.processId, 8, &moduleCount);
+        processText.field(QStringLiteral("ModuleCount"), QStringLiteral("%1").arg(moduleCount));
+        processText.section(QStringLiteral("ModulePreview"));
+        processText.nodes += moduleSummary.nodes;
 
         HANDLE threadHandle = ::OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, m_info.threadId);
         if (threadHandle != nullptr)
         {
             const int threadPriority = ::GetThreadPriority(threadHandle);
-            processText += QStringLiteral("ThreadPriority: %1\n").arg(threadPriority);
+            processText.field(QStringLiteral("ThreadPriority"), QStringLiteral("%1").arg(threadPriority));
 
             BOOL priorityBoostDisabled = FALSE;
             if (::GetThreadPriorityBoost(threadHandle, &priorityBoostDisabled) != FALSE)
             {
-                processText += QStringLiteral("ThreadPriorityBoostDisabled: %1\n")
-                    .arg(boolText(priorityBoostDisabled != FALSE));
+                processText.field(QStringLiteral("ThreadPriorityBoostDisabled"), QStringLiteral("%1").arg(boolText(priorityBoostDisabled != FALSE)));
             }
             ::CloseHandle(threadHandle);
         }
         else
         {
-            processText += QStringLiteral("ThreadOpen: 失败（线程可能已退出）\n");
+            processText.field(QStringLiteral("ThreadOpen"), QStringLiteral("失败（线程可能已退出）"), true);
         }
-        processText += QStringLiteral("提示：可从右键菜单跳转到进程详细信息页。");
-        m_processThreadText->setText(processText);
+        processText.field(QStringLiteral("提示"), QStringLiteral("可从右键菜单跳转到进程详细信息页。"), true);
+        m_processThreadText->setDocument(processText);
 
         // 类信息：展示类名、类样式、窗口过程地址以及类资源句柄。
-        QString classText;
-        classText += QStringLiteral("ClassName: %1\n").arg(m_info.classNameText);
-        classText += QStringLiteral("ClassAtom: 0x%1\n").arg(static_cast<qulonglong>(::GetClassLongPtrW(windowHandle, GCW_ATOM)), 0, 16);
-        classText += QStringLiteral("ClassStyle: 0x%1\n").arg(static_cast<qulonglong>(::GetClassLongPtrW(windowHandle, GCL_STYLE)), 0, 16);
-        classText += QStringLiteral("ClassExtraBytes: %1\n")
-            .arg(static_cast<qlonglong>(::GetClassLongPtrW(windowHandle, GCL_CBCLSEXTRA)));
-        classText += QStringLiteral("WindowExtraBytes: %1\n")
-            .arg(static_cast<qlonglong>(::GetClassLongPtrW(windowHandle, GCL_CBWNDEXTRA)));
-        classText += QStringLiteral("WndProc: 0x%1\n").arg(static_cast<qulonglong>(::GetWindowLongPtrW(windowHandle, GWLP_WNDPROC)), 0, 16);
-        classText += QStringLiteral("MenuHandle: 0x%1\n").arg(static_cast<qulonglong>(reinterpret_cast<quintptr>(::GetMenu(windowHandle))), 0, 16);
-        classText += QStringLiteral("ClassHCursor: 0x%1\n")
-            .arg(static_cast<qulonglong>(::GetClassLongPtrW(windowHandle, GCLP_HCURSOR)), 0, 16);
-        classText += QStringLiteral("ClassHIcon: 0x%1\n")
-            .arg(static_cast<qulonglong>(::GetClassLongPtrW(windowHandle, GCLP_HICON)), 0, 16);
-        classText += QStringLiteral("ClassHIconSm: 0x%1\n")
-            .arg(static_cast<qulonglong>(::GetClassLongPtrW(windowHandle, GCLP_HICONSM)), 0, 16);
-        classText += QStringLiteral("ClassHbrBackground: 0x%1\n")
-            .arg(static_cast<qulonglong>(::GetClassLongPtrW(windowHandle, GCLP_HBRBACKGROUND)), 0, 16);
+        ks::ui::FieldDocument classText;
+        classText.field(QStringLiteral("ClassName"), QStringLiteral("%1").arg(m_info.classNameText));
+        classText.field(QStringLiteral("ClassAtom"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(::GetClassLongPtrW(windowHandle, GCW_ATOM)), 0, 16)));
+        classText.field(QStringLiteral("ClassStyle"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(::GetClassLongPtrW(windowHandle, GCL_STYLE)), 0, 16)));
+        classText.field(QStringLiteral("ClassExtraBytes"), QStringLiteral("%1").arg(static_cast<qlonglong>(::GetClassLongPtrW(windowHandle, GCL_CBCLSEXTRA))));
+        classText.field(QStringLiteral("WindowExtraBytes"), QStringLiteral("%1").arg(static_cast<qlonglong>(::GetClassLongPtrW(windowHandle, GCL_CBWNDEXTRA))));
+        classText.field(QStringLiteral("WndProc"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(::GetWindowLongPtrW(windowHandle, GWLP_WNDPROC)), 0, 16)));
+        classText.field(QStringLiteral("MenuHandle"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(reinterpret_cast<quintptr>(::GetMenu(windowHandle))), 0, 16)));
+        classText.field(QStringLiteral("ClassHCursor"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(::GetClassLongPtrW(windowHandle, GCLP_HCURSOR)), 0, 16)));
+        classText.field(QStringLiteral("ClassHIcon"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(::GetClassLongPtrW(windowHandle, GCLP_HICON)), 0, 16)));
+        classText.field(QStringLiteral("ClassHIconSm"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(::GetClassLongPtrW(windowHandle, GCLP_HICONSM)), 0, 16)));
+        classText.field(QStringLiteral("ClassHbrBackground"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(::GetClassLongPtrW(windowHandle, GCLP_HBRBACKGROUND)), 0, 16)));
 
         const HMODULE classModuleHandle = reinterpret_cast<HMODULE>(::GetClassLongPtrW(windowHandle, GCLP_HMODULE));
-        classText += QStringLiteral("ClassModule: 0x%1\n")
-            .arg(static_cast<qulonglong>(reinterpret_cast<quintptr>(classModuleHandle)), 0, 16);
+        classText.field(QStringLiteral("ClassModule"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(reinterpret_cast<quintptr>(classModuleHandle)), 0, 16)));
         if (classModuleHandle != nullptr)
         {
             wchar_t modulePathBuffer[MAX_PATH * 2] = {};
@@ -2207,11 +2197,10 @@ private:
                 static_cast<DWORD>(std::size(modulePathBuffer)));
             if (pathLength > 0)
             {
-                classText += QStringLiteral("ClassModulePath: %1\n")
-                    .arg(QString::fromWCharArray(modulePathBuffer, static_cast<int>(pathLength)));
+                classText.field(QStringLiteral("ClassModulePath"), QStringLiteral("%1").arg(QString::fromWCharArray(modulePathBuffer, static_cast<int>(pathLength))));
             }
         }
-        m_classText->setText(classText);
+        m_classText->setDocument(classText);
 
         // 钩子/消息页：补齐消息队列状态与 GUI 线程焦点句柄，替代原先占位文本。
         int childWindowCount = 0;
@@ -2254,66 +2243,47 @@ private:
         const bool guiInfoReady = (::GetGUIThreadInfo(m_info.threadId, &guiThreadInfo) != FALSE);
 
         const DWORD queueStatus = ::GetQueueStatus(QS_ALLINPUT);
-        QString hookText;
-        hookText += QStringLiteral("IsHungAppWindow: %1\n")
-            .arg(boolText(::IsHungAppWindow(windowHandle) != FALSE));
-        hookText += QStringLiteral("ChildWindowCount: %1\n").arg(childWindowCount);
-        hookText += QStringLiteral("SiblingWindowCount: %1\n").arg(siblingCount);
-        hookText += QStringLiteral("Visible: %1\n").arg(boolText(::IsWindowVisible(windowHandle) != FALSE));
-        hookText += QStringLiteral("Enabled: %1\n").arg(boolText(::IsWindowEnabled(windowHandle) != FALSE));
-        hookText += QStringLiteral("QueueStatusRaw: 0x%1\n")
-            .arg(static_cast<qulonglong>(queueStatus), 0, 16);
-        hookText += QStringLiteral("QueueCurrentFlags(LOWORD): 0x%1\n")
-            .arg(static_cast<unsigned int>(LOWORD(queueStatus)), 0, 16);
-        hookText += QStringLiteral("QueueNewFlags(HIWORD): 0x%1\n")
-            .arg(static_cast<unsigned int>(HIWORD(queueStatus)), 0, 16);
-        hookText += QStringLiteral("GUIThreadInfoReady: %1\n").arg(boolText(guiInfoReady));
+        ks::ui::FieldDocument hookText;
+        hookText.field(QStringLiteral("IsHungAppWindow"), QStringLiteral("%1").arg(boolText(::IsHungAppWindow(windowHandle) != FALSE)));
+        hookText.field(QStringLiteral("ChildWindowCount"), QStringLiteral("%1").arg(childWindowCount));
+        hookText.field(QStringLiteral("SiblingWindowCount"), QStringLiteral("%1").arg(siblingCount));
+        hookText.field(QStringLiteral("Visible"), QStringLiteral("%1").arg(boolText(::IsWindowVisible(windowHandle) != FALSE)));
+        hookText.field(QStringLiteral("Enabled"), QStringLiteral("%1").arg(boolText(::IsWindowEnabled(windowHandle) != FALSE)));
+        hookText.field(QStringLiteral("QueueStatusRaw"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(queueStatus), 0, 16)));
+        hookText.field(QStringLiteral("QueueCurrentFlags(LOWORD)"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<unsigned int>(LOWORD(queueStatus)), 0, 16)));
+        hookText.field(QStringLiteral("QueueNewFlags(HIWORD)"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<unsigned int>(HIWORD(queueStatus)), 0, 16)));
+        hookText.field(QStringLiteral("GUIThreadInfoReady"), QStringLiteral("%1").arg(boolText(guiInfoReady)));
         if (guiInfoReady)
         {
-            hookText += QStringLiteral("Focus: %1\n")
-                .arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(guiThreadInfo.hwndFocus))));
-            hookText += QStringLiteral("Active: %1\n")
-                .arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(guiThreadInfo.hwndActive))));
-            hookText += QStringLiteral("Capture: %1\n")
-                .arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(guiThreadInfo.hwndCapture))));
-            hookText += QStringLiteral("Caret: %1\n")
-                .arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(guiThreadInfo.hwndCaret))));
-            hookText += QStringLiteral("MenuOwner: %1\n")
-                .arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(guiThreadInfo.hwndMenuOwner))));
+            hookText.field(QStringLiteral("Focus"), QStringLiteral("%1").arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(guiThreadInfo.hwndFocus)))));
+            hookText.field(QStringLiteral("Active"), QStringLiteral("%1").arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(guiThreadInfo.hwndActive)))));
+            hookText.field(QStringLiteral("Capture"), QStringLiteral("%1").arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(guiThreadInfo.hwndCapture)))));
+            hookText.field(QStringLiteral("Caret"), QStringLiteral("%1").arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(guiThreadInfo.hwndCaret)))));
+            hookText.field(QStringLiteral("MenuOwner"), QStringLiteral("%1").arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(guiThreadInfo.hwndMenuOwner)))));
         }
-        hookText += QStringLiteral("ForegroundWindow: %1\n")
-            .arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(::GetForegroundWindow()))));
-        hookText += QStringLiteral("说明：系统级 Hook 链表不提供官方通用枚举接口，当前页聚焦可稳定获取的消息上下文。");
-        m_hookText->setText(hookText);
+        hookText.field(QStringLiteral("ForegroundWindow"), QStringLiteral("%1").arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(::GetForegroundWindow())))));
+        hookText.field(QStringLiteral("说明"), QStringLiteral("系统级 Hook 链表不提供官方通用枚举接口，当前页聚焦可稳定获取的消息上下文。"), true);
+        m_hookText->setDocument(hookText);
 
         // 高级页：补齐 DPI、属性表（GetProp/EnumPropsExW）与窗口额外字节等关键内容。
-        QString advancedText;
-        advancedText += QStringLiteral("UserData (GWLP_USERDATA): 0x%1\n")
-            .arg(static_cast<qulonglong>(::GetWindowLongPtrW(windowHandle, GWLP_USERDATA)), 0, 16);
-        advancedText += QStringLiteral("ID (GWLP_ID): 0x%1\n")
-            .arg(static_cast<qulonglong>(::GetWindowLongPtrW(windowHandle, GWLP_ID)), 0, 16);
-        advancedText += QStringLiteral("WndProc (GWLP_WNDPROC): 0x%1\n")
-            .arg(static_cast<qulonglong>(::GetWindowLongPtrW(windowHandle, GWLP_WNDPROC)), 0, 16);
-        advancedText += QStringLiteral("HINSTANCE (GWLP_HINSTANCE): 0x%1\n")
-            .arg(static_cast<qulonglong>(::GetWindowLongPtrW(windowHandle, GWLP_HINSTANCE)), 0, 16);
-        advancedText += QStringLiteral("Parent: %1\n").arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(::GetParent(windowHandle)))));
-        advancedText += QStringLiteral("Owner: %1\n").arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(::GetWindow(windowHandle, GW_OWNER)))));
+        ks::ui::FieldDocument advancedText;
+        advancedText.field(QStringLiteral("UserData (GWLP_USERDATA)"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(::GetWindowLongPtrW(windowHandle, GWLP_USERDATA)), 0, 16)));
+        advancedText.field(QStringLiteral("ID (GWLP_ID)"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(::GetWindowLongPtrW(windowHandle, GWLP_ID)), 0, 16)));
+        advancedText.field(QStringLiteral("WndProc (GWLP_WNDPROC)"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(::GetWindowLongPtrW(windowHandle, GWLP_WNDPROC)), 0, 16)));
+        advancedText.field(QStringLiteral("HINSTANCE (GWLP_HINSTANCE)"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(::GetWindowLongPtrW(windowHandle, GWLP_HINSTANCE)), 0, 16)));
+        advancedText.field(QStringLiteral("Parent"), QStringLiteral("%1").arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(::GetParent(windowHandle))))));
+        advancedText.field(QStringLiteral("Owner"), QStringLiteral("%1").arg(hwndToText(static_cast<quint64>(reinterpret_cast<quintptr>(::GetWindow(windowHandle, GW_OWNER))))));
 
         DWORD displayAffinity = 0;
         if (::GetWindowDisplayAffinity(windowHandle, &displayAffinity) != FALSE)
         {
-            advancedText += QStringLiteral("DisplayAffinity: 0x%1\n")
-                .arg(static_cast<qulonglong>(displayAffinity), 0, 16);
+            advancedText.field(QStringLiteral("DisplayAffinity"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(displayAffinity), 0, 16)));
         }
 
         RECT clientRect{};
         if (::GetClientRect(windowHandle, &clientRect) != FALSE)
         {
-            advancedText += QStringLiteral("ClientRect: [%1,%2,%3,%4]\n")
-                .arg(clientRect.left)
-                .arg(clientRect.top)
-                .arg(clientRect.right)
-                .arg(clientRect.bottom);
+            advancedText.field(QStringLiteral("ClientRect"), QStringLiteral("[%1,%2,%3,%4]").arg(QStringLiteral("%1").arg(clientRect.left)).arg(QStringLiteral("%1").arg(clientRect.top)).arg(QStringLiteral("%1").arg(clientRect.right)).arg(QStringLiteral("%1").arg(clientRect.bottom)));
         }
 
         // 兼容旧系统：GetDpiForWindow 仅在新系统提供，运行时动态判断。
@@ -2326,7 +2296,7 @@ private:
         }
         if (getDpiForWindow != nullptr)
         {
-            advancedText += QStringLiteral("DPI: %1\n").arg(getDpiForWindow(windowHandle));
+            advancedText.field(QStringLiteral("DPI"), QStringLiteral("%1").arg(getDpiForWindow(windowHandle)));
         }
 
         // 枚举窗口属性键值：用于发现子类化框架、输入法、UI库挂载的额外状态。
@@ -2335,20 +2305,20 @@ private:
         propContext.lines = &propLines;
         propContext.maxCount = 200;
         ::EnumPropsExW(windowHandle, enumWindowPropProc, reinterpret_cast<LPARAM>(&propContext));
-        advancedText += QStringLiteral("PropCount: %1\n").arg(propLines.size());
+        advancedText.field(QStringLiteral("PropCount"), QStringLiteral("%1").arg(propLines.size()));
         if (!propLines.isEmpty())
         {
-            advancedText += QStringLiteral("Properties:\n");
+            advancedText.section(QStringLiteral("Properties"));
             for (const QString& line : propLines)
             {
-                advancedText += QStringLiteral("  - %1\n").arg(line);
+                advancedText.field(QStringLiteral(""), QStringLiteral("- %1").arg(QStringLiteral("%1").arg(line)));
             }
         }
         else
         {
-            advancedText += QStringLiteral("Properties: <none>\n");
+            advancedText.field(QStringLiteral("Properties"), QStringLiteral("<none>"), true);
         }
-        m_advancedText->setText(advancedText);
+        m_advancedText->setDocument(advancedText);
 
         // 刷新时同步更新消息监控状态标签，避免页面切换后显示陈旧模式文本。
         updateMessageMonitorUiState();
@@ -2994,7 +2964,7 @@ private:
         text += QStringLiteral("状态摘要: %1\n").arg(m_stateLabel->text());
         text += QStringLiteral("关系摘要: %1\n\n").arg(m_relationLabel->text());
 
-        text += QStringLiteral("[样式]\n%1\n\n").arg(m_styleText->text());
+        text += QStringLiteral("[样式]\n%1\n\n").arg(m_styleText->plainText());
         text += QStringLiteral("[位置]\nX=%1, Y=%2, W=%3, H=%4\n\n")
             .arg(m_xSpin->value())
             .arg(m_ySpin->value())
@@ -3003,9 +2973,9 @@ private:
         text += QStringLiteral("[状态]\nTopMost=%1, Alpha=%2\n\n")
             .arg(boolText(m_topMostCheck->isChecked()))
             .arg(m_alphaSlider->value());
-        text += QStringLiteral("[进程线程]\n%1\n\n").arg(m_processThreadText->text());
-        text += QStringLiteral("[类信息]\n%1\n\n").arg(m_classText->text());
-        text += QStringLiteral("[消息钩子]\n%1\n\n").arg(m_hookText->text());
+        text += QStringLiteral("[进程线程]\n%1\n\n").arg(m_processThreadText->plainText());
+        text += QStringLiteral("[类信息]\n%1\n\n").arg(m_classText->plainText());
+        text += QStringLiteral("[消息钩子]\n%1\n\n").arg(m_hookText->plainText());
         text += QStringLiteral("[消息记录]\n");
         if (m_messageTable != nullptr)
         {
@@ -3031,7 +3001,7 @@ private:
             }
         }
         text += QStringLiteral("\n");
-        text += QStringLiteral("[高级属性]\n%1\n").arg(m_advancedText->text());
+        text += QStringLiteral("[高级属性]\n%1\n").arg(m_advancedText->plainText());
         return text;
     }
 
@@ -3049,7 +3019,7 @@ private:
     QLabel* m_stateLabel = nullptr;        // 状态摘要显示。
     QLabel* m_relationLabel = nullptr;     // 关系摘要显示。
 
-    CodeEditorWidget* m_styleText = nullptr;      // 样式文本区域（统一文本编辑器，只读）。
+    ks::ui::StructuredFieldView* m_styleText = nullptr;      // 样式文本区域（统一文本编辑器，只读）。
     std::vector<StyleCheckBinding> m_styleCheckBindingList; // 普通样式复选框绑定表（GWL_STYLE）。
     std::vector<StyleCheckBinding> m_exStyleCheckBindingList; // 扩展样式复选框绑定表（GWL_EXSTYLE）。
     bool m_styleCheckSyncing = false;             // 勾选回填防抖标记，避免刷新触发“用户修改”链路。
@@ -3064,9 +3034,9 @@ private:
     QSpinBox* m_alphaSpin = nullptr;             // 透明度数值输入。
     bool m_alphaChanged = false;                // 仅用户调整 Alpha 时写入透明度。
 
-    CodeEditorWidget* m_processThreadText = nullptr; // 进程线程页文本（统一文本编辑器，只读）。
-    CodeEditorWidget* m_classText = nullptr;         // 类信息页文本（统一文本编辑器，只读）。
-    CodeEditorWidget* m_hookText = nullptr;          // 钩子页文本（统一文本编辑器，只读）。
+    ks::ui::StructuredFieldView* m_processThreadText = nullptr; // 进程线程页文本（统一文本编辑器，只读）。
+    ks::ui::StructuredFieldView* m_classText = nullptr;         // 类信息页文本（统一文本编辑器，只读）。
+    ks::ui::StructuredFieldView* m_hookText = nullptr;          // 钩子页文本（统一文本编辑器，只读）。
     QPushButton* m_messageStartButton = nullptr;   // 消息监控开始按钮。
     QPushButton* m_messageStopButton = nullptr;    // 消息监控停止按钮。
     QPushButton* m_messageClearButton = nullptr;   // 消息列表清空按钮。
@@ -3075,7 +3045,7 @@ private:
     QLabel* m_messageModeLabel = nullptr;          // 当前采集模式标签。
     QLabel* m_messageCountLabel = nullptr;         // 已记录/丢弃计数标签。
     QTableWidget* m_messageTable = nullptr;        // 消息列表表格。
-    CodeEditorWidget* m_advancedText = nullptr;      // 高级页文本（统一文本编辑器，只读）。
+    ks::ui::StructuredFieldView* m_advancedText = nullptr;      // 高级页文本（统一文本编辑器，只读）。
 
     QPushButton* m_refreshButton = nullptr;    // 刷新按钮。
     QPushButton* m_applyButton = nullptr;      // 应用按钮。
@@ -3395,8 +3365,8 @@ void OtherDock::initializeUi()
     m_captureButton->setStyleSheet(blueButtonStyle());
     m_captureButton->setFixedWidth(34);
 
-    m_quickInfoText = new CodeEditorWidget(m_previewWidget);
-    m_quickInfoText->setReadOnly(true);
+    m_quickInfoText = new ks::ui::StructuredFieldView(m_previewWidget);
+
     m_quickInfoText->setStyleSheet(blueInputStyle());
 
     QHBoxLayout* captureLayout = new QHBoxLayout();
@@ -4315,7 +4285,7 @@ void OtherDock::updatePreviewPanel(const WindowInfo* info)
     if (info == nullptr)
     {
         m_thumbnailLabel->setPixmap(QPixmap());
-        m_quickInfoText->setText(QStringLiteral("请选择左侧窗口项查看预览。"));
+        m_quickInfoText->setDocument(ks::ui::FieldDocument{}.note(QStringLiteral("请选择左侧窗口项查看预览。")));
         kLogEvent event;
         dbg << event
             << "[OtherDock] 预览面板清空（无有效选中项）。"
@@ -4329,38 +4299,29 @@ void OtherDock::updatePreviewPanel(const WindowInfo* info)
         m_thumbnailLabel->size());
     m_thumbnailLabel->setPixmap(previewPixmap);
 
-    QString quickText;
-    quickText += QStringLiteral("句柄: %1\n").arg(hwndToText(info->hwndValue));
-    quickText += QStringLiteral("标题: %1\n").arg(info->titleText);
-    quickText += QStringLiteral("类名: %1\n").arg(info->classNameText);
-    quickText += QStringLiteral("PID/TID: %1 / %2\n").arg(info->processId).arg(info->threadId);
-    quickText += QStringLiteral("进程名: %1\n").arg(info->processNameText);
-    quickText += QStringLiteral("矩形: [%1,%2,%3,%4]\n")
-        .arg(info->windowRect.left())
-        .arg(info->windowRect.top())
-        .arg(info->windowRect.right())
-        .arg(info->windowRect.bottom());
-    quickText += QStringLiteral("可见:%1  可用:%2  顶层:%3\n")
-        .arg(boolText(info->visible))
-        .arg(boolText(info->enabled))
-        .arg(boolText(info->topMost));
-    quickText += QStringLiteral("状态:%1  透明度:%2\n")
-        .arg(windowStateText(info->valid, info->minimized, info->maximized))
-        .arg(info->alphaValue);
+    ks::ui::FieldDocument quickText;
+    quickText.field(QStringLiteral("句柄"), QStringLiteral("%1").arg(hwndToText(info->hwndValue)));
+    quickText.field(QStringLiteral("标题"), QStringLiteral("%1").arg(info->titleText));
+    quickText.field(QStringLiteral("类名"), QStringLiteral("%1").arg(info->classNameText));
+    quickText.field(QStringLiteral("PID/TID"), QStringLiteral("%1 / %2").arg(QStringLiteral("%1").arg(info->processId)).arg(QStringLiteral("%1").arg(info->threadId)));
+    quickText.field(QStringLiteral("进程名"), QStringLiteral("%1").arg(info->processNameText));
+    quickText.field(QStringLiteral("矩形"), QStringLiteral("[%1,%2,%3,%4]").arg(QStringLiteral("%1").arg(info->windowRect.left())).arg(QStringLiteral("%1").arg(info->windowRect.top())).arg(QStringLiteral("%1").arg(info->windowRect.right())).arg(QStringLiteral("%1").arg(info->windowRect.bottom())));
+    quickText.field(QStringLiteral("可见"), QStringLiteral("%1").arg(boolText(info->visible)));
+    quickText.field(QStringLiteral("可用"), QStringLiteral("%1").arg(boolText(info->enabled)));
+    quickText.field(QStringLiteral("顶层"), QStringLiteral("%1").arg(boolText(info->topMost)));
+    quickText.field(QStringLiteral("状态"), QStringLiteral("%1").arg(windowStateText(info->valid, info->minimized, info->maximized)));
+    quickText.field(QStringLiteral("透明度"), QStringLiteral("%1").arg(info->alphaValue));
     if (info->displayAffinityKnown)
     {
         const QString affinityHexText =
             QString::number(static_cast<qulonglong>(info->displayAffinityValue), 16).toUpper();
-        quickText += QStringLiteral("DisplayAffinity: 0x%1 (%2)\n")
-            .arg(affinityHexText)
-            .arg(QString::fromStdString(ks::window::DisplayAffinityName(info->displayAffinityValue)));
+        quickText.field(QStringLiteral("DisplayAffinity"), QStringLiteral("0x%1 (%2)").arg(QStringLiteral("%1").arg(affinityHexText)).arg(QStringLiteral("%1").arg(QString::fromStdString(ks::window::DisplayAffinityName(info->displayAffinityValue)))));
     }
     else
     {
-        quickText += QStringLiteral("DisplayAffinity: 未知（错误码=%1）\n")
-            .arg(info->displayAffinityError);
+        quickText.field(QStringLiteral("DisplayAffinity"), QStringLiteral("未知（错误码=%1）").arg(QStringLiteral("%1").arg(info->displayAffinityError)));
     }
-    m_quickInfoText->setText(quickText);
+    m_quickInfoText->setDocument(quickText);
 
     kLogEvent event;
     dbg << event

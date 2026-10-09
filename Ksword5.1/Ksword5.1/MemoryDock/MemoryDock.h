@@ -58,6 +58,7 @@ class DdmaPage;
 // 项目内 UI 组件前置声明：只用指针，避免把表格组件头拉进本头文件。
 namespace ks::ui
 {
+    class StructuredFieldView;
     class VisibleTableWidget;
     class MemoryWorkbenchView; // 内存工作台视图：懒创建，只用指针。
     class MemoryDebugPage;     // 不附加内存调试页：独立于 Dock 的目标会话。
@@ -854,7 +855,7 @@ private:
     QLineEdit* m_kernelExecutableModuleFilterEdit = nullptr; // 模块路径过滤输入框。
     QLabel* m_kernelExecutableStatusLabel = nullptr;         // 刷新状态标签。
     QTableWidget* m_kernelExecutableTable = nullptr;         // 可执行页扫描表。
-    CodeEditorWidget* m_kernelExecutableDetailEditor = nullptr; // 详情编辑器。
+    ks::ui::StructuredFieldView* m_kernelExecutableDetailEditor = nullptr; // 详情编辑器。
 
     // ========================================================
     // Tab8：内核内存证据
@@ -870,7 +871,7 @@ private:
     QSpinBox* m_kernelMemoryEvidenceMaxRowsSpin = nullptr;   // 单次最大返回行数。
     QLabel* m_kernelMemoryEvidenceStatusLabel = nullptr;     // 查询状态标签。
     QTableWidget* m_kernelMemoryEvidenceTable = nullptr;     // 证据结果表格。
-    CodeEditorWidget* m_kernelMemoryEvidenceDetailEditor = nullptr; // 证据详情编辑器。
+    ks::ui::StructuredFieldView* m_kernelMemoryEvidenceDetailEditor = nullptr; // 证据详情编辑器。
 
     // ========================================================
     // Tab9：PTE / VA 翻译
@@ -883,7 +884,7 @@ private:
     QSpinBox* m_processPteTranslatePageCountSpin = nullptr;     // 采样页数。
     QLabel* m_processPteTranslateStatusLabel = nullptr;         // 状态标签。
     QTableWidget* m_processPteTranslateTable = nullptr;         // 翻译结果表。
-    CodeEditorWidget* m_processPteTranslateDetailEditor = nullptr; // 详情编辑器。
+    ks::ui::StructuredFieldView* m_processPteTranslateDetailEditor = nullptr; // 详情编辑器。
 
     // ========================================================
     // Tab10：进程内存证据
@@ -899,7 +900,7 @@ private:
     QSpinBox* m_processMemoryEvidenceMaxRowsSpin = nullptr;       // 最大行数。
     QLabel* m_processMemoryEvidenceStatusLabel = nullptr;         // 状态标签。
     QTableWidget* m_processMemoryEvidenceTable = nullptr;         // 证据结果表。
-    CodeEditorWidget* m_processMemoryEvidenceDetailEditor = nullptr; // 详情编辑器。
+    ks::ui::StructuredFieldView* m_processMemoryEvidenceDetailEditor = nullptr; // 详情编辑器。
 
     // ========================================================
     // Tab11：系统内存审计

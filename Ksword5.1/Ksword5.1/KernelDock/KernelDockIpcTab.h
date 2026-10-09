@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -36,9 +37,9 @@ private:
     void refreshAlpcQuery();
     void applyIpcSummaryResult();
     void applyAlpcQueryResult();
-    QString buildAlpcDetail(int rowIndex) const;
+    ks::ui::FieldDocument buildAlpcDetail(int rowIndex) const;
     void updateAlpcDetailForRow(int rowIndex);
-    QString buildIpcSummaryDetail(int rowIndex) const;
+    ks::ui::FieldDocument buildIpcSummaryDetail(int rowIndex) const;
     void updateIpcSummaryDetailForRow(int rowIndex);
     void copyIpcSummaryCurrentRow() const;
     void copyAlpcCurrentRow() const;
@@ -57,7 +58,7 @@ private:
     QLabel* m_alpcStatusLabel = nullptr;
     QTableWidget* m_ipcSummaryTable = nullptr;
     QTableWidget* m_alpcTable = nullptr;
-    CodeEditorWidget* m_alpcDetailEditor = nullptr;
+    ks::ui::StructuredFieldView* m_alpcDetailEditor = nullptr;
 
     std::uint32_t m_alpcProcessId = 0;
     std::uint64_t m_alpcHandleValue = 0;

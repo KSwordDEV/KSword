@@ -1,4 +1,4 @@
-#include "DetailLayoutHost.h"
+﻿#include "DetailLayoutHost.h"
 #include "CodeEditorWidget.h"
 #include "../Internationalization/LanguageManager.h"
 
@@ -43,6 +43,7 @@ namespace ks::ui
         clearEmbeddedDetails();
         destroyFloatingWindow();
         ++m_bindingGeneration;
+        m_structuredView.clear();
         m_detailEditor = detailEditor;
         initializeConnections();
         scheduleHostUiInitialization();
@@ -51,6 +52,17 @@ namespace ks::ui
     CodeEditorWidget* DetailLayoutHost::detailEditor() const
     {
         return m_detailEditor.data();
+    }
+
+    StructuredFieldView* DetailLayoutHost::structuredView() const
+    {
+        return m_structuredView.data();
+    }
+
+    QWidget* DetailLayoutHost::detailWidget() const
+    {
+        return !m_structuredView.isNull() ? static_cast<QWidget*>(m_structuredView.data())
+            : static_cast<QWidget*>(m_detailEditor.data());
     }
 
     bool DetailLayoutHost::hasExplicitBinding() const
@@ -86,18 +98,18 @@ namespace ks::ui
     bool DetailLayoutHost::isBound() const
     {
         return !m_splitter.isNull() && !m_tablePane.isNull() && !m_detailPane.isNull()
-            && !m_tableView.isNull() && !m_detailEditor.isNull()
+            && !m_tableView.isNull() && !(detailWidget() == nullptr)
             && m_tablePane->parentWidget() == m_splitter && m_detailPane->parentWidget() == m_splitter
             && (m_tablePane == m_tableView || m_tablePane->isAncestorOf(m_tableView.data()))
-            && (m_detailPane == m_detailEditor || m_detailPane->isAncestorOf(m_detailEditor.data()));
+            && (m_detailPane == detailWidget() || m_detailPane->isAncestorOf(detailWidget()));
     }
 
     bool DetailLayoutHost::bindPanels(const DetailPaneBinding& binding)
     {
         if (binding.splitter == nullptr || binding.mainPane == nullptr || binding.detailPane == nullptr
-            || binding.mainPane == binding.detailPane || m_tableView.isNull() || m_detailEditor.isNull()
+            || binding.mainPane == binding.detailPane || m_tableView.isNull() || (detailWidget() == nullptr)
             || (binding.mainPane != m_tableView && !binding.mainPane->isAncestorOf(m_tableView.data()))
-            || (binding.detailPane != m_detailEditor && !binding.detailPane->isAncestorOf(m_detailEditor.data())))
+            || (binding.detailPane != detailWidget() && !binding.detailPane->isAncestorOf(detailWidget())))
         {
             return false;
         }
@@ -238,6 +250,11 @@ namespace ks::ui
         {
             m_editorConnection = connect(m_detailEditor.data(), &CodeEditorWidget::contentChanged, this,
                 [this](const QString& text) { handleDetailChanged(text); });
+        }
+        else if (!m_structuredView.isNull())
+        {
+            m_editorConnection = connect(m_structuredView.data(), &StructuredFieldView::documentChanged,
+                this, [this] { handleFieldDocumentChanged(); });
         }
         QObject::disconnect(m_toggleConnection);
         if (!m_toggleButton.isNull())

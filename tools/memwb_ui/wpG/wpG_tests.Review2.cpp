@@ -491,12 +491,15 @@ namespace wpg_test
             WrapHost() { m_edit = new QPlainTextEdit(); m_edit->setLineWrapMode(QPlainTextEdit::NoWrap); }
             ~WrapHost() override { delete m_edit; }
             QWidget* HostWidget() override { return m_edit; }
-            void SetDiagnosticsText(const QString& text) override { m_edit->setPlainText(text); }
-            QString DiagnosticsText() const override { return m_edit->toPlainText(); }
+            void SetDiagnosticsText(const QString& text) override { m_documentActive = false; m_edit->setPlainText(text); }
+            void SetDiagnosticsDocument(const ks::ui::FieldDocument& document) override { m_document = document; m_documentActive = true; }
+            QString DiagnosticsText() const override { return m_documentActive ? m_document.toPlainText(true) : m_edit->toPlainText(); }
             void SetWrapEnabled(const bool wrap) override { m_edit->setLineWrapMode(wrap ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap); }
             bool IsWrap() const { return m_edit->lineWrapMode() == QPlainTextEdit::WidgetWidth; }
         private:
             QPlainTextEdit* m_edit = nullptr;
+            ks::ui::FieldDocument m_document;
+            bool m_documentActive = false;
         };
 
         void RunDefectTests()

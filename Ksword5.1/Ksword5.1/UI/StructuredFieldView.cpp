@@ -1,10 +1,13 @@
-#include "FilePropertyView.h"
+#include "StructuredFieldView.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
 #include <QEvent>
+#include <QFileDialog>
+#include <QSaveFile>
+#include <QMessageBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -30,15 +33,27 @@
 #include <algorithm>
 #include <functional>
 
-namespace file_dock_detail
+namespace ks::ui
 {
     namespace
     {
         enum PropertyRole { KindRole = Qt::UserRole + 176, KeyRole, RowRole, ValueRole };
 
-        FilePropertyView::Presentation& sessionPresentation()
+        bool writeDocumentText(const FieldDocument& document, const QString& filePath, QString* error)
         {
-            static auto presentation = FilePropertyView::Presentation::Sections;
+            QSaveFile file(filePath);
+            const QByteArray bytes = document.toPlainText(true).toUtf8();
+            if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit())
+            {
+                if (error) *error = file.errorString();
+                return false;
+            }
+            return true;
+        }
+
+        StructuredFieldView::Presentation& sessionPresentation()
+        {
+            static auto presentation = StructuredFieldView::Presentation::Sections;
             return presentation;
         }
 
@@ -47,20 +62,20 @@ namespace file_dock_detail
             return ks::i18n::sourceText(source);
         }
 
-        void appendText(const PropertyNode& node, QStringList& lines, const int depth,
+        void appendText(const FieldNode& node, QStringList& lines, const int depth,
             const bool localize)
         {
-            const auto name = localize ? translated(node.name) : node.name;
+            const auto name = localize && node.translateName ? translated(node.name) : node.name;
             const auto value = localize && node.translateValue ? translated(node.value) : node.value;
             const QString indentation(depth * 2, QLatin1Char(' '));
-            if (node.kind == PropertyNode::Kind::Section)
+            if (node.kind == FieldNode::Kind::Section)
                 lines.append(indentation + QLatin1Char('[') + name + QLatin1Char(']'));
-            else if (node.kind == PropertyNode::Kind::Note)
+            else if (node.kind == FieldNode::Kind::Note)
                 lines.append(indentation + (localize ? translated(node.value) : node.value));
             else
                 lines.append(indentation + name + QStringLiteral(": ") + value);
             for (const auto& child : node.children)
-                appendText(child, lines, depth + (node.kind == PropertyNode::Kind::Field ? 1 : 0), localize);
+                appendText(child, lines, depth + (node.kind == FieldNode::Kind::Field ? 1 : 0), localize);
         }
 
         void walkItems(QTreeWidgetItem* parent,
@@ -77,16 +92,17 @@ namespace file_dock_detail
         // QTextLayout is only the native delegate's plain text glyph layout.
         // There is no text document, rich text engine, editor or per-row widget.
         qreal layoutPlainText(const QString& text, const QFont& font, const qreal width,
-            QPainter* painter = nullptr, const QPointF& origin = QPointF())
+            QPainter* painter = nullptr, const QPointF& origin = QPointF(), const bool wrap = true)
         {
             qreal height = 0;
             const qreal available = std::max<qreal>(24, width);
             const auto paragraphs = text.split(QLatin1Char('\n'));
             for (const auto& paragraph : paragraphs)
             {
+                const qreal paragraphStart = height;
                 QTextLayout layout(paragraph, font);
                 QTextOption option;
-                option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+                option.setWrapMode(wrap ? QTextOption::WrapAtWordBoundaryOrAnywhere : QTextOption::NoWrap);
                 layout.setTextOption(option);
                 layout.beginLayout();
                 for (;;)
@@ -98,7 +114,7 @@ namespace file_dock_detail
                     height += line.height();
                 }
                 layout.endLayout();
-                if (paragraph.isEmpty()) height += QFontMetricsF(font).height();
+                if (height == paragraphStart) height += QFontMetricsF(font).height();
                 if (painter) layout.draw(painter, origin);
             }
             return height;
@@ -115,8 +131,8 @@ namespace file_dock_detail
             {
                 QStyleOptionViewItem option(supplied);
                 initStyleOption(&option, index);
-                const auto kind = static_cast<PropertyNode::Kind>(index.data(KindRole).toInt());
-                const bool section = kind == PropertyNode::Kind::Section;
+                const auto kind = static_cast<FieldNode::Kind>(index.data(KindRole).toInt());
+                const bool section = kind == FieldNode::Kind::Section;
                 const bool selected = option.state.testFlag(QStyle::State_Selected);
                 const auto text = option.text;
                 option.text.clear();
@@ -127,15 +143,18 @@ namespace file_dock_detail
                 QFont font = option.font;
                 if (section) font.setBold(true);
                 const int insetX = sections ? 10 : 6;
-                const int insetY = section ? 9 : (sections ? 7 : 4);
+                const int insetY = section ? 4 : 3;
                 const QRect area = option.rect.adjusted(insetX, insetY, -insetX, -insetY);
                 painter->save();
                 painter->setClipRect(option.rect);
                 const auto group = option.state.testFlag(QStyle::State_Enabled)
                     ? (option.state.testFlag(QStyle::State_Active) ? QPalette::Active : QPalette::Inactive)
                     : QPalette::Disabled;
-                painter->setPen(option.palette.color(group, selected ? QPalette::HighlightedText : QPalette::Text));
-                layoutPlainText(text, font, area.width(), painter, area.topLeft());
+                const auto textRole = selected ? QPalette::HighlightedText
+                    : (kind == FieldNode::Kind::Note || (!section && index.column() == 0)
+                        ? QPalette::PlaceholderText : QPalette::Text);
+                painter->setPen(option.palette.color(group, textRole));
+                layoutPlainText(text, font, area.width(), painter, area.topLeft(), m_tree->wordWrap());
                 if (section && !selected)
                 {
                     painter->setPen(option.palette.color(group, QPalette::Mid));
@@ -148,10 +167,10 @@ namespace file_dock_detail
             {
                 QStyleOptionViewItem option(supplied);
                 initStyleOption(&option, index);
-                const auto kind = static_cast<PropertyNode::Kind>(index.data(KindRole).toInt());
-                const bool span = kind != PropertyNode::Kind::Field;
+                const auto kind = static_cast<FieldNode::Kind>(index.data(KindRole).toInt());
+                const bool span = kind != FieldNode::Kind::Field;
                 QFont font = option.font;
-                if (kind == PropertyNode::Kind::Section) font.setBold(true);
+                if (kind == FieldNode::Kind::Section) font.setBold(true);
                 int width = m_tree->columnWidth(index.column());
                 if (span && index.column() == 0)
                     width = m_tree->viewport()->width();
@@ -162,8 +181,9 @@ namespace file_dock_detail
                     width -= depth * m_tree->indentation();
                 }
                 const int insetX = sections ? 10 : 6;
-                const int insetY = kind == PropertyNode::Kind::Section ? 9 : (sections ? 7 : 4);
-                const int height = qCeil(layoutPlainText(option.text, font, width - 2 * insetX)) + 2 * insetY;
+                const int insetY = kind == FieldNode::Kind::Section ? 4 : 3;
+                const int height = qCeil(layoutPlainText(option.text, font, width - 2 * insetX,
+                    nullptr, QPointF(), m_tree->wordWrap())) + 2 * insetY;
                 return QSize(std::max(24, width), std::max(height, QFontMetrics(font).height() + 2 * insetY));
             }
 
@@ -172,49 +192,49 @@ namespace file_dock_detail
         };
     }
 
-    PropertyDocument& PropertyDocument::section(const QString& title)
+    FieldDocument& FieldDocument::section(const QString& title)
     {
-        PropertyNode node;
-        node.kind = PropertyNode::Kind::Section;
+        FieldNode node;
+        node.kind = FieldNode::Kind::Section;
         node.name = title;
         nodes.append(node);
         return *this;
     }
 
-    PropertyDocument& PropertyDocument::field(const QString& name, const QString& value,
+    FieldDocument& FieldDocument::field(const QString& name, const QString& value,
         const bool translateValue)
     {
-        PropertyNode node;
-        node.kind = PropertyNode::Kind::Field;
+        FieldNode node;
+        node.kind = FieldNode::Kind::Field;
         node.name = name;
         node.value = value;
         node.translateValue = translateValue;
-        if (!nodes.isEmpty() && nodes.last().kind == PropertyNode::Kind::Section)
+        if (!nodes.isEmpty() && nodes.last().kind == FieldNode::Kind::Section)
             nodes.last().children.append(node);
         else nodes.append(node);
         return *this;
     }
 
-    PropertyDocument& PropertyDocument::note(const QString& body)
+    FieldDocument& FieldDocument::note(const QString& body)
     {
-        PropertyNode node;
-        node.kind = PropertyNode::Kind::Note;
+        FieldNode node;
+        node.kind = FieldNode::Kind::Note;
         node.value = body;
-        if (!nodes.isEmpty() && nodes.last().kind == PropertyNode::Kind::Section)
+        if (!nodes.isEmpty() && nodes.last().kind == FieldNode::Kind::Section)
             nodes.last().children.append(node);
         else nodes.append(node);
         return *this;
     }
 
-    QString PropertyDocument::toPlainText() const
+    QString FieldDocument::toPlainText(const bool localize) const
     {
         QStringList lines;
-        if (!title.isEmpty()) lines.append(title);
-        for (const auto& node : nodes) appendText(node, lines, 0, false);
+        if (!title.isEmpty()) lines.append(localize ? translated(title) : title);
+        for (const auto& node : nodes) appendText(node, lines, 0, localize);
         return lines.join(QLatin1Char('\n'));
     }
 
-    FilePropertyView::FilePropertyView(QWidget* parent) : QWidget(parent)
+    StructuredFieldView::StructuredFieldView(QWidget* parent) : QWidget(parent)
     {
         setMinimumSize(0, 0);
         setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
@@ -223,6 +243,7 @@ namespace file_dock_detail
         layout->setSpacing(8);
         m_title = new QLabel(this);
         m_title->setTextFormat(Qt::PlainText);
+        m_title->setProperty("ks_i18n_preserve_data_text", true);
         m_title->setWordWrap(true);
         m_title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         m_title->hide();
@@ -241,9 +262,14 @@ namespace file_dock_detail
         toolbar->addWidget(m_style);
         m_copy = new QToolButton(this);
         toolbar->addWidget(m_copy);
+        m_export = new QToolButton(this);
+        m_export->setIcon(QIcon(QStringLiteral(":/Icon/log_export.svg")));
+        toolbar->addWidget(m_export);
         layout->addLayout(toolbar);
         m_tree = new QTreeWidget(this);
         m_tree->setColumnCount(2);
+        m_tree->setProperty("ks_i18n_preserve_model_data", true);
+        m_tree->setProperty("ks_preserve_table_presentation", true);
         m_tree->setHeaderHidden(true);
         m_tree->setFrameShape(QFrame::NoFrame);
         m_tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -268,6 +294,18 @@ namespace file_dock_detail
             setPresentation(index == 1 ? Presentation::Tree : Presentation::Sections);
         });
         connect(m_copy, &QToolButton::clicked, this, [this] { copyText(plainText()); });
+        connect(m_export, &QToolButton::clicked, this, [this]
+        {
+            const QPointer<StructuredFieldView> self(this);
+            const FieldDocument snapshot = m_document;
+            const QString path = QFileDialog::getSaveFileName(this,
+                translated(QStringLiteral("导出文本")), QString(),
+                translated(QStringLiteral("文本文件 (*.txt);;所有文件 (*)")));
+            if (!self || path.isEmpty()) return;
+            QString error;
+            if (!writeDocumentText(snapshot, path, &error))
+                QMessageBox::warning(self.data(), translated(QStringLiteral("导出失败")), error);
+        });
         connect(m_tree, &QTreeWidget::customContextMenuRequested,
             this, [this](const QPoint& position) { showCopyMenu(position); });
         auto* copyShortcut = new QShortcut(QKeySequence::Copy, m_tree);
@@ -281,13 +319,22 @@ namespace file_dock_detail
         setPresentation(sessionPresentation());
     }
 
-    void FilePropertyView::setDocument(const PropertyDocument& document)
+    void StructuredFieldView::setDocument(const FieldDocument& document)
     {
         m_document = document;
         rebuild();
+        if (!m_documentNotificationPending)
+        {
+            m_documentNotificationPending = true;
+            QTimer::singleShot(0, this, [this]
+            {
+                m_documentNotificationPending = false;
+                emit documentChanged();
+            });
+        }
     }
 
-    void FilePropertyView::rebuild()
+    void StructuredFieldView::rebuild()
     {
         QHash<QString, bool> expanded;
         QSet<QString> selected;
@@ -304,27 +351,27 @@ namespace file_dock_detail
         m_tree->setUpdatesEnabled(false);
         m_tree->clear();
         QTreeWidgetItem* newCurrent = nullptr;
-        std::function<void(const QVector<PropertyNode>&, QTreeWidgetItem*, const QString&)> append;
-        append = [&](const QVector<PropertyNode>& nodes, QTreeWidgetItem* parent, const QString& parentKey)
+        std::function<void(const QVector<FieldNode>&, QTreeWidgetItem*, const QString&)> append;
+        append = [&](const QVector<FieldNode>& nodes, QTreeWidgetItem* parent, const QString& parentKey)
         {
             QHash<QString, int> occurrences;
             for (const auto& node : nodes)
             {
                 const QString sourceKey = QString::number(static_cast<int>(node.kind)) + QLatin1Char(':')
-                    + (node.kind == PropertyNode::Kind::Note ? node.value : node.name);
+                    + (node.kind == FieldNode::Kind::Note ? node.value : node.name);
                 const int occurrence = occurrences[sourceKey]++;
                 const QString key = parentKey + QString::number(sourceKey.size()) + QLatin1Char(':')
                     + sourceKey + QLatin1Char(':') + QString::number(occurrence) + QLatin1Char('/');
                 auto* item = new QTreeWidgetItem(parent);
-                const QString name = translated(node.name);
+                const QString name = node.translateName ? translated(node.name) : node.name;
                 const QString value = node.translateValue ? translated(node.value) : node.value;
                 QString row;
-                if (node.kind == PropertyNode::Kind::Section)
+                if (node.kind == FieldNode::Kind::Section)
                 {
                     item->setText(0, name);
                     row = QLatin1Char('[') + name + QLatin1Char(']');
                 }
-                else if (node.kind == PropertyNode::Kind::Note)
+                else if (node.kind == FieldNode::Kind::Note)
                 {
                     item->setText(0, translated(node.value));
                     row = translated(node.value);
@@ -340,12 +387,12 @@ namespace file_dock_detail
                     item->setData(column, KindRole, static_cast<int>(node.kind));
                     item->setData(column, KeyRole, key);
                     item->setData(column, RowRole, row);
-                    item->setData(column, ValueRole, node.kind == PropertyNode::Kind::Field ? value : item->text(0));
+                    item->setData(column, ValueRole, node.kind == FieldNode::Kind::Field ? value : item->text(0));
                     item->setToolTip(column, column == 0 ? item->text(0) : value);
                 }
-                item->setFirstColumnSpanned(node.kind != PropertyNode::Kind::Field);
+                item->setFirstColumnSpanned(node.kind != FieldNode::Kind::Field);
                 append(node.children, item, key);
-                const bool defaultExpanded = !node.children.isEmpty();
+                const bool defaultExpanded = !node.children.isEmpty() && node.initiallyExpanded;
                 item->setExpanded(expanded.value(key, defaultExpanded));
                 if (m_searchActive && !m_expansionBeforeSearch.contains(key))
                     m_expansionBeforeSearch.insert(key, defaultExpanded);
@@ -364,15 +411,17 @@ namespace file_dock_detail
         m_tree->verticalScrollBar()->setValue(scroll);
     }
 
-    QString FilePropertyView::plainText() const
+    QString StructuredFieldView::plainText() const
     {
-        QStringList lines;
-        if (!m_document.title.isEmpty()) lines.append(translated(m_document.title));
-        for (const auto& node : m_document.nodes) appendText(node, lines, 0, true);
-        return lines.join(QLatin1Char('\n'));
+        return m_document.toPlainText(true);
     }
 
-    QString FilePropertyView::exportItems(const bool selectedOnly) const
+    bool StructuredFieldView::exportText(const QString& filePath, QString* error) const
+    {
+        return writeDocumentText(m_document, filePath, error);
+    }
+
+    QString StructuredFieldView::exportItems(const bool selectedOnly) const
     {
         QStringList lines;
         walkItems(m_tree->invisibleRootItem(), [&](QTreeWidgetItem* item)
@@ -382,11 +431,11 @@ namespace file_dock_detail
         return lines.join(QLatin1Char('\n'));
     }
 
-    QString FilePropertyView::selectedText() const { return exportItems(true); }
+    QString StructuredFieldView::selectedText() const { return exportItems(true); }
 
-    PropertyCopySnapshot FilePropertyView::captureCopy(const QModelIndex& clicked) const
+    FieldCopySnapshot StructuredFieldView::captureCopy(const QModelIndex& clicked) const
     {
-        PropertyCopySnapshot snapshot;
+        FieldCopySnapshot snapshot;
         snapshot.all = plainText();
         if (clicked.isValid() && clicked.model() == m_tree->model())
         {
@@ -397,10 +446,10 @@ namespace file_dock_detail
         return snapshot;
     }
 
-    QString FilePropertyView::searchText() const { return m_search->text(); }
-    void FilePropertyView::setSearchText(const QString& text) { m_search->setText(text); }
+    QString StructuredFieldView::searchText() const { return m_search->text(); }
+    void StructuredFieldView::setSearchText(const QString& text) { m_search->setText(text); }
 
-    void FilePropertyView::applySearch()
+    void StructuredFieldView::applySearch()
     {
         const QString query = m_search->text().trimmed();
         const bool active = !query.isEmpty();
@@ -432,7 +481,7 @@ namespace file_dock_detail
         if (!active) m_expansionBeforeSearch.clear();
     }
 
-    void FilePropertyView::setPresentation(const Presentation presentation)
+    void StructuredFieldView::setPresentation(const Presentation presentation)
     {
         m_presentation = presentation;
         sessionPresentation() = presentation;
@@ -441,7 +490,7 @@ namespace file_dock_detail
         applyPresentation();
     }
 
-    void FilePropertyView::applyPresentation()
+    void StructuredFieldView::applyPresentation()
     {
         const bool sections = m_presentation == Presentation::Sections;
         m_tree->setRootIsDecorated(!sections);
@@ -453,15 +502,60 @@ namespace file_dock_detail
         m_tree->viewport()->update();
     }
 
-    void FilePropertyView::updateColumns()
+    void StructuredFieldView::updateColumns()
     {
         const int width = m_tree->viewport()->width();
         const int desired = std::clamp(width / 3, 112, 260);
-        m_tree->setColumnWidth(0, std::min(desired, std::max(64, width - 80)));
+        if (!m_tree->wordWrap())
+        {
+            // A native no-wrap projection keeps all text available by horizontal
+            // scrolling. Model values, selection and copy/export stay unchanged.
+            m_tree->header()->setStretchLastSection(false);
+            m_tree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+            const QFontMetrics metrics(m_tree->font());
+            const auto lineWidth = [&metrics](const QString& text)
+            {
+                int longest = 0;
+                for (const auto& line : text.split(QLatin1Char('\n')))
+                    longest = std::max(longest, metrics.horizontalAdvance(line));
+                return longest;
+            };
+            int keyWidth = desired;
+            int valueWidth = 80;
+            int spanWidth = 0;
+            walkItems(m_tree->invisibleRootItem(), [&](QTreeWidgetItem* item)
+            {
+                const auto kind = static_cast<FieldNode::Kind>(item->data(0, KindRole).toInt());
+                if (kind == FieldNode::Kind::Field)
+                {
+                    int depth = m_tree->rootIsDecorated() ? 1 : 0;
+                    for (auto* ancestor = item->parent(); ancestor; ancestor = ancestor->parent()) ++depth;
+                    keyWidth = std::max(keyWidth, lineWidth(item->text(0)) + depth * m_tree->indentation() + 24);
+                    valueWidth = std::max(valueWidth, lineWidth(item->text(1)) + 24);
+                }
+                else spanWidth = std::max(spanWidth, lineWidth(item->text(0)) + 24);
+            });
+            valueWidth = std::max({valueWidth, width - keyWidth, spanWidth - keyWidth});
+            m_tree->setColumnWidth(0, keyWidth);
+            m_tree->setColumnWidth(1, valueWidth);
+            return;
+        }
+        const int keyWidth = std::min(desired, std::max(64, width - 80));
+        m_tree->setColumnWidth(0, keyWidth);
+        if (m_tree->header()->sectionResizeMode(1) != QHeaderView::Stretch)
+        {
+            // Reset the last section before enabling stretch; Qt otherwise
+            // retains the large no-wrap width as its stretch minimum.
+            m_tree->setColumnWidth(1, std::max(48, width - keyWidth));
+            m_tree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+        }
+        m_tree->header()->setStretchLastSection(true);
     }
 
-    void FilePropertyView::updateTranslations()
+    void StructuredFieldView::updateTranslations()
     {
+        m_export->setToolTip(translated(QStringLiteral("导出文本")));
+        m_export->setAccessibleName(translated(QStringLiteral("导出文本")));
         m_search->setPlaceholderText(translated(QStringLiteral("搜索属性")));
         m_search->setAccessibleName(translated(QStringLiteral("搜索属性")));
         m_style->setItemText(0, translated(QStringLiteral("分区")));
@@ -471,7 +565,7 @@ namespace file_dock_detail
         m_tree->setHeaderLabels({translated(QStringLiteral("属性")), translated(QStringLiteral("值"))});
     }
 
-    void FilePropertyView::changeEvent(QEvent* event)
+    void StructuredFieldView::changeEvent(QEvent* event)
     {
         QWidget::changeEvent(event);
         if (!m_tree) return;
@@ -489,14 +583,14 @@ namespace file_dock_detail
         }
     }
 
-    void FilePropertyView::resizeEvent(QResizeEvent* event)
+    void StructuredFieldView::resizeEvent(QResizeEvent* event)
     {
         QWidget::resizeEvent(event);
         updateColumns();
         m_tree->doItemsLayout();
     }
 
-    bool FilePropertyView::eventFilter(QObject* watched, QEvent* event)
+    bool StructuredFieldView::eventFilter(QObject* watched, QEvent* event)
     {
         // The layout gives the tree its final geometry after the parent's
         // resizeEvent. Refresh from that actual viewport width on the next
@@ -514,12 +608,12 @@ namespace file_dock_detail
         return QWidget::eventFilter(watched, event);
     }
 
-    void FilePropertyView::copyText(const QString& text)
+    void StructuredFieldView::copyText(const QString& text)
     {
         if (!text.isEmpty()) QApplication::clipboard()->setText(text);
     }
 
-    void FilePropertyView::showCopyMenu(const QPoint& position)
+    void StructuredFieldView::showCopyMenu(const QPoint& position)
     {
         const auto clicked = m_tree->indexAt(position);
         if (clicked.isValid())
@@ -544,7 +638,7 @@ namespace file_dock_detail
         copyRow->setEnabled(snapshot.hasRow);
         copySelected->setEnabled(!selection.isEmpty());
         copyAll->setEnabled(!snapshot.all.isEmpty());
-        QPointer<FilePropertyView> guard(this);
+        QPointer<StructuredFieldView> guard(this);
         const auto action = menu.exec(m_tree->viewport()->mapToGlobal(position));
         if (!guard) return;
         if (action == copyValue) copyText(snapshot.value);

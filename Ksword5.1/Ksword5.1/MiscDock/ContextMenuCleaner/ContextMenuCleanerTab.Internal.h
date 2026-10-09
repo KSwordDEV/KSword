@@ -10,6 +10,7 @@
 
 #include <QString>
 #include <QStringList>
+#include "../../UI/StructuredFieldView.h"
 #include <QVector>
 
 #include <initializer_list>
@@ -109,7 +110,7 @@ namespace ks::misc::context_menu_cleaner_detail
     QString queryClsidServerPath(const QString& clsidText);
 
     // appendOptionalDetail：输入详情列表与键值；处理非空值追加；无返回值。
-    void appendOptionalDetail(QStringList* detailList, const QString& name, const QString& value);
+    void appendOptionalDetail(ks::ui::FieldDocument* detailList, const QString& name, const QString& value);
 
     // winErrorText：输入 Win32 错误码；处理解析系统错误文本；返回可读错误信息。
     QString winErrorText(DWORD errorCode);

@@ -1,4 +1,5 @@
-﻿#include "SystemMemoryAuditPage.h"
+#include "../UI/StructuredFieldView.h"
+#include "SystemMemoryAuditPage.h"
 #include "../UI/CodeEditorWidget.h"
 #include "PhysicalPageAttributionPage.h"
 #include "HyperVMemoryPage.h"
@@ -950,9 +951,9 @@ void SystemMemoryAuditPage::initializeUi()
     ks::i18n::LanguageManager::instance().bindTab(
         m_detailTabs, bigPoolPage, QStringLiteral("memory.audit.tab.big_pool"), QStringLiteral("Big Pool 分配"));
 
-    m_detailText = new CodeEditorWidget(this);
-    m_detailText->setReadOnly(true);
-    m_detailText->setMinimumHeight(64);
+    m_detailText = new ks::ui::StructuredFieldView(this);
+
+
 
     // 详情说明区不再被 setMaximumHeight 钉死：Tab 与说明文本装进纵向分割器，
     // 用户可以自行把说明区拖大来读完整段结论。
@@ -2182,15 +2183,17 @@ void SystemMemoryAuditPage::updateDetails()
         text = localized(
             "Big Pool lists individual page-sized or larger kernel allocations. The low address bit encodes nonpaged state and is removed before display. These rows are already included in pool totals and must not be added again to physical usage.");
     }
+    ks::ui::FieldDocument document;
+    document.note(text);
     if (!m_poolTagMetadataSource.isEmpty())
     {
-        text += localized("\nPool tag metadata: %1").arg(QDir::toNativeSeparators(m_poolTagMetadataSource));
+        document.field(QStringLiteral("Pool tag metadata"), QDir::toNativeSeparators(m_poolTagMetadataSource));
     }
     else
     {
-        text += localized("\nPool tag metadata was not found; tag bytes and usage remain valid, but source descriptions are unavailable.");
+        document.note(localized("Pool tag metadata was not found; tag bytes and usage remain valid, but source descriptions are unavailable."));
     }
-    m_detailText->setReportText(text);
+    m_detailText->setDocument(document);
 }
 
 void SystemMemoryAuditPage::updateStatus()

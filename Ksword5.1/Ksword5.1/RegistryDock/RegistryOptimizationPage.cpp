@@ -1,4 +1,5 @@
-﻿#include "RegistryOptimizationPage.h"
+#include "../UI/StructuredFieldView.h"
+#include "RegistryOptimizationPage.h"
 #include "RegistryOptimizationTransactions.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../Internationalization/LanguageManager.h"
@@ -62,6 +63,25 @@
 
 namespace
 {
+    ks::ui::FieldNode nativeJsonNode(const QString& name, const QJsonValue& value)
+    {
+        ks::ui::FieldNode node;
+        node.name = name;
+        if (value.isObject()) {
+            node.kind = ks::ui::FieldNode::Kind::Section;
+            const auto object = value.toObject();
+            for (auto it = object.constBegin(); it != object.constEnd(); ++it) node.children.append(nativeJsonNode(it.key(), it.value()));
+        } else if (value.isArray()) {
+            node.kind = ks::ui::FieldNode::Kind::Section;
+            const auto array = value.toArray();
+            for (qsizetype i = 0; i < array.size(); ++i) node.children.append(nativeJsonNode(QString::number(i), array[i]));
+        } else if (value.isBool()) node.value = value.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+        else if (value.isDouble()) node.value = QString::number(value.toDouble(), 'g', 17);
+        else if (value.isString()) node.value = value.toString();
+        else node.value = QStringLiteral("null");
+        return node;
+    }
+
     constexpr const char* kOptimizationProfileFileName = "registry_optimization_items.json";
     constexpr int kRoleGroupName = Qt::UserRole + 1;
     constexpr int kItemNameColumn = 0;
@@ -1015,9 +1035,9 @@ void RegistryOptimizationPage::initializeUi()
     rightLayout->addWidget(m_itemTable, 2);
 
     // 优化详情由程序按当前行生成，统一编辑器会保留规范源文本并在切换语言时重绘。
-    m_detailText = new CodeEditorWidget(rightWidget);
-    m_detailText->setReadOnly(true);
-    m_detailText->setMinimumHeight(190);
+    m_detailText = new ks::ui::StructuredFieldView(rightWidget);
+
+
     rightLayout->addWidget(m_detailText, 1);
 
     m_statusLabel = new QLabel(QStringLiteral("系统优化：等待加载 profiles JSON。"), this);
@@ -1075,7 +1095,7 @@ void RegistryOptimizationPage::loadOptimizationProfile()
     m_loadedProfilePath.clear();
     m_itemTable->setRowCount(0);
     m_groupTree->clear();
-    m_detailText->setLocalizedText(QString());
+    m_detailText->setDocument({});
 
     QString selectedPath;
     for (const QString& candidatePath : profileCandidatePaths())
@@ -1320,7 +1340,7 @@ void RegistryOptimizationPage::rebuildItemTable()
     }
     else
     {
-        m_detailText->setLocalizedText(QString());
+        m_detailText->setDocument({});
     }
     updateStatusText(QStringLiteral("系统优化：当前显示 %1 行；来源 %2。").arg(m_itemTable->rowCount()).arg(m_loadedProfilePath));
     applyColumnPreset(m_columnPreset);
@@ -1450,7 +1470,7 @@ void RegistryOptimizationPage::updateDetailPanel(const int tableRow)
 {
     if (m_rebuildingTable || tableRow < 0 || tableRow >= m_visibleRows.size())
     {
-        m_detailText->setLocalizedText(QString());
+        m_detailText->setDocument({});
         return;
     }
 
@@ -1458,27 +1478,31 @@ void RegistryOptimizationPage::updateDetailPanel(const int tableRow)
     const OptimizationItem& item = m_itemList.at(rowRef.itemIndex);
     const OptimizationScope& scope = item.scopeList.at(rowRef.scopeIndex);
 
-    QStringList lines;
-    lines << QStringLiteral("项目: %1").arg(item.itemNameText);
-    lines << QStringLiteral("分组: %1").arg(item.groupNameText);
-    lines << QStringLiteral("作用域: %1 (%2)").arg(scopeDisplayText(scope.scopeText), scope.scopeText);
-    lines << QStringLiteral("类型: %1").arg(item.itemTypeText);
-    if (!item.warningText.isEmpty()) lines << QStringLiteral("项目警告: %1").arg(item.warningText);
-    if (!item.groupConditionText.isEmpty()) lines << QStringLiteral("组条件: %1").arg(item.groupConditionText);
-    if (!item.itemConditionText.isEmpty()) lines << QStringLiteral("项目条件: %1").arg(item.itemConditionText);
-    if (!scope.conditionText.isEmpty()) lines << QStringLiteral("作用域条件: %1").arg(scope.conditionText);
-    lines << QStringLiteral("");
-    lines << QStringLiteral("状态/动作:");
-    for (const OptimizationState& state : scope.stateList)
-    {
-        lines << QStringLiteral("- %1 [%2] 条件=%3").arg(state.labelText, state.tagText, state.conditionText);
-        if (!state.warningText.isEmpty()) lines << QStringLiteral("  警告: %1").arg(state.warningText);
-        for (const QJsonObject& action : state.actionList)
-        {
-            lines << QStringLiteral("  * %1").arg(jsonString(action, QStringLiteral("summary"), QString::fromUtf8(QJsonDocument(action).toJson(QJsonDocument::Compact))));
-        }
+    ks::ui::FieldDocument lines;
+    lines.field(QStringLiteral("项目"), QStringLiteral("%1").arg(item.itemNameText));
+    lines.field(QStringLiteral("分组"), QStringLiteral("%1").arg(item.groupNameText));
+    lines.field(QStringLiteral("作用域"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(scopeDisplayText(scope.scopeText))).arg(QStringLiteral("%1").arg(scope.scopeText)));
+    lines.field(QStringLiteral("类型"), QStringLiteral("%1").arg(item.itemTypeText));
+    if (!item.warningText.isEmpty()) lines.field(QStringLiteral("项目警告"), QStringLiteral("%1").arg(item.warningText));
+    if (!item.groupConditionText.isEmpty()) lines.field(QStringLiteral("组条件"), QStringLiteral("%1").arg(item.groupConditionText));
+    if (!item.itemConditionText.isEmpty()) lines.field(QStringLiteral("项目条件"), QStringLiteral("%1").arg(item.itemConditionText));
+    if (!scope.conditionText.isEmpty()) lines.field(QStringLiteral("作用域条件"), QStringLiteral("%1").arg(scope.conditionText));
+
+    lines.section(QStringLiteral("状态/动作"));
+    for (const OptimizationState& state : scope.stateList) {
+        ks::ui::FieldNode stateNode;
+        stateNode.kind = ks::ui::FieldNode::Kind::Section;
+        stateNode.name = state.labelText;
+        ks::ui::FieldDocument stateFields;
+        stateFields.field(QStringLiteral("标签"), state.tagText);
+        stateFields.field(QStringLiteral("条件"), state.conditionText);
+        if (!state.warningText.isEmpty()) stateFields.field(QStringLiteral("警告"), state.warningText, true);
+        stateNode.children = stateFields.nodes;
+        for (qsizetype index = 0; index < state.actionList.size(); ++index)
+            stateNode.children.append(nativeJsonNode(QStringLiteral("Action %1").arg(index + 1), state.actionList[index]));
+        lines.nodes.last().children.append(std::move(stateNode));
     }
-    m_detailText->setLocalizedText(lines.join(QLatin1Char('\n')));
+    m_detailText->setDocument(lines);
 }
 
 void RegistryOptimizationPage::updateStatusText(const QString& text)
@@ -1692,21 +1716,20 @@ void RegistryOptimizationPage::beginStateApply(
     m_stateApplyActions = state.actionList;
     m_stateApplyNextActionIndex = 0;
     m_stateApplyActiveAction = QJsonObject();
-    m_stateApplyDetailLines = {
-        QStringLiteral("应用项目: %1").arg(item.itemNameText),
-        QStringLiteral("作用域: %1").arg(scopeDisplayText(scope.scopeText)),
-        QStringLiteral("目标状态: %1").arg(state.labelText)
-    };
+    m_stateApplyDetailLines = {};
+    m_stateApplyDetailLines.field(QStringLiteral("应用项目"), item.itemNameText);
+    m_stateApplyDetailLines.field(QStringLiteral("作用域"), scopeDisplayText(scope.scopeText));
+    m_stateApplyDetailLines.field(QStringLiteral("目标状态"), state.labelText);
     m_stateApplyAllOk = true;
     m_stateApplyRestartExplorer = false;
     // 序列代次自增：上一轮仍在后台执行的广播动作回投时会被识别为过期并丢弃。
     setProperty(kStateApplyGenerationProperty, property(kStateApplyGenerationProperty).toULongLong() + 1);
     setApplyControlsEnabled(false);
-    m_detailText->setLocalizedText(m_stateApplyDetailLines.join(QLatin1Char('\n')));
+    m_detailText->setDocument(m_stateApplyDetailLines);
 
     if (m_stateApplyActions.isEmpty())
     {
-        m_stateApplyDetailLines << QStringLiteral("该状态没有动作。");
+        m_stateApplyDetailLines.note(QStringLiteral("该状态没有动作。"));
         finishStateApply();
         return;
     }
@@ -1770,14 +1793,14 @@ void RegistryOptimizationPage::continueStateApply()
         return;
     }
 
-    QStringList actionDetailLines;
+    ks::ui::FieldDocument actionDetailLines;
     bool actionRestartExplorer = false;
     const bool actionOk = executeAction(m_stateApplyActiveAction, &actionDetailLines, &actionRestartExplorer);
     m_stateApplyRestartExplorer = m_stateApplyRestartExplorer || actionRestartExplorer;
     m_stateApplyAllOk = m_stateApplyAllOk && actionOk;
-    m_stateApplyDetailLines.append(actionDetailLines);
+    m_stateApplyDetailLines.nodes += actionDetailLines.nodes;
     ++m_stateApplyNextActionIndex;
-    m_detailText->setLocalizedText(m_stateApplyDetailLines.join(QLatin1Char('\n')));
+    m_detailText->setDocument(m_stateApplyDetailLines);
     QTimer::singleShot(0, this, [this]() { continueStateApply(); });
 }
 
@@ -1794,7 +1817,7 @@ void RegistryOptimizationPage::completePendingAction(const bool actionOk, const 
     }
 
     bool actionRestartExplorer = false;
-    QStringList actionDetailLines;
+    ks::ui::FieldDocument actionDetailLines;
     const QString summaryText = jsonString(m_stateApplyActiveAction, QStringLiteral("summary"),
         QString::fromUtf8(QJsonDocument(m_stateApplyActiveAction).toJson(QJsonDocument::Compact)));
     const QString restartText = jsonString(m_stateApplyActiveAction, QStringLiteral("activate_restart"));
@@ -1802,21 +1825,20 @@ void RegistryOptimizationPage::completePendingAction(const bool actionOk, const 
     const bool skippedError = !actionOk && shouldSkipActionError(m_stateApplyActiveAction);
     if (skippedError)
     {
-        actionDetailLines << QStringLiteral("[跳过] %1；原因：%2").arg(summaryText, errorText);
+        actionDetailLines.field(QStringLiteral("跳过"), summaryText).field(QStringLiteral("原因"), errorText, true);
     }
     else
     {
-        actionDetailLines << (actionOk
-            ? QStringLiteral("[成功] %1").arg(summaryText)
-            : QStringLiteral("[失败] %1；原因：%2").arg(summaryText, errorText));
+        actionDetailLines.field(actionOk ? QStringLiteral("成功") : QStringLiteral("失败"), summaryText);
+        if (!actionOk) actionDetailLines.field(QStringLiteral("原因"), errorText, true);
     }
 
     m_stateApplyRestartExplorer = m_stateApplyRestartExplorer || actionRestartExplorer;
     m_stateApplyAllOk = m_stateApplyAllOk && (actionOk || skippedError);
-    m_stateApplyDetailLines.append(actionDetailLines);
+    m_stateApplyDetailLines.nodes += actionDetailLines.nodes;
     m_stateApplyActiveAction = QJsonObject();
     ++m_stateApplyNextActionIndex;
-    m_detailText->setLocalizedText(m_stateApplyDetailLines.join(QLatin1Char('\n')));
+    m_detailText->setDocument(m_stateApplyDetailLines);
     QTimer::singleShot(0, this, [this]() { continueStateApply(); });
 }
 
@@ -1826,9 +1848,9 @@ void RegistryOptimizationPage::finishStateApply()
 
     if (m_stateApplyRestartExplorer)
     {
-        m_stateApplyDetailLines << QStringLiteral("提示: 部分动作标记需要重启 Explorer 或重新登录后完全生效。");
+        m_stateApplyDetailLines.note(QStringLiteral("提示: 部分动作标记需要重启 Explorer 或重新登录后完全生效。"));
     }
-    m_detailText->setLocalizedText(m_stateApplyDetailLines.join(QLatin1Char('\n')));
+    m_detailText->setDocument(m_stateApplyDetailLines);
     refreshVisibleRowState(m_stateApplyTableRow);
     const bool allOk = m_stateApplyAllOk;
     const QString itemName = m_stateApplyItemName;
@@ -1863,8 +1885,8 @@ void RegistryOptimizationPage::cancelStateApply(const QString& reasonText)
     m_stateApplyZipDestinationPath.clear();
     if (!reasonText.isEmpty())
     {
-        m_stateApplyDetailLines << QStringLiteral("[已取消] %1").arg(reasonText);
-        m_detailText->setLocalizedText(m_stateApplyDetailLines.join(QLatin1Char('\n')));
+        m_stateApplyDetailLines.field(QStringLiteral("已取消"), reasonText, true);
+        m_detailText->setDocument(m_stateApplyDetailLines);
         updateStatusText(QStringLiteral("系统优化：%1").arg(reasonText));
     }
     m_stateApplyInProgress = false;
@@ -2057,7 +2079,7 @@ bool RegistryOptimizationPage::startExternalAction(const QJsonObject& actionObje
 
 bool RegistryOptimizationPage::executeAction(
     const QJsonObject& actionObject,
-    QStringList* detailLinesOut,
+    ks::ui::FieldDocument* detailLinesOut,
     bool* restartExplorerOut)
 {
     if (restartExplorerOut != nullptr) *restartExplorerOut = false;
@@ -2109,14 +2131,13 @@ bool RegistryOptimizationPage::executeAction(
 
     if (!ok && shouldSkipActionError(actionObject))
     {
-        if (detailLinesOut != nullptr) *detailLinesOut << QStringLiteral("[跳过] %1；原因：%2").arg(summaryText, errorText);
+        if (detailLinesOut != nullptr) detailLinesOut->field(QStringLiteral("跳过"), summaryText).field(QStringLiteral("原因"), errorText, true);
         return true;
     }
     if (detailLinesOut != nullptr)
     {
-        *detailLinesOut << (ok
-            ? QStringLiteral("[成功] %1").arg(summaryText)
-            : QStringLiteral("[失败] %1；原因：%2").arg(summaryText, errorText));
+        detailLinesOut->field(ok ? QStringLiteral("成功") : QStringLiteral("失败"), summaryText);
+        if (!ok) detailLinesOut->field(QStringLiteral("原因"), errorText, true);
     }
     return ok;
 }

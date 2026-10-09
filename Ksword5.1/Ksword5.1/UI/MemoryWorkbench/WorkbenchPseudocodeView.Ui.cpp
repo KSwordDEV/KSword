@@ -181,7 +181,6 @@ namespace ks::ui
         // C 源码按原文显示，统一编辑器提供查找；报告结构化解释不适用于函数代码。
         code_ = new CodeEditorWidget(this);
         code_->setReadOnly(true);
-        code_->setStructuredReportViewEnabled(false);
         text_ = dynamic_cast<CodeTextEdit*>(code_->findChild<QPlainTextEdit*>(QStringLiteral("code_editor_text")));
         if (text_)
         {

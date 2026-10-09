@@ -7,7 +7,7 @@
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../FileDock/FilePropertyPeAnalyzer.h"
 #include "../OnlineScan/SandboxUploadActions.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include "../UI/DetailLayoutHost.h"
 #include "../UI/DetailLayoutRegistry.h"
 /* 统一入口：这一页不需要知道 GPA、EPT 叶或 ruleId。 */
@@ -338,7 +338,7 @@ namespace
         return QString();
     }
 
-    QString callbackEnumBuildModuleFileGeneralText(const QString& filePath)
+    ks::ui::FieldDocument callbackEnumBuildModuleFileGeneralText(const QString& filePath)
     {
         // 作用：生成模块文件详情窗口的常规信息页。
         // 返回：包含路径、大小和时间戳的纯文本。
@@ -347,29 +347,19 @@ namespace
         const auto yesNoText = [](const bool value) {
             return value ? QStringLiteral("是") : QStringLiteral("否");
         };
-        return QStringLiteral(
-            "文件路径：%1\n"
-            "文件名：%2\n"
-            "所在目录：%3\n"
-            "是否存在：%4\n"
-            "大小：%5 字节\n"
-            "创建时间：%6\n"
-            "修改时间：%7\n"
-            "访问时间：%8\n"
-            "可读：%9\n"
-            "可写：%10\n"
-            "可执行：%11")
-            .arg(QDir::toNativeSeparators(fileInfo.absoluteFilePath()))
-            .arg(fileInfo.fileName())
-            .arg(QDir::toNativeSeparators(fileInfo.absolutePath()))
-            .arg(yesNoText(fileInfo.exists()))
-            .arg(fileInfo.exists() ? QString::number(fileInfo.size()) : unavailableText)
-            .arg(fileInfo.birthTime().isValid() ? fileInfo.birthTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")) : unavailableText)
-            .arg(fileInfo.lastModified().isValid() ? fileInfo.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")) : unavailableText)
-            .arg(fileInfo.lastRead().isValid() ? fileInfo.lastRead().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")) : unavailableText)
-            .arg(yesNoText(fileInfo.isReadable()))
-            .arg(yesNoText(fileInfo.isWritable()))
-            .arg(yesNoText(fileInfo.isExecutable()));
+        { ks::ui::FieldDocument document;
+        document.field(QStringLiteral("文件路径"), QStringLiteral("%1").arg(QDir::toNativeSeparators(fileInfo.absoluteFilePath())));
+        document.field(QStringLiteral("文件名"), QStringLiteral("%1").arg(fileInfo.fileName()));
+        document.field(QStringLiteral("所在目录"), QStringLiteral("%1").arg(QDir::toNativeSeparators(fileInfo.absolutePath())));
+        document.field(QStringLiteral("是否存在"), QStringLiteral("%1").arg(yesNoText(fileInfo.exists())));
+        document.field(QStringLiteral("大小"), QStringLiteral("%1 字节").arg(QStringLiteral("%1").arg(fileInfo.exists() ? QString::number(fileInfo.size()) : unavailableText)));
+        document.field(QStringLiteral("创建时间"), QStringLiteral("%1").arg(fileInfo.birthTime().isValid() ? fileInfo.birthTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")) : unavailableText));
+        document.field(QStringLiteral("修改时间"), QStringLiteral("%1").arg(fileInfo.lastModified().isValid() ? fileInfo.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")) : unavailableText));
+        document.field(QStringLiteral("访问时间"), QStringLiteral("%1").arg(fileInfo.lastRead().isValid() ? fileInfo.lastRead().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")) : unavailableText));
+        document.field(QStringLiteral("可读"), QStringLiteral("%1").arg(yesNoText(fileInfo.isReadable())));
+        document.field(QStringLiteral("可写"), QStringLiteral("%1").arg(yesNoText(fileInfo.isWritable())));
+        document.field(QStringLiteral("可执行"), QStringLiteral("%1").arg(yesNoText(fileInfo.isExecutable())));
+        return document; }
     }
 
     void callbackEnumShowModuleFileDetailDialog(QWidget* parentWidget, const QString& filePath)
@@ -387,14 +377,14 @@ namespace
         QTabWidget* tabWidget = new QTabWidget(&detailDialog);
         rootLayout->addWidget(tabWidget, 1);
 
-        CodeEditorWidget* generalEditor = new CodeEditorWidget(&detailDialog);
-        generalEditor->setReadOnly(true);
-        generalEditor->setLocalizedText(callbackEnumBuildModuleFileGeneralText(filePath));
+        ks::ui::StructuredFieldView* generalEditor = new ks::ui::StructuredFieldView(&detailDialog);
+
+        generalEditor->setDocument(callbackEnumBuildModuleFileGeneralText(filePath));
         tabWidget->addTab(generalEditor, kernelText("kernel.callback.enum.file.tab.general", QStringLiteral("常规信息")));
 
-        CodeEditorWidget* peEditor = new CodeEditorWidget(&detailDialog);
-        peEditor->setReadOnly(true);
-        peEditor->setLocalizedText(file_dock_detail::buildPeAnalysisText(filePath));
+        ks::ui::StructuredFieldView* peEditor = new ks::ui::StructuredFieldView(&detailDialog);
+
+        peEditor->setDocument(file_dock_detail::buildPeAnalysisDocument(filePath));
         tabWidget->addTab(peEditor, kernelText("kernel.callback.enum.file.tab.pe", QStringLiteral("PE信息")));
 
         QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, &detailDialog);
@@ -1302,7 +1292,7 @@ namespace
         return requestPacket;
     }
 
-    QString callbackEnumExRemoveDetailText(
+    ks::ui::FieldDocument callbackEnumExRemoveDetailText(
         const KernelCallbackEnumEntry& entry,
         const KSWORD_ARK_REMOVE_EXTERNAL_CALLBACK_EX_REQUEST& requestPacket,
         const ksword::ark::CallbackRemoveExResult& removeResult)
@@ -1314,53 +1304,33 @@ namespace
         const QString modulePath = QString::fromWCharArray(responsePacket.modulePath);
         const QString serviceName = QString::fromWCharArray(responsePacket.serviceName);
         const QString messageText = QString::fromWCharArray(responsePacket.message);
-        return kernelText("kernel.callback.enum.remove.ex.detail", QStringLiteral(
-            "EX移除请求已执行。\n"
-            "- 类型：%1\n"
-            "- 来源：%2\n"
-            "- 可信状态：%3\n"
-            "- 移除策略：%4\n"
-            "- 请求类：%5\n"
-            "- 请求值：%6\n"
-            "- RemoveBehavior：0x%7\n"
-            "- TrustFlags：0x%8\n"
-            "- Generation：%9\n"
-            "- IdentityHash：%10\n"
-            "- Win32：%11\n"
-            "- 返回字节：%12\n"
-            "- NTSTATUS：%13\n"
-            "- Revalidation：%14\n"
-            "- 映射标志：%15\n"
-            "- 模块路径：%16\n"
-            "- 模块基址：%17\n"
-            "- 模块大小：0x%18\n"
-            "- 服务名：%19\n"
-            "- 消息：%20\n"
-            "- ArkDriverClient：%21"))
-            .arg(entry.classText)
-            .arg(entry.sourceText)
-            .arg(entry.sourceTrustText)
-            .arg(entry.removePolicyText)
-            .arg(static_cast<qulonglong>(requestPacket.callbackClass))
-            .arg(callbackEnumFormatAddress(requestPacket.callbackAddress))
-            .arg(QString::number(static_cast<qulonglong>(requestPacket.removeBehavior), 16).toUpper())
-            .arg(QString::number(static_cast<qulonglong>(requestPacket.trustFlags), 16).toUpper())
-            .arg(static_cast<qulonglong>(requestPacket.enumerationGeneration))
-            .arg(callbackEnumIdentityHashText(requestPacket.identityHash))
-            .arg(static_cast<qulonglong>(removeResult.io.win32Error))
-            .arg(static_cast<qulonglong>(removeResult.io.bytesReturned))
-            .arg(callbackEnumNtStatusText(responsePacket.ntstatus))
-            .arg(callbackEnumNtStatusText(responsePacket.revalidationStatus))
-            .arg(callbackEnumRemoveMappingText(responsePacket.mappingFlags))
-            .arg(modulePath.isEmpty() ? kernelText("kernel.callback.enum.placeholder.unresolved", QStringLiteral("<未解析>")) : modulePath)
-            .arg(callbackEnumFormatAddress(responsePacket.moduleBase))
-            .arg(QString::number(static_cast<qulonglong>(responsePacket.moduleSize), 16).toUpper())
-            .arg(serviceName.isEmpty() ? kernelText("kernel.callback.enum.placeholder.unmatched", QStringLiteral("<未匹配>")) : serviceName)
-            .arg(messageText.isEmpty() ? kernelText("kernel.callback.enum.placeholder.none", QStringLiteral("<无>")) : messageText)
-            .arg(callbackEnumIoMessageText(QString::fromStdString(removeResult.io.message)));
+        { ks::ui::FieldDocument document;
+        document.note(QStringLiteral("EX移除请求已执行。"));
+        document.field(QStringLiteral("- 类型"), QStringLiteral("%1").arg(entry.classText));
+        document.field(QStringLiteral("- 来源"), QStringLiteral("%1").arg(entry.sourceText));
+        document.field(QStringLiteral("- 可信状态"), QStringLiteral("%1").arg(entry.sourceTrustText));
+        document.field(QStringLiteral("- 移除策略"), QStringLiteral("%1").arg(entry.removePolicyText));
+        document.field(QStringLiteral("- 请求类"), QStringLiteral("%1").arg(static_cast<qulonglong>(requestPacket.callbackClass)));
+        document.field(QStringLiteral("- 请求值"), QStringLiteral("%1").arg(callbackEnumFormatAddress(requestPacket.callbackAddress)));
+        document.field(QStringLiteral("- RemoveBehavior"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(static_cast<qulonglong>(requestPacket.removeBehavior), 16).toUpper())));
+        document.field(QStringLiteral("- TrustFlags"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(static_cast<qulonglong>(requestPacket.trustFlags), 16).toUpper())));
+        document.field(QStringLiteral("- Generation"), QStringLiteral("%1").arg(static_cast<qulonglong>(requestPacket.enumerationGeneration)));
+        document.field(QStringLiteral("- IdentityHash"), QStringLiteral("%1").arg(callbackEnumIdentityHashText(requestPacket.identityHash)));
+        document.field(QStringLiteral("- Win32"), QStringLiteral("%1").arg(static_cast<qulonglong>(removeResult.io.win32Error)));
+        document.field(QStringLiteral("- 返回字节"), QStringLiteral("%1").arg(static_cast<qulonglong>(removeResult.io.bytesReturned)));
+        document.field(QStringLiteral("- NTSTATUS"), QStringLiteral("%1").arg(callbackEnumNtStatusText(responsePacket.ntstatus)));
+        document.field(QStringLiteral("- Revalidation"), QStringLiteral("%1").arg(callbackEnumNtStatusText(responsePacket.revalidationStatus)));
+        document.field(QStringLiteral("- 映射标志"), QStringLiteral("%1").arg(callbackEnumRemoveMappingText(responsePacket.mappingFlags)));
+        document.field(QStringLiteral("- 模块路径"), QStringLiteral("%1").arg(modulePath.isEmpty() ? kernelText("kernel.callback.enum.placeholder.unresolved", QStringLiteral("<未解析>")) : modulePath));
+        document.field(QStringLiteral("- 模块基址"), QStringLiteral("%1").arg(callbackEnumFormatAddress(responsePacket.moduleBase)));
+        document.field(QStringLiteral("- 模块大小"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(static_cast<qulonglong>(responsePacket.moduleSize), 16).toUpper())));
+        document.field(QStringLiteral("- 服务名"), QStringLiteral("%1").arg(serviceName.isEmpty() ? kernelText("kernel.callback.enum.placeholder.unmatched", QStringLiteral("<未匹配>")) : serviceName));
+        document.field(QStringLiteral("- 消息"), QStringLiteral("%1").arg(messageText.isEmpty() ? kernelText("kernel.callback.enum.placeholder.none", QStringLiteral("<无>")) : messageText));
+        document.field(QStringLiteral("- ArkDriverClient"), QStringLiteral("%1").arg(callbackEnumIoMessageText(QString::fromStdString(removeResult.io.message))));
+        return document; }
     }
 
-    QString callbackEnumLegacyRemoveDetailText(
+    ks::ui::FieldDocument callbackEnumLegacyRemoveDetailText(
         const KernelCallbackEnumEntry& entry,
         const KSWORD_ARK_REMOVE_EXTERNAL_CALLBACK_REQUEST& requestPacket,
         const ksword::ark::CallbackRemoveResult& removeResult)
@@ -1371,38 +1341,24 @@ namespace
         const KSWORD_ARK_REMOVE_EXTERNAL_CALLBACK_RESPONSE& responsePacket = removeResult.response;
         const QString modulePath = QString::fromWCharArray(responsePacket.modulePath);
         const QString serviceName = QString::fromWCharArray(responsePacket.serviceName);
-        return kernelText("kernel.callback.enum.remove.legacy.detail", QStringLiteral(
-            "安全移除请求已执行。\n"
-            "- 类型：%1\n"
-            "- 来源：%2\n"
-            "- 可信状态：%3\n"
-            "- 移除策略：%4\n"
-            "- 请求类：%5\n"
-            "- 请求值：%6\n"
-            "- Win32：%7\n"
-            "- 返回字节：%8\n"
-            "- NTSTATUS：%9\n"
-            "- 映射标志：%10\n"
-            "- 模块路径：%11\n"
-            "- 模块基址：%12\n"
-            "- 模块大小：0x%13\n"
-            "- 服务名：%14\n"
-            "- 驱动消息：%15"))
-            .arg(entry.classText)
-            .arg(entry.sourceText)
-            .arg(entry.sourceTrustText)
-            .arg(entry.removePolicyText)
-            .arg(static_cast<qulonglong>(requestPacket.callbackClass))
-            .arg(callbackEnumFormatAddress(requestPacket.callbackAddress))
-            .arg(static_cast<qulonglong>(removeResult.io.win32Error))
-            .arg(static_cast<qulonglong>(removeResult.io.bytesReturned))
-            .arg(callbackEnumNtStatusText(responsePacket.ntstatus))
-            .arg(callbackEnumRemoveMappingText(responsePacket.mappingFlags))
-            .arg(modulePath.isEmpty() ? kernelText("kernel.callback.enum.placeholder.unresolved", QStringLiteral("<未解析>")) : modulePath)
-            .arg(callbackEnumFormatAddress(responsePacket.moduleBase))
-            .arg(QString::number(static_cast<qulonglong>(responsePacket.moduleSize), 16).toUpper())
-            .arg(serviceName.isEmpty() ? kernelText("kernel.callback.enum.placeholder.unmatched", QStringLiteral("<未匹配>")) : serviceName)
-            .arg(callbackEnumIoMessageText(QString::fromStdString(removeResult.io.message)));
+        { ks::ui::FieldDocument document;
+        document.note(QStringLiteral("安全移除请求已执行。"));
+        document.field(QStringLiteral("- 类型"), QStringLiteral("%1").arg(entry.classText));
+        document.field(QStringLiteral("- 来源"), QStringLiteral("%1").arg(entry.sourceText));
+        document.field(QStringLiteral("- 可信状态"), QStringLiteral("%1").arg(entry.sourceTrustText));
+        document.field(QStringLiteral("- 移除策略"), QStringLiteral("%1").arg(entry.removePolicyText));
+        document.field(QStringLiteral("- 请求类"), QStringLiteral("%1").arg(static_cast<qulonglong>(requestPacket.callbackClass)));
+        document.field(QStringLiteral("- 请求值"), QStringLiteral("%1").arg(callbackEnumFormatAddress(requestPacket.callbackAddress)));
+        document.field(QStringLiteral("- Win32"), QStringLiteral("%1").arg(static_cast<qulonglong>(removeResult.io.win32Error)));
+        document.field(QStringLiteral("- 返回字节"), QStringLiteral("%1").arg(static_cast<qulonglong>(removeResult.io.bytesReturned)));
+        document.field(QStringLiteral("- NTSTATUS"), QStringLiteral("%1").arg(callbackEnumNtStatusText(responsePacket.ntstatus)));
+        document.field(QStringLiteral("- 映射标志"), QStringLiteral("%1").arg(callbackEnumRemoveMappingText(responsePacket.mappingFlags)));
+        document.field(QStringLiteral("- 模块路径"), QStringLiteral("%1").arg(modulePath.isEmpty() ? kernelText("kernel.callback.enum.placeholder.unresolved", QStringLiteral("<未解析>")) : modulePath));
+        document.field(QStringLiteral("- 模块基址"), QStringLiteral("%1").arg(callbackEnumFormatAddress(responsePacket.moduleBase)));
+        document.field(QStringLiteral("- 模块大小"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(static_cast<qulonglong>(responsePacket.moduleSize), 16).toUpper())));
+        document.field(QStringLiteral("- 服务名"), QStringLiteral("%1").arg(serviceName.isEmpty() ? kernelText("kernel.callback.enum.placeholder.unmatched", QStringLiteral("<未匹配>")) : serviceName));
+        document.field(QStringLiteral("- 驱动消息"), QStringLiteral("%1").arg(callbackEnumIoMessageText(QString::fromStdString(removeResult.io.message))));
+        return document; }
     }
 
     bool callbackEnumConfirmSafeRemove(QWidget* parentWidget, const KernelCallbackEnumEntry& entry)
@@ -1446,7 +1402,7 @@ namespace
     bool callbackEnumExecuteSafeRemove(
         QWidget* parentWidget,
         QLabel* statusLabel,
-        CodeEditorWidget* detailEditor,
+        ks::ui::StructuredFieldView* detailEditor,
         const KernelCallbackEnumEntry& entry)
     {
         // Input: UI sinks plus the selected callback row.
@@ -1490,7 +1446,7 @@ namespace
             driverClient.removeExternalCallbackEx(requestPacket);
         if (detailEditor != nullptr)
         {
-            detailEditor->setLocalizedText(callbackEnumExRemoveDetailText(entry, requestPacket, removeResult));
+            detailEditor->setDocument(callbackEnumExRemoveDetailText(entry, requestPacket, removeResult));
         }
 
         if (!removeResult.io.ok)
@@ -1684,6 +1640,51 @@ namespace
                 QStringLiteral("Legacy FS 诊断代码未知：%1。"))
                 .arg(source.detailCode);
         }
+    }
+
+    ks::ui::FieldDocument callbackEnumDetailDocument(const KernelCallbackEnumEntry& sourceEntry)
+    {
+        const auto* entry = &sourceEntry;
+        const QString win32ModulePath = callbackEnumNormalizeModulePath(entry->modulePathText);
+        ks::ui::FieldDocument detailText;
+        detailText.field(QStringLiteral("类别"), QStringLiteral("%1").arg(entry->classText));
+        detailText.field(QStringLiteral("注册类型"), QStringLiteral("%1").arg(entry->registrationTypeText));
+        detailText.field(QStringLiteral("来源"), QStringLiteral("%1").arg(entry->sourceText));
+        detailText.field(QStringLiteral("可信状态"), QStringLiteral("%1").arg(entry->sourceTrustText));
+        detailText.field(QStringLiteral("移除策略"), QStringLiteral("%1").arg(entry->removePolicyText));
+        detailText.field(QStringLiteral("是否需要二次确认"), QStringLiteral("%1").arg(callbackEnumYesNoText(entry->requiresSecondConfirmation)));
+        detailText.field(QStringLiteral("是否仅为定位线索"), QStringLiteral("%1").arg(callbackEnumYesNoText(entry->fallbackPatternOnly)));
+        detailText.field(QStringLiteral("状态"), QStringLiteral("%1").arg(entry->statusText));
+        detailText.field(QStringLiteral("名称"), QStringLiteral("%1").arg(callbackEnumSafeText(entry->nameText)));
+        detailText.field(QStringLiteral("Altitude"), QStringLiteral("%1").arg(callbackEnumSafeText(entry->altitudeText)));
+        detailText.field(QStringLiteral("主地址显示"), QStringLiteral("%1").arg(callbackEnumPrimaryAddressText(*entry)));
+        detailText.field(QStringLiteral("真实回调地址"), QStringLiteral("%1").arg(callbackEnumFormatAddress(entry->callbackAddress)));
+        detailText.field(QStringLiteral("上下文/诊断值"), QStringLiteral("%1").arg(callbackEnumFormatAddress(entry->contextAddress)));
+        detailText.field(QStringLiteral("注册句柄/Cookie/全局节点"), QStringLiteral("%1").arg(callbackEnumFormatAddress(entry->registrationAddress)));
+        detailText.field(QStringLiteral("模块路径"), QStringLiteral("%1").arg(entry->modulePathText.isEmpty()
+            ? kernelText("kernel.callback.enum.placeholder.unresolved", QStringLiteral("<未解析>"))
+            : entry->modulePathText));
+        detailText.field(QStringLiteral("Win32模块路径"), QStringLiteral("%1").arg(win32ModulePath.isEmpty()
+            ? kernelText("kernel.callback.enum.placeholder.unmapped", QStringLiteral("<不可映射或不存在>"))
+            : win32ModulePath));
+        detailText.field(QStringLiteral("公司"), QStringLiteral("%1").arg(callbackEnumSafeText(entry->companyText)));
+        detailText.field(QStringLiteral("文件版本"), QStringLiteral("%1").arg(callbackEnumSafeText(entry->fileVersionText)));
+        detailText.field(QStringLiteral("文件描述"), QStringLiteral("%1").arg(callbackEnumSafeText(entry->fileDescriptionText)));
+        detailText.field(QStringLiteral("模块基址"), QStringLiteral("%1").arg(callbackEnumFormatAddress(entry->moduleBase)));
+        detailText.field(QStringLiteral("模块大小"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(QString::number(static_cast<qulonglong>(entry->moduleSize), 16).toUpper())));
+        detailText.field(QStringLiteral("操作掩码"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(entry->operationMask), 8, 16, QChar('0'))));
+        detailText.field(QStringLiteral("对象类型掩码"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(entry->objectTypeMask), 8, 16, QChar('0'))));
+        detailText.field(QStringLiteral("字段标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(entry->fieldFlags), 8, 16, QChar('0'))));
+        detailText.field(QStringLiteral("可信标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(entry->trustFlags), 8, 16, QChar('0'))));
+        detailText.field(QStringLiteral("移除行为"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(entry->removeBehavior), 8, 16, QChar('0'))));
+        detailText.field(QStringLiteral("移除标志"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(entry->removeFlags), 8, 16, QChar('0'))));
+        detailText.field(QStringLiteral("Generation"), QStringLiteral("%1").arg(static_cast<qulonglong>(entry->generation)));
+        detailText.field(QStringLiteral("IdentityHash"), QStringLiteral("%1").arg(callbackEnumIdentityHashText(entry->identityHash)));
+        detailText.field(QStringLiteral("RawStorageValue"), QStringLiteral("%1").arg(callbackEnumFormatAddress(entry->rawStorageValue)));
+        detailText.field(QStringLiteral("LastStatus"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(static_cast<std::uint32_t>(entry->lastStatus)), 8, 16, QChar('0'))));
+        detailText.field(QStringLiteral("说明"), QStringLiteral("主地址优先显示真实回调函数；无法获取时会显示可用于定位的节点或标识值。"), true);
+        detailText.field(QStringLiteral("详情"), QStringLiteral("%1").arg(callbackEnumSafeText(entry->detailText, kernelText("kernel.callback.enum.placeholder.no_detail", QStringLiteral("<无详情>")))));
+        return detailText;
     }
 
     QString callbackEnumRowStatusText(const std::uint32_t status, const long lastStatus)
@@ -2138,9 +2139,9 @@ void KernelDock::initializeCallbackEnumTab()
         m_minifilterCallbackTree,
         kernelText("kernel.callback.enum.view.minifilter_tree", QStringLiteral("Minifilter 回调树")));
 
-    m_callbackEnumDetailEditor = new CodeEditorWidget(splitter);
-    m_callbackEnumDetailEditor->setReadOnly(true);
-    m_callbackEnumDetailEditor->setText(kernelText("kernel.callback.enum.detail.initial", QStringLiteral("请选择一条回调记录查看详情。")));
+    m_callbackEnumDetailEditor = new ks::ui::StructuredFieldView(splitter);
+
+    m_callbackEnumDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.callback.enum.detail.initial", QStringLiteral("请选择一条回调记录查看详情。"))));
 
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
@@ -2148,7 +2149,7 @@ void KernelDock::initializeCallbackEnumTab()
     // 回调遍历与 CID 表一样受全局四类详情布局控制。QTabWidget 是 splitter 的直接
     // 子面板，注册后由统一宿主在下方折叠、右侧、行内与独立窗口之间重排。
     ks::ui::DetailLayoutHost* const callbackDetailLayoutHost =
-        ks::ui::DetailLayoutRegistry::registerHost(
+        ks::ui::DetailLayoutRegistry::registerStructuredHost(
             m_callbackEnumTable,
             m_callbackEnumDetailEditor,
             m_callbackEnumPage);
@@ -2323,7 +2324,7 @@ void KernelDock::refreshCallbackEnumAsync()
             {
                 guardThis->m_callbackEnumStatusLabel->setText(kernelText("kernel.callback.enum.status.failed", QStringLiteral("状态：刷新失败")));
                 guardThis->m_callbackEnumStatusLabel->setStyleSheet(callbackEnumStatusLabelStyle(KswordTheme::ErrorHex()));
-                guardThis->m_callbackEnumDetailEditor->setText(errorText);
+                guardThis->m_callbackEnumDetailEditor->setDocument(ks::ui::FieldDocument{}.note(errorText));
                 return;
             }
 
@@ -2387,7 +2388,7 @@ void KernelDock::refreshCallbackEnumAsync()
             }
             else
             {
-                guardThis->m_callbackEnumDetailEditor->setText(kernelText("kernel.callback.enum.empty", QStringLiteral("当前环境未返回可见回调记录。")));
+                guardThis->m_callbackEnumDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.callback.enum.empty", QStringLiteral("当前环境未返回可见回调记录。"))));
             }
             };
 
@@ -2777,83 +2778,14 @@ void KernelDock::showCallbackEnumDetail(const KernelCallbackEnumEntry* entry)
 
     if (entry == nullptr)
     {
-        m_callbackEnumDetailEditor->setText(kernelText("kernel.callback.enum.detail.initial", QStringLiteral("请选择一条回调记录查看详情。")));
+        m_callbackEnumDetailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.callback.enum.detail.initial", QStringLiteral("请选择一条回调记录查看详情。"))));
         return;
     }
 
     const QString win32ModulePath = callbackEnumNormalizeModulePath(entry->modulePathText);
-    const QString detailText = kernelText("kernel.callback.enum.detail.full_v2", QStringLiteral(
-        "类别: %1\n"
-        "注册类型: %2\n"
-        "来源: %3\n"
-        "可信状态: %4\n"
-        "移除策略: %5\n"
-        "是否需要二次确认: %6\n"
-        "是否仅为定位线索: %7\n"
-        "状态: %8\n"
-        "名称: %9\n"
-        "Altitude: %10\n"
-        "主地址显示: %11\n"
-        "真实回调地址: %12\n"
-        "上下文/诊断值: %13\n"
-        "注册句柄/Cookie/全局节点: %14\n"
-        "模块路径: %15\n"
-        "Win32模块路径: %16\n"
-        "公司: %17\n"
-        "文件版本: %18\n"
-        "文件描述: %19\n"
-        "模块基址: %20\n"
-        "模块大小: 0x%21\n"
-        "操作掩码: 0x%22\n"
-        "对象类型掩码: 0x%23\n"
-        "字段标志: 0x%24\n"
-        "可信标志: 0x%25\n"
-        "移除行为: 0x%26\n"
-        "移除标志: 0x%27\n"
-        "Generation: %28\n"
-        "IdentityHash: %29\n"
-        "RawStorageValue: %30\n"
-        "LastStatus: 0x%31\n\n"
-        "说明: 主地址优先显示真实回调函数；无法获取时会显示可用于定位的节点或标识值。\n\n"
-        "详情:\n%32"))
-        .arg(entry->classText)
-        .arg(entry->registrationTypeText)
-        .arg(entry->sourceText)
-        .arg(entry->sourceTrustText)
-        .arg(entry->removePolicyText)
-        .arg(callbackEnumYesNoText(entry->requiresSecondConfirmation))
-        .arg(callbackEnumYesNoText(entry->fallbackPatternOnly))
-        .arg(entry->statusText)
-        .arg(callbackEnumSafeText(entry->nameText))
-        .arg(callbackEnumSafeText(entry->altitudeText))
-        .arg(callbackEnumPrimaryAddressText(*entry))
-        .arg(callbackEnumFormatAddress(entry->callbackAddress))
-        .arg(callbackEnumFormatAddress(entry->contextAddress))
-        .arg(callbackEnumFormatAddress(entry->registrationAddress))
-        .arg(entry->modulePathText.isEmpty()
-            ? kernelText("kernel.callback.enum.placeholder.unresolved", QStringLiteral("<未解析>"))
-            : entry->modulePathText)
-        .arg(win32ModulePath.isEmpty()
-            ? kernelText("kernel.callback.enum.placeholder.unmapped", QStringLiteral("<不可映射或不存在>"))
-            : win32ModulePath)
-        .arg(callbackEnumSafeText(entry->companyText))
-        .arg(callbackEnumSafeText(entry->fileVersionText))
-        .arg(callbackEnumSafeText(entry->fileDescriptionText))
-        .arg(callbackEnumFormatAddress(entry->moduleBase))
-        .arg(QString::number(static_cast<qulonglong>(entry->moduleSize), 16).toUpper())
-        .arg(static_cast<qulonglong>(entry->operationMask), 8, 16, QChar('0'))
-        .arg(static_cast<qulonglong>(entry->objectTypeMask), 8, 16, QChar('0'))
-        .arg(static_cast<qulonglong>(entry->fieldFlags), 8, 16, QChar('0'))
-        .arg(static_cast<qulonglong>(entry->trustFlags), 8, 16, QChar('0'))
-        .arg(static_cast<qulonglong>(entry->removeBehavior), 8, 16, QChar('0'))
-        .arg(static_cast<qulonglong>(entry->removeFlags), 8, 16, QChar('0'))
-        .arg(static_cast<qulonglong>(entry->generation))
-        .arg(callbackEnumIdentityHashText(entry->identityHash))
-        .arg(callbackEnumFormatAddress(entry->rawStorageValue))
-        .arg(static_cast<qulonglong>(static_cast<std::uint32_t>(entry->lastStatus)), 8, 16, QChar('0'))
-        .arg(callbackEnumSafeText(entry->detailText, kernelText("kernel.callback.enum.placeholder.no_detail", QStringLiteral("<无详情>"))));
+    const auto detailText = callbackEnumDetailDocument(*entry);
 
-    m_callbackEnumDetailEditor->setText(detailText);
+    m_callbackEnumDetailEditor->setDocument(detailText);
 }
 
 void KernelDock::showCallbackEnumContextMenu(const QPoint& localPosition)
@@ -3218,7 +3150,7 @@ void KernelDock::showCallbackEnumContextMenu(const QPoint& localPosition)
             detailList.push_back(kernelText("kernel.callback.enum.copy.detail_item", QStringLiteral("[%1] %2\n%3"))
                 .arg(entry.classText)
                 .arg(callbackEnumSafeText(entry.nameText))
-                .arg(callbackEnumSafeText(entry.detailText, kernelText("kernel.callback.enum.placeholder.no_detail", QStringLiteral("<无详情>")))));
+                .arg(callbackEnumDetailDocument(entry).toPlainText(true)));
         }
         callbackEnumCopyTextToClipboard(detailList.join(QStringLiteral("\n\n---\n\n")));
         if (m_callbackEnumStatusLabel != nullptr)

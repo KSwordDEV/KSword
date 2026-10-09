@@ -318,13 +318,13 @@ QVector<ContextMenuCleanerTab::ContextMenuEntry> ContextMenuCleanerTab::enumerat
                     : command.trimmed().isEmpty()
                     ? QStringLiteral("打开命令为空")
                     : QStringLiteral("协议已注册"));
-            QStringList details;
+            ks::ui::FieldDocument details;
             appendOptionalDetail(&details, QStringLiteral("Icon"), icon);
             appendOptionalDetail(
                 &details,
                 QStringLiteral("范围"),
                 root.userScope ? QStringLiteral("当前用户") : QStringLiteral("所有用户"));
-            entry.detailText = details.join(QStringLiteral("；"));
+            entry.details = details;
             entry.canDelete = !protectedProtocol;
             entries.push_back(entry);
         }
@@ -364,7 +364,7 @@ QVector<ContextMenuCleanerTab::ContextMenuEntry> ContextMenuCleanerTab::enumerat
         entry.displayName = handlerDisplayName(progId, false, KEY_WOW64_64KEY);
         entry.commandOrHandler = handlerCommand(progId, false, KEY_WOW64_64KEY);
         entry.statusText = QStringLiteral("当前用户默认");
-        entry.detailText = QStringLiteral("ProgId=%1；Hash 由 Windows 维护").arg(progId);
+        entry.details.note(QStringLiteral("ProgId=%1；Hash 由 Windows 维护").arg(progId));
         entry.canDelete = true;
         entries.push_back(entry);
     }
@@ -423,9 +423,9 @@ QVector<ContextMenuCleanerTab::ContextMenuEntry> ContextMenuCleanerTab::enumerat
         entry.statusText = entry.commandOrHandler.trimmed().isEmpty()
             ? QStringLiteral("处理器命令未解析")
             : QStringLiteral("候选处理器");
-        entry.detailText = executableHandler
+        entry.details.note(executableHandler
             ? QStringLiteral("应用=%1；值名=%2").arg(handlerName, valueName)
-            : QStringLiteral("ProgID=%1；值名=%2").arg(handlerName, valueName);
+            : QStringLiteral("ProgID=%1；值名=%2").arg(handlerName, valueName));
         entry.deleteKind = DeleteKind::RegistryValue;
         entry.valueName = valueName;
         entry.cleanupOpenWithMru = cleanupMru;
@@ -574,7 +574,7 @@ QVector<ContextMenuCleanerTab::ContextMenuEntry> ContextMenuCleanerTab::enumerat
                     true,
                     root.viewFlag);
                 entry.statusText = QStringLiteral("旧式候选应用");
-                entry.detailText = QStringLiteral("应用=%1").arg(applicationName);
+                entry.details.note(QStringLiteral("应用=%1").arg(applicationName));
                 entry.canDelete = true;
                 entries.push_back(entry);
             }

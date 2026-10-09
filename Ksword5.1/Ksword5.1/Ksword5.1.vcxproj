@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build" ToolsVersion="17.0">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -170,7 +170,9 @@
     <ClCompile Include="FileDock\FileHandleUsageScanner.cpp" />
     <ClCompile Include="FileDock\FileMappedProcessWindow.cpp" />
     <ClCompile Include="FileDock\FilePropertyPeAnalyzer.cpp" />
-    <ClCompile Include="FileDock\FilePropertyView.cpp" />
+    <ClCompile Include="HardwareDock\HardwareFieldDocuments.cpp" />
+    <ClCompile Include="UI\StructuredFieldView.cpp" />
+    <ClCompile Include="UI\TablePresentation.cpp" />
     <ClCompile Include="FileDock\FilePropertyPeAnalyzer.Directories.cpp" />
     <ClCompile Include="FileDock\FilePropertyPeAnalyzer.Tables.cpp" />
     <ClCompile Include="FileDock\ManualFileSystemParser.cpp" />
@@ -504,7 +506,7 @@
     <ClCompile Include="UI\DetailLayoutHost.Binding.cpp" />
     <ClCompile Include="UI\DetailLayoutHost.Compatibility.cpp" />
     <ClCompile Include="UI\DetailLayoutRegistry.cpp" />
-    <ClCompile Include="UI\ReportStructuredView.cpp" />
+    <ClCompile Include="UI\TypedSyntaxDocument.cpp" />
     <ClCompile Include="UI\KernelDisassemblyDialog.cpp" />
     <ClCompile Include="UI\MemoryAssembly.cpp" />
     <ClCompile Include="UI\MemoryAssembly.Core.cpp" />
@@ -789,7 +791,6 @@
     <ClInclude Include="FileDock\FileHandleUsageScanner.h" />
     <ClInclude Include="FileDock\FileMappedProcessWindow.h" />
     <ClInclude Include="FileDock\FilePropertyPeAnalyzer.h" />
-    <ClInclude Include="FileDock\FilePropertyView.h" />
     <ClInclude Include="FileDock\FilePropertyPeAnalyzer.Internal.h" />
     <ClInclude Include="Framework\LogDockWidget.h" />
     <ClInclude Include="Framework\NotificationCardManager.h" />
@@ -890,7 +891,9 @@
     <ClInclude Include="UI\CodeEditorFileSession.h" />
     <ClInclude Include="UI\DetailLayoutHost.h" />
     <ClInclude Include="UI\DetailLayoutRegistry.h" />
-    <ClInclude Include="UI\ReportStructuredView.h" />
+    <ClInclude Include="HardwareDock\HardwareFieldDocuments.h" />
+    <ClInclude Include="UI\TypedSyntaxDocument.h" />
+    <ClInclude Include="UI\TablePresentation.h" />
     <ClInclude Include="UI\SmoothScrollSupport.h" />
     <ClInclude Include="UI\TableColumnAutoFit.h" />
     <ClInclude Include="UI\TableFreezeSupport.h" />
@@ -1070,6 +1073,7 @@
     <QtMoc Include="ProcessDock\ProcessDock.h" />
     <QtMoc Include="SettingsDock\SettingsDock.h" />
     <QtMoc Include="UI\CodeEditorWidget.h" />
+    <QtMoc Include="UI\StructuredFieldView.h" />
     <QtMoc Include="UI\WindowPickerButton.h" />
     <QtMoc Include="UI\KernelDisassemblyDialog.h" />
     <ClInclude Include="UI\MemoryAssembly.h" />
@@ -1587,8 +1591,6 @@
     <QtMoc Include="UI\MemoryWorkbench\WorkbenchPseudocodeView.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="UI\FieldTreePresenter.cpp" />
-    <ClCompile Include="UI\FieldTreePresenter.Copy.cpp" />
     <ClCompile Include="UI\MemoryWorkbench\AssemblyPreviewDialog.cpp" />
     <ClCompile Include="MiscDock\DiskEditor\DiskCaptureTransaction.cpp" />
     <ClCompile Include="MiscDock\DiskEditor\DiskEditorBackend.Identity.cpp" />
@@ -1600,7 +1602,6 @@
     <ClCompile Include="PluginHost.Archive.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="UI\FieldTreePresenter.h" />
     <ClInclude Include="UI\MemoryWorkbench\AssemblyPreviewDialog.h" />
     <ClInclude Include="MiscDock\DiskEditor\DiskCaptureTransaction.h" />
     <ClInclude Include="MiscDock\DiskEditor\DiskEditorFormat.h" />

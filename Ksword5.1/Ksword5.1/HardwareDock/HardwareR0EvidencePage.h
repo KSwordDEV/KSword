@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -97,7 +98,7 @@ private:
     QSpinBox* m_idtVectorsSpin = nullptr;      // m_idtVectorsSpin：每 CPU 展开的 IDT 向量数量。
     QLabel* m_statusLabel = nullptr;           // m_statusLabel：展示 R0 查询状态摘要。
     QTableWidget* m_evidenceTable = nullptr;   // m_evidenceTable：CPU/MSR/IDT/GDT 证据表。
-    CodeEditorWidget* m_detailEditor = nullptr;// m_detailEditor：证据详情文本编辑器。
+    ks::ui::StructuredFieldView* m_detailEditor = nullptr;// m_detailEditor：证据详情文本编辑器。
 
     ksword::ark::DriverCapabilitiesQueryResult m_lastCapabilityResult; // m_lastCapabilityResult：最近一次驱动能力快照。
     ksword::ark::DynDataCapabilitiesResult m_lastDynDataResult; // m_lastDynDataResult：最近一次 DynData 能力快照。

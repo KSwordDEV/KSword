@@ -11,7 +11,7 @@
 
 #include "KernelDockQueryWorker.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include "../UI/DetailLayoutRegistry.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../theme.h"
@@ -215,13 +215,13 @@ void KernelObjectTypeMatrixTab::initializeUi()
     // 详情区用途：
     // - 输入：当前表格选中对象类型；
     // - 处理：展开访问掩码、对象/句柄数量、枚举策略和后续下钻建议；
-    // - 返回：无返回值，文本写入项目统一 CodeEditorWidget，避免这个新页只剩摘要表格。
-    m_detailEditor = new CodeEditorWidget(this);
-    m_detailEditor->setReadOnly(true);
-    m_detailEditor->setText(kernelText("kernel.object_type.detail.select_hint", QStringLiteral("请选择一个对象类型查看枚举策略和下钻建议。")));
+    // - 返回：无返回值，文本写入项目统一 ks::ui::StructuredFieldView，避免这个新页只剩摘要表格。
+    m_detailEditor = new ks::ui::StructuredFieldView(this);
+
+    m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.object_type.detail.select_hint", QStringLiteral("请选择一个对象类型查看枚举策略和下钻建议。"))));
     rootLayout->addWidget(m_detailEditor, 1);
 
-    ks::ui::DetailLayoutRegistry::registerHost(m_table, m_detailEditor, this);
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(m_table, m_detailEditor, this);
 }
 
 void KernelObjectTypeMatrixTab::initializeConnections()
@@ -410,7 +410,7 @@ void KernelObjectTypeMatrixTab::applyRefreshResult(
             buildDiagnosticDetailText(kernelText("kernel.object_type.diagnostic.refresh_failed", QStringLiteral("对象类型矩阵刷新失败：%1")).arg(errorText)));
         if (m_detailEditor != nullptr)
         {
-            m_detailEditor->setText(buildDiagnosticDetailText(kernelText("kernel.object_type.diagnostic.refresh_failed", QStringLiteral("对象类型矩阵刷新失败：%1")).arg(errorText)));
+            m_detailEditor->setDocument(buildDiagnosticDetailText(kernelText("kernel.object_type.diagnostic.refresh_failed", QStringLiteral("对象类型矩阵刷新失败：%1")).arg(errorText)));
         }
         return;
     }
@@ -472,14 +472,14 @@ void KernelObjectTypeMatrixTab::rebuildTable()
         const QString reasonText = m_rows.empty()
             ? kernelText("kernel.object_type.diagnostic.no_records", QStringLiteral("NtQueryObject(ObjectTypesInformation) 未返回对象类型记录。"))
             : kernelText("kernel.object_type.diagnostic.filter_empty", QStringLiteral("当前筛选条件下没有对象类型记录。"));
-        const QString detailText = buildDiagnosticDetailText(reasonText);
+        const ks::ui::FieldDocument detailText = buildDiagnosticDetailText(reasonText);
         insertDiagnosticRow(
             m_rows.empty()
                 ? kernelText("kernel.object_type.placeholder.no_records", QStringLiteral("<无对象类型>"))
                 : kernelText("kernel.object_type.placeholder.filter_empty", QStringLiteral("<筛选无结果>")),
             detailText);
         m_table->setCurrentCell(0, static_cast<int>(ObjectTypeMatrixColumn::TypeName));
-        m_detailEditor->setText(detailText);
+        m_detailEditor->setDocument(detailText);
     }
 }
 
@@ -512,80 +512,71 @@ std::size_t KernelObjectTypeMatrixTab::sourceIndexForTableRow(const int tableRow
     return static_cast<std::size_t>(sourceIndex);
 }
 
-QString KernelObjectTypeMatrixTab::buildDetailText(const KernelObjectTypeEntry& entry) const
+ks::ui::FieldDocument KernelObjectTypeMatrixTab::buildDetailText(const KernelObjectTypeEntry& entry) const
 {
     // buildDetailText：
     // - 输入：对象类型矩阵的一条源记录；
     // - 处理：把表格里的短摘要展开为可读审计说明；
-    // - 返回：供 CodeEditorWidget 展示的 R3/R0 交叉验证文本，不修改系统状态。
-    QStringList lines;
-    lines << QStringLiteral("[Object Type Matrix Detail]");
-    lines << QStringLiteral("TypeIndex: %1").arg(entry.typeIndex);
-    lines << QStringLiteral("TypeName: %1").arg(entry.typeNameText);
-    lines << QStringLiteral("TotalObjectCount: %1").arg(entry.totalObjectCount);
-    lines << QStringLiteral("TotalHandleCount: %1").arg(entry.totalHandleCount);
-    lines << QStringLiteral("ValidAccessMask: %1").arg(formatAccessMask(entry.validAccessMask));
-    lines << QString();
-    lines << QStringLiteral("[R0 ObTypeIndexTable Evidence]");
-    lines << QStringLiteral("R3Present: %1").arg(entry.r3Present
+    // - 返回：供 ks::ui::StructuredFieldView 展示的 R3/R0 交叉验证文本，不修改系统状态。
+    ks::ui::FieldDocument lines;
+    lines.section(QStringLiteral("Object Type Matrix Detail"));
+    lines.field(QStringLiteral("TypeIndex"), QStringLiteral("%1").arg(entry.typeIndex));
+    lines.field(QStringLiteral("TypeName"), QStringLiteral("%1").arg(entry.typeNameText));
+    lines.field(QStringLiteral("TotalObjectCount"), QStringLiteral("%1").arg(entry.totalObjectCount));
+    lines.field(QStringLiteral("TotalHandleCount"), QStringLiteral("%1").arg(entry.totalHandleCount));
+    lines.field(QStringLiteral("ValidAccessMask"), QStringLiteral("%1").arg(formatAccessMask(entry.validAccessMask)));
+
+    lines.section(QStringLiteral("R0 ObTypeIndexTable Evidence"));
+    lines.field(QStringLiteral("R3Present"), QStringLiteral("%1").arg(entry.r3Present
         ? kernelText("kernel.object_type.value.yes", QStringLiteral("是"))
-        : kernelText("kernel.object_type.value.no", QStringLiteral("否")));
-    lines << QStringLiteral("R0Present: %1").arg(entry.r0Present
+        : kernelText("kernel.object_type.value.no", QStringLiteral("否"))));
+    lines.field(QStringLiteral("R0Present"), QStringLiteral("%1").arg(entry.r0Present
         ? kernelText("kernel.object_type.value.yes", QStringLiteral("是"))
-        : kernelText("kernel.object_type.value.no", QStringLiteral("否")));
-    lines << QStringLiteral("ObTypeIndexTable: %1").arg(formatR0Address(m_r0State.tableAddress));
-    lines << QStringLiteral("ObjectTypeAddress: %1").arg(formatR0Address(entry.r0ObjectTypeAddress));
-    lines << QStringLiteral("R0TypeName: %1").arg(entry.r0TypeNameText.isEmpty()
+        : kernelText("kernel.object_type.value.no", QStringLiteral("否"))));
+    lines.field(QStringLiteral("ObTypeIndexTable"), QStringLiteral("%1").arg(formatR0Address(m_r0State.tableAddress)));
+    lines.field(QStringLiteral("ObjectTypeAddress"), QStringLiteral("%1").arg(formatR0Address(entry.r0ObjectTypeAddress)));
+    lines.field(QStringLiteral("R0TypeName"), QStringLiteral("%1").arg(entry.r0TypeNameText.isEmpty()
         ? kernelText("kernel.object_type.placeholder.not_available", QStringLiteral("<不可用>"))
-        : entry.r0TypeNameText);
-    lines << QStringLiteral("R0Validation: %1").arg(objectTypeR0ValidationText(entry));
-    lines << QStringLiteral("R0EntryStatus: %1").arg(entry.r0Status);
-    lines << QStringLiteral("R0FieldFlags: 0x%1").arg(entry.r0FieldFlags, 8, 16, QChar('0')).toUpper();
-    lines << QStringLiteral("R0LastStatus: 0x%1")
-        .arg(static_cast<qulonglong>(static_cast<std::uint32_t>(entry.r0LastStatus)), 8, 16, QChar('0'))
-        .toUpper();
-    lines << QStringLiteral("R0IdentityHash: 0x%1")
-        .arg(static_cast<qulonglong>(entry.r0IdentityHash), 16, 16, QChar('0'))
-        .toUpper();
-    lines << QStringLiteral("SnapshotHash: 0x%1")
-        .arg(static_cast<qulonglong>(m_r0State.snapshotHash), 16, 16, QChar('0'))
-        .toUpper();
-    lines << QStringLiteral("OtName/OtIndex: 0x%1 / 0x%2")
-        .arg(m_r0State.otNameOffset, 8, 16, QChar('0'))
-        .arg(m_r0State.otIndexOffset, 8, 16, QChar('0'))
-        .toUpper();
-    lines << QString();
-    lines << QStringLiteral("[Enumeration Strategy]");
-    lines << strategyForType(entry.typeNameText);
-    lines << QString();
-    lines << QStringLiteral("[Audit Meaning]");
-    lines << kernelText("kernel.object_type.detail.audit.object_count", QStringLiteral("对象数用于判断该类型在 Object Manager 命名空间中的总体存在感。"));
-    lines << kernelText("kernel.object_type.detail.audit.handle_count", QStringLiteral("句柄数用于判断用户态/内核态是否大量持有该类型对象。"));
-    lines << kernelText("kernel.object_type.detail.audit.access_mask", QStringLiteral("访问掩码来自 NtQueryObject(ObjectTypesInformation)，用于解释该类型支持的权限位范围。"));
-    lines << QString();
-    lines << QStringLiteral("[Next Step]");
+        : entry.r0TypeNameText));
+    lines.field(QStringLiteral("R0Validation"), QStringLiteral("%1").arg(objectTypeR0ValidationText(entry)));
+    lines.field(QStringLiteral("R0EntryStatus"), QStringLiteral("%1").arg(entry.r0Status));
+    lines.field(QStringLiteral("R0FieldFlags"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(entry.r0FieldFlags, 8, 16, QChar('0')).toUpper()));
+    lines.field(QStringLiteral("R0LastStatus"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(static_cast<std::uint32_t>(entry.r0LastStatus)), 8, 16, QChar('0')).toUpper()));
+    lines.field(QStringLiteral("R0IdentityHash"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(entry.r0IdentityHash), 16, 16, QChar('0')).toUpper()));
+    lines.field(QStringLiteral("SnapshotHash"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(static_cast<qulonglong>(m_r0State.snapshotHash), 16, 16, QChar('0')).toUpper()));
+    lines.field(QStringLiteral("OtName/OtIndex"), QStringLiteral("0x%1 / 0x%2").arg(QStringLiteral("%1").arg(m_r0State.otNameOffset, 8, 16, QChar('0')).toUpper()).arg(QStringLiteral("%1").arg(m_r0State.otIndexOffset, 8, 16, QChar('0')).toUpper()));
+
+    lines.section(QStringLiteral("Enumeration Strategy"));
+    lines.note(strategyForType(entry.typeNameText));
+
+    lines.section(QStringLiteral("Audit Meaning"));
+    lines.note(QStringLiteral("对象数用于判断该类型在 Object Manager 命名空间中的总体存在感。"));
+    lines.note(QStringLiteral("句柄数用于判断用户态/内核态是否大量持有该类型对象。"));
+    lines.note(QStringLiteral("访问掩码来自 NtQueryObject(ObjectTypesInformation)，用于解释该类型支持的权限位范围。"));
+
+    lines.section(QStringLiteral("Next Step"));
     if (entry.typeNameText.compare(QStringLiteral("Directory"), Qt::CaseInsensitive) == 0)
     {
-        lines << kernelText("kernel.object_type.detail.next.directory", QStringLiteral("可切换到 Object Directory Deep 页，对目标目录做递归只读枚举。"));
+        lines.note(QStringLiteral("可切换到 Object Directory Deep 页，对目标目录做递归只读枚举。"));
     }
     else if (entry.typeNameText.compare(QStringLiteral("SymbolicLink"), Qt::CaseInsensitive) == 0)
     {
-        lines << kernelText("kernel.object_type.detail.next.symbolic_link", QStringLiteral("可在命名对象页查看符号链接目标，重点关注跨命名空间或设备路径跳转。"));
+        lines.note(QStringLiteral("可在命名对象页查看符号链接目标，重点关注跨命名空间或设备路径跳转。"));
     }
     else if (entry.typeNameText.compare(QStringLiteral("Driver"), Qt::CaseInsensitive) == 0 ||
         entry.typeNameText.compare(QStringLiteral("Device"), Qt::CaseInsensitive) == 0)
     {
-        lines << kernelText("kernel.object_type.detail.next.device_driver", QStringLiteral("可切换到 Device/Driver Objects 页查看 DriverObject、DeviceObject 和 Major/FastIo 归属。"));
+        lines.note(QStringLiteral("可切换到 Device/Driver Objects 页查看 DriverObject、DeviceObject 和 Major/FastIo 归属。"));
     }
     else if (entry.typeNameText.contains(QStringLiteral("Port"), Qt::CaseInsensitive))
     {
-        lines << kernelText("kernel.object_type.detail.next.ipc", QStringLiteral("可切换到 IPC/ALPC/NamedPipe 页，把通信端点与进程、句柄和命名空间路径关联。"));
+        lines.note(QStringLiteral("可切换到 IPC/ALPC/NamedPipe 页，把通信端点与进程、句柄和命名空间路径关联。"));
     }
     else
     {
-        lines << kernelText("kernel.object_type.detail.next.generic", QStringLiteral("该类型通常需要专项页或句柄表交叉验证；当前页只提供类型级只读证据。"));
+        lines.note(QStringLiteral("该类型通常需要专项页或句柄表交叉验证；当前页只提供类型级只读证据。"));
     }
-    return lines.join(QChar('\n'));
+    return lines;
 }
 
 void KernelObjectTypeMatrixTab::updateDetailForRow(const int tableRow)
@@ -605,51 +596,49 @@ void KernelObjectTypeMatrixTab::updateDetailForRow(const int tableRow)
         if (m_table != nullptr && tableRow >= 0 && tableRow < m_table->rowCount())
         {
             const QTableWidgetItem* item = m_table->item(tableRow, static_cast<int>(ObjectTypeMatrixColumn::TypeIndex));
-            const QString diagnosticText = item != nullptr
-                ? item->data(Qt::UserRole + 2).toString()
-                : QString();
+            const auto& diagnosticText = m_diagnosticDocument;
             if (!diagnosticText.isEmpty())
             {
-                m_detailEditor->setText(diagnosticText);
+                m_detailEditor->setDocument(diagnosticText);
                 return;
             }
         }
-        m_detailEditor->setText(kernelText("kernel.object_type.detail.select_hint", QStringLiteral("请选择一个对象类型查看枚举策略和下钻建议。")));
+        m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.object_type.detail.select_hint", QStringLiteral("请选择一个对象类型查看枚举策略和下钻建议。"))));
         return;
     }
 
-    m_detailEditor->setText(buildDetailText(m_rows[sourceIndex]));
+    m_detailEditor->setDocument(buildDetailText(m_rows[sourceIndex]));
 }
 
-QString KernelObjectTypeMatrixTab::buildDiagnosticDetailText(const QString& reasonText) const
+ks::ui::FieldDocument KernelObjectTypeMatrixTab::buildDiagnosticDetailText(const QString& reasonText) const
 {
     // buildDiagnosticDetailText：
     // - 输入：刷新失败、源数据为空或筛选空命中的原因；
     // - 处理：补充当前筛选和本页数据来源说明；
-    // - 返回：用于诊断占位行与 CodeEditorWidget 的多行文本。
-    QStringList lines;
-    lines << QStringLiteral("[Object Type Matrix Diagnostic]");
-    lines << kernelText("kernel.object_type.diagnostic.reason", QStringLiteral("原因：%1")).arg(reasonText.trimmed().isEmpty()
+    // - 返回：用于诊断占位行与 ks::ui::StructuredFieldView 的多行文本。
+    ks::ui::FieldDocument lines;
+    lines.section(QStringLiteral("Object Type Matrix Diagnostic"));
+    lines.field(QStringLiteral("原因"), QStringLiteral("%1").arg(reasonText.trimmed().isEmpty()
         ? kernelText("kernel.object_type.placeholder.not_provided", QStringLiteral("<未提供>"))
-        : reasonText.trimmed());
-    lines << kernelText("kernel.object_type.diagnostic.current_filter", QStringLiteral("当前筛选：%1")).arg(m_filterEdit != nullptr && !m_filterEdit->text().trimmed().isEmpty()
+        : reasonText.trimmed()));
+    lines.field(QStringLiteral("当前筛选"), QStringLiteral("%1").arg(m_filterEdit != nullptr && !m_filterEdit->text().trimmed().isEmpty()
         ? m_filterEdit->text().trimmed()
-        : kernelText("kernel.object_type.placeholder.no_filter", QStringLiteral("<无筛选>")));
-    lines << kernelText("kernel.object_type.diagnostic.source_count", QStringLiteral("源记录总数：%1")).arg(static_cast<qulonglong>(m_rows.size()));
-    lines << QStringLiteral("");
-    lines << kernelText("kernel.object_type.diagnostic.source_heading", QStringLiteral("[数据来源]"));
-    lines << kernelText("kernel.object_type.diagnostic.source", QStringLiteral("本页合并 NtQueryObject(ObjectTypesInformation) 与 R0 ObTypeIndexTable，只读交叉验证槽地址、类型名和 TypeIndex，不修改系统对象。"));
-    lines << kernelText("kernel.object_type.diagnostic.r0_state", QStringLiteral("R0 状态：%1")).arg(m_r0State.diagnosticText);
-    lines << kernelText("kernel.object_type.diagnostic.no_data_explanation", QStringLiteral("若这里没有记录，通常是 API 查询失败、权限/兼容性问题，或筛选条件过窄。"));
-    lines << QStringLiteral("");
-    lines << kernelText("kernel.object_type.diagnostic.next_heading", QStringLiteral("[下一步]"));
-    lines << kernelText("kernel.object_type.diagnostic.next.clear_filter", QStringLiteral("1. 清空筛选关键字，确认不是过滤导致空表。"));
-    lines << kernelText("kernel.object_type.diagnostic.next.specialized_pages", QStringLiteral("2. 切换到 Object Directory Deep / NamedPipe / Device-Driver Objects 等专项页查看具体对象。"));
-    lines << kernelText("kernel.object_type.diagnostic.next.record_status", QStringLiteral("3. 如果刷新失败，请记录状态栏错误文本用于定位 NtQueryObject 返回状态。"));
-    return lines.join(QChar('\n'));
+        : kernelText("kernel.object_type.placeholder.no_filter", QStringLiteral("<无筛选>"))));
+    lines.field(QStringLiteral("源记录总数"), QStringLiteral("%1").arg(static_cast<qulonglong>(m_rows.size())));
+
+    lines.section(QStringLiteral("数据来源"));
+    lines.note(QStringLiteral("本页合并 NtQueryObject(ObjectTypesInformation) 与 R0 ObTypeIndexTable，只读交叉验证槽地址、类型名和 TypeIndex，不修改系统对象。"));
+    lines.field(QStringLiteral("R0 状态"), QStringLiteral("%1").arg(m_r0State.diagnosticText));
+    lines.note(QStringLiteral("若这里没有记录，通常是 API 查询失败、权限/兼容性问题，或筛选条件过窄。"));
+
+    lines.section(QStringLiteral("下一步"));
+    lines.note(QStringLiteral("1. 清空筛选关键字，确认不是过滤导致空表。"));
+    lines.note(QStringLiteral("2. 切换到 Object Directory Deep / NamedPipe / Device-Driver Objects 等专项页查看具体对象。"));
+    lines.note(QStringLiteral("3. 如果刷新失败，请记录状态栏错误文本用于定位 NtQueryObject 返回状态。"));
+    return lines;
 }
 
-void KernelObjectTypeMatrixTab::insertDiagnosticRow(const QString& titleText, const QString& detailText)
+void KernelObjectTypeMatrixTab::insertDiagnosticRow(const QString& titleText, const ks::ui::FieldDocument& detailText)
 {
     // insertDiagnosticRow：
     // - 输入：表格标题和详情文本；
@@ -664,7 +653,7 @@ void KernelObjectTypeMatrixTab::insertDiagnosticRow(const QString& titleText, co
     m_table->setRowCount(1);
 
     auto* indexItem = readOnlyItem(kernelText("kernel.object_type.placeholder.diagnostic", QStringLiteral("<诊断>")));
-    indexItem->setData(Qt::UserRole + 2, detailText);
+    m_diagnosticDocument = detailText;
     m_table->setItem(0, static_cast<int>(ObjectTypeMatrixColumn::TypeIndex), indexItem);
     m_table->setItem(0, static_cast<int>(ObjectTypeMatrixColumn::TypeName), readOnlyItem(titleText));
     m_table->setItem(0, static_cast<int>(ObjectTypeMatrixColumn::R0Address), readOnlyItem(QStringLiteral("-")));

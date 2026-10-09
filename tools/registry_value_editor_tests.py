@@ -66,16 +66,16 @@ def main() -> int:
                 app / "UI" / "CodeEditorWidget.cpp",
                 app / "UI" / "CodeTextEdit.cpp",
                 app / "UI" / "CodeEditorFileSession.cpp",
-                app / "UI" / "ReportStructuredView.cpp",
-                app / "UI" / "FieldTreePresenter.cpp",
-                app / "UI" / "FieldTreePresenter.Copy.cpp",
+                app / "UI" / "StructuredFieldView.cpp",
+                app / "UI" / "TypedSyntaxDocument.cpp",
+                app / "UI" / "TablePresentation.cpp",
                 app / "Internationalization" / "LanguageManager.cpp",
                 repo / "tools" / "registry_value_editor_tests.cpp"]
     moc_headers = [ui / name for name in (
         "HexCanvas.h", "HexInspectorPanel.h", "HexInspectorRowView.h", "HexView.h",
         "HexFindBar.h", "HexGotoBar.h", "HexViewWidgets.h")]
     moc_headers += [app / "RegistryDock" / "RegistryValueEditorWidget.h"]
-    moc_headers += [app / "UI" / "CodeEditorWidget.h"]
+    moc_headers += [app / "UI" / "CodeEditorWidget.h", app / "UI" / "StructuredFieldView.h"]
     for header in moc_headers:
         generated = out / ("moc_" + header.stem + ".cpp")
         subprocess.run([str(qt / "bin" / "moc.exe"), str(header), "-o", str(generated)], env=env, check=True)
@@ -91,9 +91,11 @@ def main() -> int:
     own_sources = {app / "RegistryDock" / "RegistryValueEditorWidget.cpp", app / "RegistryDock" / "RegistryValueCodec.cpp",
                    app / "RegistryDock" / "RegistryAdvancedDialogs.cpp"}
     editor_sources = {app / "UI" / name for name in
-                      ("CodeEditorWidget.cpp", "CodeTextEdit.cpp", "CodeEditorFileSession.cpp", "ReportStructuredView.cpp")}
+                      ("CodeEditorWidget.cpp", "CodeTextEdit.cpp", "CodeEditorFileSession.cpp",
+                       "StructuredFieldView.cpp", "TypedSyntaxDocument.cpp", "TablePresentation.cpp")}
     editor_header_time = max((app / "UI" / name).stat().st_mtime for name in
-                             ("CodeEditorWidget.h", "CodeTextEdit.h", "CodeEditorFileSession.h"))
+                             ("CodeEditorWidget.h", "CodeTextEdit.h", "CodeEditorFileSession.h",
+                              "StructuredFieldView.h", "TypedSyntaxDocument.h", "TablePresentation.h"))
 
     def compile_one(source: Path) -> Path:
         # File stems are unique in this fixture; mocs have their own prefix.

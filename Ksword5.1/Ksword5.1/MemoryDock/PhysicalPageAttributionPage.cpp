@@ -1,5 +1,5 @@
-﻿#include "PhysicalPageAttributionPage.h"
-#include "../UI/CodeEditorWidget.h"
+#include "PhysicalPageAttributionPage.h"
+#include "../UI/StructuredFieldView.h"
 #include "MemoryAttributionChart.h"
 #include "MemoryConsumerEvidencePage.h"
 #include "PhysicalPageConsumers.h"
@@ -234,14 +234,14 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     pageSplit->addWidget(m_mappings);
     pageSplit->setStretchFactor(1, 2);
     pageLayout->addWidget(pageSplit, 1);
-    m_pageEvidence = new CodeEditorWidget(pages);
-    m_pageEvidence->setReadOnly(true);
-    m_pageEvidence->setMinimumHeight(120);
+    m_pageEvidence = new ks::ui::StructuredFieldView(pages);
+
+
     m_pageEvidence->setMaximumHeight(180);
     pageLayout->addWidget(m_pageEvidence);
     m_tabs->addTab(pages, {});
-    m_evidence = new CodeEditorWidget(m_tabs);
-    m_evidence->setReadOnly(true);
+    m_evidence = new ks::ui::StructuredFieldView(m_tabs);
+
     m_tabs->addTab(m_evidence, {});
     m_ownerCoverage = table(m_tabs); m_tabs->addTab(m_ownerCoverage, {});
     m_objects = table(m_tabs); m_tabs->addTab(m_objects, {});
@@ -438,24 +438,30 @@ void PhysicalPageAttributionPage::poll()
         const auto result = std::move(m_inspection);
         m_inspectButton->setEnabled(true);
         if (result->status < 0 || result->identity.frame == ~0ULL) {
-            m_pageEvidence->setReportText(L("PFN query unavailable: %1").arg(status(result->status)));
+            m_pageEvidence->setDocument(ks::ui::FieldDocument{}.note(L("PFN query unavailable: %1").arg(status(result->status))));
         } else {
             const auto use = result->use;
-            QString description = L("PFN %1 | physical %2 | %3 | %4\nOwner key %5 | backing / VA %6 | sampled %7")
-                .arg(hex(result->pfn), hex(result->pfn * pageBytes), L(useNames[static_cast<std::size_t>(use)]),
-                    L(stateNames[state(result->identity)]),
-                    nativeUse(result->identity) == 0 && state(result->identity) >= 2 && processKey(result->identity)
-                        ? hex(processKey(result->identity)) : L("Unavailable"),
-                    hex(result->identity.backing), result->sampledAt);
-            description += L("\nMapping observations were collected separately and can change while the system runs. A Windows share count is capped and is not the complete list of owners.");
+            ks::ui::FieldDocument description;
+            description.section(QStringLiteral("PFN"));
+            description.field(QStringLiteral("PFN"), hex(result->pfn));
+            description.field(QStringLiteral("Physical address"), hex(result->pfn * pageBytes));
+            description.field(QStringLiteral("Primary classification"), L(useNames[static_cast<std::size_t>(use)]));
+            description.field(QStringLiteral("State"), L(stateNames[state(result->identity)]));
+            description.field(QStringLiteral("Owner key"), nativeUse(result->identity) == 0 && state(result->identity) >= 2 && processKey(result->identity)
+                ? hex(processKey(result->identity)) : L("Unavailable"));
+            description.field(QStringLiteral("Backing / VA"), hex(result->identity.backing));
+            description.field(QStringLiteral("Sampled"), result->sampledAt);
+            description.note(L("Mapping observations were collected separately and can change while the system runs. A Windows share count is capped and is not the complete list of owners."));
             if (nativeUse(result->identity) == 0 && inUseState(state(result->identity))) {
-                description += L("\nFresh source hint status %1 | hint observed %2 | candidate %3 | process lifetime unverified")
-                    .arg(status(result->ownerStatus), result->ownerHintObserved ? L("Yes") : L("No"), result->ownerHintObserved ? result->ownerName : L("Unresolved"));
+                description.field(QStringLiteral("Fresh source hint status"), status(result->ownerStatus));
+                description.field(QStringLiteral("Hint observed"), result->ownerHintObserved ? L("Yes") : L("No"));
+                description.field(QStringLiteral("Candidate"), result->ownerHintObserved ? result->ownerName : L("Unresolved"));
+                description.note(L("Process lifetime unverified"));
             }
             if (nativeUse(result->identity) == 0 && inUseState(state(result->identity)) && !result->ownerHintObserved) {
-                description += L("\nPrivate-source identity could not be validated during this inspection.");
+                description.note(L("Private-source identity could not be validated during this inspection."));
             }
-            m_pageEvidence->setReportText(description);
+            m_pageEvidence->setDocument(description);
         }
         showMappings(result->pfn);
     }
@@ -564,105 +570,134 @@ void PhysicalPageAttributionPage::rebuild()
     }
     rebuildGroups();
     if (m_selectedCategory >= 0) { selectCategory(m_selectedCategory); }
-    QStringList evidence;
-    evidence << L("Observation domain %1 | epoch %2 | Windows %3.%4.%5 | process/native architecture %6/%7")
-        .arg(scan.domain, scan.epoch).arg(scan.windowsMajor).arg(scan.windowsMinor).arg(scan.windowsBuild).arg(scan.processArchitecture, scan.nativeArchitecture);
-    evidence << L("Native ABI %1 | observed %2 | semantics validated %3. R3 and R0 are access paths to the same Memory Manager provider.")
-        .arg(scan.nativeAbi, scan.nativeAbiObserved ? L("Yes") : L("No"), scan.semanticsValidated ? L("Yes") : L("No"));
-    evidence << L("Known-use consumer unresolved %1. This is separate from type-unknown and already belongs to existing categories.")
-        .arg(bytes(scan.ownerCoverage.knownInUseUnresolved() * pageBytes));
-    evidence << L("Raw identity retention %1 | retained pages %2 | finalized %3 | complete %4 | file %5")
-        .arg(scan.rawEvidenceRequested ? L("Yes") : L("No")).arg(scan.rawEvidenceLedgerPages)
-        .arg(scan.rawEvidenceFinalized ? L("Yes") : L("No"), scan.rawEvidenceComplete ? L("Yes") : L("No"), scan.rawEvidencePath.isEmpty() ? L("Unavailable") : scan.rawEvidencePath);
-    if (scan.rawEvidenceFailed) { evidence << L("Raw evidence failed: %1").arg(scan.rawEvidenceError); }
-    evidence << L("Observer process WS before/after/max %1/%2/%3; private bytes %4/%5/%6. Whole-process samples include other UI activity and are not an isolated allocation measurement.")
-        .arg(bytes(scan.observerWorkingSetBefore), bytes(scan.observerWorkingSetAfter), bytes(scan.observerWorkingSetMax),
-            bytes(scan.observerPrivateBefore), bytes(scan.observerPrivateAfter), bytes(scan.observerPrivateMax));
-    evidence << L("Observer samples available before/after %1/%2 | encoded raw buffer peak %3 | batch timing retention overflow %4")
-        .arg(scan.observerMemoryBeforeKnown ? L("Yes") : L("No"), scan.observerMemoryAfterKnown ? L("Yes") : L("No"))
-        .arg(bytes(scan.rawBufferPeakBytes)).arg(scan.batchTimingOverflow);
+    ks::ui::FieldDocument evidence;
+    evidence.field(QStringLiteral("Observation domain"), QStringLiteral("Observation domain %1").arg(QStringLiteral("%1").arg(scan.domain)));
+    evidence.field(QStringLiteral("epoch"), QStringLiteral("epoch %1").arg(QStringLiteral("%1").arg(scan.epoch)));
+    evidence.field(QStringLiteral("Windows"), QStringLiteral("Windows %1.%2.%3").arg(QStringLiteral("%1").arg(scan.windowsMajor)).arg(QStringLiteral("%1").arg(scan.windowsMinor)).arg(QStringLiteral("%1").arg(scan.windowsBuild)));
+    evidence.field(QStringLiteral("process/native architecture"), QStringLiteral("process/native architecture %1/%2").arg(QStringLiteral("%1").arg(scan.processArchitecture)).arg(QStringLiteral("%1").arg(scan.nativeArchitecture)));
+    evidence.field(QStringLiteral("Native ABI"), QStringLiteral("Native ABI %1").arg(QStringLiteral("%1").arg(scan.nativeAbi)));
+    evidence.field(QStringLiteral("observed"), QStringLiteral("observed %1").arg(QStringLiteral("%1").arg(scan.nativeAbiObserved ? L("Yes") : L("No"))));
+    evidence.field(QStringLiteral("semantics validated"), QStringLiteral("semantics validated %1. R3 and R0 are access paths to the same Memory Manager provider.").arg(QStringLiteral("%1").arg(scan.semanticsValidated ? L("Yes") : L("No"))));
+    evidence.field(QStringLiteral("Known-use consumer unresolved"), QStringLiteral("Known-use consumer unresolved %1. This is separate from type-unknown and already belongs to existing categories.").arg(QStringLiteral("%1").arg(bytes(scan.ownerCoverage.knownInUseUnresolved() * pageBytes))));
+    evidence.field(QStringLiteral("Raw identity retention"), QStringLiteral("Raw identity retention %1").arg(QStringLiteral("%1").arg(scan.rawEvidenceRequested ? L("Yes") : L("No"))));
+    evidence.field(QStringLiteral("retained pages"), QStringLiteral("retained pages %1").arg(QStringLiteral("%1").arg(scan.rawEvidenceLedgerPages)));
+    evidence.field(QStringLiteral("finalized"), QStringLiteral("finalized %1").arg(QStringLiteral("%1").arg(scan.rawEvidenceFinalized ? L("Yes") : L("No"))));
+    evidence.field(QStringLiteral("complete"), QStringLiteral("complete %1").arg(QStringLiteral("%1").arg(scan.rawEvidenceComplete ? L("Yes") : L("No"))));
+    evidence.field(QStringLiteral("file"), QStringLiteral("file %1").arg(QStringLiteral("%1").arg(scan.rawEvidencePath.isEmpty() ? L("Unavailable") : scan.rawEvidencePath)));
+    if (scan.rawEvidenceFailed) { evidence.field(QStringLiteral("Raw evidence failed"), QStringLiteral("%1").arg(scan.rawEvidenceError)); }
+    evidence.field(QStringLiteral("Observer process WS before/after/max"), QStringLiteral("Observer process WS before/after/max %1/%2/%3").arg(QStringLiteral("%1").arg(bytes(scan.observerWorkingSetBefore))).arg(QStringLiteral("%1").arg(bytes(scan.observerWorkingSetAfter))).arg(QStringLiteral("%1").arg(bytes(scan.observerWorkingSetMax))));
+    evidence.field(QStringLiteral("private bytes"), QStringLiteral("private bytes %1/%2/%3. Whole-process samples include other UI activity and are not an isolated allocation measurement.").arg(QStringLiteral("%1").arg(bytes(scan.observerPrivateBefore))).arg(QStringLiteral("%1").arg(bytes(scan.observerPrivateAfter))).arg(QStringLiteral("%1").arg(bytes(scan.observerPrivateMax))));
+    evidence.field(QStringLiteral("Observer samples available before/after"), QStringLiteral("Observer samples available before/after %1/%2").arg(QStringLiteral("%1").arg(scan.observerMemoryBeforeKnown ? L("Yes") : L("No"))).arg(QStringLiteral("%1").arg(scan.observerMemoryAfterKnown ? L("Yes") : L("No"))));
+    evidence.field(QStringLiteral("encoded raw buffer peak"), QStringLiteral("encoded raw buffer peak %1").arg(QStringLiteral("%1").arg(bytes(scan.rawBufferPeakBytes))));
+    evidence.field(QStringLiteral("batch timing retention overflow"), QStringLiteral("batch timing retention overflow %1").arg(QStringLiteral("%1").arg(scan.batchTimingOverflow)));
     bool qualified = false;
     if (m_auditHistory.size() == 3) {
         const std::array<AuditCriterionSample, 3> samples{m_auditHistory[0], m_auditHistory[1], m_auditHistory[2]};
         qualified = proposedThreeScanCriterion(samples);
     }
-    evidence << L("Proposed three-capture 64 MiB type-unknown criterion: %1. Requires a validated Windows build, complete coverage and exact ledger reconciliation; consumer attribution is separate.")
-        .arg(qualified ? L("Passed") : L("Not established"));
+    evidence.field(QStringLiteral("Proposed three-capture 64 MiB type-unknown criterion"), QStringLiteral("%1. Requires a validated Windows build, complete coverage and exact ledger reconciliation").arg(QStringLiteral("%1").arg(qualified ? L("Passed") : L("Not established"))));
+    evidence.note(QStringLiteral("consumer attribution is separate."));
     if (m_latestAttemptFailed && m_lastAttempt != m_scan) {
-        evidence << L("Latest PFN attempt failed; showing the previous ledger.");
+        evidence.note(QStringLiteral("Latest PFN attempt failed; showing the previous ledger."));
         if (m_lastAttempt) {
-            evidence << L("Failed attempt %1 | range status %2 | page status %3")
-                .arg(m_lastAttempt->finished, status(m_lastAttempt->rangesStatus), status(m_lastAttempt->lastPageStatus));
+            evidence.field(QStringLiteral("Failed attempt"), QStringLiteral("Failed attempt %1").arg(QStringLiteral("%1").arg(m_lastAttempt->finished)));
+            evidence.field(QStringLiteral("range status"), QStringLiteral("range status %1").arg(QStringLiteral("%1").arg(status(m_lastAttempt->rangesStatus))));
+            evidence.field(QStringLiteral("page status"), QStringLiteral("page status %1").arg(QStringLiteral("%1").arg(status(m_lastAttempt->lastPageStatus))));
         }
     }
-    evidence << L("Collection interval: %1 to %2 (%3 ms)").arg(scan.started, scan.finished).arg(scan.elapsedMs);
-    evidence << L("Native batches %1 | R0 batches %2 | failed batches %3").arg(scan.nativeBatches).arg(scan.driverBatches).arg(scan.failedBatches);
-    evidence << L("Recovery queries %1 | recovered physical pages %2. Retries do not add pages to the ledger.")
-        .arg(scan.recoveryQueries).arg(scan.recoveredPages);
-    evidence << L("Private owner resolved %1 | unresolved %2 | conflicting owner keys %3 | owner recheck %4")
-        .arg(bytes(scan.resolvedPrivatePages * pageBytes), bytes(scan.unresolvedPrivatePages * pageBytes))
-        .arg(scan.ownerConflicts).arg(scan.ownersRechecked ? status(scan.ownersRecheckStatus) : L("Not scanned"));
-    evidence << L("Owner names are endpoint observations, not a frozen lifetime. Conflicting keys remain unnamed; missing names do not become unknown uses.");
+    evidence.field(QStringLiteral("Collection interval"), QStringLiteral("%1 to %2 (%3 ms)").arg(QStringLiteral("%1").arg(scan.started)).arg(QStringLiteral("%1").arg(scan.finished)).arg(QStringLiteral("%1").arg(scan.elapsedMs)));
+    evidence.field(QStringLiteral("Native batches"), QStringLiteral("Native batches %1").arg(QStringLiteral("%1").arg(scan.nativeBatches)));
+    evidence.field(QStringLiteral("R0 batches"), QStringLiteral("R0 batches %1").arg(QStringLiteral("%1").arg(scan.driverBatches)));
+    evidence.field(QStringLiteral("failed batches"), QStringLiteral("failed batches %1").arg(QStringLiteral("%1").arg(scan.failedBatches)));
+    evidence.field(QStringLiteral("Recovery queries"), QStringLiteral("Recovery queries %1").arg(QStringLiteral("%1").arg(scan.recoveryQueries)));
+    evidence.field(QStringLiteral("recovered physical pages"), QStringLiteral("recovered physical pages %1. Retries do not add pages to the ledger.").arg(QStringLiteral("%1").arg(scan.recoveredPages)));
+    evidence.field(QStringLiteral("Private owner resolved"), QStringLiteral("Private owner resolved %1").arg(QStringLiteral("%1").arg(bytes(scan.resolvedPrivatePages * pageBytes))));
+    evidence.field(QStringLiteral("unresolved"), QStringLiteral("unresolved %1").arg(QStringLiteral("%1").arg(bytes(scan.unresolvedPrivatePages * pageBytes))));
+    evidence.field(QStringLiteral("conflicting owner keys"), QStringLiteral("conflicting owner keys %1").arg(QStringLiteral("%1").arg(scan.ownerConflicts)));
+    evidence.field(QStringLiteral("owner recheck"), QStringLiteral("owner recheck %1").arg(QStringLiteral("%1").arg(scan.ownersRechecked ? status(scan.ownersRecheckStatus) : L("Not scanned"))));
+    evidence.note(QStringLiteral("Owner names are endpoint observations, not a frozen lifetime. Conflicting keys remain unnamed; missing names do not become unknown uses."));
     for (unsigned nativeUse = 0; nativeUse < counts.unknownByNativeUse.size(); ++nativeUse) {
         const auto& states = counts.unknownByNativeUse[nativeUse];
         const auto amount = states[3] + states[4] + states[6] + states[7];
-        if (amount) { evidence << L("Unknown native use %1: %2").arg(nativeUse).arg(bytes(amount * pageBytes)); }
+        if (amount) { evidence.field(QStringLiteral("Unknown native use"), QStringLiteral("Unknown native use %1: %2").arg(QStringLiteral("%1").arg(nativeUse)).arg(QStringLiteral("%1").arg(bytes(amount * pageBytes)))); }
     }
-    evidence << L("Range status %1 | owner status %2 | page status %3").arg(status(scan.rangesStatus), status(scan.ownersStatus), status(scan.lastPageStatus));
-    evidence << L("Ledger reconciliation: %1. Unknown, unreadable and unscanned are separate; none is assigned to a guessed owner.")
-        .arg(counts.reconciles() && counts.expected ? L("Passed") : L("Unavailable / failed"));
-    evidence << L("Windows usable before / after: %1 / %2. PFN range total: %3.").arg(bytes(scan.totalBefore), bytes(scan.totalAfter), bytes(counts.expected * pageBytes));
+    evidence.field(QStringLiteral("Range status"), QStringLiteral("Range status %1").arg(QStringLiteral("%1").arg(status(scan.rangesStatus))));
+    evidence.field(QStringLiteral("owner status"), QStringLiteral("owner status %1").arg(QStringLiteral("%1").arg(status(scan.ownersStatus))));
+    evidence.field(QStringLiteral("page status"), QStringLiteral("page status %1").arg(QStringLiteral("%1").arg(status(scan.lastPageStatus))));
+    evidence.field(QStringLiteral("Ledger reconciliation"), QStringLiteral("%1. Unknown, unreadable and unscanned are separate").arg(QStringLiteral("%1").arg(counts.reconciles() && counts.expected ? L("Passed") : L("Unavailable / failed"))));
+    evidence.note(QStringLiteral("none is assigned to a guessed owner."));
+    evidence.field(QStringLiteral("Windows usable before / after"), QStringLiteral("%1 / %2. PFN range total: %3.").arg(QStringLiteral("%1").arg(bytes(scan.totalBefore))).arg(QStringLiteral("%1").arg(bytes(scan.totalAfter))).arg(QStringLiteral("%1").arg(bytes(counts.expected * pageBytes))));
     const auto difference = static_cast<qint64>(counts.expected * pageBytes) - static_cast<qint64>(scan.totalBefore);
-    evidence << L("PFN range minus Windows usable: %1 bytes (different scopes or changing memory; not an owner).").arg(difference);
-    evidence << L("Available before / after: %1 / %2. The scan is time-skewed, not an atomic snapshot.").arg(bytes(scan.availableBefore), bytes(scan.availableAfter));
-    evidence << L("Installed minus Windows usable: %1. This is an aggregate reserved estimate, not a map of firmware pages.")
-        .arg(scan.totalBefore && scan.installed >= scan.totalBefore ? bytes(scan.installed - scan.totalBefore) : L("Unavailable"));
-    evidence << L("Hypervisor present: %1 | Secure kernel running: %2. Their physical byte counts are not exposed by this query.")
-        .arg(scan.hypervisor ? L("Yes") : L("No"), scan.secureKnown ? (scan.secureKernel ? L("Yes") : L("No")) : L("Unavailable"));
-    evidence << L("Pinned %1 | non-tradeable %2. These are overlapping attributes, not additional physical consumption.").arg(bytes(counts.pinned * pageBytes), bytes(counts.nonTradeable * pageBytes));
-    evidence << L("File/cache names are resolved from observed process mappings. A file key without a path still has a known primary classification.");
-    evidence << L("Private-source names are hints. Compression classification requires an authoritative store identity; no such provider is currently available.");
-    evidence << L("PFN database, secure memory and inaccessible mappings are not guessed from residual bytes or hard-coded private offsets. Existing snapshot counters remain diagnostic only.");
-    evidence << L("The table shows up to 300 matching backing identities; export retains all collected groups. PFN samples are bounded to 256 per category and do not limit the accounting scan.");
-    if (scan.groupedOverflowPages) { evidence << L("Backing-group retention limit reached: %1 still-counted pages lack a retained group.").arg(scan.groupedOverflowPages); }
-    if (scan.rangesChanged) { evidence << L("RAM ranges changed or could not be rechecked; treat this scan as partial."); }
-    if (scan.cancelled) { evidence << L("Scan cancelled. Remaining pages are explicitly unscanned."); }
-    if (scan.resourceFailure) { evidence << L("Collection failed because a worker could not retain its result."); }
+    evidence.field(QStringLiteral("PFN range minus Windows usable"), QStringLiteral("%1 bytes (different scopes or changing memory").arg(QStringLiteral("%1").arg(difference)));
+    evidence.note(QStringLiteral("not an owner)."));
+    evidence.field(QStringLiteral("Available before / after"), QStringLiteral("%1 / %2. The scan is time-skewed, not an atomic snapshot.").arg(QStringLiteral("%1").arg(bytes(scan.availableBefore))).arg(QStringLiteral("%1").arg(bytes(scan.availableAfter))));
+    evidence.field(QStringLiteral("Installed minus Windows usable"), QStringLiteral("%1. This is an aggregate reserved estimate, not a map of firmware pages.").arg(QStringLiteral("%1").arg(scan.totalBefore && scan.installed >= scan.totalBefore ? bytes(scan.installed - scan.totalBefore) : L("Unavailable"))));
+    evidence.field(QStringLiteral("Hypervisor present"), QStringLiteral("%1").arg(scan.hypervisor ? L("Yes") : L("No")));
+    evidence.field(QStringLiteral("Secure kernel running"), QStringLiteral("%1. Their physical byte counts are not exposed by this query.").arg(QStringLiteral("%1").arg(scan.secureKnown ? (scan.secureKernel ? L("Yes") : L("No")) : L("Unavailable"))));
+    evidence.field(QStringLiteral("Pinned"), QStringLiteral("Pinned %1").arg(QStringLiteral("%1").arg(bytes(counts.pinned * pageBytes))));
+    evidence.field(QStringLiteral("non-tradeable"), QStringLiteral("non-tradeable %1. These are overlapping attributes, not additional physical consumption.").arg(QStringLiteral("%1").arg(bytes(counts.nonTradeable * pageBytes))));
+    evidence.note(QStringLiteral("File/cache names are resolved from observed process mappings. A file key without a path still has a known primary classification."));
+    evidence.note(QStringLiteral("Private-source names are hints. Compression classification requires an authoritative store identity; no such provider is currently available."));
+    evidence.note(QStringLiteral("PFN database, secure memory and inaccessible mappings are not guessed from residual bytes or hard-coded private offsets. Existing snapshot counters remain diagnostic only."));
+    evidence.note(QStringLiteral("The table shows up to 300 matching backing identities; export retains all collected groups. PFN samples are bounded to 256 per category and do not limit the accounting scan."));
+    if (scan.groupedOverflowPages) { evidence.field(QStringLiteral("Backing-group retention limit reached"), QStringLiteral("%1 still-counted pages lack a retained group.").arg(QStringLiteral("%1").arg(scan.groupedOverflowPages))); }
+    if (scan.rangesChanged) { evidence.note(QStringLiteral("RAM ranges changed or could not be rechecked; treat this scan as partial.")); }
+    if (scan.cancelled) { evidence.note(QStringLiteral("Scan cancelled. Remaining pages are explicitly unscanned.")); }
+    if (scan.resourceFailure) { evidence.note(QStringLiteral("Collection failed because a worker could not retain its result.")); }
     if (m_mappingScan) {
         const auto& maps = *m_mappingScan;
-        evidence << L("Mappings sampled %1 | tested %2 | distinct observed PFNs %3 | failures %4 | processes scanned %5/%6 | inaccessible %7")
-            .arg(maps.sampledAt).arg(maps.tested).arg(maps.distinct).arg(maps.failed).arg(maps.scannedProcesses).arg(maps.processes).arg(maps.inaccessible);
-        evidence << L("Observed large-page bytes %1 | locked bytes %2 | multiply mapped bytes %3. All are subsets, never added to the PFN ledger.")
-            .arg(bytes(maps.large * pageBytes), bytes(maps.locked * pageBytes), bytes(maps.multiplyMapped * pageBytes));
-        evidence << L("PFNs with incompatible native identities %1. Multiple references are interval observations; simultaneous sharing is unverified.").arg(maps.identityConflicted);
-        evidence << L("Mapping coverage includes accessible virtual regions within the time and page budget. AWE and large pages are probed; inaccessible or unvisited mappings remain unverified.");
-        evidence << L("Mapping limits: 16 million virtual pages probed, 2 million retained references, and the selected time budget. These limits can leave owner coverage incomplete.");
-        evidence << L("Virtual pages probed %1 | region query failures %2 | working-set query failures %3 | changed mappings %4 | conflicting file keys %5")
-            .arg(maps.virtualPagesProbed).arg(maps.regionQueryFailures).arg(maps.workingSetQueryFailures).arg(maps.changedMappings).arg(maps.conflictingFileKeys);
-        evidence << L("Ordinary working sets scanned %1/%2 | supplemental region scans completed %3/%2")
-            .arg(maps.workingSetProcesses).arg(maps.processes).arg(maps.scannedProcesses);
-        evidence << L("Mapping observer WS before / after %1 / %2 | private before / after %3 / %4 | samples %5. Maxima are sampled observations.")
-            .arg(maps.observerBeforeKnown ? bytes(maps.observerWorkingSetBefore) : L("Unavailable"), maps.observerAfterKnown ? bytes(maps.observerWorkingSetAfter) : L("Unavailable"),
-                maps.observerBeforeKnown ? bytes(maps.observerPrivateBefore) : L("Unavailable"), maps.observerAfterKnown ? bytes(maps.observerPrivateAfter) : L("Unavailable")).arg(maps.observerMemorySamples);
-        evidence << L("Mapping observation domain %1 | epoch %2 | PFN ledger context %3 | interval %4 to %5")
-            .arg(maps.domain, maps.epoch, maps.ledgerContextEpoch, maps.sampledAt, maps.finished);
-        evidence << L("Verified object relations %1 | object queries %2 | object budget reached %3. Creators and anonymous Section identity are not inferred from mapped allocations.")
-            .arg(maps.verifiedObjectRelations).arg(maps.objectQueries).arg(maps.objectBudgetReached ? L("Yes") : L("No"));
-        evidence << L("Cache-only filename provider %1 | anonymous Section provider %2. Missing capabilities remain explicit.")
-            .arg(status(maps.cacheFileNameProviderStatus), status(maps.anonymousSectionProviderStatus));
+        evidence.field(QStringLiteral("Mappings sampled"), QStringLiteral("Mappings sampled %1").arg(QStringLiteral("%1").arg(maps.sampledAt)));
+        evidence.field(QStringLiteral("tested"), QStringLiteral("tested %1").arg(QStringLiteral("%1").arg(maps.tested)));
+        evidence.field(QStringLiteral("distinct observed PFNs"), QStringLiteral("distinct observed PFNs %1").arg(QStringLiteral("%1").arg(maps.distinct)));
+        evidence.field(QStringLiteral("failures"), QStringLiteral("failures %1").arg(QStringLiteral("%1").arg(maps.failed)));
+        evidence.field(QStringLiteral("processes scanned"), QStringLiteral("processes scanned %1/%2").arg(QStringLiteral("%1").arg(maps.scannedProcesses)).arg(QStringLiteral("%1").arg(maps.processes)));
+        evidence.field(QStringLiteral("inaccessible"), QStringLiteral("inaccessible %1").arg(QStringLiteral("%1").arg(maps.inaccessible)));
+        evidence.field(QStringLiteral("Observed large-page bytes"), QStringLiteral("Observed large-page bytes %1").arg(QStringLiteral("%1").arg(bytes(maps.large * pageBytes))));
+        evidence.field(QStringLiteral("locked bytes"), QStringLiteral("locked bytes %1").arg(QStringLiteral("%1").arg(bytes(maps.locked * pageBytes))));
+        evidence.field(QStringLiteral("multiply mapped bytes"), QStringLiteral("multiply mapped bytes %1. All are subsets, never added to the PFN ledger.").arg(QStringLiteral("%1").arg(bytes(maps.multiplyMapped * pageBytes))));
+        evidence.field(QStringLiteral("PFNs with incompatible native identities"), QStringLiteral("PFNs with incompatible native identities %1. Multiple references are interval observations").arg(QStringLiteral("%1").arg(maps.identityConflicted)));
+        evidence.note(QStringLiteral("simultaneous sharing is unverified."));
+        evidence.note(QStringLiteral("Mapping coverage includes accessible virtual regions within the time and page budget. AWE and large pages are probed; inaccessible or unvisited mappings remain unverified."));
+        evidence.field(QStringLiteral("Mapping limits"), QStringLiteral("16 million virtual pages probed, 2 million retained references, and the selected time budget. These limits can leave owner coverage incomplete."), true);
+        evidence.field(QStringLiteral("Virtual pages probed"), QStringLiteral("Virtual pages probed %1").arg(QStringLiteral("%1").arg(maps.virtualPagesProbed)));
+        evidence.field(QStringLiteral("region query failures"), QStringLiteral("region query failures %1").arg(QStringLiteral("%1").arg(maps.regionQueryFailures)));
+        evidence.field(QStringLiteral("working-set query failures"), QStringLiteral("working-set query failures %1").arg(QStringLiteral("%1").arg(maps.workingSetQueryFailures)));
+        evidence.field(QStringLiteral("changed mappings"), QStringLiteral("changed mappings %1").arg(QStringLiteral("%1").arg(maps.changedMappings)));
+        evidence.field(QStringLiteral("conflicting file keys"), QStringLiteral("conflicting file keys %1").arg(QStringLiteral("%1").arg(maps.conflictingFileKeys)));
+        evidence.field(QStringLiteral("Ordinary working sets scanned"), QStringLiteral("Ordinary working sets scanned %1/%2").arg(QStringLiteral("%1").arg(maps.workingSetProcesses)).arg(QStringLiteral("%1").arg(maps.processes)));
+        evidence.field(QStringLiteral("supplemental region scans completed"), QStringLiteral("supplemental region scans completed %1/%2").arg(QStringLiteral("%1").arg(maps.scannedProcesses)).arg(QStringLiteral("%1").arg(maps.processes)));
+        evidence.field(QStringLiteral("Mapping observer WS before / after"), QStringLiteral("Mapping observer WS before / after %1 / %2").arg(QStringLiteral("%1").arg(maps.observerBeforeKnown ? bytes(maps.observerWorkingSetBefore) : L("Unavailable"))).arg(QStringLiteral("%1").arg(maps.observerAfterKnown ? bytes(maps.observerWorkingSetAfter) : L("Unavailable"))));
+        evidence.field(QStringLiteral("private before / after"), QStringLiteral("private before / after %1 / %2").arg(QStringLiteral("%1").arg(maps.observerBeforeKnown ? bytes(maps.observerPrivateBefore) : L("Unavailable"))).arg(QStringLiteral("%1").arg(maps.observerAfterKnown ? bytes(maps.observerPrivateAfter) : L("Unavailable"))));
+        evidence.field(QStringLiteral("samples"), QStringLiteral("samples %1. Maxima are sampled observations.").arg(QStringLiteral("%1").arg(maps.observerMemorySamples)));
+        evidence.field(QStringLiteral("Mapping observation domain"), QStringLiteral("Mapping observation domain %1").arg(QStringLiteral("%1").arg(maps.domain)));
+        evidence.field(QStringLiteral("epoch"), QStringLiteral("epoch %1").arg(QStringLiteral("%1").arg(maps.epoch)));
+        evidence.field(QStringLiteral("PFN ledger context"), QStringLiteral("PFN ledger context %1").arg(QStringLiteral("%1").arg(maps.ledgerContextEpoch)));
+        evidence.field(QStringLiteral("interval"), QStringLiteral("interval %1 to %2").arg(QStringLiteral("%1").arg(maps.sampledAt)).arg(QStringLiteral("%1").arg(maps.finished)));
+        evidence.field(QStringLiteral("Verified object relations"), QStringLiteral("Verified object relations %1").arg(QStringLiteral("%1").arg(maps.verifiedObjectRelations)));
+        evidence.field(QStringLiteral("object queries"), QStringLiteral("object queries %1").arg(QStringLiteral("%1").arg(maps.objectQueries)));
+        evidence.field(QStringLiteral("object budget reached"), QStringLiteral("object budget reached %1. Creators and anonymous Section identity are not inferred from mapped allocations.").arg(QStringLiteral("%1").arg(maps.objectBudgetReached ? L("Yes") : L("No"))));
+        evidence.field(QStringLiteral("Cache-only filename provider"), QStringLiteral("Cache-only filename provider %1").arg(QStringLiteral("%1").arg(status(maps.cacheFileNameProviderStatus))));
+        evidence.field(QStringLiteral("anonymous Section provider"), QStringLiteral("anonymous Section provider %1. Missing capabilities remain explicit.").arg(QStringLiteral("%1").arg(status(maps.anonymousSectionProviderStatus))));
         if (maps.consumers) {
             const auto& consumers = *maps.consumers;
-            evidence << L("Independent page consumers %1 distinct PFNs | candidates %2 | failures %3 | rejected %4 | interval %5 to %6")
-                .arg(consumers.distinct).arg(consumers.candidatePages).arg(consumers.failed).arg(consumers.rejected).arg(consumers.started, consumers.finished);
-            evidence << L("Page-table provider %1 | kernel-stack provider %2 | Big Pool provider %3 | thread creation identity %4 | lock owner provider %5")
-                .arg(status(consumers.tableStatus), status(consumers.stackStatus), status(consumers.bigPoolStatus),
-                    consumers.threadCreationProviderAvailable ? L("Available") : L("Unavailable"), consumers.lockOwnerProviderAvailable ? L("Available") : L("Unavailable"));
-            evidence << L("These relations retain native PFN witnesses and source identities. Thread objects are endpoint observations; pool tags do not identify a unique driver, and these bytes are not added to the physical ledger.");
+            evidence.field(QStringLiteral("Independent page consumers"), QStringLiteral("Independent page consumers %1 distinct PFNs").arg(QStringLiteral("%1").arg(consumers.distinct)));
+            evidence.field(QStringLiteral("candidates"), QStringLiteral("candidates %1").arg(QStringLiteral("%1").arg(consumers.candidatePages)));
+            evidence.field(QStringLiteral("failures"), QStringLiteral("failures %1").arg(QStringLiteral("%1").arg(consumers.failed)));
+            evidence.field(QStringLiteral("rejected"), QStringLiteral("rejected %1").arg(QStringLiteral("%1").arg(consumers.rejected)));
+            evidence.field(QStringLiteral("interval"), QStringLiteral("interval %1 to %2").arg(QStringLiteral("%1").arg(consumers.started)).arg(QStringLiteral("%1").arg(consumers.finished)));
+            evidence.field(QStringLiteral("Page-table provider"), QStringLiteral("Page-table provider %1").arg(QStringLiteral("%1").arg(status(consumers.tableStatus))));
+            evidence.field(QStringLiteral("kernel-stack provider"), QStringLiteral("kernel-stack provider %1").arg(QStringLiteral("%1").arg(status(consumers.stackStatus))));
+            evidence.field(QStringLiteral("Big Pool provider"), QStringLiteral("Big Pool provider %1").arg(QStringLiteral("%1").arg(status(consumers.bigPoolStatus))));
+            evidence.field(QStringLiteral("thread creation identity"), QStringLiteral("thread creation identity %1").arg(QStringLiteral("%1").arg(consumers.threadCreationProviderAvailable ? L("Available") : L("Unavailable"))));
+            evidence.field(QStringLiteral("lock owner provider"), QStringLiteral("lock owner provider %1").arg(QStringLiteral("%1").arg(consumers.lockOwnerProviderAvailable ? L("Available") : L("Unavailable"))));
+            evidence.note(QStringLiteral("These relations retain native PFN witnesses and source identities. Thread objects are endpoint observations; pool tags do not identify a unique driver, and these bytes are not added to the physical ledger."));
         }
-        evidence << L("Mapping status %1 | driver available %2 | cancelled %3 | budget reached %4")
-            .arg(status(maps.status), maps.driverAvailable ? L("Yes") : L("No"), maps.cancelled ? L("Yes") : L("No"), maps.budgetReached ? L("Yes") : L("No"));
-    } else { evidence << L("Mapping resolution has not run. Large-page and per-PFN reference coverage is unavailable."); }
-    m_evidence->setReportText(evidence.join(QLatin1Char('\n')));
+        evidence.field(QStringLiteral("Mapping status"), QStringLiteral("Mapping status %1").arg(QStringLiteral("%1").arg(status(maps.status))));
+        evidence.field(QStringLiteral("driver available"), QStringLiteral("driver available %1").arg(QStringLiteral("%1").arg(maps.driverAvailable ? L("Yes") : L("No"))));
+        evidence.field(QStringLiteral("cancelled"), QStringLiteral("cancelled %1").arg(QStringLiteral("%1").arg(maps.cancelled ? L("Yes") : L("No"))));
+        evidence.field(QStringLiteral("budget reached"), QStringLiteral("budget reached %1").arg(QStringLiteral("%1").arg(maps.budgetReached ? L("Yes") : L("No"))));
+    } else { evidence.note(QStringLiteral("Mapping resolution has not run. Large-page and per-PFN reference coverage is unavailable.")); }
+    m_evidence->setDocument(evidence);
 }
 
 void PhysicalPageAttributionPage::rebuildGroups()
@@ -724,7 +759,7 @@ void PhysicalPageAttributionPage::inspectPfn()
     bool ok = false;
     const auto pfn = m_pfn->text().trimmed().toULongLong(&ok, 0);
     if (!ok || !m_scan || std::none_of(m_scan->ranges.begin(), m_scan->ranges.end(), [pfn](const Range& range) { return pfn >= range.first && pfn - range.first < range.count; })) {
-        m_pageEvidence->setReportText(L("Enter a PFN inside a collected NT RAM range. Physical address holes are not RAM."));
+        m_pageEvidence->setDocument(ks::ui::FieldDocument{}.note(L("Enter a PFN inside a collected NT RAM range. Physical address holes are not RAM.")));
         return;
     }
     m_inspection = std::make_shared<Inspection>();
@@ -787,7 +822,11 @@ void PhysicalPageAttributionPage::showMappings(std::uint64_t pfn)
     auto first = std::lower_bound(rows.begin(), rows.end(), pfn, [](const Mapping& row, auto value) { return row.pfn < value; });
     auto last = first;
     while (last != rows.end() && last->pfn == pfn) { ++last; }
-    m_pageEvidence->appendReportText(L("Observed mappings for this PFN: %1 (sampled %2; first 300 shown).").arg(std::distance(first, last)).arg(m_mappingScan->sampledAt));
+    auto document = m_pageEvidence->document();
+    document.field(QStringLiteral("Observed mappings for this PFN"), QString::number(std::distance(first, last)));
+    document.field(QStringLiteral("Mapping sample time"), m_mappingScan->sampledAt);
+    document.note(L("First 300 mappings shown."));
+    m_pageEvidence->setDocument(document);
     for (auto entry = first; entry != last && m_mappings->rowCount() < 300; ++entry) {
         const int row = m_mappings->rowCount();
         m_mappings->insertRow(row);
@@ -831,7 +870,7 @@ void PhysicalPageAttributionPage::exportEvidence()
     const auto mapsPtr = m_mappingScan;
     const auto lastAttempt = m_lastAttempt;
     const bool latestAttemptFailed = m_latestAttemptFailed, fullMappings = m_exportMappings->isChecked();
-    const QString interpretation = m_evidence->text();
+    const QString interpretation = m_evidence->plainText();
     const QJsonObject consumer = m_consumerPage->evidence();
     try { std::thread([job, scanPtr, mapsPtr, lastAttempt, latestAttemptFailed, fullMappings, interpretation, consumer, path] {
         struct Done { std::shared_ptr<ExportJob> job; ~Done() { job->done.store(true); } } done{job};

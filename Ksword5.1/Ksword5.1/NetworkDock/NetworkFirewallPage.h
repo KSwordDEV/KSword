@@ -1,3 +1,4 @@
+#include "../UI/StructuredFieldView.h"
 #pragma once
 
 // ============================================================
@@ -373,7 +374,7 @@ private:
     QSplitter* m_ruleSplitter = nullptr;       // m_ruleSplitter：规则表与详情 3:1 垂直分栏。
     QTableWidget* m_ruleTable = nullptr;       // m_ruleTable：防火墙规则表。
     bool m_itemThemeRefreshScheduled = false; // 合并主题事件，保留隐藏行、排序和当前规则选择。
-    CodeEditorWidget* m_ruleDetailEditor = nullptr; // m_ruleDetailEditor：完整规则详情只读编辑器。
+    ks::ui::StructuredFieldView* m_ruleDetailEditor = nullptr; // m_ruleDetailEditor：完整规则详情只读编辑器。
     std::atomic_bool m_refreshingRules{ false }; // m_refreshingRules：规则刷新互斥。
     std::thread m_ruleRefreshThread;           // m_ruleRefreshThread：析构前等待的规则枚举线程。
     std::atomic_bool m_initialRefreshRequested{ false }; // m_initialRefreshRequested：首轮刷新门控。

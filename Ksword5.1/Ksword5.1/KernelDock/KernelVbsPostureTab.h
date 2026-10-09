@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "../ArkDriverClient/ArkDriverTypes.h"
 
@@ -10,7 +10,7 @@ class QLabel;
 class QPushButton;
 class QShowEvent;
 class QTableWidget;
-class CodeEditorWidget;
+#include "../UI/StructuredFieldView.h"
 
 // VBS/HVCI 真实姿态页。
 //
@@ -61,7 +61,7 @@ private:
     void applyVerdictBanner(const Snapshot& snapshot, const QList<PostureRow>& rows);
 
     static QList<PostureRow> buildRows(const Snapshot& snapshot);
-    static QString buildDetail(const Snapshot& snapshot);
+    static ks::ui::FieldDocument buildDetail(const Snapshot& snapshot);
     static QString codeIntegrityOptionText(std::uint32_t options);
     static QString moduleStateText(std::uint32_t state);
     static QString boolText(std::uint32_t value);
@@ -73,7 +73,7 @@ private:
     QLabel* m_downgradeLabel = nullptr;
     QPushButton* m_refreshButton = nullptr;
     QTableWidget* m_table = nullptr;
-    CodeEditorWidget* m_detailEdit = nullptr;
+    ks::ui::StructuredFieldView* m_detailEdit = nullptr;
     bool m_firstRefreshStarted = false;
     bool m_queryRunning = false;
 };

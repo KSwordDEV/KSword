@@ -1,5 +1,5 @@
-﻿#include "ProcessDetailWindow.InternalCommon.h"
-#include "../UI/CodeEditorWidget.h"
+#include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/StructuredFieldView.h"
 
 #include "../ksword/process/injection_trace_collector.h"
 
@@ -539,147 +539,72 @@ namespace
     // 前置声明：复制出去的报告和界面上看到的必须是同一份渲染，否则两边迟早会走样。
     QString conclusionHeadline(ev::AnalysisConclusion conclusion);
     QString conclusionCaveatText(ev::AnalysisConclusion conclusion);
-    QString readableFindingDetailText(const ev::InjectionFinding& finding);
+    ks::ui::FieldDocument findingDocument(const ev::InjectionFinding& finding);
 
-    QString buildReportText(const ks::process::InjectionTraceResult& result,
+    ks::ui::FieldDocument buildReportDocument(const ks::process::InjectionTraceResult& result,
                             const QString& processName)
     {
-        QStringList lines;
-        lines << injectionText("process.detail.injection.report.title",
-                               QStringLiteral("进程注入痕迹检查报告"));
-        lines << injectionText("process.detail.injection.report.target",
-                               QStringLiteral("目标：%1 (PID %2)    映像：%3    架构：%4"))
-                     .arg(processName)
-                     .arg(result.pid)
-                     .arg(result.imagePath)
-                     .arg(result.architectureText);
+        ks::ui::FieldDocument document;
+        document.section(injectionText("process.detail.injection.report.title", QStringLiteral("进程注入痕迹检查报告")));
+        document.field(QStringLiteral("进程"), processName);
+        document.field(QStringLiteral("PID"), QString::number(result.pid));
+        document.field(QStringLiteral("映像"), result.imagePath);
+        document.field(QStringLiteral("架构"), result.architectureText, true);
         const QString failure = failureText(result);
         if (!failure.isEmpty())
         {
-            lines << failure;
-            if (!result.diagnosticText.isEmpty())
-            {
-                lines << injectionText("process.detail.injection.report.diagnostic",
-                                       QStringLiteral("技术信息：%1"))
-                             .arg(result.diagnosticText);
-            }
-            return lines.join(QChar('\n'));
+            document.note(failure);
+            if (!result.diagnosticText.isEmpty()) document.field(QStringLiteral("技术信息"), result.diagnosticText);
+            return document;
         }
-
         const ev::SurveyReport& report = result.report;
-        lines << injectionText("process.detail.injection.report.mode",
-                               QStringLiteral("模式：%1    检测器：%2    规则集：v%3"))
-                     .arg(result.requestedMode == ev::SurveyMode::Deep
-                              ? injectionText("process.detail.injection.mode.deep",
-                                              QStringLiteral("深度"))
-                              : injectionText("process.detail.injection.mode.fast",
-                                              QStringLiteral("快速")))
-                     .arg(QString::fromStdString(report.detectorVersion))
-                     .arg(report.ruleSetVersion);
-        lines << injectionText("process.detail.injection.report.conclusion",
-                               QStringLiteral("结论：%1"))
-                     .arg(conclusionText(report.conclusion));
-        // 结论后面紧跟大白话版本与"不能被读成什么"，和界面上第一屏保持一致。
-        lines << conclusionHeadline(report.conclusion);
-        lines << conclusionCaveatText(report.conclusion);
-        lines << injectionText("process.detail.injection.report.counts",
-                               QStringLiteral("动态代码区域 %1，模块交叉问题 %2（其中矛盾 %3），未解释映像差异 %4，线程起点异常 %5，例外解释 %6"))
-                     .arg(report.dynamicCodeRegionCount)
-                     .arg(report.moduleCrossIssueCount)
-                     .arg(report.moduleCrossConflictCount)
-                     .arg(report.unexplainedImageDiffCount)
-                     .arg(report.threadStartAnomalyCount)
-                     .arg(report.exceptionExplainedCount);
-        lines << injectionText("process.detail.injection.report.scale",
-                               QStringLiteral("区域 %1，加载器模块 %2，映像映射 %3，线程 %4，比较模块 %5（%6 段），工作集页 %7，读取 %8 字节，用时 %9 ms"))
-                     .arg(result.regionCount)
-                     .arg(result.loaderModuleCount)
-                     .arg(result.imageMappingCount)
-                     .arg(result.threadCount)
-                     .arg(result.comparedModuleCount)
-                     .arg(result.comparedRangeCount)
-                     .arg(result.workingSetPagesQueried)
-                     .arg(result.bytesRead)
-                     .arg(result.elapsedMs);
-
-        lines << injectionText("process.detail.injection.report.kernel",
-                               QStringLiteral("R0 扫描后端：VAD=%1（%2 条，不可读节点 %3），页表=%4（%5 段，可执行页 %6，表读 %7），交叉差异 %8"))
-                     .arg(QString::fromLatin1(
-                         ev::KernelBackendStateName(result.kernelVadState)))
-                     .arg(result.kernelVadRegionCount)
-                     .arg(result.kernelVadUnreadableNodes)
-                     .arg(QString::fromLatin1(
-                         ev::KernelBackendStateName(result.kernelPteState)))
-                     .arg(result.kernelExecutableExtentCount)
-                     .arg(result.kernelExecutablePageCount)
-                     .arg(result.kernelPteTableReads)
-                     .arg(report.kernelCrossIssueCount);
-        if (!result.kernelDiagnosticText.isEmpty())
-        {
-            lines << injectionText("process.detail.injection.report.kernel_diagnostic",
-                                   QStringLiteral("R0 后端诊断：%1"))
-                         .arg(result.kernelDiagnosticText);
-        }
-
-        lines << QString();
-        lines << injectionText("process.detail.injection.report.observations",
-                               QStringLiteral("[观测语义：能说什么 / 不能说什么]"));
-        if (report.observations.empty())
-        {
-            lines << injectionText("process.detail.injection.report.no_observation",
-                                   QStringLiteral("    （无）"));
-        }
-        for (const ev::ObservationClass observation : report.observations)
-        {
-            lines << QStringLiteral("    ") + observationText(observation);
-        }
-
-        lines << QString();
-        lines << injectionText("process.detail.injection.report.completed_checks",
-                               QStringLiteral("[已完成的检查]"));
-        for (const std::string& key : report.completedCheckKeys)
-        {
-            lines << QStringLiteral("    ") + checkText(key);
-        }
-        lines << injectionText("process.detail.injection.report.skipped_checks",
-                               QStringLiteral("[未执行的检查]"));
-        for (const std::string& key : report.notPerformedCheckKeys)
-        {
-            lines << QStringLiteral("    ") + checkText(key);
-        }
-        lines << injectionText("process.detail.injection.report.gaps",
-                               QStringLiteral("[检查缺口：打算查但没查成]"));
-        if (report.coverageGapKeys.empty())
-        {
-            lines << injectionText("process.detail.injection.report.no_gap",
-                                   QStringLiteral("    （无）"));
-        }
-        for (const std::string& key : report.coverageGapKeys)
-        {
-            lines << QStringLiteral("    ") + gapText(key);
-        }
-        lines << injectionText("process.detail.injection.report.limits",
-                               QStringLiteral("[能力限制：本版本不做这件事]"));
-        if (report.capabilityLimitKeys.empty())
-        {
-            lines << injectionText("process.detail.injection.report.no_gap",
-                                   QStringLiteral("    （无）"));
-        }
-        for (const std::string& key : report.capabilityLimitKeys)
-        {
-            lines << QStringLiteral("    ") + limitText(key);
-        }
-
-        lines << QString();
-        lines << injectionText("process.detail.injection.report.findings",
-                               QStringLiteral("[结果条目 %1 条]"))
-                     .arg(report.findings.size());
-        for (const ev::InjectionFinding& finding : report.findings)
-        {
-            lines << QString();
-            lines << readableFindingDetailText(finding);
-        }
-        return lines.join(QChar('\n'));
+        document.field(QStringLiteral("模式"), result.requestedMode == ev::SurveyMode::Deep
+            ? injectionText("process.detail.injection.mode.deep", QStringLiteral("深度")) : injectionText("process.detail.injection.mode.fast", QStringLiteral("快速")), true);
+        document.field(QStringLiteral("检测器"), QString::fromStdString(report.detectorVersion));
+        document.field(QStringLiteral("规则版本"), QString::number(report.ruleSetVersion));
+        document.field(QStringLiteral("结论"), conclusionText(report.conclusion), true);
+        document.note(conclusionHeadline(report.conclusion));
+        document.note(conclusionCaveatText(report.conclusion));
+        document.section(QStringLiteral("采集统计"));
+        document.field(QStringLiteral("动态代码区域"), QString::number(report.dynamicCodeRegionCount));
+        document.field(QStringLiteral("模块交叉问题"), QString::number(report.moduleCrossIssueCount));
+        document.field(QStringLiteral("交叉矛盾"), QString::number(report.moduleCrossConflictCount));
+        document.field(QStringLiteral("未解释映像差异"), QString::number(report.unexplainedImageDiffCount));
+        document.field(QStringLiteral("线程起点异常"), QString::number(report.threadStartAnomalyCount));
+        document.field(QStringLiteral("例外解释"), QString::number(report.exceptionExplainedCount));
+        document.field(QStringLiteral("区域"), QString::number(result.regionCount));
+        document.field(QStringLiteral("加载器模块"), QString::number(result.loaderModuleCount));
+        document.field(QStringLiteral("映像映射"), QString::number(result.imageMappingCount));
+        document.field(QStringLiteral("线程"), QString::number(result.threadCount));
+        document.field(QStringLiteral("比较模块"), QString::number(result.comparedModuleCount));
+        document.field(QStringLiteral("比较段"), QString::number(result.comparedRangeCount));
+        document.field(QStringLiteral("工作集页"), QString::number(result.workingSetPagesQueried));
+        document.field(QStringLiteral("读取字节"), QString::number(result.bytesRead));
+        document.field(QStringLiteral("用时 ms"), QString::number(result.elapsedMs));
+        document.section(QStringLiteral("R0 扫描后端"));
+        document.field(QStringLiteral("VAD"), QString::fromLatin1(ev::KernelBackendStateName(result.kernelVadState)), true);
+        document.field(QStringLiteral("VAD 区域"), QString::number(result.kernelVadRegionCount));
+        document.field(QStringLiteral("不可读节点"), QString::number(result.kernelVadUnreadableNodes));
+        document.field(QStringLiteral("页表"), QString::fromLatin1(ev::KernelBackendStateName(result.kernelPteState)), true);
+        document.field(QStringLiteral("可执行段"), QString::number(result.kernelExecutableExtentCount));
+        document.field(QStringLiteral("可执行页"), QString::number(result.kernelExecutablePageCount));
+        document.field(QStringLiteral("表读取"), QString::number(result.kernelPteTableReads));
+        document.field(QStringLiteral("交叉差异"), QString::number(report.kernelCrossIssueCount));
+        if (!result.kernelDiagnosticText.isEmpty()) document.field(QStringLiteral("R0 后端诊断"), result.kernelDiagnosticText);
+        document.section(QStringLiteral("观测语义：能说什么 / 不能说什么"));
+        for (const auto observation : report.observations) document.note(observationText(observation));
+        for (const auto& category : {qMakePair(QStringLiteral("已完成的检查"), &report.completedCheckKeys),
+             qMakePair(QStringLiteral("未执行的检查"), &report.notPerformedCheckKeys)})
+        { document.section(category.first); for (const std::string& key : *category.second) document.field(QString::fromStdString(key), checkText(key), true); }
+        document.section(QStringLiteral("检查缺口：打算查但没查成"));
+        if (report.coverageGapKeys.empty()) document.note(QStringLiteral("（无）"));
+        for (const std::string& key : report.coverageGapKeys) document.field(QString::fromStdString(key), gapText(key), true);
+        document.section(QStringLiteral("能力限制：本版本不做这件事"));
+        if (report.capabilityLimitKeys.empty()) document.note(QStringLiteral("（无）"));
+        for (const std::string& key : report.capabilityLimitKeys) document.field(QString::fromStdString(key), limitText(key), true);
+        document.section(QStringLiteral("结果条目 %1 条").arg(report.findings.size()));
+        for (const auto& finding : report.findings) appendFields(document, findingDocument(finding));
+        return document;
     }
 
     // ---------------------------------------------------------------------
@@ -936,110 +861,50 @@ namespace
     }
 
     // 详情面板：分段 + 段内小标题，机器味的 key=value 一律压到最后一段。
-    QString readableFindingDetailText(const ev::InjectionFinding& finding)
+    ks::ui::FieldDocument findingDocument(const ev::InjectionFinding& finding)
     {
-        QStringList lines;
-        lines << ruleText(finding.ruleId);
+        ks::ui::FieldDocument document;
+        document.section(ruleText(finding.ruleId));
         const QString meaning = ruleMeaningText(finding.ruleId);
-        if (!meaning.isEmpty())
-        {
-            lines << meaning;
-        }
-        lines << QString();
-
-        lines << injectionText("process.detail.injection.detail.section.where",
-                               QStringLiteral("【位置】"));
-        lines << injectionText("process.detail.injection.detail.address_line",
-                               QStringLiteral("    地址 %1，大小 %2，类型 %3，权限 %4"))
-                     .arg(hex64(finding.address))
-                     .arg(humanSizeText(finding.size))
-                     .arg(humanRegionTypeText(finding.regionType))
-                     .arg(humanProtectionText(finding.protection));
-        if (!finding.moduleName.empty())
-        {
-            lines << injectionText("process.detail.injection.detail.module_line",
-                                   QStringLiteral("    所属模块 %1"))
-                         .arg(QString::fromStdString(finding.moduleName));
-        }
+        if (!meaning.isEmpty()) document.note(meaning);
+        document.section(QStringLiteral("位置"));
+        document.field(QStringLiteral("地址"), hex64(finding.address));
+        document.field(QStringLiteral("大小"), humanSizeText(finding.size));
+        document.field(QStringLiteral("类型"), humanRegionTypeText(finding.regionType), true);
+        document.field(QStringLiteral("权限"), humanProtectionText(finding.protection), true);
+        if (!finding.moduleName.empty()) document.field(QStringLiteral("所属模块"), QString::fromStdString(finding.moduleName));
         if (!finding.sectionName.empty() || finding.rva.present)
-        {
-            lines << injectionText("process.detail.injection.detail.section_line",
-                                   QStringLiteral("    模块内位置：节 %1，偏移 %2"))
-                         .arg(finding.sectionName.empty()
-                                  ? QStringLiteral("-")
-                                  : QString::fromStdString(finding.sectionName))
-                         .arg(hex64(finding.rva));
-        }
-        if (!finding.mappedPath.empty())
-        {
-            lines << injectionText("process.detail.injection.detail.path_line",
-                                   QStringLiteral("    对应文件 %1"))
-                         .arg(QString::fromStdString(finding.mappedPath));
-        }
-        else
-        {
-            lines << injectionText("process.detail.injection.detail.no_path_line",
-                                   QStringLiteral("    这块内存不对应任何磁盘文件"));
-        }
+        { document.field(QStringLiteral("节"), QString::fromStdString(finding.sectionName));
+          document.field(QStringLiteral("模块内偏移"), hex64(finding.rva)); }
+        if (!finding.mappedPath.empty()) document.field(QStringLiteral("对应文件"), QString::fromStdString(finding.mappedPath));
+        else document.note(injectionText("process.detail.injection.detail.no_path_line", QStringLiteral("    这块内存不对应任何磁盘文件")));
         if (!finding.relatedThreads.empty())
         {
             QStringList threads;
-            for (const ev::ThreadInstanceId& thread : finding.relatedThreads)
-            {
-                threads << QString::number(thread.tid.valueOr(0U));
-            }
-            lines << injectionText("process.detail.injection.detail.thread_line",
-                                   QStringLiteral("    相关线程 %1"))
-                         .arg(threads.join(QStringLiteral("、")));
+            for (const ev::ThreadInstanceId& thread : finding.relatedThreads) threads << QString::number(thread.tid.valueOr(0U));
+            document.field(QStringLiteral("相关线程"), threads.join(QStringLiteral("、")));
         }
-        lines << QString();
-
-        lines << injectionText("process.detail.injection.detail.section.howsure",
-                               QStringLiteral("【这条有多可靠】"));
-        lines << QStringLiteral("    ") + confidenceText(finding.confidence);
+        document.section(QStringLiteral("这条有多可靠"));
+        document.field(QStringLiteral("置信度"), confidenceText(finding.confidence), true);
         if (finding.confidence == ev::EvidenceConfidence::InputIncomplete)
-        {
-            lines << injectionText("process.detail.injection.detail.incomplete_hint",
-                                   QStringLiteral("    采集时有数据没拿到，这条不能单独拿来下判断。"));
-        }
+            document.note(injectionText("process.detail.injection.detail.incomplete_hint", QStringLiteral("    采集时有数据没拿到，这条不能单独拿来下判断。")));
         if (finding.exception.match == ev::ExceptionMatch::Matched)
-        {
-            lines << injectionText("process.detail.injection.detail.exception_line",
-                                   QStringLiteral("    已被已知例外规则解释（规则 %1），按预期行为处理。"))
-                         .arg(QString::fromStdString(finding.exception.ruleId));
-        }
+            document.note(injectionText("process.detail.injection.detail.exception_line", QStringLiteral("    已被已知例外规则解释（规则 %1），按预期行为处理。")).arg(QString::fromStdString(finding.exception.ruleId)));
         if (!finding.coverageGapKeys.empty())
         {
-            lines << injectionText("process.detail.injection.detail.gap_line",
-                                   QStringLiteral("    这条本身还带着没查成的部分："));
-            for (const std::string& gap : finding.coverageGapKeys)
-            {
-                lines << QStringLiteral("        · ") + gapText(gap);
-            }
+            document.section(QStringLiteral("检查缺口"));
+            for (const std::string& gap : finding.coverageGapKeys) document.field(QString::fromStdString(gap), gapText(gap), true);
         }
-        lines << QString();
-
-        lines << injectionText("process.detail.injection.detail.section.time",
-                               QStringLiteral("【时间与来源】"));
-        lines << injectionText("process.detail.injection.detail.observed_line",
-                               QStringLiteral("    首次观测到：%1（这是本次看到它的时间，不是注入发生的时间）"))
-                     .arg(firstObservedText(finding.firstObservedUtc100ns));
-        lines << injectionText("process.detail.injection.detail.injector_line",
-                               QStringLiteral("    是谁放进来的：未知。事后看内存查不出注入者，要查这个必须有事前的实时记录。"));
-        lines << QString();
-
-        lines << injectionText("process.detail.injection.detail.section.raw",
-                               QStringLiteral("【技术细节】以下是原始记录，供需要深挖时核对"));
-        lines << injectionText("process.detail.injection.detail.raw_rule",
-                               QStringLiteral("    规则 %1 v%2，检测器 %3"))
-                     .arg(QString::fromStdString(finding.ruleId))
-                     .arg(finding.ruleVersion)
-                     .arg(QString::fromStdString(finding.detectorVersion));
-        for (const std::string& fact : finding.facts)
-        {
-            lines << QStringLiteral("    ") + QString::fromStdString(fact);
-        }
-        return lines.join(QChar('\n'));
+        document.section(QStringLiteral("时间与来源"));
+        document.field(QStringLiteral("首次观测到"), firstObservedText(finding.firstObservedUtc100ns));
+        document.note(injectionText("process.detail.injection.semantics.boundary_time", QStringLiteral("    时间字段一律是「本次第一次看到它」的时间，不是注入发生的时间。")));
+        document.note(injectionText("process.detail.injection.detail.injector_line", QStringLiteral("    是谁放进来的：未知。事后看内存查不出注入者，要查这个必须有事前的实时记录。")));
+        document.section(QStringLiteral("技术细节"));
+        document.field(QStringLiteral("规则"), QString::fromStdString(finding.ruleId));
+        document.field(QStringLiteral("规则版本"), QString::number(finding.ruleVersion));
+        document.field(QStringLiteral("检测器"), QString::fromStdString(finding.detectorVersion));
+        for (const std::string& fact : finding.facts) document.note(QString::fromStdString(fact));
+        return document;
     }
 
     void showInjectionTraceDialog(QWidget* const parent,
@@ -1271,17 +1136,14 @@ namespace
         tree->setColumnWidth(5, 220);
         findingLayout->addWidget(tree, 1);
 
-        CodeEditorWidget* const detailPane = new CodeEditorWidget(findingPage);
-        detailPane->setReadOnly(true);
+        auto* const detailPane = new ks::ui::StructuredFieldView(findingPage);
         detailPane->setMaximumHeight(260);
         const QString emptyDetailText =
             failure.isEmpty()
                 ? injectionText("process.detail.injection.dialog.no_finding",
                                 QStringLiteral("这次没有找出需要解释的东西。这不等于「没有被注入过」——只说明在「查了什么」页列出的范围内没发现。选中上面任意一条可以在这里看它的完整信息。"))
                 : failure;
-        detailPane->setReportText(
-            report.findings.empty() ? emptyDetailText
-                                    : readableFindingDetailText(report.findings.front()));
+        detailPane->setDocument(report.findings.empty() ? fieldNotice(emptyDetailText) : findingDocument(report.findings.front()));
         findingLayout->addWidget(detailPane);
         QObject::connect(
             tree, &QTreeWidget::currentItemChanged, &dialog,
@@ -1296,14 +1158,13 @@ namespace
                 {
                     // 选中的是分组标题：这时给这一类的整体说明，而不是留着上一条不动。
                     const QString meaning = current->toolTip(0);
-                    detailPane->setReportText(meaning.isEmpty() ? emptyDetailText : meaning);
+                    detailPane->setDocument(fieldNotice(meaning.isEmpty() ? emptyDetailText : meaning));
                     return;
                 }
                 const std::size_t index = static_cast<std::size_t>(stored.toULongLong());
                 if (index < report.findings.size())
                 {
-                    detailPane->setReportText(
-                        readableFindingDetailText(report.findings[index]));
+                    detailPane->setDocument(findingDocument(report.findings[index]));
                 }
             });
         tabs->addTab(findingPage,
@@ -1314,75 +1175,74 @@ namespace
         // --- 查了什么、没查成什么 ---
         // 原来是 [已完成的检查] / [检查缺口] / [能力限制] 三张裸清单。清单本身没问题，
         // 问题是没人知道"缺口"和"限制"差在哪儿——所以每一块前面补一句人话解释。
-        CodeEditorWidget* const coveragePane = new CodeEditorWidget(tabs);
-        coveragePane->setReadOnly(true);
+        auto* const coveragePane = new ks::ui::StructuredFieldView(tabs);
         {
-            QStringList lines;
+            ks::ui::FieldDocument document;
             if (report.scopeIntact)
             {
-                lines << injectionText(
+                document.note(injectionText(
                     "process.detail.injection.coverage.intro_intact",
-                    QStringLiteral("这次打算查的都查成了，所以上面那句结论是站得住的。"));
+                    QStringLiteral("这次打算查的都查成了，所以上面那句结论是站得住的。")));
             }
             else
             {
-                lines << injectionText(
+                document.note(injectionText(
                     "process.detail.injection.coverage.intro_broken",
-                    QStringLiteral("有本来要查的东西没查成，所以这次不可能给出「没发现问题」——哪怕什么都没找到，也只能说「没查全」。没查成的原因列在下面。"));
+                    QStringLiteral("有本来要查的东西没查成，所以这次不可能给出「没发现问题」——哪怕什么都没找到，也只能说「没查全」。没查成的原因列在下面。")));
             }
-            lines << QString();
 
-            lines << injectionText("process.detail.injection.coverage.section.gaps",
-                                   QStringLiteral("■ 本来要查、但没查成的（这些会让结论打折扣）"));
+
+            document.section(injectionText("process.detail.injection.coverage.section.gaps",
+                                   QStringLiteral("■ 本来要查、但没查成的（这些会让结论打折扣）")));
             if (report.coverageGapKeys.empty())
             {
-                lines << injectionText("process.detail.injection.coverage.none_gap",
-                                       QStringLiteral("    没有，这次要查的都查到了。"));
+                document.note(injectionText("process.detail.injection.coverage.none_gap",
+                                       QStringLiteral("    没有，这次要查的都查到了。")));
             }
             for (const std::string& key : report.coverageGapKeys)
             {
-                lines << QStringLiteral("    · ") + gapText(key);
+                document.note(gapText(key));
             }
-            lines << QString();
 
-            lines << injectionText("process.detail.injection.coverage.section.done",
-                                   QStringLiteral("■ 这次实际做了哪些检查"));
+
+            document.section(injectionText("process.detail.injection.coverage.section.done",
+                                   QStringLiteral("■ 这次实际做了哪些检查")));
             if (report.completedCheckKeys.empty())
             {
-                lines << injectionText("process.detail.injection.coverage.none_done",
-                                       QStringLiteral("    一项都没做成。"));
+                document.note(injectionText("process.detail.injection.coverage.none_done",
+                                       QStringLiteral("    一项都没做成。")));
             }
             for (const std::string& key : report.completedCheckKeys)
             {
-                lines << QStringLiteral("    · ") + checkText(key);
+                document.note(checkText(key));
             }
-            lines << QString();
 
-            lines << injectionText("process.detail.injection.coverage.section.skipped",
-                                   QStringLiteral("■ 这次没做的检查"));
+
+            document.section(injectionText("process.detail.injection.coverage.section.skipped",
+                                   QStringLiteral("■ 这次没做的检查")));
             if (report.notPerformedCheckKeys.empty())
             {
-                lines << injectionText("process.detail.injection.coverage.none_skipped",
-                                       QStringLiteral("    没有，该做的都做了。"));
+                document.note(injectionText("process.detail.injection.coverage.none_skipped",
+                                       QStringLiteral("    没有，该做的都做了。")));
             }
             for (const std::string& key : report.notPerformedCheckKeys)
             {
-                lines << QStringLiteral("    · ") + checkText(key);
+                document.note(checkText(key));
             }
-            lines << QString();
 
-            lines << injectionText("process.detail.injection.coverage.section.limits",
-                                   QStringLiteral("■ 这个版本本来就不做的事（不影响上面的结论，只是说明它管到哪儿为止）"));
+
+            document.section(injectionText("process.detail.injection.coverage.section.limits",
+                                   QStringLiteral("■ 这个版本本来就不做的事（不影响上面的结论，只是说明它管到哪儿为止）")));
             if (report.capabilityLimitKeys.empty())
             {
-                lines << injectionText("process.detail.injection.coverage.none_limit",
-                                       QStringLiteral("    无。"));
+                document.note(injectionText("process.detail.injection.coverage.none_limit",
+                                       QStringLiteral("    无。")));
             }
             for (const std::string& key : report.capabilityLimitKeys)
             {
-                lines << QStringLiteral("    · ") + limitText(key);
+                document.note(limitText(key));
             }
-            coveragePane->setReportText(lines.join(QChar('\n')));
+            coveragePane->setDocument(document);
         }
         tabs->addTab(coveragePane,
                      injectionText("process.detail.injection.tab.coverage",
@@ -1392,36 +1252,35 @@ namespace
         // --- 结果怎么读 ---
         // 边界说明从顶部四行挪到这里，和"能说什么/不能说什么"合成一页：两者讲的
         // 是同一件事，分在两处反而要求用户自己拼。
-        CodeEditorWidget* const semanticsPane = new CodeEditorWidget(tabs);
-        semanticsPane->setReadOnly(true);
+        auto* const semanticsPane = new ks::ui::StructuredFieldView(tabs);
         {
-            QStringList lines;
-            lines << injectionText("process.detail.injection.semantics.section.boundary",
-                                   QStringLiteral("■ 这个功能能回答什么、不能回答什么"));
-            lines << injectionText(
+            ks::ui::FieldDocument document;
+            document.section(injectionText("process.detail.injection.semantics.section.boundary",
+                                   QStringLiteral("■ 这个功能能回答什么、不能回答什么")));
+            document.note(injectionText(
                 "process.detail.injection.semantics.boundary_can",
-                QStringLiteral("    能回答：这块内存里有没有来路不明的代码、某个模块的代码是不是和磁盘上的原件不一样。"));
-            lines << injectionText(
+                QStringLiteral("    能回答：这块内存里有没有来路不明的代码、某个模块的代码是不是和磁盘上的原件不一样。")));
+            document.note(injectionText(
                 "process.detail.injection.semantics.boundary_cannot",
-                QStringLiteral("    不能回答：是哪个进程、在什么时候、用什么手法放进来的。这些要靠事前的实时记录，翻事后的内存翻不出来。"));
-            lines << injectionText(
+                QStringLiteral("    不能回答：是哪个进程、在什么时候、用什么手法放进来的。这些要靠事前的实时记录，翻事后的内存翻不出来。")));
+            document.note(injectionText(
                 "process.detail.injection.semantics.boundary_time",
-                QStringLiteral("    时间字段一律是「本次第一次看到它」的时间，不是注入发生的时间。"));
-            lines << QString();
+                QStringLiteral("    时间字段一律是「本次第一次看到它」的时间，不是注入发生的时间。")));
 
-            lines << injectionText("process.detail.injection.semantics.section.observation",
-                                   QStringLiteral("■ 这次看到的现象，各自能支撑到什么程度"));
+
+            document.section(injectionText("process.detail.injection.semantics.section.observation",
+                                   QStringLiteral("■ 这次看到的现象，各自能支撑到什么程度")));
             if (report.observations.empty())
             {
-                lines << injectionText("process.detail.injection.semantics.none",
-                                       QStringLiteral("    这次没有取得任何可用观测。"));
+                document.note(injectionText("process.detail.injection.semantics.none",
+                                       QStringLiteral("    这次没有取得任何可用观测。")));
             }
             for (const ev::ObservationClass observation : report.observations)
             {
-                lines << QStringLiteral("    · ") + observationText(observation);
-                lines << QString();
+                document.note(observationText(observation));
+
             }
-            semanticsPane->setReportText(lines.join(QChar('\n')));
+            semanticsPane->setDocument(document);
         }
         tabs->addTab(semanticsPane,
                      injectionText("process.detail.injection.tab.semantics",
@@ -1445,9 +1304,9 @@ namespace
         buttonLayout->addWidget(closeButton);
         layout->addLayout(buttonLayout);
 
-        const QString reportText = buildReportText(result, processName);
-        QObject::connect(copyButton, &QPushButton::clicked, &dialog, [reportText]() {
-            QApplication::clipboard()->setText(reportText);
+        const ks::ui::FieldDocument reportDocument = buildReportDocument(result, processName);
+        QObject::connect(copyButton, &QPushButton::clicked, &dialog, [reportDocument]() {
+            QApplication::clipboard()->setText(reportDocument.toPlainText(true));
         });
         QObject::connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
 
@@ -1527,7 +1386,7 @@ void ProcessDetailWindow::requestAsyncInjectionTraceScan(const bool deepMode)
         }
 
         QMetaObject::invokeMethod(
-            guard,
+                    qApp,
             [guard, localTicket, pid, processName, result]()
             {
                 if (guard == nullptr || localTicket != guard->m_injectionTraceTicket)

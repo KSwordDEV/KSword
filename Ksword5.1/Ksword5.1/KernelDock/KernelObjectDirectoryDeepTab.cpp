@@ -13,7 +13,7 @@
 // 3) 将结果以树和详情框形式展示。
 // ============================================================
 
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include "../UI/DetailLayoutRegistry.h"
 #include "../theme.h"
 
@@ -297,14 +297,14 @@ void KernelObjectDirectoryDeepTab::initializeUi()
         m_resultTree->header()->setSectionResizeMode(static_cast<int>(DirectoryDeepColumn::FullPath), QHeaderView::Stretch);
     }
 
-    m_detailEditor = new CodeEditorWidget(splitter);
-    m_detailEditor->setReadOnly(true);
-    m_detailEditor->setText(kernelText("kernel.object_directory.detail.initial", QStringLiteral("输入根路径后点击刷新。")));
+    m_detailEditor = new ks::ui::StructuredFieldView(splitter);
+
+    m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.object_directory.detail.initial", QStringLiteral("输入根路径后点击刷新。"))));
 
     splitter->setStretchFactor(0, 4);
     splitter->setStretchFactor(1, 2);
 
-    ks::ui::DetailLayoutRegistry::registerHost(m_resultTree, m_detailEditor, this);
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(m_resultTree, m_detailEditor, this);
 
     connect(m_refreshButton, &QPushButton::clicked, this, [this]() {
         startRefresh();
@@ -380,7 +380,7 @@ void KernelObjectDirectoryDeepTab::startRefresh()
     }
     if (m_detailEditor != nullptr)
     {
-        m_detailEditor->setText(kernelText("kernel.object_directory.detail.background", QStringLiteral("正在后台递归枚举：%1")).arg(options.rootPath));
+        m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.object_directory.detail.background", QStringLiteral("正在后台递归枚举：%1")).arg(options.rootPath)));
     }
 
     QPointer<KernelObjectDirectoryDeepTab> guardThis(this);
@@ -412,7 +412,7 @@ void KernelObjectDirectoryDeepTab::startRefresh()
                 }
                 if (guardThis->m_detailEditor != nullptr)
                 {
-                    guardThis->m_detailEditor->setText(result.errorText);
+                    guardThis->m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(result.errorText));
                 }
                 return;
             }
@@ -450,7 +450,7 @@ void KernelObjectDirectoryDeepTab::startRefresh()
             }
             else if (guardThis->m_detailEditor != nullptr)
             {
-                guardThis->m_detailEditor->setText(kernelText("kernel.object_directory.detail.no_records", QStringLiteral("当前根路径没有返回可显示记录。")));
+                guardThis->m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.object_directory.detail.no_records", QStringLiteral("当前根路径没有返回可显示记录。"))));
             }
             };
 
@@ -516,7 +516,7 @@ void KernelObjectDirectoryDeepTab::showCurrentItemDetail()
     QTreeWidgetItem* currentItem = m_resultTree->currentItem();
     if (currentItem == nullptr)
     {
-        m_detailEditor->setText(kernelText("kernel.object_directory.detail.select_hint", QStringLiteral("请选择目录递归结果节点。")));
+        m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(kernelText("kernel.object_directory.detail.select_hint", QStringLiteral("请选择目录递归结果节点。"))));
         return;
     }
 
@@ -524,30 +524,30 @@ void KernelObjectDirectoryDeepTab::showCurrentItemDetail()
     const qulonglong sourceIndex = currentItem->data(0, SourceIndexRole).toULongLong(&convertOk);
     if (!convertOk || sourceIndex == InvalidSourceIndex || sourceIndex >= m_rows.size())
     {
-        QString detailText;
-        detailText += kernelText("kernel.object_directory.detail.parent_node.name", QStringLiteral("节点名称: %1\n")).arg(currentItem->text(static_cast<int>(DirectoryDeepColumn::Name)));
-        detailText += kernelText("kernel.object_directory.detail.parent_node.type", QStringLiteral("节点类型: %1\n")).arg(currentItem->text(static_cast<int>(DirectoryDeepColumn::Type)));
-        detailText += kernelText("kernel.object_directory.detail.parent_node.full_path", QStringLiteral("完整路径: %1\n")).arg(currentItem->text(static_cast<int>(DirectoryDeepColumn::FullPath)));
-        detailText += kernelText("kernel.object_directory.detail.parent_node.explanation", QStringLiteral("说明: 该节点为 UI 父目录占位，未直接绑定 Worker 返回记录。\n"));
-        m_detailEditor->setText(detailText);
+        ks::ui::FieldDocument detailText;
+        detailText.field(QStringLiteral("节点名称"), QStringLiteral("%1").arg(currentItem->text(static_cast<int>(DirectoryDeepColumn::Name))));
+        detailText.field(QStringLiteral("节点类型"), QStringLiteral("%1").arg(currentItem->text(static_cast<int>(DirectoryDeepColumn::Type))));
+        detailText.field(QStringLiteral("完整路径"), QStringLiteral("%1").arg(currentItem->text(static_cast<int>(DirectoryDeepColumn::FullPath))));
+        detailText.field(QStringLiteral("说明"), QStringLiteral("该节点为 UI 父目录占位，未直接绑定 Worker 返回记录。"), true);
+        m_detailEditor->setDocument(detailText);
         return;
     }
 
-    m_detailEditor->setText(formatEntryDetail(m_rows[static_cast<std::size_t>(sourceIndex)]));
+    m_detailEditor->setDocument(formatEntryDetail(m_rows[static_cast<std::size_t>(sourceIndex)]));
 }
 
-QString KernelObjectDirectoryDeepTab::formatEntryDetail(const KernelObjectDirectoryDeepEntry& entry)
+ks::ui::FieldDocument KernelObjectDirectoryDeepTab::formatEntryDetail(const KernelObjectDirectoryDeepEntry& entry)
 {
-    QString detailText;
-    detailText += QStringLiteral("[Object Manager Directory Recursive Entry]\n");
-    detailText += QStringLiteral("RootPath: %1\n").arg(entry.rootPath);
-    detailText += QStringLiteral("DirectoryPath: %1\n").arg(entry.directoryPath);
-    detailText += QStringLiteral("ObjectName: %1\n").arg(entry.objectName);
-    detailText += QStringLiteral("ObjectType: %1\n").arg(entry.objectType);
-    detailText += QStringLiteral("FullPath: %1\n").arg(entry.fullPath);
-    detailText += QStringLiteral("Depth: %1\n").arg(entry.depth);
-    detailText += QStringLiteral("IsDirectory: %1\n").arg(entry.isDirectory ? QStringLiteral("true") : QStringLiteral("false"));
-    detailText += QStringLiteral("QuerySucceeded: %1\n").arg(entry.querySucceeded ? QStringLiteral("true") : QStringLiteral("false"));
-    detailText += QStringLiteral("Status: %1\n").arg(entry.statusText);
+    ks::ui::FieldDocument detailText;
+    detailText.section(QStringLiteral("Object Manager Directory Recursive Entry"));
+    detailText.field(QStringLiteral("RootPath"), QStringLiteral("%1").arg(entry.rootPath));
+    detailText.field(QStringLiteral("DirectoryPath"), QStringLiteral("%1").arg(entry.directoryPath));
+    detailText.field(QStringLiteral("ObjectName"), QStringLiteral("%1").arg(entry.objectName));
+    detailText.field(QStringLiteral("ObjectType"), QStringLiteral("%1").arg(entry.objectType));
+    detailText.field(QStringLiteral("FullPath"), QStringLiteral("%1").arg(entry.fullPath));
+    detailText.field(QStringLiteral("Depth"), QStringLiteral("%1").arg(entry.depth));
+    detailText.field(QStringLiteral("IsDirectory"), QStringLiteral("%1").arg(entry.isDirectory ? QStringLiteral("true") : QStringLiteral("false")));
+    detailText.field(QStringLiteral("QuerySucceeded"), QStringLiteral("%1").arg(entry.querySucceeded ? QStringLiteral("true") : QStringLiteral("false")));
+    detailText.field(QStringLiteral("Status"), QStringLiteral("%1").arg(entry.statusText));
     return detailText;
 }

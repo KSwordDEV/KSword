@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 // WinRT ABI 头只提供接口声明与 IID，Geolocator 的激活走运行时动态解析的
@@ -787,6 +788,21 @@ namespace
 
 namespace ks::misc::virtual_location
 {
+    QString registryValueTypeText(const quint32 type)
+    {
+        return registryTypeName(static_cast<DWORD>(type));
+    }
+
+    QString registryValuePreview(const DefaultLocationValue& value)
+    {
+        RawValue raw;
+        raw.found = true;
+        raw.type = static_cast<DWORD>(value.type);
+        const auto* begin = reinterpret_cast<const unsigned char*>(value.bytes.constData());
+        raw.bytes.assign(begin, begin + value.bytes.size());
+        return previewTextFromRawValue(raw);
+    }
+
     QString defaultLocationKeyPath()
     {
         return QStringLiteral("HKLM\\%1").arg(QString::fromWCharArray(kDefaultLocationSubKey));
@@ -848,12 +864,13 @@ namespace ks::misc::virtual_location
                 continue;
             }
 
-            snapshot.rawValueLines.append(
-                QStringLiteral("%1 (%2) = %3    [%4]")
-                    .arg(QString::fromWCharArray(spec.name))
-                    .arg(registryTypeName(value.type))
-                    .arg(previewTextFromRawValue(value))
-                    .arg(fromDriver ? QStringLiteral("R0") : QStringLiteral("R3")));
+            DefaultLocationValue property;
+            property.name = QString::fromWCharArray(spec.name);
+            property.type = static_cast<quint32>(value.type);
+            property.bytes = QByteArray(reinterpret_cast<const char*>(value.bytes.data()),
+                static_cast<qsizetype>(value.bytes.size()));
+            property.backend = fromDriver ? RegistryBackend::Driver : RegistryBackend::Win32;
+            snapshot.values.push_back(std::move(property));
 
             double parsed = 0.0;
             if (doubleFromRawValue(value, spec.limit, &parsed)) {

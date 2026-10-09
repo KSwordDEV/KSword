@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // This module is compiled once through OtherDock.WindowProtection.cpp and injects
 // a diagnostics tab with guarded, reversible layer operations. WindowDetailDialog
@@ -33,7 +33,6 @@
 #include <QPlainTextEdit>
 #include <QPointer>
 #include <QPushButton>
-#include <QRegularExpression>
 #include <QSet>
 #include <QStringList>
 #include <QTabWidget>
@@ -44,6 +43,7 @@
 #include <QVBoxLayout>
 
 #include "../Internationalization/LanguageManager.h"
+#include "../UI/StructuredFieldView.h"
 
 #include <algorithm>
 #include <array>
@@ -589,25 +589,29 @@ namespace ks::window::layerdiag
         return pid == baseline.pid && tid == baseline.tid && className(hwnd) == baseline.cls;
     }
 
-    QString windowNodeText(HWND hwnd)
+    ks::ui::FieldNode windowNode(HWND hwnd, const QString& relation = QString())
     {
+        ks::ui::FieldDocument fields;
+        fields.section(relation.isEmpty() ? hwndText(hwnd) : relation);
+        fields.field(QStringLiteral("HWND"), hwndText(hwnd));
         if (hwnd == nullptr)
         {
-            return QStringLiteral("<none>");
+            fields.note(QStringLiteral("<none>"));
+            return fields.nodes.first();
         }
 
         DWORD pid = 0;
         const DWORD tid = ::GetWindowThreadProcessId(hwnd, &pid);
         const BandResult band = readBand(hwnd);
-        const QString bandText = band.ok
-            ? QStringLiteral("%1(%2)").arg(bandName(band.value)).arg(band.value)
-            : QStringLiteral("<unavailable>");
+        fields.field(QStringLiteral("PID"), QString::number(pid));
+        fields.field(QStringLiteral("TID"), QString::number(tid));
+        fields.field(QStringLiteral("Band"), band.ok
+            ? QStringLiteral("%1 (%2)").arg(band.value).arg(bandName(band.value))
+            : QStringLiteral("<unavailable>"));
+        fields.field(QStringLiteral("Class"), className(hwnd));
         const QString title = windowTitle(hwnd);
-        return QStringLiteral("%1  PID/TID=%2/%3  Band=%4  Class=%5  Title=%6")
-            .arg(hwndText(hwnd))
-            .arg(pid)
-            .arg(tid)
-            .arg(bandText, className(hwnd), title.isEmpty() ? QStringLiteral("<empty>") : title);
+        fields.field(QStringLiteral("Title"), title.isEmpty() ? QStringLiteral("<empty>") : title);
+        return fields.nodes.first();
     }
 
     struct OwnedWindowEnumContext
@@ -631,110 +635,99 @@ namespace ks::window::layerdiag
         return windows;
     }
 
-    void appendOwnedTree(
-        HWND owner,
-        const QString& prefix,
-        int depth,
-        QSet<quintptr>* visited,
-        QStringList* lines)
+    void appendOwnedTree(HWND owner, int depth, QSet<quintptr>& visited,
+        QVector<ks::ui::FieldNode>& nodes)
     {
-        if (visited == nullptr || lines == nullptr || depth > 12)
+        const std::vector<HWND> children = directOwnedWindows(owner);
+        if (depth > 12)
         {
+            if (!children.empty())
+            {
+                ks::ui::FieldNode limit;
+                limit.kind = ks::ui::FieldNode::Kind::Note;
+                limit.value = QStringLiteral("Owned 窗口树已达到最大展开深度。");
+                nodes.push_back(limit);
+            }
             return;
         }
 
-        const std::vector<HWND> children = directOwnedWindows(owner);
-        for (std::size_t index = 0; index < children.size(); ++index)
+        for (HWND child : children)
         {
-            const HWND child = children[index];
+            ks::ui::FieldNode node = windowNode(child);
             const quintptr raw = reinterpret_cast<quintptr>(child);
-            const bool last = index + 1U == children.size();
-            lines->append(prefix + (last ? QStringLiteral("└─ ") : QStringLiteral("├─ ")) + windowNodeText(child));
-            if (visited->contains(raw))
+            if (visited.contains(raw))
             {
-                lines->append(prefix + QStringLiteral("   <cycle>"));
-                continue;
+                ks::ui::FieldNode cycle;
+                cycle.kind = ks::ui::FieldNode::Kind::Note;
+                cycle.value = QStringLiteral("<cycle>");
+                node.children.push_back(cycle);
             }
-            visited->insert(raw);
-            appendOwnedTree(
-                child,
-                prefix + (last ? QStringLiteral("   ") : QStringLiteral("│  ")),
-                depth + 1,
-                visited,
-                lines);
+            else
+            {
+                visited.insert(raw);
+                appendOwnedTree(child, depth + 1, visited, node.children);
+            }
+            nodes.push_back(node);
         }
     }
 
-    QString relationshipGraph(HWND target)
+    ks::ui::FieldDocument relationshipDocument(HWND target)
     {
-        QStringList lines;
-        lines << uiText("window.layer.relations.target", "[目标]");
-        lines << windowNodeText(target);
-
-        lines << QString() << uiText("window.layer.relations.parent_chain", "[Parent 链]");
-        QSet<quintptr> visitedParents;
-        HWND current = ::GetParent(target);
-        if (current == nullptr)
-        {
-            lines << QStringLiteral("<none>");
-        }
-        for (int depth = 0; current != nullptr && depth < 32; ++depth)
-        {
-            const quintptr raw = reinterpret_cast<quintptr>(current);
-            lines << QString(depth * 2, QChar(' ')) + QStringLiteral("└─ ") + windowNodeText(current);
-            if (visitedParents.contains(raw))
+        ks::ui::FieldDocument document;
+        document.nodes.push_back(windowNode(target, uiText("window.layer.relations.target", "[目标]")));
+        auto appendChain = [&document](const QString& title, HWND first, auto next) {
+            ks::ui::FieldDocument chain;
+            chain.section(title);
+            QVector<ks::ui::FieldNode>* children = &chain.nodes.last().children;
+            QSet<quintptr> visited;
+            HWND current = first;
+            if (current == nullptr) chain.note(QStringLiteral("<none>"));
+            for (int depth = 0; current != nullptr && depth < 32; ++depth)
             {
-                lines << QStringLiteral("<cycle>");
-                break;
+                children->push_back(windowNode(current));
+                auto& node = children->last();
+                children = &node.children;
+                const quintptr raw = reinterpret_cast<quintptr>(current);
+                if (visited.contains(raw))
+                {
+                    ks::ui::FieldNode cycle;
+                    cycle.kind = ks::ui::FieldNode::Kind::Note;
+                    cycle.value = QStringLiteral("<cycle>");
+                    children->push_back(cycle);
+                    break;
+                }
+                visited.insert(raw);
+                current = next(current);
+                if (depth == 31 && current != nullptr)
+                {
+                    ks::ui::FieldNode limit;
+                    limit.kind = ks::ui::FieldNode::Kind::Note;
+                    limit.value = QStringLiteral("关系链已达到最大展开深度。");
+                    children->push_back(limit);
+                }
             }
-            visitedParents.insert(raw);
-            current = ::GetParent(current);
-        }
-
-        lines << QString() << uiText("window.layer.relations.owner_chain", "[Owner 链]");
-        QSet<quintptr> visitedOwners;
-        current = ::GetWindow(target, GW_OWNER);
-        if (current == nullptr)
-        {
-            lines << QStringLiteral("<none>");
-        }
-        for (int depth = 0; current != nullptr && depth < 32; ++depth)
-        {
-            const quintptr raw = reinterpret_cast<quintptr>(current);
-            lines << QString(depth * 2, QChar(' ')) + QStringLiteral("└─ ") + windowNodeText(current);
-            if (visitedOwners.contains(raw))
-            {
-                lines << QStringLiteral("<cycle>");
-                break;
-            }
-            visitedOwners.insert(raw);
-            current = ::GetWindow(current, GW_OWNER);
-        }
-
-        lines << QString() << uiText("window.layer.relations.roots", "[Root / RootOwner / LastActivePopup]");
-        lines << QStringLiteral("GA_ROOT: %1").arg(windowNodeText(::GetAncestor(target, GA_ROOT)));
-        lines << QStringLiteral("GA_ROOTOWNER: %1").arg(windowNodeText(::GetAncestor(target, GA_ROOTOWNER)));
-        lines << QStringLiteral("GetLastActivePopup: %1").arg(windowNodeText(::GetLastActivePopup(target)));
-
-        lines << QString() << uiText("window.layer.relations.owned_tree", "[直接/间接 Owned 窗口树]");
-        QSet<quintptr> visitedOwned;
-        visitedOwned.insert(reinterpret_cast<quintptr>(target));
-        const int beforeTreeLineCount = lines.size();
-        appendOwnedTree(target, QString(), 0, &visitedOwned, &lines);
-        if (lines.size() == beforeTreeLineCount)
-        {
-            lines << QStringLiteral("<none>");
-        }
-        return lines.join(QChar::LineFeed);
+            document.nodes += chain.nodes;
+        };
+        appendChain(uiText("window.layer.relations.parent_chain", "[Parent 链]"),
+            ::GetParent(target), [](HWND hwnd) { return ::GetParent(hwnd); });
+        appendChain(uiText("window.layer.relations.owner_chain", "[Owner 链]"),
+            ::GetWindow(target, GW_OWNER), [](HWND hwnd) { return ::GetWindow(hwnd, GW_OWNER); });
+        document.section(uiText("window.layer.relations.roots", "[Root / RootOwner / LastActivePopup]"));
+        document.nodes.last().children.push_back(windowNode(::GetAncestor(target, GA_ROOT), QStringLiteral("GA_ROOT")));
+        document.nodes.last().children.push_back(windowNode(::GetAncestor(target, GA_ROOTOWNER), QStringLiteral("GA_ROOTOWNER")));
+        document.nodes.last().children.push_back(windowNode(::GetLastActivePopup(target), QStringLiteral("GetLastActivePopup")));
+        document.section(uiText("window.layer.relations.owned_tree", "[直接/间接 Owned 窗口树]"));
+        QSet<quintptr> visited{ reinterpret_cast<quintptr>(target) };
+        appendOwnedTree(target, 0, visited, document.nodes.last().children);
+        if (document.nodes.last().children.isEmpty()) document.note(QStringLiteral("<none>"));
+        return document;
     }
 
-    QString diagnosisText(const Snapshot& snapshot)
+    ks::ui::FieldDocument diagnosisDocument(const Snapshot& snapshot, const TokenInfo& inspector,
+        const QString& inspectorDesktop, bool setBandAvailable)
     {
-        const TokenInfo inspector = tokenInfo(::GetCurrentProcessId());
-        const QString inspectorDesktop = objectName(::GetThreadDesktop(::GetCurrentThreadId()));
         QStringList blockers;
         QStringList cautions;
-        QStringList capabilities;
 
         if (!snapshot.valid)
         {
@@ -781,34 +774,37 @@ namespace ks::window::layerdiag
         {
             blockers << uiText("window.layer.diagnosis.band_api_missing", "当前系统未导出 GetWindowBand，无法验证 Band 操作结果。");
         }
-        if (resolveSetWindowBandFunction() == nullptr)
+        if (!setBandAvailable)
         {
             blockers << uiText("window.layer.diagnosis.set_band_missing", "当前系统未导出 SetWindowBand，UIAccess Band 操作不可用。");
         }
 
-        capabilities << uiText("window.layer.diagnosis.inspector_token", "KSword：Integrity=%1，TokenUIAccess=%2，Session=%3，Desktop=%4")
-            .arg(inspector.integrity.isEmpty() ? QStringLiteral("<unknown>") : inspector.integrity)
-            .arg(inspector.uiAccessKnown ? yesNo(inspector.uiAccess) : QStringLiteral("<unknown>"))
-            .arg(inspector.sessionKnown ? QString::number(inspector.sessionId) : QStringLiteral("<unknown>"))
-            .arg(inspectorDesktop.isEmpty() ? QStringLiteral("<unknown>") : inspectorDesktop);
-        capabilities << uiText("window.layer.diagnosis.target_token", "目标：Integrity=%1，TokenUIAccess=%2，Session=%3，Desktop=%4")
-            .arg(snapshot.token.integrity.isEmpty() ? QStringLiteral("<unknown>") : snapshot.token.integrity)
-            .arg(snapshot.token.uiAccessKnown ? yesNo(snapshot.token.uiAccess) : QStringLiteral("<unknown>"))
-            .arg(snapshot.token.sessionKnown ? QString::number(snapshot.token.sessionId) : QStringLiteral("<unknown>"))
-            .arg(snapshot.desktop.isEmpty() ? QStringLiteral("<unknown>") : snapshot.desktop);
-        capabilities << (inspector.uiAccessKnown && inspector.uiAccess
+        ks::ui::FieldDocument document;
+        document.section(uiText("window.layer.diagnosis.capabilities", "[能力状态]"));
+        auto tokenFields = [](const QString& title, const TokenInfo& token, const QString& desktop) {
+            ks::ui::FieldDocument fields;
+            fields.section(title);
+            fields.field(QStringLiteral("Integrity"), token.integrity.isEmpty() ? QStringLiteral("<unknown>") : token.integrity);
+            fields.field(QStringLiteral("TokenUIAccess"), token.uiAccessKnown ? yesNo(token.uiAccess) : QStringLiteral("<unknown>"));
+            fields.field(QStringLiteral("Session"), token.sessionKnown ? QString::number(token.sessionId) : QStringLiteral("<unknown>"));
+            fields.field(QStringLiteral("Desktop"), desktop.isEmpty() ? QStringLiteral("<unknown>") : desktop);
+            return fields.nodes.first();
+        };
+        document.nodes.last().children.push_back(tokenFields(QStringLiteral("KSword"), inspector, inspectorDesktop));
+        document.nodes.last().children.push_back(tokenFields(QStringLiteral("目标"), snapshot.token, snapshot.desktop));
+        document.note(inspector.uiAccessKnown && inspector.uiAccess
             ? uiText("window.layer.diagnosis.uiaccess_ready", "当前 KSword 令牌已带 UIAccess，可尝试实验性 UIAccess Band 操作。")
             : uiText("window.layer.diagnosis.uiaccess_missing", "当前 KSword 令牌没有 UIAccess；请使用主窗口 UIAccess 按钮重启后再试 UIAccess Band。"));
-
-        QStringList out;
-        out << uiText("window.layer.diagnosis.capabilities", "[能力状态]");
-        out << capabilities;
-        out << QString() << uiText("window.layer.diagnosis.blockers", "[可能阻断项]");
-        out << (blockers.isEmpty() ? QStringList{ uiText("window.layer.diagnosis.none", "未发现明确阻断项；最终以 API 返回值和回读结果为准。") } : blockers);
-        out << QString() << uiText("window.layer.diagnosis.cautions", "[风险提示]");
-        out << (cautions.isEmpty() ? QStringList{ uiText("window.layer.diagnosis.no_cautions", "未发现额外结构风险。") } : cautions);
-        out << QString() << uiText("window.layer.diagnosis.foreground_note", "说明：置顶、前台激活和实际像素命中是不同状态；本页分别验证，不将其合并为一个“层级”。");
-        return out.join(QChar::LineFeed);
+        document.section(uiText("window.layer.diagnosis.blockers", "[可能阻断项]"));
+        if (blockers.isEmpty())
+            document.note(uiText("window.layer.diagnosis.none", "未发现明确阻断项；最终以 API 返回值和回读结果为准。"));
+        else for (const QString& blocker : blockers) document.note(blocker);
+        document.section(uiText("window.layer.diagnosis.cautions", "[风险提示]"));
+        if (cautions.isEmpty())
+            document.note(uiText("window.layer.diagnosis.no_cautions", "未发现额外结构风险。"));
+        else for (const QString& caution : cautions) document.note(caution);
+        document.note(uiText("window.layer.diagnosis.foreground_note", "说明：置顶、前台激活和实际像素命中是不同状态；本页分别验证，不将其合并为一个“层级”。"));
+        return document;
     }
 
     QString rectText(const RECT& r)
@@ -840,111 +836,108 @@ namespace ks::window::layerdiag
         return flags.isEmpty() ? QStringLiteral("<无关键标志>") : flags.join(QStringLiteral(" | "));
     }
 
-    QString snapshotText(const Snapshot& s, DWORD initialPid, DWORD initialTid, const QString& initialClass)
+    ks::ui::FieldDocument snapshotDocument(const Snapshot& s, DWORD initialPid, DWORD initialTid, const QString& initialClass)
     {
-        QStringList out;
-        out << QStringLiteral("CapturedAt: %1").arg(s.time.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")));
-        out << QStringLiteral("HWND: %1").arg(hwndText(s.hwnd));
-        out << QStringLiteral("Valid: %1").arg(yesNo(s.valid));
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("窗口快照"));
+        document.field(QStringLiteral("CapturedAt"), s.time.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")));
+        document.field(QStringLiteral("HWND"), hwndText(s.hwnd));
+        document.field(QStringLiteral("Valid"), yesNo(s.valid));
         if (!s.valid)
         {
-            out << QStringLiteral("警告: 目标 HWND 已失效。");
-            return out.join(QChar::LineFeed);
+            document.note(QStringLiteral("警告: 目标 HWND 已失效。"));
+            return document;
         }
 
         const bool reused = s.pid != initialPid || s.tid != initialTid || s.cls != initialClass;
-        out << QStringLiteral("Title: %1").arg(s.title.isEmpty() ? QStringLiteral("<空>") : s.title);
-        out << QStringLiteral("Class: %1").arg(s.cls);
-        out << QStringLiteral("PID/TID: %1 / %2").arg(s.pid).arg(s.tid);
-        out << QStringLiteral("Visible/Enabled: %1 / %2").arg(yesNo(s.visible), yesNo(s.enabled));
-        out << QStringLiteral("WindowRect: %1").arg(s.rectKnown ? rectText(s.rect) : QStringLiteral("<失败>"));
-        out << QStringLiteral("HWND identity changed: %1").arg(yesNo(reused));
-        if (reused) out << QStringLiteral("警告: HWND 可能已销毁并被复用。");
+        document.field(QStringLiteral("Title"), s.title.isEmpty() ? QStringLiteral("<空>") : s.title);
+        document.field(QStringLiteral("Class"), s.cls);
+        document.field(QStringLiteral("PID"), QString::number(s.pid));
+        document.field(QStringLiteral("TID"), QString::number(s.tid));
+        document.field(QStringLiteral("Visible"), yesNo(s.visible));
+        document.field(QStringLiteral("Enabled"), yesNo(s.enabled));
+        document.field(QStringLiteral("WindowRect"), s.rectKnown ? rectText(s.rect) : QStringLiteral("<失败>"));
+        document.field(QStringLiteral("HWND identity changed"), yesNo(reused));
+        if (reused) document.note(QStringLiteral("警告: HWND 可能已销毁并被复用。"));
 
-        out << QString() << QStringLiteral("[Window Band / Z-order]");
-        if (!s.band.available)
-            out << QStringLiteral("GetWindowBand: <API 不可用>");
-        else if (!s.band.ok)
-            out << QStringLiteral("GetWindowBand: <失败: %1>").arg(errorText(s.band.error));
-        else
-            out << QStringLiteral("GetWindowBand: %1 / %2 (%3)")
-                .arg(s.band.value).arg(hexText(s.band.value), bandName(s.band.value));
-        out << QStringLiteral("注意: ZBID 数字是标识符，不是可按大小排序的置顶高度。");
-        out << QStringLiteral("Top-level Z index: %1").arg(s.z);
-        out << QStringLiteral("Same-band Z index: %1 / %2")
-            .arg(s.bandZ)
-            .arg(s.band.ok ? QString::number(s.bandWindowCount) : QStringLiteral("<不可用>"));
-        out << QStringLiteral("Same-band TopMost-group Z index: %1 / %2")
-            .arg(s.topMostGroupZ)
-            .arg(s.band.ok ? QString::number(s.topMostGroupWindowCount) : QStringLiteral("<不可用>"));
-        out << QStringLiteral("GetTopWindow(NULL): %1").arg(hwndText(s.top));
-        out << QStringLiteral("GW_HWNDPREV / NEXT: %1 / %2").arg(hwndText(s.previous), hwndText(s.next));
+        document.section(QStringLiteral("Window Band / Z-order"));
+        document.field(QStringLiteral("GetWindowBand"), !s.band.available ? QStringLiteral("<API 不可用>")
+            : !s.band.ok ? QStringLiteral("<失败: %1>").arg(errorText(s.band.error))
+            : QStringLiteral("%1 / %2 (%3)").arg(s.band.value).arg(hexText(s.band.value), bandName(s.band.value)));
+        document.note(QStringLiteral("注意: ZBID 数字是标识符，不是可按大小排序的置顶高度。"));
+        document.field(QStringLiteral("Top-level Z index"), QString::number(s.z));
+        document.field(QStringLiteral("Same-band Z index"), QString::number(s.bandZ));
+        document.field(QStringLiteral("Same-band window count"), s.band.ok ? QString::number(s.bandWindowCount) : QStringLiteral("<不可用>"));
+        document.field(QStringLiteral("Same-band TopMost-group Z index"), QString::number(s.topMostGroupZ));
+        document.field(QStringLiteral("Same-band TopMost-group window count"), s.band.ok ? QString::number(s.topMostGroupWindowCount) : QStringLiteral("<不可用>"));
+        document.field(QStringLiteral("GetTopWindow(NULL)"), hwndText(s.top));
+        document.field(QStringLiteral("GW_HWNDPREV"), hwndText(s.previous));
+        document.field(QStringLiteral("GW_HWNDNEXT"), hwndText(s.next));
 
-        out << QString() << QStringLiteral("[Styles / error-aware reads]");
-        out << QStringLiteral("GWL_STYLE: %1").arg(longPtrText(s.style));
-        out << QStringLiteral("GWL_EXSTYLE: %1").arg(longPtrText(s.exStyle));
-        out << QStringLiteral("GWLP_WNDPROC: %1").arg(longPtrText(s.wndProc));
-        out << QStringLiteral("GWLP_USERDATA: %1").arg(longPtrText(s.userData));
-        out << QStringLiteral("GWLP_HINSTANCE: %1").arg(longPtrText(s.hInstance));
-        out << QStringLiteral("关键标志: %1").arg(keyFlags(s));
+        document.section(QStringLiteral("Styles / error-aware reads"));
+        document.field(QStringLiteral("GWL_STYLE"), longPtrText(s.style));
+        document.field(QStringLiteral("GWL_EXSTYLE"), longPtrText(s.exStyle));
+        document.field(QStringLiteral("GWLP_WNDPROC"), longPtrText(s.wndProc));
+        document.field(QStringLiteral("GWLP_USERDATA"), longPtrText(s.userData));
+        document.field(QStringLiteral("GWLP_HINSTANCE"), longPtrText(s.hInstance));
+        document.field(QStringLiteral("关键标志"), keyFlags(s));
 
-        out << QString() << QStringLiteral("[Relationships]");
-        out << QStringLiteral("GetParent: %1").arg(hwndText(s.parent));
-        out << QStringLiteral("GW_OWNER: %1").arg(hwndText(s.owner));
-        out << QStringLiteral("GA_ROOT: %1").arg(hwndText(s.root));
-        out << QStringLiteral("GA_ROOTOWNER: %1").arg(hwndText(s.rootOwner));
+        document.section(QStringLiteral("Relationships"));
+        document.field(QStringLiteral("GetParent"), hwndText(s.parent));
+        document.field(QStringLiteral("GW_OWNER"), hwndText(s.owner));
+        document.field(QStringLiteral("GA_ROOT"), hwndText(s.root));
+        document.field(QStringLiteral("GA_ROOTOWNER"), hwndText(s.rootOwner));
 
-        out << QString() << QStringLiteral("[DWM]");
-        if (!s.dwmAvailable)
-            out << QStringLiteral("DwmGetWindowAttribute: <API 不可用>");
+        document.section(QStringLiteral("DWM"));
+        if (!s.dwmAvailable) document.field(QStringLiteral("DwmGetWindowAttribute"), QStringLiteral("<API 不可用>"));
         else
         {
-            out << QStringLiteral("DWMWA_CLOAKED: %1")
-                .arg(s.cloakedKnown ? hexText(s.cloaked)
-                                    : QStringLiteral("<失败 HRESULT=%1>").arg(hexText(static_cast<quint64>(s.cloakedHr))));
-            out << QStringLiteral("DWMWA_EXTENDED_FRAME_BOUNDS: %1")
-                .arg(s.frameKnown ? rectText(s.frame)
-                                  : QStringLiteral("<失败 HRESULT=%1>").arg(hexText(static_cast<quint64>(s.frameHr))));
+            document.field(QStringLiteral("DWMWA_CLOAKED"), s.cloakedKnown ? hexText(s.cloaked)
+                : QStringLiteral("<失败 HRESULT=%1>").arg(hexText(static_cast<quint64>(s.cloakedHr))));
+            document.field(QStringLiteral("DWMWA_EXTENDED_FRAME_BOUNDS"), s.frameKnown ? rectText(s.frame)
+                : QStringLiteral("<失败 HRESULT=%1>").arg(hexText(static_cast<quint64>(s.frameHr))));
         }
 
-        out << QString() << QStringLiteral("[GUI thread]");
-        out << QStringLiteral("ForegroundWindow: %1").arg(hwndText(s.foreground));
+        document.section(QStringLiteral("GUI thread"));
+        document.field(QStringLiteral("ForegroundWindow"), hwndText(s.foreground));
         if (s.guiKnown)
         {
-            out << QStringLiteral("Active: %1").arg(hwndText(s.gui.hwndActive));
-            out << QStringLiteral("Focus: %1").arg(hwndText(s.gui.hwndFocus));
-            out << QStringLiteral("Capture: %1").arg(hwndText(s.gui.hwndCapture));
-            out << QStringLiteral("Caret: %1").arg(hwndText(s.gui.hwndCaret));
-            out << QStringLiteral("MenuOwner: %1").arg(hwndText(s.gui.hwndMenuOwner));
+            document.field(QStringLiteral("Active"), hwndText(s.gui.hwndActive));
+            document.field(QStringLiteral("Focus"), hwndText(s.gui.hwndFocus));
+            document.field(QStringLiteral("Capture"), hwndText(s.gui.hwndCapture));
+            document.field(QStringLiteral("Caret"), hwndText(s.gui.hwndCaret));
+            document.field(QStringLiteral("MenuOwner"), hwndText(s.gui.hwndMenuOwner));
         }
-        else out << QStringLiteral("GetGUIThreadInfo: <失败: %1>").arg(errorText(s.guiError));
+        else document.field(QStringLiteral("GetGUIThreadInfo"), QStringLiteral("<失败: %1>").arg(errorText(s.guiError)));
 
-        out << QString() << QStringLiteral("[Security / desktop]");
-        if (!s.token.opened)
-            out << QStringLiteral("Process token: <失败: %1>").arg(errorText(s.token.error));
+        document.section(QStringLiteral("Security / desktop"));
+        if (!s.token.opened) document.field(QStringLiteral("Process token"), QStringLiteral("<失败: %1>").arg(errorText(s.token.error)));
         else
         {
-            out << QStringLiteral("Integrity: %1").arg(s.token.integrity.isEmpty() ? QStringLiteral("<未知>") : s.token.integrity);
-            out << QStringLiteral("TokenUIAccess: %1").arg(s.token.uiAccessKnown ? yesNo(s.token.uiAccess) : QStringLiteral("<未知>"));
-            out << QStringLiteral("AppContainer: %1").arg(s.token.appContainerKnown ? yesNo(s.token.appContainer) : QStringLiteral("<未知>"));
-            out << QStringLiteral("SessionId: %1").arg(s.token.sessionKnown ? QString::number(s.token.sessionId) : QStringLiteral("<未知>"));
+            document.field(QStringLiteral("Integrity"), s.token.integrity.isEmpty() ? QStringLiteral("<未知>") : s.token.integrity);
+            document.field(QStringLiteral("TokenUIAccess"), s.token.uiAccessKnown ? yesNo(s.token.uiAccess) : QStringLiteral("<未知>"));
+            document.field(QStringLiteral("AppContainer"), s.token.appContainerKnown ? yesNo(s.token.appContainer) : QStringLiteral("<未知>"));
+            document.field(QStringLiteral("SessionId"), s.token.sessionKnown ? QString::number(s.token.sessionId) : QStringLiteral("<未知>"));
         }
-        out << QStringLiteral("Target desktop: %1").arg(s.desktop.isEmpty() ? QStringLiteral("<未知/无权限>") : s.desktop);
-        out << QStringLiteral("Inspector window station: %1").arg(s.inspectorWindowStation.isEmpty() ? QStringLiteral("<未知>") : s.inspectorWindowStation);
-        out << QStringLiteral("Target window station: <Win32 无稳定通用跨进程查询接口>");
+        document.field(QStringLiteral("Target desktop"), s.desktop.isEmpty() ? QStringLiteral("<未知/无权限>") : s.desktop);
+        document.field(QStringLiteral("Inspector window station"), s.inspectorWindowStation.isEmpty() ? QStringLiteral("<未知>") : s.inspectorWindowStation);
+        document.field(QStringLiteral("Target window station"), QStringLiteral("<Win32 无稳定通用跨进程查询接口>"));
 
-        out << QString() << QStringLiteral("[Composition / hit test]");
-        out << QStringLiteral("DisplayAffinity: %1")
-            .arg(s.affinityKnown ? hexText(s.affinity) : QStringLiteral("<失败: %1>").arg(errorText(s.affinityError)));
-        out << QStringLiteral("LayeredAttributes: %1")
-            .arg(s.layeredKnown
-                ? QStringLiteral("Alpha=%1 ColorKey=%2 Flags=%3").arg(s.alpha).arg(hexText(s.colorKey), hexText(s.layeredFlags))
-                : QStringLiteral("<不可用/非 Layered: %1>").arg(errorText(s.layeredError)));
-        out << QStringLiteral("ProbePoint: [%1,%2]").arg(s.probe.x).arg(s.probe.y);
-        out << QStringLiteral("WindowFromPoint / root: %1 / %2").arg(hwndText(s.hit), hwndText(s.hitRoot));
-        out << QStringLiteral("ChildWindowFromPointEx: %1").arg(hwndText(s.childHit));
-        out << QStringLiteral("RealChildWindowFromPoint: %1").arg(hwndText(s.realChildHit));
-        return out.join(QChar::LineFeed);
+        document.section(QStringLiteral("Composition / hit test"));
+        document.field(QStringLiteral("DisplayAffinity"), s.affinityKnown ? hexText(s.affinity) : QStringLiteral("<失败: %1>").arg(errorText(s.affinityError)));
+        if (s.layeredKnown)
+        {
+            document.field(QStringLiteral("Layered Alpha"), QString::number(s.alpha));
+            document.field(QStringLiteral("Layered ColorKey"), hexText(s.colorKey));
+            document.field(QStringLiteral("Layered Flags"), hexText(s.layeredFlags));
+        }
+        else document.field(QStringLiteral("LayeredAttributes"), QStringLiteral("<不可用/非 Layered: %1>").arg(errorText(s.layeredError)));
+        document.field(QStringLiteral("ProbePoint"), QStringLiteral("[%1,%2]").arg(s.probe.x).arg(s.probe.y));
+        document.field(QStringLiteral("WindowFromPoint"), hwndText(s.hit));
+        document.field(QStringLiteral("WindowFromPoint root"), hwndText(s.hitRoot));
+        document.field(QStringLiteral("ChildWindowFromPointEx"), hwndText(s.childHit));
+        document.field(QStringLiteral("RealChildWindowFromPoint"), hwndText(s.realChildHit));
+        return document;
     }
 
     QStringList diff(const Snapshot& before, const Snapshot& after)
@@ -988,49 +981,52 @@ namespace ks::window::layerdiag
         return reinterpret_cast<HWND>(static_cast<quintptr>(value));
     }
 
-    QString compareText(const Snapshot& a, const Snapshot& b)
+    ks::ui::FieldDocument compareDocument(const Snapshot& a, const Snapshot& b)
     {
-        QStringList out;
-        out << QStringLiteral("A: %1 [%2] PID/TID=%3/%4").arg(hwndText(a.hwnd), a.cls).arg(a.pid).arg(a.tid);
-        out << QStringLiteral("B: %1 [%2] PID/TID=%3/%4").arg(hwndText(b.hwnd), b.cls).arg(b.pid).arg(b.tid);
-        out << QStringLiteral("A Band: %1").arg(a.band.ok ? QStringLiteral("%1 (%2)").arg(a.band.value).arg(bandName(a.band.value)) : QStringLiteral("<失败>"));
-        out << QStringLiteral("B Band: %1").arg(b.band.ok ? QStringLiteral("%1 (%2)").arg(b.band.value).arg(bandName(b.band.value)) : QStringLiteral("<失败>"));
-        out << QStringLiteral("Band ID 不按数值大小比较。");
-        out << QStringLiteral("A/B global Z index: %1 / %2").arg(a.z).arg(b.z);
+        ks::ui::FieldDocument document;
+        document.section(QStringLiteral("A/B 对比"));
+        document.field(QStringLiteral("A HWND"), hwndText(a.hwnd));
+        document.field(QStringLiteral("A Class"), a.cls);
+        document.field(QStringLiteral("A PID/TID"), QStringLiteral("%1 / %2").arg(a.pid).arg(a.tid));
+        document.field(QStringLiteral("B HWND"), hwndText(b.hwnd));
+        document.field(QStringLiteral("B Class"), b.cls);
+        document.field(QStringLiteral("B PID/TID"), QStringLiteral("%1 / %2").arg(b.pid).arg(b.tid));
+        document.field(QStringLiteral("A Band"), a.band.ok ? QStringLiteral("%1 (%2)").arg(a.band.value).arg(bandName(a.band.value)) : QStringLiteral("<失败>"));
+        document.field(QStringLiteral("B Band"), b.band.ok ? QStringLiteral("%1 (%2)").arg(b.band.value).arg(bandName(b.band.value)) : QStringLiteral("<失败>"));
+        document.note(QStringLiteral("Band ID 不按数值大小比较。"));
+        document.field(QStringLiteral("A/B global Z index"), QStringLiteral("%1 / %2").arg(a.z).arg(b.z));
         const bool sameBand = a.band.ok && b.band.ok && a.band.value == b.band.value;
-        out << QStringLiteral("Same band: %1").arg(yesNo(sameBand));
-        out << QStringLiteral("A/B same-band Z index: %1 / %2")
+        document.field(QStringLiteral("Same band"), yesNo(sameBand));
+        document.field(QStringLiteral("A/B same-band Z index"), QStringLiteral("%1 / %2")
             .arg(sameBand ? QString::number(a.bandZ) : QStringLiteral("<不适用>"))
-            .arg(sameBand ? QString::number(b.bandZ) : QStringLiteral("<不适用>"));
-        out << QStringLiteral("Same desktop: %1").arg(yesNo(!a.desktop.isEmpty() && a.desktop == b.desktop));
-        out << QStringLiteral("Same session: %1")
-            .arg(a.token.sessionKnown && b.token.sessionKnown ? yesNo(a.token.sessionId == b.token.sessionId) : QStringLiteral("<未知>"));
+            .arg(sameBand ? QString::number(b.bandZ) : QStringLiteral("<不适用>")));
+        document.field(QStringLiteral("Same desktop"), yesNo(!a.desktop.isEmpty() && a.desktop == b.desktop));
+        document.field(QStringLiteral("Same session"), a.token.sessionKnown && b.token.sessionKnown
+            ? yesNo(a.token.sessionId == b.token.sessionId) : QStringLiteral("<未知>"));
 
         if (!a.rectKnown || !b.rectKnown)
         {
-            out << QStringLiteral("Overlap test: <矩形不可用>");
-            return out.join(QChar::LineFeed);
+            document.field(QStringLiteral("Overlap test"), QStringLiteral("<矩形不可用>"));
+            return document;
         }
-        RECT r{};
-        r.left = std::max(a.rect.left, b.rect.left);
-        r.top = std::max(a.rect.top, b.rect.top);
-        r.right = std::min(a.rect.right, b.rect.right);
-        r.bottom = std::min(a.rect.bottom, b.rect.bottom);
-        if (r.left >= r.right || r.top >= r.bottom)
+        RECT rect{ std::max(a.rect.left, b.rect.left), std::max(a.rect.top, b.rect.top),
+            std::min(a.rect.right, b.rect.right), std::min(a.rect.bottom, b.rect.bottom) };
+        if (rect.left >= rect.right || rect.top >= rect.bottom)
         {
-            out << QStringLiteral("Overlap test: 当前无重叠区域。");
-            return out.join(QChar::LineFeed);
+            document.field(QStringLiteral("Overlap test"), QStringLiteral("当前无重叠区域。"));
+            return document;
         }
-
-        POINT p{ r.left + (r.right - r.left) / 2, r.top + (r.bottom - r.top) / 2 };
-        const HWND hit = ::WindowFromPoint(p);
+        const POINT probe{ rect.left + (rect.right - rect.left) / 2, rect.top + (rect.bottom - rect.top) / 2 };
+        const HWND hit = ::WindowFromPoint(probe);
         const HWND root = hit != nullptr ? ::GetAncestor(hit, GA_ROOT) : nullptr;
-        out << QStringLiteral("Overlap rect: %1").arg(rectText(r));
-        out << QStringLiteral("Probe: [%1,%2], hit=%3, root=%4").arg(p.x).arg(p.y).arg(hwndText(hit), hwndText(root));
-        if (root == a.root || root == a.hwnd) out << QStringLiteral("实际命中: A 覆盖采样点。");
-        else if (root == b.root || root == b.hwnd) out << QStringLiteral("实际命中: B 覆盖采样点。");
-        else out << QStringLiteral("实际命中: 被第三个窗口覆盖，无法判定 A/B。");
-        return out.join(QChar::LineFeed);
+        document.field(QStringLiteral("Overlap rect"), rectText(rect));
+        document.field(QStringLiteral("Probe"), QStringLiteral("[%1,%2]").arg(probe.x).arg(probe.y));
+        document.field(QStringLiteral("Hit"), hwndText(hit));
+        document.field(QStringLiteral("Hit root"), hwndText(root));
+        document.field(QStringLiteral("实际命中"), root != nullptr && (root == a.root || root == a.hwnd) ? QStringLiteral("A 覆盖采样点。")
+            : root != nullptr && (root == b.root || root == b.hwnd) ? QStringLiteral("B 覆盖采样点。")
+            : QStringLiteral("被第三个窗口覆盖，无法判定 A/B。"));
+        return document;
     }
 
     QJsonArray zOrderJson()
@@ -1231,7 +1227,7 @@ namespace ks::window::layerdiag
             root->addWidget(m_status);
 
             auto* tabs = new QTabWidget(this);
-            m_output = new CodeTextEdit(tabs);
+            m_output = new ks::ui::StructuredFieldView(tabs);
             auto* operationPage = new QWidget(tabs);
             auto* operationLayout = new QVBoxLayout(operationPage);
 
@@ -1295,10 +1291,11 @@ namespace ks::window::layerdiag
             m_operationLog->setFont(diagnosticsFixedFont);
             operationLayout->addWidget(m_operationLog, 1);
 
-            m_relationships = new CodeTextEdit(tabs);
-            m_diagnostics = new CodeTextEdit(tabs);
+            m_relationships = new ks::ui::StructuredFieldView(tabs);
+            m_relationships->setPresentation(ks::ui::StructuredFieldView::Presentation::Tree);
+            m_diagnostics = new ks::ui::StructuredFieldView(tabs);
             m_events = new CodeTextEdit(tabs);
-            for (QPlainTextEdit* edit : { m_output, m_relationships, m_diagnostics, m_events })
+            for (QPlainTextEdit* edit : { m_events })
             {
                 static_cast<CodeTextEdit*>(edit)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
                 edit->setReadOnly(true);
@@ -1380,7 +1377,7 @@ namespace ks::window::layerdiag
                 });
             });
             connect(copyButton, &QPushButton::clicked, this, [this]() {
-                QApplication::clipboard()->setText(m_output->toPlainText());
+                QApplication::clipboard()->setText(m_output->plainText());
                 m_status->setText(uiText("window.layer.status.copied", "已复制。"));
             });
             connect(exportButton, &QPushButton::clicked, this, [this]() { exportSnapshot(); });
@@ -1455,18 +1452,19 @@ namespace ks::window::layerdiag
         {
             if (m_relationships != nullptr)
             {
-                m_relationships->setPlainText(relationshipGraph(m_target));
+                m_relationships->setDocument(relationshipDocument(m_target));
             }
             if (m_diagnostics != nullptr)
             {
-                m_diagnostics->setPlainText(diagnosisText(snapshot));
+                m_diagnostics->setDocument(diagnosisDocument(snapshot, tokenInfo(::GetCurrentProcessId()),
+                    ks::window::layerdiag::objectName(::GetThreadDesktop(::GetCurrentThreadId())), resolveSetWindowBandFunction() != nullptr));
             }
         }
 
         void refresh(const QString& reason)
         {
             m_current = capture(m_target);
-            m_output->setPlainText(snapshotText(*m_current, m_initialPid, m_initialTid, m_initialClass));
+            m_output->setDocument(snapshotDocument(*m_current, m_initialPid, m_initialTid, m_initialClass));
             updateAnalysisViews(*m_current);
             m_status->setText(uiText("window.layer.status.completed", "%1完成：%2")
                 .arg(reason, m_current->time.toString(QStringLiteral("HH:mm:ss.zzz"))));
@@ -1484,12 +1482,18 @@ namespace ks::window::layerdiag
             const Snapshot b = capture(*other);
             m_current = a;
             updateAnalysisViews(a);
-            m_output->setPlainText(
-                compareText(a, b) +
-                QStringLiteral("\n\n========== A ==========\n") +
-                snapshotText(a, m_initialPid, m_initialTid, m_initialClass) +
-                QStringLiteral("\n\n========== B ==========\n") +
-                snapshotText(b, b.pid, b.tid, b.cls));
+            ks::ui::FieldDocument document = compareDocument(a, b);
+            ks::ui::FieldNode aNode;
+            aNode.kind = ks::ui::FieldNode::Kind::Section;
+            aNode.name = QStringLiteral("A");
+            aNode.children = snapshotDocument(a, m_initialPid, m_initialTid, m_initialClass).nodes;
+            document.nodes.push_back(aNode);
+            ks::ui::FieldNode bNode;
+            bNode.kind = ks::ui::FieldNode::Kind::Section;
+            bNode.name = QStringLiteral("B");
+            bNode.children = snapshotDocument(b, b.pid, b.tid, b.cls).nodes;
+            document.nodes.push_back(bNode);
+            m_output->setDocument(document);
             m_status->setText(uiText("window.layer.status.compare_complete", "A/B 对比完成。"));
         }
 
@@ -1735,7 +1739,7 @@ namespace ks::window::layerdiag
         {
             const Snapshot after = capture(m_target);
             m_current = after;
-            m_output->setPlainText(snapshotText(after, m_initialPid, m_initialTid, m_initialClass));
+            m_output->setDocument(snapshotDocument(after, m_initialPid, m_initialTid, m_initialClass));
             updateAnalysisViews(after);
 
             bool verified = false;
@@ -1951,7 +1955,7 @@ namespace ks::window::layerdiag
             QTimer::singleShot(150, this, [this, baseline, bandResult, groupError, positionError, previousStillCompatible]() {
                 const Snapshot restored = capture(m_target);
                 m_current = restored;
-                m_output->setPlainText(snapshotText(restored, m_initialPid, m_initialTid, m_initialClass));
+                m_output->setDocument(snapshotDocument(restored, m_initialPid, m_initialTid, m_initialClass));
                 updateAnalysisViews(restored);
                 const bool bandRestored = !baseline.band.ok || (restored.band.ok && restored.band.value == baseline.band.value);
                 const bool topMostRestored = hasExStyleFlag(restored, WS_EX_TOPMOST) == hasExStyleFlag(baseline, WS_EX_TOPMOST);
@@ -2001,10 +2005,10 @@ namespace ks::window::layerdiag
             root.insert(QStringLiteral("topMostGroupZOrderIndex"), m_current->topMostGroupZ);
             root.insert(QStringLiteral("topMostGroupWindowCount"), m_current->topMostGroupWindowCount);
             root.insert(QStringLiteral("rollbackPending"), m_rollbackBaseline.has_value());
-            root.insert(QStringLiteral("relationships"), relationshipGraph(m_target));
-            root.insert(QStringLiteral("diagnosis"), diagnosisText(*m_current));
+            root.insert(QStringLiteral("relationships"), m_relationships != nullptr ? m_relationships->plainText() : QString());
+            root.insert(QStringLiteral("diagnosis"), m_diagnostics != nullptr ? m_diagnostics->plainText() : QString());
             root.insert(QStringLiteral("operationLog"), m_operationLog != nullptr ? m_operationLog->toPlainText() : QString());
-            root.insert(QStringLiteral("text"), snapshotText(*m_current, m_initialPid, m_initialTid, m_initialClass));
+            root.insert(QStringLiteral("text"), m_output != nullptr ? m_output->plainText() : QString());
             QFile file(path);
             if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
             {
@@ -2097,10 +2101,10 @@ namespace ks::window::layerdiag
         QLabel* m_status = nullptr;
         QLabel* m_rollbackStatus = nullptr;
         QLineEdit* m_compare = nullptr;
-        QPlainTextEdit* m_output = nullptr;
+        ks::ui::StructuredFieldView* m_output = nullptr;
         QPlainTextEdit* m_operationLog = nullptr;
-        QPlainTextEdit* m_relationships = nullptr;
-        QPlainTextEdit* m_diagnostics = nullptr;
+        ks::ui::StructuredFieldView* m_relationships = nullptr;
+        ks::ui::StructuredFieldView* m_diagnostics = nullptr;
         QPlainTextEdit* m_events = nullptr;
         QPushButton* m_trackButton = nullptr;
         QPushButton* m_keepButton = nullptr;
@@ -2139,11 +2143,7 @@ namespace ks::window::layerdiag
             return reinterpret_cast<HWND>(static_cast<quintptr>(propertyValue));
         }
 
-        // The fallback keeps compatibility with detail dialogs created by an
-        // older executable which do not publish the structured HWND property.
-        static const QRegularExpression pattern(QStringLiteral(R"(\((0[xX][0-9A-Fa-f]+)\)\s*$)"));
-        const QRegularExpressionMatch match = pattern.match(dialog->windowTitle());
-        return match.hasMatch() ? parseHwnd(match.captured(1)) : std::nullopt;
+        return std::nullopt;
     }
 
     QTabWidget* hostTabs(QDialog* dialog)

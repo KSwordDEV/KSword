@@ -1,4 +1,4 @@
-﻿// HvmWatchPanel.Evidence：内存监视页「命中之后往哪去」的那一半。
+// HvmWatchPanel.Evidence：内存监视页「命中之后往哪去」的那一半。
 //
 // 与 HvmWatchPanel.cpp 的分界不是行数，而是两组动作回答的问题不同：那一份管
 // 表格本身（读表、铺表、装/撤/重新武装/清空），这一份管拿到一次命中之后能做
@@ -29,7 +29,7 @@
 #include <QLabel>
 #include <QMetaObject>
 #include <QPointer>
-#include "CodeEditorWidget.h"
+#include "StructuredFieldView.h"
 #include <QProcess>
 #include <QPushButton>
 #include <QStringList>
@@ -104,21 +104,19 @@ void HvmWatchPanel::openWriterMemory()
                 .arg(result.message));
         return;
     }
-    QStringList lines;
+    ks::ui::FieldDocument document;
     // 抬头必须写清读的是写入者而不是目标，否则两段转储在详情框里长得一样。
-    lines << text(QStringLiteral("写入者所在内存（命中 RIP %1 起 %2 字节；这是命中之后的采样）"))
+    document.note(text(QStringLiteral("写入者所在内存（命中 RIP %1 起 %2 字节；这是命中之后的采样）"))
         .arg(hex64(entry.lastHitRip))
-        .arg(result.data.size());
-    lines << QString();
+        .arg(result.data.size()));
+
     for (int offset = 0; offset < result.data.size(); offset += 16)
     {
         const QByteArray chunk = result.data.mid(offset, 16);
-        lines << QStringLiteral("  %1  %2")
-            .arg(hex64(entry.lastHitRip +
-                static_cast<unsigned long long>(offset)))
-            .arg(QString::fromLatin1(chunk.toHex(' ')));
+        document.field(hex64(entry.lastHitRip + static_cast<unsigned long long>(offset)),
+            QString::fromLatin1(chunk.toHex(' ')));
     }
-    m_detail->setReportText(lines.join(QLatin1Char('\n')));
+    m_detail->setDocument(document);
     m_statusLabel->setText(text(QStringLiteral(
         "已读出写入者所在的内存。这读的是发起访问的那段代码，不是被监视的目标。")));
 }
@@ -194,29 +192,28 @@ void HvmWatchPanel::openTargetMemory()
                 .arg(result.message));
         return;
     }
-    QStringList lines;
-    lines << text(QStringLiteral("目标内存（命中之后的采样，不是命中那一刻的值）"));
-    lines << (byVirtual
+    ks::ui::FieldDocument document;
+    document.section(QStringLiteral("目标内存（命中之后的采样，不是命中那一刻的值）"));
+    document.note((byVirtual
         ? text(QStringLiteral("  按虚拟地址 %1 读 %2 字节"))
             .arg(hex64(address)).arg(result.data.size())
         : text(QStringLiteral("  按被监视的物理页 %1 读 %2 字节"))
-            .arg(hex64(address)).arg(result.data.size()));
+            .arg(hex64(address)).arg(result.data.size())));
     if (!virtualFailure.isEmpty())
     {
         // 说清楚读的是哪一个，否则用户会以为看到的是那个虚拟地址上的内容。
-        lines << text(QStringLiteral("  按虚拟地址 %1 读不到（%2），上面这段是被监视的那一页，不是该虚拟地址当前指向的内容。"))
+        document.field(QStringLiteral(""), QStringLiteral("按虚拟地址 %1 读不到（%2），上面这段是被监视的那一页，不是该虚拟地址当前指向的内容。")
             .arg(hex64(entry.requestedAddress))
-            .arg(virtualFailure);
+            .arg(virtualFailure));
     }
-    lines << QString();
+
     for (int offset = 0; offset < result.data.size(); offset += 16)
     {
         const QByteArray chunk = result.data.mid(offset, 16);
-        lines << QStringLiteral("  %1  %2")
-            .arg(hex64(address + static_cast<unsigned long long>(offset)))
-            .arg(QString::fromLatin1(chunk.toHex(' ')));
+        document.field(hex64(address + static_cast<unsigned long long>(offset)),
+            QString::fromLatin1(chunk.toHex(' ')));
     }
-    m_detail->setReportText(lines.join(QLatin1Char('\n')));
+    m_detail->setDocument(document);
     m_statusLabel->setText(text(QStringLiteral(
         "已读出目标内存。这是命中之后的采样：EPT violation 发生在写指令退休之前，所以这里看到的可能已经包含那次写入，也可能还包含之后的更多次修改。")));
 }
@@ -346,7 +343,7 @@ void HvmWatchPanel::exportEvidence()
         // 另拼一份会让两者随时间漂开。
         showDetail(stored.value<ksword::hvm::HvmWatchEntry>());
         blocks << QStringLiteral("================================");
-        blocks << m_detail->text();
+        blocks << m_detail->plainText();
         blocks << QString();
     }
     QFile file(path);
@@ -384,7 +381,7 @@ void HvmWatchPanel::copyEvidence()
     // 直接复制详情框的原文：屏幕上看到的和粘贴出去的必须是同一份东西，
     // 另拼一份格式会让两者随时间漂开。
     showDetail(entry);
-    QApplication::clipboard()->setText(m_detail->text());
+    QApplication::clipboard()->setText(m_detail->plainText());
     m_statusLabel->setText(
         text(QStringLiteral("已把这条监视的完整证据复制到剪贴板。")));
 }

@@ -1,4 +1,5 @@
-﻿#pragma once
+#include "../UI/StructuredFieldView.h"
+#pragma once
 
 // ============================================================
 // KernelCallbackMonitorWidget.h
@@ -86,7 +87,7 @@ private:
     QLabel* m_filterStatusLabel = nullptr;
     QLabel* m_statusLabel = nullptr;
     ks::ui::TableActionTableView* m_eventTable = nullptr;
-    CodeEditorWidget* m_detailEdit = nullptr;
+    ks::ui::StructuredFieldView* m_detailEdit = nullptr;
     KernelCallbackEventModel* m_eventModel = nullptr;
     KernelCallbackFilterModel* m_filterModel = nullptr;
     QTimer* m_uiTimer = nullptr;

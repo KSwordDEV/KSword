@@ -116,12 +116,10 @@ namespace ks::ui
 
         // 汇编输入与预览同样接入项目正式外壳；源码/机器码都是 raw，绝不解析成报告结构。
         auto* source = new CodeEditorWidget(dialog);
-        source->setStructuredReportViewEnabled(false);
         source->setRawText(input.initialSource);
         auto* sourceCore = dynamic_cast<CodeTextEdit*>(source->findChild<QPlainTextEdit*>(QStringLiteral("code_editor_text")));
         auto* preview = new CodeEditorWidget(dialog);
         preview->setReadOnly(true);
-        preview->setStructuredReportViewEnabled(false);
         auto* previewCore = dynamic_cast<CodeTextEdit*>(preview->findChild<QPlainTextEdit*>(QStringLiteral("code_editor_text")));
         if (!sourceCore || !previewCore)
         {

@@ -44,6 +44,8 @@ if errorlevel 1 exit /b %errorlevel%
 if errorlevel 1 exit /b %errorlevel%
 "%QT%\bin\moc.exe" "%UI%\WorkbenchStatusBar.h" -o "%MOC%\moc_WorkbenchStatusBar.cpp"
 if errorlevel 1 exit /b %errorlevel%
+"%QT%\bin\moc.exe" "%APP%\UI\StructuredFieldView.h" -o "%MOC%\moc_StructuredFieldView.cpp"
+if errorlevel 1 exit /b %errorlevel%
 "%QT%\bin\moc.exe" "%UI%\WorkbenchStringWriteDialog.h" -o "%MOC%\moc_WorkbenchStringWriteDialog.cpp"
 if errorlevel 1 exit /b %errorlevel%
 "%QT%\bin\moc.exe" "%UI%\HexViewWidgets.h" -o "%MOC%\moc_HexViewWidgets.cpp"
@@ -61,6 +63,7 @@ cl /nologo /std:c++latest /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W4 /WX 
   "%UI%\WorkbenchMessages.cpp" "%UI%\WorkbenchSettings.cpp" "%UI%\WorkbenchActions.cpp" "%UI%\WriteModeSwitch.cpp" "%UI%\WorkbenchSessionBar.cpp" "%UI%\WorkbenchStatusBar.cpp" "%UI%\WorkbenchConfirmations.cpp" "%UI%\WorkbenchStringWriteDialog.cpp" ^
   "%UI%\HexViewWidgets.cpp" "%UI%\HexViewWidgets.Text.cpp" "%UI%\HexViewFormat.cpp" "%APP%\UI\FlowLayout.cpp" "%APP%\UI\ThemeStatusRole.cpp" ^
   "%APP%\Internationalization\LanguageManager.cpp" ^
+  "%APP%\UI\StructuredFieldView.cpp" "%MOC%\moc_StructuredFieldView.cpp" ^
   "%MOC%\moc_WorkbenchSessionBar.cpp" "%MOC%\moc_WriteModeSwitch.cpp" "%MOC%\moc_WorkbenchStatusBar.cpp" "%MOC%\moc_WorkbenchStringWriteDialog.cpp" "%MOC%\moc_HexViewWidgets.cpp" "%MOC%\qrc_wpG_icons.cpp" ^
   "%CORE%\MemoryTargetSession.cpp" "%CORE%\MemoryChannelGate.cpp" "%CORE%\MemoryWritePolicy.cpp" "%CORE%\MemoryDiffOverlay.cpp" "%CORE%\MemoryDiffOverlay.Patches.cpp" "%CORE%\MemoryWriteTransaction.cpp" "%CORE%\MemoryWriteTransaction.Commit.cpp" ^
   /Fo"%OBJ%\\" /Fe"%OUT%\wpG_tests.exe" ^

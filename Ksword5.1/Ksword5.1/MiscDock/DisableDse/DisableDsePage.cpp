@@ -179,6 +179,15 @@ namespace ks::misc
         {
             return;
         }
+        if (event->type() == QEvent::LanguageChange)
+        {
+            // Translate each owned log message directly; never interpret it as fields.
+            QStringList translatedLines;
+            for (const QString& line : m_traceLines)
+                translatedLines.append(ks::i18n::displayText(line));
+            if (m_traceEdit) m_traceEdit->replaceRawText(translatedLines.join(QLatin1Char('\n')));
+            updateStateDisplay();
+        }
         if (event->type() == QEvent::ApplicationPaletteChange
             || event->type() == QEvent::PaletteChange)
         {
@@ -273,8 +282,7 @@ namespace ks::misc
         m_locationLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
         locationLayout->addWidget(m_locationLabel);
 
-        // 定位轨迹属于程序生成的详情文本，统一使用项目内置编辑器。
-        // m_traceLines 保留中文规范源文本，CodeEditorWidget 会在语言切换时重新渲染。
+        // 定位与事务保留实际时序消息；追加时翻译，语言切换由页面按消息重绘。
         m_traceEdit = new CodeEditorWidget(locationGroup);
         m_traceEdit->setReadOnly(true);
         m_traceEdit->setMaximumHeight(150);
@@ -619,7 +627,7 @@ namespace ks::misc
             return;
         }
         m_traceLines.append(line);
-        m_traceEdit->setLocalizedText(m_traceLines.join(QChar('\n')));
+        m_traceEdit->appendRawText(ks::i18n::displayText(line));
     }
 
     void DisableDsePage::setResultText(const QString& text, const bool isError)

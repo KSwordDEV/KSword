@@ -2,7 +2,7 @@
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../Internationalization/LanguageManager.h"
-#include "../UI/CodeEditorWidget.h"
+#include "../UI/StructuredFieldView.h"
 #include "../UI/DetailLayoutRegistry.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../theme.h"
@@ -180,7 +180,7 @@ void KernelThreadAuditTab::initializeUi()
     toolLayout->addWidget(m_statusLabel);
     rootLayout->addLayout(toolLayout);
 
-    // 表格与 CodeEditorWidget 由纵向 splitter 组织，详情窗口保持项目统一编辑器。
+    // 表格与 ks::ui::StructuredFieldView 由纵向 splitter 组织，详情窗口保持项目统一编辑器。
     auto* splitter = new QSplitter(Qt::Vertical, this);
     m_table = new QTableWidget(splitter);
     m_table->setColumnCount(static_cast<int>(Column::Count));
@@ -194,13 +194,13 @@ void KernelThreadAuditTab::initializeUi()
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    m_detailEditor = new CodeEditorWidget(splitter);
-    m_detailEditor->setReadOnly(true);
+    m_detailEditor = new ks::ui::StructuredFieldView(splitter);
+
     splitter->setStretchFactor(0, 4);
     splitter->setStretchFactor(1, 2);
     rootLayout->addWidget(splitter, 1);
 
-    ks::ui::DetailLayoutRegistry::registerHost(m_table, m_detailEditor, this);
+    ks::ui::DetailLayoutRegistry::registerStructuredHost(m_table, m_detailEditor, this);
 
     // 连接：刷新、筛选、选择、视图预设、表头菜单和行操作菜单。
     connect(m_refreshButton, &QPushButton::clicked, this, [this]() { requestRefresh(); });
@@ -265,7 +265,7 @@ void KernelThreadAuditTab::applyTranslatedText()
     if (m_rows.empty() && !m_refreshRunning)
     {
         m_statusLabel->setText(threadAuditText("thread_audit.status.waiting", QStringLiteral("状态：等待刷新")));
-        m_detailEditor->setText(threadAuditText("thread_audit.detail.initial", QStringLiteral("请选择一条线程记录查看证据与安全边界。")));
+        m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(threadAuditText("thread_audit.detail.initial", QStringLiteral("请选择一条线程记录查看证据与安全边界。"))));
     }
     updatePresetButtons();
 }
@@ -441,7 +441,7 @@ void KernelThreadAuditTab::updateDetail()
     const ThreadRow* selected = selectedRow();
     if (selected == nullptr)
     {
-        m_detailEditor->setText(threadAuditText("thread_audit.detail.initial", QStringLiteral("请选择一条线程记录查看证据与安全边界。")));
+        m_detailEditor->setDocument(ks::ui::FieldDocument{}.note(threadAuditText("thread_audit.detail.initial", QStringLiteral("请选择一条线程记录查看证据与安全边界。"))));
         m_suspendButton->setEnabled(false);
         m_resumeButton->setEnabled(false);
         m_terminateButton->setEnabled(false);
@@ -456,73 +456,54 @@ void KernelThreadAuditTab::updateDetail()
     m_resumeButton->setEnabled(actionAllowed);
     m_terminateButton->setEnabled(actionAllowed);
 
-    QStringList detailLines;
-    detailLines << threadAuditText("thread_audit.detail.identity", QStringLiteral("[线程身份]"));
+    ks::ui::FieldDocument detailLines;
+    detailLines.section(QStringLiteral("线程身份"));
     if (m_mode == Mode::WorkQueueThreads)
     {
-        detailLines
-            << QStringLiteral("RowKind: %1").arg(
-                row.workQueueRowKind == KSWORD_ARK_WORK_QUEUE_ROW_WORK_ITEM
+        detailLines.field(QStringLiteral("RowKind"), QStringLiteral("%1").arg(row.workQueueRowKind == KSWORD_ARK_WORK_QUEUE_ROW_WORK_ITEM
                     ? threadAuditText("thread_audit.category.work_item", QStringLiteral("工作项"))
-                    : threadAuditText("thread_audit.category.worker", QStringLiteral("关联工作线程")))
-            << QStringLiteral("TID: %1").arg(row.threadId)
-            << QStringLiteral("ETHREAD: %1").arg(addressText(row.threadObject))
-            << QStringLiteral("CreateTime100ns: %1").arg(
-                static_cast<qulonglong>(row.createTime100ns))
-            << QString()
-            << threadAuditText("thread_audit.detail.queue", QStringLiteral("[工作队列证据]"))
-            << QStringLiteral("QueueType: %1 (%2)")
-                .arg(queueTypeText(row.queueType))
-                .arg(row.queueType)
-            << QStringLiteral("Node/Priority: %1/%2")
-                .arg(row.nodeIndex)
-                .arg(row.queuePriorityIndex)
-            << QStringLiteral("EX_WORK_QUEUE: %1").arg(addressText(row.queueAddress))
-            << QStringLiteral("WORK_QUEUE_ITEM: %1").arg(addressText(row.workItemAddress))
-            << QStringLiteral("WorkerRoutine: %1").arg(addressText(row.startAddress))
-            << QStringLiteral("Parameter: %1").arg(pointerText(row.parameterAddress))
-            << QStringLiteral("EvidenceFlags: 0x%1")
-                .arg(row.workQueueFlags, 0, 16)
-            << QStringLiteral("EntryStatus: %1 (%2)")
-                .arg(workQueueEntryStatusText(row.workQueueStatus))
-                .arg(row.workQueueStatus)
-            << threadAuditText(
-                "thread_audit.detail.queue_boundary",
-                QStringLiteral("证据来自当前构建精确匹配的 PDB/DynData 结构描述；未知字段、身份不匹配、链表损坏或读取失败均显式降级。"));
+                    : threadAuditText("thread_audit.category.worker", QStringLiteral("关联工作线程"))));
+        detailLines.field(QStringLiteral("TID"), QStringLiteral("%1").arg(row.threadId));
+        detailLines.field(QStringLiteral("ETHREAD"), QStringLiteral("%1").arg(addressText(row.threadObject)));
+        detailLines.field(QStringLiteral("CreateTime100ns"), QStringLiteral("%1").arg(static_cast<qulonglong>(row.createTime100ns)));
+
+        detailLines.section(QStringLiteral("工作队列证据"));
+        detailLines.field(QStringLiteral("QueueType"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(queueTypeText(row.queueType))).arg(QStringLiteral("%1").arg(row.queueType)));
+        detailLines.field(QStringLiteral("Node/Priority"), QStringLiteral("%1/%2").arg(QStringLiteral("%1").arg(row.nodeIndex)).arg(QStringLiteral("%1").arg(row.queuePriorityIndex)));
+        detailLines.field(QStringLiteral("EX_WORK_QUEUE"), QStringLiteral("%1").arg(addressText(row.queueAddress)));
+        detailLines.field(QStringLiteral("WORK_QUEUE_ITEM"), QStringLiteral("%1").arg(addressText(row.workItemAddress)));
+        detailLines.field(QStringLiteral("WorkerRoutine"), QStringLiteral("%1").arg(addressText(row.startAddress)));
+        detailLines.field(QStringLiteral("Parameter"), QStringLiteral("%1").arg(pointerText(row.parameterAddress)));
+        detailLines.field(QStringLiteral("EvidenceFlags"), QStringLiteral("0x%1").arg(QStringLiteral("%1").arg(row.workQueueFlags, 0, 16)));
+        detailLines.field(QStringLiteral("EntryStatus"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(workQueueEntryStatusText(row.workQueueStatus))).arg(QStringLiteral("%1").arg(row.workQueueStatus)));
+        detailLines.note(QStringLiteral("证据来自当前构建精确匹配的 PDB/DynData 结构描述"));
+        detailLines.note(QStringLiteral("未知字段、身份不匹配、链表损坏或读取失败均显式降级。"));
     }
     else
     {
-        detailLines
-            << QStringLiteral("TID: %1").arg(row.threadId)
-            << QStringLiteral("CreateTime100ns: %1").arg(
-                static_cast<qulonglong>(row.createTime100ns))
-            << QStringLiteral("Priority/BasePriority: %1/%2").arg(row.priority).arg(row.basePriority)
-            << QStringLiteral("State: %1 (%2)").arg(stateText(row.state)).arg(row.state)
-            << QStringLiteral("WaitReason: %1 (%2)").arg(waitReasonText(row.waitReason)).arg(row.waitReason)
-            << QString()
-            << threadAuditText("thread_audit.detail.scheduling", QStringLiteral("[调度证据]"))
-            << QStringLiteral("ActiveExWorkerKnown: %1").arg(row.workerKnown ? QStringLiteral("true") : QStringLiteral("false"))
-            << QStringLiteral("ActiveExWorker: %1").arg(row.activeWorker ? QStringLiteral("true") : QStringLiteral("false"))
-            << threadAuditText(
-                "thread_audit.detail.system_queue_boundary",
-                QStringLiteral("队列归属不适用于系统线程管理视图；请在只读工作队列页查看精确队列与工作项证据。"));
+        detailLines.field(QStringLiteral("TID"), QStringLiteral("%1").arg(row.threadId));
+        detailLines.field(QStringLiteral("CreateTime100ns"), QStringLiteral("%1").arg(static_cast<qulonglong>(row.createTime100ns)));
+        detailLines.field(QStringLiteral("Priority/BasePriority"), QStringLiteral("%1/%2").arg(QStringLiteral("%1").arg(row.priority)).arg(QStringLiteral("%1").arg(row.basePriority)));
+        detailLines.field(QStringLiteral("State"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(stateText(row.state))).arg(QStringLiteral("%1").arg(row.state)));
+        detailLines.field(QStringLiteral("WaitReason"), QStringLiteral("%1 (%2)").arg(QStringLiteral("%1").arg(waitReasonText(row.waitReason))).arg(QStringLiteral("%1").arg(row.waitReason)));
+
+        detailLines.section(QStringLiteral("调度证据"));
+        detailLines.field(QStringLiteral("ActiveExWorkerKnown"), QStringLiteral("%1").arg(row.workerKnown ? QStringLiteral("true") : QStringLiteral("false")));
+        detailLines.field(QStringLiteral("ActiveExWorker"), QStringLiteral("%1").arg(row.activeWorker ? QStringLiteral("true") : QStringLiteral("false")));
+        detailLines.note(QStringLiteral("队列归属不适用于系统线程管理视图"));
+        detailLines.note(QStringLiteral("请在只读工作队列页查看精确队列与工作项证据。"));
     }
 
-    detailLines
-        << QString()
-        << threadAuditText("thread_audit.detail.module", QStringLiteral("[入口与模块归属]"))
-        << QStringLiteral("StartRoutine: %1").arg(addressText(row.startAddress))
-        << QStringLiteral("Module: %1").arg(row.moduleResolved ? row.module.name : QStringLiteral("<unresolved>"))
-        << QStringLiteral("ModuleBase/Size: %1 / 0x%2")
-            .arg(addressText(row.module.baseAddress))
-            .arg(row.module.imageSize, 0, 16)
-        << QStringLiteral("ModulePath: %1").arg(row.module.path)
-        << QString()
-        << threadAuditText("thread_audit.detail.safety", QStringLiteral("[管理确认]"))
-        << threadAuditText(
-            "thread_audit.detail.safety_boundary",
-            QStringLiteral("危险操作仅限系统线程页；R0 始终复核 TID，并在启动地址或创建时间可用时同步复核对应字段。"));
-    m_detailEditor->setText(detailLines.join(QLatin1Char('\n')));
+    detailLines.section(QStringLiteral("入口与模块归属"));
+    detailLines.field(QStringLiteral("StartRoutine"), QStringLiteral("%1").arg(addressText(row.startAddress)));
+    detailLines.field(QStringLiteral("Module"), QStringLiteral("%1").arg(row.moduleResolved ? row.module.name : QStringLiteral("<unresolved>")));
+    detailLines.field(QStringLiteral("ModuleBase/Size"), QStringLiteral("%1 / 0x%2").arg(QStringLiteral("%1").arg(addressText(row.module.baseAddress))).arg(QStringLiteral("%1").arg(row.module.imageSize, 0, 16)));
+    detailLines.field(QStringLiteral("ModulePath"), QStringLiteral("%1").arg(row.module.path));
+
+    detailLines.section(QStringLiteral("管理确认"));
+    detailLines.note(QStringLiteral("危险操作仅限系统线程页"));
+    detailLines.note(QStringLiteral("R0 始终复核 TID，并在启动地址或创建时间可用时同步复核对应字段。"));
+    m_detailEditor->setDocument(detailLines);
 }
 
 void KernelThreadAuditTab::applyColumnPreset(const ViewPreset preset)

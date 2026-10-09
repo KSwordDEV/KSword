@@ -1,4 +1,5 @@
-﻿#pragma once
+#include "../UI/StructuredFieldView.h"
+#pragma once
 
 // ============================================================
 // TamperDetectionPage.h
@@ -142,6 +143,6 @@ namespace ksword::memory_dock
         QLabel* m_statusLabel = nullptr;
         QLabel* m_channelHintLabel = nullptr;
         ks::ui::VisibleTableWidget* m_resultTable = nullptr;
-        CodeEditorWidget* m_detailText = nullptr;
+        ks::ui::StructuredFieldView* m_detailText = nullptr;
     };
 }

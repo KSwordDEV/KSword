@@ -1,4 +1,5 @@
-﻿#pragma once
+#include "../UI/StructuredFieldView.h"
+#pragma once
 
 #include "../ArkDriverClient/ArkDriverTypes.h"
 
@@ -81,7 +82,7 @@ private:
         ksword::ark::HvmEventResult result);
     bool confirmTyped(const QString& warning, const QString& phrase);
     void updateButtons();
-    QString buildDetail(
+    ks::ui::FieldDocument buildDetail(
         const KSWORD_ARK_QUERY_HVM_RESPONSE& response) const;
     static QString featureText(std::uint64_t flags);
     static QString stateText(std::uint32_t flags);
@@ -104,7 +105,7 @@ private:
     QPushButton* m_stopResidentButton = nullptr;
     QPushButton* m_featureActionButton = nullptr;
     QTableWidget* m_cpuTable = nullptr;
-    CodeEditorWidget* m_detailEdit = nullptr;
+    ks::ui::StructuredFieldView* m_detailEdit = nullptr;
     FeatureArea m_featureArea = FeatureArea::Ept;
     KSWORD_ARK_QUERY_HVM_RESPONSE m_snapshot{};
     bool m_firstRefreshStarted = false;

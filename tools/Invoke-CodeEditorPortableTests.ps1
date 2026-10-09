@@ -79,20 +79,21 @@ try {
         & (Join-Path $editorQt 'share/qt6/bin/moc.exe') $editorHeader -o $editorMocSource
         if ($LASTEXITCODE -ne 0) { throw 'Editor moc generation failed.' }
     }
+    $editorFieldMoc = Join-Path $editorOutput 'moc_StructuredFieldView.cpp'
+    & (Join-Path $editorQt 'share/qt6/bin/moc.exe') 'Ksword5.1/Ksword5.1/UI/StructuredFieldView.h' -o $editorFieldMoc
+    if ($LASTEXITCODE -ne 0) { throw 'Structured field moc generation failed.' }
     $editorSources = @('tools/code_editor_ui_tests.cpp',
         'Ksword5.1/Ksword5.1/UI/CodeEditorWidget.cpp',
         'Ksword5.1/Ksword5.1/UI/CodeTextEdit.cpp',
         'Ksword5.1/Ksword5.1/UI/CodeEditorFileSession.cpp',
-        'Ksword5.1/Ksword5.1/UI/ReportStructuredView.cpp',
-        'Ksword5.1/Ksword5.1/UI/FieldTreePresenter.cpp',
-        'Ksword5.1/Ksword5.1/UI/FieldTreePresenter.Copy.cpp',
+        'Ksword5.1/Ksword5.1/UI/StructuredFieldView.cpp', 'Ksword5.1/Ksword5.1/UI/TypedSyntaxDocument.cpp',
         'Ksword5.1/Ksword5.1/UI/FlowLayout.cpp',
         'Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.cpp',
         'Ksword5.1/Ksword5.1/UI/ThemeControlGlyphs.cpp',
         'Ksword5.1/Ksword5.1/UI/ThemeStatusRole.cpp',
         'Ksword5.1/Ksword5.1/UI/SmoothScrollSupport.cpp',
         'Ksword5.1/Ksword5.1/Internationalization/LanguageManager.cpp',
-        $editorMocSource, $editorResourceSource)
+        $editorMocSource, $editorFieldMoc, $editorResourceSource)
     $editorReusable = @('FlowLayout', 'GlobalUiBaseStyle', 'ThemeControlGlyphs', 'ThemeStatusRole', 'SmoothScrollSupport', 'LanguageManager')
     $editorObjects = @()
     foreach ($editorSource in $editorSources) {
@@ -120,6 +121,11 @@ try {
     & g++ @editorObjects '-Wl,--gc-sections' "-L$editorQt/lib" -lQt6Widgets -lQt6Gui -lQt6Core `
         -lQt6Test -lQt6Svg -luser32 -ladvapi32 -o $editorExe
     if ($LASTEXITCODE -ne 0) { throw 'Code editor fixture link failed.' }
+    $editorLanguages = Join-Path $editorOutput 'languages'
+    New-Item -ItemType Directory -Path $editorLanguages -Force | Out-Null
+    foreach ($editorLanguage in @('zh-CN.json', 'en-US.json')) {
+        Copy-Item -LiteralPath (Join-Path $editorRepository "Ksword5.1/Ksword5.1/languages/$editorLanguage") -Destination $editorLanguages -Force
+    }
     & $editorExe (Join-Path $editorOutput 'shots') 2>&1 |
         Tee-Object -FilePath (Join-Path $editorOutput 'code-editor-tests.log')
     if ($LASTEXITCODE -ne 0) { throw "Code editor Qt regression failed (native exit $LASTEXITCODE)." }

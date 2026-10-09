@@ -677,18 +677,7 @@ bool runObjectNamespaceSnapshotTask(std::vector<KernelObjectNamespaceEntry>& row
             failedEntry.querySucceeded = false;
             failedEntry.isDirectory = false;
             failedEntry.isSymbolicLink = false;
-            failedEntry.detailText = QStringLiteral(
-                "根目录: %1\n"
-                "作用说明: %2\n"
-                "目录路径: %3\n"
-                "枚举 API: %4\n"
-                "状态: %5")
-                .arg(
-                    failedEntry.rootPathText,
-                    failedEntry.scopeDescriptionText,
-                    failedEntry.directoryPathText,
-                    failedEntry.enumApiText,
-                    failedEntry.statusText);
+
             resultRows.push_back(std::move(failedEntry));
             continue;
         }
@@ -718,17 +707,7 @@ bool runObjectNamespaceSnapshotTask(std::vector<KernelObjectNamespaceEntry>& row
             emptyEntry.querySucceeded = true;
             emptyEntry.isDirectory = true;
             emptyEntry.isSymbolicLink = false;
-            emptyEntry.detailText = QStringLiteral(
-                "根目录: %1\n"
-                "作用说明: %2\n"
-                "目录路径: %3\n"
-                "枚举 API: %4\n"
-                "状态: 空目录")
-                .arg(
-                    emptyEntry.rootPathText,
-                    emptyEntry.scopeDescriptionText,
-                    emptyEntry.directoryPathText,
-                    emptyEntry.enumApiText);
+
             resultRows.push_back(std::move(emptyEntry));
             continue;
         }
@@ -764,26 +743,7 @@ bool runObjectNamespaceSnapshotTask(std::vector<KernelObjectNamespaceEntry>& row
                 }
             }
 
-            entry.detailText = QStringLiteral(
-                "根目录: %1\n"
-                "作用说明: %2\n"
-                "当前目录: %3\n"
-                "对象名: %4\n"
-                "对象类型: %5\n"
-                "完整路径: %6\n"
-                "枚举 API: %7\n"
-                "符号链接目标: %8\n"
-                "状态: %9")
-                .arg(
-                    entry.rootPathText,
-                    entry.scopeDescriptionText,
-                    entry.directoryPathText,
-                    entry.objectNameText,
-                    entry.objectTypeText,
-                    entry.fullPathText,
-                    entry.enumApiText,
-                    entry.symbolicLinkTargetText.isEmpty() ? QStringLiteral("<无>") : entry.symbolicLinkTargetText,
-                    entry.statusText);
+
             resultRows.push_back(std::move(entry));
         }
 
@@ -803,14 +763,7 @@ bool runObjectNamespaceSnapshotTask(std::vector<KernelObjectNamespaceEntry>& row
             truncatedEntry.querySucceeded = true;
             truncatedEntry.isDirectory = false;
             truncatedEntry.isSymbolicLink = false;
-            truncatedEntry.detailText = QStringLiteral(
-                "根目录: %1\n"
-                "目录路径: %2\n"
-                "提示: 为避免 UI 卡顿，单目录结果已截断到 %3 项。")
-                .arg(
-                    truncatedEntry.rootPathText,
-                    truncatedEntry.directoryPathText)
-                .arg(kMaxEntriesPerDirectory);
+            truncatedEntry.detailDocument.note(QStringLiteral("为避免 UI 卡顿，单目录结果已截断到 %1 项。").arg(kMaxEntriesPerDirectory));
             resultRows.push_back(std::move(truncatedEntry));
         }
     }

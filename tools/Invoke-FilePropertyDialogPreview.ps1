@@ -50,7 +50,7 @@ try {
 
     # Use the real navigation SVG resources from the product's resource map.
     [xml]$previewResources = Get-Content -LiteralPath 'Ksword5.1/Ksword5.1/Ksword5.qrc' -Raw
-    $previewAliases = @('process_details.svg','process_copy_cell.svg','file_nav_forward.svg','file_owner.svg','process_performance.svg','process_main.svg','disk_storage.svg','filter_funnel.svg','process_critical.svg','process_list.svg','process_copy_row.svg','file_find.svg')
+    $previewAliases = @('process_details.svg','process_copy_cell.svg','file_nav_forward.svg','file_owner.svg','process_performance.svg','process_main.svg','disk_storage.svg','filter_funnel.svg','process_critical.svg','process_list.svg','process_copy_row.svg','file_find.svg','log_export.svg')
     $previewQrc = @('<RCC><qresource prefix="/Icon">')
     foreach ($previewResource in $previewResources.SelectNodes('//file')) {
         if ($previewResource.GetAttribute('alias') -notin $previewAliases) { continue }
@@ -70,6 +70,7 @@ try {
     foreach ($previewUnit in @('tools/file_property_dialog_preview.cpp',
         'Ksword5.1/Ksword5.1/UI/UIBaseFunction.cpp',
         'Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.cpp',
+        'Ksword5.1/Ksword5.1/UI/TablePresentation.cpp',
         'Ksword5.1/Ksword5.1/UI/ThemeControlGlyphs.cpp',
         'Ksword5.1/Ksword5.1/UI/ThemeStatusRole.cpp',
         (Join-Path $previewOutput 'qrc_navigation.cpp'))) {
@@ -79,7 +80,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Production shell fixture compilation failed: $previewUnit" }
         $previewObjects += $previewObject
     }
-    foreach ($previewShared in @('FilePropertyView.o', 'LanguageManager.o')) {
+    foreach ($previewShared in @('StructuredFieldView.o', 'moc_StructuredFieldView.o', 'LanguageManager.o')) {
         $previewObjects += Join-Path $previewRepository "work/file-property-view-ui-tests/$previewShared"
     }
     $previewLanguages = Join-Path $previewOutput 'languages'

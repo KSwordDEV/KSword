@@ -3,13 +3,21 @@
 #include "../Ksword5.1/Ksword5.1/UI/TableInteractionSupport.h"
 #include "../Ksword5.1/Ksword5.1/UI/TableSearchSupport.h"
 #include "../Ksword5.1/Ksword5.1/UI/TableHeaderSortingSupport.h"
+#include "../Ksword5.1/Ksword5.1/UI/TableFreezeSupport.h"
+#include "../Ksword5.1/Ksword5.1/UI/TableSnapshotCompare.h"
+#include "../Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.h"
+#include "../Ksword5.1/Ksword5.1/theme.h"
 
 #include <QApplication>
 #include <QComboBox>
 #include <QContextMenuEvent>
+#include <QDir>
+#include <QFont>
 #include <QHeaderView>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QPushButton>
+#include <QSpinBox>
 #include <QStandardItemModel>
 #include <QTableWidget>
 #include <QToolButton>
@@ -51,6 +59,12 @@ namespace
                 return button;
             }
         }
+        return nullptr;
+    }
+
+    QAction* actionWithText(QMenu* menu, const QString& text)
+    {
+        for (QAction* action : menu->actions()) if (action->text() == text) return action;
         return nullptr;
     }
 
@@ -269,6 +283,190 @@ namespace
         }
     }
 
+    void checkFreezeMenu(QApplication& application, const QString& output)
+    {
+        ks::ui::VisibleTableWidget table;
+        table.setColumnCount(4);
+        table.setRowCount(12);
+        table.setHorizontalHeaderLabels({QStringLiteral("Name"), QStringLiteral("PID"),
+            QStringLiteral("State"), QStringLiteral("Location")});
+        table.setSelectionBehavior(QAbstractItemView::SelectRows);
+        table.setSelectionMode(QAbstractItemView::ExtendedSelection);
+        for (int row = 0; row < table.rowCount(); ++row)
+            for (int column = 0; column < table.columnCount(); ++column)
+                table.setItem(row, column, new QTableWidgetItem(QStringLiteral("row%1 value%2").arg(row).arg(column)));
+        for (int column = 0; column < table.columnCount(); ++column) table.setColumnWidth(column, 140);
+        table.resize(1200, 620);
+        table.show();
+        drain();
+        auto* freeze = table.findChild<QToolButton*>(QStringLiteral("ksword_table_freeze_button"));
+        expect(freeze != nullptr && freeze->text() == QStringLiteral("冻结")
+            && freeze->toolButtonStyle() == Qt::ToolButtonTextOnly && freeze->height() >= 28,
+            "one normal-sized labelled freeze entry is visible");
+        if (freeze == nullptr || freeze->menu() == nullptr) return;
+        QMenu* menu = freeze->menu();
+        auto* rows = menu->findChild<QSpinBox*>(QStringLiteral("ksword_table_freeze_row_count"));
+        auto* columns = menu->findChild<QSpinBox*>(QStringLiteral("ksword_table_freeze_column_count"));
+        auto* apply = menu->findChild<QPushButton*>(QStringLiteral("ksword_table_apply_freeze_counts"));
+        expect(rows != nullptr && columns != nullptr && apply != nullptr && !rows->isVisible() && !columns->isVisible(),
+            "row-column settings live in the freeze menu instead of the table bar");
+        if (rows == nullptr || columns == nullptr || apply == nullptr) return;
+        auto* clearRows = actionWithText(menu, QStringLiteral("取消冻结行"));
+        auto* clearColumns = actionWithText(menu, QStringLiteral("取消冻结列"));
+        auto* clearAll = actionWithText(menu, QStringLiteral("取消全部冻结"));
+        auto* selectedRows = actionWithText(menu, QStringLiteral("冻结选中行"));
+        expect(clearRows && clearColumns && clearAll && selectedRows
+            && actionWithText(menu, QStringLiteral("冻结选中列"))
+            && actionWithText(menu, QStringLiteral("冻结选中行列")),
+            "every existing selected-row-column and unfreeze action remains available");
+        if (!clearRows || !clearColumns || !clearAll || !selectedRows) return;
+
+        table.setRowHidden(0, true);
+        table.setColumnHidden(1, true);
+        table.horizontalHeader()->setSectionsMovable(true);
+        table.horizontalHeader()->moveSection(3, 0);
+        menu->popup(freeze->mapToGlobal(QPoint(0, freeze->height())));
+        drain();
+        expect(menu->isVisible() && rows->maximum() == 12 && columns->maximum() == 4,
+            "menu exposes complete row and column count ranges");
+        QObject owner;
+        int committed = 0;
+        auto* coordinator = ks::ui::UiCommitCoordinator::forApplication(&application);
+        expect(coordinator->submit(&owner, QStringLiteral("freeze-menu"), {&table}, [&committed]() { ++committed; })
+            == ks::ui::UiCommitSubmission::Deferred && committed == 0,
+            "freeze settings menu protects the source model with the existing commit barrier");
+        rows->setValue(2);
+        columns->setValue(1);
+        apply->click();
+        expect(committed == 0, "freeze apply retains commit barrier until its callback returns");
+        drain();
+        expect(committed == 1 && !menu->isVisible(), "menu close releases the deferred commit once");
+        expect(ks::ui::isRowHiddenByFreeze(&table, 1) && ks::ui::isRowHiddenByFreeze(&table, 2)
+            && ks::ui::isColumnHiddenByFreeze(&table, 3),
+            "counts freeze the first visible sections in current visual order");
+        expect(table.isRowHidden(0) && table.isColumnHidden(1)
+            && !ks::ui::isRowHiddenByFreeze(&table, 0) && !ks::ui::isColumnHiddenByFreeze(&table, 1),
+            "count operations preserve business-hidden rows and columns");
+        expect(freeze->property("ksword_frozen_rows").toInt() == 2
+            && freeze->property("ksword_frozen_columns").toInt() == 1
+            && freeze->text() == QStringLiteral("冻结（2 行 / 1 列）"),
+            "freeze entry reports the actual row and column state");
+        const auto snapshot = ks::ui::TableSnapshotCompareEngine::capture(&table, QStringLiteral("frozen"), 1);
+        expect(snapshot.rows.size() == 11 && snapshot.visibleColumns.size() == 3
+            && snapshot.visibleColumns.front().sourceColumn == 3,
+            "snapshot capture retains frozen sections and current visual order");
+
+        if (!output.isEmpty())
+        {
+            expect(table.grab().save(QDir(output).filePath(QStringLiteral("table-freeze-light.png"))),
+                "actual freeze toolbar light screenshot saved");
+            menu->popup(freeze->mapToGlobal(QPoint(0, freeze->height())));
+            drain();
+            expect(menu->grab().save(QDir(output).filePath(QStringLiteral("table-freeze-menu-light.png"))),
+                "actual freeze count menu screenshot saved");
+            menu->hide(); drain();
+            const QPalette oldPalette = application.palette();
+            KswordTheme::SetDarkModeEnabled(true);
+            QPalette dark = oldPalette;
+            dark.setColor(QPalette::Window, KswordTheme::MainBackgroundColor());
+            dark.setColor(QPalette::Base, KswordTheme::SurfaceColor());
+            dark.setColor(QPalette::Button, KswordTheme::SurfaceAltColor());
+            dark.setColor(QPalette::AlternateBase, KswordTheme::SurfaceAltColor());
+            for (const auto role : {QPalette::Text, QPalette::WindowText, QPalette::ButtonText}) dark.setColor(role, KswordTheme::TextPrimaryColor());
+            dark.setColor(QPalette::Mid, KswordTheme::BorderColor());
+            dark.setColor(QPalette::PlaceholderText, KswordTheme::TextSecondaryColor());
+            dark.setColor(QPalette::Highlight, KswordTheme::ControlAccentColor());
+            dark.setColor(QPalette::HighlightedText, KswordTheme::OnAccentColor(KswordTheme::ControlAccentColor()));
+            application.setPalette(dark);
+            application.setStyleSheet(ks::ui::BuildGlobalBaseControlStyleBlock());
+            drain();
+            expect(table.palette().color(QPalette::Text).rgba() == dark.color(QPalette::Text).rgba(),
+                "actual global theme refresh updates the source table text palette");
+            for (QTableView* pane : table.findChildren<QTableView*>())
+                if (pane->property("KSWORD_TABLE_INTERACTION_FROZEN_PANE_AUXILIARY").toBool())
+                    expect(pane->palette().color(QPalette::Text).rgba() == table.palette().color(QPalette::Text).rgba()
+                        && pane->viewport()->palette().color(QPalette::Base).rgba() == table.viewport()->palette().color(QPalette::Base).rgba(),
+                        "frozen pane mirrors the current source theme palette");
+            expect(table.grab().save(QDir(output).filePath(QStringLiteral("table-freeze-dark.png"))),
+                "actual freeze toolbar follows a hot dark palette");
+            menu->popup(freeze->mapToGlobal(QPoint(0, freeze->height()))); drain();
+            expect(menu->grab().toImage().pixelColor(3, menu->height() - 3).rgba() == KswordTheme::SurfaceColor().rgba(),
+                "freeze popup refreshes its sampled surface color when reopened after hot theme change");
+            expect(menu->grab().save(QDir(output).filePath(QStringLiteral("table-freeze-menu-dark.png"))),
+                "actual freeze count menu follows a hot dark palette");
+            menu->hide(); drain();
+            KswordTheme::SetDarkModeEnabled(false);
+            application.setPalette(oldPalette);
+            application.setStyleSheet(ks::ui::BuildGlobalBaseControlStyleBlock());
+            drain();
+        }
+
+        menu->popup(freeze->mapToGlobal(QPoint(0, freeze->height()))); drain();
+        expect(rows->value() == 2 && columns->value() == 1, "menu count defaults follow actual frozen state");
+        clearRows->trigger(); menu->hide(); drain();
+        expect(!ks::ui::isRowHiddenByFreeze(&table, 1) && !ks::ui::isRowHiddenByFreeze(&table, 2)
+            && freeze->property("ksword_frozen_rows").toInt() == 0
+            && freeze->property("ksword_frozen_columns").toInt() == 1,
+            "unfreeze rows keeps the frozen column and updates the entry immediately");
+        clearAll->trigger(); drain();
+        expect(freeze->text() == QStringLiteral("冻结") && table.isRowHidden(0) && table.isColumnHidden(1),
+            "unfreeze all restores the idle label without exposing business-hidden sections");
+        table.setCurrentCell(2, 0);
+        table.selectRow(2);
+        table.selectionModel()->select(table.model()->index(4, 0), QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        menu->popup(freeze->mapToGlobal(QPoint(0, freeze->height()))); drain();
+        selectedRows->trigger(); menu->hide(); drain();
+        expect(ks::ui::isRowHiddenByFreeze(&table, 2) && ks::ui::isRowHiddenByFreeze(&table, 4),
+            "existing multi-selection freeze behavior is preserved");
+        table.removeRow(2); drain();
+        expect(freeze->property("ksword_frozen_rows").toInt() == 1,
+            "model row deletion updates the visible freeze count without reopening the menu");
+        clearAll->trigger(); drain();
+        menu->popup(freeze->mapToGlobal(QPoint(0, freeze->height()))); drain();
+        rows->setValue(rows->maximum()); columns->setValue(0); apply->click(); drain();
+        expect(freeze->property("ksword_frozen_rows").toInt() > 0
+            && freeze->property("ksword_frozen_rows").toInt() < table.rowCount() - 1 && table.viewport()->height() > 0,
+            "the original half-viewport freeze budget remains effective");
+        clearAll->trigger(); drain();
+        auto* pause = buttonWithText(&table, QStringLiteral("冻结视图"));
+        expect(pause != nullptr && pause->isEnabled(), "view pause remains a separate labelled capability");
+        if (pause != nullptr)
+        {
+            pause->click(); drain();
+            menu->popup(freeze->mapToGlobal(QPoint(0, freeze->height()))); drain();
+            rows->setValue(1); columns->setValue(1); apply->click(); drain();
+            expect(pause->isChecked() && freeze->property("ksword_frozen_rows").toInt() == 1
+                && freeze->property("ksword_frozen_columns").toInt() == 1,
+                "row-column count settings also operate on the actual paused view");
+            pause->click(); drain();
+            expect(!pause->isChecked() && freeze->text() == QStringLiteral("冻结"),
+                "resuming the live view clears the paused pane count coherently");
+        }
+    }
+
+    void checkFreezeMenuLifetime(QApplication& application)
+    {
+        QObject owner;
+        int unexpectedCommits = 0;
+        auto* coordinator = ks::ui::UiCommitCoordinator::forApplication(&application);
+        for (int iteration = 0; iteration < 8; ++iteration)
+        {
+            auto* table = new ks::ui::VisibleTableWidget;
+            table->setRowCount(4); table->setColumnCount(2);
+            table->resize(1100, 380); table->show(); drain();
+            auto* freeze = table->findChild<QToolButton*>(QStringLiteral("ksword_table_freeze_button"));
+            expect(freeze != nullptr && freeze->menu() != nullptr, "lifetime fixture has the actual freeze menu");
+            if (freeze == nullptr || freeze->menu() == nullptr) { delete table; continue; }
+            freeze->menu()->popup(freeze->mapToGlobal(QPoint(0, freeze->height()))); drain();
+            coordinator->submit(&owner, QStringLiteral("destroy-open-freeze"), {table},
+                [&unexpectedCommits]() { ++unexpectedCommits; });
+            const QPointer<ks::ui::VisibleTableWidget> guard(table);
+            delete table; drain();
+            expect(guard.isNull() && coordinator->pendingCount() == 0 && unexpectedCommits == 0,
+                "destroying an open freeze menu cancels its deferred source commit safely");
+        }
+    }
+
     void checkModelRebinding()
     {
         ks::ui::TableActionTableView table;
@@ -378,10 +576,17 @@ namespace ks::ui
 int main(int argc, char* argv[])
 {
     QApplication application(argc, argv);
+    application.setStyle(QStringLiteral("Fusion"));
+    application.setFont(QFont(QStringLiteral("Microsoft YaHei UI"), 10));
+    application.setStyleSheet(ks::ui::BuildGlobalBaseControlStyleBlock());
+    const QString output = argc > 1 ? QString::fromLocal8Bit(argv[1]) : QString();
+    if (!output.isEmpty()) QDir().mkpath(output);
     checkCoordinator(application);
     checkHosts(application);
     checkModelRebinding();
     checkNativeMenus();
+    checkFreezeMenu(application, output);
+    checkFreezeMenuLifetime(application);
     drain();
     std::printf("RESULT_TABLE_CHECKS=%d\nRESULT_TABLE_FAILURES=%d\n", checks, failures);
     return failures == 0 ? 0 : 1;
