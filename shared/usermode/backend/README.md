@@ -44,3 +44,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | window enumeration and management | 36-window |
 | window clipboard reading | 37-window-clipboard |
 | window capture protection | 38-window-capture |
+| window hierarchy diagnostics | 39-window-hierarchy |

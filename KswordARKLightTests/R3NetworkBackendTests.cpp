@@ -1,3 +1,6 @@
+#include "../shared/usermode/backend/window/PointerText.h"
+#include "../shared/usermode/backend/window/WindowHierarchy.h"
+#include "../shared/usermode/backend/window/WindowHierarchySupport.h"
 #include "../shared/usermode/backend/window/CaptureProtection.h"
 #include "../shared/usermode/backend/window/ClipboardCopy.h"
 #include "../shared/usermode/backend/window/Clipboard.h"

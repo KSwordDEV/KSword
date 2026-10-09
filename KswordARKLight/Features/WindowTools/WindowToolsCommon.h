@@ -1,4 +1,6 @@
 #pragma once
+#include "../../../shared/usermode/backend/window/PointerText.h"
+#include "../../../shared/usermode/backend/window/WindowHierarchySupport.h"
 #include "../../../shared/usermode/backend/window/ClipboardCopy.h"
 #include "../../../shared/usermode/backend/window/WindowQueries.h"
 #include "../../../shared/usermode/backend/window/WindowToolsTypes.h"
@@ -47,7 +49,7 @@ using ks::r3::window_tools::HwndText;
 
 // PointerText formats a code or object address. Input is any pointer-sized
 // value; output is fixed-width hexadecimal for column alignment.
-std::wstring PointerText(std::uint64_t value);
+using ks::r3::window_tools::PointerText;
 
 // HexText formats an integer with a fixed digit count. Inputs are the value and
 // the number of digits to pad to; output carries the 0x prefix.
@@ -55,7 +57,7 @@ using ks::r3::window_tools::HexText;
 
 // RectText formats a RECT as edges plus derived size. Input is a RECT; output is
 // compact display text used by the detail panes.
-std::wstring RectText(const RECT& rect);
+using ks::r3::window_tools::RectText;
 
 // WindowTitleText reads one window's caption. Input is a live HWND; output is
 // empty for untitled, inaccessible, or disappearing windows.
@@ -78,7 +80,7 @@ using ks::r3::window_tools::DisplayAffinityText;
 // DescribeWindowBrief formats a one-line identity for a related window. Input is
 // any HWND including nullptr; output is handle, class and truncated title, used
 // for ancestor and Z-order neighbours where a full block would drown the report.
-std::wstring DescribeWindowBrief(HWND hwnd);
+using ks::r3::window_tools::DescribeWindowBrief;
 
 // DecodeWindowStyleBits names every set bit of GWL_STYLE. Inputs are the style
 // value and whether the window is a child; output is one entry per recognized
@@ -88,17 +90,17 @@ std::wstring DescribeWindowBrief(HWND hwnd);
 // control and WS_MAXIMIZEBOX/WS_MINIMIZEBOX on a top-level window -- the same
 // bits with different meanings -- so a decoder that ignores WS_CHILD reports the
 // wrong flag for half the windows on the system.
-std::vector<std::wstring> DecodeWindowStyleBits(DWORD style, bool isChild);
+using ks::r3::window_tools::DecodeWindowStyleBits;
 
 // DecodeWindowExStyleBits names every set bit of GWL_EXSTYLE. Input is the
 // extended style; output is one entry per recognized bit plus any leftover bits
 // as raw hexadecimal so nothing is silently dropped.
-std::vector<std::wstring> DecodeWindowExStyleBits(DWORD exStyle);
+using ks::r3::window_tools::DecodeWindowExStyleBits;
 
 // DecodeClassStyleBits names every set bit of a CS_* class style. Input is the
 // value from GetClassLongPtr(GCL_STYLE); output follows the same rules as the
 // window style decoders.
-std::vector<std::wstring> DecodeClassStyleBits(DWORD classStyle);
+using ks::r3::window_tools::DecodeClassStyleBits;
 
 // CopyTextToClipboard places text on the clipboard. Inputs are an owner window
 // belonging to the calling thread and the text; output is false when the
