@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/kernel/ObjectNamespace.h"
 #include "../shared/usermode/backend/system/IoctlDecoder.h"
 #include "../shared/usermode/backend/system/SystemTimeInfo.h"
 #include "../shared/usermode/backend/system/ContextMenuScanner.h"

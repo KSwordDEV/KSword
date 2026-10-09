@@ -52,3 +52,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | system context menu scanning and recovery | 44-system-context-menu |
 | system time and timezone | 45-system-time |
 | IOCTL decoding | 46-system-ioctl |
+| kernel object namespace overview | 47-kernel-namespace |

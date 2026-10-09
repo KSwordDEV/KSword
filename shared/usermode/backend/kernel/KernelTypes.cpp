@@ -1,6 +1,6 @@
-#include "KernelModel.h"
+#include "KernelTypes.h"
 
-namespace Ksword::Features::Kernel {
+namespace ks::r3::kernel {
 
 std::wstring ToDisplayName(const KernelFeatureId id) {
     // The switch is deliberately exhaustive for current retained KernelDock
@@ -58,4 +58,4 @@ std::wstring BackendToDisplayName(const KernelFeatureBackend backend) {
     }
 }
 
-} // namespace Ksword::Features::Kernel
+} // namespace ks::r3::kernel

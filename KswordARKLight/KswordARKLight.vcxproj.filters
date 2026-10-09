@@ -260,9 +260,6 @@
     <ClCompile Include="Features\Kernel\KernelInlineHookFeature.cpp">
       <Filter>Features\Kernel</Filter>
     </ClCompile>
-    <ClCompile Include="Features\Kernel\KernelModel.cpp">
-      <Filter>Features\Kernel</Filter>
-    </ClCompile>
     <ClCompile Include="Features\Kernel\KernelNamedPipeFeature.cpp">
       <Filter>Features\Kernel</Filter>
     </ClCompile>
@@ -2133,6 +2130,26 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\system\IoctlDecoder.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\kernel\KernelTypes.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\kernel\KernelTypes.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\kernel\ObjectNamespace.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\kernel\ObjectNamespace.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

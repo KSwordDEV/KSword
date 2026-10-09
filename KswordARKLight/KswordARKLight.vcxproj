@@ -138,7 +138,6 @@
     <ClCompile Include="Features\Kernel\KernelFeature.cpp" />
     <ClCompile Include="Features\Kernel\KernelIatEatHookFeature.cpp" />
     <ClCompile Include="Features\Kernel\KernelInlineHookFeature.cpp" />
-    <ClCompile Include="Features\Kernel\KernelModel.cpp" />
     <ClCompile Include="Features\Kernel\KernelNamedPipeFeature.cpp" />
     <ClCompile Include="Features\Kernel\KernelNativeQueries.cpp" />
     <ClCompile Include="Features\Kernel\KernelNtQueryLegacyFeature.cpp" />
@@ -1049,6 +1048,18 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\system\IoctlDecoder.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\kernel\KernelTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\kernel\KernelTypes.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\kernel\ObjectNamespace.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\kernel\ObjectNamespace.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
