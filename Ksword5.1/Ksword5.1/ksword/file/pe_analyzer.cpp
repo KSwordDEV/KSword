@@ -20,6 +20,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace ks::file
@@ -33,6 +34,36 @@ namespace ks::file
         constexpr std::uint32_t kMaxImportPerModule = 2048;
         constexpr std::uint32_t kMaxExportNames = 4096;
         constexpr std::uint64_t kMaxPeFileBytes = 512ULL * 1024ULL * 1024ULL;
+
+        // Collect semantic fields at the point where structures are decoded.
+        // No report text is read back or split to manufacture the property tree.
+        class ReportCollector
+        {
+        public:
+            explicit ReportCollector(PeAnalysisResult& result) : result_(result) {}
+            void Section(std::wstring name)
+            {
+                result_.entries.push_back({ PeReportEntry::Kind::Section, std::move(name), {}, 0 });
+            }
+            void Field(std::wstring name, std::wstring value, std::uint32_t depth = 0)
+            {
+                result_.entries.push_back({ PeReportEntry::Kind::Field, std::move(name), std::move(value), depth });
+            }
+            void Note(std::wstring value, std::uint32_t depth = 0)
+            {
+                result_.entries.push_back({ PeReportEntry::Kind::Note, {}, std::move(value), depth });
+            }
+        private:
+            PeAnalysisResult& result_;
+        };
+
+        void SetAnalysisError(PeAnalysisResult& result, std::wstring message)
+        {
+            result.errorText = message;
+            result.reportText = message;
+            result.entries.clear();
+            ReportCollector(result).Note(std::move(message));
+        }
 
         // Hex formats unsigned integer values as uppercase 0x-prefixed report text.
         // The return value is a standalone string so stream state is not leaked.
@@ -344,12 +375,17 @@ namespace ks::file
         // No directory is dereferenced here; this is the safe overview stage.
         void AppendDataDirectories(
             std::wostringstream& outputStream,
+            ReportCollector& report,
             const std::array<IMAGE_DATA_DIRECTORY, IMAGE_NUMBEROF_DIRECTORY_ENTRIES>& directoryList)
         {
+            report.Section(L"数据目录");
             outputStream << L"\n[数据目录]\n";
             for (int directoryIndex = 0; directoryIndex < IMAGE_NUMBEROF_DIRECTORY_ENTRIES; ++directoryIndex)
             {
                 const IMAGE_DATA_DIRECTORY& directoryEntry = directoryList[static_cast<std::size_t>(directoryIndex)];
+                report.Field(L"[" + std::to_wstring(directoryIndex) + L"] " + DataDirectoryName(directoryIndex), L"");
+                report.Field(L"RVA", Hex(directoryEntry.VirtualAddress), 1);
+                report.Field(L"Size", Hex(directoryEntry.Size), 1);
                 outputStream << L"[" << directoryIndex << L"] " << DataDirectoryName(directoryIndex)
                     << L" RVA=" << Hex(directoryEntry.VirtualAddress)
                     << L" Size=" << Hex(directoryEntry.Size) << L"\n";
@@ -360,21 +396,25 @@ namespace ks::file
         // It handles both name imports and ordinal imports for PE32 and PE32+ files.
         void AppendImportTable(
             std::wostringstream& outputStream,
+            ReportCollector& report,
             const std::vector<std::uint8_t>& fileBytes,
             bool isPe64,
             std::uint32_t sizeOfHeadersValue,
             const std::vector<IMAGE_SECTION_HEADER>& sectionList,
             const IMAGE_DATA_DIRECTORY& importDirectory)
         {
+            report.Section(L"导入表");
             outputStream << L"\n[导入表]\n";
             if (importDirectory.VirtualAddress == 0 || importDirectory.Size == 0)
             {
+                report.Note(L"无导入表。");
                 outputStream << L"无导入表。\n";
                 return;
             }
             std::uint32_t descriptorOffset = 0;
             if (!RvaToFileOffset(importDirectory.VirtualAddress, sizeOfHeadersValue, sectionList, descriptorOffset))
             {
+                report.Note(L"导入表 RVA 无法映射到文件偏移。");
                 outputStream << L"导入表 RVA 无法映射到文件偏移。\n";
                 return;
             }
@@ -385,6 +425,7 @@ namespace ks::file
                 const std::uint64_t currentOffset = static_cast<std::uint64_t>(descriptorOffset) + moduleIndex * sizeof(descriptor);
                 if (!ReadPodAtOffset(fileBytes, currentOffset, descriptor))
                 {
+                    report.Note(L"导入描述符读取失败，索引=" + std::to_wstring(moduleIndex));
                     outputStream << L"导入描述符读取失败，索引=" << moduleIndex << L"\n";
                     return;
                 }
@@ -397,12 +438,16 @@ namespace ks::file
                 const std::wstring moduleName = RvaToFileOffset(descriptor.Name, sizeOfHeadersValue, sectionList, moduleNameOffset)
                     ? ReadAsciiAtOffset(fileBytes, moduleNameOffset)
                     : L"<名称RVA无法映射>";
+                report.Field(L"模块", moduleName);
+                report.Field(L"OriginalFirstThunk", Hex(descriptor.OriginalFirstThunk), 1);
+                report.Field(L"FirstThunk", Hex(descriptor.FirstThunk), 1);
                 outputStream << L"模块: " << moduleName << L"\n";
 
                 const std::uint32_t thunkRva = descriptor.OriginalFirstThunk != 0 ? descriptor.OriginalFirstThunk : descriptor.FirstThunk;
                 std::uint32_t thunkOffset = 0;
                 if (!RvaToFileOffset(thunkRva, sizeOfHeadersValue, sectionList, thunkOffset))
                 {
+                    report.Note(L"  Thunk RVA 无法映射。");
                     outputStream << L"  Thunk RVA 无法映射。\n";
                     continue;
                 }
@@ -417,19 +462,27 @@ namespace ks::file
                         }
                         if ((thunkValue & IMAGE_ORDINAL_FLAG64) != 0)
                         {
+                            report.Field(L"#" + std::to_wstring(importIndex), L"", 1);
+                            report.Field(L"Ordinal", std::to_wstring(thunkValue & 0xFFFFULL), 2);
                             outputStream << L"  #" << importIndex << L" Ordinal=" << (thunkValue & 0xFFFFULL) << L"\n";
                             continue;
                         }
                         std::uint32_t importNameOffset = 0;
-                        if (!RvaToFileOffset(static_cast<std::uint32_t>(thunkValue), sizeOfHeadersValue, sectionList, importNameOffset))
+                        if (thunkValue > std::numeric_limits<std::uint32_t>::max() || !RvaToFileOffset(static_cast<std::uint32_t>(thunkValue), sizeOfHeadersValue, sectionList, importNameOffset))
                         {
+                            report.Field(L"#" + std::to_wstring(importIndex), L"", 1);
+                            report.Field(L"NameRVA", Hex(thunkValue), 2);
+                            report.Note(L"无法映射", 2);
                             outputStream << L"  #" << importIndex << L" NameRVA=" << Hex(thunkValue) << L" <无法映射>\n";
                             continue;
                         }
                         std::uint16_t hintValue = 0;
                         ReadPodAtOffset(fileBytes, importNameOffset, hintValue);
+                        report.Field(L"#" + std::to_wstring(importIndex), ReadAsciiAtOffset(fileBytes, static_cast<std::uint64_t>(importNameOffset) + sizeof(std::uint16_t)), 1);
+                        report.Field(L"Hint", std::to_wstring(hintValue), 2);
+                        report.Field(L"NameRVA", Hex(thunkValue), 2);
                         outputStream << L"  #" << importIndex << L" Hint=" << hintValue
-                            << L" Name=" << ReadAsciiAtOffset(fileBytes, importNameOffset + sizeof(std::uint16_t)) << L"\n";
+                            << L" Name=" << ReadAsciiAtOffset(fileBytes, static_cast<std::uint64_t>(importNameOffset) + sizeof(std::uint16_t)) << L"\n";
                     }
                     else
                     {
@@ -440,19 +493,27 @@ namespace ks::file
                         }
                         if ((thunkValue & IMAGE_ORDINAL_FLAG32) != 0)
                         {
+                            report.Field(L"#" + std::to_wstring(importIndex), L"", 1);
+                            report.Field(L"Ordinal", std::to_wstring(thunkValue & 0xFFFFU), 2);
                             outputStream << L"  #" << importIndex << L" Ordinal=" << (thunkValue & 0xFFFFU) << L"\n";
                             continue;
                         }
                         std::uint32_t importNameOffset = 0;
                         if (!RvaToFileOffset(thunkValue, sizeOfHeadersValue, sectionList, importNameOffset))
                         {
+                            report.Field(L"#" + std::to_wstring(importIndex), L"", 1);
+                            report.Field(L"NameRVA", Hex(thunkValue), 2);
+                            report.Note(L"无法映射", 2);
                             outputStream << L"  #" << importIndex << L" NameRVA=" << Hex(thunkValue) << L" <无法映射>\n";
                             continue;
                         }
                         std::uint16_t hintValue = 0;
                         ReadPodAtOffset(fileBytes, importNameOffset, hintValue);
+                        report.Field(L"#" + std::to_wstring(importIndex), ReadAsciiAtOffset(fileBytes, static_cast<std::uint64_t>(importNameOffset) + sizeof(std::uint16_t)), 1);
+                        report.Field(L"Hint", std::to_wstring(hintValue), 2);
+                        report.Field(L"NameRVA", Hex(thunkValue), 2);
                         outputStream << L"  #" << importIndex << L" Hint=" << hintValue
-                            << L" Name=" << ReadAsciiAtOffset(fileBytes, importNameOffset + sizeof(std::uint16_t)) << L"\n";
+                            << L" Name=" << ReadAsciiAtOffset(fileBytes, static_cast<std::uint64_t>(importNameOffset) + sizeof(std::uint16_t)) << L"\n";
                     }
                 }
             }
@@ -566,7 +627,7 @@ namespace ks::file
                         }
 
                         std::uint32_t importNameOffset = 0;
-                        if (!RvaToFileOffset(
+                        if (thunkValue > std::numeric_limits<std::uint32_t>::max() || !RvaToFileOffset(
                             static_cast<std::uint32_t>(thunkValue),
                             sizeOfHeadersValue,
                             sectionList,
@@ -578,7 +639,7 @@ namespace ks::file
                         }
                         ReadPodAtOffset(fileBytes, importNameOffset, function.hint);
                         function.functionName = ks::str::Utf16ToUtf8(
-                            ReadAsciiAtOffset(fileBytes, importNameOffset + sizeof(std::uint16_t)));
+                            ReadAsciiAtOffset(fileBytes, static_cast<std::uint64_t>(importNameOffset) + sizeof(std::uint16_t)));
                         module.imports.push_back(std::move(function));
                     }
                     else
@@ -609,7 +670,7 @@ namespace ks::file
                         }
                         ReadPodAtOffset(fileBytes, importNameOffset, function.hint);
                         function.functionName = ks::str::Utf16ToUtf8(
-                            ReadAsciiAtOffset(fileBytes, importNameOffset + sizeof(std::uint16_t)));
+                            ReadAsciiAtOffset(fileBytes, static_cast<std::uint64_t>(importNameOffset) + sizeof(std::uint16_t)));
                         module.imports.push_back(std::move(function));
                     }
                 }
@@ -632,20 +693,24 @@ namespace ks::file
         // Forwarder strings are detected when function RVAs point into the export directory.
         void AppendExportTable(
             std::wostringstream& outputStream,
+            ReportCollector& report,
             const std::vector<std::uint8_t>& fileBytes,
             std::uint32_t sizeOfHeadersValue,
             const std::vector<IMAGE_SECTION_HEADER>& sectionList,
             const IMAGE_DATA_DIRECTORY& exportDirectory)
         {
+            report.Section(L"导出表");
             outputStream << L"\n[导出表]\n";
             if (exportDirectory.VirtualAddress == 0 || exportDirectory.Size == 0)
             {
+                report.Note(L"无导出表。");
                 outputStream << L"无导出表。\n";
                 return;
             }
             std::uint32_t exportOffset = 0;
             if (!RvaToFileOffset(exportDirectory.VirtualAddress, sizeOfHeadersValue, sectionList, exportOffset))
             {
+                report.Note(L"导出表 RVA 无法映射到文件偏移。");
                 outputStream << L"导出表 RVA 无法映射到文件偏移。\n";
                 return;
             }
@@ -653,6 +718,7 @@ namespace ks::file
             IMAGE_EXPORT_DIRECTORY exportInfo{};
             if (!ReadPodAtOffset(fileBytes, exportOffset, exportInfo))
             {
+                report.Note(L"导出目录读取失败。");
                 outputStream << L"导出目录读取失败。\n";
                 return;
             }
@@ -660,6 +726,10 @@ namespace ks::file
             const std::wstring dllName = RvaToFileOffset(exportInfo.Name, sizeOfHeadersValue, sectionList, dllNameOffset)
                 ? ReadAsciiAtOffset(fileBytes, dllNameOffset)
                 : L"<名称RVA无法映射>";
+            report.Field(L"DLL名称", dllName);
+            report.Field(L"Base", std::to_wstring(exportInfo.Base));
+            report.Field(L"FunctionCount", std::to_wstring(exportInfo.NumberOfFunctions));
+            report.Field(L"NameCount", std::to_wstring(exportInfo.NumberOfNames));
             outputStream << L"DLL名称: " << dllName << L"\n";
             outputStream << L"Base: " << exportInfo.Base
                 << L" FunctionCount: " << exportInfo.NumberOfFunctions
@@ -672,6 +742,7 @@ namespace ks::file
                 !RvaToFileOffset(exportInfo.AddressOfNames, sizeOfHeadersValue, sectionList, nameArrayOffset) ||
                 !RvaToFileOffset(exportInfo.AddressOfNameOrdinals, sizeOfHeadersValue, sectionList, ordinalArrayOffset))
             {
+                report.Note(L"导出数组 RVA 无法映射。");
                 outputStream << L"导出数组 RVA 无法映射。\n";
                 return;
             }
@@ -686,6 +757,7 @@ namespace ks::file
                 if (!ReadPodAtOffset(fileBytes, static_cast<std::uint64_t>(nameArrayOffset) + nameIndex * sizeof(nameRva), nameRva) ||
                     !ReadPodAtOffset(fileBytes, static_cast<std::uint64_t>(ordinalArrayOffset) + nameIndex * sizeof(ordinalIndex), ordinalIndex))
                 {
+                    report.Note(L"导出数组读取失败，索引=" + std::to_wstring(nameIndex));
                     outputStream << L"导出数组读取失败，索引=" << nameIndex << L"\n";
                     break;
                 }
@@ -700,15 +772,19 @@ namespace ks::file
                     ? ReadAsciiAtOffset(fileBytes, nameOffset)
                     : L"<名称RVA无法映射>";
 
+                report.Field(L"[" + std::to_wstring(nameIndex) + L"]", functionName);
+                report.Field(L"Ordinal", std::to_wstring(static_cast<std::uint64_t>(exportInfo.Base) + ordinalIndex), 1);
+                report.Field(L"RVA", Hex(functionRva), 1);
                 outputStream << L"  Ordinal=" << (exportInfo.Base + ordinalIndex)
                     << L" RVA=" << Hex(functionRva)
                     << L" Name=" << functionName;
                 if (functionRva >= exportDirectory.VirtualAddress &&
-                    functionRva < exportDirectory.VirtualAddress + exportDirectory.Size)
+                    static_cast<std::uint64_t>(functionRva) < static_cast<std::uint64_t>(exportDirectory.VirtualAddress) + exportDirectory.Size)
                 {
                     std::uint32_t forwarderOffset = 0;
                     if (RvaToFileOffset(functionRva, sizeOfHeadersValue, sectionList, forwarderOffset))
                     {
+                        report.Field(L"Forwarder", ReadAsciiAtOffset(fileBytes, forwarderOffset), 1);
                         outputStream << L" Forwarder=" << ReadAsciiAtOffset(fileBytes, forwarderOffset);
                     }
                 }
@@ -716,6 +792,7 @@ namespace ks::file
             }
             if (exportInfo.NumberOfNames > displayCount)
             {
+                report.Note(L"<导出名称已截断，剩余 " + std::to_wstring(exportInfo.NumberOfNames - displayCount) + L" 项>");
                 outputStream << L"<导出名称已截断，剩余 " << (exportInfo.NumberOfNames - displayCount) << L" 项>\n";
             }
         }
@@ -745,31 +822,37 @@ namespace ks::file
         // It avoids recursive tree expansion to keep backend output bounded.
         void AppendResourceDirectory(
             std::wostringstream& outputStream,
+            ReportCollector& report,
             const std::vector<std::uint8_t>& fileBytes,
             std::uint32_t sizeOfHeadersValue,
             const std::vector<IMAGE_SECTION_HEADER>& sectionList,
             const IMAGE_DATA_DIRECTORY& resourceDirectory)
         {
+            report.Section(L"资源目录");
             outputStream << L"\n[资源目录]\n";
             if (resourceDirectory.VirtualAddress == 0 || resourceDirectory.Size == 0)
             {
+                report.Note(L"无资源目录。");
                 outputStream << L"无资源目录。\n";
                 return;
             }
             std::uint32_t resourceBaseOffset = 0;
             if (!RvaToFileOffset(resourceDirectory.VirtualAddress, sizeOfHeadersValue, sectionList, resourceBaseOffset))
             {
+                report.Note(L"资源目录 RVA 无法映射到文件偏移。");
                 outputStream << L"资源目录 RVA 无法映射到文件偏移。\n";
                 return;
             }
             IMAGE_RESOURCE_DIRECTORY rootDirectory{};
             if (!ReadPodAtOffset(fileBytes, resourceBaseOffset, rootDirectory))
             {
+                report.Note(L"资源目录头读取失败。");
                 outputStream << L"资源目录头读取失败。\n";
                 return;
             }
 
             const std::uint32_t entryCount = rootDirectory.NumberOfNamedEntries + rootDirectory.NumberOfIdEntries;
+            report.Field(L"一级资源节点数", std::to_wstring(entryCount));
             outputStream << L"一级资源节点数: " << entryCount << L"\n";
             const std::uint32_t displayCount = std::min<std::uint32_t>(entryCount, 64U);
             for (std::uint32_t index = 0; index < displayCount; ++index)
@@ -779,9 +862,12 @@ namespace ks::file
                     sizeof(IMAGE_RESOURCE_DIRECTORY) + static_cast<std::uint64_t>(index) * sizeof(entry);
                 if (!ReadPodAtOffset(fileBytes, entryOffset, entry))
                 {
+                    report.Note(L"资源目录项读取失败，索引=" + std::to_wstring(index));
                     outputStream << L"资源目录项读取失败，索引=" << index << L"\n";
                     break;
                 }
+                report.Field(L"[" + std::to_wstring(index) + L"]", entry.NameIsString ? L"NamedResource" : ResourceTypeIdToText(entry.Id));
+                report.Field(L"OffsetToData", Hex(entry.OffsetToData), 1);
                 outputStream << L"  [" << index << L"] "
                     << (entry.NameIsString ? L"NamedResource" : ResourceTypeIdToText(entry.Id))
                     << L" OffsetToData=" << Hex(entry.OffsetToData) << L"\n";
@@ -792,20 +878,24 @@ namespace ks::file
         // The loop validates each block size before advancing to avoid infinite loops.
         void AppendBaseRelocDirectory(
             std::wostringstream& outputStream,
+            ReportCollector& report,
             const std::vector<std::uint8_t>& fileBytes,
             std::uint32_t sizeOfHeadersValue,
             const std::vector<IMAGE_SECTION_HEADER>& sectionList,
             const IMAGE_DATA_DIRECTORY& relocDirectory)
         {
+            report.Section(L"重定位表");
             outputStream << L"\n[重定位表]\n";
             if (relocDirectory.VirtualAddress == 0 || relocDirectory.Size == 0)
             {
+                report.Note(L"无重定位表。");
                 outputStream << L"无重定位表。\n";
                 return;
             }
             std::uint32_t relocOffset = 0;
             if (!RvaToFileOffset(relocDirectory.VirtualAddress, sizeOfHeadersValue, sectionList, relocOffset))
             {
+                report.Note(L"重定位表 RVA 无法映射到文件偏移。");
                 outputStream << L"重定位表 RVA 无法映射到文件偏移。\n";
                 return;
             }
@@ -813,7 +903,8 @@ namespace ks::file
             std::uint32_t consumedBytes = 0;
             std::uint32_t blockCount = 0;
             std::uint32_t entryCount = 0;
-            while (consumedBytes + sizeof(IMAGE_BASE_RELOCATION) <= relocDirectory.Size)
+            while (consumedBytes <= relocDirectory.Size
+                && sizeof(IMAGE_BASE_RELOCATION) <= relocDirectory.Size - consumedBytes)
             {
                 IMAGE_BASE_RELOCATION block{};
                 if (!ReadPodAtOffset(fileBytes, static_cast<std::uint64_t>(relocOffset) + consumedBytes, block))
@@ -824,10 +915,21 @@ namespace ks::file
                 {
                     break;
                 }
+                if (block.SizeOfBlock > relocDirectory.Size - consumedBytes
+                    || static_cast<std::uint64_t>(relocOffset) + consumedBytes > fileBytes.size()
+                    || block.SizeOfBlock > fileBytes.size()
+                        - (static_cast<std::uint64_t>(relocOffset) + consumedBytes))
+                {
+                    report.Note(L"重定位块范围超出目录或文件边界。");
+                    outputStream << L"重定位块范围超出目录或文件边界。\n";
+                    break;
+                }
                 ++blockCount;
                 entryCount += (block.SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(std::uint16_t);
                 consumedBytes += block.SizeOfBlock;
             }
+            report.Field(L"重定位块", std::to_wstring(blockCount));
+            report.Field(L"条目估算", std::to_wstring(entryCount));
             outputStream << L"重定位块: " << blockCount << L"，条目估算: " << entryCount << L"\n";
         }
 
@@ -835,41 +937,52 @@ namespace ks::file
         // It keeps parsing shallow because this backend is for quick PE triage.
         void AppendDebugDirectory(
             std::wostringstream& outputStream,
+            ReportCollector& report,
             const std::vector<std::uint8_t>& fileBytes,
             std::uint32_t sizeOfHeadersValue,
             const std::vector<IMAGE_SECTION_HEADER>& sectionList,
             const IMAGE_DATA_DIRECTORY& debugDirectory)
         {
+            report.Section(L"调试目录");
             outputStream << L"\n[调试目录]\n";
             if (debugDirectory.VirtualAddress == 0 || debugDirectory.Size == 0)
             {
+                report.Note(L"无调试目录。");
                 outputStream << L"无调试目录。\n";
                 return;
             }
             std::uint32_t debugOffset = 0;
             if (!RvaToFileOffset(debugDirectory.VirtualAddress, sizeOfHeadersValue, sectionList, debugOffset))
             {
+                report.Note(L"调试目录 RVA 无法映射到文件偏移。");
                 outputStream << L"调试目录 RVA 无法映射到文件偏移。\n";
                 return;
             }
             const std::uint32_t entryCount = debugDirectory.Size / sizeof(IMAGE_DEBUG_DIRECTORY);
+            report.Field(L"调试项数量", std::to_wstring(entryCount));
             outputStream << L"调试项数量: " << entryCount << L"\n";
             for (std::uint32_t index = 0; index < std::min<std::uint32_t>(entryCount, 32U); ++index)
             {
                 IMAGE_DEBUG_DIRECTORY entry{};
                 if (!ReadPodAtOffset(fileBytes, static_cast<std::uint64_t>(debugOffset) + index * sizeof(entry), entry))
                 {
+                    report.Note(L"调试项读取失败，索引=" + std::to_wstring(index));
                     outputStream << L"调试项读取失败，索引=" << index << L"\n";
                     break;
                 }
+                report.Field(L"[" + std::to_wstring(index) + L"]", L"");
+                report.Field(L"Type", std::to_wstring(entry.Type), 1);
+                report.Field(L"Size", std::to_wstring(entry.SizeOfData), 1);
+                report.Field(L"Raw", Hex(entry.PointerToRawData), 1);
                 outputStream << L"  [" << index << L"] Type=" << entry.Type
                     << L" Size=" << entry.SizeOfData
                     << L" Raw=" << Hex(entry.PointerToRawData) << L"\n";
-                if (entry.Type == IMAGE_DEBUG_TYPE_CODEVIEW && entry.PointerToRawData + 24U < fileBytes.size())
+                if (entry.Type == IMAGE_DEBUG_TYPE_CODEVIEW && static_cast<std::uint64_t>(entry.PointerToRawData) + 24U < fileBytes.size())
                 {
-                    const std::wstring pdbPath = ReadAsciiAtOffset(fileBytes, entry.PointerToRawData + 24U);
+                    const std::wstring pdbPath = ReadAsciiAtOffset(fileBytes, static_cast<std::uint64_t>(entry.PointerToRawData) + 24U);
                     if (!pdbPath.empty())
                     {
+                        report.Field(L"PDB", pdbPath, 1);
                         outputStream << L"      PDB=" << pdbPath << L"\n";
                     }
                 }
@@ -880,6 +993,7 @@ namespace ks::file
         // Callback VA values are converted through imageBase back to file offsets.
         void AppendTlsDirectory(
             std::wostringstream& outputStream,
+            ReportCollector& report,
             const std::vector<std::uint8_t>& fileBytes,
             bool isPe64,
             std::uint64_t imageBaseValue,
@@ -887,15 +1001,18 @@ namespace ks::file
             const std::vector<IMAGE_SECTION_HEADER>& sectionList,
             const IMAGE_DATA_DIRECTORY& tlsDirectory)
         {
+            report.Section(L"TLS目录");
             outputStream << L"\n[TLS目录]\n";
             if (tlsDirectory.VirtualAddress == 0 || tlsDirectory.Size == 0)
             {
+                report.Note(L"无 TLS 目录。");
                 outputStream << L"无 TLS 目录。\n";
                 return;
             }
             std::uint32_t tlsOffset = 0;
             if (!RvaToFileOffset(tlsDirectory.VirtualAddress, sizeOfHeadersValue, sectionList, tlsOffset))
             {
+                report.Note(L"TLS RVA 无法映射到文件偏移。");
                 outputStream << L"TLS RVA 无法映射到文件偏移。\n";
                 return;
             }
@@ -906,6 +1023,7 @@ namespace ks::file
                 IMAGE_TLS_DIRECTORY64 tlsInfo{};
                 if (!ReadPodAtOffset(fileBytes, tlsOffset, tlsInfo))
                 {
+                    report.Note(L"TLS64 目录读取失败。");
                     outputStream << L"TLS64 目录读取失败。\n";
                     return;
                 }
@@ -916,13 +1034,15 @@ namespace ks::file
                 IMAGE_TLS_DIRECTORY32 tlsInfo{};
                 if (!ReadPodAtOffset(fileBytes, tlsOffset, tlsInfo))
                 {
+                    report.Note(L"TLS32 目录读取失败。");
                     outputStream << L"TLS32 目录读取失败。\n";
                     return;
                 }
                 callbacksVa = tlsInfo.AddressOfCallBacks;
             }
+            report.Field(L"AddressOfCallBacks", Hex(callbacksVa));
             outputStream << L"AddressOfCallBacks: " << Hex(callbacksVa) << L"\n";
-            if (callbacksVa <= imageBaseValue)
+            if (callbacksVa <= imageBaseValue || callbacksVa - imageBaseValue > std::numeric_limits<std::uint32_t>::max())
             {
                 return;
             }
@@ -931,6 +1051,7 @@ namespace ks::file
             const std::uint32_t callbackRva = static_cast<std::uint32_t>(callbacksVa - imageBaseValue);
             if (!RvaToFileOffset(callbackRva, sizeOfHeadersValue, sectionList, callbackOffset))
             {
+                report.Note(L"TLS 回调数组 RVA 无法映射。");
                 outputStream << L"TLS 回调数组 RVA 无法映射。\n";
                 return;
             }
@@ -943,6 +1064,7 @@ namespace ks::file
                     {
                         break;
                     }
+                    report.Field(L"Callback[" + std::to_wstring(index) + L"] VA", Hex(callbackVa));
                     outputStream << L"  Callback[" << index << L"] VA=" << Hex(callbackVa) << L"\n";
                 }
                 else
@@ -952,6 +1074,7 @@ namespace ks::file
                     {
                         break;
                     }
+                    report.Field(L"Callback[" + std::to_wstring(index) + L"] VA", Hex(callbackVa));
                     outputStream << L"  Callback[" << index << L"] VA=" << Hex(callbackVa) << L"\n";
                 }
             }
@@ -961,16 +1084,21 @@ namespace ks::file
         // do not need deeper parsing in this shared backend.
         void AppendSimpleDirectory(
             std::wostringstream& outputStream,
+            ReportCollector& report,
             const wchar_t* titleText,
             const wchar_t* emptyText,
             const IMAGE_DATA_DIRECTORY& directoryEntry)
         {
+            report.Section(titleText);
             outputStream << L"\n[" << titleText << L"]\n";
             if (directoryEntry.VirtualAddress == 0 || directoryEntry.Size == 0)
             {
+                report.Note(emptyText);
                 outputStream << emptyText << L"\n";
                 return;
             }
+            report.Field(L"RVA", Hex(directoryEntry.VirtualAddress));
+            report.Field(L"Size", Hex(directoryEntry.Size));
             outputStream << L"RVA=" << Hex(directoryEntry.VirtualAddress)
                 << L" Size=" << Hex(directoryEntry.Size) << L"\n";
         }
@@ -982,19 +1110,19 @@ namespace ks::file
         PeAnalysisResult result{};
         if (fileBytes.size() < sizeof(IMAGE_DOS_HEADER))
         {
-            result.reportText = L"PE解析失败：文件过小，无法读取 DOS 头。";
+            SetAnalysisError(result, L"PE解析失败：文件过小，无法读取 DOS 头。");
             return result;
         }
 
         IMAGE_DOS_HEADER dosHeader{};
         if (!ReadPodAtOffset(fileBytes, 0, dosHeader) || dosHeader.e_magic != IMAGE_DOS_SIGNATURE)
         {
-            result.reportText = L"PE解析失败：不是有效的 MZ 文件。";
+            SetAnalysisError(result, L"PE解析失败：不是有效的 MZ 文件。");
             return result;
         }
         if (dosHeader.e_lfanew < 0)
         {
-            result.reportText = L"PE解析失败：e_lfanew 为负数。";
+            SetAnalysisError(result, L"PE解析失败：e_lfanew 为负数。");
             return result;
         }
 
@@ -1002,7 +1130,7 @@ namespace ks::file
         std::uint32_t peSignature = 0;
         if (!ReadPodAtOffset(fileBytes, ntHeaderOffset, peSignature) || peSignature != IMAGE_NT_SIGNATURE)
         {
-            result.reportText = L"PE解析失败：PE 签名无效。";
+            SetAnalysisError(result, L"PE解析失败：PE 签名无效。");
             return result;
         }
 
@@ -1010,12 +1138,12 @@ namespace ks::file
         const std::uint64_t fileHeaderOffset = ntHeaderOffset + sizeof(std::uint32_t);
         if (!ReadPodAtOffset(fileBytes, fileHeaderOffset, fileHeader))
         {
-            result.reportText = L"PE解析失败：COFF 文件头读取失败。";
+            SetAnalysisError(result, L"PE解析失败：COFF 文件头读取失败。");
             return result;
         }
         if (fileHeader.NumberOfSections > kMaxSectionCount)
         {
-            result.reportText = L"PE解析失败：区段数量异常：" + std::to_wstring(fileHeader.NumberOfSections);
+            SetAnalysisError(result, L"PE解析失败：区段数量异常：" + std::to_wstring(fileHeader.NumberOfSections));
             return result;
         }
 
@@ -1030,13 +1158,13 @@ namespace ks::file
                     fileBytes.size())
                     - optionalHeaderOffset)
         {
-            result.reportText = L"PE解析失败：Optional Header 声明范围超出文件边界。";
+            SetAnalysisError(result, L"PE解析失败：Optional Header 声明范围超出文件边界。");
             return result;
         }
         std::uint16_t optionalMagic = 0;
         if (!ReadPodAtOffset(fileBytes, optionalHeaderOffset, optionalMagic))
         {
-            result.reportText = L"PE解析失败：Optional Header 魔数读取失败。";
+            SetAnalysisError(result, L"PE解析失败：Optional Header 魔数读取失败。");
             return result;
         }
 
@@ -1061,7 +1189,7 @@ namespace ks::file
             if (fileHeader.SizeOfOptionalHeader
                 < fixedHeaderBytes)
             {
-                result.reportText = L"PE解析失败：PE32+ Optional Header 不足以覆盖固定字段和 NumberOfRvaAndSizes。";
+                SetAnalysisError(result, L"PE解析失败：PE32+ Optional Header 不足以覆盖固定字段和 NumberOfRvaAndSizes。");
                 return result;
             }
             std::memcpy(
@@ -1107,7 +1235,7 @@ namespace ks::file
             if (fileHeader.SizeOfOptionalHeader
                 < fixedHeaderBytes)
             {
-                result.reportText = L"PE解析失败：PE32 Optional Header 不足以覆盖固定字段和 NumberOfRvaAndSizes。";
+                SetAnalysisError(result, L"PE解析失败：PE32 Optional Header 不足以覆盖固定字段和 NumberOfRvaAndSizes。");
                 return result;
             }
             std::memcpy(
@@ -1145,7 +1273,7 @@ namespace ks::file
         }
         else
         {
-            result.reportText = L"PE解析失败：未知 Optional Header 魔数：" + Hex(optionalMagic);
+            SetAnalysisError(result, L"PE解析失败：未知 Optional Header 魔数：" + Hex(optionalMagic));
             return result;
         }
 
@@ -1175,7 +1303,7 @@ namespace ks::file
                     fileBytes.size())
                     - sectionTableOffset)
         {
-            result.reportText = L"PE解析失败：区段表与 Optional Header 重叠或超出文件边界。";
+            SetAnalysisError(result, L"PE解析失败：区段表与 Optional Header 重叠或超出文件边界。");
             return result;
         }
         std::vector<IMAGE_SECTION_HEADER> sectionList;
@@ -1187,7 +1315,7 @@ namespace ks::file
                 static_cast<std::uint64_t>(sectionIndex) * sizeof(IMAGE_SECTION_HEADER);
             if (!ReadPodAtOffset(fileBytes, currentOffset, sectionHeader))
             {
-                result.reportText = L"PE解析失败：区段表读取失败，索引=" + std::to_wstring(sectionIndex);
+                SetAnalysisError(result, L"PE解析失败：区段表读取失败，索引=" + std::to_wstring(sectionIndex));
                 return result;
             }
             const std::uint64_t rawOffset =
@@ -1203,9 +1331,8 @@ namespace ks::file
                             fileBytes.size())
                             - rawOffset))
             {
-                result.reportText =
-                    L"PE解析失败：区段原始数据范围超出文件边界，索引="
-                    + std::to_wstring(sectionIndex);
+                SetAnalysisError(result, L"PE解析失败：区段原始数据范围超出文件边界，索引="
+                    + std::to_wstring(sectionIndex));
                 return result;
             }
             sectionList.push_back(sectionHeader);
@@ -1245,6 +1372,22 @@ namespace ks::file
             sectionList,
             dataDirectoryList[IMAGE_DIRECTORY_ENTRY_IMPORT]);
 
+        ReportCollector report(result);
+        report.Section(L"PE头");
+        report.Field(L"文件格式", isPe64 ? L"PE32+" : L"PE32");
+        report.Field(L"e_lfanew", Hex(static_cast<std::uint32_t>(dosHeader.e_lfanew)));
+        report.Field(L"Machine", Hex(fileHeader.Machine) + L" (" + MachineToText(fileHeader.Machine) + L")");
+        report.Field(L"Section数量", std::to_wstring(fileHeader.NumberOfSections));
+        report.Field(L"TimeDateStamp", Hex(fileHeader.TimeDateStamp) + L" (" + UnixTimeToLocalText(fileHeader.TimeDateStamp) + L")");
+        report.Field(L"Characteristics", Hex(fileHeader.Characteristics) + L" (" + FileCharacteristicsToText(fileHeader.Characteristics) + L")");
+        report.Field(L"EntryPoint RVA", Hex(entryPointRva));
+        report.Field(L"ImageBase", Hex(imageBaseValue));
+        report.Field(L"Subsystem", Hex(subsystemValue) + L" (" + SubsystemToText(subsystemValue) + L")");
+        report.Field(L"SectionAlignment", Hex(sectionAlignmentValue));
+        report.Field(L"FileAlignment", Hex(fileAlignmentValue));
+        report.Field(L"SizeOfImage", Hex(sizeOfImageValue));
+        report.Field(L"SizeOfHeaders", Hex(sizeOfHeadersValue));
+        report.Field(L"CheckSum", Hex(checksumValue));
         std::wostringstream outputStream;
         outputStream << L"[PE头]\n";
         outputStream << L"文件格式: " << (isPe64 ? L"PE32+" : L"PE32") << L"\n";
@@ -1262,11 +1405,21 @@ namespace ks::file
         outputStream << L"SizeOfHeaders: " << Hex(sizeOfHeadersValue) << L"\n";
         outputStream << L"CheckSum: " << Hex(checksumValue) << L"\n";
 
+        report.Section(L"区段表");
         outputStream << L"\n[区段表]\n";
         for (std::size_t sectionIndex = 0; sectionIndex < sectionList.size(); ++sectionIndex)
         {
             const IMAGE_SECTION_HEADER& sectionHeader = sectionList[sectionIndex];
             const PeSectionSummary& summary = result.sections[sectionIndex];
+            report.Field(L"[" + std::to_wstring(sectionIndex) + L"]", ks::str::Utf8ToUtf16(summary.name));
+            report.Field(L"VirtualAddress", Hex(sectionHeader.VirtualAddress), 1);
+            report.Field(L"VirtualSize", Hex(sectionHeader.Misc.VirtualSize), 1);
+            report.Field(L"PointerToRawData", Hex(sectionHeader.PointerToRawData), 1);
+            report.Field(L"SizeOfRawData", Hex(sectionHeader.SizeOfRawData), 1);
+            std::wostringstream entropyText;
+            entropyText << std::fixed << std::setprecision(4) << summary.entropy;
+            report.Field(L"Entropy", entropyText.str(), 1);
+            report.Field(L"Characteristics", Hex(sectionHeader.Characteristics) + L" (" + SectionCharacteristicsToText(sectionHeader.Characteristics) + L")", 1);
             outputStream
                 << L"[" << sectionIndex << L"] " << ks::str::Utf8ToUtf16(summary.name) << L"\n"
                 << L"  VirtualAddress: " << Hex(sectionHeader.VirtualAddress) << L"\n"
@@ -1280,18 +1433,18 @@ namespace ks::file
 
         // Directory-specific appenders stay independent so new consumers can move toward
         // structured directory objects later without changing the UI wrapper contract.
-        AppendDataDirectories(outputStream, dataDirectoryList);
-        AppendImportTable(outputStream, fileBytes, isPe64, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_IMPORT]);
-        AppendExportTable(outputStream, fileBytes, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_EXPORT]);
-        AppendTlsDirectory(outputStream, fileBytes, isPe64, imageBaseValue, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_TLS]);
-        AppendResourceDirectory(outputStream, fileBytes, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_RESOURCE]);
-        AppendBaseRelocDirectory(outputStream, fileBytes, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_BASERELOC]);
-        AppendDebugDirectory(outputStream, fileBytes, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_DEBUG]);
-        AppendSimpleDirectory(outputStream, L"延迟导入表", L"无延迟导入表。", dataDirectoryList[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT]);
-        AppendSimpleDirectory(outputStream, L"绑定导入表", L"无绑定导入表。", dataDirectoryList[IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT]);
-        AppendSimpleDirectory(outputStream, L"Load Config目录", L"无 Load Config 目录。", dataDirectoryList[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG]);
-        AppendSimpleDirectory(outputStream, L"CLR/.NET目录", L"无 CLR 目录。", dataDirectoryList[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR]);
-        AppendSimpleDirectory(outputStream, L"安全目录/证书", L"无安全目录。", dataDirectoryList[IMAGE_DIRECTORY_ENTRY_SECURITY]);
+        AppendDataDirectories(outputStream, report, dataDirectoryList);
+        AppendImportTable(outputStream, report, fileBytes, isPe64, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_IMPORT]);
+        AppendExportTable(outputStream, report, fileBytes, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_EXPORT]);
+        AppendTlsDirectory(outputStream, report, fileBytes, isPe64, imageBaseValue, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_TLS]);
+        AppendResourceDirectory(outputStream, report, fileBytes, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_RESOURCE]);
+        AppendBaseRelocDirectory(outputStream, report, fileBytes, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_BASERELOC]);
+        AppendDebugDirectory(outputStream, report, fileBytes, sizeOfHeadersValue, sectionList, dataDirectoryList[IMAGE_DIRECTORY_ENTRY_DEBUG]);
+        AppendSimpleDirectory(outputStream, report, L"延迟导入表", L"无延迟导入表。", dataDirectoryList[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT]);
+        AppendSimpleDirectory(outputStream, report, L"绑定导入表", L"无绑定导入表。", dataDirectoryList[IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT]);
+        AppendSimpleDirectory(outputStream, report, L"Load Config目录", L"无 Load Config 目录。", dataDirectoryList[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG]);
+        AppendSimpleDirectory(outputStream, report, L"CLR/.NET目录", L"无 CLR 目录。", dataDirectoryList[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR]);
+        AppendSimpleDirectory(outputStream, report, L"安全目录/证书", L"无安全目录。", dataDirectoryList[IMAGE_DIRECTORY_ENTRY_SECURITY]);
 
         result.reportText = outputStream.str();
         return result;
@@ -1304,7 +1457,7 @@ namespace ks::file
         if (!ReadWholeFile(filePath, fileBytes, readErrorText))
         {
             PeAnalysisResult result;
-            result.reportText = L"PE解析失败：" + readErrorText;
+            SetAnalysisError(result, L"PE解析失败：" + readErrorText);
             return result;
         }
         return AnalyzePeBytes(fileBytes);

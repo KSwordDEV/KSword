@@ -308,6 +308,9 @@
     <ClCompile Include="FileDock\FilePropertyPeAnalyzer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="FileDock\FilePropertyView.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="FileDock\FilePropertyPeAnalyzer.Directories.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2965,6 +2968,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="FileDock\FilePropertyPeAnalyzer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FileDock\FilePropertyView.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="FileDock\FilePropertyPeAnalyzer.Internal.h">

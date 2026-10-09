@@ -170,6 +170,7 @@
     <ClCompile Include="FileDock\FileHandleUsageScanner.cpp" />
     <ClCompile Include="FileDock\FileMappedProcessWindow.cpp" />
     <ClCompile Include="FileDock\FilePropertyPeAnalyzer.cpp" />
+    <ClCompile Include="FileDock\FilePropertyView.cpp" />
     <ClCompile Include="FileDock\FilePropertyPeAnalyzer.Directories.cpp" />
     <ClCompile Include="FileDock\FilePropertyPeAnalyzer.Tables.cpp" />
     <ClCompile Include="FileDock\ManualFileSystemParser.cpp" />
@@ -788,6 +789,7 @@
     <ClInclude Include="FileDock\FileHandleUsageScanner.h" />
     <ClInclude Include="FileDock\FileMappedProcessWindow.h" />
     <ClInclude Include="FileDock\FilePropertyPeAnalyzer.h" />
+    <ClInclude Include="FileDock\FilePropertyView.h" />
     <ClInclude Include="FileDock\FilePropertyPeAnalyzer.Internal.h" />
     <ClInclude Include="Framework\LogDockWidget.h" />
     <ClInclude Include="Framework\NotificationCardManager.h" />

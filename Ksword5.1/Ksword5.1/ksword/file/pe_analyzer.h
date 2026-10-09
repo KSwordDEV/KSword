@@ -6,7 +6,7 @@
 // 作用：
 // - 提供不依赖 Qt 的 PE 基础解析能力；
 // - 解析 PE 头、节表、导入/导出、数据目录和常用目录摘要；
-// - UI 层只负责把 std::wstring 报告转换为编辑器文本。
+// - 返回不依赖报告文本的原生字段模型，同时保留可读报告导出。
 // ============================================================
 
 #include <cstdint>
@@ -15,6 +15,17 @@
 
 namespace ks::file
 {
+    // Native analysis entries are emitted while reading PE structures. They are
+    // the source for both the property model and the optional text export.
+    struct PeReportEntry
+    {
+        enum class Kind { Section, Field, Note };
+        Kind kind = Kind::Field;
+        std::wstring name;
+        std::wstring value;
+        std::uint32_t depth = 0;
+    };
+
     // PeSectionSummary 作用：
     // - 保存区段表中 UI/日志常用字段；
     // - analyzePeFile 可用于后续非文本化展示。
@@ -54,8 +65,8 @@ namespace ks::file
     };
 
     // PeAnalysisResult 作用：
-    // - 聚合 PE 解析结果文本与结构化节表摘要；
-    // - success=false 时 reportText 保存可读失败原因。
+    // - 聚合原生字段、节表与导入摘要，并保留兼容报告导出；
+    // - success=false 时 errorText 与 Note 保存可读失败原因。
     struct PeAnalysisResult
     {
         bool success = false;
@@ -68,6 +79,8 @@ namespace ks::file
         std::uint64_t imageBase = 0;
         std::vector<PeSectionSummary> sections;
         std::vector<PeImportModuleSummary> importModules;
+        std::vector<PeReportEntry> entries;
+        std::wstring errorText;
         std::wstring reportText;
     };
 
