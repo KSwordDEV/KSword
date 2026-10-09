@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/kernel/DeviceDriverObjects.h"
 #include "../shared/usermode/backend/kernel/SymbolicLinks.h"
 #include "../shared/usermode/backend/kernel/ObjectDirectory.h"
 #include "../shared/usermode/backend/kernel/ObjectNamespace.h"

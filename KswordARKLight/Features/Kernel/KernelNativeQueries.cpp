@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/kernel/DeviceDriverObjects.h"
 #include "../../../shared/usermode/backend/kernel/SymbolicLinks.h"
 #include "../../../shared/usermode/backend/kernel/ObjectDirectory.h"
 #include "../../../shared/usermode/backend/kernel/ObjectNamespace.h"
@@ -88,6 +89,7 @@
 
 namespace Ksword::Features::Kernel {
 namespace {
+using namespace ks::r3::kernel;
 using namespace ks::r3::kernel;
 using namespace ks::r3::kernel;
 using namespace ks::r3::kernel;
@@ -449,20 +451,7 @@ bool MatchesColumnsFilter(const KernelResultRow& row, const std::wstring& filter
 // QueryDeviceDriverObjects enumerates object-manager device/driver roots. Input
 // is the request; processing is R3-only and does not call DeviceIoControl;
 // return contains Device/Driver/FileSystem object rows.
-KernelOperationResult QueryDeviceDriverObjects(const KernelRequest& request) {
-    const NtRuntime& runtime = Runtime();
-    QueryPacket packet;
-    const std::array<std::wstring, 4> roots{
-        L"\\Device",
-        L"\\Driver",
-        L"\\FileSystem",
-        L"\\FileSystem\\Filters",
-    };
-    for (const std::wstring& root : roots) {
-        AppendDirectoryRoot(packet, runtime, root, root, request.filterText);
-    }
-    return MakeResult(request.featureId, !packet.rows.empty(), L"设备与驱动对象枚举", std::move(packet));
-}
+
 
 // QueryBaseNamedObjects enumerates per-session and global BaseNamedObjects.
 // Input is the request; processing reads object-manager directories; return
