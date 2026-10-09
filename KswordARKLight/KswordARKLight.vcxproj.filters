@@ -414,9 +414,6 @@
     <ClCompile Include="Features\SysTools\ContextMenuView.cpp">
       <Filter>Features\SysTools</Filter>
     </ClCompile>
-    <ClCompile Include="Features\SysTools\EventLogReader.cpp">
-      <Filter>Features\SysTools</Filter>
-    </ClCompile>
     <ClCompile Include="Features\SysTools\EventLogView.cpp">
       <Filter>Features\SysTools</Filter>
     </ClCompile>
@@ -2095,6 +2092,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\system\FileHolderScanner.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\system\EventLogReader.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\system\EventLogReader.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

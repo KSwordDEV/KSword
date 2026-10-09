@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/system/EventLogReader.h"
 #include "../shared/usermode/backend/system/FileHolderScanner.h"
 #include "../shared/usermode/backend/system/ModulePath.h"
 #include "../shared/usermode/backend/monitor/EtwSessionController.h"

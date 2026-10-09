@@ -14,7 +14,7 @@
 // translation unit self-describing for anyone reading it in isolation.
 #pragma comment(lib, "Wevtapi.lib")
 
-namespace Ksword::Features::SysTools {
+namespace ks::r3::system_tools {
 namespace {
 
 // kEvtNextBatch is the number of event handles pulled per EvtNext call. Larger
@@ -333,4 +333,4 @@ EventLogQueryResult QueryEventLog(const EventLogQueryRequest& request) {
     return result;
 }
 
-} // namespace Ksword::Features::SysTools
+} // namespace ks::r3::system_tools

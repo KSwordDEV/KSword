@@ -200,7 +200,6 @@
     <ClCompile Include="Features\HardwareStats\UsbTopologyView.cpp" />
     <ClCompile Include="Features\SysTools\ContextMenuScanner.cpp" />
     <ClCompile Include="Features\SysTools\ContextMenuView.cpp" />
-    <ClCompile Include="Features\SysTools\EventLogReader.cpp" />
     <ClCompile Include="Features\SysTools\EventLogView.cpp" />
     <ClCompile Include="Features\SysTools\FileHolderView.cpp" />
     <ClCompile Include="Features\SysTools\IoctlDecoder.cpp" />
@@ -1023,6 +1022,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\system\FileHolderScanner.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\system\EventLogReader.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\system\EventLogReader.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
