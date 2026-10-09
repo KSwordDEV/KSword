@@ -17,6 +17,13 @@ Environment:
 #include "ark/ark_driver.h"
 #include "../../platform/process_resolver.h"
 #include "process_crossview.h"
+#include "../thread/work_queue_fallback.h" // 无线程枚举导出时复用真实 TID 快照。
+#include "../../platform/runtime_signature_scan.h" // 候选代码与对象字段统一安全读取。
+
+// 中文说明：ntddk.h 不声明这些线程身份查询，保持与现有线程模块一致的导入 ABI。
+NTSYSAPI NTSTATUS NTAPI PsLookupThreadByThreadId(HANDLE ThreadId, PETHREAD* Thread);
+NTSYSAPI PEPROCESS NTAPI PsGetThreadProcess(PETHREAD Thread);
+NTKERNELAPI BOOLEAN NTAPI PsIsThreadTerminating(PETHREAD Thread);
 
 /* 中文说明：PsLookupProcessByProcessId 用于引用目标 EPROCESS。 */
 NTSYSAPI
@@ -55,10 +62,10 @@ extern POBJECT_TYPE* PsProcessType;
 #define KSWORD_ARK_EPROCESS_FLAGS_BREAK_ON_TERMINATION_MASK 0x00002000UL
 /* 中文说明：EPROCESS 结构体偏移必须来自 DynData/PDB，超过该上限视为异常 profile。 */
 #define KSWORD_ARK_EPROCESS_FLAGS_OFFSET_MAX 0x3000UL
-/* 中文说明：Windows x64 ETHREAD.CrossThreadFlags/ApcQueueable 的保守偏移候选。 */
+/* 中文说明：只在 KeInsertQueueApc 的实际指令验证通过后使用 KTHREAD.MiscFlags 偏移。 */
 #define KSWORD_ARK_ETHREAD_APC_QUEUEABLE_OFFSET_X64 0x74UL
-/* 中文说明：ApcQueueable 位在 CrossThreadFlags 中通常对应 bit 18。 */
-#define KSWORD_ARK_ETHREAD_APC_QUEUEABLE_MASK 0x00040000UL
+/* 中文说明：ApcQueueable 是 KTHREAD.MiscFlags bit 14，不是 CrossThreadFlags bit 18。 */
+#define KSWORD_ARK_ETHREAD_APC_QUEUEABLE_MASK 0x00004000UL
 
 #ifndef PROCESS_SET_INFORMATION
 /* 中文说明：旧 WDK 头可能没有用户态同名常量，按 ntifs/winnt 定义补齐。 */
@@ -527,7 +534,23 @@ KswordARKProcessFlagsResolveApcQueueableOffset(
     *OffsetOut = 0UL;
 
 #if defined(_M_X64)
-    /* 中文说明：该偏移来自 ETHREAD.CrossThreadFlags；未知架构不使用。 */
+    UCHAR code[0x300]; // 安全读取当前内核实际 APC 入队代码，不凭 OS build 猜布局。
+    ULONG index; // 遍历有限入口窗口。
+    ULONG matches = 0UL; // 不接受歧义的字段测试。
+    BOOLEAN threadLoadFound = FALSE; // 验证 RDI 来自公开 KAPC.Thread 字段。
+    UNICODE_STRING routineName; // 通过导出解析本机入队入口。
+    PVOID routine; // 不依赖 WDK 对 KeInsertQueueApc 的导入声明。
+    const UCHAR threadLoad[] = {0x48, 0x8B, 0x7E, 0x08}; // mov rdi,[rsi+8]。
+    const UCHAR queueableTest[] = {0xF7, 0x47, 0x74, 0x00, 0x40, 0x00, 0x00}; // test dword [rdi+74h],4000h。
+    RtlInitUnicodeString(&routineName, L"KeInsertQueueApc"); // 使用真正内核导出。
+    routine = MmGetSystemRoutineAddress(&routineName); // NULL 不可进入读取。
+    if (routine == NULL || !KswordARKRuntimeReadMemory(routine, code, sizeof(code))) return STATUS_NOT_SUPPORTED; // 拒绝不可读取的入口。
+    for (index = 0UL; index + sizeof(queueableTest) + 2U <= sizeof(code); ++index) { // 确保测试和跳转字节完整。
+        if (RtlCompareMemory(code + index, threadLoad, sizeof(threadLoad)) == sizeof(threadLoad)) threadLoadFound = TRUE; // 必须先加载 APC.Thread。
+        if (threadLoadFound && RtlCompareMemory(code + index, queueableTest, sizeof(queueableTest)) == sizeof(queueableTest) &&
+            code[index + sizeof(queueableTest)] == 0x0F && code[index + sizeof(queueableTest) + 1U] == 0x84) ++matches; // 相同线程字段为零时拒绝入队。
+    }
+    if (matches != 1UL) return STATUS_NOT_SUPPORTED; // 布局不同或代码已修改时不写猜测字段。
     *OffsetOut = KSWORD_ARK_ETHREAD_APC_QUEUEABLE_OFFSET_X64;
     return STATUS_SUCCESS;
 #else
@@ -601,11 +624,8 @@ KswordARKProcessFlagsDisableApcInsertion(
         return status;
     }
 
-    /* 中文说明：线程枚举依赖 PsGetNextProcessThread；不做 PID 猜扫。 */
+    /* 中文说明：有导出则保留原遍历，否则使用系统真实 TID 快照。 */
     psGetNextProcessThread = KswordARKProcessFlagsResolvePsGetNextProcessThread();
-    if (psGetNextProcessThread == NULL) {
-        return STATUS_PROCEDURE_NOT_FOUND;
-    }
 
     /* 中文说明：引用目标 EPROCESS，确保线程枚举期间进程对象有效。 */
     status = KswordARKProcessFlagsReferenceProcessObject(
@@ -614,6 +634,37 @@ KswordARKProcessFlagsDisableApcInsertion(
         &processObject);
     if (!NT_SUCCESS(status)) {
         return status;
+    }
+
+    if (psGetNextProcessThread == NULL) { // 现代 ntoskrnl 没有这个导出是常态。
+        KSW_WORK_QUEUE_SYSTEM_THREAD_SNAPSHOT snapshot; // 保存真实目标进程 TID。
+        ULONG index; // 当前快照下标。
+        status = KswordARKWorkQueueCaptureProcessThreads(ProcessId, &snapshot); // 快照由通用有界解析器产生。
+        if (!NT_SUCCESS(status)) { // 无法枚举不得报告零线程成功。
+            ObDereferenceObject(processObject); // 释放稳定目标身份。
+            return status; // 保留真实枚举错误。
+        }
+        if (snapshot.Truncated) { // 截断快照不得开始部分写入。
+            KswordARKWorkQueueReleaseSystemThreads(&snapshot); // 释放真实 TID 数组。
+            ObDereferenceObject(processObject); // 释放目标引用。
+            return STATUS_BUFFER_OVERFLOW; // 通知调用者未完成。
+        }
+        for (index = 0UL; index < snapshot.Count; ++index) { // 每项重新通过对象管理器引用，排除已退出和 TID 复用。
+            PETHREAD thread = NULL; // 独立持有本次引用。
+            BOOLEAN changed = FALSE; // 实际改位结果。
+            NTSTATUS threadStatus = PsLookupThreadByThreadId(ULongToHandle(snapshot.Entries[index].ThreadId), &thread); // 不使用快照对象指针。
+            if (!NT_SUCCESS(threadStatus)) continue; // 快照后退出的线程不需要更改。
+            if (PsGetThreadProcess(thread) == processObject && !PsIsThreadTerminating(thread)) { // 比较进程对象，禁止写 PID 复用的新进程。
+                threadStatus = KswordARKProcessFlagsClearThreadApcQueueable(thread, apcQueueableOffset, &changed); // 只清实际 APC 位。
+                if (!NT_SUCCESS(threadStatus)) lastFailureStatus = threadStatus; // 记录所有部分失败。
+                else if (changed) ++touchedThreadCount; // 仅计真实修改。
+            }
+            ObDereferenceObject(thread); // 每条线程引用严格释放一次。
+        }
+        KswordARKWorkQueueReleaseSystemThreads(&snapshot); // 回收快照数组。
+        ObDereferenceObject(processObject); // 完成稳定目标操作。
+        *TouchedThreadCountOut = touchedThreadCount; // 返回实际受影响数。
+        return lastFailureStatus; // 不把部分失败掩盖成成功。
     }
 
     /* 中文说明：PsGetNextProcessThread 返回带引用的 ETHREAD，循环内必须释放。 */
@@ -647,7 +698,7 @@ KswordARKProcessFlagsDisableApcInsertion(
     *TouchedThreadCountOut = touchedThreadCount;
 
     /* 中文说明：全部线程都失败时返回最后失败；部分成功由响应 status 表达。 */
-    if (touchedThreadCount == 0UL && !NT_SUCCESS(lastFailureStatus)) {
+    if (!NT_SUCCESS(lastFailureStatus)) { // 任一线程失败都保留失败状态，计数仍返回。
         return lastFailureStatus;
     }
     return STATUS_SUCCESS;

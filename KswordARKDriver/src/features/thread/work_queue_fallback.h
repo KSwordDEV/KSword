@@ -46,6 +46,10 @@ KswordARKWorkQueueCaptureSystemThreads(
     _Out_ KSW_WORK_QUEUE_SYSTEM_THREAD_SNAPSHOT* SnapshotOut
     );
 
+// 中文说明：复用有界 SystemProcessInformation 快照获取任意进程的真实 TID，不扫描猜测 ID。
+NTSTATUS KswordARKWorkQueueCaptureProcessThreads(_In_ ULONG ProcessId,
+    _Out_ KSW_WORK_QUEUE_SYSTEM_THREAD_SNAPSHOT* SnapshotOut);
+
 VOID
 KswordARKWorkQueueReleaseSystemThreads(
     _Inout_ KSW_WORK_QUEUE_SYSTEM_THREAD_SNAPSHOT* Snapshot

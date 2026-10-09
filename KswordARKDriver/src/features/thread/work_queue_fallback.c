@@ -250,7 +250,8 @@ Return Value:
 }
 
 NTSTATUS
-KswordARKWorkQueueCaptureSystemThreads(
+KswordARKWorkQueueCaptureProcessThreads(
+    _In_ ULONG ProcessId, // 按真实进程 ID 选择快照项，原 System 入口仍传 4。
     _Out_ KSW_WORK_QUEUE_SYSTEM_THREAD_SNAPSHOT* SnapshotOut
     )
 /*++
@@ -325,7 +326,7 @@ Return Value:
             break;
         }
         if (HandleToULong(processInfo->UniqueProcessId) !=
-            KSW_WORK_QUEUE_FALLBACK_SYSTEM_PROCESS_ID) {
+            ProcessId) { // 复用同一快照解析与边界验证。
             if (processInfo->NextEntryOffset == 0UL) {
                 break;
             }
@@ -351,7 +352,7 @@ Return Value:
 
             if (threadId == 0UL ||
                 HandleToULong(threadInfo->ClientId.UniqueProcess) !=
-                    KSW_WORK_QUEUE_FALLBACK_SYSTEM_PROCESS_ID) {
+                    ProcessId) { // 每条线程必须归属所选进程。
                 continue;
             }
             if (count >= KSW_WORK_QUEUE_SYSTEM_THREAD_MAX) {
@@ -374,6 +375,12 @@ Return Value:
     SnapshotOut->Count = count;
     SnapshotOut->Truncated = truncated;
     return STATUS_SUCCESS;
+}
+
+// 中文说明：保留原工作队列入口及 System 语义，现有消费者不需要改参数。
+NTSTATUS KswordARKWorkQueueCaptureSystemThreads(KSW_WORK_QUEUE_SYSTEM_THREAD_SNAPSHOT* SnapshotOut)
+{
+    return KswordARKWorkQueueCaptureProcessThreads(KSW_WORK_QUEUE_FALLBACK_SYSTEM_PROCESS_ID, SnapshotOut); // 原有 PID 4 快照。
 }
 
 VOID
