@@ -1,4 +1,4 @@
-# CLI 崩溃报告与 VMware 验收（2026-10-08）
+﻿# CLI 崩溃报告与 VMware 验收（2026-10-08）
 
 - `log` 在 `_O_U8TEXT` 下用 `std::cout` 写字节：偶数字节被当作 UTF-16 产生乱码，奇数字节触发 CRT invalid-parameter fastfail `0xC0000409`。不是栈缓冲溢出。统一先解码 UTF-8（旧 ANSI 帧回退系统代码页），再用 `std::wcout`。不要在宽字符 CRT 模式下恢复任何窄字符 stdout/stderr 写入。
 - `tools/test_ksword_cli.py` 直接包含生产 CLI，并用 Windows 传输夹具验证真实 CRT 重定向、日志边界、参数诊断、退出码、别名、帮助和失败顺序；扩展结果打印/退出码函数也来自生产源文件。需在 HostX64 VS 环境运行。
@@ -22,3 +22,10 @@
 - 强卸载预检缺线程私有偏移/非导出枚举器时，改用 System TID 快照、精确线程对象句柄和 ZwQueryInformationThread 查询入口。仍保留占用、核心模块、loader、回调和未完成证据约束，真实 DEVICE_BUSY 不是应绕过的参数错误。
 - 对象回调真实句柄校准见 ksword-object-callback-remove.md。本次 VMware 日志没有证明来宾崩溃具体原因。
 - CLI、驱动、Qt 主程序、Light 的 Release/x64 构建通过；驱动 ApiValidator 与 Inf2Cat 通过。主程序构建脚本明确 BUILD_RESULT=SUCCESS、EXIT_CODE=0，i18n/主题门禁通过。Light 复用相同 ABI 并嵌入当前驱动，原有编译警告仍存在；其自动 variant 签名工具卡住后停止该单独子进程，原脚本回退测试签名，信任校验仍失败，不声明可加载/发行签名通过。未运行 CLI 动作、GUI/Light 或加载驱动，也未做 VMware 实测。
+
+## 2026-10-09 WFP 枚举复查（仅构建）
+
+- 单页 560 行的回执仍返回 C00000BB，且 WFP 行明确来自 ResolveApi 失败；分页不是这份证据中的原因。
+- fwpkclnt PE 解析原用 MmIsAddressValid 判断候选 header/export/name 的可读性并直接访问，分页被换出可能误报不支持。改为 KswordARKRuntimeReadMemory 完整读取本地字段，不使用有效地址探测或 SEH 代替读取；这修复具体代码缺陷，不证明它就是现场处置后的唯一原因。
+- 解析现在使用单次模块快照，记录模块定位及八个导出的独立状态/地址。失败回执行显示模块与每个枚举必需导出；全部解析记录进入 WFP resolve 日志。枚举和移除能力分开，缺少移除专用导出不阻断枚举，也不发布移除候选。
+- 驱动 Release/x64、ApiValidator Universal、Inf2Cat 通过且零警告；未加载或执行处置。后续需要逐条保存处置后的枚举与日志才能确定触发操作。
