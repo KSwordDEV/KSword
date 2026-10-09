@@ -1,3 +1,5 @@
+#include "../shared/usermode/backend/service/ServiceActions.h"
+#include "../shared/usermode/backend/service/ServiceEnumerator.h"
 #include "../shared/usermode/backend/network/EndpointAudit.h"
 #include "../shared/usermode/backend/network/Firewall.h"
 #include "../shared/usermode/backend/network/Diagnostics.h"
@@ -64,6 +66,8 @@ int RunR3NetworkBackendTests() {
     suite.expect(!traceEmpty.success && traceEmpty.summary == L"路由跟踪未执行：目标解析失败。", L"trace failure semantics preserved");
     const auto dnsEmpty = RunDnsLookup(DiagnosticRequest{});
     suite.expect(!dnsEmpty.success && !dnsEmpty.text.empty(), L"DNS empty input retains failure result");
+    const auto emptyService = ks::r3::service::QuerySingleService(L"");
+    suite.expect(!emptyService.success && emptyService.diagnosticText == L"服务名为空，无法查询。", L"service empty query retains failure text");
     suite.report();
     return suite.failures();
 }

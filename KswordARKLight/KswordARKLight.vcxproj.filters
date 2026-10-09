@@ -534,12 +534,6 @@
     <ClCompile Include="Features\Privilege\PrivilegeView.cpp">
       <Filter>Features\Privilege</Filter>
     </ClCompile>
-    <ClCompile Include="Features\Service\ServiceActions.cpp">
-      <Filter>Features\Service</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Service\ServiceEnumerator.cpp">
-      <Filter>Features\Service</Filter>
-    </ClCompile>
     <ClCompile Include="Features\Service\ServiceFeature.cpp">
       <Filter>Features\Service</Filter>
     </ClCompile>
@@ -1487,6 +1481,41 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\network\EndpointAudit.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\Win32.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceTypes.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceTypes.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceEnumerator.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceEnumerator.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceActions.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceActions.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

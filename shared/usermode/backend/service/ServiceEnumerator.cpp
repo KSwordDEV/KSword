@@ -1,13 +1,13 @@
 #include "ServiceEnumerator.h"
 
-#include "../../../Ksword5.1/Ksword5.1/ksword/service/service.h"
+#include "../../../../Ksword5.1/Ksword5.1/ksword/service/service.h"
 
 #include <algorithm>
 #include <cwctype>
 #include <string>
 #include <utility>
 
-namespace Ksword::Features::Service {
+namespace ks::r3::service {
 namespace {
 
 std::wstring WidenUtf8(const std::string& text) {
@@ -525,4 +525,4 @@ ServiceEnumerationResult QuerySingleService(const std::wstring& serviceName) {
     return result;
 }
 
-} // namespace Ksword::Features::Service
+} // namespace ks::r3::service

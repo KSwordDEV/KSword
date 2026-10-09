@@ -1,10 +1,10 @@
 #include "ServiceActions.h"
 
-#include "../../../Ksword5.1/Ksword5.1/ksword/service/service.h"
+#include "../../../../Ksword5.1/Ksword5.1/ksword/service/service.h"
 
 #include <string>
 
-namespace Ksword::Features::Service {
+namespace ks::r3::service {
 namespace {
 
 // kTransitionTimeoutMs bounds every wait. The SCM reports a service's own
@@ -144,4 +144,4 @@ ServiceActionResult ApplyServiceStartType(const std::wstring& serviceName, const
     return result;
 }
 
-} // namespace Ksword::Features::Service
+} // namespace ks::r3::service

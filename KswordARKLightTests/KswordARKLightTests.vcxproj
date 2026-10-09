@@ -282,6 +282,30 @@
   <ItemGroup>
     <ClInclude Include="..\shared\usermode\backend\network\EndpointAudit.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceTypes.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceEnumerator.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceEnumerator.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceActions.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceActions.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\service\service.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\string\string.cpp" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>

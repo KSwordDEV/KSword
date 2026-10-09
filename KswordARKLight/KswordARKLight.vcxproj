@@ -234,8 +234,6 @@
     <ClCompile Include="Features\Privilege\PrivilegeFeature.cpp" />
     <ClCompile Include="Features\Privilege\PrivilegeModel.cpp" />
     <ClCompile Include="Features\Privilege\PrivilegeView.cpp" />
-    <ClCompile Include="Features\Service\ServiceActions.cpp" />
-    <ClCompile Include="Features\Service\ServiceEnumerator.cpp" />
     <ClCompile Include="Features\Service\ServiceFeature.cpp" />
     <ClCompile Include="Features\Service\ServiceModel.cpp" />
     <ClCompile Include="Features\Service\ServiceView.cpp" />
@@ -639,6 +637,27 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\network\EndpointAudit.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\Win32.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceTypes.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceEnumerator.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceEnumerator.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceActions.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceActions.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
