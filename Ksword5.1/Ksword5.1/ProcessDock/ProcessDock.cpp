@@ -5336,15 +5336,7 @@ void ProcessDock::initializeProcessTable()
     }
 
     m_processTable = new ks::process_ui::ProcessGpuTableView(this);
-    // 进程表刷新频率和行数都较高：
-    // - 禁用 MainWindow 全局 smooth-scroll 接管，避免滚轮事件被 QPropertyAnimation 重写；
-    // - 保持 QTableView/滚动条默认滚动手感，不额外添加惯性或延迟；
-    // - 返回行为：仅设置 Qt 动态属性，无其它副作用。
-    m_processTable->setProperty("ksword_disable_smooth_scroll", true);
-    if (m_processTable->viewport() != nullptr)
-    {
-        m_processTable->viewport()->setProperty("ksword_disable_smooth_scroll", true);
-    }
+    // 进程列表跟随全局平滑滚动设置，GPU 与回退视口不单独禁用缓动。
 
     std::vector<ProcessTableModel::ColumnSpec> columnSpecs;
     columnSpecs.reserve(static_cast<std::size_t>(TableColumn::Count));
@@ -5420,12 +5412,7 @@ void ProcessDock::initializeProcessTable()
     // 逐核心列或用户手动拖宽后的溢出宽度由上面的按需横向滚动承接。
     if (QScrollBar* verticalScrollBar = m_processTable->verticalScrollBar())
     {
-        verticalScrollBar->setProperty("ksword_disable_smooth_scroll", true);
         verticalScrollBar->setSingleStep(12);
-    }
-    if (QScrollBar* horizontalScrollBar = m_processTable->horizontalScrollBar())
-    {
-        horizontalScrollBar->setProperty("ksword_disable_smooth_scroll", true);
     }
 
     // 表头支持拖动、右键显示/隐藏列。

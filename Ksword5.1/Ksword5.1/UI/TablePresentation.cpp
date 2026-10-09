@@ -184,12 +184,14 @@ namespace ks::ui
         const bool compact = view->property(kDensity).toInt() == static_cast<int>(TablePresentationDensity::Compact);
         const QString cellPadding = compact ? QStringLiteral("2px 6px") : QStringLiteral("4px 8px");
         const QString headerPadding = compact ? QStringLiteral("3px 6px") : QStringLiteral("5px 8px");
+        // item 显式 border:0 会让 Qt 样式表接管单元格底面并忽略模型 BackgroundRole。
+        // 仅配置 padding，网格仍由 setShowGrid(false) 管理，保留热度/风险/差异语义刷子。
         replacePresentationBlock(view, QStringLiteral(
             "QTableView,QTableWidget,QTreeView,QTreeWidget{"
             "border:0;border-radius:0;color:palette(text);"
             "alternate-background-color:palette(alternate-base);"
             "selection-background-color:palette(highlight);selection-color:palette(highlighted-text);}"
-            "QTableView::item,QTableWidget::item,QTreeView::item,QTreeWidget::item{border:0;padding:%1;}"
+            "QTableView::item,QTableWidget::item,QTreeView::item,QTreeWidget::item{padding:%1;}"
             "QTableCornerButton::section{background:transparent;border:0;}")
             .arg(cellPadding));
 

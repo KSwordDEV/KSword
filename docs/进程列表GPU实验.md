@@ -68,7 +68,7 @@ CPU 提交计时通过 paintCount()、lastPaintNs()、totalPaintNs() 读取。
 
 尚未以主程序真实进程列表验证复杂 CPU 单元格、图标、树状缩进、大量可见列、主题背景图片、
 Dock 浮动/重新挂载、跨 DPI 显示器、远程桌面和设备丢失等场景。GL 视口采用不透明底色，
-透明背景/背景图片组合需单独评估。冻结区域测试只验证预留几何，没有运行完整冻结控制器。
+透明背景/背景图片组合需单独评估。首版冻结测试只覆盖预留几何；本轮已补充真实冻结控制器及回退后冻结状态/底色验证，暂停快照与比较页仍需逐页 GUI 验收。
 
 Qt 6.4 起，向已显示窗口懒加载首个 QOpenGLWidget 可能重建顶层原生窗口，
 而整个顶层窗口的最终合成也会转为 OpenGL。进程 Dock 恰好采用懒加载，
@@ -80,7 +80,7 @@ Qt 6.4 起，向已显示窗口懒加载首个 QOpenGLWidget 可能重建顶层�
 Qt 官方绘制及生命周期依据：
 [QOpenGLWidget 6.9](https://doc.qt.io/archives/qt-6.9/qopenglwidget.html)。
 
-## 主程序构建验证
+## 首版主程序构建验证
 
 2026-10-09，标准 x64 MSVC Release Build 在全核 /MP24 续编后通过。
 BUILD_RESULT=SUCCESS、EXIT_CODE=0、I18N_AUDIT_PASSED=True，耗时 224 秒。
@@ -88,3 +88,10 @@ BUILD_RESULT=SUCCESS、EXIT_CODE=0、I18N_AUDIT_PASSED=True，耗时 224 秒。
 SHA256：9D10EC580BE7093E440C8728D5D6EDC1D465B74EF74AA2262CDCE227BD6DBD39。
 原始日志：.codex-build-logs/ksword-build-check-20261009-162151.raw.log。
 编译与链接完成不替代上述真实主程序 GUI 场景验收。
+
+## 染色与平滑滚动回归修复
+
+公共 TablePresentation 的 item border:0 会遮蔽模型底色，已在共享组件移除，保留 padding。
+进程表、滚动条、GL/回退视口不再强制禁用全局平滑滚动；仍跟随用户的全局开关。
+真实冻结控制器与半透明热度、标准 table/tree 深浅主题回归已补充。
+完整审查与最新构建证据见 [主题共享组件回归检查](主题共享组件回归检查-20261009.md)。

@@ -90,7 +90,6 @@ namespace ks::process_ui
         }
 
         m_gpuViewport = new ProcessGlViewport(this);
-        m_gpuViewport->setProperty("ksword_disable_smooth_scroll", true);
         setProperty("ksword_process_render_backend", "opengl_pending");
         setViewport(m_gpuViewport);
     }
@@ -174,7 +173,6 @@ namespace ks::process_ui
         {
             QWidget* rasterViewport = new QWidget(this); // setViewport 自动释放旧 GL 视口。
             rasterViewport->setMouseTracking(viewport()->hasMouseTracking());
-            rasterViewport->setProperty("ksword_disable_smooth_scroll", true);
             m_gpuViewport = nullptr;
             setViewport(rasterViewport);
             // 进程行委托用视口过滤器跟踪悬停；替换视口后必须重新接入。

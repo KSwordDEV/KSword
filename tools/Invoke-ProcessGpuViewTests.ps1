@@ -22,7 +22,7 @@ foreach ($testPart in @('ucrt', 'um')) {
 }
 Push-Location $testRoot
 try {
-    & $testCompiler /nologo /std:c++17 /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W4 /WX /O2 /external:W0 /DNOMINMAX @testIncludeArgs tools/process_gpu_view_tests.cpp Ksword5.1/Ksword5.1/ProcessDock/ProcessGpuTableView.cpp /Fooutput/ /Feoutput/process_gpu_view_tests.exe /link /INCREMENTAL:NO @testLibArgs Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib Qt6OpenGL.lib Qt6OpenGLWidgets.lib
+    & $testCompiler /nologo /std:c++17 /Zc:__cplusplus /permissive- /utf-8 /EHsc /MD /W4 /WX /O2 /external:W0 /DNOMINMAX @testIncludeArgs tools/process_gpu_view_tests.cpp Ksword5.1/Ksword5.1/ProcessDock/ProcessGpuTableView.cpp Ksword5.1/Ksword5.1/UI/TablePresentation.cpp Ksword5.1/Ksword5.1/UI/SmoothScrollSupport.cpp Ksword5.1/Ksword5.1/UI/TableFreezeSupport.cpp /Fooutput/ /Feoutput/process_gpu_view_tests.exe /link /INCREMENTAL:NO @testLibArgs Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib Qt6OpenGL.lib Qt6OpenGLWidgets.lib
     if ($LASTEXITCODE -ne 0) { throw 'GPU view fixture compilation failed.' }
     # DLL 和平台插件只影响此次测试；所有显示窗口都使用 DontShowOnScreen。
     $testOldPath = $env:PATH
