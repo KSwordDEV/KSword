@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/file/FileAnalysis.h"
 #include "../shared/usermode/backend/file/Ownership.h"
 #include "../shared/usermode/backend/file/FileOperations.h"
 #include "../shared/usermode/backend/file/PathNavigator.h"
