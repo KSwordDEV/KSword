@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns')][string]$Feature, [string]$ReportPath)
+param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\KswordCliR3TestSupport.ps1"
 switch ($Feature) {
@@ -66,6 +66,34 @@ switch ($Feature) {
         Assert ((Invoke-Cli @('network','dns','query','--name','localhost')).Contains('records:')) 'DNS text'
         $failure = (Invoke-Cli @('network','dns','query','--name','bad/host','--type','A','--json') 3) | ConvertFrom-Json
         Assert ($failure.data.win32Error -ne 0 -and $failure.data.records.Count -eq 0) 'DNS invalid name failure'
+    }
+    'firewall' {
+        $help = Invoke-Cli @('help','network','firewall','enum')
+        Assert ($help.Contains('--name') -and $help.Contains('Read-only')) 'Firewall help'
+        Assert ((Invoke-Cli @('network','firewall','enum','--help')) -eq $help) 'Firewall inline help'
+        foreach ($bad in @(
+            @('network','firewall','enum','--limit','-1','--json'),
+            @('network','firewall','enum','--backend','r0','--json'),
+            @('network','firewall','enum','--unknown','1','--json')
+        )) { Assert (((Invoke-Cli $bad 1) | ConvertFrom-Json).status -eq 'failed') 'Firewall parameter JSON' }
+        $profile = Get-NetFirewallProfile
+        $result = (Invoke-Cli @('network','firewall','enum','--limit','2','--json')) | ConvertFrom-Json
+        Assert ($result.status -eq 'success' -and $result.data.complete -and $result.data.hresult -eq 0 -and $result.data.returnedCount -le 2) 'Firewall enumeration'
+        foreach ($p in $profile) { Assert ($result.data.profiles.($p.Name.ToLower()) -eq ($p.Enabled.ToString() -eq 'True')) 'Independent firewall profile disagrees' }
+        $empty = (Invoke-Cli @('network','firewall','enum','--name','KSwordCliDoesNotExist-9572481','--json')) | ConvertFrom-Json
+        Assert ($empty.status -eq 'success' -and $empty.data.matchedCount -eq 0) 'Empty firewall result'
+        Assert ((Invoke-Cli @('network','firewall','enum','--limit','1')).Contains('profiles:')) 'Firewall text'
+        if ($InGuest) {
+            $name = 'KSwordCliRule-' + [Guid]::NewGuid().ToString('N')
+            try {
+                New-NetFirewallRule -Name $name -DisplayName $name -Description 'KSword CLI R3 test' -Direction Inbound -Action Block -Protocol TCP -LocalPort 54321 -Profile Private -Enabled True | Out-Null
+                $oracle = Get-NetFirewallRule -Name $name
+                $port = $oracle | Get-NetFirewallPortFilter
+                $actual = (Invoke-Cli @('network','firewall','enum','--name',$name,'--json')) | ConvertFrom-Json
+                Assert ($actual.data.matchedCount -eq 1 -and $actual.data.rules[0].enabled -and $actual.data.rules[0].action -eq 0) 'Temporary firewall rule'
+                Assert ($actual.data.rules[0].localPorts -eq $port.LocalPort -and $actual.data.rules[0].protocol -eq 6 -and $actual.data.rules[0].profiles -eq 2) 'Independent firewall tuple disagrees'
+            } finally { Remove-NetFirewallRule -Name $name -ErrorAction SilentlyContinue }
+        }
     }
 }
 Save-Report

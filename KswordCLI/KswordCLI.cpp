@@ -1451,6 +1451,7 @@ namespace
             ks::cli::registerNetworkPing();
             ks::cli::registerNetworkTraceRoute();
             ks::cli::registerNetworkDns();
+            ks::cli::registerNetworkFirewall();
             #endif
             return true;
         }();

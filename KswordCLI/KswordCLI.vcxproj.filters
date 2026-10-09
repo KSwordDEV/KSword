@@ -73,4 +73,9 @@
     <ClCompile Include="R3NetworkDns.cpp" />
     <ClCompile Include="..\shared\usermode\backend\network\Dns.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3NetworkFirewall.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\Firewall.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\network\Firewall.h" />
+  </ItemGroup>
 </Project>

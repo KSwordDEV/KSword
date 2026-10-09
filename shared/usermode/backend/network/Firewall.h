@@ -21,6 +21,7 @@ struct FirewallRuleEntry {
     std::int32_t profiles = 0;    // NET_FW_PROFILE_TYPE2 bitmask.
     bool enabled = false;
     bool edgeTraversal = false;
+    std::uint32_t fieldFlags = 0;
 };
 
 struct FirewallEnumerationResult {
@@ -28,6 +29,8 @@ struct FirewallEnumerationResult {
     std::wstring diagnosticText;
     std::wstring profileSummary;
     std::vector<FirewallRuleEntry> entries;
+    bool complete = false;
+    std::uint32_t hresult = 0, profileKnownFlags = 0, profileEnabledFlags = 0;
 };
 FirewallEnumerationResult EnumerateFirewallRules();
 }

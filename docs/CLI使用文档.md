@@ -28,7 +28,7 @@ KswordCLI.exe network connections help
 
 ## R3 功能与输出
 
-已接入迁移项：01 TCP/UDP 枚举与 IPv4 TCP 关闭；02 Ping；03 路由跟踪；04 DNS 查询。详细语法见 [网络 R3 命令](cli/network.md)。
+已接入迁移项：01 TCP/UDP 枚举与 IPv4 TCP 关闭；02 Ping；03 路由跟踪；04 DNS 查询；05 防火墙规则读取。详细语法见 [网络 R3 命令](cli/network.md)。
 新增纯 R3 命令默认使用 R3，支持显式 `--backend r3`，不自动切换 R0；既有命令的默认后端和输出保持兼容。
 
 默认输出可读 UTF-8 文本，`--json` 在 stdout 输出一个 JSON 文档：`schemaVersion`（1）、`command`、

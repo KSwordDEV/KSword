@@ -35,7 +35,7 @@ $rc=0
 try {{
     $service=Get-Service KswordARK -ErrorAction SilentlyContinue
     if ($service -and $service.Status -ne 'Stopped') {{ throw 'Driver must remain stopped for the R3 suite' }}
-    & '{guest_root}\\Test-KSwordCliR3.ps1' -Cli '{guest_root}\\KswordCLI-R3.exe' -Feature '{feature}' -ReportPath '{guest_root}\\{feature}.json'
+    & '{guest_root}\\Test-KSwordCliR3.ps1' -Cli '{guest_root}\\KswordCLI-R3.exe' -Feature '{feature}' -InGuest -ReportPath '{guest_root}\\{feature}.json'
 }} catch {{ Write-Output $_; $rc=1 }} finally {{ Stop-Transcript }}
 exit $rc
 ''', encoding='utf-8-sig')

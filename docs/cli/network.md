@@ -63,3 +63,17 @@ fields 按记录类型提供 address、host、exchange/preference、target/port/
 SOA 的服务器与各计数、TXT segments；未解码类型仍保留名称／类型／长度，并标明 decoded=false。
 DNS 系统调用成功（包括有效空结果）返回 0；系统／DNS 错误返回 3，win32Error 保留原始 DNS_STATUS。
 仅暴露已实现的记录类型选择，不添加自定义服务器、重试或超时参数；时限由系统 resolver 管理。无需驱动。
+
+## 防火墙（迁移项 05）
+
+```powershell
+KswordCLI.exe network firewall enum [--name NAME] [--limit N] [--backend r3] [--json]
+```
+
+通过 INetFwPolicy2 只读枚举 Windows Firewall 配置，不发布后端尚未实现的规则编辑命令。
+name 精确匹配区分大小写的显示名称；limit 默认 100，0 只输出统计。
+数据包括三个配置文件的启用状态、profileSummary、hresult、complete、匹配／显示数量、truncated 和 rules。
+每条规则输出名称、描述、分组、应用／服务、地址／端口、接口、原始方向／动作／协议／配置文件编号、启用和边缘穿越状态。
+属性读取失败时对应字段为 null，避免把未知状态显示为关闭／禁止；complete 指规则集合枚举是否完整。
+全部枚举与配置文件查询完成返回 0；部分结果返回 6；COM／防火墙服务调用失败返回 3，并保留 HRESULT。
+COM 初始化与释放由后端在同一调用线程完成，不需要 KswordARK 驱动。
