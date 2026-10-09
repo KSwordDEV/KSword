@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/kernel/HookDiskBaseline.h"
 #include "../shared/usermode/backend/kernel/NtQuery.h"
 #include "../shared/usermode/backend/kernel/AtomTable.h"
 #include "../shared/usermode/backend/kernel/NamedPipes.h"

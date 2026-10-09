@@ -62,3 +62,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | kernel named pipes | 54-kernel-pipe |
 | kernel Atom tables | 55-kernel-atom |
 | kernel NtQuery queries | 56-kernel-ntquery |
+| kernel Hook disk image baseline | 57-kernel-hook-disk |
