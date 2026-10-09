@@ -1362,6 +1362,7 @@ namespace
         { L"misc", L"bam", L"KswordCLI.exe misc bam", L"Alias for misc applocker.", L"No options.", L"Alias: misc applocker." },
         { L"misc", L"driver-trust", L"KswordCLI.exe misc driver-trust [--flags 0xN] [--max-entries N] [--limit N]", L"Query loaded-driver trust rows.", L"Optional: --flags, --max-entries, --limit.", L"" },
         { L"mutation", L"prepare", L"KswordCLI.exe mutation prepare --target-kind N (--after-hex HEX | --after-file PATH) [--before-hex HEX | --before-file PATH] [--pid PID] [--address VA] [--context N] [--flags 0xN]", L"Prepare a bounded mutation transaction.", L"Required: --target-kind and after payload. Optional: before payload, --pid, --address, --context, --flags.", L"Hex and file payload forms are mutually exclusive per payload." },
+        { L"mutation", L"session", L"KswordCLI.exe mutation session --target-kind N (--after-hex HEX | --after-file PATH) [--before-hex HEX | --before-file PATH] [--pid PID] [--address VA] [--context N] [--flags 0xN]", L"Prepare and keep the transaction owner alive for commit and rollback.", L"Required: --target-kind and after payload. Optional: before payload, --pid, --address, --context, --flags. Read commit, rollback, or quit from stdin.", L"Use this command for the complete workflow; standalone processes cannot take ownership of a prepared transaction." },
         { L"mutation", L"commit", L"KswordCLI.exe mutation commit --transaction-id ID [--flags 0xN]", L"Commit a prepared mutation transaction.", L"Required: --transaction-id. Optional: --flags.", L"" },
         { L"mutation", L"rollback", L"KswordCLI.exe mutation rollback --transaction-id ID [--flags 0xN]", L"Rollback a prepared mutation transaction.", L"Required: --transaction-id. Optional: --flags.", L"" },
         { L"mutation", L"query-audit", L"KswordCLI.exe mutation query-audit [--flags 0xN] [--max-entries N] [--start-sequence N] [--limit N] [--hexdump]", L"Query mutation audit ring entries.", L"Optional: --flags, --max-entries, --start-sequence, --limit, --hexdump.", L"" },
@@ -7580,7 +7581,7 @@ namespace
         const std::wstring sub = argv[2];
         const NamedArgs args = parseNamedArgs(argc, argv, 3);
         IoctlResult io{};
-        if (sub == L"prepare")
+        if (sub == L"prepare" || sub == L"session")
         {
             std::vector<std::uint8_t> afterBytes = loadBytesFromHexOrFile(args, L"--after-hex", L"--after-file", KSWORD_ARK_MUTATION_MAX_BYTES, true);
             std::vector<std::uint8_t> beforeBytes = loadBytesFromHexOrFile(args, L"--before-hex", L"--before-file", KSWORD_ARK_MUTATION_MAX_BYTES, false);
@@ -7611,6 +7612,45 @@ namespace
                        << std::dec << L" timestampTick=" << response.timestampTick << L"\n";
             printBytesInline(L"beforeBytes", response.beforeBytes, response.bytes);
             printBytesInline(L"afterBytes", response.afterBytes, response.bytes);
+            const int prepareRc = operationStatusRc(response.lastStatus);
+            if (prepareRc != 0) return prepareRc;
+            if (sub == L"session")
+            {
+                if (response.status != KSWORD_ARK_MUTATION_STATUS_PREPARED || response.transactionId == 0ULL)
+                {
+                    std::wcerr << L"error: session requires a prepared, stored transaction\n";
+                    return 3;
+                }
+                const auto transactionId = response.transactionId;
+                std::wcout << L"session_ready=true commands=commit,rollback,quit\n" << std::flush;
+                std::wstring action;
+                while (std::getline(std::wcin, action))
+                {
+                    if (action == L"quit") break;
+                    if (action.empty()) continue;
+                    if (action != L"commit" && action != L"rollback")
+                    {
+                        std::wcerr << L"error: expected commit, rollback, or quit\n";
+                        return 1;
+                    }
+                    KSWORD_ARK_MUTATION_TRANSACTION_REQUEST transaction{};
+                    transaction.size = sizeof(transaction);
+                    transaction.version = KSWORD_ARK_MUTATION_PROTOCOL_VERSION;
+                    transaction.flags = request.flags;
+                    transaction.transactionId = transactionId;
+                    response = {};
+                    const bool rollback = action == L"rollback";
+                    if (!sendFixedRequestResponse(
+                        rollback ? IOCTL_KSWORD_ARK_MUTATION_ROLLBACK : IOCTL_KSWORD_ARK_MUTATION_COMMIT,
+                        rollback ? L"IOCTL_KSWORD_ARK_MUTATION_ROLLBACK" : L"IOCTL_KSWORD_ARK_MUTATION_COMMIT",
+                        transaction, response, io, GENERIC_READ | GENERIC_WRITE)) return 3;
+                    printResponseBanner(response.version, response.status, response.lastStatus, io.bytesReturned);
+                    std::wcout << L"transactionId=" << transactionId << L" action=" << action << L"\n" << std::flush;
+                    const int actionRc = operationStatusRc(response.lastStatus);
+                    // Keep the owner alive after a failed commit so rollback remains possible.
+                    if (actionRc == 0 && rollback) break;
+                }
+            }
             return 0;
         }
         if (sub == L"commit" || sub == L"rollback")

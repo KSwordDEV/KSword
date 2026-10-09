@@ -393,6 +393,7 @@ Prepare, commit, rollback, and audit bounded mutation transactions.
 | 命令 | 语法 | 用途 | 参数 | 备注 |
 | --- | --- | --- | --- | --- |
 | `mutation prepare` | `KswordCLI.exe mutation prepare --target-kind N (--after-hex HEX \| --after-file PATH) [--before-hex HEX \| --before-file PATH] [--pid PID] [--address VA] [--context N] [--flags 0xN]` | Prepare a bounded mutation transaction. | Required: --target-kind and after payload. Optional: before payload, --pid, --address, --context, --flags. | Hex and file payload forms are mutually exclusive per payload. |
+| `mutation session` | `KswordCLI.exe mutation session --target-kind N (--after-hex HEX \| --after-file PATH) [--before-hex HEX \| --before-file PATH] [--pid PID] [--address VA] [--context N] [--flags 0xN]` | 在同一 CLI 进程中 prepare，并从标准输入接收 commit、rollback、quit。 | 参数与 prepare 相同；flags 同时用于后续 commit/rollback。 | 保留驱动事务归属校验；独立 CLI 进程不能接管 prepare 的事务。 |
 | `mutation commit` | `KswordCLI.exe mutation commit --transaction-id ID [--flags 0xN]` | Commit a prepared mutation transaction. | Required: --transaction-id. Optional: --flags. |  |
 | `mutation rollback` | `KswordCLI.exe mutation rollback --transaction-id ID [--flags 0xN]` | Rollback a prepared mutation transaction. | Required: --transaction-id. Optional: --flags. |  |
 | `mutation query-audit` | `KswordCLI.exe mutation query-audit [--flags 0xN] [--max-entries N] [--start-sequence N] [--limit N] [--hexdump]` | Query mutation audit ring entries. | Optional: --flags, --max-entries, --start-sequence, --limit, --hexdump. |  |
