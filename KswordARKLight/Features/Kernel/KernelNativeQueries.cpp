@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/kernel/ObjectDirectory.h"
 #include "../../../shared/usermode/backend/kernel/ObjectNamespace.h"
 #include "KernelNativeQueries.h"
 
@@ -87,6 +88,7 @@
 namespace Ksword::Features::Kernel {
 namespace {
 using namespace ks::r3::kernel;
+using namespace ks::r3::kernel;
 
 
 
@@ -109,7 +111,7 @@ using namespace ks::r3::kernel;
 
 constexpr ULONG kObjectTypesInformation = 3;
 constexpr ULONG kFileDirectoryInformation = 1;
-constexpr std::size_t kMaxDirectoryRows = 2500;
+
 constexpr std::size_t kMaxTypeRows = 256;
 constexpr std::size_t kMaxExportRows = 512;
 
@@ -447,54 +449,7 @@ bool MatchesColumnsFilter(const KernelResultRow& row, const std::wstring& filter
 // QueryObjectDirectoryRecursive implements bounded recursive namespace walking.
 // Input is the request filter as optional start path; processing BFS-enumerates
 // directories with caps to keep the UI responsive; return contains tree rows.
-KernelOperationResult QueryObjectDirectoryRecursive(const KernelRequest& request) {
-    const NtRuntime& runtime = Runtime();
-    QueryPacket packet;
-    const bool filterLooksLikePath = !request.filterText.empty() && request.filterText.front() == L'\\';
-    const std::wstring startPath = filterLooksLikePath ? request.filterText : L"\\";
-    const std::wstring rowFilter = filterLooksLikePath ? std::wstring{} : request.filterText;
-    std::size_t maxDepth = 4;
-    if (!request.moduleFilterText.empty()) {
-        wchar_t* end = nullptr;
-        const unsigned long parsed = std::wcstoul(request.moduleFilterText.c_str(), &end, 10);
-        if (end != request.moduleFilterText.c_str()) {
-            maxDepth = std::min<std::size_t>(32, parsed);
-        }
-    }
-    struct WorkItem {
-        std::wstring path;
-        std::size_t depth = 0;
-    };
 
-    std::deque<WorkItem> queue;
-    std::set<std::wstring> visited;
-    std::size_t scannedRows = 0;
-    queue.push_back({ startPath, 0 });
-    visited.insert(ToLowerCopy(startPath));
-
-    while (!queue.empty() && packet.rows.size() < kMaxDirectoryRows && scannedRows < kMaxDirectoryRows * 4) {
-        const WorkItem item = queue.front();
-        queue.pop_front();
-        const std::vector<DirectoryEntry> entries = EnumerateDirectoryFlat(runtime, item.path, packet.warnings);
-        for (const DirectoryEntry& entry : entries) {
-            ++scannedRows;
-            if (MatchesDirectoryFilter(entry, rowFilter)) {
-                AppendDirectoryEntryRow(packet, L"Recursive", item.depth, entry);
-            }
-            if (entry.typeName == L"Directory" && item.depth < maxDepth && packet.rows.size() < kMaxDirectoryRows && scannedRows < kMaxDirectoryRows * 4) {
-                const std::wstring key = ToLowerCopy(entry.fullPath);
-                if (visited.insert(key).second) {
-                    queue.push_back({ entry.fullPath, item.depth + 1 });
-                }
-            }
-        }
-    }
-
-    if (!queue.empty() || scannedRows >= kMaxDirectoryRows * 4) {
-        packet.warnings.push_back(std::wstring(L"目录递归达到显示上限 ") + std::to_wstring(kMaxDirectoryRows) + L" 行，已截断。可在“过滤/起点”输入框指定更小的对象目录。");
-    }
-    return MakeResult(request.featureId, !packet.rows.empty(), L"对象目录递归", std::move(packet));
-}
 
 // QuerySymbolicLinks enumerates common directories and resolves link targets.
 // Input is the request; processing filters object rows by SymbolicLink type;
