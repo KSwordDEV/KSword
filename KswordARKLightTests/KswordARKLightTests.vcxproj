@@ -387,6 +387,18 @@
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\process\ProcessCounters.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessControls.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessControls.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\Common.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\process\process.cpp" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>

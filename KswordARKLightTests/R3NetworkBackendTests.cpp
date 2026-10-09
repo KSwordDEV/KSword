@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/process/ProcessControls.h"
 #include "../shared/usermode/backend/process/ProcessCounters.h"
 #include "../shared/usermode/backend/file/PeSnapshot.h"
 #include "../shared/usermode/backend/file/FileAnalysis.h"
@@ -124,6 +125,9 @@ int RunR3NetworkBackendTests() {
     suite.expect(counterRow.cpuUsagePercent == 100.0, L"process CPU delta retains original capacity formula");
     ks::r3::process::UpdateCpuCounterDelta(counterRow, nullptr, 1, 1);
     suite.expect(counterRow.cpuUsagePercent == 0.0, L"missing identity baseline resets CPU sample");
+    std::wstring identityError;
+    const auto invalidIdentity = ks::r3::process::OpenProcessForAction(::GetCurrentProcessId(), 0, PROCESS_QUERY_LIMITED_INFORMATION, identityError);
+    suite.expect(!invalidIdentity.valid() && identityError == L"process identity is unavailable; action skipped", L"native process actions reject missing creation identity");
     suite.report();
     return suite.failures();
 }
