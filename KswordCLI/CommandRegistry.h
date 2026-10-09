@@ -47,4 +47,5 @@ void registerNetworkPing();
 void registerNetworkTraceRoute();
 void registerNetworkDns();
 void registerNetworkFirewall();
+void registerNetworkEndpointAudit();
 }

@@ -77,3 +77,21 @@ name 精确匹配区分大小写的显示名称；limit 默认 100，0 只输出
 属性读取失败时对应字段为 null，避免把未知状态显示为关闭／禁止；complete 指规则集合枚举是否完整。
 全部枚举与配置文件查询完成返回 0；部分结果返回 6；COM／防火墙服务调用失败返回 3，并保留 HRESULT。
 COM 初始化与释放由后端在同一调用线程完成，不需要 KswordARK 驱动。
+
+## AFD/NSI 公开投影（迁移项 06）
+
+```powershell
+KswordCLI.exe network endpoint-audit afd query [--limit N] [--backend r3] [--json]
+KswordCLI.exe network endpoint-audit nsi query [--limit N] [--backend r3] [--json]
+```
+
+这是 R3 documented IP Helper 投影，source 明确标注没有查询 AFD／NSI 私有对象。
+AFD 提供 IPv4 TCP/UDP 所有者元组、状态和表总数；NSI 提供接口原始索引、类型、MTU、速度、名称及 IPv4 地址／路由总数。
+接口字段来自旧 GetIfTable/MIB_IFROW，包含未绑定接口；例如回环的兼容 MTU 不等同于现代 IP 接口视图的 NlMtu。
+rows 每行保留 available、evidence、win32Error、truncated、结构化 fields 和原后端解释 cells。
+边界说明行的 evidence 为 false，不参与成功判定；不通过解析说明文字推导状态。
+
+后端原有采集上限为每种 IPv4 端点表 128 行、接口表 64 行。backendTruncated 标明达到这些上限；
+显示 limit 默认 100、0 仅显示统计，displayTruncated 单独说明显示截断。
+采集完整返回 0，部分证据或后端截断返回 6，证据全部不可用返回 5。不会执行断连、修改接口或路由。
+既有 `network afd` 与 `network nsi` 的默认输出保持兼容；新增路径提供统一 JSON 和共享 Light 后端。

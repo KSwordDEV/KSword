@@ -1,5 +1,5 @@
 $records = [System.Collections.Generic.List[object]]::new()
-function Invoke-Cli([string[]]$Arguments, [int]$Expected = 0) {
+function Invoke-Cli([string[]]$Arguments, [int[]]$Expected = @(0)) {
     $info = [Diagnostics.ProcessStartInfo]::new()
     $info.FileName = $Cli
     $info.Arguments = $Arguments -join ' '
@@ -13,7 +13,7 @@ function Invoke-Cli([string[]]$Arguments, [int]$Expected = 0) {
     if (!$p.WaitForExit(45000)) { $p.Kill(); throw 'CLI timeout' }
     $out = $outTask.GetAwaiter().GetResult(); $err = $errTask.GetAwaiter().GetResult()
     $records.Add([pscustomobject]@{arguments=$Arguments;code=$p.ExitCode;stdout=$out;stderr=$err})
-    if ($p.ExitCode -ne $Expected) { throw "Expected $Expected got $($p.ExitCode): $err $out" }
+    if ($Expected -notcontains $p.ExitCode) { throw "Expected $Expected got $($p.ExitCode): $err $($out.Substring(0,[Math]::Min(1500,$out.Length)))" }
     return $out
 }
 function Assert([bool]$Condition, [string]$Message) { if (!$Condition) { throw $Message } }

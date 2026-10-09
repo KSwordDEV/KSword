@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
+param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\KswordCliR3TestSupport.ps1"
 switch ($Feature) {
@@ -93,6 +93,50 @@ switch ($Feature) {
                 Assert ($actual.data.matchedCount -eq 1 -and $actual.data.rules[0].enabled -and $actual.data.rules[0].action -eq 0) 'Temporary firewall rule'
                 Assert ($actual.data.rules[0].localPorts -eq $port.LocalPort -and $actual.data.rules[0].protocol -eq 6 -and $actual.data.rules[0].profiles -eq 2) 'Independent firewall tuple disagrees'
             } finally { Remove-NetFirewallRule -Name $name -ErrorAction SilentlyContinue }
+        }
+    }
+    'endpoint-audit' {
+        $group = Invoke-Cli @('help','network','endpoint-audit')
+        Assert ($group.Contains('afd') -and $group.Contains('nsi') -and !$group.Contains('--limit')) 'Endpoint audit hierarchy'
+        foreach ($kind in @('afd','nsi')) {
+            $help = Invoke-Cli @('help','network','endpoint-audit',$kind,'query')
+            Assert ($help.Contains('--limit')) 'Endpoint leaf help'
+            Assert ((Invoke-Cli @('network','endpoint-audit',$kind,'query','--help')) -eq $help) 'Endpoint inline help'
+            foreach ($bad in @(
+                @('network','endpoint-audit',$kind,'query','--backend','r0','--json'),
+                @('network','endpoint-audit',$kind,'query','--unknown','1','--json')
+            )) { Assert (((Invoke-Cli $bad 1) | ConvertFrom-Json).status -eq 'failed') 'Endpoint parameter JSON' }
+            $result = (Invoke-Cli @('network','endpoint-audit',$kind,'query','--limit','1000','--json') @(0,6)) | ConvertFrom-Json
+            Assert ($result.status -in @('success','partial') -and $result.data.source.Contains('private AFD/NSI objects are not queried')) 'Endpoint source and status'
+            Assert (@($result.data.rows | Where-Object { !$_.available }).Count -eq 0) 'Unexpected unavailable endpoint table'
+            if ($kind -eq 'nsi') {
+                $active = @(Get-NetIPInterface -AddressFamily IPv4 -IncludeAllCompartments | Where-Object ConnectionState -eq Connected)
+                Assert ($active.Count -gt 0) 'Independent interface oracle is empty'
+                foreach ($oracle in $active) {
+                    $row = @($result.data.rows | Where-Object { $_.fields.interfaceIndex -eq $oracle.InterfaceIndex })
+                    Assert ($row.Count -eq 1) "Active interface absent from public projection: $($oracle.InterfaceIndex)"
+                    if ($row[0].fields.type -eq 6) { Assert ($row[0].fields.mtu -eq $oracle.NlMtu) 'Independent Ethernet interface MTU disagrees' }
+                }
+            }
+            $limited = (Invoke-Cli @('network','endpoint-audit',$kind,'query','--limit','0','--json') @(0,6)) | ConvertFrom-Json
+            Assert ($limited.data.returnedCount -eq 0 -and $limited.data.displayTruncated) 'Endpoint display limit'
+        }
+        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
+        try {
+            $listener.Start()
+            $result = (Invoke-Cli @('network','endpoint-audit','afd','query','--limit','1000','--json') @(0,6)) | ConvertFrom-Json
+            $row = @($result.data.rows | Where-Object { $_.fields.pid -eq $PID -and $_.fields.localPort -eq $listener.LocalEndpoint.Port })
+            if ($InGuest -or !$result.data.backendTruncated) { Assert ($row.Count -eq 1 -and $row[0].fields.state -eq 2 -and $row[0].fields.localAddress -eq '127.0.0.1') 'Raw AFD TCP fields' }
+            $oracle = Get-NetTCPConnection -LocalPort $listener.LocalEndpoint.Port -State Listen
+            if ($row.Count) { Assert ($oracle.OwningProcess -eq $row[0].fields.pid) 'Independent AFD PID' }
+        } finally { $listener.Stop() }
+        if ($InGuest) {
+            $listeners = [Collections.Generic.List[Net.Sockets.TcpListener]]::new()
+            try {
+                for ($i=0;$i -lt 140;$i++) { $l=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0);$l.Start();$listeners.Add($l) }
+                $bounded = (Invoke-Cli @('network','endpoint-audit','afd','query','--limit','1000','--json') 6) | ConvertFrom-Json
+                Assert ($bounded.status -eq 'partial' -and $bounded.data.backendTruncated -and !$bounded.data.displayTruncated) 'Backend cap must not pretend full evidence'
+            } finally { foreach ($l in $listeners) { $l.Stop() } }
         }
     }
 }

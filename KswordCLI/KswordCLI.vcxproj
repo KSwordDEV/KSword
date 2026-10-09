@@ -193,4 +193,9 @@
     <ClCompile Include="..\shared\usermode\backend\network\Firewall.cpp" />
     <ClInclude Include="..\shared\usermode\backend\network\Firewall.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3NetworkEndpointAudit.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\EndpointAudit.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\network\EndpointAudit.h" />
+  </ItemGroup>
 </Project>

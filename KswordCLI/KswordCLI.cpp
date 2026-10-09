@@ -1452,6 +1452,7 @@ namespace
             ks::cli::registerNetworkTraceRoute();
             ks::cli::registerNetworkDns();
             ks::cli::registerNetworkFirewall();
+            ks::cli::registerNetworkEndpointAudit();
             #endif
             return true;
         }();
