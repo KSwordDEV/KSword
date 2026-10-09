@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import json
 import os
 from pathlib import Path
 import struct
@@ -58,13 +59,15 @@ def atomic_write_bytes(output_path: Path, payload: bytes) -> None:
         raise
 
 
-def compress_file(source_path: Path, output_path: Path, level: int) -> None:
+def compress_file(source_path: Path, output_path: Path, level: int, *, normalize_dyndata_v4: bool = False) -> None:
     """Compress one JSON file to one Qt-compatible .qz file.
 
     Args:
         source_path: Existing source JSON file path.
         output_path: Destination path, normally ending with ".json.qz".
         level: zlib compression level.
+        normalize_dyndata_v4: Validate existing v4 items and omit obsolete mirrors
+            before compression; never reads or downloads a PDB.
 
     Returns:
         None.  Raises OSError/ValueError on invalid input or write failures.
@@ -74,6 +77,13 @@ def compress_file(source_path: Path, output_path: Path, level: int) -> None:
         raise FileNotFoundError(f"source JSON does not exist: {source_path}")
 
     raw_data = source_path.read_bytes()
+    # DynData 发布只复用已有 canonical items；旧镜像和退役 timer item 不再进入包。
+    # 在内存中规范化，源文件与 PE/PDB 身份不改动；其它 JSON 压缩保持原行为。
+    if normalize_dyndata_v4:
+        from pdb_offset_generator.ksword_v4_pack_normalizer import normalize_pack
+
+        pack = normalize_pack(json.loads(raw_data.decode("utf-8-sig")))
+        raw_data = json.dumps(pack, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     compressed_data = qt_compress_bytes(raw_data, level)
 
     # Verify the stream immediately.  Build-time validation is cheap and avoids
@@ -134,6 +144,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", type=Path, help="single output .qz path, required with --file")
     parser.add_argument("--out-dir", type=Path, help="output directory, required with --dir")
     parser.add_argument("--pattern", default="*.json", help="directory filename pattern, default: *.json")
+    parser.add_argument("--normalize-dyndata-v4", action="store_true",
+                        help="Normalize an existing v4 DynData pack offline before compression; --file only.")
     return parser
 
 
@@ -157,12 +169,14 @@ def main(argv: list[str]) -> int:
         if args.file is not None:
             if args.out is None:
                 parser.error("--out is required with --file")
-            compress_file(args.file, args.out, args.level)
+            compress_file(args.file, args.out, args.level, normalize_dyndata_v4=args.normalize_dyndata_v4)
             print(f"compressed: {args.file} -> {args.out}")
             return 0
 
         if args.out_dir is None:
             parser.error("--out-dir is required with --dir")
+        if args.normalize_dyndata_v4:
+            parser.error("--normalize-dyndata-v4 requires --file")
 
         count = compress_directory(args.dir, args.out_dir, args.pattern, args.level)
         print(f"compressed {count} file(s): {args.dir} -> {args.out_dir}")

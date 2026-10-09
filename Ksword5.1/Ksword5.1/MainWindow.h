@@ -816,7 +816,7 @@ private:
     bool m_startupWindowVisibilityAdjusted = false; // m_startupWindowVisibilityAdjusted：是否已完成首次显示区域修正。
     bool m_deferredDockInitializationStarted = false; // m_deferredDockInitializationStarted：是否已启动显示后补载流程。
     bool m_dockLayoutRestoredFromConfig = false;     // m_dockLayoutRestoredFromConfig：启动时是否已从配置恢复 ADS 布局。
-    bool m_pendingR0DynDataRefresh = false;          // m_pendingR0DynDataRefresh：KernelDock 惰性创建后是否需要补跑 DynData 刷新。
+    bool m_pendingR0DynDataRefresh = false;          // m_pendingR0DynDataRefresh：Dock 尚未就绪时是否需要补跑 DynData 刷新。
     bool m_bugcheckDiagnosticsInstalledForSession = false; // m_bugcheckDiagnosticsInstalledForSession：当前驱动生命周期内是否已成功安装蓝屏诊断。
     bool m_bugcheckDiagnosticsEntryRequestedForSession = false; // m_bugcheckDiagnosticsEntryRequestedForSession：用户本次操作是否已请求显示诊断入口。
     std::size_t m_nextDeferredDockIndex = 0;          // m_nextDeferredDockIndex：下一个待补载 Dock 队列索引。

@@ -1316,7 +1316,8 @@
     <Copy SourceFiles="$(KswordZycoreLicenseSource)" DestinationFiles="$(KswordThirdPartyLicenseTargetDir)zycore-LICENSE.txt" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(KswordZydisNoticeSource)" DestinationFiles="$(KswordThirdPartyLicenseTargetDir)zydis-NOTICE.md" SkipUnchangedFiles="true" />
   </Target>
-  <Target Name="CopyKswordArkDynDataProfilePack" AfterTargets="Build">
+  <!-- CI 没有私有偏移语料；显式跳过运行时包发布，不将 Launcher 编译占位当成有效档案。 -->
+  <Target Name="CopyKswordArkDynDataProfilePack" AfterTargets="Build" Condition="'$(KswordSkipDynDataProfilePack)'!='true'">
     <!-- Release carries one v4 pack. Core field/EX projections are derived in memory by R3. -->
     <PropertyGroup>
       <KswordProfileCompressor>$(MSBuildProjectDirectory)\..\..\tools\compress_qt_profile_json.py</KswordProfileCompressor>
@@ -1337,7 +1338,7 @@
     <MakeDir Directories="$(KswordStaleDynDataPackArchiveDir)" Condition="'@(KswordStaleDynDataPack)'!=''" />
     <Move SourceFiles="@(KswordStaleDynDataPack)" DestinationFolder="$(KswordStaleDynDataPackArchiveDir)" Condition="'@(KswordStaleDynDataPack)'!=''" />
     <MakeDir Directories="$(KswordArkDynDataProfilePackTargetDir)" Condition="Exists('$(KswordArkDynDataProfilePackV4Source)')" />
-    <Exec Command="&quot;$(KswordProfilePythonExe)&quot; &quot;$(KswordProfileCompressor)&quot; --file &quot;$(KswordArkDynDataProfilePackV4Source)&quot; --out &quot;$(KswordArkDynDataProfilePackTargetDir)ark_dyndata_pack_v4.json.qz&quot;" Condition="Exists('$(KswordProfileCompressor)') And Exists('$(KswordArkDynDataProfilePackV4Source)')" />
+    <Exec Command="&quot;$(KswordProfilePythonExe)&quot; &quot;$(KswordProfileCompressor)&quot; --file &quot;$(KswordArkDynDataProfilePackV4Source)&quot; --out &quot;$(KswordArkDynDataProfilePackTargetDir)ark_dyndata_pack_v4.json.qz&quot; --normalize-dyndata-v4" Condition="Exists('$(KswordProfileCompressor)') And Exists('$(KswordArkDynDataProfilePackV4Source)')" />
     <Warning Condition="!Exists('$(KswordProfileCompressor)')" Text="Profile compressor was not found; compressed profile packs were not generated: $(KswordProfileCompressor)" />
     <Warning Condition="!Exists('$(KswordArkDynDataProfilePackV4Source)')" Text="KswordARK DynData v4 profile pack was not found: $(KswordArkDynDataProfilePackV4Source)" />
   </Target>

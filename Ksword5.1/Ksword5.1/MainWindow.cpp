@@ -5192,7 +5192,6 @@ MainWindow::MainWindow(
         QStringLiteral("main.startup.progress.privilege_status"),
         QStringLiteral("正在准备主界面..."));
     initPrivilegeStatusButtons();
-    startR0RuntimeConsumersAfterServiceStart();
 
     // 初始化Dock Widgets
     reportStartupProgress(
@@ -5200,6 +5199,10 @@ MainWindow::MainWindow(
         QStringLiteral("main.startup.progress.page_components"),
         QStringLiteral("正在加载功能模块..."));
     initDockWidgets();
+
+    // Dock 构造期间会 processEvents；此时才安排 R0 刷新，避免 0ms 回调提前返回后遗失。
+    // 已运行的服务和本轮新启动的服务复用同一入口，偏移仍按精确内核身份下发。
+    startR0RuntimeConsumersAfterServiceStart();
 
     // 设置Dock布局
     reportStartupProgress(
@@ -9180,9 +9183,9 @@ void MainWindow::startR0RuntimeConsumersAfterServiceStart()
 void MainWindow::refreshR0DynDataAfterServiceStart()
 {
     // R0 服务启动后立即把本地 PDB profile pack 下发到驱动：
-    // - 复用 KernelDock 现有的 profile 匹配、v3 typed item 解析和 APPLY_DYN_PROFILE_EX；
+    // - 复用 KernelDock 的 v4 profile 匹配和内存 EX 投影，不复制偏移或绕过校验；
     // - 不再为了后台刷新强行创建 KernelDock UI，避免启动期拉起重页面；
-    // - KernelDock 尚未初始化时只记录待刷新标记，首次打开内核页后再补跑；
+    // - 主窗口在 Dock 构造完成后调用；尚未就绪时保留标记供初始化路径补跑；
     // - 失败只进入日志/KernelDock 状态，具体 R0 功能仍有驱动侧运行时偏移兜底。
     QTimer::singleShot(0, this, [this]() {
         kLogEvent logEvent;
@@ -9207,6 +9210,8 @@ void MainWindow::refreshR0DynDataAfterServiceStart()
         info << logEvent
             << "[MainWindow][R0] 驱动已装载，开始自动刷新 DynData profile。"
             << eol;
+        // 本轮已经实际安排下发，清除早期重入或服务重复启动留下的待刷新标记。
+        m_pendingR0DynDataRefresh = false;
         m_kernelWidget->requestDynDataRefresh();
         });
 }
