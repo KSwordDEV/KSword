@@ -908,6 +908,9 @@
     <ClCompile Include="PluginHost.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ProcessDock\ProcessGpuTableView.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="ProcessDock\ProcessCpuCapacityCell.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2298,6 +2301,9 @@
     </ClInclude>
     <ClInclude Include="ProcessDock\ThreadAffinityMenu.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessDock\ProcessGpuTableView.h">
+      <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="ProcessDock\ProcessCpuCapacityCell.h">
       <Filter>Header Files</Filter>

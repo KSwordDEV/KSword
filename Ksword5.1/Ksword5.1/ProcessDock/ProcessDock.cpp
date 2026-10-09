@@ -2,6 +2,7 @@
 #include "ProcessAffinityUtils.h"
 #include "ProcessAffinityPersistence.h"
 #include "ProcessCpuCapacityCell.h"
+#include "./ProcessGpuTableView.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ThemeAccentIcon.h"
@@ -5334,7 +5335,7 @@ void ProcessDock::initializeProcessTable()
             << eol;
     }
 
-    m_processTable = new ks::ui::TableActionTableView(this);
+    m_processTable = new ks::process_ui::ProcessGpuTableView(this);
     // 进程表刷新频率和行数都较高：
     // - 禁用 MainWindow 全局 smooth-scroll 接管，避免滚轮事件被 QPropertyAnimation 重写；
     // - 保持 QTableView/滚动条默认滚动手感，不额外添加惯性或延迟；

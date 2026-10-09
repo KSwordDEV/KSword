@@ -51,14 +51,14 @@
     <QtInstall Condition="'$(KSWORD_QT_DIR)' != ''">$(KSWORD_QT_DIR)</QtInstall>
     <QtInstall Condition="'$(QtInstall)' == '' and '$(QTDIR)' != ''">$(QTDIR)</QtInstall>
     <QtInstall Condition="'$(QtInstall)' == ''">Qt</QtInstall>
-    <QtModules>core;gui;network;widgets;svg</QtModules>
+    <QtModules>core;gui;network;widgets;svg;opengl;openglwidgets</QtModules>
     <QtBuildConfig>debug</QtBuildConfig>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="QtSettings">
     <QtInstall Condition="'$(KSWORD_QT_DIR)' != ''">$(KSWORD_QT_DIR)</QtInstall>
     <QtInstall Condition="'$(QtInstall)' == '' and '$(QTDIR)' != ''">$(QTDIR)</QtInstall>
     <QtInstall Condition="'$(QtInstall)' == ''">Qt</QtInstall>
-    <QtModules>core;gui;network;widgets;svg</QtModules>
+    <QtModules>core;gui;network;widgets;svg;opengl;openglwidgets</QtModules>
     <QtBuildConfig>release</QtBuildConfig>
   </PropertyGroup>
   <Target Name="QtMsBuildNotFound" BeforeTargets="CustomBuild;ClCompile" Condition="!Exists('$(QtMsBuild)\qt.targets') or !Exists('$(QtMsBuild)\qt.props')">
@@ -462,6 +462,7 @@
     <ClCompile Include="ProcessDock\ProcessDetailWindow.AdvancedInfo.cpp" />
     <ClCompile Include="PluginHost.cpp" />
     <ClCompile Include="ProcessDock\ProcessCpuCapacityCell.cpp" />
+    <ClCompile Include="ProcessDock\ProcessGpuTableView.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.Icon.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.ColumnChooser.cpp" />
@@ -1069,6 +1070,7 @@
     <ClInclude Include="ProcessDock\ProcessAffinityModel.h" />
     <ClInclude Include="ProcessDock\ThreadAffinityMenu.h" />
     <ClInclude Include="ProcessDock\ProcessCpuCapacityCell.h" />
+    <ClInclude Include="ProcessDock\ProcessGpuTableView.h" />
     <ClInclude Include="ProcessDock\ProcessMessageHookWindow.h" />
     <ClInclude Include="ProcessDock\ThreadStackWindow.h" />
     <QtMoc Include="ProcessDock\ProcessDock.h" />
