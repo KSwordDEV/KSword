@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/process/ProcessHotkeys.h"
 #include "../shared/usermode/backend/process/ProcessPeb.h"
 #include "../shared/usermode/backend/process/ProcessTokenSwitches.h"
 #include "../shared/usermode/backend/process/ProcessToken.h"
