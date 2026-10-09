@@ -28,3 +28,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | process extended field collection | 20-process-details |
 | process dynamic and network telemetry | 21-process-telemetry |
 | native process controls | 22-process-controls |
+| process detail basic collection | 23-process-detail-basic |

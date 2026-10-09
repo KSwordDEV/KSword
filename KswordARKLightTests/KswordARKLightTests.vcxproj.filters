@@ -460,4 +460,24 @@
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessBasicInfoSupport.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessBasicInfo.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessDetailTypes.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessBasicInfo.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
 </Project>

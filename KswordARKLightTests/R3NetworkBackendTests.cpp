@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/process/ProcessBasicInfo.h"
 #include "../shared/usermode/backend/process/ProcessControls.h"
 #include "../shared/usermode/backend/process/ProcessCounters.h"
 #include "../shared/usermode/backend/file/PeSnapshot.h"
