@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/security/HyperV.h"
 #include "../shared/usermode/backend/security/Vbs.h"
 #include "../shared/usermode/backend/security/CodeIntegrity.h"
 #include "../shared/usermode/backend/kernel/HookDiskBaseline.h"

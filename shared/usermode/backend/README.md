@@ -65,3 +65,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | kernel Hook disk image baseline | 57-kernel-hook-disk |
 | security Code Integrity and WDAC | 58-security-ci |
 | security VBS HVCI and SKCI | 59-security-vbs |
+| security Hyper-V | 60-security-hyperv |
