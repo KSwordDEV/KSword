@@ -11,3 +11,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | route tracing | 03-trace-route |
 | DNS lookup | 04-dns |
 | firewall rules | 05-firewall |
+| network R3 endpoint audit | 06-endpoint-audit |
