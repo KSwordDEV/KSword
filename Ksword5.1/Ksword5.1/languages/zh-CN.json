@@ -14440,6 +14440,7 @@
     ", requestSerial=": ", requestSerial=",
     ", requested=": ", requested=",
     ", requested=0x": ", requested=0x",
+    ", diagnostics=0x": ", diagnostics=0x",
     ", requestedThreads=": ", requestedThreads=",
     ", resolveName=": ", resolveName=",
     ", returned=": ", returned=",

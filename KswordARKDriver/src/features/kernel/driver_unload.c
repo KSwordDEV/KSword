@@ -4798,6 +4798,7 @@ Return Value:
     if (OutputBuffer == NULL || Request == NULL || BytesWrittenOut == NULL) {
         return STATUS_INVALID_PARAMETER;
     }
+    RtlZeroMemory(&preflightResult, sizeof(preflightResult)); // 预检构建失败也必须可诊断。
     RtlZeroMemory(&callbackCleanupResult, sizeof(callbackCleanupResult));
     callbackCleanupResult.LastStatus = STATUS_SUCCESS;
     RtlZeroMemory(&teardownCallbackCleanupResult, sizeof(teardownCallbackCleanupResult));
@@ -4891,15 +4892,20 @@ Return Value:
      * 与原始 dispatch。强卸载前必须先 RESTORE 或显式 ABANDON，避免丢失恢复
      * 身份；门禁同时匹配已引用对象和原始请求模块基址。
      */
-    if (KswordARKDriverCommunicationHasBlockingRecord(
-        driverObject,
-        requestSnapshot.targetModuleBase) ||
-        KswordARKDriverDispatchHasBlockingRecord(
-            driverObject,
-            requestSnapshot.targetModuleBase) ||
-        KswordARKDriverImageHasBlockingRecord(
-            driverObject,
-            requestSnapshot.targetModuleBase)) {
+    ULONG blockingFlags = 0UL; // 逐类记录未恢复记录，避免短路判断隐藏 busy 来源。
+    if (KswordARKDriverCommunicationHasBlockingRecord(driverObject, requestSnapshot.targetModuleBase)) {
+        blockingFlags |= KSWORD_ARK_UNLOAD_DIAG_COMMUNICATION; // 通信入口尚未恢复。
+    }
+    if (KswordARKDriverDispatchHasBlockingRecord(driverObject, requestSnapshot.targetModuleBase)) {
+        blockingFlags |= KSWORD_ARK_UNLOAD_DIAG_DISPATCH; // dispatch 编辑尚未恢复。
+    }
+    if (KswordARKDriverImageHasBlockingRecord(driverObject, requestSnapshot.targetModuleBase)) {
+        blockingFlags |= KSWORD_ARK_UNLOAD_DIAG_IMAGE_EDIT; // 映像编辑尚未恢复。
+    }
+    if (Diagnostics != NULL) {
+        Diagnostics->blockingFlags = blockingFlags; // 保留精确阻塞项，未改变卸载许可。
+    }
+    if (blockingFlags != 0UL) {
         /* 中文说明：沿用固定 operation-failed 响应状态承载可重试的 busy 原因。 */
         response->status = KSWORD_ARK_DRIVER_UNLOAD_STATUS_OPERATION_FAILED;
         /* 中文说明：lastStatus 明确要求调用方先恢复通信入口。 */
@@ -4923,6 +4929,7 @@ Return Value:
     if (Diagnostics != NULL) {
         Diagnostics->stages |= KSW_DRIVER_UNLOAD_DIAG_STAGE_PREFLIGHT;
         Diagnostics->preflightBuildStatus = status;
+        KswordARKDriverUnloadCapturePreflightDiagnostics(Diagnostics, &preflightResult); // 保留失败预检已经得到的证据。
     }
     if (!NT_SUCCESS(status)) {
         response->status = KSWORD_ARK_DRIVER_UNLOAD_STATUS_OPERATION_FAILED;
@@ -4931,9 +4938,6 @@ Return Value:
         *BytesWrittenOut = sizeof(*response);
         ObDereferenceObject(driverObject);
         return STATUS_SUCCESS;
-    }
-    if (Diagnostics != NULL) {
-        KswordARKDriverUnloadCapturePreflightDiagnostics(Diagnostics, &preflightResult);
     }
 
     if (!preflightResult.AllowDirectUnload &&

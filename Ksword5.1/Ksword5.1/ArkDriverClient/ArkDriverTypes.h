@@ -2427,6 +2427,8 @@ namespace ksword::ark
         std::uint32_t version = 0;           // version：协议版本。
         std::uint32_t status = KSWORD_ARK_DRIVER_UNLOAD_STATUS_UNKNOWN; // status：卸载聚合状态。
         std::uint32_t flags = 0;             // flags：请求 flags 回显。
+        std::uint32_t requestedFlags = 0;    // 原始 flags，兼容现有 reserved 字段。
+        std::uint32_t diagnosticFlags = 0;   // 可选诊断；VALID 未置位表示旧驱动不可用。
         long lastStatus = 0;                 // lastStatus：卸载线程/后端状态。
         long waitStatus = 0;                 // waitStatus：KeWaitForSingleObject 状态。
         std::uint32_t cleanupFlagsApplied = 0; // cleanupFlagsApplied：R0 实际执行的持久清理 flags。

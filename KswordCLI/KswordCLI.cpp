@@ -1225,7 +1225,7 @@ namespace
         { L"kernel", L"patch-inline-hook", L"KswordCLI.exe kernel patch-inline-hook --mode MODE --function VA (--expected-hex HEX | --expected-file PATH) [--restore-hex HEX | --restore-file PATH] [--flags 0xN]", L"Patch or restore an inline hook using bounded byte evidence.", L"Required: --mode, --function, and expected payload. Optional: restore payload, --flags.", L"Hex and file payload forms are mutually exclusive per payload." },
         { L"kernel", L"query-driver-object", L"KswordCLI.exe kernel query-driver-object --driver NAME [--flags 0xN] [--max-devices N] [--max-attached N] [--limit N]", L"Query one DriverObject and device chain.", L"Required: --driver. Optional: --flags, --max-devices, --max-attached, --limit.", L"" },
         { L"kernel", L"query-driver-integrity", L"KswordCLI.exe kernel query-driver-integrity [--driver NAME] [--module-base VA] [--flags 0xN] [--max-rows N] [--max-idt-vectors N] [--max-devices N] [--max-attached N] [--limit N]", L"Query driver integrity evidence rows.", L"Optional: --driver, --module-base, --flags, --max-rows, --max-idt-vectors, --max-devices, --max-attached, --limit.", L"" },
-        { L"kernel", L"force-unload-driver", L"KswordCLI.exe kernel force-unload-driver --driver NAME [--module-base VA] [--timeout-ms N] [--flags 0xN]", L"Force an unload path for one driver.", L"Required: --driver. Optional: --module-base, --timeout-ms, --flags.", L"" },
+        { L"kernel", L"force-unload-driver", L"KswordCLI.exe kernel force-unload-driver --driver NAME [--module-base VA] [--timeout-ms N] [--flags 0xN]", L"Force an unload path for one driver.", L"Required: --driver. Optional: --module-base, --timeout-ms, --flags.", L"Print requested/effective flags, reached stages and preflight evidence; detailed step statuses are in driver log." },
         { L"kernel", L"query-cpu", L"KswordCLI.exe kernel query-cpu", L"Query CPU hardware summary.", L"No options.", L"" },
         { L"kernel", L"query-phys-layout", L"KswordCLI.exe kernel query-phys-layout", L"Query physical memory layout summary.", L"No options.", L"" },
         { L"kernel", L"cid", L"KswordCLI.exe kernel cid [--flags 0xN] [--max-entries N] [--max-visits N] [--start-cid CID] [--end-cid CID] [--limit N]", L"Enumerate CID table evidence.", L"Optional: --flags, --max-entries, --max-visits, --start-cid, --end-cid, --limit.", L"" },
@@ -1902,6 +1902,64 @@ namespace
     // Inputs: argc/argv from wmain.
     // Processing: reads bounded frames until END_OF_LOG or --max-frames.
     // Returns: process exit code.
+    void printDriverUnloadDiagnostics(const KSWORD_ARK_FORCE_UNLOAD_DRIVER_RESPONSE& response)
+    {
+        std::wcout << L"requestedFlags=0x" << std::hex << response.reserved
+                   << L" droppedFlags=0x" << (response.reserved & ~response.flags)
+                   << L" diagnosticFlags=0x" << response.reserved2 << std::dec;
+        if ((response.reserved2 & KSWORD_ARK_UNLOAD_DIAG_VALID) == 0)
+        {
+            std::wcout << L" diagnostics=unavailable (driver log: R0 unload diag)\n";
+            return;
+        }
+        struct FlagName { unsigned long flag; const wchar_t* name; };
+        const FlagName stages[] = {
+            { KSWORD_ARK_UNLOAD_DIAG_REFERENCE, L"reference" },
+            { KSWORD_ARK_UNLOAD_DIAG_PREFLIGHT, L"preflight" },
+            { KSWORD_ARK_UNLOAD_DIAG_ZW, L"zw-unload" },
+            { KSWORD_ARK_UNLOAD_DIAG_ZW_VERIFY, L"zw-verify" },
+            { KSWORD_ARK_UNLOAD_DIAG_DIRECT, L"direct-unload" },
+            { KSWORD_ARK_UNLOAD_DIAG_DIRECT_VERIFY, L"direct-verify" }
+        };
+        const FlagName evidence[] = {
+            { KSWORD_ARK_UNLOAD_DIAG_COMMUNICATION, L"communication-record" },
+            { KSWORD_ARK_UNLOAD_DIAG_DISPATCH, L"dispatch-record" },
+            { KSWORD_ARK_UNLOAD_DIAG_IMAGE_EDIT, L"image-edit-record" },
+            { KSWORD_ARK_UNLOAD_DIAG_RESIDENT_THREADS, L"resident-threads" },
+            { KSWORD_ARK_UNLOAD_DIAG_CALLBACKS, L"module-callbacks" },
+            { KSWORD_ARK_UNLOAD_DIAG_ATTACHED_DEVICE, L"attached-device" },
+            { KSWORD_ARK_UNLOAD_DIAG_DEVICE_REFERENCE, L"device-reference" },
+            { KSWORD_ARK_UNLOAD_DIAG_DEVICE_LOOP, L"device-loop" },
+            { KSWORD_ARK_UNLOAD_DIAG_CROSS_DRIVER, L"cross-driver-device" },
+            { KSWORD_ARK_UNLOAD_DIAG_THREAD_SCAN, L"thread-scan-incomplete" },
+            { KSWORD_ARK_UNLOAD_DIAG_CALLBACK_SCAN, L"callback-scan-incomplete" },
+            { KSWORD_ARK_UNLOAD_DIAG_LOADER_EVIDENCE, L"loader-evidence-missing" },
+            { KSWORD_ARK_UNLOAD_DIAG_OBJECT_OFFSETS, L"object-offsets-unverified" },
+            { KSWORD_ARK_UNLOAD_DIAG_DYNDATA, L"dyndata-unverified" },
+            { KSWORD_ARK_UNLOAD_DIAG_SELF, L"self-module" },
+            { KSWORD_ARK_UNLOAD_DIAG_CORE, L"core-module" },
+            { KSWORD_ARK_UNLOAD_DIAG_PREFLIGHT_DENIED, L"preflight-denied" },
+            { KSWORD_ARK_UNLOAD_DIAG_SERVICE_PATH, L"service-path-missing" },
+            { KSWORD_ARK_UNLOAD_DIAG_UNLOAD_ROUTINE, L"unload-routine-missing" },
+            { KSWORD_ARK_UNLOAD_DIAG_LOADER_LINK, L"loader-link-mismatch" },
+            { KSWORD_ARK_UNLOAD_DIAG_IMAGE_HEADER, L"image-header-invalid" }
+        };
+        const auto printFlags = [&](const auto& names) {
+            bool any = false;
+            for (const auto& item : names) if ((response.reserved2 & item.flag) != 0) {
+                if (any) std::wcout << L",";
+                std::wcout << item.name;
+                any = true;
+            }
+            if (!any) std::wcout << L"none";
+        };
+        std::wcout << L" reached=";
+        printFlags(stages);
+        std::wcout << L" evidence=";
+        printFlags(evidence);
+        std::wcout << L" (step statuses/counts: driver log R0 unload diag)\n";
+    }
+
     int commandLogFamily(int argc, wchar_t* argv[])
     {
         const NamedArgs args = parseNamedArgs(argc, argv, 2);
@@ -5355,6 +5413,7 @@ namespace
                        << L" callbackFailures=" << response.callbackFailures
                        << L" callbackLastStatus=0x" << std::hex << static_cast<unsigned long>(response.callbackLastStatus)
                        << std::dec << L" driverName='" << fixedWide(response.driverName, KSWORD_ARK_DRIVER_OBJECT_NAME_CHARS) << L"'\n";
+            printDriverUnloadDiagnostics(response);
             return 0;
         }
 

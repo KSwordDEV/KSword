@@ -156,7 +156,7 @@ Inspect SSDT, hooks, driver objects, CPU, physical layout, CID, and IPC state.
 | `kernel patch-inline-hook` | `KswordCLI.exe kernel patch-inline-hook --mode MODE --function VA (--expected-hex HEX \| --expected-file PATH) [--restore-hex HEX \| --restore-file PATH] [--flags 0xN]` | Patch or restore an inline hook using bounded byte evidence. | Required: --mode, --function, and expected payload. Optional: restore payload, --flags. | Hex and file payload forms are mutually exclusive per payload. |
 | `kernel query-driver-object` | `KswordCLI.exe kernel query-driver-object --driver NAME [--flags 0xN] [--max-devices N] [--max-attached N] [--limit N]` | Query one DriverObject and device chain. | Required: --driver. Optional: --flags, --max-devices, --max-attached, --limit. |  |
 | `kernel query-driver-integrity` | `KswordCLI.exe kernel query-driver-integrity [--driver NAME] [--module-base VA] [--flags 0xN] [--max-rows N] [--max-idt-vectors N] [--max-devices N] [--max-attached N] [--limit N]` | Query driver integrity evidence rows. | Optional: --driver, --module-base, --flags, --max-rows, --max-idt-vectors, --max-devices, --max-attached, --limit. |  |
-| `kernel force-unload-driver` | `KswordCLI.exe kernel force-unload-driver --driver NAME [--module-base VA] [--timeout-ms N] [--flags 0xN]` | Force an unload path for one driver. | Required: --driver. Optional: --module-base, --timeout-ms, --flags. |  |
+| `kernel force-unload-driver` | `KswordCLI.exe kernel force-unload-driver --driver NAME [--module-base VA] [--timeout-ms N] [--flags 0xN]` | Force an unload path for one driver. | Required: --driver. Optional: --module-base, --timeout-ms, --flags. | Print requested/effective flags, reached stages and preflight evidence; detailed step statuses are in driver log. |
 | `kernel query-cpu` | `KswordCLI.exe kernel query-cpu` | Query CPU hardware summary. | No options. |  |
 | `kernel query-phys-layout` | `KswordCLI.exe kernel query-phys-layout` | Query physical memory layout summary. | No options. |  |
 | `kernel cid` | `KswordCLI.exe kernel cid [--flags 0xN] [--max-entries N] [--max-visits N] [--start-cid CID] [--end-cid CID] [--limit N]` | Enumerate CID table evidence. | Optional: --flags, --max-entries, --max-visits, --start-cid, --end-cid, --limit. |  |
@@ -572,3 +572,13 @@ metrics 升为 v11，主协议仍 v6；旧 metrics 请求明确版本不匹配�
 `callback enum` 的 WFP 导出解析失败行会显示本次 `fwpkclnt.sys` 的模块定位状态、基址、大小，以及每个失败的枚举必需导出名称和原始状态。`log --max-frames 256` 中的 `WFP resolve module` / `WFP resolve export` 记录全部八个导出的状态和地址，可用于比较处置前后；日志读取会消费共享日志帧，应及时保存输出。枚举只依赖六个枚举必需导出；缺少 GetById/DeleteById 时仍枚举，但不提供候选移除标记。
 
 复测时先保存新加载驱动的枚举和日志，再逐条执行原处置序列，每条后立即保存同样的枚举和日志，以第一条出现解析差异的操作缩小范围。增加 `--max-entries` 只能改变返回页大小，不能修复导出解析失败。
+
+### 强制卸载诊断与成功对照
+
+`kernel force-unload-driver` 额外打印 `requestedFlags`、`droppedFlags`、`diagnosticFlags`、`reached` 和 `evidence`。`reached` 列出已经到达的引用、预检、ZwUnloadDriver、直接调用以及验证步骤；`evidence` 列出观察到的阻塞条件，例如 `device-reference`、`resident-threads`、`module-callbacks` 或三类尚未恢复的编辑记录。多项证据可以同时存在，不应把每项都理解成当前路径的决定原因。
+
+诊断复用 V2 响应的 `reserved2`，不改变 IOCTL 编号、结构大小或版本。旧驱动没有 VALID 位时显示 `diagnostics=unavailable`。GUI/Light 的共享客户端保留原始 flags 和可选诊断字段，原有功能仍可使用旧驱动。
+
+失败后立即保存 `log --max-frames 256`，查找 `R0 unload diag summary`、`flags`、`gates`、`thread-evidence`、`callback-evidence`、`loader-image`、`zw` 和 `direct`，这些日志保留各步骤原始状态和计数。`--flags 0x290` 包含直接调用和清理授权，但预检不允许清理时仍可能降为 `0x200`；应比较 requested/effective/dropped，不能把被移除的 flags 当成已经执行的清理。
+
+Beep 返回 DEVICE_BUSY 本身不能证明通路错误，也不能作为成功对照。专用构建夹具与后续来宾对照步骤见 [unload_probe](../KswordARKDriver/tests/unload_probe/README.md)。本轮仅构建，未安装、加载或实测该夹具；没有新增强制卸载成功样本。

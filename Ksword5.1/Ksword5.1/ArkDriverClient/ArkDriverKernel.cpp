@@ -1610,6 +1610,8 @@ namespace ksword::ark
         unloadResult.version = static_cast<std::uint32_t>(response.version);
         unloadResult.status = static_cast<std::uint32_t>(response.status);
         unloadResult.flags = static_cast<std::uint32_t>(response.flags);
+        unloadResult.requestedFlags = static_cast<std::uint32_t>(response.reserved); // 保留原始请求。
+        unloadResult.diagnosticFlags = static_cast<std::uint32_t>(response.reserved2); // GUI/Light 共用可选诊断。
         unloadResult.lastStatus = static_cast<long>(response.lastStatus);
         unloadResult.waitStatus = static_cast<long>(response.waitStatus);
         unloadResult.cleanupFlagsApplied = static_cast<std::uint32_t>(response.cleanupFlagsApplied);
@@ -1635,6 +1637,8 @@ namespace ksword::ark
             << ", object=0x" << std::hex << unloadResult.driverObjectAddress
             << ", unload=0x" << unloadResult.driverUnloadAddress
             << ", flags=0x" << unloadResult.flags
+            << ", requested=0x" << unloadResult.requestedFlags
+            << ", diagnostics=0x" << unloadResult.diagnosticFlags
             << ", applied=0x" << unloadResult.cleanupFlagsApplied
             << ", deletedDevices=" << std::dec << unloadResult.deletedDeviceCount
             << ", lastStatus=0x" << std::hex << static_cast<unsigned long>(unloadResult.lastStatus)
@@ -1697,6 +1701,8 @@ namespace ksword::ark
         unloadResult.version = static_cast<std::uint32_t>(response.version);
         unloadResult.status = static_cast<std::uint32_t>(response.status);
         unloadResult.flags = static_cast<std::uint32_t>(response.flags);
+        unloadResult.requestedFlags = static_cast<std::uint32_t>(response.reserved); // 保留原始请求。
+        unloadResult.diagnosticFlags = static_cast<std::uint32_t>(response.reserved2); // GUI/Light 共用可选诊断。
         unloadResult.lastStatus = static_cast<long>(response.lastStatus);
         unloadResult.waitStatus = static_cast<long>(response.waitStatus);
         unloadResult.cleanupFlagsApplied = static_cast<std::uint32_t>(response.cleanupFlagsApplied);
@@ -1723,6 +1729,8 @@ namespace ksword::ark
             << ", object=0x" << unloadResult.driverObjectAddress
             << ", unload=0x" << unloadResult.driverUnloadAddress
             << ", flags=0x" << unloadResult.flags
+            << ", requested=0x" << unloadResult.requestedFlags
+            << ", diagnostics=0x" << unloadResult.diagnosticFlags
             << ", applied=0x" << unloadResult.cleanupFlagsApplied
             << ", deletedDevices=" << std::dec << unloadResult.deletedDeviceCount
             << ", lastStatus=0x" << std::hex << static_cast<unsigned long>(unloadResult.lastStatus)

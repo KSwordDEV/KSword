@@ -29,3 +29,13 @@
 - fwpkclnt PE 解析原用 MmIsAddressValid 判断候选 header/export/name 的可读性并直接访问，分页被换出可能误报不支持。改为 KswordARKRuntimeReadMemory 完整读取本地字段，不使用有效地址探测或 SEH 代替读取；这修复具体代码缺陷，不证明它就是现场处置后的唯一原因。
 - 解析现在使用单次模块快照，记录模块定位及八个导出的独立状态/地址。失败回执行显示模块与每个枚举必需导出；全部解析记录进入 WFP resolve 日志。枚举和移除能力分开，缺少移除专用导出不阻断枚举，也不发布移除候选。
 - 驱动 Release/x64、ApiValidator Universal、Inf2Cat 通过且零警告；未加载或执行处置。后续需要逐条保存处置后的枚举与日志才能确定触发操作。
+
+## 2026-10-09 强卸载诊断复查（仅构建）
+
+- 默认 Beep 回执 last=80000011、wait=0，直接参数回执 last/wait=80000011、有效 flags=200；原回执没有具体预检字段，不能确定设备引用、线程或回调哪个阻塞。已有 R0 unload diag 日志输出每步状态和门禁证据，但报告目录中未找到这些日志。
+- V2 response reserved2 现在提供 VALID + 到达步骤 + 观察到的阻塞证据；没有修改大小、版本或 IOCTL。原始 requestedFlags 已存在于 reserved，CLI 同步打印 requested/effective/dropped 和可读步骤/证据。旧驱动无 VALID 时仍可调用并明确诊断不可用。
+- 前置 communication/dispatch/image 三类未恢复记录分别记录，不再由短路 OR 合并隐藏来源；预检构建失败也捕获已经得到的证据。保留原忙设备、附加链、线程、回调、动态数据和核心模块判定，不强行放行 Beep。
+- 共享 ArkDriverClient 两个卸载封装保存 requestedFlags/diagnosticFlags 并进入现有 IoResult.message，GUI/Light 消费同一结构。新增技术诊断字串已定点同步两份语言包。
+- 新增 tests/unload_probe 独立 WDM 构建夹具，无设备/回调/线程，只设置自身 DriverUnload；项目与 filters 完整，不进入生产工程。Release/x64、Universal 校验通过，未签名/加载/运行，不声称已有卸载成功样本。
+- 生产驱动与 CLI 最终 Release/x64 完整构建通过；驱动零警告、ApiValidator Universal、Inf2Cat 通过。主程序构建脚本 BUILD_RESULT=SUCCESS / EXIT_CODE=0（154 秒），i18n 29269 字串与主题门禁通过。Light 构建通过，保留已有非本次修改的警告；显式跳过驱动签名与驱动重复构建，未执行运行测试。
+- 分页读取依据微软 DDI 文档：MmIsAddressValid 要求不可分页地址，MmCopyMemory 会尝试使不驻留的虚拟内存驻留。https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/nf-ntddk-mmcopymemory 。当前现场缺少逐导出解析日志，仍需复测确认触发操作。

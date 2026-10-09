@@ -1206,6 +1206,36 @@ Return Value:
             ? "Info"
             : "Warn";
 
+        response->reserved2 = KSWORD_ARK_UNLOAD_DIAG_VALID | unloadDiagnostics.stages | unloadDiagnostics.blockingFlags; // 复用保留字段，结构和版本不变。
+        if ((unloadDiagnostics.stages & KSW_DRIVER_UNLOAD_DIAG_STAGE_PREFLIGHT) != 0UL) {
+            if (unloadDiagnostics.isSelfModule) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_SELF; // 自身模块门禁。
+            if (unloadDiagnostics.isCoreKernelModule) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_CORE; // 核心模块门禁。
+            if (NT_SUCCESS(unloadDiagnostics.preflightBuildStatus)) {
+                if (unloadDiagnostics.hasModuleResidentThreads) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_RESIDENT_THREADS; // 驻留线程。
+                if (unloadDiagnostics.hasModuleCallbacks) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_CALLBACKS; // 模块回调。
+                if (unloadDiagnostics.hasAttachedDevice) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_ATTACHED_DEVICE; // 附加设备。
+                if (unloadDiagnostics.hasBusyDeviceReference) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_DEVICE_REFERENCE; // 设备仍被引用。
+                if (unloadDiagnostics.hasDeviceLoop) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_DEVICE_LOOP; // 设备链环。
+                if (unloadDiagnostics.hasCrossDriverAttach) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_CROSS_DRIVER; // 设备归属不符。
+                if (!unloadDiagnostics.hasThreadScan) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_THREAD_SCAN; // 线程证据不完整。
+                if (!unloadDiagnostics.hasCallbackScan) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_CALLBACK_SCAN; // 回调证据不完整。
+                if (!unloadDiagnostics.hasValidLoaderEvidence) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_LOADER_EVIDENCE; // loader 证据缺失。
+                if (!unloadDiagnostics.hasValidDriverObjectOffsets) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_OBJECT_OFFSETS; // 对象偏移未验证。
+                if (!unloadDiagnostics.hasValidDynData || !unloadDiagnostics.hasPdbBackedDynData) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_DYNDATA; // 动态布局不足。
+                if (!unloadDiagnostics.hasServiceRegistryPath) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_SERVICE_PATH; // 无系统卸载路径。
+                if (!unloadDiagnostics.hasDriverUnload) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_UNLOAD_ROUTINE; // 无卸载入口。
+                if (unloadDiagnostics.hasLoaderLinkMismatch) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_LOADER_LINK; // loader 链不符。
+                if (unloadDiagnostics.hasInvalidImageHeader) response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_IMAGE_HEADER; // 映像头不符。
+            }
+            if (!NT_SUCCESS(unloadDiagnostics.preflightBuildStatus) ||
+                ((unloadDiagnostics.stages & (KSW_DRIVER_UNLOAD_DIAG_STAGE_ZW | KSW_DRIVER_UNLOAD_DIAG_STAGE_DIRECT)) == 0UL &&
+                    !NT_SUCCESS(unloadDiagnostics.preflightDenyStatus))) {
+                response->reserved2 |= KSWORD_ARK_UNLOAD_DIAG_PREFLIGHT_DENIED; // 标记具体发生的预检拒绝。
+            }
+        }
+        KswordARKKernelIoctlLog(Device, logLevel, "R0 unload diag summary: flags=0x%08X blocking=0x%08X.",
+            (unsigned int)response->reserved2, (unsigned int)unloadDiagnostics.blockingFlags); // 日志与 CLI 使用相同诊断摘要。
+
         KswordARKKernelIoctlLog(
             Device,
             logLevel,
