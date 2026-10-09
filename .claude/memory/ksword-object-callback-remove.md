@@ -7,6 +7,13 @@ metadata:
 
 # Object Callback 安全注销
 
+## 2026-10-09 句柄恢复修复
+
+- 当前启发式路径不再把邻近扫描找到的首个非模块指针当作 RegistrationHandle。原扫描会先遇到 Flink/Blink，这不能传给 ObUnRegisterCallbacks。
+- PDB 路径保留。无完整 PDB 字段时，必须在当前 ObjectType 列表找到本驱动真实 `ObRegistrationHandle`，并核对 ObjectType、Operations 和自身 Pre/Post 注册配置，才能按校准的 CallbackEntry 字段恢复外部句柄。无法校准仍展示只读函数证据，不发布候选移除能力；已校准行仍标为 fallback/candidate，未提升为 PDB verified。
+- EX 注销仍重新枚举核对真实注册地址。CLI、Qt GUI、Light 均消费原协议字段，ABI 没有变化。驱动 Release/x64、ApiValidator、Inf2Cat 通过，未加载或注销实测。
+- 这次 VMware 日志仅能确认来宾重置后宿主 vmware-vmx 的访问冲突，不能将此布局修复当作已证明该次事故的具体根因。
+
 - `_OBJECT_TYPE.CallbackList` 中的 `_CALLBACK_ENTRY_ITEM.EntryItemList` 节点不是
   `ObRegisterCallbacks` 返回的 `RegistrationHandle`，回调函数地址也不是句柄。枚举协议中，
   仅由匹配内核 PDB profile 的 `_CALLBACK_ENTRY_ITEM.CallbackEntry` 字段解析出的值可放入

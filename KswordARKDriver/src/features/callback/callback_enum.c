@@ -59,6 +59,26 @@ typedef struct _KSWORD_ARK_CALLBACK_ENUM_OBJECT_SCAN_RESULT
     BOOLEAN UsedPdbOffsets;
 } KSWORD_ARK_CALLBACK_ENUM_OBJECT_SCAN_RESULT;
 
+// 中文说明：用本驱动 ObRegisterCallbacks 的真实返回值校准常见布局，绝不把链指针当句柄。
+static BOOLEAN KswordArkCallbackEnumCalibrateObjectHandle(ULONG64 Head, POBJECT_TYPE ObjectType)
+{
+    KSWORD_ARK_CALLBACK_RUNTIME* runtime = KswordArkCallbackGetRuntime(); // 真实注册句柄的唯一已知来源。
+    ULONG64 ownHandle = runtime != NULL ? (ULONG64)(ULONG_PTR)runtime->ObRegistrationHandle : 0ULL; // 无自身注册不得校准。
+    LIST_ENTRY link; // 遍历字段安全读取。
+    ULONG64 node; // 当前列表项。
+    ULONG index; // 有界预算。
+    if (ownHandle == 0ULL || !KswordARKRuntimeReadMemory((PVOID)(ULONG_PTR)Head, &link, sizeof(link))) return FALSE; // 不能凭非零候选校准。
+    node = (ULONG64)(ULONG_PTR)link.Flink; // 从真实头节点开始。
+    for (index = 0UL; index < 512UL && node != 0ULL && node != Head; ++index) { // 限制损坏链的读取。
+        ULONG64 values[7]; // LIST_ENTRY、Operations/Active、CallbackEntry、ObjectType、Pre/Post。
+        if (!KswordARKRuntimeReadMemory((PVOID)(ULONG_PTR)node, values, sizeof(values))) return FALSE; // 完整结构才可解释。
+        if (values[3] == ownHandle && values[4] == (ULONG64)(ULONG_PTR)ObjectType &&
+            (ULONG)values[2] == (OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE) && values[5] != 0ULL && values[6] == 0ULL) return TRUE; // 匹配自身公共注册配置与真实句柄。
+        node = values[0]; // 不从邻近内存猜 registration。
+    }
+    return FALSE; // 未找到真实自身项则保留只读启发式展示。
+}
+
 typedef struct _KSWORD_ARK_CALLBACK_ENUM_SOURCE_CONTEXT
 {
     ULONG Source;
@@ -2883,6 +2903,8 @@ static BOOLEAN
 KswordArkCallbackEnumFindObjectCallbackFields(
     _Inout_ KSWORD_ARK_CALLBACK_MODULE_CACHE* ModuleCache,
     _In_ ULONG64 NodeAddress,
+    _In_ POBJECT_TYPE ObjectType, // 校准布局只用于同一对象类型列表。
+    _In_ BOOLEAN Calibrated, // 来自当前链的自身真实句柄核对。
     _Out_ KSWORD_ARK_CALLBACK_ENUM_OBJECT_SCAN_RESULT* ResultOut
     )
 /*++
@@ -2913,6 +2935,23 @@ Return Value:
         return FALSE;
     }
     RtlZeroMemory(ResultOut, sizeof(*ResultOut));
+
+    if (Calibrated) { // 只在真实自身注册确认布局后读取准确字段。
+        ULONG64 fields[7]; // 常见 CALLBACK_ENTRY_ITEM 的完整关键前缀。
+        if (!KswordARKRuntimeReadMemory((PVOID)(ULONG_PTR)NodeAddress, fields, sizeof(fields)) ||
+            fields[4] != (ULONG64)(ULONG_PTR)ObjectType || fields[3] == NodeAddress ||
+            !KswordArkCallbackEnumLooksLikeKernelPointer(fields[3]) ||
+            ((ULONG)fields[2] & ~(OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE)) != 0UL ||
+            (ULONG)fields[2] == 0UL) return FALSE; // 字段必须符合实际对象和操作语义。
+        result.OperationMask = (ULONG)fields[2]; // 不从邻近整数猜 Operations。
+        result.PreOperation = fields[5]; // 校准的 PreOperation 槽。
+        result.PostOperation = fields[6]; // 校准的 PostOperation 槽，可为零。
+        if ((result.PreOperation != 0ULL && !KswordArkCallbackEnumIsKernelModuleAddress(ModuleCache, result.PreOperation)) ||
+            (result.PostOperation != 0ULL && !KswordArkCallbackEnumIsKernelModuleAddress(ModuleCache, result.PostOperation))) return FALSE; // 拒绝非模块函数。
+        result.RegistrationBlock = fields[3]; // 真实 CallbackEntry 字段值，而不是 Flink/Blink。
+        *ResultOut = result; // 保留 fallback 来源，不提升为 PDB verified。
+        return result.PreOperation != 0ULL || result.PostOperation != 0ULL; // 无回调项不发布。
+    }
 
     for (offset = KSWORD_ARK_CALLBACK_ENUM_POINTER_SCAN_BACK_BYTES * -1L;
         offset <= KSWORD_ARK_CALLBACK_ENUM_POINTER_SCAN_FORWARD_BYTES;
@@ -2991,8 +3030,7 @@ Return Value:
             continue;
         }
         if (KswordArkCallbackEnumLooksLikeKernelPointer(candidate) && !KswordArkCallbackEnumIsKernelModuleAddress(ModuleCache, candidate)) {
-            result.RegistrationBlock = candidate;
-            break;
+            break; // 未校准候选只作只读函数展示，不发布猜测的 RegistrationHandle。
         }
     }
 
@@ -3088,7 +3126,7 @@ Return Value:
                 KSWORD_ARK_CALLBACK_REMOVE_BEHAVIOR_REQUIRE_REVALIDATION;
             entry->fieldFlags |= KSWORD_ARK_CALLBACK_ENUM_FIELD_CONTEXT_ADDRESS |
                 KSWORD_ARK_CALLBACK_ENUM_FIELD_REGISTRATION_ADDRESS |
-                KSWORD_ARK_CALLBACK_ENUM_FIELD_REMOVABLE_CANDIDATE;
+                KSWORD_ARK_CALLBACK_ENUM_FIELD_REMOVABLE_CANDIDATE; // 只有当前链用真实自身句柄校准后才有 RegistrationBlock。
         }
         entry->fieldFlags &= ~(KSWORD_ARK_CALLBACK_ENUM_FIELD_HANDLE |
             KSWORD_ARK_CALLBACK_ENUM_FIELD_VERIFIED_REMOVE);
@@ -3177,6 +3215,7 @@ Return Value:
     ULONG64 currentAddress = 0ULL;
     KSWORD_ARK_CALLBACK_ENUM_OBJECT_LIST_STATE listHeadState = KswordArkCallbackEnumObjectListInvalid;
     BOOLEAN usingPdbListHead = FALSE;
+    BOOLEAN calibratedHandle = FALSE; // 同一次目标链枚举的活跃自身句柄校准结果。
 
     RtlZeroMemory(&listHead, sizeof(listHead));
     if (Profile != NULL &&
@@ -3200,6 +3239,7 @@ Return Value:
     if (!KswordArkCallbackEnumReadListEntry(listHeadAddress, &listHead)) {
         return 0UL;
     }
+    calibratedHandle = KswordArkCallbackEnumCalibrateObjectHandle(listHeadAddress, ObjectType); // 新快照重新核对，不缓存失效自身句柄。
     currentAddress = (ULONG64)(ULONG_PTR)listHead.Flink;
     while (currentAddress != 0ULL &&
         currentAddress != listHeadAddress &&
@@ -3217,7 +3257,7 @@ Return Value:
                 Profile,
                 currentAddress,
                 &scanResult) &&
-            !KswordArkCallbackEnumFindObjectCallbackFields(ModuleCache, currentAddress, &scanResult)) {
+            !KswordArkCallbackEnumFindObjectCallbackFields(ModuleCache, currentAddress, ObjectType, calibratedHandle, &scanResult)) {
             currentAddress = (ULONG64)(ULONG_PTR)currentEntry.Flink;
             index += 1UL;
             continue;
