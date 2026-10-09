@@ -92,6 +92,13 @@ NTSTATUS
     _In_opt_ PVOID AttributeList
     );
 
+// 中文说明：已导出的 RTL 包装器可创建用户线程，参数顺序与 ZwCreateThreadEx 不同。
+typedef NTSTATUS (NTAPI* KSWORD_RTL_CREATE_USER_THREAD_FN)(
+    HANDLE ProcessHandle, PSECURITY_DESCRIPTOR SecurityDescriptor,
+    BOOLEAN CreateSuspended, ULONG ZeroBits, SIZE_T MaximumStackSize,
+    SIZE_T CommittedStackSize, PVOID StartAddress, PVOID Parameter,
+    PHANDLE ThreadHandle, PCLIENT_ID ClientId);
+
 /*
  * ZwWaitForSingleObject:
  * - Inputs: a kernel handle, alertable-wait flag, and optional relative timeout.
@@ -266,6 +273,7 @@ KswordARKDriverInjectProcess(
     ULONG allocationProtect = PAGE_READWRITE;
     BOOLEAN freeRemoteRegionOnFailure = FALSE;
     KSWORD_ZW_CREATE_THREAD_EX_FN createThreadEx = NULL;
+    KSWORD_RTL_CREATE_USER_THREAD_FN createUserThread = NULL; // 保存真实 RTL 导出，禁止扫描 syscall 桩。
     NTSTATUS status = STATUS_SUCCESS;
 
     if (Response == NULL || Request == NULL || BytesWrittenOut == NULL) {
@@ -358,7 +366,7 @@ KswordARKDriverInjectProcess(
         Response->status = KswordARKInjectStatusFromNtStatus(
             KSWORD_ARK_PROCESS_INJECT_STATUS_WRITE_FAILED,
             status);
-        Response->lastStatus = status;
+        Response->lastStatus = NT_SUCCESS(status) ? STATUS_PARTIAL_COPY : status; // 短写也必须报告失败。
         goto Exit;
     }
 
@@ -380,12 +388,18 @@ KswordARKDriverInjectProcess(
 
     createThreadEx = KswordARKInjectResolveZwCreateThreadEx();
     if (createThreadEx == NULL) {
-        Response->status = KSWORD_ARK_PROCESS_INJECT_STATUS_THREAD_FAILED;
-        Response->lastStatus = STATUS_NOT_SUPPORTED;
-        goto Exit;
+        UNICODE_STRING routineName; // ZwCreateThreadEx 并非所有内核都导出。
+        RtlInitUnicodeString(&routineName, L"RtlCreateUserThread"); // 使用内核实际导出的 RTL 线程创建包装器。
+        createUserThread = (KSWORD_RTL_CREATE_USER_THREAD_FN)MmGetSystemRoutineAddress(&routineName); // 不使用用户态函数地址。
+        if (createUserThread == NULL) { // 两个导出均不存在时保留具体不支持结果。
+            Response->status = KSWORD_ARK_PROCESS_INJECT_STATUS_THREAD_FAILED; // 未创建线程。
+            Response->lastStatus = STATUS_NOT_SUPPORTED; // 不伪造成功。
+            goto Exit; // 回收尚未执行的远端分配。
+        }
     }
 
-    status = createThreadEx(
+    if (createThreadEx != NULL) { // 保留已导出 Zw 入口的原有调用约定。
+        status = createThreadEx(
         &threadHandle,
         THREAD_ALL_ACCESS,
         NULL,
@@ -397,6 +411,10 @@ KswordARKDriverInjectProcess(
         0,
         0,
         NULL);
+    } else { // RTL 内核包装器使用 OBJ_KERNEL_HANDLE 创建线程句柄。
+        status = createUserThread(processHandle, NULL, FALSE, 0UL, 0U, 0U,
+            entryPoint, parameterAddress, &threadHandle, NULL); // DLL 与 shellcode 共用远端入口和参数。
+    }
     if (!NT_SUCCESS(status)) {
         Response->status = KSWORD_ARK_PROCESS_INJECT_STATUS_THREAD_FAILED;
         Response->lastStatus = status;
@@ -409,7 +427,7 @@ KswordARKDriverInjectProcess(
         timeout.QuadPart = -10LL * 1000LL * 1000LL * 10LL;
         status = ZwWaitForSingleObject(threadHandle, FALSE, &timeout);
         Response->waitStatus = status;
-        if (!NT_SUCCESS(status)) {
+        if (status != STATUS_SUCCESS) { // STATUS_TIMEOUT 是非负值，但线程尚未结束。
             Response->status = KSWORD_ARK_PROCESS_INJECT_STATUS_WAIT_FAILED;
             Response->lastStatus = status;
             goto Exit;
