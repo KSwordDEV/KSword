@@ -24,16 +24,19 @@ namespace
     constexpr char kSearchFieldProperty[] = "KSWORD_SEARCH_FIELD_THEME"; // 已明确登记的搜索框。
     constexpr char kSearchStyleBegin[] = "/* KSWORD_SEARCH_FIELD_BEGIN */"; // 本组件样式起点。
     constexpr char kSearchStyleEnd[] = "/* KSWORD_SEARCH_FIELD_END */"; // 本组件样式终点。
+    constexpr char kSpinStyleBegin[] = "/* KSWORD_SPIN_FIELD_BEGIN */"; // 数值框独有颜色片段起点。
+    constexpr char kSpinStyleEnd[] = "/* KSWORD_SPIN_FIELD_END */"; // 页面其它样式不属于此片段。
     class WidgetThemeBinding;
 
     // 只替换本组件拥有的颜色片段，页面的尺寸、padding 和其它规则继续保留。
-    QString replaceSearchFieldStyle(QString style, const QString& replacement)
+    QString replaceFieldStyle(QString style, const QString& replacement,
+        const char* beginMarker, const char* endMarker)
     {
-        const qsizetype begin = style.indexOf(QLatin1String(kSearchStyleBegin));
-        const qsizetype end = style.indexOf(QLatin1String(kSearchStyleEnd), begin);
+        const qsizetype begin = style.indexOf(QLatin1String(beginMarker));
+        const qsizetype end = style.indexOf(QLatin1String(endMarker), begin);
         if (begin >= 0 && end >= begin)
         {
-            style.replace(begin, end + qstrlen(kSearchStyleEnd) - begin, replacement);
+            style.replace(begin, end + qstrlen(endMarker) - begin, replacement);
         }
         else
         {
@@ -292,12 +295,25 @@ bool ks::ui::BindSpinBoxTheme(QAbstractSpinBox* spinBox)
         {
             return;
         }
-        const QColor background = KswordTheme::SurfaceColor(); // 受控表面，避免透明父级同色冲突。
-        const QColor foreground = KswordTheme::EnsureTextContrast(
-            KswordTheme::TextPrimaryColor(), background, 4.5);
-        const QString style = QStringLiteral(
-            "QAbstractSpinBox{background-color:%1;color:%2;}")
-            .arg(background.name()).arg(foreground.name());
+        const QColor background = KswordTheme::ControlInputSurfaceColor(); // 与同排搜索/组合框共用输入面。
+        const QColor hoverBackground = KswordTheme::ControlInputHoverColor(background);
+        const QColor focusBackground = KswordTheme::ControlInputFocusColor(background);
+        const QColor backgrounds[] = {background, hoverBackground, focusBackground};
+        const QColor foreground = KswordTheme::EnsureTextContrastForBackgrounds(
+            KswordTheme::TextPrimaryColor(), backgrounds, 3);
+        const QColor disabledBackground = KswordTheme::SurfaceMutedColor();
+        const QColor disabledForeground = KswordTheme::EnsureTextContrast(
+            KswordTheme::TextDisabledColor(), disabledBackground, 3.0);
+        const QString block = QString::fromLatin1(kSpinStyleBegin) + QStringLiteral(
+            "QAbstractSpinBox{background-color:%1;color:%2;border:none;}"
+            "QAbstractSpinBox:hover{background-color:%3;border:none;}"
+            "QAbstractSpinBox:focus{background-color:%4;border:none;}"
+            "QAbstractSpinBox:disabled{background-color:%5;color:%6;border:none;}")
+            .arg(background.name(), foreground.name(), hoverBackground.name(), focusBackground.name(),
+                disabledBackground.name(), disabledForeground.name())
+            + QString::fromLatin1(kSpinStyleEnd);
+        const QString style = replaceFieldStyle(guardedSpin->styleSheet(), block,
+            kSpinStyleBegin, kSpinStyleEnd); // 保留页面自己设置的宽度、padding 与步进几何。
         if (guardedSpin->styleSheet() != style)
         {
             guardedSpin->setStyleSheet(style);
@@ -317,17 +333,22 @@ bool ks::ui::BindSpinBoxTheme(QAbstractSpinBox* spinBox)
         {
             return;
         }
-        const QColor background = KswordTheme::SurfaceColor();
-        const QColor foreground = KswordTheme::EnsureTextContrast(
-            KswordTheme::TextPrimaryColor(), background, 4.5);
+        const QColor background = KswordTheme::ControlInputSurfaceColor();
+        const QColor backgrounds[] = {background, KswordTheme::ControlInputHoverColor(background),
+            KswordTheme::ControlInputFocusColor(background)}; // 内部文字随外层三态底面校准。
+        const QColor foreground = KswordTheme::EnsureTextContrastForBackgrounds(
+            KswordTheme::TextPrimaryColor(), backgrounds, 3);
         const QColor disabledForeground = KswordTheme::EnsureTextContrast(
-            KswordTheme::TextDisabledColor(), background, 3.0);
-        const QString style = QStringLiteral(
-            "QLineEdit{background:transparent;color:%1;border:none;"
+            KswordTheme::TextDisabledColor(), KswordTheme::SurfaceMutedColor(), 3.0);
+        const QString block = QString::fromLatin1(kSpinStyleBegin) + QStringLiteral(
+            "QLineEdit,QLineEdit:hover,QLineEdit:focus,QLineEdit:read-only{background:transparent;color:%1;border:none;"
             "selection-background-color:%2;selection-color:%3;}"
-            "QLineEdit:disabled{color:%4;}")
-            .arg(foreground.name()).arg(KswordTheme::PrimaryBlueColor.name())
-            .arg(KswordTheme::OnAccentColor().name()).arg(disabledForeground.name());
+            "QLineEdit:disabled{background:transparent;color:%4;border:none;}")
+            .arg(foreground.name(), KswordTheme::ControlAccentColor().name(),
+                KswordTheme::OnAccentColor(KswordTheme::ControlAccentColor()).name(), disabledForeground.name())
+            + QString::fromLatin1(kSpinStyleEnd);
+        const QString style = replaceFieldStyle(guardedEditor->styleSheet(), block,
+            kSpinStyleBegin, kSpinStyleEnd);
         if (guardedEditor->styleSheet() != style)
         {
             guardedEditor->setStyleSheet(style);
@@ -367,13 +388,10 @@ bool ks::ui::BindSearchFieldTheme(QLineEdit* searchField)
         {
             background = KswordTheme::SurfaceAltColor();
         }
-        if (KswordTheme::ContrastRatio(background, pageSurface) < 1.15)
-        {
-            // 页面和 AlternateBase 接近时轻混入明暗反向色，让输入面可以被识别。
-            const QColor contrastSeed = KswordTheme::RelativeLuminance(pageSurface) < 0.25
-                ? QColor(Qt::white) : QColor(Qt::black);
-            background = KswordTheme::BlendColors(pageSurface, contrastSeed, 32);
-        }
+        background = KswordTheme::ControlInputSurfaceColor(pageSurface, background);
+        const QColor hoverBackground = KswordTheme::ControlInputHoverColor(background);
+        const QColor focusBackground = KswordTheme::ControlInputFocusColor(background);
+        const QColor backgrounds[] = {background, hoverBackground, focusBackground};
         // 占位提示常有半透明 alpha；先还原明确前景再校准，不能把透明黑当有效首选色。
         const auto opaqueForeground = [](QColor preferred, const QColor& fallback)
         {
@@ -384,23 +402,26 @@ bool ks::ui::BindSearchFieldTheme(QLineEdit* searchField)
             preferred.setAlpha(255);
             return preferred;
         };
-        const QColor foreground = KswordTheme::EnsureTextContrast(opaqueForeground(
-            parentColors.color(QPalette::Active, QPalette::Text), KswordTheme::TextPrimaryColor()), background, 4.5);
-        const QColor placeholder = KswordTheme::EnsureTextContrast(opaqueForeground(
-            parentColors.color(QPalette::Active, QPalette::PlaceholderText), KswordTheme::TextSecondaryColor()), background, 4.5);
+        const QColor foreground = KswordTheme::EnsureTextContrastForBackgrounds(opaqueForeground(
+            parentColors.color(QPalette::Active, QPalette::Text), KswordTheme::TextPrimaryColor()), backgrounds, 3);
+        const QColor placeholder = KswordTheme::EnsureTextContrastForBackgrounds(opaqueForeground(
+            parentColors.color(QPalette::Active, QPalette::PlaceholderText), KswordTheme::TextSecondaryColor()), backgrounds, 3);
         const QColor disabledForeground = KswordTheme::EnsureTextContrast(opaqueForeground(
             parentColors.color(QPalette::Disabled, QPalette::Text), KswordTheme::TextDisabledColor()), background, 3.0);
         const QColor disabledPlaceholder = KswordTheme::EnsureTextContrast(opaqueForeground(
             parentColors.color(QPalette::Disabled, QPalette::PlaceholderText), KswordTheme::TextSecondaryColor()), background, 3.0);
 
-        // 覆盖原来的 hover/focus 线框，但不声明任何几何属性或 placeholder 文本。
+        // 搜索与普通输入共享柔和交互填充；保留页面几何与具体的 placeholder 文本。
         const QString block = QString::fromLatin1(kSearchStyleBegin) + QStringLiteral(
-            "QLineEdit,QLineEdit:hover,QLineEdit:focus,QLineEdit:read-only{"
-            "background-color:%1;color:%2;border:none;}"
-            "QLineEdit:disabled{background-color:%1;color:%3;border:none;}")
-            .arg(background.name(), foreground.name(), disabledForeground.name())
+            "QLineEdit,QLineEdit:read-only{background-color:%1;color:%2;placeholder-text-color:%6;border:none;}"
+            "QLineEdit:hover{background-color:%4;border:none;}"
+            "QLineEdit:focus{background-color:%5;border:none;}"
+            "QLineEdit:disabled{background-color:%1;color:%3;placeholder-text-color:%7;border:none;}")
+            .arg(background.name(), foreground.name(), disabledForeground.name(),
+                hoverBackground.name(), focusBackground.name(), placeholder.name(), disabledPlaceholder.name())
             + QString::fromLatin1(kSearchStyleEnd);
-        const QString style = replaceSearchFieldStyle(guardedField->styleSheet(), block);
+        const QString style = replaceFieldStyle(guardedField->styleSheet(), block,
+            kSearchStyleBegin, kSearchStyleEnd);
         if (guardedField->styleSheet() != style)
         {
             guardedField->setStyleSheet(style);

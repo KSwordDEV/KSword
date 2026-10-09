@@ -10,6 +10,11 @@
 
 #include <QAbstractScrollArea>
 #include <QApplication>
+#include <QFrame>
+#include <QEnterEvent>
+#include <QDoubleSpinBox>
+#include <QComboBox>
+#include "../Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.h"
 #include <QElapsedTimer>
 #include <QLineEdit>
 #include <QMouseEvent>
@@ -208,6 +213,176 @@ namespace
         Q_UNUSED(app);
     }
 
+    // 使用真实全局样式与局部 Combo 样式验证同排输入面，不启动主程序或访问业务状态。
+    void unifiedInputSurfaceTest(QApplication& app)
+    {
+        const QString oldStyle = app.styleSheet(); // 夹具结束后归还调用方应用样式与调色板。
+        const QPalette oldPalette = app.palette();
+        for (int dark = 0; dark < 2; ++dark)
+        {
+            KswordTheme::SetDarkModeEnabled(dark != 0);
+            const QColor pageSurface = KswordTheme::SurfaceColor();
+            QPalette palette = oldPalette;
+            for (const QPalette::ColorGroup group : {QPalette::Active, QPalette::Inactive, QPalette::Disabled})
+            {
+                palette.setColor(group, QPalette::Window, pageSurface);
+                palette.setColor(group, QPalette::Base, pageSurface);
+                palette.setColor(group, QPalette::AlternateBase, KswordTheme::SurfaceAltColor());
+                palette.setColor(group, QPalette::Text, KswordTheme::TextPrimaryColor());
+                palette.setColor(group, QPalette::WindowText, KswordTheme::TextPrimaryColor());
+                palette.setColor(group, QPalette::PlaceholderText, KswordTheme::TextSecondaryColor());
+            }
+            app.setPalette(palette);
+            app.setStyleSheet(ks::ui::BuildGlobalBaseControlStyleBlock());
+            QWidget host;
+            host.setAttribute(Qt::WA_DontShowOnScreen);
+            host.setAutoFillBackground(true);
+            host.setFocusPolicy(Qt::StrongFocus);
+            host.resize(420, 210);
+
+            // 数值框使用真实内部编辑器；普通输入与搜索分别保留原生及显式绑定路径。
+            QSpinBox spin(&host);
+            spin.setObjectName(QStringLiteral("integer"));
+            spin.setGeometry(18, 20, 170, 30);
+            spin.setValue(50);
+            spin.setSuffix(QStringLiteral(" 次"));
+            ks::ui::BindSpinBoxTheme(&spin);
+            QDoubleSpinBox decimal(&host);
+            decimal.setObjectName(QStringLiteral("decimal"));
+            decimal.setGeometry(18, 60, 170, 30);
+            decimal.setValue(12.50);
+            ks::ui::BindSpinBoxTheme(&decimal);
+            QComboBox combo(&host);
+            combo.setObjectName(QStringLiteral("combo"));
+            combo.setGeometry(18, 100, 170, 30);
+            combo.addItem(QStringLiteral("Inspect"));
+            combo.setStyleSheet(KswordTheme::ThemedComboBoxStyle());
+            QLineEdit ordinary(&host);
+            ordinary.setObjectName(QStringLiteral("ordinary"));
+            ordinary.setGeometry(210, 20, 170, 30);
+            ordinary.setPlaceholderText(QStringLiteral("Search address"));
+            QLineEdit search(&host);
+            search.setObjectName(QStringLiteral("search"));
+            search.setGeometry(210, 60, 170, 30);
+            search.setPlaceholderText(QStringLiteral("Search process"));
+            ks::ui::BindSearchFieldTheme(&search);
+            const QList<QWidget*> fields{&spin, &decimal, &combo, &ordinary, &search};
+
+            // 真实 QFrame 结构线必须有可见像素，同时不为全部面板追加一圈线框。
+            QFrame horizontal(&host);
+            horizontal.setFrameShape(QFrame::HLine);
+            horizontal.setGeometry(18, 170, 365, 2);
+            QFrame vertical(&host);
+            vertical.setFrameShape(QFrame::VLine);
+            vertical.setGeometry(395, 20, 2, 110);
+            host.show();
+            // DontShowOnScreen 不会由窗口系统自动激活；显式设置测试应用的活动窗口。
+            // 这只改变离屏夹具内部焦点归属，不触碰用户桌面上的任何窗口。
+            // 隐藏夹具无平台激活事件，使用仍公开的应用内焦点入口；警告抑制只覆盖此测试调用。
+            QT_WARNING_PUSH
+            QT_WARNING_DISABLE_DEPRECATED
+            QApplication::setActiveWindow(&host);
+            QT_WARNING_POP
+            drain();
+            host.setFocus();
+            const QColor surfaces[] = {KswordTheme::ControlInputSurfaceColor(),
+                KswordTheme::ControlInputHoverColor(), KswordTheme::ControlInputFocusColor()};
+            for (int state = 0; state < 3; ++state)
+            {
+                for (QWidget* field : fields)
+                {
+                    // 清理上个控件的真实 hover/focus，防止离屏平台遗留鼠标状态混淆样本。
+                    for (QWidget* previous : fields)
+                    {
+                        previous->clearFocus();
+                        previous->setAttribute(Qt::WA_UnderMouse, false);
+                        QEvent leave(QEvent::Leave);
+                        QApplication::sendEvent(previous, &leave);
+                    }
+                    host.setFocus();
+                    const QPoint local(field->width() / 2, field->height() / 2);
+                    if (state == 1)
+                    {
+                        QEnterEvent enter(QPointF(local), QPointF(field->mapTo(&host, local)),
+                            QPointF(field->mapToGlobal(local)));
+                        field->setAttribute(Qt::WA_UnderMouse, true);
+                        QApplication::sendEvent(field, &enter);
+                        QMouseEvent move(QEvent::MouseMove, QPointF(local),
+                            QPointF(field->mapToGlobal(local)), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+                        QApplication::sendEvent(field, &move);
+                    }
+                    else if (state == 2)
+                    {
+                        field->setFocus(Qt::TabFocusReason);
+                    }
+                    drain();
+                    const QImage frame = field->grab().toImage();
+                    const qreal ratio = frame.devicePixelRatio();
+                    const auto sample = [&](int x, int y)
+                    {
+                        return frame.pixelColor(qRound(x * ratio), qRound(y * ratio));
+                    };
+                    const QColor body = sample(field->width() - 30, field->height() - 7);
+                    const QColor topEdge = sample(field->width() / 2, 0);
+                    const QColor leftEdge = sample(0, field->height() / 2);
+                    const bool surfaceMatches = body == surfaces[state];
+                    const bool borderless = topEdge == body && leftEdge == body;
+                    check(surfaceMatches, "input_classes_share_normal_hover_focus_surface");
+                    check(borderless, "input_normal_hover_focus_have_no_white_wire_frame");
+                    if (state == 2)
+                    {
+                        check(field->hasFocus(), "input_focus_sample_is_actually_focused");
+                    }
+                    int readablePixels = 0; // 只取文字区域，排除右侧步进或下拉箭头的亮像素。
+                    for (int y = 5; y < field->height() - 5; ++y)
+                    {
+                        for (int x = 4; x < 95; ++x)
+                        {
+                            if (KswordTheme::ContrastRatio(sample(x, y), body) >= 3.0)
+                            {
+                                ++readablePixels;
+                            }
+                        }
+                    }
+                    check(readablePixels > 6, "input_digits_text_and_placeholders_render_readably");
+                    if (!surfaceMatches || !borderless || readablePixels <= 6
+                        || (state == 2 && !field->hasFocus()))
+                    {
+                        // 失败信息包含真实像素、调色板 alpha 和活动窗口，避免把无焦点误判为样式错误。
+                        const QColor placeholder = field->palette().color(QPalette::PlaceholderText);
+                        std::cout << "INPUT_RENDER_DIAGNOSTIC MODE=" << (dark ? "dark" : "light")
+                            << " NAME=" << field->objectName().toStdString()
+                            << " CLASS=" << field->metaObject()->className()
+                            << " STATE=" << state << " FOCUS=" << field->hasFocus()
+                            << " ACTIVE=" << host.isActiveWindow() << " HOVER=" << field->underMouse()
+                            << " ACTUAL=" << body.name(QColor::HexArgb).toStdString()
+                            << " EXPECTED=" << surfaces[state].name(QColor::HexArgb).toStdString()
+                            << " EDGE_TOP=" << topEdge.name(QColor::HexArgb).toStdString()
+                            << " EDGE_LEFT=" << leftEdge.name(QColor::HexArgb).toStdString()
+                            << " PLACEHOLDER=" << placeholder.name(QColor::HexArgb).toStdString()
+                            << " TEXT_PIXELS=" << readablePixels << std::endl;
+                    }
+                }
+            }
+            const QImage frame = host.grab().toImage();
+            const qreal ratio = frame.devicePixelRatio();
+            const QColor horizontalPixel = frame.pixelColor(qRound(180 * ratio), qRound(170 * ratio));
+            const QColor verticalPixel = frame.pixelColor(qRound(395 * ratio), qRound(80 * ratio));
+            check(horizontalPixel == KswordTheme::BorderColor()
+                && KswordTheme::ContrastRatio(horizontalPixel, pageSurface) > 1.2,
+                "horizontal_structure_separator_is_visible");
+            check(verticalPixel == KswordTheme::BorderColor()
+                && KswordTheme::ContrastRatio(verticalPixel, pageSurface) > 1.2,
+                "vertical_structure_separator_is_visible");
+            check(spin.value() == 50 && spin.suffix() == QStringLiteral(" 次") && decimal.value() == 12.50,
+                "unified_input_surface_preserves_numeric_values_and_suffix");
+        }
+        app.setPalette(oldPalette);
+        app.setStyleSheet(oldStyle);
+        KswordTheme::SetDarkModeEnabled(false);
+        drain();
+    }
+
     // 按钮状态与数据原色按页面语义处理，不能将任意本地 QSS 粗暴抹成默认样式。
     void buttonThemeTest(QApplication& app)
     {
@@ -368,6 +543,23 @@ namespace
     // 真实原条维持策略和数值；视觉层不能占用 viewport，也不能另造滚动单位。
     void scrollbarThemeTest()
     {
+        // 真实事件循环覆盖 1.1 秒空闲期与 180 毫秒淡出；刷新模式模拟持续采样页面。
+        const auto waitForIdle = [](QAbstractScrollArea* area, bool refresh)
+        {
+            QElapsedTimer elapsed;
+            elapsed.start();
+            while (elapsed.elapsed() < 1500)
+            {
+                if (refresh)
+                {
+                    ks::ui::RefreshFloatingScrollbars(area);
+                    area->viewport()->update();
+                }
+                QApplication::processEvents();
+                QThread::msleep(5);
+            }
+            QApplication::processEvents();
+        };
         QStandardItemModel model(1000, 20);
         ks::ui::TableActionTableView table;
         table.setAttribute(Qt::WA_DontShowOnScreen);
@@ -401,6 +593,37 @@ namespace
             QStringLiteral("ksword_floating_horizontal_scrollbar"));
         check(overlayV != nullptr && overlayH != nullptr, "both_overlay_axes_exist");
         check(overlayV->isVisible() && overlayH->isVisible(), "both_overflow_axes_visible");
+
+        // 连续布局与内容刷新不能算作用户滚动，否则进程列表永远无法自动隐藏。
+        const int idleRange = originalV->maximum();
+        waitForIdle(&table, true);
+        check(!overlayV->isVisible() && !overlayH->isVisible(),
+            "idle_fades_and_hides_despite_continuous_refresh");
+        check(overlayV->testAttribute(Qt::WA_TransparentForMouseEvents)
+            && overlayH->testAttribute(Qt::WA_TransparentForMouseEvents)
+            && table.childAt(overlayV->geometry().center()) != overlayV,
+            "hidden_overlay_leaves_no_mouse_capture_band");
+        check(originalV->maximum() == idleRange && table.viewport()->size() == noBars,
+            "idle_hide_keeps_native_range_and_viewport");
+
+        // 以视口局部坐标派发悬停：先从隐藏态靠近实际几何边缘，再返回内容中央。
+        const QPoint edgePoint = table.viewport()->mapFrom(&table, overlayV->geometry().center());
+        const QPoint centerPoint = table.viewport()->rect().center();
+        QHoverEvent edgeHover(QEvent::HoverMove, QPointF(edgePoint),
+            QPointF(table.viewport()->mapToGlobal(edgePoint)), QPointF(centerPoint));
+        QApplication::sendEvent(table.viewport(), &edgeHover);
+        drain();
+        check(overlayV->isVisible() && !overlayV->testAttribute(Qt::WA_TransparentForMouseEvents),
+            "viewport_edge_hover_restores_hidden_overlay");
+        QHoverEvent centerHover(QEvent::HoverMove, QPointF(centerPoint),
+            QPointF(table.viewport()->mapToGlobal(centerPoint)), QPointF(edgePoint));
+        QApplication::sendEvent(table.viewport(), &centerHover);
+        waitForIdle(&table, false);
+        check(!overlayV->isVisible(), "leaving_edge_restarts_idle_hide");
+        originalV->setValue(originalV->value() + 1);
+        drain();
+        check(overlayV->isVisible(), "native_value_change_restores_hidden_overlay");
+
         const int originalPageStep = originalV->pageStep(); // 测试后还原原生业务步长。
         const int originalSingleStep = originalV->singleStep();
         const bool originalTracking = originalV->hasTracking();
@@ -431,6 +654,7 @@ namespace
 
         table.setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         ks::ui::RefreshFloatingScrollbars(&table);
+        originalH->setValue(originalH->value() + 1); // 横条按用户滚动唤醒，不要求闲置常显。
         drain();
         check(!overlayV->isVisible() && overlayH->isVisible(), "business_always_off_respected");
         table.setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -459,6 +683,7 @@ namespace
             "hex_copy_column_protected");
         table.setViewport(new QWidget(&table));
         ks::ui::RefreshFloatingScrollbars(&table);
+        originalV->setValue(originalV->value() + 1); // 替换后的源条仍能唤醒同一视觉条。
         drain();
         check(overlayV->isVisible(), "viewport_replacement_keeps_overlay");
 
@@ -517,6 +742,10 @@ namespace
             "overlay_drag_bridges_native_slider_pressed");
         check(canvas.verticalScrollBar()->value() > std::numeric_limits<int>::max() / 2,
             "hex_large_range_drag_no_overflow");
+        waitForIdle(&canvas, true);
+        check(huge->isVisible() && !huge->testAttribute(Qt::WA_TransparentForMouseEvents)
+            && canvas.verticalScrollBar()->isSliderDown(),
+            "drag_remains_visible_beyond_idle_delay");
         QMouseEvent release(QEvent::MouseButtonRelease, QPointF(5, huge->height() - 2),
             QPointF(huge->mapToGlobal(QPoint(5, huge->height() - 2))),
             Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
@@ -537,7 +766,15 @@ int main(int argc, char** argv)
     }
     ks::ui::InstallGlobalFlatButtonTheme(&app);
     ks::ui::InstallGlobalSmoothScrollSupport(&app);
+    // 仅隔离本轮输入渲染时可快速结束，正常无参数执行仍跑完整组件集合。
+    if (app.arguments().contains(QStringLiteral("--input-only")))
+    {
+        unifiedInputSurfaceTest(app);
+        std::cout << "INPUT_THEME_CHECKS=" << checks << " FAILURES=" << failures << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
     numericThemeTest(app);
+    unifiedInputSurfaceTest(app);
     buttonThemeTest(app);
     buttonIconThemeTest(app);
     searchFieldThemeTest(app);

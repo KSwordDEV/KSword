@@ -6,6 +6,7 @@
 #include "../Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.h"
 #include "../Ksword5.1/Ksword5.1/UI/SvgThemeIconManager.h"
 #include "../Ksword5.1/Ksword5.1/UI/ThemeBinding.h"
+#include "../Ksword5.1/Ksword5.1/UI/TablePresentation.h"
 #include "../Ksword5.1/Ksword5.1/theme.h"
 
 #include <QAbstractButton>
@@ -16,6 +17,7 @@
 #include <QDir>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QImage>
 #include <QLineEdit>
 #include <QMouseEvent>
@@ -25,7 +27,9 @@
 #include <QScrollBar>
 #include <QSet>
 #include <QStackedWidget>
+#include <QStandardItemModel>
 #include <QStyle>
+#include <QTableView>
 #include <QThread>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -86,10 +90,9 @@ namespace
 
     // 从完整顶层合成图取色；透明 child 单独 grab 不保证带入真实宿主底面。
     // localSample 避开中央文字/图标与圆角，并逐层验证未被祖先视口裁切。
-    QColor bodyColor(QWidget& widget)
+    QColor compositedColor(QWidget& widget, const QPoint& localSample)
     {
         QWidget* host = widget.window(); // 实际顶层宿主，可因布局重挂而改变。
-        const QPoint localSample(4, widget.height() / 2);
         if (host == nullptr || !widget.rect().contains(localSample))
         {
             return QColor();
@@ -117,6 +120,12 @@ namespace
             return QColor();
         }
         return frame.pixelColor(pixelSample);
+    }
+
+    // 普通按钮使用既有左侧取样；导航另选内容矩形内点，避开圆角与悬浮条。
+    QColor bodyColor(QWidget& widget)
+    {
+        return compositedColor(widget, QPoint(4, widget.height() / 2));
     }
 
     // QWidget 实际绘制状态决定 QSS hover；不以 TryGetFlatButtonBackground 自证渲染正确。
@@ -400,21 +409,15 @@ namespace
         return palette;
     }
 
-    // 外框选择器对应 FileDock 的导航、偏移输入和底部保存栏，业务后端刻意不进入夹具。
+    // 外框直接使用生产详情外壳；本地仅保留保存栏和按钮的业务几何。
+    // 输入、导航底色及边缘由实际公共组件决定，不维护旧主题选择器副本。
     QString fileDetailStyle()
     {
-        return QStringLiteral(
-            "QDialog#FileDetailDialogRoot{background:%1;color:%2;}"
-            "QDialog#FileDetailDialogRoot QLineEdit{background:%3;color:%2;"
-            "border:1px solid %4;border-radius:3px;padding:3px 6px;}"
-            "QWidget#FileDetailTabNavigation{background:%5;border:none;}"
-            "QWidget#FileDetailTabNavigation QToolButton{border-radius:7px;padding:8px;text-align:left;}"
-            "QScrollArea#FileDetailNavigationScroll{background:%5;border:none;}"
-            "QFrame#FileMetadataSaveBar{background:%3;border-top:1px solid %4;}"
+        return ks::ui::BuildDetailDialogChromeStyle(QStringLiteral("FileDetailDialogRoot"))
+            + QStringLiteral(
+            "QFrame#FileMetadataSaveBar{background:%1;border-top:1px solid %2;}"
             "QDialog#FileDetailDialogRoot QPushButton{border-radius:3px;padding:4px 10px;}")
-            .arg(KswordTheme::MainBackgroundHex(), KswordTheme::TextPrimaryHex(),
-                KswordTheme::SurfaceHex(), KswordTheme::BorderHex(), KswordTheme::SurfaceAltHex())
-            + ks::ui::BuildDetailDialogChromeStyle(QStringLiteral("FileDetailDialogRoot"))
+            .arg(KswordTheme::SurfaceHex(), KswordTheme::BorderHex())
             + ks::ui::BuildFlatButtonStyle();
     }
 
@@ -555,8 +558,11 @@ namespace
 
         // 侧栏边缘必须由实际溢出与 overlay几何解释，不能凭蓝色像素猜选中残影。
         ks::ui::InstallFloatingScrollbars(scroll);
-        scroll->ensureWidgetVisible(selected);
+        scroll->ensureWidgetVisible(selected, 0, 0);
         ks::ui::RefreshFloatingScrollbars(scroll);
+        drainEvents();
+        // 悬浮条收回原生布局空隙后再定位最后一项，确认采样的是完整内容而非视口裁切边缘。
+        scroll->ensureWidgetVisible(selected, 0, 0);
         drainEvents();
         QScrollBar* overlay = scroll->findChild<QScrollBar*>(
             QStringLiteral("ksword_floating_vertical_scrollbar"));
@@ -573,9 +579,35 @@ namespace
                 << overlay->width() << ',' << overlay->height() << std::endl;
         }
         const QColor navigationAccent = expectedAccent(*selected);
-        const QColor selectedFill = bodyColor(*selected);
+        const QRect selectedContent = selected->rect().adjusted(12, 8, -12, -8);
+        const QPoint selectedSample(selectedContent.right() - 4, selectedContent.center().y());
+        const QColor selectedFill = compositedColor(*selected, selectedSample);
+        const QRect contentInViewport(selected->mapTo(scroll->viewport(), selectedContent.topLeft()),
+            selectedContent.size());
+        result.require(selectedContent.isValid() && scroll->viewport()->rect().contains(contentInViewport),
+            "hex_navigation_selected_content_is_fully_visible");
         requireColor(result, selected->isChecked() && selectedFill == navigationAccent,
             "hex_navigation_actual_selected_fill_is_theme_accent", *selected, selectedFill, navigationAccent);
+
+        // 同时检查整块内容覆盖，不能只挑一个恰好为强调色的像素掩盖残留底色。
+        const QImage navigationFrame = dialog.grab().toImage();
+        int accentPixels = 0;
+        int contentPixels = 0;
+        for (int y = selectedContent.top(); y <= selectedContent.bottom(); ++y)
+        {
+            for (int x = selectedContent.left(); x <= selectedContent.right(); ++x)
+            {
+                const QPoint point = selected->mapTo(&dialog, QPoint(x, y)) * navigationFrame.devicePixelRatio();
+                if (navigationFrame.rect().contains(point))
+                {
+                    ++contentPixels;
+                    accentPixels += navigationFrame.pixelColor(point) == navigationAccent ? 1 : 0;
+                }
+            }
+        }
+        result.require(contentPixels == selectedContent.width() * selectedContent.height()
+            && accentPixels * 100 >= contentPixels * 85,
+            "hex_navigation_theme_accent_covers_selected_content_area");
 
         // Footer真实父palette与disabled按钮独立验收；disabled不响应hover是正确行为。
         reportPalette("file_detail_footer", *footer);
@@ -597,6 +629,60 @@ namespace
         requireColor(result, saveHover == disabledNormal && !discard->isEnabled() && !save->isEnabled(),
             "file_footer_disabled_buttons_preserve_disabled_semantics", *save, saveHover, disabledNormal);
     }
+
+    // 使用生产表格呈现入口验证表头底面、底部分隔与模型语义染色，不复制其 QSS。
+    void tableHeaderFixture(FixtureChecks& result)
+    {
+        QWidget host;
+        host.setAttribute(Qt::WA_DontShowOnScreen);
+        host.setAutoFillBackground(true);
+        host.resize(720, 270);
+        auto* layout = new QVBoxLayout(&host);
+        auto* table = new QTableView(&host);
+        auto* model = new QStandardItemModel(3, 3, table);
+        model->setHorizontalHeaderLabels({QStringLiteral("进程名"), QStringLiteral("内存使用"), QStringLiteral("CPU 占用")});
+        model->setData(model->index(0, 0), QStringLiteral("KSword.exe"));
+        model->setData(model->index(1, 0), QStringLiteral("APSDaemon.exe"));
+        model->setData(model->index(1, 1), QStringLiteral("38.5 MiB"));
+        model->setData(model->index(2, 0), QStringLiteral("System"));
+        const QColor semanticFill(72, 103, 148); // 模型拥有的数据染色，不能被 chrome 接管。
+        model->setData(model->index(1, 1), semanticFill, Qt::BackgroundRole);
+        table->setModel(model);
+        table->setAlternatingRowColors(true);
+        table->setFocusPolicy(Qt::NoFocus);
+        table->verticalHeader()->hide();
+        table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        layout->addWidget(table);
+        ks::ui::ApplyTablePresentation(table);
+        host.show();
+        table->clearSelection();
+        drainEvents();
+
+        // 靠近第一列表头右侧采样可避开标题字形；底线严格取最后一像素行。
+        QHeaderView* header = table->horizontalHeader();
+        const int headerX = header->sectionViewportPosition(0) + header->sectionSize(0) - 12;
+        const QColor headerFill = compositedColor(*header->viewport(), QPoint(headerX, header->viewport()->height() / 2));
+        const QColor headerLine = compositedColor(*header->viewport(), QPoint(headerX, header->viewport()->height() - 1));
+        const QRect normalCell = table->visualRect(model->index(0, 0));
+        const QColor normalFill = compositedColor(*table->viewport(), QPoint(normalCell.right() - 12, normalCell.center().y()));
+        result.require(headerFill == KswordTheme::SurfaceMutedColor() && headerFill != normalFill,
+            "production_table_header_has_distinct_surface");
+        result.require(headerLine == KswordTheme::BorderColor() && headerLine != headerFill,
+            "production_table_header_bottom_separator_is_visible");
+
+        // 同时读回模型角色和真实单元格像素，防止角色仍在但被 item 样式遮住的旧回归。
+        const QRect semanticCell = table->visualRect(model->index(1, 1));
+        const QColor actualSemanticFill = compositedColor(*table->viewport(),
+            QPoint(semanticCell.right() - 12, semanticCell.center().y()));
+        result.require(model->data(model->index(1, 1), Qt::BackgroundRole).value<QColor>() == semanticFill
+            && actualSemanticFill == semanticFill,
+            "production_table_presentation_preserves_visible_model_background_role");
+        std::cout << "PAGE_REGRESSION_HEADER FILL=" << headerFill.name().toStdString()
+            << " LINE=" << headerLine.name().toStdString() << " BODY=" << normalFill.name().toStdString()
+            << " SEMANTIC=" << actualSemanticFill.name().toStdString() << std::endl;
+        savePreview(result, host, KswordTheme::IsDarkModeEnabled()
+            ? "output/page_theme_table_header_dark.png" : "output/page_theme_table_header_light.png");
+    }
 }
 
 int RunPageThemeRegressionFixtures(QApplication& application)
@@ -615,6 +701,7 @@ int RunPageThemeRegressionFixtures(QApplication& application)
         application.setPalette(mainWindowPalette(application.palette()));
         application.setStyleSheet(ks::ui::BuildGlobalBaseControlStyleBlock());
         fileHexShellFixture(application, result);
+        tableHeaderFixture(result);
     }
     KswordTheme::SetDarkModeEnabled(oldDark);
     KswordTheme::SetPrimaryAccentColor(oldAccent.name());

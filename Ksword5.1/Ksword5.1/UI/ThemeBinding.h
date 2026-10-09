@@ -24,7 +24,7 @@ namespace ks::ui
         ThemePalettePolicy palettePolicy = ThemePalettePolicy::FollowApplication);
 
     // 为数值控件及其内部编辑器显式绑定可读主题色，避免父级 QSS 把数字染成底色。
-    // 仅接管文字与表面色，保留 value/suffix、尺寸、步进按钮、验证器与编辑状态。
+    // 只替换拥有的无线框颜色片段，保留 value/suffix、页面样式尺寸、步进按钮与编辑状态。
     bool BindSpinBoxTheme(QAbstractSpinBox* spinBox);
 
     // 仅为页面明确登记的表格搜索框绑定无线框底色、文字和占位提示色。

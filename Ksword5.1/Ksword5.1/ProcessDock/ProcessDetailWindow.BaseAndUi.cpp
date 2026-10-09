@@ -120,6 +120,19 @@ namespace
         }
 
     private:
+        // 详情标签使用可读的次级文字；其背景是分组表面，不使用输入框的占位灰色。
+        // label 为本页的字段名或说明，主题更新时原位改色，保留选择与滚动位置。
+        static void applySupportingTextTheme(QLabel* label)
+        {
+            const QColor text = KswordTheme::EnsureTextContrast(KswordTheme::TextSecondaryColor(),
+                KswordTheme::SurfaceAltColor(), 4.5);
+            const QString style = QStringLiteral("color:%1;font-weight:400;").arg(text.name(QColor::HexRgb));
+            if (label->styleSheet() != style)
+            {
+                label->setStyleSheet(style);
+            }
+        }
+
         const ks::ui::FieldNode* field(const QString& name) const
         {
             for (const auto& section : m_fields->document().nodes)
@@ -134,7 +147,7 @@ namespace
             caption->setObjectName(QStringLiteral("ProcessGeneralProjectedCaption"));
             caption->setProperty("ks_general_field_name", node.name);
             caption->setTextFormat(Qt::PlainText);
-            caption->setStyleSheet(QStringLiteral("color:%1;font-weight:400;").arg(KswordTheme::TextSecondaryHex()));
+            applySupportingTextTheme(caption);
             auto* value = new QLabel(node.translateValue ? ks::i18n::sourceText(node.value) : node.value, parent);
             value->setTextFormat(Qt::PlainText);
             value->setProperty("ks_i18n_preserve_data_text", true);
@@ -224,10 +237,17 @@ namespace
             const auto values = m_dense->findChildren<QLabel*>(QStringLiteral("ProcessGeneralProjectedValue"));
             if (!values.isEmpty() && m_dense->property("ks_has_diagnostic").toBool() == hasDiagnostic)
             {
+                // 热切主题只更新既有标签，不为颜色变化重新创建双列字段。
+                for (auto* caption : m_dense->findChildren<QLabel*>(QStringLiteral("ProcessGeneralProjectedCaption")))
+                {
+                    applySupportingTextTheme(caption);
+                }
                 for (auto* value : values)
                     if (const auto* node = field(value->property("ks_general_field_name").toString()))
                         updateValueLabel(value, *node);
                 for (auto* note : m_dense->findChildren<QLabel*>(QStringLiteral("ProcessGeneralProjectedNote")))
+                {
+                    applySupportingTextTheme(note);
                     for (const auto& section : m_fields->document().nodes)
                         if (section.name == note->property("ks_general_note_section").toString())
                         {
@@ -236,6 +256,7 @@ namespace
                                 if (node.kind == ks::ui::FieldNode::Kind::Note && index++ == note->property("ks_general_note_index").toInt())
                                 { note->setText(ks::i18n::sourceText(node.value)); break; }
                         }
+                }
                 return;
             }
             if (auto* previous = m_dense->layout())
@@ -294,7 +315,7 @@ namespace
                     label->setProperty("ks_general_note_section", section.name);
                     label->setProperty("ks_general_note_index", row - 1);
                     label->setTextFormat(Qt::PlainText);
-                    label->setStyleSheet(QStringLiteral("color:%1;font-weight:400;").arg(KswordTheme::TextSecondaryHex()));
+                    applySupportingTextTheme(label);
                     label->setWordWrap(true);
                     label->setProperty("ks_i18n_preserve_data_text", true);
                     label->setTextInteractionFlags(Qt::TextSelectableByMouse);

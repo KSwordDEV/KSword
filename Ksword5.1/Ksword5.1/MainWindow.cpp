@@ -12796,7 +12796,12 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
     const QString borderStrongColorText = KswordTheme::BorderStrongColorHex();
     const QString primaryTextColor = KswordTheme::TextPrimaryColorHex();
     const QString disabledTextColor = KswordTheme::TextDisabledColorHex();
-    const QString selectedTextColor = KswordTheme::OnAccentHex();
+    // 普通列表用克制的主题浅底，文字按实际底面校准；强调按钮仍保留独立强调色。
+    const QColor selectedSurface = KswordTheme::BlendColors(
+        KswordTheme::SurfaceAltColor(), KswordTheme::ControlAccentColor(), 64);
+    const QString selectedSurfaceText = selectedSurface.name();
+    const QString selectedTextColor = KswordTheme::EnsureTextContrast(
+        KswordTheme::TextPrimaryColor(), selectedSurface, 4.5).name();
     const QString activeThemeColor = KswordTheme::PrimaryBlueHex;
     const QString activeThemeHoverColor = KswordTheme::ControlAccentHoverHex();
     const QString activeThemePressedColor = KswordTheme::ControlAccentPressedHex();
@@ -12917,10 +12922,6 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
         "  border-radius:0px;"
         "  background:%2 !important;"
         "  top:0px;"
-        "}"
-        "QHeaderView::section{"
-        "  font-weight:400;"
-        "  border:none;"
         "}")
         .arg(panelBorderColor)
         .arg(panelBackgroundColor)
@@ -13172,50 +13173,43 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
             + QStringLiteral(
                 "QMenuBar{background-color:__WINDOW_BACKGROUND__;color:__WINDOW_TEXT__;}"
                 "QMenuBar::item{background:transparent;color:__WINDOW_TEXT__;padding:2px 7px;}"
-                "QMenuBar::item:selected{background:%2;color:__WINDOW_TEXT__;}"
+                "QMenuBar::item:selected{background:__MENU_HOVER__;color:__WINDOW_TEXT__;}"
                 "QMenuBar::item:pressed{background:__LIGHT_MENUBAR_PRESSED__;color:__WINDOW_TEXT__;}"
                 "QStatusBar{background-color:__WINDOW_BACKGROUND__;color:__WINDOW_TEXT__;}"
-                "QLineEdit,QSpinBox,QDoubleSpinBox{"
-                "  background:transparent !important;"
-                "  background-color:transparent !important;"
-                "  color:%3 !important;"
-                "  border:1px solid %4;"
-                "}"
                 "QTextEdit,QPlainTextEdit{"
-                "  background-color:%1 !important;"
-                "  color:%3 !important;"
-                "  border:1px solid %4;"
+                "  background-color:__CONTENT_SURFACE__ !important;"
+                "  color:__PRIMARY_TEXT__ !important;"
+                "  border:1px solid __STRUCTURAL_BORDER__;"
                 "}"
                 "QTableView,QTableWidget,QTreeView,QTreeWidget,QListView,QListWidget{"
-                "  background:%1 !important;"
-                "  alternate-background-color:%6 !important;"
-                "  color:%3 !important;"
+                "  background:__CONTENT_SURFACE__ !important;"
+                "  alternate-background-color:__ALTERNATE_SURFACE__ !important;"
+                "  color:__PRIMARY_TEXT__ !important;"
                 "  border:none;"
             "  gridline-color:transparent;"
                 "}"
                 "QTreeView::item:selected,QTreeWidget::item:selected{"
-                "  background:%7 !important;"
-                "  color:%8 !important;"
+                "  background:__SELECTION_SURFACE__ !important;"
+                "  color:__SELECTION_TEXT__ !important;"
                 "}"
                 "QHeaderView::section{"
-                "  background:transparent !important;"
-                "  background-color:transparent !important;"
-                "  color:%3 !important;"
-                "  border:1px solid %4;"
+                "  background-color:__HEADER_SURFACE__;"
+                "  color:__PRIMARY_TEXT__ !important;"
+                "  border:none;border-bottom:1px solid __STRUCTURAL_BORDER__;"
+                "  font-weight:600;"
                 "}"
                 "QTableCornerButton::section{"
-                "  background:transparent !important;"
-                "  background-color:transparent !important;"
-                "  border:none !important;"
+                "  background-color:__HEADER_SURFACE__;"
+                "  border:none;border-bottom:1px solid __STRUCTURAL_BORDER__;"
                 "}")
-                .arg(surfaceBackgroundText)
-                .arg(subtleThemeColor)
-                .arg(primaryTextColor)
-                .arg(borderColorText)
-                .arg(borderStrongColorText)
-                .arg(surfaceAltBackgroundText)
-                .arg(activeThemeColor)
-                .arg(selectedTextColor)
+                .replace(QStringLiteral("__CONTENT_SURFACE__"), surfaceBackgroundText)
+                .replace(QStringLiteral("__PRIMARY_TEXT__"), primaryTextColor)
+                .replace(QStringLiteral("__STRUCTURAL_BORDER__"), borderColorText)
+                .replace(QStringLiteral("__ALTERNATE_SURFACE__"), surfaceAltBackgroundText)
+                .replace(QStringLiteral("__SELECTION_SURFACE__"), selectedSurfaceText)
+                .replace(QStringLiteral("__SELECTION_TEXT__"), selectedTextColor)
+                .replace(QStringLiteral("__MENU_HOVER__"), subtleThemeColor)
+                .replace(QStringLiteral("__HEADER_SURFACE__"), surfaceMutedBackgroundText)
                 .replace(QStringLiteral("__WINDOW_BACKGROUND__"), windowBackgroundText)
                 .replace(QStringLiteral("__WINDOW_TEXT__"), windowTextColor)
                 .replace(QStringLiteral("__LIGHT_MENUBAR_PRESSED__"), surfaceMutedBackgroundText)
@@ -13233,54 +13227,45 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
         + QStringLiteral(
             "QMenuBar{background-color:__WINDOW_BACKGROUND__;color:__WINDOW_TEXT__;}"
             "QMenuBar::item{background:transparent;color:__WINDOW_TEXT__;padding:2px 7px;}"
-            "QMenuBar::item:selected{background:%9;color:__WINDOW_TEXT__;}"
-            "QMenuBar::item:pressed{background:%10;color:%8;}"
+            "QMenuBar::item:selected{background:__MENU_HOVER__;color:__WINDOW_TEXT__;}"
+            "QMenuBar::item:pressed{background:__MENU_PRESSED__;color:__SELECTION_TEXT__;}"
             "QStatusBar{background-color:__WINDOW_BACKGROUND__;color:__WINDOW_TEXT__;}"
-            "QLineEdit,QSpinBox,QDoubleSpinBox{"
-            "  background:transparent !important;"
-            "  background-color:transparent !important;"
-            "  color:%3 !important;"
-            "  border:1px solid %4;"
-            "}"
             "QTextEdit,QPlainTextEdit{"
-            "  background-color:%2 !important;"
-            "  color:%3 !important;"
-            "  border:1px solid %4;"
+            "  background-color:__CONTENT_SURFACE__ !important;"
+            "  color:__PRIMARY_TEXT__ !important;"
+            "  border:1px solid __STRUCTURAL_BORDER__;"
             "}"
             "QTableView,QTableWidget,QTreeView,QTreeWidget,QListView,QListWidget{"
-            "  background:%2 !important;"
-            "  alternate-background-color:%6 !important;"
-            "  color:%3 !important;"
+            "  background:__CONTENT_SURFACE__ !important;"
+            "  alternate-background-color:__ALTERNATE_SURFACE__ !important;"
+            "  color:__PRIMARY_TEXT__ !important;"
             "  border:none;"
             "  gridline-color:transparent;"
             "}"
             "QTreeView::item:selected,QTreeWidget::item:selected{"
-            "  background:%7 !important;"
-            "  color:%8 !important;"
+            "  background:__SELECTION_SURFACE__ !important;"
+            "  color:__SELECTION_TEXT__ !important;"
             "}"
             "QHeaderView::section{"
-            "  background:transparent !important;"
-            "  background-color:transparent !important;"
-            "  color:%3 !important;"
+            "  background-color:__HEADER_SURFACE__;"
+            "  color:__PRIMARY_TEXT__ !important;"
             "  border:none;"
-            "  border-bottom:1px solid %4;"
-            "  font-weight:400;"
+            "  border-bottom:1px solid __STRUCTURAL_BORDER__;"
+            "  font-weight:600;"
             "}"
             "QTableCornerButton::section{"
-            "  background:transparent !important;"
-            "  background-color:transparent !important;"
-            "  border:none !important;"
+            "  background-color:__HEADER_SURFACE__;"
+            "  border:none;border-bottom:1px solid __STRUCTURAL_BORDER__;"
             "}")
-            .arg(windowBackgroundText)
-            .arg(surfaceBackgroundText)
-            .arg(primaryTextColor)
-            .arg(borderColorText)
-            .arg(borderStrongColorText)
-            .arg(surfaceAltBackgroundText)
-            .arg(activeThemeColor)
-            .arg(selectedTextColor)
-            .arg(KswordTheme::RgbaColorName(KswordTheme::PrimaryBlueColor, 71))
-            .arg(KswordTheme::RgbaColorName(KswordTheme::PrimaryBlueColor, 97))
+            .replace(QStringLiteral("__CONTENT_SURFACE__"), surfaceBackgroundText)
+            .replace(QStringLiteral("__PRIMARY_TEXT__"), primaryTextColor)
+            .replace(QStringLiteral("__STRUCTURAL_BORDER__"), borderColorText)
+            .replace(QStringLiteral("__ALTERNATE_SURFACE__"), surfaceAltBackgroundText)
+            .replace(QStringLiteral("__SELECTION_SURFACE__"), selectedSurfaceText)
+            .replace(QStringLiteral("__SELECTION_TEXT__"), selectedTextColor)
+            .replace(QStringLiteral("__MENU_HOVER__"), KswordTheme::RgbaColorName(KswordTheme::PrimaryBlueColor, 71))
+            .replace(QStringLiteral("__MENU_PRESSED__"), KswordTheme::RgbaColorName(KswordTheme::PrimaryBlueColor, 97))
+            .replace(QStringLiteral("__HEADER_SURFACE__"), surfaceMutedBackgroundText)
             .replace(QStringLiteral("__WINDOW_BACKGROUND__"), windowBackgroundText)
             .replace(QStringLiteral("__WINDOW_TEXT__"), windowTextColor)
         + sharedOverlayStyle

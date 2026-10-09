@@ -1819,20 +1819,42 @@ ads--CDockWidgetTab[activeTab="true"] QLabel,ads--CDockWidgetTab[activeTab="true
                 "QPushButton,QToolButton{border-radius:%1px;padding:4px 10px;font-weight:600;}")
                 .arg(ControlCornerRadius);
     }
-    // ThemedComboBoxPopupViewStyle / ThemedComboBoxStyle 作用：
-    // - 为普通、可编辑及嵌入表格的组合框提供同一套不透明表面、箭头区和 Popup 列表规则；
-    // - Popup 使用显式 base 表面，避免独立顶层窗口回退到平台默认的透明/黑色背景；
-    // - 所有交互边框和选中态使用 Control* 角色，随自定义主题色和主背景色同步更新。
+    // 单行输入、搜索与组合框共用中性表面；调用方可传独立页面的实际底色。
+    // 正常态先从 SurfaceAlt/Muted 派生，底面对比不足时仅提高中性明暗差。
+    inline QColor ControlInputSurfaceColor(
+        const QColor& pageSurface = SurfaceColor(),
+        const QColor& alternateSurface = SurfaceAltColor())
+    {
+        QColor surface = BlendColors(alternateSurface, SurfaceMutedColor(), 64);
+        surface.setAlpha(255);
+        if (ContrastRatio(surface, pageSurface) < 1.15)
+        {
+            const QColor contrastSeed = RelativeLuminance(pageSurface) < 0.25
+                ? QColor(Qt::white) : QColor(Qt::black);
+            surface = BlendColors(pageSurface, contrastSeed, 24);
+        }
+        return surface;
+    }
+
+    // 交互态用少量主题色形成反馈，保持与正常编辑面相同的视觉重量。
+    inline QColor ControlInputHoverColor(const QColor& surface = ControlInputSurfaceColor())
+    {
+        return BlendColors(surface, ControlAccentColor(), 12);
+    }
+
+    inline QColor ControlInputFocusColor(const QColor& surface = ControlInputSurfaceColor())
+    {
+        return BlendColors(surface, ControlAccentColor(), 28);
+    }
+
+    // Popup 是独立窗口，保留柔和边界与不透明表面；输入框本身不用强调描边。
     inline QString ThemedComboBoxPopupViewStyle()
     {
-        const QColor accentColor = ControlAccentColor();
-        const QString surfaceColor = SurfaceColorHex();
-        const QString textColor = TextPrimaryColorHex();
-        const QString outlineColor = ControlOutlineHex();
-        const QString hoverColor = SurfaceAltColorHex();
-        const QString accentColorText = ThemeColorName(accentColor);
-        const QString accentTextColor = ThemeColorName(OnAccentColor(accentColor));
-
+        const QColor accentColor = ControlAccentColor(); // 选中项保持明确主题强调。
+        const QColor surfaceColor = SurfaceAltColor(); // 菜单与输入面分别表达内容与编辑角色。
+        const QColor hoverColor = ControlInputHoverColor(surfaceColor);
+        const QColor backgrounds[] = {surfaceColor, hoverColor}; // 同一文字覆盖普通与悬停项。
+        const QColor textColor = EnsureTextContrastForBackgrounds(TextPrimaryColor(), backgrounds, 2);
         return QStringLiteral(
             "QAbstractItemView{"
             "  background:%1 !important;"
@@ -1845,153 +1867,71 @@ ads--CDockWidgetTab[activeTab="true"] QLabel,ads--CDockWidgetTab[activeTab="true
             "  selection-color:%6 !important;"
             "  outline:0;"
             "}"
-            "QAbstractScrollArea::viewport{"
-            "  background:%1 !important;"
-            "  background-color:%1 !important;"
-            "}"
+            "QAbstractScrollArea::viewport{background:%1 !important;background-color:%1 !important;}"
             "QAbstractItemView::item{"
-            "  background:%1 !important;"
-            "  background-color:%1 !important;"
-            "  color:%2 !important;"
-            "  min-height:22px;"
-            "  padding:2px 6px;"
+            "  background:%1 !important;background-color:%1 !important;color:%2 !important;"
+            "  min-height:22px;padding:2px 6px;"
             "}"
-            "QAbstractItemView::item:hover{"
-            "  background:%4 !important;"
-            "  background-color:%4 !important;"
-            "  color:%2 !important;"
-            "}"
-            "QAbstractItemView::item:selected{"
-            "  background:%5 !important;"
-            "  background-color:%5 !important;"
-            "  color:%6 !important;"
-            "}")
-            .arg(surfaceColor)
-            .arg(textColor)
-            .arg(outlineColor)
-            .arg(hoverColor)
-            .arg(accentColorText)
-            .arg(accentTextColor)
+            "QAbstractItemView::item:hover{background:%4 !important;background-color:%4 !important;color:%2 !important;}"
+            "QAbstractItemView::item:selected{background:%5 !important;background-color:%5 !important;color:%6 !important;}")
+            .arg(surfaceColor.name(), textColor.name(), BorderColorHex(), hoverColor.name(),
+                accentColor.name(), OnAccentColor(accentColor).name())
             .arg(ControlCornerRadius);
     }
 
     inline QString ThemedComboBoxStyle()
     {
-        const QColor accentColor = ControlAccentColor();
-        const QString surfaceColor = SurfaceColorHex();
-        const QString surfaceAltColor = SurfaceAltColorHex();
-        const QString surfaceMutedColor = SurfaceMutedColorHex();
-        const QString textColor = TextPrimaryColorHex();
-        const QString disabledTextColor = TextDisabledColorHex();
-        const QString outlineColor = ControlOutlineHex();
-        const QString accentColorText = ThemeColorName(accentColor);
-        const QString accentHoverColor = ControlAccentHoverHex();
-        const QString accentPressedColor = ControlAccentPressedHex();
-        const QString disabledOutlineColor = ControlDisabledOutlineHex();
-        const QString accentTextColor = ThemeColorName(OnAccentColor(accentColor));
-        // 箭头作为主题前景缓存 SVG，QSS 不再只在预制白/黑资源之间二选一。
+        const QColor surfaceColor = ControlInputSurfaceColor(); // 普通输入面与搜索/数值框一致。
+        const QColor hoverColor = ControlInputHoverColor(surfaceColor);
+        const QColor focusColor = ControlInputFocusColor(surfaceColor);
+        const QColor mutedColor = SurfaceMutedColor(); // 禁用态保留可辨认的中性轮廓。
+        const QColor backgrounds[] = {surfaceColor, hoverColor, focusColor};
+        const QColor textColor = EnsureTextContrastForBackgrounds(TextPrimaryColor(), backgrounds, 3);
+        const QColor disabledTextColor = EnsureTextContrast(TextDisabledColor(), mutedColor, 3.0);
+        const QColor accentColor = ControlAccentColor(); // 选择区使用高对比强调，避免状态消失。
         const QString arrowResource = QStringLiteral(":/Icon/ks_control_down_white.svg");
-        const QString arrowPath = ks::ui::ThemedControlGlyphPath(
-            arrowResource, ControlGlyphColor(SurfaceAltColor()));
+        const QColor arrowColor = EnsureTextContrastForBackgrounds(
+            ControlGlyphColor(surfaceColor), backgrounds, 3, 3.0);
+        const QString arrowPath = ks::ui::ThemedControlGlyphPath(arrowResource, arrowColor);
         const QString disabledArrowPath = ks::ui::ThemedControlGlyphPath(
-            arrowResource, ControlGlyphColor(SurfaceMutedColor(), true));
+            arrowResource, ControlGlyphColor(mutedColor, true));
 
+        // 外围与箭头区共用一个表面，取消第二层竖线和空心框；已有布局尺寸保持不变。
         return QStringLiteral(
             "QComboBox{"
-            "  background:%1 !important;"
-            "  background-color:%1 !important;"
-            "  color:%4 !important;"
-            "  border:1px solid %6 !important;"
-            "  border-radius:%14px;"
-            "  padding:2px 24px 2px 6px;"
-            "  min-height:22px;"
-            "  selection-background-color:%7 !important;"
-            "  selection-color:%11 !important;"
+            "  background:%1 !important;background-color:%1 !important;color:%4 !important;"
+            "  border:none !important;border-radius:%12px;"
+            "  padding:2px 24px 2px 6px;min-height:22px;"
+            "  selection-background-color:%7 !important;selection-color:%8 !important;"
             "}"
-            "QComboBox:hover{"
-            "  background:%2 !important;"
-            "  background-color:%2 !important;"
-            "  color:%4 !important;"
-            "  border-color:%8 !important;"
-            "}"
-            "QComboBox:focus,QComboBox:on{"
-            "  background:%1 !important;"
-            "  background-color:%1 !important;"
-            "  color:%4 !important;"
-            "  border-color:%9 !important;"
-            "}"
-            "QComboBox:disabled{"
-            "  background:%3 !important;"
-            "  background-color:%3 !important;"
-            "  color:%5 !important;"
-            "  border-color:%10 !important;"
-            "}"
-            "QComboBox::drop-down{"
-            "  background:%2 !important;"
-            "  background-color:%2 !important;"
-            "  border:none !important;"
-            "  border-left:1px solid %6 !important;"
-            "  width:20px;"
-            "}"
-            "QComboBox::drop-down:disabled{"
-            "  background:%3 !important;"
-            "  background-color:%3 !important;"
-            "  border-left-color:%10 !important;"
-            "}"
+            "QComboBox:hover{background:%2 !important;background-color:%2 !important;border:none !important;}"
+            "QComboBox:focus,QComboBox:on{background:%3 !important;background-color:%3 !important;border:none !important;}"
+            "QComboBox:disabled{background:%5 !important;background-color:%5 !important;color:%6 !important;border:none !important;}"
+            "QComboBox::drop-down{background:transparent !important;border:none !important;width:20px;}"
+            "QComboBox::drop-down:disabled{background:transparent !important;border:none !important;}"
             "QComboBox::down-arrow{"
-            "  image:url(\"%12\");"
-            "  width:12px;"
-            "  height:12px;"
-            "  margin-right:4px;"
-            "  subcontrol-origin:padding;"
-            "  subcontrol-position:center right;"
+            "  image:url(\"%9\");width:12px;height:12px;margin-right:4px;"
+            "  subcontrol-origin:padding;subcontrol-position:center right;"
             "}"
-            "QComboBox::down-arrow:disabled{image:url(\"%13\");}"
+            "QComboBox::down-arrow:disabled{image:url(\"%10\");}"
+            // 可编辑 Combo 内部编辑器不能重新画出系统白框，也不能遮挡外围焦点底色。
+            "QComboBox QLineEdit,QComboBox QLineEdit:hover,QComboBox QLineEdit:focus{"
+            "  background:transparent !important;color:%4 !important;border:none !important;"
+            "  selection-background-color:%7 !important;selection-color:%8 !important;"
+            "}"
+            "QComboBox QLineEdit:disabled{background:transparent !important;color:%6 !important;border:none !important;}"
             "QComboBox QAbstractItemView{"
-            "  background:%1 !important;"
-            "  background-color:%1 !important;"
-            "  alternate-background-color:%1 !important;"
-            "  color:%4 !important;"
-            "  border:1px solid %6 !important;"
-            "  border-radius:%14px;"
-            "  selection-background-color:%7 !important;"
-            "  selection-color:%11 !important;"
-            "  outline:0;"
+            "  background:%1 !important;background-color:%1 !important;alternate-background-color:%1 !important;"
+            "  color:%4 !important;border:1px solid %11 !important;border-radius:%12px;"
+            "  selection-background-color:%7 !important;selection-color:%8 !important;outline:0;"
             "}"
-            "QComboBox QAbstractItemView::viewport{"
-            "  background:%1 !important;"
-            "  background-color:%1 !important;"
-            "}"
-            "QComboBox QAbstractItemView::item{"
-            "  background:%1 !important;"
-            "  background-color:%1 !important;"
-            "  color:%4 !important;"
-            "  min-height:22px;"
-            "  padding:2px 6px;"
-            "}"
-            "QComboBox QAbstractItemView::item:hover{"
-            "  background:%2 !important;"
-            "  background-color:%2 !important;"
-            "  color:%4 !important;"
-            "}"
-            "QComboBox QAbstractItemView::item:selected{"
-            "  background:%7 !important;"
-            "  background-color:%7 !important;"
-            "  color:%11 !important;"
-            "}")
-            .arg(surfaceColor)
-            .arg(surfaceAltColor)
-            .arg(surfaceMutedColor)
-            .arg(textColor)
-            .arg(disabledTextColor)
-            .arg(outlineColor)
-            .arg(accentColorText)
-            .arg(accentHoverColor)
-            .arg(accentPressedColor)
-            .arg(disabledOutlineColor)
-            .arg(accentTextColor)
-            .arg(arrowPath)
-            .arg(disabledArrowPath)
+            "QComboBox QAbstractItemView::viewport{background:%1 !important;background-color:%1 !important;}"
+            "QComboBox QAbstractItemView::item{background:%1 !important;background-color:%1 !important;color:%4 !important;min-height:22px;padding:2px 6px;}"
+            "QComboBox QAbstractItemView::item:hover{background:%2 !important;background-color:%2 !important;color:%4 !important;}"
+            "QComboBox QAbstractItemView::item:selected{background:%7 !important;background-color:%7 !important;color:%8 !important;}")
+            .arg(surfaceColor.name(), hoverColor.name(), focusColor.name(), textColor.name(), mutedColor.name(),
+                disabledTextColor.name(), accentColor.name(), OnAccentColor(accentColor).name(), arrowPath)
+            .arg(disabledArrowPath, BorderColorHex())
             .arg(ControlCornerRadius);
     }
 

@@ -3857,7 +3857,7 @@ namespace
                 .arg(iconOnlyButton ? QStringLiteral("4px") : QStringLiteral("4px 10px"));
     }
 
-    // 下拉框主题描边样式，保持与按钮同色系。
+    // 下拉框复用共享输入面，保持与数值框和搜索框的中性层次一致。
     QString buildBlueComboBoxStyle()
     {
         return KswordTheme::ThemedComboBoxStyle();
@@ -3883,17 +3883,20 @@ namespace
             return;
         }
 
-        const QString comboBackgroundColor = KswordTheme::SurfaceHex();
-        const QString comboTextColor = KswordTheme::TextPrimaryHex();
+        // palette 需要真实 QColor，不能传入仅供 QSS 解析的 palette(...) 文字。
+        const QColor comboBackgroundColor = KswordTheme::ControlInputSurfaceColor();
+        const QColor comboTextColor = KswordTheme::EnsureTextContrast(
+            KswordTheme::TextPrimaryColor(), comboBackgroundColor);
+        const QColor popupBackgroundColor = KswordTheme::SurfaceAltColor();
 
         comboBoxPointer->setStyleSheet(buildBlueComboBoxStyle());
 
         QPalette comboPalette = comboBoxPointer->palette();
-        comboPalette.setColor(QPalette::Base, QColor(comboBackgroundColor));
-        comboPalette.setColor(QPalette::Window, QColor(comboBackgroundColor));
-        comboPalette.setColor(QPalette::Button, QColor(comboBackgroundColor));
-        comboPalette.setColor(QPalette::Text, QColor(comboTextColor));
-        comboPalette.setColor(QPalette::ButtonText, QColor(comboTextColor));
+        comboPalette.setColor(QPalette::Base, comboBackgroundColor);
+        comboPalette.setColor(QPalette::Window, comboBackgroundColor);
+        comboPalette.setColor(QPalette::Button, comboBackgroundColor);
+        comboPalette.setColor(QPalette::Text, comboTextColor);
+        comboPalette.setColor(QPalette::ButtonText, comboTextColor);
         comboPalette.setColor(QPalette::Highlight, KswordTheme::ControlAccentColor());
         comboPalette.setColor(
             QPalette::HighlightedText,
@@ -3906,35 +3909,40 @@ namespace
             return;
         }
 
-        popupView->setPalette(comboPalette);
+        // 独立 Popup 使用内容表面，避免继承输入框或透明父级的错误背景角色。
+        QPalette popupPalette = comboPalette;
+        popupPalette.setColor(QPalette::Base, popupBackgroundColor);
+        popupPalette.setColor(QPalette::Window, popupBackgroundColor);
+        popupPalette.setColor(QPalette::Text, KswordTheme::EnsureTextContrast(
+            KswordTheme::TextPrimaryColor(), popupBackgroundColor));
+        popupView->setPalette(popupPalette);
         popupView->setAutoFillBackground(true);
         popupView->setStyleSheet(buildBlueComboBoxPopupViewStyle());
         if (popupView->viewport() != nullptr)
         {
             popupView->viewport()->setAutoFillBackground(true);
-            popupView->viewport()->setPalette(comboPalette);
+            popupView->viewport()->setPalette(popupPalette);
             popupView->viewport()->setStyleSheet(QStringLiteral(
                 "background:%1 !important;"
                 "background-color:%1 !important;")
-                .arg(comboBackgroundColor));
+                .arg(popupBackgroundColor.name()));
         }
     }
 
-    // 统一“普通输入框”主题边框。
+    // 单行输入只保留页面几何，共享基线负责无框底色；多行文本仍保留内容边界。
     QString buildBlueLineEditStyle()
     {
         return QStringLiteral(
-            "QLineEdit, QPlainTextEdit, QTextEdit {"
-            "  border: 1px solid %2;"
-            "  border-radius: 3px;"
-            "  background: %3;"
-            "  color: %4;"
-            "  padding: 3px 5px;"
+            "QLineEdit{border-radius:3px;padding:3px 5px;}"
+            "QPlainTextEdit,QTextEdit{"
+            "  border:1px solid %2;"
+            "  border-radius:3px;"
+            "  background:%3;"
+            "  color:%4;"
+            "  padding:3px 5px;"
             "}"
-            "QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus {"
-            "  border: 1px solid %1;"
-            "}")
-            .arg(KswordTheme::PrimaryBlueHex)
+            "QPlainTextEdit:focus,QTextEdit:focus{border:1px solid %1;}")
+            .arg(KswordTheme::BorderStrongHex())
             .arg(KswordTheme::BorderHex())
             .arg(KswordTheme::SurfaceHex())
             .arg(KswordTheme::TextPrimaryHex());
@@ -4964,7 +4972,7 @@ void ProcessDock::initializeTopControls()
         m_columnChooserButton,
         QStringLiteral("process.tooltip.column_chooser"),
         QStringLiteral("添加或移除进程列表中显示的列。"));
-    m_columnChooserButton->setStyleSheet(buildBlueButtonStyle(false, ks::ui::FlatButtonAppearance::Flat));
+    m_columnChooserButton->setStyleSheet(buildBlueButtonStyle(false, ks::ui::FlatButtonAppearance::Solid));
 
     // 进程列表设置入口：仅显示齿轮图标，具体选项在独立窗口中即时生效。
     m_processSettingsButton = new QPushButton(QIcon(QStringLiteral(":/Icon/process_settings.svg")), QString(), this);
@@ -4976,7 +4984,7 @@ void ProcessDock::initializeTopControls()
         QStringLiteral("打开进程列表设置"));
 
     // 按钮统一蓝色风格（图标按钮版本）。
-    const QString buttonStyle = buildBlueButtonStyle(true);
+    const QString buttonStyle = buildBlueButtonStyle(true, ks::ui::FlatButtonAppearance::Solid);
     m_startButton->setStyleSheet(buttonStyle);
     m_pauseButton->setStyleSheet(buttonStyle);
     m_processSettingsButton->setStyleSheet(buttonStyle);
@@ -5031,7 +5039,7 @@ void ProcessDock::initializeProcessActivityPanel()
         m_activityClearButton,
         QStringLiteral("process.activity.tooltip.clear"),
         QStringLiteral("清空当前刷新同步记录的进程活动样本。"));
-    m_activityClearButton->setStyleSheet(buildBlueButtonStyle(false, ks::ui::FlatButtonAppearance::Flat));
+    m_activityClearButton->setStyleSheet(buildBlueButtonStyle(false, ks::ui::FlatButtonAppearance::Solid));
 
     m_activityHistoryModeCombo = new QComboBox(m_activityPanelWidget);
     m_activityHistoryModeCombo->addItem(QStringLiteral("不记录历史"), static_cast<int>(ActivityHistoryMode::None));

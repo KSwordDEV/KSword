@@ -223,9 +223,8 @@ ks::ui::FlatButtonStateColors ks::ui::FlatButtonColorsForState(const QPalette& p
         alternate = KswordTheme::SurfaceAltColor();
     }
     alternate.setAlpha(255);
-    // 操作按钮的普通实底要能与页面区分；工具按钮常态则显式透明，交互态用主题实色。
-    const QColor neutral = KswordTheme::EnsureTextContrast(
-        KswordTheme::BlendColors(alternate, checked, 36), surface, 1.5);
+    // 普通操作与输入框共用中性表面，主题色集中在交互和选中状态，避免满页蓝色方块。
+    const QColor neutral = KswordTheme::ControlInputSurfaceColor(surface, alternate);
     const bool flat = appearance == FlatButtonAppearance::Flat;
     FlatButtonStateColors result;
     result.background = tone == FlatButtonTone::Neutral ? neutral : interaction;

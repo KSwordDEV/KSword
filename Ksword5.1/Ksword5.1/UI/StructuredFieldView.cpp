@@ -1,6 +1,7 @@
 #include "StructuredFieldView.h"
 #include "../Internationalization/LanguageManager.h"
 #include "ThemeBinding.h"
+#include "../theme.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -137,7 +138,9 @@ namespace ks::ui
                 const bool selected = option.state.testFlag(QStyle::State_Selected);
                 const auto text = option.text;
                 option.text.clear();
-                if (section && !selected) option.backgroundBrush = option.palette.brush(QPalette::AlternateBase);
+                // 分组底色由语义表面派生，不能依赖可能被祖先透明 QSS 污染的行画刷。
+                const QColor sectionSurface = KswordTheme::SurfaceAltColor();
+                if (section && !selected) option.backgroundBrush = sectionSurface;
                 const QWidget* widget = option.widget;
                 auto* style = widget ? widget->style() : QApplication::style();
                 style->drawControl(QStyle::CE_ItemViewItem, &option, painter, widget);
@@ -148,17 +151,32 @@ namespace ks::ui
                 const QRect area = option.rect.adjusted(insetX, insetY, -insetX, -insetY);
                 painter->save();
                 painter->setClipRect(option.rect);
+                if (section && !selected)
+                {
+                    painter->fillRect(option.rect, sectionSurface);
+                }
                 const auto group = option.state.testFlag(QStyle::State_Enabled)
                     ? (option.state.testFlag(QStyle::State_Active) ? QPalette::Active : QPalette::Inactive)
                     : QPalette::Disabled;
-                const auto textRole = selected ? QPalette::HighlightedText
-                    : (kind == FieldNode::Kind::Note || (!section && index.column() == 0)
-                        ? QPalette::PlaceholderText : QPalette::Text);
-                painter->setPen(option.palette.color(group, textRole));
+                // 属性名是可读信息而非占位提示；次级文字按真实行底校准，不再呈现禁用态灰字。
+                const bool secondary = kind == FieldNode::Kind::Note || (!section && index.column() == 0);
+                QColor background = selected ? option.palette.color(group, QPalette::Highlight)
+                    : section ? sectionSurface : option.palette.color(group,
+                        option.features.testFlag(QStyleOptionViewItem::Alternate) ? QPalette::AlternateBase : QPalette::Base);
+                if (background.alpha() < 255)
+                {
+                    background = KswordTheme::SurfaceColor();
+                }
+                const QColor preferredText = selected ? option.palette.color(group, QPalette::HighlightedText)
+                    : secondary ? KswordTheme::TextSecondaryColor() : KswordTheme::TextPrimaryColor();
+                const QColor readableText = KswordTheme::EnsureTextContrast(preferredText, background,
+                    group == QPalette::Disabled ? 3.0 : 4.5);
+                painter->setPen(readableText);
                 layoutPlainText(text, font, area.width(), painter, area.topLeft(), m_tree->wordWrap());
                 if (section && !selected)
                 {
-                    painter->setPen(option.palette.color(group, QPalette::Mid));
+                    // 单条分隔标记分组边界，不为每个属性添加网格线。
+                    painter->setPen(KswordTheme::EnsureTextContrast(KswordTheme::BorderColor(), sectionSurface, 1.6));
                     painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
                 }
                 painter->restore();

@@ -25,11 +25,14 @@ namespace ks::ui
             "QWidget[ksword_detail_shell=\"true\"] QTabWidget::pane{background:%1;border:0;padding:0;margin:0;}"
             "QWidget[ksword_detail_shell=\"true\"] QStackedWidget{background:%1;border:0;}"
             "QWidget[ksword_detail_shell=\"true\"] QScrollArea{background:%1;border:0;padding:0;margin:0;}"
-            "QWidget[ksword_detail_shell=\"true\"] QScrollArea > QWidget > QWidget{background:%1;}"
+            "QWidget[ksword_detail_shell=\"true\"] QScrollArea > QWidget{background:%1;}"
             "QWidget[ksword_detail_shell=\"true\"] QAbstractItemView{border:0;}"
-            "QWidget[ksword_detail_shell=\"true\"] QGroupBox{background:%1;border:0;border-radius:0;margin-top:8px;padding-top:6px;}"
-            "QWidget[ksword_detail_shell=\"true\"] QGroupBox::title{subcontrol-origin:margin;left:0;padding:0 6px 0 0;color:%2;}"
+            // 详情分组使用独立表面与顶部细分隔，保留原布局；字段行本身不加框。
+            "QWidget[ksword_detail_shell=\"true\"] QGroupBox{background:%3;border:0;border-top:1px solid %4;border-radius:0;margin-top:10px;padding-top:8px;}"
+            "QWidget[ksword_detail_shell=\"true\"] QGroupBox::title{subcontrol-origin:margin;left:8px;padding:0 7px;color:%2;background:%3;font-weight:600;}"
             "QWidget[ksword_detail_shell=\"true\"] QWidget[ksword_detail_sidebar=\"true\"],QWidget[ksword_detail_shell=\"true\"] QScrollArea[ksword_detail_sidebar=\"true\"],QWidget[ksword_detail_shell=\"true\"] QScrollArea[ksword_detail_sidebar=\"true\"] > QWidget,QWidget[ksword_detail_shell=\"true\"] QScrollArea[ksword_detail_sidebar=\"true\"] > QWidget > QWidget{background:%3;border:0;padding:0;margin:0;}"
+            // 分界仅画在滚动区的外缘，导航项与 viewport 不重复描边。
+            "QWidget[ksword_detail_shell=\"true\"] QScrollArea[ksword_detail_sidebar=\"true\"]{border-right:1px solid %4;}"
             "QWidget[ksword_detail_shell=\"true\"] QWidget[ksword_detail_sidebar=\"true\"] QToolButton{border-radius:7px;padding:8px;text-align:left;}"
             "QWidget[ksword_detail_shell=\"true\"] QWidget#ks_detail_footer{background:%1;border:0;border-top:1px solid %4;}")
             .arg(KswordTheme::SurfaceHex(), KswordTheme::TextPrimaryHex(), KswordTheme::SurfaceAltHex(),

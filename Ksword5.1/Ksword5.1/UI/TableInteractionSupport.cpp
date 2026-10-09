@@ -606,7 +606,8 @@ namespace
                 "QFrame#KSWORD_TABLE_INTERACTION_ACTION_BAR QCheckBox{"
                 "  background-color:transparent !important;"
                 "  font-weight:400;"
-                "}") + ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral));
+                "}") + ks::ui::BuildFlatButtonStyle(
+                    ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid));
 
             auto* layout = new QHBoxLayout(this);
             layout->setContentsMargins(4, 2, 4, 2);
@@ -961,7 +962,8 @@ namespace
             }
             button->setToolTip(tooltip);
             // 快照仍通过 checked 标识当前帧；保留紧凑工具条几何，去掉单独线框。
-            button->setStyleSheet(ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            button->setStyleSheet(ks::ui::BuildFlatButtonStyle(
+                ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid)
                 + QStringLiteral("QToolButton{padding:2px 7px;border-radius:3px;}"));
             return button;
         }

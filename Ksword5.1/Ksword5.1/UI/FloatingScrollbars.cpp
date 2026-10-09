@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QEvent>
 #include <QHash>
+#include <QHoverEvent>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPointer>
@@ -13,6 +14,7 @@
 #include <QSignalBlocker>
 #include <QTimer>
 #include <QVariant>
+#include <QVariantAnimation>
 #include <QVector>
 #include <QWheelEvent>
 
@@ -29,6 +31,8 @@ namespace
     constexpr char kComparisonSourceProperty[] = "KSWORD_TABLE_INTERACTION_COMPARISON_SOURCE_ACTIVE";
     constexpr char kStyleBegin[] = "/* KSWORD_FLOATING_SCROLLBAR_BEGIN */";
     constexpr char kStyleEnd[] = "/* KSWORD_FLOATING_SCROLLBAR_END */";
+    constexpr int kIdleDelayMs = 1100; // 停止交互后短暂保留位置线，随后让出内容边缘。
+    constexpr int kFadeDurationMs = 180; // 淡出时间不依赖表格刷新频率。
 
     // 移除本组件拥有的片段，保留页面后来追加或重设的全部其他样式。
     QString withoutOwnedStyle(QString style)
@@ -82,6 +86,33 @@ namespace
             setMouseTracking(true);
             setAutoFillBackground(false);
             setAttribute(Qt::WA_NoSystemBackground, true);
+            setAttribute(Qt::WA_TransparentForMouseEvents, true);
+            m_idleTimer.setSingleShot(true);
+            m_idleTimer.setInterval(kIdleDelayMs);
+            m_fade.setDuration(kFadeDurationMs);
+            connect(&m_idleTimer, &QTimer::timeout, this, [this]()
+            {
+                if (m_available && !interactionHeld())
+                {
+                    m_fade.setStartValue(m_opacity);
+                    m_fade.setEndValue(0.0);
+                    m_fade.start();
+                }
+            });
+            connect(&m_fade, &QVariantAnimation::valueChanged, this, [this](const QVariant& value)
+            {
+                m_opacity = value.toReal();
+                update();
+            });
+            connect(&m_fade, &QVariantAnimation::finished, this, [this]()
+            {
+                if (!interactionHeld())
+                {
+                    // 完全隐藏后整个命中带一并退出，不拦截下面单元格或复制按钮。
+                    setAttribute(Qt::WA_TransparentForMouseEvents, true);
+                    hide();
+                }
+            });
             hide();
         }
 
@@ -94,13 +125,72 @@ namespace
         // 倍率只控制画出的线和命中带，不改原生 value/pageStep 的单位。
         void setScale(qreal scale)
         {
-            m_scale = scale;
-            update();
+            if (!qFuzzyCompare(m_scale, scale))
+            {
+                m_scale = scale;
+                update();
+            }
         }
 
         int hitThickness() const
         {
             return std::max(4, qRound(10.0 * m_scale));
+        }
+
+        // 布局刷新只改变可用状态；内容重绘不会重启空闲计时，避免常驻亮线。
+        void setAvailable(bool available)
+        {
+            if (m_available == available)
+            {
+                return;
+            }
+            m_available = available;
+            if (available)
+            {
+                reveal();
+                return;
+            }
+            m_idleTimer.stop();
+            m_fade.stop();
+            m_opacity = 0.0;
+            m_hovered = false;
+            m_nearEdge = false;
+            setAttribute(Qt::WA_TransparentForMouseEvents, true);
+            hide();
+        }
+
+        // 滚动或接近内容边缘时立即恢复；只控制视觉，不更改原条状态。
+        void reveal()
+        {
+            if (!m_available)
+            {
+                return;
+            }
+            m_fade.stop();
+            m_opacity = 1.0;
+            setAttribute(Qt::WA_TransparentForMouseEvents, false);
+            show();
+            raise();
+            update();
+            armIdleTimer();
+        }
+
+        // 视口悬停事件让隐藏条可发现，无需保留一块不可见的鼠标窗口。
+        void setNearEdge(bool nearby)
+        {
+            if (m_nearEdge == nearby)
+            {
+                return;
+            }
+            m_nearEdge = nearby;
+            if (nearby)
+            {
+                reveal();
+            }
+            else
+            {
+                armIdleTimer();
+            }
         }
 
     protected:
@@ -129,6 +219,7 @@ namespace
                 palette().color(group, QPalette::Highlight), palette().color(group, QPalette::Base), 3.0);
             QPainter painter(this);
             painter.setRenderHint(QPainter::Antialiasing);
+            painter.setOpacity(m_opacity);
             painter.setPen(Qt::NoPen);
             painter.setBrush(color);
             painter.drawRoundedRect(line, width / 2.0, width / 2.0);
@@ -137,13 +228,15 @@ namespace
         void enterEvent(QEnterEvent* event) override
         {
             m_hovered = true;
-            update();
+            reveal();
             QScrollBar::enterEvent(event);
         }
 
         void leaveEvent(QEvent* event) override
         {
             m_hovered = false;
+            m_nearEdge = false;
+            armIdleTimer();
             update();
             QScrollBar::leaveEvent(event);
         }
@@ -156,6 +249,7 @@ namespace
                 return;
             }
             const QRectF thumb = thumbRect();
+            reveal();
             const qreal point = axisPoint(event->position());
             m_dragOffset = thumb.contains(event->position())
                 ? point - axisStart(thumb) : axisLength(thumb) / 2.0;
@@ -197,6 +291,7 @@ namespace
                     return;
                 }
                 update();
+                armIdleTimer();
                 event->accept();
                 return;
             }
@@ -205,6 +300,7 @@ namespace
 
         void hideEvent(QHideEvent* event) override
         {
+            m_hovered = false;
             // 比较态、页面关闭或策略改变中断拖动时，也必须释放原条 sliderDown。
             if (isSliderDown())
             {
@@ -215,6 +311,7 @@ namespace
 
         void wheelEvent(QWheelEvent* event) override
         {
+            reveal();
             const QPointer<QScrollBar> source = m_source;
             if (source.isNull())
             {
@@ -226,6 +323,21 @@ namespace
         }
 
     private:
+        // 鼠标在边缘、滑块上或正在拖动时始终可见，停止后才安排一次淡出。
+        bool interactionHeld() const
+        {
+            return m_hovered || m_nearEdge || isSliderDown();
+        }
+
+        void armIdleTimer()
+        {
+            m_idleTimer.stop();
+            if (m_available && !interactionHeld() && isVisible())
+            {
+                m_idleTimer.start();
+            }
+        }
+
         // 以下坐标辅助统一横纵轴；RTL 横轴沿用原生条的方向语义。
         qreal axisPoint(const QPointF& point) const
         {
@@ -291,7 +403,12 @@ namespace
         QPointer<QScrollBar> m_source; // 唯一业务滚动条，销毁或替换后自动失效。
         qreal m_scale = 1.0;          // 当前浮窗倍率。
         qreal m_dragOffset = 0.0;     // 鼠标在滑块内部的按下位置。
+        qreal m_opacity = 0.0;       // 仅滑块绘制淡出，父视口不参与透明动画。
+        QTimer m_idleTimer;          // 无交互时只触发一次，不轮询全部滚动区域。
+        QVariantAnimation m_fade;    // 只在短暂淡出期间运行。
         bool m_hovered = false;      // 悬停时仅加粗视觉线，不改命中带。
+        bool m_nearEdge = false;     // 隐藏后仍由视口悬停事件提供边缘发现。
+        bool m_available = false;    // 页面策略与滚动范围是否允许显示此轴。
     };
 
     // 一个区域只拥有一个控制器，两个视觉条不占其 viewport 布局尺寸。
@@ -365,10 +482,17 @@ namespace
                 if (!m_viewport.isNull())
                 {
                     m_viewport->removeEventFilter(this);
+                    if (!m_viewportHadHover)
+                    {
+                        m_viewport->setAttribute(Qt::WA_Hover, false);
+                    }
                 }
                 m_viewport = m_area->viewport();
                 if (!m_viewport.isNull())
                 {
+                    // 悬停事件可沿内容子控件传播；不修改页面自身的 mouseTracking。
+                    m_viewportHadHover = m_viewport->testAttribute(Qt::WA_Hover);
+                    m_viewport->setAttribute(Qt::WA_Hover, true);
                     m_viewport->installEventFilter(this);
                 }
             }
@@ -399,10 +523,45 @@ namespace
         }
 
     protected:
-        bool eventFilter(QObject*, QEvent* event) override
+        bool eventFilter(QObject* watched, QEvent* event) override
         {
             switch (event->type())
             {
+            case QEvent::MouseMove:
+                if (watched == m_viewport.data() && !m_area.isNull())
+                {
+                    const auto* mouse = static_cast<QMouseEvent*>(event);
+                    updateEdgeProximity(m_viewport->mapTo(m_area.data(), mouse->position().toPoint()));
+                }
+                break;
+            case QEvent::HoverEnter:
+            case QEvent::HoverMove:
+                if (watched == m_viewport.data() && !m_area.isNull())
+                {
+                    const auto* hover = static_cast<QHoverEvent*>(event);
+                    updateEdgeProximity(m_viewport->mapTo(m_area.data(), hover->position().toPoint()));
+                }
+                break;
+            case QEvent::HoverLeave:
+            case QEvent::Leave:
+                if (watched == m_viewport.data())
+                {
+                    for (const QPointer<FloatingScrollbar>& overlay : m_overlays)
+                    {
+                        overlay->setNearEdge(false);
+                    }
+                }
+                break;
+            case QEvent::Wheel:
+                // 到达边界时数值可能不变；仍短暂显示位置反馈，不消费滚轮事件。
+                if (watched == m_viewport.data())
+                {
+                    for (const QPointer<FloatingScrollbar>& overlay : m_overlays)
+                    {
+                        overlay->reveal();
+                    }
+                }
+                break;
             case QEvent::Resize:
             case QEvent::LayoutRequest:
             case QEvent::Show:
@@ -443,6 +602,17 @@ namespace
         }
 
     private:
+        // 在原视口内探测实际浮条旁的窄区域，隐藏时不会添加透明鼠标捕获窗口。
+        void updateEdgeProximity(const QPoint& point)
+        {
+            const int margin = std::max(2, qRound(4.0 * m_scale));
+            for (const QPointer<FloatingScrollbar>& overlay : m_overlays)
+            {
+                const QRect nearby = overlay->geometry().adjusted(-margin, -margin, margin, margin);
+                overlay->setNearEdge(nearby.contains(point));
+            }
+        }
+
         // 原条替换后仅恢复旧条自己的样式片段，不干涉任何业务连接。
         void bindSource(int axis, QScrollBar* source)
         {
@@ -469,9 +639,14 @@ namespace
             }
             source->installEventFilter(this);
             const auto changed = [this]() { scheduleRefresh(); };
+            const auto scrolled = [this, axis]()
+            {
+                m_overlays[axis]->reveal();
+                scheduleRefresh();
+            };
             m_connections[axis].append(connect(source, &QScrollBar::rangeChanged, this, changed));
-            m_connections[axis].append(connect(source, &QScrollBar::valueChanged, this, changed));
-            m_connections[axis].append(connect(source, &QScrollBar::sliderMoved, this, changed));
+            m_connections[axis].append(connect(source, &QScrollBar::valueChanged, this, scrolled));
+            m_connections[axis].append(connect(source, &QScrollBar::sliderMoved, this, scrolled));
             m_connections[axis].append(connect(source, &QObject::destroyed, this, changed));
         }
 
@@ -533,7 +708,7 @@ namespace
                 FloatingScrollbar* overlay = m_overlays[axis].data();
                 if (!show[axis])
                 {
-                    overlay->hide();
+                    overlay->setAvailable(false);
                     continue;
                 }
                 // 两轴相交处留空，不覆盖表头、动作条或冻结区，也不改视口留白。
@@ -545,8 +720,11 @@ namespace
                         content.bottom() - horizontalHeight + 1,
                         std::max(0, content.width() - verticalWidth), horizontalHeight);
                 overlay->setGeometry(geometry);
-                overlay->setVisible(!geometry.isEmpty());
-                overlay->raise();
+                overlay->setAvailable(!geometry.isEmpty());
+                if (overlay->isVisible())
+                {
+                    overlay->raise();
+                }
                 overlay->update();
             }
         }
@@ -575,6 +753,7 @@ namespace
         qreal m_scale = 1.0;                       // 当前浮窗内容倍率。
         bool m_pending = false;                   // 合并同一轮事件循环的布局刷新。
         bool m_updating = false;                  // 屏蔽样式应用产生的同步事件。
+        bool m_viewportHadHover = false;          // 视口替换时恢复原先的悬停事件开关。
     };
 
     // 无 Q_OBJECT 的控制器用对象名定位后做 C++ 类型核验，不依赖新增 moc。

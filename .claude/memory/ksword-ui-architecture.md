@@ -154,3 +154,10 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 - 原生 `QLineEditIconButton` 与 `_q_qlineeditclearaction` 的圆底和 X 不能用 SourceIn 合并成一种颜色；按钮及动作两路均跳过并恢复历史原图。
 - 专用表格搜索使用 `BindSearchFieldTheme`，有区别的实底、无框、显式不透明 PlaceholderText；保留具体提示、输入、选区、过滤和尺寸，排除扫描值/地址/命令/编辑器查找。树表及外层 Tab 搜索需逐页显式接入，不能假设内层 QTable 元数据会发现它们。
 - 透明控件验证必须采样整窗合成；QPushButton hover 需真正 MouseMove 更新私有 hovering，不能只设 WA_UnderMouse。Qt offscreen 要显式加载系统字体，避免把方框当文字。新夹具 200+110 项覆盖真实透明父和原生 clear；仍不替代生产 GUI 逐页验收。
+
+### 同日视觉层次与自动隐藏调整
+
+- 主窗口最终 QSS 曾有 `%1/%5` 缺号但仍逐次 `.arg(...)`，Qt 会替换当前最小编号而非保留缺位，造成背景/文字颜色错配。最终深浅主题块改用命名颜色占位符；修改长样式时必须同时核对替换链，不能只看 token 本身。
+- 单行输入、搜索、数值框、组合框及普通实心按钮使用 `ControlInputSurfaceColor` 的中性表面，hover/focus 保持同一层次。内部 Spin/Combo 编辑器透明无框；主窗口末尾不能重新强制透明输入面和描边。表格操作栏与进程控制明确使用 Solid，标题/导航工具仍保留自身语义。
+- 表头采用 SurfaceMuted 与单条底部分隔，详情分组采用 SurfaceAlt 与标题线；普通属性名使用可读次级文字而非 PlaceholderText。禁止为单元格添加 `border:0`，否则 Qt QSS 会吞掉模型 BackgroundRole。
+- 悬浮滚动条闲置 1100ms 后用 180ms 淡出，滚动或靠近内容边缘唤醒，悬停/拖动期间保持；完全隐藏后鼠标穿透。刷新内容与范围更新不重启闲置计时，原生滚动对象、单位与信号不变。

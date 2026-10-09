@@ -12,6 +12,7 @@ namespace ks::ui
     void InstallGlobalFloatingScrollbars(QApplication* application);
 
     // 给滚动区域安装视觉滑块；原生条对象、策略、数值和业务信号均保留。
+    // 滚动或接近边缘时出现，悬停和拖动时保持；闲置后淡出并让鼠标穿透。
     // 设置 ksword_preserve_native_scrollbars=true 可显式恢复原生条外观。
     void InstallFloatingScrollbars(QAbstractScrollArea* area);
 
