@@ -12,7 +12,7 @@
   ],
   "recordedUtc": "2026-09-05T07:36:00Z",
   "suites": [
-    { "name": "R3 network backend", "minAssertions": 16 },
+    { "name": "R3 shared backend", "minAssertions": 60 },
     { "name": "ProcessInformation", "minAssertions": 25 },
     { "name": "Light callback synchronization", "minAssertions": 44 },
     { "name": "F evidence contract", "minAssertions": 192 },

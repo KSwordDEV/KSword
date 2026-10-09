@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/process/ProcessDetailIdentity.h"
 #include "ProcessDetailCollector.h"
 #include "../../../shared/usermode/backend/process/ProcessModulesSupport.h"
 #include "../../../shared/usermode/backend/process/ProcessThreadsSupport.h"
@@ -19,6 +20,7 @@
 
 namespace Ksword::Features::ProcessDetail {
 namespace {
+using namespace ks::r3::process_detail::detail;
 using namespace ks::r3::process_detail::detail;
 using namespace ks::r3::process_detail::detail;
 using ks::r3::process_detail::CollectBasicInfo;
@@ -788,35 +790,8 @@ ProcessDetailSnapshot ProcessDetailCollector::Collect(
         return snapshot;
     }
 
-    const HANDLE rawIdentityProcess = ::OpenProcess(kProcessBasicAccess, FALSE, processId);
-    const DWORD identityOpenError = rawIdentityProcess ? ERROR_SUCCESS : ::GetLastError();
-    Ksword::Core::UniqueHandle identityProcess(rawIdentityProcess);
-    if (!identityProcess.valid()) {
-        snapshot.basic.statusText = Win32ErrorText(L"OpenProcess(identity)", identityOpenError);
-        snapshot.errorText = L"Basic: " + snapshot.basic.statusText;
-        return snapshot;
-    }
-
-    FILETIME creationTime{};
-    FILETIME exitTime{};
-    FILETIME kernelTime{};
-    FILETIME userTime{};
-    const BOOL identityTimeOk = ::GetProcessTimes(
-        identityProcess.get(),
-        &creationTime,
-        &exitTime,
-        &kernelTime,
-        &userTime);
-    const DWORD identityTimeError = identityTimeOk ? ERROR_SUCCESS : ::GetLastError();
-    const ULONGLONG actualCreationTime100ns = identityTimeOk
-        ? (static_cast<ULONGLONG>(creationTime.dwHighDateTime) << 32U) |
-            static_cast<ULONGLONG>(creationTime.dwLowDateTime)
-        : 0U;
-    if (!identityTimeOk || actualCreationTime100ns == 0U ||
-        actualCreationTime100ns != expectedCreationTime100ns) {
-        snapshot.basic.statusText = !identityTimeOk
-            ? Win32ErrorText(L"GetProcessTimes(identity)", identityTimeError)
-            : L"Process identity changed (PID was reused); detail refresh skipped.";
+    Ksword::Core::UniqueHandle identityProcess;
+    if (!ks::r3::process_detail::detail::AcquireDetailIdentityLease(processId, expectedCreationTime100ns, identityProcess, snapshot.basic.statusText)) {
         snapshot.errorText = L"Basic: " + snapshot.basic.statusText;
         return snapshot;
     }
@@ -858,3 +833,8 @@ ProcessDetailSnapshot ProcessDetailCollector::Collect(
 }
 
 } // namespace Ksword::Features::ProcessDetail
+
+namespace Ksword::Features::ProcessDetail { namespace {
+
+
+}}

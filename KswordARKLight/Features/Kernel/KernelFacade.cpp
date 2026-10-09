@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/process/ProcessEvidenceName.h"
 #include "../../../shared/usermode/backend/kernel/HookDiskBaseline.h"
 #include "KernelFacade.h"
 #include "CallbackEnumeration.h"
@@ -23,6 +24,7 @@
 
 namespace Ksword::Features::Kernel {
 namespace {
+using namespace ks::r3::process;
 using namespace ks::r3::kernel::disk;
 
 // Utf8ToWide converts ArkDriverClient's narrow diagnostic strings to UTF-16.
@@ -336,25 +338,7 @@ std::wstring SizeText(const std::uint64_t bytes) {
 // Win32 APIs. Input is a process id from R0 event data; processing tries
 // QueryFullProcessImageNameW and falls back to System/Idle labels; output is
 // display-only and does not fail the kernel query when access is denied.
-std::wstring ProcessDisplayName(const std::uint32_t processId) {
-    if (processId == 0) {
-        return L"Idle/System";
-    }
-    HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
-    if (!process) {
-        return L"PID " + std::to_wstring(processId);
-    }
-    std::wstring path(MAX_PATH * 4, L'\0');
-    DWORD length = static_cast<DWORD>(path.size());
-    std::wstring name = L"PID " + std::to_wstring(processId);
-    if (::QueryFullProcessImageNameW(process, 0, path.data(), &length) && length > 0) {
-        path.resize(length);
-        const std::size_t slash = path.find_last_of(L"\\/");
-        name = slash == std::wstring::npos ? path : path.substr(slash + 1);
-    }
-    ::CloseHandle(process);
-    return name;
-}
+
 
 // BytesHex formats a bounded byte vector for list/detail display. Input is a
 // byte buffer and max output count; processing avoids huge UI strings; output is

@@ -237,7 +237,7 @@ void EnumerateRegistryKey(std::vector<StartupEntry>& entries, HKEY root, Startup
         DWORD dataBytes = static_cast<DWORD>(data.size());
         DWORD type = 0;
         std::fill(name.begin(), name.end(), L'\0');
-        std::fill(data.begin(), data.end(), 0);
+        std::fill(data.begin(), data.end(), BYTE{0});
         const LSTATUS status = ::RegEnumValueW(key.get(), index, name.data(), &nameChars,
             nullptr, &type, data.data(), &dataBytes);
         if (status != ERROR_SUCCESS) {
@@ -287,7 +287,7 @@ void EnumerateDisabledRegistryKey(std::vector<StartupEntry>& entries, HKEY root,
         DWORD dataBytes = static_cast<DWORD>(data.size());
         DWORD type = 0;
         std::fill(name.begin(), name.end(), L'\0');
-        std::fill(data.begin(), data.end(), 0);
+        std::fill(data.begin(), data.end(), BYTE{0});
         if (::RegEnumValueW(key.get(), index, name.data(), &nameChars, nullptr, &type, data.data(), &dataBytes) != ERROR_SUCCESS) {
             continue;
         }

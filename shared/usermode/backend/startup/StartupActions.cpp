@@ -1,4 +1,6 @@
 #include "StartupActions.h"
+#pragma comment(lib, "Taskschd.lib")
+#pragma comment(lib, "Uuid.lib")
 
 #include "../Common.h"
 

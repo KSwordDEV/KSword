@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/process/EventProcessImagePath.h"
 #include "EtwMonitorView.h"
 
 #include "../../Ui/Controls.h"
@@ -23,6 +24,7 @@
 
 namespace Ksword::Features::Monitor {
 namespace {
+using namespace ks::r3::process;
 
 constexpr wchar_t kEtwMonitorViewClass[] = L"KswordARKLight.EtwMonitorView";
 constexpr int kStartButtonId = 52001;
@@ -680,23 +682,7 @@ int EtwMonitorView::iconIndexForProcessId(std::uint32_t processId) {
 }
 
 std::wstring EtwMonitorView::processImagePath(std::uint32_t processId) const {
-    if (processId == 0) {
-        return {};
-    }
-
-    HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(processId));
-    if (process == nullptr) {
-        return {};
-    }
-
-    std::wstring path;
-    std::vector<wchar_t> buffer(32768, L'\0');
-    DWORD length = static_cast<DWORD>(buffer.size());
-    if (::QueryFullProcessImageNameW(process, 0, buffer.data(), &length) && length > 0) {
-        path.assign(buffer.data(), buffer.data() + length);
-    }
-    ::CloseHandle(process);
-    return path;
+    return ks::r3::process::QueryEventProcessImagePath(processId);
 }
 
 void EtwMonitorView::openSelectedEventDetail() {
@@ -1023,3 +1009,7 @@ bool RequestEtwMonitorProcessFilter(HWND page, const DWORD processId) {
 }
 
 } // namespace Ksword::Features::Monitor
+
+namespace Ksword::Features::Monitor { namespace {
+
+}}

@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/process/ProcessNavigationIdentity.h"
 #include "ProcessView.h"
 #include "../../../shared/usermode/backend/process/ProcessEnrichment.h"
 
@@ -39,6 +40,7 @@
 
 namespace Ksword::Features::Process {
 namespace {
+using namespace ks::r3::process;
 
 constexpr wchar_t kProcessViewClass[] = L"KswordARKLight.ProcessView";
 constexpr int kRefreshButtonId = 52001;
@@ -344,24 +346,7 @@ ULONGLONG ResolveCurrentProcessCreationTime(
         }
     }
 
-    HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
-    if (!process) {
-        return 0U;
-    }
-    FILETIME creation{};
-    FILETIME exit{};
-    FILETIME kernel{};
-    FILETIME user{};
-    ULARGE_INTEGER value{};
-    if (::GetProcessTimes(process, &creation, &exit, &kernel, &user)) {
-        value.LowPart = creation.dwLowDateTime;
-        value.HighPart = creation.dwHighDateTime;
-    }
-    ::CloseHandle(process);
-    if (expectedCreationTime100ns != 0U && value.QuadPart != expectedCreationTime100ns) {
-        return 0U;
-    }
-    return value.QuadPart;
+    return ks::r3::process::QueryProcessCreationTimeR3(processId, expectedCreationTime100ns);
 }
 
 // KernelProcessSnapshotEntry 用途：保存 ArkDriverClient R0 枚举返回的一行进程证据。
@@ -2959,3 +2944,7 @@ bool RequestProcessViewOpenDetails(HWND view, DWORD processId, ULONGLONG expecte
 }
 
 } // namespace Ksword::Features::Process
+
+namespace Ksword::Features::Process { namespace {
+
+}}

@@ -1,3 +1,9 @@
+#include "../shared/usermode/backend/process/EventProcessImagePath.h"
+#include "../shared/usermode/backend/process/ProcessEvidenceName.h"
+#include "../shared/usermode/backend/process/ProcessDetailIdentity.h"
+#include "../shared/usermode/backend/process/ProcessNavigationIdentity.h"
+#include "../shared/usermode/backend/process/ProcessModulesSupport.h"
+#include "../shared/usermode/backend/process/ProcessThreadsSupport.h"
 #include "../shared/usermode/backend/window/ClipboardControl.h"
 #include "../shared/usermode/backend/window/WindowListCapture.h"
 #include "../shared/usermode/backend/security/BugcheckEvidence.h"
@@ -73,9 +79,15 @@
 #include "TestSupport.h"
 #include <algorithm>
 
-int RunR3NetworkBackendTests() {
+namespace {
+DWORD WINAPI WaitForOwnedTestEvent(void* event) {
+    return ::WaitForSingleObject(event, 10000) == WAIT_OBJECT_0 ? 0U : 1U;
+}
+}
+
+int RunR3BackendTests() {
     using namespace ks::r3::network;
-    KswordTests::Suite suite(L"R3 network backend");
+    KswordTests::Suite suite(L"R3 shared backend");
     ConnectionEntry entry{};
     entry.hasState = true;
     entry.state = MIB_TCP_STATE_ESTAB;
@@ -187,6 +199,63 @@ int RunR3NetworkBackendTests() {
     suite.expect(!ks::r3::process_detail::peb::CollectPebSnapshot(GetCurrentProcessId(), 0, 0).identityMatched, L"PEB rejects missing identity");
     suite.expect(!ks::r3::window::QueryWindowDetails(nullptr).found, L"closed HWND has no details");
     suite.expect(!ks::r3::window::CloseWindowGracefully(nullptr).success, L"closed HWND action rejected");
+
+    const DWORD ownPid = ::GetCurrentProcessId();
+    const ULONGLONG ownCreation = ks::r3::process::QueryProcessCreationTimeR3(ownPid, 0);
+    suite.expect(ownCreation != 0, L"own process creation identity read");
+    suite.expect(ks::r3::process::QueryProcessCreationTimeR3(ownPid, ownCreation + 1) == 0, L"stale process identity rejected");
+    bool ownBasicOk = false;
+    const auto ownBasic = ks::r3::process_detail::CollectBasicInfo(ownPid, ownBasicOk);
+    suite.expect(ownBasicOk && ownBasic.processId == ownPid && !ownBasic.imagePath.empty(), L"own process basic fields survive migration");
+    bool ownThreadsOk = false;
+    std::wstring ownStatus;
+    const auto ownThreads = ks::r3::process_detail::detail::CollectThreads(ownPid, ownThreadsOk, ownStatus);
+    suite.expect(ownThreadsOk && std::any_of(ownThreads.begin(), ownThreads.end(), [](const auto& row) { return row.threadId == ::GetCurrentThreadId() && row.ownerProcessId == ::GetCurrentProcessId(); }), L"own thread remains in detail snapshot");
+    bool ownModulesOk = false;
+    const auto ownModules = ks::r3::process_detail::detail::CollectModules(ownPid, ownModulesOk, ownStatus);
+    const auto ownImageBase = reinterpret_cast<std::uintptr_t>(::GetModuleHandleW(nullptr));
+    suite.expect(ownModulesOk && std::any_of(ownModules.begin(), ownModules.end(), [ownImageBase](const auto& row) { return row.baseAddress == ownImageBase && row.imageSize != 0 && !row.modulePath.empty(); }), L"own executable module retains base size and path");
+    const auto ownToken = ks::r3::process_detail::token::QueryTokenReportSnapshotR3(ownPid, ownCreation, {});
+    suite.expect(ownToken.identityMatched && ownToken.succeeded && ownToken.reportText.find(L"[All TokenInformationClass Snapshot]") != std::wstring::npos, L"own token report keeps class snapshot");
+    ks::r3::common::UniqueHandle identityLease;
+    suite.expect(!ks::r3::process_detail::detail::AcquireDetailIdentityLease(ownPid, ownCreation + 1, identityLease, ownStatus), L"detail lease rejects reused process identity");
+    identityLease.reset();
+    suite.expect(ks::r3::process_detail::detail::AcquireDetailIdentityLease(ownPid, ownCreation, identityLease, ownStatus) && identityLease.valid(), L"detail lease retains live process through mixed collection");
+    identityLease.reset();
+    ks::r3::common::UniqueHandle ownEvent(::CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    DWORD ownThreadId = 0;
+    ks::r3::common::UniqueHandle ownThread(ownEvent.valid() ? ::CreateThread(nullptr, 0, WaitForOwnedTestEvent, ownEvent.get(), 0, &ownThreadId) : nullptr);
+    suite.expect(ownEvent.valid() && ownThread.valid(), L"own controlled thread created");
+    if (ownThread.valid()) {
+        FILETIME threadCreated{}, threadExited{}, threadKernel{}, threadUser{};
+        const BOOL haveThreadTime = ::GetThreadTimes(ownThread.get(), &threadCreated, &threadExited, &threadKernel, &threadUser);
+        const ULONGLONG threadTime = (static_cast<ULONGLONG>(threadCreated.dwHighDateTime) << 32U) | threadCreated.dwLowDateTime;
+        suite.expect(haveThreadTime && threadTime != 0, L"own thread creation identity available");
+        const auto stale = ks::r3::process_detail::SuspendDetailThread(ownThreadId, threadTime + 1, ownPid, ownCreation);
+        suite.expect(!stale.refreshRequired, L"stale thread identity cannot suspend");
+        const auto suspended = ks::r3::process_detail::SuspendDetailThread(ownThreadId, threadTime, ownPid, ownCreation);
+        suite.expect(suspended.refreshRequired, L"own verified thread suspended");
+        const auto resumed = ks::r3::process_detail::ResumeDetailThread(ownThreadId, threadTime, ownPid, ownCreation);
+        suite.expect(resumed.refreshRequired, L"own verified thread resumed");
+        if (suspended.refreshRequired && !resumed.refreshRequired) { ::ResumeThread(ownThread.get()); }
+        ::SetEvent(ownEvent.get());
+        suite.expect(::WaitForSingleObject(ownThread.get(), 5000) == WAIT_OBJECT_0, L"owned thread exits and resources can close");
+    }
+    ks::r3::monitor::EtwEventModel boundedEvents(2);
+    ks::r3::monitor::EtwEvent event;
+    for (std::uint16_t id = 1; id <= 3; ++id) { event.eventId = id; boundedEvents.append(event); }
+    const auto retainedEvents = boundedEvents.snapshot();
+    suite.expect(retainedEvents.size() == 2 && retainedEvents[0].eventId == 2 && retainedEvents[1].eventId == 3, L"ETW event bound keeps newest rows in order");
+    ks::r3::monitor::EtwFilterState eventFilter;
+    eventFilter.processId = ownPid;
+    eventFilter.minimumLevel = TRACE_LEVEL_WARNING;
+    suite.expect(ks::r3::monitor::EventMatchesFilter(ownPid, TRACE_LEVEL_ERROR, eventFilter), L"ETW PID and level filter admits matching event");
+    suite.expect(!ks::r3::monitor::EventMatchesFilter(ownPid, TRACE_LEVEL_INFORMATION, eventFilter), L"ETW level filter rejects verbose event");
+    suite.expect(!ks::r3::monitor::EventMatchesFilter(ownPid + 1, TRACE_LEVEL_ERROR, eventFilter), L"ETW PID filter rejects other process");
+    ks::r3::monitor::EtwSessionController idleSession;
+    idleSession.stop(); idleSession.stop();
+    suite.expect(!idleSession.running(), L"ETW stop is safe before start and on repeated close");
+
     suite.report();
     return suite.failures();
 }
