@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/window/GlobalHotkeyProbe.h"
 #include "WindowToolsHotkeyView.h"
 
 #include "WindowToolsCommon.h"
@@ -22,6 +23,7 @@
 
 namespace Ksword::Features::WindowTools {
 namespace {
+using namespace ks::r3::window_tools;
 
 constexpr wchar_t kHotkeyViewClass[] = L"KswordARKLight.WindowTools.HotkeyView";
 
@@ -50,7 +52,7 @@ constexpr int kColumnCount = 5;
 // kProbeHotkeyId is reused for every probe. Each registration is released before
 // the next one is attempted, so one id is enough and the thread-local hotkey id
 // space is never filled up by a run that is interrupted partway.
-constexpr int kProbeHotkeyId = 0x4B57;
+
 
 int Width(const RECT& rc) {
     return rc.right > rc.left ? static_cast<int>(rc.right - rc.left) : 0;
@@ -60,69 +62,17 @@ int Height(const RECT& rc) {
     return rc.bottom > rc.top ? static_cast<int>(rc.bottom - rc.top) : 0;
 }
 
-struct ModifierChoice final {
-    UINT value;
-    const wchar_t* name;
-};
 
-constexpr ModifierChoice kModifiers[] = {
-    { MOD_CONTROL, L"Ctrl" },
-    { MOD_ALT,     L"Alt" },
-    { MOD_SHIFT,   L"Shift" },
-    { MOD_WIN,     L"Win" },
-};
 
-struct KeyChoice final {
-    UINT virtualKey;
-    const wchar_t* name;
-};
 
-constexpr KeyChoice kNamedKeys[] = {
-    { VK_ESCAPE,     L"Esc" },
-    { VK_TAB,        L"Tab" },
-    { VK_SPACE,      L"Space" },
-    { VK_RETURN,     L"Enter" },
-    { VK_BACK,       L"Backspace" },
-    { VK_INSERT,     L"Insert" },
-    { VK_DELETE,     L"Delete" },
-    { VK_HOME,       L"Home" },
-    { VK_END,        L"End" },
-    { VK_PRIOR,      L"PageUp" },
-    { VK_NEXT,       L"PageDown" },
-    { VK_LEFT,       L"Left" },
-    { VK_UP,         L"Up" },
-    { VK_RIGHT,      L"Right" },
-    { VK_DOWN,       L"Down" },
-    { VK_SNAPSHOT,   L"PrintScreen" },
-    { VK_PAUSE,      L"Pause" },
-    { VK_OEM_3,      L"`" },
-    { VK_OEM_MINUS,  L"-" },
-    { VK_OEM_PLUS,   L"=" },
-    { VK_OEM_4,      L"[" },
-    { VK_OEM_6,      L"]" },
-    { VK_OEM_5,      L"\\" },
-    { VK_OEM_1,      L";" },
-    { VK_OEM_7,      L"'" },
-    { VK_OEM_COMMA,  L"," },
-    { VK_OEM_PERIOD, L"." },
-    { VK_OEM_2,      L"/" },
-};
 
-struct HotkeyProbeEntry final {
-    UINT modifiers = 0;
-    UINT virtualKey = 0;
-    std::wstring combination;
-    std::wstring modifierText;
-    std::wstring keyText;
-    bool available = false;
-    DWORD error = 0;
-};
 
-struct HotkeyProbeResult final {
-    std::vector<HotkeyProbeEntry> entries;
-    std::size_t occupied = 0;
-    std::size_t available = 0;
-};
+
+
+
+
+
+
 
 struct HotkeyFilterResult final {
     std::uint64_t generation = 0;
@@ -152,48 +102,18 @@ struct HotkeyViewState final {
     std::unique_ptr<Ksword::Ui::AsyncSnapshotTask<HotkeyFilterResult>> filterTask;
 };
 
-std::wstring ModifierText(const UINT modifiers) {
-    std::wstring text;
-    for (const ModifierChoice& modifier : kModifiers) {
-        if ((modifiers & modifier.value) != 0) {
-            if (!text.empty()) {
-                text += L"+";
-            }
-            text += modifier.name;
-        }
-    }
-    return text;
-}
+
 
 // ProbeKey is the runtime form of one key in the probe matrix. It owns its
 // display name so the matrix can mix generated names (A-Z, 0-9, F1-F24) with the
 // static table above without any of them pointing into a temporary.
-struct ProbeKey final {
-    UINT virtualKey = 0;
-    std::wstring name;
-};
+
 
 // BuildProbeKeys assembles the key half of the probe matrix. The set is limited
 // to keys an application can realistically claim as a global hotkey; probing all
 // 256 virtual-key codes would multiply the run time without adding anything a
 // user would recognize in the result table.
-std::vector<ProbeKey> BuildProbeKeys() {
-    std::vector<ProbeKey> keys;
-    keys.reserve(26 + 10 + 24 + sizeof(kNamedKeys) / sizeof(kNamedKeys[0]));
-    for (wchar_t letter = L'A'; letter <= L'Z'; ++letter) {
-        keys.push_back({ static_cast<UINT>(letter), std::wstring(1, letter) });
-    }
-    for (wchar_t digit = L'0'; digit <= L'9'; ++digit) {
-        keys.push_back({ static_cast<UINT>(digit), std::wstring(1, digit) });
-    }
-    for (int index = 0; index < 24; ++index) {
-        keys.push_back({ static_cast<UINT>(VK_F1 + index), L"F" + std::to_wstring(index + 1) });
-    }
-    for (const KeyChoice& named : kNamedKeys) {
-        keys.push_back({ named.virtualKey, named.name });
-    }
-    return keys;
-}
+
 
 // ProbeHotkeys runs the whole matrix on an AsyncSnapshotTask worker.
 //
@@ -206,42 +126,7 @@ std::vector<ProbeKey> BuildProbeKeys() {
 // The hold is released immediately after a successful registration, but it is a
 // real hold: a keystroke that lands in that gap is delivered to this thread and
 // discarded. That is the entire cost of the only user-mode technique available.
-HotkeyProbeResult ProbeHotkeys() {
-    HotkeyProbeResult result;
-    const std::vector<ProbeKey> keys = BuildProbeKeys();
-    const UINT modifierMaskCount = 1u << (sizeof(kModifiers) / sizeof(kModifiers[0]));
-    result.entries.reserve(static_cast<std::size_t>(modifierMaskCount - 1) * keys.size());
 
-    for (UINT mask = 1; mask < modifierMaskCount; ++mask) {
-        UINT modifiers = 0;
-        for (std::size_t bit = 0; bit < sizeof(kModifiers) / sizeof(kModifiers[0]); ++bit) {
-            if ((mask & (1u << bit)) != 0) {
-                modifiers |= kModifiers[bit].value;
-            }
-        }
-        const std::wstring modifierText = ModifierText(modifiers);
-
-        for (const ProbeKey& key : keys) {
-            HotkeyProbeEntry entry;
-            entry.modifiers = modifiers;
-            entry.virtualKey = key.virtualKey;
-            entry.modifierText = modifierText;
-            entry.keyText = key.name;
-            entry.combination = modifierText + L"+" + entry.keyText;
-
-            if (::RegisterHotKey(nullptr, kProbeHotkeyId, modifiers, key.virtualKey)) {
-                ::UnregisterHotKey(nullptr, kProbeHotkeyId);
-                entry.available = true;
-                ++result.available;
-            } else {
-                entry.error = ::GetLastError();
-                ++result.occupied;
-            }
-            result.entries.push_back(std::move(entry));
-        }
-    }
-    return result;
-}
 
 std::wstring StatusTextFor(const HotkeyProbeEntry& entry) {
     if (entry.available) {

@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/window/GlobalHotkeyProbe.h"
 #include "../shared/usermode/backend/window/PointerText.h"
 #include "../shared/usermode/backend/window/WindowHierarchy.h"
 #include "../shared/usermode/backend/window/WindowHierarchySupport.h"

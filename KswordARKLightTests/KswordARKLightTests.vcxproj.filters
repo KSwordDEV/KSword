@@ -777,4 +777,14 @@
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\window\GlobalHotkeyProbe.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\window\GlobalHotkeyProbe.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
 </Project>
