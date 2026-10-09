@@ -510,12 +510,6 @@
     <ClCompile Include="Features\NetTools\NetToolsModel.cpp">
       <Filter>Features\NetTools</Filter>
     </ClCompile>
-    <ClCompile Include="Features\Privilege\PrivilegeActions.cpp">
-      <Filter>Features\Privilege</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\Privilege\PrivilegeEnumerator.cpp">
-      <Filter>Features\Privilege</Filter>
-    </ClCompile>
     <ClCompile Include="Features\Privilege\PrivilegeFeature.cpp">
       <Filter>Features\Privilege</Filter>
     </ClCompile>
@@ -1581,6 +1575,36 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\startup\StartupActions.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeTypes.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeTypes.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeEnumerator.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeEnumerator.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeActions.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeActions.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

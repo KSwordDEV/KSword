@@ -6,7 +6,7 @@
 
 #include <sddl.h>
 
-namespace Ksword::Features::Privilege {
+namespace ks::r3::privilege {
 namespace {
 
 // TokenHandleGuard closes the process token on scope exit. The token is opened
@@ -231,4 +231,4 @@ PrivilegeSnapshot EnumerateProcessPrivileges() {
     return snapshot;
 }
 
-} // namespace Ksword::Features::Privilege
+} // namespace ks::r3::privilege

@@ -226,8 +226,6 @@
     <ClCompile Include="Features\WindowTools\WindowToolsCommon.cpp" />
     <ClCompile Include="Features\WindowTools\WindowToolsHierarchyView.cpp" />
     <ClCompile Include="Features\WindowTools\WindowToolsHotkeyView.cpp" />
-    <ClCompile Include="Features\Privilege\PrivilegeActions.cpp" />
-    <ClCompile Include="Features\Privilege\PrivilegeEnumerator.cpp" />
     <ClCompile Include="Features\Privilege\PrivilegeFeature.cpp" />
     <ClCompile Include="Features\Privilege\PrivilegeModel.cpp" />
     <ClCompile Include="Features\Privilege\PrivilegeView.cpp" />
@@ -701,6 +699,24 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\startup\StartupActions.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeTypes.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeEnumerator.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeEnumerator.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeActions.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeActions.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

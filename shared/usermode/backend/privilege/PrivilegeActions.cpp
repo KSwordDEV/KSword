@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace Ksword::Features::Privilege {
+namespace ks::r3::privilege {
 namespace {
 
 std::wstring Win32ErrorText(const DWORD errorCode) {
@@ -75,4 +75,4 @@ PrivilegeActionResult SetPrivilegeEnabled(const std::wstring& privilegeName, con
     return result;
 }
 
-} // namespace Ksword::Features::Privilege
+} // namespace ks::r3::privilege
