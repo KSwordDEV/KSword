@@ -74,6 +74,11 @@ Json Json::array(const std::vector<Json>& values) {
 Json Json::strings(const std::vector<std::wstring>& values) { std::vector<Json> rows; for (const auto& value : values) rows.push_back(string(value)); return array(rows); }
 Json Json::count(std::uint64_t value) { return string(std::to_wstring(value)); }
 Json Json::hex(std::uint64_t value) { std::wostringstream out; out << L"0x" << std::hex << value; return string(out.str()); }
+Json Json::bytes(const std::vector<std::uint8_t>& value, std::size_t limit) {
+    std::wostringstream out; out << std::hex << std::setfill(L'0');
+    for (std::size_t i = 0; i < std::min(value.size(), limit); ++i) out << std::setw(2) << static_cast<unsigned>(value[i]);
+    return string(out.str());
+}
 bool Args::has(const std::wstring& key) const { return values.contains(key); }
 std::wstring Args::get(const std::wstring& key, const std::wstring& fallback) const { const auto it = values.find(key); return it == values.end() ? fallback : it->second; }
 std::wstring Args::require(const std::wstring& key) const {
@@ -95,7 +100,13 @@ std::uint32_t Args::u32(const std::wstring& key, std::uint32_t fallback) const {
     return static_cast<std::uint32_t>(value);
 }
 void addFamily(const std::wstring& name, const std::wstring& summary) { families.emplace(name, summary); }
-void addCommand(Command command) { entries.push_back(std::move(command)); }
+void addCommand(Command command) {
+    for (auto& existing : entries) if (existing.path == command.path) {
+        if (!existing.run) { command.legacyDefault = true; command.legacySyntax = existing.syntax; command.legacyOptions = existing.options; }
+        existing = std::move(command); return;
+    }
+    entries.push_back(std::move(command));
+}
 const std::vector<Command>& commands() { return entries; }
 std::wstring commandPath(int argc, wchar_t* argv[], int first) {
     std::wstring path;
@@ -123,6 +134,7 @@ bool printHelp(const std::wstring& path) {
     if (!leaf && children.empty()) { std::wcerr << L"error: unknown command '" << path << L"'\n"; return false; }
     std::wcout << L"Command: " << path << L"\n";
     if (leaf) std::wcout << L"Syntax:\n  " << leaf->syntax << L"\nSummary:\n  " << leaf->summary << L"\nOptions:\n  " << leaf->options << L"\nNotes:\n  " << leaf->notes << L"\n";
+    if (leaf && leaf->legacyDefault) std::wcout << L"Default/R0 syntax:\n  " << leaf->legacySyntax << L" [--backend r0]\n  " << leaf->legacyOptions << L"\n  Omit --backend to retain the existing R0 behavior and output. R3 requires explicit --backend r3.\n";
     if (!children.empty()) {
         std::wcout << L"Commands:\n";
         for (const auto& [name, summary] : children) {
@@ -134,7 +146,7 @@ bool printHelp(const std::wstring& path) {
     }
     return true;
 }
-std::optional<int> dispatchR3(int argc, wchar_t* argv[]) {
+std::optional<int> dispatchR3(int& argc, wchar_t* argv[]) {
     const Command* found = nullptr; std::size_t count = 0;
     for (const auto& entry : entries) {
         if (!entry.run) continue;
@@ -145,6 +157,17 @@ std::optional<int> dispatchR3(int argc, wchar_t* argv[]) {
         if (match && words.size() > count) { found = &entry; count = words.size(); }
     }
     if (!found) return std::nullopt;
+    if (found->legacyDefault) {
+        int selector = -1; bool duplicate = false;
+        for (int i = static_cast<int>(count) + 1; i < argc; ++i) if (std::wstring(argv[i]) == L"--backend") {
+            duplicate |= selector != -1; selector = i;
+        }
+        if (selector == -1) return std::nullopt;
+        if (!duplicate && selector + 1 < argc && std::wstring(argv[selector + 1]) == L"r0") {
+            for (int i = selector; i + 2 < argc; ++i) argv[i] = argv[i + 2];
+            argc -= 2; return std::nullopt;
+        }
+    }
     Args args;
     for (int i = 1; i < argc; ++i) if (std::wstring(argv[i]) == L"--json") args.values[L"--json"] = L"";
     try {

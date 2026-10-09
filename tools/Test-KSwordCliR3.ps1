@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
+﻿param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service','registry-browse')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\KswordCliR3TestSupport.ps1"
 switch ($Feature) {
@@ -187,6 +187,70 @@ switch ($Feature) {
                 Stop-Service -Name $name -Force -ErrorAction SilentlyContinue
                 & sc.exe delete $name | Out-Null
             }
+        }
+    }
+    'registry-browse' {
+        $help=Invoke-Cli @('help','registry','value','read')
+        Assert ($help.Contains('--name') -and $help.Contains('--max-data-bytes')) 'Registry leaf help'
+        Assert ((Invoke-Cli @('registry','value','read','--help')) -eq $help) 'Registry inline help'
+        $legacy=Invoke-Cli @('help','registry','read-value')
+        Assert ($legacy.Contains('Default/R0 syntax') -and $legacy.Contains('--backend r3')) 'Both registry backend forms'
+        foreach ($bad in @(
+            @('registry','value','read','--json'),
+            @('registry','key','enum','--path','HKCU','--kind','BOGUS','--json'),
+            @('registry','key','enum','--path','BADROOT','--json'),
+            @('registry','key','enum','--path','HKCU','--backend','r0','--json'),
+            @('registry','key','enum','--path','HKCU','--unknown','1','--json')
+        )) { Assert (((Invoke-Cli $bad 1) | ConvertFrom-Json).status -eq 'failed') 'Registry invalid arguments' }
+        $path='HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+        $oracle=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SOFTWARE\Microsoft\Windows NT\CurrentVersion')
+        try { $expected=$oracle.GetValue('ProductName') } finally { $oracle.Dispose() }
+        $value=(Invoke-Cli @('registry','value','read','--path',$path,'--name','ProductName','--max-data-bytes','4096','--json')) | ConvertFrom-Json
+        Assert ($value.data.type -eq 1 -and $value.data.dataText -eq $expected -and !$value.data.dataTruncated) 'Independent registry string disagrees'
+        $hex=([BitConverter]::ToString([Text.Encoding]::Unicode.GetBytes($expected+[char]0))).Replace('-','').ToLower()
+        Assert ($value.data.dataHex -eq $hex) 'Exact raw registry bytes'
+        $alias=(Invoke-Cli @('registry','read-value','--key',$path,'--value','ProductName','--backend','r3','--max-data-bytes','4096','--json')) | ConvertFrom-Json
+        Assert ($alias.data.dataHex -eq $hex) 'Explicit R3 legacy alias'
+        $limited=(Invoke-Cli @('registry','value','read','--path',$path,'--name','ProductName','--max-data-bytes','0','--json')) | ConvertFrom-Json
+        Assert ($limited.data.dataTruncated -and $limited.data.returnedBytes -eq '0' -and $limited.data.dataHex -eq '') 'Registry data preview limit'
+        $missing=(Invoke-Cli @('registry','value','read','--path',$path,'--name','KSwordCliMissing-981731','--json') 3) | ConvertFrom-Json
+        Assert ($missing.data.win32Error -eq 2) 'Missing value Win32 code'
+        Assert ((Invoke-Cli @('registry','value','read','--path',$path,'--name','ProductName')).Contains('typeName: REG_SZ')) 'Registry text'
+        if ($InGuest) {
+            Invoke-Cli @('registry','read-value','--key',$path) 2 | Out-Null
+            Invoke-Cli @('registry','read-value','--key',$path,'--backend','r0') 2 | Out-Null
+            $sub='Software\KSwordCliRegistry-'+[Guid]::NewGuid().ToString('N')
+            $key=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($sub)
+            try {
+                $key.SetValue('','默认值 测试',[Microsoft.Win32.RegistryValueKind]::String)
+                $key.SetValue('DWORD',305419896,[Microsoft.Win32.RegistryValueKind]::DWord)
+                $key.SetValue('Binary',[byte[]]@(0,255,34,92),[Microsoft.Win32.RegistryValueKind]::Binary)
+                $child=$key.CreateSubKey('Child');$child.Dispose()
+                $path='HKCU\'+$sub
+                $default=(Invoke-Cli @('registry','value','read','--path',$path,'--name','','--json')) | ConvertFrom-Json
+                Assert ($default.data.dataText -eq '默认值 测试') 'Default Unicode value'
+                $enum=(Invoke-Cli @('registry','key','enum','--path',$path,'--json')) | ConvertFrom-Json
+                Assert ($enum.data.complete -and $enum.data.matchedCount -eq 4) 'Direct key/value enumeration'
+                $binary=@($enum.data.entries | Where-Object name -eq Binary)
+                Assert ($binary[0].dataHex -eq '00ff225c' -and $binary[0].type -eq 3) 'Raw binary value'
+                $keys=(Invoke-Cli @('registry','key','enum','--path',$path,'--kind','keys','--json')) | ConvertFrom-Json
+                Assert ($keys.data.matchedCount -eq 1 -and $keys.data.entries[0].kind -eq 'key') 'Key kind filter'
+                $empty=(Invoke-Cli @('registry','key','enum','--path',($path+'\Child'),'--json')) | ConvertFrom-Json
+                Assert ($empty.data.complete -and $empty.data.matchedCount -eq 0) 'Valid empty key'
+                $created=$key.CreateSubKey('Denied');$created.Dispose()
+                $denied=$key.OpenSubKey('Denied',[Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,[Security.AccessControl.RegistryRights]::FullControl)
+                try {
+                    $security=$denied.GetAccessControl()
+                    $modified=$denied.GetAccessControl()
+                    $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User
+                    $rule=[Security.AccessControl.RegistryAccessRule]::new($sid,[Security.AccessControl.RegistryRights]::ReadKey,[Security.AccessControl.InheritanceFlags]::None,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Deny)
+                    $modified.AddAccessRule($rule);$denied.SetAccessControl($modified)
+                    try {
+                        $failure=(Invoke-Cli @('registry','key','enum','--path',($path+'\Denied'),'--json') 3) | ConvertFrom-Json
+                        Assert ($failure.data.win32Error -eq 5 -and !$failure.data.complete) 'Registry access denied'
+                    } finally { $modified.RemoveAccessRuleSpecific($rule);$denied.SetAccessControl($modified) }
+                } finally { $denied.Dispose() }
+            } finally { $key.Dispose();[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($sub,$false) }
         }
     }
 }

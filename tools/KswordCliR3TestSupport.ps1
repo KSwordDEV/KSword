@@ -1,8 +1,14 @@
 $records = [System.Collections.Generic.List[object]]::new()
+function Quote-CliArgument([string]$Value) {
+    if ($Value.Length -gt 0 -and $Value -notmatch '[\s"]') { return $Value }
+    $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\"')
+    $escaped = [regex]::Replace($escaped, '(\\+)$', '$1$1')
+    return '"' + $escaped + '"'
+}
 function Invoke-Cli([string[]]$Arguments, [int[]]$Expected = @(0)) {
     $info = [Diagnostics.ProcessStartInfo]::new()
     $info.FileName = $Cli
-    $info.Arguments = $Arguments -join ' '
+    $info.Arguments = ($Arguments | ForEach-Object { Quote-CliArgument $_ }) -join ' '
     $info.UseShellExecute = $false
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true

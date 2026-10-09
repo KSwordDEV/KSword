@@ -20,6 +20,7 @@ struct Json {
     static Json strings(const std::vector<std::wstring>& values);
     static Json count(std::uint64_t value);
     static Json hex(std::uint64_t value);
+    static Json bytes(const std::vector<std::uint8_t>& value, std::size_t limit);
 };
 struct Result {
     int code = 0;
@@ -38,13 +39,15 @@ public:
 struct Command {
     std::wstring path, syntax, summary, options, notes;
     std::function<Result(const Args&)> run;
+    bool legacyDefault = false;
+    std::wstring legacySyntax, legacyOptions;
 };
 void addCommand(Command command);
 void addFamily(const std::wstring& name, const std::wstring& summary);
 const std::vector<Command>& commands();
 bool printHelp(const std::wstring& path);
 std::wstring commandPath(int argc, wchar_t* argv[], int first);
-std::optional<int> dispatchR3(int argc, wchar_t* argv[]);
+std::optional<int> dispatchR3(int& argc, wchar_t* argv[]);
 void registerNetworkConnections();
 void registerNetworkPing();
 void registerNetworkTraceRoute();
@@ -52,4 +55,5 @@ void registerNetworkDns();
 void registerNetworkFirewall();
 void registerNetworkEndpointAudit();
 void registerService();
+void registerRegistryBrowse();
 }

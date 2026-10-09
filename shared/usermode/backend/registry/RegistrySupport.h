@@ -27,6 +27,7 @@ inline RegistrySnapshot MakePathError(const std::wstring& path, const RegistryVi
     snapshot.mode = mode;
     snapshot.displayPath = path;
     snapshot.statusText = parsed.errorText;
+    snapshot.win32Error = ERROR_INVALID_PARAMETER;
     return snapshot;
 }
 inline RegistryOperationResult MakeOperationPathError(const RegistryPathInfo& parsed) {
@@ -51,8 +52,10 @@ inline void AppendWinApiValues(HKEY key, RegistrySnapshot& snapshot) {
     DWORD valueCount = 0;
     DWORD maxValueName = 0;
     DWORD maxData = 0;
-    if (::RegQueryInfoKeyW(key, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-            &valueCount, &maxValueName, &maxData, nullptr, nullptr) != ERROR_SUCCESS) {
+    const auto queryStatus = ::RegQueryInfoKeyW(key, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+            &valueCount, &maxValueName, &maxData, nullptr, nullptr);
+    if (queryStatus != ERROR_SUCCESS) {
+        snapshot.complete = false; snapshot.win32Error = static_cast<std::uint32_t>(queryStatus);
         return;
     }
     std::vector<wchar_t> name(static_cast<std::size_t>(maxValueName) + 2U);
@@ -63,6 +66,7 @@ inline void AppendWinApiValues(HKEY key, RegistrySnapshot& snapshot) {
         DWORD type = REG_NONE;
         const LONG rc = ::RegEnumValueW(key, index, name.data(), &nameChars, nullptr, &type, data.data(), &dataBytes);
         if (rc != ERROR_SUCCESS) {
+            snapshot.complete = false; snapshot.win32Error = static_cast<std::uint32_t>(rc);
             continue;
         }
         RegistryEntry row;
@@ -79,8 +83,10 @@ inline void AppendWinApiValues(HKEY key, RegistrySnapshot& snapshot) {
 inline void AppendWinApiSubKeys(HKEY key, RegistrySnapshot& snapshot) {
     DWORD subKeyCount = 0;
     DWORD maxSubKey = 0;
-    if (::RegQueryInfoKeyW(key, nullptr, nullptr, nullptr, &subKeyCount, &maxSubKey, nullptr,
-            nullptr, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) {
+    const auto queryStatus = ::RegQueryInfoKeyW(key, nullptr, nullptr, nullptr, &subKeyCount, &maxSubKey, nullptr,
+            nullptr, nullptr, nullptr, nullptr, nullptr);
+    if (queryStatus != ERROR_SUCCESS) {
+        snapshot.complete = false; snapshot.win32Error = static_cast<std::uint32_t>(queryStatus);
         return;
     }
     std::vector<wchar_t> name(static_cast<std::size_t>(maxSubKey) + 2U);
@@ -88,6 +94,7 @@ inline void AppendWinApiSubKeys(HKEY key, RegistrySnapshot& snapshot) {
         DWORD nameChars = static_cast<DWORD>(name.size());
         const LONG rc = ::RegEnumKeyExW(key, index, name.data(), &nameChars, nullptr, nullptr, nullptr, nullptr);
         if (rc != ERROR_SUCCESS) {
+            snapshot.complete = false; snapshot.win32Error = static_cast<std::uint32_t>(rc);
             continue;
         }
         RegistryEntry row;

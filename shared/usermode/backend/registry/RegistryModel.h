@@ -47,6 +47,8 @@ struct RegistrySnapshot {
     std::wstring kernelPath;
     std::wstring statusText;
     std::vector<RegistryEntry> rows;
+    bool complete = false;
+    std::uint32_t win32Error = 0;
 };
 
 // RegistryOperationResult describes create/delete/rename/write/read commands.

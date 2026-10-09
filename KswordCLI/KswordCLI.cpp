@@ -1454,6 +1454,7 @@ namespace
             ks::cli::registerNetworkFirewall();
             ks::cli::registerNetworkEndpointAudit();
             ks::cli::registerService();
+            ks::cli::registerRegistryBrowse();
             #endif
             return true;
         }();
