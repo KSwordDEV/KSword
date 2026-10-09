@@ -264,6 +264,9 @@
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\network\Ping.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\network\TraceRoute.cpp" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>

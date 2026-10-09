@@ -58,6 +58,8 @@ int RunR3NetworkBackendTests() {
     const auto pingEmpty = RunPing(DiagnosticRequest{});
     suite.expect(!pingEmpty.success && pingEmpty.text == L"请先填写目标主机名或 IP 地址。", L"empty ping input preserves original failure");
     suite.expect(pingEmpty.summary == L"Ping 未执行：目标解析失败。", L"ping failure summary preserved");
+    const auto traceEmpty = RunTraceRoute(DiagnosticRequest{});
+    suite.expect(!traceEmpty.success && traceEmpty.summary == L"路由跟踪未执行：目标解析失败。", L"trace failure semantics preserved");
     suite.report();
     return suite.failures();
 }

@@ -23,4 +23,5 @@ struct DiagnosticResult {
     std::wstring summary;
 };
 DiagnosticResult RunPing(const DiagnosticRequest& request);
+DiagnosticResult RunTraceRoute(const DiagnosticRequest& request);
 }
