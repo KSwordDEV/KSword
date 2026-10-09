@@ -1,9 +1,9 @@
-#include "HardwareStatsModel.h"
+#include "HardwareStatsTypes.h"
 
 #include <cmath>
 #include <cstdio>
 
-namespace Ksword::Features::HardwareStats {
+namespace ks::r3::hardware_stats {
 namespace {
 
 constexpr double kKibi = 1024.0;
@@ -168,4 +168,4 @@ std::wstring IndentedName(const std::wstring& name, const int depth) {
     return prefix + name;
 }
 
-} // namespace Ksword::Features::HardwareStats
+} // namespace ks::r3::hardware_stats

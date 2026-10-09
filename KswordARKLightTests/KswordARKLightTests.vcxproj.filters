@@ -615,4 +615,34 @@
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareStatsTypes.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\hardware\PerformanceSampler.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\hardware\PerformanceSamplerSupport.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\hardware\SystemPerformanceSampler.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\KswordARKLight\Features\HardwareStats\PerformanceSampler.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareStatsFormatting.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
 </Project>

@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/hardware/PerformanceSampler.h"
 #include "../shared/usermode/backend/hardware/HardwareEnumerator.h"
 #include "../shared/usermode/backend/hardware/HardwareFormatting.h"
 #include "../shared/usermode/backend/driver/DriverQueries.h"

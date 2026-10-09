@@ -411,9 +411,6 @@
     <ClCompile Include="Features\HardwareStats\DiskActivityView.cpp">
       <Filter>Features\HardwareStats</Filter>
     </ClCompile>
-    <ClCompile Include="Features\HardwareStats\HardwareStatsModel.cpp">
-      <Filter>Features\HardwareStats</Filter>
-    </ClCompile>
     <ClCompile Include="Features\HardwareStats\PerformanceSampler.cpp">
       <Filter>Features\HardwareStats</Filter>
     </ClCompile>
@@ -1899,6 +1896,31 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\hardware\HardwareEnumerator.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareStatsTypes.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareStatsFormatting.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\hardware\PerformanceSampler.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\hardware\PerformanceSamplerSupport.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\hardware\SystemPerformanceSampler.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>
