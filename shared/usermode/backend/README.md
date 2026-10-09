@@ -24,3 +24,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | file ownership and lock inspection | 16-file-ownership |
 | file hash signature and entropy analysis | 17-file-analysis |
 | file hex and PE snapshot analysis | 18-file-pe |
+| process base enumeration | 19-process-enumeration |

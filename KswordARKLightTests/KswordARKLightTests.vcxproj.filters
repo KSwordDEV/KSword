@@ -19,8 +19,6 @@
     <ClCompile Include="..\KswordARKLight\Features\Process\ProcessTelemetry.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\network\network_process_etw_monitor.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\Process\ProcessColumns.cpp"><Filter>Production</Filter></ClCompile>
-    <ClCompile Include="..\KswordARKLight\Features\Process\ProcessEnumerator.cpp"><Filter>Production</Filter></ClCompile>
-    <ClCompile Include="..\KswordARKLight\Core\NtApi.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="EvidenceContractTests.cpp"><Filter>Tests</Filter></ClCompile>
     <ClCompile Include="CrossViewTests.cpp"><Filter>Tests</Filter></ClCompile>
     <ClCompile Include="EntityGraphTests.cpp"><Filter>Tests</Filter></ClCompile>
@@ -411,6 +409,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\NtApi.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnumerator.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

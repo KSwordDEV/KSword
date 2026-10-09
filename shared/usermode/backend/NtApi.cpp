@@ -2,7 +2,7 @@
 
 #include <winternl.h>
 
-namespace Ksword::Core {
+namespace ks::r3::common {
 namespace {
 constexpr LONG kStatusSuccess = 0x00000000L;
 constexpr LONG kStatusInfoLengthMismatch = static_cast<LONG>(0xC0000004UL);
@@ -53,4 +53,4 @@ std::vector<std::byte> QueryRawSystemInformation(SystemInformationClass infoClas
     return {};
 }
 
-} // namespace Ksword::Core
+} // namespace ks::r3::common

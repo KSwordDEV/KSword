@@ -95,7 +95,6 @@
     <ClCompile Include="Core\DriverLease.cpp" />
     <ClCompile Include="Core\DriverService.cpp" />
     <ClCompile Include="Core\EntityRef.cpp" />
-    <ClCompile Include="Core\NtApi.cpp" />
     <ClCompile Include="Core\PathUtils.cpp" />
     <ClCompile Include="Core\Privilege.cpp" />
     <ClCompile Include="Core\WorkspaceConfig.cpp" />
@@ -176,7 +175,6 @@
     <ClCompile Include="Features\Process\ProcessDetails.cpp" />
     <ClCompile Include="Features\Process\ProcessExtraQueries.cpp" />
     <ClCompile Include="Features\Process\ProcessTelemetry.cpp" />
-    <ClCompile Include="Features\Process\ProcessEnumerator.cpp" />
     <ClCompile Include="Features\Process\ProcessFeature.cpp" />
     <ClCompile Include="Features\Process\ProcessModel.cpp" />
     <ClCompile Include="Features\Process\ProcessView.cpp" />
@@ -755,6 +753,18 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\file\PeSnapshot.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\NtApi.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\NtApi.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessEnumerator.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnumerator.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

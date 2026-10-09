@@ -1,6 +1,6 @@
 #include "ProcessEnumerator.h"
 
-#include "../../Core/NtApi.h"
+#include "../NtApi.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -8,7 +8,7 @@
 #include <vector>
 #include <winternl.h>
 
-namespace Ksword::Features::Process {
+namespace ks::r3::process {
 namespace {
 constexpr LONG kStatusSuccess = 0x00000000L;
 constexpr LONG kStatusInfoLengthMismatch = static_cast<LONG>(0xC0000004UL);
@@ -104,7 +104,7 @@ std::wstring QueryProcessImagePath(DWORD processId) {
 
 ProcessEnumerationResult EnumerateProcessesByNtQuerySystemInformation() {
     ProcessEnumerationResult result;
-    Ksword::Core::NtApi api;
+    ks::r3::common::NtApi api;
     if (!api.available()) {
         result.success = false;
         result.ntStatus = kStatusProcedureNotFound;
@@ -119,7 +119,7 @@ ProcessEnumerationResult EnumerateProcessesByNtQuerySystemInformation() {
         buffer.assign(bufferSize, std::byte{});
         ULONG returnLength = 0;
         status = api.querySystemInformation(
-            Ksword::Core::SystemInformationClass::SystemProcessInformation,
+            ks::r3::common::SystemInformationClass::SystemProcessInformation,
             buffer.data(),
             bufferSize,
             &returnLength);
@@ -197,4 +197,4 @@ ProcessEnumerationResult EnumerateProcessesByNtQuerySystemInformation() {
     return result;
 }
 
-} // namespace Ksword::Features::Process
+} // namespace ks::r3::process

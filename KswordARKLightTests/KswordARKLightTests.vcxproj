@@ -60,8 +60,6 @@
     <ClCompile Include="..\KswordARKLight\Features\Process\ProcessTelemetry.cpp" />
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\network\network_process_etw_monitor.cpp" />
     <ClCompile Include="..\KswordARKLight\Features\Process\ProcessColumns.cpp" />
-    <ClCompile Include="..\KswordARKLight\Features\Process\ProcessEnumerator.cpp" />
-    <ClCompile Include="..\KswordARKLight\Core\NtApi.cpp" />
     <ClCompile Include="EvidenceContractTests.cpp" />
     <ClCompile Include="CrossViewTests.cpp" />
     <ClCompile Include="EntityGraphTests.cpp" />
@@ -372,6 +370,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\NtApi.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnumerator.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
