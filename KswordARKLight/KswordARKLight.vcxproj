@@ -916,6 +916,12 @@
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\hardware\DiskActivitySampler.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\hardware\UsbTopology.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\hardware\UsbTopology.cpp" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
   <ItemGroup>

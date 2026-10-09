@@ -39,3 +39,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | hardware device enumeration | 31-hardware-devices |
 | hardware system performance sampling | 32-hardware-performance |
 | hardware disk activity sampling | 33-hardware-disk |
+| hardware USB topology | 34-hardware-usb |

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../shared/usermode/backend/hardware/UsbTopology.h"
 
 #include "HardwareStatsModel.h"
 
@@ -13,7 +14,7 @@ namespace Ksword::Features::HardwareStats {
 // GUID_DEVINTERFACE_USB_DEVICE interface: a device whose function driver failed
 // to start exposes no device interface at all, and those are exactly the nodes
 // worth seeing on this page.
-UsbTopologySnapshot EnumerateUsbTopology();
+using ks::r3::hardware_stats::EnumerateUsbTopology;
 
 // EnumerateBusDevices reads PCI/ACPI style devnodes with their bus placement and
 // arbitrated hardware resources. Input selects the scope; processing runs on the
