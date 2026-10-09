@@ -157,7 +157,6 @@
     <ClCompile Include="..\shared\evidence\ScanBudget.cpp" />
     <ClCompile Include="..\KswordARKLight\Core\EntityRef.cpp" />
     <ClCompile Include="..\KswordARKLight\Core\WorkspaceConfig.cpp" />
-    <ClCompile Include="..\KswordARKLight\Features\SysTools\IoctlDecoder.cpp" />
     <ClCompile Include="..\KswordARKLight\Features\Window\Win32kTimerEvidenceModel.cpp" />
     <ClCompile Include="..\KswordARKLight\Features\Memory\MemorySnapshot.cpp" />
     <ClCompile Include="..\KswordARKLight\Features\Memory\DriverMemoryModel.cpp" />
@@ -648,6 +647,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\system\SystemTimeInfo.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\system\IoctlDecoder.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\system\IoctlDecoder.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

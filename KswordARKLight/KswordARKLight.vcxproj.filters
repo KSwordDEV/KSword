@@ -417,9 +417,6 @@
     <ClCompile Include="Features\SysTools\FileHolderView.cpp">
       <Filter>Features\SysTools</Filter>
     </ClCompile>
-    <ClCompile Include="Features\SysTools\IoctlDecoder.cpp">
-      <Filter>Features\SysTools</Filter>
-    </ClCompile>
     <ClCompile Include="Features\SysTools\IoctlDecoderView.cpp">
       <Filter>Features\SysTools</Filter>
     </ClCompile>
@@ -2126,6 +2123,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\system\SystemTimeInfo.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\system\IoctlDecoder.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\system\IoctlDecoder.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
   </ItemGroup>

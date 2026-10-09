@@ -110,7 +110,6 @@
     <ClCompile Include="..\shared\evidence\ScanBudget.cpp"><Filter>Production\Evidence</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Core\EntityRef.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Core\WorkspaceConfig.cpp"><Filter>Production</Filter></ClCompile>
-    <ClCompile Include="..\KswordARKLight\Features\SysTools\IoctlDecoder.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\Window\Win32kTimerEvidenceModel.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\Memory\MemorySnapshot.cpp"><Filter>Production</Filter></ClCompile>
     <ClCompile Include="..\KswordARKLight\Features\Memory\DriverMemoryModel.cpp"><Filter>Production</Filter></ClCompile>
@@ -875,5 +874,15 @@
     <ClCompile Include="..\shared\usermode\backend\system\SystemTimeInfo.cpp">
       <Filter>Shared R3 Backend</Filter>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\system\IoctlDecoder.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\system\IoctlDecoder.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

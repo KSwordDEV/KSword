@@ -4,7 +4,7 @@
 #include <cwctype>
 #include <sstream>
 
-namespace Ksword::Features::SysTools {
+namespace ks::r3::system_tools {
 namespace {
 
 std::wstring_view Trim(std::wstring_view value) {
@@ -125,4 +125,4 @@ std::wstring BuildIoctlDecodedReport(const IoctlDecodedFields& decoded) {
     return report.str();
 }
 
-} // namespace Ksword::Features::SysTools
+} // namespace ks::r3::system_tools
