@@ -131,11 +131,22 @@ int main(int argc, char** argv) {
         "write canonical Ghidra metadata");
     check(!promoteExtractedPlugin(ghidraPlugin, ghidraRoot, ghidraStage, &ghidraError),
         "Ghidra metadata without runtime payload rejected");
+    check(ghidraError == "runtime_manifest_invalid", "Ghidra metadata without runtime paths rejected");
+    check(bytes(ghidraRoot + "/ghidra/old.txt") == "previous-installed",
+        "Ghidra metadata rejection preserves installed plugin");
+    // 先满足运行路径检查，再验证缺失其余载荷时的具体错误与安装回滚。
+    const auto ghidraManifest = ks::plugin_host::ghidra_runtime::manifest();
+    check(QDir().mkpath(ghidraStage + "/" + ghidraManifest.value("runtime_root").toString()),
+        "create Ghidra runtime fixture directory");
+    put(ghidraStage + "/" + ghidraManifest.value("java_executable").toString(), "java-fixture");
+    ghidraError.clear();
+    check(!promoteExtractedPlugin(ghidraPlugin, ghidraRoot, ghidraStage, &ghidraError),
+        "Ghidra incomplete runtime payload rejected");
     // 具体错误码证明本用例实际进入生产载荷检查，而非假成功实现或普通清单分支。
     check(ghidraError.startsWith("runtime_payload_missing:"), "Ghidra production validator reports missing payload");
     check(bytes(ghidraRoot + "/ghidra/old.txt") == "previous-installed",
         "Ghidra rejection preserves installed plugin");
-    std::cout << "PLUGIN_INSTALL_LAYOUT_PASS cases=9" << std::endl;
+    std::cout << "PLUGIN_INSTALL_LAYOUT_PASS cases=10" << std::endl;
 }
 '''
     (generated / "PluginInstallLayoutTests.cpp").write_text(harness, encoding="utf-8")
