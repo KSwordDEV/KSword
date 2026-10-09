@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/kernel/CommunicationEndpoints.h"
 #include "../shared/usermode/backend/kernel/BaseNamedObjects.h"
 #include "../shared/usermode/backend/kernel/DeviceDriverObjects.h"
 #include "../shared/usermode/backend/kernel/SymbolicLinks.h"

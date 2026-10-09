@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/kernel/CommunicationEndpoints.h"
 #include "../../../shared/usermode/backend/kernel/BaseNamedObjects.h"
 #include "../../../shared/usermode/backend/kernel/DeviceDriverObjects.h"
 #include "../../../shared/usermode/backend/kernel/SymbolicLinks.h"
@@ -90,6 +91,7 @@
 
 namespace Ksword::Features::Kernel {
 namespace {
+using namespace ks::r3::kernel;
 using namespace ks::r3::kernel;
 using namespace ks::r3::kernel;
 using namespace ks::r3::kernel;
@@ -463,71 +465,19 @@ bool MatchesColumnsFilter(const KernelResultRow& row, const std::wstring& filter
 // IsCommunicationType reports whether an object type is relevant to IPC or
 // synchronization. Input is an object-manager type string; return drives the
 // communication endpoint page filter.
-bool IsCommunicationType(const std::wstring& typeName) {
-    const std::wstring lower = ToLowerCopy(typeName);
-    return lower == L"alpc port"
-        || lower == L"port"
-        || lower == L"waitcompletionpacket"
-        || lower == L"tpworkerfactory"
-        || lower == L"event"
-        || lower == L"section"
-        || lower == L"mutant"
-        || lower == L"semaphore"
-        || lower == L"iocompletion"
-        || lower == L"timer"
-        || lower == L"job"
-        || lower == L"keyed event";
-}
+
 
 // AppendCommunicationEndpointsRecursive walks object-manager directories with a
 // small depth cap and records IPC/synchronization objects. Inputs are a root
 // path, source label and filter; processing avoids revisiting directories and
 // stops at the global row cap; no value is returned because rows accumulate in
 // the QueryPacket.
-void AppendCommunicationEndpointsRecursive(
-    QueryPacket& packet,
-    const NtRuntime& runtime,
-    const std::wstring& root,
-    const std::wstring& source,
-    const std::wstring& filter) {
-    struct WorkItem {
-        std::wstring path;
-        std::size_t depth = 0;
-    };
 
-    std::deque<WorkItem> queue;
-    std::set<std::wstring> visited;
-    queue.push_back({ root, 0 });
-    visited.insert(ToLowerCopy(root));
-    while (!queue.empty() && packet.rows.size() < kMaxDirectoryRows) {
-        const WorkItem item = queue.front();
-        queue.pop_front();
-        const std::vector<DirectoryEntry> entries = EnumerateDirectoryFlat(runtime, item.path, packet.warnings);
-        for (const DirectoryEntry& entry : entries) {
-            if (IsCommunicationType(entry.typeName) && MatchesDirectoryFilter(entry, filter)) {
-                AppendDirectoryEntryRow(packet, source, item.depth, entry);
-            }
-            if (entry.typeName == L"Directory" && item.depth < 3 && packet.rows.size() < kMaxDirectoryRows) {
-                const std::wstring key = ToLowerCopy(entry.fullPath);
-                if (visited.insert(key).second) {
-                    queue.push_back({ entry.fullPath, item.depth + 1 });
-                }
-            }
-        }
-    }
-}
 
 // QueryCommunicationEndpoint enumerates user/kernel-visible communication and
 // synchronization objects. Input is the request; processing filters common
 // namespace roots by type; return contains endpoint rows.
-KernelOperationResult QueryCommunicationEndpoint(const KernelRequest& request) {
-    const NtRuntime& runtime = Runtime();
-    QueryPacket packet;
-    for (const std::wstring& root : CommonNamespaceRoots()) {
-        AppendCommunicationEndpointsRecursive(packet, runtime, root, root, request.filterText);
-    }
-    return MakeResult(request.featureId, !packet.rows.empty(), L"通信端点枚举", std::move(packet));
-}
+
 
 // AlignPointer rounds an address up to the native pointer alignment. Input is a
 // byte pointer represented as uintptr_t; return points at the next entry block.

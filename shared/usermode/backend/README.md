@@ -57,3 +57,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | kernel symbolic links | 49-kernel-symlink |
 | kernel Device and Driver objects | 50-kernel-device |
 | kernel BaseNamedObjects | 51-kernel-base |
+| kernel communication endpoints | 52-kernel-communication |
