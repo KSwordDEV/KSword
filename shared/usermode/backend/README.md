@@ -67,3 +67,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | security VBS HVCI and SKCI | 59-security-vbs |
 | security Hyper-V | 60-security-hyperv |
 | security AppLocker | 61-security-applocker |
+| security BAM and ahcache | 62-security-bam |

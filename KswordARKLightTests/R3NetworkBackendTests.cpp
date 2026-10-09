@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/security/BamAhcache.h"
 #include "../shared/usermode/backend/security/AppLocker.h"
 #include "../shared/usermode/backend/security/HyperV.h"
 #include "../shared/usermode/backend/security/Vbs.h"
