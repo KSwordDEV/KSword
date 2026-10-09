@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/window/ClipboardCopy.h"
 #include "../../../shared/usermode/backend/window/WindowQueries.h"
 #include "WindowToolsCommon.h"
 
@@ -11,6 +12,7 @@
 
 namespace Ksword::Features::WindowTools {
 namespace {
+using namespace ks::r3::window_tools;
 using namespace ks::r3::window_tools;
 
 // StyleBitName pairs one flag value with the SDK spelling of its macro. The
@@ -219,33 +221,7 @@ std::vector<std::wstring> DecodeClassStyleBits(const DWORD classStyle) {
     return names;
 }
 
-bool CopyTextToClipboard(HWND owner, const std::wstring& text) {
-    if (text.empty() || !::OpenClipboard(owner)) {
-        return false;
-    }
-    ::EmptyClipboard();
-    const SIZE_T bytes = (text.size() + 1) * sizeof(wchar_t);
-    HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (!memory) {
-        ::CloseClipboard();
-        return false;
-    }
-    void* target = ::GlobalLock(memory);
-    if (!target) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    std::memcpy(target, text.c_str(), bytes);
-    ::GlobalUnlock(memory);
-    if (!::SetClipboardData(CF_UNICODETEXT, memory)) {
-        ::GlobalFree(memory);
-        ::CloseClipboard();
-        return false;
-    }
-    ::CloseClipboard();
-    return true;
-}
+
 
 std::wstring RowsAsTsv(const Ksword::Ui::VirtualListView& list, const bool visibleRows, const int columnCount) {
     const auto& rows = list.rows();

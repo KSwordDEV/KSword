@@ -1,3 +1,5 @@
+#include "../shared/usermode/backend/window/ClipboardCopy.h"
+#include "../shared/usermode/backend/window/Clipboard.h"
 #include "../shared/usermode/backend/window/WindowActions.h"
 #include "../shared/usermode/backend/window/WindowEnumerator.h"
 #include "../shared/usermode/backend/window/WindowQueries.h"

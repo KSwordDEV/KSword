@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../shared/usermode/backend/window/ClipboardCopy.h"
 #include "../../../shared/usermode/backend/window/WindowQueries.h"
 #include "../../../shared/usermode/backend/window/WindowToolsTypes.h"
 
@@ -105,7 +106,7 @@ std::vector<std::wstring> DecodeClassStyleBits(DWORD classStyle);
 //
 // This must be called on the UI thread: OpenClipboard binds the clipboard to the
 // calling thread and to a window that thread owns.
-bool CopyTextToClipboard(HWND owner, const std::wstring& text);
+using ks::r3::window_tools::CopyTextToClipboard;
 
 // RowsAsTsv renders list rows as tab-separated text. Inputs are the list, a flag
 // selecting all visible rows instead of only the selected ones, and how many

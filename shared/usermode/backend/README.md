@@ -42,3 +42,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | hardware USB topology | 34-hardware-usb |
 | hardware system bus topology | 35-hardware-bus |
 | window enumeration and management | 36-window |
+| window clipboard reading | 37-window-clipboard |
