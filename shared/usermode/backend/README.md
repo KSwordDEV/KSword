@@ -61,3 +61,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | kernel object type matrix | 53-kernel-types |
 | kernel named pipes | 54-kernel-pipe |
 | kernel Atom tables | 55-kernel-atom |
+| kernel NtQuery queries | 56-kernel-ntquery |

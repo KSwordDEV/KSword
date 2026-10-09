@@ -714,6 +714,12 @@
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\kernel\AtomTable.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\kernel\NtQuery.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\kernel\NtQuery.cpp" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>
