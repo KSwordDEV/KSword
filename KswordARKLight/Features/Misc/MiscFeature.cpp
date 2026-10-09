@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/security/BugcheckEvidence.h"
 #include "../../../shared/usermode/backend/security/BamAhcache.h"
 #include "../../../shared/usermode/backend/security/AppLocker.h"
 #include "../../../shared/usermode/backend/security/HyperV.h"
@@ -32,6 +33,7 @@
 
 namespace Ksword::Features::Misc {
 namespace {
+using namespace ks::r3::security;
 using namespace ks::r3::security;
 using namespace ks::r3::security;
 using namespace ks::r3::security;
@@ -387,14 +389,18 @@ std::vector<MiscAuditRow> CollectAuxiliaryRows() {
 std::vector<MiscAuditRow> CollectBugcheckRows() {
     std::vector<MiscAuditRow> rows;
     AddDriverCapabilityRow(rows, L"Bugcheck / VMware branding");
-    AddCommandRow(rows, L"Bugcheck / VMware branding", L"VMware environment", L"PowerShell Win32_ComputerSystem", RunPowerShellScalar(
-        L"$c=Get-CimInstance Win32_ComputerSystem -ErrorAction Stop; 'Manufacturer=' + $c.Manufacturer + '; Model=' + $c.Model"));
+    ks::r3::security::AppendBugcheckEvidenceR3(rows);
     AppendRow(rows, L"Bugcheck / VMware branding", L"R0 feature scope", L"VMware-only", L"KswordARK bugcheck runtime", L"Info",
         L"驱动仅在检测到受支持的 VMware 显示环境时启用该诊断面板；非 VMware 环境会安全忽略合法上传包。");
     AppendRow(rows, L"Bugcheck / VMware branding", L"内置测试位图", L"Explicit action required", L"ArkDriverClient::setBugcheckBitmap", L"Low",
         L"点击“上传内置位图”后才会在后台发送 16×16 BGRA 测试图；不会自动上传，也不会改变 Bugcheck 策略。传输成功不代表 VMware 面板已经激活。");
+
+
     return rows;
 }
+
+
+
 
 // CollectRowsForPage dispatches a tab id to its read-only collector. Input is a
 // stable page id; processing performs local R3 queries; output is the fresh row
