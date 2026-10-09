@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/kernel/NamedPipes.h"
 #include "../../../shared/usermode/backend/kernel/ObjectTypes.h"
 #include "../../../shared/usermode/backend/kernel/CommunicationEndpoints.h"
 #include "../../../shared/usermode/backend/kernel/BaseNamedObjects.h"
@@ -99,6 +100,7 @@ using namespace ks::r3::kernel;
 using namespace ks::r3::kernel;
 using namespace ks::r3::kernel;
 using namespace ks::r3::kernel;
+using namespace ks::r3::kernel;
 
 
 
@@ -120,7 +122,7 @@ using namespace ks::r3::kernel;
 
 
 
-constexpr ULONG kFileDirectoryInformation = 1;
+
 
 
 constexpr std::size_t kMaxExportRows = 512;
@@ -155,19 +157,7 @@ constexpr std::size_t kMaxExportRows = 512;
 // KFILE_DIRECTORY_INFORMATION is the native directory result used for the
 // named-pipe namespace. Input is a byte chain with NextEntryOffset links;
 // processing copies names and timestamps into rows.
-struct KFILE_DIRECTORY_INFORMATION {
-    ULONG NextEntryOffset;
-    ULONG FileIndex;
-    LARGE_INTEGER CreationTime;
-    LARGE_INTEGER LastAccessTime;
-    LARGE_INTEGER LastWriteTime;
-    LARGE_INTEGER ChangeTime;
-    LARGE_INTEGER EndOfFile;
-    LARGE_INTEGER AllocationSize;
-    ULONG FileAttributes;
-    ULONG FileNameLength;
-    WCHAR FileName[1];
-};
+
 
 // NtRuntime stores all dynamically resolved ntdll calls needed by the native
 // kernel pages. Input is the loaded ntdll module; output is a best-effort table
@@ -546,118 +536,16 @@ KernelOperationResult QueryObjectTypeMatrix(const KernelRequest& request) {
 // FileTimeText converts a native LARGE_INTEGER timestamp into local time. Input
 // is a FILETIME-compatible large integer; return is compact date/time text or
 // empty when the timestamp is zero.
-std::wstring FileTimeText(const LARGE_INTEGER& value) {
-    if (value.QuadPart == 0) {
-        return {};
-    }
-    FILETIME utc{};
-    utc.dwLowDateTime = static_cast<DWORD>(value.LowPart);
-    utc.dwHighDateTime = static_cast<DWORD>(value.HighPart);
-    FILETIME local{};
-    SYSTEMTIME system{};
-    if (!::FileTimeToLocalFileTime(&utc, &local) || !::FileTimeToSystemTime(&local, &system)) {
-        return {};
-    }
-    wchar_t text[64]{};
-    ::swprintf_s(text, L"%04u-%02u-%02u %02u:%02u:%02u", system.wYear, system.wMonth, system.wDay, system.wHour, system.wMinute, system.wSecond);
-    return text;
-}
+
 
 // QueryNamedPipeDirectory enumerates one native named-pipe directory. Inputs are
 // the runtime, path and packet; processing uses NtOpenFile/NtQueryDirectoryFile;
 // no value is returned because rows are appended to packet.
-void QueryNamedPipeDirectory(const NtRuntime& runtime, const std::wstring& path, const std::wstring& filter, QueryPacket& packet) {
-    if (!runtime.openFile || !runtime.queryDirectoryFile) {
-        packet.warnings.push_back(L"NtOpenFile/NtQueryDirectoryFile 不可用。");
-        return;
-    }
 
-    UNICODE_STRING unicodePath = MakeUnicodeString(path);
-    OBJECT_ATTRIBUTES attributes = MakeObjectAttributes(unicodePath);
-    IO_STATUS_BLOCK ioStatus{};
-    HANDLE directory = nullptr;
-    const LONG openStatus = runtime.openFile(
-        &directory,
-        FILE_LIST_DIRECTORY | SYNCHRONIZE,
-        &attributes,
-        &ioStatus,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
-    if (!IsSuccessStatus(openStatus) || !directory) {
-        packet.warnings.push_back(std::wstring(L"无法打开命名管道目录 ") + path + L"，NTSTATUS=" + StatusText(openStatus));
-        return;
-    }
-
-    std::vector<std::byte> buffer(128 * 1024);
-    BOOLEAN restart = TRUE;
-    for (;;) {
-        std::fill(buffer.begin(), buffer.end(), std::byte{});
-        ioStatus = {};
-        const LONG status = runtime.queryDirectoryFile(
-            directory,
-            nullptr,
-            nullptr,
-            nullptr,
-            &ioStatus,
-            buffer.data(),
-            static_cast<ULONG>(buffer.size()),
-            kFileDirectoryInformation,
-            FALSE,
-            nullptr,
-            restart);
-        restart = FALSE;
-        if (status == kStatusNoMoreEntries) {
-            break;
-        }
-        if (!IsSuccessStatus(status)) {
-            packet.warnings.push_back(std::wstring(L"查询命名管道目录失败 ") + path + L"，NTSTATUS=" + StatusText(status));
-            break;
-        }
-
-        std::size_t offset = 0;
-        for (;;) {
-            if (offset + sizeof(KFILE_DIRECTORY_INFORMATION) > buffer.size()) {
-                break;
-            }
-            const auto* info = reinterpret_cast<const KFILE_DIRECTORY_INFORMATION*>(buffer.data() + offset);
-            const std::wstring name(info->FileName, info->FileName + (info->FileNameLength / sizeof(wchar_t)));
-            if (!name.empty() && name != L"." && name != L"..") {
-                KernelResultRow row = Row({
-                    { L"Pipe", name },
-                    { L"Directory", path },
-                    { L"NtPath", JoinObjectPath(path, name) },
-                    { L"Win32Path", std::wstring(L"\\\\.\\pipe\\") + name },
-                    { L"Attributes", HexText(info->FileAttributes) },
-                    { L"Size", std::to_wstring(info->EndOfFile.QuadPart) },
-                    { L"Created", FileTimeText(info->CreationTime) },
-                    { L"LastAccess", FileTimeText(info->LastAccessTime) },
-                    { L"LastWrite", FileTimeText(info->LastWriteTime) },
-                    { L"Changed", FileTimeText(info->ChangeTime) },
-                    { L"Status", L"NtQueryDirectoryFile" },
-                });
-                if (MatchesColumnsFilter(row, filter)) {
-                    packet.rows.push_back(std::move(row));
-                }
-            }
-            if (info->NextEntryOffset == 0) {
-                break;
-            }
-            offset += info->NextEntryOffset;
-        }
-    }
-
-    ::CloseHandle(directory);
-}
 
 // QueryNamedPipes enumerates native named-pipe namespaces. Input is the request;
 // processing uses only Windows/Native file APIs; return lists live pipes.
-KernelOperationResult QueryNamedPipes(const KernelRequest& request) {
-    const NtRuntime& runtime = Runtime();
-    QueryPacket packet;
-    QueryNamedPipeDirectory(runtime, L"\\Device\\NamedPipe", request.filterText, packet);
-    QueryNamedPipeDirectory(runtime, L"\\??\\PIPE", request.filterText, packet);
-    return MakeResult(request.featureId, !packet.rows.empty(), L"命名管道枚举", std::move(packet));
-}
+
 
 // QueryAtomTable probes global atoms and registered clipboard formats. Input is
 // the request; processing uses documented Win32 getters only; return contains a
@@ -927,41 +815,7 @@ KernelOperationResult QueryNtQueryLegacy(const KernelRequest& request) {
 // fields; processing uses NtOpenFile with read-only/synchronize access; output
 // reports NTSTATUS and basic object metadata without reading or writing pipe
 // payloads.
-KernelOperationResult ExecuteNativeNamedPipeProbe(const KernelActionRequest& request) {
-    const NtRuntime& runtime = Runtime();
-    QueryPacket packet;
-    const std::wstring path = NativePathFromAction(request);
-    if (path.empty()) {
-        packet.warnings.push_back(L"当前行没有 NtPath/Pipe，无法验证命名管道。");
-        return MakeNativeActionResult(request, false, L"命名管道打开验证", std::move(packet));
-    }
-    if (!runtime.openFile) {
-        packet.warnings.push_back(L"NtOpenFile 不可用。");
-        return MakeNativeActionResult(request, false, L"命名管道打开验证", std::move(packet));
-    }
 
-    LONG openStatus = kStatusNoSuchFile;
-    IO_STATUS_BLOCK ioStatus{};
-    HANDLE pipe = OpenNamedPipeReadOnly(runtime, path, &openStatus, &ioStatus);
-    AppendObjectBasicInfoRow(packet, runtime, path, pipe, openStatus);
-    packet.rows.push_back(Row({
-        { L"Action", L"NativeNamedPipeProbe" },
-        { L"NtPath", path },
-        { L"Win32Path", StartsWithI(path, L"\\Device\\NamedPipe\\") ? std::wstring(L"\\\\.\\pipe\\") + path.substr(18) : L"" },
-        { L"OpenStatus", StatusText(openStatus) },
-        { L"OpenStatusText", StatusMeaningText(openStatus) },
-        { L"IoStatus", StatusText(static_cast<LONG>(ioStatus.Status)) },
-        { L"IoStatusText", StatusMeaningText(static_cast<LONG>(ioStatus.Status)) },
-        { L"Information", std::to_wstring(static_cast<std::uint64_t>(ioStatus.Information)) },
-        { L"Access", L"FILE_READ_ATTRIBUTES|SYNCHRONIZE" },
-        { L"Share", L"READ|WRITE|DELETE" },
-        { L"Status", pipe ? L"可打开" : L"不可打开、管道忙或权限受限" },
-    }, StatusMeaningText(openStatus)));
-    if (pipe) {
-        ::CloseHandle(pipe);
-    }
-    return MakeNativeActionResult(request, pipe != nullptr, L"命名管道打开验证", std::move(packet));
-}
 
 } // namespace
 

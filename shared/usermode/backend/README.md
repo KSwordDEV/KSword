@@ -59,3 +59,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | kernel BaseNamedObjects | 51-kernel-base |
 | kernel communication endpoints | 52-kernel-communication |
 | kernel object type matrix | 53-kernel-types |
+| kernel named pipes | 54-kernel-pipe |
