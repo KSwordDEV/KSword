@@ -2,7 +2,7 @@
 
 Shared Windows C++20 implementation under `ks::r3`; no Qt or Light headers. Light keeps UI, confirmations, async scheduling and R0 adapters. Existing Qt-free `ksword` implementations remain unchanged.
 
-Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test logs and `progress.jsonl` with commit IDs). Each function group is validated and committed separately.
+The 66 feature commits and their build/regression results are recorded in [MIGRATION.jsonl](MIGRATION.jsonl). Raw logs are retained locally in `.codex-build-logs/r3-migration/`. Each feature was linked and tested before its commit.
 
 | Function | Evidence prefix |
 |---|---|
@@ -72,3 +72,24 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | window list capture protection | 64-window-list-capture |
 | clipboard clearing and live owner queries | 65-clipboard-control |
 | process identity sampling adapters | 66-process-identity |
+
+## Final validation
+
+- Light Release/x64 clean rebuild: PASS; existing driver artifact reused, driver rebuild/sign disabled.
+- Full LightTests and expected-suite audit: PASS, 42 suites; shared backend contract suite: 68 assertions.
+- All 98 backend implementation files are registered in Light and its standalone `/W4 /WX` test project, including corresponding filters.
+- All 109 backend headers compiled independently with C++20/v143/HostX64. Compiler include traces contain no Qt or Light headers; the standalone test executable has no Qt DLL dependency.
+- The 66 migration commits modify only Light, its tests/manifest, this backend, shared memory and the boundary-check tool. Main-program, CLI, existing shared implementation and driver/protocol code were not changed by these commits.
+- All original Light C++ string literals remain in Light or the extracted backend. This is a source preservation check, supplemented by regression assertions; it does not replace live acceptance of every page and system configuration.
+
+Reproduce the public-header check with `pwsh -File tools/Test-KSwordR3BackendBoundary.ps1` from the repository root. Build Light and LightTests with 64-bit MSBuild and the three architecture properties documented in the repository agent notes. Final local evidence prefixes are `final-clean` and `final-boundary`.
+
+## Calling and lifecycle boundaries
+
+Include the required headers from the business directory and compile the corresponding sources with C++20 and Win32 SDK libraries. The current Light and standalone test projects provide complete source and link-dependency registrations for a future CLI consumer. Existing Qt-free `ksword`, driver-client and evidence implementations remain referenced.
+
+Light owns controls, confirmation prompts, navigation, table conversion, refresh scheduling and R0 adapters. Mixed token/object-type flows keep their preflight/fallback/evidence merging in Light and call shared R3 operations in the original sequence. The caller retains the detail process identity lease across R3 and R0 collection. PID-cache selection stays with navigation; native process identity sampling is shared.
+
+Clipboard and display-affinity operations execute on the original calling thread. Global hotkey probes register/unregister on the original worker; shortcut COM initialization, ETW callbacks/stop/join, PDH priming/locking and shared sampler ownership keep their original lifetimes. Backend functions do not manipulate Light controls.
+
+The file mapped-process scan is implemented wholly through R0 in this checkout; it was retained and did not receive a migration commit. Pure R0 pages and UI copy/export/paste helpers also remain in Light. CLI commands have not been added.
