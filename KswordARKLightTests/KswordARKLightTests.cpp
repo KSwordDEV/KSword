@@ -565,6 +565,7 @@ int wmain() {
 
     // 下一阶段验收（docs/next/KSword_Next_Roadmap_Acceptance.md）的离线自动测试。
     // 每个套件调用 shared/evidence 的生产实现，返回自己的失败计数。
+    failures += RunR3NetworkBackendTests();
     failures += RunProcessInformationTests();
     failures += RunCallbackEnumerationTests();
     failures += RunEvidenceContractTests();

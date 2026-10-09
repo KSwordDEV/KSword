@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../../shared/usermode/backend/network/Connections.h"
+
 #include "../../Core/Win32Lean.h"
 
 #include <cstdint>
@@ -7,6 +9,10 @@
 #include <vector>
 
 namespace Ksword::Features::NetTools {
+using ks::r3::network::ConnectionProtocol;
+using ks::r3::network::ConnectionEntry;
+using ks::r3::network::ConnectionEnumerationResult;
+
 
 // NetToolsProperty is one detail-pane name/value pair. Values are already
 // formatted for display and are never parsed back by the view.
@@ -19,41 +25,18 @@ struct NetToolsProperty {
 // as one enum rather than a protocol flag plus a family flag because every
 // decision the page makes -- which column text to show, whether a row can be
 // closed at all -- depends on both at once.
-enum class ConnectionProtocol {
-    Tcp4,
-    Tcp6,
-    Udp4,
-    Udp6
-};
+
 
 // ConnectionEntry is the model row for one TCP or UDP endpoint. The raw tuple
 // fields keep the exact byte order the IP Helper table reported, because
 // SetTcpEntry expects the same representation back and re-parsing the display
 // text would be a lossy round trip.
-struct ConnectionEntry {
-    ConnectionProtocol protocol = ConnectionProtocol::Tcp4;
-    std::wstring localAddress;
-    std::wstring remoteAddress;
-    std::uint16_t localPort = 0;
-    std::uint16_t remotePort = 0;
-    std::uint32_t state = 0;            // MIB_TCP_STATE_*, meaningless for UDP.
-    bool hasState = false;              // UDP endpoints carry no connection state.
-    std::uint32_t processId = 0;
-    std::wstring processName;           // Empty when the owner could not be named.
-    std::uint32_t rawLocalAddress = 0;  // IPv4 only, network byte order.
-    std::uint32_t rawRemoteAddress = 0; // IPv4 only, network byte order.
-    std::uint32_t rawLocalPort = 0;     // Table-reported port DWORD, unmodified.
-    std::uint32_t rawRemotePort = 0;    // Table-reported port DWORD, unmodified.
-};
+
 
 // ConnectionEnumerationResult carries one full enumeration pass. Partial results
 // are still returned with their diagnostic attached: an IPv6 table that cannot
 // be read is not a reason to hide the IPv4 rows that were read fine.
-struct ConnectionEnumerationResult {
-    bool success = false;
-    std::wstring diagnosticText;
-    std::vector<ConnectionEntry> entries;
-};
+
 
 // ConnectionProtocolFilter narrows the table to one transport. It lives in the
 // model rather than in the text filter because "udp" typed into a search box
@@ -186,13 +169,13 @@ std::wstring TcpStateText(std::uint32_t state);
 // Only IPv4 TCP has a delete-TCB path at all, and only a row that is actually in
 // a connection state has a TCB to delete: offering the button on a UDP endpoint
 // or a listener would just produce an error dialog after the fact.
-bool ConnectionCanClose(const ConnectionEntry& entry);
+using ks::r3::network::ConnectionCanClose;
 
 // ConnectionIsEstablished / ConnectionIsListening classify a row for the summary
 // counts. They live here rather than in the view so the MIB_TCP_STATE_* values
 // stay behind one header and the views never pull in the IP Helper SDK.
-bool ConnectionIsEstablished(const ConnectionEntry& entry);
-bool ConnectionIsListening(const ConnectionEntry& entry);
+using ks::r3::network::ConnectionIsEstablished;
+using ks::r3::network::ConnectionIsListening;
 
 // FirewallDirectionText / FirewallActionText / FirewallProtocolText /
 // FirewallProfilesText format the numeric rule fields for display.
@@ -214,17 +197,17 @@ bool FirewallRuleIsBlocking(const FirewallRuleEntry& entry);
 // There is deliberately no matching cleanup: the sockets stay usable for the
 // lifetime of the process and an unbalanced WSACleanup elsewhere would break
 // every other consumer.
-void EnsureWinsockInitialized();
+using ks::r3::network::EnsureWinsockInitialized;
 
 // FormatIpv4Address renders a network-byte-order IPv4 address as dotted quad.
-std::wstring FormatIpv4Address(std::uint32_t networkOrderAddress);
+using ks::r3::network::FormatIpv4Address;
 
 // FormatIpv6Address renders 16 address bytes plus a scope id in RFC 5952 form.
-std::wstring FormatIpv6Address(const std::uint8_t* address, std::uint32_t scopeId);
+using ks::r3::network::FormatIpv6Address;
 
 // FormatWin32Error turns a Win32 or Winsock status into readable Chinese text.
 // Input is the status code; output always contains the numeric code too, because
 // the system message for network errors is often too vague to act on alone.
-std::wstring FormatWin32Error(std::uint32_t code);
+using ks::r3::network::FormatWin32Error;
 
 } // namespace Ksword::Features::NetTools

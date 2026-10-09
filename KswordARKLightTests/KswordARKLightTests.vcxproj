@@ -243,6 +243,21 @@
     <ClInclude Include="..\KswordARKLight\Features\Memory\MemoryWritePlan.h" />
     <ClInclude Include="..\KswordARKLight\Ui\EvidenceSession.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3NetworkBackendTests.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\network\Connections.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\network\NetworkSupport.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\network\Connections.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\network\NetworkSupport.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>

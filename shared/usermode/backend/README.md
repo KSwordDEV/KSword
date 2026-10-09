@@ -1,0 +1,9 @@
+# Light/CLI R3 backend
+
+Shared Windows C++20 implementation under `ks::r3`; no Qt or Light headers. Light keeps UI, confirmations, async scheduling and R0 adapters. Existing Qt-free `ksword` implementations remain unchanged.
+
+Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test logs and `progress.jsonl` with commit IDs). Each function group is validated and committed separately.
+
+| Function | Evidence prefix |
+|---|---|
+| TCP/UDP connection enumeration and TCP close | 01-connections |

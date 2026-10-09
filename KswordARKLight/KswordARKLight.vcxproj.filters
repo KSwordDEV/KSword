@@ -1,6 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
   <ItemGroup>
+    <Filter Include="Shared R3 Backend">
+      <UniqueIdentifier>{C1B4ABFB-E137-504D-98E7-D9754B07BD70}</UniqueIdentifier>
+    </Filter>
     <Filter Include="ksword\network">
       <UniqueIdentifier>{626C8F69-998B-46E7-A7E7-03D75EE026DF}</UniqueIdentifier>
     </Filter>
@@ -497,9 +500,6 @@
     </ClCompile>
     <ClCompile Include="Features\WindowTools\WindowToolsHotkeyView.cpp">
       <Filter>Features\WindowTools</Filter>
-    </ClCompile>
-    <ClCompile Include="Features\NetTools\NetToolsActions.cpp">
-      <Filter>Features\NetTools</Filter>
     </ClCompile>
     <ClCompile Include="Features\NetTools\NetToolsConnectionView.cpp">
       <Filter>Features\NetTools</Filter>
@@ -1422,5 +1422,27 @@
     <ClInclude Include="..\shared\usermode\KswordArkServiceMode.h">
       <Filter>Shared</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\network\NetworkSupport.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\network\NetworkSupport.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\network\Connections.h">
+      <Filter>Shared R3 Backend</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\network\Connections.cpp">
+      <Filter>Shared R3 Backend</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

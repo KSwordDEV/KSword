@@ -45,3 +45,5 @@
 - [UAC 安全桌面助手生命周期](ksword-uacdesk-lifecycle.md) — 父进程阻塞等待与取消、ETW 清理、所有配置禁用文件/调试日志及验证边界
 - [驱动功能矩阵 CI](ksword-driver-functional-ci.md) — 185 IOCTL 全量处置门禁、危险操作模式排除、targetGuard 目标校验、PatchGuard 延迟崩溃的归因降级
 - [进程注入痕迹检查](ksword-injection-trace-check.md) — InjectionSurvey 判据层分层与不变式、能力限制与覆盖缺口的分界、交叉视图矛盾分档、两项需按能力单独提权的采集
+
+- [Light R3 shared backend migration](ksword-r3-backend-migration.md) — 逐功能迁移至 shared、保留行为、HostX64 编译与测试后独立提交

@@ -200,7 +200,6 @@
     <ClCompile Include="Features\ProcessDetail\ProcessDetailPage.Token.cpp" />
     <ClCompile Include="Features\Driver\DriverUnloadedView.cpp" />
     <ClCompile Include="Features\Driver\DriverThreadView.cpp" />
-    <ClCompile Include="Features\NetTools\NetToolsActions.cpp" />
     <ClCompile Include="Features\NetTools\NetToolsConnectionView.cpp" />
     <ClCompile Include="Features\NetTools\NetToolsDiagnostics.cpp" />
     <ClCompile Include="Features\NetTools\NetToolsDiagnosticView.cpp" />
@@ -600,6 +599,20 @@
     <MakeDir Directories="$(KswordArkLightEmbeddedDriverDir)" />
     <Copy SourceFiles="$(KswordArkLightDriverOutputPath)" DestinationFiles="$(KswordArkLightEmbeddedDriverPath)" SkipUnchangedFiles="false" />
   </Target>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\network\NetworkSupport.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\network\NetworkSupport.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\network\Connections.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\network\Connections.cpp" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
   <ItemGroup>
