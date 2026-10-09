@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/file/Ownership.h"
 #include "../shared/usermode/backend/file/FileOperations.h"
 #include "../shared/usermode/backend/file/PathNavigator.h"
 #include "../shared/usermode/backend/file/Directory.h"
@@ -111,6 +112,8 @@ int RunR3NetworkBackendTests() {
         suite.expect(ks::r3::file::DeleteFilePath(renamedFile) != FALSE && ks::r3::file::DeleteFilePath(secondFile) != FALSE, L"own files cleaned up");
         suite.expect(ks::r3::file::DeleteEmptyDirectory(tempRoot) != FALSE, L"own empty directory cleaned up");
     }
+    suite.expect(ks::r3::file::TakeOwnershipPath(L"") == L"路径为空，无法取得所有权。", L"empty ownership target does not modify token");
+    suite.expect(ks::r3::file::QueryFileLockers(L"") == L"路径为空，无法扫描占用进程。", L"empty Restart Manager target is rejected");
     suite.report();
     return suite.failures();
 }
