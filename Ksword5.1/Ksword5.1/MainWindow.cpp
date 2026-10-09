@@ -2174,9 +2174,15 @@ namespace
 
             if (!tableView->property(kKswordTableSelectionOutlineStylePropertyName).toBool())
             {
-                auto* selectionOutlineStyle = new TableSelectionOutlineProxyStyle();
-                selectionOutlineStyle->setParent(tableView);
-                tableView->setStyle(selectionOutlineStyle);
+                // QWidgetAction 在菜单析构时会重新继承样式；样式不能先随表格子对象
+                // 释放。代理不保存表格状态，由应用持有并共享，覆盖整个控件销毁过程。
+                static QPointer<TableSelectionOutlineProxyStyle> selectionOutlineStyle;
+                if (selectionOutlineStyle.isNull())
+                {
+                    selectionOutlineStyle = new TableSelectionOutlineProxyStyle();
+                    selectionOutlineStyle->setParent(QCoreApplication::instance());
+                }
+                tableView->setStyle(selectionOutlineStyle.data());
                 tableView->setProperty(kKswordTableSelectionOutlineStylePropertyName, true);
             }
 

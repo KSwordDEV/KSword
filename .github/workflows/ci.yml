@@ -498,6 +498,11 @@ jobs:
             throw "Plugin installation layout regression failed with exit code $LASTEXITCODE."
           }
 
+          python 'tools/test_table_style_lifetime.py' --msbuild $msbuild --qt-dir $env:KSWORD_QT_DIR
+          if ($LASTEXITCODE -ne 0) {
+            throw "Table style lifetime regression failed with exit code $LASTEXITCODE."
+          }
+
       - name: Verify primary build artifacts
         shell: pwsh
         run: |
