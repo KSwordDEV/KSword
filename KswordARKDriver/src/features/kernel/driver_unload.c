@@ -20,6 +20,7 @@ Environment:
 #include "ark/ark_driver.h"
 #include "ark/ark_thread.h"
 #include "driver_integrity.h"
+#include "../thread/work_queue_fallback.h" // 强卸载预检也必须支持无 PsGetNextProcessThread 导出的内核。
 #include "../../platform/pool_compat.h"
 
 #include <ntstrsafe.h>
@@ -73,6 +74,10 @@ Environment:
 #ifndef THREAD_ALL_ACCESS
 /* 中文说明：旧 WDK 头缺失时补齐线程全访问掩码，供 PsCreateSystemThread 使用。 */
 #define THREAD_ALL_ACCESS 0x001FFFFFUL
+#endif
+
+#ifndef THREAD_QUERY_INFORMATION
+#define THREAD_QUERY_INFORMATION 0x0040UL // 中文说明：公开线程查询访问位，旧 WDK 未定义时补齐。
 #endif
 
 #ifndef DIRECTORY_QUERY
@@ -2796,6 +2801,55 @@ KswordARKDriverUnloadThreadIsTerminated(
 }
 
 /* 中文说明：只读扫描仍从目标模块入口运行的线程，作为强卸载阻断证据。 */
+static NTSTATUS KswordARKDriverUnloadScanSystemThreadSnapshot(
+    ULONGLONG ImageStart, ULONGLONG ImageEnd, ULONG* ScannedProcesses,
+    ULONG* ScannedThreads, ULONG* ResidentThreads)
+{
+    KSW_WORK_QUEUE_SYSTEM_THREAD_SNAPSHOT snapshot; // 真实 System TID 快照，不猜扫线程 ID。
+    ULONG index; // 有界线程下标。
+    NTSTATUS status = KswordARKWorkQueueCaptureSystemThreads(&snapshot); // 复用生产快照解析与截断检测。
+    typedef NTSTATUS (NTAPI* KSW_UNLOAD_QUERY_THREAD_FN)(HANDLE, ULONG, PVOID, ULONG, PULONG); // ZwQueryInformationThread 的系统调用 ABI。
+    KSW_UNLOAD_QUERY_THREAD_FN queryThread; // 动态查询公开线程入口字段。
+    UNICODE_STRING routineName; // 真实导出名字。
+    if (!NT_SUCCESS(status)) return status; // 缺快照不能证明没有目标线程。
+    if (snapshot.Truncated) { // 截断扫描不允许卸载继续。
+        KswordARKWorkQueueReleaseSystemThreads(&snapshot); // 释放快照。
+        return STATUS_BUFFER_OVERFLOW; // 明确不完整证据。
+    }
+    RtlInitUnicodeString(&routineName, L"ZwQueryInformationThread"); // 不依赖私有 ETHREAD 字段偏移。
+    queryThread = (KSW_UNLOAD_QUERY_THREAD_FN)MmGetSystemRoutineAddress(&routineName); // 解析线程查询入口。
+    if (queryThread == NULL) { // 未提供查询入口时保留拒绝。
+        KswordARKWorkQueueReleaseSystemThreads(&snapshot); // 释放池数组。
+        return STATUS_NOT_SUPPORTED; // 无可靠入口证据。
+    }
+    *ScannedProcesses = 1UL; // 原业务只认 System 进程驱动线程。
+    for (index = 0UL; index < snapshot.Count; ++index) { // 引用并复核每个真实 TID。
+        PETHREAD thread = NULL; // 对象管理器引用。
+        HANDLE handle = NULL; // 查询用内核句柄。
+        PVOID startAddress = NULL; // ThreadQuerySetWin32StartAddress 返回值。
+        NTSTATUS threadStatus = PsLookupThreadByThreadId(ULongToHandle(snapshot.Entries[index].ThreadId), &thread); // 过滤快照后退出的线程。
+        if (!NT_SUCCESS(threadStatus)) continue; // 已退出对象不会占用目标模块。
+        if (PsGetThreadProcess(thread) != PsInitialSystemProcess || KswordARKDriverUnloadThreadIsTerminated(thread)) { // 拒绝 TID 复用或已终止对象。
+            ObDereferenceObject(thread); // 释放身份引用。
+            continue; // 不纳入驻留线程。
+        }
+        ++*ScannedThreads; // 统计已引用且归属 System 的活跃线程。
+        threadStatus = ObOpenObjectByPointer(thread, OBJ_KERNEL_HANDLE, NULL, THREAD_QUERY_INFORMATION, *PsThreadType, KernelMode, &handle); // 通过确切对象创建查询句柄。
+        if (NT_SUCCESS(threadStatus)) { // 使用官方查询获取真实线程入口。
+            threadStatus = queryThread(handle, 9UL, &startAddress, sizeof(startAddress), NULL); // ThreadQuerySetWin32StartAddress。
+            ZwClose(handle); // 每个查询句柄只关闭一次。
+        }
+        if (!NT_SUCCESS(threadStatus) && !KswordARKDriverUnloadThreadIsTerminated(thread)) status = threadStatus; // 活跃线程查询失败必须阻断卸载。
+        if (NT_SUCCESS(threadStatus) &&
+            (KswordARKDriverUnloadAddressInImageRange((ULONGLONG)(ULONG_PTR)startAddress, ImageStart, ImageEnd) ||
+             KswordARKDriverUnloadAddressInImageRange(snapshot.Entries[index].StartAddress, ImageStart, ImageEnd))) ++*ResidentThreads; // 两条真实系统证据任一命中即驻留。
+        ObDereferenceObject(thread); // 完成当前线程引用生命周期。
+    }
+    KswordARKWorkQueueReleaseSystemThreads(&snapshot); // 释放快照所有权。
+    return status; // 不用缺少私有偏移或非导出枚举函数否决可靠公共查询。
+}
+
+/* 中文说明：优先沿用精确字段扫描，缺导出或偏移时使用公开线程入口查询。 */
 static NTSTATUS
 KswordARKDriverUnloadScanModuleResidentThreads(
     _In_ const KSW_DYN_STATE* DynState,
@@ -2834,14 +2888,12 @@ KswordARKDriverUnloadScanModuleResidentThreads(
     if (DynState == NULL || ImageStart == 0ULL || ImageEnd <= ImageStart) {
         return STATUS_INVALID_PARAMETER;
     }
-    if (!KswordARKDriverUnloadHasPdbBackedThreadDynData(DynState)) {
-        return STATUS_REQUEST_NOT_ACCEPTED;
-    }
-
     psGetNextProcess = KswordARKDriverUnloadResolvePsGetNextProcess();
     psGetNextProcessThread = KswordARKDriverUnloadResolvePsGetNextProcessThread();
-    if (psGetNextProcess == NULL || psGetNextProcessThread == NULL) {
-        return STATUS_NOT_SUPPORTED;
+    if (psGetNextProcess == NULL || psGetNextProcessThread == NULL ||
+        !KswordARKDriverUnloadHasPdbBackedThreadDynData(DynState)) { // 非导出 API 和缺私有字段不应阻止公共查询。
+        return KswordARKDriverUnloadScanSystemThreadSnapshot(ImageStart, ImageEnd,
+            ScannedProcessCountOut, ScannedThreadCountOut, ResidentThreadCountOut); // 仍保留完整驻留线程阻断证据。
     }
 
     processCursor = psGetNextProcess(NULL);
