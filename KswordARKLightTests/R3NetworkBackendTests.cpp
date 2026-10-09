@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/network/Diagnostics.h"
 #include "../shared/usermode/backend/network/Connections.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -54,6 +55,9 @@ int RunR3NetworkBackendTests() {
         }
         ::closesocket(listener);
     }
+    const auto pingEmpty = RunPing(DiagnosticRequest{});
+    suite.expect(!pingEmpty.success && pingEmpty.text == L"请先填写目标主机名或 IP 地址。", L"empty ping input preserves original failure");
+    suite.expect(pingEmpty.summary == L"Ping 未执行：目标解析失败。", L"ping failure summary preserved");
     suite.report();
     return suite.failures();
 }

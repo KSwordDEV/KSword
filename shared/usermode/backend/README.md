@@ -7,3 +7,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | Function | Evidence prefix |
 |---|---|
 | TCP/UDP connection enumeration and TCP close | 01-connections |
+| Ping | 02-ping |
