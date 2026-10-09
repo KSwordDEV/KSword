@@ -1,3 +1,4 @@
+#include "../shared/usermode/backend/kernel/AtomTable.h"
 #include "../shared/usermode/backend/kernel/NamedPipes.h"
 #include "../shared/usermode/backend/kernel/ObjectTypes.h"
 #include "../shared/usermode/backend/kernel/CommunicationEndpoints.h"

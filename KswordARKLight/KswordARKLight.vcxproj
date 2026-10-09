@@ -1103,6 +1103,12 @@
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\kernel\NamedPipes.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\kernel\AtomTable.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\kernel\AtomTable.cpp" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
   <ItemGroup>
