@@ -6,6 +6,9 @@
 
 EXTERN_C_START
 
+// 中文说明：启用共享过滤引擎，不打开文件监控采集；重定向规则也必须启动引擎。
+NTSTATUS KswordARKFileMonitorEnsureFilteringStarted(VOID);
+
 NTSTATUS
 KswordARKFileMonitorInitialize(
     _In_ PDRIVER_OBJECT DriverObject,

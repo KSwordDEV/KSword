@@ -790,11 +790,15 @@ Return Value:
     }
 
     if (Data->Iopb->MajorFunction == IRP_MJ_CREATE) {
-        (VOID)KswordARKRedirectTryRewriteFileCreate(
+        NTSTATUS redirectStatus = KswordARKRedirectTryRewriteFileCreate( // 区分命中后改写失败与未命中。
             Data,
             FltObjects,
             &redirected);
-        UNREFERENCED_PARAMETER(redirected);
+        if (redirected) { // 名称重写后必须从 I/O manager 重新解析目标卷与路径。
+            Data->IoStatus.Status = NT_SUCCESS(redirectStatus) ? STATUS_REPARSE : redirectStatus; // 命中失败不得继续写源文件。
+            Data->IoStatus.Information = NT_SUCCESS(redirectStatus) ? IO_REPARSE : 0U; // 仅成功名字替换请求重解析。
+            return FLT_PREOP_COMPLETE; // 不把跨卷完整名字传给当前文件系统。
+        }
     }
 
     operationType = KswordARKFileMonitorMapMajorToOperation(

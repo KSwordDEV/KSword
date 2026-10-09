@@ -14,6 +14,7 @@ Environment:
 
 --*/
 
+#include "redirect_internal.h" // 文件规则需要按本次请求进程的 DOS namespace 解析盘符。
 #include "ark/ark_driver.h"
 #include "../../dispatch/ioctl_validation.h"
 #include "../../platform/pool_compat.h" // 大型固定规则请求的快照必须离开有限的内核栈。
@@ -142,6 +143,21 @@ Return Value:
         return STATUS_INSUFFICIENT_RESOURCES; // 旧规则和完成字节数保持不变。
     }
     RtlCopyMemory(requestSnapshot, setRequest, sizeof(*requestSnapshot)); // 输出尚未写入，先复制全部已验证容量的输入。
+    if (requestSnapshot->action == KSWORD_ARK_REDIRECT_ACTION_REPLACE &&
+        requestSnapshot->ruleCount <= KSWORD_ARK_REDIRECT_MAX_RULES) { // 仅处理完整容量内的启用文件规则。
+        ULONG index; // 本次规则下标。
+        for (index = 0UL; index < requestSnapshot->ruleCount; ++index) { // 先解析全部名字再交给原子发布后端。
+            KSWORD_ARK_REDIRECT_RULE* rule = &requestSnapshot->rules[index]; // 固定池快照中规则。
+            if (rule->type != KSWORD_ARK_REDIRECT_TYPE_FILE ||
+                (rule->flags & KSWORD_ARK_REDIRECT_RULE_FLAG_ENABLED) == 0UL) continue; // 不改变注册表路径。
+            status = KswordARKRedirectNormalizeFilePath(rule->sourcePath); // DOS source 转为设备全名。
+            if (NT_SUCCESS(status)) status = KswordARKRedirectNormalizeFilePath(rule->targetPath); // 目标使用同一 namespace。
+            if (!NT_SUCCESS(status)) { // 解析失败保持原有规则，不发布部分新表。
+                ExFreePoolWithTag(requestSnapshot, KSWORD_ARK_REDIRECT_IOCTL_TAG_SNAPSHOT); // 释放独立输入快照。
+                return status; // 返回确切名字解析失败。
+            }
+        }
+    }
     setRequest = requestSnapshot; // 后端与响应日志期间均使用独立且不可被 SystemBuffer 覆盖的快照。
 
     status = KswordARKRedirectSetRules(

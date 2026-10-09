@@ -16,6 +16,7 @@ Environment:
 
 #include "redirect_internal.h"
 #include "ark/ark_push_lock.h"
+#include "ark/ark_file_monitor.h" // 文件重定向与文件监控共用同一个 minifilter。
 
 #include <stdarg.h>
 
@@ -614,6 +615,22 @@ Return Value:
         response->status = KSWORD_ARK_REDIRECT_STATUS_INVALID_RULE;
         response->lastStatus = STATUS_INVALID_PARAMETER;
         return STATUS_SUCCESS;
+    }
+
+    if (Request->action == KSWORD_ARK_REDIRECT_ACTION_REPLACE) { // 发布文件规则前确保回调实际运行。
+        for (ruleIndex = 0UL; ruleIndex < Request->ruleCount; ++ruleIndex) { // 注册表规则不启动文件引擎。
+            if (Request->rules[ruleIndex].type == KSWORD_ARK_REDIRECT_TYPE_FILE &&
+                (Request->rules[ruleIndex].flags & KSWORD_ARK_REDIRECT_RULE_FLAG_ENABLED) != 0UL) { // 仅启用规则需要过滤。
+                status = KswordARKFileMonitorEnsureFilteringStarted(); // 不改变旧文件监控采集开关。
+                if (!NT_SUCCESS(status)) { // 引擎失败时保留原表，返回实际状态。
+                    response->status = KSWORD_ARK_REDIRECT_STATUS_OPERATION_FAILED; // 不报告已应用。
+                    response->rejectedIndex = ruleIndex; // 标明触发启动的文件规则。
+                    response->lastStatus = status; // 保留 FltMgr 返回值。
+                    return STATUS_SUCCESS; // 传输成功，操作失败。
+                }
+                break; // 引擎只需要确保启动一次。
+            }
+        }
     }
 
     KswordARKAcquirePushLockExclusive(&runtime->Lock);

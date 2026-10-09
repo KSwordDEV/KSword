@@ -27,6 +27,9 @@ typedef struct _KSWORD_ARK_REDIRECT_RUNTIME
 
 EXTERN_C_START
 
+// 中文说明：在规则发布前解析 DOS 盘符符号链接，卷内相对路径保持原样。
+NTSTATUS KswordARKRedirectNormalizeFilePath(_Inout_updates_(KSWORD_ARK_REDIRECT_PATH_CHARS) WCHAR* Path);
+
 KSWORD_ARK_REDIRECT_RUNTIME*
 KswordARKRedirectGetRuntime(
     VOID
