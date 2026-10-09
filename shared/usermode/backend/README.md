@@ -56,3 +56,4 @@ Migration evidence is recorded in `.codex-build-logs/r3-migration/` (build/test 
 | kernel recursive object directories | 48-kernel-directory |
 | kernel symbolic links | 49-kernel-symlink |
 | kernel Device and Driver objects | 50-kernel-device |
+| kernel BaseNamedObjects | 51-kernel-base |

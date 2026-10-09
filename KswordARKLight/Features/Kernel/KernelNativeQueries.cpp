@@ -1,3 +1,4 @@
+#include "../../../shared/usermode/backend/kernel/BaseNamedObjects.h"
 #include "../../../shared/usermode/backend/kernel/DeviceDriverObjects.h"
 #include "../../../shared/usermode/backend/kernel/SymbolicLinks.h"
 #include "../../../shared/usermode/backend/kernel/ObjectDirectory.h"
@@ -89,6 +90,7 @@
 
 namespace Ksword::Features::Kernel {
 namespace {
+using namespace ks::r3::kernel;
 using namespace ks::r3::kernel;
 using namespace ks::r3::kernel;
 using namespace ks::r3::kernel;
@@ -456,22 +458,7 @@ bool MatchesColumnsFilter(const KernelResultRow& row, const std::wstring& filter
 // QueryBaseNamedObjects enumerates per-session and global BaseNamedObjects.
 // Input is the request; processing reads object-manager directories; return
 // contains mutex/event/section/semaphore style user-visible objects.
-KernelOperationResult QueryBaseNamedObjects(const KernelRequest& request) {
-    const NtRuntime& runtime = Runtime();
-    QueryPacket packet;
-    std::vector<std::wstring> roots{
-        L"\\BaseNamedObjects",
-    };
-    for (const DWORD sessionId : DiscoverSessionIds(runtime)) {
-        roots.push_back(std::wstring(L"\\Sessions\\") + std::to_wstring(sessionId) + L"\\BaseNamedObjects");
-    }
-    std::sort(roots.begin(), roots.end());
-    roots.erase(std::unique(roots.begin(), roots.end()), roots.end());
-    for (const std::wstring& root : roots) {
-        AppendDirectoryRoot(packet, runtime, root, root, request.filterText);
-    }
-    return MakeResult(request.featureId, !packet.rows.empty(), L"BaseNamedObjects 枚举", std::move(packet));
-}
+
 
 // IsCommunicationType reports whether an object type is relevant to IPC or
 // synchronization. Input is an object-manager type string; return drives the
