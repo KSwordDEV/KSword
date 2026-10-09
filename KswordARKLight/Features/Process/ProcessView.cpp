@@ -1,4 +1,5 @@
 #include "ProcessView.h"
+#include "../../../shared/usermode/backend/process/ProcessEnrichment.h"
 
 #include "ProcessActions.h"
 #include "ProcessColumns.h"
@@ -71,9 +72,7 @@ struct NotifyResult {
 
 // ProcessStableKey names one snapshot process instance rather than a recyclable PID.
 // A zero creation time remains explicit for kernel-only evidence rows.
-std::wstring ProcessStableKey(const DWORD processId, const ULONGLONG creationTime100ns) {
-    return L"pid:" + std::to_wstring(processId) + L"#" + std::to_wstring(creationTime100ns);
-}
+using ks::r3::process::ProcessStableKey;
 // ProcessPresentationRow is the immutable UI snapshot for one process row.
 // Keeping display text, identity and icon input together means owner-data
 // callbacks never enumerate processes or format every row during a repaint.
@@ -1850,67 +1849,13 @@ void ApplyR0KernelColumnDetails(std::vector<ProcessSnapshotRow>& rows, const std
 void ApplyMainProcessDetails(std::vector<ProcessSnapshotRow>& rows,
     const std::vector<ProcessColumnId>& columns,
     std::unordered_map<std::wstring, std::string>& signatureCache) {
-    const std::uint32_t demand = DetailDemandForColumns(columns);
-    const auto has = [&columns](ProcessColumnId id) {
-        return std::find(columns.begin(), columns.end(), id) != columns.end();
-    };
-    const auto records = ks::process::EnumerateProcesses(ks::process::ProcessEnumStrategy::Auto, nullptr, demand);
-    std::unordered_map<std::uint32_t, const ks::process::ProcessRecord*> byPid;
-    for (const auto& record : records) byPid[record.pid] = &record;
-    std::unordered_set<std::wstring> liveKeys;
-    std::size_t signatureBudget = 24;
-    for (auto& row : rows) {
-        const auto found = byPid.find(row.processId);
-        if (found == byPid.end() || row.r0KernelOnly) continue;
-        ks::process::ProcessRecord details = *found->second;
-        if (row.creationTime100ns != 0 && row.creationTime100ns != details.creationTime100ns) continue;
-        const auto key = ProcessStableKey(row.processId, row.creationTime100ns);
-        liveKeys.insert(key);
-        const bool needsStatic = std::any_of(columns.begin(), columns.end(), [](ProcessColumnId id) {
-            const auto* descriptor = FindProcessColumn(id);
-            return descriptor && (descriptor->group == ProcessColumnGroup::Security ||
-                id == ProcessColumnId::Path || id == ProcessColumnId::CommandLine || id == ProcessColumnId::User ||
-                id == ProcessColumnId::Description || id == ProcessColumnId::ProcessType || id == ProcessColumnId::PowerThrottling);
-        });
-        if (needsStatic) {
-            const bool verifySignature = has(ProcessColumnId::Signature) && signatureBudget > 0 &&
-                signatureCache.find(key) == signatureCache.end() && row.processId > 4 && !row.imagePath.empty();
-            if (verifySignature) --signatureBudget;
-            ks::process::FillProcessStaticDetails(details, verifySignature);
-            // Inaccessible rows must not consume the entire signing budget
-            // every round and starve ordinary processes further down the list.
-            if (verifySignature && !details.staticDetailsReady) ++signatureBudget;
-            ks::process::FillProcessOnDemandDetails(details, demand, nullptr);
-            QueryProcessExtraDetails(details, demand, has(ProcessColumnId::PowerThrottling));
-            // A new handle may have resolved a recycled PID while we queried.
-            if (row.processId > 4) {
-                HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, row.processId);
-                FILETIME created{}, exited{}, kernel{}, user{};
-                const bool ok = process && ::GetProcessTimes(process, &created, &exited, &kernel, &user);
-                if (process) ::CloseHandle(process);
-                const ULONGLONG actual = (static_cast<ULONGLONG>(created.dwHighDateTime) << 32U) | created.dwLowDateTime;
-                if (ok && actual != row.creationTime100ns) continue;
-            }
-            if (verifySignature && details.staticDetailsReady && !details.signatureState.empty())
-                signatureCache[key] = details.signatureState;
-            const auto signature = signatureCache.find(key);
-            if (signature != signatureCache.end()) details.signatureState = signature->second;
-        }
-        if (has(ProcessColumnId::PplLevel) || has(ProcessColumnId::Protection) || has(ProcessColumnId::Ppl)) {
-            details.protectionLevelKnown = ks::process::QueryProcessProtectionLevelByPid(
-                details.pid, &details.protectionLevel, &details.protectionLevelText, nullptr);
-        }
-        ApplyProcessDetailRecord(row, details);
-        if (details.gpuMemoryKnown) {
-            row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::GpuDedicatedMemory)] = FormatByteSize(details.gpuDedicatedMemoryBytes);
-            row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::GpuSharedMemory)] = FormatByteSize(details.gpuSharedMemoryBytes);
-        }
-        if (!details.gpuMemoryKnown) {
-            row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::GpuDedicatedMemory)] = L"计数器不支持或查询失败";
-            row.detailTexts[static_cast<std::uint8_t>(ProcessColumnId::GpuSharedMemory)] = L"计数器不支持或查询失败";
-        }
-    }
-    std::erase_if(signatureCache, [&liveKeys](const auto& entry) { return liveKeys.find(entry.first) == liveKeys.end(); });
+    const bool needsStatic = std::any_of(columns.begin(), columns.end(), [](ProcessColumnId id) {
+        const auto* descriptor = FindProcessColumn(id);
+        return descriptor && (descriptor->group == ProcessColumnGroup::Security ||
+        id == ProcessColumnId::Path || id == ProcessColumnId::CommandLine || id == ProcessColumnId::User ||
+        id == ProcessColumnId::Description || id == ProcessColumnId::ProcessType || id == ProcessColumnId::PowerThrottling);
+    });
+    ks::r3::process::ApplyMainProcessDetails(rows, columns, signatureCache, needsStatic);
 }
 
 // CollectProcessRefreshSnapshot performs every potentially blocking query for a

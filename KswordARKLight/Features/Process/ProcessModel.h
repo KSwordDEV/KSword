@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../shared/usermode/backend/process/ProcessEnrichment.h"
 
 #include "ProcessEnumerator.h"
 #include "ProcessColumns.h"
@@ -101,7 +102,7 @@ private:
 
 // FormatByteSize converts bytes to a compact text value. Input is a byte count;
 // output is B/KiB/MiB/GiB text for list view columns.
-std::wstring FormatByteSize(ULONGLONG bytes);
+using ks::r3::process::FormatByteSize;
 
 // LeafName extracts the file name from a path. Input may be a full path or a
 // process image name; output is the last path segment or the original value.

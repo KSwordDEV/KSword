@@ -292,22 +292,7 @@ std::size_t ProcessModel::groupIndex(ProcessFriendlyGroup group) {
     }
 }
 
-std::wstring FormatByteSize(ULONGLONG bytes) {
-    const wchar_t* suffixes[] = { L"B", L"KiB", L"MiB", L"GiB", L"TiB" };
-    double value = static_cast<double>(bytes);
-    int suffix = 0;
-    while (value >= 1024.0 && suffix < 4) {
-        value /= 1024.0;
-        ++suffix;
-    }
-    wchar_t buffer[64]{};
-    if (suffix == 0) {
-        ::swprintf_s(buffer, L"%llu %s", static_cast<unsigned long long>(bytes), suffixes[suffix]);
-    } else {
-        ::swprintf_s(buffer, L"%.1f %s", value, suffixes[suffix]);
-    }
-    return buffer;
-}
+
 
 std::wstring LeafName(const std::wstring& path) {
     const std::size_t slash = path.find_last_of(L"\\/");

@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace Ksword::Features::Process {
+namespace ks::r3::process {
 namespace {
 std::wstring Wide(const std::string& text) {
     if (text.empty()) return {};
@@ -37,8 +37,8 @@ const wchar_t* DpiText(ks::process::ProcessDpiAwarenessLevel level) {
 }
 } // namespace
 
-std::uint32_t DetailDemandForColumns(const std::vector<ProcessColumnId>& columns) {
-    using C = ProcessColumnId;
+std::uint32_t DetailDemandForColumns(const std::vector<ProcessFieldId>& columns) {
+    using C = ProcessFieldId;
     using namespace ks::process;
     std::uint32_t demand = ProcessDetailDemand::None;
     for (const C column : columns) {
@@ -63,7 +63,7 @@ void ApplyProcessDetailRecord(ProcessSnapshotRow& row, const ks::process::Proces
     // Refuse enrichment from another incarnation of the same recyclable PID.
     if (row.processId != record.pid || row.r0KernelOnly ||
         (row.creationTime100ns != 0 && row.creationTime100ns != record.creationTime100ns)) return;
-    using C = ProcessColumnId;
+    using C = ProcessFieldId;
     const auto put = [&row](C column, const std::wstring& text) {
         row.detailTexts[static_cast<std::uint8_t>(column)] = text;
     };
@@ -104,4 +104,4 @@ void ApplyProcessDetailRecord(ProcessSnapshotRow& row, const ks::process::Proces
         (record.gpuEngineText.empty() ? L"无活动引擎" : Wide(record.gpuEngineText)) : L"采样预热或计数器不支持");
 }
 
-} // namespace Ksword::Features::Process
+} // namespace ks::r3::process

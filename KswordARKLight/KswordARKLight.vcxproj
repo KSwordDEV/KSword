@@ -172,8 +172,6 @@
     <ClCompile Include="Features\Network\NetworkView.cpp" />
     <ClCompile Include="Features\Process\ProcessActions.cpp" />
     <ClCompile Include="Features\Process\ProcessColumns.cpp" />
-    <ClCompile Include="Features\Process\ProcessDetails.cpp" />
-    <ClCompile Include="Features\Process\ProcessExtraQueries.cpp" />
     <ClCompile Include="Features\Process\ProcessTelemetry.cpp" />
     <ClCompile Include="Features\Process\ProcessFeature.cpp" />
     <ClCompile Include="Features\Process\ProcessModel.cpp" />
@@ -765,6 +763,27 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\usermode\backend\process\ProcessEnumerator.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessFields.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessDetails.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessDetails.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessExtraQueries.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessExtraQueries.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessEnrichment.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnrichment.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

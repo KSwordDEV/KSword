@@ -1,7 +1,7 @@
 #include "ProcessExtraQueries.h"
-#include "../../../Ksword5.1/Ksword5.1/ksword/string/string.h"
+#include "../../../../Ksword5.1/Ksword5.1/ksword/string/string.h"
 
-namespace Ksword::Features::Process {
+namespace ks::r3::process {
 namespace {
 // Documented ABI, no SDK header is provided for these WIP entry points:
 // https://learn.microsoft.com/windows/win32/devnotes/edp_context_structure
@@ -83,4 +83,4 @@ void QueryProcessExtraDetails(ks::process::ProcessRecord& record, std::uint32_t 
     if (needEfficiency) QueryEfficiencyFallback(record);
 }
 
-} // namespace Ksword::Features::Process
+} // namespace ks::r3::process

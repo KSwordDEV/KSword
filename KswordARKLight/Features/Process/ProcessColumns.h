@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../shared/usermode/backend/process/ProcessFields.h"
 
 // ============================================================
 // ProcessColumns.h
@@ -27,15 +28,7 @@ enum class ProcessColumnGroup : std::uint8_t {
 };
 
 // ProcessColumnId 用途：进程表的稳定逻辑列编号；不得依赖其显示顺序。
-enum class ProcessColumnId : std::uint8_t {
-    Name, Pid, ParentPid, Path, CommandLine, User, StartTime, SessionId, Status, Description, ProcessType,
-    Cpu, CpuTime, CycleTime, Disk, Gpu, Net, ThreadCount, BasePriority, PowerThrottling, GpuEngine, GpuDedicatedMemory, GpuSharedMemory,
-    WorkingSet, PeakWorkingSet, WorkingSetDelta, PrivateWorkingSet, VirtualMemory, CommitSize, PagedPool, NonPagedPool, PageFaults, PageFaultDelta,
-    IoReads, IoWrites, IoOther, IoReadBytes, IoWriteBytes, IoOtherBytes,
-    Signature, IsAdmin, PplLevel, UacVirtualization, DataExecutionPrevention, ControlFlowGuard, HardwareStackProtection, PackageName, DpiAwareness, EnterpriseContext, JobObject,
-    Protection, Ppl, HandleCount, HandleTable, SectionObject, R0Status, Eprocess, R0Source, R0Anomaly,
-    Count
-};
+using ProcessColumnId = ks::r3::process::ProcessFieldId;
 
 // ProcessViewPreset 用途：内置精简列组；Custom 表示用户手工修改后的当前布局。
 enum class ProcessViewPreset : std::uint8_t {
