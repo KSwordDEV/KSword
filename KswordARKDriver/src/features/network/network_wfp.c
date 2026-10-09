@@ -101,9 +101,13 @@ typedef struct _KSWORD_ARK_FWP_VALUE0
 
 typedef struct _KSWORD_ARK_FWPS_INCOMING_VALUE0
 {
-    UINT16 fieldId;
+    // 中文说明：WDK fwpstypes.h 中每项仅包含 value，字段编号由数组索引确定。
     KSWORD_ARK_FWP_VALUE0 value;
 } KSWORD_ARK_FWPS_INCOMING_VALUE0;
+
+// 中文说明：禁止引入额外前缀或改变数组步长，否则协议、地址和端口全部错位。
+C_ASSERT(FIELD_OFFSET(KSWORD_ARK_FWPS_INCOMING_VALUE0, value) == 0);
+C_ASSERT(sizeof(KSWORD_ARK_FWPS_INCOMING_VALUE0) == sizeof(KSWORD_ARK_FWP_VALUE0));
 
 typedef struct _KSWORD_ARK_FWPS_INCOMING_VALUES0
 {
