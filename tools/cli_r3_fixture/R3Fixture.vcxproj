@@ -12,6 +12,6 @@
     <ClCompile><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><LanguageStandard>stdcpp20</LanguageStandard><RuntimeLibrary>MultiThreaded</RuntimeLibrary><PreprocessorDefinitions>NOMINMAX;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
     <Link><SubSystem>Console</SubSystem><OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile><AdditionalDependencies>Advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="ServiceFixture.cpp" /></ItemGroup>
+  <ItemGroup><ClCompile Include="ServiceFixture.cpp" /><ClCompile Include="ThreadFixture.cpp" /><ClInclude Include="ThreadFixture.h" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

@@ -1499,6 +1499,7 @@ namespace
             ks::cli::registerProcessTelemetry();
             ks::cli::registerProcessControls();
             ks::cli::registerProcessBasic();
+            ks::cli::registerProcessThreads();
             #endif
             return true;
         }();

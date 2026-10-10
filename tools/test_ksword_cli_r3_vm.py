@@ -45,7 +45,7 @@ exit $rc
         guest.copy(str(cli), guest_root + r'\KswordCLI-R3.exe')
         for name in ('MSVCP140.dll', 'VCRUNTIME140.dll', 'VCRUNTIME140_1.dll'):
             guest.copy(str(cli.parent / name), guest_root + '\\' + name)
-        if feature in ('service', 'startup-actions'):
+        if feature in ('service', 'startup-actions', 'process-threads'):
             guest.copy(str(Path(os.environ['LOCALAPPDATA']) / 'KSwordTestBuilds/CLI-R3/R3Fixture.exe'), guest_root + r'\R3Fixture.exe')
         for name in ('Test-KSwordCliR3.ps1', 'KswordCliR3TestSupport.ps1'):
             guest.copy(str(ROOT / 'tools' / name), guest_root + '\\' + name)

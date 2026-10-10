@@ -187,13 +187,17 @@ ProcessDetailActionResult SuspendDetailThread(DWORD threadId, ULONGLONG expected
                 result.statusText = L"● " + identityError;
                 return result;
             }
+            result.identityMatched = true;
             const DWORD previousCount = ::SuspendThread(verifiedThread.get());
             const DWORD error = previousCount == static_cast<DWORD>(-1) ? ::GetLastError() : ERROR_SUCCESS;
+            result.win32ErrorKnown = true; result.win32Error = error;
             if (error != ERROR_SUCCESS) {
                 result.statusText = L"● " + Win32ErrorText(L"SuspendThread", error);
                 return result;
             }
+            result.requestSucceeded = true;
             result.refreshRequired = true;
+            result.previousSuspendCountKnown = true; result.previousSuspendCount = previousCount;
             result.statusText = L"● 已挂起线程 " + DecimalText(threadId) +
                 L"（原挂起计数 " + DecimalText(previousCount) + L"）";
             return result;
@@ -217,13 +221,17 @@ ProcessDetailActionResult ResumeDetailThread(DWORD threadId, ULONGLONG expectedT
                 result.statusText = L"● " + identityError;
                 return result;
             }
+            result.identityMatched = true;
             const DWORD previousCount = ::ResumeThread(verifiedThread.get());
             const DWORD error = previousCount == static_cast<DWORD>(-1) ? ::GetLastError() : ERROR_SUCCESS;
+            result.win32ErrorKnown = true; result.win32Error = error;
             if (error != ERROR_SUCCESS) {
                 result.statusText = L"● " + Win32ErrorText(L"ResumeThread", error);
                 return result;
             }
+            result.requestSucceeded = true;
             result.refreshRequired = true;
+            result.previousSuspendCountKnown = true; result.previousSuspendCount = previousCount;
             result.statusText = L"● 已恢复线程 " + DecimalText(threadId) +
                 L"（原挂起计数 " + DecimalText(previousCount) + L"）";
             return result;
@@ -247,12 +255,15 @@ ProcessDetailActionResult TerminateDetailThread(DWORD threadId, ULONGLONG expect
                 result.statusText = L"● " + identityError;
                 return result;
             }
+            result.identityMatched = true;
             const BOOL terminated = ::TerminateThread(verifiedThread.get(), 1);
             const DWORD error = terminated ? ERROR_SUCCESS : ::GetLastError();
+            result.win32ErrorKnown = true; result.win32Error = error;
             if (!terminated) {
                 result.statusText = L"● " + Win32ErrorText(L"TerminateThread", error);
                 return result;
             }
+            result.requestSucceeded = true;
             result.refreshRequired = true;
             result.statusText = L"● 已请求终止线程 " + DecimalText(threadId);
             return result;
@@ -276,17 +287,23 @@ ProcessDetailActionResult SetDetailThreadAffinity(DWORD threadId, ULONGLONG expe
                     result.statusText = L"● 设置线程亲和性失败 | " + identityError;
                     return result;
                 }
+                result.identityMatched = true;
                 std::string detailText;
+                ksword::thread_affinity_r3::SetOutcome outcome;
                 if (!ksword::thread_affinity_r3::SetThreadAffinityRule(
                         threadId,
                         targetProcessId,
                         expectedThreadCreationTime100ns,
                         rule,
-                        &detailText)) {
+                        &detailText, &outcome)) {
+                    result.writeAttempted = outcome.writeAttempted; result.writeSucceeded = outcome.writeSucceeded;
+                    result.verified = outcome.verified; result.rollbackAttempted = outcome.rollbackAttempted; result.rollbackSucceeded = outcome.rollbackSucceeded;
                     result.statusText = L"● 设置线程亲和性失败 | " +
                         (detailText.empty() ? L"R3 API 调用失败。" : Utf8ToWide(detailText));
                     return result;
                 }
+                result.requestSucceeded = true;
+                result.writeAttempted = outcome.writeAttempted; result.writeSucceeded = outcome.writeSucceeded; result.verified = outcome.verified;
                 result.refreshRequired = true;
                 result.statusText = L"● 已通过 R3 更新线程 " + DecimalText(threadId) +
                     L" 的 CPU Set 亲和性。";

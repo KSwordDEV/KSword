@@ -326,4 +326,14 @@
     <ClInclude Include="..\shared\usermode\backend\process\ProcessBasicInfoSupport.h" />
     <ClInclude Include="..\shared\usermode\backend\process\ProcessDetailTypes.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessThreads.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessThreads.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ThreadActions.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessThreadsSupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ThreadActions.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ThreadActionSupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\DetailActionTypes.h" />
+    <ClInclude Include="..\shared\ThreadAffinityR3.h" />
+  </ItemGroup>
 </Project>

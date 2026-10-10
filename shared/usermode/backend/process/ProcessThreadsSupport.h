@@ -25,5 +25,6 @@ Fn ResolveProc(HMODULE module, const char* name) {
     return module ? reinterpret_cast<Fn>(::GetProcAddress(module, name)) : nullptr;
 }
 NtThreadApi LoadNtThreadApi();
-std::vector<ProcessThreadInfo> CollectThreads(DWORD processId, bool& succeededOut, std::wstring& statusOut);
+struct ThreadEnumerationEvidence { bool complete = false; DWORD win32Error = ERROR_SUCCESS; DWORD skippedCount = 0; };
+std::vector<ProcessThreadInfo> CollectThreads(DWORD processId, bool& succeededOut, std::wstring& statusOut, ThreadEnumerationEvidence* evidence = nullptr);
 }

@@ -63,6 +63,8 @@ struct ProcessThreadInfo {
     DWORD suspendCount = 0;
     std::uintptr_t startAddress = 0;
     std::wstring statusText;
+    bool identityKnown = false, startAddressKnown = false, suspendCountKnown = false;
+    ProcessQueryEvidence queryEvidence, startEvidence, suspendEvidence;
 };
 
 // ProcessModuleInfo describes one module row. Inputs come from PSAPI module

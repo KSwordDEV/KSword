@@ -1,5 +1,6 @@
 #include <Windows.h>
 #include <cwchar>
+#include "ThreadFixture.h"
 
 namespace {
 SERVICE_STATUS_HANDLE statusHandle;
@@ -28,6 +29,7 @@ void WINAPI serviceMain(DWORD count,LPWSTR* args) {
 }
 }
 int wmain(int argc,wchar_t* argv[]) {
+    if(argc==3 && std::wcscmp(argv[1],L"--threads")==0) return RunThreadFixture(argv[2]);
     if(argc!=2 || std::wcscmp(argv[1],L"--service")!=0) return ERROR_INVALID_PARAMETER;
     SERVICE_TABLE_ENTRYW table[]={{const_cast<LPWSTR>(L"KswordCliFixture"),serviceMain},{nullptr,nullptr}};
     return StartServiceCtrlDispatcherW(table) ? 0 : static_cast<int>(GetLastError());

@@ -11,5 +11,12 @@ struct ProcessDetailActionResult {
         std::wstring dialogTitle;
         std::wstring dialogText;
         UINT dialogIcon = 0;
+        bool requestSucceeded = false, identityMatched = false;
+        bool win32ErrorKnown = false;
+        DWORD win32Error = ERROR_SUCCESS;
+        bool previousSuspendCountKnown = false;
+        DWORD previousSuspendCount = 0;
+        bool writeAttempted = false, writeSucceeded = false, verified = false;
+        bool rollbackAttempted = false, rollbackSucceeded = false;
     };
 }

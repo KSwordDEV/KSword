@@ -85,6 +85,12 @@ namespace ksword::thread_affinity_r3
         std::vector<LogicalProcessorCoordinate> processors;
     };
 
+    struct SetOutcome
+    {
+        bool writeAttempted = false, writeSucceeded = false, verified = false;
+        bool rollbackAttempted = false, rollbackSucceeded = false;
+    };
+
     inline void normalizeCoordinates(
         std::vector<LogicalProcessorCoordinate>* const coordinates)
     {
@@ -632,7 +638,8 @@ namespace ksword::thread_affinity_r3
         inline bool setLegacyAffinity(
             const HANDLE threadHandle,
             const Rule& requestedRule,
-            std::string* const detailTextOut)
+            std::string* const detailTextOut,
+            SetOutcome* const outcome = nullptr)
         {
             GROUP_AFFINITY currentAffinity{};
             if (::GetThreadGroupAffinity(threadHandle, &currentAffinity) == FALSE ||
@@ -675,8 +682,11 @@ namespace ksword::thread_affinity_r3
 
             GROUP_AFFINITY requestedAffinity = currentAffinity;
             requestedAffinity.Mask = requestedMask;
-            if (currentAffinity.Mask != requestedMask &&
-                ::SetThreadGroupAffinity(threadHandle, &requestedAffinity, nullptr) == FALSE)
+            if (outcome) outcome->writeAttempted = currentAffinity.Mask != requestedMask;
+            const bool setOk = currentAffinity.Mask == requestedMask ||
+                ::SetThreadGroupAffinity(threadHandle, &requestedAffinity, nullptr) != FALSE;
+            if (outcome) outcome->writeSucceeded = setOk;
+            if (!setOk)
             {
                 if (detailTextOut != nullptr)
                 {
@@ -746,8 +756,10 @@ namespace ksword::thread_affinity_r3
         const DWORD expectedOwnerProcessId,
         const std::uint64_t expectedCreationTime100ns,
         const Rule& sourceRule,
-        std::string* const detailTextOut)
+        std::string* const detailTextOut,
+        SetOutcome* const outcome = nullptr)
     {
+        if (outcome) *outcome = {};
         Rule rule = sourceRule;
         normalizeCoordinates(&rule.processors);
         if (!rule.followProcessCpuSets && rule.processors.empty())
@@ -778,7 +790,7 @@ namespace ksword::thread_affinity_r3
             functions.setThreadSelectedCpuSets != nullptr;
         if (!cpuSetsAvailable)
         {
-            return detail::setLegacyAffinity(threadHandle.get(), rule, detailTextOut);
+            return detail::setLegacyAffinity(threadHandle.get(), rule, detailTextOut, outcome);
         }
 
         Snapshot currentSnapshot;
@@ -832,10 +844,12 @@ namespace ksword::thread_affinity_r3
             return false;
         }
 
+        if (outcome) outcome->writeAttempted = true;
         const BOOL setOk = functions.setThreadSelectedCpuSets(
             threadHandle.get(),
             rule.followProcessCpuSets ? nullptr : requestedCpuSetIds.data(),
             rule.followProcessCpuSets ? 0U : static_cast<ULONG>(requestedCpuSetIds.size()));
+        if (outcome) outcome->writeSucceeded = setOk != FALSE;
         if (setOk == FALSE)
         {
             if (detailTextOut != nullptr)
@@ -859,12 +873,14 @@ namespace ksword::thread_affinity_r3
         const bool verifyMatches = verifyOk && verifiedCpuSetIds == expectedCpuSetIds;
         if (!verifyMatches)
         {
+            if (outcome) outcome->rollbackAttempted = true;
             const std::vector<ULONG> rollbackCpuSetIds(
                 previousCpuSetIds.begin(), previousCpuSetIds.end());
             const BOOL rollbackOk = functions.setThreadSelectedCpuSets(
                 threadHandle.get(),
                 rollbackCpuSetIds.empty() ? nullptr : rollbackCpuSetIds.data(),
                 static_cast<ULONG>(rollbackCpuSetIds.size()));
+            if (outcome) outcome->rollbackSucceeded = rollbackOk != FALSE;
             if (detailTextOut != nullptr)
             {
                 *detailTextOut = verifyOk
@@ -875,6 +891,8 @@ namespace ksword::thread_affinity_r3
             }
             return false;
         }
+
+        if (outcome) outcome->verified = true;
 
         if (detailTextOut != nullptr)
         {

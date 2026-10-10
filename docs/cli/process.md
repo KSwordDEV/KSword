@@ -143,3 +143,36 @@ priority-class 为 Win32 优先级常量。io-bytes 是读、写、其他 I/O �
 父进程可能已经退出，因此 parent-name 可不可用；名称快照和统计并非同一瞬间的原子视图。
 读取命令行需要 PROCESS_VM_READ；受保护进程或跨架构布局限制可能使该字段不可用。
 全部字段有可靠证据返回 0，部分返回 6，全无证据返回 5。后端的“打开成功”不能替代各字段可用性。
+
+## 线程（迁移项 24）
+
+```powershell
+KswordCLI.exe process thread enum --pid PID [--creation-time FILETIME] [--tid TID] [--limit N] [--backend r3] [--json]
+KswordCLI.exe process thread affinity query --pid PID --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] [--backend r3] [--json]
+KswordCLI.exe process thread suspend --pid PID --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] --confirm [--backend r3] [--json]
+KswordCLI.exe process thread resume --pid PID --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] --confirm [--backend r3] [--json]
+KswordCLI.exe process thread terminate --pid PID --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] --confirm [--backend r3] [--json]
+KswordCLI.exe process thread set-affinity --pid PID --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] --processors GROUP:INDEX[,GROUP:INDEX]|follow --confirm [--backend r3] [--json]
+```
+
+用 `help process thread` 发现直接子命令，`help process thread affinity` 发现亲和性查询；叶子 help 才显示参数。
+所有命令默认 R3，无驱动依赖。enum 保留进程身份句柄，输出 complete、skippedCount、matchedCount、returnedCount、truncated、threads。
+线程行含 tid、pid、creationTime、basePriority、deltaPriority、startAddress、suspendCount，以及 identityEvidence／startEvidence／suspendEvidence。
+计数不再使用后端原来的固定零值：suspendCount 通过原生只读查询取得，失败为 null。优先级有符号；地址为十六进制字符串，创建时间为 FILETIME 十进制字符串。
+查询起始地址先申请 THREAD_QUERY_INFORMATION，权限不足时仍以有限权限保留身份信息；原始 NTSTATUS 与 Win32 错误独立输出。
+limit 默认 1000 且必须正数。输出截断、缺字段或跳过已变更所属进程的快照行返回 6；有效空筛选返回 0。
+枚举中目标进程退出返回 3，快照失败返回 3；快照中途错误保留已采集结果并返回 6。
+
+动作和亲和性查询必须传入枚举所得 thread-creation-time。CLI 与共享动作后端均核对线程所有者、线程创建时间和进程创建时间，
+保留双方句柄直到操作及回读完成；身份不匹配或目标退出返回 3，避免对复用 TID 操作。
+suspend／resume 只增减一次挂起计数；输出 previousSuspendCount 及 observed.before／after，resume 原计数为 0 时保持 0。
+terminate 使用后端退出码 1，等待至多两秒，在原线程句柄上确认退出与实际 exitCode。
+requestSucceeded 表示动作请求成功，verified 表示效果回读匹配；请求成功但证据不完整返回 6，失败返回 3。
+
+affinity query 输出 usesCpuSets、followsProcess 和 processors（group、logicalIndex、cpuSetId、coreIndex、efficiencyClass、available、selected、parked、constrained）。
+set-affinity 以 group:index 坐标选择处理器，拒绝重复、空项和越界坐标；follow 清除线程独立 CPU Set 规则。
+CPU Sets 不可用时共享后端回退当前处理器组的 group affinity，此时 follow 选择该组活动处理器掩码。
+CPU Set 设置后的回读失败会尝试恢复旧选择；输出 writeAttempted、writeSucceeded、rollbackAttempted、rollbackSucceeded、rollbackVerified。
+rollbackSucceeded 记录回滚 API 结果，rollbackVerified 另行对比设置前后的选择；写入后未确认恢复旧状态返回 6，不能当成未写入的普通失败。
+原始错误后端未提供时为 null，保留诊断文字但不解析它推导状态。
+跨处理器组的传统亲和性设置不支持；选择平台不可用的坐标在写入前失败。
