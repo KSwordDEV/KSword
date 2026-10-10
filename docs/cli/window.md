@@ -1,5 +1,21 @@
 # 窗口 R3 命令
 
+## 窗口层级与属性（迁移项 39）
+
+```powershell
+KswordCLI.exe window hierarchy help
+KswordCLI.exe help window hierarchy query
+KswordCLI.exe window hierarchy query --hwnd 0x123456 --json
+```
+
+`window hierarchy query` 要求非零 `--hwnd`，可选 `--pid`、`--tid`、`--creation-time`（正数，要求 pid）、`--thread-creation-time`（正数，要求 tid）、`--backend r3`、`--json`。使用共享 Win32 后端读取当前调用方桌面的父／根／根所有者／所有者关系、相邻顶层窗口、样式及解码位、类原子／过程／额外字节、几何、DPI 上下文、DWM 遮蔽／扩展边框、显示亲和性和 layered 属性，不遍历 UIA、切换桌面或转入 R0。
+
+data 保留 hwnd、pid/tid、identityMatched、remoteProcedureValuesOpaque、fieldCount/unavailableFieldCount、parentChain、parentChainComplete/Cycle/Limited/Win32Error、topLevelZIndexZeroBased/topLevelZCount、zComplete/Cycle/Limited/Win32Error、fields。字段提供 name、available、notApplicable、value、errorDomain、error；不可用与不适用均为 null，原始 HWND／地址／标志为十六进制字符串，数量为十进制字符串，矩形／点保留有符号坐标。祖先链最多 32 项，顶层 Z 序最多 100000 项／8 秒（原生调用间检查），均检测循环；Z 序索引从零开始，仅是读取时的快照。GetParent 对顶层 popup 可返回所有者，GetAncestor(GA_PARENT) 的父链、GA_ROOT 与 GA_ROOTOWNER 分别输出，不混用。
+
+窗口／客户区矩形遵循调用方 DPI 上下文；clientRect 使用客户区坐标，clientOriginScreen 提供客户区原点的屏幕坐标，DWM 扩展边框使用物理屏幕像素。缺少 DPI／DWM API 不猜测 DPI=96 或 cloak=0；非固定上下文的 contextDpi=0 记为不适用。callerClassRegistration 是调用方模块／系统类可见的查询，不代表远程类注册所有权；跨进程过程地址可能是系统代理，不能据此推断 subclass 或 Hook。亲和性／DWM 对子窗口等目标不可读时保留原始错误。
+
+有效完整读取为 0；字段缺失、循环／预算、Z 序未找到根窗口为 6；目标消失、身份不匹配或读取期间归属变化为 3。前后复核 PID/TID 与可获取的创建时间；同一线程重用 HWND 无 Win32 创建代次，仍是限制。帮助不查询窗口或打开驱动。测试自建主窗口、子控件和 owned popup，通过独立 SDK 核对关系／样式／几何／DPI，并验证不可用字段、错误身份、退出目标与故障夹具的预算／循环。原生定义见 [GetAncestor](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getancestor)、[GetClassLongPtrW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getclasslongptrw)、[GetDpiFromDpiAwarenessContext](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getdpifromdpiawarenesscontext)。
+
 ## 枚举与管理（迁移项 36）
 
 ```powershell

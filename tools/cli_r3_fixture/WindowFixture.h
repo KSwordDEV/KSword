@@ -1,2 +1,2 @@
 #pragma once
-int RunWindowFixture(const wchar_t* statePath,bool ignoreClose,bool hung);
+int RunWindowFixture(const wchar_t* statePath,bool ignoreClose,bool hung,bool hierarchy=false);

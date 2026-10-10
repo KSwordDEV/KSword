@@ -312,4 +312,13 @@
     <ClCompile Include="..\shared\usermode\backend\window\CaptureProtection.cpp" />
     <ClInclude Include="..\shared\usermode\backend\window\CaptureProtection.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3WindowHierarchy.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\WindowHierarchy.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\WindowHierarchySupport.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\PointerText.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowHierarchy.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowHierarchySupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\PointerText.h" />
+  </ItemGroup>
 </Project>

@@ -5,6 +5,7 @@
 #include <string>
 namespace {
 HWND mainWindow=nullptr,hungWindow=nullptr;
+HWND childWindow=nullptr,ownedWindow=nullptr;
 DWORD hungTid=0,closeMessages=0;
 std::wstring statePath;
 bool ignoreClose=false;
@@ -19,7 +20,8 @@ void state(){
     const auto primaryTime=primary?created(primary,true):0;if(primary)CloseHandle(primary);
     std::ostringstream out;out<<"{\"pid\":"<<GetCurrentProcessId()<<",\"tid\":"<<primaryTid<<",\"hwnd\":\"0x"<<std::hex<<reinterpret_cast<std::uintptr_t>(mainWindow)
         <<"\",\"hungWindow\":\"0x"<<reinterpret_cast<std::uintptr_t>(hungWindow)<<std::dec<<"\",\"hungTid\":"<<hungTid
-        <<",\"processCreationTime\":\""<<created(GetCurrentProcess(),false)<<"\",\"threadCreationTime\":\""<<primaryTime
+        <<",\"childWindow\":\"0x"<<std::hex<<reinterpret_cast<std::uintptr_t>(childWindow)<<"\",\"ownedWindow\":\"0x"<<reinterpret_cast<std::uintptr_t>(ownedWindow)<<std::dec
+        <<"\",\"processCreationTime\":\""<<created(GetCurrentProcess(),false)<<"\",\"threadCreationTime\":\""<<primaryTime
         <<"\",\"hungThreadCreationTime\":\""<<threadTime<<"\",\"closeMessages\":"<<closeMessages<<'}';
     const auto bytes=out.str();const auto temporary=statePath+L"."+std::to_wstring(GetCurrentThreadId())+L".tmp";
     const auto file=CreateFileW(temporary.c_str(),GENERIC_WRITE,FILE_SHARE_READ,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
@@ -35,11 +37,16 @@ LRESULT CALLBACK procedure(HWND hwnd,UINT message,WPARAM w,LPARAM l){
 DWORD WINAPI stalled(void* event){hungTid=GetCurrentThreadId();hungWindow=CreateWindowExW(0,L"KswordCliWindowFixture",L"Unresponsive fixture",WS_OVERLAPPEDWINDOW,20,20,250,160,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
     SetEvent(static_cast<HANDLE>(event));Sleep(120000);return 0;}
 }
-int RunWindowFixture(const wchar_t* path,bool ignore,bool hung){
+int RunWindowFixture(const wchar_t* path,bool ignore,bool hung,bool hierarchy){
     statePath=path;ignoreClose=ignore;WNDCLASSW cls{};cls.lpfnWndProc=procedure;cls.hInstance=GetModuleHandleW(nullptr);cls.lpszClassName=L"KswordCliWindowFixture";
     if(!RegisterClassW(&cls))return static_cast<int>(GetLastError());
     mainWindow=CreateWindowExW(0,cls.lpszClassName,L"KSword CLI window fixture",WS_OVERLAPPEDWINDOW,10,10,320,220,nullptr,nullptr,cls.hInstance,nullptr);
     if(!mainWindow)return static_cast<int>(GetLastError());ShowWindow(mainWindow,SW_SHOWNORMAL);
+    if(hierarchy){
+        childWindow=CreateWindowExW(0,L"STATIC",L"Hierarchy child",WS_CHILD|WS_VISIBLE|WS_GROUP|WS_TABSTOP,20,30,80,40,mainWindow,nullptr,cls.hInstance,nullptr);
+        ownedWindow=CreateWindowExW(WS_EX_TOOLWINDOW,cls.lpszClassName,L"Hierarchy owned popup",WS_POPUP|WS_VISIBLE,50,50,100,70,mainWindow,nullptr,cls.hInstance,nullptr);
+        if(!childWindow||!ownedWindow)return static_cast<int>(GetLastError());
+    }
     HANDLE ready=nullptr,thread=nullptr;
     if(hung){ready=CreateEventW(nullptr,TRUE,FALSE,nullptr);thread=CreateThread(nullptr,0,stalled,ready,0,nullptr);
         if(!thread||WaitForSingleObject(ready,5000)!=WAIT_OBJECT_0)return ERROR_TIMEOUT;}

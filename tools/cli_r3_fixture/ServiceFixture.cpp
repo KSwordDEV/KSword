@@ -32,6 +32,7 @@ void WINAPI serviceMain(DWORD count,LPWSTR* args) {
 }
 }
 int wmain(int argc,wchar_t* argv[]) {
+    if(argc==3 && std::wcscmp(argv[1],L"--windows-hierarchy")==0) return RunWindowFixture(argv[2],false,false,true);
     if(argc==3 && std::wcscmp(argv[1],L"--windows")==0) return RunWindowFixture(argv[2],false,false);
     if(argc==3 && std::wcscmp(argv[1],L"--windows-ignore-close")==0) return RunWindowFixture(argv[2],true,false);
     if(argc==3 && std::wcscmp(argv[1],L"--windows-hung")==0) return RunWindowFixture(argv[2],false,true);
