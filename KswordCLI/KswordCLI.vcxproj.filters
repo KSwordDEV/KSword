@@ -108,4 +108,9 @@
     <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearch.cpp" />
     <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearchModel.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3RegistryMutations.cpp" />
+    <ClCompile Include="R3Input.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistryMutations.cpp" />
+  </ItemGroup>
 </Project>

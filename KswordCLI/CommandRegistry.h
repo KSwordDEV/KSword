@@ -46,6 +46,12 @@ public:
 private:
     bool registered = false;
 };
+struct Payload {
+    std::vector<std::uint8_t> bytes;
+    std::uint32_t win32Error = 0;
+};
+Payload readPayloadFile(const std::wstring& path);
+std::vector<std::uint8_t> parseHexPayload(const std::wstring& text);
 struct Command {
     std::wstring path, syntax, summary, options, notes;
     std::function<Result(const Args&)> run;
@@ -67,4 +73,5 @@ void registerNetworkEndpointAudit();
 void registerService();
 void registerRegistryBrowse();
 void registerRegistrySearch();
+void registerRegistryMutations();
 }

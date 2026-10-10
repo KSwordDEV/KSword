@@ -61,6 +61,7 @@ struct RegistryOperationResult {
     std::wstring statusText;
     std::vector<std::uint8_t> data;
     std::uint32_t valueType = 0;
+    bool partial = false, unchanged = false, dispositionKnown = false, created = false;
 };
 
 // RegistryPathInfo is the parsed form of a user path. Inputs are root aliases

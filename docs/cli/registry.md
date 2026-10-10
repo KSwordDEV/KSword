@@ -41,3 +41,31 @@ KswordCLI.exe registry search query --path PATH --query TEXT [--max-keys N] [--m
 预览被截断或根本未读取的大值仍保留标记，结果不声称已经搜索了未读取的完整数据。
 预算边界、深度截断、部分读取失败或 Ctrl+C 取消返回 6；完全读取失败返回 3；完成且无读取失败返回 0。
 没有命中的完整搜索是成功。Win32 错误来自实际系统调用，不解析显示文本来决定退出码。
+
+## 修改（迁移项 10）
+
+```powershell
+KswordCLI.exe registry key create --path PATH --confirm [--backend r3] [--json]
+KswordCLI.exe registry key delete --path PATH --confirm [--backend r3] [--json]
+KswordCLI.exe registry value set --path PATH [--name NAME] --type sz|expand-sz|multi-sz|dword|qword|binary|none|N (--text TEXT | --hex HEX | --data-file PATH) --confirm [--backend r3] [--json]
+KswordCLI.exe registry value delete --path PATH [--name NAME] --confirm [--backend r3] [--json]
+KswordCLI.exe registry value rename --path PATH --old-name NAME --new-name NAME --confirm [--backend r3] [--json]
+```
+
+所有修改都要求 confirm；创建可打开已有键，created 区分新建与已有。删除键递归删除非根键树，不支持删除预定义根。
+value set 三种载荷互斥。text 支持 SZ/EXPAND_SZ 字符串、分号分隔 MULTI_SZ、十进制／0x 前缀 DWORD 和 QWORD。
+hex 接受完整字节、可选单个 0x 前缀和空格；data-file 提供不转换的原始字节，沿用 CLI 64MiB 载荷上限。
+数字 type 保留原始 REG 类型。Binary/None 等原始类型使用 hex 或 data-file；空载荷可写入有效空值。
+省略 name 或指定空名称表示默认值。原始字符串字节以 UTF-16LE 提供，text 形式自动补充字符串终止符。
+
+结果含 requestSucceeded、win32Error、partial、unchanged、verified 和 result。
+每个修改后调用共享 R3 读取后端验证实际字节／类型、键存在或值缺失。系统调用成功但回读未确认返回 6；
+完整确认返回 0；实际操作失败返回 3／不支持返回 5。载荷文件读取失败保留 dataFileWin32Error，并不进行注册表写入。
+
+值重命名复用“读取、写新名称、删除旧名称”的现有实现，可能覆盖新名称已有值，且不是原子事务。
+写新值成功、删除旧值失败标记 partial 并返回 6。大小写不敏感的同名重命名为 unchanged，保留原值。
+R3 键重命名尚未实现，本轮不发布跳过式命令；原 R0 rename-key 命令仍保留。
+
+原有 create-key/delete-key/set-value/delete-value/rename-value 可用 `--backend r3` 选择同一实现：
+路径参数为 key，值参数为 value，重命名参数为 old-value/new-value，其他 R3 参数同上。
+省略 backend 或指定 r0 保留原语法、行为和输出；具体 help 同时列出两种语法。

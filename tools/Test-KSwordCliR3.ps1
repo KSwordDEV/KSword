@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service','registry-browse','registry-search')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
+﻿param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service','registry-browse','registry-search','registry-mutations')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\KswordCliR3TestSupport.ps1"
 switch ($Feature) {
@@ -299,6 +299,75 @@ switch ($Feature) {
                 $defaults=(Invoke-Cli @('registry','search','query','--path',$path,'--query','needle','--max-keys','0','--max-depth','1000','--json')) | ConvertFrom-Json
                 Assert ($defaults.data.effectiveBudgets.keys -eq '2000' -and $defaults.data.effectiveBudgets.depth -eq '32') 'Backend budget normalization'
             } finally {$root.Dispose();[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($sub,$false)}
+        }
+    }
+    'registry-mutations' {
+        $help=Invoke-Cli @('help','registry','value','set')
+        Assert ($help.Contains('--hex') -and $help.Contains('--text') -and $help.Contains('--confirm')) 'Registry mutation help'
+        Assert ((Invoke-Cli @('registry','value','set','--help')) -eq $help) 'Mutation inline help'
+        Assert ((Invoke-Cli @('help','registry','set-value')).Contains('Default/R0 syntax')) 'Mutation legacy backend help'
+        foreach ($bad in @(
+            @('registry','key','create','--path','HKCU\Software\KSwordCliMustNotCreate','--json'),
+            @('registry','key','delete','--path','HKCU','--confirm','--json'),
+            @('registry','value','set','--path','HKCU','--type','binary','--hex','gg','--confirm','--json'),
+            @('registry','value','set','--path','HKCU','--type','binary','--hex','0','--confirm','--json'),
+            @('registry','value','set','--path','HKCU','--type','binary','--hex','00','--text','x','--confirm','--json'),
+            @('registry','value','set','--path','HKCU','--type','invalid','--hex','00','--confirm','--json'),
+            @('registry','value','set','--path','HKCU','--type','binary','--text','x','--confirm','--json'),
+            @('registry','key','create','--path','HKCU','--confirm','--backend','r0','--json'),
+            @('registry','value','delete','--path','HKCU','--unknown','x','--confirm','--json')
+        )) { Assert (((Invoke-Cli $bad 1) | ConvertFrom-Json).status -eq 'failed') 'Mutation invalid arguments' }
+        $fileError=(Invoke-Cli @('registry','value','set','--path','HKCU','--name','KSwordCliMustNotWrite','--type','binary','--data-file','C:\KSwordCliMissing-762114.bin','--confirm','--json') 3) | ConvertFrom-Json
+        Assert ($fileError.data.dataFileWin32Error -eq 2) 'Input failure must precede mutation'
+        if ($InGuest) {
+            $sub='Software\KSwordCliMutation-'+[Guid]::NewGuid().ToString('N')
+            $path='HKCU\'+$sub
+            $payload=Join-Path $PSScriptRoot ('RegistryPayload-'+[Guid]::NewGuid().ToString('N')+'.bin')
+            try {
+                $create=(Invoke-Cli @('registry','key','create','--path',$path,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($create.data.verified -and $create.data.result.created) 'Registry key create'
+                $oracle=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($sub)
+                Assert ($null -ne $oracle) 'Independent created-key oracle';$oracle.Dispose()
+                $reopen=(Invoke-Cli @('registry','create-key','--key',$path,'--backend','r3','--confirm','--json')) | ConvertFrom-Json
+                Assert ($reopen.data.verified -and !$reopen.data.result.created) 'Create/open disposition'
+                foreach ($test in @(@('sz','String','测试 空格 "引号"\'),@('expand-sz','Expand','%TEMP%\文件'),@('multi-sz','Multi','one;two'),@('dword','Dword','0x12345678'),@('qword','Qword','18446744073709551615'))) {
+                    $written=(Invoke-Cli @('registry','value','set','--path',$path,'--name',$test[1],'--type',$test[0],'--text',$test[2],'--confirm','--json')) | ConvertFrom-Json
+                    Assert ($written.data.verified) 'Typed registry write'
+                }
+                $key=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($sub,$true)
+                try {
+                    Assert ($key.GetValue('String') -eq '测试 空格 "引号"\') 'Independent Unicode string'
+                    Assert ($key.GetValue('Expand',$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) -eq '%TEMP%\文件') 'Unexpanded raw value'
+                    Assert (($key.GetValue('Multi') -join ';') -eq 'one;two') 'Independent MULTI_SZ'
+                    Assert ($key.GetValue('Dword') -eq 305419896) 'Independent DWORD'
+                    Assert ($key.GetValue('Qword') -eq -1) 'Independent all-ones QWORD bytes'
+                } finally {$key.Dispose()}
+                $raw=(Invoke-Cli @('registry','set-value','--key',$path,'--value','Raw','--backend','r3','--type','3','--hex','00 ff 22 5c','--confirm','--json')) | ConvertFrom-Json
+                Assert ($raw.data.verified -and $raw.data.result.postcheck.dataHex -eq '00ff225c') 'Raw payload legacy alias'
+                [IO.File]::WriteAllBytes($payload,[byte[]]@(1,2,3,255))
+                $file=(Invoke-Cli @('registry','value','set','--path',$path,'--name','File','--type','binary','--data-file',$payload,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($file.data.verified -and $file.data.result.postcheck.dataHex -eq '010203ff') 'Raw file payload'
+                $empty=(Invoke-Cli @('registry','value','set','--path',$path,'--name','','--type','binary','--hex','','--confirm','--json')) | ConvertFrom-Json
+                Assert ($empty.data.verified -and $empty.data.result.postcheck.dataBytes -eq '0') 'Default empty value'
+                $rename=(Invoke-Cli @('registry','value','rename','--path',$path,'--old-name','Raw','--new-name','Renamed','--confirm','--json')) | ConvertFrom-Json
+                Assert ($rename.data.verified -and !$rename.data.result.oldPostcheck.present -and $rename.data.result.newPostcheck.dataHex -eq '00ff225c') 'Rename value and delete source'
+                $same=(Invoke-Cli @('registry','rename-value','--key',$path,'--old-value','Renamed','--new-value','renamed','--backend','r3','--confirm','--json')) | ConvertFrom-Json
+                Assert ($same.data.unchanged -and $same.data.verified -and $same.data.result.oldPostcheck.present) 'Same-name rename must preserve data'
+                $deleted=(Invoke-Cli @('registry','delete-value','--key',$path,'--value','Renamed','--backend','r3','--confirm','--json')) | ConvertFrom-Json
+                Assert ($deleted.data.verified -and !$deleted.data.result.postcheck.present) 'Delete value verification'
+                $missing=(Invoke-Cli @('registry','value','delete','--path',$path,'--name','Renamed','--confirm','--json') 3) | ConvertFrom-Json
+                Assert ($missing.data.win32Error -eq 2 -and !$missing.data.requestSucceeded) 'Repeated delete is a real failure'
+                $childPath=$path+'\Child\Grandchild'
+                Invoke-Cli @('registry','key','create','--path',$childPath,'--confirm','--json') | Out-Null
+                $tree=(Invoke-Cli @('registry','key','delete','--path',$path,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($tree.data.verified -and !$tree.data.result.postcheckPresent) 'Recursive deletion verification'
+                $oracle=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($sub)
+                Assert ($null -eq $oracle) 'Independent deleted-key oracle'
+                Invoke-Cli @('registry','create-key','--key',$path,'--backend','r0') 2 | Out-Null
+            } finally {
+                [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($sub,$false)
+                Remove-Item -LiteralPath $payload -ErrorAction SilentlyContinue
+            }
         }
     }
 }
