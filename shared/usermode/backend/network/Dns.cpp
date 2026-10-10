@@ -76,6 +76,7 @@ DiagnosticResult RunDnsLookup(const DiagnosticRequest& request) {
     PDNS_RECORD records = nullptr;
     const DNS_STATUS status = ::DnsQuery_W(
         request.target.c_str(), recordType, DNS_QUERY_STANDARD, nullptr, &records, nullptr);
+    result.win32Error = static_cast<std::uint32_t>(status);
     if (status != ERROR_SUCCESS) {
         if (records != nullptr) {
             ::DnsFree(records, DnsFreeRecordList);
@@ -91,6 +92,29 @@ DiagnosticResult RunDnsLookup(const DiagnosticRequest& request) {
     std::size_t count = 0;
     for (const DNS_RECORDW* cursor = records; cursor != nullptr; cursor = cursor->pNext) {
         ++count;
+        DiagnosticResult::DnsRecord entry;
+        entry.name = SafeName(cursor->pName); entry.type = cursor->wType;
+        entry.ttl = cursor->dwTtl; entry.dataLength = cursor->wDataLength;
+        entry.value = DnsRecordValueText(*cursor); entry.decoded = true;
+        switch (cursor->wType) {
+        case DNS_TYPE_A: case DNS_TYPE_AAAA: entry.textFields.push_back({L"address", entry.value}); break;
+        case DNS_TYPE_NS: case DNS_TYPE_CNAME: case DNS_TYPE_PTR:
+            entry.textFields.push_back({L"host", SafeName(cursor->Data.PTR.pNameHost)}); break;
+        case DNS_TYPE_MX:
+            entry.textFields.push_back({L"exchange", SafeName(cursor->Data.MX.pNameExchange)});
+            entry.numericFields.push_back({L"preference", cursor->Data.MX.wPreference}); break;
+        case DNS_TYPE_SRV:
+            entry.textFields.push_back({L"target", SafeName(cursor->Data.SRV.pNameTarget)});
+            entry.numericFields = {{L"port", cursor->Data.SRV.wPort}, {L"priority", cursor->Data.SRV.wPriority}, {L"weight", cursor->Data.SRV.wWeight}}; break;
+        case DNS_TYPE_SOA:
+            entry.textFields = {{L"primaryServer", SafeName(cursor->Data.SOA.pNamePrimaryServer)}, {L"administrator", SafeName(cursor->Data.SOA.pNameAdministrator)}};
+            entry.numericFields = {{L"serial", cursor->Data.SOA.dwSerialNo}, {L"refresh", cursor->Data.SOA.dwRefresh}, {L"retry", cursor->Data.SOA.dwRetry},
+                {L"expire", cursor->Data.SOA.dwExpire}, {L"minimumTtl", cursor->Data.SOA.dwDefaultTtl}}; break;
+        case DNS_TYPE_TEXT:
+            for (DWORD i = 0; i < cursor->Data.TXT.dwStringCount; ++i) entry.textSegments.push_back(SafeName(cursor->Data.TXT.pStringArray[i])); break;
+        default: entry.decoded = false; break;
+        }
+        result.records.push_back(std::move(entry));
         AppendLine(result.text, DnsTypeText(cursor->wType) + L"\t" + SafeName(cursor->pName) +
             L"\tTTL=" + std::to_wstring(cursor->dwTtl) + L"\t" + DnsRecordValueText(*cursor));
     }

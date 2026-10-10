@@ -22,8 +22,10 @@ struct InlineDiskBaseline {
 };
 std::wstring NormalizeKernelModulePath(const std::wstring& path);
 std::unordered_map<std::uint64_t, KernelModuleDiskInfo> QueryLoadedKernelModuleMap();
-bool ReadWholeBinaryFile(const std::wstring& path, std::vector<std::uint8_t>& bytesOut);
-bool RvaToFileOffset(const std::vector<std::uint8_t>& fileBytes, const std::uint32_t rva, const std::uint32_t bytesToRead, std::uint64_t& offsetOut);
+struct DiskReadEvidence {bool opened=false,sizeKnown=false,complete=false,limited=false,identityKnown=false,identityChanged=false,closeAttempted=false,closed=false;DWORD error=0,identityError=0,closeError=0;std::uint64_t size=0,bytesRead=0;BY_HANDLE_FILE_INFORMATION identity{};};
+struct RvaEvidence {bool validPe=false,mapped=false,malformed=false;WORD optionalMagic=0;};
+bool ReadWholeBinaryFile(const std::wstring& path, std::vector<std::uint8_t>& bytesOut,DiskReadEvidence* evidence=nullptr);
+bool RvaToFileOffset(const std::vector<std::uint8_t>& fileBytes, const std::uint32_t rva, const std::uint32_t bytesToRead, std::uint64_t& offsetOut,RvaEvidence* evidence=nullptr);
 InlineDiskBaseline ReadInlineDiskBaseline(
     const ksword::ark::KernelInlineHookEntry& entry,
     const std::unordered_map<std::uint64_t, KernelModuleDiskInfo>& modules,

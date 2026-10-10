@@ -49,4 +49,26 @@ std::wstring HresultText(const HRESULT status);
 std::wstring LayeredFlagsText(const DWORD flags);
 void AppendCompositionState(std::wstring& text, HWND hwnd);
 std::wstring BuildHierarchyReport(HWND hwnd);
+enum class HierarchyValueKind {Unsigned,Signed,Boolean,Pointer,Text,Rectangle,Point,Strings};
+struct HierarchyField {
+    std::wstring name,domain,text;
+    HierarchyValueKind kind = HierarchyValueKind::Unsigned;
+    bool available = false,notApplicable = false,errorKnown = false;
+    std::uint64_t number = 0;
+    std::int64_t signedNumber = 0;
+    RECT rectangle{};
+    POINT point{};
+    std::vector<std::wstring> strings;
+    DWORD error = 0;
+};
+struct HierarchySnapshot {
+    DWORD chainError = 0,zError = 0;
+    bool found = false,stable = false,chainComplete = false,chainCycle = false,chainLimited = false;
+    bool zComplete = false,zCycle = false,zLimited = false;
+    DWORD processId = 0,threadId = 0,zCount = 0;
+    int zIndex = -1;
+    std::vector<HWND> parentChain;
+    std::vector<HierarchyField> fields;
+};
+HierarchySnapshot QueryHierarchySnapshot(HWND hwnd);
 }

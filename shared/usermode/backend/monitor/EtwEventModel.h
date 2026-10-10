@@ -14,6 +14,7 @@ namespace ks::r3::monitor {
 // Inputs come from EVENT_RECORD metadata; processing is performed by
 // EtwSessionController; rows are later consumed by EtwMonitorView.
 struct EtwEvent {
+    std::uint64_t timestamp = 0;
     std::wstring timeText;
     std::wstring providerText;
     std::uint16_t eventId = 0;

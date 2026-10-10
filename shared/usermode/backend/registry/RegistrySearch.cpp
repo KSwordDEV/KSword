@@ -21,8 +21,9 @@ bool StopRegistrySearchIfCancelled(
     snapshot.stopReason = RegistrySearchStopReason::Cancelled;
     return true;
 }
-void RecordRegistrySearchReadFailure(RegistrySearchSnapshot& snapshot, const std::wstring& detail) {
+void RecordRegistrySearchReadFailure(RegistrySearchSnapshot& snapshot, const std::wstring& detail, const std::uint32_t error = 0) {
     ++snapshot.counters.readFailureCount;
+    if(snapshot.firstWin32Error==0) snapshot.firstWin32Error=error;
     if (snapshot.errorText.empty()) {
         snapshot.errorText = detail;
     }
@@ -150,18 +151,18 @@ RegistrySearchSnapshot SearchRegistryWinApi(
                 snapshot,
                 L"RegOpenKeyExW failed for values/subkeys at " + current.path.displayPath +
                     L": values=" + std::to_wstring(valueOpenStatus) +
-                    L", subkeys=" + std::to_wstring(subKeyOpenStatus));
+                    L", subkeys=" + std::to_wstring(subKeyOpenStatus), static_cast<std::uint32_t>(subKeyOpenStatus));
             continue;
         }
         if (!valueKey.valid()) {
             RecordRegistrySearchReadFailure(
                 snapshot,
-                L"RegOpenKeyExW(value access) failed for " + current.path.displayPath + L": " + std::to_wstring(valueOpenStatus));
+                L"RegOpenKeyExW(value access) failed for " + current.path.displayPath + L": " + std::to_wstring(valueOpenStatus), static_cast<std::uint32_t>(valueOpenStatus));
         }
         if (!subKey.valid()) {
             RecordRegistrySearchReadFailure(
                 snapshot,
-                L"RegOpenKeyExW(subkey access) failed for " + current.path.displayPath + L": " + std::to_wstring(subKeyOpenStatus));
+                L"RegOpenKeyExW(subkey access) failed for " + current.path.displayPath + L": " + std::to_wstring(subKeyOpenStatus), static_cast<std::uint32_t>(subKeyOpenStatus));
         }
 
         RegistrySearchCandidate keyCandidate;
@@ -183,7 +184,7 @@ RegistrySearchSnapshot SearchRegistryWinApi(
             if (valueInfoStatus != ERROR_SUCCESS) {
                 RecordRegistrySearchReadFailure(
                     snapshot,
-                    L"RegQueryInfoKeyW(value access) failed for " + current.path.displayPath + L": " + std::to_wstring(valueInfoStatus));
+                    L"RegQueryInfoKeyW(value access) failed for " + current.path.displayPath + L": " + std::to_wstring(valueInfoStatus), static_cast<std::uint32_t>(valueInfoStatus));
             } else if (maxValueName > kRegistrySearchMaxNameChars) {
                 RecordRegistrySearchReadFailure(
                     snapshot,
@@ -219,7 +220,7 @@ RegistrySearchSnapshot SearchRegistryWinApi(
                     if (enumStatus != ERROR_SUCCESS) {
                         RecordRegistrySearchReadFailure(
                             snapshot,
-                            L"RegEnumValueW failed for " + current.path.displayPath + L": " + std::to_wstring(enumStatus));
+                            L"RegEnumValueW failed for " + current.path.displayPath + L": " + std::to_wstring(enumStatus), static_cast<std::uint32_t>(enumStatus));
                         continue;
                     }
 
@@ -246,7 +247,7 @@ RegistrySearchSnapshot SearchRegistryWinApi(
                     if (sizeStatus != ERROR_SUCCESS) {
                         RecordRegistrySearchReadFailure(
                             snapshot,
-                            L"RegQueryValueExW(size) failed for " + current.path.displayPath + L": " + std::to_wstring(sizeStatus));
+                            L"RegQueryValueExW(size) failed for " + current.path.displayPath + L": " + std::to_wstring(sizeStatus), static_cast<std::uint32_t>(sizeStatus));
                         valueCandidate.dataPreview = L"<数据预览不可读取>";
                     } else {
                         valueCandidate.valueTypeText = RegistryTypeText(queriedType);
@@ -266,7 +267,7 @@ RegistrySearchSnapshot SearchRegistryWinApi(
                             if (dataStatus != ERROR_SUCCESS) {
                                 RecordRegistrySearchReadFailure(
                                     snapshot,
-                                    L"RegQueryValueExW(data) failed for " + current.path.displayPath + L": " + std::to_wstring(dataStatus));
+                                    L"RegQueryValueExW(data) failed for " + current.path.displayPath + L": " + std::to_wstring(dataStatus), static_cast<std::uint32_t>(dataStatus));
                                 if (dataStatus == ERROR_MORE_DATA && readDataBytes > valueCandidate.dataByteCount) {
                                     valueCandidate.dataByteCount = readDataBytes;
                                 }
@@ -329,7 +330,7 @@ RegistrySearchSnapshot SearchRegistryWinApi(
             } else {
                 RecordRegistrySearchReadFailure(
                     snapshot,
-                    L"RegEnumKeyExW(depth probe) failed for " + current.path.displayPath + L": " + std::to_wstring(depthProbeStatus));
+                    L"RegEnumKeyExW(depth probe) failed for " + current.path.displayPath + L": " + std::to_wstring(depthProbeStatus), static_cast<std::uint32_t>(depthProbeStatus));
             }
             continue;
         }
@@ -371,7 +372,7 @@ RegistrySearchSnapshot SearchRegistryWinApi(
                 }
                 RecordRegistrySearchReadFailure(
                     snapshot,
-                    L"RegEnumKeyExW(capacity probe) failed for " + current.path.displayPath + L": " + std::to_wstring(capacityProbeStatus));
+                    L"RegEnumKeyExW(capacity probe) failed for " + current.path.displayPath + L": " + std::to_wstring(capacityProbeStatus), static_cast<std::uint32_t>(capacityProbeStatus));
                 continue;
             }
             ++snapshot.counters.inspectedSubKeyCount;
@@ -393,7 +394,7 @@ RegistrySearchSnapshot SearchRegistryWinApi(
             if (enumStatus != ERROR_SUCCESS) {
                 RecordRegistrySearchReadFailure(
                     snapshot,
-                    L"RegEnumKeyExW failed for " + current.path.displayPath + L": " + std::to_wstring(enumStatus));
+                    L"RegEnumKeyExW failed for " + current.path.displayPath + L": " + std::to_wstring(enumStatus), static_cast<std::uint32_t>(enumStatus));
                 continue;
             }
             enumeratedAnyKey = true;

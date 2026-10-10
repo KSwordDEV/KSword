@@ -4,6 +4,7 @@
 
 #include <string>
 #include <vector>
+#include <map>
 
 namespace ks::r3::system_tools {
 
@@ -18,6 +19,11 @@ enum class ContextMenuKind {
 // ContextMenuEntry is one shell registration point. All strings are display
 // ready; registrationPath is the only field the action functions need.
 struct ContextMenuEntry {
+    struct Field {bool available = false,absent = false,malformed = false,limited = false,numeric = false;DWORD type = 0,number = 0;LSTATUS error = ERROR_SUCCESS;std::wstring text;};
+    std::map<std::wstring,Field> fields;
+    bool modulePresenceKnown = false;
+    DWORD moduleWin32Error = ERROR_SUCCESS;
+    DWORD moduleAttributes = 0;
     ContextMenuKind kind = ContextMenuKind::ShellExHandler;
     std::wstring scopeText;          // "*" / "Directory" / "Folder"
     std::wstring registrationPath;   // HKCR-relative path of the entry itself.
@@ -36,6 +42,8 @@ struct ContextMenuEntry {
 // points plus this tool's own backup store, so an entry that was disabled here
 // stays visible and can be turned back on.
 struct ContextMenuScanResult {
+    struct Source {std::wstring hive,path;bool opened = false,absent = false,complete = false,limited = false;LSTATUS openError = 0,enumError = 0,closeError = 0;DWORD count = 0;};
+    std::vector<Source> sources;
     bool success = false;
     bool elevated = false;
     std::wstring diagnosticText;
@@ -44,6 +52,11 @@ struct ContextMenuScanResult {
 
 // ContextMenuActionResult is the value-only outcome of one registry mutation.
 struct ContextMenuActionResult {
+    bool attempted = false,backupCreated = false,dataCreated = false,copySucceeded = false,metadataSucceeded = false,sourceDeleted = false,destinationCreated = false,backupDeleted = false;
+    bool backupRetained = false;
+    LSTATUS error = ERROR_SUCCESS,cleanupError = ERROR_SUCCESS;
+    std::wstring stage,sourcePath,backupPath;
+    std::vector<std::pair<std::wstring,LSTATUS>> calls;
     bool success = false;
     std::wstring message;
 };
@@ -78,5 +91,6 @@ ContextMenuActionResult EnableContextMenuEntry(const ContextMenuEntry& entry);
 // ContextMenuBackupRootPath returns the backup store location, so the UI can
 // tell the user where the removed keys actually went.
 std::wstring ContextMenuBackupRootPath();
+bool IsSupportedContextMenuPath(const std::wstring& path);
 
 } // namespace ks::r3::system_tools

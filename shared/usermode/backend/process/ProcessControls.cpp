@@ -86,13 +86,20 @@ std::vector<DWORD> CollectR3ProcessTreePids(
     const std::vector<ProcessSnapshotRow>& snapshotRows) {
     std::unordered_map<DWORD, std::vector<DWORD>> childrenByParentPid;
     std::unordered_set<DWORD> r3PidSet;
+    std::unordered_map<DWORD, ULONGLONG> creationByPid;
     childrenByParentPid.reserve(snapshotRows.size());
     r3PidSet.reserve(snapshotRows.size());
+    creationByPid.reserve(snapshotRows.size());
+    for (const auto& row : snapshotRows) creationByPid[row.processId] = row.creationTime100ns;
 
     for (const ProcessSnapshotRow& row : snapshotRows) {
         if (row.r0KernelOnly || row.processId == 0U || !r3PidSet.insert(row.processId).second) {
             continue;
         }
+        const auto parent = creationByPid.find(row.parentProcessId);
+        // A child older than the current parent instance belongs to an earlier
+        // incarnation of that recycled parent PID, not this process tree.
+        if (parent != creationByPid.end() && parent->second && row.creationTime100ns && row.creationTime100ns < parent->second) continue;
         childrenByParentPid[row.parentProcessId].push_back(row.processId);
     }
 
@@ -247,20 +254,21 @@ bool IsProcessPresentBySnapshot(DWORD pid, bool* queryOkOut) {
             break;
         }
     } while (::Process32NextW(snapshot, &entry));
-
+    const DWORD terminalError = present ? ERROR_SUCCESS : ::GetLastError();
     ::CloseHandle(snapshot);
     if (queryOkOut) {
-        *queryOkOut = true;
+        *queryOkOut = present || terminalError == ERROR_NO_MORE_FILES;
     }
-    return present;
+    return present || terminalError != ERROR_NO_MORE_FILES;
 }
 ks::r3::common::UniqueHandle OpenProcessForAction(
     const DWORD pid,
     const ULONGLONG expectedCreationTime100ns,
     const DWORD access,
     std::wstring& errorText,
-    const bool rejectProtected) {
+    const bool rejectProtected, ProcessOperationEvidence* evidence) {
     if (rejectProtected && IsProtectedSystemPid(pid)) {
+        if (evidence) evidence->unsupported = true;
         errorText = L"protected system PID";
         return ks::r3::common::UniqueHandle();
     }
@@ -272,7 +280,9 @@ ks::r3::common::UniqueHandle OpenProcessForAction(
     const DWORD requestedAccess = access | PROCESS_QUERY_LIMITED_INFORMATION;
     HANDLE process = ::OpenProcess(requestedAccess, FALSE, pid);
     if (!process) {
-        errorText = L"OpenProcess failed: " + Win32ErrorText(::GetLastError());
+        const DWORD openError = ::GetLastError();
+        if (evidence) { evidence->win32ErrorKnown = true; evidence->win32Error = openError; }
+        errorText = L"OpenProcess failed: " + Win32ErrorText(openError);
         return ks::r3::common::UniqueHandle();
     }
 
@@ -281,13 +291,16 @@ ks::r3::common::UniqueHandle OpenProcessForAction(
     FILETIME kernelTime{};
     FILETIME userTime{};
     if (!::GetProcessTimes(process, &creationTime, &exitTime, &kernelTime, &userTime)) {
-        errorText = L"GetProcessTimes failed: " + Win32ErrorText(::GetLastError());
+        const DWORD timeError = ::GetLastError();
+        if (evidence) { evidence->win32ErrorKnown = true; evidence->win32Error = timeError; }
+        errorText = L"GetProcessTimes failed: " + Win32ErrorText(timeError);
         ::CloseHandle(process);
         return ks::r3::common::UniqueHandle();
     }
     const ULONGLONG actualCreationTime100ns =
         (static_cast<ULONGLONG>(creationTime.dwHighDateTime) << 32U) |
         static_cast<ULONGLONG>(creationTime.dwLowDateTime);
+    if (evidence) { evidence->observedCreationTime = actualCreationTime100ns; evidence->identityMatched = actualCreationTime100ns != 0 && actualCreationTime100ns == expectedCreationTime100ns; }
     if (actualCreationTime100ns == 0U || actualCreationTime100ns != expectedCreationTime100ns) {
         errorText = L"process identity changed (PID was reused); action skipped";
         ::CloseHandle(process);
@@ -351,7 +364,8 @@ ProcessActionResult ExecuteMultiMethodTerminate(const std::vector<ProcessSnapsho
                 } else {
                     detail << L" | 存在性检查失败，按仍在运行处理";
                 }
-                if (!stillPresent) {
+                result.terminationSteps.push_back({pid, round, method.wideName, invokeOk, postQueryOk, stillPresent, Utf8ToWide(methodDetail)});
+                if (postQueryOk && !stillPresent) {
                     processExited = true;
                     break;
                 }
@@ -365,16 +379,18 @@ ProcessActionResult ExecuteMultiMethodTerminate(const std::vector<ProcessSnapsho
     }
     return result;
 }
-bool NtSuspendOrResumeProcess(DWORD pid, ULONGLONG expectedCreationTime100ns, bool resume, std::wstring& message) {
+bool NtSuspendOrResumeProcess(DWORD pid, ULONGLONG expectedCreationTime100ns, bool resume, std::wstring& message, ProcessOperationEvidence* evidence) {
+    if (evidence) *evidence = {};
     const char* exportName = resume ? "NtResumeProcess" : "NtSuspendProcess";
     const FARPROC proc = NtProc(exportName);
     if (!proc) {
+        if (evidence) evidence->unsupported = true;
         message = AsciiLiteralToWide(exportName) + L" not available";
         return false;
     }
 
     std::wstring openError;
-    ks::r3::common::UniqueHandle process = OpenProcessForAction(pid, expectedCreationTime100ns, kProcessSuspendResumeAccess, openError);
+    ks::r3::common::UniqueHandle process = OpenProcessForAction(pid, expectedCreationTime100ns, kProcessSuspendResumeAccess, openError, true, evidence);
     if (!process.valid()) {
         message = openError;
         return false;
@@ -383,25 +399,28 @@ bool NtSuspendOrResumeProcess(DWORD pid, ULONGLONG expectedCreationTime100ns, bo
     const LONG status = resume
         ? reinterpret_cast<NtResumeProcessFn>(proc)(process.get())
         : reinterpret_cast<NtSuspendProcessFn>(proc)(process.get());
-    if (status >= 0) {
+    if (evidence) { evidence->ntStatusKnown = true; evidence->ntStatus = status; }
+    if (status == 0) {
         message = Hex32(status);
         return true;
     }
     message = AsciiLiteralToWide(exportName) + L" failed: " + Hex32(status);
     return false;
 }
-bool SetCriticalFlagForPid(DWORD pid, ULONGLONG expectedCreationTime100ns, bool enable, std::wstring& message) {
+bool SetCriticalFlagForPid(DWORD pid, ULONGLONG expectedCreationTime100ns, bool enable, std::wstring& message, ProcessOperationEvidence* evidence) {
+    if (evidence) *evidence = {};
     std::wstring privilegeDetail;
     (void)EnableCurrentProcessPrivilege(SE_DEBUG_NAME, privilegeDetail);
 
     const FARPROC proc = NtProc("NtSetInformationProcess");
     if (!proc) {
+        if (evidence) evidence->unsupported = true;
         message = L"NtSetInformationProcess not available";
         return false;
     }
 
     std::wstring openError;
-    ks::r3::common::UniqueHandle process = OpenProcessForAction(pid, expectedCreationTime100ns, PROCESS_SET_INFORMATION, openError);
+    ks::r3::common::UniqueHandle process = OpenProcessForAction(pid, expectedCreationTime100ns, PROCESS_SET_INFORMATION, openError, true, evidence);
     if (!process.valid()) {
         message = openError;
         return false;
@@ -413,7 +432,8 @@ bool SetCriticalFlagForPid(DWORD pid, ULONGLONG expectedCreationTime100ns, bool 
         kProcessBreakOnTerminationInfoClass,
         &critical,
         static_cast<ULONG>(sizeof(critical)));
-    if (status >= 0) {
+    if (evidence) { evidence->ntStatusKnown = true; evidence->ntStatus = status; }
+    if (status == 0) {
         message = privilegeDetail.empty() ? Hex32(status) : privilegeDetail + L"; " + Hex32(status);
         return true;
     }
@@ -423,16 +443,18 @@ bool SetCriticalFlagForPid(DWORD pid, ULONGLONG expectedCreationTime100ns, bool 
     }
     return false;
 }
-bool SetEfficiencyModeForPid(DWORD pid, ULONGLONG expectedCreationTime100ns, bool enable, std::wstring& message) {
+bool SetEfficiencyModeForPid(DWORD pid, ULONGLONG expectedCreationTime100ns, bool enable, std::wstring& message, ProcessOperationEvidence* evidence) {
+    if (evidence) *evidence = {};
     HMODULE kernel32 = ::GetModuleHandleW(L"kernel32.dll");
     const FARPROC proc = kernel32 ? ::GetProcAddress(kernel32, "SetProcessInformation") : nullptr;
     if (!proc) {
+        if (evidence) evidence->unsupported = true;
         message = L"SetProcessInformation(ProcessPowerThrottling) not available";
         return false;
     }
 
     std::wstring openError;
-    ks::r3::common::UniqueHandle process = OpenProcessForAction(pid, expectedCreationTime100ns, PROCESS_SET_INFORMATION, openError);
+    ks::r3::common::UniqueHandle process = OpenProcessForAction(pid, expectedCreationTime100ns, PROCESS_SET_INFORMATION, openError, true, evidence);
     if (!process.valid()) {
         message = openError;
         return false;
@@ -447,30 +469,34 @@ bool SetEfficiencyModeForPid(DWORD pid, ULONGLONG expectedCreationTime100ns, boo
         kProcessPowerThrottlingInfoClass,
         &powerState,
         static_cast<DWORD>(sizeof(powerState)));
+    const DWORD operationError = ok ? ERROR_SUCCESS : ::GetLastError();
+    if (evidence) { evidence->win32ErrorKnown = true; evidence->win32Error = operationError; }
     if (ok) {
         message = enable ? L"Efficiency mode enabled" : L"Efficiency mode disabled";
         return true;
     }
-    message = L"SetProcessInformation(ProcessPowerThrottling) failed: " + Win32ErrorText(::GetLastError());
+    message = L"SetProcessInformation(ProcessPowerThrottling) failed: " + Win32ErrorText(operationError);
     return false;
 }
 bool SetPriorityForPid(
     DWORD pid,
     ULONGLONG expectedCreationTime100ns,
     DWORD priorityClass,
-    std::wstring& detail) {
+    std::wstring& detail, ProcessOperationEvidence* evidence) {
+    if (evidence) *evidence = {};
     std::wstring openError;
     ks::r3::common::UniqueHandle process = OpenProcessForAction(
         pid,
         expectedCreationTime100ns,
         PROCESS_SET_INFORMATION,
-        openError);
+        openError, true, evidence);
     if (!process.valid()) {
         detail += L"PID " + std::to_wstring(pid) + L": " + openError + L"\r\n";
         return false;
     }
     const BOOL ok = ::SetPriorityClass(process.get(), priorityClass);
     const DWORD error = ok ? ERROR_SUCCESS : ::GetLastError();
+    if (evidence) { evidence->win32ErrorKnown = true; evidence->win32Error = error; }
     detail += L"PID " + std::to_wstring(pid) + (ok ? L": SetPriorityClass OK" : L": SetPriorityClass failed ") +
         (ok ? L"" : std::to_wstring(error)) + L"\r\n";
     return ok != FALSE;
@@ -564,16 +590,19 @@ DWORD PriorityClassForAction(ProcessActionId actionId) {
     default: return 0;
     }
 }
-ProcessActionResult TerminateProcesses(const std::vector<ProcessSnapshotRow>& actionTargets) {
+ProcessActionResult TerminateProcesses(const std::vector<ProcessSnapshotRow>& actionTargets, UINT exitStatus, std::vector<ProcessActionEntry>* entries) {
 
         ProcessActionResult result;
         result.title = L"结束进程";
         result.success = true;
         for (const ProcessSnapshotRow& target : actionTargets) {
             const DWORD pid = target.processId;
+            ProcessActionEntry entry; entry.pid = pid; entry.creationTime = target.creationTime100ns;
             if (IsProtectedSystemPid(pid)) {
                 AppendIoLine(result.detail, pid, L"TerminateProcess", false, L"protected system PID");
                 result.success = false;
+                entry.evidence.unsupported = true;
+                if (entries) entries->push_back(entry);
                 continue;
             }
             std::wstring openError;
@@ -581,14 +610,17 @@ ProcessActionResult TerminateProcesses(const std::vector<ProcessSnapshotRow>& ac
                 pid,
                 target.creationTime100ns,
                 PROCESS_TERMINATE,
-                openError);
+                openError, true, &entry.evidence);
             if (!process.valid()) {
                 AppendIoLine(result.detail, pid, L"TerminateProcess", false, openError);
                 result.success = false;
+                if (entries) entries->push_back(entry);
                 continue;
             }
-            const BOOL ok = ::TerminateProcess(process.get(), static_cast<UINT>(0xC0000005u));
+            const BOOL ok = ::TerminateProcess(process.get(), exitStatus);
             const DWORD error = ok ? ERROR_SUCCESS : ::GetLastError();
+            entry.success = ok != FALSE; entry.evidence.win32ErrorKnown = true; entry.evidence.win32Error = error;
+            if (entries) entries->push_back(entry);
             AppendIoLine(result.detail, pid, L"TerminateProcess", ok != FALSE, ok ? L"" : L"Win32 error " + std::to_wstring(error));
             result.success = result.success && ok != FALSE;
         }

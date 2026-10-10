@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <map>
+#include <functional>
 
 namespace ks::r3::system_tools {
 
@@ -29,6 +31,12 @@ enum class EventLogLevelFilter {
 
 // EventLogEntry is one rendered record. Text fields are already display-ready.
 struct EventLogEntry {
+    struct Field {bool available = false,absent = false,malformed = false;DWORD type = 0;};
+    std::map<std::wstring,Field> fields;
+    std::uint64_t timestampFileTime = 0;
+    bool messageRequested = false,messageAvailable = false,messagePartial = false,messageMalformed = false,messageLimited = false;
+    DWORD metadataError = 0,messageError = 0;
+    std::wstring messageRaw;
     std::wstring timeText;
     std::uint8_t level = 0;
     std::wstring levelText;
@@ -42,6 +50,9 @@ struct EventLogEntry {
 
 // EventLogQueryRequest describes one read pass.
 struct EventLogQueryRequest {
+    bool messages = true;
+    DWORD maxDurationMs = 10000;
+    std::function<bool()> cancelled;
     EventLogChannel channel = EventLogChannel::System;
     EventLogLevelFilter level = EventLogLevelFilter::All;
     std::uint32_t maxCount = 500;
@@ -49,6 +60,10 @@ struct EventLogQueryRequest {
 
 // EventLogQueryResult carries the newest records first.
 struct EventLogQueryResult {
+    bool queryAttempted = false,contextAttempted = false,exhausted = false,pageComplete = false,limited = false,cancelled = false,malformed = false;
+    DWORD queryError = 0,contextError = 0,nextError = 0,renderError = 0;
+    DWORD examined = 0,renderFailed = 0,closeAttempted = 0,closeFailed = 0;
+    std::vector<DWORD> closeErrors;
     bool success = false;
     std::wstring diagnosticText;
     std::wstring channelPath;

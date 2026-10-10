@@ -49,8 +49,13 @@ struct ProcessSnapshotRow {
     double cpuUsagePercent = 0.0;
     double diskBytesPerSecond = 0.0;
     bool diskRateKnown = false;
+    bool networkCountersKnown = false, networkRateKnown = false;
+    std::uint64_t networkRxBytes = 0, networkTxBytes = 0;
+    double networkBytesPerSecond = 0.0;
     std::wstring imageName;
     std::wstring imagePath;
+    DWORD imagePathError = ERROR_SUCCESS;
+    bool imageNameAvailable = false;
     std::uintptr_t r0ProcessObjectAddress = 0;
     ULONG r0SourceMask = 0;
     ULONG r0AnomalyFlags = 0;
@@ -77,6 +82,8 @@ struct ProcessEnumerationResult {
     LONG ntStatus = 0;
     std::wstring diagnosticText;
     std::vector<ProcessSnapshotRow> rows;
+    bool complete = false;
+    bool malformed = false;
 };
 
 // EnumerateProcessesByNtQuerySystemInformation queries the system process list
@@ -90,6 +97,6 @@ ProcessEnumerationResult EnumerateProcessesByNtQuerySystemInformation();
 // and queries its full executable path. Input is a PID. Processing is best-effort
 // and never terminates or modifies the target process. Return value is an empty
 // string when access is denied, PID is invalid, or the image path is unavailable.
-std::wstring QueryProcessImagePath(DWORD processId);
+std::wstring QueryProcessImagePath(DWORD processId, ULONGLONG expectedCreationTime = 0, DWORD* errorOut = nullptr);
 
 } // namespace ks::r3::process

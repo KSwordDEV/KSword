@@ -10,6 +10,8 @@
 #include <cwctype>
 #include <map>
 #include <utility>
+#include <cmath>
+#include <cstring>
 
 // PDH is not in the project-wide link line because this is the only module that
 // samples performance counters. Declaring the dependency here keeps the addition
@@ -325,36 +327,49 @@ void AppendStaticMetric(PerformanceSnapshot& snapshot,
     row.value = value;
     row.source = source;
     row.numericValue = numericValue;
-    row.valid = true;
+    row.valid = true;row.evidence.available = true;row.evidence.complete = true;
     snapshot.metrics.push_back(std::move(row));
 }
 
 void AppendSystemStaticMetrics(PerformanceSnapshot& snapshot) {
+    const auto source = [&snapshot](const wchar_t* id,const wchar_t* path,const wchar_t* group,bool success) {
+        PerformanceEvidence e;e.available = success;e.complete = success;e.statusKnown = true;e.status = success ? ERROR_SUCCESS : ::GetLastError();
+        snapshot.sources.push_back({id,path,e,group,L"win32"});
+    };
     const DWORD logicalProcessors = ::GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    source(L"logical-processors",L"GetActiveProcessorCount",L"cpu",logicalProcessors != 0);
     if (logicalProcessors != 0) {
         AppendStaticMetric(snapshot, L"CPU", L"逻辑处理器数",
             FormatCount(static_cast<double>(logicalProcessors)), L"GetActiveProcessorCount",
             static_cast<double>(logicalProcessors));
+        auto& row = snapshot.metrics.back();row.id = L"logical-processors";row.groupId = L"cpu";row.unit = L"count";row.exactInteger = true;row.integerValue = logicalProcessors;
     }
     const WORD processorGroups = ::GetActiveProcessorGroupCount();
+    source(L"processor-groups",L"GetActiveProcessorGroupCount",L"cpu",processorGroups != 0);
     if (processorGroups != 0) {
         AppendStaticMetric(snapshot, L"CPU", L"处理器组数",
             FormatCount(static_cast<double>(processorGroups)), L"GetActiveProcessorGroupCount",
             static_cast<double>(processorGroups));
+        auto& row = snapshot.metrics.back();row.id = L"processor-groups";row.groupId = L"cpu";row.unit = L"count";row.exactInteger = true;row.integerValue = processorGroups;
     }
 
     MEMORYSTATUSEX memory{};
     memory.dwLength = sizeof(memory);
-    if (::GlobalMemoryStatusEx(&memory)) {
+    const bool memoryKnown = ::GlobalMemoryStatusEx(&memory) != FALSE;
+    source(L"physical-memory",L"GlobalMemoryStatusEx",L"memory",memoryKnown);
+    if (memoryKnown) {
         const double total = static_cast<double>(memory.ullTotalPhys);
         const double available = static_cast<double>(memory.ullAvailPhys);
         AppendStaticMetric(snapshot, L"内存", L"物理内存总量", FormatByteSize(total),
             L"GlobalMemoryStatusEx", total);
+        {auto& row = snapshot.metrics.back();row.id = L"physical-memory-total";row.groupId = L"memory";row.unit = L"bytes";row.exactInteger = true;row.integerValue = memory.ullTotalPhys;}
         AppendStaticMetric(snapshot, L"内存", L"物理内存已用", FormatByteSize(total - available),
             L"GlobalMemoryStatusEx", total - available);
+        {auto& row = snapshot.metrics.back();row.id = L"physical-memory-used";row.groupId = L"memory";row.unit = L"bytes";row.exactInteger = true;row.integerValue = memory.ullTotalPhys-memory.ullAvailPhys;}
         AppendStaticMetric(snapshot, L"内存", L"物理内存使用率",
             FormatPercent(static_cast<double>(memory.dwMemoryLoad)), L"GlobalMemoryStatusEx",
             static_cast<double>(memory.dwMemoryLoad));
+        {auto& row = snapshot.metrics.back();row.id = L"physical-memory-load";row.groupId = L"memory";row.unit = L"percent";}
     }
 }
 
@@ -372,49 +387,53 @@ namespace detail {
 // ReadScalar formats one counter handle. Output is false when PDH has no usable
 // value for this pass, which happens legitimately for a rate counter whose
 // instance appeared between two collections.
-bool ReadScalar(const PDH_HCOUNTER handle, const bool uncapped, double& value) {
+bool ReadScalar(const PDH_HCOUNTER handle, const bool uncapped, double& value,PerformanceEvidence* output) {
+    PerformanceEvidence local;auto& e = output ? *output : local;e = {};
     if (!handle) {
         return false;
     }
     PDH_FMT_COUNTERVALUE formatted{};
     const DWORD format = PDH_FMT_DOUBLE | (uncapped ? PDH_FMT_NOCAP100 : 0u);
     const PDH_STATUS status = ::PdhGetFormattedCounterValue(handle, format, nullptr, &formatted);
-    if (status != ERROR_SUCCESS || formatted.CStatus != ERROR_SUCCESS) {
+    e.statusKnown = true;e.status = status;e.cStatusKnown = status == ERROR_SUCCESS || status == PDH_INVALID_DATA;e.cStatus = formatted.CStatus;
+    if (status != ERROR_SUCCESS || (formatted.CStatus != PDH_CSTATUS_VALID_DATA && formatted.CStatus != PDH_CSTATUS_NEW_DATA)) {
         return false;
     }
-    value = formatted.doubleValue;
+    if (!std::isfinite(formatted.doubleValue)) {e.malformed = true;return false;}
+    value = formatted.doubleValue;e.available = true;e.complete = true;
     return true;
 }
 
 // ReadArray expands one wildcard counter into instance/value pairs.
-std::vector<std::pair<std::wstring, double>> ReadArray(const PDH_HCOUNTER handle, const bool uncapped) {
-    std::vector<std::pair<std::wstring, double>> values;
-    if (!handle) {
-        return values;
-    }
-
-    DWORD bufferSize = 0;
-    DWORD itemCount = 0;
-    const DWORD format = PDH_FMT_DOUBLE | (uncapped ? PDH_FMT_NOCAP100 : 0u);
-    const PDH_STATUS probe = ::PdhGetFormattedCounterArrayW(handle, format, &bufferSize, &itemCount, nullptr);
-    if (probe != PDH_MORE_DATA || bufferSize == 0 || itemCount == 0) {
-        return values;
-    }
-
-    std::vector<unsigned char> raw(bufferSize, 0);
-    auto* items = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM_W*>(raw.data());
-    if (::PdhGetFormattedCounterArrayW(handle, format, &bufferSize, &itemCount, items) != ERROR_SUCCESS) {
-        return values;
-    }
-
-    values.reserve(itemCount);
-    for (DWORD index = 0; index < itemCount; ++index) {
-        const PDH_FMT_COUNTERVALUE_ITEM_W& item = items[index];
-        if (item.FmtValue.CStatus != ERROR_SUCCESS) {
-            continue;
+std::vector<std::pair<std::wstring, double>> ReadArray(const PDH_HCOUNTER handle,const bool uncapped,PerformanceEvidence* output) {
+    PerformanceEvidence local;auto& e = output ? *output : local;e = {};
+    std::vector<std::pair<std::wstring,double>> values;if (!handle) return values;
+    DWORD needed = 0,count = 0;const DWORD format = PDH_FMT_DOUBLE | (uncapped ? PDH_FMT_NOCAP100 : 0u);
+    e.status = ::PdhGetFormattedCounterArrayW(handle,format,&needed,&count,nullptr);e.statusKnown = true;
+    if (e.status == ERROR_SUCCESS && !count) {e.complete = true;e.available = true;e.empty = true;return values;}
+    if (e.status != PDH_MORE_DATA) return values;
+    for (int attempt = 0;attempt<4;++attempt) {
+        if (!needed || needed>16u*1024*1024) {e.status = PDH_MORE_DATA;return values;}
+        std::vector<BYTE> raw(needed,BYTE{0});DWORD size = needed;
+        auto* items = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM_W*>(raw.data());
+        e.status = ::PdhGetFormattedCounterArrayW(handle,format,&size,&count,items);
+        if (e.status == PDH_MORE_DATA) {if (size<=needed) return values;needed = size;continue;}
+        if (e.status != ERROR_SUCCESS) return values;
+        if (size>raw.size() || count>size/sizeof(*items)) {e.malformed = true;return values;}
+        e.returnedCount = count;e.complete = true;e.available = true;e.empty = !count;
+        const auto begin = reinterpret_cast<std::uintptr_t>(raw.data()),end = begin+size;
+        for (DWORD i = 0;i<count;++i) {
+            const auto& item = items[i];
+            if (item.FmtValue.CStatus != PDH_CSTATUS_VALID_DATA && item.FmtValue.CStatus != PDH_CSTATUS_NEW_DATA) {
+                ++e.skippedCount;e.complete = false;e.cStatusKnown = true;e.cStatus = item.FmtValue.CStatus;continue;
+            }
+            const auto address = reinterpret_cast<std::uintptr_t>(item.szName);
+            if (!std::isfinite(item.FmtValue.doubleValue) || address<begin+count*sizeof(*items) || address>=end || address%alignof(wchar_t)) {e.malformed = true;e.complete = false;continue;}
+            const auto chars = (end-address)/sizeof(wchar_t);const auto finish = std::find(item.szName,item.szName+chars,L'\0');
+            if (finish == item.szName+chars) {e.malformed = true;e.complete = false;continue;}
+            values.emplace_back(std::wstring(item.szName,finish),item.FmtValue.doubleValue);
         }
-        values.emplace_back(item.szName ? std::wstring(item.szName) : std::wstring(),
-            item.FmtValue.doubleValue);
+        return values;
     }
     return values;
 }
@@ -430,11 +449,16 @@ PerformanceSampler::~PerformanceSampler() {
     closeQuery();
 }
 
-void PerformanceSampler::closeQuery() {
+PerformanceEvidence PerformanceSampler::close() {
+    std::scoped_lock lock(mutex_);PerformanceEvidence e;e.statusKnown = impl_ && impl_->query;
+    e.status = closeQuery();e.available = e.status == ERROR_SUCCESS;e.complete = e.available;return e;
+}
+DWORD PerformanceSampler::closeQuery() {
+    DWORD status = ERROR_SUCCESS;
     if (impl_ && impl_->query) {
         // Closing the query releases every counter handle it owns, so the
         // per-counter handles are only cleared, never closed individually.
-        ::PdhCloseQuery(impl_->query);
+        status = ::PdhCloseQuery(impl_->query);
         impl_->query = nullptr;
     }
     if (impl_) {
@@ -447,6 +471,7 @@ void PerformanceSampler::closeQuery() {
         impl_->networkReceived = Counter{};
         impl_->networkSent = Counter{};
     }
+    return status;
 }
 
 bool PerformanceSampler::addCounter(const wchar_t* englishPath, Counter& counter) {
@@ -461,7 +486,8 @@ bool PerformanceSampler::addCounter(const wchar_t* englishPath, Counter& counter
     // instead would fail on every non-English Windows, because the counter and
     // object names in a path are localized resources.
     PDH_HCOUNTER handle = nullptr;
-    if (::PdhAddEnglishCounterW(impl_->query, englishPath, 0, &handle) == ERROR_SUCCESS && handle) {
+    counter.addStatus = ::PdhAddEnglishCounterW(impl_->query, englishPath, 0, &handle);
+    if (counter.addStatus == ERROR_SUCCESS && handle) {
         counter.handle = handle;
         counter.resolvedPath = englishPath;
         counter.available = true;
@@ -477,7 +503,8 @@ bool PerformanceSampler::addCounter(const wchar_t* englishPath, Counter& counter
         return false;
     }
     handle = nullptr;
-    if (::PdhAddCounterW(impl_->query, localizedPath.c_str(), 0, &handle) != ERROR_SUCCESS || !handle) {
+    counter.addStatus = ::PdhAddCounterW(impl_->query, localizedPath.c_str(), 0, &handle);
+    if (counter.addStatus != ERROR_SUCCESS || !handle) {
         return false;
     }
     counter.handle = handle;
@@ -497,6 +524,7 @@ bool PerformanceSampler::ensureOpen(std::wstring& diagnostic) {
 
     closeQuery();
     const PDH_STATUS status = ::PdhOpenQueryW(nullptr, 0, &impl_->query);
+    impl_->queryStatus = status;impl_->queryStatusKnown = true;
     if (status != ERROR_SUCCESS || !impl_->query) {
         impl_->query = nullptr;
         // PDH returns its own status codes rather than Win32 error codes, so the
@@ -547,14 +575,14 @@ bool PerformanceSampler::ensureOpen(std::wstring& diagnostic) {
                                [](const Counter& counter) { return counter.available; }) ||
         std::any_of(impl_->diskCounters.begin(), impl_->diskCounters.end(),
             [](const Counter& counter) { return counter.available; }) ||
-        impl_->cpuPerCore.available || impl_->gpuEngine.available || impl_->networkReceived.available;
+        impl_->cpuPerCore.available || impl_->gpuEngine.available || impl_->networkReceived.available || impl_->networkSent.available;
     if (!anyCounter) {
         closeQuery();
         diagnostic = L"没有任何性能计数器可用，系统的 Perflib 计数器表可能已损坏（可用管理员权限运行 lodctr /R 重建）。";
         return false;
     }
 
-    ::PdhCollectQueryData(impl_->query);
+    impl_->baselineStatus = ::PdhCollectQueryData(impl_->query);impl_->baselineStatusKnown = true;
     impl_->opened = true;
     impl_->primed = false;
     return true;
@@ -563,26 +591,37 @@ bool PerformanceSampler::ensureOpen(std::wstring& diagnostic) {
 void PerformanceSampler::collectSystemMetrics(PerformanceSnapshot& snapshot) {
     AppendSystemStaticMetrics(snapshot);
 
+    static const wchar_t* ids[] = {L"cpu-total",L"cpu-user",L"cpu-privileged",L"cpu-interrupts",L"cpu-dpc-queued",L"memory-available",L"memory-committed",L"memory-commit-limit",L"memory-commit-percent",L"memory-cache",L"memory-paged-pool",L"memory-nonpaged-pool",L"memory-pages",L"memory-page-faults",L"disk-current-queue",L"disk-average-queue",L"disk-busy",L"disk-read-bytes",L"disk-write-bytes",L"disk-reads",L"disk-writes",L"system-processes",L"system-threads",L"system-context-switches",L"system-uptime"};
     const auto& specs = ScalarSpecs();
+    static_assert(std::size(ids) == static_cast<std::size_t>(SystemCounterId::Count));
     for (std::size_t index = 0; index < specs.size() && index < impl_->scalars.size(); ++index) {
         const Counter& counter = impl_->scalars[index];
         PerformanceMetricRow row{};
+        row.id = ids[index];row.groupId = index<5 ? L"cpu" : index<14 ? L"memory" : index<21 ? L"disk" : L"system";
+        switch (specs[index].format) {
+        case MetricFormat::Percent:row.unit = L"percent";break;case MetricFormat::Bytes:row.unit = L"bytes";break;
+        case MetricFormat::MegabytesAsBytes:row.unit = L"mebibytes";break;case MetricFormat::BytesPerSecond:row.unit = L"bytes-per-second";break;
+        case MetricFormat::Count:row.unit = L"count";break;case MetricFormat::Rate:row.unit = L"per-second";break;
+        case MetricFormat::UpTime:row.unit = L"seconds";break;default:row.unit = L"queue-length";break;
+        }
         row.group = specs[index].group;
         row.name = specs[index].name;
         row.source = counter.available ? counter.resolvedPath : std::wstring(specs[index].path);
         double value = 0.0;
-        if (counter.available && ReadScalar(counter.handle, specs[index].uncapped, value)) {
+        if (counter.available && ReadScalar(counter.handle, specs[index].uncapped, value,&row.evidence)) {
             row.numericValue = value;
             row.value = FormatMetricValue(specs[index].format, value);
             row.valid = true;
         } else {
             row.value = counter.available ? L"正在采样…" : L"不可用";
         }
+        if (!counter.available) {row.evidence.statusKnown = true;row.evidence.status = counter.addStatus;}
         snapshot.metrics.push_back(std::move(row));
     }
 
     if (impl_->cpuPerCore.available) {
-        auto cores = ReadArray(impl_->cpuPerCore.handle, false);
+        PerformanceEvidence evidence;auto cores = ReadArray(impl_->cpuPerCore.handle, false,&evidence);
+        snapshot.sources.push_back({L"cpu-cores",impl_->cpuPerCore.resolvedPath,evidence,L"cpu"});
         // "Processor Information" publishes both a per-group rollup ("0,_Total")
         // and a machine-wide one ("_Total"); both are already reported as the CPU
         // total, so leaving them in would double-count the per-core section.
@@ -598,6 +637,7 @@ void PerformanceSampler::collectSystemMetrics(PerformanceSnapshot& snapshot) {
             });
         for (const auto& core : cores) {
             PerformanceMetricRow row{};
+            row.id = L"cpu-core";row.groupId = L"cpu";row.unit = L"percent";row.instance = core.first;row.evidence = evidence;
             row.group = L"CPU 每核";
             row.name = L"核心 " + core.first;
             row.numericValue = core.second;
@@ -606,6 +646,9 @@ void PerformanceSampler::collectSystemMetrics(PerformanceSnapshot& snapshot) {
             row.valid = true;
             snapshot.metrics.push_back(std::move(row));
         }
+    } else {
+        PerformanceEvidence e;e.statusKnown = true;e.status = impl_->cpuPerCore.addStatus;
+        snapshot.sources.push_back({L"cpu-cores",impl_->cpuPerCore.englishPath,e,L"cpu"});
     }
 
     // GPU Engine publishes one counter instance per active engine. These values
@@ -614,15 +657,17 @@ void PerformanceSampler::collectSystemMetrics(PerformanceSnapshot& snapshot) {
     // counter-unavailable and no-instance states as explicit non-values.
     {
         PerformanceMetricRow row{};
+        row.id = L"gpu-max-engine";row.groupId = L"gpu";row.unit = L"percent";
         row.group = L"GPU";
         row.name = L"最大引擎利用率（非总和）";
         row.source = impl_->gpuEngine.available
             ? impl_->gpuEngine.resolvedPath
             : L"\\GPU Engine(*)\\Utilization Percentage";
         if (!impl_->gpuEngine.available) {
+            row.evidence.statusKnown = true;row.evidence.status = impl_->gpuEngine.addStatus;
             row.value = L"未提供（GPU Engine 性能计数器不可用）";
         } else {
-            const auto engines = ReadArray(impl_->gpuEngine.handle, false);
+            const auto engines = ReadArray(impl_->gpuEngine.handle, false,&row.evidence);
             if (engines.empty()) {
                 row.value = L"未枚举到 GPU 引擎实例";
             } else {
@@ -630,7 +675,7 @@ void PerformanceSampler::collectSystemMetrics(PerformanceSnapshot& snapshot) {
                     [](const std::pair<std::wstring, double>& left, const std::pair<std::wstring, double>& right) {
                         return left.second < right.second;
                     });
-                row.numericValue = std::clamp(peak->second, 0.0, 100.0);
+                row.instance = peak->first;row.numericValue = std::clamp(peak->second, 0.0, 100.0);
                 row.value = FormatPercent(row.numericValue) + L"（" + peak->first + L"）";
                 row.valid = true;
             }
@@ -639,8 +684,13 @@ void PerformanceSampler::collectSystemMetrics(PerformanceSnapshot& snapshot) {
     }
 
     if (impl_->networkReceived.available || impl_->networkSent.available) {
-        const auto received = ReadArray(impl_->networkReceived.handle, false);
-        const auto sent = ReadArray(impl_->networkSent.handle, false);
+        PerformanceEvidence receivedEvidence,sentEvidence;
+        const auto received = ReadArray(impl_->networkReceived.handle, false,&receivedEvidence);
+        const auto sent = ReadArray(impl_->networkSent.handle, false,&sentEvidence);
+        if (!impl_->networkReceived.available) {receivedEvidence.statusKnown = true;receivedEvidence.status = impl_->networkReceived.addStatus;}
+        if (!impl_->networkSent.available) {sentEvidence.statusKnown = true;sentEvidence.status = impl_->networkSent.addStatus;}
+        snapshot.sources.push_back({L"network-received",impl_->networkReceived.resolvedPath,receivedEvidence,L"network"});
+        snapshot.sources.push_back({L"network-sent",impl_->networkSent.resolvedPath,sentEvidence,L"network"});
         std::map<std::wstring, std::pair<double, double>> adapters;
         for (const auto& item : received) {
             adapters[item.first].first = item.second;
@@ -657,8 +707,10 @@ void PerformanceSampler::collectSystemMetrics(PerformanceSnapshot& snapshot) {
         }
         AppendStaticMetric(snapshot, L"网络", L"接收合计", FormatByteRate(totalReceived),
             impl_->networkReceived.resolvedPath.c_str(), totalReceived);
+        snapshot.metrics.back().id = L"network-received-total";snapshot.metrics.back().groupId = L"network";snapshot.metrics.back().unit = L"bytes-per-second";snapshot.metrics.back().valid = receivedEvidence.complete;snapshot.metrics.back().evidence = receivedEvidence;
         AppendStaticMetric(snapshot, L"网络", L"发送合计", FormatByteRate(totalSent),
             impl_->networkSent.resolvedPath.c_str(), totalSent);
+        snapshot.metrics.back().id = L"network-sent-total";snapshot.metrics.back().groupId = L"network";snapshot.metrics.back().unit = L"bytes-per-second";snapshot.metrics.back().valid = sentEvidence.complete;snapshot.metrics.back().evidence = sentEvidence;
 
         std::vector<std::pair<std::wstring, std::pair<double, double>>> ordered(adapters.begin(), adapters.end());
         std::sort(ordered.begin(), ordered.end(), [](const auto& left, const auto& right) {
@@ -671,6 +723,10 @@ void PerformanceSampler::collectSystemMetrics(PerformanceSnapshot& snapshot) {
         });
         for (const auto& adapter : ordered) {
             PerformanceMetricRow row{};
+            row.id = L"network-adapter";row.groupId = L"network";row.unit = L"bytes-per-second";row.instance = adapter.first;
+            row.receivedKnown = std::any_of(received.begin(),received.end(),[&](const auto& v){return v.first==adapter.first;});
+            row.sentKnown = std::any_of(sent.begin(),sent.end(),[&](const auto& v){return v.first==adapter.first;});
+            row.received = adapter.second.first;row.sent = adapter.second.second;
             row.group = L"网络";
             row.name = adapter.first;
             row.numericValue = adapter.second.first + adapter.second.second;
@@ -679,13 +735,16 @@ void PerformanceSampler::collectSystemMetrics(PerformanceSnapshot& snapshot) {
             row.source = impl_->networkReceived.available
                 ? impl_->networkReceived.resolvedPath
                 : impl_->networkSent.resolvedPath;
-            row.valid = true;
+            row.valid = row.receivedKnown && row.sentKnown;row.evidence.complete = row.valid;row.evidence.available = row.valid;
             snapshot.metrics.push_back(std::move(row));
+        }
+    } else {
+        for (const auto& pair:{std::pair{L"network-received",&impl_->networkReceived},std::pair{L"network-sent",&impl_->networkSent}}) {
+            PerformanceEvidence e;e.statusKnown = true;e.status = pair.second->addStatus;
+            snapshot.sources.push_back({pair.first,pair.second->englishPath,e,L"network"});
         }
     }
 }
-
-
 
 PerformanceSnapshot PerformanceSampler::sample() {
     std::scoped_lock lock(mutex_);
@@ -697,21 +756,27 @@ PerformanceSnapshot PerformanceSampler::sample() {
 
     std::wstring diagnostic;
     if (!ensureOpen(diagnostic)) {
+        snapshot.queryStatusKnown = impl_->queryStatusKnown;snapshot.queryStatus = impl_->queryStatus;
+        if (scope_ == PerformanceScope::System) AppendSystemStaticMetrics(snapshot);
         snapshot.diagnosticText = diagnostic;
         return snapshot;
     }
 
+    snapshot.queryOpened = true;snapshot.queryStatusKnown = impl_->queryStatusKnown;snapshot.queryStatus = impl_->queryStatus;
+    snapshot.baselineStatusKnown = impl_->baselineStatusKnown;snapshot.baselineStatus = impl_->baselineStatus;
     if (!impl_->primed) {
         ::Sleep(kPrimingIntervalMs);
         impl_->primed = true;
     }
 
     const PDH_STATUS status = ::PdhCollectQueryData(impl_->query);
+    snapshot.collectStatusKnown = true;snapshot.collectStatus = status;
     if (status != ERROR_SUCCESS) {
         // A collection failure is usually a transient provider fault; dropping
         // the query makes the next pass rebuild it instead of returning the same
         // error forever.
         closeQuery();
+        if (scope_ == PerformanceScope::System) AppendSystemStaticMetrics(snapshot);
         snapshot.diagnosticText = L"PdhCollectQueryData 失败，已丢弃当前查询并将在下次采样时重建。";
         return snapshot;
     }

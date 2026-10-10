@@ -21,7 +21,7 @@ struct EdpBindings {
     ~EdpBindings() { if (module) ::FreeLibrary(module); }
 };
 
-std::string EnterpriseContext(DWORD pid) {
+std::string EnterpriseContext(DWORD pid, ProcessExtraEvidence& evidence) {
     static const EdpBindings bindings;
     if (!bindings.get || !bindings.free) return ks::str::Utf16ToUtf8(L"系统不支持 WIP 查询");
     struct ContextOwner {
@@ -30,6 +30,7 @@ std::string EnterpriseContext(DWORD pid) {
         ~ContextOwner() { if (value) free(value); }
     } context{ nullptr, bindings.free };
     const HRESULT result = bindings.get(pid, &context.value);
+    evidence.enterpriseStatus = result;
     if (FAILED(result) || !context.value) {
         wchar_t error[64]{};
         ::swprintf_s(error, L"WIP 查询失败：0x%08lX", static_cast<unsigned long>(result));
@@ -37,6 +38,9 @@ std::string EnterpriseContext(DWORD pid) {
     }
     std::wstring text;
     const ULONG states = context.value->states;
+    evidence.enterpriseKnown = true;
+    evidence.enterpriseStates = states;
+    if (context.value->uiIdentity) evidence.enterpriseIdentity = context.value->uiIdentity;
     const auto add = [&text](const wchar_t* value) { if (!text.empty()) text += L" / "; text += value; };
     if (states == 0) add(L"个人");
     if (states & 0x1U) add(L"豁免");
@@ -57,7 +61,7 @@ std::string EnterpriseContext(DWORD pid) {
     return ks::str::Utf16ToUtf8(text);
 }
 
-void QueryEfficiencyFallback(ks::process::ProcessRecord& record) {
+void QueryEfficiencyFallback(ks::process::ProcessRecord& record, ProcessExtraEvidence& evidence) {
     if (record.efficiencyModeSupported || record.pid <= 4) return;
     // ProcessPowerThrottlingState (77), POWER_THROTTLING_PROCESS_STATE:
     // https://github.com/winsiderss/phnt/blob/master/ntpsapi.h
@@ -68,19 +72,28 @@ void QueryEfficiencyFallback(ks::process::ProcessRecord& record) {
     HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, record.pid);
     if (!process) return;
     struct PowerState { ULONG version; ULONG controlMask; ULONG stateMask; } state{ 1, 0, 0 };
-    const LONG status = query(process, 77, &state, sizeof(state), nullptr);
+    ULONG returned = 0;
+    const LONG status = query(process, 77, &state, sizeof(state), &returned);
+    evidence.efficiencyStatusKnown = true;
+    evidence.efficiencyStatus = status;
+    evidence.efficiencyReturnLength = returned;
+    evidence.efficiencyControlMask = state.controlMask;
+    evidence.efficiencyStateMask = state.stateMask;
     ::CloseHandle(process);
-    if (status >= 0) {
+    if (status == 0) {
         record.efficiencyModeSupported = true;
         record.efficiencyModeEnabled = (state.controlMask & state.stateMask & 1U) != 0;
     }
 }
 } // namespace
 
-void QueryProcessExtraDetails(ks::process::ProcessRecord& record, std::uint32_t demand, bool needEfficiency) {
+void QueryProcessExtraDetails(ks::process::ProcessRecord& record, std::uint32_t demand, bool needEfficiency, ProcessExtraEvidence* evidence) {
+    ProcessExtraEvidence local;
+    if (!evidence) evidence = &local;
+    *evidence = {};
     if (demand & ks::process::ProcessDetailDemand::EnterpriseContext)
-        record.enterpriseContextText = EnterpriseContext(record.pid);
-    if (needEfficiency) QueryEfficiencyFallback(record);
+        record.enterpriseContextText = EnterpriseContext(record.pid, *evidence);
+    if (needEfficiency) QueryEfficiencyFallback(record, *evidence);
 }
 
 } // namespace ks::r3::process

@@ -12,6 +12,12 @@ namespace ks::r3::startup {
 struct StartupActionResult {
     bool success = false;
     std::wstring message;
+    std::uint32_t win32Error = 0, hresult = 0;
+    bool unsupported = false, partial = false;
+    bool taskStateKnown = false, taskEnabled = false;
+    bool serviceTypeKnown = false;
+    std::uint32_t expectedServiceStartType = 0;
+    bool preservationKnown = false, preservationSucceeded = false;
 };
 
 // EnableStartupEntry restores a disabled startup entry where this module has a
@@ -27,7 +33,7 @@ StartupActionResult DisableStartupEntry(const StartupEntry& entry);
 
 // DeleteStartupEntry removes one startup entry. Input is a StartupEntry selected
 // in the view; processing deletes registry values or files and routes service
-// deletion through SCM; scheduled-task facade rows return a backend limitation.
+// deletion through SCM; task facade rows resolve Task Scheduler COM by path.
 StartupActionResult DeleteStartupEntry(const StartupEntry& entry);
 
 // OpenStartupEntryLocation opens the registry editor or file explorer at the

@@ -31,9 +31,10 @@ ServiceActionResult FinishTransition(
     const std::wstring& serviceName,
     const wchar_t* actionLabel,
     const ks::service::ServiceStatus& finalStatus,
-    const std::string& errorText) {
+    const std::string& errorText, const std::uint32_t win32Error) {
     ServiceActionResult result{};
     result.success = succeeded;
+    result.win32Error = win32Error; result.finalState = finalStatus.currentState;
     if (succeeded) {
         result.message = std::wstring(L"服务 ") + serviceName + L" " + actionLabel + L"成功，当前状态：" +
             ServiceStateText(finalStatus.currentState) + L"。";
@@ -48,22 +49,25 @@ ServiceActionResult FinishTransition(
 ServiceActionResult StartServiceEntry(const std::wstring& serviceName) {
     ks::service::ServiceStatus finalStatus{};
     std::string errorText;
+    std::uint32_t win32Error = 0;
     const bool succeeded = ks::service::StartServiceByName(
-        serviceName, kTransitionTimeoutMs, SERVICE_RUNNING, &finalStatus, &errorText);
-    return FinishTransition(succeeded, serviceName, L"启动", finalStatus, errorText);
+        serviceName, kTransitionTimeoutMs, SERVICE_RUNNING, &finalStatus, &errorText, &win32Error);
+    return FinishTransition(succeeded, serviceName, L"启动", finalStatus, errorText, win32Error);
 }
 
 ServiceActionResult StopServiceEntry(const std::wstring& serviceName) {
     ks::service::ServiceStatus finalStatus{};
     std::string errorText;
+    std::uint32_t win32Error = 0;
     const bool succeeded = ks::service::StopServiceByName(
-        serviceName, kTransitionTimeoutMs, SERVICE_STOPPED, &finalStatus, &errorText);
-    return FinishTransition(succeeded, serviceName, L"停止", finalStatus, errorText);
+        serviceName, kTransitionTimeoutMs, SERVICE_STOPPED, &finalStatus, &errorText, &win32Error);
+    return FinishTransition(succeeded, serviceName, L"停止", finalStatus, errorText, win32Error);
 }
 
 ServiceActionResult PauseServiceEntry(const std::wstring& serviceName) {
     ks::service::ServiceStatus finalStatus{};
     std::string errorText;
+    std::uint32_t win32Error = 0;
     const bool succeeded = ks::service::ControlServiceByName(
         serviceName,
         SERVICE_PAUSE_CONTINUE | SERVICE_QUERY_STATUS,
@@ -71,13 +75,14 @@ ServiceActionResult PauseServiceEntry(const std::wstring& serviceName) {
         kTransitionTimeoutMs,
         SERVICE_PAUSED,
         &finalStatus,
-        &errorText);
-    return FinishTransition(succeeded, serviceName, L"暂停", finalStatus, errorText);
+        &errorText, &win32Error);
+    return FinishTransition(succeeded, serviceName, L"暂停", finalStatus, errorText, win32Error);
 }
 
 ServiceActionResult ContinueServiceEntry(const std::wstring& serviceName) {
     ks::service::ServiceStatus finalStatus{};
     std::string errorText;
+    std::uint32_t win32Error = 0;
     const bool succeeded = ks::service::ControlServiceByName(
         serviceName,
         SERVICE_PAUSE_CONTINUE | SERVICE_QUERY_STATUS,
@@ -85,8 +90,8 @@ ServiceActionResult ContinueServiceEntry(const std::wstring& serviceName) {
         kTransitionTimeoutMs,
         SERVICE_RUNNING,
         &finalStatus,
-        &errorText);
-    return FinishTransition(succeeded, serviceName, L"继续", finalStatus, errorText);
+        &errorText, &win32Error);
+    return FinishTransition(succeeded, serviceName, L"继续", finalStatus, errorText, win32Error);
 }
 
 ServiceActionResult ApplyServiceStartType(const std::wstring& serviceName, const ServiceStartTypeChoice choice) {
@@ -121,7 +126,9 @@ ServiceActionResult ApplyServiceStartType(const std::wstring& serviceName, const
     }
 
     std::string errorText;
-    if (!ks::service::ChangeServiceConfiguration(serviceName, update, &errorText)) {
+    std::uint32_t win32Error = 0;
+    if (!ks::service::ChangeServiceConfiguration(serviceName, update, &errorText, &win32Error)) {
+        result.win32Error = win32Error;
         result.message = std::wstring(L"服务 ") + serviceName + L" 启动类型修改失败：" + WidenUtf8(errorText);
         return result;
     }
@@ -131,8 +138,8 @@ ServiceActionResult ApplyServiceStartType(const std::wstring& serviceName, const
     // switching away from delayed actually clears it.
     if (update.startType == SERVICE_AUTO_START) {
         std::string delayedErrorText;
-        if (!ks::service::SetDelayedAutoStart(serviceName, wantsDelayedAutoStart, &delayedErrorText)) {
-            result.success = false;
+        if (!ks::service::SetDelayedAutoStart(serviceName, wantsDelayedAutoStart, &delayedErrorText, &win32Error)) {
+            result.success = false; result.partial = true; result.win32Error = win32Error;
             result.message = std::wstring(L"服务 ") + serviceName + L" 启动类型已改为自动，但延迟启动标志写入失败：" +
                 WidenUtf8(delayedErrorText);
             return result;

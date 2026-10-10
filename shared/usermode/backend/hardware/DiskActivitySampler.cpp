@@ -4,12 +4,18 @@
 namespace ks::r3::hardware_stats {
 using namespace detail;
 void PerformanceSampler::collectDiskRows(PerformanceSnapshot& snapshot) {
-    const auto readValues = [this](const DiskCounterId id, const bool uncapped) {
+    static const wchar_t* ids[] = {L"readBytesPerSecond",L"writeBytesPerSecond",L"readsPerSecond",L"writesPerSecond",L"currentQueueLength",L"averageQueueLength",L"busyPercent",L"readLatencySeconds",L"writeLatencySeconds"};
+    static_assert(std::size(ids) == static_cast<std::size_t>(DiskCounterId::Count));
+    std::map<std::wstring,std::pair<PerformanceEvidence,std::vector<std::pair<std::wstring,double>>>> fields;
+    const auto readValues = [this,&snapshot,&fields](const DiskCounterId id, const bool uncapped) {
         const std::size_t index = static_cast<std::size_t>(id);
+        PerformanceEvidence e;std::vector<std::pair<std::wstring,double>> values;
         if (index >= impl_->diskCounters.size() || !impl_->diskCounters[index].available) {
-            return std::vector<std::pair<std::wstring, double>>{};
-        }
-        return ReadArray(impl_->diskCounters[index].handle, uncapped);
+            e.statusKnown = index < impl_->diskCounters.size();if (e.statusKnown) e.status = impl_->diskCounters[index].addStatus;
+        } else values = ReadArray(impl_->diskCounters[index].handle, uncapped,&e);
+        fields[ids[index]] = {e,values};
+        const auto path = index < impl_->diskCounters.size() && impl_->diskCounters[index].available ? impl_->diskCounters[index].resolvedPath : DiskCounterPaths()[index];
+        snapshot.sources.push_back({ids[index],path,e,L"disk"});return values;
     };
 
     std::map<std::wstring, DiskActivityRow> rows;
@@ -39,6 +45,12 @@ void PerformanceSampler::collectDiskRows(PerformanceSnapshot& snapshot) {
 
     snapshot.disks.reserve(rows.size());
     for (auto& entry : rows) {
+        for (const auto& [id,field]:fields) {
+            auto e = field.first;
+            e.available = std::any_of(field.second.begin(),field.second.end(),[&](const auto& value){return value.first == entry.first;});
+            if (!e.available) e.complete = false;
+            entry.second.evidence[id] = e;
+        }
         snapshot.disks.push_back(std::move(entry.second));
     }
     std::sort(snapshot.disks.begin(), snapshot.disks.end(),

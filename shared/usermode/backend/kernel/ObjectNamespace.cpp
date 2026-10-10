@@ -6,7 +6,22 @@
 #include <memory>
 #include <sstream>
 #include <utility>
+#include <tuple>
 namespace ks::r3::kernel {
+namespace {
+bool BoundedCounted(const UNICODE_STRING& value,const void* buffer,std::size_t bytes,std::wstring& out){
+    if(value.Length%sizeof(wchar_t)||value.Length>value.MaximumLength)return false;
+    if(!value.Length){out.clear();return value.Buffer==nullptr||reinterpret_cast<std::uintptr_t>(value.Buffer)>=reinterpret_cast<std::uintptr_t>(buffer);}
+    const auto start=reinterpret_cast<std::uintptr_t>(buffer),pointer=reinterpret_cast<std::uintptr_t>(value.Buffer);
+    if(!value.Buffer||pointer%alignof(wchar_t)||pointer<start||pointer-start>bytes||value.Length>bytes-(pointer-start))return false;
+    out.assign(value.Buffer,value.Length/sizeof(wchar_t));return true;
+}
+struct OwnedObject {
+    HANDLE handle=nullptr;bool* attempted=nullptr;bool* closed=nullptr;DWORD* error=nullptr;
+    void close(){if(!handle||handle==INVALID_HANDLE_VALUE)return;*attempted=true;::SetLastError(ERROR_SUCCESS);*closed=::CloseHandle(handle)!=FALSE;*error=*closed?ERROR_SUCCESS: ::GetLastError();handle=nullptr;}
+    ~OwnedObject(){close();}
+};
+}
 KernelResultRow Row(std::initializer_list<std::pair<std::wstring, std::wstring>> columns, const std::wstring& detail) {
     KernelResultRow row;
     row.columns.assign(columns.begin(), columns.end());
@@ -399,10 +414,10 @@ void AppendQueriedObjectText(QueryPacket& packet, const NtRuntime& runtime, HAND
 const NtRuntime& Runtime() {
     static NtRuntime runtime = [] {
         NtRuntime result{};
-        HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
-        if (!ntdll) {
-            ntdll = ::LoadLibraryW(L"ntdll.dll");
-        }
+        struct Library {HMODULE module=::GetModuleHandleW(L"ntdll.dll");bool owned=false;
+            Library(){if(!module){module=::LoadLibraryW(L"ntdll.dll");owned=module!=nullptr;}}
+            ~Library(){if(owned)::FreeLibrary(module);}};
+        static const Library library;HMODULE ntdll=library.module;
         if (!ntdll) {
             return result;
         }
@@ -422,6 +437,7 @@ const NtRuntime& Runtime() {
     return runtime;
 }
 HANDLE OpenDirectory(const NtRuntime& runtime, const std::wstring& path, LONG* statusOut) {
+    if(path.size()>32766){if(statusOut)*statusOut=kStatusNameTooLong;return nullptr;}
     if (!runtime.openDirectoryObject || path.empty()) {
         if (statusOut) {
             *statusOut = kStatusNoSuchFile;
@@ -436,9 +452,10 @@ HANDLE OpenDirectory(const NtRuntime& runtime, const std::wstring& path, LONG* s
     if (statusOut) {
         *statusOut = status;
     }
-    return IsSuccessStatus(status) ? handle : nullptr;
+    return status==kStatusSuccess ? handle : nullptr;
 }
 HANDLE OpenSymbolicLink(const NtRuntime& runtime, const std::wstring& path, LONG* statusOut) {
+    if(path.size()>32766){if(statusOut)*statusOut=kStatusNameTooLong;return nullptr;}
     if (!runtime.openSymbolicLinkObject || path.empty()) {
         if (statusOut) {
             *statusOut = kStatusNoSuchFile;
@@ -453,24 +470,24 @@ HANDLE OpenSymbolicLink(const NtRuntime& runtime, const std::wstring& path, LONG
     if (statusOut) {
         *statusOut = status;
     }
-    return IsSuccessStatus(status) ? handle : nullptr;
+    return status==kStatusSuccess ? handle : nullptr;
 }
-std::wstring QuerySymbolicLinkTarget(const NtRuntime& runtime, HANDLE link) {
+std::wstring QuerySymbolicLinkTarget(const NtRuntime& runtime, HANDLE link,DirectoryEntry::TargetEvidence* evidence) {
+    DirectoryEntry::TargetEvidence local;auto& e=evidence?*evidence:local;
     if (!runtime.querySymbolicLinkObject || !link) {
         return {};
     }
 
     std::vector<wchar_t> buffer(2048, L'\0');
-    UNICODE_STRING target{};
-    target.Buffer = buffer.data();
-    target.MaximumLength = static_cast<USHORT>(buffer.size() * sizeof(wchar_t));
-    const LONG status = runtime.querySymbolicLinkObject(link, &target, nullptr);
-    if (!IsSuccessStatus(status)) {
-        return {};
-    }
-    return CountedString(target);
+    for(int attempt=0;attempt<4;++attempt){UNICODE_STRING target{};target.Buffer=buffer.data();target.MaximumLength=static_cast<USHORT>(buffer.size()*sizeof(wchar_t));
+        e.attempted=true;e.required=0;e.status=runtime.querySymbolicLinkObject(link,&target,&e.required);
+        if(e.status==kStatusSuccess){std::wstring text;e.available=BoundedCounted(target,buffer.data(),buffer.size()*sizeof(wchar_t),text);e.malformed=!e.available;return e.available?text:std::wstring{};}
+        if(!IsRetryStatus(e.status))return {};if(e.required>65534){e.limited=true;return {};}
+        const auto wanted=(std::max)(buffer.size()*2,static_cast<std::size_t>((e.required+1)/2));if(wanted>32767){e.limited=true;return {};}buffer.resize(wanted);
+    }e.limited=true;return {};
 }
-void QueryBasicObjectCounts(const NtRuntime& runtime, HANDLE handle, std::wstring& handleCountText, std::wstring& pointerCountText) {
+void QueryBasicObjectCounts(const NtRuntime& runtime, HANDLE handle, std::wstring& handleCountText, std::wstring& pointerCountText,DirectoryEntry::BasicEvidence* evidence) {
+    DirectoryEntry::BasicEvidence local;auto& e=evidence?*evidence:local;
     if (!runtime.queryObject || !handle) {
         return;
     }
@@ -478,14 +495,16 @@ void QueryBasicObjectCounts(const NtRuntime& runtime, HANDLE handle, std::wstrin
     KOBJECT_BASIC_INFORMATION basic{};
     ULONG returned = 0;
     const LONG status = runtime.queryObject(handle, kObjectBasicInformation, &basic, static_cast<ULONG>(sizeof(basic)), &returned);
-    if (!IsSuccessStatus(status)) {
+    e.attempted=true;e.status=status;e.returned=returned;e.malformed=status==kStatusSuccess&&returned!=sizeof(basic);e.available=status==kStatusSuccess&&!e.malformed;
+    if (!e.available) {
         return;
     }
+    e.value=basic;
     handleCountText = std::to_wstring(basic.HandleCount);
     pointerCountText = std::to_wstring(basic.PointerCount);
 }
 HANDLE OpenNamedPipeReadOnly(const NtRuntime& runtime, const std::wstring& path, LONG* statusOut, IO_STATUS_BLOCK* ioStatusOut) {
-    if (!runtime.openFile || path.empty()) {
+    if (!runtime.openFile || path.empty() || path.size()>32766) {
         if (statusOut) {
             *statusOut = kStatusNoSuchFile;
         }
@@ -512,7 +531,8 @@ HANDLE OpenNamedPipeReadOnly(const NtRuntime& runtime, const std::wstring& path,
     if (ioStatusOut) {
         *ioStatusOut = localIoStatus;
     }
-    return IsSuccessStatus(openStatus) ? pipe : nullptr;
+    if(openStatus!=0&&pipe&&pipe!=INVALID_HANDLE_VALUE)::CloseHandle(pipe);
+    return openStatus==0&&pipe!=INVALID_HANDLE_VALUE ? pipe : nullptr;
 }
 void AppendDirectoryPreviewRows(QueryPacket& packet, const NtRuntime& runtime, const std::wstring& path, const std::size_t limit) {
     std::vector<std::wstring> warnings;
@@ -546,88 +566,48 @@ std::wstring DirectoryStatusText(const std::wstring& typeName, const bool canOpe
     }
     return canOpen ? L"对象可打开" : L"叶子对象或权限受限";
 }
-std::vector<DirectoryEntry> EnumerateDirectoryFlat(const NtRuntime& runtime, const std::wstring& directoryPath, std::vector<std::wstring>& warnings) {
-    std::vector<DirectoryEntry> entries;
-    if (!runtime.openDirectoryObject || !runtime.queryDirectoryObject) {
-        warnings.push_back(L"NtOpenDirectoryObject/NtQueryDirectoryObject 不可用。");
-        return entries;
+std::vector<DirectoryEntry> EnumerateDirectoryFlat(const NtRuntime& runtime,const std::wstring& directoryPath,std::vector<std::wstring>& warnings,DirectoryQueryEvidence* evidence,const DirectoryQueryOptions& options) {
+    DirectoryQueryEvidence local;auto& source=evidence?*evidence:local;source.path=directoryPath;std::vector<DirectoryEntry> entries;
+    source.apiAvailable=runtime.openDirectoryObject&&runtime.queryDirectoryObject;
+    if(!source.apiAvailable){warnings.push_back(L"NtOpenDirectoryObject/NtQueryDirectoryObject 不可用。");return entries;}
+    source.openAttempted=true;HANDLE directory=OpenDirectory(runtime,directoryPath,&source.openStatus);
+    if(!directory){source.malformed=source.openStatus==kStatusSuccess;warnings.push_back(std::wstring(L"无法打开对象目录 ")+directoryPath+L"，NTSTATUS="+StatusText(source.openStatus));return entries;}
+    if(directory==INVALID_HANDLE_VALUE){source.malformed=true;return entries;}
+    source.opened=true;OwnedObject owned{directory,&source.closeAttempted,&source.closed,&source.closeError};
+    std::vector<std::byte> buffer(64*1024);ULONG context=0;BOOLEAN restart=TRUE;const auto started=::GetTickCount64();
+    std::set<std::tuple<std::wstring,std::wstring,ULONG>> seen;
+    for(;;){
+        if(options.cancelled&&options.cancelled()){source.cancelled=true;break;}
+        if(source.queried>=options.maxEntries||::GetTickCount64()-started>=options.maxDurationMs||(options.deadlineTick&&::GetTickCount64()>=options.deadlineTick)){source.limited=true;break;}
+        source.returned=0;const auto oldContext=context;source.queryAttempted=true;
+        source.lastQueryStatus=runtime.queryDirectoryObject(directory,buffer.data(),static_cast<ULONG>(buffer.size()),TRUE,restart,&context,&source.returned);
+        if(source.lastQueryStatus==kStatusNoMoreEntries){source.complete=true;break;}
+        if(IsRetryStatus(source.lastQueryStatus)){
+            if(source.returned>4u*1024u*1024u||buffer.size()>=4u*1024u*1024u){source.limited=true;break;}
+            buffer.resize((std::min<std::size_t>)(4u*1024u*1024u,(std::max)(buffer.size()*2,static_cast<std::size_t>(source.returned))));context=oldContext;continue;
+        }
+        if(source.lastQueryStatus!=kStatusSuccess){warnings.push_back(std::wstring(L"查询对象目录失败 ")+directoryPath+L"，NTSTATUS="+StatusText(source.lastQueryStatus));break;}
+        restart=FALSE;
+        if(source.returned<sizeof(KOBJECT_DIRECTORY_INFORMATION)||source.returned>buffer.size()){source.malformed=true;break;}
+        const auto* native=reinterpret_cast<const KOBJECT_DIRECTORY_INFORMATION*>(buffer.data());
+        if(!native->Name.Buffer&&!native->Name.Length&&!native->Name.MaximumLength&&!native->TypeName.Buffer&&!native->TypeName.Length&&!native->TypeName.MaximumLength){source.complete=true;break;}
+        DirectoryEntry entry;entry.parentPath=directoryPath;
+        if(!BoundedCounted(native->Name,buffer.data(),source.returned,entry.name)||!BoundedCounted(native->TypeName,buffer.data(),source.returned,entry.typeName)||entry.name.empty()||entry.typeName.empty()){source.malformed=true;break;}
+        if(!seen.emplace(entry.name,entry.typeName,context).second){source.cycle=true;break;}++source.queried;
+        entry.fullPath=JoinObjectPath(directoryPath,entry.name);
+        entry.metadataRequested=options.probeMetadata&&((entry.typeName==L"Directory"&&options.probeDirectories)||entry.typeName==L"SymbolicLink");
+        HANDLE child=nullptr;
+        if(entry.metadataRequested&&entry.typeName==L"Directory"){entry.openAttempted=runtime.openDirectoryObject!=nullptr;child=OpenDirectory(runtime,entry.fullPath,&entry.openStatus);}
+        else if(entry.metadataRequested&&entry.typeName==L"SymbolicLink"){entry.openAttempted=runtime.openSymbolicLinkObject!=nullptr;child=OpenSymbolicLink(runtime,entry.fullPath,&entry.openStatus);}
+        if(child&&child!=INVALID_HANDLE_VALUE){entry.canOpen=true;OwnedObject object{child,&entry.closeAttempted,&entry.closed,&entry.closeError};
+            QueryBasicObjectCounts(runtime,child,entry.handleCountText,entry.pointerCountText,&entry.basic);
+            if(entry.typeName==L"SymbolicLink")entry.targetPath=QuerySymbolicLinkTarget(runtime,child,&entry.target);
+            object.close();
+        }else if(child==INVALID_HANDLE_VALUE||(entry.openAttempted&&entry.openStatus==kStatusSuccess))source.malformed=true;
+        if(entry.handleCountText.empty())entry.handleCountText=L"N/A";if(entry.pointerCountText.empty())entry.pointerCountText=L"N/A";
+        entry.statusText=DirectoryStatusText(entry.typeName,entry.canOpen,!entry.targetPath.empty());entries.push_back(std::move(entry));
     }
-
-    LONG openStatus = 0;
-    HANDLE directory = OpenDirectory(runtime, directoryPath, &openStatus);
-    if (!directory) {
-        warnings.push_back(std::wstring(L"无法打开对象目录 ") + directoryPath + L"，NTSTATUS=" + StatusText(openStatus));
-        return entries;
-    }
-
-    std::vector<std::byte> buffer(64 * 1024);
-    ULONG context = 0;
-    BOOLEAN restart = TRUE;
-    for (;;) {
-        ULONG returned = 0;
-        const LONG status = runtime.queryDirectoryObject(
-            directory,
-            buffer.data(),
-            static_cast<ULONG>(buffer.size()),
-            TRUE,
-            restart,
-            &context,
-            &returned);
-        restart = FALSE;
-        if (status == kStatusNoMoreEntries) {
-            break;
-        }
-        if (!IsSuccessStatus(status)) {
-            warnings.push_back(std::wstring(L"查询对象目录失败 ") + directoryPath + L"，NTSTATUS=" + StatusText(status));
-            break;
-        }
-
-        const auto* nativeEntry = reinterpret_cast<const KOBJECT_DIRECTORY_INFORMATION*>(buffer.data());
-        const std::wstring name = CountedString(nativeEntry->Name);
-        if (name.empty()) {
-            continue;
-        }
-
-        DirectoryEntry entry;
-        entry.parentPath = directoryPath;
-        entry.name = name;
-        entry.typeName = CountedString(nativeEntry->TypeName);
-        if (entry.typeName.empty()) {
-            entry.typeName = L"<unknown>";
-        }
-        entry.fullPath = JoinObjectPath(directoryPath, entry.name);
-
-        if (entry.typeName == L"Directory") {
-            LONG childStatus = 0;
-            HANDLE child = OpenDirectory(runtime, entry.fullPath, &childStatus);
-            if (child) {
-                entry.canOpen = true;
-                QueryBasicObjectCounts(runtime, child, entry.handleCountText, entry.pointerCountText);
-                ::CloseHandle(child);
-            }
-        } else if (entry.typeName == L"SymbolicLink") {
-            LONG linkStatus = 0;
-            HANDLE link = OpenSymbolicLink(runtime, entry.fullPath, &linkStatus);
-            if (link) {
-                entry.canOpen = true;
-                QueryBasicObjectCounts(runtime, link, entry.handleCountText, entry.pointerCountText);
-                entry.targetPath = QuerySymbolicLinkTarget(runtime, link);
-                ::CloseHandle(link);
-            }
-        }
-
-        if (entry.handleCountText.empty()) {
-            entry.handleCountText = L"N/A";
-        }
-        if (entry.pointerCountText.empty()) {
-            entry.pointerCountText = L"N/A";
-        }
-        entry.statusText = DirectoryStatusText(entry.typeName, entry.canOpen, !entry.targetPath.empty());
-        entries.push_back(std::move(entry));
-    }
-
-    ::CloseHandle(directory);
-    return entries;
+    owned.close();return entries;
 }
 void AppendDirectoryEntryRow(
     QueryPacket& packet,
@@ -703,20 +683,23 @@ void AppendDirectoryRoot(QueryPacket& packet, const NtRuntime& runtime, const st
         }
     }
 }
-std::vector<DWORD> DiscoverSessionIds(const NtRuntime& runtime) {
+std::vector<DWORD> DiscoverSessionIds(const NtRuntime& runtime,DirectoryQueryEvidence* evidence,DWORD* currentSessionError,const DirectoryQueryOptions& options,bool* currentSessionKnown) {
     // DiscoverSessionIds mirrors the original BaseNamedObjects worker by
     // enumerating numeric children under \Sessions. Inputs are the resolved NT
     // runtime; processing also includes the current process session and session
     // 0; output is de-duplicated and sorted for stable UI order.
     DWORD currentSessionId = 0;
-    ::ProcessIdToSessionId(::GetCurrentProcessId(), &currentSessionId);
+    ::SetLastError(ERROR_SUCCESS);const auto currentKnown=::ProcessIdToSessionId(::GetCurrentProcessId(), &currentSessionId)!=FALSE;
+    if(currentSessionError)*currentSessionError=currentKnown?ERROR_SUCCESS: ::GetLastError();
+    if(currentSessionKnown)*currentSessionKnown=currentKnown;
     std::vector<DWORD> sessions{ 0, currentSessionId };
     std::vector<std::wstring> warnings;
-    const std::vector<DirectoryEntry> entries = EnumerateDirectoryFlat(runtime, L"\\Sessions", warnings);
+    auto discoveryOptions=options;discoveryOptions.probeMetadata=false;
+    const std::vector<DirectoryEntry> entries = EnumerateDirectoryFlat(runtime, L"\\Sessions", warnings,evidence,discoveryOptions);
     for (const DirectoryEntry& entry : entries) {
         wchar_t* end = nullptr;
-        const unsigned long value = std::wcstoul(entry.name.c_str(), &end, 10);
-        if (end != entry.name.c_str() && *end == L'\0') {
+        const unsigned long long value = std::wcstoull(entry.name.c_str(), &end, 10);
+        if (!entry.name.empty()&&std::all_of(entry.name.begin(),entry.name.end(),[](wchar_t c){return c>=L'0'&&c<=L'9';})&&value<=MAXDWORD&&end != entry.name.c_str() && *end == L'\0') {
             sessions.push_back(static_cast<DWORD>(value));
         }
     }
@@ -724,7 +707,7 @@ std::vector<DWORD> DiscoverSessionIds(const NtRuntime& runtime) {
     sessions.erase(std::unique(sessions.begin(), sessions.end()), sessions.end());
     return sessions;
 }
-std::vector<std::wstring> CommonNamespaceRoots() {
+std::vector<std::wstring> CommonNamespaceRoots(DirectoryQueryEvidence* discovery,DWORD* currentSessionError,const DirectoryQueryOptions& options,bool* currentSessionKnown) {
     const NtRuntime& runtime = Runtime();
     std::vector<std::wstring> roots{
         L"\\",
@@ -743,7 +726,7 @@ std::vector<std::wstring> CommonNamespaceRoots() {
         L"\\Security",
         L"\\Sessions",
     };
-    for (const DWORD sessionId : DiscoverSessionIds(runtime)) {
+    for (const DWORD sessionId : DiscoverSessionIds(runtime,discovery,currentSessionError,options,currentSessionKnown)) {
         const std::wstring prefix = std::wstring(L"\\Sessions\\") + std::to_wstring(sessionId);
         roots.push_back(prefix + L"\\BaseNamedObjects");
         roots.push_back(prefix + L"\\DosDevices");

@@ -35,14 +35,14 @@ struct RemoteProcessParameters {
     UNICODE_STRING commandLine;
 };
 std::wstring Win32ErrorText(const wchar_t* operation, DWORD errorCode);
-std::wstring QueryProcessImagePath(HANDLE process);
+std::wstring QueryProcessImagePath(HANDLE process, ProcessQueryEvidence* evidence = nullptr);
 std::wstring LeafNameFromPath(const std::wstring& path);
 void QuerySnapshotIdentity(
     DWORD processId,
     DWORD& parentProcessIdInOut,
     std::wstring& processNameOut,
     std::wstring& parentProcessNameOut,
-    DWORD& threadCountOut);
+    DWORD& threadCountOut, ProcessQueryEvidence* evidence = nullptr);
 std::wstring FormatProcessStartTime(const FILETIME& creationTime);
 std::wstring PriorityClassText(DWORD priorityClass);
 ULONGLONG SaturatingAdd64(ULONGLONG left, ULONGLONG right);
@@ -52,11 +52,11 @@ void QueryTokenText(
     std::wstring& userOut,
     std::wstring& integrityOut,
     bool& isAdminOut,
-    bool& adminKnownOut);
-std::wstring QueryBitnessText(HANDLE process);
-bool QueryNativeProcessBasicInformation(HANDLE process, NativeProcessBasicInformation& basicOut);
+    bool& adminKnownOut, ProcessBasicInfo* evidenceOut = nullptr);
+std::wstring QueryBitnessText(HANDLE process, ProcessQueryEvidence* evidence = nullptr);
+bool QueryNativeProcessBasicInformation(HANDLE process, NativeProcessBasicInformation& basicOut, ProcessQueryEvidence* evidence = nullptr);
 DWORD QueryParentProcessId(HANDLE process);
-std::wstring ReadRemoteUnicodeString(HANDLE process, const UNICODE_STRING& remoteText);
-std::wstring QueryCommandLineText(HANDLE process);
+std::wstring ReadRemoteUnicodeString(HANDLE process, const UNICODE_STRING& remoteText, ProcessQueryEvidence* evidence = nullptr);
+std::wstring QueryCommandLineText(HANDLE process, ProcessQueryEvidence* evidence = nullptr);
 
 }

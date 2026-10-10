@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations"><ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration></ItemGroup>
+  <PropertyGroup Label="Globals"><ProjectGuid>{E2CC3E2D-1B30-4A8D-B0B5-C1900E431C38}</ProjectGuid><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset><CharacterSet>Unicode</CharacterSet><UseDebugLibraries>false</UseDebugLibraries></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup><OutDir>$(LOCALAPPDATA)\KSwordTestBuilds\CLI-R3\</OutDir><IntDir>$(LOCALAPPDATA)\KSwordTestBuilds\CLI-R3\capture-runner-obj\</IntDir><TargetName>R3CaptureRunner</TargetName></PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><LanguageStandard>stdcpp20</LanguageStandard><RuntimeLibrary>MultiThreaded</RuntimeLibrary><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions><PreprocessorDefinitions>NOMINMAX;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
+    <Link><SubSystem>Console</SubSystem><AdditionalDependencies>Advapi32.lib;User32.lib;Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="CaptureRunner.cpp" />
+    <ClCompile Include="..\..\KswordCLI\CommandRegistry.cpp" />
+    <ClCompile Include="..\..\KswordCLI\R3WindowCapture.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\Common.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\window\CaptureProtection.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\window\WindowEnumerator.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\window\WindowFormatting.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\window\WindowQueries.cpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ItemGroup><ClCompile Include="..\..\shared\usermode\backend\window\WindowListCapture.cpp" /></ItemGroup>
+</Project>

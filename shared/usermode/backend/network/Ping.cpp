@@ -5,6 +5,8 @@ using namespace detail;
 DiagnosticResult RunPing(const DiagnosticRequest& request) {
     DiagnosticResult result{};
     const ResolvedTarget target = ResolveIpv4(request.target);
+    result.resolvedAddress = target.addressText;
+    result.win32Error = target.error;
     if (!target.resolved) {
         result.text = target.diagnostic;
         result.summary = L"Ping 未执行：目标解析失败。";
@@ -13,12 +15,14 @@ DiagnosticResult RunPing(const DiagnosticRequest& request) {
 
     IcmpSession session;
     if (!session.valid()) {
-        result.text = L"无法创建 ICMP 句柄：" + FormatWin32Error(::GetLastError()) + L"。";
+        result.win32Error = ::GetLastError();
+        result.text = L"无法创建 ICMP 句柄：" + FormatWin32Error(result.win32Error) + L"。";
         result.summary = L"Ping 未执行：ICMP 句柄创建失败。";
         return result;
     }
 
     const std::uint32_t echoCount = std::clamp<std::uint32_t>(request.echoCount, 1, kMaxEchoCount);
+    result.sent = echoCount;
     unsigned char payload[kEchoPayloadSize]{};
     for (std::size_t index = 0; index < sizeof(payload); ++index) {
         payload[index] = static_cast<unsigned char>(L'a' + (index % 23));
@@ -46,10 +50,14 @@ DiagnosticResult RunPing(const DiagnosticRequest& request) {
             static_cast<DWORD>(replyBuffer.size()),
             request.timeoutMs);
         if (replies == 0) {
-            AppendLine(result.text, L"请求失败：" + FormatWin32Error(::GetLastError()));
+            const auto error = ::GetLastError();
+            result.probes.push_back({attempt + 1, error, 0, 0, 0, L"", false});
+            AppendLine(result.text, L"请求失败：" + FormatWin32Error(error));
             continue;
         }
         const auto* reply = reinterpret_cast<const ICMP_ECHO_REPLY*>(replyBuffer.data());
+        result.probes.push_back({attempt + 1, reply->Status, reply->RoundTripTime, reply->Options.Ttl,
+            reply->DataSize, FormatIpv4Address(static_cast<std::uint32_t>(reply->Address)), true});
         if (reply->Status != IP_SUCCESS) {
             AppendLine(result.text, L"来自 " + FormatIpv4Address(static_cast<std::uint32_t>(reply->Address)) +
                 L" 的回应：" + IcmpStatusText(reply->Status));
@@ -79,6 +87,7 @@ DiagnosticResult RunPing(const DiagnosticRequest& request) {
     }
 
     result.success = received != 0;
+    result.received = received;
     result.summary = L"Ping " + target.addressText + L" 完成：接收 " + std::to_wstring(received) + L"/" +
         std::to_wstring(echoCount) + L"，丢失 " + std::to_wstring(lossPercent) + L"%。";
     return result;

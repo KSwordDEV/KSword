@@ -1,12 +1,23 @@
 #pragma once
 
 #include "../Win32.h"
+#include "HardwareTypes.h"
 
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <map>
 
 namespace ks::r3::hardware_stats {
+struct PerformanceEvidence {
+    bool available = false,statusKnown = false,cStatusKnown = false,complete = false,empty = false,malformed = false;
+    DWORD status = 0,cStatus = 0,returnedCount = 0,skippedCount = 0;
+};
+struct PerformanceSourceEvidence {
+    std::wstring id,path;
+    PerformanceEvidence evidence;
+    std::wstring groupId,domain = L"pdh";
+};
 
 // PerformanceMetricRow is one already-formatted counter line. The numeric value
 // is kept next to the display text because the view sorts and colors on the
@@ -19,6 +30,12 @@ struct PerformanceMetricRow {
     std::wstring source;        // Counter path actually queried, for auditing.
     double numericValue = 0.0;  // Raw sample; meaningless when valid is false.
     bool valid = false;         // False when PDH had no usable sample this pass.
+    std::wstring id,groupId,unit,instance;
+    PerformanceEvidence evidence;
+    bool exactInteger = false;
+    std::uint64_t integerValue = 0;
+    bool receivedKnown = false,sentKnown = false;
+    double received = 0,sent = 0;
 };
 
 // DiskActivityRow is one PhysicalDisk instance for the disk tab. Rates are kept
@@ -34,6 +51,7 @@ struct DiskActivityRow {
     double busyPercent = 0.0;
     double readLatencySeconds = 0.0;
     double writeLatencySeconds = 0.0;
+    std::map<std::wstring,PerformanceEvidence> evidence;
 };
 
 // PerformanceSnapshot carries one sampling pass. A failed pass still returns
@@ -45,6 +63,9 @@ struct PerformanceSnapshot {
     std::wstring counterResolutionText;  // How counter paths were resolved.
     std::vector<PerformanceMetricRow> metrics;
     std::vector<DiskActivityRow> disks;
+    bool queryOpened = false,queryStatusKnown = false,collectStatusKnown = false,baselineStatusKnown = false;
+    DWORD queryStatus = 0,collectStatus = 0,baselineStatus = 0;
+    std::vector<PerformanceSourceEvidence> sources;
 };
 
 // UsbNodeKind separates the three roles a USB devnode can play. The tree reads
@@ -79,6 +100,18 @@ struct UsbNode {
     std::wstring hardwareIds;
     std::wstring statusText;
     std::wstring problemText;
+    std::map<std::wstring,ks::r3::hardware::HardwareFieldEvidence> evidence;
+    ULONG statusFlags = 0,problemCode = 0;
+    CONFIGRET statusResult = CR_SUCCESS;
+    bool statusKnown = false,addressKnown = false;
+    DWORD address = 0;
+};
+
+struct UsbEnumerationSource {
+    std::wstring name;
+    bool complete = false,opened = false,limited = false,malformed = false;
+    DWORD win32Error = ERROR_SUCCESS,examinedCount = 0,skippedCount = 0;
+    CONFIGRET cmStatus = CR_SUCCESS;
 };
 
 // UsbTopologySnapshot is one full USB enumeration pass.
@@ -86,10 +119,26 @@ struct UsbTopologySnapshot {
     bool success = false;
     std::wstring diagnosticText;
     std::vector<UsbNode> nodes;
+    std::vector<UsbEnumerationSource> sources;
 };
 
 // BusDeviceRow is one PCI/ACPI style devnode with its bus placement and the
 // hardware resources the PnP manager currently has arbitrated to it.
+struct BusResourceRow {
+    DWORD type = 0,dataSize = 0,ordinal = 0,number = 0;
+    CONFIGRET sizeStatus = CR_SUCCESS,dataStatus = CR_SUCCESS;
+    bool sizeKnown = false,dataKnown = false,interpreted = false,rangeKnown = false,numberKnown = false,malformed = false;
+    std::wstring kind;
+    std::uint64_t base = 0,endInclusive = 0;
+    std::vector<std::uint8_t> rawPreview;
+};
+struct BusResourceEvidence {
+    bool available = false,complete = false,noConfiguration = false,usedBoot = false,bootStatusKnown = false,terminalKnown = false;
+    bool limited = false,malformed = false,cleanupComplete = true,logFreeKnown = false,resourceFreeKnown = false;
+    CONFIGRET allocatedStatus = CR_SUCCESS,bootStatus = CR_SUCCESS,terminalStatus = CR_SUCCESS,logFreeStatus = CR_SUCCESS,resourceFreeStatus = CR_SUCCESS;
+    DWORD descriptorCount = 0,skippedCount = 0;
+    std::vector<BusResourceRow> rows;
+};
 struct BusDeviceRow {
     std::wstring instanceId;
     std::wstring description;
@@ -109,6 +158,12 @@ struct BusDeviceRow {
     std::wstring resourceText;     // IRQ / IO / MEM / DMA summary.
     std::wstring statusText;
     std::wstring problemText;
+    std::map<std::wstring,ks::r3::hardware::HardwareFieldEvidence> evidence;
+    ULONG statusFlags = 0,problemCode = 0;
+    CONFIGRET statusResult = CR_SUCCESS;
+    bool statusKnown = false;
+    std::wstring enumerationSource;
+    BusResourceEvidence resources;
 };
 
 // BusDeviceSnapshot is one full bus enumeration pass.
@@ -116,6 +171,7 @@ struct BusDeviceSnapshot {
     bool success = false;
     std::wstring diagnosticText;
     std::vector<BusDeviceRow> rows;
+    std::vector<UsbEnumerationSource> sources;
 };
 
 // FormatByteSize renders a byte count with a binary unit. Input is a byte count

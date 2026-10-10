@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <functional>
 
 namespace ks::r3::system_tools {
 
@@ -12,6 +13,9 @@ namespace ks::r3::system_tools {
 // file open. Values are already formatted for display; the view never parses
 // them back.
 struct FileHolderEntry {
+    std::uint64_t processCreationTime = 0;
+    bool creationTimeKnown = false,processAlive = false,processAliveKnown = false,pathKnown = false,nameKnown = false;
+    DWORD identityError = 0,pathError = 0;
     std::uint32_t processId = 0;
     std::wstring processName;
     std::wstring processPath;
@@ -27,6 +31,10 @@ struct FileHolderEntry {
 // far fewer handles than it found is a permission problem, not an empty answer,
 // and the operator has to be able to tell those two apart.
 struct FileHolderScanResult {
+    bool snapshotAttempted = false,ntStatusKnown = false,malformed = false,limited = false,cancelled = false,complete = false,apiUnavailable = false;
+    LONG snapshotNtStatus = 0;
+    DWORD snapshotBytes = 0,examinedHandles = 0,protectedSkipped = 0,openFailed = 0,duplicateFailed = 0,notDisk = 0,nameFailed = 0,identityMismatch = 0;
+    DWORD waitFailed = 0,waitWin32Error = 0;
     bool success = false;
     std::wstring diagnosticText;
     std::wstring targetNtPath;             // What the sweep actually compared against.
@@ -46,7 +54,12 @@ struct FileHolderScanResult {
 //
 // This blocks for seconds on a busy machine and must only be called from a
 // worker thread.
-FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, bool includeSubPaths);
+struct FileHolderScanOptions {
+    DWORD processId = 0,maxHandles = 1000000,maxDurationMs = 10000,maxTimeouts = 4;
+    std::uint64_t processCreationTime = 0;
+    std::function<bool()> cancelled;
+};
+FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, bool includeSubPaths,const FileHolderScanOptions& options = {});
 
 // ResolveWin32PathToNtPath maps a drive-letter path onto its object-manager
 // form. Input is a Win32 path; processing consults QueryDosDeviceW; output is

@@ -50,4 +50,431 @@
   <ItemGroup>
     <ClInclude Include="ArkDriverExtended.h"><Filter>头文件</Filter></ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="CommandRegistry.cpp" />
+    <ClCompile Include="R3NetworkConnections.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\Connections.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\NetworkSupport.cpp" />
+    <ClInclude Include="CommandRegistry.h" />
+    <ClInclude Include="..\shared\usermode\backend\network\Connections.h" />
+    <ClInclude Include="..\shared\usermode\backend\network\NetworkSupport.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3NetworkPing.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\Ping.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\network\Diagnostics.h" />
+    <ClInclude Include="..\shared\usermode\backend\network\IcmpSupport.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3NetworkTraceRoute.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\TraceRoute.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3NetworkDns.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\Dns.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3NetworkFirewall.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\Firewall.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\network\Firewall.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3NetworkEndpointAudit.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\network\EndpointAudit.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\network\EndpointAudit.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3Service.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceActions.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\service\ServiceTypes.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\service\service.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceEnumerator.h" />
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceActions.h" />
+    <ClInclude Include="..\shared\usermode\backend\service\ServiceTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3RegistryBrowse.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistryBrowse.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistryModel.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\registry\RegistryBackend.h" />
+    <ClInclude Include="..\shared\usermode\backend\registry\RegistryModel.h" />
+    <ClInclude Include="..\shared\usermode\backend\registry\RegistrySupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\registry\RegistrySearchModel.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3RegistrySearch.cpp" />
+    <ClCompile Include="R3Cancellation.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearch.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearchModel.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3RegistryMutations.cpp" />
+    <ClCompile Include="R3Input.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistryMutations.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3Startup.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\Common.cpp" />
+    <ClInclude Include="R3StartupShared.h" />
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupTypes.h" />
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupEnumerator.h" />
+    <ClInclude Include="..\shared\usermode\backend\Common.h" />
+    <ClInclude Include="..\shared\usermode\backend\Win32.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3StartupActions.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupActions.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupActions.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3Privilege.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeActions.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeTypes.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeEnumerator.h" />
+    <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeActions.h" />
+    <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3FileDirectory.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\Directory.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\PathNavigator.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\file\Directory.h" />
+    <ClInclude Include="..\shared\usermode\backend\file\DirectorySupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\file\PathNavigator.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3FileOperations.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\FileOperations.cpp" />
+    <ClInclude Include="R3FileShared.h" />
+    <ClInclude Include="..\shared\usermode\backend\file\FileOperations.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3FileOwnership.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\Ownership.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\file\Ownership.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3FileAnalysis.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\FileAnalysis.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\file\FileAnalysis.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3FilePe.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\PeSnapshot.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\file\PeSnapshot.h" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessEnumeration.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\NtApi.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessEnumerator.h" />
+    <ClInclude Include="..\shared\usermode\backend\NtApi.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessFields.cpp" />
+    <ClInclude Include="R3ProcessShared.h" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnrichment.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessDetails.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessExtraQueries.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessEnrichment.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessDetails.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessExtraQueries.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessFields.h" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\process\process.cpp" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\process\process.h" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\process\ProcessCpuUsageModel.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessTelemetry.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessTelemetry.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessCounters.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessTelemetry.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessCounters.h" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\network\network_process_etw_monitor.cpp" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\network\network_process_etw_monitor.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessControls.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessControls.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessControls.h" />
+    <ClInclude Include="..\shared\ProcessTerminateMethods.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessBasic.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessBasicInfo.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessBasicInfo.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessBasicInfoSupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessDetailTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessThreads.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessThreads.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ThreadActions.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessThreadsSupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ThreadActions.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ThreadActionSupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\DetailActionTypes.h" />
+    <ClInclude Include="..\shared\ThreadAffinityR3.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessModules.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessModules.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ModuleActions.cpp" />
+    <ClInclude Include="R3ThreadShared.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessModulesSupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ModuleActions.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ModuleActionSupport.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessToken.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessToken.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessToken.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3TokenSwitches.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessTokenSwitches.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessTokenSwitches.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessPeb.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessPeb.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessPeb.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessHotkeys.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessHotkeys.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessHotkeys.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3DriverModules.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\driver\DriverQueries.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\driver\DriverFormatting.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\driver\DriverQueries.h" />
+    <ClInclude Include="..\shared\usermode\backend\driver\DriverFormatting.h" />
+    <ClInclude Include="..\shared\usermode\backend\driver\DriverTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3HardwareDevices.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareFormatting.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareEnumerator.h" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareFormatting.h" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3HardwarePerformance.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\SystemPerformanceSampler.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\DiskActivitySampler.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareStatsFormatting.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\PerformanceSampler.h" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\PerformanceSamplerSupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareStatsTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3HardwareDisk.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3HardwareUsb.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\UsbTopology.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\UsbTopology.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3HardwareBus.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\BusTopology.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\BusTopology.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3Window.cpp" />
+    <ClInclude Include="R3WindowShared.h" />
+    <ClCompile Include="..\shared\usermode\backend\window\WindowEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\WindowActions.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\WindowFormatting.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowEnumerator.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowActions.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowFormatting.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3Clipboard.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\Clipboard.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\WindowQueries.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\Clipboard.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowQueries.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowToolsTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3WindowCapture.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\CaptureProtection.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\CaptureProtection.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3WindowHierarchy.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\WindowHierarchy.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\WindowHierarchySupport.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\PointerText.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowHierarchy.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowHierarchySupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\PointerText.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3WindowHotkeys.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\GlobalHotkeyProbe.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\GlobalHotkeyProbe.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3MonitorEtw.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\monitor\EtwSessionController.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\monitor\EtwEventModel.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\monitor\EtwFilterModel.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\monitor\EtwSessionController.h" />
+    <ClInclude Include="..\shared\usermode\backend\monitor\EtwEventModel.h" />
+    <ClInclude Include="..\shared\usermode\backend\monitor\EtwFilterModel.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SystemFileHolders.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\FileHolderScanner.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\ModulePath.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\system\FileHolderScanner.h" />
+    <ClInclude Include="..\shared\usermode\backend\system\ModulePath.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SystemEventLog.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\EventLogReader.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\system\EventLogReader.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SystemContextMenu.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\ContextMenuScanner.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\AdminState.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\system\ContextMenuScanner.h" />
+    <ClInclude Include="..\shared\usermode\backend\system\AdminState.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SystemTime.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\SystemTimeInfo.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\system\SystemTimeInfo.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SystemIoctl.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\IoctlDecoder.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\system\IoctlDecoder.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelNamespace.cpp" />
+    <ClInclude Include="R3KernelShared.h" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\ObjectNamespace.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\KernelTypes.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\ObjectNamespace.h" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\KernelTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelDirectory.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\ObjectDirectory.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\ObjectDirectory.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelSymlink.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\SymbolicLinks.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\SymbolicLinks.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelObjects.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\DeviceDriverObjects.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\DeviceDriverObjects.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelBaseNamed.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\BaseNamedObjects.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\BaseNamedObjects.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelEndpoints.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\CommunicationEndpoints.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\CommunicationEndpoints.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelObjectTypes.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\ObjectTypes.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\ObjectTypes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelPipes.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\NamedPipes.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\NamedPipes.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelAtoms.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\AtomTable.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\AtomTable.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelNtQuery.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\NtQuery.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\NtQuery.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelHookBaseline.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\HookDiskBaseline.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\HookDiskBaseline.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SecurityCi.cpp" />
+    <ClInclude Include="R3SecurityShared.h" />
+    <ClCompile Include="..\shared\usermode\backend\security\CodeIntegrity.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\CodeIntegrity.h" />
+    <ClCompile Include="..\shared\evidence\EvidenceJson.cpp" />
+    <ClInclude Include="..\shared\evidence\EvidenceJson.h" />
+    <ClCompile Include="..\shared\evidence\LosslessValue.cpp" />
+    <ClInclude Include="..\shared\evidence\LosslessValue.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SecurityVbs.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\security\Vbs.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\Vbs.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SecurityHyperV.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\security\HyperV.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\HyperV.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SecurityAppLocker.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\security\AppLocker.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\AppLocker.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SecurityBamAhcache.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\security\BamAhcache.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\BamAhcache.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SecurityBugcheck.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\security\BugcheckEvidence.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\BugcheckEvidence.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\usermode\backend\window\WindowListCapture.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowListCapture.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ClipboardControl.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\ClipboardControl.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\ClipboardControl.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessIdentity.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessNavigationIdentity.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessNavigationIdentity.h" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessDetailIdentity.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessDetailIdentity.h" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEvidenceName.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessEvidenceName.h" />
+    <ClCompile Include="..\shared\usermode\backend\process\EventProcessImagePath.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\EventProcessImagePath.h" />
+  </ItemGroup>
 </Project>

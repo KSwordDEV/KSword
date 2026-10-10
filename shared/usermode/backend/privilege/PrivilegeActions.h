@@ -9,6 +9,7 @@ namespace ks::r3::privilege {
 struct PrivilegeActionResult {
     bool success = false;
     std::wstring message;
+    DWORD win32Error = ERROR_SUCCESS;
 };
 
 // SetPrivilegeEnabled enables or disables one privilege on the current process

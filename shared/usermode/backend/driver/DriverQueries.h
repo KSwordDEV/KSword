@@ -72,7 +72,7 @@ std::wstring AnsiPathFromModule(const KRTL_PROCESS_MODULE_INFORMATION& module);
 std::wstring CompactHex(const std::uint64_t value);
 std::wstring NtStatusText(const long status);
 std::wstring ResolveKernelImagePathForTrust(const std::wstring& path);
-std::wstring VerifyDriverImageSignature(const std::wstring& displayPath);
+std::wstring VerifyDriverImageSignature(const std::wstring& displayPath,DriverSignatureEvidence* evidence = nullptr);
 std::wstring LeafName(const std::wstring& text);
 std::wstring JoinObjectPath(const std::wstring& root, const std::wstring& name);
 std::wstring StatusForObjectType(const std::wstring& typeName, bool querySucceeded, bool hasTarget);
@@ -81,8 +81,14 @@ HANDLE OpenNtDirectory(const NtLibrary& library, const std::wstring& path);
 bool QueryBasicCounts(const NtLibrary& library, HANDLE handle, std::wstring& handleCountText, std::wstring& referenceCountText);
 std::wstring QuerySymbolicLinkTarget(const NtLibrary& library, HANDLE handle);
 DriverObjectRow AppendDirectoryRow(const NtLibrary& library, const std::wstring& directoryPath, const std::wstring& name, const std::wstring& typeName);
-bool QueryModuleInformation(std::vector<DriverOverviewRow>& rows, std::wstring& diagnosticText);
-bool QueryPsapiModules(std::vector<DriverOverviewRow>& rows, std::wstring& diagnosticText);
+struct DriverEnumerationEvidence {
+    bool complete = false,malformed = false,redacted = false,unsupported = false;
+    bool ntStatusKnown = false,win32ErrorKnown = false;
+    LONG ntStatus = 0;
+    DWORD win32Error = ERROR_SUCCESS,reportedCount = 0;
+};
+bool QueryModuleInformation(std::vector<DriverOverviewRow>& rows, std::wstring& diagnosticText,DriverEnumerationEvidence* evidence = nullptr,bool signature = true);
+bool QueryPsapiModules(std::vector<DriverOverviewRow>& rows, std::wstring& diagnosticText,DriverEnumerationEvidence* evidence = nullptr,bool signature = true);
 void QueryObjectDirectory(
     const NtLibrary& library,
     const std::wstring& directoryPath,

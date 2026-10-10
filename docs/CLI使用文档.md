@@ -1,6 +1,6 @@
-﻿# KswordCLI 使用文档
+# KswordCLI 使用文档
 
-本文档按当前命令分发器、内置 help 元数据和 `shared/driver/` 协议核对，覆盖 28 个命令族、187 条命令及别名（2026-10-05）。多数命令需要管理员权限，并要求 KswordARK 驱动设备已经加载且可打开。构建与发行目录见 [构建与发布](构建与发布.md)。
+本文档按当前命令分发器、内置 help 元数据和 `shared/driver/` 协议核对，覆盖既有 R0 命令及逐项接入的 R3 命令（2026-10-10）。R0 命令通常需要管理员权限及已加载的 KswordARK 驱动；纯 R3 命令按各项文档说明所需权限，不要求驱动。构建与发行目录见 [构建与发布](构建与发布.md)。
 
 ## Help 查询
 
@@ -16,9 +16,27 @@ KswordCLI.exe <family> <subcommand> --help
 
 维护要求：每新增、删除或调整一个 `KswordCLI` 命令、别名或参数，必须同步更新 `KswordCLI.cpp` 内置 help 元数据和本文档。
 
-顶层 `help` 与 `help driver` 均列出 `integrity`、`detail`、`device`、`major`、`fastio`、`unloaded`、`piddb`；这些项由同一命令元数据生成。当前版本已包含此行为，回归测试同时核对两种帮助形式。
+顶层 `help` 只展示命令族和简介；业务层只展示直接子节点；具体叶子帮助展示完整参数、输出和限制。已有叶子同时增加子命令时，父级仅展示旧调用入口和直接子节点，不展开叶子的长篇字段说明。
+原来的 `help <family> <subcommand>`、`<family> help`、`<command> --help`、`-h`、`/?` 继续有效，新增任意深度路径，例如：
 
-命令族帮助会直接显示含必填项的参数说明，例如 `help handle` 中 `enum` 的 `Required: --pid`，与具体命令帮助使用同一条元数据。
+```powershell
+KswordCLI.exe help network
+KswordCLI.exe help network connections
+KswordCLI.exe help network connections close
+KswordCLI.exe network connections help
+```
+
+## R3 功能与输出
+
+已接入迁移项：01 TCP/UDP 枚举与 IPv4 TCP 关闭；02 Ping；03 路由跟踪；04 DNS 查询；05 防火墙规则读取；06 AFD/NSI 公开端点审计。07 服务枚举、详情和控制；08 注册表浏览和读取；09 注册表搜索；10 注册表修改；11 启动项枚举；12 启动项控制和位置查询；13 当前进程权限查询和作用域执行；14 目录浏览；15 文件操作；16 文件所有权和占用者；17 文件哈希、签名和熵；18 十六进制和 PE 分析；19 R3 进程枚举；20 进程扩展字段；21 进程遥测采样；22 R3 进程控制；23 进程基本信息；24 线程查询和控制；25 模块枚举、卸载和关联线程控制；26 令牌查询与编辑；27 令牌开关；28 PEB、环境／内存区域查询和进程亲和性；29 进程热键候选；30 驱动 R3 枚举与模块元数据；31 硬件设备枚举与详情；32 系统性能采样；33 物理磁盘活动采样；34 USB 拓扑；35 总线设备与资源；36 窗口枚举与管理；37 剪贴板格式与文本读取；38 窗口显示亲和性；39 窗口层级诊断；40 全局热键占用探测；41 ETW 限时采集与筛选；42 系统文件句柄占用；43 事件日志读取；44 Shell 右键菜单注册及启用／禁用；45 系统时间与 W32Time 配置；46 IOCTL 编码解析；47 内核对象命名空间；48 对象目录递归；49 内核符号链接；50 Device／Driver 对象注册；51 全局与会话命名对象；52 命名通信端点；53 R3 对象类型矩阵；54 命名管道枚举与打开验证；55 Atom 与注册剪贴板格式名称；56 安全 NtQuery 预设与导出清单；57 磁盘 PE Hook 基线读取与字节比较；58 CI／WDAC 公开证据；59 VBS／HVCI／SKCI 公开证据；60 Hyper-V／VMBus／HvSocket 公开证据；61 AppLocker／AppID 公开证据；62 BAM／ahcache／Amcache 摘要；63 Bugcheck／VMware 环境证据；64 窗口列表捕获保护适配；65 剪贴板清空与实时所有者；66 进程身份采样。详细语法见 [网络 R3 命令](cli/network.md)、[服务 R3 命令](cli/service.md)、[注册表 R3 命令](cli/registry.md)、[启动项 R3 命令](cli/startup.md)、[权限 R3 命令](cli/privilege.md)、[文件 R3 命令](cli/file.md)、[进程 R3 命令](cli/process.md)、[驱动 R3 命令](cli/driver.md)、[硬件 R3 命令](cli/hardware.md)、[窗口 R3 命令](cli/window.md)、[监控 R3 命令](cli/monitor.md)、[系统工具 R3 命令](cli/system.md)、[内核对象 R3 命令](cli/kernel.md)、[安全证据 R3 命令](cli/security.md)。
+66 项对应关系与边界见 [迁移覆盖清单](cli/coverage.md)，可用 `tools/Test-KSwordCliR3Coverage.ps1` 核对全部帮助层级。
+网络关闭的 API 状态与回读存在性分别输出；错误 317 不推导为目标消失，详见 [网络文档](cli/network.md)。
+新增纯 R3 命令默认使用 R3，支持显式 `--backend r3`，不自动切换 R0；既有命令的默认后端和输出保持兼容。
+
+默认输出可读 UTF-8 文本，`--json` 在 stdout 输出一个 JSON 文档：`schemaVersion`（1）、`command`、
+`backend`、`status`（success/partial/unsupported/failed）、`data`、`diagnostics`。
+参数错误仍返回 1 并提供语法；已识别的 R3 命令在 JSON 模式下同时输出结构化失败。
+地址和句柄为十六进制字符串，大于安全整数范围的计数为十进制字符串。部分完成返回 6。
 
 ## 参数约定
 
@@ -47,6 +65,8 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `memory` | Query, read, write, translate, and audit virtual/physical memory. |
 | `file` | Inspect files, filters, storage evidence, and file-monitor runtime state. |
 | `kernel` | Inspect SSDT, hooks, driver objects, CPU, physical layout, CID, and IPC state. |
+| `security` | Query public R3 security configuration and availability evidence. |
+| `system` | Read bounded R3 system tools and configuration evidence. |
 | `callback` | Manage callback rules, pending decisions, callback inventory, and bypass PIDs. |
 | `dyn` | Query or apply dynamic kernel symbol/profile data. |
 | `thread` | Enumerate threads and compare R0/R3 thread evidence. |
@@ -54,7 +74,8 @@ IOCTL 失败的 `error:` 原因和其后的 `unsupported / unavailable:` 审计�
 | `driver` | Driver integrity, device stack, and optional global evidence aliases. |
 | `hardware` | Device, input, USB, and PnP stack audit views. |
 | `hwid` | HWID Dispatch query and guarded control operations. |
-| `window` | Win32k, GUI, GPU, display, and watchdog audit views. |
+| `window` | Win32k、GUI、GPU 审计及 R3 窗口／剪贴板查询与管理。 |
+| `clipboard` | `window clipboard` 的 R3 格式／文本读取别名。 |
 | `misc` | Security, CI/VBS, Hyper-V, AppLocker/BAM, and driver trust posture. |
 | `alpc` | ALPC port diagnostics for a process handle. |
 | `section` | Process and file section mapping diagnostics. |

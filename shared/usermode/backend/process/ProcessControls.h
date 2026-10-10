@@ -72,10 +72,32 @@ enum class ProcessActionId {
     R0SetPpWindows,
     R0SetPpWinTcb
 };
+struct ProcessTerminationStep {
+    DWORD pid = 0;
+    int round = 0;
+    std::wstring method;
+    bool requestSucceeded = false, querySucceeded = false, presentAfter = false;
+    std::wstring detail;
+};
 struct ProcessActionResult {
     bool success = false;
     std::wstring title;
     std::wstring detail;
+    std::vector<ProcessTerminationStep> terminationSteps;
+};
+struct ProcessOperationEvidence {
+    bool unsupported = false;
+    bool win32ErrorKnown = false, ntStatusKnown = false;
+    DWORD win32Error = ERROR_SUCCESS;
+    LONG ntStatus = 0;
+    bool identityMatched = false;
+    ULONGLONG observedCreationTime = 0;
+};
+struct ProcessActionEntry {
+    DWORD pid = 0;
+    ULONGLONG creationTime = 0;
+    bool success = false;
+    ProcessOperationEvidence evidence;
 };
 std::wstring Utf8ToWide(const std::string& text);
 std::wstring PidListText(const std::vector<DWORD>& pids);
@@ -102,19 +124,21 @@ ks::r3::common::UniqueHandle OpenProcessForAction(
     const ULONGLONG expectedCreationTime100ns,
     const DWORD access,
     std::wstring& errorText,
-    const bool rejectProtected = true);
+    const bool rejectProtected = true,
+    ProcessOperationEvidence* evidence = nullptr);
 ProcessActionResult ExecuteMultiMethodTerminate(const std::vector<ProcessSnapshotRow>& actionTargets);
-bool NtSuspendOrResumeProcess(DWORD pid, ULONGLONG expectedCreationTime100ns, bool resume, std::wstring& message);
-bool SetCriticalFlagForPid(DWORD pid, ULONGLONG expectedCreationTime100ns, bool enable, std::wstring& message);
-bool SetEfficiencyModeForPid(DWORD pid, ULONGLONG expectedCreationTime100ns, bool enable, std::wstring& message);
+bool NtSuspendOrResumeProcess(DWORD pid, ULONGLONG expectedCreationTime100ns, bool resume, std::wstring& message, ProcessOperationEvidence* evidence = nullptr);
+bool SetCriticalFlagForPid(DWORD pid, ULONGLONG expectedCreationTime100ns, bool enable, std::wstring& message, ProcessOperationEvidence* evidence = nullptr);
+bool SetEfficiencyModeForPid(DWORD pid, ULONGLONG expectedCreationTime100ns, bool enable, std::wstring& message, ProcessOperationEvidence* evidence = nullptr);
 bool SetPriorityForPid(
     DWORD pid,
     ULONGLONG expectedCreationTime100ns,
     DWORD priorityClass,
-    std::wstring& detail);
+    std::wstring& detail, ProcessOperationEvidence* evidence = nullptr);
 ProcessActionResult ExecuteLocalProcessAction(
     ProcessActionId actionId,
     const std::vector<ProcessSnapshotRow>& actionTargets);
 DWORD PriorityClassForAction(ProcessActionId actionId);
-ProcessActionResult TerminateProcesses(const std::vector<ProcessSnapshotRow>& actionTargets);
+ProcessActionResult TerminateProcesses(const std::vector<ProcessSnapshotRow>& actionTargets, UINT exitStatus = 0xC0000005u,
+    std::vector<ProcessActionEntry>* entries = nullptr);
 }

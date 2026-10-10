@@ -10,6 +10,7 @@ ProcessTokenSwitchSnapshot CollectTokenSwitchSnapshot(
     ProcessTokenSwitchSnapshot snapshot{};
     ScopedHandle process(::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId));
     if (!process) {
+        snapshot.win32ErrorKnown = true;snapshot.win32Error = ::GetLastError();
         snapshot.statusText = L"● 刷新失败：无法打开目标令牌";
         return snapshot;
     }
@@ -22,6 +23,7 @@ ProcessTokenSwitchSnapshot CollectTokenSwitchSnapshot(
 
     HANDLE rawToken = nullptr;
     if (!::OpenProcessToken(process.get(), TOKEN_QUERY, &rawToken)) {
+        snapshot.win32ErrorKnown = true;snapshot.win32Error = ::GetLastError();
         snapshot.statusText = L"● 刷新失败：无法打开目标令牌";
         return snapshot;
     }
@@ -31,12 +33,18 @@ ProcessTokenSwitchSnapshot CollectTokenSwitchSnapshot(
     for (std::size_t index = 0; index < kTokenBooleanInformationClasses.size(); ++index) {
         ULONG value = 0;
         DWORD returned = 0;
-        if (::GetTokenInformation(
+        const bool ok = ::GetTokenInformation(
                 token.get(),
                 static_cast<TOKEN_INFORMATION_CLASS>(kTokenBooleanInformationClasses[index]),
                 &value,
                 sizeof(value),
-                &returned)) {
+                &returned) != FALSE;
+        snapshot.returnLengths[index] = returned;
+        // Some native boolean classes return a BOOLEAN even though the public
+        // caller buffer is ULONG; the zero-initialized buffer handles both ABIs.
+        const bool lengthOk = returned == sizeof(BOOLEAN) || returned == sizeof(value);
+        snapshot.queryErrors[index] = ok ? lengthOk ? ERROR_SUCCESS : ERROR_INVALID_DATA : ::GetLastError();
+        if (ok && lengthOk) {
             snapshot.values[index] = value != 0;
             snapshot.updated[index] = true;
             ++success;
@@ -45,7 +53,12 @@ ProcessTokenSwitchSnapshot CollectTokenSwitchSnapshot(
 
     TOKEN_MANDATORY_POLICY policy{};
     DWORD returned = 0;
-    if (::GetTokenInformation(token.get(), TokenMandatoryPolicy, &policy, sizeof(policy), &returned)) {
+    const bool policyOk = ::GetTokenInformation(token.get(), TokenMandatoryPolicy, &policy, sizeof(policy), &returned) != FALSE;
+    const DWORD policyError = policyOk ? returned == sizeof(policy) ? ERROR_SUCCESS : ERROR_INVALID_DATA : ::GetLastError();
+    snapshot.queryErrors[10] = snapshot.queryErrors[11] = policyError;
+    snapshot.returnLengths[10] = snapshot.returnLengths[11] = returned;
+    if (policyOk && returned == sizeof(policy)) {
+        snapshot.mandatoryPolicy = policy.Policy;snapshot.mandatoryPolicyKnown = true;
         snapshot.values[10] = (policy.Policy & 0x1U) != 0;
         snapshot.values[11] = (policy.Policy & 0x2U) != 0;
         snapshot.updated[10] = true;
@@ -102,5 +115,39 @@ ProcessDetailActionResult WriteTokenSwitches(DWORD processId, ULONGLONG expected
             action.refreshTokenReport = true;
             return action;
 
+}
+ProcessDetailActionResult WriteTokenSwitch(DWORD processId,ULONGLONG expectedCreationTime,std::size_t index,bool enabled) {
+    ProcessDetailActionResult action;
+    // Other fields in the original bulk UI setter are query-only native classes.
+    if (index != 1 && index != 2 && index != 3 && index != 10 && index != 11) {action.unsupported = true;return action;}
+    ks::r3::common::UniqueHandle process;std::wstring error;
+    if (!OpenVerifiedProcessActionTarget(processId,expectedCreationTime,PROCESS_QUERY_LIMITED_INFORMATION,process,error)) {
+        action.statusText = L"● 应用失败：" + error;return action;
+    }
+    action.identityMatched = true;
+    const auto set = reinterpret_cast<NtSetInformationTokenFn>(::GetProcAddress(::GetModuleHandleW(L"ntdll.dll"),"NtSetInformationToken"));
+    HANDLE rawToken = nullptr;
+    if (!set || !::OpenProcessToken(process.get(),TOKEN_QUERY | TOKEN_ADJUST_DEFAULT,&rawToken)) {
+        action.unsupported = !set;if (set) {action.win32ErrorKnown = true;action.win32Error = ::GetLastError();}
+        action.statusText = L"● 应用失败：无法获取 NtSetInformationToken/令牌写权限";return action;
+    }
+    ScopedHandle token(rawToken);
+    ULONG value = enabled ? 1UL : 0UL;
+    const auto informationClass = index < 10 ? static_cast<TOKEN_INFORMATION_CLASS>(kTokenBooleanInformationClasses[index]) : TokenMandatoryPolicy;
+    if (index >= 10) {
+        TOKEN_MANDATORY_POLICY policy{};DWORD returned = 0;
+        if (!::GetTokenInformation(token.get(),TokenMandatoryPolicy,&policy,sizeof(policy),&returned)) {
+            action.win32ErrorKnown = true;action.win32Error = ::GetLastError();return action;
+        }
+        if (returned != sizeof(policy)) {action.win32ErrorKnown = true;action.win32Error = ERROR_INVALID_DATA;return action;}
+        const ULONG mask = index == 10 ? 1UL : 2UL;
+        value = enabled ? policy.Policy | mask : policy.Policy & ~mask;
+    }
+    action.writeAttempted = true;
+    action.ntStatus = set(token.get(),informationClass,&value,sizeof(value));action.ntStatusKnown = true;
+    action.requestSucceeded = action.ntStatus == 0;action.writeSucceeded = action.requestSucceeded;
+    action.refreshTokenSwitches = action.refreshTokenReport = true;
+    action.statusText = L"● 应用完成：成功" + std::to_wstring(action.requestSucceeded ? 1 : 0) + L"，失败" + std::to_wstring(action.requestSucceeded ? 0 : 1);
+    return action;
 }
 }

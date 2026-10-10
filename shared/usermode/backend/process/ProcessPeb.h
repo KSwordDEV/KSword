@@ -90,6 +90,33 @@ struct PebReadResult final {
     std::wstring imagePath;
     std::wstring currentDirectory;
     std::wstring diagnostic;
+    bool headerKnown = false, parametersKnown = false;
+    std::map<std::wstring,ProcessQueryEvidence> evidence;
+};
+struct EnvironmentEvidence {
+    bool complete = false, limited = false;
+    DWORD win32Error = ERROR_SUCCESS;
+    std::uint64_t bytesRead = 0;
+    std::vector<std::wstring> lines;
+};
+struct RegionInfo {
+    std::uint64_t base = 0, allocationBase = 0, size = 0;
+    DWORD state = 0, type = 0, protect = 0, allocationProtect = 0;
+    std::wstring mappedPath;
+    bool mappedPathKnown = false;
+    DWORD mappedPathError = ERROR_SUCCESS;
+};
+struct PebCollectionEvidence {
+    bool identityMatched = false, win32ErrorKnown = false;
+    DWORD win32Error = ERROR_SUCCESS;
+    ProcessQueryEvidence nativeQuery, wow64Query;
+    std::vector<PebReadResult> pebs;
+    EnvironmentEvidence environment;
+    bool regionsComplete = false, regionsLimited = false, regionsMalformed = false;
+    DWORD regionsError = ERROR_SUCCESS;
+    std::uint64_t regionCount = 0, commitBytes = 0, mappedBytes = 0, imageBytes = 0, privateBytes = 0;
+    std::uint64_t committedRegionCount = 0;
+    std::vector<RegionInfo> regions;
 };
 std::wstring FormatHex(const std::uint64_t value);
 std::wstring TrimCopy(std::wstring text);
@@ -97,22 +124,22 @@ bool ReadRemoteExact(
     HANDLE process,
     const std::uint64_t address,
     void* buffer,
-    const SIZE_T bufferSize);
+    const SIZE_T bufferSize,ProcessQueryEvidence* evidence = nullptr);
 template <typename T>
-bool ReadRemoteStructure(HANDLE process, const std::uint64_t address, T& value) {
+bool ReadRemoteStructure(HANDLE process, const std::uint64_t address, T& value,ProcessQueryEvidence* evidence = nullptr) {
     value = {};
-    return ReadRemoteExact(process, address, &value, sizeof(value));
+    return ReadRemoteExact(process, address, &value, sizeof(value),evidence);
 }
 std::wstring ReadRemoteUnicode(
     HANDLE process,
     const std::uint64_t address,
-    const USHORT byteLength);
+    const USHORT byteLength,ProcessQueryEvidence* evidence = nullptr);
 PebReadResult ReadPeb64(HANDLE process, const std::uint64_t pebAddress);
 PebReadResult ReadPeb32(HANDLE process, const std::uint64_t pebAddress);
 std::vector<std::wstring> ReadEnvironmentPreview(
     HANDLE process,
     const std::uint64_t address,
-    std::wstring& diagnostic);
+    std::wstring& diagnostic,EnvironmentEvidence* evidence = nullptr);
 std::wstring PriorityClassText(const DWORD priorityClass);
 DWORD PriorityClassByComboIndex(const int index);
 int ComboIndexByPriorityClass(const DWORD priorityClass);
@@ -123,7 +150,9 @@ std::wstring MemoryProtectText(const DWORD protect);
 ProcessPebSnapshot CollectPebSnapshot(
     const DWORD processId,
     const ULONGLONG expectedProcessCreationTime100ns,
-    const int selectedTarget);
+    const int selectedTarget,PebCollectionEvidence* evidence = nullptr,bool collectEnvironment = true,bool collectRegions = true);
+ProcessDetailActionResult SetProcessAffinity(DWORD processId,ULONGLONG expectedCreationTime,std::uint64_t mask);
+bool QueryMemoryRegion(HANDLE process,std::uint64_t address,RegionInfo& region,DWORD& error);
 ProcessDetailActionResult ApplyPebAttributes(DWORD processId, ULONGLONG expectedProcessCreationTime100ns, const std::wstring& commandLine, const std::wstring& imagePath, const std::wstring& currentDirectory, const std::wstring& environmentName, const std::wstring& imageBase, const std::wstring& affinityText, int priorityIndex);
 static_assert(offsetof(Peb32Lite, imageBaseAddress) == 0x08);
 static_assert(offsetof(Peb32Lite, processParameters) == 0x10);

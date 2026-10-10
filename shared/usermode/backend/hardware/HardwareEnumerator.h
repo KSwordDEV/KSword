@@ -7,7 +7,7 @@ namespace ks::r3::hardware {
 // EnumerateDeviceManagerTree builds the read-only hardware audit baseline. There
 // is no input; processing uses SetupAPI for device records and Configuration
 // Manager for parent/status data; output contains a tree-ready snapshot.
-HardwareEnumerationResult EnumerateDeviceManagerTree();
+HardwareEnumerationResult EnumerateDeviceManagerTree(bool presentOnly = false);
 
 // QueryDeviceManagerDetails returns live details for one instance ID. Input is a
 // PnP device instance ID; processing reopens that devnode through SetupAPI and

@@ -1,6 +1,7 @@
 #pragma once
 #include "../Common.h"
 #include "WindowQueries.h"
+#include <functional>
 namespace ks::r3::window_tools {
 constexpr int kProbeHotkeyId = 0x4B57;
 struct ModifierChoice final {
@@ -48,6 +49,8 @@ constexpr KeyChoice kNamedKeys[] = {
     { VK_OEM_2,      L"/" },
 };
 struct HotkeyProbeEntry final {
+    bool attempted = false,registered = false,unregisterAttempted = false,unregistered = false,reservedF12 = false;
+    DWORD unregisterError = 0;
     UINT modifiers = 0;
     UINT virtualKey = 0;
     std::wstring combination;
@@ -57,6 +60,9 @@ struct HotkeyProbeEntry final {
     DWORD error = 0;
 };
 struct HotkeyProbeResult final {
+    bool complete = false,limited = false,cancelled = false,cleanupFailed = false;
+    DWORD threadId = 0;
+    std::size_t requested = 0,unknown = 0;
     std::vector<HotkeyProbeEntry> entries;
     std::size_t occupied = 0;
     std::size_t available = 0;
@@ -67,5 +73,12 @@ struct ProbeKey final {
     std::wstring name;
 };
 std::vector<ProbeKey> BuildProbeKeys();
-HotkeyProbeResult ProbeHotkeys();
+struct HotkeyProbeOptions {
+    std::vector<ProbeKey> keys;
+    std::vector<UINT> modifiers;
+    std::size_t maxEntries = 1320;
+    bool skipReservedF12 = false;
+    std::function<bool()> cancelled;
+};
+HotkeyProbeResult ProbeHotkeys(const HotkeyProbeOptions& options = {});
 }

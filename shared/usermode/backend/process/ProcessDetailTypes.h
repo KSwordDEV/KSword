@@ -6,8 +6,17 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <map>
 
 namespace ks::r3::process_detail {
+
+struct ProcessQueryEvidence {
+    bool available = false;
+    bool win32ErrorKnown = false, ntStatusKnown = false;
+    DWORD win32Error = ERROR_SUCCESS;
+    LONG ntStatus = 0;
+    bool emptyValue = false;
+};
 
 // ProcessBasicInfo carries the read-only fields shown by the Basic page.
 // Inputs are collected from Win32 and ntdll process queries; processing converts
@@ -37,6 +46,9 @@ struct ProcessBasicInfo {
     std::wstring integrityLevel;
     std::wstring priorityText;
     std::wstring statusText;
+    ULONGLONG creationTime100ns = 0;
+    DWORD priorityClass = 0;
+    std::map<std::wstring, ProcessQueryEvidence> evidence;
 };
 
 // ProcessThreadInfo describes one thread row. Inputs come from Toolhelp thread
@@ -51,6 +63,8 @@ struct ProcessThreadInfo {
     DWORD suspendCount = 0;
     std::uintptr_t startAddress = 0;
     std::wstring statusText;
+    bool identityKnown = false, startAddressKnown = false, suspendCountKnown = false;
+    ProcessQueryEvidence queryEvidence, startEvidence, suspendEvidence;
 };
 
 // ProcessModuleInfo describes one module row. Inputs come from PSAPI module
@@ -64,6 +78,9 @@ struct ProcessModuleInfo {
     DWORD representativeThreadId = 0;
     ULONGLONG representativeThreadCreationTime100ns = 0;
     std::wstring statusText;
+    std::uintptr_t moduleHandle = 0;
+    bool infoKnown = false, pathKnown = false;
+    ProcessQueryEvidence infoEvidence, pathEvidence;
 };
 
 // ProcessR0AuditInfo is one read-only R0 evidence row shown in the audit tab.
@@ -120,6 +137,12 @@ struct ProcessTokenSwitchSnapshot {
     std::array<bool, 12> values{};
     std::array<bool, 12> updated{};
     std::wstring statusText;
+    std::array<DWORD,12> queryErrors{};
+    std::array<DWORD,12> returnLengths{};
+    DWORD win32Error = ERROR_SUCCESS;
+    bool win32ErrorKnown = false;
+    DWORD mandatoryPolicy = 0;
+    bool mandatoryPolicyKnown = false;
 };
 
 // ProcessPebSnapshot is a read-only PEB and virtual-address-space result. The

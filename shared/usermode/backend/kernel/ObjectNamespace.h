@@ -131,6 +131,13 @@ struct NtRuntime {
     NtQueryInformationTokenFn queryInformationToken = nullptr;
 };
 struct DirectoryEntry {
+    struct BasicEvidence {bool attempted=false,available=false,malformed=false;LONG status=0;ULONG returned=0;KOBJECT_BASIC_INFORMATION value{};};
+    struct TargetEvidence {bool attempted=false,available=false,malformed=false,limited=false;LONG status=0;ULONG required=0;};
+    bool metadataRequested=false,openAttempted=false,closeAttempted=false,closed=false;
+    LONG openStatus=0;
+    DWORD closeError=0;
+    BasicEvidence basic;
+    TargetEvidence target;
     std::wstring parentPath;
     std::wstring name;
     std::wstring typeName;
@@ -144,6 +151,22 @@ struct DirectoryEntry {
 struct QueryPacket {
     std::vector<KernelResultRow> rows;
     std::vector<std::wstring> warnings;
+};
+struct DirectoryQueryEvidence {
+    DWORD depth=0;
+    std::wstring path;
+    bool apiAvailable=false,openAttempted=false,opened=false,queryAttempted=false,complete=false,limited=false,cancelled=false,cycle=false,malformed=false;
+    LONG openStatus=0,lastQueryStatus=0;
+    ULONG returned=0,queried=0;
+    bool closeAttempted=false,closed=false;
+    DWORD closeError=0;
+};
+struct DirectoryQueryOptions {
+    bool probeMetadata=true;
+    bool probeDirectories=true;
+    DWORD maxEntries=100000,maxDurationMs=8000;
+    ULONGLONG deadlineTick=0;
+    std::function<bool()> cancelled;
 };
 KernelResultRow Row(std::initializer_list<std::pair<std::wstring, std::wstring>> columns, const std::wstring& detail = {});
 std::wstring HexText(const std::uint64_t value);
@@ -176,12 +199,12 @@ void AppendQueriedObjectText(QueryPacket& packet, const NtRuntime& runtime, HAND
 const NtRuntime& Runtime();
 HANDLE OpenDirectory(const NtRuntime& runtime, const std::wstring& path, LONG* statusOut = nullptr);
 HANDLE OpenSymbolicLink(const NtRuntime& runtime, const std::wstring& path, LONG* statusOut = nullptr);
-std::wstring QuerySymbolicLinkTarget(const NtRuntime& runtime, HANDLE link);
-void QueryBasicObjectCounts(const NtRuntime& runtime, HANDLE handle, std::wstring& handleCountText, std::wstring& pointerCountText);
+std::wstring QuerySymbolicLinkTarget(const NtRuntime& runtime, HANDLE link,DirectoryEntry::TargetEvidence* evidence=nullptr);
+void QueryBasicObjectCounts(const NtRuntime& runtime, HANDLE handle, std::wstring& handleCountText, std::wstring& pointerCountText,DirectoryEntry::BasicEvidence* evidence=nullptr);
 HANDLE OpenNamedPipeReadOnly(const NtRuntime& runtime, const std::wstring& path, LONG* statusOut, IO_STATUS_BLOCK* ioStatusOut);
 void AppendDirectoryPreviewRows(QueryPacket& packet, const NtRuntime& runtime, const std::wstring& path, const std::size_t limit);
 std::wstring DirectoryStatusText(const std::wstring& typeName, const bool canOpen, const bool hasTarget);
-std::vector<DirectoryEntry> EnumerateDirectoryFlat(const NtRuntime& runtime, const std::wstring& directoryPath, std::vector<std::wstring>& warnings);
+std::vector<DirectoryEntry> EnumerateDirectoryFlat(const NtRuntime& runtime, const std::wstring& directoryPath, std::vector<std::wstring>& warnings,DirectoryQueryEvidence* evidence=nullptr,const DirectoryQueryOptions& options={});
 void AppendDirectoryEntryRow(
     QueryPacket& packet,
     const std::wstring& source,
@@ -190,8 +213,8 @@ void AppendDirectoryEntryRow(
     const std::wstring& enumApi = L"NtOpenDirectoryObject + NtQueryDirectoryObject");
 KernelOperationResult MakeResult(KernelFeatureId id, const bool success, const std::wstring& operation, QueryPacket&& packet);
 void AppendDirectoryRoot(QueryPacket& packet, const NtRuntime& runtime, const std::wstring& root, const std::wstring& source, const std::wstring& filter);
-std::vector<DWORD> DiscoverSessionIds(const NtRuntime& runtime);
-std::vector<std::wstring> CommonNamespaceRoots();
+std::vector<DWORD> DiscoverSessionIds(const NtRuntime& runtime,DirectoryQueryEvidence* evidence=nullptr,DWORD* currentSessionError=nullptr,const DirectoryQueryOptions& options={},bool* currentSessionKnown=nullptr);
+std::vector<std::wstring> CommonNamespaceRoots(DirectoryQueryEvidence* discovery=nullptr,DWORD* currentSessionError=nullptr,const DirectoryQueryOptions& options={},bool* currentSessionKnown=nullptr);
 KernelOperationResult QueryObjectNamespaceOverview(const KernelRequest& request);
 KernelOperationResult ExecuteNativeObjectDetail(const KernelActionRequest& request);
 }

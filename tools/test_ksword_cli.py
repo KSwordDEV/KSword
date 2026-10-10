@@ -12,9 +12,12 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 HARNESS = r'''
 #define NOMINMAX
+#define KSWORD_CLI_LEGACY_FIXTURE
 #include <WinSock2.h>
 #include <Windows.h>
 #include <cstring>
+#include <iostream>
+#include <iomanip>
 #include <string>
 #include <type_traits>
 #include "TYPES_HEADER"
@@ -87,7 +90,8 @@ def main():
         harness = harness.replace("TYPES_HEADER", (ROOT / "Ksword5.1/Ksword5.1/ArkDriverClient/ArkDriverTypes.h").as_posix())
         source.write_text(harness.replace("/*EXTENDED_HELPERS*/", helpers + finish), encoding="utf-8")
         binary = directory / "regression.exe"
-        subprocess.run(["cl", "/nologo", "/std:c++17", "/EHsc", "/utf-8", "/O2", str(source),
+        subprocess.run(["cl", "/nologo", "/std:c++20", "/EHsc", "/utf-8", "/O2", str(source),
+                        str(ROOT / "KswordCLI/CommandRegistry.cpp"),
                         "/Fe:" + str(binary), "/link", "Iphlpapi.lib", "Ws2_32.lib", "Setupapi.lib"], cwd=temp, check=True)
         cases = [("log",), ("log", "--max-frames", "0"), ("log", "--max-frames", "1"),
                  ("log", "--max-frames", "2"), ("log", "--max-frames", "100")]
@@ -105,7 +109,8 @@ def main():
             family_help = subprocess.run([str(binary), "help", "driver"], capture_output=True, check=True).stdout.decode()
             driver_line = next(line for line in overview.splitlines() if line.strip().startswith("driver "))
             for subcommand in ["integrity", "detail", "device", "major", "fastio", "unloaded", "piddb"]:
-                assert subcommand in driver_line and "KswordCLI.exe driver " + subcommand in family_help
+                assert "KswordCLI.exe driver " + subcommand in family_help
+            assert "connections enum" not in overview and "--local-address" not in overview
             handle_help = subprocess.run([str(binary), "help", "handle"], capture_output=True, check=True).stdout
             assert b"Required: --pid" in handle_help, handle_help
             unsupported = subprocess.run([str(binary), "capability", "query-driver-capabilities"], capture_output=True)

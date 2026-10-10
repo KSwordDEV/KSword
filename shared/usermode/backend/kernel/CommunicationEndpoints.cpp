@@ -7,6 +7,9 @@
 #include <sstream>
 #include <utility>
 namespace ks::r3::kernel {
+RecursiveDirectorySnapshot CollectCommunicationEndpoints(RecursiveDirectoryOptions options){
+    options.selectEntry=[](const DirectoryEntry& entry){return IsCommunicationType(entry.typeName);};return CollectObjectDirectories(options);
+}
 bool IsCommunicationType(const std::wstring& typeName) {
     const std::wstring lower = ToLowerCopy(typeName);
     return lower == L"alpc port"
@@ -28,31 +31,10 @@ void AppendCommunicationEndpointsRecursive(
     const std::wstring& root,
     const std::wstring& source,
     const std::wstring& filter) {
-    struct WorkItem {
-        std::wstring path;
-        std::size_t depth = 0;
-    };
-
-    std::deque<WorkItem> queue;
-    std::set<std::wstring> visited;
-    queue.push_back({ root, 0 });
-    visited.insert(ToLowerCopy(root));
-    while (!queue.empty() && packet.rows.size() < kMaxDirectoryRows) {
-        const WorkItem item = queue.front();
-        queue.pop_front();
-        const std::vector<DirectoryEntry> entries = EnumerateDirectoryFlat(runtime, item.path, packet.warnings);
-        for (const DirectoryEntry& entry : entries) {
-            if (IsCommunicationType(entry.typeName) && MatchesDirectoryFilter(entry, filter)) {
-                AppendDirectoryEntryRow(packet, source, item.depth, entry);
-            }
-            if (entry.typeName == L"Directory" && item.depth < 3 && packet.rows.size() < kMaxDirectoryRows) {
-                const std::wstring key = ToLowerCopy(entry.fullPath);
-                if (visited.insert(key).second) {
-                    queue.push_back({ entry.fullPath, item.depth + 1 });
-                }
-            }
-        }
-    }
+    (void)runtime; if(packet.rows.size()>=kMaxDirectoryRows)return;
+    RecursiveDirectoryOptions options;options.root=root;options.filter=filter;options.maxDepth=3;options.maxRows=static_cast<DWORD>(kMaxDirectoryRows-packet.rows.size());
+    const auto snapshot=CollectCommunicationEndpoints(options);packet.warnings.insert(packet.warnings.end(),snapshot.warnings.begin(),snapshot.warnings.end());
+    for(const auto& row:snapshot.rows)AppendDirectoryEntryRow(packet,source,row.depth,row.entry);
 }
 KernelOperationResult QueryCommunicationEndpoint(const KernelRequest& request) {
     const NtRuntime& runtime = Runtime();

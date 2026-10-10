@@ -1486,6 +1486,8 @@ namespace
     // 3) UI 直接显示文本。
     struct FileSignatureInfo
     {
+        bool evaluated = false;
+        LONG trustStatus = 0;
         bool hasSignature = false;         // 是否检测到签名。
         bool trustedByWindows = false;     // 是否被 WinVerifyTrust 判定为受信任。
         std::string publisher;             // 证书发布者/厂家名称。
@@ -2175,6 +2177,8 @@ namespace
 
         GUID policyGuid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
         const LONG verifyResult = ::WinVerifyTrust(nullptr, &policyGuid, &trustData);
+        signatureInfo.evaluated = true;
+        signatureInfo.trustStatus = verifyResult;
 
         // 尝试通过签名链提取发布者名称（厂家）。
         if (trustData.hWVTStateData != nullptr)
@@ -2590,9 +2594,10 @@ namespace
     }
 
     // 查询进程当前优先级文本。
-    std::string QueryPriorityTextByHandle(const HANDLE processHandle)
+    std::string QueryPriorityTextByHandle(const HANDLE processHandle, std::uint32_t* classOut = nullptr)
     {
         const DWORD priorityClass = ::GetPriorityClass(processHandle);
+        if (classOut) *classOut = priorityClass;
         if (priorityClass == 0)
         {
             return "Unknown";
@@ -2738,8 +2743,9 @@ namespace
     }
 
     // 查询目标进程架构（优先 IsWow64Process2）。
-    std::string QueryProcessArchitectureByHandle(const HANDLE processHandle)
+    std::string QueryProcessArchitectureByHandle(const HANDLE processHandle, bool* knownOut = nullptr)
     {
+        if (knownOut) *knownOut = false;
         using IsWow64Process2Fn = BOOL(WINAPI*)(HANDLE, USHORT*, USHORT*);
         const HMODULE kernel32Module = ::GetModuleHandleW(L"kernel32.dll");
         const auto isWow64Process2Fn = kernel32Module != nullptr
@@ -2751,6 +2757,7 @@ namespace
             USHORT nativeMachine = IMAGE_FILE_MACHINE_UNKNOWN;
             if (isWow64Process2Fn(processHandle, &processMachine, &nativeMachine) != FALSE)
             {
+                if (knownOut) *knownOut = nativeMachine != IMAGE_FILE_MACHINE_UNKNOWN || processMachine != IMAGE_FILE_MACHINE_UNKNOWN;
                 // processMachine=UNKNOWN 表示“与系统原生架构一致”。
                 if (processMachine == IMAGE_FILE_MACHINE_UNKNOWN)
                 {
@@ -2767,6 +2774,7 @@ namespace
             return "Unknown";
         }
 
+        if (knownOut) *knownOut = true;
 #if defined(_WIN64)
         return isWow64Process ? "x86" : "x64";
 #else
@@ -3676,14 +3684,14 @@ namespace ks::process
         }
 
         // 动态刷新阶段顺带更新优先级/架构文本，便于详情窗口实时展示。
-        processRecord.priorityText = QueryPriorityTextByHandle(processHandle);
+        processRecord.priorityText = QueryPriorityTextByHandle(processHandle, &processRecord.priorityClass);
         processRecord.efficiencyModeSupported = QueryProcessEfficiencyModeByHandle(
             processHandle,
             &processRecord.efficiencyModeEnabled,
             nullptr);
         if (processRecord.architectureText.empty() || processRecord.architectureText == "Unknown")
         {
-            processRecord.architectureText = QueryProcessArchitectureByHandle(processHandle);
+            processRecord.architectureText = QueryProcessArchitectureByHandle(processHandle, &processRecord.architectureKnown);
         }
 
         // 句柄数量是资源视图动态列，必须在关闭 processHandle 之前读取。
@@ -3844,8 +3852,8 @@ namespace ks::process
         processRecord.commandLine = QueryProcessCommandLineByHandle(processHandle);
         processRecord.userName = QueryProcessUserNameByHandle(processHandle);
         processRecord.isAdmin = QueryProcessIsElevatedByHandle(processHandle, &processRecord.isAdminKnown);
-        processRecord.architectureText = QueryProcessArchitectureByHandle(processHandle);
-        processRecord.priorityText = QueryPriorityTextByHandle(processHandle);
+        processRecord.architectureText = QueryProcessArchitectureByHandle(processHandle, &processRecord.architectureKnown);
+        processRecord.priorityText = QueryPriorityTextByHandle(processHandle, &processRecord.priorityClass);
         processRecord.efficiencyModeSupported = QueryProcessEfficiencyModeByHandle(
             processHandle,
             &processRecord.efficiencyModeEnabled,
@@ -3894,6 +3902,8 @@ namespace ks::process
             processRecord.signatureState = signatureInfo.displayText.empty() ? "Unknown" : signatureInfo.displayText;
             processRecord.signaturePublisher = signatureInfo.publisher;
             processRecord.signatureTrusted = signatureInfo.trustedByWindows;
+            processRecord.signatureEvaluated = signatureInfo.evaluated;
+            processRecord.signatureTrustStatus = signatureInfo.trustStatus;
         }
         else if (processRecord.signatureState.empty())
         {

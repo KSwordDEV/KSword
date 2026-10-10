@@ -8,5 +8,6 @@
 #include "HyperV.h"
 #include "AppLocker.h"
 namespace ks::r3::security {
+const std::vector<SecurityProbe>& BamAhcacheProbes();
 void AppendBamAhcacheR3(std::vector<MiscAuditRow>& rows);
 }

@@ -5,6 +5,7 @@
 #include <cwctype>
 #include <sstream>
 #include <utility>
+#include <wincrypt.h>
 namespace ks::r3::security {
 std::wstring TrimCopy(const std::wstring& text) {
     std::size_t begin = 0;
@@ -69,7 +70,7 @@ void AppendRow(
         std::move(detail),
     });
 }
-CommandResult RunCaptureCommand(const std::wstring& commandLine, const DWORD timeoutMs) {
+CommandResult RunCaptureCommand(const std::wstring& commandLine, const DWORD timeoutMs,const std::function<bool()>& cancelled) {
     CommandResult result;
     SECURITY_ATTRIBUTES security{};
     security.nLength = sizeof(security);
@@ -82,7 +83,8 @@ CommandResult RunCaptureCommand(const std::wstring& commandLine, const DWORD tim
         result.errorText = L"CreatePipe failed: " + GetLastErrorText(result.win32Error);
         return result;
     }
-    ::SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+    if(!::SetHandleInformation(readPipe,HANDLE_FLAG_INHERIT,0)){result.win32Error=::GetLastError();::CloseHandle(readPipe);::CloseHandle(writePipe);return result;}
+    const auto close=[&](HANDLE handle){::SetLastError(0);if(!::CloseHandle(handle)&&!result.closeError)result.closeError=::GetLastError();};
 
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
@@ -105,10 +107,10 @@ CommandResult RunCaptureCommand(const std::wstring& commandLine, const DWORD tim
         nullptr,
         &startup,
         &process);
-    ::CloseHandle(writePipe);
+    const DWORD createError=created?0: ::GetLastError();close(writePipe);
 
     if (!created) {
-        result.win32Error = ::GetLastError();
+        result.win32Error = createError;
         result.errorText = L"CreateProcessW failed: " + GetLastErrorText(result.win32Error);
         ::CloseHandle(readPipe);
         return result;
@@ -121,57 +123,35 @@ CommandResult RunCaptureCommand(const std::wstring& commandLine, const DWORD tim
     bool processFinished = false;
     bool outputLimitHit = false;
     while (!processFinished) {
-        DWORD available = 0;
-        while (!outputLimitHit &&
-            ::PeekNamedPipe(readPipe, nullptr, 0, nullptr, &available, nullptr) &&
-            available > 0) {
-            DWORD read = 0;
-            const DWORD chunk = std::min<DWORD>(available, static_cast<DWORD>(buffer.size()));
-            if (!::ReadFile(readPipe, buffer.data(), chunk, &read, nullptr) || read == 0) {
-                break;
-            }
-            bytes.append(buffer.data(), buffer.data() + read);
-            if (bytes.size() > 128 * 1024) {
-                result.errorText += L" 输出超过 128KB，已截断。";
-                outputLimitHit = true;
-                break;
-            }
+        DWORD available=0;for(unsigned batch=0;batch<32;++batch){
+            if(!::PeekNamedPipe(readPipe,nullptr,0,nullptr,&available,nullptr)){const auto error=::GetLastError();if(error!=ERROR_BROKEN_PIPE)result.outputError=error;break;}if(!available)break;
+            DWORD read=0;const auto chunk=(std::min<DWORD>)(available,static_cast<DWORD>(buffer.size()));
+            if(!::ReadFile(readPipe,buffer.data(),chunk,&read,nullptr)){const auto error=::GetLastError();if(error!=ERROR_BROKEN_PIPE)result.outputError=error;break;}if(!read)break;
+            const auto room=128u*1024u-bytes.size(),retain=(std::min<std::size_t>)(room,read);bytes.append(buffer.data(),retain);
+            if(retain<read&&!outputLimitHit){result.errorText+=L" 输出超过 128KB，已截断。";outputLimitHit=result.outputTruncated=true;}
         }
-
         const DWORD wait = ::WaitForSingleObject(process.hProcess, 25);
         if (wait == WAIT_OBJECT_0) {
-            processFinished = true;
+            result.waitCompleted=true;processFinished = true;
         } else if (wait == WAIT_FAILED) {
             result.win32Error = ::GetLastError();
             result.errorText = L"WaitForSingleObject failed: " + GetLastErrorText(result.win32Error);
             processFinished = true;
-        } else if (::GetTickCount64() >= deadline) {
-            ::TerminateProcess(process.hProcess, 258);
+        } else if ((cancelled&&cancelled())||::GetTickCount64() >= deadline) {
+            result.cancelled=cancelled&&cancelled();result.timedOut=!result.cancelled;
             result.exitCode = 258;
             result.errorText = L"查询超时，已停止本地只读辅助进程。";
             processFinished = true;
         }
     }
 
-    if (!outputLimitHit) {
-        DWORD available = 0;
-        while (::PeekNamedPipe(readPipe, nullptr, 0, nullptr, &available, nullptr) && available > 0) {
-            DWORD read = 0;
-            const DWORD chunk = std::min<DWORD>(available, static_cast<DWORD>(buffer.size()));
-            if (!::ReadFile(readPipe, buffer.data(), chunk, &read, nullptr) || read == 0) {
-                break;
-            }
-            bytes.append(buffer.data(), buffer.data() + read);
-            if (bytes.size() > 128 * 1024) {
-                result.errorText += L" 输出超过 128KB，已截断。";
-                break;
-            }
-        }
-    }
-
+    if(!result.waitCompleted){result.terminated=::TerminateProcess(process.hProcess,258)!=FALSE;result.terminationError=result.terminated?0: ::GetLastError();result.terminationWait=::WaitForSingleObject(process.hProcess,2000);}
+    DWORD available=0;for(unsigned batch=0;batch<32;++batch){if(!::PeekNamedPipe(readPipe,nullptr,0,nullptr,&available,nullptr)){const auto error=::GetLastError();if(error!=ERROR_BROKEN_PIPE)result.outputError=error;break;}if(!available)break;
+        DWORD read=0;const auto chunk=(std::min<DWORD>)(available,static_cast<DWORD>(buffer.size()));if(!::ReadFile(readPipe,buffer.data(),chunk,&read,nullptr)){const auto error=::GetLastError();if(error!=ERROR_BROKEN_PIPE)result.outputError=error;break;}if(!read)break;
+        const auto room=128u*1024u-bytes.size(),retain=(std::min<std::size_t>)(room,read);bytes.append(buffer.data(),retain);if(retain<read&&!outputLimitHit){result.errorText+=L" 输出超过 128KB，已截断。";outputLimitHit=result.outputTruncated=true;}}
     DWORD exitCode = ERROR_PROCESS_ABORTED;
     if (::GetExitCodeProcess(process.hProcess, &exitCode)) {
-        result.exitCode = exitCode;
+        result.exitCode = exitCode;result.exitCodeKnown=exitCode!=STILL_ACTIVE;
     }
     else {
         const DWORD exitCodeError = ::GetLastError();
@@ -187,12 +167,12 @@ CommandResult RunCaptureCommand(const std::wstring& commandLine, const DWORD tim
     }
 
     if (!bytes.empty()) {
-        const int required = ::MultiByteToWideChar(CP_UTF8, 0, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
+        const int required = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
         if (required > 0) {
             result.output.assign(static_cast<std::size_t>(required), L'\0');
-            ::MultiByteToWideChar(CP_UTF8, 0, bytes.data(), static_cast<int>(bytes.size()), result.output.data(), required);
+            ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), static_cast<int>(bytes.size()), result.output.data(), required);
         } else {
-            const int fallback = ::MultiByteToWideChar(CP_ACP, 0, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
+            result.decodeMalformed=true;const int fallback = ::MultiByteToWideChar(CP_ACP, 0, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
             if (fallback > 0) {
                 result.output.assign(static_cast<std::size_t>(fallback), L'\0');
                 ::MultiByteToWideChar(CP_ACP, 0, bytes.data(), static_cast<int>(bytes.size()), result.output.data(), fallback);
@@ -200,15 +180,57 @@ CommandResult RunCaptureCommand(const std::wstring& commandLine, const DWORD tim
         }
     }
 
-    ::CloseHandle(readPipe);
-    ::CloseHandle(process.hThread);
-    ::CloseHandle(process.hProcess);
+    close(readPipe);close(process.hThread);close(process.hProcess);
     return result;
 }
 std::wstring PowerShellCommand(const std::wstring& script) {
     return L"powershell.exe -NoLogo -NoProfile -NonInteractive -Command " +
         QuotePowerShellCommand(script);
 }
+CommandResult RunPowerShellJson(const std::wstring& body,DWORD timeoutMs,const std::function<bool()>& cancelled){
+    const auto script=L"[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';try { "+body+
+        L" } catch { [ordered]@{available=$false;exceptionType=$_.Exception.GetType().FullName;exceptionHResult=('0x{0:x8}' -f $_.Exception.HResult);errorId=$_.FullyQualifiedErrorId;message=$_.Exception.Message}|ConvertTo-Json -Compress -Depth 8; exit 5 }";
+    CommandResult failed;DWORD chars=0;const auto bytes=static_cast<DWORD>(script.size()*sizeof(wchar_t));
+    if(!::CryptBinaryToStringW(reinterpret_cast<const BYTE*>(script.data()),bytes,CRYPT_STRING_BASE64|CRYPT_STRING_NOCRLF,nullptr,&chars)){failed.win32Error=::GetLastError();return failed;}
+    std::wstring encoded(chars,L'\0');if(!::CryptBinaryToStringW(reinterpret_cast<const BYTE*>(script.data()),bytes,CRYPT_STRING_BASE64|CRYPT_STRING_NOCRLF,encoded.data(),&chars)){failed.win32Error=::GetLastError();return failed;}while(!encoded.empty()&&encoded.back()==L'\0')encoded.pop_back();
+    wchar_t directory[MAX_PATH]{};const auto count=::GetSystemDirectoryW(directory,MAX_PATH);if(!count||count>=MAX_PATH){failed.win32Error=count?ERROR_INSUFFICIENT_BUFFER: ::GetLastError();return failed;}
+    return RunCaptureCommand(L"\""+std::wstring(directory)+L"\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoLogo -NoProfile -NonInteractive -EncodedCommand "+encoded,timeoutMs,cancelled);
+}
+SecuritySnapshot CollectSecurityProbes(const std::vector<SecurityProbe>& probes,const SecurityProbeOptions& options){SecuritySnapshot snapshot;snapshot.requestedCount=probes.size();const auto deadline=::GetTickCount64()+options.durationMs;
+    for(const auto& probe:probes){if(options.cancelled&&options.cancelled()){snapshot.cancelled=true;break;}const auto now=::GetTickCount64();if(now>=deadline){snapshot.limited=true;break;}SecurityProbeResult result;result.probe=probe;
+        if(probe.kind==SecurityProbeKind::Command){result.command=RunPowerShellJson(probe.body,static_cast<DWORD>((std::min<ULONGLONG>)(options.timeoutMs,deadline-now)),options.cancelled);const auto& c=result.command;
+            result.code=c.decodeMalformed?4:c.outputTruncated||c.cancelled?6:c.timedOut||!c.started||c.win32Error||c.outputError||!c.exitCodeKnown||!c.waitCompleted?3:c.closeError?6:c.exitCode==0?0:c.exitCode==4?4:c.exitCode==5?5:c.exitCode==6?6:3;
+        }else if(probe.kind==SecurityProbeKind::Registry){auto& e=result.registry;
+            [&]{HKEY key=nullptr;e.openAttempted=true;e.openError=static_cast<DWORD>(::RegOpenKeyExW(HKEY_LOCAL_MACHINE,probe.path.c_str(),0,KEY_QUERY_VALUE|KEY_WOW64_64KEY,&key));
+                if(e.openError){e.absent=e.openError==ERROR_FILE_NOT_FOUND||e.openError==ERROR_PATH_NOT_FOUND;return;}if(!key){e.malformed=true;return;}
+                struct Owner{HKEY key;SecurityRegistryEvidence& e;~Owner(){e.closeAttempted=true;e.closeError=static_cast<DWORD>(::RegCloseKey(key));e.closed=e.closeError==0;}} owner{key,e};e.opened=true;e.queryAttempted=true;
+                DWORD size=0;e.queryError=static_cast<DWORD>(::RegQueryValueExW(key,probe.name.c_str(),nullptr,&e.type,nullptr,&size));e.reportedBytes=size;
+                if(e.queryError){e.absent=e.queryError==ERROR_FILE_NOT_FOUND;return;}
+                for(int attempt=0;attempt<4;++attempt){if(size>65536){e.limited=true;return;}e.bytes.assign(size,std::uint8_t{});DWORD actual=size;BYTE empty=0;
+                    e.queryError=static_cast<DWORD>(::RegQueryValueExW(key,probe.name.c_str(),nullptr,&e.type,size?e.bytes.data():&empty,&actual));e.reportedBytes=actual;
+                    if(e.queryError==ERROR_MORE_DATA){size=actual;continue;}if(e.queryError){e.absent=e.queryError==ERROR_FILE_NOT_FOUND;return;}if(actual>size){e.malformed=true;return;}e.bytes.resize(actual);
+                    e.malformed=(e.type==REG_DWORD&&actual!=4)||(e.type==REG_QWORD&&actual!=8)||((e.type==REG_SZ||e.type==REG_EXPAND_SZ||e.type==REG_MULTI_SZ)&&(actual%2));e.available=!e.malformed;return;
+                }e.limited=true;
+            }();result.code=e.malformed?4:e.limited||(e.closeAttempted&&!e.closed)?6:e.absent?0:!e.available?3:0;
+        }else{auto& e=result.service;
+            [&]{SC_HANDLE scm=::OpenSCManagerW(nullptr,nullptr,SC_MANAGER_CONNECT);if(!scm){e.error=::GetLastError();return;}
+                struct Manager{SC_HANDLE handle;SecurityServiceEvidence& e;~Manager(){e.scmCloseAttempted=true;e.scmClosed=::CloseServiceHandle(handle)!=FALSE;if(!e.scmClosed&&!e.closeError)e.closeError=::GetLastError();}} manager{scm,e};e.scmOpened=true;
+                SC_HANDLE service=::OpenServiceW(scm,probe.name.c_str(),SERVICE_QUERY_STATUS);if(!service){e.error=::GetLastError();e.absent=e.error==ERROR_SERVICE_DOES_NOT_EXIST;return;}
+                struct Service{SC_HANDLE handle;SecurityServiceEvidence& e;~Service(){e.serviceCloseAttempted=true;e.serviceClosed=::CloseServiceHandle(handle)!=FALSE;if(!e.serviceClosed&&!e.closeError)e.closeError=::GetLastError();}} owner{service,e};e.opened=true;
+                DWORD needed=0;e.available=::QueryServiceStatusEx(service,SC_STATUS_PROCESS_INFO,reinterpret_cast<BYTE*>(&e.status),sizeof(e.status),&needed)!=FALSE;e.error=e.available?0: ::GetLastError();
+            }();result.code=!e.available&&!e.absent?3:(e.serviceCloseAttempted&&!e.serviceClosed)||(e.scmCloseAttempted&&!e.scmClosed)?6:0;
+        }snapshot.results.push_back(std::move(result));
+    }return snapshot;
+}
+const std::vector<SecurityProbe>& CodeIntegrityProbes(){static const std::vector<SecurityProbe> probes{
+    {L"device-guard",L"CIM root/Microsoft/Windows/DeviceGuard:Win32_DeviceGuard",SecurityProbeKind::Command,
+        L"$dg=Get-CimInstance -Namespace root\\Microsoft\\Windows\\DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction Stop;if($null -eq $dg){[ordered]@{available=$false}|ConvertTo-Json -Compress;exit 5};[ordered]@{available=$true;availableSecurityProperties=@($dg.AvailableSecurityProperties);securityServicesConfigured=@($dg.SecurityServicesConfigured);securityServicesRunning=@($dg.SecurityServicesRunning);codeIntegrityPolicyEnforcementStatus=$dg.CodeIntegrityPolicyEnforcementStatus;usermodeCodeIntegrityPolicyEnforcementStatus=$dg.UsermodeCodeIntegrityPolicyEnforcementStatus}|ConvertTo-Json -Compress -Depth 8",{},{}},
+    {L"policy-files",L"CodeIntegrity disk directory file counts",SecurityProbeKind::Command,
+        L"$partial=$false;$paths=@((Join-Path $env:windir 'System32\\CodeIntegrity\\CiPolicies\\Active'),(Join-Path $env:windir 'System32\\CodeIntegrity'));$items=@(foreach($p in $paths){try{if(Test-Path -LiteralPath $p -ErrorAction Stop){$files=@(Get-ChildItem -LiteralPath $p -File -ErrorAction Stop);[ordered]@{path=$p;known=$true;present=$true;fileCount=[string]$files.Count}}else{[ordered]@{path=$p;known=$true;present=$false;fileCount=$null}}}catch{$partial=$true;[ordered]@{path=$p;known=$false;present=$null;fileCount=$null;error=$_.Exception.Message}}});[ordered]@{available=$true;directories=$items}|ConvertTo-Json -Compress -Depth 8;if($partial){exit 6}",{},{}},
+    {L"upgraded-system",L"HKLM64 CI Policy UpgradedSystem",SecurityProbeKind::Registry,{},L"SYSTEM\\CurrentControlSet\\Control\\CI\\Policy",L"UpgradedSystem"},
+    {L"enabled",L"HKLM64 CI Config Enabled",SecurityProbeKind::Registry,{},L"SYSTEM\\CurrentControlSet\\Control\\CI\\Config",L"Enabled"},
+    {L"secure-boot-cache",L"HKLM64 cached SecureBoot state",SecurityProbeKind::Registry,{},L"SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\State",L"UEFISecureBootEnabled"},
+    {L"ci-service",L"SCM CI driver service status",SecurityProbeKind::Service,{},{},L"CI"}};return probes;}
 CommandResult RunPowerShellScalar(const std::wstring& script, const DWORD timeoutMs) {
     return RunCaptureCommand(PowerShellCommand(script), timeoutMs);
 }
@@ -386,7 +408,7 @@ void AppendCodeIntegrityR3(std::vector<MiscAuditRow>& rows) {
         L"$dg=Get-CimInstance -Namespace root\\Microsoft\\Windows\\DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction Stop; "
         L"'AvailableSecurityProperties=' + (($dg.AvailableSecurityProperties)-join ',') + '; SecurityServicesConfigured=' + (($dg.SecurityServicesConfigured)-join ',') + '; SecurityServicesRunning=' + (($dg.SecurityServicesRunning)-join ',') + '; CodeIntegrityPolicyEnforcementStatus=' + $dg.CodeIntegrityPolicyEnforcementStatus + '; UsermodeCodeIntegrityPolicyEnforcementStatus=' + $dg.UsermodeCodeIntegrityPolicyEnforcementStatus"));
     AddCommandRow(rows, L"Code Integrity / WDAC", L"CI policy files", L"PowerShell Get-ChildItem", RunPowerShellScalar(
-        L"$paths=@('$env:windir\\System32\\CodeIntegrity\\CiPolicies\\Active','$env:windir\\System32\\CodeIntegrity'); "
+        L"$paths=@((Join-Path $env:windir 'System32\\CodeIntegrity\\CiPolicies\\Active'),(Join-Path $env:windir 'System32\\CodeIntegrity')); "
         L"foreach($p in $paths){ if(Test-Path $p){ $c=(Get-ChildItem -LiteralPath $p -File -ErrorAction SilentlyContinue | Measure-Object).Count; Write-Output ($p + '=' + $c) } else { Write-Output ($p + '=missing') } }"));
     AddRegistryRow(rows, L"Code Integrity / WDAC", L"Policy UpgradedSystem", L"SYSTEM\\CurrentControlSet\\Control\\CI\\Policy", L"UpgradedSystem");
     AddRegistryRow(rows, L"Code Integrity / WDAC", L"Code Integrity Enabled", L"SYSTEM\\CurrentControlSet\\Control\\CI\\Config", L"Enabled");

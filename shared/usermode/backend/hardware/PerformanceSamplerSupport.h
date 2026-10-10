@@ -84,8 +84,8 @@ void AppendStaticMetric(PerformanceSnapshot& snapshot,
     const wchar_t* source,
     const double numericValue);
 void AppendSystemStaticMetrics(PerformanceSnapshot& snapshot);
-bool ReadScalar(const PDH_HCOUNTER handle, const bool uncapped, double& value);
-std::vector<std::pair<std::wstring, double>> ReadArray(const PDH_HCOUNTER handle, const bool uncapped);
+bool ReadScalar(const PDH_HCOUNTER handle, const bool uncapped, double& value,PerformanceEvidence* evidence = nullptr);
+std::vector<std::pair<std::wstring, double>> ReadArray(const PDH_HCOUNTER handle, const bool uncapped,PerformanceEvidence* evidence = nullptr);
 std::shared_ptr<PerformanceSampler> MakePerformanceSampler(const PerformanceScope scope);
 }
 namespace ks::r3::hardware_stats {
@@ -95,6 +95,7 @@ struct PerformanceSampler::Counter {
     std::wstring resolvedPath;
     bool localized = false;
     bool available = false;
+    DWORD addStatus = PDH_CSTATUS_NO_COUNTER;
 };
 struct PerformanceSampler::Impl {
     PDH_HQUERY query = nullptr;
@@ -102,6 +103,8 @@ struct PerformanceSampler::Impl {
     bool primed = false;
     std::size_t localizedCount = 0;
     std::size_t missingCount = 0;
+    DWORD queryStatus = 0,baselineStatus = 0;
+    bool queryStatusKnown = false,baselineStatusKnown = false;
     std::vector<Counter> scalars;
     Counter cpuPerCore;
     Counter gpuEngine;

@@ -77,29 +77,52 @@ std::wstring RegistryTypeToString(DWORD type, const std::vector<BYTE>& data) {
 // the device set, device info record and property identifier; processing handles
 // REG_SZ, REG_EXPAND_SZ, REG_MULTI_SZ and numeric fallbacks; output is empty on
 // missing or unsupported values.
-std::wstring QueryDeviceRegistryProperty(HDEVINFO set, SP_DEVINFO_DATA& data, DWORD property) {
-    DWORD type = 0;
-    DWORD needed = 0;
-    ::SetupDiGetDeviceRegistryPropertyW(set, &data, property, &type, nullptr, 0, &needed);
-    if (needed == 0) {
-        return {};
+bool MissingProperty(DWORD error) {
+    return error == ERROR_INVALID_DATA || error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+}
+std::wstring DecodeProperty(DWORD type,const std::vector<BYTE>& bytes,HardwareFieldEvidence& evidence) {
+    evidence.type = type;
+    if (type == REG_SZ || type == REG_EXPAND_SZ || type == REG_MULTI_SZ) {
+        if (bytes.size()%sizeof(wchar_t) || bytes.size() < sizeof(wchar_t)) {evidence.malformed = true;return {};}
+        std::vector<wchar_t> text(bytes.size()/sizeof(wchar_t));std::memcpy(text.data(),bytes.data(),bytes.size());
+        if (text.back() != L'\0' || (type == REG_MULTI_SZ && (text.size()<2 || text[text.size()-2] != L'\0'))) {evidence.malformed = true;return {};}
+        if (type != REG_MULTI_SZ) evidence.values.emplace_back(text.data());
+        else {
+            std::size_t position = 0;
+            while (position<text.size() && text[position]) {
+                const auto finish = std::find(text.begin()+position,text.end(),L'\0');
+                if (finish == text.end()) {evidence.malformed = true;return {};}
+                const auto length = static_cast<std::size_t>(finish-(text.begin()+position));
+                evidence.values.emplace_back(text.data()+position,length);position += length+1;
+            }
+        }
+        evidence.available = true;
+        return type == REG_MULTI_SZ ? JoinMultiSz(text) : evidence.values.front();
     }
-
-    std::vector<BYTE> bytes(needed + sizeof(wchar_t) * 2, 0);
-    if (!::SetupDiGetDeviceRegistryPropertyW(set, &data, property, &type, bytes.data(), needed, nullptr)) {
-        return {};
+    if (type == REG_DWORD && bytes.size() == sizeof(DWORD)) {DWORD value;std::memcpy(&value,bytes.data(),sizeof(value));evidence.number = value;evidence.numeric = true;}
+    else if (type == REG_QWORD && bytes.size() == sizeof(ULONGLONG)) {std::memcpy(&evidence.number,bytes.data(),sizeof(evidence.number));evidence.numeric = true;}
+    else {evidence.malformed = true;return {};}
+    evidence.available = true;return RegistryTypeToString(type,bytes);
+}
+std::wstring QueryDeviceRegistryProperty(HDEVINFO set,SP_DEVINFO_DATA& data,DWORD property,HardwareFieldEvidence* output = nullptr) {
+    HardwareFieldEvidence local;auto& e = output ? *output : local;e = {};
+    DWORD type = 0,needed = 0;
+    if (!::SetupDiGetDeviceRegistryPropertyW(set,&data,property,&type,nullptr,0,&needed)) {
+        e.error = ::GetLastError();
+        if (e.error != ERROR_INSUFFICIENT_BUFFER) {e.absent = MissingProperty(e.error);return {};}
     }
-
-    if (type == REG_SZ || type == REG_EXPAND_SZ) {
-        const wchar_t* text = reinterpret_cast<const wchar_t*>(bytes.data());
-        return text ? std::wstring(text) : std::wstring();
+    for (int attempt = 0;attempt<4;++attempt) {
+        if (!needed || needed>16u*1024*1024) {e.error = ERROR_MORE_DATA;return {};}
+        std::vector<BYTE> bytes(needed,BYTE{0});DWORD returned = 0;
+        if (::SetupDiGetDeviceRegistryPropertyW(set,&data,property,&type,bytes.data(),needed,&returned)) {
+            e.error = ERROR_SUCCESS;
+            if (returned>bytes.size()) {e.malformed = true;return {};}
+            bytes.resize(returned);return DecodeProperty(type,bytes,e);
+        }
+        e.error = ::GetLastError();if (e.error != ERROR_INSUFFICIENT_BUFFER) {e.absent = MissingProperty(e.error);return {};}
+        if (returned <= needed) return {};needed = returned;
     }
-    if (type == REG_MULTI_SZ) {
-        const auto* first = reinterpret_cast<const wchar_t*>(bytes.data());
-        const std::size_t count = bytes.size() / sizeof(wchar_t);
-        return JoinMultiSz(std::vector<wchar_t>(first, first + count));
-    }
-    return RegistryTypeToString(type, bytes);
+    e.error = ERROR_MORE_DATA;return {};
 }
 
 // GuidToString converts a device setup class GUID to display text. Input is a
@@ -130,83 +153,63 @@ std::wstring GuidToString(const GUID& guid) {
 // key. Inputs are an HDEVINFO, device info, property scope and value name;
 // processing opens the requested key read-only; output is semicolon-separated
 // text or empty when the value/key is absent.
-std::wstring QueryDeviceRegistryMultiSz(HDEVINFO set,
-    SP_DEVINFO_DATA& data,
-    DWORD scope,
-    DWORD hardwareProfile,
-    const wchar_t* valueName) {
-    HKEY key = ::SetupDiOpenDevRegKey(set, &data, scope, hardwareProfile, DIREG_DEV, KEY_QUERY_VALUE);
-    if (key == INVALID_HANDLE_VALUE) {
-        return {};
+std::wstring QueryRegistryMultiSz(HKEY key,const wchar_t* valueName,HardwareFieldEvidence& e) {
+    e = {};
+    if (key == INVALID_HANDLE_VALUE) {e.error = ::GetLastError();e.absent = MissingProperty(e.error);return {};}
+    DWORD type = 0,needed = 0;LONG status = ::RegQueryValueExW(key,valueName,nullptr,&type,nullptr,&needed);
+    std::wstring result;
+    for (int attempt = 0;status == ERROR_SUCCESS && attempt<4;++attempt) {
+        if (!needed || needed>16u*1024*1024) {status = ERROR_MORE_DATA;break;}
+        std::vector<BYTE> bytes(needed,BYTE{0});DWORD returned = needed;
+        status = ::RegQueryValueExW(key,valueName,nullptr,&type,bytes.data(),&returned);
+        if (status == ERROR_SUCCESS) {
+            if (returned>bytes.size() || type != REG_MULTI_SZ) e.malformed = true;
+            else {bytes.resize(returned);result = DecodeProperty(type,bytes,e);}
+            break;
+        }
+        if (status != ERROR_MORE_DATA || returned<=needed) break;
+        needed = returned;status = attempt<3 ? ERROR_SUCCESS : ERROR_MORE_DATA;
     }
-
-    DWORD type = 0;
-    DWORD bytes = 0;
-    LONG status = ::RegQueryValueExW(key, valueName, nullptr, &type, nullptr, &bytes);
-    if (status != ERROR_SUCCESS || type != REG_MULTI_SZ || bytes == 0) {
-        ::RegCloseKey(key);
-        return {};
-    }
-
-    std::vector<wchar_t> buffer((bytes / sizeof(wchar_t)) + 2, L'\0');
-    status = ::RegQueryValueExW(key, valueName, nullptr, &type, reinterpret_cast<LPBYTE>(buffer.data()), &bytes);
-    ::RegCloseKey(key);
-    if (status != ERROR_SUCCESS || type != REG_MULTI_SZ) {
-        return {};
-    }
-    return JoinMultiSz(buffer);
+    ::RegCloseKey(key);e.error = static_cast<DWORD>(status);e.absent = MissingProperty(e.error);return result;
 }
-
-// QueryClassRegistryMultiSz reads REG_MULTI_SZ class filter values. Inputs are a
-// setup class GUID and value name; processing opens the class registry key
-// read-only; output is semicolon-separated text or empty when absent.
-std::wstring QueryClassRegistryMultiSz(const GUID& classGuid, const wchar_t* valueName) {
-    HKEY key = ::SetupDiOpenClassRegKeyExW(&classGuid, KEY_QUERY_VALUE, DIOCR_INSTALLER, nullptr, nullptr);
-    if (key == INVALID_HANDLE_VALUE) {
-        return {};
-    }
-
-    DWORD type = 0;
-    DWORD bytes = 0;
-    LONG status = ::RegQueryValueExW(key, valueName, nullptr, &type, nullptr, &bytes);
-    if (status != ERROR_SUCCESS || type != REG_MULTI_SZ || bytes == 0) {
-        ::RegCloseKey(key);
-        return {};
-    }
-
-    std::vector<wchar_t> buffer((bytes / sizeof(wchar_t)) + 2, L'\0');
-    status = ::RegQueryValueExW(key, valueName, nullptr, &type, reinterpret_cast<LPBYTE>(buffer.data()), &bytes);
-    ::RegCloseKey(key);
-    if (status != ERROR_SUCCESS || type != REG_MULTI_SZ) {
-        return {};
-    }
-    return JoinMultiSz(buffer);
+std::wstring QueryDeviceRegistryMultiSz(HDEVINFO set,SP_DEVINFO_DATA& data,DWORD scope,DWORD hardwareProfile,const wchar_t* valueName,HardwareFieldEvidence* output = nullptr) {
+    HardwareFieldEvidence local;return QueryRegistryMultiSz(::SetupDiOpenDevRegKey(set,&data,scope,hardwareProfile,DIREG_DEV,KEY_QUERY_VALUE),valueName,output ? *output : local);
+}
+std::wstring QueryClassRegistryMultiSz(const GUID& classGuid,const wchar_t* valueName,HardwareFieldEvidence* output = nullptr) {
+    HardwareFieldEvidence local;return QueryRegistryMultiSz(::SetupDiOpenClassRegKeyExW(&classGuid,KEY_QUERY_VALUE,DIOCR_INSTALLER,nullptr,nullptr),valueName,output ? *output : local);
 }
 
 // DevInstToInstanceId returns the stable PnP instance ID for one devnode. Input
 // is a DEVINST from SetupAPI/CM; processing uses CM_Get_Device_IDW; output is
 // empty when the devnode is invalid or was removed while enumerating.
-std::wstring DevInstToInstanceId(DEVINST devInst) {
+std::wstring DevInstToInstanceId(DEVINST devInst,HardwareFieldEvidence* output = nullptr) {
+    HardwareFieldEvidence local;auto& e = output ? *output : local;e = {};
     ULONG length = 0;
-    if (::CM_Get_Device_ID_Size(&length, devInst, 0) != CR_SUCCESS) {
+    e.cmStatus = ::CM_Get_Device_ID_Size(&length, devInst, 0);
+    if (e.cmStatus != CR_SUCCESS) {
         return {};
     }
+    if (!length || length>32767) {e.malformed = true;return {};}
     std::vector<wchar_t> buffer(static_cast<std::size_t>(length) + 1, L'\0');
-    if (::CM_Get_Device_IDW(devInst, buffer.data(), static_cast<ULONG>(buffer.size()), 0) != CR_SUCCESS) {
+    e.cmStatus = ::CM_Get_Device_IDW(devInst, buffer.data(), static_cast<ULONG>(buffer.size()), 0);
+    if (e.cmStatus != CR_SUCCESS) {
         return {};
     }
-    return std::wstring(buffer.data());
+    if (std::find(buffer.begin(),buffer.end(),L'\0') == buffer.end()) {e.malformed = true;return {};}
+    e.available = true;e.values.emplace_back(buffer.data());return e.values.front();
 }
 
 // QueryParentInstanceId reads the parent devnode ID through Configuration
 // Manager. Input is a child DEVINST; output is empty for root devices or failed
 // parent lookups.
-std::wstring QueryParentInstanceId(DEVINST devInst) {
+std::wstring QueryParentInstanceId(DEVINST devInst,HardwareFieldEvidence* output = nullptr) {
+    HardwareFieldEvidence local;auto& e = output ? *output : local;e = {};
     DEVINST parent = 0;
-    if (::CM_Get_Parent(&parent, devInst, 0) != CR_SUCCESS) {
+    e.cmStatus = ::CM_Get_Parent(&parent, devInst, 0);
+    if (e.cmStatus != CR_SUCCESS) {
         return {};
     }
-    return DevInstToInstanceId(parent);
+    return DevInstToInstanceId(parent,&e);
 }
 
 // StateFromStatus converts CM status/problem values to a small UI enum. Inputs
@@ -233,13 +236,15 @@ HardwareDeviceState StateFromStatus(ULONG status, ULONG problem) {
 
 // QueryStatus fills status flags and problem code for one device. Input is a
 // DEVINST; processing uses CM_Get_DevNode_Status; output is the derived state.
-HardwareDeviceState QueryStatus(DEVINST devInst, ULONG& status, ULONG& problem) {
+HardwareDeviceState QueryStatus(DEVINST devInst, ULONG& status, ULONG& problem,HardwareFieldEvidence* output = nullptr) {
+    HardwareFieldEvidence local;auto& e = output ? *output : local;e = {};
     status = 0;
     problem = 0;
-    if (::CM_Get_DevNode_Status(&status, &problem, devInst, 0) != CR_SUCCESS) {
+    e.cmStatus = ::CM_Get_DevNode_Status(&status, &problem, devInst, 0);
+    if (e.cmStatus != CR_SUCCESS) {
         return HardwareDeviceState::Unknown;
     }
-    return StateFromStatus(status, problem);
+    e.available = true;return StateFromStatus(status, problem);
 }
 
 // AppendProperty adds a live detail row when a value exists. Inputs are mutable
@@ -257,26 +262,28 @@ HardwareDeviceNode PopulateNodeFromDevInfo(HDEVINFO set, SP_DEVINFO_DATA& info, 
     HardwareDeviceNode node;
     node.index = index;
     node.devInst = info.DevInst;
-    node.instanceId = DevInstToInstanceId(info.DevInst);
-    node.parentInstanceId = QueryParentInstanceId(info.DevInst);
-    node.classGuid = GuidToString(info.ClassGuid);
-    node.displayName = QueryDeviceRegistryProperty(set, info, SPDRP_FRIENDLYNAME);
+    node.instanceId = DevInstToInstanceId(info.DevInst,&node.evidence[L"instanceId"]);
+    node.parentInstanceId = QueryParentInstanceId(info.DevInst,&node.evidence[L"parentInstanceId"]);
+    node.classGuid = GuidToString(info.ClassGuid);node.evidence[L"classGuid"].available = !node.classGuid.empty();node.evidence[L"classGuid"].values = {node.classGuid};
+    node.displayName = QueryDeviceRegistryProperty(set, info, SPDRP_FRIENDLYNAME,&node.evidence[L"friendlyName"]);
+    node.evidence[L"displayName"] = node.evidence[L"friendlyName"];
     if (node.displayName.empty()) {
-        node.displayName = QueryDeviceRegistryProperty(set, info, SPDRP_DEVICEDESC);
+        node.displayName = QueryDeviceRegistryProperty(set, info, SPDRP_DEVICEDESC,&node.evidence[L"deviceDescription"]);
+        node.evidence[L"displayName"] = node.evidence[L"deviceDescription"];
     }
-    node.className = QueryDeviceRegistryProperty(set, info, SPDRP_CLASS);
-    node.manufacturer = QueryDeviceRegistryProperty(set, info, SPDRP_MFG);
-    node.serviceName = QueryDeviceRegistryProperty(set, info, SPDRP_SERVICE);
-    node.driverKey = QueryDeviceRegistryProperty(set, info, SPDRP_DRIVER);
-    node.location = QueryDeviceRegistryProperty(set, info, SPDRP_LOCATION_INFORMATION);
-    node.locationPaths = QueryDeviceRegistryProperty(set, info, SPDRP_LOCATION_PATHS);
-    node.hardwareIds = QueryDeviceRegistryProperty(set, info, SPDRP_HARDWAREID);
-    node.compatibleIds = QueryDeviceRegistryProperty(set, info, SPDRP_COMPATIBLEIDS);
-    node.upperFilters = QueryDeviceRegistryMultiSz(set, info, DICS_FLAG_GLOBAL, 0, L"UpperFilters");
-    node.lowerFilters = QueryDeviceRegistryMultiSz(set, info, DICS_FLAG_GLOBAL, 0, L"LowerFilters");
-    node.classUpperFilters = QueryClassRegistryMultiSz(info.ClassGuid, L"UpperFilters");
-    node.classLowerFilters = QueryClassRegistryMultiSz(info.ClassGuid, L"LowerFilters");
-    node.state = QueryStatus(info.DevInst, node.statusFlags, node.problemCode);
+    node.className = QueryDeviceRegistryProperty(set, info, SPDRP_CLASS,&node.evidence[L"className"]);
+    node.manufacturer = QueryDeviceRegistryProperty(set, info, SPDRP_MFG,&node.evidence[L"manufacturer"]);
+    node.serviceName = QueryDeviceRegistryProperty(set, info, SPDRP_SERVICE,&node.evidence[L"serviceName"]);
+    node.driverKey = QueryDeviceRegistryProperty(set, info, SPDRP_DRIVER,&node.evidence[L"driverKey"]);
+    node.location = QueryDeviceRegistryProperty(set, info, SPDRP_LOCATION_INFORMATION,&node.evidence[L"location"]);
+    node.locationPaths = QueryDeviceRegistryProperty(set, info, SPDRP_LOCATION_PATHS,&node.evidence[L"locationPaths"]);
+    node.hardwareIds = QueryDeviceRegistryProperty(set, info, SPDRP_HARDWAREID,&node.evidence[L"hardwareIds"]);
+    node.compatibleIds = QueryDeviceRegistryProperty(set, info, SPDRP_COMPATIBLEIDS,&node.evidence[L"compatibleIds"]);
+    node.upperFilters = QueryDeviceRegistryMultiSz(set, info, DICS_FLAG_GLOBAL, 0, L"UpperFilters",&node.evidence[L"upperFilters"]);
+    node.lowerFilters = QueryDeviceRegistryMultiSz(set, info, DICS_FLAG_GLOBAL, 0, L"LowerFilters",&node.evidence[L"lowerFilters"]);
+    node.classUpperFilters = QueryClassRegistryMultiSz(info.ClassGuid, L"UpperFilters",&node.evidence[L"classUpperFilters"]);
+    node.classLowerFilters = QueryClassRegistryMultiSz(info.ClassGuid, L"LowerFilters",&node.evidence[L"classLowerFilters"]);
+    node.state = QueryStatus(info.DevInst, node.statusFlags, node.problemCode,&node.evidence[L"status"]);
     return node;
 }
 
@@ -334,30 +341,31 @@ bool FindDeviceByInstanceId(HDEVINFO set, const std::wstring& instanceId, SP_DEV
 
 } // namespace
 
-HardwareEnumerationResult EnumerateDeviceManagerTree() {
+HardwareEnumerationResult EnumerateDeviceManagerTree(bool presentOnly) {
     HardwareEnumerationResult result;
-    DevInfoSet set(::SetupDiGetClassDevsW(nullptr, nullptr, nullptr, DIGCF_ALLCLASSES));
+    DevInfoSet set(::SetupDiGetClassDevsW(nullptr, nullptr, nullptr, DIGCF_ALLCLASSES | (presentOnly ? DIGCF_PRESENT : 0)));
     if (!set.valid()) {
-        result.success = false;
+        result.success = false;result.win32Error = ::GetLastError();
         result.diagnosticText = L"SetupDiGetClassDevsW failed: " + ks::r3::common::LastErrorMessage();
         return result;
     }
 
-    for (DWORD ordinal = 0;; ++ordinal) {
+    for (DWORD ordinal = 0;ordinal<100000;++ordinal) {
         SP_DEVINFO_DATA info{};
         info.cbSize = sizeof(info);
         if (!::SetupDiEnumDeviceInfo(set.get(), ordinal, &info)) {
             const DWORD error = ::GetLastError();
             if (error == ERROR_NO_MORE_ITEMS) {
-                break;
+                result.complete = true;break;
             }
-            result.success = false;
+            result.success = false;result.win32Error = error;
             result.diagnosticText = L"SetupDiEnumDeviceInfo failed: " + ks::r3::common::LastErrorMessage(error);
             return result;
         }
         result.devices.push_back(PopulateNodeFromDevInfo(set.get(), info, static_cast<int>(result.devices.size())));
     }
 
+    if (!result.complete) {result.limited = true;result.win32Error = ERROR_MORE_DATA;}
     RebuildHierarchy(result.devices);
     std::sort(result.devices.begin(), result.devices.end(), [](const HardwareDeviceNode& left, const HardwareDeviceNode& right) {
         if (left.parentIndex != right.parentIndex) {
@@ -384,16 +392,16 @@ HardwareDeviceDetail QueryDeviceManagerDetails(const std::wstring& instanceId) {
 
     DevInfoSet set(::SetupDiGetClassDevsW(nullptr, nullptr, nullptr, DIGCF_ALLCLASSES));
     if (!set.valid()) {
-        return detail;
+        detail.win32Error = ::GetLastError();return detail;
     }
 
     SP_DEVINFO_DATA info{};
     if (!FindDeviceByInstanceId(set.get(), instanceId, info)) {
-        return detail;
+        detail.win32Error = ::GetLastError();return detail;
     }
 
     HardwareDeviceNode node = PopulateNodeFromDevInfo(set.get(), info, 0);
-    detail.found = true;
+    detail.node = node;detail.found = true;
     detail.title = CompactDeviceName(node);
     detail.instanceId = node.instanceId;
     AppendProperty(detail, L"Display name", CompactDeviceName(node));

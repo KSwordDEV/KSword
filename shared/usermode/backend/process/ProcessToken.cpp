@@ -10,6 +10,16 @@ std::wstring TokenClassName(int informationClass) {
     }
     return L"TokenClass" + std::to_wstring(informationClass);
 }
+std::wstring NativeTokenClassName(int informationClass) {
+    switch (informationClass) {
+    case 48: return L"TokenIsAppSilo";
+    case 49: return L"TokenLoggingInformation";
+    case 50: return L"TokenLearningMode";
+    case 51: return L"TokenIsSystemManagedAdmin";
+    case 52: return L"TokenIsInstaller";
+    default: return informationClass <= 47 ? TokenClassName(informationClass) : L"TokenClass" + std::to_wstring(informationClass);
+    }
+}
 std::wstring SidText(PSID sid) {
     if (!sid) {
         return L"<null sid>";
@@ -33,12 +43,16 @@ std::wstring SidText(PSID sid) {
     }
     return L"SID=" + (sidValue.empty() ? std::wstring(L"<unavailable>") : sidValue);
 }
-bool QueryTokenBytes(HANDLE token, int informationClass, std::vector<std::byte>& bytes, DWORD& error) {
+bool QueryTokenBytes(HANDLE token, int informationClass, std::vector<std::byte>& bytes, DWORD& error,bool* malformed) {
+    if (malformed) *malformed = false;
+    bytes.clear();
     DWORD required = 0;
     ::SetLastError(ERROR_SUCCESS);
     ::GetTokenInformation(token, static_cast<TOKEN_INFORMATION_CLASS>(informationClass), nullptr, 0, &required);
     error = ::GetLastError();
     if (required == 0 || required > 16 * 1024 * 1024) {
+        if (required > 16 * 1024 * 1024) error = ERROR_FILE_TOO_LARGE;
+        else if (error == ERROR_SUCCESS) {error = ERROR_INVALID_DATA;if (malformed) *malformed = true;}
         return false;
     }
     bytes.resize(required);
@@ -52,9 +66,35 @@ bool QueryTokenBytes(HANDLE token, int informationClass, std::vector<std::byte>&
         bytes.clear();
         return false;
     }
+    if (required == 0 || required > bytes.size()) {error = ERROR_INVALID_DATA;if (malformed) *malformed = true;bytes.clear();return false;}
     bytes.resize(required);
+    if (informationClass == TokenLinkedToken && bytes.size() >= sizeof(TOKEN_LINKED_TOKEN)) {
+        // GetTokenInformation transfers an owned handle for this class. The
+        // report/CLI snapshot records its numeric value, then releases it.
+        const auto linked = reinterpret_cast<const TOKEN_LINKED_TOKEN*>(bytes.data())->LinkedToken;
+        if (linked) ::CloseHandle(linked);
+    }
     error = ERROR_SUCCESS;
     return true;
+}
+TokenQuerySnapshot QueryTokenClasses(DWORD processId,ULONGLONG expectedCreationTime,const std::vector<int>& classes) {
+    TokenQuerySnapshot snapshot;
+    ScopedHandle process(::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,processId));
+    if (!process) {snapshot.win32ErrorKnown = true;snapshot.win32Error = ::GetLastError();return snapshot;}
+    std::wstring error;
+    if (!VerifyProcessIdentity(process.get(),expectedCreationTime,error)) return snapshot;
+    snapshot.identityMatched = true;
+    HANDLE rawToken = nullptr;
+    if (!::OpenProcessToken(process.get(),TOKEN_QUERY,&rawToken)) {
+        snapshot.win32ErrorKnown = true;snapshot.win32Error = ::GetLastError();return snapshot;
+    }
+    ScopedHandle token(rawToken);snapshot.tokenOpened = true;
+    for (const auto informationClass : classes) {
+        TokenClassSnapshot row;row.informationClass = informationClass;
+        row.available = QueryTokenBytes(token.get(),informationClass,row.bytes,row.win32Error,&row.malformed);
+        snapshot.classes.push_back(std::move(row));
+    }
+    return snapshot;
 }
 std::wstring RawPreview(const std::vector<std::byte>& bytes) {
     std::wostringstream text;
@@ -191,6 +231,7 @@ ProcessDetailActionResult AdjustTokenPrivilegeR3(DWORD processId, ULONGLONG expe
                 processId, expectedCreationTime, PROCESS_QUERY_LIMITED_INFORMATION,
                 process, identityError);
             HANDLE rawToken = nullptr;
+            result.identityMatched = r3ProcessAvailable;
 
             if (r3ProcessAvailable &&
                 ::OpenProcessToken(process.get(), TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &rawToken)) {
@@ -203,13 +244,16 @@ ProcessDetailActionResult AdjustTokenPrivilegeR3(DWORD processId, ULONGLONG expe
                 ::SetLastError(ERROR_SUCCESS);
                 const BOOL adjusted = ::AdjustTokenPrivileges(token.get(), FALSE, &privileges, 0, nullptr, nullptr);
                 r3Error = ::GetLastError();
+                result.win32ErrorKnown = true;result.win32Error = r3Error;
                 if (adjusted && r3Error == ERROR_SUCCESS) {
+                    result.requestSucceeded = true;
                     result.statusText = L"● R3 已调整 " + name;
                     result.refreshTokenReport = true;
                     return result;
                 }
             } else if (r3ProcessAvailable) {
                 r3Error = ::GetLastError();
+                result.win32ErrorKnown = true;result.win32Error = r3Error;
             }
 
  return result;
@@ -230,9 +274,12 @@ ProcessDetailActionResult WriteRawTokenValue(int informationClass, DWORD process
                 action.statusText = L"● 原始设置失败：" + identityError;
                 return action;
             }
+            action.identityMatched = true;
             HANDLE rawToken = nullptr;
             if (!setInformation || !::OpenProcessToken(
                     verifiedProcess.get(), TOKEN_QUERY | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID, &rawToken)) {
+                action.unsupported = !setInformation;
+                if (setInformation) {action.win32ErrorKnown = true;action.win32Error = ::GetLastError();}
                 action.statusText = L"● 原始设置失败：无法打开目标令牌";
                 return action;
             }
@@ -242,6 +289,7 @@ ProcessDetailActionResult WriteRawTokenValue(int informationClass, DWORD process
                 static_cast<TOKEN_INFORMATION_CLASS>(informationClass),
                 payload.data(),
                 static_cast<ULONG>(payload.size()));
+            action.ntStatusKnown = true;action.ntStatus = status;action.requestSucceeded = status == 0;
             std::wostringstream message;
             message << (status >= 0 ? L"● 原始设置成功：" : L"● 原始设置失败：")
                     << L"[" << informationClass << L"] " << TokenClassName(informationClass)

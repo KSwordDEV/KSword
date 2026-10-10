@@ -1,23 +1,6 @@
 #include "ProcessEvidenceName.h"
-
 namespace ks::r3::process {
-std::wstring ProcessDisplayName(const std::uint32_t processId) {
-    if (processId == 0) {
-        return L"Idle/System";
-    }
-    HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
-    if (!process) {
-        return L"PID " + std::to_wstring(processId);
-    }
-    std::wstring path(MAX_PATH * 4, L'\0');
-    DWORD length = static_cast<DWORD>(path.size());
-    std::wstring name = L"PID " + std::to_wstring(processId);
-    if (::QueryFullProcessImageNameW(process, 0, path.data(), &length) && length > 0) {
-        path.resize(length);
-        const std::size_t slash = path.find_last_of(L"\\/");
-        name = slash == std::wstring::npos ? path : path.substr(slash + 1);
-    }
-    ::CloseHandle(process);
-    return name;
+std::wstring ProcessDisplayName(const std::uint32_t pid,ProcessImageEvidence* output,ULONGLONG expected){ProcessImageEvidence local;auto& e=output?*output:local;e={};if(!pid)return L"Idle/System";
+    const auto path=SampleProcessImage(pid,MAX_PATH*4,expected,e);if(!e.available)return L"PID "+std::to_wstring(pid);const auto slash=path.find_last_of(L"\\/");return slash==std::wstring::npos?path:path.substr(slash+1);
 }
 }

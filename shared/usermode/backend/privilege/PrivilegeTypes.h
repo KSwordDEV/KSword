@@ -24,6 +24,9 @@ struct TokenSummary {
     std::wstring tokenType;
     bool elevated = false;
     bool uiAccess = false;
+    bool elevationKnown = false;
+    bool uiAccessKnown = false;
+    bool groupsKnown = false;
     std::vector<std::wstring> groups;
 };
 struct PrivilegeSnapshot {
@@ -31,6 +34,9 @@ struct PrivilegeSnapshot {
     std::wstring diagnosticText;
     TokenSummary token;
     std::vector<PrivilegeEntry> privileges;
+    DWORD win32Error = ERROR_SUCCESS;
+    struct QueryError { TOKEN_INFORMATION_CLASS informationClass; DWORD win32Error; };
+    std::vector<QueryError> queryErrors;
 };
 std::wstring PrivilegeStateText(const PrivilegeEntry& entry);
 std::wstring DescribePrivilege(const std::wstring& privilegeName);

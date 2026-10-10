@@ -1,0 +1,6 @@
+#include <windows.h>
+101 ACCELERATORS
+BEGIN
+    VK_F20, 1001, VIRTKEY, CONTROL, ALT
+    "j", 1002, ASCII
+END

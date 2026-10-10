@@ -70,6 +70,7 @@ struct ResolvedTarget final {
     std::uint32_t address = 0;    // Network byte order.
     std::wstring addressText;
     std::wstring diagnostic;
+    std::uint32_t error = 0;
 };
 
 // ResolveIpv4 turns a host name or literal into one IPv4 address. Input is the
@@ -79,6 +80,7 @@ struct ResolvedTarget final {
 inline ResolvedTarget ResolveIpv4(const std::wstring& target) {
     ResolvedTarget resolved{};
     if (target.empty()) {
+        resolved.error = ERROR_INVALID_PARAMETER;
         resolved.diagnostic = L"请先填写目标主机名或 IP 地址。";
         return resolved;
     }
@@ -90,6 +92,7 @@ inline ResolvedTarget ResolveIpv4(const std::wstring& target) {
     PADDRINFOW info = nullptr;
     const int status = ::GetAddrInfoW(target.c_str(), nullptr, &hints, &info);
     if (status != 0 || info == nullptr) {
+        resolved.error = status != 0 ? static_cast<std::uint32_t>(status) : WSAHOST_NOT_FOUND;
         if (info != nullptr) {
             ::FreeAddrInfoW(info);
         }
@@ -112,6 +115,7 @@ inline ResolvedTarget ResolveIpv4(const std::wstring& target) {
     }
     ::FreeAddrInfoW(info);
     if (!resolved.resolved) {
+        resolved.error = WSAEAFNOSUPPORT;
         resolved.diagnostic = L"目标 " + target + L" 没有可用的 IPv4 地址。";
     }
     return resolved;

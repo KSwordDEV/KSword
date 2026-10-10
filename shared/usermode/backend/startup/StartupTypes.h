@@ -2,6 +2,7 @@
 #include "../Win32.h"
 #include <string>
 #include <vector>
+#include <cstdint>
 namespace ks::r3::startup {
 enum class StartupEntryKind {
     RegistryRun,
@@ -59,5 +60,7 @@ struct StartupEnumerationResult {
     bool success = false;
     std::wstring diagnosticText;
     std::vector<StartupEntry> entries;
+    struct SourceError {std::wstring source;std::uint32_t code = 0;bool hresult = false;};
+    std::vector<SourceError> sourceErrors;
 };
 }

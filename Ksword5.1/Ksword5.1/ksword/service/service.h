@@ -48,6 +48,7 @@ namespace ks::service
         std::wstring accountName;
         std::wstring displayName;
         bool delayedAutoStart = false;
+        bool hasDelayedAutoStart = false;
     };
 
     // ServiceRecord is the common enumeration/query result used by DriverDock and ServiceDock.

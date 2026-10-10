@@ -73,7 +73,7 @@ DirectoryEnumerationResult enumerateDrives() {
     std::vector<wchar_t> buffer(bufferChars + 2, L'\0');
     const DWORD written = ::GetLogicalDriveStringsW(static_cast<DWORD>(buffer.size()), buffer.data());
     if (written == 0 || written >= buffer.size()) {
-        result.errorCode = ::GetLastError();
+        result.errorCode = written == 0 ? ::GetLastError() : ERROR_MORE_DATA;
         result.statusText = MakeStatusText(result.errorCode);
         return result;
     }

@@ -4,6 +4,8 @@
 #include <cwchar>
 #include <sstream>
 #include <iomanip>
+#include <set>
+#include <chrono>
 namespace ks::r3::window_tools {
 const DpiApi& LoadDpiApi() {
     static const DpiApi api = [] {
@@ -27,12 +29,16 @@ const DpiApi& LoadDpiApi() {
     return api;
 }
 const DwmApi& LoadDwmApi() {
+    struct Library {
+        HMODULE module = ::GetModuleHandleW(L"dwmapi.dll");
+        bool owned = false;
+        Library() {if (!module) {module = ::LoadLibraryW(L"dwmapi.dll");owned = module != nullptr;}}
+        ~Library() {if (owned) ::FreeLibrary(module);}
+    };
+    static const Library library;
     static const DwmApi api = [] {
         DwmApi loaded{};
-        HMODULE module = ::GetModuleHandleW(L"dwmapi.dll");
-        if (!module) {
-            module = ::LoadLibraryW(L"dwmapi.dll");
-        }
+        HMODULE module = library.module;
         if (module) {
             loaded.getWindowAttribute = reinterpret_cast<DwmApi::GetWindowAttributeFn>(
                 ::GetProcAddress(module, "DwmGetWindowAttribute"));
@@ -146,7 +152,9 @@ void AppendZOrder(std::wstring& text, HWND hwnd) {
     HWND root = ::GetAncestor(hwnd, GA_ROOT);
     int index = -1;
     int total = 0;
+    std::set<HWND> visited;const auto started = std::chrono::steady_clock::now();
     for (HWND current = ::GetTopWindow(nullptr); current != nullptr; current = ::GetWindow(current, GW_HWNDNEXT)) {
+        if (!visited.insert(current).second || total>=100000 || std::chrono::steady_clock::now()-started>std::chrono::seconds(8)) break;
         if (current == root && index < 0) {
             index = total;
         }
@@ -377,5 +385,108 @@ std::wstring BuildHierarchyReport(HWND hwnd) {
     AppendDpi(text, hwnd);
     AppendCompositionState(text, hwnd);
     return text;
+}
+HierarchySnapshot QueryHierarchySnapshot(HWND hwnd) {
+    HierarchySnapshot s;if (!::IsWindow(hwnd)) return s;s.threadId = ::GetWindowThreadProcessId(hwnd,&s.processId);
+    if (!s.threadId || !s.processId) return s;s.found = true;
+    const auto append = [&s](HierarchyField field) {s.fields.push_back(std::move(field));};
+    const auto pointer = [&](const wchar_t* name,const auto& query) {
+        ::SetLastError(ERROR_SUCCESS);const auto value = query();const auto error = ::GetLastError();HierarchyField f;
+        f.name = name;f.kind = HierarchyValueKind::Pointer;f.number = reinterpret_cast<std::uintptr_t>(value);f.available = value || !error;
+        f.domain = L"win32";f.errorKnown = !f.available;f.error = error;append(f);return value;
+    };
+    pointer(L"parent",[&]{return ::GetParent(hwnd);});pointer(L"ancestorParent",[&]{return ::GetAncestor(hwnd,GA_PARENT);});
+    const auto root = pointer(L"root",[&]{return ::GetAncestor(hwnd,GA_ROOT);});
+    pointer(L"rootOwner",[&]{return ::GetAncestor(hwnd,GA_ROOTOWNER);});pointer(L"owner",[&]{return ::GetWindow(hwnd,GW_OWNER);});
+    pointer(L"previous",[&]{return ::GetWindow(root,GW_HWNDPREV);});pointer(L"next",[&]{return ::GetWindow(root,GW_HWNDNEXT);});
+    std::set<HWND> ancestors;::SetLastError(ERROR_SUCCESS);auto current = ::GetAncestor(hwnd,GA_PARENT);if (!current) s.chainError = ::GetLastError();
+    for (int i = 0;current && i<kAncestorChainLimit;++i) {
+        if (!ancestors.insert(current).second) {s.chainCycle = true;break;}
+        s.parentChain.push_back(current);::SetLastError(ERROR_SUCCESS);const auto next = ::GetAncestor(current,GA_PARENT);
+        if (!next && ::GetLastError()) {s.chainError = ::GetLastError();break;}current = next;
+    }
+    s.chainComplete = !current && !s.chainError;s.chainLimited = current && !s.chainCycle && s.parentChain.size()>=kAncestorChainLimit;
+    std::set<HWND> order;const auto started = std::chrono::steady_clock::now();::SetLastError(ERROR_SUCCESS);current = ::GetTopWindow(nullptr);
+    if (!current) {s.zError = ::GetLastError();s.zComplete = !s.zError;}
+    while (current) {
+        if (!order.insert(current).second) {s.zCycle = true;break;}
+        if (s.zCount>=100000 || std::chrono::steady_clock::now()-started>std::chrono::seconds(8)) {s.zLimited = true;break;}
+        if (current == root) s.zIndex = static_cast<int>(s.zCount);++s.zCount;::SetLastError(ERROR_SUCCESS);
+        const auto next = ::GetWindow(current,GW_HWNDNEXT);if (!next) {s.zError = ::GetLastError();s.zComplete = !s.zError;break;}current = next;
+    }
+    const auto scalar = [&](const wchar_t* name,const auto& query,HierarchyValueKind kind) {
+        ::SetLastError(ERROR_SUCCESS);const auto value = query();const auto error = ::GetLastError();HierarchyField f;
+        f.name = name;f.kind = kind;f.number = kind == HierarchyValueKind::Unsigned ? static_cast<DWORD>(value) : static_cast<std::uint64_t>(static_cast<std::uintptr_t>(value));f.signedNumber = static_cast<std::int64_t>(value);
+        f.available = value != 0 || !error;f.domain = L"win32";f.errorKnown = !f.available;f.error = error;append(f);return f;
+    };
+    const auto style = scalar(L"style",[&]{return ::GetWindowLongPtrW(hwnd,GWL_STYLE);},HierarchyValueKind::Unsigned);
+    const auto exStyle = scalar(L"exStyle",[&]{return ::GetWindowLongPtrW(hwnd,GWL_EXSTYLE);},HierarchyValueKind::Unsigned);
+    const auto classStyle = scalar(L"classStyle",[&]{return ::GetClassLongPtrW(hwnd,GCL_STYLE);},HierarchyValueKind::Unsigned);
+    scalar(L"classAtom",[&]{return ::GetClassLongPtrW(hwnd,GCW_ATOM);},HierarchyValueKind::Unsigned);
+    scalar(L"classProcedure",[&]{return ::GetClassLongPtrW(hwnd,GCLP_WNDPROC);},HierarchyValueKind::Pointer);
+    scalar(L"windowProcedure",[&]{return ::GetWindowLongPtrW(hwnd,GWLP_WNDPROC);},HierarchyValueKind::Pointer);
+    scalar(L"classExtraBytes",[&]{return ::GetClassLongPtrW(hwnd,GCL_CBCLSEXTRA);},HierarchyValueKind::Unsigned);
+    scalar(L"windowExtraBytes",[&]{return ::GetClassLongPtrW(hwnd,GCL_CBWNDEXTRA);},HierarchyValueKind::Unsigned);
+    for (const auto& pair:{std::pair{L"styleBits",&style},std::pair{L"exStyleBits",&exStyle},std::pair{L"classStyleBits",&classStyle}}) {
+        HierarchyField f;f.name = pair.first;f.kind = HierarchyValueKind::Strings;f.available = pair.second->available;
+        if (f.available) {const auto bits = static_cast<DWORD>(pair.second->number);
+            f.strings = pair.first == std::wstring(L"styleBits") ? DecodeWindowStyleBits(bits,(bits&WS_CHILD)!=0) : pair.first == std::wstring(L"exStyleBits") ? DecodeWindowExStyleBits(bits) : DecodeClassStyleBits(bits);}
+        append(f);
+    }
+    std::array<wchar_t,512> className{};::SetLastError(ERROR_SUCCESS);const auto classLength = ::GetClassNameW(hwnd,className.data(),static_cast<int>(className.size()));
+    const std::wstring name = classLength>0 ? std::wstring(className.data(),static_cast<std::size_t>(classLength)) : std::wstring{};
+    HierarchyField classNameField;classNameField.name = L"className";classNameField.kind = HierarchyValueKind::Text;classNameField.available = classLength>0 && classLength<static_cast<int>(className.size())-1;
+    classNameField.text = name;classNameField.domain = L"win32";classNameField.errorKnown = classLength<=0;classNameField.error = ::GetLastError();append(classNameField);
+    WNDCLASSEXW cls{};cls.cbSize = sizeof(cls);bool local = false;DWORD classError = ERROR_SUCCESS;
+    if (!name.empty()) {local = ::GetClassInfoExW(::GetModuleHandleW(nullptr),name.c_str(),&cls) != FALSE;
+        if (!local) {::SetLastError(ERROR_SUCCESS);local = ::GetClassInfoExW(nullptr,name.c_str(),&cls) != FALSE;if (!local) classError = ::GetLastError();}}
+    HierarchyField registration;registration.name = L"callerClassRegistration";registration.kind = HierarchyValueKind::Boolean;
+    registration.available = local;registration.number = local;registration.notApplicable = !local && classError == ERROR_CLASS_DOES_NOT_EXIST;registration.domain = L"win32";registration.errorKnown = !local;registration.error = classError;append(registration);
+    if (local) {
+        for (const auto& item:{std::pair{L"callerClassProcedure",reinterpret_cast<std::uintptr_t>(cls.lpfnWndProc)},std::pair{L"callerClassInstance",reinterpret_cast<std::uintptr_t>(cls.hInstance)}}) {
+            HierarchyField f;f.name = item.first;f.kind = HierarchyValueKind::Pointer;f.available = true;f.number = item.second;append(f);
+        }
+        for (const auto& item:{std::pair{L"callerClassStyle",cls.style},std::pair{L"callerClassExtraBytes",static_cast<UINT>(cls.cbClsExtra)},std::pair{L"callerWindowExtraBytes",static_cast<UINT>(cls.cbWndExtra)}}) {
+            HierarchyField f;f.name = item.first;f.available = true;f.number = item.second;append(f);
+        }
+    }
+    for (const auto* id:{L"windowRect",L"clientRect"}) {
+        ::SetLastError(ERROR_SUCCESS);
+        HierarchyField f;f.name = id;f.kind = HierarchyValueKind::Rectangle;f.domain = L"win32";
+        f.available = std::wstring(id) == L"windowRect" ? ::GetWindowRect(hwnd,&f.rectangle) != FALSE : ::GetClientRect(hwnd,&f.rectangle) != FALSE;
+        if (!f.available) {f.errorKnown = true;f.error = ::GetLastError();}append(f);
+    }
+    HierarchyField origin;origin.name = L"clientOriginScreen";origin.kind = HierarchyValueKind::Point;origin.domain = L"win32";
+    ::SetLastError(ERROR_SUCCESS);
+    origin.available = ::ClientToScreen(hwnd,&origin.point) != FALSE;if (!origin.available) {origin.errorKnown = true;origin.error = ::GetLastError();}append(origin);
+    const auto& dpi = LoadDpiApi();void* context = nullptr;
+    if (dpi.getWindowContext) {context = dpi.getWindowContext(hwnd);HierarchyField f;f.name = L"dpiContext";f.kind = HierarchyValueKind::Pointer;f.available = context != nullptr;f.number = reinterpret_cast<std::uintptr_t>(context);append(f);}
+    else {HierarchyField f;f.name = L"dpiContext";append(f);}
+    if (context) {HierarchyField f;f.name = L"dpiContextDisplay";f.kind = HierarchyValueKind::Text;f.available = true;f.text = DescribeDpiContext(context);append(f);}
+    for (const auto* id:{L"windowDpi",L"contextDpi",L"dpiAwareness"}) {
+        HierarchyField f;f.name = id;f.kind = std::wstring(id) == L"dpiAwareness" ? HierarchyValueKind::Signed : HierarchyValueKind::Unsigned;
+        if (std::wstring(id) == L"windowDpi" && dpi.getDpiForWindow) {f.number = dpi.getDpiForWindow(hwnd);f.available = f.number != 0;}
+        if (std::wstring(id) == L"contextDpi" && context && dpi.getDpiFromContext) {f.number = dpi.getDpiFromContext(context);f.available = f.number != 0;f.notApplicable = !f.available;}
+        if (std::wstring(id) == L"dpiAwareness" && context && dpi.getAwareness) {f.signedNumber = dpi.getAwareness(context);f.available = f.signedNumber>=0;}
+        append(f);
+    }
+    const auto& dwm = LoadDwmApi();
+    for (const auto& pair:{std::pair{L"cloaked",kDwmwaCloaked},std::pair{L"extendedFrameBounds",kDwmwaExtendedFrameBounds}}) {
+        HierarchyField f;f.name = pair.first;f.domain = L"hresult";f.kind = pair.second == kDwmwaCloaked ? HierarchyValueKind::Unsigned : HierarchyValueKind::Rectangle;
+        if (dwm.getWindowAttribute) {DWORD cloak = 0;const auto status = pair.second == kDwmwaCloaked ? dwm.getWindowAttribute(hwnd,pair.second,&cloak,sizeof(cloak)) : dwm.getWindowAttribute(hwnd,pair.second,&f.rectangle,sizeof(f.rectangle));
+            f.available = status == S_OK;f.errorKnown = true;f.error = static_cast<DWORD>(status);f.number = cloak;}
+        append(f);
+    }
+    HierarchyField capture;capture.name = L"displayAffinity";capture.domain = L"win32";DWORD policy = 0;::SetLastError(ERROR_SUCCESS);
+    capture.available = ::GetWindowDisplayAffinity(hwnd,&policy) != FALSE;capture.number = policy;if (!capture.available) {capture.errorKnown = true;capture.error = ::GetLastError();}append(capture);
+    HierarchyField layered;layered.name = L"layeredAttributes";layered.kind = HierarchyValueKind::Strings;layered.domain = L"win32";
+    if (exStyle.available && !(exStyle.number&WS_EX_LAYERED)) layered.notApplicable = true;
+    else if (exStyle.available) {COLORREF color = 0;BYTE alpha = 0;DWORD flags = 0;::SetLastError(ERROR_SUCCESS);
+        layered.available = ::GetLayeredWindowAttributes(hwnd,&color,&alpha,&flags) != FALSE;
+        if (layered.available) {
+            for (const auto& item:{std::pair{L"layeredAlpha",static_cast<DWORD>(alpha)},std::pair{L"layeredColorKey",color},std::pair{L"layeredFlags",flags}}) {HierarchyField f;f.name = item.first;f.available = true;f.number = item.second;append(f);}
+            layered.strings = {LayeredFlagsText(flags)};
+        } else {layered.errorKnown = true;layered.error = ::GetLastError();}}
+    append(layered);DWORD afterPid = 0;const auto afterTid = ::GetWindowThreadProcessId(hwnd,&afterPid);s.stable = ::IsWindow(hwnd) && afterPid == s.processId && afterTid == s.threadId;return s;
 }
 }

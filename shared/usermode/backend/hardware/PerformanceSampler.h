@@ -42,12 +42,15 @@ public:
     // of PDH_INVALID_DATA; output is a snapshot that is safe to move to the UI
     // thread.
     PerformanceSnapshot sample();
+    // Explicit same-owner cleanup exposes PDH status to console consumers.
+    // The destructor remains a fallback for existing UI consumers.
+    PerformanceEvidence close();
 
 private:
     struct Counter;
 
     bool ensureOpen(std::wstring& diagnostic);
-    void closeQuery();
+    DWORD closeQuery();
     bool addCounter(const wchar_t* englishPath, Counter& counter);
     void collectSystemMetrics(PerformanceSnapshot& snapshot);
     void collectDiskRows(PerformanceSnapshot& snapshot);

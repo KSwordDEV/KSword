@@ -9,9 +9,10 @@
 namespace ks::r3::network {
 namespace {
 constexpr ULONG kNetworkAfInet = 2UL;
-EndpointAuditRow RowVec(std::vector<std::wstring> cells) {
+EndpointAuditRow RowVec(std::vector<std::wstring> cells, bool available = true, DWORD error = 0, bool evidence = true) {
     EndpointAuditRow row;
     row.cells = std::move(cells);
+    row.available = available; row.win32Error = error; row.evidence = evidence;
     return row;
 }
 std::wstring HexText(const std::uint64_t value) {
@@ -50,10 +51,11 @@ std::wstring Win32StatusText(const wchar_t* apiName, const DWORD status) {
     stream << apiName << L" failed, status=" << status << L" (" << HexText(status) << L")";
     return stream.str();
 }
-bool LoadIpHelperApi(IpHelperApi& api, std::wstring& errorText) {
+bool LoadIpHelperApi(IpHelperApi& api, std::wstring& errorText, DWORD& error) {
     api.module = ::LoadLibraryW(L"iphlpapi.dll");
     if (api.module == nullptr) {
-        errorText = Win32StatusText(L"LoadLibrary(iphlpapi.dll)", ::GetLastError());
+        error = ::GetLastError();
+        errorText = Win32StatusText(L"LoadLibrary(iphlpapi.dll)", error);
         return false;
     }
 
@@ -73,6 +75,7 @@ bool LoadIpHelperApi(IpHelperApi& api, std::wstring& errorText) {
         api.getIpAddrTable == nullptr ||
         api.getIpForwardTable == nullptr) {
         errorText = L"iphlpapi.dll 缺少 Network 页所需的只读枚举入口。";
+        error = ERROR_PROC_NOT_FOUND;
         ::FreeLibrary(api.module);
         api = {};
         return false;
@@ -83,19 +86,21 @@ void AppendTcpAfdProjectionRows(const IpHelperApi& api, std::vector<EndpointAudi
     DWORD bufferSize = 0UL;
     DWORD status = api.getExtendedTcpTable(nullptr, &bufferSize, FALSE, kNetworkAfInet, TCP_TABLE_OWNER_PID_ALL, 0UL);
     if (status != ERROR_INSUFFICIENT_BUFFER || bufferSize == 0UL) {
-        rows.push_back(RowVec({ L"AFD/TCPv4", L"Unavailable", L"GetExtendedTcpTable", L"-", Win32StatusText(L"GetExtendedTcpTable(size)", status), L"只读；未读取 AFD 私有对象。" }));
+        rows.push_back(RowVec({ L"AFD/TCPv4", L"Unavailable", L"GetExtendedTcpTable", L"-", Win32StatusText(L"GetExtendedTcpTable(size)", status), L"只读；未读取 AFD 私有对象。" }, false, status));
         return;
     }
 
     std::vector<unsigned char> buffer(bufferSize, 0U);
     status = api.getExtendedTcpTable(buffer.data(), &bufferSize, FALSE, kNetworkAfInet, TCP_TABLE_OWNER_PID_ALL, 0UL);
     if (status != ERROR_SUCCESS) {
-        rows.push_back(RowVec({ L"AFD/TCPv4", L"Unavailable", L"GetExtendedTcpTable", L"-", Win32StatusText(L"GetExtendedTcpTable(data)", status), L"只读；未读取 AFD 私有对象。" }));
+        rows.push_back(RowVec({ L"AFD/TCPv4", L"Unavailable", L"GetExtendedTcpTable", L"-", Win32StatusText(L"GetExtendedTcpTable(data)", status), L"只读；未读取 AFD 私有对象。" }, false, status));
         return;
     }
 
     const auto* table = reinterpret_cast<const MIB_TCPTABLE_OWNER_PID*>(buffer.data());
     rows.push_back(RowVec({ L"AFD/TCPv4", L"OK", L"GetExtendedTcpTable", L"Owner PID table", L"entries=" + std::to_wstring(table->dwNumEntries), L"R3 documented projection，可与 R0 TCP endpoint 交叉验证。" }));
+    rows.back().numericFields = {{L"totalCount", table->dwNumEntries}};
+    rows.back().truncated = table->dwNumEntries > maxRows;
     const std::size_t count = (std::min)(static_cast<std::size_t>(table->dwNumEntries), maxRows);
     for (std::size_t index = 0U; index < count; ++index) {
         const MIB_TCPROW_OWNER_PID& entry = table->table[index];
@@ -107,25 +112,31 @@ void AppendTcpAfdProjectionRows(const IpHelperApi& api, std::vector<EndpointAudi
             Ipv4Text(entry.dwRemoteAddr) + L":" + NetworkPortText(entry.dwRemotePort),
             L"AFD-facing R3 endpoint; no disconnect/no patch"
         }));
+        rows.back().numericFields = {{L"pid",entry.dwOwningPid}, {L"localPort",static_cast<std::uint32_t>(::ntohs(static_cast<u_short>(entry.dwLocalPort)))}};
+        rows.back().textFields = {{L"localAddress",Ipv4Text(entry.dwLocalAddr)}, {L"remoteAddress",Ipv4Text(entry.dwRemoteAddr)}};
+        rows.back().numericFields.push_back({L"remotePort",static_cast<std::uint32_t>(::ntohs(static_cast<u_short>(entry.dwRemotePort)))});
+        rows.back().numericFields.push_back({L"state",entry.dwState});
     }
 }
 void AppendUdpAfdProjectionRows(const IpHelperApi& api, std::vector<EndpointAuditRow>& rows, const std::size_t maxRows) {
     DWORD bufferSize = 0UL;
     DWORD status = api.getExtendedUdpTable(nullptr, &bufferSize, FALSE, kNetworkAfInet, UDP_TABLE_OWNER_PID, 0UL);
     if (status != ERROR_INSUFFICIENT_BUFFER || bufferSize == 0UL) {
-        rows.push_back(RowVec({ L"AFD/UDPv4", L"Unavailable", L"GetExtendedUdpTable", L"-", Win32StatusText(L"GetExtendedUdpTable(size)", status), L"只读；未读取 AFD 私有对象。" }));
+        rows.push_back(RowVec({ L"AFD/UDPv4", L"Unavailable", L"GetExtendedUdpTable", L"-", Win32StatusText(L"GetExtendedUdpTable(size)", status), L"只读；未读取 AFD 私有对象。" }, false, status));
         return;
     }
 
     std::vector<unsigned char> buffer(bufferSize, 0U);
     status = api.getExtendedUdpTable(buffer.data(), &bufferSize, FALSE, kNetworkAfInet, UDP_TABLE_OWNER_PID, 0UL);
     if (status != ERROR_SUCCESS) {
-        rows.push_back(RowVec({ L"AFD/UDPv4", L"Unavailable", L"GetExtendedUdpTable", L"-", Win32StatusText(L"GetExtendedUdpTable(data)", status), L"只读；未读取 AFD 私有对象。" }));
+        rows.push_back(RowVec({ L"AFD/UDPv4", L"Unavailable", L"GetExtendedUdpTable", L"-", Win32StatusText(L"GetExtendedUdpTable(data)", status), L"只读；未读取 AFD 私有对象。" }, false, status));
         return;
     }
 
     const auto* table = reinterpret_cast<const MIB_UDPTABLE_OWNER_PID*>(buffer.data());
     rows.push_back(RowVec({ L"AFD/UDPv4", L"OK", L"GetExtendedUdpTable", L"Owner PID table", L"entries=" + std::to_wstring(table->dwNumEntries), L"R3 documented projection，可与 R0 UDP endpoint 交叉验证。" }));
+    rows.back().numericFields = {{L"totalCount", table->dwNumEntries}};
+    rows.back().truncated = table->dwNumEntries > maxRows;
     const std::size_t count = (std::min)(static_cast<std::size_t>(table->dwNumEntries), maxRows);
     for (std::size_t index = 0U; index < count; ++index) {
         const MIB_UDPROW_OWNER_PID& entry = table->table[index];
@@ -137,6 +148,8 @@ void AppendUdpAfdProjectionRows(const IpHelperApi& api, std::vector<EndpointAudi
             L"-",
             L"AFD-facing R3 endpoint; no disconnect/no patch"
         }));
+        rows.back().numericFields = {{L"pid",entry.dwOwningPid}, {L"localPort",static_cast<std::uint32_t>(::ntohs(static_cast<u_short>(entry.dwLocalPort)))}};
+        rows.back().textFields = {{L"localAddress",Ipv4Text(entry.dwLocalAddr)}};
     }
 }
 }
@@ -144,14 +157,15 @@ std::vector<EndpointAuditRow> BuildAfdRows() {
     std::vector<EndpointAuditRow> rows;
     IpHelperApi api;
     std::wstring errorText;
-    if (!LoadIpHelperApi(api, errorText)) {
-        rows.push_back(RowVec({ L"AFD endpoint", L"Unavailable", L"iphlpapi.dll", L"-", errorText, L"未新增 R0 协议；不猜 AFD 私有结构。" }));
+    DWORD loadError = 0;
+    if (!LoadIpHelperApi(api, errorText, loadError)) {
+        rows.push_back(RowVec({ L"AFD endpoint", L"Unavailable", L"iphlpapi.dll", L"-", errorText, L"未新增 R0 协议；不猜 AFD 私有结构。" }, false, loadError));
         return rows;
     }
 
     AppendTcpAfdProjectionRows(api, rows, 128U);
     AppendUdpAfdProjectionRows(api, rows, 128U);
-    rows.push_back(RowVec({ L"安全边界", L"只读", L"R3 documented API", L"TCP/UDP owner table", L"无 AFD IOCTL 时以公开端点表替代空占位。", L"不 detach/disable/bypass，不读取 AFD 私有对象。" }));
+    rows.push_back(RowVec({ L"安全边界", L"只读", L"R3 documented API", L"TCP/UDP owner table", L"无 AFD IOCTL 时以公开端点表替代空占位。", L"不 detach/disable/bypass，不读取 AFD 私有对象。" }, true, 0, false));
     ::FreeLibrary(api.module);
     return rows;
 }
@@ -159,8 +173,9 @@ std::vector<EndpointAuditRow> BuildNsiRows() {
     std::vector<EndpointAuditRow> rows;
     IpHelperApi api;
     std::wstring errorText;
-    if (!LoadIpHelperApi(api, errorText)) {
-        rows.push_back(RowVec({ L"NSI summary", L"Unavailable", L"iphlpapi.dll", L"-", errorText, L"未新增 R0 协议；不猜 NSI 私有表。" }));
+    DWORD loadError = 0;
+    if (!LoadIpHelperApi(api, errorText, loadError)) {
+        rows.push_back(RowVec({ L"NSI summary", L"Unavailable", L"iphlpapi.dll", L"-", errorText, L"未新增 R0 协议；不猜 NSI 私有表。" }, false, loadError));
         return rows;
     }
 
@@ -172,6 +187,8 @@ std::vector<EndpointAuditRow> BuildNsiRows() {
         status = api.getIfTable(ifTable, &ifBytes, FALSE);
         if (status == NO_ERROR) {
             rows.push_back(RowVec({ L"Interface table", L"OK", L"GetIfTable", L"NETIO/NSI public projection", L"entries=" + std::to_wstring(ifTable->dwNumEntries), L"只读接口清单。" }));
+            rows.back().numericFields = {{L"totalCount",ifTable->dwNumEntries}};
+            rows.back().truncated = ifTable->dwNumEntries > 64;
             const DWORD count = (std::min)(ifTable->dwNumEntries, 64UL);
             for (DWORD index = 0UL; index < count; ++index) {
                 const MIB_IFROW& entry = ifTable->table[index];
@@ -183,14 +200,16 @@ std::vector<EndpointAuditRow> BuildNsiRows() {
                     L"mtu=" + std::to_wstring(entry.dwMtu) + L" speed=" + std::to_wstring(entry.dwSpeed),
                     L"documented IP Helper row"
                 }));
+                rows.back().numericFields = {{L"interfaceIndex",entry.dwIndex}, {L"type",entry.dwType}, {L"mtu",entry.dwMtu}, {L"speed",entry.dwSpeed}};
+                rows.back().textFields = {{L"name",entry.wszName}};
             }
         }
         else {
-            rows.push_back(RowVec({ L"Interface table", L"Unavailable", L"GetIfTable", L"-", Win32StatusText(L"GetIfTable(data)", status), L"只读失败。" }));
+            rows.push_back(RowVec({ L"Interface table", L"Unavailable", L"GetIfTable", L"-", Win32StatusText(L"GetIfTable(data)", status), L"只读失败。" }, false, status));
         }
     }
     else {
-        rows.push_back(RowVec({ L"Interface table", L"Unavailable", L"GetIfTable", L"-", Win32StatusText(L"GetIfTable(size)", status), L"只读失败。" }));
+        rows.push_back(RowVec({ L"Interface table", L"Unavailable", L"GetIfTable", L"-", Win32StatusText(L"GetIfTable(size)", status), L"只读失败。" }, false, status));
     }
 
     ULONG addressBytes = 0UL;
@@ -201,13 +220,14 @@ std::vector<EndpointAuditRow> BuildNsiRows() {
         status = api.getIpAddrTable(addressTable, &addressBytes, FALSE);
         if (status == NO_ERROR) {
             rows.push_back(RowVec({ L"IPv4 address table", L"OK", L"GetIpAddrTable", L"IPv4", L"entries=" + std::to_wstring(addressTable->dwNumEntries), L"只读地址摘要。" }));
+            rows.back().numericFields = {{L"totalCount",addressTable->dwNumEntries}};
         }
         else {
-            rows.push_back(RowVec({ L"IPv4 address table", L"Unavailable", L"GetIpAddrTable", L"IPv4", Win32StatusText(L"GetIpAddrTable(data)", status), L"只读失败。" }));
+            rows.push_back(RowVec({ L"IPv4 address table", L"Unavailable", L"GetIpAddrTable", L"IPv4", Win32StatusText(L"GetIpAddrTable(data)", status), L"只读失败。" }, false, status));
         }
     }
     else {
-        rows.push_back(RowVec({ L"IPv4 address table", L"Unavailable", L"GetIpAddrTable", L"IPv4", Win32StatusText(L"GetIpAddrTable(size)", status), L"只读失败。" }));
+        rows.push_back(RowVec({ L"IPv4 address table", L"Unavailable", L"GetIpAddrTable", L"IPv4", Win32StatusText(L"GetIpAddrTable(size)", status), L"只读失败。" }, false, status));
     }
 
     ULONG routeBytes = 0UL;
@@ -218,16 +238,17 @@ std::vector<EndpointAuditRow> BuildNsiRows() {
         status = api.getIpForwardTable(routeTable, &routeBytes, FALSE);
         if (status == NO_ERROR) {
             rows.push_back(RowVec({ L"IPv4 route table", L"OK", L"GetIpForwardTable", L"IPv4", L"entries=" + std::to_wstring(routeTable->dwNumEntries), L"只读路由摘要。" }));
+            rows.back().numericFields = {{L"totalCount",routeTable->dwNumEntries}};
         }
         else {
-            rows.push_back(RowVec({ L"IPv4 route table", L"Unavailable", L"GetIpForwardTable", L"IPv4", Win32StatusText(L"GetIpForwardTable(data)", status), L"只读失败。" }));
+            rows.push_back(RowVec({ L"IPv4 route table", L"Unavailable", L"GetIpForwardTable", L"IPv4", Win32StatusText(L"GetIpForwardTable(data)", status), L"只读失败。" }, false, status));
         }
     }
     else {
-        rows.push_back(RowVec({ L"IPv4 route table", L"Unavailable", L"GetIpForwardTable", L"IPv4", Win32StatusText(L"GetIpForwardTable(size)", status), L"只读失败。" }));
+        rows.push_back(RowVec({ L"IPv4 route table", L"Unavailable", L"GetIpForwardTable", L"IPv4", Win32StatusText(L"GetIpForwardTable(size)", status), L"只读失败。" }, false, status));
     }
 
-    rows.push_back(RowVec({ L"安全边界", L"只读", L"R3 documented API", L"IP Helper", L"无 NSI R0 IOCTL 时以公开 NETIO/NSI 投影替代空占位。", L"不读取 NSI 私有结构，不修改接口/路由。" }));
+    rows.push_back(RowVec({ L"安全边界", L"只读", L"R3 documented API", L"IP Helper", L"无 NSI R0 IOCTL 时以公开 NETIO/NSI 投影替代空占位。", L"不读取 NSI 私有结构，不修改接口/路由。" }, true, 0, false));
     ::FreeLibrary(api.module);
     return rows;
 }

@@ -61,6 +61,8 @@ RegistryOperationResult CreateRegistryKey(const std::wstring& path) {
     result.success = rc == ERROR_SUCCESS;
     result.win32Error = static_cast<DWORD>(rc);
     result.statusText = result.success ? L"WinAPI create/open key OK." : L"RegCreateKeyExW failed: " + std::to_wstring(rc);
+    result.dispositionKnown = result.success;
+    result.created = result.success && disposition == REG_CREATED_NEW_KEY;
     return result;
 }
 RegistryOperationResult DeleteRegistryKey(const std::wstring& path) {
@@ -89,11 +91,18 @@ RegistryOperationResult RenameRegistryValue(const std::wstring& path, const std:
     if (!read.success) {
         return read;
     }
+    if (::CompareStringOrdinal(oldName.c_str(), -1, newName.c_str(), -1, TRUE) == CSTR_EQUAL) {
+        read.unchanged = true;
+        read.statusText = L"WinAPI rename value unchanged (case-insensitive name).";
+        return read;
+    }
     RegistryOperationResult write = WriteRegistryValue(path, newName, read.valueType, read.data);
     if (!write.success) {
         return write;
     }
-    return DeleteRegistryValue(path, oldName);
+    auto removed = DeleteRegistryValue(path, oldName);
+    removed.partial = !removed.success;
+    return removed;
 }
 RegistryOperationResult RenameRegistryKey(const std::wstring& path, const std::wstring& /*newName*/) {
     RegistryOperationResult result;

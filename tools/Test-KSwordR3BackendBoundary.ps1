@@ -2,7 +2,8 @@ param(
     [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$MSBuildPath = '',
     [string]$EvidenceId = 'r3-header-boundary',
-    [string]$SelectedHeadersFile = ''
+    [string]$SelectedHeadersFile = '',
+    [string]$EvidenceDirectory = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,7 +18,7 @@ if (!$MSBuildPath -or $MSBuildPath -notmatch '[\\/]amd64[\\/]MSBuild\.exe$') {
     throw '64-bit MSBuild is required.'
 }
 $backend = Join-Path $repo 'shared/usermode/backend'
-$evidence = Join-Path $repo ".codex-build-logs/r3-migration/$EvidenceId"
+$evidence = if($EvidenceDirectory){[IO.Path]::GetFullPath($EvidenceDirectory)}else{Join-Path $repo ".codex-build-logs/r3-migration/$EvidenceId"}
 New-Item -ItemType Directory -Path $evidence -Force | Out-Null
 $headers = @(Get-ChildItem -LiteralPath $backend -Recurse -Filter '*.h' | Sort-Object FullName)
 if ($SelectedHeadersFile) {

@@ -13,4 +13,5 @@
 #include "SymbolicLinks.h"
 namespace ks::r3::kernel {
 KernelOperationResult QueryDeviceDriverObjects(const KernelRequest& request);
+std::vector<std::wstring> DeviceDriverObjectRoots();
 }

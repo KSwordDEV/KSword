@@ -20,9 +20,11 @@ RegistrySnapshot EnumerateRegistryKey(const std::wstring& path) {
     UniqueRegKey key = OpenKey(parsed, KEY_READ, &openStatus);
     if (!key.valid()) {
         snapshot.success = false;
+        snapshot.win32Error = static_cast<std::uint32_t>(openStatus);
         snapshot.statusText = L"RegOpenKeyExW failed: " + std::to_wstring(openStatus);
         return snapshot;
     }
+    snapshot.complete = true;
     AppendWinApiSubKeys(key.get(), snapshot);
     AppendWinApiValues(key.get(), snapshot);
     snapshot.success = true;

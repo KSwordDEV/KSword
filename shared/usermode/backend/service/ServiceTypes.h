@@ -29,6 +29,7 @@ struct ServiceEntry {
     std::uint32_t serviceFlags = 0;
     std::uint32_t tagId = 0;
     bool delayedAutoStart = false;
+    bool hasDelayedAutoStart = false;
     bool hasConfig = false;
     bool hasStatus = false;
     bool hasDescription = false;
@@ -44,6 +45,7 @@ struct ServiceEnumerationResult {
     bool success = false;
     std::wstring diagnosticText;
     std::vector<ServiceEntry> entries;
+    std::uint32_t win32Error = 0;
 };
 std::vector<ServiceProperty> ServicePropertiesForEntry(const ServiceEntry& entry);
 std::wstring ServiceStateText(std::uint32_t currentState);

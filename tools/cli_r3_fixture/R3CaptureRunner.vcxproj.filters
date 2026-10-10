@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="CaptureRunner.cpp" />
+    <ClCompile Include="..\..\KswordCLI\CommandRegistry.cpp" />
+    <ClCompile Include="..\..\KswordCLI\R3WindowCapture.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\Common.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\window\CaptureProtection.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\window\WindowEnumerator.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\window\WindowFormatting.cpp" />
+    <ClCompile Include="..\..\shared\usermode\backend\window\WindowQueries.cpp" />
+  </ItemGroup>
+  <ItemGroup><ClCompile Include="..\..\shared\usermode\backend\window\WindowListCapture.cpp" /></ItemGroup>
+</Project>

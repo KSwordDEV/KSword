@@ -11,6 +11,8 @@ class ProcessTelemetry final {
 public:
     void Sample(std::vector<ProcessSnapshotRow>& rows, const std::vector<ProcessFieldId>& columns,
         ULONGLONG tickMs = ::GetTickCount64());
+    ks::network::ProcessNetworkEtwHealth NetworkHealth() const { return network_.SnapshotHealth(); }
+    void Stop() { network_.Stop(); }
 
 private:
     struct Baseline {

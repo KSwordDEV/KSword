@@ -228,6 +228,7 @@ std::wstring DescribeEntry(const ConnectionEntry& entry) {
 NetToolsActionResult CloseTcpConnection(const ConnectionEntry& entry) {
     NetToolsActionResult result{};
     if (!ConnectionCanClose(entry)) {
+        result.win32Error = ERROR_NOT_SUPPORTED;
         result.message = L"该连接不支持结束：SetTcpEntry 只能删除 IPv4 TCP 已连接状态的 TCB。";
         return result;
     }
@@ -244,6 +245,7 @@ NetToolsActionResult CloseTcpConnection(const ConnectionEntry& entry) {
     row.dwRemotePort = static_cast<DWORD>(entry.rawRemotePort);
 
     const DWORD status = ::SetTcpEntry(&row);
+    result.win32Error = status;
     if (status == NO_ERROR) {
         result.success = true;
         result.message = L"已结束连接 " + DescribeEntry(entry) + L"。";

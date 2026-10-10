@@ -11,6 +11,7 @@
 #include <sstream>
 #include <vector>
 #include <Aclapi.h>
+#include <sddl.h>
 #include <restartmanager.h>
 #pragma comment(lib, "Advapi32.lib")
 #pragma comment(lib, "Rstrtmgr.lib")
@@ -28,20 +29,30 @@ bool EnablePrivilege(const wchar_t* privilegeName) {
         return false;
     }
     privileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    ::SetLastError(ERROR_SUCCESS);
     const BOOL adjusted = ::AdjustTokenPrivileges(token, FALSE, &privileges, sizeof(privileges), nullptr, nullptr);
     const DWORD error = ::GetLastError();
     ::CloseHandle(token);
     return adjusted && error == ERROR_SUCCESS;
 }
 std::wstring TakeOwnershipPath(const std::wstring& path) {
+    return TakeOwnership(path).message;
+}
+OwnershipResult TakeOwnership(const std::wstring& path) {
+    OwnershipResult outcome;
     if (path.empty()) {
-        return L"路径为空，无法取得所有权。";
+        outcome.errorCode = ERROR_INVALID_PARAMETER;
+        outcome.message = L"路径为空，无法取得所有权。";
+        return outcome;
     }
     const bool privilegeEnabled = EnablePrivilege(SE_TAKE_OWNERSHIP_NAME);
+    outcome.privilegeEnabled = privilegeEnabled;
 
     HANDLE token = nullptr;
     if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
-        return L"OpenProcessToken 失败，错误 " + std::to_wstring(::GetLastError());
+        outcome.errorCode = ::GetLastError();
+        outcome.message = L"OpenProcessToken 失败，错误 " + std::to_wstring(outcome.errorCode);
+        return outcome;
     }
 
     DWORD bytes = 0;
@@ -50,9 +61,16 @@ std::wstring TakeOwnershipPath(const std::wstring& path) {
     if (bytes == 0 || !::GetTokenInformation(token, TokenUser, buffer.data(), bytes, &bytes)) {
         const DWORD error = ::GetLastError();
         ::CloseHandle(token);
-        return L"GetTokenInformation(TokenUser) 失败，错误 " + std::to_wstring(error);
+        outcome.errorCode = error;
+        outcome.message = L"GetTokenInformation(TokenUser) 失败，错误 " + std::to_wstring(error);
+        return outcome;
     }
     TOKEN_USER* tokenUser = reinterpret_cast<TOKEN_USER*>(buffer.data());
+    LPWSTR sid = nullptr;
+    if (::ConvertSidToStringSidW(tokenUser->User.Sid, &sid)) {
+        outcome.callerSid = sid;
+        ::LocalFree(sid);
+    }
     const DWORD result = ::SetNamedSecurityInfoW(
         const_cast<LPWSTR>(path.c_str()),
         SE_FILE_OBJECT,
@@ -62,30 +80,44 @@ std::wstring TakeOwnershipPath(const std::wstring& path) {
         nullptr,
         nullptr);
     ::CloseHandle(token);
+    outcome.errorCode = result;
 
     if (result == ERROR_SUCCESS) {
-        return std::wstring(L"已取得所有权。") + (privilegeEnabled ? L"" : L"（SeTakeOwnershipPrivilege 未显式启用，但操作成功。）");
+        outcome.success = true;
+        outcome.message = std::wstring(L"已取得所有权。") + (privilegeEnabled ? L"" : L"（SeTakeOwnershipPrivilege 未显式启用，但操作成功。）");
+        return outcome;
     }
-    return std::wstring(L"取得所有权失败，错误 ") + std::to_wstring(result) +
+    outcome.message = std::wstring(L"取得所有权失败，错误 ") + std::to_wstring(result) +
         (privilegeEnabled ? L"" : L"；同时无法启用 SeTakeOwnershipPrivilege。");
+    return outcome;
 }
 std::wstring QueryFileLockers(const std::wstring& path) {
+    return ReadFileLockers(path).report;
+}
+FileLockersResult ReadFileLockers(const std::wstring& path) {
+    FileLockersResult outcome;
     if (path.empty()) {
-        return L"路径为空，无法扫描占用进程。";
+        outcome.errorCode = ERROR_INVALID_PARAMETER;
+        outcome.report = L"路径为空，无法扫描占用进程。";
+        return outcome;
     }
 
     DWORD session = 0;
     wchar_t sessionKey[CCH_RM_SESSION_KEY + 1]{};
     DWORD status = ::RmStartSession(&session, 0, sessionKey);
     if (status != ERROR_SUCCESS) {
-        return L"RmStartSession 失败，错误 " + std::to_wstring(status);
+        outcome.errorCode = status;
+        outcome.report = L"RmStartSession 失败，错误 " + std::to_wstring(status);
+        return outcome;
     }
 
     const wchar_t* resources[] = { path.c_str() };
     status = ::RmRegisterResources(session, 1, resources, 0, nullptr, 0, nullptr);
     if (status != ERROR_SUCCESS) {
         ::RmEndSession(session);
-        return L"RmRegisterResources 失败，错误 " + std::to_wstring(status);
+        outcome.errorCode = status;
+        outcome.report = L"RmRegisterResources 失败，错误 " + std::to_wstring(status);
+        return outcome;
     }
 
     UINT needed = 0;
@@ -100,8 +132,12 @@ std::wstring QueryFileLockers(const std::wstring& path) {
     ::RmEndSession(session);
 
     if (status != ERROR_SUCCESS) {
-        return L"RmGetList 失败，错误 " + std::to_wstring(status);
+        outcome.errorCode = status;
+        outcome.report = L"RmGetList 失败，错误 " + std::to_wstring(status);
+        return outcome;
     }
+    outcome.success = true;
+    outcome.rebootReason = reason;
 
     std::wostringstream report;
     report << L"文件解锁器(R3/R0) - Restart Manager 占用扫描\r\n\r\n"
@@ -110,10 +146,15 @@ std::wstring QueryFileLockers(const std::wstring& path) {
            << L"RebootReason: 0x" << std::hex << std::uppercase << reason << L"\r\n\r\n";
     if (count == 0) {
         report << L"未发现 Restart Manager 可见的占用进程。";
-        return report.str();
+        outcome.report = report.str();
+        return outcome;
     }
     for (UINT index = 0; index < count && index < processes.size(); ++index) {
         const RM_PROCESS_INFO& process = processes[index];
+        outcome.processes.push_back({process.Process.dwProcessId,
+            (static_cast<std::uint64_t>(process.Process.ProcessStartTime.dwHighDateTime) << 32) | process.Process.ProcessStartTime.dwLowDateTime,
+            process.strAppName, process.strServiceShortName, static_cast<DWORD>(process.ApplicationType), process.AppStatus,
+            process.TSSessionId, process.bRestartable != FALSE});
         report << L"PID=" << std::dec << process.Process.dwProcessId
                << L" App=" << process.strAppName
                << L" Service=" << process.strServiceShortName
@@ -122,6 +163,7 @@ std::wstring QueryFileLockers(const std::wstring& path) {
                << L"\r\n";
     }
     report << L"\r\n轻量版仅枚举占用者，不执行强制关闭/解锁。";
-    return report.str();
+    outcome.report = report.str();
+    return outcome;
 }
 }

@@ -13,14 +13,16 @@ std::wstring CaptureAffinityText(const DWORD affinity) {
         return L"未知捕获保护值";
     }
 }
-std::wstring ApplyWindowListCaptureAffinity(HWND window, DWORD affinity) {
+std::wstring ApplyWindowListCaptureAffinity(HWND window, DWORD affinity,window_tools::DisplayAffinityWriteEvidence* output) {
+    window_tools::DisplayAffinityWriteEvidence local;auto& evidence=output?*output:local;evidence={};evidence.attempted=true;evidence.requested=affinity;::SetLastError(ERROR_SUCCESS);
     std::wstring message;
     const bool applied = ::SetWindowDisplayAffinity(window, affinity) != FALSE;
     const DWORD error = applied ? ERROR_SUCCESS : ::GetLastError();
+    evidence.accepted=applied;evidence.error=error;
     if (applied) {
-        DWORD current = WDA_NONE;
-        message = ::GetWindowDisplayAffinity(window, &current)
-            ? L"已设置为 " + CaptureAffinityText(current) + L"。"
+        evidence.after=window_tools::QueryDisplayAffinity(window);
+        message = evidence.after.available
+            ? L"已设置为 " + CaptureAffinityText(evidence.after.affinity) + L"。"
             : L"设置调用成功，但回读属性失败。";
     } else {
         message = L"设置窗口捕获保护失败（错误码 " + std::to_wstring(error) + L"）。";

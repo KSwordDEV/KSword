@@ -24,6 +24,12 @@ constexpr DWORD kMaxServiceEnumerationPages = 4096;
 constexpr DWORD kMaxServiceEnumerationPageBytes = 64U * 1024U;
 constexpr DWORD kMaxServiceRegistryStringBytes = 1024U * 1024U;
 
+using Errors=std::vector<StartupEnumerationResult::SourceError>;
+void ReportError(Errors& errors,const std::wstring& source,DWORD code,bool missingIsEmpty=false) {
+    if(missingIsEmpty && (code==ERROR_FILE_NOT_FOUND || code==ERROR_PATH_NOT_FOUND)) return;
+    errors.push_back({source,code,false});
+}
+
 // RegKey owns an HKEY opened by Win32 registry APIs. Inputs are HKEY handles;
 // processing closes them at scope exit; get returns the raw handle without
 // transferring ownership.
@@ -162,9 +168,11 @@ std::wstring RegValueToString(DWORD type, const std::vector<BYTE>& data) {
 
 // OpenRegistryKey opens a startup or disabled-storage registry key. Inputs are
 // root, subkey, access and view flag; output is an owning RegKey, empty on error.
-RegKey OpenRegistryKey(HKEY root, const std::wstring& subKey, REGSAM access, DWORD view) {
+RegKey OpenRegistryKey(HKEY root, const std::wstring& subKey, REGSAM access, DWORD view, LSTATUS* statusOut = nullptr) {
     HKEY raw = nullptr;
-    if (::RegOpenKeyExW(root, subKey.c_str(), 0, access | view, &raw) != ERROR_SUCCESS) {
+    const auto status=::RegOpenKeyExW(root, subKey.c_str(), 0, access | view, &raw);
+    if(statusOut) *statusOut=status;
+    if(status != ERROR_SUCCESS) {
         return RegKey();
     }
     return RegKey(raw);
@@ -216,17 +224,21 @@ void AddProperty(StartupEntry& entry, const std::wstring& name, const std::wstri
 // output vector and key metadata; processing reads every registry value; no
 // return value is produced.
 void EnumerateRegistryKey(std::vector<StartupEntry>& entries, HKEY root, StartupEntryScope scope,
-    DWORD view, const std::wstring& subKey, StartupEntryKind kind) {
-    RegKey key = OpenRegistryKey(root, subKey, KEY_QUERY_VALUE, view);
+    DWORD view, const std::wstring& subKey, StartupEntryKind kind,Errors& errors) {
+    LSTATUS openStatus=0;
+    RegKey key = OpenRegistryKey(root, subKey, KEY_QUERY_VALUE, view, &openStatus);
     if (!key.valid()) {
+        ReportError(errors,RegistryLocationText(root,view,subKey),openStatus,true);
         return;
     }
 
     DWORD valueCount = 0;
     DWORD maxNameChars = 0;
     DWORD maxDataBytes = 0;
-    if (::RegQueryInfoKeyW(key.get(), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-            &valueCount, &maxNameChars, &maxDataBytes, nullptr, nullptr) != ERROR_SUCCESS) {
+    const auto queryStatus=::RegQueryInfoKeyW(key.get(), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+            &valueCount, &maxNameChars, &maxDataBytes, nullptr, nullptr);
+    if(queryStatus!=ERROR_SUCCESS) {
+        ReportError(errors,RegistryLocationText(root,view,subKey),queryStatus);
         return;
     }
 
@@ -241,6 +253,7 @@ void EnumerateRegistryKey(std::vector<StartupEntry>& entries, HKEY root, Startup
         const LSTATUS status = ::RegEnumValueW(key.get(), index, name.data(), &nameChars,
             nullptr, &type, data.data(), &dataBytes);
         if (status != ERROR_SUCCESS) {
+            ReportError(errors,RegistryLocationText(root,view,subKey),status);
             continue;
         }
 
@@ -254,7 +267,7 @@ void EnumerateRegistryKey(std::vector<StartupEntry>& entries, HKEY root, Startup
         entry.registryRoot = root;
         entry.registryView = view;
         entry.registrySubKey = subKey;
-        entry.registryValueName = entry.name == L"(default)" ? std::wstring() : entry.name;
+        entry.registryValueName = nameChars > 0 ? std::wstring(name.data(),name.data()+nameChars) : std::wstring();
         entry.disabledRegistrySubKey = DisabledRegistrySubKey(root, view, subKey);
         AddProperty(entry, L"Registry type", std::to_wstring(type));
         entries.push_back(std::move(entry));
@@ -265,18 +278,22 @@ void EnumerateRegistryKey(std::vector<StartupEntry>& entries, HKEY root, Startup
 // output vector and target metadata; processing reads private disabled-storage
 // values; no return value is produced.
 void EnumerateDisabledRegistryKey(std::vector<StartupEntry>& entries, HKEY root, StartupEntryScope scope,
-    DWORD view, const std::wstring& subKey, StartupEntryKind kind) {
+    DWORD view, const std::wstring& subKey, StartupEntryKind kind,Errors& errors) {
     const std::wstring disabledSubKey = DisabledRegistrySubKey(root, view, subKey);
-    RegKey key = OpenRegistryKey(HKEY_CURRENT_USER, disabledSubKey, KEY_QUERY_VALUE, 0);
+    LSTATUS openStatus=0;
+    RegKey key = OpenRegistryKey(HKEY_CURRENT_USER, disabledSubKey, KEY_QUERY_VALUE, 0, &openStatus);
     if (!key.valid()) {
+        ReportError(errors,RegistryLocationText(root,view,disabledSubKey),openStatus,true);
         return;
     }
 
     DWORD valueCount = 0;
     DWORD maxNameChars = 0;
     DWORD maxDataBytes = 0;
-    if (::RegQueryInfoKeyW(key.get(), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-            &valueCount, &maxNameChars, &maxDataBytes, nullptr, nullptr) != ERROR_SUCCESS) {
+    const auto queryStatus=::RegQueryInfoKeyW(key.get(), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+            &valueCount, &maxNameChars, &maxDataBytes, nullptr, nullptr);
+    if(queryStatus!=ERROR_SUCCESS) {
+        ReportError(errors,RegistryLocationText(root,view,disabledSubKey),queryStatus);
         return;
     }
 
@@ -288,7 +305,9 @@ void EnumerateDisabledRegistryKey(std::vector<StartupEntry>& entries, HKEY root,
         DWORD type = 0;
         std::fill(name.begin(), name.end(), L'\0');
         std::fill(data.begin(), data.end(), BYTE{0});
-        if (::RegEnumValueW(key.get(), index, name.data(), &nameChars, nullptr, &type, data.data(), &dataBytes) != ERROR_SUCCESS) {
+        const auto status=::RegEnumValueW(key.get(), index, name.data(), &nameChars, nullptr, &type, data.data(), &dataBytes);
+        if(status!=ERROR_SUCCESS) {
+            ReportError(errors,RegistryLocationText(root,view,disabledSubKey),status);
             continue;
         }
 
@@ -302,7 +321,7 @@ void EnumerateDisabledRegistryKey(std::vector<StartupEntry>& entries, HKEY root,
         entry.registryRoot = root;
         entry.registryView = view;
         entry.registrySubKey = subKey;
-        entry.registryValueName = entry.name == L"(default)" ? std::wstring() : entry.name;
+        entry.registryValueName = nameChars > 0 ? std::wstring(name.data(),name.data()+nameChars) : std::wstring();
         entry.disabledRegistrySubKey = disabledSubKey;
         AddProperty(entry, L"Disabled storage", L"HKCU\\" + disabledSubKey);
         entries.push_back(std::move(entry));
@@ -311,9 +330,11 @@ void EnumerateDisabledRegistryKey(std::vector<StartupEntry>& entries, HKEY root,
 
 // FolderPath returns a CSIDL folder path. Input is a CSIDL value; output is empty
 // when Shell32 cannot resolve it for the current user/context.
-std::wstring FolderPath(int csidl) {
+std::wstring FolderPath(int csidl,Errors* errors=nullptr) {
     wchar_t path[MAX_PATH]{};
-    if (FAILED(::SHGetFolderPathW(nullptr, csidl, nullptr, SHGFP_TYPE_CURRENT, path))) {
+    const auto status=::SHGetFolderPathW(nullptr, csidl, nullptr, SHGFP_TYPE_CURRENT, path);
+    if (FAILED(status)) {
+        if(errors) errors->push_back({L"Shell folder "+std::to_wstring(csidl),static_cast<std::uint32_t>(status),true});
         return {};
     }
     return std::wstring(path);
@@ -343,8 +364,8 @@ std::wstring LeafName(const std::wstring& path) {
 
 // DisabledStartupFolder returns this module's parking folder for Startup-folder
 // entries. Input is a scope; output is a local appdata path, empty on failure.
-std::wstring DisabledStartupFolder(StartupEntryScope scope) {
-    const std::wstring localAppData = FolderPath(CSIDL_LOCAL_APPDATA);
+std::wstring DisabledStartupFolder(StartupEntryScope scope,Errors* errors=nullptr) {
+    const std::wstring localAppData = FolderPath(CSIDL_LOCAL_APPDATA,errors);
     if (localAppData.empty()) {
         return {};
     }
@@ -354,7 +375,7 @@ std::wstring DisabledStartupFolder(StartupEntryScope scope) {
 
 // EnumerateStartupFolder appends entries from one Startup folder and its disabled
 // parking folder. Inputs are output vector, scope and folder path; no return.
-void EnumerateStartupFolder(std::vector<StartupEntry>& entries, StartupEntryScope scope, const std::wstring& folder) {
+void EnumerateStartupFolder(std::vector<StartupEntry>& entries, StartupEntryScope scope, const std::wstring& folder,Errors& errors) {
     if (folder.empty()) {
         return;
     }
@@ -363,6 +384,7 @@ void EnumerateStartupFolder(std::vector<StartupEntry>& entries, StartupEntryScop
         WIN32_FIND_DATAW data{};
         HANDLE find = ::FindFirstFileW(JoinPath(source, L"*").c_str(), &data);
         if (find == INVALID_HANDLE_VALUE) {
+            ReportError(errors,source,::GetLastError(),true);
             return;
         }
         do {
@@ -379,15 +401,17 @@ void EnumerateStartupFolder(std::vector<StartupEntry>& entries, StartupEntryScop
             entry.command = path;
             entry.location = source;
             entry.filePath = state == StartupEntryState::Active ? path : JoinPath(folder, name);
-            entry.disabledFilePath = state == StartupEntryState::Disabled ? path : JoinPath(DisabledStartupFolder(scope), name);
+            entry.disabledFilePath = state == StartupEntryState::Disabled ? path : JoinPath(DisabledStartupFolder(scope,&errors), name);
             AddProperty(entry, L"File attributes", std::to_wstring(data.dwFileAttributes));
             entries.push_back(std::move(entry));
         } while (::FindNextFileW(find, &data));
+        const auto error=::GetLastError();
+        if(error!=ERROR_NO_MORE_FILES) ReportError(errors,source,error);
         ::FindClose(find);
     };
 
     enumerateOneFolder(folder, StartupEntryState::Active);
-    const std::wstring disabled = DisabledStartupFolder(scope);
+    const std::wstring disabled = DisabledStartupFolder(scope,&errors);
     if (!disabled.empty()) {
         enumerateOneFolder(disabled, StartupEntryState::Disabled);
     }
@@ -718,10 +742,11 @@ std::wstring WindowsDirectory() {
 // relative task path; processing is read-only during enumeration while actions
 // later use Task Scheduler COM for enable/disable/delete; no return.
 void EnumerateTaskFilesRecursive(std::vector<StartupEntry>& entries, const std::wstring& root,
-    const std::wstring& folder, const std::wstring& relative) {
+    const std::wstring& folder, const std::wstring& relative,Errors& errors) {
     WIN32_FIND_DATAW data{};
     HANDLE find = ::FindFirstFileW(JoinPath(folder, L"*").c_str(), &data);
     if (find == INVALID_HANDLE_VALUE) {
+        ReportError(errors,folder,::GetLastError(),true);
         return;
     }
     do {
@@ -732,7 +757,7 @@ void EnumerateTaskFilesRecursive(std::vector<StartupEntry>& entries, const std::
         const std::wstring fullPath = JoinPath(folder, name);
         const std::wstring taskRelative = relative.empty() ? name : JoinPath(relative, name);
         if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-            EnumerateTaskFilesRecursive(entries, root, fullPath, taskRelative);
+            EnumerateTaskFilesRecursive(entries, root, fullPath, taskRelative,errors);
             continue;
         }
 
@@ -748,48 +773,53 @@ void EnumerateTaskFilesRecursive(std::vector<StartupEntry>& entries, const std::
         AddProperty(entry, L"File attributes", std::to_wstring(data.dwFileAttributes));
         entries.push_back(std::move(entry));
     } while (::FindNextFileW(find, &data));
+    const auto error=::GetLastError();
+    if(error!=ERROR_NO_MORE_FILES) ReportError(errors,folder,error);
     ::FindClose(find);
 }
 
 // EnumerateScheduledTaskFacade appends scheduled-task entry rows. Input is the
 // output vector; processing scans the on-disk task store for fast display and
 // records task paths that StartupActions resolves through Task Scheduler COM.
-void EnumerateScheduledTaskFacade(std::vector<StartupEntry>& entries) {
+void EnumerateScheduledTaskFacade(std::vector<StartupEntry>& entries,Errors& errors) {
     const std::wstring windows = WindowsDirectory();
     if (windows.empty()) {
+        errors.push_back({L"Task store Windows directory",0,false});
         return;
     }
     const std::wstring tasksRoot = JoinPath(JoinPath(windows, L"System32"), L"Tasks");
-    EnumerateTaskFilesRecursive(entries, tasksRoot, tasksRoot, L"");
+    EnumerateTaskFilesRecursive(entries, tasksRoot, tasksRoot, L"",errors);
 }
 
 } // namespace
 
 StartupEnumerationResult EnumerateStartupEntries() {
     StartupEnumerationResult result;
-    EnumerateRegistryKey(result.entries, HKEY_CURRENT_USER, StartupEntryScope::CurrentUser, 0, kRunKey, StartupEntryKind::RegistryRun);
-    EnumerateRegistryKey(result.entries, HKEY_CURRENT_USER, StartupEntryScope::CurrentUser, 0, kRunOnceKey, StartupEntryKind::RegistryRunOnce);
-    EnumerateRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_64KEY, kRunKey, StartupEntryKind::RegistryRun);
-    EnumerateRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_64KEY, kRunOnceKey, StartupEntryKind::RegistryRunOnce);
-    EnumerateRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_32KEY, kRunKey, StartupEntryKind::RegistryRun);
-    EnumerateRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_32KEY, kRunOnceKey, StartupEntryKind::RegistryRunOnce);
+    EnumerateRegistryKey(result.entries, HKEY_CURRENT_USER, StartupEntryScope::CurrentUser, 0, kRunKey, StartupEntryKind::RegistryRun,result.sourceErrors);
+    EnumerateRegistryKey(result.entries, HKEY_CURRENT_USER, StartupEntryScope::CurrentUser, 0, kRunOnceKey, StartupEntryKind::RegistryRunOnce,result.sourceErrors);
+    EnumerateRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_64KEY, kRunKey, StartupEntryKind::RegistryRun,result.sourceErrors);
+    EnumerateRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_64KEY, kRunOnceKey, StartupEntryKind::RegistryRunOnce,result.sourceErrors);
+    EnumerateRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_32KEY, kRunKey, StartupEntryKind::RegistryRun,result.sourceErrors);
+    EnumerateRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_32KEY, kRunOnceKey, StartupEntryKind::RegistryRunOnce,result.sourceErrors);
 
-    EnumerateDisabledRegistryKey(result.entries, HKEY_CURRENT_USER, StartupEntryScope::CurrentUser, 0, kRunKey, StartupEntryKind::RegistryRun);
-    EnumerateDisabledRegistryKey(result.entries, HKEY_CURRENT_USER, StartupEntryScope::CurrentUser, 0, kRunOnceKey, StartupEntryKind::RegistryRunOnce);
-    EnumerateDisabledRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_64KEY, kRunKey, StartupEntryKind::RegistryRun);
-    EnumerateDisabledRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_64KEY, kRunOnceKey, StartupEntryKind::RegistryRunOnce);
-    EnumerateDisabledRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_32KEY, kRunKey, StartupEntryKind::RegistryRun);
-    EnumerateDisabledRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_32KEY, kRunOnceKey, StartupEntryKind::RegistryRunOnce);
+    EnumerateDisabledRegistryKey(result.entries, HKEY_CURRENT_USER, StartupEntryScope::CurrentUser, 0, kRunKey, StartupEntryKind::RegistryRun,result.sourceErrors);
+    EnumerateDisabledRegistryKey(result.entries, HKEY_CURRENT_USER, StartupEntryScope::CurrentUser, 0, kRunOnceKey, StartupEntryKind::RegistryRunOnce,result.sourceErrors);
+    EnumerateDisabledRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_64KEY, kRunKey, StartupEntryKind::RegistryRun,result.sourceErrors);
+    EnumerateDisabledRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_64KEY, kRunOnceKey, StartupEntryKind::RegistryRunOnce,result.sourceErrors);
+    EnumerateDisabledRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_32KEY, kRunKey, StartupEntryKind::RegistryRun,result.sourceErrors);
+    EnumerateDisabledRegistryKey(result.entries, HKEY_LOCAL_MACHINE, StartupEntryScope::LocalMachine, KEY_WOW64_32KEY, kRunOnceKey, StartupEntryKind::RegistryRunOnce,result.sourceErrors);
 
-    EnumerateStartupFolder(result.entries, StartupEntryScope::CurrentUser, FolderPath(CSIDL_STARTUP));
-    EnumerateStartupFolder(result.entries, StartupEntryScope::AllUsers, FolderPath(CSIDL_COMMON_STARTUP));
+    EnumerateStartupFolder(result.entries, StartupEntryScope::CurrentUser, FolderPath(CSIDL_STARTUP,&result.sourceErrors),result.sourceErrors);
+    EnumerateStartupFolder(result.entries, StartupEntryScope::AllUsers, FolderPath(CSIDL_COMMON_STARTUP,&result.sourceErrors),result.sourceErrors);
     std::vector<std::wstring> scmServiceNames;
     if (!EnumerateServices(result.entries, scmServiceNames)) {
+        result.sourceErrors.push_back({L"SCM service enumeration",0,false});
         result.diagnosticText = L"服务来源交叉验证不可用：SCM 服务枚举未完整完成。";
     } else if (!AppendRegistryOnlyServices(result.entries, scmServiceNames)) {
+        result.sourceErrors.push_back({L"Services registry cross-check",0,false});
         result.diagnosticText = L"服务来源交叉验证不可用：Services 注册表读取未完整完成。";
     }
-    EnumerateScheduledTaskFacade(result.entries);
+    EnumerateScheduledTaskFacade(result.entries,result.sourceErrors);
 
     result.success = true;
     return result;

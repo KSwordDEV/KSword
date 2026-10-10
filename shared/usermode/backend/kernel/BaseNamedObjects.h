@@ -14,4 +14,5 @@
 #include "DeviceDriverObjects.h"
 namespace ks::r3::kernel {
 KernelOperationResult QueryBaseNamedObjects(const KernelRequest& request);
+std::vector<std::wstring> BaseNamedObjectRoots(DirectoryQueryEvidence* discovery=nullptr,DWORD* currentSessionError=nullptr,const DirectoryQueryOptions& options={},bool* currentSessionKnown=nullptr);
 }
