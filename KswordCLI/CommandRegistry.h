@@ -112,4 +112,5 @@ void registerMonitorEtw();
 void registerSystemFileHolders();
 void registerSystemEventLog();
 void registerSystemContextMenu();
+void registerSystemTime();
 }

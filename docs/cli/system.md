@@ -1,5 +1,22 @@
 # 系统工具 R3 命令
 
+## 系统时间（迁移项 45）
+
+```powershell
+KswordCLI.exe system time help
+KswordCLI.exe help system time query
+KswordCLI.exe system time query --json
+KswordCLI.exe system time query --max-data-bytes 65536 --json
+```
+
+`system time query` 支持 `--max-data-bytes 1..65536`（256，注册表值的原始字节预览）、`--backend r3`、`--json`。只读取现有共享后端的本地／UTC 时钟、时区、运行时长和 `HKLM\SYSTEM\CurrentControlSet\Services\W32Time\Parameters` 全部直接值，不设置时间／时区／NTP、不请求重同步、不调用驱动。
+
+data.clock 保留 utcFileTime、calendarKnown、calendarValidationWin32Error、utcRaw/localRaw 及验证后的 utc/local 的 year/month/day/dayOfWeek/hour/minute/second/millisecond，atomicSnapshot=false；多次 API 读取不是同一瞬间。zone 保留 available/stateId/win32Error/malformed、standardName/daylightName、baseBiasMinutes/standardBiasMinutes/daylightBiasMinutes/effectiveBiasMinutes、standardTransitionRaw/daylightTransitionRaw；Bias 是“本地时间加该分钟数得到 UTC”，方向与 UTC 偏移相反。转换规则中的 year=0 是相对日期、month=0 可以表示无 DST，不把规则字段当绝对时间。dynamicZone 提供 available/stateId/win32Error、registryKeyName、dynamicDaylightTimeDisabled；查询失败返回 null，不显示假的 UTC+00／未禁用。
+
+uptime 提供 tickCountMs、estimateAvailable、estimatedBootFileTime、authoritativeBootTimestamp=false。原始 Tick 是系统启动以来的毫秒，开机时间只是当前 UTC FILETIME 减去 Tick 的估计，时钟调整会影响推算，溢出／下溢时估计为 null。API 定义见 [GetTickCount64](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-gettickcount64)。w32time 保留 path/opened/absent/complete/limited、open/enum/closeWin32Error、valueCount、values（原始 name/registryType/byteCount/dataHex/dataTruncated/dataMalformed/numericValue）；REG_EXPAND_SZ 仍是原始未展开字节，DWORD 数值为 JSON 数字，QWORD／FILETIME／Tick／计数为十进制字符串。其他类型通过原始字节查看，不解析显示文字推导状态。displaySections 保留原 Light 分组与显示文本，每项预览 256 字符并标明截断。
+
+完整证据为 0，时区／W32Time 不可用、枚举／关闭失败、预算或字节预览截断、开机估计不可用为 6，格式错误为 4。有效空的 W32Time 键可以成功；键缺失或被拒绝要保留原始状态。注册表遍历最多 100000 项／8 秒（API 调用间），单值缓冲 16 MiB，名称遵循 SDK 16383 字符上限；短／未终止字符串、错误 DWORD/QWORD 大小及实际返回长度／容量错误不当作正常值。空 MULTI_SZ 的单个 NUL 也接受，参见 [Registry value types](https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types)。此结果不证明 W32Time 服务在运行、NTP 服务器可达或时钟已同步。help 不查询时间或注册表。测试独立核对当前 FILETIME／Tick、时区偏移符号与原始 W32Time 字节，包含不可用、空值、截断、格式／资源错误夹具。
+
 ## Shell 右键菜单注册（迁移项 44）
 
 ```powershell

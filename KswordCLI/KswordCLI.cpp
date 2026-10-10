@@ -1520,6 +1520,7 @@ namespace
         ks::cli::registerSystemFileHolders();
         ks::cli::registerSystemEventLog();
         ks::cli::registerSystemContextMenu();
+        ks::cli::registerSystemTime();
             #endif
             return true;
         }();

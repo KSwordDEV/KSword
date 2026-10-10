@@ -469,4 +469,9 @@
     <ClInclude Include="..\shared\usermode\backend\system\ContextMenuScanner.h" />
     <ClInclude Include="..\shared\usermode\backend\system\AdminState.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SystemTime.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\SystemTimeInfo.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\system\SystemTimeInfo.h" />
+  </ItemGroup>
 </Project>
