@@ -6,6 +6,8 @@
 #include <QEvent>
 #include <QFrame>
 #include <QHeaderView>
+#include <QLabel>
+#include <QVBoxLayout>
 #include <QPointer>
 #include <QTableView>
 #include <QTimer>
@@ -105,6 +107,26 @@ namespace
 
 namespace ks::ui
 {
+    QWidget* CreateTitledTablePanel(QTableView* table, const QString& title, QWidget* parent)
+    {
+        if (table == nullptr)
+        {
+            return nullptr;
+        }
+        auto* panel = new QWidget(parent); // 布局由 splitter 分配，表格与标题作为整体缩放。
+        auto* layout = new QVBoxLayout(panel);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(6);
+        auto* label = new QLabel(title, panel);
+        label->setObjectName(QStringLiteral("ksword_table_panel_title"));
+        label->setTextFormat(Qt::PlainText);
+        label->setStyleSheet(QStringLiteral("QLabel{color:palette(text);font-weight:600;padding:0 3px;}"));
+        layout->addWidget(label);
+        layout->addWidget(table, 1);
+        ApplyTablePresentation(table);
+        return panel;
+    }
+
     bool PreservesCustomTablePresentation(const QAbstractItemView* view)
     {
         return view != nullptr && (view->property(kPreserve).toBool()
@@ -190,16 +212,21 @@ namespace ks::ui
         const QString headerText = KswordTheme::EnsureTextContrast(
             KswordTheme::TextPrimaryColor(), KswordTheme::SurfaceMutedColor(), 4.5).name();
         const QString headerBorder = KswordTheme::BorderColor().name();
+        // 外围轻描边区分并排表格；冻结辅助窗格是同一表格内容，不重复加圆角边界。
+        const bool auxiliaryPane = view->property("KSWORD_TABLE_INTERACTION_FROZEN_PANE_AUXILIARY").toBool();
+        const QString outerFrame = auxiliaryPane ? QStringLiteral("border:0;border-radius:0;")
+            : QStringLiteral("border:1px solid %1;border-radius:6px;").arg(
+                KswordTheme::BlendColors(KswordTheme::SurfaceColor(), KswordTheme::BorderColor(), 150).name());
         // item 显式 border:0 会让 Qt 样式表接管单元格底面并忽略模型 BackgroundRole。
         // 仅配置 padding，网格仍由 setShowGrid(false) 管理，保留热度/风险/差异语义刷子。
         replacePresentationBlock(view, QStringLiteral(
             "QTableView,QTableWidget,QTreeView,QTreeWidget{"
-            "border:0;border-radius:0;color:palette(text);"
+            "%4color:palette(text);"
             "alternate-background-color:palette(alternate-base);"
             "selection-background-color:palette(highlight);selection-color:palette(highlighted-text);}"
             "QTableView::item,QTableWidget::item,QTreeView::item,QTreeWidget::item{padding:%1;}"
             "QTableCornerButton::section{background:%2;border:0;border-bottom:1px solid %3;}")
-            .arg(cellPadding, headerSurface, headerBorder));
+            .arg(cellPadding, headerSurface, headerBorder, outerFrame));
 
         // normalizeHeader=false and the existing header-specific opt-out retain custom geometry.
         if (!normalizeHeader || (table != nullptr && PreservesCustomTableHeaderStyle(table)))

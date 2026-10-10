@@ -4,6 +4,8 @@
 #include "ProcessAffinityPersistence.h"
 #include "ProcessCpuCapacityCell.h"
 #include "./ProcessGpuTableView.h"
+#include "../UI/ToolbarMetrics.h"
+#include <QDynamicPropertyChangeEvent>
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ThemeBinding.h"
@@ -2023,8 +2025,6 @@ private:
         {
             QPainterPath metricPath;
             bool hasPoint = false;
-            std::vector<QPointF> pointList;
-            pointList.reserve(std::min(sampleCount, maximumRenderedPointCount + 1U));
             const auto appendSamplePoint = [&](const std::size_t sampleIndex)
             {
                 const ProcessDock::ProcessActivitySample& sample = m_ownerDock->m_activitySamples[sampleIndex];
@@ -2038,7 +2038,6 @@ private:
                 const double xValue = animatedSampleIndexToX(static_cast<int>(sampleIndex), plotRect);
                 const double yValue = plotRect.bottom() - (percentValue / 100.0) * plotRect.height();
                 const QPointF point(xValue, yValue);
-                pointList.push_back(point);
                 if (!hasPoint)
                 {
                     metricPath.moveTo(point);
@@ -2062,23 +2061,12 @@ private:
 
             QColor lineColor = processActivityMetricColor(metric);
             lineColor.setAlpha(230);
-            // 折线只允许描边，不允许沿用上一条指标采样点留下的 brush。
+            // 折线只描边，不绘制采样圆点，密集历史保持连续清楚的曲线。
             // Qt 的 drawPath 会同时 stroke 和 fill；如果 brush 未清空，开放折线路径会被隐式闭合填充。
             painter.setBrush(Qt::NoBrush);
             painter.setPen(QPen(lineColor, 2.0));
             painter.drawPath(metricPath);
 
-            QColor pointColor = lineColor;
-            pointColor.setAlpha(245);
-            painter.setBrush(pointColor);
-            painter.setPen(Qt::NoPen);
-            const int pointStride = static_cast<int>(std::max<std::size_t>(1U, pointList.size() / 80U));
-            for (std::size_t pointIndex = 0; pointIndex < pointList.size(); pointIndex += static_cast<std::size_t>(pointStride))
-            {
-                painter.drawEllipse(pointList[pointIndex], 2.2, 2.2);
-            }
-            // 采样点绘制会设置实心 brush，循环下一条折线前必须恢复为空画刷。
-            painter.setBrush(Qt::NoBrush);
         }
     }
 
@@ -4501,6 +4489,16 @@ bool ProcessDock::eventFilter(QObject* watched, QEvent* event)
         return QWidget::eventFilter(watched, event);
     }
 
+    // 后端状态变化由表格发布；不轮询，也不在每帧重新设置状态文字。
+    if (watched == m_processTable && event->type() == QEvent::DynamicPropertyChange)
+    {
+        const QByteArray name = static_cast<QDynamicPropertyChangeEvent*>(event)->propertyName();
+        if (name == "ksword_process_render_backend" || name == "ksword_process_gpu_fallback")
+        {
+            updateProcessRenderingStatus();
+        }
+    }
+
     // 只处理左键按下：
     // - 鼠标释放/移动不改变选择；
     // - 右键仍保留上下文菜单的冻结选择语义。
@@ -4526,6 +4524,12 @@ bool ProcessDock::eventFilter(QObject* watched, QEvent* event)
 
     QWidget* watchedWidget = qobject_cast<QWidget*>(watched);
     if (watchedWidget == nullptr)
+    {
+        return QWidget::eventFilter(watched, event);
+    }
+    // 修改列表设置不属于点击业务空白区，尤其后端切换必须保留原选区。
+    if (watchedWidget == m_processSettingsButton || (m_processSettingsDialog != nullptr
+        && (watchedWidget == m_processSettingsDialog || m_processSettingsDialog->isAncestorOf(watchedWidget))))
     {
         return QWidget::eventFilter(watched, event);
     }
@@ -4957,6 +4961,18 @@ void ProcessDock::initializeTopControls()
     m_processSettingsLayout->addWidget(m_kernelCompareCheck);
     m_processSettingsLayout->addWidget(m_showKswordHiddenProcessCheck);
     m_processSettingsLayout->addWidget(m_activityBackgroundRecordCheck);
+    m_processGpuEnabledCheck = new QCheckBox(m_processSettingsDialog);
+    languageManager.bindText(m_processGpuEnabledCheck, QStringLiteral("process.settings.gpu_enabled"),
+        QStringLiteral("启用进程列表 GPU 加速"));
+    languageManager.bindToolTip(m_processGpuEnabledCheck, QStringLiteral("process.settings.gpu_tip"),
+        QStringLiteral("立即切换并保存；GPU 不可用时自动使用软件绘制，保留列表和选择。"));
+    QSettings renderingSettings; // 已有配置优先；旧环境开关仅作为尚未保存时的默认值。
+    m_processGpuEnabledCheck->setChecked(renderingSettings.value(
+        QStringLiteral("ProcessList/GpuAccelerationEnabled"),
+        qEnvironmentVariable("KSWORD_PROCESS_LIST_GPU") == QStringLiteral("1")).toBool());
+    m_processGpuStatusLabel = new QLabel(m_processSettingsDialog);
+    m_processSettingsLayout->addWidget(m_processGpuEnabledCheck);
+    m_processSettingsLayout->addWidget(m_processGpuStatusLabel);
     m_processSettingsLayout->addStretch(1);
 
     // “选择列”入口：
@@ -5152,6 +5168,8 @@ void ProcessDock::initializeProcessActivityPanel()
     {
         m_controlLayout->insertWidget(topControlInsertIndex++, activityControlWidget);
     }
+    // 所有活动控件插入后按整行对齐，不依赖各类型不同的默认 sizeHint。
+    ks::ui::NormalizeToolbarRow(m_controlLayout);
 
     m_activityChartWidget = new ProcessActivityChartWidget(this, m_activityPanelWidget);
     m_activityChartWidget->setToolTip(QString());
@@ -5312,7 +5330,16 @@ void ProcessDock::initializeProcessTable()
             << eol;
     }
 
-    m_processTable = new ks::process_ui::ProcessGpuTableView(this);
+    auto* renderingTable = new ks::process_ui::ProcessGpuTableView(this, m_processGpuEnabledCheck->isChecked());
+    m_processTable = renderingTable;
+    connect(m_processGpuEnabledCheck, &QCheckBox::toggled, renderingTable, [this, renderingTable](bool enabled)
+    {
+        QSettings settings; // 保存明确选择，后续启动不再被环境变量反向覆盖。
+        settings.setValue(QStringLiteral("ProcessList/GpuAccelerationEnabled"), enabled);
+        renderingTable->setGpuAccelerationEnabled(enabled);
+        updateProcessRenderingStatus();
+    });
+    updateProcessRenderingStatus();
     // 进程列表跟随全局平滑滚动设置，GPU 与回退视口不单独禁用缓动。
 
     std::vector<ProcessTableModel::ColumnSpec> columnSpecs;
@@ -5924,11 +5951,36 @@ void ProcessDock::showProcessSettingsDialog()
         return;
     }
 
+    updateProcessRenderingStatus();
     // 非模态窗口复用同一组控件，重复点击齿轮只把已有窗口带回前台。
     m_processSettingsDialog->adjustSize();
     m_processSettingsDialog->show();
     m_processSettingsDialog->raise();
     m_processSettingsDialog->activateWindow();
+}
+
+void ProcessDock::updateProcessRenderingStatus()
+{
+    if (m_processTable == nullptr || m_processGpuStatusLabel == nullptr)
+    {
+        return;
+    }
+    const QString backend = m_processTable->property("ksword_process_render_backend").toString();
+    QString status = processContextText("process.settings.rendering_software", QStringLiteral("软件绘制"));
+    if (backend == QStringLiteral("opengl"))
+    {
+        status = processContextText("process.settings.rendering_gpu", QStringLiteral("GPU 加速已启用"));
+    }
+    else if (backend == QStringLiteral("opengl_pending"))
+    {
+        status = processContextText("process.settings.rendering_pending", QStringLiteral("GPU 加速初始化中…"));
+    }
+    else if (!m_processTable->property("ksword_process_gpu_fallback").toString().isEmpty())
+    {
+        status = processContextText("process.settings.rendering_fallback", QStringLiteral("GPU 不可用，已自动使用软件绘制"));
+    }
+    m_processGpuStatusLabel->setText(status);
+    m_processGpuStatusLabel->setToolTip(m_processTable->property("ksword_process_gpu_renderer").toString());
 }
 
 void ProcessDock::initializeConnections()

@@ -720,6 +720,21 @@ namespace
             layout->addWidget(m_currentViewButton);
             layout->addWidget(m_compareViewButton);
 
+            // 窄分栏只保留常用操作，其余动作进菜单；不能把所有按钮压成无意义省略号。
+            m_moreButton = createButton("更多");
+            m_moreButton->setObjectName(QStringLiteral("ksword_table_more_actions"));
+            m_moreButton->setToolTip(localizedSourceText("表格操作"));
+            m_moreMenu = new QMenu(m_moreButton);
+            m_moreMenu->setStyleSheet(KswordTheme::ContextMenuStyle());
+            m_moreButton->setMenu(m_moreMenu);
+            m_moreButton->setPopupMode(QToolButton::InstantPopup);
+            layout->addWidget(m_moreButton);
+            m_moreButton->hide();
+            connect(m_moreMenu, &QMenu::aboutToShow, this, [this]()
+            {
+                populateMoreMenu();
+            });
+
             connect(m_copyAllButton, &QToolButton::clicked, this, [this]()
                 {
                     copyVisibleRowsToClipboard(activeTableView());
@@ -879,6 +894,8 @@ namespace
             m_ignoreColumnsButton->setText(localizedSourceText("忽略列"));
             m_currentViewButton->setText(localizedSourceText("当前视图"));
             m_compareViewButton->setText(localizedSourceText("比对视图"));
+            m_moreButton->setText(localizedSourceText("更多"));
+            m_moreButton->setToolTip(localizedSourceText("表格操作"));
             updateControls();
         }
 
@@ -925,12 +942,24 @@ namespace
             updateComparisonOverlayGeometry();
         }
 
+    protected:
+        // 表格或分栏宽度改变时重新分配可见动作，不改变业务可用性。
+        void resizeEvent(QResizeEvent* event) override
+        {
+            QFrame::resizeEvent(event);
+            if (m_moreButton != nullptr)
+            {
+                applyModeVisibility();
+            }
+        }
+
     private:
         QToolButton* createButton(const char* text, const QString& iconPath = QString())
         {
             auto* button = new QToolButton(this);
             button->setText(localizedSourceText(text));
             button->setAutoRaise(true);
+            button->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
             button->setToolButtonStyle(Qt::ToolButtonTextOnly);
             if (!iconPath.isEmpty())
             {
@@ -2194,6 +2223,106 @@ namespace
             m_ignoreColumnsButton->setVisible(fullMode && m_inComparison);
             m_currentViewButton->setVisible(fullMode);
             m_compareViewButton->setVisible(fullMode);
+            arrangeResponsiveActions();
+        }
+
+        // 使用每个动作的自然文字宽度计算阈值，兼容翻译与字号，不靠固定断点猜布局。
+        void arrangeResponsiveActions()
+        {
+            if (m_moreButton == nullptr)
+            {
+                return;
+            }
+            m_moreButton->hide();
+            m_overflowButtons.clear();
+            const bool full = m_mode == TableActionBarMode::Full;
+            if (!full)
+            {
+                return;
+            }
+            int requiredWidth = 8;
+            for (int index = 0; index < layout()->count(); ++index)
+            {
+                QWidget* widget = layout()->itemAt(index)->widget();
+                if (widget != nullptr && !widget->isHidden())
+                {
+                    requiredWidth += (widget == m_snapshotScrollArea ? 96 : widget->sizeHint().width()) + 4;
+                }
+            }
+            if (requiredWidth <= width())
+            {
+                return;
+            }
+            // 保留复制/导出/冻结；快照与对比动作以完整文字进入同一个入口。
+            const auto moveToMenu = [this](QAbstractButton* button)
+            {
+                if (button != nullptr && !button->isHidden())
+                {
+                    m_overflowButtons.append(button);
+                    button->hide();
+                }
+            };
+            moveToMenu(m_pauseRefreshButton);
+            m_snapshotScrollArea->hide();
+            for (const auto& snapshot : std::as_const(m_snapshots))
+            {
+                if (QToolButton* button = m_snapshotButtons.value(snapshot.sequence, nullptr))
+                {
+                    m_overflowButtons.append(button);
+                }
+            }
+            const QList<QAbstractButton*> secondaryActions{m_addSnapshotButton,
+                m_cleanupButton, m_doneCleanupButton, m_deleteSelectedButton, m_clearAllButton,
+                m_differenceOnlyCheckBox, m_ignoreColumnsButton, m_currentViewButton, m_compareViewButton};
+            for (QAbstractButton* button : secondaryActions)
+            {
+                moveToMenu(button);
+            }
+            const int primaryWidth = m_copyAllButton->sizeHint().width() + m_exportButton->sizeHint().width()
+                + m_freezePaneButton->sizeHint().width() + m_moreButton->sizeHint().width() + 24;
+            if (primaryWidth > width())
+            {
+                moveToMenu(m_freezePaneButton);
+            }
+            if (width() < m_copyAllButton->sizeHint().width() + m_exportButton->sizeHint().width()
+                + m_moreButton->sizeHint().width() + 20)
+            {
+                moveToMenu(m_exportButton);
+            }
+            m_moreButton->show();
+        }
+
+        // 菜单项只转发原按钮，沿用 disabled/checked/业务连接，不复制快照或修改表格模型。
+        void populateMoreMenu()
+        {
+            m_moreMenu->clear();
+            m_moreMenu->setStyleSheet(KswordTheme::ContextMenuStyle());
+            for (const QPointer<QAbstractButton>& button : std::as_const(m_overflowButtons))
+            {
+                if (button.isNull())
+                {
+                    continue;
+                }
+                QAction* action = m_moreMenu->addAction(button->icon(), button->text());
+                action->setEnabled(button->isEnabled());
+                action->setCheckable(button->isCheckable());
+                action->setChecked(button->isChecked());
+                action->setToolTip(button->toolTip());
+                if (button == m_freezePaneButton)
+                {
+                    action->setMenu(m_freezePaneMenu);
+                }
+                else
+                {
+                    connect(action, &QAction::triggered, this, [button]()
+                    {
+                        if (!button.isNull())
+                        {
+                            button->click();
+                        }
+                    });
+                }
+            }
         }
 
         void updateControls()
@@ -2281,6 +2410,9 @@ namespace
         }
 
         QPointer<QTableView> m_table;
+        QToolButton* m_moreButton = nullptr; // 自适应收纳入口，窄表格才显示。
+        QMenu* m_moreMenu = nullptr; // 按需重建的动作镜像，原按钮继续持有业务状态。
+        QList<QPointer<QAbstractButton>> m_overflowButtons; // 当前被收纳的原控件，销毁后自动失效。
         QPointer<QTableView> m_comparisonOverlay;
         QPointer<TableComparisonModel> m_comparisonModel;
         QPointer<QTableView> m_pauseOverlay;

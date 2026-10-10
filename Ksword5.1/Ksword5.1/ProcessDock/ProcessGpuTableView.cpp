@@ -72,13 +72,51 @@ namespace
 namespace ks::process_ui
 {
     ProcessGpuTableView::ProcessGpuTableView(QWidget* parent)
+        : ProcessGpuTableView(parent, qEnvironmentVariable("KSWORD_PROCESS_LIST_GPU") == QStringLiteral("1"))
+    {
+    }
+
+    ProcessGpuTableView::ProcessGpuTableView(QWidget* parent, bool gpuEnabled)
         : TableActionTableView(parent)
     {
-        m_profileEnabled = qEnvironmentVariable("KSWORD_PROCESS_LIST_GPU") == QStringLiteral("1")
-            || qEnvironmentVariable("KSWORD_PROCESS_LIST_PROFILE") == QStringLiteral("1");
         setProperty("ksword_process_render_backend", "raster");
-        // 仅明确开关启用；offscreen/minimal 平台无法验证硬件，保持光栅。
-        if (qEnvironmentVariable("KSWORD_PROCESS_LIST_GPU") != QStringLiteral("1"))
+        setGpuAccelerationEnabled(gpuEnabled);
+    }
+
+    void ProcessGpuTableView::replaceRenderViewport(QWidget* replacement)
+    {
+        const int verticalPosition = verticalScrollBar()->value(); // 沿用原滚动单位。
+        const int horizontalPosition = horizontalScrollBar()->value();
+        replacement->setMouseTracking(viewport()->hasMouseTracking());
+        setViewport(replacement);
+        if (itemDelegate() != nullptr)
+        {
+            replacement->installEventFilter(itemDelegate());
+        }
+        verticalScrollBar()->setValue(verticalPosition);
+        horizontalScrollBar()->setValue(horizontalPosition);
+        replacement->update();
+    }
+
+    void ProcessGpuTableView::setGpuAccelerationEnabled(bool enabled)
+    {
+        m_gpuRequested = enabled;
+        m_profileEnabled = enabled || qEnvironmentVariable("KSWORD_PROCESS_LIST_PROFILE") == QStringLiteral("1");
+        ++m_backendGeneration;
+        m_fallbackQueued = false;
+        setProperty("ksword_process_gpu_fallback", QVariant());
+        if (!enabled)
+        {
+            if (m_gpuViewport != nullptr)
+            {
+                m_gpuViewport = nullptr;
+                replaceRenderViewport(new QWidget(this));
+            }
+            setProperty("ksword_process_render_backend", "raster");
+            return;
+        }
+        // 已启用的有效视口不重建；失败后再次明确开启则允许重新尝试。
+        if (m_gpuViewport != nullptr)
         {
             return;
         }
@@ -91,7 +129,7 @@ namespace ks::process_ui
 
         m_gpuViewport = new ProcessGlViewport(this);
         setProperty("ksword_process_render_backend", "opengl_pending");
-        setViewport(m_gpuViewport);
+        replaceRenderViewport(m_gpuViewport);
     }
 
     bool ProcessGpuTableView::viewportEvent(QEvent* eventObject)
@@ -167,21 +205,19 @@ namespace ks::process_ui
             return;
         }
         m_fallbackQueued = true;
+        const quint64 failedGeneration = m_backendGeneration; // 仅回退发生故障的那一代视口。
         setProperty("ksword_process_gpu_fallback", reason);
         // 以表格作回调上下文，表格销毁时自动取消；模型与 selectionModel 不替换。
-        QTimer::singleShot(0, this, [this]()
+        QTimer::singleShot(0, this, [this, failedGeneration]()
         {
-            QWidget* rasterViewport = new QWidget(this); // setViewport 自动释放旧 GL 视口。
-            rasterViewport->setMouseTracking(viewport()->hasMouseTracking());
-            m_gpuViewport = nullptr;
-            setViewport(rasterViewport);
-            // 进程行委托用视口过滤器跟踪悬停；替换视口后必须重新接入。
-            if (itemDelegate() != nullptr)
+            if (failedGeneration != m_backendGeneration || m_gpuViewport == nullptr)
             {
-                rasterViewport->installEventFilter(itemDelegate());
+                return;
             }
+            m_gpuViewport = nullptr;
+            replaceRenderViewport(new QWidget(this));
+            m_fallbackQueued = false;
             setProperty("ksword_process_render_backend", "raster");
-            viewport()->update();
         });
     }
 }

@@ -245,6 +245,10 @@ int main(int argc, char** argv)
     check(raster.paintCount() > 0, "raster_timing");
 
     qputenv("KSWORD_PROCESS_LIST_GPU", "1");
+    ks::process_ui::ProcessGpuTableView explicitRaster(nullptr, false);
+    check(!explicitRaster.gpuAccelerationEnabled()
+        && dynamic_cast<QOpenGLWidget*>(explicitRaster.viewport()) == nullptr,
+        "saved_explicit_disabled_overrides_gpu_environment");
     ks::process_ui::ProcessGpuTableView gpu;
     gpu.setAttribute(Qt::WA_DontShowOnScreen);
     gpu.setModel(&model);
@@ -379,6 +383,26 @@ int main(int argc, char** argv)
         check(gpu.property("ksword_process_gpu_fallback") == "fixture_context_failure",
             "fallback_deduplicated");
         check(gpuFreeze.frozenRowCount() == 1, "fallback_keeps_actual_freeze");
+        // 即时切换复用同一表格、模型、选区和冻结控制器，不重建业务列表。
+        gpu.setGpuAccelerationEnabled(true);
+        drain();
+        check(gpu.gpuAccelerationEnabled() && gpu.property("ksword_process_render_backend") == "opengl",
+            "explicit_gpu_enable_after_fallback");
+        check(gpu.selectionModel() == originalSelection && gpu.selectionModel()->isRowSelected(15, QModelIndex())
+            && gpu.verticalScrollBar()->value() == originalScroll && gpuFreeze.frozenRowCount() == 1,
+            "live_gpu_enable_keeps_selection_scroll_and_freeze");
+        gpu.scheduleRasterFallback("stale_request");
+        gpu.setGpuAccelerationEnabled(false);
+        gpu.setGpuAccelerationEnabled(true);
+        drain();
+        check(gpu.property("ksword_process_render_backend") == "opengl"
+            && !gpu.property("ksword_process_gpu_fallback").isValid(),
+            "stale_fallback_cannot_override_new_user_choice");
+        gpu.setGpuAccelerationEnabled(false);
+        drain();
+        check(!gpu.gpuAccelerationEnabled() && dynamic_cast<QOpenGLWidget*>(gpu.viewport()) == nullptr
+            && gpu.selectionModel() == originalSelection && gpu.selectionModel()->isRowSelected(15, QModelIndex())
+            && gpuFreeze.frozenRowCount() == 1, "explicit_gpu_disable_keeps_table_state");
         gpu.resize(620, 380);
         drain();
         for (QTableView* pane : gpu.findChildren<QTableView*>())

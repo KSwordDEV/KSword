@@ -6,13 +6,21 @@ class QOpenGLWidget;
 
 namespace ks::process_ui
 {
-    // 进程表 GPU 实验：仅在 KSWORD_PROCESS_LIST_GPU=1 时启用，默认沿用光栅绘制。
+    // 进程表 GPU 绘制：显式设置可即时切换，未配置时沿用启动环境，默认光栅。
     // 继承原动作条宿主，保留模型、选区、菜单、冻结列和快照工作流。
     class ProcessGpuTableView final : public ks::ui::TableActionTableView
     {
     public:
         // 输入父控件；构造视图并根据启动环境选择绘制后端，不改变模型。
         explicit ProcessGpuTableView(QWidget* parent = nullptr);
+        // 输入已保存的用户选择，优先于环境变量；不读取或修改模型数据。
+        ProcessGpuTableView(QWidget* parent, bool gpuEnabled);
+        // GUI 线程切换原表格的视口，保留选区、列宽、滚动位置和冻结窗格。
+        void setGpuAccelerationEnabled(bool enabled);
+        bool gpuAccelerationEnabled() const
+        {
+            return m_gpuRequested;
+        }
 
         // OpenGL 视口在上下文/FBO 已绑定的 paintGL 内调用；绘制整张可见区域。
         void paintGpuFrame();
@@ -47,10 +55,14 @@ namespace ks::process_ui
     private:
         // 发布最近一次和累计 CPU 绘制提交耗时，供相同负载的 A/B 实验读取。
         void recordPaint(qint64 nanoseconds);
+        // 将新视口接回原生滚动对象和行委托，两个后端共用同一条替换路径。
+        void replaceRenderViewport(QWidget* replacement);
 
         QOpenGLWidget* m_gpuViewport = nullptr; // 表格拥有的实验视口。
         bool m_profileEnabled = false;        // 默认光栅模式不计时，实验或 PROFILE=1 才开启。
         bool m_fallbackQueued = false;         // 防止同一错误重复排队回退。
+        bool m_gpuRequested = false;           // 用户选择与实际后端分开，失败回退不改偏好。
+        quint64 m_backendGeneration = 0;       // 失效旧后端排队的回退，避免覆盖新选择。
         quint64 m_paintCount = 0;               // 完成的绘制次数。
         qint64 m_lastPaintNs = 0;              // 最近一次 CPU 绘制提交耗时。
         qint64 m_totalPaintNs = 0;              // 累计 CPU 绘制提交耗时。

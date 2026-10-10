@@ -2,6 +2,9 @@
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/TablePresentation.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../Internationalization/LanguageManager.h"
 
 // ============================================================
 // NetworkAuditPage.cpp
@@ -853,8 +856,8 @@ void NetworkAuditPage::setUdpEndpointBlockRuleHandler(UdpEndpointBlockRuleHandle
 void NetworkAuditPage::initializeUi()
 {
     m_rootLayout = new QVBoxLayout(this);
-    m_rootLayout->setContentsMargins(6, 6, 6, 6);
-    m_rootLayout->setSpacing(6);
+    m_rootLayout->setContentsMargins(10, 10, 10, 10);
+    m_rootLayout->setSpacing(10);
 
     m_headerLayout = new QHBoxLayout();
     m_headerLayout->setContentsMargins(0, 0, 0, 0);
@@ -875,6 +878,7 @@ void NetworkAuditPage::initializeUi()
     ks::ui::ApplyFlatButtonTheme(m_refreshButton, ks::ui::FlatButtonTone::Neutral);
     m_refreshButton->setIcon(QIcon(QStringLiteral(":/Icon/process_refresh.svg")));
     m_headerLayout->addWidget(m_refreshButton);
+    ks::ui::NormalizeToolbarRow(m_headerLayout);
 
     m_rootLayout->addLayout(m_headerLayout);
 
@@ -885,8 +889,8 @@ void NetworkAuditPage::initializeUi()
     // TCP/UDP cross-view。
     m_crossViewPage = new QWidget(this);
     QVBoxLayout* crossLayout = new QVBoxLayout(m_crossViewPage);
-    crossLayout->setContentsMargins(4, 4, 4, 4);
-    crossLayout->setSpacing(6);
+    crossLayout->setContentsMargins(6, 10, 6, 6);
+    crossLayout->setSpacing(8);
 
     // 连接管理动作已合并到 Cross-View，不再单独占用顶层 Tab。
     QHBoxLayout* crossSearchLayout = new QHBoxLayout();
@@ -897,6 +901,7 @@ void NetworkAuditPage::initializeUi()
     m_crossSearchEdit->setPlaceholderText(QStringLiteral("搜索 PID / 进程 / 端点 / 状态 / 来源 / 明细 / 摘要"));
     m_crossSearchEdit->setMinimumWidth(220);
     crossSearchLayout->addWidget(m_crossSearchEdit, 1);
+    ks::ui::NormalizeToolbarRow(crossSearchLayout);
     crossLayout->addLayout(crossSearchLayout);
 
     m_crossControlLayout = new QHBoxLayout();
@@ -932,12 +937,17 @@ void NetworkAuditPage::initializeUi()
     m_crossFilterLabel->setMinimumWidth(0);
     m_crossFilterLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_crossControlLayout->addWidget(m_crossFilterLabel, 1);
+    ks::ui::NormalizeToolbarRow(m_crossControlLayout);
     crossLayout->addLayout(m_crossControlLayout);
 
     m_crossViewSplitter = new QSplitter(Qt::Vertical, m_crossViewPage);
     m_crossViewTopSplitter = new QSplitter(Qt::Horizontal, m_crossViewSplitter);
+    m_crossViewSplitter->setHandleWidth(10);
+    m_crossViewTopSplitter->setHandleWidth(10);
+    m_crossViewSplitter->setChildrenCollapsible(false);
+    m_crossViewTopSplitter->setChildrenCollapsible(false);
 
-    m_tcpTable = new ks::ui::VisibleTableWidget(m_crossViewTopSplitter);
+    m_tcpTable = new ks::ui::VisibleTableWidget(m_crossViewPage);
     m_tcpTable->setColumnCount(6);
     m_tcpTable->setHorizontalHeaderLabels({
         QStringLiteral("PID"),
@@ -955,7 +965,7 @@ void NetworkAuditPage::initializeUi()
     m_tcpTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_tcpTable->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    m_udpTable = new ks::ui::VisibleTableWidget(m_crossViewTopSplitter);
+    m_udpTable = new ks::ui::VisibleTableWidget(m_crossViewPage);
     m_udpTable->setColumnCount(5);
     m_udpTable->setHorizontalHeaderLabels({
         QStringLiteral("PID"),
@@ -972,7 +982,7 @@ void NetworkAuditPage::initializeUi()
     m_udpTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_udpTable->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    m_crossSummaryTable = new ks::ui::VisibleTableWidget(m_crossViewSplitter);
+    m_crossSummaryTable = new ks::ui::VisibleTableWidget(m_crossViewPage);
     m_crossSummaryTable->setColumnCount(5);
     m_crossSummaryTable->setHorizontalHeaderLabels({ QStringLiteral("PID"), QStringLiteral("进程"), QStringLiteral("TCP"), QStringLiteral("UDP"), QStringLiteral("摘要") });
     m_crossSummaryTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -983,8 +993,20 @@ void NetworkAuditPage::initializeUi()
     m_crossSummaryTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     installCopyMenu(m_crossSummaryTable, 0);
 
-    m_crossViewSplitter->addWidget(m_crossViewTopSplitter);
-    m_crossViewSplitter->addWidget(m_crossSummaryTable);
+    // 三个数据集使用独立标题和轻圆角表面；并排两表等宽、共享同一高度。
+    auto addPanel = [](QTableView* table, const QString& key, const QString& title, QSplitter* splitter)
+    {
+        QWidget* panel = ks::ui::CreateTitledTablePanel(table, title, splitter);
+        ks::i18n::LanguageManager::instance().bindText(
+            panel->findChild<QLabel*>(QStringLiteral("ksword_table_panel_title")), key, title);
+        splitter->addWidget(panel);
+    };
+    addPanel(m_tcpTable, QStringLiteral("network.cross.tcp_title"), QStringLiteral("TCP 连接"), m_crossViewTopSplitter);
+    addPanel(m_udpTable, QStringLiteral("network.cross.udp_title"), QStringLiteral("UDP 端点"), m_crossViewTopSplitter);
+    addPanel(m_crossSummaryTable, QStringLiteral("network.cross.summary_title"), QStringLiteral("进程汇总"), m_crossViewSplitter);
+    m_crossViewTopSplitter->setStretchFactor(0, 1);
+    m_crossViewTopSplitter->setStretchFactor(1, 1);
+    m_crossViewTopSplitter->setSizes({1, 1});
     m_crossViewSplitter->setStretchFactor(0, 3);
     m_crossViewSplitter->setStretchFactor(1, 2);
     crossLayout->addWidget(m_crossViewSplitter, 1);

@@ -572,6 +572,7 @@ private:
     void initializeTopControls();
     void initializeProcessActivityPanel();
     void initializeProcessTable();
+    void updateProcessRenderingStatus(); // 显示实际绘制后端，GPU 失败时不把偏好当作运行状态。
     void initializeCreateProcessPage();
     void initializeThreadPage();
     // initializeCrossViewPage 作用：
@@ -1151,6 +1152,8 @@ private:
     QComboBox* m_strategyCombo = nullptr;     // 进程遍历方案下拉框。
     QDialog* m_processSettingsDialog = nullptr; // 进程列表设置窗口，非模态复用已有设置控件。
     QVBoxLayout* m_processSettingsLayout = nullptr; // 设置窗口单列布局。
+    QCheckBox* m_processGpuEnabledCheck = nullptr; // 显式、持久化的进程列表 GPU 加速偏好。
+    QLabel* m_processGpuStatusLabel = nullptr; // 实际后端与自动回退状态。
     QComboBox* m_viewModeCombo = nullptr;     // 监视视图/详细视图下拉框。
     QPushButton* m_startButton = nullptr;     // 开始监视按钮。
     QPushButton* m_pauseButton = nullptr;     // 暂停监视按钮。

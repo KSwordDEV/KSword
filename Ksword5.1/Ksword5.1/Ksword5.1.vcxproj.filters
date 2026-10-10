@@ -2715,6 +2715,9 @@
     <ClInclude Include="UI\DetailLayoutRegistry.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="UI\ToolbarMetrics.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="UI\TablePresentation.h">
       <Filter>Header Files</Filter>
     </ClInclude>

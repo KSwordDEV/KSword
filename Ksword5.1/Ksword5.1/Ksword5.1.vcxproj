@@ -897,6 +897,7 @@
     <ClInclude Include="HardwareDock\HardwareFieldDocuments.h" />
     <ClInclude Include="UI\TypedSyntaxDocument.h" />
     <ClInclude Include="UI\TablePresentation.h" />
+    <ClInclude Include="UI\ToolbarMetrics.h" />
     <ClInclude Include="UI\DetailDialogChrome.h" />
     <ClInclude Include="UI\SmoothScrollSupport.h" />
     <ClInclude Include="UI\TableColumnAutoFit.h" />
