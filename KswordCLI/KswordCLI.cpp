@@ -1455,6 +1455,7 @@ namespace
             ks::cli::registerNetworkEndpointAudit();
             ks::cli::registerService();
             ks::cli::registerRegistryBrowse();
+            ks::cli::registerRegistrySearch();
             #endif
             return true;
         }();

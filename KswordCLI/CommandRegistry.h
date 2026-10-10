@@ -1,5 +1,7 @@
 #pragma once
 #include <cstdint>
+#include <atomic>
+#include <memory>
 #include <functional>
 #include <map>
 #include <optional>
@@ -36,6 +38,14 @@ public:
     std::uint64_t integer(const std::wstring& key, std::uint64_t fallback = 0) const;
     std::uint32_t u32(const std::wstring& key, std::uint32_t fallback = 0) const;
 };
+class Cancellation {
+public:
+    Cancellation();
+    ~Cancellation();
+    std::shared_ptr<std::atomic_bool> token;
+private:
+    bool registered = false;
+};
 struct Command {
     std::wstring path, syntax, summary, options, notes;
     std::function<Result(const Args&)> run;
@@ -56,4 +66,5 @@ void registerNetworkFirewall();
 void registerNetworkEndpointAudit();
 void registerService();
 void registerRegistryBrowse();
+void registerRegistrySearch();
 }

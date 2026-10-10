@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service','registry-browse')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
+﻿param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service','registry-browse','registry-search')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\KswordCliR3TestSupport.ps1"
 switch ($Feature) {
@@ -251,6 +251,54 @@ switch ($Feature) {
                     } finally { $modified.RemoveAccessRuleSpecific($rule);$denied.SetAccessControl($modified) }
                 } finally { $denied.Dispose() }
             } finally { $key.Dispose();[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($sub,$false) }
+        }
+    }
+    'registry-search' {
+        $help=Invoke-Cli @('help','registry','search','query')
+        Assert ($help.Contains('--max-depth') -and $help.Contains('Ctrl+C')) 'Registry search help'
+        Assert ((Invoke-Cli @('registry','search','query','--help')) -eq $help) 'Search inline help'
+        foreach ($bad in @(
+            @('registry','search','query','--json'),
+            @('registry','search','query','--path','HKCU','--query','','--json'),
+            @('registry','search','query','--path','BADROOT','--query','a','--json'),
+            @('registry','search','query','--path','HKCU','--query','a','--backend','r0','--json'),
+            @('registry','search','query','--path','HKCU','--query','a','--unknown','1','--json')
+        )) { Assert (((Invoke-Cli $bad 1) | ConvertFrom-Json).status -eq 'failed') 'Search invalid arguments' }
+        $path='HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+        $query=(Invoke-Cli @('registry','search','query','--path',$path,'--query','ProductName','--max-results','1','--json') 6) | ConvertFrom-Json
+        Assert ($query.data.stopReason -eq 'result-limit' -and $query.data.hits.Count -eq 1 -and $query.data.hits[0].name -eq 'ProductName') 'System registry search result'
+        Assert ((Invoke-Cli @('registry','search','query','--path',$path,'--query','ProductName','--max-results','1') 6).Contains('stopReason: result-limit')) 'Search text'
+        $missing=(Invoke-Cli @('registry','search','query','--path','HKCU\Software\KSwordCliMissing-287213','--query','a','--json') 3) | ConvertFrom-Json
+        Assert ($missing.data.stopReason -eq 'read-failure' -and $missing.data.firstWin32Error -eq 2) 'Search missing root raw error'
+        if ($InGuest) {
+            $sub='Software\KSwordCliSearch-'+[Guid]::NewGuid().ToString('N')
+            $root=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($sub)
+            try {
+                $root.SetValue('Needle','root data',[Microsoft.Win32.RegistryValueKind]::String)
+                $root.SetValue('Second','unrelated',[Microsoft.Win32.RegistryValueKind]::String)
+                $child=$root.CreateSubKey('NeedleChild')
+                try {
+                    $child.SetValue('Other','NEEDLE 数据',[Microsoft.Win32.RegistryValueKind]::String)
+                    $child.SetValue('LongPreview',('x'*100),[Microsoft.Win32.RegistryValueKind]::String)
+                    $grandchild=$child.CreateSubKey('GrandNeedle');$grandchild.Dispose()
+                } finally {$child.Dispose()}
+                $path='HKCU\'+$sub
+                $result=(Invoke-Cli @('registry','search','query','--path',$path,'--query','needle','--json')) | ConvertFrom-Json
+                Assert ($result.data.complete -and $result.data.hits.Count -eq 5 -and $result.data.counters.visitedKeys -eq '3') 'Case-insensitive keys, value names and data search'
+                Assert (@($result.data.hits | Where-Object {$_.name -eq 'Other' -and $_.dataPreview -eq 'NEEDLE 数据'}).Count -eq 1) 'Actual Unicode data preview'
+                $empty=(Invoke-Cli @('registry','search','query','--path',$path,'--query','UniqueAbsentKeyword-718431','--json')) | ConvertFrom-Json
+                Assert ($empty.data.complete -and $empty.data.hits.Count -eq 0) 'Complete search without hits'
+                $bounded=(Invoke-Cli @('registry','search','query','--path',$path,'--query','needle','--max-results','1','--json') 6) | ConvertFrom-Json
+                Assert ($bounded.data.stopReason -eq 'result-limit') 'Search result budget'
+                $depth=(Invoke-Cli @('registry','search','query','--path',$path,'--query','needle','--max-depth','1','--json') 6) | ConvertFrom-Json
+                Assert ($depth.data.stopReason -eq 'depth-limit' -and $depth.data.counters.skippedDepth -eq '1') 'Search depth budget'
+                $values=(Invoke-Cli @('registry','search','query','--path',$path,'--query','needle','--max-values','1','--json') 6) | ConvertFrom-Json
+                Assert ($values.data.stopReason -eq 'value-limit') 'Search value budget'
+                $preview=(Invoke-Cli @('registry','search','query','--path',$path,'--query','LongPreview','--max-preview-bytes','16','--json')) | ConvertFrom-Json
+                Assert ($preview.data.hits.Count -eq 1 -and $preview.data.hits[0].previewTruncated -and $preview.data.hits[0].dataBytes -eq '202') 'Unread oversized preview stays marked'
+                $defaults=(Invoke-Cli @('registry','search','query','--path',$path,'--query','needle','--max-keys','0','--max-depth','1000','--json')) | ConvertFrom-Json
+                Assert ($defaults.data.effectiveBudgets.keys -eq '2000' -and $defaults.data.effectiveBudgets.depth -eq '32') 'Backend budget normalization'
+            } finally {$root.Dispose();[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($sub,$false)}
         }
     }
 }

@@ -118,6 +118,7 @@ struct RegistrySearchSnapshot {
     std::wstring errorText;
     std::wstring statusText;
     std::vector<RegistrySearchHit> hits;
+    std::uint32_t firstWin32Error = 0;
 };
 
 // ValidateRegistrySearchRequest trims path/query text, clamps caller-supplied

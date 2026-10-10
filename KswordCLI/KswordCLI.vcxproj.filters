@@ -102,4 +102,10 @@
     <ClInclude Include="..\shared\usermode\backend\registry\RegistrySupport.h" />
     <ClInclude Include="..\shared\usermode\backend\registry\RegistrySearchModel.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3RegistrySearch.cpp" />
+    <ClCompile Include="R3Cancellation.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearch.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\registry\RegistrySearchModel.cpp" />
+  </ItemGroup>
 </Project>
