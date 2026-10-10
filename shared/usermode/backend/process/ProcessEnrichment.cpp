@@ -26,7 +26,8 @@ std::wstring FormatByteSize(ULONGLONG bytes) {
 }
 void ApplyMainProcessDetails(std::vector<ProcessSnapshotRow>& rows,
     const std::vector<ProcessFieldId>& columns,
-    std::unordered_map<std::wstring, std::string>& signatureCache, bool needsStatic) {
+    std::unordered_map<std::wstring, std::string>& signatureCache, bool needsStatic,
+    const std::function<void(const ProcessDetailEvidence&)>& observe) {
     const std::uint32_t demand = DetailDemandForColumns(columns);
     const auto has = [&columns](ProcessFieldId id) {
         return std::find(columns.begin(), columns.end(), id) != columns.end();
@@ -40,6 +41,7 @@ void ApplyMainProcessDetails(std::vector<ProcessSnapshotRow>& rows,
         const auto found = byPid.find(row.processId);
         if (found == byPid.end() || row.r0KernelOnly) continue;
         ks::process::ProcessRecord details = *found->second;
+        ProcessDetailEvidence evidence;
         if (row.creationTime100ns != 0 && row.creationTime100ns != details.creationTime100ns) continue;
         const auto key = ProcessStableKey(row.processId, row.creationTime100ns);
         liveKeys.insert(key);
@@ -51,8 +53,8 @@ void ApplyMainProcessDetails(std::vector<ProcessSnapshotRow>& rows,
             // Inaccessible rows must not consume the entire signing budget
             // every round and starve ordinary processes further down the list.
             if (verifySignature && !details.staticDetailsReady) ++signatureBudget;
-            ks::process::FillProcessOnDemandDetails(details, demand, nullptr);
-            QueryProcessExtraDetails(details, demand, has(ProcessFieldId::PowerThrottling));
+            ks::process::FillProcessOnDemandDetails(details, demand, &evidence.resolvedDemand);
+            QueryProcessExtraDetails(details, demand, has(ProcessFieldId::PowerThrottling), &evidence.extra);
             // A new handle may have resolved a recycled PID while we queried.
             if (row.processId > 4) {
                 HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, row.processId);
@@ -60,7 +62,7 @@ void ApplyMainProcessDetails(std::vector<ProcessSnapshotRow>& rows,
                 const bool ok = process && ::GetProcessTimes(process, &created, &exited, &kernel, &user);
                 if (process) ::CloseHandle(process);
                 const ULONGLONG actual = (static_cast<ULONGLONG>(created.dwHighDateTime) << 32U) | created.dwLowDateTime;
-                if (ok && actual != row.creationTime100ns) continue;
+                if (!ok || actual != row.creationTime100ns) continue;
             }
             if (verifySignature && details.staticDetailsReady && !details.signatureState.empty())
                 signatureCache[key] = details.signatureState;
@@ -72,6 +74,7 @@ void ApplyMainProcessDetails(std::vector<ProcessSnapshotRow>& rows,
                 details.pid, &details.protectionLevel, &details.protectionLevelText, nullptr);
         }
         ApplyProcessDetailRecord(row, details);
+        if (observe) { evidence.record = details; observe(evidence); }
         if (details.gpuMemoryKnown) {
             row.detailTexts[static_cast<std::uint8_t>(ProcessFieldId::GpuDedicatedMemory)] = FormatByteSize(details.gpuDedicatedMemoryBytes);
             row.detailTexts[static_cast<std::uint8_t>(ProcessFieldId::GpuSharedMemory)] = FormatByteSize(details.gpuSharedMemoryBytes);

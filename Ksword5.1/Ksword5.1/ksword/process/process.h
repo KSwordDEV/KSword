@@ -300,7 +300,11 @@ namespace ks::process
         std::string signatureState;
         std::string signaturePublisher;    // 签名发布者（厂家）名称。
         bool signatureTrusted = false;     // 是否被 Windows 信任链验证通过。
+        bool signatureEvaluated = false;
+        std::int32_t signatureTrustStatus = 0;
         std::string startTimeText;         // 启动时间文本（YYYY-MM-DD HH:MM:SS）。
+        bool architectureKnown = false;
+        std::uint32_t priorityClass = 0;
         std::string architectureText;      // 架构文本（x64/x86/ARM/Unknown）。
         std::string priorityText;          // 优先级文本（Normal/High/...）。
         bool efficiencyModeSupported = false; // 是否成功查询效率模式状态。

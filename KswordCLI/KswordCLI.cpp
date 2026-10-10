@@ -1495,6 +1495,7 @@ namespace
             ks::cli::registerFileAnalysis();
             ks::cli::registerFilePe();
             ks::cli::registerProcessEnumeration();
+            ks::cli::registerProcessFields();
             #endif
             return true;
         }();

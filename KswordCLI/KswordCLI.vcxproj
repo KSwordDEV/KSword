@@ -75,7 +75,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NOMINMAX;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
@@ -91,7 +91,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NOMINMAX;WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
@@ -105,7 +105,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NOMINMAX;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
@@ -121,7 +121,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NOMINMAX;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
@@ -289,5 +289,19 @@
     <ClCompile Include="..\shared\usermode\backend\NtApi.cpp" />
     <ClInclude Include="..\shared\usermode\backend\process\ProcessEnumerator.h" />
     <ClInclude Include="..\shared\usermode\backend\NtApi.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessFields.cpp" />
+    <ClInclude Include="R3ProcessShared.h" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnrichment.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessDetails.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessExtraQueries.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessEnrichment.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessDetails.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessExtraQueries.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessFields.h" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\process\process.cpp" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\process\process.h" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\process\ProcessCpuUsageModel.h" />
   </ItemGroup>
 </Project>

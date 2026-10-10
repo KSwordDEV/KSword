@@ -21,7 +21,7 @@ struct EdpBindings {
     ~EdpBindings() { if (module) ::FreeLibrary(module); }
 };
 
-std::string EnterpriseContext(DWORD pid) {
+std::string EnterpriseContext(DWORD pid, ProcessExtraEvidence& evidence) {
     static const EdpBindings bindings;
     if (!bindings.get || !bindings.free) return ks::str::Utf16ToUtf8(L"系统不支持 WIP 查询");
     struct ContextOwner {
@@ -30,6 +30,7 @@ std::string EnterpriseContext(DWORD pid) {
         ~ContextOwner() { if (value) free(value); }
     } context{ nullptr, bindings.free };
     const HRESULT result = bindings.get(pid, &context.value);
+    evidence.enterpriseStatus = result;
     if (FAILED(result) || !context.value) {
         wchar_t error[64]{};
         ::swprintf_s(error, L"WIP 查询失败：0x%08lX", static_cast<unsigned long>(result));
@@ -37,6 +38,9 @@ std::string EnterpriseContext(DWORD pid) {
     }
     std::wstring text;
     const ULONG states = context.value->states;
+    evidence.enterpriseKnown = true;
+    evidence.enterpriseStates = states;
+    if (context.value->uiIdentity) evidence.enterpriseIdentity = context.value->uiIdentity;
     const auto add = [&text](const wchar_t* value) { if (!text.empty()) text += L" / "; text += value; };
     if (states == 0) add(L"个人");
     if (states & 0x1U) add(L"豁免");
@@ -77,9 +81,12 @@ void QueryEfficiencyFallback(ks::process::ProcessRecord& record) {
 }
 } // namespace
 
-void QueryProcessExtraDetails(ks::process::ProcessRecord& record, std::uint32_t demand, bool needEfficiency) {
+void QueryProcessExtraDetails(ks::process::ProcessRecord& record, std::uint32_t demand, bool needEfficiency, ProcessExtraEvidence* evidence) {
+    ProcessExtraEvidence local;
+    if (!evidence) evidence = &local;
+    *evidence = {};
     if (demand & ks::process::ProcessDetailDemand::EnterpriseContext)
-        record.enterpriseContextText = EnterpriseContext(record.pid);
+        record.enterpriseContextText = EnterpriseContext(record.pid, *evidence);
     if (needEfficiency) QueryEfficiencyFallback(record);
 }
 

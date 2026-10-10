@@ -175,4 +175,18 @@
     <ClInclude Include="..\shared\usermode\backend\process\ProcessEnumerator.h" />
     <ClInclude Include="..\shared\usermode\backend\NtApi.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessFields.cpp" />
+    <ClInclude Include="R3ProcessShared.h" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnrichment.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessDetails.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessExtraQueries.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessEnrichment.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessDetails.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessExtraQueries.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessFields.h" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\process\process.cpp" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\process\process.h" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\process\ProcessCpuUsageModel.h" />
+  </ItemGroup>
 </Project>

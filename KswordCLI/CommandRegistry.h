@@ -87,4 +87,5 @@ void registerFileOwnership();
 void registerFileAnalysis();
 void registerFilePe();
 void registerProcessEnumeration();
+void registerProcessFields();
 }
