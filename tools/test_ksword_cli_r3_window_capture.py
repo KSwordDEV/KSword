@@ -33,7 +33,7 @@ FARPROC WINAPI FixtureProcedure(HMODULE,LPCSTR);
         source=source.replace('if(mode==L"owner-change")assert(actions==0);return result;', 'if(mode==L"owner-change"||mode==L"child")assert(captureSets==0);return result;')
         (directory/'fixture.cpp').write_text(source.replace('REGISTRY',(ROOT/'KswordCLI/CommandRegistry.h').as_posix()),encoding='utf-8');binary=directory/'fixture.exe'
         subprocess.run(['cl','/nologo','/std:c++20','/EHsc','/utf-8','/O2','/DNOMINMAX','/DUNICODE','/D_UNICODE','/FI'+str(directory/'mock.h'),str(directory/'fixture.cpp'),
-                        *[str(ROOT/path) for path in ['KswordCLI/CommandRegistry.cpp','KswordCLI/R3WindowCapture.cpp','shared/usermode/backend/window/WindowEnumerator.cpp','shared/usermode/backend/window/CaptureProtection.cpp','shared/usermode/backend/window/WindowFormatting.cpp','shared/usermode/backend/window/WindowQueries.cpp','shared/usermode/backend/Common.cpp']],
+                        *[str(ROOT/path) for path in ['KswordCLI/CommandRegistry.cpp','KswordCLI/R3WindowCapture.cpp','shared/usermode/backend/window/WindowEnumerator.cpp','shared/usermode/backend/window/CaptureProtection.cpp','shared/usermode/backend/window/WindowListCapture.cpp','shared/usermode/backend/window/WindowFormatting.cpp','shared/usermode/backend/window/WindowQueries.cpp','shared/usermode/backend/Common.cpp']],
                         '/Fe:'+str(binary),'/link','Advapi32.lib','User32.lib'],cwd=directory,check=True)
         def run(mode,code,write=False,affinity='monitor'):
             args=[str(binary),mode,'window','capture','set' if write else 'query','--hwnd','0x1234','--json']

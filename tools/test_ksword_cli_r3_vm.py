@@ -49,7 +49,7 @@ exit $rc
             guest.copy(str(Path(os.environ['LOCALAPPDATA']) / 'KSwordTestBuilds/CLI-R3/R3Fixture.exe'), guest_root + r'\R3Fixture.exe')
         if feature == 'process-modules':
             guest.copy(str(Path(os.environ['LOCALAPPDATA']) / 'KSwordTestBuilds/CLI-R3/R3ModuleFixture.dll'), guest_root + r'\R3ModuleFixture.dll')
-        if feature == 'window-capture':
+        if feature in ('window-capture', 'window-list-capture'):
             guest.copy(str(Path(os.environ['LOCALAPPDATA']) / 'KSwordTestBuilds/CLI-R3/R3CaptureRunner.exe'), guest_root + r'\R3CaptureRunner.exe')
         for name in ('Test-KSwordCliR3.ps1', 'KswordCliR3TestSupport.ps1'):
             guest.copy(str(ROOT / 'tools' / name), guest_root + '\\' + name)
@@ -57,6 +57,8 @@ exit $rc
             guest.copy(str(ROOT / 'tools/Test-KSwordCliR3Privilege.ps1'), guest_root + r'\Test-KSwordCliR3Privilege.ps1')
         if feature in ('kernel-namespace', 'kernel-directory', 'kernel-symlink', 'kernel-objects', 'kernel-base-named-objects', 'kernel-endpoints'):
             guest.copy(str(ROOT / 'tools/KswordCliR3NamespaceOracle.ps1'), guest_root + r'\KswordCliR3NamespaceOracle.ps1')
+        if feature == 'window-list-capture':
+            guest.copy(str(ROOT / 'tools/Test-KSwordCliR3-window-capture.ps1'), guest_root + r'\Test-KSwordCliR3-window-capture.ps1')
         extra_suite = ROOT / ('tools/Test-KSwordCliR3-' + feature + '.ps1')
         if extra_suite.is_file():
             guest.copy(str(extra_suite), guest_root + '\\' + extra_suite.name)

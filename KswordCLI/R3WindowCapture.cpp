@@ -1,6 +1,7 @@
 #include "R3WindowShared.h"
 #include "../shared/usermode/backend/window/WindowEnumerator.h"
 #include "../shared/usermode/backend/window/CaptureProtection.h"
+#include "../shared/usermode/backend/window/WindowListCapture.h"
 namespace ks::cli {
 namespace {
 namespace b=ks::r3::window_tools;
@@ -19,6 +20,7 @@ Json affinity(const b::DisplayAffinityEvidence& e) {
     const auto mode=e.affinity==WDA_NONE?L"none":e.affinity==WDA_MONITOR?L"monitor":e.affinity==WDA_EXCLUDEFROMCAPTURE?L"exclude":L"unknown";
     return Json::object({{L"attempted",Json::boolean(e.attempted)},{L"available",Json::boolean(e.available)},
         {L"value",e.available?Json::hex(e.affinity):Json{}},{L"mode",e.available?Json::string(mode):Json{}},
+        {L"display",e.available?Json::string(ks::r3::window::CaptureAffinityText(e.affinity)):Json{}},
         {L"win32Error",e.error?Json::number(e.error):Json{}}});
 }
 Result query(const Args& a) {
@@ -57,10 +59,10 @@ Result set(const Args& a) {
             {L"attempted",Json::boolean(false)}}),{L"WDA_EXCLUDEFROMCAPTURE semantics require Windows 10 2004 (build 19041). An older or unknown platform is not treated as confirmed exclusion, even if it accepts the attribute."}};
     const auto before=b::QueryDisplayAffinity(lease.handle);b::DisplayAffinityWriteEvidence result;
     if(!lease.ownerMatches())return {3,Json::object({{L"target",lease.json()},{L"attempted",Json::boolean(false)}}),{L"Target changed before submission."}};
-    const auto display=b::ApplyDisplayAffinity(lease.handle,requested,&result);const bool stable=lease.ownerMatches();
+    const auto display=ks::r3::window::ApplyWindowListCaptureAffinity(lease.handle,requested,&result);const bool stable=lease.ownerMatches();
     const bool verified=result.accepted&&result.after.available&&result.after.affinity==requested&&stable;
     const int code=!result.accepted?(result.error==ERROR_NOT_SUPPORTED||result.error==ERROR_CALL_NOT_IMPLEMENTED?5:3):verified?0:6;
-    return {code,Json::object({{L"target",lease.json()},{L"platform",os.json()},{L"requestedMode",Json::string(mode)},{L"requestedValue",Json::hex(requested)},
+    return {code,Json::object({{L"source",Json::string(L"shared WindowListCapture; SetWindowDisplayAffinity + readback")},{L"target",lease.json()},{L"platform",os.json()},{L"requestedMode",Json::string(mode)},{L"requestedValue",Json::hex(requested)},
         {L"callerOwnsWindow",Json::boolean(owned)},{L"topLevel",Json::boolean(top)},{L"attempted",Json::boolean(result.attempted)},
         {L"accepted",Json::boolean(result.accepted)},{L"win32Error",result.error?Json::number(result.error):Json{}},
         {L"before",affinity(before)},{L"after",affinity(result.after)},{L"ownerStillMatches",Json::boolean(stable)},
@@ -71,10 +73,10 @@ void registerWindowCapture() {
     addCommand({L"window capture query",L"KswordCLI.exe window capture query --hwnd HWND [--pid PID] [--tid TID] [--creation-time FILETIME] [--thread-creation-time FILETIME] [--backend r3] [--json]",
         L"Query R3 window display-affinity policy across process boundaries.",
         L"Required: --hwnd. Optional: --pid, --tid, --creation-time (positive, requires --pid), --thread-creation-time (positive, requires --tid), --backend r3, --json.",
-        L"Output: window owner/caller identities, stable match, layered flag and actual GetWindowDisplayAffinity availability/value/mode/error. Suitable layered-window and DWM composition context is required. Unknown does not mean WDA_NONE; unavailable query returns 5, owner change/mismatch 3. Reports policy only, not a capture-pixel proof. No driver, R0 fallback or help-side query.",query});
+        L"Output: window owner/caller identities, stable match, layered flag and actual GetWindowDisplayAffinity availability/value/mode/display/error. Display uses shared WindowListCapture CaptureAffinityText, not status inference. Suitable layered-window and DWM composition context is required. Unknown does not mean WDA_NONE; unavailable query returns 5, owner change/mismatch 3. Reports policy only, not a capture-pixel proof. No driver, R0 fallback or help-side query.",query});
     addCommand({L"window capture set",L"KswordCLI.exe window capture set --hwnd HWND --pid PID --tid TID --creation-time FILETIME --thread-creation-time FILETIME --mode none|monitor|exclude [--backend r3] [--json]",
         L"Set and verify display affinity only in the owning-process context.",
         L"Required: --hwnd, --pid, --tid, --creation-time, --thread-creation-time, --mode none|monitor|exclude. Optional: --backend r3, --json.",
-        L"Output: guarded target, RtlGetVersion platform evidence, requested value, actual API acceptance/error, before/after readback and verified effect. The backend supports only the caller's top-level HWND: standalone CLI cannot set another application's window and returns 5 without a write. Same-process consumer/fixture context can exercise the adapter; no window injection or R0 extension is added. Process/thread handles are retained and ownership rechecked; same-thread HWND reuse remains a Win32 limitation. WDA_EXCLUDEFROMCAPTURE (0x11) requires known Windows 10 2004/build 19041 or later; older/unknown platforms return 5 before writing. Downgrade/readback failure returns 6, actual set failure 3/unsupported 5, match 0. Help does not set/query attributes.",set});
+        L"Output: shared WindowListCapture source, guarded target, RtlGetVersion platform evidence, requested value, actual API acceptance/error, before/after readback (including shared CaptureAffinityText display label) and verified effect. Display text is descriptive only; success comes from typed acceptance/readback and retained owner identity. The backend supports only the caller's top-level HWND: standalone CLI cannot set another application's window and returns 5 without a write. Same-process consumer/fixture context can exercise the adapter; no window injection or R0 extension is added. Process/thread handles are retained and ownership rechecked; same-thread HWND reuse remains a Win32 limitation. WDA_EXCLUDEFROMCAPTURE (0x11) requires known Windows 10 2004/build 19041 or later; older/unknown platforms return 5 before writing. Downgrade/readback failure returns 6, actual set failure 3/unsupported 5, match 0. Help does not set/query attributes.",set});
 }
 }

@@ -1,5 +1,13 @@
 # 窗口 R3 命令
 
+## 窗口列表捕获保护适配（迁移项 64）
+
+本项复用已有 `window capture query`／`window capture set`，不增加重复操作入口。set 调用共享 WindowListCapture::ApplyWindowListCaptureAffinity 的结构化结果，query／回读使用其 CaptureAffinityText 显示说明；显示文字不用于判定成功。参数、None／Monitor／Exclude 模式、进程／线程创建时间与当前进程顶层窗口限制、19041 Exclude 平台门禁均保持原有语义（见迁移项 38）。
+
+set data 新增 source=`shared WindowListCapture; SetWindowDisplayAffinity + readback`，affinity 的 before/after 与 query data 增加 display；实际 accepted/error/after.value/ownerStillMatches/verified 决定结果。回读失败、降级或身份变化仍是部分证据 6，API 失败 3／不支持 5；独立 CLI 不拥有其他应用的窗口，拒绝该写入为 5。属性设置不等于捕获像素实证。help 不读写窗口。
+
+每项测试复用原有所有权／平台／回读失败／降级／目标变化夹具，并在 VMware 中用同进程原生消费者执行生产 CLI 适配层设置三种策略，再通过 SDK 回读核对。该测试不代表独立 CLI 可以跨进程设置属性；跨进程拒绝及状态未改变另行验证。
+
 ## 全局热键探测（迁移项 40）
 
 ```powershell
