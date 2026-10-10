@@ -16,4 +16,8 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ItemGroup><ClCompile Include="HotkeyFixture.cpp" /><ClInclude Include="HotkeyFixture.h" /><ResourceCompile Include="HotkeyFixture.rc" /></ItemGroup>
   <ItemGroup><ClCompile Include="WindowFixture.cpp" /><ClInclude Include="WindowFixture.h" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="EtwFixture.cpp" />
+    <ClInclude Include="EtwFixture.h" />
+  </ItemGroup>
 </Project>

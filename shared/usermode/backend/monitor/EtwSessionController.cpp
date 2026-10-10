@@ -26,13 +26,14 @@ std::wstring Win32ErrorText(const wchar_t* action, const ULONG errorCode) {
 }
 
 std::wstring BuildSessionName() {
+    static std::atomic<unsigned long long> serial{0};
     wchar_t buffer[128] = {};
     std::swprintf(
         buffer,
         std::size(buffer),
-        L"KswordARKLight-ETW-%lu-%llu",
+        L"KswordARKLight-ETW-%lu-%llu-%llu",
         ::GetCurrentProcessId(),
-        static_cast<unsigned long long>(::GetTickCount64()));
+        static_cast<unsigned long long>(::GetTickCount64()),++serial);
     return buffer;
 }
 
@@ -41,6 +42,8 @@ std::vector<unsigned char> MakeTracePropertiesBuffer(const std::wstring& session
     auto* properties = reinterpret_cast<EVENT_TRACE_PROPERTIES*>(buffer.data());
     properties->Wnode.BufferSize = static_cast<ULONG>(buffer.size());
     properties->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
+    properties->Wnode.ClientContext = 2; // EventHeader timestamp is system FILETIME, not guessed QPC.
+    properties->FlushTimer = 1;
     properties->LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
     properties->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
     properties->LogFileNameOffset = sizeof(EVENT_TRACE_PROPERTIES) + 512U * sizeof(wchar_t);
@@ -84,7 +87,7 @@ void EtwSessionController::setStatusCallback(StatusCallback callback) {
 }
 
 bool EtwSessionController::start(const EtwFilterState& filterState) {
-    if (running()) {
+    if (running() || sessionHandle_.load() != 0) {
         publishLastError(L"ETW session is already running.");
         return false;
     }
@@ -95,15 +98,13 @@ bool EtwSessionController::start(const EtwFilterState& filterState) {
 
     filterState_ = filterState;
     sessionName_ = BuildSessionName();
+    {std::lock_guard<std::mutex> lock(mutex_);evidence_ = {};evidence_.sessionName = sessionName_;evidence_.startAttempted = true;}
     std::vector<unsigned char> propertiesBuffer = MakeTracePropertiesBuffer(sessionName_);
     auto* properties = reinterpret_cast<EVENT_TRACE_PROPERTIES*>(propertiesBuffer.data());
 
     TRACEHANDLE newSessionHandle = 0;
     ULONG status = ::StartTraceW(&newSessionHandle, sessionName_.c_str(), properties);
-    if (status == ERROR_ALREADY_EXISTS) {
-        (void)::ControlTraceW(0, sessionName_.c_str(), properties, EVENT_TRACE_CONTROL_STOP);
-        status = ::StartTraceW(&newSessionHandle, sessionName_.c_str(), properties);
-    }
+    {std::lock_guard<std::mutex> lock(mutex_);evidence_.startStatus = status;evidence_.startSucceeded = status == ERROR_SUCCESS;}
     if (status != ERROR_SUCCESS) {
         publishLastError(Win32ErrorText(L"StartTraceW", status));
         return false;
@@ -125,9 +126,8 @@ bool EtwSessionController::start(const EtwFilterState& filterState) {
     }
     catch (...) {
         running_.store(false);
-        (void)::ControlTraceW(newSessionHandle, sessionName_.c_str(), properties, EVENT_TRACE_CONTROL_STOP);
-        sessionHandle_.store(0);
-        sessionName_.clear();
+        {std::lock_guard<std::mutex> lock(mutex_);evidence_.threadStartFailed = true;}
+        stopOwnedSession();
         publishLastError(L"failed to create ETW consumer thread");
         return false;
     }
@@ -138,32 +138,40 @@ bool EtwSessionController::start(const EtwFilterState& filterState) {
 
 void EtwSessionController::stop() {
     const bool wasRunning = running_.exchange(false);
-    if (!wasRunning && !workerThread_.joinable()) {
+    if (!wasRunning && !workerThread_.joinable() && sessionHandle_.load() == 0) {
         return;
     }
     stopRequested_.store(true);
 
-    const TRACEHANDLE ownedSessionHandle = sessionHandle_.exchange(0);
-    if (ownedSessionHandle != 0 && !sessionName_.empty()) {
-        std::vector<unsigned char> propertiesBuffer = MakeTracePropertiesBuffer(sessionName_);
-        auto* properties = reinterpret_cast<EVENT_TRACE_PROPERTIES*>(propertiesBuffer.data());
-        (void)::ControlTraceW(
-            ownedSessionHandle,
-            sessionName_.c_str(),
-            properties,
-            EVENT_TRACE_CONTROL_STOP);
-    }
+    stopOwnedSession();if (sessionHandle_.load() != 0) closeConsumer();
 
     if (workerThread_.joinable()) {
         workerThread_.join();
     }
 
-    sessionName_.clear();
+    stopOwnedSession();if (sessionHandle_.load() == 0) sessionName_.clear();
     publishStatus(L"ETW session stopped.");
 }
 
 bool EtwSessionController::running() const {
     return running_.load();
+}
+EtwSessionEvidence EtwSessionController::evidence() const {
+    std::lock_guard<std::mutex> lock(mutex_);return evidence_;
+}
+void EtwSessionController::stopOwnedSession() {
+    std::lock_guard<std::mutex> operation(resourceMutex_);const auto handle = sessionHandle_.load();if (!handle || sessionName_.empty()) return;
+    auto buffer = MakeTracePropertiesBuffer(sessionName_);auto* properties = reinterpret_cast<EVENT_TRACE_PROPERTIES*>(buffer.data());
+    const auto status = ::ControlTraceW(handle,sessionName_.c_str(),properties,EVENT_TRACE_CONTROL_STOP);
+    {std::lock_guard<std::mutex> lock(mutex_);evidence_.stopStatuses.push_back(status);
+        if (status == ERROR_SUCCESS) {evidence_.statisticsKnown = true;evidence_.eventsLost = properties->EventsLost;evidence_.logBuffersLost = properties->LogBuffersLost;evidence_.realTimeBuffersLost = properties->RealTimeBuffersLost;}
+        if (status == ERROR_SUCCESS || status == ERROR_WMI_INSTANCE_NOT_FOUND) evidence_.sessionStopped = true;
+    }
+    if (status == ERROR_SUCCESS || status == ERROR_WMI_INSTANCE_NOT_FOUND) sessionHandle_.store(0);
+}
+void EtwSessionController::closeConsumer() {
+    const auto handle = consumerHandle_.exchange(INVALID_PROCESSTRACE_HANDLE);if (handle == INVALID_PROCESSTRACE_HANDLE) return;
+    const auto status = ::CloseTrace(handle);std::lock_guard<std::mutex> lock(mutex_);evidence_.closeAttempted = true;evidence_.closeStatus = status;
 }
 
 std::wstring EtwSessionController::lastError() const {
@@ -176,20 +184,23 @@ VOID WINAPI EtwSessionController::EventRecordCallback(EVENT_RECORD* record) {
         return;
     }
     auto* controller = static_cast<EtwSessionController*>(record->UserContext);
-    controller->handleEventRecord(record);
+    try {controller->handleEventRecord(record);}catch (...) {std::lock_guard<std::mutex> lock(controller->mutex_);controller->evidence_.callbackFailed = true;}
 }
 
 void EtwSessionController::handleEventRecord(EVENT_RECORD* record) {
-    if (record == nullptr || stopRequested_.load()) {
+    if (record == nullptr) {
         return;
     }
 
     const EVENT_HEADER& header = record->EventHeader;
+    {std::lock_guard<std::mutex> lock(mutex_);++evidence_.receivedEvents;}
     if (!EventMatchesFilter(header.ProcessId, header.EventDescriptor.Level, filterState_)) {
+        std::lock_guard<std::mutex> lock(mutex_);++evidence_.filteredEvents;
         return;
     }
 
     EtwEvent eventRow{};
+    eventRow.timestamp = static_cast<std::uint64_t>(header.TimeStamp.QuadPart);
     eventRow.timeText = FileTimeToLocalText(header.TimeStamp);
     eventRow.providerText = GuidToString(header.ProviderId);
     eventRow.eventId = header.EventDescriptor.Id;
@@ -208,25 +219,12 @@ void EtwSessionController::handleEventRecord(EVENT_RECORD* record) {
         callback = eventCallback_;
     }
     if (callback) {
-        callback(eventRow);
+        try {callback(eventRow);}catch (...) {std::lock_guard<std::mutex> lock(mutex_);evidence_.callbackFailed = true;}
     }
 }
 
 void EtwSessionController::workerLoop() {
     const std::wstring sessionName = sessionName_;
-    const auto stopOwnedSession = [this, &sessionName]() {
-        const TRACEHANDLE ownedSessionHandle = sessionHandle_.exchange(0);
-        if (ownedSessionHandle == 0 || sessionName.empty()) {
-            return;
-        }
-        std::vector<unsigned char> propertiesBuffer = MakeTracePropertiesBuffer(sessionName);
-        auto* properties = reinterpret_cast<EVENT_TRACE_PROPERTIES*>(propertiesBuffer.data());
-        (void)::ControlTraceW(
-            ownedSessionHandle,
-            sessionName.c_str(),
-            properties,
-            EVENT_TRACE_CONTROL_STOP);
-    };
 
     if (stopRequested_.load()) {
         running_.store(false);
@@ -240,8 +238,10 @@ void EtwSessionController::workerLoop() {
     logFile.Context = this;
 
     const TRACEHANDLE traceHandle = ::OpenTraceW(&logFile);
+    const ULONG openStatus = traceHandle == INVALID_PROCESSTRACE_HANDLE ? ::GetLastError() : ERROR_SUCCESS;
+    {std::lock_guard<std::mutex> lock(mutex_);evidence_.openAttempted = true;evidence_.openStatus = openStatus;}
     if (traceHandle == INVALID_PROCESSTRACE_HANDLE) {
-        const ULONG errorCode = ::GetLastError();
+        const ULONG errorCode = openStatus;
         stopOwnedSession();
         const bool stopped = stopRequested_.load();
         running_.store(false);
@@ -250,17 +250,20 @@ void EtwSessionController::workerLoop() {
         }
         return;
     }
+    consumerHandle_.store(traceHandle);
 
     if (stopRequested_.load()) {
-        (void)::CloseTrace(traceHandle);
+        closeConsumer();
         stopOwnedSession();
         running_.store(false);
         return;
     }
 
     TRACEHANDLE handles[] = { traceHandle };
+    {std::lock_guard<std::mutex> lock(mutex_);evidence_.processAttempted = true;}
     const ULONG status = ::ProcessTrace(handles, 1, nullptr, nullptr);
-    (void)::CloseTrace(traceHandle);
+    {std::lock_guard<std::mutex> lock(mutex_);evidence_.processCompleted = true;evidence_.processStatus = status;}
+    closeConsumer();
     stopOwnedSession();
 
     const bool stopped = stopRequested_.load();
@@ -290,6 +293,7 @@ bool EtwSessionController::enableProviders() {
             0,
             0,
             &parameters);
+        {std::lock_guard<std::mutex> lock(mutex_);evidence_.providers.push_back({provider.name,GuidToString(provider.providerGuid),status});}
         if (status != ERROR_SUCCESS) {
             publishLastError(Win32ErrorText(L"EnableTraceEx2", status));
             continue;

@@ -441,4 +441,13 @@
     <ClCompile Include="..\shared\usermode\backend\window\GlobalHotkeyProbe.cpp" />
     <ClInclude Include="..\shared\usermode\backend\window\GlobalHotkeyProbe.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3MonitorEtw.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\monitor\EtwSessionController.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\monitor\EtwEventModel.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\monitor\EtwFilterModel.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\monitor\EtwSessionController.h" />
+    <ClInclude Include="..\shared\usermode\backend\monitor\EtwEventModel.h" />
+    <ClInclude Include="..\shared\usermode\backend\monitor\EtwFilterModel.h" />
+  </ItemGroup>
 </Project>

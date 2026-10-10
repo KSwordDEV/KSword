@@ -4,6 +4,7 @@
 #include "ModuleFixtureHost.h"
 #include "HotkeyFixture.h"
 #include "WindowFixture.h"
+#include "EtwFixture.h"
 
 namespace {
 SERVICE_STATUS_HANDLE statusHandle;
@@ -32,6 +33,7 @@ void WINAPI serviceMain(DWORD count,LPWSTR* args) {
 }
 }
 int wmain(int argc,wchar_t* argv[]) {
+    if(argc==3 && std::wcscmp(argv[1],L"--etw")==0) return RunEtwFixture(argv[2]);
     if(argc==3 && std::wcscmp(argv[1],L"--windows-hierarchy")==0) return RunWindowFixture(argv[2],false,false,true);
     if(argc==3 && std::wcscmp(argv[1],L"--windows")==0) return RunWindowFixture(argv[2],false,false);
     if(argc==3 && std::wcscmp(argv[1],L"--windows-ignore-close")==0) return RunWindowFixture(argv[2],true,false);
