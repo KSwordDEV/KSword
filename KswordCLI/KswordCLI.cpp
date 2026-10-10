@@ -1512,6 +1512,7 @@ namespace
             ks::cli::registerHardwareUsb();
             ks::cli::registerHardwareBus();
             ks::cli::registerWindow();
+            ks::cli::registerClipboardRead();
             #endif
             return true;
         }();

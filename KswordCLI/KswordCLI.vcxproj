@@ -414,4 +414,12 @@
     <ClInclude Include="..\shared\usermode\backend\window\WindowFormatting.h" />
     <ClInclude Include="..\shared\usermode\backend\window\WindowTypes.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3Clipboard.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\Clipboard.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\WindowQueries.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\Clipboard.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowQueries.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowToolsTypes.h" />
+  </ItemGroup>
 </Project>

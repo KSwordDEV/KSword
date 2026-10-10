@@ -104,4 +104,5 @@ void registerHardwareDisk();
 void registerHardwareUsb();
 void registerHardwareBus();
 void registerWindow();
+void registerClipboardRead();
 }

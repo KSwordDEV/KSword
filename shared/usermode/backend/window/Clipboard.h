@@ -39,6 +39,20 @@ struct ClipboardFormatInfo final {
     std::wstring sizeText;
     std::wstring note;
     std::wstring preview;
+    bool nameKnown = false,dataRequested = false,dataAvailable = false,sizeKnown = false;
+    SIZE_T byteSize = 0;
+    DWORD nameError = ERROR_SUCCESS,dataError = ERROR_SUCCESS,sizeError = ERROR_SUCCESS;
+};
+struct ClipboardTextEvidence {
+    bool attempted = false,available = false,sizeKnown = false,malformed = false,truncated = false;
+    bool terminationKnown = false,terminated = false,unlockAttempted = false,unlocked = true;
+    SIZE_T byteSize = 0;
+    DWORD error = ERROR_SUCCESS,unlockError = ERROR_SUCCESS,codePage = 0;
+};
+struct ClipboardCaptureOptions {
+    bool materialize = true,previews = true,ownerDescriptions = true,autoText = false;
+    UINT textFormat = 0;
+    std::size_t previewUnits = kPreviewCharLimit;
 };
 struct ClipboardSnapshot final {
     bool opened = false;
@@ -49,10 +63,17 @@ struct ClipboardSnapshot final {
     HWND openerWindow = nullptr;
     HWND viewerWindow = nullptr;
     DWORD ownerProcessId = 0;
+    DWORD ownerThreadId = 0,ownerError = ERROR_SUCCESS;
     std::wstring ownerTitle;
     std::wstring ownerClass;
     std::wstring ownerProcess;
     std::vector<ClipboardFormatInfo> formats;
+    bool countKnown = false,enumComplete = false,limited = false,changed = false,closed = true,closeAttempted = false;
+    DWORD countError = ERROR_SUCCESS,enumError = ERROR_SUCCESS,closeError = ERROR_SUCCESS,sequenceAfter = 0;
+    UINT textFormat = 0;
+    bool textFormatAvailable = false;
+    std::wstring text;
+    ClipboardTextEvidence textEvidence;
 };
 class ScopedClipboard final {
 public:
@@ -70,28 +91,33 @@ public:
         }
     }
 
-    ~ScopedClipboard() {
-        if (opened_) {
-            ::CloseClipboard();
-        }
-    }
+    ~ScopedClipboard() { close(); }
 
     ScopedClipboard(const ScopedClipboard&) = delete;
     ScopedClipboard& operator=(const ScopedClipboard&) = delete;
 
     bool opened() const noexcept { return opened_; }
     DWORD lastError() const noexcept { return lastError_; }
+    bool close() noexcept {
+        if (!opened_ || closeAttempted_) return closeSucceeded_;
+        closeAttempted_ = true;::SetLastError(ERROR_SUCCESS);closeSucceeded_ = ::CloseClipboard() != FALSE;
+        if (!closeSucceeded_) closeError_ = ::GetLastError();return closeSucceeded_;
+    }
+    bool closeAttempted() const noexcept { return closeAttempted_; }
+    DWORD closeError() const noexcept { return closeError_; }
 
 private:
     bool opened_ = false;
     DWORD lastError_ = 0;
+    bool closeAttempted_ = false,closeSucceeded_ = true;
+    DWORD closeError_ = ERROR_SUCCESS;
 };
 std::wstring PredefinedFormatName(const UINT format);
 std::wstring FormatCategory(const UINT format);
 bool IsHandleBackedFormat(const UINT format);
-std::wstring ResolveFormatName(const UINT format);
+std::wstring ResolveFormatName(const UINT format,bool* known = nullptr,DWORD* error = nullptr);
 std::wstring ByteSizeText(const SIZE_T bytes);
-std::wstring ReadUnicodePreview(bool& truncated);
-std::wstring ReadAnsiPreview(bool& truncated);
-ClipboardSnapshot CaptureClipboardSnapshot(HWND owner);
+std::wstring ReadUnicodePreview(bool& truncated,ClipboardTextEvidence* evidence = nullptr,std::size_t limit = kPreviewCharLimit);
+std::wstring ReadAnsiPreview(bool& truncated,ClipboardTextEvidence* evidence = nullptr,std::size_t limit = kPreviewCharLimit);
+ClipboardSnapshot CaptureClipboardSnapshot(HWND owner,const ClipboardCaptureOptions& options = {});
 }
