@@ -1490,6 +1490,7 @@ namespace
             ks::cli::registerStartupActions();
             ks::cli::registerPrivilege(dispatchNested);
             ks::cli::registerFileDirectory();
+            ks::cli::registerFileOperations();
             #endif
             return true;
         }();

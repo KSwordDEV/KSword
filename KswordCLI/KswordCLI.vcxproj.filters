@@ -145,4 +145,10 @@
     <ClInclude Include="..\shared\usermode\backend\file\DirectorySupport.h" />
     <ClInclude Include="..\shared\usermode\backend\file\PathNavigator.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3FileOperations.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\FileOperations.cpp" />
+    <ClInclude Include="R3FileShared.h" />
+    <ClInclude Include="..\shared\usermode\backend\file\FileOperations.h" />
+  </ItemGroup>
 </Project>

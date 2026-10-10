@@ -22,36 +22,64 @@ bool CopyOrMovePathToFolder(
     const std::wstring& targetFolder,
     bool move,
     std::wstring& statusOut) {
+    const auto result = TransferPathToFolder(sourcePath, targetFolder, move);
+    statusOut = result.message;
+    return result.success;
+}
+FileOperationResult TransferPathToFolder(const std::wstring& sourcePath, const std::wstring& targetFolder, bool move) {
+    FileOperationResult result;
     if (sourcePath.empty() || targetFolder.empty()) {
-        statusOut = L"源路径或目标文件夹为空。";
-        return false;
+        result.message = L"源路径或目标文件夹为空。";
+        result.errorCode = ERROR_INVALID_PARAMETER;
+        return result;
     }
 
     std::error_code error;
     const std::filesystem::path source(sourcePath);
     const std::filesystem::path target = std::filesystem::path(targetFolder) / source.filename();
+    result.target = target.wstring();
     if (move) {
         std::filesystem::rename(source, target, error);
         if (error) {
             std::filesystem::copy(source, target, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, error);
             if (!error) {
+                result.copied = true;
                 std::filesystem::remove_all(source, error);
             }
+        } else {
+            result.sourceRemoved = true;
         }
     } else {
         std::filesystem::copy(source, target, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, error);
     }
 
-    if (error) {
-        statusOut = std::wstring(move ? L"移动失败: " : L"复制失败: ") + std::wstring(error.message().begin(), error.message().end());
-        return false;
+    if (!error) {
+        result.copied = !move || result.copied;
+        result.sourceRemoved = move;
     }
-    statusOut = std::wstring(move ? L"已移动到: " : L"已复制到: ") + target.wstring();
-    return true;
+
+    if (error) {
+        result.errorCode = static_cast<DWORD>(error.value());
+        result.errorCategory = error.category().name();
+        const auto message = error.message();
+        result.message = std::wstring(move ? L"移动失败: " : L"复制失败: ") + std::wstring(message.begin(), message.end());
+        std::error_code probe;
+        result.partial = result.copied || std::filesystem::exists(target, probe);
+        return result;
+    }
+    result.success = true;
+    result.message = std::wstring(move ? L"已移动到: " : L"已复制到: ") + target.wstring();
+    return result;
 }
 std::wstring CreateEmptyFile(const std::wstring& directory) {
+    const auto result = CreateEmptyFileResult(directory);
+    return result.success ? result.target : std::wstring{};
+}
+FileOperationResult CreateEmptyFileResult(const std::wstring& directory) {
+    FileOperationResult result;
     if (directory.empty()) {
-        return {};
+        result.errorCode = ERROR_INVALID_PARAMETER;
+        return result;
     }
     for (int index = 1; index < 1000; ++index) {
         const std::wstring name = index == 1 ? L"新建文件.txt" : L"新建文件 (" + std::to_wstring(index) + L").txt";
@@ -59,29 +87,45 @@ std::wstring CreateEmptyFile(const std::wstring& directory) {
         HANDLE file = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (file != INVALID_HANDLE_VALUE) {
             ::CloseHandle(file);
-            return path;
+            result.target = path;
+            result.success = true;
+            result.errorCode = ERROR_SUCCESS;
+            return result;
         }
-        if (::GetLastError() != ERROR_FILE_EXISTS && ::GetLastError() != ERROR_ALREADY_EXISTS) {
-            return {};
+        result.errorCode = ::GetLastError();
+        if (result.errorCode != ERROR_FILE_EXISTS && result.errorCode != ERROR_ALREADY_EXISTS) {
+            return result;
         }
     }
-    return {};
+    result.errorCode = ERROR_ALREADY_EXISTS;
+    return result;
 }
 std::wstring CreateNewDirectory(const std::wstring& directory) {
+    const auto result = CreateNewDirectoryResult(directory);
+    return result.success ? result.target : std::wstring{};
+}
+FileOperationResult CreateNewDirectoryResult(const std::wstring& directory) {
+    FileOperationResult result;
     if (directory.empty()) {
-        return {};
+        result.errorCode = ERROR_INVALID_PARAMETER;
+        return result;
     }
     for (int index = 1; index < 1000; ++index) {
         const std::wstring name = index == 1 ? L"新建文件夹" : L"新建文件夹 (" + std::to_wstring(index) + L")";
         const std::wstring path = PathNavigator::joinChildPath(directory, name);
         if (::CreateDirectoryW(path.c_str(), nullptr)) {
-            return path;
+            result.target = path;
+            result.success = true;
+            result.errorCode = ERROR_SUCCESS;
+            return result;
         }
-        if (::GetLastError() != ERROR_ALREADY_EXISTS) {
-            return {};
+        result.errorCode = ::GetLastError();
+        if (result.errorCode != ERROR_ALREADY_EXISTS) {
+            return result;
         }
     }
-    return {};
+    result.errorCode = ERROR_ALREADY_EXISTS;
+    return result;
 }
 std::wstring ShortPathForFile(const std::wstring& path) {
     const DWORD needed = ::GetShortPathNameW(path.c_str(), nullptr, 0);
@@ -96,15 +140,21 @@ std::wstring ShortPathForFile(const std::wstring& path) {
     shortPath.resize(written);
     return shortPath;
 }
-std::wstring ResolveLinkTarget(const std::wstring& path) {
+std::wstring ResolveLinkTarget(const std::wstring& path, HRESULT* statusOut) {
+    if (statusOut) *statusOut = E_INVALIDARG;
     if (path.size() < 4 || _wcsicmp(path.c_str() + path.size() - 4, L".lnk") != 0) {
         return {};
     }
     const HRESULT initResult = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     const bool uninitializeCom = initResult == S_OK || initResult == S_FALSE;
+    if (FAILED(initResult) && initResult != RPC_E_CHANGED_MODE) {
+        if (statusOut) *statusOut = initResult;
+        return {};
+    }
     IShellLinkW* shellLink = nullptr;
     HRESULT hr = ::CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&shellLink));
     if (FAILED(hr) || shellLink == nullptr) {
+        if (statusOut) *statusOut = hr;
         if (uninitializeCom) {
             ::CoUninitialize();
         }
@@ -113,6 +163,7 @@ std::wstring ResolveLinkTarget(const std::wstring& path) {
     IPersistFile* persistFile = nullptr;
     hr = shellLink->QueryInterface(IID_PPV_ARGS(&persistFile));
     if (FAILED(hr) || persistFile == nullptr) {
+        if (statusOut) *statusOut = hr;
         shellLink->Release();
         if (uninitializeCom) {
             ::CoUninitialize();
@@ -127,6 +178,7 @@ std::wstring ResolveLinkTarget(const std::wstring& path) {
     }
     persistFile->Release();
     shellLink->Release();
+    if (statusOut) *statusOut = hr;
     if (uninitializeCom) {
         ::CoUninitialize();
     }

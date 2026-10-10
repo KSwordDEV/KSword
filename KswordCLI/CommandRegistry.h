@@ -80,4 +80,5 @@ void registerStartupEnumeration();
 void registerStartupActions();
 void registerPrivilege(std::function<int(std::vector<std::wstring>)> dispatch);
 void registerFileDirectory();
+void registerFileOperations();
 }
