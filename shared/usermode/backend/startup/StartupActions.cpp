@@ -23,6 +23,13 @@ namespace {
 constexpr wchar_t kServiceDisabledStore[] = L"Software\\KswordARKLight\\DisabledStartup\\Services";
 constexpr wchar_t kDisabledStartupFolderBase[] = L"KswordARKLight\\DisabledStartup\\StartupFolder";
 
+StartupActionResult Failure(const std::wstring& message,DWORD error,bool partial=false) {
+    StartupActionResult result{false,message};result.win32Error=error;result.partial=partial;return result;
+}
+StartupActionResult ComFailure(const std::wstring& message,HRESULT error) {
+    StartupActionResult result{false,message};result.hresult=static_cast<std::uint32_t>(error);return result;
+}
+
 // IsReadOnlyServiceObservation identifies service records that Startup may show
 // for investigation but must never mutate or open through a management surface.
 // Input is a startup kind; output is true only for the two read-only sources.
@@ -36,9 +43,9 @@ bool IsReadOnlyServiceObservation(StartupEntryKind kind) {
 // surface.
 StartupActionResult RejectReadOnlyServiceAction(const StartupEntry& entry) {
     if (entry.kind == StartupEntryKind::RegistryOnlyService) {
-        return { false, L"Registry-observed service entries are read-only in Lite; enable, disable, delete, and open are unavailable." };
+        StartupActionResult result{false,L"Registry-observed service entries are read-only in Lite; enable, disable, delete, and open are unavailable."};result.unsupported=true;return result;
     }
-    return { false, L"Driver startup entries are read-only in Lite; enable, disable, delete, and open are unavailable." };
+    StartupActionResult result{false,L"Driver startup entries are read-only in Lite; enable, disable, delete, and open are unavailable."};result.unsupported=true;return result;
 }
 
 // RegKey owns an HKEY for StartupActions mutations. Inputs are handles returned
@@ -223,6 +230,7 @@ struct ScheduledTaskConnection {
     bool success = false;
     std::wstring message;
     TaskPathParts parts;
+    HRESULT hresult=S_OK;
     ComApartment apartment;
     ComPtr<ITaskService> service;
     ComPtr<ITaskFolder> folder;
@@ -329,11 +337,13 @@ ScheduledTaskConnection OpenScheduledTask(const StartupEntry& entry) {
     ScheduledTaskConnection connection;
     const std::wstring fullPath = NormalizeTaskPath(entry);
     if (!SplitTaskPath(fullPath, &connection.parts)) {
+        connection.hresult=E_INVALIDARG;
         connection.message = L"计划任务路径无效。";
         return connection;
     }
 
     if (!connection.apartment.ok()) {
+        connection.hresult=connection.apartment.result();
         connection.message = L"CoInitializeEx failed: " + HResultText(connection.apartment.result());
         return connection;
     }
@@ -341,6 +351,7 @@ ScheduledTaskConnection OpenScheduledTask(const StartupEntry& entry) {
 
     HRESULT hr = ::CoCreateInstance(CLSID_TaskScheduler, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(connection.service.put()));
     if (FAILED(hr) || !connection.service) {
+        connection.hresult=hr;
         connection.message = L"创建 Task Scheduler 服务失败: " + HResultText(hr);
         return connection;
     }
@@ -349,28 +360,33 @@ ScheduledTaskConnection OpenScheduledTask(const StartupEntry& entry) {
     ::VariantInit(&empty);
     hr = connection.service->Connect(empty, empty, empty, empty);
     if (FAILED(hr)) {
+        connection.hresult=hr;
         connection.message = L"连接 Task Scheduler 失败: " + HResultText(hr);
         return connection;
     }
 
     const BStr folderPath(connection.parts.folderPath);
     if (!folderPath.valid()) {
+        connection.hresult=E_OUTOFMEMORY;
         connection.message = L"分配计划任务文件夹路径失败。";
         return connection;
     }
     hr = connection.service->GetFolder(folderPath.get(), connection.folder.put());
     if (FAILED(hr) || !connection.folder) {
+        connection.hresult=hr;
         connection.message = L"打开计划任务文件夹失败: " + connection.parts.folderPath + L" | " + HResultText(hr);
         return connection;
     }
 
     const BStr taskName(connection.parts.taskName);
     if (!taskName.valid()) {
+        connection.hresult=E_OUTOFMEMORY;
         connection.message = L"分配计划任务名称失败。";
         return connection;
     }
     hr = connection.folder->GetTask(taskName.get(), connection.task.put());
     if (FAILED(hr) || !connection.task) {
+        connection.hresult=hr;
         connection.message = L"打开计划任务失败: " + connection.parts.fullPath + L" | " + HResultText(hr);
         return connection;
     }
@@ -385,13 +401,18 @@ ScheduledTaskConnection OpenScheduledTask(const StartupEntry& entry) {
 StartupActionResult SetScheduledTaskEnabled(const StartupEntry& entry, bool enabled) {
     ScheduledTaskConnection connection = OpenScheduledTask(entry);
     if (!connection.success) {
-        return { false, connection.message };
+        return ComFailure(connection.message,connection.hresult);
     }
     const HRESULT hr = connection.task->put_Enabled(enabled ? VARIANT_TRUE : VARIANT_FALSE);
     if (FAILED(hr)) {
-        return { false, std::wstring(enabled ? L"启用计划任务失败: " : L"禁用计划任务失败: ") + HResultText(hr) };
+        return ComFailure(std::wstring(enabled ? L"启用计划任务失败: " : L"禁用计划任务失败: ")+HResultText(hr),hr);
     }
-    return { true, std::wstring(enabled ? L"计划任务已启用: " : L"计划任务已禁用: ") + connection.parts.fullPath };
+    StartupActionResult result{true,std::wstring(enabled ? L"计划任务已启用: " : L"计划任务已禁用: ")+connection.parts.fullPath};
+    VARIANT_BOOL observed=VARIANT_FALSE;
+    const auto readStatus=connection.task->get_Enabled(&observed);
+    result.taskStateKnown=SUCCEEDED(readStatus);result.taskEnabled=observed!=VARIANT_FALSE;
+    if(FAILED(readStatus)) {result.partial=true;result.hresult=static_cast<std::uint32_t>(readStatus);}
+    return result;
 }
 
 // DeleteScheduledTask removes one registered task from its parent folder. Input
@@ -400,7 +421,7 @@ StartupActionResult SetScheduledTaskEnabled(const StartupEntry& entry, bool enab
 StartupActionResult DeleteScheduledTask(const StartupEntry& entry) {
     ScheduledTaskConnection connection = OpenScheduledTask(entry);
     if (!connection.success) {
-        return { false, connection.message };
+        return ComFailure(connection.message,connection.hresult);
     }
     const BStr taskName(connection.parts.taskName);
     if (!taskName.valid()) {
@@ -408,7 +429,7 @@ StartupActionResult DeleteScheduledTask(const StartupEntry& entry) {
     }
     const HRESULT hr = connection.folder->DeleteTask(taskName.get(), 0);
     if (FAILED(hr)) {
-        return { false, L"删除计划任务失败: " + HResultText(hr) };
+        return ComFailure(L"删除计划任务失败: "+HResultText(hr),hr);
     }
     return { true, L"计划任务已删除: " + connection.parts.fullPath };
 }
@@ -483,36 +504,22 @@ std::wstring DisabledStartupFolder(StartupEntryScope scope) {
 
 // OpenRegistryKey opens or creates a key for registry actions. Inputs are root,
 // subkey, access, view, and creation mode; output is an owning key or empty key.
-RegKey OpenRegistryKey(HKEY root, const std::wstring& subKey, REGSAM access, DWORD view, bool create) {
+RegKey OpenRegistryKey(HKEY root, const std::wstring& subKey, REGSAM access, DWORD view, bool create,LSTATUS* statusOut=nullptr) {
     HKEY raw = nullptr;
+    LSTATUS status=ERROR_SUCCESS;
     if (create) {
-        if (::RegCreateKeyExW(root, subKey.c_str(), 0, nullptr, REG_OPTION_NON_VOLATILE,
-                access | view, nullptr, &raw, nullptr) != ERROR_SUCCESS) {
+        status=::RegCreateKeyExW(root, subKey.c_str(), 0, nullptr, REG_OPTION_NON_VOLATILE,
+                access | view, nullptr, &raw, nullptr);
+        if(statusOut) *statusOut=status;
+        if(status!=ERROR_SUCCESS) {
             return RegKey();
         }
-    } else if (::RegOpenKeyExW(root, subKey.c_str(), 0, access | view, &raw) != ERROR_SUCCESS) {
-        return RegKey();
+    } else {
+        status=::RegOpenKeyExW(root,subKey.c_str(),0,access|view,&raw);
+        if(statusOut) *statusOut=status;
+        if(status!=ERROR_SUCCESS) return RegKey();
     }
     return RegKey(raw);
-}
-
-// ReadRegistryString reads one string-like registry value. Inputs are key and
-// value name; output is empty when the value is missing or not string-like.
-std::wstring ReadRegistryString(HKEY key, const std::wstring& valueName) {
-    DWORD type = 0;
-    DWORD bytes = 0;
-    if (::RegQueryValueExW(key, valueName.empty() ? nullptr : valueName.c_str(), nullptr, &type, nullptr, &bytes) != ERROR_SUCCESS) {
-        return {};
-    }
-    if (type != REG_SZ && type != REG_EXPAND_SZ) {
-        return {};
-    }
-    std::vector<wchar_t> buffer((bytes / sizeof(wchar_t)) + 2, L'\0');
-    if (::RegQueryValueExW(key, valueName.empty() ? nullptr : valueName.c_str(), nullptr, &type,
-            reinterpret_cast<LPBYTE>(buffer.data()), &bytes) != ERROR_SUCCESS) {
-        return {};
-    }
-    return std::wstring(buffer.data());
 }
 
 // WriteRegistryString writes one REG_SZ value. Inputs are key, value name and
@@ -525,34 +532,35 @@ bool WriteRegistryString(HKEY key, const std::wstring& valueName, const std::wst
 
 // DeleteRegistryValue removes one value from a key. Inputs are key and value
 // name; output is true when deletion succeeds or the value is already absent.
-bool DeleteRegistryValue(HKEY key, const std::wstring& valueName) {
+bool DeleteRegistryValue(HKEY key,const std::wstring& valueName,LSTATUS* statusOut=nullptr) {
     const LSTATUS status = ::RegDeleteValueW(key, valueName.empty() ? nullptr : valueName.c_str());
+    if(statusOut) *statusOut=status;
     return status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND;
 }
 
 // MoveRegistryValue copies a string value between keys and deletes the source.
 // Inputs are source/destination metadata and value name; output reports success.
-StartupActionResult MoveRegistryValue(HKEY sourceRoot, DWORD sourceView, const std::wstring& sourceSubKey,
-    HKEY destRoot, DWORD destView, const std::wstring& destSubKey, const std::wstring& valueName) {
-    RegKey source = OpenRegistryKey(sourceRoot, sourceSubKey, KEY_QUERY_VALUE | KEY_SET_VALUE, sourceView, false);
-    if (!source.valid()) {
-        return { false, L"Source registry key is not available: " + sourceSubKey };
-    }
-    RegKey dest = OpenRegistryKey(destRoot, destSubKey, KEY_SET_VALUE, destView, true);
-    if (!dest.valid()) {
-        return { false, L"Destination registry key is not available: " + destSubKey };
-    }
-    const std::wstring command = ReadRegistryString(source.get(), valueName);
-    if (command.empty()) {
-        return { false, L"Registry value is missing or not string-like." };
-    }
-    if (!WriteRegistryString(dest.get(), valueName, command)) {
-        return { false, L"Failed to write destination registry value: " + ks::r3::common::LastErrorMessage() };
-    }
-    if (!DeleteRegistryValue(source.get(), valueName)) {
-        return { false, L"Failed to delete source registry value: " + ks::r3::common::LastErrorMessage() };
-    }
-    return { true, L"Registry startup entry moved." };
+StartupActionResult MoveRegistryValue(HKEY sourceRoot,DWORD sourceView,const std::wstring& sourceSubKey,
+    HKEY destRoot,DWORD destView,const std::wstring& destSubKey,const std::wstring& valueName) {
+    LSTATUS status=0;
+    auto source=OpenRegistryKey(sourceRoot,sourceSubKey,KEY_QUERY_VALUE|KEY_SET_VALUE,sourceView,false,&status);
+    if(!source.valid()) return Failure(L"Source registry key is not available: "+sourceSubKey,status);
+    DWORD type=0,size=0;
+    status=::RegQueryValueExW(source.get(),valueName.empty() ? nullptr : valueName.c_str(),nullptr,&type,nullptr,&size);
+    if(status!=ERROR_SUCCESS) return Failure(L"Registry value is missing or not string-like.",status);
+    if(type!=REG_SZ && type!=REG_EXPAND_SZ) {auto result=Failure(L"Registry value is missing or not string-like.",ERROR_NOT_SUPPORTED);result.unsupported=true;return result;}
+    std::vector<BYTE> bytes(size);
+    status=::RegQueryValueExW(source.get(),valueName.empty() ? nullptr : valueName.c_str(),nullptr,&type,bytes.data(),&size);
+    if(status!=ERROR_SUCCESS) return Failure(L"Registry value is missing or not string-like.",status);
+    bytes.resize(size);
+    if(size<sizeof(wchar_t) || (bytes[0]==0 && bytes[1]==0)) return Failure(L"Registry value is missing or not string-like.",ERROR_INVALID_DATA);
+    const auto dest=OpenRegistryKey(destRoot,destSubKey,KEY_SET_VALUE,destView,true,&status);
+    if(!dest.valid()) return Failure(L"Destination registry key is not available: "+destSubKey,status);
+    status=::RegSetValueExW(dest.get(),valueName.empty() ? nullptr : valueName.c_str(),0,type,bytes.empty() ? nullptr : bytes.data(),size);
+    if(status!=ERROR_SUCCESS) return Failure(L"Failed to write destination registry value: "+ks::r3::common::LastErrorMessage(status),status);
+    status=::RegDeleteValueW(source.get(),valueName.empty() ? nullptr : valueName.c_str());
+    if(status!=ERROR_SUCCESS && status!=ERROR_FILE_NOT_FOUND) return Failure(L"Failed to delete source registry value: "+ks::r3::common::LastErrorMessage(status),status,true);
+    return {true,L"Registry startup entry moved."};
 }
 
 // MoveFileEntry moves a Startup-folder item between active and disabled folders.
@@ -566,7 +574,7 @@ StartupActionResult MoveFileEntry(const std::wstring& source, const std::wstring
         return { false, L"Failed to create destination folder." };
     }
     if (!::MoveFileExW(source.c_str(), dest.c_str(), MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING)) {
-        return { false, L"MoveFileExW failed: " + ks::r3::common::LastErrorMessage() };
+        const auto error=::GetLastError();return Failure(L"MoveFileExW failed: "+ks::r3::common::LastErrorMessage(error),error);
     }
     return { true, L"Startup folder entry moved." };
 }
@@ -574,12 +582,15 @@ StartupActionResult MoveFileEntry(const std::wstring& source, const std::wstring
 // OpenServiceForChange opens SCM and one service for configuration changes.
 // Inputs are service name and desired access; output is an owning ServiceHandle
 // while outScm keeps the SCM handle alive.
-ServiceHandle OpenServiceForChange(const std::wstring& serviceName, DWORD access, ServiceHandle& outScm) {
+ServiceHandle OpenServiceForChange(const std::wstring& serviceName, DWORD access, ServiceHandle& outScm,DWORD* errorOut=nullptr) {
     outScm.reset(::OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!outScm.valid()) {
+        if(errorOut) *errorOut=::GetLastError();
         return ServiceHandle();
     }
-    return ServiceHandle(::OpenServiceW(outScm.get(), serviceName.c_str(), access));
+    const auto handle=::OpenServiceW(outScm.get(),serviceName.c_str(),access);
+    if(!handle && errorOut) *errorOut=::GetLastError();
+    return ServiceHandle(handle);
 }
 
 // ServiceStoreSubKey returns the HKCU location used to preserve service start
@@ -590,13 +601,15 @@ std::wstring ServiceStoreSubKey(const std::wstring& serviceName) {
 
 // StoreServiceStartType writes the previous start type before disabling a
 // service. Inputs are service name and start type; output reports persistence.
-bool StoreServiceStartType(const std::wstring& serviceName, DWORD startType) {
-    RegKey key = OpenRegistryKey(HKEY_CURRENT_USER, ServiceStoreSubKey(serviceName), KEY_SET_VALUE, 0, true);
+bool StoreServiceStartType(const std::wstring& serviceName,DWORD startType,LSTATUS* statusOut=nullptr) {
+    RegKey key = OpenRegistryKey(HKEY_CURRENT_USER, ServiceStoreSubKey(serviceName), KEY_SET_VALUE,0,true,statusOut);
     if (!key.valid()) {
         return false;
     }
-    return ::RegSetValueExW(key.get(), L"StartType", 0, REG_DWORD,
-        reinterpret_cast<const BYTE*>(&startType), sizeof(startType)) == ERROR_SUCCESS;
+    const auto status=::RegSetValueExW(key.get(), L"StartType", 0, REG_DWORD,
+        reinterpret_cast<const BYTE*>(&startType),sizeof(startType));
+    if(statusOut) *statusOut=status;
+    return status==ERROR_SUCCESS;
 }
 
 // LoadServiceStartType reads a preserved service start type. Inputs are service
@@ -622,16 +635,16 @@ StartupActionResult ChangeServiceStartType(const StartupEntry& entry, DWORD star
     if (entry.serviceName.empty()) {
         return { false, L"Service name is empty." };
     }
-    ServiceHandle scm;
-    ServiceHandle service = OpenServiceForChange(entry.serviceName, SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG, scm);
+    ServiceHandle scm;DWORD error=0;
+    ServiceHandle service = OpenServiceForChange(entry.serviceName, SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG, scm,&error);
     if (!service.valid()) {
-        return { false, L"OpenServiceW failed: " + ks::r3::common::LastErrorMessage() };
+        return Failure(L"OpenServiceW failed: "+ks::r3::common::LastErrorMessage(error),error);
     }
     if (!::ChangeServiceConfigW(service.get(), SERVICE_NO_CHANGE, startType, SERVICE_NO_CHANGE,
             nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr)) {
-        return { false, L"ChangeServiceConfigW failed: " + ks::r3::common::LastErrorMessage() };
+        const auto error=::GetLastError();return Failure(L"ChangeServiceConfigW failed: "+ks::r3::common::LastErrorMessage(error),error);
     }
-    return { true, L"Service startup type changed." };
+    StartupActionResult result{true,L"Service startup type changed."};result.serviceTypeKnown=true;result.expectedServiceStartType=startType;return result;
 }
 
 // RegistryLocationForRegedit formats a regedit path. Input is a startup entry;
@@ -677,7 +690,7 @@ StartupActionResult EnableStartupEntry(const StartupEntry& entry) {
         const DWORD targetStart = LoadServiceStartType(entry.serviceName, SERVICE_AUTO_START);
         return ChangeServiceStartType(entry, targetStart == SERVICE_DISABLED ? SERVICE_AUTO_START : targetStart);
     }
-    return { false, L"Unsupported startup entry kind." };
+    StartupActionResult result{false,L"Unsupported startup entry kind."};result.unsupported=true;return result;
 }
 
 StartupActionResult DisableStartupEntry(const StartupEntry& entry) {
@@ -699,13 +712,16 @@ StartupActionResult DisableStartupEntry(const StartupEntry& entry) {
         return MoveFileEntry(entry.filePath, disabledPath);
     }
     if (entry.kind == StartupEntryKind::Service) {
-        StoreServiceStartType(entry.serviceName, entry.serviceStartType);
-        return ChangeServiceStartType(entry, SERVICE_DISABLED);
+        LSTATUS status=0;const bool stored=StoreServiceStartType(entry.serviceName,entry.serviceStartType,&status);
+        auto result=ChangeServiceStartType(entry,SERVICE_DISABLED);
+        result.preservationKnown=true;result.preservationSucceeded=stored;
+        if(!stored && result.success) {result.partial=true;result.win32Error=static_cast<DWORD>(status);}
+        return result;
     }
     if (entry.kind == StartupEntryKind::ScheduledTaskFacade) {
         return SetScheduledTaskEnabled(entry, false);
     }
-    return { false, L"Unsupported startup entry kind." };
+    StartupActionResult result{false,L"Unsupported startup entry kind."};result.unsupported=true;return result;
 }
 
 StartupActionResult DeleteStartupEntry(const StartupEntry& entry) {
@@ -714,14 +730,15 @@ StartupActionResult DeleteStartupEntry(const StartupEntry& entry) {
     }
     if (entry.kind == StartupEntryKind::RegistryRun || entry.kind == StartupEntryKind::RegistryRunOnce) {
         const bool disabled = entry.state == StartupEntryState::Disabled;
+        LSTATUS status=0;
         RegKey key = OpenRegistryKey(disabled ? HKEY_CURRENT_USER : entry.registryRoot,
             disabled ? entry.disabledRegistrySubKey : entry.registrySubKey,
-            KEY_SET_VALUE, disabled ? 0 : entry.registryView, false);
+            KEY_SET_VALUE,disabled ? 0 : entry.registryView,false,&status);
         if (!key.valid()) {
-            return { false, L"Registry key is not available." };
+            return Failure(L"Registry key is not available.",status);
         }
-        if (!DeleteRegistryValue(key.get(), entry.registryValueName)) {
-            return { false, L"RegDeleteValueW failed: " + ks::r3::common::LastErrorMessage() };
+        if (!DeleteRegistryValue(key.get(),entry.registryValueName,&status)) {
+            return Failure(L"RegDeleteValueW failed: "+ks::r3::common::LastErrorMessage(status),status);
         }
         return { true, L"Registry startup entry deleted." };
     }
@@ -731,25 +748,25 @@ StartupActionResult DeleteStartupEntry(const StartupEntry& entry) {
             return { false, L"Startup file path is empty." };
         }
         if (!::DeleteFileW(path.c_str())) {
-            return { false, L"DeleteFileW failed: " + ks::r3::common::LastErrorMessage() };
+            const auto error=::GetLastError();return Failure(L"DeleteFileW failed: "+ks::r3::common::LastErrorMessage(error),error);
         }
         return { true, L"Startup folder entry deleted." };
     }
     if (entry.kind == StartupEntryKind::Service) {
-        ServiceHandle scm;
-        ServiceHandle service = OpenServiceForChange(entry.serviceName, DELETE, scm);
+        ServiceHandle scm;DWORD error=0;
+        ServiceHandle service = OpenServiceForChange(entry.serviceName, DELETE, scm,&error);
         if (!service.valid()) {
-            return { false, L"OpenServiceW failed: " + ks::r3::common::LastErrorMessage() };
+            return Failure(L"OpenServiceW failed: "+ks::r3::common::LastErrorMessage(error),error);
         }
         if (!::DeleteService(service.get())) {
-            return { false, L"DeleteService failed: " + ks::r3::common::LastErrorMessage() };
+            const auto error=::GetLastError();return Failure(L"DeleteService failed: "+ks::r3::common::LastErrorMessage(error),error);
         }
         return { true, L"Service delete requested." };
     }
     if (entry.kind == StartupEntryKind::ScheduledTaskFacade) {
         return DeleteScheduledTask(entry);
     }
-    return { false, L"Unsupported startup entry kind." };
+    StartupActionResult result{false,L"Unsupported startup entry kind."};result.unsupported=true;return result;
 }
 
 StartupActionResult OpenStartupEntryLocation(const StartupEntry& entry) {
@@ -784,7 +801,7 @@ StartupActionResult OpenStartupEntryLocation(const StartupEntry& entry) {
         }
         return ShellOpen(L"taskschd.msc");
     }
-    return { false, L"Unsupported startup entry kind." };
+    StartupActionResult result{false,L"Unsupported startup entry kind."};result.unsupported=true;return result;
 }
 
 } // namespace ks::r3::startup

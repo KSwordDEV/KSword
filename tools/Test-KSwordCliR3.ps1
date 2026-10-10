@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service','registry-browse','registry-search','registry-mutations','startup-enum')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
+﻿param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service','registry-browse','registry-search','registry-mutations','startup-enum','startup-actions')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\KswordCliR3TestSupport.ps1"
 switch ($Feature) {
@@ -404,6 +404,93 @@ switch ($Feature) {
             } finally {$key.DeleteValue($name,$false);$key.Dispose()}
             $empty=(Invoke-Cli @('startup','enum','--name',$name,'--json') @(0,6)) | ConvertFrom-Json
             Assert ($empty.data.matchedCount -eq 0) 'Removed startup entry must disappear'
+        }
+    }
+    'startup-actions' {
+        $help=Invoke-Cli @('help','startup','disable')
+        Assert ($help.Contains('--id') -and $help.Contains('--confirm')) 'Startup action help'
+        Assert ((Invoke-Cli @('startup','disable','--help')) -eq $help) 'Startup action inline help'
+        foreach ($bad in @(
+            @('startup','disable','--json'),
+            @('startup','disable','--id','0x1','--json'),
+            @('startup','disable','--id','bad','--confirm','--json'),
+            @('startup','disable','--id','0x1','--confirm','--backend','r0','--json'),
+            @('startup','disable','--id','0x1','--confirm','--unknown','1','--json')
+        )) { Assert (((Invoke-Cli $bad 1) | ConvertFrom-Json).status -eq 'failed') 'Startup action invalid arguments' }
+        $missing=(Invoke-Cli @('startup','disable','--id','0x1','--confirm','--json') 3) | ConvertFrom-Json
+        Assert ($missing.data.matchCount -eq 0) 'Missing startup identity'
+        function Find-Startup([string]$Name,[string]$Kind) {
+            $found=(Invoke-Cli @('startup','enum','--kind',$Kind,'--name',$Name,'--json') @(0,6)) | ConvertFrom-Json
+            Assert ($found.data.matchedCount -eq 1) "Startup fixture not unique: $Name"
+            return $found.data.entries[0]
+        }
+        if ($InGuest) {
+            $name='KSwordCliStartupAction-'+[Guid]::NewGuid().ToString('N')
+            $runPath='Software\Microsoft\Windows\CurrentVersion\Run'
+            $key=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($runPath)
+            $park=$null;$folderEntry=$null;$serviceName=$null;$taskName=$null
+            $startupFolder=[Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
+            $file=Join-Path $startupFolder ($name+'.txt')
+            try {
+                $command='%SystemRoot%\System32\cmd.exe /c exit'
+                $key.SetValue($name,$command,[Microsoft.Win32.RegistryValueKind]::ExpandString)
+                $entry=Find-Startup $name 'run'
+                $location=(Invoke-Cli @('startup','location','query','--id',$entry.id,'--json') @(0,6)) | ConvertFrom-Json
+                Assert ($location.data.registrySubKey -eq $runPath -and $location.data.registryValueName -eq $name) 'Startup location query'
+                $disabled=(Invoke-Cli @('startup','disable','--id',$entry.id,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($disabled.data.verified -and $disabled.data.observed[0].state -eq 'disabled' -and $null -eq $key.GetValue($name)) 'Registry startup disable'
+                $park=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($entry.disabledRegistrySubKey)
+                try {
+                    Assert ($park.GetValueKind($name) -eq [Microsoft.Win32.RegistryValueKind]::ExpandString -and $park.GetValue($name,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) -eq $command) 'Parked expandable bytes/type'
+                } finally {$park.Dispose();$park=$null}
+                $enabled=(Invoke-Cli @('startup','enable','--id',$entry.id,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($enabled.data.verified -and $key.GetValueKind($name) -eq [Microsoft.Win32.RegistryValueKind]::ExpandString) 'Registry startup enable preserves type'
+                $deleted=(Invoke-Cli @('startup','delete','--id',$entry.id,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($deleted.data.verified -and $null -eq $key.GetValue($name)) 'Registry startup delete'
+                Invoke-Cli @('startup','delete','--id',$entry.id,'--confirm','--json') 3 | Out-Null
+                New-Item -ItemType Directory -Path $startupFolder -Force | Out-Null
+                [IO.File]::WriteAllText($file,'KSword startup folder payload')
+                $folderEntry=Find-Startup ($name+'.txt') 'folder'
+                $moved=(Invoke-Cli @('startup','disable','--id',$folderEntry.id,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($moved.data.verified -and !(Test-Path -LiteralPath $file) -and [IO.File]::ReadAllText($folderEntry.disabledFilePath) -eq 'KSword startup folder payload') 'Startup folder move oracle'
+                $restored=(Invoke-Cli @('startup','enable','--id',$folderEntry.id,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($restored.data.verified -and [IO.File]::ReadAllText($file) -eq 'KSword startup folder payload') 'Startup folder restore oracle'
+                $removed=(Invoke-Cli @('startup','delete','--id',$folderEntry.id,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($removed.data.verified -and !(Test-Path -LiteralPath $file)) 'Startup folder delete oracle'
+                $serviceName='KSwordCliStartupSvc-'+[Guid]::NewGuid().ToString('N')
+                New-Service -Name $serviceName -BinaryPathName ((Join-Path $PSScriptRoot 'R3Fixture.exe')+' --service') -StartupType Manual | Out-Null
+                $serviceSnapshot=(Invoke-Cli @('startup','enum','--kind','service','--limit','10000','--json') @(0,6)) | ConvertFrom-Json
+                $service=@($serviceSnapshot.data.entries | Where-Object serviceName -eq $serviceName)[0]
+                Assert ($null -ne $service) 'Startup service fixture'
+                $disabled=(Invoke-Cli @('startup','disable','--id',$service.id,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($disabled.data.verified -and $disabled.data.preservationSucceeded -and (Get-CimInstance Win32_Service -Filter "Name='$serviceName'").StartMode -eq 'Disabled') 'Startup service disable'
+                $enabled=(Invoke-Cli @('startup','enable','--id',$service.id,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($enabled.data.verified -and (Get-CimInstance Win32_Service -Filter "Name='$serviceName'").StartMode -eq 'Manual') 'Startup service exact restore'
+                $removed=(Invoke-Cli @('startup','delete','--id',$service.id,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($removed.data.verified -and $null -eq (Get-Service $serviceName -ErrorAction SilentlyContinue)) 'Startup service delete'
+                $driverSnapshot=(Invoke-Cli @('startup','enum','--kind','driver','--limit','10000','--json') @(0,6)) | ConvertFrom-Json
+                $driver=@($driverSnapshot.data.entries | Where-Object serviceName -eq 'KswordARK')[0]
+                Assert ($null -ne $driver) 'Driver observation fixture'
+                $readonly=(Invoke-Cli @('startup','disable','--id',$driver.id,'--confirm','--json') 5) | ConvertFrom-Json
+                Assert (!$readonly.data.requestSucceeded -and (Get-Service KswordARK).Status -eq 'Stopped') 'Driver observation cannot mutate'
+                $taskName='KSwordCliStartupTask-'+[Guid]::NewGuid().ToString('N')
+                $action=New-ScheduledTaskAction -Execute 'C:\Windows\System32\cmd.exe' -Argument '/c exit'
+                $trigger=New-ScheduledTaskTrigger -AtLogOn
+                Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger | Out-Null
+                $task=Find-Startup $taskName 'task'
+                $disabled=(Invoke-Cli @('startup','disable','--id',$task.id,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($disabled.data.verified -and !$disabled.data.observedTaskEnabled -and (Get-ScheduledTask -TaskName $taskName).State -eq 'Disabled') 'Task Scheduler disable oracle'
+                $enabled=(Invoke-Cli @('startup','enable','--id',$task.id,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($enabled.data.verified -and $enabled.data.observedTaskEnabled -and (Get-ScheduledTask -TaskName $taskName).State -ne 'Disabled') 'Task Scheduler enable oracle'
+                $removed=(Invoke-Cli @('startup','delete','--id',$task.id,'--confirm','--json')) | ConvertFrom-Json
+                Assert ($removed.data.verified -and $null -eq (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) 'Task Scheduler delete oracle'
+            } finally {
+                $key.DeleteValue($name,$false);$key.Dispose()
+                Remove-Item -LiteralPath $file -ErrorAction SilentlyContinue
+                if ($folderEntry) {Remove-Item -LiteralPath $folderEntry.disabledFilePath -ErrorAction SilentlyContinue}
+                if ($serviceName) {Stop-Service $serviceName -ErrorAction SilentlyContinue;& sc.exe delete $serviceName | Out-Null;[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(('Software\KswordARKLight\DisabledStartup\Services\'+$serviceName),$false)}
+                if ($taskName) {Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue}
+            }
         }
     }
 }

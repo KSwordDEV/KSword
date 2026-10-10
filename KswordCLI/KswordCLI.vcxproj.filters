@@ -123,4 +123,9 @@
     <ClInclude Include="..\shared\usermode\backend\Common.h" />
     <ClInclude Include="..\shared\usermode\backend\Win32.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3StartupActions.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupActions.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupActions.h" />
+  </ItemGroup>
 </Project>

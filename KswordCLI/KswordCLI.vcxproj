@@ -82,7 +82,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;Taskschd.lib;Uuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -98,7 +98,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;Taskschd.lib;Uuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -112,7 +112,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;Taskschd.lib;Uuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -128,7 +128,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Iphlpapi.lib;Ws2_32.lib;Setupapi.lib;Dnsapi.lib;Ole32.lib;OleAut32.lib;Advapi32.lib;Shell32.lib;Taskschd.lib;Uuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -237,5 +237,10 @@
     <ClInclude Include="..\shared\usermode\backend\startup\StartupEnumerator.h" />
     <ClInclude Include="..\shared\usermode\backend\Common.h" />
     <ClInclude Include="..\shared\usermode\backend\Win32.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3StartupActions.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupActions.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupActions.h" />
   </ItemGroup>
 </Project>

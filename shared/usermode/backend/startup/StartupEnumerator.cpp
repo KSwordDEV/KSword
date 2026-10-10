@@ -267,7 +267,7 @@ void EnumerateRegistryKey(std::vector<StartupEntry>& entries, HKEY root, Startup
         entry.registryRoot = root;
         entry.registryView = view;
         entry.registrySubKey = subKey;
-        entry.registryValueName = entry.name == L"(default)" ? std::wstring() : entry.name;
+        entry.registryValueName = nameChars > 0 ? std::wstring(name.data(),name.data()+nameChars) : std::wstring();
         entry.disabledRegistrySubKey = DisabledRegistrySubKey(root, view, subKey);
         AddProperty(entry, L"Registry type", std::to_wstring(type));
         entries.push_back(std::move(entry));
@@ -321,7 +321,7 @@ void EnumerateDisabledRegistryKey(std::vector<StartupEntry>& entries, HKEY root,
         entry.registryRoot = root;
         entry.registryView = view;
         entry.registrySubKey = subKey;
-        entry.registryValueName = entry.name == L"(default)" ? std::wstring() : entry.name;
+        entry.registryValueName = nameChars > 0 ? std::wstring(name.data(),name.data()+nameChars) : std::wstring();
         entry.disabledRegistrySubKey = disabledSubKey;
         AddProperty(entry, L"Disabled storage", L"HKCU\\" + disabledSubKey);
         entries.push_back(std::move(entry));
