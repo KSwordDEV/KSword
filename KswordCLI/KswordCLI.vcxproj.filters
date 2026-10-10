@@ -432,4 +432,9 @@
     <ClCompile Include="..\shared\evidence\LosslessValue.cpp" />
     <ClInclude Include="..\shared\evidence\LosslessValue.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SecurityVbs.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\security\Vbs.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\Vbs.h" />
+  </ItemGroup>
 </Project>

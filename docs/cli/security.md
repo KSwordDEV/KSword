@@ -1,5 +1,21 @@
 # 安全证据 R3 命令
 
+## VBS／HVCI／SKCI（迁移项 59）
+
+```powershell
+KswordCLI.exe security vbs help
+KswordCLI.exe help security vbs hvci query
+KswordCLI.exe security vbs device-guard query --json
+KswordCLI.exe security vbs hvci query --json
+KswordCLI.exe security vbs registry query --json
+KswordCLI.exe security vbs files enum --json
+KswordCLI.exe security vbs query --json
+```
+
+参数、统一 data/evidence/capture 字段和退出码同 CI。`query` 汇总八个来源：DeviceGuard CIM、三个系统文件状态、三项 HVCI 注册数据、三项 VBS／平台／LSA 注册数据。CIM payload 提供 virtualizationBasedSecurityStatus/requiredSecurityProperties/availableSecurityProperties/securityServicesRunning/securityServicesConfigured。`hvci query` 读取 HypervisorEnforcedCodeIntegrity 的 Enabled/WasEnabledBy/Locked；`registry query` 读取 EnableVirtualizationBasedSecurity/RequirePlatformSecurityFeatures/LsaCfgFlags，保留 HKLM64 视图、原始类型／值／错误及关闭证据。注册配置不等于当前已生效的 HVCI／VBS 状态。
+
+`files enum` 只报告 System32 的 securekernel.exe/skci.dll/ci.dll 的 name/path/known/present，错误与真实缺失分开。旧 UI 的“Secure Kernel modules”条目实际检查磁盘文件，CLI 据实命名，不推断安全内核已启动、SKCI 在运行或模块已加载。CIM 缺失保留不可用／结构化错误，真实关闭或未知值为 null，不自动回退 R0、不修改配置或启停安全功能。help 不采集，VM／宿主分别用 CIM、64 位注册视图和磁盘查询核对。
+
 ## Code Integrity／WDAC（迁移项 58）
 
 ```powershell

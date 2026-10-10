@@ -126,4 +126,5 @@ void registerKernelAtoms();
 void registerKernelNtQuery();
 void registerKernelHookBaseline();
 void registerSecurityCi();
+void registerSecurityVbs();
 }

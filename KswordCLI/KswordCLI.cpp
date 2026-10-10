@@ -1534,6 +1534,7 @@ namespace
         ks::cli::registerKernelNtQuery();
         ks::cli::registerKernelHookBaseline();
         ks::cli::registerSecurityCi();
+        ks::cli::registerSecurityVbs();
             #endif
             return true;
         }();
