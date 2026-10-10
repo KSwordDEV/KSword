@@ -1517,6 +1517,7 @@ namespace
             ks::cli::registerWindowHierarchy();
         ks::cli::registerWindowHotkeys();
         ks::cli::registerMonitorEtw();
+        ks::cli::registerSystemFileHolders();
             #endif
             return true;
         }();

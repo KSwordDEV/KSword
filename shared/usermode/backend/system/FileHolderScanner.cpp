@@ -187,10 +187,11 @@ public:
 
         channel_->target = duplicatedHandle;
         ::SetEvent(channel_->requestEvent);
-        if (::WaitForSingleObject(channel_->replyEvent, kNameQueryTimeoutMs) != WAIT_OBJECT_0) {
-            ++timeoutCount_;
+        const auto waited = ::WaitForSingleObject(channel_->replyEvent, kNameQueryTimeoutMs);
+        if (waited != WAIT_OBJECT_0) {
+            if (waited == WAIT_TIMEOUT) ++timeoutCount_;else {++waitFailed_;waitError_ = ::GetLastError();}
             abandonChannel();
-            return ProbeOutcome::TimedOut;
+            return waited == WAIT_TIMEOUT ? ProbeOutcome::TimedOut : ProbeOutcome::Failed;
         }
         if (channel_->outcome != ProbeOutcome::Named) {
             return channel_->outcome;
@@ -202,6 +203,8 @@ public:
     std::uint32_t timeoutCount() const noexcept {
         return timeoutCount_;
     }
+    DWORD waitFailed() const noexcept {return waitFailed_;}
+    DWORD waitError() const noexcept {return waitError_;}
 
 private:
     struct Channel final {
@@ -213,6 +216,7 @@ private:
         std::atomic_bool shutdown{ false };
 
         ~Channel() {
+            if (target) ::CloseHandle(target); // Shutdown can precede the helper taking a queued handle.
             if (requestEvent) {
                 ::CloseHandle(requestEvent);
             }
@@ -229,14 +233,17 @@ private:
             const LONG status = queryObject(
                 handle, kObjectNameInformation, buffer.data(), static_cast<ULONG>(buffer.size()), &needed);
             if (status == kStatusSuccess) {
+                if (needed<sizeof(SysToolsObjectNameInformation) || needed>buffer.size()) return false;
                 const auto* info = reinterpret_cast<const SysToolsObjectNameInformation*>(buffer.data());
                 if (!info->Name.Buffer || info->Name.Length == 0) {
                     return false;
                 }
+                const auto start = reinterpret_cast<std::uintptr_t>(buffer.data()),address = reinterpret_cast<std::uintptr_t>(info->Name.Buffer);
+                if (info->Name.Length%sizeof(wchar_t) || info->Name.Length>info->Name.MaximumLength || address<start || address-start>needed || info->Name.Length>needed-(address-start)) return false;
                 nameOut.assign(info->Name.Buffer, info->Name.Length / sizeof(wchar_t));
                 return true;
             }
-            if (needed <= buffer.size()) {
+            if ((status != static_cast<LONG>(0xC0000004UL) && status != static_cast<LONG>(0xC0000023UL) && status != static_cast<LONG>(0x80000005UL)) || needed <= buffer.size() || needed>16u*1024u*1024u-256u) {
                 return false;
             }
             buffer.resize(needed + 256);
@@ -256,7 +263,7 @@ private:
         }
 
         const NtQueryObjectFn queryObject = queryObject_;
-        std::thread([channel, queryObject]() {
+        try {worker_ = std::thread([channel, queryObject]() {
             while (::WaitForSingleObject(channel->requestEvent, INFINITE) == WAIT_OBJECT_0) {
                 if (channel->shutdown.load(std::memory_order_acquire)) {
                     break;
@@ -270,11 +277,11 @@ private:
                     // object without dispatching an IRP, but it still runs here
                     // rather than on the sweep thread so that the timeout covers
                     // every kernel call made against a foreign handle.
-                    if (::GetFileType(target) != FILE_TYPE_DISK) {
-                        outcome = ProbeOutcome::NotDisk;
+                    ::SetLastError(ERROR_SUCCESS);try {const auto fileType = ::GetFileType(target);if (fileType != FILE_TYPE_DISK) {
+                        outcome = fileType == FILE_TYPE_PIPE || fileType == FILE_TYPE_CHAR ? ProbeOutcome::NotDisk : ProbeOutcome::Failed;
                     } else if (QueryNameDirect(queryObject, target, name)) {
                         outcome = ProbeOutcome::Named;
-                    }
+                    }}catch (...) {outcome = ProbeOutcome::Failed;}
                     ::CloseHandle(target);
                 }
                 channel->name = std::move(name);
@@ -287,7 +294,7 @@ private:
                     break;
                 }
             }
-        }).detach();
+        });}catch (...) {return false;}
 
         channel_ = std::move(channel);
         return true;
@@ -301,6 +308,7 @@ private:
             channel_->shutdown.store(true, std::memory_order_release);
         }
         channel_.reset();
+        if (worker_.joinable()) worker_.detach();
     }
 
     void shutdownChannel() {
@@ -309,6 +317,7 @@ private:
         }
         channel_->shutdown.store(true, std::memory_order_release);
         ::SetEvent(channel_->requestEvent);
+        if (worker_.joinable()) worker_.join();
         channel_.reset();
     }
 
@@ -316,6 +325,8 @@ private:
     NtQueryObjectFn queryObject_ = nullptr;
     std::shared_ptr<Channel> channel_;
     std::uint32_t timeoutCount_ = 0;
+    DWORD waitFailed_ = 0,waitError_ = 0;
+    std::thread worker_;
 };
 
 std::wstring FormatAccessMask(const ULONG mask) {
@@ -374,13 +385,15 @@ std::unordered_map<std::uint32_t, std::wstring> BuildProcessNameMap() {
     return map;
 }
 
-std::wstring QueryProcessImagePath(HANDLE process) {
+std::wstring QueryProcessImagePath(HANDLE process,DWORD& error) {
+    error = ERROR_SUCCESS;
     if (!process) {
         return {};
     }
     wchar_t buffer[MAX_PATH * 2] = {};
     DWORD size = static_cast<DWORD>(std::size(buffer));
     if (!::QueryFullProcessImageNameW(process, 0, buffer, &size)) {
+        error = ::GetLastError();
         return {};
     }
     return std::wstring(buffer, size);
@@ -423,7 +436,7 @@ private:
 // snapshot the sweep is about to walk.
 USHORT ResolveFileTypeIndex(const SysToolsHandleInformationEx& info,
     const std::uint32_t ownProcessId,
-    NtQueryObjectFn queryObject,
+    NtQueryObjectFn,
     HANDLE probeHandle) {
     if (probeHandle && probeHandle != INVALID_HANDLE_VALUE) {
         const auto probeValue = reinterpret_cast<ULONG_PTR>(probeHandle);
@@ -436,26 +449,6 @@ USHORT ResolveFileTypeIndex(const SysToolsHandleInformationEx& info,
         }
     }
 
-    // Fallback: ask the object manager for the type name of the probe handle and
-    // match it against the snapshot by name. This costs one extra call and only
-    // runs when the handle could not be located above.
-    if (queryObject && probeHandle && probeHandle != INVALID_HANDLE_VALUE) {
-        std::vector<std::byte> buffer(2048);
-        ULONG needed = 0;
-        if (queryObject(probeHandle, kObjectTypeInformation, buffer.data(),
-                static_cast<ULONG>(buffer.size()), &needed) == kStatusSuccess) {
-            const auto* type = reinterpret_cast<const SysToolsObjectTypeInformation*>(buffer.data());
-            if (type->TypeName.Buffer && type->TypeName.Length > 0) {
-                const std::wstring name(type->TypeName.Buffer, type->TypeName.Length / sizeof(wchar_t));
-                if (EqualsIgnoreCase(name, L"File")) {
-                    // The name matched but the handle was absent from the
-                    // snapshot, which only happens when the snapshot predates
-                    // the probe handle. There is nothing better to return.
-                    return 0;
-                }
-            }
-        }
-    }
     return 0;
 }
 
@@ -511,7 +504,7 @@ std::wstring ResolveNtPathToWin32Path(const std::wstring& ntPath) {
     return ntPath;
 }
 
-FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool includeSubPaths) {
+FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool includeSubPaths,const FileHolderScanOptions& options) {
     FileHolderScanResult result{};
     const ULONGLONG startTick = ::GetTickCount64();
 
@@ -540,6 +533,7 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
 
     const NtQueryObjectFn queryObject = ResolveNtQueryObject();
     if (!queryObject) {
+        result.apiUnavailable = true;
         result.diagnosticText = L"ntdll!NtQueryObject 不可用，无法解析句柄对象名。";
         return result;
     }
@@ -569,9 +563,19 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
             nullptr);
     }
 
-    const std::vector<std::byte> raw = ks::r3::common::QueryRawSystemInformation(
-        static_cast<ks::r3::common::SystemInformationClass>(kSystemExtendedHandleInformation));
-    if (raw.size() < sizeof(SysToolsHandleInformationEx)) {
+    std::vector<std::byte> raw;ks::r3::common::NtApi nt;DWORD actual = 0;DWORD size = 1u<<20;
+    if (!nt.available()) result.apiUnavailable = true;
+    else for (int attempt=0;attempt<8;++attempt) {
+        raw.resize(size);ULONG needed = 0;result.snapshotAttempted = true;result.ntStatusKnown = true;
+        result.snapshotNtStatus = nt.querySystemInformation(static_cast<ks::r3::common::SystemInformationClass>(kSystemExtendedHandleInformation),raw.data(),size,&needed);
+        if (result.snapshotNtStatus == kStatusSuccess) {actual = needed;break;}
+        if (result.snapshotNtStatus != static_cast<LONG>(0xC0000004UL) && result.snapshotNtStatus != static_cast<LONG>(0xC0000023UL)) break;
+        if (needed>128u*1024u*1024u-0x10000u || size>=128u*1024u*1024u) {result.limited = true;break;}
+        size = needed>size?needed+0x10000u:(std::min<DWORD>)(size*2,128u*1024u*1024u);
+    }
+    result.snapshotBytes = actual;
+    if (!result.ntStatusKnown || result.snapshotNtStatus != kStatusSuccess || actual<offsetof(SysToolsHandleInformationEx,Handles) || actual>raw.size()) {
+        if (result.ntStatusKnown && result.snapshotNtStatus == kStatusSuccess) result.malformed = true;
         if (probeHandle != INVALID_HANDLE_VALUE) {
             ::CloseHandle(probeHandle);
         }
@@ -581,12 +585,15 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
 
     const auto& info = *reinterpret_cast<const SysToolsHandleInformationEx*>(raw.data());
     const ULONG_PTR maxEntries =
-        (raw.size() - offsetof(SysToolsHandleInformationEx, Handles)) / sizeof(SysToolsHandleTableEntry);
-    const ULONG_PTR handleCount = (std::min)(info.NumberOfHandles, maxEntries);
+        (actual - offsetof(SysToolsHandleInformationEx, Handles)) / sizeof(SysToolsHandleTableEntry);
+    if (info.NumberOfHandles>maxEntries) {result.malformed = true;if (probeHandle != INVALID_HANDLE_VALUE) ::CloseHandle(probeHandle);return result;}
+    const ULONG_PTR handleCount = info.NumberOfHandles;
     result.totalHandles = static_cast<std::uint32_t>(handleCount);
+    if (!handleCount) {if (probeHandle != INVALID_HANDLE_VALUE) ::CloseHandle(probeHandle);result.success = true;result.complete = true;return result;}
 
     const std::uint32_t ownProcessId = static_cast<std::uint32_t>(::GetCurrentProcessId());
     const USHORT fileTypeIndex = ResolveFileTypeIndex(info, ownProcessId, queryObject, probeHandle);
+    const auto probeValue = reinterpret_cast<ULONG_PTR>(probeHandle);
     if (probeHandle != INVALID_HANDLE_VALUE) {
         ::CloseHandle(probeHandle);
         probeHandle = INVALID_HANDLE_VALUE;
@@ -604,8 +611,12 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
     ProcessHandleCache processes;
     ObjectNameProbe probe(queryObject);
     std::unordered_map<std::uint32_t, std::wstring> processPaths;
+    std::unordered_map<std::uint32_t, DWORD> processPathErrors;
 
     for (ULONG_PTR index = 0; index < handleCount; ++index) {
+        if (options.cancelled && options.cancelled()) {result.cancelled = true;break;}
+        if (result.examinedHandles>=options.maxHandles || ::GetTickCount64()-startTick>=options.maxDurationMs || probe.timeoutCount()+probe.waitFailed()>=options.maxTimeouts) {result.limited = true;break;}
+        ++result.examinedHandles;
         const SysToolsHandleTableEntry& entry = info.Handles[index];
         if (entry.ObjectTypeIndex != fileTypeIndex) {
             continue;
@@ -613,19 +624,28 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
         ++result.fileHandles;
 
         const std::uint32_t processId = static_cast<std::uint32_t>(entry.UniqueProcessId);
+        if (entry.UniqueProcessId>MAXDWORD) {result.malformed = true;break;}
+        if (options.processId && processId != options.processId) continue;
+        if (processId == ownProcessId && entry.HandleValue == probeValue) continue; // Discovery handle was closed before the sweep.
         // PID 0 is the idle process and PID 4 is System; neither can be opened
         // for PROCESS_DUP_HANDLE from user mode, so they are counted as skipped
         // instead of producing a failed OpenProcess per handle.
         if (processId == 0 || processId == 4) {
+            ++result.protectedSkipped;
             ++result.skippedHandles;
             continue;
         }
 
         HANDLE process = processes.get(processId);
         if (!process) {
+            ++result.openFailed;
             ++result.skippedHandles;
             continue;
         }
+        FILETIME creation{},exit{},kernel{},user{};::SetLastError(ERROR_SUCCESS);const bool creationKnown = ::GetProcessTimes(process,&creation,&exit,&kernel,&user) != FALSE;
+        const auto identityError = creationKnown?ERROR_SUCCESS: ::GetLastError();
+        const auto creationTime = static_cast<std::uint64_t>(creation.dwHighDateTime)<<32|creation.dwLowDateTime;
+        if (options.processCreationTime && (!creationKnown || creationTime != options.processCreationTime)) {++result.identityMismatch;continue;}
 
         HANDLE duplicated = nullptr;
         if (!::DuplicateHandle(process,
@@ -636,6 +656,7 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
                 FALSE,
                 DUPLICATE_SAME_ACCESS) ||
             !duplicated) {
+            ++result.duplicateFailed;
             ++result.skippedHandles;
             continue;
         }
@@ -644,11 +665,13 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
         // queryName owns the handle from here on, timeout path included.
         const ProbeOutcome outcome = probe.queryName(duplicated, objectName);
         if (outcome == ProbeOutcome::NotDisk) {
+            ++result.notDisk;
             ++result.skippedHandles;
             continue;
         }
         ++result.inspectedHandles;
         if (outcome != ProbeOutcome::Named || objectName.empty()) {
+            if (outcome != ProbeOutcome::TimedOut) ++result.nameFailed;
             continue;
         }
 
@@ -662,15 +685,19 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
 
         FileHolderEntry match{};
         match.processId = processId;
+        match.processCreationTime = creationTime;match.creationTimeKnown = creationKnown;match.identityError = identityError;
+        match.processAliveKnown = creationKnown;match.processAlive = creationKnown && exit.dwHighDateTime == 0 && exit.dwLowDateTime == 0;
         const auto namedProcess = processNames.find(processId);
+        match.nameKnown = namedProcess != processNames.end();
         match.processName = namedProcess != processNames.end() ? namedProcess->second : L"(未知)";
         const auto cachedPath = processPaths.find(processId);
         if (cachedPath != processPaths.end()) {
             match.processPath = cachedPath->second;
         } else {
-            match.processPath = QueryProcessImagePath(process);
+            DWORD error = 0;match.processPath = QueryProcessImagePath(process,error);processPathErrors.emplace(processId,error);
             processPaths.emplace(processId, match.processPath);
         }
+        match.pathKnown = !match.processPath.empty();if (!match.pathKnown) match.pathError = processPathErrors[processId];
         match.handleValue = static_cast<std::uint64_t>(entry.HandleValue);
         match.grantedAccess = entry.GrantedAccess;
         match.accessText = FormatAccessMask(entry.GrantedAccess);
@@ -680,8 +707,10 @@ FileHolderScanResult ScanFileHolders(const std::wstring& targetPath, const bool 
     }
 
     result.timedOutHandles = probe.timeoutCount();
+    result.waitFailed = probe.waitFailed();result.waitWin32Error = probe.waitError();
     result.elapsedMs = static_cast<std::uint32_t>(::GetTickCount64() - startTick);
     result.success = true;
+    result.complete = !result.limited && !result.cancelled && !result.malformed && !result.protectedSkipped && !result.openFailed && !result.duplicateFailed && !result.nameFailed && !result.timedOutHandles && !result.identityMismatch;
     if (result.entries.empty()) {
         result.diagnosticText = L"未发现占用该路径的进程句柄。";
     }

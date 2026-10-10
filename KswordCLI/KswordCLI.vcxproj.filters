@@ -335,4 +335,11 @@
     <ClInclude Include="..\shared\usermode\backend\monitor\EtwEventModel.h" />
     <ClInclude Include="..\shared\usermode\backend\monitor\EtwFilterModel.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SystemFileHolders.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\FileHolderScanner.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\ModulePath.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\system\FileHolderScanner.h" />
+    <ClInclude Include="..\shared\usermode\backend\system\ModulePath.h" />
+  </ItemGroup>
 </Project>
