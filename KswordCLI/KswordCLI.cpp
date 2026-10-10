@@ -1494,6 +1494,7 @@ namespace
             ks::cli::registerFileOwnership();
             ks::cli::registerFileAnalysis();
             ks::cli::registerFilePe();
+            ks::cli::registerProcessEnumeration();
             #endif
             return true;
         }();

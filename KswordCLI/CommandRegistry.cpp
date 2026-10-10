@@ -60,6 +60,7 @@ Json Json::string(const std::wstring& value) {
     out << L'"'; return {out.str(), value};
 }
 Json Json::number(std::uint32_t value) { return {std::to_wstring(value), std::to_wstring(value)}; }
+Json Json::signedNumber(std::int32_t value) { return {std::to_wstring(value), std::to_wstring(value)}; }
 Json Json::real(double value) {
     if (!std::isfinite(value)) return {};
     std::wostringstream out; out.imbue(std::locale::classic()); out << std::setprecision(17) << value;

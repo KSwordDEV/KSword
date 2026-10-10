@@ -82,14 +82,29 @@ std::wstring NtStatusText(LONG status) {
 
 } // namespace
 
-std::wstring QueryProcessImagePath(DWORD processId) {
+std::wstring QueryProcessImagePath(DWORD processId, ULONGLONG expectedCreationTime, DWORD* errorOut) {
+    if (errorOut) *errorOut = ERROR_SUCCESS;
     if (processId == 0) {
+        if (errorOut) *errorOut = ERROR_NOT_SUPPORTED;
         return {};
     }
 
     HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
     if (!process) {
+        if (errorOut) *errorOut = ::GetLastError();
         return {};
+    }
+    if (expectedCreationTime) {
+        FILETIME created{}, exited{}, kernel{}, user{};
+        if (!::GetProcessTimes(process, &created, &exited, &kernel, &user)) {
+            if (errorOut) *errorOut = ::GetLastError();
+            ::CloseHandle(process); return {};
+        }
+        const ULONGLONG actual = (static_cast<ULONGLONG>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+        if (actual != expectedCreationTime) {
+            if (errorOut) *errorOut = ERROR_INVALID_DATA;
+            ::CloseHandle(process); return {};
+        }
     }
 
     std::wstring path;
@@ -97,7 +112,7 @@ std::wstring QueryProcessImagePath(DWORD processId) {
     DWORD size = static_cast<DWORD>(buffer.size());
     if (::QueryFullProcessImageNameW(process, 0, buffer.data(), &size) && size > 0) {
         path.assign(buffer.data(), buffer.data() + size);
-    }
+    } else if (errorOut) *errorOut = ::GetLastError();
     ::CloseHandle(process);
     return path;
 }
@@ -115,6 +130,7 @@ ProcessEnumerationResult EnumerateProcessesByNtQuerySystemInformation() {
     ULONG bufferSize = 1u << 20;
     std::vector<std::byte> buffer;
     LONG status = kStatusProcedureNotFound;
+    std::size_t readable = 0;
     for (int attempt = 0; attempt < 8; ++attempt) {
         buffer.assign(bufferSize, std::byte{});
         ULONG returnLength = 0;
@@ -124,6 +140,7 @@ ProcessEnumerationResult EnumerateProcessesByNtQuerySystemInformation() {
             bufferSize,
             &returnLength);
         if (status == kStatusSuccess) {
+            readable = returnLength ? returnLength : bufferSize;
             break;
         }
         if (!IsGrowStatus(status)) {
@@ -144,10 +161,17 @@ ProcessEnumerationResult EnumerateProcessesByNtQuerySystemInformation() {
 
     std::size_t offset = 0;
     for (;;) {
-        if (offset + sizeof(KSYSTEM_PROCESS_INFORMATION) > buffer.size()) {
+        if (readable > buffer.size() || offset > readable || sizeof(KSYSTEM_PROCESS_INFORMATION) > readable - offset) {
+            result.malformed = true;
             break;
         }
         const auto* info = reinterpret_cast<const KSYSTEM_PROCESS_INFORMATION*>(buffer.data() + offset);
+        const auto begin = reinterpret_cast<std::uintptr_t>(buffer.data());
+        const auto name = reinterpret_cast<std::uintptr_t>(info->ImageName.Buffer);
+        if (info->ImageName.Length && (!name || info->ImageName.Length % sizeof(wchar_t) != 0 ||
+            name < begin || name - begin > readable || info->ImageName.Length > readable - (name - begin))) {
+            result.malformed = true; break;
+        }
 
         ProcessSnapshotRow row;
         row.processId = HandleToProcessId(info->UniqueProcessId);
@@ -179,21 +203,26 @@ ProcessEnumerationResult EnumerateProcessesByNtQuerySystemInformation() {
         row.ioWriteBytes = static_cast<ULONGLONG>(info->WriteTransferCount.QuadPart);
         row.ioOtherBytes = static_cast<ULONGLONG>(info->OtherTransferCount.QuadPart);
         row.imageName = UnicodeStringToWString(info->ImageName);
+        row.imageNameAvailable = !row.imageName.empty();
         if (row.imageName.empty()) {
             row.imageName = row.processId == 0 ? L"System Idle Process" : L"System";
         }
-        row.imagePath = QueryProcessImagePath(row.processId);
+        row.imagePath = QueryProcessImagePath(row.processId, row.creationTime100ns, &row.imagePathError);
         result.rows.push_back(std::move(row));
 
         if (info->NextEntryOffset == 0) {
+            result.complete = true;
             break;
+        }
+        if (info->NextEntryOffset < sizeof(KSYSTEM_PROCESS_INFORMATION) || info->NextEntryOffset > readable - offset) {
+            result.malformed = true; break;
         }
         offset += info->NextEntryOffset;
     }
 
     result.success = true;
     result.ntStatus = kStatusSuccess;
-    result.diagnosticText = L"OK";
+    result.diagnosticText = result.malformed ? L"SystemProcessInformation contained an invalid row boundary or image-name range." : L"OK";
     return result;
 }
 

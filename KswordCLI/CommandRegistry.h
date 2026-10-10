@@ -17,6 +17,7 @@ struct Json {
     static Json string(const std::wstring& value);
     static Json number(std::uint32_t value);
     static Json real(double value);
+    static Json signedNumber(std::int32_t value);
     static Json boolean(bool value);
     static Json object(const std::vector<std::pair<std::wstring, Json>>& values);
     static Json array(const std::vector<Json>& values);
@@ -85,4 +86,5 @@ void registerFileOperations();
 void registerFileOwnership();
 void registerFileAnalysis();
 void registerFilePe();
+void registerProcessEnumeration();
 }

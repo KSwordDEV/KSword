@@ -168,4 +168,11 @@
     <ClInclude Include="..\shared\usermode\backend\file\PeSnapshot.h" />
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessEnumeration.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\NtApi.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessEnumerator.h" />
+    <ClInclude Include="..\shared\usermode\backend\NtApi.h" />
+  </ItemGroup>
 </Project>
