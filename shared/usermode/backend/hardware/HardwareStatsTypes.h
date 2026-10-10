@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Win32.h"
+#include "HardwareTypes.h"
 
 #include <cstdint>
 #include <string>
@@ -99,6 +100,18 @@ struct UsbNode {
     std::wstring hardwareIds;
     std::wstring statusText;
     std::wstring problemText;
+    std::map<std::wstring,ks::r3::hardware::HardwareFieldEvidence> evidence;
+    ULONG statusFlags = 0,problemCode = 0;
+    CONFIGRET statusResult = CR_SUCCESS;
+    bool statusKnown = false,addressKnown = false;
+    DWORD address = 0;
+};
+
+struct UsbEnumerationSource {
+    std::wstring name;
+    bool complete = false,opened = false,limited = false,malformed = false;
+    DWORD win32Error = ERROR_SUCCESS,examinedCount = 0,skippedCount = 0;
+    CONFIGRET cmStatus = CR_SUCCESS;
 };
 
 // UsbTopologySnapshot is one full USB enumeration pass.
@@ -106,6 +119,7 @@ struct UsbTopologySnapshot {
     bool success = false;
     std::wstring diagnosticText;
     std::vector<UsbNode> nodes;
+    std::vector<UsbEnumerationSource> sources;
 };
 
 // BusDeviceRow is one PCI/ACPI style devnode with its bus placement and the

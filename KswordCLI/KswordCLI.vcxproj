@@ -393,4 +393,9 @@
   <ItemGroup>
     <ClCompile Include="R3HardwareDisk.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3HardwareUsb.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\UsbTopology.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\UsbTopology.h" />
+  </ItemGroup>
 </Project>

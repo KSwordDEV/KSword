@@ -52,3 +52,21 @@ KswordCLI.exe hardware disk sample --instance '0 C:' --samples 3 --interval-ms 1
 data 包含 source、instanceFilter、requestedSamples、intervalMilliseconds、warmupMilliseconds、returnedSamples、cancelled、queryClosed、closeEvidence 和 samples。每次样本提供 sequence、elapsedMilliseconds、queryOpened、queryStatus、baselineStatus、collectStatus、complete、enumeratedCount、matchedCount、returnedCount、truncated、sources 和 disks。sources 为各字段的实际计数器路径和 PDH 调用／数组状态；disks 按实例提供 readBytesPerSecond、writeBytesPerSecond、readsPerSecond、writesPerSecond、currentQueueLength、averageQueueLength、busyPercent、readLatencySeconds、writeLatencySeconds 以及各字段 evidence。读取失败或该实例没有返回的单项为 null，不使用默认零值冒充读数。
 
 吞吐为字节/秒、IOPS 为操作/秒、队列长度为请求数、延迟单位是秒。busyPercent 不上限截断，并发请求或 RAID 可能超过 100。`_Total` 是 PDH 提供者汇总，置于首项，不是另一块物理磁盘；实例名称是 PDH 标签，不能当作持久设备身份或卷路径。有效完整空结果或精确筛选无匹配返回 0；无可用证据为 5；数组／单项不完整、输出截断、取消或关闭失败为 6；畸形数组为 4。Ctrl+C/Break 停止后续等待和采样，由拥有线程关闭查询；结果保留实际关闭状态。计数器英文／本地化回退、数组预算及有效状态规则与系统性能采样相同。
+
+## USB 拓扑（迁移项 34）
+
+```powershell
+KswordCLI.exe hardware usb help
+KswordCLI.exe help hardware usb enum
+KswordCLI.exe hardware usb enum --json
+KswordCLI.exe hardware usb enum --kind hub --json
+KswordCLI.exe hardware usb enum --instance-id 'USB\VID_046D&PID_C52B\123456' --json
+```
+
+`hardware usb enum` 支持 `--kind all|controller|hub|device`（默认 all）、`--instance-id`（精确、大小写不敏感的 PnP ID）、`--limit 1..100000`（默认 1000）、`--backend r3`、`--json`。调用现有共享 USB 后端：USB hub／host-controller 接口分类，host-controller 接口、USB／USBSTOR 枚举器和 USB device 接口合并去重；仅包含当前存在设备。没有引入启用、禁用、弹出、描述符、速度或带宽查询。
+
+data 包含 source、complete、roleClassificationComplete、sources、enumeratedCount、matchedCount、returnedCount、truncated、nodes。sources 分别记录六次遍历的 opened、complete、limited、malformed、win32Error、configRet、examinedCount、skippedCount。节点包含 index、parentIndex、depth、instanceId、parentInstanceId、kind、descriptionDisplay、vendorId、productId、revision、identitySource、instanceSerialCandidate、address、hubPortCandidate、statusFlags、problemCode、statusConfigRet、statusDisplay、problemDisplay、properties。索引始终属于完整快照，即使筛选／截断后父节点未输出；父身份仍保留。分类来源失败时 kind 为 null，不把默认 device 当作可靠分类。
+
+properties 按稳定字段名保留 available、absent、malformed、propertyType（DEVPROP 类型，不是注册表类型）、win32Error、configRet、values、number。原生多字符串为数组，分号不作为分隔依据。可选属性不存在为 absent，可以成功；CM／属性错误保留为未知并返回 6，畸形属性返回 4；全部来源打开失败返回 3，空结果且来源不完整为 5；完整有效空拓扑／筛选无匹配返回 0，输出截断为 6。每次来源遍历最多 100000 devnode，属性预算 16 MiB、最多 4 次扩容。
+
+VID/PID/revision 来自硬件 ID 或实例 ID 的字段提取。instanceSerialCandidate 是不含 `&` 的末段实例 ID，不证明 USB 描述符序列号。address 是原生 32 位 DEVPKEY_Device_Address；控制器可能是打包的 PCI 设备／功能号，其 hubPortCandidate 必须为 null。非控制器 hubPortCandidate 仍只是 devnode 地址候选，位置文字、父子关系不保证物理接线／端口映射。Light 显示文字保留在 display 字段，CLI 成功判定使用结构化状态。纯 R3，不要求 KswordARK，不切换 R0，help 不执行枚举。

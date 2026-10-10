@@ -48,16 +48,16 @@ bool QueryRawProperty(HDEVINFO set,
     SP_DEVINFO_DATA& info,
     const DEVPROPKEY& key,
     DEVPROPTYPE& type,
-    std::vector<BYTE>& data);
+    std::vector<BYTE>& data,ks::r3::hardware::HardwareFieldEvidence* evidence = nullptr);
 std::wstring JoinStringList(const std::vector<BYTE>& data);
-std::wstring QueryStringProperty(HDEVINFO set, SP_DEVINFO_DATA& info, const DEVPROPKEY& key);
-std::wstring QueryStringListProperty(HDEVINFO set, SP_DEVINFO_DATA& info, const DEVPROPKEY& key);
-bool QueryUint32Property(HDEVINFO set, SP_DEVINFO_DATA& info, const DEVPROPKEY& key, DWORD& value);
-std::wstring DevInstToInstanceId(DEVINST devInst);
-std::wstring ParentInstanceId(DEVINST devInst);
+std::wstring QueryStringProperty(HDEVINFO set, SP_DEVINFO_DATA& info, const DEVPROPKEY& key,ks::r3::hardware::HardwareFieldEvidence* evidence = nullptr);
+std::wstring QueryStringListProperty(HDEVINFO set, SP_DEVINFO_DATA& info, const DEVPROPKEY& key,ks::r3::hardware::HardwareFieldEvidence* evidence = nullptr);
+bool QueryUint32Property(HDEVINFO set, SP_DEVINFO_DATA& info, const DEVPROPKEY& key, DWORD& value,ks::r3::hardware::HardwareFieldEvidence* evidence = nullptr);
+std::wstring DevInstToInstanceId(DEVINST devInst,ks::r3::hardware::HardwareFieldEvidence* evidence = nullptr);
+std::wstring ParentInstanceId(DEVINST devInst,ks::r3::hardware::HardwareFieldEvidence* evidence = nullptr);
 std::wstring ProblemCodeText(const ULONG problem);
-std::wstring DescribeDeviceStatus(DEVINST devInst, std::wstring& problemText);
-std::set<std::wstring> CollectInterfaceOwners(const GUID& interfaceGuid);
+std::wstring DescribeDeviceStatus(DEVINST devInst, std::wstring& problemText,ULONG* flags = nullptr,ULONG* problem = nullptr,CONFIGRET* result = nullptr);
+std::set<std::wstring> CollectInterfaceOwners(const GUID& interfaceGuid,UsbEnumerationSource* evidence = nullptr);
 std::wstring ExtractHexField(const std::wstring& text, const wchar_t* marker, const std::size_t width);
 std::wstring SerialNumberFromInstanceId(const std::wstring& instanceId);
 UsbNode UsbNodeFromDevInfo(HDEVINFO set,
@@ -68,12 +68,12 @@ void AppendEnumeratorNodes(const wchar_t* enumeratorName,
     const std::set<std::wstring>& hubs,
     const std::set<std::wstring>& controllers,
     std::vector<UsbNode>& nodes,
-    std::set<std::wstring>& seen);
+    std::set<std::wstring>& seen,UsbEnumerationSource* evidence = nullptr);
 void AppendInterfaceNodes(const GUID& interfaceGuid,
     const std::set<std::wstring>& hubs,
     const std::set<std::wstring>& controllers,
     std::vector<UsbNode>& nodes,
-    std::set<std::wstring>& seen);
+    std::set<std::wstring>& seen,UsbEnumerationSource* evidence = nullptr);
 std::vector<UsbNode> OrderUsbNodesDepthFirst(std::vector<UsbNode> nodes);
 UsbTopologySnapshot EnumerateUsbTopology();
 }

@@ -1509,6 +1509,7 @@ namespace
             ks::cli::registerHardwareDevices();
             ks::cli::registerHardwarePerformance();
             ks::cli::registerHardwareDisk();
+            ks::cli::registerHardwareUsb();
             #endif
             return true;
         }();
