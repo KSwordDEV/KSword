@@ -275,4 +275,7 @@
     <ClInclude Include="..\shared\usermode\backend\hardware\PerformanceSamplerSupport.h" />
     <ClInclude Include="..\shared\usermode\backend\hardware\HardwareStatsTypes.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3HardwareDisk.cpp" />
+  </ItemGroup>
 </Project>

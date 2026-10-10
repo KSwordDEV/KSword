@@ -100,4 +100,5 @@ void registerProcessHotkeys();
 void registerDriverModules();
 void registerHardwareDevices();
 void registerHardwarePerformance();
+void registerHardwareDisk();
 }

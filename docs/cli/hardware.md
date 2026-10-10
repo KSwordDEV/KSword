@@ -37,3 +37,18 @@ data 提供 source、group、requestedSamples、intervalMilliseconds、warmupMil
 PDH VALID_DATA 和 NEW_DATA 都是有效数据；函数成功不证明 CStatus 有效。数组检查实际长度、项数、名称指针／终止符和有限数值，16 MiB 上限及 4 次扩容重试。计数器缺失／尚未就绪、输出截断或取消为 6；所选组无可用值为 5；畸形数据为 4。PDH 查询失败仍保留已实现的 Win32 静态处理器／内存数据，以部分结果报告。
 
 GPU 是最大活动引擎占用率，不是整卡总占用；没有引擎实例不伪造 0%。网络合计按当前可见接口求和，可能包含虚拟接口、重复流量，不能解释为物理链路利用率；某方向不可读取时保留 null 而非零。Ctrl+C/Break 停止后续采样和等待；已开始的原生调用完成后，由同一工作线程关闭 PDH 查询，并输出一个完整 JSON 文档（返回 6）。help 不创建 PDH 查询或等待采样。
+
+## 物理磁盘活动（迁移项 33）
+
+```powershell
+KswordCLI.exe hardware disk help
+KswordCLI.exe help hardware disk sample
+KswordCLI.exe hardware disk sample --json
+KswordCLI.exe hardware disk sample --instance '0 C:' --samples 3 --interval-ms 1000 --json
+```
+
+`hardware disk sample` 支持 `--instance`（不区分大小写的精确 PDH 实例名称）、`--samples 1..30`（默认 1）、`--interval-ms 250..10000`（默认 1000）、`--limit 1..100000`（每次返回的磁盘数，默认 1000）、`--backend r3`、`--json`。首次预热 1000 ms，后续等待从上次采集完成开始；预热与等待之和最多 120 秒，原生提供者调用不强制中断。只打开 PhysicalDisk 范围的九项计数器，纯 R3，不要求 KswordARK，不切换 R0。
+
+data 包含 source、instanceFilter、requestedSamples、intervalMilliseconds、warmupMilliseconds、returnedSamples、cancelled、queryClosed、closeEvidence 和 samples。每次样本提供 sequence、elapsedMilliseconds、queryOpened、queryStatus、baselineStatus、collectStatus、complete、enumeratedCount、matchedCount、returnedCount、truncated、sources 和 disks。sources 为各字段的实际计数器路径和 PDH 调用／数组状态；disks 按实例提供 readBytesPerSecond、writeBytesPerSecond、readsPerSecond、writesPerSecond、currentQueueLength、averageQueueLength、busyPercent、readLatencySeconds、writeLatencySeconds 以及各字段 evidence。读取失败或该实例没有返回的单项为 null，不使用默认零值冒充读数。
+
+吞吐为字节/秒、IOPS 为操作/秒、队列长度为请求数、延迟单位是秒。busyPercent 不上限截断，并发请求或 RAID 可能超过 100。`_Total` 是 PDH 提供者汇总，置于首项，不是另一块物理磁盘；实例名称是 PDH 标签，不能当作持久设备身份或卷路径。有效完整空结果或精确筛选无匹配返回 0；无可用证据为 5；数组／单项不完整、输出截断、取消或关闭失败为 6；畸形数组为 4。Ctrl+C/Break 停止后续等待和采样，由拥有线程关闭查询；结果保留实际关闭状态。计数器英文／本地化回退、数组预算及有效状态规则与系统性能采样相同。

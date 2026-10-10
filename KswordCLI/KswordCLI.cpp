@@ -1508,6 +1508,7 @@ namespace
             ks::cli::registerDriverModules();
             ks::cli::registerHardwareDevices();
             ks::cli::registerHardwarePerformance();
+            ks::cli::registerHardwareDisk();
             #endif
             return true;
         }();

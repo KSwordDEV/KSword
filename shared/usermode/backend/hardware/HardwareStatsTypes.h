@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <map>
 
 namespace ks::r3::hardware_stats {
 struct PerformanceEvidence {
@@ -49,6 +50,7 @@ struct DiskActivityRow {
     double busyPercent = 0.0;
     double readLatencySeconds = 0.0;
     double writeLatencySeconds = 0.0;
+    std::map<std::wstring,PerformanceEvidence> evidence;
 };
 
 // PerformanceSnapshot carries one sampling pass. A failed pass still returns
