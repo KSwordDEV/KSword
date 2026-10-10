@@ -70,3 +70,23 @@ data 包含 source、complete、roleClassificationComplete、sources、enumerate
 properties 按稳定字段名保留 available、absent、malformed、propertyType（DEVPROP 类型，不是注册表类型）、win32Error、configRet、values、number。原生多字符串为数组，分号不作为分隔依据。可选属性不存在为 absent，可以成功；CM／属性错误保留为未知并返回 6，畸形属性返回 4；全部来源打开失败返回 3，空结果且来源不完整为 5；完整有效空拓扑／筛选无匹配返回 0，输出截断为 6。每次来源遍历最多 100000 devnode，属性预算 16 MiB、最多 4 次扩容。
 
 VID/PID/revision 来自硬件 ID 或实例 ID 的字段提取。instanceSerialCandidate 是不含 `&` 的末段实例 ID，不证明 USB 描述符序列号。address 是原生 32 位 DEVPKEY_Device_Address；控制器可能是打包的 PCI 设备／功能号，其 hubPortCandidate 必须为 null。非控制器 hubPortCandidate 仍只是 devnode 地址候选，位置文字、父子关系不保证物理接线／端口映射。Light 显示文字保留在 display 字段，CLI 成功判定使用结构化状态。纯 R3，不要求 KswordARK，不切换 R0，help 不执行枚举。
+
+## 总线设备与资源（迁移项 35）
+
+```powershell
+KswordCLI.exe hardware bus help
+KswordCLI.exe help hardware bus enum
+KswordCLI.exe hardware bus enum --json
+KswordCLI.exe hardware bus enum --scope all --enumerator PCI --json
+KswordCLI.exe hardware bus enum --instance-id 'PCI\VEN_15AD&DEV_0405&SUBSYS_040515AD&REV_00\3&61AAA01&0&78' --json
+```
+
+`hardware bus enum` 支持 `--scope common|all`（默认 common：PCI、ACPI、ACPI_HAL、PCIIDE、ROOT 五个枚举器；all 为所有当前存在设备）、`--enumerator`（精确且大小写不敏感的实际枚举器名称）、`--instance-id`（精确且大小写不敏感的 PnP ID）、`--limit 1..100000`（默认 1000）、`--backend r3`、`--json`。过滤选择输出，不减少共享后端枚举预算；纯 R3、只读，不要求 KswordARK，不提供 PCI 配置空间访问或资源修改。
+
+data 包含 source、scope、complete、sources、enumeratedCount、matchedCount、returnedCount、truncated、devices。每个来源记录打开状态、完整性、限额、格式／Win32／CM 错误和采集／跳过数量。设备包含 instanceId、enumeratorName、enumerationSource、descriptionDisplay、busTypeDisplay、busTypeGuid、address、pciDevice、pciFunction、statusFlags、problemCode、statusConfigRet、statusDisplay、properties、resources、resourceDisplay。PCI 的 address 保留原始十六进制值，device/function 按高／低 16 位解码；非 PCI 不伪造该解码。properties 与 USB 使用同样的原生类型／数组／数值证据模型，增加总线 GUID、LegacyBusType、BusNumber、Address、UiNumber 和 LocationPaths，未从显示文本反解数值。
+
+resources 保留 available、complete、noConfiguration、source（allocated/boot）、allocatedConfigRet、bootConfigRet、terminalConfigRet、limited、malformed、descriptorCount、skippedCount、cleanupComplete、logFreeConfigRet、resourceFreeConfigRet、descriptors。首先查询 ALLOC_LOG_CONF，失败时尝试 BOOT_LOG_CONF；Boot 来源不代表当前分配。如果 Alloc 查询拒绝但 Boot 可读，仍为部分结果。两次均 CR_NO_MORE_LOG_CONF 是可成功的资源空结果。
+
+描述符包含 ordinal、原生 type、kind、dataSize、sizeConfigRet、dataConfigRet、dataAvailable、interpreted、malformed、baseAddress、endAddressInclusive、allocatedNumber、irqSigned、messageSignalledCandidate、rawPreviewHex、rawPreviewTruncated。解码 MEM/MEM64/IO 的地址范围、DMA 通道、IRQ 原始分配值和 BUS 号范围；资源末地址是**包含末字节／末编号**。IRQ 另保留原始无符号与有符号表示，负向量只是 MSI 候选，不是能力查询。`ResType_None` 零长度占位项为有效的 kind=none 空描述符，不需要调用数据读取。未知描述符保留类型、长度及最多 256 字节原始预览并返回 6。
+
+资源描述符通过同一 CM 句柄遍历，保留所有原生失败并逐个释放；配置句柄也释放，实际释放错误不冒充完成。每个设备最多 4096 描述符，单描述符 16 MiB；每个设备来源遍历最多 100000 节点，属性预算与 USB 相同。缺字段、读取／遍历／释放失败、未知资源类型、限额和输出截断为 6；畸形属性、短结构或倒置范围为 4；全部来源无法打开为 3，来源不完整且无设备证据为 5；有效完整空列表／筛选无匹配为 0。CM 资源接口从 Windows 8 起在 WOW64 下可能返回 CR_CALL_NOT_IMPLEMENTED，此限制保留在各设备资源证据；当前 Release/x64 使用架构原生接口。help 不执行查询。

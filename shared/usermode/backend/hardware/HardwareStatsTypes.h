@@ -124,6 +124,21 @@ struct UsbTopologySnapshot {
 
 // BusDeviceRow is one PCI/ACPI style devnode with its bus placement and the
 // hardware resources the PnP manager currently has arbitrated to it.
+struct BusResourceRow {
+    DWORD type = 0,dataSize = 0,ordinal = 0,number = 0;
+    CONFIGRET sizeStatus = CR_SUCCESS,dataStatus = CR_SUCCESS;
+    bool sizeKnown = false,dataKnown = false,interpreted = false,rangeKnown = false,numberKnown = false,malformed = false;
+    std::wstring kind;
+    std::uint64_t base = 0,endInclusive = 0;
+    std::vector<std::uint8_t> rawPreview;
+};
+struct BusResourceEvidence {
+    bool available = false,complete = false,noConfiguration = false,usedBoot = false,bootStatusKnown = false,terminalKnown = false;
+    bool limited = false,malformed = false,cleanupComplete = true,logFreeKnown = false,resourceFreeKnown = false;
+    CONFIGRET allocatedStatus = CR_SUCCESS,bootStatus = CR_SUCCESS,terminalStatus = CR_SUCCESS,logFreeStatus = CR_SUCCESS,resourceFreeStatus = CR_SUCCESS;
+    DWORD descriptorCount = 0,skippedCount = 0;
+    std::vector<BusResourceRow> rows;
+};
 struct BusDeviceRow {
     std::wstring instanceId;
     std::wstring description;
@@ -143,6 +158,12 @@ struct BusDeviceRow {
     std::wstring resourceText;     // IRQ / IO / MEM / DMA summary.
     std::wstring statusText;
     std::wstring problemText;
+    std::map<std::wstring,ks::r3::hardware::HardwareFieldEvidence> evidence;
+    ULONG statusFlags = 0,problemCode = 0;
+    CONFIGRET statusResult = CR_SUCCESS;
+    bool statusKnown = false;
+    std::wstring enumerationSource;
+    BusResourceEvidence resources;
 };
 
 // BusDeviceSnapshot is one full bus enumeration pass.
@@ -150,6 +171,7 @@ struct BusDeviceSnapshot {
     bool success = false;
     std::wstring diagnosticText;
     std::vector<BusDeviceRow> rows;
+    std::vector<UsbEnumerationSource> sources;
 };
 
 // FormatByteSize renders a byte count with a binary unit. Input is a byte count

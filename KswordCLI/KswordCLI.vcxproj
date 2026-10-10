@@ -398,4 +398,9 @@
     <ClCompile Include="..\shared\usermode\backend\hardware\UsbTopology.cpp" />
     <ClInclude Include="..\shared\usermode\backend\hardware\UsbTopology.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3HardwareBus.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\BusTopology.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\BusTopology.h" />
+  </ItemGroup>
 </Project>

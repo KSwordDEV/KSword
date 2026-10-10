@@ -102,4 +102,5 @@ void registerHardwareDevices();
 void registerHardwarePerformance();
 void registerHardwareDisk();
 void registerHardwareUsb();
+void registerHardwareBus();
 }

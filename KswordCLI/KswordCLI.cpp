@@ -1510,6 +1510,7 @@ namespace
             ks::cli::registerHardwarePerformance();
             ks::cli::registerHardwareDisk();
             ks::cli::registerHardwareUsb();
+            ks::cli::registerHardwareBus();
             #endif
             return true;
         }();
