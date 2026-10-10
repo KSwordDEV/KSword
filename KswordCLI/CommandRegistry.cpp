@@ -139,7 +139,7 @@ bool printHelp(const std::wstring& path) {
         std::wcout << L"Commands:\n";
         for (const auto& [name, summary] : children) {
             std::wcout << L"  KswordCLI.exe " << path << L" " << name << L"  " << summary << L"\n";
-            for (const auto& entry : entries) if (entry.path == path + L" " + name &&
+            for (const auto& entry : entries) if (entry.path == path + L" " + name && (!entry.run || entry.legacyDefault) &&
                 (entry.options.find(L"Required:") != std::wstring::npos || entry.options.find(L"必填") != std::wstring::npos))
                 std::wcout << L"    " << entry.options << L"\n";
         }
@@ -169,11 +169,18 @@ std::optional<int> dispatchR3(int& argc, wchar_t* argv[]) {
         }
     }
     Args args;
-    for (int i = 1; i < argc; ++i) if (std::wstring(argv[i]) == L"--json") args.values[L"--json"] = L"";
+    for (int i = 1; i < argc; ++i) {
+        if (found->acceptsTail && std::wstring(argv[i]) == L"--") break;
+        if (std::wstring(argv[i]) == L"--json") args.values[L"--json"] = L"";
+    }
     try {
         const auto allowed = options(*found);
         for (int i = static_cast<int>(count) + 1; i < argc; ++i) {
             const std::wstring key = argv[i];
+            if (key == L"--" && found->acceptsTail) {
+                for (++i; i < argc; ++i) args.tail.emplace_back(argv[i]);
+                break;
+            }
             if (!allowed.contains(key)) throw std::invalid_argument("unknown option " + narrowOption(key));
             if (args.has(key) && key != L"--json") throw std::invalid_argument("duplicate option");
             if (key == L"--json" || key == L"--confirm") { args.values[key] = L""; continue; }

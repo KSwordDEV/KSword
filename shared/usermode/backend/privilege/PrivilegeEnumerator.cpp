@@ -31,14 +31,16 @@ private:
 // QueryTokenInformationBlock reads a variable-size token information class. The
 // two-call size probe is required because most classes have no fixed size and
 // the required length is only known after the first rejected call.
-std::vector<std::uint8_t> QueryTokenInformationBlock(HANDLE token, TOKEN_INFORMATION_CLASS infoClass) {
+std::vector<std::uint8_t> QueryTokenInformationBlock(HANDLE token, TOKEN_INFORMATION_CLASS infoClass, PrivilegeSnapshot& snapshot) {
     DWORD required = 0;
     ::GetTokenInformation(token, infoClass, nullptr, 0, &required);
     if (required == 0) {
+        snapshot.queryErrors.push_back({infoClass, ::GetLastError()});
         return {};
     }
     std::vector<std::uint8_t> buffer(required, 0);
     if (!::GetTokenInformation(token, infoClass, buffer.data(), required, &required)) {
+        snapshot.queryErrors.push_back({infoClass, ::GetLastError()});
         return {};
     }
     buffer.resize(required);
@@ -82,8 +84,8 @@ std::wstring AccountNameForSid(PSID sid) {
     return domain.empty() ? name : domain + L"\\" + name;
 }
 
-std::wstring IntegrityLevelText(HANDLE token) {
-    const std::vector<std::uint8_t> buffer = QueryTokenInformationBlock(token, TokenIntegrityLevel);
+std::wstring IntegrityLevelText(HANDLE token, PrivilegeSnapshot& snapshot) {
+    const std::vector<std::uint8_t> buffer = QueryTokenInformationBlock(token, TokenIntegrityLevel, snapshot);
     if (buffer.empty()) {
         return {};
     }
@@ -152,39 +154,43 @@ PrivilegeSnapshot EnumerateProcessPrivileges() {
 
     HANDLE rawToken = nullptr;
     if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &rawToken)) {
-        snapshot.diagnosticText = L"打开当前进程令牌失败，错误码 " + std::to_wstring(::GetLastError()) + L"。";
+        snapshot.win32Error = ::GetLastError();
+        snapshot.diagnosticText = L"打开当前进程令牌失败，错误码 " + std::to_wstring(snapshot.win32Error) + L"。";
         return snapshot;
     }
     TokenHandleGuard token(rawToken);
 
-    if (const std::vector<std::uint8_t> userBuffer = QueryTokenInformationBlock(token.get(), TokenUser);
+    if (const std::vector<std::uint8_t> userBuffer = QueryTokenInformationBlock(token.get(), TokenUser, snapshot);
         !userBuffer.empty()) {
         const auto* user = reinterpret_cast<const TOKEN_USER*>(userBuffer.data());
         snapshot.token.userSid = FormatSid(user->User.Sid);
         snapshot.token.userName = AccountNameForSid(user->User.Sid);
     }
 
-    snapshot.token.integrityLevel = IntegrityLevelText(token.get());
+    snapshot.token.integrityLevel = IntegrityLevelText(token.get(), snapshot);
 
-    if (const std::vector<std::uint8_t> elevationBuffer = QueryTokenInformationBlock(token.get(), TokenElevation);
+    if (const std::vector<std::uint8_t> elevationBuffer = QueryTokenInformationBlock(token.get(), TokenElevation, snapshot);
         elevationBuffer.size() >= sizeof(TOKEN_ELEVATION)) {
         const auto* elevation = reinterpret_cast<const TOKEN_ELEVATION*>(elevationBuffer.data());
+        snapshot.token.elevationKnown = true;
         snapshot.token.elevated = elevation->TokenIsElevated != 0;
     }
 
-    if (const std::vector<std::uint8_t> uiAccessBuffer = QueryTokenInformationBlock(token.get(), TokenUIAccess);
+    if (const std::vector<std::uint8_t> uiAccessBuffer = QueryTokenInformationBlock(token.get(), TokenUIAccess, snapshot);
         uiAccessBuffer.size() >= sizeof(DWORD)) {
+        snapshot.token.uiAccessKnown = true;
         snapshot.token.uiAccess = *reinterpret_cast<const DWORD*>(uiAccessBuffer.data()) != 0;
     }
 
-    if (const std::vector<std::uint8_t> typeBuffer = QueryTokenInformationBlock(token.get(), TokenType);
+    if (const std::vector<std::uint8_t> typeBuffer = QueryTokenInformationBlock(token.get(), TokenType, snapshot);
         typeBuffer.size() >= sizeof(TOKEN_TYPE)) {
         const TOKEN_TYPE type = *reinterpret_cast<const TOKEN_TYPE*>(typeBuffer.data());
         snapshot.token.tokenType = type == TokenPrimary ? L"Primary" : L"Impersonation";
     }
 
-    if (const std::vector<std::uint8_t> groupBuffer = QueryTokenInformationBlock(token.get(), TokenGroups);
+    if (const std::vector<std::uint8_t> groupBuffer = QueryTokenInformationBlock(token.get(), TokenGroups, snapshot);
         !groupBuffer.empty()) {
+        snapshot.token.groupsKnown = true;
         const auto* groups = reinterpret_cast<const TOKEN_GROUPS*>(groupBuffer.data());
         snapshot.token.groups.reserve(groups->GroupCount);
         for (DWORD index = 0; index < groups->GroupCount; ++index) {
@@ -205,9 +211,10 @@ PrivilegeSnapshot EnumerateProcessPrivileges() {
         }
     }
 
-    const std::vector<std::uint8_t> privilegeBuffer = QueryTokenInformationBlock(token.get(), TokenPrivileges);
+    const std::vector<std::uint8_t> privilegeBuffer = QueryTokenInformationBlock(token.get(), TokenPrivileges, snapshot);
     if (privilegeBuffer.empty()) {
-        snapshot.diagnosticText = L"读取令牌权限数组失败，错误码 " + std::to_wstring(::GetLastError()) + L"。";
+        snapshot.win32Error = snapshot.queryErrors.back().win32Error;
+        snapshot.diagnosticText = L"读取令牌权限数组失败，错误码 " + std::to_wstring(snapshot.win32Error) + L"。";
         return snapshot;
     }
 
@@ -221,6 +228,7 @@ PrivilegeSnapshot EnumerateProcessPrivileges() {
         entry.enabledByDefault = (raw.Attributes & SE_PRIVILEGE_ENABLED_BY_DEFAULT) != 0;
         entry.removed = (raw.Attributes & SE_PRIVILEGE_REMOVED) != 0;
         entry.name = PrivilegeNameForLuid(raw.Luid);
+        if (entry.name.empty()) snapshot.queryErrors.push_back({TokenPrivileges, ::GetLastError()});
         entry.displayName = PrivilegeDisplayNameFor(entry.name);
         entry.description = DescribePrivilege(entry.name);
         entry.riskText = PrivilegeRiskText(entry.name);

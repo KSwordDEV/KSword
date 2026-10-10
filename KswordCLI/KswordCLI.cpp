@@ -1,4 +1,4 @@
-#ifndef NOMINMAX
+﻿#ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <WinSock2.h>
@@ -1437,6 +1437,35 @@ namespace
         }
     }
 
+    int dispatchCommand(int argc, wchar_t* argv[]);
+    bool isUnsupportedTransportError(DWORD error);
+
+    // Nested commands run in the same process, but their transport status must
+    // not leak into the enclosing privilege scope's own result.
+    int dispatchNested(std::vector<std::wstring> words)
+    {
+        struct RestoreErrors {
+            DWORD open = lastOpenError, ioctl = lastIoctlError;
+            int response = responseFailureRc;
+            ~RestoreErrors() { lastOpenError = open; lastIoctlError = ioctl; responseFailureRc = response; }
+        } restore;
+        lastOpenError = lastIoctlError = ERROR_SUCCESS; responseFailureRc = 0;
+        words.insert(words.begin(), L"KswordCLI.exe");
+        std::vector<wchar_t*> argv;
+        for (auto& word : words) argv.push_back(word.data());
+        argv.push_back(nullptr);
+        try {
+            int rc = dispatchCommand(static_cast<int>(words.size()), argv.data());
+            if (rc == 0 && responseFailureRc != 0) return responseFailureRc;
+            if (rc == 3 && lastOpenError != ERROR_SUCCESS) return 2;
+            return rc == 3 && isUnsupportedTransportError(lastIoctlError) ? 5 : rc;
+        } catch (const std::exception& ex) {
+            const std::string message = ex.what();
+            std::wcerr << L"error: " << std::wstring(message.begin(), message.end()) << L"\n";
+            return 1;
+        }
+    }
+
     void ensureHelpRegistry()
     {
         static const bool initialized = [] {
@@ -1459,6 +1488,7 @@ namespace
             ks::cli::registerRegistryMutations();
             ks::cli::registerStartupEnumeration();
             ks::cli::registerStartupActions();
+            ks::cli::registerPrivilege(dispatchNested);
             #endif
             return true;
         }();
@@ -1537,6 +1567,7 @@ namespace
     {
         for (int index = startIndex; index < argc; ++index)
         {
+            if (std::wstring(argv[index]) == L"--") break;
             if (isHelpToken(argv[index]))
             {
                 return true;

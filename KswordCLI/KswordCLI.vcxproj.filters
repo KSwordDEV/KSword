@@ -128,4 +128,13 @@
     <ClCompile Include="..\shared\usermode\backend\startup\StartupActions.cpp" />
     <ClInclude Include="..\shared\usermode\backend\startup\StartupActions.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3Privilege.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeActions.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\privilege\PrivilegeTypes.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeEnumerator.h" />
+    <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeActions.h" />
+    <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeTypes.h" />
+  </ItemGroup>
 </Project>

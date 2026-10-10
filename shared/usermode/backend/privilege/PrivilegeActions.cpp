@@ -31,19 +31,22 @@ std::wstring Win32ErrorText(const DWORD errorCode) {
 PrivilegeActionResult SetPrivilegeEnabled(const std::wstring& privilegeName, const bool enable) {
     PrivilegeActionResult result{};
     if (privilegeName.empty()) {
+        result.win32Error = ERROR_INVALID_PARAMETER;
         result.message = L"未选择权限。";
         return result;
     }
 
     LUID luid{};
     if (!::LookupPrivilegeValueW(nullptr, privilegeName.c_str(), &luid)) {
-        result.message = L"解析权限名失败：" + Win32ErrorText(::GetLastError());
+        result.win32Error = ::GetLastError();
+        result.message = L"解析权限名失败：" + Win32ErrorText(result.win32Error);
         return result;
     }
 
     HANDLE token = nullptr;
     if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
-        result.message = L"打开当前进程令牌失败：" + Win32ErrorText(::GetLastError());
+        result.win32Error = ::GetLastError();
+        result.message = L"打开当前进程令牌失败：" + Win32ErrorText(result.win32Error);
         return result;
     }
 
@@ -55,6 +58,7 @@ PrivilegeActionResult SetPrivilegeEnabled(const std::wstring& privilegeName, con
     ::SetLastError(ERROR_SUCCESS);
     const BOOL adjusted = ::AdjustTokenPrivileges(token, FALSE, &adjustment, 0, nullptr, nullptr);
     const DWORD lastError = ::GetLastError();
+    result.win32Error = lastError;
     ::CloseHandle(token);
 
     if (!adjusted) {

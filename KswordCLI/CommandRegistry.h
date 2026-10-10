@@ -32,6 +32,7 @@ struct Result {
 class Args {
 public:
     std::map<std::wstring, std::wstring> values;
+    std::vector<std::wstring> tail;
     bool has(const std::wstring& key) const;
     std::wstring get(const std::wstring& key, const std::wstring& fallback = L"") const;
     std::wstring require(const std::wstring& key) const;
@@ -57,6 +58,7 @@ struct Command {
     std::function<Result(const Args&)> run;
     bool legacyDefault = false;
     std::wstring legacySyntax, legacyOptions;
+    bool acceptsTail = false;
 };
 void addCommand(Command command);
 void addFamily(const std::wstring& name, const std::wstring& summary);
@@ -76,4 +78,5 @@ void registerRegistrySearch();
 void registerRegistryMutations();
 void registerStartupEnumeration();
 void registerStartupActions();
+void registerPrivilege(std::function<int(std::vector<std::wstring>)> dispatch);
 }

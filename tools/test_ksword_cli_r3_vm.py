@@ -47,6 +47,8 @@ exit $rc
             guest.copy(str(Path(os.environ['LOCALAPPDATA']) / 'KSwordTestBuilds/CLI-R3/R3Fixture.exe'), guest_root + r'\R3Fixture.exe')
         for name in ('Test-KSwordCliR3.ps1', 'KswordCliR3TestSupport.ps1'):
             guest.copy(str(ROOT / 'tools' / name), guest_root + '\\' + name)
+        if feature == 'privilege':
+            guest.copy(str(ROOT / 'tools/Test-KSwordCliR3Privilege.ps1'), guest_root + r'\Test-KSwordCliR3Privilege.ps1')
         guest.copy(str(local_runner), guest_root + r'\r3-feature-runner.ps1')
         rc = guest.run(r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
                        r'-NoProfile -ExecutionPolicy Bypass -File C:\KSwordCliLab\r3-feature-runner.ps1', 60)
