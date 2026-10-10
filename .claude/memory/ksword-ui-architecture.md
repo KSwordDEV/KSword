@@ -209,3 +209,6 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 
 - `UI/PrimaryPageStyle` 只接收页面明确登记的 Combo、Group、Toolbar、SectionTitle，不自动扫描全局控件。组合框完整状态绑定在本体以覆盖 Dock 透明祖先；工具带只保留轻底面和下分界，功能参数组保留完整细线框。保留现有业务控件和模型，工具区不能吞掉图表或结果区域高度。
 - `BindWidgetTheme` 在同一对象再次登记会替换旧回调；已有业务主题绑定需在构造处明确协调。旧局部透明表头与强色选中规则应在原来源收口，不能只叠加通用样式后假定已生效。主页面取舍见 `docs/主页面组件样式整理-20261010.md`。
+
+- 内核导航中的 `selectedTabIcon` 也必须使用中性表面的动态图标，不能在 currentChanged 后重新写入 `OnAccentColor` 位图。父级标签使用连续次级底面和下划线，显式 `StyleChildPageTabs` 使用轻选中块、8px左缩进与6px顶部间隔；原页序和惰性初始化不变。
+- 下拉动画不应与主题所有权绑定：带自定义QSS的组合框、QMenu及子菜单也可淡入，原配色继续由业务拥有。弹层关闭恢复原始透明度，用代次取消快速重开前的排队帧，不修改菜单几何或选择逻辑。

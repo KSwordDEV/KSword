@@ -53,14 +53,15 @@ namespace ks::ui
             {
                 return;
             }
-            const QColor base = KswordTheme::SurfaceColor();
+            const bool child = safeBar->property("ksword_page_tabs_child").toBool();
+            const QColor base = child ? KswordTheme::SurfaceColor() : KswordTheme::SurfaceAltColor();
             const QColor accent = KswordTheme::ControlAccentColor();
-            const QColor selected = KswordTheme::BlendColors(base, accent, 38);
+            const QColor selected = KswordTheme::BlendColors(base, accent, child ? 20 : 38);
             const QColor hover = KswordTheme::BlendColors(base, accent, 18);
             const QColor selectedText = KswordTheme::EnsureTextContrast(
                 KswordTheme::TextPrimaryColor(), selected, 4.5);
             // 所有状态使用相同的边缘和留白，切换时不改变页签几何；侧向栏单独下发细边。
-            const QString style = QStringLiteral(
+            QString style = QStringLiteral(
                 "QTabBar[ksword_page_tabs_style=\"true\"]::tab{"
                 "background:%1;color:%2;border:0;border-bottom:2px solid transparent;"
                 "padding:5px 12px;min-height:18px;margin:0px 2px 0px 0px;"
@@ -77,6 +78,22 @@ namespace ks::ui
                 "QTabBar[ksword_page_tabs_style=\"true\"]::tab:right:selected{border-left-color:%6;}")
                 .arg(base.name(), KswordTheme::TextSecondaryColor().name(), hover.name(),
                     selected.name(), selectedText.name(), accent.name(), KswordTheme::TextDisabledColor().name());
+            // 父级用连续底面和强调下边线；子级用缩进的轻选中块，避免两排导航看似并列。
+            style += QStringLiteral(
+                "QTabBar[ksword_page_tabs_style=\"true\"]{background:%1;border:0;border-bottom:1px solid %2;}")
+                .arg(base.name(), KswordTheme::BorderColor().name());
+            if (child)
+            {
+                style += QStringLiteral(
+                    "QTabBar[ksword_page_tabs_child=\"true\"]::tab{"
+                    "background:transparent;border:0;border-bottom:2px solid transparent;"
+                    "padding:3px 10px;border-radius:4px;margin:2px 3px 3px 0;}"
+                    "QTabBar[ksword_page_tabs_child=\"true\"]::tab:selected{"
+                    "background:%1;color:%2;border-bottom-color:transparent;}"
+                    "QTabBar[ksword_page_tabs_child=\"true\"]::tab:selected:hover{background:%1;}"
+                    "QTabBar[ksword_page_tabs_child=\"true\"]::tab:hover:!selected{background:%3;}")
+                    .arg(selected.name(), selectedText.name(), hover.name());
+            }
             if (safeBar->styleSheet() != style)
             {
                 safeBar->setStyleSheet(style);
@@ -91,5 +108,17 @@ namespace ks::ui
         {
             StylePageTabBar(tabs->tabBar());
         }
+    }
+
+    // 页面明确声明下级导航；只增加少量左侧和顶部间隔，保留页索引及惰性初始化。
+    inline void StyleChildPageTabs(QTabWidget* tabs)
+    {
+        if (tabs == nullptr)
+        {
+            return;
+        }
+        tabs->tabBar()->setProperty("ksword_page_tabs_child", true);
+        tabs->setContentsMargins(8, 6, 0, 0);
+        StylePageTabs(tabs);
     }
 }

@@ -105,15 +105,17 @@ namespace ks::ui
                 if (m_neutralTab)
                 {
                     const QColor base = KswordTheme::SurfaceColor();
-                    const QColor backgrounds[] = {KswordTheme::WindowColor(), base,
-                        KswordTheme::BlendColors(base, KswordTheme::ControlAccentColor(), 38)};
+                    const QColor parentBase = KswordTheme::SurfaceAltColor();
+                    const QColor backgrounds[] = {KswordTheme::WindowColor(), base, parentBase,
+                        KswordTheme::BlendColors(base, KswordTheme::ControlAccentColor(), 38),
+                        KswordTheme::BlendColors(parentBase, KswordTheme::ControlAccentColor(), 38)};
                     const QColor preferred = mode == QIcon::Disabled
                         ? KswordTheme::TextDisabledColor() : accent;
                     if (flatButtonBackgroundKnown != nullptr)
                     {
                         *flatButtonBackgroundKnown = true;
                     }
-                    return KswordTheme::EnsureTextContrastForBackgrounds(preferred, backgrounds, 3, 3.0);
+                    return KswordTheme::EnsureTextContrastForBackgrounds(preferred, backgrounds, 5, 3.0);
                 }
 
                 // buttonBackground 用途：仅由共享按钮组件确认拥有的实际状态底色。

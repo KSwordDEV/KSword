@@ -212,44 +212,20 @@ namespace
         Count
     };
 
-    // tintedSvgIcon：
-    // - 作用：把资源 SVG 渲染为指定颜色图标，用于 Tab 选中态高对比显示。
-    // - 参数 iconPath：资源路径；参数 tintColor：目标颜色；参数 iconSize：输出尺寸。
-    QIcon tintedSvgIcon(const QString& iconPath, const QColor& tintColor, const QSize& iconSize = QSize(16, 16))
-    {
-        QSvgRenderer svgRenderer(iconPath);
-        if (!svgRenderer.isValid())
-        {
-            return QIcon(iconPath);
-        }
-
-        QPixmap tintedPixmap(iconSize);
-        tintedPixmap.fill(Qt::transparent);
-
-        QPainter painter(&tintedPixmap);
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        svgRenderer.render(&painter, QRectF(0, 0, iconSize.width(), iconSize.height()));
-        painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-        painter.fillRect(tintedPixmap.rect(), tintColor);
-        painter.end();
-
-        return QIcon(tintedPixmap);
-    }
-
     // tabIcon：
     // - 作用：返回普通 Tab 图标，保持未选中态与项目图标资源一致。
     // - 变量 iconPath：图标资源路径，统一放在调用点便于审阅。
     QIcon tabIcon(const QString& iconPath)
     {
-        // 普通标签保留默认蓝源图并动态取色，选中对比色仍由 selectedTabIcon 处理。
-        return ks::ui::MakeThemeAccentIcon(tintedSvgIcon(iconPath, KswordTheme::DefaultPrimaryAccentColor()));
+        // 父子两层均为中性底，原 SVG 交由绘制时校准，保留高 DPI 矢量轮廓。
+        return ks::ui::MakeThemeTabAccentIcon(QIcon(iconPath), QColor());
     }
 
     // selectedTabIcon：
-    // - 作用：返回白色 Tab 图标，避免选中蓝底时出现蓝底蓝图标。
+    // - 作用：保留选中态入口，但不再沿用实心强调按钮的深色 OnAccent 配方。
     QIcon selectedTabIcon(const QString& iconPath)
     {
-        return tintedSvgIcon(iconPath, KswordTheme::OnAccentColor());
+        return ks::ui::MakeThemeTabAccentIcon(QIcon(iconPath), QColor());
     }
 
 }
@@ -439,7 +415,7 @@ void KernelDock::initializeUi()
     m_miscLayout->setContentsMargins(4, 4, 4, 4);
     m_miscLayout->setSpacing(0);
     m_miscInnerTabWidget = new QTabWidget(m_miscPage);
-    ks::ui::StylePageTabs(m_miscInnerTabWidget);
+    ks::ui::StyleChildPageTabs(m_miscInnerTabWidget);
     m_miscInnerTabWidget->setIconSize(QSize(16, 16));
     m_miscLayout->addWidget(m_miscInnerTabWidget, 1);
 
@@ -455,7 +431,7 @@ void KernelDock::initializeUi()
     m_kernelAuditLayout = new QVBoxLayout(m_kernelAuditPage);
     m_kernelAuditLayout->setContentsMargins(4, 4, 4, 4);
     m_kernelAuditInnerTabWidget = new QTabWidget(m_kernelAuditPage);
-    ks::ui::StylePageTabs(m_kernelAuditInnerTabWidget);
+    ks::ui::StyleChildPageTabs(m_kernelAuditInnerTabWidget);
     m_kernelAuditInnerTabWidget->setIconSize(QSize(16, 16));
     m_kernelAuditLayout->addWidget(m_kernelAuditInnerTabWidget, 1);
     m_inlineHookPage = new QWidget(m_kernelAuditInnerTabWidget);
@@ -474,7 +450,7 @@ void KernelDock::initializeUi()
     m_selfDriverLayout = new QVBoxLayout(m_selfDriverPage);
     m_selfDriverLayout->setContentsMargins(4, 4, 4, 4);
     m_selfDriverInnerTabWidget = new QTabWidget(m_selfDriverPage);
-    ks::ui::StylePageTabs(m_selfDriverInnerTabWidget);
+    ks::ui::StyleChildPageTabs(m_selfDriverInnerTabWidget);
     m_selfDriverInnerTabWidget->setIconSize(QSize(16, 16));
     m_selfDriverLayout->addWidget(m_selfDriverInnerTabWidget, 1);
     m_driverStatusPage = new QWidget(m_selfDriverInnerTabWidget);
@@ -735,7 +711,7 @@ void KernelDock::updateTabIconContrast()
         return;
     }
 
-    // Tab 选中态为蓝色背景时，图标改用白色资源绘制；未选中保持原图标颜色。
+    // 保留原页索引与路由，普通和选中图标都按实际中性背景动态校准。
     const int currentIndex = m_tabWidget->currentIndex();
     m_tabWidget->setTabIcon(m_objectNamespaceTabIndex, tabIcon(QStringLiteral(":/Icon/process_tree.svg")));
     m_tabWidget->setTabIcon(m_atomTabIndex, tabIcon(QStringLiteral(":/Icon/process_threads.svg")));
@@ -831,7 +807,7 @@ void KernelDock::initializeIoManagementTab()
     m_ioManagementLayout->setSpacing(0);
 
     m_ioManagementInnerTabWidget = new QTabWidget(m_ioManagementPage);
-    ks::ui::StylePageTabs(m_ioManagementInnerTabWidget);
+    ks::ui::StyleChildPageTabs(m_ioManagementInnerTabWidget);
     m_ioManagementInnerTabWidget->setTabPosition(QTabWidget::North);
     m_ioManagementInnerTabWidget->setDocumentMode(true);
     m_ioManagementLayout->addWidget(m_ioManagementInnerTabWidget, 1);
@@ -911,7 +887,7 @@ void KernelDock::initializeObjectNamespaceTab()
     m_objectNamespaceLayout->setSpacing(6);
 
     m_objectNamespaceInnerTabWidget = new QTabWidget(m_objectNamespacePage);
-    ks::ui::StylePageTabs(m_objectNamespaceInnerTabWidget);
+    ks::ui::StyleChildPageTabs(m_objectNamespaceInnerTabWidget);
     m_objectNamespaceInnerTabWidget->setIconSize(QSize(16, 16));
     m_objectNamespaceLayout->addWidget(m_objectNamespaceInnerTabWidget, 1);
 

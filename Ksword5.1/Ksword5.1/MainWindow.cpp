@@ -1551,6 +1551,70 @@ namespace
         });
     }
 
+    // 关闭/快速重开时撤销排队帧，恢复弹层原始透明度，不把业务自定透明度重置为1。
+    void cancelPopupFade(QWidget* popup)
+    {
+        if (popup == nullptr)
+        {
+            return;
+        }
+        const qulonglong generation = popup->property("ks_popup_fade_generation").toULongLong() + 1;
+        popup->setProperty("ks_popup_fade_generation", QVariant::fromValue(generation));
+        if (auto* fade = popup->findChild<QPropertyAnimation*>(
+            QStringLiteral("ks_popup_fade"), Qt::FindDirectChildrenOnly))
+        {
+            fade->stop();
+        }
+        const QVariant opacity = popup->property("ks_popup_fade_opacity");
+        if (opacity.isValid())
+        {
+            popup->setWindowOpacity(opacity.toDouble());
+        }
+    }
+
+    // 动画与配色所有权独立：自定义列表和菜单也淡入，不重写其样式、尺寸或焦点。
+    void startPopupFade(QWidget* popup)
+    {
+        if (popup == nullptr || !popup->windowFlags().testFlag(Qt::Popup))
+        {
+            return;
+        }
+        cancelPopupFade(popup);
+        BOOL animationsEnabled = TRUE; // 尊重系统减少动画选项。
+        SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animationsEnabled, 0);
+        if (!animationsEnabled)
+        {
+            return;
+        }
+        const qreal opacity = popup->windowOpacity(); // 保存当前弹层的实际目标透明度。
+        popup->setProperty("ks_popup_fade_opacity", opacity);
+        const qulonglong generation = popup->property("ks_popup_fade_generation").toULongLong();
+        popup->setWindowOpacity(opacity * 0.15);
+        const QPointer<QWidget> target(popup);
+        // 等Qt完成显示子对象后创建动画，代次保证旧Show回调不影响已重开的弹层。
+        QTimer::singleShot(0, popup, [target, generation, opacity]()
+        {
+            if (!target || !target->isVisible()
+                || target->property("ks_popup_fade_generation").toULongLong() != generation)
+            {
+                return;
+            }
+            auto* fade = target->findChild<QPropertyAnimation*>(
+                QStringLiteral("ks_popup_fade"), Qt::FindDirectChildrenOnly);
+            if (fade == nullptr)
+            {
+                fade = new QPropertyAnimation(target, "windowOpacity", target);
+                fade->setObjectName(QStringLiteral("ks_popup_fade"));
+            }
+            fade->stop();
+            fade->setDuration(130);
+            fade->setStartValue(opacity * 0.15);
+            fade->setEndValue(opacity);
+            fade->setEasingCurve(QEasingCurve::OutCubic);
+            fade->start();
+        });
+    }
+
     // GlobalComboPopupThemeFilter 作用：
     // - 监听应用范围内的控件显示事件；
     // - 对新建、懒加载和主题切换后的普通组合框，在当前 Show 分发结束后更新 Popup 主题；
@@ -1578,6 +1642,15 @@ namespace
             }
 
             QWidget* const watchedWidget = qobject_cast<QWidget*>(watchedObject);
+            if (type == QEvent::Hide)
+            {
+                // 隐藏阶段只处理已有动画的真实弹层，避免扫描整页子控件寻找组合框。
+                if (watchedWidget != nullptr && watchedWidget->property("ks_popup_fade_opacity").isValid())
+                {
+                    cancelPopupFade(watchedWidget);
+                }
+                return QObject::eventFilter(watchedObject, eventObject);
+            }
             QAbstractItemView* itemView = qobject_cast<QAbstractItemView*>(watchedObject);
             if (itemView == nullptr)
             {
@@ -1596,55 +1669,13 @@ namespace
             {
                 scheduleOpaqueComboPopupTheme(combo);
             }
-            // 普通下拉采用短淡入；业务自定义列表保留其自己的呈现规则。
+            // 动画不再按列表是否有自定义QSS筛掉；配色仍由上方的所有权逻辑决定。
             QWidget* popup = combo->view()->window();
-            if (watchedWidget != popup || !popup->windowFlags().testFlag(Qt::Popup)
-                || (!combo->view()->styleSheet().isEmpty()
-                    && !combo->view()->property(kKswordComboPopupAutoThemedPropertyName).toBool()))
+            if (watchedWidget != popup || !popup->windowFlags().testFlag(Qt::Popup))
             {
                 return QObject::eventFilter(watchedObject, eventObject);
             }
-            auto* animation = popup->findChild<QPropertyAnimation*>(
-                QStringLiteral("ks_secondary_combo_fade"), Qt::FindDirectChildrenOnly);
-            if (type == QEvent::Hide)
-            {
-                // 关闭或快速重开时取消旧帧，复用的 Popup 不保留半透明状态。
-                if (animation != nullptr)
-                {
-                    animation->stop();
-                }
-                popup->setWindowOpacity(1.0);
-                return QObject::eventFilter(watchedObject, eventObject);
-            }
-            BOOL animationsEnabled = TRUE; // 尊重 Windows 的减少动画设置。
-            SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animationsEnabled, 0);
-            if (!animationsEnabled)
-            {
-                return QObject::eventFilter(watchedObject, eventObject);
-            }
-            // Show 栈内只设置透明度；主题和动画创建延后，避免重入 Qt 子对象显示遍历。
-            popup->setWindowOpacity(0.15);
-            const QPointer<QWidget> guardedPopup(popup);
-            QTimer::singleShot(0, popup, [guardedPopup]()
-            {
-                if (!guardedPopup || !guardedPopup->isVisible())
-                {
-                    return;
-                }
-                auto* fade = guardedPopup->findChild<QPropertyAnimation*>(
-                    QStringLiteral("ks_secondary_combo_fade"), Qt::FindDirectChildrenOnly);
-                if (fade == nullptr)
-                {
-                    fade = new QPropertyAnimation(guardedPopup, "windowOpacity", guardedPopup);
-                    fade->setObjectName(QStringLiteral("ks_secondary_combo_fade"));
-                }
-                fade->stop();
-                fade->setDuration(130);
-                fade->setStartValue(0.15);
-                fade->setEndValue(1.0);
-                fade->setEasingCurve(QEasingCurve::OutCubic);
-                fade->start();
-            });
+            startPopupFade(popup);
             return QObject::eventFilter(watchedObject, eventObject);
         }
     };
@@ -1694,6 +1725,9 @@ namespace
             {
                 applyTopMostToTopLevelWidget(menuWidget, true);
             }
+
+            // 下拉按钮常用QMenu而非QComboBox；同一短淡入覆盖这条入口及子菜单。
+            startPopupFade(menuWidget);
 
             return QObject::eventFilter(watchedObject, eventObject);
         }
