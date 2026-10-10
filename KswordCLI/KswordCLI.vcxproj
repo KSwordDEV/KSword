@@ -252,4 +252,12 @@
     <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeActions.h" />
     <ClInclude Include="..\shared\usermode\backend\privilege\PrivilegeTypes.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3FileDirectory.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\Directory.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\PathNavigator.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\file\Directory.h" />
+    <ClInclude Include="..\shared\usermode\backend\file\DirectorySupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\file\PathNavigator.h" />
+  </ItemGroup>
 </Project>

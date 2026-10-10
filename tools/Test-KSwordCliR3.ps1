@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service','registry-browse','registry-search','registry-mutations','startup-enum','startup-actions','privilege')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
+﻿param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service','registry-browse','registry-search','registry-mutations','startup-enum','startup-actions','privilege','directory')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\KswordCliR3TestSupport.ps1"
 switch ($Feature) {
@@ -495,4 +495,6 @@ switch ($Feature) {
     }
 }
 if ($Feature -eq 'privilege') { . "$PSScriptRoot\Test-KSwordCliR3Privilege.ps1" }
+$extraSuite = Join-Path $PSScriptRoot "Test-KSwordCliR3-$Feature.ps1"
+if (Test-Path -LiteralPath $extraSuite) { . $extraSuite }
 Save-Report

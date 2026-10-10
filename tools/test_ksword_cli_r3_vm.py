@@ -49,6 +49,9 @@ exit $rc
             guest.copy(str(ROOT / 'tools' / name), guest_root + '\\' + name)
         if feature == 'privilege':
             guest.copy(str(ROOT / 'tools/Test-KSwordCliR3Privilege.ps1'), guest_root + r'\Test-KSwordCliR3Privilege.ps1')
+        extra_suite = ROOT / ('tools/Test-KSwordCliR3-' + feature + '.ps1')
+        if extra_suite.is_file():
+            guest.copy(str(extra_suite), guest_root + '\\' + extra_suite.name)
         guest.copy(str(local_runner), guest_root + r'\r3-feature-runner.ps1')
         rc = guest.run(r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
                        r'-NoProfile -ExecutionPolicy Bypass -File C:\KSwordCliLab\r3-feature-runner.ps1', 60)
