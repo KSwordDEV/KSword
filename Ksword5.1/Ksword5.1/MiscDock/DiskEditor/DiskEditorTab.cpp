@@ -1,6 +1,7 @@
 #include "DiskEditorTab.h"
 #include <QList>
 #include "../../UI/PageControlStyle.h"
+#include "../../UI/PrimaryPageStyle.h"
 #include "../../UI/ToolbarMetrics.h"
 #include "DiskEditorFormat.h"
 #include "../../UI/CodeEditorWidget.h"
@@ -367,12 +368,13 @@ namespace ks::misc
 
         m_diskCombo = new QComboBox(m_toolbarWidget);
         m_diskCombo->setMinimumWidth(300);
-        m_diskCombo->setStyleSheet(buildInputStyle());
+        // 设备与后端都是当前任务的输入条件，独立底面避免和导航标签混淆。
+        ks::ui::StylePrimaryCombo(m_diskCombo);
         m_diskCombo->setToolTip(QStringLiteral("选择要查看的物理磁盘"));
 
         m_backendCombo = new QComboBox(m_toolbarWidget);
         m_backendCombo->setMinimumWidth(170);
-        m_backendCombo->setStyleSheet(buildInputStyle());
+        ks::ui::StylePrimaryCombo(m_backendCombo);
         m_backendCombo->setToolTip(QStringLiteral("选择实际磁盘访问层；端口直达绕过上层磁盘对象，控制器直达仅允许离线磁盘"));
 
         m_refreshButton = new QPushButton(QStringLiteral("刷新磁盘"), m_toolbarWidget);
@@ -479,10 +481,10 @@ namespace ks::misc
         QWidget* rightPanel = new QWidget(m_mainSplitter);
         QVBoxLayout* rightLayout = new QVBoxLayout(rightPanel);
         rightLayout->setContentsMargins(0, 0, 0, 0);
-        rightLayout->setSpacing(6);
+        rightLayout->setSpacing(12);
 
         QGroupBox* diskSummaryGroup = new QGroupBox(QStringLiteral("磁盘摘要"), rightPanel);
-        diskSummaryGroup->setStyleSheet(buildInfoCardStyle());
+        ks::ui::StylePrimaryGroup(diskSummaryGroup);
         QVBoxLayout* diskSummaryLayout = new QVBoxLayout(diskSummaryGroup);
         m_diskSummaryLabel = new QLabel(QStringLiteral("等待磁盘枚举..."), diskSummaryGroup);
         m_diskSummaryLabel->setWordWrap(true);
@@ -491,7 +493,7 @@ namespace ks::misc
         rightLayout->addWidget(diskSummaryGroup, 0);
 
         QGroupBox* partitionDetailGroup = new QGroupBox(QStringLiteral("分区详情"), rightPanel);
-        partitionDetailGroup->setStyleSheet(buildInfoCardStyle());
+        ks::ui::StylePrimaryGroup(partitionDetailGroup);
         QVBoxLayout* partitionDetailLayout = new QVBoxLayout(partitionDetailGroup);
         m_partitionDetailLabel = new QLabel(QStringLiteral("尚未选择分区。"), partitionDetailGroup);
         m_partitionDetailLabel->setWordWrap(true);
@@ -500,7 +502,7 @@ namespace ks::misc
         rightLayout->addWidget(partitionDetailGroup, 0);
 
         QGroupBox* logGroup = new QGroupBox(QStringLiteral("操作日志"), rightPanel);
-        logGroup->setStyleSheet(buildInfoCardStyle());
+        ks::ui::StylePrimaryGroup(logGroup);
         QVBoxLayout* logLayout = new QVBoxLayout(logGroup);
         m_logEdit = new CodeEditorWidget(logGroup);
         m_logEdit->setReadOnly(true);
@@ -617,10 +619,11 @@ namespace ks::misc
         QWidget* toolPage = new QWidget(parent);
         QVBoxLayout* toolLayout = new QVBoxLayout(toolPage);
         toolLayout->setContentsMargins(4, 4, 4, 4);
-        toolLayout->setSpacing(6);
+        // 工具页先选范围、再执行，分区间距大于区内行距。
+        toolLayout->setSpacing(16);
 
         QGroupBox* rangeGroup = new QGroupBox(QStringLiteral("范围与文件"), toolPage);
-        rangeGroup->setStyleSheet(buildInfoCardStyle());
+        ks::ui::StylePrimaryGroup(rangeGroup);
         QGridLayout* rangeLayout = new QGridLayout(rangeGroup);
         m_toolOffsetEdit = new QLineEdit(rangeGroup);
         m_toolOffsetEdit->setText(QStringLiteral("0x0000000000000000"));
@@ -662,7 +665,7 @@ namespace ks::misc
         toolLayout->addWidget(rangeGroup, 0);
 
         QGroupBox* actionGroup = new QGroupBox(QStringLiteral("范围操作"), toolPage);
-        actionGroup->setStyleSheet(buildInfoCardStyle());
+        ks::ui::StylePrimaryGroup(actionGroup);
         QGridLayout* actionLayout = new QGridLayout(actionGroup);
         m_searchPatternEdit = new QLineEdit(actionGroup);
         m_searchPatternEdit->setPlaceholderText(QStringLiteral("搜索：AA BB ?? 或 ASCII/UTF-16 文本"));
@@ -671,12 +674,12 @@ namespace ks::misc
         m_searchModeCombo->addItem(QStringLiteral("HEX 字节/??通配"), static_cast<int>(DiskSearchPatternMode::HexBytes));
         m_searchModeCombo->addItem(QStringLiteral("ASCII 文本"), static_cast<int>(DiskSearchPatternMode::AsciiText));
         m_searchModeCombo->addItem(QStringLiteral("UTF-16 文本"), static_cast<int>(DiskSearchPatternMode::Utf16Text));
-        m_searchModeCombo->setStyleSheet(buildInputStyle());
+        ks::ui::StylePrimaryCombo(m_searchModeCombo);
         m_hashAlgorithmCombo = new QComboBox(actionGroup);
         m_hashAlgorithmCombo->addItem(QStringLiteral("SHA-256"), static_cast<int>(QCryptographicHash::Sha256));
         m_hashAlgorithmCombo->addItem(QStringLiteral("SHA-1"), static_cast<int>(QCryptographicHash::Sha1));
         m_hashAlgorithmCombo->addItem(QStringLiteral("MD5"), static_cast<int>(QCryptographicHash::Md5));
-        m_hashAlgorithmCombo->setStyleSheet(buildInputStyle());
+        ks::ui::StylePrimaryCombo(m_hashAlgorithmCombo);
         m_maxResultSpin = new QSpinBox(actionGroup);
         m_maxResultSpin->setRange(1, 10000);
         m_maxResultSpin->setValue(512);

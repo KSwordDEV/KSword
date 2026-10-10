@@ -6,6 +6,7 @@
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "DirectKernelCallMonitorWidget.h"
 #include "KernelCallbackMonitorWidget.h"
 #include "MonitorTextViewer.h"
@@ -701,7 +702,7 @@ namespace
     QString blueInputStyle()
     {
         return QStringLiteral(
-            "QLineEdit,QPlainTextEdit,QSpinBox{border:1px solid %2;border-radius:3px;background:transparent;/* %3 */color:%4;padding:2px 6px;}"
+            "QLineEdit,QPlainTextEdit,QSpinBox{border:1px solid %2;border-radius:5px;background:%3;color:%4;padding:2px 8px;}"
             "QLineEdit:focus,QPlainTextEdit:focus,QSpinBox:focus{border:1px solid %1;}")
             .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue))
             .arg(KswordTheme::BorderHex())
@@ -852,9 +853,9 @@ namespace
     QString blueHeaderStyle()
     {
         return QStringLiteral(
-            "QHeaderView::section{color:%1;background:transparent;/* %2 */border:1px solid %3;padding:4px;font-weight:600;}")
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::SurfaceHex())
+            "QHeaderView::section{color:%1;background:%2;border:0;border-bottom:1px solid %3;padding:4px 8px;font-weight:600;}")
+            .arg(KswordTheme::TextPrimaryHex())
+            .arg(KswordTheme::SurfaceAltHex())
             .arg(KswordTheme::BorderHex());
     }
 
@@ -865,8 +866,7 @@ namespace
     {
         return QStringLiteral(
             "QWidget[kswordCollapsePanel=\"true\"]{"
-            "  background:transparent;"
-            "  background-color:transparent;"
+            "  background:%1;"
             "  color:%2;"
             "  border:1px solid %3;"
             "  border-radius:5px;"
@@ -5524,7 +5524,8 @@ void MonitorDock::initializeWmiTab()
     m_wmiTopConfigPanel = new QWidget(m_wmiPage);
     m_wmiTopConfigLayout = new QHBoxLayout(m_wmiTopConfigPanel);
     m_wmiTopConfigLayout->setContentsMargins(0, 0, 0, 0);
-    m_wmiTopConfigLayout->setSpacing(4);
+    // 并列订阅分区留白大于内部行距，折叠与表格原高度保持不变。
+    m_wmiTopConfigLayout->setSpacing(12);
     m_wmiTopConfigPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
 
     // Provider 左侧面板。
@@ -5660,7 +5661,7 @@ void MonitorDock::initializeWmiTab()
     whereLayout->addWidget(new QLabel(QStringLiteral("WHERE模板"), m_wmiSubscribePanel));
 
     m_wmiWhereTemplateCombo = new QComboBox(m_wmiSubscribePanel);
-    m_wmiWhereTemplateCombo->setStyleSheet(blueInputStyle());
+    ks::ui::StylePrimaryCombo(m_wmiWhereTemplateCombo);
     m_wmiWhereTemplateCombo->addItem(QStringLiteral("空模板"), QString());
     m_wmiWhereTemplateCombo->addItem(QStringLiteral("powershell"), QStringLiteral("TargetInstance.Name LIKE '%powershell%'"));
     m_wmiWhereTemplateCombo->addItem(QStringLiteral("PID>1000"), QStringLiteral("TargetInstance.ProcessId > 1000"));
@@ -5919,14 +5920,14 @@ void MonitorDock::initializeEtwTab()
     m_etwCollapseHostWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     m_etwCollapseHostLayout = new QVBoxLayout(m_etwCollapseHostWidget);
     m_etwCollapseHostLayout->setContentsMargins(0, 0, 0, 0);
-    m_etwCollapseHostLayout->setSpacing(4);
+    m_etwCollapseHostLayout->setSpacing(12);
     m_etwLayout->addWidget(m_etwCollapseHostWidget, 0);
 
     // Providers + 会话共用一个折叠页，并在页内左右并排布局。
     QWidget* etwProviderSessionPanel = new QWidget(m_etwCollapseHostWidget);
     QHBoxLayout* etwProviderSessionLayout = new QHBoxLayout(etwProviderSessionPanel);
     etwProviderSessionLayout->setContentsMargins(4, 4, 4, 4);
-    etwProviderSessionLayout->setSpacing(6);
+    etwProviderSessionLayout->setSpacing(12);
 
     m_etwProviderPanel = new QWidget(etwProviderSessionPanel);
     m_etwProviderPanelLayout = new QVBoxLayout(m_etwProviderPanel);
@@ -5969,7 +5970,7 @@ void MonitorDock::initializeEtwTab()
     etwPresetHeaderLayout->addWidget(new QLabel(QStringLiteral("常用模板"), etwPresetWidget));
 
     m_etwPresetCategoryCombo = new QComboBox(etwPresetWidget);
-    m_etwPresetCategoryCombo->setStyleSheet(blueInputStyle());
+    ks::ui::StylePrimaryCombo(m_etwPresetCategoryCombo);
     m_etwPresetCategoryCombo->addItems(QStringList{
         QStringLiteral("全部分类"),
         QStringLiteral("进程线程"),
@@ -6126,7 +6127,7 @@ void MonitorDock::initializeEtwTab()
     m_etwManualProviderEdit->setStyleSheet(blueInputStyle());
 
     m_etwLevelCombo = new QComboBox(capturePanel);
-    m_etwLevelCombo->setStyleSheet(blueInputStyle());
+    ks::ui::StylePrimaryCombo(m_etwLevelCombo);
     m_etwLevelCombo->addItems(QStringList{
         QStringLiteral("Critical"),
         QStringLiteral("Error"),
@@ -7355,7 +7356,7 @@ void MonitorDock::addEtwFilterRuleGroup(const EtwFilterStage stage)
     optionLayout->setSpacing(6);
     optionLayout->addWidget(new QLabel(QStringLiteral("字符串匹配"), groupState->containerWidget));
     groupState->stringModeCombo = new QComboBox(groupState->containerWidget);
-    groupState->stringModeCombo->setStyleSheet(blueInputStyle());
+    ks::ui::StylePrimaryCombo(groupState->stringModeCombo);
     groupState->stringModeCombo->addItem(QStringLiteral("正则"), QStringLiteral("regex"));
     groupState->stringModeCombo->addItem(QStringLiteral("精确"), QStringLiteral("exact"));
     groupState->stringModeCombo->addItem(QStringLiteral("包含"), QStringLiteral("contains"));

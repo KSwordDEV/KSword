@@ -2,6 +2,7 @@
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeBinding.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 
 #include "../Internationalization/LanguageManager.h"
@@ -162,12 +163,12 @@ namespace
         return QStringLiteral(
             "QHeaderView::section{"
             "  color:%1;"
-            "  background:transparent; /* %2 */"
-            "  border:1px solid %3;"
-            "  font-weight:600;"
+            "  background:%2;"
+            "  border:0;border-bottom:1px solid %3;"
+            "  font-weight:500;padding:4px 8px;"
             "}")
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::SurfaceHex())
+            .arg(KswordTheme::TextPrimaryHex())
+            .arg(KswordTheme::SurfaceAltHex())
             .arg(KswordTheme::BorderHex());
     }
 
@@ -575,6 +576,7 @@ void HandleDock::initializeHandleListTab()
     m_enumModeCombo = new QComboBox(m_handleListPage);
     m_enumModeCombo->setToolTip(QStringLiteral("选择句柄枚举来源：用户态快照、DuplicateHandle 增强解析或 R0 HandleTable。"));
     m_enumModeCombo->setStyleSheet(buildComboAndSpinStyle());
+    ks::ui::StylePrimaryCombo(m_enumModeCombo);
     m_enumModeCombo->setMinimumWidth(180);
     m_enumModeCombo->addItem(
         QStringLiteral("User Snapshot"),
@@ -589,8 +591,8 @@ void HandleDock::initializeHandleListTab()
     m_resolveNameCheckBox = new QCheckBox(QStringLiteral("解析对象名"), m_handleListPage);
     m_resolveNameCheckBox->setChecked(true);
     m_resolveNameCheckBox->setToolTip(QStringLiteral("启用后会尝试解析对象名称（更耗时）。"));
-    m_resolveNameCheckBox->setStyleSheet(
-        QStringLiteral("QCheckBox{color:%1;font-weight:600;}").arg(KswordTheme::TextPrimaryHex()));
+    // 普通筛选项不使用粗体，避免整条工具栏与结果标题等重。
+    m_resolveNameCheckBox->setStyleSheet(QString());
 
     m_nameBudgetSpinBox = new QSpinBox(m_handleListPage);
     m_nameBudgetSpinBox->setRange(0, 10000);
@@ -599,6 +601,7 @@ void HandleDock::initializeHandleListTab()
     m_nameBudgetSpinBox->setSuffix(QStringLiteral(" 条"));
     m_nameBudgetSpinBox->setToolTip(QStringLiteral("对象名解析预算，预算越大越接近全量解析。"));
     m_nameBudgetSpinBox->setStyleSheet(buildComboAndSpinStyle());
+    ks::ui::BindSpinBoxTheme(m_nameBudgetSpinBox);
 
     m_toolbarLayout->addWidget(m_refreshButton);
     m_toolbarLayout->addWidget(m_manageFilterButton);

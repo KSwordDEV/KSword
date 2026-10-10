@@ -1,5 +1,6 @@
 #include "HardwareDock.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/FloatingScrollbars.h"
@@ -160,9 +161,8 @@ namespace
         QLabel* titleLabel = new QLabel(titleText, pageWidget);
         // 页面口径挂在标题上，不再单独占一行：四个只读审计页共用这个工厂，省下的是四行版面。
         titleLabel->setToolTip(hintText);
-        titleLabel->setStyleSheet(
-            QStringLiteral("font-size:18px;font-weight:700;color:%1;")
-            .arg(KswordTheme::TextPrimaryHex()));
+        // 嵌入页标题沿用正文尺度，层次由字重和留白表达，不压缩下方证据列表。
+        ks::ui::StylePrimarySectionTitle(titleLabel);
         pageLayout->addWidget(titleLabel, 0);
 
         auto* editor = new ks::ui::StructuredFieldView(pageWidget);
@@ -671,6 +671,8 @@ namespace
             tableToolLayout->addWidget(searchEdit, 1);
             ks::ui::NormalizeToolbarRow(presetLayout, 0);
             ks::ui::NormalizeToolbarRow(tableToolLayout);
+            // 摘要与可筛选证据表之间留出一档间距，表格内部密度保持原样。
+            pageLayout->addSpacing(6);
             pageLayout->addLayout(tableToolLayout, 0);
             pageLayout->addWidget(table, 2);
             table->setProperty("kswordDeviceAuditFilter", searchEdit->text());

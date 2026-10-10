@@ -1,4 +1,5 @@
 #include "DesktopDrawingPage.h"
+#include "../../UI/PrimaryPageStyle.h"
 #include "../../UI/ToolbarMetrics.h"
 
 #include "../../Internationalization/LanguageManager.h"
@@ -68,6 +69,9 @@ namespace ks::misc
         m_settings = new QWidget(scroll);
         auto* form = new QFormLayout(m_settings);
         form->setContentsMargins(0, 0, 0, 0);
+        // 简短表单保持一屏可读，标签与字段使用固定间距。
+        form->setHorizontalSpacing(16);
+        form->setVerticalSpacing(8);
         form->setRowWrapPolicy(QFormLayout::WrapLongRows);
         auto addRow = [&](const QString& key, const QString& text, QWidget* control)
             {
@@ -78,6 +82,7 @@ namespace ks::misc
             };
 
         m_displayCombo = new QComboBox(m_settings);
+        ks::ui::StylePrimaryCombo(m_displayCombo);
         m_displayCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         m_displayCombo->setMinimumContentsLength(20);
         addRow(QStringLiteral("misc.desktop_drawing.display"), QStringLiteral("绘制显示器"), m_displayCombo);
@@ -86,6 +91,7 @@ namespace ks::misc
         form->addRow(QString(), refresh);
 
         m_patternCombo = new QComboBox(m_settings);
+        ks::ui::StylePrimaryCombo(m_patternCombo);
         auto addPattern = [&](desktop_drawing::Pattern pattern, const QString& key, const QString& text)
             {
                 const int index = m_patternCombo->count();

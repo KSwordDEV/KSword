@@ -1,6 +1,7 @@
 #include "../UI/StructuredFieldView.h"
 #include "PrivilegeAccessPage.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "PrivilegeAccessBackend.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../Internationalization/LanguageManager.h"
@@ -70,6 +71,7 @@ namespace
             subjectRow->addWidget(current);
             subjectRow->addWidget(new QLabel(text("privilege.workbench.access.object_kind", "对象类型"), this));
             m_kind = new QComboBox(this);
+            ks::ui::StylePrimaryCombo(m_kind);
             m_kind->setObjectName(QStringLiteral("privilege_access_kind"));
             m_kind->addItem(text("privilege.workbench.access.kind.file", "文件或目录"), int(ObjectKind::File));
             m_kind->addItem(text("privilege.workbench.access.kind.registry", "注册表项"), int(ObjectKind::Registry));
@@ -77,6 +79,7 @@ namespace
             subjectRow->addWidget(m_kind);
             m_viewLabel = new QLabel(text("privilege.workbench.access.registry_view", "注册表视图"), this);
             m_view = new QComboBox(this);
+            ks::ui::StylePrimaryCombo(m_view);
             m_view->setObjectName(QStringLiteral("privilege_access_registry_view"));
             m_view->addItem(QStringLiteral("64-bit"), qulonglong(KEY_WOW64_64KEY));
             m_view->addItem(QStringLiteral("32-bit"), qulonglong(KEY_WOW64_32KEY));
@@ -109,6 +112,8 @@ namespace
             auto* accessRow = new QHBoxLayout;
             accessRow->addWidget(new QLabel(text("privilege.workbench.access.operation", "请求权限"), this));
             m_preset = new QComboBox(this);
+            // 请求权限预设需有完整选择器底面，不能与只读说明混为一体。
+            ks::ui::StylePrimaryCombo(m_preset);
             m_preset->setObjectName(QStringLiteral("privilege_access_preset"));
             m_preset->addItem(text("privilege.workbench.access.preset.read", "读取（通用映射）"), qulonglong(GENERIC_READ));
             m_preset->addItem(text("privilege.workbench.access.preset.write", "写入（只评估）"), qulonglong(GENERIC_WRITE));

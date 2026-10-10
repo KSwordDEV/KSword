@@ -4,6 +4,7 @@
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "NetworkFirewallPage.h"
 #include "NetworkAuditPage.h"
 #include "../Internationalization/LanguageManager.h"
@@ -53,7 +54,12 @@ void NetworkDock::initializeTrafficMonitorTab()
     m_trafficMonitorLayout->setContentsMargins(6, 6, 6, 6);
     m_trafficMonitorLayout->setSpacing(6);
 
-    // 控制栏：启动/停止/清空 + 状态提示。
+    // 采集与筛选属于一个操作区，使用两条紧凑行并与时间轴留出层次。
+    QWidget* const captureToolbar = new QWidget(m_trafficMonitorPage);
+    ks::ui::StylePrimaryToolbar(captureToolbar);
+    QVBoxLayout* const captureToolbarLayout = new QVBoxLayout(captureToolbar);
+    captureToolbarLayout->setContentsMargins(8, 4, 8, 4);
+    captureToolbarLayout->setSpacing(8);
     m_monitorControlLayout = new QHBoxLayout();
     m_monitorControlLayout->setSpacing(6);
 
@@ -95,7 +101,7 @@ void NetworkDock::initializeTrafficMonitorTab()
     m_monitorControlLayout->addStretch(1);
     ks::ui::NormalizeToolbarRow(m_monitorControlLayout);
 
-    m_trafficMonitorLayout->addLayout(m_monitorControlLayout);
+    captureToolbarLayout->addLayout(m_monitorControlLayout);
 
     // 新过滤标题栏：漏斗按钮 + 规则组管理 + 导入导出保存。
     m_monitorFilterHeaderLayout = new QHBoxLayout();
@@ -111,6 +117,7 @@ void NetworkDock::initializeTrafficMonitorTab()
 
     QLabel* filterTitleLabel = new QLabel(QStringLiteral("网络筛选器"), m_trafficMonitorPage);
     filterTitleLabel->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+    ks::ui::StylePrimarySectionTitle(filterTitleLabel);
 
     m_addMonitorFilterGroupButton = new QPushButton(QStringLiteral("新增规则组"), m_trafficMonitorPage);
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
@@ -158,7 +165,8 @@ void NetworkDock::initializeTrafficMonitorTab()
     m_monitorFilterHeaderLayout->addWidget(m_clearMonitorFilterButton);
     m_monitorFilterHeaderLayout->addStretch(1);
     ks::ui::NormalizeToolbarRow(m_monitorFilterHeaderLayout);
-    m_trafficMonitorLayout->addLayout(m_monitorFilterHeaderLayout);
+    captureToolbarLayout->addLayout(m_monitorFilterHeaderLayout);
+    m_trafficMonitorLayout->addWidget(captureToolbar);
 
     // 过滤折叠面板：标题分隔线 + 规则组滚动区 + 状态标签。
     m_monitorFilterPanel = new QWidget(m_trafficMonitorPage);
@@ -553,10 +561,12 @@ void NetworkDock::initializeManualRequestTab()
     QWidget* contentWidget = m_manualRequestPage;
     QVBoxLayout* contentLayout = m_manualRequestLayout;
     contentLayout->setContentsMargins(2, 2, 2, 2);
-    contentLayout->setSpacing(8);
+    // 请求参数组保持内部紧凑，以组间 16px 留白引导从参数读向执行结果。
+    contentLayout->setSpacing(16);
 
     // 1) API 与 socket 参数分组：支持模式切换和手动覆盖底层参数。
     QGroupBox* apiGroup = new QGroupBox(QStringLiteral("API 与 Socket 参数"), contentWidget);
+    ks::ui::StylePrimaryGroup(apiGroup);
     QGridLayout* apiLayout = new QGridLayout(apiGroup);
     apiLayout->setHorizontalSpacing(8);
     apiLayout->setVerticalSpacing(6);
@@ -564,6 +574,7 @@ void NetworkDock::initializeManualRequestTab()
     apiLayout->setColumnStretch(3, 1);
 
     m_manualApiCombo = new QComboBox(apiGroup);
+    ks::ui::StylePrimaryCombo(m_manualApiCombo);
     m_manualApiCombo->addItem(QStringLiteral("WinSock TCP 请求"), static_cast<int>(ks::network::ManualNetworkApiKind::WinSockTcp));
     m_manualApiCombo->addItem(QStringLiteral("WinSock UDP 请求"), static_cast<int>(ks::network::ManualNetworkApiKind::WinSockUdp));
     m_manualApiCombo->setToolTip(QStringLiteral("切换请求模式：TCP（connect/send/recv）或 UDP。"));
@@ -596,6 +607,7 @@ void NetworkDock::initializeManualRequestTab()
 
     // 2) 端点与行为参数分组：覆盖 bind/connect/超时/选项等细节。
     QGroupBox* endpointGroup = new QGroupBox(QStringLiteral("端点与行为参数"), contentWidget);
+    ks::ui::StylePrimaryGroup(endpointGroup);
     QGridLayout* endpointLayout = new QGridLayout(endpointGroup);
     endpointLayout->setHorizontalSpacing(8);
     endpointLayout->setVerticalSpacing(6);
@@ -659,6 +671,7 @@ void NetworkDock::initializeManualRequestTab()
 
     // 3) 载荷与接收参数分组：支持文本/HEX 输入与响应读取开关。
     QGroupBox* payloadGroup = new QGroupBox(QStringLiteral("载荷与响应读取"), contentWidget);
+    ks::ui::StylePrimaryGroup(payloadGroup);
     QGridLayout* payloadLayout = new QGridLayout(payloadGroup);
     payloadLayout->setHorizontalSpacing(8);
     payloadLayout->setVerticalSpacing(6);
@@ -699,6 +712,7 @@ void NetworkDock::initializeManualRequestTab()
 
     // 4) 执行与结果分组：执行请求、重置参数、输出结果日志。
     QGroupBox* actionGroup = new QGroupBox(QStringLiteral("执行与结果"), contentWidget);
+    ks::ui::StylePrimaryGroup(actionGroup);
     QVBoxLayout* actionLayout = new QVBoxLayout(actionGroup);
     QHBoxLayout* actionButtonLayout = new QHBoxLayout();
 

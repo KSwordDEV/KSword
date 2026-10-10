@@ -1,4 +1,5 @@
 #include "KernelDock.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -240,7 +241,7 @@ void KernelDock::initializeCallbackRemovePanel()
     m_callbackRemoveContentWidget = new QWidget(m_callbackEnumPage);
     m_callbackRemoveContentWidget->setObjectName(QStringLiteral("ksCallbackRemoveEmbeddedPanel"));
     m_callbackRemoveContentWidget->setStyleSheet(QStringLiteral(
-        "#ksCallbackRemoveEmbeddedPanel{border:1px solid %1;border-radius:3px;background:transparent;/* %2 */}")
+        "#ksCallbackRemoveEmbeddedPanel{border:1px solid %1;border-radius:6px;background:%2;}")
         .arg(KswordTheme::BorderHex())
         .arg(KswordTheme::SurfaceHex()));
 
@@ -249,7 +250,8 @@ void KernelDock::initializeCallbackRemovePanel()
     m_callbackRemoveLayout->setSpacing(6);
 
     QLabel* titleLabel = new QLabel(kernelText("kernel.callback.remove.title", QStringLiteral("手动回调移除")), m_callbackRemoveContentWidget);
-    titleLabel->setStyleSheet(QStringLiteral("color:%1;font-weight:600;").arg(KswordTheme::PrimaryBlueHex));
+    // 操作分区标题用次级文字层次，避免和真正可点击动作争夺强调色。
+    ks::ui::StylePrimarySectionTitle(titleLabel);
     m_callbackRemoveLayout->addWidget(titleLabel, 0);
 
     m_callbackRemoveToolLayout = new QHBoxLayout();
@@ -257,6 +259,7 @@ void KernelDock::initializeCallbackRemovePanel()
     m_callbackRemoveToolLayout->setSpacing(6);
 
     m_callbackRemoveTypeCombo = new QComboBox(m_callbackRemoveContentWidget);
+    ks::ui::StylePrimaryCombo(m_callbackRemoveTypeCombo);
     m_callbackRemoveTypeCombo->addItem(kernelText("kernel.callback.remove.type.process", QStringLiteral("进程创建/退出 Notify")), static_cast<quint32>(KSWORD_ARK_EXTERNAL_CALLBACK_REMOVE_TYPE_PROCESS));
     m_callbackRemoveTypeCombo->addItem(kernelText("kernel.callback.remove.type.thread", QStringLiteral("线程创建/退出 Notify")), static_cast<quint32>(KSWORD_ARK_EXTERNAL_CALLBACK_REMOVE_TYPE_THREAD));
     m_callbackRemoveTypeCombo->addItem(kernelText("kernel.callback.remove.type.image", QStringLiteral("镜像加载 Notify")), static_cast<quint32>(KSWORD_ARK_EXTERNAL_CALLBACK_REMOVE_TYPE_IMAGE));

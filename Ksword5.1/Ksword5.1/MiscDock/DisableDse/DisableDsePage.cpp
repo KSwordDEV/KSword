@@ -2,6 +2,7 @@
 // 说明见 DisableDsePage.h。所有内核访问都在 DisableDseBackend 里，本文件只做界面与调度。
 
 #include "DisableDsePage.h"
+#include "../../UI/PrimaryPageStyle.h"
 #include "../../UI/ToolbarMetrics.h"
 
 #include "../../Internationalization/LanguageManager.h"
@@ -245,6 +246,8 @@ namespace ks::misc
 
         // ===================== 当前状态 =====================
         auto* postureGroup = new QGroupBox(this);
+        // 状态、目标与操作分区保持明确边界，保留原有风险说明及确认流程。
+        ks::ui::StylePrimaryGroup(postureGroup);
         language.bindText(
             postureGroup,
             QStringLiteral("misc.disable_dse.posture.title"),
@@ -268,9 +271,11 @@ namespace ks::misc
         postureLayout->addWidget(m_blockLabel);
 
         rootLayout->addWidget(postureGroup);
+        rootLayout->addSpacing(6);
 
         // ===================== 目标定位 =====================
         auto* locationGroup = new QGroupBox(this);
+        ks::ui::StylePrimaryGroup(locationGroup);
         language.bindText(
             locationGroup,
             QStringLiteral("misc.disable_dse.location.title"),
@@ -294,9 +299,11 @@ namespace ks::misc
         locationLayout->addWidget(m_traceEdit);
 
         rootLayout->addWidget(locationGroup);
+        rootLayout->addSpacing(6);
 
         // ===================== 操作 =====================
         auto* actionGroup = new QGroupBox(this);
+        ks::ui::StylePrimaryGroup(actionGroup);
         language.bindText(
             actionGroup,
             QStringLiteral("misc.disable_dse.action.title"),

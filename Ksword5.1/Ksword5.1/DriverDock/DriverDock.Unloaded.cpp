@@ -1,5 +1,6 @@
 #include "../UI/StructuredFieldView.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/DetailDialogChrome.h"
 #include "DriverDock.Internal.h"
@@ -408,6 +409,8 @@ void DriverDock::initializeUnloadedPiddbTab()
     m_unloadedPiddbFilterLayout->setContentsMargins(0, 0, 0, 0);
     m_unloadedPiddbFilterLayout->setSpacing(6);
     m_unloadedPiddbFieldCombo = new QComboBox(m_unloadedPiddbPage);
+    // 字段筛选与搜索框共享清晰的输入层次，保留原缓存过滤行为。
+    ks::ui::StylePrimaryCombo(m_unloadedPiddbFieldCombo);
     m_unloadedPiddbFieldCombo->addItem(
         driverText("driver.unloaded.filter.all", QStringLiteral("所有")),
         kFilterAllFields);

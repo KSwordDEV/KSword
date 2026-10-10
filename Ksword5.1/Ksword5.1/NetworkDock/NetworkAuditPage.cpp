@@ -5,6 +5,7 @@
 #include "../UI/TablePresentation.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../Internationalization/LanguageManager.h"
 
 // ============================================================
@@ -895,6 +896,11 @@ void NetworkAuditPage::initializeUi()
     crossLayout->setSpacing(8);
 
     // 连接管理动作已合并到 Cross-View，不再单独占用顶层 Tab。
+    QWidget* const crossToolbar = new QWidget(m_crossViewPage);
+    ks::ui::StylePrimaryToolbar(crossToolbar);
+    QVBoxLayout* const crossToolbarLayout = new QVBoxLayout(crossToolbar);
+    crossToolbarLayout->setContentsMargins(8, 4, 8, 4);
+    crossToolbarLayout->setSpacing(8);
     QHBoxLayout* crossSearchLayout = new QHBoxLayout();
     crossSearchLayout->setContentsMargins(0, 0, 0, 0);
     crossSearchLayout->setSpacing(6);
@@ -905,7 +911,7 @@ void NetworkAuditPage::initializeUi()
     m_crossSearchEdit->setMinimumWidth(220);
     crossSearchLayout->addWidget(m_crossSearchEdit, 1);
     ks::ui::NormalizeToolbarRow(crossSearchLayout);
-    crossLayout->addLayout(crossSearchLayout);
+    crossToolbarLayout->addLayout(crossSearchLayout);
 
     m_crossControlLayout = new QHBoxLayout();
     m_crossControlLayout->setContentsMargins(0, 0, 0, 0);
@@ -941,7 +947,9 @@ void NetworkAuditPage::initializeUi()
     m_crossFilterLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_crossControlLayout->addWidget(m_crossFilterLabel, 1);
     ks::ui::NormalizeToolbarRow(m_crossControlLayout);
-    crossLayout->addLayout(m_crossControlLayout);
+    // 搜索与动作共享一个紧凑区域，三个结果表仍由原分割器分配空间。
+    crossToolbarLayout->addLayout(m_crossControlLayout);
+    crossLayout->addWidget(crossToolbar);
 
     m_crossViewSplitter = new QSplitter(Qt::Vertical, m_crossViewPage);
     m_crossViewTopSplitter = new QSplitter(Qt::Horizontal, m_crossViewSplitter);

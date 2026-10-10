@@ -33,6 +33,8 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
+#include "../UI/PrimaryPageStyle.h"
+#include "../UI/FlatButtonTheme.h"
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -144,6 +146,10 @@ void MinidumpDock::buildUi()
     rootLayout->setSpacing(8);
 
     // pathLayout：路径输入与全部动作按钮排在同一行。
+    auto* sourceToolbar = new QWidget(this); // 转储与符号来源集中在结果上方，不挤占各结果页工具栏。
+    auto* sourceLayout = new QVBoxLayout(sourceToolbar);
+    sourceLayout->setContentsMargins(6, 4, 6, 6);
+    sourceLayout->setSpacing(8);
     auto* pathLayout = new QHBoxLayout();
     pathLayout->setSpacing(6);
     m_pathLabel = new QLabel(this);
@@ -177,7 +183,7 @@ void MinidumpDock::buildUi()
     pathLayout->addWidget(m_parseButton);
     pathLayout->addWidget(m_exportButton);
     ks::ui::NormalizeToolbarRow(pathLayout);
-    rootLayout->addLayout(pathLayout);
+    sourceLayout->addLayout(pathLayout);
 
     // 符号路径行：默认路径覆盖不到"自己编译出来的驱动"这种最常见的自查场景——
     // 它的 .pdb 通常躺在构建输出目录里，既不在转储旁边也不在系统符号缓存里。
@@ -192,7 +198,16 @@ void MinidumpDock::buildUi()
     symbolLayout->addWidget(m_symbolPathLabel);
     symbolLayout->addWidget(m_symbolPathEdit, 1);
     ks::ui::NormalizeToolbarRow(symbolLayout);
-    rootLayout->addLayout(symbolLayout);
+    sourceLayout->addLayout(symbolLayout);
+    ks::ui::StylePrimaryToolbar(sourceToolbar);
+    rootLayout->addWidget(sourceToolbar);
+    // 解析是当前页面的主动作，来源选择和导出使用同一中性操作底面。
+    ks::ui::ApplyFlatButtonTheme(m_parseButton, ks::ui::FlatButtonTone::Accent);
+    for (QPushButton* action : {m_browseButton, m_systemDirButton, m_exportButton})
+    {
+        ks::ui::ApplyFlatButtonTheme(action, ks::ui::FlatButtonTone::Neutral,
+            ks::ui::FlatButtonAppearance::Solid);
+    }
 
     // m_statusLabel：允许复制诊断状态，长路径自动换行。
     m_statusLabel = new QLabel(this);

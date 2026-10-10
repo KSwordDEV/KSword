@@ -1,5 +1,6 @@
 #include "PrivilegeAccountPages.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/VisibleTableWidget.h"
@@ -919,7 +920,11 @@ namespace
             accountBar->addWidget(m_account, 1); accountBar->addWidget(queryAccount); layout->addLayout(accountBar);
             ks::ui::NormalizeToolbarRow(accountBar);
             auto* rightBar = new QHBoxLayout;
-            m_right = new QComboBox(this); m_right->setEditable(true); m_right->addItems(rightsCatalog());
+            // 可编辑权限选择器保留原目录和输入功能，只统一完整控件底面。
+            m_right = new QComboBox(this);
+            m_right->setEditable(true);
+            m_right->addItems(rightsCatalog());
+            ks::ui::StylePrimaryCombo(m_right);
             auto* queryRight = button(this, "privilege.workbench.rights.query_right", QStringLiteral("权限 → 已分配账户"));
             auto* add = button(this, "privilege.workbench.rights.add", QStringLiteral("分配此权限"));
             auto* remove = button(this, "privilege.workbench.rights.remove", QStringLiteral("移除此权限"));

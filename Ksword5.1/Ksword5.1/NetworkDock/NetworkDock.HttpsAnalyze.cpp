@@ -1,5 +1,6 @@
 #include "NetworkDock.InternalCommon.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/PageControlStyle.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/DetailDialogChrome.h"
@@ -511,6 +512,12 @@ void NetworkDock::initializeHttpsAnalyzeTab()
     m_httpsAnalyzeLayout->setContentsMargins(6, 6, 6, 6);
     m_httpsAnalyzeLayout->setSpacing(6);
 
+    // 代理配置与结果筛选留在同一工具区，两行原有信息均保持可见。
+    auto* httpsToolbar = new QWidget(m_httpsAnalyzePage);
+    ks::ui::StylePrimaryToolbar(httpsToolbar);
+    auto* httpsToolsLayout = new QVBoxLayout(httpsToolbar);
+    httpsToolsLayout->setContentsMargins(8, 4, 8, 6);
+    httpsToolsLayout->setSpacing(8);
     m_httpsAnalyzeControlLayout = new QHBoxLayout();
     m_httpsAnalyzeControlLayout->setSpacing(6);
 
@@ -568,7 +575,7 @@ void NetworkDock::initializeHttpsAnalyzeTab()
     m_httpsAnalyzeControlLayout->addWidget(m_httpsApplyProxyButton);
     m_httpsAnalyzeControlLayout->addWidget(m_httpsClearProxyButton);
     m_httpsAnalyzeControlLayout->addWidget(m_httpsProxyStatusLabel, 1);
-    m_httpsAnalyzeLayout->addLayout(m_httpsAnalyzeControlLayout);
+    httpsToolsLayout->addLayout(m_httpsAnalyzeControlLayout);
     ks::ui::NormalizeToolbarRow(m_httpsAnalyzeControlLayout);
 
     QHBoxLayout* parsedFilterLayout = new QHBoxLayout();
@@ -579,6 +586,7 @@ void NetworkDock::initializeHttpsAnalyzeTab()
     m_httpsParsedFilterEdit->setPlaceholderText(QStringLiteral("筛选主机、路径、方法、状态码、内容类型、TLS 或详情..."));
     m_httpsParsedFilterEdit->setToolTip(QStringLiteral("实时筛选当前 HTTPS 解析记录，不影响代理转发或完整缓存。"));
     m_httpsParsedEventFilterCombo = new QComboBox(m_httpsAnalyzePage);
+    ks::ui::StylePrimaryCombo(m_httpsParsedEventFilterCombo);
     m_httpsParsedEventFilterCombo->addItem(QStringLiteral("全部事件"));
     m_httpsParsedEventFilterCombo->addItem(QStringLiteral("CONNECT"));
     m_httpsParsedEventFilterCombo->addItem(QStringLiteral("TLS"));
@@ -609,8 +617,9 @@ void NetworkDock::initializeHttpsAnalyzeTab()
     parsedFilterLayout->addWidget(m_httpsExportParsedButton);
     parsedFilterLayout->addWidget(m_httpsClearParsedButton);
     parsedFilterLayout->addWidget(m_httpsParsedSummaryLabel);
-    m_httpsAnalyzeLayout->addLayout(parsedFilterLayout);
+    httpsToolsLayout->addLayout(parsedFilterLayout);
     ks::ui::NormalizeToolbarRow(parsedFilterLayout);
+    m_httpsAnalyzeLayout->addWidget(httpsToolbar);
 
     m_httpsParsedTable = new ks::ui::VisibleTableWidget(m_httpsAnalyzePage);
     // 已有可见 CSV 导出、清空和自动滚动，避免重复的通用操作栏。

@@ -6,6 +6,7 @@
 #include "./ProcessGpuTableView.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/SecondaryPageLayout.h"
 #include <QDynamicPropertyChangeEvent>
 #include "../UI/TableInteractionSupport.h"
@@ -5000,9 +5001,11 @@ void ProcessDock::initializeUi()
 
 void ProcessDock::initializeTopControls()
 {
-    // 控制区改为“两行布局”：第一行放操作按钮，第二行单独放监控状态。
-    QVBoxLayout* controlContainerLayout = new QVBoxLayout();
-    controlContainerLayout->setContentsMargins(0, 0, 0, 0);
+    // 操作与指标保留单行密度，轻底面使控制区和曲线区更容易分辨。
+    QWidget* const controlContainer = new QWidget(m_processListPage);
+    ks::ui::StylePrimaryToolbar(controlContainer);
+    QVBoxLayout* controlContainerLayout = new QVBoxLayout(controlContainer);
+    controlContainerLayout->setContentsMargins(8, 4, 8, 4);
     controlContainerLayout->setSpacing(4);
 
     m_controlLayout = new QHBoxLayout();
@@ -5308,7 +5311,8 @@ void ProcessDock::initializeTopControls()
     m_controlLayout->addWidget(m_processSettingsButton);
     m_controlLayout->addStretch(1);
     controlContainerLayout->addLayout(m_controlLayout);
-    m_processPageLayout->addLayout(controlContainerLayout);
+    m_processPageLayout->addWidget(controlContainer);
+    ks::ui::StylePrimaryCombo(m_viewModeCombo);
 }
 
 void ProcessDock::initializeProcessActivityPanel()
@@ -5354,7 +5358,7 @@ void ProcessDock::initializeProcessActivityPanel()
     languageManager.bindComboBoxItem(m_activityHistoryModeCombo, 2,
         QStringLiteral("process.activity.history.recent"), QStringLiteral("留存最近"));
     m_activityHistoryModeCombo->setCurrentIndex(2);
-    applyBlueComboBoxRuntimeStyle(m_activityHistoryModeCombo);
+    ks::ui::StylePrimaryCombo(m_activityHistoryModeCombo);
     languageManager.bindToolTip(m_activityHistoryModeCombo,
         QStringLiteral("process.activity.history.tooltip.mode"),
         QStringLiteral("选择历史留存方式；不记录历史仅停止新增记录，全量留存不限制采样数量。"));
@@ -5773,11 +5777,11 @@ void ProcessDock::initializeCreateProcessPage()
     applyTransparentContainerStyle(contentWidget);
     QVBoxLayout* contentLayout = new QVBoxLayout(contentWidget);
     contentLayout->setContentsMargins(2, 2, 2, 2);
-    contentLayout->setSpacing(8);
+    // 参数组间留白高于组内行距，所有参数和结果仍在同一滚动页面。
+    contentLayout->setSpacing(16);
     scrollArea->setWidget(contentWidget);
 
     const QString inputStyle = buildBlueLineEditStyle();
-    const QString comboStyle = buildBlueComboBoxStyle();
     const QString buttonStyle = buildBlueButtonStyle(false);
 
     // 每次重建页面前先清空位标志复选框缓存，避免重复初始化导致悬空指针。
@@ -5797,7 +5801,7 @@ void ProcessDock::initializeCreateProcessPage()
             std::vector<QCheckBox*>* outputCheckBoxList) -> QGroupBox*
     {
         QGroupBox* groupBox = new QGroupBox(groupTitle, parentWidget);
-        applyTransparentContainerStyle(groupBox);
+        ks::ui::StylePrimaryGroup(groupBox);
         QGridLayout* groupLayout = new QGridLayout(groupBox);
         groupLayout->setContentsMargins(6, 6, 6, 6);
         groupLayout->setHorizontalSpacing(10);
@@ -5830,14 +5834,14 @@ void ProcessDock::initializeCreateProcessPage()
 
     // 1) 创建方式 + 令牌来源配置。
     QGroupBox* methodGroup = new QGroupBox("创建方式 / 令牌来源", contentWidget);
-    applyTransparentContainerStyle(methodGroup);
+    ks::ui::StylePrimaryGroup(methodGroup);
     QGridLayout* methodLayout = new QGridLayout(methodGroup);
     methodLayout->setHorizontalSpacing(8);
     methodLayout->setVerticalSpacing(6);
     m_createMethodCombo = new QComboBox(methodGroup);
     m_createMethodCombo->addItem("CreateProcessW");
     m_createMethodCombo->addItem("CreateProcessAsTokenW (内部使用 CreateProcessAsUserW + fallback)");
-    m_createMethodCombo->setStyleSheet(comboStyle);
+    ks::ui::StylePrimaryCombo(m_createMethodCombo);
     m_createMethodCombo->setCurrentIndex(0);
     m_createMethodCombo->setToolTip("默认直接调用 CreateProcessW；切换到 Token 模式时会按 PID 打开并调整令牌。");
 
@@ -5870,7 +5874,7 @@ void ProcessDock::initializeCreateProcessPage()
 
     // 2) CreateProcessW 基础参数。
     QGroupBox* basicGroup = new QGroupBox("CreateProcessW 参数（全部可选 Null）", contentWidget);
-    applyTransparentContainerStyle(basicGroup);
+    ks::ui::StylePrimaryGroup(basicGroup);
     QGridLayout* basicLayout = new QGridLayout(basicGroup);
     basicLayout->setHorizontalSpacing(8);
     basicLayout->setVerticalSpacing(6);
@@ -5938,7 +5942,7 @@ void ProcessDock::initializeCreateProcessPage()
 
     // 3) PROCESS / THREAD SECURITY_ATTRIBUTES。
     QGroupBox* securityGroup = new QGroupBox("SECURITY_ATTRIBUTES（Process / Thread）", contentWidget);
-    applyTransparentContainerStyle(securityGroup);
+    ks::ui::StylePrimaryGroup(securityGroup);
     QGridLayout* securityLayout = new QGridLayout(securityGroup);
     securityLayout->setHorizontalSpacing(8);
     securityLayout->setVerticalSpacing(6);
@@ -5974,7 +5978,7 @@ void ProcessDock::initializeCreateProcessPage()
 
     // 4) STARTUPINFOW 全字段。
     QGroupBox* startupGroup = new QGroupBox("STARTUPINFOW（全部字段）", contentWidget);
-    applyTransparentContainerStyle(startupGroup);
+    ks::ui::StylePrimaryGroup(startupGroup);
     QGridLayout* startupLayout = new QGridLayout(startupGroup);
     startupLayout->setHorizontalSpacing(8);
     startupLayout->setVerticalSpacing(6);
@@ -6069,7 +6073,7 @@ void ProcessDock::initializeCreateProcessPage()
 
     // 5) PROCESS_INFORMATION 全字段。
     QGroupBox* processInfoGroup = new QGroupBox("PROCESS_INFORMATION（输出结构体，支持自定义初值）", contentWidget);
-    applyTransparentContainerStyle(processInfoGroup);
+    ks::ui::StylePrimaryGroup(processInfoGroup);
     QGridLayout* processInfoLayout = new QGridLayout(processInfoGroup);
     processInfoLayout->setHorizontalSpacing(8);
     processInfoLayout->setVerticalSpacing(6);
@@ -6099,7 +6103,7 @@ void ProcessDock::initializeCreateProcessPage()
 
     // 6) Token 特权编辑器。
     QGroupBox* tokenPrivilegeGroup = new QGroupBox("Token 特权调整（AdjustTokenPrivileges）", contentWidget);
-    applyTransparentContainerStyle(tokenPrivilegeGroup);
+    ks::ui::StylePrimaryGroup(tokenPrivilegeGroup);
     QVBoxLayout* tokenPrivilegeLayout = new QVBoxLayout(tokenPrivilegeGroup);
     const QStringList privilegeNames = tokenPrivilegeNames();
     m_tokenPrivilegeTable = new ks::ui::VisibleTableWidget(privilegeNames.size(), 2, tokenPrivilegeGroup);
@@ -6162,7 +6166,7 @@ void ProcessDock::initializeCreateProcessPage()
         actionCombo->addItem("禁用", static_cast<int>(ks::process::TokenPrivilegeAction::Disable));
         actionCombo->addItem("移除", static_cast<int>(ks::process::TokenPrivilegeAction::Remove));
         actionCombo->setCurrentIndex(0);
-        actionCombo->setStyleSheet(comboStyle);
+        ks::ui::StylePrimaryCombo(actionCombo);
         m_tokenPrivilegeTable->setCellWidget(row, 1, actionCombo);
     }
 
@@ -6182,7 +6186,7 @@ void ProcessDock::initializeCreateProcessPage()
 
     // 7) 操作按钮 + 输出日志。
     QGroupBox* actionGroup = new QGroupBox("执行与结果", contentWidget);
-    applyTransparentContainerStyle(actionGroup);
+    ks::ui::StylePrimaryGroup(actionGroup);
     QVBoxLayout* actionLayout = new QVBoxLayout(actionGroup);
     QHBoxLayout* actionButtonLayout = new QHBoxLayout();
     m_launchProcessButton = new QPushButton("执行创建进程", actionGroup);

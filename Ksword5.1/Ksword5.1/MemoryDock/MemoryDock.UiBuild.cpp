@@ -6,6 +6,8 @@
 #include "../UI/ThemeBinding.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QCompleter> // 进程下拉的包含式补全需要完整类型。
@@ -226,8 +228,10 @@ void MemoryDock::initializeToolbar()
 
     // 顶部工具栏放在独立容器内，便于统一 margin 和 spacing。
     QWidget* toolbarContainer = new QWidget(this);
+    // 目标进程区独立于功能页签，增加轻底面但不增加控件行数。
+    ks::ui::StylePrimaryToolbar(toolbarContainer);
     m_toolbarLayout = new QHBoxLayout(toolbarContainer);
-    m_toolbarLayout->setContentsMargins(0, 0, 0, 0);
+    m_toolbarLayout->setContentsMargins(8, 4, 8, 4);
     m_toolbarLayout->setSpacing(6);
 
     m_processCombo = new PopupLifecycleGuardedComboBox(
@@ -307,6 +311,11 @@ void MemoryDock::initializeToolbar()
     m_toolbarLayout->addWidget(m_refreshButton);
     m_toolbarLayout->addWidget(m_settingsButton);
     ks::ui::NormalizeToolbarRow(m_toolbarLayout);
+    ks::ui::StylePrimaryCombo(m_processCombo);
+    ks::ui::ApplyFlatButtonTheme(m_attachButton, ks::ui::FlatButtonTone::Accent);
+    ks::ui::ApplyFlatButtonTheme(m_detachButton, ks::ui::FlatButtonTone::Neutral);
+    ks::ui::ApplyFlatButtonTheme(m_refreshButton, ks::ui::FlatButtonTone::Neutral);
+    ks::ui::ApplyFlatButtonTheme(m_settingsButton, ks::ui::FlatButtonTone::Neutral);
 
     m_rootLayout->addWidget(toolbarContainer);
 }
@@ -477,6 +486,9 @@ QWidget* MemoryDock::createBackendSelector(
     layout->setSpacing(6);
 
     comboOut = new QComboBox(container);
+    // 内存后端是明确的操作条件，完整底面和同高控件便于识别可切换状态。
+    ks::ui::StylePrimaryCombo(comboOut);
+    ks::ui::NormalizeToolbarControl(comboOut);
     // 条目顺序必须与 MemoryAccessBackend 枚举一致，界面按索引直接转换。
     comboOut->addItem(QStringLiteral("R3（ReadProcessMemory）"));
     comboOut->addItem(QStringLiteral("R0（驱动通道）"));
@@ -624,8 +636,10 @@ void MemoryDock::initializeProcessModuleTab()
     QVBoxLayout* processLayout = new QVBoxLayout(processPanel);
     processLayout->setContentsMargins(0, 0, 0, 0);
     processLayout->setSpacing(4);
-    QHBoxLayout* processTopBarLayout = new QHBoxLayout();
-    processTopBarLayout->setContentsMargins(0, 0, 0, 0);
+    QWidget* const processToolbar = new QWidget(processPanel);
+    ks::ui::StylePrimaryToolbar(processToolbar);
+    QHBoxLayout* processTopBarLayout = new QHBoxLayout(processToolbar);
+    processTopBarLayout->setContentsMargins(8, 4, 8, 4);
     processTopBarLayout->setSpacing(8);
     processTopBarLayout->addWidget(new QLabel("进程列表（双击自动附加）", processPanel));
 
@@ -643,7 +657,7 @@ void MemoryDock::initializeProcessModuleTab()
         QStringLiteral("color:%1;").arg(KswordTheme::TextSecondaryHex()));
     processTopBarLayout->addWidget(m_processCountLabel);
 
-    processLayout->addLayout(processTopBarLayout);
+    processLayout->addWidget(processToolbar);
     ks::ui::NormalizeToolbarRow(processTopBarLayout);
 
     m_processTable = new ks::ui::VisibleTableWidget(processPanel);
@@ -681,8 +695,11 @@ void MemoryDock::initializeProcessModuleTab()
     moduleLayout->setSpacing(4);
 
     // 模块区域布局对齐 ProcessDetailWindow：刷新按钮 + 签名选项 + 状态 + 模块表。
-    QHBoxLayout* moduleTopBarLayout = new QHBoxLayout();
-    moduleTopBarLayout->setContentsMargins(0, 0, 0, 0);
+    // 双表各自拥有筛选条，分割拖动后仍能辨别操作属于哪张表。
+    QWidget* const moduleToolbar = new QWidget(modulePanel);
+    ks::ui::StylePrimaryToolbar(moduleToolbar);
+    QHBoxLayout* moduleTopBarLayout = new QHBoxLayout(moduleToolbar);
+    moduleTopBarLayout->setContentsMargins(8, 4, 8, 4);
     moduleTopBarLayout->setSpacing(8);
 
     m_moduleRefreshButton = new QPushButton(QIcon(":/Icon/process_refresh.svg"), "刷新模块", modulePanel);
@@ -708,7 +725,7 @@ void MemoryDock::initializeProcessModuleTab()
         QStringLiteral("color:%1; font-weight:600;")
             .arg(KswordTheme::TextSecondaryHex()));
     moduleTopBarLayout->addWidget(m_moduleStatusLabel);
-    moduleLayout->addLayout(moduleTopBarLayout);
+    moduleLayout->addWidget(moduleToolbar);
     ks::ui::NormalizeToolbarRow(moduleTopBarLayout);
 
     m_moduleTable = new QTreeWidget(modulePanel);
@@ -783,6 +800,7 @@ void MemoryDock::initializeMemoryRegionTab()
 
     // 过滤开关收进分组框，避免和动作行挤在一起。
     QGroupBox* filterGroup = new QGroupBox("过滤条件", m_tabRegions);
+    ks::ui::StylePrimaryGroup(filterGroup);
     QHBoxLayout* filterLayout = new QHBoxLayout(filterGroup);
     filterLayout->setSpacing(10);
     m_regionCommittedOnlyCheck = new QCheckBox("仅已提交(MEM_COMMIT)", filterGroup);
@@ -839,11 +857,11 @@ void MemoryDock::initializeMemorySearchTab()
     tabLayout->setSpacing(6);
 
     const QString inputStyle = buildBlueInputStyle();
-    const QString comboStyle = buildBlueComboStyle();
     const QString buttonStyle = buildBlueButtonStyle();
 
     // 搜索条件面板。
     QGroupBox* conditionGroup = new QGroupBox("搜索条件", m_tabSearch);
+    ks::ui::StylePrimaryGroup(conditionGroup);
     QGridLayout* conditionLayout = new QGridLayout(conditionGroup);
     conditionLayout->setHorizontalSpacing(8);
     conditionLayout->setVerticalSpacing(6);
@@ -858,7 +876,7 @@ void MemoryDock::initializeMemorySearchTab()
     m_searchTypeCombo->addItem("字节数组(支持??)", static_cast<int>(SearchValueType::ByteArray));
     m_searchTypeCombo->addItem("ASCII字符串", static_cast<int>(SearchValueType::StringAscii));
     m_searchTypeCombo->addItem("Unicode字符串", static_cast<int>(SearchValueType::StringUnicode));
-    m_searchTypeCombo->setStyleSheet(comboStyle);
+    ks::ui::StylePrimaryCombo(m_searchTypeCombo);
 
     m_searchValueEdit = new QLineEdit(conditionGroup);
     m_searchValueEdit->setPlaceholderText("输入搜索值");
@@ -867,7 +885,7 @@ void MemoryDock::initializeMemorySearchTab()
     m_searchRangeCombo = new QComboBox(conditionGroup);
     m_searchRangeCombo->addItem("整个内存");
     m_searchRangeCombo->addItem("自定义范围");
-    m_searchRangeCombo->setStyleSheet(comboStyle);
+    ks::ui::StylePrimaryCombo(m_searchRangeCombo);
 
     m_searchRangeStartEdit = new QLineEdit(conditionGroup);
     m_searchRangeEndEdit = new QLineEdit(conditionGroup);
@@ -895,7 +913,7 @@ void MemoryDock::initializeMemorySearchTab()
     m_nextScanButton->setToolTip("在上次结果的基础上继续筛选，逐步缩小范围（需先完成首次扫描）");
     m_resetScanButton->setToolTip("清空已有搜索结果，回到可重新首次扫描的状态");
     m_cancelScanButton->setToolTip("中止正在进行的扫描");
-    m_firstScanButton->setStyleSheet(buttonStyle);
+    ks::ui::ApplyFlatButtonTheme(m_firstScanButton, ks::ui::FlatButtonTone::Accent);
     m_nextScanButton->setStyleSheet(buttonStyle);
     m_resetScanButton->setStyleSheet(buttonStyle);
     m_cancelScanButton->setStyleSheet(buttonStyle);
@@ -925,7 +943,10 @@ void MemoryDock::initializeMemorySearchTab()
 
     tabLayout->addWidget(conditionGroup);
 
+    // 初始条件与再次扫描是不同阶段，以轻边界和留白分组，保留结果可见高度。
+    tabLayout->addSpacing(6);
     QGroupBox* compareGroup = new QGroupBox("再次扫描过滤", m_tabSearch);
+    ks::ui::StylePrimaryGroup(compareGroup);
     QHBoxLayout* compareLayout = new QHBoxLayout(compareGroup);
     compareLayout->setContentsMargins(8, 6, 8, 6);
     compareLayout->setSpacing(8);
@@ -939,7 +960,7 @@ void MemoryDock::initializeMemorySearchTab()
     m_nextScanCompareCombo->addItem("未变化", static_cast<int>(SearchCompareMode::Unchanged));
     m_nextScanCompareCombo->addItem("增加", static_cast<int>(SearchCompareMode::Increased));
     m_nextScanCompareCombo->addItem("减少", static_cast<int>(SearchCompareMode::Decreased));
-    m_nextScanCompareCombo->setStyleSheet(comboStyle);
+    ks::ui::StylePrimaryCombo(m_nextScanCompareCombo);
     m_nextScanCompareCombo->setToolTip("再次扫描时的筛选方式：可按新值比较，也可按“变化/未变化/增加/减少”筛选");
 
     m_nextScanValueEdit = new QLineEdit(compareGroup);

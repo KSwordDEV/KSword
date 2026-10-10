@@ -3,6 +3,7 @@
 #include "../UI/ThemeBinding.h"
 #include "RegistryOptimizationPage.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "RegistryOptimizationTransactions.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
@@ -996,7 +997,8 @@ void RegistryOptimizationPage::initializeUi()
     m_groupTree->setColumnCount(1);
     m_groupTree->setHeaderLabel(QStringLiteral("优化分组"));
     m_groupTree->setMinimumWidth(260);
-    m_groupTree->header()->setStyleSheet(QStringLiteral("QHeaderView::section{color:%1;font-weight:600;}").arg(KswordTheme::PrimaryBlueHex));
+    // 分组导航与结果列统一采用表头角色，强调色只表示实际选择。
+    m_groupTree->header()->setStyleSheet(QString());
 
     QWidget* rightWidget = new QWidget(m_splitter);
     QVBoxLayout* rightLayout = new QVBoxLayout(rightWidget);
@@ -1025,7 +1027,7 @@ void RegistryOptimizationPage::initializeUi()
     m_itemTable->setTextElideMode(Qt::ElideRight);
     m_itemTable->verticalHeader()->setDefaultSectionSize(kDefaultRowHeight);
     m_itemTable->verticalHeader()->setMinimumSectionSize(kDefaultRowHeight);
-    m_itemTable->horizontalHeader()->setStyleSheet(QStringLiteral("QHeaderView::section{color:%1;font-weight:600;}").arg(KswordTheme::PrimaryBlueHex));
+    m_itemTable->horizontalHeader()->setStyleSheet(QString());
     m_itemTable->horizontalHeader()->setSectionResizeMode(kItemNameColumn, QHeaderView::Stretch);
     m_itemTable->horizontalHeader()->setSectionResizeMode(kScopeColumn, QHeaderView::ResizeToContents);
     m_itemTable->horizontalHeader()->setSectionResizeMode(kTypeColumn, QHeaderView::ResizeToContents);
@@ -1292,6 +1294,8 @@ void RegistryOptimizationPage::rebuildItemTable()
             if (item.itemTypeText.compare(QStringLiteral("Combo"), Qt::CaseInsensitive) == 0)
             {
                 QComboBox* comboBox = new QComboBox(m_itemTable);
+                // 行内目标选择器同样保留实底；行高仍由表格既有密度控制。
+                ks::ui::StylePrimaryCombo(comboBox);
                 comboBox->setObjectName(QStringLiteral("optimizationTargetCombo"));
                 comboBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
                 comboBox->setMinimumWidth(kTargetColumnWidth - 16);

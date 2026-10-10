@@ -1,5 +1,6 @@
 #include "ClipboardGuardPage.h"
 #include "../../UI/ToolbarMetrics.h"
+#include "../../UI/PrimaryPageStyle.h"
 #include "../../UI/VisibleTableWidget.h"
 #include "../../UI/FlatButtonTheme.h"
 #include "../../theme.h"
@@ -154,12 +155,16 @@ namespace ks::misc
         m_ruleTable->setAlternatingRowColors(true);
         m_ruleTable->setMaximumHeight(160);
         m_rootLayout->addWidget(m_ruleTable, 0);
+        // 静态策略和持续事件之间用留白区分，区内仍保持紧凑的操作/结果关系。
+        m_rootLayout->addSpacing(8);
 
         // ---- 事件表工具栏：A/B 列组预设 ----
         QHBoxLayout* const eventTopLayout = new QHBoxLayout();
         eventTopLayout->setContentsMargins(0, 0, 0, 0);
         eventTopLayout->setSpacing(8);
-        eventTopLayout->addWidget(new QLabel(QStringLiteral("剪贴板访问事件："), this));
+        auto* eventSectionTitle = new QLabel(QStringLiteral("剪贴板访问事件："), this);
+        ks::ui::StylePrimarySectionTitle(eventSectionTitle);
+        eventTopLayout->addWidget(eventSectionTitle);
 
         m_columnPresetWidget = new QWidget(this);
         QHBoxLayout* const presetLayout = new QHBoxLayout(m_columnPresetWidget);

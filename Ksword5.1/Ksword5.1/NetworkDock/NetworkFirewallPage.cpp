@@ -6,6 +6,7 @@
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/SecondaryPageLayout.h"
 #include "../UI/DetailLayoutRegistry.h"
 #include "../UI/ThemeItemForeground.h"
@@ -2604,8 +2605,11 @@ void NetworkFirewallPage::initializeEventMonitorUi()
     pageLayout->setContentsMargins(0, 0, 0, 0);
     pageLayout->setSpacing(6);
 
-    QHBoxLayout* toolbarLayout = new QHBoxLayout();
-    toolbarLayout->setContentsMargins(0, 0, 0, 0);
+    // 业务动作与搜索同属一条工具带，表格证据区保持原有伸缩。
+    QWidget* const eventToolbar = new QWidget(m_eventMonitorPage);
+    ks::ui::StylePrimaryToolbar(eventToolbar);
+    QHBoxLayout* toolbarLayout = new QHBoxLayout(eventToolbar);
+    toolbarLayout->setContentsMargins(8, 4, 8, 4);
     toolbarLayout->setSpacing(8);
 
     m_refreshHistoryButton = new QPushButton(QStringLiteral("刷新历史"), m_eventMonitorPage);
@@ -2642,7 +2646,7 @@ void NetworkFirewallPage::initializeEventMonitorUi()
     m_dropOnlyCheck = new QCheckBox(QStringLiteral("仅 DROP"), m_eventMonitorPage);
     toolbarLayout->addWidget(m_dropOnlyCheck, 0);
     ks::ui::NormalizeToolbarRow(toolbarLayout);
-    pageLayout->addLayout(toolbarLayout, 0);
+    pageLayout->addWidget(eventToolbar, 0);
 
     m_eventTable = new ks::ui::VisibleTableWidget(m_eventMonitorPage);
     // 防火墙事件保留完整取证操作栏。
@@ -2726,8 +2730,11 @@ void NetworkFirewallPage::initializeRuleManagerUi()
     pageLayout->setContentsMargins(0, 0, 0, 0);
     pageLayout->setSpacing(6);
 
-    QHBoxLayout* toolbarLayout = new QHBoxLayout();
-    toolbarLayout->setContentsMargins(0, 0, 0, 0);
+    // 业务动作与搜索同属一条工具带，表格证据区保持原有伸缩。
+    QWidget* const ruleToolbar = new QWidget(m_ruleManagerPage);
+    ks::ui::StylePrimaryToolbar(ruleToolbar);
+    QHBoxLayout* toolbarLayout = new QHBoxLayout(ruleToolbar);
+    toolbarLayout->setContentsMargins(8, 4, 8, 4);
     toolbarLayout->setSpacing(8);
 
     m_refreshRulesButton = new QPushButton(QStringLiteral("刷新规则"), m_ruleManagerPage);
@@ -2777,7 +2784,7 @@ void NetworkFirewallPage::initializeRuleManagerUi()
     m_ruleEnabledOnlyCheck = new QCheckBox(QStringLiteral("仅启用"), m_ruleManagerPage);
     toolbarLayout->addWidget(m_ruleEnabledOnlyCheck, 0);
     ks::ui::NormalizeToolbarRow(toolbarLayout);
-    pageLayout->addLayout(toolbarLayout, 0);
+    pageLayout->addWidget(ruleToolbar, 0);
 
     m_ruleSplitter = new QSplitter(Qt::Vertical, m_ruleManagerPage);
     m_ruleTable = new ks::ui::VisibleTableWidget(m_ruleSplitter);

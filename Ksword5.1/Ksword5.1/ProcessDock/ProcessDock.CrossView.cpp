@@ -3,6 +3,7 @@
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeBinding.h"
 
@@ -426,15 +427,18 @@ void ProcessDock::initializeCrossViewPage()
     m_crossViewPageLayout->setContentsMargins(6, 6, 6, 6);
     m_crossViewPageLayout->setSpacing(6);
 
-    m_crossViewTopLayout = new QHBoxLayout();
-    m_crossViewTopLayout->setContentsMargins(0, 0, 0, 0);
+    // 来源矩阵工具区保持一行，用轻底面分开查询条件与结果。
+    QWidget* const crossViewToolbar = new QWidget(m_crossViewPage);
+    ks::ui::StylePrimaryToolbar(crossViewToolbar);
+    m_crossViewTopLayout = new QHBoxLayout(crossViewToolbar);
+    m_crossViewTopLayout->setContentsMargins(8, 4, 8, 4);
     m_crossViewTopLayout->setSpacing(8);
 
     m_crossViewRefreshButton = new QPushButton(QIcon(QStringLiteral(":/Icon/process_refresh.svg")), QString(), m_crossViewPage);
     KswordTheme::ApplyStandardIconButtonMetrics(m_crossViewRefreshButton);
-    // 工具按钮明确拥有透明常态与主题交互态，避免 Dock 透明兜底截断共享绑定。
+    // 刷新是独立动作，保留可辨识的中性按钮底面。
     ks::ui::ApplyFlatButtonTheme(m_crossViewRefreshButton,
-        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Solid);
     m_crossViewRefreshButton->setToolTip(QStringLiteral("查询 R0 Process/Thread Cross-View 证据"));
 
     m_crossViewSearchEdit = new QLineEdit(m_crossViewPage);
@@ -455,7 +459,7 @@ void ProcessDock::initializeCrossViewPage()
     m_crossViewTopLayout->addWidget(m_crossViewSearchEdit, 1);
     m_crossViewTopLayout->addWidget(m_crossViewStatusLabel);
     ks::ui::NormalizeToolbarRow(m_crossViewTopLayout);
-    m_crossViewPageLayout->addLayout(m_crossViewTopLayout);
+    m_crossViewPageLayout->addWidget(crossViewToolbar);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_crossViewPage);
     m_crossViewPageLayout->addWidget(splitter, 1);

@@ -1,6 +1,7 @@
 
 #include "KernelDeviceDriverObjectsTab.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "KernelDriverDispatchEditorDialog.h"
 #include "KernelDriverImageEditorDialog.h"
@@ -99,9 +100,9 @@ namespace
     QString headerStyle()
     {
         return QStringLiteral(
-            "QHeaderView::section{color:%1;background:transparent;/* %2 */border:1px solid %3;font-weight:600;}")
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::SurfaceHex())
+            "QHeaderView::section{color:%1;background:%2;border:0;border-bottom:1px solid %3;font-weight:500;padding:4px 8px;}")
+            .arg(KswordTheme::TextPrimaryHex())
+            .arg(KswordTheme::SurfaceAltHex())
             .arg(KswordTheme::BorderHex());
     }
 
@@ -163,8 +164,10 @@ void KernelDeviceDriverObjectsTab::initializeUi()
     m_rootLayout->setSpacing(4);
 
     m_toolbarWidget = new QWidget(this);
+    // 查询动作单独成带，下方筛选行保持紧凑，避免把列表整体包进卡片。
+    ks::ui::StylePrimaryToolbar(m_toolbarWidget);
     auto* toolbarLayout = new QHBoxLayout(m_toolbarWidget);
-    toolbarLayout->setContentsMargins(0, 0, 0, 0);
+    toolbarLayout->setContentsMargins(6, 4, 6, 4);
     toolbarLayout->setSpacing(6);
 
     m_refreshButton = new QPushButton(kernelText("kernel.device_driver.toolbar.refresh", QStringLiteral("刷新")), m_toolbarWidget);
@@ -190,10 +193,12 @@ void KernelDeviceDriverObjectsTab::initializeUi()
     filterLayout->setSpacing(6);
 
     m_directoryFilterCombo = new QComboBox(m_filterWidget);
+    ks::ui::StylePrimaryCombo(m_directoryFilterCombo);
     m_directoryFilterCombo->setEditable(false);
     m_directoryFilterCombo->setMinimumWidth(190);
     m_directoryFilterCombo->setToolTip(kernelText("kernel.device_driver.filter.directory.tooltip", QStringLiteral("按对象目录过滤")));
     m_typeFilterCombo = new QComboBox(m_filterWidget);
+    ks::ui::StylePrimaryCombo(m_typeFilterCombo);
     m_typeFilterCombo->setEditable(false);
     m_typeFilterCombo->setMinimumWidth(160);
     m_typeFilterCombo->setToolTip(kernelText("kernel.device_driver.filter.type.tooltip", QStringLiteral("按对象类型过滤")));

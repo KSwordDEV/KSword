@@ -1,5 +1,7 @@
 #include "HyperVMemoryPage.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/PrimaryPageStyle.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/PageControlStyle.h"
 #include "../UI/StructuredFieldView.h"
 #include "PhysicalPageScan.h"
@@ -157,13 +159,20 @@ HyperVMemoryPage::HyperVMemoryPage(QWidget* parent) : QWidget(parent)
     // 放不下时在本页内滚动。根布局建在壳的内容容器上。
     auto* root = new QVBoxLayout(ks::ui::EnablePageInnerScroll(this));
     root->setContentsMargins(0, 0, 0, 0);
-    auto* actions = new QHBoxLayout;
+    // 采集与筛选共用一条轻工具带，归因图和证据页保持原有高度分配。
+    auto* collectionToolbar = new QWidget(this); // 采集控制容器由内层布局重新接管。
+    ks::ui::StylePrimaryToolbar(collectionToolbar);
+    auto* actions = new QHBoxLayout(collectionToolbar);
+    actions->setContentsMargins(8, 4, 8, 4);
     m_collect = new QPushButton(this); m_cancel = new QPushButton(this); m_export = new QPushButton(this);
     m_filter = new QLineEdit(this); m_filter->setClearButtonEnabled(true);
     ks::ui::StyleSearchField(m_filter);
     actions->addWidget(m_collect); actions->addWidget(m_cancel); actions->addWidget(m_filter, 1); actions->addWidget(m_export);
     ks::ui::NormalizeToolbarRow(actions);
-    root->addLayout(actions);
+    ks::ui::ApplyFlatButtonTheme(m_collect, ks::ui::FlatButtonTone::Accent);
+    ks::ui::ApplyFlatButtonTheme(m_cancel, ks::ui::FlatButtonTone::Neutral);
+    ks::ui::ApplyFlatButtonTheme(m_export, ks::ui::FlatButtonTone::Neutral);
+    root->addWidget(collectionToolbar);
     m_summary = new QLabel(this); m_summary->setWordWrap(true); m_summary->setTextFormat(Qt::PlainText);
     m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse); root->addWidget(m_summary);
     m_progress = new QProgressBar(this); m_progress->setTextVisible(false); m_progress->setMaximumHeight(5); root->addWidget(m_progress);

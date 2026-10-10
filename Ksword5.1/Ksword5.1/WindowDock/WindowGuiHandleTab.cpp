@@ -5,6 +5,7 @@
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../theme.h"
 
@@ -559,6 +560,8 @@ void WindowGuiHandleTab::initializeUi()
         guiHandleText("window.gui_handle.refresh", QStringLiteral("刷新 GUI 句柄")),
         this);
     m_typeFilterCombo = new QComboBox(this);
+    // 类型筛选与旁边搜索框保持同一控件层次，选项及过滤信号不变。
+    ks::ui::StylePrimaryCombo(m_typeFilterCombo);
     m_typeFilterCombo->addItem(guiHandleText("window.gui_handle.filter.all", QStringLiteral("全部类型")), -1);
     m_typeFilterCombo->addItem(QStringLiteral("Window"), 1);
     m_typeFilterCombo->addItem(QStringLiteral("Menu"), 2);

@@ -1,5 +1,6 @@
 #include "HardwareDeviceManagerPage.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/ThemeBinding.h"
@@ -920,9 +921,8 @@ void HardwareDeviceManagerPage::initializeUi()
     headerLayout->setSpacing(8);
 
     QLabel* titleLabel = new QLabel(QStringLiteral("设备管理"), this);
-    titleLabel->setStyleSheet(
-        QStringLiteral("font-size:18px;font-weight:700;color:%1;")
-        .arg(KswordTheme::TextPrimaryHex()));
+    // 紧凑工具行的标题不放大整行高度，筛选器与刷新动作保持原有对齐。
+    ks::ui::StylePrimarySectionTitle(titleLabel);
     headerLayout->addWidget(titleLabel, 0);
 
     m_statusLabel = new QLabel(QStringLiteral("正在枚举当前设备..."), this);

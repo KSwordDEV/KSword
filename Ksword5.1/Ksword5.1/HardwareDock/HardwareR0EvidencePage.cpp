@@ -173,10 +173,10 @@ namespace
     QString buildHeaderStyle()
     {
         // 输入：无。
-        // 处理：构造表头蓝色强调样式。
+        // 处理：表头使用可读中性文字，主题强调色留给选区与风险提示。
         // 返回：stylesheet 文本。
-        return QStringLiteral("QHeaderView::section{color:%1;font-weight:700;}")
-            .arg(KswordTheme::PrimaryBlueHex);
+        return QStringLiteral("QHeaderView::section{color:%1;font-weight:600;}")
+            .arg(KswordTheme::TextPrimaryHex());
     }
 
     QString statusStyle(const QString& colorText)

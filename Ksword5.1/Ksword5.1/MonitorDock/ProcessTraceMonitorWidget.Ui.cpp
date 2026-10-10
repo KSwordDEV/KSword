@@ -2,6 +2,7 @@
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ThemeBinding.h"
 #include "../UI/ThemeStatusRole.h"
 #include "../UI/ThemeAccentIcon.h"
@@ -345,7 +346,9 @@ void ProcessTraceMonitorWidget::initializeUi()
     // 控制栏：
     // - 中间说明固定采用“全量预置 Provider + 进程树辅助快照”；
     // - 用户不再手工勾选事件类型，统一由程序尽可能宽覆盖。
+    // 采集控制独立成轻工具带，和上方目标选择以及下方事件过滤区分开。
     m_controlPanel = new QWidget(m_configurationPanel);
+    ks::ui::StylePrimaryToolbar(m_controlPanel);
     QHBoxLayout* controlLayout = new QHBoxLayout(m_controlPanel);
     controlLayout->setContentsMargins(6, 6, 6, 6);
     controlLayout->setSpacing(6);
@@ -397,7 +400,7 @@ void ProcessTraceMonitorWidget::initializeUi()
 
     filterLayout->addWidget(new QLabel(QStringLiteral("类型"), m_filterPanel), 0, 0);
     m_eventTypeCombo = new QComboBox(m_filterPanel);
-    m_eventTypeCombo->setStyleSheet(blueInputStyle());
+    ks::ui::StylePrimaryCombo(m_eventTypeCombo);
     m_eventTypeCombo->addItems(QStringList{
         QStringLiteral("全部类型"),
         QStringLiteral("进程"),

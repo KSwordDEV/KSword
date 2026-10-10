@@ -1,6 +1,7 @@
 #include "MemoryDock.Internal.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/StructuredFieldView.h"
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll：页内滚动壳。
 #include "../UI/TableInteractionSupport.h"
@@ -470,6 +471,8 @@ void MemoryDock::initializeKernelMemoryEvidenceTab()
 
     // 第二层扫描参数分组：两个开关一行，三组“标签 + 输入”一行，网格保证标签与输入始终成对。
     QGroupBox* evidenceScanParamGroup = new QGroupBox(QStringLiteral("扫描参数"), m_tabKernelMemoryEvidence);
+    // 采样参数以完整轻边界单独成组，查询结果保留原伸缩空间。
+    ks::ui::StylePrimaryGroup(evidenceScanParamGroup);
     QGridLayout* evidenceScanParamLayout = new QGridLayout(evidenceScanParamGroup);
     evidenceScanParamLayout->setContentsMargins(8, 6, 8, 6);
     evidenceScanParamLayout->setHorizontalSpacing(8);

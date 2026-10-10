@@ -1,5 +1,6 @@
 #include "BootEditorTab.h"
 #include "../../UI/PageControlStyle.h"
+#include "../../UI/PrimaryPageStyle.h"
 #include "../../UI/ToolbarMetrics.h"
 #include "../../UI/CodeTextEdit.h"
 
@@ -314,12 +315,13 @@ void BootEditorTab::initializeCenterPane()
     QWidget* leftEditorColumn = new QWidget(editorColumnsSplitter);
     QVBoxLayout* leftEditorLayout = new QVBoxLayout(leftEditorColumn);
     leftEditorLayout->setContentsMargins(0, 0, 0, 0);
-    leftEditorLayout->setSpacing(6);
+    // 三栏编辑保留同屏密度，仅拉开各自内部不同任务分区的距离。
+    leftEditorLayout->setSpacing(16);
 
     QWidget* middleEditorColumn = new QWidget(editorColumnsSplitter);
     QVBoxLayout* middleEditorLayout = new QVBoxLayout(middleEditorColumn);
     middleEditorLayout->setContentsMargins(0, 0, 0, 0);
-    middleEditorLayout->setSpacing(6);
+    middleEditorLayout->setSpacing(16);
 
     QWidget* outputEditorColumn = new QWidget(editorColumnsSplitter);
     QVBoxLayout* outputEditorLayout = new QVBoxLayout(outputEditorColumn);
@@ -328,6 +330,7 @@ void BootEditorTab::initializeCenterPane()
 
     // 基础字段编辑组。
     QGroupBox* basicGroup = new QGroupBox(QStringLiteral("基础字段"), leftEditorColumn);
+    ks::ui::StylePrimaryGroup(basicGroup);
     QFormLayout* basicLayout = new QFormLayout(basicGroup);
     basicLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
 
@@ -342,6 +345,7 @@ void BootEditorTab::initializeCenterPane()
     m_systemRootEdit = new QLineEdit(basicGroup);
     m_localeEdit = new QLineEdit(basicGroup);
     m_bootMenuPolicyCombo = new QComboBox(basicGroup);
+    ks::ui::StylePrimaryCombo(m_bootMenuPolicyCombo);
     m_bootMenuPolicyCombo->addItem(QStringLiteral("不修改"), QString());
     m_bootMenuPolicyCombo->addItem(QStringLiteral("Standard"), QStringLiteral("Standard"));
     m_bootMenuPolicyCombo->addItem(QStringLiteral("Legacy"), QStringLiteral("Legacy"));
@@ -375,6 +379,7 @@ void BootEditorTab::initializeCenterPane()
     // - 传统引导 = bootmenupolicy Legacy（可用 F8 菜单）；
     // - 不等同于 BIOS/UEFI 固件模式切换（后者需在主板固件设置中操作）。
     QGroupBox* legacyGroup = new QGroupBox(QStringLiteral("传统引导（Legacy/F8）"), leftEditorColumn);
+    ks::ui::StylePrimaryGroup(legacyGroup);
     QVBoxLayout* legacyLayout = new QVBoxLayout(legacyGroup);
     legacyLayout->setContentsMargins(8, 8, 8, 8);
     legacyLayout->setSpacing(6);
@@ -416,6 +421,7 @@ void BootEditorTab::initializeCenterPane()
 
     // 高级开关组。
     QGroupBox* flagGroup = new QGroupBox(QStringLiteral("高级开关"), middleEditorColumn);
+    ks::ui::StylePrimaryGroup(flagGroup);
     QVBoxLayout* flagLayout = new QVBoxLayout(flagGroup);
     // 标题与内容之间保留额外顶部空间，避免全局 QGroupBox 标题压住第一个复选框。
     flagLayout->setContentsMargins(8, 14, 8, 8);
@@ -428,6 +434,7 @@ void BootEditorTab::initializeCenterPane()
     m_baseVideoCheck = new QCheckBox(QStringLiteral("使用基础视频驱动 (basevideo)"), flagGroup);
     m_recoveryEnabledCheck = new QCheckBox(QStringLiteral("启用恢复环境 (recoveryenabled)"), flagGroup);
     m_safeBootCombo = new QComboBox(flagGroup);
+    ks::ui::StylePrimaryCombo(m_safeBootCombo);
     m_safeBootCombo->setToolTip(QStringLiteral("设置 safeboot 模式。关闭会删除 safeboot 字段。"));
     m_safeBootCombo->addItem(QStringLiteral("关闭安全模式"), QStringLiteral("off"));
     m_safeBootCombo->addItem(QStringLiteral("最小安全模式"), QStringLiteral("minimal"));
@@ -471,6 +478,7 @@ void BootEditorTab::initializeCenterPane()
 
     // 自定义命令组：支持输入任意 bcdedit 参数。
     QGroupBox* customGroup = new QGroupBox(QStringLiteral("自定义命令"), middleEditorColumn);
+    ks::ui::StylePrimaryGroup(customGroup);
     QHBoxLayout* customLayout = new QHBoxLayout(customGroup);
     customLayout->setContentsMargins(8, 8, 8, 8);
     customLayout->setSpacing(6);
@@ -493,6 +501,7 @@ void BootEditorTab::initializeCenterPane()
     // - 独立放入第三栏，形成稳定的日志观察区域；
     // - 与第二栏的高级开关/自定义命令分离，避免横向扩展时互相挤压。
     QGroupBox* outputGroup = new QGroupBox(QStringLiteral("原始输出"), outputEditorColumn);
+    ks::ui::StylePrimaryGroup(outputGroup);
     QVBoxLayout* outputLayout = new QVBoxLayout(outputGroup);
     outputLayout->setContentsMargins(8, 8, 8, 8);
     outputLayout->setSpacing(4);

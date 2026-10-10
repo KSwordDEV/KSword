@@ -1,4 +1,5 @@
 #include "BugcheckGuardPage.h"
+#include "../../UI/PrimaryPageStyle.h"
 #include "../../UI/ToolbarMetrics.h"
 
 #include "../../ArkDriverClient/ArkDriverClient.h"
@@ -230,6 +231,8 @@ namespace ks::misc
         rootLayout->addWidget(m_persistenceLabel);
 
         auto* controlGroup = new QGroupBox(this);
+        // 控制与回执采用同一轻边界，风险提示仍保留自己的语义颜色。
+        ks::ui::StylePrimaryGroup(controlGroup);
         language.bindText(
             controlGroup,
             QStringLiteral("misc.experimental.bugcheck.control.title"),
@@ -331,6 +334,7 @@ namespace ks::misc
         rootLayout->addWidget(controlGroup);
 
         auto* statusGroup = new QGroupBox(this);
+        ks::ui::StylePrimaryGroup(statusGroup);
         language.bindText(
             statusGroup,
             QStringLiteral("misc.experimental.bugcheck.status.title"),

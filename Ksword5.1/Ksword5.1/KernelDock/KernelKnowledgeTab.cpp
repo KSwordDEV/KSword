@@ -1,5 +1,6 @@
 #include "KernelKnowledgeTab.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/ThemeBinding.h"
@@ -161,6 +162,8 @@ void KernelKnowledgeTab::initializeUi()
     filterLayout->setContentsMargins(0, 0, 0, 0);
     filterLayout->setSpacing(6);
     m_coverageCombo = new QComboBox(directoryPanel);
+    // 覆盖筛选是目录的输入控件，不继承文章面板的透明底。
+    ks::ui::StylePrimaryCombo(m_coverageCombo);
     m_resultCountLabel = new QLabel(directoryPanel);
     m_resultCountLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     filterLayout->addWidget(m_coverageCombo, 1);

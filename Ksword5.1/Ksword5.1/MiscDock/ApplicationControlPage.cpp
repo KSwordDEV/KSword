@@ -1,5 +1,6 @@
 #include "../UI/StructuredFieldView.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/SecondaryPageLayout.h"
 #include "../UI/ToolbarMetrics.h"
 #include "ApplicationControlPage.h"
@@ -509,8 +510,10 @@ namespace ks::misc
         m_rootLayout->setSpacing(6);
 
         m_toolbarWidget = new QWidget(this);
+        // 页面公共动作采用单条工具带，子页的策略与结果区域不再重复铺背景。
+        ks::ui::StylePrimaryToolbar(m_toolbarWidget);
         auto* toolbarLayout = new QHBoxLayout(m_toolbarWidget);
-        toolbarLayout->setContentsMargins(0, 0, 0, 0);
+        toolbarLayout->setContentsMargins(6, 4, 6, 4);
         toolbarLayout->setSpacing(8);
 
         m_refreshButton = new QPushButton(QIcon(QStringLiteral(":/Icon/process_refresh.svg")), QStringLiteral("刷新"), m_toolbarWidget);
@@ -702,6 +705,8 @@ namespace ks::misc
         filterLayout->setSpacing(8);
 
         m_eventVerdictFilterCombo = new QComboBox(filterRow);
+        // 日志筛选条件保留完整输入底面，区别于下方只读事件摘要。
+        ks::ui::StylePrimaryCombo(m_eventVerdictFilterCombo);
         m_eventVerdictFilterCombo->addItems({
             QStringLiteral("全部分类"),
             QStringLiteral("阻止"),
@@ -713,6 +718,7 @@ namespace ks::misc
         m_eventVerdictFilterCombo->setToolTip(QStringLiteral("按 Code Integrity 判定分类筛选事件。"));
 
         m_eventLimitCombo = new QComboBox(filterRow);
+        ks::ui::StylePrimaryCombo(m_eventLimitCombo);
         m_eventLimitCombo->addItems({
             QStringLiteral("最近 100 条"),
             QStringLiteral("最近 200 条"),

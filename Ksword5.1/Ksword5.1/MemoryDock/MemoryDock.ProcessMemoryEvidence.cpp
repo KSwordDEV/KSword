@@ -1,6 +1,7 @@
 #include "MemoryDock.Internal.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/StructuredFieldView.h"
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll：页内滚动壳。
 #include "../UI/TableInteractionSupport.h"
@@ -414,6 +415,8 @@ void MemoryDock::initializeProcessMemoryEvidenceTab()
 
     // 第二层扫描范围分组：四组带标签的输入按 2x2 网格排布，字段名不再是裸标签挤在动作行里。
     QGroupBox* scopeGroup = new QGroupBox(QStringLiteral("扫描范围"), m_tabProcessMemoryEvidence);
+    // 范围条件和证据表分区，避免输入区与表格背景连成一片。
+    ks::ui::StylePrimaryGroup(scopeGroup);
     QGridLayout* scopeLayout = new QGridLayout(scopeGroup);
     scopeLayout->setContentsMargins(10, 8, 10, 8);
     scopeLayout->setHorizontalSpacing(8);

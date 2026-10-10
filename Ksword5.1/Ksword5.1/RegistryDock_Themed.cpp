@@ -4,6 +4,7 @@
 #include "RegistryDock/RegistryDocument.h"
 #include "UI/UI_All.h"
 #include "UI/ThemeBinding.h"
+#include "UI/PrimaryPageStyle.h"
 #include <QScrollArea>
 #include <QTabBar>
 #include <QCompleter>
@@ -86,24 +87,24 @@ namespace
             .replace(KswordTheme::TextSecondaryHex(), KswordTheme::TextSecondaryColorHex());
     }
 
-    // 统一输入框风格：路径栏、搜索栏复用同一套样式。
+    // 路径编辑保留轻边界与实底；搜索框另由专用主题绑定接管。
     QString blueInputStyle()
     {
         return QStringLiteral(
-            "QLineEdit{border:1px solid %2;border-radius:3px;background:transparent;/* %3 */color:%4;padding:2px 6px;}"
+            "QLineEdit{border:1px solid %2;border-radius:5px;background:%3;color:%4;padding:2px 8px;}"
             "QLineEdit:focus{border:1px solid %1;}")
             .arg(KswordTheme::PrimaryBlueHex)
             .arg(KswordTheme::BorderColorHex())
-            .arg(KswordTheme::SurfaceColorHex())
+            .arg(KswordTheme::ControlInputSurfaceColor().name(QColor::HexRgb))
             .arg(KswordTheme::TextPrimaryColorHex());
     }
 
     // 表头风格：提升信息密集列表的可读性。
     QString blueHeaderStyle()
     {
-        return QStringLiteral("QHeaderView::section{color:%1;background:transparent;/* %2 */border:0;border-bottom:1px solid %3;font-weight:500;padding:4px 8px;}")
+        return QStringLiteral("QHeaderView::section{color:%1;background:%2;border:0;border-bottom:1px solid %3;font-weight:500;padding:4px 8px;}")
             .arg(KswordTheme::TextPrimaryColorHex())
-            .arg(KswordTheme::SurfaceColorHex())
+            .arg(KswordTheme::SurfaceMutedColorHex())
             .arg(KswordTheme::BorderColorHex());
     }
 
@@ -521,6 +522,10 @@ void RegistryDock::initializeUi()
     m_toolBarLayout->addWidget(m_searchEdit, 0);
     m_toolBarLayout->addWidget(m_searchButton);
     m_toolBarLayout->addWidget(m_stopSearchButton);
+
+    // 路径导航与结果区之间保留轻分界，业务命令在工作台初始化时独立排列。
+    ks::ui::StylePrimaryToolbar(m_toolBarWidget);
+    m_toolBarLayout->setContentsMargins(6, 3, 6, 3);
 
     m_registryEditorLayout->addWidget(m_toolBarWidget, 0);
 

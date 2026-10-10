@@ -8,6 +8,9 @@
   "text_direction": "ltr",
   "fallback": "zh-CN",
   "translations": {
+    "welcome.system_info.group": "System information",
+    "welcome.community.group": "Project and community",
+    "scanner.edit.parameters": "Replacement parameters",
     "settings.theme.mode.system": "Follow system",
     "settings.theme.mode.light": "Light",
     "settings.theme.mode.dark": "Dark",
@@ -6648,6 +6651,8 @@
     "notification.copy.log_template": "%1\n%2\n%3\nFile: %4\nFunction: %5\nGUID: %6"
   },
   "source_translations": {
+    "项目与社区": "Project and community",
+    "替换参数": "Replacement parameters",
     "汇编代码": "Assembly code",
     "机器码预览": "Machine-code preview",
     "刷新与采样": "Refresh and sampling",

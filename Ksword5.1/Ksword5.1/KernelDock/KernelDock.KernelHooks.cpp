@@ -1,5 +1,6 @@
 #include "../UI/StructuredFieldView.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
@@ -124,9 +125,9 @@ namespace
     QString kernelHookHeaderStyle()
     {
         return QStringLiteral(
-            "QHeaderView::section{color:%1;background:transparent;/* %2 */border:1px solid %3;font-weight:600;}")
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::SurfaceHex())
+            "QHeaderView::section{color:%1;background:%2;border:0;border-bottom:1px solid %3;font-weight:500;padding:4px 8px;}")
+            .arg(KswordTheme::TextPrimaryHex())
+            .arg(KswordTheme::SurfaceAltHex())
             .arg(KswordTheme::BorderHex());
     }
 
@@ -1747,6 +1748,8 @@ void KernelDock::initializeInlineHookTab()
     ks::ui::StyleSearchField(m_inlineHookFilterEdit);
 
     m_inlineHookIncludeCombo = new QComboBox(m_inlineHookPage);
+    // 返回范围选择与相邻模块筛选保持一致的输入层次。
+    ks::ui::StylePrimaryCombo(m_inlineHookIncludeCombo);
     m_inlineHookIncludeCombo->addItem(kernelText("kernel.hooks.inline.combo.suspicious_only", QStringLiteral("仅可疑外跳")), QVariant::fromValue<qulonglong>(0ULL));
     m_inlineHookIncludeCombo->addItem(kernelText("kernel.hooks.inline.combo.suspicious_internal", QStringLiteral("可疑 + 模块内跳转")), QVariant::fromValue<qulonglong>(KSWORD_ARK_KERNEL_SCAN_FLAG_INCLUDE_INTERNAL));
     m_inlineHookIncludeCombo->addItem(kernelText("kernel.hooks.inline.combo.include_clean", QStringLiteral("包含干净项")), QVariant::fromValue<qulonglong>(KSWORD_ARK_KERNEL_SCAN_FLAG_INCLUDE_INTERNAL | KSWORD_ARK_KERNEL_SCAN_FLAG_INCLUDE_CLEAN));
@@ -1844,6 +1847,7 @@ void KernelDock::initializeIatEatHookTab()
     ks::ui::StyleSearchField(m_iatEatHookFilterEdit);
 
     m_iatEatHookIncludeCombo = new QComboBox(m_iatEatHookPage);
+    ks::ui::StylePrimaryCombo(m_iatEatHookIncludeCombo);
     m_iatEatHookIncludeCombo->addItem(kernelText("kernel.hooks.iat.combo.suspicious_both", QStringLiteral("IAT + EAT 可疑项")), QVariant::fromValue<qulonglong>(KSWORD_ARK_KERNEL_SCAN_FLAG_INCLUDE_IMPORTS | KSWORD_ARK_KERNEL_SCAN_FLAG_INCLUDE_EXPORTS));
     m_iatEatHookIncludeCombo->addItem(kernelText("kernel.hooks.iat.combo.suspicious_iat", QStringLiteral("仅 IAT 可疑项")), QVariant::fromValue<qulonglong>(KSWORD_ARK_KERNEL_SCAN_FLAG_INCLUDE_IMPORTS));
     m_iatEatHookIncludeCombo->addItem(kernelText("kernel.hooks.iat.combo.suspicious_eat", QStringLiteral("仅 EAT 可疑项")), QVariant::fromValue<qulonglong>(KSWORD_ARK_KERNEL_SCAN_FLAG_INCLUDE_EXPORTS));

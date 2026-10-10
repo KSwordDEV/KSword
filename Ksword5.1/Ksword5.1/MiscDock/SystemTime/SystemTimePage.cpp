@@ -1,4 +1,5 @@
 #include "SystemTimePage.h"
+#include "../../UI/PrimaryPageStyle.h"
 #include "../../UI/ToolbarMetrics.h"
 
 #include "../../ArkDriverClient/ArkDriverClient.h"
@@ -221,6 +222,8 @@ namespace ks::misc
             QStringLiteral("计时后端"),
             this);
         auto* backendLayout = new QVBoxLayout(backendGroup);
+        // 后端、实现模式和倍率保留原分区，标题使用中性层次而非整块强调。
+        ks::ui::StylePrimaryGroup(backendGroup);
         m_hypervBackendRadio = new QRadioButton(
             QStringLiteral("Hyper-V 共享 QPC（推荐）"),
             backendGroup);
@@ -263,6 +266,7 @@ namespace ks::misc
             QStringLiteral("实现模式"),
             this);
         auto* schemeLayout = new QVBoxLayout(schemeGroup);
+        ks::ui::StylePrimaryGroup(schemeGroup);
         m_compatRadio = new QRadioButton(
             QStringLiteral("兼容模式（默认）"),
             schemeGroup);
@@ -306,6 +310,7 @@ namespace ks::misc
             QStringLiteral("计时倍率"),
             this);
         auto* controlLayout = new QVBoxLayout(controlGroup);
+        ks::ui::StylePrimaryGroup(controlGroup);
         auto* modeLayout = new QHBoxLayout();
         m_speedUpRadio = new QRadioButton(
             QStringLiteral("加速 N 倍"),
@@ -384,6 +389,7 @@ namespace ks::misc
             QStringLiteral("当前状态"),
             this);
         auto* statusLayout = new QVBoxLayout(statusGroup);
+        ks::ui::StylePrimaryGroup(statusGroup);
         m_calibratedTimeLabel = new QLabel(
             QStringLiteral("校准后时间：等待倍率状态"),
             statusGroup);

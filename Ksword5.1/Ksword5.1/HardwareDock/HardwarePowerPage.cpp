@@ -1,6 +1,7 @@
 #include "HardwarePowerPage.h"
 #include <QList>
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/PrimaryPageStyle.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../Internationalization/LanguageManager.h"
@@ -377,9 +378,11 @@ void HardwarePowerPage::initializeUi()
     auto* contentWidget = new QWidget(scrollArea);
     auto* contentLayout = new QVBoxLayout(contentWidget);
     contentLayout->setContentsMargins(0, 0, 0, 0);
-    contentLayout->setSpacing(8);
+    // 方案、能力和各组调节参数之间需要留白，参数行本身不增高。
+    contentLayout->setSpacing(16);
 
     auto* schemeGroup = new QGroupBox(QStringLiteral("Windows 电源方案"), contentWidget);
+    ks::ui::StylePrimaryGroup(schemeGroup);
     language.bindText(
         schemeGroup,
         QStringLiteral("hardware.power.scheme.group"),
@@ -391,6 +394,7 @@ void HardwarePowerPage::initializeUi()
         QStringLiteral("hardware.power.scheme.label"),
         QStringLiteral("当前/目标方案"));
     m_powerSchemeCombo = new QComboBox(schemeGroup);
+    ks::ui::StylePrimaryCombo(m_powerSchemeCombo);
     m_applyPowerSchemeButton = new QPushButton(QStringLiteral("应用电源方案"), schemeGroup);
     language.bindText(
         m_applyPowerSchemeButton,
@@ -419,6 +423,7 @@ void HardwarePowerPage::initializeUi()
     contentLayout->addWidget(schemeGroup, 0);
 
     auto* snapshotGroup = new QGroupBox(QStringLiteral("CPU 能力与当前状态"), contentWidget);
+    ks::ui::StylePrimaryGroup(snapshotGroup);
     language.bindText(
         snapshotGroup,
         QStringLiteral("hardware.power.snapshot.group"),
@@ -442,6 +447,7 @@ void HardwarePowerPage::initializeUi()
     contentLayout->addWidget(snapshotGroup, 1);
 
     auto* raplGroup = new QGroupBox(QStringLiteral("RAPL 功耗墙（PL1 / PL2）"), contentWidget);
+    ks::ui::StylePrimaryGroup(raplGroup);
     language.bindText(
         raplGroup,
         QStringLiteral("hardware.power.rapl.group"),
@@ -490,6 +496,7 @@ void HardwarePowerPage::initializeUi()
     contentLayout->addWidget(raplGroup, 0);
 
     auto* turboGroup = new QGroupBox(QStringLiteral("Turbo 与超频倍率"), contentWidget);
+    ks::ui::StylePrimaryGroup(turboGroup);
     language.bindText(turboGroup, QStringLiteral("hardware.power.turbo.group"), QStringLiteral("Turbo 与超频倍率"));
     auto* turboLayout = new QGridLayout(turboGroup);
     m_turboEnableCheck = new QCheckBox(QStringLiteral("启用 Intel Turbo Boost"), turboGroup);
@@ -537,6 +544,7 @@ void HardwarePowerPage::initializeUi()
     contentLayout->addWidget(turboGroup, 0);
 
     auto* hwpGroup = new QGroupBox(QStringLiteral("Intel Speed Shift / HWP"), contentWidget);
+    ks::ui::StylePrimaryGroup(hwpGroup);
     language.bindText(hwpGroup, QStringLiteral("hardware.power.hwp.group"), QStringLiteral("Intel Speed Shift / HWP"));
     auto* hwpLayout = new QGridLayout(hwpGroup);
     auto* hwpMinimumLabel = new QLabel(QStringLiteral("最小性能"), hwpGroup);

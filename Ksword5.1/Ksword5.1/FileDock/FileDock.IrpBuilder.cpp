@@ -1,5 +1,6 @@
 #include "FileDock.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/FlatButtonTheme.h"
 
 // ============================================================
@@ -408,6 +409,8 @@ void FileDock::initializeIrpBuilderPage()
     QGroupBox* targetGroup = new QGroupBox(
         QStringLiteral("目标与请求"),
         m_irpBuilderPage);
+    // 请求目标、参数和标志是三个独立输入区，保留轻边界而不增加额外包层。
+    ks::ui::StylePrimaryGroup(targetGroup);
     QGridLayout* targetLayout = new QGridLayout(targetGroup);
     targetLayout->setContentsMargins(8, 8, 8, 8);
     targetLayout->setHorizontalSpacing(8);
@@ -422,6 +425,7 @@ void FileDock::initializeIrpBuilderPage()
 
     m_irpOperationPresetCombo = new QComboBox(targetGroup);
     m_irpOperationPresetCombo->setStyleSheet(inputStyle);
+    ks::ui::StylePrimaryCombo(m_irpOperationPresetCombo);
     m_irpOperationPresetCombo->addItem(QStringLiteral("自定义（手工参数）"), IrpPresetCustom);
     m_irpOperationPresetCombo->addItem(QStringLiteral("查询文件全部信息"), IrpPresetQueryAllInformation);
     m_irpOperationPresetCombo->addItem(QStringLiteral("读取文件"), IrpPresetRead);
@@ -447,6 +451,7 @@ void FileDock::initializeIrpBuilderPage()
 
     m_irpMajorCombo = new QComboBox(targetGroup);
     m_irpMajorCombo->setStyleSheet(inputStyle);
+    ks::ui::StylePrimaryCombo(m_irpMajorCombo);
     for (int majorIndex = 0;
          majorIndex < static_cast<int>(std::size(kIrpMajorNames));
          ++majorIndex)
@@ -464,6 +469,7 @@ void FileDock::initializeIrpBuilderPage()
 
     m_irpLayerCombo = new QComboBox(targetGroup);
     m_irpLayerCombo->setStyleSheet(inputStyle);
+    ks::ui::StylePrimaryCombo(m_irpLayerCombo);
     m_irpLayerCombo->addItem(
         QStringLiteral("设备栈顶（等价 Zw* 路径，作为对照基线）"),
         static_cast<unsigned int>(KSWORD_ARK_FILE_IRP_LAYER_RELATED));
@@ -516,6 +522,7 @@ void FileDock::initializeIrpBuilderPage()
     QGroupBox* parameterGroup = new QGroupBox(
         QStringLiteral("IO_STACK_LOCATION 参数"),
         m_irpBuilderPage);
+    ks::ui::StylePrimaryGroup(parameterGroup);
     QGridLayout* parameterLayout = new QGridLayout(parameterGroup);
     parameterLayout->setContentsMargins(8, 8, 8, 8);
     parameterLayout->setHorizontalSpacing(8);
@@ -605,6 +612,7 @@ void FileDock::initializeIrpBuilderPage()
     QGroupBox* optionGroup = new QGroupBox(
         QStringLiteral("标志与输入数据"),
         m_irpBuilderPage);
+    ks::ui::StylePrimaryGroup(optionGroup);
     QVBoxLayout* optionLayout = new QVBoxLayout(optionGroup);
     optionLayout->setContentsMargins(8, 8, 8, 8);
     optionLayout->setSpacing(6);

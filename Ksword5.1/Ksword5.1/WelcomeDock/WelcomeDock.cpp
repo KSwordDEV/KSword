@@ -1,6 +1,7 @@
 ﻿#include "WelcomeDock.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/PrimaryPageStyle.h"
 
 #include "../HardwareDock/HardwareDock.h"
 #include "../Internationalization/LanguageManager.h"
@@ -15,6 +16,7 @@
 #include <QFrame>
 #include <QGuiApplication>
 #include <QGridLayout>
+#include <QGroupBox>
 #include <QLabel>
 #include <QPainter>
 #include <QPainterPath>
@@ -186,7 +188,7 @@ WelcomeDock::WelcomeDock(QWidget* parent)
     m_languageSettingsBtn = new QPushButton(this);
     m_languageSettingsBtn->setObjectName(QStringLiteral("welcomeLanguageSettingsButton"));
     m_languageSettingsBtn->setMinimumSize(0, 48);
-    m_languageSettingsBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_languageSettingsBtn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     m_languageSettingsBtn->setCursor(Qt::PointingHandCursor);
     initializeLanguageButtonStyle();
     ks::ui::NormalizeToolbarControl(m_languageSettingsBtn);
@@ -249,12 +251,12 @@ WelcomeDock::WelcomeDock(QWidget* parent)
     headerRightLayout->setContentsMargins(0, 0, 0, 0);
     headerRightLayout->setSpacing(8);
     headerRightLayout->addWidget(m_copyright, 1);
-    headerRightLayout->addWidget(m_languageSettingsBtn, 0);
+    headerRightLayout->addWidget(m_languageSettingsBtn, 0, Qt::AlignRight);
     m_mainLayout->addLayout(headerRightLayout, 1);
 
     QVBoxLayout* rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(16, 14, 16, 14);
-    rootLayout->setSpacing(12);
+    rootLayout->setSpacing(16);
     rootLayout->addLayout(m_mainLayout, 0);
 
     initializePerformanceCards();
@@ -279,10 +281,21 @@ WelcomeDock::WelcomeDock(QWidget* parent)
     m_systemInfoLayout->setColumnMinimumWidth(0, 144);
     m_systemInfoLayout->setColumnStretch(0, 0);
     m_systemInfoLayout->setColumnStretch(1, 1);
-    lowerLayout->addWidget(m_systemInfoPanel, 1);
+    // 系统摘要与社区入口分成两个现有内容区，行密度及动态字段回填保持不变。
+    auto* systemGroup = new QGroupBox(this);
+    ks::i18n::LanguageManager::instance().bindText(systemGroup,
+        QStringLiteral("welcome.system_info.group"), QStringLiteral("系统信息"));
+    auto* systemLayout = new QVBoxLayout(systemGroup);
+    systemLayout->setContentsMargins(10, 10, 10, 8);
+    systemLayout->addWidget(m_systemInfoPanel, 1);
+    ks::ui::StylePrimaryGroup(systemGroup);
+    lowerLayout->addWidget(systemGroup, 1);
 
-    QVBoxLayout* rightLayout = new QVBoxLayout();
-    rightLayout->setContentsMargins(0, 0, 0, 0);
+    auto* communityGroup = new QGroupBox(this);
+    ks::i18n::LanguageManager::instance().bindText(communityGroup,
+        QStringLiteral("welcome.community.group"), QStringLiteral("项目与社区"));
+    QVBoxLayout* rightLayout = new QVBoxLayout(communityGroup);
+    rightLayout->setContentsMargins(10, 10, 10, 8);
     rightLayout->setSpacing(8);
     rightLayout->addLayout(m_btnLayout);
     rightLayout->addLayout(m_referenceLayout);
@@ -291,7 +304,8 @@ WelcomeDock::WelcomeDock(QWidget* parent)
     rightLayout->addWidget(m_contributorsScroll, 1);
     rightLayout->addWidget(m_donorsCollapse);
     rightLayout->addWidget(m_donorsScroll, 1);
-    lowerLayout->addLayout(rightLayout, 1);
+    ks::ui::StylePrimaryGroup(communityGroup);
+    lowerLayout->addWidget(communityGroup, 1);
     rootLayout->addLayout(lowerLayout, 1);
 
     connect(m_languageSettingsBtn, &QPushButton::clicked, this, &WelcomeDock::languageSettingsRequested);
@@ -406,7 +420,7 @@ void WelcomeDock::initializeContributorCollapse()
         detailLayout->setContentsMargins(0, 0, 0, 0);
         detailLayout->setSpacing(2);
         QLabel* nameLabel = new QLabel(entry.displayName, row);
-        nameLabel->setStyleSheet(QStringLiteral("font-size:15px;font-weight:600;"));
+        nameLabel->setStyleSheet(QStringLiteral("font-weight:600;"));
         detailLayout->addWidget(nameLabel);
         if (!entry.description.isEmpty())
         {
@@ -667,8 +681,9 @@ void WelcomeDock::initializeLanguageButtonStyle()
     {
         return;
     }
-    // 语言入口以主题色标识主操作，几何与其余页面动作一致。
-    m_languageSettingsBtn->setStyleSheet(ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Accent)
+    // 语言入口作为辅助操作保留清晰底面，不抢占性能与系统摘要的视觉重点。
+    m_languageSettingsBtn->setStyleSheet(ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral,
+        ks::ui::FlatButtonAppearance::Solid)
         + QStringLiteral("QPushButton{font-weight:600;}"));
     ks::ui::NormalizeToolbarControl(m_languageSettingsBtn);
 }

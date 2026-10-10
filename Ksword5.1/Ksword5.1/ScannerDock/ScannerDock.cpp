@@ -20,6 +20,9 @@
 #include <QFormLayout>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QGroupBox>
+#include "../UI/PrimaryPageStyle.h"
+#include "../UI/FlatButtonTheme.h"
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -167,7 +170,9 @@ void ScannerDock::buildUi()
     rootLayout->setSpacing(8);
 
     // pathLayout：把路径输入、文件选择和扫描动作排在同一行。
-    auto* pathLayout = new QHBoxLayout();
+    auto* pathToolbar = new QWidget(this); // 文件目标和扫描动作作为一个紧凑操作区。
+    auto* pathLayout = new QHBoxLayout(pathToolbar);
+    pathLayout->setContentsMargins(6, 4, 6, 6);
     pathLayout->setSpacing(6);
     m_pathLabel = new QLabel(this);
     m_pathEdit = new QLineEdit(this);
@@ -182,7 +187,11 @@ void ScannerDock::buildUi()
     pathLayout->addWidget(m_browseButton);
     pathLayout->addWidget(m_scanButton);
     ks::ui::NormalizeToolbarRow(pathLayout);
-    rootLayout->addLayout(pathLayout);
+    ks::ui::StylePrimaryToolbar(pathToolbar);
+    ks::ui::ApplyFlatButtonTheme(m_browseButton, ks::ui::FlatButtonTone::Neutral,
+        ks::ui::FlatButtonAppearance::Solid);
+    ks::ui::ApplyFlatButtonTheme(m_scanButton, ks::ui::FlatButtonTone::Accent);
+    rootLayout->addWidget(pathToolbar);
 
     // m_statusLabel：允许复制诊断状态，长路径会自动换行。
     m_statusLabel = new QLabel(this);
@@ -214,7 +223,13 @@ void ScannerDock::buildUi()
     editorLayout->setSpacing(10);
 
     // editForm：只收集等长替换所需的偏移与新字节，不提供插入/删除入口。
-    auto* editForm = new QFormLayout();
+    auto* editGroup = new QGroupBox(m_editorPage); // 参数与确认动作分区，但继续在同页完整显示。
+    ks::i18n::LanguageManager::instance().bindText(editGroup,
+        QStringLiteral("scanner.edit.parameters"), QStringLiteral("替换参数"));
+    auto* editForm = new QFormLayout(editGroup);
+    editForm->setHorizontalSpacing(16);
+    editForm->setVerticalSpacing(8);
+    editForm->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     editForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     m_offsetLabel = new QLabel(m_editorPage);
     m_offsetEdit = new QLineEdit(m_editorPage);
@@ -224,7 +239,10 @@ void ScannerDock::buildUi()
     m_replacementEdit->setPlaceholderText(QStringLiteral("90 90 90 90"));
     editForm->addRow(m_offsetLabel, m_offsetEdit);
     editForm->addRow(m_replacementLabel, m_replacementEdit);
-    editorLayout->addLayout(editForm);
+    ks::ui::NormalizeToolbarControl(m_offsetEdit);
+    ks::ui::NormalizeToolbarControl(m_replacementEdit);
+    ks::ui::StylePrimaryGroup(editGroup);
+    editorLayout->addWidget(editGroup);
 
     m_backupCheckBox = new QCheckBox(m_editorPage);
     m_backupCheckBox->setChecked(true);
@@ -240,6 +258,7 @@ void ScannerDock::buildUi()
     m_applyPatchButton->setIcon(style()->standardIcon(QStyle::SP_DialogApplyButton));
     applyLayout->addWidget(m_applyPatchButton);
     ks::ui::NormalizeToolbarRow(applyLayout);
+    ks::ui::ApplyFlatButtonTheme(m_applyPatchButton, ks::ui::FlatButtonTone::Danger);
     editorLayout->addLayout(applyLayout);
     editorLayout->addStretch(1);
     m_mainTabs->addTab(m_editorPage, QString());

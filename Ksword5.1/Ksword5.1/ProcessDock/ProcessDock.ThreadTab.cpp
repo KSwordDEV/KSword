@@ -3,6 +3,7 @@
 #include "../UI/ThemeBinding.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "ThreadAffinityMenu.h"
 #include "ThreadStackWindow.h"
 
@@ -515,8 +516,11 @@ void ProcessDock::initializeThreadPage()
     m_threadPageLayout->setSpacing(6);
 
     // 顶部操作栏控件：全部采用图标按钮 + Tooltip。
-    m_threadTopLayout = new QHBoxLayout();
-    m_threadTopLayout->setContentsMargins(0, 0, 0, 0);
+    // 筛选与列视图共用紧凑工具底面，和下面的线程结果清楚分区。
+    QWidget* const threadToolbar = new QWidget(m_threadPage);
+    ks::ui::StylePrimaryToolbar(threadToolbar);
+    m_threadTopLayout = new QHBoxLayout(threadToolbar);
+    m_threadTopLayout->setContentsMargins(8, 4, 8, 4);
     m_threadTopLayout->setSpacing(8);
 
     m_threadRefreshButton = new QPushButton(QIcon(IconThreadRefresh), "", m_threadPage);
@@ -560,11 +564,8 @@ void ProcessDock::initializeThreadPage()
         QStringLiteral("process.thread.scope.tooltip"),
         QStringLiteral("按线程类别筛选；工作线程由 R0 DynData v4 的 _ETHREAD.ActiveExWorker 位识别"));
     m_threadScopeCombo->setMinimumWidth(112);
-    // 此页继承 Dock 的透明内容样式，组合框需在自身绑定完整状态底面和文字。
-    ks::ui::BindWidgetTheme(m_threadScopeCombo, [this]()
-    {
-        m_threadScopeCombo->setStyleSheet(KswordTheme::ThemedComboBoxStyle());
-    });
+    // 范围选择明确登记完整底面，保留原筛选项与索引。
+    ks::ui::StylePrimaryCombo(m_threadScopeCombo);
 
     m_threadSearchLineEdit = new QLineEdit(m_threadPage);
     // 线程结果树不经过通用表格搜索注册，保留原提示并明确接入搜索底面。
@@ -584,7 +585,7 @@ void ProcessDock::initializeThreadPage()
     ks::ui::NormalizeToolbarControl(m_threadColumnPresetAButton);
     ks::ui::NormalizeToolbarControl(m_threadColumnPresetBButton);
     ks::ui::NormalizeToolbarRow(m_threadTopLayout);
-    m_threadPageLayout->addLayout(m_threadTopLayout);
+    m_threadPageLayout->addWidget(threadToolbar);
 
     // 线程表格初始化：使用 QTreeWidget 以支持首列图标与多列排序。
     m_threadTable = new QTreeWidget(m_threadPage);

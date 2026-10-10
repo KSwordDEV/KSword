@@ -4,6 +4,8 @@
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ThemeBinding.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../Internationalization/LanguageManager.h"
 
@@ -260,6 +262,14 @@ void StartupDock::initializeToolbar()
     // 所有按钮与搜索、筛选控件共用等高和 8px 间距。
     m_toolbarLayout->setSpacing(8);
     ks::ui::NormalizeToolbarRow(m_toolbarLayout);
+    // 只给已有操作带增加分界，保持分类表格的可用空间和风险行语义。
+    ks::ui::StylePrimaryToolbar(m_toolbarWidget);
+    m_toolbarLayout->setContentsMargins(6, 3, 6, 3);
+    for (QPushButton* button : {m_refreshButton, m_exportButton, m_copyButton})
+    {
+        ks::ui::ApplyFlatButtonTheme(button, ks::ui::FlatButtonTone::Neutral,
+            ks::ui::FlatButtonAppearance::Solid);
+    }
 }
 
 void StartupDock::initializeTabs()

@@ -6,6 +6,7 @@
 #include "../ksword/scanner/binary_layout.h"
 #include "../theme.h"
 #include <QComboBox>
+#include "../UI/PrimaryPageStyle.h"
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -48,6 +49,7 @@ void ScannerDock::buildAnalysisUi()
     sectionRow->setSpacing(5);
     m_analysisSectionLabel = new QLabel(m_analysisPage);
     m_analysisSectionCombo = new QComboBox(m_analysisPage);
+    ks::ui::StylePrimaryCombo(m_analysisSectionCombo);
     m_analysisSectionCombo->setObjectName(QStringLiteral("scanner_analysis_sections"));
     m_analysisSectionCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     m_analysisSectionCombo->setMinimumContentsLength(8);
@@ -78,6 +80,7 @@ void ScannerDock::buildAnalysisUi()
     auto* addressRow = new QHBoxLayout();
     addressRow->setSpacing(5);
     m_analysisAddressKind = new QComboBox(m_analysisPage);
+    ks::ui::StylePrimaryCombo(m_analysisAddressKind);
     m_analysisAddressKind->setObjectName(QStringLiteral("scanner_analysis_address_kind"));
     m_analysisAddressKind->addItems({QString(), QStringLiteral("RVA"), QStringLiteral("VA")});
     m_analysisAddressEdit = new QLineEdit(m_analysisPage);

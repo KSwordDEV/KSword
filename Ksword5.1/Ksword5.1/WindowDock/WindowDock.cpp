@@ -7,6 +7,7 @@
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -3031,7 +3032,7 @@ void WindowDock::initializeUi()
 
     m_toolBarWidget = new QWidget(this);
     m_toolBarLayout = new QVBoxLayout(m_toolBarWidget);
-    m_toolBarLayout->setContentsMargins(0, 0, 0, 0);
+    m_toolBarLayout->setContentsMargins(6, 3, 6, 3);
     m_toolBarLayout->setSpacing(4);
 
     QHBoxLayout* headerLayout = new QHBoxLayout();
@@ -3039,9 +3040,8 @@ void WindowDock::initializeUi()
     headerLayout->setSpacing(8);
 
     QLabel* titleLabel = new QLabel(QStringLiteral("窗口"), m_toolBarWidget);
-    titleLabel->setStyleSheet(
-        QStringLiteral("font-size:18px;font-weight:700;color:%1;")
-        .arg(KswordTheme::TextPrimaryHex()));
+    // 页面已有主导航标题，内层标题保持紧凑，避免重复的大号标题争夺注意力。
+    ks::ui::StylePrimarySectionTitle(titleLabel);
     headerLayout->addWidget(titleLabel, 0);
 
     m_statusLabel = new QLabel(QStringLiteral("正在准备窗口审计快照..."), m_toolBarWidget);
@@ -3059,6 +3059,7 @@ void WindowDock::initializeUi()
     ks::ui::NormalizeToolbarControl(m_refreshButton);
 
     m_toolBarLayout->addLayout(headerLayout);
+    ks::ui::StylePrimaryToolbar(m_toolBarWidget);
     m_rootLayout->addWidget(m_toolBarWidget, 0);
 
     m_tabWidget = new QTabWidget(this);
@@ -3104,9 +3105,7 @@ void WindowDock::initializeUi()
         groupLayout->setSpacing(3);
 
         QLabel* groupTitle = new QLabel(title, group);
-        groupTitle->setStyleSheet(
-            QStringLiteral("font-size:13px;font-weight:600;color:%1;")
-            .arg(KswordTheme::TextSecondaryHex()));
+        ks::ui::StylePrimarySectionTitle(groupTitle);
         groupLayout->addWidget(groupTitle, 0);
 
         QHBoxLayout* presetLayout = new QHBoxLayout();
@@ -3155,9 +3154,7 @@ void WindowDock::initializeUi()
     const auto makePageHeader = [this](QWidget* pageWidget, QVBoxLayout* pageLayout, const QString& titleText)
     {
         QLabel* pageTitleLabel = new QLabel(titleText, pageWidget);
-        pageTitleLabel->setStyleSheet(
-            QStringLiteral("font-size:18px;font-weight:700;color:%1;")
-            .arg(KswordTheme::TextPrimaryHex()));
+        ks::ui::StylePrimarySectionTitle(pageTitleLabel);
         pageLayout->addWidget(pageTitleLabel, 0);
     };
 

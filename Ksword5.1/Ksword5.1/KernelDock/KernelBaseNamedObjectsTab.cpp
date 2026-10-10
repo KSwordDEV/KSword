@@ -1,5 +1,6 @@
 #include "KernelBaseNamedObjectsTab.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
@@ -199,12 +200,13 @@ void KernelBaseNamedObjectsTab::initializeUi()
 
     m_sessionFilterCombo = new QComboBox(this);
     m_sessionFilterCombo->setToolTip(kernelText("kernel.base_named_objects.toolbar.session_filter.tooltip", QStringLiteral("按 Global / Session 过滤")));
-    m_sessionFilterCombo->setStyleSheet(inputStyle());
+    // 会话和类型是本页的主筛选器，使用与搜索字段一致的可见输入底面。
+    ks::ui::StylePrimaryCombo(m_sessionFilterCombo);
     toolbarLayout->addWidget(m_sessionFilterCombo, 0);
 
     m_typeFilterCombo = new QComboBox(this);
     m_typeFilterCombo->setToolTip(kernelText("kernel.base_named_objects.toolbar.type_filter.tooltip", QStringLiteral("按对象类型过滤")));
-    m_typeFilterCombo->setStyleSheet(inputStyle());
+    ks::ui::StylePrimaryCombo(m_typeFilterCombo);
     toolbarLayout->addWidget(m_typeFilterCombo, 0);
 
     m_keywordFilterEdit = new QLineEdit(this);

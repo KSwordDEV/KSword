@@ -3,6 +3,7 @@
 #include "../UI/ThemeBinding.h"
 #include "OtherDock.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../Framework/DestructiveActionConfirmation.h"
@@ -3213,6 +3214,7 @@ void OtherDock::initializeUi()
         });
     m_filterModeCombo->setToolTip(QStringLiteral("选择窗口过滤条件"));
     m_filterModeCombo->setStyleSheet(blueInputStyle());
+    ks::ui::StylePrimaryCombo(m_filterModeCombo);
 
     m_enumModeCombo = new QComboBox(m_toolBarWidget);
     m_enumModeCombo->addItems({
@@ -3224,6 +3226,7 @@ void OtherDock::initializeUi()
         });
     m_enumModeCombo->setToolTip(QStringLiteral("选择窗口枚举策略（用于减少漏项）"));
     m_enumModeCombo->setStyleSheet(blueInputStyle());
+    ks::ui::StylePrimaryCombo(m_enumModeCombo);
 
     m_groupModeCombo = new QComboBox(m_toolBarWidget);
     m_groupModeCombo->addItems({
@@ -3234,6 +3237,7 @@ void OtherDock::initializeUi()
         });
     m_groupModeCombo->setToolTip(QStringLiteral("选择窗口分组方式"));
     m_groupModeCombo->setStyleSheet(blueInputStyle());
+    ks::ui::StylePrimaryCombo(m_groupModeCombo);
 
     m_viewModeCombo = new QComboBox(m_toolBarWidget);
     m_viewModeCombo->addItems({
@@ -3243,6 +3247,7 @@ void OtherDock::initializeUi()
         });
     m_viewModeCombo->setToolTip(QStringLiteral("切换列表显示样式"));
     m_viewModeCombo->setStyleSheet(blueInputStyle());
+    ks::ui::StylePrimaryCombo(m_viewModeCombo);
 
     m_exportButton = new QPushButton(QIcon(":/Icon/log_export.svg"), QString(), m_toolBarWidget);
     m_exportButton->setToolTip(QStringLiteral("导出当前列表为 TSV"));
@@ -3260,6 +3265,13 @@ void OtherDock::initializeUi()
     m_toolBarLayout->addWidget(m_viewModeCombo, 0);
     m_toolBarLayout->addWidget(m_exportButton, 0);
     ks::ui::NormalizeToolbarRow(m_toolBarLayout);
+    // 枚举与过滤控制保持单行，轻底面标识结果之上的控制层。
+    ks::ui::StylePrimaryToolbar(m_toolBarWidget);
+    m_toolBarLayout->setContentsMargins(6, 3, 6, 3);
+    ks::ui::ApplyFlatButtonTheme(m_refreshButton, ks::ui::FlatButtonTone::Neutral,
+        ks::ui::FlatButtonAppearance::Solid);
+    ks::ui::ApplyFlatButtonTheme(m_exportButton, ks::ui::FlatButtonTone::Neutral,
+        ks::ui::FlatButtonAppearance::Solid);
 
     // 中部主内容：Tab1=窗口列表，Tab2=桌面管理（SwitchDesktop）。
     m_contentTabWidget = new QTabWidget(this);

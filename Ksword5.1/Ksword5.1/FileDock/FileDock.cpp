@@ -5,6 +5,7 @@
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/UI_All.h"
 #include "FilePropertyPeAnalyzer.h"
@@ -13090,7 +13091,8 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
 
     // 标题栏：区分左右面板。
     QLabel* titleLabel = new QLabel(titleText, panel.rootWidget);
-    titleLabel->setStyleSheet(QStringLiteral("color:%1;font-weight:700;").arg(KswordTheme::PrimaryBlueHex));
+    // 左右面板标题用次级文字定位，强调色留给当前操作与选中项。
+    ks::ui::StylePrimarySectionTitle(titleLabel);
     panel.rootLayout->addWidget(titleLabel, 0);
 
     panel.navWidget = new QWidget(panel.rootWidget);
@@ -13145,6 +13147,7 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
     // - 解决默认路径体验更偏向当前系统盘的问题。
     panel.driveCombo = new QComboBox(panel.navWidget);
     panel.driveCombo->setStyleSheet(buildBlueInputStyle());
+    ks::ui::StylePrimaryCombo(panel.driveCombo);
     panel.driveCombo->setMinimumWidth(92);
     panel.driveCombo->setMaximumWidth(140);
     panel.driveCombo->setToolTip(QStringLiteral("快速跳转到任意驱动器根目录"));
@@ -13171,6 +13174,7 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
 
     panel.viewModeCombo = new QComboBox(panel.toolWidget);
     panel.viewModeCombo->setStyleSheet(buildBlueInputStyle());
+    ks::ui::StylePrimaryCombo(panel.viewModeCombo);
     panel.viewModeCombo->addItems(QStringList{ QStringLiteral("图标视图"), QStringLiteral("列表视图"), QStringLiteral("详情视图"), QStringLiteral("树形视图") });
     panel.viewModeCombo->setToolTip(QStringLiteral("切换文件显示模式，默认使用详情视图"));
     panel.viewModeCombo->setCurrentIndex(2);
@@ -13182,10 +13186,12 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
 
     panel.sortModeCombo = new QComboBox(panel.toolWidget);
     panel.sortModeCombo->setStyleSheet(buildBlueInputStyle());
+    ks::ui::StylePrimaryCombo(panel.sortModeCombo);
     panel.sortModeCombo->addItems(QStringList{ QStringLiteral("名称"), QStringLiteral("大小"), QStringLiteral("修改时间"), QStringLiteral("类型") });
 
     panel.readModeCombo = new QComboBox(panel.toolWidget);
     panel.readModeCombo->setStyleSheet(buildBlueInputStyle());
+    ks::ui::StylePrimaryCombo(panel.readModeCombo);
     panel.readModeCombo->addItems(QStringList{
         QStringLiteral("Windows API"),
         QStringLiteral("手动解析文件系统"),
@@ -13218,6 +13224,9 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
     panel.toolLayout->addWidget(panel.readModeCombo, 0);
     panel.toolLayout->addWidget(panel.filterEdit, 1);
     ks::ui::NormalizeToolbarRow(panel.toolLayout);
+    // 筛选行与文件结果使用不同层次，保持两行工具和原有列表高度。
+    ks::ui::StylePrimaryToolbar(panel.toolWidget);
+    panel.toolLayout->setContentsMargins(6, 3, 6, 3);
     panel.rootLayout->addWidget(panel.toolWidget, 0);
 
     panel.fsModel = new ReparseAwareFileSystemModel(panel.rootWidget);
@@ -13281,7 +13290,8 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
     panel.fileView->setDragDropOverwriteMode(false);
     panel.fileView->header()->setStretchLastSection(false);
     panel.fileView->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    panel.fileView->header()->setStyleSheet(QStringLiteral("QHeaderView::section{color:%1;}").arg(KswordTheme::PrimaryBlueHex));
+    // 文件列名回到统一表头角色，不再和选中项争用高饱和强调色。
+    panel.fileView->header()->setStyleSheet(QString());
     // 两种控件共享同一个选择模型，切换视图后多选、当前项和右键动作保持一致。
     QItemSelectionModel* compactSelectionModel = panel.compactFileView->selectionModel();
     panel.compactFileView->setSelectionModel(panel.fileView->selectionModel());
@@ -15193,6 +15203,7 @@ void FileDock::initializeRecoveryPage()
 
     m_recoveryVolumeCombo = new QComboBox(toolWidget);
     m_recoveryVolumeCombo->setStyleSheet(buildBlueInputStyle());
+    ks::ui::StylePrimaryCombo(m_recoveryVolumeCombo);
     m_recoveryVolumeCombo->setToolTip(QStringLiteral("选择要扫描误删文件的 NTFS 卷。"));
 
     m_recoveryRefreshButton = new QPushButton(QIcon(":/Icon/process_refresh.svg"), QString(), toolWidget);

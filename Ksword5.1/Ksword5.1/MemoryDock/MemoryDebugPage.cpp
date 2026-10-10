@@ -3,6 +3,8 @@
 #include "MemoryDock.WorkbenchServices.h"
 #include "../UI/AsyncUiDispatcher.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/PrimaryPageStyle.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QComboBox>
@@ -58,6 +60,12 @@ namespace ks::ui
         layout_->addWidget(explanation);
 
         // 候选选择独立于旧 Dock，输入内容只能匹配当前快照，不能凭 PID 猜测目标身份。
+        // 进程与模块属于同一个目标区，底面只由外层绘制，避免两条输入行散落在工作台上。
+        auto* targetToolbar = new QWidget(this); // 目标控制区由页面持有。
+        ks::ui::StylePrimaryToolbar(targetToolbar);
+        auto* targetLayout = new QVBoxLayout(targetToolbar); // 目标选择保持原来的两行密度。
+        targetLayout->setContentsMargins(8, 4, 8, 4);
+        targetLayout->setSpacing(8);
         auto* targetRow = new QHBoxLayout(); // 简短目标工具行，可筛选名称或 PID。
         processCombo_ = new QComboBox(this);
         processCombo_->setObjectName(QStringLiteral("memory_debug_process"));
@@ -69,6 +77,7 @@ namespace ks::ui
         processCombo_->completer()->setCaseSensitivity(Qt::CaseInsensitive);
         processCombo_->completer()->setCompletionMode(QCompleter::PopupCompletion);
         processCombo_->lineEdit()->setPlaceholderText(Text("搜索进程名或 PID"));
+        ks::ui::StylePrimaryCombo(processCombo_);
         targetRow->addWidget(processCombo_, 1);
         refreshButton_ = IconButton(this, QStringLiteral(":/Icon/process_refresh.svg"),
             QStringLiteral("刷新进程候选"));
@@ -81,7 +90,10 @@ namespace ks::ui
         targetRow->addWidget(selectButton_);
         targetRow->addWidget(closeButton_);
         ks::ui::NormalizeToolbarRow(targetRow);
-        layout_->addLayout(targetRow);
+        targetLayout->addLayout(targetRow);
+        ks::ui::ApplyFlatButtonTheme(refreshButton_, ks::ui::FlatButtonTone::Neutral);
+        ks::ui::ApplyFlatButtonTheme(selectButton_, ks::ui::FlatButtonTone::Accent);
+        ks::ui::ApplyFlatButtonTheme(closeButton_, ks::ui::FlatButtonTone::Neutral);
 
         // 模块下拉框使用目标层的异步身份快照；模块刷新不主动重定位用户当前地址。
         moduleCombo_ = new QComboBox(this);
@@ -89,7 +101,9 @@ namespace ks::ui
         moduleCombo_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         moduleCombo_->setEnabled(false);
         moduleCombo_->setToolTip(Text("选择模块并查看基址处的反汇编"));
-        layout_->addWidget(moduleCombo_);
+        ks::ui::StylePrimaryCombo(moduleCombo_);
+        targetLayout->addWidget(moduleCombo_);
+        layout_->addWidget(targetToolbar);
         status_ = new QLabel(Text("请选择进程以打开内存会话。"), this);
         status_->setWordWrap(true);
         status_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);

@@ -1,4 +1,5 @@
 #include "VirtualLocationPage.h"
+#include "../../UI/PrimaryPageStyle.h"
 #include "../../UI/ToolbarMetrics.h"
 
 #include "../../Internationalization/LanguageManager.h"
@@ -202,6 +203,8 @@ namespace ks::misc
 
         // ===================== 当前状态 =====================
         auto* statusGroup = new QGroupBox(this);
+        // 已生效位置与待输入参数使用独立的轻分组，减少连续表单的混淆。
+        ks::ui::StylePrimaryGroup(statusGroup);
         language.bindText(
             statusGroup,
             QStringLiteral("misc.virtual_location.status.title"),
@@ -280,6 +283,7 @@ namespace ks::misc
 
         // ===================== 虚拟坐标 =====================
         auto* inputGroup = new QGroupBox(this);
+        ks::ui::StylePrimaryGroup(inputGroup);
         language.bindText(
             inputGroup,
             QStringLiteral("misc.virtual_location.input.title"),
@@ -294,6 +298,7 @@ namespace ks::misc
             QStringLiteral("misc.virtual_location.input.system"),
             QStringLiteral("坐标系："));
         m_coordinateSystemCombo = new QComboBox(inputGroup);
+        ks::ui::StylePrimaryCombo(m_coordinateSystemCombo);
         m_coordinateSystemCombo->setObjectName(
             QStringLiteral("ksVirtualLocationSystemCombo"));
         m_coordinateSystemCombo->addItem(QStringLiteral("WGS-84（GPS / Windows 原始坐标）"));
@@ -313,6 +318,7 @@ namespace ks::misc
             QStringLiteral("misc.virtual_location.input.preset"),
             QStringLiteral("预设点："));
         m_presetCombo = new QComboBox(inputGroup);
+        ks::ui::StylePrimaryCombo(m_presetCombo);
         m_presetCombo->setObjectName(QStringLiteral("ksVirtualLocationPresetCombo"));
         m_presetCombo->addItem(QStringLiteral("（不使用预设点）"));
         int presetCount = 0;
@@ -406,6 +412,7 @@ namespace ks::misc
 
         // ===================== 操作 =====================
         auto* actionGroup = new QGroupBox(this);
+        ks::ui::StylePrimaryGroup(actionGroup);
         language.bindText(
             actionGroup,
             QStringLiteral("misc.virtual_location.action.title"),

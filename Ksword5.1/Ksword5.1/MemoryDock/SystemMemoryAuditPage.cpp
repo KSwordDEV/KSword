@@ -13,6 +13,8 @@
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/PrimaryPageStyle.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/PageControlStyle.h"
 #include "../ksword/log/log.h"
 #include "MemoryAccessBackend.h"
@@ -762,7 +764,11 @@ void SystemMemoryAuditPage::initializeUi()
     rootLayout->setContentsMargins(6, 6, 6, 6);
     rootLayout->setSpacing(6);
 
-    QHBoxLayout* const controls = new QHBoxLayout();
+    // 快照与深度扫描属于全页操作，以轻底面区分下面的摘要与分项数据。
+    QWidget* const snapshotToolbar = new QWidget(this);
+    ks::ui::StylePrimaryToolbar(snapshotToolbar);
+    QHBoxLayout* const controls = new QHBoxLayout(snapshotToolbar);
+    controls->setContentsMargins(8, 4, 8, 4);
     // 刷新按钮：整机内存快照的手动采集入口，沿用全局刷新图标别名。
     m_refreshButton = new QPushButton(
         QIcon(QStringLiteral(":/Icon/process_refresh.svg")), localized("Refresh snapshot"), this);
@@ -791,10 +797,15 @@ void SystemMemoryAuditPage::initializeUi()
     controls->addWidget(m_intervalSpin);
     controls->addWidget(m_filterEdit, 1);
     ks::ui::NormalizeToolbarRow(controls);
-    rootLayout->addLayout(controls);
+    ks::ui::ApplyFlatButtonTheme(m_refreshButton, ks::ui::FlatButtonTone::Accent);
+    ks::ui::ApplyFlatButtonTheme(m_userResidencyScanButton, ks::ui::FlatButtonTone::Neutral);
+    ks::ui::ApplyFlatButtonTheme(m_pfnScanButton, ks::ui::FlatButtonTone::Neutral);
+    rootLayout->addWidget(snapshotToolbar);
 
     QGridLayout* const summaryLayout = new QGridLayout();
-    summaryLayout->setSpacing(6);
+    // 数值卡片保持紧凑，只提高横向组间留白，便于比较同一行的指标。
+    summaryLayout->setHorizontalSpacing(10);
+    summaryLayout->setVerticalSpacing(6);
     m_installedLabel = new QLabel(this);
     m_totalLabel = new QLabel(this);
     m_inUseLabel = new QLabel(this);
@@ -855,6 +866,7 @@ void SystemMemoryAuditPage::initializeUi()
     overviewLayout->setContentsMargins(0, 0, 0, 0);
     auto* const overviewControls = new QHBoxLayout();
     m_overviewSource = new QComboBox(overviewPage);
+    ks::ui::StylePrimaryCombo(m_overviewSource);
     m_overviewSource->addItem(localized("Fast snapshot"));
     overviewControls->addWidget(m_overviewSource);
     m_overviewSample = new QLabel(overviewPage);

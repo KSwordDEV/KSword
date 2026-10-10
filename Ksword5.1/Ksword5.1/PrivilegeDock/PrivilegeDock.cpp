@@ -76,15 +76,15 @@ namespace
     }
 
     // blueInputStyle 作用：
-    // - 统一输入框边框与焦点高亮风格。
+    // - 账号表单使用可辨认的中性实底，边界只在焦点时强调。
     QString blueInputStyle()
     {
         return QStringLiteral(
-            "QLineEdit{border:1px solid %2;border-radius:3px;background:transparent;/* %3 */color:%4;padding:2px 6px;}"
+            "QLineEdit{border:1px solid %2;border-radius:5px;background:%3;color:%4;padding:2px 8px;}"
             "QLineEdit:focus{border:1px solid %1;}")
             .arg(KswordTheme::PrimaryBlueHex)
             .arg(KswordTheme::BorderHex())
-            .arg(KswordTheme::SurfaceHex())
+            .arg(KswordTheme::SurfaceAltHex())
             .arg(KswordTheme::TextPrimaryHex());
     }
 
@@ -92,9 +92,9 @@ namespace
     // - 统一账号表头样式，保证深浅色模式可读性。
     QString tableHeaderStyle()
     {
-        return QStringLiteral("QHeaderView::section{color:%1;background:transparent;/* %2 */border:1px solid %3;font-weight:600;}")
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::SurfaceHex())
+        return QStringLiteral("QHeaderView::section{color:%1;background:%2;border:0;border-bottom:1px solid %3;font-weight:500;padding:4px 8px;}")
+            .arg(KswordTheme::TextPrimaryHex())
+            .arg(KswordTheme::SurfaceAltHex())
             .arg(KswordTheme::BorderHex());
     }
 
@@ -363,6 +363,9 @@ void PrivilegeDock::initializeAccountTab()
 
     // 新建用户输入区：包含用户名、密码、确认密码。
     QFormLayout* createLayout = new QFormLayout();
+    // 组内保持紧凑，两个不同账号动作之间额外留白，避免误读为连续步骤。
+    createLayout->setVerticalSpacing(8);
+    createLayout->setHorizontalSpacing(12);
     m_createUserNameEdit = new QLineEdit(m_accountPage);
     m_createPasswordEdit = new QLineEdit(m_accountPage);
     m_createPasswordConfirmEdit = new QLineEdit(m_accountPage);
@@ -403,9 +406,12 @@ void PrivilegeDock::initializeAccountTab()
     m_createUserButton->setFixedWidth(34);
     ks::ui::NormalizeToolbarControl(m_createUserButton);
     m_accountLayout->addWidget(m_createUserButton, 0, Qt::AlignLeft);
+    m_accountLayout->addSpacing(12);
 
     // 重置密码输入区：支持指定账号并确认密码。
     QFormLayout* resetLayout = new QFormLayout();
+    resetLayout->setVerticalSpacing(8);
+    resetLayout->setHorizontalSpacing(12);
     m_resetUserNameEdit = new QLineEdit(m_accountPage);
     m_resetPasswordEdit = new QLineEdit(m_accountPage);
     m_resetPasswordConfirmEdit = new QLineEdit(m_accountPage);
@@ -446,6 +452,13 @@ void PrivilegeDock::initializeAccountTab()
     m_resetPasswordButton->setFixedWidth(34);
     ks::ui::NormalizeToolbarControl(m_resetPasswordButton);
     m_accountLayout->addWidget(m_resetPasswordButton, 0, Qt::AlignLeft);
+    // 账号和密码输入均为单行表单，采用与查询工具一致的触达高度。
+    for (QLineEdit* edit : {m_createUserNameEdit, m_createPasswordEdit,
+        m_createPasswordConfirmEdit, m_resetUserNameEdit, m_resetPasswordEdit,
+        m_resetPasswordConfirmEdit})
+    {
+        ks::ui::NormalizeToolbarControl(edit);
+    }
 
     m_tabWidget->addTab(m_accountPage, QStringLiteral("账号"));
     languageManager.bindTab(

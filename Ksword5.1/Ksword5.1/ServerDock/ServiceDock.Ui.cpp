@@ -1,6 +1,8 @@
 #include "../UI/StructuredFieldView.h"
 #include "ServiceDock.Internal.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../theme.h"
@@ -156,6 +158,7 @@ void ServiceDock::initializeToolbar()
     ks::ui::StyleSearchField(m_filterEdit);
 
     m_sortCombo = new QComboBox(m_toolbarWidget);
+    ks::ui::StylePrimaryCombo(m_sortCombo);
     m_sortCombo->addItem(QStringLiteral("名称升序"), static_cast<int>(SortMode::NameAsc));
     m_sortCombo->addItem(QStringLiteral("运行中优先"), static_cast<int>(SortMode::StatePriority));
     m_sortCombo->addItem(QStringLiteral("自动启动优先"), static_cast<int>(SortMode::StartTypePriority));
@@ -165,6 +168,7 @@ void ServiceDock::initializeToolbar()
     // - 通过下拉选择目标类型；
     // - 右侧图标按钮执行变更。
     m_startTypeCombo = new QComboBox(m_toolbarWidget);
+    ks::ui::StylePrimaryCombo(m_startTypeCombo);
     m_startTypeCombo->setToolTip(QStringLiteral("选择要应用到当前服务的启动类型"));
     m_startTypeCombo->addItem(QStringLiteral("自动"));
     m_startTypeCombo->setItemData(0, static_cast<qulonglong>(SERVICE_AUTO_START), Qt::UserRole);
@@ -205,6 +209,18 @@ void ServiceDock::initializeToolbar()
     m_toolbarLayout->addWidget(m_applyStartTypeButton);
     m_toolbarLayout->addWidget(m_summaryLabel, 1);
     ks::ui::NormalizeToolbarRow(m_toolbarLayout);
+    // 服务控制与筛选维持单行，通过可辨认底面与既有细分隔线表达操作分组。
+    ks::ui::StylePrimaryToolbar(m_toolbarWidget);
+    m_toolbarLayout->setContentsMargins(6, 3, 6, 3);
+    for (QToolButton* button : {m_refreshAllButton, m_refreshCurrentButton,
+        m_startButton, m_pauseButton, m_continueButton, m_applyStartTypeButton,
+        m_runningOnlyButton, m_autoStartOnlyButton, m_riskOnlyButton})
+    {
+        ks::ui::ApplyFlatButtonTheme(button, ks::ui::FlatButtonTone::Neutral,
+            ks::ui::FlatButtonAppearance::Solid);
+    }
+    ks::ui::ApplyFlatButtonTheme(m_stopButton, ks::ui::FlatButtonTone::Danger,
+        ks::ui::FlatButtonAppearance::Solid);
 }
 
 void ServiceDock::initializeContent()

@@ -1,5 +1,6 @@
 #include "NetworkDock.InternalCommon.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/FlatButtonTheme.h"
 #include "NetworkFirewallPage.h"
 #include "../UI/VisibleTableWidget.h"
@@ -214,7 +215,11 @@ void NetworkDock::initializeNidsTab()
     m_nidsLayout->setContentsMargins(6, 6, 6, 6);
     m_nidsLayout->setSpacing(6);
 
-    m_nidsControlLayout = new QHBoxLayout();
+    // 实时开关、告警级别与清理动作保持同一行，用轻工具底区分下方告警列表。
+    auto* alertToolbar = new QWidget(m_nidsPage);
+    ks::ui::StylePrimaryToolbar(alertToolbar);
+    m_nidsControlLayout = new QHBoxLayout(alertToolbar);
+    m_nidsControlLayout->setContentsMargins(8, 4, 8, 4);
     m_nidsControlLayout->setSpacing(6);
 
     m_nidsEnableCheck = new QCheckBox(QStringLiteral("实时检测"), m_nidsPage);
@@ -223,6 +228,7 @@ void NetworkDock::initializeNidsTab()
 
     QLabel* severityFilterLabel = new QLabel(QStringLiteral("等级:"), m_nidsPage);
     m_nidsSeverityFilterCombo = new QComboBox(m_nidsPage);
+    ks::ui::StylePrimaryCombo(m_nidsSeverityFilterCombo);
     m_nidsSeverityFilterCombo->addItem(QStringLiteral("全部"), static_cast<int>(ks::network::NidsAlertSeverity::Low));
     m_nidsSeverityFilterCombo->addItem(QStringLiteral("中危+"), static_cast<int>(ks::network::NidsAlertSeverity::Medium));
     m_nidsSeverityFilterCombo->addItem(QStringLiteral("高危+"), static_cast<int>(ks::network::NidsAlertSeverity::High));
@@ -232,7 +238,8 @@ void NetworkDock::initializeNidsTab()
 
     m_nidsClearButton = new QPushButton(m_nidsPage);
     // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
-    ks::ui::ApplyFlatButtonTheme(m_nidsClearButton, ks::ui::FlatButtonTone::Neutral);
+    ks::ui::ApplyFlatButtonTheme(m_nidsClearButton, ks::ui::FlatButtonTone::Neutral,
+        ks::ui::FlatButtonAppearance::Solid);
     m_nidsClearButton->setIcon(QIcon(":/Icon/log_clear.svg"));
     m_nidsClearButton->setToolTip(QStringLiteral("清空 NIDS 告警和检测窗口"));
 
@@ -245,7 +252,7 @@ void NetworkDock::initializeNidsTab()
     m_nidsControlLayout->addWidget(m_nidsSeverityFilterCombo);
     m_nidsControlLayout->addWidget(m_nidsClearButton);
     m_nidsControlLayout->addWidget(m_nidsStatusLabel, 1);
-    m_nidsLayout->addLayout(m_nidsControlLayout);
+    m_nidsLayout->addWidget(alertToolbar);
     ks::ui::NormalizeToolbarRow(m_nidsControlLayout);
 
     m_nidsAlertTable = new ks::ui::VisibleTableWidget(m_nidsPage);

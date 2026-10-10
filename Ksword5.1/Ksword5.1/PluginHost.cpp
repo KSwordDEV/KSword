@@ -57,6 +57,7 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTabWidget>
+#include "UI/ThemeBinding.h"
 #include <QTextDocument>
 #include <QTimer>
 #include <QUrl>
@@ -3339,30 +3340,34 @@ QWidget* ks::plugin_host::createTabPluginContainer(QWidget* parent)
     rootLayout->addWidget(tabWidget, 1);
 
     // 宿主侧基础样式只锚定插件容器，不污染其它 Dock 或插件原生子窗口。
-    const QString pluginContainerStyle = QStringLiteral(
-        "QWidget#ksTabPluginContainer{background-color:%1;color:%2;}"
-        "QTabWidget#ksTabPluginHost::pane{background-color:%1;border:none;}"
-        "QTabWidget#ksTabPluginHost QTabBar::tab{background-color:%3;color:%2;border:none;"
-        "border-radius:0;padding:3px 12px;min-height:22px;margin:0;}"
-        "QTabWidget#ksTabPluginHost QTabBar::tab:selected{background-color:%4;color:%5;font-weight:700;}"
-        "QTabWidget#ksTabPluginHost QTabBar::tab:hover:!selected{background-color:%6;}"
-        "QWidget#ksTabPluginEmptyState{background-color:%1;color:%2;}"
-        "QLabel#ksTabPluginEmptyTitle{color:%2;font-size:16px;font-weight:600;}"
-        "QLabel#ksTabPluginEmptyHint{color:%7;}"
-        "QPushButton#ksTabPluginManageButton{border-radius:3px;padding:4px 10px;font-weight:600;}"
-        "QWidget#ksTabPluginTransparencyWarning{background-color:%8;border:1px solid %9;"
-        "border-radius:3px;margin:6px 6px 0 6px;}"
-        "QLabel#ksTabPluginTransparencyWarningText{color:%9;}")
-        .arg(KswordTheme::SurfaceHex())
-        .arg(KswordTheme::TextPrimaryHex())
-        .arg(KswordTheme::SurfaceAltHex())
-        .arg(KswordTheme::ActiveTabBackgroundHex())
-        .arg(KswordTheme::ActiveTabTextHex())
-        .arg(KswordTheme::SurfaceMutedColorHex())
-        .arg(KswordTheme::TextSecondaryHex())
-        .arg(KswordTheme::ThemeColorName(KswordTheme::WarningBackgroundColor()))
-        .arg(KswordTheme::WarningHex());
-    container->setStyleSheet(pluginContainerStyle);
+    const QPointer<QWidget> themedContainer(container); // 宿主关闭后不再刷新主题。
+    ks::ui::BindWidgetTheme(container, [themedContainer]()
+    {
+        if (!themedContainer)
+        {
+            return;
+        }
+        // 页签颜色由 StylePageTabs 独立维护，容器不再用旧的强选中色二次覆盖。
+        const QColor warningSurface = KswordTheme::WarningBackgroundColor();
+        const QColor warningText = KswordTheme::EnsureTextContrast(
+            KswordTheme::WarningAccentColor(), warningSurface, 4.5);
+        const QString style = QStringLiteral(
+            "QWidget#ksTabPluginContainer{background:%1;color:%2;}"
+            "QTabWidget#ksTabPluginHost::pane{background:%1;border:none;}"
+            "QWidget#ksTabPluginEmptyState{background:%1;color:%2;}"
+            "QLabel#ksTabPluginEmptyTitle{color:%2;font-weight:600;}"
+            "QLabel#ksTabPluginEmptyHint{color:%3;}"
+            "QPushButton#ksTabPluginManageButton{border-radius:5px;padding:4px 10px;font-weight:600;}"
+            "QWidget#ksTabPluginTransparencyWarning{background:%4;border:1px solid %5;"
+            "border-radius:5px;margin:6px 6px 0 6px;}"
+            "QLabel#ksTabPluginTransparencyWarningText{color:%5;}")
+            .arg(KswordTheme::SurfaceColor().name(), KswordTheme::TextPrimaryColor().name(),
+                KswordTheme::TextSecondaryColor().name(), warningSurface.name(), warningText.name());
+        if (themedContainer->styleSheet() != style)
+        {
+            themedContainer->setStyleSheet(style);
+        }
+    });
 
     // 容器创建时可能还没挂进窗口树，顶层窗口句柄尚不可查；
     // 放到事件循环下一轮再判定，并在每次显示时复查（切换 Dock 后仍准确）。

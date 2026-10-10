@@ -669,6 +669,7 @@
     <ClCompile Include="UI\TableInteractionSupport.cpp" />
     <ClCompile Include="UI\ThemeBinding.cpp" />
     <ClCompile Include="UI\SecondaryPageLayout.cpp" />
+    <ClCompile Include="UI\PrimaryPageStyle.cpp" />
     <ClCompile Include="UI\FlatButtonTheme.cpp" />
     <ClCompile Include="UI\FloatingScrollbars.cpp" />
     <ClCompile Include="UI\ResultTableHost.cpp" />
@@ -903,6 +904,7 @@
     <ClInclude Include="UI\ToolbarMetrics.h" />
     <ClInclude Include="UI\PageControlStyle.h" />
     <ClInclude Include="UI\SecondaryPageLayout.h" />
+    <ClInclude Include="UI\PrimaryPageStyle.h" />
     <ClInclude Include="SettingsDock\SettingsDock.Layout.h" />
     <ClInclude Include="UI\DetailNavigationGroups.h" />
     <ClInclude Include="UI\DetailDialogChrome.h" />

@@ -1547,6 +1547,9 @@
     <ClCompile Include="UI\SecondaryPageLayout.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UI\PrimaryPageStyle.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="UI\ResultTableHost.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2731,6 +2734,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="UI\SecondaryPageLayout.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UI\PrimaryPageStyle.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SettingsDock\SettingsDock.Layout.h">

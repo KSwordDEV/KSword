@@ -1,5 +1,6 @@
 #include "PrivilegeTokenPages.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/VisibleTableWidget.h"
@@ -682,6 +683,8 @@ namespace
                 form->addWidget(new QLabel(side == 0 ? text("privilege.workbench.tokens.process_a", QStringLiteral("进程 A"))
                     : text("privilege.workbench.tokens.process_b", QStringLiteral("进程 B")), this));
                 m_process[side] = new QComboBox(this);
+                // 两侧进程选择器使用同一底面和箭头状态，保持比较列对齐。
+                ks::ui::StylePrimaryCombo(m_process[side]);
                 m_process[side]->setObjectName(side == 0 ? QStringLiteral("privilege_token_pid_a") : QStringLiteral("privilege_token_pid_b"));
                 m_process[side]->setEditable(true);
                 m_process[side]->setInsertPolicy(QComboBox::NoInsert);
@@ -1181,6 +1184,7 @@ namespace
             m_directory = new QLineEdit(this); m_directory->setReadOnly(true);
             form->addRow(text("privilege.workbench.launch.directory", QStringLiteral("工作目录（程序所在目录）")), m_directory);
             m_mode = new QComboBox(this);
+            ks::ui::StylePrimaryCombo(m_mode);
             m_mode->addItem(text("privilege.workbench.launch.standard", QStringLiteral("普通用户（未提升）")), static_cast<int>(ks::process::RunAsIdentity::StandardUser));
             m_mode->addItem(text("privilege.workbench.launch.admin", QStringLiteral("管理员（Windows UAC）")), static_cast<int>(ks::process::RunAsIdentity::Administrator));
             m_mode->addItem(QStringLiteral("SYSTEM"), static_cast<int>(ks::process::RunAsIdentity::System));

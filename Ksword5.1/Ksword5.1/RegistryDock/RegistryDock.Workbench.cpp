@@ -13,6 +13,7 @@
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/UI_All.h"
 #include "../theme.h"
@@ -175,6 +176,7 @@ void RegistryDock::initializeWorkbenchControls()
         else if (selected == related) openRelatedItem();
     });
     m_viewCombo = new QComboBox(m_toolBarWidget);
+    ks::ui::StylePrimaryCombo(m_viewCombo);
     m_viewCombo->addItem(QStringLiteral("本机视图"), 0);
     m_viewCombo->addItem(QStringLiteral("32 位视图"), 32);
     m_viewCombo->addItem(QStringLiteral("64 位视图"), 64);
@@ -208,11 +210,13 @@ void RegistryDock::initializeWorkbenchControls()
     m_searchEdit->setMinimumWidth(160);
     searchLayout->addWidget(m_searchEdit);
     m_searchScopeCombo = new QComboBox(searchPanel);
+    ks::ui::StylePrimaryCombo(m_searchScopeCombo);
     m_searchScopeCombo->addItem(QStringLiteral("当前子树"), 1);
     m_searchScopeCombo->addItem(QStringLiteral("当前键"), 0);
     m_searchScopeCombo->addItem(QStringLiteral("全部根键"), 2);
     searchLayout->addWidget(m_searchScopeCombo);
     m_searchTypeCombo = new QComboBox(searchPanel);
+    ks::ui::StylePrimaryCombo(m_searchTypeCombo);
     m_searchTypeCombo->addItem(QStringLiteral("全部类型"), -1);
     for (const DWORD type : {REG_SZ, REG_EXPAND_SZ, REG_MULTI_SZ, REG_DWORD, REG_QWORD, REG_BINARY, REG_NONE})
         m_searchTypeCombo->addItem(valueTypeToText(type), static_cast<int>(type));
@@ -236,6 +240,11 @@ void RegistryDock::initializeWorkbenchControls()
     ks::ui::NormalizeToolbarControl(m_searchButton);
     ks::ui::NormalizeToolbarControl(m_stopSearchButton);
     m_registryEditorLayout->insertWidget(3, searchPanel);
+    // 搜索选项可折行，底面与上方命令行区分而不额外包一层卡片。
+    ks::ui::StylePrimaryToolbar(searchPanel);
+    searchLayout->setContentsMargins(6, 3, 6, 3);
+    // 等命令/搜索按钮迁出并补齐文字后，再固定导航行几何，避免文字动作被误判为图标按钮。
+    ks::ui::NormalizeToolbarRow(m_toolBarLayout);
 
     m_detailScroll = new QScrollArea(m_mainSplitter);
     m_detailScroll->setWidgetResizable(true);

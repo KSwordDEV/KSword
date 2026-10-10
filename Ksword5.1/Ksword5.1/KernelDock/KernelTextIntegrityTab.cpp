@@ -1,5 +1,6 @@
 #include "KernelTextIntegrityTab.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/ToolbarMetrics.h"
 
 #include "KernelDock.h"
@@ -144,6 +145,8 @@ void KernelTextIntegrityTab::initializeUi()
             "kernel.text_integrity.filter.placeholder",
             QStringLiteral("按模块名过滤，留空扫描全部已加载模块")));
     m_backendCombo = new QComboBox(this);
+    // 后端选择保留自己的底面和禁用状态，扫描口径与连接不变。
+    ks::ui::StylePrimaryCombo(m_backendCombo);
     for (const auto backend : {
              ksword::memory_backend::MemoryAccessBackend::StandardDriver,
              ksword::memory_backend::MemoryAccessBackend::Hvm})

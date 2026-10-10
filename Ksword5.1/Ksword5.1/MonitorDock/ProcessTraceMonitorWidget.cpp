@@ -100,7 +100,7 @@ QString ProcessTraceMonitorWidget::blueButtonStyle()
 QString ProcessTraceMonitorWidget::blueInputStyle()
 {
     return QStringLiteral(
-        "QLineEdit{border:1px solid %2;border-radius:3px;background:transparent;/* %3 */color:%4;padding:2px 6px;}"
+        "QLineEdit{border:1px solid %2;border-radius:5px;background:%3;color:%4;padding:2px 8px;}"
         "QTableWidget{border:1px solid %2;border-radius:3px;background:transparent;background-color:transparent;color:%4;padding:2px 6px;gridline-color:%2;alternate-background-color:transparent;}"
         "QTableWidget::viewport{background:transparent;background-color:transparent;}"
         "QLineEdit:focus{border:1px solid %1;}")
@@ -114,9 +114,9 @@ QString ProcessTraceMonitorWidget::blueInputStyle()
 QString ProcessTraceMonitorWidget::blueHeaderStyle()
 {
     return QStringLiteral(
-        "QHeaderView::section{color:%1;background:transparent;/* %2 */border:1px solid %3;padding:4px;font-weight:600;}")
-        .arg(KswordTheme::PrimaryBlueHex)
-        .arg(KswordTheme::SurfaceHex())
+        "QHeaderView::section{color:%1;background:%2;border:0;border-bottom:1px solid %3;padding:4px 8px;font-weight:600;}")
+        .arg(KswordTheme::TextPrimaryHex())
+        .arg(KswordTheme::SurfaceAltHex())
         .arg(KswordTheme::BorderHex());
 }
 
@@ -127,8 +127,7 @@ QString ProcessTraceMonitorWidget::collapsePanelStyle()
     // - 内容宿主使用 kswordCollapseContent 标记，避免嵌套区域重复描边。
     return QStringLiteral(
         "QWidget[kswordCollapsePanel=\"true\"]{"
-        "  background:transparent;"
-        "  background-color:transparent;"
+        "  background:%1;"
         "  color:%2;"
         "  border:1px solid %3;"
         "  border-radius:5px;"

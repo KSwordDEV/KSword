@@ -1,5 +1,7 @@
 #include "PhysicalPageAttributionPage.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/PrimaryPageStyle.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/PageControlStyle.h"
 #include "../UI/StructuredFieldView.h"
 #include "MemoryAttributionChart.h"
@@ -179,6 +181,12 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     // 放不下时在本页内滚动，不再把外层的审计页撑高。根布局建在壳的内容容器上。
     auto* root = new QVBoxLayout(ks::ui::EnablePageInnerScroll(this));
     root->setContentsMargins(0, 0, 0, 0);
+    // 扫描设置与结果过滤同属 PFN 工作流，以一个两行工具区连接并与归因图分开。
+    auto* scanToolbar = new QWidget(this); // 扫描工具区的 QWidget 所有权跟随页面。
+    ks::ui::StylePrimaryToolbar(scanToolbar);
+    auto* scanLayout = new QVBoxLayout(scanToolbar); // 保留原来两条紧凑操作行。
+    scanLayout->setContentsMargins(8, 4, 8, 4);
+    scanLayout->setSpacing(8);
     auto* actions = new QHBoxLayout;
     m_scanButton = new QPushButton(this);
     m_cancelButton = new QPushButton(this);
@@ -199,13 +207,18 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     actions->addWidget(m_budget);
     actions->addStretch();
     ks::ui::NormalizeToolbarRow(actions);
-    root->addLayout(actions);
+    scanLayout->addLayout(actions);
     auto* filters = new QHBoxLayout;
     filters->addWidget(m_filter, 1);
     filters->addWidget(m_exportButton);
     filters->addWidget(m_exportMappings);
     ks::ui::NormalizeToolbarRow(filters);
-    root->addLayout(filters);
+    scanLayout->addLayout(filters);
+    ks::ui::ApplyFlatButtonTheme(m_scanButton, ks::ui::FlatButtonTone::Accent);
+    ks::ui::ApplyFlatButtonTheme(m_cancelButton, ks::ui::FlatButtonTone::Neutral);
+    ks::ui::ApplyFlatButtonTheme(m_mappingButton, ks::ui::FlatButtonTone::Neutral);
+    ks::ui::ApplyFlatButtonTheme(m_exportButton, ks::ui::FlatButtonTone::Neutral);
+    root->addWidget(scanToolbar);
     m_summary = new QLabel(this);
     m_summary->setWordWrap(true);
     m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -227,13 +240,18 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     auto* pages = new QWidget(m_tabs);
     auto* pageLayout = new QVBoxLayout(pages);
     pageLayout->setContentsMargins(0, 0, 0, 0);
-    auto* lookup = new QHBoxLayout;
+    // PFN 定位是该页自己的查询操作，不和上方全局扫描工具带混为一组。
+    auto* lookupToolbar = new QWidget(pages);
+    ks::ui::StylePrimaryToolbar(lookupToolbar);
+    auto* lookup = new QHBoxLayout(lookupToolbar);
+    lookup->setContentsMargins(8, 4, 8, 4);
     m_pfn = new QLineEdit(pages);
     m_inspectButton = new QPushButton(pages);
     lookup->addWidget(m_pfn, 1);
     lookup->addWidget(m_inspectButton);
     ks::ui::NormalizeToolbarRow(lookup);
-    pageLayout->addLayout(lookup);
+    ks::ui::ApplyFlatButtonTheme(m_inspectButton, ks::ui::FlatButtonTone::Neutral);
+    pageLayout->addWidget(lookupToolbar);
     auto* pageSplit = new QSplitter(Qt::Horizontal, pages);
     m_examples = table(pageSplit);
     m_mappings = table(pageSplit);

@@ -1,6 +1,7 @@
 #include "../UI/StructuredFieldView.h"
 #include "../UI/ToolbarMetrics.h"
 #include "HardwareHwidDispatchPage.h"
+#include "../UI/PrimaryPageStyle.h"
 #include "../UI/VisibleTableWidget.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -166,6 +167,8 @@ void HardwareHwidDispatchPage::initializeUi()
     m_rootLayout->addWidget(riskNoticeLabel, 0);
 
     QGroupBox* targetGroup = new QGroupBox(QStringLiteral("Dispatch 目标驱动"), this);
+    // 目标选择和方案参数为两个独立分区，保留可见但低对比的完整边界。
+    ks::ui::StylePrimaryGroup(targetGroup);
     QGridLayout* targetLayout = new QGridLayout(targetGroup);
     m_diskCheck = new QCheckBox(QStringLiteral("\\Driver\\Disk - 磁盘查询派遣"), targetGroup);
     m_partMgrCheck = new QCheckBox(QStringLiteral("\\Driver\\partmgr - 分区信息派遣"), targetGroup);
@@ -181,10 +184,13 @@ void HardwareHwidDispatchPage::initializeUi()
     targetLayout->addWidget(m_nvidiaCheck, 1, 1);
     targetLayout->addWidget(m_nsiProxyCheck, 2, 0);
     m_rootLayout->addWidget(targetGroup, 0);
+    m_rootLayout->addSpacing(8);
 
     QGroupBox* profileGroup = new QGroupBox(QStringLiteral("派遣函数方案参数"), this);
+    ks::ui::StylePrimaryGroup(profileGroup);
     QGridLayout* profileLayout = new QGridLayout(profileGroup);
     m_diskModeCombo = new QComboBox(profileGroup);
+    ks::ui::StylePrimaryCombo(m_diskModeCombo);
     m_diskModeCombo->addItem(
         QStringLiteral("自定义序列号/产品/固件"),
         QVariant::fromValue(static_cast<qulonglong>(KSWORD_ARK_HWID_DISPATCH_DISK_MODE_CUSTOM)));
@@ -195,6 +201,7 @@ void HardwareHwidDispatchPage::initializeUi()
         QStringLiteral("清空序列号"),
         QVariant::fromValue(static_cast<qulonglong>(KSWORD_ARK_HWID_DISPATCH_DISK_MODE_NULL)));
     m_macModeCombo = new QComboBox(profileGroup);
+    ks::ui::StylePrimaryCombo(m_macModeCombo);
     m_macModeCombo->addItem(
         QStringLiteral("随机化物理 MAC"),
         QVariant::fromValue(static_cast<qulonglong>(KSWORD_ARK_HWID_DISPATCH_MAC_MODE_RANDOM)));
