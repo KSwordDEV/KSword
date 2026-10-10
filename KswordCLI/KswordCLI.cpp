@@ -1522,6 +1522,7 @@ namespace
         ks::cli::registerSystemContextMenu();
         ks::cli::registerSystemTime();
         ks::cli::registerSystemIoctl();
+        ks::cli::registerKernelNamespace();
             #endif
             return true;
         }();

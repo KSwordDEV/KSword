@@ -114,4 +114,5 @@ void registerSystemEventLog();
 void registerSystemContextMenu();
 void registerSystemTime();
 void registerSystemIoctl();
+void registerKernelNamespace();
 }
