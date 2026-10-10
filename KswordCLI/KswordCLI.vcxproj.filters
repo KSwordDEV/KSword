@@ -422,4 +422,14 @@
     <ClCompile Include="..\shared\usermode\backend\kernel\HookDiskBaseline.cpp" />
     <ClInclude Include="..\shared\usermode\backend\kernel\HookDiskBaseline.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SecurityCi.cpp" />
+    <ClInclude Include="R3SecurityShared.h" />
+    <ClCompile Include="..\shared\usermode\backend\security\CodeIntegrity.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\CodeIntegrity.h" />
+    <ClCompile Include="..\shared\evidence\EvidenceJson.cpp" />
+    <ClInclude Include="..\shared\evidence\EvidenceJson.h" />
+    <ClCompile Include="..\shared\evidence\LosslessValue.cpp" />
+    <ClInclude Include="..\shared\evidence\LosslessValue.h" />
+  </ItemGroup>
 </Project>

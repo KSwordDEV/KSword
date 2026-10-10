@@ -1533,6 +1533,7 @@ namespace
         ks::cli::registerKernelAtoms();
         ks::cli::registerKernelNtQuery();
         ks::cli::registerKernelHookBaseline();
+        ks::cli::registerSecurityCi();
             #endif
             return true;
         }();
