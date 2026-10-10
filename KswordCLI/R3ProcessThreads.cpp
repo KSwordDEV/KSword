@@ -1,4 +1,5 @@
 #include "R3ProcessShared.h"
+#include "R3ThreadShared.h"
 #include "../shared/usermode/backend/process/ProcessThreadsSupport.h"
 #include "../shared/usermode/backend/process/ThreadActions.h"
 #include <algorithm>
@@ -104,7 +105,7 @@ SuspendState suspended(HANDLE h) {
 }
 Json suspendJson(const SuspendState& value) {return Json::object({{L"known",Json::boolean(value.known)},
     {L"count",value.known ? Json::number(value.count) : Json{}}, {L"ntStatus",value.statusKnown ? Json::hex(static_cast<DWORD>(value.status)) : Json{}}});}
-Result action(const Args& args, const std::wstring& verb) {
+Result action(const Args& args, const std::wstring& verb, const ThreadAction& callback = {}, DWORD terminateExitCode = 1) {
     (void)args.require(L"--confirm"); const auto requested = verb == L"set-affinity" ? rule(args) : affinity::Rule{};
     ThreadLease lease(args);
     if (!lease.matches) return {3,Json::object({{L"target",lease.json()}}),{L"Thread or process identity is unavailable, changed, or has exited."}};
@@ -112,7 +113,8 @@ Result action(const Args& args, const std::wstring& verb) {
     affinity::Snapshot affinityBefore;std::string affinityDetail;
     const bool affinityBeforeKnown = verb == L"set-affinity" &&
         affinity::QueryThreadAffinityState(lease.tid,lease.process.pid,lease.creation,&affinityBefore,&affinityDetail);
-    if (verb == L"suspend") outcome = backend::SuspendDetailThread(lease.tid,lease.creation,lease.process.pid,lease.process.creationTime);
+    if (callback) outcome = callback(lease.tid,lease.creation,lease.process.pid,lease.process.creationTime);
+    else if (verb == L"suspend") outcome = backend::SuspendDetailThread(lease.tid,lease.creation,lease.process.pid,lease.process.creationTime);
     else if (verb == L"resume") outcome = backend::ResumeDetailThread(lease.tid,lease.creation,lease.process.pid,lease.process.creationTime);
     else if (verb == L"terminate") outcome = backend::TerminateDetailThread(lease.tid,lease.creation,lease.process.pid,lease.process.creationTime);
     else outcome = backend::SetDetailThreadAffinity(lease.tid,lease.creation,lease.process.pid,lease.process.creationTime,requested);
@@ -120,7 +122,7 @@ Result action(const Args& args, const std::wstring& verb) {
     if (verb == L"terminate") {
         const DWORD wait = WaitForSingleObject(lease.handle.get(),outcome.requestSucceeded ? 2000 : 0); DWORD exitCode = STILL_ACTIVE;
         const bool known = GetExitCodeThread(lease.handle.get(),&exitCode) != FALSE;
-        verified = wait == WAIT_OBJECT_0 && known && exitCode == 1;
+        verified = wait == WAIT_OBJECT_0 && known && exitCode == terminateExitCode;
         observed = Json::object({{L"exited",Json::boolean(wait == WAIT_OBJECT_0)}, {L"exitCode",known ? Json::number(exitCode) : Json{}}});
     } else if (verb == L"set-affinity") {
         affinity::Snapshot state;std::string detail;
@@ -152,6 +154,9 @@ Result action(const Args& args, const std::wstring& verb) {
         {L"rollbackVerified",outcome.rollbackAttempted ? Json::boolean(rollbackVerified) : Json{}},
         {L"observed",observed}}),code ? std::vector<std::wstring>{outcome.statusText,L"The request failed or its effect could not be confirmed."} : std::vector<std::wstring>{}};
 }
+}
+Result executeThreadAction(const Args& args,const std::wstring& verb,const ThreadAction& callback,DWORD terminateExitCode) {
+    return action(args,verb,callback,terminateExitCode);
 }
 void registerProcessThreads() {
     addCommand({L"process thread enum",L"KswordCLI.exe process thread enum --pid PID [--creation-time FILETIME] [--tid TID] [--limit N] [--backend r3] [--json]",

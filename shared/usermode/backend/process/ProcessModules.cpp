@@ -48,45 +48,54 @@ std::wstring BaseNameFromPath(const std::wstring& path) {
     }
     return path.substr(pos + 1);
 }
-std::vector<ProcessModuleInfo> CollectModules(DWORD processId, bool& succeededOut, std::wstring& statusOut) {
+std::vector<ProcessModuleInfo> CollectModules(DWORD processId, bool& succeededOut, std::wstring& statusOut, ModuleEnumerationEvidence* evidence) {
+    ModuleEnumerationEvidence local;
+    if (!evidence) evidence = &local;
+    *evidence = {};
     succeededOut = false;
     statusOut.clear();
     std::vector<ProcessModuleInfo> rows;
 
     const ModuleApi moduleApi = LoadModuleApi();
     if (!moduleApi.available()) {
+        evidence->unsupported = true; evidence->win32Error = ERROR_PROC_NOT_FOUND;
         statusOut = L"Module enumeration API unavailable.";
         return rows;
     }
 
-    ks::r3::common::UniqueHandle process(::OpenProcess(kProcessReadAccess, FALSE, processId));
+    ks::r3::common::UniqueHandle process(::OpenProcess(kProcessReadAccess | PROCESS_QUERY_INFORMATION, FALSE, processId));
     if (!process.valid()) {
-        statusOut = Win32ErrorText(L"OpenProcess", ::GetLastError());
+        evidence->win32Error = ::GetLastError();
+        statusOut = Win32ErrorText(L"OpenProcess", evidence->win32Error);
         return rows;
     }
 
     DWORD neededBytes = 0;
     std::vector<HMODULE> modules(256);
-    if (!moduleApi.enumProcessModulesEx(process.get(), modules.data(), static_cast<DWORD>(modules.size() * sizeof(HMODULE)), &neededBytes, LIST_MODULES_ALL)) {
-        statusOut = Win32ErrorText(L"EnumProcessModulesEx", ::GetLastError());
-        return rows;
-    }
-    if (neededBytes > modules.size() * sizeof(HMODULE)) {
-        modules.resize(neededBytes / sizeof(HMODULE));
+    for (unsigned attempt = 0;attempt < 4;++attempt) {
         if (!moduleApi.enumProcessModulesEx(process.get(), modules.data(), static_cast<DWORD>(modules.size() * sizeof(HMODULE)), &neededBytes, LIST_MODULES_ALL)) {
-            statusOut = Win32ErrorText(L"EnumProcessModulesEx retry", ::GetLastError());
+            evidence->win32Error = ::GetLastError();
+            statusOut = Win32ErrorText(attempt ? L"EnumProcessModulesEx retry" : L"EnumProcessModulesEx", evidence->win32Error);
             return rows;
         }
+        if (neededBytes % sizeof(HMODULE) != 0) {evidence->malformed = true;break;}
+        if (neededBytes <= modules.size() * sizeof(HMODULE)) {evidence->complete = true;break;}
+        if (attempt < 3) modules.resize(neededBytes / sizeof(HMODULE));
     }
-    modules.resize(neededBytes / sizeof(HMODULE));
+    if (evidence->malformed) {evidence->win32Error = ERROR_INVALID_DATA;statusOut = L"Module enumeration API unavailable.";return rows;}
+    if (!evidence->complete) evidence->win32Error = ERROR_MORE_DATA;
+    modules.resize((std::min)(modules.size(),static_cast<std::size_t>(neededBytes / sizeof(HMODULE))));
 
     for (HMODULE module : modules) {
         ProcessModuleInfo row{};
+        row.moduleHandle = reinterpret_cast<std::uintptr_t>(module);
         MODULEINFO moduleInfo{};
         if (moduleApi.getModuleInformation(process.get(), module, &moduleInfo, sizeof(moduleInfo))) {
+            row.infoKnown = moduleInfo.lpBaseOfDll != nullptr && moduleInfo.SizeOfImage != 0;
+            row.infoEvidence.available = row.infoKnown;
             row.baseAddress = reinterpret_cast<std::uintptr_t>(moduleInfo.lpBaseOfDll);
             row.imageSize = moduleInfo.SizeOfImage;
-        }
+        } else {row.infoEvidence = {false,true,false,::GetLastError()};}
 
         std::wstring path(MAX_PATH, L'\0');
         DWORD copied = moduleApi.getModuleFileNameExW(process.get(), module, path.data(), static_cast<DWORD>(path.size()));
@@ -95,14 +104,17 @@ std::vector<ProcessModuleInfo> CollectModules(DWORD processId, bool& succeededOu
             copied = moduleApi.getModuleFileNameExW(process.get(), module, path.data(), static_cast<DWORD>(path.size()));
         }
         if (copied > 0) {
-            path.resize(copied);
+            row.pathKnown = copied < path.size() - 1;
+            row.pathEvidence = {row.pathKnown,true,false,static_cast<DWORD>(row.pathKnown ? ERROR_SUCCESS : ERROR_MORE_DATA)};
+            path.resize((std::min)(static_cast<std::size_t>(copied),path.size()));
             row.modulePath = path;
             row.moduleName = BaseNameFromPath(path);
             row.statusText = L"OK";
         } else {
+            row.pathEvidence = {false,true,false,::GetLastError()};
             row.moduleName = FormatHexPointer(reinterpret_cast<std::uintptr_t>(module));
             row.modulePath = L"<module path unavailable>";
-            row.statusText = Win32ErrorText(L"GetModuleFileNameExW", ::GetLastError());
+            row.statusText = Win32ErrorText(L"GetModuleFileNameExW", row.pathEvidence.win32Error);
         }
         rows.push_back(std::move(row));
     }

@@ -64,10 +64,12 @@ ProcessDetailActionResult UnloadDetailModule(std::uintptr_t moduleBase, DWORD ta
                 ? BaseNameFromPath(std::wstring(localFunctionPath, localFunctionPathLength))
                 : L"kernel32.dll";
             std::uintptr_t remoteFunctionModule = 0;
+            DWORD remoteFunctionImageSize = 0;
             if (moduleSnapshot) {
                 for (const ProcessModuleInfo& module : *moduleSnapshot) {
                     if (_wcsicmp(BaseNameFromPath(module.modulePath).c_str(), functionModuleName.c_str()) == 0) {
                         remoteFunctionModule = module.baseAddress;
+                        remoteFunctionImageSize = module.imageSize;
                         break;
                     }
                 }
@@ -75,9 +77,12 @@ ProcessDetailActionResult UnloadDetailModule(std::uintptr_t moduleBase, DWORD ta
             const std::uintptr_t localFunctionModuleAddress = reinterpret_cast<std::uintptr_t>(localFunctionModule);
             const std::uintptr_t freeLibraryOffset =
                 reinterpret_cast<std::uintptr_t>(localFreeLibrary) - localFunctionModuleAddress;
-            const std::uintptr_t remoteFreeLibrary = remoteFunctionModule
-                ? remoteFunctionModule + freeLibraryOffset
-                : reinterpret_cast<std::uintptr_t>(localFreeLibrary);
+            if (!remoteFunctionModule || freeLibraryOffset >= remoteFunctionImageSize || remoteFunctionModule + freeLibraryOffset < remoteFunctionModule) {
+                action.unsupported = true;
+                action.statusText = L"● 卸载模块失败 | 无法解析 FreeLibrary";
+                return action;
+            }
+            const std::uintptr_t remoteFreeLibrary = remoteFunctionModule + freeLibraryOffset;
 
             ks::r3::common::UniqueHandle verifiedProcess;
             std::wstring identityError;
@@ -90,6 +95,18 @@ ProcessDetailActionResult UnloadDetailModule(std::uintptr_t moduleBase, DWORD ta
                 action.statusText = L"● 卸载模块失败 | " + identityError;
                 return action;
             }
+            action.identityMatched = true;
+            BOOL targetWow64 = FALSE, selfWow64 = FALSE;
+            if (!::IsWow64Process(verifiedProcess.get(),&targetWow64) || !::IsWow64Process(::GetCurrentProcess(),&selfWow64)) {
+                action.win32ErrorKnown = true; action.win32Error = ::GetLastError();
+                action.statusText = L"● 卸载模块失败 | FreeLibrary 未成功返回";
+                return action;
+            }
+            if (targetWow64 != selfWow64) {
+                action.unsupported = true;
+                action.statusText = L"● 卸载模块失败 | 无法解析 FreeLibrary";
+                return action;
+            }
             ks::r3::common::UniqueHandle remoteThread(::CreateRemoteThread(
                 verifiedProcess.get(),
                 nullptr,
@@ -99,17 +116,26 @@ ProcessDetailActionResult UnloadDetailModule(std::uintptr_t moduleBase, DWORD ta
                 0,
                 nullptr));
             if (!remoteThread.valid()) {
-                action.statusText = L"● 卸载模块失败 | " + LastErrorText(L"CreateRemoteThread", ::GetLastError());
+                action.win32ErrorKnown = true; action.win32Error = ::GetLastError();
+                action.statusText = L"● 卸载模块失败 | " + LastErrorText(L"CreateRemoteThread", action.win32Error);
                 return action;
             }
+            action.writeAttempted = true;
             const DWORD waitResult = ::WaitForSingleObject(remoteThread.get(), 10000);
+            action.waitKnown = true; action.waitResult = waitResult;
+            if (waitResult == WAIT_FAILED) {action.win32ErrorKnown = true; action.win32Error = ::GetLastError();}
             DWORD exitCode = 0;
-            const bool completed = waitResult == WAIT_OBJECT_0 &&
-                ::GetExitCodeThread(remoteThread.get(), &exitCode) != FALSE && exitCode != 0;
+            if (waitResult == WAIT_OBJECT_0) {
+                action.exitCodeKnown = ::GetExitCodeThread(remoteThread.get(), &exitCode) != FALSE;
+                if (!action.exitCodeKnown) {action.win32ErrorKnown = true; action.win32Error = ::GetLastError();}
+                action.exitCode = exitCode;
+            }
+            const bool completed = waitResult == WAIT_OBJECT_0 && action.exitCodeKnown && exitCode != 0;
             if (!completed) {
                 action.statusText = L"● 卸载模块失败 | FreeLibrary 未成功返回";
                 return action;
             }
+            action.requestSucceeded = true; action.writeSucceeded = true;
             action.refreshRequired = true;
             action.statusText = L"● 卸载模块成功";
             return action;
@@ -133,8 +159,11 @@ ProcessDetailActionResult SuspendModuleThread(DWORD threadId, ULONGLONG expected
                 action.statusText = L"● 挂起 Thread 失败 | " + identityError;
                 return action;
             }
+            action.identityMatched = true;
             const DWORD previousCount = ::SuspendThread(verifiedThread.get());
             const DWORD error = previousCount == static_cast<DWORD>(-1) ? ::GetLastError() : ERROR_SUCCESS;
+            action.win32ErrorKnown = true; action.win32Error = error; action.requestSucceeded = error == ERROR_SUCCESS;
+            action.previousSuspendCountKnown = action.requestSucceeded; action.previousSuspendCount = previousCount;
             action.refreshRequired = error == ERROR_SUCCESS;
             action.statusText = error == ERROR_SUCCESS
                 ? L"● 挂起 Thread 成功"
@@ -160,8 +189,11 @@ ProcessDetailActionResult ResumeModuleThread(DWORD threadId, ULONGLONG expectedT
                 action.statusText = L"● 取消挂起 Thread 失败 | " + identityError;
                 return action;
             }
+            action.identityMatched = true;
             const DWORD previousCount = ::ResumeThread(verifiedThread.get());
             const DWORD error = previousCount == static_cast<DWORD>(-1) ? ::GetLastError() : ERROR_SUCCESS;
+            action.win32ErrorKnown = true; action.win32Error = error; action.requestSucceeded = error == ERROR_SUCCESS;
+            action.previousSuspendCountKnown = action.requestSucceeded; action.previousSuspendCount = previousCount;
             action.refreshRequired = error == ERROR_SUCCESS;
             action.statusText = error == ERROR_SUCCESS
                 ? L"● 取消挂起 Thread 成功"
@@ -187,13 +219,16 @@ ProcessDetailActionResult TerminateModuleThread(DWORD threadId, ULONGLONG expect
                 action.statusText = L"● 结束 Thread 失败 | " + identityError;
                 return action;
             }
+            action.identityMatched = true;
             const BOOL terminated = ::TerminateThread(verifiedThread.get(), 0);
             const DWORD error = terminated ? ERROR_SUCCESS : ::GetLastError();
+            action.win32ErrorKnown = true; action.win32Error = error;
             if (!terminated) {
                 action.statusText = L"● 结束 Thread 失败 | " + LastErrorText(L"TerminateThread", error);
                 return action;
             }
             action.refreshRequired = true;
+            action.requestSucceeded = true;
             action.statusText = L"● 结束 Thread 成功";
             return action;
 

@@ -18,5 +18,8 @@ struct ProcessDetailActionResult {
         DWORD previousSuspendCount = 0;
         bool writeAttempted = false, writeSucceeded = false, verified = false;
         bool rollbackAttempted = false, rollbackSucceeded = false;
+        bool unsupported = false;
+        bool waitKnown = false, exitCodeKnown = false;
+        DWORD waitResult = WAIT_FAILED, exitCode = 0;
     };
 }

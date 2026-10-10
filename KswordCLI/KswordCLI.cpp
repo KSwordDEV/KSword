@@ -1500,6 +1500,7 @@ namespace
             ks::cli::registerProcessControls();
             ks::cli::registerProcessBasic();
             ks::cli::registerProcessThreads();
+            ks::cli::registerProcessModules();
             #endif
             return true;
         }();

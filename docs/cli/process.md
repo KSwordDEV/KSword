@@ -176,3 +176,36 @@ CPU Set 设置后的回读失败会尝试恢复旧选择；输出 writeAttempted
 rollbackSucceeded 记录回滚 API 结果，rollbackVerified 另行对比设置前后的选择；写入后未确认恢复旧状态返回 6，不能当成未写入的普通失败。
 原始错误后端未提供时为 null，保留诊断文字但不解析它推导状态。
 跨处理器组的传统亲和性设置不支持；选择平台不可用的坐标在写入前失败。
+
+## 模块（迁移项 25）
+
+```powershell
+KswordCLI.exe process module enum --pid PID [--creation-time FILETIME] [--base ADDRESS] [--name NAME] [--limit N] [--backend r3] [--json]
+KswordCLI.exe process module unload --pid PID --base ADDRESS [--creation-time FILETIME] [--module-path PATH] [--image-size N] --confirm [--backend r3] [--json]
+KswordCLI.exe process module thread suspend --pid PID --base ADDRESS --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] [--module-path PATH] [--image-size N] --confirm [--backend r3] [--json]
+KswordCLI.exe process module thread resume --pid PID --base ADDRESS --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] [--module-path PATH] [--image-size N] --confirm [--backend r3] [--json]
+KswordCLI.exe process module thread terminate --pid PID --base ADDRESS --tid TID --thread-creation-time FILETIME [--creation-time FILETIME] [--module-path PATH] [--image-size N] --confirm [--backend r3] [--json]
+```
+
+使用 `help process module`、`help process module thread` 和叶子 help 逐层发现；本组默认 R3，无 R0 回退。
+枚举保留进程身份句柄，需要 PROCESS_QUERY_INFORMATION 与 PROCESS_VM_READ；权限失败返回 3，后端入口不可用返回 5。
+name 按完整模块文件名忽略大小写筛选，base 按模块句柄筛选，limit 默认 1000。
+输出 target、source、enumeration、threadEnumeration、matchedCount、returnedCount、truncated、modules。
+模块行含 handle、name、path、base、imageSize、infoEvidence、pathEvidence、representativeThread。
+地址为十六进制字符串；不可用的路径／映像信息为 null，并保留原始 Win32 错误。
+关联线程按真实起始地址是否位于映像范围选取，提供 tid 与创建时间；没有关联线程可以是有效结果。
+路径截断、代表线程证据缺失或输出截断返回 6，结构字节数不对齐返回 4。
+模块表增长时最多重试四次，持续增长只处理实际已填入的容量并标记不完整，避免空槽位冒充模块。
+
+unload 在完整模块快照上核对 base，可附 module-path 和 image-size 约束预期模块。
+共享后端定位目标中 FreeLibrary 所属模块后按函数偏移调用；找不到模块／有效范围或跨位数时返回 5，不能使用本机绝对函数地址猜测远程入口。
+保留进程身份句柄并等待远程线程至多 10 秒，输出 remoteThreadCreated、waitResult、freeLibraryResult、win32Error、requestSucceeded、verified、observed。
+requestSucceeded 仅表示 FreeLibrary 返回非零；重新枚举确认原基址消失才返回 0。
+仍有引用、基址仍存在或回读不可用返回 6。返回零或创建远程线程失败返回 3；等待超时返回 6，远程线程可能在 CLI 退出后继续。
+CLI 不强行杀死等待中的远程线程；卸载仍被目标代码使用的模块可能使目标不稳定。
+模块加载／卸载与快照存在时序窗口，路径／大小约束和回读不能替代目标内部的加载器同步。
+
+模块 thread 动作另外核对 TID、线程创建时间和起始地址与映像范围的关联，再复用共享模块线程动作。
+输出 module 与 threadAction，后者包含身份、requestSucceeded、verified、previousSuspendCount 和 observed。
+suspend／resume 一次只增减一次计数；模块后端 terminate 的退出码为 0（线程命令族 terminate 为 1），均在原句柄上回读验证。
+身份或关联不匹配返回 3，请求成功而效果未确认返回 6。GUI 导航、复制和跳转等辅助操作不作为命令发布。

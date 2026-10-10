@@ -78,6 +78,9 @@ struct ProcessModuleInfo {
     DWORD representativeThreadId = 0;
     ULONGLONG representativeThreadCreationTime100ns = 0;
     std::wstring statusText;
+    std::uintptr_t moduleHandle = 0;
+    bool infoKnown = false, pathKnown = false;
+    ProcessQueryEvidence infoEvidence, pathEvidence;
 };
 
 // ProcessR0AuditInfo is one read-only R0 evidence row shown in the audit tab.

@@ -336,4 +336,13 @@
     <ClInclude Include="..\shared\usermode\backend\process\DetailActionTypes.h" />
     <ClInclude Include="..\shared\ThreadAffinityR3.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessModules.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessModules.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ModuleActions.cpp" />
+    <ClInclude Include="R3ThreadShared.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessModulesSupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ModuleActions.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ModuleActionSupport.h" />
+  </ItemGroup>
 </Project>

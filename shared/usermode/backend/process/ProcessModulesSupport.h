@@ -26,7 +26,11 @@ struct ModuleApi {
 std::wstring FormatHexPointer(std::uintptr_t value);
 ModuleApi LoadModuleApi();
 std::wstring BaseNameFromPath(const std::wstring& path);
-std::vector<ProcessModuleInfo> CollectModules(DWORD processId, bool& succeededOut, std::wstring& statusOut);
+struct ModuleEnumerationEvidence {
+    bool complete = false, malformed = false, unsupported = false;
+    DWORD win32Error = ERROR_SUCCESS;
+};
+std::vector<ProcessModuleInfo> CollectModules(DWORD processId, bool& succeededOut, std::wstring& statusOut, ModuleEnumerationEvidence* evidence = nullptr);
 void AttachRepresentativeThreads(
     std::vector<ProcessModuleInfo>& modules,
     const std::vector<ProcessThreadInfo>& threads);
