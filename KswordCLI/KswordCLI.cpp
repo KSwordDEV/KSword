@@ -1521,6 +1521,7 @@ namespace
         ks::cli::registerSystemEventLog();
         ks::cli::registerSystemContextMenu();
         ks::cli::registerSystemTime();
+        ks::cli::registerSystemIoctl();
             #endif
             return true;
         }();

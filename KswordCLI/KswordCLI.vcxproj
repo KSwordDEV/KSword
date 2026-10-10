@@ -474,4 +474,9 @@
     <ClCompile Include="..\shared\usermode\backend\system\SystemTimeInfo.cpp" />
     <ClInclude Include="..\shared\usermode\backend\system\SystemTimeInfo.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SystemIoctl.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\IoctlDecoder.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\system\IoctlDecoder.h" />
+  </ItemGroup>
 </Project>
