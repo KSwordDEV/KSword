@@ -412,4 +412,9 @@
     <ClCompile Include="..\shared\usermode\backend\kernel\AtomTable.cpp" />
     <ClInclude Include="..\shared\usermode\backend\kernel\AtomTable.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelNtQuery.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\NtQuery.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\NtQuery.h" />
+  </ItemGroup>
 </Project>

@@ -123,4 +123,5 @@ void registerKernelEndpoints();
 void registerKernelObjectTypes();
 void registerKernelPipes();
 void registerKernelAtoms();
+void registerKernelNtQuery();
 }

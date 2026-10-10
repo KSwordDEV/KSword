@@ -1,5 +1,31 @@
 # 内核对象与证据 R3 命令
 
+## 安全 NtQuery 预设与导出（迁移项 56）
+
+```powershell
+KswordCLI.exe help kernel nt-query
+KswordCLI.exe help kernel nt-query process
+KswordCLI.exe help kernel nt-query process basic
+KswordCLI.exe kernel nt-query process basic query --help
+KswordCLI.exe kernel nt-query thread times query --json
+KswordCLI.exe kernel nt-query query --json
+KswordCLI.exe kernel nt-query exports enum --filter Process --json
+```
+
+`kernel nt-query <类别> <预设> query` 只调用已有安全预设，使用当前 CLI 的进程／线程伪句柄及自有只查询令牌，不接收外部 PID、任意句柄或信息类编号。全部叶子支持 `--backend r3`／`--json`。`kernel nt-query query` 汇总 18 个预设；帮助中逐层查找具体类别和预设，不展开所有后代。
+
+| 类别 | 预设（实际信息类） |
+| --- | --- |
+| system | basic (0)、performance (2)、time (3)、processes (5)、modules (11)、handles (16) |
+| process | basic (0)、debug-port (7)、handle-count (20)、image-name (27) |
+| thread | basic (0)、times (1) |
+| token | user (1)、integrity (25)、statistics (10) |
+| object | basic (0)、name (1)、type (2)，使用当前进程伪句柄 |
+
+data 提供 source/selfProcessId/selfThreadId/category/preset、queryCount/successCount/failedCount/unavailableCount、limited/malformed、queries、token 的打开／关闭状态。每个 query 带 category/preset/function/informationClass、apiAvailable/attempted/success/ntStatus、returnedBytes（实际返回）／allocatedBytes（容量）、attemptCount/limited/malformed；没有调用时状态／长度为 null。数量为十进制字符串，状态为十六进制。固定长度类的 length-mismatch 可按实际要求缩小缓冲，增长／重试最多 16 MiB／6 次。不解析或输出含指针的原始缓冲，不把调用成功解释成安全状态已证实。完整调用为 0；混合结果、关闭或缓冲受限为 6；全部操作失败为 3；API／信息类不可用为 5；实际长度不合法为 4。
+
+`kernel nt-query exports enum` 支持 `--filter` 名称子串、`--limit 1..512`（512）、`--backend r3`／`--json`。data 提供 moduleAvailable/imageBytes/win32Error、complete/limited/malformed、namedExportCount/ntQueryExportCount/matchedCount/returnedCount/truncated、exports 的 name/ordinal/rva/forwarded。只列出当前加载 ntdll 的 NtQuery 前缀导出，不调用它们，不推断某信息类支持、安全或未被 Hook。先有界复制当前映像（64 MiB），再校验 PE 头／目录／数组／字符串／序号／函数 RVA，借用的模块句柄不释放。有效空为 0、模块不可用为 5、读取失败为 3、格式错误为 4、读取／输出上限为 6。所有 help 都不读取映像或发起原生查询，不打开驱动或回退 R0。
+
 ## Atom／注册剪贴板格式名称（迁移项 55）
 
 ```powershell

@@ -1531,6 +1531,7 @@ namespace
         ks::cli::registerKernelObjectTypes();
         ks::cli::registerKernelPipes();
         ks::cli::registerKernelAtoms();
+        ks::cli::registerKernelNtQuery();
             #endif
             return true;
         }();
