@@ -342,4 +342,9 @@
     <ClInclude Include="..\shared\usermode\backend\system\FileHolderScanner.h" />
     <ClInclude Include="..\shared\usermode\backend\system\ModulePath.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SystemEventLog.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\EventLogReader.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\system\EventLogReader.h" />
+  </ItemGroup>
 </Project>

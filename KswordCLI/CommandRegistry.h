@@ -110,4 +110,5 @@ void registerWindowHierarchy();
 void registerWindowHotkeys();
 void registerMonitorEtw();
 void registerSystemFileHolders();
+void registerSystemEventLog();
 }

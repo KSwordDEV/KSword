@@ -1518,6 +1518,7 @@ namespace
         ks::cli::registerWindowHotkeys();
         ks::cli::registerMonitorEtw();
         ks::cli::registerSystemFileHolders();
+        ks::cli::registerSystemEventLog();
             #endif
             return true;
         }();
