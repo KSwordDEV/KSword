@@ -552,4 +552,9 @@
     <ClCompile Include="..\shared\usermode\backend\security\Vbs.cpp" />
     <ClInclude Include="..\shared\usermode\backend\security\Vbs.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SecurityHyperV.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\security\HyperV.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\HyperV.h" />
+  </ItemGroup>
 </Project>

@@ -1535,6 +1535,7 @@ namespace
         ks::cli::registerKernelHookBaseline();
         ks::cli::registerSecurityCi();
         ks::cli::registerSecurityVbs();
+        ks::cli::registerSecurityHyperV();
             #endif
             return true;
         }();

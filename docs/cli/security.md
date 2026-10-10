@@ -1,5 +1,24 @@
 # 安全证据 R3 命令
 
+## Hyper-V／VMBus／HvSocket（迁移项 60）
+
+```powershell
+KswordCLI.exe security hyperv help
+KswordCLI.exe help security hyperv features enum
+KswordCLI.exe security hyperv computer-system query --json
+KswordCLI.exe security hyperv features enum --timeout-ms 30000 --json
+KswordCLI.exe security hyperv devices enum --json
+KswordCLI.exe security hyperv services query --json
+KswordCLI.exe security hyperv registry query --json
+KswordCLI.exe security hyperv query --json
+```
+
+参数和结构化来源格式同 CI。`query` 汇总八个既有来源：计算机 CIM、四个可选功能状态、PnP 名称候选、四个服务状态、一项 DeviceGuard 配置。computer-system payload 是 hypervisorPresent/manufacturer/model；该标志描述通用 hypervisor 存在，可在 VMware 来宾为 true，不能据此断定正在运行 Hyper-V。
+
+features payload 对 Microsoft-Hyper-V-All／Microsoft-Hyper-V-Hypervisor／VirtualMachinePlatform／Microsoft-Windows-Subsystem-Linux 分别保留 name/available/state/stateId 和原始异常；每项独立捕获错误，权限或 SKU 限制不会写成 Disabled。所有不可用为 5，混合结果为 6。读取 DISM 信息可能较慢，允许显式增加每辅助进程超时，仍受整体预算限制；没有启用／禁用操作。
+
+devices 仅复用后端的 Hyper-V/VMBus/Virtual Switch/vEthernet/HvSocket 名称正则候选，不证明设备当前活动或属于特定 hypervisor。payload 保留 matchedCount/returnedCount/truncated 与最多 40 条 name/pnpClass/status/deviceId；筛选空可成功，实际截断为 6。services 查询 vmbus/VMSMP/HvHost/vpci 的 SCM 登记／状态，不证明内核模块加载。registry 读取 DeviceGuard\HypervisorEnforcedCodeIntegrity；旧 UI 标题“Hypervisor launch type”实际不是 BCD 查询，CLI 据实命名，不推断 BCD hypervisorlaunchtype。所有来源缺失／未知按来源保留，不打开驱动、不回退 R0，help 不执行查询。
+
 ## VBS／HVCI／SKCI（迁移项 59）
 
 ```powershell

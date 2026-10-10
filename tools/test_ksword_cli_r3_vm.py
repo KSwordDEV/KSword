@@ -63,7 +63,7 @@ exit $rc
         guest.copy(str(local_runner), guest_root + r'\r3-feature-runner.ps1')
         rc = guest.run(r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
                        r'-NoProfile -ExecutionPolicy Bypass -File C:\KSwordCliLab\r3-feature-runner.ps1',
-                       180 if feature == 'process-controls' else 60)
+                       180 if feature in ('process-controls', 'security-hyperv') else 60)
         guest.copy(guest_root + '\\' + feature + '.log', str(reports / (feature + '.log')), False)
         if rc:
             raise RuntimeError(f'Guest suite failed: {reports / (feature + ".log")}')
