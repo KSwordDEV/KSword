@@ -113,4 +113,14 @@
     <ClCompile Include="R3Input.cpp" />
     <ClCompile Include="..\shared\usermode\backend\registry\RegistryMutations.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3Startup.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\startup\StartupEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\Common.cpp" />
+    <ClInclude Include="R3StartupShared.h" />
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupTypes.h" />
+    <ClInclude Include="..\shared\usermode\backend\startup\StartupEnumerator.h" />
+    <ClInclude Include="..\shared\usermode\backend\Common.h" />
+    <ClInclude Include="..\shared\usermode\backend\Win32.h" />
+  </ItemGroup>
 </Project>

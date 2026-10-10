@@ -74,4 +74,5 @@ void registerService();
 void registerRegistryBrowse();
 void registerRegistrySearch();
 void registerRegistryMutations();
+void registerStartupEnumeration();
 }

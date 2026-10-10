@@ -1457,6 +1457,7 @@ namespace
             ks::cli::registerRegistryBrowse();
             ks::cli::registerRegistrySearch();
             ks::cli::registerRegistryMutations();
+            ks::cli::registerStartupEnumeration();
             #endif
             return true;
         }();

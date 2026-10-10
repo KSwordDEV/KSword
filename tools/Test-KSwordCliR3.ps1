@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service','registry-browse','registry-search','registry-mutations')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
+﻿param([Parameter(Mandatory=$true)][string]$Cli, [Parameter(Mandatory=$true)][ValidateSet('ping','trace-route','dns','firewall','endpoint-audit','service','registry-browse','registry-search','registry-mutations','startup-enum')][string]$Feature, [string]$ReportPath, [switch]$InGuest)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\KswordCliR3TestSupport.ps1"
 switch ($Feature) {
@@ -368,6 +368,42 @@ switch ($Feature) {
                 [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($sub,$false)
                 Remove-Item -LiteralPath $payload -ErrorAction SilentlyContinue
             }
+        }
+    }
+    'startup-enum' {
+        $help=Invoke-Cli @('help','startup','enum')
+        Assert ($help.Contains('registry-only-service') -and $help.Contains('unknown')) 'Startup help and evidence limits'
+        Assert ((Invoke-Cli @('startup','enum','--help')) -eq $help) 'Startup inline help'
+        foreach ($bad in @(
+            @('startup','enum','--kind','bad','--json'),
+            @('startup','enum','--scope','bad','--json'),
+            @('startup','enum','--backend','r0','--json'),
+            @('startup','enum','--unknown','1','--json')
+        )) { Assert (((Invoke-Cli $bad 1) | ConvertFrom-Json).status -eq 'failed') 'Startup invalid arguments' }
+        $snapshot=(Invoke-Cli @('startup','enum','--limit','10000','--json') @(0,6)) | ConvertFrom-Json
+        Assert ($snapshot.data.userSid -eq [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) 'Startup identity context'
+        Assert (@($snapshot.data.entries | Where-Object {$_.kind -in @('driver','registry-only-service') -and !$_.readOnly}).Count -eq 0) 'Read-only service observations'
+        Assert (@($snapshot.data.entries | Where-Object {$_.kind -eq 'task' -and $_.state -ne 'unknown'}).Count -eq 0) 'Task file facade cannot claim enabled state'
+        $service=@($snapshot.data.entries | Where-Object serviceName -eq 'EventLog')
+        $oracle=Get-CimInstance Win32_Service -Filter "Name='EventLog'"
+        Assert ($service.Count -eq 1 -and $service[0].serviceStartType -eq 2 -and $service[0].command -eq $oracle.PathName) 'SCM startup record oracle'
+        $limited=(Invoke-Cli @('startup','enum','--limit','0','--json') @(0,6)) | ConvertFrom-Json
+        Assert ($limited.data.returnedCount -eq 0 -and $limited.data.displayTruncated) 'Startup display limit'
+        Assert ((Invoke-Cli @('startup','enum','--limit','1') @(0,6)).Contains('userSid:')) 'Startup text'
+        if ($InGuest) {
+            $name='KSwordCliStartup-'+[Guid]::NewGuid().ToString('N')
+            $key=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
+            try {
+                $command='C:\Windows\System32\cmd.exe /c exit'
+                $key.SetValue($name,$command,[Microsoft.Win32.RegistryValueKind]::String)
+                $actual=(Invoke-Cli @('startup','enum','--kind','run','--scope','user','--name',$name,'--json') @(0,6)) | ConvertFrom-Json
+                Assert ($actual.data.matchedCount -eq 1 -and $actual.data.entries[0].state -eq 'active' -and $actual.data.entries[0].command -eq $key.GetValue($name)) 'Run registry oracle'
+                Assert ($actual.data.entries[0].registryValueName -eq $name -and $actual.data.entries[0].registryRoot -eq 'HKCU') 'Run raw identity'
+                $again=(Invoke-Cli @('startup','enum','--name',$name,'--json') @(0,6)) | ConvertFrom-Json
+                Assert ($again.data.entries[0].id -eq $actual.data.entries[0].id) 'Stable startup identifier'
+            } finally {$key.DeleteValue($name,$false);$key.Dispose()}
+            $empty=(Invoke-Cli @('startup','enum','--name',$name,'--json') @(0,6)) | ConvertFrom-Json
+            Assert ($empty.data.matchedCount -eq 0) 'Removed startup entry must disappear'
         }
     }
 }
