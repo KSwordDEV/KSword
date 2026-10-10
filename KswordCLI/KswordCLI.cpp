@@ -1530,6 +1530,7 @@ namespace
         ks::cli::registerKernelEndpoints();
         ks::cli::registerKernelObjectTypes();
         ks::cli::registerKernelPipes();
+        ks::cli::registerKernelAtoms();
             #endif
             return true;
         }();

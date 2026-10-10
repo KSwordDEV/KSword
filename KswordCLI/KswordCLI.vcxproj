@@ -522,4 +522,9 @@
     <ClCompile Include="..\shared\usermode\backend\kernel\NamedPipes.cpp" />
     <ClInclude Include="..\shared\usermode\backend\kernel\NamedPipes.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelAtoms.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\AtomTable.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\AtomTable.h" />
+  </ItemGroup>
 </Project>

@@ -1,5 +1,22 @@
 # 内核对象与证据 R3 命令
 
+## Atom／注册剪贴板格式名称（迁移项 55）
+
+```powershell
+KswordCLI.exe kernel atoms help
+KswordCLI.exe help kernel atoms enum
+KswordCLI.exe kernel atoms enum --scope global --filter Ksword --json
+KswordCLI.exe kernel atoms enum --scope clipboard --start-id 0xc000 --end-id 0xffff --json
+```
+
+`kernel atoms enum` 复用 GlobalGetAtomNameW／GetClipboardFormatNameW，支持 `--scope all|global|clipboard`（all）、`--start-id`／`--end-id`（0xc000..0xffff，默认全范围，起点不能大于终点）、`--filter` 名称／十六进制 ID 子串、`--duration-ms 100..30000`（8000）、`--limit 1..16384`（16384，仅输出上限）、`--backend r3`、`--json`。
+
+data 提供 source/scope/filter/startId/endId、completeRange/evidenceComplete、limited/cancelled/malformed、scannedIdCount/globalNameCount/clipboardNameCount/failedQueryCount/matchedCount/returnedCount/truncated 和 atoms。每个 ID 有 id/hexId、独立 global/clipboard 的 attempted/available/absent/win32Error/malformed/name、sameName（只有两个来源都取得名称时有布尔值）。两个表的同一数值可以对应不同名称，不合并成假定统一的表。
+
+已查询的未分配 ID 返回 invalid-handle／invalid-parameter／not-found 时是有效空洞；未查询或不适用字段为 null；其他错误、无错误码的失败保留为不可用，不冒充空。完整有效空为 0；无名称且有意外查询失败为 5；混合失败、预算／取消或输出截断为 6；不合法 API 长度为 4。仅覆盖公共字符串 ID 范围，不读取进程本地 Atom 表、整数 Atom、预定义剪贴板格式、引用数或所有者；不创建／删除 Atom、不打开或读取／修改剪贴板，不回退 R0。help 不扫描 ID。
+
+VM 测试注册自建 Unicode Global Atom 和剪贴板格式，并独立查询核对名称／来源；Global Atom 删除后验证有效空洞，剪贴板格式登记由隔离快照恢复清理。宿主只执行读取。
+
 ## 命名管道（迁移项 54）
 
 ```powershell

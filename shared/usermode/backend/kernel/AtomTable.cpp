@@ -7,6 +7,21 @@
 #include <sstream>
 #include <utility>
 namespace ks::r3::kernel {
+AtomSnapshot CollectAtoms(const AtomQueryOptions& options){AtomSnapshot result;if(options.first<0xc000||options.last>0xffff||options.first>options.last||(!options.global&&!options.clipboard)){result.malformed=true;return result;}const auto deadline=options.deadlineTick?options.deadlineTick: ::GetTickCount64()+8000;
+    for(UINT id=options.first;id<=options.last;++id){if(options.cancelled&&options.cancelled()){result.cancelled=true;break;}if(::GetTickCount64()>=deadline){result.limited=true;break;}
+        AtomEntry entry;entry.id=id;auto query=[&](AtomNameEvidence& evidence,bool global){wchar_t buffer[512]{};evidence.attempted=true;::SetLastError(0);
+            const auto length=global?static_cast<std::int64_t>(::GlobalGetAtomNameW(static_cast<ATOM>(id),buffer,512)):static_cast<std::int64_t>(::GetClipboardFormatNameW(id,buffer,512));evidence.error=::GetLastError();
+            if(length<0||length>=512){evidence.malformed=true;result.malformed=true;return;}if(length>0){evidence.available=true;evidence.name.assign(buffer,static_cast<std::size_t>(length));return;}
+            evidence.absent=evidence.error==ERROR_INVALID_HANDLE||evidence.error==ERROR_INVALID_PARAMETER||evidence.error==ERROR_FILE_NOT_FOUND;
+            if(!evidence.absent)++result.failedQueries;
+        };
+        if(options.global){query(entry.global,true);if(entry.global.available)++result.globalFound;}
+        if(options.clipboard){query(entry.clipboard,false);if(entry.clipboard.available)++result.clipboardFound;}
+        ++result.scannedIds;if(entry.global.available||entry.clipboard.available||entry.global.malformed||entry.clipboard.malformed||(entry.global.attempted&&!entry.global.absent)||(entry.clipboard.attempted&&!entry.clipboard.absent))result.entries.push_back(std::move(entry));
+        if(result.malformed)break;
+    }
+    result.complete=!result.limited&&!result.cancelled&&!result.malformed&&result.scannedIds==options.last-options.first+1;return result;
+}
 KernelOperationResult QueryAtomTable(const KernelRequest& request) {
     QueryPacket packet;
     const auto atomHexText = [](const UINT atomValue) {
@@ -15,29 +30,10 @@ KernelOperationResult QueryAtomTable(const KernelRequest& request) {
         return stream.str();
     };
 
-    for (UINT atom = 0xC000; atom <= 0xFFFF; ++atom) {
-        wchar_t globalNameBuffer[512]{};
-        const UINT globalLength = ::GlobalGetAtomNameW(
-            static_cast<ATOM>(atom),
-            globalNameBuffer,
-            static_cast<int>(_countof(globalNameBuffer)));
-
-        wchar_t clipboardNameBuffer[512]{};
-        const int clipboardLength = ::GetClipboardFormatNameW(
-            atom,
-            clipboardNameBuffer,
-            static_cast<int>(_countof(clipboardNameBuffer)));
-
-        if (globalLength == 0 && clipboardLength <= 0) {
-            continue;
-        }
-
-        const std::wstring globalName = globalLength > 0
-            ? std::wstring(globalNameBuffer, globalNameBuffer + globalLength)
-            : std::wstring();
-        const std::wstring clipboardName = clipboardLength > 0
-            ? std::wstring(clipboardNameBuffer, clipboardNameBuffer + clipboardLength)
-            : std::wstring();
+    const auto snapshot=CollectAtoms();
+    for (const auto& entry:snapshot.entries) {
+        if(!entry.global.available&&!entry.clipboard.available)continue;
+        const auto atom=entry.id;const auto& globalName=entry.global.name;const auto& clipboardName=entry.clipboard.name;
         const std::wstring displayName = !globalName.empty() ? globalName : clipboardName;
 
         std::wstring sourceText;
