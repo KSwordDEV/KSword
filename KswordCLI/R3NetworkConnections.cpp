@@ -45,12 +45,16 @@ Result close(const Args& args) {
     if (it == snapshot.entries.end()) return {3, Json::object({}), {L"The selected IPv4 TCP tuple and owner no longer exist."}};
     if (!ConnectionCanClose(*it)) return {5, row(*it), {L"IPv4 TCP listeners and closed entries cannot be deleted."}};
     const auto action = CloseTcpConnection(*it);
-    if (!action.success) return {3, Json::object({{L"target", row(*it)}, {L"win32Error", Json::number(action.win32Error)}}), {action.message}};
     const auto after = EnumerateConnections();
     const bool present = std::any_of(after.entries.begin(), after.entries.end(), match);
-    return {after.success && after.diagnosticText.empty() && !present ? 0 : 6,
-        Json::object({{L"target", row(*it)}, {L"requestSucceeded", Json::boolean(true)}, {L"postcheckPresent", Json::boolean(present)},
-            {L"postcheckComplete", Json::boolean(after.success && after.diagnosticText.empty())}}), {action.message}};
+    const bool complete = after.success && after.diagnosticText.empty();
+    Result result{!action.success ? 3 : complete && !present ? 0 : 6,
+        Json::object({{L"target", row(*it)}, {L"win32Error", Json::number(action.win32Error)},
+            {L"requestSucceeded", Json::boolean(action.success)}, {L"postcheckPresent", complete ? Json::boolean(present) : Json{}},
+            {L"postcheckComplete", Json::boolean(complete)}}),
+        {action.success ? action.message : L"SetTcpEntry failed. win32Error is the native status; target presence is reported separately by the postcheck. An API error alone does not prove the connection disappeared."}};
+    if (!after.diagnosticText.empty()) result.diagnostics.push_back(after.diagnosticText);
+    return result;
 }
 }
 void registerNetworkConnections() {
@@ -59,6 +63,6 @@ void registerNetworkConnections() {
         L"No driver required. UDP state is null; limit affects display only. JSON data: matchedCount, returnedCount, truncated, entries.", enumerate});
     addCommand({L"network connections close", L"KswordCLI.exe network connections close --pid PID --local-address IP --local-port N --remote-address IP --remote-port N --confirm [--backend r3] [--json]",
         L"Close one live IPv4 TCP connection by its exact tuple and owner.", L"Required: --pid, --local-address, --local-port, --remote-address, --remote-port, --confirm. Optional: --backend r3, --json.",
-        L"Administrator required. IPv6/UDP/listeners are unsupported. Re-enumerates before closing and verifies tuple absence afterwards.", close});
+        L"Administrator required. IPv6/UDP/listeners are unsupported. Re-enumerates before closing and after success or failure. Output: target, native win32Error, requestSucceeded, postcheckPresent (null if incomplete), postcheckComplete. API failure returns 3 even if the tuple disappeared independently; error 317 alone does not prove disappearance. Success with absent tuple returns 0; incomplete/present postcheck returns 6.", close});
 }
 }

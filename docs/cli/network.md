@@ -22,10 +22,15 @@ JSON data 包含 `matchedCount`、`returnedCount`、`truncated`、`entries`。
 使用后端保存的原始网络字节序元组调用 SetTcpEntry。成功后重新枚举：连接消失返回 0，
 回读不完整或仍存在返回 6。目标已消失返回 3，监听等不支持状态返回 5。
 JSON data 包含目标、`requestSucceeded`、`postcheckPresent`、`postcheckComplete`；
-系统调用失败时含 `win32Error`。目标的消失不能证明应用程序不会建立新的连接。
+系统调用失败时也重新枚举，保留 `win32Error`、`requestSucceeded=false` 与回读结果；
+回读不完整时 `postcheckPresent=null`。错误 317 本身不能证明目标已经消失，
+失败后独立消失也不会把系统调用失败提升为成功。目标的消失不能证明应用程序不会建立新的连接。
 
 自动测试使用本机回环 TCP／UDP 夹具，与独立 Get-NetTCPConnection 结果核对；
-关闭后通过对端 socket 验证实际断开，不以退出码作为唯一证据。
+关闭后通过对端 socket 验证实际断开，不以退出码作为唯一证据。默认测试要求成功关闭；
+宿主机复查可显式指定 `Test-KSwordCliR3Connections.ps1 -AllowNativeCloseFailure`，
+仅当 CLI 返回 317、独立 SetTcpEntry 同样返回 317 且连接保持 Established 时验收失败语义，
+报告中的 `closeSuccessMeasured=false` 明确表示没有取得关闭成功实测。
 
 ## Ping（迁移项 02）
 
