@@ -1,5 +1,24 @@
 # 安全证据 R3 命令
 
+## AppLocker／AppID（迁移项 61）
+
+```powershell
+KswordCLI.exe security applocker help
+KswordCLI.exe help security applocker policy query
+KswordCLI.exe security applocker policy query --json
+KswordCLI.exe security applocker service query --json
+KswordCLI.exe security applocker event-log query --json
+KswordCLI.exe security applocker drivers query --json
+KswordCLI.exe security applocker registry query --json
+KswordCLI.exe security applocker query --json
+```
+
+参数和来源／辅助进程字段同 CI。`query` 汇总七个来源。policy 仅输出 Get-AppLockerPolicy -Effective 的 collectionCount/ruleCount（十进制字符串）、collections 的 type/enforcementMode/ruleCount、summaryOnly；统计 FilePathRule/FilePublisherRule/FileHashRule 元素，不把扩展或注释节点当作规则，不输出规则路径／SID 等详情。有效零规则为 0；cmdlet／SKU／权限不可用保留 5，错误 XML 格式为 4。有效策略摘要也不预测某文件是否允许执行。
+
+service 查询 AppIDSvc 的 name/status/stateId/startType/startTypeId；drivers 查询 AppID/applockerfltr/mssecflt 的 SCM 登记和状态，不能证明模块已加载。event-log 只读 AppLocker 的 EXE and DLL、MSI and Script 及 CodeIntegrity/Operational 三个渠道的 name/available/enabled/recordCount，异常保留 errorId/HResult；记录数可为 null，不能把不可用解释成未启用或零记录。三项独立失败，混合为 6。registry 读取 HKLM64 SRP 的 DefaultLevel 配置，不把缺失配置当作默认执行许可。
+
+没有策略写入／启停服务／事件清理／执行策略测试，不加载驱动或回退 R0；help 不查询。测试独立核对有效策略元素数、服务状态／启动配置、渠道元数据、三项驱动服务及 SRP 值；系统缺少能力时验收其明确不可用语义。
+
 ## Hyper-V／VMBus／HvSocket（迁移项 60）
 
 ```powershell

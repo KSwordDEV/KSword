@@ -199,7 +199,7 @@ CommandResult RunPowerShellJson(const std::wstring& body,DWORD timeoutMs,const s
 SecuritySnapshot CollectSecurityProbes(const std::vector<SecurityProbe>& probes,const SecurityProbeOptions& options){SecuritySnapshot snapshot;snapshot.requestedCount=probes.size();const auto deadline=::GetTickCount64()+options.durationMs;
     for(const auto& probe:probes){if(options.cancelled&&options.cancelled()){snapshot.cancelled=true;break;}const auto now=::GetTickCount64();if(now>=deadline){snapshot.limited=true;break;}SecurityProbeResult result;result.probe=probe;
         if(probe.kind==SecurityProbeKind::Command){result.command=RunPowerShellJson(probe.body,static_cast<DWORD>((std::min<ULONGLONG>)(options.timeoutMs,deadline-now)),options.cancelled);const auto& c=result.command;
-            result.code=c.decodeMalformed?4:c.outputTruncated||c.cancelled?6:c.timedOut||!c.started||c.win32Error||c.outputError||!c.exitCodeKnown||!c.waitCompleted?3:c.closeError?6:c.exitCode==0?0:c.exitCode==5?5:c.exitCode==6?6:3;
+            result.code=c.decodeMalformed?4:c.outputTruncated||c.cancelled?6:c.timedOut||!c.started||c.win32Error||c.outputError||!c.exitCodeKnown||!c.waitCompleted?3:c.closeError?6:c.exitCode==0?0:c.exitCode==4?4:c.exitCode==5?5:c.exitCode==6?6:3;
         }else if(probe.kind==SecurityProbeKind::Registry){auto& e=result.registry;
             [&]{HKEY key=nullptr;e.openAttempted=true;e.openError=static_cast<DWORD>(::RegOpenKeyExW(HKEY_LOCAL_MACHINE,probe.path.c_str(),0,KEY_QUERY_VALUE|KEY_WOW64_64KEY,&key));
                 if(e.openError){e.absent=e.openError==ERROR_FILE_NOT_FOUND||e.openError==ERROR_PATH_NOT_FOUND;return;}if(!key){e.malformed=true;return;}

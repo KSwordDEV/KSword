@@ -7,5 +7,6 @@
 #include "Vbs.h"
 #include "HyperV.h"
 namespace ks::r3::security {
+const std::vector<SecurityProbe>& AppLockerProbes();
 void AppendAppLockerR3(std::vector<MiscAuditRow>& rows);
 }

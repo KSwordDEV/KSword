@@ -1536,6 +1536,7 @@ namespace
         ks::cli::registerSecurityCi();
         ks::cli::registerSecurityVbs();
         ks::cli::registerSecurityHyperV();
+        ks::cli::registerSecurityAppLocker();
             #endif
             return true;
         }();

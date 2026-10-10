@@ -128,4 +128,5 @@ void registerKernelHookBaseline();
 void registerSecurityCi();
 void registerSecurityVbs();
 void registerSecurityHyperV();
+void registerSecurityAppLocker();
 }

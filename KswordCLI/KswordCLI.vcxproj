@@ -557,4 +557,9 @@
     <ClCompile Include="..\shared\usermode\backend\security\HyperV.cpp" />
     <ClInclude Include="..\shared\usermode\backend\security\HyperV.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SecurityAppLocker.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\security\AppLocker.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\AppLocker.h" />
+  </ItemGroup>
 </Project>
