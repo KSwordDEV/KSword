@@ -15,6 +15,7 @@
 #include "BaseNamedObjects.h"
 namespace ks::r3::kernel {
 bool IsCommunicationType(const std::wstring& typeName);
+RecursiveDirectorySnapshot CollectCommunicationEndpoints(RecursiveDirectoryOptions options);
 void AppendCommunicationEndpointsRecursive(
     QueryPacket& packet,
     const NtRuntime& runtime,

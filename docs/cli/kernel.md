@@ -1,5 +1,19 @@
 # 内核对象与证据 R3 命令
 
+## 命名通信端点（迁移项 52）
+
+```powershell
+KswordCLI.exe kernel endpoints help
+KswordCLI.exe help kernel endpoints enum
+KswordCLI.exe kernel endpoints enum --root '\BaseNamedObjects' --max-depth 1 --json
+```
+
+`kernel endpoints enum` 使用共享后端通信类型筛选：ALPC Port、Port、WaitCompletionPacket、TpWorkerFactory、Event、Section、Mutant、Semaphore、IoCompletion、Timer、Job、Keyed Event。这些是命名 IPC／同步对象注册证据，不能推断所有者、服务端／客户端、消息内容或内核地址；不打开这些对象或发送消息。
+
+参数与 `kernel directory enum` 相同，默认深度 3，默认起点是共享后端的常见根和发现的会话根；指定 `--root` 时只遍历该根。跨根共享保留行／扫描条目／时间预算，Directory 仅用于遍历，不输出，SymbolicLink 不跟随。筛选不剪去父目录。data 增加 roots、sessionDiscovery/currentSessionKnown；其余深度、计数、条目、来源、预算和完整性格式同目录递归。数量为观察前缀，自动根发现失败为部分结果。完整有效空为 0；读取／发现／元数据／关闭受限、实际预算或输出截断为 6；所有根读取失败为 3，API 缺失为 5，格式错误为 4。help 无原生调用，不依赖 KswordARK 或回退 R0。
+
+测试用自建父子目录和两层事件核对筛选／深度，确认目录不输出、链接不跟随、筛选不剪枝；独立原生查询核对 KnownDlls 中 Section 对象，区分实际保留预算与仅输出截断。
+
 ## 命名对象（迁移项 51）
 
 ```powershell

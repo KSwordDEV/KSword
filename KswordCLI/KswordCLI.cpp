@@ -1527,6 +1527,7 @@ namespace
         ks::cli::registerKernelSymlink();
         ks::cli::registerKernelObjects();
         ks::cli::registerKernelBaseNamed();
+        ks::cli::registerKernelEndpoints();
             #endif
             return true;
         }();

@@ -119,4 +119,5 @@ void registerKernelDirectory();
 void registerKernelSymlink();
 void registerKernelObjects();
 void registerKernelBaseNamed();
+void registerKernelEndpoints();
 }

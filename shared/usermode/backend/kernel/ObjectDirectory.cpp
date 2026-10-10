@@ -22,7 +22,7 @@ RecursiveDirectorySnapshot CollectObjectDirectories(const RecursiveDirectoryOpti
         for(const auto& entry:entries){
             if(result.rows.size()>=options.maxRows||result.scannedRows>=options.maxScannedRows){result.limited=true;break;}
             ++result.scannedRows;
-            if(MatchesDirectoryFilter(entry,options.filter)){++result.matchedObserved;result.rows.push_back({entry,item.depth});}
+            if((!options.selectEntry||options.selectEntry(entry))&&MatchesDirectoryFilter(entry,options.filter)){++result.matchedObserved;result.rows.push_back({entry,item.depth});}
             if(entry.typeName==L"Directory"){
                 if(item.depth>=options.maxDepth){++result.depthBoundaryCount;continue;}
                 const auto key=ToLowerCopy(entry.fullPath);if(visited.insert(key).second)queue.push_back({entry.fullPath,item.depth+1});else ++result.deduplicatedPaths;

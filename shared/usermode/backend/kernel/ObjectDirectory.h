@@ -15,6 +15,7 @@ struct RecursiveDirectoryOptions {
     std::wstring root=L"\\",filter;
     DWORD maxDepth=4,maxRows=2500,maxScannedRows=10000;
     DirectoryQueryOptions directory;
+    std::function<bool(const DirectoryEntry&)> selectEntry;
 };
 struct RecursiveDirectoryRow {DirectoryEntry entry;DWORD depth=0;};
 struct RecursiveDirectorySnapshot {
