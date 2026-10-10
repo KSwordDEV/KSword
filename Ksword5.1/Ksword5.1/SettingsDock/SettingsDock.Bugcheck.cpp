@@ -1,4 +1,6 @@
 #include "SettingsDock.h"
+#include "./SettingsDock.Layout.h"
+#include "../UI/FlowLayout.h"
 #include "../UI/ToolbarMetrics.h"
 
 #include "../Framework.h"
@@ -133,7 +135,7 @@ void SettingsDock::initializeBugcheckDiagnosticsControls(
         renderModeLabel,
         QStringLiteral("settings.features.bugcheck.render_mode"),
         QStringLiteral("蓝屏渲染模式"));
-    bugcheckLayout->addWidget(renderModeLabel);
+
     m_bugcheckDiagnosticsRenderModeCombo = new QComboBox(bugcheckGroupBox);
     renderModeLabel->setBuddy(m_bugcheckDiagnosticsRenderModeCombo);
     m_bugcheckDiagnosticsRenderModeCombo->addItem(
@@ -156,7 +158,9 @@ void SettingsDock::initializeBugcheckDiagnosticsControls(
         m_bugcheckDiagnosticsRenderModeCombo,
         QStringLiteral("settings.features.bugcheck.render_mode.tooltip"),
         QStringLiteral("选择后立即保存。已安装的诊断会切换模式；尚未安装时在下次安装生效。Linux 风格将已采集诊断信息写入中央二维码。"));
-    bugcheckLayout->addWidget(m_bugcheckDiagnosticsRenderModeCombo);
+    auto* modeForm = ks::settings::ui::Form(bugcheckLayout);
+    modeForm->addRow(renderModeLabel, m_bugcheckDiagnosticsRenderModeCombo);
+    ks::ui::NormalizeToolbarControl(m_bugcheckDiagnosticsRenderModeCombo);
     // activated 只响应用户操作，载入配置或切换语言不会误写磁盘/访问驱动。
     connect(
         m_bugcheckDiagnosticsRenderModeCombo,
@@ -172,6 +176,10 @@ void SettingsDock::initializeBugcheckDiagnosticsControls(
     m_bugcheckDiagnosticsStatusLabel->setWordWrap(true);
     bugcheckLayout->addWidget(m_bugcheckDiagnosticsStatusLabel);
 
+    // 三个动作保留明确文字和即时语义，同排排列，窄窗口自动换行。
+    auto* actions = new QWidget(bugcheckGroupBox);
+    auto* actionFlow = new ks::ui::FlowLayout(actions, 0, 8, 8);
+    bugcheckLayout->addWidget(actions);
     // 三个文字按钮表达的是不同持久化与生命周期语义，图标不足以避免误解。
     m_enableBugcheckDiagnosticsAutoInstallButton = new QPushButton(
         QStringLiteral("驱动安装时自动安装蓝屏诊断"),
@@ -186,7 +194,7 @@ void SettingsDock::initializeBugcheckDiagnosticsControls(
         m_enableBugcheckDiagnosticsAutoInstallButton,
         QStringLiteral("settings.features.bugcheck.auto_install.tooltip"),
         QStringLiteral("写入配置文件。之后每次 R0 驱动成功启动，程序都会发送蓝屏诊断安装 IOCTL。"));
-    bugcheckLayout->addWidget(m_enableBugcheckDiagnosticsAutoInstallButton);
+    actionFlow->addWidget(m_enableBugcheckDiagnosticsAutoInstallButton);
     ks::ui::NormalizeToolbarControl(m_enableBugcheckDiagnosticsAutoInstallButton);
 
     m_disableBugcheckDiagnosticsAutoInstallButton = new QPushButton(
@@ -202,7 +210,7 @@ void SettingsDock::initializeBugcheckDiagnosticsControls(
         m_disableBugcheckDiagnosticsAutoInstallButton,
         QStringLiteral("settings.features.bugcheck.cancel_auto_install.tooltip"),
         QStringLiteral("移除配置文件中的自动安装项。不影响当前已经安装的诊断，当前诊断会在驱动卸载或重启后失效。"));
-    bugcheckLayout->addWidget(m_disableBugcheckDiagnosticsAutoInstallButton);
+    actionFlow->addWidget(m_disableBugcheckDiagnosticsAutoInstallButton);
     ks::ui::NormalizeToolbarControl(m_disableBugcheckDiagnosticsAutoInstallButton);
 
     m_installBugcheckDiagnosticsForSessionButton = new QPushButton(
@@ -218,9 +226,10 @@ void SettingsDock::initializeBugcheckDiagnosticsControls(
         m_installBugcheckDiagnosticsForSessionButton,
         QStringLiteral("settings.features.bugcheck.install_session.tooltip"),
         QStringLiteral("立即向当前 R0 驱动发送安装 IOCTL。驱动卸载或系统重启后失效，不改写自动安装配置。"));
-    bugcheckLayout->addWidget(m_installBugcheckDiagnosticsForSessionButton);
+    actionFlow->addWidget(m_installBugcheckDiagnosticsForSessionButton);
     ks::ui::NormalizeToolbarControl(m_installBugcheckDiagnosticsForSessionButton);
 
+    ks::settings::ui::Section(bugcheckGroupBox);
     featuresRootLayout->addWidget(bugcheckGroupBox);
     connect(
         m_enableBugcheckDiagnosticsAutoInstallButton,

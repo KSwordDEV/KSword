@@ -12,6 +12,7 @@
 #include <QCloseEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include "../UI/SecondaryPageLayout.h"
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -441,7 +442,9 @@ namespace
         {
             setObjectName(QStringLiteral("registry_offline_hive"));
             setWindowTitle(trText(QStringLiteral("离线 Hive 工作副本")));
+            ks::ui::StyleSecondaryWindow(this);
             auto* layout = new QVBoxLayout(this);
+            ks::ui::StyleSecondaryContentLayout(layout);
             auto* notice = new QLabel(trText(QStringLiteral("选择现有 Hive 文件后复制到临时工作副本。编辑仅改变工作副本；使用“另存副本”导出，原文件不直接加载或修改。")), this);
             notice->setWordWrap(true);
             layout->addWidget(notice);
@@ -451,7 +454,6 @@ namespace
             m_newKey = new QPushButton(trText(QStringLiteral("新建子键")), this);
             m_deleteKey = new QPushButton(trText(QStringLiteral("删除空键")), this);
             tools->addWidget(m_open);
-            tools->addWidget(m_save);
             tools->addWidget(m_newKey);
             tools->addWidget(m_deleteKey);
             tools->addStretch();
@@ -500,6 +502,10 @@ namespace
             m_status->setWordWrap(true);
             layout->addWidget(m_status);
             auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
+            // 保存工作副本属于窗口级动作，和关闭一起固定在底部。
+            buttons->addButton(m_save, QDialogButtonBox::ActionRole);
+            ks::ui::StyleSecondaryButtonBox(buttons);
+            ks::ui::StyleSecondaryFooter(buttons);
             connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
             layout->addWidget(buttons);
             connect(m_open, &QPushButton::clicked, this, [this] { openFile(); });
@@ -720,7 +726,9 @@ namespace
             if (status != ERROR_SUCCESS) { setStatus(m_status, winError(status), ks::ui::StatusRole::Error); return; }
             QDialog dialog(this);
             dialog.setWindowTitle(trText(create ? QStringLiteral("新建离线 Hive 值") : QStringLiteral("编辑离线 Hive 值")));
+            ks::ui::StyleSecondaryWindow(&dialog);
             auto* layout = new QVBoxLayout(&dialog);
+            ks::ui::StyleSecondaryContentLayout(layout);
             auto* editor = new RegistryValueEditorWidget(&dialog);
             editor->setValue(trText(QStringLiteral("离线 Hive")) + QLatin1Char('\\') + path, original.name,
                 create ? REG_SZ : original.type, create ? QByteArray(2, '\0') : original.raw, create);
@@ -733,6 +741,8 @@ namespace
                 else QMessageBox::warning(&dialog, trText(QStringLiteral("草稿无效")), error);
             });
             connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+            ks::ui::StyleSecondaryButtonBox(buttons);
+            ks::ui::StyleSecondaryFooter(buttons);
             layout->addWidget(buttons);
             ks::ui::applyResponsiveWindowGeometry(&dialog, this, QSize(880, 680), QSize(460, 380));
             if (dialog.exec() != QDialog::Accepted) return;

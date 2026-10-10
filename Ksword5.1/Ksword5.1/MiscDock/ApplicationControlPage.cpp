@@ -1,5 +1,6 @@
 #include "../UI/StructuredFieldView.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/SecondaryPageLayout.h"
 #include "../UI/ToolbarMetrics.h"
 #include "ApplicationControlPage.h"
 #include "../UI/TableInteractionSupport.h"
@@ -1061,8 +1062,10 @@ namespace ks::misc
 
                 QDialog dialog(guardThis.data());
                 dialog.setWindowTitle(QStringLiteral("编辑 AppLocker 策略 XML"));
-                dialog.resize(900, 620);
+                ks::ui::StyleSecondaryWindow(&dialog);
+                dialog.resize(960, 680);
                 auto* layout = new QVBoxLayout(&dialog);
+                ks::ui::StyleSecondaryContentLayout(layout);
                 auto* hintLabel = new QLabel(
                     QStringLiteral("仅编辑本地策略。保存将以 Replace 模式写回并覆盖当前本地 AppLocker 策略，组策略下发的规则仍由组策略管理。"),
                     &dialog);
@@ -1077,6 +1080,9 @@ namespace ks::misc
                 buttonBox->addButton(QStringLiteral("取消"), QDialogButtonBox::RejectRole);
                 layout->addWidget(hintLabel);
                 layout->addWidget(editor, 1);
+                // XML 编辑保持独立滚动，保存操作放在带细分界线的固定底栏。
+                ks::ui::StyleSecondaryButtonBox(buttonBox);
+                ks::ui::StyleSecondaryFooter(buttonBox);
                 layout->addWidget(buttonBox);
                 QObject::connect(applyButton, &QPushButton::clicked, &dialog, &QDialog::accept);
                 QObject::connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
@@ -1185,7 +1191,13 @@ namespace ks::misc
 
         QDialog dialog(this);
         dialog.setWindowTitle(isNewRule ? QStringLiteral("新增 AppLocker 路径规则") : QStringLiteral("编辑 AppLocker 路径规则"));
-        auto* formLayout = new QFormLayout(&dialog);
+        ks::ui::StyleSecondaryWindow(&dialog);
+        dialog.resize(680, 400);
+        // 左侧标签固定对齐；解释与提交操作不再挤在最后一行表单中。
+        auto* rootLayout = new QVBoxLayout(&dialog);
+        ks::ui::StyleSecondaryContentLayout(rootLayout);
+        auto* formLayout = new QFormLayout();
+        rootLayout->addLayout(formLayout);
         auto* collectionCombo = new QComboBox(&dialog);
         collectionCombo->addItem(QStringLiteral("EXE"), QStringLiteral("Exe"));
         collectionCombo->addItem(QStringLiteral("DLL"), QStringLiteral("Dll"));
@@ -1220,11 +1232,15 @@ namespace ks::misc
             &dialog);
         hintLabel->setWordWrap(true);
         hintLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        formLayout->addRow(hintLabel);
+        ks::ui::StyleSecondaryForm(formLayout, 152);
+        rootLayout->addWidget(hintLabel);
+        rootLayout->addStretch(1);
         auto* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
         buttonBox->button(QDialogButtonBox::Ok)->setText(isNewRule ? QStringLiteral("新增") : QStringLiteral("应用"));
         buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
-        formLayout->addRow(buttonBox);
+        ks::ui::StyleSecondaryButtonBox(buttonBox);
+        ks::ui::StyleSecondaryFooter(buttonBox);
+        rootLayout->addWidget(buttonBox);
         connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
         connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
         if (dialog.exec() != QDialog::Accepted)
@@ -1378,8 +1394,10 @@ namespace ks::misc
 
         QDialog dialog(this);
         dialog.setWindowTitle(QStringLiteral("编辑 WDAC 源策略 XML"));
-        dialog.resize(900, 620);
+        ks::ui::StyleSecondaryWindow(&dialog);
+        dialog.resize(960, 680);
         auto* layout = new QVBoxLayout(&dialog);
+        ks::ui::StyleSecondaryContentLayout(layout);
         auto* hintLabel = new QLabel(
             QStringLiteral("保存仅更新所选 XML 源文件。选择“保存并部署”会调用 ConfigCI 编译为 CIP，再由 CiTool 更新系统策略。部署前请在测试环境验证策略。"),
             &dialog);
@@ -1396,6 +1414,9 @@ namespace ks::misc
         bool deployRequested = false;
         layout->addWidget(hintLabel);
         layout->addWidget(editor, 1);
+        // XML 编辑保持独立滚动，保存操作放在带细分界线的固定底栏。
+        ks::ui::StyleSecondaryButtonBox(buttonBox);
+        ks::ui::StyleSecondaryFooter(buttonBox);
         layout->addWidget(buttonBox);
         QObject::connect(saveButton, &QPushButton::clicked, &dialog, &QDialog::accept);
         QObject::connect(deployButton, &QPushButton::clicked, &dialog, [&dialog, &deployRequested]() {
@@ -1604,7 +1625,13 @@ namespace ks::misc
 
         QDialog dialog(this);
         dialog.setWindowTitle(QStringLiteral("编辑 Defender 配置"));
-        auto* formLayout = new QFormLayout(&dialog);
+        ks::ui::StyleSecondaryWindow(&dialog);
+        dialog.resize(620, 300);
+        // 左侧标签固定对齐；解释与提交操作不再挤在最后一行表单中。
+        auto* rootLayout = new QVBoxLayout(&dialog);
+        ks::ui::StyleSecondaryContentLayout(rootLayout);
+        auto* formLayout = new QFormLayout();
+        rootLayout->addLayout(formLayout);
         auto* valueCombo = new QComboBox(&dialog);
         formLayout->addRow(QStringLiteral("配置项"), new QLabel(settingName, &dialog));
         formLayout->addRow(QStringLiteral("当前值"), new QLabel(currentValue, &dialog));
@@ -1643,11 +1670,15 @@ namespace ks::misc
             &dialog);
         hintLabel->setWordWrap(true);
         hintLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        formLayout->addRow(hintLabel);
+        ks::ui::StyleSecondaryForm(formLayout, 152);
+        rootLayout->addWidget(hintLabel);
+        rootLayout->addStretch(1);
         auto* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
         buttonBox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("应用"));
         buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
-        formLayout->addRow(buttonBox);
+        ks::ui::StyleSecondaryButtonBox(buttonBox);
+        ks::ui::StyleSecondaryFooter(buttonBox);
+        rootLayout->addWidget(buttonBox);
         QObject::connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
         QObject::connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
         if (dialog.exec() != QDialog::Accepted)
@@ -1716,7 +1747,13 @@ namespace ks::misc
 
         QDialog dialog(this);
         dialog.setWindowTitle(QStringLiteral("新增 ASR 规则"));
-        auto* formLayout = new QFormLayout(&dialog);
+        ks::ui::StyleSecondaryWindow(&dialog);
+        dialog.resize(620, 260);
+        // 左侧标签固定对齐；解释与提交操作不再挤在最后一行表单中。
+        auto* rootLayout = new QVBoxLayout(&dialog);
+        ks::ui::StyleSecondaryContentLayout(rootLayout);
+        auto* formLayout = new QFormLayout();
+        rootLayout->addLayout(formLayout);
         auto* ruleIdEdit = new QLineEdit(&dialog);
         ruleIdEdit->setPlaceholderText(QStringLiteral("输入 ASR 规则 GUID，例如 D4F..."));
         auto* actionCombo = new QComboBox(&dialog);
@@ -1731,11 +1768,15 @@ namespace ks::misc
             &dialog);
         hintLabel->setWordWrap(true);
         hintLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        formLayout->addRow(hintLabel);
+        ks::ui::StyleSecondaryForm(formLayout, 152);
+        rootLayout->addWidget(hintLabel);
+        rootLayout->addStretch(1);
         auto* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
         buttonBox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("新增"));
         buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
-        formLayout->addRow(buttonBox);
+        ks::ui::StyleSecondaryButtonBox(buttonBox);
+        ks::ui::StyleSecondaryFooter(buttonBox);
+        rootLayout->addWidget(buttonBox);
         connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
         connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
         if (dialog.exec() != QDialog::Accepted)

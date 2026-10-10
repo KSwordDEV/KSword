@@ -1,5 +1,5 @@
 #include "SettingsDock.h"
-#include "../UI/PageControlStyle.h"
+#include "../UI/SecondaryPageLayout.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 
@@ -25,6 +25,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QProcess>
+#include <QPixmap>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSlider>
@@ -47,11 +48,6 @@
 namespace
 {
     // ToolTip 与图标常量：统一维护设置页按钮文案，避免硬编码分散。
-    constexpr const char* IconThemeFollowSystem = ":/Icon/settings_theme_system.svg";
-    constexpr const char* IconThemeLight = ":/Icon/settings_theme_light.svg";
-    constexpr const char* IconThemeDark = ":/Icon/settings_theme_dark.svg";
-    constexpr const char* IconBrowseBackground = ":/Icon/settings_background_browse.svg";
-    constexpr const char* IconResetBackground = ":/Icon/settings_background_reset.svg";
     constexpr wchar_t kUnlockerKeyName[] = L"Ksword.FileUnlocker";
 
     // windowScalePercentFromFactor / windowScaleFactorFromPercent 作用：
@@ -214,8 +210,11 @@ SettingsDock::SettingsDock(QWidget* parent)
 
     initializeUi();
     initializeAppearanceTab();
+    initializeLanguageTab();
+    initializeStartupTab();
     initializeFeaturesTab();
     initializeOnlineScanTab();
+    bindAppearanceSignals();
     loadSettingsFromJson();
 
     info << settingsInitEvent << "[SettingsDock] 设置页初始化完成，界面与启动配置已加载。" << eol;
@@ -252,884 +251,16 @@ void SettingsDock::initializeUi()
 {
     // rootLayout 作用：SettingsDock 根布局，仅承载可滚动的设置页签内容。
     QVBoxLayout* rootLayout = new QVBoxLayout(this);
-    rootLayout->setContentsMargins(10, 10, 10, 10);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->setSpacing(8);
 
     // m_tabWidget 作用：设置页签容器，后续可扩展更多标签页。
     m_tabWidget = new QTabWidget(this);
-    ks::ui::StylePageTabs(m_tabWidget);
+    ks::ui::StyleSecondaryTabs(m_tabWidget);
     m_tabWidget->setTabPosition(QTabWidget::North);
     rootLayout->addWidget(m_tabWidget);
 
     setLayout(rootLayout);
-}
-
-void SettingsDock::initializeAppearanceTab()
-{
-    // 将原“外观、语言与启动”长页拆为三个页签，避免单一设置页超过可用高度。
-    m_appearanceTab = new QWidget(m_tabWidget);
-    QVBoxLayout* appearanceRootLayout = new QVBoxLayout(m_appearanceTab);
-    appearanceRootLayout->setContentsMargins(8, 8, 8, 8);
-    appearanceRootLayout->setSpacing(12);
-
-    m_languageTab = new QWidget(m_tabWidget);
-    QVBoxLayout* languageRootLayout = new QVBoxLayout(m_languageTab);
-    languageRootLayout->setContentsMargins(8, 8, 8, 8);
-    languageRootLayout->setSpacing(12);
-
-    m_startupTab = new QWidget(m_tabWidget);
-    QVBoxLayout* startupRootLayout = new QVBoxLayout(m_startupTab);
-    startupRootLayout->setContentsMargins(8, 8, 8, 8);
-    startupRootLayout->setSpacing(12);
-
-    ks::i18n::LanguageManager& languageManager = ks::i18n::LanguageManager::instance();
-
-    // ===== 界面语言分组 =====
-    QGroupBox* languageGroupBox = new QGroupBox(QStringLiteral("界面语言"), m_languageTab);
-    languageManager.bindText(languageGroupBox, QStringLiteral("settings.language.group"), QStringLiteral("界面语言"));
-    QVBoxLayout* languageLayout = new QVBoxLayout(languageGroupBox);
-    languageLayout->setSpacing(8);
-
-    QHBoxLayout* languageSelectLayout = new QHBoxLayout();
-    QLabel* languageLabel = new QLabel(QStringLiteral("显示语言"), languageGroupBox);
-    languageManager.bindText(languageLabel, QStringLiteral("settings.language.label"), QStringLiteral("显示语言"));
-    languageSelectLayout->addWidget(languageLabel, 0);
-    m_languageCombo = new QComboBox(languageGroupBox);
-    m_languageCombo->addItem(QStringLiteral("跟随系统"), QStringLiteral("system"));
-    languageManager.bindComboBoxItem(
-        m_languageCombo,
-        0,
-        QStringLiteral("language.name.system"),
-        QStringLiteral("跟随系统"));
-    const QList<ks::i18n::LanguageInfo> availableLanguages = languageManager.availableLanguages();
-    for (const ks::i18n::LanguageInfo& languageInfo : availableLanguages)
-    {
-        const QString displayName = languageInfo.nativeName.isEmpty()
-            ? languageInfo.name
-            : languageInfo.nativeName;
-        m_languageCombo->addItem(displayName, languageInfo.id);
-        languageManager.bindComboBoxItem(
-            m_languageCombo,
-            m_languageCombo->count() - 1,
-            QStringLiteral("language.name.%1").arg(languageInfo.id),
-            displayName);
-    }
-    languageManager.bindToolTip(
-        m_languageCombo,
-        QStringLiteral("settings.language.tooltip"),
-        QStringLiteral("选择界面语言；保存后立即切换"));
-    languageSelectLayout->addWidget(m_languageCombo, 1);
-    languageLayout->addLayout(languageSelectLayout);
-    ks::ui::NormalizeToolbarRow(languageSelectLayout);
-    languageRootLayout->addWidget(languageGroupBox);
-    languageRootLayout->addStretch();
-
-    // ===== 主题模式分组 =====
-    QGroupBox* themeGroupBox = new QGroupBox(QStringLiteral("主题模式"), m_appearanceTab);
-    languageManager.bindText(themeGroupBox, QStringLiteral("settings.theme.group"), QStringLiteral("主题模式"));
-    QVBoxLayout* themeLayout = new QVBoxLayout(themeGroupBox);
-    themeLayout->setSpacing(8);
-
-    QLabel* themeHintLabel = new QLabel(QStringLiteral("可选择跟随系统、浅色或深色主题。"), themeGroupBox);
-    languageManager.bindText(themeHintLabel, QStringLiteral("settings.theme.hint"), QStringLiteral("可选择跟随系统、浅色或深色主题。"));
-    themeLayout->addWidget(themeHintLabel);
-
-    QHBoxLayout* themeButtonLayout = new QHBoxLayout();
-    themeButtonLayout->setSpacing(10);
-    m_themeButtonGroup = new QButtonGroup(themeGroupBox);
-    m_themeButtonGroup->setExclusive(true);
-
-    // m_followSystemButton 作用：主题跟随系统按钮（图标 + 悬停说明）。
-    m_followSystemButton = new QToolButton(themeGroupBox);
-    m_followSystemButton->setIcon(QIcon(QString::fromUtf8(IconThemeFollowSystem)));
-    m_followSystemButton->setCheckable(true);
-    KswordTheme::ApplyStandardIconButtonMetrics(m_followSystemButton);
-    m_followSystemButton->setToolTip(QStringLiteral("跟随系统主题（Windows 深浅切换时自动同步）"));
-    languageManager.bindToolTip(m_followSystemButton, QStringLiteral("settings.theme.system.tooltip"), QStringLiteral("跟随系统主题（Windows 深浅切换时自动同步）"));
-
-    // m_lightModeButton 作用：强制浅色主题按钮（图标 + 悬停说明）。
-    m_lightModeButton = new QToolButton(themeGroupBox);
-    m_lightModeButton->setIcon(QIcon(QString::fromUtf8(IconThemeLight)));
-    m_lightModeButton->setCheckable(true);
-    KswordTheme::ApplyStandardIconButtonMetrics(m_lightModeButton);
-    m_lightModeButton->setToolTip(QStringLiteral("强制浅色模式（白底深色字）"));
-    languageManager.bindToolTip(m_lightModeButton, QStringLiteral("settings.theme.light.tooltip"), QStringLiteral("强制浅色模式（白底深色字）"));
-
-    // m_darkModeButton 作用：强制深色主题按钮（图标 + 悬停说明）。
-    m_darkModeButton = new QToolButton(themeGroupBox);
-    m_darkModeButton->setIcon(QIcon(QString::fromUtf8(IconThemeDark)));
-    m_darkModeButton->setCheckable(true);
-    KswordTheme::ApplyStandardIconButtonMetrics(m_darkModeButton);
-    m_darkModeButton->setToolTip(QStringLiteral("强制深色模式（黑底白字）"));
-    languageManager.bindToolTip(m_darkModeButton, QStringLiteral("settings.theme.dark.tooltip"), QStringLiteral("强制深色模式（黑底白字）"));
-
-    m_themeButtonGroup->addButton(m_followSystemButton, static_cast<int>(ks::settings::ThemeMode::FollowSystem));
-    m_themeButtonGroup->addButton(m_lightModeButton, static_cast<int>(ks::settings::ThemeMode::Light));
-    m_themeButtonGroup->addButton(m_darkModeButton, static_cast<int>(ks::settings::ThemeMode::Dark));
-
-    themeButtonLayout->addWidget(m_followSystemButton);
-    themeButtonLayout->addWidget(m_lightModeButton);
-    themeButtonLayout->addWidget(m_darkModeButton);
-    themeButtonLayout->addStretch();
-    themeLayout->addLayout(themeButtonLayout);
-    ks::ui::NormalizeToolbarRow(themeButtonLayout);
-
-    // ===== 自定义主题色分组 =====
-    QGroupBox* themeColorGroupBox = new QGroupBox(QStringLiteral("主题色"), themeGroupBox);
-    languageManager.bindText(themeColorGroupBox, QStringLiteral("settings.theme.color.group"), QStringLiteral("主题色"));
-    QVBoxLayout* themeColorLayout = new QVBoxLayout(themeColorGroupBox);
-    themeColorLayout->setSpacing(6);
-
-    QLabel* themeColorHintLabel = new QLabel(
-        QStringLiteral("自定义主主题色会保留现有深浅主题偏移；修改前会显示兼容性提示。"),
-        themeColorGroupBox);
-    themeColorHintLabel->setWordWrap(true);
-    languageManager.bindText(
-        themeColorHintLabel,
-        QStringLiteral("settings.theme.color.hint"),
-        QStringLiteral("自定义主主题色会保留现有深浅主题偏移；修改前会显示兼容性提示。"));
-    themeColorLayout->addWidget(themeColorHintLabel);
-
-    QHBoxLayout* themeColorActionLayout = new QHBoxLayout();
-    themeColorActionLayout->setSpacing(6);
-    m_themeColorPreviewLabel = new QLabel(themeColorGroupBox);
-    m_themeColorPreviewLabel->setMinimumWidth(112);
-    m_themeColorPreviewLabel->setAlignment(Qt::AlignCenter);
-    themeColorActionLayout->addWidget(m_themeColorPreviewLabel, 0);
-
-    m_chooseThemeColorButton = new QPushButton(QStringLiteral("自定义主题色"), themeColorGroupBox);
-    languageManager.bindText(m_chooseThemeColorButton, QStringLiteral("settings.theme.color.choose"), QStringLiteral("自定义主题色"));
-    themeColorActionLayout->addWidget(m_chooseThemeColorButton, 0);
-
-    m_resetThemeColorButton = new QPushButton(QStringLiteral("一键复原"), themeColorGroupBox);
-    languageManager.bindText(m_resetThemeColorButton, QStringLiteral("settings.theme.color.reset"), QStringLiteral("一键复原"));
-    themeColorActionLayout->addWidget(m_resetThemeColorButton, 0);
-    themeColorActionLayout->addStretch();
-    themeColorLayout->addLayout(themeColorActionLayout);
-    ks::ui::NormalizeToolbarRow(themeColorActionLayout);
-    themeLayout->addWidget(themeColorGroupBox);
-
-    // 配色预览紧邻主体色设置；样例颜色来自未应用种子，保留原应用/取消语义。
-    QGroupBox* previewGroupBox = new QGroupBox(themeGroupBox);
-    languageManager.bindText(previewGroupBox, QStringLiteral("settings.theme.preview.group"),
-        QStringLiteral("配色预览"));
-    QVBoxLayout* previewLayout = new QVBoxLayout(previewGroupBox); // 限定预览与说明的局部布局。
-    QLabel* previewHint = new QLabel(previewGroupBox); // 说明当前展示的是待应用配色。
-    previewHint->setWordWrap(true);
-    languageManager.bindText(previewHint, QStringLiteral("settings.theme.preview.hint"),
-        QStringLiteral("预览待应用的主题、主体色和背景色；点击“应用”后才会改变主界面。"));
-    previewLayout->addWidget(previewHint);
-    m_themeComponentPreview = new ks::ui::ThemePreviewWidget(previewGroupBox);
-    previewLayout->addWidget(m_themeComponentPreview);
-    themeLayout->addWidget(previewGroupBox);
-
-    QHBoxLayout* fontLayout = new QHBoxLayout();
-    fontLayout->setSpacing(6);
-    QLabel* fontLabel = new QLabel(QStringLiteral("设置字体"), themeGroupBox);
-    languageManager.bindText(fontLabel, QStringLiteral("settings.font.label"), QStringLiteral("设置字体"));
-    fontLayout->addWidget(fontLabel, 0);
-    m_fontCombo = new QComboBox(themeGroupBox);
-    // 第 0 项 itemData 固定为空字符串；显示文字通过独立刷新函数本地化。
-    m_fontCombo->addItem(QString(), QString());
-    updateSystemDefaultFontItemText();
-    // fontFamilies 用途：快照系统当前安装字体，并为每项保存稳定 family 数据。
-    const QStringList fontFamilies = QFontDatabase::families();
-    for (const QString& fontFamily : fontFamilies)
-    {
-        const int fontIndex = m_fontCombo->count();
-        m_fontCombo->addItem(fontFamily, fontFamily);
-        m_fontCombo->setItemData(fontIndex, QFont(fontFamily), Qt::FontRole);
-    }
-    m_fontCombo->setToolTip(QStringLiteral("选择系统中已安装的字体；点击“应用”后立即生效"));
-    languageManager.bindToolTip(
-        m_fontCombo,
-        QStringLiteral("settings.font.tooltip"),
-        QStringLiteral("选择系统中已安装的字体；点击“应用”后立即生效"));
-    fontLayout->addWidget(m_fontCombo, 1);
-    themeLayout->addLayout(fontLayout);
-
-    m_textAntialiasingCheckBox = new QCheckBox(QStringLiteral("启用文本抗锯齿"), themeGroupBox);
-    languageManager.bindText(
-        m_textAntialiasingCheckBox,
-        QStringLiteral("settings.text_antialiasing.enabled"),
-        QStringLiteral("启用文本抗锯齿"));
-    m_textAntialiasingCheckBox->setToolTip(
-        QStringLiteral("启用后使用平滑字体渲染；关闭时使用无抗锯齿字体渲染。"));
-    languageManager.bindToolTip(
-        m_textAntialiasingCheckBox,
-        QStringLiteral("settings.text_antialiasing.enabled.tooltip"),
-        QStringLiteral("启用后使用平滑字体渲染；关闭时使用无抗锯齿字体渲染。"));
-    themeLayout->addWidget(m_textAntialiasingCheckBox);
-    appearanceRootLayout->addWidget(themeGroupBox);
-
-    // ===== 窗口背景分组 =====
-    QGroupBox* backgroundGroupBox = new QGroupBox(QStringLiteral("窗口背景"), m_appearanceTab);
-    languageManager.bindText(backgroundGroupBox, QStringLiteral("settings.background.group"), QStringLiteral("窗口背景"));
-    QVBoxLayout* backgroundLayout = new QVBoxLayout(backgroundGroupBox);
-    backgroundLayout->setSpacing(8);
-
-    QLabel* mainBackgroundColorHintLabel = new QLabel(
-        QStringLiteral("主背景色可独立于主题色自定义；恢复默认后随浅色/深色模式切换。"),
-        backgroundGroupBox);
-    mainBackgroundColorHintLabel->setWordWrap(true);
-    languageManager.bindText(
-        mainBackgroundColorHintLabel,
-        QStringLiteral("settings.background.color.hint"),
-        QStringLiteral("主背景色可独立于主题色自定义；恢复默认后随浅色/深色模式切换。"));
-    backgroundLayout->addWidget(mainBackgroundColorHintLabel);
-
-    QHBoxLayout* mainBackgroundColorActionLayout = new QHBoxLayout();
-    mainBackgroundColorActionLayout->setSpacing(6);
-    m_mainBackgroundColorPreviewLabel = new QLabel(backgroundGroupBox);
-    m_mainBackgroundColorPreviewLabel->setMinimumWidth(112);
-    m_mainBackgroundColorPreviewLabel->setAlignment(Qt::AlignCenter);
-    mainBackgroundColorActionLayout->addWidget(m_mainBackgroundColorPreviewLabel, 0);
-
-    m_chooseMainBackgroundColorButton = new QPushButton(
-        QStringLiteral("自定义主背景色"),
-        backgroundGroupBox);
-    languageManager.bindText(
-        m_chooseMainBackgroundColorButton,
-        QStringLiteral("settings.background.color.choose"),
-        QStringLiteral("自定义主背景色"));
-    mainBackgroundColorActionLayout->addWidget(m_chooseMainBackgroundColorButton, 0);
-
-    m_resetMainBackgroundColorButton = new QPushButton(
-        QStringLiteral("恢复默认背景色"),
-        backgroundGroupBox);
-    languageManager.bindText(
-        m_resetMainBackgroundColorButton,
-        QStringLiteral("settings.background.color.reset"),
-        QStringLiteral("恢复默认背景色"));
-    mainBackgroundColorActionLayout->addWidget(m_resetMainBackgroundColorButton, 0);
-    mainBackgroundColorActionLayout->addStretch();
-    backgroundLayout->addLayout(mainBackgroundColorActionLayout);
-    ks::ui::NormalizeToolbarRow(mainBackgroundColorActionLayout);
-
-    QLabel* pathHintLabel = new QLabel(
-        QStringLiteral("选择一张图片作为窗口背景（支持 PNG/JPG/BMP）。"),
-        backgroundGroupBox);
-    pathHintLabel->setWordWrap(true);
-    languageManager.bindText(pathHintLabel, QStringLiteral("settings.background.path_hint"), QStringLiteral("选择一张图片作为窗口背景（支持 PNG/JPG/BMP）。"));
-    backgroundLayout->addWidget(pathHintLabel);
-
-    QHBoxLayout* pathLayout = new QHBoxLayout();
-    pathLayout->setSpacing(6);
-
-    // m_backgroundPathEdit 作用：用户输入背景图路径文本。
-    m_backgroundPathEdit = new QLineEdit(backgroundGroupBox);
-    m_backgroundPathEdit->setPlaceholderText(QStringLiteral("Style/ksword_background.png"));
-    pathLayout->addWidget(m_backgroundPathEdit, 1);
-
-    // m_browseBackgroundButton 作用：打开文件对话框选择背景图。
-    m_browseBackgroundButton = new QToolButton(backgroundGroupBox);
-    m_browseBackgroundButton->setIcon(QIcon(QString::fromUtf8(IconBrowseBackground)));
-    KswordTheme::ApplyStandardIconButtonMetrics(m_browseBackgroundButton);
-    m_browseBackgroundButton->setToolTip(QStringLiteral("浏览背景图文件"));
-    languageManager.bindToolTip(m_browseBackgroundButton, QStringLiteral("settings.background.browse.tooltip"), QStringLiteral("浏览背景图文件"));
-    pathLayout->addWidget(m_browseBackgroundButton);
-
-    // m_resetBackgroundButton 作用：恢复默认背景路径。
-    m_resetBackgroundButton = new QToolButton(backgroundGroupBox);
-    m_resetBackgroundButton->setIcon(QIcon(QString::fromUtf8(IconResetBackground)));
-    KswordTheme::ApplyStandardIconButtonMetrics(m_resetBackgroundButton);
-    m_resetBackgroundButton->setToolTip(QStringLiteral("恢复默认背景路径"));
-    languageManager.bindToolTip(m_resetBackgroundButton, QStringLiteral("settings.background.reset.tooltip"), QStringLiteral("恢复默认背景路径"));
-    pathLayout->addWidget(m_resetBackgroundButton);
-
-    backgroundLayout->addLayout(pathLayout);
-    ks::ui::NormalizeToolbarRow(pathLayout);
-
-    QLabel* opacityHintLabel = new QLabel(QStringLiteral("背景图透明度（0% 仅纯色背景，100% 仅背景图）"), backgroundGroupBox);
-    languageManager.bindText(opacityHintLabel, QStringLiteral("settings.background.opacity"), QStringLiteral("背景图透明度（0% 仅纯色背景，100% 仅背景图）"));
-    backgroundLayout->addWidget(opacityHintLabel);
-
-    QHBoxLayout* opacityLayout = new QHBoxLayout();
-    opacityLayout->setSpacing(6);
-
-    // m_backgroundOpacitySlider 作用：控制背景图透明度数值。
-    m_backgroundOpacitySlider = new QSlider(Qt::Horizontal, backgroundGroupBox);
-    m_backgroundOpacitySlider->setRange(0, 100);
-    m_backgroundOpacitySlider->setSingleStep(1);
-    m_backgroundOpacitySlider->setPageStep(5);
-    m_backgroundOpacitySlider->setToolTip(QStringLiteral("拖动调整背景图透明度"));
-    languageManager.bindToolTip(m_backgroundOpacitySlider, QStringLiteral("settings.background.opacity.tooltip"), QStringLiteral("拖动调整背景图透明度"));
-    opacityLayout->addWidget(m_backgroundOpacitySlider, 1);
-
-    // m_backgroundOpacityValueLabel 作用：展示当前透明度百分比。
-    m_backgroundOpacityValueLabel = new QLabel(QStringLiteral("35%"), backgroundGroupBox);
-    m_backgroundOpacityValueLabel->setMinimumWidth(48);
-    opacityLayout->addWidget(m_backgroundOpacityValueLabel);
-
-    backgroundLayout->addLayout(opacityLayout);
-
-    // m_backgroundTransparencyCheckBox 作用：切换窗口透明背景（背景图 alpha 穿透 / 云母材质）。
-    m_backgroundTransparencyCheckBox = new QCheckBox(QStringLiteral("透明窗口背景（重启后生效）"), backgroundGroupBox);
-    languageManager.bindText(m_backgroundTransparencyCheckBox, QStringLiteral("settings.background.transparency"), QStringLiteral("透明窗口背景（重启后生效）"));
-    m_backgroundTransparencyCheckBox->setToolTip(QStringLiteral("勾选后窗口背景变为透明：设置了背景图时，图片中透明的部分（需要带透明通道的 PNG）直接显示后面的桌面；没有背景图时，窗口呈现磨砂玻璃效果。具体呈现方式可在下方“透明背景效果”中选择。重启 Ksword 后生效。"));
-    languageManager.bindToolTip(m_backgroundTransparencyCheckBox, QStringLiteral("settings.background.transparency.tooltip"), QStringLiteral("勾选后窗口背景变为透明：设置了背景图时，图片中透明的部分（需要带透明通道的 PNG）直接显示后面的桌面；没有背景图时，窗口呈现磨砂玻璃效果。具体呈现方式可在下方“透明背景效果”中选择。重启 Ksword 后生效。"));
-    backgroundLayout->addWidget(m_backgroundTransparencyCheckBox);
-
-    // 透明背景效果选择行：勾选透明后可用，运行时立即切换材质，无需重启。
-    QHBoxLayout* translucencyMaterialLayout = new QHBoxLayout();
-    translucencyMaterialLayout->setSpacing(6);
-    QLabel* translucencyMaterialLabel = new QLabel(QStringLiteral("透明背景效果"), backgroundGroupBox);
-    languageManager.bindText(translucencyMaterialLabel, QStringLiteral("settings.background.translucency_material"), QStringLiteral("透明背景效果"));
-    translucencyMaterialLayout->addWidget(translucencyMaterialLabel);
-
-    // m_backgroundTranslucencyMaterialCombo 作用：选择透明背景的呈现方式（自动/磨砂/直透）。
-    m_backgroundTranslucencyMaterialCombo = new QComboBox(backgroundGroupBox);
-    m_backgroundTranslucencyMaterialCombo->addItem(QStringLiteral("自动（有背景图直透，无图磨砂）"), QStringLiteral("auto"));
-    m_backgroundTranslucencyMaterialCombo->addItem(QStringLiteral("磨砂玻璃"), QStringLiteral("acrylic"));
-    m_backgroundTranslucencyMaterialCombo->addItem(QStringLiteral("直透桌面（完全透明）"), QStringLiteral("desktop"));
-    m_backgroundTranslucencyMaterialCombo->setToolTip(QStringLiteral("磨砂玻璃：由系统实时模糊窗口后方内容并叠加主题着色。直透桌面：透明区域清晰地直接看到桌面。自动：设置了背景图时直透，没有背景图时用磨砂玻璃。修改后立即生效。"));
-    languageManager.bindToolTip(m_backgroundTranslucencyMaterialCombo, QStringLiteral("settings.background.translucency_material.tooltip"), QStringLiteral("磨砂玻璃：由系统实时模糊窗口后方内容并叠加主题着色。直透桌面：透明区域清晰地直接看到桌面。自动：设置了背景图时直透，没有背景图时用磨砂玻璃。修改后立即生效。"));
-    languageManager.bindComboBoxItem(m_backgroundTranslucencyMaterialCombo, 0, QStringLiteral("settings.background.translucency_material.auto"), QStringLiteral("自动（有背景图直透，无图磨砂）"));
-    languageManager.bindComboBoxItem(m_backgroundTranslucencyMaterialCombo, 1, QStringLiteral("settings.background.translucency_material.acrylic"), QStringLiteral("磨砂玻璃"));
-    languageManager.bindComboBoxItem(m_backgroundTranslucencyMaterialCombo, 2, QStringLiteral("settings.background.translucency_material.desktop"), QStringLiteral("直透桌面（完全透明）"));
-    translucencyMaterialLayout->addWidget(m_backgroundTranslucencyMaterialCombo, 1);
-    backgroundLayout->addLayout(translucencyMaterialLayout);
-
-    // ===== 玻璃观感三滑块 =====
-    // 说明：磨砂玻璃由系统合成，其模糊半径在 Windows 内部固定（未公开的 ACCENT_POLICY
-    // 没有半径字段），因此“玻璃模糊半径”作用于应用自绘的背景图模糊层；
-    // 两个着色不透明度则分别对应磨砂着色（系统混合）与直透着色（自绘兜底）。
-    QLabel* blurRadiusHintLabel = new QLabel(
-        QStringLiteral("玻璃模糊半径（作用于背景图；0% 不模糊）"),
-        backgroundGroupBox);
-    blurRadiusHintLabel->setWordWrap(true);
-    languageManager.bindText(
-        blurRadiusHintLabel,
-        QStringLiteral("settings.background.blur_radius"),
-        QStringLiteral("玻璃模糊半径（作用于背景图；0% 不模糊）"));
-    backgroundLayout->addWidget(blurRadiusHintLabel);
-
-    QHBoxLayout* blurRadiusLayout = new QHBoxLayout();
-    blurRadiusLayout->setSpacing(6);
-
-    // m_backgroundBlurRadiusSlider 作用：控制背景图自绘玻璃模糊的半径强度。
-    m_backgroundBlurRadiusSlider = new QSlider(Qt::Horizontal, backgroundGroupBox);
-    m_backgroundBlurRadiusSlider->setRange(0, 100);
-    m_backgroundBlurRadiusSlider->setSingleStep(1);
-    m_backgroundBlurRadiusSlider->setPageStep(5);
-    m_backgroundBlurRadiusSlider->setToolTip(QStringLiteral("把背景图模糊成毛玻璃质感，数值越大越糊。仅作用于背景图：磨砂玻璃是由 Windows 合成的，它的模糊半径由系统固定，应用无法调整。修改后立即生效。"));
-    languageManager.bindToolTip(
-        m_backgroundBlurRadiusSlider,
-        QStringLiteral("settings.background.blur_radius.tooltip"),
-        QStringLiteral("把背景图模糊成毛玻璃质感，数值越大越糊。仅作用于背景图：磨砂玻璃是由 Windows 合成的，它的模糊半径由系统固定，应用无法调整。修改后立即生效。"));
-    blurRadiusLayout->addWidget(m_backgroundBlurRadiusSlider, 1);
-
-    // m_backgroundBlurRadiusValueLabel 作用：展示当前模糊半径强度。
-    m_backgroundBlurRadiusValueLabel = new QLabel(QStringLiteral("0%"), backgroundGroupBox);
-    m_backgroundBlurRadiusValueLabel->setMinimumWidth(48);
-    blurRadiusLayout->addWidget(m_backgroundBlurRadiusValueLabel);
-
-    backgroundLayout->addLayout(blurRadiusLayout);
-
-    QLabel* acrylicTintHintLabel = new QLabel(
-        QStringLiteral("磨砂着色不透明度（越低越通透，越高文字越清晰）"),
-        backgroundGroupBox);
-    acrylicTintHintLabel->setWordWrap(true);
-    languageManager.bindText(
-        acrylicTintHintLabel,
-        QStringLiteral("settings.background.acrylic_tint"),
-        QStringLiteral("磨砂着色不透明度（越低越通透，越高文字越清晰）"));
-    backgroundLayout->addWidget(acrylicTintHintLabel);
-
-    QHBoxLayout* acrylicTintLayout = new QHBoxLayout();
-    acrylicTintLayout->setSpacing(6);
-
-    // m_acrylicTintOpacitySlider 作用：控制磨砂玻璃着色层的不透明度。
-    m_acrylicTintOpacitySlider = new QSlider(Qt::Horizontal, backgroundGroupBox);
-    m_acrylicTintOpacitySlider->setRange(0, 100);
-    m_acrylicTintOpacitySlider->setSingleStep(1);
-    m_acrylicTintOpacitySlider->setPageStep(5);
-    m_acrylicTintOpacitySlider->setToolTip(QStringLiteral("“磨砂玻璃”效果上叠加的主题着色浓度。调到 0% 接近纯模糊，调高则更接近实色背景、前景文字更易读。仅在透明背景效果为磨砂玻璃时生效，修改后立即生效。"));
-    languageManager.bindToolTip(
-        m_acrylicTintOpacitySlider,
-        QStringLiteral("settings.background.acrylic_tint.tooltip"),
-        QStringLiteral("“磨砂玻璃”效果上叠加的主题着色浓度。调到 0% 接近纯模糊，调高则更接近实色背景、前景文字更易读。仅在透明背景效果为磨砂玻璃时生效，修改后立即生效。"));
-    acrylicTintLayout->addWidget(m_acrylicTintOpacitySlider, 1);
-
-    // m_acrylicTintOpacityValueLabel 作用：展示磨砂着色不透明度。
-    m_acrylicTintOpacityValueLabel = new QLabel(QStringLiteral("75%"), backgroundGroupBox);
-    m_acrylicTintOpacityValueLabel->setMinimumWidth(48);
-    acrylicTintLayout->addWidget(m_acrylicTintOpacityValueLabel);
-
-    backgroundLayout->addLayout(acrylicTintLayout);
-
-    QLabel* desktopTintHintLabel = new QLabel(
-        QStringLiteral("直透着色不透明度（0% 几乎完全看到桌面）"),
-        backgroundGroupBox);
-    desktopTintHintLabel->setWordWrap(true);
-    languageManager.bindText(
-        desktopTintHintLabel,
-        QStringLiteral("settings.background.desktop_tint"),
-        QStringLiteral("直透着色不透明度（0% 几乎完全看到桌面）"));
-    backgroundLayout->addWidget(desktopTintHintLabel);
-
-    QHBoxLayout* desktopTintLayout = new QHBoxLayout();
-    desktopTintLayout->setSpacing(6);
-
-    // m_desktopTintOpacitySlider 作用：控制直透桌面模式下自绘着色层的不透明度。
-    m_desktopTintOpacitySlider = new QSlider(Qt::Horizontal, backgroundGroupBox);
-    m_desktopTintOpacitySlider->setRange(0, 100);
-    m_desktopTintOpacitySlider->setSingleStep(1);
-    m_desktopTintOpacitySlider->setPageStep(5);
-    m_desktopTintOpacitySlider->setToolTip(QStringLiteral("“直透桌面”时窗口自绘的主题着色浓度。调到 0% 几乎完全透出桌面（仍保留最低限度的鼠标响应），调高则界面更实、文字更易读。没有背景图时生效，修改后立即生效。"));
-    languageManager.bindToolTip(
-        m_desktopTintOpacitySlider,
-        QStringLiteral("settings.background.desktop_tint.tooltip"),
-        QStringLiteral("“直透桌面”时窗口自绘的主题着色浓度。调到 0% 几乎完全透出桌面（仍保留最低限度的鼠标响应），调高则界面更实、文字更易读。没有背景图时生效，修改后立即生效。"));
-    desktopTintLayout->addWidget(m_desktopTintOpacitySlider, 1);
-
-    // m_desktopTintOpacityValueLabel 作用：展示直透着色不透明度。
-    m_desktopTintOpacityValueLabel = new QLabel(QStringLiteral("65%"), backgroundGroupBox);
-    m_desktopTintOpacityValueLabel->setMinimumWidth(48);
-    desktopTintLayout->addWidget(m_desktopTintOpacityValueLabel);
-
-    backgroundLayout->addLayout(desktopTintLayout);
-
-    // 组合框与两个着色滑块的可用性跟随透明总开关；初始状态由 applySettingsToUi 同步。
-    // 模糊半径作用于背景图自绘层，不依赖窗口透明，因此始终可用。
-    m_backgroundTranslucencyMaterialCombo->setEnabled(m_backgroundTransparencyCheckBox->isChecked());
-    connect(m_backgroundTransparencyCheckBox, &QCheckBox::toggled, m_backgroundTranslucencyMaterialCombo, &QWidget::setEnabled);
-    m_acrylicTintOpacitySlider->setEnabled(m_backgroundTransparencyCheckBox->isChecked());
-    connect(m_backgroundTransparencyCheckBox, &QCheckBox::toggled, m_acrylicTintOpacitySlider, &QWidget::setEnabled);
-    m_desktopTintOpacitySlider->setEnabled(m_backgroundTransparencyCheckBox->isChecked());
-    connect(m_backgroundTransparencyCheckBox, &QCheckBox::toggled, m_desktopTintOpacitySlider, &QWidget::setEnabled);
-    appearanceRootLayout->addWidget(backgroundGroupBox);
-
-    // ===== 交互与滚动分组 =====
-    QGroupBox* interactionGroupBox = new QGroupBox(QStringLiteral("交互与滚动"), m_appearanceTab);
-    languageManager.bindText(interactionGroupBox, QStringLiteral("settings.interaction.group"), QStringLiteral("交互与滚动"));
-    QVBoxLayout* interactionLayout = new QVBoxLayout(interactionGroupBox);
-    interactionLayout->setSpacing(8);
-
-    QLabel* interactionHintLabel = new QLabel(
-        QStringLiteral("调整全局滚动，以及滚轮是否直接调整控件值和切换标签页。"),
-        interactionGroupBox);
-    interactionHintLabel->setWordWrap(true);
-    languageManager.bindText(interactionHintLabel, QStringLiteral("settings.interaction.hint"), QStringLiteral("调整全局滚动，以及滚轮是否直接调整控件值和切换标签页。"));
-    interactionLayout->addWidget(interactionHintLabel);
-
-    m_smoothScrollingCheckBox = new QCheckBox(
-        QStringLiteral("启用全局平滑滚动"),
-        interactionGroupBox);
-    languageManager.bindText(
-        m_smoothScrollingCheckBox,
-        QStringLiteral("settings.scroll.smooth"),
-        QStringLiteral("启用全局平滑滚动"));
-    m_smoothScrollingCheckBox->setToolTip(
-        QStringLiteral("对标签栏、表格、列表、文本区和滚动页的鼠标滚轮滚动使用缓动动画"));
-    languageManager.bindToolTip(
-        m_smoothScrollingCheckBox,
-        QStringLiteral("settings.scroll.smooth.tooltip"),
-        QStringLiteral("对标签栏、表格、列表、文本区和滚动页的鼠标滚轮滚动使用缓动动画"));
-    interactionLayout->addWidget(m_smoothScrollingCheckBox);
-
-    m_sliderWheelAdjustCheckBox = new QCheckBox(QStringLiteral("允许滚轮调整控件值和切换标签页"), interactionGroupBox);
-    languageManager.bindText(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel"), QStringLiteral("允许滚轮调整控件值和切换标签页"));
-    m_sliderWheelAdjustCheckBox->setToolTip(QStringLiteral("默认关闭：滚轮在标签栏上只滚动标签，不切换页面；在滑块、下拉框和数值输入框上只滚动页面。启用后允许滚轮调值和切换标签页；展开的下拉列表仍可滚动"));
-    languageManager.bindToolTip(m_sliderWheelAdjustCheckBox, QStringLiteral("settings.slider.wheel.tooltip"), QStringLiteral("默认关闭：滚轮在标签栏上只滚动标签，不切换页面；在滑块、下拉框和数值输入框上只滚动页面。启用后允许滚轮调值和切换标签页；展开的下拉列表仍可滚动"));
-    interactionLayout->addWidget(m_sliderWheelAdjustCheckBox);
-
-    appearanceRootLayout->addWidget(interactionGroupBox);
-
-    // ===== 详情页显示方案分组 =====
-    // 该设置只作用于严格命中页面，选择后点击“应用”会立即重排已创建页面。
-    QGroupBox* detailSchemeGroupBox = new QGroupBox(
-        QStringLiteral("详情页显示方案"),
-        m_appearanceTab);
-    languageManager.bindText(
-        detailSchemeGroupBox,
-        QStringLiteral("settings.detail_layout.group"),
-        QStringLiteral("详情页显示方案"));
-    QVBoxLayout* detailSchemeLayout = new QVBoxLayout(detailSchemeGroupBox);
-    detailSchemeLayout->setSpacing(6);
-
-    QLabel* detailSchemeHintLabel = new QLabel(
-        QStringLiteral("统一设置表格当前行详情的显示位置；点击应用后立即生效。"),
-        detailSchemeGroupBox);
-    detailSchemeHintLabel->setWordWrap(true);
-    languageManager.bindText(
-        detailSchemeHintLabel,
-        QStringLiteral("settings.detail_layout.hint"),
-        QStringLiteral("统一设置表格当前行详情的显示位置；点击应用后立即生效。"));
-    detailSchemeLayout->addWidget(detailSchemeHintLabel);
-
-    m_detailSchemeButtonGroup = new QButtonGroup(detailSchemeGroupBox);
-    m_detailSchemeButtonGroup->setExclusive(true);
-    const auto addDetailSchemeRadio = [this, detailSchemeGroupBox, detailSchemeLayout, &languageManager](
-        const ks::settings::DetailDisplayScheme scheme,
-        const QString& textKey,
-        const QString& fallbackText)
-        {
-            // 每项使用 QRadioButton：显示明确文字，避免四种布局只靠图标难以分辨。
-            QRadioButton* radioButton = new QRadioButton(fallbackText, detailSchemeGroupBox);
-            languageManager.bindText(radioButton, textKey, fallbackText);
-            m_detailSchemeButtonGroup->addButton(radioButton, static_cast<int>(scheme));
-            detailSchemeLayout->addWidget(radioButton);
-        };
-    addDetailSchemeRadio(
-        ks::settings::DetailDisplayScheme::BottomCollapsed,
-        QStringLiteral("settings.detail_layout.bottom_collapsed"),
-        QStringLiteral("下方折叠（默认）"));
-    addDetailSchemeRadio(
-        ks::settings::DetailDisplayScheme::Right,
-        QStringLiteral("settings.detail_layout.right"),
-        QStringLiteral("表格右侧"));
-    addDetailSchemeRadio(
-        ks::settings::DetailDisplayScheme::Embedded,
-        QStringLiteral("settings.detail_layout.embedded"),
-        QStringLiteral("行内嵌入"));
-    addDetailSchemeRadio(
-        ks::settings::DetailDisplayScheme::Floating,
-        QStringLiteral("settings.detail_layout.floating"),
-        QStringLiteral("独立窗口"));
-    appearanceRootLayout->addWidget(detailSchemeGroupBox);
-
-    // ===== 启动行为分组 =====
-    QGroupBox* startupGroupBox = new QGroupBox(QStringLiteral("启动行为"), m_startupTab);
-    languageManager.bindText(startupGroupBox, QStringLiteral("settings.startup.group"), QStringLiteral("启动行为"));
-    QVBoxLayout* startupLayout = new QVBoxLayout(startupGroupBox);
-    startupLayout->setSpacing(8);
-
-    QLabel* startupHintLabel = new QLabel(
-        QStringLiteral("设置应用下次启动时的窗口显示方式与权限申请行为。"),
-        startupGroupBox);
-    startupHintLabel->setWordWrap(true);
-    languageManager.bindText(startupHintLabel, QStringLiteral("settings.startup.hint"), QStringLiteral("设置应用下次启动时的窗口显示方式与权限申请行为。"));
-    startupLayout->addWidget(startupHintLabel);
-
-    // m_startupMaximizedCheckBox 作用：控制“下次启动时是否直接最大化显示”。
-    m_startupMaximizedCheckBox = new QCheckBox(QStringLiteral("启动时最大化"), startupGroupBox);
-    languageManager.bindText(m_startupMaximizedCheckBox, QStringLiteral("settings.startup.maximized"), QStringLiteral("启动时最大化"));
-    m_startupMaximizedCheckBox->setToolTip(QStringLiteral("下次启动主窗口时直接以最大化状态显示"));
-    languageManager.bindToolTip(m_startupMaximizedCheckBox, QStringLiteral("settings.startup.maximized.tooltip"), QStringLiteral("下次启动主窗口时直接以最大化状态显示"));
-    startupLayout->addWidget(m_startupMaximizedCheckBox);
-
-    // m_startupTopMostCheckBox 作用：控制“启动后是否自动设置 HWND_TOPMOST 最高级置顶”。
-    m_startupTopMostCheckBox = new QCheckBox(QStringLiteral("启动后默认最高级置顶"), startupGroupBox);
-    languageManager.bindText(m_startupTopMostCheckBox, QStringLiteral("settings.startup.topmost"), QStringLiteral("启动后默认最高级置顶"));
-    m_startupTopMostCheckBox->setToolTip(
-        QStringLiteral("启动后保持窗口置顶；可用右上角图钉临时切换"));
-    languageManager.bindToolTip(m_startupTopMostCheckBox, QStringLiteral("settings.startup.topmost.tooltip"), QStringLiteral("启动后保持窗口置顶；可用右上角图钉临时切换"));
-    startupLayout->addWidget(m_startupTopMostCheckBox);
-
-    // m_startupAutoAdminCheckBox 作用：控制“启动图出现前是否先尝试 UAC 提权”。
-    m_startupAutoAdminCheckBox = new QCheckBox(QStringLiteral("启动时自动请求管理员权限"), startupGroupBox);
-    languageManager.bindText(m_startupAutoAdminCheckBox, QStringLiteral("settings.startup.admin"), QStringLiteral("启动时自动请求管理员权限"));
-    m_startupAutoAdminCheckBox->setToolTip(
-        QStringLiteral("下次启动时请求管理员权限；若取消或失败，将以普通权限继续"));
-    languageManager.bindToolTip(m_startupAutoAdminCheckBox, QStringLiteral("settings.startup.admin.tooltip"), QStringLiteral("下次启动时请求管理员权限；若取消或失败，将以普通权限继续"));
-    startupLayout->addWidget(m_startupAutoAdminCheckBox);
-
-    // m_startupAutoInstallR0DriverCheckBox 作用：控制主窗口首次显示后是否自动安装并启动 KswordARK 驱动。
-    m_startupAutoInstallR0DriverCheckBox = new QCheckBox(QStringLiteral("启动时自动安装驱动"), startupGroupBox);
-    languageManager.bindText(m_startupAutoInstallR0DriverCheckBox, QStringLiteral("settings.startup.auto_install_r0"), QStringLiteral("启动时自动安装驱动"));
-    m_startupAutoInstallR0DriverCheckBox->setToolTip(
-        QStringLiteral("下次启动时自动尝试安装并启动 KswordARK 驱动；权限不足时会显示错误，但不会额外请求管理员重启"));
-    languageManager.bindToolTip(m_startupAutoInstallR0DriverCheckBox, QStringLiteral("settings.startup.auto_install_r0.tooltip"), QStringLiteral("下次启动时自动尝试安装并启动 KswordARK 驱动；权限不足时会显示错误，但不会额外请求管理员重启"));
-    startupLayout->addWidget(m_startupAutoInstallR0DriverCheckBox);
-
-    // m_preventMultipleInstancesCheckBox 作用：控制普通启动是否激活已有窗口并退出新进程。
-    m_preventMultipleInstancesCheckBox = new QCheckBox(QStringLiteral("防止多开"), startupGroupBox);
-    languageManager.bindText(m_preventMultipleInstancesCheckBox, QStringLiteral("settings.startup.prevent_multiple_instances"), QStringLiteral("防止多开"));
-    m_preventMultipleInstancesCheckBox->setToolTip(
-        QStringLiteral("开启时，普通启动会激活已有窗口；管理员和 SYSTEM 权限切换不受影响"));
-    languageManager.bindToolTip(m_preventMultipleInstancesCheckBox, QStringLiteral("settings.startup.prevent_multiple_instances.tooltip"), QStringLiteral("开启时，普通启动会激活已有窗口；管理员和 SYSTEM 权限切换不受影响"));
-    startupLayout->addWidget(m_preventMultipleInstancesCheckBox);
-
-    // m_unlockerShellContextMenuCheckBox 作用：控制是否启用系统右键“文件解锁器”菜单。
-    m_unlockerShellContextMenuCheckBox = new QCheckBox(QStringLiteral("启用系统右键“文件解锁器”菜单"), startupGroupBox);
-    languageManager.bindText(m_unlockerShellContextMenuCheckBox, QStringLiteral("settings.startup.unlocker"), QStringLiteral("启用系统右键“文件解锁器”菜单"));
-    m_unlockerShellContextMenuCheckBox->setToolTip(
-        QStringLiteral("点击“应用”后，在系统右键菜单中添加或移除文件解锁器"));
-    languageManager.bindToolTip(m_unlockerShellContextMenuCheckBox, QStringLiteral("settings.startup.unlocker.tooltip"), QStringLiteral("点击“应用”后，在系统右键菜单中添加或移除文件解锁器"));
-    startupLayout->addWidget(m_unlockerShellContextMenuCheckBox);
-
-    QLabel* taskmgrHijackHintLabel = new QLabel(
-        QStringLiteral("将系统任务管理器入口切换到 Ksword。此操作需要管理员权限。"),
-        startupGroupBox);
-    taskmgrHijackHintLabel->setWordWrap(true);
-    languageManager.bindText(taskmgrHijackHintLabel, QStringLiteral("settings.startup.taskmgr_hint"), QStringLiteral("将系统任务管理器入口切换到 Ksword。此操作需要管理员权限。"));
-    startupLayout->addWidget(taskmgrHijackHintLabel);
-
-    QHBoxLayout* taskmgrHijackButtonLayout = new QHBoxLayout();
-    taskmgrHijackButtonLayout->setSpacing(8);
-
-    // m_installTaskmgrHijackButton 作用：将 taskmgr.exe IFEO Debugger 指向当前 Ksword5.1.exe。
-    m_installTaskmgrHijackButton = new QPushButton(QStringLiteral("用 Ksword 替代任务管理器"), startupGroupBox);
-    languageManager.bindText(m_installTaskmgrHijackButton, QStringLiteral("settings.startup.taskmgr_install"), QStringLiteral("用 Ksword 替代任务管理器"));
-    m_installTaskmgrHijackButton->setMinimumWidth(146);
-    m_installTaskmgrHijackButton->setFixedHeight(30);
-    m_installTaskmgrHijackButton->setToolTip(
-        QStringLiteral("打开任务管理器时改为启动 Ksword"));
-    languageManager.bindToolTip(m_installTaskmgrHijackButton, QStringLiteral("settings.startup.taskmgr_install.tooltip"), QStringLiteral("打开任务管理器时改为启动 Ksword"));
-    taskmgrHijackButtonLayout->addWidget(m_installTaskmgrHijackButton, 0);
-
-    // m_uninstallTaskmgrHijackButton 作用：移除 taskmgr.exe IFEO Debugger，还原系统任务管理器。
-    m_uninstallTaskmgrHijackButton = new QPushButton(QStringLiteral("恢复系统任务管理器"), startupGroupBox);
-    languageManager.bindText(m_uninstallTaskmgrHijackButton, QStringLiteral("settings.startup.taskmgr_uninstall"), QStringLiteral("恢复系统任务管理器"));
-    m_uninstallTaskmgrHijackButton->setMinimumWidth(126);
-    m_uninstallTaskmgrHijackButton->setFixedHeight(30);
-    m_uninstallTaskmgrHijackButton->setToolTip(
-        QStringLiteral("恢复任务管理器的默认启动方式"));
-    languageManager.bindToolTip(m_uninstallTaskmgrHijackButton, QStringLiteral("settings.startup.taskmgr_uninstall.tooltip"), QStringLiteral("恢复任务管理器的默认启动方式"));
-    taskmgrHijackButtonLayout->addWidget(m_uninstallTaskmgrHijackButton, 0);
-    taskmgrHijackButtonLayout->addStretch(1);
-    startupLayout->addLayout(taskmgrHijackButtonLayout);
-    ks::ui::NormalizeToolbarRow(taskmgrHijackButtonLayout);
-
-    // 启动窗口缩放设置：重启后生效，用于统一控制主窗口 UI 缩放。
-    QHBoxLayout* startupScaleLayout = new QHBoxLayout();
-    startupScaleLayout->setSpacing(6);
-    QLabel* startupScaleLabel = new QLabel(QStringLiteral("窗口缩放"), startupGroupBox);
-    languageManager.bindText(startupScaleLabel, QStringLiteral("settings.startup.scale"), QStringLiteral("窗口缩放"));
-    startupScaleLayout->addWidget(startupScaleLabel, 0);
-
-    // m_startupWindowScaleSpin 作用：设置下次启动的主窗口缩放百分比。
-    // 这里刻意不再用“缩放因子 1.00”这种倍率输入框：倍率是内部表示，
-    // 用户脑子里的量是百分比（和 Windows 显示设置一致）；旧的纯文本框
-    // 既没有校验器也不展示可用范围，输入 150（当成百分比）会被静默钳到 2.00。
-    // 步进框把范围、步长和单位都摆在界面上，越界根本输入不进去。
-    m_startupWindowScaleSpin = new QSpinBox(startupGroupBox);
-    m_startupWindowScaleSpin->setRange(
-        windowScalePercentFromFactor(ks::settings::MinimumWindowScaleFactor),
-        windowScalePercentFromFactor(ks::settings::MaximumWindowScaleFactor));
-    m_startupWindowScaleSpin->setSingleStep(5);
-    m_startupWindowScaleSpin->setSuffix(QStringLiteral(" %"));
-    m_startupWindowScaleSpin->setValue(100);
-    m_startupWindowScaleSpin->setKeyboardTracking(false);
-    m_startupWindowScaleSpin->setToolTip(
-        QStringLiteral("主窗口界面缩放，重启后生效；与系统显示缩放叠加。"));
-    languageManager.bindToolTip(m_startupWindowScaleSpin, QStringLiteral("settings.startup.scale.tooltip"), QStringLiteral("主窗口界面缩放，重启后生效；与系统显示缩放叠加。"));
-    startupScaleLayout->addWidget(m_startupWindowScaleSpin, 0);
-    startupScaleLayout->addStretch(1);
-    startupLayout->addLayout(startupScaleLayout);
-
-    // m_startupWindowScaleHintLabel 作用：说明生效时机与系统缩放的关系。
-    // 具体百分比已经由步进框自己显示，这里不再重复。
-    m_startupWindowScaleHintLabel = new QLabel(
-        QStringLiteral("重启后生效；最终大小是系统显示缩放与此处设置相乘的结果。"),
-        startupGroupBox);
-    m_startupWindowScaleHintLabel->setWordWrap(true);
-    languageManager.bindText(
-        m_startupWindowScaleHintLabel,
-        QStringLiteral("settings.startup.scale_hint"),
-        QStringLiteral("重启后生效；最终大小是系统显示缩放与此处设置相乘的结果。"));
-    startupLayout->addWidget(m_startupWindowScaleHintLabel);
-
-    startupRootLayout->addWidget(startupGroupBox);
-    startupRootLayout->addStretch();
-
-    // ===== 权限按钮排分组 =====
-    QGroupBox* privilegeGroupBox = new QGroupBox(QStringLiteral("权限状态按钮"), m_appearanceTab);
-    languageManager.bindText(
-        privilegeGroupBox,
-        QStringLiteral("settings.privilege_buttons.group"),
-        QStringLiteral("权限状态按钮"));
-    QVBoxLayout* privilegeLayout = new QVBoxLayout(privilegeGroupBox);
-    privilegeLayout->setSpacing(8);
-
-    QLabel* privilegeHintLabel = new QLabel(
-        QStringLiteral("选择右上角显示哪些权限等级。取消勾选只是不再显示，不会改变任何能力。"),
-        privilegeGroupBox);
-    privilegeHintLabel->setWordWrap(true);
-    languageManager.bindText(
-        privilegeHintLabel,
-        QStringLiteral("settings.privilege_buttons.hint"),
-        QStringLiteral("选择右上角显示哪些权限等级。取消勾选只是不再显示，不会改变任何能力。"));
-    privilegeLayout->addWidget(privilegeHintLabel);
-
-    m_privilegeUiAccessCheckBox = new QCheckBox(QStringLiteral("UIAccess（跨权限窗口置顶）"), privilegeGroupBox);
-    languageManager.bindText(
-        m_privilegeUiAccessCheckBox,
-        QStringLiteral("settings.privilege_buttons.uiaccess"),
-        QStringLiteral("UIAccess（跨权限窗口置顶）"));
-    privilegeLayout->addWidget(m_privilegeUiAccessCheckBox);
-
-    m_privilegeAdminCheckBox = new QCheckBox(QStringLiteral("Admin（管理员）"), privilegeGroupBox);
-    languageManager.bindText(
-        m_privilegeAdminCheckBox,
-        QStringLiteral("settings.privilege_buttons.admin"),
-        QStringLiteral("Admin（管理员）"));
-    privilegeLayout->addWidget(m_privilegeAdminCheckBox);
-
-    m_privilegeDebugCheckBox = new QCheckBox(QStringLiteral("Debug（调试特权）"), privilegeGroupBox);
-    languageManager.bindText(
-        m_privilegeDebugCheckBox,
-        QStringLiteral("settings.privilege_buttons.debug"),
-        QStringLiteral("Debug（调试特权）"));
-    privilegeLayout->addWidget(m_privilegeDebugCheckBox);
-
-    m_privilegeSystemCheckBox = new QCheckBox(QStringLiteral("System（系统账户）"), privilegeGroupBox);
-    languageManager.bindText(
-        m_privilegeSystemCheckBox,
-        QStringLiteral("settings.privilege_buttons.system"),
-        QStringLiteral("System（系统账户）"));
-    privilegeLayout->addWidget(m_privilegeSystemCheckBox);
-
-    m_privilegeR0CheckBox = new QCheckBox(QStringLiteral("R0（内核驱动）"), privilegeGroupBox);
-    languageManager.bindText(
-        m_privilegeR0CheckBox,
-        QStringLiteral("settings.privilege_buttons.r0"),
-        QStringLiteral("R0（内核驱动）"));
-    privilegeLayout->addWidget(m_privilegeR0CheckBox);
-
-    m_privilegeHvmCheckBox = new QCheckBox(QStringLiteral("R-1（硬件虚拟化）"), privilegeGroupBox);
-    languageManager.bindText(
-        m_privilegeHvmCheckBox,
-        QStringLiteral("settings.privilege_buttons.hvm"),
-        QStringLiteral("R-1（硬件虚拟化）"));
-    privilegeLayout->addWidget(m_privilegeHvmCheckBox);
-
-    m_privilegeDdmaCheckBox = new QCheckBox(QStringLiteral("DDMA（磁盘直接内存访问）"), privilegeGroupBox);
-    languageManager.bindText(
-        m_privilegeDdmaCheckBox,
-        QStringLiteral("settings.privilege_buttons.ddma"),
-        QStringLiteral("DDMA（磁盘直接内存访问）"));
-    // 整串写在一行：跨行拼接会被 i18n 审计当成多个独立源串，逐段都要词条。
-    m_privilegeDdmaCheckBox->setToolTip(QStringLiteral("显示 DDMA 常驻虚扇区指示灯。亮起代表磁盘上有一块扇区正被当作 DMA 中转站占用。"));
-    privilegeLayout->addWidget(m_privilegeDdmaCheckBox);
-
-    QHBoxLayout* hvmNameLayout = new QHBoxLayout();
-    hvmNameLayout->setSpacing(6);
-    QLabel* hvmNameLabel = new QLabel(QStringLiteral("虚拟化按钮显示为"), privilegeGroupBox);
-    languageManager.bindText(
-        hvmNameLabel,
-        QStringLiteral("settings.privilege_buttons.hvm_name"),
-        QStringLiteral("虚拟化按钮显示为"));
-    hvmNameLayout->addWidget(hvmNameLabel, 0);
-    m_hvmDisplayNameCombo = new QComboBox(privilegeGroupBox);
-    // 两个都是体系结构术语，不随界面语言变化，所以条目文本不绑词条。
-    m_hvmDisplayNameCombo->addItem(
-        QStringLiteral("HVM"),
-        static_cast<int>(ks::settings::HvmDisplayName::Hvm));
-    m_hvmDisplayNameCombo->addItem(
-        QStringLiteral("R-1"),
-        static_cast<int>(ks::settings::HvmDisplayName::RingMinusOne));
-    // 整串写在一行：跨行拼接会被 i18n 审计当成多个独立源串，逐段都要词条。
-    m_hvmDisplayNameCombo->setToolTip(
-        QStringLiteral("HVM 是硬件虚拟化名称，R-1 是按权限分层的称呼。只影响右上角按钮。"));
-    hvmNameLayout->addWidget(m_hvmDisplayNameCombo, 1);
-    privilegeLayout->addLayout(hvmNameLayout);
-
-    appearanceRootLayout->addWidget(privilegeGroupBox);
-
-    // ===== 日志通知分组 =====
-    QGroupBox* notificationGroupBox = new QGroupBox(QStringLiteral("日志通知"), m_appearanceTab);
-    languageManager.bindText(notificationGroupBox, QStringLiteral("settings.notification.group"), QStringLiteral("日志通知"));
-    QVBoxLayout* notificationLayout = new QVBoxLayout(notificationGroupBox);
-    notificationLayout->setSpacing(8);
-
-    QLabel* notificationHintLabel = new QLabel(
-        QStringLiteral("在右侧以不抢焦点的卡片显示日志和运行中任务。"),
-        notificationGroupBox);
-    notificationHintLabel->setWordWrap(true);
-    languageManager.bindText(notificationHintLabel, QStringLiteral("settings.notification.hint"), QStringLiteral("在右侧以不抢焦点的卡片显示日志和运行中任务。"));
-    notificationLayout->addWidget(notificationHintLabel);
-
-    m_notificationCardsEnabledCheckBox = new QCheckBox(QStringLiteral("启用右侧通知卡片"), notificationGroupBox);
-    languageManager.bindText(m_notificationCardsEnabledCheckBox, QStringLiteral("settings.notification.enabled"), QStringLiteral("启用右侧通知卡片"));
-    notificationLayout->addWidget(m_notificationCardsEnabledCheckBox);
-
-    QHBoxLayout* notificationLevelLayout = new QHBoxLayout();
-    QLabel* notificationLevelLabel = new QLabel(QStringLiteral("最低日志级别"), notificationGroupBox);
-    languageManager.bindText(notificationLevelLabel, QStringLiteral("settings.notification.minimum_level"), QStringLiteral("最低日志级别"));
-    notificationLevelLayout->addWidget(notificationLevelLabel, 0);
-    m_notificationMinimumLevelCombo = new QComboBox(notificationGroupBox);
-    m_notificationMinimumLevelCombo->addItem(QStringLiteral("调试 Debug"), 0);
-    m_notificationMinimumLevelCombo->addItem(QStringLiteral("信息 Info"), 1);
-    m_notificationMinimumLevelCombo->addItem(QStringLiteral("警告 Warn"), 2);
-    m_notificationMinimumLevelCombo->addItem(QStringLiteral("错误 Error"), 3);
-    m_notificationMinimumLevelCombo->addItem(QStringLiteral("致命 Fatal"), 4);
-    languageManager.bindComboBoxItem(m_notificationMinimumLevelCombo, 0, QStringLiteral("settings.notification.level.debug"), QStringLiteral("调试 Debug"));
-    languageManager.bindComboBoxItem(m_notificationMinimumLevelCombo, 1, QStringLiteral("settings.notification.level.info"), QStringLiteral("信息 Info"));
-    languageManager.bindComboBoxItem(m_notificationMinimumLevelCombo, 2, QStringLiteral("settings.notification.level.warn"), QStringLiteral("警告 Warn"));
-    languageManager.bindComboBoxItem(m_notificationMinimumLevelCombo, 3, QStringLiteral("settings.notification.level.error"), QStringLiteral("错误 Error"));
-    languageManager.bindComboBoxItem(m_notificationMinimumLevelCombo, 4, QStringLiteral("settings.notification.level.fatal"), QStringLiteral("致命 Fatal"));
-    notificationLevelLayout->addWidget(m_notificationMinimumLevelCombo, 1);
-    notificationLayout->addLayout(notificationLevelLayout);
-
-    QHBoxLayout* notificationDurationLayout = new QHBoxLayout();
-    QLabel* notificationDurationLabel = new QLabel(QStringLiteral("日志展示秒数"), notificationGroupBox);
-    languageManager.bindText(notificationDurationLabel, QStringLiteral("settings.notification.duration"), QStringLiteral("日志展示秒数"));
-    notificationDurationLayout->addWidget(notificationDurationLabel, 0);
-    m_notificationLogDisplaySecondsSpin = new QSpinBox(notificationGroupBox);
-    m_notificationLogDisplaySecondsSpin->setRange(0, 60);
-    m_notificationLogDisplaySecondsSpin->setSuffix(QStringLiteral(" 秒"));
-    m_notificationLogDisplaySecondsSpin->setToolTip(QStringLiteral("0 表示日志卡片常驻，直到因空间不足被替换。"));
-    languageManager.bindToolTip(m_notificationLogDisplaySecondsSpin, QStringLiteral("settings.notification.duration.tooltip"), QStringLiteral("0 表示日志卡片常驻，直到因空间不足被替换。"));
-    notificationDurationLayout->addWidget(m_notificationLogDisplaySecondsSpin, 1);
-    notificationLayout->addLayout(notificationDurationLayout);
-
-    QHBoxLayout* notificationMaximumCountLayout = new QHBoxLayout();
-    QLabel* notificationMaximumCountLabel = new QLabel(QStringLiteral("同时显示最多日志条数"), notificationGroupBox);
-    languageManager.bindText(notificationMaximumCountLabel, QStringLiteral("settings.notification.maximum_count"), QStringLiteral("同时显示最多日志条数"));
-    notificationMaximumCountLayout->addWidget(notificationMaximumCountLabel, 0);
-    m_notificationMaximumVisibleLogCardsSpin = new QSpinBox(notificationGroupBox);
-    m_notificationMaximumVisibleLogCardsSpin->setRange(0, 100);
-    m_notificationMaximumVisibleLogCardsSpin->setToolTip(QStringLiteral("0 表示不限制，仍会在可用空间不足时按现有逻辑替换最旧日志。"));
-    languageManager.bindToolTip(m_notificationMaximumVisibleLogCardsSpin, QStringLiteral("settings.notification.maximum_count.tooltip"), QStringLiteral("0 表示不限制，仍会在可用空间不足时按现有逻辑替换最旧日志。"));
-    notificationMaximumCountLayout->addWidget(m_notificationMaximumVisibleLogCardsSpin, 1);
-    notificationLayout->addLayout(notificationMaximumCountLayout);
-
-    m_notificationLogHeightLimitCheckBox = new QCheckBox(QStringLiteral("限制单条日志卡片高度"), notificationGroupBox);
-    languageManager.bindText(m_notificationLogHeightLimitCheckBox, QStringLiteral("settings.notification.height_limit.enabled"), QStringLiteral("限制单条日志卡片高度"));
-    notificationLayout->addWidget(m_notificationLogHeightLimitCheckBox);
-
-    QHBoxLayout* notificationMaximumLinesLayout = new QHBoxLayout();
-    QLabel* notificationMaximumLinesLabel = new QLabel(QStringLiteral("最高文字行数"), notificationGroupBox);
-    languageManager.bindText(notificationMaximumLinesLabel, QStringLiteral("settings.notification.height_limit.lines"), QStringLiteral("最高文字行数"));
-    notificationMaximumLinesLayout->addWidget(notificationMaximumLinesLabel, 0);
-    m_notificationLogMaximumLinesSpin = new QSpinBox(notificationGroupBox);
-    m_notificationLogMaximumLinesSpin->setRange(1, 50);
-    m_notificationLogMaximumLinesSpin->setSuffix(QStringLiteral(" 行"));
-    languageManager.bindSuffix(m_notificationLogMaximumLinesSpin, QStringLiteral("settings.notification.height_limit.lines.suffix"), QStringLiteral(" 行"));
-    m_notificationLogMaximumLinesSpin->setToolTip(QStringLiteral("超出时可通过卡片标题栏的小箭头展开完整日志。"));
-    languageManager.bindToolTip(m_notificationLogMaximumLinesSpin, QStringLiteral("settings.notification.height_limit.lines.tooltip"), QStringLiteral("超出时可通过卡片标题栏的小箭头展开完整日志。"));
-    notificationMaximumLinesLayout->addWidget(m_notificationLogMaximumLinesSpin, 1);
-    notificationLayout->addLayout(notificationMaximumLinesLayout);
-
-    QHBoxLayout* notificationPlacementLayout = new QHBoxLayout();
-    QLabel* notificationPlacementLabel = new QLabel(QStringLiteral("显示位置"), notificationGroupBox);
-    languageManager.bindText(notificationPlacementLabel, QStringLiteral("settings.notification.placement"), QStringLiteral("显示位置"));
-    notificationPlacementLayout->addWidget(notificationPlacementLabel, 0);
-    m_notificationDisplayPlacementCombo = new QComboBox(notificationGroupBox);
-    m_notificationDisplayPlacementCombo->addItem(QStringLiteral("屏幕右侧"), static_cast<int>(ks::settings::NotificationDisplayPlacement::Screen));
-    m_notificationDisplayPlacementCombo->addItem(QStringLiteral("Ksword 主窗口内"), static_cast<int>(ks::settings::NotificationDisplayPlacement::MainWindow));
-    languageManager.bindComboBoxItem(m_notificationDisplayPlacementCombo, 0, QStringLiteral("settings.notification.placement.screen"), QStringLiteral("屏幕右侧"));
-    languageManager.bindComboBoxItem(m_notificationDisplayPlacementCombo, 1, QStringLiteral("settings.notification.placement.window"), QStringLiteral("Ksword 主窗口内"));
-    notificationPlacementLayout->addWidget(m_notificationDisplayPlacementCombo, 1);
-    notificationLayout->addLayout(notificationPlacementLayout);
-
-    QHBoxLayout* notificationStackLayout = new QHBoxLayout();
-    QLabel* notificationStackLabel = new QLabel(QStringLiteral("堆叠方向"), notificationGroupBox);
-    languageManager.bindText(notificationStackLabel, QStringLiteral("settings.notification.stack_direction"), QStringLiteral("堆叠方向"));
-    notificationStackLayout->addWidget(notificationStackLabel, 0);
-    m_notificationStackDirectionCombo = new QComboBox(notificationGroupBox);
-    m_notificationStackDirectionCombo->addItem(QStringLiteral("右下向右上"), static_cast<int>(ks::settings::NotificationStackDirection::BottomUp));
-    m_notificationStackDirectionCombo->addItem(QStringLiteral("右上向右下"), static_cast<int>(ks::settings::NotificationStackDirection::TopDown));
-    languageManager.bindComboBoxItem(m_notificationStackDirectionCombo, 0, QStringLiteral("settings.notification.stack.bottom_up"), QStringLiteral("右下向右上"));
-    languageManager.bindComboBoxItem(m_notificationStackDirectionCombo, 1, QStringLiteral("settings.notification.stack.top_down"), QStringLiteral("右上向右下"));
-    notificationStackLayout->addWidget(m_notificationStackDirectionCombo, 1);
-    notificationLayout->addLayout(notificationStackLayout);
-
-    appearanceRootLayout->addWidget(notificationGroupBox);
-
-    appearanceRootLayout->addStretch();
-    m_tabWidget->addTab(m_appearanceTab, QStringLiteral("外观"));
-    languageManager.bindTab(m_tabWidget, m_appearanceTab, QStringLiteral("settings.tab.appearance"), QStringLiteral("外观"));
-    m_tabWidget->addTab(m_languageTab, QStringLiteral("语言"));
-    languageManager.bindTab(m_tabWidget, m_languageTab, QStringLiteral("settings.tab.language"), QStringLiteral("语言"));
-    m_tabWidget->addTab(m_startupTab, QStringLiteral("启动"));
-    languageManager.bindTab(m_tabWidget, m_startupTab, QStringLiteral("settings.tab.startup"), QStringLiteral("启动"));
-
-    bindAppearanceSignals();
-    updateThemeButtonStyle();
-    updateApplyButtonState();
 }
 
 void SettingsDock::showLanguageSettingsTab()
@@ -1138,112 +269,6 @@ void SettingsDock::showLanguageSettingsTab()
     {
         m_tabWidget->setCurrentWidget(m_languageTab);
     }
-}
-
-void SettingsDock::initializeFeaturesTab()
-{
-    m_featuresTab = new QWidget(m_tabWidget);
-    QVBoxLayout* featuresRootLayout = new QVBoxLayout(m_featuresTab);
-    featuresRootLayout->setContentsMargins(8, 8, 8, 8);
-    featuresRootLayout->setSpacing(12);
-
-    ks::i18n::LanguageManager& languageManager = ks::i18n::LanguageManager::instance();
-    QGroupBox* r0PromptGroupBox = new QGroupBox(QStringLiteral("R0 功能提示"), m_featuresTab);
-    languageManager.bindText(
-        r0PromptGroupBox,
-        QStringLiteral("settings.features.r0.group"),
-        QStringLiteral("R0 功能提示"));
-    QVBoxLayout* r0PromptLayout = new QVBoxLayout(r0PromptGroupBox);
-    r0PromptLayout->setSpacing(8);
-
-    QLabel* r0PromptHintLabel = new QLabel(
-        QStringLiteral("勾选后，R0 驱动未启用或当前权限不足时不再自动弹出提示；仍可通过标题栏 R0 按钮手动管理驱动。"),
-        r0PromptGroupBox);
-    r0PromptHintLabel->setWordWrap(true);
-    languageManager.bindText(
-        r0PromptHintLabel,
-        QStringLiteral("settings.features.r0.hint"),
-        QStringLiteral("勾选后，R0 驱动未启用或当前权限不足时不再自动弹出提示；仍可通过标题栏 R0 按钮手动管理驱动。"));
-    r0PromptLayout->addWidget(r0PromptHintLabel);
-
-    m_suppressR0FeaturePromptsCheckBox = new QCheckBox(
-        QStringLiteral("永远不提示 R0 功能"),
-        r0PromptGroupBox);
-    languageManager.bindText(
-        m_suppressR0FeaturePromptsCheckBox,
-        QStringLiteral("settings.features.r0.suppress_prompts"),
-        QStringLiteral("永远不提示 R0 功能"));
-    m_suppressR0FeaturePromptsCheckBox->setToolTip(
-        QStringLiteral("关闭 R0 驱动未启用和权限不足时的自动提示"));
-    languageManager.bindToolTip(
-        m_suppressR0FeaturePromptsCheckBox,
-        QStringLiteral("settings.features.r0.suppress_prompts.tooltip"),
-        QStringLiteral("关闭 R0 驱动未启用和权限不足时的自动提示"));
-    r0PromptLayout->addWidget(m_suppressR0FeaturePromptsCheckBox);
-
-    featuresRootLayout->addWidget(r0PromptGroupBox);
-
-    // ---- 崩溃转储自动检查 ----
-    QGroupBox* dumpCheckGroupBox = new QGroupBox(QStringLiteral("崩溃转储检查"), m_featuresTab);
-    languageManager.bindText(
-        dumpCheckGroupBox,
-        QStringLiteral("settings.features.dump.group"),
-        QStringLiteral("崩溃转储检查"));
-    QVBoxLayout* dumpCheckLayout = new QVBoxLayout(dumpCheckGroupBox);
-    dumpCheckLayout->setSpacing(8);
-
-    QLabel* dumpCheckHintLabel = new QLabel(
-        QStringLiteral("启动后检查系统近 24 小时内是否产生过新的崩溃转储，有则询问是否立即解析。"
-            "检查只读取文件名与时间，不会打开转储内容；同一个转储只会询问一次。"),
-        dumpCheckGroupBox);
-    dumpCheckHintLabel->setWordWrap(true);
-    languageManager.bindText(
-        dumpCheckHintLabel,
-        QStringLiteral("settings.features.dump.hint"),
-        QStringLiteral("启动后检查系统近 24 小时内是否产生过新的崩溃转储，有则询问是否立即解析。"
-            "检查只读取文件名与时间，不会打开转储内容；同一个转储只会询问一次。"));
-    dumpCheckLayout->addWidget(dumpCheckHintLabel);
-
-    m_dumpAutoCheckCheckBox = new QCheckBox(
-        QStringLiteral("启动时检查新的崩溃转储"),
-        dumpCheckGroupBox);
-    languageManager.bindText(
-        m_dumpAutoCheckCheckBox,
-        QStringLiteral("settings.features.dump.auto_check"),
-        QStringLiteral("启动时检查新的崩溃转储"));
-    m_dumpAutoCheckCheckBox->setToolTip(
-        QStringLiteral("关闭后不再自动检查，仍可随时在“转储分析”页手动打开转储文件"));
-    languageManager.bindToolTip(
-        m_dumpAutoCheckCheckBox,
-        QStringLiteral("settings.features.dump.auto_check.tooltip"),
-        QStringLiteral("关闭后不再自动检查，仍可随时在“转储分析”页手动打开转储文件"));
-    dumpCheckLayout->addWidget(m_dumpAutoCheckCheckBox);
-
-    featuresRootLayout->addWidget(dumpCheckGroupBox);
-    initializeBugcheckDiagnosticsControls(featuresRootLayout);
-    featuresRootLayout->addStretch();
-    m_tabWidget->addTab(m_featuresTab, QStringLiteral("功能"));
-    languageManager.bindTab(
-        m_tabWidget,
-        m_featuresTab,
-        QStringLiteral("settings.tab.features"),
-        QStringLiteral("功能"));
-
-    connect(
-        m_suppressR0FeaturePromptsCheckBox,
-        &QCheckBox::toggled,
-        this,
-        [this](const bool /*checkedState*/) {
-            markPendingChanges(QString());
-        });
-
-    connect(
-        m_dumpAutoCheckCheckBox,
-        &QCheckBox::toggled,
-        this,
-        [this](const bool /*checkedState*/) {
-            markPendingChanges(QString());
-        });
 }
 
 void SettingsDock::bindAppearanceSignals()
@@ -1409,7 +434,7 @@ void SettingsDock::bindAppearanceSignals()
         markPendingChanges(QStringLiteral("控件与标签页滚轮操作开关切换"));
         });
 
-    connect(m_detailSchemeButtonGroup, &QButtonGroup::idClicked, this, [this](const int) {
+    connect(m_detailSchemeCombo, QOverload<int>::of(&QComboBox::activated), this, [this](const int) {
         markPendingChanges(QStringLiteral("详情页显示方案切换"));
         });
 
@@ -1681,19 +706,10 @@ void SettingsDock::applySettingsToUi(const ks::settings::AppearanceSettings& set
             windowScalePercentFromFactor(settings.startupWindowScaleFactor));
     }
 
-    if (m_detailSchemeButtonGroup != nullptr)
+    if (m_detailSchemeCombo != nullptr)
     {
-        QAbstractButton* detailSchemeButton = m_detailSchemeButtonGroup->button(
-            static_cast<int>(settings.detailDisplayScheme));
-        if (detailSchemeButton == nullptr)
-        {
-            detailSchemeButton = m_detailSchemeButtonGroup->button(
-                static_cast<int>(ks::settings::DetailDisplayScheme::BottomCollapsed));
-        }
-        if (detailSchemeButton != nullptr)
-        {
-            detailSchemeButton->setChecked(true);
-        }
+        const int detailIndex = m_detailSchemeCombo->findData(static_cast<int>(settings.detailDisplayScheme));
+        m_detailSchemeCombo->setCurrentIndex(detailIndex >= 0 ? detailIndex : 0);
     }
 
     // 在线扫描 API Key 回填：
@@ -1815,8 +831,8 @@ ks::settings::AppearanceSettings SettingsDock::collectSettingsFromUi() const
         (m_smoothScrollingCheckBox != nullptr) && m_smoothScrollingCheckBox->isChecked();
     collectedSettings.sliderWheelAdjustEnabled =
         (m_sliderWheelAdjustCheckBox != nullptr) && m_sliderWheelAdjustCheckBox->isChecked();
-    const int detailSchemeId = m_detailSchemeButtonGroup != nullptr
-        ? m_detailSchemeButtonGroup->checkedId()
+    const int detailSchemeId = m_detailSchemeCombo != nullptr
+        ? m_detailSchemeCombo->currentData().toInt()
         : static_cast<int>(m_currentAppearanceSettings.detailDisplayScheme);
     if (detailSchemeId >= static_cast<int>(ks::settings::DetailDisplayScheme::BottomCollapsed) &&
         detailSchemeId <= static_cast<int>(ks::settings::DetailDisplayScheme::Floating))
@@ -1963,7 +979,7 @@ void SettingsDock::updateApplyButtonState()
 void SettingsDock::updateThemeColorPreview()
 {
     updateThemeComponentPreview();
-    if (m_themeColorPreviewLabel == nullptr)
+    if (m_chooseThemeColorButton == nullptr)
     {
         return;
     }
@@ -1971,16 +987,14 @@ void SettingsDock::updateThemeColorPreview()
     const QColor previewColor = m_pendingCustomThemeColor.isEmpty()
         ? KswordTheme::DefaultPrimaryAccentColor()
         : QColor(m_pendingCustomThemeColor);
-    const QColor readableTextColor = KswordTheme::EnsureTextContrast(
-        KswordTheme::WhiteColor(),
-        previewColor);
     const QString colorText = previewColor.name(QColor::HexRgb).toUpper();
-    m_themeColorPreviewLabel->setText(colorText);
-    m_themeColorPreviewLabel->setStyleSheet(
-        QStringLiteral("QLabel{background:%1;color:%2;border:1px solid %3;border-radius:3px;padding:5px;font-weight:600;}")
-        .arg(colorText)
-        .arg(KswordTheme::ThemeColorName(readableTextColor))
-        .arg(KswordTheme::BorderHex()));
+    if (m_chooseThemeColorButton != nullptr)
+    {
+        QPixmap swatch(16, 16); // 预览色块使用用户待应用颜色，按钮正文继续使用当前主题文字色。
+        swatch.fill(previewColor);
+        m_chooseThemeColorButton->setIcon(QIcon(swatch));
+        m_chooseThemeColorButton->setText(colorText);
+    }
 
     if (m_resetThemeColorButton != nullptr)
     {
@@ -2065,7 +1079,7 @@ void SettingsDock::resetThemeColorToDefault()
 void SettingsDock::updateMainBackgroundColorPreview()
 {
     updateThemeComponentPreview();
-    if (m_mainBackgroundColorPreviewLabel == nullptr)
+    if (m_chooseMainBackgroundColorButton == nullptr)
     {
         return;
     }
@@ -2074,16 +1088,14 @@ void SettingsDock::updateMainBackgroundColorPreview()
         ? KswordTheme::DefaultMainBackgroundColor(
             selectedThemeUsesDarkBackground(m_themeButtonGroup))
         : QColor(m_pendingCustomMainBackgroundColor);
-    const QColor readableTextColor = KswordTheme::EnsureTextContrast(
-        KswordTheme::TextPrimaryColor(),
-        previewColor);
     const QString colorText = previewColor.name(QColor::HexRgb).toUpper();
-    m_mainBackgroundColorPreviewLabel->setText(colorText);
-    m_mainBackgroundColorPreviewLabel->setStyleSheet(
-        QStringLiteral("QLabel{background:%1;color:%2;border:1px solid %3;border-radius:3px;padding:5px;font-weight:600;}")
-        .arg(colorText)
-        .arg(KswordTheme::ThemeColorName(readableTextColor))
-        .arg(KswordTheme::BorderHex()));
+    if (m_chooseMainBackgroundColorButton != nullptr)
+    {
+        QPixmap swatch(16, 16); // 主背景色与主题强调色独立预览及保存。
+        swatch.fill(previewColor);
+        m_chooseMainBackgroundColorButton->setIcon(QIcon(swatch));
+        m_chooseMainBackgroundColorButton->setText(colorText);
+    }
 
     if (m_resetMainBackgroundColorButton != nullptr)
     {

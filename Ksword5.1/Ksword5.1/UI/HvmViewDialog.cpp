@@ -1,4 +1,8 @@
 #include "HvmViewDialog.h"
+#include "./SecondaryPageLayout.h"
+#include "./ToolbarMetrics.h"
+#include "./TableInteractionSupport.h"
+#include "./VisibleTableWidget.h"
 
 #include "HvmControl.h"
 #include "MemoryWorkbench/SnapshotWorkbenchWidget.h"
@@ -70,7 +74,9 @@ HvmViewDialog::HvmViewDialog(QWidget* const parent)
 
 void HvmViewDialog::buildUi()
 {
+    ks::ui::StyleSecondaryWindow(this);
     QVBoxLayout* const rootLayout = new QVBoxLayout(this);
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
     rootLayout->setSizeConstraint(QLayout::SetNoConstraint);
 
     QLabel* const hintLabel = new QLabel(
@@ -136,6 +142,7 @@ void HvmViewDialog::buildUi()
     formLayout->addRow(
         ks::i18n::sourceText(QStringLiteral("影子来源")),
         m_seedBox);
+    ks::ui::StyleSecondaryForm(formLayout, 186);
     rootLayout->addLayout(formLayout);
 
     m_targetHintLabel = new QLabel(this);
@@ -150,6 +157,7 @@ void HvmViewDialog::buildUi()
     shadowTools->addWidget(m_readShadowButton);
     shadowTools->addWidget(m_discardShadowButton);
     shadowTools->addStretch(1);
+    ks::ui::NormalizeToolbarRow(shadowTools);
     rootLayout->addLayout(shadowTools);
     m_shadowEditor = new ks::ui::SnapshotWorkbenchWidget(this);
     m_shadowEditor->setEditable(false);
@@ -167,9 +175,15 @@ void HvmViewDialog::buildUi()
     m_viewTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_viewTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_viewTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    // 当前规则清单与本页事务动作配套，不再叠加快照/对比工具栏。
+    ks::ui::SetTableActionBarMode(m_viewTable, ks::ui::TableActionBarMode::None);
     rootLayout->addWidget(m_viewTable, 1);
 
+    // 参数与结果保持同屏；动作和状态由独立的底部分隔区承载。
+    auto* const footer = new QWidget(this);
+    auto* const footerLayout = new QVBoxLayout(footer);
     QGridLayout* const buttonLayout = new QGridLayout();
+    buttonLayout->setHorizontalSpacing(8);
     m_addButton = new QPushButton(
         ks::i18n::sourceText(QStringLiteral("安装视图")), this);
     m_removeButton = new QPushButton(
@@ -182,11 +196,17 @@ void HvmViewDialog::buildUi()
     buttonLayout->addWidget(m_removeButton, 0, 1);
     buttonLayout->addWidget(m_clearButton, 0, 2);
     buttonLayout->addWidget(m_refreshButton, 0, 3);
-    rootLayout->addLayout(buttonLayout);
+    for (QPushButton* button : { m_addButton, m_removeButton, m_clearButton, m_refreshButton })
+    {
+        ks::ui::NormalizeToolbarControl(button);
+    }
+    footerLayout->addLayout(buttonLayout);
 
     m_statusLabel = new QLabel(QString(), this);
     m_statusLabel->setWordWrap(true);
-    rootLayout->addWidget(m_statusLabel);
+    footerLayout->addWidget(m_statusLabel);
+    ks::ui::StyleSecondaryFooter(footer);
+    rootLayout->addWidget(footer);
 
     connect(m_addButton, &QPushButton::clicked, this, [this]() {
         startAdd();

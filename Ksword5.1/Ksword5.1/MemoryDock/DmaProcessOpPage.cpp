@@ -1,5 +1,6 @@
 #include "DmaProcessOpPage.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/SecondaryPageLayout.h"
 #include "../UI/CodeTextEdit.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -8,6 +9,8 @@
 
 #include <QCheckBox>
 #include <QGridLayout>
+#include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -109,8 +112,7 @@ namespace ksword::memory_dock
     void DmaProcessOpPage::buildUi()
     {
         QVBoxLayout* root = new QVBoxLayout(this);
-        root->setContentsMargins(8, 8, 8, 8);
-        root->setSpacing(8);
+        ks::ui::StyleSecondaryContentLayout(root);
 
         QLabel* intro = new QLabel(this);
         intro->setWordWrap(true);
@@ -122,38 +124,40 @@ namespace ksword::memory_dock
         m_targetLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
         root->addWidget(m_targetLabel);
 
-        QGridLayout* form = new QGridLayout();
-        form->setHorizontalSpacing(8);
-        form->setVerticalSpacing(6);
-
-        form->addWidget(new QLabel(QStringLiteral("目标虚拟地址"), this), 0, 0);
+        // 参数和确认条件共用平面分区，日志保留独立伸缩空间。
+        auto* inputSection = new QGroupBox(QStringLiteral("操作参数"), this);
+        ks::ui::StyleSecondarySection(inputSection);
+        auto* inputLayout = new QVBoxLayout(inputSection);
+        inputLayout->setSpacing(8);
+        auto* form = new QFormLayout();
         m_addressEdit = new QLineEdit(this);
         m_addressEdit->setPlaceholderText(QStringLiteral("目标进程里的地址，默认十六进制"));
         m_addressEdit->setClearButtonEnabled(true);
         m_addressEdit->setToolTip(QStringLiteral("注入时这个地址只用来定位所在的页，载荷会被排进页内的空隙里；写 UD2 时写的就是这个地址本身。"));
-        form->addWidget(m_addressEdit, 0, 1, 1, 3);
+        form->addRow(QStringLiteral("目标虚拟地址"), m_addressEdit);
 
-        form->addWidget(new QLabel(QStringLiteral("载荷（十六进制）"), this), 1, 0);
         m_payloadEdit = new QLineEdit(this);
         m_payloadEdit->setPlaceholderText(QStringLiteral("例如 90 48 31 C0 C3"));
         m_payloadEdit->setClearButtonEnabled(true);
         m_payloadEdit->setToolTip(QStringLiteral("位置无关的机器码。只接受成对的十六进制数位，分隔符随意；位数为奇数会被拒绝而不是补零——补零会静默改变最后一个字节，也就是改变最后一条指令。"));
-        form->addWidget(m_payloadEdit, 1, 1, 1, 3);
-
-        root->addLayout(form);
+        form->addRow(QStringLiteral("载荷（十六进制）"), m_payloadEdit);
+        ks::ui::StyleSecondaryForm(form, 150);
+        inputLayout->addLayout(form);
 
         m_forceCheck = new QCheckBox(QStringLiteral("附加 FORCE 标志（DDMA 写入要求）"), this);
         m_forceCheck->setToolTip(QStringLiteral("驱动对 DDMA 写入要求显式的强制标志，缺了会被拒绝。"));
         m_acknowledgeCheck = new QCheckBox(
             QStringLiteral("我确认这会修改目标进程的真实内存页，并且由我负责还原"), this);
-        root->addWidget(m_forceCheck);
+        inputLayout->addWidget(m_forceCheck);
         m_unknownSharingCheck = new QCheckBox(
             QStringLiteral("目标页的共享性无法确认时仍然写入（后果可能波及其它进程）"), this);
         m_unknownSharingCheck->setToolTip(QStringLiteral("只在“无法确认”时起作用。已经确认被其它进程共享的页没有任何开关能解锁——往一张共享的映像页写字节会打到每一个映射它的进程。"));
-        root->addWidget(m_acknowledgeCheck);
-        root->addWidget(m_unknownSharingCheck);
+        inputLayout->addWidget(m_acknowledgeCheck);
+        inputLayout->addWidget(m_unknownSharingCheck);
+        root->addWidget(inputSection);
 
-        QHBoxLayout* actions = new QHBoxLayout();
+        auto* footer = new QWidget(this);
+        QHBoxLayout* actions = new QHBoxLayout(footer);
         actions->setContentsMargins(0, 0, 0, 0);
         actions->setSpacing(8);
         m_injectButton = new QPushButton(QStringLiteral("注入载荷到页内空隙"), this);
@@ -166,7 +170,6 @@ namespace ksword::memory_dock
         actions->addWidget(m_restoreButton);
         actions->addStretch(1);
         ks::ui::NormalizeToolbarRow(actions);
-        root->addLayout(actions);
 
         m_channelHintLabel = new QLabel(this);
         m_channelHintLabel->setWordWrap(true);
@@ -182,6 +185,9 @@ namespace ksword::memory_dock
         m_logText->setReadOnly(true);
         m_logText->setPlaceholderText(QStringLiteral("每一次写入的计划、备份与读回校验结果都会记在这里。备份是还原的唯一依据，别清空它。"));
         root->addWidget(m_logText, 1);
+        // 动作固定在日志下方，长结果和日志滚动不再推走执行与还原入口。
+        ks::ui::StyleSecondaryFooter(footer);
+        root->addWidget(footer);
     }
 
     void DmaProcessOpPage::wireSignals()

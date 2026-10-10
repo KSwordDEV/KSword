@@ -1,4 +1,7 @@
 #include "HvmCrPolicyDialog.h"
+#include "./SecondaryPageLayout.h"
+#include "./ToolbarMetrics.h"
+#include "./TableInteractionSupport.h"
 
 #include "HvmControl.h"
 #include "../Framework/DestructiveActionConfirmation.h"
@@ -60,7 +63,9 @@ HvmCrPolicyDialog::HvmCrPolicyDialog(QWidget* const parent)
 
 void HvmCrPolicyDialog::buildUi()
 {
+    ks::ui::StyleSecondaryWindow(this);
     QVBoxLayout* const rootLayout = new QVBoxLayout(this);
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
 
     QLabel* const hintLabel = new QLabel(
         ks::i18n::sourceText(QStringLiteral("被钉住的位由 hypervisor 持有：guest 改它会被驳回，但影子仍回报改成功。掩码在建 VMCS 时消费，必须在常驻启动前配置。")),
@@ -77,12 +82,19 @@ void HvmCrPolicyDialog::buildUi()
         ks::i18n::sourceText(QStringLiteral("钉住 CR4.SMAP")), this);
     m_pinUmipCheck = new QCheckBox(
         ks::i18n::sourceText(QStringLiteral("钉住 CR4.UMIP")), this);
+    // 四个同类位开关紧凑排列，掩码输入与事件行为仍保持在同一页。
+    auto* const pinOptions = new QWidget(this);
+    auto* const pinLayout = new QGridLayout(pinOptions);
+    pinLayout->setContentsMargins(0, 0, 0, 0);
+    pinLayout->setHorizontalSpacing(16);
+    pinLayout->setVerticalSpacing(8);
+    pinLayout->addWidget(m_pinWpCheck, 0, 0);
+    pinLayout->addWidget(m_pinSmepCheck, 0, 1);
+    pinLayout->addWidget(m_pinSmapCheck, 1, 0);
+    pinLayout->addWidget(m_pinUmipCheck, 1, 1);
     formLayout->addRow(
         ks::i18n::sourceText(QStringLiteral("常用钉住位")),
-        m_pinWpCheck);
-    formLayout->addRow(QString(), m_pinSmepCheck);
-    formLayout->addRow(QString(), m_pinSmapCheck);
-    formLayout->addRow(QString(), m_pinUmipCheck);
+        pinOptions);
 
     m_cr0MaskEdit = new QLineEdit(this);
     m_cr0MaskEdit->setPlaceholderText(
@@ -109,6 +121,7 @@ void HvmCrPolicyDialog::buildUi()
     formLayout->addRow(QString(), m_trackCr3Check);
     formLayout->addRow(QString(), m_interceptDrCheck);
     formLayout->addRow(QString(), m_logCheck);
+    ks::ui::StyleSecondaryForm(formLayout, 150);
     rootLayout->addLayout(formLayout);
 
     m_currentLabel = new QLabel(QString(), this);
@@ -116,7 +129,11 @@ void HvmCrPolicyDialog::buildUi()
     m_currentLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     rootLayout->addWidget(m_currentLabel, 1);
 
+    // 参数与结果保持同屏；动作和状态由独立的底部分隔区承载。
+    auto* const footer = new QWidget(this);
+    auto* const footerLayout = new QVBoxLayout(footer);
     QGridLayout* const buttonLayout = new QGridLayout();
+    buttonLayout->setHorizontalSpacing(8);
     m_applyButton = new QPushButton(
         ks::i18n::sourceText(QStringLiteral("应用配置")), this);
     m_clearButton = new QPushButton(
@@ -126,11 +143,17 @@ void HvmCrPolicyDialog::buildUi()
     buttonLayout->addWidget(m_applyButton, 0, 0);
     buttonLayout->addWidget(m_clearButton, 0, 1);
     buttonLayout->addWidget(m_refreshButton, 0, 2);
-    rootLayout->addLayout(buttonLayout);
+    for (QPushButton* button : { m_applyButton, m_clearButton, m_refreshButton })
+    {
+        ks::ui::NormalizeToolbarControl(button);
+    }
+    footerLayout->addLayout(buttonLayout);
 
     m_statusLabel = new QLabel(QString(), this);
     m_statusLabel->setWordWrap(true);
-    rootLayout->addWidget(m_statusLabel);
+    footerLayout->addWidget(m_statusLabel);
+    ks::ui::StyleSecondaryFooter(footer);
+    rootLayout->addWidget(footer);
 
     connect(m_applyButton, &QPushButton::clicked, this, [this]() {
         startApply();

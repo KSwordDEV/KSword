@@ -14,6 +14,7 @@
 #include <QAction>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include "../UI/SecondaryPageLayout.h"
 #include <QDir>
 #include <QEvent>
 #include <QFormLayout>
@@ -901,11 +902,13 @@ void KernelPlatformAuditTab::editFunctionSlot(
     QDialog editor(this);
     editor.setObjectName(QStringLiteral("ksPlatformSlotEditDialog"));
     editor.setStyleSheet(KswordTheme::OpaqueDialogStyle(editor.objectName()));
+    ks::ui::StyleSecondaryWindow(&editor);
     editor.setWindowTitle(kernelText(
         "kernel.platform.slot.edit.dialog.title",
         QStringLiteral("编辑 %1 函数槽"))
         .arg(familyName));
     auto* layout = new QVBoxLayout(&editor);
+    ks::ui::StyleSecondaryContentLayout(layout);
     QString riskText = kernelText(
         "kernel.platform.slot.edit.dialog.risk",
         QStringLiteral(
@@ -977,6 +980,7 @@ void KernelPlatformAuditTab::editFunctionSlot(
                 addressEdit->setFocus();
             });
         originalLayout->addWidget(restoreButton);
+        ks::ui::NormalizeToolbarRow(originalLayout);
         form->addRow(
             kernelText(
                 "kernel.platform.slot.edit.field.original",
@@ -986,6 +990,7 @@ void KernelPlatformAuditTab::editFunctionSlot(
     form->addRow(
         kernelText("kernel.platform.slot.edit.field.new", QStringLiteral("新函数地址")),
         addressEdit);
+    ks::ui::StyleSecondaryForm(form, 176);
     layout->addLayout(form);
 
     auto* buttons = new QDialogButtonBox(
@@ -996,6 +1001,8 @@ void KernelPlatformAuditTab::editFunctionSlot(
         QStringLiteral("继续风险确认")));
     connect(buttons, &QDialogButtonBox::accepted, &editor, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &editor, &QDialog::reject);
+    ks::ui::StyleSecondaryButtonBox(buttons);
+    ks::ui::StyleSecondaryFooter(buttons);
     layout->addWidget(buttons);
     addressEdit->setFocus();
     if (editor.exec() != QDialog::Accepted)

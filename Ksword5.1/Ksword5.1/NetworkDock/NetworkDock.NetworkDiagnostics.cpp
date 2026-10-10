@@ -1,5 +1,6 @@
 #include "NetworkDock.InternalCommon.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/SecondaryPageLayout.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../theme.h"
@@ -296,6 +297,8 @@ namespace
         QDialog dialog(parent);
         dialog.setWindowTitle(editing ? QStringLiteral("编辑路由") : QStringLiteral("新增路由"));
         QVBoxLayout* rootLayout = new QVBoxLayout(&dialog);
+        ks::ui::StyleSecondaryWindow(&dialog);
+        ks::ui::StyleSecondaryContentLayout(rootLayout);
         QFormLayout* formLayout = new QFormLayout();
         QComboBox* familyCombo = new QComboBox(&dialog);
         familyCombo->addItem(QStringLiteral("IPv4"), AF_INET);
@@ -349,8 +352,12 @@ namespace
         formLayout->addRow(immortalCheck);
         formLayout->addRow(persistentCheck);
         rootLayout->addLayout(formLayout);
+        ks::ui::StyleSecondaryForm(formLayout, 190);
+        rootLayout->addStretch(1);
         QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
         rootLayout->addWidget(buttons);
+        ks::ui::StyleSecondaryButtonBox(buttons);
+        dialog.resize(600, 510);
         QObject::connect(familyCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [familyCombo, prefixSpin](int) {
             prefixSpin->setMaximum(familyCombo->currentData().toInt() == AF_INET6 ? 128 : 32);
         });

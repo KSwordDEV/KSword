@@ -9,6 +9,7 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include "../../UI/SecondaryPageLayout.h"
 #include <QFile>
 #include <QFormLayout>
 #include <QLineEdit>
@@ -202,15 +203,23 @@ namespace ks::misc
         dialogValue.setAutoFillBackground(true);
         dialogValue.setStyleSheet(buildOpaqueDialogStyle(dialogValue.objectName()));
         dialogValue.setWindowTitle(QStringLiteral("添加剪贴板保护规则"));
+        ks::ui::StyleSecondaryWindow(&dialogValue);
+        dialogValue.resize(640, 380);
 
         QVBoxLayout* const rootLayout = new QVBoxLayout(&dialogValue);
+        ks::ui::StyleSecondaryContentLayout(rootLayout);
         QFormLayout* const formLayout = new QFormLayout();
 
         QRadioButton* const byNameRadio = new QRadioButton(QStringLiteral("按进程名（例如 notepad.exe）"), &dialogValue);
         QRadioButton* const byPathRadio = new QRadioButton(QStringLiteral("按完整路径"), &dialogValue);
         byNameRadio->setChecked(true);
-        rootLayout->addWidget(byNameRadio);
-        rootLayout->addWidget(byPathRadio);
+        // 匹配方式属于同一组选项，单行排布让目标与三种行为保持同屏。
+        auto* matchModes = new QHBoxLayout();
+        matchModes->setSpacing(12);
+        matchModes->addWidget(byNameRadio);
+        matchModes->addWidget(byPathRadio);
+        matchModes->addStretch(1);
+        rootLayout->addLayout(matchModes);
 
         QLineEdit* const targetEdit = new QLineEdit(&dialogValue);
         targetEdit->setPlaceholderText(QStringLiteral("例如 notepad.exe 或 C:\\Windows\\notepad.exe"));
@@ -233,9 +242,13 @@ namespace ks::misc
         formLayout->addRow(QStringLiteral("读取："), readCombo);
         formLayout->addRow(QStringLiteral("写入："), writeCombo);
         formLayout->addRow(QStringLiteral("枚举："), enumCombo);
+        ks::ui::StyleSecondaryForm(formLayout, 104);
         rootLayout->addLayout(formLayout);
+        rootLayout->addStretch(1);
 
         QDialogButtonBox* const buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialogValue);
+        ks::ui::StyleSecondaryButtonBox(buttonBox);
+        ks::ui::StyleSecondaryFooter(buttonBox);
         rootLayout->addWidget(buttonBox);
         QObject::connect(buttonBox, &QDialogButtonBox::accepted, &dialogValue, &QDialog::accept);
         QObject::connect(buttonBox, &QDialogButtonBox::rejected, &dialogValue, &QDialog::reject);

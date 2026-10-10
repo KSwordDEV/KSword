@@ -1,5 +1,7 @@
 #include "MemoryDock.Internal.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/SecondaryPageLayout.h"
+#include <QGroupBox>
 #include "SystemMemoryAuditPage.h"
 #include "../UI/X64DbgNavigation.h"
 #include "../UI/MemoryWorkbench/MemoryWorkbenchView.h"
@@ -345,7 +347,13 @@ void MemoryDock::initializeConnections()
         // 设置页面：允许调整扫描线程数和块大小（缓存大小近似）。
         QDialog dialog(this);
         dialog.setWindowTitle("内存扫描设置");
-        QFormLayout* formLayout = new QFormLayout(&dialog);
+        ks::ui::StyleSecondaryWindow(&dialog);
+        auto* rootLayout = new QVBoxLayout(&dialog);
+        ks::ui::StyleSecondaryContentLayout(rootLayout);
+        // 扫描参数留在同一表单，底部确认区与参数区域分离。
+        auto* scanSection = new QGroupBox(QStringLiteral("扫描参数"), &dialog);
+        ks::ui::StyleSecondarySection(scanSection);
+        QFormLayout* formLayout = new QFormLayout(scanSection);
 
         QSpinBox* threadSpin = new QSpinBox(&dialog);
         threadSpin->setRange(1, 32);
@@ -360,14 +368,21 @@ void MemoryDock::initializeConnections()
         QPushButton* cancelButton = new QPushButton("取消", &dialog);
         okButton->setStyleSheet(buildBlueButtonStyle());
         cancelButton->setStyleSheet(buildBlueButtonStyle());
-        QHBoxLayout* buttonLayout = new QHBoxLayout();
+        auto* footer = new QWidget(&dialog);
+        QHBoxLayout* buttonLayout = new QHBoxLayout(footer);
+        buttonLayout->addStretch(1);
         buttonLayout->addWidget(okButton);
         buttonLayout->addWidget(cancelButton);
         ks::ui::NormalizeToolbarRow(buttonLayout);
 
         formLayout->addRow("扫描线程数", threadSpin);
         formLayout->addRow("读取块大小", chunkSpin);
-        formLayout->addRow(buttonLayout);
+        ks::ui::StyleSecondaryForm(formLayout);
+        rootLayout->addWidget(scanSection);
+        rootLayout->addStretch(1);
+        ks::ui::StyleSecondaryFooter(footer);
+        rootLayout->addWidget(footer);
+        dialog.resize(520, 260);
 
         connect(okButton, &QPushButton::clicked, &dialog, &QDialog::accept);
         connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);

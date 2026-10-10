@@ -1,4 +1,8 @@
 #include "HvmProcessDialog.h"
+#include "./SecondaryPageLayout.h"
+#include "./ToolbarMetrics.h"
+#include "./TableInteractionSupport.h"
+#include "./VisibleTableWidget.h"
 
 #include "HvmControl.h"
 #include "../../../shared/evidence/MemoryAddressInput.h"
@@ -103,7 +107,9 @@ HvmProcessDialog::HvmProcessDialog(QWidget* const parent)
 
 void HvmProcessDialog::buildUi()
 {
+    ks::ui::StyleSecondaryWindow(this);
     QVBoxLayout* const rootLayout = new QVBoxLayout(this);
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
 
     QLabel* const hintLabel = new QLabel(
         ks::i18n::sourceText(QStringLiteral("这两组操作都要求：先开启 CR3 追踪（靠地址空间认目标）、用 EPTP 切换后端准备资源、并且常驻停着。这不是安全边界：目标只要换掉自己那一页的客户物理页就不在被拒绝的页上了，失败即放行。")),
@@ -112,6 +118,7 @@ void HvmProcessDialog::buildUi()
     rootLayout->addWidget(hintLabel);
 
     m_tabs = new QTabWidget(this);
+    ks::ui::StyleSecondaryTabs(m_tabs);
     m_tabs->addTab(
         buildDispositionPage(),
         ks::i18n::sourceText(QStringLiteral("进程处置")));
@@ -130,6 +137,8 @@ QWidget* HvmProcessDialog::buildDispositionPage()
 {
     QWidget* const page = new QWidget(this);
     QVBoxLayout* const layout = new QVBoxLayout(page);
+    layout->setContentsMargins(0, 8, 0, 0);
+    layout->setSpacing(12);
 
     QFormLayout* const form = new QFormLayout();
     m_dispositionPidEdit = new QLineEdit(page);
@@ -144,6 +153,7 @@ QWidget* HvmProcessDialog::buildDispositionPage()
     form->addRow(
         ks::i18n::sourceText(QStringLiteral("客户线性地址（十六进制）")),
         m_dispositionAddressEdit);
+    ks::ui::StyleSecondaryForm(form, 210);
     layout->addLayout(form);
 
     m_dispositionTable = new QTableWidget(0, 7, page);
@@ -159,9 +169,12 @@ QWidget* HvmProcessDialog::buildDispositionPage()
     m_dispositionTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_dispositionTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_dispositionTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    ks::ui::SetTableActionBarMode(m_dispositionTable, ks::ui::TableActionBarMode::None);
     layout->addWidget(m_dispositionTable, 1);
 
-    QGridLayout* const buttons = new QGridLayout();
+    auto* const footer = new QWidget(page);
+    QGridLayout* const buttons = new QGridLayout(footer);
+    buttons->setHorizontalSpacing(8);
     m_freezeButton = new QPushButton(
         ks::i18n::sourceText(QStringLiteral("冻结进程")), page);
     m_freezeButton->setToolTip(ks::i18n::sourceText(QStringLiteral("拒绝目标页执行并注入 #PF。目标线程会在那一页上自旋，拦截次数持续增长正是它还活着的证据。可逆。")));
@@ -179,7 +192,12 @@ QWidget* HvmProcessDialog::buildDispositionPage()
     buttons->addWidget(m_releaseDispositionButton, 0, 2);
     buttons->addWidget(m_releaseAllDispositionsButton, 0, 3);
     buttons->addWidget(m_refreshDispositionsButton, 0, 4);
-    layout->addLayout(buttons);
+    for (QPushButton* button : { m_freezeButton, m_terminateButton, m_releaseDispositionButton, m_releaseAllDispositionsButton, m_refreshDispositionsButton })
+    {
+        ks::ui::NormalizeToolbarControl(button);
+    }
+    ks::ui::StyleSecondaryFooter(footer);
+    layout->addWidget(footer);
 
     connect(m_freezeButton, &QPushButton::clicked, this, [this]() { startFreeze(); });
     connect(m_terminateButton, &QPushButton::clicked, this, [this]() { startTerminate(); });
@@ -199,6 +217,8 @@ QWidget* HvmProcessDialog::buildInjectionPage()
 {
     QWidget* const page = new QWidget(this);
     QVBoxLayout* const layout = new QVBoxLayout(page);
+    layout->setContentsMargins(0, 8, 0, 0);
+    layout->setSpacing(12);
 
     QLabel* const note = new QLabel(
         ks::i18n::sourceText(QStringLiteral("机制是分离视图加线程劫持：目标进程里不会多出线程或内存区域，一个内核 API 都不调。代价是要你指定一页——驱动不猜“哪一页会被执行到”，猜错的表现是载荷装上了却永远不执行，从外面看和成功完全一样。")),
@@ -235,7 +255,11 @@ QWidget* HvmProcessDialog::buildInjectionPage()
         ks::i18n::sourceText(QStringLiteral("浏览...")), pathRow);
     pathLayout->addWidget(m_injectPathEdit, 0, 0);
     pathLayout->addWidget(m_injectBrowseButton, 0, 1);
+    pathLayout->setHorizontalSpacing(8);
+    ks::ui::NormalizeToolbarControl(m_injectPathEdit);
+    ks::ui::NormalizeToolbarControl(m_injectBrowseButton);
     form->addRow(ks::i18n::sourceText(QStringLiteral("DLL 路径")), pathRow);
+    ks::ui::StyleSecondaryForm(form, 230);
     layout->addLayout(form);
 
     m_injectionTable = new QTableWidget(0, 8, page);
@@ -252,9 +276,12 @@ QWidget* HvmProcessDialog::buildInjectionPage()
     m_injectionTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_injectionTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_injectionTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    ks::ui::SetTableActionBarMode(m_injectionTable, ks::ui::TableActionBarMode::None);
     layout->addWidget(m_injectionTable, 1);
 
-    QGridLayout* const buttons = new QGridLayout();
+    auto* const footer = new QWidget(page);
+    QGridLayout* const buttons = new QGridLayout(footer);
+    buttons->setHorizontalSpacing(8);
     m_injectButton = new QPushButton(
         ks::i18n::sourceText(QStringLiteral("注入 DLL")), page);
     m_releaseInjectionButton = new QPushButton(
@@ -267,7 +294,12 @@ QWidget* HvmProcessDialog::buildInjectionPage()
     buttons->addWidget(m_releaseInjectionButton, 0, 1);
     buttons->addWidget(m_releaseAllInjectionsButton, 0, 2);
     buttons->addWidget(m_refreshInjectionsButton, 0, 3);
-    layout->addLayout(buttons);
+    for (QPushButton* button : { m_injectButton, m_releaseInjectionButton, m_releaseAllInjectionsButton, m_refreshInjectionsButton })
+    {
+        ks::ui::NormalizeToolbarControl(button);
+    }
+    ks::ui::StyleSecondaryFooter(footer);
+    layout->addWidget(footer);
 
     connect(m_injectBrowseButton, &QPushButton::clicked, this, [this]() {
         const QString chosen = QFileDialog::getOpenFileName(

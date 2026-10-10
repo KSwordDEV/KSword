@@ -1,4 +1,5 @@
 #include "KernelDriverDispatchEditorDialog.h"
+#include "../UI/SecondaryPageLayout.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/VisibleTableWidget.h"
 
@@ -66,10 +67,10 @@ void KernelDriverDispatchEditorDialog::initializeUi()
         QStringLiteral("IRP / MajorFunction 编辑器")));
     resize(1180, 760);
     setModal(true);
+    ks::ui::StyleSecondaryWindow(this);
 
     auto* rootLayout = new QVBoxLayout(this);
-    rootLayout->setContentsMargins(10, 10, 10, 10);
-    rootLayout->setSpacing(7);
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
 
     m_riskLabel = new QLabel(
         kernelText(
@@ -176,12 +177,14 @@ void KernelDriverDispatchEditorDialog::initializeUi()
         button->setStyleSheet(KswordTheme::ThemedButtonStyle());
     }
     actionLayout->addWidget(desiredLabel, 0, 0);
-    actionLayout->addWidget(m_desiredAddressEdit, 0, 1);
-    actionLayout->addWidget(m_applyButton, 0, 2);
-    actionLayout->addWidget(m_restoreButton, 0, 3);
-    actionLayout->addWidget(m_abandonButton, 0, 4);
+    actionLayout->addWidget(m_desiredAddressEdit, 0, 1, 1, 3);
+    // 地址占据完整输入行，事务动作独立右对齐，避免长标签挤压输入。
+    actionLayout->addWidget(m_applyButton, 1, 1, Qt::AlignRight);
+    actionLayout->addWidget(m_restoreButton, 1, 2);
+    actionLayout->addWidget(m_abandonButton, 1, 3);
     actionLayout->setColumnStretch(1, 1);
     actionLayout->setHorizontalSpacing(8);
+    actionLayout->setVerticalSpacing(10);
     // 事务输入行保留原栅格，只对明确的单行编辑控件统一尺寸。
     ks::ui::NormalizeToolbarControl(m_desiredAddressEdit);
     ks::ui::NormalizeToolbarControl(m_applyButton);
@@ -196,7 +199,8 @@ void KernelDriverDispatchEditorDialog::initializeUi()
     m_statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     rootLayout->addWidget(m_statusLabel);
 
-    auto* closeLayout = new QHBoxLayout();
+    auto* footer = new QWidget(this);
+    auto* closeLayout = new QHBoxLayout(footer);
     closeLayout->addStretch(1);
     auto* closeButton = new QPushButton(
         kernelText("kernel.driver_dispatch.close", QStringLiteral("关闭")),
@@ -204,7 +208,8 @@ void KernelDriverDispatchEditorDialog::initializeUi()
     closeButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
     closeLayout->addWidget(closeButton);
     ks::ui::NormalizeToolbarRow(closeLayout);
-    rootLayout->addLayout(closeLayout);
+    ks::ui::StyleSecondaryFooter(footer);
+    rootLayout->addWidget(footer);
 
     connect(closeButton, &QPushButton::clicked, this, &QDialog::accept);
     connect(m_refreshButton, &QPushButton::clicked, this, [this]() {

@@ -1,4 +1,8 @@
 #include "HvmDomainDialog.h"
+#include "./SecondaryPageLayout.h"
+#include "./ToolbarMetrics.h"
+#include "./TableInteractionSupport.h"
+#include "./VisibleTableWidget.h"
 
 #include "HvmControl.h"
 #include "../../../shared/evidence/MemoryAddressInput.h"
@@ -47,7 +51,9 @@ HvmDomainDialog::HvmDomainDialog(QWidget* const parent)
 
 void HvmDomainDialog::buildUi()
 {
+    ks::ui::StyleSecondaryWindow(this);
     QVBoxLayout* const rootLayout = new QVBoxLayout(this);
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
 
     QLabel* const hintLabel = new QLabel(
         ks::i18n::sourceText(QStringLiteral("域发布在 EPTP list 里，guest 用一条 VMFUNC 就能切过去，而 VMFUNC 不做 CPL 检查。所以这里只能给域【拿掉】权限，不能给权限：域建出来时与默认视图完全一致，切进去的线程拿不到它原本没有的访问权。")),
@@ -71,6 +77,8 @@ void HvmDomainDialog::buildUi()
     m_domainTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_domainTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_domainTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    // 当前规则清单与本页事务动作配套，不再叠加快照/对比工具栏。
+    ks::ui::SetTableActionBarMode(m_domainTable, ks::ui::TableActionBarMode::None);
     rootLayout->addWidget(m_domainTable, 1);
 
     QFormLayout* const formLayout = new QFormLayout();
@@ -91,9 +99,13 @@ void HvmDomainDialog::buildUi()
     formLayout->addRow(
         ks::i18n::sourceText(QStringLiteral("长度（十六进制，按 2MiB 叶项向外取整）")),
         m_lengthEdit);
+    ks::ui::StyleSecondaryForm(formLayout, 210);
     rootLayout->addLayout(formLayout);
 
-    QHBoxLayout* const denyLayout = new QHBoxLayout();
+    auto* const denyControls = new QWidget(this);
+    QHBoxLayout* const denyLayout = new QHBoxLayout(denyControls);
+    denyLayout->setContentsMargins(0, 0, 0, 0);
+    denyLayout->setSpacing(12);
     QLabel* const denyLabel = new QLabel(
         ks::i18n::sourceText(QStringLiteral("拿掉的权限")),
         this);
@@ -104,14 +116,18 @@ void HvmDomainDialog::buildUi()
         ks::i18n::sourceText(QStringLiteral("写")), this);
     m_denyExecuteBox = new QCheckBox(
         ks::i18n::sourceText(QStringLiteral("执行")), this);
-    denyLayout->addWidget(denyLabel);
     denyLayout->addWidget(m_denyReadBox);
     denyLayout->addWidget(m_denyWriteBox);
     denyLayout->addWidget(m_denyExecuteBox);
     denyLayout->addStretch(1);
-    rootLayout->addLayout(denyLayout);
+    // 访问位与同一目标域的参数共用标签列，避免另外起一条错位的工具栏。
+    formLayout->addRow(denyLabel, denyControls);
 
+    // 参数与结果保持同屏；动作和状态由独立的底部分隔区承载。
+    auto* const footer = new QWidget(this);
+    auto* const footerLayout = new QVBoxLayout(footer);
     QGridLayout* const buttonLayout = new QGridLayout();
+    buttonLayout->setHorizontalSpacing(8);
     m_createButton = new QPushButton(
         ks::i18n::sourceText(QStringLiteral("新建域")), this);
     m_createButton->setToolTip(ks::i18n::sourceText(QStringLiteral("分叉一份与默认视图完全一致的域。只花一页，因为下层页表全部共享。")));
@@ -125,11 +141,17 @@ void HvmDomainDialog::buildUi()
     buttonLayout->addWidget(m_restrictButton, 0, 1);
     buttonLayout->addWidget(m_resetButton, 0, 2);
     buttonLayout->addWidget(m_refreshButton, 0, 3);
-    rootLayout->addLayout(buttonLayout);
+    for (QPushButton* button : { m_createButton, m_restrictButton, m_resetButton, m_refreshButton })
+    {
+        ks::ui::NormalizeToolbarControl(button);
+    }
+    footerLayout->addLayout(buttonLayout);
 
     m_statusLabel = new QLabel(QString(), this);
     m_statusLabel->setWordWrap(true);
-    rootLayout->addWidget(m_statusLabel);
+    footerLayout->addWidget(m_statusLabel);
+    ks::ui::StyleSecondaryFooter(footer);
+    rootLayout->addWidget(footer);
 
     connect(m_createButton, &QPushButton::clicked, this, [this]() {
         startCreate();

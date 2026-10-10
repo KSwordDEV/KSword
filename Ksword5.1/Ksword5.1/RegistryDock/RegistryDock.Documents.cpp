@@ -15,6 +15,7 @@
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include "../UI/SecondaryPageLayout.h"
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -179,7 +180,9 @@ void RegistryDock::previewRegistryDocument(const RegistryDocument& document, con
             }
             QDialog dialog(guarded);
             dialog.setWindowTitle(title);
+            ks::ui::StyleSecondaryWindow(&dialog);
             auto* layout = new QVBoxLayout(&dialog);
+            ks::ui::StyleSecondaryContentLayout(layout);
             auto* source = new QLabel(QStringLiteral("%1 · %2 项操作。恢复采用合并方式，保留备份外新增数据；ACL 仅作备份元数据。")
                 .arg(documentViewLabel(plan->viewBits, plan->useR0)).arg(plan->operations.size()), &dialog);
             source->setWordWrap(true);
@@ -250,6 +253,9 @@ void RegistryDock::previewRegistryDocument(const RegistryDocument& document, con
             auto* apply = buttons->button(QDialogButtonBox::Apply);
             apply->setText(QStringLiteral("应用并验证"));
             apply->setEnabled(!plan->operations.isEmpty());
+            // 导入预览的分页与备份说明留在内容区，提交独占底部操作区。
+            ks::ui::StyleSecondaryButtonBox(buttons);
+            ks::ui::StyleSecondaryFooter(buttons);
             layout->addWidget(buttons);
             auto started = std::make_shared<bool>(false);
             auto completed = std::make_shared<bool>(false);

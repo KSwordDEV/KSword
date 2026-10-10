@@ -2,18 +2,21 @@
 #include "HexCanvasFormat.h"
 #include "../CodeEditorWidget.h"
 #include "../CodeTextEdit.h"
+#include "../SecondaryPageLayout.h"
 #include "../../Internationalization/LanguageManager.h"
 #include "../../theme.h"
 #include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QGuiApplication>
 #include <QLabel>
 #include <QPointer>
 #include <QPushButton>
 #include <QScreen>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QVBoxLayout>
 #include <algorithm>
 
@@ -94,9 +97,10 @@ namespace ks::ui
         QPointer<QDialog> dialog = new QDialog(parent); // 子对象由模态结束或父对象销毁回收。
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->setObjectName(input.dialogName);
-        dialog->setStyleSheet(KswordTheme::OpaqueDialogStyle(input.dialogName));
+        StyleSecondaryWindow(dialog);
         dialog->setWindowTitle(ks::i18n::sourceText(QStringLiteral("汇编编辑")));
         auto* layout = new QVBoxLayout(dialog);
+        StyleSecondaryContentLayout(layout);
         auto* form = new QFormLayout;
         form->addRow(ks::i18n::sourceText(QStringLiteral("起始地址")),
             new QLabel(hexcanvas_format::FormatAddress(input.address, 16), dialog));
@@ -110,6 +114,7 @@ namespace ks::ui
         pad->setChecked(true);
         form->addRow(pad);
         layout->addLayout(form);
+        StyleSecondaryForm(form, 150);
         auto* hint = new QLabel(ks::i18n::sourceText(input.hint), dialog);
         hint->setWordWrap(true);
         layout->addWidget(hint);
@@ -130,8 +135,24 @@ namespace ks::ui
         sourceCore->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::Cpp);
         previewCore->setObjectName(input.previewName);
         previewCore->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
-        layout->addWidget(source, 1);
-        layout->addWidget(preview, 1);
+        // 编辑和机器码预览始终同时可见，分隔条允许按当前任务调整两区高度。
+        auto* sourceSection = new QGroupBox(ks::i18n::sourceText(QStringLiteral("汇编代码")), dialog);
+        auto* previewSection = new QGroupBox(ks::i18n::sourceText(QStringLiteral("机器码预览")), dialog);
+        StyleSecondarySection(sourceSection);
+        StyleSecondarySection(previewSection);
+        auto* sourceLayout = new QVBoxLayout(sourceSection);
+        auto* previewLayout = new QVBoxLayout(previewSection);
+        sourceLayout->setContentsMargins(0, 8, 0, 0);
+        previewLayout->setContentsMargins(0, 8, 0, 0);
+        sourceLayout->addWidget(source);
+        previewLayout->addWidget(preview);
+        auto* editors = new QSplitter(Qt::Vertical, dialog);
+        editors->setChildrenCollapsible(false);
+        editors->addWidget(sourceSection);
+        editors->addWidget(previewSection);
+        editors->setStretchFactor(0, 1);
+        editors->setStretchFactor(1, 1);
+        layout->addWidget(editors, 1);
         auto* status = new QLabel(dialog);
         status->setWordWrap(true);
         layout->addWidget(status);
@@ -142,6 +163,7 @@ namespace ks::ui
         stage->setToolTip(ks::i18n::sourceText(input.stageCaption));
         stage->setEnabled(false);
         layout->addWidget(buttons);
+        StyleSecondaryButtonBox(buttons);
 
         // 局部载荷仅活到 exec 返回；返回前销毁弹窗，断开所有按引用捕获的回调。
         QByteArray payload;

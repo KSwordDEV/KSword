@@ -12,6 +12,9 @@
 
 #include "../theme.h"
 #include "../Internationalization/LanguageManager.h"
+#include "../UI/SecondaryPageLayout.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -625,11 +628,10 @@ void ProcessDock::showColumnChooserDialog()
         processColumnChooserText("process.columns.dialog.title", QStringLiteral("选择列")));
     columnDialog.setMinimumSize(460, 560);
     // 使用不透明对话框样式：进程页可能开启毛玻璃背景，透明面板会让长列表难以辨认。
-    columnDialog.setStyleSheet(KswordTheme::OpaqueDialogStyle(columnDialog.objectName()));
+    ks::ui::StyleSecondaryWindow(&columnDialog);
 
     auto* const dialogLayout = new QVBoxLayout(&columnDialog);
-    dialogLayout->setContentsMargins(12, 12, 12, 12);
-    dialogLayout->setSpacing(8);
+    ks::ui::StyleSecondaryContentLayout(dialogLayout);
 
     auto* const hintLabel = new QLabel(
         processColumnChooserText(
@@ -643,6 +645,7 @@ void ProcessDock::showColumnChooserDialog()
     searchEdit->setClearButtonEnabled(true);
     searchEdit->setPlaceholderText(
         processColumnChooserText("process.columns.dialog.search", QStringLiteral("搜索列名...")));
+    ks::ui::StyleSearchField(searchEdit);
     dialogLayout->addWidget(searchEdit);
 
     auto* const scrollArea = new QScrollArea(&columnDialog);
@@ -650,7 +653,7 @@ void ProcessDock::showColumnChooserDialog()
     auto* const scrollContent = new QWidget(scrollArea);
     auto* const scrollLayout = new QVBoxLayout(scrollContent);
     scrollLayout->setContentsMargins(4, 4, 4, 4);
-    scrollLayout->setSpacing(4);
+    scrollLayout->setSpacing(8);
 
     // columnCheckBoxes：按列索引保存复选框，便于搜索过滤与批量勾选。
     std::vector<QCheckBox*> columnCheckBoxes(static_cast<std::size_t>(TableColumn::Count), nullptr);
@@ -662,8 +665,9 @@ void ProcessDock::showColumnChooserDialog()
         const ProcessColumnGroup group = static_cast<ProcessColumnGroup>(groupIndex);
 
         auto* const groupLabel = new QLabel(processColumnGroupTitle(group), scrollContent);
-        groupLabel->setStyleSheet(QStringLiteral("font-weight:700;color:%1;padding-top:6px;")
-            .arg(KswordTheme::PrimaryBlueHex));
+        // 分类标题使用中性文字与细分隔线，突出层级而不与已勾选项争抢强调色。
+        groupLabel->setStyleSheet(QStringLiteral("font-weight:600;color:%1;border-bottom:1px solid %2;padding-top:12px;padding-bottom:6px;")
+            .arg(KswordTheme::TextSecondaryHex(), KswordTheme::BorderHex()));
         scrollLayout->addWidget(groupLabel);
         groupLabels[static_cast<std::size_t>(groupIndex)] = groupLabel;
 
@@ -730,15 +734,23 @@ void ProcessDock::showColumnChooserDialog()
     quickActionLayout->addWidget(selectAllButton);
     quickActionLayout->addWidget(clearAllButton);
     quickActionLayout->addWidget(restoreDefaultButton);
-    quickActionLayout->addWidget(saveViewButton);
-    quickActionLayout->addWidget(deleteViewButton);
     quickActionLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(quickActionLayout);
     dialogLayout->addLayout(quickActionLayout);
+
+    // 批量勾选与视图管理各占一行，窄窗和较长译文也不会把五个按钮挤成一团。
+    auto* const viewActionLayout = new QHBoxLayout();
+    viewActionLayout->addWidget(saveViewButton);
+    viewActionLayout->addWidget(deleteViewButton);
+    viewActionLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(viewActionLayout);
+    dialogLayout->addLayout(viewActionLayout);
 
     auto* const buttonBox = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
         &columnDialog);
     dialogLayout->addWidget(buttonBox);
+    ks::ui::StyleSecondaryButtonBox(buttonBox);
 
     // 搜索过滤：命中列名的项保留，整组无命中时连标题一起隐藏。
     QObject::connect(searchEdit, &QLineEdit::textChanged, &columnDialog,

@@ -1,4 +1,5 @@
 #include "SettingsDock.h"
+#include "./SettingsDock.Layout.h"
 #include "../UI/ToolbarMetrics.h"
 
 #include "../Framework.h"
@@ -18,8 +19,7 @@ void SettingsDock::initializeOnlineScanTab()
     // m_onlineScanTab 作用：承载在线扫描服务的 API Key 配置控件。
     m_onlineScanTab = new QWidget(m_tabWidget);
     QVBoxLayout* rootLayout = new QVBoxLayout(m_onlineScanTab);
-    rootLayout->setContentsMargins(8, 8, 8, 8);
-    rootLayout->setSpacing(12);
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
 
     QLabel* hintLabel = new QLabel(
         QStringLiteral("在线扫描模块会在运行时从本设置读取 API Key。当前右键“上传到沙箱”仅接入 VirusTotal；ThreatBook 暂不显示入口。"),
@@ -33,9 +33,7 @@ void SettingsDock::initializeOnlineScanTab()
     QGroupBox* keyGroupBox = new QGroupBox(QStringLiteral("在线扫描 API Key"), m_onlineScanTab);
     languageManager.bindText(keyGroupBox, QStringLiteral("settings.online.group"), QStringLiteral("在线扫描 API Key"));
     QFormLayout* formLayout = new QFormLayout(keyGroupBox);
-    formLayout->setContentsMargins(10, 10, 10, 10);
-    formLayout->setSpacing(8);
-    formLayout->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    ks::ui::StyleSecondaryForm(formLayout);
 
     m_virusTotalApiKeyEdit = new QLineEdit(keyGroupBox);
     m_virusTotalApiKeyEdit->setPlaceholderText(QStringLiteral("VirusTotal API Key"));
@@ -45,6 +43,7 @@ void SettingsDock::initializeOnlineScanTab()
     languageManager.bindToolTip(m_virusTotalApiKeyEdit, QStringLiteral("settings.online.virustotal.tooltip"), QStringLiteral("用于 VirusTotal v3 API 的 x-apikey 请求头；留空时上传会提示先配置 Key"));
     QLabel* virusTotalLabel = new QLabel(QStringLiteral("VirusTotal"), keyGroupBox);
     formLayout->addRow(virusTotalLabel, m_virusTotalApiKeyEdit);
+    ks::ui::NormalizeToolbarControl(m_virusTotalApiKeyEdit);
 
     // m_threatBookApiKeyEdit 作用：保存 ThreatBook file/upload 与 file/report 使用的 apikey 参数。
     m_threatBookApiKeyEdit = new QLineEdit(keyGroupBox);
@@ -56,7 +55,10 @@ void SettingsDock::initializeOnlineScanTab()
     languageManager.bindToolTip(m_threatBookApiKeyEdit, QStringLiteral("settings.online.threatbook.tooltip"), QStringLiteral("用于 ThreatBook v3 API 的 apikey 参数；留空时上传会提示先配置 Key"));
     QLabel* threatBookLabel = new QLabel(QStringLiteral("ThreatBook"), keyGroupBox);
     formLayout->addRow(threatBookLabel, m_threatBookApiKeyEdit);
+    ks::ui::NormalizeToolbarControl(m_threatBookApiKeyEdit);
 
+    ks::ui::StyleSecondaryForm(formLayout);
+    ks::settings::ui::Section(keyGroupBox);
     rootLayout->addWidget(keyGroupBox, 0);
 
     QLabel* storageHintLabel = new QLabel(
@@ -67,7 +69,7 @@ void SettingsDock::initializeOnlineScanTab()
     rootLayout->addWidget(storageHintLabel, 0);
 
     QHBoxLayout* actionLayout = new QHBoxLayout();
-    actionLayout->addStretch(1);
+
     m_saveOnlineScanKeysButton = new QPushButton(QStringLiteral("保存 API Key"), m_onlineScanTab);
     languageManager.bindText(m_saveOnlineScanKeysButton, QStringLiteral("settings.online.save"), QStringLiteral("保存 API Key"));
     m_saveOnlineScanKeysButton->setMinimumWidth(112);
@@ -76,10 +78,12 @@ void SettingsDock::initializeOnlineScanTab()
     languageManager.bindToolTip(m_saveOnlineScanKeysButton, QStringLiteral("settings.online.save.tooltip"), QStringLiteral("保存 VirusTotal 与 ThreatBook API Key 到设置 JSON"));
     m_saveOnlineScanKeysButton->setEnabled(false);
     actionLayout->addWidget(m_saveOnlineScanKeysButton, 0);
+    actionLayout->addStretch(1);
     ks::ui::NormalizeToolbarRow(actionLayout);
     rootLayout->addLayout(actionLayout);
 
     rootLayout->addStretch(1);
+    m_onlineScanTab = ks::settings::ui::ScrollPage(m_onlineScanTab);
     m_tabWidget->addTab(m_onlineScanTab, QStringLiteral("在线扫描"));
     languageManager.bindTab(m_tabWidget, m_onlineScanTab, QStringLiteral("settings.tab.online_scan"), QStringLiteral("在线扫描"));
 

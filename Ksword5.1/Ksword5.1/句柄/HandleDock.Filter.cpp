@@ -1,5 +1,6 @@
 #include "HandleDock.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/SecondaryPageLayout.h"
 
 // ============================================================
 // HandleDock.Filter.cpp
@@ -617,6 +618,8 @@ bool HandleDock::showRuleEditorDialog(
     dialog.setWindowTitle(QStringLiteral("编辑句柄筛选规则"));
     dialog.resize(520, 360);
     auto* layout = new QVBoxLayout(&dialog);
+    ks::ui::StyleSecondaryWindow(&dialog);
+    ks::ui::StyleSecondaryContentLayout(layout);
     auto* formLayout = new QFormLayout();
 
     auto* nameEdit = new QLineEdit(ruleInOut->name, &dialog);
@@ -660,6 +663,7 @@ bool HandleDock::showRuleEditorDialog(
     formLayout->addRow(QStringLiteral("差异状态"), diffCombo);
     formLayout->addRow(QStringLiteral("命名条件"), onlyNamedCheck);
     layout->addLayout(formLayout);
+    ks::ui::StyleSecondaryForm(formLayout, 110);
 
     auto* helpLabel = new QLabel(
         QStringLiteral("同一规则内的有效条件按 AND 匹配；启用规则之间按 OR 分组展示。"),
@@ -677,6 +681,7 @@ bool HandleDock::showRuleEditorDialog(
     connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     layout->addWidget(buttonBox);
+    ks::ui::StyleSecondaryButtonBox(buttonBox);
 
     while (dialog.exec() == QDialog::Accepted)
     {
@@ -744,12 +749,14 @@ void HandleDock::showRuleManagerDialog(const QString& initiallySelectedRuleId)
     dialog.setWindowTitle(QStringLiteral("句柄筛选规则管理"));
     dialog.resize(760, 460);
     auto* rootLayout = new QVBoxLayout(&dialog);
-    auto* contentLayout = new QHBoxLayout();
+    ks::ui::StyleSecondaryWindow(&dialog);
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
+    auto* contentLayout = new QVBoxLayout();
     auto* ruleList = new QListWidget(&dialog);
     ruleList->setContextMenuPolicy(Qt::CustomContextMenu);
-    contentLayout->addWidget(ruleList, 1);
 
-    auto* actionLayout = new QVBoxLayout();
+    // 管理动作收为紧凑顶部工具行，把原先右侧整列空间交还给规则条件。
+    auto* actionLayout = new QHBoxLayout();
     auto* newButton = new QPushButton(QStringLiteral("新建"), &dialog);
     auto* editButton = new QPushButton(QStringLiteral("编辑"), &dialog);
     auto* copyButton = new QPushButton(QStringLiteral("复制"), &dialog);
@@ -767,6 +774,8 @@ void HandleDock::showRuleManagerDialog(const QString& initiallySelectedRuleId)
     actionLayout->setSpacing(8);
     actionLayout->addStretch(1);
     contentLayout->addLayout(actionLayout);
+    contentLayout->addWidget(ruleList, 1);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     rootLayout->addLayout(contentLayout, 1);
 
     QVector<ks::handle::HandleFilterRule> workingRules = m_filterDocument.rules;
@@ -928,6 +937,7 @@ void HandleDock::showRuleManagerDialog(const QString& initiallySelectedRuleId)
     connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     rootLayout->addWidget(buttonBox);
+    ks::ui::StyleSecondaryButtonBox(buttonBox);
 
     if (dialog.exec() != QDialog::Accepted)
     {

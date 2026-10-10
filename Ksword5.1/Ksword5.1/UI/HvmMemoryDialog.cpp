@@ -1,4 +1,7 @@
 #include "HvmMemoryDialog.h"
+#include "./SecondaryPageLayout.h"
+#include "./ToolbarMetrics.h"
+#include "./TableInteractionSupport.h"
 
 #include "HvmControl.h"
 #include "MemoryWorkbench/SnapshotWorkbenchWidget.h"
@@ -125,7 +128,9 @@ bool HvmMemoryDialog::isVirtualMode() const
 
 void HvmMemoryDialog::buildUi()
 {
+    ks::ui::StyleSecondaryWindow(this);
     QVBoxLayout* const rootLayout = new QVBoxLayout(this);
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
     rootLayout->setSizeConstraint(QLayout::SetNoConstraint);
 
     m_windowLabel = new QLabel(
@@ -167,6 +172,7 @@ void HvmMemoryDialog::buildUi()
     m_lengthBox->setValue(256);
     formLayout->addRow(
         ks::i18n::sourceText(QStringLiteral("读取长度（字节）")), m_lengthBox);
+    ks::ui::StyleSecondaryForm(formLayout, 186);
     rootLayout->addLayout(formLayout);
 
     m_editor = new ks::ui::SnapshotWorkbenchWidget(this);
@@ -174,7 +180,11 @@ void HvmMemoryDialog::buildUi()
     m_editor->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
     rootLayout->addWidget(m_editor, 1);
 
+    // 参数与结果保持同屏；动作和状态由独立的底部分隔区承载。
+    auto* const footer = new QWidget(this);
+    auto* const footerLayout = new QVBoxLayout(footer);
     QGridLayout* const buttonLayout = new QGridLayout();
+    buttonLayout->setHorizontalSpacing(8);
     m_readButton = new QPushButton(
         ks::i18n::sourceText(QStringLiteral("读取")), this);
     m_writeButton = new QPushButton(
@@ -187,11 +197,17 @@ void HvmMemoryDialog::buildUi()
     buttonLayout->addWidget(m_writeButton, 0, 1);
     buttonLayout->addWidget(m_discardButton, 0, 2);
     buttonLayout->addWidget(m_translateButton, 0, 3);
-    rootLayout->addLayout(buttonLayout);
+    for (QPushButton* button : { m_readButton, m_writeButton, m_discardButton, m_translateButton })
+    {
+        ks::ui::NormalizeToolbarControl(button);
+    }
+    footerLayout->addLayout(buttonLayout);
 
     m_statusLabel = new QLabel(QString(), this);
     m_statusLabel->setWordWrap(true);
-    rootLayout->addWidget(m_statusLabel);
+    footerLayout->addWidget(m_statusLabel);
+    ks::ui::StyleSecondaryFooter(footer);
+    rootLayout->addWidget(footer);
 
     connect(m_modeBox, &QComboBox::currentIndexChanged,
         this, [this](int) { invalidateSnapshot(); });

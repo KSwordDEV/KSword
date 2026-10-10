@@ -14,10 +14,13 @@
 
 #include "../../theme.h"
 #include "../ThemeStatusRole.h"
+#include "../SecondaryPageLayout.h"
+#include "../../Internationalization/LanguageManager.h"
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -27,35 +30,6 @@ namespace ks::ui
 {
     namespace
     {
-        // ApplyOpaqueDialogStyle：显式给对话框整体铺一层不透明背景样式，覆盖背景、
-        // 文字、输入框选中态与禁用态，避免父容器透明/特殊样式导致的黑底黑字。
-        // N3（第二轮修复）：原来一条不分状态的 "QLabel{color:%2}" 规则会把预览标签
-        // 的状态色压成固定的文字色——对话框自己的样式表比 ApplyStatusRole 挂的
-        // 全局角色选择器更贴近控件（Qt 的样式表层叠按"离控件最近的那份优先"，与
-        // 选择器写法的特异度无关），实测应用级样式表存在时红字直接变回普通色。
-        // 改成按 ksword_status_role 属性分路：role==""（None）时才用默认文字色，
-        // role=="error" 时使用与全局 BuildStatusRoleStyleRules 相同的错误色——
-        // 本对话框目前只有 m_previewLabel 会被 ApplyStatusRole 设成 None/Error 两种
-        // 状态（refreshPreview），只加这两条，不为用不到的角色加规则。
-        void ApplyOpaqueDialogStyle(QDialog& dialog)
-        {
-            dialog.setAutoFillBackground(true);
-            dialog.setStyleSheet(QStringLiteral(
-                "QDialog { background-color: %1; color: %2; }"
-                "QLabel { background-color: transparent; }"
-                "QLabel[ksword_status_role=\"\"] { color: %2; }"
-                "QLabel[ksword_status_role=\"error\"] { color: %6; font-weight: 600; }"
-                "QLineEdit, QComboBox { background-color: %3; color: %2; border: 1px solid %4; }"
-                "QLineEdit:disabled, QComboBox:disabled { color: %5; }"
-                "QCheckBox { color: %2; background-color: transparent; }")
-                .arg(KswordTheme::SurfaceColorHex())
-                .arg(KswordTheme::TextPrimaryColorHex())
-                .arg(KswordTheme::SurfaceAltColorHex())
-                .arg(KswordTheme::BorderColorHex())
-                .arg(KswordTheme::TextDisabledColorHex())
-                .arg(KswordTheme::ErrorHex()));
-        }
-
         // EncodeAnsi：按本机 ANSI 代码页编码（B1）。lossyOut 非空时传出"往返校验"
         // 结果——QString::fromLocal8Bit(编码结果) 若不等于原文本，说明原文本里有
         // 本机代码页表示不了的字符，Qt 会在编码阶段悄悄替换成 '?'；调用方据此判定
@@ -89,27 +63,34 @@ namespace ks::ui
         : QDialog(parent)
     {
         setWindowTitle(workbench_messages::StringWriteDialogTitle());
-        ApplyOpaqueDialogStyle(*this);
+        StyleSecondaryWindow(this);
 
         auto* layout = new QVBoxLayout(this);
+        StyleSecondaryContentLayout(layout);
+        auto* form = new QFormLayout(); // 输入和编码保持同列，避免无标签控件难以辨认。
 
         m_textEdit = new QLineEdit(this);
         m_textEdit->setPlaceholderText(workbench_messages::StringWriteInputPlaceholder());
-        layout->addWidget(m_textEdit);
+        form->addRow(ks::i18n::sourceText(QStringLiteral("内容")), m_textEdit);
 
         m_encodingCombo = new QComboBox(this);
         m_encodingCombo->addItem(workbench_messages::StringWriteEncodingLabel(0));
         m_encodingCombo->addItem(workbench_messages::StringWriteEncodingLabel(1));
         m_encodingCombo->addItem(workbench_messages::StringWriteEncodingLabel(2));
         m_encodingCombo->setCurrentIndex(static_cast<int>(Encoding::Utf8));
-        layout->addWidget(m_encodingCombo);
+        form->addRow(ks::i18n::sourceText(QStringLiteral("编码")), m_encodingCombo);
 
         m_appendNulCheckBox = new QCheckBox(workbench_messages::StringWriteNulCheckboxText(), this);
-        layout->addWidget(m_appendNulCheckBox);
+        form->addRow(QString(), m_appendNulCheckBox);
+        StyleSecondaryForm(form, 100);
+        layout->addLayout(form);
 
         m_previewLabel = new QLabel(this);
         m_previewLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        m_previewLabel->setWordWrap(true);
+        // 状态标签只走 ApplyStatusRole，窗口主题不覆盖正常/错误语义色。
         layout->addWidget(m_previewLabel);
+        layout->addStretch(1);
 
         auto* buttonBox = new QDialogButtonBox(this);
         m_okButton = buttonBox->addButton(
@@ -119,6 +100,8 @@ namespace ks::ui
         connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
         layout->addWidget(buttonBox);
+        StyleSecondaryButtonBox(buttonBox);
+        resize(560, 240);
 
         connect(m_textEdit, &QLineEdit::textChanged, this, &WorkbenchStringWriteDialog::refreshPreview);
         connect(m_encodingCombo, &QComboBox::currentIndexChanged, this, &WorkbenchStringWriteDialog::refreshPreview);

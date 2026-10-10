@@ -1,4 +1,8 @@
 #include "HvmMsrPolicyDialog.h"
+#include "./SecondaryPageLayout.h"
+#include "./ToolbarMetrics.h"
+#include "./TableInteractionSupport.h"
+#include "./VisibleTableWidget.h"
 
 #include "HvmControl.h"
 #include "../Internationalization/LanguageManager.h"
@@ -86,7 +90,9 @@ HvmMsrPolicyDialog::HvmMsrPolicyDialog(QWidget* const parent)
 
 void HvmMsrPolicyDialog::buildUi()
 {
+    ks::ui::StyleSecondaryWindow(this);
     QVBoxLayout* const rootLayout = new QVBoxLayout(this);
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
 
     QLabel* const hintLabel = new QLabel(
         ks::i18n::sourceText(QStringLiteral("只有位图覆盖的两段索引可以设策略：0x00000000-0x00001FFF 与 0xC0000000-0xC0001FFF。常驻期间不能改动策略。")),
@@ -136,6 +142,7 @@ void HvmMsrPolicyDialog::buildUi()
     formLayout->addRow(
         ks::i18n::sourceText(QStringLiteral("伪造值（十六进制）")),
         m_fakeValueEdit);
+    ks::ui::StyleSecondaryForm(formLayout, 178);
     rootLayout->addLayout(formLayout);
 
     m_policyTable = new QTableWidget(0, 6, this);
@@ -150,9 +157,15 @@ void HvmMsrPolicyDialog::buildUi()
     m_policyTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_policyTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_policyTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    // 当前规则清单与本页事务动作配套，不再叠加快照/对比工具栏。
+    ks::ui::SetTableActionBarMode(m_policyTable, ks::ui::TableActionBarMode::None);
     rootLayout->addWidget(m_policyTable, 1);
 
+    // 参数与结果保持同屏；动作和状态由独立的底部分隔区承载。
+    auto* const footer = new QWidget(this);
+    auto* const footerLayout = new QVBoxLayout(footer);
     QGridLayout* const buttonLayout = new QGridLayout();
+    buttonLayout->setHorizontalSpacing(8);
     m_addButton = new QPushButton(
         ks::i18n::sourceText(QStringLiteral("安装策略")), this);
     m_removeButton = new QPushButton(
@@ -165,11 +178,17 @@ void HvmMsrPolicyDialog::buildUi()
     buttonLayout->addWidget(m_removeButton, 0, 1);
     buttonLayout->addWidget(m_clearButton, 0, 2);
     buttonLayout->addWidget(m_refreshButton, 0, 3);
-    rootLayout->addLayout(buttonLayout);
+    for (QPushButton* button : { m_addButton, m_removeButton, m_clearButton, m_refreshButton })
+    {
+        ks::ui::NormalizeToolbarControl(button);
+    }
+    footerLayout->addLayout(buttonLayout);
 
     m_statusLabel = new QLabel(QString(), this);
     m_statusLabel->setWordWrap(true);
-    rootLayout->addWidget(m_statusLabel);
+    footerLayout->addWidget(m_statusLabel);
+    ks::ui::StyleSecondaryFooter(footer);
+    rootLayout->addWidget(footer);
 
     connect(m_actionBox, &QComboBox::currentIndexChanged, this, [this](int) {
         updateEnabledState();

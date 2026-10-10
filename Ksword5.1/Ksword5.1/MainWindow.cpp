@@ -1,5 +1,7 @@
 #include "MainWindow.h"
 #include "UI/ToolbarMetrics.h"
+#include "UI/SecondaryPageLayout.h"
+#include "UI/UI_All.h"
 #include "../../shared/usermode/KswordArkServiceMode.h"
 #include "Framework/PrivilegeElevationPrompt.h"
 #include "MinidumpDock/DumpAutoCheck.h"
@@ -7659,26 +7661,15 @@ void MainWindow::showSettingsPanelFromMenu(bool showLanguageTab)
     QDialog settingsDialog(this);
     settingsDialog.setWindowTitle(QStringLiteral("设置"));
     settingsDialog.setModal(false);
-    settingsDialog.resize(760, 640);
-    settingsDialog.setStyleSheet(QStringLiteral(
-        "QDialog{background:%1;color:%2;}")
-        .arg(KswordTheme::SurfaceHex())
-        .arg(KswordTheme::TextPrimaryHex())
-        + KswordTheme::ThemedComboBoxStyle());
+    ks::ui::StyleSecondaryWindow(&settingsDialog);
+    ks::ui::applyResponsiveWindowGeometry(&settingsDialog, this, QSize(1240, 780), QSize(720, 520));
 
     QVBoxLayout dialogLayout(&settingsDialog);
-    dialogLayout.setContentsMargins(8, 8, 8, 8);
-    dialogLayout.setSpacing(6);
+    dialogLayout.setContentsMargins(0, 0, 0, 0);
+    dialogLayout.setSpacing(0);
 
-    // 设置面板改为顶部菜单即时对话框，每次打开读取当前 JSON，避免占用主 Tab 栏空间。
-    auto* settingsScrollArea = new QScrollArea(&settingsDialog);
-    settingsScrollArea->setWidgetResizable(true);
-    settingsScrollArea->setFrameShape(QFrame::NoFrame);
-    settingsScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    settingsScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-
-    auto* settingsPanel = new SettingsDock();
-    settingsScrollArea->setWidget(settingsPanel);
+    // 每页内容自己滚动，导航和底部操作留在原位；每次打开仍读取当前配置。
+    auto* settingsPanel = new SettingsDock(&settingsDialog);
     if (showLanguageTab)
     {
         settingsPanel->showLanguageSettingsTab();
@@ -7727,10 +7718,11 @@ void MainWindow::showSettingsPanelFromMenu(bool showLanguageTab)
             updateBugcheckDiagnosticsEntryVisibility();
             queueBugcheckVerdictResourceUpload();
         });
-    dialogLayout.addWidget(settingsScrollArea, 1);
+    dialogLayout.addWidget(settingsPanel, 1);
 
     // 固定操作栏不放入滚动区域，保证“应用/取消”始终可见。
-    auto* actionLayout = new QHBoxLayout();
+    auto* footer = new QWidget(&settingsDialog); // 操作区用一条中性边界与内容分开。
+    auto* actionLayout = new QHBoxLayout(footer);
     actionLayout->addStretch(1);
     auto* cancelButton = new QPushButton(QStringLiteral("取消"), &settingsDialog);
     auto* applyButton = new QPushButton(QStringLiteral("应用"), &settingsDialog);
@@ -7740,13 +7732,13 @@ void MainWindow::showSettingsPanelFromMenu(bool showLanguageTab)
     languageManager.bindToolTip(applyButton, QStringLiteral("settings.apply.tooltip"), QStringLiteral("应用当前设置改动"));
     cancelButton->setMinimumWidth(72);
     applyButton->setMinimumWidth(72);
-    cancelButton->setFixedHeight(30);
-    applyButton->setFixedHeight(30);
     applyButton->setEnabled(false);
     actionLayout->addWidget(cancelButton);
     actionLayout->addWidget(applyButton);
     ks::ui::NormalizeToolbarRow(actionLayout);
-    dialogLayout.addLayout(actionLayout);
+    ks::ui::StyleSecondaryFooter(footer);
+    ks::ui::ApplyFlatButtonTheme(applyButton, ks::ui::FlatButtonTone::Accent);
+    dialogLayout.addWidget(footer);
 
     connect(applyButton, &QPushButton::clicked, settingsPanel, &SettingsDock::applySettings);
     connect(cancelButton, &QPushButton::clicked, &settingsDialog, &QDialog::reject);

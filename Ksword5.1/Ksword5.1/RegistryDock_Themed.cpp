@@ -32,6 +32,7 @@
 #include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include "UI/SecondaryPageLayout.h"
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QHeaderView>
@@ -1288,15 +1289,20 @@ void RegistryDock::createValue()
     const RegistryAccessContext context = accessContext();
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("新建注册表值"));
+    ks::ui::StyleSecondaryWindow(&dialog);
     auto* layout = new QVBoxLayout(&dialog);
+    ks::ui::StyleSecondaryContentLayout(layout);
     auto* scroll = new QScrollArea(&dialog);
     scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
     auto* editor = new RegistryValueEditorWidget;
     editor->setValue(path, QString(), REG_SZ, QByteArray(2, '\0'), true);
     scroll->setWidget(editor);
     layout->addWidget(scroll, 1);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
     buttons->button(QDialogButtonBox::Save)->setText(QStringLiteral("暂存新值"));
+    ks::ui::StyleSecondaryButtonBox(buttons);
+    ks::ui::StyleSecondaryFooter(buttons);
     layout->addWidget(buttons);
     RegistryValueDraft draft;
     connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
@@ -1405,15 +1411,20 @@ void RegistryDock::editSelectedValue()
         { shown.type = change.afterType; shown.data = change.afterData; break; }
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("编辑注册表值"));
+    ks::ui::StyleSecondaryWindow(&dialog);
     auto* layout = new QVBoxLayout(&dialog);
+    ks::ui::StyleSecondaryContentLayout(layout);
     auto* scroll = new QScrollArea(&dialog);
     scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
     auto* editor = new RegistryValueEditorWidget;
     editor->setValue(path, name, shown.type, shown.data);
     scroll->setWidget(editor);
     layout->addWidget(scroll, 1);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
     buttons->button(QDialogButtonBox::Save)->setText(QStringLiteral("暂存修改"));
+    ks::ui::StyleSecondaryButtonBox(buttons);
+    ks::ui::StyleSecondaryFooter(buttons);
     layout->addWidget(buttons);
     RegistryValueDraft draft;
     connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {

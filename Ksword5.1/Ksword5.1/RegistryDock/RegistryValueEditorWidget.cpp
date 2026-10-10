@@ -1,5 +1,6 @@
 #include "RegistryValueEditorWidget.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/SecondaryPageLayout.h"
 #include "../UI/ToolbarMetrics.h"
 #include "RegistryValueCodec.h"
 #include "../UI/MemoryWorkbench/HexView.h"
@@ -99,7 +100,7 @@ RegistryValueEditorWidget::RegistryValueEditorWidget(QWidget* parent) : QWidget(
     setMinimumWidth(280);
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(6);
+    root->setSpacing(8);
     m_path = new QLabel(this);
     m_path->setProperty("ks_i18n_preserve_data_text", true);
     m_path->setWordWrap(true);
@@ -129,6 +130,7 @@ RegistryValueEditorWidget::RegistryValueEditorWidget(QWidget* parent) : QWidget(
     m_type->setToolTip(trText(QStringLiteral("新建时切换类型会重置草稿数据；恢复原值可撤销。")));
     fields->addRow(trText(QStringLiteral("值名")), m_name);
     fields->addRow(trText(QStringLiteral("类型")), m_type);
+    ks::ui::StyleSecondaryForm(fields, 120);
     root->addLayout(fields);
     m_metadata = new QLabel(this);
     m_metadata->setTextFormat(Qt::PlainText);
@@ -136,7 +138,7 @@ RegistryValueEditorWidget::RegistryValueEditorWidget(QWidget* parent) : QWidget(
     root->addWidget(m_metadata);
 
     m_tabs = new QTabWidget(this);
-    ks::ui::StylePageTabs(m_tabs);
+    ks::ui::StyleSecondaryTabs(m_tabs);
     m_tabs->setObjectName(QStringLiteral("registry_value_tabs"));
     m_tabs->setMinimumSize(0, 0);
     m_tabs->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
@@ -178,6 +180,7 @@ RegistryValueEditorWidget::RegistryValueEditorWidget(QWidget* parent) : QWidget(
     m_decimalNumber->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     numberFields->addRow(trText(QStringLiteral("十六进制")), m_hexNumber);
     numberFields->addRow(trText(QStringLiteral("十进制")), m_decimalNumber);
+    ks::ui::StyleSecondaryForm(numberFields, 120);
     numberLayout->addLayout(numberFields);
     m_range = new QLabel(numberPage);
     m_range->setWordWrap(true);

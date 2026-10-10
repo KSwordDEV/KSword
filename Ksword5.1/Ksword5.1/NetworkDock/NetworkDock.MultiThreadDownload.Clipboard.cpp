@@ -1,5 +1,7 @@
 #include "NetworkDock.InternalCommon.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/SecondaryPageLayout.h"
+#include <QFormLayout>
 
 #include "../SettingsDock/AppearanceSettings.h"
 #include "../theme.h"
@@ -535,9 +537,10 @@ void NetworkDock::showMultiThreadDownloadClipboardPrompt(const QString& urlText)
     promptDialog->setWindowTitle(QStringLiteral("检测到可下载链接"));
     promptDialog->resize(760, 200);
     // 弹窗背景显式填充，避免浅色模式下继承透明样式出现黑底。
-    promptDialog->setStyleSheet(KswordTheme::OpaqueDialogStyle(promptDialog->objectName()));
+    ks::ui::StyleSecondaryWindow(promptDialog);
 
     QVBoxLayout* rootLayout = new QVBoxLayout(promptDialog); // rootLayout：询问框根布局。
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
     QLabel* descriptionLabel = new QLabel(
         QStringLiteral("已在剪贴板检测到匹配后缀的下载链接，请确认 URL 与保存目录。"),
         promptDialog); // descriptionLabel：询问框顶部说明文本。
@@ -566,18 +569,23 @@ void NetworkDock::showMultiThreadDownloadClipboardPrompt(const QString& urlText)
     cancelButton->setIcon(QIcon(":/Icon/titlebar_close.svg"));
     cancelButton->setToolTip(QStringLiteral("关闭本次下载询问框，不创建任务"));
 
-    QHBoxLayout* actionLayout = new QHBoxLayout(); // actionLayout：底部动作按钮布局。
+    // 下载参数用两行表单对齐；动作区独立绘制边界，不再混在字段之间。
+    auto* footer = new QWidget(promptDialog);
+    QHBoxLayout* actionLayout = new QHBoxLayout(footer); // actionLayout：底部动作按钮布局。
     actionLayout->addStretch(1);
     actionLayout->addWidget(startButton);
     actionLayout->addWidget(cancelButton);
     ks::ui::NormalizeToolbarRow(actionLayout);
 
     rootLayout->addWidget(descriptionLabel);
-    rootLayout->addWidget(urlLabel);
-    rootLayout->addWidget(urlEdit);
-    rootLayout->addWidget(saveDirLabel);
-    rootLayout->addLayout(saveDirLayout);
-    rootLayout->addLayout(actionLayout);
+    auto* inputForm = new QFormLayout();
+    inputForm->addRow(urlLabel, urlEdit);
+    inputForm->addRow(saveDirLabel, saveDirLayout);
+    ks::ui::StyleSecondaryForm(inputForm, 100);
+    rootLayout->addLayout(inputForm);
+    rootLayout->addStretch(1);
+    ks::ui::StyleSecondaryFooter(footer);
+    rootLayout->addWidget(footer);
 
     connect(promptDialog, &QDialog::destroyed, this, [this]()
         {

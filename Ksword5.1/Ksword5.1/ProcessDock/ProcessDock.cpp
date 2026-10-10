@@ -6,6 +6,7 @@
 #include "./ProcessGpuTableView.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/SecondaryPageLayout.h"
 #include <QDynamicPropertyChangeEvent>
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -5013,13 +5014,13 @@ void ProcessDock::initializeTopControls()
     m_processSettingsDialog = new QDialog(this, Qt::Dialog);
     m_processSettingsDialog->setModal(false);
     m_processSettingsDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+    ks::ui::StyleSecondaryWindow(m_processSettingsDialog);
     languageManager.bindWindowTitle(
         m_processSettingsDialog,
         QStringLiteral("process.dialog.settings.title"),
         QStringLiteral("进程列表设置"));
     m_processSettingsLayout = new QVBoxLayout(m_processSettingsDialog);
-    m_processSettingsLayout->setContentsMargins(12, 12, 12, 12);
-    m_processSettingsLayout->setSpacing(8);
+    ks::ui::StyleSecondaryContentLayout(m_processSettingsLayout);
 
     // 遍历策略下拉框：
     // 1) Toolhelp（CreateToolhelp32Snapshot + Process32First/Next）
@@ -5212,14 +5213,24 @@ void ProcessDock::initializeTopControls()
         QStringLiteral("process.activity.tooltip.background"),
         QStringLiteral("默认仅进程列表 Tab 显示时刷新和记录；勾选后切到其它 Tab 仍继续刷新并记录。"));
 
-    m_processSettingsLayout->addWidget(m_strategyCombo);
-    m_processSettingsLayout->addWidget(m_refreshLabel);
-    m_processSettingsLayout->addWidget(m_tableRefreshIntervalSpin);
-    m_processSettingsLayout->addWidget(m_sampleIntervalLabel);
-    m_processSettingsLayout->addWidget(m_refreshIntervalSpin);
-    m_processSettingsLayout->addWidget(m_kernelCompareCheck);
-    m_processSettingsLayout->addWidget(m_showKswordHiddenProcessCheck);
-    m_processSettingsLayout->addWidget(m_activityBackgroundRecordCheck);
+    // 采集选项使用统一标签列，避免标签和输入框纵向交错占据整窗。
+    auto* samplingSection = new QGroupBox(QStringLiteral("刷新与采样"), m_processSettingsDialog);
+    ks::ui::StyleSecondarySection(samplingSection);
+    auto* samplingForm = new QFormLayout(samplingSection);
+    samplingForm->addRow(QStringLiteral("遍历策略"), m_strategyCombo);
+    samplingForm->addRow(m_refreshLabel, m_tableRefreshIntervalSpin);
+    samplingForm->addRow(m_sampleIntervalLabel, m_refreshIntervalSpin);
+    samplingForm->addRow(QString(), m_activityBackgroundRecordCheck);
+    ks::ui::StyleSecondaryForm(samplingForm, 120);
+    m_processSettingsLayout->addWidget(samplingSection);
+
+    // 渲染和可见性单独分区；控件实例与即时保存连接继续复用。
+    auto* displaySection = new QGroupBox(QStringLiteral("显示与渲染"), m_processSettingsDialog);
+    ks::ui::StyleSecondarySection(displaySection);
+    auto* displayLayout = new QVBoxLayout(displaySection);
+    displayLayout->setSpacing(12);
+    displayLayout->addWidget(m_kernelCompareCheck);
+    displayLayout->addWidget(m_showKswordHiddenProcessCheck);
     m_processGpuEnabledCheck = new QCheckBox(m_processSettingsDialog);
     languageManager.bindText(m_processGpuEnabledCheck, QStringLiteral("process.settings.gpu_enabled"),
         QStringLiteral("启用进程列表 GPU 加速"));
@@ -5230,9 +5241,27 @@ void ProcessDock::initializeTopControls()
         QStringLiteral("ProcessList/GpuAccelerationEnabled"),
         qEnvironmentVariable("KSWORD_PROCESS_LIST_GPU") == QStringLiteral("1")).toBool());
     m_processGpuStatusLabel = new QLabel(m_processSettingsDialog);
-    m_processSettingsLayout->addWidget(m_processGpuEnabledCheck);
-    m_processSettingsLayout->addWidget(m_processGpuStatusLabel);
+    m_processGpuStatusLabel->setWordWrap(true);
+    m_processGpuStatusLabel->setMinimumWidth(0);
+    m_processGpuStatusLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    displayLayout->addWidget(m_processGpuEnabledCheck);
+    displayLayout->addWidget(m_processGpuStatusLabel);
+    m_processSettingsLayout->addWidget(displaySection);
     m_processSettingsLayout->addStretch(1);
+
+    // 即时设置只有关闭入口，底部分隔线与内容区保持独立。
+    auto* settingsFooter = new QWidget(m_processSettingsDialog);
+    auto* settingsFooterLayout = new QHBoxLayout(settingsFooter);
+    auto* settingsHint = new QLabel(QStringLiteral("修改即时生效"), settingsFooter);
+    auto* settingsClose = new QPushButton(QStringLiteral("关闭"), settingsFooter);
+    settingsFooterLayout->addWidget(settingsHint);
+    settingsFooterLayout->addStretch(1);
+    settingsFooterLayout->addWidget(settingsClose);
+    ks::ui::NormalizeToolbarRow(settingsFooterLayout);
+    ks::ui::StyleSecondaryFooter(settingsFooter);
+    m_processSettingsLayout->addWidget(settingsFooter);
+    connect(settingsClose, &QPushButton::clicked, m_processSettingsDialog, &QDialog::close);
+    m_processSettingsDialog->resize(620, 480);
 
     // “选择列”入口：
     // - 列集合已经对齐任务管理器“详细信息”页，仅靠表头右键逐列勾选不便于批量增减；
@@ -6215,7 +6244,6 @@ void ProcessDock::showProcessSettingsDialog()
 
     updateProcessRenderingStatus();
     // 非模态窗口复用同一组控件，重复点击齿轮只把已有窗口带回前台。
-    m_processSettingsDialog->adjustSize();
     m_processSettingsDialog->show();
     m_processSettingsDialog->raise();
     m_processSettingsDialog->activateWindow();
@@ -15600,6 +15628,8 @@ void ProcessDock::executeHvmProcessDispositionAction(
         ks::i18n::sourceText(QStringLiteral("%1 进程处置：选择要拒绝执行的页"))
             .arg(hvmName));
     QVBoxLayout* const addressLayout = new QVBoxLayout(&addressDialog);
+    ks::ui::StyleSecondaryWindow(&addressDialog);
+    ks::ui::StyleSecondaryContentLayout(addressLayout);
     QLabel* const addressHint = new QLabel(
         // 整串一行：跨行拼接会被 i18n 审计按分段逐条要词条。
         ks::i18n::sourceText(QStringLiteral("输入该进程内一个会被执行到的客户线性地址（十六进制）。\n处置作用在这个地址所在的整页上。若这一页在处置期间从未被执行，拒绝就不会发生——那和成功在外面看不出区别。\n默认值是主模块入口点，对刚启动的进程有效。")),
@@ -15614,6 +15644,7 @@ void ProcessDock::executeHvmProcessDispositionAction(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
         &addressDialog);
     addressLayout->addWidget(addressButtons);
+    ks::ui::StyleSecondaryButtonBox(addressButtons);
     connect(addressButtons, &QDialogButtonBox::accepted, &addressDialog, &QDialog::accept);
     connect(addressButtons, &QDialogButtonBox::rejected, &addressDialog, &QDialog::reject);
     addressEdit->setFocus();
@@ -16622,6 +16653,7 @@ void ProcessDock::openDmaProcessOpWindow()
         m_dmaProcessOpDialog->resize(900, 640);
         QVBoxLayout* const dialogLayout = new QVBoxLayout(m_dmaProcessOpDialog);
         dialogLayout->setContentsMargins(0, 0, 0, 0);
+        ks::ui::StyleSecondaryWindow(m_dmaProcessOpDialog);
         m_dmaProcessOpPage = new ksword::memory_dock::DmaProcessOpPage(m_dmaProcessOpDialog);
         dialogLayout->addWidget(m_dmaProcessOpPage);
     }

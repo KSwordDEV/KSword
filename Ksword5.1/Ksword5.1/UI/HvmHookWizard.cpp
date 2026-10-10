@@ -5,6 +5,8 @@
 #endif
 
 #include "HvmHookWizard.h"
+#include "./SecondaryPageLayout.h"
+#include "./ToolbarMetrics.h"
 #include "StructuredFieldView.h"
 
 #include "HvmControl.h"
@@ -183,7 +185,9 @@ namespace ks::ui
 
     void HvmHookWizard::buildUi()
     {
+        StyleSecondaryWindow(this);
         QVBoxLayout* const rootLayout = new QVBoxLayout(this);
+        StyleSecondaryContentLayout(rootLayout);
         rootLayout->setSizeConstraint(QLayout::SetNoConstraint);
 
         m_stepTitleLabel = new QLabel(QString(), this);
@@ -206,14 +210,13 @@ namespace ks::ui
         m_pageStack->addWidget(buildVerifyPage());
         rootLayout->addWidget(m_pageStack, 1);
 
-        QFrame* const separator = new QFrame(this);
-        separator->setFrameShape(QFrame::HLine);
-        separator->setFrameShadow(QFrame::Sunken);
-        rootLayout->addWidget(separator);
+        // 保留五步校验路由，导航和状态固定在页面栈之外，使用一条弱分隔线。
+        auto* const footer = new QWidget(this);
+        auto* const footerLayout = new QVBoxLayout(footer);
 
         m_statusLabel = new QLabel(QString(), this);
         m_statusLabel->setWordWrap(true);
-        rootLayout->addWidget(m_statusLabel);
+        footerLayout->addWidget(m_statusLabel);
 
         QHBoxLayout* const navigationLayout = new QHBoxLayout();
         m_backButton = new QPushButton(
@@ -226,7 +229,10 @@ namespace ks::ui
         navigationLayout->addWidget(m_nextButton);
         navigationLayout->addStretch(1);
         navigationLayout->addWidget(m_closeButton);
-        rootLayout->addLayout(navigationLayout);
+        NormalizeToolbarRow(navigationLayout);
+        footerLayout->addLayout(navigationLayout);
+        StyleSecondaryFooter(footer);
+        rootLayout->addWidget(footer);
 
         connect(m_backButton, &QPushButton::clicked, this, [this]() {
             const int previous = static_cast<int>(m_currentStep) - 1;
@@ -580,6 +586,8 @@ namespace ks::ui
     {
         QWidget* const page = new QWidget(this);
         QVBoxLayout* const pageLayout = new QVBoxLayout(page);
+        pageLayout->setContentsMargins(0, 0, 0, 0);
+        pageLayout->setSpacing(12);
 
         QFormLayout* const sourceForm = new QFormLayout();
         m_sourceBox = new QComboBox(page);
@@ -598,6 +606,7 @@ namespace ks::ui
         sourceForm->addRow(
             ks::i18n::sourceText(QStringLiteral("目标入口")),
             m_sourceBox);
+        StyleSecondaryForm(sourceForm, 210);
         pageLayout->addLayout(sourceForm);
 
         m_sourceStack = new QStackedWidget(page);
@@ -605,6 +614,8 @@ namespace ks::ui
         // ---- 入口一：模块 + 偏移 ----
         QWidget* const modulePage = new QWidget(m_sourceStack);
         QVBoxLayout* const moduleLayout = new QVBoxLayout(modulePage);
+        moduleLayout->setContentsMargins(0, 0, 0, 0);
+        moduleLayout->setSpacing(8);
         QFormLayout* const moduleForm = new QFormLayout();
         QWidget* const moduleRow = new QWidget(modulePage);
         QHBoxLayout* const moduleRowLayout = new QHBoxLayout(moduleRow);
@@ -614,6 +625,7 @@ namespace ks::ui
             ks::i18n::sourceText(QStringLiteral("重新枚举")), moduleRow);
         moduleRowLayout->addWidget(m_moduleBox, 1);
         moduleRowLayout->addWidget(m_moduleReloadButton);
+        NormalizeToolbarRow(moduleRowLayout);
         moduleForm->addRow(
             ks::i18n::sourceText(QStringLiteral("内核模块")),
             moduleRow);
@@ -623,6 +635,7 @@ namespace ks::ui
         moduleForm->addRow(
             ks::i18n::sourceText(QStringLiteral("模块内偏移（十六进制）")),
             m_moduleOffsetEdit);
+        StyleSecondaryForm(moduleForm, 210);
         moduleLayout->addLayout(moduleForm);
 
         m_moduleRangeLabel = new QLabel(QString(), modulePage);
@@ -641,6 +654,8 @@ namespace ks::ui
         // ---- 入口二：裸内核虚拟地址 ----
         QWidget* const kernelVaPage = new QWidget(m_sourceStack);
         QVBoxLayout* const kernelVaLayout = new QVBoxLayout(kernelVaPage);
+        kernelVaLayout->setContentsMargins(0, 0, 0, 0);
+        kernelVaLayout->setSpacing(8);
         QFormLayout* const kernelVaForm = new QFormLayout();
         m_kernelVaEdit = new QLineEdit(kernelVaPage);
         m_kernelVaEdit->setPlaceholderText(QStringLiteral("0xFFFFF80000000000"));
@@ -648,6 +663,7 @@ namespace ks::ui
         kernelVaForm->addRow(
             ks::i18n::sourceText(QStringLiteral("内核虚拟地址（十六进制）")),
             m_kernelVaEdit);
+        StyleSecondaryForm(kernelVaForm, 210);
         kernelVaLayout->addLayout(kernelVaForm);
         QLabel* const kernelVaNoteLabel = new QLabel(
             ks::i18n::sourceText(QStringLiteral("这条入口不做归属校验，只做翻译：地址抄错一位仍然会翻译成功，只是翻到了别的一页。")),
@@ -661,6 +677,8 @@ namespace ks::ui
         // ---- 入口三：裸物理地址 ----
         QWidget* const rawPaPage = new QWidget(m_sourceStack);
         QVBoxLayout* const rawPaLayout = new QVBoxLayout(rawPaPage);
+        rawPaLayout->setContentsMargins(0, 0, 0, 0);
+        rawPaLayout->setSpacing(8);
         QFormLayout* const rawPaForm = new QFormLayout();
         m_rawPaEdit = new QLineEdit(rawPaPage);
         m_rawPaEdit->setPlaceholderText(QStringLiteral("0x1000"));
@@ -668,6 +686,7 @@ namespace ks::ui
         rawPaForm->addRow(
             ks::i18n::sourceText(QStringLiteral("物理地址（十六进制，跳过翻译）")),
             m_rawPaEdit);
+        StyleSecondaryForm(rawPaForm, 210);
         rawPaLayout->addLayout(rawPaForm);
         QLabel* const rawPaWarningLabel = new QLabel(
             ks::i18n::sourceText(QStringLiteral("驱动对这条路径只校验页对齐与小于 64 TiB 两条，既不校验目标页是不是 RAM，也不校验它归谁。填错的结果是视图静默安装成功，然后对一页毫不相干的物理内存做执行重定向。")),
@@ -687,6 +706,8 @@ namespace ks::ui
         // ---- 入口四：排练 ----
         QWidget* const rehearsalPage = new QWidget(m_sourceStack);
         QVBoxLayout* const rehearsalLayout = new QVBoxLayout(rehearsalPage);
+        rehearsalLayout->setContentsMargins(0, 0, 0, 0);
+        rehearsalLayout->setSpacing(8);
         QLabel* const rehearsalIntroLabel = new QLabel(
             ks::i18n::sourceText(QStringLiteral("排练把目标换成本进程自己分配并锁住的一页，后面四步与真实目标逐条一致。它回答的是一个别处回答不了的问题：这一趟走完没生效，到底是整条编排有 bug，还是装上了但没生效 —— 在动内核之前把这两件事分开。")),
             rehearsalPage);
@@ -696,6 +717,7 @@ namespace ks::ui
         m_rehearsalAllocButton = new QPushButton(
             ks::i18n::sourceText(QStringLiteral("分配并锁住一页排练页")),
             rehearsalPage);
+        NormalizeToolbarControl(m_rehearsalAllocButton);
         rehearsalLayout->addWidget(m_rehearsalAllocButton);
 
         m_rehearsalLabel = new QLabel(QString(), rehearsalPage);
@@ -738,6 +760,8 @@ namespace ks::ui
         readoutForm->addRow(
             ks::i18n::sourceText(QStringLiteral("页内偏移")),
             m_readoutPageOffsetLabel);
+        StyleSecondaryForm(readoutForm, 210);
+        StyleSecondarySection(readoutGroup);
         pageLayout->addWidget(readoutGroup);
 
         QLabel* const cr3NoteLabel = new QLabel(
@@ -1381,6 +1405,8 @@ namespace ks::ui
     {
         QWidget* const page = new QWidget(this);
         QVBoxLayout* const pageLayout = new QVBoxLayout(page);
+        pageLayout->setContentsMargins(0, 0, 0, 0);
+        pageLayout->setSpacing(12);
 
         m_installSummaryView = new StructuredFieldView(page);
         pageLayout->addWidget(m_installSummaryView, 1);
@@ -1402,6 +1428,7 @@ namespace ks::ui
         m_installButton = new QPushButton(
             ks::i18n::sourceText(QStringLiteral("确认并安装这条 HOOK 视图")),
             page);
+        NormalizeToolbarControl(m_installButton);
         pageLayout->addWidget(m_installButton);
 
         m_installStatusLabel = new QLabel(QString(), page);

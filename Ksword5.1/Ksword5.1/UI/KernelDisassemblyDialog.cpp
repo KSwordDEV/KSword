@@ -13,6 +13,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDialogButtonBox>
+#include "./SecondaryPageLayout.h"
 #include <QLabel>
 #include <QMenu>
 #include <QMessageBox>
@@ -966,8 +967,11 @@ namespace ks::ui
         const QPointer<KernelDisassemblyDialog> self(this);
         QPointer<QDialog> editor = new QDialog(this);
         editor->setWindowTitle(QStringLiteral("内核字节事务"));
+        // 编辑事务使用配置窗口的层次，原反汇编详情窗继续保留自身布局。
+        StyleSecondaryWindow(editor);
         applyResponsiveWindowGeometry(editor, this, QSize(860, 640), QSize(520, 380));
         auto* layout = new QVBoxLayout(editor);
+        StyleSecondaryContentLayout(layout);
         auto* risk = new QLabel(
             QStringLiteral(
                 "目标：%1；快照长度：%2 字节。\n"
@@ -1004,6 +1008,7 @@ namespace ks::ui
         auto* buttons = new QDialogButtonBox(
             QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
             editor);
+        StyleSecondaryButtonBox(buttons);
         layout->addWidget(buttons);
         connect(
             buttons,

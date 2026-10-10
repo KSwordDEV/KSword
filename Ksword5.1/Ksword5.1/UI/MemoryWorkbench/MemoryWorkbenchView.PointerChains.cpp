@@ -1,4 +1,5 @@
 #include "MemoryWorkbenchView.h"
+#include "../SecondaryPageLayout.h"
 #include "AddressBookPanel.h"
 #include "WorkbenchShared.h"
 #include "WorkbenchStatusBar.h"
@@ -145,9 +146,10 @@ namespace ks::ui
         auto* dialog = new QDialog(this);
         const QPointer<QDialog> safeDialog(dialog);
         dialog->setObjectName(QStringLiteral("pointer_chain_bookmark_dialog"));
-        dialog->setStyleSheet(KswordTheme::OpaqueDialogStyle(dialog->objectName()));
+        StyleSecondaryWindow(dialog);
         dialog->setWindowTitle(T(QStringLiteral("指针链书签")));
         auto* layout = new QVBoxLayout(dialog);
+        StyleSecondaryContentLayout(layout);
         auto* form = new QFormLayout();
         auto* moduleCombo = new QComboBox(dialog);
         for (const auto& module : modules) moduleCombo->addItem(QString::fromUtf8(module.fullPath.c_str()));
@@ -169,6 +171,10 @@ namespace ks::ui
         form->addRow(T(QStringLiteral("逐级偏移（从根到目标，逗号分隔）")), offsets);
         form->addRow(T(QStringLiteral("备注")), note);
         layout->addLayout(form);
+        // 既有四项共同决定链定义，保持同屏填写；长模块路径不撑宽整个窗口。
+        moduleCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        moduleCombo->setMinimumContentsLength(24);
+        StyleSecondaryForm(form, 190);
         auto* hint = new QLabel(T(QStringLiteral("每级先读取指针，再加偏移。支持 1 至 16 级有符号十六进制偏移；仅按需解析。")), dialog);
         hint->setWordWrap(true);
         layout->addWidget(hint);
@@ -180,6 +186,7 @@ namespace ks::ui
         }
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, dialog);
         layout->addWidget(buttons);
+        StyleSecondaryButtonBox(buttons);
         connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
         connect(buttons, &QDialogButtonBox::accepted, dialog,
             [self, safeDialog, captured, modules, previous, id, moduleCombo, root, offsets, note]() {

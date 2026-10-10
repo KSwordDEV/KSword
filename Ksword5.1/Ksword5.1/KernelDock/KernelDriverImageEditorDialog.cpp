@@ -1,4 +1,5 @@
 #include "KernelDriverImageEditorDialog.h"
+#include "../UI/SecondaryPageLayout.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/VisibleTableWidget.h"
 
@@ -119,10 +120,10 @@ void KernelDriverImageEditorDialog::initializeUi()
     resize(1240, 860);
     setModal(true);
     setStyleSheet(KswordTheme::OpaqueDialogStyle(objectName()));
+    ks::ui::StyleSecondaryWindow(this);
 
     auto* rootLayout = new QVBoxLayout(this);
-    rootLayout->setContentsMargins(10, 10, 10, 10);
-    rootLayout->setSpacing(8);
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
 
     m_riskLabel = new QLabel(
         kernelText(
@@ -279,7 +280,8 @@ void KernelDriverImageEditorDialog::initializeUi()
     m_detailEditor->setMinimumHeight(210);
     rootLayout->addWidget(m_detailEditor, 1);
 
-    auto* bottomLayout = new QHBoxLayout();
+    auto* footer = new QWidget(this);
+    auto* bottomLayout = new QHBoxLayout(footer);
     m_statusLabel = new QLabel(
         kernelText(
             "kernel.driver_image.status.waiting",
@@ -295,7 +297,8 @@ void KernelDriverImageEditorDialog::initializeUi()
     bottomLayout->addWidget(m_statusLabel, 1);
     bottomLayout->addWidget(closeButton);
     ks::ui::NormalizeToolbarRow(bottomLayout);
-    rootLayout->addLayout(bottomLayout);
+    ks::ui::StyleSecondaryFooter(footer);
+    rootLayout->addWidget(footer);
 
     connect(closeButton, &QPushButton::clicked, this, &QDialog::accept);
     connect(m_refreshButton, &QPushButton::clicked, this, [this]() {

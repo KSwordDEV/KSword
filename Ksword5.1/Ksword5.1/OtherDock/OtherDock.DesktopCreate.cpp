@@ -15,6 +15,9 @@
 #include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include "../UI/SecondaryPageLayout.h"
+#include "../UI/UI_All.h"
+#include <QScrollArea>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -338,14 +341,34 @@ void OtherDock::showCreateDesktopDialog()
 
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("新建桌面 - 参数设置"));
-    dialog.setMinimumWidth(760);
+    ks::ui::StyleSecondaryWindow(&dialog);
+    dialog.resize(1060, 760);
 
     QVBoxLayout* rootLayout = new QVBoxLayout(&dialog);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
+    // 创建参数按基础设置与访问预览分列；小窗口自动改为纵向排列。
+    auto* scroll = new QScrollArea(&dialog);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    auto* content = new QWidget(scroll);
+    auto* contentLayout = new QVBoxLayout(content);
+    ks::ui::StyleSecondaryContentLayout(contentLayout);
+    scroll->setWidget(content);
+    rootLayout->addWidget(scroll, 1);
+    auto* primary = new QWidget(content);
+    auto* primaryLayout = new QVBoxLayout(primary);
+    primaryLayout->setContentsMargins(0, 0, 0, 0);
+    primaryLayout->setSpacing(12);
+    auto* secondary = new QWidget(content);
+    auto* secondaryLayout = new QVBoxLayout(secondary);
+    secondaryLayout->setContentsMargins(0, 0, 0, 0);
+    secondaryLayout->setSpacing(12);
     QLabel* introLabel = new QLabel(
         QStringLiteral("创建目标为当前进程窗口站；详细参数会直接传入 CreateDesktopW/CreateDesktopExW。"),
         &dialog);
     introLabel->setWordWrap(true);
-    rootLayout->addWidget(introLabel);
+    contentLayout->addWidget(introLabel);
 
     QGroupBox* basicGroup = new QGroupBox(QStringLiteral("基础参数"), &dialog);
     QFormLayout* basicLayout = new QFormLayout(basicGroup);
@@ -370,7 +393,9 @@ void OtherDock::showCreateDesktopDialog()
     basicLayout->addRow(QStringLiteral("目标窗口站"), windowStationEdit);
     basicLayout->addRow(QStringLiteral("桌面堆大小"), heapSizeSpin);
     basicLayout->addRow(QStringLiteral("创建标志"), allowOtherAccountHookCheck);
-    rootLayout->addWidget(basicGroup);
+    ks::ui::StyleSecondaryForm(basicLayout, 128);
+    ks::ui::StyleSecondarySection(basicGroup);
+    primaryLayout->addWidget(basicGroup);
 
     QGroupBox* accessGroup = new QGroupBox(QStringLiteral("访问掩码（dwDesiredAccess）"), &dialog);
     QGridLayout* accessLayout = new QGridLayout(accessGroup);
@@ -394,10 +419,12 @@ void OtherDock::showCreateDesktopDialog()
     {
         QCheckBox* checkBox = new QCheckBox(QString::fromLatin1(accessDefinitions[i].first), accessGroup);
         checkBox->setChecked((defaultAccess & accessDefinitions[i].second) != 0);
-        accessLayout->addWidget(checkBox, i / 3, i % 3);
+        accessLayout->addWidget(checkBox, i, 0);
         accessControls.push_back(AccessFlagControl{ checkBox, accessDefinitions[i].second, checkBox->text() });
     }
-    rootLayout->addWidget(accessGroup);
+    ks::ui::StyleSecondarySection(accessGroup);
+    accessLayout->setVerticalSpacing(8);
+    secondaryLayout->addWidget(accessGroup);
 
     QGroupBox* securityGroup = new QGroupBox(QStringLiteral("安全与继承"), &dialog);
     QVBoxLayout* securityLayout = new QVBoxLayout(securityGroup);
@@ -428,18 +455,29 @@ void OtherDock::showCreateDesktopDialog()
     securityLayout->addWidget(switchAfterCreateCheck);
     securityLayout->addWidget(customSddlCheck);
     securityLayout->addWidget(sddlEdit);
-    rootLayout->addWidget(securityGroup);
+    ks::ui::StyleSecondarySection(securityGroup);
+    securityLayout->setSpacing(8);
+    primaryLayout->addWidget(securityGroup);
+    primaryLayout->addStretch(1);
 
     // 参数摘要由本页按控件状态生成，使用统一编辑器以支持英语模式下的即时重绘。
     ks::ui::StructuredFieldView* summaryEdit = new ks::ui::StructuredFieldView(&dialog);
 
-    summaryEdit->setFixedHeight(164);
-    rootLayout->addWidget(summaryEdit);
+    summaryEdit->setMinimumHeight(164);
+    auto* summaryGroup = new QGroupBox(QStringLiteral("参数摘要"), secondary);
+    auto* summaryLayout = new QVBoxLayout(summaryGroup);
+    summaryLayout->addWidget(summaryEdit);
+    ks::ui::StyleSecondarySection(summaryGroup);
+    secondaryLayout->addWidget(summaryGroup);
+    secondaryLayout->addStretch(1);
+    contentLayout->addWidget(ks::ui::CreateSecondaryColumns(primary, secondary, content, 920, 3, 2), 1);
 
     QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     buttonBox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("创建"));
     buttonBox->button(QDialogButtonBox::Ok)->setIcon(QIcon(":/Icon/desktop_create.svg"));
     buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    ks::ui::StyleSecondaryButtonBox(buttonBox);
+    ks::ui::StyleSecondaryFooter(buttonBox);
     rootLayout->addWidget(buttonBox);
 
     std::function<void()> updateSummary = [&]() {
@@ -629,5 +667,6 @@ void OtherDock::showCreateDesktopDialog()
     });
 
     syncSecurityOptions();
+    ks::ui::applyResponsiveWindowGeometry(&dialog, this, QSize(1060, 760), QSize(560, 420));
     dialog.exec();
 }

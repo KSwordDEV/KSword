@@ -6,6 +6,7 @@
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ToolbarMetrics.h"
 #include "../UI/PageControlStyle.h"
+#include "../UI/SecondaryPageLayout.h"
 #include "../UI/DetailLayoutRegistry.h"
 #include "../UI/ThemeItemForeground.h"
 
@@ -34,6 +35,7 @@
 #include <QDialogButtonBox>
 #include <QEvent>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QGuiApplication>
 #include <QHash>
 #include <QHeaderView>
@@ -860,12 +862,12 @@ namespace
             : QDialog(parent)
         {
             setWindowTitle(initialRuleEntry == nullptr ? QStringLiteral("新增防火墙规则") : QStringLiteral("编辑防火墙规则"));
-            resize(620, 460);
+            resize(900, 470);
             ks::ui::RefreshGlobalDialogTheme();
+            ks::ui::StyleSecondaryWindow(this);
 
             QVBoxLayout* rootLayout = new QVBoxLayout(this);
-            rootLayout->setContentsMargins(12, 12, 12, 12);
-            rootLayout->setSpacing(10);
+            ks::ui::StyleSecondaryContentLayout(rootLayout);
 
             QLabel* tipLabel = new QLabel(
                 QStringLiteral("规则修改将直接写入 Windows Firewall。程序路径、端口和地址支持留空。"),
@@ -873,10 +875,13 @@ namespace
             tipLabel->setWordWrap(true);
             rootLayout->addWidget(tipLabel, 0);
 
-            QFormLayout* formLayout = new QFormLayout();
-            formLayout->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
-            formLayout->setFormAlignment(Qt::AlignTop);
-            formLayout->setSpacing(8);
+            // 所有规则字段保持同屏；两列弱分区压低纵向高度，不增加切页成本。
+            auto* ruleSection = new QGroupBox(QStringLiteral("规则"), this);
+            auto* scopeSection = new QGroupBox(QStringLiteral("网络范围"), this);
+            ks::ui::StyleSecondarySection(ruleSection);
+            ks::ui::StyleSecondarySection(scopeSection);
+            QFormLayout* formLayout = new QFormLayout(ruleSection);
+            auto* scopeForm = new QFormLayout(scopeSection);
 
             m_nameEdit = new QLineEdit(this);
             m_descriptionEdit = new QLineEdit(this);
@@ -924,18 +929,22 @@ namespace
             formLayout->addRow(QStringLiteral("服务"), m_serviceEdit);
             formLayout->addRow(QStringLiteral("方向"), m_directionCombo);
             formLayout->addRow(QStringLiteral("动作"), m_actionCombo);
-            formLayout->addRow(QStringLiteral("协议"), m_protocolCombo);
-            formLayout->addRow(QStringLiteral("本地端口"), m_localPortsEdit);
-            formLayout->addRow(QStringLiteral("远端端口"), m_remotePortsEdit);
-            formLayout->addRow(QStringLiteral("本地地址"), m_localAddressesEdit);
-            formLayout->addRow(QStringLiteral("远端地址"), m_remoteAddressesEdit);
             formLayout->addRow(QStringLiteral("分组"), m_groupingEdit);
-            formLayout->addRow(QStringLiteral("配置文件"), profileWidget);
             formLayout->addRow(QStringLiteral("状态"), m_enabledCheck);
-            rootLayout->addLayout(formLayout, 1);
+            scopeForm->addRow(QStringLiteral("协议"), m_protocolCombo);
+            scopeForm->addRow(QStringLiteral("本地端口"), m_localPortsEdit);
+            scopeForm->addRow(QStringLiteral("远端端口"), m_remotePortsEdit);
+            scopeForm->addRow(QStringLiteral("本地地址"), m_localAddressesEdit);
+            scopeForm->addRow(QStringLiteral("远端地址"), m_remoteAddressesEdit);
+            scopeForm->addRow(QStringLiteral("配置文件"), profileWidget);
+            ks::ui::StyleSecondaryForm(formLayout, 90);
+            ks::ui::StyleSecondaryForm(scopeForm, 90);
+            rootLayout->addWidget(ks::ui::CreateSecondaryColumns(
+                ruleSection, scopeSection, this, 640, 1, 1), 1);
 
             QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
             rootLayout->addWidget(buttonBox, 0);
+            ks::ui::StyleSecondaryButtonBox(buttonBox);
 
             connect(buttonBox, &QDialogButtonBox::accepted, this, [this]()
             {

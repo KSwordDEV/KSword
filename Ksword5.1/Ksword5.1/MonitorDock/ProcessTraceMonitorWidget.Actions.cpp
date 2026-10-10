@@ -1,4 +1,6 @@
 #include "ProcessTraceMonitorWidget.h"
+#include "../UI/SecondaryPageLayout.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../theme.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/TableInteractionSupport.h"
@@ -331,8 +333,8 @@ namespace
         dialog.setMinimumWidth(560);
 
         QVBoxLayout* rootLayout = new QVBoxLayout(&dialog);
-        rootLayout->setContentsMargins(16, 16, 16, 16);
-        rootLayout->setSpacing(10);
+        ks::ui::StyleSecondaryWindow(&dialog);
+        ks::ui::StyleSecondaryContentLayout(rootLayout);
 
         QFormLayout* formLayout = new QFormLayout();
         formLayout->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
@@ -362,6 +364,9 @@ namespace
         QCheckBox* runAsAdministratorCheck = new QCheckBox(QStringLiteral("以管理员运行"), &dialog);
         formLayout->addRow(QString(), runAsAdministratorCheck);
         rootLayout->addLayout(formLayout);
+        ks::ui::StyleSecondaryForm(formLayout);
+        ks::ui::NormalizeToolbarRow(imagePathLayout);
+        rootLayout->addStretch(1);
 
         QDialogButtonBox* buttonBox = new QDialogButtonBox(&dialog);
         QPushButton* createButton = buttonBox->addButton(
@@ -369,6 +374,7 @@ namespace
             QDialogButtonBox::AcceptRole);
         buttonBox->addButton(QStringLiteral("取消"), QDialogButtonBox::RejectRole);
         rootLayout->addWidget(buttonBox);
+        ks::ui::StyleSecondaryButtonBox(buttonBox);
 
         QObject::connect(browseButton, &QPushButton::clicked, &dialog, [&dialog, imagePathEdit]() {
             const QString imagePath = QFileDialog::getOpenFileName(

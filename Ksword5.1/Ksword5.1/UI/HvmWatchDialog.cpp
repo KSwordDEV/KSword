@@ -9,6 +9,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include "./SecondaryPageLayout.h"
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QLabel>
@@ -49,7 +50,9 @@ HvmWatchAddDialog::HvmWatchAddDialog(QWidget* const parent)
 {
     setWindowTitle(text(QStringLiteral("添加内存监视")));
     setObjectName(QStringLiteral("HvmWatchAddDialog"));
+    ks::ui::StyleSecondaryWindow(this);
     auto* const rootLayout = new QVBoxLayout(this);
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
 
     m_targetLabel = new QLabel(this);
     m_targetLabel->setWordWrap(true);
@@ -71,19 +74,22 @@ HvmWatchAddDialog::HvmWatchAddDialog(QWidget* const parent)
     m_length->setPlaceholderText(QStringLiteral("8"));
     m_length->setToolTip(text(QStringLiteral("你真正关心的字节数。它不改变硬件监视的范围（那永远是整页），只决定命中后能不能判断这次访问落在你关心的那几个字节上。留空表示整页。")));
     form->addRow(text(QStringLiteral("关心的长度（十进制字节）")), m_length);
+    ks::ui::StyleSecondaryForm(form, 186);
     rootLayout->addLayout(form);
 
-    auto* const accessRow = new QGridLayout();
+    auto* const accessOptions = new QWidget(this);
+    auto* const accessRow = new QGridLayout(accessOptions);
+    accessRow->setContentsMargins(0, 0, 0, 0);
+    accessRow->setHorizontalSpacing(12);
     m_read = new QCheckBox(text(QStringLiteral("读")), this);
     m_write = new QCheckBox(text(QStringLiteral("写")), this);
     m_execute = new QCheckBox(text(QStringLiteral("执行")), this);
     m_write->setChecked(true);
-    accessRow->addWidget(
-        new QLabel(text(QStringLiteral("监视的访问类型")), this), 0, 0);
-    accessRow->addWidget(m_read, 0, 1);
-    accessRow->addWidget(m_write, 0, 2);
-    accessRow->addWidget(m_execute, 0, 3);
-    rootLayout->addLayout(accessRow);
+    accessRow->addWidget(m_read, 0, 0);
+    accessRow->addWidget(m_write, 0, 1);
+    accessRow->addWidget(m_execute, 0, 2);
+    accessRow->setColumnStretch(3, 1);
+    form->addRow(text(QStringLiteral("监视的访问类型")), accessOptions);
 
     rootLayout->addWidget(new QLabel(
         text(QStringLiteral("模式：首次访问（当前唯一支持）")), this));
@@ -97,6 +103,7 @@ HvmWatchAddDialog::HvmWatchAddDialog(QWidget* const parent)
     auto* const buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     buttons->button(QDialogButtonBox::Ok)->setText(text(QStringLiteral("武装")));
+    ks::ui::StyleSecondaryButtonBox(buttons);
     rootLayout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &HvmWatchAddDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);

@@ -55,6 +55,7 @@
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include "../UI/SecondaryPageLayout.h"
 #include <QDir>
 #include <QDateTime>
 #include <QDateTimeEdit>
@@ -3130,9 +3131,11 @@ namespace
         dialog.setObjectName(QStringLiteral("FileUnlockerSelectionDialog"));
         dialog.setStyleSheet(buildOpaqueStandaloneDialogStyle(dialog.objectName()));
         dialog.setWindowTitle(QStringLiteral("文件解锁器 - 选择操作目标"));
-        dialog.resize(1080, 620);
+        ks::ui::StyleSecondaryWindow(&dialog);
+        dialog.resize(1080, 680);
 
         QVBoxLayout* const rootLayout = new QVBoxLayout(&dialog);
+        ks::ui::StyleSecondaryContentLayout(rootLayout);
         QLabel* const tipLabel = new QLabel(
             QStringLiteral("已扫描到以下占用来源。建议先关闭选中句柄；若仍无法删除/重命名，再改用结束进程兜底。未勾选的目标不会处理。"),
             &dialog);
@@ -3162,6 +3165,7 @@ namespace
         }
         modeLayout->addWidget(modeLabel);
         modeLayout->addWidget(modeComboBox, 1);
+        ks::ui::NormalizeToolbarRow(modeLayout);
         rootLayout->addLayout(modeLayout);
 
         QStackedWidget* const tableStack = new QStackedWidget(&dialog);
@@ -3318,6 +3322,9 @@ namespace
             ? QStringLiteral("关闭选中句柄")
             : QStringLiteral("执行选中操作"));
         buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+        // 目标选择与执行入口固定在底部，保留业务按钮的角色与信号。
+        ks::ui::StyleSecondaryButtonBox(buttonBox);
+        ks::ui::StyleSecondaryFooter(buttonBox);
         rootLayout->addWidget(buttonBox);
 
         auto collectSelectedHandles = [&handleTable, &handleCandidateList]() {
@@ -19497,9 +19504,11 @@ void FileDock::showColumnManagerDialog(FilePanelWidgets& panel)
 
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("列管理器"));
-    dialog.resize(340, 260);
+    ks::ui::StyleSecondaryWindow(&dialog);
+    dialog.resize(400, 400);
 
     QVBoxLayout* rootLayout = new QVBoxLayout(&dialog);
+    ks::ui::StyleSecondaryContentLayout(rootLayout);
     QLabel* tipLabel = new QLabel(QStringLiteral("勾选表示显示该列，可拖拽表头调整顺序。"), &dialog);
     tipLabel->setWordWrap(true);
     rootLayout->addWidget(tipLabel, 0);
@@ -19526,6 +19535,8 @@ void FileDock::showColumnManagerDialog(FilePanelWidgets& panel)
     QDialogButtonBox* buttonBox = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
         &dialog);
+    ks::ui::StyleSecondaryButtonBox(buttonBox);
+    ks::ui::StyleSecondaryFooter(buttonBox);
     rootLayout->addWidget(buttonBox, 0);
     connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);

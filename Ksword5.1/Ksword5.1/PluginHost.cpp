@@ -8,6 +8,7 @@
 #include "UI/VisibleTableWidget.h"
 #include "UI/PageControlStyle.h"
 #include "UI/ToolbarMetrics.h"
+#include "UI/SecondaryPageLayout.h"
 
 #include "theme.h"
 #include "Internationalization/LanguageManager.h"
@@ -2121,11 +2122,11 @@ namespace
         {
             setAttribute(Qt::WA_DeleteOnClose, true);
             setWindowTitle(QStringLiteral("插件管理"));
+            ks::ui::StyleSecondaryWindow(this);
             resize(840, 460);
             setModal(false);
             auto* layout = new QVBoxLayout(this);
-            layout->setContentsMargins(8, 8, 8, 8);
-            layout->setSpacing(6);
+            ks::ui::StyleSecondaryContentLayout(layout);
 
             // 插件列表与进程列表采用同一套紧凑表格几何基线。只在页面本地设置
             // 行高和滚动等几何属性，避免把尺寸规则放进 app 级 QSS 后污染标题栏
@@ -2153,11 +2154,11 @@ namespace
             m_networkManager = new QNetworkAccessManager(this);
             auto* tabWidget = new QTabWidget(this);
             m_mainTabs = tabWidget;
-            ks::ui::StylePageTabs(tabWidget);
+            ks::ui::StyleSecondaryTabs(tabWidget);
             auto* localPage = new QWidget(tabWidget);
             auto* localLayout = new QVBoxLayout(localPage);
-            localLayout->setContentsMargins(6, 6, 6, 6);
-            localLayout->setSpacing(4);
+            localLayout->setContentsMargins(0, 8, 0, 0);
+            localLayout->setSpacing(8);
             m_table = new ks::ui::VisibleTableWidget(localPage);
             // 已安装插件是管理选择列表，已有扫描/详情/目录入口，无需现场快照操作。
             ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::None);
@@ -2184,8 +2185,8 @@ namespace
 
             auto* marketplacePage = new QWidget(tabWidget);
             auto* marketplaceLayout = new QVBoxLayout(marketplacePage);
-            marketplaceLayout->setContentsMargins(6, 6, 6, 6);
-            marketplaceLayout->setSpacing(4);
+            marketplaceLayout->setContentsMargins(0, 8, 0, 0);
+            marketplaceLayout->setSpacing(8);
             m_marketplaceTable = new ks::ui::VisibleTableWidget(marketplacePage);
             // 商城用于更新和安装选择，不显示不相关的通用快照/对比栏。
             ks::ui::SetTableActionBarMode(m_marketplaceTable, ks::ui::TableActionBarMode::None);
@@ -2226,12 +2227,15 @@ namespace
             m_installProgress->setTextVisible(true);
             m_installProgress->setVisible(false);
             layout->addWidget(m_installProgress);
-            auto* footer = new QHBoxLayout();
+            // 管理器使用固定底部动作区；插件运行结果和第三方内容继续使用自身布局。
+            auto* footerWidget = new QWidget(this);
+            auto* footer = new QHBoxLayout(footerWidget);
             auto* closeButton = new QPushButton(QStringLiteral("关闭"), this);
             footer->addStretch(1);
             footer->addWidget(closeButton);
             ks::ui::NormalizeToolbarRow(footer);
-            layout->addLayout(footer);
+            ks::ui::StyleSecondaryFooter(footerWidget);
+            layout->addWidget(footerWidget);
             connect(refreshButton, &QPushButton::clicked, this, [this]() { refreshPlugins(); });
             connect(refreshMarketplaceButton, &QPushButton::clicked, this, [this]() { refreshMarketplace(); });
             connect(checkUpdatesButton, &QPushButton::clicked, this, [this]() { checkForUpdates(); });
@@ -2809,8 +2813,10 @@ namespace
             const QPointer<PluginManagerDialog> self(this);
             const QPointer<QDialog> licenseGuard(licenseDialog);
             licenseDialog->setWindowTitle(QStringLiteral("许可证：%1").arg(plugin.name));
+            ks::ui::StyleSecondaryWindow(licenseDialog);
             licenseDialog->resize(780, 620);
             auto* layout = new QVBoxLayout(licenseDialog);
+            ks::ui::StyleSecondaryContentLayout(layout);
             auto* label = new QLabel(QStringLiteral("安装 %1 前，请阅读并同意：%2。未同意不会发起插件 ZIP 下载。")
                 .arg(plugin.name, plugin.licenseName), licenseDialog);
             label->setWordWrap(true);
@@ -2825,6 +2831,7 @@ namespace
             QPushButton* acceptButton = buttons->addButton(QStringLiteral("同意并一键安装"), QDialogButtonBox::AcceptRole);
             acceptButton->setEnabled(false);
             layout->addWidget(buttons);
+            ks::ui::StyleSecondaryButtonBox(buttons);
             connect(agree, &QCheckBox::toggled, acceptButton, &QPushButton::setEnabled);
             connect(buttons, &QDialogButtonBox::accepted, licenseDialog, &QDialog::accept);
             connect(buttons, &QDialogButtonBox::rejected, licenseDialog, &QDialog::reject);

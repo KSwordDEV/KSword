@@ -84,6 +84,11 @@ private:
     // 调用方式：initializeUi 内部调用。
     void initializeAppearanceTab();
 
+    // 各页只创建与排列控件；全部建立后统一连接待应用信号。
+    void initializeLanguageTab();
+    void initializeStartupTab();
+    void initializeAppearanceSupplement(QVBoxLayout* appearanceRootLayout);
+
     // initializeFeaturesTab 作用：
     // - 创建“功能”标签页，承载 R0 功能提示等运行行为开关；
     // - 控件沿用统一的“应用”保存流程。
@@ -270,8 +275,8 @@ private:
     // m_themeButtonGroup 作用：三种主题按钮的互斥分组。
     QButtonGroup* m_themeButtonGroup = nullptr;
 
-    // m_detailSchemeButtonGroup：四种严格命中详情布局的全局互斥单选组。
-    QButtonGroup* m_detailSchemeButtonGroup = nullptr;
+    // m_detailSchemeCombo：四种详情位置对应稳定枚举，选择后仍待统一应用。
+    QComboBox* m_detailSchemeCombo = nullptr;
 
     // m_languageCombo 作用：列出 languages 目录中发现并通过校验的语言包。
     QComboBox* m_languageCombo = nullptr;
@@ -293,9 +298,6 @@ private:
     // m_darkModeButton 作用：选择“深色主题”模式。
     QToolButton* m_darkModeButton = nullptr;
 
-    // m_themeColorPreviewLabel 作用：显示当前主主题色及其 #RRGGBB 值。
-    QLabel* m_themeColorPreviewLabel = nullptr;
-
     // m_themeComponentPreview 仅绘制颜色样例；不创建业务Dock或改全局外观。
     ks::ui::ThemePreviewWidget* m_themeComponentPreview = nullptr;
 
@@ -303,8 +305,7 @@ private:
     QPushButton* m_chooseThemeColorButton = nullptr;
     QPushButton* m_resetThemeColorButton = nullptr;
 
-    // 主背景色与主题强调色独立保存；预览标签展示当前待应用的实际 RGB 值。
-    QLabel* m_mainBackgroundColorPreviewLabel = nullptr;
+    // 主背景色与主题强调色独立保存；选择按钮显示色块与待应用的 RGB 值。
     QPushButton* m_chooseMainBackgroundColorButton = nullptr;
     QPushButton* m_resetMainBackgroundColorButton = nullptr;
 
@@ -437,7 +438,6 @@ private:
     QLineEdit* m_threatBookApiKeyEdit = nullptr;
 
     // m_applySettingsButton 作用：统一提交当前设置改动并触发实际生效。
-
 
     // m_saveOnlineScanKeysButton 作用：在线扫描页单独保存 API Key 的按钮。
     QPushButton* m_saveOnlineScanKeysButton = nullptr;
