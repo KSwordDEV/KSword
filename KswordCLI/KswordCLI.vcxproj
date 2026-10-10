@@ -436,4 +436,9 @@
     <ClInclude Include="..\shared\usermode\backend\window\WindowHierarchySupport.h" />
     <ClInclude Include="..\shared\usermode\backend\window\PointerText.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3WindowHotkeys.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\GlobalHotkeyProbe.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\GlobalHotkeyProbe.h" />
+  </ItemGroup>
 </Project>

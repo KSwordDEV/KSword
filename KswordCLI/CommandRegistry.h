@@ -107,4 +107,5 @@ void registerWindow();
 void registerClipboardRead();
 void registerWindowCapture();
 void registerWindowHierarchy();
+void registerWindowHotkeys();
 }

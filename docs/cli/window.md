@@ -1,5 +1,22 @@
 # 窗口 R3 命令
 
+## 全局热键探测（迁移项 40）
+
+```powershell
+KswordCLI.exe window hotkeys help
+KswordCLI.exe help window hotkeys probe
+KswordCLI.exe window hotkeys probe --key F23 --modifiers ctrl+alt+shift --json
+KswordCLI.exe window hotkeys scan --limit 1320 --json
+```
+
+`window hotkeys probe` 要求 `--key`（A-Z、0-9、F1-F24、后端命名键或十进制／十六进制 VK 1..254）和 `--modifiers`（none 或小写 ctrl/alt/shift/win 以 + 连接，不重复）。命名键包括 Esc、Tab、Space、Enter、Backspace、Insert、Delete、Home、End、PageUp、PageDown、Left、Up、Right、Down、PrintScreen、Pause 及美式键名的标点（按 VK 解释，不按当前键盘布局字符推导）。`scan` 按共享后端原顺序探测 88 个键 × 15 个非空修饰组合，`--limit 1..1320`（1320）限制实际操作次数。两者均支持 `--backend r3` 和 `--json`。
+
+这不是只读枚举：在新建专用线程上临时调用 RegisterHotKey(NULL)，成功后立即在原线程 UnregisterHotKey，线程退出并 join 后才输出；探测期间可能短暂拦截组合，一些系统默认热键可被成功注册临时覆盖。F12 为调试器保留，CLI 不尝试注册。其他注册失败的 1409 只说明“已占用或系统保留”，不推断所有者；Win 修饰组合标注系统保留候选。不会持久注册、发送键盘输入或调用 R0。API 规则见 [RegisterHotKey](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey)、[UnregisterHotKey](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-unregisterhotkey)。
+
+data 提供 source、transientRegistration、workerThreadId/workerExited、complete/limited/cancelled/cleanupFailed、requestedCount/returnedCount/availableCount/occupiedOrReservedCount/reservedCount/unknownCount、entries；计数为十进制字符串。每项提供 combination、modifiers/virtualKey（十六进制）、classification（available/occupied-or-reserved/reserved/unknown）、attempted/registered、registrationPossible（无法判断为 null）、registerWin32Error、unregisterAttempted/unregistered/unregisterWin32Error、ownerPid/ownerWindow（始终 null）、systemReservedCandidate/reservedReason。可注册是当时的注册证据，不是持续空闲保证；释放失败仍保留 registered=true、unregistered=false，不冒充已完成。
+
+完整可判定结果为 0，即使组合不能注册；单项 F12 保留或全为无法判定为 5；未知与已知混合、释放失败、取消或限额为 6。最多 8 秒（原生调用间检查），释放失败停止探测，避免复用尚未释放的 ID；专用线程退出的生命周期与实际释放回执分开报告。help 不注册热键。进程热键候选见 `process hotkeys`，不等同于这里的实际全局注册探测。真实修改测试仅在克隆 VM 中完成：由独立 SDK 线程持有组合，验证探测不能注册；释放后验证 CLI 可注册且 SDK 再次注册成功，以及全矩阵每个成功注册的释放状态。
+
 ## 窗口层级与属性（迁移项 39）
 
 ```powershell

@@ -1515,6 +1515,7 @@ namespace
             ks::cli::registerClipboardRead();
             ks::cli::registerWindowCapture();
             ks::cli::registerWindowHierarchy();
+        ks::cli::registerWindowHotkeys();
             #endif
             return true;
         }();
