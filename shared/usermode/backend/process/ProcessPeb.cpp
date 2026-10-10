@@ -24,36 +24,46 @@ bool ReadRemoteExact(
     HANDLE process,
     const std::uint64_t address,
     void* buffer,
-    const SIZE_T bufferSize) {
+    const SIZE_T bufferSize,ProcessQueryEvidence* evidence) {
+    if (evidence) *evidence = {};
     if (!process || address == 0 || !buffer || bufferSize == 0) {
+        if (evidence) {evidence->win32ErrorKnown = true;evidence->win32Error = ERROR_INVALID_ADDRESS;}
         return false;
     }
     SIZE_T bytesRead = 0;
-    return ::ReadProcessMemory(
+    const bool ok = ::ReadProcessMemory(
                process,
                reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(address)),
                buffer,
                bufferSize,
-               &bytesRead) != FALSE &&
-        bytesRead == bufferSize;
+               &bytesRead) != FALSE;
+    const DWORD error = ok ? bytesRead == bufferSize ? ERROR_SUCCESS : ERROR_PARTIAL_COPY : ::GetLastError();
+    if (evidence) {evidence->available = ok && bytesRead == bufferSize;evidence->win32ErrorKnown = true;evidence->win32Error = error;}
+    return ok && bytesRead == bufferSize;
 }
 std::wstring ReadRemoteUnicode(
     HANDLE process,
     const std::uint64_t address,
-    const USHORT byteLength) {
+    const USHORT byteLength,ProcessQueryEvidence* evidence) {
+    if (evidence) *evidence = {};
+    if (byteLength == 0) {if (evidence) {evidence->available = true;evidence->emptyValue = true;}return {};}
     if (!process || address == 0 || byteLength == 0 ||
         (byteLength % sizeof(wchar_t)) != 0 || byteLength > kMaxRemoteUnicodeBytes) {
+        if (evidence) {evidence->win32ErrorKnown = true;evidence->win32Error = ERROR_INVALID_DATA;}
         return {};
     }
     std::vector<wchar_t> buffer(static_cast<std::size_t>(byteLength / sizeof(wchar_t)) + 1U, L'\0');
     SIZE_T bytesRead = 0;
-    if (::ReadProcessMemory(
+    const bool ok = ::ReadProcessMemory(
             process,
             reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(address)),
             buffer.data(),
             byteLength,
-            &bytesRead) == FALSE ||
-        bytesRead == 0) {
+            &bytesRead) != FALSE;
+    const DWORD error = ok ? bytesRead == byteLength ? ERROR_SUCCESS : ERROR_PARTIAL_COPY : ::GetLastError();
+    if (evidence) {evidence->available = ok && bytesRead == byteLength;evidence->win32ErrorKnown = true;evidence->win32Error = error;}
+    if (!ok || bytesRead == 0 || bytesRead > byteLength || bytesRead % sizeof(wchar_t) != 0) {
+        if (evidence && ok) {evidence->available = false;evidence->win32Error = ERROR_INVALID_DATA;}
         return {};
     }
     buffer[std::min<std::size_t>(buffer.size() - 1U, bytesRead / sizeof(wchar_t))] = L'\0';
@@ -64,10 +74,11 @@ PebReadResult ReadPeb64(HANDLE process, const std::uint64_t pebAddress) {
     result.name = L"NativePEB";
     result.pebAddress = pebAddress;
     Peb64Lite peb{};
-    if (!ReadRemoteStructure(process, pebAddress, peb)) {
+    if (!ReadRemoteStructure(process, pebAddress, peb,&result.evidence[L"header"])) {
         result.diagnostic = L"读取64位PEB头失败。";
         return result;
     }
+    result.headerKnown = true;
     result.beingDebugged = peb.beingDebugged != 0;
     result.imageBaseAddress = peb.imageBaseAddress;
     result.processParametersAddress = peb.processParameters;
@@ -76,17 +87,18 @@ PebReadResult ReadPeb64(HANDLE process, const std::uint64_t pebAddress) {
         return result;
     }
     RtlUserProcessParameters64Lite parameters{};
-    if (!ReadRemoteStructure(process, peb.processParameters, parameters)) {
+    if (!ReadRemoteStructure(process, peb.processParameters, parameters,&result.evidence[L"parameters"])) {
         result.diagnostic = L"读取64位RTL_USER_PROCESS_PARAMETERS失败。";
         return result;
     }
+    result.parametersKnown = true;
     result.environmentAddress = parameters.environment;
-    result.commandLine = ReadRemoteUnicode(process, parameters.commandLine.buffer, parameters.commandLine.length);
-    result.imagePath = ReadRemoteUnicode(process, parameters.imagePathName.buffer, parameters.imagePathName.length);
+    result.commandLine = ReadRemoteUnicode(process, parameters.commandLine.buffer, parameters.commandLine.length,&result.evidence[L"command-line"]);
+    result.imagePath = ReadRemoteUnicode(process, parameters.imagePathName.buffer, parameters.imagePathName.length,&result.evidence[L"image-path"]);
     result.currentDirectory = ReadRemoteUnicode(
         process,
         parameters.currentDirectory.dosPath.buffer,
-        parameters.currentDirectory.dosPath.length);
+        parameters.currentDirectory.dosPath.length,&result.evidence[L"current-directory"]);
     result.ok = true;
     return result;
 }
@@ -96,10 +108,11 @@ PebReadResult ReadPeb32(HANDLE process, const std::uint64_t pebAddress) {
     result.wow64 = true;
     result.pebAddress = pebAddress;
     Peb32Lite peb{};
-    if (!ReadRemoteStructure(process, pebAddress, peb)) {
+    if (!ReadRemoteStructure(process, pebAddress, peb,&result.evidence[L"header"])) {
         result.diagnostic = L"读取32位PEB头失败。";
         return result;
     }
+    result.headerKnown = true;
     result.beingDebugged = peb.beingDebugged != 0;
     result.imageBaseAddress = peb.imageBaseAddress;
     result.processParametersAddress = peb.processParameters;
@@ -108,26 +121,29 @@ PebReadResult ReadPeb32(HANDLE process, const std::uint64_t pebAddress) {
         return result;
     }
     RtlUserProcessParameters32Lite parameters{};
-    if (!ReadRemoteStructure(process, peb.processParameters, parameters)) {
+    if (!ReadRemoteStructure(process, peb.processParameters, parameters,&result.evidence[L"parameters"])) {
         result.diagnostic = L"读取32位RTL_USER_PROCESS_PARAMETERS失败。";
         return result;
     }
+    result.parametersKnown = true;
     result.environmentAddress = parameters.environment;
-    result.commandLine = ReadRemoteUnicode(process, parameters.commandLine.buffer, parameters.commandLine.length);
-    result.imagePath = ReadRemoteUnicode(process, parameters.imagePathName.buffer, parameters.imagePathName.length);
+    result.commandLine = ReadRemoteUnicode(process, parameters.commandLine.buffer, parameters.commandLine.length,&result.evidence[L"command-line"]);
+    result.imagePath = ReadRemoteUnicode(process, parameters.imagePathName.buffer, parameters.imagePathName.length,&result.evidence[L"image-path"]);
     result.currentDirectory = ReadRemoteUnicode(
         process,
         parameters.currentDirectory.dosPath.buffer,
-        parameters.currentDirectory.dosPath.length);
+        parameters.currentDirectory.dosPath.length,&result.evidence[L"current-directory"]);
     result.ok = true;
     return result;
 }
 std::vector<std::wstring> ReadEnvironmentPreview(
     HANDLE process,
     const std::uint64_t address,
-    std::wstring& diagnostic) {
+    std::wstring& diagnostic,EnvironmentEvidence* evidence) {
+    EnvironmentEvidence local;if (!evidence) evidence = &local;*evidence = {};
     std::vector<std::wstring> lines;
     if (!process || address == 0) {
+        evidence->win32Error = ERROR_INVALID_ADDRESS;
         return lines;
     }
     std::vector<wchar_t> allChars;
@@ -137,16 +153,19 @@ std::vector<std::wstring> ReadEnvironmentPreview(
         const std::size_t requestBytes = std::min(kEnvironmentChunkBytes, kMaxEnvironmentBytes - byteOffset);
         std::vector<std::uint8_t> bytes(requestBytes, 0U);
         SIZE_T bytesRead = 0;
-        if (::ReadProcessMemory(
+        const bool readOk = ::ReadProcessMemory(
                 process,
                 reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(address + byteOffset)),
                 bytes.data(),
                 requestBytes,
-                &bytesRead) == FALSE ||
-            bytesRead < sizeof(wchar_t)) {
+                &bytesRead) != FALSE;
+        const DWORD error = readOk ? ERROR_SUCCESS : ::GetLastError();
+        if (!readOk || bytesRead < sizeof(wchar_t) || bytesRead > requestBytes || bytesRead % sizeof(wchar_t) != 0) {
+            evidence->win32Error = !readOk ? error : bytesRead > requestBytes || bytesRead % sizeof(wchar_t) != 0 ? ERROR_INVALID_DATA : ERROR_PARTIAL_COPY;
             diagnostic = L"环境块读取在 offset=" + std::to_wstring(byteOffset) + L" 处停止。";
             break;
         }
+        evidence->bytesRead += bytesRead;
         const std::size_t charCount = bytesRead / sizeof(wchar_t);
         const auto* chars = reinterpret_cast<const wchar_t*>(bytes.data());
         const std::size_t previousSize = allChars.size();
@@ -162,7 +181,16 @@ std::vector<std::wstring> ReadEnvironmentPreview(
         byteOffset += charCount * sizeof(wchar_t);
     }
     if (!doubleNullFound && diagnostic.empty()) {
+        evidence->limited = true;evidence->win32Error = ERROR_MORE_DATA;
         diagnostic = L"环境块超过128KB或缺少双NUL终止。";
+    }
+    evidence->complete = doubleNullFound;
+    std::size_t fullCursor = 0;
+    while (fullCursor < allChars.size()) {
+        std::size_t length = 0;
+        while (fullCursor + length < allChars.size() && allChars[fullCursor + length] != L'\0') ++length;
+        if (!length || fullCursor + length == allChars.size()) break;
+        evidence->lines.emplace_back(allChars.data()+fullCursor,length);fullCursor += length+1;
     }
     std::size_t cursor = 0;
     while (cursor < allChars.size() && lines.size() < kMaxEnvironmentLines) {
@@ -268,7 +296,8 @@ std::wstring MemoryProtectText(const DWORD protect) {
 ProcessPebSnapshot CollectPebSnapshot(
     const DWORD processId,
     const ULONGLONG expectedProcessCreationTime100ns,
-    const int selectedTarget) {
+    const int selectedTarget,PebCollectionEvidence* evidence,bool collectEnvironment,bool collectRegions) {
+    PebCollectionEvidence local;if (!evidence) evidence = &local;*evidence = {};
     ProcessPebSnapshot snapshot{};
     const auto begin = std::chrono::steady_clock::now();
     std::wostringstream report;
@@ -292,6 +321,7 @@ ProcessPebSnapshot CollectPebSnapshot(
     if (!process) {
         process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
     }
+    ks::r3::common::UniqueHandle processOwner(process);
     if (process) {
         FILETIME creationTime{};
         FILETIME exitTime{};
@@ -299,9 +329,9 @@ ProcessPebSnapshot CollectPebSnapshot(
         FILETIME userTime{};
         if (!::GetProcessTimes(process, &creationTime, &exitTime, &kernelTime, &userTime)) {
             const DWORD identityError = ::GetLastError();
+            evidence->win32ErrorKnown = true;evidence->win32Error = identityError;
             report << L"ProcessIdentity: <GetProcessTimes failed>\r\n";
             diagnostics.push_back(L"GetProcessTimes(identity)失败(" + std::to_wstring(identityError) + L")");
-            ::CloseHandle(process);
             snapshot.completed = true;
             snapshot.reportText = report.str();
             snapshot.statusText = L"● PEB 刷新已取消 | 无法验证进程身份";
@@ -314,15 +344,16 @@ ProcessPebSnapshot CollectPebSnapshot(
             actualProcessCreationTime100ns != expectedProcessCreationTime100ns) {
             report << L"ProcessIdentity: <changed>\r\n";
             diagnostics.push_back(L"目标进程实例已变更（PID 已复用），PEB 刷新被取消。");
-            ::CloseHandle(process);
             snapshot.completed = true;
             snapshot.reportText = report.str();
             snapshot.statusText = L"● PEB 刷新已取消 | 目标进程实例已变更";
             return snapshot;
         }
         snapshot.identityMatched = true;
+        evidence->identityMatched = true;
     }
     if (!process) {
+        evidence->win32ErrorKnown = true;evidence->win32Error = ::GetLastError();
         diagnostics.push_back(L"OpenProcess失败(" + std::to_wstring(::GetLastError()) + L")");
         report << L"OpenProcess: <failed>\r\n";
     } else {
@@ -331,19 +362,26 @@ ProcessPebSnapshot CollectPebSnapshot(
             ntdll ? ::GetProcAddress(ntdll, "NtQueryInformationProcess") : nullptr);
         ProcessBasicInformationLite basic{};
         if (ntQuery) {
-            const LONG status = ntQuery(process, kProcessBasicInformationClass, &basic, sizeof(basic), nullptr);
-            if (status >= 0 && basic.pebBaseAddress) {
+            ULONG returned = 0;
+            const LONG status = ntQuery(process, kProcessBasicInformationClass, &basic, sizeof(basic), &returned);
+            evidence->nativeQuery = {status == 0 && returned >= sizeof(basic),false,true,0,status};
+            if (status == 0 && returned < sizeof(basic)) {evidence->nativeQuery.win32ErrorKnown = true;evidence->nativeQuery.win32Error = ERROR_INVALID_DATA;}
+            if (evidence->nativeQuery.available && basic.pebBaseAddress) {
                 report << L"PEB Address: " << FormatHex(reinterpret_cast<std::uint64_t>(basic.pebBaseAddress)) << L"\r\n";
                 pebResults.push_back(ReadPeb64(process, reinterpret_cast<std::uint64_t>(basic.pebBaseAddress)));
             } else {
                 diagnostics.push_back(L"ProcessBasicInformation未返回可用PEB地址。");
             }
             ULONG_PTR wow64Peb = 0;
-            const LONG wowStatus = ntQuery(process, kProcessWow64InformationClass, &wow64Peb, sizeof(wow64Peb), nullptr);
-            if (wowStatus >= 0 && wow64Peb != 0 && wow64Peb != reinterpret_cast<ULONG_PTR>(basic.pebBaseAddress)) {
+            returned = 0;
+            const LONG wowStatus = ntQuery(process, kProcessWow64InformationClass, &wow64Peb, sizeof(wow64Peb), &returned);
+            evidence->wow64Query = {wowStatus == 0 && returned >= sizeof(wow64Peb),false,true,0,wowStatus};
+            if (wowStatus == 0 && returned < sizeof(wow64Peb)) {evidence->wow64Query.win32ErrorKnown = true;evidence->wow64Query.win32Error = ERROR_INVALID_DATA;}
+            if (evidence->wow64Query.available && wow64Peb != 0 && wow64Peb != reinterpret_cast<ULONG_PTR>(basic.pebBaseAddress)) {
                 pebResults.push_back(ReadPeb32(process, static_cast<std::uint64_t>(wow64Peb)));
             }
         } else {
+            evidence->nativeQuery = evidence->wow64Query = {false,true,false,ERROR_PROC_NOT_FOUND};
             diagnostics.push_back(L"NtQueryInformationProcess不可用。");
         }
 
@@ -453,6 +491,7 @@ ProcessPebSnapshot CollectPebSnapshot(
             }
         }
 
+        if (collectEnvironment) {
         const auto environmentPeb = std::find_if(pebResults.begin(), pebResults.end(), [](const PebReadResult& peb) {
             return peb.ok && peb.environmentAddress != 0;
         });
@@ -464,7 +503,7 @@ ProcessPebSnapshot CollectPebSnapshot(
             const std::vector<std::wstring> environment = ReadEnvironmentPreview(
                 process,
                 environmentPeb->environmentAddress,
-                environmentDiagnostic);
+                environmentDiagnostic,&evidence->environment);
             for (const std::wstring& line : environment) {
                 report << L"  " << line << L"\r\n";
             }
@@ -473,7 +512,9 @@ ProcessPebSnapshot CollectPebSnapshot(
         } else {
             report << L"  <unavailable>\r\n";
         }
+        }
 
+        if (collectRegions) {
         SYSTEM_INFO systemInfo{};
         ::GetSystemInfo(&systemInfo);
         std::uintptr_t cursor = reinterpret_cast<std::uintptr_t>(systemInfo.lpMinimumApplicationAddress);
@@ -488,15 +529,23 @@ ProcessPebSnapshot CollectPebSnapshot(
         report << L"[VirtualAddressRegionPreview]\r\n";
         while (cursor < maximum && regionCount < kMaxRegionCount && std::chrono::steady_clock::now() <= deadline) {
             MEMORY_BASIC_INFORMATION info{};
-            if (::VirtualQueryEx(process, reinterpret_cast<LPCVOID>(cursor), &info, sizeof(info)) == 0 || info.RegionSize == 0) {
+            const SIZE_T returned = ::VirtualQueryEx(process, reinterpret_cast<LPCVOID>(cursor), &info, sizeof(info));
+            if (returned == 0) {
+                evidence->regionsError = ::GetLastError();
+                break;
+            }
+            if (returned < sizeof(info) || info.RegionSize == 0) {
+                evidence->regionsMalformed = true;evidence->regionsError = ERROR_INVALID_DATA;
                 break;
             }
             ++regionCount;
-            if (info.State == MEM_COMMIT) { commitBytes += info.RegionSize; }
+            if (info.State == MEM_COMMIT) { commitBytes += info.RegionSize;++evidence->committedRegionCount; }
             if (info.Type == MEM_MAPPED) { mappedBytes += info.RegionSize; }
             if (info.Type == MEM_IMAGE) { imageBytes += info.RegionSize; }
             if (info.Type == MEM_PRIVATE) { privateBytes += info.RegionSize; }
             if (info.State == MEM_COMMIT && previewCount < kMaxPreviewRegions) {
+                RegionInfo row;row.base = reinterpret_cast<std::uintptr_t>(info.BaseAddress);row.allocationBase = reinterpret_cast<std::uintptr_t>(info.AllocationBase);
+                row.size = info.RegionSize;row.state = info.State;row.type = info.Type;row.protect = info.Protect;row.allocationProtect = info.AllocationProtect;
                 const std::uint64_t start = reinterpret_cast<std::uint64_t>(info.BaseAddress);
                 report << L"  " << FormatHex(start) << L"-" << FormatHex(start + info.RegionSize)
                        << L" | " << MemoryStateText(info.State)
@@ -504,17 +553,27 @@ ProcessPebSnapshot CollectPebSnapshot(
                        << L" | " << MemoryTypeText(info.Type);
                 if (info.Type == MEM_MAPPED || info.Type == MEM_IMAGE) {
                     wchar_t mappedPath[1024]{};
-                    if (::GetMappedFileNameW(process, info.BaseAddress, mappedPath, static_cast<DWORD>(std::size(mappedPath))) > 0) {
-                        report << L" | " << mappedPath;
+                    const DWORD copied = ::GetMappedFileNameW(process, info.BaseAddress, mappedPath, static_cast<DWORD>(std::size(mappedPath)));
+                    row.mappedPathKnown = copied > 0 && copied < std::size(mappedPath)-1;
+                    row.mappedPathError = copied == 0 ? ::GetLastError() : row.mappedPathKnown ? ERROR_SUCCESS : ERROR_MORE_DATA;
+                    if (copied > 0) {
+                        row.mappedPath.assign(mappedPath,(std::min)(static_cast<std::size_t>(copied),std::size(mappedPath)));
+                        report << L" | " << row.mappedPath;
                     }
                 }
+                evidence->regions.push_back(std::move(row));
                 report << L"\r\n";
                 ++previewCount;
             }
-            const std::uintptr_t next = cursor + info.RegionSize;
-            if (next <= cursor) { break; }
+            const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(info.BaseAddress);
+            const std::uintptr_t next = base + info.RegionSize;
+            if (base > cursor || next <= cursor || next < base) {evidence->regionsMalformed = true;evidence->regionsError = ERROR_INVALID_DATA;break;}
             cursor = next;
         }
+        evidence->regionsComplete = cursor >= maximum && !evidence->regionsMalformed;
+        evidence->regionsLimited = regionCount >= kMaxRegionCount || std::chrono::steady_clock::now() > deadline;
+        evidence->regionCount = regionCount;evidence->commitBytes = commitBytes;evidence->mappedBytes = mappedBytes;
+        evidence->imageBytes = imageBytes;evidence->privateBytes = privateBytes;
         if (regionCount >= kMaxRegionCount) { diagnostics.push_back(L"虚拟内存枚举达到60000行上限。"); }
         if (std::chrono::steady_clock::now() > deadline) { diagnostics.push_back(L"虚拟内存枚举超过8秒，已返回部分结果。"); }
         report << L"RegionCount: " << regionCount << L"\r\n";
@@ -525,8 +584,9 @@ ProcessPebSnapshot CollectPebSnapshot(
         report << L"HeapCount: <skipped>\r\n";
         report << L"HeapBlockCount: <skipped>\r\n";
         report << L"HeapBlockEnumeration: <skipped to keep PEB refresh bounded>\r\n";
-        ::CloseHandle(process);
+        }
     }
+    evidence->pebs = std::move(pebResults);
 
     if (!diagnostics.empty()) {
         report << L"[Diagnostic]\r\n";
@@ -542,6 +602,39 @@ ProcessPebSnapshot CollectPebSnapshot(
         L"● 后台刷新完成 " + std::to_wstring(elapsed) + L" ms" +
         (diagnostics.empty() ? L"" : L" | 存在降级/诊断信息");
     return snapshot;
+}
+ProcessDetailActionResult SetProcessAffinity(DWORD processId,ULONGLONG expectedCreationTime,std::uint64_t mask) {
+    ProcessDetailActionResult result;
+    ks::r3::common::UniqueHandle process;std::wstring error;
+    if (!OpenVerifiedProcessActionTarget(processId,expectedCreationTime,PROCESS_QUERY_INFORMATION | PROCESS_SET_INFORMATION,process,error)) {
+        result.statusText = L"● PEB 修改失败：" + error;return result;
+    }
+    result.identityMatched = true;
+    if (!mask || mask > std::numeric_limits<ULONG_PTR>::max()) {result.win32ErrorKnown = true;result.win32Error = ERROR_INVALID_PARAMETER;return result;}
+    result.writeAttempted = true;
+    result.requestSucceeded = ::SetProcessAffinityMask(process.get(),static_cast<ULONG_PTR>(mask)) != FALSE;
+    result.writeSucceeded = result.requestSucceeded;result.win32ErrorKnown = true;
+    result.win32Error = result.requestSucceeded ? ERROR_SUCCESS : ::GetLastError();
+    result.refreshPebReport = result.requestSucceeded;
+    return result;
+}
+bool QueryMemoryRegion(HANDLE process,std::uint64_t address,RegionInfo& row,DWORD& error) {
+    row = {};error = ERROR_SUCCESS;MEMORY_BASIC_INFORMATION info{};
+    const auto bytes = ::VirtualQueryEx(process,reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(address)),&info,sizeof(info));
+    if (!bytes) {error = ::GetLastError();return false;}
+    row.base = reinterpret_cast<std::uintptr_t>(info.BaseAddress);row.size = info.RegionSize;
+    if (bytes != sizeof(info) || !row.size || row.base > address || row.base+row.size <= address || row.base+row.size < row.base) {
+        error = ERROR_INVALID_DATA;return false;
+    }
+    row.allocationBase = reinterpret_cast<std::uintptr_t>(info.AllocationBase);row.state = info.State;row.type = info.Type;
+    row.protect = info.Protect;row.allocationProtect = info.AllocationProtect;
+    if (row.state == MEM_COMMIT && (row.type == MEM_IMAGE || row.type == MEM_MAPPED)) {
+        wchar_t path[32768]{};const auto copied = ::GetMappedFileNameW(process,info.BaseAddress,path,static_cast<DWORD>(std::size(path)));
+        row.mappedPathKnown = copied > 0 && copied < std::size(path)-1;
+        row.mappedPathError = !copied ? ::GetLastError() : row.mappedPathKnown ? ERROR_SUCCESS : ERROR_MORE_DATA;
+        if (copied) row.mappedPath.assign(path,(std::min)(static_cast<std::size_t>(copied),std::size(path)));
+    }
+    return true;
 }
 ProcessDetailActionResult ApplyPebAttributes(DWORD processId, ULONGLONG expectedProcessCreationTime100ns, const std::wstring& commandLine, const std::wstring& imagePath, const std::wstring& currentDirectory, const std::wstring& environmentName, const std::wstring& imageBase, const std::wstring& affinityText, int priorityIndex) {
 

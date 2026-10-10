@@ -282,3 +282,39 @@ policy 以十六进制给出原始位图，设置一个位时保留其他观察�
 VirtualizationAllowed 设置要求 SeCreateTokenPrivilege；UIAccess 和 MandatoryPolicy 可能要求 SeTcbPrivilege。
 Native 64 位／提升令牌可能拒绝或忽略虚拟化启用；运行中令牌可能拒绝 MandatoryPolicy 修改。所有限制按实际原生结果与回读报告。
 可在已持有所需权限的环境中使用 `privilege run` 包裹单个开关动作；它不会授予目标或调用方缺少的权限。
+
+## PEB、环境与内存区域（迁移项 28）
+
+```powershell
+KswordCLI.exe process peb query --pid PID [--creation-time FILETIME] [--view auto|native|wow64] [--backend r3] [--json]
+KswordCLI.exe process peb environment query --pid PID [--creation-time FILETIME] [--view auto|native|wow64] [--name NAME] [--limit N] [--backend r3] [--json]
+KswordCLI.exe process memory regions query --pid PID [--creation-time FILETIME] [--address ADDRESS] [--limit N] [--backend r3] [--json]
+KswordCLI.exe process settings set-affinity --pid PID --mask MASK [--creation-time FILETIME] --confirm [--backend r3] [--json]
+```
+
+帮助路径为 `help process peb` → `help process peb query`，或 `help process peb environment` → query。
+本项只有 PEB 读取，不发布共享 UI 中仍标记“跳过”的 CommandLine、ImagePathName、CurrentDirectory、Environment、ImageBaseAddress 远程写入。
+优先级仍使用第 22 项 `process settings set-priority`，亲和性使用 settings 子树，不放在 PEB 修改菜单下。
+所有命令默认 R3，并保留进程身份直到收集与回读完成；身份不符、目标退出或读取权限失败返回 3，无 R0 回退。
+
+PEB query 输出 context（target、source、nativeQuery、wow64Query）、view、pebAddress、headerKnown、parametersKnown、beingDebugged、
+imageBase、processParameters、environmentAddress，以及 commandLine／imagePath／currentDirectory 的 value 与读取 evidence。
+Auto 优先选已有 WOW64 视图；显式 wow64 不存在时返回 5，不替换为 native。地址为十六进制字符串，创建时间为 FILETIME 十进制字符串。
+NT 查询、PEB 头、参数结构和各 UTF-16 字符串各自有独立状态；头部读到不代表字符串可用。
+有效空字符串为 available=true 的空值，失败或短读为 null；部分读取返回 6，返回长度／UTF-16 边界无效返回 4。
+元数据查询不额外读取环境内容或遍历全部区域；堆块枚举未实现，不发布为命令。
+
+environment query 在选定视图的环境地址上读取最多 128 KiB，直到双 NUL 终止；输出 complete、budgetLimited、win32Error、bytesRead、
+matchedCount、returnedCount、truncated、entries（name、value、raw）。name 忽略大小写筛选完整收到的条目，再应用输出 limit（默认 20）。
+支持保留形如 `=C:` 的驱动器环境名；完整空结果返回 0，读取未完成、预算达到上限或输出截断返回 6。
+环境值是读取时的快照，目标并发重建环境时不保证原子视图。CLI 不根据 UI 预览文字判断完整性，也不会重复消耗同一次命令的读取预算。
+
+memory regions query 带 address 时调用共享 VirtualQueryEx 适配器读取该地址所在区域；不带时返回原后端的至多 40 行已提交区域预览与统计。
+区域字段为 base、allocationBase、size、state／type／protect 及可读名称、allocationProtect、mappedPath 和路径读取错误；地址／标志用十六进制字符串，
+size 和统计计数用十进制字符串。预览有 complete、budgetLimited、regionCount、committedRegionCount、commitBytes、mappedBytes、imageBytes、privateBytes、returnedCount、truncated。
+遍历保持原后端 60000 个区域／8 秒上限，只有到达地址空间终点才称 complete；查询中断、预览截断或映射路径缺失返回 6。
+limit 范围 1..40，不代表增加后端预览能力；区域长度／范围无效返回 4，实际查询失败返回 3。累计区域与后续独立查询可能因目标映射变化而不同。
+
+set-affinity 使用已实现的 SetProcessAffinityMask，输出 requestedMask、requestSucceeded、writeAttempted、verified、win32Error，以及 before／after 的 known、mask、systemMask、原始错误。
+mask 是正的十进制或十六进制值。保留身份并在原句柄上回读；成功请求但掩码未匹配返回 6，API 失败返回 3。
+该接口受 Windows 处理器组限制，不实现跨组 CPU Set 配置，不改优先级或 PEB 字段。线程 CPU Set 配置见第 24 项。

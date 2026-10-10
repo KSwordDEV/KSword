@@ -95,4 +95,5 @@ void registerProcessThreads();
 void registerProcessModules();
 void registerProcessToken();
 void registerTokenSwitches();
+void registerProcessPeb();
 }

@@ -1503,6 +1503,7 @@ namespace
             ks::cli::registerProcessModules();
             ks::cli::registerProcessToken();
             ks::cli::registerTokenSwitches();
+            ks::cli::registerProcessPeb();
             #endif
             return true;
         }();
