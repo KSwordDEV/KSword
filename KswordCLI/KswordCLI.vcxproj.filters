@@ -245,4 +245,9 @@
     <ClCompile Include="..\shared\usermode\backend\process\ProcessPeb.cpp" />
     <ClInclude Include="..\shared\usermode\backend\process\ProcessPeb.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessHotkeys.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessHotkeys.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessHotkeys.h" />
+  </ItemGroup>
 </Project>

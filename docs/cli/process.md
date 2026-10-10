@@ -318,3 +318,28 @@ limit 范围 1..40，不代表增加后端预览能力；区域长度／范围�
 set-affinity 使用已实现的 SetProcessAffinityMask，输出 requestedMask、requestSucceeded、writeAttempted、verified、win32Error，以及 before／after 的 known、mask、systemMask、原始错误。
 mask 是正的十进制或十六进制值。保留身份并在原句柄上回读；成功请求但掩码未匹配返回 6，API 失败返回 3。
 该接口受 Windows 处理器组限制，不实现跨组 CPU Set 配置，不改优先级或 PEB 字段。线程 CPU Set 配置见第 24 项。
+
+## 进程热键候选（迁移项 29）
+
+```powershell
+KswordCLI.exe process hotkeys enum --pid PID [--creation-time FILETIME] [--source all|windows|accelerators|shortcuts] [--limit N] [--backend r3] [--json]
+```
+
+帮助路径为 `help process hotkeys` → `help process hotkeys enum`；默认 R3，无驱动与 R0 回退。
+windows 收集当前调用环境可见的目标窗口 WM_GETHOTKEY 与菜单助记键；accelerators 读取目标映像路径上磁盘文件的 RT_ACCELERATOR 声明；
+shortcuts 读取调用者桌面、开始菜单 Programs 和 Common Programs 下指向该映像的快捷方式热键。
+这些是候选与声明，不能证明全部 RegisterHotKey 全局注册，不能证明资源正在被目标 TranslateAccelerator 使用；
+不同桌面／用户配置、UIPI、目录权限和原始快捷方式路径匹配会限制可见性。磁盘资源可能与进程启动时的内容不同。
+没有 R3 注册列表移除能力，不发布移除叶子；既有 keyboard R0 命令保持原行为。
+
+输出 target、imagePath／imagePathWin32Error、scope、globalRegistrationInventory=false、matchedCount、returnedCount、truncated、sources、candidates。
+每个 source 记录 complete、fatal、limited、malformed、absent、examinedCount、staleWindows、COM 初始化状态／所有权和原始失败（operation、domain、code）。
+候选含 pid、tid、source、window、keyKind、keyCode、virtualKey、modifiers、hotkey、commandId、resourceName、shortcutPath、显示信息。
+窗口句柄和标志用十六进制字符串；menu-mnemonic 和非 VIRTKEY 资源的 virtualKey 为 null，按字符／助记键解释 keyCode。
+activeRegistration 为 null，不伪造已注册或未注册状态；资源与菜单的 commandId 不是全局热键注册 ID。
+
+limit 默认 1000，范围 1..10000，限制输出而非证明完整库存；输出截断返回 6。
+每个来源在调用间检查 8 秒期限，窗口查询超时 500 ms，菜单深度上限 64，快捷方式数量保留后端 8000 上限；
+COM 和文件系统调用不被强制中断。源不完整、窗口挂起或达到边界返回 6；资源结构无效返回 4，所选来源全部无法取得时返回 3。
+有效空的所选来源可以成功。COM 在当前线程初始化／释放；借用已有 apartment 时不替调用者 CoUninitialize，资源映射与 ShellLink 接口按所有权释放。
+目标身份不符或期间退出返回 3，候选数据不用于推断 UI 提示中的成功文字。

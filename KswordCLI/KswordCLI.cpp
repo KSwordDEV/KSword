@@ -1504,6 +1504,7 @@ namespace
             ks::cli::registerProcessToken();
             ks::cli::registerTokenSwitches();
             ks::cli::registerProcessPeb();
+            ks::cli::registerProcessHotkeys();
             #endif
             return true;
         }();

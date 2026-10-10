@@ -96,4 +96,5 @@ void registerProcessModules();
 void registerProcessToken();
 void registerTokenSwitches();
 void registerProcessPeb();
+void registerProcessHotkeys();
 }
