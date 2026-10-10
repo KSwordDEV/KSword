@@ -7,6 +7,15 @@
 #include <vector>
 
 namespace ks::r3::hardware_stats {
+struct PerformanceEvidence {
+    bool available = false,statusKnown = false,cStatusKnown = false,complete = false,empty = false,malformed = false;
+    DWORD status = 0,cStatus = 0,returnedCount = 0,skippedCount = 0;
+};
+struct PerformanceSourceEvidence {
+    std::wstring id,path;
+    PerformanceEvidence evidence;
+    std::wstring groupId,domain = L"pdh";
+};
 
 // PerformanceMetricRow is one already-formatted counter line. The numeric value
 // is kept next to the display text because the view sorts and colors on the
@@ -19,6 +28,12 @@ struct PerformanceMetricRow {
     std::wstring source;        // Counter path actually queried, for auditing.
     double numericValue = 0.0;  // Raw sample; meaningless when valid is false.
     bool valid = false;         // False when PDH had no usable sample this pass.
+    std::wstring id,groupId,unit,instance;
+    PerformanceEvidence evidence;
+    bool exactInteger = false;
+    std::uint64_t integerValue = 0;
+    bool receivedKnown = false,sentKnown = false;
+    double received = 0,sent = 0;
 };
 
 // DiskActivityRow is one PhysicalDisk instance for the disk tab. Rates are kept
@@ -45,6 +60,9 @@ struct PerformanceSnapshot {
     std::wstring counterResolutionText;  // How counter paths were resolved.
     std::vector<PerformanceMetricRow> metrics;
     std::vector<DiskActivityRow> disks;
+    bool queryOpened = false,queryStatusKnown = false,collectStatusKnown = false,baselineStatusKnown = false;
+    DWORD queryStatus = 0,collectStatus = 0,baselineStatus = 0;
+    std::vector<PerformanceSourceEvidence> sources;
 };
 
 // UsbNodeKind separates the three roles a USB devnode can play. The tree reads

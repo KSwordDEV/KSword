@@ -381,4 +381,13 @@
     <ClInclude Include="..\shared\usermode\backend\hardware\HardwareFormatting.h" />
     <ClInclude Include="..\shared\usermode\backend\hardware\HardwareTypes.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3HardwarePerformance.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\SystemPerformanceSampler.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\DiskActivitySampler.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareStatsFormatting.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\PerformanceSampler.h" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\PerformanceSamplerSupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareStatsTypes.h" />
+  </ItemGroup>
 </Project>

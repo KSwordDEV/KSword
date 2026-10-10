@@ -1507,6 +1507,7 @@ namespace
             ks::cli::registerProcessHotkeys();
             ks::cli::registerDriverModules();
             ks::cli::registerHardwareDevices();
+            ks::cli::registerHardwarePerformance();
             #endif
             return true;
         }();
