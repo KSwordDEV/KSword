@@ -1491,6 +1491,7 @@ namespace
             ks::cli::registerPrivilege(dispatchNested);
             ks::cli::registerFileDirectory();
             ks::cli::registerFileOperations();
+            ks::cli::registerFileOwnership();
             #endif
             return true;
         }();

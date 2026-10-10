@@ -151,4 +151,9 @@
     <ClInclude Include="R3FileShared.h" />
     <ClInclude Include="..\shared\usermode\backend\file\FileOperations.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3FileOwnership.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\Ownership.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\file\Ownership.h" />
+  </ItemGroup>
 </Project>

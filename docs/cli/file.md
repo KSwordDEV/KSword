@@ -54,3 +54,21 @@ API 成功并有相符证据返回 0；调用失败返回 3；部分复制／源
 short query 返回 GetShortPathNameW 结果。系统关闭 8.3 名称生成时，结果可能仍是长路径。
 shortcut query 仅加载 .lnk 并读取文件系统目标，不启动目标、不执行 Shell 解析修复。
 输出 path、result、win32Error／hresult；无文件系统目标返回 5，读取失败返回 3。
+
+## 所有权与占用者（迁移项 16）
+
+```powershell
+KswordCLI.exe file ownership take --path PATH --confirm [--backend r3] [--json]
+KswordCLI.exe file locks query --path PATH [--pid PID] [--limit N] [--backend r3] [--json]
+```
+
+ownership take 把单个文件／目录的所有者设为当前令牌用户，不修改 DACL、不递归修改子项。
+按后端行为在本进程尝试启用 SeTakeOwnershipPrivilege；没有该权限时仍保留原生操作的真实结果。
+输出 path、callerSid、privilegeEnabled、requestSucceeded、win32Error、before、after、verified。
+前后所有者 SID 查询各保留独立错误；请求成功且后续 SID 等于调用者 SID 返回 0，读取未确认返回 6，原生失败返回 3。
+
+locks query 使用 Restart Manager，只枚举可见占用者，不关闭句柄、不强制解锁。
+输出 path、source、target 文件存在证据、win32Error、rebootReason、totalCount、matchedCount、returnedCount、processes。
+进程包含 pid、十进制 creationTime FILETIME、application、service、applicationType、十六进制 status、sessionId、restartable。
+pid／limit 只筛选显示；成功的空结果返回 0，原生失败返回 3。Restart Manager 并不保证发现全部占用者，
+也不验证目标路径是否存在；target 的独立存在证据用于说明该限制。空结果不能证明文件可被删除或没有内核句柄。
