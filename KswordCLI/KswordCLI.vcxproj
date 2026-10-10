@@ -502,4 +502,9 @@
     <ClCompile Include="..\shared\usermode\backend\kernel\DeviceDriverObjects.cpp" />
     <ClInclude Include="..\shared\usermode\backend\kernel\DeviceDriverObjects.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelBaseNamed.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\BaseNamedObjects.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\BaseNamedObjects.h" />
+  </ItemGroup>
 </Project>

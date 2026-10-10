@@ -1,5 +1,20 @@
 # 内核对象与证据 R3 命令
 
+## 命名对象（迁移项 51）
+
+```powershell
+KswordCLI.exe kernel base-named-objects help
+KswordCLI.exe help kernel base-named-objects enum
+KswordCLI.exe kernel base-named-objects enum --scope global --json
+KswordCLI.exe kernel base-named-objects enum --scope session --session-id 0 --json
+```
+
+`kernel base-named-objects enum`：`--scope all|global|session`（all）；session 必须带 `--session-id uint32`（0 有效），其他 scope 不接受它。global 读取原生 `\BaseNamedObjects`，session 读取 `\Sessions\SID\BaseNamedObjects`，all 使用共享后端的全局和发现的会话根。`--filter` 是名称／类型／路径／目标大小写不敏感子串；`--max-entries 1..100000` 每目录实际预算（100000）；`--duration-ms 100..30000` 整体预算（8000）；`--limit 1..100000` 输出上限（1000）；支持 `--backend r3` 和 `--json`。
+
+data 提供 scope/sessionId/filter/roots、sessionDiscovery/currentSessionKnown/currentSessionWin32Error、sources、scannedRootCount/enumeratedCount/matchedCount/returnedCount、truncated/limited/cancelled/malformed 和 objects。条目与目录证据格式见命名空间一节；数量用十进制字符串，原生状态用十六进制，未知字段为 null。会话发现失败仍保留会话 0／当前会话候选，并标记不完整。全局路径不代表所有应用私有命名空间，不根据名称推断所有者 PID、内核地址或对象可操作性。
+
+完整有效空／筛选空为 0；会话发现、部分目录／元数据、关闭、预算／取消或输出截断为 6；选择根／全部根读取失败为 3；目录 API 缺失为 5；格式错误为 4。不创建、控制或修改对象，不自动回退 R0。help 不做会话发现。VM 自建命名目录并独立核对其出现和关闭后的消失，同时验证全局／会话路径、缺失会话和实际读取预算。
+
 ## Device／Driver 对象注册（迁移项 50）
 
 ```powershell
