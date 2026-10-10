@@ -117,4 +117,5 @@ void registerSystemIoctl();
 void registerKernelNamespace();
 void registerKernelDirectory();
 void registerKernelSymlink();
+void registerKernelObjects();
 }

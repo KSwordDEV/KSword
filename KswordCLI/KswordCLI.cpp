@@ -1,4 +1,4 @@
-﻿#ifndef NOMINMAX
+#ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <WinSock2.h>
@@ -1525,6 +1525,7 @@ namespace
         ks::cli::registerKernelNamespace();
         ks::cli::registerKernelDirectory();
         ks::cli::registerKernelSymlink();
+        ks::cli::registerKernelObjects();
             #endif
             return true;
         }();

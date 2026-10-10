@@ -1,5 +1,19 @@
 # 内核对象与证据 R3 命令
 
+## Device／Driver 对象注册（迁移项 50）
+
+```powershell
+KswordCLI.exe kernel objects help
+KswordCLI.exe help kernel objects enum
+KswordCLI.exe kernel objects enum --scope driver --kind driver --json
+```
+
+`kernel objects enum` 支持 `--scope all|device|driver|filesystem|filters`（all）、`--kind all|device|driver`（all）、`--filter`（不区分大小写子串）、`--max-entries 1..100000`（每目录，100000）、`--duration-ms 100..30000`（整个 sweep API 调用间预算，8000）、`--limit 1..100000`（输出，1000）、`--backend r3`、`--json`。按共享后端固定的 `\Device`、`\Driver`、`\FileSystem`、`\FileSystem\Filters` 读取注册名称与类型；不直接打开设备发 IOCTL、不加载／卸载驱动、不调用 R0。
+
+data 提供 scope/kindFilter/filter/roots/sources、scannedRootCount/enumeratedCount/matchedCount/returnedCount、truncated/limited/cancelled/malformed、objects。源与条目沿用上述命名空间结构；Device／Driver 没有已实现的安全 R3 opener，所以 opened、句柄／指针计数为 null，不能据名称猜测 DRIVER_OBJECT／DEVICE_OBJECT 地址、派遣函数、加载模块或 IOCTL 支持。Directory／SymbolicLink 的补充元数据仍按已有后端读取。R0 对象查询及 `driver modules` 的 R3 映像元数据保持原含义。
+
+完整有效空／筛选空可成功为 0；部分根、字段／关闭失败、预算／取消／截断为 6；选择根或全部根失败为 3，目录 API 不可用为 5，格式错误为 4。帮助不读取目录。测试通过独立 NtQueryDirectoryObject 核对 Device／Driver 名称和类型，并确认未实现的对象打开／计数从未冒充成功。
+
 ## 符号链接（迁移项 49）
 
 ```powershell
