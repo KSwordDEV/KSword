@@ -1,6 +1,7 @@
 #pragma once
 
 #include "./ThemeBinding.h"
+#include "./TabHierarchyTransition.h"
 #include "../theme.h"
 #include "../Internationalization/LanguageManager.h"
 #include <QFontMetrics>
@@ -120,5 +121,6 @@ namespace ks::ui
         tabs->tabBar()->setProperty("ksword_page_tabs_child", true);
         tabs->setContentsMargins(8, 6, 0, 0);
         StylePageTabs(tabs);
+        InstallChildTabTransition(tabs);
     }
 }

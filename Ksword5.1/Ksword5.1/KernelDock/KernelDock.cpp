@@ -404,6 +404,7 @@ void KernelDock::initializeUi()
 
     m_tabWidget = new QTabWidget(this);
     ks::ui::StylePageTabs(m_tabWidget);
+    ks::ui::InstallParentTabTransition(m_tabWidget);
     m_tabWidget->setIconSize(QSize(16, 16));
     m_rootLayout->addWidget(m_tabWidget, 1);
 

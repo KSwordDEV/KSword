@@ -212,3 +212,5 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 
 - 内核导航中的 `selectedTabIcon` 也必须使用中性表面的动态图标，不能在 currentChanged 后重新写入 `OnAccentColor` 位图。父级标签使用连续次级底面和下划线，显式 `StyleChildPageTabs` 使用轻选中块、8px左缩进与6px顶部间隔；原页序和惰性初始化不变。
 - 下拉动画不应与主题所有权绑定：带自定义QSS的组合框、QMenu及子菜单也可淡入，原配色继续由业务拥有。弹层关闭恢复原始透明度，用代次取消快速重开前的排队帧，不修改菜单几何或选择逻辑。
+
+- `UI/TabHierarchyTransition` 在父级激活时仅滑动子栏快照，方向取父级Tab实际矩形的左右关系（含RTL），不搬动内容页或模型。父级在惰性构建前登记，子栏显示/跨Dock迁移时接入当前宿主；180ms动画遵循系统动画开关，连续切换、隐藏、字号/主题/尺寸变化取消旧帧。
