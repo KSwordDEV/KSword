@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../UI/VisibleTableWidget.h"
+#include <QElapsedTimer>
 
 class QOpenGLWidget;
 
@@ -24,6 +25,9 @@ namespace ks::process_ui
 
         // OpenGL 视口在上下文/FBO 已绑定的 paintGL 内调用；绘制整张可见区域。
         void paintGpuFrame();
+
+        // GL 视口完成窗口交换后调用，区分实际交换回调与 CPU 绘制次数。
+        void recordPresentedFrame();
 
         // GPU 创建失败或使用软件实现时，排队回退，避免销毁当前绘制栈中的视口。
         void scheduleRasterFallback(const char* reason);
@@ -66,5 +70,12 @@ namespace ks::process_ui
         quint64 m_paintCount = 0;               // 完成的绘制次数。
         qint64 m_lastPaintNs = 0;              // 最近一次 CPU 绘制提交耗时。
         qint64 m_totalPaintNs = 0;              // 累计 CPU 绘制提交耗时。
+        QElapsedTimer m_presentationClock;      // 活跃重绘的单调呈现时钟。
+        qint64 m_lastPresentationNs = -1;
+        qint64 m_presentationWindowStartNs = -1;
+        qint64 m_pendingFrameCpuNs = 0;         // 下一次交换之前全部绘制的 CPU 耗时。
+        qint64 m_windowCpuNs = 0;
+        quint64 m_windowPresentedFrames = 0;
+        bool m_frameAwaitingPresentation = false;
     };
 }

@@ -23,8 +23,13 @@ namespace
             surfaceFormat.setSamples(0);
             surfaceFormat.setDepthBufferSize(0);
             surfaceFormat.setStencilBufferSize(8);
+            surfaceFormat.setSwapInterval(1);
             setFormat(surfaceFormat);
             setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+            connect(this, &QOpenGLWidget::frameSwapped, table, [table]()
+            {
+                table->recordPresentedFrame();
+            });
         }
 
     protected:
@@ -84,6 +89,15 @@ namespace ks::process_ui
 
     void ProcessGpuTableView::replaceRenderViewport(QWidget* replacement)
     {
+        // 不把上一代视口的耗时、待交换帧和闲置间隔带入新的后端。
+        m_presentationClock.invalidate();
+        m_lastPresentationNs = -1;
+        m_presentationWindowStartNs = -1;
+        m_pendingFrameCpuNs = 0;
+        m_windowCpuNs = 0;
+        m_windowPresentedFrames = 0;
+        m_frameAwaitingPresentation = false;
+        setProperty("ksword_process_gpu_frame_stats", QVariant());
         const int verticalPosition = verticalScrollBar()->value(); // 沿用原滚动单位。
         const int horizontalPosition = horizontalScrollBar()->value();
         replacement->setMouseTracking(viewport()->hasMouseTracking());
@@ -238,6 +252,52 @@ namespace ks::process_ui
         m_totalPaintNs += nanoseconds;
         // 仅更新普通成员，避免逐帧触发全局动作条的属性事件处理。
         m_lastPaintNs = nanoseconds;
+        if (m_gpuViewport != nullptr)
+        {
+            m_pendingFrameCpuNs += nanoseconds;
+            m_frameAwaitingPresentation = true;
+        }
+    }
+
+    void ProcessGpuTableView::recordPresentedFrame()
+    {
+        if (m_gpuViewport == nullptr || !m_frameAwaitingPresentation)
+        {
+            // 同一窗口中其它控件的合成也会发出 frameSwapped，不能算作表格的新帧。
+            return;
+        }
+        m_frameAwaitingPresentation = false;
+        if (!m_presentationClock.isValid())
+        {
+            m_presentationClock.start();
+        }
+        const qint64 nowNs = m_presentationClock.nsecsElapsed();
+        if (m_lastPresentationNs < 0 || nowNs - m_lastPresentationNs > 250000000)
+        {
+            // 闲置不绘制，第一帧只作为时间锚点，避免把静止时间计入滚动帧率。
+            m_presentationWindowStartNs = nowNs;
+            m_windowPresentedFrames = 0;
+            m_windowCpuNs = 0;
+            m_pendingFrameCpuNs = 0;
+            m_lastPresentationNs = nowNs;
+            return;
+        }
+        m_lastPresentationNs = nowNs;
+        ++m_windowPresentedFrames;
+        m_windowCpuNs += m_pendingFrameCpuNs;
+        m_pendingFrameCpuNs = 0;
+        const qint64 elapsedNs = nowNs - m_presentationWindowStartNs;
+        if (elapsedNs >= 125000000)
+        {
+            // 一次低频属性通知同时发布两种口径，避免逐帧更新设置页文字。
+            QVariantMap stats;
+            stats.insert(QStringLiteral("fps"), m_windowPresentedFrames * 1000000000.0 / elapsedNs);
+            stats.insert(QStringLiteral("cpu_ms"), m_windowCpuNs / (m_windowPresentedFrames * 1000000.0));
+            setProperty("ksword_process_gpu_frame_stats", stats);
+            m_presentationWindowStartNs = nowNs;
+            m_windowPresentedFrames = 0;
+            m_windowCpuNs = 0;
+        }
     }
 
     void ProcessGpuTableView::scheduleRasterFallback(const char* reason)

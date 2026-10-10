@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QGroupBox>
 #include <QLineEdit>
+#include <QOpenGLWidget>
 #include <QPlainTextEdit>
 #include <QPointer>
 #include <QPointingDevice>
@@ -45,7 +46,7 @@ namespace
     thread_local const QEvent* g_tabScrollFrame = nullptr;
 
     // 滚动条仍使用原生整数像素值；独立时钟避免 QWidget 动画驱动约 60Hz 的默认节拍。
-    // 每次 tick 读取所属屏幕，跨屏或动态刷新率变化不需要重新创建视口。
+    // GPU 视口由呈现回调驱动；普通视口每次 tick 读取所属屏幕。
     class ScrollBarAnimator final : public QObject
     {
     public:
@@ -53,7 +54,15 @@ namespace
             : QObject(parent), m_bar(bar)
         {
             m_timer.setTimerType(Qt::PreciseTimer);
-            connect(&m_timer, &QTimer::timeout, this, [this]() { advance(); });
+            connect(&m_timer, &QTimer::timeout, this, [this]()
+            {
+                // GPU 定时器仅作回调停滞时的看门狗，不与交换节拍同时推进滚动。
+                if (m_frameSource && m_lastFrameClock.elapsed() < watchdogInterval())
+                {
+                    return;
+                }
+                advance();
+            });
             connect(bar, &QScrollBar::sliderPressed, this, [this]() { stop(); });
             connect(bar, &QScrollBar::valueChanged, this, [this]()
             {
@@ -69,9 +78,16 @@ namespace
             });
         }
 
-        bool running() const { return m_timer.isActive(); }
+        bool running() const { return m_running; }
         int target() const { return m_target; }
-        void stop() { m_timer.stop(); }
+        void stop()
+        {
+            m_running = false;
+            m_timer.stop();
+            disconnect(m_frameConnection);
+            m_frameSource.clear();
+            ++m_generation;
+        }
 
         void start(int targetValue, int durationMs)
         {
@@ -88,10 +104,44 @@ namespace
                 return;
             }
             m_clock.start();
-            m_timer.start(frameInterval());
+            m_running = true;
+            for (QWidget* parent = m_bar->parentWidget(); parent; parent = parent->parentWidget())
+            {
+                if (auto* area = qobject_cast<QAbstractScrollArea*>(parent))
+                {
+                    m_frameSource = qobject_cast<QOpenGLWidget*>(area->viewport());
+                    break;
+                }
+            }
+            if (m_frameSource)
+            {
+                const quint64 generation = m_generation;
+                m_frameConnection = connect(m_frameSource, &QOpenGLWidget::frameSwapped,
+                    this, [this, generation]()
+                {
+                    // 用 queued 连接退出合成栈，再更新滚动值；旧动画排队帧不得驱动新动画。
+                    if (m_running && generation == m_generation)
+                    {
+                        m_lastFrameClock.restart();
+                        advance();
+                    }
+                }, Qt::QueuedConnection);
+                m_lastFrameClock.start();
+                m_timer.start(watchdogInterval());
+                m_frameSource->update();
+            }
+            else
+            {
+                m_timer.start(frameInterval());
+            }
         }
 
     private:
+        int watchdogInterval() const
+        {
+            return std::max(32, frameInterval() * 4);
+        }
+
         int frameInterval() const
         {
             const QScreen* screen = m_bar.isNull() ? nullptr : m_bar->screen();
@@ -104,7 +154,7 @@ namespace
 
         void advance()
         {
-            if (m_bar.isNull() || !m_bar->isEnabled() || !m_bar->window()->isVisible())
+            if (!m_running || m_bar.isNull() || !m_bar->isEnabled() || !m_bar->window()->isVisible())
             {
                 stop();
                 return;
@@ -120,21 +170,32 @@ namespace
             {
                 stop();
             }
-            else if (m_timer.interval() != frameInterval())
+            else if (const int interval = m_frameSource ? watchdogInterval() : frameInterval();
+                m_timer.interval() != interval)
             {
-                m_timer.setInterval(frameInterval());
+                m_timer.setInterval(interval);
             }
             const QScopedValueRollback<bool> writingGuard(m_writing, true);
             m_bar->setValue(std::clamp(value, m_bar->minimum(), m_bar->maximum()));
+            if (m_running && m_frameSource)
+            {
+                // 整数像素缓动尾段可能连续两帧 value 相同，也必须维持下一次呈现回调。
+                m_frameSource->update();
+            }
         }
 
         QPointer<QScrollBar> m_bar;
         QTimer m_timer;
         QElapsedTimer m_clock;
+        QElapsedTimer m_lastFrameClock;
+        QPointer<QOpenGLWidget> m_frameSource;
+        QMetaObject::Connection m_frameConnection;
+        quint64 m_generation = 0;
         int m_start = 0;
         int m_target = 0;
         int m_durationMs = kWheelAnimationDurationMs;
         bool m_writing = false;
+        bool m_running = false;
     };
 
     // 保留原 QTabBar 和连接，借助 Qt 的像素滚动路径移动标签，避免切页触发懒加载。

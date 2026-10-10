@@ -4761,7 +4761,8 @@ bool ProcessDock::eventFilter(QObject* watched, QEvent* event)
     if (watched == m_processTable && event->type() == QEvent::DynamicPropertyChange)
     {
         const QByteArray name = static_cast<QDynamicPropertyChangeEvent*>(event)->propertyName();
-        if (name == "ksword_process_render_backend" || name == "ksword_process_gpu_fallback")
+        if (name == "ksword_process_render_backend" || name == "ksword_process_gpu_fallback"
+            || name == "ksword_process_gpu_frame_stats")
         {
             updateProcessRenderingStatus();
         }
@@ -6235,6 +6236,14 @@ void ProcessDock::updateProcessRenderingStatus()
     if (backend == QStringLiteral("opengl"))
     {
         status = processContextText("process.settings.rendering_gpu", QStringLiteral("GPU 加速已启用"));
+        const QVariantMap stats = m_processTable->property("ksword_process_gpu_frame_stats").toMap();
+        if (!stats.isEmpty())
+        {
+            status += QStringLiteral("\n") + processContextText("process.settings.rendering_frame_stats",
+                QStringLiteral("呈现回调 %1 FPS · CPU 绘制 %2 ms/帧"))
+                .arg(stats.value(QStringLiteral("fps")).toDouble(), 0, 'f', 1)
+                .arg(stats.value(QStringLiteral("cpu_ms")).toDouble(), 0, 'f', 2);
+        }
     }
     else if (backend == QStringLiteral("opengl_pending"))
     {
