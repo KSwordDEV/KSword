@@ -1,5 +1,19 @@
 # 内核对象与证据 R3 命令
 
+## 对象类型矩阵（迁移项 53）
+
+```powershell
+KswordCLI.exe kernel object-types help
+KswordCLI.exe help kernel object-types enum
+KswordCLI.exe kernel object-types enum --filter event --json
+```
+
+`kernel object-types enum`：`--filter` 为类型名称大小写不敏感子串；`--limit 1..256`（256）仅限制输出；支持 `--backend r3`、`--json`。共享后端直接读取 NtQueryObject(ObjectTypesInformation)，不给 R0 补充回调。原有 `r0 object-types` 保持原语法和行为。
+
+data 提供 source/apiAvailable/attempted/ntStatus/returnedBytes/bufferBytes、complete/limited/malformed、reportedCount/parsedCount/matchedCount/returnedCount/truncated、types。每种类型提供 type/typeIndex、当前与高水位 objects/handles/pagedPoolBytes/nonPagedPoolBytes/namePoolBytes/handleTableBytes、invalidAttributes/validAccessMask/genericRead/genericWrite/genericExecute/genericAll、securityRequired/maintainHandleCount/poolType/defaultPagedPoolCharge/defaultNonPagedPoolCharge。计数为十进制字符串，标志为十六进制。计数随采样时刻变化，不能拿两个调用的瞬时计数要求一致。
+
+原生缓冲最多 16 MiB／8 次增长，矩阵最多保留 256 种类型，校验实际返回长度、每个记录和计数字符串的指针／长度／步进，不把格式错误当作成功的短矩阵。完整有效空为 0；原生失败为 3；格式错误为 4；API／信息类不可用为 5；读取／输出预算为 6。R3 不提供内核 ObjectType 地址、回调列表、过程指针等 R0 专属证据，不打开驱动、不自动回退。help 不发起查询。
+
 ## 命名通信端点（迁移项 52）
 
 ```powershell

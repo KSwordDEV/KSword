@@ -43,6 +43,13 @@ struct KOBJECT_TYPE_INFORMATION {
     ULONG DefaultNonPagedPoolCharge;
 };
 bool MatchesColumnsFilter(const KernelResultRow& row, const std::wstring& filter);
+struct ObjectTypeEntry {std::wstring name;KOBJECT_TYPE_INFORMATION info{};};
+struct ObjectTypesSnapshot {
+    bool apiAvailable=false,attempted=false,complete=false,limited=false,malformed=false;
+    LONG status=0;ULONG returnedBytes=0,bufferBytes=0,reportedCount=0;
+    std::vector<ObjectTypeEntry> entries;
+};
+ObjectTypesSnapshot CollectObjectTypes();
 std::uintptr_t AlignPointer(const std::uintptr_t value);
 KernelOperationResult QueryObjectTypeMatrixR3(const KernelRequest& request, const std::function<void(QueryPacket&)>& appendR0);
 }

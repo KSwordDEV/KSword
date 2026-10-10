@@ -397,4 +397,9 @@
     <ClCompile Include="..\shared\usermode\backend\kernel\CommunicationEndpoints.cpp" />
     <ClInclude Include="..\shared\usermode\backend\kernel\CommunicationEndpoints.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelObjectTypes.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\ObjectTypes.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\ObjectTypes.h" />
+  </ItemGroup>
 </Project>
