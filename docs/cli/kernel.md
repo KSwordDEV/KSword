@@ -1,5 +1,22 @@
 # 内核对象与证据 R3 命令
 
+## 命名管道（迁移项 54）
+
+```powershell
+KswordCLI.exe kernel pipes help
+KswordCLI.exe help kernel pipes enum
+KswordCLI.exe kernel pipes enum --directory device --filter Ksword --json
+KswordCLI.exe kernel pipes probe --path '\Device\NamedPipe\OwnPipe' --confirm --json
+```
+
+`enum` 支持 `--directory all|device|dos`（all，读取原生 `\Device\NamedPipe`／`\??\PIPE`）、`--filter` 名称／原生路径子串、`--max-entries 1..100000` 每目录实际上限（100000）、`--duration-ms 100..30000` 整体预算（8000）、`--limit 1..100000` 输出上限（1000）。两根可能是同一对象的别名，保留各来源行，不冒充独立连接数量。枚举不打开管道实例，不读取或写入消息。共享读取会补齐目录路径末尾反斜杠；缺少它时 NPFS 的打开可成功，但枚举返回 C000000D，不能据打开成功判断枚举成功。
+
+data 提供 source/directory/filter/sources、ioResults（各来源的最后 IO NTSTATUS／Information）、enumeratedCount/matchedCount/returnedCount、truncated/limited/malformed、pipes；每条为 name/directory/ntPath/win32Path、attributes、sizeBytes/allocationBytes、creationTime/lastAccessTime/lastWriteTime/changeTime。计数与原生时间／大小是十进制字符串，属性和原生状态是十六进制。原生缓冲使用实际 IO_STATUS_BLOCK.Information，校验链式偏移、对齐和名称字节范围；区分 NoMoreFiles／NoMoreEntries 正常终点与正值非成功状态。完整有效空为 0，原生失败为 3，格式错误为 4，API 缺失为 5，部分来源／关闭失败／预算／取消／截断为 6。
+
+`probe` 必须带完整管道原生 `--path` 和 `--confirm`，只请求 FILE_READ_ATTRIBUTES|SYNCHRONIZE，打开验证可能影响实例可用性／连接状态。data 提供 target/action、source 的实际打开／关闭证据、requestSucceeded、ioNtStatus/information、basic 查询状态、计数和访问掩码；临时引用在输出前关闭。完整打开／查询／关闭为 0；打开失败为 3，格式错误为 4，API 缺失为 5，IO／基本信息／关闭证据不完整为 6。不能推断所有者 PID、实例数量或消息内容，不做消息读写或模拟，不回退 R0。两命令支持 `--backend r3` 和 `--json`，help 不执行原生调用。
+
+VM 仅对自建管道执行 probe，独立 Win32 目录核对登记。Win10 实测即使只请求读属性，打开／关闭也会使服务端实例进入连接已关闭状态；夹具用 DisconnectNamedPipe 重置自己的实例，并通过 GetNamedPipeInfo 独立确认服务端仍有效，随后销毁并验证打开失败。不能向用户承诺 probe 对实例状态无影响。宿主测试不打开第三方实例。
+
 ## 对象类型矩阵（迁移项 53）
 
 ```powershell

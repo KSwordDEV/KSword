@@ -121,4 +121,5 @@ void registerKernelObjects();
 void registerKernelBaseNamed();
 void registerKernelEndpoints();
 void registerKernelObjectTypes();
+void registerKernelPipes();
 }

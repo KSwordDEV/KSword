@@ -517,4 +517,9 @@
     <ClCompile Include="..\shared\usermode\backend\kernel\ObjectTypes.cpp" />
     <ClInclude Include="..\shared\usermode\backend\kernel\ObjectTypes.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelPipes.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\NamedPipes.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\NamedPipes.h" />
+  </ItemGroup>
 </Project>

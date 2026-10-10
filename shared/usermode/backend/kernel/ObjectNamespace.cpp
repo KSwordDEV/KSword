@@ -504,7 +504,7 @@ void QueryBasicObjectCounts(const NtRuntime& runtime, HANDLE handle, std::wstrin
     pointerCountText = std::to_wstring(basic.PointerCount);
 }
 HANDLE OpenNamedPipeReadOnly(const NtRuntime& runtime, const std::wstring& path, LONG* statusOut, IO_STATUS_BLOCK* ioStatusOut) {
-    if (!runtime.openFile || path.empty()) {
+    if (!runtime.openFile || path.empty() || path.size()>32766) {
         if (statusOut) {
             *statusOut = kStatusNoSuchFile;
         }
@@ -531,7 +531,8 @@ HANDLE OpenNamedPipeReadOnly(const NtRuntime& runtime, const std::wstring& path,
     if (ioStatusOut) {
         *ioStatusOut = localIoStatus;
     }
-    return IsSuccessStatus(openStatus) ? pipe : nullptr;
+    if(openStatus!=0&&pipe&&pipe!=INVALID_HANDLE_VALUE)::CloseHandle(pipe);
+    return openStatus==0&&pipe!=INVALID_HANDLE_VALUE ? pipe : nullptr;
 }
 void AppendDirectoryPreviewRows(QueryPacket& packet, const NtRuntime& runtime, const std::wstring& path, const std::size_t limit) {
     std::vector<std::wstring> warnings;

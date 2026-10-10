@@ -1529,6 +1529,7 @@ namespace
         ks::cli::registerKernelBaseNamed();
         ks::cli::registerKernelEndpoints();
         ks::cli::registerKernelObjectTypes();
+        ks::cli::registerKernelPipes();
             #endif
             return true;
         }();

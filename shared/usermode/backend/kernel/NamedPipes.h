@@ -31,6 +31,11 @@ struct KFILE_DIRECTORY_INFORMATION {
     WCHAR FileName[1];
 };
 std::wstring FileTimeText(const LARGE_INTEGER& value);
+struct NamedPipeEntry {std::wstring name;KFILE_DIRECTORY_INFORMATION info{};};
+struct NamedPipeSnapshot {DirectoryQueryEvidence evidence;LONG ioStatus=0;std::uint64_t information=0;std::vector<NamedPipeEntry> entries;};
+NamedPipeSnapshot CollectNamedPipes(const std::wstring& path,const DirectoryQueryOptions& options={});
+struct NamedPipeProbeSnapshot {DirectoryQueryEvidence evidence;LONG ioStatus=0;std::uint64_t information=0;DirectoryEntry::BasicEvidence basic;};
+NamedPipeProbeSnapshot ProbeNamedPipe(const std::wstring& path);
 void QueryNamedPipeDirectory(const NtRuntime& runtime, const std::wstring& path, const std::wstring& filter, QueryPacket& packet);
 KernelOperationResult QueryNamedPipes(const KernelRequest& request);
 KernelOperationResult ExecuteNativeNamedPipeProbe(const KernelActionRequest& request);
