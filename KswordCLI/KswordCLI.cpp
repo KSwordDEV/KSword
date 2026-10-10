@@ -1524,6 +1524,7 @@ namespace
         ks::cli::registerSystemIoctl();
         ks::cli::registerKernelNamespace();
         ks::cli::registerKernelDirectory();
+        ks::cli::registerKernelSymlink();
             #endif
             return true;
         }();

@@ -594,7 +594,7 @@ std::vector<DirectoryEntry> EnumerateDirectoryFlat(const NtRuntime& runtime,cons
         if(!BoundedCounted(native->Name,buffer.data(),source.returned,entry.name)||!BoundedCounted(native->TypeName,buffer.data(),source.returned,entry.typeName)||entry.name.empty()||entry.typeName.empty()){source.malformed=true;break;}
         if(!seen.emplace(entry.name,entry.typeName,context).second){source.cycle=true;break;}++source.queried;
         entry.fullPath=JoinObjectPath(directoryPath,entry.name);
-        entry.metadataRequested=options.probeMetadata&&(entry.typeName==L"Directory"||entry.typeName==L"SymbolicLink");
+        entry.metadataRequested=options.probeMetadata&&((entry.typeName==L"Directory"&&options.probeDirectories)||entry.typeName==L"SymbolicLink");
         HANDLE child=nullptr;
         if(entry.metadataRequested&&entry.typeName==L"Directory"){entry.openAttempted=runtime.openDirectoryObject!=nullptr;child=OpenDirectory(runtime,entry.fullPath,&entry.openStatus);}
         else if(entry.metadataRequested&&entry.typeName==L"SymbolicLink"){entry.openAttempted=runtime.openSymbolicLinkObject!=nullptr;child=OpenSymbolicLink(runtime,entry.fullPath,&entry.openStatus);}

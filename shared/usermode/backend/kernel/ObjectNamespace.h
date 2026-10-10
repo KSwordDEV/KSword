@@ -163,6 +163,7 @@ struct DirectoryQueryEvidence {
 };
 struct DirectoryQueryOptions {
     bool probeMetadata=true;
+    bool probeDirectories=true;
     DWORD maxEntries=100000,maxDurationMs=8000;
     ULONGLONG deadlineTick=0;
     std::function<bool()> cancelled;

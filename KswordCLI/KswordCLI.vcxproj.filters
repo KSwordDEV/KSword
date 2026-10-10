@@ -377,4 +377,9 @@
     <ClCompile Include="..\shared\usermode\backend\kernel\ObjectDirectory.cpp" />
     <ClInclude Include="..\shared\usermode\backend\kernel\ObjectDirectory.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelSymlink.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\SymbolicLinks.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\SymbolicLinks.h" />
+  </ItemGroup>
 </Project>

@@ -14,4 +14,5 @@ namespace ks::r3::kernel {
 std::wstring JoinStrings(const std::vector<std::wstring>& values, const wchar_t* separator);
 KernelOperationResult QuerySymbolicLinks(const KernelRequest& request);
 KernelOperationResult ExecuteNativeSymbolicLinkResolve(const KernelActionRequest& request);
+DirectoryEntry QueryOneSymbolicLink(const std::wstring& path);
 }

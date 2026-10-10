@@ -116,4 +116,5 @@ void registerSystemTime();
 void registerSystemIoctl();
 void registerKernelNamespace();
 void registerKernelDirectory();
+void registerKernelSymlink();
 }

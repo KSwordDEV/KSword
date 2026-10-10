@@ -1,5 +1,20 @@
 # 内核对象与证据 R3 命令
 
+## 符号链接（迁移项 49）
+
+```powershell
+KswordCLI.exe kernel symlink help
+KswordCLI.exe help kernel symlink query
+KswordCLI.exe kernel symlink query --path '\KnownDlls\KnownDllPath' --json
+KswordCLI.exe kernel symlink enum --root '\KnownDlls' --target-filter System32 --json
+```
+
+`query` 要求 `--path` 为原生对象绝对路径，支持 `--backend r3`、`--json`；`enum` 支持 `--root`（省略使用共享常见根及会话发现）、`--filter`（名称／路径／类型／目标子串）、`--target-filter`（目标子串）、`--max-entries 1..100000`（每目录，100000）、`--duration-ms 100..30000`（整个 sweep API 调用间预算，8000）、`--limit 1..100000`（显示链接，1000）、`--backend r3`、`--json`。筛选不区分大小写，只读直接目录条目，不递归或跟随目标。
+
+query data 保留 requestedPath、nameDerivedFromRequest=true、link（上一节的打开／basic／symlinkTarget／关闭结构）。名称／路径来自请求，不冒充已查询的规范对象名称。enum data 保留根和会话发现、sources、symbolicLinkCount/matchedCount/returnedCount/unknownTargetFilterCount、truncated/limited/cancelled/malformed、links。此视图只对符号链接查询额外元数据，不为目录打开多余计数句柄。未知目标不能证明筛选排除，保留 unknownTargetFilterCount 并返回部分结果，不能让读取失败冒充精确空匹配。
+
+目标使用原始计长 UTF-16，成功的空目标为 `""`，未取得为 null；验证长度／缓冲范围并在 65534 字节内增长。只说明实际存储目标，不保证目标存在、可打开或对应可靠 DOS 路径。basic 计数包含查询的临时引用；所有句柄关闭后输出。完整可得证据为 0；打开／目标查询失败为 3（明确 API／状态未支持为 5），格式错误为 4；元数据、缓冲预算、关闭、筛选证据／根不完整或显示截断为 6。没有链接创建／删除／修改、目标打开或 R0 fallback，help 不访问对象。VM 独立 NtQuerySymbolicLinkObject 核对自建链接，测试错误类型、缺失链接、目标筛选、读取预算与释放。
+
 ## 对象目录递归（迁移项 48）
 
 ```powershell
