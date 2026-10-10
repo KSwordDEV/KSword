@@ -130,4 +130,5 @@ void registerSecurityVbs();
 void registerSecurityHyperV();
 void registerSecurityAppLocker();
 void registerSecurityBamAhcache();
+void registerSecurityBugcheck();
 }

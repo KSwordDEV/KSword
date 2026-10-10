@@ -567,4 +567,9 @@
     <ClCompile Include="..\shared\usermode\backend\security\BamAhcache.cpp" />
     <ClInclude Include="..\shared\usermode\backend\security\BamAhcache.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SecurityBugcheck.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\security\BugcheckEvidence.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\BugcheckEvidence.h" />
+  </ItemGroup>
 </Project>

@@ -1,5 +1,18 @@
 # 安全证据 R3 命令
 
+## Bugcheck／VMware 环境证据（迁移项 63）
+
+```powershell
+KswordCLI.exe security bugcheck help
+KswordCLI.exe help security bugcheck environment query
+KswordCLI.exe security bugcheck environment query --json
+KswordCLI.exe security bugcheck query --json
+```
+
+迁移项 63 的 R3 后端实际只有 Win32_ComputerSystem 的 manufacturer/model 查询。两个入口复用这个单一来源；参数、统一来源／辅助进程字段和退出码同 CI，payload 提供 available/manufacturer/model/environmentOnly。只报告系统给出的环境标签，不把包含 VMware 字样当作可信厂商认证，也不据此推断崩溃已发生。
+
+没有后端未实现的崩溃历史／转储验证、品牌修改或触发 bugcheck 命令，不加载驱动或自动回退 R0。完整查询为 0，不可用为 5，实际查询失败／超时为 3，格式错误为 4，预算／取消／关闭等不完整证据为 6；help 不启动查询。宿主与 VMware 来宾分别用独立 CIM 核对厂商和型号，原生夹具验证生产脚本的 Unicode 值、有效空实例和权限异常。
+
 ## BAM／ahcache／Amcache 摘要（迁移项 62）
 
 ```powershell

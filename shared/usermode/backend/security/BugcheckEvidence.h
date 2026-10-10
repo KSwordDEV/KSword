@@ -9,5 +9,6 @@
 #include "AppLocker.h"
 #include "BamAhcache.h"
 namespace ks::r3::security {
+const std::vector<SecurityProbe>& BugcheckEnvironmentProbes();
 void AppendBugcheckEvidenceR3(std::vector<MiscAuditRow>& rows);
 }
