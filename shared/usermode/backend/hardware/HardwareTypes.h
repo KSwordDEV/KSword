@@ -5,7 +5,16 @@
 #include <cstddef>
 #include <string>
 #include <vector>
+#include <map>
 namespace ks::r3::hardware {
+struct HardwareFieldEvidence {
+    bool available = false,absent = false,malformed = false;
+    DWORD type = REG_NONE,error = ERROR_SUCCESS;
+    CONFIGRET cmStatus = CR_SUCCESS;
+    std::vector<std::wstring> values;
+    std::uint64_t number = 0;
+    bool numeric = false;
+};
 enum class HardwareDeviceState {
     Unknown,
     Started,
@@ -43,6 +52,7 @@ struct HardwareDeviceNode {
     std::wstring classUpperFilters;
     std::wstring classLowerFilters;
     std::vector<int> childIndices;
+    std::map<std::wstring,HardwareFieldEvidence> evidence;
 };
 struct HardwareAuditSummary {
     std::size_t totalDevices = 0;
@@ -59,11 +69,15 @@ struct HardwareDeviceDetail {
     std::wstring title;
     std::wstring instanceId;
     std::vector<HardwareProperty> properties;
+    HardwareDeviceNode node;
+    DWORD win32Error = ERROR_SUCCESS;
 };
 struct HardwareEnumerationResult {
     bool success = false;
     std::wstring diagnosticText;
     std::vector<HardwareDeviceNode> devices;
+    DWORD win32Error = ERROR_SUCCESS;
+    bool complete = false,limited = false;
 };
 std::wstring DeviceStateText(HardwareDeviceState state, ULONG problemCode);
 std::wstring CompactDeviceName(const HardwareDeviceNode& node);

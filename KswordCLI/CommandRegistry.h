@@ -98,4 +98,5 @@ void registerTokenSwitches();
 void registerProcessPeb();
 void registerProcessHotkeys();
 void registerDriverModules();
+void registerHardwareDevices();
 }

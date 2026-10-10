@@ -258,4 +258,12 @@
     <ClInclude Include="..\shared\usermode\backend\driver\DriverFormatting.h" />
     <ClInclude Include="..\shared\usermode\backend\driver\DriverTypes.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3HardwareDevices.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\hardware\HardwareFormatting.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareEnumerator.h" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareFormatting.h" />
+    <ClInclude Include="..\shared\usermode\backend\hardware\HardwareTypes.h" />
+  </ItemGroup>
 </Project>

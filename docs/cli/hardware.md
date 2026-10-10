@@ -1,0 +1,20 @@
+# 硬件 R3 命令
+
+## 设备枚举与详情（迁移项 31）
+
+```powershell
+KswordCLI.exe help hardware
+KswordCLI.exe hardware devices help
+KswordCLI.exe hardware devices enum --help
+KswordCLI.exe hardware devices enum --scope present --json
+KswordCLI.exe hardware devices enum --class Net --json
+KswordCLI.exe hardware devices query --instance-id 'PCI\VEN_15AD&DEV_0405&SUBSYS_040515AD&REV_00\3&61AAA01&0&78' --json
+```
+
+`hardware devices enum` 支持 `--scope all|present`（默认 all：包括非当前连接的已安装设备）、`--class`（不区分大小写的精确类名或 GUID）、`--limit 1..100000`（默认 1000）。`hardware devices query` 必须提供 `--instance-id`。均默认 R3，支持 `--backend r3` 和 `--json`，不要求 KswordARK，不切换 R0，不提供后端未实现的设备启用、禁用或卸载操作。
+
+枚举 data 包含 source（SetupAPI + Configuration Manager）、scope、complete（devnode 枚举是否到达正常末尾）、limited、win32Error、enumeratedCount、matchedCount、returnedCount、truncated 和 devices。query 包含 requestedInstanceId、found、win32Error、device。设备包含 instanceId、parentInstanceId、devInst（十六进制定位值）、displayName、className、classGuid、state、statusFlags、problemCode、properties。displayName 使用友好名称，缺失时使用设备描述。设备编号和状态是瞬时查询，不是后续处置的持久身份保证。
+
+properties 按稳定字段名提供 available、absent、malformed、registryType、win32Error、configRet、values 和 number。字段包括身份／父身份／状态、类、制造商、服务、驱动键、位置／位置路径、硬件／兼容 ID、设备及类 UpperFilters/LowerFilters。REG_SZ／EXPAND_SZ 的 values 为单元素数组；REG_MULTI_SZ 为原始多字符串数组，条目中的分号保持原样；数值使用十进制字符串 number。不可获得的值为 null，不使用 UI 文本推断状态。configRet 是 Configuration Manager 返回码，与 Win32 错误分别保留。
+
+可选注册表属性或过滤器不存在标记 absent，可以成功；访问拒绝、设备已退出、CM 状态不可查询等证据缺失返回 6；畸形长度／终止符／类型返回 4。开始枚举失败、query 无法打开指定实例返回 3；枚举中途失败保留已采集设备并返回 6。有效空列表／类筛选无匹配可以返回 0，输出截断返回 6。devnode 上限 100000，单属性上限 16 MiB，属性扩容最多 4 次。help 不打开设备或执行查询。
