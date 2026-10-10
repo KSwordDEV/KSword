@@ -288,4 +288,15 @@
     <ClCompile Include="..\shared\usermode\backend\hardware\BusTopology.cpp" />
     <ClInclude Include="..\shared\usermode\backend\hardware\BusTopology.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3Window.cpp" />
+    <ClInclude Include="R3WindowShared.h" />
+    <ClCompile Include="..\shared\usermode\backend\window\WindowEnumerator.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\WindowActions.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\WindowFormatting.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowEnumerator.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowActions.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowFormatting.h" />
+    <ClInclude Include="..\shared\usermode\backend\window\WindowTypes.h" />
+  </ItemGroup>
 </Project>

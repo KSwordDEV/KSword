@@ -141,8 +141,13 @@ bool printHelp(const std::wstring& path) {
     }
     if (!leaf && children.empty()) { std::wcerr << L"error: unknown command '" << path << L"'\n"; return false; }
     std::wcout << L"Command: " << path << L"\n";
-    if (leaf) std::wcout << L"Syntax:\n  " << leaf->syntax << L"\nSummary:\n  " << leaf->summary << L"\nOptions:\n  " << leaf->options << L"\nNotes:\n  " << leaf->notes << L"\n";
-    if (leaf && leaf->legacyDefault) std::wcout << L"Default/R0 syntax:\n  " << leaf->legacySyntax << L" [--backend r0]\n  " << leaf->legacyOptions << L"\n  Omit --backend to retain the existing R0 behavior and output. R3 requires explicit --backend r3.\n";
+    if (leaf && children.empty()) std::wcout << L"Syntax:\n  " << leaf->syntax << L"\nSummary:\n  " << leaf->summary << L"\nOptions:\n  " << leaf->options << L"\nNotes:\n  " << leaf->notes << L"\n";
+    else if (leaf) std::wcout << L"Existing entry:\n  " << leaf->syntax << L"\n  " << leaf->summary << L"\n";
+    if (leaf && leaf->legacyDefault) {
+        std::wcout << L"Default/R0 syntax:\n  " << leaf->legacySyntax << L" [--backend r0]\n";
+        if (children.empty()) std::wcout << L"  " << leaf->legacyOptions << L"\n";
+        std::wcout << L"  Omit --backend to retain the existing R0 behavior and output. R3 requires explicit --backend r3.\n";
+    }
     if (!children.empty()) {
         std::wcout << L"Commands:\n";
         for (const auto& [name, summary] : children) {

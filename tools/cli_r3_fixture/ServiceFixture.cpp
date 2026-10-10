@@ -3,6 +3,7 @@
 #include "ThreadFixture.h"
 #include "ModuleFixtureHost.h"
 #include "HotkeyFixture.h"
+#include "WindowFixture.h"
 
 namespace {
 SERVICE_STATUS_HANDLE statusHandle;
@@ -31,6 +32,9 @@ void WINAPI serviceMain(DWORD count,LPWSTR* args) {
 }
 }
 int wmain(int argc,wchar_t* argv[]) {
+    if(argc==3 && std::wcscmp(argv[1],L"--windows")==0) return RunWindowFixture(argv[2],false,false);
+    if(argc==3 && std::wcscmp(argv[1],L"--windows-ignore-close")==0) return RunWindowFixture(argv[2],true,false);
+    if(argc==3 && std::wcscmp(argv[1],L"--windows-hung")==0) return RunWindowFixture(argv[2],false,true);
     if(argc==3 && std::wcscmp(argv[1],L"--hotkeys")==0) return RunHotkeyFixture(argv[2],false);
     if(argc==3 && std::wcscmp(argv[1],L"--hotkeys-hung")==0) return RunHotkeyFixture(argv[2],true);
     if(argc==4 && std::wcscmp(argv[1],L"--modules")==0) return RunModuleFixture(argv[2],argv[3]);

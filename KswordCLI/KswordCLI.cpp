@@ -1511,6 +1511,7 @@ namespace
             ks::cli::registerHardwareDisk();
             ks::cli::registerHardwareUsb();
             ks::cli::registerHardwareBus();
+            ks::cli::registerWindow();
             #endif
             return true;
         }();

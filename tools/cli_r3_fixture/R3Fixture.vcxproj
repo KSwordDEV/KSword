@@ -15,4 +15,5 @@
   <ItemGroup><ClCompile Include="ServiceFixture.cpp" /><ClCompile Include="ThreadFixture.cpp" /><ClInclude Include="ThreadFixture.h" /><ClCompile Include="ModuleFixtureHost.cpp" /><ClInclude Include="ModuleFixtureHost.h" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ItemGroup><ClCompile Include="HotkeyFixture.cpp" /><ClInclude Include="HotkeyFixture.h" /><ResourceCompile Include="HotkeyFixture.rc" /></ItemGroup>
+  <ItemGroup><ClCompile Include="WindowFixture.cpp" /><ClInclude Include="WindowFixture.h" /></ItemGroup>
 </Project>
