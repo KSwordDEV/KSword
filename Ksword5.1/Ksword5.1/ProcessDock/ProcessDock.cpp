@@ -2287,33 +2287,30 @@ private:
         painter.restore();
     }
 
-    // 悬停只显示鼠标附近最近真实采样的各指标圆点，离开时立即全部隐藏。
+    // 鼠标进入绘图区时显示所有可见真实采样点；提示和焦点线仍定位最近样本。
     void drawHoverPoints(QPainter& painter, const QRectF& plotRect) const
     {
         if (!m_hoverActive)
         {
             return;
         }
-        const int index = sampleIndexAtX(m_hoverPosition.x());
-        if (index < 0)
-        {
-            return;
-        }
-        const double timeMs = static_cast<double>(m_ownerDock->m_activitySamples[index].elapsedMs);
-        const double x = sampleIndexToX(index, plotRect);
+        const double endTime = windowEndMs();
+        const double duration = windowDurationMs();
+        const double startTime = endTime - duration;
         painter.save();
         painter.setClipRect(plotRect);
         for (const auto& series : m_cachedSeries)
         {
-            const auto point = std::lower_bound(series.points.begin(), series.points.end(), timeMs,
+            auto point = std::lower_bound(series.points.begin(), series.points.end(), startTime,
                 [](const SeriesPoint& value, double time) { return value.timeMs < time; });
-            if (point == series.points.end())
-            {
-                continue;
-            }
             painter.setPen(QPen(KswordTheme::SurfaceColor(), 1.4));
             painter.setBrush(processActivityMetricColor(series.metric));
-            painter.drawEllipse(QPointF(x, plotRect.bottom() - point->percent / 100.0 * plotRect.height()), 3.4, 3.4);
+            for (; point != series.points.end() && point->timeMs <= endTime; ++point)
+            {
+                const double x = plotRect.right() + (point->timeMs - endTime) / duration * plotRect.width();
+                const double y = plotRect.bottom() - point->percent / 100.0 * plotRect.height();
+                painter.drawEllipse(QPointF(x, y), 3.4, 3.4);
+            }
         }
         painter.restore();
     }

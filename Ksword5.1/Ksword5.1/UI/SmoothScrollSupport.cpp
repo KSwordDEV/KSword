@@ -5,15 +5,20 @@
 #include <QApplication>
 #include <QEasingCurve>
 #include <QEvent>
+#include <QElapsedTimer>
 #include <QHash>
+#include <QLabel>
+#include <QGroupBox>
+#include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPointer>
 #include <QPointingDevice>
-#include <QPropertyAnimation>
+#include <QScreen>
 #include <QScrollBar>
 #include <QScopedValueRollback>
 #include <QSignalBlocker>
 #include <QTabBar>
+#include <QTimer>
 #include <QTextBlock>
 #include <QTextLayout>
 #include <QVariant>
@@ -38,6 +43,99 @@ namespace
     constexpr int kPixelAnimationDurationMs = 100;
     constexpr int kTabWheelStepPixels = 48;
     thread_local const QEvent* g_tabScrollFrame = nullptr;
+
+    // 滚动条仍使用原生整数像素值；独立时钟避免 QWidget 动画驱动约 60Hz 的默认节拍。
+    // 每次 tick 读取所属屏幕，跨屏或动态刷新率变化不需要重新创建视口。
+    class ScrollBarAnimator final : public QObject
+    {
+    public:
+        explicit ScrollBarAnimator(QScrollBar* bar, QObject* parent)
+            : QObject(parent), m_bar(bar)
+        {
+            m_timer.setTimerType(Qt::PreciseTimer);
+            connect(&m_timer, &QTimer::timeout, this, [this]() { advance(); });
+            connect(bar, &QScrollBar::sliderPressed, this, [this]() { stop(); });
+            connect(bar, &QScrollBar::valueChanged, this, [this]()
+            {
+                // 键盘、业务定位及拖动优先；不能被仍在运行的滚轮动画拉回旧终点。
+                if (!m_writing)
+                {
+                    stop();
+                }
+            });
+            connect(bar, &QScrollBar::rangeChanged, this, [this](int minimum, int maximum)
+            {
+                m_target = std::clamp(m_target, minimum, maximum);
+            });
+        }
+
+        bool running() const { return m_timer.isActive(); }
+        int target() const { return m_target; }
+        void stop() { m_timer.stop(); }
+
+        void start(int targetValue, int durationMs)
+        {
+            stop();
+            if (m_bar.isNull())
+            {
+                return;
+            }
+            m_start = m_bar->value();
+            m_target = std::clamp(targetValue, m_bar->minimum(), m_bar->maximum());
+            m_durationMs = std::max(1, durationMs);
+            if (m_start == m_target)
+            {
+                return;
+            }
+            m_clock.start();
+            m_timer.start(frameInterval());
+        }
+
+    private:
+        int frameInterval() const
+        {
+            const QScreen* screen = m_bar.isNull() ? nullptr : m_bar->screen();
+            const double reportedRate = screen ? screen->refreshRate() : 60.0;
+            const double rate = std::isfinite(reportedRate) && reportedRate > 1.0
+                ? reportedRate : 60.0;
+            // 向下取整避免 144Hz 被 7ms 定时器压至 142Hz，实际呈现由窗口合成器决定。
+            return std::max(1, static_cast<int>(std::floor(1000.0 / rate)));
+        }
+
+        void advance()
+        {
+            if (m_bar.isNull() || !m_bar->isEnabled() || !m_bar->window()->isVisible())
+            {
+                stop();
+                return;
+            }
+            const double progress = std::clamp(
+                m_clock.nsecsElapsed() / (m_durationMs * 1000000.0), 0.0, 1.0);
+            const double remaining = 1.0 - progress;
+            const double eased = 1.0 - remaining * remaining * remaining;
+            const int value = static_cast<int>(std::lround(
+                m_start + (static_cast<double>(m_target) - m_start) * eased));
+            // 先停止计时，再发最后一帧信号，允许业务连接在信号内开始新滚动。
+            if (progress >= 1.0)
+            {
+                stop();
+            }
+            else if (m_timer.interval() != frameInterval())
+            {
+                m_timer.setInterval(frameInterval());
+            }
+            const QScopedValueRollback<bool> writingGuard(m_writing, true);
+            m_bar->setValue(std::clamp(value, m_bar->minimum(), m_bar->maximum()));
+        }
+
+        QPointer<QScrollBar> m_bar;
+        QTimer m_timer;
+        QElapsedTimer m_clock;
+        int m_start = 0;
+        int m_target = 0;
+        int m_durationMs = kWheelAnimationDurationMs;
+        bool m_writing = false;
+    };
 
     // 保留原 QTabBar 和连接，借助 Qt 的像素滚动路径移动标签，避免切页触发懒加载。
     class TabStripAnimator final : public QObject
@@ -221,10 +319,9 @@ namespace
                 return;
             QScrollBar* bar = area->horizontalScrollBar();
             const int maximumDistance = std::max(1, area->viewport()->width());
-            QPropertyAnimation* animation = animationForScrollBar(bar);
+            ScrollBarAnimator* animation = animationForScrollBar(bar);
             const qint64 current = bar->value();
-            const qint64 pending = animation->state() == QAbstractAnimation::Running
-                ? animation->endValue().toInt() : current;
+            const qint64 pending = animation->running() ? animation->target() : current;
             const int target = static_cast<int>(std::clamp(
                 (distance * (pending - current) > 0 ? pending : current) + distance,
                 std::max<qint64>(bar->minimum(), current - maximumDistance),
@@ -234,15 +331,7 @@ namespace
                 bar->setValue(target);
             else if (target != current)
             {
-                // QPropertyAnimation 的 setter 可按旧 currentTime 立即写属性；配置期间解除目标。
-                animation->setTargetObject(nullptr);
-                animation->setStartValue(static_cast<int>(current));
-                animation->setEndValue(target);
-                animation->setDuration(duration);
-                animation->setCurrentTime(0);
-                animation->setEasingCurve(QEasingCurve::OutCubic);
-                animation->setTargetObject(bar);
-                animation->start();
+                animation->start(target, duration);
             }
         }
 
@@ -321,10 +410,10 @@ namespace
                 return QObject::eventFilter(watchedObject, eventObject);
             }
 
-            QAbstractScrollArea* scrollArea = scrollAreaForEventObject(watchedObject);
+            QAbstractScrollArea* scrollArea = scrollAreaForEventObject(watchedObject, true);
             if (scrollArea == nullptr ||
                 scrollArea->property(kFrozenPaneAuxiliaryProperty).toBool() ||
-                isSmoothScrollDisabled(scrollArea))
+                isSmoothScrollDisabled(qobject_cast<QWidget*>(watchedObject)))
             {
                 return QObject::eventFilter(watchedObject, eventObject);
             }
@@ -424,10 +513,9 @@ namespace
                 return QObject::eventFilter(watchedObject, eventObject);
             }
 
-            QPropertyAnimation* animation = animationForScrollBar(scrollBar);
+            ScrollBarAnimator* animation = animationForScrollBar(scrollBar);
             const qint64 currentValue = scrollBar->value();
-            const qint64 pendingTarget = animation->state() == QAbstractAnimation::Running
-                ? animation->endValue().toInt() : currentValue;
+            const qint64 pendingTarget = animation->running() ? animation->target() : currentValue;
             // 反向滚动立即从当前位置反向；连续事件的待滚距离也不能超过一屏。
             const bool sameDirection = distance > 0
                 ? pendingTarget > currentValue : pendingTarget < currentValue;
@@ -444,12 +532,7 @@ namespace
                 return QObject::eventFilter(watchedObject, eventObject);
             }
 
-            animation->stop();
-            animation->setDuration(durationMs);
-            animation->setStartValue(scrollBar->value());
-            animation->setEndValue(targetValue);
-            animation->setEasingCurve(QEasingCurve::OutCubic);
-            animation->start();
+            animation->start(targetValue, durationMs);
             wheelEvent->accept();
             return true;
         }
@@ -549,7 +632,7 @@ namespace
 
         void stopAnimation(QScrollBar* scrollBar)
         {
-            if (QPropertyAnimation* animation = m_animations.value(scrollBar, nullptr))
+            if (ScrollBarAnimator* animation = m_animations.value(scrollBar, nullptr))
             {
                 animation->stop();
             }
@@ -563,7 +646,7 @@ namespace
                 appInstance->property(kEnabledProperty).toBool();
         }
 
-        QAbstractScrollArea* scrollAreaForEventObject(QObject* watchedObject) const
+        QAbstractScrollArea* scrollAreaForEventObject(QObject* watchedObject, bool routeContent = false) const
         {
             if (QAbstractScrollArea* directArea =
                 qobject_cast<QAbstractScrollArea*>(watchedObject))
@@ -586,9 +669,33 @@ namespace
             }
             QAbstractScrollArea* parentArea = qobject_cast<QAbstractScrollArea*>(
                 watchedObject != nullptr ? watchedObject->parent() : nullptr);
-            return parentArea != nullptr && parentArea->viewport() == watchedObject
-                ? parentArea
-                : nullptr;
+            if (parentArea != nullptr && parentArea->viewport() == watchedObject)
+            {
+                return parentArea;
+            }
+            if (routeContent)
+            {
+                // 详情表单的滚轮先送到标签/内容容器，并不总会再送到 viewport。
+                // 只接管被动内容；编辑器、组合框、自定义画布仍先处理自己的滚轮。
+                for (QWidget* widget = qobject_cast<QWidget*>(watchedObject); widget;
+                    widget = widget->parentWidget())
+                {
+                    if (auto* area = qobject_cast<QAbstractScrollArea*>(widget->parentWidget());
+                        area && area->viewport() == widget)
+                    {
+                        return area;
+                    }
+                    const auto* lineEdit = qobject_cast<QLineEdit*>(widget);
+                    const bool passive = widget->metaObject() == &QWidget::staticMetaObject
+                        || qobject_cast<QLabel*>(widget) || qobject_cast<QGroupBox*>(widget)
+                        || (lineEdit && lineEdit->isReadOnly());
+                    if (!passive || widget->isWindow())
+                    {
+                        break;
+                    }
+                }
+            }
+            return nullptr;
         }
 
         void configureScrollArea(QAbstractScrollArea* scrollArea, const bool enabledState)
@@ -643,23 +750,19 @@ namespace
             }
         }
 
-        QPropertyAnimation* animationForScrollBar(QScrollBar* scrollBar)
+        ScrollBarAnimator* animationForScrollBar(QScrollBar* scrollBar)
         {
-            QPropertyAnimation* animation = m_animations.value(scrollBar, nullptr);
+            ScrollBarAnimator* animation = m_animations.value(scrollBar, nullptr);
             if (animation != nullptr)
             {
                 return animation;
             }
 
-            animation = new QPropertyAnimation(scrollBar, "value", this);
+            animation = new ScrollBarAnimator(scrollBar, this);
             m_animations.insert(scrollBar, animation);
-            connect(scrollBar, &QScrollBar::sliderPressed, animation, [animation]()
-                {
-                    animation->stop();
-                });
             connect(scrollBar, &QObject::destroyed, this, [this, scrollBar]()
                 {
-                    if (QPropertyAnimation* removedAnimation =
+                    if (ScrollBarAnimator* removedAnimation =
                         m_animations.take(scrollBar))
                     {
                         removedAnimation->stop();
@@ -671,7 +774,7 @@ namespace
 
         void stopAllAnimations()
         {
-            for (QPropertyAnimation* animation : std::as_const(m_animations))
+            for (ScrollBarAnimator* animation : std::as_const(m_animations))
             {
                 if (animation != nullptr)
                 {
@@ -680,7 +783,7 @@ namespace
             }
         }
 
-        QHash<QScrollBar*, QPropertyAnimation*> m_animations;
+        QHash<QScrollBar*, ScrollBarAnimator*> m_animations;
         QHash<QTabBar*, TabStripAnimator*> m_tabAnimators;
     };
 
