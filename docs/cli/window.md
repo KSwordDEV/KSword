@@ -1,5 +1,24 @@
 # 窗口 R3 命令
 
+## 剪贴板清空与实时所有者（迁移项 65）
+
+```powershell
+KswordCLI.exe window clipboard help
+KswordCLI.exe help clipboard owner query
+KswordCLI.exe clipboard owner query --json
+KswordCLI.exe clipboard opener query --json
+KswordCLI.exe help clipboard clear
+KswordCLI.exe clipboard clear --confirm --expect-sequence 123 --json
+```
+
+`window clipboard owner query`／`opener query` 和 `clipboard` 别名只读 GetClipboardOwner／GetOpenClipboardWindow 与实际窗口 PID/TID，支持 `--backend r3`／`--json`。data 提供 source/window/windowAfter/windowPresent/stable/identityKnown、pid/tid/win32Error/clipboardSequence；句柄为十六进制，未知 PID/TID／零序号为 null。稳定的无窗口可成功为 0，身份查询错误或窗口变化为 6。这是双采样标识，不是保留的进程身份租约，不提供创建时间或授权依据。NULL opener HWND 不证明剪贴板没有被占用（OpenClipboard(NULL) 也可持有它），不打开剪贴板或读取内容。
+
+`window clipboard clear`／`clipboard clear` 必须带 `--confirm`，可选 `--expect-sequence` 正 uint32、`--backend r3`／`--json`。清空当前调用者窗口站的所有格式，不读取、备份或恢复内容；序号 guard 在成功打开剪贴板后、EmptyClipboard 前比较，不匹配为 3 且不写入。data 提供 target/action/opened/attempted/requestSucceeded/verified/malformed/win32Error、期望／前后序号、sequenceMatched、前后格式计数／错误、实际关闭状态。零序号不可用，不当作空剪贴板。
+
+同一线程按顺序执行打开／清空／计数回读／关闭，复用 4 次、间隔 12 ms 的打开重试。有效 EmptyClipboard 且零格式／关闭证据为成功 0；打开／guard／清空失败为 3，明确不支持为 5；原生计数格式错误为 4；缺失回读／序号／原计数／关闭证据为 6。系统可能通知原所有者，原生通知调用无法硬中断。不存在跨窗口站目标、保护策略修改、窗口注入或 R0 fallback；help 不执行读取／清空。
+
+宿主测试不清空用户剪贴板。VM 使用自建发布窗口与格式验证所有者／占用者、序号不匹配不写入、真实清空与独立零格式回读；最后销毁自己的夹具。原有只读 formats/text 语法与默认行为保留。
+
 ## 窗口列表捕获保护适配（迁移项 64）
 
 本项复用已有 `window capture query`／`window capture set`，不增加重复操作入口。set 调用共享 WindowListCapture::ApplyWindowListCaptureAffinity 的结构化结果，query／回读使用其 CaptureAffinityText 显示说明；显示文字不用于判定成功。参数、None／Monitor／Exclude 模式、进程／线程创建时间与当前进程顶层窗口限制、19041 Exclude 平台门禁均保持原有语义（见迁移项 38）。

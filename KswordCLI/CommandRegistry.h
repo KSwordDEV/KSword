@@ -131,4 +131,5 @@ void registerSecurityHyperV();
 void registerSecurityAppLocker();
 void registerSecurityBamAhcache();
 void registerSecurityBugcheck();
+void registerClipboardControl();
 }

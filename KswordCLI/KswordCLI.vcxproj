@@ -576,4 +576,9 @@
     <ClCompile Include="..\shared\usermode\backend\window\WindowListCapture.cpp" />
     <ClInclude Include="..\shared\usermode\backend\window\WindowListCapture.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ClipboardControl.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\ClipboardControl.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\ClipboardControl.h" />
+  </ItemGroup>
 </Project>

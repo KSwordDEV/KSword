@@ -1539,6 +1539,7 @@ namespace
         ks::cli::registerSecurityAppLocker();
         ks::cli::registerSecurityBamAhcache();
         ks::cli::registerSecurityBugcheck();
+        ks::cli::registerClipboardControl();
             #endif
             return true;
         }();
