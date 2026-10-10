@@ -6,6 +6,12 @@
 #include <string>
 #include <vector>
 namespace ks::r3::driver {
+struct DriverSignatureEvidence {
+    bool pathResolved = false,fileAccessible = false,evaluated = false;
+    DWORD fileError = ERROR_SUCCESS;
+    LONG trustStatus = 0;
+    std::wstring localPath;
+};
 struct DriverOverviewRow {
     std::wstring driverName;       // driverName: driver base name or display name.
     std::wstring baseAddressText;   // baseAddressText: hex base address text.
@@ -16,6 +22,12 @@ struct DriverOverviewRow {
     std::wstring statusText;       // statusText: load/diagnostic status.
     std::wstring anomalyText;      // anomalyText: R0 integrity risk flags or graceful unavailable/partial text.
     std::wstring capabilityHint;   // capabilityHint: future analysis hint.
+    std::uint64_t baseAddress = 0;
+    DWORD imageSize = 0,flags = 0;
+    USHORT loadOrder = 0,initOrder = 0,loadCount = 0;
+    bool baseKnown = false,sizeKnown = false,nameKnown = false,pathKnown = false,rangeValid = true;
+    DWORD nameError = ERROR_SUCCESS,pathError = ERROR_SUCCESS;
+    DriverSignatureEvidence signature;
 };
 struct DriverObjectRow {
     std::wstring directoryPathText;    // directoryPathText: source directory such as \Driver.

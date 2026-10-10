@@ -1505,6 +1505,7 @@ namespace
             ks::cli::registerTokenSwitches();
             ks::cli::registerProcessPeb();
             ks::cli::registerProcessHotkeys();
+            ks::cli::registerDriverModules();
             #endif
             return true;
         }();

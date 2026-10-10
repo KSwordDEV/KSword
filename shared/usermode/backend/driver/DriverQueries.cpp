@@ -3,6 +3,7 @@
 #include <cwchar>
 #include <cstring>
 #include <memory>
+#include <limits>
 #include <sstream>
 #include "DriverFormatting.h"
 #pragma comment(lib,"Wintrust.lib")
@@ -77,14 +78,18 @@ std::wstring ResolveKernelImagePathForTrust(const std::wstring& path) {
 
     return {};
 }
-std::wstring VerifyDriverImageSignature(const std::wstring& displayPath) {
+std::wstring VerifyDriverImageSignature(const std::wstring& displayPath,DriverSignatureEvidence* evidence) {
+    DriverSignatureEvidence local;if (!evidence) evidence = &local;*evidence = {};
     const std::wstring localPath = ResolveKernelImagePathForTrust(displayPath);
     if (localPath.empty()) {
         return L"未解析本地路径";
     }
+    evidence->pathResolved = true;evidence->localPath = localPath;
     if (::GetFileAttributesW(localPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        evidence->fileError = ::GetLastError();
         return L"文件不可访问";
     }
+    evidence->fileAccessible = true;
 
     WINTRUST_FILE_INFO fileInfo{};
     fileInfo.cbStruct = sizeof(fileInfo);
@@ -101,6 +106,7 @@ std::wstring VerifyDriverImageSignature(const std::wstring& displayPath) {
 
     GUID policy = WINTRUST_ACTION_GENERIC_VERIFY_V2;
     const LONG status = ::WinVerifyTrust(nullptr, &policy, &trustData);
+    evidence->evaluated = true;evidence->trustStatus = status;
     trustData.dwStateAction = WTD_STATEACTION_CLOSE;
     (void)::WinVerifyTrust(nullptr, &policy, &trustData);
 
@@ -281,9 +287,11 @@ DriverObjectRow AppendDirectoryRow(const NtLibrary& library, const std::wstring&
     }
     return row;
 }
-bool QueryModuleInformation(std::vector<DriverOverviewRow>& rows, std::wstring& diagnosticText) {
+bool QueryModuleInformation(std::vector<DriverOverviewRow>& rows, std::wstring& diagnosticText,DriverEnumerationEvidence* evidence,bool signature) {
+    DriverEnumerationEvidence local;if (!evidence) evidence = &local;*evidence = {};
     ks::r3::common::NtApi api;
     if (!api.available()) {
+        evidence->unsupported = true;
         diagnosticText = L"NtQuerySystemInformation 不可用，准备回退到 Psapi 枚举。";
         return false;
     }
@@ -291,6 +299,7 @@ bool QueryModuleInformation(std::vector<DriverOverviewRow>& rows, std::wstring& 
     ULONG bufferSize = 1u << 20;
     std::vector<std::byte> buffer;
     LONG status = kStatusProcedureNotFound;
+    ULONG actualLength = 0;
     for (int attempt = 0; attempt < 8; ++attempt) {
         buffer.assign(bufferSize, std::byte{});
         ULONG returnLength = 0;
@@ -299,6 +308,7 @@ bool QueryModuleInformation(std::vector<DriverOverviewRow>& rows, std::wstring& 
             buffer.data(),
             bufferSize,
             &returnLength);
+        evidence->ntStatusKnown = true;evidence->ntStatus = status;actualLength = returnLength;
         if (status == kStatusSuccess) {
             break;
         }
@@ -309,7 +319,9 @@ bool QueryModuleInformation(std::vector<DriverOverviewRow>& rows, std::wstring& 
             diagnosticText += code;
             return false;
         }
-        bufferSize = std::max<ULONG>(bufferSize * 2u, returnLength + 0x10000u);
+        const auto next = (std::max)(static_cast<std::uint64_t>(bufferSize)*2,static_cast<std::uint64_t>(returnLength)+0x10000);
+        if (next > 128ull*1024*1024) {evidence->win32ErrorKnown = true;evidence->win32Error = ERROR_MORE_DATA;break;}
+        bufferSize = static_cast<ULONG>(next);
     }
 
     if (status != kStatusSuccess) {
@@ -317,7 +329,15 @@ bool QueryModuleInformation(std::vector<DriverOverviewRow>& rows, std::wstring& 
         return false;
     }
 
+    const auto offset = offsetof(KRTL_PROCESS_MODULES,Modules);
+    if (actualLength < offset || actualLength > buffer.size()) {
+        evidence->malformed = true;diagnosticText = L"NtQuerySystemInformation(SystemModuleInformation) 重试失败。";return false;
+    }
     const auto* modules = reinterpret_cast<const KRTL_PROCESS_MODULES*>(buffer.data());
+    if (modules->NumberOfModules > (actualLength-offset)/sizeof(KRTL_PROCESS_MODULE_INFORMATION)) {
+        evidence->malformed = true;diagnosticText = L"NtQuerySystemInformation(SystemModuleInformation) 重试失败。";return false;
+    }
+    evidence->reportedCount = modules->NumberOfModules;
     rows.reserve(modules->NumberOfModules);
     for (ULONG index = 0; index < modules->NumberOfModules; ++index) {
         const KRTL_PROCESS_MODULE_INFORMATION& module = modules->Modules[index];
@@ -325,12 +345,19 @@ bool QueryModuleInformation(std::vector<DriverOverviewRow>& rows, std::wstring& 
         row.driverName = AnsiPathFromModule(module);
         row.driverName = LeafName(row.driverName);
         const std::uint64_t baseAddress = reinterpret_cast<std::uint64_t>(module.ImageBase);
+        row.baseAddress = baseAddress;row.baseKnown = baseAddress != 0;row.imageSize = module.ImageSize;row.sizeKnown = module.ImageSize != 0;
+        row.flags = module.Flags;row.loadOrder = module.LoadOrderIndex;row.initOrder = module.InitOrderIndex;row.loadCount = module.LoadCount;
+        row.rangeValid = baseAddress <= (std::numeric_limits<std::uint64_t>::max)()-module.ImageSize;
+        if (!row.rangeValid) evidence->malformed = true;
+        if (!row.baseKnown) evidence->redacted = true;
         const std::uint64_t endAddress = baseAddress + static_cast<std::uint64_t>(module.ImageSize);
         row.baseAddressText = FormatHexAddress(baseAddress);
         row.memoryRangeText = FormatHexAddress(baseAddress) + L"-" + FormatHexAddress(endAddress);
         row.sizeText = FormatByteSize(module.ImageSize);
         row.pathText = AnsiPathFromModule(module);
-        row.signatureText = VerifyDriverImageSignature(row.pathText);
+        row.pathKnown = std::memchr(module.FullPathName,0,sizeof(module.FullPathName)) != nullptr && !row.pathText.empty();
+        row.nameKnown = row.pathKnown && !row.driverName.empty();
+        if (signature) row.signatureText = VerifyDriverImageSignature(row.pathText,&row.signature);
         row.statusText = row.pathText.empty() ? L"已加载，路径不可用" : L"已加载";
         row.anomalyText = L"等待 R0 完整性证据";
         row.capabilityHint = L"可进一步按基址或路径追踪驱动模块";
@@ -345,40 +372,61 @@ bool QueryModuleInformation(std::vector<DriverOverviewRow>& rows, std::wstring& 
     });
 
     diagnosticText = L"已通过 NtQuerySystemInformation 枚举驱动模块。";
+    evidence->complete = true;
     return true;
 }
-bool QueryPsapiModules(std::vector<DriverOverviewRow>& rows, std::wstring& diagnosticText) {
-    std::array<LPVOID, 2048> bases{};
+bool QueryPsapiModules(std::vector<DriverOverviewRow>& rows, std::wstring& diagnosticText,DriverEnumerationEvidence* evidence,bool signature) {
+    DriverEnumerationEvidence local;if (!evidence) evidence = &local;*evidence = {};
+    std::vector<LPVOID> bases(2048);
     DWORD needed = 0;
+    bool ready = false;
+    for (int attempt = 0;attempt < 8;++attempt) {
         if (!::EnumDeviceDrivers(bases.data(), static_cast<DWORD>(bases.size() * sizeof(LPVOID)), &needed)) {
-            diagnosticText = std::wstring(L"EnumDeviceDrivers 失败，错误 ") + std::to_wstring(::GetLastError()) + std::wstring(L"。建议以管理员身份运行。");
+            evidence->win32ErrorKnown = true;evidence->win32Error = ::GetLastError();
+            diagnosticText = std::wstring(L"EnumDeviceDrivers 失败，错误 ") + std::to_wstring(evidence->win32Error) + std::wstring(L"。建议以管理员身份运行。");
             return false;
         }
+        if (needed%sizeof(LPVOID)) {evidence->malformed = true;return false;}
+        if (needed <= bases.size()*sizeof(LPVOID)) {ready = true;break;}
+        if (needed > 128u*1024*1024) break;
+        bases.assign(needed/sizeof(LPVOID),nullptr);
+    }
+    if (!ready) {evidence->win32ErrorKnown = true;evidence->win32Error = ERROR_MORE_DATA;return false;}
 
     const std::size_t count = needed / sizeof(LPVOID);
+    evidence->reportedCount = static_cast<DWORD>(count);
     rows.reserve(count);
     for (std::size_t index = 0; index < count; ++index) {
         LPVOID base = bases[index];
         wchar_t nameBuffer[512]{};
         wchar_t pathBuffer[1024]{};
-        if (!::GetDeviceDriverBaseNameW(base, nameBuffer, static_cast<DWORD>(_countof(nameBuffer))) || nameBuffer[0] == L'\0') {
+        DriverOverviewRow row;
+        const DWORD nameLength = base ? ::GetDeviceDriverBaseNameW(base,nameBuffer,static_cast<DWORD>(_countof(nameBuffer))) : 0;
+        if (base && !nameLength) row.nameError = ::GetLastError();
+        row.nameKnown = nameLength > 0 && nameLength < _countof(nameBuffer) && nameBuffer[0] != L'\0';
+        if (nameLength >= _countof(nameBuffer)) row.nameError = ERROR_INSUFFICIENT_BUFFER;
+        const DWORD pathLength = base ? ::GetDeviceDriverFileNameW(base,pathBuffer,static_cast<DWORD>(_countof(pathBuffer))) : 0;
+        if (base && !pathLength) row.pathError = ::GetLastError();
+        row.pathKnown = pathLength > 0 && pathLength < _countof(pathBuffer) && pathBuffer[0] != L'\0';
+        if (pathLength >= _countof(pathBuffer)) row.pathError = ERROR_INSUFFICIENT_BUFFER;
+        nameBuffer[_countof(nameBuffer)-1] = L'\0';pathBuffer[_countof(pathBuffer)-1] = L'\0';
+        if (!row.nameKnown) {
             std::wstring fallback = L"<unknown>";
-            ::GetDeviceDriverFileNameW(base, pathBuffer, static_cast<DWORD>(_countof(pathBuffer)));
-            if (pathBuffer[0] != L'\0') {
+            if (row.pathKnown) {
                 fallback = LeafName(pathBuffer);
+                row.nameKnown = !fallback.empty();
             }
             ::wcsncpy_s(nameBuffer, _countof(nameBuffer), fallback.c_str(), _TRUNCATE);
         }
-        ::GetDeviceDriverFileNameW(base, pathBuffer, static_cast<DWORD>(_countof(pathBuffer)));
-
-        DriverOverviewRow row;
         row.driverName = nameBuffer;
         const std::uint64_t baseAddress = reinterpret_cast<std::uint64_t>(base);
+        row.baseAddress = baseAddress;row.baseKnown = base != nullptr;
+        if (!base) evidence->redacted = true;
         row.baseAddressText = FormatHexAddress(baseAddress);
         row.memoryRangeText = FormatHexAddress(baseAddress) + L"-未知";
         row.sizeText = L"未知";
         row.pathText = pathBuffer;
-        row.signatureText = VerifyDriverImageSignature(row.pathText);
+        if (signature && row.pathKnown) row.signatureText = VerifyDriverImageSignature(row.pathText,&row.signature);
         row.statusText = L"已加载";
         row.anomalyText = L"Psapi 回退路径，等待 R0 完整性证据";
         row.capabilityHint = L"可进一步按基址或路径追踪驱动模块";
@@ -390,6 +438,7 @@ bool QueryPsapiModules(std::vector<DriverOverviewRow>& rows, std::wstring& diagn
     });
 
     diagnosticText = L"已通过 Psapi 回退枚举驱动模块；大小信息不可用。";
+    evidence->complete = true;
     return true;
 }
 void QueryObjectDirectory(

@@ -365,4 +365,12 @@
     <ClCompile Include="..\shared\usermode\backend\process\ProcessHotkeys.cpp" />
     <ClInclude Include="..\shared\usermode\backend\process\ProcessHotkeys.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3DriverModules.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\driver\DriverQueries.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\driver\DriverFormatting.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\driver\DriverQueries.h" />
+    <ClInclude Include="..\shared\usermode\backend\driver\DriverFormatting.h" />
+    <ClInclude Include="..\shared\usermode\backend\driver\DriverTypes.h" />
+  </ItemGroup>
 </Project>
