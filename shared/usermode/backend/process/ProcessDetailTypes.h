@@ -6,8 +6,17 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <map>
 
 namespace ks::r3::process_detail {
+
+struct ProcessQueryEvidence {
+    bool available = false;
+    bool win32ErrorKnown = false, ntStatusKnown = false;
+    DWORD win32Error = ERROR_SUCCESS;
+    LONG ntStatus = 0;
+    bool emptyValue = false;
+};
 
 // ProcessBasicInfo carries the read-only fields shown by the Basic page.
 // Inputs are collected from Win32 and ntdll process queries; processing converts
@@ -37,6 +46,9 @@ struct ProcessBasicInfo {
     std::wstring integrityLevel;
     std::wstring priorityText;
     std::wstring statusText;
+    ULONGLONG creationTime100ns = 0;
+    DWORD priorityClass = 0;
+    std::map<std::wstring, ProcessQueryEvidence> evidence;
 };
 
 // ProcessThreadInfo describes one thread row. Inputs come from Toolhelp thread

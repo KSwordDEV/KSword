@@ -319,4 +319,11 @@
     <ClInclude Include="..\shared\usermode\backend\process\ProcessControls.h" />
     <ClInclude Include="..\shared\ProcessTerminateMethods.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessBasic.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessBasicInfo.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessBasicInfo.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessBasicInfoSupport.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessDetailTypes.h" />
+  </ItemGroup>
 </Project>

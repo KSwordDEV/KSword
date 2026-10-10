@@ -121,3 +121,25 @@ restart-manager-force、duplicate-handle、threads、nt-threads、debug、ntsd�
 它们保持共享方法自身的退出行为，并在保留身份句柄上确认退出；后端没有提供的原始状态不从文本推导。
 方法调用失败或在此系统不可用时保留 backendDetail，返回失败／不可用，不声称已退出。
 chain 复用两轮组合方法链，返回每步 requestSucceeded、querySucceeded、presentAfter 和诊断；存在性查询失败不能当成目标退出。
+
+## 基本信息（迁移项 23）
+
+```powershell
+KswordCLI.exe process detail basic query --pid PID [--creation-time FILETIME] [--backend r3] [--json]
+```
+
+通过 `help process detail`、`help process detail basic`、`help process detail basic query` 逐层发现命令。
+旧 `process detail --pid PID` 保留默认 R0 行为。本命令默认 R3，保留目标句柄并在收集前后核对进程实例和存活状态；
+不存在、创建时间不匹配或收集期间退出返回 3。查询不写入 PEB，不要求 KswordARK 驱动。
+
+输出 target、source、requestedCount、availableCount、fields。19 个字段为 name、parent-pid、parent-name、threads、
+image-path、command-line、bitness、session、user、integrity、elevated、creation-time、priority-class、handles、
+peb、affinity、working-set、private-bytes、io-bytes。每项包含 available、value、win32Error、ntStatus；
+查询缺少可靠证据时 value 为 null，原始状态未取得时为 null。后端展示文字不用于判断查询成功。
+
+PEB 和亲和性掩码使用十六进制字符串；创建时间是 Windows FILETIME 的 100 ns 计数，内存／I/O 字节使用十进制字符串。
+priority-class 为 Win32 优先级常量。io-bytes 是读、写、其他 I/O 传输计数的饱和和，不表示磁盘实际吞吐。
+命令行保留远程原文，有效空值输出空字符串；与 fields query 的展示规范不同。
+父进程可能已经退出，因此 parent-name 可不可用；名称快照和统计并非同一瞬间的原子视图。
+读取命令行需要 PROCESS_VM_READ；受保护进程或跨架构布局限制可能使该字段不可用。
+全部字段有可靠证据返回 0，部分返回 6，全无证据返回 5。后端的“打开成功”不能替代各字段可用性。

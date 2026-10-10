@@ -90,4 +90,5 @@ void registerProcessEnumeration();
 void registerProcessFields();
 void registerProcessTelemetry();
 void registerProcessControls();
+void registerProcessBasic();
 }
