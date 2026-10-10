@@ -38,6 +38,8 @@ constexpr std::array<const wchar_t*, 51> kTokenClassNames{
     L"TokenLoggingInformation", L"TokenLearningMode", L"TokenIsAppSilo"
 };
 std::wstring TokenClassName(int informationClass);
+// CLI/native identity follows the current SDK; keep legacy Light report labels.
+std::wstring NativeTokenClassName(int informationClass);
 std::wstring SidText(PSID sid);
 bool QueryTokenBytes(HANDLE token, int informationClass, std::vector<std::byte>& bytes, DWORD& error,bool* malformed = nullptr);
 struct TokenClassSnapshot {

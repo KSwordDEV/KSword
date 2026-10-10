@@ -251,3 +251,34 @@ UIAccess 等标量设置可能需要调用方 SeTcbPrivilege；普通管理员�
 MandatoryPolicy 修改也可能因令牌已在使用（STATUS_TOKEN_ALREADY_IN_USE）拒绝，并非具有权限后即可修改所有运行中令牌字段。
 在已经持有该权限的 CLI 上下文中，可用 `privilege run --enable SeTcbPrivilege -- process token raw set ...` 保证启用与设置在同一进程中；
 作用域执行不会授予当前令牌原本没有的权限。
+
+## 令牌开关（迁移项 27）
+
+```powershell
+KswordCLI.exe process token switches query --pid PID [--creation-time FILETIME] [--name NAME] [--backend r3] [--json]
+KswordCLI.exe process token switches NAME query --pid PID [--creation-time FILETIME] [--backend r3] [--json]
+KswordCLI.exe process token switches NAME enable --pid PID [--creation-time FILETIME] --confirm [--backend r3] [--json]
+KswordCLI.exe process token switches NAME disable --pid PID [--creation-time FILETIME] --confirm [--backend r3] [--json]
+```
+
+从 `help process token switches` 找到直接字段子树，再通过 `help process token switches ui-access` 找到具体动作。
+读取字段为 sandbox-inert、virtualization-allowed、virtualization-enabled、ui-access、has-restrictions、app-container、restricted、
+less-privileged-app-container、sandboxed、app-silo、mandatory-no-write-up、mandatory-new-process-min。
+其中 virtualization-allowed、virtualization-enabled、ui-access 和两个 mandatory-policy 位提供 enable／disable；
+明确只读的原生类只提供 query，不把 Light 批量 UI 设置中尝试写只读字段的行为发布为可执行叶子。
+
+输出 target、source、requestedCount、availableCount、switches。每项含 name、informationClass、className、mask、policy、writable、
+available、value、win32Error、returnLength；未知状态为 null。部分原生布尔类实际返回 BOOLEAN（1 字节），另一些返回 ULONG（4 字节），
+二者都按布尔语义解码并保留实际长度；policy 必须是完整 DWORD。无效长度返回 4，部分可用返回 6，所选类不支持返回 5，实际查询失败返回 3。
+查询与动作均保留身份句柄，创建时间不符、权限不足或目标退出返回 3，不自动切换 R0。
+
+AppSilo 查询已纠正为 SDK 信息类 48，旧后端的 51 实际是当前 SDK 的 TokenIsSystemManagedAdmin。
+CLI 原始信息类名称也按当前 SDK 修正 48..52；Light 旧文本报告的名称表保留，不用于 CLI 的字段身份。
+信息类名称不保证在所有旧 OS 上可用，缺失或历史布局不符合所需布尔类型时不会输出“关闭”。
+
+每个写命令只设置所选原生字段，输出 requestSucceeded、writeAttempted、verified、ntStatus／win32Error、before／after。
+policy 以十六进制给出原始位图，设置一个位时保留其他观察到的位，并通过 otherPolicyBitPreserved 复核；读改写并非跨进程原子事务。
+请求成功但回读缺失、不匹配或未请求位发生变化返回 6，不依据 UI 完成文字或 API 请求已接受判定成功。
+VirtualizationAllowed 设置要求 SeCreateTokenPrivilege；UIAccess 和 MandatoryPolicy 可能要求 SeTcbPrivilege。
+Native 64 位／提升令牌可能拒绝或忽略虚拟化启用；运行中令牌可能拒绝 MandatoryPolicy 修改。所有限制按实际原生结果与回读报告。
+可在已持有所需权限的环境中使用 `privilege run` 包裹单个开关动作；它不会授予目标或调用方缺少的权限。

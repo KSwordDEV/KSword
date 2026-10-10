@@ -8,7 +8,7 @@ namespace ks::cli {
 namespace {
 namespace backend = ks::r3::process_detail::token;
 int informationClass(const std::wstring& name) {
-    for (int n=1;n<=80;++n) if (_wcsicmp(name.c_str(),backend::TokenClassName(n).c_str()) == 0) return n;
+    for (int n=1;n<=80;++n) if (_wcsicmp(name.c_str(),backend::NativeTokenClassName(n).c_str()) == 0) return n;
     Args number;number.values[L"--class"] = name;
     const auto n = number.u32(L"--class");
     if (!n || n > 80) throw std::invalid_argument("--class must be an information-class name or number 1..80; use process token classes list");
@@ -95,7 +95,7 @@ Result query(const Args& args,bool raw) {
         const bool known = row.available && !row.malformed && !value.malformed && !value.conversionError;if (known) ++available;
         partial = partial || value.truncated;malformed = malformed || value.malformed || row.malformed;
         failed = failed || value.conversionError != 0 || (!row.available && row.win32Error != ERROR_INVALID_PARAMETER && row.win32Error != ERROR_NOT_SUPPORTED && row.win32Error != ERROR_INVALID_FUNCTION);
-        rows.push_back(Json::object({{L"informationClass",Json::number(row.informationClass)}, {L"name",Json::string(backend::TokenClassName(row.informationClass))},
+        rows.push_back(Json::object({{L"informationClass",Json::number(row.informationClass)}, {L"name",Json::string(backend::NativeTokenClassName(row.informationClass))},
             {L"available",Json::boolean(known)}, {L"win32Error",Json::number(value.conversionError ? value.conversionError : row.win32Error)}, {L"malformed",Json::boolean(value.malformed || row.malformed)},
             {L"byteSize",row.available ? Json::count(row.bytes.size()) : Json{}}, {L"truncated",Json::boolean(value.truncated)}, {L"value",known ? value.value : Json{}}}));
     }
@@ -147,7 +147,7 @@ Result rawSet(const Args& args) {
     const auto status = static_cast<DWORD>(outcome.ntStatus);
     const bool unsupported = outcome.unsupported || (outcome.ntStatusKnown && (status == 0xc0000002 || status == 0xc0000003 || status == 0xc00000bb));
     return {unsupported ? 5 : !outcome.requestSucceeded ? 3 : verified ? 0 : 6,Json::object({{L"target",lease.json()}, {L"informationClass",Json::number(id)},
-        {L"name",Json::string(backend::TokenClassName(id))}, {L"payloadSize",Json::count(payload.size())}, {L"requestSucceeded",Json::boolean(outcome.requestSucceeded)},
+        {L"name",Json::string(backend::NativeTokenClassName(id))}, {L"payloadSize",Json::count(payload.size())}, {L"requestSucceeded",Json::boolean(outcome.requestSucceeded)},
         {L"verified",Json::boolean(verified)}, {L"readbackKnown",Json::boolean(known)}, {L"readbackComparable",Json::boolean(comparable(id))},
         {L"requestedHex",Json::bytes(input.bytes,512)}, {L"requestedTruncated",Json::boolean(input.bytes.size() > 512)},
         {L"readbackHex",known ? Json::bytes(observed,512) : Json{}}, {L"readbackSize",known ? Json::count(observed.size()) : Json{}},
@@ -160,7 +160,7 @@ Result rawSet(const Args& args) {
 void registerProcessToken() {
     addCommand({L"process token classes list",L"KswordCLI.exe process token classes list [--backend r3] [--json]",L"List native token information-class names.",L"Optional: --backend r3, --json.",
         L"Names identify TOKEN_INFORMATION_CLASS query/set parameters, not action numbers. Listed classes are not all supported on every Windows version.",[](const Args&){
-            std::vector<Json> rows;for (int n=1;n<=80;++n) rows.push_back(Json::object({{L"informationClass",Json::number(n)}, {L"name",Json::string(backend::TokenClassName(n))}}));
+            std::vector<Json> rows;for (int n=1;n<=80;++n) rows.push_back(Json::object({{L"informationClass",Json::number(n)}, {L"name",Json::string(backend::NativeTokenClassName(n))}}));
             return Result{0,Json::object({{L"classes",Json::array(rows)}})};
         }});
     addCommand({L"process token query",L"KswordCLI.exe process token query --pid PID [--creation-time FILETIME] [--classes NAME[,NAME...]|all] [--limit N] [--max-bytes N] [--backend r3] [--json]",

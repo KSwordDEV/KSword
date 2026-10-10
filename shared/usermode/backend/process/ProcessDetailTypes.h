@@ -137,6 +137,12 @@ struct ProcessTokenSwitchSnapshot {
     std::array<bool, 12> values{};
     std::array<bool, 12> updated{};
     std::wstring statusText;
+    std::array<DWORD,12> queryErrors{};
+    std::array<DWORD,12> returnLengths{};
+    DWORD win32Error = ERROR_SUCCESS;
+    bool win32ErrorKnown = false;
+    DWORD mandatoryPolicy = 0;
+    bool mandatoryPolicyKnown = false;
 };
 
 // ProcessPebSnapshot is a read-only PEB and virtual-address-space result. The

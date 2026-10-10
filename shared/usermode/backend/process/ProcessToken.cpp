@@ -10,6 +10,16 @@ std::wstring TokenClassName(int informationClass) {
     }
     return L"TokenClass" + std::to_wstring(informationClass);
 }
+std::wstring NativeTokenClassName(int informationClass) {
+    switch (informationClass) {
+    case 48: return L"TokenIsAppSilo";
+    case 49: return L"TokenLoggingInformation";
+    case 50: return L"TokenLearningMode";
+    case 51: return L"TokenIsSystemManagedAdmin";
+    case 52: return L"TokenIsInstaller";
+    default: return informationClass <= 47 ? TokenClassName(informationClass) : L"TokenClass" + std::to_wstring(informationClass);
+    }
+}
 std::wstring SidText(PSID sid) {
     if (!sid) {
         return L"<null sid>";

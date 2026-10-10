@@ -1502,6 +1502,7 @@ namespace
             ks::cli::registerProcessThreads();
             ks::cli::registerProcessModules();
             ks::cli::registerProcessToken();
+            ks::cli::registerTokenSwitches();
             #endif
             return true;
         }();

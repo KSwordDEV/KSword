@@ -350,4 +350,9 @@
     <ClCompile Include="..\shared\usermode\backend\process\ProcessToken.cpp" />
     <ClInclude Include="..\shared\usermode\backend\process\ProcessToken.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3TokenSwitches.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessTokenSwitches.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessTokenSwitches.h" />
+  </ItemGroup>
 </Project>
