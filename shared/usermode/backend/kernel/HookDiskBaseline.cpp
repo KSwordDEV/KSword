@@ -53,72 +53,40 @@ std::unordered_map<std::uint64_t, KernelModuleDiskInfo> QueryLoadedKernelModuleM
     }
     return modules;
 }
-bool ReadWholeBinaryFile(const std::wstring& path, std::vector<std::uint8_t>& bytesOut) {
-    HANDLE file = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-    LARGE_INTEGER size{};
-    if (!::GetFileSizeEx(file, &size) || size.QuadPart <= 0 || size.QuadPart > 128LL * 1024LL * 1024LL) {
-        ::CloseHandle(file);
-        return false;
-    }
-    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size.QuadPart));
-    DWORD read = 0;
-    const BOOL ok = ::ReadFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &read, nullptr);
-    ::CloseHandle(file);
-    if (!ok || read != bytes.size()) {
-        return false;
-    }
-    bytesOut = std::move(bytes);
-    return true;
+bool ReadWholeBinaryFile(const std::wstring& path,std::vector<std::uint8_t>& bytesOut,DiskReadEvidence* evidenceOut){
+    DiskReadEvidence local;auto& e=evidenceOut?*evidenceOut:local;e={};bool complete=false;
+    [&]{HANDLE file=::CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+        if(file==INVALID_HANDLE_VALUE){e.error=::GetLastError();return;}
+        struct Owner{HANDLE handle;DiskReadEvidence& e;~Owner(){e.closeAttempted=true;::SetLastError(0);e.closed=::CloseHandle(handle)!=FALSE;e.closeError=e.closed?0: ::GetLastError();}} owner{file,e};e.opened=true;
+        LARGE_INTEGER size{};if(!::GetFileSizeEx(file,&size)){e.error=::GetLastError();return;}if(size.QuadPart<0){e.error=ERROR_BAD_EXE_FORMAT;return;}e.sizeKnown=true;e.size=static_cast<std::uint64_t>(size.QuadPart);
+        if(size.QuadPart==0){e.error=ERROR_BAD_EXE_FORMAT;return;}if(size.QuadPart>128LL*1024LL*1024LL){e.limited=true;return;}
+        e.identityKnown=::GetFileInformationByHandle(file,&e.identity)!=FALSE;e.identityError=e.identityKnown?0: ::GetLastError();
+        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size.QuadPart));DWORD read=0;const auto ok=::ReadFile(file,bytes.data(),static_cast<DWORD>(bytes.size()),&read,nullptr);e.bytesRead=read;
+        if(!ok||read!=bytes.size()){e.error=ok?ERROR_HANDLE_EOF: ::GetLastError();return;}
+        BY_HANDLE_FILE_INFORMATION after{};if(!::GetFileInformationByHandle(file,&after)){e.identityKnown=false;e.identityError=::GetLastError();}
+        else if(e.identityKnown)e.identityChanged=e.identity.dwVolumeSerialNumber!=after.dwVolumeSerialNumber||e.identity.nFileIndexHigh!=after.nFileIndexHigh||e.identity.nFileIndexLow!=after.nFileIndexLow||e.identity.nFileSizeHigh!=after.nFileSizeHigh||e.identity.nFileSizeLow!=after.nFileSizeLow||e.identity.ftLastWriteTime.dwHighDateTime!=after.ftLastWriteTime.dwHighDateTime||e.identity.ftLastWriteTime.dwLowDateTime!=after.ftLastWriteTime.dwLowDateTime;
+        bytesOut=std::move(bytes);e.complete=true;complete=true;
+    }();return complete;
 }
-bool RvaToFileOffset(const std::vector<std::uint8_t>& fileBytes, const std::uint32_t rva, const std::uint32_t bytesToRead, std::uint64_t& offsetOut) {
-    if (fileBytes.size() < sizeof(IMAGE_DOS_HEADER)) {
-        return false;
+bool RvaToFileOffset(const std::vector<std::uint8_t>& bytes,std::uint32_t rva,std::uint32_t count,std::uint64_t& offsetOut,RvaEvidence* evidenceOut){
+    RvaEvidence local;auto& e=evidenceOut?*evidenceOut:local;e={};const auto fits=[&](std::uint64_t offset,std::uint64_t size){return offset<=bytes.size()&&size<=bytes.size()-offset;};
+    IMAGE_DOS_HEADER dos{};if(!fits(0,sizeof(dos))){e.malformed=true;return false;}memcpy(&dos,bytes.data(),sizeof(dos));
+    if(dos.e_magic!=IMAGE_DOS_SIGNATURE||dos.e_lfanew<=0){e.malformed=true;return false;}
+    const auto nt=static_cast<std::uint64_t>(dos.e_lfanew);if(!fits(nt,sizeof(DWORD)+sizeof(IMAGE_FILE_HEADER))){e.malformed=true;return false;}
+    DWORD signature=0;IMAGE_FILE_HEADER header{};memcpy(&signature,bytes.data()+nt,4);memcpy(&header,bytes.data()+nt+4,sizeof(header));
+    const auto optional=nt+4+sizeof(header);if(signature!=IMAGE_NT_SIGNATURE||!header.NumberOfSections||header.NumberOfSections>96||!fits(optional,header.SizeOfOptionalHeader)||header.SizeOfOptionalHeader<64){e.malformed=true;return false;}
+    memcpy(&e.optionalMagic,bytes.data()+optional,2);if((e.optionalMagic!=IMAGE_NT_OPTIONAL_HDR32_MAGIC&&e.optionalMagic!=IMAGE_NT_OPTIONAL_HDR64_MAGIC)||header.SizeOfOptionalHeader<(e.optionalMagic==IMAGE_NT_OPTIONAL_HDR32_MAGIC?sizeof(IMAGE_OPTIONAL_HEADER32):sizeof(IMAGE_OPTIONAL_HEADER64))){e.malformed=true;return false;}
+    DWORD sizeOfHeaders=0;memcpy(&sizeOfHeaders,bytes.data()+optional+60,4);const auto sections=optional+header.SizeOfOptionalHeader;
+    if(!fits(sections,std::uint64_t(header.NumberOfSections)*sizeof(IMAGE_SECTION_HEADER))||sizeOfHeaders<sections+std::uint64_t(header.NumberOfSections)*sizeof(IMAGE_SECTION_HEADER)||sizeOfHeaders>bytes.size()){e.malformed=true;return false;}
+    const auto end=std::uint64_t(rva)+count;bool mapped=count&&end<=sizeOfHeaders&&fits(rva,count);std::uint64_t offset=mapped?rva:0;UINT overlapping=mapped?1:0;
+    for(WORD index=0;index<header.NumberOfSections;++index){IMAGE_SECTION_HEADER section{};memcpy(&section,bytes.data()+sections+std::uint64_t(index)*sizeof(section),sizeof(section));
+        const auto mappedSize=(std::max)(section.Misc.VirtualSize,section.SizeOfRawData);const auto sectionEnd=std::uint64_t(section.VirtualAddress)+mappedSize;
+        if(sectionEnd>0x100000000ULL||(section.SizeOfRawData&&!fits(section.PointerToRawData,section.SizeOfRawData))){e.malformed=true;return false;}
+        if(!count||rva<section.VirtualAddress||rva>=sectionEnd)continue;if(++overlapping>1){e.malformed=true;return false;}
+        const auto delta=std::uint64_t(rva)-section.VirtualAddress;if(delta+count>section.SizeOfRawData)continue;
+        const auto candidate=std::uint64_t(section.PointerToRawData)+delta;if(!fits(candidate,count)){e.malformed=true;return false;}mapped=true;offset=candidate;
     }
-    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(fileBytes.data());
-    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0) {
-        return false;
-    }
-    const std::uint64_t ntOffset = static_cast<std::uint64_t>(dos->e_lfanew);
-    if (ntOffset + sizeof(IMAGE_NT_HEADERS64) > fileBytes.size()) {
-        return false;
-    }
-    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(fileBytes.data() + ntOffset);
-    if (nt->Signature != IMAGE_NT_SIGNATURE || nt->FileHeader.NumberOfSections == 0 || nt->FileHeader.NumberOfSections > 96) {
-        return false;
-    }
-    const std::uint64_t optionalOffset = ntOffset + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER);
-    const std::uint64_t sectionOffset = optionalOffset + nt->FileHeader.SizeOfOptionalHeader;
-    const std::uint64_t sectionBytes = static_cast<std::uint64_t>(nt->FileHeader.NumberOfSections) * sizeof(IMAGE_SECTION_HEADER);
-    if (sectionOffset + sectionBytes > fileBytes.size()) {
-        return false;
-    }
-    if (rva + bytesToRead <= nt->OptionalHeader.SizeOfHeaders && rva + bytesToRead <= fileBytes.size()) {
-        offsetOut = rva;
-        return true;
-    }
-    const auto* sections = reinterpret_cast<const IMAGE_SECTION_HEADER*>(fileBytes.data() + sectionOffset);
-    for (std::uint16_t i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
-        const IMAGE_SECTION_HEADER& section = sections[i];
-        const std::uint32_t mappedSize = std::max(section.Misc.VirtualSize, section.SizeOfRawData);
-        if (mappedSize == 0 || rva < section.VirtualAddress || rva >= section.VirtualAddress + mappedSize) {
-            continue;
-        }
-        const std::uint32_t delta = rva - section.VirtualAddress;
-        if (delta + bytesToRead > section.SizeOfRawData) {
-            return false;
-        }
-        const std::uint64_t fileOffset = static_cast<std::uint64_t>(section.PointerToRawData) + delta;
-        if (fileOffset + bytesToRead > fileBytes.size()) {
-            return false;
-        }
-        offsetOut = fileOffset;
-        return true;
-    }
-    return false;
+    e.validPe=true;if(end>0x100000000ULL)return false;e.mapped=mapped;if(mapped)offsetOut=offset;return mapped;
 }
 InlineDiskBaseline ReadInlineDiskBaseline(
     const ksword::ark::KernelInlineHookEntry& entry,

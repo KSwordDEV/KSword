@@ -1,5 +1,22 @@
 # 内核对象与证据 R3 命令
 
+## 磁盘 PE Hook 基线（迁移项 57）
+
+```powershell
+KswordCLI.exe kernel hook-baseline help
+KswordCLI.exe help kernel hook-baseline query
+KswordCLI.exe kernel hook-baseline query --path '\SystemRoot\System32\ntoskrnl.exe' --rva 0 --count 2 --json
+KswordCLI.exe kernel hook-baseline compare --path Own.dll --rva 0x1000 --bytes 9090 --json
+```
+
+`query` 必须带磁盘 PE 文件 `--path`、uint32 `--rva`；`--count 1..16`（16）沿用共享后端的基线字节上限。`compare` 必须带 `--path`、`--rva` 和 `--bytes`（1..16 字节十六进制），比较来源是用户提供、未经身份验证的字节。两者支持 `--backend r3`／`--json`；路径复用后端的 SystemRoot／NT DOS 前缀转换，然后转为绝对文件路径。需要查找模块路径时可先用 [driver R3 查询](driver.md)。
+
+data 提供 source/path/rva/requestedByteCount/available/fileOffset/byteCount/bytesHex、mapping 的 validPe/mapped/malformed/optionalMagic；file 提供打开／大小／读取数量／完成／上限／原始错误、identityKnown/identityWin32Error/identityChanged/volumeSerialNumber/fileId/lastWriteTime、实际关闭证据。偏移／标志／文件 ID 为十六进制，计数／时间为十进制字符串，缺失值为 null。compare 额外提供 comparisonSource/suppliedBytesHex/differs；不同字节本身是成功取得的比较证据，返回 0，不表示“检测到内核 Hook”。
+
+后端使用 64 位范围运算校验 PE32／PE64 头、节表和原始数据映射，修复原先 uint32 的 RVA／长度加法回绕风险。无磁盘数据的虚拟尾部、跨原始节边界或未映射 RVA 返回 5，不能返回假定的零字节。文件读取上限 128 MiB，超过为 5；磁盘 I/O 失败为 3；PE 格式错误为 4；身份／写入元数据缺失或变化、关闭失败为 6；完整读取为 0。前后文件 ID／写入时间只是观察值，文件共享读取允许并发写入，不证明内容原子快照。
+
+Light 原适配器可把 R0 回执字节与此映射配对；纯 R3 CLI 只读取磁盘，不获取目标内核／进程内存，不验证所提供字节的模块身份、不做重定位／热补丁解释，不执行补丁或回退 R0。help 不读取文件。测试自建 PE 的头部、节内偏移、虚拟尾部、跨界与 uint32 回绕，独立核对字节和比较来源；另读取真实系统磁盘映像的 MZ 头。
+
 ## 安全 NtQuery 预设与导出（迁移项 56）
 
 ```powershell

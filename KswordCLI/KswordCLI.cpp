@@ -1532,6 +1532,7 @@ namespace
         ks::cli::registerKernelPipes();
         ks::cli::registerKernelAtoms();
         ks::cli::registerKernelNtQuery();
+        ks::cli::registerKernelHookBaseline();
             #endif
             return true;
         }();

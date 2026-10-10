@@ -417,4 +417,9 @@
     <ClCompile Include="..\shared\usermode\backend\kernel\NtQuery.cpp" />
     <ClInclude Include="..\shared\usermode\backend\kernel\NtQuery.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelHookBaseline.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\HookDiskBaseline.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\HookDiskBaseline.h" />
+  </ItemGroup>
 </Project>
