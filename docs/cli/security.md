@@ -1,5 +1,24 @@
 # 安全证据 R3 命令
 
+## BAM／ahcache／Amcache 摘要（迁移项 62）
+
+```powershell
+KswordCLI.exe security bam help
+KswordCLI.exe help security bam registry query
+KswordCLI.exe security bam query --json
+KswordCLI.exe security ahcache help
+KswordCLI.exe security ahcache amcache query --json
+KswordCLI.exe security ahcache registry query --json
+KswordCLI.exe security ahcache service query --json
+KswordCLI.exe security ahcache query --json
+```
+
+参数和来源／辅助进程字段同 CI。`bam query` 汇总 BAM UserSettings 子键计数与 bam SCM 状态，分别可用 `bam registry query`／`bam service query` 查询。注册摘要 payload 提供固定路径、known/present/userSettingsKeyCount/summaryOnly；已证实不存在时 count 为 null，存在但没有子键时为字符串 "0"；权限／读取失败不可冒充零计数。只计算子键，不输出 SID、值名或执行路径／时间线。
+
+`ahcache query` 汇总三个来源：`amcache query` 仅给 Amcache.hve 的 path/known/present/lengthBytes/lastWriteUtc/summaryOnly，不打开或解析 hive；`registry query` 仅给 AppCompatCache／AppCompatFlags 两个固定注册键的 known/present；`service query` 仅查询 ahcache 的 SCM 状态。文件时间是元数据观察值，不是执行时间或执行证明；缓存／服务存在也不证明某应用曾运行。缺失与错误分开，计数／长度使用十进制字符串，未知为 null。
+
+后端 UI 的 Privacy boundary 行是显示辅助，不增加独立 CLI 操作；各摘要 payload 保留 summaryOnly。没有历史详情／路径时间线导出、缓存修改、驱动加载或 R0 fallback，help 不查询。宿主／VM 用注册键计数、文件元数据、键存在性和 SCM 独立核对，缺少摘要源时明确保留不可用状态。
+
 ## AppLocker／AppID（迁移项 61）
 
 ```powershell

@@ -6,6 +6,15 @@
 #include <sstream>
 #include <utility>
 namespace ks::r3::security {
+const std::vector<SecurityProbe>& BamAhcacheProbes(){static const std::vector<SecurityProbe> probes{
+    {L"bam-summary",L"BAM UserSettings child-key count only; no SIDs/execution history",SecurityProbeKind::Command,
+        L"$path='HKLM:\\SYSTEM\\CurrentControlSet\\Services\\bam\\State\\UserSettings';$payload=if(Test-Path -LiteralPath $path -ErrorAction Stop){$keys=@(Get-ChildItem -LiteralPath $path -ErrorAction Stop);[ordered]@{available=$true;path=$path;known=$true;present=$true;userSettingsKeyCount=[string]$keys.Count;summaryOnly=$true}}else{[ordered]@{available=$true;path=$path;known=$true;present=$false;userSettingsKeyCount=$null;summaryOnly=$true}};$payload|ConvertTo-Json -Compress -Depth 8",{},{}},
+    {L"amcache-file",L"Amcache.hve disk metadata only; no hive/history read",SecurityProbeKind::Command,
+        L"$path=Join-Path $env:windir 'AppCompat\\Programs\\Amcache.hve';$payload=if(Test-Path -LiteralPath $path -PathType Leaf -ErrorAction Stop){$file=Get-Item -LiteralPath $path -ErrorAction Stop;[ordered]@{available=$true;path=$path;known=$true;present=$true;lengthBytes=[string]$file.Length;lastWriteUtc=$file.LastWriteTimeUtc.ToString('o');summaryOnly=$true}}else{[ordered]@{available=$true;path=$path;known=$true;present=$false;lengthBytes=$null;lastWriteUtc=$null;summaryOnly=$true}};$payload|ConvertTo-Json -Compress -Depth 8",{},{}},
+    {L"appcompat-keys",L"AppCompatCache/AppCompatFlags key availability only",SecurityProbeKind::Command,
+        L"$partial=$false;$items=@(foreach($path in @('HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\AppCompatCache','HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags')){try{[ordered]@{path=$path;known=$true;present=[bool](Test-Path -LiteralPath $path -ErrorAction Stop)}}catch{$partial=$true;[ordered]@{path=$path;known=$false;present=$null;error=$_.Exception.Message}}});[ordered]@{available=$true;keys=$items;summaryOnly=$true}|ConvertTo-Json -Compress -Depth 8;if($partial){exit 6}",{},{}},
+    {L"bam-service",L"SCM BAM driver registration/status",SecurityProbeKind::Service,{},{},L"bam"},
+    {L"ahcache-service",L"SCM ahcache registration/status",SecurityProbeKind::Service,{},{},L"ahcache"}};return probes;}
 void AppendBamAhcacheR3(std::vector<MiscAuditRow>& rows) {
 
 

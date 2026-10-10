@@ -1537,6 +1537,7 @@ namespace
         ks::cli::registerSecurityVbs();
         ks::cli::registerSecurityHyperV();
         ks::cli::registerSecurityAppLocker();
+        ks::cli::registerSecurityBamAhcache();
             #endif
             return true;
         }();

@@ -447,4 +447,9 @@
     <ClCompile Include="..\shared\usermode\backend\security\AppLocker.cpp" />
     <ClInclude Include="..\shared\usermode\backend\security\AppLocker.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SecurityBamAhcache.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\security\BamAhcache.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\security\BamAhcache.h" />
+  </ItemGroup>
 </Project>
