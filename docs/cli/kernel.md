@@ -1,5 +1,22 @@
 # 内核对象与证据 R3 命令
 
+## 对象目录递归（迁移项 48）
+
+```powershell
+KswordCLI.exe kernel directory help
+KswordCLI.exe help kernel directory enum
+KswordCLI.exe kernel directory enum --root '\BaseNamedObjects' --max-depth 1 --json
+KswordCLI.exe kernel directory enum --root '\KnownDlls' --max-depth 0 --json
+```
+
+`kernel directory enum` 使用共享后端的广度优先遍历，支持 `--root`（原生绝对路径，默认 `\`）、`--max-depth 0..32`（4）、`--filter`（路径／名称／类型／链接目标子串，不区分大小写）、`--max-rows 1..2500`（2500，后端保留匹配行）、`--max-scanned-entries 1..10000`（10000，读取／遍历条目）、`--max-entries 1..100000`（每目录条目预算）、`--duration-ms 100..30000`（整个 sweep 的 API 调用间预算，8000）、`--limit 1..2500`（输出上限，1000）、`--backend r3`、`--json`。
+
+深度 0 是起点目录的直接子项；扫描下一层目录时 depth 加一。只把 Directory 放入队列，SymbolicLink 只显示不递归。筛选只选择显示行，不剪去父目录或后代读取。深度上限定义请求视图范围，达到该深度可正常完整成功，同时显示 depthBoundaryDirectoryCount；读取／保留行／时间预算与输出截断则明确为部分结果。共享 Light 视图也复用该收集器，限制保留 2500 行，修复原循环在单个大目录内越过显示上限的问题。
+
+data 提供 root/filter/maxDepth、completeWithinDepth/metadataComplete、limited/cancelled/malformed、scannedDirectoryCount/scannedEntryCount、matchedObservedCount/storedCount/returnedCount、depthBoundaryDirectoryCount/deduplicatedPathCount、truncated、sources、entries。中断时 matchedObservedCount 只是已遍历前缀的匹配数量，不能冒充总数。每个 source 带实际目录 depth 及上一节的打开／枚举／关闭证据；每个条目带实际深度、原生名称／类型／路径及可得的目录／链接元数据，未知为 null。
+
+完整请求视图可成功为 0（包含有效空或筛选空）；实际预算、取消、后端字段／目录受限、关闭失败或输出截断为 6，起点／所有目录失败且无可读结果为 3，API 不可用为 5，响应格式错误为 4。不能推断未遍历深层对象不存在，不暴露猜测的内核地址、不修改对象、不回退 R0。help 不读取命名空间。测试独立核对自建父目录／子目录／孙事件的 BFS 深度和名称，覆盖深度边界、筛选不剪枝、实际读取预算、保留行预算与仅显示截断的差异。
+
 ## 对象命名空间（迁移项 47）
 
 ```powershell

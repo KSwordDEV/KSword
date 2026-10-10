@@ -153,6 +153,7 @@ struct QueryPacket {
     std::vector<std::wstring> warnings;
 };
 struct DirectoryQueryEvidence {
+    DWORD depth=0;
     std::wstring path;
     bool apiAvailable=false,openAttempted=false,opened=false,queryAttempted=false,complete=false,limited=false,cancelled=false,cycle=false,malformed=false;
     LONG openStatus=0,lastQueryStatus=0;

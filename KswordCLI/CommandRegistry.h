@@ -115,4 +115,5 @@ void registerSystemContextMenu();
 void registerSystemTime();
 void registerSystemIoctl();
 void registerKernelNamespace();
+void registerKernelDirectory();
 }

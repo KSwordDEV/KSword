@@ -487,4 +487,9 @@
     <ClInclude Include="..\shared\usermode\backend\kernel\ObjectNamespace.h" />
     <ClInclude Include="..\shared\usermode\backend\kernel\KernelTypes.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3KernelDirectory.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\kernel\ObjectDirectory.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\kernel\ObjectDirectory.h" />
+  </ItemGroup>
 </Project>

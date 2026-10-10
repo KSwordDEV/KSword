@@ -9,7 +9,7 @@ inline std::wstring path(const Args& a,const wchar_t* option=L"--root",const std
 }
 inline Json status(LONG value){return Json::hex(static_cast<ULONG>(value));}
 inline Json source(const b::DirectoryQueryEvidence& e,bool& partial,bool& malformed){partial=partial||!e.complete||e.limited||e.cancelled||e.cycle||(e.closeAttempted&&!e.closed);malformed=malformed||e.malformed;
-    return Json::object({{L"path",Json::string(e.path)},{L"apiAvailable",Json::boolean(e.apiAvailable)},{L"openAttempted",Json::boolean(e.openAttempted)},
+    return Json::object({{L"path",Json::string(e.path)},{L"depth",Json::number(e.depth)},{L"apiAvailable",Json::boolean(e.apiAvailable)},{L"openAttempted",Json::boolean(e.openAttempted)},
         {L"opened",Json::boolean(e.opened)},{L"openNtStatus",e.openAttempted?status(e.openStatus):Json{}},{L"queryAttempted",Json::boolean(e.queryAttempted)},
         {L"lastQueryNtStatus",e.queryAttempted?status(e.lastQueryStatus):Json{}},{L"lastReturnedBytes",e.queryAttempted?Json::count(e.returned):Json{}},
         {L"enumeratedCount",Json::count(e.queried)},{L"complete",Json::boolean(e.complete)},{L"limited",Json::boolean(e.limited)},{L"cancelled",Json::boolean(e.cancelled)},

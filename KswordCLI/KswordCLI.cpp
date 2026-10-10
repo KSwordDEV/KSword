@@ -1523,6 +1523,7 @@ namespace
         ks::cli::registerSystemTime();
         ks::cli::registerSystemIoctl();
         ks::cli::registerKernelNamespace();
+        ks::cli::registerKernelDirectory();
             #endif
             return true;
         }();
