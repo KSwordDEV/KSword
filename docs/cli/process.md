@@ -82,3 +82,42 @@ health 包含 running、dataLossDetected、eventsLost、win32Error（无法取�
 取消返回 6 且 cancelled=true；目标退出、身份错误或原生快照失败返回 3，不发布旧实例速率。
 无损完整结果返回 0，格式错误返回 4。只读采样不调整目标进程状态或权限。
 原生样本获取失败保留 stage、ntStatus、malformed 与后端诊断。
+
+## 进程控制（迁移项 22）
+
+```powershell
+KswordCLI.exe process suspend --pid PID [--creation-time FILETIME] --confirm --backend r3 [--json]
+KswordCLI.exe process resume --pid PID [--creation-time FILETIME] --confirm --backend r3 [--json]
+KswordCLI.exe process settings set-priority --pid PID --level idle|below-normal|normal|above-normal|high|realtime [--creation-time FILETIME] --confirm [--backend r3] [--json]
+KswordCLI.exe process settings efficiency enable --pid PID [--creation-time FILETIME] --confirm [--backend r3] [--json]
+KswordCLI.exe process settings efficiency disable --pid PID [--creation-time FILETIME] --confirm [--backend r3] [--json]
+KswordCLI.exe process settings critical enable --pid PID [--creation-time FILETIME] --confirm [--backend r3] [--json]
+KswordCLI.exe process settings critical disable --pid PID [--creation-time FILETIME] --confirm [--backend r3] [--json]
+KswordCLI.exe process terminate --pid PID [--creation-time FILETIME] [--exit-status NTSTATUS] --confirm --backend r3 [--json]
+KswordCLI.exe process terminate chain --pid PID [--creation-time FILETIME] --confirm [--backend r3] [--json]
+KswordCLI.exe process terminate-tree --pid PID [--creation-time FILETIME] [--exit-status NTSTATUS] --confirm [--backend r3] [--json]
+```
+
+创建时间可从 process enum 或其他进程查询取得；省略时本次先取得身份，再把该时间传给共享动作后端。
+操作期间保留身份句柄。身份不匹配、进程退出或访问失败返回 3，不作用于复用 PID 的新实例。
+沿用后端保护：系统 PID 不可操作，返回 5。纯 R3 路径不调用驱动。
+既有 terminate/suspend/resume 必须显式选择 R3，默认 R0 的参数、输出和行为保留。
+
+输出 target、action、requestSucceeded、verified、evidence、observed；原生错误和 NTSTATUS 独立保留，
+没有原始状态时为 null。优先级、效率和 critical 状态有前后回读；挂起／恢复有原生线程状态回读。
+API 请求完成但效果未确认返回 6，可靠回读匹配才返回 0；不支持返回 5，实际调用失败返回 3。
+效率模式先尝试公开读取接口，再复用后端 NtQueryInformationProcess 原生回退；两侧错误独立保留。
+效率模式设置后最多等待 500 ms 进行只读状态回读，以覆盖状态传播延迟；未确认仍返回 6。
+critical enable 设置 BreakOnTermination，之后异常终止目标可能使系统蓝屏；先 disable 并确认后再终止。
+共享后端按原行为在 critical 操作中尝试启用当前 CLI 的 SeDebugPrivilege；实时优先级和效率模式可能因权限或系统能力被拒绝。
+
+普通 terminate 默认退出码为 0xC000013A，可指定 exit-status；使用保留的句柄等待最多 2 秒并读取实际 exitCode。
+terminate-tree 按原生快照子进程优先处理，每个目标重新核对创建时间并等待退出，输出逐项结果和 confirmedCount／failedCount。
+父 PID 被复用时不会把更早创建的旧子进程纳入新树。快照后创建的子进程不在本次覆盖范围，部分完成返回 6。
+
+用 `help process terminate` 发现具体方法叶子：win32、nt、wts、winstation、job、nt-job、restart-manager、
+restart-manager-force、duplicate-handle、threads、nt-threads、debug、ntsd、unmap-ntdll。
+这些叶子的语法均为 `process terminate METHOD --pid PID [--creation-time FILETIME] --confirm [--backend r3] [--json]`。
+它们保持共享方法自身的退出行为，并在保留身份句柄上确认退出；后端没有提供的原始状态不从文本推导。
+方法调用失败或在此系统不可用时保留 backendDetail，返回失败／不可用，不声称已退出。
+chain 复用两轮组合方法链，返回每步 requestSucceeded、querySucceeded、presentAfter 和诊断；存在性查询失败不能当成目标退出。

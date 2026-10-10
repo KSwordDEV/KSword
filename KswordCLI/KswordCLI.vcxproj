@@ -313,4 +313,10 @@
     <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\network\network_process_etw_monitor.cpp" />
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\network\network_process_etw_monitor.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessControls.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessControls.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessControls.h" />
+    <ClInclude Include="..\shared\ProcessTerminateMethods.h" />
+  </ItemGroup>
 </Project>
