@@ -132,4 +132,5 @@ void registerSecurityAppLocker();
 void registerSecurityBamAhcache();
 void registerSecurityBugcheck();
 void registerClipboardControl();
+void registerProcessIdentity();
 }

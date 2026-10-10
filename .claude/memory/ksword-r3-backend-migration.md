@@ -21,3 +21,11 @@
 - Make byte-container zero-fill types explicit (`BYTE{0}`) for `/W4 /WX`; retain the same behavior. Task Scheduler code needs Taskschd/UUID link dependencies when compiling outside the Light project.
 - All original Light C++ string literals were retained. Source/code-scope audits and automated regressions do not replace manual acceptance of every live GUI operation.
 - No migration commit changed the main application, CLI, existing shared implementation, driver/client/protocol sources. Reused the existing driver binary and disabled driver rebuild/sign during standalone Light validation.
+
+## CLI 消费共享 R3 后端
+
+- 66 项 CLI 对应关系保存在 `docs/cli/coverage.json`，业务文档位于 `docs/cli/`；`CommandRegistry` 同时定义命令路径、参数校验与逐层帮助，R3 适配器按业务源文件注册。已有 R0 入口保留默认行为，显式 R3 不自动调用驱动。
+- 后端 UI 状态文本只作显示；CLI 使用结构化 API 状态、实际回读与资源关闭字段，不能从“完成”文本推导成功。未知数据用 null；地址/句柄用十六进制字符串，64 位计数/FILETIME 用十进制字符串。
+- 安全证据 helper 使用系统 Windows PowerShell、UTF-8 JSON 与已有 lossless evidence JSON 解析器；超时/取消回收自己启动的 helper，逐来源区分不可用、部分和格式错误。Bugcheck 迁移的 R3 能力只有计算机环境元数据；BAM/ahcache 只包含原后端摘要，不推导执行历史。
+- 进程身份查询在全部导航、详情、名称和事件路径采样期间保留经过创建时间验证且带 SYNCHRONIZE 的进程句柄。PID 显示回退不是可执行文件名称证据，采样后还需检查退出状态。
+- NPFS 原生目录枚举路径必须带末尾反斜杠，否则可能出现 open 成功而目录 query 返回 C000000D。剪贴板的 NULL opener 不能证明剪贴板未被占用；OpenClipboard(NULL) 的重复打开行为与显式 HWND 不同。

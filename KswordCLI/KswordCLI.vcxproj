@@ -581,4 +581,15 @@
     <ClCompile Include="..\shared\usermode\backend\window\ClipboardControl.cpp" />
     <ClInclude Include="..\shared\usermode\backend\window\ClipboardControl.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessIdentity.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessNavigationIdentity.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessNavigationIdentity.h" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessDetailIdentity.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessDetailIdentity.h" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessEvidenceName.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessEvidenceName.h" />
+    <ClCompile Include="..\shared\usermode\backend\process\EventProcessImagePath.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\EventProcessImagePath.h" />
+  </ItemGroup>
 </Project>

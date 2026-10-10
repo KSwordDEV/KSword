@@ -1540,6 +1540,7 @@ namespace
         ks::cli::registerSecurityBamAhcache();
         ks::cli::registerSecurityBugcheck();
         ks::cli::registerClipboardControl();
+        ks::cli::registerProcessIdentity();
             #endif
             return true;
         }();

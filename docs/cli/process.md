@@ -1,5 +1,20 @@
 # 进程命令（R3）
 
+## 进程身份采样（迁移项 66）
+
+```powershell
+KswordCLI.exe help process
+KswordCLI.exe process identity help
+KswordCLI.exe help process identity query
+KswordCLI.exe process identity query --pid 1234 --creation-time 134000000000000000 --json
+```
+
+`process identity query` 必須 `--pid` 正 uint32；可选 `--creation-time` 正 Windows FILETIME（十进制／十六进制 uint64）、`--backend r3`、`--json`。复用四个共享迁移适配器：ProcessNavigationIdentity 创建时间采样、ProcessDetailIdentity 详情租约、ProcessEvidenceName 显示名、EventProcessImagePath 完整映像路径。主租约保留 QUERY_LIMITED_INFORMATION|SYNCHRONIZE 进程句柄，名称查询前后检查存活，每个后端采样器按同一创建时间校验。
+
+data 提供 source/target/aliveBefore/aliveAfter/identityVerified/detailLeaseRetainedDuringQueries、detailIdentity/navigationIdentity、name/nameDisplayFallback/imagePath/pathSamplesConsistent/nameEvidence/eventPathEvidence。target 和创建时间为十进制字符串；每个源显示真实打开／时间／匹配／查询／长度／上限／关闭错误。显示名缓冲 1040 个 UTF-16 单元，事件路径缓冲 32768；名称无法取得时 name 为 null，UI 的 `PID N` 回退只能出现在 nameDisplayFallback，不作为成功查询的可执行文件身份。
+
+身份／打开／创建时间失败、目标退出为 3；非法映像响应为 4；名称／路径／关闭或两次路径采样不一致为 6；完整活跃匹配为 0。返回前释放自有临时句柄，详情和主租约贯穿采样。既有 UI 路由／名称调用保持默认行为，不发布缓存导航为授权依据，不增加远程 PEB 写入、命令行／内存读取、进程控制、内核地址推断或 R0 fallback；help 不打开进程。VM 自建目标核对 SDK 创建时间／路径／叶名，测试错误创建时间、进程退出和参数；原生夹具验证各采样阶段的权限／字段／关闭失败。
+
 使用 `help process` 逐层查找。已有命令不指定后端时继续使用原 R0 行为；显式选择 R3 不会自动切换到 R0。
 
 ## 原生枚举（迁移项 19）

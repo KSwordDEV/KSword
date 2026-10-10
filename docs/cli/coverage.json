@@ -1,0 +1,531 @@
+[
+  {
+    "item": 1,
+    "migrationFeature": "TCP/UDP connections",
+    "paths": [
+      "network connections"
+    ],
+    "documentation": "docs/cli/network.md"
+  },
+  {
+    "item": 2,
+    "migrationFeature": "Ping",
+    "paths": [
+      "network ping"
+    ],
+    "documentation": "docs/cli/network.md"
+  },
+  {
+    "item": 3,
+    "migrationFeature": "route tracing",
+    "paths": [
+      "network trace-route"
+    ],
+    "documentation": "docs/cli/network.md"
+  },
+  {
+    "item": 4,
+    "migrationFeature": "DNS lookup",
+    "paths": [
+      "network dns"
+    ],
+    "documentation": "docs/cli/network.md"
+  },
+  {
+    "item": 5,
+    "migrationFeature": "firewall rules",
+    "paths": [
+      "network firewall"
+    ],
+    "documentation": "docs/cli/network.md"
+  },
+  {
+    "item": 6,
+    "migrationFeature": "network R3 endpoint audit",
+    "paths": [
+      "network endpoint-audit"
+    ],
+    "documentation": "docs/cli/network.md"
+  },
+  {
+    "item": 7,
+    "migrationFeature": "service enumeration and control",
+    "paths": [
+      "service"
+    ],
+    "documentation": "docs/cli/service.md"
+  },
+  {
+    "item": 8,
+    "migrationFeature": "registry browsing and reads",
+    "paths": [
+      "registry"
+    ],
+    "documentation": "docs/cli/registry.md"
+  },
+  {
+    "item": 9,
+    "migrationFeature": "registry search",
+    "paths": [
+      "registry search"
+    ],
+    "documentation": "docs/cli/registry.md"
+  },
+  {
+    "item": 10,
+    "migrationFeature": "registry mutations",
+    "paths": [
+      "registry"
+    ],
+    "documentation": "docs/cli/registry.md"
+  },
+  {
+    "item": 11,
+    "migrationFeature": "startup enumeration",
+    "paths": [
+      "startup"
+    ],
+    "documentation": "docs/cli/startup.md"
+  },
+  {
+    "item": 12,
+    "migrationFeature": "startup enable disable and deletion",
+    "paths": [
+      "startup"
+    ],
+    "documentation": "docs/cli/startup.md"
+  },
+  {
+    "item": 13,
+    "migrationFeature": "current process token and privilege control",
+    "paths": [
+      "privilege"
+    ],
+    "documentation": "docs/cli/privilege.md"
+  },
+  {
+    "item": 14,
+    "migrationFeature": "directory browsing and path navigation",
+    "paths": [
+      "file directory"
+    ],
+    "documentation": "docs/cli/file.md"
+  },
+  {
+    "item": 15,
+    "migrationFeature": "file creation transfer rename and deletion",
+    "paths": [
+      "file"
+    ],
+    "documentation": "docs/cli/file.md"
+  },
+  {
+    "item": 16,
+    "migrationFeature": "file ownership and lock inspection",
+    "paths": [
+      "file ownership"
+    ],
+    "documentation": "docs/cli/file.md"
+  },
+  {
+    "item": 17,
+    "migrationFeature": "file hash signature and entropy analysis",
+    "paths": [
+      "file hash"
+    ],
+    "documentation": "docs/cli/file.md"
+  },
+  {
+    "item": 18,
+    "migrationFeature": "file hex and PE snapshot analysis",
+    "paths": [
+      "file pe"
+    ],
+    "documentation": "docs/cli/file.md"
+  },
+  {
+    "item": 19,
+    "migrationFeature": "process base enumeration",
+    "paths": [
+      "process enum"
+    ],
+    "documentation": "docs/cli/process.md"
+  },
+  {
+    "item": 20,
+    "migrationFeature": "process extended field collection",
+    "paths": [
+      "process detail fields"
+    ],
+    "documentation": "docs/cli/process.md"
+  },
+  {
+    "item": 21,
+    "migrationFeature": "process dynamic and network telemetry",
+    "paths": [
+      "process telemetry"
+    ],
+    "documentation": "docs/cli/process.md"
+  },
+  {
+    "item": 22,
+    "migrationFeature": "native process controls",
+    "paths": [
+      "process"
+    ],
+    "documentation": "docs/cli/process.md"
+  },
+  {
+    "item": 23,
+    "migrationFeature": "process detail basic collection",
+    "paths": [
+      "process detail basic"
+    ],
+    "documentation": "docs/cli/process.md"
+  },
+  {
+    "item": 24,
+    "migrationFeature": "process thread queries and controls",
+    "paths": [
+      "process thread"
+    ],
+    "documentation": "docs/cli/process.md"
+  },
+  {
+    "item": 25,
+    "migrationFeature": "process module queries and controls",
+    "paths": [
+      "process module"
+    ],
+    "documentation": "docs/cli/process.md"
+  },
+  {
+    "item": 26,
+    "migrationFeature": "process token details and editing",
+    "paths": [
+      "process token"
+    ],
+    "documentation": "docs/cli/process.md"
+  },
+  {
+    "item": 27,
+    "migrationFeature": "process token switches",
+    "paths": [
+      "process token switches"
+    ],
+    "documentation": "docs/cli/process.md"
+  },
+  {
+    "item": 28,
+    "migrationFeature": "process PEB and memory queries",
+    "paths": [
+      "process peb"
+    ],
+    "documentation": "docs/cli/process.md"
+  },
+  {
+    "item": 29,
+    "migrationFeature": "process usermode hotkey collection",
+    "paths": [
+      "process hotkeys"
+    ],
+    "documentation": "docs/cli/process.md"
+  },
+  {
+    "item": 30,
+    "migrationFeature": "driver R3 enumeration and metadata",
+    "paths": [
+      "driver modules"
+    ],
+    "documentation": "docs/cli/driver.md"
+  },
+  {
+    "item": 31,
+    "migrationFeature": "hardware device enumeration",
+    "paths": [
+      "hardware devices"
+    ],
+    "documentation": "docs/cli/hardware.md"
+  },
+  {
+    "item": 32,
+    "migrationFeature": "hardware system performance sampling",
+    "paths": [
+      "hardware performance"
+    ],
+    "documentation": "docs/cli/hardware.md"
+  },
+  {
+    "item": 33,
+    "migrationFeature": "hardware disk activity sampling",
+    "paths": [
+      "hardware disk"
+    ],
+    "documentation": "docs/cli/hardware.md"
+  },
+  {
+    "item": 34,
+    "migrationFeature": "hardware USB topology",
+    "paths": [
+      "hardware usb"
+    ],
+    "documentation": "docs/cli/hardware.md"
+  },
+  {
+    "item": 35,
+    "migrationFeature": "hardware system bus topology",
+    "paths": [
+      "hardware bus"
+    ],
+    "documentation": "docs/cli/hardware.md"
+  },
+  {
+    "item": 36,
+    "migrationFeature": "window enumeration and management",
+    "paths": [
+      "window"
+    ],
+    "documentation": "docs/cli/window.md"
+  },
+  {
+    "item": 37,
+    "migrationFeature": "window clipboard reading",
+    "paths": [
+      "clipboard"
+    ],
+    "documentation": "docs/cli/window.md"
+  },
+  {
+    "item": 38,
+    "migrationFeature": "window capture protection",
+    "paths": [
+      "window capture"
+    ],
+    "documentation": "docs/cli/window.md"
+  },
+  {
+    "item": 39,
+    "migrationFeature": "window hierarchy diagnostics",
+    "paths": [
+      "window hierarchy"
+    ],
+    "documentation": "docs/cli/window.md"
+  },
+  {
+    "item": 40,
+    "migrationFeature": "global hotkey occupancy probing",
+    "paths": [
+      "window hotkeys"
+    ],
+    "documentation": "docs/cli/window.md"
+  },
+  {
+    "item": 41,
+    "migrationFeature": "ETW sessions event capture and filtering",
+    "paths": [
+      "monitor etw"
+    ],
+    "documentation": "docs/cli/monitor.md"
+  },
+  {
+    "item": 42,
+    "migrationFeature": "system file holder scanning",
+    "paths": [
+      "system file-holders"
+    ],
+    "documentation": "docs/cli/system.md"
+  },
+  {
+    "item": 43,
+    "migrationFeature": "system event log reading",
+    "paths": [
+      "system event-log"
+    ],
+    "documentation": "docs/cli/system.md"
+  },
+  {
+    "item": 44,
+    "migrationFeature": "system context menu scanning and recovery",
+    "paths": [
+      "system context-menu"
+    ],
+    "documentation": "docs/cli/system.md"
+  },
+  {
+    "item": 45,
+    "migrationFeature": "system time and timezone",
+    "paths": [
+      "system time"
+    ],
+    "documentation": "docs/cli/system.md"
+  },
+  {
+    "item": 46,
+    "migrationFeature": "IOCTL decoding",
+    "paths": [
+      "system ioctl"
+    ],
+    "documentation": "docs/cli/system.md"
+  },
+  {
+    "item": 47,
+    "migrationFeature": "kernel object namespace overview",
+    "paths": [
+      "kernel namespace"
+    ],
+    "documentation": "docs/cli/kernel.md"
+  },
+  {
+    "item": 48,
+    "migrationFeature": "kernel recursive object directories",
+    "paths": [
+      "kernel directory"
+    ],
+    "documentation": "docs/cli/kernel.md"
+  },
+  {
+    "item": 49,
+    "migrationFeature": "kernel symbolic links",
+    "paths": [
+      "kernel symlink"
+    ],
+    "documentation": "docs/cli/kernel.md"
+  },
+  {
+    "item": 50,
+    "migrationFeature": "kernel Device and Driver objects",
+    "paths": [
+      "kernel objects"
+    ],
+    "documentation": "docs/cli/kernel.md"
+  },
+  {
+    "item": 51,
+    "migrationFeature": "kernel BaseNamedObjects",
+    "paths": [
+      "kernel base-named-objects"
+    ],
+    "documentation": "docs/cli/kernel.md"
+  },
+  {
+    "item": 52,
+    "migrationFeature": "kernel communication endpoints",
+    "paths": [
+      "kernel endpoints"
+    ],
+    "documentation": "docs/cli/kernel.md"
+  },
+  {
+    "item": 53,
+    "migrationFeature": "kernel object type matrix",
+    "paths": [
+      "kernel object-types"
+    ],
+    "documentation": "docs/cli/kernel.md"
+  },
+  {
+    "item": 54,
+    "migrationFeature": "kernel named pipes",
+    "paths": [
+      "kernel pipes"
+    ],
+    "documentation": "docs/cli/kernel.md"
+  },
+  {
+    "item": 55,
+    "migrationFeature": "kernel Atom tables",
+    "paths": [
+      "kernel atoms"
+    ],
+    "documentation": "docs/cli/kernel.md"
+  },
+  {
+    "item": 56,
+    "migrationFeature": "kernel NtQuery queries",
+    "paths": [
+      "kernel nt-query"
+    ],
+    "documentation": "docs/cli/kernel.md"
+  },
+  {
+    "item": 57,
+    "migrationFeature": "kernel Hook disk image baseline",
+    "paths": [
+      "kernel hook-baseline"
+    ],
+    "documentation": "docs/cli/kernel.md"
+  },
+  {
+    "item": 58,
+    "migrationFeature": "security Code Integrity and WDAC",
+    "paths": [
+      "security ci"
+    ],
+    "documentation": "docs/cli/security.md"
+  },
+  {
+    "item": 59,
+    "migrationFeature": "security VBS HVCI and SKCI",
+    "paths": [
+      "security vbs"
+    ],
+    "documentation": "docs/cli/security.md"
+  },
+  {
+    "item": 60,
+    "migrationFeature": "security Hyper-V",
+    "paths": [
+      "security hyperv"
+    ],
+    "documentation": "docs/cli/security.md"
+  },
+  {
+    "item": 61,
+    "migrationFeature": "security AppLocker",
+    "paths": [
+      "security applocker"
+    ],
+    "documentation": "docs/cli/security.md"
+  },
+  {
+    "item": 62,
+    "migrationFeature": "security BAM and ahcache",
+    "paths": [
+      "security bam",
+      "security ahcache"
+    ],
+    "documentation": "docs/cli/security.md"
+  },
+  {
+    "item": 63,
+    "migrationFeature": "security Bugcheck VMware R3 evidence",
+    "paths": [
+      "security bugcheck"
+    ],
+    "documentation": "docs/cli/security.md"
+  },
+  {
+    "item": 64,
+    "migrationFeature": "window list capture protection",
+    "paths": [
+      "window capture"
+    ],
+    "documentation": "docs/cli/window.md"
+  },
+  {
+    "item": 65,
+    "migrationFeature": "clipboard clearing and live owner queries",
+    "paths": [
+      "clipboard"
+    ],
+    "documentation": "docs/cli/window.md"
+  },
+  {
+    "item": 66,
+    "migrationFeature": "process identity sampling adapters",
+    "paths": [
+      "process identity"
+    ],
+    "documentation": "docs/cli/process.md"
+  }
+]
