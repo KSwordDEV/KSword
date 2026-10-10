@@ -16,6 +16,7 @@ struct Json {
     std::wstring display = L"unavailable";
     static Json string(const std::wstring& value);
     static Json number(std::uint32_t value);
+    static Json real(double value);
     static Json boolean(bool value);
     static Json object(const std::vector<std::pair<std::wstring, Json>>& values);
     static Json array(const std::vector<Json>& values);
@@ -82,4 +83,5 @@ void registerPrivilege(std::function<int(std::vector<std::wstring>)> dispatch);
 void registerFileDirectory();
 void registerFileOperations();
 void registerFileOwnership();
+void registerFileAnalysis();
 }

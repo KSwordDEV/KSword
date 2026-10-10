@@ -72,3 +72,25 @@ locks query 使用 Restart Manager，只枚举可见占用者，不关闭句柄�
 进程包含 pid、十进制 creationTime FILETIME、application、service、applicationType、十六进制 status、sessionId、restartable。
 pid／limit 只筛选显示；成功的空结果返回 0，原生失败返回 3。Restart Manager 并不保证发现全部占用者，
 也不验证目标路径是否存在；target 的独立存在证据用于说明该限制。空结果不能证明文件可被删除或没有内核句柄。
+
+## 哈希、签名与熵（迁移项 17）
+
+```powershell
+KswordCLI.exe file hash query --path PATH [--backend r3] [--json]
+KswordCLI.exe file signature query --path PATH [--backend r3] [--json]
+KswordCLI.exe file entropy query --path PATH [--max-bytes N] [--backend r3] [--json]
+```
+
+hash 为整个文件计算 SHA256，输出 algorithm、digest、bytesRead、complete、win32Error。
+任意读取／CryptoAPI 失败返回 3 且 digest 为 null，不把已读取前缀的摘要冒充完整摘要。
+entropy 默认最多读取 16777216 字节，max-bytes 必须为正数。输出 bitsPerByte（JSON 数值）、
+sampledBytes、sizeBytes、maxBytes、complete、limited、win32Error。空文件熵为 0。
+完成整个文件读取返回 0；受预算限制或已经读到部分内容后失败返回 6；完全无法读取返回 3。
+部分熵只描述实际读到的前缀，所有字节数使用十进制字符串。共享写入文件不构成原子快照。
+
+signature 使用 WinVerifyTrust 通用 Authenticode 策略，无 UI，仅允许缓存 URL 数据，不检查吊销。
+输出 evaluated、trusted、signatureState（trusted／unsigned／expired／bad-digest／not-trusted）、
+trustStatus、description、revocationChecked=false、networkRetrieval=false。
+“查询成功”与“签名可信”分别表达：明确的无签名、过期、摘要不匹配、根不可信、链不完整或拒绝信任
+可以作为查询结果返回 0，但 trusted=false；策略／主体格式不可用返回 5，其他验证调用错误返回 3。
+原始 trustStatus 始终保留。此命令不提供在线吊销检查或单独的目录签名枚举。

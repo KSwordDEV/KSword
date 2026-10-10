@@ -1492,6 +1492,7 @@ namespace
             ks::cli::registerFileDirectory();
             ks::cli::registerFileOperations();
             ks::cli::registerFileOwnership();
+            ks::cli::registerFileAnalysis();
             #endif
             return true;
         }();

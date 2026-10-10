@@ -1,9 +1,11 @@
 #include "CommandRegistry.h"
 #include <algorithm>
 #include <cwctype>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <locale>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -58,6 +60,11 @@ Json Json::string(const std::wstring& value) {
     out << L'"'; return {out.str(), value};
 }
 Json Json::number(std::uint32_t value) { return {std::to_wstring(value), std::to_wstring(value)}; }
+Json Json::real(double value) {
+    if (!std::isfinite(value)) return {};
+    std::wostringstream out; out.imbue(std::locale::classic()); out << std::setprecision(17) << value;
+    return {out.str(), out.str()};
+}
 Json Json::boolean(bool value) { return {value ? L"true" : L"false", value ? L"true" : L"false"}; }
 Json Json::object(const std::vector<std::pair<std::wstring, Json>>& values) {
     std::wstring out = L"{", display;

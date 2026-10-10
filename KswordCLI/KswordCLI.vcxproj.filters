@@ -156,4 +156,9 @@
     <ClCompile Include="..\shared\usermode\backend\file\Ownership.cpp" />
     <ClInclude Include="..\shared\usermode\backend\file\Ownership.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3FileAnalysis.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\FileAnalysis.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\file\FileAnalysis.h" />
+  </ItemGroup>
 </Project>
