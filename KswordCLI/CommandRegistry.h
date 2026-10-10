@@ -111,4 +111,5 @@ void registerWindowHotkeys();
 void registerMonitorEtw();
 void registerSystemFileHolders();
 void registerSystemEventLog();
+void registerSystemContextMenu();
 }

@@ -462,4 +462,11 @@
     <ClCompile Include="..\shared\usermode\backend\system\EventLogReader.cpp" />
     <ClInclude Include="..\shared\usermode\backend\system\EventLogReader.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3SystemContextMenu.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\ContextMenuScanner.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\system\AdminState.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\system\ContextMenuScanner.h" />
+    <ClInclude Include="..\shared\usermode\backend\system\AdminState.h" />
+  </ItemGroup>
 </Project>

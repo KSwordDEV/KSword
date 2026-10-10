@@ -1,5 +1,26 @@
 # 系统工具 R3 命令
 
+## Shell 右键菜单注册（迁移项 44）
+
+```powershell
+KswordCLI.exe system context-menu help
+KswordCLI.exe help system context-menu enum
+KswordCLI.exe system context-menu enum --scope file --kind verb --json
+KswordCLI.exe system context-menu enum --state disabled --json
+KswordCLI.exe system context-menu disable --registration '*\shell\MyVerb' --confirm --json
+KswordCLI.exe system context-menu enable --registration '*\shell\MyVerb' --confirm --json
+```
+
+`enum` 支持 `--scope all|file|directory|folder`（all）、`--kind all|handler|verb`（all）、`--state all|enabled|disabled`（all）、`--registration`（精确注册路径）、`--limit 1..100000`（1000）、`--backend r3`、`--json`。共享后端只扫描 HKCR 的 `*\shellex\ContextMenuHandlers`、`Directory\shellex\ContextMenuHandlers`、`Folder\shellex\ContextMenuHandlers`、`*\shell`、`Directory\shell` 五个入口及 HKLM 备份，不遍历任意扩展名、桌面背景或动态 Explorer 菜单，不执行 COM／命令。每项是注册证据，不等于已激活的菜单或已加载模块。
+
+data 提供来源、elevatedDisplay、backupRoot、sources（hive/path/opened/absent/complete/limited、open/enum/closeWin32Error、count）、snapshotCount/matchedCount/returnedCount/truncated、entries。条目提供 registrationPath、kind、scopeDisplay、name/displayText、enabledRegistration、backupKeyName、clsidOrProgId、modulePathOrCommand、moduleFileCandidate、candidateFileExists/candidateAttributes/candidateWin32Error、fields、diagnosticDisplay。fields 区分 available/absent/malformed/limited、registryType、win32Error、value；REG_EXPAND_SZ 的文本经过原 SDK 展开，备份 Kind 是 DWORD 0=handler／1=verb。可选值缺失可成功，权限／预算／关键备份元数据缺失／输出截断为 6，畸形值为 4，所有来源不可读为 3；有效空集合为 0。禁用项保留原始备份信息，不假造实时模块查询。moduleFileCandidate 是后端从命令首项提取的候选，不保证无引号空格、相对路径、间接命令的真实可执行文件；candidateFileExists 只证明该候选的属性查询。
+
+`disable`／`enable` 要求 `--registration`（上述入口的直接子项）和 `--confirm`，支持 `--backend r3`、`--json`。CLI 仅发布无 HKCU 覆盖的明确机器注册：HKCR 合并用户与机器视图，原备份格式无法保证逐用户还原，所以存在用户项或物理归属不可确认时在写入前返回 5。读取仍显示合并视图。规则见 [HKCR 合并与写入规则](https://learn.microsoft.com/en-us/windows/win32/sysinfo/hkey-classes-root-key)。备份位于 `HKLM\SOFTWARE\KswordARKLight\ShellExtensionBackup`，键名沿用后端将路径反斜杠换成 `!` 的规则，完整子树在 Data 下。
+
+禁用先复制完整注册子树，再逐项检查 SourcePath／BackupTime／Scope／Name／Kind 的写入，全部成功才删除活项；复制／元数据失败不删除活项。启用验证备份 SourcePath 与请求路径精确匹配，复制到新目标后才清理备份。活项与备份同时出现、现有备份／还原目标冲突均拒绝覆盖；缺少／非法 SourcePath 或 Kind 为 4。原生复制行为见 [RegCopyTreeW](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regcopytreew)。不会单独清除备份、转移用户项或调用 R0。
+
+动作 data 包含 action/registrationPath/attempted、backendSucceeded、stage/win32Error、backupPath、backupCreated/dataCreated/copySucceeded/metadataSucceeded/sourceDeleted/destinationCreated/backupDeleted/backupRetained、cleanupWin32Error、calls（step/win32Error）、afterMachineRegistration/afterUserRegistration/afterBackup、verified/display。verified 根据原生复制／元数据／删除回执及独立物理键存在回读，不能证明与并发注册表写入的原子性或 Explorer 刷新；未完成时备份保留。仅预期操作和关闭均验证成功为 0，无副作用失败为 3，已发生部分步骤／回读或清理不完整为 6。要求现有注册表权限，不自动提权。每个来源遍历限制 100000 项／8 秒（API 调用间检查），字符串 1 MiB，帮助不读取／修改注册表。VM 使用自建机器注册子树核对 DWORD／二进制／多字符串／嵌套键备份与还原，并测试冲突、缺少元数据和用户覆盖拒绝。
+
 ## 事件日志（迁移项 43）
 
 ```powershell

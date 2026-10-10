@@ -1519,6 +1519,7 @@ namespace
         ks::cli::registerMonitorEtw();
         ks::cli::registerSystemFileHolders();
         ks::cli::registerSystemEventLog();
+        ks::cli::registerSystemContextMenu();
             #endif
             return true;
         }();
