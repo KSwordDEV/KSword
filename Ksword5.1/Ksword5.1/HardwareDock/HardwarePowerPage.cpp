@@ -1,4 +1,6 @@
 #include "HardwarePowerPage.h"
+#include <QList>
+#include "../UI/ToolbarMetrics.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../Internationalization/LanguageManager.h"
@@ -423,6 +425,8 @@ void HardwarePowerPage::initializeUi()
         QStringLiteral("CPU 能力与当前状态"));
     auto* snapshotLayout = new QVBoxLayout(snapshotGroup);
     m_snapshotTable = new ks::ui::VisibleTableWidget(snapshotGroup);
+    // 当前能力键值摘要位于调节表单内，保留右键复制，不挤占调节空间。
+    ks::ui::SetTableActionBarMode(m_snapshotTable, ks::ui::TableActionBarMode::None);
     m_snapshotTable->setColumnCount(2);
     m_snapshotTable->setHorizontalHeaderLabels({
         powerText(QStringLiteral("hardware.power.table.item"), QStringLiteral("项目")),
@@ -580,6 +584,21 @@ void HardwarePowerPage::initializeUi()
         QStringLiteral("注意：提高功耗/倍率可能导致过热、降频、数据错误、死机或硬件寿命下降；请先保存工作并准备好恢复方案。"));
     contentLayout->addWidget(riskNoticeLabel, 0);
 
+    // 四个调节组保持原栅格与参数语义，统一明确登记的按钮、组合与数值控件。
+    for (QGridLayout* groupLayout : { schemeLayout, raplLayout, turboLayout, hwpLayout })
+    {
+        groupLayout->setHorizontalSpacing(8);
+        groupLayout->setVerticalSpacing(8);
+    }
+    const QList<QWidget*> controls { m_powerSchemeCombo, m_applyPowerSchemeButton, m_refreshAllButton,
+        m_restoreInitialStateButton, m_pl1Spin, m_pl2Spin, m_applyPowerLimitsButton, m_raisePowerLimitsButton,
+        m_applyTurboButton, m_turboRatioSpin, m_applyTurboRatioButton, m_requestedMultiplierSpin,
+        m_applyRequestedMultiplierButton, m_hwpMinimumSpin, m_hwpMaximumSpin, m_hwpDesiredSpin, m_hwpEppSpin,
+        m_applyHwpButton };
+    for (QWidget* control : controls)
+    {
+        ks::ui::NormalizeToolbarControl(control);
+    }
     contentLayout->addStretch(1);
 
     scrollArea->setWidget(contentWidget);

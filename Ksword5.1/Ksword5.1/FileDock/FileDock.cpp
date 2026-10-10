@@ -4,6 +4,8 @@
 #include "../Framework/DestructiveActionConfirmation.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/UI_All.h"
 #include "FilePropertyPeAnalyzer.h"
 #include "../UI/StructuredFieldView.h"
@@ -3164,6 +3166,8 @@ namespace
 
         QStackedWidget* const tableStack = new QStackedWidget(&dialog);
         QTableWidget* const handleTable = new ks::ui::VisibleTableWidget(static_cast<int>(handleCandidateList.size()), 7, &dialog);
+        // 解锁对话框只确认本轮操作目标，隐藏与确认无关的通用快照栏。
+        ks::ui::SetTableActionBarMode(handleTable, ks::ui::TableActionBarMode::None);
         handleTable->setHorizontalHeaderLabels(QStringList{
             QStringLiteral("选择"),
             QStringLiteral("PID"),
@@ -3180,6 +3184,7 @@ namespace
         installFileTableCopyMenu(handleTable, 1);
 
         QTableWidget* const processTable = new ks::ui::VisibleTableWidget(static_cast<int>(processCandidateList.size()), 6, &dialog);
+        ks::ui::SetTableActionBarMode(processTable, ks::ui::TableActionBarMode::None);
         processTable->setHorizontalHeaderLabels(QStringList{
             QStringLiteral("选择"),
             QStringLiteral("PID"),
@@ -5705,6 +5710,7 @@ namespace
             saveLayout->addWidget(m_saveAllButton);
             QPushButton* closeButton = new QPushButton(ks::i18n::sourceText(QStringLiteral("关闭")), saveBar);
             saveLayout->addWidget(closeButton);
+            ks::ui::NormalizeToolbarRow(saveLayout);
             connect(closeButton, &QPushButton::clicked, this, &QWidget::close);
             dialogLayout->addWidget(saveBar, 0);
             connect(m_discardPendingButton, &QPushButton::clicked, this,
@@ -8835,6 +8841,8 @@ namespace
             layout->addWidget(summaryLabel);
 
             QTableWidget* table = new ks::ui::VisibleTableWidget(dialog);
+            // 保存结果是一次事务报告，仅保留紧凑复制/导出入口。
+            ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
             table->setColumnCount(6);
             table->setHorizontalHeaderLabels(QStringList{
                 QStringLiteral("目标"),
@@ -9251,6 +9259,8 @@ namespace
                 int directoryCount = 0;
                 QTableWidget* table = new ks::ui::VisibleTableWidget(page);
                 table->setColumnCount(6);
+                // 批量属性摘要固定于本批目标，不需要通用前后快照。
+                ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
                 table->setHorizontalHeaderLabels(QStringList{
                     QStringLiteral("路径"),
                     QStringLiteral("类型"),
@@ -9562,6 +9572,7 @@ namespace
             QHBoxLayout* objectIdLayout = new QHBoxLayout();
             objectIdLayout->addWidget(objectIdAction);
             objectIdLayout->addWidget(objectIdEdit, 1);
+            ks::ui::NormalizeToolbarRow(objectIdLayout);
             form->addRow(QStringLiteral("Object ID"), objectIdLayout);
 
             auto* hardLinksEdit = new CodeTextEdit(page);
@@ -9582,6 +9593,7 @@ namespace
             queryHardLinksButton->setEnabled(!m_batchMode);
             hardLinkQueryLayout->addWidget(queryHardLinksButton);
             hardLinkQueryLayout->addWidget(hardLinkQueryResult, 1);
+            ks::ui::NormalizeToolbarRow(hardLinkQueryLayout);
             layout->addLayout(hardLinkQueryLayout);
 
             QLabel* hint = new QLabel(QStringLiteral(
@@ -9590,6 +9602,7 @@ namespace
             hint->setWordWrap(true);
             layout->addWidget(hint);
             QPushButton* stageButton = new QPushButton(QStringLiteral("暂存名称与文件系统修改"), page);
+            ks::ui::NormalizeToolbarControl(stageButton);
             layout->addWidget(stageButton, 0, Qt::AlignRight);
             layout->addStretch(1);
 
@@ -9694,6 +9707,7 @@ namespace
             actions->addWidget(stageButton);
             layout->addWidget(status);
             layout->addLayout(actions);
+            ks::ui::NormalizeToolbarRow(actions);
             layout->addStretch(1);
 
             connect(loadButton, &QPushButton::clicked, this, [this, rows, ratingSpin, status]()
@@ -9770,6 +9784,7 @@ namespace
             QWidget* page = new QWidget(parent);
             QVBoxLayout* layout = new QVBoxLayout(page);
             QTableWidget* table = new ks::ui::VisibleTableWidget(page);
+            ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
             table->setColumnCount(3);
             table->setHorizontalHeaderLabels(QStringList{
                 QStringLiteral("目标"), QStringLiteral("数据流"), QStringLiteral("字节数") });
@@ -9817,6 +9832,8 @@ namespace
             actions->addStretch(1);
             actions->addWidget(stageButton);
             layout->addLayout(actions);
+            ks::ui::NormalizeToolbarRow(actions);
+            ks::ui::NormalizeToolbarControl(buildZoneButton);
 
             connect(refreshButton, &QPushButton::clicked, this,
                 [this, table]() { refreshMetadataStreamTable(table); });
@@ -9907,6 +9924,7 @@ namespace
             QWidget* page = new QWidget(parent);
             QVBoxLayout* layout = new QVBoxLayout(page);
             QTableWidget* table = new ks::ui::VisibleTableWidget(page);
+            ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
             table->setColumnCount(4);
             table->setHorizontalHeaderLabels(QStringList{
                 QStringLiteral("目标"), QStringLiteral("EA 名称"),
@@ -9930,6 +9948,7 @@ namespace
             header->addWidget(formatCombo);
             header->addWidget(needEaCheck);
             header->addWidget(removeCheck);
+            ks::ui::NormalizeToolbarRow(header);
             layout->addLayout(header);
             layout->addWidget(dataEdit);
 
@@ -9942,6 +9961,7 @@ namespace
             actions->addStretch(1);
             actions->addWidget(stageButton);
             layout->addLayout(actions);
+            ks::ui::NormalizeToolbarRow(actions);
             connect(refreshButton, &QPushButton::clicked, this,
                 [this, table]() { refreshMetadataEaTable(table); });
             connect(loadButton, &QPushButton::clicked, this,
@@ -10044,6 +10064,7 @@ namespace
             scopes->addWidget(protectDaclCheck);
             scopes->addWidget(protectSaclCheck);
             scopes->addStretch(1);
+            ks::ui::NormalizeToolbarRow(scopes);
             layout->addLayout(scopes);
             QHBoxLayout* effectiveLayout = new QHBoxLayout();
             QLineEdit* effectiveTrusteeEdit = new QLineEdit(page);
@@ -10055,6 +10076,7 @@ namespace
             effectiveLayout->addWidget(effectiveTrusteeEdit, 1);
             effectiveLayout->addWidget(effectiveButton);
             effectiveLayout->addWidget(effectiveResult);
+            ks::ui::NormalizeToolbarRow(effectiveLayout);
             layout->addLayout(effectiveLayout);
             QLabel* status = new QLabel(QStringLiteral("可从第一个目标读取 Owner、Group 与 DACL SDDL。"), page);
             status->setWordWrap(true);
@@ -10066,6 +10088,8 @@ namespace
             actions->addStretch(1);
             actions->addWidget(stageButton);
             layout->addLayout(actions);
+            // 编辑器保持多行高度，只对动作行应用等高指标。
+            ks::ui::NormalizeToolbarRow(actions);
             connect(loadButton, &QPushButton::clicked, this, [this, sddlEdit, status]()
                 {
                     status->setText(QStringLiteral("● 正在后台读取安全描述符..."));
@@ -10168,6 +10192,7 @@ namespace
             reparseActions->addWidget(reparseAction);
             reparseActions->addWidget(loadReparseButton);
             reparseActions->addStretch(1);
+            ks::ui::NormalizeToolbarRow(reparseActions);
             auto* reparseEdit = new CodeTextEdit(reparseGroup);
             reparseEdit->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
             reparseEdit->setPlaceholderText(QStringLiteral("完整 REPARSE_DATA_BUFFER 十六进制，包含 Tag/Length/Reserved"));
@@ -10205,6 +10230,9 @@ namespace
             resourceLayout->addWidget(removeResourceCheck, 1, 3);
             resourceLayout->addWidget(loadResourceButton, 1, 4);
             resourceLayout->addWidget(resourceDataEdit, 2, 0, 1, 5);
+            resourceLayout->setHorizontalSpacing(8);
+            resourceLayout->setVerticalSpacing(8);
+            ks::ui::NormalizeToolbarControl(loadResourceButton);
             layout->addWidget(resourceGroup);
 
             QCheckBox* clearSignatureCheck = new QCheckBox(
@@ -10216,6 +10244,7 @@ namespace
             warning->setWordWrap(true);
             layout->addWidget(warning);
             QPushButton* stageButton = new QPushButton(QStringLiteral("暂存重解析点 / PE / 签名操作"), page);
+            ks::ui::NormalizeToolbarControl(stageButton);
             layout->addWidget(stageButton, 0, Qt::AlignRight);
             layout->addStretch(1);
 
@@ -10441,6 +10470,7 @@ namespace
         QTabWidget* buildMetadataEditorTabs(QWidget* parent)
         {
             QTabWidget* tabs = new QTabWidget(parent);
+            ks::ui::StylePageTabs(tabs);
             tabs->addTab(
                 buildMetadataBasicPropertiesPage(tabs),
                 ks::i18n::sourceText(QStringLiteral("基础属性")));
@@ -10465,6 +10495,7 @@ namespace
             actionLayout->addStretch(1);
             actionLayout->addWidget(m_metadataRefreshButton);
             actionLayout->addWidget(m_metadataApplyButton);
+            ks::ui::NormalizeToolbarRow(actionLayout);
             layout->addLayout(actionLayout);
 
             m_metadataStatusLabel = new QLabel(QStringLiteral("● 等待读取文件元数据。"), page);
@@ -10602,6 +10633,13 @@ namespace
             ks::ui::ApplyFlatButtonTheme(deleteAceButton, ks::ui::FlatButtonTone::Danger);
             refreshButton->setStyleSheet(buildBlueButtonStyle());
 
+            // ACL 表单采用网格布局，动作保留原强调/危险色并统一高度和留白。
+            operationLayout->setHorizontalSpacing(8);
+            operationLayout->setVerticalSpacing(8);
+            ks::ui::NormalizeToolbarControl(applyAceButton);
+            ks::ui::NormalizeToolbarControl(deleteAceButton);
+            ks::ui::NormalizeToolbarControl(refreshButton);
+
             operationLayout->addWidget(new QLabel(QStringLiteral("主体"), operationGroup), 0, 0);
             operationLayout->addWidget(accountEdit, 0, 1, 1, 5);
             operationLayout->addWidget(new QLabel(QStringLiteral("动作"), operationGroup), 1, 0);
@@ -10630,6 +10668,8 @@ namespace
 
             QSplitter* splitter = new QSplitter(Qt::Vertical, page);
             QTableWidget* aceTable = new ks::ui::VisibleTableWidget(splitter);
+            // 单文件 ACL 的编辑表已有专门权限动作，仅保留紧凑复制/导出。
+            ks::ui::SetTableActionBarMode(aceTable, ks::ui::TableActionBarMode::Compact);
             aceTable->setColumnCount(9);
             aceTable->setHorizontalHeaderLabels(QStringList{
                 QStringLiteral("范围"),
@@ -10821,6 +10861,7 @@ namespace
                 toolbar->addWidget(startButton);
                 toolbar->addWidget(cancelButton);
                 toolbar->addWidget(statusLabel, 1);
+                ks::ui::NormalizeToolbarRow(toolbar);
                 layout->addLayout(toolbar);
                 QProgressBar* progress = new QProgressBar(page);
                 progress->setRange(0, m_filePaths.size());
@@ -10828,6 +10869,7 @@ namespace
                 layout->addWidget(progress);
                 QTableWidget* table = new ks::ui::VisibleTableWidget(page);
                 const QStringList algorithms = commonHashNames();
+                ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
                 table->setColumnCount(algorithms.size() + 3);
                 table->setHorizontalHeaderLabels(QStringList{
                     QStringLiteral("目标"), QStringLiteral("状态") }
@@ -10965,6 +11007,7 @@ namespace
             toolbarLayout->addWidget(startButton, 0);
             toolbarLayout->addWidget(cancelButton, 0);
             toolbarLayout->addStretch(1);
+            ks::ui::NormalizeToolbarRow(toolbarLayout);
             layout->addLayout(toolbarLayout);
 
             QProgressBar* progressBar = new QProgressBar(page);
@@ -11042,6 +11085,7 @@ namespace
             toolbarLayout->addWidget(terminateR3Button, 0);
             toolbarLayout->addWidget(terminateR0Button, 0);
             toolbarLayout->addStretch(1);
+            ks::ui::NormalizeToolbarRow(toolbarLayout);
             layout->addLayout(toolbarLayout);
             layout->addWidget(statusLabel, 0);
 
@@ -11927,6 +11971,8 @@ namespace
             QVBoxLayout* tableLayout = new QVBoxLayout(tablePane);
             tableLayout->setContentsMargins(0, 0, 0, 0);
             QTableWidget* table = new ks::ui::VisibleTableWidget(tablePane);
+            // PE 依赖来自静态文件解析，通用现场快照/对比不适用。
+            ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
             table->setMinimumHeight(0);
             table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
             table->setColumnCount(6);
@@ -12006,11 +12052,13 @@ namespace
             QLineEdit* query = new QLineEdit(page);
             query->setClearButtonEnabled(true);
             query->setPlaceholderText(ks::i18n::sourceText(QStringLiteral("查找字符串；留空扫描全部")));
+            ks::ui::StyleSearchField(query);
             QCheckBox* regex = new QCheckBox(ks::i18n::sourceText(QStringLiteral("正则表达式")), page);
             QCheckBox* caseSensitive = new QCheckBox(ks::i18n::sourceText(QStringLiteral("区分大小写")), page);
             searchBar->addWidget(query, 1);
             searchBar->addWidget(regex);
             searchBar->addWidget(caseSensitive);
+            ks::ui::NormalizeToolbarRow(searchBar);
             layout->addLayout(searchBar);
             QHBoxLayout* options = new QHBoxLayout();
             QComboBox* encoding = new QComboBox(page);
@@ -12027,6 +12075,7 @@ namespace
             options->addWidget(scan);
             options->addWidget(cancel);
             options->addStretch();
+            ks::ui::NormalizeToolbarRow(options);
             layout->addLayout(options);
             QLabel* status = new QLabel(page);
             status->setTextFormat(Qt::PlainText);
@@ -12036,6 +12085,7 @@ namespace
             table->setColumnCount(3);
             table->setHorizontalHeaderLabels({ks::i18n::sourceText(QStringLiteral("命中偏移")),
                 ks::i18n::sourceText(QStringLiteral("编码")), ks::i18n::sourceText(QStringLiteral("字符串预览"))});
+            ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
             table->setEditTriggers(QAbstractItemView::NoEditTriggers);
             table->setSelectionBehavior(QAbstractItemView::SelectRows);
             table->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -12253,6 +12303,7 @@ namespace
             jumpBar->addWidget(offsetEdit, 1);
             jumpBar->addWidget(jump);
             jumpBar->addWidget(windowSize);
+            ks::ui::NormalizeToolbarRow(jumpBar);
             layout->addLayout(jumpBar);
             QHBoxLayout* navigation = new QHBoxLayout();
             QPushButton* first = new QPushButton(ks::i18n::sourceText(QStringLiteral("文件开头")), page);
@@ -12263,6 +12314,7 @@ namespace
             for (QPushButton* button : {first, previous, next, last, find}) navigation->addWidget(button);
             navigation->addStretch();
             layout->addLayout(navigation);
+            ks::ui::NormalizeToolbarRow(navigation);
             QLabel* status = new QLabel(page);
             status->setTextFormat(Qt::PlainText);
             status->setWordWrap(true);
@@ -12953,6 +13005,7 @@ void FileDock::initializeUi()
     m_rootTabWidget = new QTabWidget(this);
     m_rootTabWidget->setTabPosition(QTabWidget::West);
     m_rootTabWidget->setDocumentMode(true);
+    ks::ui::StylePageTabs(m_rootTabWidget);
     m_rootLayout->addWidget(m_rootTabWidget, 1);
 
     m_fileManagerPage = new QWidget(m_rootTabWidget);
@@ -13098,6 +13151,10 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
     panel.navLayout->addWidget(panel.refreshButton);
     panel.navLayout->addWidget(panel.pathStack, 1);
     panel.navLayout->addWidget(panel.driveCombo, 0);
+    ks::ui::NormalizeToolbarRow(panel.navLayout);
+    // 地址堆叠容器是一行面包屑/路径编辑，显式与邻接按钮等高。
+    panel.pathStack->setFixedHeight(panel.backButton->height());
+    ks::ui::NormalizeToolbarControl(panel.pathEdit, panel.backButton->height());
     panel.rootLayout->addWidget(panel.navWidget, 0);
 
     panel.toolWidget = new QWidget(panel.rootWidget);
@@ -13144,9 +13201,8 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
 
     panel.filterEdit = new QLineEdit(panel.toolWidget);
     // 文件树/列表两种投影共用此过滤框，只更新可读搜索主题。
-    ks::ui::BindSearchFieldTheme(panel.filterEdit);
+    ks::ui::StyleSearchField(panel.filterEdit);
     panel.filterEdit->setPlaceholderText(QStringLiteral("快速过滤"));
-    panel.filterEdit->setStyleSheet(buildBlueInputStyle());
 
     panel.toolLayout->addWidget(panel.viewModeCombo, 0);
     panel.toolLayout->addWidget(panel.showSystemCheck, 0);
@@ -13154,6 +13210,7 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
     panel.toolLayout->addWidget(panel.sortModeCombo, 0);
     panel.toolLayout->addWidget(panel.readModeCombo, 0);
     panel.toolLayout->addWidget(panel.filterEdit, 1);
+    ks::ui::NormalizeToolbarRow(panel.toolLayout);
     panel.rootLayout->addWidget(panel.toolWidget, 0);
 
     panel.fsModel = new ReparseAwareFileSystemModel(panel.rootWidget);
@@ -15147,10 +15204,9 @@ void FileDock::initializeRecoveryPage()
 
     // 扫描结果动辄上万条，必须能就地查找，否则只能靠滚动条翻找。
     m_recoveryFilterEdit = new QLineEdit(toolWidget);
-    ks::ui::BindSearchFieldTheme(m_recoveryFilterEdit);
+    ks::ui::StyleSearchField(m_recoveryFilterEdit);
     m_recoveryFilterEdit->setPlaceholderText(QStringLiteral("查找结果（文件名/路径/恢复能力）"));
     m_recoveryFilterEdit->setClearButtonEnabled(true);
-    m_recoveryFilterEdit->setStyleSheet(buildBlueInputStyle());
     m_recoveryFilterEdit->setToolTip(QStringLiteral(
         "按输入内容实时筛选扫描结果，匹配行以外的条目会被隐藏。"));
 
@@ -15167,9 +15223,12 @@ void FileDock::initializeRecoveryPage()
     toolLayout->addWidget(m_recoveryFilterEdit, 1);
     toolLayout->addWidget(m_recoveryFilterRegexButton, 0);
     toolLayout->addWidget(m_recoveryExportButton, 0);
+    ks::ui::NormalizeToolbarRow(toolLayout);
     recoveryLayout->addWidget(toolWidget, 0);
 
     m_recoveryTable = new ks::ui::VisibleTableWidget(m_fileRecoveryPage);
+    // 恢复候选属于一次扫描结果，保留导出即可，避免通用快照栏挤占清单。
+    ks::ui::SetTableActionBarMode(m_recoveryTable, ks::ui::TableActionBarMode::Compact);
     m_recoveryTable->setColumnCount(7);
     m_recoveryTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("文件名"),
@@ -15218,6 +15277,7 @@ void FileDock::initializeRecoveryPage()
     emptyButtonLayout->addStretch(1);
     emptyButtonLayout->addWidget(m_recoveryEmptyScanButton, 0);
     emptyButtonLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(emptyButtonLayout);
     emptyLayout->addLayout(emptyButtonLayout, 0);
     emptyLayout->addStretch(1);
 
@@ -15467,6 +15527,8 @@ void FileDock::showDeletedFilePropertiesDialog(const int rowIndex)
 
     // 属性用只读表格展示：字段多且需要整段复制，比 QFormLayout 更实用。
     QTableWidget* propertyTable = new ks::ui::VisibleTableWidget(&dialog);
+    // 单个删除项的属性对话框沿用右键复制，不显示快照操作栏。
+    ks::ui::SetTableActionBarMode(propertyTable, ks::ui::TableActionBarMode::None);
     propertyTable->setColumnCount(2);
     propertyTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("属性"),
@@ -18355,6 +18417,8 @@ void FileDock::showSelectedFileOplockAccessRecords(FilePanelWidgets& panel)
     layout->addWidget(summaryLabel);
 
     auto* table = new ks::ui::VisibleTableWidget(static_cast<int>(accessRecords.size()), 13, &dialog);
+    // 已捕获 Oplock 记录固定于本对话框，保留导出、不叠加现场快照条。
+    ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
     table->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("PID"),
         QStringLiteral("进程名"),

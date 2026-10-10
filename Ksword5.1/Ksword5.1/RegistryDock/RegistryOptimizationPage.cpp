@@ -2,6 +2,8 @@
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeBinding.h"
 #include "RegistryOptimizationPage.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "RegistryOptimizationTransactions.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../Internationalization/LanguageManager.h"
@@ -960,15 +962,8 @@ void RegistryOptimizationPage::initializeUi()
 
     m_filterEdit = new QLineEdit(this);
     // 优化项/分组结果过滤共用此字段，不改变原有去抖和列预设。
-    ks::ui::BindSearchFieldTheme(m_filterEdit);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setPlaceholderText(QStringLiteral("过滤组名、项目名、作用域或条件"));
-    m_filterEdit->setStyleSheet(QStringLiteral(
-        "QLineEdit{border:1px solid %1;border-radius:3px;background:transparent;/* %2 */color:%3;padding:3px 6px;}"
-        "QLineEdit:focus{border:1px solid %4;}").arg(
-            KswordTheme::BorderHex(),
-            KswordTheme::SurfaceHex(),
-            KswordTheme::TextPrimaryHex(),
-            KswordTheme::PrimaryBlueHex));
     m_filterDebounceTimer = new QTimer(this);
     m_filterDebounceTimer->setSingleShot(true);
     m_filterDebounceTimer->setInterval(kFilterDebounceMs);
@@ -989,6 +984,9 @@ void RegistryOptimizationPage::initializeUi()
     toolLayout->addWidget(m_cancelApplyButton, 0);
     toolLayout->addWidget(m_refreshStateButton, 0);
     toolLayout->addWidget(m_reloadButton, 0);
+    // A/B 属于紧贴的一个分段控件；其余控制项按统一间距排布。
+    ks::ui::NormalizeToolbarRow(presetButtonLayout, 0);
+    ks::ui::NormalizeToolbarRow(toolLayout);
     rootLayout->addLayout(toolLayout, 0);
 
     m_splitter = new QSplitter(Qt::Horizontal, this);
@@ -1006,6 +1004,8 @@ void RegistryOptimizationPage::initializeUi()
     rightLayout->setSpacing(6);
 
     m_itemTable = new ks::ui::VisibleTableWidget(rightWidget);
+    // 优化项自带目标和应用动作列，隐藏不适用的通用快照操作栏。
+    ks::ui::SetTableActionBarMode(m_itemTable, ks::ui::TableActionBarMode::None);
     m_itemTable->setColumnCount(7);
     m_itemTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("项目"),

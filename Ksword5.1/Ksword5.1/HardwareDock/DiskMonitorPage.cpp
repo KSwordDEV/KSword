@@ -1,4 +1,6 @@
 #include "DiskMonitorPage.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/TableInteractionSupport.h"
@@ -1017,6 +1019,7 @@ void DiskMonitorPage::initializeUi()
     m_refreshButton->setToolTip(QStringLiteral("立即刷新进程磁盘 IO 计数器"));
     m_refreshButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
     headerLayout->addWidget(m_refreshButton, 0);
+    ks::ui::NormalizeToolbarRow(headerLayout);
     m_rootLayout->addLayout(headerLayout, 0);
 
     m_summaryLabel = new QLabel(QStringLiteral("读: 0 B/s    写: 0 B/s    勾选进程: 0"), this);
@@ -1030,6 +1033,7 @@ void DiskMonitorPage::initializeUi()
     filterLayout->setSpacing(8);
 
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setPlaceholderText(QStringLiteral("过滤进程名、PID 或路径"));
     m_filterEdit->setClearButtonEnabled(true);
     filterLayout->addWidget(m_filterEdit, 1);
@@ -1047,12 +1051,15 @@ void DiskMonitorPage::initializeUi()
     m_clearSelectionButton->setToolTip(QStringLiteral("清空下方磁盘活动表的 PID 过滤条件"));
     m_clearSelectionButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
     filterLayout->addWidget(m_clearSelectionButton, 0);
+    ks::ui::NormalizeToolbarRow(filterLayout);
     m_rootLayout->addLayout(filterLayout, 0);
 
     m_splitter = new QSplitter(Qt::Vertical, this);
     m_rootLayout->addWidget(m_splitter, 1);
 
     m_processTable = new ks::ui::VisibleTableWidget(this);
+    // 磁盘采样的进程选择器不占用快照条；对比保留在下方活动证据表。
+    ks::ui::SetTableActionBarMode(m_processTable, ks::ui::TableActionBarMode::None);
     configureTableWidget(m_processTable);
     m_processTable->setColumnCount(ProcessColumnCount);
     m_processTable->setHorizontalHeaderLabels({
@@ -1086,6 +1093,8 @@ void DiskMonitorPage::initializeUi()
     m_splitter->addWidget(processSection);
 
     m_activityTable = new ks::ui::VisibleTableWidget(this);
+    // 文件 I/O 现场变化值得留存对比，保留完整证据操作栏。
+    ks::ui::SetTableActionBarMode(m_activityTable, ks::ui::TableActionBarMode::Full);
     configureTableWidget(m_activityTable, ActivityColumnPid);
     m_activityTable->setColumnCount(ActivityColumnCount);
     m_activityTable->setHorizontalHeaderLabels({

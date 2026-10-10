@@ -1,4 +1,5 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/ToolbarMetrics.h"
 #include "KernelHvmTab.h"
 #include "../MainWindow.h"
 
@@ -130,7 +131,7 @@ void KernelHvmTab::initializeUi()
     // 这种四到六字的完整句子。1024 宽下 QHBoxLayout 会把每个按钮压到 sizeHint
     // 以下，于是「刷新能力」被裁成「efresh Capabilitie」——按钮还能点，但没人
     // 读得出它是哪一个。换行布局改为折行，宽窗口仍然是一排。
-    auto* toolbar = new ks::ui::FlowLayout(nullptr, 0, 6, 4);
+    auto* toolbar = new ks::ui::FlowLayout(nullptr, 0, 8, 8);
     m_refreshButton = new QPushButton(
         kernelText("kernel.hvm.refresh", QStringLiteral("刷新能力")),
         this);
@@ -296,6 +297,8 @@ void KernelHvmTab::initializeUi()
            m_featureActionButton })
     {
         button->setStyleSheet(KswordTheme::ThemedButtonStyle());
+        // 只规范按钮本体，保留流式布局的自动换行。
+        ks::ui::NormalizeToolbarControl(button);
     }
     m_statusLabel = new QLabel(
         kernelText("kernel.hvm.status.waiting", QStringLiteral("状态：等待刷新")),
@@ -326,6 +329,8 @@ void KernelHvmTab::initializeUi()
 
     auto* splitter = new QSplitter(Qt::Vertical, this);
     m_cpuTable = new ks::ui::VisibleTableWidget(splitter);
+    // 逐核状态已有生命周期报告，收拢完整快照，仅保留复制导出。
+    ks::ui::SetTableActionBarMode(m_cpuTable, ks::ui::TableActionBarMode::Compact);
     m_cpuTable->setColumnCount(CpuColumnCount);
     m_cpuTable->setHorizontalHeaderLabels({
         kernelText("kernel.hvm.cpu.processor", QStringLiteral("处理器")),

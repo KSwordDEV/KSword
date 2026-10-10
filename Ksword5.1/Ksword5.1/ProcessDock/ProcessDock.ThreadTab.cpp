@@ -1,6 +1,8 @@
 #include "ProcessDock.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeBinding.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "ThreadAffinityMenu.h"
 #include "ThreadStackWindow.h"
 
@@ -532,6 +534,7 @@ void ProcessDock::initializeThreadPage()
     m_threadColumnPresetBButton->setCheckable(true);
     m_threadColumnPresetLayout->addWidget(m_threadColumnPresetAButton);
     m_threadColumnPresetLayout->addWidget(m_threadColumnPresetBButton);
+    ks::ui::NormalizeToolbarRow(m_threadColumnPresetLayout, 0);
     ks::i18n::LanguageManager::instance().bindToolTip(
         m_threadColumnPresetAButton,
         QStringLiteral("process.thread.columns.preset_a.tooltip"),
@@ -559,11 +562,11 @@ void ProcessDock::initializeThreadPage()
 
     m_threadSearchLineEdit = new QLineEdit(m_threadPage);
     // 线程结果树不经过通用表格搜索注册，保留原提示并明确接入搜索底面。
-    ks::ui::BindSearchFieldTheme(m_threadSearchLineEdit);
     m_threadSearchLineEdit->setClearButtonEnabled(true);
     m_threadSearchLineEdit->setPlaceholderText("搜索 TID / PID / 进程名 / 状态 / 启动地址");
     m_threadSearchLineEdit->setToolTip("过滤当前线程列表，不触发新的系统查询");
     m_threadSearchLineEdit->setStyleSheet(buildThreadSearchStyle());
+    ks::ui::StyleSearchField(m_threadSearchLineEdit);
     m_threadSearchLineEdit->setMaximumWidth(360);
 
     m_threadTopLayout->addWidget(m_threadRefreshButton);
@@ -571,6 +574,10 @@ void ProcessDock::initializeThreadPage()
     m_threadTopLayout->addWidget(m_threadScopeCombo);
     m_threadTopLayout->addWidget(m_threadSearchLineEdit);
     m_threadTopLayout->addStretch(1);
+    // A/B 预设仍贴合为一个选择控件，外层工具行统一高度与 8px 间距。
+    ks::ui::NormalizeToolbarControl(m_threadColumnPresetAButton);
+    ks::ui::NormalizeToolbarControl(m_threadColumnPresetBButton);
+    ks::ui::NormalizeToolbarRow(m_threadTopLayout);
     m_threadPageLayout->addLayout(m_threadTopLayout);
 
     // 线程表格初始化：使用 QTreeWidget 以支持首列图标与多列排序。

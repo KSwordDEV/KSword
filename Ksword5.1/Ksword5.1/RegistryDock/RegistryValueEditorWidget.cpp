@@ -1,4 +1,6 @@
 #include "RegistryValueEditorWidget.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "RegistryValueCodec.h"
 #include "../UI/MemoryWorkbench/HexView.h"
 #include "../UI/ThemeStatusRole.h"
@@ -134,6 +136,7 @@ RegistryValueEditorWidget::RegistryValueEditorWidget(QWidget* parent) : QWidget(
     root->addWidget(m_metadata);
 
     m_tabs = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_tabs);
     m_tabs->setObjectName(QStringLiteral("registry_value_tabs"));
     m_tabs->setMinimumSize(0, 0);
     m_tabs->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
@@ -201,6 +204,7 @@ RegistryValueEditorWidget::RegistryValueEditorWidget(QWidget* parent) : QWidget(
     fileTools->addWidget(importButton);
     fileTools->addWidget(exportButton);
     fileTools->addStretch();
+    ks::ui::NormalizeToolbarRow(fileTools);
     rawLayout->addLayout(fileTools);
     auto* lengthTools = new QHBoxLayout;
     m_resizeSize = new QLineEdit(rawPage);
@@ -211,6 +215,7 @@ RegistryValueEditorWidget::RegistryValueEditorWidget(QWidget* parent) : QWidget(
     resizeButton->setToolTip(trText(QStringLiteral("扩展补零，缩短移除草稿末尾字节；恢复原值可撤销。导入和调整长度上限为 32 MiB。")));
     lengthTools->addWidget(m_resizeSize, 1);
     lengthTools->addWidget(resizeButton);
+    ks::ui::NormalizeToolbarRow(lengthTools);
     rawLayout->addLayout(lengthTools);
     m_hex = new ks::ui::HexView(rawPage);
     m_hex->setObjectName(QStringLiteral("registry_value_raw_hex"));
@@ -733,7 +738,14 @@ void RegistryValueEditorWidget::applyControlStyles()
 {
     const QString buttonStyle = KswordTheme::ThemedButtonStyle();
     for (auto* button : findChildren<QPushButton*>())
-        if (button->property("registry_value_button").toBool()) button->setStyleSheet(buttonStyle);
+    {
+        if (button->property("registry_value_button").toBool())
+        {
+            button->setStyleSheet(buttonStyle);
+            // 主题重建局部颜色后仍恢复登记的统一按钮几何。
+            ks::ui::NormalizeToolbarControl(button);
+        }
+    }
     updateConsoleColor();
 }
 

@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalHelpers.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/DetailDialogChrome.h"
 
 #include "../UI/MemoryWorkbench/HexView.h"
@@ -286,6 +287,7 @@ namespace network_dock_detail
 
                 // 详情页签：当前仅保留十六进制视图页。
                 QTabWidget* detailTabWidget = new QTabWidget(this);
+                ks::ui::StylePageTabs(detailTabWidget);
                 rootLayout->addWidget(detailTabWidget, 1);
 
                 // 十六进制页：统一复用 ks::ui::HexView，功能与内存/文件模块保持一致。

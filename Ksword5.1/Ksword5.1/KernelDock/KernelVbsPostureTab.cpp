@@ -1,4 +1,6 @@
 #include "KernelVbsPostureTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -100,6 +102,7 @@ void KernelVbsPostureTab::initializeUi()
     toolbar->addWidget(m_refreshButton);
     toolbar->addStretch(1);
     toolbar->addWidget(m_statusLabel);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_verdictLabel = new QLabel(this);
@@ -120,6 +123,8 @@ void KernelVbsPostureTab::initializeUi()
     auto* splitter = new QSplitter(Qt::Vertical, this);
 
     m_table = new ks::ui::VisibleTableWidget(splitter);
+    // 少量安全姿态检查项已有详细报告，不需要重复快照/冻结栏。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::None);
     m_table->setColumnCount(PostureColumnCount);
     m_table->setHorizontalHeaderLabels({
         kernelText("kernel.vbs_posture.column.item", QStringLiteral("检查项")),

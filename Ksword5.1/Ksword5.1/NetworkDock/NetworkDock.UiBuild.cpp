@@ -2,6 +2,8 @@
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/CodeTextEdit.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "NetworkFirewallPage.h"
 #include "NetworkAuditPage.h"
 #include "../Internationalization/LanguageManager.h"
@@ -20,6 +22,7 @@ void NetworkDock::initializeUi()
     // - 网络功能页签数量已较多，改成顶部横排后避免左侧竖排标签挤出纵向滚动条；
     // - 保留统一 QTabWidget 结构，不改变各功能页内部实现。
     m_sideTabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_sideTabWidget);
     m_sideTabWidget->setTabPosition(QTabWidget::North);
     m_sideTabWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_rootLayout->addWidget(m_sideTabWidget, 1);
@@ -90,6 +93,7 @@ void NetworkDock::initializeTrafficMonitorTab()
     m_monitorControlLayout->addWidget(m_networkPluginButton);
     m_monitorControlLayout->addWidget(m_monitorStatusLabel);
     m_monitorControlLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(m_monitorControlLayout);
 
     m_trafficMonitorLayout->addLayout(m_monitorControlLayout);
 
@@ -146,7 +150,6 @@ void NetworkDock::initializeTrafficMonitorTab()
 
     m_monitorFilterHeaderLayout->addWidget(m_monitorFilterToggleButton);
     m_monitorFilterHeaderLayout->addWidget(filterTitleLabel);
-    m_monitorFilterHeaderLayout->addSpacing(4);
     m_monitorFilterHeaderLayout->addWidget(m_addMonitorFilterGroupButton);
     m_monitorFilterHeaderLayout->addWidget(m_applyMonitorFilterButton);
     m_monitorFilterHeaderLayout->addWidget(m_saveMonitorFilterButton);
@@ -154,6 +157,7 @@ void NetworkDock::initializeTrafficMonitorTab()
     m_monitorFilterHeaderLayout->addWidget(m_exportMonitorFilterButton);
     m_monitorFilterHeaderLayout->addWidget(m_clearMonitorFilterButton);
     m_monitorFilterHeaderLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(m_monitorFilterHeaderLayout);
     m_trafficMonitorLayout->addLayout(m_monitorFilterHeaderLayout);
 
     // 过滤折叠面板：标题分隔线 + 规则组滚动区 + 状态标签。
@@ -209,6 +213,8 @@ void NetworkDock::initializeTrafficMonitorTab()
 
     // 报文主表：展示“全部发送 UDP/TCP 包”。
     m_packetTable = new ks::ui::VisibleTableWidget(m_trafficMonitorPage);
+    // 报文是实时主证据，保留冻结、导出和快照对比。
+    ks::ui::SetTableActionBarMode(m_packetTable, ks::ui::TableActionBarMode::Full);
     m_packetTable->setColumnCount(toPacketColumn(PacketTableColumn::Count));
     m_packetTable->setHorizontalHeaderLabels({
         QStringLiteral("时间"),
@@ -299,11 +305,14 @@ void NetworkDock::initializeRateLimitTab()
     m_rateLimitControlLayout->addWidget(m_removeRateLimitButton);
     m_rateLimitControlLayout->addWidget(m_clearRateLimitButton);
     m_rateLimitControlLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(m_rateLimitControlLayout);
 
     m_rateLimitLayout->addLayout(m_rateLimitControlLayout);
 
     // 规则表：展示 PID、阈值、触发计数、当前状态。
     m_rateLimitTable = new ks::ui::VisibleTableWidget(m_rateLimitPage);
+    // 规则编辑表由页面自有动作管理，紧凑复制/导出即可。
+    ks::ui::SetTableActionBarMode(m_rateLimitTable, ks::ui::TableActionBarMode::Compact);
     m_rateLimitTable->setColumnCount(toRateLimitColumn(RateLimitTableColumn::Count));
     m_rateLimitTable->setHorizontalHeaderLabels({
         QStringLiteral("PID"),
@@ -396,15 +405,18 @@ void NetworkDock::initializeConnectionManageTab()
     m_connectionControlLayout->addWidget(m_clearConnectionPidFilterButton);
     m_connectionControlLayout->addWidget(m_connectionStatusLabel, 1);
     m_connectionManageLayout->addLayout(m_connectionControlLayout);
+    ks::ui::NormalizeToolbarRow(m_connectionControlLayout);
 
     // 子页签：分别展示 TCP 与 UDP。
     m_connectionSubTabWidget = new QTabWidget(m_connectionManagePage);
+    ks::ui::StylePageTabs(m_connectionSubTabWidget);
     m_connectionSubTabWidget->setTabPosition(QTabWidget::North);
     m_connectionSubTabWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_connectionManageLayout->addWidget(m_connectionSubTabWidget, 1);
 
     // TCP 表：状态、PID、进程、本地端点、远端端点。
     m_tcpConnectionTable = new ks::ui::VisibleTableWidget(m_connectionManagePage);
+    ks::ui::SetTableActionBarMode(m_tcpConnectionTable, ks::ui::TableActionBarMode::Compact);
     m_tcpConnectionTable->setColumnCount(toTcpConnectionColumn(TcpConnectionTableColumn::Count));
     m_tcpConnectionTable->setHorizontalHeaderLabels({
         QStringLiteral("状态"),
@@ -429,6 +441,7 @@ void NetworkDock::initializeConnectionManageTab()
 
     // UDP 表：PID、进程、本地端点。
     m_udpEndpointTable = new ks::ui::VisibleTableWidget(m_connectionManagePage);
+    ks::ui::SetTableActionBarMode(m_udpEndpointTable, ks::ui::TableActionBarMode::Compact);
     m_udpEndpointTable->setColumnCount(toUdpEndpointColumn(UdpEndpointTableColumn::Count));
     m_udpEndpointTable->setHorizontalHeaderLabels({
         QStringLiteral("PID"),
@@ -704,6 +717,7 @@ void NetworkDock::initializeManualRequestTab()
     actionButtonLayout->addWidget(m_manualExecuteButton);
     actionButtonLayout->addWidget(m_manualResetButton);
     actionButtonLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(actionButtonLayout);
 
     m_manualResultOutput = new CodeTextEdit(actionGroup);
     static_cast<CodeTextEdit*>(m_manualResultOutput)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);

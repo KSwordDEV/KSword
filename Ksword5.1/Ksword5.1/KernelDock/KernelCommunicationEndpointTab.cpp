@@ -1,4 +1,6 @@
 #include "KernelCommunicationEndpointTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -92,6 +94,7 @@ void KernelCommunicationEndpointTab::initializeUi()
     m_refreshButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
 
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setPlaceholderText(kernelText("kernel.communication_endpoint.toolbar.filter.placeholder", QStringLiteral("按名称、类型、路径筛选")));
     m_filterEdit->setClearButtonEnabled(true);
 
@@ -101,9 +104,12 @@ void KernelCommunicationEndpointTab::initializeUi()
     toolbarLayout->addWidget(m_refreshButton, 0);
     toolbarLayout->addWidget(m_filterEdit, 1);
     toolbarLayout->addWidget(m_statusLabel, 0);
+    ks::ui::NormalizeToolbarRow(toolbarLayout);
     rootLayout->addLayout(toolbarLayout);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // 通信端点增删是主要排查内容，保留跨次采集对比。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setColumnCount(static_cast<int>(CommunicationEndpointColumn::Count));
     m_table->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.communication_endpoint.header.source", QStringLiteral("来源目录")),

@@ -1,5 +1,6 @@
 #include "../UI/StructuredFieldView.h"
 #include "PrivilegeAccessPage.h"
+#include "../UI/ToolbarMetrics.h"
 #include "PrivilegeAccessBackend.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../Internationalization/LanguageManager.h"
@@ -83,6 +84,7 @@ namespace
             m_view->hide();
             subjectRow->addStretch();
             layout->addLayout(subjectRow);
+            ks::ui::NormalizeToolbarRow(subjectRow);
 
             auto* pathRow = new QHBoxLayout;
             pathRow->addWidget(new QLabel(text("privilege.workbench.access.path", "对象名称"), this));
@@ -92,6 +94,7 @@ namespace
             m_browse = new QPushButton(text("privilege.workbench.access.browse", "选择文件"), this);
             pathRow->addWidget(m_browse);
             layout->addLayout(pathRow);
+            ks::ui::NormalizeToolbarRow(pathRow);
             m_pathHint = new QLabel(this);
             m_pathHint->setWordWrap(true);
             layout->addWidget(m_pathHint);
@@ -101,6 +104,7 @@ namespace
             viewRow->addWidget(m_view);
             viewRow->addStretch();
             layout->addLayout(viewRow);
+            ks::ui::NormalizeToolbarRow(viewRow);
 
             auto* accessRow = new QHBoxLayout;
             accessRow->addWidget(new QLabel(text("privilege.workbench.access.operation", "请求权限"), this));
@@ -122,6 +126,7 @@ namespace
             accessRow->addWidget(m_mask);
             accessRow->addStretch();
             layout->addLayout(accessRow);
+            ks::ui::NormalizeToolbarRow(accessRow);
 
             auto* actions = new QHBoxLayout;
             m_assess = new QPushButton(text("privilege.workbench.access.assess", "评估描述符"), this);
@@ -140,9 +145,12 @@ namespace
             m_status->setWordWrap(true);
             actions->addWidget(m_status, 1);
             layout->addLayout(actions);
+            ks::ui::NormalizeToolbarRow(actions);
 
             auto* split = new QSplitter(Qt::Vertical, this);
             m_table = new ks::ui::VisibleTableWidget(split);
+            // 单对象访问诊断 ACE 是评估明细，紧凑复制/导出足够。
+            ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Compact);
             m_table->setObjectName(QStringLiteral("privilege_access_aces"));
             m_table->setColumnCount(8);
             m_table->setHorizontalHeaderLabels({

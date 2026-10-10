@@ -1,4 +1,5 @@
 #include "SettingsDock.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "../Framework.h"
 #include "../Internationalization/LanguageManager.h"
@@ -75,6 +76,7 @@ void SettingsDock::initializeOnlineScanTab()
     languageManager.bindToolTip(m_saveOnlineScanKeysButton, QStringLiteral("settings.online.save.tooltip"), QStringLiteral("保存 VirusTotal 与 ThreatBook API Key 到设置 JSON"));
     m_saveOnlineScanKeysButton->setEnabled(false);
     actionLayout->addWidget(m_saveOnlineScanKeysButton, 0);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     rootLayout->addLayout(actionLayout);
 
     rootLayout->addStretch(1);

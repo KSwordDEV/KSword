@@ -1,4 +1,5 @@
 #include "FileDock.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 
 // ============================================================
@@ -442,6 +443,7 @@ void FileDock::initializeIrpBuilderPage()
         QStringLiteral("浏览..."),
         targetGroup);
     browseButton->setStyleSheet(buttonStyle);
+    ks::ui::NormalizeToolbarControl(browseButton);
 
     m_irpMajorCombo = new QComboBox(targetGroup);
     m_irpMajorCombo->setStyleSheet(inputStyle);
@@ -688,12 +690,15 @@ void FileDock::initializeIrpBuilderPage()
 
     actionLayout->addWidget(m_irpSendButton, 0);
     actionLayout->addWidget(m_irpStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     pageLayout->addLayout(actionLayout, 0);
 
     QSplitter* resultSplitter = new QSplitter(Qt::Horizontal, m_irpBuilderPage);
     resultSplitter->setChildrenCollapsible(false);
 
     m_irpResultTable = new ks::ui::VisibleTableWidget(resultSplitter);
+    // 一次 IRP 回执是字段/值报告，原右键复制足够，不显示快照栏。
+    ks::ui::SetTableActionBarMode(m_irpResultTable, ks::ui::TableActionBarMode::None);
     m_irpResultTable->setColumnCount(2);
     m_irpResultTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("项目"),

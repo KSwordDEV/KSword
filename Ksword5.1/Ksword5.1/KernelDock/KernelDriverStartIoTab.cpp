@@ -1,4 +1,6 @@
 #include "KernelDriverStartIoTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "KernelDeviceDriverObjectsWorker.h"
 #include "KernelDock.h"
@@ -81,6 +83,7 @@ void KernelDriverStartIoTab::initializeUi()
         this);
     m_refreshButton->setStyleSheet(buttonStyle());
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(kernelText(
         "kernel.start_io.filter.placeholder",
@@ -98,9 +101,12 @@ void KernelDriverStartIoTab::initializeUi()
     toolbar->addWidget(m_filterEdit);
     toolbar->addWidget(m_clearFilterButton);
     toolbar->addWidget(m_statusLabel, 1);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // StartIo 入口的地址及模块变化需要完整现场对比。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);

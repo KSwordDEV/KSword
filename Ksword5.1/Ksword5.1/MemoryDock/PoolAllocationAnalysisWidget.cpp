@@ -2,6 +2,9 @@
 #include "../UI/StructuredFieldView.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/FlowLayout.h"
+#include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include <QAbstractTableModel>
 #include <QComboBox>
 #include <QEvent>
@@ -195,10 +198,13 @@ PoolAllocationAnalysisWidget::PoolAllocationAnalysisWidget(QWidget* parent) : QW
     layout->setContentsMargins(0, 0, 0, 0);
     m_note = new QLabel(this); m_note->setWordWrap(true); m_note->setObjectName(QStringLiteral("pool_analysis_note"));
     layout->addWidget(m_note);
-    auto* actions = new ks::ui::FlowLayout(nullptr, 0);
+    auto* actions = new ks::ui::FlowLayout(nullptr, 0, 8, 8);
     m_open = new QPushButton(this); m_open->setObjectName(QStringLiteral("pool_analysis_open"));
     m_cancel = new QPushButton(this); m_cancel->setObjectName(QStringLiteral("pool_analysis_cancel"));
     actions->addWidget(m_open); actions->addWidget(m_cancel);
+    // 换行工具行仅统一单个按钮，保持自动换行能力。
+    ks::ui::NormalizeToolbarControl(m_open);
+    ks::ui::NormalizeToolbarControl(m_cancel);
     layout->addLayout(actions);
     auto* filters = new QHBoxLayout;
     m_grouping = new QComboBox(this); m_grouping->setObjectName(QStringLiteral("pool_analysis_grouping"));
@@ -207,13 +213,17 @@ PoolAllocationAnalysisWidget::PoolAllocationAnalysisWidget(QWidget* parent) : QW
     m_grouping->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     m_grouping->addItems({QString(), QString(), QString()});
     m_filter = new QLineEdit(this); m_filter->setObjectName(QStringLiteral("pool_analysis_filter")); m_filter->setMinimumWidth(0);
+    ks::ui::StyleSearchField(m_filter);
     filters->addWidget(m_grouping, 2); filters->addWidget(m_filter, 3); layout->addLayout(filters);
+    ks::ui::NormalizeToolbarRow(filters);
     m_status = new QLabel(this); m_status->setWordWrap(true); m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_status->setObjectName(QStringLiteral("pool_analysis_status")); layout->addWidget(m_status);
     m_summary = new QLabel(this); m_summary->setWordWrap(true); m_summary->setObjectName(QStringLiteral("pool_analysis_summary"));
     layout->addWidget(m_summary);
     auto* split = new QSplitter(Qt::Vertical, this);
     m_table = new QTableView(split); m_table->setObjectName(QStringLiteral("pool_analysis_table"));
+    // ETL 的静态聚合结果没有实时快照语义，仅保留紧凑复制/导出。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Compact);
     m_model = new PoolAllocationTableModel(this);
     m_proxy = new QSortFilterProxyModel(this); m_proxy->setSourceModel(m_model); m_proxy->setSortRole(sortRole);
     m_proxy->setFilterRole(filterRole); m_proxy->setFilterKeyColumn(0); m_proxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
@@ -230,10 +240,12 @@ PoolAllocationAnalysisWidget::PoolAllocationAnalysisWidget(QWidget* parent) : QW
     m_stacks->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     m_stacks->setMinimumContentsLength(10); m_stacks->setMinimumWidth(0); detailLayout->addWidget(m_stacks);
     m_stacks->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    auto* detailActions = new ks::ui::FlowLayout(nullptr, 0);
+    auto* detailActions = new ks::ui::FlowLayout(nullptr, 0, 8, 8);
     m_resolve = new QPushButton(detail); m_resolve->setObjectName(QStringLiteral("pool_analysis_resolve"));
     m_module = new QPushButton(detail); m_module->setObjectName(QStringLiteral("pool_analysis_module"));
     detailActions->addWidget(m_resolve); detailActions->addWidget(m_module); detailLayout->addLayout(detailActions);
+    ks::ui::NormalizeToolbarControl(m_resolve);
+    ks::ui::NormalizeToolbarControl(m_module);
     m_frames = new ks::ui::StructuredFieldView(detail);
     m_frames->setObjectName(QStringLiteral("pool_analysis_frames"));
      detailLayout->addWidget(m_frames, 1); split->addWidget(m_table); split->addWidget(detail);

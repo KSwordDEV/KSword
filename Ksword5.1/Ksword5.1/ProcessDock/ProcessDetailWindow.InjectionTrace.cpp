@@ -1,6 +1,7 @@
 #include "ProcessDetailWindow.InternalCommon.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/StructuredFieldView.h"
+#include "../UI/PageControlStyle.h"
 
 #include "../ksword/process/injection_trace_collector.h"
 
@@ -1010,6 +1011,7 @@ namespace
         layout->addWidget(statsLabel);
 
         QTabWidget* const tabs = new QTabWidget(&dialog);
+        ks::ui::StylePageTabs(tabs);
 
         // --- 发现了什么 ---
         QWidget* const findingPage = new QWidget(tabs);

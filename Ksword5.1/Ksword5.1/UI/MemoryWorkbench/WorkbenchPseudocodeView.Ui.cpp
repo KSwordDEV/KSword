@@ -1,4 +1,5 @@
 #include "WorkbenchPseudocodeView.h"
+#include "../ToolbarMetrics.h"
 #include "../CodeEditorWidget.h"
 #include "../CodeTextEdit.h"
 #include "../FlowLayout.h"
@@ -86,7 +87,7 @@ namespace ks::ui
         layout->addWidget(runtimeStatus_);
 
         // 工具行采用自适应换行，窄窗口仍能看到安装和刷新入口。
-        auto* configuration = new FlowLayout(nullptr, 0, 4, 4);
+        auto* configuration = new FlowLayout(nullptr, 0, 8, 8);
         install_ = new QPushButton(ks::i18n::sourceText(QStringLiteral("安装 / 管理 Ghidra 插件")), this);
         install_->setObjectName(QStringLiteral("memory_install_ghidra_plugin"));
         install_->setToolTip(install_->text());
@@ -97,6 +98,9 @@ namespace ks::ui
         configuration->addWidget(install_);
         configuration->addWidget(refresh_);
         configuration->addWidget(advanced);
+        NormalizeToolbarControl(install_);
+        NormalizeToolbarControl(refresh_);
+        NormalizeToolbarControl(advanced);
         layout->addLayout(configuration);
 
         auto* advancedPage = new QWidget(this); // 仅在用户选择自定义配置时显示。
@@ -112,6 +116,7 @@ namespace ks::ui
         auto* browse = new QPushButton(ks::i18n::sourceText(QStringLiteral("浏览…")), advancedPage);
         browse->setToolTip(browse->text());
         paths->addWidget(browse);
+        NormalizeToolbarRow(paths);
         layout->addWidget(advancedPage);
         advanced->setChecked(!directory.isEmpty());
         advancedPage->setVisible(advanced->isChecked());
@@ -137,7 +142,7 @@ namespace ks::ui
             refreshDecompilerRuntime();
         });
 
-        auto* tools = new FlowLayout(nullptr, 0, 4, 4); // 导航动作随宽度换行。
+        auto* tools = new FlowLayout(nullptr, 0, 8, 8); // 导航动作随宽度换行。
         decompile_ = new QPushButton(ks::i18n::sourceText(QStringLiteral("反编译当前函数")), this);
         decompile_->setObjectName(QStringLiteral("memory_decompile_function"));
         cancel_ = new QPushButton(ks::i18n::sourceText(QStringLiteral("取消")), this);
@@ -150,6 +155,7 @@ namespace ks::ui
         {
             button->setToolTip(button->text());
             tools->addWidget(button);
+            NormalizeToolbarControl(button);
         }
         layout->addLayout(tools);
         status_ = new QLabel(this);

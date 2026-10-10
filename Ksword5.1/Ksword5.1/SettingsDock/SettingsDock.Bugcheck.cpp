@@ -1,4 +1,5 @@
 #include "SettingsDock.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "../Framework.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -186,6 +187,7 @@ void SettingsDock::initializeBugcheckDiagnosticsControls(
         QStringLiteral("settings.features.bugcheck.auto_install.tooltip"),
         QStringLiteral("写入配置文件。之后每次 R0 驱动成功启动，程序都会发送蓝屏诊断安装 IOCTL。"));
     bugcheckLayout->addWidget(m_enableBugcheckDiagnosticsAutoInstallButton);
+    ks::ui::NormalizeToolbarControl(m_enableBugcheckDiagnosticsAutoInstallButton);
 
     m_disableBugcheckDiagnosticsAutoInstallButton = new QPushButton(
         QStringLiteral("取消自动安装"),
@@ -201,6 +203,7 @@ void SettingsDock::initializeBugcheckDiagnosticsControls(
         QStringLiteral("settings.features.bugcheck.cancel_auto_install.tooltip"),
         QStringLiteral("移除配置文件中的自动安装项。不影响当前已经安装的诊断，当前诊断会在驱动卸载或重启后失效。"));
     bugcheckLayout->addWidget(m_disableBugcheckDiagnosticsAutoInstallButton);
+    ks::ui::NormalizeToolbarControl(m_disableBugcheckDiagnosticsAutoInstallButton);
 
     m_installBugcheckDiagnosticsForSessionButton = new QPushButton(
         QStringLiteral("本次安装"),
@@ -216,6 +219,7 @@ void SettingsDock::initializeBugcheckDiagnosticsControls(
         QStringLiteral("settings.features.bugcheck.install_session.tooltip"),
         QStringLiteral("立即向当前 R0 驱动发送安装 IOCTL。驱动卸载或系统重启后失效，不改写自动安装配置。"));
     bugcheckLayout->addWidget(m_installBugcheckDiagnosticsForSessionButton);
+    ks::ui::NormalizeToolbarControl(m_installBugcheckDiagnosticsForSessionButton);
 
     featuresRootLayout->addWidget(bugcheckGroupBox);
     connect(

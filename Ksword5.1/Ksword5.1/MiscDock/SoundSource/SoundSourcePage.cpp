@@ -1,4 +1,6 @@
 #include "SoundSourcePage.h"
+#include "../../UI/ToolbarMetrics.h"
+#include "../../UI/VisibleTableWidget.h"
 #include "../../UI/FlatButtonTheme.h"
 
 #include "../../theme.h"
@@ -216,7 +218,10 @@ namespace ks::misc
         m_showSilentCheck->setToolTip(
             QStringLiteral("显示当前未检测到波形的全部输出音频会话"));
         toolbarLayout->addWidget(m_showSilentCheck);
-        toolbarLayout->addSpacing(10);
+        // 列预设是紧贴的一组；外层只提供标准组间距。
+        auto* presetLayout = new QHBoxLayout();
+        presetLayout->setContentsMargins(0, 0, 0, 0);
+        presetLayout->setSpacing(0);
 
         m_columnPresetGroup = new QButtonGroup(this);
         m_columnPresetGroup->setExclusive(true);
@@ -246,9 +251,12 @@ namespace ks::misc
             presetButton->setToolTip(presetTooltips.at(buttonIndex));
             presetButton->setFixedSize(30, 26);
             m_columnPresetGroup->addButton(presetButton, buttonIndex);
-            toolbarLayout->addWidget(presetButton);
+            presetLayout->addWidget(presetButton);
         }
+        ks::ui::NormalizeToolbarRow(presetLayout, 0);
+        toolbarLayout->addLayout(presetLayout);
         toolbarLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(toolbarLayout);
         rootLayout->addLayout(toolbarLayout);
 
         m_summaryLabel = new QLabel(
@@ -262,6 +270,8 @@ namespace ks::misc
         rootLayout->addWidget(m_statusLabel);
 
         m_table = new QTableWidget(this);
+        // 音频会话短周期峰值已有专用列视图，保留复制导出，收拢快照条。
+        ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Compact);
         m_table->setColumnCount(ColumnCount);
         m_table->setHorizontalHeaderLabels(tableHeaders());
         m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);

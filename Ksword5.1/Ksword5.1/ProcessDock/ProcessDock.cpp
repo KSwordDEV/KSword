@@ -5,6 +5,7 @@
 #include "ProcessCpuCapacityCell.h"
 #include "./ProcessGpuTableView.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include <QDynamicPropertyChangeEvent>
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -773,7 +774,6 @@ namespace
     };
 
     constexpr QSize SideTabIconSize(22, 22);
-    constexpr int ProcessTabMinHeightPx = 22;
     constexpr int ProcessNumericSortRole = Qt::UserRole + 200;
     constexpr int ProcessEfficiencyModeRole = Qt::UserRole + 201;
     constexpr int ProcessEfficiencyModeKnownRole = Qt::UserRole + 202;
@@ -4976,19 +4976,9 @@ void ProcessDock::initializeUi()
     {
         m_sideTabWidget->tabBar()->setExpanding(false);
         m_sideTabWidget->tabBar()->setUsesScrollButtons(true);
-        m_sideTabWidget->tabBar()->setStyleSheet(QStringLiteral(
-            "QTabBar{background:transparent;border:none;}"
-            "QTabBar::tab{min-height:%1px;padding:3px 12px;margin:0px;border:none;border-radius:0px;}"
-            "QTabBar::tab:selected{background-color:%2;color:%5;font-weight:700;}"
-            "QTabBar::tab:hover:!selected{background-color:%3;color:%4;}" )
-            .arg(ProcessTabMinHeightPx)
-            .arg(KswordTheme::PrimaryBlueHex)
-            // 悬停底色没有蓝色系的动态角色可用，退回中性 alternate-base，
-            // 保证深浅色切换时不会残留旧主题的浅蓝方块。
-            .arg(KswordTheme::SurfaceAltHex())
-            .arg(KswordTheme::TextPrimaryHex())
-            .arg(QStringLiteral("palette(highlighted-text)")));
     }
+    // 内容 Tab 使用低对比底面与强调下划线，主 ADS 导航仍由独立样式管理。
+    ks::ui::StylePageTabs(m_sideTabWidget);
 
     // “进程列表”页是本模块核心页面。
     m_processListPage = new QWidget(this);
@@ -5174,7 +5164,7 @@ void ProcessDock::initializeTopControls()
         QStringLiteral("process.tooltip.search"),
         QStringLiteral("切到进程列表页后可直接输入搜索词"));
     m_processSearchLineEdit->setStyleSheet(buildBlueLineEditStyle());
-    ks::ui::BindSearchFieldTheme(m_processSearchLineEdit);
+    ks::ui::StyleSearchField(m_processSearchLineEdit);
     m_processSearchLineEdit->setMaximumWidth(320);
 
     // 内核对比开关：
@@ -5598,6 +5588,8 @@ void ProcessDock::initializeProcessTable()
 
     auto* renderingTable = new ks::process_ui::ProcessGpuTableView(this, m_processGpuEnabledCheck->isChecked());
     m_processTable = renderingTable;
+    // 主进程列表需要冻结列、快照及对比，保持完整操作栏。
+    ks::ui::SetTableActionBarMode(m_processTable, ks::ui::TableActionBarMode::Full);
     connect(m_processGpuEnabledCheck, &QCheckBox::toggled, renderingTable, [this, renderingTable](bool enabled)
     {
         QSettings settings; // 保存明确选择，后续启动不再被环境变量反向覆盖。
@@ -6082,6 +6074,8 @@ void ProcessDock::initializeCreateProcessPage()
     QVBoxLayout* tokenPrivilegeLayout = new QVBoxLayout(tokenPrivilegeGroup);
     const QStringList privilegeNames = tokenPrivilegeNames();
     m_tokenPrivilegeTable = new ks::ui::VisibleTableWidget(privilegeNames.size(), 2, tokenPrivilegeGroup);
+    // 特权动作用下拉框编辑，快照/对比会把配置控件误当结果表。
+    ks::ui::SetTableActionBarMode(m_tokenPrivilegeTable, ks::ui::TableActionBarMode::None);
     m_tokenPrivilegeTable->setHorizontalHeaderLabels(QStringList{ "Privilege", "Action" });
     m_tokenPrivilegeTable->horizontalHeader()->setStretchLastSection(true);
     m_tokenPrivilegeTable->verticalHeader()->setVisible(false);
@@ -6151,6 +6145,7 @@ void ProcessDock::initializeCreateProcessPage()
     tokenActionLayout->addWidget(m_applyTokenPrivilegeButton);
     tokenActionLayout->addWidget(m_resetTokenPrivilegeButton);
     tokenActionLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(tokenActionLayout);
 
     tokenPrivilegeLayout->addWidget(m_tokenPrivilegeTable, 1);
     tokenPrivilegeLayout->addLayout(tokenActionLayout);
@@ -6168,6 +6163,7 @@ void ProcessDock::initializeCreateProcessPage()
     actionButtonLayout->addWidget(m_launchProcessButton);
     actionButtonLayout->addWidget(m_resetCreateFormButton);
     actionButtonLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(actionButtonLayout);
 
     m_createResultOutput = new CodeTextEdit(actionGroup);
     static_cast<CodeTextEdit*>(m_createResultOutput)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);

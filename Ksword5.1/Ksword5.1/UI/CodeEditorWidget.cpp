@@ -1,4 +1,6 @@
 #include "CodeEditorWidget.h"
+#include "./PageControlStyle.h"
+#include "./ToolbarMetrics.h"
 #include "./FlatButtonTheme.h"
 #include "ThemeAccentIcon.h"
 #include "CodeTextEdit.h"
@@ -794,6 +796,7 @@ void CodeEditorWidget::initializeUi()
     connect(m_whitespaceAction, &QAction::toggled, this, [this](bool visible) { m_editor->setWhitespaceVisible(visible); });
     m_moreButton->setMenu(menu);
     m_toolbarLayout->addWidget(m_moreButton);
+    ks::ui::NormalizeToolbarRow(m_toolbarLayout);
     m_rootLayout->addWidget(m_toolbarWidget);
 
     m_findPanel = new QWidget(this);
@@ -809,6 +812,7 @@ void CodeEditorWidget::initializeUi()
     m_findEdit = new QLineEdit(m_findPanel);
     m_findEdit->setObjectName(QStringLiteral("code_editor_find"));
     m_findEdit->setPlaceholderText(QStringLiteral("查找"));
+    ks::ui::StyleSearchField(m_findEdit);
     m_findEdit->setMinimumWidth(30);
     m_matchCaseButton = new QToolButton(m_findPanel);
     m_matchCaseButton->setObjectName(QStringLiteral("code_editor_match_case"));
@@ -836,6 +840,7 @@ void CodeEditorWidget::initializeUi()
     m_findLayout->addWidget(m_findEdit, 1);
     for (auto* button : {m_matchCaseButton, m_wholeWordButton, m_findPrevButton, m_findNextButton, m_findCloseButton}) m_findLayout->addWidget(button);
     m_findLayout->addWidget(m_findResultLabel);
+    ks::ui::NormalizeToolbarRow(m_findLayout);
     m_replaceRow = new QWidget(m_findPanel);
     auto* replaceLayout = new QHBoxLayout(m_replaceRow);
     replaceLayout->setContentsMargins(0, 0, 0, 0);
@@ -854,6 +859,7 @@ void CodeEditorWidget::initializeUi()
     replaceLayout->addWidget(m_replaceEdit, 1);
     replaceLayout->addWidget(m_replaceOneButton);
     replaceLayout->addWidget(m_replaceAllButton);
+    ks::ui::NormalizeToolbarRow(replaceLayout);
     findRows->addWidget(m_replaceRow);
     m_replaceRow->hide();
     m_findPanel->hide();
@@ -874,6 +880,7 @@ void CodeEditorWidget::initializeUi()
     m_gotoLayout->addWidget(m_gotoLineEdit, 1);
     m_gotoLayout->addWidget(m_gotoApplyButton);
     m_gotoLayout->addWidget(m_gotoCloseButton);
+    ks::ui::NormalizeToolbarRow(m_gotoLayout);
     m_gotoPanel->hide();
     m_rootLayout->addWidget(m_gotoPanel);
     m_editor = new CodeTextEdit(this);

@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 #include "NetworkFirewallPage.h"
 #include "../UI/VisibleTableWidget.h"
@@ -245,8 +246,11 @@ void NetworkDock::initializeNidsTab()
     m_nidsControlLayout->addWidget(m_nidsClearButton);
     m_nidsControlLayout->addWidget(m_nidsStatusLabel, 1);
     m_nidsLayout->addLayout(m_nidsControlLayout);
+    ks::ui::NormalizeToolbarRow(m_nidsControlLayout);
 
     m_nidsAlertTable = new ks::ui::VisibleTableWidget(m_nidsPage);
+    // 告警是需要导出与保留快照的独立证据列表。
+    ks::ui::SetTableActionBarMode(m_nidsAlertTable, ks::ui::TableActionBarMode::Full);
     m_nidsAlertTable->setColumnCount(toNidsAlertColumn(NidsAlertTableColumn::Count));
     m_nidsAlertTable->setHorizontalHeaderLabels({
         QStringLiteral("时间"),

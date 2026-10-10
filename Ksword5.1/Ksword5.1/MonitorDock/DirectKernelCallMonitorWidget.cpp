@@ -1,5 +1,7 @@
 #include "DirectKernelCallMonitorWidget.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/ThemeBinding.h"
 
 // ============================================================
@@ -440,6 +442,7 @@ void DirectKernelCallMonitorWidget::initializeUi()
     buttonLayout->addWidget(m_clearButton);
     buttonLayout->addWidget(m_exportButton);
     buttonLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(buttonLayout);
     controlLayout->addLayout(buttonLayout, 1, 4, 1, 2);
 
     m_mapStatusLabel = new QLabel(QStringLiteral("syscall 映射：待解析"), m_controlPanel);
@@ -483,7 +486,7 @@ void DirectKernelCallMonitorWidget::initializeUi()
     // 各列过滤提示没有统一的 search 元数据，明确登记四个结果过滤框；采集 PID 不在此列。
     for (QLineEdit* field : {m_processFilterEdit, m_serviceFilterEdit, m_detailFilterEdit, m_globalFilterEdit})
     {
-        ks::ui::BindSearchFieldTheme(field);
+        ks::ui::StyleSearchField(field);
     }
     filterLayout->addWidget(m_globalFilterEdit, 1, 1, 1, 3);
 
@@ -509,6 +512,8 @@ void DirectKernelCallMonitorWidget::initializeUi()
     m_rootLayout->addWidget(m_filterPanel, 0);
 
     m_eventTable = new ks::ui::VisibleTableWidget(this);
+    // 系统调用主事件流需要快照取证，保留完整栏。
+    ks::ui::SetTableActionBarMode(m_eventTable, ks::ui::TableActionBarMode::Full);
     m_eventTable->setColumnCount(EventColumnCount);
     m_eventTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("时间(100ns)"),

@@ -1,4 +1,6 @@
 #include "HvmDock.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../KernelDock/KernelHvmTab.h"
@@ -214,7 +216,7 @@ void HvmDock::initializeUi()
     // 拆成子页之后每一页只剩一件事，两个方向的挤压同时消失。
     auto* const tabs = new QTabWidget(this);
     m_tabs = tabs;
-    tabs->setDocumentMode(true);
+    ks::ui::StylePageTabs(tabs);
 
     auto* const controlPanel = new QWidget(tabs);
     auto* const controlLayout = new QVBoxLayout(controlPanel);
@@ -225,7 +227,7 @@ void HvmDock::initializeUi()
     auto* const prepareGroup = new QGroupBox(
         ks::i18n::sourceText(QStringLiteral("第 1 步 · 资源（不进入常驻）")),
         controlPanel);
-    auto* const prepareRow = new ks::ui::FlowLayout(prepareGroup, 6, 6, 4);
+    auto* const prepareRow = new ks::ui::FlowLayout(prepareGroup, 6, 8, 8);
     m_prepareButton = new QPushButton(
         ks::i18n::sourceText(QStringLiteral("准备资源（不进入常驻）")),
         prepareGroup);
@@ -253,7 +255,7 @@ void HvmDock::initializeUi()
     auto* const installGroup = new QGroupBox(
         ks::i18n::sourceText(QStringLiteral("第 2 步 · 安装（要求资源已准备且未常驻）")),
         controlPanel);
-    auto* const installRow = new ks::ui::FlowLayout(installGroup, 6, 6, 4);
+    auto* const installRow = new ks::ui::FlowLayout(installGroup, 6, 8, 8);
     // 引导式入口放在第一个：它是这一组里唯一一个不要求用户先自己算出物理页地址的。
     // 下面那七个面板保留原样给专家用——它们能做的事更多，代价是每一个值都要自己备好。
     m_selfTestButton = new QPushButton(ks::i18n::sourceText(QStringLiteral("全核 SVM 自检")), installGroup);
@@ -297,7 +299,7 @@ void HvmDock::initializeUi()
     auto* const residentGroup = new QGroupBox(
         ks::i18n::sourceText(QStringLiteral("第 3 步 · 常驻与故障")),
         controlPanel);
-    auto* const residentRow = new ks::ui::FlowLayout(residentGroup, 6, 6, 4);
+    auto* const residentRow = new ks::ui::FlowLayout(residentGroup, 6, 8, 8);
     m_residentButton = new QPushButton(residentGroup);
     m_soakButton = new QPushButton(
         ks::i18n::sourceText(QStringLiteral("常驻保持自检（5 秒）")),
@@ -339,6 +341,8 @@ void HvmDock::initializeUi()
            m_resetFaultButton })
     {
         button->setStyleSheet(KswordTheme::ThemedButtonStyle());
+        // 流式布局保留窄窗换行，只统一每个生命周期按钮的尺寸。
+        ks::ui::NormalizeToolbarControl(button);
     }
 
     connect(m_prepareButton, &QPushButton::clicked, this, [this]() {

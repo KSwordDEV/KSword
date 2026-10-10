@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "UI/ToolbarMetrics.h"
 #include "../../shared/usermode/KswordArkServiceMode.h"
 #include "Framework/PrivilegeElevationPrompt.h"
 #include "MinidumpDock/DumpAutoCheck.h"
@@ -7744,6 +7745,7 @@ void MainWindow::showSettingsPanelFromMenu(bool showLanguageTab)
     applyButton->setEnabled(false);
     actionLayout->addWidget(cancelButton);
     actionLayout->addWidget(applyButton);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     dialogLayout.addLayout(actionLayout);
 
     connect(applyButton, &QPushButton::clicked, settingsPanel, &SettingsDock::applySettings);

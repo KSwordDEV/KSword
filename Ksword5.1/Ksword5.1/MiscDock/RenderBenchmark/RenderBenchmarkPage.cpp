@@ -1,4 +1,5 @@
 #include "RenderBenchmarkPage.h"
+#include "../../UI/ToolbarMetrics.h"
 
 // ============================================================
 // RenderBenchmarkPage.cpp
@@ -539,6 +540,7 @@ namespace ks::misc
         m_progressBar->setVisible(false);
         topActionLayout->addWidget(m_progressBar);
 
+        ks::ui::NormalizeToolbarRow(topActionLayout);
         rootLayout->addLayout(topActionLayout);
 
         // ===== 测试一：主窗口重绘基准 =====
@@ -583,6 +585,7 @@ namespace ks::misc
             QStringLiteral("运行重绘基准"));
         repaintActionLayout->addWidget(m_runRepaintButton);
         repaintActionLayout->addStretch();
+        ks::ui::NormalizeToolbarRow(repaintActionLayout);
         repaintLayout->addLayout(repaintActionLayout);
         rootLayout->addWidget(repaintGroupBox);
 
@@ -638,6 +641,7 @@ namespace ks::misc
             QStringLiteral("运行拖动对比"));
         dragActionLayout->addWidget(m_runDragButton);
         dragActionLayout->addStretch();
+        ks::ui::NormalizeToolbarRow(dragActionLayout);
         dragLayout->addLayout(dragActionLayout);
         rootLayout->addWidget(dragGroupBox);
 
@@ -673,6 +677,7 @@ namespace ks::misc
             QStringLiteral("运行合成探测"));
         compositionActionLayout->addWidget(m_runCompositionButton);
         compositionActionLayout->addStretch();
+        ks::ui::NormalizeToolbarRow(compositionActionLayout);
         compositionLayout->addLayout(compositionActionLayout);
         rootLayout->addWidget(compositionGroupBox);
 
@@ -716,6 +721,7 @@ namespace ks::misc
             QStringLiteral("misc.render_benchmark.response.refresh"),
             QStringLiteral("刷新窗口列表"));
         responseTargetLayout->addWidget(m_refreshTargetsButton);
+        ks::ui::NormalizeToolbarRow(responseTargetLayout);
         responseLayout->addLayout(responseTargetLayout);
 
         QHBoxLayout* const responseActionLayout = new QHBoxLayout();
@@ -737,6 +743,7 @@ namespace ks::misc
             QStringLiteral("运行响应探针"));
         responseActionLayout->addWidget(m_runResponseButton);
         responseActionLayout->addStretch();
+        ks::ui::NormalizeToolbarRow(responseActionLayout);
         responseLayout->addLayout(responseActionLayout);
         rootLayout->addWidget(responseGroupBox);
 
@@ -768,6 +775,7 @@ namespace ks::misc
             QStringLiteral("misc.render_benchmark.report.clear"),
             QStringLiteral("清空报告"));
         reportActionLayout->addWidget(m_clearReportButton);
+        ks::ui::NormalizeToolbarRow(reportActionLayout);
         rootLayout->addLayout(reportActionLayout);
 
         m_reportEdit = new CodeEditorWidget(this);

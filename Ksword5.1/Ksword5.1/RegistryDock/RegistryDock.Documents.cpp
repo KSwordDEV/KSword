@@ -1,5 +1,6 @@
 ﻿#include "../Internationalization/LanguageManager.h"
 #include "RegistryDock.h"
+#include "../UI/ToolbarMetrics.h"
 #include "RegistryDocument.h"
 #include "RegistryDocumentApply.h"
 #include "RegistryWorkbenchAccess.h"
@@ -227,6 +228,7 @@ void RegistryDock::previewRegistryDocument(const RegistryDocument& document, con
             auto* next = new QPushButton(QStringLiteral("下一页"), &dialog);
             auto* pageLabel = new QLabel(&dialog);
             paging->addWidget(previous); paging->addWidget(pageLabel); paging->addWidget(next); paging->addStretch();
+            ks::ui::NormalizeToolbarRow(paging);
             layout->addLayout(paging);
             auto updatePage = [page, plan, render, previous, next, pageLabel]() {
                 const int pages = qMax(1, static_cast<int>((plan->operations.size() + 199) / 200));

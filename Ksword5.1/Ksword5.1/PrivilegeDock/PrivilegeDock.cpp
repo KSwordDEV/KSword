@@ -1,4 +1,6 @@
 #include "PrivilegeDock.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "PrivilegeAccountPages.h"
 #include "PrivilegeTokenPages.h"
 #include "PrivilegeAccessPage.h"
@@ -268,6 +270,7 @@ void PrivilegeDock::initializeUi()
 
     m_tabWidget = new QTabWidget(this);
     m_tabWidget->setTabPosition(QTabWidget::West);
+    ks::ui::StylePageTabs(m_tabWidget);
     m_rootLayout->addWidget(m_tabWidget, 1);
 
     initializeAccountTab();
@@ -277,6 +280,7 @@ void PrivilegeDock::initializeUi()
     auto* accountLayout = new QVBoxLayout(accounts);
     accountLayout->setContentsMargins(0, 0, 0, 0);
     auto* accountTabs = new QTabWidget(accounts);
+    ks::ui::StylePageTabs(accountTabs);
     accountLayout->addWidget(accountTabs);
     auto* manager = ks::privilege::createAccountManagementPage(accountTabs,
         [this](const QString& target, const QString& account) {
@@ -338,9 +342,12 @@ void PrivilegeDock::initializeAccountTab()
         "privilege.account.status.pending", QStringLiteral("状态：待刷新")), m_accountPage);
     m_accountToolbarLayout->addWidget(m_accountRefreshButton, 0);
     m_accountToolbarLayout->addWidget(m_accountStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(m_accountToolbarLayout);
     m_accountLayout->addLayout(m_accountToolbarLayout, 0);
 
     m_accountTable = new ks::ui::VisibleTableWidget(m_accountPage);
+    // 创建/重置页的账户表是表单选取辅助，避免占用两组表单高度。
+    ks::ui::SetTableActionBarMode(m_accountTable, ks::ui::TableActionBarMode::Compact);
     m_accountTable->setColumnCount(4);
     applyTranslatedHeaders();
     m_accountTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -394,6 +401,7 @@ void PrivilegeDock::initializeAccountTab()
         QStringLiteral("创建本地用户（会弹出二次确认）"));
     m_createUserButton->setStyleSheet(blueButtonStyle());
     m_createUserButton->setFixedWidth(34);
+    ks::ui::NormalizeToolbarControl(m_createUserButton);
     m_accountLayout->addWidget(m_createUserButton, 0, Qt::AlignLeft);
 
     // 重置密码输入区：支持指定账号并确认密码。
@@ -436,6 +444,7 @@ void PrivilegeDock::initializeAccountTab()
         QStringLiteral("重置用户密码（会弹出二次确认）"));
     m_resetPasswordButton->setStyleSheet(blueButtonStyle());
     m_resetPasswordButton->setFixedWidth(34);
+    ks::ui::NormalizeToolbarControl(m_resetPasswordButton);
     m_accountLayout->addWidget(m_resetPasswordButton, 0, Qt::AlignLeft);
 
     m_tabWidget->addTab(m_accountPage, QStringLiteral("账号"));
@@ -470,9 +479,12 @@ void PrivilegeDock::initializePermissionTab()
         "privilege.permission.status.pending", QStringLiteral("状态：待刷新")), m_permissionPage);
     m_permissionToolbarLayout->addWidget(m_permissionRefreshButton, 0);
     m_permissionToolbarLayout->addWidget(m_permissionStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(m_permissionToolbarLayout);
     m_permissionLayout->addLayout(m_permissionToolbarLayout, 0);
 
     m_permissionTable = new ks::ui::VisibleTableWidget(m_permissionPage);
+    // 权限页为可刷新清单，保留现场前后对比。
+    ks::ui::SetTableActionBarMode(m_permissionTable, ks::ui::TableActionBarMode::Full);
     m_permissionTable->setColumnCount(4);
     applyTranslatedHeaders();
     m_permissionTable->setSelectionBehavior(QAbstractItemView::SelectRows);

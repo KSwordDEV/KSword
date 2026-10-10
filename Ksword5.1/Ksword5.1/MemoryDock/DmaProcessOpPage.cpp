@@ -1,4 +1,5 @@
 #include "DmaProcessOpPage.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/CodeTextEdit.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -164,6 +165,7 @@ namespace ksword::memory_dock
         actions->addWidget(m_ud2Button);
         actions->addWidget(m_restoreButton);
         actions->addStretch(1);
+        ks::ui::NormalizeToolbarRow(actions);
         root->addLayout(actions);
 
         m_channelHintLabel = new QLabel(this);

@@ -1,5 +1,7 @@
 
 #include "KernelDock.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ThemeBinding.h"
 #include "../UI/ThemeAccentIcon.h"
@@ -425,6 +427,7 @@ void KernelDock::initializeUi()
     m_rootLayout->addWidget(m_tabInitializingProgressBar, 0);
 
     m_tabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_tabWidget);
     m_tabWidget->setIconSize(QSize(16, 16));
     m_rootLayout->addWidget(m_tabWidget, 1);
 
@@ -436,6 +439,7 @@ void KernelDock::initializeUi()
     m_miscLayout->setContentsMargins(4, 4, 4, 4);
     m_miscLayout->setSpacing(0);
     m_miscInnerTabWidget = new QTabWidget(m_miscPage);
+    ks::ui::StylePageTabs(m_miscInnerTabWidget);
     m_miscInnerTabWidget->setIconSize(QSize(16, 16));
     m_miscLayout->addWidget(m_miscInnerTabWidget, 1);
 
@@ -451,6 +455,7 @@ void KernelDock::initializeUi()
     m_kernelAuditLayout = new QVBoxLayout(m_kernelAuditPage);
     m_kernelAuditLayout->setContentsMargins(4, 4, 4, 4);
     m_kernelAuditInnerTabWidget = new QTabWidget(m_kernelAuditPage);
+    ks::ui::StylePageTabs(m_kernelAuditInnerTabWidget);
     m_kernelAuditInnerTabWidget->setIconSize(QSize(16, 16));
     m_kernelAuditLayout->addWidget(m_kernelAuditInnerTabWidget, 1);
     m_inlineHookPage = new QWidget(m_kernelAuditInnerTabWidget);
@@ -469,6 +474,7 @@ void KernelDock::initializeUi()
     m_selfDriverLayout = new QVBoxLayout(m_selfDriverPage);
     m_selfDriverLayout->setContentsMargins(4, 4, 4, 4);
     m_selfDriverInnerTabWidget = new QTabWidget(m_selfDriverPage);
+    ks::ui::StylePageTabs(m_selfDriverInnerTabWidget);
     m_selfDriverInnerTabWidget->setIconSize(QSize(16, 16));
     m_selfDriverLayout->addWidget(m_selfDriverInnerTabWidget, 1);
     m_driverStatusPage = new QWidget(m_selfDriverInnerTabWidget);
@@ -825,6 +831,7 @@ void KernelDock::initializeIoManagementTab()
     m_ioManagementLayout->setSpacing(0);
 
     m_ioManagementInnerTabWidget = new QTabWidget(m_ioManagementPage);
+    ks::ui::StylePageTabs(m_ioManagementInnerTabWidget);
     m_ioManagementInnerTabWidget->setTabPosition(QTabWidget::North);
     m_ioManagementInnerTabWidget->setDocumentMode(true);
     m_ioManagementLayout->addWidget(m_ioManagementInnerTabWidget, 1);
@@ -904,6 +911,7 @@ void KernelDock::initializeObjectNamespaceTab()
     m_objectNamespaceLayout->setSpacing(6);
 
     m_objectNamespaceInnerTabWidget = new QTabWidget(m_objectNamespacePage);
+    ks::ui::StylePageTabs(m_objectNamespaceInnerTabWidget);
     m_objectNamespaceInnerTabWidget->setIconSize(QSize(16, 16));
     m_objectNamespaceLayout->addWidget(m_objectNamespaceInnerTabWidget, 1);
 
@@ -993,11 +1001,11 @@ void KernelDock::initializeObjectNamespaceTab()
 
     m_objectNamespaceFilterEdit = new QLineEdit(m_objectNamespaceOverviewPage);
     // 命名空间树的专用文本过滤保持原树与过滤信号。
-    ks::ui::BindSearchFieldTheme(m_objectNamespaceFilterEdit);
+    ks::ui::StyleSearchField(m_objectNamespaceFilterEdit);
     m_objectNamespaceFilterEdit->setPlaceholderText(kernelText("kernel.main.object_namespace.filter.placeholder", QStringLiteral("按根目录/目录路径/对象名/对象类型/状态筛选")));
     m_objectNamespaceFilterEdit->setToolTip(kernelText("kernel.main.object_namespace.filter.tooltip", QStringLiteral("输入关键字后实时过滤对象命名空间树")));
     m_objectNamespaceFilterEdit->setClearButtonEnabled(true);
-    m_objectNamespaceFilterEdit->setStyleSheet(blueInputStyle());
+    // 搜索底色由共享搜索样式管理，保留命名空间树的业务过滤。
 
     m_objectNamespaceStatusLabel = new QLabel(kernelText("kernel.main.object_namespace.status.waiting", QStringLiteral("状态：等待刷新")), m_objectNamespaceOverviewPage);
     m_objectNamespaceStatusLabel->setStyleSheet(statusLabelStyle(KswordTheme::TextSecondaryHex()));
@@ -1005,6 +1013,7 @@ void KernelDock::initializeObjectNamespaceTab()
     m_objectNamespaceToolLayout->addWidget(m_refreshObjectNamespaceButton, 0);
     m_objectNamespaceToolLayout->addWidget(m_objectNamespaceFilterEdit, 1);
     m_objectNamespaceToolLayout->addWidget(m_objectNamespaceStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(m_objectNamespaceToolLayout);
     m_objectNamespaceOverviewLayout->addLayout(m_objectNamespaceToolLayout);
 
     QSplitter* verticalSplitter = new QSplitter(Qt::Vertical, m_objectNamespaceOverviewPage);
@@ -1036,6 +1045,8 @@ void KernelDock::initializeObjectNamespaceTab()
     m_objectNamespaceTree->setToolTip(kernelText("kernel.main.object_namespace.tree.tooltip", QStringLiteral("文件管理器式对象命名空间树，支持逐级展开与右键操作")));
 
     m_objectNamespacePropertyTable = new ks::ui::VisibleTableWidget(horizontalSplitter);
+    // 所选节点的属性键值映射不需要快照或冻结操作栏。
+    ks::ui::SetTableActionBarMode(m_objectNamespacePropertyTable, ks::ui::TableActionBarMode::None);
     m_objectNamespacePropertyTable->setColumnCount(2);
     m_objectNamespacePropertyTable->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.main.object_namespace.property.header", QStringLiteral("属性项")),
@@ -1103,7 +1114,7 @@ void KernelDock::initializeAtomTableTab()
     m_atomFilterEdit->setPlaceholderText(kernelText("kernel.main.atom.filter.placeholder", QStringLiteral("按 Atom 值/十六进制/名称/来源筛选")));
     m_atomFilterEdit->setToolTip(kernelText("kernel.main.atom.filter.tooltip", QStringLiteral("输入关键字后实时过滤原子表")));
     m_atomFilterEdit->setClearButtonEnabled(true);
-    m_atomFilterEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(m_atomFilterEdit);
 
     m_atomStatusLabel = new QLabel(kernelText("kernel.main.atom.status.waiting", QStringLiteral("状态：等待刷新")), m_atomPage);
     m_atomStatusLabel->setStyleSheet(statusLabelStyle(KswordTheme::TextSecondaryHex()));
@@ -1111,12 +1122,15 @@ void KernelDock::initializeAtomTableTab()
     m_atomToolLayout->addWidget(m_refreshAtomButton, 0);
     m_atomToolLayout->addWidget(m_atomFilterEdit, 1);
     m_atomToolLayout->addWidget(m_atomStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(m_atomToolLayout);
     m_atomLayout->addLayout(m_atomToolLayout);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_atomPage);
     m_atomLayout->addWidget(splitter, 1);
 
     m_atomTable = new ks::ui::VisibleTableWidget(splitter);
+    // 原子名索引只需快速复制导出，收拢不常用的快照对比。
+    ks::ui::SetTableActionBarMode(m_atomTable, ks::ui::TableActionBarMode::Compact);
     m_atomTable->setColumnCount(static_cast<int>(AtomColumn::Count));
     m_atomTable->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.main.atom.header.value", QStringLiteral("Atom值")),
@@ -1190,12 +1204,15 @@ void KernelDock::initializeNtQueryTab()
 
     m_ntQueryToolLayout->addWidget(m_refreshNtQueryButton, 0);
     m_ntQueryToolLayout->addWidget(m_ntQueryStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(m_ntQueryToolLayout);
     m_ntQueryLayout->addLayout(m_ntQueryToolLayout);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_ntQueryPage);
     m_ntQueryLayout->addWidget(splitter, 1);
 
     m_ntQueryTable = new ks::ui::VisibleTableWidget(splitter);
+    // 查询摘要已有详情联动，用紧凑操作保留复制导出。
+    ks::ui::SetTableActionBarMode(m_ntQueryTable, ks::ui::TableActionBarMode::Compact);
     m_ntQueryTable->setColumnCount(static_cast<int>(NtQueryColumn::Count));
     m_ntQueryTable->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.main.nt_query.header.category", QStringLiteral("类别")),

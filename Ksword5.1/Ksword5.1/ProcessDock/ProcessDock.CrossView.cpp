@@ -1,6 +1,8 @@
 #include "ProcessDock.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeBinding.h"
 
@@ -439,7 +441,7 @@ void ProcessDock::initializeCrossViewPage()
     m_crossViewSearchEdit->setClearButtonEnabled(true);
     m_crossViewSearchEdit->setPlaceholderText(QStringLiteral("过滤 PID/TID/进程名/异常/详情"));
     // 搜索位于两张内层 Tab 表格之外，需显式登记，保留既有过滤文本和连接。
-    ks::ui::BindSearchFieldTheme(m_crossViewSearchEdit);
+    ks::ui::StyleSearchField(m_crossViewSearchEdit);
 
     m_crossViewAnomalyOnlyCheck = new QCheckBox(QStringLiteral("仅异常"), m_crossViewPage);
     m_crossViewAnomalyOnlyCheck->setChecked(true);
@@ -452,14 +454,19 @@ void ProcessDock::initializeCrossViewPage()
     m_crossViewTopLayout->addWidget(m_crossViewAnomalyOnlyCheck);
     m_crossViewTopLayout->addWidget(m_crossViewSearchEdit, 1);
     m_crossViewTopLayout->addWidget(m_crossViewStatusLabel);
+    ks::ui::NormalizeToolbarRow(m_crossViewTopLayout);
     m_crossViewPageLayout->addLayout(m_crossViewTopLayout);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_crossViewPage);
     m_crossViewPageLayout->addWidget(splitter, 1);
 
     QTabWidget* innerTabs = new QTabWidget(splitter);
+    ks::ui::StylePageTabs(innerTabs);
     m_processCrossViewTable = new ks::ui::VisibleTableWidget(innerTabs);
     m_threadCrossViewTable = new ks::ui::VisibleTableWidget(innerTabs);
+    // 两张来源矩阵均为独立 R0 证据，保留完整快照对比。
+    ks::ui::SetTableActionBarMode(m_processCrossViewTable, ks::ui::TableActionBarMode::Full);
+    ks::ui::SetTableActionBarMode(m_threadCrossViewTable, ks::ui::TableActionBarMode::Full);
     for (QTableWidget* table : { m_processCrossViewTable, m_threadCrossViewTable })
     {
         table->setColumnCount(columnIndex(CrossViewColumn::Count));

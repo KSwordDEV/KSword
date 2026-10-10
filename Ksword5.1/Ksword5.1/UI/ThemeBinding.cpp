@@ -412,7 +412,10 @@ bool ks::ui::BindSearchFieldTheme(QLineEdit* searchField)
             parentColors.color(QPalette::Disabled, QPalette::PlaceholderText), KswordTheme::TextSecondaryColor()), background, 3.0);
 
         // 搜索与普通输入共享柔和交互填充；保留页面几何与具体的 placeholder 文本。
-        const QString block = QString::fromLatin1(kSearchStyleBegin) + QStringLiteral(
+        // 页面明确选择统一搜索几何后，局部主题重建也必须保留同一留白和圆角。
+        const QString geometry = guardedField->property("ksword_page_search_style").toBool()
+            ? QStringLiteral("QLineEdit[ksword_page_search_style=\"true\"]{padding:0px 10px;border-radius:5px;}") : QString();
+        const QString block = QString::fromLatin1(kSearchStyleBegin) + geometry + QStringLiteral(
             "QLineEdit,QLineEdit:read-only{background-color:%1;color:%2;placeholder-text-color:%6;border:none;}"
             "QLineEdit:hover{background-color:%4;border:none;}"
             "QLineEdit:focus{background-color:%5;border:none;}"

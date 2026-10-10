@@ -1,4 +1,5 @@
 #include "HandleDock.h"
+#include "../UI/ToolbarMetrics.h"
 
 // ============================================================
 // HandleDock.Filter.cpp
@@ -761,7 +762,9 @@ void HandleDock::showRuleManagerDialog(const QString& initiallySelectedRuleId)
         toggleButton, moveUpButton, moveDownButton })
     {
         actionLayout->addWidget(button);
+        ks::ui::NormalizeToolbarControl(button);
     }
+    actionLayout->setSpacing(8);
     actionLayout->addStretch(1);
     contentLayout->addLayout(actionLayout);
     rootLayout->addLayout(contentLayout, 1);

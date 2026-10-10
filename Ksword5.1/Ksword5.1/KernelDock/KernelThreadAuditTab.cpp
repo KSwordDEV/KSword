@@ -1,4 +1,7 @@
 #include "KernelThreadAuditTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/VisibleTableWidget.h"
 #include "../UI/FlatButtonTheme.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -165,25 +168,34 @@ void KernelThreadAuditTab::initializeUi()
     m_evidenceButton->setVisible(m_mode != Mode::WorkQueueThreads);
 
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_statusLabel = new QLabel(this);
     m_statusLabel->setStyleSheet(QStringLiteral("QLabel{color:%1;}").arg(KswordTheme::TextSecondaryHex()));
 
     toolLayout->addWidget(m_refreshButton);
-    toolLayout->addSpacing(3);
+    // 常规动作使用统一间距，不再额外插入不等宽空白。
     toolLayout->addWidget(m_suspendButton);
     toolLayout->addWidget(m_resumeButton);
     toolLayout->addWidget(m_terminateButton);
-    toolLayout->addSpacing(7);
-    toolLayout->addWidget(m_overviewButton);
-    toolLayout->addWidget(m_evidenceButton);
+    // A/B 是一组紧贴预设，组间距离由外层工具条统一提供。
+    auto* presetLayout = new QHBoxLayout();
+    presetLayout->setContentsMargins(0, 0, 0, 0);
+    presetLayout->setSpacing(0);
+    presetLayout->addWidget(m_overviewButton);
+    presetLayout->addWidget(m_evidenceButton);
+    ks::ui::NormalizeToolbarRow(presetLayout, 0);
+    toolLayout->addLayout(presetLayout);
     toolLayout->addWidget(m_filterEdit, 1);
     toolLayout->addWidget(m_statusLabel);
+    ks::ui::NormalizeToolbarRow(toolLayout);
     rootLayout->addLayout(toolLayout);
 
     // 表格与 ks::ui::StructuredFieldView 由纵向 splitter 组织，详情窗口保持项目统一编辑器。
     auto* splitter = new QSplitter(Qt::Vertical, this);
     m_table = new QTableWidget(splitter);
+    // 系统/工作队列线程的变化与地址来源需要保留完整快照栏。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setColumnCount(static_cast<int>(Column::Count));
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);

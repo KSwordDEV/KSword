@@ -1,5 +1,6 @@
 
 #include "KernelObjectDirectoryDeepTab.h"
+#include "../UI/ToolbarMetrics.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -273,6 +274,7 @@ void KernelObjectDirectoryDeepTab::initializeUi()
     toolLayout->addWidget(m_maxDepthSpinBox, 0);
     toolLayout->addWidget(m_refreshButton, 0);
     toolLayout->addWidget(m_statusLabel, 0);
+    ks::ui::NormalizeToolbarRow(toolLayout);
     rootLayout->addLayout(toolLayout);
 
     auto* splitter = new QSplitter(Qt::Vertical, this);

@@ -3,6 +3,8 @@
 // 纯逻辑（模式解析、数据源、查找、可见命中）在 HexFindSearch.cpp。
 
 #include "HexFindBar.h"
+#include "../PageControlStyle.h"
+#include "../ToolbarMetrics.h"
 
 #include "HexCanvasFormat.h"
 #include "HexViewFormat.h"
@@ -56,6 +58,7 @@ namespace ks::ui
         m_edit->setClearButtonEnabled(true);
         m_edit->setMinimumWidth(110);
         m_edit->setAccessibleName(QStringLiteral("查找内容"));
+        StyleSearchField(m_edit);
         layout->addWidget(m_edit, 2);
 
         // 区分大小写开关：可勾选的图标按钮，只在文本模式可用。
@@ -81,6 +84,9 @@ namespace ks::ui
         m_closeButton = new HexViewGlyphButton(HexViewGlyphButton::Glyph::Close, this);
         m_closeButton->setToolTip(QStringLiteral("关闭查找条（Esc）"));
         layout->addWidget(m_closeButton);
+        // 模式分段为自绘容器，显式与旁边搜索和图标按钮等高。
+        NormalizeToolbarRow(layout);
+        NormalizeToolbarControl(m_modeSegment, m_edit->height());
 
         // 连接：回车与按钮触发搜索；关闭按钮只发信号，由宿主决定如何收起；模式切换更新提示。
         connect(m_edit, &QLineEdit::returnPressed, this, [this]() { findNext(); });

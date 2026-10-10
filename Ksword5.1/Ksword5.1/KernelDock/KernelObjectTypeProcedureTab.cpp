@@ -1,4 +1,6 @@
 #include "KernelObjectTypeProcedureTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -110,6 +112,7 @@ void KernelObjectTypeProcedureTab::initializeUi()
         this);
     m_refreshButton->setStyleSheet(buttonStyle());
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(kernelText(
         "kernel.object_type_proc.filter.placeholder",
@@ -128,9 +131,12 @@ void KernelObjectTypeProcedureTab::initializeUi()
     toolbar->addWidget(m_filterEdit);
     toolbar->addWidget(m_clearFilterButton);
     toolbar->addWidget(m_statusLabel, 1);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // 对象方法指针属于完整性证据，需要保存前后地址。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);

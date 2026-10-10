@@ -1,4 +1,6 @@
 #include "KernelSlatIommuAuditTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -133,6 +135,7 @@ void KernelSlatIommuAuditTab::initializeUi()
     toolbar->addWidget(m_includeMmioCheck);
     toolbar->addStretch(1);
     toolbar->addWidget(m_statusLabel);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_summaryLabel = new QLabel(this);
@@ -145,8 +148,11 @@ void KernelSlatIommuAuditTab::initializeUi()
 
     auto* splitter = new QSplitter(Qt::Vertical, this);
     auto* evidenceTabs = new QTabWidget(splitter);
+    ks::ui::StylePageTabs(evidenceTabs);
 
     m_probeTable = new ks::ui::VisibleTableWidget(evidenceTabs);
+    // 虚拟/物理别名探针差异需要保留现场快照比较。
+    ks::ui::SetTableActionBarMode(m_probeTable, ks::ui::TableActionBarMode::Full);
     m_probeTable->setColumnCount(ProbeColumnCount);
     m_probeTable->setHorizontalHeaderLabels({
         kernelText("kernel.slat_iommu.probe.name", QStringLiteral("探针")),
@@ -179,6 +185,8 @@ void KernelSlatIommuAuditTab::initializeUi()
             QStringLiteral("EPT/NPT 交叉视图")));
 
     m_iommuTable = new ks::ui::VisibleTableWidget(evidenceTabs);
+    // 固件表与接口能力摘要变化少，保留紧凑复制导出入口。
+    ks::ui::SetTableActionBarMode(m_iommuTable, ks::ui::TableActionBarMode::Compact);
     m_iommuTable->setColumnCount(IommuColumnCount);
     m_iommuTable->setHorizontalHeaderLabels({
         kernelText("kernel.slat_iommu.iommu.type", QStringLiteral("类型")),

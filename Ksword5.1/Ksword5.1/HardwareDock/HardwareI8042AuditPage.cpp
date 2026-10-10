@@ -1,4 +1,6 @@
 #include "HardwareI8042AuditPage.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -147,20 +149,27 @@ void HardwareI8042AuditPage::initializeUi()
     m_columnGroupBButton = new QPushButton(QStringLiteral("B"), this);
     m_columnGroupCButton = new QPushButton(QStringLiteral("C"), this);
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_statusLabel = new QLabel(this);
     m_statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     toolbar->addWidget(m_refreshButton);
-    toolbar->addSpacing(6);
-    toolbar->addWidget(m_columnGroupAButton);
-    toolbar->addWidget(m_columnGroupBButton);
-    toolbar->addWidget(m_columnGroupCButton);
-    toolbar->addSpacing(6);
+    // A/B/C 明确作为紧贴预设组，组外动作使用统一 8px 间距。
+    auto* presetLayout = new QHBoxLayout();
+    presetLayout->setContentsMargins(0, 0, 0, 0);
+    presetLayout->addWidget(m_columnGroupAButton);
+    presetLayout->addWidget(m_columnGroupBButton);
+    presetLayout->addWidget(m_columnGroupCButton);
+    ks::ui::NormalizeToolbarRow(presetLayout, 0);
+    toolbar->addLayout(presetLayout);
     toolbar->addWidget(m_filterEdit, 1);
     toolbar->addWidget(m_statusLabel);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // 端点完整性属于可重复现场采集，保留快照对比入口。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setColumnCount(ColumnCount);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);

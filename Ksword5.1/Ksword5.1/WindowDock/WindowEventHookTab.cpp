@@ -5,6 +5,8 @@
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../theme.h"
 
 #include <QAbstractItemView>
@@ -383,14 +385,16 @@ void WindowEventHookTab::initializeUi()
     m_refreshButton = new QPushButton(
         eventHookText("window.event_hook.refresh", QStringLiteral("刷新事件 Hook")),
         this);
-    m_refreshButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(eventHookText(
         "window.event_hook.filter.placeholder",
         QStringLiteral("按句柄、事件范围、Flags、回调、模块、PID/TID 或路径筛选")));
     toolbar->addWidget(m_refreshButton);
     toolbar->addWidget(m_filterEdit, 1);
+    toolbar->setSpacing(8);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_statusLabel = new QLabel(
@@ -401,6 +405,8 @@ void WindowEventHookTab::initializeUi()
     rootLayout->addWidget(m_statusLabel);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // Hook 现场需要比较注册/注销变化，保留完整操作栏。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setColumnCount(ColumnCount);
     m_table->setHorizontalHeaderLabels({
         eventHookText("window.event_hook.header.handle", QStringLiteral("句柄")),
@@ -428,12 +434,6 @@ void WindowEventHookTab::initializeUi()
     m_table->verticalHeader()->setVisible(false);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->horizontalHeader()->setStretchLastSection(true);
-    m_table->setStyleSheet(QStringLiteral(
-        "QTableWidget{background:transparent;color:%1;}"
-        "QHeaderView::section{color:%2;background:transparent;border:1px solid %3;font-weight:600;}")
-        .arg(KswordTheme::TextPrimaryHex())
-        .arg(KswordTheme::PrimaryBlueHex)
-        .arg(KswordTheme::BorderHex()));
     rootLayout->addWidget(m_table, 1);
 
     connect(m_refreshButton, &QPushButton::clicked, this, [this]() { refreshAsync(); });

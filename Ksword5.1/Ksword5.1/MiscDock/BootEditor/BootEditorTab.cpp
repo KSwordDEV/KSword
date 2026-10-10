@@ -1,4 +1,6 @@
 #include "BootEditorTab.h"
+#include "../../UI/PageControlStyle.h"
+#include "../../UI/ToolbarMetrics.h"
 #include "../../UI/CodeTextEdit.h"
 
 #include "../../Framework/PrivilegeElevationPrompt.h"
@@ -230,7 +232,7 @@ void BootEditorTab::initializeToolbar()
     m_filterEdit->setPlaceholderText(QStringLiteral("筛选：标识符/描述/路径/类型"));
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setToolTip(QStringLiteral("输入关键字实时过滤引导条目"));
-    m_filterEdit->setStyleSheet(buildBlueInputStyle());
+    ks::ui::StyleSearchField(m_filterEdit);
     m_toolbarLayout->addWidget(m_filterEdit, 1);
 
     // m_adminHintLabel：
@@ -251,6 +253,7 @@ void BootEditorTab::initializeToolbar()
         : QStringLiteral("color:%1;font-weight:600;")
             .arg(KswordTheme::WarningColor().name(QColor::HexRgb)));
     m_toolbarLayout->addWidget(m_adminHintLabel);
+    ks::ui::NormalizeToolbarRow(m_toolbarLayout);
 }
 
 void BootEditorTab::initializeCenterPane()
@@ -264,6 +267,8 @@ void BootEditorTab::initializeCenterPane()
 
     // 上方表格：展示当前 BCD 条目列表。
     m_entryTable = new ks::ui::VisibleTableWidget(m_mainSplitter);
+    // BCD 条目是编辑选择器，页面已有存储导入导出与行复制，不增快照栏。
+    ks::ui::SetTableActionBarMode(m_entryTable, ks::ui::TableActionBarMode::None);
     m_entryTable->setColumnCount(6);
     m_entryTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("标识符"),
@@ -405,6 +410,7 @@ void BootEditorTab::initializeCenterPane()
     legacyActionLayout->addWidget(m_setStandardForSelectedButton);
     legacyActionLayout->addStretch(1);
 
+    ks::ui::NormalizeToolbarRow(legacyActionLayout);
     legacyLayout->addWidget(legacyActionWidget);
     leftEditorLayout->addWidget(legacyGroup);
 
@@ -459,6 +465,7 @@ void BootEditorTab::initializeCenterPane()
     actionLayout->addWidget(m_applyBootMgrButton);
     actionLayout->addWidget(m_reloadOneButton);
     actionLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     leftEditorLayout->addWidget(actionWidget);
     leftEditorLayout->addStretch(1);
 
@@ -478,6 +485,7 @@ void BootEditorTab::initializeCenterPane()
 
     customLayout->addWidget(m_customCommandEdit, 1);
     customLayout->addWidget(m_runCustomCommandButton, 0);
+    ks::ui::NormalizeToolbarRow(customLayout);
     middleEditorLayout->addWidget(customGroup);
     middleEditorLayout->addStretch(1);
 

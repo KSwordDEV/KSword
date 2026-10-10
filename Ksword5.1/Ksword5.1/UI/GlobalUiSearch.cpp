@@ -1711,21 +1711,24 @@ namespace ks::ui
         }
         if (m_searchScopeTabs != nullptr)
         {
+            // 搜索范围属于紧凑分段页签，保留均分宽度；选中面使用与普通内容 Tab 一致的弱强调。
+            const QColor selectedSurface = KswordTheme::BlendColors(
+                KswordTheme::SurfaceColor(), KswordTheme::PrimaryAccentColor(), 38);
             m_searchScopeTabs->setStyleSheet(QStringLiteral(
-                "QTabBar::tab{background:%1;color:%2;border:1px solid %3;"
-                "border-right:none;padding:4px 12px;min-width:92px;}"
-                "QTabBar::tab:first{border-top-left-radius:3px;border-bottom-left-radius:3px;}"
-                "QTabBar::tab:last{border-right:1px solid %3;"
-                "border-top-right-radius:3px;border-bottom-right-radius:3px;}"
-                "QTabBar::tab:selected{background:%4;color:%5;border-color:%4;}"
+                "QTabBar::tab{background:%1;color:%2;border:0;border-bottom:2px solid %3;"
+                "padding:3px 12px;min-width:92px;}"
+                "QTabBar::tab:first{border-top-left-radius:5px;}"
+                "QTabBar::tab:last{border-top-right-radius:5px;}"
+                "QTabBar::tab:selected{background:%4;color:%5;border-bottom-color:%7;}"
                 "QTabBar::tab:hover:!selected{background:%6;color:%2;}")
                 .arg(
                     KswordTheme::SurfaceHex(),
                     KswordTheme::TextSecondaryHex(),
                     KswordTheme::BorderStrongHex(),
-                    KswordTheme::ThemeColorName(KswordTheme::PrimaryAccentColor()),
-                    KswordTheme::OnAccentHex(),
-                    KswordTheme::SurfaceMutedColorHex()));
+                    selectedSurface.name(),
+                    KswordTheme::EnsureTextContrast(KswordTheme::TextPrimaryColor(), selectedSurface, 4.5).name(),
+                    KswordTheme::SurfaceMutedColorHex(),
+                    KswordTheme::ThemeColorName(KswordTheme::PrimaryAccentColor())));
         }
 
         const int anchorWidth = m_popupAnchorWidget != nullptr ? m_popupAnchorWidget->width() : 460;

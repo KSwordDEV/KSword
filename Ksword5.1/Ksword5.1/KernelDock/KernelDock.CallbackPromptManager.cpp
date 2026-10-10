@@ -1,4 +1,5 @@
 #include "KernelDock.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 #include "KernelDock.CallbackPromptManager.h"
 
@@ -437,6 +438,7 @@ void CallbackPromptManager::initializePopupUi()
     actionLayout->addWidget(m_allowButton, 0);
     actionLayout->addWidget(m_denyButton, 0);
     actionLayout->addWidget(m_detailButton, 0);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     rootLayout->addLayout(actionLayout, 0);
 
     m_popupDialog = popupDialog;

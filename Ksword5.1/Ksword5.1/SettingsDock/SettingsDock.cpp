@@ -1,4 +1,6 @@
 #include "SettingsDock.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 
 #include "../Framework.h"
@@ -255,6 +257,7 @@ void SettingsDock::initializeUi()
 
     // m_tabWidget 作用：设置页签容器，后续可扩展更多标签页。
     m_tabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_tabWidget);
     m_tabWidget->setTabPosition(QTabWidget::North);
     rootLayout->addWidget(m_tabWidget);
 
@@ -317,6 +320,7 @@ void SettingsDock::initializeAppearanceTab()
         QStringLiteral("选择界面语言；保存后立即切换"));
     languageSelectLayout->addWidget(m_languageCombo, 1);
     languageLayout->addLayout(languageSelectLayout);
+    ks::ui::NormalizeToolbarRow(languageSelectLayout);
     languageRootLayout->addWidget(languageGroupBox);
     languageRootLayout->addStretch();
 
@@ -368,6 +372,7 @@ void SettingsDock::initializeAppearanceTab()
     themeButtonLayout->addWidget(m_darkModeButton);
     themeButtonLayout->addStretch();
     themeLayout->addLayout(themeButtonLayout);
+    ks::ui::NormalizeToolbarRow(themeButtonLayout);
 
     // ===== 自定义主题色分组 =====
     QGroupBox* themeColorGroupBox = new QGroupBox(QStringLiteral("主题色"), themeGroupBox);
@@ -401,6 +406,7 @@ void SettingsDock::initializeAppearanceTab()
     themeColorActionLayout->addWidget(m_resetThemeColorButton, 0);
     themeColorActionLayout->addStretch();
     themeColorLayout->addLayout(themeColorActionLayout);
+    ks::ui::NormalizeToolbarRow(themeColorActionLayout);
     themeLayout->addWidget(themeColorGroupBox);
 
     // 配色预览紧邻主体色设置；样例颜色来自未应用种子，保留原应用/取消语义。
@@ -498,6 +504,7 @@ void SettingsDock::initializeAppearanceTab()
     mainBackgroundColorActionLayout->addWidget(m_resetMainBackgroundColorButton, 0);
     mainBackgroundColorActionLayout->addStretch();
     backgroundLayout->addLayout(mainBackgroundColorActionLayout);
+    ks::ui::NormalizeToolbarRow(mainBackgroundColorActionLayout);
 
     QLabel* pathHintLabel = new QLabel(
         QStringLiteral("选择一张图片作为窗口背景（支持 PNG/JPG/BMP）。"),
@@ -531,6 +538,7 @@ void SettingsDock::initializeAppearanceTab()
     pathLayout->addWidget(m_resetBackgroundButton);
 
     backgroundLayout->addLayout(pathLayout);
+    ks::ui::NormalizeToolbarRow(pathLayout);
 
     QLabel* opacityHintLabel = new QLabel(QStringLiteral("背景图透明度（0% 仅纯色背景，100% 仅背景图）"), backgroundGroupBox);
     languageManager.bindText(opacityHintLabel, QStringLiteral("settings.background.opacity"), QStringLiteral("背景图透明度（0% 仅纯色背景，100% 仅背景图）"));
@@ -872,6 +880,7 @@ void SettingsDock::initializeAppearanceTab()
     taskmgrHijackButtonLayout->addWidget(m_uninstallTaskmgrHijackButton, 0);
     taskmgrHijackButtonLayout->addStretch(1);
     startupLayout->addLayout(taskmgrHijackButtonLayout);
+    ks::ui::NormalizeToolbarRow(taskmgrHijackButtonLayout);
 
     // 启动窗口缩放设置：重启后生效，用于统一控制主窗口 UI 缩放。
     QHBoxLayout* startupScaleLayout = new QHBoxLayout();

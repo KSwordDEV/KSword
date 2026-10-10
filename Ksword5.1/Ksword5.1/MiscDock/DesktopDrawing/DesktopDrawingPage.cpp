@@ -1,4 +1,5 @@
 #include "DesktopDrawingPage.h"
+#include "../../UI/ToolbarMetrics.h"
 
 #include "../../Internationalization/LanguageManager.h"
 #include "../../UI/ThemeStatusRole.h"
@@ -127,6 +128,7 @@ namespace ks::misc
         actions->addWidget(m_startButton);
         actions->addWidget(m_stopButton);
         actions->addStretch();
+        ks::ui::NormalizeToolbarRow(actions);
         root->addLayout(actions);
         m_hotkeyLabel = new QLabel(this);
         m_hotkeyLabel->setWordWrap(true);

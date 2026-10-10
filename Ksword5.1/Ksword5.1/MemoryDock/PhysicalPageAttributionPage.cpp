@@ -1,4 +1,6 @@
 #include "PhysicalPageAttributionPage.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/StructuredFieldView.h"
 #include "MemoryAttributionChart.h"
 #include "MemoryConsumerEvidencePage.h"
@@ -188,6 +190,7 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     m_budget->setRange(15, 600);
     m_budget->setValue(90);
     m_filter = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filter);
     m_filter->setClearButtonEnabled(true);
     actions->addWidget(m_scanButton);
     actions->addWidget(m_cancelButton);
@@ -195,11 +198,13 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     actions->addWidget(m_retainRaw);
     actions->addWidget(m_budget);
     actions->addStretch();
+    ks::ui::NormalizeToolbarRow(actions);
     root->addLayout(actions);
     auto* filters = new QHBoxLayout;
     filters->addWidget(m_filter, 1);
     filters->addWidget(m_exportButton);
     filters->addWidget(m_exportMappings);
+    ks::ui::NormalizeToolbarRow(filters);
     root->addLayout(filters);
     m_summary = new QLabel(this);
     m_summary->setWordWrap(true);
@@ -213,6 +218,7 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     m_chart = new MemoryAttributionChart(this);
     root->addWidget(m_chart);
     m_tabs = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_tabs);
     m_categories = table(m_tabs);
     m_categories->horizontalHeader()->setSortIndicator(2, Qt::DescendingOrder);
     m_groups = table(m_tabs);
@@ -226,6 +232,7 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     m_inspectButton = new QPushButton(pages);
     lookup->addWidget(m_pfn, 1);
     lookup->addWidget(m_inspectButton);
+    ks::ui::NormalizeToolbarRow(lookup);
     pageLayout->addLayout(lookup);
     auto* pageSplit = new QSplitter(Qt::Horizontal, pages);
     m_examples = table(pageSplit);
@@ -246,6 +253,15 @@ PhysicalPageAttributionPage::PhysicalPageAttributionPage(QWidget* parent) : QWid
     m_ownerCoverage = table(m_tabs); m_tabs->addTab(m_ownerCoverage, {});
     m_objects = table(m_tabs); m_tabs->addTab(m_objects, {});
     m_pageConsumers = table(m_tabs); m_tabs->addTab(m_pageConsumers, {});
+    // 固定分类/覆盖率与 PFN 示例是辅助导航，完整证据由页面导出负责。
+    ks::ui::SetTableActionBarMode(m_categories, ks::ui::TableActionBarMode::None);
+    ks::ui::SetTableActionBarMode(m_ownerCoverage, ks::ui::TableActionBarMode::None);
+    ks::ui::SetTableActionBarMode(m_examples, ks::ui::TableActionBarMode::None);
+    // 大型归属与引用明细仍需复制/导出，但无需各自占据快照对比行。
+    ks::ui::SetTableActionBarMode(m_groups, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_mappings, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_objects, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_pageConsumers, ks::ui::TableActionBarMode::Compact);
     m_consumerPage = new MemoryConsumerEvidencePage(m_tabs); m_tabs->addTab(m_consumerPage, {});
     m_consumerPage->openModuleDetails = [this](const QString& path) {
         const auto handler = openModuleDetails;

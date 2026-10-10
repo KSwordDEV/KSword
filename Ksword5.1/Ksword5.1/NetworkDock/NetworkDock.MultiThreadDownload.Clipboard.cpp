@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "../SettingsDock/AppearanceSettings.h"
 #include "../theme.h"
@@ -556,6 +557,7 @@ void NetworkDock::showMultiThreadDownloadClipboardPrompt(const QString& urlText)
     QHBoxLayout* saveDirLayout = new QHBoxLayout(); // saveDirLayout：保存目录行布局（输入框+浏览按钮）。
     saveDirLayout->addWidget(saveDirEdit, 1);
     saveDirLayout->addWidget(browseButton);
+    ks::ui::NormalizeToolbarRow(saveDirLayout);
 
     QPushButton* startButton = new QPushButton(QStringLiteral("开始下载"), promptDialog); // startButton：确认并启动下载按钮。
     startButton->setIcon(QIcon(":/Icon/process_start.svg"));
@@ -568,6 +570,7 @@ void NetworkDock::showMultiThreadDownloadClipboardPrompt(const QString& urlText)
     actionLayout->addStretch(1);
     actionLayout->addWidget(startButton);
     actionLayout->addWidget(cancelButton);
+    ks::ui::NormalizeToolbarRow(actionLayout);
 
     rootLayout->addWidget(descriptionLabel);
     rootLayout->addWidget(urlLabel);

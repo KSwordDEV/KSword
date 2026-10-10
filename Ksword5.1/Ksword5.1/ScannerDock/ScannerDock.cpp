@@ -1,4 +1,7 @@
 #include "ScannerDock.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/VisibleTableWidget.h"
 
 #include "Internationalization/LanguageManager.h"
 #include "ksword/scanner/atomic_file_patch.h"
@@ -178,6 +181,7 @@ void ScannerDock::buildUi()
     pathLayout->addWidget(m_pathEdit, 1);
     pathLayout->addWidget(m_browseButton);
     pathLayout->addWidget(m_scanButton);
+    ks::ui::NormalizeToolbarRow(pathLayout);
     rootLayout->addLayout(pathLayout);
 
     // m_statusLabel：允许复制诊断状态，长路径会自动换行。
@@ -189,6 +193,7 @@ void ScannerDock::buildUi()
     // m_mainTabs：将只读检查与高风险编辑明确分离，避免误触。
     m_mainTabs = new QTabWidget(this);
     m_mainTabs->setDocumentMode(true);
+    ks::ui::StylePageTabs(m_mainTabs);
     rootLayout->addWidget(m_mainTabs, 1);
     buildAnalysisUi();
 
@@ -198,6 +203,7 @@ void ScannerDock::buildUi()
     inspectionLayout->setContentsMargins(0, 0, 0, 0);
     m_resultTabs = new QTabWidget(m_inspectionPage);
     m_resultTabs->setDocumentMode(true);
+    ks::ui::StylePageTabs(m_resultTabs);
     inspectionLayout->addWidget(m_resultTabs);
     m_mainTabs->addTab(m_inspectionPage, QString());
 
@@ -233,6 +239,7 @@ void ScannerDock::buildUi()
     m_applyPatchButton = new QPushButton(m_editorPage);
     m_applyPatchButton->setIcon(style()->standardIcon(QStyle::SP_DialogApplyButton));
     applyLayout->addWidget(m_applyPatchButton);
+    ks::ui::NormalizeToolbarRow(applyLayout);
     editorLayout->addLayout(applyLayout);
     editorLayout->addStretch(1);
     m_mainTabs->addTab(m_editorPage, QString());
@@ -449,6 +456,8 @@ void ScannerDock::finishScan(
 QTableWidget* ScannerDock::createReadOnlyTable(QWidget* parent) const
 {
     auto* table = new QTableWidget(parent);
+    // 单文件解析结果是静态证据：保留复制/导出，不提供现场快照和对比工具。
+    ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -476,6 +485,8 @@ void ScannerDock::renderResult(const ks::scanner::BinaryScanResult& result)
     clearResultTabs();
 
     auto* summaryTable = createReadOnlyTable(m_resultTabs);
+    // 摘要字段只是短属性表，复制单元格即可，无需再占一行操作栏。
+    ks::ui::SetTableActionBarMode(summaryTable, ks::ui::TableActionBarMode::None);
     summaryTable->setColumnCount(2);
     summaryTable->setHorizontalHeaderLabels({
         translated("scanner.column.field", "字段"),
@@ -520,6 +531,7 @@ void ScannerDock::renderResult(const ks::scanner::BinaryScanResult& result)
     }
 
     auto* headerTable = createReadOnlyTable(m_resultTabs);
+    ks::ui::SetTableActionBarMode(headerTable, ks::ui::TableActionBarMode::None);
     headerTable->setColumnCount(2);
     headerTable->setHorizontalHeaderLabels({
         translated("scanner.column.field", "字段"),

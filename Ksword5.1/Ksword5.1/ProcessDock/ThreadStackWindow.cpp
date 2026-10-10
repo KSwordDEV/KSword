@@ -1,4 +1,5 @@
 #include "ThreadStackWindow.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 
 // ============================================================
@@ -529,6 +530,7 @@ void ThreadStackWindow::initializeUi()
     m_toolbarLayout->addWidget(m_refreshButton);
     m_toolbarLayout->addWidget(m_copyButton);
     m_toolbarLayout->addWidget(m_targetLabel, 1);
+    ks::ui::NormalizeToolbarRow(m_toolbarLayout);
 
     m_boundaryLabel = new QLabel(this);
     m_boundaryLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);

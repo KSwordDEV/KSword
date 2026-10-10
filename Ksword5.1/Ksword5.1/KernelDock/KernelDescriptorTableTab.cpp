@@ -1,4 +1,6 @@
 #include "KernelDescriptorTableTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -151,6 +153,7 @@ void KernelDescriptorTableTab::initializeUi()
         m_restoreIdtButton->setEnabled(false);
     }
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(kernelText(
         idtOnly
@@ -168,10 +171,13 @@ void KernelDescriptorTableTab::initializeUi()
     }
     toolbar->addWidget(m_filterEdit, 1);
     toolbar->addWidget(m_statusLabel);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     auto* splitter = new QSplitter(Qt::Vertical, this);
     m_table = new ks::ui::VisibleTableWidget(splitter);
+    // IDT/GDT 完整性现场支持恢复及基线比较，保留完整快照栏。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setColumnCount(ColumnCount);
     m_table->setHorizontalHeaderLabels({
         kernelText("kernel.descriptor.header.table", QStringLiteral("表")),

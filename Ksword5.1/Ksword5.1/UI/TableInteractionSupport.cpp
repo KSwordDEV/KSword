@@ -1,4 +1,5 @@
 #include "TableInteractionSupport.h"
+#include "./ToolbarMetrics.h"
 #include "./FlatButtonTheme.h"
 
 #include "../Internationalization/LanguageManager.h"
@@ -730,6 +731,8 @@ namespace
             m_moreButton->setPopupMode(QToolButton::InstantPopup);
             layout->addWidget(m_moreButton);
             m_moreButton->hide();
+            // 此处是已经明确选择显示的表格操作条；尺寸与页面工具行使用同一规则。
+            ks::ui::NormalizeToolbarRow(layout);
             connect(m_moreMenu, &QMenu::aboutToShow, this, [this]()
             {
                 populateMoreMenu();
@@ -965,6 +968,7 @@ namespace
             {
                 button->setIcon(QIcon(iconPath));
             }
+            ks::ui::NormalizeToolbarControl(button);
             return button;
         }
 
@@ -1668,8 +1672,9 @@ namespace
                 desiredSize.height() + horizontalBarHeight + frameHeight);
             if (m_snapshotScrollArea->height() != stripHeight) m_snapshotScrollArea->setFixedHeight(stripHeight);
             const QMargins margins = layout()->contentsMargins();
+            const int baseHeight = std::max(kActionBarHeight, QFontMetrics(font()).height() + 16);
             const int barHeight = m_mode == TableActionBarMode::Full
-                ? std::max(kActionBarHeight, stripHeight + margins.top() + margins.bottom()) : kActionBarHeight;
+                ? std::max(baseHeight, stripHeight + margins.top() + margins.bottom()) : baseHeight;
             if (height() != barHeight) setFixedHeight(barHeight);
             desiredSize.setHeight(std::max(
                 desiredSize.height(),

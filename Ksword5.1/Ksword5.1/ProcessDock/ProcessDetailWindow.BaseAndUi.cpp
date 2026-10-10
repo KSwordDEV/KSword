@@ -1,6 +1,8 @@
 ﻿#include "ProcessDetailWindow.InternalCommon.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeBinding.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "ProcessAffinityUtils.h"
 #include "ProcessAffinityPersistence.h"
 #include "ThreadAffinityMenu.h"
@@ -2799,6 +2801,7 @@ void ProcessDetailWindow::initializePluginTab()
     managerButton->setStyleSheet(buildBlueButtonStyle());
     actionLayout->addWidget(managerButton);
     actionLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     layout->addLayout(actionLayout);
     layout->addStretch(1);
 
@@ -3856,10 +3859,14 @@ void ProcessDetailWindow::initializeDetailTab()
         m_copyCommandButton, m_detailOpenHandleDockButton, m_gotoParentButton, m_refreshDetailOverviewButton})
     {
         button->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
-        button->setMinimumHeight(30);
-        button->setIconSize(QSize(16, 16));
+        ks::ui::NormalizeToolbarControl(button);
     }
     m_detailLayout->addWidget(new ProcessGeneralOverview(m_generalFields, detailContent, detailActionLayout));
+    // 路径与运行时操作行使用共同几何；父进程图标保留 20px，仅调整按钮。
+    ks::ui::NormalizeToolbarRow(pathLayout);
+    ks::ui::NormalizeToolbarRow(commandLayout);
+    parentLayout->setSpacing(8);
+    ks::ui::NormalizeToolbarRow(detailActionLayout);
     m_detailLayout->addStretch(1);
 }
 
@@ -4305,6 +4312,8 @@ void ProcessDetailWindow::initializeThreadTab()
     // - 继续沿用原有列定义和刷新逻辑；
     // - 仅把显示位置从“详细信息页底部”迁移到独立标签。
     m_threadInspectTable = new ks::ui::VisibleTableWidget(threadGroup);
+    // 当前进程的线程详情是辅助清单，保留复制导出而非整套对比栏。
+    ks::ui::SetTableActionBarMode(m_threadInspectTable, ks::ui::TableActionBarMode::Compact);
     m_threadInspectTable->setColumnCount(toThreadColumnIndex(ThreadRowColumn::Count));
     m_threadInspectTable->setHorizontalHeaderLabels(ThreadInspectHeaders);
     m_threadInspectTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -4345,6 +4354,7 @@ void ProcessDetailWindow::initializeThreadTab()
     m_refreshThreadInspectButton->setStyleSheet(buttonStyle);
     m_sampleThreadRuntimeButton->setStyleSheet(buttonStyle);
     openThreadStackButton->setStyleSheet(buttonStyle);
+    ks::ui::NormalizeToolbarRow(threadTopBarLayout);
     connect(m_sampleThreadRuntimeButton, &QPushButton::clicked, this, [this]() {
         requestAsyncSelectedThreadRuntimeSample();
         });
@@ -4721,9 +4731,9 @@ void ProcessDetailWindow::initializeActionTab()
         [](const QString& buttonText, const QString& toolTipText, QWidget* parentWidget) -> QPushButton*
     {
         QPushButton* actionButton = new QPushButton(buttonText, parentWidget);
-        actionButton->setMinimumHeight(32);
         actionButton->setMinimumWidth(72);
         actionButton->setToolTip(toolTipText);
+        ks::ui::NormalizeToolbarControl(actionButton);
         return actionButton;
     };
 
@@ -4886,6 +4896,7 @@ void ProcessDetailWindow::initializeActionTab()
     affinityTopLayout->addWidget(m_affinityStatusLabel, 1);
     affinityTopLayout->addWidget(m_affinityRefreshButton);
     affinityTopLayout->addWidget(m_affinityAllCoresButton);
+    ks::ui::NormalizeToolbarRow(affinityTopLayout);
     affinityGroupLayout->addLayout(affinityTopLayout);
 
     m_affinityMatrixLayout = new QGridLayout();
@@ -5028,6 +5039,7 @@ void ProcessDetailWindow::initializeActionTab()
     privilegeActionTopLayout->addWidget(m_actionPrivilegeRefreshButton);
     privilegeActionTopLayout->addWidget(m_applyActionPrivilegeR3Button);
     privilegeActionTopLayout->addWidget(m_applyActionPrivilegeR0Button);
+    ks::ui::NormalizeToolbarRow(privilegeActionTopLayout);
     privilegeGroupLayout->addLayout(privilegeActionTopLayout);
 
     QGridLayout* privilegeGridLayout = new QGridLayout();
@@ -5256,6 +5268,7 @@ void ProcessDetailWindow::initializeActionTab()
         if (buttonItem != nullptr)
         {
             buttonItem->setStyleSheet(buttonStyle);
+            ks::ui::NormalizeToolbarControl(buttonItem);
         }
     }
 }
@@ -5315,7 +5328,7 @@ void ProcessDetailWindow::initializeModuleTab()
     m_moduleTopBarLayout->addWidget(m_signatureCheckBox);
     m_moduleFilterEdit = new QLineEdit(m_moduleTab);
     // 模块树专用文本过滤，颜色绑定不改变原来的过滤信号和尺寸。
-    ks::ui::BindSearchFieldTheme(m_moduleFilterEdit);
+    ks::ui::StyleSearchField(m_moduleFilterEdit);
     m_moduleFilterEdit->setClearButtonEnabled(true);
     m_moduleFilterEdit->setPlaceholderText(ks::i18n::sourceText(
         QStringLiteral("按模块路径过滤关键字")));
@@ -5325,6 +5338,7 @@ void ProcessDetailWindow::initializeModuleTab()
     m_moduleTopBarLayout->addWidget(m_moduleFilterEdit);
     m_moduleTopBarLayout->addStretch(1);
     m_moduleTopBarLayout->addWidget(m_moduleStatusLabel);
+    ks::ui::NormalizeToolbarRow(m_moduleTopBarLayout);
     m_moduleLayout->addLayout(m_moduleTopBarLayout);
 
     // 模块列表表格。
@@ -5378,6 +5392,7 @@ void ProcessDetailWindow::initializeTokenTab()
         .arg(KswordTheme::TextSecondaryHex()));
     tokenTopBarLayout->addWidget(m_refreshTokenButton);
     tokenTopBarLayout->addWidget(m_tokenStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(tokenTopBarLayout);
     m_tokenLayout->addLayout(tokenTopBarLayout);
 
     m_tokenDetailOutput = new ks::ui::StructuredFieldView(m_tokenTab);
@@ -5557,6 +5572,14 @@ void ProcessDetailWindow::initializeKernelObjectTab()
     watchButtons->addWidget(m_watchProtectionButton, 1, 0);
     watchButtons->addWidget(m_watchImageNameButton, 1, 1);
     watchButtons->addWidget(m_watchProcessPteButton, 1, 2);
+    // 网格动作采用同一按钮尺寸与间距，说明和证据内容保持自然高度。
+    watchButtons->setHorizontalSpacing(8);
+    watchButtons->setVerticalSpacing(8);
+    for (QPushButton* button : {m_watchActiveProcessLinksButton, m_watchTokenSlotButton,
+        m_watchTokenObjectButton, m_watchProtectionButton, m_watchImageNameButton, m_watchProcessPteButton})
+    {
+        ks::ui::NormalizeToolbarControl(button);
+    }
     watchGroupLayout->addLayout(watchButtons);
 
     m_watchStatusLabel = new QLabel(QString(), watchGroup);
@@ -5592,6 +5615,7 @@ void ProcessDetailWindow::initializeKernelObjectTab()
         .arg(KswordTheme::TextSecondaryHex()));
     sectionTopBarLayout->addWidget(m_refreshSectionInfoButton);
     sectionTopBarLayout->addWidget(m_sectionInfoStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(sectionTopBarLayout);
     sectionGroupLayout->addLayout(sectionTopBarLayout);
 
     m_sectionInfoOutput = new ks::ui::StructuredFieldView(sectionGroup);
@@ -5645,6 +5669,7 @@ void ProcessDetailWindow::initializeTokenSwitchTab()
     tokenSwitchTopBarLayout->addWidget(m_applyTokenSwitchButton);
     tokenSwitchTopBarLayout->addWidget(m_refreshTokenAllInfoButton);
     tokenSwitchTopBarLayout->addWidget(m_tokenSwitchStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(tokenSwitchTopBarLayout);
     m_tokenSwitchLayout->addLayout(tokenSwitchTopBarLayout);
 
     // 快捷开关组：
@@ -5833,6 +5858,7 @@ void ProcessDetailWindow::initializeTokenSwitchTab()
     m_applyTokenSwitchButton->setStyleSheet(buttonStyle);
     m_refreshTokenAllInfoButton->setStyleSheet(buttonStyle);
     m_tokenRawApplyButton->setStyleSheet(buttonStyle);
+    ks::ui::NormalizeToolbarControl(m_tokenRawApplyButton);
 
     const QString comboStyle = KswordTheme::ThemedComboBoxStyle();
     m_tokenRawInfoClassCombo->setStyleSheet(comboStyle);
@@ -5863,6 +5889,7 @@ void ProcessDetailWindow::initializePebTab()
     pebTopBarLayout->addWidget(m_refreshPebButton);
     pebTopBarLayout->addWidget(m_applyPebEditButton);
     pebTopBarLayout->addWidget(m_pebStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(pebTopBarLayout);
     m_pebLayout->addLayout(pebTopBarLayout);
 
     QGroupBox* editableGroup = new QGroupBox(QStringLiteral("PEB 可编辑字段（R3 写入目标进程内存）"), m_pebTab);
@@ -5984,7 +6011,7 @@ void ProcessDetailWindow::initializeKernelCallbackTab()
     topBarLayout->addWidget(m_refreshKernelCallbackButton);
 
     m_kernelCallbackFilterEdit = new QLineEdit(m_kernelCallbackTab);
-    ks::ui::BindSearchFieldTheme(m_kernelCallbackFilterEdit);
+    ks::ui::StyleSearchField(m_kernelCallbackFilterEdit);
     m_kernelCallbackFilterEdit->setClearButtonEnabled(true);
     m_kernelCallbackFilterEdit->setPlaceholderText(ks::i18n::sourceText(
         QStringLiteral("按索引/回调名称/地址/模块/保护属性/状态筛选")));
@@ -5996,9 +6023,12 @@ void ProcessDetailWindow::initializeKernelCallbackTab()
     m_kernelCallbackStatusLabel = new QLabel(QStringLiteral("● 尚未刷新"), m_kernelCallbackTab);
     m_kernelCallbackStatusLabel->setStyleSheet(buildStateLabelStyle(statusSecondaryColor(), 600));
     topBarLayout->addWidget(m_kernelCallbackStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(topBarLayout);
     m_kernelCallbackLayout->addLayout(topBarLayout);
 
     m_kernelCallbackTable = new ks::ui::VisibleTableWidget(m_kernelCallbackTab);
+    // 回调地址变更需要保留现场对比，区别于只读状态字段。
+    ks::ui::SetTableActionBarMode(m_kernelCallbackTable, ks::ui::TableActionBarMode::Full);
     m_kernelCallbackTable->setColumnCount(7);
     m_kernelCallbackTable->setHorizontalHeaderLabels(QStringList()
         << QStringLiteral("索引")

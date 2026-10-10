@@ -1,4 +1,5 @@
 #include "MemoryDock.Internal.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/StructuredFieldView.h"
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll：页内滚动壳。
 #include "../UI/TableInteractionSupport.h"
@@ -275,6 +276,7 @@ void MemoryDock::initializeProcessPteTranslateTab()
     actionLayout->addWidget(actionSeparator);
     actionLayout->addWidget(m_processPteTranslateRiskOnlyCheck);
     actionLayout->addWidget(m_processPteTranslateStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     tabLayout->addLayout(actionLayout);
 
     // 第二层：采样参数分组，起点 VA 与采样页数各配一个文字标签，
@@ -318,6 +320,8 @@ void MemoryDock::initializeProcessPteTranslateTab()
     tabLayout->addWidget(splitter, 1);
 
     m_processPteTranslateTable = new ks::ui::VisibleTableWidget(splitter);
+    // 小范围地址翻译是参数查询的结果，紧凑复制/导出即可。
+    ks::ui::SetTableActionBarMode(m_processPteTranslateTable, ks::ui::TableActionBarMode::Compact);
     m_processPteTranslateTable->setColumnCount(pteTranslateColumnIndex(PteTranslateColumn::Count));
     m_processPteTranslateTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("VA"),

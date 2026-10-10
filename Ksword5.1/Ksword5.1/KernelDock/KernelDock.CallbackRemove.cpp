@@ -1,4 +1,5 @@
 #include "KernelDock.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../theme.h"
@@ -300,6 +301,7 @@ void KernelDock::initializeCallbackRemovePanel()
     m_callbackRemoveToolLayout->addWidget(m_callbackRemoveTypeCombo, 0);
     m_callbackRemoveToolLayout->addWidget(m_callbackRemoveAddressEdit, 1);
     m_callbackRemoveToolLayout->addWidget(m_callbackRemoveButton, 0);
+    ks::ui::NormalizeToolbarRow(m_callbackRemoveToolLayout);
     m_callbackRemoveLayout->addLayout(m_callbackRemoveToolLayout);
     m_callbackRemoveLayout->addWidget(m_callbackRemoveStatusLabel, 0);
 

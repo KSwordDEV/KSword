@@ -1,4 +1,6 @@
 #include "MemoryDock.Internal.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/StructuredFieldView.h"
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll：页内滚动壳。
 #include "../UI/TableInteractionSupport.h"
@@ -517,6 +519,7 @@ void MemoryDock::initializeKernelExecutableMemoryScanTab()
     m_kernelExecutableModuleFilterEdit->setPlaceholderText(QStringLiteral("按模块路径过滤，如 ntoskrnl.exe / drivers\\xxx.sys"));
     m_kernelExecutableModuleFilterEdit->setToolTip(QStringLiteral("按模块路径子串过滤扫描结果，不区分大小写；留空显示全部"));
     m_kernelExecutableModuleFilterEdit->setStyleSheet(buildBlueInputStyle());
+    ks::ui::StyleSearchField(m_kernelExecutableModuleFilterEdit);
 
     m_kernelExecutableStatusLabel = new QLabel(QStringLiteral("状态：等待刷新"), m_tabKernelExecutableMemory);
     m_kernelExecutableStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -528,12 +531,14 @@ void MemoryDock::initializeKernelExecutableMemoryScanTab()
     toolLayout->addWidget(m_kernelExecutableRiskOnlyCheck, 0);
     toolLayout->addWidget(m_kernelExecutableModuleFilterEdit, 1);
     toolLayout->addWidget(m_kernelExecutableStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(toolLayout);
     tabLayout->addLayout(toolLayout);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_tabKernelExecutableMemory);
     tabLayout->addWidget(splitter, 1);
 
     m_kernelExecutableTable = new ks::ui::VisibleTableWidget(splitter);
+    ks::ui::SetTableActionBarMode(m_kernelExecutableTable, ks::ui::TableActionBarMode::Full);
     m_kernelExecutableTable->setColumnCount(kernelExecutableColumnIndex(KernelExecutableColumn::Count));
     m_kernelExecutableTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("VA"),

@@ -1,4 +1,6 @@
 #include "VirusTotalOnlineScan.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ThemeBinding.h"
@@ -2887,10 +2889,12 @@ void VirusTotalOnlineScan::ensureResultDialog()
     topButtonLayout->addWidget(runAllButton, 0);
     topButtonLayout->addWidget(exportAllButton, 0);
     topButtonLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(topButtonLayout);
     dialogLayout->addLayout(topButtonLayout, 0);
 
     QTabWidget* resultTabWidget = new QTabWidget(resultDialog);
     resultTabWidget->setDocumentMode(false);
+    ks::ui::StylePageTabs(resultTabWidget);
 
     const auto createCommonPane = [this, resultDialog, resultTabWidget](const VtApiKind apiKind) -> ApiPaneUi
         {
@@ -2901,6 +2905,7 @@ void VirusTotalOnlineScan::ensureResultDialog()
             apiLayout->setSpacing(0);
 
             QTabWidget* detailTabWidget = new QTabWidget(apiPage);
+            ks::ui::StylePageTabs(detailTabWidget);
             pane.detailTabWidget = detailTabWidget;
             apiLayout->addWidget(detailTabWidget, 1);
 
@@ -2931,6 +2936,7 @@ void VirusTotalOnlineScan::ensureResultDialog()
                     startApiAnalysis(apiKind);
                 });
             reportLayout->addWidget(startButton, 0);
+            ks::ui::NormalizeToolbarControl(startButton);
 
             if (apiKind == VtApiKind::ShallowAnalysis)
             {
@@ -2955,6 +2961,8 @@ void VirusTotalOnlineScan::ensureResultDialog()
                 QGroupBox* engineGroup = new QGroupBox(QStringLiteral("多引擎检测"), reportContent);
                 QVBoxLayout* engineLayout = new QVBoxLayout(engineGroup);
                 QTableWidget* engineTable = new ks::ui::VisibleTableWidget(engineGroup);
+                // 单份云端响应已有报告导出，检测引擎摘要不再重复展示表格快照条。
+                ks::ui::SetTableActionBarMode(engineTable, ks::ui::TableActionBarMode::None);
                 engineTable->setColumnCount(4);
                 engineTable->setHorizontalHeaderLabels(QStringList()
                     << QStringLiteral("引擎")
@@ -2993,6 +3001,7 @@ void VirusTotalOnlineScan::ensureResultDialog()
                     iocButtonLayout->addWidget(relationshipButton, 0);
                 }
                 iocButtonLayout->addStretch(1);
+                ks::ui::NormalizeToolbarRow(iocButtonLayout);
                 reportLayout->addWidget(iocButtonGroup, 0);
             }
 
@@ -3006,7 +3015,7 @@ void VirusTotalOnlineScan::ensureResultDialog()
             {
                 QLineEdit* fileProfileFilterEdit = new QLineEdit(reportTreeGroup);
                 // 文件画像树的字段/值过滤保留原提示，不触及文件提交或在线查询输入。
-                ks::ui::BindSearchFieldTheme(fileProfileFilterEdit);
+                ks::ui::StyleSearchField(fileProfileFilterEdit);
                 fileProfileFilterEdit->setClearButtonEnabled(true);
                 fileProfileFilterEdit->setPlaceholderText(QStringLiteral("筛选文件画像字段/值，例如 pe_info、signature、section、tag、hash"));
                 fileProfileFilterEdit->setToolTip(QStringLiteral("输入关键字后筛选文件画像树；匹配字段和值，保留命中节点的父级路径。"));

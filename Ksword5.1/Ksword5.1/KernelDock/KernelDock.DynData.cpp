@@ -1,4 +1,6 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -3185,7 +3187,7 @@ void KernelDock::initializeDynDataTab()
     m_dynDataFilterEdit->setPlaceholderText(kernelText("kernel.dyndata.toolbar.filter.placeholder", QStringLiteral("按字段名/偏移/状态/来源/功能/capability 筛选")));
     m_dynDataFilterEdit->setToolTip(kernelText("kernel.dyndata.toolbar.filter.tooltip", QStringLiteral("输入关键字后实时过滤动态偏移字段表")));
     m_dynDataFilterEdit->setClearButtonEnabled(true);
-    m_dynDataFilterEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(m_dynDataFilterEdit);
 
     m_dynDataStatusLabel = new QLabel(kernelText("kernel.dyndata.status.waiting", QStringLiteral("状态：等待刷新")), m_dynDataOverviewPage);
     m_dynDataStatusLabel->setStyleSheet(statusLabelStyle(KswordTheme::TextSecondaryHex()));
@@ -3194,12 +3196,15 @@ void KernelDock::initializeDynDataTab()
     m_dynDataToolLayout->addWidget(m_copyDynDataReportButton, 0);
     m_dynDataToolLayout->addWidget(m_dynDataFilterEdit, 1);
     m_dynDataToolLayout->addWidget(m_dynDataStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(m_dynDataToolLayout);
     m_dynDataOverviewLayout->addLayout(m_dynDataToolLayout);
 
     QSplitter* verticalSplitter = new QSplitter(Qt::Vertical, m_dynDataOverviewPage);
     m_dynDataOverviewLayout->addWidget(verticalSplitter, 1);
 
     m_dynDataSummaryTable = new ks::ui::VisibleTableWidget(verticalSplitter);
+    // 动态偏移身份摘要已有统一诊断报告，隐藏重复工具条。
+    ks::ui::SetTableActionBarMode(m_dynDataSummaryTable, ks::ui::TableActionBarMode::None);
     m_dynDataSummaryTable->setColumnCount(static_cast<int>(SummaryColumn::Count));
     m_dynDataSummaryTable->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.driver_status.summary.header.item", QStringLiteral("项目")),
@@ -3220,6 +3225,8 @@ void KernelDock::initializeDynDataTab()
     QSplitter* lowerSplitter = new QSplitter(Qt::Horizontal, verticalSplitter);
 
     m_dynDataFieldTable = new ks::ui::VisibleTableWidget(lowerSplitter);
+    // 偏移字段是已匹配静态配置，用紧凑复制导出节省空间。
+    ks::ui::SetTableActionBarMode(m_dynDataFieldTable, ks::ui::TableActionBarMode::Compact);
     m_dynDataFieldTable->setColumnCount(static_cast<int>(DynDataColumn::Count));
     m_dynDataFieldTable->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.dyndata.table.header.field", QStringLiteral("字段")),
@@ -3278,6 +3285,8 @@ void KernelDock::initializeDynDataTab()
     m_dynDataProfileLayout->addWidget(profileSplitter, 1);
 
     m_dynDataProfileSummaryTable = new ks::ui::VisibleTableWidget(profileSplitter);
+    // Profile 身份键值摘要不需要快照冻结。
+    ks::ui::SetTableActionBarMode(m_dynDataProfileSummaryTable, ks::ui::TableActionBarMode::None);
     m_dynDataProfileSummaryTable->setColumnCount(2);
     m_dynDataProfileSummaryTable->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.driver_status.summary.header.item", QStringLiteral("项目")),
@@ -3294,6 +3303,8 @@ void KernelDock::initializeDynDataTab()
     installDynDataCopyMenu(m_dynDataProfileSummaryTable);
 
     m_dynDataV4ItemTable = new ks::ui::VisibleTableWidget(profileSplitter);
+    // 已接受 PDB item 清单为静态配置列表，保留复制导出。
+    ks::ui::SetTableActionBarMode(m_dynDataV4ItemTable, ks::ui::TableActionBarMode::Compact);
     m_dynDataV4ItemTable->setColumnCount(9);
     m_dynDataV4ItemTable->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.dyndata.v4.header.module", QStringLiteral("模块")),

@@ -2,6 +2,7 @@
 #include "MemoryDebugPage.h"
 #include "MemoryDock.WorkbenchServices.h"
 #include "../UI/AsyncUiDispatcher.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QComboBox>
@@ -79,6 +80,7 @@ namespace ks::ui
         targetRow->addWidget(refreshButton_);
         targetRow->addWidget(selectButton_);
         targetRow->addWidget(closeButton_);
+        ks::ui::NormalizeToolbarRow(targetRow);
         layout_->addLayout(targetRow);
 
         // 模块下拉框使用目标层的异步身份快照；模块刷新不主动重定位用户当前地址。

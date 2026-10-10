@@ -4,6 +4,8 @@
 #include "../UI/CodeEditorWidget.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/DetailLayoutRegistry.h"
 #include "../UI/ThemeItemForeground.h"
 
@@ -2576,6 +2578,7 @@ void NetworkFirewallPage::initializeUi()
     m_rootLayout->addLayout(headerLayout, 0);
 
     m_innerTabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_innerTabWidget);
     m_rootLayout->addWidget(m_innerTabWidget, 1);
 
     initializeEventMonitorUi();
@@ -2622,15 +2625,19 @@ void NetworkFirewallPage::initializeEventMonitorUi()
     toolbarLayout->addWidget(m_clearButton, 0);
 
     m_searchEdit = new QLineEdit(m_eventMonitorPage);
+    ks::ui::StyleSearchField(m_searchEdit);
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索 Name/Action/Rule/地址/端口/协议..."));
     m_searchEdit->setMinimumWidth(240);
     toolbarLayout->addWidget(m_searchEdit, 1);
 
     m_dropOnlyCheck = new QCheckBox(QStringLiteral("仅 DROP"), m_eventMonitorPage);
     toolbarLayout->addWidget(m_dropOnlyCheck, 0);
+    ks::ui::NormalizeToolbarRow(toolbarLayout);
     pageLayout->addLayout(toolbarLayout, 0);
 
     m_eventTable = new ks::ui::VisibleTableWidget(m_eventMonitorPage);
+    // 防火墙事件保留完整取证操作栏。
+    ks::ui::SetTableActionBarMode(m_eventTable, ks::ui::TableActionBarMode::Full);
     m_eventTable->setColumnCount(ColumnCount);
     m_eventTable->setHorizontalHeaderLabels({
         QStringLiteral("Name"),
@@ -2753,16 +2760,20 @@ void NetworkFirewallPage::initializeRuleManagerUi()
     toolbarLayout->addWidget(m_deleteRuleButton, 0);
 
     m_ruleSearchEdit = new QLineEdit(m_ruleManagerPage);
+    ks::ui::StyleSearchField(m_ruleSearchEdit);
     m_ruleSearchEdit->setPlaceholderText(QStringLiteral("搜索 Name/Application/Port/Protocol/Group..."));
     m_ruleSearchEdit->setMinimumWidth(240);
     toolbarLayout->addWidget(m_ruleSearchEdit, 1);
 
     m_ruleEnabledOnlyCheck = new QCheckBox(QStringLiteral("仅启用"), m_ruleManagerPage);
     toolbarLayout->addWidget(m_ruleEnabledOnlyCheck, 0);
+    ks::ui::NormalizeToolbarRow(toolbarLayout);
     pageLayout->addLayout(toolbarLayout, 0);
 
     m_ruleSplitter = new QSplitter(Qt::Vertical, m_ruleManagerPage);
     m_ruleTable = new ks::ui::VisibleTableWidget(m_ruleSplitter);
+    // 规则变更具有对比意义，不能按小结果表直接隐藏。
+    ks::ui::SetTableActionBarMode(m_ruleTable, ks::ui::TableActionBarMode::Full);
     m_ruleTable->setColumnCount(RuleColumnCount);
     m_ruleTable->setHorizontalHeaderLabels({
         QStringLiteral("Name"),

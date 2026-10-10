@@ -1,4 +1,6 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -1264,7 +1266,7 @@ void KernelDock::initializeDriverStatusTab()
     m_driverStatusFilterEdit->setPlaceholderText(kernelText("kernel.driver_status.toolbar.filter.placeholder", QStringLiteral("按功能/状态/策略/DynData capability/依赖字段筛选")));
     m_driverStatusFilterEdit->setToolTip(kernelText("kernel.driver_status.toolbar.filter.tooltip", QStringLiteral("输入关键字后实时过滤驱动能力矩阵")));
     m_driverStatusFilterEdit->setClearButtonEnabled(true);
-    m_driverStatusFilterEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(m_driverStatusFilterEdit);
 
     m_driverStatusLabel = new QLabel(kernelText("kernel.driver_status.status.waiting", QStringLiteral("状态：等待刷新")), m_driverStatusPage);
     m_driverStatusLabel->setStyleSheet(statusLabelStyle(KswordTheme::TextSecondaryHex()));
@@ -1273,12 +1275,15 @@ void KernelDock::initializeDriverStatusTab()
     m_driverStatusToolLayout->addWidget(m_copyDriverStatusReportButton, 0);
     m_driverStatusToolLayout->addWidget(m_driverStatusFilterEdit, 1);
     m_driverStatusToolLayout->addWidget(m_driverStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(m_driverStatusToolLayout);
     m_driverStatusLayout->addLayout(m_driverStatusToolLayout);
 
     QSplitter* verticalSplitter = new QSplitter(Qt::Vertical, m_driverStatusPage);
     m_driverStatusLayout->addWidget(verticalSplitter, 1);
 
     m_driverStatusSummaryTable = new ks::ui::VisibleTableWidget(verticalSplitter);
+    // 状态键值摘要已有统一复制诊断，不需要重复工具条。
+    ks::ui::SetTableActionBarMode(m_driverStatusSummaryTable, ks::ui::TableActionBarMode::None);
     m_driverStatusSummaryTable->setColumnCount(static_cast<int>(DriverSummaryColumn::Count));
     m_driverStatusSummaryTable->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.driver_status.summary.header.item", QStringLiteral("项目")),
@@ -1297,6 +1302,8 @@ void KernelDock::initializeDriverStatusTab()
 
     QSplitter* lowerSplitter = new QSplitter(Qt::Horizontal, verticalSplitter);
     m_driverCapabilityTable = new ks::ui::VisibleTableWidget(lowerSplitter);
+    // 能力矩阵主要用于阅读依赖与原因，只保留紧凑复制导出。
+    ks::ui::SetTableActionBarMode(m_driverCapabilityTable, ks::ui::TableActionBarMode::Compact);
     m_driverCapabilityTable->setColumnCount(static_cast<int>(DriverCapabilityColumn::Count));
     m_driverCapabilityTable->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.driver_status.capability.header.feature", QStringLiteral("功能")),

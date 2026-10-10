@@ -1,4 +1,6 @@
 #include "HardwareDeviceManagerPage.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/ThemeBinding.h"
 
@@ -769,6 +771,7 @@ namespace
         buttonLayout->setContentsMargins(8, 6, 8, 6);
         buttonLayout->addStretch(1);
         buttonLayout->addWidget(closeButton);
+        ks::ui::NormalizeToolbarRow(buttonLayout);
         layout->addLayout(buttonLayout);
 
         ks::ui::ApplyDetailDialogChrome(&dialog);
@@ -937,7 +940,7 @@ void HardwareDeviceManagerPage::initializeUi()
 
     m_searchEdit = new QLineEdit(this);
     // PnP 设备树通过页面自己的递归过滤保持父级路径，主题不接管过滤逻辑。
-    ks::ui::BindSearchFieldTheme(m_searchEdit);
+    ks::ui::StyleSearchField(m_searchEdit);
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索名称、厂商、服务、类、枚举器、Instance ID..."));
     m_searchEdit->setMinimumWidth(220);
     headerLayout->addWidget(m_searchEdit, 1);
@@ -945,6 +948,7 @@ void HardwareDeviceManagerPage::initializeUi()
     m_refreshButton = new QPushButton(QStringLiteral("刷新"), this);
     m_refreshButton->setToolTip(QStringLiteral("重新通过 SetupAPI/CfgMgr 枚举 PnP 设备树"));
     headerLayout->addWidget(m_refreshButton, 0);
+    ks::ui::NormalizeToolbarRow(headerLayout);
     m_rootLayout->addLayout(headerLayout, 0);
 
     m_splitter = new QSplitter(Qt::Vertical, this);

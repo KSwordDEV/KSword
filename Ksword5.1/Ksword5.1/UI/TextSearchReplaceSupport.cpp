@@ -1,4 +1,6 @@
 #include "TextSearchReplaceSupport.h"
+#include "./PageControlStyle.h"
+#include "./ToolbarMetrics.h"
 
 // ============================================================
 // TextSearchReplaceSupport.cpp
@@ -214,6 +216,7 @@ namespace
 
             m_findEdit = new QLineEdit(this);
             m_findEdit->setPlaceholderText(QStringLiteral("查找"));
+            ks::ui::StyleSearchField(m_findEdit);
             m_findEdit->setClearButtonEnabled(true);
             m_findEdit->setMinimumWidth(160);
 
@@ -242,6 +245,7 @@ namespace
 
             m_replaceEdit = new QLineEdit(this);
             m_replaceEdit->setPlaceholderText(QStringLiteral("替换为"));
+            ks::ui::StyleSearchField(m_replaceEdit);
             m_replaceEdit->setClearButtonEnabled(true);
             m_replaceEdit->setMinimumWidth(140);
 
@@ -267,6 +271,7 @@ namespace
             rootLayout->addWidget(m_replaceOneButton, 0);
             rootLayout->addWidget(m_replaceAllButton, 0);
             rootLayout->addWidget(m_closeButton, 0);
+            ks::ui::NormalizeToolbarRow(rootLayout);
 
             // 只读文本框没有替换的意义，直接隐藏这一组控件。
             const bool readOnly = m_access.isReadOnly();

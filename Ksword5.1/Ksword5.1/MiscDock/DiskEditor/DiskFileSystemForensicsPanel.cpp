@@ -1,4 +1,6 @@
 #include "DiskFileSystemForensicsPanel.h"
+#include <QList>
+#include "../../UI/ToolbarMetrics.h"
 #include "../../UI/DetailDialogChrome.h"
 
 #include "../../ArkDriverClient/ArkDriverTypes.h"
@@ -201,6 +203,8 @@ namespace ks::misc
             QStringLiteral("长度"),
             QStringLiteral("说明")
             });
+        // 文件系统原始字段映射不需要快照工具条。
+        ks::ui::SetTableActionBarMode(m_probeTable, ks::ui::TableActionBarMode::None);
         probeLayout->addWidget(m_probeTable, 1);
         rootLayout->addWidget(probeGroup, 2);
 
@@ -272,6 +276,8 @@ namespace ks::misc
             QStringLiteral("首个物理偏移"),
             QStringLiteral("区段")
             });
+        // 原始目录浏览已有专用预览/导出动作，不添加重复操作栏。
+        ks::ui::SetTableActionBarMode(m_rawTable, ks::ui::TableActionBarMode::None);
         rawLayout->addWidget(m_rawTable, 1);
         rootLayout->addWidget(rawGroup, 2);
 
@@ -309,6 +315,8 @@ namespace ks::misc
             QStringLiteral("擦除资格"),
             QStringLiteral("证据")
             });
+        // 删除目录项是一次性证据结果，保留紧凑复制导出。
+        ks::ui::SetTableActionBarMode(m_deletedTable, ks::ui::TableActionBarMode::Compact);
         deletedLayout->addWidget(m_deletedTable, 1);
         rootLayout->addWidget(deletedGroup, 2);
 
@@ -342,6 +350,8 @@ namespace ks::misc
             QStringLiteral("长度"),
             QStringLiteral("状态")
             });
+        // 文件区间映射是静态下钻结果，不需要冻结或快照比较。
+        ks::ui::SetTableActionBarMode(m_extentTable, ks::ui::TableActionBarMode::None);
         extentLayout->addWidget(m_extentTable, 1);
         rootLayout->addWidget(extentGroup, 2);
 
@@ -382,8 +392,24 @@ namespace ks::misc
             QStringLiteral("簇数量"),
             QStringLiteral("文件流路径")
             });
+        // 单个簇号的反查结果较少，隐藏无关快照工具条。
+        ks::ui::SetTableActionBarMode(m_reverseTable, ks::ui::TableActionBarMode::None);
         reverseLayout->addWidget(m_reverseTable, 1);
         rootLayout->addWidget(reverseGroup, 1);
+
+        // 五个取证子区各自保留栅格；只规范已确认的动作和单行参数。
+        for (QGridLayout* toolbar : { probeToolbar, rawToolbar, deletedToolbar, extentToolbar, reverseToolbar })
+        {
+            toolbar->setHorizontalSpacing(8);
+            toolbar->setVerticalSpacing(8);
+        }
+        const QList<QWidget*> controls { m_probeButton, m_rawPathEdit, m_rawUpButton, m_rawListButton,
+            m_rawPreviewButton, m_rawExportButton, m_rawMoreButton, m_deletedScanButton, m_deletedEraseButton,
+            m_filePathEdit, m_fileBrowseButton, m_extentButton, m_volumePathEdit, m_clusterEdit, m_reverseButton };
+        for (QWidget* control : controls)
+        {
+            ks::ui::NormalizeToolbarControl(control);
+        }
     }
 
     void DiskFileSystemForensicsPanel::initializeConnections()

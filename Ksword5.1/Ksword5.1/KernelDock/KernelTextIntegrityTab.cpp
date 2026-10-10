@@ -1,4 +1,6 @@
 #include "KernelTextIntegrityTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -135,6 +137,7 @@ void KernelTextIntegrityTab::initializeUi()
     m_cancelButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
     m_cancelButton->setEnabled(false);
     m_moduleFilterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_moduleFilterEdit);
     m_moduleFilterEdit->setClearButtonEnabled(true);
     m_moduleFilterEdit->setPlaceholderText(
         kernelText(
@@ -178,6 +181,7 @@ void KernelTextIntegrityTab::initializeUi()
     toolbar->addWidget(m_moduleFilterEdit, 1);
     toolbar->addWidget(m_unexplainedOnlyCheck);
     toolbar->addWidget(m_statusLabel);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_verdictLabel = new QLabel(this);
@@ -191,6 +195,8 @@ void KernelTextIntegrityTab::initializeUi()
     auto* splitter = new QSplitter(Qt::Vertical, this);
 
     m_moduleTable = new ks::ui::VisibleTableWidget(splitter);
+    // 模块完整性扫描结果需要留存不同扫描轮次。
+    ks::ui::SetTableActionBarMode(m_moduleTable, ks::ui::TableActionBarMode::Full);
     m_moduleTable->setColumnCount(ModuleColumnCount);
     m_moduleTable->setHorizontalHeaderLabels({
         kernelText("kernel.text_integrity.module.name", QStringLiteral("模块")),
@@ -233,6 +239,8 @@ void KernelTextIntegrityTab::initializeUi()
     m_moduleTable->horizontalHeader()->setStretchLastSection(true);
 
     m_rangeTable = new ks::ui::VisibleTableWidget(splitter);
+    // 所选模块的差异区间是扫描下钻结果，保留复制导出并收拢重复快照。
+    ks::ui::SetTableActionBarMode(m_rangeTable, ks::ui::TableActionBarMode::Compact);
     m_rangeTable->setColumnCount(RangeColumnCount);
     m_rangeTable->setHorizontalHeaderLabels({
         kernelText("kernel.text_integrity.range.module", QStringLiteral("模块")),

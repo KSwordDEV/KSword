@@ -1,4 +1,7 @@
 #include "DiskEditorTab.h"
+#include <QList>
+#include "../../UI/PageControlStyle.h"
+#include "../../UI/ToolbarMetrics.h"
 #include "DiskEditorFormat.h"
 #include "../../UI/CodeEditorWidget.h"
 #include "../../../../shared/evidence/NumericTextParse.h"
@@ -423,6 +426,7 @@ namespace ks::misc
         m_toolbarLayout->addWidget(m_readOnlyCheck, 0);
         m_toolbarLayout->addWidget(m_requireAlignedCheck, 0);
         m_toolbarLayout->addWidget(m_writeButton, 0);
+        ks::ui::NormalizeToolbarRow(m_toolbarLayout);
     }
 
     void DiskEditorTab::initializeLayoutPanels()
@@ -458,6 +462,8 @@ namespace ks::misc
         m_partitionTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
         m_partitionTable->setStyleSheet(buildTableStyle());
         installDiskEditorTableCopyMenu(m_partitionTable);
+        // 分区表是 HEX 跳转选择器，已有复制菜单，隐藏无关快照。
+        ks::ui::SetTableActionBarMode(m_partitionTable, ks::ui::TableActionBarMode::None);
         leftLayout->addWidget(m_partitionTable, 0);
 
         m_hexEditor = new ks::ui::HexView(leftPanel);
@@ -466,7 +472,7 @@ namespace ks::misc
         leftLayout->addWidget(m_hexEditor, 1);
 
         m_advancedTabs = new QTabWidget(leftPanel);
-        m_advancedTabs->setDocumentMode(true);
+        ks::ui::StylePageTabs(m_advancedTabs);
         initializeAdvancedPanels(m_advancedTabs);
         leftLayout->addWidget(m_advancedTabs, 1);
 
@@ -523,6 +529,7 @@ namespace ks::misc
         m_analyzeButton->setStyleSheet(buildToolButtonStyle());
         structureToolbar->addWidget(m_analyzeButton, 0);
         structureToolbar->addWidget(new QLabel(QStringLiteral("解析 MBR/GPT/启动扇区，校验 CRC，并映射卷/盘符。"), structurePage), 1);
+        ks::ui::NormalizeToolbarRow(structureToolbar);
         structureLayout->addLayout(structureToolbar);
 
         m_structureTable = createReadOnlyTable(structurePage, {
@@ -534,6 +541,8 @@ namespace ks::misc
             QStringLiteral("等级"),
             QStringLiteral("说明")
             });
+        // 解析出的字段映射是静态磁盘结构，不需要冻结对比栏。
+        ks::ui::SetTableActionBarMode(m_structureTable, ks::ui::TableActionBarMode::None);
         structureLayout->addWidget(m_structureTable, 1);
         m_advancedTabs->addTab(structurePage, QIcon(QStringLiteral(":/Icon/disk_analyze.svg")), QStringLiteral("结构解析"));
 
@@ -549,6 +558,8 @@ namespace ks::misc
             QStringLiteral("起始偏移"),
             QStringLiteral("长度")
             });
+        // 所选磁盘的卷映射小表是定位信息，隐藏重复工具条。
+        ks::ui::SetTableActionBarMode(m_volumeTable, ks::ui::TableActionBarMode::None);
         volumeLayout->addWidget(m_volumeTable, 1);
         m_advancedTabs->addTab(volumePage, QIcon(QStringLiteral(":/Icon/disk_volume.svg")), QStringLiteral("卷映射"));
 
@@ -562,6 +573,8 @@ namespace ks::misc
             QStringLiteral("等级"),
             QStringLiteral("说明")
             });
+        // 健康与能力键值摘要不需要快照对比栏。
+        ks::ui::SetTableActionBarMode(m_healthTable, ks::ui::TableActionBarMode::None);
         healthLayout->addWidget(m_healthTable, 1);
         m_advancedTabs->addTab(healthPage, QIcon(QStringLiteral(":/Icon/disk_health.svg")), QStringLiteral("健康/能力"));
 
@@ -638,6 +651,14 @@ namespace ks::misc
         rangeLayout->addWidget(m_toolFileEdit, 1, 1, 1, 3);
         rangeLayout->addWidget(m_toolBrowseOpenButton, 1, 4);
         rangeLayout->addWidget(m_toolBrowseSaveButton, 1, 5);
+        // 范围表单保留栅格和路径输入语义，统一其单行控件尺寸。
+        rangeLayout->setHorizontalSpacing(8);
+        rangeLayout->setVerticalSpacing(8);
+        for (QWidget* control : QList<QWidget*>{ m_toolOffsetEdit, m_toolLengthEdit, m_toolFileEdit,
+            m_toolUseSelectionButton, m_toolUsePartitionButton, m_toolBrowseOpenButton, m_toolBrowseSaveButton })
+        {
+            ks::ui::NormalizeToolbarControl(control);
+        }
         toolLayout->addWidget(rangeGroup, 0);
 
         QGroupBox* actionGroup = new QGroupBox(QStringLiteral("范围操作"), toolPage);
@@ -696,6 +717,15 @@ namespace ks::misc
         actionLayout->addWidget(m_maxResultSpin, 2, 1);
         actionLayout->addWidget(m_scanBlockSpin, 2, 2);
         actionLayout->addWidget(m_scanButton, 2, 3);
+        // 扫描模式/字节模式仍是业务输入，不改成表格过滤框。
+        actionLayout->setHorizontalSpacing(8);
+        actionLayout->setVerticalSpacing(8);
+        for (QWidget* control : QList<QWidget*>{ m_searchPatternEdit, m_searchModeCombo, m_hashAlgorithmCombo,
+            m_maxResultSpin, m_scanBlockSpin, m_searchButton, m_hashButton, m_exportButton, m_importButton,
+            m_compareButton, m_scanButton })
+        {
+            ks::ui::NormalizeToolbarControl(control);
+        }
         toolLayout->addWidget(actionGroup, 0);
 
         m_searchResultTable = createReadOnlyTable(toolPage, {
@@ -703,6 +733,8 @@ namespace ks::misc
             QStringLiteral("命中偏移"),
             QStringLiteral("预览 HEX")
             });
+        // 字节搜索命中结果保留复制导出，收拢无关现场快照。
+        ks::ui::SetTableActionBarMode(m_searchResultTable, ks::ui::TableActionBarMode::Compact);
         toolLayout->addWidget(m_searchResultTable, 1);
         m_advancedTabs->addTab(toolPage, QIcon(QStringLiteral(":/Icon/disk_tools.svg")), QStringLiteral("搜索/镜像/扫描"));
 

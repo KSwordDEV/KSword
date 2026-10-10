@@ -1,5 +1,7 @@
 #include "../UI/StructuredFieldView.h"
 #include "ServiceDock.Internal.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../theme.h"
 
@@ -11,6 +13,8 @@ namespace
     QTableWidget* createServiceTable(QWidget* parentWidget)
     {
         QTableWidget* tableWidget = new ks::ui::VisibleTableWidget(parentWidget);
+        // 服务现场清单有运行状态及配置变化，需要保留完整快照/对比能力。
+        ks::ui::SetTableActionBarMode(tableWidget, ks::ui::TableActionBarMode::Full);
         tableWidget->setColumnCount(ServiceDock::toServiceColumn(ServiceDock::ServiceColumn::Count));
         tableWidget->setHorizontalHeaderLabels({
             QStringLiteral("服务名"),
@@ -149,6 +153,7 @@ void ServiceDock::initializeToolbar()
     m_filterEdit = new QLineEdit(m_toolbarWidget);
     m_filterEdit->setPlaceholderText(QStringLiteral("过滤：服务名/显示名/描述/路径/账户"));
     m_filterEdit->setToolTip(QStringLiteral("支持关键字模糊匹配"));
+    ks::ui::StyleSearchField(m_filterEdit);
 
     m_sortCombo = new QComboBox(m_toolbarWidget);
     m_sortCombo->addItem(QStringLiteral("名称升序"), static_cast<int>(SortMode::NameAsc));
@@ -199,6 +204,7 @@ void ServiceDock::initializeToolbar()
     m_toolbarLayout->addWidget(m_startTypeCombo);
     m_toolbarLayout->addWidget(m_applyStartTypeButton);
     m_toolbarLayout->addWidget(m_summaryLabel, 1);
+    ks::ui::NormalizeToolbarRow(m_toolbarLayout);
 }
 
 void ServiceDock::initializeContent()
@@ -220,6 +226,7 @@ void ServiceDock::initializeContent()
     rightPanelLayout->setSpacing(4);
 
     m_detailTabWidget = new QTabWidget(rightPanelWidget);
+    ks::ui::StylePageTabs(m_detailTabWidget);
     initializeDetailTabs();
     rightPanelLayout->addWidget(m_detailTabWidget, 1);
 

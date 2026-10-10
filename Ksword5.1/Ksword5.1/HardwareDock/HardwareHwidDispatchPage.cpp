@@ -1,4 +1,5 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/ToolbarMetrics.h"
 #include "HardwareHwidDispatchPage.h"
 #include "../UI/VisibleTableWidget.h"
 
@@ -251,9 +252,12 @@ void HardwareHwidDispatchPage::initializeUi()
     buttonLayout->addWidget(m_disableButton);
     buttonLayout->addWidget(m_copyPlanButton);
     buttonLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(buttonLayout);
     m_rootLayout->addLayout(buttonLayout, 0);
 
     m_statusTable = new ks::ui::VisibleTableWidget(this);
+    // 调节表单的操作回执小表不需要独立快照、冻结或对比工具条。
+    ks::ui::SetTableActionBarMode(m_statusTable, ks::ui::TableActionBarMode::None);
     m_statusTable->setColumnCount(7);
     m_statusTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("目标"),

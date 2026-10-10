@@ -1,4 +1,6 @@
 #include "KernelObjectTypeMatrixTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/VisibleTableWidget.h"
 
 // ============================================================
@@ -179,6 +181,7 @@ void KernelObjectTypeMatrixTab::initializeUi()
     m_refreshButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
 
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setPlaceholderText(kernelText("kernel.object_type.toolbar.filter.placeholder", QStringLiteral("按类型名、编号、R0 地址或策略筛选")));
     m_filterEdit->setClearButtonEnabled(true);
 
@@ -188,9 +191,12 @@ void KernelObjectTypeMatrixTab::initializeUi()
     toolbarLayout->addWidget(m_refreshButton, 0);
     toolbarLayout->addWidget(m_filterEdit, 1);
     toolbarLayout->addWidget(m_statusLabel, 0);
+    ks::ui::NormalizeToolbarRow(toolbarLayout);
     rootLayout->addLayout(toolbarLayout);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // 类型定义与数量摘要保留复制导出，将完整快照操作收拢。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Compact);
     m_table->setColumnCount(static_cast<int>(ObjectTypeMatrixColumn::Count));
     m_table->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.object_type.header.index", QStringLiteral("类型编号")),

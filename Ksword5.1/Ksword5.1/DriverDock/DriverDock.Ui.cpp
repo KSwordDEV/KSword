@@ -1,4 +1,6 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "DriverDock.Internal.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../KernelDock/KernelThreadAuditTab.h"
@@ -363,6 +365,7 @@ void DriverDock::initializeUi()
     m_rootLayout->setSpacing(6);
 
     m_tabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_tabWidget);
     m_rootLayout->addWidget(m_tabWidget, 1);
 
     initializeServiceTab();
@@ -422,6 +425,7 @@ void DriverDock::initializeServiceTab()
         ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     m_serviceFilterEdit = new QLineEdit(m_servicePage);
+    ks::ui::StyleSearchField(m_serviceFilterEdit);
     m_serviceFilterEdit->setPlaceholderText(driverText(
         "driver.service.filter.placeholder", QStringLiteral("搜索驱动服务")));
     m_serviceFilterEdit->setToolTip(driverText(
@@ -433,9 +437,12 @@ void DriverDock::initializeServiceTab()
     m_overviewToolLayout->addWidget(m_refreshServiceButton);
     m_overviewToolLayout->addWidget(m_serviceFilterEdit, 1);
     m_overviewToolLayout->addWidget(m_overviewStatusLabel);
+    ks::ui::NormalizeToolbarRow(m_overviewToolLayout);
     m_serviceLayout->addLayout(m_overviewToolLayout);
 
     m_serviceTable = new ks::ui::VisibleTableWidget(m_servicePage);
+    // 驱动服务清单的安装、卸载和状态变化需要跨次对比。
+    ks::ui::SetTableActionBarMode(m_serviceTable, ks::ui::TableActionBarMode::Full);
     m_serviceTable->setColumnCount(7);
     m_serviceTable->setHorizontalHeaderLabels(driverServiceTableHeaders());
     m_serviceTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -483,6 +490,7 @@ void DriverDock::initializeKernelModuleTab()
         "driver.overview.evidence.status.waiting", QStringLiteral("证据：等待刷新")), m_kernelModulePage);
     m_moduleEvidenceStatusLabel->setWordWrap(true);
     m_moduleFilterEdit = new QLineEdit(m_kernelModulePage);
+    ks::ui::StyleSearchField(m_moduleFilterEdit);
     m_moduleFilterEdit->setPlaceholderText(driverText(
         "driver.kernel_module.filter.placeholder", QStringLiteral("搜索内核模块")));
     m_moduleFilterEdit->setToolTip(driverText(
@@ -491,9 +499,12 @@ void DriverDock::initializeKernelModuleTab()
     m_kernelModuleToolLayout->addWidget(m_refreshModuleEvidenceButton);
     m_kernelModuleToolLayout->addWidget(m_moduleFilterEdit, 1);
     m_kernelModuleToolLayout->addWidget(m_moduleEvidenceStatusLabel);
+    ks::ui::NormalizeToolbarRow(m_kernelModuleToolLayout);
     m_kernelModuleLayout->addLayout(m_kernelModuleToolLayout);
 
     m_moduleTable = new ks::ui::VisibleTableWidget(m_kernelModulePage);
+    // 加载模块证据需要保留新增/消失与来源变化的快照。
+    ks::ui::SetTableActionBarMode(m_moduleTable, ks::ui::TableActionBarMode::Full);
     m_moduleTable->setColumnCount(ModuleTableColumnCount);
     m_moduleTable->setHorizontalHeaderLabels(driverModuleTableHeaders());
     m_moduleTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -663,6 +674,7 @@ void DriverDock::initializeOperateTab()
     actionLayout->addWidget(m_deleteServiceButton);
     actionLayout->addWidget(m_refreshStateButton);
     actionLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     m_operateLayout->addLayout(actionLayout);
 
     m_operateLogOutput = new CodeEditorWidget(m_operatePage);
@@ -735,6 +747,7 @@ void DriverDock::initializeDebugOutputTab()
     m_debugToolLayout->addWidget(m_clearDebugOutputButton);
     m_debugToolLayout->addWidget(m_copyDebugOutputButton);
     m_debugToolLayout->addWidget(m_debugCaptureStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(m_debugToolLayout);
     m_debugOutputLayout->addLayout(m_debugToolLayout);
 
     m_debugOutputEdit = new CodeEditorWidget(m_debugOutputPage);
@@ -812,6 +825,7 @@ void DriverDock::initializeObjectInfoTab()
     queryLayout->addWidget(m_queryObjectInfoButton);
     queryLayout->addWidget(m_objectEvidenceRefreshButton);
     queryLayout->addWidget(m_objectInfoStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(queryLayout);
     m_objectInfoLayout->addLayout(queryLayout);
 
     // 摘要直接投影 DriverObject 快照字段，详细证据仍由下方表格承载。
@@ -822,7 +836,7 @@ void DriverDock::initializeObjectInfoTab()
     m_objectInfoLayout->addWidget(m_objectInfoSummaryEdit);
 
     m_objectDetailTabWidget = new QTabWidget(m_objectInfoPage);
-    m_objectDetailTabWidget->setDocumentMode(true);
+    ks::ui::StylePageTabs(m_objectDetailTabWidget);
     m_objectInfoLayout->addWidget(m_objectDetailTabWidget, 1);
 
     auto configureReadOnlyTable = [](QTableWidget* table)
@@ -853,6 +867,8 @@ void DriverDock::initializeObjectInfoTab()
     driverObjectLayout->addWidget(m_driverObjectPageSummaryEdit);
 
     m_driverObjectEvidenceTable = new ks::ui::VisibleTableWidget(m_driverObjectPage);
+    // 当前 DriverObject 的两列属性映射不需要额外快照栏。
+    ks::ui::SetTableActionBarMode(m_driverObjectEvidenceTable, ks::ui::TableActionBarMode::None);
     m_driverObjectEvidenceTable->setColumnCount(2);
     m_driverObjectEvidenceTable->setHorizontalHeaderLabels(driverObjectEvidenceTableHeaders());
     configureReadOnlyTable(m_driverObjectEvidenceTable);
@@ -872,6 +888,8 @@ void DriverDock::initializeObjectInfoTab()
         m_deviceObjectPage));
 
     m_deviceObjectTable = new ks::ui::VisibleTableWidget(m_deviceObjectPage);
+    // 单个驱动的设备链子表保留复制导出，收拢重复快照操作。
+    ks::ui::SetTableActionBarMode(m_deviceObjectTable, ks::ui::TableActionBarMode::Compact);
     m_deviceObjectTable->setColumnCount(10);
     m_deviceObjectTable->setHorizontalHeaderLabels(driverDeviceObjectTableHeaders());
     configureReadOnlyTable(m_deviceObjectTable);
@@ -892,6 +910,8 @@ void DriverDock::initializeObjectInfoTab()
     m_driverExtensionStatusLabel->setWordWrap(true);
     driverExtensionLayout->addWidget(m_driverExtensionStatusLabel);
     m_driverExtensionEvidenceTable = new ks::ui::VisibleTableWidget(m_driverExtensionPage);
+    // 扩展字段是当前对象查询的简要证据，避免小表被工具条挤占。
+    ks::ui::SetTableActionBarMode(m_driverExtensionEvidenceTable, ks::ui::TableActionBarMode::None);
     m_driverExtensionEvidenceTable->setColumnCount(6);
     m_driverExtensionEvidenceTable->setHorizontalHeaderLabels(driverEvidenceTableHeaders());
     configureReadOnlyTable(m_driverExtensionEvidenceTable);
@@ -910,6 +930,8 @@ void DriverDock::initializeObjectInfoTab()
         m_majorFunctionPage));
 
     m_majorFunctionTable = new ks::ui::VisibleTableWidget(m_majorFunctionPage);
+    // 派遣入口指针变化是核心诊断目标，保留完整对比能力。
+    ks::ui::SetTableActionBarMode(m_majorFunctionTable, ks::ui::TableActionBarMode::Full);
     m_majorFunctionTable->setColumnCount(5);
     m_majorFunctionTable->setHorizontalHeaderLabels(driverMajorFunctionTableHeaders());
     configureReadOnlyTable(m_majorFunctionTable);
@@ -1067,6 +1089,8 @@ void DriverDock::initializeObjectInfoTab()
     m_fastIoStatusLabel->setWordWrap(true);
     fastIoLayout->addWidget(m_fastIoStatusLabel);
     m_fastIoEvidenceTable = new ks::ui::VisibleTableWidget(m_fastIoPage);
+    // FastIo 回调地址与归属需要跨次快照比较。
+    ks::ui::SetTableActionBarMode(m_fastIoEvidenceTable, ks::ui::TableActionBarMode::Full);
     m_fastIoEvidenceTable->setColumnCount(6);
     m_fastIoEvidenceTable->setHorizontalHeaderLabels(driverEvidenceTableHeaders());
     configureReadOnlyTable(m_fastIoEvidenceTable);
@@ -1215,9 +1239,12 @@ void DriverDock::initializeModuleCrossViewTab()
 
     m_moduleCrossViewToolLayout->addWidget(m_moduleCrossViewRefreshButton);
     m_moduleCrossViewToolLayout->addWidget(m_moduleCrossViewStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(m_moduleCrossViewToolLayout);
     m_moduleCrossViewLayout->addLayout(m_moduleCrossViewToolLayout);
 
     m_moduleCrossViewTable = new ks::ui::VisibleTableWidget(m_moduleCrossViewPage);
+    // 模块多来源视图属于核心现场证据，保留完整操作栏。
+    ks::ui::SetTableActionBarMode(m_moduleCrossViewTable, ks::ui::TableActionBarMode::Full);
     m_moduleCrossViewTable->setColumnCount(7);
     m_moduleCrossViewTable->setHorizontalHeaderLabels(driverModuleCrossViewTableHeaders());
     m_moduleCrossViewTable->setSelectionBehavior(QAbstractItemView::SelectRows);

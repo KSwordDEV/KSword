@@ -1,4 +1,6 @@
 #include "StorageControllerResearchDialog.h"
+#include "../../UI/ToolbarMetrics.h"
+#include "../../UI/VisibleTableWidget.h"
 #include "StorageControllerInput.h"
 
 #include "../../SettingsDock/AppearanceSettings.h"
@@ -132,6 +134,13 @@ namespace ks::misc
         sessionLayout->addWidget(m_releaseButton, 0, 2);
         sessionLayout->addWidget(m_resetButton, 1, 0);
         sessionLayout->addWidget(m_auditButton, 1, 1);
+        // 控制器会话动作是两行栅格，保留布局，只统一动作尺寸与间距。
+        sessionLayout->setHorizontalSpacing(8);
+        sessionLayout->setVerticalSpacing(8);
+        for (QPushButton* button : { m_refreshButton, m_acquireButton, m_releaseButton, m_resetButton, m_auditButton })
+        {
+            ks::ui::NormalizeToolbarControl(button);
+        }
         root->addLayout(sessionLayout);
 
         QGroupBox* transferGroup = new QGroupBox(QStringLiteral("事务化原始访问"), this);
@@ -158,6 +167,12 @@ namespace ks::misc
         transferButtons->addWidget(m_readButton);
         transferButtons->addWidget(m_writeButton);
         transferButtons->addWidget(m_rollbackButton);
+        transferButtons->setSpacing(8);
+        ks::ui::NormalizeToolbarControl(m_offsetEdit);
+        ks::ui::NormalizeToolbarControl(m_lengthEdit);
+        ks::ui::NormalizeToolbarControl(m_readButton);
+        ks::ui::NormalizeToolbarControl(m_writeButton);
+        ks::ui::NormalizeToolbarControl(m_rollbackButton);
         transferLayout->addLayout(transferButtons);
         root->addWidget(transferGroup, 2);
 
@@ -175,6 +190,8 @@ namespace ks::misc
         m_auditTable->horizontalHeader()->setSectionResizeMode(
             QHeaderView::ResizeToContents);
         m_auditTable->setMinimumHeight(160);
+        // 事务审计流水已有序号与日志，保留紧凑复制导出。
+        ks::ui::SetTableActionBarMode(m_auditTable, ks::ui::TableActionBarMode::Compact);
         root->addWidget(m_auditTable, 1);
 
         // 内置编辑器负责主题、复制和查找；日志缓冲单独维持 500 块上限。

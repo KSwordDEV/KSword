@@ -1,4 +1,6 @@
 #include "PrivilegeAccountPages.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ThemeStatusRole.h"
@@ -596,10 +598,12 @@ namespace
             auto* toolbar = new QHBoxLayout;
             m_search = new QLineEdit(this);
             m_search->setPlaceholderText(privilegeText("privilege.workbench.groups.search_accounts", QStringLiteral("搜索账户、SID、状态或说明")));
+            ks::ui::StyleSearchField(m_search);
             auto* refresh = button(this, "privilege.workbench.groups.refresh_accounts", QStringLiteral("刷新账户"));
             auto* enable = button(this, "privilege.workbench.groups.enable_account", QStringLiteral("启用账户"));
             auto* disable = button(this, "privilege.workbench.groups.disable_account", QStringLiteral("禁用账户"));
             toolbar->addWidget(m_search, 1); toolbar->addWidget(refresh); toolbar->addWidget(enable); toolbar->addWidget(disable);
+            ks::ui::NormalizeToolbarRow(toolbar);
             layout->addLayout(toolbar);
             auto* navigation = new QHBoxLayout;
             auto* viewGroups = button(this, "privilege.workbench.groups.view_groups", QStringLiteral("查看用户组"));
@@ -609,6 +613,7 @@ namespace
             viewRights->setObjectName(QStringLiteral("privilege_rights_navigation"));
             viewSessions->setObjectName(QStringLiteral("privilege_sessions_navigation"));
             navigation->addWidget(viewGroups); navigation->addWidget(viewRights); navigation->addWidget(viewSessions); navigation->addStretch();
+            ks::ui::NormalizeToolbarRow(navigation);
             layout->addLayout(navigation);
             viewGroups->setEnabled(static_cast<bool>(m_navigate));
             viewRights->setEnabled(static_cast<bool>(m_navigate));
@@ -619,8 +624,11 @@ namespace
             m_table = makeTable(this, {privilegeText("privilege.workbench.groups.account", QStringLiteral("账户")), QStringLiteral("SID"),
                 privilegeText("privilege.workbench.groups.state", QStringLiteral("状态")), privilegeText("privilege.workbench.groups.description", QStringLiteral("说明"))});
             m_table->setObjectName(QStringLiteral("privilege_accounts_table"));
+            // 账户清单保留快照；所属组仅是当前账户的关联详情。
+            ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
             m_groups = makeTable(this, {privilegeText("privilege.workbench.groups.group", QStringLiteral("用户组")), QStringLiteral("SID"),
                 privilegeText("privilege.workbench.groups.membership", QStringLiteral("成员来源"))});
+            ks::ui::SetTableActionBarMode(m_groups, ks::ui::TableActionBarMode::Compact);
             auto* splitter = new QSplitter(Qt::Vertical, this);
             splitter->addWidget(m_table); splitter->addWidget(m_groups);
             splitter->setStretchFactor(0, 3); splitter->setStretchFactor(1, 1);
@@ -725,12 +733,17 @@ namespace
             auto* toolbar = new QHBoxLayout;
             m_search = new QLineEdit(this);
             m_search->setPlaceholderText(privilegeText("privilege.workbench.groups.search", QStringLiteral("搜索用户组、成员或 SID")));
+            ks::ui::StyleSearchField(m_search);
             auto* refresh = button(this, "privilege.workbench.groups.refresh", QStringLiteral("刷新用户组"));
             toolbar->addWidget(m_search, 1); toolbar->addWidget(refresh); layout->addLayout(toolbar);
+            ks::ui::NormalizeToolbarRow(toolbar);
             m_groups = makeTable(this, {privilegeText("privilege.workbench.groups.group", QStringLiteral("用户组")), QStringLiteral("SID"),
                 privilegeText("privilege.workbench.groups.description", QStringLiteral("说明"))});
             m_members = makeTable(this, {privilegeText("privilege.workbench.groups.member", QStringLiteral("成员")), QStringLiteral("SID"),
                 privilegeText("privilege.workbench.groups.sid_type", QStringLiteral("SID 类型值"))});
+            // 本地组是主清单；成员及查询所属组是依附当前选择的辅助结果。
+            ks::ui::SetTableActionBarMode(m_groups, ks::ui::TableActionBarMode::Full);
+            ks::ui::SetTableActionBarMode(m_members, ks::ui::TableActionBarMode::Compact);
             auto* split = new QSplitter(Qt::Horizontal, this);
             split->addWidget(m_groups); split->addWidget(m_members); layout->addWidget(split, 3);
             auto* actions = new QHBoxLayout;
@@ -739,14 +752,17 @@ namespace
             auto* add = button(this, "privilege.workbench.groups.add", QStringLiteral("加入所选组"));
             auto* remove = button(this, "privilege.workbench.groups.remove", QStringLiteral("移除所选成员"));
             actions->addWidget(m_member, 1); actions->addWidget(add); actions->addWidget(remove); layout->addLayout(actions);
+            ks::ui::NormalizeToolbarRow(actions);
             auto* lookup = new QHBoxLayout;
             m_account = new QLineEdit(this);
             m_account->setPlaceholderText(privilegeText("privilege.workbench.groups.lookup_input", QStringLiteral("查询账户所属的本地组（含间接成员）")));
             auto* query = button(this, "privilege.workbench.groups.lookup", QStringLiteral("查询所属组"));
             lookup->addWidget(m_account, 1); lookup->addWidget(query); layout->addLayout(lookup);
+            ks::ui::NormalizeToolbarRow(lookup);
             m_memberships = makeTable(this, {privilegeText("privilege.workbench.groups.group", QStringLiteral("用户组")), QStringLiteral("SID"),
                 privilegeText("privilege.workbench.groups.membership", QStringLiteral("成员来源"))});
             layout->addWidget(m_memberships, 1);
+            ks::ui::SetTableActionBarMode(m_memberships, ks::ui::TableActionBarMode::Compact);
             m_status = new QLabel(this); m_status->setWordWrap(true); layout->addWidget(m_status);
             QObject::connect(refresh, &QPushButton::clicked, this, [this]() { refreshGroups(); });
             QObject::connect(m_groups, &QTableWidget::itemSelectionChanged, this, [this]() { refreshMembers(); });
@@ -901,15 +917,18 @@ namespace
             m_account->setPlaceholderText(privilegeText("privilege.workbench.rights.account_input", QStringLiteral("账户名或 SID（用户、组、服务身份）")));
             auto* queryAccount = button(this, "privilege.workbench.rights.query_account", QStringLiteral("账户 → 直接权限"));
             accountBar->addWidget(m_account, 1); accountBar->addWidget(queryAccount); layout->addLayout(accountBar);
+            ks::ui::NormalizeToolbarRow(accountBar);
             auto* rightBar = new QHBoxLayout;
             m_right = new QComboBox(this); m_right->setEditable(true); m_right->addItems(rightsCatalog());
             auto* queryRight = button(this, "privilege.workbench.rights.query_right", QStringLiteral("权限 → 已分配账户"));
             auto* add = button(this, "privilege.workbench.rights.add", QStringLiteral("分配此权限"));
             auto* remove = button(this, "privilege.workbench.rights.remove", QStringLiteral("移除此权限"));
             rightBar->addWidget(m_right, 1); rightBar->addWidget(queryRight); rightBar->addWidget(add); rightBar->addWidget(remove); layout->addLayout(rightBar);
+            ks::ui::NormalizeToolbarRow(rightBar);
             m_description = new QLabel(this); m_description->setWordWrap(true); layout->addWidget(m_description);
             m_search = new QLineEdit(this);
             m_search->setPlaceholderText(privilegeText("privilege.workbench.rights.search", QStringLiteral("搜索权限、账户或 SID"))); layout->addWidget(m_search);
+            ks::ui::StyleSearchField(m_search);
             auto* splitter = new QSplitter(Qt::Horizontal, this);
             auto* accountPane = new QWidget(splitter); auto* accountLayout = new QVBoxLayout(accountPane); accountLayout->setContentsMargins(0, 0, 0, 0);
             accountLayout->addWidget(new QLabel(privilegeText("privilege.workbench.rights.direct_caption", QStringLiteral("账户的直接策略分配")), accountPane));
@@ -921,6 +940,9 @@ namespace
             m_accounts = makeTable(rightPane, {privilegeText("privilege.workbench.groups.account", QStringLiteral("账户")), QStringLiteral("SID"),
                 privilegeText("privilege.workbench.rights.right", QStringLiteral("权限名称"))});
             rightLayout->addWidget(m_accounts); splitter->addWidget(accountPane); splitter->addWidget(rightPane); layout->addWidget(splitter, 1);
+            // 双向权限查询已有业务操作，两个辅助结果仅保留紧凑导出入口。
+            ks::ui::SetTableActionBarMode(m_rights, ks::ui::TableActionBarMode::Compact);
+            ks::ui::SetTableActionBarMode(m_accounts, ks::ui::TableActionBarMode::Compact);
             m_status = new QLabel(this); m_status->setWordWrap(true); layout->addWidget(m_status);
             QObject::connect(queryAccount, &QPushButton::clicked, this, [this]() { refreshRights(); });
             QObject::connect(queryRight, &QPushButton::clicked, this, [this]() { refreshAccounts(); });

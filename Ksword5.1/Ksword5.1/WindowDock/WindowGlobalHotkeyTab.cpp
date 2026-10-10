@@ -6,6 +6,8 @@
 #include "../ProcessDock/ProcessHotkeyEnumerator.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../ksword/process/process.h"
 #include "../theme.h"
 
@@ -179,14 +181,16 @@ void WindowGlobalHotkeyTab::initializeUi()
     m_refreshButton = new QPushButton(
         allHotkeyText("window.global_hotkey.refresh", QStringLiteral("刷新全部热键")),
         this);
-    m_refreshButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(allHotkeyText(
         "window.global_hotkey.filter.placeholder",
         QStringLiteral("按热键、进程、PID/TID、来源、对象或详情筛选")));
     toolbar->addWidget(m_refreshButton);
     toolbar->addWidget(m_filterEdit, 1);
+    toolbar->setSpacing(8);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_statusLabel = new QLabel(
@@ -197,6 +201,8 @@ void WindowGlobalHotkeyTab::initializeUi()
     rootLayout->addWidget(m_statusLabel);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // 全部热键是可重复采集的主清单，保留快照和比较。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setColumnCount(ColumnCount);
     m_table->setHorizontalHeaderLabels({
         allHotkeyText("window.global_hotkey.header.hotkey", QStringLiteral("热键")),
@@ -219,12 +225,6 @@ void WindowGlobalHotkeyTab::initializeUi()
     m_table->horizontalHeader()->setStretchLastSection(true);
     // 限制自动列宽只采样少量行，避免大结果集在扫描完成时再次长时间占用 UI。
     m_table->horizontalHeader()->setResizeContentsPrecision(100);
-    m_table->setStyleSheet(QStringLiteral(
-        "QTableWidget{background:transparent;color:%1;}"
-        "QHeaderView::section{color:%2;background:transparent;border:1px solid %3;font-weight:600;}")
-        .arg(KswordTheme::TextPrimaryHex())
-        .arg(KswordTheme::PrimaryBlueHex)
-        .arg(KswordTheme::BorderHex()));
     rootLayout->addWidget(m_table, 1);
 
     // m_flushTimer：以固定节奏合并后台结果，使主线程每次处理的工作量保持有界。

@@ -1,4 +1,6 @@
 #include "KernelSymbolicLinkTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -87,12 +89,12 @@ void KernelSymbolicLinkTab::initializeUi()
     m_filterEdit = new QLineEdit(this);
     m_filterEdit->setPlaceholderText(kernelText("kernel.symbolic_link.toolbar.filter.placeholder", QStringLiteral("过滤目录 / 名称 / 完整路径 / 状态")));
     m_filterEdit->setClearButtonEnabled(true);
-    m_filterEdit->setStyleSheet(inputStyle());
+    ks::ui::StyleSearchField(m_filterEdit);
 
     m_targetFilterEdit = new QLineEdit(this);
     m_targetFilterEdit->setPlaceholderText(kernelText("kernel.symbolic_link.toolbar.target_filter.placeholder", QStringLiteral("按目标路径 / DOS 候选过滤")));
     m_targetFilterEdit->setClearButtonEnabled(true);
-    m_targetFilterEdit->setStyleSheet(inputStyle());
+    ks::ui::StyleSearchField(m_targetFilterEdit);
 
     m_statusLabel = new QLabel(kernelText("kernel.symbolic_link.status.waiting", QStringLiteral("状态：等待刷新")), this);
     m_statusLabel->setStyleSheet(QStringLiteral("color:%1;font-weight:600;").arg(KswordTheme::TextSecondaryHex()));
@@ -102,9 +104,12 @@ void KernelSymbolicLinkTab::initializeUi()
     toolLayout->addWidget(m_filterEdit, 1);
     toolLayout->addWidget(m_targetFilterEdit, 1);
     toolLayout->addWidget(m_statusLabel, 0);
+    ks::ui::NormalizeToolbarRow(toolLayout);
     rootLayout->addLayout(toolLayout);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // 目标路径检索主要用于定位与复制，收拢完整快照栏。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Compact);
     m_table->setColumnCount(static_cast<int>(Column::Count));
     m_table->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("sourceDirectory"),

@@ -1,4 +1,6 @@
 #include "KernelDriverImageEditorDialog.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/VisibleTableWidget.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -152,12 +154,15 @@ void KernelDriverImageEditorDialog::initializeUi()
     m_identityLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     identityLayout->addWidget(m_refreshButton);
     identityLayout->addWidget(m_identityLabel, 1);
+    ks::ui::NormalizeToolbarRow(identityLayout);
     rootLayout->addLayout(identityLayout);
 
     m_table = new QTableWidget(
         static_cast<int>(std::size(FieldRows)),
         ColumnCount,
         this);
+    // 映像字段编辑与恢复记录属于事务表单，隐藏全局快照对比。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::None);
     m_table->setHorizontalHeaderLabels({
         kernelText("kernel.driver_image.header.selected", QStringLiteral("选择")),
         kernelText("kernel.driver_image.header.field", QStringLiteral("字段")),
@@ -260,6 +265,7 @@ void KernelDriverImageEditorDialog::initializeUi()
     actionLayout->addWidget(m_hideButton);
     actionLayout->addWidget(m_restoreButton);
     actionLayout->addWidget(m_abandonButton);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     rootLayout->addLayout(actionLayout);
 
     auto* detailLabel = new QLabel(
@@ -288,6 +294,7 @@ void KernelDriverImageEditorDialog::initializeUi()
     closeButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
     bottomLayout->addWidget(m_statusLabel, 1);
     bottomLayout->addWidget(closeButton);
+    ks::ui::NormalizeToolbarRow(bottomLayout);
     rootLayout->addLayout(bottomLayout);
 
     connect(closeButton, &QPushButton::clicked, this, &QDialog::accept);

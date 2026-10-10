@@ -1,4 +1,6 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/DetailDialogChrome.h"
 #include "DriverDock.Internal.h"
 #include "../UI/TableInteractionSupport.h"
@@ -338,6 +340,8 @@ void DriverDock::initializeUnloadedPiddbTab()
 
     m_unloadedPiddbTable =
         new ks::ui::VisibleTableWidget(m_unloadedPiddbPage);
+    // 历史卸载记录与签名缓存有覆盖风险，保留完整留存对比。
+    ks::ui::SetTableActionBarMode(m_unloadedPiddbTable, ks::ui::TableActionBarMode::Full);
     m_unloadedPiddbTable->setColumnCount(
         columnIndex(UnloadedColumn::Count));
     m_unloadedPiddbTable->setHorizontalHeaderLabels(
@@ -397,6 +401,7 @@ void DriverDock::initializeUnloadedPiddbTab()
     m_unloadedPiddbSourceLayout->addWidget(m_unloadedPiddbCiSourceRadio);
     m_unloadedPiddbSourceLayout->addStretch(1);
     m_unloadedPiddbSourceLayout->addWidget(m_unloadedPiddbRefreshButton);
+    ks::ui::NormalizeToolbarRow(m_unloadedPiddbSourceLayout);
     m_unloadedPiddbLayout->addLayout(m_unloadedPiddbSourceLayout);
 
     m_unloadedPiddbFilterLayout = new QHBoxLayout();
@@ -412,6 +417,7 @@ void DriverDock::initializeUnloadedPiddbTab()
         m_unloadedPiddbFieldCombo->addItem(filterFields.at(column), column);
     }
     m_unloadedPiddbFilterEdit = new QLineEdit(m_unloadedPiddbPage);
+    ks::ui::StyleSearchField(m_unloadedPiddbFilterEdit);
     m_unloadedPiddbFilterEdit->setClearButtonEnabled(true);
     m_unloadedPiddbFilterEdit->setPlaceholderText(
         driverText(
@@ -433,6 +439,7 @@ void DriverDock::initializeUnloadedPiddbTab()
     m_unloadedPiddbFilterLayout->addWidget(m_unloadedPiddbFilterEdit, 1);
     m_unloadedPiddbFilterLayout->addWidget(m_unloadedPiddbRegexCheck);
     m_unloadedPiddbFilterLayout->addWidget(m_unloadedPiddbCountLabel);
+    ks::ui::NormalizeToolbarRow(m_unloadedPiddbFilterLayout);
     m_unloadedPiddbLayout->addLayout(m_unloadedPiddbFilterLayout);
 
     m_unloadedPiddbStatusLabel = new QLabel(

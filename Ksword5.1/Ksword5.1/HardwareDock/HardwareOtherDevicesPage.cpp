@@ -1,4 +1,5 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/ToolbarMetrics.h"
 #include "HardwareOtherDevicesPage.h"
 
 // ============================================================
@@ -110,6 +111,7 @@ void HardwareOtherDevicesPage::initializeUi()
     m_refreshButton = new QPushButton(QStringLiteral("刷新"), this);
     m_refreshButton->setToolTip(QStringLiteral("重新枚举主板、存储、外设、PNP、驱动等硬件信息"));
     headerLayout->addWidget(m_refreshButton, 0);
+    ks::ui::NormalizeToolbarRow(headerLayout);
     m_rootLayout->addLayout(headerLayout, 0);
 
     m_inventoryEditor = new ks::ui::StructuredFieldView(this);

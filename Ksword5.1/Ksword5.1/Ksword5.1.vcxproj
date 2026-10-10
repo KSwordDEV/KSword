@@ -898,6 +898,7 @@
     <ClInclude Include="UI\TypedSyntaxDocument.h" />
     <ClInclude Include="UI\TablePresentation.h" />
     <ClInclude Include="UI\ToolbarMetrics.h" />
+    <ClInclude Include="UI\PageControlStyle.h" />
     <ClInclude Include="UI\DetailNavigationGroups.h" />
     <ClInclude Include="UI\DetailDialogChrome.h" />
     <ClInclude Include="UI\SmoothScrollSupport.h" />

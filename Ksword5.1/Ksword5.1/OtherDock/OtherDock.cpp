@@ -2,6 +2,8 @@
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeBinding.h"
 #include "OtherDock.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../Framework/DestructiveActionConfirmation.h"
 #include "../Internationalization/LanguageManager.h"
@@ -131,9 +133,9 @@ namespace
     QString blueHeaderStyle()
     {
         return QStringLiteral(
-            "QHeaderView::section{color:%1;background:transparent;/* %2 */border:0;border-bottom:1px solid %3;font-weight:400;}")
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::SurfaceHex())
+            "QHeaderView::section{color:%1;background:%2;border:0;border-bottom:1px solid %3;font-weight:600;}")
+            .arg(KswordTheme::TextPrimaryHex())
+            .arg(KswordTheme::SurfaceMutedColorHex())
             .arg(KswordTheme::BorderHex());
     }
 
@@ -1703,8 +1705,10 @@ private:
         styleActionLayout->addWidget(m_styleRefreshButton, 0);
         styleActionLayout->addWidget(m_styleApplyButton, 0);
         styleLayout->addLayout(styleActionLayout);
+        ks::ui::NormalizeToolbarRow(styleActionLayout);
 
         auto* styleTabs = new QTabWidget(styleGroup);
+        ks::ui::StylePageTabs(styleTabs);
         styleTabs->setUsesScrollButtons(true);
         const auto createStylePage = [styleTabs]() {
             auto* page = new QWidget(styleTabs);
@@ -1848,9 +1852,12 @@ private:
         monitorControlLayout->addWidget(m_messageCountLabel, 0);
         monitorControlLayout->addStretch(1);
         hookLayout->addLayout(monitorControlLayout);
+        ks::ui::NormalizeToolbarRow(monitorControlLayout);
 
         // 消息表：按行展示捕获数据，接近 Spy++ 的消息流视角。
         m_messageTable = new ks::ui::VisibleTableWidget(hookPage);
+        // 消息流的顺序由采集器记录，已有启停/清理动作；保留复制导出而非通用快照对比。
+        ks::ui::SetTableActionBarMode(m_messageTable, ks::ui::TableActionBarMode::Compact);
         m_messageTable->setColumnCount(8);
         m_messageTable->setHorizontalHeaderLabels(QStringList{
             QStringLiteral("时间"),
@@ -1974,6 +1981,7 @@ private:
             button->setIconSize(KswordTheme::StandardIconSize());
             buttonLayout->addWidget(button, 0);
         }
+        ks::ui::NormalizeToolbarRow(buttonLayout);
 
         connect(m_refreshButton, &QPushButton::clicked, this, [this]() {
             refreshRuntimeInfo();
@@ -3192,6 +3200,7 @@ void OtherDock::initializeUi()
     m_filterEdit->setPlaceholderText(QStringLiteral("筛选：标题 / 进程名 / 类名 / HWND"));
     m_filterEdit->setToolTip(QStringLiteral("输入关键字实时过滤窗口"));
     m_filterEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(m_filterEdit);
 
     m_filterModeCombo = new QComboBox(m_toolBarWidget);
     m_filterModeCombo->addItems({
@@ -3250,9 +3259,11 @@ void OtherDock::initializeUi()
     m_toolBarLayout->addWidget(m_groupModeCombo, 0);
     m_toolBarLayout->addWidget(m_viewModeCombo, 0);
     m_toolBarLayout->addWidget(m_exportButton, 0);
+    ks::ui::NormalizeToolbarRow(m_toolBarLayout);
 
     // 中部主内容：Tab1=窗口列表，Tab2=桌面管理（SwitchDesktop）。
     m_contentTabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_contentTabWidget);
     m_rootLayout->addWidget(m_contentTabWidget, 1);
 
     m_windowListPage = new QWidget(m_contentTabWidget);
@@ -3306,6 +3317,7 @@ void OtherDock::initializeUi()
     });
     m_windowListToolLayout->addWidget(m_windowPickerHintLabel, 0);
     m_windowListToolLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(m_windowListToolLayout);
     m_windowListPageLayout->addWidget(m_windowListToolWidget, 0);
 
     // 窗口列表页：左树右预览。
@@ -3363,6 +3375,7 @@ void OtherDock::initializeUi()
     QHBoxLayout* captureLayout = new QHBoxLayout();
     captureLayout->addStretch(1);
     captureLayout->addWidget(m_captureButton, 0);
+    ks::ui::NormalizeToolbarRow(captureLayout);
 
     m_previewLayout->addWidget(m_thumbnailLabel, 0);
     m_previewLayout->addLayout(captureLayout);
@@ -3409,9 +3422,12 @@ void OtherDock::initializeUi()
     m_desktopToolLayout->addWidget(m_desktopSwitchButton, 0);
     m_desktopToolLayout->addWidget(m_desktopCreateButton, 0);
     m_desktopToolLayout->addWidget(m_desktopStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(m_desktopToolLayout);
     m_desktopPageLayout->addLayout(m_desktopToolLayout, 0);
 
     m_desktopTable = new ks::ui::VisibleTableWidget(m_desktopPage);
+    // 桌面/窗口站是动态系统现场，明确保留完整快照和对比。
+    ks::ui::SetTableActionBarMode(m_desktopTable, ks::ui::TableActionBarMode::Full);
     m_desktopTable->setColumnCount(13);
     m_desktopTable->setHorizontalHeaderLabels({
         QStringLiteral("窗口站"),

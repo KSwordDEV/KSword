@@ -8,6 +8,7 @@
 //   （静态主题色，每次重新取，主题切换后下一次弹出即是新主题）；菜单项都有悬停提示。
 
 #include "HexView.h"
+#include "../ToolbarMetrics.h"
 
 #include "../../theme.h"
 
@@ -74,6 +75,8 @@ namespace ks::ui
         m_inspectorButton->setToolTip(
             QStringLiteral("数据解释器面板：把插入点处的字节解释成整数、浮点、指针、时间等，并可直接改值"));
         layout->addWidget(m_inspectorButton);
+        // 自绘图标保留徽标所需宽度，统一整行高度和动作间距。
+        NormalizeToolbarRow(layout);
 
         m_root->addWidget(m_toolbar);
 

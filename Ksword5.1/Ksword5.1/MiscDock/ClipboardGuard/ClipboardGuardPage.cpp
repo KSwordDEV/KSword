@@ -1,4 +1,6 @@
 #include "ClipboardGuardPage.h"
+#include "../../UI/ToolbarMetrics.h"
+#include "../../UI/VisibleTableWidget.h"
 #include "../../UI/FlatButtonTheme.h"
 #include "../../theme.h"
 
@@ -135,10 +137,13 @@ namespace ks::misc
         m_toolbarLayout->addWidget(m_globalMonitorCheck);
         m_toolbarLayout->addStretch(1);
         m_toolbarLayout->addWidget(m_statusLabel);
+        ks::ui::NormalizeToolbarRow(m_toolbarLayout);
         m_rootLayout->addLayout(m_toolbarLayout);
 
         // ---- 规则表：PID/映像/规则名/读/写/枚举/启用 ----
         m_ruleTable = new QTableWidget(0, 7, this);
+        // 规则表是小型配置选择器，不需要快照与冻结操作栏。
+        ks::ui::SetTableActionBarMode(m_ruleTable, ks::ui::TableActionBarMode::None);
         m_ruleTable->setHorizontalHeaderLabels({
             QStringLiteral("目标"), QStringLiteral("匹配方式"), QStringLiteral("规则名"),
             QStringLiteral("读"), QStringLiteral("写"), QStringLiteral("枚举"), QStringLiteral("启用") });
@@ -168,12 +173,16 @@ namespace ks::misc
         m_columnPresetBButton->setToolTip(QStringLiteral("列预设 B：来源与诊断（时间/PID/TID/会话/完整性/发起进程/序号）。"));
         presetLayout->addWidget(m_columnPresetAButton);
         presetLayout->addWidget(m_columnPresetBButton);
+        ks::ui::NormalizeToolbarRow(presetLayout, 0);
         eventTopLayout->addWidget(m_columnPresetWidget);
         eventTopLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(eventTopLayout);
         m_rootLayout->addLayout(eventTopLayout);
 
         // ---- 事件表 ----
         m_eventTable = new QTableWidget(0, ColumnCount, this);
+        // 剪贴板事件已有时间序列与业务右键操作，保留紧凑复制导出。
+        ks::ui::SetTableActionBarMode(m_eventTable, ks::ui::TableActionBarMode::Compact);
         m_eventTable->setHorizontalHeaderLabels({
             QStringLiteral("时间"), QStringLiteral("进程"), QStringLiteral("PID"), QStringLiteral("操作"),
             QStringLiteral("格式"), QStringLiteral("结果"), QStringLiteral("TID"), QStringLiteral("会话"),
@@ -276,10 +285,9 @@ namespace ks::misc
         const QString outerRadius = leftButton
             ? QStringLiteral("border-top-left-radius:3px;border-bottom-left-radius:3px;")
             : QStringLiteral("border-top-right-radius:3px;border-bottom-right-radius:3px;border-left:0px;");
-        // A/B 保留紧贴外侧圆角和固定尺寸，checked 的纯色强调由公共规则绘制。
+        // A/B 保留紧贴外侧圆角；尺寸由工具条统一，checked 强调由公共规则绘制。
         return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
-            + QStringLiteral("QPushButton{min-width:27px;max-width:27px;min-height:26px;max-height:26px;"
-                "padding:0px;font-weight:700;border-radius:0px;%1}").arg(outerRadius);
+            + QStringLiteral("QPushButton{font-weight:700;border-radius:0px;%1}").arg(outerRadius);
     }
 
     QTableWidgetItem* ClipboardGuardPage::createReadOnlyItem(const QString& textValue)

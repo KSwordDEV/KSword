@@ -1,4 +1,6 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "KernelDockIpcTab.h"
 #include "KernelDock.h"
 #include "../UI/VisibleTableWidget.h"
@@ -259,6 +261,7 @@ void KernelDockIpcTab::initializeUi()
     rootLayout->setSpacing(6);
 
     m_innerTabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_innerTabWidget);
     m_innerTabWidget->setIconSize(QSize(16, 16));
     rootLayout->addWidget(m_innerTabWidget, 1);
 
@@ -347,9 +350,12 @@ void KernelDockIpcTab::initializeAlpcPage()
     m_alpcToolbarLayout->addWidget(m_alpcProcessIdEdit, 0);
     m_alpcToolbarLayout->addWidget(m_alpcHandleEdit, 1);
     m_alpcToolbarLayout->addWidget(m_alpcStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(m_alpcToolbarLayout);
     layout->addLayout(m_alpcToolbarLayout);
 
     m_ipcSummaryTable = new ks::ui::VisibleTableWidget(m_alpcPage);
+    // IPC 分类计数小表已有详情，不挤占 ALPC 端口空间。
+    ks::ui::SetTableActionBarMode(m_ipcSummaryTable, ks::ui::TableActionBarMode::None);
     m_ipcSummaryTable->setColumnCount(static_cast<int>(IpcSummaryColumn::CountColumn));
     m_ipcSummaryTable->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.ipc.header.category", QStringLiteral("类别")),
@@ -372,6 +378,8 @@ void KernelDockIpcTab::initializeAlpcPage()
     layout->addWidget(m_ipcSummaryTable, 0);
 
     m_alpcTable = new ks::ui::VisibleTableWidget(m_alpcPage);
+    // 单句柄关系下钻结果较少，保留复制导出并收拢快照条。
+    ks::ui::SetTableActionBarMode(m_alpcTable, ks::ui::TableActionBarMode::Compact);
     m_alpcTable->setColumnCount(static_cast<int>(AlpcColumn::Count));
     m_alpcTable->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.ipc.header.role", QStringLiteral("角色")),

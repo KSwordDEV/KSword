@@ -1,6 +1,8 @@
 #include "../UI/StructuredFieldView.h"
 #include "MonitorDock.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -1167,6 +1169,7 @@ void MonitorDock::initializeArkRiskCenterTab()
     m_arkRiskHighOnlyCheck->setChecked(true);
     m_arkRiskHighOnlyCheck->setToolTip(QStringLiteral("仅显示 riskScore >= 50 的记录"));
     m_arkRiskFilterEdit = new QLineEdit(m_arkRiskCenterPage);
+    ks::ui::StyleSearchField(m_arkRiskFilterEdit);
     m_arkRiskFilterEdit->setClearButtonEnabled(true);
     m_arkRiskFilterEdit->setPlaceholderText(QStringLiteral("过滤来源/分类/标题/详情/JSON"));
     m_arkRiskExportJsonButton = new QPushButton(QStringLiteral("导出 JSON"), m_arkRiskCenterPage);
@@ -1181,12 +1184,15 @@ void MonitorDock::initializeArkRiskCenterTab()
     toolbarLayout->addWidget(m_arkRiskExportJsonButton);
     toolbarLayout->addWidget(m_arkRiskExportCsvButton);
     toolbarLayout->addWidget(m_arkRiskStatusLabel);
+    ks::ui::NormalizeToolbarRow(toolbarLayout);
     pageLayout->addLayout(toolbarLayout);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_arkRiskCenterPage);
     pageLayout->addWidget(splitter, 1);
 
     m_arkRiskTable = new ks::ui::VisibleTableWidget(splitter);
+    // 风险聚合自带 CSV/JSON 导出，紧凑模式避免再占一行对比入口。
+    ks::ui::SetTableActionBarMode(m_arkRiskTable, ks::ui::TableActionBarMode::Compact);
     m_arkRiskTable->setColumnCount(riskColumnIndex(RiskColumn::Count));
     m_arkRiskTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("riskScore"),

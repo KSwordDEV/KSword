@@ -1,6 +1,7 @@
 #include "ProcessDetailWindow.InternalCommon.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/StructuredFieldView.h"
+#include "../UI/VisibleTableWidget.h"
 
 #include "../ksword/process/dll_hijack_detector.h"
 
@@ -381,6 +382,8 @@ namespace
         layout->addWidget(boundaryLabel);
 
         QTableWidget* const table = new QTableWidget(&dialog);
+        // 一次扫描报告仅需复制与导出，无实时冻结/快照链路。
+        ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
         const QStringList headers{
             dllHijackText("process.detail.dll_hijack.header.risk", QStringLiteral("风险")),
             dllHijackText("process.detail.dll_hijack.header.presence", QStringLiteral("加载状态")),

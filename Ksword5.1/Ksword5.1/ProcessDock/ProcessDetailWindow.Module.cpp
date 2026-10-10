@@ -1,4 +1,5 @@
 #include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/X64DbgNavigation.h"
@@ -480,6 +481,7 @@ void ProcessDetailWindow::showCurrentModuleDetailDialog()
     QPushButton* closeButton = new QPushButton(QStringLiteral("关闭"), &detailDialog);
     closeButton->setToolTip(QStringLiteral("关闭模块详情窗口"));
     buttonLayout->addWidget(closeButton);
+    ks::ui::NormalizeToolbarRow(buttonLayout);
     dialogLayout->addLayout(buttonLayout);
 
     connect(copyButton, &QPushButton::clicked, &detailDialog, [detailEditor]()

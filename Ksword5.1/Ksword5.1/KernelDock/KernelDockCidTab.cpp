@@ -1,4 +1,6 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "KernelDockCidTab.h"
 #include "KernelDock.h"
 #include "../UI/VisibleTableWidget.h"
@@ -194,7 +196,7 @@ void KernelDockCidTab::initializeUi()
     m_filterEdit = new QLineEdit(this);
     m_filterEdit->setPlaceholderText(kernelText("kernel.cid.toolbar.filter.placeholder", QStringLiteral("按类型/PID/TID/地址/状态/异常/详情筛选")));
     m_filterEdit->setClearButtonEnabled(true);
-    m_filterEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(m_filterEdit);
 
     m_statusLabel = new QLabel(kernelText("kernel.cid.status.waiting", QStringLiteral("状态：等待刷新")), this);
     m_statusLabel->setStyleSheet(statusLabelStyle(KswordTheme::TextSecondaryHex()));
@@ -202,9 +204,12 @@ void KernelDockCidTab::initializeUi()
     m_toolbarLayout->addWidget(m_refreshButton, 0);
     m_toolbarLayout->addWidget(m_filterEdit, 1);
     m_toolbarLayout->addWidget(m_statusLabel, 0);
+    ks::ui::NormalizeToolbarRow(m_toolbarLayout);
     rootLayout->addLayout(m_toolbarLayout);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // CID 多源对象异常与消失需要保存现场以供比较。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setColumnCount(static_cast<int>(CidColumn::Count));
     m_table->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.cid.header.kind", QStringLiteral("类型")),

@@ -1,5 +1,7 @@
 #include "ProcessTraceMonitorWidget.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/ThemeBinding.h"
 #include "../UI/ThemeStatusRole.h"
 #include "../UI/ThemeAccentIcon.h"
@@ -183,6 +185,7 @@ void ProcessTraceMonitorWidget::initializeUi()
     m_availableFilterEdit = new QLineEdit(m_availablePanel);
     m_availableFilterEdit->setPlaceholderText(QStringLiteral("按 PID / 进程名 / 路径 / 用户过滤"));
     m_availableFilterEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(m_availableFilterEdit);
     m_availableFilterEdit->setMaximumWidth(320);
     availableHeaderLayout->addWidget(m_availableFilterEdit, 1);
 
@@ -223,12 +226,15 @@ void ProcessTraceMonitorWidget::initializeUi()
     availableHeaderLayout->addWidget(m_addManualPidButton, 0);
 
     availableLayout->addLayout(availableHeaderLayout);
+    ks::ui::NormalizeToolbarRow(availableHeaderLayout);
 
     m_availableStatusLabel = new QLabel(QStringLiteral("● 等待首次刷新进程快照"), m_availablePanel);
     ks::ui::ApplyStatusRole(m_availableStatusLabel, ks::ui::StatusRole::Idle);
     availableLayout->addWidget(m_availableStatusLabel, 0);
 
     m_availableTable = new ks::ui::VisibleTableWidget(m_availablePanel);
+    // 可选进程仅用于加入监控目标，复制由已有菜单提供。
+    ks::ui::SetTableActionBarMode(m_availableTable, ks::ui::TableActionBarMode::None);
     m_availableTable->setColumnCount(AvailableProcessColumnCount);
     m_availableTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("PID"),
@@ -290,12 +296,15 @@ void ProcessTraceMonitorWidget::initializeUi()
     targetHeaderLayout->addWidget(m_clearTargetButton, 0);
 
     targetLayout->addLayout(targetHeaderLayout);
+    ks::ui::NormalizeToolbarRow(targetHeaderLayout);
 
     m_targetStatusLabel = new QLabel(QStringLiteral("● 当前没有监控目标"), m_targetPanel);
     ks::ui::ApplyStatusRole(m_targetStatusLabel, ks::ui::StatusRole::Idle);
     targetLayout->addWidget(m_targetStatusLabel, 0);
 
     m_targetTable = new ks::ui::VisibleTableWidget(m_targetPanel);
+    // 目标列表是配置表，不应占据事件表的快照/对比空间。
+    ks::ui::SetTableActionBarMode(m_targetTable, ks::ui::TableActionBarMode::None);
     m_targetTable->setColumnCount(TargetProcessColumnCount);
     m_targetTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("状态"),
@@ -375,6 +384,7 @@ void ProcessTraceMonitorWidget::initializeUi()
     controlLayout->addWidget(m_statusLabel, 0);
 
     configurationLayout->addWidget(m_controlPanel, 0);
+    ks::ui::NormalizeToolbarRow(controlLayout);
 
     // 事件筛选区：
     // - 类型单独做下拉框，其他字段使用文本过滤；
@@ -438,7 +448,7 @@ void ProcessTraceMonitorWidget::initializeUi()
     for (QLineEdit* field : {m_eventProviderFilterEdit, m_eventProcessFilterEdit,
         m_eventNameFilterEdit, m_eventDetailFilterEdit, m_eventGlobalFilterEdit})
     {
-        ks::ui::BindSearchFieldTheme(field);
+        ks::ui::StyleSearchField(field);
     }
     filterLayout->addWidget(m_eventGlobalFilterEdit, 1, 5, 1, 3);
 
@@ -461,6 +471,7 @@ void ProcessTraceMonitorWidget::initializeUi()
         ":/Icon/log_clear.svg",
         QStringLiteral("清空所有事件筛选条件"));
     m_eventClearFilterButton->setStyleSheet(blueButtonStyle());
+    ks::ui::NormalizeToolbarControl(m_eventClearFilterButton);
     filterLayout->addWidget(m_eventClearFilterButton, 2, 4);
 
     m_eventFilterStatusLabel = new QLabel(QStringLiteral("筛选结果：0 / 0"), m_filterPanel);
@@ -490,6 +501,8 @@ void ProcessTraceMonitorWidget::initializeUi()
     // - 单独保留类型、Provider、根 PID、关系等列，便于后续筛选；
     // - Detail 列尽量保存属性摘要，便于用户再做文本二次过滤。
     m_eventTable = new ks::ui::VisibleTableWidget(this);
+    // ETW 事件是主证据，保留完整冻结/快照能力。
+    ks::ui::SetTableActionBarMode(m_eventTable, ks::ui::TableActionBarMode::Full);
     m_eventTable->setColumnCount(EventColumnCount);
     m_eventTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("时间(100ns)"),

@@ -1,4 +1,6 @@
 #include "RegistryAdvancedDialogs.h"
+#include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/DetailDialogChrome.h"
 #include "RegistryValueCodec.h"
 #include "RegistryValueEditorWidget.h"
@@ -183,6 +185,9 @@ namespace
             auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
             auto* refresh = buttons->addButton(trText(QStringLiteral("重新读取")), QDialogButtonBox::ActionRole);
             m_apply = buttons->addButton(trText(QStringLiteral("应用 DACL")), QDialogButtonBox::ActionRole);
+            ks::ui::NormalizeToolbarControl(refresh);
+            ks::ui::NormalizeToolbarControl(m_apply);
+            ks::ui::NormalizeToolbarControl(buttons->button(QDialogButtonBox::Close));
             connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
             connect(refresh, &QPushButton::clicked, this, [this] { reload(); });
             connect(m_apply, &QPushButton::clicked, this, [this] { apply(); });
@@ -450,6 +455,7 @@ namespace
             tools->addWidget(m_newKey);
             tools->addWidget(m_deleteKey);
             tools->addStretch();
+            ks::ui::NormalizeToolbarRow(tools);
             layout->addLayout(tools);
             m_source = new QLabel(this);
             m_source->setTextFormat(Qt::PlainText);
@@ -464,6 +470,8 @@ namespace
             auto* rightLayout = new QVBoxLayout(right);
             rightLayout->setContentsMargins(0, 0, 0, 0);
             m_values = new QTableWidget(right);
+            // 离线 Hive 值表为工作副本编辑，不提供无意义的现场比较栏。
+            ks::ui::SetTableActionBarMode(m_values, ks::ui::TableActionBarMode::Compact);
             m_values->setProperty("ks_i18n_preserve_model_data", true);
             m_values->setColumnCount(4);
             m_values->setHorizontalHeaderLabels({trText(QStringLiteral("名称")), trText(QStringLiteral("类型")),
@@ -482,6 +490,7 @@ namespace
             valueTools->addWidget(m_editValue);
             valueTools->addWidget(m_deleteValue);
             valueTools->addWidget(m_moreValues);
+            ks::ui::NormalizeToolbarRow(valueTools);
             rightLayout->addLayout(valueTools);
             split->setStretchFactor(0, 1);
             split->setStretchFactor(1, 3);

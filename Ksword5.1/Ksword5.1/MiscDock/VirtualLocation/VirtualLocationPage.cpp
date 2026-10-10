@@ -1,4 +1,5 @@
 #include "VirtualLocationPage.h"
+#include "../../UI/ToolbarMetrics.h"
 
 #include "../../Internationalization/LanguageManager.h"
 #include "../../theme.h"
@@ -273,6 +274,7 @@ namespace ks::misc
         statusButtonLayout->addWidget(m_refreshButton);
         statusButtonLayout->addWidget(m_liveFixButton);
         statusButtonLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(statusButtonLayout);
         statusLayout->addLayout(statusButtonLayout);
         rootLayout->addWidget(statusGroup);
 
@@ -472,6 +474,7 @@ namespace ks::misc
         buttonLayout->addWidget(m_useLiveFixButton);
         buttonLayout->addWidget(m_restartServiceButton);
         buttonLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(buttonLayout);
         actionLayout->addLayout(buttonLayout);
 
         m_resultLabel = new QLabel(actionGroup);

@@ -1,5 +1,6 @@
 #include "../UI/FlatButtonTheme.h"
 #include "CustomTitleBar.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/ThemeBinding.h"
 
 #include "../Internationalization/LanguageManager.h"
@@ -651,6 +652,8 @@ namespace ks::ui
         m_commandLineEdit->setProperty("ksword_global_ui_search_input", true);
         m_commandLineEdit->setClearButtonEnabled(true);
         m_commandLineEdit->setFixedHeight(20);
+        // 双模式搜索/CMD 字段仅采用统一输入面，显式保留标题栏的 20px 紧凑几何。
+        ks::ui::StyleSearchField(m_commandLineEdit, 20);
 
         m_centerInputLayout->addWidget(m_inputModeButton, 0);
         m_centerInputLayout->addWidget(m_commandLineEdit, 1);

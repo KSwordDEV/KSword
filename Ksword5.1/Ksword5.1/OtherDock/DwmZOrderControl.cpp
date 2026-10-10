@@ -1,4 +1,5 @@
 #include "DwmZOrderControl.h"
+#include "../UI/ToolbarMetrics.h"
 #include "DwmZOrderClient.h"
 #include "WindowInputClient.h"
 #include "../Internationalization/LanguageManager.h"
@@ -103,6 +104,8 @@ namespace ks::dwm_order
                 maintain_->setChecked(true);
                 layout->addWidget(maintain_);
                 auto* actions = new QGridLayout;
+                actions->setHorizontalSpacing(8);
+                actions->setVerticalSpacing(8);
                 apply_ = MakeButton("window.dwm_order.apply", "应用 DWM 顺序");
                 query_ = MakeButton("window.dwm_order.query", "读取画面顺序");
                 restore_ = MakeButton("window.dwm_order.restore", "恢复系统顺序");
@@ -130,6 +133,7 @@ namespace ks::dwm_order
             {
                 auto* button = new QPushButton(this);
                 Bind(button, key, source);
+                ks::ui::NormalizeToolbarControl(button);
                 return button;
             }
 

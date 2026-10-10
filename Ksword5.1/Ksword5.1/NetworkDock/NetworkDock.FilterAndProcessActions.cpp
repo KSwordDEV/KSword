@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/VisibleTableWidget.h"
 
 #include <QCompleter>
@@ -686,6 +687,7 @@ void NetworkDock::addMonitorFilterRuleGroup()
     headerLayout->addWidget(groupState->enabledCheck);
     headerLayout->addStretch(1);
     headerLayout->addWidget(groupState->removeGroupButton);
+    ks::ui::NormalizeToolbarRow(headerLayout);
     rootLayout->addLayout(headerLayout);
 
     QFrame* separatorLine = new QFrame(groupState->containerWidget);
@@ -709,7 +711,8 @@ void NetworkDock::addMonitorFilterRuleGroup()
     groupState->processInputEdit->setPlaceholderText(QStringLiteral("输入 PID 或进程名"));
     groupState->processInputEdit->setToolTip(QStringLiteral("输入后自动匹配系统进程，支持 PID/进程名。"));
     groupState->addProcessButton = new QPushButton(QStringLiteral("+"), processBlock);
-    groupState->addProcessButton->setFixedWidth(26);
+    groupState->addProcessButton->setText(QString());
+    groupState->addProcessButton->setIcon(QIcon(QStringLiteral(":/Icon/plus.svg")));
     groupState->addProcessButton->setToolTip(
         QStringLiteral("把上方输入框中的进程加入本规则组的进程过滤列表"));
     groupState->removeInvalidProcessButton = new QPushButton(QStringLiteral("清除失效"), processBlock);
@@ -731,6 +734,7 @@ void NetworkDock::addMonitorFilterRuleGroup()
     processTopLayout->addWidget(groupState->addProcessButton);
     processTopLayout->addWidget(groupState->removeInvalidProcessButton);
     processTopLayout->addWidget(groupState->clearProcessButton);
+    ks::ui::NormalizeToolbarRow(processTopLayout);
 
     groupState->processTable = new ks::ui::VisibleTableWidget(processBlock);
     groupState->processTable->setMinimumHeight(56);
@@ -766,7 +770,8 @@ void NetworkDock::addMonitorFilterRuleGroup()
             fieldState.inputEdit = new QLineEdit(block);
             fieldState.inputEdit->setPlaceholderText(placeholderText);
             fieldState.addButton = new QPushButton(QStringLiteral("+"), block);
-            fieldState.addButton->setFixedWidth(26);
+            fieldState.addButton->setText(QString());
+            fieldState.addButton->setIcon(QIcon(QStringLiteral(":/Icon/plus.svg")));
             fieldState.addButton->setToolTip(
                 QStringLiteral("把上方输入的地址或端口加入本条件的过滤列表"));
             fieldState.clearButton = new QPushButton(QStringLiteral("清空"), block);
@@ -777,6 +782,7 @@ void NetworkDock::addMonitorFilterRuleGroup()
             topLayout->addWidget(fieldState.inputEdit, 1);
             topLayout->addWidget(fieldState.addButton);
             topLayout->addWidget(fieldState.clearButton);
+            ks::ui::NormalizeToolbarRow(topLayout);
 
             fieldState.tableWidget = new ks::ui::VisibleTableWidget(block);
             fieldState.tableWidget->setMinimumHeight(56);

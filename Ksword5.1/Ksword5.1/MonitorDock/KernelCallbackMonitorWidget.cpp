@@ -6,6 +6,8 @@
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../theme.h"
 
 #include <QAbstractTableModel>
@@ -580,6 +582,7 @@ void KernelCallbackMonitorWidget::initializeUi()
     buttonLayout->addWidget(m_clearButton);
     buttonLayout->addWidget(m_exportButton);
     buttonLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(buttonLayout);
     controlLayout->addLayout(buttonLayout, 1, 3, 1, 4);
     m_statusLabel = new QLabel(QStringLiteral("● 空闲"), controlPanel);
     controlLayout->addWidget(m_statusLabel, 2, 0, 1, 7);
@@ -624,7 +627,7 @@ void KernelCallbackMonitorWidget::initializeUi()
     for (QLineEdit* field : {m_operationFilterEdit, m_pidFilterEdit, m_processFilterEdit,
         m_pathFilterEdit, m_resultFilterEdit})
     {
-        ks::ui::BindSearchFieldTheme(field);
+        ks::ui::StyleSearchField(field);
     }
     filterLayout->addWidget(m_resultFilterEdit, 1, 5);
     m_regexCheck = new QCheckBox(QStringLiteral("正则"), filterPanel);
@@ -640,6 +643,7 @@ void KernelCallbackMonitorWidget::initializeUi()
     m_filterModel = new KernelCallbackFilterModel(this);
     m_filterModel->setSourceModel(m_eventModel);
     m_eventTable = new ks::ui::TableActionTableView(this);
+    ks::ui::SetTableActionBarMode(m_eventTable, ks::ui::TableActionBarMode::Full);
     m_eventTable->setModel(m_filterModel);
     m_eventTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_eventTable->setSelectionBehavior(QAbstractItemView::SelectRows);

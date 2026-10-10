@@ -1,4 +1,6 @@
 #include "KernelDriverDispatchEditorDialog.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/VisibleTableWidget.h"
 
 #include "KernelDock.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -95,9 +97,12 @@ void KernelDriverDispatchEditorDialog::initializeUi()
     toolbar->addWidget(m_refreshButton);
     toolbar->addWidget(m_querySlotButton);
     toolbar->addWidget(m_identityLabel, 1);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_table = new QTableWidget(this);
+    // 派遣事务表已有按记录恢复机制，隐藏无关全局快照栏。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::None);
     m_table->setColumnCount(ColumnCount);
     m_table->setHorizontalHeaderLabels({
         kernelText("kernel.driver_dispatch.header.major", QStringLiteral("Major")),
@@ -176,6 +181,12 @@ void KernelDriverDispatchEditorDialog::initializeUi()
     actionLayout->addWidget(m_restoreButton, 0, 3);
     actionLayout->addWidget(m_abandonButton, 0, 4);
     actionLayout->setColumnStretch(1, 1);
+    actionLayout->setHorizontalSpacing(8);
+    // 事务输入行保留原栅格，只对明确的单行编辑控件统一尺寸。
+    ks::ui::NormalizeToolbarControl(m_desiredAddressEdit);
+    ks::ui::NormalizeToolbarControl(m_applyButton);
+    ks::ui::NormalizeToolbarControl(m_restoreButton);
+    ks::ui::NormalizeToolbarControl(m_abandonButton);
     rootLayout->addLayout(actionLayout);
 
     m_statusLabel = new QLabel(
@@ -192,6 +203,7 @@ void KernelDriverDispatchEditorDialog::initializeUi()
         this);
     closeButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
     closeLayout->addWidget(closeButton);
+    ks::ui::NormalizeToolbarRow(closeLayout);
     rootLayout->addLayout(closeLayout);
 
     connect(closeButton, &QPushButton::clicked, this, &QDialog::accept);

@@ -1,4 +1,7 @@
 #include "KernelIoTimerTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/VisibleTableWidget.h"
 
 #include "KernelDeviceDriverObjectsWorker.h"
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -155,6 +158,7 @@ void KernelIoTimerTab::initializeUi()
     m_stopButton = new QPushButton(QIcon(QStringLiteral(":/Icon/process_suspend.svg")), QString(), this);
     m_stopButton->setMinimumHeight(30);
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_statusLabel = new QLabel(this);
     m_statusLabel->setStyleSheet(
@@ -165,10 +169,13 @@ void KernelIoTimerTab::initializeUi()
     toolbarLayout->addWidget(m_stopButton);
     toolbarLayout->addWidget(m_filterEdit, 1);
     toolbarLayout->addWidget(m_statusLabel);
+    ks::ui::NormalizeToolbarRow(toolbarLayout);
     rootLayout->addLayout(toolbarLayout);
 
     auto* splitter = new QSplitter(Qt::Vertical, this);
     m_table = new QTableWidget(splitter);
+    // 定时器回调地址与启停状态是核心证据，保留跨次比较。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setColumnCount(static_cast<int>(Column::Count));
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);

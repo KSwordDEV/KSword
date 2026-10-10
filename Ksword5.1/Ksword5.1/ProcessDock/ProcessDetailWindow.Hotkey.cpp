@@ -2,6 +2,8 @@
 #include "ProcessHotkeyEnumerator.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 
 #include <algorithm>
 #include <atomic>
@@ -1875,9 +1877,12 @@ void ProcessDetailWindow::initializeHotkeyTab()
     topBarLayout->addWidget(m_editHotkeyButton);
     topBarLayout->addWidget(m_hotkeyStatusLabel, 1);
     topBarLayout->addWidget(m_deleteHotkeyButton);
+    ks::ui::NormalizeToolbarRow(topBarLayout);
     hotkeyGroupLayout->addLayout(topBarLayout);
 
     m_hotkeyTable = new ks::ui::VisibleTableWidget(hotkeyGroup);
+    // 热键管理已提供编辑/删除动作，小清单只保留复制导出。
+    ks::ui::SetTableActionBarMode(m_hotkeyTable, ks::ui::TableActionBarMode::Compact);
     m_hotkeyTable->setColumnCount(9);
     m_hotkeyTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("对象"),
@@ -2517,9 +2522,11 @@ void ProcessDetailWindow::initializeKeyboardTab()
         .arg(KswordTheme::TextSecondaryHex()));
     topBarLayout->addWidget(m_refreshKeyboardButton);
     topBarLayout->addWidget(m_keyboardStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(topBarLayout);
     keyboardGroupLayout->addLayout(topBarLayout);
 
     m_keyboardInnerTabWidget = new QTabWidget(keyboardGroup);
+    ks::ui::StylePageTabs(m_keyboardInnerTabWidget);
     QWidget* hotkeyPage = new QWidget(m_keyboardInnerTabWidget);
     QWidget* hookPage = new QWidget(m_keyboardInnerTabWidget);
     m_keyboardTab->setMinimumWidth(0);
@@ -2538,6 +2545,7 @@ void ProcessDetailWindow::initializeKeyboardTab()
     hookLayout->setContentsMargins(0, 0, 0, 0);
 
     m_keyboardHotkeyTable = new ks::ui::VisibleTableWidget(hotkeyPage);
+    ks::ui::SetTableActionBarMode(m_keyboardHotkeyTable, ks::ui::TableActionBarMode::Compact);
     m_keyboardHotkeyTable->setColumnCount(9);
     m_keyboardHotkeyTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("对象"),
@@ -2569,6 +2577,8 @@ void ProcessDetailWindow::initializeKeyboardTab()
     hotkeyLayout->addWidget(m_keyboardHotkeyTable, 1);
 
     m_keyboardHookTable = new ks::ui::VisibleTableWidget(hookPage);
+    // Hook 链具有独立取证意义，保留完整快照功能。
+    ks::ui::SetTableActionBarMode(m_keyboardHookTable, ks::ui::TableActionBarMode::Full);
     m_keyboardHookTable->setColumnCount(10);
     m_keyboardHookTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("对象"),

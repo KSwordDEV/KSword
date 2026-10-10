@@ -1,4 +1,6 @@
 #include "HardwareDock.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/FloatingScrollbars.h"
 #include "../../../shared/ui/KsPainterChart.h"
@@ -636,12 +638,14 @@ namespace
             searchEdit->setClearButtonEnabled(true);
             searchEdit->setPlaceholderText(
                 QStringLiteral("搜索 Profile / 行类型 / 风险 / 地址 / FieldFlags / LastStatus / 备注"));
-            searchEdit->setStyleSheet(buildDeviceAuditSearchStyle());
+            ks::ui::StyleSearchField(searchEdit);
             QTableWidget* table = createDeviceAuditTable(pageWidget);
+            // USB/PCI/磁盘/网络/显示的完整 R0 证据保留跨次对比能力。
+            ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Full);
 
             QHBoxLayout* tableToolLayout = new QHBoxLayout();
             tableToolLayout->setContentsMargins(0, 0, 0, 0);
-            tableToolLayout->setSpacing(6);
+            tableToolLayout->setSpacing(8);
 
             QHBoxLayout* presetLayout = new QHBoxLayout();
             presetLayout->setContentsMargins(0, 0, 0, 0);
@@ -665,6 +669,8 @@ namespace
 
             tableToolLayout->addLayout(presetLayout, 0);
             tableToolLayout->addWidget(searchEdit, 1);
+            ks::ui::NormalizeToolbarRow(presetLayout, 0);
+            ks::ui::NormalizeToolbarRow(tableToolLayout);
             pageLayout->addLayout(tableToolLayout, 0);
             pageLayout->addWidget(table, 2);
             table->setProperty("kswordDeviceAuditFilter", searchEdit->text());
@@ -4432,6 +4438,7 @@ void HardwareDock::initializeUi()
     // - 页签按内容宽度排列，空间不足时使用滚动按钮，避免强行压缩文字；
     // - 用户可见名称统一使用清晰中文，内部协议缩写放到页面说明中。
     m_sideTabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_sideTabWidget);
     configureCompressibleWidget(m_sideTabWidget, QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_sideTabWidget->setTabPosition(QTabWidget::North);
     m_sideTabWidget->setDocumentMode(true);
@@ -7010,6 +7017,8 @@ void HardwareDock::initializeCpuTab()
     m_cpuLayout->addWidget(m_cpuDetailLabel, 0);
 
     m_cpuDetailTable = new ks::ui::VisibleTableWidget(m_cpuPage);
+    // 逐核频率温度摘要已有实时图，复制导出足够，收拢快照对比。
+    ks::ui::SetTableActionBarMode(m_cpuDetailTable, ks::ui::TableActionBarMode::Compact);
     m_cpuDetailTable->setColumnCount(7);
     m_cpuDetailTable->setHorizontalHeaderLabels({
         QStringLiteral("逻辑处理器"),

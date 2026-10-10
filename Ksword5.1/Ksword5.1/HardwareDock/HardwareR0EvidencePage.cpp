@@ -1,4 +1,6 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 #include "HardwareR0EvidencePage.h"
 #include "../UI/IntegrityRiskPresentation.h"
@@ -931,7 +933,7 @@ void HardwareR0EvidencePage::initializeUi()
     m_filterEdit = new QLineEdit(this);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(QStringLiteral("搜索 类别/CPU/来源/状态/Owner/风险/CR/MSR/IDTR/GDTR/FieldMask/StatusFlags"));
-    m_filterEdit->setStyleSheet(buildBlueInputStyle());
+    ks::ui::StyleSearchField(m_filterEdit);
 
     m_maxRowsSpin = new QSpinBox(this);
     m_maxRowsSpin->setRange(64, 65536);
@@ -956,12 +958,16 @@ void HardwareR0EvidencePage::initializeUi()
     toolLayout->addWidget(m_idtVectorsSpin, 0);
     toolLayout->addWidget(m_filterEdit, 1);
     toolLayout->addWidget(m_statusLabel, 0);
+    ks::ui::NormalizeToolbarRow(presetLayout, 0);
+    ks::ui::NormalizeToolbarRow(toolLayout);
     m_rootLayout->addLayout(toolLayout, 0);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, this);
     m_rootLayout->addWidget(splitter, 1);
 
     m_evidenceTable = new ks::ui::VisibleTableWidget(splitter);
+    // CPU/MSR/描述符证据需要跨次快照对比，保留完整操作栏。
+    ks::ui::SetTableActionBarMode(m_evidenceTable, ks::ui::TableActionBarMode::Full);
     m_evidenceTable->setColumnCount(columnIndex(R0EvidenceColumn::Count));
     m_evidenceTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("类别"),

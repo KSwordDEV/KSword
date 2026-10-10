@@ -29,6 +29,7 @@
 // ============================================================
 
 #include "MemoryWorkbenchView.h"
+#include "../ToolbarMetrics.h"
 #include "MemoryWorkbenchView.Internal.h"
 
 #include "AddressBookPanel.h"
@@ -158,6 +159,8 @@ namespace ks::ui
         addressRow->addWidget(rereadButton_);
         addressRow->addWidget(liveRefreshCheckBox_);
         addressRow->addWidget(sidebarExpandButton_);
+        // 地址为表达式输入，不套搜索外观；导航动作仍与地址栏等高。
+        NormalizeToolbarRow(addressRow);
         root->addLayout(addressRow);
 
         // ---- 子页签 ----
@@ -184,6 +187,8 @@ namespace ks::ui
         hexViewMenuButton_ = new HexViewGlyphButton(HexViewGlyphButton::Glyph::RowWidth, this);
         hexViewMenuButton_->setPopupMode(QToolButton::InstantPopup);
         subTabRow->addWidget(hexViewMenuButton_);
+        NormalizeToolbarRow(subTabRow);
+        NormalizeToolbarControl(subTabSegmented_, hexViewMenuButton_->height());
         root->addLayout(subTabRow);
 
         // ---- 主体：hexPane_（随后注入三条管线）+ 三个只读子页 ----

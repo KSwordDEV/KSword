@@ -12,6 +12,8 @@
 #include "../UI/FlowLayout.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/TableInteractionSupport.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/UI_All.h"
 #include "../theme.h"
 
@@ -84,6 +86,9 @@ RegistryAccessContext RegistryDock::accessContextForPath(const QString& path) co
 
 void RegistryDock::initializeWorkbenchControls()
 {
+    // 工作台主内容、结果页签及路径标签共享低对比普通 Tab 外观。
+    ks::ui::StylePageTabs(m_registryTabWidget);
+    ks::ui::StylePageTabs(m_rightTabWidget);
     const auto fallbackIcon = [](QPushButton* button, QStyle::StandardPixmap icon) {
         if (button->icon().pixmap(button->iconSize()).isNull()) button->setIcon(button->style()->standardIcon(icon));
     };
@@ -106,6 +111,7 @@ void RegistryDock::initializeWorkbenchControls()
     m_locationTabs->setUsesScrollButtons(true);
     m_locationTabs->setTabsClosable(true);
     m_locationTabs->setMovable(true);
+    ks::ui::StylePageTabBar(m_locationTabs);
     m_locationTabs->setProperty("ks_i18n_preserve_data_text", true);
     m_locationTabs->addTab(QStringLiteral("HKEY_CURRENT_USER"));
     m_locationTabs->setTabData(0, QStringLiteral("HKEY_CURRENT_USER"));
@@ -124,11 +130,13 @@ void RegistryDock::initializeWorkbenchControls()
         addLocationTab(m_currentPath);
     });
     locationTabLayout->addWidget(addTabButton);
+    ks::ui::NormalizeToolbarControl(addTabButton);
+    locationTabLayout->setSpacing(8);
     m_registryEditorLayout->insertWidget(0, locationTabRow);
     m_favoritePaths = QSettings().value(QStringLiteral("RegistryWorkbench/Favorites")).toStringList();
 
     QWidget* commands = new QWidget(m_registryEditorPage);
-    auto* commandLayout = new ks::ui::FlowLayout(commands, 0, 6, 4);
+    auto* commandLayout = new ks::ui::FlowLayout(commands, 0, 8, 8);
     for (auto* button : {m_newKeyButton, m_newValueButton, m_renameButton,
         m_deleteButton, m_importButton, m_exportButton})
     {
@@ -137,6 +145,7 @@ void RegistryDock::initializeWorkbenchControls()
         button->setMaximumWidth(QWIDGETSIZE_MAX);
         button->setText(button->toolTip());
         commandLayout->addWidget(button);
+        ks::ui::NormalizeToolbarControl(button);
     }
     auto* navigation = new QPushButton(QStringLiteral("收藏 / 历史"), commands);
     commandLayout->addWidget(navigation);
@@ -172,16 +181,20 @@ void RegistryDock::initializeWorkbenchControls()
     m_toolBarLayout->removeWidget(m_driverRegistryModeLabel);
     commandLayout->addWidget(m_viewCombo);
     commandLayout->addWidget(m_driverRegistryModeLabel);
+    ks::ui::NormalizeToolbarControl(navigation);
+    ks::ui::NormalizeToolbarControl(details);
+    ks::ui::NormalizeToolbarControl(more);
+    ks::ui::NormalizeToolbarControl(m_viewCombo);
     m_pathEdit->setMinimumWidth(0);
     m_pathEdit->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     ks::ui::IsolateMinimumSize(m_registryTabWidget);
     m_registryEditorLayout->insertWidget(2, commands);
 
     QWidget* searchPanel = new QWidget(m_registryEditorPage);
-    auto* searchLayout = new ks::ui::FlowLayout(searchPanel, 0, 6, 4);
+    auto* searchLayout = new ks::ui::FlowLayout(searchPanel, 0, 8, 8);
     m_filterEdit = new QLineEdit(searchPanel);
     // 当前注册表值列表的本地过滤独立于完整注册表查询，二者均保留各自信号。
-    ks::ui::BindSearchFieldTheme(m_filterEdit);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setPlaceholderText(QStringLiteral("过滤当前值列表"));
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setMinimumWidth(160);
@@ -191,6 +204,7 @@ void RegistryDock::initializeWorkbenchControls()
     m_toolBarLayout->removeWidget(m_stopSearchButton);
     m_searchEdit->setPlaceholderText(QStringLiteral("注册表搜索 / hex:字节"));
     m_searchEdit->setClearButtonEnabled(true);
+    ks::ui::StyleSearchField(m_searchEdit);
     m_searchEdit->setMinimumWidth(160);
     searchLayout->addWidget(m_searchEdit);
     m_searchScopeCombo = new QComboBox(searchPanel);
@@ -210,9 +224,17 @@ void RegistryDock::initializeWorkbenchControls()
     m_matchExactCheck = new QCheckBox(QStringLiteral("完全匹配"), searchPanel);
     for (auto* check : {m_matchKeysCheck, m_matchNamesCheck, m_matchDataCheck}) check->setChecked(true);
     for (auto* check : {m_matchKeysCheck, m_matchNamesCheck, m_matchDataCheck, m_matchCaseCheck, m_matchExactCheck})
+    {
         searchLayout->addWidget(check);
+        ks::ui::NormalizeToolbarControl(check);
+    }
     searchLayout->addWidget(m_searchButton);
     searchLayout->addWidget(m_stopSearchButton);
+    // 逐个登记这一行的实际搜索控件，路径/数值输入不应用搜索外观。
+    ks::ui::NormalizeToolbarControl(m_searchScopeCombo);
+    ks::ui::NormalizeToolbarControl(m_searchTypeCombo);
+    ks::ui::NormalizeToolbarControl(m_searchButton);
+    ks::ui::NormalizeToolbarControl(m_stopSearchButton);
     m_registryEditorLayout->insertWidget(3, searchPanel);
 
     m_detailScroll = new QScrollArea(m_mainSplitter);
@@ -236,13 +258,16 @@ void RegistryDock::initializeWorkbenchControls()
     m_editorStatusLabel->setWordWrap(true);
     m_editorStatusLabel->setTextFormat(Qt::PlainText);
     detailLayout->addWidget(m_editorStatusLabel);
-    auto* detailActions = new ks::ui::FlowLayout(nullptr, 0, 6, 4);
+    auto* detailActions = new ks::ui::FlowLayout(nullptr, 0, 8, 8);
     m_stageButton = new QPushButton(QStringLiteral("暂存修改"), detail);
     m_discardButton = new QPushButton(QStringLiteral("放弃修改"), detail);
     auto* fullEditor = new QPushButton(QStringLiteral("完整编辑窗"), detail);
     detailActions->addWidget(m_stageButton);
     detailActions->addWidget(m_discardButton);
     detailActions->addWidget(fullEditor);
+    ks::ui::NormalizeToolbarControl(m_stageButton);
+    ks::ui::NormalizeToolbarControl(m_discardButton);
+    ks::ui::NormalizeToolbarControl(fullEditor);
     detailLayout->addLayout(detailActions);
     auto* draftHint = new QLabel(QStringLiteral("离开已修改值时自动暂存；应用暂存后才写入。"), detail);
     draftHint->setWordWrap(true);
@@ -279,13 +304,16 @@ void RegistryDock::initializeWorkbenchControls()
     QWidget* changes = new QWidget(m_rightTabWidget);
     auto* changesLayout = new QVBoxLayout(changes);
     changesLayout->setContentsMargins(0, 0, 0, 0);
-    auto* changesActions = new ks::ui::FlowLayout(nullptr, 0, 6, 4);
+    auto* changesActions = new ks::ui::FlowLayout(nullptr, 0, 8, 8);
     m_applyChangesButton = new QPushButton(QStringLiteral("应用暂存"), changes);
     auto* clearChanges = new QPushButton(QStringLiteral("清空草稿"), changes);
     auto* restoreChanges = new QPushButton(QStringLiteral("恢复上次提交"), changes);
     changesActions->addWidget(m_applyChangesButton);
     changesActions->addWidget(clearChanges);
     changesActions->addWidget(restoreChanges);
+    ks::ui::NormalizeToolbarControl(m_applyChangesButton);
+    ks::ui::NormalizeToolbarControl(clearChanges);
+    ks::ui::NormalizeToolbarControl(restoreChanges);
     changesLayout->addLayout(changesActions);
     m_changesTable = new ks::ui::VisibleTableWidget(changes);
     m_changesTable->setColumnCount(6);
@@ -302,8 +330,11 @@ void RegistryDock::initializeWorkbenchControls()
         table->setProperty("ks_i18n_preserve_model_data", true);
         table->setShowGrid(false);
         table->verticalHeader()->setDefaultSectionSize(28);
-        ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
     }
+    // 值列表/搜索结果只需紧凑导出；待应用队列已有事务操作，隐藏重复通用栏。
+    ks::ui::SetTableActionBarMode(m_valueTable, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_searchResultTable, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_changesTable, ks::ui::TableActionBarMode::None);
     connect(m_applyChangesButton, &QPushButton::clicked, this, &RegistryDock::applyPendingChanges);
     connect(clearChanges, &QPushButton::clicked, this, [this]() {
         if (m_applyingChanges) return;

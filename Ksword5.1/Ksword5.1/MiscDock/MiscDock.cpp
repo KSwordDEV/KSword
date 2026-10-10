@@ -1,4 +1,5 @@
 #include "MiscDock.h"
+#include "../UI/PageControlStyle.h"
 
 #include "BootEditor/BootEditorTab.h"
 #include "ApplicationControlPage.h"
@@ -61,6 +62,7 @@ void MiscDock::initializeUi()
 
     // 主 Tab 承载所有杂项工具，保持 Dock 外层只暴露一个统一入口。
     m_mainTabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_mainTabWidget);
     m_mainTabWidget->setObjectName(QStringLiteral("ksMiscDockMainTab"));
     m_rootLayout->addWidget(m_mainTabWidget, 1);
 

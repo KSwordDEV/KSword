@@ -1,4 +1,6 @@
 #include "KernelKnowledgeTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/ThemeBinding.h"
 #include "../UI/StructuredFieldView.h"
@@ -151,7 +153,7 @@ void KernelKnowledgeTab::initializeUi()
 
     m_searchEdit = new QLineEdit(directoryPanel);
     // 知识目录树筛选保留后续加载的具体提示和条目过滤。
-    ks::ui::BindSearchFieldTheme(m_searchEdit);
+    ks::ui::StyleSearchField(m_searchEdit);
     m_searchEdit->setClearButtonEnabled(true);
     directoryLayout->addWidget(m_searchEdit, 0);
 
@@ -163,6 +165,7 @@ void KernelKnowledgeTab::initializeUi()
     m_resultCountLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     filterLayout->addWidget(m_coverageCombo, 1);
     filterLayout->addWidget(m_resultCountLabel, 0);
+    ks::ui::NormalizeToolbarRow(filterLayout);
     directoryLayout->addLayout(filterLayout);
 
     m_topicTree = new QTreeWidget(directoryPanel);
@@ -229,6 +232,7 @@ void KernelKnowledgeTab::initializeUi()
         KswordTheme::ApplyCompactIconButtonMetrics(button);
         articleToolLayout->addWidget(button, 0);
     }
+    ks::ui::NormalizeToolbarRow(articleToolLayout);
     articleLayout->addLayout(articleToolLayout);
 
     m_articleView = new QTextBrowser(articlePanel);

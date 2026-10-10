@@ -3,6 +3,8 @@
 #include <QElapsedTimer>
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ThemeBinding.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QColor>
@@ -62,6 +64,8 @@ namespace
     QTableWidget* createStartupTable(QWidget* parentWidget)
     {
         QTableWidget* tableWidget = new ks::ui::VisibleTableWidget(parentWidget);
+        // 启动项清单支持前后快照排查，保留完整操作栏。
+        ks::ui::SetTableActionBarMode(tableWidget, ks::ui::TableActionBarMode::Full);
         tableWidget->setColumnCount(StartupDock::toStartupColumn(StartupDock::StartupColumn::Count));
         tableWidget->setHorizontalHeaderLabels(startupTableHeaders());
         tableWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -206,7 +210,7 @@ void StartupDock::initializeToolbar()
 
     m_filterEdit = new QLineEdit(m_toolbarWidget);
     // 启动项树保留既有双语提示与分批结果过滤，只补搜索面板颜色。
-    ks::ui::BindSearchFieldTheme(m_filterEdit);
+    ks::ui::StyleSearchField(m_filterEdit);
     languageManager.bindPlaceholder(
         m_filterEdit,
         QStringLiteral("startup.toolbar.filter.placeholder"),
@@ -253,12 +257,16 @@ void StartupDock::initializeToolbar()
     m_toolbarLayout->addWidget(m_hideMicrosoftCheck);
     m_toolbarLayout->addWidget(m_hideEmptyPathCheck);
     m_toolbarLayout->addWidget(m_statusLabel, 1);
+    // 所有按钮与搜索、筛选控件共用等高和 8px 间距。
+    m_toolbarLayout->setSpacing(8);
+    ks::ui::NormalizeToolbarRow(m_toolbarLayout);
 }
 
 void StartupDock::initializeTabs()
 {
     m_sideTabWidget = new QTabWidget(this);
     m_sideTabWidget->setTabPosition(QTabWidget::West);
+    ks::ui::StylePageTabs(m_sideTabWidget);
 
     m_allPage = createSingleTablePage(&m_allTable, m_sideTabWidget);
     m_logonPage = createSingleTablePage(&m_logonTable, m_sideTabWidget);

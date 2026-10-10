@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../theme.h"
@@ -420,8 +421,11 @@ void NetworkDock::initializeRouteTableTab()
     m_routeTableControlLayout->addWidget(m_removeRouteButton);
     m_routeTableControlLayout->addWidget(m_routeStatusLabel, 1);
     m_routeTableLayout->addLayout(m_routeTableControlLayout);
+    ks::ui::NormalizeToolbarRow(m_routeTableControlLayout);
 
     m_routeTable = new ks::ui::VisibleTableWidget(m_routeTablePage);
+    // 路由可能被增删改，保留现场快照与修改前后对比。
+    ks::ui::SetTableActionBarMode(m_routeTable, ks::ui::TableActionBarMode::Full);
     m_routeTable->setColumnCount(13);
     m_routeTable->setHorizontalHeaderLabels({
         QStringLiteral("地址族"), QStringLiteral("目的网络"), QStringLiteral("下一跳"),
@@ -766,8 +770,11 @@ void NetworkDock::initializeArpCacheTab()
     m_arpCacheControlLayout->addWidget(m_flushArpButton);
     m_arpCacheControlLayout->addWidget(m_arpStatusLabel, 1);
     m_arpCacheLayout->addLayout(m_arpCacheControlLayout);
+    ks::ui::NormalizeToolbarRow(m_arpCacheControlLayout);
 
     m_arpTable = new ks::ui::VisibleTableWidget(m_arpCachePage);
+    // 四列缓存页主要用于查看和删除条目，紧凑复制/导出足够。
+    ks::ui::SetTableActionBarMode(m_arpTable, ks::ui::TableActionBarMode::Compact);
     m_arpTable->setColumnCount(4);
     m_arpTable->setHorizontalHeaderLabels({
         QStringLiteral("IPv4地址"),
@@ -822,8 +829,10 @@ void NetworkDock::initializeDnsCacheTab()
     m_dnsCacheControlLayout->addWidget(m_flushDnsButton);
     m_dnsCacheControlLayout->addWidget(m_dnsStatusLabel, 1);
     m_dnsCacheLayout->addLayout(m_dnsCacheControlLayout);
+    ks::ui::NormalizeToolbarRow(m_dnsCacheControlLayout);
 
     m_dnsTable = new ks::ui::VisibleTableWidget(m_dnsCachePage);
+    ks::ui::SetTableActionBarMode(m_dnsTable, ks::ui::TableActionBarMode::Compact);
     m_dnsTable->setColumnCount(3);
     m_dnsTable->setHorizontalHeaderLabels({
         QStringLiteral("域名"),
@@ -885,6 +894,7 @@ void NetworkDock::initializeAliveHostScanTab()
     m_aliveScanControlLayout->addWidget(m_startAliveScanButton);
     m_aliveScanControlLayout->addWidget(m_stopAliveScanButton);
     m_aliveScanLayout->addLayout(m_aliveScanControlLayout);
+    ks::ui::NormalizeToolbarRow(m_aliveScanControlLayout);
 
     m_aliveScanProgressBar = new QProgressBar(m_aliveScanPage);
     m_aliveScanProgressBar->setRange(0, 100);
@@ -896,6 +906,8 @@ void NetworkDock::initializeAliveHostScanTab()
     m_aliveScanLayout->addWidget(m_aliveScanStatusLabel);
 
     m_aliveScanTable = new ks::ui::VisibleTableWidget(m_aliveScanPage);
+    // 单次发现结果需要导出，不需要每个结果表的冻结/对比操作。
+    ks::ui::SetTableActionBarMode(m_aliveScanTable, ks::ui::TableActionBarMode::Compact);
     m_aliveScanTable->setColumnCount(4);
     m_aliveScanTable->setHorizontalHeaderLabels({
         QStringLiteral("IP"),

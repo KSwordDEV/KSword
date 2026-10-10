@@ -1,4 +1,5 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/ToolbarMetrics.h"
 #include "DriverDock.Internal.h"
 #include "../UI/IntegrityRiskPresentation.h"
 #include "../UI/TableInteractionSupport.h"
@@ -381,12 +382,15 @@ void DriverDock::initializeIntegrityTab()
         m_integrityPage));
     toolLayout->addWidget(m_integrityMaxRowsSpin);
     toolLayout->addWidget(m_integrityStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(toolLayout);
     m_integrityLayout->addLayout(toolLayout);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_integrityPage);
     m_integrityLayout->addWidget(splitter, 1);
 
     m_integrityTable = new ks::ui::VisibleTableWidget(splitter);
+    // 完整性证据需要保存前后状态以追踪入口变化。
+    ks::ui::SetTableActionBarMode(m_integrityTable, ks::ui::TableActionBarMode::Full);
     m_integrityTable->setColumnCount(integrityColumnIndex(IntegrityColumn::Count));
     m_integrityTable->setHorizontalHeaderLabels(driverIntegrityTableHeaders());
     m_integrityTable->setSelectionBehavior(QAbstractItemView::SelectRows);

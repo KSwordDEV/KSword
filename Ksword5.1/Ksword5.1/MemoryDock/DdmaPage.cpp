@@ -1,4 +1,5 @@
 #include "DdmaPage.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 
 #include "../theme.h"
@@ -222,6 +223,9 @@ QGroupBox* DdmaPage::buildChannelGroup()
     formLayout->addWidget(m_scratchLbaEdit, 0, 1);
     formLayout->addWidget(m_detectScratchButton, 0, 2);
     formLayout->addWidget(m_probeButton, 0, 3);
+    // 两个探测动作属于同一参数行，单独统一按钮而不钉死多行上下文视图。
+    ks::ui::NormalizeToolbarControl(m_detectScratchButton);
+    ks::ui::NormalizeToolbarControl(m_probeButton);
     formLayout->addWidget(m_scratchDetectLabel, 1, 0, 1, 4);
     formLayout->addWidget(m_scratchContextView, 2, 0, 1, 4);
     m_scratchBytesView = new CodeTextEdit(group);
@@ -240,6 +244,8 @@ QGroupBox* DdmaPage::buildChannelGroup()
     outerLayout->addLayout(formLayout);
 
     m_diskTable = new ks::ui::VisibleTableWidget(group);
+    // 磁盘通道表是激活目标选择器，不是独立取证结果。
+    ks::ui::SetTableActionBarMode(m_diskTable, ks::ui::TableActionBarMode::None);
     m_diskTable->setColumnCount(static_cast<int>(DiskColumn::Count));
     m_diskTable->setHorizontalHeaderLabels(
         QStringList{ "序号", "设备名", "通道状态", "探测 NTSTATUS", "扇区大小" });
@@ -258,6 +264,7 @@ QGroupBox* DdmaPage::buildChannelGroup()
     actionLayout->addWidget(m_activateButton);
     actionLayout->addWidget(m_clearButton);
     actionLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     outerLayout->addLayout(actionLayout);
 
     m_capabilityLabel = new QLabel("尚未探测。", group);
@@ -337,6 +344,7 @@ QGroupBox* DdmaPage::buildAccessGroup()
     barLayout->addWidget(m_accessLengthSpin);
     barLayout->addWidget(m_accessReadButton);
     barLayout->addWidget(m_accessWriteButton);
+    ks::ui::NormalizeToolbarRow(barLayout);
     outerLayout->addLayout(barLayout);
 
     m_accessMemoryEditor = new ks::ui::SnapshotWorkbenchWidget(group);
@@ -391,6 +399,7 @@ QGroupBox* DdmaPage::buildCompareGroup()
     barLayout->addWidget(new QLabel("物理地址", group));
     barLayout->addWidget(m_compareAddressEdit, 1);
     barLayout->addWidget(m_compareButton);
+    ks::ui::NormalizeToolbarRow(barLayout);
     outerLayout->addLayout(barLayout);
 
     m_compareResultLabel = new QLabel("尚未复核。", group);
@@ -399,6 +408,8 @@ QGroupBox* DdmaPage::buildCompareGroup()
     outerLayout->addWidget(m_compareResultLabel);
 
     m_compareTable = new QTableWidget(group);
+    // 此表本身就是同址字节对比，小窗口不再重复显示通用对比栏。
+    ks::ui::SetTableActionBarMode(m_compareTable, ks::ui::TableActionBarMode::None);
     m_compareTable->setColumnCount(3);
     m_compareTable->setHorizontalHeaderLabels(QStringList{ "偏移", "标准通道", "DDMA" });
     m_compareTable->setSelectionBehavior(QAbstractItemView::SelectRows);

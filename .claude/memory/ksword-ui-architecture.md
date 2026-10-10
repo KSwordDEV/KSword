@@ -188,3 +188,9 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 - GPU 视口滚动不能调用普通 QTableView 的 `scrollContentsBy` 位图复制路径：仅按 Qt 原有单位同步 QHeaderView 偏移、更新编辑器几何并请求完整 FBO 帧，光栅路径才保留基类调用。GL 帧通过原生清屏恢复颜色写掩码、裁剪和模板状态，表格只创建一个 QPainter；普通 paintEvent 不得绕过 paintGL 直接向未绑定 FBO 绘制。出现黑条、文字残影或彩色噪点时，先检查这两个路径，不能靠提高更新频率或额外补一次 update 掩盖。
 
 - GPU 平滑滚动改由 `QOpenGLWidget::frameSwapped` 的 queued 回调推进下一帧，避免定时器与阻塞交换的相位错开；普通视口仍按屏幕频率计时。GPU 定时器只作交换回调停滞的看门狗，旧回调用动画代次取消；整数像素未变化的缓动尾段仍安排下一帧，停止后断开链路，不持续空转。GPU 设置状态以活跃表格交换回调计算 FPS，并显示对应 CPU 绘制均值；不计静止间隔或其它控件独立合成，读数不等同于硬件扫描帧率或 GPU 执行耗时。
+
+### 页面控件与表格操作条的明确选择
+
+- `UI/PageControlStyle.h` 提供页面明确调用的搜索和普通 Tab 外观，不扫描所有字段。搜索色面使用既有 ThemeBinding，几何 marker 随局部主题重建恢复；普通 Tab 绑定自身栏，避免替换整个页面已有主题回调。自绘 HexViewSegmented 必须同步实际绘制配方。
+- `NormalizeToolbarRow(row, spacing)` 只统一直接单行控件，不固定内容视图和多行说明；普通间距8，A/B/C显式0。图标方形判断依据明确图标工具或既有固定方形，不能因文字按钮尚未翻译而误锁成方块。后续局部 QSS 重建时补回登记几何。
+- 表格在构建入口逐用途登记 Full/Compact/None，禁止改全局默认后当作完成。现场清单保留快照对比，静态导出结果精简为复制导出，属性/目标选择/已有业务工作流隐藏重复操作条。逐页记录见 `docs/UI控件逐页整理-20261010.md`。

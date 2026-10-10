@@ -1,4 +1,6 @@
 #include "StructuredFieldView.h"
+#include "./PageControlStyle.h"
+#include "./ToolbarMetrics.h"
 #include "../Internationalization/LanguageManager.h"
 #include "ThemeBinding.h"
 #include "../theme.h"
@@ -271,7 +273,7 @@ namespace ks::ui
         toolbar->setSpacing(6);
         m_search = new QLineEdit(this);
         // 结构属性树搜索是结果过滤，不属于代码编辑器查找/替换输入。
-        BindSearchFieldTheme(m_search);
+        StyleSearchField(m_search);
         m_search->setClearButtonEnabled(true);
         m_search->setMinimumWidth(0);
         m_search->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
@@ -286,6 +288,7 @@ namespace ks::ui
         m_export = new QToolButton(this);
         m_export->setIcon(QIcon(QStringLiteral(":/Icon/log_export.svg")));
         toolbar->addWidget(m_export);
+        NormalizeToolbarRow(toolbar);
         layout->addLayout(toolbar);
         m_tree = new QTreeWidget(this);
         m_tree->setColumnCount(2);

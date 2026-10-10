@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../theme.h"
@@ -801,6 +802,7 @@ void NetworkDock::initializeMultiThreadDownloadTab()
     m_multiThreadDownloadControlLayout->addWidget(m_multiDownloadStartButton);
     m_multiThreadDownloadControlLayout->addWidget(m_multiDownloadStatusLabel, 1);
     m_multiThreadDownloadLayout->addLayout(m_multiThreadDownloadControlLayout);
+    ks::ui::NormalizeToolbarRow(m_multiThreadDownloadControlLayout);
 
     // 下载捕获设置栏：
     // - 提供“剪贴板自动捕获下载链接”开关；
@@ -843,6 +845,8 @@ void NetworkDock::initializeMultiThreadDownloadTab()
     m_multiThreadDownloadLayout->addWidget(captureSettingsGroup);
 
     m_multiDownloadTaskTable = new ks::ui::VisibleTableWidget(m_multiThreadDownloadPage);
+    // 下载任务由单元格动作管理，只保留紧凑复制和导出。
+    ks::ui::SetTableActionBarMode(m_multiDownloadTaskTable, ks::ui::TableActionBarMode::Compact);
     m_multiDownloadTaskTable->setColumnCount(MultiDownloadTaskColumnCount);
     m_multiDownloadTaskTable->setHorizontalHeaderLabels({
         QStringLiteral("任务ID"),
@@ -877,6 +881,8 @@ void NetworkDock::initializeMultiThreadDownloadTab()
     m_multiThreadDownloadLayout->addWidget(m_multiDownloadTotalProgressLabel);
 
     m_multiDownloadSegmentTable = new ks::ui::VisibleTableWidget(m_multiThreadDownloadPage);
+    // 分段是所选任务的附属进度，快照/对比不适用且挤占进度空间。
+    ks::ui::SetTableActionBarMode(m_multiDownloadSegmentTable, ks::ui::TableActionBarMode::None);
     m_multiDownloadSegmentTable->setColumnCount(MultiDownloadSegmentColumnCount);
     m_multiDownloadSegmentTable->setHorizontalHeaderLabels({
         QStringLiteral("分段"),

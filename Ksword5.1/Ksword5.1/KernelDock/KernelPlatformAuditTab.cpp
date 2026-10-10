@@ -1,4 +1,6 @@
 #include "KernelPlatformAuditTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 
 #include "KernelCleanImageBaseline.h"
@@ -364,6 +366,7 @@ void KernelPlatformAuditTab::initializeUi()
     m_columnGroupBButton = new QPushButton(QStringLiteral("B"), this);
     m_columnGroupCButton = new QPushButton(QStringLiteral("C"), this);
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(kernelText(
         "kernel.platform.filter.placeholder",
@@ -373,17 +376,21 @@ void KernelPlatformAuditTab::initializeUi()
         this);
     m_statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     toolbar->addWidget(m_refreshButton);
-    toolbar->addSpacing(6);
-    toolbar->addWidget(m_columnGroupAButton);
-    toolbar->addWidget(m_columnGroupBButton);
-    toolbar->addWidget(m_columnGroupCButton);
-    toolbar->addSpacing(6);
+    // A/B/C 明确作为紧贴预设组，组外动作使用统一 8px 间距。
+    auto* presetLayout = new QHBoxLayout();
+    presetLayout->setContentsMargins(0, 0, 0, 0);
+    presetLayout->addWidget(m_columnGroupAButton);
+    presetLayout->addWidget(m_columnGroupBButton);
+    presetLayout->addWidget(m_columnGroupCButton);
+    ks::ui::NormalizeToolbarRow(presetLayout, 0);
+    toolbar->addLayout(presetLayout);
     toolbar->addWidget(m_filterEdit, 1);
     toolbar->addWidget(m_statusLabel);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_innerTabs = new QTabWidget(this);
-    m_innerTabs->setDocumentMode(true);
+    ks::ui::StylePageTabs(m_innerTabs);
     if (m_mode == Mode::Hal)
     {
         addPage(
@@ -559,6 +566,8 @@ void KernelPlatformAuditTab::retranslateUi()
 void KernelPlatformAuditTab::addPage(const unsigned long scope, const QString& title)
 {
     auto* table = new ks::ui::VisibleTableWidget(m_innerTabs);
+    // HAL/WDF 各页的回调与派遣地址需要保留完整性快照。
+    ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Full);
     table->setColumnCount(ColumnCount);
     table->setHorizontalHeaderLabels({
         kernelText("kernel.platform.header.name", QStringLiteral("函数 / 回调")),

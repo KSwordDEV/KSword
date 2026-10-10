@@ -1,4 +1,6 @@
 #include "PrivilegeTokenPages.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ThemeStatusRole.h"
@@ -685,6 +687,7 @@ namespace
                 m_process[side]->setInsertPolicy(QComboBox::NoInsert);
                 m_process[side]->setMinimumContentsLength(12);
                 m_process[side]->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+                ks::ui::NormalizeToolbarControl(m_process[side]);
                 m_process[side]->lineEdit()->setPlaceholderText(text("privilege.workbench.tokens.pid_hint", QStringLiteral("选择进程或输入 PID")));
                 form->addWidget(m_process[side]);
                 m_identity[side] = new QLabel(this);
@@ -711,11 +714,13 @@ namespace
             m_differences->setObjectName(QStringLiteral("privilege_token_differences"));
             m_search = new QLineEdit(this);
             m_search->setObjectName(QStringLiteral("privilege_token_search"));
+            ks::ui::StyleSearchField(m_search);
             m_search->setPlaceholderText(text("privilege.workbench.tokens.search", QStringLiteral("搜索字段、SID 或权限")));
             auto* copy = new QPushButton(text("privilege.workbench.tokens.copy_sid", QStringLiteral("复制选中 SID")), this);
             copy->setObjectName(QStringLiteral("privilege_token_copy_sid"));
             bar->addWidget(m_refresh); bar->addWidget(m_processRefresh); bar->addWidget(m_differences);
             bar->addWidget(m_search, 1); bar->addWidget(copy);
+            ks::ui::NormalizeToolbarRow(bar);
             layout->addLayout(bar);
             auto* legend = new QLabel(text("privilege.workbench.tokens.legend", QStringLiteral("SID 和权限属性按原始值对比；布尔值 1=是、0=否。完整性 RID：4096=低、8192=中、12288=高、16384=SYSTEM。不可读字段保留为未知。")), this);
             legend->setWordWrap(true); layout->addWidget(legend);
@@ -723,6 +728,8 @@ namespace
                 text("privilege.workbench.tokens.value_a", QStringLiteral("A 值")), text("privilege.workbench.tokens.value_b", QStringLiteral("B 值")),
                 text("privilege.workbench.tokens.result", QStringLiteral("结果")) });
             m_table->setObjectName(QStringLiteral("privilege_token_comparison_table"));
+            // 页面已经有令牌 A/B 比较，通用快照栏不应再重复一套比较动作。
+            ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Compact);
             layout->addWidget(m_table, 1);
             m_status = new QLabel(text("privilege.workbench.tokens.idle", QStringLiteral("选择两个进程后刷新；查询不调整目标令牌。")), this);
             m_status->setWordWrap(true); m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -900,9 +907,11 @@ namespace
             m_search = new QLineEdit(this);
             m_search->setPlaceholderText(text("privilege.workbench.sessions.search", QStringLiteral("搜索账号、SID 或登录 LUID")));
             m_search->setObjectName(QStringLiteral("privilege_logon_account_search"));
+            ks::ui::StyleSearchField(m_search);
             auto* all = new QPushButton(text("privilege.workbench.sessions.show_all", QStringLiteral("显示所有关联进程")), this);
             auto* sidCopy = new QPushButton(text("privilege.workbench.sessions.copy_sid", QStringLiteral("复制会话 SID")), this);
             bar->addWidget(m_refresh); bar->addWidget(m_search, 1); bar->addWidget(all); bar->addWidget(sidCopy);
+            ks::ui::NormalizeToolbarRow(bar);
             layout->addLayout(bar);
             auto* note = new QLabel(text("privilege.workbench.sessions.note", QStringLiteral("进程按令牌 AuthenticationId 关联登录 LUID。终端会话编号仅用于显示；无法读取令牌的进程单独标明。选中登录会话筛选进程，双击进程打开详情。")), this);
             note->setWordWrap(true); layout->addWidget(note);
@@ -916,6 +925,7 @@ namespace
                 QStringLiteral("SID"), text("privilege.workbench.sessions.process_count", QStringLiteral("关联进程数")),
                 text("privilege.workbench.sessions.state", QStringLiteral("查询状态")) });
             m_sessions->setObjectName(QStringLiteral("privilege_logon_sessions_table"));
+            ks::ui::SetTableActionBarMode(m_sessions, ks::ui::TableActionBarMode::Full);
             auto* processPanel = new QWidget(split);
             auto* processLayout = new QVBoxLayout(processPanel);
             processLayout->setContentsMargins(0, 0, 0, 0);
@@ -923,10 +933,12 @@ namespace
             m_selectedLabel = new QLabel(this);
             m_processSearch = new QLineEdit(this);
             m_processSearch->setPlaceholderText(text("privilege.workbench.sessions.process_search", QStringLiteral("搜索进程名、PID 或查询错误")));
+            ks::ui::StyleSearchField(m_processSearch);
             m_open = new QPushButton(text("privilege.workbench.sessions.open_process", QStringLiteral("打开进程详情")), this);
             m_open->setObjectName(QStringLiteral("privilege_logon_open_process"));
             m_open->setEnabled(static_cast<bool>(m_openProcess));
             processBar->addWidget(m_selectedLabel); processBar->addWidget(m_processSearch, 1); processBar->addWidget(m_open);
+            ks::ui::NormalizeToolbarRow(processBar);
             processLayout->addLayout(processBar);
             m_processes = table(processPanel, { QStringLiteral("PID"), text("privilege.workbench.sessions.process", QStringLiteral("进程")),
                 text("privilege.workbench.sessions.account", QStringLiteral("账号")),
@@ -935,6 +947,8 @@ namespace
                 text("privilege.workbench.sessions.path", QStringLiteral("映像路径")),
                 text("privilege.workbench.sessions.state", QStringLiteral("查询状态")) });
             m_processes->setObjectName(QStringLiteral("privilege_logon_processes_table"));
+            // 会话关联进程是嵌入式结果，与上方会话主表区分。
+            ks::ui::SetTableActionBarMode(m_processes, ks::ui::TableActionBarMode::Compact);
             processLayout->addWidget(m_processes, 1);
             split->addWidget(m_sessions); split->addWidget(processPanel);
             split->setStretchFactor(0, 1); split->setStretchFactor(1, 1);
@@ -1160,6 +1174,7 @@ namespace
             m_image->setPlaceholderText(text("privilege.workbench.launch.image_hint", QStringLiteral("可执行文件的完整路径（.exe）")));
             auto* browse = new QPushButton(text("privilege.workbench.launch.browse", QStringLiteral("浏览")), this);
             pathRow->addWidget(m_image, 1); pathRow->addWidget(browse);
+            ks::ui::NormalizeToolbarRow(pathRow);
             form->addRow(text("privilege.workbench.launch.image", QStringLiteral("程序")), pathRow);
             m_arguments = new QLineEdit(this);
             form->addRow(text("privilege.workbench.launch.arguments", QStringLiteral("参数")), m_arguments);
@@ -1184,6 +1199,7 @@ namespace
             m_refresh = new QPushButton(text("privilege.workbench.launch.refresh", QStringLiteral("刷新已启动进程令牌")), this);
             m_refresh->setEnabled(false);
             bar->addWidget(m_launch); bar->addWidget(m_availability); bar->addWidget(m_baseline); bar->addWidget(m_refresh);
+            ks::ui::NormalizeToolbarRow(bar);
             layout->addLayout(bar);
             auto* searchBar = new QHBoxLayout;
             m_differences = new QCheckBox(text("privilege.workbench.tokens.differences", QStringLiteral("只显示差异")), this);
@@ -1199,6 +1215,10 @@ namespace
                 text("privilege.workbench.launch.ordinary_actual", QStringLiteral("普通用户实例的实际令牌")),
                 text("privilege.workbench.tokens.result", QStringLiteral("结果")) });
             m_table->setObjectName(QStringLiteral("privilege_launch_token_table"));
+            // 启动后的令牌对比已由页面处理，通用操作栏只需紧凑导出。
+            ks::ui::StyleSearchField(m_search);
+            ks::ui::NormalizeToolbarRow(searchBar);
+            ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Compact);
             layout->addWidget(m_table, 1);
             m_status = new QLabel(text("privilege.workbench.launch.idle", QStringLiteral("尚未启动程序；身份可用性检查不会请求 UAC 或启动服务。")), this);
             m_status->setWordWrap(true); m_status->setTextInteractionFlags(Qt::TextSelectableByMouse); layout->addWidget(m_status);

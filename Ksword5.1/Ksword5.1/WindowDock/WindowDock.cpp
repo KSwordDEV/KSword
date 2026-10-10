@@ -6,6 +6,8 @@
 #include "WindowTimerTab.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../OnlineScan/SandboxUploadActions.h"
@@ -3054,6 +3056,7 @@ void WindowDock::initializeUi()
     m_refreshButton = new QPushButton(QStringLiteral("刷新审计"), m_toolBarWidget);
     m_refreshButton->setToolTip(QStringLiteral("重新采集 Win32K、热键/钩子与 GPU/Display/Watchdog 只读审计数据"));
     headerLayout->addWidget(m_refreshButton, 0);
+    ks::ui::NormalizeToolbarControl(m_refreshButton);
 
     m_toolBarLayout->addLayout(headerLayout);
     m_rootLayout->addWidget(m_toolBarWidget, 0);
@@ -3061,6 +3064,7 @@ void WindowDock::initializeUi()
     m_tabWidget = new QTabWidget(this);
     // 窗口 Dock 的根子页统一放到顶部横排，保留所有现有页面和 currentIndex 状态源。
     m_tabWidget->setTabPosition(QTabWidget::North);
+    ks::ui::StylePageTabs(m_tabWidget);
     m_rootLayout->addWidget(m_tabWidget, 1);
 
     // 配置只读结构化表格：可排序、行选择、内容自适应列宽、末列拉伸。
@@ -3120,6 +3124,8 @@ void WindowDock::initializeUi()
         presetLayout->addWidget(groupAButton, 0);
         presetLayout->addWidget(groupBButton, 0);
         presetLayout->addStretch(1);
+        // A/B 为同一个分段选择器，保留紧贴关系。
+        ks::ui::NormalizeToolbarRow(presetLayout, 0);
         groupLayout->addLayout(presetLayout, 0);
 
         QTableWidget* table = new ks::ui::VisibleTableWidget(group);
@@ -3165,6 +3171,7 @@ void WindowDock::initializeUi()
         innerTabWidget->setTabPosition(QTabWidget::North);
         innerTabWidget->setDocumentMode(true);
         innerTabWidget->setUsesScrollButtons(true);
+        ks::ui::StylePageTabs(innerTabWidget);
         return innerTabWidget;
     };
 
@@ -3257,6 +3264,7 @@ void WindowDock::initializeUi()
             &m_windowsTable),
             QStringLiteral("窗口表"));
         applyTransparentAuditTableBackground(m_windowsTable);
+        ks::ui::SetTableActionBarMode(m_windowsTable, ks::ui::TableActionBarMode::Full);
         innerTabWidget->addTab(makeTableGroup(
             QStringLiteral("GUI 线程（tagQ / focus / capture / caret）"),
             QStringList{ QStringLiteral("TID"), QStringLiteral("PID"), QStringLiteral("Session"),
@@ -3268,6 +3276,7 @@ void WindowDock::initializeUi()
             &m_guiThreadsTable),
             QStringLiteral("GUI线程"));
         applyTransparentAuditTableBackground(m_guiThreadsTable);
+        ks::ui::SetTableActionBarMode(m_guiThreadsTable, ks::ui::TableActionBarMode::Full);
         innerTabWidget->addTab(makeTableGroup(
             QStringLiteral("Session 就绪状态"),
             QStringList{ QStringLiteral("SessionId"), QStringLiteral("状态"), QStringLiteral("进程数"),
@@ -3277,6 +3286,8 @@ void WindowDock::initializeUi()
             &m_sessionTable),
             QStringLiteral("Session"));
         applyTransparentAuditTableBackground(m_sessionTable);
+        // Session 就绪概要是少量诊断行，紧凑复制/导出足够。
+        ks::ui::SetTableActionBarMode(m_sessionTable, ks::ui::TableActionBarMode::Compact);
 
         // 当前窗口详情：
         // - 默认只展示窗口表可见列快照，帮助用户确认当前选中 HWND；
@@ -3290,13 +3301,13 @@ void WindowDock::initializeUi()
         detailToolLayout->setSpacing(6);
         m_queryWindowDetailButton = new QPushButton(QIcon(QStringLiteral(":/Icon/process_tree.svg")), QStringLiteral("查询选中窗口详情"), detailPage);
         m_queryWindowDetailButton->setToolTip(QStringLiteral("只对当前选中 HWND 按需查询 win32k window detail，不批量扫描全部窗口"));
-        m_queryWindowDetailButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
         detailToolLayout->addWidget(m_queryWindowDetailButton, 0);
         QLabel* detailHintLabel = new QLabel(QStringLiteral("详情区：先显示快照，按需补充单 HWND runtime readiness/tagWND 诊断。"), detailPage);
         detailHintLabel->setStyleSheet(
             QStringLiteral("font-size:13px;color:%1;")
             .arg(KswordTheme::TextSecondaryHex()));
         detailToolLayout->addWidget(detailHintLabel, 1);
+        ks::ui::NormalizeToolbarRow(detailToolLayout);
         detailPageLayout->addLayout(detailToolLayout);
 
         m_windowDetailEditor = new ks::ui::StructuredFieldView(detailPage);
@@ -3342,6 +3353,7 @@ void WindowDock::initializeUi()
             &m_hotkeysTable),
             QStringLiteral("热键表"));
         applyTransparentAuditTableBackground(m_hotkeysTable);
+        ks::ui::SetTableActionBarMode(m_hotkeysTable, ks::ui::TableActionBarMode::Full);
         if (m_hotkeysTable != nullptr)
         {
             m_hotkeysTable->setProperty("kswordProcessIconColumn", HotkeyColumnName);
@@ -3365,6 +3377,7 @@ void WindowDock::initializeUi()
             &m_hooksTable),
             QStringLiteral("消息 Hook 表"));
         applyTransparentAuditTableBackground(m_hooksTable);
+        ks::ui::SetTableActionBarMode(m_hooksTable, ks::ui::TableActionBarMode::Full);
         if (m_hooksTable != nullptr)
         {
             m_hooksTable->setProperty("ksword_process_detail_pid_column", 2);
@@ -3390,6 +3403,8 @@ void WindowDock::initializeUi()
             QVector<int>{ 0, 1 },
             &m_clipboardTable);
         applyTransparentAuditTableBackground(m_clipboardTable);
+        // 剪贴板是键值上下文，无须通用快照栏占用属性区。
+        ks::ui::SetTableActionBarMode(m_clipboardTable, ks::ui::TableActionBarMode::None);
         innerTabWidget->addTab(group, QStringLiteral("剪贴板表"));
     }
     m_tabWidget->addTab(m_clipboardPage, QStringLiteral("剪贴板"));
@@ -3423,6 +3438,7 @@ void WindowDock::initializeUi()
             QVector<int>{ 0, 2, 6, 7, 8, 9, 14, 16 },
             &m_deviceTable);
         applyTransparentAuditTableBackground(m_deviceTable);
+        ks::ui::SetTableActionBarMode(m_deviceTable, ks::ui::TableActionBarMode::Full);
         innerTabWidget->addTab(group, QStringLiteral("设备表"));
     }
     m_tabWidget->addTab(m_displayPage, QStringLiteral("显示"));

@@ -6,6 +6,8 @@
 #include "UI/CodeTextEdit.h"
 #include "UI/CodeEditorWidget.h"
 #include "UI/VisibleTableWidget.h"
+#include "UI/PageControlStyle.h"
+#include "UI/ToolbarMetrics.h"
 
 #include "theme.h"
 #include "Internationalization/LanguageManager.h"
@@ -1207,9 +1209,12 @@ namespace
             }
 
             m_tabs = new QTabWidget(this);
+            ks::ui::StylePageTabs(m_tabs);
             if (descriptor.visualization.enabled)
             {
                 m_resultTable = new ks::ui::VisibleTableWidget(m_tabs);
+                // 一次插件扫描结果保留复制/导出，避免通用快照栏挤占插件内容。
+                ks::ui::SetTableActionBarMode(m_resultTable, ks::ui::TableActionBarMode::Compact);
                 m_resultTable->setColumnCount(descriptor.visualization.columns.size());
                 QStringList labels;
                 for (const VisualizationField& field : descriptor.visualization.columns) labels.push_back(field.label);
@@ -1265,6 +1270,7 @@ namespace
             footer->addWidget(m_status, 1);
             m_closeButton = new QPushButton(QStringLiteral("取消"), this);
             footer->addWidget(m_closeButton);
+            ks::ui::NormalizeToolbarRow(footer);
             rootLayout->addLayout(footer);
 
             m_process = new QProcess(this);
@@ -1624,6 +1630,7 @@ namespace
             m_retryButton->setVisible(false);
             statusRow->addWidget(m_diagnosticsButton);
             statusRow->addWidget(m_retryButton);
+            ks::ui::NormalizeToolbarRow(statusRow);
             rootLayout->addLayout(statusRow);
 
             m_surface = new QWidget(this);
@@ -2146,11 +2153,14 @@ namespace
             m_networkManager = new QNetworkAccessManager(this);
             auto* tabWidget = new QTabWidget(this);
             m_mainTabs = tabWidget;
+            ks::ui::StylePageTabs(tabWidget);
             auto* localPage = new QWidget(tabWidget);
             auto* localLayout = new QVBoxLayout(localPage);
             localLayout->setContentsMargins(6, 6, 6, 6);
             localLayout->setSpacing(4);
             m_table = new ks::ui::VisibleTableWidget(localPage);
+            // 已安装插件是管理选择列表，已有扫描/详情/目录入口，无需现场快照操作。
+            ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::None);
             m_table->setColumnCount(4);
             m_table->setHorizontalHeaderLabels(QStringList{ QStringLiteral("名称"), QStringLiteral("版本"), QStringLiteral("目标"), QStringLiteral("说明") });
             m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -2167,6 +2177,7 @@ namespace
             localActions->addWidget(detailButton);
             localActions->addWidget(m_openFolderButton);
             localActions->addStretch(1);
+            ks::ui::NormalizeToolbarRow(localActions);
             localLayout->addLayout(localActions);
             localLayout->addWidget(m_table);
             tabWidget->addTab(localPage, QStringLiteral("已安装"));
@@ -2176,6 +2187,8 @@ namespace
             marketplaceLayout->setContentsMargins(6, 6, 6, 6);
             marketplaceLayout->setSpacing(4);
             m_marketplaceTable = new ks::ui::VisibleTableWidget(marketplacePage);
+            // 商城用于更新和安装选择，不显示不相关的通用快照/对比栏。
+            ks::ui::SetTableActionBarMode(m_marketplaceTable, ks::ui::TableActionBarMode::None);
             m_marketplaceTable->setColumnCount(6);
             m_marketplaceTable->setHorizontalHeaderLabels(QStringList{
                 QStringLiteral("名称"), QStringLiteral("版本"), QStringLiteral("安装状态"), QStringLiteral("目标"), QStringLiteral("许可证"), QStringLiteral("说明") });
@@ -2198,6 +2211,7 @@ namespace
             marketplaceActions->addWidget(installButton);
             marketplaceActions->addWidget(m_autoUpdateCheck);
             marketplaceActions->addStretch(1);
+            ks::ui::NormalizeToolbarRow(marketplaceActions);
             marketplaceLayout->addLayout(marketplaceActions);
             marketplaceLayout->addWidget(m_marketplaceTable);
             tabWidget->addTab(marketplacePage, QStringLiteral("插件商城"));
@@ -2216,6 +2230,7 @@ namespace
             auto* closeButton = new QPushButton(QStringLiteral("关闭"), this);
             footer->addStretch(1);
             footer->addWidget(closeButton);
+            ks::ui::NormalizeToolbarRow(footer);
             layout->addLayout(footer);
             connect(refreshButton, &QPushButton::clicked, this, [this]() { refreshPlugins(); });
             connect(refreshMarketplaceButton, &QPushButton::clicked, this, [this]() { refreshMarketplace(); });
@@ -3313,6 +3328,7 @@ QWidget* ks::plugin_host::createTabPluginContainer(QWidget* parent)
     tabWidget->setDocumentMode(true);
     tabWidget->setMovable(false);
     tabWidget->setTabsClosable(false);
+    ks::ui::StylePageTabs(tabWidget);
     rootLayout->addWidget(tabWidget, 1);
 
     // 宿主侧基础样式只锚定插件容器，不污染其它 Dock 或插件原生子窗口。
@@ -3388,6 +3404,7 @@ QWidget* ks::plugin_host::createTabPluginContainer(QWidget* parent)
         buttonRow->addWidget(manageButton);
         buttonRow->addStretch(1);
         emptyLayout->addLayout(buttonRow);
+        ks::ui::NormalizeToolbarRow(buttonRow);
         emptyLayout->addStretch(1);
 
         QObject::connect(manageButton, &QPushButton::clicked, emptyPage, [emptyPage]() {

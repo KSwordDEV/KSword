@@ -1,4 +1,6 @@
 #include "KernelIoctlAuditTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "KernelDeviceDriverObjectsWorker.h"
 #include "KernelDock.h"
@@ -82,6 +84,7 @@ void KernelIoctlAuditTab::initializeUi()
     m_refreshButton = new QPushButton(kernelText("kernel.ioctl_audit.refresh", QStringLiteral("刷新派遣表")), this);
     m_refreshButton->setStyleSheet(buttonStyle());
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(kernelText(
         "kernel.ioctl_audit.filter.placeholder",
@@ -97,17 +100,27 @@ void KernelIoctlAuditTab::initializeUi()
     toolbar->addWidget(m_filterEdit);
     toolbar->addWidget(m_clearFilterButton);
     toolbar->addWidget(m_statusLabel, 1);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_innerTabs = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_innerTabs);
     m_driverPage = new QWidget(m_innerTabs);
     m_devicePage = new QWidget(m_innerTabs);
     m_dispatchPage = new QWidget(m_innerTabs);
     m_registryPage = new QWidget(m_innerTabs);
     m_driverTable = new ks::ui::VisibleTableWidget(m_driverPage);
+    // 全局驱动对象清单需要留存新增和消失对象。
+    ks::ui::SetTableActionBarMode(m_driverTable, ks::ui::TableActionBarMode::Full);
     m_deviceTable = new ks::ui::VisibleTableWidget(m_devicePage);
+    // 全局设备链是现场枚举，保留完整快照比较。
+    ks::ui::SetTableActionBarMode(m_deviceTable, ks::ui::TableActionBarMode::Full);
     m_dispatchTable = new ks::ui::VisibleTableWidget(m_dispatchPage);
+    // MajorFunction 地址变化是核心排查目标。
+    ks::ui::SetTableActionBarMode(m_dispatchTable, ks::ui::TableActionBarMode::Full);
     m_registryTable = new ks::ui::VisibleTableWidget(m_registryPage);
+    // 自身 IOCTL 注册清单是静态协议映射，不需要快照对比。
+    ks::ui::SetTableActionBarMode(m_registryTable, ks::ui::TableActionBarMode::None);
     for (QTableWidget* table : {m_driverTable, m_deviceTable, m_dispatchTable, m_registryTable})
     {
         table->setSelectionBehavior(QAbstractItemView::SelectRows);

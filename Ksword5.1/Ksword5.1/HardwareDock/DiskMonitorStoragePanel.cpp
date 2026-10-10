@@ -323,6 +323,8 @@ DiskMonitorStoragePanel::DiskMonitorStoragePanel(QWidget* parent)
     rootLayout->setSpacing(0);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // 小型卷性能摘要嵌入监控页，复制导出留在右键菜单，避免重复工具条。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::None);
     m_table->setColumnCount(kStorageColumnCount);
     m_table->setHorizontalHeaderLabels({
         QStringLiteral("驱动器"),

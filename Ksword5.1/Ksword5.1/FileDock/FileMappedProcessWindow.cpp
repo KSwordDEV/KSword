@@ -1,4 +1,5 @@
 #include "FileMappedProcessWindow.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 
 // ============================================================
@@ -368,6 +369,7 @@ void FileMappedProcessWindow::initializeUi()
     m_toolbarLayout->addWidget(m_refreshButton);
     m_toolbarLayout->addWidget(m_openProcessButton);
     m_toolbarLayout->addWidget(m_targetLabel, 1);
+    ks::ui::NormalizeToolbarRow(m_toolbarLayout);
     m_rootLayout->addLayout(m_toolbarLayout);
     m_rootLayout->addWidget(m_statusLabel);
     m_rootLayout->addWidget(m_resultTable, 1);

@@ -2,6 +2,8 @@
 #include "../UI/CodeTextEdit.h"
 #include "../UI/ThemeItemForeground.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/ThemeStatusRole.h"
 #include "../theme.h"
 
@@ -105,6 +107,7 @@ void WinAPIDock::initializeUi()
     m_sessionCollapseButton->setText(QStringLiteral("WinAPI Monitor 配置（目标进程 / Agent / Fake Success）"));
     m_sessionCollapseButton->setToolTip(QStringLiteral("展开或折叠上方所有配置；结果表始终保留在最下方。"));
     sessionCollapseLayout->addWidget(m_sessionCollapseButton, 0);
+    ks::ui::NormalizeToolbarControl(m_sessionCollapseButton);
 
     m_sessionCollapseContent = new QWidget(sessionCollapseFrame);
     QVBoxLayout* const sessionCollapseContentLayout = new QVBoxLayout(m_sessionCollapseContent);
@@ -165,6 +168,9 @@ void WinAPIDock::initializeUi()
     processPanelLayout->addWidget(m_processCombo, 1);
     processPanelLayout->addWidget(m_processRefreshButton, 0);
     processPanelLayout->addWidget(m_processStatusLabel, 0);
+    // 图标标签保留 24px，不作为按钮统一高度的目标。
+    ks::ui::NormalizeToolbarControl(m_processCombo);
+    ks::ui::NormalizeToolbarControl(m_processRefreshButton);
     sessionCollapseContentLayout->addWidget(m_processPanel, 0);
 
     // 下方左右布局：左侧是普通 WinAPI Agent 会话，右侧是 Fake Success 规则。
@@ -356,6 +362,7 @@ void WinAPIDock::initializeUi()
     sessionButtonLayout->addWidget(m_exportButton, 0);
     sessionButtonLayout->addWidget(m_clearEventButton, 0);
     sessionButtonLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(sessionButtonLayout);
     sessionPanelLayout->addLayout(sessionButtonLayout);
 
     m_sessionStatusLabel = new QLabel(QStringLiteral("● 空闲"), m_sessionPanel);
@@ -455,9 +462,12 @@ void WinAPIDock::initializeUi()
     fakeButtonLayout->addWidget(m_fakeApplyRuleButton, 0);
     fakeButtonLayout->addWidget(m_fakeStopRuleButton, 0);
     fakeButtonLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(fakeButtonLayout);
     fakeSuccessLayout->addLayout(fakeButtonLayout);
 
     m_fakeRuleTable = new ks::ui::VisibleTableWidget(fakeSuccessPanel);
+    // 返回规则是本页配置，添加/删除由本页按钮负责。
+    ks::ui::SetTableActionBarMode(m_fakeRuleTable, ks::ui::TableActionBarMode::None);
     m_fakeRuleTable->setColumnCount(FakeRuleColumnCount);
     m_fakeRuleTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_fakeRuleTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -503,6 +513,7 @@ void WinAPIDock::initializeUi()
     m_eventFilterEdit = new QLineEdit(m_filterPanel);
     m_eventFilterEdit->setPlaceholderText(QStringLiteral("过滤 API / 分类 / 结果 / 详情"));
     m_eventFilterEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(m_eventFilterEdit);
 
     m_eventFilterClearButton = new QPushButton(m_filterPanel);
     configureIconButton(
@@ -522,9 +533,11 @@ void WinAPIDock::initializeUi()
     filterLayout->addWidget(m_eventFilterClearButton, 0);
     filterLayout->addWidget(m_eventKeepBottomCheck, 0);
     filterLayout->addWidget(m_eventFilterStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(filterLayout);
     m_rootLayout->addWidget(m_filterPanel, 0);
 
     m_eventTable = new ks::ui::VisibleTableWidget(this);
+    ks::ui::SetTableActionBarMode(m_eventTable, ks::ui::TableActionBarMode::Full);
     m_eventTable->setColumnCount(EventColumnCount);
     m_eventTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_eventTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -558,6 +571,7 @@ void WinAPIDock::initializeUi()
         m_eventTable->viewport()->setAttribute(Qt::WA_StyledBackground, true);
     }
     m_resultTabs = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_resultTabs);
     m_resultTabs->addTab(m_eventTable, QStringLiteral("API 事件"));
     QWidget* coveragePanel = new QWidget(m_resultTabs);
     auto* coverageLayout = new QVBoxLayout(coveragePanel);
@@ -567,8 +581,10 @@ void WinAPIDock::initializeUi()
     m_coverageFilterEdit = new QLineEdit(coveragePanel);
     m_coverageFilterEdit->setPlaceholderText(QStringLiteral("筛选 API / Hook 类型 / 覆盖状态 / 原因"));
     m_coverageFilterEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(m_coverageFilterEdit);
     coverageFilterLayout->addWidget(m_coveragePidCombo);
     coverageFilterLayout->addWidget(m_coverageFilterEdit, 1);
+    ks::ui::NormalizeToolbarRow(coverageFilterLayout);
     coverageLayout->addLayout(coverageFilterLayout);
     m_coverageStatusLabel = new QLabel(QStringLiteral("覆盖快照：等待 Agent 完整快照"), coveragePanel);
     coverageLayout->addWidget(m_coverageStatusLabel);
@@ -576,6 +592,8 @@ void WinAPIDock::initializeUi()
     coverageBoundary->setWordWrap(true);
     coverageLayout->addWidget(coverageBoundary);
     m_coverageTable = new ks::ui::VisibleTableWidget(coveragePanel);
+    // API 覆盖为辅助能力快照，紧凑导出可保留原始状态。
+    ks::ui::SetTableActionBarMode(m_coverageTable, ks::ui::TableActionBarMode::Compact);
     m_coverageTable->setColumnCount(7);
     m_coverageTable->setHorizontalHeaderLabels({QStringLiteral("PID"), QStringLiteral("API ID"), QStringLiteral("Hook 类型"),
         QStringLiteral("API"), QStringLiteral("覆盖状态"), QStringLiteral("入口地址"), QStringLiteral("原因")});

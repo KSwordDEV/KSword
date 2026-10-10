@@ -1,4 +1,6 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -177,7 +179,7 @@ void KernelDock::initializeSsdtTab()
     m_ssdtFilterEdit->setPlaceholderText(kernelText("kernel.ssdt.toolbar.filter.placeholder", QStringLiteral("按索引/服务名/地址/模块筛选")));
     m_ssdtFilterEdit->setToolTip(kernelText("kernel.ssdt.toolbar.filter.tooltip", QStringLiteral("输入关键字后实时过滤 SSDT 结果")));
     m_ssdtFilterEdit->setClearButtonEnabled(true);
-    m_ssdtFilterEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(m_ssdtFilterEdit);
 
     m_ssdtStatusLabel = new QLabel(kernelText("kernel.ssdt.status.waiting", QStringLiteral("状态：等待刷新")), m_ssdtPage);
     m_ssdtStatusLabel->setStyleSheet(statusLabelStyle(KswordTheme::TextSecondaryHex()));
@@ -186,12 +188,15 @@ void KernelDock::initializeSsdtTab()
     m_ssdtToolLayout->addWidget(m_restoreSsdtButton, 0);
     m_ssdtToolLayout->addWidget(m_ssdtFilterEdit, 1);
     m_ssdtToolLayout->addWidget(m_ssdtStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(m_ssdtToolLayout);
     m_ssdtLayout->addLayout(m_ssdtToolLayout);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_ssdtPage);
     m_ssdtLayout->addWidget(splitter, 1);
 
     m_ssdtTable = new ks::ui::VisibleTableWidget(splitter);
+    // 服务槽值及模块归属需要保留完整性现场比较。
+    ks::ui::SetTableActionBarMode(m_ssdtTable, ks::ui::TableActionBarMode::Full);
     m_ssdtTable->setColumnCount(static_cast<int>(SsdtColumn::Count));
     m_ssdtTable->setHorizontalHeaderLabels(QStringList{
         kernelText("kernel.ssdt.header.index", QStringLiteral("索引")),

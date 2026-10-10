@@ -1,5 +1,6 @@
 ﻿#include "WelcomeDock.h"
 #include "../UI/FlatButtonTheme.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "../HardwareDock/HardwareDock.h"
 #include "../Internationalization/LanguageManager.h"
@@ -147,18 +148,18 @@ namespace
 
     QString welcomeActionButtonStyle()
     {
-        // 纯色主题只接管颜色；保留本页按钮尺寸和业务选中状态。
+        // 颜色保持普通实心动作语义，尺寸由页面登记的统一工具行决定。
         return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
-            + QStringLiteral("QPushButton{border-radius:5px;padding:7px 12px;}");
+            + QStringLiteral("QPushButton{font-weight:600;}");
 
     }
 
-    // welcomeCollapseButtonStyle 保留折叠头几何，以纯色区分悬停和展开。
+    // 折叠头保留整行点击范围，字号随应用设置，以纯色区分悬停和展开。
     QString welcomeCollapseButtonStyle()
     {
-        // 纯色主题只接管颜色；保留本页按钮尺寸和业务选中状态。
+        // 不再另设大号字体和纵向留白，避免折叠按钮与普通动作高度分裂。
         return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
-            + QStringLiteral("QToolButton{padding:7px 12px;font-size:16px;font-weight:600;text-align:center;}");
+            + QStringLiteral("QToolButton{font-weight:600;text-align:left;}");
 
     }
 
@@ -188,6 +189,7 @@ WelcomeDock::WelcomeDock(QWidget* parent)
     m_languageSettingsBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_languageSettingsBtn->setCursor(Qt::PointingHandCursor);
     initializeLanguageButtonStyle();
+    ks::ui::NormalizeToolbarControl(m_languageSettingsBtn);
 
     m_copyright = new QLabel(this);
     m_copyright->setWordWrap(true);
@@ -225,6 +227,7 @@ WelcomeDock::WelcomeDock(QWidget* parent)
     m_btnLayout->setSpacing(8);
     m_btnLayout->addWidget(m_qqBtn, 1);
     m_btnLayout->addWidget(m_githubBtn, 1);
+    ks::ui::NormalizeToolbarRow(m_btnLayout);
 
     m_referenceLayout = new QHBoxLayout();
     m_referenceLayout->setContentsMargins(0, 0, 0, 0);
@@ -232,6 +235,7 @@ WelcomeDock::WelcomeDock(QWidget* parent)
     m_referenceLayout->addWidget(m_pplControlBtn, 1);
     m_referenceLayout->addWidget(m_systemInformerBtn, 1);
     m_referenceLayout->addWidget(m_skt64Btn, 1);
+    ks::ui::NormalizeToolbarRow(m_referenceLayout);
 
     m_leftLayout = new QVBoxLayout();
     m_leftLayout->setContentsMargins(0, 0, 0, 0);
@@ -354,6 +358,9 @@ void WelcomeDock::initializeContributorCollapse()
     m_donorsCollapse->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_donorsCollapse->setStyleSheet(headerStyle);
     m_donorsCollapse->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    // 折叠标题仍保留整行点击范围，几何与页面普通按钮一致。
+    ks::ui::NormalizeToolbarControl(m_contributorsCollapse);
+    ks::ui::NormalizeToolbarControl(m_donorsCollapse);
 
     m_contributorsBody = new QWidget(this);
     m_contributorsBody->setAttribute(Qt::WA_TranslucentBackground, true);
@@ -408,7 +415,7 @@ void WelcomeDock::initializeContributorCollapse()
         // 链接独立为右侧按钮列，姓名和签名不会再被按钮挤到下一行。
         QVBoxLayout* linksLayout = new QVBoxLayout();
         linksLayout->setContentsMargins(0, 0, 0, 0);
-        linksLayout->setSpacing(6);
+        linksLayout->setSpacing(8);
         const std::array<ContributorLink, 2> links = {{entry.firstLink, entry.secondLink}};
         for (const ContributorLink& link : links)
         {
@@ -416,6 +423,7 @@ void WelcomeDock::initializeContributorCollapse()
             linkButton->setStyleSheet(welcomeActionButtonStyle());
             linkButton->setVisible(!link.targetUrl.trimmed().isEmpty());
             linkButton->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+            ks::ui::NormalizeToolbarControl(linkButton);
             linksLayout->addWidget(linkButton);
             if (!link.targetUrl.trimmed().isEmpty())
             {
@@ -659,9 +667,10 @@ void WelcomeDock::initializeLanguageButtonStyle()
     {
         return;
     }
-    // 语言入口保留大号字体和点击区域，以实心主题色标识主操作。
+    // 语言入口以主题色标识主操作，几何与其余页面动作一致。
     m_languageSettingsBtn->setStyleSheet(ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Accent)
-        + QStringLiteral("QPushButton{border-radius:10px;padding:8px 16px;font-size:16px;font-weight:700;}"));
+        + QStringLiteral("QPushButton{font-weight:600;}"));
+    ks::ui::NormalizeToolbarControl(m_languageSettingsBtn);
 }
 
 void WelcomeDock::refreshThemeColors()

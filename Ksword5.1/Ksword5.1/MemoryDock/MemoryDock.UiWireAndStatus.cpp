@@ -1,4 +1,5 @@
 #include "MemoryDock.Internal.h"
+#include "../UI/ToolbarMetrics.h"
 #include "SystemMemoryAuditPage.h"
 #include "../UI/X64DbgNavigation.h"
 #include "../UI/MemoryWorkbench/MemoryWorkbenchView.h"
@@ -362,6 +363,7 @@ void MemoryDock::initializeConnections()
         QHBoxLayout* buttonLayout = new QHBoxLayout();
         buttonLayout->addWidget(okButton);
         buttonLayout->addWidget(cancelButton);
+        ks::ui::NormalizeToolbarRow(buttonLayout);
 
         formLayout->addRow("扫描线程数", threadSpin);
         formLayout->addRow("读取块大小", chunkSpin);

@@ -1,4 +1,6 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
 
@@ -1657,7 +1659,7 @@ void KernelDock::initializeShadowSsdtTab()
     m_shadowSsdtFilterEdit = new QLineEdit(m_shadowSsdtPage);
     m_shadowSsdtFilterEdit->setPlaceholderText(kernelText("kernel.hooks.shadow.toolbar.filter.placeholder", QStringLiteral("按索引/服务名/模块/地址筛选")));
     m_shadowSsdtFilterEdit->setClearButtonEnabled(true);
-    m_shadowSsdtFilterEdit->setStyleSheet(kernelHookInputStyle());
+    ks::ui::StyleSearchField(m_shadowSsdtFilterEdit);
 
     m_shadowSsdtStatusLabel = new QLabel(kernelText("kernel.hooks.shadow.status.waiting", QStringLiteral("状态：等待刷新")), m_shadowSsdtPage);
     m_shadowSsdtStatusLabel->setStyleSheet(kernelHookStatusLabelStyle(KswordTheme::TextSecondaryHex()));
@@ -1665,12 +1667,15 @@ void KernelDock::initializeShadowSsdtTab()
     m_shadowSsdtToolLayout->addWidget(m_refreshShadowSsdtButton, 0);
     m_shadowSsdtToolLayout->addWidget(m_shadowSsdtFilterEdit, 1);
     m_shadowSsdtToolLayout->addWidget(m_shadowSsdtStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(m_shadowSsdtToolLayout);
     m_shadowSsdtLayout->addLayout(m_shadowSsdtToolLayout);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_shadowSsdtPage);
     m_shadowSsdtLayout->addWidget(splitter, 1);
 
     m_shadowSsdtTable = new ks::ui::VisibleTableWidget(splitter);
+    // Shadow SSDT 是地址完整性现场，保留快照对比。
+    ks::ui::SetTableActionBarMode(m_shadowSsdtTable, ks::ui::TableActionBarMode::Full);
     m_shadowSsdtTable->setColumnCount(static_cast<int>(ShadowSsdtColumn::Count));
     m_shadowSsdtTable->setHorizontalHeaderLabels(QStringList{
         shadowSsdtColumnHeader(ShadowSsdtColumn::Index),
@@ -1734,12 +1739,12 @@ void KernelDock::initializeInlineHookTab()
     m_inlineHookModuleEdit = new QLineEdit(m_inlineHookPage);
     m_inlineHookModuleEdit->setPlaceholderText(kernelText("kernel.hooks.inline.toolbar.module.placeholder", QStringLiteral("模块过滤，如 ntoskrnl.exe / win32k.sys（留空扫描全部）")));
     m_inlineHookModuleEdit->setClearButtonEnabled(true);
-    m_inlineHookModuleEdit->setStyleSheet(kernelHookInputStyle());
+    ks::ui::StyleSearchField(m_inlineHookModuleEdit);
 
     m_inlineHookFilterEdit = new QLineEdit(m_inlineHookPage);
     m_inlineHookFilterEdit->setPlaceholderText(kernelText("kernel.hooks.inline.toolbar.filter.placeholder", QStringLiteral("本地筛选：模块/函数/地址/类型/状态/字节")));
     m_inlineHookFilterEdit->setClearButtonEnabled(true);
-    m_inlineHookFilterEdit->setStyleSheet(kernelHookInputStyle());
+    ks::ui::StyleSearchField(m_inlineHookFilterEdit);
 
     m_inlineHookIncludeCombo = new QComboBox(m_inlineHookPage);
     m_inlineHookIncludeCombo->addItem(kernelText("kernel.hooks.inline.combo.suspicious_only", QStringLiteral("仅可疑外跳")), QVariant::fromValue<qulonglong>(0ULL));
@@ -1756,12 +1761,15 @@ void KernelDock::initializeInlineHookTab()
     m_inlineHookToolLayout->addWidget(m_inlineHookFilterEdit, 2);
     m_inlineHookToolLayout->addWidget(m_inlineHookIncludeCombo, 0);
     m_inlineHookToolLayout->addWidget(m_inlineHookStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(m_inlineHookToolLayout);
     m_inlineHookLayout->addLayout(m_inlineHookToolLayout);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_inlineHookPage);
     m_inlineHookLayout->addWidget(splitter, 1);
 
     m_inlineHookTable = new ks::ui::VisibleTableWidget(splitter);
+    // 代码字节及目标跳转变化需要保留完整扫描快照。
+    ks::ui::SetTableActionBarMode(m_inlineHookTable, ks::ui::TableActionBarMode::Full);
     m_inlineHookTable->setColumnCount(static_cast<int>(InlineHookColumn::Count));
     m_inlineHookTable->setHorizontalHeaderLabels(QStringList{
         inlineHookColumnHeader(InlineHookColumn::Module),
@@ -1828,12 +1836,12 @@ void KernelDock::initializeIatEatHookTab()
     m_iatEatHookModuleEdit = new QLineEdit(m_iatEatHookPage);
     m_iatEatHookModuleEdit->setPlaceholderText(kernelText("kernel.hooks.iat.toolbar.module.placeholder", QStringLiteral("模块过滤，如 ntoskrnl.exe / fltmgr.sys（留空扫描全部）")));
     m_iatEatHookModuleEdit->setClearButtonEnabled(true);
-    m_iatEatHookModuleEdit->setStyleSheet(kernelHookInputStyle());
+    ks::ui::StyleSearchField(m_iatEatHookModuleEdit);
 
     m_iatEatHookFilterEdit = new QLineEdit(m_iatEatHookPage);
     m_iatEatHookFilterEdit->setPlaceholderText(kernelText("kernel.hooks.iat.toolbar.filter.placeholder", QStringLiteral("本地筛选：类别/模块/导入模块/函数/地址/状态")));
     m_iatEatHookFilterEdit->setClearButtonEnabled(true);
-    m_iatEatHookFilterEdit->setStyleSheet(kernelHookInputStyle());
+    ks::ui::StyleSearchField(m_iatEatHookFilterEdit);
 
     m_iatEatHookIncludeCombo = new QComboBox(m_iatEatHookPage);
     m_iatEatHookIncludeCombo->addItem(kernelText("kernel.hooks.iat.combo.suspicious_both", QStringLiteral("IAT + EAT 可疑项")), QVariant::fromValue<qulonglong>(KSWORD_ARK_KERNEL_SCAN_FLAG_INCLUDE_IMPORTS | KSWORD_ARK_KERNEL_SCAN_FLAG_INCLUDE_EXPORTS));
@@ -1850,12 +1858,15 @@ void KernelDock::initializeIatEatHookTab()
     m_iatEatHookToolLayout->addWidget(m_iatEatHookFilterEdit, 2);
     m_iatEatHookToolLayout->addWidget(m_iatEatHookIncludeCombo, 0);
     m_iatEatHookToolLayout->addWidget(m_iatEatHookStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(m_iatEatHookToolLayout);
     m_iatEatHookLayout->addLayout(m_iatEatHookToolLayout);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_iatEatHookPage);
     m_iatEatHookLayout->addWidget(splitter, 1);
 
     m_iatEatHookTable = new ks::ui::VisibleTableWidget(splitter);
+    // 导入/导出目标地址需要对比多次扫描，保留完整工具条。
+    ks::ui::SetTableActionBarMode(m_iatEatHookTable, ks::ui::TableActionBarMode::Full);
     m_iatEatHookTable->setColumnCount(static_cast<int>(IatEatHookColumn::Count));
     m_iatEatHookTable->setHorizontalHeaderLabels(QStringList{
         iatEatColumnHeader(IatEatHookColumn::Class),
@@ -1917,7 +1928,7 @@ void KernelDock::initializeTimerDpcTab()
     m_timerDpcFilterEdit = new QLineEdit(m_timerDpcPage);
     m_timerDpcFilterEdit->setPlaceholderText(kernelText("kernel.timer_dpc.filter.placeholder", QStringLiteral("筛选 CPU/Bucket/Timer/DPC/例程/模块/状态")));
     m_timerDpcFilterEdit->setClearButtonEnabled(true);
-    m_timerDpcFilterEdit->setStyleSheet(kernelHookInputStyle());
+    ks::ui::StyleSearchField(m_timerDpcFilterEdit);
 
     m_timerDpcStatusLabel = new QLabel(kernelText("kernel.timer_dpc.status.waiting", QStringLiteral("状态：等待刷新")), m_timerDpcPage);
     m_timerDpcStatusLabel->setStyleSheet(kernelHookStatusLabelStyle(KswordTheme::TextSecondaryHex()));
@@ -1925,11 +1936,14 @@ void KernelDock::initializeTimerDpcTab()
     m_timerDpcToolLayout->addWidget(m_refreshTimerDpcButton, 0);
     m_timerDpcToolLayout->addWidget(m_timerDpcFilterEdit, 1);
     m_timerDpcToolLayout->addWidget(m_timerDpcStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(m_timerDpcToolLayout);
     m_timerDpcLayout->addLayout(m_timerDpcToolLayout);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_timerDpcPage);
     m_timerDpcLayout->addWidget(splitter, 1);
     m_timerDpcTable = new ks::ui::VisibleTableWidget(splitter);
+    // 每 CPU 定时器/DPC 是动态现场，保留完整快照比较。
+    ks::ui::SetTableActionBarMode(m_timerDpcTable, ks::ui::TableActionBarMode::Full);
     m_timerDpcTable->setColumnCount(static_cast<int>(TimerDpcColumn::Count));
     QStringList headers;
     for (int column = 0; column < static_cast<int>(TimerDpcColumn::Count); ++column)

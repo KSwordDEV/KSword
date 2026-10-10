@@ -1,4 +1,5 @@
 #include "SystemTimePage.h"
+#include "../../UI/ToolbarMetrics.h"
 
 #include "../../ArkDriverClient/ArkDriverClient.h"
 #include "../../Internationalization/LanguageManager.h"
@@ -323,12 +324,13 @@ namespace ks::misc
             QStringLiteral("设置 2 到 64 的整数倍率"));
         modeLayout->addWidget(m_speedUpRadio);
         modeLayout->addWidget(m_slowDownRadio);
-        modeLayout->addSpacing(12);
+        // 单行参数的组间距由共享工具条统一提供。
         modeLayout->addWidget(new QLabel(
             QStringLiteral("倍率："),
             controlGroup));
         modeLayout->addWidget(m_factorSpin);
         modeLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(modeLayout);
         controlLayout->addLayout(modeLayout);
 
         m_acknowledgeCheck = new QCheckBox(
@@ -373,6 +375,7 @@ namespace ks::misc
         buttonLayout->addWidget(m_applyButton);
         buttonLayout->addWidget(m_resetButton);
         buttonLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(buttonLayout);
         controlLayout->addLayout(buttonLayout);
         rootLayout->addWidget(controlGroup);
 

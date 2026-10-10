@@ -10,6 +10,9 @@
 // ============================================================
 
 #include "MinidumpDock.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/VisibleTableWidget.h"
 
 #include "../Framework.h"
 #include "CrashHistory.h"
@@ -173,6 +176,7 @@ void MinidumpDock::buildUi()
     pathLayout->addWidget(m_systemDirButton);
     pathLayout->addWidget(m_parseButton);
     pathLayout->addWidget(m_exportButton);
+    ks::ui::NormalizeToolbarRow(pathLayout);
     rootLayout->addLayout(pathLayout);
 
     // 符号路径行：默认路径覆盖不到"自己编译出来的驱动"这种最常见的自查场景——
@@ -187,6 +191,7 @@ void MinidumpDock::buildUi()
     m_symbolPathEdit->setStyleSheet(inputStyle);
     symbolLayout->addWidget(m_symbolPathLabel);
     symbolLayout->addWidget(m_symbolPathEdit, 1);
+    ks::ui::NormalizeToolbarRow(symbolLayout);
     rootLayout->addLayout(symbolLayout);
 
     // m_statusLabel：允许复制诊断状态，长路径自动换行。
@@ -198,6 +203,7 @@ void MinidumpDock::buildUi()
     // m_resultTabs：解析结果页签；具体页在 renderResult 里按数据动态挂载。
     m_resultTabs = new QTabWidget(this);
     m_resultTabs->setDocumentMode(true);
+    ks::ui::StylePageTabs(m_resultTabs);
     rootLayout->addWidget(m_resultTabs, 1);
 
     // 预创建全部表格与报告编辑器：语言切换/重复解析时复用，不反复销毁。
@@ -207,9 +213,14 @@ void MinidumpDock::buildUi()
     m_blameTable = createReadOnlyTable(m_resultTabs);
     m_stackTable = createReadOnlyTable(m_resultTabs);
     m_registerTable = createReadOnlyTable(m_resultTabs);
+    // 寄存器和摘要属于单份转储的属性投影，不展示快照/导出条占据阅读空间。
+    ks::ui::SetTableActionBarMode(m_registerTable, ks::ui::TableActionBarMode::None);
     m_overviewTable = createReadOnlyTable(m_resultTabs);
+    ks::ui::SetTableActionBarMode(m_overviewTable, ks::ui::TableActionBarMode::None);
     m_exceptionTable = createReadOnlyTable(m_resultTabs);
+    ks::ui::SetTableActionBarMode(m_exceptionTable, ks::ui::TableActionBarMode::None);
     m_executionContextTable = createReadOnlyTable(m_resultTabs);
+    ks::ui::SetTableActionBarMode(m_executionContextTable, ks::ui::TableActionBarMode::None);
     m_streamTable = createReadOnlyTable(m_resultTabs);
     m_moduleTable = createReadOnlyTable(m_resultTabs);
     m_threadTable = createReadOnlyTable(m_resultTabs);
@@ -219,6 +230,8 @@ void MinidumpDock::buildUi()
     m_symbolTable = createReadOnlyTable(m_resultTabs);
     m_poolTagTable = createReadOnlyTable(m_resultTabs);
     m_crashHistoryTable = createReadOnlyTable(m_resultTabs);
+    // 历史跨多次转储更新，保留完整快照与比对；其它解析证据表只需复制/导出。
+    ks::ui::SetTableActionBarMode(m_crashHistoryTable, ks::ui::TableActionBarMode::Full);
     m_crashHistoryTable->setWordWrap(true);
     // 肇事模块表的证据列是长文本，允许换行以免被省略号截断。
     m_blameTable->setWordWrap(true);
@@ -236,6 +249,7 @@ void MinidumpDock::buildUi()
     m_handlePage = createStructuredTablePage(m_handleTable, 7);
     m_rawMemoryTabs = new QTabWidget(m_resultTabs);
     m_rawMemoryTabs->setDocumentMode(true);
+    ks::ui::StylePageTabs(m_rawMemoryTabs);
     m_memoryView = new DumpMemoryView(m_resultTabs);
     m_reportEditor = new ks::ui::StructuredFieldView(m_resultTabs);
 

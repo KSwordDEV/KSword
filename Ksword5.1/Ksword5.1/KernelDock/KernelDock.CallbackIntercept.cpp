@@ -1,4 +1,6 @@
 #include "KernelDock.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/CodeTextEdit.h"
 #include "../UI/VisibleTableWidget.h"
 
@@ -1785,6 +1787,7 @@ private:
         topBarLayout->addWidget(m_importButton, 0);
         topBarLayout->addWidget(m_exportButton, 0);
         topBarLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(topBarLayout);
         rootLayout->addLayout(topBarLayout, 0);
 
         m_statusLabel = new QLabel(kernelText("kernel.callback.intercept.status.waiting_refresh", QStringLiteral("状态：等待刷新")), scrollContent);
@@ -1818,9 +1821,12 @@ private:
         groupButtonLayout->addWidget(m_moveGroupUpButton, 0);
         groupButtonLayout->addWidget(m_moveGroupDownButton, 0);
         groupButtonLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(groupButtonLayout);
         groupLayout->addLayout(groupButtonLayout, 0);
 
         m_groupTable = new ks::ui::VisibleTableWidget(groupPane);
+        // 规则组为可编辑配置，页面已有导入导出，不需要快照栏。
+        ks::ui::SetTableActionBarMode(m_groupTable, ks::ui::TableActionBarMode::None);
         m_groupTable->setColumnCount(static_cast<int>(GroupColumn::Count));
         m_groupTable->setHorizontalHeaderLabels(QStringList{
             QStringLiteral("groupId"),
@@ -1866,9 +1872,11 @@ private:
         ruleToolbarLayout->addWidget(m_moveRuleUpButton, 0);
         ruleToolbarLayout->addWidget(m_moveRuleDownButton, 0);
         ruleToolbarLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(ruleToolbarLayout);
         rightLayout->addLayout(ruleToolbarLayout, 0);
 
         m_ruleTabWidget = new QTabWidget(rightPane);
+        ks::ui::StylePageTabs(m_ruleTabWidget);
         rightLayout->addWidget(m_ruleTabWidget, 1);
 
         createRuleTableTab(KSWORD_ARK_CALLBACK_TYPE_REGISTRY, kernelText("kernel.callback.intercept.tab.registry", QStringLiteral("注册表")));
@@ -1881,6 +1889,7 @@ private:
         createProcessProtectTab(m_ruleTabWidget);
 
         auto* logTabWidget = new QTabWidget(scrollContent);
+        ks::ui::StylePageTabs(logTabWidget);
         m_appLogEditor = new CodeTextEdit(logTabWidget);
         static_cast<CodeTextEdit*>(m_appLogEditor)->setSyntaxLanguage(CodeTextEdit::SyntaxLanguage::PlainText);
         m_eventLogEditor = new CodeTextEdit(logTabWidget);
@@ -1932,9 +1941,12 @@ private:
         fileMonitorToolbar->addWidget(m_fileMonitorFsctlOnlyCheck, 0);
         fileMonitorToolbar->addStretch(1);
         fileMonitorToolbar->addWidget(m_fileMonitorStatusLabel, 0);
+        ks::ui::NormalizeToolbarRow(fileMonitorToolbar);
         fileMonitorLayout->addLayout(fileMonitorToolbar, 0);
 
         m_fileMonitorTable = new ks::ui::VisibleTableWidget(fileMonitorFrame);
+        // 事件流水已有读取/清理/导出业务条，紧凑辅助动作避免重复。
+        ks::ui::SetTableActionBarMode(m_fileMonitorTable, ks::ui::TableActionBarMode::Compact);
         m_fileMonitorTable->setColumnCount(static_cast<int>(FileMonitorColumn::Count));
         m_fileMonitorTable->setHorizontalHeaderLabels(QStringList{
             kernelText("kernel.callback.intercept.file_monitor.header.time", QStringLiteral("时间")),
@@ -2430,9 +2442,12 @@ private:
         inputLayout->addWidget(m_minifilterBypassApplyButton, 0);
         inputLayout->addWidget(m_minifilterBypassClearButton, 0);
         inputLayout->addWidget(m_minifilterBypassRefreshButton, 0);
+        ks::ui::NormalizeToolbarRow(inputLayout);
         tabLayout->addLayout(inputLayout, 0);
 
         m_minifilterBypassPidTable = new ks::ui::VisibleTableWidget(tabPage);
+        // PID 白名单是待应用配置，不需要冻结或快照比较。
+        ks::ui::SetTableActionBarMode(m_minifilterBypassPidTable, ks::ui::TableActionBarMode::None);
         m_minifilterBypassPidTable->setColumnCount(static_cast<int>(MinifilterBypassPidColumn::Count));
         m_minifilterBypassPidTable->setHorizontalHeaderLabels(QStringList{
             QStringLiteral("PID"),
@@ -2825,6 +2840,7 @@ private:
         switchLayout->addWidget(m_processProtectApplyButton, 0);
         switchLayout->addWidget(m_processProtectRefreshButton, 0);
         switchLayout->addWidget(m_processProtectClearButton, 0);
+        ks::ui::NormalizeToolbarRow(switchLayout);
         tabLayout->addLayout(switchLayout, 0);
 
         auto* ruleInputLayout = new QHBoxLayout();
@@ -2876,6 +2892,7 @@ private:
         ruleInputLayout->addWidget(m_processProtectAddRuleButton, 0);
         ruleInputLayout->addWidget(m_processProtectApplyPresetButton, 0);
         ruleInputLayout->addWidget(m_processProtectRemoveRuleButton, 0);
+        ks::ui::NormalizeToolbarRow(ruleInputLayout);
         tabLayout->addLayout(ruleInputLayout, 0);
 
         // 内核 PP 层的参数单独一行：它决定的是"让 Windows 自己执行保护"，
@@ -2933,9 +2950,12 @@ private:
         kernelInputLayout->addWidget(m_processProtectClearDebugPortCheck, 0);
         kernelInputLayout->addWidget(m_processProtectApplyKernelButton, 0);
         kernelInputLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(kernelInputLayout);
         tabLayout->addLayout(kernelInputLayout, 0);
 
         m_processProtectRuleTable = new ks::ui::VisibleTableWidget(tabPage);
+        // 保护规则属于编辑配置，保留页面应用/刷新动作。
+        ks::ui::SetTableActionBarMode(m_processProtectRuleTable, ks::ui::TableActionBarMode::None);
         m_processProtectRuleTable->setColumnCount(static_cast<int>(ProcessProtectRuleColumn::Count));
         m_processProtectRuleTable->setHorizontalHeaderLabels(QStringList{
             kernelText("kernel.callback.intercept.process_protect.header.enabled", QStringLiteral("启用")),
@@ -3009,9 +3029,12 @@ private:
         trustedInputLayout->addWidget(m_processProtectTrustedTargetEdit, 1);
         trustedInputLayout->addWidget(m_processProtectTrustedAddButton, 0);
         trustedInputLayout->addWidget(m_processProtectTrustedRemoveButton, 0);
+        ks::ui::NormalizeToolbarRow(trustedInputLayout);
         tabLayout->addLayout(trustedInputLayout, 0);
 
         m_processProtectTrustedTable = new ks::ui::VisibleTableWidget(tabPage);
+        // 受信发起方的小配置列表不需要快照工具条。
+        ks::ui::SetTableActionBarMode(m_processProtectTrustedTable, ks::ui::TableActionBarMode::None);
         m_processProtectTrustedTable->setColumnCount(static_cast<int>(ProcessProtectTrustedColumn::Count));
         m_processProtectTrustedTable->setHorizontalHeaderLabels(QStringList{
             kernelText("kernel.callback.intercept.process_protect.header.kind", QStringLiteral("匹配方式")),
@@ -3883,6 +3906,8 @@ private:
         tabLayout->setSpacing(0);
 
         auto* ruleTable = new ks::ui::VisibleTableWidget(tabPage);
+        // 六类回调规则编辑表沿用配置导入导出，不混入现场快照动作。
+        ks::ui::SetTableActionBarMode(ruleTable, ks::ui::TableActionBarMode::None);
         ruleTable->setColumnCount(static_cast<int>(RuleColumn::Count));
         ruleTable->setHorizontalHeaderLabels(QStringList{
             kernelText("kernel.callback.intercept.rule.header.enabled", QStringLiteral("启用")),

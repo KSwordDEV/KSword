@@ -1,4 +1,5 @@
 #include "ScannerDock.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/BinaryOverviewBar.h"
 #include "../UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
@@ -71,6 +72,7 @@ void ScannerDock::buildAnalysisUi()
     sectionRow->addWidget(m_analysisPreviousButton);
     sectionRow->addWidget(m_analysisNextButton);
     sectionRow->addWidget(m_analysisFindButton);
+    ks::ui::NormalizeToolbarRow(sectionRow);
     layout->addLayout(sectionRow);
 
     auto* addressRow = new QHBoxLayout();
@@ -86,6 +88,7 @@ void ScannerDock::buildAnalysisUi()
     addressRow->addWidget(m_analysisAddressKind);
     addressRow->addWidget(m_analysisAddressEdit, 1);
     addressRow->addWidget(m_analysisJumpButton);
+    ks::ui::NormalizeToolbarRow(addressRow);
     layout->addLayout(addressRow);
     m_analysisPosition = new QLabel(m_analysisPage);
     m_analysisPosition->setObjectName(QStringLiteral("scanner_analysis_position"));

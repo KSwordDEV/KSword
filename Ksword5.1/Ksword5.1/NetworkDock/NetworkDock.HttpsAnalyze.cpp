@@ -1,4 +1,6 @@
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/CodeTextEdit.h"
@@ -214,6 +216,7 @@ namespace
             rootLayout->addWidget(metaLabel);
 
             QTabWidget* tabWidget = new QTabWidget(this);
+            ks::ui::StylePageTabs(tabWidget);
 
             QWidget* hexPage = new QWidget(tabWidget);
             QVBoxLayout* hexLayout = new QVBoxLayout(hexPage);
@@ -566,10 +569,12 @@ void NetworkDock::initializeHttpsAnalyzeTab()
     m_httpsAnalyzeControlLayout->addWidget(m_httpsClearProxyButton);
     m_httpsAnalyzeControlLayout->addWidget(m_httpsProxyStatusLabel, 1);
     m_httpsAnalyzeLayout->addLayout(m_httpsAnalyzeControlLayout);
+    ks::ui::NormalizeToolbarRow(m_httpsAnalyzeControlLayout);
 
     QHBoxLayout* parsedFilterLayout = new QHBoxLayout();
     parsedFilterLayout->setSpacing(6);
     m_httpsParsedFilterEdit = new QLineEdit(m_httpsAnalyzePage);
+    ks::ui::StyleSearchField(m_httpsParsedFilterEdit);
     m_httpsParsedFilterEdit->setClearButtonEnabled(true);
     m_httpsParsedFilterEdit->setPlaceholderText(QStringLiteral("筛选主机、路径、方法、状态码、内容类型、TLS 或详情..."));
     m_httpsParsedFilterEdit->setToolTip(QStringLiteral("实时筛选当前 HTTPS 解析记录，不影响代理转发或完整缓存。"));
@@ -605,8 +610,11 @@ void NetworkDock::initializeHttpsAnalyzeTab()
     parsedFilterLayout->addWidget(m_httpsClearParsedButton);
     parsedFilterLayout->addWidget(m_httpsParsedSummaryLabel);
     m_httpsAnalyzeLayout->addLayout(parsedFilterLayout);
+    ks::ui::NormalizeToolbarRow(parsedFilterLayout);
 
     m_httpsParsedTable = new ks::ui::VisibleTableWidget(m_httpsAnalyzePage);
+    // 已有可见 CSV 导出、清空和自动滚动，避免重复的通用操作栏。
+    ks::ui::SetTableActionBarMode(m_httpsParsedTable, ks::ui::TableActionBarMode::None);
     m_httpsParsedTable->setColumnCount(HttpsParsedColumnCount);
     m_httpsParsedTable->setHorizontalHeaderLabels({
         QStringLiteral("时间"),

@@ -1,4 +1,6 @@
 #include "PrivilegeSnapshotPage.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "PrivilegeSnapshotModel.h"
 #include "PrivilegeAccountPages.h"
 #include "PrivilegeTokenPages.h"
@@ -81,6 +83,7 @@ namespace ks::privilege
                 selectors->addWidget(new QLabel(QStringLiteral("PID"), this));
                 selectors->addWidget(m_pid);
                 selectors->addStretch();
+                ks::ui::NormalizeToolbarRow(selectors);
                 layout->addLayout(selectors);
                 auto* toolbar = new QHBoxLayout;
                 addButton(toolbar, snapshotText(QStringLiteral("采集设为基线")), [this] { startCapture(true); });
@@ -88,6 +91,7 @@ namespace ks::privilege
                 addButton(toolbar, snapshotText(QStringLiteral("加载基线")), [this] { load(true); });
                 addButton(toolbar, snapshotText(QStringLiteral("加载当前")), [this] { load(false); });
                 toolbar->addStretch();
+                ks::ui::NormalizeToolbarRow(toolbar);
                 layout->addLayout(toolbar);
                 auto* saveBar = new QHBoxLayout;
                 addButton(saveBar, snapshotText(QStringLiteral("保存基线")), [this] { save(m_baseline); });
@@ -95,7 +99,9 @@ namespace ks::privilege
                 addButton(saveBar, snapshotText(QStringLiteral("复制当前差异")), [this] { copyCurrentRow(); });
                 m_search = new QLineEdit(this);
                 m_search->setPlaceholderText(snapshotText(QStringLiteral("筛选条目、原值或现值")));
+                ks::ui::StyleSearchField(m_search);
                 saveBar->addWidget(m_search, 1);
+                ks::ui::NormalizeToolbarRow(saveBar);
                 layout->addLayout(saveBar);
                 auto* explanation = new QLabel(snapshotText(QStringLiteral("手动采集账号状态、组成员、直接权限分配与令牌字段。采集不完整时，缺失条目标为无法确认；快照仅用于比较。")), this);
                 explanation->setWordWrap(true);
@@ -104,6 +110,8 @@ namespace ks::privilege
                 m_status->setWordWrap(true);
                 layout->addWidget(m_status);
                 m_table = new ks::ui::VisibleTableWidget(this);
+                // 页面已有完整基线/当前比较和保存功能，不再叠加通用快照操作栏。
+                ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::None);
                 m_table->setColumnCount(4);
                 m_table->setHorizontalHeaderLabels({snapshotText(QStringLiteral("变化")), snapshotText(QStringLiteral("条目")), snapshotText(QStringLiteral("原值")), snapshotText(QStringLiteral("现值"))});
                 m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);

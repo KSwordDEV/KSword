@@ -1,5 +1,6 @@
 #include "../UI/StructuredFieldView.h"
 #include "TamperDetectionPage.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/CodeEditorWidget.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -452,6 +453,7 @@ namespace ksword::memory_dock
         m_channelHintLabel = new QLabel(this);
         m_channelHintLabel->setWordWrap(true);
         actionLayout->addWidget(m_channelHintLabel, 1);
+        ks::ui::NormalizeToolbarRow(actionLayout);
         rootLayout->addLayout(actionLayout);
 
         m_statusLabel = new QLabel(QStringLiteral("尚未执行。"), this);
@@ -462,6 +464,8 @@ namespace ksword::memory_dock
         QSplitter* splitter = new QSplitter(Qt::Vertical, this);
 
         m_resultTable = new ks::ui::VisibleTableWidget(splitter);
+        // 独立篡改结论需保留证据快照，不能按参数选择器隐藏。
+        ks::ui::SetTableActionBarMode(m_resultTable, ks::ui::TableActionBarMode::Full);
         m_resultTable->setColumnCount(5);
         m_resultTable->setHorizontalHeaderLabels(QStringList{
             QStringLiteral("虚拟地址"),

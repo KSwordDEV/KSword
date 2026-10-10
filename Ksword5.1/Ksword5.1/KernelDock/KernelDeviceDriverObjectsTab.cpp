@@ -1,5 +1,7 @@
 
 #include "KernelDeviceDriverObjectsTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "KernelDriverDispatchEditorDialog.h"
 #include "KernelDriverImageEditorDialog.h"
 #include "KernelDock.h"
@@ -179,6 +181,7 @@ void KernelDeviceDriverObjectsTab::initializeUi()
     toolbarLayout->addWidget(m_refreshButton, 0);
     toolbarLayout->addWidget(m_exportButton, 0);
     toolbarLayout->addWidget(m_statusLabel, 1);
+    ks::ui::NormalizeToolbarRow(toolbarLayout);
     m_rootLayout->addWidget(m_toolbarWidget, 0);
 
     m_filterWidget = new QWidget(this);
@@ -197,7 +200,7 @@ void KernelDeviceDriverObjectsTab::initializeUi()
     m_keywordEdit = new QLineEdit(m_filterWidget);
     m_keywordEdit->setPlaceholderText(kernelText("kernel.device_driver.filter.keyword.placeholder", QStringLiteral("关键字过滤：名称 / 类型 / 路径 / 目标 / 提示")));
     m_keywordEdit->setClearButtonEnabled(true);
-    m_keywordEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(m_keywordEdit);
 
     filterLayout->addWidget(makeLabel(kernelText("kernel.device_driver.filter.directory.label", QStringLiteral("目录：")), m_filterWidget), 0);
     filterLayout->addWidget(m_directoryFilterCombo, 0);
@@ -205,9 +208,12 @@ void KernelDeviceDriverObjectsTab::initializeUi()
     filterLayout->addWidget(m_typeFilterCombo, 0);
     filterLayout->addWidget(makeLabel(kernelText("kernel.device_driver.filter.keyword.label", QStringLiteral("关键字：")), m_filterWidget), 0);
     filterLayout->addWidget(m_keywordEdit, 1);
+    ks::ui::NormalizeToolbarRow(filterLayout);
     m_rootLayout->addWidget(m_filterWidget, 0);
 
     m_tableWidget = new ks::ui::VisibleTableWidget(this);
+    // 设备/驱动对象清单需要捕获新增与消失对象，保留现场对比。
+    ks::ui::SetTableActionBarMode(m_tableWidget, ks::ui::TableActionBarMode::Full);
     m_tableWidget->setColumnCount(7);
     m_tableWidget->setHorizontalHeaderLabels({
         kernelText("kernel.device_driver.header.directory", QStringLiteral("目录路径")),

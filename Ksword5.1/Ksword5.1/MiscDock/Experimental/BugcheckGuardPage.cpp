@@ -1,4 +1,5 @@
 #include "BugcheckGuardPage.h"
+#include "../../UI/ToolbarMetrics.h"
 
 #include "../../ArkDriverClient/ArkDriverClient.h"
 #include "../../Internationalization/LanguageManager.h"
@@ -257,6 +258,7 @@ namespace ks::misc
         delayLayout->addWidget(m_delayLabel);
         delayLayout->addWidget(m_delaySpin);
         delayLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(delayLayout);
         controlLayout->addLayout(delayLayout);
 
         m_acknowledgeCheck = new QCheckBox(controlGroup);
@@ -324,6 +326,7 @@ namespace ks::misc
         actionLayout->addWidget(m_refreshButton);
         actionLayout->addWidget(m_enableButton);
         actionLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(actionLayout);
         controlLayout->addLayout(actionLayout);
         rootLayout->addWidget(controlGroup);
 

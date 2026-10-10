@@ -1,4 +1,6 @@
 #include "MemoryDock.Internal.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/StructuredFieldView.h"
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll：页内滚动壳。
 #include "../UI/TableInteractionSupport.h"
@@ -453,6 +455,7 @@ void MemoryDock::initializeKernelMemoryEvidenceTab()
     m_kernelMemoryEvidenceFilterEdit->setPlaceholderText(QStringLiteral("过滤 owner / detail / risk / hash"));
     m_kernelMemoryEvidenceFilterEdit->setToolTip(QStringLiteral("输入关键字后只显示匹配的证据行"));
     m_kernelMemoryEvidenceFilterEdit->setStyleSheet(buildBlueInputStyle());
+    ks::ui::StyleSearchField(m_kernelMemoryEvidenceFilterEdit);
 
     m_kernelMemoryEvidenceStatusLabel = new QLabel(QStringLiteral("状态：等待刷新"), m_tabKernelMemoryEvidence);
     m_kernelMemoryEvidenceStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -462,6 +465,7 @@ void MemoryDock::initializeKernelMemoryEvidenceTab()
     toolLayout->addWidget(evidenceActionSeparator);
     toolLayout->addWidget(m_kernelMemoryEvidenceFilterEdit, 1);
     toolLayout->addWidget(m_kernelMemoryEvidenceStatusLabel);
+    ks::ui::NormalizeToolbarRow(toolLayout);
     tabLayout->addLayout(toolLayout);
 
     // 第二层扫描参数分组：两个开关一行，三组“标签 + 输入”一行，网格保证标签与输入始终成对。
@@ -512,6 +516,8 @@ void MemoryDock::initializeKernelMemoryEvidenceTab()
     tabLayout->addWidget(splitter, 1);
 
     m_kernelMemoryEvidenceTable = new ks::ui::VisibleTableWidget(splitter);
+    // Hash/权限与风险变更有前后对比价值，保留完整操作栏。
+    ks::ui::SetTableActionBarMode(m_kernelMemoryEvidenceTable, ks::ui::TableActionBarMode::Full);
     m_kernelMemoryEvidenceTable->setColumnCount(evidenceColumnIndex(EvidenceColumn::Count));
     m_kernelMemoryEvidenceTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("VA"),

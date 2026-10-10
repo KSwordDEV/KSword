@@ -1,6 +1,8 @@
 #include "HandleDock.h"
 #include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeBinding.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/TableInteractionSupport.h"
@@ -522,6 +524,7 @@ void HandleDock::initializeUi()
     m_rootLayout->setSpacing(6);
 
     m_tabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_tabWidget);
     m_rootLayout->addWidget(m_tabWidget, 1);
 
     initializeHandleListTab();
@@ -609,6 +612,9 @@ void HandleDock::initializeHandleListTab()
     m_toolbarLayout->addWidget(m_resolveNameCheckBox);
     m_toolbarLayout->addWidget(new QLabel(QStringLiteral("名称预算"), m_handleListPage));
     m_toolbarLayout->addWidget(m_nameBudgetSpinBox);
+    // 句柄主清单控制行保留所有动作，只统一尺寸和间距。
+    m_toolbarLayout->setSpacing(8);
+    ks::ui::NormalizeToolbarRow(m_toolbarLayout);
 
     m_statusLabel = new QLabel(QStringLiteral("● 等待首次刷新"), m_handleListPage);
     m_statusLabel->setWordWrap(true);
@@ -642,6 +648,7 @@ void HandleDock::initializeObjectHeaderTab()
     m_handleDetailStatusLabel->setStyleSheet(
         QStringLiteral("color:%1;font-weight:600;").arg(KswordTheme::TextSecondaryHex()));
     m_handleDetailTable = new QTreeWidget(m_objectHeaderPage);
+    // 单个对象头沿用树形属性证据展示，不新增表格快照/对比栏。
     m_handleDetailTable->setColumnCount(2);
     m_handleDetailTable->setHeaderLabels(QStringList{ QStringLiteral("字段"), QStringLiteral("值") });
     m_handleDetailTable->setRootIsDecorated(false);
@@ -687,11 +694,10 @@ void HandleDock::initializeObjectTypeTab()
 
     m_objectTypeFilterEdit = new QLineEdit(m_objectTypePage);
     // 对象类型结果树的过滤输入，不接管句柄规则编辑中的 PID/名称表单。
-    ks::ui::BindSearchFieldTheme(m_objectTypeFilterEdit);
+    ks::ui::StyleSearchField(m_objectTypeFilterEdit);
     m_objectTypeFilterEdit->setPlaceholderText(QStringLiteral("对象类型过滤（类型名或编号）"));
     m_objectTypeFilterEdit->setClearButtonEnabled(true);
     m_objectTypeFilterEdit->setToolTip(QStringLiteral("输入类型名或编号，过滤对象类型表。"));
-    m_objectTypeFilterEdit->setStyleSheet(buildLineEditStyle());
 
     m_objectTypeStatusLabel = new QLabel(QStringLiteral("● 等待首次刷新"), m_objectTypePage);
     m_objectTypeStatusLabel->setStyleSheet(
@@ -700,9 +706,12 @@ void HandleDock::initializeObjectTypeTab()
     m_objectTypeToolLayout->addWidget(m_refreshObjectTypeButton);
     m_objectTypeToolLayout->addWidget(m_objectTypeFilterEdit, 1);
     m_objectTypeToolLayout->addWidget(m_objectTypeStatusLabel);
+    m_objectTypeToolLayout->setSpacing(8);
+    ks::ui::NormalizeToolbarRow(m_objectTypeToolLayout);
 
     m_objectTypeTable = new QTreeWidget(m_objectTypePage);
     m_objectTypeDetailTable = new QTreeWidget(m_objectTypePage);
+    // 类型清单和字段详情沿用原有树与右键复制，不新增表格操作栏。
     initializeObjectTypeTable();
     installReadOnlyTreeCopyMenu(m_objectTypeTable);
     installReadOnlyTreeCopyMenu(m_objectTypeDetailTable);

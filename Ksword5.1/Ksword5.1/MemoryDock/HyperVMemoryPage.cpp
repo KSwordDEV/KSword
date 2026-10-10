@@ -1,4 +1,6 @@
 #include "HyperVMemoryPage.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/StructuredFieldView.h"
 #include "PhysicalPageScan.h"
 #include "MemoryAttributionChart.h"
@@ -158,13 +160,16 @@ HyperVMemoryPage::HyperVMemoryPage(QWidget* parent) : QWidget(parent)
     auto* actions = new QHBoxLayout;
     m_collect = new QPushButton(this); m_cancel = new QPushButton(this); m_export = new QPushButton(this);
     m_filter = new QLineEdit(this); m_filter->setClearButtonEnabled(true);
+    ks::ui::StyleSearchField(m_filter);
     actions->addWidget(m_collect); actions->addWidget(m_cancel); actions->addWidget(m_filter, 1); actions->addWidget(m_export);
+    ks::ui::NormalizeToolbarRow(actions);
     root->addLayout(actions);
     m_summary = new QLabel(this); m_summary->setWordWrap(true); m_summary->setTextFormat(Qt::PlainText);
     m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse); root->addWidget(m_summary);
     m_progress = new QProgressBar(this); m_progress->setTextVisible(false); m_progress->setMaximumHeight(5); root->addWidget(m_progress);
     m_chart = new MemoryAttributionChart(this); root->addWidget(m_chart);
     m_tabs = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_tabs);
     auto* split = new QSplitter(Qt::Vertical, m_tabs);
     m_partitions = table(split); m_detail = new ks::ui::StructuredFieldView(split);
 
@@ -173,6 +178,11 @@ HyperVMemoryPage::HyperVMemoryPage(QWidget* parent) : QWidget(parent)
     m_host = table(m_tabs); m_tabs->addTab(m_host, {});
     m_processes = table(m_tabs); m_tabs->addTab(m_processes, {});
     m_sources = table(m_tabs); m_tabs->addTab(m_sources, {});
+    // 分区/进程明细保留复制导出；页面自有 VID 差值与证据导出，无需四份快照栏。
+    ks::ui::SetTableActionBarMode(m_partitions, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_processes, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_host, ks::ui::TableActionBarMode::None);
+    ks::ui::SetTableActionBarMode(m_sources, ks::ui::TableActionBarMode::None);
     m_evidence = new ks::ui::StructuredFieldView(m_tabs);
      m_tabs->addTab(m_evidence, {});
     root->addWidget(m_tabs, 1);

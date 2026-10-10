@@ -1,4 +1,6 @@
 #include "ContextMenuCleanerTab.h"
+#include "../../UI/PageControlStyle.h"
+#include "../../UI/ToolbarMetrics.h"
 #include "../../Framework/PrivilegeElevationPrompt.h"
 #include "../../UI/VisibleTableWidget.h"
 #include "../../UI/StructuredFieldView.h"
@@ -90,10 +92,11 @@ void ContextMenuCleanerTab::initializeUi()
 
     pageToolbarLayout->addWidget(m_backupButton);
     pageToolbarLayout->addWidget(m_restoreBackupButton);
-    pageToolbarLayout->addSpacing(12);
+    // 操作间距统一由工具条决定，不额外插入大空白。
     pageToolbarLayout->addWidget(m_latencyButton);
     pageToolbarLayout->addWidget(m_latencyStopButton);
     pageToolbarLayout->addWidget(m_latencyStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(pageToolbarLayout);
     m_rootLayout->addWidget(m_pageToolbar);
 
     connect(m_backupButton, &QPushButton::clicked, this, [this]() {
@@ -110,6 +113,7 @@ void ContextMenuCleanerTab::initializeUi()
     });
 
     m_areaTabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_areaTabWidget);
     m_areaTabWidget->setObjectName(QStringLiteral("ksContextMenuCleanerAreaTabs"));
     m_rootLayout->addWidget(m_areaTabWidget, 1);
 
@@ -203,7 +207,7 @@ void ContextMenuCleanerTab::createAreaPage(const MenuArea area)
     areaWidgets->filterEdit = new QLineEdit(areaWidgets->toolbarWidget);
     areaWidgets->filterEdit->setClearButtonEnabled(true);
     areaWidgets->filterEdit->setPlaceholderText(QStringLiteral("筛选：名称/显示名/命令/注册表路径/CLSID"));
-    areaWidgets->filterEdit->setStyleSheet(buildInputStyle());
+    ks::ui::StyleSearchField(areaWidgets->filterEdit);
 
     areaWidgets->refreshButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
     areaWidgets->deleteButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
@@ -221,11 +225,14 @@ void ContextMenuCleanerTab::createAreaPage(const MenuArea area)
     }
     toolbarLayout->addWidget(areaWidgets->copyButton);
     toolbarLayout->addWidget(areaWidgets->filterEdit, 1);
+    ks::ui::NormalizeToolbarRow(toolbarLayout);
 
     // 表格与详情编辑器必须放进同一个竖直分隔器：
     // DetailLayoutHost 靠它识别“表格 + 详情”这一对控件，并接管四种详情布局。
     QSplitter* splitter = new QSplitter(Qt::Vertical, areaWidgets->page);
     areaWidgets->table = new ks::ui::VisibleTableWidget(splitter);
+    // 七类关联页已有备份/恢复/删除工具，保留紧凑复制导出以免重复。
+    ks::ui::SetTableActionBarMode(areaWidgets->table, ks::ui::TableActionBarMode::Compact);
     areaWidgets->table->setColumnCount(kColumnCount);
     areaWidgets->table->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("名称"),

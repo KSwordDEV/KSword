@@ -4,6 +4,7 @@
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/TablePresentation.h"
 #include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../Internationalization/LanguageManager.h"
 
 // ============================================================
@@ -883,6 +884,7 @@ void NetworkAuditPage::initializeUi()
     m_rootLayout->addLayout(m_headerLayout);
 
     m_sectionTabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_sectionTabWidget);
     m_sectionTabWidget->setTabPosition(QTabWidget::North);
     m_rootLayout->addWidget(m_sectionTabWidget, 1);
 
@@ -897,6 +899,7 @@ void NetworkAuditPage::initializeUi()
     crossSearchLayout->setContentsMargins(0, 0, 0, 0);
     crossSearchLayout->setSpacing(6);
     m_crossSearchEdit = new QLineEdit(m_crossViewPage);
+    ks::ui::StyleSearchField(m_crossSearchEdit);
     m_crossSearchEdit->setClearButtonEnabled(true);
     m_crossSearchEdit->setPlaceholderText(QStringLiteral("搜索 PID / 进程 / 端点 / 状态 / 来源 / 明细 / 摘要"));
     m_crossSearchEdit->setMinimumWidth(220);
@@ -948,6 +951,8 @@ void NetworkAuditPage::initializeUi()
     m_crossViewTopSplitter->setChildrenCollapsible(false);
 
     m_tcpTable = new ks::ui::VisibleTableWidget(m_crossViewPage);
+    // 并排端点表保留复制/导出，快照和对比入口不重复占据每张表。
+    ks::ui::SetTableActionBarMode(m_tcpTable, ks::ui::TableActionBarMode::Compact);
     m_tcpTable->setColumnCount(6);
     m_tcpTable->setHorizontalHeaderLabels({
         QStringLiteral("PID"),
@@ -966,6 +971,7 @@ void NetworkAuditPage::initializeUi()
     m_tcpTable->setContextMenuPolicy(Qt::CustomContextMenu);
 
     m_udpTable = new ks::ui::VisibleTableWidget(m_crossViewPage);
+    ks::ui::SetTableActionBarMode(m_udpTable, ks::ui::TableActionBarMode::Compact);
     m_udpTable->setColumnCount(5);
     m_udpTable->setHorizontalHeaderLabels({
         QStringLiteral("PID"),
@@ -983,6 +989,8 @@ void NetworkAuditPage::initializeUi()
     m_udpTable->setContextMenuPolicy(Qt::CustomContextMenu);
 
     m_crossSummaryTable = new ks::ui::VisibleTableWidget(m_crossViewPage);
+    // 汇总由上方端点数据派生，自有复制菜单足够，无需独立快照栏。
+    ks::ui::SetTableActionBarMode(m_crossSummaryTable, ks::ui::TableActionBarMode::None);
     m_crossSummaryTable->setColumnCount(5);
     m_crossSummaryTable->setHorizontalHeaderLabels({ QStringLiteral("PID"), QStringLiteral("进程"), QStringLiteral("TCP"), QStringLiteral("UDP"), QStringLiteral("摘要") });
     m_crossSummaryTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -1018,6 +1026,8 @@ void NetworkAuditPage::initializeUi()
     afdLayout->setContentsMargins(4, 4, 4, 4);
     afdLayout->setSpacing(6);
     m_afdTable = new ks::ui::VisibleTableWidget(m_afdPage);
+    // AFD 是可独立保留现场的对象清单，保留完整操作栏。
+    ks::ui::SetTableActionBarMode(m_afdTable, ks::ui::TableActionBarMode::Full);
     m_afdTable->setColumnCount(8);
     m_afdTable->setHorizontalHeaderLabels({
         QStringLiteral("PID"),
@@ -1045,6 +1055,7 @@ void NetworkAuditPage::initializeUi()
     wfpLayout->setContentsMargins(4, 4, 4, 4);
     wfpLayout->setSpacing(6);
     m_wfpTabWidget = new QTabWidget(m_wfpPage);
+    ks::ui::StylePageTabs(m_wfpTabWidget);
     m_wfpTabWidget->setTabPosition(QTabWidget::North);
     wfpLayout->addWidget(m_wfpTabWidget, 1);
 
@@ -1066,6 +1077,11 @@ void NetworkAuditPage::initializeUi()
     m_wfpSubLayerTable = buildWfpTable(m_wfpPage, { QStringLiteral("名称"), QStringLiteral("描述"), QStringLiteral("GUID"), QStringLiteral("Flags"), QStringLiteral("Provider"), QStringLiteral("Weight") });
     m_wfpCalloutTable = buildWfpTable(m_wfpPage, { QStringLiteral("名称"), QStringLiteral("描述"), QStringLiteral("GUID"), QStringLiteral("Flags"), QStringLiteral("Provider"), QStringLiteral("Layer"), QStringLiteral("CalloutId") });
     m_wfpFilterTable = buildWfpTable(m_wfpPage, { QStringLiteral("名称"), QStringLiteral("描述"), QStringLiteral("GUID"), QStringLiteral("Flags"), QStringLiteral("Provider"), QStringLiteral("Layer"), QStringLiteral("Sublayer"), QStringLiteral("Weight"), QStringLiteral("Action"), QStringLiteral("Conditions"), QStringLiteral("FilterId") });
+    // Provider/Sublayer/Callout 为配置目录；Filter 才是需要现场对比的主策略清单。
+    ks::ui::SetTableActionBarMode(m_wfpProviderTable, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_wfpSubLayerTable, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_wfpCalloutTable, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_wfpFilterTable, ks::ui::TableActionBarMode::Full);
     m_wfpTabWidget->addTab(m_wfpProviderTable, QStringLiteral("Provider"));
     m_wfpTabWidget->addTab(m_wfpSubLayerTable, QStringLiteral("Sublayer"));
     m_wfpTabWidget->addTab(m_wfpCalloutTable, QStringLiteral("Callout"));
@@ -1078,12 +1094,18 @@ void NetworkAuditPage::initializeUi()
     ndisLayout->setContentsMargins(4, 4, 4, 4);
     ndisLayout->setSpacing(6);
     m_ndisTabWidget = new QTabWidget(m_ndisPage);
+    ks::ui::StylePageTabs(m_ndisTabWidget);
     m_ndisTabWidget->setTabPosition(QTabWidget::North);
     ndisLayout->addWidget(m_ndisTabWidget, 1);
     m_ndisAdapterTable = buildWfpTable(m_ndisPage, { QStringLiteral("名称"), QStringLiteral("描述"), QStringLiteral("IfIndex"), QStringLiteral("状态"), QStringLiteral("MAC"), QStringLiteral("速率"), QStringLiteral("连接") });
     m_ndisBindingTable = buildWfpTable(m_ndisPage, { QStringLiteral("网卡"), QStringLiteral("显示名"), QStringLiteral("ComponentId"), QStringLiteral("启用"), QStringLiteral("InstanceId") });
     m_ndisProtocolTable = buildWfpTable(m_ndisPage, { QStringLiteral("别名"), QStringLiteral("IfIndex"), QStringLiteral("地址族"), QStringLiteral("连接"), QStringLiteral("Metric"), QStringLiteral("MTU") });
     m_ndisUnknownTable = buildWfpTable(m_ndisPage, { QStringLiteral("类型"), QStringLiteral("组件"), QStringLiteral("所属模块"), QStringLiteral("对象地址"), QStringLiteral("详情") });
+    // 网卡与绑定页按配置目录处理，未知证据页保留完整快照以便记录边界。
+    ks::ui::SetTableActionBarMode(m_ndisAdapterTable, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_ndisBindingTable, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_ndisProtocolTable, ks::ui::TableActionBarMode::Compact);
+    ks::ui::SetTableActionBarMode(m_ndisUnknownTable, ks::ui::TableActionBarMode::Full);
     m_ndisTabWidget->addTab(m_ndisAdapterTable, QStringLiteral("Miniport"));
     m_ndisTabWidget->addTab(m_ndisBindingTable, QStringLiteral("Binding"));
     m_ndisTabWidget->addTab(m_ndisProtocolTable, QStringLiteral("Protocol"));
@@ -1098,6 +1120,8 @@ void NetworkAuditPage::initializeUi()
     nsiLayout->setContentsMargins(4, 4, 4, 4);
     nsiLayout->setSpacing(6);
     m_nsiSummaryTable = new ks::ui::VisibleTableWidget(m_nsiPage);
+    // NSI 仅给出固定指标和能力边界，复制菜单保留，隐藏无用对比栏。
+    ks::ui::SetTableActionBarMode(m_nsiSummaryTable, ks::ui::TableActionBarMode::None);
     m_nsiSummaryTable->setColumnCount(5);
     m_nsiSummaryTable->setHorizontalHeaderLabels({
         QStringLiteral("指标"),

@@ -4,6 +4,8 @@
 #include "../../../shared/ui/KsPainterChart.h"
 #include <MonitorDock/EtwArchiveCompression.h>
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "DirectKernelCallMonitorWidget.h"
 #include "KernelCallbackMonitorWidget.h"
 #include "MonitorTextViewer.h"
@@ -4919,6 +4921,7 @@ void MonitorDock::initializeUi()
     m_rootLayout->setSpacing(6);
 
     m_sideTabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_sideTabWidget);
     m_rootLayout->addWidget(m_sideTabWidget, 1);
 
     m_processTraceWidget = new ProcessTraceMonitorWidget(m_sideTabWidget);
@@ -5537,6 +5540,7 @@ void MonitorDock::initializeWmiTab()
     m_wmiProviderFilterEdit = new QLineEdit(m_wmiProviderPanel);
     m_wmiProviderFilterEdit->setPlaceholderText(QStringLiteral("按Provider或命名空间过滤"));
     m_wmiProviderFilterEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(m_wmiProviderFilterEdit);
 
     m_wmiProviderRefreshButton = new QPushButton(QIcon(":/Icon/process_refresh.svg"), QString(), m_wmiProviderPanel);
     m_wmiProviderRefreshButton->setToolTip(QStringLiteral("刷新WMI Provider"));
@@ -5549,6 +5553,7 @@ void MonitorDock::initializeWmiTab()
     m_wmiProviderControlLayout->addWidget(m_wmiProviderFilterEdit, 1);
     m_wmiProviderControlLayout->addWidget(m_wmiProviderRefreshButton);
     m_wmiProviderControlLayout->addWidget(m_wmiProviderStatusLabel);
+    ks::ui::NormalizeToolbarRow(m_wmiProviderControlLayout);
 
     m_wmiProviderModel = new QStandardItemModel(0, 5, m_wmiProviderPanel);
     m_wmiProviderModel->setHorizontalHeaderLabels(QStringList{
@@ -5565,6 +5570,8 @@ void MonitorDock::initializeWmiTab()
     m_wmiProviderProxyModel->setFilterKeyColumn(-1);
 
     m_wmiProviderTableView = new ks::ui::TableActionTableView(m_wmiProviderPanel);
+    // Provider/事件类是订阅配置的选择器，已有复制菜单，不占结果区域。
+    ks::ui::SetTableActionBarMode(m_wmiProviderTableView, ks::ui::TableActionBarMode::None);
     m_wmiProviderTableView->setModel(m_wmiProviderProxyModel);
     m_wmiProviderTableView->setSortingEnabled(true);
     m_wmiProviderTableView->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -5620,8 +5627,10 @@ void MonitorDock::initializeWmiTab()
     m_wmiEventClassControlLayout->addWidget(m_wmiSelectAllClassesButton);
     m_wmiEventClassControlLayout->addWidget(m_wmiSelectNoneClassesButton);
     m_wmiEventClassControlLayout->addWidget(m_wmiSelectWin32ClassesButton);
+    ks::ui::NormalizeToolbarRow(m_wmiEventClassControlLayout);
 
     m_wmiEventClassTable = new ks::ui::VisibleTableWidget(m_wmiSubscribePanel);
+    ks::ui::SetTableActionBarMode(m_wmiEventClassTable, ks::ui::TableActionBarMode::None);
     m_wmiEventClassTable->setColumnCount(3);
     m_wmiEventClassTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("启用"),
@@ -5708,6 +5717,7 @@ void MonitorDock::initializeWmiTab()
     m_wmiSubscribeControlLayout->addWidget(m_wmiPauseSubscribeButton);
     m_wmiSubscribeControlLayout->addWidget(m_wmiExportButton);
     m_wmiSubscribeControlLayout->addWidget(m_wmiSubscribeStatusLabel);
+    ks::ui::NormalizeToolbarRow(m_wmiSubscribeControlLayout);
 
     m_wmiSubscribeLayout->addLayout(m_wmiEventClassControlLayout);
     m_wmiSubscribeLayout->addWidget(m_wmiEventClassTable, 1);
@@ -5728,6 +5738,7 @@ void MonitorDock::initializeWmiTab()
 
     // 结果表。
     m_wmiEventTable = new ks::ui::VisibleTableWidget(m_wmiPage);
+    ks::ui::SetTableActionBarMode(m_wmiEventTable, ks::ui::TableActionBarMode::Full);
     m_wmiEventTable->setColumnCount(5);
     m_wmiEventTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("时间戳(ms)"),
@@ -5801,6 +5812,14 @@ void MonitorDock::initializeWmiTab()
     wmiFilterBottomRow->addWidget(m_wmiEventKeepBottomCheck, 0);
     wmiFilterBottomRow->addWidget(m_wmiEventFilterClearButton, 0);
     wmiFilterBottomRow->addWidget(m_wmiEventFilterStatusLabel, 0);
+    // 本页五个输入均是结果过滤，不把 WHERE 或手动 Provider 参数套成搜索框。
+    ks::ui::StyleSearchField(m_wmiEventGlobalFilterEdit);
+    ks::ui::StyleSearchField(m_wmiEventProviderFilterEdit);
+    ks::ui::StyleSearchField(m_wmiEventClassFilterEdit);
+    ks::ui::StyleSearchField(m_wmiEventPidFilterEdit);
+    ks::ui::StyleSearchField(m_wmiEventDetailFilterEdit);
+    ks::ui::NormalizeToolbarRow(wmiFilterTopRow);
+    ks::ui::NormalizeToolbarRow(wmiFilterBottomRow);
 
     wmiFilterLayout->addLayout(wmiFilterTopRow);
     wmiFilterLayout->addLayout(wmiFilterBottomRow);
@@ -5930,6 +5949,7 @@ void MonitorDock::initializeEtwTab()
     m_etwProviderControlLayout->addStretch(1);
     m_etwProviderControlLayout->addWidget(m_etwProviderRefreshButton);
     m_etwProviderControlLayout->addWidget(m_etwProviderStatusLabel);
+    ks::ui::NormalizeToolbarRow(m_etwProviderControlLayout);
 
     // Provider 区改为左右分栏：
     // - 左侧：预置常用 Provider 模板（含分类筛选）；
@@ -5964,13 +5984,12 @@ void MonitorDock::initializeEtwTab()
     m_etwPresetSelectAllButton = new QPushButton(QStringLiteral("全选显示"), etwPresetWidget);
     m_etwPresetSelectAllButton->setToolTip(QStringLiteral("勾选当前分类中显示的所有经典内核事件和 Provider"));
     m_etwPresetSelectAllButton->setStyleSheet(blueButtonStyle());
-    m_etwPresetSelectAllButton->setFixedWidth(82);
     m_etwPresetClearAllButton = new QPushButton(QStringLiteral("全取消"), etwPresetWidget);
     m_etwPresetClearAllButton->setToolTip(QStringLiteral("取消当前分类中显示的所有经典内核事件和 Provider"));
     m_etwPresetClearAllButton->setStyleSheet(blueButtonStyle());
-    m_etwPresetClearAllButton->setFixedWidth(82);
     etwPresetHeaderLayout->addWidget(m_etwPresetSelectAllButton);
     etwPresetHeaderLayout->addWidget(m_etwPresetClearAllButton);
+    ks::ui::NormalizeToolbarRow(etwPresetHeaderLayout);
     etwPresetLayout->addLayout(etwPresetHeaderLayout);
 
     m_etwPresetProviderList = new QListWidget(etwPresetWidget);
@@ -6002,17 +6021,17 @@ void MonitorDock::initializeEtwTab()
     m_etwSystemProviderSearchEdit = new QLineEdit(etwAllProviderWidget);
     m_etwSystemProviderSearchEdit->setPlaceholderText(QStringLiteral("搜索Provider名称或GUID"));
     m_etwSystemProviderSearchEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(m_etwSystemProviderSearchEdit);
     etwAllProviderHeaderLayout->addWidget(m_etwSystemProviderSearchEdit, 1);
     m_etwSystemProviderSelectAllButton = new QPushButton(QStringLiteral("全选显示"), etwAllProviderWidget);
     m_etwSystemProviderSelectAllButton->setToolTip(QStringLiteral("勾选搜索结果中显示的所有系统 Provider"));
     m_etwSystemProviderSelectAllButton->setStyleSheet(blueButtonStyle());
-    m_etwSystemProviderSelectAllButton->setFixedWidth(82);
     m_etwSystemProviderClearAllButton = new QPushButton(QStringLiteral("全取消"), etwAllProviderWidget);
     m_etwSystemProviderClearAllButton->setToolTip(QStringLiteral("取消搜索结果中显示的所有系统 Provider"));
     m_etwSystemProviderClearAllButton->setStyleSheet(blueButtonStyle());
-    m_etwSystemProviderClearAllButton->setFixedWidth(82);
     etwAllProviderHeaderLayout->addWidget(m_etwSystemProviderSelectAllButton);
     etwAllProviderHeaderLayout->addWidget(m_etwSystemProviderClearAllButton);
+    ks::ui::NormalizeToolbarRow(etwAllProviderHeaderLayout);
     etwAllProviderLayout->addLayout(etwAllProviderHeaderLayout);
 
     m_etwProviderList = new QListWidget(etwAllProviderWidget);
@@ -6054,9 +6073,12 @@ void MonitorDock::initializeEtwTab()
     m_etwSessionControlLayout->addWidget(m_etwSessionRefreshButton);
     m_etwSessionControlLayout->addWidget(m_etwSessionStopButton);
     m_etwSessionControlLayout->addWidget(m_etwSessionStatusLabel);
+    ks::ui::NormalizeToolbarRow(m_etwSessionControlLayout);
     m_etwSessionPanelLayout->addLayout(m_etwSessionControlLayout);
 
     m_etwSessionTable = new ks::ui::VisibleTableWidget(m_etwSessionPanel);
+    // 活动会话是管理辅助清单，紧凑复制/导出保留调查入口。
+    ks::ui::SetTableActionBarMode(m_etwSessionTable, ks::ui::TableActionBarMode::Compact);
     m_etwSessionTable->setColumnCount(5);
     m_etwSessionTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("会话名"),
@@ -6175,6 +6197,7 @@ void MonitorDock::initializeEtwTab()
     m_etwCaptureControlLayout->addWidget(m_etwPauseButton);
     m_etwCaptureControlLayout->addWidget(m_etwExportButton);
     m_etwCaptureControlLayout->addWidget(m_etwCaptureStatusLabel);
+    ks::ui::NormalizeToolbarRow(m_etwCaptureControlLayout);
 
     captureLayout->addLayout(formLayout);
     m_etwCollapseHostLayout->addWidget(createIndependentCollapseSection(
@@ -6200,6 +6223,7 @@ void MonitorDock::initializeEtwTab()
 
     // 结果表。
     m_etwEventTable = new ks::ui::VisibleTableWidget(m_etwPage);
+    ks::ui::SetTableActionBarMode(m_etwEventTable, ks::ui::TableActionBarMode::Full);
     m_etwEventTable->setColumnCount(7);
     m_etwEventTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("时间戳(100ns)"),
@@ -6293,6 +6317,7 @@ QWidget* MonitorDock::createEtwSimpleFilterPanel(const EtwFilterStage stage, QWi
     headerLayout->addWidget(uiState.enabledCheck);
     headerLayout->addStretch(1);
     headerLayout->addWidget(uiState.clearButton);
+    ks::ui::NormalizeToolbarRow(headerLayout);
     rootLayout->addLayout(headerLayout);
 
     QLabel* semanticHintLabel = new QLabel(uiState.panelWidget);
@@ -6321,6 +6346,7 @@ QWidget* MonitorDock::createEtwSimpleFilterPanel(const EtwFilterStage stage, QWi
         editOut = new QLineEdit(cellWidget);
         editOut->setPlaceholderText(placeholderText);
         editOut->setStyleSheet(blueInputStyle());
+        ks::ui::StyleSearchField(editOut);
         cellLayout->addWidget(label);
         cellLayout->addWidget(editOut);
         fieldGrid->addWidget(cellWidget, fieldIndex / 2, fieldIndex % 2);
@@ -6365,6 +6391,7 @@ QWidget* MonitorDock::createEtwSimpleFilterPanel(const EtwFilterStage stage, QWi
     uiState.customProviderEdit->setPlaceholderText(
         QStringLiteral("自定义Provider：名称或GUID，多值用逗号/分号分隔"));
     uiState.customProviderEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(uiState.customProviderEdit);
     rootLayout->addWidget(uiState.customProviderEdit);
 
     QLabel* actionLabel = new QLabel(QStringLiteral("行为"), uiState.panelWidget);
@@ -6391,6 +6418,7 @@ QWidget* MonitorDock::createEtwSimpleFilterPanel(const EtwFilterStage stage, QWi
     uiState.customActionEdit->setPlaceholderText(
         QStringLiteral("自定义行为，多值用逗号/分号分隔"));
     uiState.customActionEdit->setStyleSheet(blueInputStyle());
+    ks::ui::StyleSearchField(uiState.customActionEdit);
     rootLayout->addWidget(uiState.customActionEdit);
 
     uiState.stateLabel = new QLabel(QStringLiteral("简易筛选：无条件"), uiState.panelWidget);
@@ -6630,6 +6658,7 @@ void MonitorDock::initializeEtwFilterPanels()
             actionLayout->addWidget(importButtonOut);
             actionLayout->addWidget(exportButtonOut);
             actionLayout->addStretch(1);
+            ks::ui::NormalizeToolbarRow(actionLayout);
             panelLayoutOut->addLayout(actionLayout, 0);
 
             stateLabelOut = new QLabel(QStringLiteral("当前规则：无"), panelOut);
@@ -7313,6 +7342,7 @@ void MonitorDock::addEtwFilterRuleGroup(const EtwFilterStage stage)
     headerLayout->addWidget(groupState->enabledCheck);
     headerLayout->addStretch(1);
     headerLayout->addWidget(groupState->removeGroupButton);
+    ks::ui::NormalizeToolbarRow(headerLayout);
     rootLayout->addLayout(headerLayout);
 
     QFrame* separatorLine = new QFrame(groupState->containerWidget);
@@ -7342,6 +7372,7 @@ void MonitorDock::addEtwFilterRuleGroup(const EtwFilterStage stage)
     optionLayout->addWidget(groupState->detailVisibleColumnsCheck, 0);
     optionLayout->addWidget(groupState->detailMatchAllFieldsCheck, 0);
     optionLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(optionLayout);
     rootLayout->addLayout(optionLayout);
 
     QHBoxLayout* categoryLayout = new QHBoxLayout();
@@ -7355,6 +7386,7 @@ void MonitorDock::addEtwFilterRuleGroup(const EtwFilterStage stage)
         categoryLayout->addWidget(checkBox, 0);
     }
     categoryLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(categoryLayout);
     rootLayout->addLayout(categoryLayout);
 
     QGridLayout* fieldLayout = new QGridLayout();
@@ -7370,6 +7402,7 @@ void MonitorDock::addEtwFilterRuleGroup(const EtwFilterStage stage)
         QLabel* fieldLabel = new QLabel(QString::fromUtf8(descriptor.label), groupState->containerWidget);
         QLineEdit* fieldEdit = new QLineEdit(groupState->containerWidget);
         fieldEdit->setStyleSheet(blueInputStyle());
+        ks::ui::StyleSearchField(fieldEdit);
         fieldEdit->setPlaceholderText(
             QStringLiteral("%1（逗号/分号/空白分隔）").arg(QString::fromUtf8(descriptor.placeholder)));
 

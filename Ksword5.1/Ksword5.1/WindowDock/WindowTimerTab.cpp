@@ -5,6 +5,8 @@
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../theme.h"
 
 #include <QAbstractItemView>
@@ -325,14 +327,16 @@ void WindowTimerTab::initializeUi()
     m_refreshButton = new QPushButton(
         timerText("window.timer.refresh", QStringLiteral("刷新窗口定时器")),
         this);
-    m_refreshButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(timerText(
         "window.timer.filter.placeholder",
         QStringLiteral("按对象、间隔、Flags、回调、模块、PID/TID 或路径筛选")));
     toolbar->addWidget(m_refreshButton);
     toolbar->addWidget(m_filterEdit, 1);
+    toolbar->setSpacing(8);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_statusLabel = new QLabel(
@@ -343,6 +347,8 @@ void WindowTimerTab::initializeUi()
     rootLayout->addWidget(m_statusLabel);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // 系统定时器现场可跨刷新比较，保留完整操作栏。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setColumnCount(ColumnCount);
     m_table->setHorizontalHeaderLabels({
         timerText("window.timer.header.object", QStringLiteral("定时器对象")),
@@ -369,12 +375,6 @@ void WindowTimerTab::initializeUi()
     m_table->verticalHeader()->setVisible(false);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->horizontalHeader()->setStretchLastSection(true);
-    m_table->setStyleSheet(QStringLiteral(
-        "QTableWidget{background:transparent;color:%1;}"
-        "QHeaderView::section{color:%2;background:transparent;border:1px solid %3;font-weight:600;}")
-        .arg(KswordTheme::TextPrimaryHex())
-        .arg(KswordTheme::PrimaryBlueHex)
-        .arg(KswordTheme::BorderHex()));
     rootLayout->addWidget(m_table, 1);
 
     connect(m_refreshButton, &QPushButton::clicked, this, [this]() { refreshAsync(); });

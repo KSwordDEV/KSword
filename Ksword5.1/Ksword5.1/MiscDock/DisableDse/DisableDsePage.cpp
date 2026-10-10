@@ -2,6 +2,7 @@
 // 说明见 DisableDsePage.h。所有内核访问都在 DisableDseBackend 里，本文件只做界面与调度。
 
 #include "DisableDsePage.h"
+#include "../../UI/ToolbarMetrics.h"
 
 #include "../../Internationalization/LanguageManager.h"
 #include "../../UI/CodeEditorWidget.h"
@@ -345,6 +346,7 @@ namespace ks::misc
         buttonLayout->addWidget(m_restoreButton);
 
         buttonLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(buttonLayout);
         actionLayout->addLayout(buttonLayout);
 
         m_resultLabel = new QLabel(actionGroup);

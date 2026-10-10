@@ -1,4 +1,6 @@
 #include "SnapshotWorkbenchWidget.h"
+#include "../PageControlStyle.h"
+#include "../ToolbarMetrics.h"
 #include "../CodeTextEdit.h"
 #include "../MemoryAssembly.h"
 #include "HexView.h"
@@ -91,13 +93,16 @@ namespace ks::ui
         m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);
         m_status->setWordWrap(true);
         tools->addStretch();
+        NormalizeToolbarRow(tools);
         layout->addLayout(tools);
         auto* stateRow = new QHBoxLayout;
         stateRow->addWidget(m_highlightChanges);
         stateRow->addWidget(m_status, 1);
+        NormalizeToolbarRow(stateRow);
         layout->addLayout(stateRow);
 
         m_tabs = new QTabWidget(this);
+        StylePageTabs(m_tabs);
         m_hex = new HexView(m_tabs);
         m_hex->setBytesPerRow(16);
         m_hex->setStatusBarVisible(false);
@@ -113,6 +118,7 @@ namespace ks::ui
         auto* decode = new QPushButton(trText(QStringLiteral("定位并解码")), codePage);
         navigation->addWidget(m_decodeAddress, 1);
         navigation->addWidget(decode);
+        NormalizeToolbarRow(navigation);
         codeLayout->addLayout(navigation);
         m_decodeStatus = new QLabel(codePage);
         m_decodeStatus->setWordWrap(true);

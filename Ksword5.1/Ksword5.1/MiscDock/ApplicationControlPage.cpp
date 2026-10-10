@@ -1,4 +1,6 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "ApplicationControlPage.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -521,9 +523,11 @@ namespace ks::misc
         toolbarLayout->addWidget(m_exportButton);
         toolbarLayout->addStretch(1);
         toolbarLayout->addWidget(m_statusLabel);
+        ks::ui::NormalizeToolbarRow(toolbarLayout);
         m_rootLayout->addWidget(m_toolbarWidget, 0);
 
         m_tabWidget = new QTabWidget(this);
+        ks::ui::StylePageTabs(m_tabWidget);
         m_rootLayout->addWidget(m_tabWidget, 1);
 
         m_appLockerPage = buildAppLockerPage();
@@ -564,8 +568,11 @@ namespace ks::misc
         m_appLockerEditButton->setEnabled(false);
         actionLayout->addWidget(m_appLockerEditButton);
         actionLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(actionLayout);
 
         m_appLockerTable = new ks::ui::VisibleTableWidget(page);
+        // 执行规则增删值得保存前后策略，保留快照对比。
+        ks::ui::SetTableActionBarMode(m_appLockerTable, ks::ui::TableActionBarMode::Full);
         initializeTable(m_appLockerTable, true);
         m_appLockerTable->setContextMenuPolicy(Qt::CustomContextMenu);
 
@@ -598,12 +605,17 @@ namespace ks::misc
         m_wdacEditButton->setToolTip(QStringLiteral("编辑 WDAC 源 XML；可选择编译并通过 CiTool 部署。部署前请确认策略经过验证。"));
         actionLayout->addWidget(m_wdacEditButton);
         actionLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(actionLayout);
 
         m_policyFileTable = new ks::ui::VisibleTableWidget(page);
+        // 活动 WDAC 策略列表需要对比部署前后状态。
+        ks::ui::SetTableActionBarMode(m_policyFileTable, ks::ui::TableActionBarMode::Full);
         initializeTable(m_policyFileTable, true);
         m_policyFileTable->setContextMenuPolicy(Qt::CustomContextMenu);
 
         m_codeIntegrityEventTable = new ks::ui::VisibleTableWidget(page);
+        // WDAC 页的附属事件流水保留复制导出，避免两条完整操作栏。
+        ks::ui::SetTableActionBarMode(m_codeIntegrityEventTable, ks::ui::TableActionBarMode::Compact);
         initializeTable(m_codeIntegrityEventTable, true);
 
         layout->addWidget(m_wdacSummary, 0);
@@ -636,8 +648,11 @@ namespace ks::misc
         m_defenderEditButton->setToolTip(QStringLiteral("编辑表格当前选中的 Defender / ASR 配置。需要管理员权限，受篡改防护限制时系统会拒绝写入。"));
         actionLayout->addWidget(m_defenderEditButton);
         actionLayout->addStretch(1);
+        ks::ui::NormalizeToolbarRow(actionLayout);
 
         m_defenderTable = new ks::ui::VisibleTableWidget(page);
+        // Defender 配置摘要已有编辑入口，收拢快照动作。
+        ks::ui::SetTableActionBarMode(m_defenderTable, ks::ui::TableActionBarMode::Compact);
         initializeTable(m_defenderTable, true);
         m_defenderTable->setContextMenuPolicy(Qt::CustomContextMenu);
 
@@ -664,6 +679,8 @@ namespace ks::misc
         m_platformSummary->setMaximumHeight(160);
 
         m_platformTable = new ks::ui::VisibleTableWidget(page);
+        // 平台安全键值摘要已有统一导出，不需要独立快照栏。
+        ks::ui::SetTableActionBarMode(m_platformTable, ks::ui::TableActionBarMode::None);
         initializeTable(m_platformTable, true);
 
         layout->addWidget(m_platformSummary, 0);
@@ -717,9 +734,12 @@ namespace ks::misc
         m_eventSummary->setMaximumHeight(150);
 
         m_eventTable = new ks::ui::VisibleTableWidget(page);
+        // 事件本身是时间序列，保留复制导出并收拢重复快照。
+        ks::ui::SetTableActionBarMode(m_eventTable, ks::ui::TableActionBarMode::Compact);
         initializeTable(m_eventTable, true);
         m_eventTable->setMinimumHeight(220);
 
+        ks::ui::NormalizeToolbarRow(filterLayout);
         layout->addWidget(filterRow, 0);
         layout->addWidget(m_eventSummary, 0);
         layout->addWidget(m_eventTable, 1);
@@ -761,8 +781,11 @@ namespace ks::misc
         m_fileDiagnosisSummary->setMaximumHeight(180);
 
         m_fileDiagnosisTable = new ks::ui::VisibleTableWidget(page);
+        // 单文件诊断的少量检查项不需要冻结或跨表快照。
+        ks::ui::SetTableActionBarMode(m_fileDiagnosisTable, ks::ui::TableActionBarMode::None);
         initializeTable(m_fileDiagnosisTable, true);
 
+        ks::ui::NormalizeToolbarRow(inputLayout);
         layout->addWidget(inputRow, 0);
         layout->addWidget(m_fileDiagnosisSummary, 0);
         layout->addWidget(m_fileDiagnosisTable, 1);

@@ -4,6 +4,8 @@
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../theme.h"
 
 #include <QAbstractItemView>
@@ -556,7 +558,6 @@ void WindowGuiHandleTab::initializeUi()
     m_refreshButton = new QPushButton(
         guiHandleText("window.gui_handle.refresh", QStringLiteral("刷新 GUI 句柄")),
         this);
-    m_refreshButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
     m_typeFilterCombo = new QComboBox(this);
     m_typeFilterCombo->addItem(guiHandleText("window.gui_handle.filter.all", QStringLiteral("全部类型")), -1);
     m_typeFilterCombo->addItem(QStringLiteral("Window"), 1);
@@ -567,6 +568,7 @@ void WindowGuiHandleTab::initializeUi()
     m_typeFilterCombo->addItem(QStringLiteral("Timer"), 16);
     m_typeFilterCombo->addItem(QStringLiteral("InputContext"), 17);
     m_filterEdit = new QLineEdit(this);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(guiHandleText(
         "window.gui_handle.filter.placeholder",
@@ -574,6 +576,8 @@ void WindowGuiHandleTab::initializeUi()
     toolbar->addWidget(m_refreshButton);
     toolbar->addWidget(m_typeFilterCombo);
     toolbar->addWidget(m_filterEdit, 1);
+    toolbar->setSpacing(8);
+    ks::ui::NormalizeToolbarRow(toolbar);
     rootLayout->addLayout(toolbar);
 
     m_statusLabel = new QLabel(
@@ -584,6 +588,8 @@ void WindowGuiHandleTab::initializeUi()
     rootLayout->addWidget(m_statusLabel);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // USER 句柄主清单保留快照比较，避免隐藏现场变化能力。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setColumnCount(ColumnCount);
     m_table->setHorizontalHeaderLabels({
         guiHandleText("window.gui_handle.header.handle", QStringLiteral("句柄")),
@@ -610,12 +616,6 @@ void WindowGuiHandleTab::initializeUi()
     m_table->verticalHeader()->setVisible(false);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->horizontalHeader()->setStretchLastSection(true);
-    m_table->setStyleSheet(QStringLiteral(
-        "QTableWidget{background:transparent;color:%1;}"
-        "QHeaderView::section{color:%2;background:transparent;border:1px solid %3;font-weight:600;}")
-        .arg(KswordTheme::TextPrimaryHex())
-        .arg(KswordTheme::PrimaryBlueHex)
-        .arg(KswordTheme::BorderHex()));
     rootLayout->addWidget(m_table, 1);
 
     connect(m_refreshButton, &QPushButton::clicked, this, [this]() { refreshAsync(); });

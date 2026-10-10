@@ -1,4 +1,6 @@
 #include "ProcessMessageHookWindow.h"
+#include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/FlatButtonTheme.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
@@ -363,10 +365,10 @@ void ProcessMessageHookWindow::initializeUi()
     toolbarLayout->addWidget(m_refreshButton, 0);
     toolbarLayout->addWidget(scopeLabel, 0);
     toolbarLayout->addWidget(m_scopeCombo, 0);
-    toolbarLayout->addSpacing(4);
     toolbarLayout->addWidget(m_columnAButton, 0);
     toolbarLayout->addWidget(m_columnBButton, 0);
     toolbarLayout->addWidget(m_targetLabel, 1);
+    ks::ui::NormalizeToolbarRow(toolbarLayout);
     rootLayout->addLayout(toolbarLayout);
 
     m_statusLabel = new QLabel(hookWindowText(QStringLiteral("等待查询消息 Hook。")), this);
@@ -377,6 +379,8 @@ void ProcessMessageHookWindow::initializeUi()
     rootLayout->addWidget(m_statusLabel, 0);
 
     m_table = new QTableWidget(this);
+    // 消息 Hook 是该窗口的主结果，保留完整取证工具。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setColumnCount(columnIndex(Column::Count));
     m_table->setHorizontalHeaderLabels(QStringList{
         hookWindowText(QStringLiteral("目标 PID")),

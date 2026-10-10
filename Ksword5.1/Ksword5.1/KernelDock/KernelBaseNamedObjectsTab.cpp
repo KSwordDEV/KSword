@@ -1,4 +1,6 @@
 #include "KernelBaseNamedObjectsTab.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -208,15 +210,18 @@ void KernelBaseNamedObjectsTab::initializeUi()
     m_keywordFilterEdit = new QLineEdit(this);
     m_keywordFilterEdit->setPlaceholderText(kernelText("kernel.base_named_objects.toolbar.keyword_filter.placeholder", QStringLiteral("过滤 scope / 目录 / 名称 / 类型 / 目标 / 状态")));
     m_keywordFilterEdit->setClearButtonEnabled(true);
-    m_keywordFilterEdit->setStyleSheet(inputStyle());
+    ks::ui::StyleSearchField(m_keywordFilterEdit);
     toolbarLayout->addWidget(m_keywordFilterEdit, 1);
 
     m_statusLabel = new QLabel(kernelText("kernel.base_named_objects.status.waiting", QStringLiteral("等待刷新")), this);
     m_statusLabel->setStyleSheet(QStringLiteral("color:%1;").arg(KswordTheme::TextSecondaryHex()));
     toolbarLayout->addWidget(m_statusLabel, 0);
+    ks::ui::NormalizeToolbarRow(toolbarLayout);
     m_rootLayout->addLayout(toolbarLayout, 0);
 
     m_table = new ks::ui::VisibleTableWidget(this);
+    // Global/Session 命名对象属于动态对象清单，保留完整快照栏。
+    ks::ui::SetTableActionBarMode(m_table, ks::ui::TableActionBarMode::Full);
     m_table->setColumnCount(static_cast<int>(BaseNamedObjectsColumn::Count));
     m_table->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("scope"),

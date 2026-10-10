@@ -1,5 +1,6 @@
 #include "../UI/StructuredFieldView.h"
 #include "ServiceDock.Internal.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/CodeTextEdit.h"
 #include "../theme.h"
 
@@ -315,6 +316,7 @@ void ServiceDock::initializeGeneralTab()
     actionRowLayout->addStretch(1);
     actionRowLayout->addWidget(m_generalReloadButton);
     actionRowLayout->addWidget(m_generalApplyButton);
+    ks::ui::NormalizeToolbarRow(actionRowLayout);
     rootLayout->addWidget(actionRowWidget, 0);
 
     QFormLayout* formLayout = new QFormLayout();
@@ -393,6 +395,7 @@ void ServiceDock::initializeLogonTab()
     actionRowLayout->addStretch(1);
     actionRowLayout->addWidget(m_logonReloadButton);
     actionRowLayout->addWidget(m_logonApplyButton);
+    ks::ui::NormalizeToolbarRow(actionRowLayout);
     rootLayout->addWidget(actionRowWidget, 0);
 
     m_logonLocalSystemRadio = new QRadioButton(QStringLiteral("本地系统帐户"), m_logonTabPage);
@@ -454,6 +457,7 @@ void ServiceDock::initializeRecoveryTab()
     actionRowLayout->addStretch(1);
     actionRowLayout->addWidget(m_recoveryReloadButton);
     actionRowLayout->addWidget(m_recoveryApplyButton);
+    ks::ui::NormalizeToolbarRow(actionRowLayout);
     rootLayout->addWidget(actionRowWidget, 0);
 
     QFormLayout* formLayout = new QFormLayout();

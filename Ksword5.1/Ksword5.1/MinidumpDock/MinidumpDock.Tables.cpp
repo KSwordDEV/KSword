@@ -1,5 +1,6 @@
 #include "../UI/StructuredFieldView.h"
 #include "../UI/FlatButtonTheme.h"
+#include "../UI/VisibleTableWidget.h"
 // ============================================================
 // MinidumpDock.Tables.cpp
 // 作用：
@@ -99,6 +100,8 @@ QTableWidget* MinidumpDock::createReadOnlyTable(QWidget* parent) const
 {
     // table：统一风格的只读表格；与 ScannerDock 保持一致的交互配置。
     auto* table = new QTableWidget(parent);
+    // 这里创建的调用栈、模块、线程及内存表都来自一次静态转储，不需要现场快照条。
+    ks::ui::SetTableActionBarMode(table, ks::ui::TableActionBarMode::Compact);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(QAbstractItemView::ExtendedSelection);

@@ -1,4 +1,6 @@
 #include "KernelDock.h"
+#include "../UI/PageControlStyle.h"
+#include "../UI/ToolbarMetrics.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/ThemeBinding.h"
 #include "../UI/TableInteractionSupport.h"
@@ -2050,11 +2052,11 @@ void KernelDock::initializeCallbackEnumTab()
 
     m_callbackEnumFilterEdit = new QLineEdit(m_callbackEnumPage);
     // 回调结果树的分类/模块过滤只绑定主题，不重新枚举结果。
-    ks::ui::BindSearchFieldTheme(m_callbackEnumFilterEdit);
+    ks::ui::StyleSearchField(m_callbackEnumFilterEdit);
     m_callbackEnumFilterEdit->setPlaceholderText(kernelText("kernel.callback.enum.toolbar.filter.placeholder", QStringLiteral("按类别/注册类型/来源/名称/地址/模块/公司/版本/描述筛选")));
     m_callbackEnumFilterEdit->setToolTip(kernelText("kernel.callback.enum.toolbar.filter.tooltip", QStringLiteral("输入关键字后实时过滤回调遍历结果")));
     m_callbackEnumFilterEdit->setClearButtonEnabled(true);
-    m_callbackEnumFilterEdit->setStyleSheet(callbackEnumInputStyle());
+    // 本地输入框样式不再覆盖共享搜索背景与占位文字。
 
     m_callbackEnumStatusLabel = new QLabel(kernelText("kernel.callback.enum.status.waiting", QStringLiteral("状态：等待刷新")), m_callbackEnumPage);
     m_callbackEnumStatusLabel->setStyleSheet(callbackEnumStatusLabelStyle(KswordTheme::TextSecondaryHex()));
@@ -2062,13 +2064,17 @@ void KernelDock::initializeCallbackEnumTab()
     m_callbackEnumToolLayout->addWidget(m_refreshCallbackEnumButton, 0);
     m_callbackEnumToolLayout->addWidget(m_callbackEnumFilterEdit, 1);
     m_callbackEnumToolLayout->addWidget(m_callbackEnumStatusLabel, 0);
+    ks::ui::NormalizeToolbarRow(m_callbackEnumToolLayout);
     m_callbackEnumLayout->addLayout(m_callbackEnumToolLayout);
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, m_callbackEnumPage);
     m_callbackEnumLayout->addWidget(splitter, 1);
 
     QTabWidget* callbackViewTabs = new QTabWidget(splitter);
+    ks::ui::StylePageTabs(callbackViewTabs);
     m_callbackEnumTable = new ks::ui::VisibleTableWidget(callbackViewTabs);
+    // 内核回调新增、消失与归属变化需要完整快照比较。
+    ks::ui::SetTableActionBarMode(m_callbackEnumTable, ks::ui::TableActionBarMode::Full);
     m_callbackEnumTable->setColumnCount(static_cast<int>(CallbackEnumColumn::Count));
     m_callbackEnumTable->setHorizontalHeaderLabels(QStringList{
         callbackEnumColumnHeaderText(CallbackEnumColumn::Class),

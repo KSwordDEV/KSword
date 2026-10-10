@@ -1,4 +1,5 @@
 #include "MonitorTextViewer.h"
+#include "../UI/PageControlStyle.h"
 #include "../theme.h"
 #include "../UI/CodeEditorWidget.h"
 #include "../UI/DetailDialogChrome.h"
@@ -43,6 +44,7 @@ namespace monitor_text_viewer
         if (document.rawPayload.isEmpty()) layout->addWidget(fields, 1);
         else {
             auto* tabs = new QTabWidget(dialog);
+            ks::ui::StylePageTabs(tabs);
             tabs->addTab(fields, ks::i18n::sourceText(QStringLiteral("属性")));
             auto* raw = new CodeEditorWidget(tabs);
             raw->setReadOnly(true);

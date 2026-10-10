@@ -4,6 +4,8 @@
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll / IsolateMinimumSize：页内滚动壳与最小尺寸隔离。
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/ThemeBinding.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../Internationalization/LanguageManager.h"
 
 #include <QCompleter> // 进程下拉的包含式补全需要完整类型。
@@ -304,6 +306,7 @@ void MemoryDock::initializeToolbar()
     m_toolbarLayout->addWidget(toolbarSeparator);
     m_toolbarLayout->addWidget(m_refreshButton);
     m_toolbarLayout->addWidget(m_settingsButton);
+    ks::ui::NormalizeToolbarRow(m_toolbarLayout);
 
     m_rootLayout->addWidget(toolbarContainer);
 }
@@ -318,6 +321,7 @@ void MemoryDock::initializeTabs()
 
     // 全部子页面统一由 QTabWidget 承载。
     m_tabWidget = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_tabWidget);
     m_tabWidget->setDocumentMode(true);
     // 加固：QTabWidget 的页面栈会对所有页（含未显示、被隐藏的旧页）的最小高度取最大值。
     // 每个页面本身都已经带内部滚动壳（见 ks::ui::EnablePageInnerScroll），这里再把页签控件
@@ -631,7 +635,7 @@ void MemoryDock::initializeProcessModuleTab()
     m_processFilterEdit->setClearButtonEnabled(true);
     m_processFilterEdit->setStyleSheet(buildBlueInputStyle());
     // 进程专用搜索保留具体提示和原输入几何，只接管无线框底面及文字对比度。
-    ks::ui::BindSearchFieldTheme(m_processFilterEdit);
+    ks::ui::StyleSearchField(m_processFilterEdit);
     processTopBarLayout->addWidget(m_processFilterEdit, 1);
 
     m_processCountLabel = new QLabel(processPanel);
@@ -640,8 +644,11 @@ void MemoryDock::initializeProcessModuleTab()
     processTopBarLayout->addWidget(m_processCountLabel);
 
     processLayout->addLayout(processTopBarLayout);
+    ks::ui::NormalizeToolbarRow(processTopBarLayout);
 
     m_processTable = new ks::ui::VisibleTableWidget(processPanel);
+    // 这里是附加目标选择器，主进程页已有现场功能，不重复放快照栏。
+    ks::ui::SetTableActionBarMode(m_processTable, ks::ui::TableActionBarMode::None);
     m_processTable->setColumnCount(5);
     m_processTable->setHorizontalHeaderLabels(QStringList{ "进程名", "PID", "会话ID", "CPU(可选)", "工作集" });
     m_processTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -693,7 +700,7 @@ void MemoryDock::initializeProcessModuleTab()
     m_moduleFilterEdit->setPlaceholderText("按模块路径过滤关键字");
     m_moduleFilterEdit->setStyleSheet(buildBlueInputStyle());
     // 模块表为 QTreeWidget，不走通用 QTableView 识别，需明确登记同一搜索主题。
-    ks::ui::BindSearchFieldTheme(m_moduleFilterEdit);
+    ks::ui::StyleSearchField(m_moduleFilterEdit);
     moduleTopBarLayout->addWidget(m_moduleFilterEdit, 1);
 
     m_moduleStatusLabel = new QLabel("● 待刷新", modulePanel);
@@ -702,6 +709,7 @@ void MemoryDock::initializeProcessModuleTab()
             .arg(KswordTheme::TextSecondaryHex()));
     moduleTopBarLayout->addWidget(m_moduleStatusLabel);
     moduleLayout->addLayout(moduleTopBarLayout);
+    ks::ui::NormalizeToolbarRow(moduleTopBarLayout);
 
     m_moduleTable = new QTreeWidget(modulePanel);
     m_moduleTable->setColumnCount(static_cast<int>(ModuleTreeColumn::Count));
@@ -758,7 +766,7 @@ void MemoryDock::initializeMemoryRegionTab()
     m_regionRefreshButton->setToolTip("重新枚举当前附加进程的内存区域");
     m_regionFilterEdit = new QLineEdit(m_tabRegions);
     // 区域结果过滤与扫描值/范围地址输入分开登记。
-    ks::ui::BindSearchFieldTheme(m_regionFilterEdit);
+    ks::ui::StyleSearchField(m_regionFilterEdit);
     m_regionFilterEdit->setPlaceholderText("按基址、保护属性或映射文件路径过滤");
     m_regionFilterEdit->setClearButtonEnabled(true);
     m_regionFilterEdit->setToolTip("输入关键字后只显示匹配的区域行");
@@ -770,6 +778,7 @@ void MemoryDock::initializeMemoryRegionTab()
     actionLayout->addWidget(regionActionSeparator);
     actionLayout->addWidget(m_regionFilterEdit, 1);
     actionLayout->addWidget(m_regionStatusLabel);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     tabLayout->addLayout(actionLayout);
 
     // 过滤开关收进分组框，避免和动作行挤在一起。
@@ -788,9 +797,12 @@ void MemoryDock::initializeMemoryRegionTab()
     filterLayout->addWidget(m_regionImageOnlyCheck);
     filterLayout->addWidget(m_regionReadableOnlyCheck);
     filterLayout->addStretch(1);
+    ks::ui::NormalizeToolbarRow(filterLayout);
     tabLayout->addWidget(filterGroup);
 
     m_regionTable = new ks::ui::VisibleTableWidget(m_tabRegions);
+    // 区域清单需要前后快照排查映射变化，保留完整操作栏。
+    ks::ui::SetTableActionBarMode(m_regionTable, ks::ui::TableActionBarMode::Full);
     m_regionTable->setColumnCount(6);
     m_regionTable->setHorizontalHeaderLabels(QStringList{
         "基址", "大小", "保护属性", "状态", "类型", "映射文件"
@@ -887,6 +899,11 @@ void MemoryDock::initializeMemorySearchTab()
     m_nextScanButton->setStyleSheet(buttonStyle);
     m_resetScanButton->setStyleSheet(buttonStyle);
     m_cancelScanButton->setStyleSheet(buttonStyle);
+    // 网格表单只统一扫描动作按钮，不把整张表单锁到一行高度。
+    ks::ui::NormalizeToolbarControl(m_firstScanButton);
+    ks::ui::NormalizeToolbarControl(m_nextScanButton);
+    ks::ui::NormalizeToolbarControl(m_resetScanButton);
+    ks::ui::NormalizeToolbarControl(m_cancelScanButton);
     m_nextScanButton->setEnabled(false);
     m_cancelScanButton->setEnabled(false);
 
@@ -938,6 +955,7 @@ void MemoryDock::initializeMemorySearchTab()
     compareLayout->addWidget(new QLabel("值", compareGroup));
     compareLayout->addWidget(m_nextScanValueEdit, 1);
     compareLayout->addWidget(m_nextScanValueBEdit, 1);
+    ks::ui::NormalizeToolbarRow(compareLayout);
     tabLayout->addWidget(compareGroup);
 
     // 访问后端选择条：扫描页的每一次区域读取都会走这里选中的通道。
@@ -945,6 +963,8 @@ void MemoryDock::initializeMemorySearchTab()
         createBackendSelector(m_tabSearch, m_searchBackendCombo, m_searchBackendHintLabel));
 
     m_searchResultTable = new ks::ui::VisibleTableWidget(m_tabSearch);
+    // 搜索已经提供前次值/再次扫描比较，通用快照会重复同一信息。
+    ks::ui::SetTableActionBarMode(m_searchResultTable, ks::ui::TableActionBarMode::Compact);
     m_searchResultTable->setColumnCount(4);
     m_searchResultTable->setHorizontalHeaderLabels(QStringList{ "地址", "当前值", "前次值", "备注" });
     m_searchResultTable->setSelectionBehavior(QAbstractItemView::SelectRows);

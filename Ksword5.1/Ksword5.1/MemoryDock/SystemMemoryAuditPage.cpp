@@ -12,6 +12,8 @@
 // 表格交互与可视化表格基类：提供数值排序单元格、全局操作条与冻结行列能力。
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../ksword/log/log.h"
 #include "MemoryAccessBackend.h"
 
@@ -778,7 +780,7 @@ void SystemMemoryAuditPage::initializeUi()
     m_intervalSpin->setSuffix(localized(" s"));
     m_filterEdit = new QLineEdit(this);
     // 内存归属结果树的现有本地过滤，不影响深度扫描或数值输入。
-    ks::ui::BindSearchFieldTheme(m_filterEdit);
+    ks::ui::StyleSearchField(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(localized("Filter process, category, file, tag, or address"));
     controls->addWidget(m_refreshButton);
@@ -787,8 +789,8 @@ void SystemMemoryAuditPage::initializeUi()
     controls->addWidget(m_pfnScanButton);
     controls->addWidget(m_autoRefreshCheck);
     controls->addWidget(m_intervalSpin);
-    controls->addSpacing(12);
     controls->addWidget(m_filterEdit, 1);
+    ks::ui::NormalizeToolbarRow(controls);
     rootLayout->addLayout(controls);
 
     QGridLayout* const summaryLayout = new QGridLayout();
@@ -846,6 +848,7 @@ void SystemMemoryAuditPage::initializeUi()
     rootLayout->addLayout(summaryLayout);
 
     m_detailTabs = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_detailTabs);
 
     QWidget* const overviewPage = new QWidget(m_detailTabs);
     QVBoxLayout* const overviewLayout = new QVBoxLayout(overviewPage);
@@ -858,6 +861,7 @@ void SystemMemoryAuditPage::initializeUi()
     m_overviewSample->setWordWrap(true);
     m_overviewSample->setTextInteractionFlags(Qt::TextSelectableByMouse);
     overviewControls->addWidget(m_overviewSample, 1);
+    ks::ui::NormalizeToolbarRow(overviewControls);
     overviewLayout->addLayout(overviewControls);
     m_snapshotChart = new MemoryAttributionChart(overviewPage);
     m_snapshotChart->selected = [this](int use) {
@@ -885,6 +889,8 @@ void SystemMemoryAuditPage::initializeUi()
     userResidencyLayout->setContentsMargins(0, 0, 0, 0);
     // 四张表统一改用 VisibleTableWidget：它在表头上方预留全局操作条，并支持冻结行列。
     m_userResidencyTable = new ks::ui::VisibleTableWidget(userResidencyPage);
+    // 驻留、进程与内核池均为重复采集的主证据，保留可比较的快照栏。
+    ks::ui::SetTableActionBarMode(m_userResidencyTable, ks::ui::TableActionBarMode::Full);
     configureTable(m_userResidencyTable, QStringList{
         localized("Process"), localized("PID"), localized("Resident kind"),
         localized("Backing / owner evidence"), localized("Resident references"),
@@ -897,6 +903,7 @@ void SystemMemoryAuditPage::initializeUi()
     QVBoxLayout* const processLayout = new QVBoxLayout(processPage);
     processLayout->setContentsMargins(0, 0, 0, 0);
     m_processTable = new ks::ui::VisibleTableWidget(processPage);
+    ks::ui::SetTableActionBarMode(m_processTable, ks::ui::TableActionBarMode::Full);
     configureTable(m_processTable, QStringList{
         localized("Process"), localized("PID"), localized("Session"),
         localized("Private resident"), localized("Working set"), localized("Shared WS refs"),
@@ -909,6 +916,7 @@ void SystemMemoryAuditPage::initializeUi()
     QVBoxLayout* const poolLayout = new QVBoxLayout(poolPage);
     poolLayout->setContentsMargins(0, 0, 0, 0);
     m_poolTagTable = new ks::ui::VisibleTableWidget(poolPage);
+    ks::ui::SetTableActionBarMode(m_poolTagTable, ks::ui::TableActionBarMode::Full);
     configureTable(m_poolTagTable, QStringList{
         localized("Tag"), localized("Paged bytes"), localized("Nonpaged bytes"),
         localized("Total bytes"), localized("Delta"), localized("Paged outstanding"),
@@ -920,6 +928,7 @@ void SystemMemoryAuditPage::initializeUi()
     QVBoxLayout* const bigPoolLayout = new QVBoxLayout(bigPoolPage);
     bigPoolLayout->setContentsMargins(0, 0, 0, 0);
     m_bigPoolTable = new ks::ui::VisibleTableWidget(bigPoolPage);
+    ks::ui::SetTableActionBarMode(m_bigPoolTable, ks::ui::TableActionBarMode::Full);
     configureTable(m_bigPoolTable, QStringList{
         localized("Tag"), localized("Virtual address"), localized("Size"),
         localized("Pool type"), localized("Delta"), localized("Source"), localized("Description")
@@ -1000,6 +1009,7 @@ void SystemMemoryAuditPage::initializeUi()
         ddmaLayout->addWidget(m_ddmaCrossCheckAddressEdit);
         ddmaLayout->addWidget(m_ddmaCrossCheckButton);
         ddmaLayout->addWidget(m_ddmaCrossCheckResultLabel, 1);
+        ks::ui::NormalizeToolbarRow(ddmaLayout);
         rootLayout->addWidget(ddmaRow);
     }
 

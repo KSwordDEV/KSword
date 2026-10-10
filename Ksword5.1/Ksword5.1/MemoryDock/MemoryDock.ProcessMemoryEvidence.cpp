@@ -1,4 +1,6 @@
 #include "MemoryDock.Internal.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/StructuredFieldView.h"
 #include "../UI/AdaptivePageScroll.h" // ks::ui::EnablePageInnerScroll：页内滚动壳。
 #include "../UI/TableInteractionSupport.h"
@@ -407,6 +409,7 @@ void MemoryDock::initializeProcessMemoryEvidenceTab()
     actionLayout->addWidget(m_processMemoryEvidenceRiskOnlyCheck);
     actionLayout->addWidget(m_processMemoryEvidenceImageOnlyCheck);
     actionLayout->addWidget(m_processMemoryEvidenceStatusLabel, 1);
+    ks::ui::NormalizeToolbarRow(actionLayout);
     tabLayout->addLayout(actionLayout);
 
     // 第二层扫描范围分组：四组带标签的输入按 2x2 网格排布，字段名不再是裸标签挤在动作行里。
@@ -433,6 +436,7 @@ void MemoryDock::initializeProcessMemoryEvidenceTab()
     m_processMemoryEvidenceFilterEdit->setPlaceholderText(QStringLiteral("过滤映射文件 / 风险文本"));
     m_processMemoryEvidenceFilterEdit->setToolTip(QStringLiteral("按映射文件路径、风险描述或证据说明实时过滤已采样的行"));
     m_processMemoryEvidenceFilterEdit->setStyleSheet(buildBlueInputStyle());
+    ks::ui::StyleSearchField(m_processMemoryEvidenceFilterEdit);
 
     m_processMemoryEvidenceMaxRowsSpin = new QSpinBox(scopeGroup);
     m_processMemoryEvidenceMaxRowsSpin->setRange(32, 8192);
@@ -465,6 +469,8 @@ void MemoryDock::initializeProcessMemoryEvidenceTab()
     tabLayout->addWidget(splitter, 1);
 
     m_processMemoryEvidenceTable = new ks::ui::VisibleTableWidget(splitter);
+    // 进程页级证据可重复采样，保留独立现场对比。
+    ks::ui::SetTableActionBarMode(m_processMemoryEvidenceTable, ks::ui::TableActionBarMode::Full);
     m_processMemoryEvidenceTable->setColumnCount(evidenceColumnIndex(ProcessMemoryEvidenceColumn::Count));
     m_processMemoryEvidenceTable->setHorizontalHeaderLabels(QStringList{
         QStringLiteral("虚拟地址"),

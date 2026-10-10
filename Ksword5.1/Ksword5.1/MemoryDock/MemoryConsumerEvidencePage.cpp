@@ -1,4 +1,6 @@
 #include "MemoryConsumerEvidencePage.h"
+#include "../UI/ToolbarMetrics.h"
+#include "../UI/PageControlStyle.h"
 #include "../UI/CodeEditorWidget.h"
 #include "PoolAllocationAnalysisWidget.h"
 #include "../../../shared/evidence/GpuMemoryEvidence.h"
@@ -76,14 +78,18 @@ MemoryConsumerEvidencePage::MemoryConsumerEvidencePage(QWidget* parent) : QWidge
     controls->addWidget(m_gpuButton); controls->addWidget(m_traceStart);
     controls->addWidget(m_duration); controls->addWidget(m_traceStop);
     controls->addStretch(); layout->addLayout(controls);
+    ks::ui::NormalizeToolbarRow(controls);
     m_note = new QLabel(this); m_note->setWordWrap(true); layout->addWidget(m_note);
     m_detailTabs = new QTabWidget(this);
+    ks::ui::StylePageTabs(m_detailTabs);
     m_detailTabs->setMinimumSize(0, 0);
     m_detailTabs->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     auto* gpuPage = new QWidget(m_detailTabs);
     auto* gpuLayout = new QVBoxLayout(gpuPage);
     m_gpuStatus = new QLabel(gpuPage); m_gpuStatus->setWordWrap(true); gpuLayout->addWidget(m_gpuStatus);
     m_gpuTable = new ks::ui::VisibleTableWidget(gpuPage);
+    // GPU 采样是独立证据清单，仍保留前后快照比较。
+    ks::ui::SetTableActionBarMode(m_gpuTable, ks::ui::TableActionBarMode::Full);
     m_gpuTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_gpuTable->setAlternatingRowColors(true);
     m_gpuTable->horizontalHeader()->setStretchLastSection(true);
