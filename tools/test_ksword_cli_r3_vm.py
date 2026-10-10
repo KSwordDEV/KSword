@@ -49,6 +49,8 @@ exit $rc
             guest.copy(str(Path(os.environ['LOCALAPPDATA']) / 'KSwordTestBuilds/CLI-R3/R3Fixture.exe'), guest_root + r'\R3Fixture.exe')
         if feature == 'process-modules':
             guest.copy(str(Path(os.environ['LOCALAPPDATA']) / 'KSwordTestBuilds/CLI-R3/R3ModuleFixture.dll'), guest_root + r'\R3ModuleFixture.dll')
+        if feature == 'window-capture':
+            guest.copy(str(Path(os.environ['LOCALAPPDATA']) / 'KSwordTestBuilds/CLI-R3/R3CaptureRunner.exe'), guest_root + r'\R3CaptureRunner.exe')
         for name in ('Test-KSwordCliR3.ps1', 'KswordCliR3TestSupport.ps1'):
             guest.copy(str(ROOT / 'tools' / name), guest_root + '\\' + name)
         if feature == 'privilege':

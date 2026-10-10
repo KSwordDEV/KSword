@@ -105,4 +105,5 @@ void registerHardwareUsb();
 void registerHardwareBus();
 void registerWindow();
 void registerClipboardRead();
+void registerWindowCapture();
 }

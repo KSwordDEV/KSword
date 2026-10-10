@@ -1513,6 +1513,7 @@ namespace
             ks::cli::registerHardwareBus();
             ks::cli::registerWindow();
             ks::cli::registerClipboardRead();
+            ks::cli::registerWindowCapture();
             #endif
             return true;
         }();

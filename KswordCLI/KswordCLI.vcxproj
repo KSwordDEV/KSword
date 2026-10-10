@@ -422,4 +422,9 @@
     <ClInclude Include="..\shared\usermode\backend\window\WindowQueries.h" />
     <ClInclude Include="..\shared\usermode\backend\window\WindowToolsTypes.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3WindowCapture.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\window\CaptureProtection.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\window\CaptureProtection.h" />
+  </ItemGroup>
 </Project>

@@ -50,3 +50,18 @@ KswordCLI.exe window clipboard text query --format auto --max-units 4096 --json
 文本查询提供 requestedFormat、selectedFormat、formatAvailable、textAvailable、attempted、text、empty、returnedUtf16Units、previewUnits/previewUnit、allocatedByteSize、malformed、truncated、terminated、ansiCodePage、readWin32Error、unlockAttempted/unlocked/unlockWin32Error。有效空的终止文本为 `""` 并成功；格式不存在为 5，读取／锁定失败为 3，短／奇数字节 UTF-16、缺失终止符或不配对代理项为 4。截断不会切开有效代理对；未扫描到整个分配区时 terminated 可为 null，不冒充完整文本。unlocked 反映本调用的锁引用是否释放，不保证其他调用方没有锁引用。
 
 OpenClipboard 最多 4 次、间隔 12 ms；枚举最多 65536 格式、8 秒（原生调用间检查），预览扫描最多限额加一个单位。注册名称／请求容量／枚举失败、序列变化、释放失败或输出截断为 6；有效完整空格式列表为 0。GetClipboardData 的延迟渲染调用不强制中断，挂起的所有者可能阻塞它；不把元数据模式当作渲染成功。所有打开／读取／GlobalUnlock／CloseClipboard 均保持原线程和所有权约束，CloseClipboard 的实际结果保留。纯 R3、当前窗口站，不要求驱动；帮助不访问剪贴板。本项不提供写入／清空，清空与额外所有者查询按迁移项 65 接入。
+
+## 显示亲和性／捕获策略（迁移项 38）
+
+```powershell
+KswordCLI.exe window capture help
+KswordCLI.exe help window capture query
+KswordCLI.exe window capture query --hwnd 0x123456 --json
+KswordCLI.exe window capture set --help
+```
+
+`window capture query` 要求 `--hwnd`，可选 `--pid`、`--tid`、`--creation-time`（正数且要求 pid）、`--thread-creation-time`（正数且要求 tid）、`--backend r3`、`--json`。跨进程读取 GetWindowDisplayAffinity，前后检查窗口归属和可获得的创建时间。data 提供 source、hwnd、pid、tid、identityMatched、layered、callerPid、callerOwnsWindow、affinity（attempted/available/value/mode/win32Error）。窗口变化／身份不匹配为 3，属性不可读取为 5，实际读出为 0；未知不等于 WDA_NONE。API 的 layered／DWM 合成条件见 [GetWindowDisplayAffinity](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowdisplayaffinity)。
+
+`window capture set` 接入现有后端的自身窗口设置：要求 hwnd、pid、tid、creation-time、thread-creation-time 及 `--mode none|monitor|exclude`，可选 `--backend r3`、`--json`。**SetWindowDisplayAffinity 必须在窗口所属进程中调用，且目标必须是顶层窗口。** 独立 CLI 不拥有其他应用程序的 HWND，跨进程目标会在写入前返回 5，不新增注入／R0 写入能力。相同进程的适配器消费者／测试夹具可设置并回读；此成功测试不代表独立 KswordCLI.exe 能更改其他进程的窗口。
+
+设置 data 保留 target、platform（RtlGetVersion 原始状态和版本）、requestedMode/requestedValue、callerOwnsWindow、topLevel、attempted、accepted、win32Error、before/after、ownerStillMatches、verified、display；后端添加结构化状态并保持 Light 原有显示文字。请求接受、实际回读值匹配且身份稳定才返回 0；API 失败为 3（明确未支持为 5），回读失败／降级／身份变化为 6。none=0、monitor=1、exclude=0x11；exclude 从 Windows 10 2004 起支持，旧系统可能按 monitor 处理，不能把降级当作请求完整成功；旧于 build 19041 或无法可靠查询版本时，exclude 在写入前返回 5。规则和拥有进程约束见 [SetWindowDisplayAffinity](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity)。输出仅证明策略属性和回读，未进行像素捕获验证。全部 help 查询都不调用设置／查询 API。
