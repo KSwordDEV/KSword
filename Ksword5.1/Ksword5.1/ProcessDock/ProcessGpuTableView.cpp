@@ -6,7 +6,6 @@
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 #include <QOpenGLWidget>
-#include <QPainter>
 #include <QSurfaceFormat>
 #include <QTimer>
 
@@ -158,11 +157,19 @@ namespace ks::process_ui
         }
         QElapsedTimer timer; // CPU 提交计时，不包括 GPU 完成等待或交换时间。
         timer.start();
-        {
-            // 完整底色和可见区域重绘，避免滚动/局部刷新后残留旧行或空白。
-            QPainter backgroundPainter(m_gpuViewport);
-            backgroundPainter.fillRect(m_gpuViewport->rect(), palette().brush(QPalette::Base));
-        }
+        // 直接清理已绑定的 FBO，每帧只让 QTableView 创建一个 QPainter。
+        // 背景 painter 结束后再启动表格 painter 会复用同一 GL 引擎，不能依赖上一轮
+        // 的裁剪、模板缓冲或颜色写掩码；这里显式恢复清屏状态，避免黑条与残留像素。
+        QOpenGLFunctions* functions = m_gpuViewport->context()->functions();
+        functions->glDisable(GL_SCISSOR_TEST);
+        functions->glDisable(GL_STENCIL_TEST);
+        functions->glDisable(GL_DEPTH_TEST);
+        functions->glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        functions->glStencilMask(~GLuint(0));
+        const QColor base = palette().color(QPalette::Base);
+        functions->glClearColor(base.redF(), base.greenF(), base.blueF(), base.alphaF());
+        functions->glClearStencil(0);
+        functions->glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         QPaintEvent fullPaint(m_gpuViewport->rect()); // 委托仍读取实时 palette/model。
         TableActionTableView::paintEvent(&fullPaint);
         recordPaint(timer.nsecsElapsed());
@@ -170,6 +177,12 @@ namespace ks::process_ui
 
     void ProcessGpuTableView::paintEvent(QPaintEvent* eventObject)
     {
+        if (m_gpuViewport != nullptr)
+        {
+            // GL 绘制只能从 paintGL 进入，普通 viewport 派发不保证上下文/FBO 已绑定。
+            m_gpuViewport->update();
+            return;
+        }
         if (!m_profileEnabled)
         {
             TableActionTableView::paintEvent(eventObject);
@@ -183,11 +196,40 @@ namespace ks::process_ui
 
     void ProcessGpuTableView::scrollContentsBy(int horizontalDelta, int verticalDelta)
     {
-        TableActionTableView::scrollContentsBy(horizontalDelta, verticalDelta);
-        if (m_gpuViewport != nullptr)
+        if (m_gpuViewport == nullptr)
         {
-            m_gpuViewport->update();
+            TableActionTableView::scrollContentsBy(horizontalDelta, verticalDelta);
+            return;
         }
+
+        // QTableView 的基类路径最终调用 viewport->scroll，复制普通 QWidget 的旧像素。
+        // GL FBO 每帧整体重绘，不能沿用该位图缓存及脏区域偏移；仅同步原生表头几何。
+        // 两种滚动单位与 Qt 6.9.3 的表头规则一致，隐藏/重排列由 QHeaderView 自行映射。
+        const auto syncHeader = [](QHeaderView* header, QScrollBar* bar, ScrollMode mode)
+        {
+            if (mode == ScrollPerPixel)
+            {
+                header->setOffset(bar->value());
+            }
+            else if (bar->maximum() > 0 && bar->value() == bar->maximum())
+            {
+                header->setOffsetToLastSection();
+            }
+            else
+            {
+                header->setOffsetToSectionPosition(bar->value());
+            }
+        };
+        if (horizontalDelta != 0)
+        {
+            syncHeader(horizontalHeader(), horizontalScrollBar(), horizontalScrollMode());
+        }
+        if (verticalDelta != 0)
+        {
+            syncHeader(verticalHeader(), verticalScrollBar(), verticalScrollMode());
+        }
+        updateEditorGeometries();
+        m_gpuViewport->update();
     }
 
     void ProcessGpuTableView::recordPaint(qint64 nanoseconds)
