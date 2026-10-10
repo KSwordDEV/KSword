@@ -251,6 +251,7 @@ namespace
             textEditor->setPlainText(QString::fromUtf8(parsedEntry.rawBytes));
             textLayout->addWidget(textEditor, 1);
             tabWidget->addTab(textPage, QStringLiteral("文本"));
+            ks::ui::SetDetailTabGroups(tabWidget, {{ks::ui::DetailNavigationKind::Content, {0, 1}}});
             rootLayout->addWidget(ks::ui::CreateDetailTabShell(tabWidget, this), 1);
             ks::ui::ApplyDetailDialogChrome(this);
         }

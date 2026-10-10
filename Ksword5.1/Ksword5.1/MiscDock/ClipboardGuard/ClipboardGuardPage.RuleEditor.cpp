@@ -385,6 +385,8 @@ namespace ks::misc
         raw->setReadOnly(true);
         raw->setRawText(rawText);
         tabs->addTab(raw, QStringLiteral("正文"));
+        ks::ui::SetDetailTabGroups(tabs, {{ks::ui::DetailNavigationKind::General, {0}},
+            {ks::ui::DetailNavigationKind::Content, {1}}});
         layout->addWidget(ks::ui::CreateDetailTabShell(tabs, dialog), 1);
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
         QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);

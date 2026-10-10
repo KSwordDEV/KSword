@@ -25,7 +25,8 @@ namespace ks::ui
     {
         Auto,
         Solid,
-        Flat
+        Flat,
+        Navigation // 详情导航使用稍柔和的选中底面，图标按同一实际底色校准。
     };
     enum class FlatButtonState
     {

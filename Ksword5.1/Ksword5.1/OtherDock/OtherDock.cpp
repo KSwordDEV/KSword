@@ -1544,6 +1544,12 @@ private:
         ks::ui::ConfigureDetailDialogRoot(this);
 
         m_tabWidget = new QTabWidget(this);
+        // 只排列左侧入口；底层页签索引仍由各窗口属性模块保留。
+        using NavKind = ks::ui::DetailNavigationKind;
+        ks::ui::SetDetailTabGroups(m_tabWidget, {
+            {NavKind::General, {0, 2}}, {NavKind::Ownership, {1}},
+            {NavKind::Interaction, {3, 6, 4}}, {NavKind::Internals, {5}},
+            {NavKind::Display, {7, 8}}});
         ks::ui::IsolateMinimumSize(m_tabWidget);
         ks::ui::IsolateMinimumSize(m_tabWidget->findChild<QStackedWidget*>());
         m_tabWidget->setUsesScrollButtons(true);

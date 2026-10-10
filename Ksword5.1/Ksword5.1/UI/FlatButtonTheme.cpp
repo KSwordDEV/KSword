@@ -170,7 +170,7 @@ namespace
                 {
                     int latestAppearance = 0; // 未声明时沿用 Auto；独立 Flat/Solid 由页面明确拥有。
                     qsizetype appearancePosition = -1;
-                    for (int candidate = 0; candidate <= 2; ++candidate)
+                    for (int candidate = 0; candidate <= static_cast<int>(ks::ui::FlatButtonAppearance::Navigation); ++candidate)
                     {
                         const qsizetype position = style.lastIndexOf(
                             QStringLiteral("/*KSWORD_FLAT_BUTTON_APPEARANCE_%1*/").arg(candidate));
@@ -225,7 +225,8 @@ ks::ui::FlatButtonStateColors ks::ui::FlatButtonColorsForState(const QPalette& p
     alternate.setAlpha(255);
     // 普通操作与输入框共用中性表面，主题色集中在交互和选中状态，避免满页蓝色方块。
     const QColor neutral = KswordTheme::ControlInputSurfaceColor(surface, alternate);
-    const bool flat = appearance == FlatButtonAppearance::Flat;
+    const bool navigation = appearance == FlatButtonAppearance::Navigation;
+    const bool flat = appearance == FlatButtonAppearance::Flat || navigation;
     FlatButtonStateColors result;
     result.background = tone == FlatButtonTone::Neutral ? neutral : interaction;
     QColor preferred = palette.color(QPalette::Active, QPalette::Text);
@@ -240,7 +241,7 @@ ks::ui::FlatButtonStateColors ks::ui::FlatButtonColorsForState(const QPalette& p
     }
     else if (state == FlatButtonState::Hover)
     {
-        result.background = interaction;
+        result.background = navigation ? KswordTheme::BlendColors(surface, checked, 32) : interaction;
         if (tone != FlatButtonTone::Neutral && !flat)
         {
             // 已有实色的主操作也保留悬停反馈，不让 Hover 与普通态完全相同。
@@ -251,11 +252,12 @@ ks::ui::FlatButtonStateColors ks::ui::FlatButtonColorsForState(const QPalette& p
     }
     else if (state == FlatButtonState::Pressed)
     {
-        result.background = KswordTheme::EnsureTextContrast(interaction.darker(118), surface, 3.0);
+        result.background = navigation ? KswordTheme::BlendColors(surface, checked, 80)
+            : KswordTheme::EnsureTextContrast(interaction.darker(118), surface, 3.0);
     }
     else if (state == FlatButtonState::Checked)
     {
-        result.background = checked;
+        result.background = navigation ? KswordTheme::BlendColors(surface, checked, 210) : checked;
         preferred = palette.color(QPalette::Active, QPalette::HighlightedText);
     }
     else if (state == FlatButtonState::Disabled)

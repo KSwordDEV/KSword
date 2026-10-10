@@ -3146,6 +3146,8 @@ void VirusTotalOnlineScan::ensureResultDialog()
         m_apiPanes[static_cast<std::size_t>(apiIndex(apiKind))] = createCommonPane(apiKind);
     }
 
+    ks::ui::SetDetailTabGroups(resultTabWidget, {{ks::ui::DetailNavigationKind::Analysis, {0, 1}},
+        {ks::ui::DetailNavigationKind::Security, {2}}, {ks::ui::DetailNavigationKind::Behaviour, {3}}});
     dialogLayout->addWidget(ks::ui::CreateDetailTabShell(resultTabWidget, resultDialog), 1);
     QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, resultDialog);
 

@@ -388,6 +388,8 @@ namespace
         peEditor->setDocument(file_dock_detail::buildPeAnalysisDocument(filePath));
         tabWidget->addTab(peEditor, kernelText("kernel.callback.enum.file.tab.pe", QStringLiteral("PE信息")));
 
+        ks::ui::SetDetailTabGroups(tabWidget, {{ks::ui::DetailNavigationKind::General, {0}},
+            {ks::ui::DetailNavigationKind::Content, {1}}});
         rootLayout->addWidget(ks::ui::CreateDetailTabShell(tabWidget, &detailDialog), 1);
         QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, &detailDialog);
         QObject::connect(buttonBox, &QDialogButtonBox::rejected, &detailDialog, &QDialog::reject);

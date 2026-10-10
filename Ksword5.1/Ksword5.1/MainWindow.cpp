@@ -12900,11 +12900,10 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
         "  background:%2;"
         "  margin-top:12px;"
         "}"
-        // 分组框与卡片分开：卡片本来就是独立方块，边框合理；分组框在一屏里
-        // 常有七八个，四周边框会叠成一堆套嵌方框，只留标题下的一条分隔线。
+        // 组框和卡片都需要完整边界；内容分组用细线和更小圆角，按钮仍采用纯色。
         "QGroupBox{"
-        "  border:none;"
-        "  border-top:1px solid %1;"
+        "  border:1px solid %1;"
+        "  border-radius:6px;"
         "  background:%2;"
         "  margin-top:12px;"
         "  padding-top:6px;"

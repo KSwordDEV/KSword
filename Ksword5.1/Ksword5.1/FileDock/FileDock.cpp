@@ -5624,13 +5624,13 @@ namespace
                 const auto& translation = detailTabTranslations.at(tabIndex);
                 QToolButton* navigationButton = new QToolButton(m_tabNavigation);
                 // 单按钮绑定优先于详情壳的高特异性侧栏QSS，保证普通态也有纯色底。
-                ks::ui::ApplyFlatButtonTheme(navigationButton);
+                ks::ui::ApplyDetailNavigationButtonTheme(navigationButton);
                 navigationButton->setCheckable(true);
                 navigationButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
                 navigationButton->setIcon(QIcon(navigationIconPathList.value(tabIndex)));
                 navigationButton->setIconSize(QSize(18, 18));
                 navigationButton->setMinimumHeight(38);
-                navigationButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+                navigationButton->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
                 ks::i18n::LanguageManager::instance().bindText(
                     navigationButton,
                     translation.first,
@@ -5674,6 +5674,13 @@ namespace
                 navigationLayout->addWidget(batchHintLabel);
             }
             navigationLayout->addStretch(1);
+            // 文件信息、可信度、内容、内核链路与写操作分组，点击仍按原 Tab 索引路由。
+            using NavKind = ks::ui::DetailNavigationKind;
+            ks::ui::SetDetailTabGroups(m_tabWidget, {
+                {NavKind::General, {0, 2}}, {NavKind::Security, {3, 4, 9}},
+                {NavKind::Content, {10, 11, 12, 13}}, {NavKind::Internals, {6, 7, 8}},
+                {NavKind::Interaction, {1, 5}}});
+            ks::ui::ArrangeDetailNavigationGroups(m_tabNavigation, m_tabWidget, m_tabNavigationButtonGroup);
 
             QFrame* saveBar = new QFrame(this);
             saveBar->setObjectName(QStringLiteral("FileMetadataSaveBar"));

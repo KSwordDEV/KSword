@@ -44,8 +44,7 @@
 #include <QComboBox>
 #include <QCursor>
 #include <QDateTime>
-#include <QEasingCurve>
-#include <QVariantAnimation>
+#include <iterator>
 #include <QDoubleSpinBox>
 #include <QDir>
 #include <QEvent>
@@ -1505,6 +1504,12 @@ namespace
 
 }
 
+namespace
+{
+    // 图表与采样共用下方定义的 steady clock；提前声明供前置的图表类型调用。
+    std::uint64_t steadyNow100ns();
+}
+
 class ProcessActivityChartWidget final : public QWidget
 {
 public:
@@ -1524,14 +1529,20 @@ public:
         setAutoFillBackground(false);
         setAttribute(Qt::WA_StyledBackground, false);
         setAttribute(Qt::WA_OpaquePaintEvent, false);
-        m_seriesAnimation = new QVariantAnimation(this);
-        m_seriesAnimation->setDuration(260);
-        m_seriesAnimation->setEasingCurve(QEasingCurve::OutCubic);
-        m_seriesAnimation->setStartValue(0.0);
-        m_seriesAnimation->setEndValue(1.0);
-        connect(m_seriesAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant& value) {
-            m_animationProgress = value.toDouble();
-            update();
+        // 绘制时钟与采样时钟分开；按真实经过时间匀速移动，不在每次采样后缓动并停住。
+        m_frameTimer = new QTimer(this);
+        m_frameTimer->setTimerType(Qt::PreciseTimer);
+        m_frameTimer->setInterval(16);
+        connect(m_frameTimer, &QTimer::timeout, this, [this]() {
+            if (m_ownerDock != nullptr && m_ownerDock->isProcessActivityRecordingAllowedNow())
+            {
+                updateTimelineClock();
+                if (m_ownerDock->m_activityTimelinePinnedToLatest)
+                {
+                    update();
+                }
+            }
+            refreshHoveredSample();
         });
     }
 
@@ -1548,22 +1559,30 @@ public:
         update();
     }
 
-    void animateLatestSample(const bool historyWindowShifted)
+    void notifySampleAppended()
     {
-        if (m_ownerDock == nullptr || m_ownerDock->m_activitySamples.size() < 2U)
-        {
-            m_historyWindowShifted = false;
-            m_animationProgress = 1.0;
-            update();
-            return;
-        }
-        m_historyWindowShifted = historyWindowShifted;
-        m_animationProgress = 0.0;
-        m_seriesAnimation->stop();
-        m_seriesAnimation->start();
+        m_seriesDirty = true;
+        updateTimelineClock();
+        update();
     }
 
 protected:
+    // 隐藏页面不运行绘制节拍；重新显示时恢复真实时间轴，历史快照仍固定在所选时刻。
+    void showEvent(QShowEvent* eventPointer) override
+    {
+        QWidget::showEvent(eventPointer);
+        updateTimelineClock();
+        m_frameTimer->start();
+    }
+
+    void hideEvent(QHideEvent* eventPointer) override
+    {
+        m_frameTimer->stop();
+        m_hoverActive = false;
+        m_hoveredSequence = 0;
+        QWidget::hideEvent(eventPointer);
+    }
+
     // event：
     // - 输入：Qt 通用事件，重点处理 ToolTip 事件；
     // - 处理：在提示即将显示时重新按当前鼠标位置计算最近样本；
@@ -1630,10 +1649,11 @@ protected:
         const std::unordered_set<std::string> selectionKeySet(
             selectionKeys.cbegin(),
             selectionKeys.cend());
-        const MetricScale metricScale = calculateMetricScale(enabledMetrics, selectionKeySet);
+        updateSeriesCache(enabledMetrics, selectionKeys, selectionKeySet);
 
         drawGrid(painter, plotRect, borderColor, textColor);
-        drawLines(painter, plotRect, enabledMetrics, selectionKeySet, metricScale);
+        drawLines(painter, plotRect);
+        drawHoverPoints(painter, plotRect);
         drawLegend(painter, enabledMetrics, textColor);
         drawFocusLine(painter, plotRect);
     }
@@ -1649,7 +1669,9 @@ protected:
             return;
         }
 
-        const int sampleIndex = sampleIndexAtX(activityMousePosition(eventPointer).x());
+        m_hoverPosition = activityMousePosition(eventPointer);
+        m_hoverActive = chartRect().contains(m_hoverPosition);
+        const int sampleIndex = m_hoverActive ? sampleIndexAtX(m_hoverPosition.x()) : -1;
         if (sampleIndex >= 0)
         {
             const bool oldPinnedToLatest = m_ownerDock->m_activityTimelinePinnedToLatest;
@@ -1662,6 +1684,11 @@ protected:
 #endif
             showSnapshotToolTipAtPosition(activityMousePosition(eventPointer), globalPosition);
         }
+        else
+        {
+            QToolTip::hideText();
+        }
+        update();
         eventPointer->accept();
     }
 
@@ -1679,7 +1706,8 @@ protected:
             return;
         }
 
-        const int sampleIndex = sampleIndexAtX(activityMousePosition(eventPointer).x());
+        const QPoint position = activityMousePosition(eventPointer);
+        const int sampleIndex = chartRect().contains(position) ? sampleIndexAtX(position.x()) : -1;
         if (sampleIndex >= 0)
         {
             // 图表本身现在就是唯一时间轴：
@@ -1697,7 +1725,14 @@ protected:
     // - 仅隐藏 tooltip，避免用户读下方快照时被清空。
     void leaveEvent(QEvent* eventPointer) override
     {
+        m_hoverActive = false;
+        m_hoveredSequence = 0;
+        if (m_ownerDock != nullptr)
+        {
+            m_focusedSampleIndex = m_ownerDock->m_activityTableSnapshotIndex;
+        }
         QToolTip::hideText();
+        update();
         QWidget::leaveEvent(eventPointer);
     }
 
@@ -1708,7 +1743,8 @@ private:
     // - 返回：无；没有样本时主动隐藏，避免显示控件静态 tooltip。
     void showSnapshotToolTipAtPosition(const QPoint& localPosition, const QPoint& globalPosition)
     {
-        if (m_ownerDock == nullptr || m_ownerDock->m_activitySamples.empty())
+        if (m_ownerDock == nullptr || m_ownerDock->m_activitySamples.empty()
+            || !chartRect().contains(localPosition))
         {
             QToolTip::hideText();
             return;
@@ -1773,6 +1809,186 @@ private:
         double diskDenominatorMBps = 1.0;     // diskDenominatorMBps：历史最大磁盘吞吐。
         double networkDenominatorKBps = 1.0;  // networkDenominatorKBps：历史最大网络吞吐。
     };
+
+    struct SeriesPoint
+    {
+        double timeMs = 0.0;      // 样本真实时间，屏幕位置随连续时钟变化。
+        double percent = 0.0;     // 原始采样归一化数值，不修改历史数据。
+        double slope = 0.0;       // 单调三次曲线的切线，单位为百分比/毫秒。
+    };
+
+    struct CachedSeries
+    {
+        ProcessDock::ProcessActivityMetric metric{}; // 该条曲线所属指标。
+        std::vector<SeriesPoint> points;             // 只在样本或选择改变时重算。
+    };
+
+    // 固定实时窗口的时间跨度，保证像素/秒速度稳定；全量保留仍保留全部原始快照。
+    double windowDurationMs() const
+    {
+        const int count = m_ownerDock->m_activityHistoryLimitSpin != nullptr
+            ? m_ownerDock->m_activityHistoryLimitSpin->value() : 50;
+        return static_cast<double>(m_ownerDock->refreshIntervalMillisecondsFromInput())
+            * static_cast<double>(std::max(2, count - 1));
+    }
+
+    // 实时延迟一个采样周期显示，使最右侧曲线连续揭示已知的相邻样本，而非突然跳变。
+    void updateTimelineClock()
+    {
+        if (m_ownerDock == nullptr || m_ownerDock->m_activitySamples.empty())
+        {
+            m_liveEndMs = 0.0;
+            return;
+        }
+        if (m_recordingStartTick != m_ownerDock->m_activityRecordingStartTick100ns)
+        {
+            m_recordingStartTick = m_ownerDock->m_activityRecordingStartTick100ns;
+            m_cachedSeries.clear();
+            m_seriesDirty = true;
+        }
+        if (!m_ownerDock->isProcessActivityRecordingAllowedNow())
+        {
+            return;
+        }
+        const std::uint64_t nowTick = steadyNow100ns(); // 不使用墙钟，系统时间修改不改变滚动速度。
+        const double elapsedMs = nowTick >= m_recordingStartTick
+            ? static_cast<double>(nowTick - m_recordingStartTick) / 10000.0 : 0.0;
+        const bool singleSampleHistory = m_ownerDock->m_activityHistoryMode == ProcessDock::ActivityHistoryMode::Recent
+            && m_ownerDock->m_activityHistoryLimitSpin != nullptr && m_ownerDock->m_activityHistoryLimitSpin->value() == 1;
+        const double delayMs = singleSampleHistory ? 0.0
+            : static_cast<double>(m_ownerDock->refreshIntervalMillisecondsFromInput());
+        m_liveEndMs = std::max(0.0, elapsedMs - delayMs);
+    }
+
+    // 点击历史时冻结图表窗口；悬停预览不改变 pinned 状态，也不驱动进程表重绘。
+    double windowEndMs() const
+    {
+        if (!m_ownerDock->m_activityTimelinePinnedToLatest && m_ownerDock->m_activityTableSnapshotIndex >= 0)
+        {
+            const int index = std::clamp(m_ownerDock->m_activityTableSnapshotIndex, 0,
+                static_cast<int>(m_ownerDock->m_activitySamples.size()) - 1);
+            return static_cast<double>(m_ownerDock->m_activitySamples[index].elapsedMs)
+                + windowDurationMs() * 0.5;
+        }
+        return m_liveEndMs;
+    }
+
+    // 鼠标不移动时图表仍移动，只在最近样本改变后刷新提示，避免每帧重新格式化快照。
+    void refreshHoveredSample()
+    {
+        if (!m_hoverActive || m_ownerDock == nullptr || m_ownerDock->m_activitySamples.empty())
+        {
+            return;
+        }
+        const int index = sampleIndexAtX(m_hoverPosition.x());
+        if (index < 0)
+        {
+            m_hoveredSequence = 0;
+            QToolTip::hideText();
+            return;
+        }
+        const std::uint64_t sequence = m_ownerDock->m_activitySamples[index].sequence;
+        if (sequence != m_hoveredSequence)
+        {
+            m_hoveredSequence = sequence;
+            if (QToolTip::isVisible())
+            {
+                showSnapshotToolTipAtPosition(m_hoverPosition, mapToGlobal(m_hoverPosition));
+            }
+        }
+    }
+
+    // 单调 Hermite 切线：峰谷处切线归零，同向区间取加权调和均值，平滑且不制造假峰值。
+    void calculateSeriesSlopes(std::vector<SeriesPoint>& points) const
+    {
+        if (points.size() < 2U)
+        {
+            return;
+        }
+        const auto secant = [&points](std::size_t index)
+        {
+            return (points[index + 1U].percent - points[index].percent)
+                / std::max(1.0, points[index + 1U].timeMs - points[index].timeMs);
+        };
+        points.front().slope = secant(0);
+        points.back().slope = secant(points.size() - 2U);
+        for (std::size_t index = 1; index + 1U < points.size(); ++index)
+        {
+            const double previousSlope = secant(index - 1U);
+            const double nextSlope = secant(index);
+            points[index].slope = 0.0;
+            if (previousSlope * nextSlope > 0.0)
+            {
+                const double previousWidth = std::max(1.0, points[index].timeMs - points[index - 1U].timeMs);
+                const double nextWidth = std::max(1.0, points[index + 1U].timeMs - points[index].timeMs);
+                const double previousWeight = 2.0 * nextWidth + previousWidth;
+                const double nextWeight = nextWidth + 2.0 * previousWidth;
+                points[index].slope = (previousWeight + nextWeight)
+                    / (previousWeight / previousSlope + nextWeight / nextSlope);
+            }
+        }
+    }
+
+    // 采样、指标开关或选区变化时刷新曲线缓存，60fps 移动不重新扫描每个进程的历史数值。
+    void updateSeriesCache(const std::vector<ProcessDock::ProcessActivityMetric>& metrics,
+        const std::vector<std::string>& selectionKeys,
+        const std::unordered_set<std::string>& selectionKeySet)
+    {
+        const auto& samples = m_ownerDock->m_activitySamples;
+        const bool sameSelection = selectionKeys == m_cachedSelectionKeys && metrics == m_cachedMetrics;
+        if (!m_seriesDirty && sameSelection && m_cachedFirstSequence == samples.front().sequence
+            && m_cachedLastSequence == samples.back().sequence && m_cachedSampleCount == samples.size())
+        {
+            return;
+        }
+        const MetricScale scale = calculateMetricScale(metrics, selectionKeySet);
+        std::vector<CachedSeries> seriesList;
+        seriesList.reserve(metrics.size());
+        for (const auto metric : metrics)
+        {
+            CachedSeries series;
+            series.metric = metric;
+            series.points.reserve(samples.size() + 2U);
+            // 保留刚淘汰的边缘采样直到它移出画布，避免历史满载时左缘突然截断。
+            if (sameSelection)
+            {
+                for (const auto& previous : m_cachedSeries)
+                {
+                    if (previous.metric != metric)
+                    {
+                        continue;
+                    }
+                    const double earliest = windowEndMs() - windowDurationMs()
+                        - static_cast<double>(m_ownerDock->refreshIntervalMillisecondsFromInput());
+                    for (const auto& point : previous.points)
+                    {
+                        if (point.timeMs >= static_cast<double>(samples.front().elapsedMs))
+                        {
+                            break;
+                        }
+                        if (point.timeMs >= earliest)
+                        {
+                            series.points.push_back(point);
+                        }
+                    }
+                }
+            }
+            for (const auto& sample : samples)
+            {
+                series.points.push_back({static_cast<double>(sample.elapsedMs),
+                    samplePercentMetricValue(sample, metric, selectionKeySet, scale), 0.0});
+            }
+            calculateSeriesSlopes(series.points);
+            seriesList.push_back(std::move(series));
+        }
+        m_cachedSeries = std::move(seriesList);
+        m_cachedMetrics = metrics;
+        m_cachedSelectionKeys = selectionKeys;
+        m_cachedFirstSequence = samples.front().sequence;
+        m_cachedLastSequence = samples.back().sequence;
+        m_cachedSampleCount = samples.size();
+        m_seriesDirty = false;
+    }
 
     // sampleRawMetricValue：
     // - 读取某个采样点的原始单项指标；
@@ -1892,8 +2108,7 @@ private:
     }
 
     // sampleIndexAtX：
-    // - 将鼠标横坐标映射为最近样本下标；
-    // - 越界坐标会夹到首尾样本。
+    // - 按当前连续时间轴找到最近的可见样本；点、提示和点击共用同一映射。
     int sampleIndexAtX(const int xValue) const
     {
         if (m_ownerDock == nullptr || m_ownerDock->m_activitySamples.empty())
@@ -1905,13 +2120,41 @@ private:
         {
             return -1;
         }
-        const double ratio = std::clamp(
-            (static_cast<double>(xValue) - plotRect.left()) / plotRect.width(),
-            0.0,
-            1.0);
-        const std::size_t sampleCount = m_ownerDock->m_activitySamples.size();
-        const int sampleIndex = static_cast<int>(std::llround(ratio * static_cast<double>(sampleCount - 1U)));
-        return std::clamp(sampleIndex, 0, static_cast<int>(sampleCount) - 1);
+        const double endTime = windowEndMs();
+        const double startTime = endTime - windowDurationMs();
+        const double time = startTime + std::clamp(
+            (static_cast<double>(xValue) - plotRect.left()) / plotRect.width(), 0.0, 1.0)
+            * windowDurationMs();
+        const auto& samples = m_ownerDock->m_activitySamples;
+        const auto lessThanTime = [](const ProcessDock::ProcessActivitySample& sample, double value)
+        {
+            return static_cast<double>(sample.elapsedMs) < value;
+        };
+        const auto first = std::lower_bound(samples.begin(), samples.end(), startTime, lessThanTime);
+        const auto last = std::upper_bound(first, samples.end(), endTime,
+            [](double value, const ProcessDock::ProcessActivitySample& sample)
+            {
+                return value < static_cast<double>(sample.elapsedMs);
+            });
+        if (first == last)
+        {
+            return -1;
+        }
+        auto nearest = std::lower_bound(first, last, time, lessThanTime);
+        if (nearest == last)
+        {
+            --nearest;
+        }
+        else if (nearest != first)
+        {
+            const auto previous = std::prev(nearest);
+            if (time - static_cast<double>(previous->elapsedMs)
+                <= static_cast<double>(nearest->elapsedMs) - time)
+            {
+                nearest = previous;
+            }
+        }
+        return static_cast<int>(std::distance(samples.begin(), nearest));
     }
 
     // sampleIndexToX：
@@ -1919,45 +2162,12 @@ private:
     // - 绘制焦点线和时间标签复用该函数。
     double sampleIndexToX(const int sampleIndex, const QRectF& plotRect) const
     {
-        if (m_ownerDock == nullptr || m_ownerDock->m_activitySamples.size() <= 1U)
+        if (m_ownerDock == nullptr || m_ownerDock->m_activitySamples.empty())
         {
             return plotRect.left() + plotRect.width() * 0.5;
         }
-        const double ratio = static_cast<double>(sampleIndex)
-            / static_cast<double>(m_ownerDock->m_activitySamples.size() - 1U);
-        return plotRect.left() + ratio * plotRect.width();
-    }
-
-    // animatedSampleIndexToX：
-    // - 新点加入时把旧采样从上一横坐标平滑移动到目标横坐标；
-    // - 历史满载时整窗左移，未满时旧点平滑压缩以给最右侧新点留出空间。
-    double animatedSampleIndexToX(const int sampleIndex, const QRectF& plotRect) const
-    {
-        if (m_ownerDock == nullptr || m_ownerDock->m_activitySamples.size() <= 1U)
-        {
-            return plotRect.left() + plotRect.width() * 0.5;
-        }
-        const int sampleCount = static_cast<int>(m_ownerDock->m_activitySamples.size());
-        const double targetRatio =
-            static_cast<double>(sampleIndex) / static_cast<double>(sampleCount - 1);
-        double startRatio = targetRatio;
-        if (m_animationProgress < 1.0)
-        {
-            if (m_historyWindowShifted)
-            {
-                startRatio = sampleIndex + 1 < sampleCount
-                    ? static_cast<double>(sampleIndex + 1) / static_cast<double>(sampleCount - 1)
-                    : 1.0;
-            }
-            else if (sampleCount > 2)
-            {
-                startRatio = sampleIndex + 1 < sampleCount
-                    ? static_cast<double>(sampleIndex) / static_cast<double>(sampleCount - 2)
-                    : 1.0;
-            }
-        }
-        const double ratio = startRatio + (targetRatio - startRatio) * m_animationProgress;
-        return plotRect.left() + ratio * plotRect.width();
+        const double timeMs = static_cast<double>(m_ownerDock->m_activitySamples[sampleIndex].elapsedMs);
+        return plotRect.right() + (timeMs - windowEndMs()) / windowDurationMs() * plotRect.width();
     }
 
     // drawGrid：
@@ -1986,88 +2196,126 @@ private:
 
         if (m_ownerDock != nullptr && !m_ownerDock->m_activitySamples.empty())
         {
-            const ProcessDock::ProcessActivitySample& firstSample = m_ownerDock->m_activitySamples.front();
-            const ProcessDock::ProcessActivitySample& lastSample = m_ownerDock->m_activitySamples.back();
+            const double endTime = windowEndMs();
+            const double startTime = endTime - windowDurationMs();
             painter.drawText(QRectF(plotRect.left(), plotRect.bottom() + 3.0, 80.0, 18.0),
                 Qt::AlignLeft | Qt::AlignVCenter,
-                formatActivityElapsedText(firstSample.elapsedMs));
+                startTime >= 0.0 ? formatActivityElapsedText(static_cast<std::uint64_t>(startTime)) : QString());
             painter.drawText(QRectF(plotRect.right() - 90.0, plotRect.bottom() + 3.0, 90.0, 18.0),
                 Qt::AlignRight | Qt::AlignVCenter,
-                formatActivityElapsedText(lastSample.elapsedMs));
+                formatActivityElapsedText(static_cast<std::uint64_t>(std::max(0.0, endTime))));
         }
     }
 
-    // drawLines：
-    // - 绘制按时间排列的多指标折线；
-    // - 所有指标已转为 0~100%，不同单位可以共用同一 Y 轴。
-    void drawLines(
-        QPainter& painter,
-        const QRectF& plotRect,
-        const std::vector<ProcessDock::ProcessActivityMetric>& metricList,
-        const std::unordered_set<std::string>& selectionKeySet,
-        const MetricScale& metricScale) const
+    // drawLines：只映射可见时间窗口，缓存值不变；三次曲线保留采样值且不超过相邻峰谷。
+    void drawLines(QPainter& painter, const QRectF& plotRect) const
     {
-        if (m_ownerDock == nullptr || m_ownerDock->m_activitySamples.empty())
+        const double duration = windowDurationMs(); // 固定跨度给出恒定像素/秒。
+        const double endTime = windowEndMs();
+        const double startTime = endTime - duration;
+        const auto position = [&](const SeriesPoint& point)
+        {
+            return QPointF(plotRect.right() + (point.timeMs - endTime) / duration * plotRect.width(),
+                plotRect.bottom() - point.percent / 100.0 * plotRect.height());
+        };
+        painter.save();
+        painter.setClipRect(plotRect);
+        painter.setBrush(Qt::NoBrush);
+        for (const auto& series : m_cachedSeries)
+        {
+            const auto& points = series.points;
+            if (points.empty())
+            {
+                continue;
+            }
+            // 额外取窗口左右各一个相邻采样，曲线在裁剪边缘仍连续。
+            auto first = std::lower_bound(points.begin(), points.end(), startTime,
+                [](const SeriesPoint& point, double time) { return point.timeMs < time; });
+            if (first != points.begin())
+            {
+                --first;
+            }
+            auto last = std::upper_bound(first, points.end(), endTime,
+                [](double time, const SeriesPoint& point) { return time < point.timeMs; });
+            if (last != points.end())
+            {
+                ++last;
+            }
+            const std::size_t firstIndex = static_cast<std::size_t>(std::distance(points.begin(), first));
+            const std::size_t endIndex = static_cast<std::size_t>(std::distance(points.begin(), last));
+            const std::size_t visibleCount = endIndex - firstIndex;
+            const std::size_t maximumPoints = static_cast<std::size_t>(std::max(2.0, plotRect.width()));
+            const std::size_t stride = std::max<std::size_t>(1U, (visibleCount + maximumPoints - 1U) / maximumPoints);
+            QPainterPath path;
+            path.moveTo(position(points[firstIndex]));
+            std::size_t previousIndex = firstIndex;
+            const auto appendCurve = [&](std::size_t index)
+            {
+                const SeriesPoint& previous = points[previousIndex];
+                const SeriesPoint& current = points[index];
+                const QPointF from = position(previous);
+                const QPointF to = position(current);
+                const double interval = std::max(0.0, current.timeMs - previous.timeMs);
+                const double minimum = std::min(previous.percent, current.percent);
+                const double maximum = std::max(previous.percent, current.percent);
+                const double control1 = std::clamp(previous.percent + previous.slope * interval / 3.0, minimum, maximum);
+                const double control2 = std::clamp(current.percent - current.slope * interval / 3.0, minimum, maximum);
+                // 控制点限定在相邻数值范围内，CPU/GPU 峰值不会被曲线平滑伪造或越界。
+                path.cubicTo(QPointF(from.x() + (to.x() - from.x()) / 3.0,
+                        plotRect.bottom() - control1 / 100.0 * plotRect.height()),
+                    QPointF(to.x() - (to.x() - from.x()) / 3.0,
+                        plotRect.bottom() - control2 / 100.0 * plotRect.height()), to);
+                previousIndex = index;
+            };
+            for (std::size_t index = firstIndex + stride; index < endIndex; index += stride)
+            {
+                appendCurve(index);
+            }
+            if (previousIndex + 1U < endIndex)
+            {
+                appendCurve(endIndex - 1U);
+            }
+            if (points.back().timeMs < endTime)
+            {
+                path.lineTo(QPointF(plotRect.right(), position(points.back()).y()));
+            }
+            QColor color = processActivityMetricColor(series.metric);
+            color.setAlpha(230);
+            painter.setPen(QPen(color, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            painter.drawPath(path);
+        }
+        painter.restore();
+    }
+
+    // 悬停只显示鼠标附近最近真实采样的各指标圆点，离开时立即全部隐藏。
+    void drawHoverPoints(QPainter& painter, const QRectF& plotRect) const
+    {
+        if (!m_hoverActive)
         {
             return;
         }
-
-        const std::size_t sampleCount = m_ownerDock->m_activitySamples.size();
-        const std::size_t maximumRenderedPointCount = static_cast<std::size_t>(
-            std::max(2.0, std::floor(plotRect.width())));
-        const std::size_t sampleStride = sampleCount > maximumRenderedPointCount
-            ? std::max<std::size_t>(
-                1U,
-                ((sampleCount - 1U) + (maximumRenderedPointCount - 2U)) /
-                    (maximumRenderedPointCount - 1U))
-            : 1U;
-        for (const ProcessDock::ProcessActivityMetric metric : metricList)
+        const int index = sampleIndexAtX(m_hoverPosition.x());
+        if (index < 0)
         {
-            QPainterPath metricPath;
-            bool hasPoint = false;
-            const auto appendSamplePoint = [&](const std::size_t sampleIndex)
-            {
-                const ProcessDock::ProcessActivitySample& sample = m_ownerDock->m_activitySamples[sampleIndex];
-                double percentValue = samplePercentMetricValue(sample, metric, selectionKeySet, metricScale);
-                if (sampleIndex + 1U == sampleCount && sampleIndex > 0U && m_animationProgress < 1.0)
-                {
-                    const ProcessDock::ProcessActivitySample& previousSample = m_ownerDock->m_activitySamples[sampleIndex - 1U];
-                    const double previousPercentValue = samplePercentMetricValue(previousSample, metric, selectionKeySet, metricScale);
-                    percentValue = previousPercentValue + (percentValue - previousPercentValue) * m_animationProgress;
-                }
-                const double xValue = animatedSampleIndexToX(static_cast<int>(sampleIndex), plotRect);
-                const double yValue = plotRect.bottom() - (percentValue / 100.0) * plotRect.height();
-                const QPointF point(xValue, yValue);
-                if (!hasPoint)
-                {
-                    metricPath.moveTo(point);
-                    hasPoint = true;
-                }
-                else
-                {
-                    metricPath.lineTo(point);
-                }
-            };
-            std::size_t lastRenderedSampleIndex = 0U;
-            for (std::size_t sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += sampleStride)
-            {
-                appendSamplePoint(sampleIndex);
-                lastRenderedSampleIndex = sampleIndex;
-            }
-            if (lastRenderedSampleIndex != sampleCount - 1U)
-            {
-                appendSamplePoint(sampleCount - 1U);
-            }
-
-            QColor lineColor = processActivityMetricColor(metric);
-            lineColor.setAlpha(230);
-            // 折线只描边，不绘制采样圆点，密集历史保持连续清楚的曲线。
-            // Qt 的 drawPath 会同时 stroke 和 fill；如果 brush 未清空，开放折线路径会被隐式闭合填充。
-            painter.setBrush(Qt::NoBrush);
-            painter.setPen(QPen(lineColor, 2.0));
-            painter.drawPath(metricPath);
-
+            return;
         }
+        const double timeMs = static_cast<double>(m_ownerDock->m_activitySamples[index].elapsedMs);
+        const double x = sampleIndexToX(index, plotRect);
+        painter.save();
+        painter.setClipRect(plotRect);
+        for (const auto& series : m_cachedSeries)
+        {
+            const auto point = std::lower_bound(series.points.begin(), series.points.end(), timeMs,
+                [](const SeriesPoint& value, double time) { return value.timeMs < time; });
+            if (point == series.points.end())
+            {
+                continue;
+            }
+            painter.setPen(QPen(KswordTheme::SurfaceColor(), 1.4));
+            painter.setBrush(processActivityMetricColor(series.metric));
+            painter.drawEllipse(QPointF(x, plotRect.bottom() - point->percent / 100.0 * plotRect.height()), 3.4, 3.4);
+        }
+        painter.restore();
     }
 
     // drawLegend：
@@ -2102,11 +2350,24 @@ private:
         {
             return;
         }
+        if (!m_hoverActive && m_ownerDock->m_activityTimelinePinnedToLatest)
+        {
+            return;
+        }
+        const int focusedIndex = m_hoverActive ? sampleIndexAtX(m_hoverPosition.x()) : m_focusedSampleIndex;
+        if (focusedIndex < 0)
+        {
+            return;
+        }
         const int safeIndex = std::clamp(
-            m_focusedSampleIndex,
+            focusedIndex,
             0,
             static_cast<int>(m_ownerDock->m_activitySamples.size()) - 1);
         const double xValue = sampleIndexToX(safeIndex, plotRect);
+        if (xValue < plotRect.left() || xValue > plotRect.right())
+        {
+            return;
+        }
         QColor lineColor = KswordTheme::PrimaryBlueColor;
         lineColor.setAlpha(230);
         painter.setPen(QPen(lineColor, 1.4));
@@ -2116,9 +2377,19 @@ private:
 private:
     ProcessDock* m_ownerDock = nullptr; // m_ownerDock：宿主 ProcessDock，不拥有。
     int m_focusedSampleIndex = -1;      // m_focusedSampleIndex：当前时间轴定位样本。
-    QVariantAnimation* m_seriesAnimation = nullptr; // m_seriesAnimation：最新采样点插值动画。
-    double m_animationProgress = 1.0; // m_animationProgress：最新采样点动画进度。
-    bool m_historyWindowShifted = false; // m_historyWindowShifted：本轮是否淘汰了最旧采样。
+    QTimer* m_frameTimer = nullptr; // 独立绘制节拍，隐藏时停止。
+    double m_liveEndMs = 0.0; // 连续实时窗口右端，暂停时保持。
+    std::uint64_t m_recordingStartTick = 0; // 当前记录会话的单调时钟原点。
+    QPoint m_hoverPosition; // 鼠标最后停留的本地坐标，绘制时重新匹配可见采样。
+    bool m_hoverActive = false; // 只在鼠标位于实际曲线画布内显示圆点。
+    std::uint64_t m_hoveredSequence = 0; // 合并同一采样的 tooltip 更新。
+    bool m_seriesDirty = true; // 新样本触发重建，逐帧移动只使用缓存。
+    std::uint64_t m_cachedFirstSequence = 0; // 缓存左端样本身份。
+    std::uint64_t m_cachedLastSequence = 0; // 缓存右端样本身份。
+    std::size_t m_cachedSampleCount = 0; // 检测清空和历史淘汰。
+    std::vector<CachedSeries> m_cachedSeries; // 已归一化的时间/数值/切线。
+    std::vector<ProcessDock::ProcessActivityMetric> m_cachedMetrics; // 当前指标组合。
+    std::vector<std::string> m_cachedSelectionKeys; // 当前进程选择，变更后重新聚合。
 };
 
 class ProcessActivityTimelineSlider final : public QSlider
@@ -5005,22 +5276,20 @@ void ProcessDock::initializeTopControls()
     m_pauseButton->setStyleSheet(buttonStyle);
     m_processSettingsButton->setStyleSheet(buttonStyle);
 
-    // 第一行按功能分组，组间留空隙，避免同类控件被别的组隔开：
+    // 第一行按功能顺序排列，所有相邻控件统一使用布局的 8px 间距：
     // ① 枚举与视图：决定“列出哪些进程、怎么组织”；
     // ② 运行控制：开始/暂停/选择列/回调保护；
     // ③ 搜索；
     // ④ 活动记录：由 initializeProcessActivityPanel 插在搜索框之后；
-    // ⑤ 右侧刷新间隔组和齿轮设置入口，靠 addStretch 推到最右。
+    // ⑤ 齿轮入口与其它控件同间距，剩余空间留在整行尾端。
     m_controlLayout->addWidget(m_friendlyViewCheck);
     m_controlLayout->addWidget(m_viewModeCombo);
-    m_controlLayout->addSpacing(12);
     m_controlLayout->addWidget(m_startButton);
     m_controlLayout->addWidget(m_pauseButton);
     m_controlLayout->addWidget(m_columnChooserButton);
-    m_controlLayout->addSpacing(12);
     m_controlLayout->addWidget(m_processSearchLineEdit);
-    m_controlLayout->addStretch(1);
     m_controlLayout->addWidget(m_processSettingsButton);
+    m_controlLayout->addStretch(1);
     controlContainerLayout->addLayout(m_controlLayout);
     m_processPageLayout->addLayout(controlContainerLayout);
 }
@@ -5153,7 +5422,6 @@ void ProcessDock::initializeProcessActivityPanel()
     // 活动控制项并入顶部控制行，图表面板只保留图表本身，省下一整行垂直空间。
     // 历史留存方式直接放在图表上方，数量输入仅在“留存最近”模式显示。
     int topControlInsertIndex = m_controlLayout->indexOf(m_processSearchLineEdit) + 1;
-    m_controlLayout->insertSpacing(topControlInsertIndex++, 12);
     for (QWidget* const activityControlWidget : {
              static_cast<QWidget*>(m_activityClearButton),
              static_cast<QWidget*>(m_activityHistoryModeCombo),
@@ -9223,7 +9491,7 @@ void ProcessDock::appendProcessActivitySample()
     const std::size_t removedSampleCount = trimProcessActivitySamples();
     if (m_activityChartWidget != nullptr)
     {
-        m_activityChartWidget->animateLatestSample(removedSampleCount > 0);
+        m_activityChartWidget->notifySampleAppended();
     }
     if (!m_activitySamples.empty())
     {

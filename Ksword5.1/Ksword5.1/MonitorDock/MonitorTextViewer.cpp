@@ -48,6 +48,8 @@ namespace monitor_text_viewer
             raw->setReadOnly(true);
             raw->setRawText(document.rawPayload);
             tabs->addTab(raw, ks::i18n::sourceText(QStringLiteral("原始数据")));
+            ks::ui::SetDetailTabGroups(tabs, {{ks::ui::DetailNavigationKind::General, {0}},
+                {ks::ui::DetailNavigationKind::Content, {1}}});
             layout->addWidget(ks::ui::CreateDetailTabShell(tabs, dialog), 1);
         }
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);

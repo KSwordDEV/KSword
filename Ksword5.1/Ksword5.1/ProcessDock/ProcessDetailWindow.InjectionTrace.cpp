@@ -1287,6 +1287,8 @@ namespace
                      injectionText("process.detail.injection.tab.semantics",
                                    QStringLiteral("结果怎么读")));
 
+        ks::ui::SetDetailTabGroups(tabs, {{ks::ui::DetailNavigationKind::Analysis, {0, 1}},
+            {ks::ui::DetailNavigationKind::Explanation, {2}}});
         layout->addWidget(ks::ui::CreateDetailTabShell(tabs, &dialog), 1);
 
         QHBoxLayout* const buttonLayout = new QHBoxLayout();

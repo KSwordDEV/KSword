@@ -2639,7 +2639,7 @@ void ProcessDetailWindow::initializeUi()
     {
         auto* navigationButton = new QToolButton(m_tabNavigation);
         // 左侧导航保留互斥选中，统一普通/checked/disabled 纯色状态。
-        ks::ui::ApplyFlatButtonTheme(navigationButton);
+        ks::ui::ApplyDetailNavigationButtonTheme(navigationButton);
         navigationButton->setCheckable(true);
         navigationButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         navigationButton->setIcon(m_tabWidget->tabIcon(tabIndex));
@@ -2647,11 +2647,19 @@ void ProcessDetailWindow::initializeUi()
         navigationButton->setText(m_tabWidget->tabText(tabIndex));
         navigationButton->setToolTip(m_tabWidget->tabText(tabIndex));
         navigationButton->setMinimumHeight(38);
-        navigationButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        navigationButton->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         m_tabNavigationButtonGroup->addButton(navigationButton, tabIndex);
         tabNavigationLayout->addWidget(navigationButton);
     }
     tabNavigationLayout->addStretch(1);
+    // 导航按类型排序；保留 QTabWidget 的原索引、惰性初始化和既有跳转逻辑。
+    using NavKind = ks::ui::DetailNavigationKind;
+    ks::ui::SetDetailTabGroups(m_tabWidget, {
+        {NavKind::General, {0}}, {NavKind::Performance, {1, 2}},
+        {NavKind::Resources, {3, 5, 6, 7, 8, 9, 10}}, {NavKind::Security, {11, 12}},
+        {NavKind::Internals, {17, 13, 18}}, {NavKind::Interaction, {4, 14, 15}},
+        {NavKind::Extensions, {16}}});
+    ks::ui::ArrangeDetailNavigationGroups(m_tabNavigation, m_tabWidget, m_tabNavigationButtonGroup);
 
     m_tabWidget->setCurrentWidget(m_detailTab);
     if (QAbstractButton* currentNavigationButton =

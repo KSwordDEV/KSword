@@ -163,11 +163,10 @@ namespace ks::ui
 
             // ---------- 分组框基线 ----------
             // margin-top 是标题行所需的最小空间，与 Qt 原生标题高度一致。
-            // 四周实色边框会让密集页面（一屏七八个分组）变成一堆套嵌方框，
-            // 因此只保留标题下方的一条分隔线：分组关系照样读得出来，线框少四分之三。
+            // 内容范围需要完整的中性细边界，避免相邻分组融为一体；按钮不用跟随加框。
             "QGroupBox{"
-            "  border:none;"
-            "  border-top:1px solid __BORDER__;"
+            "  border:1px solid __BORDER__;"
+            "  border-radius:6px;"
             "  margin-top:12px;"
             "}"
             "QGroupBox::title{"
