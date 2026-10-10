@@ -1,4 +1,5 @@
 #include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/X64DbgNavigation.h"
 #include "../UI/TableInteractionSupport.h"
@@ -443,15 +444,10 @@ void ProcessDetailWindow::showCurrentModuleDetailDialog()
     QDialog detailDialog(this);
     detailDialog.setWindowTitle(QStringLiteral("模块详情 - %1").arg(QFileInfo(modulePathText).fileName()));
     detailDialog.resize(760, 520);
-    detailDialog.setStyleSheet(QStringLiteral(
-        "QDialog{background:%1;color:%2;}"
-        "QPushButton{background:%3;color:%2;border:1px solid %4;border-radius:4px;padding:5px 10px;}"
-        "QPushButton:hover{background:%5;}")
-        .arg(KswordTheme::SurfaceHex())
-        .arg(KswordTheme::TextPrimaryHex())
-        .arg(KswordTheme::SurfaceAltColorHex())
-        .arg(KswordTheme::BorderHex())
-        .arg(KswordTheme::PrimaryBlueHex));
+    detailDialog.setStyleSheet(QStringLiteral("QDialog{background:%1;color:%2;}")
+        .arg(KswordTheme::SurfaceHex(), KswordTheme::TextPrimaryHex())
+        + ks::ui::BuildFlatButtonStyle()
+        + QStringLiteral("QPushButton{border-radius:4px;padding:5px 10px;}"));
 
     QVBoxLayout* dialogLayout = new QVBoxLayout(&detailDialog);
     dialogLayout->setContentsMargins(10, 10, 10, 10);

@@ -1,4 +1,5 @@
 #include "SoundSourcePage.h"
+#include "../../UI/FlatButtonTheme.h"
 
 #include "../../theme.h"
 
@@ -754,18 +755,9 @@ namespace ks::misc
             QStringLiteral("color:%1;")
             .arg(KswordTheme::TextSecondaryColorHex()));
 
-        // 常态不描边不铺底，选中态已有实心强调色足够区分，hover 才补边框。
-        // 占位符编号与 arg() 严格一一对应：arg 替换的是编号最小的 %n，不是固定 %1。
-        const QString presetButtonStyle = QStringLiteral(
-            "QToolButton{background:transparent;color:%1;border:1px solid transparent;border-radius:4px;}"
-            "QToolButton:hover{border-color:%2;background:%3;}"
-            "QToolButton:checked{background:%2;color:%4;border-color:%2;}"
-            "QToolButton:disabled{color:%5;background:transparent;border-color:transparent;}")
-            .arg(KswordTheme::TextPrimaryColorHex())                     // %1
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue))  // %2
-            .arg(KswordTheme::SurfaceAltColorHex())                      // %3
-            .arg(KswordTheme::OnAccentHex())                             // %4
-            .arg(KswordTheme::TextDisabledColorHex());                   // %5
+        // 纯色按钮保留列组 checked 态；刷新按钮仍受原采样 enabled 状态控制。
+        const QString presetButtonStyle = ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QToolButton{border-radius:4px;}");
         m_refreshButton->setStyleSheet(presetButtonStyle);
         m_overviewPresetButton->setStyleSheet(presetButtonStyle);
         m_audioPresetButton->setStyleSheet(presetButtonStyle);

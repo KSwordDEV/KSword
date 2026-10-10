@@ -1,4 +1,5 @@
 #include "WindowEventHookTab.h"
+#include "../UI/FlatButtonTheme.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../Internationalization/LanguageManager.h"
@@ -382,7 +383,7 @@ void WindowEventHookTab::initializeUi()
     m_refreshButton = new QPushButton(
         eventHookText("window.event_hook.refresh", QStringLiteral("刷新事件 Hook")),
         this);
-    m_refreshButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+    m_refreshButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
     m_filterEdit = new QLineEdit(this);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(eventHookText(

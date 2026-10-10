@@ -1,4 +1,5 @@
 #include "WindowDock.h"
+#include "../UI/FlatButtonTheme.h"
 #include "WindowEventHookTab.h"
 #include "WindowGlobalHotkeyTab.h"
 #include "WindowGuiHandleTab.h"
@@ -1862,29 +1863,13 @@ namespace
 
     // buildColumnPresetButtonStyle 作用：
     // - 输入 selected：按钮是否对应当前列组；
-    // - 处理：选中时使用主题主色背景，未选中时保持透明背景和主题文字；
+    // - 处理：选中时使用主题主色背景，未选中时使用中性纯色背景和主题文字；
     // - 返回：QPushButton stylesheet 文本。
     QString buildColumnPresetButtonStyle(const bool selected)
     {
-        const QString backgroundText = selected
-            ? KswordTheme::AccentHex(KswordTheme::AccentRole::Blue)
-            : QStringLiteral("transparent");
-        const QString borderText = selected
-            ? KswordTheme::AccentHex(KswordTheme::AccentRole::Blue)
-            : KswordTheme::BorderColorHex();
-        const QString textColor = selected
-            ? KswordTheme::OnAccentHex()
-            : KswordTheme::TextPrimaryColorHex();
-        return QStringLiteral(
-            "QPushButton{min-width:24px;max-width:24px;padding:3px 0;border:1px solid %1;"
-            "border-radius:0;color:%2;background:%3;font-weight:700;}"
-            "QPushButton:hover{border-color:%4;}"
-            "QPushButton:pressed{background:%4;color:%5;}")
-            .arg(borderText)
-            .arg(textColor)
-            .arg(backgroundText)
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue))
-            .arg(KswordTheme::OnAccentHex());
+        // A/B 仍按业务预设决定强调状态，手工布局回到中性色，保留24px宽度。
+        return ks::ui::BuildFlatButtonStyle(selected ? ks::ui::FlatButtonTone::Accent : ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QPushButton{min-width:24px;max-width:24px;padding:3px 0;border-radius:0;font-weight:700;}");
     }
 
     // updateColumnPresetButtons 作用：
@@ -3027,7 +3012,7 @@ void WindowDock::refreshThemeVisuals()
 
     if (m_queryWindowDetailButton != nullptr)
     {
-        m_queryWindowDetailButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+        m_queryWindowDetailButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
     }
 }
 
@@ -3305,7 +3290,7 @@ void WindowDock::initializeUi()
         detailToolLayout->setSpacing(6);
         m_queryWindowDetailButton = new QPushButton(QIcon(QStringLiteral(":/Icon/process_tree.svg")), QStringLiteral("查询选中窗口详情"), detailPage);
         m_queryWindowDetailButton->setToolTip(QStringLiteral("只对当前选中 HWND 按需查询 win32k window detail，不批量扫描全部窗口"));
-        m_queryWindowDetailButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+        m_queryWindowDetailButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
         detailToolLayout->addWidget(m_queryWindowDetailButton, 0);
         QLabel* detailHintLabel = new QLabel(QStringLiteral("详情区：先显示快照，按需补充单 HWND runtime readiness/tagWND 诊断。"), detailPage);
         detailHintLabel->setStyleSheet(

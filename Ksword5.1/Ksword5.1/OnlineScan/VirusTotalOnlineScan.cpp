@@ -1,6 +1,7 @@
 #include "VirusTotalOnlineScan.h"
 #include "../UI/DetailDialogChrome.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/ThemeBinding.h"
 
 #include "OnlineScanSupport.h"
 #include "../Framework.h"
@@ -3004,6 +3005,8 @@ void VirusTotalOnlineScan::ensureResultDialog()
             if (apiKind == VtApiKind::FileProfile)
             {
                 QLineEdit* fileProfileFilterEdit = new QLineEdit(reportTreeGroup);
+                // 文件画像树的字段/值过滤保留原提示，不触及文件提交或在线查询输入。
+                ks::ui::BindSearchFieldTheme(fileProfileFilterEdit);
                 fileProfileFilterEdit->setClearButtonEnabled(true);
                 fileProfileFilterEdit->setPlaceholderText(QStringLiteral("筛选文件画像字段/值，例如 pe_info、signature、section、tag、hash"));
                 fileProfileFilterEdit->setToolTip(QStringLiteral("输入关键字后筛选文件画像树；匹配字段和值，保留命中节点的父级路径。"));
@@ -3143,6 +3146,8 @@ void VirusTotalOnlineScan::ensureResultDialog()
         m_apiPanes[static_cast<std::size_t>(apiIndex(apiKind))] = createCommonPane(apiKind);
     }
 
+    ks::ui::SetDetailTabGroups(resultTabWidget, {{ks::ui::DetailNavigationKind::Analysis, {0, 1}},
+        {ks::ui::DetailNavigationKind::Security, {2}}, {ks::ui::DetailNavigationKind::Behaviour, {3}}});
     dialogLayout->addWidget(ks::ui::CreateDetailTabShell(resultTabWidget, resultDialog), 1);
     QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, resultDialog);
 

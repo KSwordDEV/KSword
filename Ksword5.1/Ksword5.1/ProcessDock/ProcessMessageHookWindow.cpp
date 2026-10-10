@@ -1,4 +1,5 @@
 #include "ProcessMessageHookWindow.h"
+#include "../UI/FlatButtonTheme.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../Internationalization/LanguageManager.h"
@@ -268,20 +269,9 @@ namespace
     // presetButtonStyle：按选中状态绘制 A/B 列组按钮。
     QString presetButtonStyle(const bool selected)
     {
-        const QString background = selected
-            ? KswordTheme::AccentHex(KswordTheme::AccentRole::Blue)
-            : QStringLiteral("transparent");
-        const QString border = selected
-            ? KswordTheme::AccentHex(KswordTheme::AccentRole::Blue)
-            : KswordTheme::BorderHex();
-        const QString textColor = selected
-            ? KswordTheme::OnAccentHex()
-            : KswordTheme::TextPrimaryHex();
-        return QStringLiteral(
-            "QPushButton{min-width:26px;max-width:26px;padding:3px 0;border:1px solid %1;"
-            "border-radius:0;color:%2;background:%3;font-weight:700;}"
-            "QPushButton:hover{border-color:%4;}")
-            .arg(border, textColor, background, KswordTheme::AccentHex(KswordTheme::AccentRole::Blue));
+        // 业务列预设仍按当前属性选择强调态，固定宽度和字重保持原值。
+        return ks::ui::BuildFlatButtonStyle(selected ? ks::ui::FlatButtonTone::Accent : ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QPushButton{min-width:26px;max-width:26px;padding:3px 0;border-radius:0;font-weight:700;}");
     }
 }
 
@@ -328,7 +318,7 @@ void ProcessMessageHookWindow::initializeUi()
         QIcon(QStringLiteral(":/Icon/process_refresh.svg")),
         hookWindowText(QStringLiteral("刷新")),
         this);
-    m_refreshButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+    m_refreshButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
 
     auto* scopeLabel = new QLabel(hookWindowText(QStringLiteral("范围：")), this);
     m_scopeCombo = new QComboBox(this);

@@ -6,6 +6,8 @@
 #include "../Ksword5.1/Ksword5.1/UI/TableFreezeSupport.h"
 #include "../Ksword5.1/Ksword5.1/UI/TableSnapshotCompare.h"
 #include "../Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.h"
+#include "../Ksword5.1/Ksword5.1/UI/TablePresentation.h"
+#include "../Ksword5.1/Ksword5.1/UI/ToolbarMetrics.h"
 #include "../Ksword5.1/Ksword5.1/theme.h"
 
 #include <QApplication>
@@ -13,6 +15,11 @@
 #include <QContextMenuEvent>
 #include <QDir>
 #include <QFont>
+#include <QFontDatabase>
+#include <QCheckBox>
+#include <QLineEdit>
+#include <QSplitter>
+#include <QLabel>
 #include <QHeaderView>
 #include <QKeyEvent>
 #include <QMenu>
@@ -518,6 +525,101 @@ namespace
             "queued old mutation cannot poison replacement hidden baseline");
     }
 
+    // 生产等高工具栏与并列表面组合，空表也必须能辨认分区，窄栏动作不能丢失。
+    void checkPanelLayout(QApplication& application)
+    {
+        for (int dark = 0; dark < 2; ++dark)
+        {
+            KswordTheme::SetDarkModeEnabled(dark != 0);
+            QPalette colors = application.palette();
+            colors.setColor(QPalette::Window, KswordTheme::SurfaceColor());
+            colors.setColor(QPalette::Base, KswordTheme::SurfaceColor());
+            colors.setColor(QPalette::AlternateBase, KswordTheme::SurfaceAltColor());
+            colors.setColor(QPalette::Text, KswordTheme::TextPrimaryColor());
+            colors.setColor(QPalette::WindowText, KswordTheme::TextPrimaryColor());
+            colors.setColor(QPalette::Highlight, KswordTheme::PrimaryAccentColor());
+            application.setPalette(colors);
+            application.setStyleSheet(ks::ui::BuildGlobalBaseControlStyleBlock());
+            QWidget page;
+            page.setAttribute(Qt::WA_DontShowOnScreen);
+            page.resize(960, 600);
+            auto* root = new QVBoxLayout(&page);
+            auto* toolbar = new QHBoxLayout();
+            auto* check = new QCheckBox(QStringLiteral("进程树视图"), &page);
+            auto* combo = new QComboBox(&page);
+            combo->addItem(QStringLiteral("监视视图"));
+            combo->setStyleSheet(KswordTheme::ThemedComboBoxStyle());
+            auto* action = new QPushButton(QStringLiteral("选择列"), &page);
+            auto* search = new QLineEdit(&page);
+            search->setPlaceholderText(QStringLiteral("搜索"));
+            auto* count = new QSpinBox(&page);
+            count->setValue(50);
+            count->setSuffix(QStringLiteral(" 次"));
+            const QList<QWidget*> controls{check, combo, action, search, count};
+            for (QWidget* control : controls) toolbar->addWidget(control);
+            ks::ui::NormalizeToolbarRow(toolbar);
+            root->addLayout(toolbar);
+            auto* split = new QSplitter(Qt::Horizontal, &page);
+            split->setHandleWidth(10);
+            root->addWidget(split, 1);
+            QList<ks::ui::VisibleTableWidget*> tables;
+            for (const QString& title : {QStringLiteral("TCP 连接"), QStringLiteral("UDP 端点")})
+            {
+                auto* table = new ks::ui::VisibleTableWidget(&page);
+                table->setColumnCount(3);
+                table->setHorizontalHeaderLabels({QStringLiteral("PID"), QStringLiteral("进程"), QStringLiteral("本地端点")});
+                table->verticalHeader()->hide();
+                table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+                split->addWidget(ks::ui::CreateTitledTablePanel(table, title));
+                tables.append(table);
+            }
+            page.show();
+            drain();
+            expect(tables[0]->height() == tables[1]->height(), "parallel table panels have equal height");
+            for (QWidget* control : controls)
+            {
+                expect(control->height() == controls.first()->height(), "parallel mixed controls have equal height");
+            }
+            for (auto* table : tables)
+            {
+                auto* more = table->findChild<QToolButton*>(QStringLiteral("ksword_table_more_actions"));
+                expect(more != nullptr && more->isVisible(), "narrow table exposes one readable overflow entry");
+                if (more == nullptr) continue;
+                for (QToolButton* button : more->parentWidget()->findChildren<QToolButton*>(QString(), Qt::FindDirectChildrenOnly))
+                {
+                    if (!button->isVisible()) continue;
+                    expect(button->width() >= button->sizeHint().width(), "visible action text is not squeezed into ellipsis");
+                }
+                more->menu()->popup(more->mapToGlobal(QPoint(0, more->height())));
+                drain();
+                QAction* snapshot = actionWithText(more->menu(), QStringLiteral("增加快照"));
+                QAction* compare = actionWithText(more->menu(), QStringLiteral("比对视图"));
+                expect(snapshot && compare && !compare->isEnabled(), "overflow retains complete actions and disabled state");
+                more->menu()->hide();
+                drain();
+                const QImage image = table->grab().toImage();
+                const QColor edge = image.pixelColor(0, image.height() / 2);
+                expect(edge != KswordTheme::SurfaceColor() && table->frameWidth() == 1,
+                    "table outer boundary has a subtle visible single pixel frame");
+            }
+            page.grab().save(dark ? QStringLiteral("output/table_panels_dark.png") : QStringLiteral("output/table_panels_light.png"));
+            // 字号提升后再验同排高度，避免固定 28px 裁剪可访问性字体。
+            QFont enlarged = page.font();
+            enlarged.setPointSize(14);
+            page.setFont(enlarged);
+            drain();
+            for (QWidget* control : controls)
+                expect(control->height() == controls.first()->height()
+                    && control->height() >= QFontMetrics(control->font()).height() + 12,
+                    "equal control heights adapt to larger fonts");
+            page.resize(2200, 650);
+            drain();
+            expect(!tables[0]->findChild<QToolButton*>(QStringLiteral("ksword_table_more_actions"))->isVisible()
+                && buttonWithText(tables[0], QStringLiteral("增加快照"))->isVisible(),
+                "wide table restores original action controls");
+        }
+    }
+
     // 真实 QMenu Show/Hide 由旧全局来源过滤器识别，再交给新协调器计数释放。
     void checkNativeMenus()
     {
@@ -578,6 +680,9 @@ int main(int argc, char* argv[])
     QApplication application(argc, argv);
     application.setStyle(QStringLiteral("Fusion"));
     application.setFont(QFont(QStringLiteral("Microsoft YaHei UI"), 10));
+    const int fontId = QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
+    if (fontId >= 0 && !QFontDatabase::applicationFontFamilies(fontId).isEmpty())
+        application.setFont(QFont(QFontDatabase::applicationFontFamilies(fontId).first(), 9));
     application.setStyleSheet(ks::ui::BuildGlobalBaseControlStyleBlock());
     const QString output = argc > 1 ? QString::fromLocal8Bit(argv[1]) : QString();
     if (!output.isEmpty()) QDir().mkpath(output);
@@ -587,6 +692,7 @@ int main(int argc, char* argv[])
     checkNativeMenus();
     checkFreezeMenu(application, output);
     checkFreezeMenuLifetime(application);
+    checkPanelLayout(application);
     drain();
     std::printf("RESULT_TABLE_CHECKS=%d\nRESULT_TABLE_FAILURES=%d\n", checks, failures);
     return failures == 0 ? 0 : 1;

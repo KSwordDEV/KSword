@@ -2,13 +2,14 @@
 // 作用：HexViewWidgets.h 里"文字型"三个控件的实现：
 //   HexViewSegmented（分段按钮）、HexViewMessageLabel（单行消息）、HexViewStatusBar（状态条）。
 // 图标按钮与条带底板在 HexViewWidgets.cpp。
-// 约定：所有颜色在每次 paintEvent 里现取 KswordTheme 的静态颜色访问器，不缓存、不用样式表。
+// 约定：自绘颜色每次绘制读取；分段工具按钮复用共享状态配方，不复制按钮亮度偏移公式。
 
 #include "HexViewWidgets.h"
 
 #include "HexViewFormat.h"
 
 #include "../../theme.h"
+#include "../FlatButtonTheme.h"
 
 #include <QEvent>
 #include <QFontMetrics>
@@ -204,24 +205,22 @@ namespace ks::ui
         return -1;
     }
 
-    // 绘制：外框 + 各段（选中段强调色底、悬停段轻底）+ 文字。
+    // 绘制：保留容器表面；普通段透明，悬停/选中采用公共强调底及对比度校准文字。
     void HexViewSegmented::paintEvent(QPaintEvent* event)
     {
         Q_UNUSED(event);
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing, true);
 
-        // 本次绘制的主题色，全部现取。
-        const QColor surface = KswordTheme::SurfaceAltColor();
-        const QColor accent = KswordTheme::PrimaryAccentColor();
-        const QColor border = KswordTheme::BorderStrongColor();
-        const QColor text = KswordTheme::TextPrimaryColor();
-        const QColor disabledText = KswordTheme::TextDisabledColor();
-
-        // 外框：整体圆角矩形，段与段之间画竖分隔线。
+        // 分段本身没有 QAbstractButton，显式以 Flat 外观调用同一纯状态配方。
+        // Base 来自真实父条带的表面，不读取生产中代表强调色的 Button 角色。
+        const QPalette colors = parentWidget() != nullptr ? parentWidget()->palette() : palette();
+        const FlatButtonStateColors normalColors = FlatButtonColorsForState(
+            colors, FlatButtonTone::Neutral, FlatButtonAppearance::Flat, FlatButtonState::Normal);
         const QRectF outer = QRectF(rect()).adjusted(0.5, 1.5, -0.5, -1.5);
-        painter.setPen(QPen(border, 1.0));
-        painter.setBrush(Qt::NoBrush);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(normalColors.background); // 容器保留原表面底，各段常态不重复覆盖它。
+        painter.drawRoundedRect(outer, 4.0, 4.0);
 
         // 逐段画底与文字：先裁剪到外框圆角，避免首尾段的底色溢出圆角。
         QPainterPath clip;
@@ -237,52 +236,33 @@ namespace ks::ui
             // 禁用段不画悬停高亮：它点不了，高亮会误导成"可点"。
             const bool hovered = (index == m_hover) && segmentEnabled;
 
-            // 底色：选中 = 强调色混合（禁用的选中段权重减半，看得出"选中但不可用"），悬停 = 边框色轻混合，其余透明。
-            QColor plate = Qt::transparent;
+            // 只传语义状态：checked 覆盖 hover，disabled 最后优先，不混入另一份配色算法。
+            FlatButtonState state = FlatButtonState::Normal;
+            if (hovered || (selected && hasFocus()))
+            {
+                state = FlatButtonState::Hover;
+            }
             if (selected)
             {
-                plate = KswordTheme::BlendColors(surface, accent, segmentEnabled ? 110 : 50);
+                state = FlatButtonState::Checked;
             }
-            else if (hovered)
-            {
-                plate = KswordTheme::BlendColors(surface, border, 90);
-            }
-            if (plate.alpha() > 0)
-            {
-                painter.fillRect(segment, plate);
-            }
-
-            // 文字：禁用灰；选中对底色做对比度校准；其余主文字色。
-            QColor ink = text;
             if (!segmentEnabled)
             {
-                ink = disabledText;
+                state = FlatButtonState::Disabled;
             }
-            else if (selected)
+            const FlatButtonStateColors segmentColors = FlatButtonColorsForState(
+                colors, FlatButtonTone::Neutral, FlatButtonAppearance::Flat, state);
+            if (!segmentColors.transparent)
             {
-                ink = KswordTheme::EnsureTextContrast(text, plate);
+                painter.fillRect(segment, segmentColors.background);
             }
-            painter.setPen(ink);
+            painter.setPen(segmentColors.foreground);
             painter.drawText(segment, Qt::AlignCenter, m_labels[index]);
         }
         painter.restore();
 
-        // 分隔线：相邻段之间一条竖线。
-        painter.setPen(QPen(border, 1.0));
-        for (int index = 1; index < m_labels.size(); ++index)
-        {
-            const int x = segmentRect(index).left();
-            painter.drawLine(QPointF(x + 0.5, outer.top()), QPointF(x + 0.5, outer.bottom()));
-        }
+        // 原尺寸、裁剪和键盘选择不变，按钮组不再绘制外框/焦点虚线。
 
-        // 外框线与键盘焦点环。
-        painter.setBrush(Qt::NoBrush);
-        painter.drawRoundedRect(outer, 4.0, 4.0);
-        if (hasFocus())
-        {
-            painter.setPen(QPen(accent, 1.0, Qt::DotLine));
-            painter.drawRoundedRect(outer.adjusted(1.5, 1.5, -1.5, -1.5), 3.0, 3.0);
-        }
     }
 
     // 鼠标点击：命中某段就切换到它。

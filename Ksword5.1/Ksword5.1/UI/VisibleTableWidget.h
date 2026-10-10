@@ -488,7 +488,7 @@ namespace ks::ui
 
     // Use this for flat QTableView-based pages that need the same top action-bar reservation as
     // VisibleTableWidget. Its data/model behavior is otherwise identical to QTableView.
-    class TableActionTableView final
+    class TableActionTableView
         : public visible_table_detail::TableChromeHostView<QTableView>
     {
     public:

@@ -5,7 +5,7 @@
 // 作用：
 // - 在主界面加载阶段集中适配 SVG/扁平图标的主题色；
 // - 用像素签名缓存一次性着色结果，避免每个按钮重复渲染；
-// - 默认主题色直接跳过，运行期恢复默认时可还原原始图标。
+// - 默认主题色只适配共享实心按钮，其它槽位恢复原图或维持首次跳过。
 // ============================================================
 
 #include <QColor>
@@ -30,7 +30,7 @@ namespace ks::ui
         int visitedWidgetCount = 0; // visitedWidgetCount：本次遍历的 QWidget 数量。
         int recoloredIconCount = 0; // recoloredIconCount：实际替换的图标槽位数量。
         int cacheHitCount = 0;      // cacheHitCount：复用已渲染图标的次数。
-        bool skippedDefaultTheme = false; // skippedDefaultTheme：默认主题是否直接跳过。
+        bool skippedDefaultTheme = false; // skippedDefaultTheme：是否整轮跳过；共享按钮适配时为 false。
         qint64 elapsedMilliseconds = 0;   // elapsedMilliseconds：完整批处理耗时。
     };
 
@@ -48,7 +48,7 @@ namespace ks::ui
         // applyToApplication：
         // - application：当前 QApplication；
         // - themeColor：当前主题强调色；
-        // - isDefaultThemeColor：true 时按契约跳过首次批量着色；
+        // - isDefaultThemeColor：true 时仅适配已审核共享按钮，其它槽位按历史记录还原或跳过；
         // - progressCallback：回传已处理/总控件数，供启动进度条展示；
         // - 控件遍历按时间预算分片：首片同步执行，其余片由事件循环续跑，
         //   本函数返回时批处理可能尚未结束（分片期间新建的控件由事件过滤器兜底）；
@@ -80,7 +80,7 @@ namespace ks::ui
         int runIconApplySlice(quint64 runGeneration, int* cacheHitCount);
 
         // scheduleWidgetRefresh：运行期换图标、显示或重绘后排队补色。
-        // 入参为待更新控件；同一控件只排一次，销毁或恢复默认后自动放弃。
+        // 入参为待更新控件；同一控件只排一次，销毁后自动放弃，默认色仍适配共享按钮。
         void scheduleWidgetRefresh(QWidget* widgetPointer);
 
         // 下列函数分别处理 QWidget、QAction、Tab 和单个 QIcon。
@@ -90,7 +90,7 @@ namespace ks::ui
         QIcon themedIcon(const QIcon& sourceIcon, bool* cacheHitOut);
 
         bool m_filterInstalled = false; // m_filterInstalled：全局事件过滤器是否已安装。
-        bool m_customTintActive = false; // m_customTintActive：当前是否使用非默认主题着色。
+        bool m_customTintActive = false; // m_customTintActive：是否着色普通槽位；默认色仅管共享按钮。
         QColor m_themeColor; // m_themeColor：本轮集中着色使用的强调色。
     };
 }

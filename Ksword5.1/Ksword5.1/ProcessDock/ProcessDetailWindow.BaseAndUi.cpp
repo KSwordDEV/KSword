@@ -1,4 +1,6 @@
 ﻿#include "ProcessDetailWindow.InternalCommon.h"
+#include "../UI/FlatButtonTheme.h"
+#include "../UI/ThemeBinding.h"
 #include "ProcessAffinityUtils.h"
 #include "ProcessAffinityPersistence.h"
 #include "ThreadAffinityMenu.h"
@@ -66,7 +68,7 @@ namespace
             exportButton->setObjectName(QStringLiteral("ProcessGeneralExport"));
             for (auto* button : { copy, exportButton })
             {
-                button->setStyleSheet(KswordTheme::ThemedButtonStyle());
+                button->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
                 button->setMinimumHeight(30);
                 button->setIconSize(QSize(16, 16));
             }
@@ -118,6 +120,19 @@ namespace
         }
 
     private:
+        // 详情标签使用可读的次级文字；其背景是分组表面，不使用输入框的占位灰色。
+        // label 为本页的字段名或说明，主题更新时原位改色，保留选择与滚动位置。
+        static void applySupportingTextTheme(QLabel* label)
+        {
+            const QColor text = KswordTheme::EnsureTextContrast(KswordTheme::TextSecondaryColor(),
+                KswordTheme::SurfaceAltColor(), 4.5);
+            const QString style = QStringLiteral("color:%1;font-weight:400;").arg(text.name(QColor::HexRgb));
+            if (label->styleSheet() != style)
+            {
+                label->setStyleSheet(style);
+            }
+        }
+
         const ks::ui::FieldNode* field(const QString& name) const
         {
             for (const auto& section : m_fields->document().nodes)
@@ -132,7 +147,7 @@ namespace
             caption->setObjectName(QStringLiteral("ProcessGeneralProjectedCaption"));
             caption->setProperty("ks_general_field_name", node.name);
             caption->setTextFormat(Qt::PlainText);
-            caption->setStyleSheet(QStringLiteral("color:%1;font-weight:400;").arg(KswordTheme::TextSecondaryHex()));
+            applySupportingTextTheme(caption);
             auto* value = new QLabel(node.translateValue ? ks::i18n::sourceText(node.value) : node.value, parent);
             value->setTextFormat(Qt::PlainText);
             value->setProperty("ks_i18n_preserve_data_text", true);
@@ -222,10 +237,17 @@ namespace
             const auto values = m_dense->findChildren<QLabel*>(QStringLiteral("ProcessGeneralProjectedValue"));
             if (!values.isEmpty() && m_dense->property("ks_has_diagnostic").toBool() == hasDiagnostic)
             {
+                // 热切主题只更新既有标签，不为颜色变化重新创建双列字段。
+                for (auto* caption : m_dense->findChildren<QLabel*>(QStringLiteral("ProcessGeneralProjectedCaption")))
+                {
+                    applySupportingTextTheme(caption);
+                }
                 for (auto* value : values)
                     if (const auto* node = field(value->property("ks_general_field_name").toString()))
                         updateValueLabel(value, *node);
                 for (auto* note : m_dense->findChildren<QLabel*>(QStringLiteral("ProcessGeneralProjectedNote")))
+                {
+                    applySupportingTextTheme(note);
                     for (const auto& section : m_fields->document().nodes)
                         if (section.name == note->property("ks_general_note_section").toString())
                         {
@@ -234,6 +256,7 @@ namespace
                                 if (node.kind == ks::ui::FieldNode::Kind::Note && index++ == note->property("ks_general_note_index").toInt())
                                 { note->setText(ks::i18n::sourceText(node.value)); break; }
                         }
+                }
                 return;
             }
             if (auto* previous = m_dense->layout())
@@ -292,7 +315,7 @@ namespace
                     label->setProperty("ks_general_note_section", section.name);
                     label->setProperty("ks_general_note_index", row - 1);
                     label->setTextFormat(Qt::PlainText);
-                    label->setStyleSheet(QStringLiteral("color:%1;font-weight:400;").arg(KswordTheme::TextSecondaryHex()));
+                    applySupportingTextTheme(label);
                     label->setWordWrap(true);
                     label->setProperty("ks_i18n_preserve_data_text", true);
                     label->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -420,20 +443,9 @@ namespace
 
     QString buildAffinityCoreButtonStyle()
     {
-        return QStringLiteral(
-            "QToolButton {"
-            "  min-width:42px; min-height:28px; padding:2px 6px;"
-            "  color:%1; background:transparent; border:1px solid %2; border-radius:4px;"
-            "}"
-            "QToolButton:hover { border-color:%3; background:%4; }"
-            "QToolButton:checked { color:%5; background:%3; border-color:%3; }"
-            "QToolButton:disabled { color:%6; border-color:%2; background:transparent; }")
-            .arg(KswordTheme::TextPrimaryHex())
-            .arg(KswordTheme::BorderHex())
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::SurfaceAltHex())
-            .arg(QStringLiteral("palette(highlighted-text)"))
-            .arg(KswordTheme::TextSecondaryHex());
+        // CPU 核心继续用 checked 表示选中，禁用态交给共享主题。
+        return ks::ui::BuildFlatButtonStyle()
+            + QStringLiteral("QToolButton{min-width:42px;min-height:28px;padding:2px 6px;border-radius:4px;}");
     }
 
     QString detailProcessFieldSourceText(const std::uint32_t sourceValue)
@@ -2626,6 +2638,8 @@ void ProcessDetailWindow::initializeUi()
     for (int tabIndex = 0; tabIndex < m_tabWidget->count(); ++tabIndex)
     {
         auto* navigationButton = new QToolButton(m_tabNavigation);
+        // 左侧导航保留互斥选中，统一普通/checked/disabled 纯色状态。
+        ks::ui::ApplyDetailNavigationButtonTheme(navigationButton);
         navigationButton->setCheckable(true);
         navigationButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         navigationButton->setIcon(m_tabWidget->tabIcon(tabIndex));
@@ -2633,11 +2647,19 @@ void ProcessDetailWindow::initializeUi()
         navigationButton->setText(m_tabWidget->tabText(tabIndex));
         navigationButton->setToolTip(m_tabWidget->tabText(tabIndex));
         navigationButton->setMinimumHeight(38);
-        navigationButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        navigationButton->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         m_tabNavigationButtonGroup->addButton(navigationButton, tabIndex);
         tabNavigationLayout->addWidget(navigationButton);
     }
     tabNavigationLayout->addStretch(1);
+    // 导航按类型排序；保留 QTabWidget 的原索引、惰性初始化和既有跳转逻辑。
+    using NavKind = ks::ui::DetailNavigationKind;
+    ks::ui::SetDetailTabGroups(m_tabWidget, {
+        {NavKind::General, {0}}, {NavKind::Performance, {1, 2}},
+        {NavKind::Resources, {3, 5, 6, 7, 8, 9, 10}}, {NavKind::Security, {11, 12}},
+        {NavKind::Internals, {17, 13, 18}}, {NavKind::Interaction, {4, 14, 15}},
+        {NavKind::Extensions, {16}}});
+    ks::ui::ArrangeDetailNavigationGroups(m_tabNavigation, m_tabWidget, m_tabNavigationButtonGroup);
 
     m_tabWidget->setCurrentWidget(m_detailTab);
     if (QAbstractButton* currentNavigationButton =
@@ -3833,7 +3855,7 @@ void ProcessDetailWindow::initializeDetailTab()
     for (auto* button : {m_copyPathButton, m_openPathFolderButton, m_openFileDetailButton,
         m_copyCommandButton, m_detailOpenHandleDockButton, m_gotoParentButton, m_refreshDetailOverviewButton})
     {
-        button->setStyleSheet(KswordTheme::ThemedButtonStyle());
+        button->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
         button->setMinimumHeight(30);
         button->setIconSize(QSize(16, 16));
     }
@@ -5292,6 +5314,8 @@ void ProcessDetailWindow::initializeModuleTab()
     m_moduleTopBarLayout->addWidget(m_injectionTraceDeepButton);
     m_moduleTopBarLayout->addWidget(m_signatureCheckBox);
     m_moduleFilterEdit = new QLineEdit(m_moduleTab);
+    // 模块树专用文本过滤，颜色绑定不改变原来的过滤信号和尺寸。
+    ks::ui::BindSearchFieldTheme(m_moduleFilterEdit);
     m_moduleFilterEdit->setClearButtonEnabled(true);
     m_moduleFilterEdit->setPlaceholderText(ks::i18n::sourceText(
         QStringLiteral("按模块路径过滤关键字")));
@@ -5960,6 +5984,7 @@ void ProcessDetailWindow::initializeKernelCallbackTab()
     topBarLayout->addWidget(m_refreshKernelCallbackButton);
 
     m_kernelCallbackFilterEdit = new QLineEdit(m_kernelCallbackTab);
+    ks::ui::BindSearchFieldTheme(m_kernelCallbackFilterEdit);
     m_kernelCallbackFilterEdit->setClearButtonEnabled(true);
     m_kernelCallbackFilterEdit->setPlaceholderText(ks::i18n::sourceText(
         QStringLiteral("按索引/回调名称/地址/模块/保护属性/状态筛选")));

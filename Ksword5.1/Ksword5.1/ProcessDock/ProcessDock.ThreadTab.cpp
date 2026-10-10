@@ -1,4 +1,6 @@
 #include "ProcessDock.h"
+#include "../UI/FlatButtonTheme.h"
+#include "../UI/ThemeBinding.h"
 #include "ThreadAffinityMenu.h"
 #include "ThreadStackWindow.h"
 
@@ -455,31 +457,10 @@ namespace
     // - 图标按钮和文字按钮共用同一套边框/悬停色逻辑。
     QString buildThreadButtonStyle(const bool iconOnlyButton)
     {
-        const QString paddingText = iconOnlyButton ? QStringLiteral("4px") : QStringLiteral("4px 10px");
-        return QStringLiteral(
-            "QPushButton {"
-            "  color: %1;"
-            "  background: %6;"
-            "  border: 1px solid %2;"
-            "  border-radius: 3px;"
-            "  padding: %5;"
-            "}"
-            "QPushButton:hover {"
-            "  background: %3;"
-            "  color: %7;"
-            "  border: 1px solid %3;"
-            "}"
-            "QPushButton:pressed {"
-            "  background: %4;"
-            "  color: %7;"
-            "}")
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue))
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue))
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue, 0, -26))
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue, -14, -40))
-            .arg(paddingText)
-            .arg(KswordTheme::SurfaceHex())
-            .arg(KswordTheme::OnAccentDynamicHex());
+        // 纯色按钮共用主题状态；保留页面原有紧凑尺寸。
+        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QPushButton{border-radius:3px;padding:%1;}")
+                .arg(iconOnlyButton ? QStringLiteral("4px") : QStringLiteral("4px 10px"));
     }
 
     // buildThreadSearchStyle 作用：统一线程页搜索框边框与焦点色。
@@ -505,27 +486,13 @@ namespace
     // buildThreadPresetButtonStyle：A/B 相邻按钮共用 checked 高亮，仅圆化外侧边角。
     QString buildThreadPresetButtonStyle(const bool leftButton)
     {
+        // A/B 选中态保持共享强调底色；只圆化组合外侧角，保留零间距。
         const QString outerRadius = leftButton
             ? QStringLiteral("border-top-left-radius:3px;border-bottom-left-radius:3px;")
-            : QStringLiteral("border-top-right-radius:3px;border-bottom-right-radius:3px;border-left:0px;");
-        return QStringLiteral(
-            "QPushButton{"
-            "  min-width:27px;max-width:27px;min-height:26px;max-height:26px;"
-            "  padding:0px;font-weight:700;"
-            "  color:%1;background:%2;border:1px solid %3;"
-            "  border-radius:0px;%4"
-            "}"
-            "QPushButton:hover:!checked{background:%5;color:%1;}"
-            "QPushButton:checked{background:%6;color:%7;border-color:%6;}"
-            "QPushButton:pressed{background:%8;color:%7;}")
-            .arg(KswordTheme::TextPrimaryHex())
-            .arg(KswordTheme::SurfaceHex())
-            .arg(KswordTheme::BorderHex())
-            .arg(outerRadius)
-            .arg(KswordTheme::PrimaryBlueSubtleHex())
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue))
-            .arg(KswordTheme::OnAccentDynamicHex())
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue, -10, -36));
+            : QStringLiteral("border-top-right-radius:3px;border-bottom-right-radius:3px;");
+        return ks::ui::BuildFlatButtonStyle()
+            + QStringLiteral("QPushButton{min-width:27px;max-width:27px;min-height:26px;max-height:26px;"
+                "padding:0px;font-weight:700;border-radius:0px;%1}").arg(outerRadius);
     }
 }
 
@@ -591,6 +558,8 @@ void ProcessDock::initializeThreadPage()
     m_threadScopeCombo->setMinimumWidth(112);
 
     m_threadSearchLineEdit = new QLineEdit(m_threadPage);
+    // 线程结果树不经过通用表格搜索注册，保留原提示并明确接入搜索底面。
+    ks::ui::BindSearchFieldTheme(m_threadSearchLineEdit);
     m_threadSearchLineEdit->setClearButtonEnabled(true);
     m_threadSearchLineEdit->setPlaceholderText("搜索 TID / PID / 进程名 / 状态 / 启动地址");
     m_threadSearchLineEdit->setToolTip("过滤当前线程列表，不触发新的系统查询");

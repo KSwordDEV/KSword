@@ -1,5 +1,6 @@
 #include "HardwareDeviceManagerPage.h"
 #include "../UI/DetailDialogChrome.h"
+#include "../UI/ThemeBinding.h"
 
 // ============================================================
 // HardwareDeviceManagerPage.cpp
@@ -935,6 +936,8 @@ void HardwareDeviceManagerPage::initializeUi()
     headerLayout->addWidget(m_showProblemOnlyCheck, 0);
 
     m_searchEdit = new QLineEdit(this);
+    // PnP 设备树通过页面自己的递归过滤保持父级路径，主题不接管过滤逻辑。
+    ks::ui::BindSearchFieldTheme(m_searchEdit);
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索名称、厂商、服务、类、枚举器、Instance ID..."));
     m_searchEdit->setMinimumWidth(220);
     headerLayout->addWidget(m_searchEdit, 1);

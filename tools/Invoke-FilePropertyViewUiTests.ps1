@@ -31,7 +31,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Structured field moc failed.' }
     $propertyObjects = @()
     foreach ($propertySource in @('tools/file_property_view_ui_tests.cpp',
-        'Ksword5.1/Ksword5.1/UI/StructuredFieldView.cpp',
+        'Ksword5.1/Ksword5.1/UI/StructuredFieldView.cpp', 'Ksword5.1/Ksword5.1/UI/ThemeBinding.cpp',
         'Ksword5.1/Ksword5.1/Internationalization/LanguageManager.cpp', $propertyMoc)) {
         $propertyObject = Join-Path $propertyOutput (([IO.Path]::GetFileNameWithoutExtension($propertySource)) + '.o')
         Write-Output "Compiling $propertySource"

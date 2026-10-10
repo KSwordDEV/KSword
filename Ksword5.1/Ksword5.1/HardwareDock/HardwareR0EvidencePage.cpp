@@ -1,4 +1,5 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/FlatButtonTheme.h"
 #include "HardwareR0EvidencePage.h"
 #include "../UI/IntegrityRiskPresentation.h"
 #include "../UI/TableInteractionSupport.h"
@@ -147,19 +148,10 @@ namespace
 
     QString buildBlueButtonStyle()
     {
-        // 输入：无。
-        // 处理：按全局主题构造蓝色按钮样式。
-        // 返回：stylesheet 文本。
-        return QStringLiteral(
-            "QPushButton{border:1px solid %1;border-radius:4px;padding:4px 10px;color:%2;background:transparent;}"
-            "QPushButton:hover{background:%3;}"
-            "QPushButton:pressed{background:%1;color:%5;}"
-            "QPushButton:disabled{color:%4;border-color:%4;background:transparent;}")
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::TextPrimaryHex())
-            .arg(KswordTheme::PrimaryBlueSubtleHex())
-            .arg(KswordTheme::TextSecondaryHex())
-            .arg(KswordTheme::OnAccentDynamicHex());
+        // 纯色主题只接管颜色；保留本页按钮尺寸和业务选中状态。
+        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QPushButton{border-radius:4px;padding:4px 10px;}");
+
     }
 
     QString buildBlueInputStyle()
@@ -255,28 +247,10 @@ namespace
 
     QString buildColumnPresetButtonStyle(const bool selected)
     {
-        // 输入：按钮是否代表当前列预设。
-        // 处理：选中时使用主题主色背景，未选中时保持透明和主题文字色。
-        // 返回：stylesheet 文本。
-        const QString backgroundText = selected
-            ? KswordTheme::PrimaryBlueHex
-            : QStringLiteral("transparent");
-        const QString borderText = selected
-            ? KswordTheme::PrimaryBlueHex
-            : KswordTheme::BorderHex();
-        const QString textColor = selected
-            ? KswordTheme::OnAccentDynamicHex()
-            : KswordTheme::TextPrimaryHex();
-        return QStringLiteral(
-            "QPushButton{min-width:24px;max-width:24px;padding:3px 0;border:1px solid %1;"
-            "border-radius:0;color:%2;background:%3;font-weight:700;}"
-            "QPushButton:hover{border-color:%4;}"
-            "QPushButton:pressed{background:%4;color:%5;}")
-            .arg(borderText)
-            .arg(textColor)
-            .arg(backgroundText)
-            .arg(KswordTheme::PrimaryBlueHex)
-            .arg(KswordTheme::OnAccentDynamicHex());
+        // 纯色主题只接管颜色；保留本页按钮尺寸和业务选中状态。
+        return ks::ui::BuildFlatButtonStyle(selected ? ks::ui::FlatButtonTone::Accent : ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QPushButton{min-width:24px;max-width:24px;padding:3px 0;border-radius:0;font-weight:700;}");
+
     }
 
     void updateColumnPresetButtons(

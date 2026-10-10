@@ -1,4 +1,5 @@
 #include "FileDock.h"
+#include "../UI/FlatButtonTheme.h"
 
 // ============================================================
 // FileDock.IrpBuilder.cpp
@@ -251,7 +252,7 @@ namespace
 
     QString irpBuilderButtonStyle()
     {
-        return KswordTheme::ThemedButtonStyle();
+        return ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}");
     }
 }
 
@@ -676,6 +677,8 @@ void FileDock::initializeIrpBuilderPage()
         QStringLiteral("构造并发送 IRP"),
         m_irpBuilderPage);
     m_irpSendButton->setStyleSheet(buttonStyle);
+    // 原始 IRP 发送维持危险动作提示与原确认流程。
+    ks::ui::ApplyFlatButtonTheme(m_irpSendButton, ks::ui::FlatButtonTone::Danger);
     m_irpSendButton->setMinimumHeight(30);
 
     m_irpStatusLabel = new QLabel(

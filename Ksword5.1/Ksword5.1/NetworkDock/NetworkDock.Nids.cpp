@@ -1,4 +1,5 @@
 #include "NetworkDock.InternalCommon.h"
+#include "../UI/FlatButtonTheme.h"
 #include "NetworkFirewallPage.h"
 #include "../UI/VisibleTableWidget.h"
 #include "../UI/TableInteractionSupport.h"
@@ -229,6 +230,8 @@ void NetworkDock::initializeNidsTab()
     m_nidsSeverityFilterCombo->setMaximumWidth(120);
 
     m_nidsClearButton = new QPushButton(m_nidsPage);
+    // 此动作使用纯色主题，保留页面原有图标、状态和业务连接。
+    ks::ui::ApplyFlatButtonTheme(m_nidsClearButton, ks::ui::FlatButtonTone::Neutral);
     m_nidsClearButton->setIcon(QIcon(":/Icon/log_clear.svg"));
     m_nidsClearButton->setToolTip(QStringLiteral("清空 NIDS 告警和检测窗口"));
 

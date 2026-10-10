@@ -3,6 +3,8 @@
 #include <functional>
 
 class QWidget;
+class QAbstractSpinBox;
+class QLineEdit;
 
 namespace ks::ui
 {
@@ -20,6 +22,15 @@ namespace ks::ui
     // PreserveLocal 会在重建 QSS 后恢复调用前的局部 palette，防止 Qt repolish 丢失独立底色。
     bool BindWidgetTheme(QWidget* widget, std::function<void()> refresh,
         ThemePalettePolicy palettePolicy = ThemePalettePolicy::FollowApplication);
+
+    // 为数值控件及其内部编辑器显式绑定可读主题色，避免父级 QSS 把数字染成底色。
+    // 只替换拥有的无线框颜色片段，保留 value/suffix、页面样式尺寸、步进按钮与编辑状态。
+    bool BindSpinBoxTheme(QAbstractSpinBox* spinBox);
+
+    // 仅为页面明确登记的表格搜索框绑定无线框底色、文字和占位提示色。
+    // 保留现有 padding/尺寸、输入内容、具体 placeholder、验证器和过滤信号。
+    // 透明父 palette 回退主题表面色；普通输入框和数值控件不自动接入。
+    bool BindSearchFieldTheme(QLineEdit* searchField);
 
     // HasWidgetThemeBinding：只判断该控件自身是否声明完整主题刷新，不跨到其未登记子控件。
     // 旧色值补偿据此跳过明确绑定的控件；其余存量控件仍沿用原有兼容路径。

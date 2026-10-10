@@ -2,6 +2,7 @@
 #include "NetworkAuditPage.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/ResultTableHost.h"
+#include <QTabBar>
 
 using namespace network_dock_detail;
 
@@ -47,6 +48,8 @@ void NetworkDock::setProcessDetailConnectionScope()
         m_sideTabWidget->setCurrentWidget(m_networkAuditPage);
         m_networkAuditPage->activateCrossView();
     }
+    // 详情中只剩一个外层页签，隐藏重复的“网络审计”入口，保留内部各视角。
+    m_sideTabWidget->tabBar()->hide();
 }
 
 void NetworkDock::refreshConnectionTables()

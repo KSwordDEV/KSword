@@ -1,6 +1,7 @@
 #include "KernelNamedPipeTab.h"
 #include "KernelDock.h"
 #include "../UI/TableInteractionSupport.h"
+#include "../UI/ThemeBinding.h"
 
 #include <memory>
 
@@ -147,6 +148,8 @@ void KernelNamedPipeTab::initializeUi()
     m_detailButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
 
     m_filterEdit = new QLineEdit(this);
+    // 命名管道结果树的本地文本过滤使用搜索面板主题。
+    ks::ui::BindSearchFieldTheme(m_filterEdit);
     m_filterEdit->setPlaceholderText(kernelText("kernel.named_pipe.toolbar.filter.placeholder", QStringLiteral("过滤管道名、NT路径、状态")));
     m_filterEdit->setClearButtonEnabled(true);
 

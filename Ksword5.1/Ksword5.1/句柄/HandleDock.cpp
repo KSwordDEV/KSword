@@ -1,4 +1,6 @@
 #include "HandleDock.h"
+#include "../UI/FlatButtonTheme.h"
+#include "../UI/ThemeBinding.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../UI/TableInteractionSupport.h"
@@ -59,7 +61,7 @@ namespace
     // - iconOnly=true 时收紧内边距，适合 28x28 图标按钮。
     QString buildBlueButtonStyle(const bool iconOnly)
     {
-        QString buttonStyle = KswordTheme::ThemedButtonStyle();
+        QString buttonStyle = ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}");
         if (iconOnly)
         {
             buttonStyle += QStringLiteral("QPushButton{padding:4px;}");
@@ -684,6 +686,8 @@ void HandleDock::initializeObjectTypeTab()
     m_refreshObjectTypeButton->setStyleSheet(buildBlueButtonStyle(true));
 
     m_objectTypeFilterEdit = new QLineEdit(m_objectTypePage);
+    // 对象类型结果树的过滤输入，不接管句柄规则编辑中的 PID/名称表单。
+    ks::ui::BindSearchFieldTheme(m_objectTypeFilterEdit);
     m_objectTypeFilterEdit->setPlaceholderText(QStringLiteral("对象类型过滤（类型名或编号）"));
     m_objectTypeFilterEdit->setClearButtonEnabled(true);
     m_objectTypeFilterEdit->setToolTip(QStringLiteral("输入类型名或编号，过滤对象类型表。"));

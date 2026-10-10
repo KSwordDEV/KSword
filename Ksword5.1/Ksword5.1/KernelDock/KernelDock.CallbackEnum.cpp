@@ -1,5 +1,6 @@
 #include "KernelDock.h"
 #include "../UI/DetailDialogChrome.h"
+#include "../UI/ThemeBinding.h"
 #include "../UI/TableInteractionSupport.h"
 
 #include <memory>
@@ -387,6 +388,8 @@ namespace
         peEditor->setDocument(file_dock_detail::buildPeAnalysisDocument(filePath));
         tabWidget->addTab(peEditor, kernelText("kernel.callback.enum.file.tab.pe", QStringLiteral("PE信息")));
 
+        ks::ui::SetDetailTabGroups(tabWidget, {{ks::ui::DetailNavigationKind::General, {0}},
+            {ks::ui::DetailNavigationKind::Content, {1}}});
         rootLayout->addWidget(ks::ui::CreateDetailTabShell(tabWidget, &detailDialog), 1);
         QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Close, &detailDialog);
         QObject::connect(buttonBox, &QDialogButtonBox::rejected, &detailDialog, &QDialog::reject);
@@ -2046,6 +2049,8 @@ void KernelDock::initializeCallbackEnumTab()
     KswordTheme::ApplyCompactIconButtonMetrics(m_refreshCallbackEnumButton);
 
     m_callbackEnumFilterEdit = new QLineEdit(m_callbackEnumPage);
+    // 回调结果树的分类/模块过滤只绑定主题，不重新枚举结果。
+    ks::ui::BindSearchFieldTheme(m_callbackEnumFilterEdit);
     m_callbackEnumFilterEdit->setPlaceholderText(kernelText("kernel.callback.enum.toolbar.filter.placeholder", QStringLiteral("按类别/注册类型/来源/名称/地址/模块/公司/版本/描述筛选")));
     m_callbackEnumFilterEdit->setToolTip(kernelText("kernel.callback.enum.toolbar.filter.tooltip", QStringLiteral("输入关键字后实时过滤回调遍历结果")));
     m_callbackEnumFilterEdit->setClearButtonEnabled(true);

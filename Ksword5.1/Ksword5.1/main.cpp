@@ -1,3 +1,5 @@
+#include "UI/FlatButtonTheme.h"
+#include "UI/FloatingScrollbars.h"
 #include "MainWindow.h"
 
 #include <QtCore/QByteArray>
@@ -1649,6 +1651,8 @@ int main(int argc, char* argv[])
     startupTraceRaw("InstallGlobalTableColumnAutoFit finished");
     ks::ui::InstallGlobalTableInteractionSupport(&app);
     ks::ui::InstallGlobalSmoothScrollSupport(&app);
+    ks::ui::InstallGlobalFlatButtonTheme(&app);
+    ks::ui::InstallGlobalFloatingScrollbars(&app);
     // 全应用多行文本框统一支持 Ctrl+F 查找 / Ctrl+H 替换（含正则开关）。
     ks::ui::InstallGlobalTextSearchReplaceSupport(&app);
     const QStringList argumentList = QCoreApplication::arguments();

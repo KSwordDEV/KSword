@@ -1,4 +1,5 @@
 #include "ScannerDock.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/BinaryOverviewBar.h"
 #include "../UI/MemoryWorkbench/SnapshotWorkbenchWidget.h"
 #include "../ksword/scanner/binary_layout.h"
@@ -57,7 +58,12 @@ void ScannerDock::buildAnalysisUi()
     m_analysisPreviousButton->setIcon(style()->standardIcon(QStyle::SP_ArrowLeft));
     m_analysisNextButton->setIcon(style()->standardIcon(QStyle::SP_ArrowRight));
     KswordTheme::ApplyCompactIconButtonMetrics(m_analysisPreviousButton);
+    // 分页是图标工具，明确保留透明常态和主题交互态，不改变当前页或尺寸。
+    ks::ui::ApplyFlatButtonTheme(m_analysisPreviousButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
     KswordTheme::ApplyCompactIconButtonMetrics(m_analysisNextButton);
+    ks::ui::ApplyFlatButtonTheme(m_analysisNextButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
     m_analysisFindButton = new QPushButton(m_analysisPage);
     sectionRow->addWidget(m_analysisSectionLabel);
     sectionRow->addWidget(m_analysisSectionCombo, 1);

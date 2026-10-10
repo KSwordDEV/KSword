@@ -88,7 +88,7 @@ try {
         'Ksword5.1/Ksword5.1/UI/CodeEditorFileSession.cpp',
         'Ksword5.1/Ksword5.1/UI/StructuredFieldView.cpp', 'Ksword5.1/Ksword5.1/UI/TypedSyntaxDocument.cpp',
         'Ksword5.1/Ksword5.1/UI/FlowLayout.cpp',
-        'Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.cpp',
+        'Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.cpp', 'Ksword5.1/Ksword5.1/UI/FlatButtonTheme.cpp', 'Ksword5.1/Ksword5.1/UI/ThemeBinding.cpp', 'Ksword5.1/Ksword5.1/UI/ThemeAccentIcon.cpp',
         'Ksword5.1/Ksword5.1/UI/ThemeControlGlyphs.cpp',
         'Ksword5.1/Ksword5.1/UI/ThemeStatusRole.cpp',
         'Ksword5.1/Ksword5.1/UI/SmoothScrollSupport.cpp',

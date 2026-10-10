@@ -1,5 +1,6 @@
 #include "SvgThemeIconManager.h"
 #include "ThemeAccentIcon.h"
+#include "./FlatButtonTheme.h"
 
 // ============================================================
 // SvgThemeIconManager.cpp
@@ -55,6 +56,15 @@ namespace
         "ksword_svg_theme_last_tab_icon_key"; // 管理器最近写入 Tab 图标的 cacheKey。
     constexpr auto PendingIconRefreshProperty =
         "ksword_svg_theme_refresh_pending"; // 控件是否已有排队的增量补色。
+
+    // hasSharedFlatButtonTheme：只询问共享按钮组件当前是否拥有真实颜色规则。
+    // 不凭 managed 历史属性判断，未审核本地样式及 checkbox 等类型均返回 false。
+    bool hasSharedFlatButtonTheme(const QAbstractButton* button)
+    {
+        QColor background; // 只用于确认真实底色可取得，状态颜色由引擎在绘制时重新读取。
+        return ks::ui::TryGetFlatButtonBackground(
+            button, QIcon::Normal, QIcon::Off, &background);
+    }
 
     // cachedTintedIcons：
     // - key 是原图像素签名 + 目标颜色；
@@ -273,6 +283,23 @@ namespace
             QVariant::fromValue<qulonglong>(appliedIcon.cacheKey()));
     }
 
+    // restoreExcludedNativeIcon：原生 clear 图标含独立底形和叉号，不能用 SourceIn 压成一个颜色。
+    // 若旧管理器曾保存原图则恢复最新源并撤销自身身份属性；新原生对象不写任何记录。
+    QIcon restoreExcludedNativeIcon(QObject* ownerObject,
+        const char* originalProperty, const char* lastKeyProperty, const QIcon& currentIcon)
+    {
+        const QVariant originalValue = ownerObject->property(originalProperty); // 旧管理器原始图标记录。
+        if (!originalValue.isValid() || !originalValue.canConvert<QIcon>())
+        {
+            return currentIcon;
+        }
+        const QIcon originalIcon = originalIconFromProperty(
+            ownerObject, originalProperty, lastKeyProperty, currentIcon);
+        ownerObject->setProperty(originalProperty, QVariant());
+        ownerObject->setProperty(lastKeyProperty, QVariant());
+        return originalIcon;
+    }
+
     // directWidgetActions：
     // - 合并控件关联的 actions() 与其直接拥有的 QAction；
     // - 禁止对每个控件递归 findChildren，避免启动期遍历退化为 O(N²)。
@@ -336,20 +363,8 @@ ks::ui::SvgThemeIconManager::applyToApplication(
         m_filterInstalled = true;
     }
 
-    // 默认色首次启动时不扫描控件；从自定义色恢复默认时才遍历并还原原图。
-    const bool restoreOriginalIcons =
-        isDefaultThemeColor && m_customTintActive;
-    if (isDefaultThemeColor && !restoreOriginalIcons)
-    {
-        m_customTintActive = false;
-        result.skippedDefaultTheme = true;
-        result.elapsedMilliseconds = elapsedTimer.elapsed();
-        if (progressCallback)
-        {
-            progressCallback(0, 0);
-        }
-        return result;
-    }
+    // 默认色也扫描已审核的共享实心按钮：Accent/checked 底需要独立前景对比度。
+    // 其它槽位只在已有管理器记录时还原原图，新菜单/Tab/窗口图标保持首次跳过契约。
 
     // 缓存只服务当前强调色；切换颜色时释放旧色的多尺寸 pixmap，
     // 避免用户反复试色让进程生命周期内的图标缓存无界增长。
@@ -465,7 +480,7 @@ bool ks::ui::SvgThemeIconManager::eventFilter(
     QObject* watchedObject,
     QEvent* eventObject)
 {
-    if (!m_customTintActive ||
+    if (!m_themeColor.isValid() ||
         watchedObject == nullptr ||
         eventObject == nullptr)
     {
@@ -479,7 +494,8 @@ bool ks::ui::SvgThemeIconManager::eventFilter(
     if (widgetPointer != nullptr &&
         (eventType == QEvent::Polish || eventType == QEvent::Show ||
          eventType == QEvent::ActionAdded || eventType == QEvent::ActionChanged ||
-         eventType == QEvent::WindowIconChange))
+         eventType == QEvent::WindowIconChange ||
+         (eventType == QEvent::StyleChange && qobject_cast<QAbstractButton*>(widgetPointer))))
     {
         scheduleWidgetRefresh(widgetPointer);
     }
@@ -489,19 +505,28 @@ bool ks::ui::SvgThemeIconManager::eventFilter(
         // 已染色的图标不排队，因此常驻刷新不会重复栅格化或形成重绘循环。
         if (auto* buttonPointer = qobject_cast<QAbstractButton*>(watchedObject))
         {
+            // 输入框清空钮是 Qt 内部多层图标，Paint 不得重复排队着色或触碰其 palette。
+            if (buttonPointer->inherits("QLineEditIconButton"))
+            {
+                return QObject::eventFilter(watchedObject, eventObject);
+            }
             const QIcon currentIcon = buttonPointer->icon(); // 按钮当前图标。
             if (!buttonPointer->property("ksword_theme_icon_managed").toBool() &&
                 !currentIcon.isNull() &&
                 buttonPointer->property(LastButtonIconKeyProperty).toULongLong() !=
-                    static_cast<qulonglong>(currentIcon.cacheKey()))
+                    static_cast<qulonglong>(currentIcon.cacheKey()) &&
+                (m_customTintActive || hasSharedFlatButtonTheme(buttonPointer)))
             {
                 scheduleWidgetRefresh(buttonPointer);
             }
         }
-        else if (auto* tabBarPointer = qobject_cast<QTabBar*>(watchedObject))
+        else if (m_customTintActive)
         {
             // 标签图标由 QTabBar 绘制，真正保存原图的对象仍是 QTabWidget 页面。
-            if (auto* tabWidgetPointer = qobject_cast<QTabWidget*>(tabBarPointer->parentWidget()))
+            auto* tabBarPointer = qobject_cast<QTabBar*>(watchedObject);
+            auto* tabWidgetPointer = tabBarPointer != nullptr
+                ? qobject_cast<QTabWidget*>(tabBarPointer->parentWidget()) : nullptr;
+            if (tabWidgetPointer != nullptr)
             {
                 for (int tabIndex = 0; tabIndex < tabWidgetPointer->count(); ++tabIndex)
                 {
@@ -536,7 +561,7 @@ void ks::ui::SvgThemeIconManager::scheduleWidgetRefresh(QWidget* widgetPointer)
             return;
         }
         safeWidget->setProperty(PendingIconRefreshProperty, false);
-        if (!m_customTintActive)
+        if (!m_themeColor.isValid())
         {
             return;
         }
@@ -563,27 +588,53 @@ int ks::ui::SvgThemeIconManager::applyToWidget(
     if (auto* buttonPointer = qobject_cast<QAbstractButton*>(widgetPointer))
     {
         const QIcon currentIcon = buttonPointer->icon();
+        // 原生 clear 按钮的圆底和叉号必须保留不同颜色，恢复历史原图后完全交回 Qt。
+        if (buttonPointer->inherits("QLineEditIconButton"))
+        {
+            const QIcon originalIcon = restoreExcludedNativeIcon(buttonPointer,
+                OriginalButtonIconProperty, LastButtonIconKeyProperty, currentIcon);
+            if (originalIcon.cacheKey() != currentIcon.cacheKey())
+            {
+                buttonPointer->setIcon(originalIcon);
+                ++changedCount;
+            }
+            return changedCount;
+        }
+        const bool sharedButtonTheme = hasSharedFlatButtonTheme(buttonPointer); // 当前实际共享样式所有权。
+        const bool previouslyManaged = buttonPointer->property(LastButtonIconKeyProperty).isValid();
         // ADS 提供器已生成各状态/DPI 的主题图标，不再把它压成单一 Normal 颜色。
-        if (!buttonPointer->property("ksword_theme_icon_managed").toBool() && !currentIcon.isNull())
+        if (!buttonPointer->property("ksword_theme_icon_managed").toBool() && !currentIcon.isNull()
+            && (m_customTintActive || sharedButtonTheme || previouslyManaged))
         {
             const QIcon originalIcon = originalIconFromProperty(
                 buttonPointer,
                 OriginalButtonIconProperty,
                 LastButtonIconKeyProperty,
                 currentIcon);
-            if (!m_customTintActive)
+            if (!m_customTintActive && !sharedButtonTheme)
             {
-                buttonPointer->setIcon(originalIcon);
+                // 默认主题的未知样式按钮只还原历史记录，不给未管理槽位建立包装。
+                if (originalIcon.cacheKey() != currentIcon.cacheKey())
+                {
+                    buttonPointer->setIcon(originalIcon);
+                    ++changedCount;
+                }
                 rememberAppliedIconKey(
                     buttonPointer,
                     LastButtonIconKeyProperty,
                     originalIcon);
-                ++changedCount;
             }
             else
             {
                 bool cacheHit = false;
-                const QIcon replacementIcon = themedIcon(originalIcon, &cacheHit);
+                QIcon replacementIcon = themedIcon(originalIcon, &cacheHit);
+                // 共享缓存只负责候选判定与通用图标；实心按钮必须保留自己的绘制上下文。
+                // 两个按钮即使源图相同，tone/父 palette/checked 都可能不同，不能共用此引擎。
+                if (!replacementIcon.isNull() && sharedButtonTheme)
+                {
+                    replacementIcon = MakeThemeButtonAccentIcon(
+                        originalIcon, m_themeColor, buttonPointer);
+                }
                 if (!replacementIcon.isNull() && replacementIcon.cacheKey() != currentIcon.cacheKey())
                 {
                     buttonPointer->setIcon(replacementIcon);
@@ -613,7 +664,8 @@ int ks::ui::SvgThemeIconManager::applyToWidget(
 
     // Dock/面板图标也可能来自 SVG；顶层主窗口图标通常为多色资源，会被候选检测排除。
     const QIcon currentWindowIcon = widgetPointer->windowIcon();
-    if (widgetPointer->isWindow() && !currentWindowIcon.isNull())
+    if (widgetPointer->isWindow() && !currentWindowIcon.isNull()
+        && (m_customTintActive || widgetPointer->property(LastWindowIconKeyProperty).isValid()))
     {
         const QIcon originalWindowIcon = originalIconFromProperty(
             widgetPointer,
@@ -622,12 +674,15 @@ int ks::ui::SvgThemeIconManager::applyToWidget(
             currentWindowIcon);
         if (!m_customTintActive)
         {
-            widgetPointer->setWindowIcon(originalWindowIcon);
+            if (originalWindowIcon.cacheKey() != currentWindowIcon.cacheKey())
+            {
+                widgetPointer->setWindowIcon(originalWindowIcon);
+                ++changedCount;
+            }
             rememberAppliedIconKey(
                 widgetPointer,
                 LastWindowIconKeyProperty,
                 originalWindowIcon);
-            ++changedCount;
         }
         else
         {
@@ -660,6 +715,24 @@ bool ks::ui::SvgThemeIconManager::applyToAction(
     {
         return false;
     }
+    // Qt 清空动作的图标同时供原生输入框按钮使用，不能经动作路径再次压成纯色圆点。
+    if (actionPointer->objectName() == QLatin1String("_q_qlineeditclearaction"))
+    {
+        const QIcon currentIcon = actionPointer->icon(); // Qt 此刻使用的原生图标。
+        const QIcon originalIcon = restoreExcludedNativeIcon(actionPointer,
+            OriginalActionIconProperty, LastActionIconKeyProperty, currentIcon);
+        if (originalIcon.cacheKey() != currentIcon.cacheKey())
+        {
+            actionPointer->setIcon(originalIcon);
+            return true;
+        }
+        return false;
+    }
+    // 默认主题只还原此前被本管理器处理的动作，不扫描新菜单的候选色或建立图标引擎。
+    if (!m_customTintActive && !actionPointer->property(LastActionIconKeyProperty).isValid())
+    {
+        return false;
+    }
     const QIcon originalIcon = originalIconFromProperty(
         actionPointer,
         OriginalActionIconProperty,
@@ -667,12 +740,16 @@ bool ks::ui::SvgThemeIconManager::applyToAction(
         actionPointer->icon());
     if (!m_customTintActive)
     {
-        actionPointer->setIcon(originalIcon);
+        const bool changed = originalIcon.cacheKey() != actionPointer->icon().cacheKey(); // 仅真实还原发出更新。
+        if (changed)
+        {
+            actionPointer->setIcon(originalIcon);
+        }
         rememberAppliedIconKey(
             actionPointer,
             LastActionIconKeyProperty,
             originalIcon);
-        return true;
+        return changed;
     }
 
     bool cacheHit = false;
@@ -710,6 +787,11 @@ int ks::ui::SvgThemeIconManager::applyToTabWidget(
         {
             continue;
         }
+        // 默认首次处理不保存或改写普通 Tab；仅恢复已有原图记录。
+        if (!m_customTintActive && !pagePointer->property(LastTabIconKeyProperty).isValid())
+        {
+            continue;
+        }
         const QIcon originalIcon = originalIconFromProperty(
             pagePointer,
             OriginalTabIconProperty,
@@ -717,12 +799,15 @@ int ks::ui::SvgThemeIconManager::applyToTabWidget(
             currentIcon);
         if (!m_customTintActive)
         {
-            tabWidgetPointer->setTabIcon(tabIndex, originalIcon);
+            if (originalIcon.cacheKey() != currentIcon.cacheKey())
+            {
+                tabWidgetPointer->setTabIcon(tabIndex, originalIcon);
+                ++changedCount;
+            }
             rememberAppliedIconKey(
                 pagePointer,
                 LastTabIconKeyProperty,
                 originalIcon);
-            ++changedCount;
             continue;
         }
 

@@ -1,4 +1,5 @@
 #include "../UI/StructuredFieldView.h"
+#include "../UI/FlatButtonTheme.h"
 // ============================================================
 // MinidumpDock.Tables.cpp
 // 作用：
@@ -168,18 +169,11 @@ QWidget* MinidumpDock::createStructuredTablePage(
     // 两个字符串都被 applyGroup 与表头右键菜单按值捕获，之后每次重下发用的都是同一份
     // 文本——所以颜色必须全部取 palette 动态 token；一旦烘成静态色值，主题切换后
     // 从外部再也够不着它们。激活态文字用 highlighted-text，正好配 palette(highlight) 底。
-    const QString activeStyle = QStringLiteral(
-        "QPushButton { background:%1; color:palette(highlighted-text); "
-        "border:1px solid %1; padding:3px 10px; }")
-        .arg(KswordTheme::PrimaryBlueHex); // activeStyle：激活预设的样式。
-    const QString inactiveStyle = QStringLiteral(
-        "QPushButton { background:%1; color:%2; border:1px solid %3; padding:3px 10px; }"
-        "QPushButton:hover { background:%4; }")
-        .arg(
-            KswordTheme::SurfaceHex(),
-            KswordTheme::TextPrimaryHex(),
-            KswordTheme::BorderHex(),
-            KswordTheme::SurfaceAltHex()); // inactiveStyle：未选中或自定义布局样式。
+    // A/B/C 的强调状态仍由列预设决定；自定义布局保持中性实心底色。
+    const QString activeStyle = ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Accent)
+        + QStringLiteral("QPushButton{padding:3px 10px;}");
+    const QString inactiveStyle = ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+        + QStringLiteral("QPushButton{padding:3px 10px;}");
 
     for (int groupIndex = 0; groupIndex < groupCount; ++groupIndex)
     {

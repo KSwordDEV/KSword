@@ -1,4 +1,5 @@
 #include "ThreadAffinityMenu.h"
+#include "../UI/FlatButtonTheme.h"
 
 #include "../Internationalization/LanguageManager.h"
 #include "../../../shared/ThreadAffinityR3.h"
@@ -132,18 +133,8 @@ namespace ks::process
         }
 
         const bool includeProcessorGroup = hasMultipleProcessorGroups(snapshot->processors);
-        const QString coreButtonStyle = QStringLiteral(
-            "QToolButton {"
-            "  min-width:42px; min-height:28px; padding:2px 6px;"
-            "  color:%1; background:transparent; border:1px solid %2; border-radius:4px;"
-            "}"
-            "QToolButton:hover { border-color:%3; background:%4; }"
-            "QToolButton:checked { color:%5; background:%3; border-color:%3; }")
-                .arg(KswordTheme::TextPrimaryHex())
-                .arg(KswordTheme::BorderHex())
-                .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue))
-                .arg(KswordTheme::SurfaceAltHex())
-                .arg(KswordTheme::OnAccentDynamicHex());
+        const QString coreButtonStyle = ks::ui::BuildFlatButtonStyle()
+            + QStringLiteral("QToolButton{min-width:42px;min-height:28px;padding:2px 6px;border-radius:4px;}");
 
         QAction* const followProcessAction = affinityMenu->addAction(
             affinityText(

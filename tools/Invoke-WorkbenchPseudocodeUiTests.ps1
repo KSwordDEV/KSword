@@ -43,7 +43,7 @@ $cPageSources = @(
     "$cPageApp/UI/StructuredFieldView.cpp", "$cPageApp/UI/TypedSyntaxDocument.cpp", "$cPageApp/UI/DetailLayoutHost.cpp", "$cPageApp/UI/DetailLayoutHost.Binding.cpp",
     "$cPageApp/UI/DetailLayoutHost.Compatibility.cpp", "$cPageApp/UI/EmbeddedRowDelegate.cpp",
     "$cPageApp/UI/FlowLayout.cpp", "$cPageApp/UI/ThemeStatusRole.cpp", "$cPageApp/UI/ThemeControlGlyphs.cpp",
-    "$cPageApp/UI/SmoothScrollSupport.cpp", "$cPageApp/Internationalization/LanguageManager.cpp"
+    "$cPageApp/UI/SmoothScrollSupport.cpp", "$cPageApp/UI/FlatButtonTheme.cpp", "$cPageApp/UI/ThemeBinding.cpp", "$cPageApp/UI/ThemeAccentIcon.cpp", "$cPageApp/Internationalization/LanguageManager.cpp"
 )
 $cPageOldPath = $env:PATH
 $cPageOldPlatform = $env:QT_QPA_PLATFORM

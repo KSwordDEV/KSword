@@ -2,6 +2,9 @@
 
 class QApplication;
 class QAbstractItemView;
+class QTableView;
+class QWidget;
+class QString;
 
 namespace ks::ui
 {
@@ -27,4 +30,7 @@ namespace ks::ui
     // Queued, lifetime-guarded discovery of QTableView/QTreeView and their widget variants.
     // Show/StyleChange never repolish synchronously, including newly built dialog subtrees.
     void InstallGlobalTablePresentation(QApplication* appInstance);
+
+    // 为多表页面建立明确标题区；只重新挂接原表格，不替换模型、动作条或选区。
+    QWidget* CreateTitledTablePanel(QTableView* table, const QString& title, QWidget* parent = nullptr);
 }

@@ -1,4 +1,5 @@
 #include "ProcessTraceMonitorWidget.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/ThemeStatusRole.h"
 
 // ============================================================
@@ -145,34 +146,10 @@ QString ProcessTraceMonitorWidget::collapsePanelStyle()
 
 QString ProcessTraceMonitorWidget::collapseHeaderButtonStyle()
 {
-    // 头部按钮与 MonitorDock 自定义折叠段保持同款：
-    // - 普通态使用次级面板底色；
-    // - 悬停/展开态使用主蓝弱背景，强调当前配置区仍处于展开状态。
-    return QStringLiteral(
-        "QToolButton{"
-        "  background:%1;"
-        "  color:%2;"
-        "  border:1px solid %3;"
-        "  border-radius:5px;"
-        "  padding:5px 8px;"
-        "  font-weight:600;"
-        "  text-align:left;"
-        "}"
-        "QToolButton:hover{"
-        "  background:%4;"
-        "  color:%2;"
-        "  border-color:%5;"
-        "}"
-        "QToolButton:checked{"
-        "  background:%4;"
-        "  color:%2;"
-        "  border-color:%5;"
-        "}")
-        .arg(KswordTheme::SurfaceAltHex())
-        .arg(KswordTheme::TextPrimaryHex())
-        .arg(KswordTheme::BorderHex())
-        .arg(KswordTheme::PrimaryBlueSubtleHex())
-        .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue));
+    // 纯色主题只接管颜色；保留本页按钮尺寸和业务选中状态。
+    return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+        + QStringLiteral("QToolButton{border-radius:5px;padding:5px 8px;font-weight:600;text-align:left;}");
+
 }
 
 void ProcessTraceMonitorWidget::refreshCollapseTheme(QWidget* rootWidget)

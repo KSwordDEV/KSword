@@ -1,5 +1,6 @@
 ﻿#include "../Internationalization/LanguageManager.h"
 #include "../UI/AdaptivePageScroll.h"
+#include "../UI/ThemeBinding.h"
 #include <QResizeEvent>
 #include <QStyle>
 #include "RegistryDock.h"
@@ -179,6 +180,8 @@ void RegistryDock::initializeWorkbenchControls()
     QWidget* searchPanel = new QWidget(m_registryEditorPage);
     auto* searchLayout = new ks::ui::FlowLayout(searchPanel, 0, 6, 4);
     m_filterEdit = new QLineEdit(searchPanel);
+    // 当前注册表值列表的本地过滤独立于完整注册表查询，二者均保留各自信号。
+    ks::ui::BindSearchFieldTheme(m_filterEdit);
     m_filterEdit->setPlaceholderText(QStringLiteral("过滤当前值列表"));
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setMinimumWidth(160);

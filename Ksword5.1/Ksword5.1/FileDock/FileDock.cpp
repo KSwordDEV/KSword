@@ -1,4 +1,6 @@
 #include "FileDock.h"
+#include "../UI/FlatButtonTheme.h"
+#include "../UI/ThemeBinding.h"
 #include "../Framework/DestructiveActionConfirmation.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/VisibleTableWidget.h"
@@ -4372,7 +4374,7 @@ namespace
     // 统一按钮样式，保持与主界面蓝色主题一致。
     QString buildBlueButtonStyle()
     {
-        return KswordTheme::ThemedButtonStyle();
+        return ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}");
     }
 
     // 统一输入控件样式。
@@ -4646,8 +4648,6 @@ namespace
     // - 所有可读文本容器、表头和滚动区域均显式使用 Surface，避免同窗内文字底色不一致。
     QString buildFileDetailDialogStyle()
     {
-        const QColor navigationSelection = KswordTheme::BlendColors(
-            KswordTheme::SurfaceColor(), KswordTheme::ControlAccentColor(), 44);
         return QStringLiteral(
             "QDialog#FileDetailDialogRoot{"
             "  background:%1;"
@@ -4706,46 +4706,12 @@ namespace
             "  background:%6;"
             "  border:none;"
             "}"
-            "QWidget#FileDetailTabNavigation QToolButton{"
-            "  background:transparent;"
-            "  color:%2;"
-            "  border:none;"
-            "  border-radius:7px;"
-            "  padding:8px;"
-            "  text-align:left;"
-            "}"
-            "QWidget#FileDetailTabNavigation QToolButton:checked{"
-            "  background:%8;"
-            "  color:%9;"
-            "}"
-            "QWidget#FileDetailTabNavigation QToolButton:hover:!checked{"
-            "  background:%6;"
-            "}"
+            "QWidget#FileDetailTabNavigation QToolButton{border-radius:7px;padding:8px;text-align:left;}"
             "QFrame#FileDetailIdentity{background:%4;border-bottom:1px solid %3;}"
             "QFrame#FileMetadataSaveBar{background:%4;border-top:1px solid %3;}"
             "QScrollArea#FileDetailNavigationScroll{background:%6;border:none;}"
             "QScrollArea#FileDetailNavigationScroll QWidget#qt_scrollarea_viewport{background:%6;}"
-            "QDialog#FileDetailDialogRoot QPushButton{"
-            "  background:%4;"
-            "  color:%2;"
-            "  border:1px solid %3;"
-            "  border-radius:3px;"
-            "  padding:4px 10px;"
-            "}"
-            "QDialog#FileDetailDialogRoot QPushButton:hover{"
-            "  background:%6;"
-            "  border-color:%5;"
-            "}"
-            "QDialog#FileDetailDialogRoot QPushButton:pressed{"
-            "  background:%5;"
-            "  color:%7;"
-            "  border-color:%5;"
-            "}"
-            "QWidget#FileDetailTabNavigation QToolButton:disabled,"
-            "QDialog#FileDetailDialogRoot QPushButton:disabled{"
-            "  color:%10;"
-            "  background:%4;"
-            "}"
+            "QDialog#FileDetailDialogRoot QPushButton{border-radius:3px;padding:4px 10px;}"
             "QDialog#FileDetailDialogRoot QProgressBar{"
             "  background:%6;"
             "  color:%2;"
@@ -4764,10 +4730,11 @@ namespace
             .arg(KswordTheme::ControlAccentHex())
             .arg(KswordTheme::SurfaceAltHex())
             .arg(KswordTheme::OnAccentDynamicHex())
-            .arg(navigationSelection.name())
-            .arg(KswordTheme::EnsureTextContrast(KswordTheme::TextPrimaryColor(), navigationSelection).name())
-            .arg(KswordTheme::TextDisabledColor().name())
-            + ks::ui::BuildDetailDialogChromeStyle(QStringLiteral("FileDetailDialogRoot"));
+            + ks::ui::BuildDetailDialogChromeStyle(QStringLiteral("FileDetailDialogRoot"))
+            // 文件详情只接管按钮，其他控件与导航几何继续保留原页面规则。
+            + ks::ui::BuildFlatButtonStyle().replace(QStringLiteral("QPushButton"),
+                QStringLiteral("QDialog#FileDetailDialogRoot QPushButton"))
+                .replace(QStringLiteral("QToolButton"), QStringLiteral("QDialog#FileDetailDialogRoot QToolButton"));
     }
 
     // buildLogPreviewText 作用：
@@ -4802,26 +4769,9 @@ namespace
     // 面包屑按钮样式：视觉上“嵌入输入框”，并保留轻量 hover 提示。
     QString buildBreadcrumbButtonStyle()
     {
-        return QStringLiteral(
-            "QToolButton{"
-            "  color:%1;"
-            "  background:transparent;"
-            "  border:none;"
-            "  padding:0 4px;"
-            "}"
-            "QToolButton:hover{"
-            "  background:%2;"
-            "  color:%1;"
-            "  border-radius:3px;"
-            "}"
-            "QToolButton:pressed{"
-            "  background:%3;"
-            "  color:%4;"
-            "}")
-            .arg(KswordTheme::TextPrimaryHex())
-            .arg(KswordTheme::SurfaceAltHex())
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue, -14, -40))
-            .arg(KswordTheme::OnAccentDynamicHex());
+        // 路径段保留轻量尺寸，但使用可读纯色底面而非透明按钮。
+        return ks::ui::BuildFlatButtonStyle()
+            + QStringLiteral("QToolButton{padding:0 4px;border-radius:3px;}");
     }
 
     // 递归复制目录：用于跨面板复制目录场景。
@@ -5673,12 +5623,14 @@ namespace
             {
                 const auto& translation = detailTabTranslations.at(tabIndex);
                 QToolButton* navigationButton = new QToolButton(m_tabNavigation);
+                // 单按钮绑定优先于详情壳的高特异性侧栏QSS，保证普通态也有纯色底。
+                ks::ui::ApplyDetailNavigationButtonTheme(navigationButton);
                 navigationButton->setCheckable(true);
                 navigationButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
                 navigationButton->setIcon(QIcon(navigationIconPathList.value(tabIndex)));
                 navigationButton->setIconSize(QSize(18, 18));
                 navigationButton->setMinimumHeight(38);
-                navigationButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+                navigationButton->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
                 ks::i18n::LanguageManager::instance().bindText(
                     navigationButton,
                     translation.first,
@@ -5722,6 +5674,13 @@ namespace
                 navigationLayout->addWidget(batchHintLabel);
             }
             navigationLayout->addStretch(1);
+            // 文件信息、可信度、内容、内核链路与写操作分组，点击仍按原 Tab 索引路由。
+            using NavKind = ks::ui::DetailNavigationKind;
+            ks::ui::SetDetailTabGroups(m_tabWidget, {
+                {NavKind::General, {0, 2}}, {NavKind::Security, {3, 4, 9}},
+                {NavKind::Content, {10, 11, 12, 13}}, {NavKind::Internals, {6, 7, 8}},
+                {NavKind::Interaction, {1, 5}}});
+            ks::ui::ArrangeDetailNavigationGroups(m_tabNavigation, m_tabWidget, m_tabNavigationButtonGroup);
 
             QFrame* saveBar = new QFrame(this);
             saveBar->setObjectName(QStringLiteral("FileMetadataSaveBar"));
@@ -10639,8 +10598,8 @@ namespace
                 QStringLiteral("按上面选择的账户和权限，给该文件新增一条访问控制规则（ACE）"));
             deleteAceButton->setToolTip(
                 QStringLiteral("删除列表中选中的那条文件访问控制规则（ACE）"));
-            applyAceButton->setStyleSheet(buildBlueButtonStyle());
-            deleteAceButton->setStyleSheet(buildBlueButtonStyle());
+            ks::ui::ApplyFlatButtonTheme(applyAceButton, ks::ui::FlatButtonTone::Accent);
+            ks::ui::ApplyFlatButtonTheme(deleteAceButton, ks::ui::FlatButtonTone::Danger);
             refreshButton->setStyleSheet(buildBlueButtonStyle());
 
             operationLayout->addWidget(new QLabel(QStringLiteral("主体"), operationGroup), 0, 0);
@@ -13184,6 +13143,8 @@ void FileDock::initializePanel(FilePanelWidgets& panel, const QString& titleText
         "后两种会与常规视图对照，把只有绕过路径可见的条目标为疑似隐藏项。"));
 
     panel.filterEdit = new QLineEdit(panel.toolWidget);
+    // 文件树/列表两种投影共用此过滤框，只更新可读搜索主题。
+    ks::ui::BindSearchFieldTheme(panel.filterEdit);
     panel.filterEdit->setPlaceholderText(QStringLiteral("快速过滤"));
     panel.filterEdit->setStyleSheet(buildBlueInputStyle());
 
@@ -13961,11 +13922,7 @@ void FileDock::rebuildBreadcrumb(FilePanelWidgets& panel)
     panel.breadcrumbEditTriggerButton->setFlat(true);
     panel.breadcrumbEditTriggerButton->setCursor(Qt::IBeamCursor);
     panel.breadcrumbEditTriggerButton->setToolTip(QStringLiteral("点击空白区域编辑路径"));
-    panel.breadcrumbEditTriggerButton->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:transparent;color:%1;}"
-        "QPushButton:hover{background:%2;color:%1;}")
-        .arg(KswordTheme::TextPrimaryHex())
-        .arg(KswordTheme::IsDarkModeEnabled() ? KswordTheme::SurfaceMutedColorHex() : KswordTheme::PrimaryBlueSubtleHex()));
+    ks::ui::ApplyFlatButtonTheme(panel.breadcrumbEditTriggerButton);
     panel.breadcrumbLayout->addWidget(panel.breadcrumbEditTriggerButton, 1);
     connect(panel.breadcrumbEditTriggerButton, &QPushButton::clicked, this, [this, &panel]() {
         kLogEvent event;
@@ -15190,6 +15147,7 @@ void FileDock::initializeRecoveryPage()
 
     // 扫描结果动辄上万条，必须能就地查找，否则只能靠滚动条翻找。
     m_recoveryFilterEdit = new QLineEdit(toolWidget);
+    ks::ui::BindSearchFieldTheme(m_recoveryFilterEdit);
     m_recoveryFilterEdit->setPlaceholderText(QStringLiteral("查找结果（文件名/路径/恢复能力）"));
     m_recoveryFilterEdit->setClearButtonEnabled(true);
     m_recoveryFilterEdit->setStyleSheet(buildBlueInputStyle());

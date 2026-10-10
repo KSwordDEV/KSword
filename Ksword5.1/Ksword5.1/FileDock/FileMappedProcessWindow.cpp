@@ -1,4 +1,5 @@
 #include "FileMappedProcessWindow.h"
+#include "../UI/FlatButtonTheme.h"
 
 // ============================================================
 // FileMappedProcessWindow.cpp
@@ -311,13 +312,13 @@ void FileMappedProcessWindow::initializeUi()
     m_refreshButton->setIcon(QIcon(":/Icon/handle_refresh.svg"));
     KswordTheme::ApplyCompactIconButtonMetrics(m_refreshButton);
     m_refreshButton->setToolTip(QStringLiteral("刷新 R0 映射进程扫描"));
-    m_refreshButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+    m_refreshButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
 
     m_openProcessButton = new QPushButton(this);
     m_openProcessButton->setIcon(QIcon(":/Icon/process_details.svg"));
     KswordTheme::ApplyCompactIconButtonMetrics(m_openProcessButton);
     m_openProcessButton->setToolTip(QStringLiteral("转到当前行进程详情"));
-    m_openProcessButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+    m_openProcessButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
 
     QStringList targetTextList;
     for (const QString& pathText : m_targetPaths)

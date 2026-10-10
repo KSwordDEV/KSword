@@ -1,4 +1,5 @@
 #include "DiskMonitorPage.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../Framework/PrivilegeElevationPrompt.h"
 #include "../UI/TableInteractionSupport.h"
 #include "../UI/VisibleTableWidget.h"
@@ -831,10 +832,8 @@ namespace
         toggleButton->setArrowType(Qt::NoArrow);
         toggleButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
         toggleButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        toggleButton->setStyleSheet(QStringLiteral(
-            "QToolButton{border:0;background:transparent;color:%1;"
-            "font-size:14px;font-weight:700;text-align:left;padding:3px;}")
-            .arg(KswordTheme::TextPrimaryHex()));
+        toggleButton->setStyleSheet(ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QToolButton{font-size:14px;font-weight:700;text-align:left;padding:3px;}"));
         toggleButton->setToolTip(QStringLiteral("展开或折叠该磁盘监控区域"));
         headerLayout->addWidget(toggleButton, 1);
 
@@ -854,9 +853,8 @@ namespace
         arrowButton->setFixedWidth(24);
         arrowButton->setToolTip(
             QStringLiteral("展开或折叠该磁盘监控区域"));
-        arrowButton->setStyleSheet(QStringLiteral(
-            "QToolButton{border:0;background:transparent;color:%1;padding:2px;}")
-            .arg(KswordTheme::TextPrimaryHex()));
+        arrowButton->setStyleSheet(ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QToolButton{padding:2px;}"));
         headerLayout->addWidget(arrowButton, 0);
 
         sectionLayout->addWidget(headerWidget, 0);

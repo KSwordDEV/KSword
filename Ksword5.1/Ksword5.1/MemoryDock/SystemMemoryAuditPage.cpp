@@ -1,6 +1,7 @@
 #include "../UI/StructuredFieldView.h"
 #include "SystemMemoryAuditPage.h"
 #include "../UI/CodeEditorWidget.h"
+#include "../UI/ThemeBinding.h"
 #include "PhysicalPageAttributionPage.h"
 #include "HyperVMemoryPage.h"
 #include "MemoryAttributionChart.h"
@@ -776,6 +777,8 @@ void SystemMemoryAuditPage::initializeUi()
     m_intervalSpin->setValue(2);
     m_intervalSpin->setSuffix(localized(" s"));
     m_filterEdit = new QLineEdit(this);
+    // 内存归属结果树的现有本地过滤，不影响深度扫描或数值输入。
+    ks::ui::BindSearchFieldTheme(m_filterEdit);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(localized("Filter process, category, file, tag, or address"));
     controls->addWidget(m_refreshButton);

@@ -51,14 +51,14 @@
     <QtInstall Condition="'$(KSWORD_QT_DIR)' != ''">$(KSWORD_QT_DIR)</QtInstall>
     <QtInstall Condition="'$(QtInstall)' == '' and '$(QTDIR)' != ''">$(QTDIR)</QtInstall>
     <QtInstall Condition="'$(QtInstall)' == ''">Qt</QtInstall>
-    <QtModules>core;gui;network;widgets;svg</QtModules>
+    <QtModules>core;gui;network;widgets;svg;opengl;openglwidgets</QtModules>
     <QtBuildConfig>debug</QtBuildConfig>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="QtSettings">
     <QtInstall Condition="'$(KSWORD_QT_DIR)' != ''">$(KSWORD_QT_DIR)</QtInstall>
     <QtInstall Condition="'$(QtInstall)' == '' and '$(QTDIR)' != ''">$(QTDIR)</QtInstall>
     <QtInstall Condition="'$(QtInstall)' == ''">Qt</QtInstall>
-    <QtModules>core;gui;network;widgets;svg</QtModules>
+    <QtModules>core;gui;network;widgets;svg;opengl;openglwidgets</QtModules>
     <QtBuildConfig>release</QtBuildConfig>
   </PropertyGroup>
   <Target Name="QtMsBuildNotFound" BeforeTargets="CustomBuild;ClCompile" Condition="!Exists('$(QtMsBuild)\qt.targets') or !Exists('$(QtMsBuild)\qt.props')">
@@ -462,6 +462,7 @@
     <ClCompile Include="ProcessDock\ProcessDetailWindow.AdvancedInfo.cpp" />
     <ClCompile Include="PluginHost.cpp" />
     <ClCompile Include="ProcessDock\ProcessCpuCapacityCell.cpp" />
+    <ClCompile Include="ProcessDock\ProcessGpuTableView.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.Icon.cpp" />
     <ClCompile Include="ProcessDock\ProcessDock.ColumnChooser.cpp" />
@@ -665,6 +666,8 @@
     <ClCompile Include="UI\IntegrityRiskPresentation.cpp" />
     <ClCompile Include="UI\TableInteractionSupport.cpp" />
     <ClCompile Include="UI\ThemeBinding.cpp" />
+    <ClCompile Include="UI\FlatButtonTheme.cpp" />
+    <ClCompile Include="UI\FloatingScrollbars.cpp" />
     <ClCompile Include="UI\ResultTableHost.cpp" />
     <ClCompile Include="UI\UiCommitCoordinator.cpp" />
     <ClCompile Include="UI\AsyncOperation.cpp" />
@@ -894,6 +897,8 @@
     <ClInclude Include="HardwareDock\HardwareFieldDocuments.h" />
     <ClInclude Include="UI\TypedSyntaxDocument.h" />
     <ClInclude Include="UI\TablePresentation.h" />
+    <ClInclude Include="UI\ToolbarMetrics.h" />
+    <ClInclude Include="UI\DetailNavigationGroups.h" />
     <ClInclude Include="UI\DetailDialogChrome.h" />
     <ClInclude Include="UI\SmoothScrollSupport.h" />
     <ClInclude Include="UI\TableColumnAutoFit.h" />
@@ -902,6 +907,8 @@
     <ClInclude Include="UI\IntegrityRiskPresentation.h" />
     <ClInclude Include="UI\TableInteractionSupport.h" />
     <ClInclude Include="UI\ThemeBinding.h" />
+    <ClInclude Include="UI\FlatButtonTheme.h" />
+    <ClInclude Include="UI\FloatingScrollbars.h" />
     <ClInclude Include="UI\ResultTableHost.h" />
     <ClInclude Include="UI\UiCommitCoordinator.h" />
     <ClInclude Include="UI\TableSearchSupport.h" />
@@ -1069,6 +1076,7 @@
     <ClInclude Include="ProcessDock\ProcessAffinityModel.h" />
     <ClInclude Include="ProcessDock\ThreadAffinityMenu.h" />
     <ClInclude Include="ProcessDock\ProcessCpuCapacityCell.h" />
+    <ClInclude Include="ProcessDock\ProcessGpuTableView.h" />
     <ClInclude Include="ProcessDock\ProcessMessageHookWindow.h" />
     <ClInclude Include="ProcessDock\ThreadStackWindow.h" />
     <QtMoc Include="ProcessDock\ProcessDock.h" />

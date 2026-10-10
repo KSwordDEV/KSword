@@ -1,4 +1,5 @@
 ﻿#include "PluginHost.h"
+#include "UI/FlatButtonTheme.h"
 #include "PluginHost.Upstream.h"
 #include "PluginHost.Archive.h"
 #include "../../GhidraRuntimePlugin/RuntimeProfile.h"
@@ -3318,30 +3319,24 @@ QWidget* ks::plugin_host::createTabPluginContainer(QWidget* parent)
     const QString pluginContainerStyle = QStringLiteral(
         "QWidget#ksTabPluginContainer{background-color:%1;color:%2;}"
         "QTabWidget#ksTabPluginHost::pane{background-color:%1;border:none;}"
-        "QTabWidget#ksTabPluginHost QTabBar::tab{background-color:%4;color:%2;border:none;"
+        "QTabWidget#ksTabPluginHost QTabBar::tab{background-color:%3;color:%2;border:none;"
         "border-radius:0;padding:3px 12px;min-height:22px;margin:0;}"
-        "QTabWidget#ksTabPluginHost QTabBar::tab:selected{background-color:%5;color:%6;font-weight:700;}"
-        "QTabWidget#ksTabPluginHost QTabBar::tab:hover:!selected{background-color:%7;}"
+        "QTabWidget#ksTabPluginHost QTabBar::tab:selected{background-color:%4;color:%5;font-weight:700;}"
+        "QTabWidget#ksTabPluginHost QTabBar::tab:hover:!selected{background-color:%6;}"
         "QWidget#ksTabPluginEmptyState{background-color:%1;color:%2;}"
         "QLabel#ksTabPluginEmptyTitle{color:%2;font-size:16px;font-weight:600;}"
-        "QLabel#ksTabPluginEmptyHint{color:%8;}"
-        "QPushButton#ksTabPluginManageButton{background-color:%5;color:%6;border:1px solid %5;"
-        "border-radius:3px;padding:4px 10px;font-weight:600;}"
-        "QPushButton#ksTabPluginManageButton:hover{background-color:%9;border-color:%9;}"
-        "QPushButton#ksTabPluginManageButton:pressed{background-color:%10;border-color:%10;}"
-        "QWidget#ksTabPluginTransparencyWarning{background-color:%11;border:1px solid %12;"
+        "QLabel#ksTabPluginEmptyHint{color:%7;}"
+        "QPushButton#ksTabPluginManageButton{border-radius:3px;padding:4px 10px;font-weight:600;}"
+        "QWidget#ksTabPluginTransparencyWarning{background-color:%8;border:1px solid %9;"
         "border-radius:3px;margin:6px 6px 0 6px;}"
-        "QLabel#ksTabPluginTransparencyWarningText{color:%12;}")
+        "QLabel#ksTabPluginTransparencyWarningText{color:%9;}")
         .arg(KswordTheme::SurfaceHex())
         .arg(KswordTheme::TextPrimaryHex())
-        .arg(KswordTheme::BorderHex())
         .arg(KswordTheme::SurfaceAltHex())
         .arg(KswordTheme::ActiveTabBackgroundHex())
         .arg(KswordTheme::ActiveTabTextHex())
         .arg(KswordTheme::SurfaceMutedColorHex())
         .arg(KswordTheme::TextSecondaryHex())
-        .arg(KswordTheme::PrimaryBlueSolidHoverHex())
-        .arg(KswordTheme::PrimaryBluePressedHex)
         .arg(KswordTheme::ThemeColorName(KswordTheme::WarningBackgroundColor()))
         .arg(KswordTheme::WarningHex());
     container->setStyleSheet(pluginContainerStyle);
@@ -3388,6 +3383,8 @@ QWidget* ks::plugin_host::createTabPluginContainer(QWidget* parent)
             ks::i18n::text(QStringLiteral("plugin.tab.empty.manage"), QStringLiteral("打开插件管理器")),
             emptyPage);
         manageButton->setObjectName(QStringLiteral("ksTabPluginManageButton"));
+        // 只给空态管理入口赋予实心强调，不改变外部插件或透明告警的配色。
+        ks::ui::ApplyFlatButtonTheme(manageButton, ks::ui::FlatButtonTone::Accent);
         buttonRow->addWidget(manageButton);
         buttonRow->addStretch(1);
         emptyLayout->addLayout(buttonRow);

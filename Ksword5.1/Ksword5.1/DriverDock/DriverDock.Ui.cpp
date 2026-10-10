@@ -3,6 +3,7 @@
 #include "../UI/CodeEditorWidget.h"
 #include "../KernelDock/KernelThreadAuditTab.h"
 #include "../UI/VisibleTableWidget.h"
+#include "../UI/FlatButtonTheme.h"
 #include "../UI/DetailLayoutRegistry.h"
 /* 统一入口：这一页不需要知道 GPA、EPT 叶或 ruleId。 */
 #include "../UI/HvmWatchDialog.h"
@@ -416,6 +417,9 @@ void DriverDock::initializeServiceTab()
     m_refreshServiceButton->setToolTip(driverText(
         "driver.toolbar.refresh_services.tooltip", QStringLiteral("刷新驱动服务列表")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_refreshServiceButton);
+    // 纯图标工具明确拥有透明常态与主题交互态，绕过 Dock 透明父级的发现边界。
+    ks::ui::ApplyFlatButtonTheme(m_refreshServiceButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     m_serviceFilterEdit = new QLineEdit(m_servicePage);
     m_serviceFilterEdit->setPlaceholderText(driverText(
@@ -465,11 +469,16 @@ void DriverDock::initializeKernelModuleTab()
     m_refreshModuleButton->setToolTip(driverText(
         "driver.toolbar.refresh_modules.tooltip", QStringLiteral("刷新已加载内核模块")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_refreshModuleButton);
+    // 模块工具栏保持原紧凑尺寸，仅补齐共享按钮状态绑定。
+    ks::ui::ApplyFlatButtonTheme(m_refreshModuleButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
     m_refreshModuleEvidenceButton = new QPushButton(m_kernelModulePage);
     m_refreshModuleEvidenceButton->setIcon(QIcon(":/Icon/process_refresh.svg"));
     m_refreshModuleEvidenceButton->setToolTip(driverText(
         "driver.toolbar.refresh_module_evidence.tooltip", QStringLiteral("刷新内核模块证据")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_refreshModuleEvidenceButton);
+    ks::ui::ApplyFlatButtonTheme(m_refreshModuleEvidenceButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
     m_moduleEvidenceStatusLabel = new QLabel(driverText(
         "driver.overview.evidence.status.waiting", QStringLiteral("证据：等待刷新")), m_kernelModulePage);
     m_moduleEvidenceStatusLabel->setWordWrap(true);
@@ -541,6 +550,9 @@ void DriverDock::initializeOperateTab()
     m_browsePathButton->setToolTip(
         driverText("driver.form.browse_path.tooltip", QStringLiteral("浏览并选择 .sys 文件")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_browsePathButton);
+    // 路径浏览仍是原表单工具，主题绑定不改输入与文件选择逻辑。
+    ks::ui::ApplyFlatButtonTheme(m_browsePathButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     m_startTypeCombo = new QComboBox(m_operatePage);
     m_startTypeCombo->addItem(
@@ -609,30 +621,41 @@ void DriverDock::initializeOperateTab()
     m_registerOrUpdateButton->setToolTip(
         driverText("driver.form.register_update.tooltip", QStringLiteral("注册新服务或更新现有服务")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_registerOrUpdateButton);
+    // 操作条的纯图标控件沿用原业务连接，显式提供透明常态与交互反馈。
+    ks::ui::ApplyFlatButtonTheme(m_registerOrUpdateButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     m_loadDriverButton = new QPushButton(m_operatePage);
     m_loadDriverButton->setIcon(QIcon(":/Icon/process_start.svg"));
     m_loadDriverButton->setToolTip(
         driverText("driver.form.load.tooltip", QStringLiteral("挂载（启动）驱动服务")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_loadDriverButton);
+    ks::ui::ApplyFlatButtonTheme(m_loadDriverButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     m_unloadDriverButton = new QPushButton(m_operatePage);
     m_unloadDriverButton->setIcon(QIcon(":/Icon/process_pause.svg"));
     m_unloadDriverButton->setToolTip(
         driverText("driver.form.unload.tooltip", QStringLiteral("卸载（停止）驱动服务")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_unloadDriverButton);
+    ks::ui::ApplyFlatButtonTheme(m_unloadDriverButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     m_deleteServiceButton = new QPushButton(m_operatePage);
     m_deleteServiceButton->setIcon(QIcon(":/Icon/log_clear.svg"));
     m_deleteServiceButton->setToolTip(
         driverText("driver.form.delete.tooltip", QStringLiteral("删除驱动服务注册")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_deleteServiceButton);
+    ks::ui::ApplyFlatButtonTheme(m_deleteServiceButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     m_refreshStateButton = new QPushButton(m_operatePage);
     m_refreshStateButton->setIcon(QIcon(":/Icon/process_refresh.svg"));
     m_refreshStateButton->setToolTip(
         driverText("driver.form.refresh_state.tooltip", QStringLiteral("刷新当前服务状态")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_refreshStateButton);
+    ks::ui::ApplyFlatButtonTheme(m_refreshStateButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     actionLayout->addWidget(m_registerOrUpdateButton);
     actionLayout->addWidget(m_loadDriverButton);
@@ -674,24 +697,33 @@ void DriverDock::initializeDebugOutputTab()
             "driver.debug.start.tooltip",
             QStringLiteral("启动调试输出捕获。经 KswordARK R0 回调捕获 DbgPrint/DbgPrintEx/KdPrintEx，只显示通过当前内核调试筛选器的消息。")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_startCaptureButton);
+    // 调试输出工具栏同样显式登记，不让透明容器覆盖悬停、按下与禁用状态。
+    ks::ui::ApplyFlatButtonTheme(m_startCaptureButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     m_stopCaptureButton = new QPushButton(m_debugOutputPage);
     m_stopCaptureButton->setIcon(QIcon(":/Icon/process_pause.svg"));
     m_stopCaptureButton->setToolTip(
         driverText("driver.debug.stop.tooltip", QStringLiteral("停止调试输出捕获")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_stopCaptureButton);
+    ks::ui::ApplyFlatButtonTheme(m_stopCaptureButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     m_clearDebugOutputButton = new QPushButton(m_debugOutputPage);
     m_clearDebugOutputButton->setIcon(QIcon(":/Icon/log_clear.svg"));
     m_clearDebugOutputButton->setToolTip(
         driverText("driver.debug.clear.tooltip", QStringLiteral("清空调试输出")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_clearDebugOutputButton);
+    ks::ui::ApplyFlatButtonTheme(m_clearDebugOutputButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     m_copyDebugOutputButton = new QPushButton(m_debugOutputPage);
     m_copyDebugOutputButton->setIcon(QIcon(":/Icon/log_copy.svg"));
     m_copyDebugOutputButton->setToolTip(
         driverText("driver.debug.copy.tooltip", QStringLiteral("复制全部调试输出")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_copyDebugOutputButton);
+    ks::ui::ApplyFlatButtonTheme(m_copyDebugOutputButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     m_debugCaptureStatusLabel = new QLabel(
         driverText("driver.debug.status.not_started", QStringLiteral("状态：未启动")),
@@ -743,6 +775,9 @@ void DriverDock::initializeObjectInfoTab()
 
     m_fillObjectDriverNameButton = new QPushButton(QIcon(":/Icon/process_details.svg"), QString(), m_objectInfoPage);
     KswordTheme::ApplyCompactIconButtonMetrics(m_fillObjectDriverNameButton);
+    // 对象页查询工具显式绑定，保留 DriverObject 名称输入和原图标资源。
+    ks::ui::ApplyFlatButtonTheme(m_fillObjectDriverNameButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
     m_fillObjectDriverNameButton->setToolTip(
         driverText(
             "driver.object.fill_driver_name.tooltip",
@@ -750,6 +785,8 @@ void DriverDock::initializeObjectInfoTab()
 
     m_queryObjectInfoButton = new QPushButton(QIcon(":/Icon/process_refresh.svg"), QString(), m_objectInfoPage);
     KswordTheme::ApplyCompactIconButtonMetrics(m_queryObjectInfoButton);
+    ks::ui::ApplyFlatButtonTheme(m_queryObjectInfoButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
     m_queryObjectInfoButton->setToolTip(
         driverText(
             "driver.object.query.tooltip",
@@ -757,6 +794,8 @@ void DriverDock::initializeObjectInfoTab()
 
     m_objectEvidenceRefreshButton = new QPushButton(QIcon(":/Icon/process_details.svg"), QString(), m_objectInfoPage);
     KswordTheme::ApplyCompactIconButtonMetrics(m_objectEvidenceRefreshButton);
+    ks::ui::ApplyFlatButtonTheme(m_objectEvidenceRefreshButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
     m_objectEvidenceRefreshButton->setToolTip(
         driverText(
             "driver.object.refresh_evidence.tooltip",
@@ -1165,6 +1204,9 @@ void DriverDock::initializeModuleCrossViewTab()
     m_moduleCrossViewRefreshButton->setToolTip(
         driverText("driver.cross_view.refresh.tooltip", QStringLiteral("刷新 Driver Integrity 并重建模块 Cross-View")));
     KswordTheme::ApplyCompactIconButtonMetrics(m_moduleCrossViewRefreshButton);
+    // Cross-View 证据重建入口仍走原连接，仅明确工具按钮的状态样式所有权。
+    ks::ui::ApplyFlatButtonTheme(m_moduleCrossViewRefreshButton,
+        ks::ui::FlatButtonTone::Neutral, ks::ui::FlatButtonAppearance::Flat);
 
     m_moduleCrossViewStatusLabel = new QLabel(
         driverText("driver.cross_view.status.waiting", QStringLiteral("状态：等待刷新")),

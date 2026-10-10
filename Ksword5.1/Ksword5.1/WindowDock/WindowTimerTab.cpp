@@ -1,4 +1,5 @@
 #include "WindowTimerTab.h"
+#include "../UI/FlatButtonTheme.h"
 
 #include "../ArkDriverClient/ArkDriverClient.h"
 #include "../Internationalization/LanguageManager.h"
@@ -324,7 +325,7 @@ void WindowTimerTab::initializeUi()
     m_refreshButton = new QPushButton(
         timerText("window.timer.refresh", QStringLiteral("刷新窗口定时器")),
         this);
-    m_refreshButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+    m_refreshButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
     m_filterEdit = new QLineEdit(this);
     m_filterEdit->setClearButtonEnabled(true);
     m_filterEdit->setPlaceholderText(timerText(

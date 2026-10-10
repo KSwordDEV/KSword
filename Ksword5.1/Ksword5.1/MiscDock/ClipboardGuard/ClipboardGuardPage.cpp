@@ -1,4 +1,5 @@
 #include "ClipboardGuardPage.h"
+#include "../../UI/FlatButtonTheme.h"
 #include "../../theme.h"
 
 #include <QAction>
@@ -35,15 +36,10 @@ namespace ks::misc
         // buildToolButtonStyle：工具栏按钮统一外观，颜色取自当前主题。
         QString buildToolButtonStyle()
         {
-            return QStringLiteral(
-                "QPushButton{color:%1;background:%2;border:1px solid %3;border-radius:4px;padding:4px 10px;}"
-                "QPushButton:hover{background:%4;}"
-                "QPushButton:disabled{color:%5;}")
-                .arg(KswordTheme::TextPrimaryHex())
-                .arg(KswordTheme::SurfaceHex())
-                .arg(KswordTheme::BorderHex())
-                .arg(KswordTheme::PrimaryBlueSubtleHex())
-                .arg(KswordTheme::TextDisabledColorHex());
+            // 纯色主题只接管颜色；保留本页按钮尺寸和业务选中状态。
+            return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+                + QStringLiteral("QPushButton{border-radius:4px;padding:4px 10px;}");
+
         }
     }
 
@@ -280,18 +276,10 @@ namespace ks::misc
         const QString outerRadius = leftButton
             ? QStringLiteral("border-top-left-radius:3px;border-bottom-left-radius:3px;")
             : QStringLiteral("border-top-right-radius:3px;border-bottom-right-radius:3px;border-left:0px;");
-        return QStringLiteral(
-            "QPushButton{min-width:27px;max-width:27px;min-height:26px;max-height:26px;padding:0px;font-weight:700;"
-            "color:%1;background:%2;border:1px solid %3;border-radius:0px;%4}"
-            "QPushButton:hover:!checked{background:%5;color:%1;}"
-            "QPushButton:checked{background:%6;color:%7;border-color:%6;}")
-            .arg(KswordTheme::TextPrimaryHex())
-            .arg(KswordTheme::SurfaceHex())
-            .arg(KswordTheme::BorderHex())
-            .arg(outerRadius)
-            .arg(KswordTheme::PrimaryBlueSubtleHex())
-            .arg(KswordTheme::AccentHex(KswordTheme::AccentRole::Blue))
-            .arg(KswordTheme::OnAccentDynamicHex());
+        // A/B 保留紧贴外侧圆角和固定尺寸，checked 的纯色强调由公共规则绘制。
+        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QPushButton{min-width:27px;max-width:27px;min-height:26px;max-height:26px;"
+                "padding:0px;font-weight:700;border-radius:0px;%1}").arg(outerRadius);
     }
 
     QTableWidgetItem* ClipboardGuardPage::createReadOnlyItem(const QString& textValue)

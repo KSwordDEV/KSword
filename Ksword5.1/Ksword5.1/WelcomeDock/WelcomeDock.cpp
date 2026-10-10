@@ -1,4 +1,5 @@
 ﻿#include "WelcomeDock.h"
+#include "../UI/FlatButtonTheme.h"
 
 #include "../HardwareDock/HardwareDock.h"
 #include "../Internationalization/LanguageManager.h"
@@ -144,44 +145,24 @@ namespace
         return values.size() > 1 ? values.at(1) : QStringLiteral("N/A");
     }
 
-    QString welcomeOutlineButtonStyle()
+    QString welcomeActionButtonStyle()
     {
-        // 描边三态使用当前控件强调色，透明按钮的文字继续继承当前 palette。
-        return QStringLiteral(R"(QPushButton{background:transparent;color:palette(text);border:1px solid %1;border-radius:5px;padding:7px 12px;} QPushButton:hover{background:transparent;border-color:%2;} QPushButton:pressed{background:transparent;border-color:%3;})")
-            .arg(KswordTheme::ControlAccentHex(), KswordTheme::ControlAccentHoverHex(),
-                KswordTheme::ControlAccentPressedHex());
+        // 纯色主题只接管颜色；保留本页按钮尺寸和业务选中状态。
+        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QPushButton{border-radius:5px;padding:7px 12px;}");
+
     }
 
-    // welcomeCollapseButtonStyle 保留透明折叠头几何，仅按当前角色派生 hover/展开边框。
+    // welcomeCollapseButtonStyle 保留折叠头几何，以纯色区分悬停和展开。
     QString welcomeCollapseButtonStyle()
     {
-        return QStringLiteral(R"(QToolButton{background:transparent;color:palette(text);border:1px solid transparent;padding:7px 12px;font-size:16px;font-weight:600;text-align:center;} QToolButton:hover{background:transparent;border-color:%1;} QToolButton:checked{background:transparent;border-color:%2;})")
-            .arg(KswordTheme::ControlAccentHoverHex(), KswordTheme::ControlAccentHex());
+        // 纯色主题只接管颜色；保留本页按钮尺寸和业务选中状态。
+        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+            + QStringLiteral("QToolButton{padding:7px 12px;font-size:16px;font-weight:600;text-align:center;}");
+
     }
 
-    // WelcomeThemeBorderButton 保留语言入口的粗描边，绘制时读取当前主题而非持有旧 RGB。
-    class WelcomeThemeBorderButton final : public QPushButton
-    {
-    public:
-        using QPushButton::QPushButton;
 
-    protected:
-        void paintEvent(QPaintEvent* event) override
-        {
-            QPushButton::paintEvent(event);
-            QPainter painter(this);
-            painter.setRenderHint(QPainter::Antialiasing, true);
-            painter.setBrush(Qt::NoBrush);
-            // 自绘直接读取当前三态角色，不缓存旧 RGB，也不靠定时器补偿切主题。
-            const QColor borderColor = isDown() ? KswordTheme::ControlAccentPressedColor()
-                : underMouse() ? KswordTheme::ControlAccentHoverColor()
-                : KswordTheme::ControlAccentColor();
-            painter.setPen(QPen(borderColor, 3.0));
-            painter.drawRoundedRect(
-                QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5), 9.0, 9.0);
-        }
-
-    };
 }
 
 WelcomeDock::WelcomeDock(QWidget* parent)
@@ -201,7 +182,7 @@ WelcomeDock::WelcomeDock(QWidget* parent)
     m_leftImage->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     m_leftImage->setScaledContents(true);
 
-    m_languageSettingsBtn = new WelcomeThemeBorderButton(this);
+    m_languageSettingsBtn = new QPushButton(this);
     m_languageSettingsBtn->setObjectName(QStringLiteral("welcomeLanguageSettingsButton"));
     m_languageSettingsBtn->setMinimumSize(0, 48);
     m_languageSettingsBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -221,7 +202,7 @@ WelcomeDock::WelcomeDock(QWidget* parent)
     m_referenceTitle->setVisible(false);
     m_donors->setVisible(false);
 
-    const QString buttonStyle = welcomeOutlineButtonStyle();
+    const QString buttonStyle = welcomeActionButtonStyle();
     const auto makeButton = [this, &buttonStyle](QPushButton** buttonOut) {
         QPushButton* button = new QPushButton(this);
         button->setStyleSheet(buttonStyle);
@@ -432,7 +413,7 @@ void WelcomeDock::initializeContributorCollapse()
         for (const ContributorLink& link : links)
         {
             QPushButton* linkButton = new QPushButton(link.displayName, row);
-            linkButton->setStyleSheet(welcomeOutlineButtonStyle());
+            linkButton->setStyleSheet(welcomeActionButtonStyle());
             linkButton->setVisible(!link.targetUrl.trimmed().isEmpty());
             linkButton->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
             linksLayout->addWidget(linkButton);
@@ -678,12 +659,9 @@ void WelcomeDock::initializeLanguageButtonStyle()
     {
         return;
     }
-    m_languageSettingsBtn->setStyleSheet(QStringLiteral(
-        "QPushButton#welcomeLanguageSettingsButton{background:transparent;color:%1;border:3px solid transparent;"
-        "border-radius:10px;padding:8px 16px;font-size:16px;font-weight:700;}"
-        "QPushButton#welcomeLanguageSettingsButton:hover{background:transparent;}"
-        "QPushButton#welcomeLanguageSettingsButton:pressed{background:transparent;}")
-        .arg(KswordTheme::TextPrimaryHex()));
+    // 语言入口保留大号字体和点击区域，以实心主题色标识主操作。
+    m_languageSettingsBtn->setStyleSheet(ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Accent)
+        + QStringLiteral("QPushButton{border-radius:10px;padding:8px 16px;font-size:16px;font-weight:700;}"));
 }
 
 void WelcomeDock::refreshThemeColors()
@@ -694,7 +672,7 @@ void WelcomeDock::refreshThemeColors()
         initializeLanguageButtonStyle();
         m_languageSettingsBtn->update();
     }
-    const QString outlineStyle = welcomeOutlineButtonStyle();
+    const QString outlineStyle = welcomeActionButtonStyle();
     for (QPushButton* button : {m_githubBtn, m_qqBtn, m_pplControlBtn, m_systemInformerBtn, m_skt64Btn})
     {
         if (button != nullptr && button->styleSheet() != outlineStyle)

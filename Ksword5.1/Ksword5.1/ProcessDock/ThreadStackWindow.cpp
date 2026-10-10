@@ -1,4 +1,5 @@
 #include "ThreadStackWindow.h"
+#include "../UI/FlatButtonTheme.h"
 
 // ============================================================
 // ThreadStackWindow.cpp
@@ -505,12 +506,12 @@ void ThreadStackWindow::initializeUi()
     m_refreshButton = new QPushButton(QIcon(":/Icon/process_refresh.svg"), QString(), this);
     KswordTheme::ApplyCompactIconButtonMetrics(m_refreshButton);
     m_refreshButton->setToolTip(QStringLiteral("重新捕获调用栈"));
-    m_refreshButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+    m_refreshButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
 
     m_copyButton = new QPushButton(QIcon(":/Icon/process_copy_row.svg"), QString(), this);
     KswordTheme::ApplyCompactIconButtonMetrics(m_copyButton);
     m_copyButton->setToolTip(QStringLiteral("复制全部调用栈"));
-    m_copyButton->setStyleSheet(KswordTheme::ThemedButtonStyle());
+    m_copyButton->setStyleSheet(ks::ui::BuildFlatButtonStyle() + QStringLiteral("QPushButton,QToolButton{border-radius:3px;padding:4px 10px;font-weight:600;}"));
 
     m_targetLabel = new QLabel(this);
     m_targetLabel->setMinimumWidth(0);

@@ -7524,49 +7524,12 @@ void MainWindow::resetDockLayoutToDefault()
 
 QString MainWindow::buildTitleActionButtonStyle() const
 {
-    // 标题栏功能按钮样式按当前主题实时生成，避免主题切换后保留旧颜色。
-    const bool darkModeEnabled = KswordTheme::IsDarkModeEnabled();
-    const QString hoverColor = KswordTheme::RgbaColorName(
-        KswordTheme::PrimaryBlueColor,
-        darkModeEnabled ? 56 : 36);
-    const QString pressedColor = KswordTheme::RgbaColorName(
-        KswordTheme::PrimaryBlueColor,
-        darkModeEnabled ? 87 : 62);
-    const QString textColor = KswordTheme::TextPrimaryColorHex();
-    const QString borderColor = KswordTheme::RgbaColorName(
-        KswordTheme::PrimaryBlueColor,
-        darkModeEnabled ? 117 : 82);
-
-    return QStringLiteral(
-        "QToolButton{"
-        "  background:transparent !important;"
-        "  color:%1 !important;"
-        "  border:1px solid transparent !important;"
-        "  border-radius:4px;"
-        "  margin:0;"
-        "  padding:1px 5px;"
-        "  font-weight:600;"
-        "  text-align:left;"
-        "}"
-        "QToolButton:hover{"
-        "  background:%2 !important;"
-        "  color:%1 !important;"
-        "  border-color:%4 !important;"
-        "}"
-        "QToolButton:pressed{"
-        "  background:%3 !important;"
-        "  color:%1 !important;"
-        "  border-color:%4 !important;"
-        "}"
-        "QToolButton::menu-indicator{"
-        "  image:none;"
-        "  width:0;"
-        "  height:0;"
-        "}")
-        .arg(textColor)
-        .arg(hoverColor)
-        .arg(pressedColor)
-        .arg(borderColor);
+    // 标题栏功能按钮也使用不透明状态填充；保留紧凑尺寸、菜单指示与文字对齐。
+    return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+        + QStringLiteral(
+            "QToolButton{border-radius:4px;margin:0;padding:1px 5px;"
+            "font-weight:600;text-align:left;}"
+            "QToolButton::menu-indicator{image:none;width:0;height:0;}");
 }
 
 void MainWindow::refreshTitleActionButtonStyles()
@@ -9610,48 +9573,16 @@ bool MainWindow::showUnsignedDriverFailureDialog(
     continueR3Button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     continueR3Button->setMinimumHeight(42);
     continueR3Button->setStyleSheet(QStringLiteral(
-        "QPushButton{"
-        "  background:%1;"
-        "  color:%2;"
-        "  border:1px solid %1;"
-        "  border-radius:4px;"
-        "  font-weight:700;"
-        "}"
-        "QPushButton:hover{"
-        "  background:%4;"
-        "}"
-        "QPushButton:pressed{"
-        "  background:%3;"
-        "}")
-        .arg(KswordTheme::PrimaryBlueHex)
-        .arg(adaptiveTextColor)
-        .arg(KswordTheme::PrimaryBluePressedHex)
-        .arg(KswordTheme::PrimaryBlueSolidHoverHex()));
+        "QPushButton{border-radius:4px;font-weight:700;}"));
+    ks::ui::ApplyFlatButtonTheme(continueR3Button, ks::ui::FlatButtonTone::Accent);
     rootLayout->addWidget(continueR3Button);
 
     QPushButton* enableTestModeButton = new QPushButton(QStringLiteral("开启测试模式"), &decisionDialog);
     enableTestModeButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     enableTestModeButton->setMinimumHeight(42);
     enableTestModeButton->setStyleSheet(QStringLiteral(
-        "QPushButton{"
-        "  background:%1;"
-        "  color:%2;"
-        "  border:1px solid %2;"
-        "  border-radius:4px;"
-        "  font-weight:700;"
-        "}"
-        "QPushButton:hover{"
-        "  background:%3;"
-        "}"
-        "QPushButton:pressed{"
-        "  background:%4;"
-        "}")
-        .arg(KswordTheme::SurfaceHex())
-        // 文字色在 hover/pressed 时不变，底色却一路走到强调色混合底；
-        // 直接用 PrimaryBlueHex 会让高亮度强调色下的按钮文字贴到底色上。
-        .arg(KswordTheme::AccentButtonTextHex())
-        .arg(KswordTheme::PrimaryBlueSubtleHex())
-        .arg(KswordTheme::ThemeColorName(KswordTheme::PrimaryBlueSurfacePressedColor())));
+        "QPushButton{border-radius:4px;font-weight:700;}"));
+    ks::ui::ApplyFlatButtonTheme(enableTestModeButton, ks::ui::FlatButtonTone::Danger);
     rootLayout->addWidget(enableTestModeButton);
 
     bool enableTestMode = false;
@@ -12865,7 +12796,12 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
     const QString borderStrongColorText = KswordTheme::BorderStrongColorHex();
     const QString primaryTextColor = KswordTheme::TextPrimaryColorHex();
     const QString disabledTextColor = KswordTheme::TextDisabledColorHex();
-    const QString selectedTextColor = KswordTheme::OnAccentHex();
+    // 普通列表用克制的主题浅底，文字按实际底面校准；强调按钮仍保留独立强调色。
+    const QColor selectedSurface = KswordTheme::BlendColors(
+        KswordTheme::SurfaceAltColor(), KswordTheme::ControlAccentColor(), 64);
+    const QString selectedSurfaceText = selectedSurface.name();
+    const QString selectedTextColor = KswordTheme::EnsureTextContrast(
+        KswordTheme::TextPrimaryColor(), selectedSurface, 4.5).name();
     const QString activeThemeColor = KswordTheme::PrimaryBlueHex;
     const QString activeThemeHoverColor = KswordTheme::ControlAccentHoverHex();
     const QString activeThemePressedColor = KswordTheme::ControlAccentPressedHex();
@@ -12964,11 +12900,10 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
         "  background:%2;"
         "  margin-top:12px;"
         "}"
-        // 分组框与卡片分开：卡片本来就是独立方块，边框合理；分组框在一屏里
-        // 常有七八个，四周边框会叠成一堆套嵌方框，只留标题下的一条分隔线。
+        // 组框和卡片都需要完整边界；内容分组用细线和更小圆角，按钮仍采用纯色。
         "QGroupBox{"
-        "  border:none;"
-        "  border-top:1px solid %1;"
+        "  border:1px solid %1;"
+        "  border-radius:6px;"
         "  background:%2;"
         "  margin-top:12px;"
         "  padding-top:6px;"
@@ -12986,10 +12921,6 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
         "  border-radius:0px;"
         "  background:%2 !important;"
         "  top:0px;"
-        "}"
-        "QHeaderView::section{"
-        "  font-weight:400;"
-        "  border:none;"
         "}")
         .arg(panelBorderColor)
         .arg(panelBackgroundColor)
@@ -12998,35 +12929,8 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
     // sharedOverlayStyle 作用：
     // - 统一 hover/pressed 与 Tab 高亮；
     // - 当前 Tab 采用反差色，避免图标与选中底色混在一起。
-    const QString buttonInteractionStyle = QStringLiteral(
-        "QPushButton,QToolButton{"
-        "  background-color:%4 !important;"
-        "  color:%5 !important;"
-        "  border:1px solid %6 !important;"
-        "}"
-        "QPushButton:hover,QToolButton:hover{"
-        "  background-color:%1 !important;"
-        "  color:%3 !important;"
-        "  border-color:%1 !important;"
-        "}"
-        "QPushButton:pressed,QToolButton:pressed{"
-        "  background-color:%2 !important;"
-        "  color:%3 !important;"
-        "  border-color:%2 !important;"
-        "}"
-        "QPushButton:disabled,QToolButton:disabled{"
-        "  background-color:%7 !important;"
-        "  color:%8 !important;"
-        "  border-color:%6 !important;"
-        "}")
-        .arg(activeThemeHoverColor)
-        .arg(activeThemePressedColor)
-        .arg(controlAccentTextColor)
-        .arg(darkModeEnabled ? surfaceAltBackgroundText : subtleThemeColor)
-        .arg(primaryTextColor)
-        .arg(borderStrongColorText)
-        .arg(surfaceMutedBackgroundText)
-        .arg(disabledTextColor);
+    const QString buttonInteractionStyle = ks::ui::BuildFlatButtonStyle(
+        ks::ui::FlatButtonTone::Neutral);
 
     // tabStyle 作用：统一普通 Tab 与 ADS Dock Tab 的颜色、边距和选中态。
     // 字号不在这里设置，保证所有 Tab 栏继承 Qt 默认应用字号。
@@ -13268,55 +13172,43 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
             + QStringLiteral(
                 "QMenuBar{background-color:__WINDOW_BACKGROUND__;color:__WINDOW_TEXT__;}"
                 "QMenuBar::item{background:transparent;color:__WINDOW_TEXT__;padding:2px 7px;}"
-                "QMenuBar::item:selected{background:%2;color:__WINDOW_TEXT__;}"
+                "QMenuBar::item:selected{background:__MENU_HOVER__;color:__WINDOW_TEXT__;}"
                 "QMenuBar::item:pressed{background:__LIGHT_MENUBAR_PRESSED__;color:__WINDOW_TEXT__;}"
                 "QStatusBar{background-color:__WINDOW_BACKGROUND__;color:__WINDOW_TEXT__;}"
-                "QLineEdit,QSpinBox,QDoubleSpinBox{"
-                "  background:transparent !important;"
-                "  background-color:transparent !important;"
-                "  color:%3 !important;"
-                "  border:1px solid %4;"
-                "}"
                 "QTextEdit,QPlainTextEdit{"
-                "  background-color:%1 !important;"
-                "  color:%3 !important;"
-                "  border:1px solid %4;"
-                "}"
-                "QPushButton,QToolButton{"
-                "  background-color:%2 !important;"
-                "  color:%3 !important;"
-                "  border:1px solid %5 !important;"
+                "  background-color:__CONTENT_SURFACE__ !important;"
+                "  color:__PRIMARY_TEXT__ !important;"
+                "  border:1px solid __STRUCTURAL_BORDER__;"
                 "}"
                 "QTableView,QTableWidget,QTreeView,QTreeWidget,QListView,QListWidget{"
-                "  background:%1 !important;"
-                "  alternate-background-color:%6 !important;"
-                "  color:%3 !important;"
+                "  background:__CONTENT_SURFACE__ !important;"
+                "  alternate-background-color:__ALTERNATE_SURFACE__ !important;"
+                "  color:__PRIMARY_TEXT__ !important;"
                 "  border:none;"
             "  gridline-color:transparent;"
                 "}"
                 "QTreeView::item:selected,QTreeWidget::item:selected{"
-                "  background:%7 !important;"
-                "  color:%8 !important;"
+                "  background:__SELECTION_SURFACE__ !important;"
+                "  color:__SELECTION_TEXT__ !important;"
                 "}"
                 "QHeaderView::section{"
-                "  background:transparent !important;"
-                "  background-color:transparent !important;"
-                "  color:%3 !important;"
-                "  border:1px solid %4;"
+                "  background-color:__HEADER_SURFACE__;"
+                "  color:__PRIMARY_TEXT__ !important;"
+                "  border:none;border-bottom:1px solid __STRUCTURAL_BORDER__;"
+                "  font-weight:600;"
                 "}"
                 "QTableCornerButton::section{"
-                "  background:transparent !important;"
-                "  background-color:transparent !important;"
-                "  border:none !important;"
+                "  background-color:__HEADER_SURFACE__;"
+                "  border:none;border-bottom:1px solid __STRUCTURAL_BORDER__;"
                 "}")
-                .arg(surfaceBackgroundText)
-                .arg(subtleThemeColor)
-                .arg(primaryTextColor)
-                .arg(borderColorText)
-                .arg(borderStrongColorText)
-                .arg(surfaceAltBackgroundText)
-                .arg(activeThemeColor)
-                .arg(selectedTextColor)
+                .replace(QStringLiteral("__CONTENT_SURFACE__"), surfaceBackgroundText)
+                .replace(QStringLiteral("__PRIMARY_TEXT__"), primaryTextColor)
+                .replace(QStringLiteral("__STRUCTURAL_BORDER__"), borderColorText)
+                .replace(QStringLiteral("__ALTERNATE_SURFACE__"), surfaceAltBackgroundText)
+                .replace(QStringLiteral("__SELECTION_SURFACE__"), selectedSurfaceText)
+                .replace(QStringLiteral("__SELECTION_TEXT__"), selectedTextColor)
+                .replace(QStringLiteral("__MENU_HOVER__"), subtleThemeColor)
+                .replace(QStringLiteral("__HEADER_SURFACE__"), surfaceMutedBackgroundText)
                 .replace(QStringLiteral("__WINDOW_BACKGROUND__"), windowBackgroundText)
                 .replace(QStringLiteral("__WINDOW_TEXT__"), windowTextColor)
                 .replace(QStringLiteral("__LIGHT_MENUBAR_PRESSED__"), surfaceMutedBackgroundText)
@@ -13334,59 +13226,45 @@ QString MainWindow::buildAppearanceOverlayStyleSheet(
         + QStringLiteral(
             "QMenuBar{background-color:__WINDOW_BACKGROUND__;color:__WINDOW_TEXT__;}"
             "QMenuBar::item{background:transparent;color:__WINDOW_TEXT__;padding:2px 7px;}"
-            "QMenuBar::item:selected{background:%9;color:__WINDOW_TEXT__;}"
-            "QMenuBar::item:pressed{background:%10;color:%8;}"
+            "QMenuBar::item:selected{background:__MENU_HOVER__;color:__WINDOW_TEXT__;}"
+            "QMenuBar::item:pressed{background:__MENU_PRESSED__;color:__SELECTION_TEXT__;}"
             "QStatusBar{background-color:__WINDOW_BACKGROUND__;color:__WINDOW_TEXT__;}"
-            "QLineEdit,QSpinBox,QDoubleSpinBox{"
-            "  background:transparent !important;"
-            "  background-color:transparent !important;"
-            "  color:%3 !important;"
-            "  border:1px solid %4;"
-            "}"
             "QTextEdit,QPlainTextEdit{"
-            "  background-color:%2 !important;"
-            "  color:%3 !important;"
-            "  border:1px solid %4;"
-            "}"
-            "QPushButton,QToolButton{"
-            "  background-color:%6 !important;"
-            "  color:%3 !important;"
-            "  border:1px solid %5 !important;"
+            "  background-color:__CONTENT_SURFACE__ !important;"
+            "  color:__PRIMARY_TEXT__ !important;"
+            "  border:1px solid __STRUCTURAL_BORDER__;"
             "}"
             "QTableView,QTableWidget,QTreeView,QTreeWidget,QListView,QListWidget{"
-            "  background:%2 !important;"
-            "  alternate-background-color:%6 !important;"
-            "  color:%3 !important;"
+            "  background:__CONTENT_SURFACE__ !important;"
+            "  alternate-background-color:__ALTERNATE_SURFACE__ !important;"
+            "  color:__PRIMARY_TEXT__ !important;"
             "  border:none;"
             "  gridline-color:transparent;"
             "}"
             "QTreeView::item:selected,QTreeWidget::item:selected{"
-            "  background:%7 !important;"
-            "  color:%8 !important;"
+            "  background:__SELECTION_SURFACE__ !important;"
+            "  color:__SELECTION_TEXT__ !important;"
             "}"
             "QHeaderView::section{"
-            "  background:transparent !important;"
-            "  background-color:transparent !important;"
-            "  color:%3 !important;"
+            "  background-color:__HEADER_SURFACE__;"
+            "  color:__PRIMARY_TEXT__ !important;"
             "  border:none;"
-            "  border-bottom:1px solid %4;"
-            "  font-weight:400;"
+            "  border-bottom:1px solid __STRUCTURAL_BORDER__;"
+            "  font-weight:600;"
             "}"
             "QTableCornerButton::section{"
-            "  background:transparent !important;"
-            "  background-color:transparent !important;"
-            "  border:none !important;"
+            "  background-color:__HEADER_SURFACE__;"
+            "  border:none;border-bottom:1px solid __STRUCTURAL_BORDER__;"
             "}")
-            .arg(windowBackgroundText)
-            .arg(surfaceBackgroundText)
-            .arg(primaryTextColor)
-            .arg(borderColorText)
-            .arg(borderStrongColorText)
-            .arg(surfaceAltBackgroundText)
-            .arg(activeThemeColor)
-            .arg(selectedTextColor)
-            .arg(KswordTheme::RgbaColorName(KswordTheme::PrimaryBlueColor, 71))
-            .arg(KswordTheme::RgbaColorName(KswordTheme::PrimaryBlueColor, 97))
+            .replace(QStringLiteral("__CONTENT_SURFACE__"), surfaceBackgroundText)
+            .replace(QStringLiteral("__PRIMARY_TEXT__"), primaryTextColor)
+            .replace(QStringLiteral("__STRUCTURAL_BORDER__"), borderColorText)
+            .replace(QStringLiteral("__ALTERNATE_SURFACE__"), surfaceAltBackgroundText)
+            .replace(QStringLiteral("__SELECTION_SURFACE__"), selectedSurfaceText)
+            .replace(QStringLiteral("__SELECTION_TEXT__"), selectedTextColor)
+            .replace(QStringLiteral("__MENU_HOVER__"), KswordTheme::RgbaColorName(KswordTheme::PrimaryBlueColor, 71))
+            .replace(QStringLiteral("__MENU_PRESSED__"), KswordTheme::RgbaColorName(KswordTheme::PrimaryBlueColor, 97))
+            .replace(QStringLiteral("__HEADER_SURFACE__"), surfaceMutedBackgroundText)
             .replace(QStringLiteral("__WINDOW_BACKGROUND__"), windowBackgroundText)
             .replace(QStringLiteral("__WINDOW_TEXT__"), windowTextColor)
         + sharedOverlayStyle

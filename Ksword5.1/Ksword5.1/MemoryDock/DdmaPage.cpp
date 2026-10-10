@@ -1,4 +1,5 @@
 #include "DdmaPage.h"
+#include "../UI/FlatButtonTheme.h"
 
 #include "../theme.h"
 #include "../UI/AdaptivePageScroll.h"
@@ -416,15 +417,12 @@ QGroupBox* DdmaPage::buildCompareGroup()
 void DdmaPage::applySemanticStyles()
 {
     // 会话状态标签的颜色由 refreshSessionState 按可用性决定，这里只保证
-    // 高危按钮在两种主题下都有一致的错误色描边。
+    // 高危按钮在两种主题下都有一致的错误色填充。
     if (m_accessWriteButton != nullptr)
     {
-        m_accessWriteButton->setStyleSheet(
-            QStringLiteral(
-                "QPushButton{border:1px solid %1;border-radius:3px;color:%1;padding:4px 10px;}"
-                "QPushButton:disabled{border:1px solid %2;color:%2;}")
-                .arg(KswordTheme::ErrorHex())
-                .arg(KswordTheme::TextSecondaryHex()));
+        m_accessWriteButton->setStyleSheet(QStringLiteral("QPushButton{border-radius:3px;padding:4px 10px;}"));
+        // 危险写入保留红色语义，禁用态和热主题由统一按钮绑定刷新。
+        ks::ui::ApplyFlatButtonTheme(m_accessWriteButton, ks::ui::FlatButtonTone::Danger);
     }
     refreshSessionState();
 }

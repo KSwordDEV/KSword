@@ -1,4 +1,5 @@
 #include "GlobalUiBaseStyle.h"
+#include "./FlatButtonTheme.h"
 
 #include "ThemeStatusRole.h"
 
@@ -50,8 +51,48 @@ namespace ks::ui
             "}"
 
             // ---------- 输入控件基线 ----------
-            // 选择器组必须与“{”写在同一字符串片段内，i18n 审计才能识别为 QSS 而非 UI 文本。
-            "QLineEdit,QPlainTextEdit,QTextEdit,QSpinBox,QDoubleSpinBox,QDateEdit,QTimeEdit,QDateTimeEdit{"
+            // 单行字段用一致的中性实底标明编辑面，焦点只轻染主题色，不画亮色线框。
+            // 不改 padding、字号或高度，保持现有紧凑工具条及编辑器布局。
+            "QLineEdit,QSpinBox,QDoubleSpinBox,QDateEdit,QTimeEdit,QDateTimeEdit{"
+            "  background-color:__INPUT_SURFACE__;"
+            "  color:__TEXT__;"
+            "  border:none;"
+            "  border-radius:3px;"
+            "  selection-background-color:__ACCENT__;"
+            "  selection-color:__ON_ACCENT__;"
+            "}"
+            "QLineEdit:hover,QSpinBox:hover,QDoubleSpinBox:hover,QDateEdit:hover,QTimeEdit:hover,QDateTimeEdit:hover{"
+            "  background-color:__INPUT_HOVER__;"
+            "  border:none;"
+            "}"
+            "QLineEdit:focus,QSpinBox:focus,QDoubleSpinBox:focus,QDateEdit:focus,QTimeEdit:focus,QDateTimeEdit:focus{"
+            "  background-color:__INPUT_FOCUS__;"
+            "  border:none;"
+            "}"
+            "QLineEdit:disabled,QSpinBox:disabled,QDoubleSpinBox:disabled,QDateEdit:disabled,QTimeEdit:disabled,QDateTimeEdit:disabled{"
+            "  background-color:__SURFACE_MUTED__;"
+            "  color:__TEXT_DISABLED__;"
+            "  border:none;"
+            "}"
+            "QLineEdit:read-only,QLineEdit:read-only:hover,QLineEdit:read-only:focus{"
+            "  background-color:__SURFACE_MUTED__;"
+            "  border:none;"
+            "}"
+            // QSS 设置文字色后 Qt 会重建默认半透明 placeholder，明确指定不透明提示角色。
+            "QLineEdit{placeholder-text-color:__INPUT_PLACEHOLDER__;}"
+            "QLineEdit:disabled{placeholder-text-color:__TEXT_DISABLED__;}"
+            // 内嵌编辑器使用外层控件的同一表面，避免上下按钮/下拉区拼出第二层输入框。
+            "QAbstractSpinBox QLineEdit,QComboBox QLineEdit{"
+            "  background:transparent;"
+            "  border:none;"
+            "}"
+            "QAbstractSpinBox QLineEdit:hover,QAbstractSpinBox QLineEdit:focus,QComboBox QLineEdit:hover,QComboBox QLineEdit:focus{"
+            "  background:transparent;"
+            "  border:none;"
+            "}"
+
+            // 多行编辑器仍是独立内容面；保留轻边界帮助辨认报告和可编辑文档的范围。
+            "QPlainTextEdit,QTextEdit{"
             "  background-color:__SURFACE__;"
             "  color:__TEXT__;"
             "  border:1px solid __BORDER__;"
@@ -59,30 +100,12 @@ namespace ks::ui
             "  selection-background-color:__ACCENT__;"
             "  selection-color:__ON_ACCENT__;"
             "}"
-            "QLineEdit:hover,QPlainTextEdit:hover,QTextEdit:hover,QSpinBox:hover,QDoubleSpinBox:hover,QDateEdit:hover,QTimeEdit:hover,QDateTimeEdit:hover{"
-            "  border-color:__BORDER_STRONG__;"
-            "}"
-            "QLineEdit:focus,QPlainTextEdit:focus,QTextEdit:focus,QSpinBox:focus,QDoubleSpinBox:focus,QDateEdit:focus,QTimeEdit:focus,QDateTimeEdit:focus{"
-            "  border-color:__ACCENT__;"
-            "}"
-            "QLineEdit:disabled,QPlainTextEdit:disabled,QTextEdit:disabled,QSpinBox:disabled,QDoubleSpinBox:disabled,QDateEdit:disabled,QTimeEdit:disabled,QDateTimeEdit:disabled{"
+            "QPlainTextEdit:focus,QTextEdit:focus{border-color:__BORDER_STRONG__;}"
+            "QPlainTextEdit:disabled,QTextEdit:disabled{"
             "  background-color:__SURFACE_MUTED__;"
             "  color:__TEXT_DISABLED__;"
             "}"
-            // 只读输入框必须与可编辑的区分开：项目里有上百处 setReadOnly(true)
-            // 的展示型输入框（进程详情的路径、命令行等），它们此前与可编辑控件
-            // 外观完全一致——有边框、能获得焦点、悬停还会高亮，用户会反复尝试
-            // 修改并以为程序卡了。这里给只读态一个明确的“非输入面”底色，
-            // 但保留文字颜色与可选中能力，因为内容仍然需要被阅读和复制。
-            "QLineEdit:read-only,QPlainTextEdit:read-only,QTextEdit:read-only,QSpinBox:read-only,QDoubleSpinBox:read-only,QDateEdit:read-only,QTimeEdit:read-only,QDateTimeEdit:read-only{"
-            "  background-color:__SURFACE_MUTED__;"
-            "}"
-            "QLineEdit:read-only:hover,QPlainTextEdit:read-only:hover,QTextEdit:read-only:hover,QSpinBox:read-only:hover,QDoubleSpinBox:read-only:hover,QDateEdit:read-only:hover,QTimeEdit:read-only:hover,QDateTimeEdit:read-only:hover{"
-            "  border-color:__BORDER__;"
-            "}"
-            "QLineEdit:read-only:focus,QPlainTextEdit:read-only:focus,QTextEdit:read-only:focus,QSpinBox:read-only:focus,QDoubleSpinBox:read-only:focus,QDateEdit:read-only:focus,QTimeEdit:read-only:focus,QDateTimeEdit:read-only:focus{"
-            "  border-color:__BORDER__;"
-            "}"
+            "QPlainTextEdit:read-only,QTextEdit:read-only{background-color:__SURFACE_MUTED__;}"
 
             // ---------- 数字/日期输入框的步进按钮 ----------
             // 只要有任意一条 QSS 命中 QSpinBox，Qt 就会改用 QStyleSheetStyle 绘制
@@ -96,32 +119,30 @@ namespace ks::ui
             "  subcontrol-position:top right;"
             "  width:18px;"
             "  margin:1px 1px 0px 0px;"
-            "  border-left:1px solid __BORDER__;"
+            "  border:none;"
             "  border-top-right-radius:2px;"
-            "  background-color:__SURFACE_ALT__;"
+            "  background-color:__INPUT_SURFACE__;"
             "}"
             "QAbstractSpinBox::down-button{"
             "  subcontrol-origin:border;"
             "  subcontrol-position:bottom right;"
             "  width:18px;"
             "  margin:0px 1px 1px 0px;"
-            "  border-left:1px solid __BORDER__;"
-            "  border-top:1px solid __BORDER__;"
+            "  border:none;"
             "  border-bottom-right-radius:2px;"
-            "  background-color:__SURFACE_ALT__;"
+            "  background-color:__INPUT_SURFACE__;"
             "}"
             "QAbstractSpinBox::up-button:hover,QAbstractSpinBox::down-button:hover{"
-            "  background-color:__SURFACE_MUTED__;"
-            "  border-left-color:__BORDER_STRONG__;"
+            "  background-color:__INPUT_HOVER__;"
             "}"
             "QAbstractSpinBox::up-button:pressed,QAbstractSpinBox::down-button:pressed{"
-            "  background-color:__ACCENT_PRESSED__;"
+            "  background-color:__INPUT_FOCUS__;"
             "}"
             // :off 表示已经到达上下限，和 :disabled 一样必须给出可见反馈，
             // 否则用户会以为按钮又坏了。
             "QAbstractSpinBox::up-button:off,QAbstractSpinBox::down-button:off,QAbstractSpinBox::up-button:disabled,QAbstractSpinBox::down-button:disabled{"
             "  background-color:__SURFACE_MUTED__;"
-            "  border-left-color:__BORDER__;"
+
             "}"
             "QAbstractSpinBox::up-arrow{"
             "  image:url(__ARROW_UP__);"
@@ -142,11 +163,10 @@ namespace ks::ui
 
             // ---------- 分组框基线 ----------
             // margin-top 是标题行所需的最小空间，与 Qt 原生标题高度一致。
-            // 四周实色边框会让密集页面（一屏七八个分组）变成一堆套嵌方框，
-            // 因此只保留标题下方的一条分隔线：分组关系照样读得出来，线框少四分之三。
+            // 内容范围需要完整的中性细边界，避免相邻分组融为一体；按钮不用跟随加框。
             "QGroupBox{"
-            "  border:none;"
-            "  border-top:1px solid __BORDER__;"
+            "  border:1px solid __BORDER__;"
+            "  border-radius:6px;"
             "  margin-top:12px;"
             "}"
             "QGroupBox::title{"
@@ -172,8 +192,9 @@ namespace ks::ui
             "  border:none;"
             "}"
             "QHeaderView::section{"
-            "  background-color:__SURFACE__;"
+            "  background-color:__SURFACE_MUTED__;"
             "  color:__TEXT__;"
+            "  font-weight:600;"
             "  border:none;"
             "  border-bottom:1px solid __BORDER__;"
             "}"
@@ -195,6 +216,9 @@ namespace ks::ui
             "}"
 
             // ---------- 分割条基线 ----------
+            // QFrame 的 HLine/VLine 是布局明确声明的结构线，保留轻中性线而非控件外框。
+            "QFrame[frameShape=\"4\"]{background:transparent;border:none;border-top:1px solid __BORDER__;}"
+            "QFrame[frameShape=\"5\"]{background:transparent;border:none;border-left:1px solid __BORDER__;}"
             "QSplitter::handle{"
             "  background-color:transparent;"
             "}"
@@ -240,16 +264,25 @@ namespace ks::ui
             arrowResourcePath(KswordTheme::SurfaceMutedColor(), false, true));
         baseControlStyle.replace(
             QStringLiteral("__ARROW_UP__"),
-            arrowResourcePath(KswordTheme::SurfaceAltColor(), true, false));
+            arrowResourcePath(KswordTheme::ControlInputSurfaceColor(), true, false));
         baseControlStyle.replace(
             QStringLiteral("__ARROW_DOWN__"),
-            arrowResourcePath(KswordTheme::SurfaceAltColor(), false, false));
+            arrowResourcePath(KswordTheme::ControlInputSurfaceColor(), false, false));
         baseControlStyle.replace(QStringLiteral("__STATUS_ROLE_RULES__"), BuildStatusRoleStyleRules());
         baseControlStyle.replace(QStringLiteral("__END_MARKER__"), QString::fromLatin1(kBaseControlStyleEndMarker));
         baseControlStyle.replace(QStringLiteral("__WINDOW__"), KswordTheme::MainBackgroundColorHex());
         baseControlStyle.replace(QStringLiteral("__SURFACE__"), KswordTheme::SurfaceColorHex());
         baseControlStyle.replace(QStringLiteral("__SURFACE_ALT__"), KswordTheme::SurfaceAltColorHex());
         baseControlStyle.replace(QStringLiteral("__SURFACE_MUTED__"), KswordTheme::SurfaceMutedColorHex());
+        // 同一中性输入面配方同时用于搜索、数值框和组合框，不改变面板边界角色。
+        baseControlStyle.replace(QStringLiteral("__INPUT_SURFACE__"), KswordTheme::ControlInputSurfaceColor().name());
+        baseControlStyle.replace(QStringLiteral("__INPUT_HOVER__"), KswordTheme::ControlInputHoverColor().name());
+        baseControlStyle.replace(QStringLiteral("__INPUT_FOCUS__"), KswordTheme::ControlInputFocusColor().name());
+        const QColor inputBackgrounds[] = {KswordTheme::ControlInputSurfaceColor(),
+            KswordTheme::ControlInputHoverColor(), KswordTheme::ControlInputFocusColor()};
+        baseControlStyle.replace(QStringLiteral("__INPUT_PLACEHOLDER__"),
+            KswordTheme::EnsureTextContrastForBackgrounds(
+                KswordTheme::TextSecondaryColor(), inputBackgrounds, 3).name());
         baseControlStyle.replace(QStringLiteral("__BORDER_STRONG__"), KswordTheme::BorderStrongColorHex());
         baseControlStyle.replace(QStringLiteral("__BORDER__"), KswordTheme::BorderColorHex());
         baseControlStyle.replace(QStringLiteral("__TEXT_SECONDARY__"), KswordTheme::TextSecondaryColorHex());
@@ -264,6 +297,7 @@ namespace ks::ui
         baseControlStyle.replace(
             QStringLiteral("__ON_ACCENT_PRESSED__"),
             KswordTheme::OnAccentHex(KswordTheme::ControlAccentPressedColor()));
-        return baseControlStyle;
+        // 默认控件仅获得按钮状态基线；业务本地几何与语义色仍由逐页接入负责。
+        return baseControlStyle + BuildFlatButtonStyle(FlatButtonTone::Neutral);
     }
 }
