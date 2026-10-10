@@ -88,4 +88,5 @@ void registerFileAnalysis();
 void registerFilePe();
 void registerProcessEnumeration();
 void registerProcessFields();
+void registerProcessTelemetry();
 }

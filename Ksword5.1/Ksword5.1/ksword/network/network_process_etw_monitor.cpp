@@ -161,7 +161,7 @@ namespace ks::network
             &traceProperties.properties);
         if (startResult != ERROR_SUCCESS)
         {
-            setLastErrorText(makeEtwErrorText("StartTraceW", startResult));
+            setLastErrorText(makeEtwErrorText("StartTraceW", startResult), startResult, true);
             return false;
         }
 
@@ -177,7 +177,7 @@ namespace ks::network
         if (enableResult != ERROR_SUCCESS)
         {
             stopOwnedTraceSession(sessionHandle, sessionName);
-            setLastErrorText(makeEtwErrorText("EnableTraceEx2(Microsoft-Windows-Kernel-Network)", enableResult));
+            setLastErrorText(makeEtwErrorText("EnableTraceEx2(Microsoft-Windows-Kernel-Network)", enableResult), enableResult, true);
             return false;
         }
 
@@ -195,7 +195,7 @@ namespace ks::network
             const ULONG openTraceError = ::GetLastError();
             stopOwnedTraceSession(sessionHandle, sessionName);
             m_sessionName.clear();
-            setLastErrorText(makeEtwErrorText("OpenTraceW", openTraceError));
+            setLastErrorText(makeEtwErrorText("OpenTraceW", openTraceError), openTraceError, true);
             return false;
         }
 
@@ -274,6 +274,12 @@ namespace ks::network
         health.isRunning = IsRunning();
         health.eventsLost = std::max(bufferEventsLost, sessionEventsLost);
         health.dataLossDetected = (health.eventsLost != 0);
+        {
+            std::lock_guard<std::mutex> errorGuard(m_errorMutex);
+            health.errorCodeKnown = m_lastErrorCodeKnown;
+            health.errorCode = m_lastErrorCode;
+            health.errorText = m_lastErrorText;
+        }
         return health;
     }
 
@@ -342,7 +348,7 @@ namespace ks::network
             processResult != ERROR_SUCCESS &&
             processResult != ERROR_CANCELLED)
         {
-            setLastErrorText(makeEtwErrorText("ProcessTrace", processResult));
+            setLastErrorText(makeEtwErrorText("ProcessTrace", processResult), processResult, true);
             stopOwnedTraceSession(m_sessionHandle, sessionName);
         }
 
@@ -388,9 +394,11 @@ namespace ks::network
         }
     }
 
-    void ProcessNetworkEtwMonitor::setLastErrorText(std::string errorText)
+    void ProcessNetworkEtwMonitor::setLastErrorText(std::string errorText, ULONG errorCode, bool codeKnown)
     {
         std::lock_guard<std::mutex> errorGuard(m_errorMutex);
         m_lastErrorText = std::move(errorText);
+        m_lastErrorCode = errorCode;
+        m_lastErrorCodeKnown = codeKnown;
     }
 } // namespace ks::network

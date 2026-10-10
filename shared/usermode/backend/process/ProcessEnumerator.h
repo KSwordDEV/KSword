@@ -49,6 +49,9 @@ struct ProcessSnapshotRow {
     double cpuUsagePercent = 0.0;
     double diskBytesPerSecond = 0.0;
     bool diskRateKnown = false;
+    bool networkCountersKnown = false, networkRateKnown = false;
+    std::uint64_t networkRxBytes = 0, networkTxBytes = 0;
+    double networkBytesPerSecond = 0.0;
     std::wstring imageName;
     std::wstring imagePath;
     DWORD imagePathError = ERROR_SUCCESS;

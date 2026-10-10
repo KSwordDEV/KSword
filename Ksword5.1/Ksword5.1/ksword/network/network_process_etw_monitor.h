@@ -38,6 +38,9 @@ namespace ks::network
         bool isRunning = false;
         bool dataLossDetected = false;
         std::uint64_t eventsLost = 0;
+        bool errorCodeKnown = false;
+        std::uint32_t errorCode = 0;
+        std::string errorText;
     };
 
     // ProcessNetworkEtwMonitor：
@@ -76,7 +79,7 @@ namespace ks::network
 
         void consumeTrace(PROCESSTRACE_HANDLE consumerHandle, std::wstring sessionName);
         void recordNetworkEvent(const EVENT_RECORD& eventRecord);
-        void setLastErrorText(std::string errorText);
+        void setLastErrorText(std::string errorText, ULONG errorCode = ERROR_SUCCESS, bool codeKnown = false);
 
     private:
         mutable std::mutex m_lifecycleMutex;
@@ -95,5 +98,7 @@ namespace ks::network
 
         mutable std::mutex m_errorMutex;
         std::string m_lastErrorText;
+        ULONG m_lastErrorCode = ERROR_SUCCESS;
+        bool m_lastErrorCodeKnown = false;
     };
 } // namespace ks::network

@@ -304,4 +304,13 @@
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\process\process.h" />
     <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\process\ProcessCpuUsageModel.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessTelemetry.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessTelemetry.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessCounters.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessTelemetry.h" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessCounters.h" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\network\network_process_etw_monitor.cpp" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\network\network_process_etw_monitor.h" />
+  </ItemGroup>
 </Project>

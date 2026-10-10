@@ -38,6 +38,9 @@ void ProcessTelemetry::Sample(std::vector<ProcessSnapshotRow>& rows,
         const auto net = counters.find(row.processId);
         const std::uint64_t rx = net == counters.end() ? 0 : net->second.rxBytes;
         const std::uint64_t tx = net == counters.end() ? 0 : net->second.txBytes;
+        row.networkCountersKnown = networkKnown;
+        row.networkRxBytes = rx; row.networkTxBytes = tx;
+        row.networkRateKnown = false; row.networkBytesPerSecond = 0.0;
         const auto previous = baselines_.find(row.processId);
         const bool sameInstance = previous != baselines_.end() && row.creationTime100ns != 0 &&
             row.creationTime100ns == previous->second.creationTime && tickMs > previous->second.tickMs;
@@ -58,8 +61,10 @@ void ProcessTelemetry::Sample(std::vector<ProcessSnapshotRow>& rows,
             } else if (sameInstance && previous->second.networkKnown &&
                 rx >= previous->second.rxBytes && tx >= previous->second.txBytes) {
                 const double elapsedSeconds = static_cast<double>(tickMs - previous->second.tickMs) / 1000.0;
-                text = RateText((static_cast<double>(rx - previous->second.rxBytes) +
-                    static_cast<double>(tx - previous->second.txBytes)) / elapsedSeconds);
+                row.networkRateKnown = true;
+                row.networkBytesPerSecond = (static_cast<double>(rx - previous->second.rxBytes) +
+                    static_cast<double>(tx - previous->second.txBytes)) / elapsedSeconds;
+                text = RateText(row.networkBytesPerSecond);
             } else {
                 text = L"采样中";
             }

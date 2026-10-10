@@ -58,3 +58,27 @@ PPL 为公开 ProtectionLevel 枚举的十六进制值，不伪造 EPROCESS 的 
 企业上下文 value 为原生 states 位图和 identity；WIP 不可用时不把后端展示回退“个人”当作已确认状态。
 GPU 首次 PDH 采样可能仍在预热，虚拟机可能缺少计数器；此时返回不可用，不能把 0 当作成功采样。
 无映像描述或缺少读取权限时，后端不足以区分有效空值与查询失败，本命令明确保留为不可用。
+
+## 限时遥测（迁移项 21）
+
+```powershell
+KswordCLI.exe process telemetry sample --pid PID [--creation-time FILETIME] [--interval-ms N] [--network on|off] [--backend r3] [--json]
+```
+
+默认间隔 1000 ms，范围 100..30000 ms。保留目标身份句柄，收集前后两个原生进程快照；
+CPU 按实际 elapsedMs 和全部逻辑处理器数归一化，输出 cpuKnown、cpuPercent、cpuBefore100ns、cpuAfter100ns。
+diskRateKnown／diskBytesPerSecond 描述本进程读取与写入 I/O 字节差，不是物理磁盘吞吐；
+同时给出 ioReadBytesBefore/After、ioWriteBytesBefore/After、workingSetDeltaBytes、pageFaultDelta。
+有符号增量与 64 位计数使用十进制字符串；counter 回退／重置时速率为 null，返回 6。
+
+network 默认 off，不创建 ETW 会话。on 时使用本实例私有的 Microsoft-Windows-Kernel-Network 实时会话，
+不接管 NT Kernel Logger。输出 networkRequested、networkRateKnown、networkBytesPerSecond、
+networkRxBytesBefore/After、networkTxBytesBefore/After、networkHealth、networkFinalHealth。
+网络累计字节从本次会话开始；只描述 Provider 已送达的事件，存在缓冲延迟与平台可见性限制。
+health 包含 running、dataLossDetected、eventsLost、win32Error（无法取得原生码时为 null）、errorText。
+未启动、丢事件或尚无有效基线时速率为 null，CPU/I/O 可用结果保留并返回 6。
+
+完成采样停止自建 ETW 会话并等待消费线程退出；异常、目标退出或 Ctrl+C 也由同一实例析构释放。
+取消返回 6 且 cancelled=true；目标退出、身份错误或原生快照失败返回 3，不发布旧实例速率。
+无损完整结果返回 0，格式错误返回 4。只读采样不调整目标进程状态或权限。
+原生样本获取失败保留 stage、ntStatus、malformed 与后端诊断。
