@@ -812,7 +812,23 @@ int ks::ui::SvgThemeIconManager::applyToTabWidget(
         }
 
         bool cacheHit = false;
-        const QIcon replacementIcon = themedIcon(originalIcon, &cacheHit);
+        QIcon replacementIcon = themedIcon(originalIcon, &cacheHit);
+        QTabBar* bar = tabWidgetPointer->tabBar(); // 明确登记的普通标签才使用轻底色图标语义。
+        if (!replacementIcon.isNull() && bar != nullptr
+            && (bar->property("ksword_page_tabs_style").toBool()
+                || bar->property("ksword_secondary_tabs").toBool()))
+        {
+            // 按原图和强调色缓存，避免每次绘制重建图标触发下一轮 Tab 刷新。
+            if (pagePointer->property("ksword_tab_surface_source").toLongLong() != originalIcon.cacheKey()
+                || pagePointer->property("ksword_tab_surface_accent").value<QColor>() != m_themeColor)
+            {
+                pagePointer->setProperty("ksword_tab_surface_source", originalIcon.cacheKey());
+                pagePointer->setProperty("ksword_tab_surface_accent", m_themeColor);
+                pagePointer->setProperty("ksword_tab_surface_icon",
+                    MakeThemeTabAccentIcon(originalIcon, m_themeColor));
+            }
+            replacementIcon = pagePointer->property("ksword_tab_surface_icon").value<QIcon>();
+        }
         if (replacementIcon.isNull() || replacementIcon.cacheKey() == currentIcon.cacheKey())
         {
             // 非候选标签同样标记已检查，避免每次 QTabBar 绘制重新排队。

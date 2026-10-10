@@ -460,7 +460,8 @@ namespace
     QString buildThreadButtonStyle(const bool iconOnlyButton)
     {
         // 纯色按钮共用主题状态；保留页面原有紧凑尺寸。
-        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral)
+        return ks::ui::BuildFlatButtonStyle(ks::ui::FlatButtonTone::Neutral,
+            ks::ui::FlatButtonAppearance::Solid)
             + QStringLiteral("QPushButton{border-radius:3px;padding:%1;}")
                 .arg(iconOnlyButton ? QStringLiteral("4px") : QStringLiteral("4px 10px"));
     }
@@ -559,6 +560,11 @@ void ProcessDock::initializeThreadPage()
         QStringLiteral("process.thread.scope.tooltip"),
         QStringLiteral("按线程类别筛选；工作线程由 R0 DynData v4 的 _ETHREAD.ActiveExWorker 位识别"));
     m_threadScopeCombo->setMinimumWidth(112);
+    // 此页继承 Dock 的透明内容样式，组合框需在自身绑定完整状态底面和文字。
+    ks::ui::BindWidgetTheme(m_threadScopeCombo, [this]()
+    {
+        m_threadScopeCombo->setStyleSheet(KswordTheme::ThemedComboBoxStyle());
+    });
 
     m_threadSearchLineEdit = new QLineEdit(m_threadPage);
     // 线程结果树不经过通用表格搜索注册，保留原提示并明确接入搜索底面。

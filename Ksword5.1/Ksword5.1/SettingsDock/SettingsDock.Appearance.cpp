@@ -26,14 +26,16 @@ void SettingsDock::initializeAppearanceTab()
     m_appearanceTab = new QWidget(m_tabWidget);
     QVBoxLayout* appearanceRootLayout = new QVBoxLayout(m_appearanceTab);
     ks::ui::StyleSecondaryContentLayout(appearanceRootLayout);
+    // 分区间留白大于区内行距，让标题自然形成阅读停顿，控件行仍保持紧凑。
+    appearanceRootLayout->setSpacing(24);
     auto* primaryColumn = new QWidget(m_appearanceTab); // 常用配色设置列。
     auto* primaryLayout = new QVBoxLayout(primaryColumn);
     primaryLayout->setContentsMargins(0, 0, 0, 0);
-    primaryLayout->setSpacing(12);
+    primaryLayout->setSpacing(24);
     auto* secondaryColumn = new QWidget(m_appearanceTab); // 样例预览和交互设置列。
     auto* secondaryLayout = new QVBoxLayout(secondaryColumn);
     secondaryLayout->setContentsMargins(0, 0, 0, 0);
-    secondaryLayout->setSpacing(12);
+    secondaryLayout->setSpacing(24);
 
     ks::i18n::LanguageManager& languageManager = ks::i18n::LanguageManager::instance();
 

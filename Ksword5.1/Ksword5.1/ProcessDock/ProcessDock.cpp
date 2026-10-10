@@ -14035,18 +14035,11 @@ void ProcessDock::refreshSideTabIconContrast()
         return;
     }
 
-    // 顶部 Tab 选中态是深蓝背景，当前页图标改为白色以避免融入背景。
-    const int currentIndex = m_sideTabWidget->currentIndex();
-    const QColor selectedIconColor(255, 255, 255);
-    const QIcon processIcon = currentIndex == m_sideTabWidget->indexOf(m_processListPage)
-        ? tintedProcessTabIcon(IconProcessMain, selectedIconColor)
-        : blueTintedIcon(IconProcessMain);
-    const QIcon threadIcon = currentIndex == m_sideTabWidget->indexOf(m_threadPage)
-        ? tintedProcessTabIcon(IconThreadTab, selectedIconColor)
-        : blueTintedIcon(IconThreadTab);
-    const QIcon createIcon = currentIndex == m_sideTabWidget->indexOf(m_createProcessPage)
-        ? tintedProcessTabIcon(IconStart, selectedIconColor)
-        : blueTintedIcon(IconStart);
+    // 顶部 Tab 采用中性轻选中底；绘制时按真实底色校准，避免 Selected 被染成深色。
+    const QColor accent = KswordTheme::PrimaryAccentColor();
+    const QIcon processIcon = ks::ui::MakeThemeTabAccentIcon(QIcon(IconProcessMain), accent);
+    const QIcon threadIcon = ks::ui::MakeThemeTabAccentIcon(QIcon(IconThreadTab), accent);
+    const QIcon createIcon = ks::ui::MakeThemeTabAccentIcon(QIcon(IconStart), accent);
 
     if (m_processListPage != nullptr)
     {

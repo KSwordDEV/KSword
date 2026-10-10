@@ -489,19 +489,19 @@ namespace KswordTheme
     // 每个配置必须与其颜色函数使用的基础色保持一致，避免通道截断后变成纯黑或纯白。
     inline constexpr ThemeRgbOffset WindowOffset{
         { -245, -240, -233 },
-        { -7, -4, 0 }
+        { -15, -12, -8 }
     };
     inline constexpr ThemeRgbOffset SurfaceOffset{
-        { -238, -230, -219 },
+        { -232, -224, -213 },
         { 0, 0, 0 }
     };
     inline constexpr ThemeRgbOffset SurfaceAltOffset{
-        { 7, 10, 14 },
-        { -12, -7, 0 }
+        { 11, 14, 18 },
+        { -22, -19, -14 }
     };
     inline constexpr ThemeRgbOffset SurfaceMutedOffset{
-        { 13, 18, 24 },
-        { -29, -14, 0 }
+        { 20, 26, 33 },
+        { -35, -29, -21 }
     };
     inline constexpr ThemeRgbOffset BorderOffset{
         { 38, 55, 70 },
@@ -699,7 +699,8 @@ namespace KswordTheme
     // 它还顺带拆开了一类静默故障：去色会让不同语义的角色塌到同一个灰阶值，
     // ThemeColorRemap 按旧值查表就再也分不开它们，撞色的角色会被映射到别人的新值
     //（实测 ControlAccentColor 撞上 ControlOutlineColor，切回默认主题后交互控件整片失去强调色）。
-    inline constexpr int NeutralLayerMinimumSeparation = 10;
+    // 灰阶自定义主题也保留可辨认的相邻层次，不依赖蓝色饱和度区分背景。
+    inline constexpr int NeutralLayerMinimumSeparation = 12;
 
     // NeutralLayerRank 作用：角色在中性族明暗阶梯上的位置，从主背景往外数，最近的是 1。
     // 不能写死序号：深浅主题的排序完全不同 —— 深色下 PaletteDark 紧贴 Surface（第 2 档），
@@ -1827,11 +1828,11 @@ ads--CDockWidgetTab[activeTab="true"] QLabel,ads--CDockWidgetTab[activeTab="true
     {
         QColor surface = BlendColors(alternateSurface, SurfaceMutedColor(), 64);
         surface.setAlpha(255);
-        if (ContrastRatio(surface, pageSurface) < 1.15)
+        if (ContrastRatio(surface, pageSurface) < 1.25)
         {
             const QColor contrastSeed = RelativeLuminance(pageSurface) < 0.25
                 ? QColor(Qt::white) : QColor(Qt::black);
-            surface = BlendColors(pageSurface, contrastSeed, 24);
+            surface = BlendColors(pageSurface, contrastSeed, 30);
         }
         return surface;
     }

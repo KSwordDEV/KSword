@@ -16,6 +16,10 @@ namespace ks::ui
     // Normal覆盖中性表面，Active覆盖按钮强调底，Selected/On覆盖选中底；自管图标不走此入口。
     QIcon MakeThemeAccentIcon(const QIcon& sourceIcon, const QColor& fixedAccent);
 
+    // 普通内容 Tab 的选中底仍是中性表面，不能沿用实心强调按钮的 Selected 图标配方。
+    // 保留源轮廓与 DPR，所有模式按页面/轻选中底校准颜色，换主题时重新读取背景。
+    QIcon MakeThemeTabAccentIcon(const QIcon& sourceIcon, const QColor& fixedAccent);
+
     // MakeThemeButtonAccentIcon：仅为已判定为单色主题候选的 push/tool 按钮建立独立图标。
     // button 为真实绘制上下文，绘制时读取共享实心按钮的 tone、父 palette 和当前状态。
     // 使用 QPointer 跟踪按钮寿命，不共享跨按钮结果；未知本地样式沿用通用状态语义。

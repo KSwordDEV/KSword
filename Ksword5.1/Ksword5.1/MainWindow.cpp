@@ -50,6 +50,7 @@
 #include <QPixmap>
 #include <QPointer>
 #include <QProgressBar>
+#include <QPropertyAnimation>
 #include <QPushButton>
 #include <QRectF>
 #include <QResizeEvent>
@@ -1570,7 +1571,8 @@ namespace
                 return QObject::eventFilter(watchedObject, eventObject);
             }
 
-            if (eventObject->type() != QEvent::Show)
+            const QEvent::Type type = eventObject->type();
+            if (type != QEvent::Show && type != QEvent::Hide)
             {
                 return QObject::eventFilter(watchedObject, eventObject);
             }
@@ -1585,7 +1587,64 @@ namespace
                 }
             }
 
-            scheduleOpaqueComboPopupTheme(comboBoxForPopupView(itemView));
+            QComboBox* combo = comboBoxForPopupView(itemView);
+            if (combo == nullptr)
+            {
+                return QObject::eventFilter(watchedObject, eventObject);
+            }
+            if (type == QEvent::Show)
+            {
+                scheduleOpaqueComboPopupTheme(combo);
+            }
+            // 普通下拉采用短淡入；业务自定义列表保留其自己的呈现规则。
+            QWidget* popup = combo->view()->window();
+            if (watchedWidget != popup || !popup->windowFlags().testFlag(Qt::Popup)
+                || (!combo->view()->styleSheet().isEmpty()
+                    && !combo->view()->property(kKswordComboPopupAutoThemedPropertyName).toBool()))
+            {
+                return QObject::eventFilter(watchedObject, eventObject);
+            }
+            auto* animation = popup->findChild<QPropertyAnimation*>(
+                QStringLiteral("ks_secondary_combo_fade"), Qt::FindDirectChildrenOnly);
+            if (type == QEvent::Hide)
+            {
+                // 关闭或快速重开时取消旧帧，复用的 Popup 不保留半透明状态。
+                if (animation != nullptr)
+                {
+                    animation->stop();
+                }
+                popup->setWindowOpacity(1.0);
+                return QObject::eventFilter(watchedObject, eventObject);
+            }
+            BOOL animationsEnabled = TRUE; // 尊重 Windows 的减少动画设置。
+            SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animationsEnabled, 0);
+            if (!animationsEnabled)
+            {
+                return QObject::eventFilter(watchedObject, eventObject);
+            }
+            // Show 栈内只设置透明度；主题和动画创建延后，避免重入 Qt 子对象显示遍历。
+            popup->setWindowOpacity(0.15);
+            const QPointer<QWidget> guardedPopup(popup);
+            QTimer::singleShot(0, popup, [guardedPopup]()
+            {
+                if (!guardedPopup || !guardedPopup->isVisible())
+                {
+                    return;
+                }
+                auto* fade = guardedPopup->findChild<QPropertyAnimation*>(
+                    QStringLiteral("ks_secondary_combo_fade"), Qt::FindDirectChildrenOnly);
+                if (fade == nullptr)
+                {
+                    fade = new QPropertyAnimation(guardedPopup, "windowOpacity", guardedPopup);
+                    fade->setObjectName(QStringLiteral("ks_secondary_combo_fade"));
+                }
+                fade->stop();
+                fade->setDuration(130);
+                fade->setStartValue(0.15);
+                fade->setEndValue(1.0);
+                fade->setEasingCurve(QEasingCurve::OutCubic);
+                fade->start();
+            });
             return QObject::eventFilter(watchedObject, eventObject);
         }
     };

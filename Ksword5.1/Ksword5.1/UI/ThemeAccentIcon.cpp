@@ -26,17 +26,19 @@ namespace ks::ui
             // sourceIcon 用途：复制固定默认色源图；模式、状态和缩放仍由源引擎决定。
             // fixedAccent 为主题色快照，button 可为空；非空时只保存寿命受控的绘制上下文。
             explicit ThemeAccentIconEngine(const QIcon& sourceIcon,
-                const QColor& fixedAccent = QColor(), QAbstractButton* button = nullptr)
+                const QColor& fixedAccent = QColor(), QAbstractButton* button = nullptr,
+                bool neutralTab = false)
                 : m_sourceIcon(sourceIcon)
                 , m_fixedAccent(fixedAccent)
                 , m_button(button)
+                , m_neutralTab(neutralTab)
             {
             }
 
             // clone：Qt 图标分离时仅复制原始源图，不捕获当时的主题色或派生位图。
             QIconEngine* clone() const override
             {
-                return new ThemeAccentIconEngine(m_sourceIcon, m_fixedAccent, m_button.data());
+                return new ThemeAccentIconEngine(m_sourceIcon, m_fixedAccent, m_button.data(), m_neutralTab);
             }
 
             // isNull/actualSize/availableSizes：转发源图能力，不把空源或小轮廓伪装成新资源。
@@ -98,6 +100,21 @@ namespace ks::ui
                 }
                 const QColor accent = m_fixedAccent.isValid()
                     ? m_fixedAccent : KswordTheme::PrimaryAccentColor(); // 本次图形的主题种子。
+
+                // 弱底色 Tab 的 Active/Selected 仍在中性表面上，不能校准到强调色底。
+                if (m_neutralTab)
+                {
+                    const QColor base = KswordTheme::SurfaceColor();
+                    const QColor backgrounds[] = {KswordTheme::WindowColor(), base,
+                        KswordTheme::BlendColors(base, KswordTheme::ControlAccentColor(), 38)};
+                    const QColor preferred = mode == QIcon::Disabled
+                        ? KswordTheme::TextDisabledColor() : accent;
+                    if (flatButtonBackgroundKnown != nullptr)
+                    {
+                        *flatButtonBackgroundKnown = true;
+                    }
+                    return KswordTheme::EnsureTextContrastForBackgrounds(preferred, backgrounds, 3, 3.0);
+                }
 
                 // buttonBackground 用途：仅由共享按钮组件确认拥有的实际状态底色。
                 // 透明 Neutral 常态取父级真实合成底；hover/focus/down/checked 取实际强调底。
@@ -187,6 +204,7 @@ namespace ks::ui
             QIcon m_sourceIcon; // m_sourceIcon：固定默认蓝源图，包含源引擎的模式与状态。
             QColor m_fixedAccent; // 无效表示随全局种子变化；有效表示管理器本轮主体色。
             QPointer<QAbstractButton> m_button; // 仅按钮包装持有的弱上下文，销毁后自动失效。
+            bool m_neutralTab = false; // 普通 Tab 已明确采用中性选中底，不借用按钮配色。
         };
     }
 
@@ -205,8 +223,18 @@ namespace ks::ui
         return QIcon(new ThemeAccentIconEngine(sourceIcon, fixedAccent));
     }
 
-    // MakeThemeButtonAccentIcon：每个按钮创建自己的引擎，Qt 分离副本仍跟随同一弱上下文。
-    // 不进入全局着色缓存；按钮销毁后安全回退通用主题语义，不解引用已释放的控件。
+    // 普通 Tab 使用独立的中性底色策略，强调色快照和源图随图标副本保留。
+    QIcon MakeThemeTabAccentIcon(const QIcon& sourceIcon, const QColor& fixedAccent)
+    {
+        if (sourceIcon.isNull())
+        {
+            return sourceIcon;
+        }
+        return QIcon(new ThemeAccentIconEngine(sourceIcon, fixedAccent, nullptr, true));
+    }
+
+    // 每个按钮创建自己的引擎，Qt 分离副本仍跟随同一弱上下文。
+    // 不进入全局着色缓存；按钮销毁后安全回退通用主题语义。
     QIcon MakeThemeButtonAccentIcon(const QIcon& sourceIcon,
         const QColor& fixedAccent, QAbstractButton* button)
     {
