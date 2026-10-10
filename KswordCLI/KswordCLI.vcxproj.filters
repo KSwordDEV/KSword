@@ -230,4 +230,9 @@
     <ClInclude Include="..\shared\usermode\backend\process\ModuleActions.h" />
     <ClInclude Include="..\shared\usermode\backend\process\ModuleActionSupport.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3ProcessToken.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\process\ProcessToken.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\process\ProcessToken.h" />
+  </ItemGroup>
 </Project>

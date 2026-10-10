@@ -209,3 +209,45 @@ CLI 不强行杀死等待中的远程线程；卸载仍被目标代码使用的�
 输出 module 与 threadAction，后者包含身份、requestSucceeded、verified、previousSuspendCount 和 observed。
 suspend／resume 一次只增减一次计数；模块后端 terminate 的退出码为 0（线程命令族 terminate 为 1），均在原句柄上回读验证。
 身份或关联不匹配返回 3，请求成功而效果未确认返回 6。GUI 导航、复制和跳转等辅助操作不作为命令发布。
+
+## 令牌（迁移项 26）
+
+```powershell
+KswordCLI.exe process token classes list [--backend r3] [--json]
+KswordCLI.exe process token query --pid PID [--creation-time FILETIME] [--classes NAME[,NAME...]|all] [--limit N] [--max-bytes N] [--backend r3] [--json]
+KswordCLI.exe process token raw query --pid PID --class NAME|NUMBER [--creation-time FILETIME] [--max-bytes N] [--backend r3] [--json]
+KswordCLI.exe process token raw set --pid PID --class NAME|NUMBER [--creation-time FILETIME] (--hex HEX|--data-file PATH) --confirm [--backend r3] [--json]
+KswordCLI.exe process token privilege enable --pid PID --name PRIVILEGE [--creation-time FILETIME] --confirm [--backend r3] [--json]
+KswordCLI.exe process token privilege disable --pid PID --name PRIVILEGE [--creation-time FILETIME] --confirm [--backend r3] [--json]
+```
+
+按 `help process token`、`help process token raw` 或 `help process token privilege` 逐层查找操作，再查询叶子参数。
+默认 R3，保留进程身份句柄；读取通过共享 R3 后端取得目标令牌，不使用 Light 的 R0 fallback。
+classes list 展示后端的 1..80 信息类名称；名称用于指定原生信息类，不代表系统保证支持或允许设置该类。
+query 默认读取 TokenUser、TokenGroups、TokenPrivileges、TokenElevationType、TokenElevation、TokenIntegrityLevel、TokenSessionId。
+classes 可传名称／编号列表，拒绝重复、空项和未知名称；all 查询后端的全部 80 类，在较旧系统上通常得到部分结果。
+
+输出 target、source、requestedCount、availableCount、classes。每类含 informationClass、name、available、win32Error、malformed、byteSize、truncated、value。
+用户／完整性有 SID 与可解析的账户名，组有 SID 与原始 attributes，权限有名称、LUID、attributes、enabled 和名称解析错误；
+提升／虚拟化／UIAccess 为布尔，session 和 elevation type 为原生数值。未解码的信息类及 raw query 输出十六进制字节。
+无证据为 null，原始错误独立保留；不能把后端“刷新完成”当作所有信息类成功。
+limit 默认 128，范围 1..65535，限制组与权限表；max-bytes 默认 512，范围 1..1048576，限制原始字节展示。
+截断或部分信息类不可用返回 6；全无证据时，平台不支持返回 5，实际查询失败返回 3。返回长度或 SID／数组边界无效返回 4。
+原始缓冲区中的指针、句柄仅描述这次采集，不可直接用于之后的设置；关联令牌返回的拥有句柄在记录数值后关闭，遵循
+[TOKEN_LINKED_TOKEN 所有权](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-token_linked_token)，不因遍历或重复查询泄漏。
+
+privilege enable／disable 调整已存在的目标权限，不能增加令牌没有的权限；AdjustTokenPrivileges 返回 TRUE 且错误为 1300（NOT_ALL_ASSIGNED）仍为失败。
+输出请求方向、requestSucceeded、verified、身份、原始错误及 beforeAttributes／afterAttributes；原生属性回读匹配才成功。
+若需要调整当前 CLI 权限后在同一进程执行命令，应使用 `privilege run`；本组调整的是指定目标进程令牌。
+
+raw set 接收 1..16 MiB payload，调用已有 NtSetInformationToken，保留精确 NTSTATUS；只把 0 状态认作请求成功。
+需令牌 QUERY／ADJUST_DEFAULT／ADJUST_SESSIONID 权限以及该类要求的特权；只读信息类或平台不支持返回 5 或 3，依据原生状态区分。
+输出 payloadSize、requestSucceeded、verified、readbackKnown、readbackComparable、ntStatus、win32Error。
+requestedHex／readbackHex 展示最多 512 字节的请求与回读，另有 readbackSize、双侧 truncated 标志和 readbackWin32Error。
+仅 session、sandbox、virtualization、UIAccess、mandatory-policy 等稳定标量类能进行字节等值回读；含指针的类不会因原始缓冲区地址不同而伪造匹配。
+请求成功但回读不可用、不匹配或无法比较时返回 6；读取、身份或实际设置失败返回 3。
+例如 `--class TokenMandatoryPolicy --hex 01000000` 设置四字节小端标量；原始设置不替用户推断结构布局或把读取快照中的地址重定位。
+UIAccess 等标量设置可能需要调用方 SeTcbPrivilege；普通管理员未持有该权限时会被拒绝。
+MandatoryPolicy 修改也可能因令牌已在使用（STATUS_TOKEN_ALREADY_IN_USE）拒绝，并非具有权限后即可修改所有运行中令牌字段。
+在已经持有该权限的 CLI 上下文中，可用 `privilege run --enable SeTcbPrivilege -- process token raw set ...` 保证启用与设置在同一进程中；
+作用域执行不会授予当前令牌原本没有的权限。

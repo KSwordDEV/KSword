@@ -47,3 +47,9 @@
 - 对 incomplete 结果自动进行一次只读 QUERY_DRIVER_OBJECT，输出 yes/no/unknown 与查询状态。存在按 BASIC_PRESENT 和非零对象地址确认，缺失仅按明确名称/路径不存在；失效长度/版本/传输或引用错误为 unknown。对象缺失不能替代模块消失证据，也不把 incomplete 升为成功。
 - 用户 Beep 新回执 direct 在预检阶段拒绝，evidence=device-reference,preflight-denied；用户报告默认路径到达 zw-verify。此为保护条件拒绝，不能归为卸载通路缺陷，不绕过引用保护。
 - 本次只修改 CLI 结果解释、help、文档与共享记忆；CLI Release/x64 完整构建通过，无运行实测。GUI/Light 及生产驱动代码、共享客户端/协议未变化，沿用上次通过的构建与兼容性证据。
+
+## 2026-10-10 R3 接入与 VMware 运行库
+
+- R3 CLI 自动来宾测试必须同时复制统一 Release 中的 `MSVCP140.dll`、`VCRUNTIME140.dll`、`VCRUNTIME140_1.dll`，并核对 EXE 和 DLL 哈希；`tools/test_ksword_cli_r3_vm.py` 已落实。旧 Win10 来宾系统库 14.28.29913 与 HostX64 14.44.35211 构建的 `std::mutex` 不匹配，曾发生 C0000005；本地 dump 的栈和已加载模块确认来源，应用目录使用匹配运行库后消失，不应通过改写锁实现掩盖部署错误。
+- 测试脚本与可复现夹具随功能提交；运行报告、dump、编译日志与临时生成的夹具产物放在仓库之外。生产构建不可并行写同一 CLI 工程；曾因重叠构建出现 C1041，正确恢复是串行构建，不是加 `/FS` 隐藏调度问题。
+- 令牌后端原始报告可包含查询失败后仍显示“刷新完成”的情况；CLI 使用逐信息类结构化状态。`TokenLinkedToken` 查询返回的句柄由调用方拥有，记录数值后必须关闭；不能把其原始数值当作后续有效操作句柄。

@@ -21,5 +21,7 @@ struct ProcessDetailActionResult {
         bool unsupported = false;
         bool waitKnown = false, exitCodeKnown = false;
         DWORD waitResult = WAIT_FAILED, exitCode = 0;
+        bool ntStatusKnown = false;
+        LONG ntStatus = 0;
     };
 }

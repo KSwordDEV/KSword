@@ -93,4 +93,5 @@ void registerProcessControls();
 void registerProcessBasic();
 void registerProcessThreads();
 void registerProcessModules();
+void registerProcessToken();
 }

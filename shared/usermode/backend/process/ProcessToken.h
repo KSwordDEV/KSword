@@ -39,7 +39,21 @@ constexpr std::array<const wchar_t*, 51> kTokenClassNames{
 };
 std::wstring TokenClassName(int informationClass);
 std::wstring SidText(PSID sid);
-bool QueryTokenBytes(HANDLE token, int informationClass, std::vector<std::byte>& bytes, DWORD& error);
+bool QueryTokenBytes(HANDLE token, int informationClass, std::vector<std::byte>& bytes, DWORD& error,bool* malformed = nullptr);
+struct TokenClassSnapshot {
+    int informationClass = 0;
+    bool available = false;
+    bool malformed = false;
+    DWORD win32Error = ERROR_SUCCESS;
+    std::vector<std::byte> bytes;
+};
+struct TokenQuerySnapshot {
+    bool tokenOpened = false, identityMatched = false;
+    bool win32ErrorKnown = false;
+    DWORD win32Error = ERROR_SUCCESS;
+    std::vector<TokenClassSnapshot> classes;
+};
+TokenQuerySnapshot QueryTokenClasses(DWORD processId,ULONGLONG expectedCreationTime,const std::vector<int>& classes);
 std::wstring RawPreview(const std::vector<std::byte>& bytes);
 bool VerifyProcessIdentity(
     HANDLE process,
