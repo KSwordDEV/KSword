@@ -1493,6 +1493,7 @@ namespace
             ks::cli::registerFileOperations();
             ks::cli::registerFileOwnership();
             ks::cli::registerFileAnalysis();
+            ks::cli::registerFilePe();
             #endif
             return true;
         }();

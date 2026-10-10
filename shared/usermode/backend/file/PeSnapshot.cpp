@@ -38,17 +38,25 @@ std::wstring Utf8ToWide(const std::string& text) {
     return fallback;
 }
 std::wstring HexPreview(const std::wstring& path, DWORD maxBytes) {
+    return ReadHexPreview(path, maxBytes).text;
+}
+HexPreviewResult ReadHexPreview(const std::wstring& path, DWORD maxBytes) {
+    HexPreviewResult result;
     HANDLE file = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
-        return {};
+        result.errorCode = ::GetLastError();
+        return result;
     }
+    LARGE_INTEGER size{};
+    if (::GetFileSizeEx(file, &size) && size.QuadPart >= 0) { result.sizeKnown = true; result.size = static_cast<std::uint64_t>(size.QuadPart); }
     std::vector<BYTE> buffer(maxBytes);
     DWORD read = 0;
     const BOOL ok = ::ReadFile(file, buffer.data(), maxBytes, &read, nullptr);
+    result.errorCode = ok ? ERROR_SUCCESS : ::GetLastError();
     ::CloseHandle(file);
     if (!ok) {
-        return {};
+        return result;
     }
     std::wostringstream dump;
     dump << std::uppercase << std::hex << std::setfill(L'0');
@@ -68,9 +76,15 @@ std::wstring HexPreview(const std::wstring& path, DWORD maxBytes) {
         }
         dump << L"\r\n";
     }
-    return dump.str();
+    buffer.resize(read); result.bytes = std::move(buffer); result.text = dump.str(); result.success = true;
+    result.limited = result.sizeKnown ? result.size > read : read == maxBytes;
+    return result;
 }
 std::wstring BuildPeHeaderSummary(const std::wstring& path) {
+    return ReadPeHeader(path).text;
+}
+PeHeaderResult ReadPeHeader(const std::wstring& path) {
+    PeHeaderResult result;
     HANDLE file = ::CreateFileW(
         path.c_str(),
         GENERIC_READ,
@@ -80,37 +94,52 @@ std::wstring BuildPeHeaderSummary(const std::wstring& path) {
         FILE_ATTRIBUTE_NORMAL,
         nullptr);
     if (file == INVALID_HANDLE_VALUE) {
-        return L"打开文件失败，错误 " + std::to_wstring(::GetLastError());
+        result.errorCode = ::GetLastError();
+        result.text = L"打开文件失败，错误 " + std::to_wstring(result.errorCode);
+        return result;
     }
 
     IMAGE_DOS_HEADER dos{};
     DWORD read = 0;
-    if (!::ReadFile(file, &dos, sizeof(dos), &read, nullptr) ||
+    const BOOL dosRead = ::ReadFile(file, &dos, sizeof(dos), &read, nullptr);
+    if (!dosRead ||
         read != sizeof(dos) || dos.e_magic != IMAGE_DOS_SIGNATURE) {
+        result.errorCode = !dosRead ? ::GetLastError() : ERROR_BAD_EXE_FORMAT;
         ::CloseHandle(file);
-        return L"不是有效的 PE 文件：DOS 头无效。";
+        result.text = L"不是有效的 PE 文件：DOS 头无效。";
+        return result;
     }
     if (::SetFilePointer(file, dos.e_lfanew, nullptr, FILE_BEGIN) == INVALID_SET_FILE_POINTER &&
         ::GetLastError() != ERROR_SUCCESS) {
+        result.errorCode = ::GetLastError();
         ::CloseHandle(file);
-        return L"定位 NT 头失败，错误 " + std::to_wstring(::GetLastError());
+        result.text = L"定位 NT 头失败，错误 " + std::to_wstring(result.errorCode);
+        return result;
     }
 
     DWORD signature = 0;
     IMAGE_FILE_HEADER fileHeader{};
+    ::SetLastError(ERROR_SUCCESS);
     if (!::ReadFile(file, &signature, sizeof(signature), &read, nullptr) ||
         read != sizeof(signature) || signature != IMAGE_NT_SIGNATURE ||
         !::ReadFile(file, &fileHeader, sizeof(fileHeader), &read, nullptr) ||
         read != sizeof(fileHeader)) {
+        result.errorCode = ::GetLastError();
+        if (!result.errorCode) result.errorCode = ERROR_BAD_EXE_FORMAT;
         ::CloseHandle(file);
-        return L"不是有效的 PE 文件：NT 头无效。";
+        result.text = L"不是有效的 PE 文件：NT 头无效。";
+        return result;
     }
 
     WORD optionalMagic = 0;
+    ::SetLastError(ERROR_SUCCESS);
     if (!::ReadFile(file, &optionalMagic, sizeof(optionalMagic), &read, nullptr) ||
         read != sizeof(optionalMagic)) {
+        result.errorCode = ::GetLastError();
+        if (!result.errorCode) result.errorCode = ERROR_BAD_EXE_FORMAT;
         ::CloseHandle(file);
-        return L"读取 OptionalHeader 失败。";
+        result.text = L"读取 OptionalHeader 失败。";
+        return result;
     }
     ::CloseHandle(file);
 
@@ -124,7 +153,9 @@ std::wstring BuildPeHeaderSummary(const std::wstring& path) {
          << (optionalMagic == IMAGE_NT_OPTIONAL_HDR64_MAGIC ? L" (PE32+)" :
              optionalMagic == IMAGE_NT_OPTIONAL_HDR32_MAGIC ? L" (PE32)" : L"") << L"\r\n\r\n"
          << L"KswordARKLight 仅显示轻量 PE 摘要；完整属性页已按要求移除。";
-    return text.str();
+    result.success = true; result.machine = fileHeader.Machine; result.sections = fileHeader.NumberOfSections;
+    result.timestamp = fileHeader.TimeDateStamp; result.characteristics = fileHeader.Characteristics; result.optionalMagic = optionalMagic;
+    result.text = text.str(); return result;
 }
 bool IsLiteralDosOrUncFilePath(const std::wstring& path) {
     const auto isAsciiLetter = [](const wchar_t value) {
@@ -155,7 +186,11 @@ bool ReadLitePeSnapshot(
     const std::wstring& path,
     std::vector<std::uint8_t>& bytesOut,
     std::uint64_t& sizeOut,
-    std::wstring& errorOut) {
+    std::wstring& errorOut,
+    PeReadEvidence* evidence) {
+    PeReadEvidence local;
+    if (!evidence) evidence = &local;
+    *evidence = {};
     bytesOut.clear();
     sizeOut = 0;
     errorOut.clear();
@@ -169,18 +204,22 @@ bool ReadLitePeSnapshot(
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
         nullptr);
     if (file == INVALID_HANDLE_VALUE) {
-        errorOut = L"打开文件失败，错误 " + std::to_wstring(::GetLastError()) + L"。";
+        evidence->errorCode = ::GetLastError();
+        errorOut = L"打开文件失败，错误 " + std::to_wstring(evidence->errorCode) + L"。";
         return false;
     }
 
     LARGE_INTEGER fileSize{};
     if (::GetFileSizeEx(file, &fileSize) == FALSE || fileSize.QuadPart < 0) {
         const DWORD error = ::GetLastError();
+        evidence->errorCode = error;
         ::CloseHandle(file);
         errorOut = L"获取文件大小失败，错误 " + std::to_wstring(error) + L"。";
         return false;
     }
-    if (static_cast<std::uint64_t>(fileSize.QuadPart) > kLitePeStaticMaxFileBytes) {
+    evidence->size = static_cast<std::uint64_t>(fileSize.QuadPart);
+    if (evidence->size > kLitePeStaticMaxFileBytes) {
+        evidence->limitExceeded = true;
         ::CloseHandle(file);
         errorOut = L"文件大小为 " + std::to_wstring(fileSize.QuadPart) +
             L" bytes，超过 Lite PE 静态摘要的 16 MiB 上限。";
@@ -192,6 +231,7 @@ bool ReadLitePeSnapshot(
     } catch (const std::bad_alloc&) {
         ::CloseHandle(file);
         bytesOut.clear();
+        evidence->errorCode = ERROR_NOT_ENOUGH_MEMORY;
         errorOut = L"无法为受限 PE 快照分配内存。";
         return false;
     }
@@ -203,18 +243,21 @@ bool ReadLitePeSnapshot(
         DWORD read = 0;
         if (::ReadFile(file, bytesOut.data() + totalRead, requestSize, &read, nullptr) == FALSE) {
             const DWORD error = ::GetLastError();
+            evidence->errorCode = error;
             ::CloseHandle(file);
             bytesOut.clear();
             errorOut = L"读取文件失败，错误 " + std::to_wstring(error) + L"。";
             return false;
         }
         if (read == 0) {
+            evidence->errorCode = ERROR_HANDLE_EOF;
             ::CloseHandle(file);
             bytesOut.clear();
             errorOut = L"文件在读取期间提前结束或发生变化。";
             return false;
         }
         totalRead += read;
+        evidence->bytesRead = totalRead;
     }
 
     ::CloseHandle(file);
@@ -238,9 +281,10 @@ PeStaticSummaryResult BuildPeHeaderFallback(const std::wstring& path, const std:
     PeStaticSummaryResult result;
     result.success = true;
     result.partial = true;
+    result.header = ReadPeHeader(path);
     result.text = L"PE 静态摘要（Partial）\r\n\r\n"
         L"深度解析未完成：" + SingleLinePreview(reason, kLitePeStaticMaxDisplayChars) +
-        L"\r\n\r\n已保留兼容的轻量 PE 头部摘要：\r\n\r\n" + BuildPeHeaderSummary(path);
+        L"\r\n\r\n已保留兼容的轻量 PE 头部摘要：\r\n\r\n" + result.header.text;
     return result;
 }
 std::wstring PeMachineText(const std::uint16_t machine) {
@@ -270,24 +314,28 @@ std::wstring PeSubsystemText(const std::uint16_t subsystem) {
 PeStaticSummaryResult BuildPeStaticSummary(const std::wstring& path) {
     PeStaticSummaryResult result;
     if (!IsLiteralDosOrUncFilePath(path)) {
-        return BuildPeHeaderFallback(
-            path,
-            L"深度解析仅支持普通 DOS 盘符或 UNC 路径；当前路径继续使用原有轻量读取器。");
+        auto fallback = BuildPeHeaderFallback(path, L"深度解析仅支持普通 DOS 盘符或 UNC 路径；当前路径继续使用原有轻量读取器。");
+        fallback.fallbackReason = PeFallbackReason::UnsupportedPath; return fallback;
     }
 
     std::vector<std::uint8_t> fileBytes;
     std::uint64_t fileSize = 0;
     std::wstring readError;
-    if (!ReadLitePeSnapshot(path, fileBytes, fileSize, readError)) {
-        return BuildPeHeaderFallback(path, readError);
+    PeReadEvidence read;
+    if (!ReadLitePeSnapshot(path, fileBytes, fileSize, readError, &read)) {
+        auto fallback = BuildPeHeaderFallback(path, readError);
+        fallback.read = read; fallback.fallbackReason = read.limitExceeded ? PeFallbackReason::SizeLimit : PeFallbackReason::ReadFailure;
+        return fallback;
     }
 
-    const ks::file::PeAnalysisResult analysis = ks::file::AnalyzePeBytes(fileBytes);
+    ks::file::PeAnalysisResult analysis = ks::file::AnalyzePeBytes(fileBytes);
     if (!analysis.success) {
         const std::wstring diagnostic = analysis.errorText.empty()
             ? L"共享 PE 解析器未返回可用结果。"
             : SingleLinePreview(analysis.errorText, kLitePeStaticMaxDisplayChars);
-        return BuildPeHeaderFallback(path, L"深度解析失败：" + diagnostic);
+        auto fallback = BuildPeHeaderFallback(path, L"深度解析失败：" + diagnostic);
+        fallback.read = read; fallback.fallbackReason = PeFallbackReason::InvalidPe; fallback.analysis = std::move(analysis);
+        return fallback;
     }
 
     std::wostringstream text;
@@ -353,6 +401,11 @@ PeStaticSummaryResult BuildPeStaticSummary(const std::wstring& path) {
     }
 
     result.success = true;
+    result.deepAvailable = true;
+    result.read = read;
+    result.sectionsTruncated = analysis.sections.size() > sectionDisplayCount;
+    result.importsTruncated = analysis.importModules.size() > importDisplayCount;
+    result.analysis = std::move(analysis);
     result.partial = partial;
     result.text = text.str();
     return result;

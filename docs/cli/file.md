@@ -94,3 +94,28 @@ trustStatus、description、revocationChecked=false、networkRetrieval=false。
 “查询成功”与“签名可信”分别表达：明确的无签名、过期、摘要不匹配、根不可信、链不完整或拒绝信任
 可以作为查询结果返回 0，但 trusted=false；策略／主体格式不可用返回 5，其他验证调用错误返回 3。
 原始 trustStatus 始终保留。此命令不提供在线吊销检查或单独的目录签名枚举。
+
+## 十六进制与 PE（迁移项 18）
+
+```powershell
+KswordCLI.exe file hex query --path PATH [--max-bytes N] [--backend r3] [--json]
+KswordCLI.exe file pe query --path PATH [--backend r3] [--json]
+KswordCLI.exe file pe header query --path PATH [--backend r3] [--json]
+```
+
+hex 默认读取前 256 字节，max-bytes 范围 1..1048576；输出 dataHex、preview、returnedBytes、sizeBytes、limited、win32Error。
+preview 保留后端每行 16 字节的偏移／十六进制／ASCII 展示，JSON 中作为字符串。有效空文件返回 0，
+有剩余未读内容的受限预览返回 6，读取失败返回 3。
+
+pe query 复用 16 MiB 上限的后端磁盘快照和共享 PE 解析器，展示最多 32 个区段及 64 个导入模块。
+输出 deepAvailable、fallbackReason、snapshotSize、bytesRead、machine／machineName、subsystem／subsystemName、
+format、imageBase、entryPointRva、entryPointFileOffset、sectionCount、importModuleCount、sections、imports、notes。
+地址／RVA／文件偏移与标志为十六进制字符串；大小为十进制字符串。区段保留原名、布局、属性和熵；
+导入模块保留名称、描述符、thunk RVA、已解析条目数和独立诊断，不额外发布完整函数／导出表。
+显示截断通过 sectionsTruncated／importsTruncated 明确说明，截断或导入解析不完整返回 6。
+
+fallbackReason 区分 none／unsupported-path／read-failure／size-limit／invalid-pe，不解析 UI 文本判断状态。
+超过大小上限而还能取得轻量 header 时返回 6，仅剩路径限制且没有证据时返回 5；读取失败返回 3，
+非 PE 或无效深度布局返回 4。Light 为展示而生成的 fallback 文本不能替代有效结构化证据。
+header query 只读取 DOS／NT／COFF／OptionalHeader 魔数，包含 machine、sectionCount、timestamp、characteristics、optionalMagic、win32Error；
+适用于超过完整快照上限的文件，不验证所有数据目录与区段内容。pe query 的 header 字段仅用于回退证据。

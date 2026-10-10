@@ -84,4 +84,5 @@ void registerFileDirectory();
 void registerFileOperations();
 void registerFileOwnership();
 void registerFileAnalysis();
+void registerFilePe();
 }

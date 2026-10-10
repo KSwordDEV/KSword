@@ -642,7 +642,7 @@ StartupActionResult ChangeServiceStartType(const StartupEntry& entry, DWORD star
     }
     if (!::ChangeServiceConfigW(service.get(), SERVICE_NO_CHANGE, startType, SERVICE_NO_CHANGE,
             nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr)) {
-        const auto error=::GetLastError();return Failure(L"ChangeServiceConfigW failed: "+ks::r3::common::LastErrorMessage(error),error);
+        const auto changeError=::GetLastError();return Failure(L"ChangeServiceConfigW failed: "+ks::r3::common::LastErrorMessage(changeError),changeError);
     }
     StartupActionResult result{true,L"Service startup type changed."};result.serviceTypeKnown=true;result.expectedServiceStartType=startType;return result;
 }
@@ -759,7 +759,7 @@ StartupActionResult DeleteStartupEntry(const StartupEntry& entry) {
             return Failure(L"OpenServiceW failed: "+ks::r3::common::LastErrorMessage(error),error);
         }
         if (!::DeleteService(service.get())) {
-            const auto error=::GetLastError();return Failure(L"DeleteService failed: "+ks::r3::common::LastErrorMessage(error),error);
+            const auto deleteError=::GetLastError();return Failure(L"DeleteService failed: "+ks::r3::common::LastErrorMessage(deleteError),deleteError);
         }
         return { true, L"Service delete requested." };
     }

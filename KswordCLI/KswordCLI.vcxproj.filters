@@ -161,4 +161,11 @@
     <ClCompile Include="..\shared\usermode\backend\file\FileAnalysis.cpp" />
     <ClInclude Include="..\shared\usermode\backend\file\FileAnalysis.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="R3FilePe.cpp" />
+    <ClCompile Include="..\shared\usermode\backend\file\PeSnapshot.cpp" />
+    <ClCompile Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.cpp" />
+    <ClInclude Include="..\shared\usermode\backend\file\PeSnapshot.h" />
+    <ClInclude Include="..\Ksword5.1\Ksword5.1\ksword\file\pe_analyzer.h" />
+  </ItemGroup>
 </Project>
