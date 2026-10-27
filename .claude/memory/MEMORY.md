@@ -74,3 +74,4 @@
 - [进程注入痕迹检查](ksword-injection-trace-check.md) — InjectionSurvey 判据层分层与不变式、能力限制与覆盖缺口的分界、交叉视图矛盾分档、两项需按能力单独提权的采集
 
 - [Light R3 shared backend migration](ksword-r3-backend-migration.md) — 逐功能迁移至 shared、保留行为、HostX64 编译与测试后独立提交
+- [Serena 迁移的项目历史记忆](serena-imported-memory.md) — 迁移原文，包含旧工具引用，使用前核验。
