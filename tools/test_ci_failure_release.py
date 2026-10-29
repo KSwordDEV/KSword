@@ -1,13 +1,17 @@
 """Offline regression tests; all GitHub calls and release mutations are mocked."""
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 import zipfile
 
 import ci_failure_release as release
+from test_ci_driver_package import bash_path
 
 
 SHA = "a" * 40
@@ -270,12 +274,44 @@ class FailureReleaseTests(unittest.TestCase):
         self.assertIn("publish_status=${PIPESTATUS[0]}", publication)
         self.assertIn("--publication-error-log", publication)
         self.assertIn('exit "$publish_status"', publication)
+        self.assertIn('if [[ -f "$RUNNER_TEMP/ksword-ci-build-failure" ]]', publication)
         self.assertNotIn("continue-on-error:", workflow)
         self.assertIn("!cancelled() && needs.changes.outputs.usermode == 'true'", workflow)
         self.assertIn("!cancelled() && needs.changes.outputs.x96dbg == 'true'", workflow)
         for job in ("usermode-release", "ksword-x96dbg"):
             header = workflow.split(f"  {job}:\n", 1)[1].split("    runs-on:", 1)[0]
             self.assertNotIn("needs.source-integrity.result == 'success'", header)
+
+    def test_publication_shell_keeps_build_failure_red_without_republishing(self):
+        root = Path(__file__).resolve().parent.parent
+        workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        section = workflow.split("      - name: Publish prerelease and retain the latest three\n", 1)[1]
+        production = textwrap.dedent(section.split("        run: |\n", 1)[1])
+        script = (root / ".github/workflows/scripts/publish-ci-prerelease.sh").read_text(encoding="utf-8")
+        failure_branch = script.split('if [[ "$ci_failed" ==', 1)[1].split("\nfi", 1)[0]
+        self.assertIn('"$RUNNER_TEMP/ksword-ci-build-failure"', failure_branch)
+        mock = r'''
+bash() {
+  case "$KSWORD_TEST_PUBLICATION" in
+    diagnostic) : > "$RUNNER_TEMP/ksword-ci-build-failure"; echo PUBLISHED_DIAGNOSTICS ;;
+    error) echo PUBLICATION_ERROR; return 1 ;;
+    normal) echo PUBLISHED_NORMAL ;;
+  esac
+}
+python3() { echo PUBLICATION_ERROR_FALLBACK; }
+'''
+        for kind, expected_status in (("diagnostic", 1), ("error", 1), ("normal", 0)):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                env = os.environ.copy()
+                env["RUNNER_TEMP"] = Path(directory).as_posix()
+                env["KSWORD_TEST_PUBLICATION"] = kind
+                result = subprocess.run([bash_path(), "--noprofile", "--norc", "-c", mock + production],
+                                        env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, expected_status, result.stdout + result.stderr)
+                if kind == "error":
+                    self.assertIn("PUBLICATION_ERROR_FALLBACK", result.stdout)
+                else:
+                    self.assertNotIn("PUBLICATION_ERROR_FALLBACK", result.stdout)
 
     def test_failure_does_not_skip_artifact_uploads(self):
         root = Path(__file__).resolve().parent.parent

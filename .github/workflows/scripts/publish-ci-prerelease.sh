@@ -163,6 +163,9 @@ fi
 ci_failed="$(python3 -c 'import json, os; print(any(job.get("result") not in ("success", "skipped") for job in json.loads(os.environ["CI_JOB_RESULTS"]).values()))')"
 if [[ "$ci_failed" == 'True' || "$driver_conclusion" != 'success' ]]; then
   python3 tools/ci_failure_release.py --driver-run-id "$driver_run_id"
+  # The workflow must fail even when the only failing build is in Driver CI.
+  # Mark a successfully published diagnostic separately from a publish error.
+  : > "$RUNNER_TEMP/ksword-ci-build-failure"
   exit 0
 fi
 

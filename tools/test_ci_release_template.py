@@ -3,6 +3,7 @@
 from pathlib import Path
 import os
 import subprocess
+import tempfile
 import unittest
 
 from test_ci_driver_package import bash_path
@@ -65,12 +66,15 @@ class ApiReadRetryTests(unittest.TestCase):
             "GITHUB_SHA": "a" * 40,
             "GITHUB_RUN_ID": "10",
             "GITHUB_REF_NAME": "main",
-            "RUNNER_TEMP": "/tmp",
         })
-        return subprocess.run(
-            [bash_path(), "--noprofile", "--norc", "-c", "set -euo pipefail\n" + MOCK_API + command],
-            env=environment, capture_output=True, text=True, timeout=30,
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            environment["RUNNER_TEMP"] = Path(directory).as_posix()
+            result = subprocess.run(
+                [bash_path(), "--noprofile", "--norc", "-c", "set -euo pipefail\n" + MOCK_API + command],
+                env=environment, capture_output=True, text=True, timeout=30,
+            )
+            result.failure_marker = (Path(directory) / "ksword-ci-build-failure").is_file()
+            return result
 
     def test_retries_502_and_discards_partial_paginated_responses(self):
         command = (
@@ -123,9 +127,11 @@ python3() {
                 if conclusion == "success" and not ci_failed:
                     self.assertIn("CONTINUE_PACKAGING", result.stdout)
                     self.assertNotIn("DIAGNOSTIC_RELEASE", result.stdout)
+                    self.assertFalse(result.failure_marker)
                 else:
                     self.assertIn("DIAGNOSTIC_RELEASE", result.stdout)
                     self.assertNotIn("CONTINUE_PACKAGING", result.stdout)
+                    self.assertTrue(result.failure_marker)
 
     def test_unavailable_driver_query_stops_before_packaging(self):
         prefix = SCRIPT.read_text(encoding="utf-8-sig").split("artifact_download_root=", 1)[0]

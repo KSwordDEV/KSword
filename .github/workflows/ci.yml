@@ -1169,6 +1169,7 @@ jobs:
         run: |
           # Preserve build failures while still publishing their diagnostics.
           # Packaging/API failures also get a diagnostic release when possible.
+          rm -f "$RUNNER_TEMP/ksword-ci-build-failure"
           set +e
           bash .github/workflows/scripts/publish-ci-prerelease.sh 2>&1 | tee "$RUNNER_TEMP/ci-release-publish.log"
           publish_status=${PIPESTATUS[0]}
@@ -1176,4 +1177,8 @@ jobs:
           if (( publish_status != 0 )); then
             python3 tools/ci_failure_release.py --publication-error-log "$RUNNER_TEMP/ci-release-publish.log"
             exit "$publish_status"
+          fi
+          if [[ -f "$RUNNER_TEMP/ksword-ci-build-failure" ]]; then
+            echo 'A build or check failed; the published release contains diagnostics.' >&2
+            exit 1
           fi
