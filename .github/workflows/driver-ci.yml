@@ -80,13 +80,14 @@ jobs:
             changed="$(git diff --name-only HEAD~1 HEAD)"
           fi
 
-          driver_re='^(KswordARKDriver/|shared/driver/|third_party/systeminformer_dyn/|\.github/workflows/driver-ci\.yml$)'
+          driver_re='^(KswordARKDriver/|shared/driver/|third_party/systeminformer_dyn/|tools/ci_build_with_warning_fallback\.py$|\.github/workflows/driver-ci\.yml$)'
 
           # 回归保护：项目直接编译/包含的 System Informer 动态配置输入必须触发驱动构建。
           for driver_input in \
             'third_party/systeminformer_dyn/kphdyn.c' \
             'third_party/systeminformer_dyn/kphdyn.h' \
-            'third_party/systeminformer_dyn/ksw_si_dynconfig.h'; do
+            'third_party/systeminformer_dyn/ksw_si_dynconfig.h' \
+            'tools/ci_build_with_warning_fallback.py'; do
             if ! printf '%s\n' "$driver_input" | grep -Eq "$driver_re"; then
               echo "$driver_input must trigger the driver build." >&2
               exit 1
@@ -111,6 +112,11 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v5
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
       - name: Verify WDK integration
         shell: pwsh
         run: |
@@ -123,6 +129,7 @@ jobs:
           Write-Host "Using WDK targets: $($wdkTargets.FullName)"
 
       - name: Build unsigned Release driver
+        id: driver_build
         shell: pwsh
         run: |
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -131,7 +138,7 @@ jobs:
           if (-not $msbuild -or -not (Test-Path $msbuild)) {
             throw 'Could not locate 64-bit MSBuild through vswhere.'
           }
-          & $msbuild 'KswordARKDriver/KswordARKDriver.vcxproj' `
+          python tools/ci_build_with_warning_fallback.py $msbuild 'KswordARKDriver/KswordARKDriver.vcxproj' `
             /t:Build `
             /p:Configuration=Release `
             /p:Platform=x64 `
@@ -147,6 +154,7 @@ jobs:
           }
 
       - name: Generate unified driver catalogs
+        if: ${{ !cancelled() && steps.driver_build.outcome != 'skipped' }}
         shell: pwsh
         run: |
           $inf2Cat = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' `
@@ -162,6 +170,7 @@ jobs:
             'Ksword5.1/x64/Release/KswordARKStorageController.cat' -Force
 
       - name: Verify driver artifacts
+        if: ${{ !cancelled() && steps.driver_build.outcome != 'skipped' }}
         shell: pwsh
         run: |
           $artifacts = @(
@@ -177,9 +186,10 @@ jobs:
           }
 
       - name: Upload driver artifacts
+        if: ${{ !cancelled() && steps.driver_build.outcome != 'skipped' }}
         uses: actions/upload-artifact@v6
         with:
-          name: KswordARKDriver-unsigned-Release
+          name: ${{ job.status == 'success' && 'KswordARKDriver-unsigned-Release' || 'KswordARKDriver-diagnostic-Release' }}
           path: |
             Ksword5.1/x64/Release/KswordARK.sys
             Ksword5.1/x64/Release/KswordARK.pdb

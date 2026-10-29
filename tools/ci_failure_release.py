@@ -21,6 +21,16 @@ COMPONENTS = {
     "KswordX96dbg-x64-Release": "TitanEngine and x96dbg Release build (x64)",
     "KswordARKDriver-unsigned-Release": "Driver Release build",
 }
+DIAGNOSTIC_COMPONENTS = {
+    "KswordUserMode-unsigned-Release": "KswordUserMode-diagnostic-Release",
+    "KswordSetup-unsigned-Release": "KswordSetup-diagnostic-Release",
+    "KswordARKLight-unsigned-Release": "KswordARKLight-diagnostic-Release",
+    "KswordCheatEnginePlugin-x64-Release": "KswordCheatEnginePlugin-x64-diagnostic-Release",
+    "KswordCheatEngineLauncher-Release": "KswordCheatEngineLauncher-diagnostic-Release",
+    "KswordX96dbg-x64-Release": "KswordX96dbg-x64-diagnostic-Release",
+    "KswordARKDriver-unsigned-Release": "KswordARKDriver-diagnostic-Release",
+}
+ALLOWED_COMPONENTS = set(COMPONENTS) | set(DIAGNOSTIC_COMPONENTS.values())
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 ERROR = re.compile(r"error\s+(?:C|LNK|MSB)\d+|fatal error|##\[error\]|Exception:|FAILED|Error:", re.I)
 
@@ -32,22 +42,28 @@ class Gh:
             raise RuntimeError(result.stderr.decode("utf-8", errors="replace").strip())
         return result.stdout
 
+    def api_read(self, *args: str) -> bytes:
+        # Only GET requests are retried; release creation/upload/deletion are
+        # separate calls and may already have mutated GitHub on an API error.
+        for attempt in range(3):
+            try:
+                return self.call("api", "--method", "GET", *args)
+            except (RuntimeError, subprocess.TimeoutExpired) as error:
+                if attempt == 2:
+                    raise
+                print(f"GitHub API read attempt {attempt + 1}/3 failed: {error}", flush=True)
+                time.sleep(5 * (attempt + 1))
+        raise AssertionError("unreachable")
+
     def json(self, endpoint: str):
-        return json.loads(self.call("api", endpoint))
+        return json.loads(self.api_read(endpoint))
 
     def pages(self, endpoint: str, key: str | None = None) -> list:
-        pages = json.loads(self.call("api", "--paginate", "--slurp", endpoint))
+        pages = json.loads(self.api_read("--paginate", "--slurp", endpoint))
         return [item for page in pages for item in (page[key] if key else page)]
 
     def download(self, endpoint: str) -> bytes:
-        for attempt in range(3):
-            try:
-                return self.call("api", "--allow-escape-sequences", endpoint)
-            except (RuntimeError, subprocess.TimeoutExpired):
-                if attempt == 2:
-                    raise
-                time.sleep(5 * (attempt + 1))
-        raise AssertionError("unreachable")
+        return self.api_read("--allow-escape-sequences", endpoint)
 
 
 def clean(text: str) -> str:
@@ -132,7 +148,7 @@ def publish(gh: Gh, repo: str, sha: str, run_id: str, attempt: str, root: Path,
             continue
         for artifact in artifacts:
             name = artifact["name"]
-            if name not in COMPONENTS or artifact.get("expired"):
+            if name not in ALLOWED_COMPONENTS or artifact.get("expired"):
                 continue
             source = artifact.get("workflow_run", {})
             if source.get("head_sha") != sha or str(source.get("id")) != current_run or source.get("head_branch") != "main":
@@ -179,11 +195,15 @@ def publish(gh: Gh, repo: str, sha: str, run_id: str, attempt: str, root: Path,
     if warnings:
         notes.extend(["", "## 诊断信息", ""] + [f"- {markdown(w)}" for w in warnings])
     available = {p["artifact"] for p in provenance}
-    notes.extend(["", "## 下载", "", "下列模块来自本次提交已上传且 ZIP 校验通过的产物；完整构建未通过。", ""])
+    notes.extend(["", "## 下载", "", "下列模块来自本次提交已上传且 ZIP 校验通过的产物；完整构建未通过。"
+                  "模块可能不完整、未通过测试，或来自严格编译失败后的诊断构建。", ""])
     for name in COMPONENTS:
         if name in available:
             notes.append(f"- [{name}.zip](https://github.com/{repo}/releases/download/{tag}/{name}.zip)")
-        else:
+        if DIAGNOSTIC_COMPONENTS[name] in available:
+            diagnostic_name = DIAGNOSTIC_COMPONENTS[name]
+            notes.append(f"- [{diagnostic_name}.zip](https://github.com/{repo}/releases/download/{tag}/{diagnostic_name}.zip)：该模块构建或检查失败，文件仅供诊断。")
+        if name not in available and DIAGNOSTIC_COMPONENTS[name] not in available:
             notes.append(f"- `{name}`：本次产物不可用 / 未构建。")
     diagnostic_name = f"KswordCI-Diagnostics-{short_sha}.zip"
     notes.extend([f"- [{diagnostic_name}](https://github.com/{repo}/releases/download/{tag}/{diagnostic_name})：构建状态、错误与完整失败日志。", ""])

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 import ci_failure_release as release
@@ -34,6 +35,7 @@ class FakeGh:
         self.corrupt_artifact = False
         self.artifact_sha = SHA
         self.artifact_run = 10
+        self.artifact_name = MODULE
         self.releases = []
 
     def json(self, endpoint):
@@ -64,7 +66,7 @@ class FakeGh:
         if key == "artifacts":
             if "/runs/20/" in endpoint:
                 return []
-            return [{"id": 300, "name": MODULE, "expired": False,
+            return [{"id": 300, "name": self.artifact_name, "expired": False,
                      "workflow_run": {"head_sha": self.artifact_sha, "id": self.artifact_run, "head_branch": "main"}},
                     {"id": 301, "name": "ioctl-audit", "expired": False},
                     {"id": 302, "name": "KswordSetup-unsigned-Release", "expired": True}]
@@ -97,7 +99,7 @@ class FailureReleaseTests(unittest.TestCase):
             url = self.publish(gh, root)
             self.assertIn("github.com", url)
             notes = (root / "CI_ERRORS.md").read_text(encoding="utf-8")
-            for expected in ("CI FAILED", "error C4996", "Compile C++", "skipped", MODULE, "未构建", "完整构建未通过"):
+            for expected in ("CI FAILED", "error C4996", "Compile C++", "skipped", MODULE, "未构建", "完整构建未通过", "模块可能不完整"):
                 self.assertIn(expected, notes)
             self.assertNotIn("\x1b", notes)
             self.assertNotIn("Publish automatic prerelease", notes)
@@ -121,6 +123,20 @@ class FailureReleaseTests(unittest.TestCase):
             notes = (root / "CI_ERRORS.md").read_text(encoding="utf-8")
             self.assertIn("Driver CI：completed / failure", notes)
             self.assertIn("Driver Release build 错误摘要", notes)
+
+    def test_failed_usermode_job_keeps_its_current_run_artifact(self):
+        gh = FakeGh()
+        gh.artifact_name = "KswordUserMode-diagnostic-Release"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.publish(gh, root)
+            notes = (root / "CI_ERRORS.md").read_text(encoding="utf-8")
+            self.assertIn("CI FAILED", notes)
+            self.assertIn("模块可能不完整", notes)
+            self.assertIn("该模块构建或检查失败", notes)
+            self.assertTrue((root / f"{gh.artifact_name}.zip").is_file())
+            create = next(c for c in gh.calls if c[:2] == ("release", "create"))
+            self.assertIn(str(root / f"{gh.artifact_name}.zip"), create)
 
     def test_driver_missing_and_timeout_do_not_block_diagnostic_release(self):
         for kind in ("missing", "timeout", "wrong-sha"):
@@ -225,6 +241,22 @@ class FailureReleaseTests(unittest.TestCase):
         self.assertLessEqual(len(excerpt), 6000)
         self.assertNotIn("```", excerpt)
 
+    def test_diagnostic_api_reads_retry_without_retrying_release_writes(self):
+        gh = release.Gh()
+        with patch.object(gh, "call", side_effect=[RuntimeError("HTTP 502"), b'{"status":"ok"}']) as call, \
+             patch.object(release.time, "sleep") as sleep:
+            self.assertEqual(gh.json("repos/test/repo"), {"status": "ok"})
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(call.call_args.args[:3], ("api", "--method", "GET"))
+        sleep.assert_called_once_with(5)
+
+        with patch("ci_failure_release.subprocess.run") as run:
+            run.return_value.returncode = 1
+            run.return_value.stderr = b"HTTP 403"
+            with self.assertRaises(RuntimeError):
+                gh.call("release", "create", "tag")
+            self.assertEqual(run.call_count, 1)
+
     def test_workflow_routes_failures_without_weakening_build_gates(self):
         root = Path(__file__).resolve().parent.parent
         workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -239,7 +271,50 @@ class FailureReleaseTests(unittest.TestCase):
         self.assertIn("--publication-error-log", publication)
         self.assertIn('exit "$publish_status"', publication)
         self.assertNotIn("continue-on-error:", workflow)
-        self.assertIn("needs.source-integrity.result == 'success'", workflow)
+        self.assertIn("!cancelled() && needs.changes.outputs.usermode == 'true'", workflow)
+        self.assertIn("!cancelled() && needs.changes.outputs.x96dbg == 'true'", workflow)
+        for job in ("usermode-release", "ksword-x96dbg"):
+            header = workflow.split(f"  {job}:\n", 1)[1].split("    runs-on:", 1)[0]
+            self.assertNotIn("needs.source-integrity.result == 'success'", header)
+
+    def test_failure_does_not_skip_artifact_uploads(self):
+        root = Path(__file__).resolve().parent.parent
+        workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        driver = (root / ".github/workflows/driver-ci.yml").read_text(encoding="utf-8")
+        for name, step_id in (
+            ("Upload user-mode artifacts", "usermode_build"),
+            ("Upload KswordSetup artifacts", "setup_build"),
+            ("Upload KswordARKLight artifacts", "arklight_build"),
+            ("Upload KswordCheatEnginePlugin artifacts", "ce_plugin_build"),
+            ("Upload KswordCheatEngineLauncher artifacts", "ce_launcher_build"),
+            ("Upload TitanEngine and x96dbg artifacts", "x96dbg_build"),
+        ):
+            with self.subTest(name=name):
+                block = workflow.split(f"      - name: {name}\n", 1)[1].split("      - name:", 1)[0]
+                self.assertIn(f"!cancelled() && steps.{step_id}.outcome != 'skipped'", block)
+                self.assertIn("actions/upload-artifact@", block)
+                self.assertIn("job.status == 'success'", block)
+                self.assertIn("diagnostic-Release", block)
+        driver_upload = driver.split("      - name: Upload driver artifacts\n", 1)[1]
+        self.assertIn("!cancelled() && steps.driver_build.outcome != 'skipped'", driver_upload)
+        self.assertIn("job.status == 'success'", driver_upload)
+        self.assertIn("KswordARKDriver-diagnostic-Release", driver_upload)
+
+        publication = (root / ".github/workflows/scripts/publish-ci-prerelease.sh").read_text(encoding="utf-8")
+        expected = publication.split("readonly -a expected_artifacts=(", 1)[1].split(")", 1)[0]
+        self.assertNotIn("diagnostic-Release", expected)
+
+    def test_usermode_checks_cannot_suppress_the_product_build(self):
+        workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        usermode = workflow.split("  usermode-release:", 1)[1].split("  ksword-setup:", 1)[0]
+        for name in ("Check native NTFS indexing on an isolated scratch volume",
+                     "Check shared UI defaults and first-paint behavior", "Build supported user-mode Release targets"):
+            with self.subTest(name=name):
+                block = usermode.split(f"      - name: {name}\n", 1)[1].split("      - name:", 1)[0]
+                self.assertIn("!cancelled() && steps.qt_install.outcome == 'success'", block)
+                self.assertIn("steps.qt_msbuild.outcome == 'success'", block)
+        self.assertIn("$buildFailures +=", usermode)
+        self.assertIn("if ($buildFailures.Count -gt 0)", usermode)
 
 
 if __name__ == "__main__":
