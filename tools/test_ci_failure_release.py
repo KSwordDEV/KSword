@@ -103,7 +103,7 @@ class FailureReleaseTests(unittest.TestCase):
             url = self.publish(gh, root)
             self.assertIn("github.com", url)
             notes = (root / "CI_ERRORS.md").read_text(encoding="utf-8")
-            for expected in ("CI FAILED", "error C4996", "Compile C++", "skipped", MODULE, "未构建", "完整构建未通过", "模块可能不完整"):
+            for expected in ("CI FAILED", "error C4996", "Compile C++", "skipped", MODULE, "未构建", "完整构建未通过", "已有产物照常保留和上传"):
                 self.assertIn(expected, notes)
             self.assertNotIn("\x1b", notes)
             self.assertNotIn("Publish automatic prerelease", notes)
@@ -130,14 +130,13 @@ class FailureReleaseTests(unittest.TestCase):
 
     def test_failed_usermode_job_keeps_its_current_run_artifact(self):
         gh = FakeGh()
-        gh.artifact_name = "KswordUserMode-diagnostic-Release"
+        gh.artifact_name = "KswordUserMode-unsigned-Release"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.publish(gh, root)
             notes = (root / "CI_ERRORS.md").read_text(encoding="utf-8")
             self.assertIn("CI FAILED", notes)
-            self.assertIn("模块可能不完整", notes)
-            self.assertIn("该模块构建或检查失败", notes)
+            self.assertIn("已有产物照常保留和上传", notes)
             self.assertTrue((root / f"{gh.artifact_name}.zip").is_file())
             create = next(c for c in gh.calls if c[:2] == ("release", "create"))
             self.assertIn(str(root / f"{gh.artifact_name}.zip"), create)
@@ -327,14 +326,14 @@ python3() { echo PUBLICATION_ERROR_FALLBACK; }
         ):
             with self.subTest(name=name):
                 block = workflow.split(f"      - name: {name}\n", 1)[1].split("      - name:", 1)[0]
-                self.assertIn(f"!cancelled() && steps.{step_id}.outcome != 'skipped'", block)
+                self.assertIn("if: ${{ !cancelled() }}", block)
                 self.assertIn("actions/upload-artifact@", block)
-                self.assertIn("job.status == 'success'", block)
-                self.assertIn("diagnostic-Release", block)
+                self.assertNotIn("job.status", block)
+                self.assertNotIn("diagnostic-Release", block)
         driver_upload = driver.split("      - name: Upload driver artifacts\n", 1)[1]
-        self.assertIn("!cancelled() && steps.driver_build.outcome != 'skipped'", driver_upload)
-        self.assertIn("job.status == 'success'", driver_upload)
-        self.assertIn("KswordARKDriver-diagnostic-Release", driver_upload)
+        self.assertIn("if: ${{ !cancelled() }}", driver_upload)
+        self.assertIn("name: KswordARKDriver-unsigned-Release", driver_upload)
+        self.assertNotIn("job.status", driver_upload)
 
         publication = (root / ".github/workflows/scripts/publish-ci-prerelease.sh").read_text(encoding="utf-8")
         expected = publication.split("readonly -a expected_artifacts=(", 1)[1].split(")", 1)[0]

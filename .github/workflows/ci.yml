@@ -274,7 +274,7 @@ jobs:
       - name: Test manual release template selection
         run: python tools/test_ci_release_template.py
 
-      - name: Test warning-only build recovery with MSVC
+      - name: Test non-blocking MSVC warning gate
         shell: pwsh
         run: |
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -282,8 +282,8 @@ jobs:
             Select-Object -First 1
           if (-not $vsPath) { throw 'Could not locate the x64 MSVC toolset.' }
           $vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
-          cmd /c "`"$vcvars`" >nul && python tools\test_ci_warning_fallback.py --require-msvc"
-          if ($LASTEXITCODE -ne 0) { throw 'Warning-only build recovery tests failed.' }
+          cmd /c "`"$vcvars`" >nul && python tools\test_ci_warning_gate.py --require-msvc"
+          if ($LASTEXITCODE -ne 0) { throw 'MSVC warning gate tests failed.' }
 
       # 这道门禁原先挂在主程序 vcxproj 的 BeforeTargets="ClCompile" 上，靠"每次
       # 编译 GUI 都会顺带跑一遍"来生效。2026-09-19 主程序对 hvm_ctl 的依赖整条
@@ -312,7 +312,7 @@ jobs:
           }
           $vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
           New-Item -ItemType Directory -Force artifacts | Out-Null
-          cmd /c "`"$vcvars`" >nul && cl /nologo /O2 /MT /W4 /WX tools\hvm_unit_tests\hvm_unit_tests.c /Fe:artifacts\hvm_unit_tests.exe /Fo:artifacts\ && artifacts\hvm_unit_tests.exe"
+          cmd /c "`"$vcvars`" >nul && python tools\ci_build_with_warning_gate.py cl /nologo /O2 /MT /W4 tools\hvm_unit_tests\hvm_unit_tests.c /Fe:artifacts\hvm_unit_tests.exe /Fo:artifacts\ && artifacts\hvm_unit_tests.exe"
           if ($LASTEXITCODE -ne 0) {
             throw 'HVM control-arithmetic unit tests failed.'
           }
@@ -526,13 +526,13 @@ jobs:
           )
           $buildFailures = @()
           foreach ($project in $projects) {
-            python tools/ci_build_with_warning_fallback.py $msbuild $project @properties
+            python tools/ci_build_with_warning_gate.py $msbuild $project @properties
             if ($LASTEXITCODE -ne 0) {
-              $buildFailures += "$project (strict result $LASTEXITCODE)"
+              $buildFailures += "$project (build/warning result $LASTEXITCODE)"
             }
           }
           if ($buildFailures.Count -gt 0) {
-            throw "MSBuild strict checks failed: $($buildFailures -join ', '). Diagnostic binaries may have been produced."
+            throw "Build or warning checks failed: $($buildFailures -join ', '). Generated binaries will still be uploaded."
           }
 
           # 文件系统结构解码的离线单元测试：只喂字节数组，不打开卷、不加载驱动。
@@ -589,10 +589,10 @@ jobs:
         run: python tools/verify_qads_runtime.py Ksword5.1/x64/Release
 
       - name: Upload user-mode artifacts
-        if: ${{ !cancelled() && steps.usermode_build.outcome != 'skipped' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ job.status == 'success' && needs.source-integrity.result == 'success' && 'KswordUserMode-unsigned-Release' || 'KswordUserMode-diagnostic-Release' }}
+          name: KswordUserMode-unsigned-Release
           path: |
             Ksword5.1/x64/Release/**
             !Ksword5.1/x64/Release/profiles/ark_dyndata_pack_v4.json.qz
@@ -684,10 +684,10 @@ jobs:
             '/m:1',
             '/v:minimal'
           )
-          $strictFailures = @()
-          python tools/ci_build_with_warning_fallback.py $msbuild 'Ksword5.1/Ksword5.1/Ksword5.1.vcxproj' @properties
+          $warningFailures = @()
+          python tools/ci_build_with_warning_gate.py $msbuild 'Ksword5.1/Ksword5.1/Ksword5.1.vcxproj' @properties
           if ($LASTEXITCODE -eq 2) {
-            $strictFailures += 'Ksword5.1 payload prerequisite'
+            $warningFailures += 'Ksword5.1 payload prerequisite'
           } elseif ($LASTEXITCODE -ne 0) {
             throw "MSBuild failed for Ksword5.1 payload prerequisite with exit code $LASTEXITCODE."
           }
@@ -710,7 +710,7 @@ jobs:
             }
           }
 
-          python tools/ci_build_with_warning_fallback.py $msbuild 'KswordSetup/KswordSetup.vcxproj' `
+          python tools/ci_build_with_warning_gate.py $msbuild 'KswordSetup/KswordSetup.vcxproj' `
             /t:Build `
             /p:Configuration=Release `
             /p:Platform=x64 `
@@ -722,7 +722,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "MSBuild failed for KswordSetup with exit code $LASTEXITCODE."
           }
-          if ($strictFailures.Count -gt 0) { throw "Strict builds failed for: $($strictFailures -join ', ')." }
+          if ($warningFailures.Count -gt 0) { throw "Build warning checks failed for: $($warningFailures -join ', ')." }
 
       - name: Verify KswordSetup artifacts
         if: ${{ !cancelled() && steps.setup_build.outcome != 'skipped' }}
@@ -738,10 +738,10 @@ jobs:
           }
 
       - name: Upload KswordSetup artifacts
-        if: ${{ !cancelled() && steps.setup_build.outcome != 'skipped' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ job.status == 'success' && 'KswordSetup-unsigned-Release' || 'KswordSetup-diagnostic-Release' }}
+          name: KswordSetup-unsigned-Release
           path: |
             Ksword5.1/x64/Release/KswordSetup.exe
             Ksword5.1/x64/Release/KswordSetup.pdb
@@ -772,9 +772,9 @@ jobs:
             throw 'Could not locate 64-bit MSBuild through vswhere.'
           }
 
-          $strictFailures = @()
+          $warningFailures = @()
           $solutionDir = (Resolve-Path 'Ksword5.1').Path + '\'
-          python tools/ci_build_with_warning_fallback.py $msbuild 'KswordARKDriver/KswordARKDriver.vcxproj' `
+          python tools/ci_build_with_warning_gate.py $msbuild 'KswordARKDriver/KswordARKDriver.vcxproj' `
             /t:Build `
             /p:Configuration=Release `
             /p:Platform=x64 `
@@ -787,12 +787,12 @@ jobs:
             /m:1 `
             /v:minimal
           if ($LASTEXITCODE -eq 2) {
-            $strictFailures += 'KswordARKDriver prerequisite'
+            $warningFailures += 'KswordARKDriver prerequisite'
           } elseif ($LASTEXITCODE -ne 0) {
             throw "MSBuild failed for KswordARKDriver prerequisite with exit code $LASTEXITCODE."
           }
 
-          python tools/ci_build_with_warning_fallback.py $msbuild 'KswordARKLight/KswordARKLight.vcxproj' `
+          python tools/ci_build_with_warning_gate.py $msbuild 'KswordARKLight/KswordARKLight.vcxproj' `
             /t:Build `
             /p:Configuration=Release `
             /p:Platform=x64 `
@@ -805,12 +805,12 @@ jobs:
             /m:1 `
             /v:minimal
           if ($LASTEXITCODE -eq 2) {
-            $strictFailures += 'KswordARKLight'
+            $warningFailures += 'KswordARKLight'
           } elseif ($LASTEXITCODE -ne 0) {
             throw "MSBuild failed for KswordARKLight with exit code $LASTEXITCODE."
           }
 
-          python tools/ci_build_with_warning_fallback.py $msbuild 'KswordARKLightTests/KswordARKLightTests.vcxproj' `
+          python tools/ci_build_with_warning_gate.py $msbuild 'KswordARKLightTests/KswordARKLightTests.vcxproj' `
             /t:Build `
             /p:Configuration=Release `
             /p:Platform=x64 `
@@ -820,7 +820,7 @@ jobs:
             /m:1 `
             /v:minimal
           if ($LASTEXITCODE -eq 2) {
-            $strictFailures += 'KswordARKLightTests'
+            $warningFailures += 'KswordARKLightTests'
           } elseif ($LASTEXITCODE -ne 0) {
             throw "MSBuild failed for KswordARKLightTests with exit code $LASTEXITCODE."
           }
@@ -834,7 +834,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "KswordARKLightTests failed or a listed suite was absent (exit code $LASTEXITCODE)."
           }
-          if ($strictFailures.Count -gt 0) { throw "Strict builds failed for: $($strictFailures -join ', ')." }
+          if ($warningFailures.Count -gt 0) { throw "Build warning checks failed for: $($warningFailures -join ', ')." }
 
       - name: Verify KswordARKLight artifacts
         if: ${{ !cancelled() && steps.arklight_build.outcome != 'skipped' }}
@@ -850,10 +850,10 @@ jobs:
           }
 
       - name: Upload KswordARKLight artifacts
-        if: ${{ !cancelled() && steps.arklight_build.outcome != 'skipped' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ job.status == 'success' && 'KswordARKLight-unsigned-Release' || 'KswordARKLight-diagnostic-Release' }}
+          name: KswordARKLight-unsigned-Release
           path: |
             Ksword5.1/x64/Release/KswordARKLight.exe
             KswordARKLight/generated/KswordARK.sys
@@ -887,7 +887,7 @@ jobs:
           if (-not $msbuild -or -not (Test-Path $msbuild)) {
             throw 'Could not locate 64-bit MSBuild through vswhere.'
           }
-          python tools/ci_build_with_warning_fallback.py $msbuild 'CheatEnginePlugin/KswordCheatEnginePlugin.vcxproj' `
+          python tools/ci_build_with_warning_gate.py $msbuild 'CheatEnginePlugin/KswordCheatEnginePlugin.vcxproj' `
             /t:Build `
             /p:Configuration=Release `
             /p:Platform='${{ matrix.platform }}' `
@@ -914,10 +914,10 @@ jobs:
           }
 
       - name: Upload KswordCheatEnginePlugin artifacts
-        if: ${{ !cancelled() && steps.ce_plugin_build.outcome != 'skipped' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: KswordCheatEnginePlugin-${{ matrix.platform }}-${{ job.status == 'success' && 'Release' || 'diagnostic-Release' }}
+          name: KswordCheatEnginePlugin-${{ matrix.platform }}-Release
           path: |
             CheatEnginePlugin/${{ matrix.platform }}/Release/KswordCheatEnginePlugin.dll
             CheatEnginePlugin/${{ matrix.platform }}/Release/KswordCheatEnginePlugin.pdb
@@ -947,7 +947,7 @@ jobs:
           if (-not $msbuild -or -not (Test-Path $msbuild)) {
             throw 'Could not locate 64-bit MSBuild through vswhere.'
           }
-          python tools/ci_build_with_warning_fallback.py $msbuild 'CheatEngineExecutablePlugin/KswordCheatEngineLauncher.vcxproj' `
+          python tools/ci_build_with_warning_gate.py $msbuild 'CheatEngineExecutablePlugin/KswordCheatEngineLauncher.vcxproj' `
             /t:Build `
             /p:Configuration=Release `
             /p:Platform=x64 `
@@ -974,10 +974,10 @@ jobs:
           }
 
       - name: Upload KswordCheatEngineLauncher artifacts
-        if: ${{ !cancelled() && steps.ce_launcher_build.outcome != 'skipped' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ job.status == 'success' && 'KswordCheatEngineLauncher-Release' || 'KswordCheatEngineLauncher-diagnostic-Release' }}
+          name: KswordCheatEngineLauncher-Release
           path: |
             CheatEngineExecutablePlugin/x64/Release/KswordCheatEngineLauncher.exe
             CheatEngineExecutablePlugin/x64/Release/KswordCheatEngineLauncher.pdb
@@ -1040,10 +1040,10 @@ jobs:
             if ($toolProperties.PreferredToolArchitecture -ne 'x64' -or $toolProperties.VC_ExecutablePath_x64 -notmatch 'HostX64[\\/]x64' -or
                 $toolProperties.VC_ExecutablePath_x64 -match 'HostX86') { throw "Refusing non-HostX64 tools for $project." }
             Write-Output "BUILD_HOST_TOOLS $project=$($toolProperties.VC_ExecutablePath_x64)"
-            python tools/ci_build_with_warning_fallback.py $msbuild $project @properties
-            if ($LASTEXITCODE -ne 0) { $buildFailures += "$project (strict result $LASTEXITCODE)" }
+            python tools/ci_build_with_warning_gate.py $msbuild $project @properties
+            if ($LASTEXITCODE -ne 0) { $buildFailures += "$project (build/warning result $LASTEXITCODE)" }
           }
-          if ($buildFailures.Count -gt 0) { throw "MSBuild strict checks failed: $($buildFailures -join ', ')." }
+          if ($buildFailures.Count -gt 0) { throw "Build or warning checks failed: $($buildFailures -join ', ')." }
 
       - name: Build pinned native TitanEngine with HostX64
         shell: pwsh
@@ -1073,7 +1073,7 @@ jobs:
           if ($toolProperties.PreferredToolArchitecture -ne 'x64' -or $toolProperties.VC_ExecutablePath_x64 -notmatch 'HostX64[\\/]x64' -or
               $toolProperties.VC_ExecutablePath_x64 -match 'HostX86') { throw 'Refusing native TitanEngine non-HostX64 tools.' }
           Write-Output "BUILD_HOST_TOOLS $nativeProject=$($toolProperties.VC_ExecutablePath_x64)"
-          cmake --build '.deps/ci-titanengine/build-x64' --config Release --target TitanEngine -- `
+          python tools/ci_build_with_warning_gate.py cmake --build '.deps/ci-titanengine/build-x64' --config Release --target TitanEngine -- `
             /p:PreferredToolArchitecture=x64 /p:PROCESSOR_ARCHITECTURE=AMD64 /p:PROCESSOR_ARCHITEW6432=AMD64 /m:1
           if ($LASTEXITCODE -ne 0) { throw 'Native TitanEngine x64 build failed.' }
 
@@ -1121,10 +1121,10 @@ jobs:
       # Add a separate component artifact. The existing automatic prerelease
       # asset selection and aggregate Release layout remain compatible.
       - name: Upload TitanEngine and x96dbg artifacts
-        if: ${{ !cancelled() && steps.x96dbg_build.outcome != 'skipped' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ job.status == 'success' && needs.source-integrity.result == 'success' && 'KswordX96dbg-x64-Release' || 'KswordX96dbg-x64-diagnostic-Release' }}
+          name: KswordX96dbg-x64-Release
           path: |
             TitanEnginePlugin/x64/Release/TitanEngine.dll
             TitanEnginePlugin/x64/Release/TitanEngine.pdb

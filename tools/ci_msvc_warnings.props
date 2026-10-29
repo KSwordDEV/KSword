@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- CI records warnings after the build; compiler warnings must not suppress outputs. -->
+  <PropertyGroup>
+    <MSBuildTreatWarningsAsErrors>false</MSBuildTreatWarningsAsErrors>
+    <MSBuildWarningsAsErrors></MSBuildWarningsAsErrors>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <AdditionalOptions>$([System.Text.RegularExpressions.Regex]::Replace('%(ClCompile.AdditionalOptions)', '(?i)(?&lt;!\S)[/-]WX(?::\S+|-)?(?=\s|$)', ''))</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <TreatLinkerWarningAsErrors>false</TreatLinkerWarningAsErrors>
+      <AdditionalOptions>$([System.Text.RegularExpressions.Regex]::Replace('%(Link.AdditionalOptions)', '(?i)(?&lt;!\S)[/-]WX(?::\S+|-)?(?=\s|$)', ''))</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Update="@(ClCompile)">
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <AdditionalOptions>$([System.Text.RegularExpressions.Regex]::Replace('%(ClCompile.AdditionalOptions)', '(?i)(?&lt;!\S)[/-]WX(?::\S+|-)?(?=\s|$)', ''))</AdditionalOptions>
+    </ClCompile>
+  </ItemGroup>
+</Project>

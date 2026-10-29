@@ -20,6 +20,25 @@ def production_selector():
     return source[start:end]
 
 
+class ArtifactSourceVerdictTests(unittest.TestCase):
+    def test_failed_source_run_is_uploaded_but_cannot_be_reused_as_verified(self):
+        source = SCRIPT.read_text(encoding="utf-8-sig")
+        start = source.index("# BEGIN artifact source verdict:")
+        end = source.index("# END artifact source verdict.", start)
+        function = source[start:end]
+        for state, expected in (("completed\tsuccess", 0), ("completed\tfailure", 1),
+                                ("in_progress\tnone", 1), ("completed\tcancelled", 1)):
+            with self.subTest(state=state):
+                env = os.environ.copy()
+                env.update({"GITHUB_REPOSITORY": "test/repo", "KSWORD_TEST_SOURCE_STATE": state})
+                mock = 'gh_api_read_with_retry() { printf "%s" "$KSWORD_TEST_SOURCE_STATE"; }\n'
+                result = subprocess.run([bash_path(), "--noprofile", "--norc", "-c",
+                                         "set -euo pipefail\n" + mock + function
+                                         + "\nartifact_run_completed_successfully 123\n"],
+                                        env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+
+
 def production_retry():
     """Run the same retry helper that the publication script uses."""
     source = SCRIPT.read_text(encoding="utf-8-sig")

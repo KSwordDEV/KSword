@@ -80,14 +80,15 @@ jobs:
             changed="$(git diff --name-only HEAD~1 HEAD)"
           fi
 
-          driver_re='^(KswordARKDriver/|shared/driver/|third_party/systeminformer_dyn/|tools/ci_build_with_warning_fallback\.py$|\.github/workflows/driver-ci\.yml$)'
+          driver_re='^(KswordARKDriver/|shared/driver/|third_party/systeminformer_dyn/|tools/ci_build_with_warning_gate\.py$|tools/ci_msvc_warnings\.props$|\.github/workflows/driver-ci\.yml$)'
 
           # 回归保护：项目直接编译/包含的 System Informer 动态配置输入必须触发驱动构建。
           for driver_input in \
             'third_party/systeminformer_dyn/kphdyn.c' \
             'third_party/systeminformer_dyn/kphdyn.h' \
             'third_party/systeminformer_dyn/ksw_si_dynconfig.h' \
-            'tools/ci_build_with_warning_fallback.py'; do
+            'tools/ci_build_with_warning_gate.py' \
+            'tools/ci_msvc_warnings.props'; do
             if ! printf '%s\n' "$driver_input" | grep -Eq "$driver_re"; then
               echo "$driver_input must trigger the driver build." >&2
               exit 1
@@ -138,7 +139,7 @@ jobs:
           if (-not $msbuild -or -not (Test-Path $msbuild)) {
             throw 'Could not locate 64-bit MSBuild through vswhere.'
           }
-          python tools/ci_build_with_warning_fallback.py $msbuild 'KswordARKDriver/KswordARKDriver.vcxproj' `
+          python tools/ci_build_with_warning_gate.py $msbuild 'KswordARKDriver/KswordARKDriver.vcxproj' `
             /t:Build `
             /p:Configuration=Release `
             /p:Platform=x64 `
@@ -186,10 +187,10 @@ jobs:
           }
 
       - name: Upload driver artifacts
-        if: ${{ !cancelled() && steps.driver_build.outcome != 'skipped' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ job.status == 'success' && 'KswordARKDriver-unsigned-Release' || 'KswordARKDriver-diagnostic-Release' }}
+          name: KswordARKDriver-unsigned-Release
           path: |
             Ksword5.1/x64/Release/KswordARK.sys
             Ksword5.1/x64/Release/KswordARK.pdb

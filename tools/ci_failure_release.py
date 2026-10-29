@@ -196,7 +196,7 @@ def publish(gh: Gh, repo: str, sha: str, run_id: str, attempt: str, root: Path,
         notes.extend(["", "## 诊断信息", ""] + [f"- {markdown(w)}" for w in warnings])
     available = {p["artifact"] for p in provenance}
     notes.extend(["", "## 下载", "", "下列模块来自本次提交已上传且 ZIP 校验通过的产物；完整构建未通过。"
-                  "模块可能不完整、未通过测试，或来自严格编译失败后的诊断构建。", ""])
+                  "已有产物照常保留和上传；模块可能未通过测试或警告门禁。", ""])
     for name in COMPONENTS:
         if name in available:
             notes.append(f"- [{name}.zip](https://github.com/{repo}/releases/download/{tag}/{name}.zip)")

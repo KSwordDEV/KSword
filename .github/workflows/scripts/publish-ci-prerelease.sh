@@ -69,6 +69,17 @@ gh_api_read_with_retry() {
 }
 # END GitHub API read retry.
 
+# BEGIN artifact source verdict: offline regression executes this function.
+artifact_run_completed_successfully() {
+  local result
+  result="$(gh_api_read_with_retry "artifact source run $1" \
+    -H 'Accept: application/vnd.github+json' \
+    "/repos/$GITHUB_REPOSITORY/actions/runs/$1" \
+    --jq '[.status, (.conclusion // "none")] | @tsv')" || return 1
+  [[ "$result" == $'completed\tsuccess' ]]
+}
+# END artifact source verdict.
+
 # Download one binary body through gh api, with context on failure.
 #
 # Why this exists rather than `gh api ... > file` inline:
@@ -251,6 +262,12 @@ for artifact_name in "${expected_artifacts[@]}"; do
       }
 
       if [[ "$comparison_status" == 'identical' || "$comparison_status" == 'ahead' ]]; then
+        # Failed CI still uploads normal artifact names. Reuse only artifacts
+        # from a completed successful source run in a successful aggregate.
+        if ! artifact_run_completed_successfully "$candidate_run_id"; then
+          echo "Ignoring $artifact_name from unverified source run $candidate_run_id."
+          continue
+        fi
         artifact_id="$candidate_id"
         artifact_run_id="$candidate_run_id"
         artifact_sha="$candidate_sha"
