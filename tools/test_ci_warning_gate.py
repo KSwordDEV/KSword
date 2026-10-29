@@ -108,8 +108,12 @@ class WarningGateTests(unittest.TestCase):
                                   "Microsoft.Component.MSBuild", "-find", "MSBuild/**/Bin/amd64/MSBuild.exe"],
                                  capture_output=True, text=True, check=True)
         msbuild = located.stdout.splitlines()[0]
+        # MSBuild intentionally warns about output directories under %TEMP%.
+        # Keep this fixture under the checkout so a clean source is truly clean.
+        fixtures = HELPER.parent.parent / ".codex-build-logs/ci-warning-gate-fixtures"
+        fixtures.mkdir(parents=True, exist_ok=True)
         for has_warning in (False, True):
-            with self.subTest(has_warning=has_warning), tempfile.TemporaryDirectory() as directory:
+            with self.subTest(has_warning=has_warning), tempfile.TemporaryDirectory(dir=fixtures) as directory:
                 root = Path(directory)
                 (root / "main.cpp").write_text("int main() { " + ("int unused; " if has_warning else "")
                                                  + "return 0; }\n", encoding="utf-8")
@@ -121,7 +125,7 @@ class WarningGateTests(unittest.TestCase):
   <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset></PropertyGroup>
   <Import Project="$(VCTargetsPath)\\Microsoft.Cpp.props" />
   <PropertyGroup><OutDir>$(MSBuildProjectDirectory)\\out\\</OutDir><IntDir>$(MSBuildProjectDirectory)\\obj\\</IntDir><TargetName>Fixture</TargetName></PropertyGroup>
-  <ItemDefinitionGroup><ClCompile><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><AdditionalOptions>/WX %(AdditionalOptions)</AdditionalOptions></ClCompile><Link><SubSystem>Console</SubSystem><TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors></Link></ItemDefinitionGroup>
+  <ItemDefinitionGroup><ClCompile><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><AdditionalOptions>/WX %(AdditionalOptions)</AdditionalOptions></ClCompile><Link><SubSystem>Console</SubSystem><OutputFile>$(TargetPath)</OutputFile><TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors></Link></ItemDefinitionGroup>
   <ItemGroup><ClCompile Include="main.cpp"><TreatWarningAsError>true</TreatWarningAsError><AdditionalOptions>/WX %(AdditionalOptions)</AdditionalOptions></ClCompile></ItemGroup>
   <Import Project="$(VCTargetsPath)\\Microsoft.Cpp.targets" />
 </Project>''', encoding="utf-8")
