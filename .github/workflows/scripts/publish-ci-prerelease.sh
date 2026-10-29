@@ -23,6 +23,51 @@ readonly -a expected_artifacts=(
 )
 
 readonly download_attempt_limit=4
+readonly api_read_attempt_limit=4
+
+# BEGIN GitHub API read retry: offline regression tests execute this function.
+# Buffer each response so a failed paginated request cannot leak partial data
+# into a later successful attempt. Retry only idempotent reads, never releases.
+gh_api_read_with_retry() {
+  local description="$1"
+  shift
+  local attempt=1 status=1 output_file error_file
+
+  output_file="$(mktemp)" || {
+    echo "Unable to create a temporary response file for $description." >&2
+    return 1
+  }
+  error_file="$(mktemp)" || {
+    rm -f "$output_file"
+    echo "Unable to create a temporary error file for $description." >&2
+    return 1
+  }
+
+  while (( attempt <= api_read_attempt_limit )); do
+    if gh api --method GET "$@" > "$output_file" 2> "$error_file"; then
+      if ! cat "$output_file"; then
+        rm -f "$output_file" "$error_file"
+        return 1
+      fi
+      rm -f "$output_file" "$error_file"
+      return 0
+    else
+      status=$?
+    fi
+
+    echo "Attempt $attempt/$api_read_attempt_limit failed for $description (exit $status):" >&2
+    cat "$error_file" >&2
+    if (( attempt < api_read_attempt_limit )); then
+      sleep $(( 5 << (attempt - 1) ))
+    fi
+    (( attempt += 1 ))
+  done
+
+  rm -f "$output_file" "$error_file"
+  echo "Unable to query $description after $api_read_attempt_limit attempts." >&2
+  return "$status"
+}
+# END GitHub API read retry.
 
 # Download one binary body through gh api, with context on failure.
 #
@@ -88,16 +133,15 @@ download_binary_body() {
 driver_run_id=''
 driver_deadline=$((SECONDS + driver_wait_timeout_seconds))
 while (( SECONDS < driver_deadline )); do
-  driver_run="$({
-    gh api --method GET \
+  driver_run="$(
+    gh_api_read_with_retry "Driver CI for $GITHUB_SHA" \
       -H 'Accept: application/vnd.github+json' \
       "/repos/$GITHUB_REPOSITORY/actions/workflows/driver-ci.yml/runs" \
       -f branch="$GITHUB_REF_NAME" \
       -f event=push \
       -f per_page=100 \
       --jq "[.workflow_runs[] | select(.head_sha == \"$GITHUB_SHA\")][0] // {} | [(.id // 0), (.status // \"missing\"), (.conclusion // \"none\")] | @tsv"
-  } 2>&1)" || {
-    echo "Unable to query Driver CI for $GITHUB_SHA: $driver_run" >&2
+  )" || {
     exit 1
   }
 
@@ -163,14 +207,13 @@ for artifact_name in "${expected_artifacts[@]}"; do
       ;;
   esac
 
-  artifact_record="$({
-    gh api --method GET \
+  artifact_record="$(
+    gh_api_read_with_retry "run $preferred_run_id for artifact $artifact_name" \
       -H 'Accept: application/vnd.github+json' \
       "/repos/$GITHUB_REPOSITORY/actions/runs/$preferred_run_id/artifacts" \
       -f per_page=100 \
       --jq "[.artifacts[] | select(.expired == false and .name == \"$artifact_name\")][0] // {} | [(.id // 0), (.workflow_run.id // 0), (.workflow_run.head_sha // \"missing\"), (.created_at // \"missing\")] | @tsv"
-  } 2>&1)" || {
-    echo "Unable to query run $preferred_run_id for artifact $artifact_name: $artifact_record" >&2
+  )" || {
     exit 1
   }
 
@@ -181,28 +224,26 @@ for artifact_name in "${expected_artifacts[@]}"; do
       exit 1
     fi
 
-    artifact_candidates="$({
-      gh api --method GET \
+    artifact_candidates="$(
+      gh_api_read_with_retry "artifact $artifact_name" \
         -H 'Accept: application/vnd.github+json' \
         "/repos/$GITHUB_REPOSITORY/actions/artifacts" \
         -f name="$artifact_name" \
         -f per_page=100 \
         --jq ".artifacts[] | select(.expired == false and .workflow_run.head_branch == \"$GITHUB_REF_NAME\") | [.id, .workflow_run.id, .workflow_run.head_sha, .created_at] | @tsv"
-    } 2>&1)" || {
-      echo "Unable to query artifact $artifact_name: $artifact_candidates" >&2
+    )" || {
       exit 1
     }
 
     artifact_id=0
     while IFS=$'\t' read -r candidate_id candidate_run_id candidate_sha candidate_created_at; do
       [[ -n "$candidate_id" && -n "$candidate_sha" ]] || continue
-      comparison_status="$({
-        gh api \
+      comparison_status="$(
+        gh_api_read_with_retry "artifact commit $candidate_sha against $GITHUB_SHA" \
           -H 'Accept: application/vnd.github+json' \
           "/repos/$GITHUB_REPOSITORY/compare/$candidate_sha...$GITHUB_SHA" \
           --jq '.status'
-      } 2>&1)" || {
-        echo "Unable to compare artifact commit $candidate_sha with $GITHUB_SHA: $comparison_status" >&2
+      )" || {
         exit 1
       }
 
@@ -256,13 +297,12 @@ select_manual_release_template_record() {
 # Use the newest non-automatic manual application 7z as the dependency/profile
 # template. CI then overlays every current core binary and unsigned driver while
 # preserving the same single Release/ directory layout users already receive.
-manual_release_candidates="$({
-  gh api --paginate \
+manual_release_candidates="$(
+  gh_api_read_with_retry 'manual release template' --paginate \
     -H 'Accept: application/vnd.github+json' \
     "/repos/$GITHUB_REPOSITORY/releases?per_page=100" \
     --jq '.[] | select(.draft == false and ((.tag_name | startswith("ci-build-")) | not) and (((.name // "") | startswith("[CI Build] ")) | not)) as $release | $release.assets[] | select(.name | endswith(".7z")) | [$release.published_at, $release.tag_name, .id, .name] | @tsv'
-} 2>&1)" || {
-  echo "Unable to query the manual release template: $manual_release_candidates" >&2
+)" || {
   exit 1
 }
 manual_release_record="$(printf '%s\n' "$manual_release_candidates" | select_manual_release_template_record)"
@@ -441,13 +481,12 @@ if [[ ! -s "$aggregate_archive" ]]; then
   exit 1
 fi
 
-push_text="$({
-  gh api \
+push_text="$(
+  gh_api_read_with_retry "commit text for $GITHUB_SHA" \
     -H 'Accept: application/vnd.github+json' \
     "/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" \
     --jq '.commit.message | split("\n")[0]'
-} 2>&1)" || {
-  echo "Unable to read commit text for $GITHUB_SHA: $push_text" >&2
+)" || {
   exit 1
 }
 if [[ -z "$push_text" ]]; then
@@ -507,7 +546,7 @@ echo "Created automatic prerelease: $release_url"
 # by creation timestamp so exactly the newest three automatic releases remain;
 # manual prereleases and all normal releases are outside this cleanup scope.
 mapfile -t automatic_releases < <(
-  gh api --paginate \
+  gh_api_read_with_retry 'automatic prerelease retention' --paginate \
     -H 'Accept: application/vnd.github+json' \
     "/repos/$GITHUB_REPOSITORY/releases?per_page=100" \
     --jq '.[] | select(.draft == false and .prerelease == true and (.tag_name | startswith("ci-build-")) and ((.name // "") | startswith("[CI Build] "))) | [.created_at, .tag_name] | @tsv' \

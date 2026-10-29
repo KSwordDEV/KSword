@@ -1,6 +1,7 @@
 """离线执行生产模板选择函数；不下载资产、不修改发行版、不运行程序。"""
 
 from pathlib import Path
+import os
 import subprocess
 import unittest
 
@@ -16,6 +17,122 @@ def production_selector():
     start = source.index("# BEGIN manual template selector:")
     end = source.index("# END manual template selector.", start)
     return source[start:end]
+
+
+def production_retry():
+    """Run the same retry helper that the publication script uses."""
+    source = SCRIPT.read_text(encoding="utf-8-sig")
+    start = source.index("# BEGIN GitHub API read retry:")
+    end = source.index("# END GitHub API read retry.", start)
+    return source[start:end]
+
+
+MOCK_API = r'''
+mock_calls=0
+gh() {
+    if [[ "$1" != api || "$2" != --method || "$3" != GET ]]; then
+        echo "expected an explicit read-only gh api GET" >&2
+        return 9
+    fi
+    if [[ "${KSWORD_TEST_REQUIRE_PAGINATION:-0}" == 1 ]]; then
+        if [[ "$4" != --paginate || "$5" != /repos/test/repo || "$6" != --jq || "$7" != '.items[] | .name' ]]; then
+            echo "API arguments were not preserved" >&2
+            return 9
+        fi
+    fi
+    (( mock_calls += 1 ))
+    if (( mock_calls <= KSWORD_TEST_FAILURES )); then
+        printf 'partial page from attempt %s\n' "$mock_calls"
+        echo 'gh: Server Error (HTTP 502)' >&2
+        return 22
+    fi
+    printf '456\tcompleted\t%s\n' "$KSWORD_TEST_CONCLUSION"
+}
+sleep() { printf 'mock sleep %s\n' "$1" >&2; }
+'''
+
+
+class ApiReadRetryTests(unittest.TestCase):
+    def execute(self, command, failures=0, conclusion="success", pagination=False, ci_failed=False):
+        environment = os.environ.copy()
+        environment.update({
+            "KSWORD_TEST_FAILURES": str(failures),
+            "KSWORD_TEST_CONCLUSION": conclusion,
+            "KSWORD_TEST_CI_FAILED": "True" if ci_failed else "False",
+            "KSWORD_TEST_REQUIRE_PAGINATION": "1" if pagination else "0",
+            "GH_TOKEN": "fixture",
+            "GITHUB_REPOSITORY": "test/repo",
+            "GITHUB_SHA": "a" * 40,
+            "GITHUB_RUN_ID": "10",
+            "GITHUB_REF_NAME": "main",
+            "RUNNER_TEMP": "/tmp",
+        })
+        return subprocess.run(
+            [bash_path(), "--noprofile", "--norc", "-c", "set -euo pipefail\n" + MOCK_API + command],
+            env=environment, capture_output=True, text=True, timeout=30,
+        )
+
+    def test_retries_502_and_discards_partial_paginated_responses(self):
+        command = (
+            "readonly api_read_attempt_limit=4\n" + production_retry()
+            + "\ngh_api_read_with_retry 'mock pagination' --paginate /repos/test/repo --jq '.items[] | .name'\n"
+        )
+        result = self.execute(command, failures=2, pagination=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "456\tcompleted\tsuccess\n")
+        self.assertEqual(result.stderr.count("HTTP 502"), 2)
+        self.assertIn("mock sleep 5", result.stderr)
+        self.assertIn("mock sleep 10", result.stderr)
+        self.assertNotIn("partial page", result.stdout)
+
+    def test_exhausted_retries_fail_with_context_and_no_partial_output(self):
+        command = (
+            "readonly api_read_attempt_limit=4\n" + production_retry()
+            + "\ngh_api_read_with_retry 'Driver CI for fixture' /repos/test/repo\n"
+        )
+        result = self.execute(command, failures=4)
+        self.assertEqual(result.returncode, 22)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr.count("HTTP 502"), 4)
+        self.assertIn("Unable to query Driver CI for fixture after 4 attempts", result.stderr)
+        self.assertIn("mock sleep 20", result.stderr)
+
+    def test_driver_query_recovers_without_weakening_failure_gate(self):
+        # Exercise the production driver poll and the real failure-routing branch.
+        prefix = SCRIPT.read_text(encoding="utf-8-sig").split("artifact_download_root=", 1)[0]
+        python_mock = r'''
+python3() {
+    if [[ "$1" == -c ]]; then
+        echo "$KSWORD_TEST_CI_FAILED"
+    elif [[ "$1" == tools/ci_failure_release.py && "$2" == --driver-run-id && "$3" == 456 ]]; then
+        echo DIAGNOSTIC_RELEASE
+    else
+        echo "unexpected python invocation" >&2
+        return 9
+    fi
+}
+'''
+        for conclusion, ci_failed in (("success", False), ("failure", False), ("success", True)):
+            with self.subTest(conclusion=conclusion, ci_failed=ci_failed):
+                result = self.execute(python_mock + prefix + "\necho CONTINUE_PACKAGING\n",
+                                      failures=1, conclusion=conclusion, ci_failed=ci_failed)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("HTTP 502", result.stderr)
+                self.assertIn(f"id=456 status=completed conclusion={conclusion}", result.stdout)
+                self.assertNotIn("partial page", result.stdout)
+                if conclusion == "success" and not ci_failed:
+                    self.assertIn("CONTINUE_PACKAGING", result.stdout)
+                    self.assertNotIn("DIAGNOSTIC_RELEASE", result.stdout)
+                else:
+                    self.assertIn("DIAGNOSTIC_RELEASE", result.stdout)
+                    self.assertNotIn("CONTINUE_PACKAGING", result.stdout)
+
+    def test_unavailable_driver_query_stops_before_packaging(self):
+        prefix = SCRIPT.read_text(encoding="utf-8-sig").split("artifact_download_root=", 1)[0]
+        result = self.execute(prefix + "\necho CONTINUE_PACKAGING\n", failures=4)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Unable to query Driver CI", result.stderr)
+        self.assertNotIn("CONTINUE_PACKAGING", result.stdout)
 
 
 class ReleaseTemplateTests(unittest.TestCase):
