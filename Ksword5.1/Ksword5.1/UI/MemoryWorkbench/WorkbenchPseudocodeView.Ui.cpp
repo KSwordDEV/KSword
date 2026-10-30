@@ -1,5 +1,6 @@
 #include "WorkbenchPseudocodeView.h"
 #include "../ToolbarMetrics.h"
+#include "../PrimaryPageStyle.h"
 #include "../CodeEditorWidget.h"
 #include "../CodeTextEdit.h"
 #include "../FlowLayout.h"
@@ -109,6 +110,7 @@ namespace ks::ui
         paths->addWidget(new QLabel(ks::i18n::sourceText(QStringLiteral("Ghidra 目录")), advancedPage));
         directory_ = new QLineEdit(advancedPage);
         directory_->setObjectName(QStringLiteral("memory_decompiler_directory"));
+        StyleStandaloneInput(directory_);
         const auto directory = QSettings().value(QStringLiteral("analysis/ghidra_directory")).toString();
         directory_->setText(directory);
         directory_->setPlaceholderText(ks::i18n::sourceText(QStringLiteral("选择解压后的 Ghidra 安装目录")));
@@ -144,6 +146,15 @@ namespace ks::ui
         });
 
         auto* tools = new FlowLayout(nullptr, 0, 8, 8); // 导航动作随宽度换行。
+        tools->addWidget(new QLabel(ks::i18n::sourceText(QStringLiteral("候选入口")), this));
+        entry_ = new QLineEdit(this);
+        entry_->setObjectName(QStringLiteral("memory_pseudocode_entry"));
+        entry_->setMaximumWidth(220);
+        entry_->setPlaceholderText(ks::i18n::sourceText(QStringLiteral("留空使用所选地址")));
+        entry_->setToolTip(ks::i18n::sourceText(QStringLiteral("RAW 分析从此十六进制地址开始；留空将所选地址作为候选入口，不保证它是真实函数起点。PE 文件分析使用映像内的函数信息。")));
+        StyleStandaloneInput(entry_);
+        tools->addWidget(entry_);
+        connect(entry_, &QLineEdit::textChanged, this, [this] { invalidate(); });
         decompile_ = new QPushButton(ks::i18n::sourceText(QStringLiteral("反编译当前函数")), this);
         decompile_->setObjectName(QStringLiteral("memory_decompile_function"));
         cancel_ = new QPushButton(ks::i18n::sourceText(QStringLiteral("取消")), this);
@@ -166,7 +177,7 @@ namespace ks::ui
         status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
         tools->addExpandingWidget(status_, 180);
         layout->addLayout(tools);
-        setStatus(QStringLiteral("选择代码地址后反编译；伪代码基于当前快照，类型和函数边界由后端推断。"));
+        setStatus(QStringLiteral("选择代码地址后反编译；RAW 从候选入口按控制流扩展读取，伪代码基于已捕获字节。"));
 
         // 无法量化的阶段显示活动条和单调耗时；只有后端真实单位才使用有界范围。
         progressLabel_ = new QLabel(this);
@@ -200,19 +211,10 @@ namespace ks::ui
         connect(decompile_, &QPushButton::clicked, this, &WorkbenchPseudocodeView::startDecompilation);
         connect(cancel_, &QPushButton::clicked, this, [this]() {
             const QPointer<WorkbenchPseudocodeView> self(this);
-            const auto epoch = epoch_; // 可见性回调换源后不能取消新请求或覆盖其状态。
-            waitingForBytes_ = false;
-            stopProgress();
+            const auto epoch = epoch_ + 1; // 可见性回调换源后不能取消新请求或覆盖其状态。
+            invalidate();
             if (!self || epoch_ != epoch) return;
-            if (decompiler_->isRunning())
-            {
-                setStatus(QStringLiteral("正在取消反编译…"));
-                decompiler_->cancel();
-            }
-            else
-            {
-                setStatus(QStringLiteral("反编译已取消。"));
-            }
+            setStatus(QStringLiteral("反编译已取消。"));
             if (self && epoch_ == epoch) updateState();
         });
         connect(locateHex_, &QPushButton::clicked, this, [this]() { locateLine(false); });
@@ -396,19 +398,24 @@ namespace ks::ui
     void WorkbenchPseudocodeView::updateState()
     {
         if (!text_) return;
-        const bool busy = progressActive_ || waitingForBytes_ || decompiler_->isRunning();
-        decompile_->setEnabled(!busy && provider_ && context_.length != 0);
-        cancel_->setEnabled(busy);
-        directory_->setEnabled(!busy);
-        install_->setEnabled(!busy);
-        refresh_->setEnabled(!busy);
+        const QPointer<WorkbenchPseudocodeView> self(this);
+        const auto epoch = epoch_;
+        const auto enable = [self, epoch](QWidget* widget, bool enabled) {
+            widget->setEnabled(enabled);
+            return self && self->epoch_ == epoch;
+        };
+        const bool busy = progressActive_ || waitingForBytes_ || rawPlanner_ || decompiler_->isRunning();
+        if (!enable(decompile_, !busy && provider_ && context_.length != 0)
+            || !enable(cancel_, busy) || !enable(directory_, !busy)
+            || !enable(entry_, !busy && !(context_.addressKind == SnapshotAddressKind::FileOffset && fileSnapshot_))
+            || !enable(install_, !busy) || !enable(refresh_, !busy)) return;
         const int line = text_->textCursor().blockNumber();
         bool mapped = hasRequest_ && line >= 0 && line < lineAddresses_.size()
             && line < lineValid_.size() && lineValid_.at(line);
         if (mapped && request_.inputKind == DecompilerInputKind::PortableExecutable)
             mapped = virtualAddressToFileOffset(lineAddresses_.at(line)).has_value();
-        locateHex_->setEnabled(!busy && mapped);
-        locateDisasm_->setEnabled(!busy && mapped);
+        if (!enable(locateHex_, !busy && mapped)) return;
+        enable(locateDisasm_, !busy && mapped);
     }
 
     // openFindPanel：复用统一编辑器已注册的查找动作，不重复实现第二套查找状态。

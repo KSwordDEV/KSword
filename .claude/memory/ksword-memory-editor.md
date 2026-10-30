@@ -1,5 +1,9 @@
 # 统一内存编辑器与汇编
 
+- **生产对象复用回归的 ABI 门禁**：独立 Qt 回归从主程序 link tlog 复用对象时，公开 context/request 布局变化后须先更新所有生产宿主对象；仅替换新页面及 moc 仍可能链接旧 inline 默认构造 COMDAT，产生错误架构等假失败。`Invoke-WorkbenchPseudocodeUiTests.ps1` 检查生产链接记录和复用测试对象不早于公开分析接口头；`-RelinkOnly` 只复用已检查的新对象。
+
+- **RAW 反编译按需规划（2026-10-30）**：`UI/Decompiler/RawCodePlanner` 是 std+Zydis 的可恢复有界 CFG 规划器，入口与所选字节分离，不依赖模块/PE/`.pdata`；通过已有 bytes provider 的 1/0/2 掩码冻结真实区段，直接分支/顺序流和静态读取引用补页，普通 call 不递归，未知间接 jump/缺失代码/预算截断不接受完整结果。`WorkbenchPseudocodeView.Raw.cpp` 每个事件推进128项，单次读取与总1MiB预算分开；Source+Content 撤销票据，实时缓存淘汰保留冻结证据，快照不能经重载窗口假装同轮增量。实时读取使用 `WorkbenchHexPane::requestAnalysisWindow`，不能复用会改浏览/基线锚点的 requestBrowseWindow。新冻结JSON把入口/选点/地址/字节/body一起哈希；后端映射全部区段后创建 Disassembler，避免补页后复用其已缓存的旧 executable set。详见 `docs/反编译后端.md`；原型实测不代替产品集成回归。
+
 - 区域原始 Dump（Issue #216）由 `MemoryDock.RegionDump.cpp` 实现，菜单按 UserRole 的基址/长度冻结区域、PID/创建时间和独立 QUERY_INFORMATION/SYNCHRONIZE 租约。R3/R0 固定读取、完整读门禁、QSaveFile 原子发布；取消与提交用 atomic 阶段仲裁，后台控制器与带轮次的独立进度收口。附加句柄没有 SYNCHRONIZE，不能复用其等待权限；kPro.addReusable 仅按 owner/taskName 去重，步骤名不同并不能隔离进度。范围和验证边界见 [区域 Dump 核对](../../docs/Issue-216-内存区域Dump核对.md)。
 
 - `UI/MemoryEditorWidget` 是后端无关的快照编辑器，主程序的普通/R0/R-1/DDMA 内存、影子页、Hook 补丁、内核证据与转储内存入口共用。内部 Hex/反汇编/文本/对比视图使用同一份字节缓存；控件不调用任何内存写入接口。用户修改后须通过所属页面显式应用（影子页/Hook 由安装动作提交）。完整组件核查与保留边界见 `docs/内存编辑器组件清单.md`；独立 ARKLight Win32 客户端仍使用自身组件，不声称全仓已移除旧 Hex 工具。

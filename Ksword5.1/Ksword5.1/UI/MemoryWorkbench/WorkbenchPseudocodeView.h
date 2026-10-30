@@ -8,6 +8,7 @@
 #include <QElapsedTimer>
 #include <memory>
 #include <optional>
+#include <utility>
 
 class CodeEditorWidget;
 class CodeTextEdit;
@@ -19,6 +20,7 @@ class QTimer;
 
 namespace ks::ui
 {
+    namespace detail { class RawCodePlanner; }
     // 文件节映射同时供快照结构分析与伪代码定位使用，偏移与 VA 不混用。
     struct FileAnalysisRegion
     {
@@ -36,6 +38,7 @@ namespace ks::ui
     {
         QString sourceIdentity;               // 产生这些字节的冻结来源身份。
         std::uint64_t revision = 0;            // 来源代次，重读/身份变化后不可沿用旧结果。
+        std::uint64_t contentRevision = 0;     // 暂存编辑/撤销/写回改变时使冻结分析失效。
         std::uint64_t baseAddress = 0;         // 可分析窗口的起点（VA 或文件偏移）。
         std::uint64_t length = 0;              // 可分析窗口长度，地址加法必须不回绕。
         std::uint64_t selectedAddress = 0;     // 请求分析的函数位置。
@@ -43,6 +46,10 @@ namespace ks::ui
         bool x86Compatible = true;            // 非 x86/x64 映像不能交给当前后端。
         SnapshotAddressKind addressKind = SnapshotAddressKind::MemoryAddress;
         std::uint64_t maximumWindowBytes = 0; // 0 使用后端上限，否则服从宿主缓存读取上限。
+        bool hasReadBounds = false;           // 实时宿主可按需读取；快照默认仅使用当前捕获范围。
+        std::uint64_t readFirst = 0;
+        std::uint64_t readLast = 0;            // 闭区间，0 是有效地址。
+        bool allowEvictedSnapshot = false;    // 实时缓存淘汰不销毁已冻结字节，Source/Content仍须一致。
     };
 
     class WorkbenchPseudocodeView final : public QWidget
@@ -59,6 +66,8 @@ namespace ks::ui
         // provider 非拥有，销毁前宿主必须先传 nullptr；本页不直接执行目标 I/O。
         void setBytesProvider(IWorkbenchBytesProvider* provider);
         void setContext(const WorkbenchPseudocodeContext& context);
+        // 只撤销变更后的票据；身份切换信号期间不发起读取或导航。
+        void setSourceRevisions(std::uint64_t source, std::uint64_t content);
         // PE 路径使用结构分析的同一冻结映像，并叠加当前已捕获窗口的编辑字节。
         void setFileAnalysisContext(std::shared_ptr<const std::vector<std::uint8_t>> snapshot,
             std::uint64_t imageBase, const QVector<FileAnalysisRegion>& regions,
@@ -90,6 +99,12 @@ namespace ks::ui
         void finishDecompilation(const DecompilerResult& result);
         // buildRequest 校验每个字节掩码，返回 false 时 reason 是稳定错误码。
         bool buildRequest(DecompilerRequest& request, QString& reason) const;
+        void startRawAnalysis();
+        void queueRawAnalysis();
+        void continueRawAnalysis(quint64 epoch);
+        void failRawAnalysis(const QString& error, std::optional<quint64> address = std::nullopt);
+        void submitRequest(const DecompilerRequest& request);
+        bool sparseRequestStillCurrent() const;
         bool requestStillCurrent() const;
         void setStatus(const QString& source);
         bool setCode(const QString& code);
@@ -105,6 +120,11 @@ namespace ks::ui
         WorkbenchPseudocodeContext context_;          // 当前冻结分析上下文。
         WorkbenchPseudocodeContext requestContext_;   // 启动时身份、代次和范围。
         mutable std::optional<std::vector<std::uint64_t>> requestContentStamp_;
+        mutable QVector<std::optional<std::vector<std::uint64_t>>> requestSegmentStamps_;
+        std::shared_ptr<detail::RawCodePlanner> rawPlanner_;
+        bool rawAdvanceQueued_ = false;
+        std::optional<std::pair<quint64, quint64>> rawRequestedWindow_;
+        std::optional<quint64> rawEntry_;
         DecompilerRequest request_;                  // 启动时字节，用于完成后逐字复核。
         std::shared_ptr<const std::vector<std::uint8_t>> fileSnapshot_; // 同一份完整 PE 证据。
         QVector<FileAnalysisRegion> fileRegions_;    // 单义文件偏移与 RVA 映射。
@@ -120,6 +140,7 @@ namespace ks::ui
         CodeEditorWidget* code_ = nullptr;            // 带查找工具栏的统一编辑器外壳。
         CodeTextEdit* text_ = nullptr;                // 外壳拥有的底层只读 C 编辑器。
         QLineEdit* directory_ = nullptr;              // 可选的自定义 Ghidra 目录。
+        QLineEdit* entry_ = nullptr;                  // RAW 候选入口；空值明确采用当前所选地址。
         QLabel* runtimeStatus_ = nullptr;             // 安装与配置状态。
         QLabel* status_ = nullptr;                    // 请求、边界及错误诊断。
         QPushButton* install_ = nullptr;              // 官方插件管理入口。

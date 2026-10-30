@@ -1808,6 +1808,9 @@
     <ClCompile Include="UI\Decompiler\GhidraDecompiler.cpp">
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="UI\Decompiler\RawCodePlanner.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="PluginHost.Distribution.cpp">
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -1823,6 +1826,8 @@
     <ClInclude Include="PluginHost.Upstream.h" />
     <ClInclude Include="..\..\GhidraRuntimePlugin\RuntimeProfile.h" />
     <ClInclude Include="..\..\GhidraRuntimePlugin\RuntimeLicense.inc" />
+    <ClInclude Include="UI\Decompiler\RawCodePlanner.h" />
+    <ClInclude Include="UI\Decompiler\GhidraRawScript.h" />
     <QtMoc Include="UI\Decompiler\GhidraDecompiler.h" />
   </ItemGroup>
   <Target Name="CopyKswordGhidraAdapterNotices" AfterTargets="Build">
@@ -1847,6 +1852,9 @@
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ClCompile Include="UI\MemoryWorkbench\WorkbenchPseudocodeView.Ui.cpp">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="UI\MemoryWorkbench\WorkbenchPseudocodeView.Raw.cpp">
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ClCompile Include="UI\MemoryWorkbench\MemoryWorkbenchView.Pseudocode.cpp">

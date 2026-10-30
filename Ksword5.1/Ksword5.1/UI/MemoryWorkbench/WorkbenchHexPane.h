@@ -115,6 +115,9 @@ namespace ks::ui
         std::uint64_t insertionAddress() const;
         void requestBrowseWindow(std::uint64_t address, std::uint64_t length,
             HexCanvas::RangeReadPurpose purpose = HexCanvas::RangeReadPurpose::Browse);
+        // Analysis reads share the page pipeline without moving the browsing
+        // anchor, visible range, selection, or baseline window.
+        void requestAnalysisWindow(std::uint64_t address, std::uint64_t length);
         void setExternalBrowseMode(bool enabled);
 
         // selectionStart：选区的起点（闭区间的 first）；没有选区时退回插入点。

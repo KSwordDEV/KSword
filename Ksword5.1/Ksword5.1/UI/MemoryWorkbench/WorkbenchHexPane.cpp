@@ -422,6 +422,16 @@ namespace ks::ui
                 pageProvider_ ? pageProvider_->hasInFlightRequests() : false);
     }
 
+    void WorkbenchHexPane::requestAnalysisWindow(std::uint64_t address, std::uint64_t length)
+    {
+        if (!canvas_ || !length) return;
+        const auto bounds = canvas_->addressSpaceRange();
+        if (!bounds || address < bounds->first || address > bounds->last) return;
+        const auto span = std::min<std::uint64_t>(length - 1, 65535);
+        const auto last = address + std::min<std::uint64_t>(span, bounds->last - address);
+        canvas_->requestAddressRange(address, last, HexCanvas::RangeReadPurpose::ExplicitRead);
+    }
+
     void WorkbenchHexPane::setExternalBrowseMode(bool enabled)
     {
         if (externalBrowseMode_ == enabled) return;

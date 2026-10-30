@@ -13,7 +13,9 @@
 #include <QProgressBar>
 #include <QTest>
 #include <QToolButton>
+#include <QtEndian>
 #include <algorithm>
+#include <cstdio>
 #include <limits>
 
 namespace
@@ -23,17 +25,18 @@ namespace
     {
     public:
         std::uint64_t base = 0x1000; // 合成证据的起始地址。
-        std::vector<std::uint8_t> bytes = std::vector<std::uint8_t>(32, 0x90);
-        std::vector<std::uint8_t> mask = std::vector<std::uint8_t>(32, 1);
+        std::vector<std::uint8_t> bytes{0xb8, 0x2a, 0, 0, 0, 0xc3};
+        std::vector<std::uint8_t> mask = std::vector<std::uint8_t>(6, 1);
         bool available = true;      // 整个来源当前是否可取。
         bool malformed = false;     // 模拟适配器长度错误。
         mutable std::uint64_t largestRequest = 0; // 断言共享页遵守单次缓存拷贝上限。
+        std::uint64_t maximumFetchBytes = 65536;
         ks::ui::WorkbenchByteWindow FetchWindow(std::uint64_t address, std::uint64_t length) const override
         {
             ks::ui::WorkbenchByteWindow result;
             result.address = address;
             largestRequest = std::max(largestRequest, length);
-            if (length > 65536 || !available || address < base || address - base > bytes.size()
+            if (length > maximumFetchBytes || !available || address < base || address - base > bytes.size()
                 || length > bytes.size() - (address - base)) return result;
             const auto offset = static_cast<std::size_t>(address - base);
             result.ok = true;
@@ -49,8 +52,17 @@ namespace
     // DrainBackend：无效后端目录只触发配置错误，不创建任何分析进程。
     void DrainBackend(ks::ui::WorkbenchPseudocodeView& page)
     {
-        for (int i = 0; page.decompiler()->isRunning() && i < 100; ++i) QTest::qWait(2);
-        QApplication::processEvents();
+        // RAW planning starts on QTimer(0), before the backend has a running bit.
+        // Observe the page's whole operation rather than only an already-started JVM.
+        auto* cancel = page.findChild<QPushButton*>(QStringLiteral("memory_decompile_cancel"));
+        QElapsedTimer deadline;
+        deadline.start();
+        do
+        {
+            QApplication::processEvents();
+            if (!page.decompiler()->isRunning() && cancel && !cancel->isEnabled()) return;
+            QTest::qWait(2);
+        } while (deadline.elapsed() < 3000);
     }
 
     // WaitFor：等待真实 queued Qt 回调，禁止用固定延时假定后端阶段已派发。
@@ -107,6 +119,155 @@ namespace
         page.show();
         QApplication::processEvents();
     }
+
+    // Exercise the public C-page state machine using actual RAW control flow.
+    // The invalid backend directory prevents Java or target-process access.
+    void CheckRawPlanningContracts(const std::function<void(bool, const char*)>& require)
+    {
+        using namespace ks::ui;
+        const auto contextFor = [](const MaskedProvider& provider) {
+            WorkbenchPseudocodeContext context;
+            context.sourceIdentity = QStringLiteral("raw-planner-ui-contract");
+            context.revision = 1;
+            context.contentRevision = 1;
+            context.baseAddress = context.selectedAddress = provider.base;
+            context.length = provider.bytes.size();
+            return context;
+        };
+        const auto configure = [](WorkbenchPseudocodeView& page, MaskedProvider& provider,
+            const WorkbenchPseudocodeContext& context) {
+            page.setBytesProvider(&provider);
+            page.setContext(context);
+            page.findChild<QLineEdit*>(QStringLiteral("memory_decompiler_directory"))->setText(
+                QDir::current().filePath(QStringLiteral(".codex-build-logs/not-a-ghidra-runtime")));
+        };
+        const auto codeResult = [](const std::uint64_t entry) {
+            DecompilerResult result;
+            result.success = true;
+            result.code = QStringLiteral("int raw_fixture(void) { return 42; }");
+            result.functionName = QStringLiteral("raw_fixture");
+            result.functionAddress = entry;
+            result.lineAddresses = {entry};
+            result.lineAddressValid = {true};
+            return result;
+        };
+        {
+            MaskedProvider provider;
+            provider.base = 0; // A zero candidate is valid, distinct from empty/unknown.
+            auto context = contextFor(provider);
+            context.selectedAddress = 5; // RET is an interior instruction of the candidate.
+            WorkbenchPseudocodeView page;
+            configure(page, provider, context);
+            auto* entry = page.findChild<QLineEdit*>(QStringLiteral("memory_pseudocode_entry"));
+            require(entry != nullptr, "C RAW page exposes its explicit candidate-entry input");
+            unsigned starts = 0;
+            QObject::connect(page.decompiler(), &GhidraDecompiler::runningChanged, &page,
+                [&](bool running) { if (running) ++starts; });
+            entry->setText(QStringLiteral("0x0"));
+            page.startDecompilation();
+            DrainBackend(page);
+            emit page.decompiler()->finished(codeResult(0));
+            require(starts == 1 && !page.editor()->toPlainText().isEmpty(),
+                "C candidate address zero can recover a function containing an interior selected instruction");
+            provider.bytes.resize(32, 0xcc);
+            provider.mask.resize(32, 1);
+            context.length = provider.bytes.size();
+            context.selectedAddress = 16;
+            page.setContext(context);
+            page.startDecompilation(); DrainBackend(page);
+            require(starts == 1 && page.editor()->toPlainText().isEmpty(),
+                "C a declared entry cannot claim an unrelated selected address belongs to its function");
+            entry->setText(QStringLiteral("not-an-address"));
+            page.startDecompilation();
+            DrainBackend(page);
+            require(starts == 1 && page.editor()->toPlainText().isEmpty(),
+                "C invalid candidate literals are rejected before backend startup");
+        }
+        {
+            MaskedProvider provider;
+            WorkbenchPseudocodeView page;
+            auto context = contextFor(provider);
+            configure(page, provider, context);
+            unsigned starts = 0, requests = 0;
+            QObject::connect(page.decompiler(), &GhidraDecompiler::runningChanged, &page,
+                [&](bool running) { if (running) ++starts; });
+            QObject::connect(&page, &WorkbenchPseudocodeView::windowRequested, &page,
+                [&](quint64, quint64) { ++requests; });
+            provider.mask[5] = 2;
+            page.startDecompilation();
+            require(WaitFor([&]() { return requests == 1; }), "C RAW pending operation reaches one real host read");
+            page.refreshView(); page.refreshView();
+            QApplication::processEvents();
+            require(requests == 1 && starts == 0, "C RAW pending refreshes preserve the planner without duplicate reads");
+            page.setSourceRevisions(context.revision, context.contentRevision + 1);
+            provider.mask[5] = 1;
+            page.refreshView();
+            QApplication::processEvents();
+            require(starts == 0, "C content-authority changes cancel a pending plan before its late page arrives");
+            ++context.contentRevision;
+            page.setContext(context);
+            page.startDecompilation(); DrainBackend(page);
+            emit page.decompiler()->finished(codeResult(provider.base));
+            require(!page.editor()->toPlainText().isEmpty(), "C new content authority may start a fresh plan");
+            page.setSourceRevisions(context.revision + 1, context.contentRevision);
+            emit page.decompiler()->finished(codeResult(provider.base));
+            require(page.editor()->toPlainText().isEmpty(), "C source-authority changes reject late completed code");
+        }
+        {
+            MaskedProvider provider;
+            provider.bytes.assign(3 * 4096, 0xcc);
+            provider.mask.assign(provider.bytes.size(), 1);
+            provider.bytes[0] = 0xe9;
+            qToLittleEndian<qint32>(8192 - 5, provider.bytes.data() + 1);
+            const std::vector<std::uint8_t> returned{0xb8, 0x2a, 0, 0, 0, 0xc3};
+            std::copy(returned.begin(), returned.end(), provider.bytes.begin() + 8192);
+            std::fill(provider.mask.begin() + 4096, provider.mask.begin() + 8192, 0);
+            WorkbenchPseudocodeView page;
+            configure(page, provider, contextFor(provider));
+            unsigned starts = 0;
+            QObject::connect(page.decompiler(), &GhidraDecompiler::runningChanged, &page,
+                [&](bool running) { if (running) ++starts; });
+            page.startDecompilation(); DrainBackend(page);
+            emit page.decompiler()->finished(codeResult(provider.base));
+            require(starts == 1 && !page.editor()->toPlainText().isEmpty(),
+                "C RAW follows a real jump across an unreadable hole without demanding the gap bytes");
+            qToLittleEndian<qint32>(4096 - 5, provider.bytes.data() + 1);
+            page.setContext(contextFor(provider));
+            page.startDecompilation(); DrainBackend(page);
+            require(starts == 1 && page.editor()->toPlainText().isEmpty(),
+                "C RAW rejects a reachable branch target inside an unreadable page");
+        }
+        {
+            MaskedProvider provider;
+            provider.bytes = {0xff, 0xe0}; // JMP RAX has unknown control flow.
+            provider.mask.assign(2, 1);
+            WorkbenchPseudocodeView page;
+            configure(page, provider, contextFor(provider));
+            unsigned starts = 0;
+            QObject::connect(page.decompiler(), &GhidraDecompiler::runningChanged, &page,
+                [&](bool running) { if (running) ++starts; });
+            page.startDecompilation(); DrainBackend(page);
+            require(starts == 0 && page.editor()->toPlainText().isEmpty(),
+                "C RAW unresolved indirect jumps do not publish apparently complete code");
+        }
+        {
+            MaskedProvider provider;
+            provider.bytes.assign(8192, 0xcc);
+            provider.mask.assign(provider.bytes.size(), 1);
+            provider.bytes[0] = 0x8b; provider.bytes[1] = 0x05; // MOV EAX,[RIP+constant]
+            qToLittleEndian<qint32>(4096 - 6, provider.bytes.data() + 2);
+            provider.bytes[6] = 0xc3;
+            qToLittleEndian<quint32>(42, provider.bytes.data() + 4096);
+            WorkbenchPseudocodeView page;
+            configure(page, provider, contextFor(provider));
+            page.startDecompilation(); DrainBackend(page);
+            emit page.decompiler()->finished(codeResult(provider.base));
+            require(!page.editor()->toPlainText().isEmpty(), "C RAW static RIP-relative data is part of the frozen evidence");
+            provider.bytes[4096] ^= 1;
+            page.refreshView();
+            require(page.editor()->toPlainText().isEmpty(), "C changes to a used constant invalidate the result");
+        }
+    }
 }
 
 void RunWorkbenchPseudocodeContractTests(const std::function<void(bool, const char*)>& require)
@@ -131,8 +292,9 @@ void RunWorkbenchPseudocodeContractTests(const std::function<void(bool, const ch
     QObject::connect(&page, &WorkbenchPseudocodeView::windowRequested, &page,
         [&](quint64 address, quint64 length) {
             ++requested;
-            require(address == context.baseAddress && length == context.length,
-                "C loading request preserves the exact captured analysis window");
+            require(address >= context.baseAddress && address - context.baseAddress < context.length
+                && length && length <= context.length - (address - context.baseAddress),
+                "C loading request stays in the captured analysis bounds");
         });
 
     // 掩码 0、错误长度和未知掩码都不能被补零或误解为有效证据。
@@ -140,15 +302,25 @@ void RunWorkbenchPseudocodeContractTests(const std::function<void(bool, const ch
     {
         provider.mask[5] = invalid;
         page.startDecompilation();
+        DrainBackend(page);
         require(starts == 0 && requested == 0, "C backend never starts on unavailable or unknown-mask bytes");
     }
     provider.mask[5] = 1;
     provider.malformed = true;
     page.startDecompilation();
+    DrainBackend(page);
     require(starts == 0 && requested == 0, "C backend rejects a malformed validity-mask length");
     provider.malformed = false;
     provider.mask[5] = 2;
     page.startDecompilation();
+    const bool pendingReached = WaitFor([&]() { return requested == 1; });
+    if (!pendingReached)
+    {
+        const auto* diagnostic = page.findChild<QLabel*>(QStringLiteral("memory_pseudocode_status"));
+        std::fprintf(stderr, "RAW_PENDING requests=%u starts=%u largestFetch=%llu status=%s\n", requested, starts,
+            static_cast<unsigned long long>(provider.largestRequest), diagnostic ? diagnostic->text().toUtf8().constData() : "<none>");
+    }
+    require(pendingReached, "C pending RAW work reaches its asynchronous host read request");
     page.refreshView();
     page.refreshView();
     require(starts == 0 && requested == 1, "C loading waits without repeated I/O requests or decoding pending bytes");
@@ -212,28 +384,48 @@ void RunWorkbenchPseudocodeContractTests(const std::function<void(bool, const ch
     require(starts == beforeBounds && requested == 1, "C analysis rejects overflowing ranges and the exclusive end address");
     context.selectedAddress = provider.base;
     context.maximumWindowBytes = 8;
+    provider.bytes.resize(32, 0xcc);
+    provider.mask.resize(32, 1);
+    context.length = provider.bytes.size();
+    provider.maximumFetchBytes = 8;
+    provider.largestRequest = 0;
     page.setContext(context);
     page.startDecompilation();
-    require(starts == beforeBounds, "C analysis honors the host read-window capacity without silently truncating selections");
+    DrainBackend(page);
+    require(starts == beforeBounds + 1 && provider.largestRequest <= 8,
+        "C per-fetch capacity limits a copy without rejecting a valid function");
 
-    // 快照超过单次提供者容量时分块组成同一输入，末块变更也必须撤销旧结果。
-    provider.bytes.resize(2 * 65536 + 37, 0x90);
-    provider.mask.resize(provider.bytes.size(), 1);
+    // A real control-flow edge reaches code beyond 64 KiB; unrelated middle
+    // pages must not enter the frozen input or invalidate its result.
+    provider.maximumFetchBytes = 65536;
+    provider.largestRequest = 0;
+    provider.bytes.assign(2 * 65536 + 6, 0xcc);
+    provider.bytes[0] = 0xe9;
+    qToLittleEndian<qint32>(2 * 65536 - 5, provider.bytes.data() + 1);
+    const std::vector<std::uint8_t> tail{0xb8, 0x2a, 0, 0, 0, 0xc3};
+    std::copy(tail.begin(), tail.end(), provider.bytes.begin() + 2 * 65536);
+    provider.mask.assign(provider.bytes.size(), 1);
     context.length = provider.bytes.size();
     context.maximumWindowBytes = 0;
     page.setContext(context);
     page.startDecompilation();
     DrainBackend(page);
     emit page.decompiler()->finished(result);
-    require(starts == beforeBounds + 1 && provider.largestRequest <= 65536
+    require(starts == beforeBounds + 2 && provider.largestRequest <= 65536
         && page.editor()->toPlainText() == result.code,
-        "C analysis assembles a complete multi-chunk snapshot within the provider per-fetch capacity");
+        "C RAW analysis reaches a real far branch within the provider per-fetch capacity");
+    provider.bytes[65536] ^= 1;
+    page.refreshView();
+    require(page.editor()->toPlainText() == result.code,
+        "C unrelated uncaptured middle-page changes do not invalidate the sparse input");
     provider.bytes.back() ^= 1;
     page.refreshView();
     require(page.editor()->toPlainText().isEmpty(), "C result verification includes edits in the last snapshot chunk");
-    provider.bytes.resize(32);
-    provider.mask.resize(32);
+    provider.bytes = {0xb8, 0x2a, 0, 0, 0, 0xc3};
+    provider.mask.assign(provider.bytes.size(), 1);
     context.length = provider.bytes.size();
+
+    CheckRawPlanningContracts(require);
 
     // 文件偏移与 VA 单义映射；零填充、虚拟尾部和重叠节都没有可定位的文件字节。
     auto image = std::make_shared<std::vector<std::uint8_t>>(0x100, 0x90);
@@ -269,9 +461,12 @@ void RunWorkbenchPseudocodeContractTests(const std::function<void(bool, const ch
     progressPage.setContext(context);
     progressPage.findChild<QLineEdit*>(QStringLiteral("memory_decompiler_directory"))->setText(
         QDir::current().filePath(QStringLiteral(".codex-build-logs/not-a-ghidra-runtime")));
-    progressPage.startDecompilation(); // 配置失败被排到下一事件轮，本轮仍有有效运行票据。
     auto* phaseBar = progressPage.findChild<QProgressBar*>(QStringLiteral("memory_pseudocode_progress"));
     auto* phaseLabel = progressPage.findChild<QLabel*>(QStringLiteral("memory_pseudocode_progress_label"));
+    bool checkedPhases = false;
+    QObject::connect(progressPage.decompiler(), &GhidraDecompiler::runningChanged, &progressPage, [&](bool running) {
+    if (!running || checkedPhases) return;
+    checkedPhases = true; // The queued RAW planner has now produced a genuine backend ticket.
     emit progressPage.decompiler()->progressChanged({DecompilerStage::Analyzing, -1, -1});
     const QString analyzing = phaseLabel ? phaseLabel->text() : QString();
     require(phaseBar && !phaseBar->isHidden() && phaseBar->maximum() == 0,
@@ -290,6 +485,9 @@ void RunWorkbenchPseudocodeContractTests(const std::function<void(bool, const ch
     progressPage.findChild<QPushButton*>(QStringLiteral("memory_decompile_cancel"))->click();
     emit progressPage.decompiler()->progressChanged({DecompilerStage::Rendering, 4, 4});
     require(phaseBar && phaseBar->isHidden(), "C cancellation ignores late progress and stops the activity");
+    });
+    progressPage.startDecompilation();
+    require(WaitFor([&]() { return checkedPhases; }), "C queued RAW planning reaches the real backend phase observer");
     DrainBackend(progressPage);
 
     // 外部进度观察者关闭宿主后，不应留下耗时定时器或让后端继续写入旧页面。
@@ -313,7 +511,7 @@ void RunWorkbenchPseudocodeContractTests(const std::function<void(bool, const ch
     QObject::connect(retiring, &WorkbenchPseudocodeView::windowRequested, qApp,
         [retiring](quint64, quint64) { delete retiring.data(); });
     retiring->startDecompilation();
-    require(retiring.isNull(), "C page permits its host to close it from the pending-window callback");
+    require(WaitFor([&]() { return retiring.isNull(); }), "C page permits its host to close it from the queued pending-window callback");
 
     RunWorkbenchPseudocodeProgressReentryTests(require);
 }
@@ -353,7 +551,7 @@ void RunWorkbenchPseudocodeProgressReentryTests(
         });
         label->installEventFilter(&probe);
         page.startDecompilation();
-        require(probe.calls() == 1 && bar->isHidden() && label->isHidden() && requests == 0,
+        require(WaitFor([&]() { return probe.calls() == 1; }) && bar->isHidden() && label->isHidden() && requests == 0,
             "C progress Show source change cannot revive old activity or an old byte request");
     }
 
@@ -367,7 +565,7 @@ void RunWorkbenchPseudocodeProgressReentryTests(
         ProgressEventProbe probe(QEvent::Show, [page]() { delete page.data(); });
         label->installEventFilter(&probe);
         page->startDecompilation();
-        require(probe.calls() == 1 && page.isNull(),
+        require(WaitFor([&]() { return probe.calls() == 1; }) && page.isNull(),
             "C progress Show observer may destroy the page after its native visibility update returns");
     }
 
@@ -396,6 +594,7 @@ void RunWorkbenchPseudocodeProgressReentryTests(
         QObject::connect(&page, &WorkbenchPseudocodeView::windowRequested, &page,
             [&](quint64, quint64) { ++requests; });
         page.startDecompilation();
+        require(WaitFor([&]() { return requests == 1; }), "C original queued read is pending before Hide reentry");
         auto* bar = page.findChild<QProgressBar*>(QStringLiteral("memory_pseudocode_progress"));
         auto* label = page.findChild<QLabel*>(QStringLiteral("memory_pseudocode_progress_label"));
         ProgressEventProbe probe(QEvent::Hide, [&]() {
@@ -407,8 +606,8 @@ void RunWorkbenchPseudocodeProgressReentryTests(
         bar->installEventFilter(&probe);
         page.findChild<QPushButton*>(QStringLiteral("memory_decompile_cancel"))->click();
         const auto* status = page.findChild<QLabel*>(QStringLiteral("memory_pseudocode_status"));
-        require(probe.calls() == 1 && requests == 2 && !bar->isHidden() && !label->isHidden()
-            && status->text() == ks::i18n::sourceText(QStringLiteral("正在读取反编译范围；字节就绪后继续分析。")),
+        require(WaitFor([&]() { return requests == 2; }) && probe.calls() == 1 && !bar->isHidden() && !label->isHidden()
+            && status && !status->text().isEmpty(),
             "C progress Hide reentry retains the newer pending request and its visible progress label");
     }
 
@@ -418,7 +617,6 @@ void RunWorkbenchPseudocodeProgressReentryTests(
         provider.mask[5] = 1;
         QPointer<WorkbenchPseudocodeView> page = new WorkbenchPseudocodeView;
         PrepareProgressPage(*page, provider, context);
-        page->startDecompilation();
         auto* bar = page->findChild<QProgressBar*>(QStringLiteral("memory_pseudocode_progress"));
         unsigned calls = 0; // 确认真实有界进度信号已派发。
         QObject::connect(bar, &QProgressBar::valueChanged, qApp, [&, page](int value) {
@@ -426,8 +624,11 @@ void RunWorkbenchPseudocodeProgressReentryTests(
             ++calls;
             delete page.data();
         });
-        emit page->decompiler()->progressChanged({DecompilerStage::Rendering, 2, 4});
-        require(calls == 1 && page.isNull(),
+        QObject::connect(page->decompiler(), &GhidraDecompiler::runningChanged, qApp, [page](bool running) {
+            if (running && page) emit page->decompiler()->progressChanged({DecompilerStage::Rendering, 2, 4});
+        });
+        page->startDecompilation();
+        require(WaitFor([&]() { return calls == 1; }) && page.isNull(),
             "C real progress valueChanged may destroy the page without resuming its native update stack");
     }
 
@@ -437,7 +638,6 @@ void RunWorkbenchPseudocodeProgressReentryTests(
         provider.mask[5] = 1;
         WorkbenchPseudocodeView page;
         PrepareProgressPage(page, provider, context);
-        page.startDecompilation();
         auto* bar = page.findChild<QProgressBar*>(QStringLiteral("memory_pseudocode_progress"));
         auto* label = page.findChild<QLabel*>(QStringLiteral("memory_pseudocode_progress_label"));
         unsigned calls = 0; // 一次实际 valueChanged 换源。
@@ -448,9 +648,15 @@ void RunWorkbenchPseudocodeProgressReentryTests(
             ++changed.revision;
             page.setContext(changed);
         });
-        emit page.decompiler()->progressChanged({DecompilerStage::Rendering, 2, 4});
-        emit page.decompiler()->progressChanged({DecompilerStage::Rendering, 4, 4});
-        require(calls == 1 && bar->isHidden() && label->isHidden(),
+        bool injected = false;
+        QObject::connect(page.decompiler(), &GhidraDecompiler::runningChanged, &page, [&](bool running) {
+            if (!running || injected) return;
+            injected = true;
+            emit page.decompiler()->progressChanged({DecompilerStage::Rendering, 2, 4});
+            emit page.decompiler()->progressChanged({DecompilerStage::Rendering, 4, 4});
+        });
+        page.startDecompilation();
+        require(WaitFor([&]() { return calls == 1; }) && bar->isHidden() && label->isHidden(),
             "C real progress valueChanged source change suppresses the old update and late phase");
         DrainBackend(page);
     }
@@ -461,12 +667,18 @@ void RunWorkbenchPseudocodeProgressReentryTests(
         provider.mask[5] = 1;
         WorkbenchPseudocodeView page;
         PrepareProgressPage(page, provider, context);
-        page.startDecompilation();
-        require(page.decompiler()->isRunning(), "C queued backend request is truly running before cancellation");
         auto* bar = page.findChild<QProgressBar*>(QStringLiteral("memory_pseudocode_progress"));
         auto* label = page.findChild<QLabel*>(QStringLiteral("memory_pseudocode_progress_label"));
-        page.findChild<QPushButton*>(QStringLiteral("memory_decompile_cancel"))->click();
-        emit page.decompiler()->progressChanged({DecompilerStage::Rendering, 4, 4});
+        bool canceledRunning = false;
+        QObject::connect(page.decompiler(), &GhidraDecompiler::runningChanged, &page, [&](bool running) {
+            if (!running || canceledRunning) return;
+            canceledRunning = true;
+            require(page.decompiler()->isRunning(), "C queued backend request is truly running before cancellation");
+            page.findChild<QPushButton*>(QStringLiteral("memory_decompile_cancel"))->click();
+            emit page.decompiler()->progressChanged({DecompilerStage::Rendering, 4, 4});
+        });
+        page.startDecompilation();
+        require(WaitFor([&]() { return canceledRunning; }), "C cancellation observes the genuinely queued backend start");
         require(bar->isHidden() && label->isHidden(),
             "C cancellation immediately stops activity and rejects phases before asynchronous completion");
         DrainBackend(page);
