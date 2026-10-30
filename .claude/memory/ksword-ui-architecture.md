@@ -19,6 +19,8 @@ KSword 主程序位于 `Ksword5.1/Ksword5.1`（Qt 6.9.3 Widgets + Qt Advanced Do
 
 ## UI 主题架构
 
+- 2026-10-30 代码文本表面：`CodeTextSurfaceColors` 的当前行直接使用 Highlight 的 alpha=36 覆盖色，不能将透明 Base 的黑色 RGB 混成实底；语法对比按覆盖后的不透明参考面计算。行号栏浅色模式显式白底，深色模式保留对应表面，普通编辑器与虚拟只读日志共用此入口。透明 Base 的对比计算先回退/合成主题 Surface，不修改正文视口的透明背景。
+
 - 2026-10-12 标准主题默认安装在首个业务窗口之前，普通控件按Polish/Show目标接入现有ThemeBinding，无全树扫描；专业内部、显式紧凑尺寸和真正业务QSS保留。`StandardWidgetTheme`的默认GroupBox按`ksword_parameter_body`祖先使用ParameterSection，独立组使用PrimaryGroup内部标题卡片。仅判断`ksword_parameter_surface`会误把结果区卡片也变成参数分区；两者不能混用。原生QSlider共用6px轨道/18px把手，原生QProgressBar保留对象/信号，由细轨道与独立数值绘制接管，忙动画仅可见时运行并遵守系统开关。Combo的QSS最小高度是内容高度，配方上下padding2px要扣除，不能全局替换Popup item的min-height。基础按钮/Tab/slider规则必须在同一个起止标记块中防止换肤累积。新页必须选择AGENTS布局规范，默认主题不从控件集合推断布局、危险操作或表格操作模式。
 - 主工作区的底板/数据面/交替行/工具带/表头由 `UI/MainSurfaceStyle` 从现有种子派生，不改变 QApplication 的全局角色。主窗口与 ADS 浮动窗口明确登记顶层身份，独立属性/设置窗口不沿父链继承；有背景图或穿透模式时继续沿用原透明策略。`TablePresentation` 只改视图容器底面、交替底和结构边界，不声明 item 背景/边框，保留模型热度/风险刷子与自定义表格 opt-out；进程 GPU 视口继续读取真实 Base，图表外壳由 PrimaryContentPanel 显式接入。
 - 顶部ADS导航使用独立的`DockTabState`角色（`theme.h::DockTabBackgroundColor/TextColor/GlyphColor`）：三态背景分别沿用背景种子的`SurfaceColor/SurfaceMutedColor/SurfaceAltColor`偏移，只有强调文字、图形与`DockTabHighlightColor`选中底边从主题色派生；底边两像素同时扣减底部padding，保持既有高度。`DockNavigationStyleSheet`最后追加，覆盖旧基础属性hover和背景图透明兜底；普通业务QTabBar不受影响。自绘hover必须补回选中底边，局部文字共用`UI/DockThemeIcons::ApplyDockTabTextColor`，自有工厂在选中/hover/主题事件后调用。Qt在选中标签上仍可能请求Normal图标，导航图形需要对三态都保持对比，背景变化后允许前景做对比度校准。2026-10-04本次背景/强调分离回归5921条断言通过，覆盖主体色变化时三态背景不变、背景种子驱动真实三态底面、选中/选中悬停标记及图标对比；日志`.codex-build-logs/titlebar-background-offset-ui.log`。MainWindow自绘工厂仅静态核对，未启动生产GUI。本次两次主程序Build尝试均在i18n门禁被并行MemoryWorkbench持续新增的文本缺项阻断（已定点补齐11条双语提示）；最新失败日志`.codex-build-logs/ksword-build-check-20261004-213558.raw.log`，不报告整库编译通过。

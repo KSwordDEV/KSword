@@ -2,6 +2,7 @@
 #include "../Ksword5.1/Ksword5.1/theme.h"
 #include "../Ksword5.1/Ksword5.1/UI/CodeEditorWidget.h"
 #include "../Ksword5.1/Ksword5.1/UI/CodeTextEdit.h"
+#include "../Ksword5.1/Ksword5.1/UI/CodeTextSurfaceColors.h"
 #include "../Ksword5.1/Ksword5.1/UI/SvgThemeIconManager.h"
 #include "../Ksword5.1/Ksword5.1/UI/GlobalUiBaseStyle.h"
 #include "../Ksword5.1/Ksword5.1/UI/ThemedMessageBox.h"
@@ -124,17 +125,19 @@ namespace
             && editor->horizontalScrollBar()->value() == horizontal, "theme change retains scrolling");
         require(editor->document()->isModified() == modified
             && editor->document()->isUndoAvailable() == undo, "theme change retains modified/undo session");
-        const QColor base = editor->palette().color(QPalette::Base);
+        const auto surface = ks::ui::CodeTextSurfaceColorsFor(editor->palette());
+        const QColor base = surface.base;
         const QColor accent = editor->palette().color(QPalette::Highlight);
-        const QColor currentLine = KswordTheme::BlendColors(base, accent, 18);
-        const std::array<QColor, 2> backgrounds{ base, currentLine };
+        const QColor currentLine = KswordTheme::WithAlpha(accent, 36);
+        const QColor highlightedSurface = KswordTheme::BlendColors(base, currentLine, currentLine.alpha());
+        const std::array<QColor, 2> backgrounds{ base, highlightedSurface };
         const QColor keyword = KswordTheme::EnsureTextContrastForBackgrounds(
             KswordTheme::AccentColor(KswordTheme::AccentRole::Purple), backgrounds.data(),
             static_cast<int>(backgrounds.size()));
         require(syntaxForeground(editor) == keyword,
             "existing C++ keyword QTextLayout uses the current theme without editing");
         require(KswordTheme::ContrastRatio(keyword, base) >= 4.499
-            && KswordTheme::ContrastRatio(keyword, currentLine) >= 4.499,
+            && KswordTheme::ContrastRatio(keyword, highlightedSurface) >= 4.499,
             "syntax remains readable on the document and current-line backgrounds");
         const auto selections = editor->extraSelections();
         require(!selections.isEmpty()
