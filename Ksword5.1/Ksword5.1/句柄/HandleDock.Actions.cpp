@@ -94,7 +94,7 @@ const HandleDock::HandleRow* HandleDock::selectedHandleRow()
         return nullptr;
     }
     const std::size_t rowIndex = static_cast<std::size_t>(rowIndexValue.toULongLong());
-    if (rowIndex >= m_allRows.size())
+    if (rowIndex >= static_cast<std::size_t>(m_allRows.size()))
     {
         return nullptr;
     }

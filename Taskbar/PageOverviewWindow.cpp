@@ -46,7 +46,7 @@ namespace
     // RGB 只作用于列顶部、当前项和悬停面，正文保持稳定高对比白色。
     QColor rainbow(qreal hue, int alpha = 255)
     {
-        QColor color = QColor::fromHsvF(std::fmod(hue + 1.0, 1.0), 0.62, 1.0);
+        QColor color = QColor::fromHsvF(static_cast<float>(std::fmod(hue + 1.0, 1.0)), 0.62f, 1.0f);
         color.setAlpha(alpha);
         return color;
     }

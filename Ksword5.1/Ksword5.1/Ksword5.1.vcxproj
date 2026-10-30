@@ -1598,7 +1598,7 @@
     <Warning Condition="!Exists('$(KswordProfileCompressor)')" Text="Profile compressor was not found; compressed profile packs were not generated: $(KswordProfileCompressor)" />
     <Warning Condition="!Exists('$(KswordArkDynDataProfilePackV4Source)')" Text="KswordARK DynData v4 profile pack was not found: $(KswordArkDynDataProfilePackV4Source)" />
   </Target>
-  <Target Name="CopyRegistryOptimizationProfile" AfterTargets="Build">
+  <Target Name="CopyRegistryOptimizationProfile" AfterTargets="Build" Condition="'$(KswordSkipRegistryOptimizationProfile)'!='true'">
     <!-- 系统优化页运行时优先读取 profiles\registry_optimization_items.json.qz；源文件是本地提取资产，已加入 .gitignore。 -->
     <ItemGroup>
       <KswordRegistryOptimizationAsset Include="$(MSBuildProjectDirectory)\profiles\registry_optimization_assets\**\*.*" />
@@ -1654,7 +1654,7 @@
     </PropertyGroup>
     <Copy SourceFiles="$(TaskmgrHijackScriptSource)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" Condition="Exists('$(TaskmgrHijackScriptSource)')" />
   </Target>
-  <Target Name="CopyKswordArkDriverArtifacts" AfterTargets="Build">
+  <Target Name="CopyKswordArkDriverArtifacts" AfterTargets="Build" Condition="'$(KswordSkipArkDriverArtifacts)'!='true'">
     <PropertyGroup>
       <KswordArkDriverOutputDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(KswordUnifiedReleaseOutputDir)</KswordArkDriverOutputDir>
       <KswordArkDriverOutputDir Condition="'$(Configuration)|$(Platform)'!='Release|x64'">$(MSBuildProjectDirectory)\..\..\KswordARKDriver\x64\$(Configuration)\</KswordArkDriverOutputDir>

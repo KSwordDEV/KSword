@@ -511,6 +511,9 @@ jobs:
             '/p:KswordArkSkipAutoTestSign=true',
             # 空包只供 Launcher 编译；运行时规范化必须使用私有正式语料，CI 不发布占位档案。
             '/p:KswordSkipDynDataProfilePack=true',
+            # Private assets and the separately built driver are merged at release packaging.
+            '/p:KswordSkipRegistryOptimizationProfile=true',
+            '/p:KswordSkipArkDriverArtifacts=true',
             '/m:1',
             '/v:minimal'
           )
@@ -681,6 +684,9 @@ jobs:
             '/p:KswordArkSkipAutoTestSign=true',
             # 与普通 user-mode job 一致：不将空的编译占位包作为运行时档案打包。
             '/p:KswordSkipDynDataProfilePack=true',
+            # Private assets and the separately built driver are merged at release packaging.
+            '/p:KswordSkipRegistryOptimizationProfile=true',
+            '/p:KswordSkipArkDriverArtifacts=true',
             '/m:1',
             '/v:minimal'
           )

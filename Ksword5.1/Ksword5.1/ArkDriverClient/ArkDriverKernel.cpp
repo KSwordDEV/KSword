@@ -783,7 +783,7 @@ namespace ksword::ark
                 value.systemInformation.resize(header + raw->NumberOfModules * sizeof(KRTL_PROCESS_MODULE_INFORMATION));
                 // Ignore native alignment/name-tail padding when comparing batch identities.
                 std::fill(value.systemInformation.begin() + sizeof(raw->NumberOfModules),
-                    value.systemInformation.begin() + header, 0U);
+                    value.systemInformation.begin() + header, std::uint8_t{0});
                 auto* normalized = reinterpret_cast<KRTL_PROCESS_MODULES*>(value.systemInformation.data());
                 for (unsigned long index = 0; index < normalized->NumberOfModules; ++index)
                 {

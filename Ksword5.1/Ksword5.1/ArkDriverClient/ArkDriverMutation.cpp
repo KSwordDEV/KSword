@@ -53,7 +53,7 @@ namespace ksword::ark
                 return;
             }
 
-            std::fill(destination, destination + destinationBytes, 0U);
+            std::fill(destination, destination + destinationBytes, std::uint8_t{0});
             const std::size_t copyBytes = std::min<std::size_t>(destinationBytes, sourceBytes.size());
             if (copyBytes != 0U)
             {

@@ -352,7 +352,7 @@ namespace ksword::ark
         totalResponseBytes = 0U;
         expectedSnapshotHash = 0U;
         expectedTotalCount = 0U;
-        std::fill(responseBuffer.begin(), responseBuffer.end(), 0U);
+        std::fill(responseBuffer.begin(), responseBuffer.end(), std::uint8_t{0});
 
         while (pageCount < maximumPageCount)
         {
