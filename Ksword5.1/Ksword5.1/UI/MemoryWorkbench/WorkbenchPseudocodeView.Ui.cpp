@@ -94,6 +94,7 @@ namespace ks::ui
         refresh_ = new QPushButton(ks::i18n::sourceText(QStringLiteral("刷新后端")), this);
         refresh_->setToolTip(refresh_->text());
         auto* advanced = new QCheckBox(ks::i18n::sourceText(QStringLiteral("高级路径")), this);
+        advanced->setObjectName(QStringLiteral("memory_decompiler_advanced_path"));
         advanced->setToolTip(advanced->text());
         configuration->addWidget(install_);
         configuration->addWidget(refresh_);
@@ -101,9 +102,8 @@ namespace ks::ui
         NormalizeToolbarControl(install_);
         NormalizeToolbarControl(refresh_);
         NormalizeToolbarControl(advanced);
-        layout->addLayout(configuration);
-
         auto* advancedPage = new QWidget(this); // 仅在用户选择自定义配置时显示。
+        advancedPage->setObjectName(QStringLiteral("memory_decompiler_path_row"));
         auto* paths = new QHBoxLayout(advancedPage);
         paths->setContentsMargins(0, 0, 0, 0);
         paths->addWidget(new QLabel(ks::i18n::sourceText(QStringLiteral("Ghidra 目录")), advancedPage));
@@ -117,7 +117,8 @@ namespace ks::ui
         browse->setToolTip(browse->text());
         paths->addWidget(browse);
         NormalizeToolbarRow(paths);
-        layout->addWidget(advancedPage);
+        configuration->addExpandingWidget(advancedPage, 260);
+        layout->addLayout(configuration);
         advanced->setChecked(!directory.isEmpty());
         advancedPage->setVisible(advanced->isChecked());
         connect(advanced, &QCheckBox::toggled, advancedPage, &QWidget::setVisible);
@@ -157,14 +158,14 @@ namespace ks::ui
             tools->addWidget(button);
             NormalizeToolbarControl(button);
         }
-        layout->addLayout(tools);
         status_ = new QLabel(this);
         status_->setObjectName(QStringLiteral("memory_pseudocode_status"));
         status_->setTextFormat(Qt::PlainText);
         status_->setWordWrap(true);
         status_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        layout->addWidget(status_);
+        tools->addExpandingWidget(status_, 180);
+        layout->addLayout(tools);
         setStatus(QStringLiteral("选择代码地址后反编译；伪代码基于当前快照，类型和函数边界由后端推断。"));
 
         // 无法量化的阶段显示活动条和单调耗时；只有后端真实单位才使用有界范围。
