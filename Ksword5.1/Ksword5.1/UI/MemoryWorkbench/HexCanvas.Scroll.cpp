@@ -553,14 +553,36 @@ namespace ks::ui
         return spans;
     }
 
-    void HexCanvas::rememberFoldScrollAnchor()
+    void HexCanvas::rememberFoldScrollAnchor(bool preferReadable)
     {
         m_foldScrollAnchor.reset();
         if (!m_hasSpace || !m_foldUnknownRegions) return;
         const auto top = m_viewport.RowValidSpan(m_firstRow);
         if (!top) return;
-        m_foldScrollAnchor = FoldScrollAnchor{top->first, 0};
+        m_foldScrollAnchor = FoldScrollAnchor{top->first, 0, preferReadable};
         const auto rows = std::min(fullVisibleRows(), m_viewport.RowCount() - m_firstRow);
+        if (preferReadable)
+        {
+            // A folding toggle preserves the content being viewed. In a sparse
+            // view the old caret can also be visible at a remote unknown endpoint;
+            // following it while unfolding would leave the real fragment behind.
+            // This bounded scan runs only for an explicit toggle, never per paint.
+            for (std::uint64_t row = 0; row < rows; ++row)
+            {
+                const auto span = m_viewport.RowValidSpan(m_firstRow + row);
+                if (!span) continue;
+                for (auto address = span->first;; ++address)
+                {
+                    if (m_viewport.PeekByte(address).state == ByteState::Valid
+                        || (m_overlay && m_overlay->HasPendingInRange(address, address)))
+                    {
+                        m_foldScrollAnchor = FoldScrollAnchor{address, row, true};
+                        return;
+                    }
+                    if (address == span->last) break;
+                }
+            }
+        }
         if (m_foldNavigationAddress)
         {
             const auto row = m_viewport.RowOfAddress(*m_foldNavigationAddress);
@@ -576,7 +598,7 @@ namespace ks::ui
         // a readable row, so newly folded leading placeholders cannot move it.
         const auto caret = m_viewport.GetSelection().caret;
         const auto caretRow = m_viewport.RowOfAddress(caret);
-        if (caretRow && *caretRow >= m_firstRow && *caretRow - m_firstRow < rows)
+        if (!preferReadable && caretRow && *caretRow >= m_firstRow && *caretRow - m_firstRow < rows)
         {
             m_foldScrollAnchor = FoldScrollAnchor{caret, *caretRow - m_firstRow, true};
             return;
@@ -631,18 +653,28 @@ namespace ks::ui
     {
         if (m_foldUnknownRegions == enabled) return;
         const QPointer<HexCanvas> alive(this);
-        if (!enabled) rememberFoldScrollAnchor();
+        const auto revision = sourceRevision();
+        if (!enabled) rememberFoldScrollAnchor(true);
         m_foldUnknownRegions = enabled;
-        if (enabled) rememberFoldScrollAnchor();
+        if (enabled) rememberFoldScrollAnchor(true);
+        const auto anchor = m_foldScrollAnchor;
+        if (anchor && anchor->keepVisible) m_foldNavigationAddress = anchor->address;
         m_foldFetchBudget = 16;
         cancelUniformBoundarySearch();
         m_viewport.SetFoldUnknown(enabled);
         if (m_provider) m_provider->SetUnknownFoldingEnabled(enabled);
-        if (!alive) return;
+        if (!alive || sourceRevision() != revision) return;
         syncFoldGeometry();
-        if (!alive) return;
+        if (!alive || sourceRevision() != revision) return;
         viewport()->update();
         requestVisiblePages();
+        if (!alive || sourceRevision() != revision) return;
+        if (anchor && anchor->keepVisible)
+        {
+            const auto state = m_viewport.PeekByte(anchor->address).state;
+            if (state == ByteState::NotLoaded || state == ByteState::Pending)
+                requestAddressRange(anchor->address, anchor->address, RangeReadPurpose::ExplicitRead);
+        }
     }
 
     void HexCanvas::deliverUnreadableExtent(std::uint64_t first, std::uint64_t last, std::uint64_t revision)

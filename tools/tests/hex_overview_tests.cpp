@@ -60,7 +60,7 @@ int main() {
         for(std::uint64_t page=0;page<2;++page) {
             for(std::size_t at=0;at<4096;++at) {
                 const auto index=page*4096+at;
-                source[index]=bytes[at]=static_cast<std::uint8_t>((index+seed)%5 ? 0xA5 : 0);
+                source[index]=bytes[at]=static_cast<std::uint8_t>((index+seed)%5 ? ((index+seed)%3 ? 0xA5 : 0x41) : 0);
                 valid[index]=mask[at]=static_cast<std::uint8_t>(((index+seed*7)/29)%7==0);
             }
             sample.InsertPage(page*4096,bytes,mask,sample.SourceRevision());
@@ -70,20 +70,31 @@ int main() {
             for(const auto requested:{1U,3U,17U,401U,4096U}) {
                 const auto results=sample.OverviewBins(requested);
                 for(const auto& bin:results) {
-                    std::uint64_t total=0,read=0,nonzero=0;
+                    std::uint64_t total=0,read=0,nonzero=0,ascii=0;
                     for(auto row=bin.firstRow;row<bin.firstRow+bin.rowCount;++row) {
                         const auto span=sample.RowValidSpan(row).value();
                         for(auto address=span.first;address<=span.last;++address) {
                             ++total;
-                            if(valid[address]) { ++read; if(source[address]) ++nonzero; }
+                            if(valid[address]) { ++read; if(source[address]) ++nonzero; if(source[address]>=32 && source[address]<127) ++ascii; }
                         }
                     }
                     CHECK(bin.totalBytes==static_cast<double>(total));
-                    CHECK(bin.readBytes==read && bin.nonZeroBytes==nonzero);
+                    CHECK(bin.readBytes==read && bin.nonZeroBytes==nonzero && bin.asciiBytes==ascii);
                 }
             }
         }
     }
+    View asciiSample(0,7);
+    asciiSample.SetOverviewEnabled(true);
+    bytes.assign(4096,0x42);mask.assign(4096,0);
+    const std::uint8_t asciiEdges[]={0x1F,0x20,0x7E,0x7F,0,0xFF,0x41,9};
+    std::copy(std::begin(asciiEdges),std::end(asciiEdges),bytes.begin());
+    std::fill(mask.begin(),mask.begin()+8,std::uint8_t{1});mask[6]=0;
+    asciiSample.InsertPage(0,bytes,mask,asciiSample.SourceRevision());
+    auto asciiBin=asciiSample.OverviewBins(1)[0];
+    CHECK(asciiBin.readBytes==7 && asciiBin.nonZeroBytes==6 && asciiBin.asciiBytes==2);
+    asciiSample.MarkUnreadable({0,1,0},asciiSample.SourceRevision());
+    CHECK(asciiSample.OverviewBins(1)[0].asciiBytes==0);
     constexpr std::uint64_t far=1ULL<<48;
     View sparse(0,far+4095);
     sparse.SetOverviewEnabled(true); sparse.SetFoldUnknown(true);

@@ -613,6 +613,7 @@ void HexViewport::RebuildOverview(CachedPage& page) {
         if (page.validMask[offset]) {
             ++counts.read;
             if (page.bytes[offset] != 0) ++counts.nonZero;
+            if (page.bytes[offset] >= 0x20 && page.bytes[offset] <= 0x7E) ++counts.ascii;
         }
         if ((offset + 1) % 64 == 0) page.overview[(offset + 1) / 64] = counts;
     }
@@ -647,6 +648,7 @@ std::vector<HexViewport::OverviewBin> HexViewport::OverviewBins(std::size_t coun
         for (auto at = (offset / 64) * 64; at < offset; ++at) if (page.validMask[at]) {
             ++result.read;
             if (page.bytes[at] != 0) ++result.nonZero;
+            if (page.bytes[at] >= 0x20 && page.bytes[at] <= 0x7E) ++result.ascii;
         }
         return result;
     };
@@ -656,7 +658,7 @@ std::vector<HexViewport::OverviewBin> HexViewport::OverviewBins(std::size_t coun
         const auto first = RowValidSpan(firstRow), last = RowValidSpan(endRow - 1);
         if (!first || !last) continue;
         OverviewBin bin{firstRow, endRow - firstRow,
-            static_cast<double>(endRow - firstRow) * bytesPerRow_, 0, 0};
+            static_cast<double>(endRow - firstRow) * bytesPerRow_, 0, 0, 0};
         if (!firstRow) bin.totalBytes -= static_cast<double>(firstAddress_ - rowBase_);
         if (endRow == rows) {
             const auto lastStart = RowStartAddress(rows - 1).value();
@@ -672,6 +674,7 @@ std::vector<HexViewport::OverviewBin> HexViewport::OverviewBins(std::size_t coun
                 const auto a = prefix(it->second, low), b = prefix(it->second, high);
                 bin.readBytes += b.read - a.read;
                 bin.nonZeroBytes += b.nonZero - a.nonZero;
+                bin.asciiBytes += b.ascii - a.ascii;
             }
         }
         bins.push_back(bin);

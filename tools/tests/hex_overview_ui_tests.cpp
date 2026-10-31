@@ -47,7 +47,7 @@ void runHexOverviewUiTests() {
     check(!rail(c),"overview allocation is deferred until the canvas is visible");
     c.show(); drain(); draw(c);
     auto* r=rail(c);
-    check(r && r->isVisible() && r->width()==Rail::kWidth,"overview rail is visible and narrow");
+    check(r && r->isVisible() && r->width()==25,"overview rail is 2.5 times its original 10-pixel width");
     check(c.verticalScrollBar()==originalBar,"original vertical scrollbar identity is retained");
     check(r->geometry().left()==c.viewport()->geometry().right()+1,"rail occupies the right viewport margin");
     check(!r->accessibleName().isEmpty() && !r->toolTip().isEmpty(),"overview has accessible help");
@@ -58,8 +58,8 @@ void runHexOverviewUiTests() {
         const auto base=pixel(image,0,upper), zero=pixel(image,5,upper), nonzero=pixel(image,5,lower);
         check(1.05/(luminance(base)+.05)>=2.95,"white remains visible against the rail backing in both themes");
         check(zero!=Qt::white && colorDistance(zero,base)>0,"real zero bytes retain a faint theme tint");
-        check(colorDistance(nonzero,KswordTheme::PrimaryAccentColor())<4,"all nonzero read bytes use maximum theme opacity");
-        check(colorDistance(nonzero,base)>colorDistance(zero,base),"nonzero content increases opacity");
+        check(colorDistance(nonzero,KswordTheme::PrimaryAccentColor())>20,"even all printable ASCII leaves opacity headroom");
+        check(colorDistance(nonzero,Qt::white)>colorDistance(zero,Qt::white),"printable content deepens the light read tint");
         c.grab().save(QCoreApplication::applicationDirPath()+(dark ? QStringLiteral("/overview-dark.png") : QStringLiteral("/overview-light.png")));
     }
     const auto built=r->summaryBuildCount(), readBefore=reads.requests;
@@ -118,19 +118,43 @@ void runHexOverviewUiTests() {
     std::fill(data.begin(),data.begin()+8,'\x42');std::fill(valid.begin(),valid.begin()+8,'\1');
     mixed.deliverPage(0,data,valid,mixed.sourceRevision());mixed.show();drain();
     auto* mr=rail(mixed);auto mixedImage=capture(*mr);const int y=mr->height()/3;
-    check(colorDistance(pixel(mixedImage,2,y),KswordTheme::PrimaryAccentColor())<4 && pixel(mixedImage,7,y)==Qt::white,
-        "mixed bin preserves half unknown white and computes nonzero opacity from read bytes alone");
+    const auto asciiTint=KswordTheme::BlendColors(Qt::white,KswordTheme::PrimaryAccentColor(),qRound(.70*255));
+    check(colorDistance(pixel(mixedImage,4,y),asciiTint)<4 && pixel(mixedImage,18,y)==Qt::white,
+        "mixed bin preserves half unknown white and computes intensity from read bytes alone");
     data.fill('\0');mixed.deliverPage(0,data,valid,mixed.sourceRevision());mixedImage=capture(*mr);
-    check(pixel(mixedImage,2,y)!=Qt::white && pixel(mixedImage,7,y)==Qt::white,"mixed real-zero bin keeps its unknown half white");
+    check(pixel(mixedImage,4,y)!=Qt::white && pixel(mixedImage,18,y)==Qt::white,"mixed real-zero bin keeps its unknown half white");
     data.fill('\x42');valid.fill('\0');std::fill(valid.begin(),valid.begin()+3,'\1');
     mixed.deliverPage(0,data,valid,mixed.sourceRevision());mixedImage=capture(*mr);
     const auto dpr=mixedImage.devicePixelRatio();
     const int left=qRound(mr->stripRect().left()*dpr),right=qRound(mr->stripRect().right()*dpr);
     const double coverage=(right-left)*3.0/16;
     const int whole=static_cast<int>(coverage);
-    const auto edgeColor=KswordTheme::BlendColors(Qt::white,KswordTheme::PrimaryAccentColor(),qRound((coverage-whole)*255));
+    const auto edgeColor=KswordTheme::BlendColors(Qt::white,asciiTint,qRound((coverage-whole)*255));
     check(colorDistance(mixedImage.pixelColor(left+whole,qRound(y*dpr)),edgeColor)<4,
         "fractional mixed coverage preserves the white part of the boundary pixel");
+
+    HexCanvas tones;
+    tones.resize(700,420);tones.setAddressSpace(0,4*4096-1);tones.setOverviewEnabled(true);
+    QByteArray halfAscii(4096,'\xFF');std::fill(halfAscii.begin(),halfAscii.begin()+2048,'A');
+    for(int page=0;page<4;++page) tones.deliverPage(page*4096,
+        page==2 ? halfAscii : QByteArray(4096,page==0 ? '\0' : page==1 ? '\xFF' : 'A'),QByteArray(4096,'\1'),tones.sourceRevision());
+    tones.show();drain();auto* tr=rail(tones);
+    for(bool dark:{false,true}) {
+        KswordTheme::SetDarkModeEnabled(dark);
+        const auto image=capture(*tr);
+        // Sample the binary half of the third page: a per-row summary must not
+        // darken it just because the same page also contains readable text.
+        const auto zeroColor=pixel(image,12,tr->height()/8),binary=pixel(image,12,tr->height()*3/8);
+        const auto text=pixel(image,12,tr->height()*7/8),binaryWithinTextPage=pixel(image,12,tr->height()*23/32);
+        const auto textWithinMixedPage=pixel(image,12,tr->height()*17/32);
+        check(colorDistance(zeroColor,Qt::white)>0 && colorDistance(binary,Qt::white)>colorDistance(zeroColor,Qt::white),
+            "zero and binary bytes have distinct light and deeper theme tints");
+        check(colorDistance(text,Qt::white)>colorDistance(binary,Qt::white) && colorDistance(binaryWithinTextPage,binary)<4,
+            "ASCII density is calculated for corresponding rows rather than the entire page");
+        check(colorDistance(textWithinMixedPage,text)<4 && colorDistance(text,KswordTheme::PrimaryAccentColor())>20,
+            "text rows deepen the tint without making it fully opaque");
+        tones.grab().save(QCoreApplication::applicationDirPath()+(dark ? QStringLiteral("/overview-tones-dark.png") : QStringLiteral("/overview-tones-light.png")));
+    }
 
     HexCanvas folded;
     constexpr std::uint64_t far=1ULL<<32;

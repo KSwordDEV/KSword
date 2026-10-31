@@ -44,6 +44,18 @@ class Port final : public IMemoryIoPort {
 public:
     explicit Port(std::shared_ptr<State> state):state_(std::move(state)){}
     IoLimits Limits(const MemoryTargetSession&) const override {return {4096,0};}
+    std::optional<UnreadableExtent> QueryUnreadableExtent(const MemoryTargetSession&,std::uint64_t address) override {
+        if(!state_->real) {
+            if(address<state_->base) return UnreadableExtent{0,state_->base-1};
+            if(address-state_->base>=0x10000) return UnreadableExtent{state_->base+0x10000,0x7FFFFFFFFFFF};
+            return std::nullopt;
+        }
+        MEMORY_BASIC_INFORMATION info{};
+        if(VirtualQueryEx(GetCurrentProcess(),reinterpret_cast<LPCVOID>(address),&info,sizeof(info))!=sizeof(info)) return std::nullopt;
+        if(info.State!=MEM_FREE && info.State!=MEM_RESERVE && !(info.Protect&(PAGE_NOACCESS|PAGE_GUARD))) return std::nullopt;
+        const auto first=reinterpret_cast<std::uint64_t>(info.BaseAddress);
+        return UnreadableExtent{first,first+info.RegionSize-1};
+    }
     IoReadResult Read(const MemoryTargetSession& session,std::uint64_t address,std::uint64_t length) override {
         ++state_->calls;
         if(address<=state_->base && state_->base-address<length) {
@@ -106,6 +118,38 @@ void scenario(bool real) {
         check(!canvas.cellRect(state->base,HexCanvas::ActivePane::Hex).isNull(),"jumped real bytes remain visible");
         check(canvas.selectedRange() && canvas.selectedRange()->first==state->base && canvas.selectedRange()->last==end,
             "asynchronous read preserves the requested selection");
+        for (int toggle=0;toggle<3;++toggle) {
+            canvas.setFoldUnknownRegions(false);
+            pump([&]{return !provider.hasInFlightRequests();});
+            check(canvas.cellStateAt(state->base).hasValue,"unfolding keeps accepted target data");
+            check(!canvas.cellRect(state->base,HexCanvas::ActivePane::Hex).isNull(),"unfolding keeps the target on screen");
+            canvas.setFoldUnknownRegions(true);
+            pump([&]{return !provider.hasInFlightRequests();});
+            check(canvas.cellStateAt(state->base).hasValue,"refolding keeps accepted target data");
+            check(!canvas.cellRect(state->base,HexCanvas::ActivePane::Hex).isNull(),"refolding keeps the target on screen");
+            const auto visible=canvas.visibleAddressRange();
+            std::printf("TOGGLE real=%d first=%llX last=%llX target_state=%d\n",real,
+                static_cast<unsigned long long>(visible ? visible->first : 0),static_cast<unsigned long long>(visible ? visible->last : 0),
+                static_cast<int>(canvas.cellStateAt(state->base).byteState));
+        }
+        canvas.setFoldUnknownRegions(false);
+        canvas.setViewportReadEnabled(false);
+        canvas.refresh();
+        canvas.setFirstVisibleRow(state->base/static_cast<std::uint64_t>(canvas.bytesPerRow()));
+        canvas.setFoldUnknownRegions(true);
+        check(pump([&]{return canvas.cellStateAt(state->base).hasValue;}),
+            "refolding explicitly reloads the viewed target after cache loss while ordinary reads are paused");
+        check(!canvas.cellRect(state->base,HexCanvas::ActivePane::Hex).isNull(),"reloaded refolding target remains visible");
+        canvas.setViewportReadEnabled(true);
+        state->block=true;state->blocked=false;state->release=false;
+        canvas.refresh();
+        check(pump([&]{return state->blocked.load();}),"refresh read is pending before rapid folding changes");
+        canvas.setFoldUnknownRegions(false);
+        canvas.setFoldUnknownRegions(true);
+        state->release=true;
+        check(pump([&]{return !provider.hasInFlightRequests();}),"rapid toggle read finishes");
+        check(canvas.cellStateAt(state->base).hasValue && !canvas.cellRect(state->base,HexCanvas::ActivePane::Hex).isNull(),
+            "rapid unfolding/refolding retains and completes the pending target read");
         state->block=true;state->blocked=false;state->release=false;
         const auto readsBeforePending=state->targetReads.load();
         canvas.refresh();

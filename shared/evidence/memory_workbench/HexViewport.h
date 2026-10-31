@@ -212,7 +212,7 @@ public:
     struct OverviewBin {
         std::uint64_t firstRow = 0, rowCount = 0;
         double totalBytes = 0; // May represent the complete 2^64 byte address space.
-        std::uint64_t readBytes = 0, nonZeroBytes = 0;
+        std::uint64_t readBytes = 0, nonZeroBytes = 0, asciiBytes = 0;
     };
     // Opt-in cache-only summaries. Queries never touch LRU or issue reads.
     void SetOverviewEnabled(bool enabled);
@@ -377,7 +377,7 @@ private:
         std::vector<std::uint8_t> bytes;        // 页内字节（不可读页为空）
         std::vector<std::uint8_t> validMask;    // 有效掩码，每字节一个 0/1（不可读页为空）
         std::vector<AddressRange> readableRanges; // Fold summary, rebuilt only on page/row-width changes.
-        struct OverviewPrefix { std::uint16_t read = 0, nonZero = 0; };
+        struct OverviewPrefix { std::uint16_t read = 0, nonZero = 0, ascii = 0; };
         std::vector<OverviewPrefix> overview; // Prefix counts per 64 bytes, only when enabled.
         std::uint64_t sourceRevision = 0;       // 读取时的来源代次
         bool unreadable = false;                // 整页不可读

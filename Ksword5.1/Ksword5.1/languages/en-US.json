@@ -7376,7 +7376,7 @@
   },
   "source_translations": {
     "内存概览": "Memory overview",
-    "白色表示未知；主题色透明度表示已读字节中非零字节的比例。点击定位，拖动滚动。": "White indicates unknown bytes. Theme-color opacity shows the nonzero proportion among bytes read. Click to locate; drag to scroll.",
+    "白色表示未知；已读字节显示淡主题色，非零字节更深，可显示 ASCII 字符越多颜色越深。点击定位，拖动滚动。": "White indicates unknown bytes. Read bytes have a light theme tint; nonzero bytes are darker, and more printable ASCII makes the tint deeper. Click to navigate; drag to scroll.",
     "连续的未知区域（未加载、读取中或不可读）只显示首行和末行；保留光标与暂存编辑，不修改原始字节": "Show only the first and last rows of unknown runs (unloaded, reading or unreadable); keep the caret and staged edits visible without changing original bytes",
     "连续的已确认不可读区域只显示首行和末行；不折叠尚未读取或正在加载的数据，不修改原始字节": "Show only the first and last rows of confirmed unreadable runs; unloaded or pending data is kept visible and original bytes are preserved",
     "边界查找未能读取数据，请检查通道后重试": "The boundary search could not read data; check the channel and try again",

@@ -19,13 +19,13 @@ namespace ks::ui
     class HexCanvasOverviewBar final : public QWidget
     {
     public:
-        static constexpr int kWidth = 10; // Professional viewport rail, logical pixels.
+        static constexpr int kWidth = 25; // Professional viewport rail, logical pixels.
         explicit HexCanvasOverviewBar(HexCanvas* canvas) : QWidget(canvas), canvas_(canvas), bar_(canvas->verticalScrollBar())
         {
             setObjectName(QStringLiteral("memwb_hex_overview"));
             setAttribute(Qt::WA_OpaquePaintEvent);
             setAccessibleName(ks::i18n::sourceText(QStringLiteral("内存概览")));
-            setToolTip(ks::i18n::sourceText(QStringLiteral("白色表示未知；主题色透明度表示已读字节中非零字节的比例。点击定位，拖动滚动。")));
+            setToolTip(ks::i18n::sourceText(QStringLiteral("白色表示未知；已读字节显示淡主题色，非零字节更深，可显示 ASCII 字符越多颜色越深。点击定位，拖动滚动。")));
         }
 
         QRectF stripRect() const { return QRectF(1, 1, std::max(0, width() - 2), std::max(0, height() - 2)); }
@@ -166,8 +166,12 @@ namespace ks::ui
                 const auto known = bin.totalBytes > 0 ? std::clamp(static_cast<double>(bin.readBytes) / bin.totalBytes, 0.0, 1.0) : 0.0;
                 const double knownWidth = (right - left) * known;
                 const int whole = std::clamp(static_cast<int>(knownWidth), 0, right - left);
-                const auto alpha = 0.18 + 0.82 * static_cast<double>(bin.nonZeroBytes) / static_cast<double>(bin.readBytes);
-                const auto tint = KswordTheme::BlendColors(base, accent, qRound(alpha * 255));
+                // Leave headroom for readable text instead of saturating ordinary
+                // binary data. Density is measured only among accepted read bytes;
+                // the rest of this bin keeps its separate white coverage.
+                const auto alpha = 0.12 + 0.16 * static_cast<double>(bin.nonZeroBytes) / static_cast<double>(bin.readBytes)
+                    + 0.42 * static_cast<double>(bin.asciiBytes) / static_cast<double>(bin.readBytes);
+                const auto tint = KswordTheme::BlendColors(Qt::white, accent, qRound(alpha * 255));
                 const auto edge = KswordTheme::BlendColors(Qt::white, tint, qRound((knownWidth - whole) * 255));
                 for (int y = y0; y < y1; ++y) {
                     auto* line = reinterpret_cast<QRgb*>(image_.scanLine(y)) + left;

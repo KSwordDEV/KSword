@@ -56,6 +56,34 @@ QToolButton* button(HexCanvas& c, const QString& text) {
     return nullptr;
 }
 void foldScrollStability() {
+    // Match the screenshot's old caret at the last address while a small real
+    // fragment is visible between unknown endpoints. A presentation toggle
+    // should keep that fragment in view, rather than jump to the remote caret.
+    {
+        HexCanvas small;
+        small.resize(900,420);small.setFoldUnknownRegions(true);
+        small.setAddressSpace(0,0x7FFFFFFFFFFF);
+        constexpr std::uint64_t fragment=0x4325C530970;
+        QByteArray values(4096,'\0'),valid(4096,'\0');
+        const int offset=static_cast<int>(fragment%4096);
+        std::fill(values.begin()+offset,values.begin()+offset+32,'A');
+        std::fill(valid.begin()+offset,valid.begin()+offset+32,'\1');
+        small.setCaretAddress(0x7FFFFFFFFFFF,false,false);
+        small.deliverPage(fragment-offset,values,valid,small.sourceRevision());
+        small.show();draw(small);
+        check(small.cellStateAt(fragment).hasValue && !small.cellRect(fragment,HexCanvas::ActivePane::Hex).isNull(),
+            "sparse fragment is visible beside a remote unknown caret");
+        const auto selection=small.selectedRange();
+        for(int i=0;i<3;++i) {
+            small.setFoldUnknownRegions(false);draw(small);
+            check(!small.cellRect(fragment,HexCanvas::ActivePane::Hex).isNull(),
+                "unfolding anchors the visible read fragment rather than an unknown endpoint caret");
+            small.setFoldUnknownRegions(true);draw(small);
+            check(small.cellStateAt(fragment).hasValue && !small.cellRect(fragment,HexCanvas::ActivePane::Hex).isNull(),
+                "refolding retains the visible sparse fragment");
+            check(small.selectedRange()==selection,"folding changes no caret or selection");
+        }
+    }
     HexCanvas c;
     c.resize(900, 420);
     c.setFoldUnknownRegions(true);

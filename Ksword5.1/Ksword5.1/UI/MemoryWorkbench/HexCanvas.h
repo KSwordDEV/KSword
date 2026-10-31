@@ -716,7 +716,7 @@ namespace ks::ui
         bool m_overviewEnabled = false;
         QWidget* m_overviewBar = nullptr;
         void syncFoldGeometry();
-        void rememberFoldScrollAnchor();
+        void rememberFoldScrollAnchor(bool preferReadable = false);
         struct FoldScrollAnchor { std::uint64_t address = 0, screenRow = 0; bool keepVisible = false; };
         std::optional<FoldScrollAnchor> m_foldScrollAnchor;
         std::optional<std::uint64_t> m_foldNavigationAddress;

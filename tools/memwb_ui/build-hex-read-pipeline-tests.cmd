@@ -12,6 +12,8 @@ if not exist "%QT%\lib\Qt6Widgets.lib" set "QT=D:\Software\Qt\6.9.3\msvc2022_64"
 set "APP=%CD%\Ksword5.1\Ksword5.1"
 set "UI=%APP%\UI\MemoryWorkbench"
 set "CORE=%CD%\shared\evidence\memory_workbench"
+rem Optional frozen scroll implementation for a controlled negative regression.
+if not defined HEX_SCROLL_SOURCE set "HEX_SCROLL_SOURCE=%UI%\HexCanvas.Scroll.cpp"
 set "OUT=%CD%\.codex-tmp\hex-read-pipeline"
 if not exist "%OUT%" mkdir "%OUT%"
 for %%H in (HexCanvas WorkbenchTarget WorkbenchPageProvider) do (
@@ -20,7 +22,7 @@ for %%H in (HexCanvas WorkbenchTarget WorkbenchPageProvider) do (
 )
 cl /MP4 /nologo /std:c++20 /Zc:__cplusplus /utf-8 /EHsc /MD /W4 /WX /O2 /Gy /DUNICODE /D_UNICODE /DQT_CORE_LIB /DQT_GUI_LIB /DQT_WIDGETS_LIB /external:W0 /external:I"%QT%\include" /external:I"%QT%\include\QtCore" /external:I"%QT%\include\QtGui" /external:I"%QT%\include\QtWidgets" /I"%UI%" ^
   tools\tests\hex_navigation_read_pipeline_tests.cpp "%OUT%\moc_HexCanvas.cpp" "%OUT%\moc_WorkbenchTarget.cpp" "%OUT%\moc_WorkbenchPageProvider.cpp" ^
-  "%UI%\HexCanvas.cpp" "%UI%\HexCanvas.Scroll.cpp" "%UI%\HexCanvas.Layout.cpp" "%UI%\HexCanvas.Paint.cpp" "%UI%\HexCanvas.Input.cpp" "%UI%\HexCanvas.Edit.cpp" "%UI%\HexCanvas.Menu.cpp" "%UI%\HexCanvasFormat.cpp" ^
+  "%UI%\HexCanvas.cpp" "%HEX_SCROLL_SOURCE%" "%UI%\HexCanvas.Layout.cpp" "%UI%\HexCanvas.Paint.cpp" "%UI%\HexCanvas.Input.cpp" "%UI%\HexCanvas.Edit.cpp" "%UI%\HexCanvas.Menu.cpp" "%UI%\HexCanvasFormat.cpp" ^
   "%UI%\WorkbenchPageProvider.cpp" "%UI%\WorkbenchPageProvider.Pool.cpp" "%UI%\WorkbenchTarget.cpp" "%UI%\WorkbenchTarget.Anchor.cpp" "%UI%\WorkbenchTarget.Modules.cpp" ^
   "%APP%\Internationalization\LanguageManager.cpp" ^
   "%APP%\MemoryDock\WorkbenchUserModeRead.cpp" ^
