@@ -630,16 +630,16 @@ void HexViewport::SetOverviewEnabled(bool enabled) {
     ++overviewRevision_;
 }
 
-std::uint64_t HexViewport::OverviewRowAt(std::uint32_t position, std::uint32_t extent, bool fixedAddressScale) const {
+std::uint64_t HexViewport::OverviewRowAt(std::uint32_t position, std::uint32_t extent, bool fixedAddressScale, bool knownOnly) const {
     if (!extent) return 0;
     position = std::min(position, extent);
-    const auto rows = fixedAddressScale ? RawRowCount() : RowCount();
+    const auto rows = knownOnly ? KnownRowCount() : fixedAddressScale ? RawRowCount() : RowCount();
     // No row*pixel product: rows can cover the entire 64-bit address space.
     return (rows / extent) * position + ((rows % extent) * position) / extent;
 }
 
-std::vector<HexViewport::OverviewBin> HexViewport::OverviewBins(std::size_t count, bool fixedAddressScale) const {
-    const auto rows = fixedAddressScale ? RawRowCount() : RowCount();
+std::vector<HexViewport::OverviewBin> HexViewport::OverviewBins(std::size_t count, bool fixedAddressScale, bool knownOnly) const {
+    const auto rows = knownOnly ? KnownRowCount() : fixedAddressScale ? RawRowCount() : RowCount();
     const HexViewport unfolded(firstAddress_, lastAddress_, bytesPerRow_, maxCachedPages_);
     const auto& geometry = fixedAddressScale ? unfolded : *this;
     count = std::min<std::size_t>(count, static_cast<std::size_t>(std::min<std::uint64_t>(rows, 4096)));
@@ -655,17 +655,16 @@ std::vector<HexViewport::OverviewBin> HexViewport::OverviewBins(std::size_t coun
         return result;
     };
     for (std::size_t index = 0; index < count; ++index) {
-        const auto firstRow = OverviewRowAt(static_cast<std::uint32_t>(index), static_cast<std::uint32_t>(count), fixedAddressScale);
-        const auto endRow = OverviewRowAt(static_cast<std::uint32_t>(index + 1), static_cast<std::uint32_t>(count), fixedAddressScale);
-        const auto first = geometry.RowValidSpan(firstRow), last = geometry.RowValidSpan(endRow - 1);
+        const auto firstRow = OverviewRowAt(static_cast<std::uint32_t>(index), static_cast<std::uint32_t>(count), fixedAddressScale, knownOnly);
+        const auto endRow = OverviewRowAt(static_cast<std::uint32_t>(index + 1), static_cast<std::uint32_t>(count), fixedAddressScale, knownOnly);
+        const auto first = knownOnly ? KnownRowSpan(firstRow) : geometry.RowValidSpan(firstRow);
+        const auto last = knownOnly ? KnownRowSpan(endRow - 1) : geometry.RowValidSpan(endRow - 1);
         if (!first || !last) continue;
         OverviewBin bin{firstRow, endRow - firstRow,
             static_cast<double>(endRow - firstRow) * bytesPerRow_, 0, 0, 0};
-        if (!firstRow) bin.totalBytes -= static_cast<double>(firstAddress_ - rowBase_);
-        if (endRow == rows) {
-            const auto lastStart = geometry.RowStartAddress(rows - 1).value();
-            bin.totalBytes -= static_cast<double>(bytesPerRow_ - (lastAddress_ - lastStart + 1));
-        }
+        // Mixed read/unknown bytes within a known row retain separate coverage.
+        bin.totalBytes -= static_cast<double>(first->first % bytesPerRow_);
+        bin.totalBytes -= static_cast<double>(bytesPerRow_ - 1 - last->last % bytesPerRow_);
         if (overviewEnabled_) {
             // The enclosing physical span may cross a huge folded hole. Iterate
             // only cached keys; hidden rows contain no accepted valid bytes.

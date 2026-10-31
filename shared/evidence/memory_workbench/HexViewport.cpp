@@ -357,6 +357,8 @@ void HexViewport::RebuildReadableRanges(std::uint64_t pageStart, CachedPage& pag
 
 void HexViewport::RebuildFolds() {
     if (!foldUnknown_ && hiddenRows_.empty()) return;
+    knownRows_.clear();
+    knownRowCount_ = 0;
     std::vector<HiddenRows> next;
     std::uint64_t hidden = 0;
     if (foldUnknown_ && IsValid()) {
@@ -415,6 +417,10 @@ void HexViewport::RebuildFolds() {
         auto cursor = firstAddress_;
         bool finished = false;
         for (const auto& range : readable) {
+            const auto low = (range.first - rowBase_) / bytesPerRow_;
+            const auto high = (range.last - rowBase_) / bytesPerRow_;
+            knownRows_.push_back({low, high, knownRowCount_});
+            knownRowCount_ += high - low + 1;
             if (cursor < range.first) unknown(cursor, range.first - 1);
             if (range.last == lastAddress_) { finished = true; break; }
             cursor = range.last + 1;
@@ -429,6 +435,7 @@ void HexViewport::RebuildFolds() {
 void HexViewport::SetFoldUnknown(bool enabled) {
     if (foldUnknown_ == enabled) return;
     foldUnknown_ = enabled;
+    if (!enabled) { knownRows_.clear(); knownRowCount_ = 0; }
     foldRevealedAddress_.reset();
     unknownRanges_.clear();
     if (enabled) for (auto& [address, page] : pages_) {
@@ -437,6 +444,30 @@ void HexViewport::SetFoldUnknown(bool enabled) {
         else TrackUnknownPage(address, page.validMask);
     }
     RebuildFolds();
+}
+
+std::optional<HexViewport::AddressRange> HexViewport::KnownRowSpan(std::uint64_t row) const {
+    if (row >= knownRowCount_) return std::nullopt;
+    auto it = std::upper_bound(knownRows_.begin(), knownRows_.end(), row,
+        [](auto value, const KnownRows& run) { return value < run.before; });
+    --it;
+    const auto start = rowBase_ + (it->first + row - it->before) * bytesPerRow_;
+    return AddressRange{std::max(start, firstAddress_), start + std::min<std::uint64_t>(bytesPerRow_ - 1, lastAddress_ - start)};
+}
+
+std::uint64_t HexViewport::KnownRowAtOrAfter(std::uint64_t address) const {
+    if (knownRows_.empty() || address > lastAddress_) return knownRowCount_;
+    const auto raw = (std::max(address, firstAddress_) - rowBase_) / bytesPerRow_;
+    const auto it = std::lower_bound(knownRows_.begin(), knownRows_.end(), raw,
+        [](const KnownRows& run, auto row) { return run.last < row; });
+    return it == knownRows_.end() ? knownRowCount_ : it->before + std::max(raw, it->first) - it->first;
+}
+
+std::optional<std::uint64_t> HexViewport::KnownRowOfAddress(std::uint64_t address) const {
+    if (!ContainsAddress(address)) return std::nullopt;
+    const auto row = KnownRowAtOrAfter(address);
+    const auto span = KnownRowSpan(row);
+    return span && address >= span->first && address <= span->last ? std::optional<std::uint64_t>(row) : std::nullopt;
 }
 
 void HexViewport::NoteUnreadableRange(std::uint64_t first, std::uint64_t last) {

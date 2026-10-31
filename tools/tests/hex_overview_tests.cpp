@@ -67,14 +67,39 @@ int main() {
         }
         for(const bool fold:{false,true}) {
             sample.SetFoldUnknown(fold);
-            for(const bool fixed:{false,true}) for(const auto requested:{1U,3U,17U,401U,4096U}) {
+            const View raw(first,last,width);
+            std::vector<View::AddressRange> known;
+            if(fold) for(std::uint64_t row=0;row<raw.RowCount();++row) {
+                const auto span=raw.RowValidSpan(row).value();
+                bool read=false;
+                for(auto address=span.first;address<=span.last;++address) if(valid[address]) read=true;
+                if(read) known.push_back(span);
+            }
+            CHECK(sample.KnownRowCount()==known.size());
+            for(std::uint64_t row=0;row<known.size();++row) {
+                CHECK(sample.KnownRowSpan(row)==known[row]);
+                CHECK(sample.KnownRowOfAddress(known[row].first)==row);
+            }
+            for(std::uint64_t address=first;address<=last;address+=13) {
+                const auto rawRow=raw.UnfoldedRowOfAddress(address).value();
+                const auto it=std::lower_bound(known.begin(),known.end(),rawRow,[&](const auto& span,auto index) {
+                    return raw.UnfoldedRowOfAddress(span.first).value()<index;
+                });
+                const auto index=static_cast<std::uint64_t>(it-known.begin());
+                CHECK(sample.KnownRowAtOrAfter(address)==index);
+                CHECK(sample.KnownRowOfAddress(address)==(it!=known.end() && address>=it->first && address<=it->last
+                    ? std::optional<std::uint64_t>(index) : std::nullopt));
+            }
+            for(const int scale:{0,1,2}) for(const auto requested:{1U,3U,17U,401U,4096U}) {
+                const bool fixed=scale==1,knownOnly=scale==2;
                 const View unfolded(first,last,width);
                 const auto& geometry=fixed ? unfolded : sample;
-                const auto results=sample.OverviewBins(requested,fixed);
+                const auto results=sample.OverviewBins(requested,fixed,knownOnly);
+                CHECK(!knownOnly || results.size()==std::min<std::size_t>(requested,known.size()));
                 for(const auto& bin:results) {
                     std::uint64_t total=0,read=0,nonzero=0,ascii=0;
                     for(auto row=bin.firstRow;row<bin.firstRow+bin.rowCount;++row) {
-                        const auto span=geometry.RowValidSpan(row).value();
+                        const auto span=knownOnly ? known[row] : geometry.RowValidSpan(row).value();
                         for(auto address=span.first;address<=span.last;++address) {
                             ++total;
                             if(valid[address]) { ++read; if(source[address]) ++nonzero; if(source[address]>=32 && source[address]<127) ++ascii; }
@@ -102,6 +127,12 @@ int main() {
     sparse.SetOverviewEnabled(true); sparse.SetFoldUnknown(true);
     sparse.InsertPage(0,zero,all,sparse.SourceRevision());
     sparse.InsertPage(far,zero,all,sparse.SourceRevision());
+    CHECK(sparse.KnownRowCount()==512 && sparse.KnownRowSpan(256)->first==far);
+    auto knownBins=sparse.OverviewBins(1,true,true);
+    CHECK(knownBins.size()==1 && knownBins[0].totalBytes==8192 && knownBins[0].readBytes==8192);
+    sparse.RevealAddress(far/2);sparse.SetCaret(far/3,false);
+    CHECK(sparse.KnownRowCount()==512 && !sparse.KnownRowOfAddress(far/2));
+    sparse.SetCaret(0,false);sparse.SetFoldUnknown(false);sparse.SetFoldUnknown(true);
     bins=sparse.OverviewBins(1);
     CHECK(sparse.RowCount()==514 && bins[0].totalBytes==8224 && bins[0].readBytes==8192 && bins[0].nonZeroBytes==0);
     CHECK(sparse.RowStartAddress(257)==far-16 && sparse.RowStartAddress(258)==far);
@@ -117,8 +148,20 @@ int main() {
     fullSpace.SetOverviewEnabled(true);
     CHECK(fullSpace.OverviewBins(1)[0].totalBytes==18446744073709551616.0);
     fullSpace.SetFoldUnknown(true);
+    fullSpace.RevealAddress(1ULL<<48);
+    CHECK(fullSpace.KnownRowCount()==0 && fullSpace.OverviewBins(512,true,true).empty());
+    CHECK(fullSpace.OverviewRowAt(11,51,true,true)==0);
+    // Remove the temporary explicit row for the legacy projected assertion.
+    fullSpace.SetFoldUnknown(false);fullSpace.SetFoldUnknown(true);
     CHECK(fullSpace.OverviewBins(1)[0].totalBytes==32);
     CHECK(fullSpace.OverviewBins(1,true)[0].totalBytes==18446744073709551616.0);
+    evicted.SetFoldUnknown(true);
+    CHECK(evicted.KnownRowCount()==256 && evicted.KnownRowSpan(0)->first==4096);
+    evicted.MarkUnreadable({4096,1,0},evicted.SourceRevision());
+    CHECK(!evicted.KnownRowCount() && evicted.OverviewBins(1,true,true).empty());
+    evicted.InsertPage(0,zero,all,evicted.SourceRevision());
+    evicted.InvalidateAll(evicted.SourceRevision()+1);
+    CHECK(!evicted.KnownRowCount() && evicted.OverviewBins(1,true,true).empty());
     const auto start=std::chrono::steady_clock::now();
     for(int n=0;n<100;++n) CHECK(sparse.OverviewBins(1000).size()==514);
     std::cout << "SPARSE_OVERVIEW_100_REBUILDS_MS=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start).count() << '\n';

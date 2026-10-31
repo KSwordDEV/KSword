@@ -25,6 +25,11 @@ public:
     }
 };
 Rail* rail(HexCanvas& c) { return static_cast<Rail*>(c.findChild<QWidget*>(QStringLiteral("memwb_hex_overview"))); }
+void wheelStep(HexCanvas& c,bool down=true) {
+    QWheelEvent event(QPointF(300,100),QPointF(c.viewport()->mapToGlobal(QPoint(300,100))),QPoint(),QPoint(0,down ? -120 : 120),
+        Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
+    QApplication::sendEvent(c.viewport(),&event);drain();
+}
 QImage capture(Rail& r) { r.repaint(); drain(); return r.grab().toImage(); }
 QColor pixel(const QImage& image,int x,int y) {
     const auto dpr=image.devicePixelRatio();
@@ -46,7 +51,7 @@ void runFixedAddressUiTests() {
     };
     HexCanvas fixed;
     constexpr std::uint64_t size=1ULL<<20, middle=size/2;
-    fixed.resize(700,420);fixed.setFixedAddressScale(true);fixed.setFoldUnknownRegions(true);
+    fixed.resize(700,420);fixed.setFixedAddressScale(true);
     fixed.setOverviewEnabled(true);fixed.setAddressSpace(0,size-1);
     for(auto address:{0ULL,middle,size*3/4}) fixed.deliverPage(address,QByteArray(4096,'A'),QByteArray(4096,'\1'),fixed.sourceRevision());
     fixed.setCaretAddress(middle,false,false);fixed.show();drain();auto* r=rail(fixed);
@@ -62,11 +67,10 @@ void runFixedAddressUiTests() {
     check(pixel(image,center,y)==tint,"newly read data leaves existing preview colors at the same address position");
     const auto builds=r->summaryBuildCount();
     wheel(fixed);capture(*r);
-    fixed.setFoldUnknownRegions(false);capture(*r);
-    fixed.setFoldUnknownRegions(true);image=capture(*r);
+    image=capture(*r);
     check(r->summaryBuildCount()==builds && fixed.verticalScrollBar()->maximum()==maximum,
-        "scrolling and folding change markers without remapping fixed-address statistics");
-    check(pixel(image,center,y)==tint,"folding does not move the distant cached fragment");
+        "unfolded scrolling changes markers without remapping fixed-address statistics");
+    check(pixel(image,center,y)==tint,"unfolded scrolling does not move the distant cached fragment");
     QTest::mouseClick(r,Qt::LeftButton,Qt::NoModifier,QPoint(center,y));drain();
     check(!fixed.cellRect(middle,HexCanvas::ActivePane::Hex).isNull(),"fixed overview click reveals the corresponding address");
     fixed.verticalScrollBar()->setValue(maximum);drain();
@@ -114,6 +118,94 @@ void runFixedAddressUiTests() {
     gutter.resize(160,420);drain();gutter.setCaretAddress(base,false,true);
     const auto narrow=gutter.cellRect(base,HexCanvas::ActivePane::Hex);
     check(narrow.left()>=0 && narrow.right()<gutter.viewport()->width(),"narrow viewports retain a usable byte area beside the address prefix");
+}
+void runKnownAddressUiTests() {
+    constexpr std::uint64_t first=0x100000,far=1ULL<<44;
+    ReadCounter reads;
+    HexCanvas c;
+    c.resize(700,420);c.setFixedAddressScale(true);c.setFoldUnknownRegions(true);
+    c.setViewportReadEnabled(false);c.setPageProvider(&reads);
+    c.setOverviewEnabled(true);c.setAddressSpace(0,UINT64_MAX);c.show();drain();
+    auto* r=rail(c);auto* original=c.verticalScrollBar();
+    auto image=capture(*r);
+    check(original->maximum()==0 && r->viewportOutline().isEmpty() && r->caretPosition()<0,
+        "folded empty data has no scroll range, viewport marker or unknown caret mark");
+    check(pixel(image,12,r->height()/2)==Qt::white,"the empty known-only overview remains white");
+    const auto emptyTop=c.firstVisibleRow();
+    QTest::mouseClick(r,Qt::LeftButton,Qt::NoModifier,QPoint(12,r->height()/2));
+    wheelStep(c);drain();
+    check(c.firstVisibleRow()==emptyTop && !original->isSliderDown(),"empty known-only clicks and wheel steps do not navigate unknown memory");
+    c.deliverPage(first,QByteArray(4096,'\0'),QByteArray(4096,'\1'),c.sourceRevision());
+    c.deliverPage(far,QByteArray(4096,'A'),QByteArray(4096,'\1'),c.sourceRevision());
+    c.setCaretAddress(far+2048,false,false);capture(*r);
+    const auto maximum=original->maximum();
+    check(maximum==512-static_cast<int>(c.visibleRowCount()),"folded native range counts the two known pages and excludes all unknown addresses");
+    check(std::abs(r->caretPosition()-(1.0+384.5/512*(r->height()-2)))<1,
+        "known-only caret uses the same compact row scale as samples and clicks");
+    original->setValue(1);original->setValue(0);drain();
+    check(c.visibleAddressRange()->first==first,"native scrollbar top starts at the first known row");
+    image=capture(*r);
+    check(pixel(image,12,r->height()/4)!=Qt::white && pixel(image,12,r->height()*3/4)!=Qt::white,
+        "all known fragments fill their overview shares without the huge intervening gap");
+    const auto builds=r->summaryBuildCount();
+    c.scrollToAddress(far/2,HexCanvas::ScrollAlign::Top);capture(*r);
+    c.setCaretAddress(far/3,false,false);capture(*r);
+    check(original->maximum()==maximum && r->summaryBuildCount()==builds && r->caretPosition()<0,
+        "revealed and caret-protected unknown rows never alter the known axis or cached samples");
+    const auto marker=capture(*r);
+    check(pixel(marker,12,r->height()/4)==pixel(image,12,r->height()/4),"unknown navigation leaves known overview colors in place");
+    const auto readBefore=reads.requests;
+    const int clickY=qRound(r->rowPosition(384));
+    QTest::mouseClick(r,Qt::LeftButton,Qt::NoModifier,QPoint(12,clickY));drain();
+    check(!c.cellRect(far+2048,HexCanvas::ActivePane::Hex).isNull(),"clicking the second known fragment lands on that fragment");
+    for(int value:{100,110,120,300,310,320}) {original->setValue(value);capture(*r);}
+    check(r->summaryBuildCount()==builds && original->maximum()==maximum,"scrolling known fragments does not rebuild or reorder overview data");
+    check(reads.requests==readBefore,"known overview clicks and native scrolling add no explicit unknown reads when viewport reads are paused");
+    original->setValue(maximum);drain();
+    const auto bottom=c.firstVisibleRow();
+    wheelStep(c);drain();
+    check(c.firstVisibleRow()==bottom && !c.cellRect(far+4095,HexCanvas::ActivePane::Hex).isNull(),
+        "known-only scrollbar bottom and wheel agree on the last known screen");
+    original->setValue(0);wheelStep(c,false);drain();
+    check(c.visibleAddressRange()->first==first && original->value()==0,"known-only wheel cannot move above the first known row");
+    c.scrollToAddress(first+4080,HexCanvas::ScrollAlign::Top);wheelStep(c);drain();
+    check(c.visibleAddressRange()->first==far+32,"wheel steps skip the unknown boundary rows on the shared known scale");
+    c.scrollToAddress(far+128,HexCanvas::ScrollAlign::Top);
+    const auto before=c.cellRect(far+128,HexCanvas::ActivePane::Hex);
+    c.setFoldUnknownRegions(false);capture(*r);
+    check(original->maximum()==INT_MAX,"unchecking folding restores the complete proportional address scale");
+    c.setFoldUnknownRegions(true);capture(*r);
+    check(original==c.verticalScrollBar() && original->maximum()==maximum && !c.cellRect(far+128,HexCanvas::ActivePane::Hex).isNull()
+        && c.cellStateAt(far+128).byteState==HexCanvas::ByteState::Valid && !before.isNull(),
+        "fold toggles preserve the viewed bytes and native scrollbar identity while switching scales");
+    c.grab().save(QCoreApplication::applicationDirPath()+QStringLiteral("/hex-known-address-overview.png"));
+    c.deliverUnreadable({first,1,0},c.sourceRevision());capture(*r);
+    check(original->maximum()==256-static_cast<int>(c.visibleRowCount()) && r->rowAtPixel(2)<256,
+        "a failed reread removes its old page from the current known range");
+    c.setAddressSpace(0,8191);image=capture(*r);
+    check(original->maximum()==0 && pixel(image,12,r->height()/2)==Qt::white,"changing targets clears known navigation and samples");
+
+    // A known row can still contain unknown bytes; those bytes stay white.
+    HexCanvas partial;partial.resize(500,300);partial.setFixedAddressScale(true);partial.setFoldUnknownRegions(true);
+    partial.setOverviewEnabled(true);partial.setAddressSpace(0,UINT64_MAX);
+    QByteArray valid(4096,'\0');std::fill(valid.begin(),valid.begin()+8,'\1');
+    partial.deliverPage(first,QByteArray(4096,'A'),valid,partial.sourceRevision());partial.show();drain();
+    auto* pr=rail(partial);image=capture(*pr);
+    check(pixel(image,4,pr->height()/2)!=Qt::white && pixel(image,18,pr->height()/2)==Qt::white,
+        "a partly known row keeps unknown byte coverage white on the known-only overview");
+    const auto partialBuilds=pr->summaryBuildCount();
+    partial.deliverPage(first,QByteArray(4096,'A'),QByteArray(4096,'\1'),partial.sourceRevision());capture(*pr);
+    check(partial.verticalScrollBar()->maximum()==256-static_cast<int>(partial.visibleRowCount())
+        && pr->summaryBuildCount()>partialBuilds,"accepted bytes update known range even when previous boundary rows were already visible");
+
+    HexCanvas boundary;boundary.resize(500,300);boundary.setFixedAddressScale(true);boundary.setFoldUnknownRegions(true);
+    boundary.setAddressSpace(0,4095);valid.fill('\1');std::fill(valid.begin(),valid.begin()+32,'\0');
+    boundary.deliverPage(0,QByteArray(4096,'A'),valid,boundary.sourceRevision());boundary.show();drain();
+    const auto beforeBoundary=boundary.verticalScrollBar()->maximum();
+    std::fill(valid.begin()+16,valid.begin()+32,'\1');
+    boundary.deliverPage(0,QByteArray(4096,'A'),valid,boundary.sourceRevision());drain();
+    check(boundary.verticalScrollBar()->maximum()==beforeBoundary+1,
+        "a newly read boundary row updates the native known range without any hidden-row geometry change");
 }
 void runHexOverviewUiTests() {
     const bool oldDark=KswordTheme::IsDarkModeEnabled();
@@ -274,5 +366,6 @@ void runHexOverviewUiTests() {
     QTest::mouseRelease(hr,Qt::LeftButton,Qt::NoModifier,QPoint(5,hr->height()-5));drain();
     check(huge.firstVisibleRow()==0 && !huge.verticalScrollBar()->isSliderDown(),"source replacement cancels an overview drag without scrolling the new target");
     runFixedAddressUiTests();
+    runKnownAddressUiTests();
     KswordTheme::SetDarkModeEnabled(oldDark);
 }

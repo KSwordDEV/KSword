@@ -212,6 +212,14 @@ public:
     std::optional<std::uint64_t> UnfoldedRowOfAddress(std::uint64_t address) const {
         return ContainsAddress(address) ? std::optional<std::uint64_t>((address - rowBase_) / bytesPerRow_) : std::nullopt;
     }
+    // Cached rows containing at least one accepted read byte, in address order.
+    // Available while folding is enabled; boundary/caret/reveal rows do not
+    // contribute. Reuses readable page summaries and never performs I/O.
+    std::uint64_t KnownRowCount() const { return knownRowCount_; }
+    std::optional<AddressRange> KnownRowSpan(std::uint64_t row) const;
+    std::optional<std::uint64_t> KnownRowOfAddress(std::uint64_t address) const;
+    // Lower bound in [0, KnownRowCount()].
+    std::uint64_t KnownRowAtOrAfter(std::uint64_t address) const;
 
     struct OverviewBin {
         std::uint64_t firstRow = 0, rowCount = 0;
@@ -222,10 +230,10 @@ public:
     void SetOverviewEnabled(bool enabled);
     bool OverviewEnabled() const { return overviewEnabled_; }
     std::uint64_t OverviewRevision() const { return overviewRevision_; }
-    std::vector<OverviewBin> OverviewBins(std::size_t count, bool fixedAddressScale = false) const;
+    std::vector<OverviewBin> OverviewBins(std::size_t count, bool fixedAddressScale = false, bool knownOnly = false) const;
     // Same selectable row scale for samples, caret and clicks. Fixed mode uses
     // the complete address range and ignores folds for overview geometry.
-    std::uint64_t OverviewRowAt(std::uint32_t position, std::uint32_t extent, bool fixedAddressScale = false) const;
+    std::uint64_t OverviewRowAt(std::uint32_t position, std::uint32_t extent, bool fixedAddressScale = false, bool knownOnly = false) const;
 
     // 某行的起始地址（已向下对齐，首行可能小于 firstAddress，即含补空位）。越界返回空。
     std::optional<std::uint64_t> RowStartAddress(std::uint64_t row) const;
@@ -426,6 +434,11 @@ private:
     // projection which also folds unloaded/pending bytes.
     std::map<std::uint64_t, std::uint64_t> unknownRanges_;
     std::vector<HiddenRows> hiddenRows_;
+    struct KnownRows {
+        std::uint64_t first = 0, last = 0, before = 0;
+    };
+    std::vector<KnownRows> knownRows_;
+    std::uint64_t knownRowCount_ = 0;
     std::function<std::optional<AddressRange>(std::uint64_t, std::uint64_t)> foldProtection_;
     std::optional<std::uint64_t> foldRevealedAddress_;
 

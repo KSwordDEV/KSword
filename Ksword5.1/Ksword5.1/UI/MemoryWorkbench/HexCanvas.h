@@ -355,6 +355,8 @@ namespace ks::ui
         void boundaryReadFailed(const QString& reason);
         void setOverviewEnabled(bool enabled);
         bool overviewEnabled() const { return m_overviewEnabled; }
+        // Workbench scale: complete addresses when unfolded, cached known rows
+        // when folded. Generic HEX hosts retain their original projected scale.
         void setFixedAddressScale(bool enabled);
         bool fixedAddressScale() const { return m_fixedAddressScale; }
 
@@ -838,6 +840,9 @@ namespace ks::ui
         std::uint64_t scrollScaleLimit() const;
         std::uint64_t scrollScaleFirstRow() const;
         std::uint64_t scrollScaleAddress(std::uint64_t row) const;
+        bool knownScrollScale() const { return m_fixedAddressScale && m_foldUnknownRegions; }
+        std::uint64_t scrollEndFirstRow() const;
+        void scrollKnownToRow(std::uint64_t row, bool syncBar);
         bool m_fixedAddressScale = false;
         bool m_keepScrollEnd = false;
         void applySelectionChange(const ksword::memwb::HexViewport::Selection& before);

@@ -31,11 +31,11 @@ namespace ks::ui
         QRectF stripRect() const { return QRectF(1, 1, std::max(0, width() - 2), std::max(0, height() - 2)); }
         std::uint64_t rowAtPixel(int y) const
         {
-            if (!canvas_->m_hasSpace) return 0;
+            if (!canvas_->m_hasSpace || !canvas_->scrollScaleRows()) return 0;
             const auto strip = stripRect();
             const int extent = std::max(1, static_cast<int>(strip.height()));
             const int pixel = std::clamp(y - static_cast<int>(strip.top()), 0, extent - 1);
-            return std::min(canvas_->m_viewport.OverviewRowAt(static_cast<std::uint32_t>(pixel), static_cast<std::uint32_t>(extent), canvas_->m_fixedAddressScale),
+            return std::min(canvas_->m_viewport.OverviewRowAt(static_cast<std::uint32_t>(pixel), static_cast<std::uint32_t>(extent), canvas_->m_fixedAddressScale, canvas_->knownScrollScale()),
                 canvas_->scrollScaleRows() - 1);
         }
         qreal rowPosition(std::uint64_t row) const
@@ -46,7 +46,7 @@ namespace ks::ui
         }
         QRectF viewportOutline() const
         {
-            if (!canvas_->m_hasSpace) return {};
+            if (!canvas_->m_hasSpace || !canvas_->scrollScaleRows()) return {};
             if (canvas_->m_fixedAddressScale) {
                 const auto spans = canvas_->visibleAddressSpans();
                 if (spans.empty()) return {};
@@ -64,7 +64,7 @@ namespace ks::ui
         qreal caretPosition() const
         {
             if (!canvas_->m_hasSpace) return -1;
-            const auto row = canvas_->m_fixedAddressScale
+            const auto row = canvas_->knownScrollScale() ? canvas_->m_viewport.KnownRowOfAddress(canvas_->caretAddress()) : canvas_->m_fixedAddressScale
                 ? canvas_->m_viewport.UnfoldedRowOfAddress(canvas_->caretAddress())
                 : canvas_->m_viewport.RowOfAddress(canvas_->caretAddress());
             if (!row) return -1;
@@ -106,7 +106,7 @@ namespace ks::ui
         }
         void mousePressEvent(QMouseEvent* event) override
         {
-            if (event->button() != Qt::LeftButton || !canvas_->m_hasSpace || !bar_) { event->ignore(); return; }
+            if (event->button() != Qt::LeftButton || !canvas_->m_hasSpace || !canvas_->scrollScaleRows() || !bar_) { event->ignore(); return; }
             const auto row = rowAtPixel(static_cast<int>(event->position().y()));
             const auto outlines = viewportOutlines();
             const bool inside = std::any_of(outlines.begin(), outlines.end(), [&](const QRectF& rect) { return rect.contains(event->position()); });
@@ -137,18 +137,28 @@ namespace ks::ui
     private:
         QRectF addressOutline(std::uint64_t first, std::uint64_t last) const
         {
-            const auto low = canvas_->m_viewport.UnfoldedRowOfAddress(first).value_or(0);
-            const auto high = canvas_->m_viewport.UnfoldedRowOfAddress(last).value_or(low);
+            const auto& model = canvas_->m_viewport;
+            const bool known = canvas_->knownScrollScale();
+            const auto low = known ? model.KnownRowAtOrAfter(first) : model.UnfoldedRowOfAddress(first).value_or(0);
+            const auto end = known ? model.KnownRowAtOrAfter(last) + (model.KnownRowOfAddress(last) ? 1 : 0)
+                : model.UnfoldedRowOfAddress(last).value_or(low) + 1;
+            if (end <= low) return {};
             const auto strip = stripRect();
             if (strip.isEmpty()) return {};
-            const auto center = (rowPosition(low) + rowPosition(high + 1)) / 2;
-            const qreal height = std::min(strip.height(), std::max<qreal>(6, rowPosition(high + 1) - rowPosition(low)));
+            const auto center = (rowPosition(low) + rowPosition(end)) / 2;
+            const qreal height = std::min(strip.height(), std::max<qreal>(6, rowPosition(end) - rowPosition(low)));
             return QRectF(.5, std::clamp(center - height / 2, strip.top(), strip.bottom() - height), width() - 1.0, height);
         }
         std::vector<QRectF> viewportOutlines() const
         {
-            if (!canvas_->m_hasSpace) return {};
+            if (!canvas_->m_hasSpace || !canvas_->scrollScaleRows()) return {};
             if (!canvas_->m_fixedAddressScale) return {viewportOutline()};
+            // Unknown body boundary rows have no extent on the known-only axis;
+            // all known rows visible between them form one continuous outline.
+            if (canvas_->knownScrollScale()) {
+                const auto outline = viewportOutline();
+                return outline.isEmpty() ? std::vector<QRectF>{} : std::vector<QRectF>{outline};
+            }
             std::vector<QRectF> outlines;
             for (const auto& span : canvas_->visibleAddressSpans()) outlines.push_back(addressOutline(span.first, span.last));
             return outlines;
@@ -172,13 +182,13 @@ namespace ks::ui
             const int top = std::clamp(qRound(strip.top() * dpr), 0, physical.height());
             const int bottom = std::clamp(qRound(strip.bottom() * dpr), top, physical.height());
             const bool dataChanged = source_ != model.SourceRevision() || content_ != model.OverviewRevision()
-                || folds_ != folds || fixed_ != canvas_->m_fixedAddressScale || rows_ != rows || rowWidth_ != model.BytesPerRow()
+                || folds_ != folds || fixed_ != canvas_->m_fixedAddressScale || known_ != canvas_->knownScrollScale() || rows_ != rows || rowWidth_ != model.BytesPerRow()
                 || physical_ != physical || dpr_ != dpr;
             if (dataChanged) {
                 source_ = model.SourceRevision(); content_ = model.OverviewRevision();
-                folds_ = folds; fixed_ = canvas_->m_fixedAddressScale;
+                folds_ = folds; fixed_ = canvas_->m_fixedAddressScale; known_ = canvas_->knownScrollScale();
                 rows_ = rows; rowWidth_ = model.BytesPerRow(); physical_ = physical;
-                bins_ = rows ? model.OverviewBins(static_cast<std::size_t>(bottom - top), fixed_) : std::vector<Bin>{};
+                bins_ = rows ? model.OverviewBins(static_cast<std::size_t>(bottom - top), fixed_, known_) : std::vector<Bin>{};
                 ++summaryBuilds_;
             }
             const auto base = KswordTheme::EnsureTextContrast(KswordTheme::SurfaceMutedColor(), Qt::white, 3.0);
@@ -208,9 +218,9 @@ namespace ks::ui
                 // A cached page in a multi-terabyte space can be narrower than
                 // one physical pixel. Keep one sample mark so accepted data is
                 // discoverable, while the rest of the mixed bin remains white.
-                const double knownWidth = std::max(fixed_ ? 1.0 : 0.0, (right - left) * known);
+                const double knownWidth = std::max(fixed_ && !known_ ? 1.0 : 0.0, (right - left) * known);
                 const int whole = std::clamp(static_cast<int>(knownWidth), 0, right - left);
-                const int offset = fixed_ ? static_cast<int>(((right - left) - knownWidth) / 2) : 0;
+                const int offset = fixed_ && !known_ ? static_cast<int>(((right - left) - knownWidth) / 2) : 0;
                 // Leave headroom for readable text instead of saturating ordinary
                 // binary data. Density is measured only among accepted read bytes;
                 // the rest of this bin keeps its separate white coverage.
@@ -230,6 +240,7 @@ namespace ks::ui
         QPointer<QScrollBar> bar_;
         bool dragging_ = false;
         bool fixed_ = false;
+        bool known_ = false;
         std::uint64_t dragOffset_ = 0, dragRevision_ = 0;
         std::uint64_t source_ = UINT64_MAX, content_ = UINT64_MAX, folds_ = UINT64_MAX, rows_ = UINT64_MAX;
         std::uint32_t rowWidth_ = 0;

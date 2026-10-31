@@ -33,15 +33,34 @@ namespace ks::ui
     std::uint64_t HexCanvas::scrollScaleRows() const
     {
         if (!m_hasSpace) return 0;
+        if (knownScrollScale()) return m_viewport.KnownRowCount();
         return m_fixedAddressScale ? m_viewport.UnfoldedRowCount() : m_viewport.RowCount();
     }
     std::uint64_t HexCanvas::scrollScaleLimit() const
     {
         const auto rows = scrollScaleRows();
+        if (knownScrollScale()) {
+            const auto top = m_viewport.RowValidSpan(scrollEndFirstRow());
+            return top && rows ? std::min(m_viewport.KnownRowAtOrAfter(top->first), rows - 1) : 0;
+        }
         return rows > fullVisibleRows() ? rows - fullVisibleRows() : 0;
+    }
+    std::uint64_t HexCanvas::scrollEndFirstRow() const
+    {
+        if (!knownScrollScale()) return maxFirstRow();
+        const auto rows = m_viewport.KnownRowCount();
+        if (!rows) return m_firstRow;
+        const auto first = m_viewport.RowOfAddress(m_viewport.KnownRowSpan(0)->first).value();
+        const auto last = m_viewport.RowOfAddress(m_viewport.KnownRowSpan(rows - 1)->last).value();
+        return std::min(maxFirstRow(), std::max(first, last - std::min(last - first, fullVisibleRows() - 1)));
     }
     std::uint64_t HexCanvas::scrollScaleFirstRow() const
     {
+        if (knownScrollScale()) {
+            if (m_keepScrollEnd) return scrollScaleLimit();
+            const auto top = m_viewport.RowValidSpan(m_firstRow);
+            return top ? std::min(m_viewport.KnownRowAtOrAfter(top->first), scrollScaleLimit()) : 0;
+        }
         if (!m_fixedAddressScale || !m_hasSpace) return m_firstRow;
         if (m_keepScrollEnd || (maxFirstRow() && m_firstRow == maxFirstRow())) return scrollScaleLimit();
         if (!maxFirstRow() && m_foldNavigationAddress)
@@ -51,9 +70,21 @@ namespace ks::ui
     }
     std::uint64_t HexCanvas::scrollScaleAddress(std::uint64_t row) const
     {
+        if (knownScrollScale()) return m_viewport.KnownRowSpan(row).value().first;
         const auto first = m_viewport.FirstAddress();
         const auto base = first - first % m_viewport.BytesPerRow();
         return std::max(first, base + std::min(row, m_viewport.UnfoldedRowCount() - 1) * m_viewport.BytesPerRow());
+    }
+    void HexCanvas::scrollKnownToRow(std::uint64_t row, bool syncBar)
+    {
+        if (!m_viewport.KnownRowCount()) return;
+        const auto limit = scrollScaleLimit();
+        row = std::min(row, limit);
+        const auto projected = row == limit ? scrollEndFirstRow()
+            : m_viewport.RowOfAddress(scrollScaleAddress(row)).value();
+        // No revealing/reading arbitrary unknown addresses from the overview.
+        // Normal viewport fetch planning remains owned by setFirstRowInternal.
+        setFirstRowInternal(projected, syncBar, row == limit);
     }
     void HexCanvas::setOverviewEnabled(bool enabled)
     {
@@ -253,6 +284,12 @@ namespace ks::ui
         const std::uint64_t magnitude = deltaRows >= 0
             ? static_cast<std::uint64_t>(deltaRows)
             : (0ULL - static_cast<std::uint64_t>(deltaRows));
+        if (knownScrollScale()) {
+            const auto first = scrollScaleFirstRow(), end = scrollScaleLimit();
+            scrollKnownToRow(deltaRows > 0 ? first + std::min(magnitude, end - first)
+                : first - std::min(magnitude, first), true);
+            return;
+        }
         const std::uint64_t limit = maxFirstRow();
         std::uint64_t target = m_firstRow;
         if (deltaRows > 0)
@@ -325,7 +362,7 @@ namespace ks::ui
             const QSignalBlocker blockedHorizontal(horizontal.data());
 
             // 竖向滚动条。
-            if (m_keepScrollEnd) m_firstRow = maxFirstRow();
+            if (m_keepScrollEnd) m_firstRow = scrollEndFirstRow();
             const std::uint64_t limit = scrollScaleLimit();
             const auto position = std::min(scrollScaleFirstRow(), limit);
             QScrollBar* vBar = verticalScrollBar();
@@ -333,7 +370,8 @@ namespace ks::ui
             {
                 m_proportionalScroll = false;
                 vBar->setRange(0, static_cast<int>(limit));
-                vBar->setPageStep(static_cast<int>(std::min<std::uint64_t>(fullVisibleRows(), 0x7FFFFFFFULL)));
+                const auto pageRows = knownScrollScale() ? scrollScaleRows() - limit : fullVisibleRows();
+                vBar->setPageStep(static_cast<int>(std::clamp<std::uint64_t>(pageRows, 1, 0x7FFFFFFFULL)));
                 vBar->setSingleStep(1);
                 vBar->setValue(static_cast<int>(position));
             }
@@ -387,6 +425,7 @@ namespace ks::ui
         const std::uint64_t row = m_proportionalScroll
             ? rowFromSlider(value, limit)
             : static_cast<std::uint64_t>(std::max(0, value));
+        if (knownScrollScale()) { scrollKnownToRow(row, false); return; }
         // 用户拖动时不回写滑块：回写会因取整把滑块拉得抖动。
         if (!m_fixedAddressScale) { setFirstRowInternal(row, false); return; }
         const QPointer<HexCanvas> alive(this);
@@ -684,6 +723,15 @@ namespace ks::ui
         if (!m_hasSpace) return;
         if (m_foldGeometryRevision == m_viewport.FoldRevision())
         {
+            if (knownScrollScale()) {
+                // A boundary row can become readable without changing any
+                // folds. Its accepted bytes must still update the known axis.
+                const QPointer<HexCanvas> alive(this);
+                const auto revision = sourceRevision();
+                syncScrollBars();
+                if (alive && sourceRevision() == revision) notifyVisibleRange();
+                return;
+            }
             // A readable page may have just arrived without changing the fold
             // index. Pin it before the next unreadable-page completion folds above it.
             rememberFoldScrollAnchor();
@@ -705,7 +753,7 @@ namespace ks::ui
         m_foldGeometryRevision = m_viewport.FoldRevision();
         if (span && (anchor.address < span->first || anchor.address > span->last) && m_foldScrollUp && row > 0)
             --row; // All-unknown view: keep moving toward the preceding boundary.
-        m_firstRow = m_keepScrollEnd ? maxFirstRow()
+        m_firstRow = m_keepScrollEnd ? scrollEndFirstRow()
             : std::min(row - std::min(row, anchor.screenRow), maxFirstRow());
         const QPointer<HexCanvas> alive(this);
         const auto revision = sourceRevision();
@@ -720,6 +768,7 @@ namespace ks::ui
         const auto revision = sourceRevision();
         if (!enabled) rememberFoldScrollAnchor(true);
         m_foldUnknownRegions = enabled;
+        m_keepScrollEnd = false;
         if (enabled) rememberFoldScrollAnchor(true);
         const auto anchor = m_foldScrollAnchor;
         if (anchor && anchor->keepVisible) m_foldNavigationAddress = anchor->address;
@@ -729,6 +778,10 @@ namespace ks::ui
         if (m_provider) m_provider->SetUnknownFoldingEnabled(enabled);
         if (!alive || sourceRevision() != revision) return;
         syncFoldGeometry();
+        if (!alive || sourceRevision() != revision) return;
+        // An all-readable source may not change FoldRevision, but the selected
+        // scrollbar/overview scale still changed with the checkbox.
+        syncScrollBars();
         if (!alive || sourceRevision() != revision) return;
         viewport()->update();
         requestVisiblePages();
