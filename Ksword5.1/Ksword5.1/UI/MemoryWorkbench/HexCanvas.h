@@ -254,6 +254,7 @@ class QMouseEvent;
 class QPainter;
 class QResizeEvent;
 class QWheelEvent;
+class QToolButton;
 
 namespace ks::ui
 {
@@ -271,6 +272,7 @@ namespace ks::ui
         virtual void UpdateViewportInterest(const std::vector<HexFetchRange>&, std::uint64_t) {}
         // Promote pending browse ownership even when no missing-page request is produced.
         virtual void ProtectPages(const std::vector<HexFetchRange>&, std::uint64_t) {}
+        virtual void SetUnknownFoldingEnabled(bool) {}
         // Explicit requests are protected; continuously visible decode/text windows are browsing.
         virtual void RequestExplicitPages(const std::vector<HexFetchRange>& ranges, std::uint64_t revision)
         { RequestPages(ranges, revision); }
@@ -344,6 +346,11 @@ namespace ks::ui
 
         // setPageProvider：设置外部页提供者（非拥有）。传空表示不再请求任何页。
         void setPageProvider(IHexPageProvider* provider);
+        void setFoldUnknownRegions(bool enabled);
+        bool foldUnknownRegions() const { return m_foldUnknownRegions; }
+        void deliverUnreadableExtent(std::uint64_t first, std::uint64_t last, std::uint64_t revision);
+        void setUniformBoundaryNavigationEnabled(bool enabled);
+        void boundaryReadFailed(const QString& reason);
 
         // setStaticData：便捷接口，用一块字节数组当数据源。
         // 作用：地址空间设为 [base, base+size-1]，内置提供者按需供页（不会一次塞满缓存）。
@@ -530,6 +537,10 @@ namespace ks::ui
         // visibleAddressRange：实际正在绘制的字节闭区间，供切页后重喂当前视口，
         // 不使用仍停在旧地址的 caret，也不使用子页临时扩展的读取窗口。
         std::optional<AddressRange> visibleAddressRange() const;
+        // Folding preserves physical addresses. Use visual center/spans for bounded
+        // baseline/reread work instead of the enclosing physical interval above.
+        std::optional<std::uint64_t> visibleCenterAddress() const;
+        std::vector<AddressRange> visibleAddressSpans() const;
         // Other address-backed views use the same cache/read pool without moving the HEX viewport.
         enum class RangeReadPurpose { ExplicitRead, Browse };
         void requestAddressRange(std::uint64_t first, std::uint64_t last,
@@ -635,6 +646,7 @@ namespace ks::ui
         void autoScrollTick();
 
     signals:
+        void boundaryNavigationMessage(const QString& message, bool error);
         // caretMoved：插入点地址变化。
         void caretMoved(quint64 address);
 
@@ -691,6 +703,30 @@ namespace ks::ui
         void focusOutEvent(QFocusEvent* event) override;
 
     private:
+        void syncFoldGeometry();
+        void updateUniformButtons(bool uniform, std::uint8_t value);
+        void startUniformBoundarySearch(bool upper);
+        void advanceUniformBoundarySearch();
+        void scanUniformBoundaryStep();
+        void cancelUniformBoundarySearch();
+        struct UniformPaintProbe { bool uniform = true, seen = false; std::uint8_t value = 0; };
+        bool m_foldUnknownRegions = false;
+        std::uint64_t m_foldGeometryRevision = 0;
+        std::uint64_t m_foldFetchBudget = 16; // Per user navigation, not renewed by page delivery.
+        bool m_uniformNavigationEnabled = false, m_uniformScreen = false;
+        std::uint8_t m_uniformValue = 0;
+        QToolButton* m_uniformUpperButton = nullptr;
+        QToolButton* m_uniformLowerButton = nullptr;
+        struct UniformSearch {
+            bool upper = false;
+            std::uint8_t value = 0;
+            std::uint64_t revision = 0, cursor = 0, origin = 0, scanned = 0;
+        };
+        std::optional<UniformSearch> m_uniformSearch;
+        bool m_uniformAdvanceQueued = false;
+        bool m_uniformUpdateQueued = false;
+        bool m_uniformButtonsWanted = false;
+        QSize m_uniformButtonViewport;
         StageSubmitter m_stageSubmitter;
         DiscardSubmitter m_discardSubmitter;
         // CellCore：绘制用的轻量单元格状态（不含字符串，避免逐格分配）。
@@ -804,7 +840,7 @@ namespace ks::ui
             const PaintPalette& palette,
             std::uint64_t row,
             int rowTop,
-            const std::optional<AddressRange>& selection) const;
+            const std::optional<AddressRange>& selection, UniformPaintProbe* probe = nullptr) const;
         void paintCaretFrames(QPainter& painter, const PaintPalette& palette) const;
 
         // ---------- HexCanvas.Input.cpp：鼠标、键盘、滚轮 ----------

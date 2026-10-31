@@ -395,11 +395,12 @@ namespace ks::ui
         auto started = std::make_shared<std::atomic<bool>>(false);
         auto cancel = std::make_shared<std::atomic<bool>>(false);
         const auto submissionGeneration = generation_;
+        const bool foldUnknown = foldUnknown_;
         auto start = [this, cap, ticket, canvasRevision, targetRevision, submissionGeneration,
-            isDdmaChannel, scheduled, started, cancel]() {
+            isDdmaChannel, scheduled, started, cancel, foldUnknown]() {
             auto* job = new InFlightJob(QPointer<WorkbenchPageProvider>(this), port_.get(), cap.session,
                 ticket, canvasRevision, targetRevision, submissionGeneration, isDdmaChannel,
-                scheduled, cancel, readPool_->PoisonFlag(), started, readPool_.get());
+                scheduled, cancel, readPool_->PoisonFlag(), started, readPool_.get(), foldUnknown);
             readPool_->Submit(job, ticket, cancel);
         };
         pendingJobs_[ticket] = PendingJobRecord{canvasRevision, scheduled, started, purpose,
@@ -815,6 +816,12 @@ namespace ks::ui
                 }
                 if (!alive || job.jobGeneration != generation_) return;
                 if (!canvas_ || canvas_->sourceRevision() != job.canvasRevision) return;
+            }
+            for (const auto& extent : item.unreadableExtents)
+            {
+                if (!canvas_ || canvas_->sourceRevision() != job.canvasRevision) return;
+                canvas_->deliverUnreadableExtent(extent.first, extent.last, job.canvasRevision);
+                if (!alive || job.jobGeneration != generation_) return;
             }
         }
         if (failures) emit readFailed(job.canvasRevision, firstFailure, failures);

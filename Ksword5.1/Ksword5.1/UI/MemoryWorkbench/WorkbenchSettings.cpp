@@ -358,6 +358,9 @@ namespace ks::ui::workbench_settings
         return ReadBool(QStringLiteral("memwb/workbench/rowWidthAuto"), true);
     }
 
+    bool LoadFoldUnknown() { return ReadBool(QStringLiteral("memwb/workbench/foldUnknown"), true); }
+    void SaveFoldUnknown(bool enabled) { WriteBool(QStringLiteral("memwb/workbench/foldUnknown"), enabled); }
+
     void SaveRowWidthAuto(const bool automatic)
     {
         WriteBool(QStringLiteral("memwb/workbench/rowWidthAuto"), automatic);

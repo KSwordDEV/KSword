@@ -8,6 +8,7 @@
 // ============================================================
 
 #include "WorkbenchMessages.h"
+#include "../FlowLayout.h"
 
 #include "../../Internationalization/LanguageManager.h"
 #include "../../theme.h"
@@ -206,7 +207,7 @@ namespace ks::ui
         drawerLayout->setContentsMargins(0, 0, 0, 0);
         drawerLayout->setSpacing(2);
 
-        auto* drawerToolRow = new QHBoxLayout();
+        auto* drawerToolRow = new FlowLayout(nullptr, 0, 6, 4);
         drawerToolRow->setContentsMargins(0, 0, 0, 0);
         // B12：换行勾选框原来只在注释里提了一句，SetWrapEnabled 从未被调用过
         // （死接口）。默认勾选=换行，与 FakeDiagnosticsHost/生产实现里
@@ -223,7 +224,12 @@ namespace ks::ui
             m_diagnosticsHost->SetWrapEnabled(wrap);
         });
         drawerToolRow->addWidget(m_wrapCheckBox);
-        drawerToolRow->addStretch(1);
+        m_foldUnknownCheckBox = new QCheckBox(QStringLiteral("折叠未知区域"), m_drawerContainer);
+        m_foldUnknownCheckBox->setObjectName(QStringLiteral("workbench_fold_unknown"));
+        m_foldUnknownCheckBox->setChecked(true);
+        m_foldUnknownCheckBox->setToolTip(QStringLiteral("连续的已确认不可读区域只显示首行和末行；不折叠尚未读取或正在加载的数据，不修改原始字节"));
+        connect(m_foldUnknownCheckBox, &QCheckBox::toggled, this, &WorkbenchStatusBar::foldUnknownRegionsChanged);
+        drawerToolRow->addWidget(m_foldUnknownCheckBox);
         m_copyDiagnosticsButton = new QToolButton(m_drawerContainer);
         m_copyDiagnosticsButton->setObjectName(QStringLiteral("workbench_copy_diagnostics"));
         m_copyDiagnosticsButton->setIcon(QIcon(QStringLiteral(":/Icon/log_copy.svg")));
@@ -248,6 +254,8 @@ namespace ks::ui
     }
 
     WorkbenchStatusBar::~WorkbenchStatusBar() = default;
+    bool WorkbenchStatusBar::foldUnknownRegions() const { return m_foldUnknownCheckBox->isChecked(); }
+    void WorkbenchStatusBar::setFoldUnknownRegions(bool enabled) { m_foldUnknownCheckBox->setChecked(enabled); }
 
     void WorkbenchStatusBar::setChannelScopeText(const QString& text)
     {

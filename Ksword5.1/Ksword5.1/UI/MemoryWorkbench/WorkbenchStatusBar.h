@@ -59,6 +59,8 @@ namespace ks::ui
         // 本控件取得宿主对象的所有权（存进 unique_ptr）。
         explicit WorkbenchStatusBar(std::unique_ptr<IWorkbenchDiagnosticsHost> diagnosticsHost, QWidget* parent = nullptr);
         ~WorkbenchStatusBar() override;
+        bool foldUnknownRegions() const;
+        void setFoldUnknownRegions(bool enabled);
 
         // setChannelScopeText：①通道·范围段。文字已在上层翻译好，本控件只负责展示。
         void setChannelScopeText(const QString& text);
@@ -114,6 +116,7 @@ namespace ks::ui
         bool eventFilter(QObject* watched, QEvent* event) override;
 
     signals:
+        void foldUnknownRegionsChanged(bool enabled);
         // scratchDirtyAcknowledged：用户点了暂存区脏 chip 的 ×。
         void scratchDirtyAcknowledged();
         // rereadRequested：用户点了"建议重新读取"提示。
@@ -166,6 +169,7 @@ namespace ks::ui
         // m_wrapCheckBox：诊断抽屉的"自动换行"勾选框（B12——SetWrapEnabled 原来是
         // 一个没有任何调用方的死接口，现在真正接上）。
         QCheckBox* m_wrapCheckBox = nullptr;
+        QCheckBox* m_foldUnknownCheckBox = nullptr;
         QWidget* m_scratchDirtyChip = nullptr;
         QToolButton* m_scratchDirtyAckButton = nullptr;
         QWidget* m_rmwChip = nullptr;

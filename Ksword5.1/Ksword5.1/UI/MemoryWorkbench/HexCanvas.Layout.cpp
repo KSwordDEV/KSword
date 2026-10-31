@@ -127,6 +127,11 @@ namespace ks::ui
         }
         const std::optional<std::uint64_t> row = m_viewport.RowOfAddress(address);
         const std::optional<std::uint32_t> column = m_viewport.ColumnOfAddress(address);
+        if (row && m_viewport.HasFoldedRows())
+        {
+            const auto start = m_viewport.RowStartAddress(*row);
+            if (!start || address < *start || address - *start >= m_viewport.BytesPerRow()) return QRect();
+        }
         if (!row.has_value() || !column.has_value() || *row < m_firstRow)
         {
             return QRect();

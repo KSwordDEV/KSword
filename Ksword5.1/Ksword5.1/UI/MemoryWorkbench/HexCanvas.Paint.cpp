@@ -199,6 +199,7 @@ namespace ks::ui
         m_lastPaintedRows = 0;
         if (!m_hasSpace)
         {
+            updateUniformButtons(false, 0);
             return;
         }
 
@@ -209,8 +210,25 @@ namespace ks::ui
         const std::optional<AddressRange> bottomSpan = m_viewport.RowValidSpan(m_firstRow + (rowsToPaint - 1ULL));
         if (topSpan.has_value() && bottomSpan.has_value())
         {
-            touchVisiblePages(topSpan->first, bottomSpan->last);
+            if (!m_viewport.HasFoldedRows()) touchVisiblePages(topSpan->first, bottomSpan->last);
+            else
+            {
+                // Never walk the physical span across a folded multi-terabyte hole.
+                std::optional<std::uint64_t> lastTouched;
+                for (std::uint64_t row = 0; row < rowsToPaint; ++row)
+                {
+                    const auto span = m_viewport.RowValidSpan(m_firstRow + row);
+                    if (!span) continue;
+                    const auto firstPage = ksword::memwb::HexViewport::PageStartOf(span->first);
+                    const auto lastPage = ksword::memwb::HexViewport::PageStartOf(span->last);
+                    if (!lastTouched || *lastTouched != firstPage) touchVisiblePages(span->first, span->first);
+                    if (lastPage != firstPage) touchVisiblePages(span->last, span->last);
+                    lastTouched = lastPage;
+                }
+            }
         }
+        UniformPaintProbe uniform;
+        uniform.uniform = rowsToPaint >= fullVisibleRows();
 
         // 行区域：裁剪到表头之下，并按横向滚动量平移；整个内容坐标系从这里开始。
         const int viewWidth = viewport()->width();
@@ -222,7 +240,8 @@ namespace ks::ui
         for (std::uint64_t index = 0; index < rowsToPaint; ++index)
         {
             const int rowTop = m_layout.headerHeight + static_cast<int>(index) * m_layout.rowHeight;
-            paintRow(painter, palette, m_firstRow + index, rowTop, selection);
+            paintRow(painter, palette, m_firstRow + index, rowTop, selection,
+                m_uniformNavigationEnabled ? &uniform : nullptr);
             ++m_lastPaintedRows;
         }
         paintCaretFrames(painter, palette);
@@ -231,6 +250,7 @@ namespace ks::ui
         // 表头最后画，盖住行区域顶部的任何溢出。
         const std::optional<std::uint32_t> caretColumn = m_viewport.ColumnOfAddress(m_viewport.GetSelection().caret);
         paintHeader(painter, palette, viewWidth, caretColumn.has_value() ? *caretColumn : 0U);
+        updateUniformButtons(m_uniformNavigationEnabled && uniform.uniform && uniform.seen, uniform.value);
 
         // 可见页被 LRU 淘汰后（单元格回到"未加载"且没有在途），排队一次补读。
         if (m_provider != nullptr && !m_refetchQueued && topSpan.has_value() && bottomSpan.has_value())
@@ -303,7 +323,7 @@ namespace ks::ui
         const PaintPalette& palette,
         std::uint64_t row,
         int rowTop,
-        const std::optional<AddressRange>& selection) const
+        const std::optional<AddressRange>& selection, UniformPaintProbe* probe) const
     {
         const std::optional<std::uint64_t> start = m_viewport.RowStartAddress(row);
         const std::optional<AddressRange> span = m_viewport.RowValidSpan(row);
@@ -325,6 +345,8 @@ namespace ks::ui
         // 有效列范围：补空位列不参与任何绘制。
         const int firstColumn = static_cast<int>(span->first - *start);
         const int lastColumn = static_cast<int>(span->last - *start);
+        if (probe && (firstColumn != 0 || lastColumn + 1 != static_cast<int>(m_viewport.BytesPerRow())))
+            probe->uniform = false;
 
         // cores/selected：本行每一列的轻量状态与是否在选区内。
         CellCore cores[64];
@@ -333,6 +355,13 @@ namespace ks::ui
         {
             const std::uint64_t address = *start + static_cast<std::uint64_t>(column);
             cores[column] = resolveCore(address);
+            if (probe && probe->uniform)
+            {
+                const auto& core = cores[column];
+                if (core.state != ByteState::Valid || !core.hasValue) probe->uniform = false;
+                else if (!probe->seen) { probe->value = core.value; probe->seen = true; }
+                else if (probe->value != core.value) probe->uniform = false;
+            }
             selected[column] = selection.has_value() && address >= selection->first && address <= selection->last;
         }
 

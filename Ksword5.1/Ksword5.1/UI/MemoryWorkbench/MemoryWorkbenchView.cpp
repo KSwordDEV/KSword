@@ -669,6 +669,7 @@ namespace ks::ui
         if (statusBar_ != nullptr)
         {
             statusBar_->setDrawerExpanded(LoadDiagExpanded());
+            statusBar_->setFoldUnknownRegions(LoadFoldUnknown());
         }
         if (addressBookPanel_ != nullptr)
         {
@@ -738,6 +739,7 @@ namespace ks::ui
         if (statusBar_ != nullptr)
         {
             SaveDiagExpanded(statusBar_->isDrawerExpanded());
+            SaveFoldUnknown(statusBar_->foldUnknownRegions());
         }
         if (addressBookPanel_ != nullptr)
         {

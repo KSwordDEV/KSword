@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 
 // ============================================================
 // MemoryIoPort.h
@@ -143,6 +144,10 @@ namespace ksword::memwb
     class IMemoryIoPort
     {
     public:
+        struct UnreadableExtent { std::uint64_t first = 0, last = 0; };
+        // Optional, worker-only mapping evidence. Never infer a region from a failed byte read.
+        virtual std::optional<UnreadableExtent> QueryUnreadableExtent(const MemoryTargetSession&, std::uint64_t)
+        { return std::nullopt; }
         virtual ~IMemoryIoPort() = default;
 
         // Limits：本端口在当前会话下的单次访问上限。调用方据此规划分块，每次

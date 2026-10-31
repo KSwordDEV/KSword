@@ -257,6 +257,12 @@ namespace ks::ui
 
         // ---- 状态条：诊断抽屉宿主包一层 CodeEditorWidget（接口缺口 G3）----
         statusBar_ = new WorkbenchStatusBar(std::make_unique<WorkbenchDiagnosticsHost>(), this);
+        hexPane_->canvas()->setUniformBoundaryNavigationEnabled(true);
+        hexPane_->canvas()->setFoldUnknownRegions(statusBar_->foldUnknownRegions());
+        connect(statusBar_, &WorkbenchStatusBar::foldUnknownRegionsChanged,
+            hexPane_->canvas(), &HexCanvas::setFoldUnknownRegions);
+        connect(hexPane_->canvas(), &HexCanvas::boundaryNavigationMessage, this,
+            [this](const QString& message, bool error) { statusBar_->setReadResultText(message, error); });
         root->addWidget(statusBar_);
     }
 
@@ -266,7 +272,10 @@ namespace ks::ui
         connect(pageProvider_.get(), &WorkbenchPageProvider::channelUnavailable, this,
             &MemoryWorkbenchView::onProviderChannelUnavailable);
         connect(pageProvider_.get(), &WorkbenchPageProvider::readFailed, this,
-            [this](quint64 rev, QString text, int count) { onProviderReadFailed(rev, text, count); });
+            [this](quint64 rev, QString text, int count) {
+                if (hexPane_ && hexPane_->canvas()->sourceRevision() == rev) hexPane_->canvas()->boundaryReadFailed(QString());
+                onProviderReadFailed(rev, text, count);
+            });
         connect(pageProvider_.get(), &WorkbenchPageProvider::scratchAreaDirtyLatched, this,
             &MemoryWorkbenchView::onProviderScratchAreaDirtyLatched);
         connect(pageProvider_.get(), &WorkbenchPageProvider::retryBlockedByLatch, this,

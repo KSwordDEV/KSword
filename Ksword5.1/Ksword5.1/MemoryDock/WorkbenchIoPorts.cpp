@@ -5,6 +5,8 @@
 
 #include <mutex>
 #include <utility>
+#include <limits>
+#include <memory>
 
 // ============================================================
 // WorkbenchIoPorts.cpp
@@ -74,6 +76,7 @@ namespace
     // M-1（主会话审核拆分）已经把这三个纯映射函数搬进 WorkbenchIoMapping.h/
     // .cpp，本文件只在下面的 ReadViaFacade / WriteViaFacade 里调用它们
     // （命名空间 ksword::memwb_ports_detail），不再各自保留一份实现。
+
 }
 
 namespace ksword::memwb_ports
@@ -400,5 +403,51 @@ namespace ksword::memwb_ports
         }
 
         return WriteViaFacade(session, address, bytes, approved);
+    }
+    std::optional<ksword::memwb::IMemoryIoPort::UnreadableExtent> WorkbenchIoPort::QueryUnreadableExtent(
+        const ksword::memwb::MemoryTargetSession& session, std::uint64_t address)
+    {
+        using ksword::memwb::Scope;
+        using ksword::memwb::Channel;
+        if (session.scope != Scope::ProcessVirtual || session.pid == 0 || session.processCreateTime100ns == 0)
+            return std::nullopt;
+        const HANDLE process = ::OpenProcess(session.channel == Channel::UserMode
+            ? PROCESS_QUERY_INFORMATION : PROCESS_QUERY_LIMITED_INFORMATION, FALSE, session.pid);
+        if (!process) return std::nullopt;
+        const std::unique_ptr<void, decltype(&::CloseHandle)> lease(process, &::CloseHandle);
+        const auto sameInstance = [&]() {
+            FILETIME created{}, exited{}, kernel{}, user{};
+            if (!::GetProcessTimes(process, &created, &exited, &kernel, &user)) return false;
+            return ((static_cast<std::uint64_t>(created.dwHighDateTime) << 32U) | created.dwLowDateTime)
+                    == session.processCreateTime100ns
+                && exited.dwLowDateTime == 0 && exited.dwHighDateTime == 0;
+        };
+        if (!sameInstance()) return std::nullopt;
+        std::uint64_t first = 0, size = 0;
+        DWORD state = 0, protect = 0;
+        if (session.channel == Channel::StandardDriver)
+        {
+            const ksword::ark::DriverClient client;
+            auto driver = client.openSilently();
+            if (!driver.isValid()) return std::nullopt;
+            const auto query = client.queryVirtualMemory(session.pid, address, 0, &driver);
+            if (!query.io.ok || !(query.fieldFlags & KSWORD_ARK_MEMORY_FIELD_BASIC_PRESENT)
+                || query.basicStatus < 0 || query.openStatus < 0 || query.processId != session.pid) return std::nullopt;
+            first = query.baseAddress; size = query.regionSize; state = query.state; protect = query.protect;
+        }
+        else
+        {
+            MEMORY_BASIC_INFORMATION info{};
+            if (::VirtualQueryEx(process, reinterpret_cast<LPCVOID>(address), &info, sizeof(info)) != sizeof(info))
+                return std::nullopt;
+            first = reinterpret_cast<std::uint64_t>(info.BaseAddress); size = info.RegionSize;
+            state = info.State; protect = info.Protect;
+        }
+        const bool ordinaryRead = session.channel == Channel::UserMode;
+        const bool unavailable = state == MEM_FREE || state == MEM_RESERVE
+            || (ordinaryRead && state == MEM_COMMIT && ((protect & 0xFFU) == PAGE_NOACCESS || (protect & PAGE_GUARD)));
+        if (!unavailable || size == 0 || size - 1 > std::numeric_limits<std::uint64_t>::max() - first
+            || address < first || address - first >= size || !sameInstance()) return std::nullopt;
+        return UnreadableExtent{first, first + size - 1};
     }
 }

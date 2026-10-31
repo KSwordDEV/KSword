@@ -266,6 +266,15 @@ namespace ksword::memwb
         { return mutationSerial_ == revision.serial && revision.storage.lock() == state_; }
         std::uint64_t MutationSerial() const noexcept { return mutationSerial_; }
         std::size_t PendingBlockCount() const noexcept { return state_->patches_.size(); }
+        bool HasPendingInRange(std::uint64_t first, std::uint64_t last) const noexcept
+        {
+            if (first > last) return false;
+            auto it = state_->patches_.upper_bound(last);
+            if (it == state_->patches_.begin()) return false;
+            --it;
+            return !it->second.after.empty() && (it->first >= first
+                || first - it->first < it->second.after.size());
+        }
         bool SameRevision(const MemoryDiffOverlay& other) const noexcept
         { return mutationSerial_ == other.mutationSerial_ && state_ == other.state_; }
         // Constant-time projection into this same overlay object. The prepared

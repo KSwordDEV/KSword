@@ -83,6 +83,8 @@ namespace ksword::memwb_ports
     {
     public:
         WorkbenchIoPort() = default;
+        std::optional<UnreadableExtent> QueryUnreadableExtent(
+            const ksword::memwb::MemoryTargetSession& session, std::uint64_t address) override;
 
         // Limits：见文件头"冻结接口摘要"；按 FACTS 第 1 条给出协议上限。
         // StandardDriver 通道按范围区分虚拟/物理上限；UserMode（R3 没有协议

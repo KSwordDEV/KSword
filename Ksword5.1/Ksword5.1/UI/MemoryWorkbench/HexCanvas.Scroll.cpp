@@ -10,6 +10,10 @@
 #include <QScrollBar>
 #include <QPointer>
 #include <QSignalBlocker>
+#include <QToolButton>
+#include <QApplication>
+#include "../ToolbarMetrics.h"
+#include "../../Internationalization/LanguageManager.h"
 
 #include <algorithm>
 #include <limits>
@@ -68,6 +72,8 @@ namespace ks::ui
     // 传入：行号（夹取到最大首行）、是否同步滚动条（用户拖滑块时为假，避免取整抖动）。
     void HexCanvas::setFirstRowInternal(std::uint64_t row, bool syncBar)
     {
+        cancelUniformBoundarySearch();
+        m_foldFetchBudget = 16;
         const QPointer<HexCanvas> alive(this);
         const std::uint64_t scrollingRevision = sourceRevision();
         const std::uint64_t clamped = std::min(row, maxFirstRow());
@@ -94,6 +100,11 @@ namespace ks::ui
         {
             return false;
         }
+        const QPointer<HexCanvas> alive(this);
+        const auto revision = sourceRevision();
+        m_viewport.RevealAddress(address);
+        syncFoldGeometry();
+        if (!alive || sourceRevision() != revision) return false;
         const std::optional<std::uint64_t> top =
             m_viewport.ScrollToAddress(address, align, m_firstRow, fullVisibleRows());
         if (!top.has_value())
@@ -318,12 +329,9 @@ namespace ks::ui
         const QPointer<HexCanvas> alive(this);
         const auto revision = m_viewport.SourceRevision();
         auto* const provider = m_provider;
-        // A fresh geometry-only viewport uses the exact resident-window planner,
-        // without copying cached bytes or mistaking this call's missing pages for interest.
-        const ksword::memwb::HexViewport interestViewport(m_viewport.FirstAddress(),
-            m_viewport.LastAddress(), m_viewport.BytesPerRow(), m_viewport.MaxCachedPages());
+        // Interest follows visual rows, including folds, without copying cached bytes.
         provider->UpdateViewportInterest(
-            interestViewport.PlanFetch(m_firstRow, paintRowCount(), kPrefetchPages), revision);
+            m_viewport.PlanFetch(m_firstRow, paintRowCount(), kPrefetchPages, true), revision);
         if (!alive || revision != sourceRevision() || provider != m_provider) return;
 
         // plan：还需要读取的页范围；accepted：成功登记在途的范围，只有它们才交给提供者。
@@ -331,11 +339,17 @@ namespace ks::ui
             m_viewport.PlanFetch(m_firstRow, paintRowCount(), kPrefetchPages);
         std::vector<HexFetchRange> accepted;
         accepted.reserve(plan.size());
-        for (const HexFetchRange& range : plan)
+        for (HexFetchRange range : plan)
         {
+            if (m_foldUnknownRegions)
+            {
+                range.pageCount = std::min(range.pageCount, m_foldFetchBudget);
+                if (range.pageCount == 0) break;
+            }
             if (m_viewport.MarkInFlight(range) == PageResult::Accepted)
             {
                 accepted.push_back(range);
+                if (m_foldUnknownRegions) m_foldFetchBudget -= range.pageCount;
             }
         }
         if (!accepted.empty())
@@ -365,21 +379,16 @@ namespace ks::ui
         if (first > last) return;
         // A view requests a bounded decode window, never an entire target address space.
         last = first + std::min<std::uint64_t>(last - first, 65535);
-        const auto firstRow = m_viewport.RowOfAddress(first);
-        const auto lastRow = m_viewport.RowOfAddress(last);
-        if (!firstRow || !lastRow) return;
         const QPointer<HexCanvas> alive(this);
         const auto revision = sourceRevision();
         auto* const provider = m_provider;
-        const ksword::memwb::HexViewport explicitViewport(m_viewport.FirstAddress(),
-            m_viewport.LastAddress(), m_viewport.BytesPerRow(), m_viewport.MaxCachedPages());
-        const auto intent = explicitViewport.PlanFetch(*firstRow, *lastRow - *firstRow + 1, kPrefetchPages);
+        const auto intent = m_viewport.PlanAddressFetch(first, last, kPrefetchPages, true);
         // Preserve the complete explicit intent BEFORE PlanFetch removes cached and
         // in-flight pages. A fully pending range still has protected ownership.
         if (purpose == RangeReadPurpose::Browse) provider->UpdateViewportInterest(intent, revision);
         else provider->ProtectPages(intent, revision);
         if (!alive || revision != sourceRevision() || provider != m_provider) return;
-        const auto plan = m_viewport.PlanFetch(*firstRow, *lastRow - *firstRow + 1, kPrefetchPages);
+        const auto plan = m_viewport.PlanAddressFetch(first, last, kPrefetchPages);
         std::vector<HexFetchRange> accepted;
         for (const auto& range : plan)
             if (m_viewport.MarkInFlight(range) == PageResult::Accepted) accepted.push_back(range);
@@ -422,6 +431,239 @@ namespace ks::ui
         m_lastNotifiedFirst = visible->first;
         m_lastNotifiedLast = visible->last;
         emit visibleRangeChanged(visible->first, visible->last);
+    }
+
+    std::optional<std::uint64_t> HexCanvas::visibleCenterAddress() const
+    {
+        if (!m_hasSpace) return std::nullopt;
+        const auto lastRow = std::min(m_firstRow + paintRowCount() - 1ULL, m_viewport.RowCount() - 1ULL);
+        const auto span = m_viewport.RowValidSpan(m_firstRow + (lastRow - m_firstRow) / 2);
+        return span ? std::optional<std::uint64_t>(span->first + (span->last - span->first) / 2) : std::nullopt;
+    }
+
+    std::vector<HexCanvas::AddressRange> HexCanvas::visibleAddressSpans() const
+    {
+        std::vector<AddressRange> spans;
+        if (!m_hasSpace) return spans;
+        const auto count = std::min(paintRowCount(), m_viewport.RowCount() - m_firstRow);
+        for (std::uint64_t row = 0; row < count; ++row)
+        {
+            const auto span = m_viewport.RowValidSpan(m_firstRow + row);
+            if (!span) continue;
+            if (!spans.empty() && span->first > spans.back().last && span->first - spans.back().last == 1)
+                spans.back().last = span->last;
+            else spans.push_back(*span);
+        }
+        return spans;
+    }
+
+    void HexCanvas::syncFoldGeometry()
+    {
+        if (m_foldGeometryRevision == m_viewport.FoldRevision() || !m_hasSpace) return;
+        const auto first = m_notifiedOnce ? m_lastNotifiedFirst : m_viewport.FirstAddress();
+        m_foldGeometryRevision = m_viewport.FoldRevision();
+        m_firstRow = std::min(m_viewport.RowOfAddress(first).value_or(0), maxFirstRow());
+        const QPointer<HexCanvas> alive(this);
+        const auto revision = sourceRevision();
+        syncScrollBars();
+        if (alive && sourceRevision() == revision) notifyVisibleRange();
+    }
+
+    void HexCanvas::setFoldUnknownRegions(bool enabled)
+    {
+        if (m_foldUnknownRegions == enabled) return;
+        const QPointer<HexCanvas> alive(this);
+        m_foldUnknownRegions = enabled;
+        m_foldFetchBudget = 16;
+        cancelUniformBoundarySearch();
+        m_viewport.SetFoldUnknown(enabled);
+        if (m_provider) m_provider->SetUnknownFoldingEnabled(enabled);
+        if (!alive) return;
+        syncFoldGeometry();
+        if (!alive) return;
+        viewport()->update();
+        requestVisiblePages();
+    }
+
+    void HexCanvas::deliverUnreadableExtent(std::uint64_t first, std::uint64_t last, std::uint64_t revision)
+    {
+        if (!m_hasSpace || !m_foldUnknownRegions || revision != sourceRevision() || first > last) return;
+        const QPointer<HexCanvas> alive(this);
+        m_viewport.NoteUnreadableRange(first, last);
+        syncFoldGeometry();
+        if (!alive || revision != sourceRevision()) return;
+        viewport()->update();
+        scheduleContentChanged();
+        requestVisiblePages();
+    }
+
+    void HexCanvas::setUniformBoundaryNavigationEnabled(bool enabled)
+    {
+        if (m_uniformNavigationEnabled == enabled) return;
+        m_uniformNavigationEnabled = enabled;
+        if (enabled && !m_uniformUpperButton)
+        {
+            const auto make = [this](bool upper) {
+                auto* button = new QToolButton(viewport());
+                button->setFont(QApplication::font());
+                button->setText(ks::i18n::sourceText(upper ? QStringLiteral("上界") : QStringLiteral("下界")));
+                button->setToolTip(ks::i18n::sourceText(upper
+                    ? QStringLiteral("查找当前可读纯色区块的上界并居中；仅点击时读取，再次点击可停止")
+                    : QStringLiteral("查找当前可读纯色区块的下界并居中；仅点击时读取，再次点击可停止")));
+                NormalizeToolbarControl(button);
+                button->hide();
+                connect(button, &QToolButton::clicked, this, [this, upper]() { startUniformBoundarySearch(upper); });
+                return button;
+            };
+            m_uniformUpperButton = make(true);
+            m_uniformLowerButton = make(false);
+        }
+        if (!enabled) { cancelUniformBoundarySearch(); updateUniformButtons(false, 0); }
+        viewport()->update();
+    }
+
+    void HexCanvas::updateUniformButtons(bool uniform, std::uint8_t value)
+    {
+        if (!m_uniformUpperButton) return;
+        uniform = uniform && m_uniformNavigationEnabled;
+        const bool wanted = uniform || m_uniformSearch.has_value();
+        const bool unchanged = m_uniformScreen == uniform && (!uniform || m_uniformValue == value)
+            && m_uniformButtonsWanted == wanted
+            && m_uniformButtonViewport == viewport()->size() && m_uniformUpperButton->font() == QApplication::font();
+        m_uniformScreen = uniform;
+        m_uniformButtonsWanted = wanted;
+        m_uniformValue = value;
+        if (unchanged || m_uniformUpdateQueued) return;
+        m_uniformUpdateQueued = true;
+        const QPointer<HexCanvas> alive(this);
+        QTimer::singleShot(0, this, [alive]() {
+            if (!alive) return;
+            alive->m_uniformUpdateQueued = false;
+            alive->m_uniformButtonViewport = alive->viewport()->size();
+            const bool visible = alive->m_uniformNavigationEnabled && (alive->m_uniformScreen || alive->m_uniformSearch.has_value());
+            for (auto* button : {alive->m_uniformUpperButton, alive->m_uniformLowerButton})
+            {
+                button->setFont(QApplication::font());
+                if (!alive) return;
+                button->resize(button->sizeHint());
+                if (!alive) return;
+            }
+            const int x = std::max(0, alive->viewport()->width() - alive->m_uniformUpperButton->width() - 8);
+            const int top = alive->m_layout.headerHeight + 6;
+            const int bottom = alive->viewport()->height() - alive->m_uniformLowerButton->height() - 6;
+            const bool fits = bottom >= top + alive->m_uniformUpperButton->height() + 4;
+            alive->m_uniformUpperButton->move(x, top);
+            if (!alive) return;
+            alive->m_uniformLowerButton->move(x, std::max(top, bottom));
+            if (!alive) return;
+            alive->m_uniformUpperButton->setVisible(visible && fits);
+            if (!alive) return;
+            alive->m_uniformLowerButton->setVisible(visible && fits);
+        });
+    }
+
+    void HexCanvas::cancelUniformBoundarySearch()
+    {
+        if (!m_uniformSearch) return;
+        m_uniformSearch.reset();
+        if (m_uniformUpperButton)
+        {
+            m_uniformUpperButton->setText(ks::i18n::sourceText(QStringLiteral("上界")));
+            m_uniformLowerButton->setText(ks::i18n::sourceText(QStringLiteral("下界")));
+        }
+        updateUniformButtons(m_uniformScreen, m_uniformValue);
+    }
+
+    void HexCanvas::boundaryReadFailed(const QString& reason)
+    {
+        if (!m_uniformSearch) return;
+        cancelUniformBoundarySearch();
+        if (!reason.isEmpty()) emit boundaryNavigationMessage(reason, true);
+    }
+
+    void HexCanvas::startUniformBoundarySearch(bool upper)
+    {
+        if (m_uniformSearch && m_uniformSearch->upper == upper)
+        {
+            cancelUniformBoundarySearch();
+            emit boundaryNavigationMessage(ks::i18n::sourceText(QStringLiteral("已停止纯色边界查找")), false);
+            return;
+        }
+        if (!m_uniformScreen || !m_hasSpace) return;
+        cancelUniformBoundarySearch();
+        const auto visible = visibleAddressRange();
+        if (!visible) return;
+        const auto origin = upper ? visible->first : visible->last;
+        m_uniformSearch = UniformSearch{upper, m_uniformValue, sourceRevision(), origin, origin, 0};
+        const QPointer<HexCanvas> alive(this);
+        (upper ? m_uniformUpperButton : m_uniformLowerButton)->setText(ks::i18n::sourceText(QStringLiteral("停止")));
+        emit boundaryNavigationMessage(ks::i18n::sourceText(upper
+            ? QStringLiteral("正在查找纯色区域上界…") : QStringLiteral("正在查找纯色区域下界…")), false);
+        if (alive) advanceUniformBoundarySearch();
+    }
+
+    void HexCanvas::advanceUniformBoundarySearch()
+    {
+        if (!m_uniformSearch || m_uniformAdvanceQueued) return;
+        m_uniformAdvanceQueued = true;
+        const QPointer<HexCanvas> alive(this);
+        QTimer::singleShot(0, this, [alive]() {
+            if (!alive) return;
+            alive->m_uniformAdvanceQueued = false;
+            alive->scanUniformBoundaryStep();
+        });
+    }
+
+    void HexCanvas::scanUniformBoundaryStep()
+    {
+        if (!m_uniformSearch) return;
+        if (m_uniformSearch->revision != sourceRevision()) { cancelUniformBoundarySearch(); return; }
+        constexpr std::uint64_t stepBudget = 16384; // Bounded CPU work; no whole-buffer scan in paint/scroll.
+        const QPointer<HexCanvas> alive(this);
+        const auto finish = [this](std::uint64_t address) {
+            const QPointer<HexCanvas> alive(this);
+            const bool upper = m_uniformSearch->upper;
+            const auto revision = m_uniformSearch->revision;
+            const auto width = m_viewport.BytesPerRow();
+            if (upper && address % width != 0 && width - address % width <= m_viewport.LastAddress() - address)
+                address += width - address % width;
+            else if (!upper && address % width != width - 1 && address / width > m_viewport.FirstAddress() / width)
+                address = address - address % width - width;
+            cancelUniformBoundarySearch();
+            scrollToAddress(address, ScrollAlign::Center);
+            if (alive && sourceRevision() == revision) emit boundaryNavigationMessage(ks::i18n::sourceText(upper
+                ? QStringLiteral("已定位当前可读纯色区块的上界") : QStringLiteral("已定位当前可读纯色区块的下界")), false);
+        };
+        for (std::uint64_t count = 0; count < stepBudget; ++count)
+        {
+            auto& search = *m_uniformSearch;
+            const auto core = resolveCore(search.cursor);
+            if (core.state == ByteState::NotLoaded || core.state == ByteState::Pending)
+            {
+                const auto first = search.upper ? search.cursor - std::min<std::uint64_t>(search.cursor - m_viewport.FirstAddress(), 65535) : search.cursor;
+                const auto last = search.upper ? search.cursor : search.cursor + std::min<std::uint64_t>(m_viewport.LastAddress() - search.cursor, 65535);
+                requestAddressRange(first, last, RangeReadPurpose::ExplicitRead);
+                return; // Page completion resumes this exact cursor; no polling timer while IO is pending.
+            }
+            if (core.state == ByteState::Unreadable || !core.hasValue || core.value != search.value)
+            {
+                if (search.cursor == search.origin)
+                {
+                    boundaryReadFailed(ks::i18n::sourceText(QStringLiteral("当前数据已变化，请重新查找纯色边界")));
+                    return;
+                }
+                finish(search.upper ? search.cursor + 1 : search.cursor - 1);
+                return;
+            }
+            ++search.scanned;
+            if (search.upper ? search.cursor == m_viewport.FirstAddress() : search.cursor == m_viewport.LastAddress())
+            {
+                finish(search.cursor);
+                return;
+            }
+            if (search.upper) --search.cursor; else ++search.cursor;
+        }
+        if (alive && m_uniformSearch) advanceUniformBoundarySearch();
     }
 
 }

@@ -10,6 +10,7 @@
 #include "HexViewport.h"
 
 #include <limits>
+#include <algorithm>
 
 namespace ksword::memwb {
 
@@ -76,6 +77,8 @@ bool HexViewport::ApplyCaret(std::uint64_t target, bool extend) {
     if (!extend) {
         selection_.anchor = target;
     }
+    if (foldUnknown_ && before.caret / bytesPerRow_ != target / bytesPerRow_
+        && (IsKnownUnreadable(before.caret) || IsKnownUnreadable(target))) RebuildFolds();
     return selection_.anchor != before.anchor || selection_.caret != before.caret;
 }
 
@@ -107,6 +110,20 @@ bool HexViewport::MoveBytesByMagnitude(bool forward, std::uint64_t magnitude, bo
         target = (magnitude > lastAddress_ - caret) ? lastAddress_ : (caret + magnitude);
     } else {
         target = (magnitude > caret - firstAddress_) ? firstAddress_ : (caret - magnitude);
+    }
+    if (foldUnknown_ && magnitude == 1 && !hiddenRows_.empty()) {
+        const auto raw = (target - rowBase_) / bytesPerRow_;
+        auto it = std::upper_bound(hiddenRows_.begin(), hiddenRows_.end(), raw,
+            [](auto value, const HiddenRows& span) { return value < span.first; });
+        if (it != hiddenRows_.begin()) {
+            --it;
+            if (raw <= it->last) {
+                const auto row = forward ? it->last + 1 : it->first - 1;
+                const auto column = (target - rowBase_) % bytesPerRow_;
+                const auto start = rowBase_ + row * bytesPerRow_;
+                target = ClampToSpace(start + std::min<std::uint64_t>(column, lastAddress_ - start));
+            }
+        }
     }
     return ApplyCaret(target, extend);
 }
