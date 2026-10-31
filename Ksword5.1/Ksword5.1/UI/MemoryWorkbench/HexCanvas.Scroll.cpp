@@ -12,7 +12,7 @@
 #include <QSignalBlocker>
 #include <QToolButton>
 #include <QApplication>
-#include "../ToolbarMetrics.h"
+#include "../../theme.h"
 #include "../../Internationalization/LanguageManager.h"
 
 #include <algorithm>
@@ -81,6 +81,7 @@ namespace ks::ui
         {
             return;
         }
+        m_foldScrollUp = clamped < m_firstRow;
         m_firstRow = clamped;
         if (syncBar)
         {
@@ -96,13 +97,16 @@ namespace ks::ui
     // 滚动到地址。
     bool HexCanvas::scrollToAddress(std::uint64_t address, ScrollAlign align)
     {
-        if (!m_hasSpace)
+        if (!m_hasSpace || !m_viewport.ContainsAddress(address))
         {
             return false;
         }
         const QPointer<HexCanvas> alive(this);
         const auto revision = sourceRevision();
+        m_foldNavigationAddress = address;
+        const auto foldRevision = m_viewport.FoldRevision();
         m_viewport.RevealAddress(address);
+        const bool revealed = foldRevision != m_viewport.FoldRevision();
         syncFoldGeometry();
         if (!alive || sourceRevision() != revision) return false;
         const std::optional<std::uint64_t> top =
@@ -111,8 +115,20 @@ namespace ks::ui
         {
             return false;
         }
+        const bool unchanged = *top == m_firstRow;
         setFirstVisibleRow(*top);
-        return true;
+        if (!alive || sourceRevision() != revision) return false;
+        // Revealing a row can leave the same visual first row (a fully folded
+        // address space may fit on one screen). It still needs a page request.
+        if (unchanged && (revealed || m_viewport.PeekByte(address).state == ByteState::NotLoaded))
+        {
+            viewport()->update();
+            requestVisiblePages();
+        }
+        if (!alive || sourceRevision() != revision) return false;
+        if (m_foldUnknownRegions && m_viewport.PeekByte(address).state == ByteState::NotLoaded)
+            requestAddressRange(address, address, RangeReadPurpose::ExplicitRead);
+        return alive && sourceRevision() == revision;
     }
 
     // 按精确行数滚动。
@@ -321,6 +337,9 @@ namespace ks::ui
     // 作用：PlanFetch（预取前后各 2 页）-> 先 MarkInFlight -> 交给提供者。
     void HexCanvas::requestVisiblePages()
     {
+        // Record the NEW navigation position before a provider can synchronously
+        // deliver pages/cancel reads; visibleRangeChanged has not fired yet.
+        rememberFoldScrollAnchor();
         if (!m_hasSpace || m_provider == nullptr || !m_viewportReadEnabled)
         {
             return;
@@ -421,6 +440,7 @@ namespace ks::ui
     // 可见范围变化时发 visibleRangeChanged（去重）；返回 HEX 也读取同一几何来源。
     void HexCanvas::notifyVisibleRange()
     {
+        rememberFoldScrollAnchor();
         const auto visible = visibleAddressRange();
         if (!visible) return;
         if (m_notifiedOnce && visible->first == m_lastNotifiedFirst && visible->last == m_lastNotifiedLast)
@@ -457,12 +477,74 @@ namespace ks::ui
         return spans;
     }
 
+    void HexCanvas::rememberFoldScrollAnchor()
+    {
+        m_foldScrollAnchor.reset();
+        if (!m_hasSpace || !m_foldUnknownRegions) return;
+        const auto top = m_viewport.RowValidSpan(m_firstRow);
+        if (!top) return;
+        m_foldScrollAnchor = FoldScrollAnchor{top->first, 0};
+        const auto rows = std::min(fullVisibleRows(), m_viewport.RowCount() - m_firstRow);
+        if (m_foldNavigationAddress)
+        {
+            const auto row = m_viewport.RowOfAddress(*m_foldNavigationAddress);
+            const auto span = row ? m_viewport.RowValidSpan(*row) : std::nullopt;
+            if (row && span && *row >= m_firstRow && *row - m_firstRow < rows
+                && *m_foldNavigationAddress >= span->first && *m_foldNavigationAddress <= span->last)
+            {
+                m_foldScrollAnchor = FoldScrollAnchor{*m_foldNavigationAddress, *row - m_firstRow, true};
+                return;
+            }
+        }
+        // A visible caret is already protected by the fold model. Otherwise pin
+        // a readable row, so newly folded leading placeholders cannot move it.
+        const auto caret = m_viewport.GetSelection().caret;
+        const auto caretRow = m_viewport.RowOfAddress(caret);
+        if (caretRow && *caretRow >= m_firstRow && *caretRow - m_firstRow < rows)
+        {
+            m_foldScrollAnchor = FoldScrollAnchor{caret, *caretRow - m_firstRow, true};
+            return;
+        }
+        for (std::uint64_t row = 0; row < rows; ++row)
+        {
+            const auto span = m_viewport.RowValidSpan(m_firstRow + row);
+            if (!span) continue;
+            if (m_viewport.PeekByte(span->first).state == ByteState::Valid
+                || (m_overlay && m_overlay->HasPendingInRange(span->first, span->last)))
+            {
+                m_foldScrollAnchor = FoldScrollAnchor{span->first, row, true};
+                return;
+            }
+        }
+    }
+
     void HexCanvas::syncFoldGeometry()
     {
-        if (m_foldGeometryRevision == m_viewport.FoldRevision() || !m_hasSpace) return;
+        if (!m_hasSpace) return;
+        if (m_foldGeometryRevision == m_viewport.FoldRevision())
+        {
+            // A readable page may have just arrived without changing the fold
+            // index. Pin it before the next unreadable-page completion folds above it.
+            rememberFoldScrollAnchor();
+            return;
+        }
         const auto first = m_notifiedOnce ? m_lastNotifiedFirst : m_viewport.FirstAddress();
+        const auto anchor = m_foldScrollAnchor.value_or(FoldScrollAnchor{first, 0});
+        auto row = m_viewport.RowOfAddress(anchor.address).value_or(0);
+        auto span = m_viewport.RowValidSpan(row);
+        if (anchor.keepVisible && m_foldUnknownRegions && span
+            && (anchor.address < span->first || anchor.address > span->last))
+        {
+            // Refresh/toggle/eviction may turn the viewed data into dots. Keep
+            // that address present so the normal visible-page planner reloads it.
+            m_viewport.RevealAddress(anchor.address);
+            row = m_viewport.RowOfAddress(anchor.address).value_or(0);
+            span = m_viewport.RowValidSpan(row);
+        }
         m_foldGeometryRevision = m_viewport.FoldRevision();
-        m_firstRow = std::min(m_viewport.RowOfAddress(first).value_or(0), maxFirstRow());
+        if (span && (anchor.address < span->first || anchor.address > span->last) && m_foldScrollUp && row > 0)
+            --row; // All-unknown view: keep moving toward the preceding boundary.
+        m_firstRow = std::min(row - std::min(row, anchor.screenRow), maxFirstRow());
         const QPointer<HexCanvas> alive(this);
         const auto revision = sourceRevision();
         syncScrollBars();
@@ -473,7 +555,9 @@ namespace ks::ui
     {
         if (m_foldUnknownRegions == enabled) return;
         const QPointer<HexCanvas> alive(this);
+        if (!enabled) rememberFoldScrollAnchor();
         m_foldUnknownRegions = enabled;
+        if (enabled) rememberFoldScrollAnchor();
         m_foldFetchBudget = 16;
         cancelUniformBoundarySearch();
         m_viewport.SetFoldUnknown(enabled);
@@ -506,11 +590,15 @@ namespace ks::ui
             const auto make = [this](bool upper) {
                 auto* button = new QToolButton(viewport());
                 button->setFont(QApplication::font());
+                button->setObjectName(upper ? QStringLiteral("memwb_upper_bound") : QStringLiteral("memwb_lower_bound"));
+                button->setIcon(QIcon(upper ? QStringLiteral(":/Icon/memwb_upper_bound.svg") : QStringLiteral(":/Icon/memwb_lower_bound.svg")));
+                button->setToolButtonStyle(Qt::ToolButtonIconOnly);
                 button->setText(ks::i18n::sourceText(upper ? QStringLiteral("上界") : QStringLiteral("下界")));
+                button->setAccessibleName(button->text());
                 button->setToolTip(ks::i18n::sourceText(upper
                     ? QStringLiteral("查找当前可读纯色区块的上界并居中；仅点击时读取，再次点击可停止")
                     : QStringLiteral("查找当前可读纯色区块的下界并居中；仅点击时读取，再次点击可停止")));
-                NormalizeToolbarControl(button);
+                KswordTheme::ApplyCompactIconButtonMetrics(button);
                 button->hide();
                 connect(button, &QToolButton::clicked, this, [this, upper]() { startUniformBoundarySearch(upper); });
                 return button;
@@ -529,7 +617,7 @@ namespace ks::ui
         const bool wanted = uniform || m_uniformSearch.has_value();
         const bool unchanged = m_uniformScreen == uniform && (!uniform || m_uniformValue == value)
             && m_uniformButtonsWanted == wanted
-            && m_uniformButtonViewport == viewport()->size() && m_uniformUpperButton->font() == QApplication::font();
+            && m_uniformButtonViewport == viewport()->size();
         m_uniformScreen = uniform;
         m_uniformButtonsWanted = wanted;
         m_uniformValue = value;
@@ -541,13 +629,8 @@ namespace ks::ui
             alive->m_uniformUpdateQueued = false;
             alive->m_uniformButtonViewport = alive->viewport()->size();
             const bool visible = alive->m_uniformNavigationEnabled && (alive->m_uniformScreen || alive->m_uniformSearch.has_value());
-            for (auto* button : {alive->m_uniformUpperButton, alive->m_uniformLowerButton})
-            {
-                button->setFont(QApplication::font());
-                if (!alive) return;
-                button->resize(button->sizeHint());
-                if (!alive) return;
-            }
+            // Icon-only controls have shared fixed metrics. Resolved inherited
+            // fonts must not enqueue setFont/resize work on every painted frame.
             const int x = std::max(0, alive->viewport()->width() - alive->m_uniformUpperButton->width() - 8);
             const int top = alive->m_layout.headerHeight + 6;
             const int bottom = alive->viewport()->height() - alive->m_uniformLowerButton->height() - 6;
@@ -570,6 +653,10 @@ namespace ks::ui
         {
             m_uniformUpperButton->setText(ks::i18n::sourceText(QStringLiteral("上界")));
             m_uniformLowerButton->setText(ks::i18n::sourceText(QStringLiteral("下界")));
+            m_uniformUpperButton->setAccessibleName(m_uniformUpperButton->text());
+            m_uniformLowerButton->setAccessibleName(m_uniformLowerButton->text());
+            m_uniformUpperButton->setIcon(QIcon(QStringLiteral(":/Icon/memwb_upper_bound.svg")));
+            m_uniformLowerButton->setIcon(QIcon(QStringLiteral(":/Icon/memwb_lower_bound.svg")));
         }
         updateUniformButtons(m_uniformScreen, m_uniformValue);
     }
@@ -596,7 +683,10 @@ namespace ks::ui
         const auto origin = upper ? visible->first : visible->last;
         m_uniformSearch = UniformSearch{upper, m_uniformValue, sourceRevision(), origin, origin, 0};
         const QPointer<HexCanvas> alive(this);
-        (upper ? m_uniformUpperButton : m_uniformLowerButton)->setText(ks::i18n::sourceText(QStringLiteral("停止")));
+        auto* activeButton = upper ? m_uniformUpperButton : m_uniformLowerButton;
+        activeButton->setText(ks::i18n::sourceText(QStringLiteral("停止")));
+        activeButton->setAccessibleName(activeButton->text());
+        activeButton->setIcon(QIcon(QStringLiteral(":/Icon/process_stop.svg")));
         emit boundaryNavigationMessage(ks::i18n::sourceText(upper
             ? QStringLiteral("正在查找纯色区域上界…") : QStringLiteral("正在查找纯色区域下界…")), false);
         if (alive) advanceUniformBoundarySearch();

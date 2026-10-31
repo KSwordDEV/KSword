@@ -171,11 +171,15 @@ namespace ks::ui
             rowWidth,
             ksword::memwb::HexViewport::kMaxCachedPages);
         m_viewport.SetFoldUnknown(m_foldUnknownRegions);
-        m_viewport.SetFoldProtection([this](std::uint64_t first, std::uint64_t last) {
-            return m_overlay && m_overlay->HasPendingInRange(first, last);
+        m_viewport.SetFoldProtection([this](std::uint64_t first, std::uint64_t last) -> std::optional<AddressRange> {
+            const auto range = m_overlay ? m_overlay->FirstPendingRange(first, last) : std::nullopt;
+            return range ? std::optional<AddressRange>(AddressRange{range->first, range->last}) : std::nullopt;
         });
         m_foldGeometryRevision = m_viewport.FoldRevision();
         m_foldFetchBudget = 16;
+        m_foldScrollAnchor.reset();
+        m_foldNavigationAddress.reset();
+        m_foldScrollUp = false;
         cancelUniformBoundarySearch();
         m_hasSpace = true;
 
@@ -255,6 +259,8 @@ namespace ks::ui
     // 回到无数据状态。
     void HexCanvas::clearAddressSpace()
     {
+        m_foldScrollAnchor.reset();
+        m_foldNavigationAddress.reset();
         cancelUniformBoundarySearch();
         const bool hadSpace = m_hasSpace;
 

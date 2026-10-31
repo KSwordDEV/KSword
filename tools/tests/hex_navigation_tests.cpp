@@ -39,9 +39,11 @@ public:
     HexCanvas* canvas = nullptr;
     std::uint64_t pages = 0;
     bool folding = false;
+    std::vector<ks::ui::HexFetchRange> requests;
     void SetUnknownFoldingEnabled(bool enabled) override { folding = enabled; }
     void RequestPages(const std::vector<ks::ui::HexFetchRange>& ranges, std::uint64_t revision) override {
         for (const auto& range : ranges) {
+            requests.push_back(range);
             pages += range.pageCount;
             canvas->deliverUnreadable(range, revision);
         }
@@ -51,7 +53,126 @@ QToolButton* button(HexCanvas& c, const QString& text) {
     for (auto* b : c.findChildren<QToolButton*>()) if (b->text() == text) return b;
     return nullptr;
 }
+void foldScrollStability() {
+    HexCanvas c;
+    c.resize(900, 420);
+    c.setFoldUnknownRegions(true);
+    constexpr std::uint64_t body = 0x1000000;
+    c.setAddressSpace(0, body + 0x7FFF);
+    const auto rev = c.sourceRevision();
+    c.deliverPage(body - 0x100000, QByteArray(4096, '\x31'), QByteArray(4096, '\1'), rev);
+    c.deliverPage(body, QByteArray(4096, '\x41'), QByteArray(4096, '\1'), rev);
+    c.deliverUnreadable({body - 4096, 1, 0}, rev);
+    c.show(); c.scrollToAddress(body, HexCanvas::ScrollAlign::Center); draw(c);
+    const auto initialY = c.cellRect(body, HexCanvas::ActivePane::Hex).top();
+    check(initialY > 60, "known fragment starts below unknown rows");
+    for (std::uint64_t page = 2; page <= 24; ++page) {
+        c.deliverUnreadable({body - page * 4096, 1, 0}, rev); draw(c);
+        check(c.cellRect(body, HexCanvas::ActivePane::Hex).top() == initialY,
+            "upstream unreadable page merging keeps known fragment at the same screen row");
+    }
+    for (std::uint64_t page = 25; page <= 28; ++page) {
+        c.setFirstVisibleRow(c.firstVisibleRow() - 1);
+        const auto y = c.cellRect(body, HexCanvas::ActivePane::Hex).top();
+        c.deliverUnreadable({body - page * 4096, 1, 0}, rev); draw(c);
+        check(c.cellRect(body, HexCanvas::ActivePane::Hex).top() == y,
+            "upward user scroll is preserved when its next page is folded");
+    }
+
+    HexCanvas unknown;
+    unknown.resize(900, 420); unknown.setFoldUnknownRegions(true);
+    unknown.setAddressSpace(0, body + 0x7FFF);
+    const auto unknownRev = unknown.sourceRevision();
+    unknown.deliverUnreadable({body - 4096, 1, 0}, unknownRev);
+    unknown.show(); unknown.scrollToAddress(body - 0x1800, HexCanvas::ScrollAlign::Top); drain();
+    unknown.setFirstVisibleRow(unknown.firstVisibleRow() - 3);
+    const auto oldFirst = unknown.visibleAddressRange()->first;
+    unknown.deliverUnreadable({body - 8192, 1, 0}, unknownRev); draw(unknown);
+    check(unknown.visibleAddressRange()->first <= oldFirst,
+        "all-unknown upward view resolves toward the preceding boundary");
+
+    HexCanvas late;
+    late.resize(900, 420); late.setFoldUnknownRegions(true);
+    late.setAddressSpace(0, body + 0x7FFF); late.show();
+    late.deliverPage(body - 0x100000, QByteArray(4096, '\x31'), QByteArray(4096, '\1'), late.sourceRevision());
+    late.scrollToAddress(body, HexCanvas::ScrollAlign::Center); drain();
+    late.deliverPage(body, QByteArray(4096, '\x42'), QByteArray(4096, '\1'), late.sourceRevision());
+    const auto lateY = late.cellRect(body, HexCanvas::ActivePane::Hex).top();
+    late.deliverUnreadable({body - 4096, 1, 0}, late.sourceRevision()); draw(late);
+    check(late.cellRect(body, HexCanvas::ActivePane::Hex).top() == lateY,
+        "newly landed readable fragment becomes an anchor before adjacent unreadable pages finish");
+
+    // User's exact six-row example, with the caret in the trailing valid fragment.
+    HexCanvas example;
+    example.resize(900, 420); example.setFoldUnknownRegions(true);
+    example.setAddressSpace(0, 457 * 16 - 1);
+    const auto exampleRev = example.sourceRevision();
+    QByteArray front(4096, '\0'), frontMask(4096, '\0');
+    std::fill(front.begin(), front.begin() + 16, '\xAB');
+    std::fill(front.begin() + 16, front.begin() + 32, '\xCD');
+    std::fill(frontMask.begin(), frontMask.begin() + 32, '\1');
+    QByteArray back(4096, '\0'), backMask(4096, '\0');
+    for (int i = 456 * 16 - 16; i < 457 * 16; ++i) {
+        back[i - 4096] = i < 456 * 16 ? '\xAC' : '\xBD'; backMask[i - 4096] = '\1';
+    }
+    example.deliverPage(4096, back, backMask, exampleRev);
+    example.setCaretAddress(455 * 16);
+    example.deliverPage(0, front, frontMask, exampleRev);
+    example.show(); example.scrollToAddress(455 * 16, HexCanvas::ScrollAlign::Center); draw(example);
+    const std::uint64_t addresses[] = {0, 16, 32, 454 * 16, 455 * 16, 456 * 16};
+    const int height = example.cellRect(0, HexCanvas::ActivePane::Hex).height();
+    const int top = example.cellRect(0, HexCanvas::ActivePane::Hex).top();
+    for (int i = 0; i < 6; ++i) {
+        const auto cell = example.cellRect(addresses[i], HexCanvas::ActivePane::Hex);
+        check(!cell.isNull() && cell.top() == top + i * height, "six-row example keeps original addresses in visual order");
+        check(example.addressForViewportPos(cell.center()) == addresses[i], "six-row example hit testing");
+    }
+    check(example.cellStateAt(0).value == 0xAB && example.cellStateAt(16).value == 0xCD
+        && example.cellStateAt(455 * 16).value == 0xAC && example.cellStateAt(456 * 16).value == 0xBD,
+        "both meaningful fragments preserve their original values");
+    check(example.cellStateAt(32).byteState == HexCanvas::ByteState::Unreadable
+        && example.cellStateAt(454 * 16).byteState == HexCanvas::ByteState::Unreadable,
+        "only the first and last unknown rows remain");
+    check(example.cellRect(300 * 16, HexCanvas::ActivePane::Hex).isNull()
+        && example.caretAddress() == 455 * 16 && example.selectedRange()->first == 455 * 16,
+        "interior unknown rows hidden while trailing caret and selection are unchanged");
+
+    HexCanvas dots;
+    dots.resize(900, 420); dots.setFoldUnknownRegions(true);
+    dots.setAddressSpace(0, UINT64_MAX); dots.show(); draw(dots);
+    check(dots.lastPaintedRowCount() == 2 && dots.cellStateAt(0).byteState == HexCanvas::ByteState::NotLoaded,
+        "unloaded dots collapse to two rows without becoming unreadable or zero");
+    dots.scrollToAddress(body, HexCanvas::ScrollAlign::Center); draw(dots);
+    check(!dots.cellRect(body, HexCanvas::ActivePane::Hex).isNull(), "explicit navigation reveals a row inside a folded dot region");
+    dots.deliverPage(0, QByteArray(4096, '\x10'), QByteArray(4096, '\1'), dots.sourceRevision()); draw(dots);
+    check(!dots.cellRect(body, HexCanvas::ActivePane::Hex).isNull(),
+        "unrelated readable page cannot steal the explicitly revealed navigation target");
+    const auto dotY = dots.cellRect(body, HexCanvas::ActivePane::Hex).top();
+    dots.deliverPage(body, QByteArray(4096, '\x77'), QByteArray(4096, '\1'), dots.sourceRevision()); draw(dots);
+    check(dots.cellStateAt(body).value == 0x77 && dots.cellRect(body, HexCanvas::ActivePane::Hex).top() == dotY,
+        "newly read values expand folded dots around a stable target");
+    dots.refresh(); draw(dots);
+    check(!dots.cellRect(body, HexCanvas::ActivePane::Hex).isNull(), "refresh retains and requests the viewed address after it becomes unloaded");
+    dots.setFoldUnknownRegions(false); dots.scrollToAddress(body, HexCanvas::ScrollAlign::Center);
+    dots.setFoldUnknownRegions(true); draw(dots);
+    check(!dots.cellRect(body, HexCanvas::ActivePane::Hex).isNull(), "enabling folding retains the viewed unloaded address");
+}
 void features() {
+    ksword::memwb::MemoryDiffOverlay edits;
+    edits.LoadBaseline("fold-test", 0x1000, std::vector<std::uint8_t>(64,0), std::vector<std::uint8_t>(64,1));
+    edits.Stage(0x1004, {1,2}); edits.Stage(0x1020, {3,4,5});
+    check(!edits.FirstPendingRange(0,0x1003), "pending-range lookup skips a disjoint prefix");
+    auto range = edits.FirstPendingRange(0x1005,0x1010);
+    check(range && range->first == 0x1004 && range->last == 0x1005, "pending-range lookup finds a block containing the query start");
+    range = edits.FirstPendingRange(0x1006,0x1020);
+    check(range && range->first == 0x1020 && range->last == 0x1022, "pending-range lookup advances to the next block");
+    check(!edits.FirstPendingRange(0x1023,UINT64_MAX), "pending-range lookup ends after the last block");
+    HexCanvas staged;
+    staged.resize(900, 420); staged.setFoldUnknownRegions(true); staged.setAddressSpace(0,UINT64_MAX);
+    staged.setOverlay(&edits); staged.show(); staged.scrollToAddress(0x1004); draw(staged);
+    check(staged.cellStateAt(0x1004).value == 1 && !staged.cellRect(0x1004,HexCanvas::ActivePane::Hex).isNull(),
+        "staged values survive inside an uncached folded dot region");
+    staged.setOverlay(nullptr);
     ks::ui::WorkbenchStatusBar footer(std::make_unique<Diagnostics>());
     footer.setDrawerExpanded(true); footer.resize(700, 240); footer.show(); drain();
     auto* fold = footer.findChild<QCheckBox*>(QStringLiteral("workbench_fold_unknown"));
@@ -78,6 +199,11 @@ void features() {
     auto* up = button(c, QStringLiteral("上界"));
     auto* down = button(c, QStringLiteral("下界"));
     check(up && down && up->isVisible() && down->isVisible(), "uniform screen exposes both bounds");
+    check(up->toolButtonStyle() == Qt::ToolButtonIconOnly && down->toolButtonStyle() == Qt::ToolButtonIconOnly,
+        "boundary actions display icons instead of text");
+    check(!up->icon().pixmap(16,16).isNull() && !down->icon().pixmap(16,16).isNull()
+        && up->size() == QSize(28,28) && down->size() == QSize(28,28), "real SVG icons and shared compact button metrics");
+    check(!up->toolTip().isEmpty() && !down->accessibleName().isEmpty(), "icon actions retain tooltip and accessible names");
     check(up->x() > c.viewport()->width() / 2 && up->y() < c.viewport()->height() / 2, "upper button top right");
     check(down->x() > c.viewport()->width() / 2 && down->y() > c.viewport()->height() / 2, "lower button bottom right");
     QTest::mouseClick(up, Qt::LeftButton); drain(); draw(c);
@@ -134,6 +260,9 @@ void features() {
     check(provider.pages == before, "idle paint issues no extra reads");
     bounded.scrollToAddress(0x10000000); drain(); draw(bounded);
     check(provider.pages > before && provider.pages <= before + 16, "user navigation gets a bounded new read budget");
+    check(std::any_of(provider.requests.begin(), provider.requests.end(), [](const auto& range) {
+        return range.firstPageStart <= 0x10000000 && (0x10000000 - range.firstPageStart) / 4096 < range.pageCount;
+    }), "navigation actually requests the target page inside a folded dot region");
     bounded.setPageProvider(nullptr);
     bounded.setStaticData(0x1000, QByteArray(16384, '\x22'));
     check(bounded.firstVisibleRow() == 0, "new source does not inherit the old fold anchor");
@@ -170,7 +299,8 @@ int main(int argc, char** argv) {
     QApplication app(argc, argv);
     app.setFont(QFont(QStringLiteral("Microsoft YaHei"), 10));
 #ifdef HEX_VIEW_FEATURES
-    if (!app.arguments().contains(QStringLiteral("--bench-only"))) features();
+    if (app.arguments().contains(QStringLiteral("--fold-stability"))) { foldScrollStability(); return 0; }
+    if (!app.arguments().contains(QStringLiteral("--bench-only"))) { foldScrollStability(); features(); }
 #endif
     benchmark(false); benchmark(true);
     return 0;

@@ -704,6 +704,11 @@ namespace ks::ui
 
     private:
         void syncFoldGeometry();
+        void rememberFoldScrollAnchor();
+        struct FoldScrollAnchor { std::uint64_t address = 0, screenRow = 0; bool keepVisible = false; };
+        std::optional<FoldScrollAnchor> m_foldScrollAnchor;
+        std::optional<std::uint64_t> m_foldNavigationAddress;
+        bool m_foldScrollUp = false;
         void updateUniformButtons(bool uniform, std::uint8_t value);
         void startUniformBoundarySearch(bool upper);
         void advanceUniformBoundarySearch();

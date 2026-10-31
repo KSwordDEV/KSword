@@ -420,7 +420,7 @@ HexViewport::PageResult HexViewport::InsertPage(
     slot.sourceRevision = sourceRevision;
     slot.unreadable = false;
     inFlight_.erase(pageStart);
-    if (foldUnknown_) { TrackUnknownPage(pageStart, validMask); RebuildFolds(); }
+    if (foldUnknown_) { RebuildReadableRanges(pageStart, slot); TrackUnknownPage(pageStart, validMask); RebuildFolds(); }
     return PageResult::Accepted;
 }
 
@@ -449,6 +449,7 @@ HexViewport::PageResult HexViewport::MarkUnreadable(const FetchRange& range, std
         CachedPage& slot = AcquirePageSlot(pageStart);
         slot.bytes.clear();
         slot.validMask.clear();
+        slot.readableRanges.clear();
         slot.sourceRevision = sourceRevision;
         slot.unreadable = true;
         inFlight_.erase(pageStart);

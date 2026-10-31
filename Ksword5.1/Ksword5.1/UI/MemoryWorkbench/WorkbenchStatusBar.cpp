@@ -227,7 +227,7 @@ namespace ks::ui
         m_foldUnknownCheckBox = new QCheckBox(QStringLiteral("折叠未知区域"), m_drawerContainer);
         m_foldUnknownCheckBox->setObjectName(QStringLiteral("workbench_fold_unknown"));
         m_foldUnknownCheckBox->setChecked(true);
-        m_foldUnknownCheckBox->setToolTip(QStringLiteral("连续的已确认不可读区域只显示首行和末行；不折叠尚未读取或正在加载的数据，不修改原始字节"));
+        m_foldUnknownCheckBox->setToolTip(QStringLiteral("连续的未知区域（未加载、读取中或不可读）只显示首行和末行；保留光标与暂存编辑，不修改原始字节"));
         connect(m_foldUnknownCheckBox, &QCheckBox::toggled, this, &WorkbenchStatusBar::foldUnknownRegionsChanged);
         drawerToolRow->addWidget(m_foldUnknownCheckBox);
         m_copyDiagnosticsButton = new QToolButton(m_drawerContainer);

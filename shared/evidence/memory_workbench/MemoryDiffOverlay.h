@@ -70,6 +70,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
@@ -266,6 +267,19 @@ namespace ksword::memwb
         { return mutationSerial_ == revision.serial && revision.storage.lock() == state_; }
         std::uint64_t MutationSerial() const noexcept { return mutationSerial_; }
         std::size_t PendingBlockCount() const noexcept { return state_->patches_.size(); }
+        struct PendingAddressRange { std::uint64_t first = 0, last = 0; };
+        std::optional<PendingAddressRange> FirstPendingRange(std::uint64_t first, std::uint64_t last) const noexcept
+        {
+            if (first > last) return std::nullopt;
+            auto it = state_->patches_.upper_bound(first);
+            if (it != state_->patches_.begin())
+            {
+                const auto previous = std::prev(it);
+                if (!previous->second.after.empty() && first - previous->first < previous->second.after.size()) it = previous;
+            }
+            if (it == state_->patches_.end() || it->first > last || it->second.after.empty()) return std::nullopt;
+            return PendingAddressRange{it->first, it->first + (it->second.after.size() - 1)};
+        }
         bool HasPendingInRange(std::uint64_t first, std::uint64_t last) const noexcept
         {
             if (first > last) return false;

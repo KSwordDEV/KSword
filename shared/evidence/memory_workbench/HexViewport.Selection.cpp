@@ -78,7 +78,7 @@ bool HexViewport::ApplyCaret(std::uint64_t target, bool extend) {
         selection_.anchor = target;
     }
     if (foldUnknown_ && before.caret / bytesPerRow_ != target / bytesPerRow_
-        && (IsKnownUnreadable(before.caret) || IsKnownUnreadable(target))) RebuildFolds();
+        && (PeekByte(before.caret).state != ByteState::Valid || PeekByte(target).state != ByteState::Valid)) RebuildFolds();
     return selection_.anchor != before.anchor || selection_.caret != before.caret;
 }
 

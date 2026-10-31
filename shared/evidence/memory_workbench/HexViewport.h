@@ -230,7 +230,7 @@ public:
     std::uint64_t MaxFirstVisibleRow(std::uint64_t visibleRowCount) const;
 
     // Opt-in projection only: byte addresses, selection and exported data stay physical.
-    // Unknown ranges contain confirmed unreadable bytes, never NotLoaded/Pending bytes.
+    // Fold Unreadable/NotLoaded/Pending together; their byte states remain distinct.
     void SetFoldUnknown(bool enabled);
     bool FoldUnknown() const { return foldUnknown_; }
     bool HasFoldedRows() const { return !hiddenRows_.empty(); }
@@ -238,7 +238,8 @@ public:
     void NoteUnreadableRange(std::uint64_t first, std::uint64_t last);
     bool IsKnownUnreadable(std::uint64_t address) const;
     void RevealAddress(std::uint64_t address);
-    void SetFoldProtection(std::function<bool(std::uint64_t, std::uint64_t)> predicate)
+    // Return the first staged range intersecting the query, without copying bytes.
+    void SetFoldProtection(std::function<std::optional<AddressRange>(std::uint64_t, std::uint64_t)> predicate)
     { foldProtection_ = std::move(predicate); RebuildFolds(); }
     void RefreshFoldProtection() { if (foldUnknown_) RebuildFolds(); }
 
@@ -362,6 +363,7 @@ private:
     struct CachedPage {
         std::vector<std::uint8_t> bytes;        // 页内字节（不可读页为空）
         std::vector<std::uint8_t> validMask;    // 有效掩码，每字节一个 0/1（不可读页为空）
+        std::vector<AddressRange> readableRanges; // Fold summary, rebuilt only on page/row-width changes.
         std::uint64_t sourceRevision = 0;       // 读取时的来源代次
         bool unreadable = false;                // 整页不可读
         mutable std::uint64_t lastUsedTick = 0; // 最近使用序号，越小越久未用；读缓存命中时刷新
@@ -382,6 +384,7 @@ private:
     // 应用新的插入点。返回选区是否变化。
     bool ApplyCaret(std::uint64_t target, bool extend);
     void RebuildFolds();
+    void RebuildReadableRanges(std::uint64_t pageStart, CachedPage& page);
     std::vector<FetchRange> PlanFetchRaw(std::uint64_t firstRow, std::uint64_t rows,
         std::uint64_t prefetch, bool ignoreCache, bool skipKnownUnknown) const;
     void TrackUnknownPage(std::uint64_t pageStart, const std::vector<std::uint8_t>& mask);
@@ -396,10 +399,11 @@ private:
     };
     bool foldUnknown_ = false;
     std::uint64_t foldRevision_ = 0, hiddenRowCount_ = 0;
-    // Bounded projection metadata; exceeding it leaves additional rows unfolded.
+    // Bounded evidence of confirmed unreadability, separate from the display
+    // projection which also folds unloaded/pending bytes.
     std::map<std::uint64_t, std::uint64_t> unknownRanges_;
     std::vector<HiddenRows> hiddenRows_;
-    std::function<bool(std::uint64_t, std::uint64_t)> foldProtection_;
+    std::function<std::optional<AddressRange>(std::uint64_t, std::uint64_t)> foldProtection_;
     std::optional<std::uint64_t> foldRevealedAddress_;
 
     // 按字节数量级移动（forward 为真向高地址）。

@@ -1,101 +1,128 @@
 #include "../../shared/evidence/memory_workbench/HexViewport.h"
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <limits>
+#include <vector>
 
 using View = ksword::memwb::HexViewport;
 int RunMemwbViewportTests();
 static int checks=0, failures=0;
 #define CHECK(...) do { ++checks; if(!(__VA_ARGS__)) { ++failures; std::cerr<<"FAIL "<<__LINE__<<'\n'; } } while(false)
 int main() {
-    View view(0,0x2FFF);
-    CHECK(view.RowCount()==768);
-    view.SetFoldUnknown(true);
-    CHECK(view.RowCount()==768);
-    CHECK(view.MarkUnreadable({0,1,0},view.SourceRevision())==View::PageResult::Accepted);
-    CHECK(view.RowCount()==514 && view.RowStartAddress(0)==0 && view.RowStartAddress(1)==0xFF0);
-    CHECK(view.RowStartAddress(2)==0x1000);
-    CHECK(view.MarkUnreadable({0x1000,1,0},view.SourceRevision())==View::PageResult::Accepted);
-    CHECK(view.RowCount()==258 && view.RowStartAddress(1)==0x1FF0 && view.RowStartAddress(2)==0x2000);
-    CHECK(view.MoveCaretByRows(1,false) && view.GetSelection().caret==0x1FF0);
-    CHECK(view.MoveCaretByRows(-1,false) && view.GetSelection().caret==0);
-    view.SetCaret(0x1000,false);
-    CHECK(view.RowCount()==259);
-    CHECK(view.RowStartAddress(*view.RowOfAddress(0x1000))==0x1000);
-    CHECK(view.SelectedRange()->first==0x1000);
-    view.SetFoldUnknown(false);
-    CHECK(view.RowCount()==768 && view.GetSelection().caret==0x1000);
-    view.SetFoldUnknown(true);
-    CHECK(view.RowCount()==259);
-    std::vector<std::uint8_t> data(4096,0), mask(4096,1);
-    CHECK(view.InsertPage(0x1000,data,mask,view.SourceRevision())==View::PageResult::Accepted);
-    CHECK(view.RowCount()==514 && view.PeekByte(0x1000).state==View::ByteState::Valid);
-    CHECK(view.RowStartAddress(*view.RowOfAddress(0x1000))==0x1000);
-    const auto old=view.SourceRevision();
-    view.InvalidateAll(old+1);
-    CHECK(view.RowCount()==768 && !view.IsKnownUnreadable(0));
-    CHECK(view.MarkUnreadable({0,1,0},old)==View::PageResult::RejectedStaleRevision);
-    CHECK(view.RowCount()==768);
+    View empty(0,0x2FFF);
+    CHECK(empty.RowCount()==768);
+    empty.SetFoldUnknown(true);
+    CHECK(empty.RowCount()==2 && empty.RowStartAddress(1)==0x2FF0);
+    CHECK(empty.PeekByte(0x1000).state==View::ByteState::NotLoaded);
+    empty.MarkInFlight({0x1000,1,0});
+    CHECK(empty.RowCount()==2 && empty.PeekByte(0x1000).state==View::ByteState::Pending);
+    empty.MarkUnreadable({0,1,0},empty.SourceRevision());
+    CHECK(empty.RowCount()==2 && empty.PeekByte(0).state==View::ByteState::Unreadable);
+    empty.SetCaret(0x1000,false);
+    CHECK(empty.RowCount()==3 && empty.RowStartAddress(*empty.RowOfAddress(0x1000))==0x1000);
+    empty.RevealAddress(0x2000);
+    CHECK(empty.RowCount()==4 && empty.RowStartAddress(*empty.RowOfAddress(0x2000))==0x2000);
+    empty.SetFoldUnknown(false);
+    CHECK(empty.RowCount()==768 && empty.GetSelection().caret==0x1000);
+    empty.SetFoldUnknown(true);
+    CHECK(empty.RowCount()==3);
+    const auto old=empty.SourceRevision();
+    empty.InvalidateAll(old+1);
+    CHECK(empty.RowCount()==3 && !empty.IsKnownUnreadable(0));
+    CHECK(empty.MarkUnreadable({0,1,0},old)==View::PageResult::RejectedStaleRevision);
+
+    // Independent byte-bitmap oracle: preserve all value rows and the endpoints
+    // of each maximal unknown byte run, regardless of the cache's byte state.
+    const unsigned widths[]={8,16,32,48,64};
+    for(unsigned seed=0;seed<25;++seed) for(const auto width:widths) {
+        const std::uint64_t first=seed%11, last=0x7FFF-seed%13;
+        View view(first,last,width);
+        view.SetFoldUnknown(true);
+        std::vector<std::uint8_t> valid(0x8000,0), bytes(4096,0x42), mask(4096,0);
+        for(std::uint64_t page=0;page<8;++page) {
+            const auto kind=(page+seed)%5;
+            if(kind==0) continue; // NotLoaded.
+            if(kind==1) { view.MarkInFlight({page*4096,1,0}); continue; } // Pending.
+            if(kind==2) { view.MarkUnreadable({page*4096,1,0},view.SourceRevision()); continue; }
+            for(std::size_t i=0;i<4096;++i) {
+                mask[i]=static_cast<std::uint8_t>(kind==3 || ((i+seed*7)/37)%11==0);
+                valid[page*4096+i]=mask[i];
+            }
+            view.InsertPage(page*4096,bytes,mask,view.SourceRevision());
+        }
+        const auto caret=first+1234, reveal=first+6578, pending=last-251;
+        view.SetCaret(caret,false); view.RevealAddress(reveal);
+        view.SetFoldProtection([pending](auto low,auto high) -> std::optional<View::AddressRange> {
+            return low<=pending && high>=pending ? std::optional<View::AddressRange>({pending,pending}) : std::nullopt;
+        });
+        const auto verify=[&] {
+            const auto w=view.BytesPerRow();
+            const auto base=first-first%w;
+            std::vector<bool> keep(static_cast<std::size_t>((last-base)/w+1),false);
+            std::uint64_t address=first;
+            while(address<=last) {
+                if(valid[address]) { keep[(address-base)/w]=true; ++address; continue; }
+                const auto begin=address;
+                while(address<=last && !valid[address]) ++address;
+                keep[(begin-base)/w]=true; keep[(address-1-base)/w]=true;
+            }
+            keep[(caret-base)/w]=true; keep[(reveal-base)/w]=true; keep[(pending-base)/w]=true;
+            std::uint64_t visual=0;
+            for(std::size_t raw=0;raw<keep.size();++raw) if(keep[raw]) {
+                const auto expected=base+raw*w;
+                CHECK(view.RowStartAddress(visual)==expected);
+                CHECK(view.RowOfAddress(std::max(expected,first))==visual);
+                ++visual;
+            }
+            CHECK(view.RowCount()==visual);
+        };
+        verify();
+        // Changing width must rebuild per-page summaries, including 48-byte rows
+        // spanning two pages; it cannot reuse stale row summaries.
+        if(width!=48) { view.SetBytesPerRow(48); verify(); }
+    }
+    View eviction(0,0x2FFF,16,1);
+    eviction.SetFoldUnknown(true);
+    std::vector<std::uint8_t> data(4096,0), full(4096,1);
+    eviction.InsertPage(0,data,full,eviction.SourceRevision());
+    CHECK(eviction.RowCount()==258);
+    eviction.InsertPage(0x1000,data,full,eviction.SourceRevision());
+    CHECK(eviction.RowCount()==260 && eviction.PeekByte(0).state==View::ByteState::NotLoaded);
+    eviction.MarkUnreadable({0x1000,1,0},eviction.SourceRevision());
+    CHECK(eviction.RowCount()==2);
+    View arrows(0,0x2FFF);
+    arrows.SetFoldUnknown(true); arrows.SetCaret(15,false);
+    CHECK(arrows.MoveCaretByBytes(1,false) && arrows.GetSelection().caret==0x2FF0);
+    CHECK(arrows.MoveCaretByBytes(-1,false) && arrows.GetSelection().caret==15);
 
     View sparse(0,std::numeric_limits<std::uint64_t>::max());
     sparse.SetFoldUnknown(true);
-    sparse.NoteUnreadableRange(0x1000,0xFFFFFFFFFFFFEFFF);
-    CHECK(sparse.RowStartAddress(257)==0xFFFFFFFFFFFFEFF0);
-    auto plan=sparse.PlanFetch(255,8,2,true);
+    CHECK(sparse.RowCount()==2 && sparse.RowStartAddress(1)==0xFFFFFFFFFFFFFFF0);
+    unsigned protectionCalls=0;
+    sparse.SetFoldProtection([&](auto low,auto high) -> std::optional<View::AddressRange> {
+        ++protectionCalls;
+        return low<=0x8000000000000000 && high>=0x8000000000000000
+            ? std::optional<View::AddressRange>({0x8000000000000000,0x8000000000000000}) : std::nullopt;
+    });
+    CHECK(sparse.RowCount()==3 && protectionCalls<8);
+    sparse.RevealAddress(0x10000);
+    CHECK(sparse.RowCount()==4);
+    View largePatch(0,UINT64_MAX);
+    largePatch.SetFoldUnknown(true);
+    unsigned rangeQueries=0;
+    constexpr std::uint64_t patchFirst=0x100000000, patchLast=patchFirst+64*1024*1024-1;
+    largePatch.SetFoldProtection([&](auto low,auto high) -> std::optional<View::AddressRange> {
+        ++rangeQueries;
+        return low<=patchLast && high>=patchFirst ? std::optional<View::AddressRange>({patchFirst,patchLast}) : std::nullopt;
+    });
+    CHECK(rangeQueries<4 && largePatch.RowCount()==64*1024*1024/16+2);
+    auto plan=sparse.PlanFetch(0,4,2,true);
     std::uint64_t pages=0;
-    for(const auto& range:plan) {
-        pages+=range.pageCount;
-        CHECK(range.firstPageStart < 0x1000 || range.firstPageStart > 0xFFFFFFFFFFFFEFFF);
-    }
-    CHECK(pages<=12);
+    for(const auto& range:plan) pages+=range.pageCount;
+    CHECK(pages<=16);
     auto explicitPlan=sparse.PlanAddressFetch(0x8000,0x8FFF,0,true);
     CHECK(!explicitPlan.empty() && explicitPlan.front().firstPageStart==0x8000);
-    sparse.SetBytesPerRow(48);
-    for(std::uint64_t row=0;row<sparse.RowCount();++row) {
-        const auto address=sparse.RowStartAddress(row);
-        CHECK(address.has_value());
-        if(address) CHECK(sparse.RowOfAddress(std::max(*address,sparse.FirstAddress()))==row);
-    }
-    View partial(7,0x1007,48);
-    partial.SetFoldUnknown(true);
-    partial.NoteUnreadableRange(7,0x1007);
-    CHECK(partial.RowCount()==2 && partial.RowStartAddress(1)==4080);
-    partial.SetCaret(1500,false);
-    CHECK(partial.RowCount()==3 && partial.RowStartAddress(*partial.RowOfAddress(1500))==1488);
-    partial.SetFoldUnknown(false);
-    CHECK(partial.RowCount()==86);
-
-    View protectedView(0,0x4FFF);
-    protectedView.SetFoldUnknown(true);
-    protectedView.NoteUnreadableRange(0x1000,0x3FFF);
-    const auto foldedCount=protectedView.RowCount();
-    protectedView.RevealAddress(0x2100);
-    CHECK(protectedView.RowCount()==foldedCount+1);
-    CHECK(protectedView.RowStartAddress(*protectedView.RowOfAddress(0x2100))==0x2100);
-    protectedView.RevealAddress(0x2200);
-    CHECK(protectedView.RowCount()==foldedCount+1);
-    CHECK(protectedView.RowStartAddress(*protectedView.RowOfAddress(0x2100))!=0x2100);
-    bool pending=true;
-    protectedView.SetFoldProtection([&](auto first,auto last){return pending && first<=0x2000 && last>=0x2000;});
-    CHECK(protectedView.RowCount()==1280);
-    pending=false;
-    protectedView.RefreshFoldProtection();
-    CHECK(protectedView.RowCount()==foldedCount+1);
-    protectedView.InsertPage(0x2000,data,mask,protectedView.SourceRevision());
-    protectedView.MarkInFlight({0x3000,1,0});
-    protectedView.NoteUnreadableRange(0x1000,0x3FFF);
-    CHECK(!protectedView.IsKnownUnreadable(0x2000));
-    CHECK(!protectedView.IsKnownUnreadable(0x3000));
-    CHECK(protectedView.PeekByte(0x2000).state==View::ByteState::Valid);
-    CHECK(protectedView.PeekByte(0x3000).state==View::ByteState::Pending);
-    View arrows(0,0x2FFF);
-    arrows.SetFoldUnknown(true);
-    arrows.NoteUnreadableRange(0x1000,0x1FFF);
-    arrows.SetCaret(0x100F,false);
-    CHECK(arrows.MoveCaretByBytes(1,false) && arrows.GetSelection().caret==0x1FF0);
-    CHECK(arrows.MoveCaretByBytes(-1,false) && arrows.GetSelection().caret==0x100F);
-
-    // Mapping across a multi-exabyte hole must depend on index size, never address count.
     const auto start=std::chrono::steady_clock::now();
     std::uint64_t checksum=0;
     for(int n=0;n<1000000;++n) checksum+=sparse.RowStartAddress(static_cast<std::uint64_t>(n)%sparse.RowCount()).value_or(0);

@@ -26,10 +26,12 @@ if errorlevel 1 exit /b %errorlevel%
 set FEATURE_SOURCES="%ACTUAL%\WorkbenchStatusBar.cpp" "%ACTUAL%\WorkbenchMessages.cpp" "%ACTUAL%\..\FlowLayout.cpp" "%ACTUAL%\..\ThemeStatusRole.cpp" "%ACTUAL%\..\ThemeBinding.cpp" "%ACTUAL%\..\FlatButtonTheme.cpp" "%ACTUAL%\..\MainSurfaceStyle.cpp" "%ACTUAL%\..\PrimaryPageStyle.cpp" "%ACTUAL%\..\ThemeControlGlyphs.cpp" "%OUT%\moc_WorkbenchStatusBar.cpp"
 :moc_canvas
 if /I "%1"=="baseline" set "FEATURES="
+"%QT%\bin\rcc.exe" tools\memwb_ui\memwb_ui_icons.qrc -o "%OUT%\qrc_hex_icons.cpp"
+if errorlevel 1 exit /b %errorlevel%
 "%QT%\bin\moc.exe" "%UI%\HexCanvas.h" -o "%OUT%\moc_HexCanvas.cpp"
 if errorlevel 1 exit /b %errorlevel%
 cl /MP4 /nologo /std:c++20 /Zc:__cplusplus /utf-8 /EHsc /MD /W4 /WX /O2 /Gy /DWIN32_LEAN_AND_MEAN /DNOMINMAX /DUNICODE /D_UNICODE /DQT_CORE_LIB /DQT_GUI_LIB /DQT_WIDGETS_LIB /DQT_TESTLIB_LIB %FEATURES% /external:W0 /external:I"%QT%\include" /external:I"%QT%\include\QtCore" /external:I"%QT%\include\QtGui" /external:I"%QT%\include\QtWidgets" /external:I"%QT%\include\QtTest" /I"%UI%" /I"%ACTUAL%" /I"%CD%\shared\evidence\memory_workbench" ^
-  tools\tests\hex_navigation_tests.cpp "%OUT%\moc_HexCanvas.cpp" %FEATURE_SOURCES% ^
+  tools\tests\hex_navigation_tests.cpp "%OUT%\moc_HexCanvas.cpp" "%OUT%\qrc_hex_icons.cpp" %FEATURE_SOURCES% ^
   "%UI%\HexCanvas.cpp" "%UI%\HexCanvas.Scroll.cpp" "%UI%\HexCanvas.Layout.cpp" "%UI%\HexCanvas.Paint.cpp" "%UI%\HexCanvas.Input.cpp" "%UI%\HexCanvas.Edit.cpp" "%UI%\HexCanvas.Menu.cpp" "%UI%\HexCanvasFormat.cpp" ^
   "%CORE%\HexViewport.cpp" "%CORE%\HexViewport.Cache.cpp" "%CORE%\HexViewport.Selection.cpp" "%CORE%\MemoryDiffOverlay.cpp" "%CORE%\MemoryDiffOverlay.Patches.cpp" ^
   Ksword5.1\Ksword5.1\Internationalization\LanguageManager.cpp ^

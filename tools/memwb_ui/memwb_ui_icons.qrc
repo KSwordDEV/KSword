@@ -5,6 +5,9 @@
          memwb_* 十一个别名对应工作台 Phase 3 新增的图标（写入模式、地址簿、int3 还原、汇编、四个子页签），
          与主程序 Ksword5.qrc 里同名别名指向同一批 svg，夹具用它们核对"别名能解析成非空图标"。 -->
     <qresource prefix="/Icon">
+        <file alias="memwb_upper_bound.svg">../../Ksword5.1/Ksword5.1/Resource/Icon/arrow/arrow_to_up_line.svg</file>
+        <file alias="memwb_lower_bound.svg">../../Ksword5.1/Ksword5.1/Resource/Icon/arrow/arrow_to_down_line.svg</file>
+        <file alias="process_stop.svg">../../Ksword5.1/Ksword5.1/Resource/Icon/media/stop_line.svg</file>
         <file alias="codeeditor_copy.svg">../../Ksword5.1/Ksword5.1/Resource/Icon/file/copy_line.svg</file>
         <file alias="codeeditor_paste.svg">../../Ksword5.1/Ksword5.1/Resource/Icon/file/paste_line.svg</file>
         <file alias="settings_background_reset.svg">../../Ksword5.1/Ksword5.1/Resource/Icon/design/background_line.svg</file>
