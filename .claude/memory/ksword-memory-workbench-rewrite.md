@@ -1,5 +1,13 @@
 # 内存工作台重写（进行中）
 
+- 本轮概览条 HostX64 Release构建通过（185秒，`BUILD_RESULT=SUCCESS / EXIT_CODE=0`），产物32,071,576字节、SHA256 `EE6E40CD9EDC5D834E32B77A0A95BEAA316829F7E94421CE85F0128C26EED285`；日志 `.codex-build-logs/ksword-build-check-20261031-045756.raw.log`。语言包审计29845条、主题门禁1245源文件通过。已先行提交旧成果ef8038af，概览条依用户要求另作一次中文提交；真实主程序GUI视觉验收仍未完成。
+
+- **2026-10-31 HEX 缓存概览条**：用户已授权先提交既有成果（`ef8038af`，未知折叠/定位/图标修复），再将概览条单独构建提交；此前“不提交”的要求已经由此次明确授权覆盖。新增入口仍是内存→内存工作台→十六进制，属于专业编辑器：保留原 HexCanvas、原竖向 QScrollBar 身份/量程/拖动，左侧增加10逻辑像素的专业概览轨道，按原生 groove 对齐；此为专业内部几何，不套 ParameterWorkspace 或通用详情重排。对照 MemoryRowCanvas/CodeEditorWidget 的专业滚动与共享主题入口，普通主题/文字/语言规则保持。仅 MemoryWorkbenchView 默认开启，其它共享 HEX 宿主保持关闭。
+- `HexViewport::SetOverviewEnabled` 为惰性 opt-in；首次实际显示轨道才建统计。每页64字节块前缀计数（有效已读/非零已读，65项、260字节/页），仅接受页结果后更新；拒收、在途、未读和补零占位不得变成已读，失败回填覆盖旧结果，淘汰直接删除摘要，换源清空。`OverviewBins` 按原模型投影行分桶，最多4096桶，只查驻留页键与前缀边缘，不跨物理大空洞逐页枚举、不改LRU、不读目标。分母按保留的投影行字节数扣除首尾补空位；2^64总字节量以double表达，行/分桶边界用安全整数拆分。
+- `HexCanvasOverviewBar` 颜色只用未知白色和主题色：已读面积比例为read/total，主题色不透明度为0.18+0.82*(nonzero/read)；未知部分保持白色，混合边界像素按覆盖面积混合，不能把nonzero/total当成不透明度。中性底色由SurfaceMuted经白色3:1对比校准，视口用中性双线轮廓、光标用中性边缘刻度。按设备像素铺不重叠竖向分桶，避免AA把邻桶主题色漏到已淘汰的白色未知桶。无RWX/模块/语义类型着色，统计来自真实已读掩码和源字节，不读取暂存改值来伪装采集。
+- 概览图缓存键包含来源/已接受结果修订/折叠投影修订/行宽/尺寸/DPR；普通滚动只画轮廓和光标，主题变化只重画颜色，隐藏时不聚合不绘制。概览点击/光标/轮廓都使用 HexViewport 的当前投影行轴，拖动经原 QScrollBar.setSliderPosition→原比例映射/取消/视口读取路径；统计/重绘无额外读请求。拖动期间换源会取消，不能滚动新目标。
+- 验证入口仍为 `tools/memwb_ui/build-hex-navigation-tests.cmd`：新增独立字节oracle统计117308项、原折叠131593项、旧默认关闭视图365项、真实画布UI合计121项（其中概览38项）通过，总计249387项；150%DPI额外38项通过。UI覆盖白色/零值/非零/混合覆盖、深浅色底、原生与概览拖动、4GiB折叠和全64位比例刻度、缓存淘汰恢复白色、重读覆盖、源切换、惰性/隐藏、无额外读和无滚动聚合。日志 `.codex-build-logs/hex-overview-final-tests.log`、`.codex-build-logs/hex-overview-dpi150.log`；最后组件基准含轨道约1.05ms/滚动绘制步，字体已显式载入Consolas/微软雅黑，不能和先前缺字体的方块字基准直接比较或宣称主程序帧率。深浅组件PNG已检查；真实主程序GUI因先前启动授权被拒仍未验收，未绕过该限制。新增头已登记vcxproj/filters，两条新文本同步zh-CN/en-US，语言包/主题门禁通过。
+
 - 最新“点状未知也折叠”及刷新/开关目标保持版本，HostX64 Release构建成功（187秒，`BUILD_RESULT=SUCCESS / EXIT_CODE=0`），产物32,060,312字节、SHA256 `9F7D97E610085769062ADC1D8EA447100DAF0557544A499A33CFE7D45F1BF621`；日志 `.codex-build-logs/ksword-build-check-20261031-030457.raw.log`。语言包与主题门禁通过。源码和组件回归已完成，真实主程序GUI视觉验收仍未完成；按用户要求，本轮未暂存、未提交，HEAD仍为 `fc1da9c5`。
 
 - **2026-10-31 用户后续修正：点状未知也折叠，按钮用图标，本轮不提交。** 最新规则覆盖下文最初“只折叠已确认不可读”的限制：NotLoaded/Pending 的“··”与 Unreadable 的“??/×”统一参与未知区投影，但真实 ByteState 保留，不能把点当不可读或零值。专业布局/入口仍为内存→内存工作台→十六进制，外围延用 WorkbenchStatusBar/标准主题；对照 HexView.Toolbar、WorkbenchTextView 和共享图标度量，使用现有 arrow_to_up/down SVG、28/16 紧凑指标及悬停/无障碍名称，查找中换停止图标。通用 HEX 宿主默认仍关闭两项功能。

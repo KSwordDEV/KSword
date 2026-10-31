@@ -6,11 +6,13 @@
 #include <QScrollBar>
 #include <QToolButton>
 #include <QTest>
+#include <QFontDatabase>
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #ifdef HEX_VIEW_FEATURES
 #include "WorkbenchStatusBar.h"
+void runHexOverviewUiTests();
 #include <QCheckBox>
 #include <QPlainTextEdit>
 #endif
@@ -276,6 +278,7 @@ void benchmark(bool uniform) {
 #ifdef HEX_VIEW_FEATURES
     c.setFoldUnknownRegions(true);
     c.setUniformBoundaryNavigationEnabled(true);
+    c.setOverviewEnabled(true);
 #endif
     QByteArray data(2 * 1024 * 1024, '\0');
     if (!uniform) for (qsizetype i = 0; i < data.size(); ++i) data[i] = static_cast<char>(i % 251);
@@ -297,10 +300,13 @@ void benchmark(bool uniform) {
 }
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
+    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/consola.ttf"));
+    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
     app.setFont(QFont(QStringLiteral("Microsoft YaHei"), 10));
 #ifdef HEX_VIEW_FEATURES
+    if (app.arguments().contains(QStringLiteral("--overview-only"))) { runHexOverviewUiTests(); std::printf("OVERVIEW_UI_CHECKS=%d\n", checks); return 0; }
     if (app.arguments().contains(QStringLiteral("--fold-stability"))) { foldScrollStability(); return 0; }
-    if (!app.arguments().contains(QStringLiteral("--bench-only"))) { foldScrollStability(); features(); }
+    if (!app.arguments().contains(QStringLiteral("--bench-only"))) { foldScrollStability(); features(); runHexOverviewUiTests(); std::printf("TOTAL_UI_CHECKS=%d\n", checks); }
 #endif
     benchmark(false); benchmark(true);
     return 0;

@@ -315,6 +315,8 @@ namespace ks::ui
         const auto revision = sourceRevision();
         QAbstractScrollArea::resizeEvent(event);
         if (!alive || sourceRevision() != revision) return;
+        syncOverviewBar();
+        if (!alive || sourceRevision() != revision) return;
         m_firstRow = std::min(m_firstRow, maxFirstRow());
         syncScrollBars();
         if (!alive || sourceRevision() != revision) return;
@@ -352,6 +354,9 @@ namespace ks::ui
         case QEvent::ApplicationPaletteChange:
         case QEvent::StyleChange:
             viewport()->update();
+            if (event->type() == QEvent::StyleChange) syncOverviewBar();
+            if (!alive || sourceRevision() != revision) return;
+            updateOverviewBar();
             break;
         default:
             break;

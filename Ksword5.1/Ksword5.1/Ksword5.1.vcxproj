@@ -1314,6 +1314,7 @@
     <ClInclude Include="..\..\shared\rescue\RescueDesktopWin32.h" />
     <QtMoc Include="UI\MemoryWorkbench\HexCanvas.h" />
     <ClInclude Include="UI\MemoryWorkbench\HexCanvasFormat.h" />
+    <ClInclude Include="UI\MemoryWorkbench\HexCanvasOverviewBar.h" />
     <ClInclude Include="UI\MemoryWorkbench\HexExport.h" />
     <QtMoc Include="UI\MemoryWorkbench\HexFindBar.h" />
     <ClInclude Include="UI\MemoryWorkbench\HexFindSearch.h" />

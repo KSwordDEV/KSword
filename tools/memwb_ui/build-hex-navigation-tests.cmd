@@ -25,6 +25,7 @@ if /I "%1"=="baseline" goto moc_canvas
 if errorlevel 1 exit /b %errorlevel%
 set FEATURE_SOURCES="%ACTUAL%\WorkbenchStatusBar.cpp" "%ACTUAL%\WorkbenchMessages.cpp" "%ACTUAL%\..\FlowLayout.cpp" "%ACTUAL%\..\ThemeStatusRole.cpp" "%ACTUAL%\..\ThemeBinding.cpp" "%ACTUAL%\..\FlatButtonTheme.cpp" "%ACTUAL%\..\MainSurfaceStyle.cpp" "%ACTUAL%\..\PrimaryPageStyle.cpp" "%ACTUAL%\..\ThemeControlGlyphs.cpp" "%OUT%\moc_WorkbenchStatusBar.cpp"
 :moc_canvas
+if /I not "%1"=="baseline" set FEATURE_SOURCES=%FEATURE_SOURCES% tools\tests\hex_overview_ui_tests.cpp
 if /I "%1"=="baseline" set "FEATURES="
 "%QT%\bin\rcc.exe" tools\memwb_ui\memwb_ui_icons.qrc -o "%OUT%\qrc_hex_icons.cpp"
 if errorlevel 1 exit /b %errorlevel%
@@ -47,6 +48,11 @@ if /I "%1"=="baseline" goto done
 cl /MP3 /nologo /std:c++20 /Zc:__cplusplus /utf-8 /EHsc /MD /W4 /WX /O2 tools\tests\hex_folding_tests.cpp KswordARKLightTests\HexViewportTests.cpp KswordARKLightTests\HexViewportCacheTests.cpp "%CORE%\HexViewport.cpp" "%CORE%\HexViewport.Cache.cpp" "%CORE%\HexViewport.Selection.cpp" /Fo"%OUT%\\" /Fe"%OUT%\hex-folding-tests.exe"
 if errorlevel 1 exit /b %errorlevel%
 "%OUT%\hex-folding-tests.exe"
+set "RESULT=%errorlevel%"
+if not "%RESULT%"=="0" exit /b %RESULT%
+cl /MP3 /nologo /std:c++20 /Zc:__cplusplus /utf-8 /EHsc /MD /W4 /WX /O2 tools\tests\hex_overview_tests.cpp "%CORE%\HexViewport.cpp" "%CORE%\HexViewport.Cache.cpp" "%CORE%\HexViewport.Selection.cpp" /Fo"%OUT%\\" /Fe"%OUT%\hex-overview-tests.exe"
+if errorlevel 1 exit /b %errorlevel%
+"%OUT%\hex-overview-tests.exe"
 set "RESULT=%errorlevel%"
 :done
 popd

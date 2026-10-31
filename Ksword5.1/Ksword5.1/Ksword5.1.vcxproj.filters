@@ -2740,6 +2740,9 @@
     <QtMoc Include="UI\MemoryWorkbench\HexCanvas.h">
       <Filter>Header Files\MemoryWorkbench</Filter>
     </QtMoc>
+    <ClInclude Include="UI\MemoryWorkbench\HexCanvasOverviewBar.h">
+      <Filter>Header Files\MemoryWorkbench</Filter>
+    </ClInclude>
     <ClInclude Include="UI\MemoryWorkbench\HexCanvasFormat.h">
       <Filter>Header Files\MemoryWorkbench</Filter>
     </ClInclude>

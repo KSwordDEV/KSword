@@ -209,6 +209,19 @@ public:
     // 总行数；视图无效时为 0。
     std::uint64_t RowCount() const;
 
+    struct OverviewBin {
+        std::uint64_t firstRow = 0, rowCount = 0;
+        double totalBytes = 0; // May represent the complete 2^64 byte address space.
+        std::uint64_t readBytes = 0, nonZeroBytes = 0;
+    };
+    // Opt-in cache-only summaries. Queries never touch LRU or issue reads.
+    void SetOverviewEnabled(bool enabled);
+    bool OverviewEnabled() const { return overviewEnabled_; }
+    std::uint64_t OverviewRevision() const { return overviewRevision_; }
+    std::vector<OverviewBin> OverviewBins(std::size_t count) const;
+    // Shared projected-row scale for the overview's samples, caret and clicks.
+    std::uint64_t OverviewRowAt(std::uint32_t position, std::uint32_t extent) const;
+
     // 某行的起始地址（已向下对齐，首行可能小于 firstAddress，即含补空位）。越界返回空。
     std::optional<std::uint64_t> RowStartAddress(std::uint64_t row) const;
 
@@ -364,6 +377,8 @@ private:
         std::vector<std::uint8_t> bytes;        // 页内字节（不可读页为空）
         std::vector<std::uint8_t> validMask;    // 有效掩码，每字节一个 0/1（不可读页为空）
         std::vector<AddressRange> readableRanges; // Fold summary, rebuilt only on page/row-width changes.
+        struct OverviewPrefix { std::uint16_t read = 0, nonZero = 0; };
+        std::vector<OverviewPrefix> overview; // Prefix counts per 64 bytes, only when enabled.
         std::uint64_t sourceRevision = 0;       // 读取时的来源代次
         bool unreadable = false;                // 整页不可读
         mutable std::uint64_t lastUsedTick = 0; // 最近使用序号，越小越久未用；读缓存命中时刷新
@@ -385,6 +400,9 @@ private:
     bool ApplyCaret(std::uint64_t target, bool extend);
     void RebuildFolds();
     void RebuildReadableRanges(std::uint64_t pageStart, CachedPage& page);
+    void RebuildOverview(CachedPage& page);
+    bool overviewEnabled_ = false;
+    std::uint64_t overviewRevision_ = 0;
     std::vector<FetchRange> PlanFetchRaw(std::uint64_t firstRow, std::uint64_t rows,
         std::uint64_t prefetch, bool ignoreCache, bool skipKnownUnknown) const;
     void TrackUnknownPage(std::uint64_t pageStart, const std::vector<std::uint8_t>& mask);

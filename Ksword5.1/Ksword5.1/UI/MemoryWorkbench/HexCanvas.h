@@ -255,9 +255,11 @@ class QPainter;
 class QResizeEvent;
 class QWheelEvent;
 class QToolButton;
+class QShowEvent;
 
 namespace ks::ui
 {
+    class HexCanvasOverviewBar;
     // HexFetchRange：页提供者收到的一段连续页，类型直接取自 HexViewport。
     using HexFetchRange = ksword::memwb::HexViewport::FetchRange;
 
@@ -351,6 +353,8 @@ namespace ks::ui
         void deliverUnreadableExtent(std::uint64_t first, std::uint64_t last, std::uint64_t revision);
         void setUniformBoundaryNavigationEnabled(bool enabled);
         void boundaryReadFailed(const QString& reason);
+        void setOverviewEnabled(bool enabled);
+        bool overviewEnabled() const { return m_overviewEnabled; }
 
         // setStaticData：便捷接口，用一块字节数组当数据源。
         // 作用：地址空间设为 [base, base+size-1]，内置提供者按需供页（不会一次塞满缓存）。
@@ -689,6 +693,7 @@ namespace ks::ui
     protected:
         void paintEvent(QPaintEvent* event) override;
         void resizeEvent(QResizeEvent* event) override;
+        void showEvent(QShowEvent* event) override;
         void changeEvent(QEvent* event) override;
         void mousePressEvent(QMouseEvent* event) override;
         void mouseMoveEvent(QMouseEvent* event) override;
@@ -703,6 +708,13 @@ namespace ks::ui
         void focusOutEvent(QFocusEvent* event) override;
 
     private:
+        friend class HexCanvasOverviewBar;
+        void ensureOverviewBar();
+        void syncOverviewBar();
+        void updateOverviewBar();
+        void scrollOverviewToRow(std::uint64_t row);
+        bool m_overviewEnabled = false;
+        QWidget* m_overviewBar = nullptr;
         void syncFoldGeometry();
         void rememberFoldScrollAnchor();
         struct FoldScrollAnchor { std::uint64_t address = 0, screenRow = 0; bool keepVisible = false; };

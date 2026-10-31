@@ -420,6 +420,7 @@ HexViewport::PageResult HexViewport::InsertPage(
     slot.sourceRevision = sourceRevision;
     slot.unreadable = false;
     inFlight_.erase(pageStart);
+    if (overviewEnabled_) { RebuildOverview(slot); ++overviewRevision_; }
     if (foldUnknown_) { RebuildReadableRanges(pageStart, slot); TrackUnknownPage(pageStart, validMask); RebuildFolds(); }
     return PageResult::Accepted;
 }
@@ -450,10 +451,12 @@ HexViewport::PageResult HexViewport::MarkUnreadable(const FetchRange& range, std
         slot.bytes.clear();
         slot.validMask.clear();
         slot.readableRanges.clear();
+        slot.overview.clear();
         slot.sourceRevision = sourceRevision;
         slot.unreadable = true;
         inFlight_.erase(pageStart);
     }
+    if (overviewEnabled_) ++overviewRevision_;
     if (foldUnknown_) {
         const auto first = range.firstPageStart;
         AddUnknownRange(first, first + (range.pageCount - 1) * kPageBytes + kPageBytes - 1);
@@ -466,6 +469,7 @@ HexViewport::PageResult HexViewport::MarkUnreadable(const FetchRange& range, std
 // 传入：新的来源代次；换目标/重读时必须传一个与旧值不同的新值，旧代次的在途结果才会被拒绝。
 void HexViewport::InvalidateAll(std::uint64_t newSourceRevision) {
     pages_.clear();
+    if (overviewEnabled_) ++overviewRevision_;
     inFlight_.clear();
     unknownRanges_.clear();
     foldRevealedAddress_.reset();
@@ -597,6 +601,82 @@ const HexViewport::CacheStats& HexViewport::Stats() const {
 // 清零缓存计数，不影响缓存内容。
 void HexViewport::ResetStats() {
     stats_ = CacheStats{};
+}
+
+// Statistics belong to resident pages, never a permanent sampling history.
+void HexViewport::RebuildOverview(CachedPage& page) {
+    page.overview.clear();
+    if (page.unreadable || page.validMask.size() != kPageBytes || page.bytes.size() != kPageBytes) return;
+    page.overview.resize(kPageBytes / 64 + 1);
+    CachedPage::OverviewPrefix counts;
+    for (std::size_t offset = 0; offset < kPageBytes; ++offset) {
+        if (page.validMask[offset]) {
+            ++counts.read;
+            if (page.bytes[offset] != 0) ++counts.nonZero;
+        }
+        if ((offset + 1) % 64 == 0) page.overview[(offset + 1) / 64] = counts;
+    }
+}
+
+void HexViewport::SetOverviewEnabled(bool enabled) {
+    if (overviewEnabled_ == enabled) return;
+    overviewEnabled_ = enabled;
+    for (auto& [address, page] : pages_) {
+        (void)address;
+        if (enabled) RebuildOverview(page);
+        else page.overview.clear();
+    }
+    ++overviewRevision_;
+}
+
+std::uint64_t HexViewport::OverviewRowAt(std::uint32_t position, std::uint32_t extent) const {
+    if (!extent) return 0;
+    position = std::min(position, extent);
+    const auto rows = RowCount();
+    // No row*pixel product: rows can cover the entire 64-bit address space.
+    return (rows / extent) * position + ((rows % extent) * position) / extent;
+}
+
+std::vector<HexViewport::OverviewBin> HexViewport::OverviewBins(std::size_t count) const {
+    const auto rows = RowCount();
+    count = std::min<std::size_t>(count, static_cast<std::size_t>(std::min<std::uint64_t>(rows, 4096)));
+    std::vector<OverviewBin> bins;
+    bins.reserve(count);
+    const auto prefix = [](const CachedPage& page, std::size_t offset) {
+        auto result = page.overview[offset / 64];
+        for (auto at = (offset / 64) * 64; at < offset; ++at) if (page.validMask[at]) {
+            ++result.read;
+            if (page.bytes[at] != 0) ++result.nonZero;
+        }
+        return result;
+    };
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto firstRow = OverviewRowAt(static_cast<std::uint32_t>(index), static_cast<std::uint32_t>(count));
+        const auto endRow = OverviewRowAt(static_cast<std::uint32_t>(index + 1), static_cast<std::uint32_t>(count));
+        const auto first = RowValidSpan(firstRow), last = RowValidSpan(endRow - 1);
+        if (!first || !last) continue;
+        OverviewBin bin{firstRow, endRow - firstRow,
+            static_cast<double>(endRow - firstRow) * bytesPerRow_, 0, 0};
+        if (!firstRow) bin.totalBytes -= static_cast<double>(firstAddress_ - rowBase_);
+        if (endRow == rows) {
+            const auto lastStart = RowStartAddress(rows - 1).value();
+            bin.totalBytes -= static_cast<double>(bytesPerRow_ - (lastAddress_ - lastStart + 1));
+        }
+        if (overviewEnabled_) {
+            // The enclosing physical span may cross a huge folded hole. Iterate
+            // only cached keys; hidden rows contain no accepted valid bytes.
+            for (auto it = pages_.lower_bound(PageStartOf(first->first)); it != pages_.end() && it->first <= last->last; ++it) {
+                if (it->second.overview.empty()) continue;
+                const auto low = static_cast<std::size_t>(std::max(first->first, it->first) - it->first);
+                const auto high = static_cast<std::size_t>(std::min(last->last, it->first + kPageBytes - 1) - it->first + 1);
+                const auto a = prefix(it->second, low), b = prefix(it->second, high);
+                bin.readBytes += b.read - a.read;
+                bin.nonZeroBytes += b.nonZero - a.nonZero;
+            }
+        }
+        bins.push_back(bin);
+    }
+    return bins;
 }
 
 }  // namespace ksword::memwb

@@ -258,6 +258,7 @@ namespace ks::ui
         // ---- 状态条：诊断抽屉宿主包一层 CodeEditorWidget（接口缺口 G3）----
         statusBar_ = new WorkbenchStatusBar(std::make_unique<WorkbenchDiagnosticsHost>(), this);
         hexPane_->canvas()->setUniformBoundaryNavigationEnabled(true);
+        hexPane_->canvas()->setOverviewEnabled(true);
         hexPane_->canvas()->setFoldUnknownRegions(statusBar_->foldUnknownRegions());
         connect(statusBar_, &WorkbenchStatusBar::foldUnknownRegionsChanged,
             hexPane_->canvas(), &HexCanvas::setFoldUnknownRegions);

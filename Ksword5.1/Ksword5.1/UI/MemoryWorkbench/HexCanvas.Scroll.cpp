@@ -6,12 +6,15 @@
 // 滑块值按"首行 / 最大首行"的比例换算，拖滑块按比例跳转，滚轮与键盘仍按精确行数移动。
 
 #include "HexCanvas.h"
+#include "HexCanvasOverviewBar.h"
 
 #include <QScrollBar>
 #include <QPointer>
 #include <QSignalBlocker>
 #include <QToolButton>
 #include <QApplication>
+#include <QShowEvent>
+#include <QStyleOptionSlider>
 #include "../../theme.h"
 #include "../../Internationalization/LanguageManager.h"
 
@@ -20,6 +23,78 @@
 
 namespace ks::ui
 {
+    void HexCanvas::setOverviewEnabled(bool enabled)
+    {
+        if (m_overviewEnabled == enabled) return;
+        m_overviewEnabled = enabled;
+        if (enabled) ensureOverviewBar();
+        else {
+            const QPointer<HexCanvas> alive(this);
+            if (m_overviewBar) m_overviewBar->hide();
+            if (!alive) return;
+            m_viewport.SetOverviewEnabled(false);
+            setViewportMargins(0, 0, 0, 0);
+        }
+    }
+
+    void HexCanvas::ensureOverviewBar()
+    {
+        if (!m_overviewEnabled || !isVisible()) return;
+        const QPointer<HexCanvas> alive(this);
+        if (!m_overviewBar) {
+            auto* rail = new HexCanvasOverviewBar(this);
+            m_overviewBar = rail;
+            connect(this, &HexCanvas::contentChanged, rail, qOverload<>(&QWidget::update));
+            connect(this, &HexCanvas::caretMoved, rail, qOverload<>(&QWidget::update));
+            connect(this, &HexCanvas::rowWidthModeChanged, rail, qOverload<>(&QWidget::update));
+        }
+        m_viewport.SetOverviewEnabled(true);
+        setViewportMargins(0, 0, HexCanvasOverviewBar::kWidth, 0);
+        if (alive) syncOverviewBar();
+    }
+
+    void HexCanvas::syncOverviewBar()
+    {
+        if (!m_overviewEnabled || !m_overviewBar) return;
+        const QPointer<HexCanvas> alive(this);
+        const auto view = viewport()->geometry();
+        auto* bar = verticalScrollBar();
+        QStyleOptionSlider option;
+        option.initFrom(bar); option.orientation = Qt::Vertical;
+        option.minimum = bar->minimum(); option.maximum = bar->maximum();
+        option.pageStep = bar->pageStep(); option.singleStep = bar->singleStep();
+        option.sliderPosition = bar->sliderPosition(); option.sliderValue = bar->value();
+        const auto groove = bar->style()->subControlRect(QStyle::CC_ScrollBar, &option, QStyle::SC_ScrollBarGroove, bar);
+        const auto top = groove.isEmpty() ? view.top() : bar->mapTo(this, groove.topLeft()).y();
+        const auto height = groove.isEmpty() ? view.height() : groove.height();
+        m_overviewBar->setGeometry(view.right() + 1, top, HexCanvasOverviewBar::kWidth, height);
+        if (!alive) return;
+        m_overviewBar->show();
+        if (alive) m_overviewBar->update();
+    }
+
+    void HexCanvas::updateOverviewBar()
+    {
+        if (m_overviewEnabled && m_overviewBar && m_overviewBar->isVisible()) m_overviewBar->update();
+    }
+
+    void HexCanvas::showEvent(QShowEvent* event)
+    {
+        const QPointer<HexCanvas> alive(this);
+        QAbstractScrollArea::showEvent(event);
+        if (alive) ensureOverviewBar();
+    }
+
+    void HexCanvas::scrollOverviewToRow(std::uint64_t row)
+    {
+        if (!m_hasSpace) return;
+        const auto limit = maxFirstRow();
+        row = std::min(row, limit);
+        const int value = m_proportionalScroll ? sliderFromRow(row, limit) : static_cast<int>(row);
+        // Use the existing scrollbar path, including its proportional rounding,
+        // cancellation and viewport read planning.
+        verticalScrollBar()->setSliderPosition(value);
+    }
     // ======================== 滚动 ========================
 
     // 能完整显示的行数，至少为 1。
@@ -259,6 +334,7 @@ namespace ks::ui
             return;
         }
         if (alive) m_updatingBars = previousGuard;
+        if (alive) updateOverviewBar();
     }
 
     // 用户拖动或点击竖向滚动条。
@@ -441,6 +517,7 @@ namespace ks::ui
     void HexCanvas::notifyVisibleRange()
     {
         rememberFoldScrollAnchor();
+        updateOverviewBar();
         const auto visible = visibleAddressRange();
         if (!visible) return;
         if (m_notifiedOnce && visible->first == m_lastNotifiedFirst && visible->last == m_lastNotifiedLast)
