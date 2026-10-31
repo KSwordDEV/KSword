@@ -260,6 +260,7 @@ namespace ks::ui
         hexPane_->canvas()->setUniformBoundaryNavigationEnabled(true);
         hexPane_->canvas()->setOverviewEnabled(true);
         hexPane_->canvas()->setFixedAddressScale(true);
+        hexPane_->canvas()->setAddressColumnCollapseEnabled(true);
         hexPane_->canvas()->setFoldUnknownRegions(statusBar_->foldUnknownRegions());
         connect(statusBar_, &WorkbenchStatusBar::foldUnknownRegionsChanged,
             hexPane_->canvas(), &HexCanvas::setFoldUnknownRegions);

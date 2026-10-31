@@ -7,9 +7,26 @@
 #include <QFontDatabase>
 #include <QRegularExpression>
 #include <QStringList>
+#include <algorithm>
 
 namespace ks::ui::hexcanvas_format
 {
+    QString CommonAddressPrefix(std::uint64_t firstRow, std::uint64_t lastRow, int digits)
+    {
+        const auto first = FormatAddress(firstRow, digits), last = FormatAddress(lastRow, digits);
+        const auto limit = std::min(first.size(), last.size()) - 1;
+        qsizetype length = 0;
+        while (length < limit && first[length] == last[length]) ++length;
+        return first.left(length);
+    }
+
+    QString FormatAddressSuffix(std::uint64_t address, int digits, const QString& prefix)
+    {
+        const auto full = FormatAddress(address, digits);
+        // A stale/out-of-view prefix must never silently change an address.
+        return !prefix.isEmpty() && full.startsWith(prefix) ? full.mid(prefix.size()) : full;
+    }
+
     QFont BuildFixedFont()
     {
         QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);

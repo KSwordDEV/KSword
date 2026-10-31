@@ -222,9 +222,9 @@ namespace ks::ui
         }
         m_foldScrollUp = clamped < m_firstRow;
         m_firstRow = clamped;
-        if (syncBar)
+        if (syncBar || m_addressColumnCollapsed)
         {
-            syncScrollBars();
+            syncScrollBars(syncBar);
             if (!alive || sourceRevision() != scrollingRevision || m_firstRow != clamped) return;
         }
         viewport()->update();
@@ -340,9 +340,13 @@ namespace ks::ui
 
     // 把滚动条量程、页长与当前值同步到模型。
     // 精确模式：滑块值 == 首行行号；比例模式：量程固定，滑块值 = 首行/最大首行 的比例。
-    void HexCanvas::syncScrollBars()
+    void HexCanvas::syncScrollBars(bool syncVerticalPosition)
     {
         const QPointer<HexCanvas> alive(this);
+        const auto revision = sourceRevision();
+        if (m_keepScrollEnd) m_firstRow = scrollEndFirstRow();
+        syncAddressColumn();
+        if (!alive || sourceRevision() != revision) return;
         const QPointer<QScrollBar> vertical(verticalScrollBar());
         const QPointer<QScrollBar> horizontal(horizontalScrollBar());
         // 冻结 setter 前的实际属性，只在原生栈返回后通知真实范围和值变化。
@@ -373,7 +377,7 @@ namespace ks::ui
                 const auto pageRows = knownScrollScale() ? scrollScaleRows() - limit : fullVisibleRows();
                 vBar->setPageStep(static_cast<int>(std::clamp<std::uint64_t>(pageRows, 1, 0x7FFFFFFFULL)));
                 vBar->setSingleStep(1);
-                vBar->setValue(static_cast<int>(position));
+                if (syncVerticalPosition) vBar->setValue(static_cast<int>(position));
             }
             else
             {
@@ -381,7 +385,7 @@ namespace ks::ui
                 vBar->setRange(0, kProportionalRange);
                 vBar->setPageStep(1);
                 vBar->setSingleStep(1);
-                vBar->setValue(sliderFromRow(position, limit));
+                if (syncVerticalPosition) vBar->setValue(sliderFromRow(position, limit));
             }
 
             // 横向滚动条：像素滚动，量程 = 内容宽度 - 视口宽度。

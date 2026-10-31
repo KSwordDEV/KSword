@@ -4,6 +4,8 @@
 
 #include "HexCanvas.h"
 #include "HexCanvasFormat.h"
+#include "../../theme.h"
+#include "../../Internationalization/LanguageManager.h"
 
 #include <QEvent>
 #include <QFontMetrics>
@@ -13,12 +15,111 @@
 #include <QTextOption>
 #include <QTimer>
 #include <QTransform>
+#include <QToolButton>
 
 #include <algorithm>
 #include <limits>
 
 namespace ks::ui
 {
+    void HexCanvas::setAddressColumnCollapseEnabled(bool enabled)
+    {
+        if (m_addressColumnCollapseEnabled == enabled) return;
+        const QPointer<HexCanvas> alive(this);
+        const auto revision = sourceRevision();
+        m_addressColumnCollapseEnabled = enabled;
+        if (!enabled) m_addressColumnCollapsed = false;
+        if (enabled && !m_addressColumnButton) {
+            auto* button = new QToolButton(viewport());
+            m_addressColumnButton = button;
+            button->setObjectName(QStringLiteral("memwb_address_collapse"));
+            button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+            button->setAutoRaise(true);
+            button->setFocusPolicy(Qt::TabFocus);
+            KswordTheme::ApplyCompactIconButtonMetrics(button);
+            connect(button, &QToolButton::clicked, this, [this]() {
+                setAddressColumnCollapsed(!m_addressColumnCollapsed);
+            });
+        }
+        recomputeLayout();
+        m_firstRow = std::min(m_firstRow, maxFirstRow());
+        syncScrollBars();
+        if (!alive || sourceRevision() != revision) return;
+        viewport()->update();
+        notifyVisibleRange();
+    }
+
+    void HexCanvas::setAddressColumnCollapsed(bool collapsed)
+    {
+        if (!m_addressColumnCollapseEnabled || m_addressColumnCollapsed == collapsed) return;
+        const QPointer<HexCanvas> alive(this);
+        const auto revision = sourceRevision();
+        m_addressColumnCollapsed = collapsed;
+        recomputeLayout();
+        syncScrollBars();
+        if (!alive || sourceRevision() != revision) return;
+        viewport()->update();
+        // Preserve selection, cache and row-width choice. Address presentation
+        // does not create a new read intent or call refresh/revealCaret.
+        notifyVisibleRange();
+    }
+
+    bool HexCanvas::updateAddressColumnPrefix()
+    {
+        if (!m_addressColumnCollapsed || !m_hasSpace) {
+            m_addressPrefixRows.reset();
+            if (m_addressColumnPrefix.isEmpty()) return false;
+            m_addressColumnPrefix.clear();
+            return true;
+        }
+        const auto rows = m_viewport.RowCount();
+        const auto firstRow = std::min(m_firstRow, rows - 1);
+        const auto lastRow = firstRow + std::min(paintRowCount(), rows - firstRow) - 1;
+        const AddressRange addresses{m_viewport.RowStartAddress(firstRow).value(), m_viewport.RowStartAddress(lastRow).value()};
+        const auto digits = addressDigits();
+        if (m_addressPrefixRows == addresses && m_addressPrefixDigits == digits) return false;
+        m_addressPrefixRows = addresses; m_addressPrefixDigits = digits;
+        const auto prefix = hexcanvas_format::CommonAddressPrefix(addresses.first, addresses.last, digits);
+        if (m_addressColumnPrefix == prefix) return false;
+        m_addressColumnPrefix = prefix;
+        return true;
+    }
+
+    void HexCanvas::syncAddressColumn()
+    {
+        if (!m_addressColumnCollapseEnabled) {
+            if (m_addressColumnButton) syncAddressColumnButton();
+            return;
+        }
+        if (updateAddressColumnPrefix()) recomputeLayout();
+        syncAddressColumnButton();
+    }
+
+    void HexCanvas::syncAddressColumnButton()
+    {
+        if (!m_addressColumnButton) return;
+        auto* button = m_addressColumnButton;
+        const auto action = ks::i18n::sourceText(m_addressColumnCollapsed
+            ? QStringLiteral("展开地址栏（显示完整地址）") : QStringLiteral("收起地址栏（共同前缀显示在表头）"));
+        if (button->text() != action) {
+            button->setText(action);
+            button->setAccessibleName(action);
+        }
+        if (m_addressColumnIconCollapsed != m_addressColumnCollapsed) {
+            m_addressColumnIconCollapsed = m_addressColumnCollapsed;
+            button->setIcon(QIcon(m_addressColumnCollapsed ? QStringLiteral(":/Icon/file_nav_forward.svg")
+                : QStringLiteral(":/Icon/file_nav_back.svg")));
+        }
+        const auto tip = m_addressColumnCollapsed ? action + QLatin1Char('\n') + m_addressColumnPrefix : action;
+        if (button->toolTip() != tip) button->setToolTip(tip);
+        const int gutter = addressGutterWidth();
+        const QPoint position(std::max(0, gutter - button->width()), (m_layout.headerHeight - button->height()) / 2);
+        const QPointer<HexCanvas> alive(this);
+        if (button->pos() != position) button->move(position);
+        if (!alive) return;
+        const bool visible = m_addressColumnCollapseEnabled && m_hasSpace && gutter >= button->width();
+        if (button->isHidden() == visible) button->setVisible(visible);
+    }
 
     // 重新量字体：字符宽度、行高，并重建缓存文字与横向几何。
     void HexCanvas::rebuildMetrics()
@@ -95,6 +196,9 @@ namespace ks::ui
     {
         const int charWidth = m_layout.charWidth;
         const int columns = static_cast<int>(m_viewport.BytesPerRow());
+        m_layout.headerHeight = std::max(m_layout.rowHeight + 4,
+            m_addressColumnCollapseEnabled ? KswordTheme::CompactIconButtonSize().height() : 0);
+        updateAddressColumnPrefix();
 
         // 逐列累计"额外单位数"：每进入一个新的分组/中缝先加上对应的额外宽度。
         int extraUnits = 0;
@@ -118,6 +222,15 @@ namespace ks::ui
         m_layout.addrDigits = addressDigits();
         m_layout.addrX = charWidth;
         m_layout.addrWidth = (m_layout.addrDigits + 2) * charWidth;
+        if (m_addressColumnCollapsed && !m_addressColumnPrefix.isEmpty()) {
+            const auto suffixChars = m_layout.addrDigits + 2 - static_cast<int>(m_addressColumnPrefix.size());
+            // Keep the complete prefix available on hover; cap its header width
+            // so a 64-bit common prefix cannot consume the space just saved.
+            const auto prefixChars = std::min(static_cast<int>(m_addressColumnPrefix.size()), m_layout.addrDigits == 8 ? 5 : 8);
+            const int headerWidth = (prefixChars + 1) * charWidth + KswordTheme::CompactIconButtonSize().width() + 4;
+            const int gutterWidth = std::max((suffixChars + 2) * charWidth, headerWidth);
+            m_layout.addrWidth = std::min(m_layout.addrWidth, gutterWidth - 2 * charWidth);
+        }
         m_layout.hexX = m_layout.addrX + m_layout.addrWidth + 2 * charWidth;
         m_layout.hexWidth = m_layout.cellX[columns - 1] + 2 * charWidth;
         m_layout.asciiX = m_layout.hexX + m_layout.hexWidth + 2 * charWidth;
@@ -364,6 +477,9 @@ namespace ks::ui
             if (event->type() == QEvent::StyleChange) syncOverviewBar();
             if (!alive || sourceRevision() != revision) return;
             updateOverviewBar();
+            break;
+        case QEvent::LanguageChange:
+            syncAddressColumnButton();
             break;
         default:
             break;

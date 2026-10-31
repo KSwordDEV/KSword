@@ -359,6 +359,10 @@ namespace ks::ui
         // when folded. Generic HEX hosts retain their original projected scale.
         void setFixedAddressScale(bool enabled);
         bool fixedAddressScale() const { return m_fixedAddressScale; }
+        void setAddressColumnCollapseEnabled(bool enabled);
+        void setAddressColumnCollapsed(bool collapsed);
+        bool addressColumnCollapsed() const { return m_addressColumnCollapsed; }
+        QString addressColumnPrefix() const { return m_addressColumnPrefix; }
 
         // setStaticData：便捷接口，用一块字节数组当数据源。
         // 作用：地址空间设为 [base, base+size-1]，内置提供者按需供页（不会一次塞满缓存）。
@@ -806,8 +810,18 @@ namespace ks::ui
         // ---------- HexCanvas.cpp：数据、滚动、布局 ----------
         void rebuildMetrics();
         void recomputeLayout();
+        bool updateAddressColumnPrefix();
+        void syncAddressColumn();
+        void syncAddressColumnButton();
+        bool m_addressColumnCollapseEnabled = false;
+        bool m_addressColumnCollapsed = false;
+        QToolButton* m_addressColumnButton = nullptr;
+        std::optional<bool> m_addressColumnIconCollapsed;
+        QString m_addressColumnPrefix;
+        std::optional<AddressRange> m_addressPrefixRows;
+        int m_addressPrefixDigits = 0;
         void rebuildStaticTexts();
-        void syncScrollBars();
+        void syncScrollBars(bool syncVerticalPosition = true);
         void onVerticalBarChanged(int value);
         void onHorizontalBarChanged(int value);
         std::uint64_t maxFirstRow() const;

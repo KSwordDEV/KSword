@@ -43288,6 +43288,8 @@
     "首Range基址: 0x%7\n": "First range base: 0x%7\n",
     "监控启动完成，正在监听目标进程": "Monitoring started; listening to target processes",
     "currentDockWidget": "currentDockWidget",
+    "展开地址栏（显示完整地址）": "Expand address column (show full addresses)",
+    "收起地址栏（共同前缀显示在表头）": "Collapse address column (show common prefix in header)",
     "主程序正在退出，请取消退出后再开始新的操作。": "The application is exiting. Cancel exit before starting a new operation.",
     "原子提交遗留记录 %1，需重试资源清理。": "Atomic commit left record %1 pending; retry resource cleanup.",
     "状态：资源清理已完成；原子提交没有原字节备份，尚未证实原字节恢复。": "Status: Resource cleanup completed. Atomic commit has no original-byte backup, so restoration of the original bytes remains unverified."

@@ -26,7 +26,7 @@ if /I "%1"=="baseline" goto moc_canvas
 if errorlevel 1 exit /b %errorlevel%
 set FEATURE_SOURCES="%ACTUAL%\WorkbenchStatusBar.cpp" "%ACTUAL%\WorkbenchMessages.cpp" "%ACTUAL%\..\FlowLayout.cpp" "%ACTUAL%\..\ThemeStatusRole.cpp" "%ACTUAL%\..\ThemeBinding.cpp" "%ACTUAL%\..\FlatButtonTheme.cpp" "%ACTUAL%\..\MainSurfaceStyle.cpp" "%ACTUAL%\..\PrimaryPageStyle.cpp" "%ACTUAL%\..\ThemeControlGlyphs.cpp" "%OUT%\moc_WorkbenchStatusBar.cpp"
 :moc_canvas
-if /I not "%1"=="baseline" set FEATURE_SOURCES=%FEATURE_SOURCES% tools\tests\hex_overview_ui_tests.cpp tools\memwb_ui\memwb_ui_common.cpp tools\memwb_ui\memwb_ui_tests.Signals.cpp tools\memwb_ui\memwb_ui_tests.RowFit.cpp tools\memwb_ui\memwb_ui_smooth_scroll_test.cpp
+if /I not "%1"=="baseline" set FEATURE_SOURCES=%FEATURE_SOURCES% tools\tests\hex_overview_ui_tests.cpp tools\tests\hex_address_column_tests.cpp tools\memwb_ui\memwb_ui_common.cpp tools\memwb_ui\memwb_ui_tests.Signals.cpp tools\memwb_ui\memwb_ui_tests.RowFit.cpp tools\memwb_ui\memwb_ui_smooth_scroll_test.cpp
 if /I "%1"=="baseline" set "FEATURES="
 "%QT%\bin\rcc.exe" tools\memwb_ui\memwb_ui_icons.qrc -o "%OUT%\qrc_hex_icons.cpp"
 if errorlevel 1 exit /b %errorlevel%

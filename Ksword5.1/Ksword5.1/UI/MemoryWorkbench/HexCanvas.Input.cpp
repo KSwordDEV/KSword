@@ -4,6 +4,7 @@
 // 因此不会出现"原生选区 / 成员变量 / 画刷三头不同步"的旧问题。
 
 #include "HexCanvas.h"
+#include "HexCanvasFormat.h"
 
 #include <QContextMenuEvent>
 #include <QHelpEvent>
@@ -517,7 +518,17 @@ namespace ks::ui
         {
             const QHelpEvent* helpEvent = static_cast<QHelpEvent*>(event);
             const Hit hit = hitTest(helpEvent->pos());
-            if (hit.valid && !hit.inGutter && hit.exact)
+            if (m_addressColumnCollapsed && helpEvent->pos().y() < m_layout.headerHeight
+                && helpEvent->pos().x() < addressGutterWidth() && !m_addressColumnPrefix.isEmpty())
+            {
+                QToolTip::showText(helpEvent->globalPos(), m_addressColumnPrefix, viewport());
+            }
+            else if (m_addressColumnCollapsed && hit.valid && hit.inGutter)
+            {
+                QToolTip::showText(helpEvent->globalPos(),
+                    hexcanvas_format::FormatAddress(m_viewport.RowStartAddress(hit.row).value(), addressDigits()), viewport());
+            }
+            else if (hit.valid && !hit.inGutter && hit.exact)
             {
                 QToolTip::showText(
                     helpEvent->globalPos(),

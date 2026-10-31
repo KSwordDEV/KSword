@@ -90,6 +90,7 @@ void scenario(bool real) {
         target.requestPin(GetCurrentProcessId());
         check(pump([&]{return target.capture().session.pid==GetCurrentProcessId();}),"production target captures the test process");
         HexCanvas canvas;canvas.resize(900,420);canvas.setFixedAddressScale(true);canvas.setFoldUnknownRegions(true);canvas.setOverviewEnabled(true);
+        canvas.setAddressColumnCollapseEnabled(true);
         WorkbenchPageProvider provider([state]{return std::make_unique<Port>(state);},&target);
         QObject::connect(&provider,&WorkbenchPageProvider::readFailed,&canvas,[](quint64,QString text,int count){
             std::printf("PROVIDER_FAILURE count=%d text=%s\n",count,text.toUtf8().constData());
@@ -118,6 +119,15 @@ void scenario(bool real) {
         check(!canvas.cellRect(state->base,HexCanvas::ActivePane::Hex).isNull(),"jumped real bytes remain visible");
         check(canvas.selectedRange() && canvas.selectedRange()->first==state->base && canvas.selectedRange()->last==end,
             "asynchronous read preserves the requested selection");
+        const auto addressSelection=canvas.selectedRange();
+        canvas.setAddressColumnCollapsed(true);
+        check(!canvas.addressColumnPrefix().isEmpty() && canvas.cellStateAt(state->base).hasValue
+            && !canvas.cellRect(state->base,HexCanvas::ActivePane::Hex).isNull(),
+            "collapsing addresses preserves actual async read results and target visibility");
+        canvas.setAddressColumnCollapsed(false);
+        check(canvas.addressColumnPrefix().isEmpty() && canvas.selectedRange()==addressSelection
+            && canvas.cellStateAt(state->base).value==0x4D,"expanding addresses preserves real byte values and the full selection");
+        canvas.setAddressColumnCollapsed(true);
         for (int toggle=0;toggle<3;++toggle) {
             canvas.setFoldUnknownRegions(false);
             pump([&]{return !provider.hasInFlightRequests();});
@@ -132,6 +142,7 @@ void scenario(bool real) {
                 static_cast<unsigned long long>(visible ? visible->first : 0),static_cast<unsigned long long>(visible ? visible->last : 0),
                 static_cast<int>(canvas.cellStateAt(state->base).byteState));
         }
+        canvas.setAddressColumnCollapsed(false);
         canvas.setFoldUnknownRegions(false);
         canvas.setViewportReadEnabled(false);
         canvas.refresh();

@@ -16,6 +16,7 @@
 #include <QPointer>
 #include <QStringList>
 #include <QTimer>
+#include <QToolButton>
 
 #include <algorithm>
 
@@ -297,6 +298,16 @@ namespace ks::ui
         painter.fillRect(0, 0, viewWidth, m_layout.headerHeight, palette.surfaceAlt);
         painter.setPen(palette.border);
         painter.drawLine(0, m_layout.headerHeight - 1, viewWidth, m_layout.headerHeight - 1);
+        if (m_addressColumnCollapsed && m_addressColumnButton) {
+            const QRect prefixRect(m_layout.addrX, 0,
+                std::max(0, m_addressColumnButton->x() - m_layout.addrX - 4), m_layout.headerHeight - 1);
+            painter.save();
+            painter.setClipRect(prefixRect);
+            painter.setPen(palette.textSecondary);
+            painter.drawText(prefixRect, Qt::AlignLeft | Qt::AlignVCenter,
+                QFontMetrics(font()).elidedText(m_addressColumnPrefix, Qt::ElideMiddle, prefixRect.width()));
+            painter.restore();
+        }
 
         painter.save();
         const int addrDivider = addressGutterWidth();
@@ -340,7 +351,7 @@ namespace ks::ui
         const auto caret = m_viewport.GetSelection().caret;
         painter.setPen(caret >= span.first && caret <= span.last ? palette.text : palette.textSecondary);
         painter.drawText(QPointF(m_layout.addrX, rowTop + 1 + m_layout.ascent),
-            hexcanvas_format::FormatAddress(start, m_layout.addrDigits));
+            hexcanvas_format::FormatAddressSuffix(start, m_layout.addrDigits, m_addressColumnPrefix));
     }
 
     // 绘制一行：地址、十六进制单元格、ASCII 单元格。

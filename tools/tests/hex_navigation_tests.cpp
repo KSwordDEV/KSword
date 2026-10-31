@@ -13,6 +13,7 @@
 #ifdef HEX_VIEW_FEATURES
 #include "WorkbenchStatusBar.h"
 void runHexOverviewUiTests();
+void runHexAddressColumnTests();
 #include <QCheckBox>
 #include <QPlainTextEdit>
 #endif
@@ -351,8 +352,9 @@ int main(int argc, char** argv) {
     }
 #endif
     if (app.arguments().contains(QStringLiteral("--overview-only"))) { runHexOverviewUiTests(); std::printf("OVERVIEW_UI_CHECKS=%d\n", checks); return 0; }
+    if (app.arguments().contains(QStringLiteral("--address-only"))) { runHexAddressColumnTests(); std::printf("ADDRESS_UI_CHECKS=%d\n", checks); return 0; }
     if (app.arguments().contains(QStringLiteral("--fold-stability"))) { foldScrollStability(); return 0; }
-    if (!app.arguments().contains(QStringLiteral("--bench-only"))) { foldScrollStability(); features(); runHexOverviewUiTests(); std::printf("TOTAL_UI_CHECKS=%d\n", checks); }
+    if (!app.arguments().contains(QStringLiteral("--bench-only"))) { foldScrollStability(); features(); runHexOverviewUiTests(); runHexAddressColumnTests(); std::printf("TOTAL_UI_CHECKS=%d\n", checks); }
 #endif
     benchmark(false); benchmark(true);
     return 0;
