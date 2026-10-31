@@ -387,7 +387,7 @@ namespace ksword::ark
                 requestBuffer = &requestLegacy;
                 requestBytes = static_cast<unsigned long>(sizeof(requestLegacy));
             }
-            std::fill(responseBuffer.begin(), responseBuffer.end(), 0U);
+            std::fill(responseBuffer.begin(), responseBuffer.end(), std::uint8_t{0});
 
             enumResult.io = deviceIoControl(
                 IOCTL_KSWORD_ARK_ENUM_CALLBACKS,
@@ -770,7 +770,7 @@ namespace ksword::ark
             validationRequest.expectedSnapshotHash = expectedSnapshotHash;
             validationRequest.expectedTotalCount = expectedTotalCount;
             validationRequest.snapshotPolicy = KSWORD_ARK_CALLBACK_SNAPSHOT_POLICY_REQUIRE_MATCH;
-            std::fill(responseBuffer.begin(), responseBuffer.end(), 0U);
+            std::fill(responseBuffer.begin(), responseBuffer.end(), std::uint8_t{0});
 
             enumResult.io = deviceIoControl(
                 IOCTL_KSWORD_ARK_ENUM_CALLBACKS,
