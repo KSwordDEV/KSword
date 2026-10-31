@@ -37,7 +37,7 @@ namespace process_detail_window_internal
         "数字签名",
         "入口偏移量",
         "运行状态",
-        "ThreadID"
+        "线程 ID（启动地址）"
     };
 
     int toModuleColumnIndex(const ModuleColumn column)

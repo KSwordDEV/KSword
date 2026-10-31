@@ -1,5 +1,9 @@
 # 内存工作台重写（进行中）
 
+- 模块跳转/线程归属修复的 HostX64 Release 构建已通过（`BUILD_RESULT=SUCCESS / EXIT_CODE=0`，159秒，产物32,026,008字节；日志 `.codex-build-logs/ksword-build-check-20261031-001034.raw.log`）。首次构建修正树视图专属操作条声明；其后链接曾被运行中的主程序占用，用户关闭后完成构建。真实 GUI/驱动现场验证仍未完成。
+
+- **模块双击附加与 R0 回退、线程归属**：`MemoryDock.WorkbenchEntry.cpp::jumpToModuleBase` 冻结模块快照 PID/创建时间/加载 VA，复用正常附加与离开守卫；`ProcessOpenFailure` 仅由读写/只读 OpenProcess 都失败的分支调用，取消、忙、身份变化不得回退 R0。正常附加后显式 UserMode 并跟随 Dock；已加载驱动的回退钉住同一进程实例，仍使用 ProcessVirtual + StandardDriver，不能把用户模块 VA 当成内核地址。跳转前由共享 AsyncOperation 在后台持独立进程/静默设备租约读一字节，检查真实完整回执、不带补零；读取失败、退出、过期导航或附加代次变化均不切页。没有可核验创建时间时拒绝弱身份回退。`process.cpp` 原来向每个模块广播全进程 TID 和同一个代表线程，现按已核验线程的 Win32 启动地址归属半开模块范围；缺少部分地址时显示 `?`，不代表当前执行位置。源码 UI 核对：内存→进程与模块为列表/树（模块 None 操作条，已有刷新/筛选与业务复制菜单），进程详情→模块为共享列表（Compact），目标工作台保留专业 HexView；字段提示、复制/排序和唯一模型保持。`tools/hvm_unit_tests/test_module_navigation_threads.py` 抽取完整生产导航/附加/探针/归属函数，以真实 QtCore QPointer 与假 OS/驱动端点检查77项；已有区域定位18项通过。实际驱动读取与真实主程序视觉验收仍未完成，不能由上述替身回归推定。
+
 - **2026-10-30 HEX 查找增加 ANSI**：入口为“内存 → 内存工作台 → 十六进制 → Ctrl+F”，按专业编辑器规范保留 `HexView`/`HexFindBar`，复用 `HexViewSegmented`、`StyleSearchField`、`NormalizeToolbarRow`；对照 `HexGotoBar` 和 `WorkbenchTextView`，不另套参数页框架。ANSI 追加为第4段，保留 HEX/UTF-8/UTF-16LE 的索引，提示显示 `GetACP()` 的实际 CP，所有共享 HEX 宿主同时获得此模式。`HexFindSearch::ParseAnsiPattern` 逐 Unicode 字符经 Windows 代码页编码并严格往返检查，拒绝替换和 best-fit；只折叠源 ASCII 字母，GBK/Big5/Shift-JIS 的多字节尾字节即使落在 A-Z/a-z 也必须精确匹配。独立 HostX64 MSVC+QtCore 回归 `tools/memwb_ui/build-ansi-find-tests.cmd` 57项通过，覆盖 CP936/950/932/1252/65001/54936、无损失败、嵌入NUL、代理对、真实搜索/回绕/高亮和未读掩码；此结果不替代产品 GUI 验收。
 
 - 本轮 ANSI 查找的正式主程序 HostX64 Release 构建 `BUILD_RESULT=SUCCESS / EXIT_CODE=0`（190秒），主程序产物32,005,528字节，语言包与主题门禁通过。真实 GUI 启动验收的 Computer Use 调用返回“Computer Use was not approved to use 1”，未进行实机视觉验收；窄窗、DPI/字体缩放、深浅主题、背景模式、首帧及其它共享宿主仍待实际 GUI 核对，不以逻辑回归或编译结果替代。

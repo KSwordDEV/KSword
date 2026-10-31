@@ -595,8 +595,12 @@ private:
     // - 参数 processName：目标进程名（用于状态栏展示）。
     // - 参数 showMessage：是否弹出提示框反馈结果。
     // - 返回：true 附加成功；false 附加失败。
-    ks::ui::LeaveEntryStatus attachToProcess(std::uint32_t pid, const QString& processName, bool showMessage, ks::ui::LeaveCompletion completion = {});
-    bool attachToProcessAfterLeave(std::uint32_t pid, const QString& processName, bool showMessage, std::uint64_t expectedCreateTime);
+    // openFailure 只在实际 OpenProcess 的读写、只读尝试均失败时调用；取消/忙/身份变化不触发。
+    using ProcessOpenFailure = std::function<void(std::uint32_t)>;
+    ks::ui::LeaveEntryStatus attachToProcess(std::uint32_t pid, const QString& processName, bool showMessage,
+        ks::ui::LeaveCompletion completion = {}, ProcessOpenFailure openFailure = {});
+    bool attachToProcessAfterLeave(std::uint32_t pid, const QString& processName, bool showMessage,
+        std::uint64_t expectedCreateTime, ProcessOpenFailure openFailure = {});
     bool m_workbenchProcessChangePending = false;
 
     // detachProcess：
@@ -806,11 +810,12 @@ private:
 
     // jumpToModuleBase：
     // - 作用：模块表双击/右键的跳转（实现在 MemoryDock.WorkbenchEntry.cpp）。模块表预览的进程
-    //   可能不是附加的进程：预览进程与附加进程不同时，请求会带上预览进程的 pid（与创建时间）
-    //   钉住它，而不是把它的模块基址当成附加进程里的地址去看；
+    //   可能不是附加的进程：先附加模块快照对应的进程实例；打开失败且驱动已加载时，
+    //   钉住同一实例并切到标准 R0 进程虚拟读通道。用户取消切换不触发回退。
     // - 参数 baseAddress：模块基址；
     // - 返回：无；导航拒绝原因由工作台状态栏展示。
     void jumpToModuleBase(std::uint64_t baseAddress);
+    void probeModuleDriverJump(const ks::ui::NavRequest& request, std::uint64_t navigationGeneration);
 
     // viewRegionViaDriver：
     // - 作用：区域表"R0读取此区域"的落点：强制标准驱动通道、在工作台里打开区域起点；
@@ -1157,6 +1162,7 @@ private:
     QTimer* m_moduleRefreshPoll = nullptr;
     int m_dumpMemoryProgressPid = 0;        // Dump 内存任务的进度条 PID。
     ks::ui::AsyncOperation* m_regionDumpOperation = nullptr; // QObject 子对象，串行管理区域转储。
+    ks::ui::AsyncOperation* m_moduleNavigationOperation = nullptr; // R0 跳转前后台验证一字节真实读取。
     std::shared_ptr<std::atomic<RegionDumpPhase>> m_regionDumpPhase; // 提交与取消的仲裁状态。
     int m_regionDumpProgressPid = 0;         // 区域转储独立进度，避免与整进程 Dump 互相覆盖。
     std::shared_ptr<const std::vector<RegionEntry>> m_regionCache = ks::memory_detail::ValueStorage<std::vector<RegionEntry>>();   // 区域缓存（Tab2/Tab3 复用）。

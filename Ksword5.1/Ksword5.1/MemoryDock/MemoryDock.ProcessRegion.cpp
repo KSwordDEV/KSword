@@ -1201,7 +1201,7 @@ ks::ui::LeaveEntryStatus MemoryDock::attachToProcess(
     const std::uint32_t pid,
     const QString& processName,
     const bool showMessage,
-    ks::ui::LeaveCompletion completion)
+    ks::ui::LeaveCompletion completion, ProcessOpenFailure openFailure)
 {
     // 附加入口日志：记录目标 PID 与是否弹窗反馈。
     kLogEvent attachStartEvent;
@@ -1222,13 +1222,13 @@ ks::ui::LeaveEntryStatus MemoryDock::attachToProcess(
     if (anchor->targetGone) return ks::ui::LeaveEntryStatus::Rejected;
     const auto expectedCreateTime = anchor->identityWeak ? 0 : anchor->createTime100ns;
     const auto leave = workbenchAllowsProcessChange(
-        [self, attachment, anchor, expectedCreateTime, pid, processName, showMessage, completion](bool allowed) mutable {
+        [self, attachment, anchor, expectedCreateTime, pid, processName, showMessage, completion, openFailure](bool allowed) mutable {
             if (!self) return;
             self->m_workbenchProcessChangePending = false;
             const bool current = self->m_processAttachmentGeneration.load() == attachment;
             const bool alive = !anchor->handle || ks::ui::QueryAnchorAlive(anchor->handle) != std::optional<bool>(false);
             const bool attached = allowed && current && alive
-                && self->attachToProcessAfterLeave(pid, processName, showMessage, expectedCreateTime);
+                && self->attachToProcessAfterLeave(pid, processName, showMessage, expectedCreateTime, openFailure);
             if (self && completion) completion(attached);
         });
     if (!self) return ks::ui::LeaveEntryStatus::Rejected;
@@ -1239,12 +1239,12 @@ ks::ui::LeaveEntryStatus MemoryDock::attachToProcess(
     }
     if (leave != ks::ui::LeaveEntryStatus::Completed) return leave;
     if (m_processAttachmentGeneration.load() != attachment) return ks::ui::LeaveEntryStatus::Rejected;
-    return attachToProcessAfterLeave(pid, processName, showMessage, expectedCreateTime)
+    return attachToProcessAfterLeave(pid, processName, showMessage, expectedCreateTime, std::move(openFailure))
         ? ks::ui::LeaveEntryStatus::Completed : ks::ui::LeaveEntryStatus::Rejected;
 }
 
 bool MemoryDock::attachToProcessAfterLeave(const std::uint32_t pid, const QString& processName,
-    const bool showMessage, const std::uint64_t expectedCreateTime)
+    const bool showMessage, const std::uint64_t expectedCreateTime, ProcessOpenFailure openFailure)
 {
     // 附加前先清理旧进程上下文，避免残留句柄。
     detachProcess();
@@ -1288,6 +1288,10 @@ bool MemoryDock::attachToProcessAfterLeave(const std::uint32_t pid, const QStrin
                 }
             }
             updateStatusBarText();
+            if (openFailure)
+            {
+                openFailure(openError);
+            }
             return false;
         }
         m_canReadWriteMemory = false;
@@ -2289,7 +2293,9 @@ QVariant MemoryDock::coreCell(const CoreProjectionData& data, const std::size_t 
         case 2: return data.language.sourceText(entry.signatureState);
         case 3: return numeric ? QVariant::fromValue<qulonglong>(entry.entryPointOffset) : QVariant(QStringLiteral("0x%1").arg(entry.entryPointOffset, 0, 16).toUpper());
         case 4: return data.language.sourceText(entry.runningState);
-        case 5: return entry.threadIdText;
+        case 5: return role == Qt::ToolTipRole
+            ? QVariant(data.language.sourceText(QStringLiteral("%1\n仅列出启动地址位于该模块内的线程，不代表当前执行位置。? 表示部分线程的启动地址无法查询。"))
+                .arg(entry.threadIdText)) : QVariant(entry.threadIdText);
         default: return {};
         }
     }

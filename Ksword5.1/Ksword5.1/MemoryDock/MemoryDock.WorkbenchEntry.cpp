@@ -1,8 +1,8 @@
 #include "MemoryDock.Internal.h"
 #include "MemoryDock.WorkbenchServices.h"
-#include "WorkbenchServicesMapping.h" // DecideModuleJumpPin：模块表跳转要不要钉住预览进程。
 
 #include "../Internationalization/LanguageManager.h"
+#include "../UI/AsyncOperation.h"
 #include "../UI/MemoryWorkbench/AddressBookStore.h"
 #include "../UI/MemoryWorkbench/MemoryWorkbenchView.h"
 #include "../UI/MemoryWorkbench/WorkbenchBookIntake.h"
@@ -306,30 +306,155 @@ void MemoryDock::applyPendingModuleRegionFocus()
 
 // jumpToModuleBase：模块表双击/右键的跳转。
 // 模块表可以预览一个并未附加的进程：此时模块基址属于预览进程，不属于 Dock 附加的进程。
-// 预览进程与附加进程不同时带上它的 pid 与创建时间钉住它（创建时间用来核对仍是同一个进程实例）；
-// 相同时 pid 留空，工作台跟随 Dock。内嵌窗口的工作台锁定跟随 Dock，钉住请求会被策略拒绝
-// （原因写在状态条里），不会静默去看错误的进程。
+// 先复用正常附加与离开守卫；只有打开失败才使用已加载的标准驱动通道。
 void MemoryDock::jumpToModuleBase(const std::uint64_t baseAddress)
 {
-    ks::ui::NavRequest request;
-    request.scope = ksword::memwb::Scope::ProcessVirtual;
-    request.address = baseAddress;
-    request.origin = ks::ui::NavOrigin::ModuleTable;
-    const ksword::memwb_services_detail::ModuleJumpPin pin = ksword::memwb_services_detail::DecideModuleJumpPin(
-        m_moduleCachePid, m_moduleCacheCreateTime, m_attachedPid);
-    request.pid = pin.pid;
-    request.createTime = pin.createTime100ns;
+    const QPointer<MemoryDock> owner(this);
+    const auto navigation = ++m_processMemoryNavigationGeneration;
+    // 附加会清空/刷新模块缓存；所有后续回调只能使用这次点击冻结的实例和加载基址。
+    const auto pid = m_moduleCachePid;
+    const auto creationTime = m_moduleCacheCreateTime;
+    const auto module = std::find_if(m_moduleCache->begin(), m_moduleCache->end(),
+        [baseAddress](const ModuleEntry& entry) { return entry.baseAddress == baseAddress && entry.sizeBytes != 0; });
+    const auto reject = [owner](const QString& message) {
+        if (owner) QMessageBox::warning(owner, ks::i18n::packedSourceText(QStringLiteral("模块内存导航")), message);
+    };
+    if (pid == 0 || creationTime == 0 || baseAddress == 0 || module == m_moduleCache->end())
+    {
+        reject(ks::i18n::packedSourceText(QStringLiteral("模块地址范围或进程身份无效。")));
+        return;
+    }
+    const auto anchor = std::shared_ptr<ks::ui::AnchorInfo>(new ks::ui::AnchorInfo(ks::ui::AcquireAnchorForPid(pid)),
+        [](ks::ui::AnchorInfo* value) { ks::ui::ReleaseAnchorHandle(value->handle); delete value; });
+    if (anchor->identityWeak || anchor->createTime100ns != creationTime
+        || ks::ui::QueryAnchorAlive(anchor->handle) != std::optional<bool>(true))
+    {
+        reject(ks::i18n::packedSourceText(QStringLiteral("目标进程已退出、身份已变化或无法校验，请刷新模块列表。")));
+        return;
+    }
+    const auto process = std::find_if(m_processCache->begin(), m_processCache->end(),
+        [pid](const ProcessEntry& entry) { return entry.pid == pid; });
+    const QString processName = process != m_processCache->end() ? process->processName : QString::number(pid);
+    const auto stillCurrent = [owner, anchor, navigation]() {
+        return owner && owner->m_processMemoryNavigationGeneration == navigation
+            && ks::ui::QueryAnchorAlive(anchor->handle) == std::optional<bool>(true);
+    };
+    const auto attached = [owner, stillCurrent, pid, creationTime, baseAddress](bool allowed) {
+        if (!allowed || !stillCurrent()) return;
+        if (owner->m_attachedPid != pid
+            || !processHandleMatchesModuleTarget(owner->m_attachedProcessHandle, pid, creationTime)) return;
+        ks::ui::NavRequest request;
+        request.scope = ksword::memwb::Scope::ProcessVirtual;
+        request.address = baseAddress;
+        request.origin = ks::ui::NavOrigin::ModuleTable;
+        request.channel = ksword::memwb::Channel::UserMode;
+        (void)owner->navigateWorkbench(request); // 正常附加后跟随 Dock，不沿用其它目标或通道。
+    };
+    const auto openFailed = [owner, stillCurrent, reject, pid, creationTime, baseAddress](std::uint32_t error) {
+        if (!stillCurrent()) return;
+        // 只检查既有设备，不自动加载驱动；R0 地址仍是该进程的模块加载 VA。
+        const ksword::ark::DriverClient client;
+        const auto driver = client.openSilently();
+        if (!driver.isValid())
+        {
+            reject(ks::i18n::packedSourceText(QStringLiteral("附加进程失败（错误 %1），且 R0 驱动未加载或不可访问。"))
+                .arg(error));
+            return;
+        }
+        // 再次获取强身份，不能让工作台把期望实例静默降为仅 PID 的弱锚点。
+        const auto verified = ks::ui::AcquireAnchorForPid(pid);
+        const bool matches = !verified.identityWeak && verified.createTime100ns == creationTime
+            && ks::ui::QueryAnchorAlive(verified.handle) == std::optional<bool>(true);
+        ks::ui::ReleaseAnchorHandle(verified.handle);
+        if (!matches || !stillCurrent())
+        {
+            reject(ks::i18n::packedSourceText(QStringLiteral("目标进程已退出、身份已变化或无法校验，请刷新模块列表。")));
+            return;
+        }
+        ks::ui::NavRequest request;
+        request.scope = ksword::memwb::Scope::ProcessVirtual;
+        request.pid = pid;
+        request.createTime = creationTime;
+        request.address = baseAddress;
+        request.channel = ksword::memwb::Channel::StandardDriver;
+        request.origin = ks::ui::NavOrigin::ModuleTable;
+        owner->probeModuleDriverJump(request, owner->m_processMemoryNavigationGeneration);
+    };
+    if (m_attachedPid == pid && processHandleMatchesModuleTarget(m_attachedProcessHandle, pid, creationTime))
+    {
+        attached(true);
+        return;
+    }
+    const auto status = attachToProcess(pid, processName, false, attached, openFailed);
+    if (owner && status != ks::ui::LeaveEntryStatus::Pending)
+        attached(status == ks::ui::LeaveEntryStatus::Completed);
+}
 
-    kLogEvent moduleJumpEvent;
-    info << moduleJumpEvent
-        << "[MemoryDock] 模块基址交给内存工作台, previewPid="
-        << m_moduleCachePid
-        << ", attachedPid="
-        << m_attachedPid
-        << ", pin="
-        << (request.pid != 0U ? "true" : "false")
-        << eol;
-    (void)navigateWorkbench(request);
+// 模块基址先实际读取成功才允许切页；后台只持值，失败/退出/过期回执均不导航。
+void MemoryDock::probeModuleDriverJump(const ks::ui::NavRequest& request, const std::uint64_t navigationGeneration)
+{
+    if (!m_moduleNavigationOperation) m_moduleNavigationOperation = new ks::ui::AsyncOperation(this);
+    const QPointer<MemoryDock> owner(this);
+    const auto attachment = m_processAttachmentGeneration.load();
+    struct Result
+    {
+        bool identityValid = false;
+        std::shared_ptr<ks::ui::AnchorInfo> anchor; // 独立进程租约保留到 UI 接纳回执。
+        ksword::ark::VirtualMemoryReadResult read;
+    };
+    const auto current = [owner, attachment, navigationGeneration]() {
+        return owner && owner->m_processMemoryNavigationGeneration == navigationGeneration
+            && owner->m_processAttachmentGeneration.load() == attachment;
+    };
+    m_moduleNavigationOperation->submit<ks::ui::NavRequest, Result>(request,
+        [](const ks::ui::NavRequest& job, const ks::ui::AsyncOperationToken& token) {
+            Result result;
+            if (token.isCanceled()) return result;
+            result.anchor = std::shared_ptr<ks::ui::AnchorInfo>(new ks::ui::AnchorInfo(ks::ui::AcquireAnchorForPid(job.pid)),
+                [](ks::ui::AnchorInfo* value) { ks::ui::ReleaseAnchorHandle(value->handle); delete value; });
+            const auto& anchor = result.anchor;
+            if (anchor->identityWeak || anchor->createTime100ns != job.createTime
+                || ks::ui::QueryAnchorAlive(anchor->handle) != std::optional<bool>(true)) return result;
+            result.identityValid = true;
+            const ksword::ark::DriverClient client;
+            auto driver = client.openSilently();
+            if (!driver.isValid())
+            {
+                result.read.io.win32Error = ::GetLastError();
+                return result;
+            }
+            result.read = client.readVirtualMemory(job.pid, job.address, 1, 0, &driver); // 不请求未读区域补零或启用驱动。
+            result.identityValid = !token.isCanceled()
+                && ks::ui::QueryAnchorAlive(anchor->handle) == std::optional<bool>(true);
+            return result;
+        },
+        [owner, current, request](const Result& result, std::uint64_t) {
+            if (!current()) return true;
+            if (!result.identityValid || !result.anchor
+                || ks::ui::QueryAnchorAlive(result.anchor->handle) != std::optional<bool>(true))
+            {
+                QMessageBox::warning(owner, ks::i18n::packedSourceText(QStringLiteral("模块内存导航")),
+                    ks::i18n::packedSourceText(QStringLiteral("目标进程已退出、身份已变化或无法校验，请刷新模块列表。")));
+                return true;
+            }
+            const auto& read = result.read;
+            if (!read.io.ok || read.readStatus != KSWORD_ARK_MEMORY_READ_STATUS_OK || read.copyStatus < 0
+                || read.lookupStatus < 0 || read.bytesRead != 1 || read.data.size() != 1
+                || read.processId != request.pid || read.requestedBaseAddress != request.address || read.requestedBytes != 1)
+            {
+                QMessageBox::warning(owner, ks::i18n::packedSourceText(QStringLiteral("模块内存导航")),
+                    ks::i18n::packedSourceText(QStringLiteral("R0 读取模块失败（Win32=%1，NTSTATUS=0x%2，状态=%3），已取消跳转。"))
+                        .arg(read.io.win32Error).arg(static_cast<unsigned long>(read.copyStatus), 8, 16, QLatin1Char('0'))
+                        .arg(read.readStatus));
+                return true;
+            }
+            (void)owner->navigateWorkbench(request);
+            return true;
+        },
+        [owner, current](std::exception_ptr) {
+            if (current()) QMessageBox::warning(owner, ks::i18n::packedSourceText(QStringLiteral("模块内存导航")),
+                ks::i18n::packedSourceText(QStringLiteral("R0 模块读取检查失败，已取消跳转。")));
+        });
 }
 
 // viewRegionViaDriver：区域表"R0读取此区域"统一在工作台用标准驱动通道打开区域起点。

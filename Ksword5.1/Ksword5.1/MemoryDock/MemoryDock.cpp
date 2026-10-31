@@ -33,7 +33,7 @@ namespace ksword::memory_dock_internal
         "数字签名",
         "入口偏移量",
         "运行状态",
-        "ThreadID"
+        "线程 ID（启动地址）"
     };
 
     // 枚举列 -> 整数索引转换，避免代码里散落硬编码数字。
