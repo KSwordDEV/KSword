@@ -1,5 +1,9 @@
 # 内存工作台重写（进行中）
 
+- **2026-10-30 HEX 查找增加 ANSI**：入口为“内存 → 内存工作台 → 十六进制 → Ctrl+F”，按专业编辑器规范保留 `HexView`/`HexFindBar`，复用 `HexViewSegmented`、`StyleSearchField`、`NormalizeToolbarRow`；对照 `HexGotoBar` 和 `WorkbenchTextView`，不另套参数页框架。ANSI 追加为第4段，保留 HEX/UTF-8/UTF-16LE 的索引，提示显示 `GetACP()` 的实际 CP，所有共享 HEX 宿主同时获得此模式。`HexFindSearch::ParseAnsiPattern` 逐 Unicode 字符经 Windows 代码页编码并严格往返检查，拒绝替换和 best-fit；只折叠源 ASCII 字母，GBK/Big5/Shift-JIS 的多字节尾字节即使落在 A-Z/a-z 也必须精确匹配。独立 HostX64 MSVC+QtCore 回归 `tools/memwb_ui/build-ansi-find-tests.cmd` 57项通过，覆盖 CP936/950/932/1252/65001/54936、无损失败、嵌入NUL、代理对、真实搜索/回绕/高亮和未读掩码；此结果不替代产品 GUI 验收。
+
+- 本轮 ANSI 查找的正式主程序 HostX64 Release 构建 `BUILD_RESULT=SUCCESS / EXIT_CODE=0`（190秒），主程序产物32,005,528字节，语言包与主题门禁通过。真实 GUI 启动验收的 Computer Use 调用返回“Computer Use was not approved to use 1”，未进行实机视觉验收；窄窗、DPI/字体缩放、深浅主题、背景模式、首帧及其它共享宿主仍待实际 GUI 核对，不以逻辑回归或编译结果替代。
+
 - 起因：用户评价「内存编辑/显示器非常杂乱且操作反人性，需要整个重写」。调研与最终设计在 `docs/内存工作台重写调研综合.md` 与 `docs/内存工作台重写设计.md`（含 12 簇缺陷根因、16 条必须保留的不变式、宿主兼容矩阵、7 阶段迁移计划）。
 - 用户已拍板（不可偏离）：**D1** 写入模式默认「改完立即写入」，可切换为「暂存后统一应用」，切换时若有未提交补丁须先弹应用/丢弃/取消三选一；**D2** Tab3 查看器与 Tab5 驱动内存读写合并为一个工作台；**D3** 断点降级为「int3 补丁」工具（只写入/还原单字节，无调试中断、无 hitCount），且**保持零摩擦，不复用二次确认**；**D4** 旧 `HexEditorWidget` 全仓退役——FileDock/NetworkDock×2/DiskEditorTab 也要换新控件，不是新旧并存。书签/搜索结果合并为统一地址簿，旧书签格式**一次性转换重写**，不写兼容层。
 - Phase 0 已完成（2026-10-02）：`shared/evidence/memory_workbench/` 下 7 个 Qt-free、Win32-free 的逻辑类（命名空间 `ksword::memwb`，只用标准库类型）：`MemoryTargetSession`、`MemoryDiffOverlay`、`MemoryAddressExpr`、`HexViewport`、`Int3PatchLedger`、`MemoryAddressBook`、`MemoryWriteTransaction`，各配 `KswordARKLightTests/*Tests*.cpp` 套件（名称前缀 `MEMWB `，共 2587 条断言），已登记 vcxproj/filters、`TestSupport.h`、`KswordARKLightTests.cpp`、`scripts/ksword-expected-suites.json`；MSBuild `/W4 /WX` 零警告，`Test-KswordSuiteManifest.ps1` 为 PASS。

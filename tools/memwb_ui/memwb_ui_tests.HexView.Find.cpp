@@ -1,6 +1,6 @@
 // memwb_ui_tests.HexView.Find.cpp
 // 作用：HexView 查找条的离屏验证（经真实的 QLineEdit/按钮/快捷键与后台线程）——
-//   三种模式（十六进制连写/前缀/逗号/通配、文本 UTF-8 大小写、UTF-16LE、非 ASCII）、起点规则、
+//   四种模式（十六进制连写/前缀/逗号/通配、UTF-8、UTF-16LE、ANSI）、起点规则、
 //   回绕明示（"已从头继续" / "已从末尾继续"）、未找到、无效模式的位置、无数据；
 //   可见范围高亮（只算可见范围、跨边界命中、重叠命中、命中层号与悬停提示、主题切换后重新着色、
 //   编辑/静默改字节/换数据后清除）；
@@ -361,16 +361,16 @@ namespace memwb_test
             Flush();
             CHECK(bar.isVisible());
 
-            // 悬停提示：按钮、三个模式段都有。
+            // 悬停提示：按钮、四个模式段都有。
             for (ks::ui::HexViewGlyphButton* button : { bar.caseButton(), bar.previousButton(), bar.nextButton(), bar.closeButton() })
             {
                 CHECK(!button->toolTip().isEmpty());
             }
-            for (int index = 0; index < 3; ++index)
+            for (int index = 0; index < 4; ++index)
             {
                 CHECK(!bar.modeSegment()->segmentToolTip(index).isEmpty());
             }
-            CHECK(bar.modeSegment()->count() == 3);
+            CHECK(bar.modeSegment()->count() == 4);
 
             // 回车 = 下一个；下一个按钮 / 上一个按钮。
             Configure(*view, Mode::Hex, QStringLiteral("4D 5A 90 00"));
@@ -389,6 +389,10 @@ namespace memwb_test
             const QRect utf8 = bar.modeSegment()->segmentRect(1);
             QTest::mouseClick(bar.modeSegment(), Qt::LeftButton, Qt::NoModifier, utf8.center());
             CHECK(bar.mode() == Mode::TextUtf8);
+            QTest::mouseClick(bar.modeSegment(), Qt::LeftButton, Qt::NoModifier, bar.modeSegment()->segmentRect(3).center());
+            CHECK(bar.mode() == Mode::TextAnsi);
+            CHECK(bar.caseButton()->isEnabled());
+            CHECK(bar.lineEdit()->placeholderText().contains(QString::number(ks::ui::hexfind::SystemAnsiCodePage())));
             QTest::mouseClick(bar.modeSegment(), Qt::LeftButton, Qt::NoModifier, bar.modeSegment()->segmentRect(0).center());
             CHECK(bar.mode() == Mode::Hex);
 

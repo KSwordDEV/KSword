@@ -44,8 +44,20 @@ namespace ks::ui::hexfind
     {
         Hex = 0,        // 十六进制字节，支持 ?? / A? / ?A 通配，空格逗号分隔或连写
         TextUtf8,       // 文本，按 UTF-8 编码
-        TextUtf16Le     // 文本，按 UTF-16 小端编码
+        TextUtf16Le,    // 文本，按 UTF-16 小端编码
+        TextAnsi       // 文本，按当前 Windows ANSI 代码页编码（保留既有模式索引）
     };
+
+    std::uint32_t SystemAnsiCodePage();
+
+    // 显式代码页入口便于验证不同 Windows 区域设置；拒绝替换字符与 best-fit 转换。
+    // 仅原始 ASCII 字母参与大小写折叠，多字节字符的全部字节始终精确匹配。
+    bool ParseAnsiPattern(
+        const QString& text,
+        std::uint32_t codePage,
+        bool caseSensitive,
+        ksword::memwb::SearchPattern& patternOut,
+        ksword::memwb::ParseError& errorOut);
 
     // ParsePattern：把用户输入解析成查找模式。
     // 传入：模式、输入文本、是否区分大小写（只对文本模式有意义）；
