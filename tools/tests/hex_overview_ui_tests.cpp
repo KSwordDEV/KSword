@@ -1,9 +1,12 @@
 #include "HexCanvas.h"
 #include "HexCanvasOverviewBar.h"
+#include "HexCanvasFormat.h"
 #include <QApplication>
 #include <QCoreApplication>
 #include <QScrollBar>
 #include <QStyleOptionSlider>
+#include <QWheelEvent>
+#include <QFontMetrics>
 #include <QTest>
 #include <cmath>
 #include <cstdio>
@@ -34,6 +37,83 @@ double luminance(QColor c) {
     const auto linear=[](double x){return x<=0.04045 ? x/12.92 : std::pow((x+0.055)/1.055,2.4);};
     return .2126*linear(c.redF())+.7152*linear(c.greenF())+.0722*linear(c.blueF());
 }
+}
+void runFixedAddressUiTests() {
+    const auto wheel=[](HexCanvas& c) {
+        QWheelEvent event(QPointF(300,100),QPointF(c.viewport()->mapToGlobal(QPoint(300,100))),QPoint(),QPoint(0,-120),
+            Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
+        QApplication::sendEvent(c.viewport(),&event);drain();
+    };
+    HexCanvas fixed;
+    constexpr std::uint64_t size=1ULL<<20, middle=size/2;
+    fixed.resize(700,420);fixed.setFixedAddressScale(true);fixed.setFoldUnknownRegions(true);
+    fixed.setOverviewEnabled(true);fixed.setAddressSpace(0,size-1);
+    for(auto address:{0ULL,middle,size*3/4}) fixed.deliverPage(address,QByteArray(4096,'A'),QByteArray(4096,'\1'),fixed.sourceRevision());
+    fixed.setCaretAddress(middle,false,false);fixed.show();drain();auto* r=rail(fixed);
+    auto image=capture(*r);const int center=r->width()/2,y=qRound(r->rowPosition(middle/16));
+    const auto tint=pixel(image,center,y);const auto maximum=fixed.verticalScrollBar()->maximum();
+    check(maximum==static_cast<int>(size/16-fixed.visibleRowCount()),"fixed native scrollbar covers the complete address range");
+    check(tint!=Qt::white,"a cached distant fragment appears in the full-address preview");
+    const auto marker=r->caretPosition();
+    fixed.deliverPage(size/4,QByteArray(4096,'\xFF'),QByteArray(4096,'\1'),fixed.sourceRevision());
+    image=capture(*r);
+    check(fixed.verticalScrollBar()->maximum()==maximum && std::abs(r->caretPosition()-marker)<.01,
+        "newly expanded data does not change the scrollbar range or move address marks");
+    check(pixel(image,center,y)==tint,"newly read data leaves existing preview colors at the same address position");
+    const auto builds=r->summaryBuildCount();
+    wheel(fixed);capture(*r);
+    fixed.setFoldUnknownRegions(false);capture(*r);
+    fixed.setFoldUnknownRegions(true);image=capture(*r);
+    check(r->summaryBuildCount()==builds && fixed.verticalScrollBar()->maximum()==maximum,
+        "scrolling and folding change markers without remapping fixed-address statistics");
+    check(pixel(image,center,y)==tint,"folding does not move the distant cached fragment");
+    QTest::mouseClick(r,Qt::LeftButton,Qt::NoModifier,QPoint(center,y));drain();
+    check(!fixed.cellRect(middle,HexCanvas::ActivePane::Hex).isNull(),"fixed overview click reveals the corresponding address");
+    fixed.verticalScrollBar()->setValue(maximum);drain();
+    const auto bottom=fixed.firstVisibleRow();wheel(fixed);
+    check(fixed.firstVisibleRow()==bottom && fixed.visibleAddressRange()->last==size-1,
+        "dragging the native scrollbar to the bottom reaches the actual last screen");
+    fixed.deliverPage(size-4096,QByteArray(4096,'B'),QByteArray(4096,'\1'),fixed.sourceRevision());drain();
+    check(fixed.verticalScrollBar()->maximum()==maximum && fixed.verticalScrollBar()->value()==maximum
+        && fixed.visibleAddressRange()->last==size-1,"accepted end-page reads keep an explicitly selected bottom pinned");
+    image=capture(*r);
+    const auto endTint=KswordTheme::BlendColors(Qt::white,KswordTheme::PrimaryAccentColor(),qRound(.70*255));
+    check(colorDistance(pixel(image,center,r->height()-2),endTint)<4,"viewport markers do not cover the cached color at the end of the full-address overview");
+    const auto newBottom=fixed.firstVisibleRow();wheel(fixed);
+    check(fixed.firstVisibleRow()==newBottom,"wheel scrolling cannot move beyond the last screen after reads finish");
+    fixed.grab().save(QCoreApplication::applicationDirPath()+QStringLiteral("/hex-fixed-address-overview.png"));
+    fixed.setAddressSpace(0,8191);drain();
+    check(fixed.firstVisibleRow()==0 && fixed.verticalScrollBar()->value()==0,"changing target clears the end pin");
+
+    HexCanvas huge;huge.resize(700,420);huge.setAddressSpace(0,UINT64_MAX);huge.show();drain();
+    const auto last=(1ULL<<60)-huge.visibleRowCount();
+    huge.setFirstVisibleRow(last-1);
+    check(huge.verticalScrollBar()->value()<huge.verticalScrollBar()->maximum(),"a near-end 64-bit row never rounds to the actual scrollbar endpoint");
+    huge.verticalScrollBar()->setValue(huge.verticalScrollBar()->maximum());const auto end=huge.firstVisibleRow();wheel(huge);
+    check(huge.firstVisibleRow()==last && huge.firstVisibleRow()==end,"proportional dragging and wheel agree on the last screen");
+
+    HexCanvas gutter;constexpr std::uint64_t base=0x7FFC01000000;
+    gutter.resize(700,420);gutter.setBytesPerRow(64);gutter.setStaticData(base,QByteArray(8192,'A'));gutter.show();drain();
+    const int cw=QFontMetrics(gutter.font()).horizontalAdvance(QLatin1Char('0'));
+    const auto cell=gutter.cellRect(base,HexCanvas::ActivePane::Hex);
+    const int width=cell.left()-cw;
+    const auto before=gutter.viewport()->grab().toImage();
+    gutter.horizontalScrollBar()->setValue(gutter.horizontalScrollBar()->maximum());drain();
+    const auto after=gutter.viewport()->grab().toImage();
+    const int pixels=qRound(width*before.devicePixelRatio());
+    check(before.copy(0,0,pixels,before.height())==after.copy(0,0,pixels,after.height()),"horizontal scrolling preserves the full address gutter pixel for pixel");
+    check(ks::ui::hexcanvas_format::FormatAddress(base,16)==QStringLiteral("0x00007FFC01000000")
+        && ks::ui::hexcanvas_format::FormatAddress(0x12,8)==QStringLiteral("0x00000012"),"address display keeps its prefix and zero-padded width");
+    check(!gutter.addressForViewportPos(QPoint(cw*3,cell.center().y())),"fixed address gutter is never hit-tested as scrolled byte data");
+    QTest::mouseClick(gutter.viewport(),Qt::LeftButton,Qt::NoModifier,QPoint(cw*3,cell.center().y()));
+    check(gutter.selectedRange() && gutter.selectedRange()->first==base && gutter.selectedRange()->last==base+63,
+        "clicking a fixed gutter still selects the original row");
+    gutter.setCaretAddress(base,false,true);
+    check(gutter.cellRect(base,HexCanvas::ActivePane::Hex).left()>=width,"revealing a HEX caret scrolls it out from behind the fixed gutter");
+    gutter.grab().save(QCoreApplication::applicationDirPath()+QStringLiteral("/hex-fixed-address-gutter.png"));
+    gutter.resize(160,420);drain();gutter.setCaretAddress(base,false,true);
+    const auto narrow=gutter.cellRect(base,HexCanvas::ActivePane::Hex);
+    check(narrow.left()>=0 && narrow.right()<gutter.viewport()->width(),"narrow viewports retain a usable byte area beside the address prefix");
 }
 void runHexOverviewUiTests() {
     const bool oldDark=KswordTheme::IsDarkModeEnabled();
@@ -193,5 +273,6 @@ void runHexOverviewUiTests() {
     QTest::mouseMove(hr,QPoint(5,hr->height()-5));
     QTest::mouseRelease(hr,Qt::LeftButton,Qt::NoModifier,QPoint(5,hr->height()-5));drain();
     check(huge.firstVisibleRow()==0 && !huge.verticalScrollBar()->isSliderDown(),"source replacement cancels an overview drag without scrolling the new target");
+    runFixedAddressUiTests();
     KswordTheme::SetDarkModeEnabled(oldDark);
 }

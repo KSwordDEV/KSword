@@ -355,6 +355,8 @@ namespace ks::ui
         void boundaryReadFailed(const QString& reason);
         void setOverviewEnabled(bool enabled);
         bool overviewEnabled() const { return m_overviewEnabled; }
+        void setFixedAddressScale(bool enabled);
+        bool fixedAddressScale() const { return m_fixedAddressScale; }
 
         // setStaticData：便捷接口，用一块字节数组当数据源。
         // 作用：地址空间设为 [base, base+size-1]，内置提供者按需供页（不会一次塞满缓存）。
@@ -831,7 +833,13 @@ namespace ks::ui
         // 传出：true 表示按键已处理（已 accept）。与有没有地址空间无关，Alt 同时按下（AltGr 文字输入）不处理。
         bool handleZoomKey(QKeyEvent* event);
 
-        void setFirstRowInternal(std::uint64_t row, bool syncBar);
+        void setFirstRowInternal(std::uint64_t row, bool syncBar, bool keepEnd = false);
+        std::uint64_t scrollScaleRows() const;
+        std::uint64_t scrollScaleLimit() const;
+        std::uint64_t scrollScaleFirstRow() const;
+        std::uint64_t scrollScaleAddress(std::uint64_t row) const;
+        bool m_fixedAddressScale = false;
+        bool m_keepScrollEnd = false;
         void applySelectionChange(const ksword::memwb::HexViewport::Selection& before);
         // 跨同步通知后核对实际选区；同一来源内重入导航也会使旧通知作废。
         bool selectionStillMatches(const ksword::memwb::HexViewport::Selection& expected) const;
@@ -852,6 +860,7 @@ namespace ks::ui
         void rebuildLayerSnapshot();
         void touchVisiblePages(std::uint64_t firstAddress, std::uint64_t lastAddress);
         void paintHeader(QPainter& painter, const PaintPalette& palette, int viewWidth, std::uint64_t caretColumn) const;
+        void paintAddress(QPainter& painter, const PaintPalette& palette, std::uint64_t start, const AddressRange& span, int rowTop) const;
         void paintRow(
             QPainter& painter,
             const PaintPalette& palette,
@@ -876,6 +885,7 @@ namespace ks::ui
         // ---------- HexCanvas.Menu.cpp：复制与菜单 ----------
         QString menuStyleSheet() const;
         int addressDigits() const;
+        int addressGutterWidth() const;
 
         // 暂定常量。
         static constexpr int kProportionalRange = 0x7FFFFFFF;       // 比例映射时滚动条量程

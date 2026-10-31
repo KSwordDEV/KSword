@@ -67,12 +67,14 @@ int main() {
         }
         for(const bool fold:{false,true}) {
             sample.SetFoldUnknown(fold);
-            for(const auto requested:{1U,3U,17U,401U,4096U}) {
-                const auto results=sample.OverviewBins(requested);
+            for(const bool fixed:{false,true}) for(const auto requested:{1U,3U,17U,401U,4096U}) {
+                const View unfolded(first,last,width);
+                const auto& geometry=fixed ? unfolded : sample;
+                const auto results=sample.OverviewBins(requested,fixed);
                 for(const auto& bin:results) {
                     std::uint64_t total=0,read=0,nonzero=0,ascii=0;
                     for(auto row=bin.firstRow;row<bin.firstRow+bin.rowCount;++row) {
-                        const auto span=sample.RowValidSpan(row).value();
+                        const auto span=geometry.RowValidSpan(row).value();
                         for(auto address=span.first;address<=span.last;++address) {
                             ++total;
                             if(valid[address]) { ++read; if(source[address]) ++nonzero; if(source[address]>=32 && source[address]<127) ++ascii; }
@@ -116,6 +118,7 @@ int main() {
     CHECK(fullSpace.OverviewBins(1)[0].totalBytes==18446744073709551616.0);
     fullSpace.SetFoldUnknown(true);
     CHECK(fullSpace.OverviewBins(1)[0].totalBytes==32);
+    CHECK(fullSpace.OverviewBins(1,true)[0].totalBytes==18446744073709551616.0);
     const auto start=std::chrono::steady_clock::now();
     for(int n=0;n<100;++n) CHECK(sparse.OverviewBins(1000).size()==514);
     std::cout << "SPARSE_OVERVIEW_100_REBUILDS_MS=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start).count() << '\n';

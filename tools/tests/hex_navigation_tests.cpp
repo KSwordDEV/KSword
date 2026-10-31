@@ -25,6 +25,17 @@ void check(bool value, const char* text) {
 }
 void drain() { for (int i = 0; i < 30; ++i) QApplication::processEvents(); }
 void draw(HexCanvas& c) { c.viewport()->repaint(); drain(); }
+#ifdef HEX_ROW_FIT_TESTS
+namespace memwb_test {
+extern int g_checks,g_failures;
+void RunRowFitTests();
+// Only reuse the real signal helpers for RowFit in this focused executable.
+// Calling an unlinked, unselected suite must fail rather than silently pass.
+void RunInspectorSignalTests() { std::abort(); }
+void RunSignalStageTests() { std::abort(); }
+void RunSignalViewTests(const QString&) { std::abort(); }
+}
+#endif
 
 #ifdef HEX_VIEW_FEATURES
 class Diagnostics final : public ks::ui::IWorkbenchDiagnosticsHost {
@@ -332,6 +343,13 @@ int main(int argc, char** argv) {
     QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
     app.setFont(QFont(QStringLiteral("Microsoft YaHei"), 10));
 #ifdef HEX_VIEW_FEATURES
+#ifdef HEX_ROW_FIT_TESTS
+    if (app.arguments().contains(QStringLiteral("--rowfit-only"))) {
+        memwb_test::RunRowFitTests();
+        std::printf("ROW_FIT_CHECKS=%d FAILURES=%d\n",memwb_test::g_checks,memwb_test::g_failures);
+        return memwb_test::g_failures ? 1 : 0;
+    }
+#endif
     if (app.arguments().contains(QStringLiteral("--overview-only"))) { runHexOverviewUiTests(); std::printf("OVERVIEW_UI_CHECKS=%d\n", checks); return 0; }
     if (app.arguments().contains(QStringLiteral("--fold-stability"))) { foldScrollStability(); return 0; }
     if (!app.arguments().contains(QStringLiteral("--bench-only"))) { foldScrollStability(); features(); runHexOverviewUiTests(); std::printf("TOTAL_UI_CHECKS=%d\n", checks); }

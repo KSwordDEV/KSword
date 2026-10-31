@@ -208,6 +208,10 @@ public:
 
     // 总行数；视图无效时为 0。
     std::uint64_t RowCount() const;
+    std::uint64_t UnfoldedRowCount() const { return RawRowCount(); }
+    std::optional<std::uint64_t> UnfoldedRowOfAddress(std::uint64_t address) const {
+        return ContainsAddress(address) ? std::optional<std::uint64_t>((address - rowBase_) / bytesPerRow_) : std::nullopt;
+    }
 
     struct OverviewBin {
         std::uint64_t firstRow = 0, rowCount = 0;
@@ -218,9 +222,10 @@ public:
     void SetOverviewEnabled(bool enabled);
     bool OverviewEnabled() const { return overviewEnabled_; }
     std::uint64_t OverviewRevision() const { return overviewRevision_; }
-    std::vector<OverviewBin> OverviewBins(std::size_t count) const;
-    // Shared projected-row scale for the overview's samples, caret and clicks.
-    std::uint64_t OverviewRowAt(std::uint32_t position, std::uint32_t extent) const;
+    std::vector<OverviewBin> OverviewBins(std::size_t count, bool fixedAddressScale = false) const;
+    // Same selectable row scale for samples, caret and clicks. Fixed mode uses
+    // the complete address range and ignores folds for overview geometry.
+    std::uint64_t OverviewRowAt(std::uint32_t position, std::uint32_t extent, bool fixedAddressScale = false) const;
 
     // 某行的起始地址（已向下对齐，首行可能小于 firstAddress，即含补空位）。越界返回空。
     std::optional<std::uint64_t> RowStartAddress(std::uint64_t row) const;

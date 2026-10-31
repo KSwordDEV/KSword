@@ -43,7 +43,7 @@ namespace ks::ui
         const int contentX = viewportPos.x() + m_hOffset;
         const int columns = static_cast<int>(m_viewport.BytesPerRow());
         int column = 0;
-        if (contentX < m_layout.hexX - m_layout.charWidth)
+        if (viewportPos.x() < addressGutterWidth())
         {
             // 地址列：点击表示选整行，面板保持当前面板。
             hit.inGutter = true;

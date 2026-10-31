@@ -235,7 +235,9 @@ namespace ks::ui
         const int viewHeight = viewport()->height();
         const std::optional<AddressRange> selection = m_viewport.SelectedRange();
         painter.save();
-        painter.setClipRect(0, m_layout.headerHeight, viewWidth, std::max(0, viewHeight - m_layout.headerHeight));
+        const int gutter = addressGutterWidth();
+        const int clipLeft = m_hOffset ? gutter : 0;
+        painter.setClipRect(clipLeft, m_layout.headerHeight, std::max(0, viewWidth - clipLeft), std::max(0, viewHeight - m_layout.headerHeight));
         painter.translate(-m_hOffset, 0);
         for (std::uint64_t index = 0; index < rowsToPaint; ++index)
         {
@@ -246,6 +248,21 @@ namespace ks::ui
         }
         paintCaretFrames(painter, palette);
         painter.restore();
+
+        // The address gutter stays visible while byte/ASCII columns scroll.
+        if (m_hOffset)
+        {
+            painter.save();
+            painter.setClipRect(0, m_layout.headerHeight, std::min(gutter, viewWidth), std::max(0, viewHeight - m_layout.headerHeight));
+            for (std::uint64_t index = 0; index < rowsToPaint; ++index)
+            {
+                const auto start = m_viewport.RowStartAddress(m_firstRow + index);
+                const auto span = m_viewport.RowValidSpan(m_firstRow + index);
+                if (start && span) paintAddress(painter, palette, *start, *span,
+                    m_layout.headerHeight + static_cast<int>(index) * m_layout.rowHeight);
+            }
+            painter.restore();
+        }
 
         // 表头最后画，盖住行区域顶部的任何溢出。
         const std::optional<std::uint32_t> caretColumn = m_viewport.ColumnOfAddress(m_viewport.GetSelection().caret);
@@ -282,14 +299,14 @@ namespace ks::ui
         painter.drawLine(0, m_layout.headerHeight - 1, viewWidth, m_layout.headerHeight - 1);
 
         painter.save();
+        const int addrDivider = addressGutterWidth();
+        painter.setClipRect(addrDivider, 0, std::max(0, viewWidth - addrDivider), viewport()->height());
         painter.translate(-m_hOffset, 0);
 
         // 两条竖向分隔线：地址列|十六进制区，十六进制区|ASCII 区，贯穿表头与行区域。
         const int viewHeight = viewport()->height();
-        const int addrDivider = m_layout.addrX + m_layout.addrWidth + m_layout.charWidth;
         const int asciiDivider = m_layout.asciiX - m_layout.charWidth;
         painter.setPen(palette.border);
-        painter.drawLine(addrDivider, 0, addrDivider, viewHeight);
         painter.drawLine(asciiDivider, 0, asciiDivider, viewHeight);
 
         // 十六进制列偏移：直接复用 256 个字节值的缓存文字（列号 < 64）。
@@ -314,6 +331,16 @@ namespace ks::ui
             painter.drawText(QPointF(m_layout.asciiX + column * m_layout.charWidth, baseline), digit);
         }
         painter.restore();
+        painter.setPen(palette.border);
+        painter.drawLine(addrDivider, 0, addrDivider, viewHeight);
+    }
+
+    void HexCanvas::paintAddress(QPainter& painter, const PaintPalette& palette, std::uint64_t start, const AddressRange& span, int rowTop) const
+    {
+        const auto caret = m_viewport.GetSelection().caret;
+        painter.setPen(caret >= span.first && caret <= span.last ? palette.text : palette.textSecondary);
+        painter.drawText(QPointF(m_layout.addrX, rowTop + 1 + m_layout.ascent),
+            hexcanvas_format::FormatAddress(start, m_layout.addrDigits));
     }
 
     // 绘制一行：地址、十六进制单元格、ASCII 单元格。
@@ -332,15 +359,8 @@ namespace ks::ui
             return;
         }
 
-        // 地址列：行首地址（首行含补空位时仍显示对齐后的行首，与列头一致）。
-        const std::uint64_t caret = m_viewport.GetSelection().caret;
-        const bool caretInRow = caret >= span->first && caret <= span->last;
-        const QString addressText = QString::number(static_cast<qulonglong>(*start), 16)
-            .toUpper()
-            .rightJustified(m_layout.addrDigits, QLatin1Char('0'));
         const int textTop = rowTop + 1;
-        painter.setPen(caretInRow ? palette.text : palette.textSecondary);
-        painter.drawText(QPointF(m_layout.addrX, textTop + m_layout.ascent), addressText);
+        if (!m_hOffset) paintAddress(painter, palette, *start, *span, rowTop);
 
         // 有效列范围：补空位列不参与任何绘制。
         const int firstColumn = static_cast<int>(span->first - *start);

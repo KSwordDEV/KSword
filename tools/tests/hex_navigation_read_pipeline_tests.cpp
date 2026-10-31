@@ -89,7 +89,7 @@ void scenario(bool real) {
         WorkbenchTarget target(std::make_unique<Services>());
         target.requestPin(GetCurrentProcessId());
         check(pump([&]{return target.capture().session.pid==GetCurrentProcessId();}),"production target captures the test process");
-        HexCanvas canvas;canvas.resize(900,420);canvas.setFoldUnknownRegions(true);canvas.setOverviewEnabled(true);
+        HexCanvas canvas;canvas.resize(900,420);canvas.setFixedAddressScale(true);canvas.setFoldUnknownRegions(true);canvas.setOverviewEnabled(true);
         WorkbenchPageProvider provider([state]{return std::make_unique<Port>(state);},&target);
         QObject::connect(&provider,&WorkbenchPageProvider::readFailed,&canvas,[](quint64,QString text,int count){
             std::printf("PROVIDER_FAILURE count=%d text=%s\n",count,text.toUtf8().constData());

@@ -181,6 +181,7 @@ namespace ks::ui
         m_foldScrollAnchor.reset();
         m_foldNavigationAddress.reset();
         m_foldScrollUp = false;
+        m_keepScrollEnd = false;
         cancelUniformBoundarySearch();
         m_hasSpace = true;
 

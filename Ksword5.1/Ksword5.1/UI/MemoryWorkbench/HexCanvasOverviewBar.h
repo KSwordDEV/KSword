@@ -1,7 +1,7 @@
 #pragma once
 
 // A cache-only overview beside the existing vertical scrollbar. All positions
-// are HexViewport projected rows; the native scrollbar remains the scroll owner.
+// use the selected HexViewport row scale; the native scrollbar owns scrolling.
 #include "HexCanvas.h"
 #include "../../theme.h"
 #include "../../Internationalization/LanguageManager.h"
@@ -35,18 +35,23 @@ namespace ks::ui
             const auto strip = stripRect();
             const int extent = std::max(1, static_cast<int>(strip.height()));
             const int pixel = std::clamp(y - static_cast<int>(strip.top()), 0, extent - 1);
-            return std::min(canvas_->m_viewport.OverviewRowAt(static_cast<std::uint32_t>(pixel), static_cast<std::uint32_t>(extent)),
-                canvas_->m_viewport.RowCount() - 1);
+            return std::min(canvas_->m_viewport.OverviewRowAt(static_cast<std::uint32_t>(pixel), static_cast<std::uint32_t>(extent), canvas_->m_fixedAddressScale),
+                canvas_->scrollScaleRows() - 1);
         }
         qreal rowPosition(std::uint64_t row) const
         {
-            const auto rows = canvas_->m_hasSpace ? canvas_->m_viewport.RowCount() : 0;
+            const auto rows = canvas_->scrollScaleRows();
             const auto strip = stripRect();
             return strip.top() + (rows ? static_cast<qreal>(static_cast<long double>(std::min(row, rows)) / rows) * strip.height() : 0);
         }
         QRectF viewportOutline() const
         {
             if (!canvas_->m_hasSpace) return {};
+            if (canvas_->m_fixedAddressScale) {
+                const auto spans = canvas_->visibleAddressSpans();
+                if (spans.empty()) return {};
+                return addressOutline(spans.front().first, spans.back().last);
+            }
             const auto rows = canvas_->m_viewport.RowCount();
             const auto first = std::min(canvas_->m_firstRow, rows - 1);
             const auto end = first + std::min(canvas_->fullVisibleRows(), rows - first);
@@ -59,7 +64,9 @@ namespace ks::ui
         qreal caretPosition() const
         {
             if (!canvas_->m_hasSpace) return -1;
-            const auto row = canvas_->m_viewport.RowOfAddress(canvas_->caretAddress());
+            const auto row = canvas_->m_fixedAddressScale
+                ? canvas_->m_viewport.UnfoldedRowOfAddress(canvas_->caretAddress())
+                : canvas_->m_viewport.RowOfAddress(canvas_->caretAddress());
             if (!row) return -1;
             return (rowPosition(*row) + rowPosition(*row + 1)) / 2;
         }
@@ -73,11 +80,24 @@ namespace ks::ui
             painter.drawImage(QPoint(0,0), image_);
             if (!canvas_->m_hasSpace) return;
             // Neutral double outline stays legible on white, tinted and dark segments.
-            const auto outline = viewportOutline();
+            const auto outlines = viewportOutlines();
             const auto ink = KswordTheme::EnsureTextContrast(KswordTheme::TextPrimaryColor(), Qt::white, 4.5);
             painter.setBrush(Qt::NoBrush);
-            painter.setPen(QPen(ink, 2)); painter.drawRect(outline);
-            painter.setPen(QPen(Qt::white, 1)); painter.drawRect(outline);
+            for (const auto& outline : outlines) {
+                const auto frame = [&]() {
+                    if (!canvas_->m_fixedAddressScale) { painter.drawRect(outline); return; }
+                    // Corner frames leave the center sample visible even when
+                    // an entire cached page fits into one overview pixel.
+                    painter.drawLine(outline.topLeft(), outline.bottomLeft());
+                    painter.drawLine(outline.topRight(), outline.bottomRight());
+                    for (const auto y : {outline.top(), outline.bottom()}) {
+                        painter.drawLine(QPointF(outline.left(), y), QPointF(outline.left() + 3, y));
+                        painter.drawLine(QPointF(outline.right() - 3, y), QPointF(outline.right(), y));
+                    }
+                };
+                painter.setPen(QPen(ink, 2)); frame();
+                painter.setPen(QPen(Qt::white, 1)); frame();
+            }
             const auto caret = caretPosition();
             if (caret >= 0) {
                 painter.setPen(QPen(ink, 3)); painter.drawLine(QPointF(0, caret), QPointF(3, caret));
@@ -88,8 +108,9 @@ namespace ks::ui
         {
             if (event->button() != Qt::LeftButton || !canvas_->m_hasSpace || !bar_) { event->ignore(); return; }
             const auto row = rowAtPixel(static_cast<int>(event->position().y()));
-            dragOffset_ = viewportOutline().contains(event->position())
-                ? row - std::min(row, canvas_->m_firstRow) : canvas_->fullVisibleRows() / 2;
+            const auto outlines = viewportOutlines();
+            const bool inside = std::any_of(outlines.begin(), outlines.end(), [&](const QRectF& rect) { return rect.contains(event->position()); });
+            dragOffset_ = inside ? row - std::min(row, canvas_->scrollScaleFirstRow()) : canvas_->fullVisibleRows() / 2;
             dragRevision_ = canvas_->sourceRevision();
             dragging_ = true;
             const QPointer<HexCanvasOverviewBar> alive(this);
@@ -114,6 +135,24 @@ namespace ks::ui
         void wheelEvent(QWheelEvent* event) override { canvas_->wheelEvent(event); }
 
     private:
+        QRectF addressOutline(std::uint64_t first, std::uint64_t last) const
+        {
+            const auto low = canvas_->m_viewport.UnfoldedRowOfAddress(first).value_or(0);
+            const auto high = canvas_->m_viewport.UnfoldedRowOfAddress(last).value_or(low);
+            const auto strip = stripRect();
+            if (strip.isEmpty()) return {};
+            const auto center = (rowPosition(low) + rowPosition(high + 1)) / 2;
+            const qreal height = std::min(strip.height(), std::max<qreal>(6, rowPosition(high + 1) - rowPosition(low)));
+            return QRectF(.5, std::clamp(center - height / 2, strip.top(), strip.bottom() - height), width() - 1.0, height);
+        }
+        std::vector<QRectF> viewportOutlines() const
+        {
+            if (!canvas_->m_hasSpace) return {};
+            if (!canvas_->m_fixedAddressScale) return {viewportOutline()};
+            std::vector<QRectF> outlines;
+            for (const auto& span : canvas_->visibleAddressSpans()) outlines.push_back(addressOutline(span.first, span.last));
+            return outlines;
+        }
         void stopDrag()
         {
             if (!dragging_) return;
@@ -123,7 +162,8 @@ namespace ks::ui
         void prepareImage()
         {
             const auto& model = canvas_->m_viewport;
-            const auto rows = canvas_->m_hasSpace ? model.RowCount() : 0;
+            const auto rows = canvas_->scrollScaleRows();
+            const auto folds = canvas_->m_fixedAddressScale ? 0 : model.FoldRevision();
             const auto dpr = devicePixelRatioF();
             const auto physical = QSize(std::max(1, qRound(width() * dpr)), std::max(1, qRound(height() * dpr)));
             const auto strip = stripRect();
@@ -132,12 +172,13 @@ namespace ks::ui
             const int top = std::clamp(qRound(strip.top() * dpr), 0, physical.height());
             const int bottom = std::clamp(qRound(strip.bottom() * dpr), top, physical.height());
             const bool dataChanged = source_ != model.SourceRevision() || content_ != model.OverviewRevision()
-                || folds_ != model.FoldRevision() || rows_ != rows || rowWidth_ != model.BytesPerRow()
+                || folds_ != folds || fixed_ != canvas_->m_fixedAddressScale || rows_ != rows || rowWidth_ != model.BytesPerRow()
                 || physical_ != physical || dpr_ != dpr;
             if (dataChanged) {
-                source_ = model.SourceRevision(); content_ = model.OverviewRevision(); folds_ = model.FoldRevision();
+                source_ = model.SourceRevision(); content_ = model.OverviewRevision();
+                folds_ = folds; fixed_ = canvas_->m_fixedAddressScale;
                 rows_ = rows; rowWidth_ = model.BytesPerRow(); physical_ = physical;
-                bins_ = rows ? model.OverviewBins(static_cast<std::size_t>(bottom - top)) : std::vector<Bin>{};
+                bins_ = rows ? model.OverviewBins(static_cast<std::size_t>(bottom - top), fixed_) : std::vector<Bin>{};
                 ++summaryBuilds_;
             }
             const auto base = KswordTheme::EnsureTextContrast(KswordTheme::SurfaceMutedColor(), Qt::white, 3.0);
@@ -164,8 +205,12 @@ namespace ks::ui
                 const int y1 = top + static_cast<int>((static_cast<std::int64_t>(index + 1) * (bottom - top) + count - 1) / count);
                 if (!bin.readBytes) continue;
                 const auto known = bin.totalBytes > 0 ? std::clamp(static_cast<double>(bin.readBytes) / bin.totalBytes, 0.0, 1.0) : 0.0;
-                const double knownWidth = (right - left) * known;
+                // A cached page in a multi-terabyte space can be narrower than
+                // one physical pixel. Keep one sample mark so accepted data is
+                // discoverable, while the rest of the mixed bin remains white.
+                const double knownWidth = std::max(fixed_ ? 1.0 : 0.0, (right - left) * known);
                 const int whole = std::clamp(static_cast<int>(knownWidth), 0, right - left);
+                const int offset = fixed_ ? static_cast<int>(((right - left) - knownWidth) / 2) : 0;
                 // Leave headroom for readable text instead of saturating ordinary
                 // binary data. Density is measured only among accepted read bytes;
                 // the rest of this bin keeps its separate white coverage.
@@ -174,7 +219,7 @@ namespace ks::ui
                 const auto tint = KswordTheme::BlendColors(Qt::white, accent, qRound(alpha * 255));
                 const auto edge = KswordTheme::BlendColors(Qt::white, tint, qRound((knownWidth - whole) * 255));
                 for (int y = y0; y < y1; ++y) {
-                    auto* line = reinterpret_cast<QRgb*>(image_.scanLine(y)) + left;
+                    auto* line = reinterpret_cast<QRgb*>(image_.scanLine(y)) + left + offset;
                     std::fill(line, line + whole, tint.rgba());
                     if (whole < right - left) line[whole] = edge.rgba();
                 }
@@ -184,6 +229,7 @@ namespace ks::ui
         HexCanvas* canvas_;
         QPointer<QScrollBar> bar_;
         bool dragging_ = false;
+        bool fixed_ = false;
         std::uint64_t dragOffset_ = 0, dragRevision_ = 0;
         std::uint64_t source_ = UINT64_MAX, content_ = UINT64_MAX, folds_ = UINT64_MAX, rows_ = UINT64_MAX;
         std::uint32_t rowWidth_ = 0;

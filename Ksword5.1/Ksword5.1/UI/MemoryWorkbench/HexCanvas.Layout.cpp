@@ -81,6 +81,13 @@ namespace ks::ui
         return 16;
     }
 
+    int HexCanvas::addressGutterWidth() const
+    {
+        // Retain a usable byte area in narrow professional viewports.
+        return std::min(m_layout.hexX - m_layout.charWidth,
+            std::max(0, viewport()->width() - 4 * m_layout.charWidth));
+    }
+
     // 重算横向几何。
     // 每列十六进制单元格占 2 个字符 + 1 个空格；分组边界多留 1 个字符，
     // 每 8 字节的中缝多留 2 个字符（组边界与中缝重合时取中缝）。
@@ -110,7 +117,7 @@ namespace ks::ui
         // 区域划分：左边距一个字符 | 地址 | 间隔 | 十六进制 | 间隔 | ASCII | 右边距。
         m_layout.addrDigits = addressDigits();
         m_layout.addrX = charWidth;
-        m_layout.addrWidth = m_layout.addrDigits * charWidth;
+        m_layout.addrWidth = (m_layout.addrDigits + 2) * charWidth;
         m_layout.hexX = m_layout.addrX + m_layout.addrWidth + 2 * charWidth;
         m_layout.hexWidth = m_layout.cellX[columns - 1] + 2 * charWidth;
         m_layout.asciiX = m_layout.hexX + m_layout.hexWidth + 2 * charWidth;

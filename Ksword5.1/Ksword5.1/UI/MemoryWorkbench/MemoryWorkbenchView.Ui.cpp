@@ -259,6 +259,7 @@ namespace ks::ui
         statusBar_ = new WorkbenchStatusBar(std::make_unique<WorkbenchDiagnosticsHost>(), this);
         hexPane_->canvas()->setUniformBoundaryNavigationEnabled(true);
         hexPane_->canvas()->setOverviewEnabled(true);
+        hexPane_->canvas()->setFixedAddressScale(true);
         hexPane_->canvas()->setFoldUnknownRegions(statusBar_->foldUnknownRegions());
         connect(statusBar_, &WorkbenchStatusBar::foldUnknownRegionsChanged,
             hexPane_->canvas(), &HexCanvas::setFoldUnknownRegions);

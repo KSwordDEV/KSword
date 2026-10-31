@@ -89,8 +89,8 @@ namespace ks::ui::hexcanvas_format
         // hexChars：十六进制区宽度（每列 2 个字符 + 1 个空格，最后一列没有尾随空格，再补回 2 个字符）。
         const int hexChars = (bytesPerRow - 1) * 3 + extra + 2;
 
-        // 总宽 = 左边距 1 + 地址位数 + 间隔 2 + 十六进制区 + 间隔 2 + ASCII 区（每字节 1 个字符）+ 右边距 1。
-        return 1 + addressDigits + 2 + hexChars + 2 + bytesPerRow + 1;
+        // 总宽 = 左边距 1 + 0x 前缀 2 + 地址位数 + 间隔 2 + 十六进制区 + 间隔 2 + ASCII 区 + 右边距 1。
+        return 1 + (addressDigits + 2) + 2 + hexChars + 2 + bytesPerRow + 1;
     }
 
     // 在视口宽度内选放得下的最大行宽，都放不下退到 8。

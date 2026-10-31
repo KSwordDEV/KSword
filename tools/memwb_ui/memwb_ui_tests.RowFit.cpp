@@ -172,16 +172,16 @@ namespace memwb_test
         // 候选集少一档、判据用 < 而不是 <=、一个都放不下时不退 8。
         void TestPureFunctions()
         {
-            // 手算常量（对照 recomputeLayout 的公式逐项算过：1+地址位数+2+十六进制区+2+ASCII 区+1）。
-            CHECK(fmt::RowWidthChars(8, 1, 8) == 45);
-            CHECK(fmt::RowWidthChars(16, 1, 8) == 79);
-            CHECK(fmt::RowWidthChars(16, 1, 16) == 87);
-            CHECK(fmt::RowWidthChars(32, 1, 16) == 155);
-            CHECK(fmt::RowWidthChars(48, 1, 16) == 223);
-            CHECK(fmt::RowWidthChars(64, 1, 16) == 291);
-            CHECK(fmt::RowWidthChars(16, 2, 16) == 93);     // 2 字节一组：偶数列多 1 个字符，8 字节中缝多 2 个
-            CHECK(fmt::RowWidthChars(16, 4, 16) == 89);
-            CHECK(fmt::RowWidthChars(16, 8, 16) == 87);     // 8 字节一组与中缝重合，等同 1 字节一组
+            // 手算常量（含0x两字符：1+2+地址位数+2+十六进制区+2+ASCII 区+1）。
+            CHECK(fmt::RowWidthChars(8, 1, 8) == 47);
+            CHECK(fmt::RowWidthChars(16, 1, 8) == 81);
+            CHECK(fmt::RowWidthChars(16, 1, 16) == 89);
+            CHECK(fmt::RowWidthChars(32, 1, 16) == 157);
+            CHECK(fmt::RowWidthChars(48, 1, 16) == 225);
+            CHECK(fmt::RowWidthChars(64, 1, 16) == 293);
+            CHECK(fmt::RowWidthChars(16, 2, 16) == 95);     // 2 字节一组：偶数列多 1 个字符，8 字节中缝多 2 个
+            CHECK(fmt::RowWidthChars(16, 4, 16) == 91);
+            CHECK(fmt::RowWidthChars(16, 8, 16) == 89);     // 8 字节一组与中缝重合，等同 1 字节一组
             CHECK(fmt::RowWidthChars(0, 1, 16) == 0);       // 非法行宽返回 0
 
             for (const int group : kGroups)
