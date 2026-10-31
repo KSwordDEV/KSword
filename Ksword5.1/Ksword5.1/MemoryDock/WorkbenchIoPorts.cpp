@@ -1,4 +1,5 @@
 #include "WorkbenchIoPorts.h"
+#include "WorkbenchUserModeRead.h"
 
 #include <QByteArray>
 #include <QString>
@@ -126,60 +127,7 @@ namespace ksword::memwb_ports
         const std::uint64_t address,
         const std::uint64_t length)
     {
-        ksword::memwb::IoReadResult result;
-
-        // 内核半区地址：R3 的 ReadProcessMemory 只能访问目标进程的用户态
-        // 地址空间，这里先行拒绝，不发起任何系统调用。
-        if (ksword::memwb::IsKernelVirtualAddress(address))
-        {
-            result.status = ksword::memwb::IoReadStatus::Failed;
-            result.failure =
-                "用户态通道（R3 ReadProcessMemory）无法访问内核虚拟地址，请切换到标准驱动（R0）通道。";
-            return result;
-        }
-
-        // 每次调用各自 OpenProcess/CloseHandle，不借用调用方句柄：理由与
-        // 门面 userModeReadVirtual 一致——四个页面对同一个 PID 得到的权限
-        // 应当完全一致，不随调用方当初打开句柄时要的权限而变化。
-        const HANDLE processHandle = ::OpenProcess(
-            PROCESS_VM_READ | PROCESS_QUERY_INFORMATION,
-            FALSE,
-            static_cast<DWORD>(pid));
-        if (processHandle == nullptr)
-        {
-            result.status = ksword::memwb::IoReadStatus::Failed;
-            result.failure =
-                "R3 通道打开进程失败，win32=" + std::to_string(::GetLastError()) + "。";
-            return result;
-        }
-
-        std::vector<std::uint8_t> buffer(static_cast<std::size_t>(length), 0U);
-        SIZE_T bytesRead = 0;
-        const BOOL readOk = ::ReadProcessMemory(
-            processHandle,
-            reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(address)),
-            buffer.data(),
-            static_cast<SIZE_T>(length),
-            &bytesRead);
-        // 错误码必须紧挨着调用取一次，后面的 CloseHandle 会改写它。
-        const DWORD readError = (readOk == FALSE) ? ::GetLastError() : ERROR_SUCCESS;
-        ::CloseHandle(processHandle);
-
-        if (bytesRead == 0U)
-        {
-            result.status = ksword::memwb::IoReadStatus::Unreadable;
-            result.failure =
-                "R3 通道读取 0 字节，win32=" + std::to_string(readError) +
-                "，目标地址可能未提交或无读权限。";
-            return result;
-        }
-
-        buffer.resize(static_cast<std::size_t>(bytesRead));
-        result.data = std::move(buffer);
-        result.status = (static_cast<std::uint64_t>(bytesRead) == length)
-            ? ksword::memwb::IoReadStatus::Ok
-            : ksword::memwb::IoReadStatus::Partial;
-        return result;
+        return ksword::memwb_ports_detail::ReadUserModeVirtual(pid, address, length);
     }
 
     // ReadStandardDriverVirtual：标准驱动通道虚拟读，绕开门面直接调用

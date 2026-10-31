@@ -201,7 +201,8 @@ namespace ks::ui
             requestVisiblePages();
         }
         if (!alive || sourceRevision() != revision) return false;
-        if (m_foldUnknownRegions && m_viewport.PeekByte(address).state == ByteState::NotLoaded)
+        const auto state = m_viewport.PeekByte(address).state;
+        if (m_foldUnknownRegions && (state == ByteState::NotLoaded || state == ByteState::Pending))
             requestAddressRange(address, address, RangeReadPurpose::ExplicitRead);
         return alive && sourceRevision() == revision;
     }
@@ -382,13 +383,11 @@ namespace ks::ui
         const std::uint64_t scrollingRevision = sourceRevision();
         const auto selected = m_viewport.GetSelection();
         const std::uint64_t caret = m_viewport.GetSelection().caret;
-        const std::optional<std::uint64_t> top =
-            m_viewport.ScrollToAddress(caret, align, m_firstRow, fullVisibleRows());
-        if (top.has_value())
-        {
-            setFirstVisibleRow(*top);
-            if (!alive || sourceRevision() != scrollingRevision || !selectionStillMatches(selected)) return false;
-        }
+        // Module/region/address navigation enters through this path. A folded
+        // space can fit on one screen, so a focus change need not move its first
+        // row. Use the common reveal/read intent even in that case.
+        if (!scrollToAddress(caret, align)) return false;
+        if (!alive || sourceRevision() != scrollingRevision || !selectionStillMatches(selected)) return false;
 
         // 横向：取活动面板里插入点单元格的矩形，越出左右边界就挪动横向滚动条。
         const QRect cell = cellRect(caret, m_viewport.Pane());

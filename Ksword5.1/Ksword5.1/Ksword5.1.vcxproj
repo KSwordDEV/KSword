@@ -372,6 +372,7 @@
     <ClCompile Include="MemoryDock\SystemMemoryAuditPage.cpp" />
     <ClCompile Include="MemoryDock\MemoryAccessBackend.cpp" />
     <ClCompile Include="MemoryDock\WorkbenchIoPorts.cpp" />
+    <ClCompile Include="MemoryDock\WorkbenchUserModeRead.cpp" />
     <ClCompile Include="MemoryDock\WorkbenchIoPorts.Kernel.cpp" />
     <ClCompile Include="MemoryDock\WorkbenchIoMapping.cpp" />
     <ClCompile Include="MemoryDock\MemoryDock.Workbench.cpp" />
@@ -1138,6 +1139,7 @@
     <ClInclude Include="MemoryDock\SystemMemoryAuditPage.h" />
     <ClInclude Include="MemoryDock\MemoryAccessBackend.h" />
     <ClInclude Include="MemoryDock\WorkbenchIoPorts.h" />
+    <ClInclude Include="MemoryDock\WorkbenchUserModeRead.h" />
     <ClInclude Include="MemoryDock\WorkbenchIoMapping.h" />
     <ClInclude Include="MemoryDock\WorkbenchServicesMapping.h" />
     <ClInclude Include="MemoryDock\WorkbenchServicesAudit.h" />

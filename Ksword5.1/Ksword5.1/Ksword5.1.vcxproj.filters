@@ -752,6 +752,9 @@
     <ClCompile Include="MemoryDock\WorkbenchIoPorts.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MemoryDock\WorkbenchUserModeRead.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MemoryDock\WorkbenchIoPorts.Kernel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -2384,6 +2387,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MemoryDock\WorkbenchIoPorts.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MemoryDock\WorkbenchUserModeRead.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MemoryDock\WorkbenchIoMapping.h">
