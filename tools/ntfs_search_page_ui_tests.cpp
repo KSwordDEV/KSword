@@ -2,6 +2,9 @@
 #include <atomic>
 #include <iostream>
 #include <memory>
+#include <QFontDatabase>
+#include <QFontMetrics>
+#include <QKeyEvent>
 #include <stdexcept>
 
 #define private public
@@ -38,6 +41,31 @@ void check(bool condition, const char* message)
     ++checks;
     if (!condition) throw std::runtime_error(message);
 }
+void prepareTestFont(QApplication& app)
+{
+#ifdef Q_OS_WIN
+    // The Windows offscreen plugin does not reliably discover system CJK
+    // families. Register only these known files so layout uses real glyphs.
+    const QString fonts = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows")) + QStringLiteral("/Fonts/");
+    QStringList families;
+    for (const auto* name : {"msyh.ttc", "msyhbd.ttc"}) {
+        const int id = QFontDatabase::addApplicationFont(fonts + QString::fromLatin1(name));
+        if (id >= 0) families = QFontDatabase::applicationFontFamilies(id);
+        if (!families.isEmpty()) break;
+    }
+    check(!families.isEmpty(), "known Windows YaHei font must load for Chinese UI geometry");
+    QFont font = app.font();
+    const QString preferred = QStringLiteral("Microsoft YaHei UI");
+    font.setFamily(families.contains(preferred) ? preferred : families.front());
+    app.setFont(font);
+    const QFontMetrics metrics(app.font());
+    for (const QChar character : QStringLiteral("扫描搜索磁盘文件"))
+        check(metrics.inFont(character), "test font must contain the Chinese workflow glyphs");
+    std::cout << "NTFS_UI_FONT=PASS family=" << app.font().family().toStdString() << " CHINESE=1\n";
+#else
+    Q_UNUSED(app);
+#endif
+}
 template<class Predicate> void until(Predicate done, const char* message)
 {
     QElapsedTimer elapsed; elapsed.start();
@@ -53,6 +81,21 @@ void drain()
         QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
         QThread::msleep(1);
     }
+}
+void pressEnter(QLineEdit* field)
+{
+    field->setFocus();
+    QKeyEvent pressed(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+    QKeyEvent released(QEvent::KeyRelease, Qt::Key_Return, Qt::NoModifier);
+    QCoreApplication::sendEvent(field, &pressed);
+    QCoreApplication::sendEvent(field, &released);
+}
+QString visibleLabels(QWidget* page)
+{
+    QStringList labels;
+    for (auto* label : page->findChildren<QLabel*>())
+        if (label->isVisibleTo(page)) labels.push_back(label->text());
+    return labels.join(QLatin1Char('\n'));
 }
 ks::files::NtfsFastIndex::Snapshot fakeSnapshot(const QString& root,
     const ks::files::NtfsFastIndex::Cancel& cancel)
@@ -136,7 +179,7 @@ void prepareVolume(NtfsSearchPage& page)
     auto& s = *page.m_state;
     s.volumeOperation->cancel(); s.discovering = false;
     s.volume->clear(); s.volume->addItem(QStringLiteral("Controlled NTFS"), QStringLiteral("T:\\"));
-    s.indexText.set(s.indexStatus, "请选择 NTFS 卷，然后点击“建立 MFT 索引”；索引完成后启用搜索和空间分布。");
+    s.indexText.set(s.indexStatus, "选择磁盘，输入文件名或关键词，然后点击“扫描并搜索”。");
     page.updateButtons();
 }
 QColor sample(QWidget* widget, QPoint point)
@@ -193,19 +236,28 @@ void runPage(bool dark)
         "full tab rail joins the shared toolbar surface");
     check(sample(s.results->horizontalHeader(), QPoint(12, 1)) == ks::ui::MainWindowSurfaceColors().header,
         "result table header keeps shared header surface");
-    check(!s.search->isEnabled() && !s.up->isEnabled() && !s.locate->isEnabled(), "unbuilt index dependency disables downstream actions");
-    check(s.search->toolTip().contains(QStringLiteral("MFT")), "disabled search explains its index dependency");
+    check(s.query->isEnabled() && s.search->isEnabled() && !s.up->isEnabled() && !s.locate->isEnabled(),
+        "first-time search is available while result-dependent actions remain unavailable");
+    check(s.search->text() == QStringLiteral("扫描并搜索"), "first-time primary action explains the complete scan-and-search workflow");
+    check(s.search->parentWidget() == s.cancel->parentWidget() && s.search->isVisibleTo(page),
+        "primary search and stop remain together in the fixed execution area");
+    check(s.progress->parentWidget() == s.indexStatus->parentWidget(),
+        "preparation progress stays with its visible common status");
+    check(s.searchType->currentIndex() == 0 && !s.fullPath->isChecked() && !s.wildcard->isChecked(),
+        "novice search defaults are name fragments across files and directories");
+    check(visibleLabels(page).contains(QStringLiteral("首次搜索")), "visible guidance explains automatic first-time file-list preparation");
 
-    backendMode = 0; s.build->click();
-    check(s.indexing && s.cancel->isEnabled() && !s.build->isEnabled(), "build click immediately enters cancellable busy state");
+    s.query->setText(QStringLiteral("sample"));
+    backendMode = 0; s.search->click();
+    check(s.indexing && s.cancel->isEnabled() && !s.build->isEnabled(), "primary search immediately enters cancellable file-list preparation");
     check(s.build->text().contains(QStringLiteral("正在")), "build busy text responds immediately");
-    check(s.searchStatus->text().contains(QStringLiteral("正在建立")), "search area explains initial indexing");
+    check(s.searchStatus->text().contains(QStringLiteral("正在准备")), "search area explains initial file-list preparation");
     until([&] { return !s.indexOperation->isBusy(); }, "controlled build failure returns");
-    check(!s.projection && !s.search->isEnabled(), "failed backend never creates a fake usable index");
+    check(!s.projection && s.search->isEnabled(), "failed first-time scan restores primary retry without inventing a usable index");
     check(s.indexStatus->text().contains(QStringLiteral("Controlled Win32 error 5")), "real backend error is visible in common result header");
-    check(s.searchStatus->text().contains(QStringLiteral("索引失败")) && s.spaceStatus->text().contains(QStringLiteral("索引失败")),
+    check(s.searchStatus->text().contains(QStringLiteral("未能加载")) && s.spaceStatus->text().contains(QStringLiteral("未能加载")),
         "both result tabs explain index failure");
-    check(s.build->isEnabled() && s.build->text().contains(QStringLiteral("重新")), "failure leaves an explicit enabled retry action");
+    check(s.build->isEnabled() && s.search->text() == QStringLiteral("扫描并搜索"), "failure leaves an explicit enabled scan-and-search retry");
     check(!s.cancel->isEnabled() && s.progress->isHidden(), "failure settles cancel and progress state");
     backendMode = 3; s.build->click();
     until([&] { return !s.indexOperation->isBusy(); }, "backend exception settles");
@@ -213,7 +265,7 @@ void runPage(bool dark)
         "backend exception restores retry controls without claiming a usable index");
     backendMode = 4; s.build->click();
     until([&] { return !s.indexOperation->isBusy(); }, "missing backend result settles");
-    check(!s.projection && s.indexStatus->text().contains(QStringLiteral("未返回有效结果")),
+    check(!s.projection && s.indexStatus->text().contains(QStringLiteral("未能加载")),
         "missing backend result is a failure rather than a fake user cancellation");
     s.tabs->setCurrentIndex(1); drain();
     check(s.spaceStatus->parentWidget()->property("ksword_primary_toolbar").toBool(), "space state/actions share toolbar surface");
@@ -226,11 +278,16 @@ void runPage(bool dark)
     check(s.cancelToken->load() && !s.cancel->isEnabled(), "cancel click immediately signals index token and prevents duplicate cancel");
     until([&] { return !s.indexOperation->isBusy(); }, "cancelled build settles");
     check(!s.indexing && s.build->isEnabled() && s.progress->isHidden(), "cancel restores actionable idle state");
-    check(s.searchStatus->text().contains(QStringLiteral("已取消")), "cancelled initial index remains clearly unavailable");
+    check(s.searchStatus->text().contains(QStringLiteral("已停止")), "cancelled initial index remains clearly unavailable");
 
-    backendMode = 1; s.build->click();
+    backendMode = 1; s.query->clear();
+    const int beforeEnter = entered.load();
+    pressEnter(s.query);
     until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy() && !s.spaceOperation->isBusy(); }, "successful fixture index/search/space settle");
+    check(entered.load() > beforeEnter, "Enter before an index exists starts automatic preparation");
     check(s.projection && s.search->isEnabled() && s.refresh->isEnabled(), "usable index enables search and USN refresh");
+    check(s.search->text() == QStringLiteral("搜索") && visibleLabels(page).contains(QStringLiteral("T:\\")),
+        "ready workflow names the indexed volume and exposes direct search");
     check(s.searchModel->rowCount() == 3 && s.extensionModel->rowCount() == 1, "automatic search and extension projections populate real models");
     check(s.map->m_data->items.size() == 1, "space map receives prepared direct-directory data");
     const auto rootMap = s.map->m_data;
@@ -259,7 +316,7 @@ void runPage(bool dark)
         "space metric preserves actual logical/allocated size semantics");
     s.tabs->setCurrentIndex(0); s.query->setText(QStringLiteral("folder")); s.search->click();
     s.cancel->click();
-    check(s.searchStatus->text().contains(QStringLiteral("已取消")) && s.search->isEnabled() && s.searchModel->rowCount() == 3,
+    check(s.searchStatus->text().contains(QStringLiteral("已停止")) && s.search->isEnabled() && s.searchModel->rowCount() == 3,
         "search cancellation keeps committed result and restores enabled search");
     until([&] { return !s.searchOperation->isInFlight(); }, "cancelled search worker returns through async gate");
     check(s.searchModel->rowCount() == 3, "cancelled search cannot later overwrite retained model");
@@ -267,6 +324,25 @@ void runPage(bool dark)
     check(s.searchOperation->isBusy() && !s.search->isEnabled() && s.cancel->isEnabled(), "search click has cancellable busy feedback");
     until([&] { return !s.searchOperation->isBusy(); }, "search query settles");
     check(s.searchModel->rowCount() == 1, "search preserves query semantics");
+    s.query->setText(QStringLiteral("FOLDER\\SAMPLE"));
+    pressEnter(s.query);
+    until([&] { return !s.searchOperation->isBusy(); }, "name-only Enter search settles");
+    check(s.searchModel->rowCount() == 0, "default name search does not silently match full directory paths");
+    s.fullPath->setChecked(true); pressEnter(s.query);
+    until([&] { return !s.searchOperation->isBusy(); }, "full-path Enter search settles");
+    check(s.searchModel->rowCount() == 1, "explicit full-path matching preserves case-insensitive query semantics");
+    s.fullPath->setChecked(false); s.wildcard->setChecked(true); s.query->setText(QStringLiteral("*.TXT"));
+    pressEnter(s.query);
+    until([&] { return !s.searchOperation->isBusy(); }, "wildcard search settles");
+    check(s.searchModel->rowCount() == 1, "explicit wildcard option matches file extensions");
+    s.wildcard->setChecked(false); s.query->clear(); s.searchType->setCurrentIndex(1); pressEnter(s.query);
+    until([&] { return !s.searchOperation->isBusy(); }, "files-only search settles");
+    check(s.searchModel->rowCount() == 1, "files-only filter excludes root and child directories");
+    s.searchType->setCurrentIndex(2); pressEnter(s.query);
+    until([&] { return !s.searchOperation->isBusy(); }, "directories-only search settles");
+    check(s.searchModel->rowCount() == 2, "directories-only filter excludes files");
+    s.searchType->setCurrentIndex(0); s.query->setText(QStringLiteral("sample")); pressEnter(s.query);
+    until([&] { return !s.searchOperation->isBusy(); }, "ordinary Enter search restores selected-file results");
     s.results->setCurrentIndex(s.searchModel->index(0, 0));
     check(s.locate->isEnabled(), "valid selected path enables locate");
     QString located;
@@ -291,6 +367,42 @@ void runPage(bool dark)
     page->startIndex(true);
     check(!s.indexing && entered.load() == beforeDiscovery, "index entry rejects overlapping volume discovery");
     s.discovering = false; page->updateButtons();
+    const auto previousVolume = s.projection;
+    const int retainedRows = s.searchModel->rowCount();
+    commits->beginContextMenu(s.results);
+    s.query->setText(QStringLiteral("folder")); page->startSearch();
+    until([&] { return commits->pendingCount() > 0; }, "old-volume search reaches a deferred result commit");
+    s.volume->addItem(QStringLiteral("Another controlled NTFS"), QStringLiteral("U:\\"));
+    s.volume->setCurrentIndex(1);
+    commits->endContextMenu(s.results);
+    until([&] { return commits->pendingCount() == 0 && !s.searchOperation->isBusy(); },
+        "target-volume change retires the old deferred search");
+    check(s.searchModel->rowCount() == retainedRows,
+        "an old-volume deferred search cannot overwrite retained results after target selection changes");
+    check(s.search->isEnabled() && !s.refresh->isEnabled() && !s.mapMetric->isEnabled()
+        && !s.directories->isEnabled() && !s.map->isEnabled() && !s.locate->isEnabled() && !s.up->isEnabled(),
+        "switching target volume leaves search available and disables actions on the retained old-volume snapshot");
+    check(visibleLabels(page).contains(QStringLiteral("T:\\")) && visibleLabels(page).contains(QStringLiteral("U:\\")),
+        "volume mismatch visibly distinguishes retained result volume from the selected target");
+    located.clear(); page->locateSelected();
+    check(located.isEmpty(), "direct locate cannot act on a retained snapshot from a different selected volume");
+    const auto previousDirectory = s.currentDirectory;
+    page->showDirectory(7);
+    check(s.currentDirectory == previousDirectory && !s.spaceOperation->isBusy(),
+        "direct space navigation cannot run against a retained mismatching volume");
+    backendMode = 0; s.search->click();
+    until([&] { return !s.indexOperation->isBusy(); }, "selected-volume scan failure settles");
+    check(s.projection == previousVolume && s.searchModel->rowCount() == retainedRows && s.search->isEnabled(),
+        "failed selected-volume preparation preserves old results for retry without searching the old snapshot");
+    check(!s.map->isEnabled() && !s.locate->isEnabled(), "failed preparation keeps old-volume navigation unavailable");
+    backendMode = 1; s.query->setText(QStringLiteral("sample")); pressEnter(s.query);
+    until([&] { return !s.indexOperation->isBusy() && !s.searchOperation->isBusy() && !s.spaceOperation->isBusy(); },
+        "Enter prepares and searches the selected replacement volume");
+    check(s.projection != previousVolume && s.projection->snapshot->volumeRoot == QStringLiteral("U:\\")
+        && s.searchModel->rowCount() == 1 && s.searchModel->row(0)->path == QStringLiteral("U:\\folder\\sample.txt"),
+        "a selected-volume search builds the selected volume instead of querying retained old results");
+    check(previousVolume->snapshot->volumeRoot == QStringLiteral("T:\\") && s.map->isEnabled(),
+        "new-volume commit preserves immutable old identity and re-enables matching space actions");
     root.resize(680, 650); drain();
     check(s.tabs->width() > 200 && s.results->width() == toolbar->width(), "narrow workspace keeps result toolbar and table aligned");
     root.close();
@@ -319,6 +431,7 @@ int main(int argc, char** argv)
     auto* commits = new ks::ui::UiCommitCoordinator(&app, {[] { return false; }, [] { return false; }});
     commits->setObjectName(QStringLiteral("ksword_ui_commit_coordinator"));
     try {
+        prepareTestFont(app);
         runPage(false); runPage(true); closeDuringIndex();
         QThreadPool::globalInstance()->waitForDone();
         std::cout << "NTFS_SEARCH_PAGE_UI_PASS checks=" << checks << '\n';

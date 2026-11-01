@@ -23,6 +23,7 @@ private:
     void discoverVolumes();
     void startIndex(bool incremental);
     void startSearch();
+    bool hasSelectedVolumeIndex() const;
     void showDirectory(quint64 reference);
     void updateButtons();
     void updateUnavailableResults(const char* message);

@@ -14672,7 +14672,7 @@ const std::vector<FileDock::NavigationPageDefinition>& FileDock::navigationPageD
               QStringLiteral("选中: 0"),
               QStringLiteral("磁盘: -"),
               QStringLiteral("解析器: Windows API") }, &FileDock::m_fileManagerPage, &FileDock::initializeManagerPage },
-        { QStringLiteral("file.tab.ntfs_index"), QString(), QStringLiteral("file.tab.ntfs_index"), QStringLiteral("MFT 搜索与空间分布"),
+        { QStringLiteral("file.tab.ntfs_index"), QString(), QStringLiteral("file.tab.ntfs_index"), QStringLiteral("快速搜索与空间分布"),
           { QStringLiteral("快速文件搜索"), QStringLiteral("USN 增量更新"),
             QStringLiteral("文件空间分布"), QStringLiteral("WinDirStat"), QStringLiteral("NTFS") },
           &FileDock::m_ntfsIndexPage, &FileDock::initializeNtfsIndexPage },
