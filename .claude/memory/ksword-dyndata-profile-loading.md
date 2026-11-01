@@ -19,3 +19,17 @@
 - 包只有上述三个模块类别；CI、WIN32K 等其它类别和独立 deep offset 库须分别核查，不能以 NTOS 覆盖推导全模块覆盖。核查机器当时磁盘 NTOS RSDS `91A0697C-BDF1-F6C1-B8D2-82E109E671E6/1` 在包中无身份，仍有真实覆盖缺口。
 - 自动发行脚本从最新手工应用包继承 profiles，CI 不发布占位偏移包；普通拉取/构建不会补齐精确身份。此次仅核查与独立读取测试，未修改生产逻辑、生成偏移、下载 PDB 或加载驱动。
 - 用户随后提供主程序实际 DynData 报告，明确绕过 Launcher。该现场 `profiles=2856 / 扫描=2856 / 无效命中=0`，NTOS 的 `0x8664 / 0xAEEE138F / 0x01045000` 与本机磁盘内核完全相同，包按这四个 PE 身份字段命中为 0，RSDS GUID/Age 命中也为 0。磁盘内核版本为 `10.0.19041.7802`，包内 175 个 NTOS 19041 系列档案最高为 `19041.7725`。报告 231 个字段中 51 个来自 Runtime pattern、180 个 Unavailable，EX/V4 均未下发。此现场根因是精确身份未覆盖，不能套用前述 Launcher 完整性问题；未命中时 `valid` 保持默认 false，报告“格式有效=否”不代表匹配档案被格式校验拒绝。
+
+## 2026-10-30：矩阵来源与全量研究库刷新
+
+- 原始模块/PDB 矩阵位于独立语料库的 `matrix/`，PE 与 PDB 分别在 `pe-store/amd64/`、`pdb-cache/amd64/`。项目脚本中的旧默认盘符不能证明资产不存在；先查看本地发布 manifest 的来源路径或询问当前语料库位置。历史矩阵有 24294 条引用、24179 个标记可用的 PDB 身份、127 个实际模块文件名，旧 README 的 126 是过期口径。
+- 本轮源为 Winbindex stable/Insider、System Informer 上游 `kphlib/kphdyn.xml`，文件来自微软公开符号服务器。253 份源快照均成功取得；候选按模块与 PE 头键去重，保留同键多 SHA 的索引别名，不能把元数据引用、PE 文件、PDB 身份、偏移配置和字段条目混计。用户要求跳过 NTKRLA57，既有数据保留。
+- 最终 7272 个候选全部处理，5468 配对成功、1804 未找到（PE 404 为 1622、PDB 404 为 182），瞬态错误经重试后为 0。模块/PDB 矩阵从 24294 增至 29832 条，标记可用 PDB 从 24179 增至 29647。实际新增 PE 5537、PDB 5468：采集缓存有 5538 个 PE，其中 NTOS 28000.1812 的一个文件在原语料库已经存在但旧矩阵未收录，故“新增记录 5538”与“新增文件 5537”不同。旧 NTKRLA57 的 817 条矩阵记录与 814 个发布配置精确保留。
+- 发布 v4 新增 NTOS 45、FLTMGR 31，共 76 profiles / 11298 items；总计 2932 profiles / 591302 items。旧 2856 个对象逐项保留，含此前补齐的 248-item 当前配置。`10.0.19041.7802` 的 `91A0697CBDF1F6C1B8D282E109E671E6/1` 已补齐。121 份新增 CI 源档案仅有可提取全局，缺少必需组字段，未发布为 CI 运行时支持。
+- 26H2 的 OS build 是 26300，但其内核 PE 文件版本可仍是 26100，不能按 profileName 是否包含 26300 判断覆盖。仓库记录的 26300.9022 现场实际 NTOS 为 26100.9022，`0x8664 / 0x3ABC2041 / 0x01450000 / 9DAAB2015E4CABF698009DBD0548B669 / age1` 在更新包中精确命中，含 224 items；包内也有 26100.9818 档案。此为身份/离线数据覆盖，不代表所有 26H2 机器及功能的实机通过；28000 是 26H1，29695 是 Future Platforms，不能按 build 数值大小推断对应零售版本。官方对应关系见 [Windows release information](https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information) 与 [Flight Hub](https://learn.microsoft.com/en-us/windows-insider/flight-hub/)。
+- 按 `26***` 汇总会混入服务器与其它实验构建，不能将该组最高值当作 Windows 11 26H2 最新内核：`26534.1000` 属于 [Windows Server vNext LTSC Preview](https://techcommunity.microsoft.com/discussions/windowsserverinsiders/announcing-windows-server-vnext-preview-build-26534/4475333)，公告说明预览品牌仍为 Windows Server 2025；`29695.1001` 是 Windows 11 Experimental (Future Platforms)，官方未将其对应到一个零售 H1/H2 版本；`28000.3364` 属于 Windows 11 26H1 内核分支。
+- 再次回读 `Ksword5.1/x64/Release/profiles/ark_dyndata_pack_v4.json.qz`，解压后的对象与源码 JSON 完全相同，2932 profiles / 591302 items，qz SHA256 为 `dc9f19f9d03c348f769faecad0ff8a8b05234a0c40a9fd93cd379a90855d3ed3`；Release 的 Launcher 清单也与源码相同。完整研究库归档到独立语料库，并未把其 12GB 全量数据接入 Release 的运行时加载。
+- 生产 Qt loader 全部 2932 profiles 与 4 个拒绝用例通过，8 项发布器单测通过，Launcher x64 Release Build 通过；未测试驱动实际下发。既有 runtime catalog guard 仍缺 21 个 FIELD_MAP 映射，此问题与静态包可解析是两回事，本轮未修改运行时解析逻辑。Launcher 原完整性策略仍把全部身份标为 `complete=false`，不能把新配置数说成完整功能支持数。
+- NTOS/Win32k 研究库按精确 PDB 身份生成 4234 份（3915 个既有可用身份 + 319 个新增身份）：2079 份提取到字段/类型，2155 份仅提取到符号，空结果 0。它是研究语料，不是把这些字段任意下发 R0 的接口；原仓库三份研究库保留。完整研究索引位于语料库的 `profiles/pdb_deep_offsets/index.json`，数据及支持文件由同目录 `publish-manifest.json` 列出。
+- 每份研究库的 GUID 与 PE/矩阵身份、RSDS/cache-key Age 对齐；PDB 内部 summary Age 可为 2/3/5，只作诊断。不可把“GUID 校验 + RSDS Age 作缓存键”描述成 PDB 内部 Age 也相同。
+- 外置语料库逐文件随机 stat / 多轮 llvm dump 很慢。先把每个 PDB 顺序暂存本地，再多轮解析，实测吞吐明显改善；保留检查点、按不可变文件 SHA256 归档，数据完成后才发布索引。网络高并发发生集中 SSL/连接中止时降并发并只重试瞬态错误，不删除成功数据或把 404 当成永久不存在的证明。

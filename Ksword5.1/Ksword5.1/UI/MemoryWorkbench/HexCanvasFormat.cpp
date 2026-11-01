@@ -14,7 +14,11 @@ namespace ks::ui::hexcanvas_format
     QString CommonAddressPrefix(std::uint64_t firstRow, std::uint64_t lastRow, int digits)
     {
         const auto first = FormatAddress(firstRow, digits), last = FormatAddress(lastRow, digits);
-        const auto limit = std::min(first.size(), last.size()) - 1;
+        const auto characters = std::min(first.size(), last.size());
+        // Reserve roughly three character widths for the header arrow. Move
+        // shared digits back into the rows rather than eliding a long prefix
+        // above a nearly empty suffix column. Odd rounding favors the body.
+        const auto limit = std::max<qsizetype>(2, (characters - 3) / 2);
         qsizetype length = 0;
         while (length < limit && first[length] == last[length]) ++length;
         return first.left(length);

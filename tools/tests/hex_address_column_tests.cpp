@@ -32,8 +32,10 @@ QString expectedPrefix(const HexCanvas& c) {
     const auto first = fmt::FormatAddress(visible.first - visible.first % width, digits);
     const auto last = fmt::FormatAddress(visible.last - visible.last % width, digits);
     const auto mismatch = std::mismatch(first.begin(), first.end(), last.begin(), last.end());
-    const auto size = std::min<qsizetype>(mismatch.first - first.begin(), first.size() - 1);
-    return first.left(size);
+    const auto common = mismatch.first - first.begin();
+    qsizetype split = 2;
+    for(qsizetype at=2;at<=common;++at) if(first.size()-at >= at+3) split=at;
+    return first.left(std::min<qsizetype>(common,split));
 }
 void wheel(HexCanvas& c) {
     QWheelEvent event(QPointF(250,100), QPointF(c.viewport()->mapToGlobal(QPoint(250,100))),
@@ -43,15 +45,26 @@ void wheel(HexCanvas& c) {
 }
 
 void runHexAddressColumnTests() {
-    check(fmt::CommonAddressPrefix(0xF10,0xF20,5)==QStringLiteral("0x00F"), "address prefix follows the user's exact split");
+    check(fmt::CommonAddressPrefix(0xF10,0xF20,8)==QStringLiteral("0x0"), "32-bit address split reserves the header arrow's three-character allowance");
+    check(fmt::CommonAddressPrefix(0x7FF7CC05EF10,0x7FF7CC05EF20,16)==QStringLiteral("0x00007"),
+        "64-bit common digits move back into row suffixes instead of being elided in the header");
     check(fmt::FormatAddressSuffix(0xF10,5,QStringLiteral("0x00F"))==QStringLiteral("10")
-        && fmt::FormatAddressSuffix(0xF20,5,QStringLiteral("0x00F"))==QStringLiteral("20"), "rows show only 10 / 20, without repeating F");
-    check(fmt::CommonAddressPrefix(0xFF0,0x1000,8)==QStringLiteral("0x0000"), "prefix retreats across a carry into the next address digit");
+        && fmt::FormatAddressSuffix(0xF20,5,QStringLiteral("0x00F"))==QStringLiteral("20"), "suffix formatting removes exactly the supplied prefix without repeating F");
+    check(fmt::CommonAddressPrefix(0x0FFFFFF0,0x10000000,8)==QStringLiteral("0x"), "a carry before the balanced split keeps only the actual common prefix");
     check(fmt::FormatAddressSuffix(0x1234,8,QStringLiteral("0xAB"))==QStringLiteral("0x00001234"), "a mismatched prefix cannot silently corrupt the displayed address");
     check(fmt::FormatAddressSuffix(0x1234,8,QString())==QStringLiteral("0x00001234"), "expanded addresses keep 0x and leading zeroes");
     const auto single = fmt::CommonAddressPrefix(UINT64_MAX,UINT64_MAX,16);
     check(single+fmt::FormatAddressSuffix(UINT64_MAX,16,single)==fmt::FormatAddress(UINT64_MAX,16)
-        && fmt::FormatAddressSuffix(UINT64_MAX,16,single)==QStringLiteral("F"), "a one-row viewport still retains one digit at UINT64_MAX");
+        && fmt::FormatAddressSuffix(UINT64_MAX,16,single).size()-single.size()==4,
+        "a one-row viewport at UINT64_MAX also balances the header and row suffix");
+    for(int digits : {8,16}) {
+        const auto prefix=fmt::CommonAddressPrefix(0xF10,0xF20,digits);
+        for(auto address : {0xF10ULL,0xF20ULL}) {
+            const auto suffix=fmt::FormatAddressSuffix(address,digits,prefix);
+            check(prefix+suffix==fmt::FormatAddress(address,digits) && suffix.size()-prefix.size()>=3
+                && suffix.size()-prefix.size()<=4,"balanced prefix and suffix preserve every original digit with a three-to-four-character difference");
+        }
+    }
 
     Reads reads;
     HexCanvas c;
@@ -70,7 +83,7 @@ void runHexAddressColumnTests() {
     const auto selected = c.selectedRange(); const auto revision = c.sourceRevision(), beforeReads = reads.pages;
     QTest::mouseClick(button,Qt::LeftButton); drain();
     const auto compactCell = c.cellRect(0xF10,HexCanvas::ActivePane::Hex);
-    check(c.addressColumnCollapsed() && c.addressColumnPrefix()==QStringLiteral("0x00000F"), "header owns the complete common prefix of visible row addresses");
+    check(c.addressColumnCollapsed() && c.addressColumnPrefix()==QStringLiteral("0x0"), "header uses the balanced portion of the visible common prefix");
     check(compactCell.left()<originalCell.left() && c.sizeHint().width()<originalWidth, "collapsing actually narrows the address gutter and moves byte columns left");
     check(c.sourceRevision()==revision && c.selectedRange()==selected && reads.pages==beforeReads, "address presentation does not change source, selection or memory reads");
     check(button->icon().cacheKey()!=expandedIcon && button->toolTip().contains(c.addressColumnPrefix()), "collapsed action points right and retains the full prefix in its tooltip");
@@ -79,6 +92,12 @@ void runHexAddressColumnTests() {
     QByteArray bytes; QString reason;
     check(c.selectedBytes(&bytes,&reason) && bytes==QByteArray(19,'A'), "copy source stays the full selected byte range, independent of address suffixes");
     const int cw=QFontMetrics(c.font()).horizontalAdvance(QLatin1Char('0'));
+    const auto fitsHeader=[&](const HexCanvas& view,QToolButton* action) {
+        const QFontMetrics metrics(view.font());
+        const int charWidth=metrics.horizontalAdvance(QLatin1Char('0'));
+        return metrics.horizontalAdvance(view.addressColumnPrefix()) <= action->x()-charWidth-4;
+    };
+    check(fitsHeader(c,button),"32-bit header prefix fits completely beside the arrow without ellipsis");
     QTest::mouseClick(c.viewport(),Qt::LeftButton,Qt::NoModifier,QPoint(cw*2,compactCell.center().y()));
     check(c.selectedRange() && c.selectedRange()->first==0xF10 && c.selectedRange()->last==0xF1F, "clicking a compact address still selects the complete original row");
     check(!c.addressForViewportPos(QPoint(cw*2,compactCell.center().y())), "compact address digits never masquerade as byte cells");
@@ -87,9 +106,10 @@ void runHexAddressColumnTests() {
 
     c.setViewportReadEnabled(true);
     c.setStaticData(0xFFF0,QByteArray(32768,'A')); c.setAddressColumnCollapsed(true); drain();
-    const auto firstPrefix=c.addressColumnPrefix();
+    const auto firstVisible=c.visibleAddressRange()->first;
     c.verticalScrollBar()->setValue(100); drain();
-    check(c.addressColumnPrefix()==expectedPrefix(c) && c.addressColumnPrefix()!=firstPrefix, "native scrollbar navigation updates the visible common prefix before painting");
+    check(c.visibleAddressRange()->first!=firstVisible && c.addressColumnPrefix()==expectedPrefix(c),
+        "native scrollbar navigation updates visible rows and their common prefix before painting");
     wheel(c);
     check(c.addressColumnPrefix()==expectedPrefix(c), "wheel navigation shares the same address prefix geometry");
     c.scrollToAddress(0x11000,HexCanvas::ScrollAlign::Top); drain();
@@ -118,6 +138,7 @@ void runHexAddressColumnTests() {
     for(bool mode : {false,true}) {
         KswordTheme::SetDarkModeEnabled(mode); c.viewport()->repaint(); drain();
         check(c.addressColumnPrefix()==expectedPrefix(c) && !button->icon().pixmap(16,16).isNull(), "64-bit prefix and SVG action survive both theme palettes");
+        check(fitsHeader(c,button),"64-bit header prefix is fully visible instead of ellipsis above empty row space");
         c.grab().save(QCoreApplication::applicationDirPath()+(mode ? QStringLiteral("/hex-address-collapse-dark.png") : QStringLiteral("/hex-address-collapse-light.png")));
     }
     KswordTheme::SetDarkModeEnabled(dark);

@@ -89,8 +89,9 @@ namespace ks::ui::hexcanvas_format
     // FormatAddress：地址文本，例如 "0x00007FFF00000000"。
     // 传入：地址、十六进制位数（8 或 16，其余值按实际需要自动补齐到该位数以上）；传出：文本。
     QString FormatAddress(std::uint64_t address, int digits);
-    // Fixed-width visible row addresses: move their longest common prefix to
-    // the header, retaining at least one hex digit in each row.
+    // Split a common prefix so the header is about three characters shorter
+    // than the row suffix, leaving room for its arrow. Shared digits beyond
+    // that split stay in the rows; a shorter actual common prefix takes priority.
     QString CommonAddressPrefix(std::uint64_t firstRow, std::uint64_t lastRow, int digits);
     QString FormatAddressSuffix(std::uint64_t address, int digits, const QString& prefix);
 

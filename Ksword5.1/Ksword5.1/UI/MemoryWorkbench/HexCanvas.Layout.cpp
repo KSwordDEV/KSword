@@ -224,9 +224,9 @@ namespace ks::ui
         m_layout.addrWidth = (m_layout.addrDigits + 2) * charWidth;
         if (m_addressColumnCollapsed && !m_addressColumnPrefix.isEmpty()) {
             const auto suffixChars = m_layout.addrDigits + 2 - static_cast<int>(m_addressColumnPrefix.size());
-            // Keep the complete prefix available on hover; cap its header width
-            // so a 64-bit common prefix cannot consume the space just saved.
-            const auto prefixChars = std::min(static_cast<int>(m_addressColumnPrefix.size()), m_layout.addrDigits == 8 ? 5 : 8);
+            // The balanced split leaves room for the header arrow. Size for the
+            // complete prefix and suffix instead of shortening the header text.
+            const auto prefixChars = static_cast<int>(m_addressColumnPrefix.size());
             const int headerWidth = (prefixChars + 1) * charWidth + KswordTheme::CompactIconButtonSize().width() + 4;
             const int gutterWidth = std::max((suffixChars + 2) * charWidth, headerWidth);
             m_layout.addrWidth = std::min(m_layout.addrWidth, gutterWidth - 2 * charWidth);
