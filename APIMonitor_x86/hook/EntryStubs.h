@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <cstdint>
 #include <cstring>
+#include "../../APIMonitor_x64/hook/CodePageAllocator.h"
 
 namespace apimon
 {
@@ -9,7 +10,7 @@ namespace apimon
     inline void* BuildX86FakeStub(void* context, void* dispatcher, unsigned stackBytes) noexcept
     {
         if (stackBytes > 65532 || (stackBytes & 3)) return nullptr;
-        auto* code = static_cast<unsigned char*>(VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* code = detail::AllocateCodePage();
         if (!code) return nullptr;
         unsigned cursor = 0;
         auto byte = [&](unsigned b) { code[cursor++] = static_cast<unsigned char>(b); };
@@ -23,13 +24,13 @@ namespace apimon
         byte(0xC2); byte(stackBytes & 255); byte(stackBytes >> 8);
         DWORD previous = 0;
         if (!VirtualProtect(code, 4096, PAGE_EXECUTE_READ, &previous))
-        { VirtualFree(code, 0, MEM_RELEASE); return nullptr; }
+        { detail::ReleaseCodePage(code); return nullptr; }
         FlushInstructionCache(GetCurrentProcess(), code, cursor); return code;
     }
     // Save flags, integer registers, x87/MMX/XMM, then tail-call the stable original slot.
     inline void* BuildX86RawStub(void* context, void* dispatcher, void** original) noexcept
     {
-        auto* code = static_cast<unsigned char*>(VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* code = detail::AllocateCodePage();
         if (!code) return nullptr;
         unsigned cursor = 0;
         auto byte = [&](unsigned b) { code[cursor++] = static_cast<unsigned char>(b); };
@@ -47,7 +48,7 @@ namespace apimon
         byte(0xFF); byte(0x25); word(reinterpret_cast<std::uintptr_t>(original));
         DWORD previous = 0;
         if (!VirtualProtect(code, 4096, PAGE_EXECUTE_READ, &previous))
-        { VirtualFree(code, 0, MEM_RELEASE); return nullptr; }
+        { detail::ReleaseCodePage(code); return nullptr; }
         FlushInstructionCache(GetCurrentProcess(), code, cursor); return code;
     }
 }

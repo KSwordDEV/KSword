@@ -7,6 +7,7 @@
 #include "../MonitorAgent.h"
 #include "../core/MonitorPipe.h"
 #include "../core/MonitorCoverage.h"
+#include "../core/MonitorDiagnostics.h"
 #include "../core/MonitorAsyncIo.h"
 #include "ContextThunk.h"
 #include "ExportCatalog.h"
@@ -1640,7 +1641,7 @@ namespace apimon
             // - 返回：无返回值。
             if (stubAddress != nullptr)
             {
-                ::VirtualFree(stubAddress, 0, MEM_RELEASE);
+                detail::ReleaseCodePage(stubAddress);
             }
         }
 
@@ -1882,7 +1883,7 @@ namespace apimon
         {
             if (stubAddress != nullptr)
             {
-                ::VirtualFree(stubAddress, 0, MEM_RELEASE);
+                detail::ReleaseCodePage(stubAddress);
             }
         }
 
@@ -6302,19 +6303,18 @@ namespace apimon
 
         bool IsStrongTypedExport(const std::wstring& moduleName, const std::string& procName)
         {
-            const std::wstring targetKey = MakeRawHookKey(moduleName, procName);
-            for (const HookBinding& bindingValue : g_bindings)
-            {
-                if (bindingValue.moduleName == nullptr || bindingValue.procName == nullptr)
-                {
-                    continue;
-                }
-                if (MakeRawHookKey(bindingValue.moduleName, bindingValue.procName) == targetKey)
-                {
-                    return true;
-                }
-            }
-            return false;
+            // Binding identities never change. Normalize the 641 definitions
+            // once, instead of rebuilding all their keys for every Raw export.
+            // Keep the immutable index through DLL teardown like the bindings.
+            static const auto* const keys = [] {
+                auto index = std::make_unique<std::unordered_set<std::wstring>>();
+                index->reserve(std::size(g_bindings));
+                for (const auto& binding : g_bindings)
+                    if (binding.moduleName && binding.procName)
+                        index->insert(MakeRawHookKey(binding.moduleName, binding.procName));
+                return index.release();
+            }();
+            return keys->count(MakeRawHookKey(moduleName, procName)) != 0;
         }
 
         bool IsUnsafeRawFallbackModule(const std::wstring& moduleName)
@@ -6474,6 +6474,13 @@ namespace apimon
 
 
 
+        bool HookSessionStopping()
+        {
+            if(StopRequested())return true;
+            if(IsStopFlagPresent(ActiveConfig())){RequestStop();return true;}
+            return false;
+        }
+
         bool TryInstallRawHookBinding(RawHookBinding& bindingValue)
         {
             if (!CategoryEnabled(bindingValue.categoryValue)) return bindingValue.hookRecord.installed;
@@ -6526,6 +6533,7 @@ namespace apimon
             bool installedAny = false;
             for (std::unique_ptr<FakeSuccessRuntimeRule>& rulePointer : ruleList)
             {
+                if(HookInstallationCancelled())break;
                 if (rulePointer == nullptr)
                 {
                     continue;
@@ -6651,14 +6659,24 @@ namespace apimon
             DiscoverRawHookBindingsForLoadedModules();
 
             bool installedAny = false;
+            APIMON_DIAG_MARK("raw-begin",RawBindings().size(),0);
+#if KSWORD_APIMON_DIAGNOSTICS
+            std::size_t diagnosticIndex = 0;
+#endif
             for (std::unique_ptr<RawHookBinding>& bindingPointer : RawBindings())
             {
+                if(HookInstallationCancelled())break;
                 if (bindingPointer == nullptr)
                 {
                     continue;
                 }
                 installedAny = TryInstallRawHookBinding(*bindingPointer) || installedAny;
+#if KSWORD_APIMON_DIAGNOSTICS
+                if ((++diagnosticIndex % 256) == 0)
+                    APIMON_DIAG_MARK("raw-progress",diagnosticIndex,IsStopFlagPresent(ActiveConfig()) ? 1 : 0);
+#endif
             }
+            APIMON_DIAG_MARK("raw-end",RawBindings().size(),0);
             return installedAny;
         }
 
@@ -6685,17 +6703,22 @@ namespace apimon
         // - 返回：无返回值，调用方可用诊断文本判断本轮是否仍有待重试失败。
         void RetryPendingHooksUnlocked(std::wstring* detailTextOut)
         {
+            ScopedHookInstallCancellation cancellation(&HookSessionStopping);
+            if(HookInstallationCancelled())return;
+            InlineHookInstallBatch batch;
             if (detailTextOut != nullptr)
             {
                 detailTextOut->clear();
             }
             for (HookBinding& bindingValue : g_bindings)
             {
+                if(HookInstallationCancelled())break;
                 (void)TryInstallBinding(bindingValue, detailTextOut);
             }
             (void)InstallFakeSuccessHooks(detailTextOut);
             (void)InstallRawFallbackHooks();
             RetryExtensionHooks();
+            (void)batch.commit();
             PublishConfiguredCoverage();
         }
 
@@ -6705,11 +6728,16 @@ namespace apimon
         // - 返回：无返回值，锁正忙时跳过本轮补装。
         void RetryPendingHooksFromHook()
         {
-            if (g_hookOperationMutex.try_lock())
+            const std::unique_lock<std::mutex> lock(g_hookOperationMutex,std::try_to_lock);
+            if (lock.owns_lock())
             {
                 ScopedInlineHookInternalBypass hookOperationBypassScope;
-                RetryPendingHooksUnlocked(nullptr);
-                g_hookOperationMutex.unlock();
+                try {RetryPendingHooksUnlocked(nullptr);}
+                catch (...) {
+                    RequestStop();
+                    try {SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Internal,L"Agent",L"AgentFailure",
+                        ERROR_UNHANDLED_EXCEPTION,L"Hook retry exception; monitoring stop requested.");}catch(...) {}
+                }
             }
         }
 
@@ -6719,6 +6747,8 @@ namespace apimon
     {
         const std::lock_guard<std::mutex> lock(g_hookOperationMutex);
         ScopedInlineHookInternalBypass hookOperationBypassScope;
+        ScopedHookInstallCancellation cancellation(&HookSessionStopping);
+        InlineHookInstallBatch batch;
         if (errorTextOut != nullptr)
         {
             errorTextOut->clear();
@@ -6733,22 +6763,27 @@ namespace apimon
         BuildFakeSuccessRuleIndex();
         for (HookBinding& bindingValue : g_bindings)
         {
+            if(HookInstallationCancelled())break;
             hasEnabledCategory = CategoryEnabled(bindingValue.categoryValue) || hasEnabledCategory;
             installedAny = TryInstallBinding(bindingValue, &failureText) || installedAny;
         }
         hasEnabledCategory = ActiveConfig().enableRawFallback
             || (ActiveConfig().fakeSuccessEnabled && !FakeSuccessRules().empty())
             || hasEnabledCategory;
-        installedAny = InstallFakeSuccessHooks(&failureText) || installedAny;
-        installedAny = InstallRawFallbackHooks() || installedAny;
+        if(!HookInstallationCancelled())installedAny = InstallFakeSuccessHooks(&failureText) || installedAny;
+        if(!HookInstallationCancelled())installedAny = InstallRawFallbackHooks() || installedAny;
         // tier2：win32u 层剪贴板深度防御。只有 enableClipboard 打开、且策略里
         // 至少一个方向是 BLOCK 时才会真正装上任何东西，函数内部自行判定，
         // 这里无条件调用即可（与上面两行同一惯例）。
-        if (ActiveConfig().enableClipboard)
+        if (ActiveConfig().enableClipboard && !HookInstallationCancelled())
         {
             SyncClipboardWin32uHooks();
         }
+        const bool committed=batch.commit();
+        installedAny=HasActiveInlineHookEntries();
+        if(!committed)failureText+=L" | batch entry changed, cancelled or thread context unsafe; retry required";
         PublishConfiguredCoverage();
+        if(HookInstallationCancelled())return false;
         if (!hasEnabledCategory)
         {
             if (errorTextOut != nullptr)
@@ -6776,6 +6811,7 @@ namespace apimon
         const std::lock_guard<std::mutex> lock(g_hookOperationMutex);
         ScopedInlineHookInternalBypass hookOperationBypassScope;
         g_coverageRemovalInProgress = true;
+        if(!RestoreAllInlineHookEntries())return false;
         bool removed = true;
         for (HookBinding& binding : g_bindings)
             removed = UninstallInlineHook(binding.hookRecord) && removed;

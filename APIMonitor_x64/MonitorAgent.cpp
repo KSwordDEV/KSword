@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "MonitorAgent.h"
+#include "core/MonitorDiagnostics.h"
 #include "ApiMonitorDefinitionIdentity.h"
 #include "core/MonitorPipe.h"
 #include "hook/HookEngine.h"
@@ -115,6 +116,7 @@ namespace apimon
             {
                 if (IsStopFlagPresent(configValue) || SessionConfigWasReplaced(configValue))
                 {
+                    APIMON_DIAG_MARK("stop-observed",0,0);
                     RequestStop();
                     break;
                 }
@@ -141,7 +143,34 @@ namespace apimon
             }
         }
 
+        DWORD WINAPI MonitorWorkerBody(LPVOID parameterValue);
+        DWORD HandleMonitorWorkerFailure(DWORD failure)
+        {
+                // Agent exceptions must not terminate the host application.
+                // Keep code resident, stop logging, and attempt safe restoration.
+                ScopedInlineHookInternalBypass bypass;
+                RequestStop();
+                try {
+                    SendMonitorEventRaw(ks::winapi_monitor::EventCategory::Internal,L"Agent",L"AgentFailure",
+                        failure,L"Agent worker exception; monitoring stopped and cleanup attempted.");
+                } catch (...) {}
+                bool removed=false;
+                for(unsigned attempt=0;attempt<3&&!removed;++attempt){
+                    try { removed=UninstallConfiguredHooks(); } catch (...) {}
+                    if(!removed)::Sleep(kSessionActivePollMs);
+                }
+                if(removed){try {SendHooksRemovedEvent(L"Hooks restored after Agent worker failure.");}catch(...) {}}
+                try {(void)DrainMonitorPipeServer();StopMonitorPipeServer();}catch(...) {}
+                return failure;
+        }
         DWORD WINAPI MonitorWorkerThread(LPVOID parameterValue)
+        {
+            try { return MonitorWorkerBody(parameterValue); }
+            catch (const std::bad_alloc&) {return HandleMonitorWorkerFailure(ERROR_NOT_ENOUGH_MEMORY);}
+            catch (...) {return HandleMonitorWorkerFailure(ERROR_UNHANDLED_EXCEPTION);}
+        }
+
+        DWORD WINAPI MonitorWorkerBody(LPVOID parameterValue)
         {
             (void)parameterValue;
 
@@ -163,6 +192,8 @@ namespace apimon
                 }
 
                 ReplaceActiveConfig(configValue);
+                APIMON_DIAG_RESET();
+                APIMON_DIAG_MARK("session-begin",0,0);
                 // 初始化剪贴板策略的原子镜像，确保 InstallConfiguredHooks 之后
                 // 第一次 hook 调用就能读到正确的读/写/枚举动作，而不是默认值 Allow。
                 RefreshClipboardPolicyFromConfig(configValue);
@@ -185,21 +216,27 @@ namespace apimon
                     0,
                     std::wstring(L"definitionSha256=") + std::wstring(kDefinitionSha256, kDefinitionSha256 + 64));
 
-                if (!InstallConfiguredHooks(&errorText))
+                APIMON_DIAG_MARK("install-begin",0,0);
+                const bool installed = InstallConfiguredHooks(&errorText);
+                const bool cancelled = StopRequested() || IsStopFlagPresent(configValue);
+                if (!installed || cancelled)
                 {
+                    if(cancelled)RequestStop();
                     SendMonitorEvent(
                         ks::winapi_monitor::EventCategory::Internal,
                         L"Agent",
-                        L"InstallHooksFailed",
+                        cancelled ? L"InstallHooksCancelled" : L"InstallHooksFailed",
                         1,
                         errorText);
-                    WaitForCurrentSessionStop(configValue);
+                    if(!cancelled)WaitForCurrentSessionStop(configValue);
                     while (!UninstallConfiguredHooks() && !g_processDetachRequested.load())
                     ::Sleep(kSessionActivePollMs);
+                    SendHooksRemovedEvent(L"Inline hooks removed after incomplete installation.");
                     (void)DrainMonitorPipeServer();
                     StopMonitorPipeServer();
                     continue;
                 }
+                APIMON_DIAG_MARK("install-end",0,0);
                 if (!errorText.empty())
                 {
                     SendMonitorEvent(
@@ -218,14 +255,11 @@ namespace apimon
                     L"Configured inline hooks are now active.");
 
                 WaitForCurrentSessionStop(configValue);
+                APIMON_DIAG_MARK("uninstall-begin",0,0);
                 while (!UninstallConfiguredHooks() && !g_processDetachRequested.load())
                     ::Sleep(kSessionActivePollMs);
-                SendMonitorEvent(
-                    ks::winapi_monitor::EventCategory::Internal,
-                    L"Agent",
-                    L"HooksRemoved",
-                    0,
-                    L"Inline hooks removed and agent is waiting for the next session.");
+                SendHooksRemovedEvent(L"Inline hooks removed and agent is waiting for the next session.");
+                APIMON_DIAG_MARK("uninstall-end",0,0);
                 (void)DrainMonitorPipeServer();
                 StopMonitorPipeServer();
             }

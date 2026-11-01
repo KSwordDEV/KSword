@@ -59,6 +59,18 @@ struct Reader {
     DWORD offset = 0;
     bool disconnected = false;
 };
+void finishPipeRead(Reader& reader, CaptureResult& result, DWORD failure) {
+    auto& state = reader.evidence;
+    const bool eof = failure == ERROR_BROKEN_PIPE || failure == ERROR_PIPE_NOT_CONNECTED || failure == ERROR_HANDLE_EOF;
+    if (reader.offset) { ++result.invalidPackets; state.coverageStale = true; }
+    if (!state.exited && (!state.removed || !eof || reader.offset)) {
+        state.pipeError = failure ? failure : ERROR_HANDLE_EOF;
+        state.coverageStale = true;
+    }
+    if (reader.receiver->stale() || (state.finalRevision && state.revision < state.finalRevision))
+        state.coverageStale = true;
+    reader.pipe.reset(); reader.disconnected = true;
+}
 class Capture {
 public:
     Capture(const CaptureRequest& r, const std::atomic_bool& c) : request(r), cancel(c) {}
@@ -157,7 +169,7 @@ bool Capture::start() {
         poll();
         const auto& root = readers.front()->evidence;
         if (root.installed) return true;
-        if (root.exited || root.installFailed || root.pipeError) return false;
+        if (root.exited || root.installFailed || root.pipeError || root.removed) return false;
         ::Sleep(5);
     }
     error(cancel.load() ? L"startup cancelled" : L"timed out waiting for HooksInstalled"); return false;
@@ -177,8 +189,9 @@ void Capture::consume(Reader& reader, const ApiMonitorEventPacket& packet) {
     if (packet.category == static_cast<std::uint32_t>(EventCategory::Internal) && text(packet.moduleName) == L"Agent") {
         const auto name = text(packet.apiName);
         if (name == L"HooksInstalled") state.installed = true;
-        if (name == L"HooksRemoved") state.removed = true;
+        if (name == L"HooksRemoved") { state.removed = true; state.finalRevision = packet.snapshotRevision; }
         if (name == L"InstallHooksFailed") state.installFailed = true;
+        if (name == L"AgentFailure") error(L"Agent failure: " + text(packet.detailText));
         if (name == L"HooksPartial") state.partialHooks = true;
         if (name == L"AutoInjectChild" && request.autoChildren && !stopping) {
             const auto detail = text(packet.detailText); const auto marker = detail.find(L"childPid=");
@@ -218,17 +231,13 @@ void Capture::pollReader(Reader& reader) {
     for (unsigned budget = 0; budget < 512; ++budget) {
         DWORD available = 0;
         if (!::PeekNamedPipe(reader.pipe.value, nullptr, 0, nullptr, &available, nullptr)) {
-            const auto failure = ::GetLastError();
-            if (reader.offset) ++result.invalidPackets;
-            if (!state.removed && !state.exited) { state.pipeError = failure; state.coverageStale = true; }
-            if (reader.receiver->stale()) state.coverageStale = true;
-            reader.pipe.reset(); reader.disconnected = true; return;
+            finishPipeRead(reader, result, ::GetLastError()); return;
         }
         if (!available) return;
         const auto remaining = static_cast<DWORD>(sizeof(reader.packet)) - reader.offset;
         DWORD count = 0;
         if (!::ReadFile(reader.pipe.value, reinterpret_cast<unsigned char*>(&reader.packet) + reader.offset, std::min(remaining, available), &count, nullptr) || !count) {
-            state.pipeError = ::GetLastError(); reader.pipe.reset(); reader.disconnected = true; return;
+            finishPipeRead(reader, result, ::GetLastError()); return;
         }
         reader.offset += count;
         if (reader.offset == sizeof(reader.packet)) { consume(reader, reader.packet); reader.offset = 0; }
@@ -294,7 +303,9 @@ CaptureResult Capture::run() {
         if (startupSucceeded) {
             const auto deadline = ::GetTickCount64() + request.durationMs;
             while (!cancel.load() && ::GetTickCount64() < deadline) {
-                poll(); if (readers.front()->evidence.exited || readers.front()->evidence.pipeError) break;
+                poll();
+                if (readers.front()->evidence.exited || readers.front()->evidence.pipeError) break;
+                if(readers.front()->evidence.removed){error(L"Agent stopped before requested interval");break;}
                 ::Sleep(5);
             }
             result.completedInterval = ::GetTickCount64() >= deadline;

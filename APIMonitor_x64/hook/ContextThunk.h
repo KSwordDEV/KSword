@@ -1,4 +1,5 @@
 #pragma once
+#include "CodePageAllocator.h"
 #include <Windows.h>
 #include <cstdint>
 #include <cstring>
@@ -12,7 +13,7 @@ namespace apimon
 #ifdef _M_IX86
         // Current completion/extension arguments are 32-bit scalars/pointers, stdcall.
         if (arguments > 11) return nullptr;
-        auto* page = static_cast<unsigned char*>(::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* page = detail::AllocateCodePage();
         if (!page) return nullptr;
         unsigned cursor = 0;
         auto byte = [&](unsigned value) { page[cursor++] = static_cast<unsigned char>(value); };
@@ -29,7 +30,7 @@ namespace apimon
         byte(0xC2); byte(arguments * 4); byte(0);
         DWORD previous = 0;
         if (!::VirtualProtect(page, 4096, PAGE_EXECUTE_READ, &previous))
-        { ::VirtualFree(page, 0, MEM_RELEASE); return nullptr; }
+        { detail::ReleaseCodePage(page); return nullptr; }
         ::FlushInstructionCache(::GetCurrentProcess(), page, cursor);
         return page;
 #else
@@ -66,7 +67,7 @@ namespace apimon
         DWORD previous = 0;
         if (!::VirtualProtect(page, 4096, PAGE_EXECUTE_READ, &previous)
             || !::RtlAddFunctionTable(function, 1, reinterpret_cast<DWORD64>(page)))
-        { ::VirtualFree(page, 0, MEM_RELEASE); return nullptr; }
+        { detail::ReleaseCodePage(page); return nullptr; }
         ::FlushInstructionCache(::GetCurrentProcess(), page, cursor);
         return page;
 #endif

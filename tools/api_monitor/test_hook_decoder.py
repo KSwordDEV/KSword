@@ -9,12 +9,21 @@ code=r'''
 #include <cstdio>
 #include <initializer_list>
 static bool rejectNear=false;
+static unsigned queryCount=0;
+static SIZE_T WINAPI FixtureQuery(LPCVOID address,PMEMORY_BASIC_INFORMATION info,SIZE_T size){
+ ++queryCount;return ::VirtualQuery(address,info,size);
+}
 static LPVOID WINAPI FixtureAlloc(LPVOID p,SIZE_T size,DWORD type,DWORD protect) {
  if (rejectNear && p) return nullptr;
  return VirtualAlloc(p,size,type,protect);
 }
 #define VirtualAlloc FixtureAlloc
+static FARPROC WINAPI FixtureExport(HMODULE module,LPCSTR name){return strcmp(name,"VirtualAlloc2")==0?nullptr:GetProcAddress(module,name);}
+#define GetProcAddress FixtureExport
+#define VirtualQuery FixtureQuery
 #include "ENGINE"
+#undef VirtualQuery
+#undef GetProcAddress
 #undef VirtualAlloc
 using Function=int(*)();
 static void* original=nullptr;
@@ -32,6 +41,7 @@ int main(){
  {{0x0F,0x85,1,0,0,0},6,false},{{0x75,0},2,false},{{0xEB,0},2,false},{{0xE9,0,0,0,0},5,false}};
  for(const auto& c:decoder){auto d=apimon::DecodeInstruction(c.bytes.begin(),c.bytes.size());CHECK(d.length==c.length);CHECK(d.ripRelative==c.rip);}
  auto* block=static_cast<unsigned char*>(VirtualAlloc(nullptr,65536,MEM_RESERVE|MEM_COMMIT,PAGE_EXECUTE_READWRITE));CHECK(block);
+ unsigned char inspected[32]{};queryCount=0;CHECK(apimon::ReadCode(block,inspected,sizeof(inspected))==32&&queryCount==1);
  std::wstring error;
  for(int index=0;index<8;++index){
   auto* p=block+index*1024;memset(p,0x90,1024);
@@ -96,6 +106,7 @@ int main(){
  CHECK(error.find(L"unreadable")!=std::wstring::npos);
  auto* boundary=static_cast<unsigned char*>(VirtualAlloc(nullptr,8192,MEM_RESERVE|MEM_COMMIT,PAGE_EXECUTE_READWRITE));DWORD old=0;
  put(boundary+4093,{0x31,0xC0,0x90});VirtualProtect(boundary+4096,4096,PAGE_NOACCESS,&old);apimon::InlineHookRecord suffix;
+ memset(inspected,0xa5,sizeof(inspected));queryCount=0;CHECK(apimon::ReadCode(boundary+4093,inspected,sizeof(inspected))==3&&queryCount==2&&inspected[3]==0xa5);
  CHECK(apimon::InstallInlineHookAtAddress(boundary+4093,(void*)&Detour,&suffix,&bad,&error)==apimon::InlineHookInstallResult::PermanentFailure);
  printf("PASS: descriptor cases; executable RIP/CALL/JMP/Jcc relocation, internal targets, ENDBR, conflicts, fallback, unreadable pages and retired code\n");
 }

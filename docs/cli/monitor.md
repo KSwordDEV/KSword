@@ -21,6 +21,8 @@ events 提供 pid/tid、timestampFileTime、category、module/api/detail、resul
 
 正常结束／Ctrl+C 均先发布停止标记、通知 broker 的全部已受理后代，再继续读到 HooksRemoved 和管道排空，或确认原目标已经退出。清理完成后释放会话租约；保留停止标记供迟到的加载线程／常驻 Agent 检查。DLL、退役 trampoline 和回调按现有 Agent 策略保持到目标退出，重复采集复用常驻 DLL。强制杀死控制端不保证优雅清理，需通过正常停止流程恢复。
 
+`processes.finalCoverageRevision` 是 `HooksRemoved` 声明的最终覆盖修订（十进制字符串，旧 Agent 未声明时为0）。正常 EOF 不算管道故障；半包、提前断开或最终修订未收齐仍标记错误／过期。新 Agent 在安装过程中检查停止标记，取消后直接移除已提交入口并返回 `HooksRemoved`；未真正生效的 Hook 保留失败／取消原因，不伪装为已移除。
+
 完整采集且无损失返回0；部分 Hook、Agent 丢包、缓冲截断、取消、提前退出、覆盖过期或未确认停止返回6；启动失败3，参数错误1，非 x64 宿主5。分类项不可用、保守解码拒绝和严格 CFG/CET／受保护进程仍有原有边界，完整覆盖列表不代表全部 API 已安装；任意 COM／直接系统调用不保证覆盖。
 
 真实回归入口 `tools/Test-KSwordCliApiMonitor.ps1`，参数为 Cli、Fixture64、Fixture32、ReportRoot；自有目标源 `tools/api_monitor/cli_capture_fixture.cpp` 分别在 HostX64 的 x64／x86 编译环境以 `/MT /W4 /WX /std:c++20` 编译。脚本验证真实文件事件、双位数选择、常驻复用、输出截断、配置隔离、会话冲突和跨位数子进程，保留每次 JSON 回执与正常退出证据。

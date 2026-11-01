@@ -76,7 +76,7 @@ with tempfile.TemporaryDirectory(prefix="ksword_ui_ini_") as temporary:
  includes=["/I"+str(qt/"include"/name) for name in ("","QtCore","QtGui","QtWidgets")]
  libraries=[str(qt/"lib"/name) for name in ("Qt6Core.lib","Qt6Gui.lib","Qt6Widgets.lib")]
  executable=directory/"fixture.exe"
- subprocess.run(["cl","/nologo","/EHsc","/permissive-","/std:c++17","/Zc:__cplusplus","/utf-8","/MD",
+ subprocess.run(["cl","/nologo","/EHsc","/permissive-","/std:c++20","/Zc:__cplusplus","/utf-8","/MD",
   "/I"+str(root/"APIMonitor_x64"),"/I"+str(root/"shared"),*includes,str(cpp),str(root/"shared/ApiMonitorInjectionBroker.cpp"),
   "/Fe:"+str(executable),"/Fo:"+str(directory)+"\\","/link","Advapi32.lib",*libraries],check=True)
  subprocess.run([str(qt/"bin/windeployqt.exe"),"--release","--compiler-runtime","--no-opengl-sw",str(executable)],check=True,stdout=subprocess.DEVNULL)

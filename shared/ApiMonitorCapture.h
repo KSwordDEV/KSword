@@ -17,7 +17,7 @@ struct CaptureRequest {
 };
 struct CaptureProcess {
     DWORD pid = 0, pipeError = 0;
-    std::uint64_t creation = 0, session = 0, revision = 0, agentDropped = 0;
+    std::uint64_t creation = 0, session = 0, revision = 0, finalRevision = 0, agentDropped = 0;
     bool connected = false, installed = false, removed = false, exited = false;
     bool installFailed = false, partialHooks = false, coverageComplete = false, coverageStale = true;
     std::vector<ApiMonitorEventPacket> coverage;

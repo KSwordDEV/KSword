@@ -1,8 +1,13 @@
-﻿#include "pch.h"
+#include "pch.h"
 #include "HookEngine.h"
+#include "../core/MonitorDiagnostics.h"
+#include "NearAllocation.h"
+#include "ThreadPatchGuard.h"
+#include "CodePageAllocator.h"
 
 #include <TlHelp32.h>
 #include <intrin.h>
+#include <map>
 
 extern "C" unsigned long _tls_index;
 
@@ -18,6 +23,7 @@ namespace apimon
         constexpr char kLandingPad[] = "\xF3\x0F\x1E\xFA";
 #endif
         thread_local std::uint32_t g_inlineHookInternalBypassDepth = 0; // g_inlineHookInternalBypassDepth：HookEngine 内部操作重入屏蔽深度。
+        thread_local HookInstallStopCheck g_installStopCheck = nullptr;
 
         // Loader callbacks can still enter patched APIs after this thread's static TLS is freed.
         // Do not call a TLS getter or another monitored API while checking its availability.
@@ -33,127 +39,7 @@ namespace apimon
             __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
         }
 
-        // Allocate the handle list before suspension: a suspended thread may own the heap lock.
-        class ScopedOtherThreadsSuspender
-        {
-        public:
-            ScopedOtherThreadsSuspender()
-            {
-                // Enumerate this process only; a system-wide Toolhelp snapshot per entry is costly.
-                using NextThreadFn = LONG (NTAPI*)(HANDLE, HANDLE, ACCESS_MASK, ULONG, ULONG, PHANDLE);
-                const auto nextThread = reinterpret_cast<NextThreadFn>(
-                    ::GetProcAddress(::GetModuleHandleW(L"ntdll.dll"), "NtGetNextThread"));
-                if (!nextThread)
-                {
-                    m_failureText = L"thread enumeration unavailable: NtGetNextThread export missing";
-                    return;
-                }
-                const DWORD tid = ::GetCurrentThreadId();
-                HANDLE cursor = nullptr;
-                HANDLE ownThread = nullptr;
-                bool complete = false;
-                LONG enumerationStatus = 0;
-                for (;;)
-                {
-                    HANDLE next = nullptr;
-                    const LONG status = nextThread(::GetCurrentProcess(), cursor,
-                        THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
-                        0, 0, &next);
-                    if (status == static_cast<LONG>(0x8000001A)) { complete = true; break; }
-                    if (status < 0 || !next) { enumerationStatus = status; break; }
-                    cursor = next;
-                    const DWORD threadId = ::GetThreadId(next);
-                    if (!threadId)
-                    {
-                        ::CloseHandle(next);
-                        enumerationStatus = static_cast<LONG>(::GetLastError());
-                        break;
-                    }
-                    if (threadId == tid) ownThread = next;
-                    else m_threads.push_back(next);
-                }
-                if (ownThread) ::CloseHandle(ownThread);
-                if (!complete)
-                {
-                    wchar_t diagnostic[160]{};
-                    swprintf_s(diagnostic, L"thread enumeration failed: status=0x%08lX",
-                        static_cast<unsigned long>(enumerationStatus));
-                    m_failureText = diagnostic;
-                    return;
-                }
-                for (HANDLE thread : m_threads)
-                {
-                    if (::SuspendThread(thread) == static_cast<DWORD>(-1))
-                    {
-                        wchar_t diagnostic[192]{};
-                        swprintf_s(diagnostic, L"SuspendThread failed: tid=%lu error=0x%08lX",
-                            static_cast<unsigned long>(::GetThreadId(thread)),
-                            static_cast<unsigned long>(::GetLastError()));
-                        m_failureText = diagnostic;
-                        return;
-                    }
-                    ++m_suspendedCount;
-                }
-                m_ready = true;
-            }
-
-            bool CanPatch(const void* address, const std::size_t length)
-            {
-                if (!m_ready) return false;
-                const auto first = reinterpret_cast<std::uintptr_t>(address);
-                for (HANDLE thread : m_threads)
-                {
-                    CONTEXT context{};
-                    context.ContextFlags = CONTEXT_CONTROL;
-                    if (::GetThreadContext(thread, &context) == FALSE)
-                    {
-                        wchar_t diagnostic[192]{};
-                        swprintf_s(diagnostic, L"GetThreadContext failed: tid=%lu error=0x%08lX",
-                            static_cast<unsigned long>(::GetThreadId(thread)),
-                            static_cast<unsigned long>(::GetLastError()));
-                        m_failureText = diagnostic;
-                        return false;
-                    }
-#ifdef _M_IX86
-                    const auto instructionPointer = context.Eip;
-#else
-                    const auto instructionPointer = context.Rip;
-#endif
-                    if (instructionPointer >= first && instructionPointer < first + length)
-                    {
-                        wchar_t diagnostic[224]{};
-                        swprintf_s(diagnostic, L"active patch-region thread: tid=%lu ip=%p",
-                            static_cast<unsigned long>(::GetThreadId(thread)),
-                            reinterpret_cast<void*>(instructionPointer));
-                        m_failureText = diagnostic;
-                        return false;
-                    }
-                }
-                return true;
-            }
-
-            const std::wstring& FailureText() const
-            {
-                return m_failureText;
-            }
-
-            void Resume()
-            {
-                while (m_suspendedCount > 0) ::ResumeThread(m_threads[--m_suspendedCount]);
-            }
-
-            ~ScopedOtherThreadsSuspender()
-            {
-                Resume();
-                for (HANDLE thread : m_threads) ::CloseHandle(thread);
-            }
-        private:
-            ScopedInlineHookInternalBypass m_hookBypass;
-            std::vector<HANDLE> m_threads;
-            std::size_t m_suspendedCount = 0;
-            bool m_ready = false;
-            std::wstring m_failureText;
-        };
+        using ScopedOtherThreadsSuspender = detail::ThreadPatchGuard;
 
         enum class ControlFlow { Linear, Call, Jump, Conditional, LandingPad, Terminal };
         struct InstructionDescription
@@ -286,15 +172,24 @@ namespace apimon
 
         std::size_t ReadCode(const void* source, unsigned char* destination, std::size_t capacity)
         {
-            // Bytewise copy stops at the first unreadable byte and never probes an inaccessible suffix unnecessarily.
+            // Inspect each memory region once. Per-byte VirtualQuery plus
+            // SafeRead caused 64 queries just to inspect a 32-byte entry.
+            // Copy only the readable prefix; never touch an inaccessible suffix.
             std::size_t size = 0;
-            for (; size < capacity; ++size)
+            while (size < capacity)
             {
+                const auto position = reinterpret_cast<std::uintptr_t>(source) + size;
+                if (position < reinterpret_cast<std::uintptr_t>(source)) break;
                 MEMORY_BASIC_INFORMATION info{};
-                if (!::VirtualQuery(static_cast<const unsigned char*>(source) + size, &info, sizeof(info))
+                if (!::VirtualQuery(reinterpret_cast<const void*>(position), &info, sizeof(info))
                     || info.State != MEM_COMMIT || (info.Protect & (PAGE_NOACCESS | PAGE_GUARD))
-                    || !(info.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY))
-                    || !SafeRead(static_cast<const unsigned char*>(source) + size, destination + size, 1)) break;
+                    || !(info.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY))) break;
+                const auto base = reinterpret_cast<std::uintptr_t>(info.BaseAddress);
+                if (info.RegionSize > UINTPTR_MAX - base || base + info.RegionSize <= position) break;
+                const auto count = (std::min)(capacity - size, static_cast<std::size_t>(base + info.RegionSize - position));
+                __try { std::memcpy(destination + size, reinterpret_cast<const void*>(position), count); }
+                __except (EXCEPTION_EXECUTE_HANDLER) { break; }
+                size += count;
             }
             return size;
         }
@@ -370,30 +265,13 @@ namespace apimon
 
         unsigned char* AllocateNear(const void* target)
         {
+            APIMON_DIAG_ADD(NearCalls,1);
+            APIMON_DIAG_SCOPE(NearTicks);
 #ifdef _M_IX86
             (void)target;
-            return static_cast<unsigned char*>(::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            return detail::AllocateCodePage();
 #else
-            SYSTEM_INFO info{}; ::GetSystemInfo(&info);
-            const auto granularity = static_cast<std::uintptr_t>(info.dwAllocationGranularity);
-            const auto center = reinterpret_cast<std::uintptr_t>(target) & ~(granularity - 1);
-            const auto minimum = reinterpret_cast<std::uintptr_t>(info.lpMinimumApplicationAddress);
-            const auto maximum = reinterpret_cast<std::uintptr_t>(info.lpMaximumApplicationAddress);
-            // Start close to the entry; use VirtualQuery to skip occupied regions in allocation-sized strides.
-            for (std::uintptr_t distance = granularity; distance < 0x7FFF0000; distance += granularity)
-            {
-                for (int direction : {1, -1})
-                {
-                    if (direction < 0 && center < distance) continue;
-                    const auto candidate = direction > 0 ? center + distance : center - distance;
-                    if (candidate < minimum || candidate > maximum - 4096) continue;
-                    MEMORY_BASIC_INFORMATION region{};
-                    if (!::VirtualQuery(reinterpret_cast<void*>(candidate), &region, sizeof(region)) || region.State != MEM_FREE) continue;
-                    auto* allocation = static_cast<unsigned char*>(::VirtualAlloc(reinterpret_cast<void*>(candidate), 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-                    if (allocation) return allocation;
-                }
-            }
-            return nullptr;
+            return detail::AllocateNearAddress(target,&HookInstallationCancelled);
 #endif
         }
 
@@ -428,10 +306,91 @@ namespace apimon
             std::array<unsigned char, 32> original{}, patched{};
             unsigned references = 0;
             bool active = false;
+            bool pending = false;
+            bool bulkRestored = false;
         };
-        auto& g_engineMutex = *new std::mutex;
+        auto& g_engineMutex = *new std::recursive_mutex;
         // Stable contexts and published executable code are retained through process exit.
         auto& g_entryPatches = *new std::vector<std::unique_ptr<EntryPatch>>;
+        // Retired code stays alive, but only active/prepared intervals belong
+        // in lookup. Scanning the lifetime vector made setup quadratic and
+        // slowed every subsequent session as retired entries accumulated.
+        auto& g_activeEntries = *new std::map<std::uintptr_t,EntryPatch*>;
+        EntryPatch* FindPatchContaining(std::uintptr_t address)
+        {
+            auto after = g_activeEntries.upper_bound(address);
+            if (after == g_activeEntries.begin()) return nullptr;
+            const auto entry = *std::prev(after);
+            return address - entry.first < entry.second->size ? entry.second : nullptr;
+        }
+        struct PendingReference { EntryPatch* patch; InlineHookRecord* record; };
+        struct PendingBatch { std::vector<EntryPatch*> entries; std::vector<PendingReference> references; };
+        thread_local PendingBatch* g_pendingBatch = nullptr;
+        struct ProtectionRestore { void* address; std::size_t size; DWORD protection; };
+        auto& g_pendingProtectionRestores = *new std::vector<ProtectionRestore>;
+        bool RetryProtectionRestores()
+        {
+            std::size_t remaining = 0;
+            for (const auto& page : g_pendingProtectionRestores) {
+                DWORD ignored = 0;
+                if (!::VirtualProtect(page.address, page.size, page.protection, &ignored))
+                    g_pendingProtectionRestores[remaining++] = page;
+            }
+            g_pendingProtectionRestores.resize(remaining);
+            return remaining == 0;
+        }
+
+        // Prepare protection records and all result storage before freezing.
+        // A single captured context set is valid for every entry in this one
+        // suspended interval; it is never reused after Resume().
+        bool ApplyPatchEntries(const std::vector<EntryPatch*>& entries, bool restore, std::vector<unsigned char>& applied, std::wstring* failure = nullptr)
+        {
+            applied.assign(entries.size(),0);
+            // Keep the original protection until a failed restore has actually
+            // succeeded. A later pass must not mistake temporary RWX for it.
+            if (!RetryProtectionRestores()) return false;
+            if(entries.empty())return true;
+            struct Page { unsigned char* address; DWORD old=0; bool changed=false; };
+            SYSTEM_INFO info{};::GetSystemInfo(&info);const auto pageSize=static_cast<std::uintptr_t>(info.dwPageSize);
+            std::vector<Page> pages;pages.reserve(entries.size()*2);
+            for(const auto* entry:entries){
+                const auto begin=reinterpret_cast<std::uintptr_t>(entry->target)&~(pageSize-1);
+                const auto end=(reinterpret_cast<std::uintptr_t>(entry->target)+entry->size-1)&~(pageSize-1);
+                pages.push_back({reinterpret_cast<unsigned char*>(begin)});
+                if(end!=begin)pages.push_back({reinterpret_cast<unsigned char*>(end)});
+            }
+            std::sort(pages.begin(),pages.end(),[](const auto& a,const auto& b){return reinterpret_cast<std::uintptr_t>(a.address)<reinterpret_cast<std::uintptr_t>(b.address);});
+            pages.erase(std::unique(pages.begin(),pages.end(),[](const auto& a,const auto& b){return a.address==b.address;}),pages.end());
+            const auto restorePages=[&]{bool ok=true;for(auto& page:pages)if(page.changed){DWORD ignored=0;if(::VirtualProtect(page.address,pageSize,page.old,&ignored))page.changed=false;else ok=false;}return ok;};
+            const auto retainFailedRestores=[&]{for(const auto& page:pages)if(page.changed)g_pendingProtectionRestores.push_back({page.address,pageSize,page.old});};
+            for(auto& page:pages){
+                if(!::VirtualProtect(page.address,pageSize,PAGE_EXECUTE_READWRITE,&page.old)){restorePages();retainFailedRestores();return false;}
+                page.changed=true;
+            }
+            ScopedOtherThreadsSuspender suspended;
+            const bool contexts=suspended.CaptureContexts();
+            bool all=contexts;
+            if(contexts){
+                for(std::size_t i=0;i<entries.size();++i){
+                    auto* entry=entries[i];unsigned char current[32]{};
+                    const auto& expected=restore?entry->patched:entry->original;
+                    if(!suspended.AllowsPatch(entry->target,entry->size)||!SafeRead(entry->target,current,entry->size)
+                        ||std::memcmp(current,expected.data(),entry->size)!=0){all=false;continue;}
+                    std::memcpy(entry->target,(restore?entry->original:entry->patched).data(),entry->size);
+                    applied[i]=1;
+                }
+                for(const auto& page:pages)::FlushInstructionCache(::GetCurrentProcess(),page.address,pageSize);
+            }
+            const bool protectedAgain=restorePages();
+            suspended.Resume();
+            if (failure) {
+                if (!contexts) *failure=suspended.FailureText();
+                else if (!all) *failure=L"batch entry changed or thread in patch region; retry required";
+                else if (!protectedAgain) *failure=L"page protection restore failed; retry required";
+            }
+            retainFailedRestores();
+            return all&&protectedAgain;
+        }
 
         void* ResolveJumpStub(void* entry, std::size_t* failureOffset, const wchar_t** reason)
         {
@@ -444,8 +403,7 @@ namespace apimon
                 if (std::find(visited.begin(), visited.begin() + depth, current) != visited.begin() + depth)
                 { *reason = L"jump-stub cycle"; return nullptr; }
                 visited[depth] = current;
-                for (const auto& patch : g_entryPatches)
-                    if (patch->active && current >= patch->target && current < patch->target + patch->size) return current;
+                if (FindPatchContaining(reinterpret_cast<std::uintptr_t>(current))) return current;
                 unsigned char bytes[32]{};
                 const auto readable = ReadCode(current, bytes, sizeof(bytes));
                 if (!readable) { *reason = L"unreadable or non-executable entry"; return nullptr; }
@@ -543,10 +501,85 @@ namespace apimon
         }
     }
 
+    struct InlineHookInstallBatch::State {
+        std::unique_lock<std::recursive_mutex> lock{g_engineMutex};
+        PendingBatch batch;
+        PendingBatch* previous=g_pendingBatch;
+        bool finished=false;
+    };
+    InlineHookInstallBatch::InlineHookInstallBatch() : state(std::make_unique<State>()) {
+        if(!state->previous)g_pendingBatch=&state->batch;
+    }
+    bool InlineHookInstallBatch::commit() {
+        if(state->finished)return true;
+        state->finished=true;
+        if(state->previous)return true;
+        std::vector<unsigned char> applied(state->batch.entries.size(),0);
+        std::vector<EntryPatch*> remaining=state->batch.entries;
+        std::vector<std::size_t> indices(remaining.size());
+        for(std::size_t i=0;i<indices.size();++i)indices[i]=i;
+        std::wstring failure;
+        bool success=false;
+        // Threads can exit between enumeration and GetThreadContext. Retry a
+        // bounded number of fresh frozen sets, without rewriting accepted
+        // entries or reusing instruction pointers after threads resume.
+        for(unsigned attempt=0;attempt<3&&!HookInstallationCancelled();++attempt){
+            std::vector<unsigned char> accepted;
+            success=ApplyPatchEntries(remaining,false,accepted,&failure);
+            std::size_t pending=0;
+            for(std::size_t i=0;i<remaining.size();++i){
+                if(accepted[i])applied[indices[i]]=1;
+                else {remaining[pending]=remaining[i];indices[pending++]=indices[i];}
+            }
+            remaining.resize(pending);indices.resize(pending);
+            if(success)break;
+            if(attempt<2)::Sleep(10);
+        }
+        for(std::size_t i=0;i<state->batch.entries.size();++i){
+            auto* entry=state->batch.entries[i];entry->pending=false;entry->active=applied[i]!=0;
+            if(!entry->active){entry->references=0;g_activeEntries.erase(reinterpret_cast<std::uintptr_t>(entry->target));}
+        }
+        for(const auto& reference:state->batch.references){
+            reference.record->installed=reference.patch->active;
+            if(!reference.patch->active)reference.record->lastFailure=failure.empty()?L"batch entry changed, cancelled or thread context unsafe; retry required":failure;
+        }
+        return success;
+    }
+    InlineHookInstallBatch::~InlineHookInstallBatch() {
+        if(!state->previous){
+            if(!state->finished){
+                for(auto* entry:state->batch.entries){entry->active=false;entry->pending=false;entry->references=0;g_activeEntries.erase(reinterpret_cast<std::uintptr_t>(entry->target));}
+                for(const auto& reference:state->batch.references)reference.record->installed=false;
+            }
+            g_pendingBatch=state->previous;
+        }
+    }
+    ScopedHookInstallCancellation::ScopedHookInstallCancellation(HookInstallStopCheck check) : previous(g_installStopCheck) {g_installStopCheck=check;}
+    ScopedHookInstallCancellation::~ScopedHookInstallCancellation(){g_installStopCheck=previous;}
+    bool HookInstallationCancelled(){return g_installStopCheck&&g_installStopCheck();}
+    bool RestoreAllInlineHookEntries(){
+        ScopedInlineHookInternalBypass bypass;
+        const std::lock_guard<std::recursive_mutex> lock(g_engineMutex);
+        if(g_pendingBatch)return false;
+        std::vector<EntryPatch*> active;active.reserve(g_activeEntries.size());
+        for(const auto& entry:g_activeEntries)active.push_back(entry.second);
+        std::vector<unsigned char> applied;
+        const bool success=ApplyPatchEntries(active,true,applied);
+        for(std::size_t i=0;i<active.size();++i)if(applied[i]){
+            active[i]->active=false;active[i]->references=0;active[i]->bulkRestored=true;
+            g_activeEntries.erase(reinterpret_cast<std::uintptr_t>(active[i]->target));
+        }
+        return success;
+    }
+    bool HasActiveInlineHookEntries(){
+        const std::lock_guard<std::recursive_mutex> lock(g_engineMutex);
+        return std::any_of(g_activeEntries.begin(),g_activeEntries.end(),[](const auto& entry){return !entry.second->pending;});
+    }
+
     bool IsNativeRuntimeHookTarget(void* exportAddress)
     {
         ScopedInlineHookInternalBypass bypass;
-        const std::lock_guard<std::mutex> lock(g_engineMutex);
+        const std::lock_guard<std::recursive_mutex> lock(g_engineMutex);
         std::size_t offset = 0;
         const wchar_t* reason = nullptr;
         void* target = ResolveJumpStub(exportAddress, &offset, &reason);
@@ -558,8 +591,10 @@ namespace apimon
     InlineHookInstallResult InstallInlineHookAtAddress(void* exportAddress, void* detourAddress,
         InlineHookRecord* hookOut, void** originalOut, std::wstring* errorTextOut)
     {
+        APIMON_DIAG_ADD(InstallCalls,1);
+        APIMON_DIAG_SCOPE(InstallTicks);
         ScopedInlineHookInternalBypass bypass;
-        const std::lock_guard<std::mutex> lock(g_engineMutex);
+        const std::lock_guard<std::recursive_mutex> lock(g_engineMutex);
         if (errorTextOut) errorTextOut->clear();
         auto fail = [&](const wchar_t* reason, void* address, std::size_t offset, bool permanent) {
             wchar_t diagnostic[384]{};
@@ -571,7 +606,9 @@ namespace apimon
         };
         if (!exportAddress || !detourAddress || !hookOut || !originalOut)
             return fail(L"invalid hook argument", exportAddress, 0, true);
+        if (HookInstallationCancelled()) return fail(L"installation cancelled",exportAddress,0,false);
         if (hookOut->installed) { *originalOut = hookOut->trampolineAddress; return InlineHookInstallResult::Installed; }
+        hookOut->removed = false;
         if (hookOut->permanentlyDisabled) return fail(L"previous unsafe installation rejected", exportAddress, hookOut->failureOffset, true);
         std::size_t failureOffset = 0;
         const wchar_t* reason = nullptr;
@@ -583,24 +620,26 @@ namespace apimon
         const bool endbr = readable >= 4 && std::memcmp(saved, kLandingPad, 4) == 0;
         auto* target = entry + (endbr ? 4 : 0);
         // Check already-patched addresses before decoding or following the installed detour.
-        for (const auto& candidate : g_entryPatches)
+        if (auto* p = FindPatchContaining(reinterpret_cast<std::uintptr_t>(target)))
         {
-            auto* p = candidate.get();
-            if (!p->active) continue;
-            const auto address = reinterpret_cast<std::uintptr_t>(target);
-            const auto first = reinterpret_cast<std::uintptr_t>(p->target);
-            if (address < first || address >= first + p->size) continue;
             if (target != p->target || detourAddress != p->detour)
                 return fail(L"patch interval conflicts with an incompatible handler", target, 0, true);
+            if(p->pending&&g_pendingBatch&&g_pendingBatch->references.size()==g_pendingBatch->references.capacity())
+                g_pendingBatch->references.reserve((std::max)(std::size_t{64},g_pendingBatch->references.capacity()*2));
             ++p->references;
             hookOut->targetAddress = target; hookOut->detourAddress = detourAddress;
             hookOut->trampolineAddress = p->trampoline; hookOut->patchSize = p->size;
             hookOut->originalBytes = p->original; hookOut->sharedPatchContext = p;
             hookOut->installed = true; hookOut->sharedEntry = true; hookOut->lastFailure.clear();
             *originalOut = p->trampoline;
+            if(p->pending&&g_pendingBatch)g_pendingBatch->references.push_back({p,hookOut});
             return InlineHookInstallResult::Installed;
         }
         unsigned char* allocation = AllocateNear(target);
+        if(HookInstallationCancelled()){
+            if(allocation)detail::ReleaseCodePage(allocation);
+            return fail(L"installation cancelled",target,0,false);
+        }
         const bool usesNearRelay = allocation != nullptr;
         if (!allocation) allocation = static_cast<unsigned char*>(::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
         if (!allocation) return fail(L"trampoline allocation failed", target, 0, false);
@@ -611,19 +650,16 @@ namespace apimon
         const std::size_t required = usesNearRelay ? 5 : kAbsoluteJumpSize;
         const auto patchSize = CalculatePatchSize(saved, readable, required, &instructions, &failureOffset, &reason);
         if (!patchSize)
-        { ::VirtualFree(allocation, 0, MEM_RELEASE); return fail(reason, target, failureOffset, true); }
-        for (const auto& candidate : g_entryPatches)
-        {
-            const auto first = reinterpret_cast<std::uintptr_t>(candidate->target), address = reinterpret_cast<std::uintptr_t>(target);
-            if (candidate->active && address < first + candidate->size && first < address + patchSize)
-            { ::VirtualFree(allocation, 0, MEM_RELEASE); return fail(L"overlapping patch interval", target, 0, true); }
-        }
+        { detail::ReleaseCodePage(allocation); return fail(reason, target, failureOffset, true); }
+        const auto following = g_activeEntries.lower_bound(reinterpret_cast<std::uintptr_t>(target));
+        if (following != g_activeEntries.end() && following->first - reinterpret_cast<std::uintptr_t>(target) < patchSize)
+        { detail::ReleaseCodePage(allocation); return fail(L"overlapping patch interval", target, 0, true); }
         if (endbr) std::memcpy(allocation, kLandingPad, 4);
         std::size_t emitted = 0;
         if (!BuildRelocatedCode(saved, reinterpret_cast<std::uintptr_t>(target), patchSize,
             allocation + prefix, reinterpret_cast<std::uintptr_t>(allocation + prefix), instructions,
             &emitted, &failureOffset, &reason))
-        { ::VirtualFree(allocation, 0, MEM_RELEASE); return fail(reason, target, failureOffset, true); }
+        { detail::ReleaseCodePage(allocation); return fail(reason, target, failureOffset, true); }
         // Prefer direct return control flow when usesNearRelay; no register is clobbered.
         auto* tail = allocation + prefix + emitted;
         const auto returnDelta = static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(target + patchSize))
@@ -641,61 +677,81 @@ namespace apimon
         {
             const auto delta = static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(allocation + relayOffset))
                 - static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(target + 5));
-            if (!FitsRel32(delta)) { ::VirtualFree(allocation, 0, MEM_RELEASE); return fail(L"usesNearRelay relay exceeds rel32 range", target, 0, false); }
+            if (!FitsRel32(delta)) { detail::ReleaseCodePage(allocation); return fail(L"usesNearRelay relay exceeds rel32 range", target, 0, false); }
             state->patched[0] = 0xE9; const auto relative = static_cast<std::int32_t>(delta);
             std::memcpy(state->patched.data() + 1, &relative, 4);
         }
         else BuildAbsoluteJump(state->patched.data(), detourAddress);
         MEMORY_BASIC_INFORMATION image{};
         if (!::VirtualQuery(target, &image, sizeof(image)))
-        { ::VirtualFree(allocation, 0, MEM_RELEASE); return fail(L"could not verify target allocation", target, 0, false); }
+        { detail::ReleaseCodePage(allocation); return fail(L"could not verify target allocation", target, 0, false); }
         if (image.Type == MEM_IMAGE)
         {
             HMODULE pinned = nullptr;
             if (!::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
                 reinterpret_cast<LPCWSTR>(target), &pinned))
-            { ::VirtualFree(allocation, 0, MEM_RELEASE); return fail(L"could not pin target image", target, 0, false); }
+            { detail::ReleaseCodePage(allocation); return fail(L"could not pin target image", target, 0, false); }
         }
         DWORD ignored = 0;
         if (!::VirtualProtect(allocation, 4096, PAGE_EXECUTE_READ, &ignored))
-        { ::VirtualFree(allocation, 0, MEM_RELEASE); return fail(L"could not seal executable trampoline", target, 0, false); }
+        { detail::ReleaseCodePage(allocation); return fail(L"could not seal executable trampoline", target, 0, false); }
         ::FlushInstructionCache(::GetCurrentProcess(), allocation, 4096);
-        g_entryPatches.reserve(g_entryPatches.size() + 1);
+        // Allocate the tree node before freezing; insertion below cannot take
+        // the heap lock of a suspended application thread.
+        std::map<std::uintptr_t,EntryPatch*> preparedIndex;
+        preparedIndex.emplace(reinterpret_cast<std::uintptr_t>(target),state.get());
+        auto indexNode=preparedIndex.extract(preparedIndex.begin());
+        if(g_entryPatches.size()==g_entryPatches.capacity())g_entryPatches.reserve((std::max)(std::size_t{64},g_entryPatches.capacity()*2));
+        if(g_pendingBatch){
+            if(g_pendingBatch->entries.size()==g_pendingBatch->entries.capacity())
+                g_pendingBatch->entries.reserve((std::max)(std::size_t{64},g_pendingBatch->entries.capacity()*2));
+            if(g_pendingBatch->references.size()==g_pendingBatch->references.capacity())
+                g_pendingBatch->references.reserve((std::max)(std::size_t{64},g_pendingBatch->references.capacity()*2));
+            state->references=1;state->active=true;state->pending=true;
+            hookOut->targetAddress=target;hookOut->detourAddress=detourAddress;
+            hookOut->trampolineAddress=allocation;hookOut->patchSize=patchSize;
+            hookOut->originalBytes=state->original;hookOut->sharedPatchContext=state.get();
+            hookOut->installed=true;hookOut->sharedEntry=false;hookOut->lastFailure.clear();*originalOut=allocation;
+            auto* context=state.get();g_entryPatches.push_back(std::move(state));
+            g_activeEntries.insert(std::move(indexNode));
+            g_pendingBatch->entries.push_back(context);g_pendingBatch->references.push_back({context,hookOut});
+            return InlineHookInstallResult::Installed;
+        }
         DWORD oldProtect = 0;
         if (!::VirtualProtect(target, patchSize, PAGE_EXECUTE_READWRITE, &oldProtect))
-        { ::VirtualFree(allocation, 0, MEM_RELEASE); return fail(L"target protection failed", target, 0, false); }
+        { detail::ReleaseCodePage(allocation); return fail(L"target protection failed", target, 0, false); }
         ScopedOtherThreadsSuspender suspended;
         unsigned char currentBytes[32]{};
         if (!suspended.FailureText().empty())
         {
-            const std::wstring diagnostic = suspended.FailureText();
             suspended.Resume();
+            const std::wstring diagnostic = suspended.FailureText();
             ::VirtualProtect(target, patchSize, oldProtect, &ignored);
-            ::VirtualFree(allocation, 0, MEM_RELEASE);
+            detail::ReleaseCodePage(allocation);
             return fail(diagnostic.c_str(), target, 0, false);
         }
         if (!suspended.CanPatch(target, patchSize))
         {
+            suspended.Resume();
             const std::wstring diagnostic = suspended.FailureText().empty()
                 ? std::wstring(L"thread context could not be verified")
                 : suspended.FailureText();
-            suspended.Resume();
             ::VirtualProtect(target, patchSize, oldProtect, &ignored);
-            ::VirtualFree(allocation, 0, MEM_RELEASE);
+            detail::ReleaseCodePage(allocation);
             return fail(diagnostic.c_str(), target, 0, false);
         }
         if (!SafeRead(target, currentBytes, patchSize))
         {
             suspended.Resume();
             ::VirtualProtect(target, patchSize, oldProtect, &ignored);
-            ::VirtualFree(allocation, 0, MEM_RELEASE);
+            detail::ReleaseCodePage(allocation);
             return fail(L"target unreadable while threads were suspended", target, 0, false);
         }
         if (std::memcmp(currentBytes, saved, patchSize) != 0)
         {
             suspended.Resume();
             ::VirtualProtect(target, patchSize, oldProtect, &ignored);
-            ::VirtualFree(allocation, 0, MEM_RELEASE);
+            detail::ReleaseCodePage(allocation);
             return fail(L"entry changed while preparing patch", target, 0, false);
         }
         hookOut->targetAddress = target; hookOut->detourAddress = detourAddress;
@@ -707,6 +763,7 @@ namespace apimon
         ::VirtualProtect(target, patchSize, oldProtect, &ignored);
         hookOut->installed = true; state->references = 1; state->active = true;
         g_entryPatches.push_back(std::move(state)); // reserved before suspension
+        g_activeEntries.insert(std::move(indexNode));
         suspended.Resume();
         hookOut->lastFailure.clear();
         return InlineHookInstallResult::Installed;
@@ -722,6 +779,7 @@ namespace apimon
             return InlineHookInstallResult::PermanentFailure;
         }
         if (hookOut->installed) return InlineHookInstallResult::Installed;
+        hookOut->removed = false;
         const auto module = ::GetModuleHandleW(moduleName);
         if (!module)
         {
@@ -743,11 +801,12 @@ namespace apimon
     bool UninstallInlineHook(InlineHookRecord* hook)
     {
         ScopedInlineHookInternalBypass bypass;
-        const std::lock_guard<std::mutex> lock(g_engineMutex);
+        const std::lock_guard<std::recursive_mutex> lock(g_engineMutex);
         if (!hook || !hook->installed) return true;
         auto* state = static_cast<EntryPatch*>(hook->sharedPatchContext);
+        if(state&&!state->active&&state->bulkRestored){hook->installed=false;hook->removed=true;hook->lastFailure.clear();return true;}
         if (!state || !state->active || !state->references) return false;
-        if (state->references > 1) { --state->references; hook->installed = false; return true; }
+        if (state->references > 1) { --state->references; hook->installed = false; hook->removed = true; return true; }
         DWORD oldProtect = 0, ignored = 0;
         if (!::VirtualProtect(state->target, state->size, PAGE_EXECUTE_READWRITE, &oldProtect))
         { hook->lastFailure = L"target protection failed during removal; retry required"; return false; }
@@ -764,8 +823,9 @@ namespace apimon
         std::memcpy(state->target, state->original.data(), state->size);
         ::FlushInstructionCache(::GetCurrentProcess(), state->target, state->size);
         ::VirtualProtect(state->target, state->size, oldProtect, &ignored);
-        hook->installed = false; state->references = 0; state->active = false;
+        hook->installed = false; hook->removed = true; state->references = 0; state->active = false;
         suspended.Resume();
+        g_activeEntries.erase(reinterpret_cast<std::uintptr_t>(state->target));
         hook->lastFailure.clear();
         // The immutable executable allocation, original pointers and registry context remain live.
         return true;

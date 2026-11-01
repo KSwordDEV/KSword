@@ -99,7 +99,8 @@ Result capture(const Args& a) {
             {L"targetExited",Json::boolean(p.exited)},{L"installFailed",Json::boolean(p.installFailed)},{L"partialHooks",Json::boolean(p.partialHooks)},
             {L"pipeWin32Error",Json::number(p.pipeError)},{L"agentDroppedCount",Json::count(p.agentDropped)},
             {L"coverageComplete",Json::boolean(p.coverageComplete)},{L"coverageStale",Json::boolean(p.coverageStale)},
-            {L"coverageRevision",Json::count(p.revision)},{L"coverageStateCounts",Json::object(states)},{L"coverage",Json::array(coverage)}}));}
+            {L"coverageRevision",Json::count(p.revision)},{L"finalCoverageRevision",Json::count(p.finalRevision)},
+            {L"coverageStateCounts",Json::object(states)},{L"coverage",Json::array(coverage)}}));}
     std::vector<std::pair<std::wstring,Json>> options;for(const auto& [key,value]:request.options)options.emplace_back(key,Json::string(value));
     return {result.code,Json::object({{L"source",Json::string(L"API Monitor Agent; shared native injection/session/coverage protocol")},
         {L"pid",Json::number(request.pid)},{L"sessionId",Json::string(result.sessionId)},{L"agentPath",Json::string(result.agentPath)},

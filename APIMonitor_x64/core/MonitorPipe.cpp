@@ -4,6 +4,7 @@
 #include "ApiMonitorMetadata.h"
 #include "../MonitorAgent.h"
 #include "../hook/HookEngine.h"
+#include "MonitorDiagnostics.h"
 #include <Aclapi.h>
 #include <Sddl.h>
 
@@ -166,7 +167,7 @@ namespace apimon
             return static_cast<std::uint64_t>(largeValue.QuadPart);
         }
 
-        void ClosePipeLocked()
+        void ClosePipeLocked(bool discardBuffered = false)
         {
             // 先清空无锁快照，确保 Hook 侧不会在关闭阶段继续把该句柄当作可用监控管道。
             g_pipeHandleValue.store(0);
@@ -174,7 +175,10 @@ namespace apimon
             {
                 // 关闭阶段不再 FlushFileBuffers，避免 UI 已断开或停止读取时把目标线程卡死。
                 (void)::CancelIoEx(g_pipeHandle, nullptr);
-                (void)::DisconnectNamedPipe(g_pipeHandle);
+                APIMON_DIAG_MARK("pipe-close",g_lastCoverageRevision.load(),discardBuffered ? 1 : 0);
+                // DisconnectNamedPipe discards unread bytes. Graceful close
+                // leaves completed writes available to the reader until EOF.
+                if(discardBuffered)(void)::DisconnectNamedPipe(g_pipeHandle);
                 ::CloseHandle(g_pipeHandle);
                 g_pipeHandle = INVALID_HANDLE_VALUE;
             }
@@ -246,6 +250,7 @@ namespace apimon
             }
 
             ::CloseHandle(writeEvent);
+            if (writeComplete) APIMON_DIAG_ADD(PipeBytes,bytesWritten);
             return writeComplete && bytesWritten == sizeof(packetValue);
         }
 
@@ -302,6 +307,16 @@ namespace apimon
                     if (g_senderStopFlag.load())
                     {
                         break;
+                    }
+
+                    const auto latest=LatestCoverageSnapshot();
+                    ::AcquireSRWLockShared(&g_queueLock);
+                    const bool pendingEvents=g_pendingPacketCount!=0;
+                    ::ReleaseSRWLockShared(&g_queueLock);
+                    if(pendingEvents||g_sendingCoverage||(latest&&latest->revision!=g_lastCoverageRevision.load())) {
+                        // A 12k-item snapshot must not incur a 25ms sleep after
+                        // every 64 packets. Pipe backpressure already bounds us.
+                        ::Sleep(0);continue;
                     }
 
                     const DWORD waitResult = (g_queueWakeEvent != nullptr)
@@ -492,6 +507,7 @@ namespace apimon
 
     bool DrainMonitorPipeServer(const DWORD timeoutMs)
     {
+        APIMON_DIAG_MARK("drain-begin",timeoutMs,g_lastCoverageRevision.load());
         if (g_queueWakeEvent) ::SetEvent(g_queueWakeEvent);
         const ULONGLONG deadline = ::GetTickCount64() + timeoutMs;
         while (::GetTickCount64() < deadline)
@@ -502,9 +518,13 @@ namespace apimon
             const bool empty = g_pendingPacketCount == 0;
             ::ReleaseSRWLockShared(&g_queueLock);
             if (empty && g_eventFlushesActive.load() == 0
-                && (!snapshot || g_lastCoverageRevision.load() == snapshot->revision)) return true;
+                && (!snapshot || g_lastCoverageRevision.load() == snapshot->revision)) {
+                APIMON_DIAG_MARK("drain-complete",snapshot ? snapshot->revision : 0,g_lastCoverageRevision.load());
+                return true;
+            }
             ::Sleep(10);
         }
+        APIMON_DIAG_MARK("drain-timeout",LatestCoverageSnapshot() ? LatestCoverageSnapshot()->revision : 0,g_lastCoverageRevision.load());
         return false;
     }
 
@@ -527,6 +547,7 @@ namespace apimon
             senderThread->join();
         }
         senderThread.reset();
+        APIMON_DIAG_MARK("sender-stopped",g_sendingCoverage ? g_sendingCoverage->items.size() : 0,g_coverageSendIndex);
         EndCoverageSession();
         g_sendingCoverage.reset();
 
@@ -557,14 +578,15 @@ namespace apimon
             detailText.c_str());
     }
 
-    bool SendMonitorEventRaw(
+    static bool QueueMonitorEventRaw(
         const ks::winapi_monitor::EventCategory categoryValue,
         const wchar_t* moduleName,
         const wchar_t* apiName,
         const std::int32_t resultCode,
         const wchar_t* detailText,
         const ks::winapi_monitor::EventResultKind resultKind,
-        const ks::winapi_monitor::EventKind eventKind, const std::uint64_t operationId, const std::uint32_t apiId)
+        const ks::winapi_monitor::EventKind eventKind, const std::uint64_t operationId, const std::uint32_t apiId,
+        const std::uint64_t finalCoverageRevision)
     {
         if (StopRequested() && categoryValue != ks::winapi_monitor::EventCategory::Internal) return false;
         ks::winapi_monitor::ApiMonitorEventPacket packetValue{};
@@ -577,6 +599,7 @@ namespace apimon
         packetValue.eventKind = static_cast<std::uint32_t>(eventKind);
         packetValue.apiId = apiId ? apiId : FindApiDefinitionId(moduleName, apiName);
         packetValue.operationId = operationId;
+        packetValue.snapshotRevision = finalCoverageRevision;
         packetValue.sessionIdentity = CurrentMonitorSessionIdentity();
         std::memcpy(packetValue.definitionSha256, kDefinitionSha256, sizeof(packetValue.definitionSha256));
 
@@ -606,6 +629,20 @@ namespace apimon
             ::SetEvent(g_queueWakeEvent);
         }
         return true;
+    }
+
+    bool SendMonitorEventRaw(ks::winapi_monitor::EventCategory category,const wchar_t* module,const wchar_t* api,
+        std::int32_t result,const wchar_t* detail,ks::winapi_monitor::EventResultKind resultKind,
+        ks::winapi_monitor::EventKind kind,std::uint64_t operation,std::uint32_t id)
+    {
+        return QueueMonitorEventRaw(category,module,api,result,detail,resultKind,kind,operation,id,0);
+    }
+
+    bool SendHooksRemovedEvent(const std::wstring& detail)
+    {
+        const auto final=LatestCoverageSnapshot();
+        return QueueMonitorEventRaw(ks::winapi_monitor::EventCategory::Internal,L"Agent",L"HooksRemoved",0,detail.c_str(),
+            ks::winapi_monitor::EventResultKind::StatusCode,ks::winapi_monitor::EventKind::ApiCall,0,0,final?final->revision:0);
     }
 
     std::uint32_t FlushCoverageSnapshot(const std::uint32_t budget)
